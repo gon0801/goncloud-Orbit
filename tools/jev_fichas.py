@@ -4,11 +4,12 @@ Registrar y revocar fichas aprobadas: solo Postgres y solo `app_admin`
 (unica credencial: `ORBIT_DSN_ADMIN`). Cero Amazon, cero TypeSafe: la
 ficha es config humana revisada a mano, con hechos y fuente.
 
-Ceremonia: `registrar` es dry-run por omision (valida los listings contra
-la base e imprime el hash canonico SIN escribir); la escritura exige
-`--aplicar`. La idempotencia es del hash: repetir el mismo contenido
-devuelve la fila existente. `revocar` inserta el evento append-only (una
-sola revocacion por ficha; repetir se rechaza con salida 1).
+Ceremonia: `registrar` y `revocar` son dry-run por omision (validan contra
+la base e imprimen que harian SIN escribir); la escritura exige `--aplicar`.
+La idempotencia de `registrar` es del hash: repetir el mismo contenido
+devuelve la fila existente. `revocar` inserta el evento append-only e
+irreversible (una sola revocacion por ficha; una ficha inexistente o ya
+revocada sale con 1, en seco igual que al aplicar).
 
 Ejemplos:
 
@@ -19,6 +20,7 @@ Ejemplos:
   tools/jev_fichas.py registrar ... --aplicar
   tools/jev_fichas.py revocar --ficha-version-id <uuid> --autor ana \\
       --motivo 'el proveedor cambio el material'
+  tools/jev_fichas.py revocar ... --aplicar
 """
 
 from __future__ import annotations
@@ -126,6 +128,21 @@ def _registrar(conn: psycopg.Connection, args: argparse.Namespace) -> int:
 
 
 def _revocar(conn: psycopg.Connection, args: argparse.Namespace) -> int:
+    fila = conn.execute(
+        "SELECT r.id FROM jev_ficha_version f"
+        " LEFT JOIN jev_ficha_revocacion r ON r.ficha_version_id = f.id WHERE f.id = %s",
+        (args.ficha_version_id,),
+    ).fetchone()
+    if fila is None:
+        print(f"ficha {args.ficha_version_id} no existe", file=sys.stderr)
+        return 1
+    if fila[0] is not None:
+        print(f"ficha {args.ficha_version_id} ya revocada", file=sys.stderr)
+        return 1
+    if not args.aplicar:
+        print(f"revocaria {args.ficha_version_id}")
+        print("seco: nada escrito; agrega --aplicar para revocar")
+        return 0
     revocar_ficha(
         conn,
         ficha_version_id=args.ficha_version_id,
@@ -156,11 +173,14 @@ def _parser() -> argparse.ArgumentParser:
     registrar.add_argument("--revisar-antes-de", required=True)
     registrar.add_argument("--aplicar", action="store_true", help="sin esta bandera es dry-run")
 
-    revocar = sub.add_parser("revocar", help="revoca una ficha (evento append-only)")
+    revocar = sub.add_parser(
+        "revocar", help="valida en seco (default) o revoca (--aplicar) una ficha; es irreversible"
+    )
     revocar.add_argument("--ficha-version-id", required=True)
     revocar.add_argument("--autor", required=True)
     revocar.add_argument("--motivo", required=True)
     revocar.add_argument("--fecha", default=None, help="default: now() en la base")
+    revocar.add_argument("--aplicar", action="store_true", help="sin esta bandera es dry-run")
 
     return parser
 

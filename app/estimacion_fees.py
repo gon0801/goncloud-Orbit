@@ -15,7 +15,6 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import os
 import re
 import time
 from collections.abc import Callable
@@ -30,6 +29,7 @@ import httpx
 import psycopg
 from psycopg.types.json import Json
 
+from app.ads.config import directorio_secretos
 from app.estimacion_insumos import OfertaResuelta
 from app.redaction import install_scrub_filter, register_secret, scrub
 from app.spapi.client import SpapiAuthError, SpapiClient, SpapiRechazoLWA, cliente_compartido
@@ -489,9 +489,7 @@ class ProductFeesClient:
             )
 
     def _cargar_credenciales(self, secrets_dir: Path | str | None) -> dict[str, str]:
-        base = Path(
-            secrets_dir or os.environ.get("ORBIT_SECRETS_DIR", "/mnt/data/appdata/orbit/secrets")
-        )
+        base = Path(secrets_dir) if secrets_dir else directorio_secretos()
         config = json.loads((base / "amazon_credentials.json").read_text())
         campos = {k: config[k] for k in ("lwa_app_id", "lwa_client_secret", "refresh_token")}
         for valor in campos.values():

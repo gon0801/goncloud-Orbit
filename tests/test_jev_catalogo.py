@@ -95,17 +95,29 @@ def test_migracion_trae_fks_y_roles():
     assert "CREATE ROLE app_jev NOLOGIN" in SQL49
     assert "GRANT SELECT, INSERT ON jev_revision, jev_par_evento TO app_jev" in SQL49
     assert "GRANT SELECT, INSERT ON jev_ficha_version, jev_ficha_revocacion TO app_admin" in SQL49
-    # Minimo privilegio: ni decision, ni ledger, ni cola, ni bibliotecas.
-    for prohibido in (
-        "decision",
-        "ledger_event",
-        "ads_optimizer_goal",
-        "keyword_biblioteca",
-        "negative_biblioteca",
-        "apply_cola",
-    ):
-        con_cede = f"ON {prohibido} TO app_jev"
-        assert con_cede not in SQL49, con_cede
+    # Minimo privilegio por el ARBOL de sentencias (R18): un GRANT a varias
+    # tablas ya no escapa a una busqueda de texto. Exactamente estas tablas.
+    assert _tablas_cedidas(SQL49, "app_jev") == {
+        "ad_entity",
+        "ad_entity_state",
+        "listing",
+        "product",
+        "jev_revision",
+        "jev_par_evento",
+        "jev_ficha_version",
+        "jev_ficha_revocacion",
+    }
+
+
+def _tablas_cedidas(sql: str, rol: str) -> set[str]:
+    tablas: set[str] = set()
+    for crudo in pglast.parse_sql(sql):
+        sentencia = crudo.stmt
+        if type(sentencia).__name__ != "GrantStmt" or not sentencia.is_grant:
+            continue
+        if any(getattr(g, "rolename", None) == rol for g in sentencia.grantees):
+            tablas.update(objeto.relname for objeto in sentencia.objects)
+    return tablas
 
 
 def test_migracion_trae_append_only_y_triggers():
@@ -420,12 +432,65 @@ def test_desconocidos_generador_no_corrompe_hash_ni_fila():
         )
         assert registro.ficha.sha256 == hash_esperado
         assert registro.ficha.desconocidos == frozenset({"material", "peso"})
+        # R15: hechos y listings tambien llegan completos a la fila y al objeto.
+        assert registro.ficha.listings == frozenset({listing})
+        assert [(h.texto, h.fuente) for h in registro.ficha.hechos] == [("hecho", "fuente")]
         fila = conn.execute(
-            "SELECT desconocidos, sha256 FROM jev_ficha_version WHERE id = %s",
+            "SELECT desconocidos, sha256, listings, hechos FROM jev_ficha_version WHERE id = %s",
             (registro.ficha.id,),
         ).fetchone()
         assert sorted(fila[0]) == ["material", "peso"]
         assert fila[1] == hash_esperado
+        assert fila[2] == [listing]
+        assert fila[3] == [{"texto": "hecho", "fuente": "fuente"}]
+
+
+@_skip_db
+def test_revocar_dos_veces_no_aborta_la_transaccion_del_llamador():
+    """R7: la segunda revocacion sale como ValueError y la transaccion del
+    llamador sigue usable (antes: UniqueViolation abortaba la transaccion)."""
+    with db_jev() as conn:
+        producto = _producto(conn)
+        ficha = _registrar(conn, producto, (_listing(conn, producto),)).ficha.id
+        with psycopg.connect(_dsn_jev()) as tx:
+            revocar_ficha(tx, ficha_version_id=ficha, autor="a", motivo="m")
+            with pytest.raises(ValueError, match="ya revocada"):
+                revocar_ficha(tx, ficha_version_id=ficha, autor="a", motivo="m")
+            assert tx.execute("SELECT count(*) FROM jev_ficha_revocacion").fetchone()[0] == 1
+
+
+@_skip_db
+def test_registro_concurrente_del_mismo_contenido_devuelve_la_fila_existente():
+    """R7: dos registros del MISMO contenido en transacciones concurrentes. El
+    segundo no ve la fila del primero (sin confirmar), espera en el indice
+    UNIQUE(sha256) y, al confirmarse el primero, devuelve esa fila en vez de
+    reventar con UniqueViolation."""
+    import threading
+
+    with db_jev() as conn:
+        producto = _producto(conn)
+        listing = _listing(conn, producto)
+        resultado: dict = {}
+        with psycopg.connect(_dsn_jev()) as primera, psycopg.connect(_dsn_jev()) as segunda:
+            propia = _registrar(primera, producto, (listing,))
+
+            def registrar_en_segunda():
+                try:
+                    resultado["registro"] = _registrar(segunda, producto, (listing,))
+                    segunda.commit()
+                except Exception as error:  # noqa: BLE001 - la prueba reporta cualquiera
+                    resultado["error"] = error
+
+            hilo = threading.Thread(target=registrar_en_segunda)
+            hilo.start()
+            hilo.join(timeout=1.0)
+            assert hilo.is_alive(), "la segunda transaccion debe esperar a la primera"
+            primera.commit()
+            hilo.join(timeout=10)
+        assert "error" not in resultado, resultado.get("error")
+        assert resultado["registro"].ya_existia is True
+        assert resultado["registro"].ficha.id == propia.ficha.id
+        assert conn.execute("SELECT count(*) FROM jev_ficha_version").fetchone()[0] == 1
 
 
 @_skip_db
@@ -1064,32 +1129,20 @@ def test_cli_revoca_y_rechaza_doble_revocacion(tmp_path, monkeypatch, capsys):
             if linea.startswith("id "):
                 ficha_id = linea.split()[1]
         assert ficha_id is not None
-        assert (
-            cli_fichas(
-                [
-                    "revocar",
-                    "--ficha-version-id",
-                    ficha_id,
-                    "--autor",
-                    "autor",
-                    "--motivo",
-                    "motivo",
-                ]
-            )
-            == 0
-        )
+        revocar = ["revocar", "--ficha-version-id", ficha_id, "--autor", "autor", "--motivo", "m"]
+        revocaciones = "SELECT count(*) FROM jev_ficha_revocacion"
+        # R5: en seco por omision, igual que registrar; dice que haria y no escribe.
+        assert cli_fichas(revocar) == 0
+        assert "seco" in capsys.readouterr().out
+        assert conn.execute(revocaciones).fetchone()[0] == 0
+        assert cli_fichas([*revocar, "--aplicar"]) == 0
         capsys.readouterr()
-        assert (
-            cli_fichas(
-                [
-                    "revocar",
-                    "--ficha-version-id",
-                    ficha_id,
-                    "--autor",
-                    "autor",
-                    "--motivo",
-                    "motivo",
-                ]
-            )
-            != 0
-        )
+        assert conn.execute(revocaciones).fetchone()[0] == 1
+        # Ya revocada: el seco reporta lo mismo que fallaria al aplicar.
+        assert cli_fichas(revocar) == 1
+        assert "ya revocada" in capsys.readouterr().err
+        assert cli_fichas([*revocar, "--aplicar"]) == 1
+        assert conn.execute(revocaciones).fetchone()[0] == 1
+        inexistente = ["revocar", "--ficha-version-id", str(uuid.uuid4()), "--autor", "a"]
+        assert cli_fichas([*inexistente, "--motivo", "m"]) == 1
+        assert "no existe" in capsys.readouterr().err

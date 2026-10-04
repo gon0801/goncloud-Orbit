@@ -16,6 +16,16 @@ from pathlib import Path
 from app.redaction import register_secret
 
 DEFAULT_SECRETS_DIR = "/mnt/data/appdata/orbit/secrets"
+
+
+def directorio_secretos() -> Path:
+    """`ORBIT_SECRETS_DIR`, o la ruta canonica si falta o viene VACIA.
+
+    `os.environ.get(var, default)` devuelve "" con la variable vacia y
+    `Path("")` es el directorio actual: un secreto plantado ahi se leia (R11)."""
+    return Path(os.environ.get("ORBIT_SECRETS_DIR") or DEFAULT_SECRETS_DIR)
+
+
 CONFIG_FILENAME = "amazon_ads_config.json"
 TOKENS_FILENAME = "amazon_ads_tokens.json"
 
@@ -58,7 +68,7 @@ class AdsCredentials:
 
     @classmethod
     def from_secrets_dir(cls, secrets_dir: str | Path | None = None) -> AdsCredentials:
-        base = Path(secrets_dir or os.environ.get("ORBIT_SECRETS_DIR", DEFAULT_SECRETS_DIR))
+        base = Path(secrets_dir) if secrets_dir else directorio_secretos()
         config = _load_json(base / CONFIG_FILENAME)
         tokens = _load_json(base / TOKENS_FILENAME)
 
