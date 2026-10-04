@@ -1,0 +1,21 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+________ test_repro_decision_misma_solicitud_otro_termino_no_se_rechaza ________
+
+    def test_repro_decision_misma_solicitud_otro_termino_no_se_rechaza():
+        with db_jev("orbit_repro_b3") as conn:
+            censo, _, _, grupo = _grupo_con_fichas(conn, con_ficha_p2=False)
+            decision_id = _decision(conn, grupo)
+            asesor = AsesorAds(conn, pedir=_Pedido(), api_key="k", presupuesto=5, ahora=lambda: AHORA)
+            solicitud = uuid.uuid4()
+            sujeto = DecisionARevisar(decision_id, "soporte mesa", censo, "amazon_mx", AHORA)
+            asesor.evaluar(sujeto, solicitud_id=solicitud)
+            otro = DecisionARevisar(decision_id, "lampara de pie", censo, "amazon_mx", AHORA)
+>           with pytest.raises(ValueError):
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^
+E           Failed: DID NOT RAISE ValueError
+
+tests/test_repro_b3_decision_otro_payload.py:45: Failed
+=========================== short test summary info ============================
+FAILED tests/test_repro_b3_decision_otro_payload.py::test_repro_decision_misma_solicitud_otro_termino_no_se_rechaza
+1 failed in 0.38s
