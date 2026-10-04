@@ -1,6 +1,8 @@
 # JEV ADS 01 — asesoría semántica para Ads
 
-Estado: plan creado el 2026-10-03; todas las tareas de implementación pendientes.
+Estado: plan creado el 2026-10-03. Cierre de ledger 2026-10-04: filas 0.1 a 2.R
+en `cc:DONE` con su evidencia; 2.3, 3.1 y 3.2 siguen `cc:TODO`; los residuales
+de revisión viven en "Seguimientos de la revisión".
 Base de planificación: commit `1a4021f`. `team_validation_mode: manual-pass`.
 
 **Resultado:** el operador ve una evaluación trazable de la relación entre cada
@@ -70,14 +72,15 @@ propio antes del cierre de Jev. No se declara verde una batería con ese fallo.
 | Dominio | `app/jev_ads.py`, `tests/test_jev_ads.py` | Estados tipados, composición y presentación de resultados |
 | Catálogo | `app/jev_catalogo.py`, `tests/test_jev_catalogo.py` | Fichas, identidades y censo con huecos explícitos |
 | Jev | `app/jev_juicios.py`, `tests/test_jev_juicios.py` | Contrato Choice de un par, transporte y respuesta validada |
-| Persistencia | próxima migración libre después de `0046` y pruebas de esquema | Cuatro tablas, índices, roles y reglas append-only |
+| Persistencia | migración `0049` (el próximo número libre al crearla; ya mergeada, no se edita) y pruebas de esquema | Cuatro tablas, índices, roles y reglas append-only |
 | Operación | `tools/jev_ads.py`, `tests/test_jev_cli.py` | Solicitar o retomar un lote con presupuesto y límite de contexto |
 | Cortes | `app/api_dashboard.py`, `templates/cortes.html`, `tests/test_api_dashboard.py` | Mostrar asesoría guardada junto a la decisión original |
 | Fábrica | `app/fabrica_web.py`, `app/api_fabrica.py`, pantalla de fábrica y sus tests | Revisar un preview sellado y mostrar asesoría ligada a su huella |
 
 Antes de editar la pantalla de fábrica, localizar sus archivos de plantilla y
-JavaScript en el commit de trabajo. La migración toma el próximo número libre
-en ese momento; no reservar `0047` por adelantado.
+JavaScript en el commit de trabajo. La migración tomó el próximo número libre
+en su momento (`0049`, ya mergeada); una migración nueva toma el siguiente
+número libre al crearse y no edita `0049` (fila R1).
 
 ## Tareas y dependencias
 
@@ -87,23 +90,66 @@ futuras en este plan. `cc:TODO` significa que la implementación no ha empezado.
 
 | Task | Contenido | DoD | Depends | Status |
 | --- | --- | --- | --- | --- |
-| 0.1 | `[stage:investigacion] [lane:fast]` Reparar en cambio separado la discrepancia entre el snippet de `plans/repricing-01.md` y `plans/manifest.json`. | La prueba focalizada indicada arriba falla antes del arreglo y pasa después; el texto corregido conserva el estado real de repricing; pre-commit pasa. | - | cc:TODO |
-| 0.2 | `[stage:planificacion] [lane:gate]` Confirmar contra el HEAD de implementación las rutas, el siguiente número de migración, el esquema de roles y la procedencia de fichas. Fijar el conjunto de casos reales que el piloto podrá etiquetar, sin enviarlos aún. | E/0.2 incluye mapa de archivos y SELECT de sólo lectura por mercado; registra `desconocido` para roster no probado, fuente de cada ficha y disponibilidad de casos de negativos, harvest y semillas. El spec sigue sin delta o se documenta el cambio antes de codificar. | - | cc:TODO |
-| 1.1 | `[stage:implementacion] [lane:gate] [tdd:required]` Crear tipos puros y `componer` en `app/jev_ads.py`. | Pruebas focalizadas pasan para un compatible con hueco, todos negativos con hueco, conjunto vacío, variante sin ficha, juicio insuficiente, fallo y ASIN-like. La función no importa red ni DB. | 0.2 | cc:TODO |
-| 1.2 | `[stage:implementacion] [lane:gate] [tdd:required]` Crear migración y `app/jev_catalogo.py`; añadir comando administrativo para registrar y revocar fichas aprobadas. | Pruebas de DB demuestran cuatro tablas, FKs, hash y solicitud idempotente, append-only, roles de mínimo privilegio, UTC en triggers, lookup por IDs y LEFT JOIN que conserva listing/estado ausentes. Un censo sin prueba de exhaustividad queda `desconocido`. | 1.1 | cc:TODO |
-| 1.3 | `[stage:implementacion] [lane:gate] [tdd:required]` Crear `app/jev_juicios.py` con una ficha por request y modelo fijo `jev-1.13.0`. | Fake HTTP confirma que sólo viajan término y ficha; categorías, probabilidades, finitud, modelo e IDs se validan; orden de Choice y versión cambian la clave; timeout, respuesta inválida, redirección y contexto excedido producen estados visibles sin secreto en salida. | 1.1 | cc:TODO |
-| 1.4 | `[stage:implementacion] [lane:gate] [tdd:required]` Unir catálogo, juicios y revisión en `AsesorAds.evaluar` y CLI de lote acotado. | Una prueba observa revisión e intención confirmadas antes del HTTP, evento de resultado tras HTTP, reanudación después de crash, rechazo de la misma solicitud con otro payload y reutilización sólo de éxitos válidos. Desactivar Jev deja los tests de `cycle`, `apply_cola` y `apply_harvest` sin diferencias de resultado. | 1.2, 1.3 | cc:TODO |
-| 2.1 | `[stage:implementacion] [lane:gate] [tdd:required]` Añadir `AsesorAds.leer` y asesoría guardada a `/cortes`. | GET muestra compatibilidad, cobertura, fecha, ficha, origen/destino y fallo o vigencia desconocida. Tests de API prueban cero HTTP externo y cero INSERT/UPDATE. Relevancia compatible no se presenta como error económico; veto sigue visible. | 1.4 | cc:TODO |
-| 2.2 | `[stage:implementacion] [lane:gate] [tdd:required]` Exportar del preview el plan canónico y las filas fuente de semillas, revisarlos mediante CLI y mostrar el resultado para esa huella. | Tests prueban que el export contiene plan, huella y fuentes; cambiar productos, semillas o parámetros cambia la revisión visible; repetir la misma huella conserva fuentes congeladas; un negativo heredado se coteja con nuevos productos; ningún paso crea o elimina keywords ni modifica biblioteca. | 1.4 | cc:TODO |
-| 2.R | `[stage:revision] [lane:gate]` Revisar con otra IA los cambios de datos y permisos de 1.1 a 2.2, usando `cross-review.ps1`. | El reporte identifica SHA y comandos que reproducen cada bloqueante; una ronda de corrección agrupa hallazgos. Sólo un bloqueante reproducible reabre revisión. Ninguno queda abierto. | 2.1, 2.2 | cc:TODO |
-| 2.3 | `[stage:cierre-pr] [lane:gate]` Integrar y desplegar el asesor apagado, con rollback probado antes del despliegue. | Hooks y CI completos verdes sobre SHA final; migración y rollback ensayados en entorno de prueba; smoke GET y CLI sin credenciales Ads; ninguna tarea automática llama a Jev; no cambian decisiones, cola, ledger ni bibliotecas. Evidencia incluye SHA, tests, consulta de permisos y checklist de despliegue. | 2.R, 0.1 | cc:TODO |
-| 3.1 | `[stage:medicion] [lane:release]` Ejecutar manualmente el piloto con fichas aprobadas, presupuesto fijado y casos reales etiquetados por una persona. | Reporte separa MX y US y los tres usos; publica denominadores, cobertura, desacuerdos confirmados, errores, abstenciones, orden Choice, latencia y costo USD con `usage` real o desconocido. Cada envío a TypeSafe queda autorizado para el lote; ningún término se registra con secreto ni se envía sin ficha aprobada. | 2.3 | cc:TODO |
+| 0.1 | `[stage:investigacion] [lane:fast]` Reparar en cambio separado la discrepancia entre el snippet de `plans/repricing-01.md` y `plans/manifest.json`. | La prueba focalizada indicada arriba falla antes del arreglo y pasa después; el texto corregido conserva el estado real de repricing; pre-commit pasa. | - | cc:DONE B1 #390 afc1f3b |
+| 0.2 | `[stage:planificacion] [lane:gate]` Confirmar contra el HEAD de implementación las rutas, el siguiente número de migración, el esquema de roles y la procedencia de fichas. Fijar el conjunto de casos reales que el piloto podrá etiquetar, sin enviarlos aún. | E/0.2 incluye mapa de archivos y SELECT de sólo lectura por mercado; registra `desconocido` para roster no probado, fuente de cada ficha y disponibilidad de casos de negativos, harvest y semillas. El spec sigue sin delta o se documenta el cambio antes de codificar. | - | cc:DONE B1 #390 afc1f3b |
+| 1.1 | `[stage:implementacion] [lane:gate] [tdd:required]` Crear tipos puros y `componer` en `app/jev_ads.py`. | Pruebas focalizadas pasan para un compatible con hueco, todos negativos con hueco, conjunto vacío, variante sin ficha, juicio insuficiente, fallo y ASIN-like. La función no importa red ni DB. | 0.2 | cc:DONE B2 #391 224449f |
+| 1.2 | `[stage:implementacion] [lane:gate] [tdd:required]` Crear migración y `app/jev_catalogo.py`; añadir comando administrativo para registrar y revocar fichas aprobadas. | Pruebas de DB demuestran cuatro tablas, FKs, hash y solicitud idempotente, append-only, roles de mínimo privilegio, UTC en triggers, lookup por IDs y LEFT JOIN que conserva listing/estado ausentes. Un censo sin prueba de exhaustividad queda `desconocido`. | 1.1 | cc:DONE B2 #391 224449f |
+| 1.3 | `[stage:implementacion] [lane:gate] [tdd:required]` Crear `app/jev_juicios.py` con una ficha por request y modelo fijo `jev-1.13.0`. | Fake HTTP confirma que sólo viajan término y ficha; categorías, probabilidades, finitud, modelo e IDs se validan; orden de Choice y versión cambian la clave; timeout, respuesta inválida, redirección y contexto excedido producen estados visibles sin secreto en salida. | 1.1 | cc:DONE B3 #392 1136d78 |
+| 1.4 | `[stage:implementacion] [lane:gate] [tdd:required]` Unir catálogo, juicios y revisión en `AsesorAds.evaluar` y CLI de lote acotado. | Una prueba observa revisión e intención confirmadas antes del HTTP, evento de resultado tras HTTP, reanudación después de crash, rechazo de la misma solicitud con otro payload y reutilización sólo de éxitos válidos. Desactivar Jev deja los tests de `cycle`, `apply_cola` y `apply_harvest` sin diferencias de resultado. | 1.2, 1.3 | cc:DONE B3 #392 1136d78 |
+| 2.1 | `[stage:implementacion] [lane:gate] [tdd:required]` Añadir `AsesorAds.leer` y asesoría guardada a `/cortes`. | GET muestra compatibilidad, cobertura, fecha, ficha, origen/destino y fallo o vigencia desconocida. Tests de API prueban cero HTTP externo y cero INSERT/UPDATE. Relevancia compatible no se presenta como error económico; veto sigue visible. | 1.4 | cc:DONE B4 #393 a470866 |
+| 2.2 | `[stage:implementacion] [lane:gate] [tdd:required]` Exportar del preview el plan canónico y las filas fuente de semillas, revisarlos mediante CLI y mostrar el resultado para esa huella. | Tests prueban que el export contiene plan, huella y fuentes; cambiar productos, semillas o parámetros cambia la revisión visible; repetir la misma huella conserva fuentes congeladas; un negativo heredado se coteja con nuevos productos; ningún paso crea o elimina keywords ni modifica biblioteca. | 1.4 | cc:DONE B4 #393 a470866 |
+| 2.R | `[stage:revision] [lane:gate]` Revisar con otra IA los cambios de datos y permisos de 1.1 a 2.2, usando `cross-review.ps1`. | El reporte identifica SHA y comandos que reproducen cada bloqueante; una ronda de corrección agrupa hallazgos. Sólo un bloqueante reproducible reabre revisión. Ninguno queda abierto. | 2.1, 2.2 | cc:DONE B5 #394 58d1ea4 |
+| 2.3 | `[stage:cierre-pr] [lane:gate]` Integrar y desplegar el asesor apagado, con rollback probado antes del despliegue. | Hooks y CI completos verdes sobre SHA final; migración y rollback ensayados en entorno de prueba; smoke GET y CLI sin credenciales Ads; ninguna tarea automática llama a Jev; no cambian decisiones, cola, ledger ni bibliotecas. Evidencia incluye SHA, tests, consulta de permisos y checklist de despliegue. | 2.R, 0.1, R1, R4 | cc:TODO |
+| 3.1 | `[stage:medicion] [lane:release]` Ejecutar manualmente el piloto con fichas aprobadas, presupuesto fijado y casos reales etiquetados por una persona. | Reporte separa MX y US y los tres usos; publica denominadores, cobertura, desacuerdos confirmados, errores, abstenciones, orden Choice, latencia y costo USD con `usage` real o desconocido. Cada envío a TypeSafe queda autorizado para el lote; ningún término se registra con secreto ni se envía sin ficha aprobada. | 2.3, R2, R3 | cc:TODO |
 | 3.2 | `[stage:cierre-pr] [lane:release]` Decidir con los resultados si conservar la asesoría V1 y qué ampliar. | Acta enlaza dataset versionado, método, SHA y reporte; declara límites de la muestra y decisión de seguir, ajustar o retirar. Cualquier automatización de acciones abre otro spec y plan con reversa y criterios medidos. | 3.1 | cc:TODO |
 
 Las tareas 1.2 y 1.3 pueden avanzar en paralelo después de 1.1, con archivos
 distintos. La tarea 1.4 une sus contratos. Las tareas 2.1 y 2.2 también pueden
 avanzar en paralelo si cada una trabaja en su propia rama. Una sola persona o
 agente integra el estado compartido y ejecuta los candados finales.
+
+### Cierre de la implementación (ledger, 2026-10-04)
+
+Bloque → filas → evidencia: B0 #389 fa2039ee creó el plan y el diseño;
+B1 #390 afc1f3b → 0.1, 0.2 (`ejecucion/0.1`, `0.2`); B2 #391 224449f → 1.1,
+1.2 (`ejecucion/B2-r1..r4`); B3 #392 1136d78 → 1.3, 1.4
+(`ejecucion/B3-r1..r3`); B4 #393 a470866 → 2.1, 2.2 (`ejecucion/B4-r1..r3`);
+B5 #394 58d1ea4 → 2.R (`ejecucion/B5-r1..r4`). B6a #395 8d8cdca arregló la
+concurrencia del CI fuera de tabla. La verificación de evidencia por fila está
+en `docs/evidencia/jev-ads-01/ejecucion/B6b/NOTAS.md`.
+
+## Seguimientos de la revisión
+
+Residuales no bloqueantes acumulados de las revisiones (fuente:
+VEREDICTO-B2-r1 … VEREDICTO-B5-r4 y VEREDICTO-B6a-r1). Triage completo de los
+hallazgos de los reportes G1-G6 de B5-r1:
+`docs/evidencia/jev-ads-01/ejecucion/B6b/triage-no-bloqueantes.md`. R19 y R20
+se arreglaron en ese mismo cambio de cierre; el resto sigue `cc:TODO`.
+Orden: R1 y R4 van antes de 2.3 (2.3 depende de ellas); R2 y R3 van antes
+de 3.1 (3.1 depende de ellas).
+
+| Task | Contenido | DoD | Depends | Status |
+| --- | --- | --- | --- | --- |
+| R1 | Migración NUEVA con `jev_revision.created_at DEFAULT clock_timestamp()`; no se edita `0049`, ya mergeada. Re-emite el COMMENT del encabezado que promete `<= created_at` y corrige el typo "jam el parecido" del catálogo. | La captura dentro de la transacción pasa y una captura posterior se rechaza; la prueba toma la captura con `SELECT clock_timestamp()`; `0049` intacta. | - | cc:TODO |
+| R2 | BLOQUE DE OPERACIÓN: camino de producción para crear revisiones de decisiones. `tools/jev_ads.py` rechaza `--decision-id`; falta leer el término y los censos de origen y destino de la decisión guardada; sin esto la asesoría de `/cortes` siempre sale `null`. Incluye el pegamento CLI del export de fábrica (`/api/fabrica/export-semillas`). Ahí viven también los hallazgos del triage marcados R2 (códigos de salida y manejo de errores del CLI, validación de entradas, dry-run fiel, row_factory y rol real con que escribe, y el perímetro sin token de `/export-semillas` y `/asesoria/{huella}`). | Un lote de decisiones corre desde la terminal y la asesoría aparece en `/cortes`; el export de fábrica se consume por CLI; ningún HTTP de más, sin secretos y con el perímetro de los endpoints definido. | - | cc:TODO |
+| R3 | Vigencia: un destino modificado no marca la revisión obsoleta, como pide el spec; hoy `_vigencia_de_miembros` solo mira fichas. Va con el bloque que cree revisiones de harvest. | Prueba con destino cambiado que da Obsoleta; sigue el MISMO predicado `ficha_vigente` de `evaluar`. | R2 | cc:TODO |
+| R4 | Decidir la reutilización entre revisiones: el spec la permite ("pares aún aplicables"), `0049` y el asesor la prohíben; cambiarlo exige migración. | Decisión escrita aquí o en ADR; si se permite, migración nueva con su prueba y su reversa; si no, nota en el spec. | - | cc:TODO |
+| R5 | `tools/jev_fichas.py revocar` escribe sin `--aplicar` (registrar sí es seco por omisión); la revocación es append-only e irreversible. | `revocar` en seco imprime y no escribe; `--aplicar` revoca; prueba que mira la fila (o su ausencia). | - | cc:TODO |
+| R6 | `componer` no valida que todos los `Juicio` compartan `termino_literal_sha256` y `contrato_sha256`. | `ValueError` en mezcla, como la ficha duplicada; prueba y mutante. | - | cc:TODO |
+| R7 | `registrar_ficha` hace SELECT y luego INSERT sin manejar `UniqueViolation` concurrente; `revocar_ficha` traduce sin savepoint y aborta la transacción previa. | Idempotencia bajo concurrencia (ON CONFLICT o savepoint) en ambos; prueba que fuerza la violación sin autocommit. | - | cc:TODO |
+| R8 | `_enriquecer` solo resuelve ficha con exactamente 1 listing: un producto anunciado con 2 listings queda `ficha_ausente` para siempre. | Regla explícita y probada para multi-listing (evaluar o motivo propio); prueba con censo de 2 listings. | - | cc:TODO |
+| R9 | La reanudación recalcula las fichas vigentes con el `ahora` nuevo: una ficha revocada o vencida entre intentos cae en "misma solicitud con otro payload". | Reanudación retoma desde el contexto congelado; prueba con ficha revocada entre intentos. | - | cc:TODO |
+| R10 | `_exito_previo` toma el ÚLTIMO éxito (`ordinal DESC`); el spec dice "el primer éxito validado". | Toma el primero; prueba con dos éxitos del mismo par. | - | cc:TODO |
+| R11 | `ORBIT_SECRETS_DIR` definida pero vacía cae al cwd en `app/jev_juicios.py`, `app/ads/config.py:61`, `app/notifica.py:174` y `app/reputacion_clientes.py:81`. | `or DEFAULT_SECRETS_DIR` en los cuatro puntos; prueba con la variable vacía. | - | cc:TODO |
+| R12 | `/cortes`: indicador de "asesoría no disponible" si `leer` falla (hoy queda igual que "sin revisión"); rótulo "grupo" en negativos y "origen/destino" solo en harvest; truncado del detalle de error que muestra la pantalla. | Prueba que fuerza el fallo de `leer`, exige 200 y la señal visible; rótulos por ámbito con prueba. | - | cc:TODO |
+| R13 | Vigencia: 1 consulta por listing por GET de `/cortes`; hoy es poco; vigilar con cortes pendientes reales. | Medición registrada con denominadores; umbral declarado si crece. | - | cc:TODO |
+| R14 | Partir `app/jev_ads.py` en núcleo puro / asesor / vista y sacarlo de `ALLOWLIST_TAMANO`; ahí se unifican los hashes de término duplicados entre vista y transporte. | Tres módulos con fronteras probadas (guarda de pureza incluida); fuera de la allowlist; batería verde. Va después del despliegue de 2.3, porque el archivo ya está en `ALLOWLIST_TAMANO` con su razón y el despliegue va apagado. | 2.3 | cc:TODO |
+| R15 | `hechos`/`listings` como generador en `registrar_ficha`, sin prueba (solo `desconocidos` está cubierta). | Prueba con `hechos` y `listings` generador: hash y fila idénticos; mutante registrado. | - | cc:TODO |
+| R16 | Reordenar solo `opciones` no tiene prueba propia (la prueba actual invierte opciones y criterios juntos). | Prueba que reordena solo `opciones` y cambia la clave; mutante. | - | cc:TODO |
+| R17 | Guarda de pureza: `__import__`/importlib dinámicos e import en el cuerpo de clase de `AsesorAds` quedan fuera; recorrido redundante de try/if/with en la parte 1; doble rotulado; prefijo `app.` fijo para level>1. | Cada forma con su rojo y su mutante; sin recorrido redundante ni doble rotulado. | - | cc:TODO |
+| R18 | La guarda estática de GRANT (`test_migracion_trae_fks_y_roles`) no ve GRANT multi-tabla; alinearla (pglast) o borrarla: `test_roles_de_minimo_privilegio` ya protege contra la base real. | Una sola fuente de mínimo privilegio; el mutante multi-tabla muere o la guarda no existe. | - | cc:TODO |
+| R19 | Cifras de `docs/evidencia/jev-ads-01/ejecucion/B2-r1/NOTAS.md` (15/17) no cuadran con sus artefactos (14 y 32 combinadas). | Corregidas en este cambio de cierre (B6b). | - | cc:DONE B6b |
+| R20 | Rutas locales `/Users/dn` en `docs/evidencia/jev-ads-01/ejecucion/B5-r1/reporte-g4-pantallas.txt` (Minor de CodeRabbit). | Anonimizadas en este cambio de cierre (B6b). | - | cc:DONE B6b |
 
 ## Pruebas que deben discriminar
 

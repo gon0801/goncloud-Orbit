@@ -1,5 +1,5 @@
 === quality-kit cross-review.ps1 ===
-Repo: /Users/dn/dev/wt/jev-ads-worker
+Repo: ~/dev/wt/jev-ads-worker
 CLI: auto
 Cadena auto: claude -> grok -> kimi -> qwen -> codex (excluido: glm, escribio el cambio)
 Alcance: bloque desde afc1f3b68715c5bf05bdf939eefc9a6683adc0cd hasta HEAD
@@ -44,9 +44,9 @@ Tope automatico para este diff (~55 KB): 1800 s. Usa -TimeoutSec para fijarlo a 
 
 
 === stderr ===
-Permission allow rule (../../../.claude/settings.json): Write(/Users/dn/.local/state/**) is not matched by file permission checks — only Edit(path) rules are. Use Edit(/Users/dn/.local/state/**) instead (Edit rules cover all file-editing tools).
+Permission allow rule (../../../.claude/settings.json): Write(~/.local/state/**) is not matched by file permission checks — only Edit(path) rules are. Use Edit(~/.local/state/**) instead (Edit rules cover all file-editing tools).
 Permission allow rule (../../../.claude/settings.json): Write(~/.claude/orchestrate/**) is not matched by file permission checks — only Edit(path) rules are. Use Edit(~/.claude/orchestrate/**) instead (Edit rules cover all file-editing tools).
-Permission allow rule (../../../.claude/settings.json): Write(~/.claude/projects/-Users-dn-dev-goncloud-Orbit/memory/**) is not matched by file permission checks — only Edit(path) rules are. Use Edit(~/.claude/projects/-Users-dn-dev-goncloud-Orbit/memory/**) instead (Edit rules cover all file-editing tools).
+Permission allow rule (../../../.claude/settings.json): Write(~/.claude/projects/-usuario-dev-goncloud-Orbit/memory/**) is not matched by file permission checks — only Edit(path) rules are. Use Edit(~/.claude/projects/-usuario-dev-goncloud-Orbit/memory/**) instead (Edit rules cover all file-editing tools).
 Warning: claude.ai MCP servers blocked by enterprise policy: claude.ai Microsoft 365, claude.ai Notion, claude.ai Shopify, claude.ai Google Drive, claude.ai Gmail
 
 

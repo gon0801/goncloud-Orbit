@@ -26,7 +26,7 @@ consultados (`llms.txt`); el contrato Choice es de 1.3.
 
 - ROJO: `tests/test_jev_ads.py` no importa → `ModuleNotFoundError: No
   module named 'app.jev_ads'` (`jev_b2_r1_rojo_11.txt`).
-- VERDE: 15 pruebas (`jev_b2_r1_verde_11.txt`); casos del DoD: compatible
+- VERDE: 14 pruebas (`jev_b2_r1_verde_11.txt`); casos del DoD: compatible
   con hueco (HayCompatible con cobertura parcial visible: 2/3 con juicio),
   todos negativos con universo desconocido, todos negativos con hueco de
   ficha, control positivo NingunoCompatible (universo exhaustivo + fichas
@@ -44,7 +44,8 @@ consultados (`llms.txt`); el contrato Choice es de 1.3.
 
 - ROJO: `tests/test_jev_catalogo.py` no importa → `ModuleNotFoundError:
   No module named 'app.jev_catalogo'` (`jev_b2_r1_rojo_12.txt`).
-- VERDE: 17 pruebas (`jev_b2_r1_verde_12.txt`), estaticas (pglast) y de
+- VERDE: 18 propias, 32 combinadas con las de 1.1 (`jev_b2_r1_verde_12.txt`),
+  estaticas (pglast) y de
   integracion en Postgres 16 local (DB desechable por test, 0001 + 0004 +
   0049):
   - cuatro tablas + FKs muerden (revocacion, revision/decision,
