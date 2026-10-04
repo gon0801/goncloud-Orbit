@@ -54,6 +54,27 @@ en rojo antes del arreglo y con su mutante registrado en rojo despues:
   exacto se regenera con `git diff 1bcbed12..42d07f5`).
 - Auto-revision delta con revisor DISTINTO de claude y glm: ver delta-reporte.txt.
 
+## Resultado de la auto-revision delta (grok) y decision de parada
+
+- Revisor: grok (binario grok, exit 0, sin truncamiento, 47928 caracteres), sobre
+  el delta 1bcbed1..3e7529c. NOTA: el comando del encargo combinaba -Base y -Desde;
+  el script los rechaza (son excluyentes por diseno: -Desde ya elige el diff de los
+  arreglos), asi que se corrio con -Desde 1bcbed12..., que es la intencion exacta
+  (solo los arreglos).
+- grok reporta 1 BLOQUEANTE sobre la guarda de pureza endurecida (B5a): seguiria
+  sin discriminar (a) `from . import db` anidado (relativo sin resolver) y (b)
+  `try: import boto3` a nivel de modulo (el Try no es nodo Import y escapa a la
+  parte 1), y no aplica `permitidos` a los anidados. REPRODUCIDO aqui con ambos
+  mutantes en verde (delta-bloqueante-repro.txt) contra 3e7529c.
+- Es el MISMO bloqueante de pureza (misma prueba, misma clase de hueco) ya marcado
+  en B5-r1: segunda ronda consecutiva. Regla del encargo: "Si el mismo bloqueante
+  reaparece en dos rondas, para y avisame en el LISTO sin corregir de mas."
+  DECISION: PARAR. No se corrige de mas en esta ronda; el operador decide si la
+  tercera vuelta rediseña la guarda (resolucion relativa + Try + permitidos en
+  anidados) o la reemplaza por otro mecanismo.
+- Los otros 6 arreglos (B1, B2, B3, B4, B5b, B5c) NO recibieron hallazgos del
+  delta review y quedan verificados (rojo-verde-mutante + bateria + pre-commit).
+
 ## Comandos de reproduccion (desde la raiz del repo)
 
 - ROJO B1/B2 (arreglos guardados en stash): los dos comandos de

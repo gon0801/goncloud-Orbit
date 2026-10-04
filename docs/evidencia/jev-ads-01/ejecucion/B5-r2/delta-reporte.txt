@@ -1,0 +1,16 @@
+=== quality-kit cross-review.ps1 ===
+Repo: /Users/dn/dev/wt/jev-ads-worker
+CLI: grok
+Alcance: desde 1bcbed12a187394038d69d232b93954d2c9b8215 (solo los arreglos)
+Tamano del diff: 47928 caracteres
+Tope automatico para este diff (~47 KB): 1710 s. Usa -TimeoutSec para fijarlo a mano.
+
+==> AVISO: el diff es grande (47928 caracteres). Una revision asi cuesta del orden de 100-200k tokens y varios minutos. Si solo te interesa parte del cambio, acotalo con -Archivos <pathspecs> en vez de mandarlo entero.
+
+==> Invocando grok de forma no interactiva (tope: 1710 s)...
+
+=== Respuesta de grok (codigo de salida: 0) ===
+Voy a leer el diff de los arreglos y contrastarlo con el repo antes de juzgar si cada cambio es correcto.El diff toca coherencia del contrato, el entrypoint del CLI y varias pruebas. Voy a contrastar cada arreglo con el codigo que lo rodea.La guarda de pureza quedo a medias respecto del arreglo pedido. Voy a reproducir el caso que deberia seguir en verde.1. BLOQUEANTE - La guarda anidada de `test_modulo_puro_sin_red_ni_db_en_top_level` sigue siendo una denylist de nombres absolutos: no aplica `permitidos` a los imports que no estan directo en el cuerpo del modulo (que era el arreglo pedido) y no resuelve relativos, asi que `from . import db` dentro de `componer` (eso es `app.db`) tampoco la rompe. Reproduccion: en `app/jev_ads.py` agrega a nivel modulo `try:` / `import boto3` / `except ImportError: pass` y corre `uv run --frozen python -m pytest -q tests/test_jev_ads.py::test_modulo_puro_sin_red_ni_db_en_top_level`; queda en passed. Lo mismo si pones `from . import db` como primera linea de `componer`.
+
+
+=== Revisor efectivo: grok (binario 'grok') ===

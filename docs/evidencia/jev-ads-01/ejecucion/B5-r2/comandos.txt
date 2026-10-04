@@ -25,4 +25,7 @@ Bateria completa y candados sobre 42d07f5:
   pre-commit run --all-files   # 9 hooks Passed
 
 Revision delta:
-  /Users/dn/.local/bin/pwsh -NoProfile -File /Users/dn/quality-kit/cross-review.ps1 -Con grok -Excluir glm -Base afc1f3b68715c5bf05bdf939eefc9a6683adc0cd -Desde 1bcbed12a187394038d69d232b93954d2c9b8215 -RepoPath /Users/dn/dev/wt/jev-ads-worker
+  (el encargo combinaba -Base y -Desde; el script los rechaza por excluyentes:
+   se corrio con la intencion exacta, solo los arreglos)
+  /Users/dn/.local/bin/pwsh -NoProfile -File /Users/dn/quality-kit/cross-review.ps1 -Con grok -Excluir glm -Desde 1bcbed12a187394038d69d232b93954d2c9b8215 -RepoPath /Users/dn/dev/wt/jev-ads-worker
+  # exit 0, grok (binario grok), 47928 caracteres, sin truncamiento; reporte en delta-reporte.txt
