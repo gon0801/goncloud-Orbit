@@ -2649,8 +2649,9 @@ def test_decisiones_feed_fallback_muestra_abstencion_no_motivo_v1(monkeypatch):
 # INSERT/UPDATE; veto visible; compatible jamas es error economico)
 # ---------------------------------------------------------------------------
 
-SQL49 = (Path(__file__).resolve().parent.parent / "migrations" / "0049_jev_ads.sql").read_text(
-    encoding="utf-8"
+SQL_JEV = "\n".join(
+    (Path(__file__).resolve().parent.parent / "migrations" / nombre).read_text(encoding="utf-8")
+    for nombre in ("0049_jev_ads.sql", "0050_jev_revision_created_at.sql")
 )
 
 
@@ -2701,7 +2702,7 @@ def test_cortes_asesoria_guardada_sin_escritura_ni_http(monkeypatch):
 
     with _db_temporal("orbit_dash_jev21") as (conn, dsn):
         conn.execute(SQL02)
-        conn.execute(SQL49)
+        conn.execute(SQL_JEV)
         _siembra_cortes_ui01(conn)
         # catalogo Jev del grupo 9101 (el del harvest): producto + listing +
         # product_ad + estado ENABLED + ficha vigente.
@@ -2833,7 +2834,7 @@ def test_asesoria_vigencia_vigente_obsoleta_y_no_comprobable(monkeypatch):
 
     with _db_temporal("orbit_dash_jevvig") as (conn, dsn):
         conn.execute(SQL02)
-        conn.execute(SQL49)
+        conn.execute(SQL_JEV)
         _siembra_cortes_ui01(conn)
         p1 = conn.execute(
             "INSERT INTO product (odoo_sku, name) VALUES ('S-1', 'S-1') RETURNING id"
@@ -2918,7 +2919,7 @@ def test_asesoria_vigencia_usa_el_predicado_de_ficha_vigente(monkeypatch):
 
     with _db_temporal("orbit_dash_jevb4r3a") as (conn, dsn):
         conn.execute(SQL02)
-        conn.execute(SQL49)
+        conn.execute(SQL_JEV)
         _siembra_cortes_ui01(conn)
         p1 = conn.execute(
             "INSERT INTO product (odoo_sku, name) VALUES ('S-1', 'S-1') RETURNING id"
@@ -2998,7 +2999,7 @@ def test_asesoria_leer_salta_solo_no_activos_como_evaluar(monkeypatch):
 
     with _db_temporal("orbit_dash_jevb4r3b") as (conn, dsn):
         conn.execute(SQL02)
-        conn.execute(SQL49)
+        conn.execute(SQL_JEV)
         _siembra_cortes_ui01(conn)
         p1 = conn.execute(
             "INSERT INTO product (odoo_sku, name) VALUES ('S-1', 'S-1') RETURNING id"
@@ -3078,7 +3079,7 @@ def test_asesoria_lee_solo_eventos_de_su_revision(monkeypatch):
 
     with _db_temporal("orbit_dash_jeviso") as (conn, dsn):
         conn.execute(SQL02)
-        conn.execute(SQL49)
+        conn.execute(SQL_JEV)
         _siembra_cortes_ui01(conn)
         p1 = conn.execute(
             "INSERT INTO product (odoo_sku, name) VALUES ('S-1', 'S-1') RETURNING id"
@@ -3169,7 +3170,7 @@ def test_asesoria_muestra_el_exito_de_la_reanudacion(monkeypatch):
 
     with _db_temporal("orbit_dash_jevb4r2") as (conn, dsn):
         conn.execute(SQL02)
-        conn.execute(SQL49)
+        conn.execute(SQL_JEV)
         _siembra_cortes_ui01(conn)
         p1 = conn.execute(
             "INSERT INTO product (odoo_sku, name) VALUES ('S-1', 'S-1') RETURNING id"
@@ -3245,7 +3246,7 @@ def test_cortes_asesoria_origen_y_destino_por_separado(monkeypatch):
 
     with _db_temporal("orbit_dash_jevod") as (conn, dsn):
         conn.execute(SQL02)
-        conn.execute(SQL49)
+        conn.execute(SQL_JEV)
         _siembra_cortes_ui01(conn)
         # Origen: grupo 9101 con P1 (ya sembrado por los tests Jev).
         p1 = conn.execute(

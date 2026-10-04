@@ -207,7 +207,14 @@ La clave del par usa texto literal UTF-8, ficha y hash del contrato completo.
 No fusiona acentos, números o términos parecidos. Se reutiliza el primer éxito
 validado sólo si la ficha sigue aprobada, cubre ese listing y no venció su fecha
 de revisión. Una nueva ficha o contrato cambia la clave. Cambiar destino o
-miembros crea otra revisión que puede reutilizar pares aún aplicables.
+miembros crea otra revisión.
+
+La reutilización vale sólo dentro de la misma revisión (decisión R4 del plan,
+2026-10-04). Una revisión nueva vuelve a consultar sus pares aunque otra
+revisión ya tenga un éxito con la misma clave. Así cada revisión se reconstruye
+con sus propios eventos, sin enlaces a otra, como ya exigen `0049` y el asesor.
+El costo es pagar otra vez un par repetido. Reutilizar entre revisiones exige
+un spec nuevo y una migración.
 
 La fecha de revisión de la ficha la declara su responsable según la fuente.
 No se inventa un TTL que pretenda medir precisión. Revocar una ficha inserta
