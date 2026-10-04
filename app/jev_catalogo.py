@@ -166,14 +166,14 @@ def registrar_ficha(
         observado_at=observado_at,
         revisar_antes_de=revisar_antes_de,
     )
-    fila = conn.execute(f"{_FICHA_SELECT} WHERE f.sha256 = %s", (sha,)).fetchone()
-    if fila is not None:
-        return RegistroFicha(ficha=_ficha_de_fila(fila), ya_existia=True)
     ficha_id = uuid4()
-    conn.execute(
+    # ON CONFLICT y no SELECT-luego-INSERT: con dos registros concurrentes del
+    # mismo contenido, el segundo espera al primero y devuelve su fila (R7).
+    insertada = conn.execute(
         "INSERT INTO jev_ficha_version (id, producto_id, plataforma, listings, hechos,"
         " desconocidos, sha256, aprobador, observado_at, revisar_antes_de)"
-        " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+        " ON CONFLICT (sha256) DO NOTHING RETURNING id",
         (
             ficha_id,
             producto_id,
@@ -186,7 +186,10 @@ def registrar_ficha(
             observado_at,
             revisar_antes_de,
         ),
-    )
+    ).fetchone()
+    if insertada is None:
+        fila = conn.execute(f"{_FICHA_SELECT} WHERE f.sha256 = %s", (sha,)).fetchone()
+        return RegistroFicha(ficha=_ficha_de_fila(fila), ya_existia=True)
     return RegistroFicha(
         ficha=FichaVersion(
             id=ficha_id,
@@ -213,15 +216,16 @@ def revocar_ficha(
     fecha: datetime | None = None,
 ) -> None:
     """Inserta el evento de revocacion (append-only). Una ficha ya revocada
-    levanta ValueError; una ficha inexistente, la FK."""
-    try:
-        conn.execute(
-            "INSERT INTO jev_ficha_revocacion (ficha_version_id, autor, motivo, fecha)"
-            " VALUES (%s, %s, %s, COALESCE(%s, now()))",
-            (ficha_version_id, autor, motivo, fecha),
-        )
-    except psycopg.errors.UniqueViolation as error:
-        raise ValueError(f"ficha {ficha_version_id} ya revocada") from error
+    levanta ValueError SIN abortar la transaccion del llamador (ON CONFLICT,
+    R7); una ficha inexistente, la FK."""
+    insertada = conn.execute(
+        "INSERT INTO jev_ficha_revocacion (ficha_version_id, autor, motivo, fecha)"
+        " VALUES (%s, %s, %s, COALESCE(%s, now()))"
+        " ON CONFLICT (ficha_version_id) DO NOTHING RETURNING id",
+        (ficha_version_id, autor, motivo, fecha),
+    ).fetchone()
+    if insertada is None:
+        raise ValueError(f"ficha {ficha_version_id} ya revocada")
 
 
 def ficha_vigente(

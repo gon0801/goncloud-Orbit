@@ -30,12 +30,11 @@ import logging
 import os
 from dataclasses import dataclass
 from decimal import Decimal
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import httpx
 
-from app.ads.config import DEFAULT_SECRETS_DIR
+from app.ads.config import directorio_secretos
 from app.db import connect
 from app.redaction import install_scrub_filter, register_secret, scrub
 
@@ -171,7 +170,7 @@ def _config_canal() -> _ConfigCanal | None:
         return _estado["config"]
     cfg: _ConfigCanal | None = None
     try:
-        path = Path(os.environ.get("ORBIT_SECRETS_DIR", DEFAULT_SECRETS_DIR)) / TELEGRAM_FILENAME
+        path = directorio_secretos() / TELEGRAM_FILENAME
         data = None
         if path.is_file():
             try:

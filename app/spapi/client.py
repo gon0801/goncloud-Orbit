@@ -36,7 +36,6 @@ from __future__ import annotations
 import json
 import logging
 import math
-import os
 import re
 import threading
 import time
@@ -46,6 +45,7 @@ from urllib.parse import quote, unquote
 
 import httpx
 
+from app.ads.config import directorio_secretos
 from app.redaction import install_scrub_filter, register_secret, scrub
 
 logger = logging.getLogger(__name__)
@@ -411,9 +411,7 @@ class SpapiClient:
         self.refreshes = 0
 
     def _cargar_credenciales(self, secrets_dir: str | Path | None) -> dict[str, str]:
-        base = Path(
-            secrets_dir or os.environ.get("ORBIT_SECRETS_DIR", "/mnt/data/appdata/orbit/secrets")
-        )
+        base = Path(secrets_dir) if secrets_dir else directorio_secretos()
         try:
             config = json.loads((base / "amazon_credentials.json").read_text())
         except (OSError, ValueError) as exc:
