@@ -474,6 +474,16 @@ def test_guarda_pureza_permitidos_sigue_siendo_lista_blanca():
     ]
 
 
+def test_guarda_pureza_caza_anidado_fuera_de_permitidos():
+    """B5-r4 (VEREDICTO-B5-r3, B1): el punto 3 del rediseno (`permitidos`
+    rige TAMBIEN los anidados) queda fijado por prueba. Un import anidado de
+    stdlib que no es IO de la lista negra ni esta concedido sale con su
+    hallazgo EXACTO: con la parte 2 vuelta a solo lista negra (mutante del
+    veredicto) esta prueba queda roja."""
+    codigo = "def componer():\n    import sqlite3\n    return sqlite3\n"
+    assert _fugas_pureza(codigo) == [("componer", "sqlite3")]
+
+
 def test_guarda_pureza_deja_pasar_permitido_anidado():
     """B5-r3 control positivo (c): un import anidado de la lista permitidos
     sigue pasando en cualquier profundidad (la guarda no se vuelve
