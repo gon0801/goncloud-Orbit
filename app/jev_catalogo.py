@@ -224,6 +224,19 @@ def revocar_ficha(
         raise ValueError(f"ficha {ficha_version_id} ya revocada") from error
 
 
+def fichas_por_id(conn: psycopg.Connection, ids: Iterable[UUID]) -> dict[UUID, FichaVersion]:
+    """Versiones exactas por ID, revocadas o vencidas incluidas: una revision
+    que se retoma usa las fichas que congelo, no las vigentes hoy (R9)."""
+    ids = sorted(set(ids), key=str)
+    if not ids:
+        return {}
+    filas = conn.execute(f"{_FICHA_SELECT} WHERE f.id = ANY(%s)", (ids,)).fetchall()
+    fichas = {ficha.id: ficha for ficha in map(_ficha_de_fila, filas)}
+    if len(fichas) != len(ids):
+        raise ValueError("revision congelada con fichas que ya no existen")
+    return fichas
+
+
 def ficha_vigente(
     conn: psycopg.Connection,
     *,

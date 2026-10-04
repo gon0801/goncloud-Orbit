@@ -1346,6 +1346,7 @@ def cortes(conn: ConexionLectura) -> dict:
     filas = conn.execute(_SQL_CORTES_PENDIENTES).fetchall()
     # JEV 2.1: asesoria guardada por decision (SOLO lectura: sin HTTP y sin
     # escrituras; los resultados vienen de los eventos de SU revision).
+    asesoria_disponible = True
     try:
         from app.jev_ads import AsesorAds
 
@@ -1359,6 +1360,7 @@ def cortes(conn: ConexionLectura) -> dict:
     except Exception as exc:  # noqa: BLE001 - degradacion visible, no caida
         logger.warning("cortes: asesoria Jev ilegible: %s", scrub(str(exc)))
         asesoria_por_decision = {}
+        asesoria_disponible = False
     items = []
     for fila in filas:
         # FABRICA 02 (A.6): destino congelado + hermanas del grupo. La query
@@ -1410,7 +1412,11 @@ def cortes(conn: ConexionLectura) -> dict:
     except Exception as exc:  # noqa: BLE001 - degradacion visible, no caida
         logger.warning("cortes: propuestas de campana ilegibles: %s", scrub(str(exc)))
         propuestas = []
-    return {"items": items, "propuestas_campana": propuestas}
+    return {
+        "items": items,
+        "propuestas_campana": propuestas,
+        "asesoria_disponible": asesoria_disponible,
+    }
 
 
 @router.get("/inertes")

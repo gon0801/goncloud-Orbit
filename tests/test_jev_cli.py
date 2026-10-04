@@ -23,6 +23,7 @@ import os
 import subprocess
 import sys
 import uuid
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -222,6 +223,42 @@ def test_revision_e_intencion_confirmadas_antes_del_http():
         assert isinstance(revision.resultados[0][1], HayCompatible)
 
 
+@pytest.mark.parametrize("cubre_ambos", [True, False], ids=["ficha-cubre-ambos", "cubre-uno"])
+def test_producto_con_dos_listings_se_evalua_si_la_ficha_cubre_todos(cubre_ambos):
+    """R8: un producto anunciado con 2 listings se evalua cuando UNA ficha
+    vigente cubre todos sus listings; si la ficha cubre solo uno, el miembro
+    queda con ficha faltante (sin HTTP), nunca acreditado a medias."""
+    with db_jev() as conn:
+        producto = _producto(conn, "MULTI")
+        l1 = _listing(conn, producto, asin="B0MULTI001")
+        l2 = _listing(conn, producto, asin="B0MULTI002")
+        grupo = _grupo(conn, "amazon_mx", (l1, l2))
+        for i in range(2):
+            conn.execute(
+                "INSERT INTO ad_entity_state (ad_entity_id, status, synced_at)"
+                " VALUES ((SELECT id FROM ad_entity WHERE external_id = %s), 'ENABLED', now())",
+                (f"ad-{grupo}-{i}",),
+            )
+        _ficha(conn, producto, (l1, l2) if cubre_ambos else (l1,))
+        from app.jev_catalogo import censo_grupo
+
+        censo = censo_grupo(conn, plataforma="amazon_mx", ad_group_id=grupo)
+        assert len(censo.miembros) == 1
+        assert censo.miembros[0].listing_ids == frozenset({l1, l2})
+        pedido = _Pedido({"soporte mesa": "satisface"})
+        revision = AsesorAds(
+            conn, pedir=pedido, api_key="k", presupuesto=5, ahora=lambda: AHORA
+        ).evaluar(_sujeto(censo), solicitud_id=uuid.uuid4())
+        resultado = revision.resultados[0][1]
+        if cubre_ambos:
+            assert pedido.llamados == ["soporte mesa"]
+            assert resultado == HayCompatible((producto,), 1, 1)
+        else:
+            assert pedido.llamados == []
+            assert isinstance(resultado, Indeterminado)
+            assert "ficha_ausente" in resultado.motivos
+
+
 def test_producto_sin_ficha_queda_como_ficha_faltante():
     with db_jev() as conn:
         censo, _, _, grupo = _grupo_con_fichas(conn, con_ficha_p2=False)
@@ -291,6 +328,109 @@ def test_reanudacion_tras_crash_la_intencion_huerfana_esta_confirmada():
         assert pedido2.llamados == ["t2"]
         por_termino = dict(revision.resultados)
         assert isinstance(por_termino["t1"], HayCompatible)
+
+
+def test_reanudacion_retoma_las_fichas_congeladas_aunque_se_revoquen():
+    """R9: entre el crash y la reanudacion se revoca la ficha. La revision
+    ya congelo su contexto: retomar con la misma solicitud termina con esas
+    fichas (la vigencia la marcara Obsoleta), no la rechaza como "otro
+    payload". Un censo crudo distinto si sigue siendo otro payload."""
+    from app.jev_catalogo import revocar_ficha
+
+    with db_jev() as conn:
+        censo, ficha1, _, grupo = _grupo_con_fichas(conn, con_ficha_p2=False)
+        solicitud = uuid.uuid4()
+        sujeto = _sujeto(censo, terminos=("t1", "t2"))
+        pedido1 = _Pedido(guion={"t1": "satisface"}, crash_en="t2")
+        with pytest.raises(RuntimeError):
+            AsesorAds(conn, pedir=pedido1, api_key="k", presupuesto=5, ahora=lambda: AHORA).evaluar(
+                sujeto, solicitud_id=solicitud
+            )
+        revocar_ficha(conn, ficha_version_id=ficha1, autor="a", motivo="cambio el material")
+        pedido2 = _Pedido(guion={"t2": "no_satisface"})
+        revision = AsesorAds(
+            conn,
+            pedir=pedido2,
+            api_key="k",
+            presupuesto=5,
+            ahora=lambda: AHORA + timedelta(hours=1),
+        ).evaluar(sujeto, solicitud_id=solicitud)
+        assert pedido2.llamados == ["t2"]
+        assert isinstance(dict(revision.resultados)["t1"], HayCompatible)
+        sin_un_miembro = replace(
+            sujeto, censo=CensoCongelado(miembros=censo.miembros[:1], exhaustivo=censo.exhaustivo)
+        )
+        asesor = AsesorAds(conn, pedir=_Pedido(), api_key="k", presupuesto=5, ahora=lambda: AHORA)
+        with pytest.raises(ValueError, match="otro payload"):
+            asesor.evaluar(sin_un_miembro, solicitud_id=solicitud)
+
+
+def test_reanudacion_reutiliza_el_primer_exito_validado():
+    """R10: con dos exitos de la misma clave en la revision, se reutiliza el
+    PRIMERO (spec: "Se reutiliza el primer exito validado") y la vista
+    muestra ese mismo."""
+    from app.jev_ads import _evento_del_par
+
+    with db_jev() as conn:
+        censo, _, _, grupo = _grupo_con_fichas(conn, con_ficha_p2=False)
+        solicitud = uuid.uuid4()
+        sujeto = _sujeto(censo, terminos=("t1",))
+        asesor = AsesorAds(
+            conn,
+            pedir=_Pedido({"t1": "satisface"}),
+            api_key="k",
+            presupuesto=5,
+            ahora=lambda: AHORA,
+        )
+        asesor.evaluar(sujeto, solicitud_id=solicitud)
+        primero = conn.execute(
+            "SELECT id, termino_sha256, ficha_version_id, contrato_sha256, respuesta"
+            " FROM jev_par_evento WHERE revision_id = %s AND tipo = 'resultado'",
+            (solicitud,),
+        ).fetchone()
+        intencion = uuid.uuid4()
+        conn.execute(
+            "INSERT INTO jev_par_evento (id, revision_id, termino_sha256, ficha_version_id,"
+            " contrato_sha256, ordinal, tipo, request_sha256)"
+            " VALUES (%s, %s, %s, %s, %s, 2, 'intencion', %s)",
+            (intencion, solicitud, primero[1], primero[2], primero[3], "c" * 64),
+        )
+        segunda = {**primero[4], "relacion": "no_satisface"}
+        conn.execute(
+            "INSERT INTO jev_par_evento (id, revision_id, termino_sha256, ficha_version_id,"
+            " contrato_sha256, ordinal, tipo, respuesta, intencion_id)"
+            " VALUES (%s, %s, %s, %s, %s, 2, 'resultado', %s::jsonb, %s)",
+            (
+                uuid.uuid4(),
+                solicitud,
+                primero[1],
+                primero[2],
+                primero[3],
+                json.dumps(segunda),
+                intencion,
+            ),
+        )
+        pedido = _Pedido()
+        revision = AsesorAds(
+            conn, pedir=pedido, api_key="k", presupuesto=5, ahora=lambda: AHORA
+        ).evaluar(sujeto, solicitud_id=solicitud)
+        assert pedido.llamados == []
+        reutilizado = conn.execute(
+            "SELECT reutiliza_id FROM jev_par_evento WHERE revision_id = %s"
+            " AND tipo = 'reutilizacion'",
+            (solicitud,),
+        ).fetchone()[0]
+        assert reutilizado == primero[0]
+        assert isinstance(revision.resultados[0][1], HayCompatible)
+        eventos = [
+            dict(zip(("id", "termino_sha256", "ficha_version_id", "respuesta"), fila, strict=True))
+            for fila in conn.execute(
+                "SELECT id, termino_sha256, ficha_version_id, respuesta FROM jev_par_evento"
+                " WHERE revision_id = %s AND tipo = 'resultado' ORDER BY ordinal",
+                (solicitud,),
+            ).fetchall()
+        ]
+        assert _evento_del_par(eventos, primero[1], primero[2])["id"] == primero[0]
 
 
 def test_reanudacion_tras_crash_reutiliza_exito():

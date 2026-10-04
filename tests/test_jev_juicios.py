@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
 
@@ -238,6 +239,16 @@ def test_orden_de_opciones_cambia_la_clave():
     assert clave_de("t", ficha, base) != clave_de("t", ficha, invertido)
 
 
+def test_reordenar_solo_opciones_cambia_la_clave():
+    """R16: el orden de `opciones` entra al hash por si mismo; la prueba de
+    arriba invierte tambien `criterios`, que ya codifica el orden."""
+    ficha = _ficha()
+    base = contrato_por_defecto()
+    solo_opciones = replace(base, opciones=tuple(reversed(base.opciones)))
+    assert solo_opciones.criterios == base.criterios
+    assert clave_de("t", ficha, base) != clave_de("t", ficha, solo_opciones)
+
+
 def test_version_del_contrato_cambia_la_clave():
     ficha = _ficha()
     base = contrato_por_defecto()
@@ -304,6 +315,21 @@ def test_respuesta_invalida_da_estado_visible(cuerpo):
     assert hasattr(resultado, "codigo")
     assert resultado.codigo == "respuesta_invalida"
     assert not hasattr(resultado, "juicio")
+
+
+@pytest.mark.parametrize(
+    "cuerpo",
+    [_con_respuesta_muta(choice="x" * 10_000), {**RESPUESTA_OK, "model": "m" * 10_000}],
+    ids=["choice-enorme", "model-enorme"],
+)
+def test_detalle_de_fallo_queda_acotado(cuerpo):
+    """R12 (triage G1-15): el detalle de `respuesta_invalida` repite valores
+    del proveedor; se guarda en jev_par_evento.error y no puede crecer sin
+    limite."""
+    resultado = _pedir(_Transporte(cuerpo))
+    assert resultado.codigo == "respuesta_invalida"
+    assert len(resultado.detalle) <= 300
+    assert resultado.detalle.endswith("…")
 
 
 # ---------------------------------------------------------------------------
