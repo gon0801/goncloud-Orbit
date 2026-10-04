@@ -128,28 +128,27 @@ def _registrar(conn: psycopg.Connection, args: argparse.Namespace) -> int:
 
 
 def _revocar(conn: psycopg.Connection, args: argparse.Namespace) -> int:
-    fila = conn.execute(
-        "SELECT r.id FROM jev_ficha_version f"
-        " LEFT JOIN jev_ficha_revocacion r ON r.ficha_version_id = f.id WHERE f.id = %s",
-        (args.ficha_version_id,),
+    existe = conn.execute(
+        "SELECT 1 FROM jev_ficha_version WHERE id = %s", (args.ficha_version_id,)
     ).fetchone()
-    if fila is None:
+    if existe is None:
         print(f"ficha {args.ficha_version_id} no existe", file=sys.stderr)
         return 1
-    if fila[0] is not None:
-        print(f"ficha {args.ficha_version_id} ya revocada", file=sys.stderr)
-        return 1
+    fecha = _fecha(args.fecha) if args.fecha else None
+    # En seco se ejecuta la MISMA insercion y se revierte: valida lo mismo que
+    # --aplicar (ya revocada, autor/motivo vacios, fecha) sin escribir.
+    with conn.transaction(force_rollback=not args.aplicar):
+        revocar_ficha(
+            conn,
+            ficha_version_id=args.ficha_version_id,
+            autor=args.autor,
+            motivo=args.motivo,
+            fecha=fecha,
+        )
     if not args.aplicar:
         print(f"revocaria {args.ficha_version_id}")
-        print("seco: nada escrito; agrega --aplicar para revocar")
+        print("seco: validado contra la base y revertido; agrega --aplicar para revocar")
         return 0
-    revocar_ficha(
-        conn,
-        ficha_version_id=args.ficha_version_id,
-        autor=args.autor,
-        motivo=args.motivo,
-        fecha=_fecha(args.fecha) if args.fecha else None,
-    )
     print(f"revocada {args.ficha_version_id}")
     return 0
 

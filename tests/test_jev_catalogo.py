@@ -466,6 +466,7 @@ def test_registro_concurrente_del_mismo_contenido_devuelve_la_fila_existente():
     UNIQUE(sha256) y, al confirmarse el primero, devuelve esa fila en vez de
     reventar con UniqueViolation."""
     import threading
+    import time
 
     with db_jev() as conn:
         producto = _producto(conn)
@@ -481,10 +482,17 @@ def test_registro_concurrente_del_mismo_contenido_devuelve_la_fila_existente():
                 except Exception as error:  # noqa: BLE001 - la prueba reporta cualquiera
                     resultado["error"] = error
 
+            pid_segunda = segunda.info.backend_pid
             hilo = threading.Thread(target=registrar_en_segunda)
             hilo.start()
-            hilo.join(timeout=1.0)
-            assert hilo.is_alive(), "la segunda transaccion debe esperar a la primera"
+            # La segunda llego al INSERT y espera el lock del indice UNIQUE(sha256).
+            espera = "SELECT wait_event_type FROM pg_stat_activity WHERE pid = %s"
+            for _ in range(100):
+                if conn.execute(espera, (pid_segunda,)).fetchone()[0] == "Lock":
+                    break
+                time.sleep(0.05)
+            else:
+                pytest.fail("la segunda transaccion nunca quedo esperando el lock")
             primera.commit()
             hilo.join(timeout=10)
         assert "error" not in resultado, resultado.get("error")
@@ -1134,6 +1142,12 @@ def test_cli_revoca_y_rechaza_doble_revocacion(tmp_path, monkeypatch, capsys):
         # R5: en seco por omision, igual que registrar; dice que haria y no escribe.
         assert cli_fichas(revocar) == 0
         assert "seco" in capsys.readouterr().out
+        assert conn.execute(revocaciones).fetchone()[0] == 0
+        # El seco valida lo mismo que --aplicar: fecha ilegible y autor vacio salen 1.
+        assert cli_fichas([*revocar, "--fecha", "ayer"]) == 1
+        sin_autor = ["revocar", "--ficha-version-id", ficha_id, "--autor", " ", "--motivo", "m"]
+        assert cli_fichas(sin_autor) == 1
+        capsys.readouterr()
         assert conn.execute(revocaciones).fetchone()[0] == 0
         assert cli_fichas([*revocar, "--aplicar"]) == 0
         capsys.readouterr()
