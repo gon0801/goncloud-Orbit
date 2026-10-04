@@ -117,6 +117,10 @@ def test_migracion_trae_append_only_y_triggers():
     assert "jev_par_evento_encadenado" in SQL49
     assert "revisar_antes_de < NEW.observado_at" in SQL49
     assert "NEW.captured_at > clock_timestamp()" in SQL49
+    # 0050 (R1) reemplaza ese cuerpo: created_at lo fija el trigger.
+    sql50 = (ROOT / "migrations" / "0050_jev_revision_created_at.sql").read_text(encoding="utf-8")
+    assert "NEW.created_at := clock_timestamp();" in sql50
+    assert "NEW.captured_at > NEW.created_at OR NEW.decided_at > NEW.created_at" in sql50
 
 
 # ---------------------------------------------------------------------------
