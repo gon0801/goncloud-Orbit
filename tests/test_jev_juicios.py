@@ -354,3 +354,18 @@ def test_leer_api_key_desde_secrets_dir(tmp_path, monkeypatch):
 def test_leer_api_key_sin_config_da_vacia(tmp_path, monkeypatch):
     monkeypatch.setenv("ORBIT_SECRETS_DIR", str(tmp_path))
     assert leer_api_key() == ""
+
+
+def test_leer_api_key_sin_variable_usa_la_ruta_canonica(tmp_path, monkeypatch):
+    """Regresion revision automatica B3-r3 (B2): sin ORBIT_SECRETS_DIR la
+    ruta es la canonica del repo (DEFAULT_SECRETS_DIR de app.ads.config),
+    JAMAS el cwd: un typesafe.json plantado en el directorio actual no se
+    lee y la clave canonica si."""
+    canonico = tmp_path / "canonico"
+    canonico.mkdir()
+    (canonico / "typesafe.json").write_text(json.dumps({"api_key": "canonica"}), encoding="utf-8")
+    (tmp_path / "typesafe.json").write_text(json.dumps({"api_key": "de-cwd"}), encoding="utf-8")
+    monkeypatch.chdir(tmp_path)  # el cwd trampa: contiene su propio typesafe.json
+    monkeypatch.delenv("ORBIT_SECRETS_DIR", raising=False)
+    monkeypatch.setattr("app.ads.config.DEFAULT_SECRETS_DIR", str(canonico))
+    assert leer_api_key() == "canonica"

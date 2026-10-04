@@ -11,9 +11,10 @@ asesor.
   resultados despues, reutilizacion de exitos de la misma revision y
   presupuesto acotado; retomar con la MISMA `--solicitud` termina el lote
   sin pagar dos veces un par.
-- Sin `--decision-id` el sujeto es semillas de un lote de grupo
-  (plan canonico = el lote mismo, hash por contenido). Con `--decision-id`
-  la revision queda atada a la decision (FK de jev_revision).
+- `--decision-id` se RECHAZA por ahora (exit 2): atar la revision a una
+  decision exige leer termino y censo de la decision guardada, que llega
+  con la fila 2.1. Sin esa bandera el sujeto es semillas de un lote de
+  grupo (plan canonico = el lote mismo, hash por contenido).
 - La clave de TypeSafe sale de `<ORBIT_SECRETS_DIR>/typesafe.json`; sin
   clave el lote corre apagado: estados visibles, cero HTTP.
 - DSN: `ORBIT_DSN_ADMIN` (operacion humana; app_jev escribe revisiones y
@@ -91,10 +92,18 @@ def main(
         "--decision-id",
         type=int,
         default=None,
-        help="ata la revision a una decision guardada (FK); sin esto, semillas",
+        help="RECHAZADO por ahora (exit 2): atar la revision a una decision"
+        " llega con la fila 2.1; sin esta bandera, semillas",
     )
     evaluar.add_argument("--aplicar", action="store_true", help="sin esta bandera es dry-run")
     args = parser.parse_args(argv)
+    if args.decision_id is not None:
+        imprimir(
+            "configuracion rechazada: --decision-id todavia no esta soportado"
+            " (la revision atada a decision llega con la fila 2.1); quita la"
+            " bandera para un lote de semillas de grupo"
+        )
+        return 2
 
     dsn = dsn or os.environ.get("ORBIT_DSN_ADMIN")
     if not dsn:

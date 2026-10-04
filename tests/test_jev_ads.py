@@ -344,17 +344,13 @@ def test_relacion_no_reconocida_es_error_estructural():
 
 
 def test_modulo_puro_sin_red_ni_db_en_top_level():
-    """El nucleo (tipos + componer) es PURO: red y DB solo entran con
-    AsesorAds (1.4) y por imports PEREZOSOS dentro de metodos. En top-level
-    del modulo no hay red, ni DB, ni modulos Jev de IO."""
-    arbol = ast.parse((RAIZ / "app" / "jev_ads.py").read_text(encoding="utf-8"))
-    importados: set[str] = set()
-    for nodo in arbol.body:  # SOLO top-level del modulo
-        if isinstance(nodo, ast.Import):
-            importados.update(alias.name for alias in nodo.names)
-        elif isinstance(nodo, ast.ImportFrom):
-            importados.add(nodo.module or "")
-    prohibidos = {
+    """El nucleo (tipos + componer y sus helpers) es PURO: red y DB solo
+    entran con AsesorAds (1.4) y por imports PEREZOSOS dentro de sus
+    metodos. La guarda cubre TODO nodo top-level excepto AsesorAds, con
+    imports anidados a cualquier profundidad y nombres IO (CodeRabbit
+    B3-r3); en top-level del modulo tampoco hay red, ni DB, ni modulos
+    Jev de IO."""
+    prohibidos_modulos = {
         "httpx",
         "psycopg",
         "requests",
@@ -366,7 +362,16 @@ def test_modulo_puro_sin_red_ni_db_en_top_level():
         "app.jev_catalogo",
         "app.jev_juicios",
     }
-    assert not (importados & prohibidos), importados & prohibidos
+    prohibidos_nombres = {"psycopg", "httpx", "requests", "socket", "ssl", "conn"}
+    arbol = ast.parse((RAIZ / "app" / "jev_ads.py").read_text(encoding="utf-8"))
+
+    # 1) imports TOP-LEVEL del modulo: solo la biblioteca estandar pura.
+    importados: set[str] = set()
+    for nodo in arbol.body:
+        if isinstance(nodo, ast.Import):
+            importados.update(alias.name for alias in nodo.names)
+        elif isinstance(nodo, ast.ImportFrom):
+            importados.add(nodo.module or "")
     permitidos = {
         "__future__",
         "collections.abc",
@@ -379,11 +384,20 @@ def test_modulo_puro_sin_red_ni_db_en_top_level():
         "uuid",
     }
     assert importados <= permitidos, importados - permitidos
-    # y el chequeo fino: componer no llama a nada de IO (su codigo no
-    # referencia conn/httpx/requests)
-    componer = next(
-        n for n in arbol.body if isinstance(n, ast.FunctionDef) and n.name == "componer"
-    )
-    texto = ast.unparse(componer)
-    for prohibido in ("psycopg", "httpx", "requests", "conn"):
-        assert prohibido not in texto
+
+    # 2) cada nodo top-level EXCEPTO AsesorAds: puro incluso por dentro
+    #    (sin imports prohibidos anidados, sin nombres IO).
+    for nodo in arbol.body:
+        if isinstance(nodo, (ast.Import, ast.ImportFrom)):
+            continue
+        nombre = getattr(nodo, "name", None) or getattr(nodo, "id", "")
+        if nombre == "AsesorAds":
+            continue
+        for sub in ast.walk(nodo):
+            if isinstance(sub, ast.Import):
+                encontrados = {alias.name for alias in sub.names} & prohibidos_modulos
+                assert not encontrados, (nombre, encontrados)
+            elif isinstance(sub, ast.ImportFrom):
+                assert (sub.module or "") not in prohibidos_modulos, (nombre, sub.module)
+            elif isinstance(sub, ast.Name) and sub.id in prohibidos_nombres:
+                raise AssertionError((nombre, sub.id))

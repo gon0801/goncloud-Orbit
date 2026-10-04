@@ -26,7 +26,15 @@ from pathlib import Path
 
 import psycopg
 import pytest
-from test_jev_catalogo import _dsn_jev, _ficha, _grupo, _listing, _producto, db_jev
+from test_jev_catalogo import (
+    _dsn_jev,
+    _ficha,
+    _grupo,
+    _listing,
+    _postgres_obligatorio_ausente,
+    _producto,
+    db_jev,
+)
 
 from app.jev_ads import (
     AsesorAds,
@@ -38,6 +46,8 @@ from app.jev_ads import (
     SemillasARevisar,
 )
 from app.jev_juicios import FalloPar, ResultadoPar
+
+pytestmark = pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres")
 
 RAIZ = Path(__file__).resolve().parents[1]
 AHORA = datetime(2026, 10, 4, tzinfo=UTC)
@@ -481,6 +491,45 @@ def test_semillas_mismo_plan_sha_otro_censo_rechazado():
             asesor.evaluar(mismo_plan, solicitud_id=solicitud)
 
 
+def test_cli_decision_id_se_rechaza_hasta_2_1(tmp_path):
+    """Regresion revision automatica B3-r3 (B1): --decision-id se parseaba y
+    se IGNORABA (sujeto semillas silencioso). Hasta que 2.1 lea termino y
+    censo de la decision, la bandera se rechaza con error de configuracion
+    y sin escribir nada."""
+    from tools.jev_ads import main as cli_jev
+
+    with db_jev() as conn:
+        censo, _, _, grupo = _grupo_con_fichas(conn, con_ficha_p2=False)
+        solicitud = str(uuid.uuid4())
+        pedido = _Pedido()
+        salida = []
+        codigo = cli_jev(
+            [
+                "evaluar",
+                "--plataforma",
+                "amazon_mx",
+                "--grupo-id",
+                str(grupo),
+                "--termino",
+                "soporte mesa",
+                "--solicitud",
+                solicitud,
+                "--presupuesto",
+                "3",
+                "--decision-id",
+                "12",
+                "--aplicar",
+            ],
+            pedir=pedido,
+            dsn=_dsn_jev(),
+            imprimir=salida.append,
+        )
+        assert codigo == 2
+        assert any("decision" in linea for linea in salida)
+        assert pedido.llamados == []
+        assert conn.execute("SELECT count(*) FROM jev_revision").fetchone()[0] == 0
+
+
 def test_los_consumidores_no_importan_al_asesor():
     for nombre in ("cycle.py", "apply_cola.py", "apply_harvest.py"):
         arbol = ast.parse((RAIZ / "app" / nombre).read_text(encoding="utf-8"))
@@ -639,7 +688,7 @@ def test_cli_evaluar_aplica_y_retoma(tmp_path):
         assert any("HayCompatible" in linea for linea in salida)
 
 
-def test_cli_sin_dsn_da_error_config():
+def test_cli_sin_dsn_da_error_config(monkeypatch):
     from tools.jev_ads import main as cli_jev
 
     argv = [
@@ -653,5 +702,7 @@ def test_cli_sin_dsn_da_error_config():
         "--solicitud",
         str(uuid.uuid4()),
     ]
+    # Aislado (F5): sin ORBIT_DSN_ADMIN, dsn="" no puede caer al entorno.
+    monkeypatch.delenv("ORBIT_DSN_ADMIN", raising=False)
     codigo = cli_jev(argv, dsn="")
     assert codigo == 2

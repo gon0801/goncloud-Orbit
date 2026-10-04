@@ -1,12 +1,14 @@
-"""Tipos puros y composicion de relevancia para la asesoria Jev en Ads.
+"""Tipos puros, composicion de relevancia y el asesor Jev para Ads.
 
-JEV ADS 01 (1.1). El diseno manda:
+JEV ADS 01 (1.1 y 1.4). El diseno manda:
 docs/superpowers/specs/2026-10-03-jev-ads-design.md, secciones "Tipos y
 modulos" y "Catalogo y reglas de composicion".
 
-Modulo PURO: sin red ni DB. El censo llega congelado y los pares ya traen su
-juicio; el adaptador de catalogo es `app/jev_catalogo.py` y el transporte
-TypeSafe vivira en `app/jev_juicios.py`.
+El NUCLEO (tipos + `componer` y sus helpers) es PURO: sin red ni DB. La
+IO vive SOLO en `AsesorAds` (catalogo via `app/jev_catalogo.py`,
+transporte via `app/jev_juicios.py`, ambos importados de forma perezosa
+dentro de sus metodos), y el candado AST de tests/test_jev_ads.py lo
+exige por nodo top-level.
 
 La unidad de juicio es TERMINO LITERAL + VERSION DE FICHA. `componer` aplica
 las reglas del diseno sobre un censo congelado y los pares evaluados:

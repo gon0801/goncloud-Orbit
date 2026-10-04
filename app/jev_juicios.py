@@ -37,6 +37,7 @@ from typing import Protocol
 
 import httpx
 
+from app.ads import config as config_ads
 from app.jev_ads import ClavePar, FichaVersion, Juicio, Relacion
 from app.redaction import register_secret, scrub
 
@@ -200,10 +201,14 @@ class FalloPar:
 
 
 def leer_api_key() -> str:
-    """Lee la clave de `<ORBIT_SECRETS_DIR>/typesafe.json` (patron
-    notifica.py). Sin archivo o sin clave devuelve cadena vacia; el llamador
-    produce el estado visible sin_api_key sin HTTP."""
-    path = Path(os.environ.get("ORBIT_SECRETS_DIR", "")) / "typesafe.json"
+    """Lee la clave de `<ORBIT_SECRETS_DIR>/typesafe.json`, con la ruta
+    canonica `DEFAULT_SECRETS_DIR` de app.ads.config cuando la variable no
+    viene (patron notifica.py); NUNCA el cwd. Sin archivo o sin clave
+    devuelve cadena vacia; el llamador produce el estado visible
+    sin_api_key sin HTTP."""
+    path = (
+        Path(os.environ.get("ORBIT_SECRETS_DIR", config_ads.DEFAULT_SECRETS_DIR)) / "typesafe.json"
+    )
     try:
         datos = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
