@@ -273,3 +273,16 @@ def test_dockerfile_instala_con_lockfile_congelado():
     assert "uv sync --frozen" in texto
     assert "uvicorn" in texto
     assert "app.main:app" in texto
+
+
+def test_dockerfile_copia_las_cli_que_corren_dentro_del_contenedor():
+    """2.3 (Jev Ads): el smoke de despliegue corre `python -m tools.jev_ads` y
+    `tools.jev_fichas` DENTRO de orbit-app-1. La imagen solo trae los tools
+    que el Dockerfile copia uno por uno; sin la linea, la CLI no existe en
+    prod y el fallo se ve hasta el deploy."""
+    copiados = {
+        ln.split()[1]
+        for ln in DOCKERFILE.read_text(encoding="utf-8").splitlines()
+        if ln.startswith("COPY tools/")
+    }
+    assert copiados == {"tools/fabrica_campanas.py", "tools/jev_ads.py", "tools/jev_fichas.py"}

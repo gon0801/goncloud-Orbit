@@ -1,0 +1,25 @@
+== Despliegue 20261004-2000 (desde 2026-10-04T20:00:00Z)
+== 1) HTTP: health, /cortes, asesoria inexistente
+OK    GET /health = 200
+OK    GET /cortes = 200
+OK    GET /api/dashboard/cortes = 200
+OK    asesorias no nulas en cortes (sin revisiones aun) = 0
+OK    GET /api/fabrica/asesoria/<64 ceros> = 404
+OK    logs 'asesoria Jev ilegible' desde el deploy = 0
+== 2) CLI dentro del contenedor, sin credenciales
+/app/.venv/bin/python: No module named tools.jev_ads
+FALLA tools.jev_ads sin ORBIT_DSN_ADMIN (exit): esperado '2', obtenido '1'
+FALLA tools.jev_fichas --help (exit): esperado '0', obtenido '1'
+OK    clave TypeSafe en el contenedor = ausente
+== 3) Permisos (consulta como orbit_read)
+ERROR:  role "app_jev" does not exist
+FALLA permisos.sql: esperado 'permisos OK', obtenido ''
+== 4) Jev apagado: ninguna tarea automatica lo importa y no hay filas
+OK    cycle/apply_cola/apply_harvest importan app.jev_* = False
+ERROR:  relation "jev_ficha_version" does not exist
+LINE 1: SELECT (SELECT count(*) FROM jev_ficha_version), (SELECT cou...
+                                     ^
+FALLA filas Jev (fichas|revocaciones|revisiones|eventos): esperado '0|0|0|0', obtenido ''
+== 5) Primer ciclo del optimizador despues del deploy
+PENDIENTE: todavia no corre un ciclo despues de 2026-10-04T20:00:00Z; vuelve a correr solo esta seccion despues del siguiente ciclo
+== RESULTADO: 4 falla(s)
