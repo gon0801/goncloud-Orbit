@@ -688,42 +688,17 @@ def test_semillas_mismo_plan_sha_otro_censo_rechazado():
             asesor.evaluar(mismo_plan, solicitud_id=solicitud)
 
 
-def test_cli_decision_id_se_rechaza_hasta_2_1(tmp_path):
-    """Regresion revision automatica B3-r3 (B1): --decision-id se parseaba y
-    se IGNORABA (sujeto semillas silencioso). Hasta que 2.1 lea termino y
-    censo de la decision, la bandera se rechaza con error de configuracion
-    y sin escribir nada."""
+def test_cli_decision_id_combinado_con_grupo_se_rechaza(capsys):
+    """R2: --decision-id trae su propio termino y grupo; combinarlo con
+    --grupo-id/--termino es configuracion invalida (exit 2) y no escribe."""
     from tools.jev_ads import main as cli_jev
 
     with db_jev() as conn:
-        censo, _, _, grupo = _grupo_con_fichas(conn, con_ficha_p2=False)
-        solicitud = str(uuid.uuid4())
-        pedido = _Pedido()
-        salida = []
-        codigo = cli_jev(
-            [
-                "evaluar",
-                "--plataforma",
-                "amazon_mx",
-                "--grupo-id",
-                str(grupo),
-                "--termino",
-                "soporte mesa",
-                "--solicitud",
-                solicitud,
-                "--presupuesto",
-                "3",
-                "--decision-id",
-                "12",
-                "--aplicar",
-            ],
-            pedir=pedido,
-            dsn=_dsn_jev(),
-            imprimir=salida.append,
-        )
-        assert codigo == 2
-        assert any("decision" in linea for linea in salida)
-        assert pedido.llamados == []
+        _, _, _, grupo = _grupo_con_fichas(conn, con_ficha_p2=False)
+        argv = ["evaluar", "--decision-id", "12", "--grupo-id", str(grupo), "--termino", "t"]
+        argv += ["--solicitud", str(uuid.uuid4()), "--aplicar"]
+        assert cli_jev(argv, pedir=_Pedido(), dsn=_dsn_jev()) == 2
+        assert "no se combina" in capsys.readouterr().err
         assert conn.execute("SELECT count(*) FROM jev_revision").fetchone()[0] == 0
 
 
@@ -963,3 +938,298 @@ def test_cli_modulo_ejecutable_da_error_config_y_no_es_no_op():
     )
     assert corrida.returncode == 2, (corrida.returncode, corrida.stdout, corrida.stderr)
     assert "falta ORBIT_DSN_ADMIN" in corrida.stderr
+
+
+# ---------------------------------------------------------------------------
+# R2: revision de una decision guardada (camino de produccion)
+# ---------------------------------------------------------------------------
+
+
+def _decision_guardada(conn, kind, grupo, termino, inputs=None):
+    ciclo = conn.execute(
+        "INSERT INTO optimizer_cycle (mode) VALUES ('shadow') RETURNING id"
+    ).fetchone()[0]
+    config = conn.execute(
+        "INSERT INTO config_version (settings) VALUES ('{}') RETURNING id"
+    ).fetchone()[0]
+    dinero = kind in ("harvest", "bid", "budget")
+    return conn.execute(
+        "INSERT INTO decision (cycle_id, ad_entity_id, kind, config_version_id,"
+        " data_observed_at, window_start, window_end, search_term, new_value,"
+        " value_currency, inputs)"
+        " VALUES (%s, %s, %s, %s, now() - interval '1 hour', current_date - 30,"
+        " current_date - 12, %s, %s, %s, %s::jsonb) RETURNING id",
+        (
+            ciclo,
+            grupo,
+            kind,
+            config,
+            termino,
+            Decimal("2.50") if dinero else None,
+            "MXN" if dinero else None,
+            json.dumps(inputs or {}),
+        ),
+    ).fetchone()[0]
+
+
+def test_decision_negative_se_lee_con_su_termino_y_su_grupo():
+    from app.jev_catalogo import decision_a_revisar
+
+    with db_jev() as conn:
+        censo, _, _, grupo = _grupo_con_fichas(conn)
+        decision = _decision_guardada(conn, "negative", grupo, "funda barata")
+        sujeto = decision_a_revisar(conn, decision)
+        assert isinstance(sujeto, DecisionARevisar)
+        assert (sujeto.decision_id, sujeto.termino, sujeto.plataforma) == (
+            decision,
+            "funda barata",
+            "amazon_mx",
+        )
+        assert sujeto.censo == censo
+        assert sujeto.destino_censo is None
+        assert sujeto.decided_at is not None
+
+
+def test_decision_harvest_trae_el_destino_congelado():
+    from app.jev_catalogo import censo_grupo, decision_a_revisar
+
+    with db_jev() as conn:
+        _, _, _, origen = _grupo_con_fichas(conn)
+        p3 = _producto(conn, "P3")
+        destino = _grupo(conn, "amazon_mx", (_listing(conn, p3, asin="B0DESTINO1"),))
+        externo = conn.execute(
+            "SELECT external_id FROM ad_entity WHERE id = %s", (destino,)
+        ).fetchone()[0]
+        goal = {"goal": {"harvest": {"ad_group_id": externo, "campaign_id": "c-1"}}}
+        decision = _decision_guardada(conn, "harvest", origen, "soporte mesa", goal)
+        sujeto = decision_a_revisar(conn, decision)
+        assert sujeto.destino_censo == censo_grupo(
+            conn, plataforma="amazon_mx", ad_group_id=destino
+        )
+        sin_destino = _decision_guardada(conn, "harvest", origen, "soporte mesa")
+        with pytest.raises(ValueError, match="destino"):
+            decision_a_revisar(conn, sin_destino)
+        perdido = {"goal": {"harvest": {"ad_group_id": "no-existe"}}}
+        with pytest.raises(ValueError, match="no-existe"):
+            decision_a_revisar(conn, _decision_guardada(conn, "harvest", origen, "x", perdido))
+
+
+def test_decision_de_otro_kind_o_inexistente_se_rechaza():
+    from app.jev_catalogo import decision_a_revisar
+
+    with db_jev() as conn:
+        _, _, _, grupo = _grupo_con_fichas(conn)
+        with pytest.raises(ValueError, match="bid"):
+            decision_a_revisar(conn, _decision_guardada(conn, "bid", grupo, None))
+        with pytest.raises(ValueError, match="no existe"):
+            decision_a_revisar(conn, 999_999)
+
+
+def _argv_decision(decision, solicitud, *extra):
+    return ["evaluar", "--decision-id", str(decision), "--solicitud", str(solicitud), *extra]
+
+
+def test_cli_decision_harvest_seco_coincide_con_aplicar_y_aparece_en_cortes():
+    """R2: el camino de produccion. El seco dice cuantos pares pagaria (un
+    par por clave: el destino reutiliza el exito del origen cuando es el
+    mismo producto); --aplicar paga exactamente eso y la asesoria queda
+    legible por decision, como la lee /cortes."""
+    from tools.jev_ads import main as cli_jev
+
+    with db_jev() as conn:
+        _, _, _, origen = _grupo_con_fichas(conn)
+        externo = conn.execute(
+            "SELECT external_id FROM ad_entity WHERE id = %s", (origen,)
+        ).fetchone()[0]
+        goal = {"goal": {"harvest": {"ad_group_id": externo}}}
+        decision = _decision_guardada(conn, "harvest", origen, "soporte mesa", goal)
+        solicitud = uuid.uuid4()
+        salida: list[str] = []
+        assert (
+            cli_jev(
+                _argv_decision(decision, solicitud),
+                pedir=_Pedido(),
+                dsn=_dsn_jev(),
+                imprimir=salida.append,
+            )
+            == 0
+        )
+        assert any("pares nuevos 2, reutilizables 0; pagaria 2" in linea for linea in salida), (
+            salida
+        )
+        assert conn.execute("SELECT count(*) FROM jev_revision").fetchone()[0] == 0
+        pedido = _Pedido({"soporte mesa": "satisface"})
+        salida.clear()
+        codigo = cli_jev(
+            _argv_decision(decision, solicitud, "--aplicar"),
+            pedir=pedido,
+            dsn=_dsn_jev(),
+            imprimir=salida.append,
+        )
+        assert codigo == 0
+        assert len(pedido.llamados) == 2
+        assert any(
+            linea.startswith("resultado origen soporte mesa HayCompatible") for linea in salida
+        )
+        assert any(
+            linea.startswith("resultado destino soporte mesa HayCompatible") for linea in salida
+        )
+        vista = AsesorAds(conn).leer([decision], ahora=AHORA)[decision]
+        assert vista is not None and vista.decision_id == decision
+        salida.clear()
+        assert (
+            cli_jev(
+                _argv_decision(decision, solicitud),
+                pedir=_Pedido(),
+                dsn=_dsn_jev(),
+                imprimir=salida.append,
+            )
+            == 0
+        )
+        assert any("pares nuevos 0, reutilizables 2; pagaria 0" in linea for linea in salida), (
+            salida
+        )
+
+
+def test_cli_presupuesto_agotado_sale_3_y_el_seco_lo_anticipa():
+    from tools.jev_ads import main as cli_jev
+
+    with db_jev() as conn:
+        _, _, _, grupo = _grupo_con_fichas(conn)
+        decision = _decision_guardada(conn, "negative", grupo, "funda")
+        solicitud = uuid.uuid4()
+        salida: list[str] = []
+        seco = _argv_decision(decision, solicitud, "--presupuesto", "1")
+        assert cli_jev(seco, pedir=_Pedido(), dsn=_dsn_jev(), imprimir=salida.append) == 0
+        assert any("pagaria 1 de presupuesto 1; se agotaria" in linea for linea in salida), salida
+        assert (
+            cli_jev([*seco, "--aplicar"], pedir=_Pedido(), dsn=_dsn_jev(), imprimir=salida.append)
+            == 3
+        )
+
+
+@pytest.mark.parametrize(
+    ("extra", "motivo"),
+    [
+        (["--termino", " "], "texto"),
+        (["--termino", "a", "--termino", "a"], "repetido"),
+        ([], "hacen falta"),
+    ],
+)
+def test_cli_entradas_invalidas_salen_2(capsys, extra, motivo):
+    from tools.jev_ads import main as cli_jev
+
+    argv = ["evaluar", "--plataforma", "amazon_mx", "--grupo-id", "1", *extra]
+    argv += ["--solicitud", str(uuid.uuid4())]
+    if not extra:
+        argv = ["evaluar", "--plataforma", "amazon_mx", "--solicitud", str(uuid.uuid4())]
+    with db_jev():
+        assert cli_jev(argv, pedir=_Pedido(), dsn=_dsn_jev()) == 2
+    assert motivo in capsys.readouterr().err
+
+
+def test_cli_presupuesto_cero_se_rechaza():
+    from tools.jev_ads import main as cli_jev
+
+    with pytest.raises(SystemExit) as salida:
+        cli_jev(
+            [
+                "evaluar",
+                "--decision-id",
+                "1",
+                "--solicitud",
+                str(uuid.uuid4()),
+                "--presupuesto",
+                "0",
+            ]
+        )
+    assert salida.value.code == 2
+
+
+def test_cli_error_de_datos_sale_1_redactado(capsys):
+    from tools.jev_ads import main as cli_jev
+
+    with db_jev():
+        argv = _argv_decision(999_999, uuid.uuid4())
+        assert cli_jev(argv, pedir=_Pedido(), dsn=_dsn_jev()) == 1
+    assert "decision 999999 no existe" in capsys.readouterr().err
+
+
+def test_cli_evaluar_export_de_fabrica(tmp_path):
+    """R2: el pegamento del export de fabrica. El universo son los productos
+    del NUEVO plan (exhaustivo) y cada termino imprime su rol."""
+    from tools.jev_ads import main as cli_jev
+
+    with db_jev() as conn:
+        p1 = _producto(conn, "PLAN1")
+        l1 = _listing(conn, p1, asin="B0PLAN0001")
+        _ficha(conn, p1, (l1,))
+        export = {
+            "huella": "e" * 64,
+            "plan_sha256": "e" * 64,
+            "plan_canonico": {"plan": 1},
+            "plataforma": "amazon_mx",
+            "productos": [p1],
+            "listings": [l1],
+            "fuentes_semillas": {"keywords_biblioteca": ["collar"], "negativos_biblioteca": []},
+            "terminos_a_cotejar": ["collar"],
+            "roles_terminos": {"collar": ["keyword"]},
+        }
+        ruta = tmp_path / "export.json"
+        ruta.write_text(json.dumps(export), encoding="utf-8")
+        salida: list[str] = []
+        argv = [
+            "evaluar-export",
+            "--archivo",
+            str(ruta),
+            "--solicitud",
+            str(uuid.uuid4()),
+            "--aplicar",
+        ]
+        assert (
+            cli_jev(
+                argv,
+                pedir=_Pedido({"collar": "no_satisface"}),
+                dsn=_dsn_jev(),
+                imprimir=salida.append,
+            )
+            == 0
+        )
+        assert "resultado grupo collar (keyword) NingunoCompatible universo=1" in salida, salida
+        ruta.write_text("{}", encoding="utf-8")
+        assert cli_jev(argv, pedir=_Pedido(), dsn=_dsn_jev()) == 2
+
+
+@pytest.mark.parametrize("con_app_jev", [True, False], ids=["admin+app_jev", "solo-app_admin"])
+def test_cli_escribe_con_el_rol_real_de_prod(con_app_jev, capsys):
+    """G3-6 (R2): en prod ORBIT_DSN_ADMIN es orbit_admin, NO superusuario. Con
+    app_admin solamente el INSERT de la revision se niega (exit 1, sin
+    traceback); con app_jev ademas (docs/DEPLOY.md) el lote se escribe."""
+    from psycopg.conninfo import make_conninfo
+
+    from tools.jev_ads import main as cli_jev
+
+    with db_jev() as conn:
+        rol = f"jev_cli_{os.getpid()}_{int(con_app_jev)}"
+        try:
+            conn.execute(f"CREATE ROLE {rol} LOGIN PASSWORD 'clave' NOSUPERUSER")
+        except psycopg.errors.InsufficientPrivilege:
+            pytest.skip("crear un login de prueba exige CREATEROLE")
+        try:
+            conn.execute(f"GRANT app_admin TO {rol}")
+            if con_app_jev:
+                conn.execute(f"GRANT app_jev TO {rol}")
+            _, _, _, grupo = _grupo_con_fichas(conn, con_ficha_p2=False)
+            decision = _decision_guardada(conn, "negative", grupo, "funda")
+            dsn = make_conninfo(_dsn_jev(), user=rol, password="clave")
+            argv = _argv_decision(decision, uuid.uuid4(), "--aplicar")
+            codigo = cli_jev(argv, pedir=_Pedido(), dsn=dsn, imprimir=lambda *a, **k: None)
+            revisiones = conn.execute("SELECT count(*) FROM jev_revision").fetchone()[0]
+            if con_app_jev:
+                assert (codigo, revisiones) == (0, 1)
+            else:
+                assert (codigo, revisiones) == (1, 0)
+                assert "permission denied" in capsys.readouterr().err
+        finally:
+            conn.execute(f"DROP OWNED BY {rol}")
+            conn.execute(f"DROP ROLE {rol}")

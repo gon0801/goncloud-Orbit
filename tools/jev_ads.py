@@ -1,31 +1,44 @@
-"""CLI de lote acotado del asesor Jev (JEV ADS 01, 1.4).
+"""CLI de lote acotado del asesor Jev (JEV ADS 01, 1.4 y R2).
 
-Solicita o retoma un lote de revisiones contra el censo de un grupo Amazon,
-con presupuesto de llamadas y solicitud idempotente. Fuera del ciclo de
-Ads: NINGUNA operacion automatica (cycle/apply) llama a este comando ni al
-asesor.
+Solicita o retoma una revision con presupuesto de llamadas y solicitud
+idempotente. Fuera del ciclo de Ads: NINGUNA operacion automatica
+(cycle/apply) llama a este comando ni al asesor.
 
-- Dry-run por omision: arma el sujeto, resuelve el censo y las fichas
-  vigentes e imprime el plan SIN escribir ni llamar a TypeSafe.
-- `--aplicar` ejecuta: revision + intenciones confirmadas antes del HTTP,
-  resultados despues, reutilizacion de exitos de la misma revision y
-  presupuesto acotado; retomar con la MISMA `--solicitud` termina el lote
-  sin pagar dos veces un par.
-- `--decision-id` se RECHAZA por ahora (exit 2): atar la revision a una
-  decision exige leer termino y censo de la decision guardada, que llega
-  con la fila 2.1. Sin esa bandera el sujeto es semillas de un lote de
-  grupo (plan canonico = el lote mismo, hash por contenido).
-- La clave de TypeSafe sale de `<ORBIT_SECRETS_DIR>/typesafe.json`; sin
-  clave el lote corre apagado: estados visibles, cero HTTP.
-- DSN: `ORBIT_DSN_ADMIN` (operacion humana; app_jev escribe revisiones y
-  app_admin gestiona fichas, el CLI no toca cola/ledger/bibliotecas).
+Tres sujetos posibles:
+
+- `evaluar --decision-id N`: la decision guardada (negative o harvest). El
+  termino, el grupo de origen y, en harvest, el destino congelado salen de
+  la propia decision; la asesoria aparece en /cortes.
+- `evaluar --plataforma P --grupo-id G --termino T [--termino T2 ...]`: lote
+  de semillas de un grupo (plan canonico = el lote, hash por contenido).
+- `evaluar-export --archivo export.json`: el JSON de
+  POST /api/fabrica/export-semillas; el universo son los productos del NUEVO
+  plan y la asesoria aparece en /api/fabrica/asesoria/<huella>.
+
+Ceremonia comun:
+
+- Dry-run por omision: imprime lo que `--aplicar` haria con la MISMA regla
+  (censo y fichas, miembros fuera, exitos reutilizables de la solicitud y
+  pares que pagaria con el presupuesto) SIN escribir ni llamar a TypeSafe.
+- `--aplicar`: revision + intenciones confirmadas antes del HTTP, resultados
+  despues; retomar con la MISMA `--solicitud` termina el lote sin pagar dos
+  veces un par.
+- La clave de TypeSafe sale de `<ORBIT_SECRETS_DIR>/typesafe.json`; sin clave
+  el lote corre apagado: estados visibles, cero HTTP.
+- DSN: `ORBIT_DSN_ADMIN` (operacion humana). Ese login necesita ademas el
+  grupo `app_jev` para escribir revisiones (docs/DEPLOY.md:
+  `GRANT app_jev TO orbit_admin`).
+
+Salidas: 0 completo o seco; 1 error (mensaje redactado); 2 configuracion;
+3 presupuesto agotado (retomar con la misma --solicitud).
 
 Ejemplos:
 
+  tools/jev_ads.py evaluar --decision-id 2367 --solicitud <uuid>
+  tools/jev_ads.py evaluar --decision-id 2367 --solicitud <uuid> --aplicar
   tools/jev_ads.py evaluar --plataforma amazon_mx --grupo-id 5 \\
-      --termino 'soporte mesa' --solicitud 0b5e...-uuid --presupuesto 8
-  tools/jev_ads.py evaluar ... --aplicar
-  tools/jev_ads.py evaluar ... --aplicar   # retoma: reutiliza exitos
+      --termino 'soporte mesa' --solicitud <uuid> --presupuesto 8 --aplicar
+  tools/jev_ads.py evaluar-export --archivo export.json --solicitud <uuid> --aplicar
 """
 
 from __future__ import annotations
@@ -35,34 +48,154 @@ import hashlib
 import json
 import os
 import sys
-from datetime import UTC, datetime
 from uuid import UUID
 
-from app.db import connect
+import psycopg
+
+from app.db import OrbitDbError, connect
 from app.jev_ads import AsesorAds, SemillasARevisar
-from app.jev_catalogo import censo_grupo
+from app.jev_catalogo import censo_de_plan, censo_grupo, decision_a_revisar
 from app.jev_juicios import leer_api_key
 from app.redaction import scrub
 
-
-def _plan_canonico(args) -> dict:
-    return {
-        "grupo_id": args.grupo_id,
-        "plataforma": args.plataforma,
-        "terminos": list(args.termino),
-    }
+SALIDA_ERROR = 1
+SALIDA_CONFIGURACION = 2
+SALIDA_PRESUPUESTO_AGOTADO = 3
 
 
-def _imprimir_resultado(imprimir, termino: str, resultado) -> None:
+class _Configuracion(Exception):
+    """Argumentos o export invalidos: exit 2 con el motivo."""
+
+
+def _presupuesto(valor: str) -> int:
+    numero = int(valor)
+    if numero < 1:
+        raise argparse.ArgumentTypeError("el presupuesto debe ser al menos 1")
+    return numero
+
+
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="jev_ads", description=__doc__)
+    sub = parser.add_subparsers(dest="comando", required=True)
+    evaluar = sub.add_parser("evaluar", help="decision guardada o lote de un grupo")
+    evaluar.add_argument("--decision-id", type=int, default=None)
+    evaluar.add_argument("--plataforma", choices=("amazon_mx", "amazon_us"))
+    evaluar.add_argument("--grupo-id", type=int)
+    evaluar.add_argument("--termino", action="append", help="termino literal; repetible")
+    exportado = sub.add_parser("evaluar-export", help="JSON de /api/fabrica/export-semillas")
+    exportado.add_argument("--archivo", required=True)
+    for comando in (evaluar, exportado):
+        comando.add_argument("--solicitud", required=True, type=UUID)
+        comando.add_argument("--presupuesto", type=_presupuesto, default=10)
+        comando.add_argument("--aplicar", action="store_true", help="sin esta bandera es dry-run")
+    return parser
+
+
+def _terminos(crudos) -> tuple[str, ...]:
+    terminos = tuple(str(t).strip() for t in crudos or ())
+    if not terminos or any(not t for t in terminos):
+        raise _Configuracion("cada termino debe traer texto")
+    if len(set(terminos)) != len(terminos):
+        raise _Configuracion("termino repetido")
+    return terminos
+
+
+def _canonico(objeto: object) -> str:
+    return json.dumps(objeto, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _sujeto_de_export(conn, ruta: str):
+    try:
+        with open(ruta, encoding="utf-8") as archivo:
+            export = json.load(archivo)
+        plataforma = export["plataforma"]
+        terminos = _terminos(export["terminos_a_cotejar"])
+        sujeto = SemillasARevisar(
+            plan_sha256=export["plan_sha256"],
+            plan_canonico=export["plan_canonico"],
+            fuentes_semillas=export["fuentes_semillas"],
+            terminos=terminos,
+            censo=censo_de_plan(conn, plataforma=plataforma, listing_ids=export["listings"]),
+            plataforma=plataforma,
+        )
+    except _Configuracion:
+        raise
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        raise _Configuracion(f"export ilegible: {error}") from error
+    return sujeto, export.get("roles_terminos", {})
+
+
+def _sujeto(conn, args):
+    """El sujeto que se revisa y el rol de cada termino de fabrica (se
+    imprime junto a su resultado)."""
+    if args.comando == "evaluar-export":
+        return _sujeto_de_export(conn, args.archivo)
+    if args.decision_id is not None:
+        if args.plataforma or args.grupo_id is not None or args.termino:
+            raise _Configuracion(
+                "--decision-id no se combina con --plataforma/--grupo-id/--termino"
+            )
+        return decision_a_revisar(conn, args.decision_id), {}
+    if not args.plataforma or args.grupo_id is None:
+        raise _Configuracion("sin --decision-id hacen falta --plataforma, --grupo-id y --termino")
+    terminos = _terminos(args.termino)
+    canon = _canonico(
+        {"grupo_id": args.grupo_id, "plataforma": args.plataforma, "terminos": list(terminos)}
+    )
+    sujeto = SemillasARevisar(
+        plan_sha256=hashlib.sha256(canon.encode("utf-8")).hexdigest(),
+        plan_canonico=json.loads(canon),
+        fuentes_semillas={"grupo_id": args.grupo_id, "plataforma": args.plataforma},
+        terminos=terminos,
+        censo=censo_grupo(conn, plataforma=args.plataforma, ad_group_id=args.grupo_id),
+        plataforma=args.plataforma,
+    )
+    return sujeto, {}
+
+
+def _imprimir_resultado(imprimir, ambito: str, termino: str, rol: str, resultado) -> None:
+    etiqueta = f"{ambito} {termino}" + (f" ({rol})" if rol else "")
     if hasattr(resultado, "producto_ids"):
         imprimir(
-            f"resultado {termino} HayCompatible productos={list(resultado.producto_ids)}"
+            f"resultado {etiqueta} HayCompatible productos={list(resultado.producto_ids)}"
             f" cobertura={resultado.miembros_con_juicio}/{resultado.miembros_totales}"
         )
     elif hasattr(resultado, "miembros_totales"):
-        imprimir(f"resultado {termino} NingunoCompatible universo={resultado.miembros_totales}")
+        imprimir(f"resultado {etiqueta} NingunoCompatible universo={resultado.miembros_totales}")
     else:
-        imprimir(f"resultado {termino} Indeterminado motivos={sorted(resultado.motivos)}")
+        imprimir(f"resultado {etiqueta} Indeterminado motivos={sorted(resultado.motivos)}")
+
+
+def _correr(conn, args, *, pedir, transporte, imprimir) -> int:
+    sujeto, roles = _sujeto(conn, args)
+    asesor = AsesorAds(
+        conn,
+        pedir=pedir,
+        transporte=transporte,
+        api_key=leer_api_key(),
+        presupuesto=args.presupuesto,
+    )
+    if not args.aplicar:
+        plan = asesor.plan_seco(sujeto, solicitud_id=args.solicitud)
+        agotaria = "; se agotaria (retomar con la misma --solicitud)" if plan.agotaria else ""
+        imprimir(
+            f"seco: {plan.miembros} miembro(s); fichas vigentes {plan.fichas}; pares nuevos"
+            f" {plan.pares_nuevos}, reutilizables {plan.pares_reutilizables}; pagaria"
+            f" {plan.pagaria} de presupuesto {args.presupuesto}{agotaria}"
+        )
+        imprimir("seco: nada escrito ni llamado; agrega --aplicar")
+        return 0
+    revision = asesor.evaluar(sujeto, solicitud_id=args.solicitud)
+    ambito = "origen" if revision.destinos else "grupo"
+    for termino, resultado in revision.resultados:
+        _imprimir_resultado(imprimir, ambito, termino, ",".join(roles.get(termino, [])), resultado)
+    for termino, resultado in revision.destinos:
+        _imprimir_resultado(imprimir, "destino", termino, "", resultado)
+    if revision.presupuesto_agotado:
+        imprimir("presupuesto_agotado: retoma con la misma --solicitud")
+        return SALIDA_PRESUPUESTO_AGOTADO
+    imprimir("lote completo")
+    return 0
 
 
 def main(
@@ -73,90 +206,21 @@ def main(
     dsn: str | None = None,
     imprimir=print,
 ) -> int:
-    parser = argparse.ArgumentParser(prog="jev_ads", description=__doc__)
-    sub = parser.add_subparsers(dest="comando", required=True)
-    evaluar = sub.add_parser(
-        "evaluar", help="solicita o retoma un lote de revision (dry-run sin --aplicar)"
-    )
-    evaluar.add_argument("--plataforma", required=True, choices=("amazon_mx", "amazon_us"))
-    evaluar.add_argument("--grupo-id", type=int, required=True)
-    evaluar.add_argument(
-        "--termino",
-        action="append",
-        required=True,
-        help="termino literal a cotejar; repetible",
-    )
-    evaluar.add_argument("--solicitud", required=True, type=UUID)
-    evaluar.add_argument("--presupuesto", type=int, default=10)
-    evaluar.add_argument(
-        "--decision-id",
-        type=int,
-        default=None,
-        help="RECHAZADO por ahora (exit 2): atar la revision a una decision"
-        " llega con la fila 2.1; sin esta bandera, semillas",
-    )
-    evaluar.add_argument("--aplicar", action="store_true", help="sin esta bandera es dry-run")
-    args = parser.parse_args(argv)
-    if args.decision_id is not None:
-        imprimir(
-            "configuracion rechazada: --decision-id todavia no esta soportado"
-            " (la revision atada a decision llega con la fila 2.1); quita la"
-            " bandera para un lote de semillas de grupo"
-        )
-        return 2
-
+    args = _parser().parse_args(argv)
     dsn = dsn or os.environ.get("ORBIT_DSN_ADMIN")
     if not dsn:
-        imprimir("falta ORBIT_DSN_ADMIN", file=sys.stderr)
-        return 2
-    api_key = leer_api_key()
-    with connect(dsn) as conn:
-        censo = censo_grupo(conn, plataforma=args.plataforma, ad_group_id=args.grupo_id)
-        if not args.aplicar:
-            con_ficha = len(
-                AsesorAds(conn, pedir=pedir, api_key=api_key).fichas_del_censo(
-                    censo, args.plataforma, datetime.now(UTC)
-                )
-            )
-            imprimir(
-                f"lote: {len(args.termino)} termino(s) contra {len(censo.miembros)}"
-                f" miembro(s); fichas vigentes {con_ficha}; presupuesto"
-                f" {args.presupuesto}; exhaustivo={censo.exhaustivo}"
-            )
-            imprimir("seco: nada escrito ni llamado; agrega --aplicar")
-            return 0
-        canon = _canonico(_plan_canonico(args))
-        sujeto = SemillasARevisar(
-            plan_sha256=hashlib.sha256(canon.encode("utf-8")).hexdigest(),
-            plan_canonico=json.loads(canon),
-            fuentes_semillas={"grupo_id": args.grupo_id, "plataforma": args.plataforma},
-            terminos=tuple(args.termino),
-            censo=censo,
-            plataforma=args.plataforma,
-        )
-        asesor = AsesorAds(
-            conn,
-            pedir=pedir,
-            transporte=transporte,
-            api_key=api_key,
-            presupuesto=args.presupuesto,
-        )
-        revision = asesor.evaluar(sujeto, solicitud_id=args.solicitud)
-        for termino, resultado in revision.resultados:
-            _imprimir_resultado(imprimir, termino, resultado)
-        if revision.presupuesto_agotado:
-            imprimir("presupuesto_agotado: retoma con la misma --solicitud")
-            return 1
-        imprimir("lote completo")
-        return 0
-
-
-def _canonico(objeto: object) -> str:
-    return json.dumps(objeto, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        print("falta ORBIT_DSN_ADMIN", file=sys.stderr)
+        return SALIDA_CONFIGURACION
+    try:
+        with connect(dsn) as conn:
+            return _correr(conn, args, pedir=pedir, transporte=transporte, imprimir=imprimir)
+    except _Configuracion as error:
+        print(f"configuracion rechazada: {scrub(str(error))}", file=sys.stderr)
+        return SALIDA_CONFIGURACION
+    except (ValueError, psycopg.Error, OrbitDbError) as error:
+        print(scrub(str(error)), file=sys.stderr)
+        return SALIDA_ERROR
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-
-__all__ = ["main", "scrub"]

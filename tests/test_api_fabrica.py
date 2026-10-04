@@ -1185,7 +1185,19 @@ def test_export_semillas_trae_plan_huella_y_fuentes_sin_tocar_biblioteca(escenar
     assert datos["plan_sha256"] == datos["huella"]
     assert datos["plan_canonico"] == preview["plan"]
     assert datos["fuentes_semillas"]["keywords_biblioteca"] == ["collar"]
+    # G4-4: todas las fuentes, no solo la biblioteca de keywords.
+    assert datos["fuentes_semillas"]["negativos_biblioteca"] == ["antipulgas"]
+    assert isinstance(datos["fuentes_semillas"]["terminos_vendedores"], list)
+    assert isinstance(datos["fuentes_semillas"]["terminos_exactos"], list)
     assert set(datos["terminos_a_cotejar"]) == {"collar", "antipulgas"}
+    # G4-6 (R2): el rol de cada termino viaja con el; y los listings del plan.
+    assert datos["roles_terminos"] == {"antipulgas": ["negativo"], "collar": ["keyword"]}
+    assert datos["listings"] == sorted(
+        fila[0]
+        for fila in conn.execute(
+            "SELECT id FROM listing WHERE product_id = %s AND platform = 'amazon_mx'", (ids[0],)
+        ).fetchall()
+    )
     assert datos["plataforma"] == "amazon_mx"
     assert datos["productos"] == [ids[0]]
     assert (

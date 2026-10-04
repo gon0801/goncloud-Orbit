@@ -369,6 +369,18 @@ Sujeto = DecisionARevisar | SemillasARevisar
 
 
 @dataclass(frozen=True)
+class PlanSeco:
+    """Lo que `evaluar` haria (dry-run del CLI): pares por clave unica."""
+
+    miembros: int
+    fichas: int
+    pares_nuevos: int
+    pares_reutilizables: int
+    pagaria: int
+    agotaria: bool
+
+
+@dataclass(frozen=True)
 class Revision:
     """Salida de evaluar; presupuesto_agotado = lote retomable (misma
     solicitud). `destinos` trae la composicion del censo destino (harvest),
@@ -600,10 +612,55 @@ class AsesorAds:
         vigentes = {ficha_id: f for ficha_id, f in fichas.items() if ficha_id not in vencidas}
         return censo, destino, vigentes, capturado
 
-    def fichas_del_censo(self, censo: CensoCongelado, plataforma, ahora) -> dict:
-        """Las fichas que una revision NUEVA usaria hoy (la misma regla que
-        evaluar, R8); solo lectura, para el modo seco del CLI."""
-        return self._enriquecer(censo, plataforma, ahora)[1]
+    def plan_seco(self, sujeto: Sujeto, *, solicitud_id: UUID) -> PlanSeco:
+        """Lo que `evaluar` haria con esta solicitud, SIN escribir ni llamar
+        (R2, dry-run fiel): mismo censo y fichas (congelados si la revision ya
+        existe; otro payload -> ValueError igual que al aplicar), mismos
+        miembros fuera (ARCHIVED, sin ficha, ASIN-like) y exitos de la
+        revision reutilizados; los pares nuevos se cuentan por clave unica y
+        se cortan con el presupuesto."""
+        from app.jev_juicios import clave_de
+
+        destino_crudo = sujeto.destino_censo if isinstance(sujeto, DecisionARevisar) else None
+        guardada = self._conn.execute(
+            "SELECT censos, captured_at FROM jev_revision WHERE solicitud = %s", (solicitud_id,)
+        ).fetchone()
+        if guardada is None:
+            ahora = self._ahora()
+            censo, fichas = self._enriquecer(sujeto.censo, sujeto.plataforma, ahora)
+            destino = None
+            if destino_crudo is not None:
+                destino, fichas_destino = self._enriquecer(destino_crudo, sujeto.plataforma, ahora)
+                fichas = {**fichas, **fichas_destino}
+        else:
+            censo, destino, fichas, _ = self._retomar(guardada, sujeto.censo, destino_crudo)
+        terminos = (sujeto.termino,) if isinstance(sujeto, DecisionARevisar) else sujeto.terminos
+        nuevas: set = set()
+        reutilizables: set = set()
+        for termino in terminos:
+            if es_asin_like(termino):
+                continue
+            for un_censo in (censo, *((destino,) if destino is not None else ())):
+                for miembro in un_censo.miembros:
+                    ficha = fichas.get(miembro.ficha_version_id)
+                    if ficha is None or _solo_no_activo(miembro.estados):
+                        continue
+                    clave = clave_de(termino, ficha, self._contrato)
+                    if clave in reutilizables or clave in nuevas:
+                        continue
+                    if guardada is not None and self._exito_previo(solicitud_id, clave):
+                        reutilizables.add(clave)
+                    else:
+                        nuevas.add(clave)
+        miembros = (*censo.miembros, *(destino.miembros if destino is not None else ()))
+        return PlanSeco(
+            miembros=len(miembros),
+            fichas=len(fichas),
+            pares_nuevos=len(nuevas),
+            pares_reutilizables=len(reutilizables),
+            pagaria=min(len(nuevas), self._presupuesto),
+            agotaria=len(nuevas) > self._presupuesto,
+        )
 
     def _enriquecer(self, censo: CensoCongelado, plataforma, ahora):
         """Ficha vigente por miembro, congelada en el censo. Un producto con

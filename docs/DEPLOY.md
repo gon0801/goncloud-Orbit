@@ -676,6 +676,11 @@ done
 # (InsufficientPrivilege). Idempotente (GRANT es no-op si ya la tiene).
 docker exec -i orbit-db-1 psql -U orbit -d orbit -v ON_ERROR_STOP=1 -q \
   -c 'GRANT app_decide TO orbit_admin'
+# JEV ADS 01 (R2): el CLI del asesor (tools/jev_ads.py) usa ORBIT_DSN_ADMIN y
+# escribe jev_revision/jev_par_evento, cuyo INSERT (0049) es solo de app_jev.
+# Requiere 0049 aplicada. Idempotente.
+docker exec -i orbit-db-1 psql -U orbit -d orbit -v ON_ERROR_STOP=1 -q \
+  -c 'GRANT app_jev TO orbit_admin'
 # rol de test: CREATEDB/CREATEROLE, SIN superusuario
 PT=$(gen)
 docker exec -i orbit-db-1 psql -U orbit -d postgres -v ON_ERROR_STOP=1 -q <<SQL

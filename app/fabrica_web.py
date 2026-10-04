@@ -780,7 +780,15 @@ def exportar_semillas(conn, solicitud: dict) -> dict:
             "terminos_vendedores": textos_vendedores,
             "terminos_exactos": textos_exactos,
         },
+        "listings": listing_ids,
         "terminos_a_cotejar": sorted(set(kws) | set(negs)),
+        # El rol de cada termino heredado viaja con el (triage G4-6).
+        "roles_terminos": {
+            termino: sorted(
+                (["keyword"] if termino in kws else []) + (["negativo"] if termino in negs else [])
+            )
+            for termino in sorted(set(kws) | set(negs))
+        },
     }
 
 

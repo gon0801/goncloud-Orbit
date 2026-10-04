@@ -272,6 +272,14 @@ sin permisos sobre decisiones, cola, ledger, goals ni bibliotecas. Administraci�
 inserta fichas/revocaciones; `orbit_read` lee resultados. Los grants y triggers
 se prueban con conexiones de cada rol. La asesoría no recibe credenciales Ads.
 
+Implementado (0049 y R2, 2026-10-04): el rol es el grupo NOLOGIN `app_jev`.
+El CLI es una operación humana con `ORBIT_DSN_ADMIN`; su login `orbit_admin`
+entra a `app_jev` (`docs/DEPLOY.md`) para escribir revisiones. `app_jev` no
+da escritura sobre decisiones, cola, ledger ni bibliotecas.
+`GET /api/fabrica/asesoria/{huella}` y `POST /api/fabrica/export-semillas` son
+lecturas: van en el mismo perímetro que el resto del dashboard (127.0.0.1 y
+wg0, sin token). El token `x-orbit-token` sólo protege escrituras.
+
 ## Tiempo y presentación
 
 Cada revisión conserva dos tiempos: `decided_at` de la decisión y `captured_at`

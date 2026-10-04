@@ -58,6 +58,9 @@ echo "== 5) Migracion 0050 (created_at = insercion real)"
 git show "$APROBADO:migrations/0050_jev_revision_created_at.sql" \
   | ssh goncloud 'docker exec -i orbit-db-1 psql -U orbit -d orbit -v ON_ERROR_STOP=1 -1'
 
+echo "== 5b) orbit_admin entra a app_jev (el CLI escribe revisiones con ORBIT_DSN_ADMIN; R2)"
+ssh goncloud 'docker exec -i orbit-db-1 psql -U orbit -d orbit -v ON_ERROR_STOP=1 -q -c "GRANT app_jev TO orbit_admin"'
+
 echo "== 6) Permisos y esquema Jev (esperado: permisos OK)"
 R=$(git show "$APROBADO:$DIR/permisos.sql" \
   | ssh goncloud 'docker exec -i orbit-db-1 psql -U orbit -d orbit -v ON_ERROR_STOP=1 -tA')

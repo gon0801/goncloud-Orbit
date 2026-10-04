@@ -34,6 +34,7 @@ from psycopg.types.json import Json
 
 from app.jev_ads import (
     CensoCongelado,
+    DecisionARevisar,
     EstadoAnuncio,
     FichaVersion,
     HechoConFuente,
@@ -310,3 +311,77 @@ def censo_grupo(conn: psycopg.Connection, *, plataforma: str, ad_group_id: int) 
         for producto_id in sorted(anuncios_por_producto)
     ]
     return CensoCongelado(miembros=tuple([*miembros, *sueltos]), exhaustivo=False)
+
+
+def decision_a_revisar(conn: psycopg.Connection, decision_id: int) -> DecisionARevisar:
+    """La decision guardada como sujeto del asesor (R2): su termino, su
+    decided_at, el censo de su grupo de origen (`decision.ad_entity_id` es
+    el ad group) y, en harvest, el censo del DESTINO congelado en
+    `inputs.goal.harvest.ad_group_id` (id externo de Amazon). Solo lectura;
+    cualquier hueco es ValueError con el motivo, jamas un sujeto a medias."""
+    fila = conn.execute(
+        "SELECT d.kind::text, d.search_term, d.decided_at, d.ad_entity_id, e.kind::text,"
+        " e.platform::text, d.inputs"
+        " FROM decision d JOIN ad_entity e ON e.id = d.ad_entity_id WHERE d.id = %s",
+        (decision_id,),
+    ).fetchone()
+    if fila is None:
+        raise ValueError(f"decision {decision_id} no existe")
+    kind, termino, decidida, grupo_id, entidad, plataforma, inputs = fila
+    if kind not in ("negative", "harvest"):
+        raise ValueError(f"decision {decision_id} es {kind}: Jev solo revisa negative y harvest")
+    if entidad != "ad_group":
+        raise ValueError(f"decision {decision_id} apunta a un {entidad}, no a un ad group")
+    if plataforma not in _PLATAFORMAS:
+        raise ValueError(f"decision {decision_id} es de {plataforma}, fuera del alcance Jev")
+    destino = None
+    if kind == "harvest":
+        harvest = ((inputs or {}).get("goal") or {}).get("harvest") or {}
+        externo = harvest.get("ad_group_id")
+        if externo is None:
+            raise ValueError(
+                f"harvest {decision_id} sin destino congelado (inputs.goal.harvest.ad_group_id)"
+            )
+        hallado = conn.execute(
+            "SELECT id FROM ad_entity WHERE platform = %s AND kind = 'ad_group'"
+            " AND external_id = %s",
+            (plataforma, str(externo)),
+        ).fetchone()
+        if hallado is None:
+            raise ValueError(f"destino {externo} del harvest {decision_id} no esta en ad_entity")
+        destino = censo_grupo(conn, plataforma=plataforma, ad_group_id=hallado[0])
+    return DecisionARevisar(
+        decision_id=decision_id,
+        termino=termino,
+        censo=censo_grupo(conn, plataforma=plataforma, ad_group_id=grupo_id),
+        plataforma=plataforma,
+        decided_at=decidida,
+        destino_censo=destino,
+    )
+
+
+def censo_de_plan(
+    conn: psycopg.Connection, *, plataforma: str, listing_ids: Iterable[int]
+) -> CensoCongelado:
+    """Universo del NUEVO plan de fabrica (R2, export 2.2): un miembro por
+    producto con los listings del plan, sin anuncios todavia. Es exhaustivo
+    porque el plan enumera sus productos. Un listing ajeno a la plataforma o
+    inexistente es ValueError (el export y la base no cuadran)."""
+    ids = sorted(set(listing_ids))
+    filas = conn.execute(
+        "SELECT id, product_id FROM listing WHERE id = ANY(%s) AND platform = %s",
+        (ids, plataforma),
+    ).fetchall()
+    faltan = sorted(set(ids) - {listing for listing, _ in filas})
+    if faltan:
+        raise ValueError(f"listings {faltan} del plan no estan en {plataforma}")
+    por_producto: dict[int, set[int]] = {}
+    for listing, producto in filas:
+        por_producto.setdefault(producto, set()).add(listing)
+    return CensoCongelado(
+        miembros=tuple(
+            MiembroCenso(anuncio_ids=(), producto_id=producto, listing_ids=frozenset(listings))
+            for producto, listings in sorted(por_producto.items())
+        ),
+        exhaustivo=True,
+    )
