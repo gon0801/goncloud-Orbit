@@ -1,0 +1,65 @@
+=== quality-kit cross-review.ps1 ===
+Repo: /Users/dn/dev/wt/jev-ads-worker
+CLI: auto
+Cadena auto: claude -> grok -> kimi -> qwen -> codex (excluido: glm, escribio el cambio)
+Alcance: bloque desde afc1f3b68715c5bf05bdf939eefc9a6683adc0cd hasta HEAD
+Archivos (pathspec de la tarea): app/jev_catalogo.py, migrations/
+Tamano del diff: 35847 caracteres
+Tope automatico para este diff (~36 KB): 1380 s. Usa -TimeoutSec para fijarlo a mano.
+
+==> AVISO: el diff es grande (35847 caracteres). Una revision asi cuesta del orden de 100-200k tokens y varios minutos. Si solo te interesa parte del cambio, acotalo con -Archivos <pathspecs> en vez de mandarlo entero.
+
+==> Invocando claude de forma no interactiva (tope: 1380 s)...
+
+=== Respuesta de claude (codigo de salida: 0) ===
+1. NO BLOQUEANTE - jev_par_evento_encadenado no compara ordinal y no hay unicidad sobre intencion_id, asi que una intencion admite dos resultados contradictorios y un resultado puede colgar de la intencion de otro intento. Pasos: INSERT intencion ordinal=1 (id A); INSERT resultado ordinal=1 con error e intencion_id=A; INSERT resultado ordinal=2 con respuesta e intencion_id=A; los tres pasan. Arreglo: exigir v_padre.ordinal = NEW.ordinal en el trigger.
+
+2. NO BLOQUEANTE - revocar_ficha traduce UniqueViolation a ValueError sin savepoint: con conexion no autocommit la transaccion queda abortada y lo hecho antes en ella se pierde. Envolver el INSERT en conn.transaction(). VERIFICAR: que la prueba de "segunda revocacion" no corra en autocommit, porque ahi no lo detecta.
+
+3. NO BLOQUEANTE - registrar_ficha devuelve ya_existia=True aunque la fila encontrada por hash este revocada. Pasos: registrar, revocar, registrar el mismo contenido; devuelve la revocada sin avisar y ficha_vigente da None. Por UNIQUE(sha256) ese contenido ya no se puede re-aprobar.
+
+4. NO BLOQUEANTE - registrar_ficha hace SELECT y luego INSERT sin ON CONFLICT (sha256): dos registros concurrentes del mismo contenido terminan en UniqueViolation crudo y transaccion abortada, no en idempotencia.
+
+5. NO BLOQUEANTE - una correccion no reemplaza a la version previa: ficha_vigente elige por observado_at DESC entre todas las no revocadas. La vieja sigue vigente para listings que la nueva ya no cubre, y gana si la correccion trae observado_at anterior. Con dos versiones en la misma transaccion created_at empata y el orden no es determinista. VERIFICAR contra el diseno si corregir obliga a revocar la anterior.
+
+6. NO BLOQUEANTE - JSON null pasa como valor presente: un resultado con respuesta 'null'::jsonb (lo que produce Json(None)) cuenta como exito en jev_par_discriminador y es reutilizable. Igual censos, contrato, plan_canonico y fuentes_semillas. Falta jsonb_typeof como si tiene hechos.
+
+7. NO BLOQUEANTE - jev_revision.ficha_version_ids solo valida NULL y duplicados, no existencia (INSERT con ARRAY[gen_random_uuid()] pasa). Tampoco se exige que jev_par_evento.ficha_version_id este entre las fichas congeladas de su revision.
+
+8. NO BLOQUEANTE - decided_at y captured_at son nullable y el trigger no muerde con NULL: entra una revision con censos congelados y sin captured_at, o de tipo decision sin decided_at. VERIFICAR contra el diseno si deben ser NOT NULL por sujeto.
+
+9. NO BLOQUEANTE - el encabezado de la migracion promete "decided_at/captured_at <= created_at", pero el trigger compara contra clock_timestamp() y permite captured_at > created_at. Corregir el encabezado para que nadie asuma ese orden al leer.
+
+10. NO BLOQUEANTE - la base acepta fichas que el lector no puede cargar: hechos solo exige ser arreglo (un elemento sin {texto, fuente} hace que ficha_vigente lance ValueError para ese listing hasta revocar). Un listings 2D como '{{1},{2}}' pasa CHECK y trigger y rompe frozenset. Tambien acepta hechos = [].
+
+11. NO BLOQUEANTE - typo persistido en el catalogo: COMMENT ON TABLE jev_ficha_version dice "jam el parecido de nombres" (falta "jamas"); la migracion no es re-runnable, conviene corregirlo antes de aplicarla.
+
+12. NO BLOQUEANTE - censo_grupo usa truthiness en "{listing_id} if listing_id else ()" y tres lineas abajo "is not None". Unificar a "is not None".
+
+13. NO BLOQUEANTE - censo_grupo devuelve un censo vacio si el ad group no existe o es de otra plataforma o kind, indistinguible de un grupo real sin anuncios. Tampoco valida plataforma contra _PLATAFORMAS como hace registrar_ficha.
+
+14. NO BLOQUEANTE - ficha_vigente (ahora) y revocar_ficha (fecha) no exigen datetime con zona como _utc_iso: un naive se interpreta con el TimeZone de la sesion. Ademas la fecha de revocacion no participa en la vigencia, asi que una fecha futura revoca de inmediato.
+
+15. NO BLOQUEANTE - reversa 0049: la guarda cuenta filas sin LOCK TABLE antes del DROP, y un INSERT confirmado entre ambos se destruye. El REVOKE ... FROM app_jev queda fuera del IF EXISTS y falla primero si el rol no existe.
+
+16. VERIFICAR: que el runner de migraciones excluya *_reversa_*. 0049_reversa_jev_ads.sql ordena justo despues de 0049_jev_ads.sql y con tablas vacias su guarda pasaria.
+
+17. VERIFICAR: que app_admin tenga SELECT sobre listing. jev_ficha_version_cobertura no es SECURITY DEFINER y corre como el invocador; sin ese grant registrar_ficha falla con permission denied, y la verificacion de la seccion 6 no lo cubre.
+
+18. VERIFICAR: que ad_entity_state tenga a lo sumo una fila por ad_entity_id. Si guarda historial, el LEFT JOIN duplica anuncios en anuncio_ids y estados.
+
+19. VERIFICAR: que las conexiones que llegan a este modulo usen la row_factory de tuplas por defecto. Con dict_row, _ficha_de_fila y el bucle del censo desempaquetarian nombres de columna sin error.
+
+20. VERIFICAR: que algun codigo del asesor lea product. Este diff no lo consulta y el GRANT SELECT ON product a app_jev sobraria por minimo privilegio.
+
+Sin bloqueantes. Las pruebas no vienen en el diff, asi que no pude evaluar si discriminan.
+
+
+=== stderr ===
+Permission allow rule (../../../.claude/settings.json): Write(/Users/dn/.local/state/**) is not matched by file permission checks — only Edit(path) rules are. Use Edit(/Users/dn/.local/state/**) instead (Edit rules cover all file-editing tools).
+Permission allow rule (../../../.claude/settings.json): Write(~/.claude/orchestrate/**) is not matched by file permission checks — only Edit(path) rules are. Use Edit(~/.claude/orchestrate/**) instead (Edit rules cover all file-editing tools).
+Permission allow rule (../../../.claude/settings.json): Write(~/.claude/projects/-Users-dn-dev-goncloud-Orbit/memory/**) is not matched by file permission checks — only Edit(path) rules are. Use Edit(~/.claude/projects/-Users-dn-dev-goncloud-Orbit/memory/**) instead (Edit rules cover all file-editing tools).
+Warning: claude.ai MCP servers blocked by enterprise policy: claude.ai Microsoft 365, claude.ai Notion, claude.ai Shopify, claude.ai Google Drive, claude.ai Gmail
+
+
+=== Revisor efectivo: claude (binario 'claude') ===

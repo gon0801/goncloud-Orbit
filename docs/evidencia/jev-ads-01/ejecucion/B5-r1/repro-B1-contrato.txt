@@ -1,0 +1,22 @@
+# B5-r1 repro B1.1: _abrir_revision no compara el contrato (misma solicitud, otro contrato, sin ValueError)
+Fecha: 2026-10-04T08:03:40Z HEAD: a47086651ceae2e055d842fc41bc07262b93e46e
+
+Sin mutante: el estado actual ya presenta el comportamiento reclamado. Script: repro_b1_contrato.py (base temporal con 0001+0004+0049, grupo de 2 anuncios con ficha)
+Comando: uv run --frozen python docs/evidencia/jev-ads-01/ejecucion/B5-r1/repro_b1_contrato.py
+
+evaluar 1 (contrato 1): (('soporte mesa', Indeterminado(motivos=frozenset({'universo_desconocido'}))),)
+evaluar 2 (contrato 1-OTRA, MISMA solicitud): (('soporte mesa', Indeterminado(motivos=frozenset({'universo_desconocido'}))),)
+>>> NO lanzo ValueError 'misma solicitud con otro payload'
+jev_revision.contrato->>'sha256' = 0fe322c8aa063997...
+jev_par_evento de ESA revision:
+  ordinal=1 tipo=intencion contrato=0fe322c8aa063997... exito=False
+  ordinal=1 tipo=resultado contrato=0fe322c8aa063997... exito=True
+  ordinal=1 tipo=intencion contrato=0fe322c8aa063997... exito=False
+  ordinal=1 tipo=resultado contrato=0fe322c8aa063997... exito=True
+  ordinal=1 tipo=intencion contrato=e6830e300bce76d1... exito=False
+  ordinal=1 tipo=resultado contrato=e6830e300bce76d1... exito=True
+  ordinal=1 tipo=intencion contrato=e6830e300bce76d1... exito=False
+  ordinal=1 tipo=resultado contrato=e6830e300bce76d1... exito=True
+contratos distintos en los eventos: 2; mezcla con la revision: True
+REPRODUCIDO: misma solicitud, dos contratos, sin ValueError y eventos mezclados
+exit=0

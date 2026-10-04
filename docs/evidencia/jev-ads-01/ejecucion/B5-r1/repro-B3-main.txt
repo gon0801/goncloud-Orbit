@@ -1,0 +1,12 @@
+# B5-r1 repro B3.1: tools/jev_ads.py sin bloque __main__ (mutante: ninguno, el estado actual ya es el bug)
+Fecha: 2026-10-04T08:00:45Z HEAD: a47086651ceae2e055d842fc41bc07262b93e46e
+
+$ env -u ORBIT_DSN_ADMIN uv run --frozen python -m tools.jev_ads evaluar --plataforma amazon_mx --grupo-id 1 --termino t --solicitud 00000000-0000-0000-0000-000000000001 --aplicar; echo "exit=$?"
+exit=0
+
+Esperado si el CLI funcionara: 'falta ORBIT_DSN_ADMIN' por stderr y exit 2. Observado: sin salida y exit 0 (no-op silencioso).
+
+grep -c __main__ tools/jev_ads.py ->
+0
+grep -n __main__ tools/jev_fichas.py ->
+184:if __name__ == "__main__":

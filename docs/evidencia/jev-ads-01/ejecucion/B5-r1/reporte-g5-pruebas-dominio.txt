@@ -1,0 +1,65 @@
+=== quality-kit cross-review.ps1 ===
+Repo: /Users/dn/dev/wt/jev-ads-worker
+CLI: auto
+Cadena auto: claude -> grok -> kimi -> qwen -> codex (excluido: glm, escribio el cambio)
+Alcance: bloque desde afc1f3b68715c5bf05bdf939eefc9a6683adc0cd hasta HEAD
+Archivos (pathspec de la tarea): tests/test_jev_ads.py, tests/test_jev_juicios.py
+Tamano del diff: 27652 caracteres
+Tope automatico para este diff (~28 KB): 1140 s. Usa -TimeoutSec para fijarlo a mano.
+
+==> AVISO: el diff es grande (27652 caracteres). Una revision asi cuesta del orden de 100-200k tokens y varios minutos. Si solo te interesa parte del cambio, acotalo con -Archivos <pathspecs> en vez de mandarlo entero.
+
+==> Invocando claude de forma no interactiva (tope: 1140 s)...
+
+=== Respuesta de claude (codigo de salida: 0) ===
+1. BLOQUEANTE - tests/test_jev_ads.py, test_modulo_puro_sin_red_ni_db_en_top_level: la guarda de imports anidados compara por igualdad exacta contra prohibidos_modulos y no mira los nombres importados, asi que deja pasar justo lo que dice prohibir. Reproduccion: en app/jev_ads.py, dentro de componer o de cualquier helper fuera de AsesorAds, agregar `from app import db` (o `import urllib.request`, `from urllib.request import urlopen`, `import psycopg.rows`, o a nivel modulo `try: import boto3`) y correr `pytest tests/test_jev_ads.py::test_modulo_puro_sin_red_ni_db_en_top_level -q`: sigue verde. Arreglo: comparar por prefijo, revisar tambien los alias de ImportFrom y aplicar la lista de permitidos a todo import fuera de AsesorAds, no solo a arbol.body.
+
+2. BLOQUEANTE - tests/test_jev_juicios.py, test_wire_lleva_solo_termino_y_ficha: verifica las claves de payload["state"] pero nunca el valor de payload["state"]["termino"], y ningun otro test del archivo lo mira. Reproduccion: en pedir_juicio mandar el termino vacio o normalizado (por ejemplo `termino.lower()` o `""`) y correr `pytest tests/test_jev_juicios.py -q`: sigue verde. Arreglo: `assert payload["state"]["termino"] == "soporte mesa"`.
+
+3. BLOQUEANTE - tests/test_jev_juicios.py, test_clave_estable_y_request_hash_con_mismo_contrato: la unica asercion sobre request_sha256 es f(x) == f(x), una tautologia. Reproduccion: cambiar el cuerpo de request_sha256 por `return "0" * 64` y correr `pytest tests/test_jev_juicios.py -q`: sigue verde. Arreglo: afirmar que cambia con otro termino, otra ficha y otro contrato. Si otro archivo fuera del diff ya lo cubre, baja a no bloqueante.
+
+4. NO BLOQUEANTE - test_los_estatos_de_fallo_no_contienen_secreto: solo cubre el camino timeout y solo los campos detalle y codigo; conviene parametrizar red, 5xx, redireccion y respuesta_invalida y revisar tambien repr(resultado). VERIFICAR: que esos caminos no interpolen str(exc), cuerpo ni headers en detalle. De paso, "estatos" es typo.
+
+5. NO BLOQUEANTE - test_redireccion_da_estado_visible_y_no_sigue: el transporte falso no puede seguir redirecciones, asi que "no sigue" no queda probado, y ningun test ejercita el transporte real por defecto. VERIFICAR: que el transporte real use follow_redirects=False y tenga prueba propia (por ejemplo con httpx.MockTransport), y que URL y nombres de campo (state, questions, criteria, answers, usage) coincidan con la evidencia real del proveedor.
+
+6. NO BLOQUEANTE - test_respuesta_invalida_da_estado_visible: faltan casos de validacion estricta.
+   - Probabilidad negativa que igual suma 1 (por ejemplo -0.2, 1.1, 0.1).
+   - Categoria extra en probabilities.
+   - Confidence negativa, NaN o no numerica.
+   - Choice que no es la categoria de mayor probabilidad.
+   - Cuerpo que no es JSON (el `_Respuesta.json` falso nunca lanza).
+   - Status 4xx (401, 429).
+
+7. NO BLOQUEANTE - test_contexto_excedido y test_ficha_grande: solo usan ASCII y tamanos muy por encima del limite, asi que no distinguen bytes de caracteres ni fijan la frontera. Agregar un caso multibyte ("ñ" repetida) y los casos limite y limite+1 con contrato.max_bytes_termino y max_bytes_ficha.
+
+8. NO BLOQUEANTE - test_orden_de_opciones_cambia_la_clave: invierte opciones y criterios a la vez, asi que pasa aunque el hash cubra solo uno de los dos. Separar en dos casos y agregar instrucciones y modelo.
+
+9. NO BLOQUEANTE - test_juicio_valido_con_decimales_y_usage: `juicio.clave.ficha_version_id is not None` es una asercion debil. Construir la ficha en el test y comparar `juicio.clave == clave_de(termino, ficha, contrato)`.
+
+10. NO BLOQUEANTE - tests/test_jev_ads.py, estados de anuncio: no hay caso de miembro con estados=() y juicio satisface, que es el positivo riesgoso. Tampoco hay caso con estado PAUSED.
+
+11. NO BLOQUEANTE - VERIFICAR: test_plan_sin_anuncios fija que un miembro con anuncio_ids=() permite NingunoCompatible. Confirmar que el constructor del censo desde anuncios reales nunca emite miembros sin anuncios, porque daria un negativo universal falso.
+
+12. NO BLOQUEANTE - VERIFICAR: test_ficha_de_otra_variante espera el motivo "ficha_ausente" aunque el miembro si tiene ficha F1 (el mismo censo sin pares da solo "juicio_ausente"). Confirmar contra el spec que un juicio huerfano deba reportarse asi y no con un motivo propio.
+
+13. NO BLOQUEANTE - test_miembro_sin_ficha_bloquea_y_juicio_ausente_se_reporta: el nombre dice que juicio_ausente se reporta, pero las dos aserciones exigen que NO aparezca. Renombrar.
+
+14. NO BLOQUEANTE - los cuatro `pytest.raises(ValueError)` no llevan `match`, asi que cualquier ValueError de otra validacion los pone verdes. Esto pesa mas en test_relacion_no_reconocida, donde tambien las claves de probabilidades son invalidas.
+
+15. NO BLOQUEANTE - test_regla_asin_like_coincide_con_fabrica_plan: falta una muestra que empiece con ASIN y siga con texto ("B0CX4ABCD9 rojo") y otra con espacios alrededor, que es donde match y fullmatch difieren. VERIFICAR: que PATRON_ASIN este anclado al final.
+
+16. NO BLOQUEANTE - helper `_juicio`: las probabilidades son fijas (satisface 0.70) aunque la relacion sea no_satisface o informacion_insuficiente. Derivarlas de la relacion para que el fixture sea coherente.
+
+17. NO BLOQUEANTE - VERIFICAR: test_leer_api_key_sin_variable reemplaza DEFAULT_SECRETS_DIR por una ruta absoluta, asi que no detecta si el valor real en app/ads/config.py es relativo (dependeria del cwd). Confirmar que es absoluto.
+
+18. NO BLOQUEANTE - VERIFICAR: en test_un_compatible_con_hueco el HayCompatible esperado solo lleva conteos (2 de 3). Un censo no exhaustivo con todos sus miembros juzgados quedaria indistinguible de uno exhaustivo; confirmar contra el spec si "la limitacion viaja en el resultado" exige marcar el universo desconocido.
+
+
+=== stderr ===
+Permission allow rule (../../../.claude/settings.json): Write(/Users/dn/.local/state/**) is not matched by file permission checks — only Edit(path) rules are. Use Edit(/Users/dn/.local/state/**) instead (Edit rules cover all file-editing tools).
+Permission allow rule (../../../.claude/settings.json): Write(~/.claude/orchestrate/**) is not matched by file permission checks — only Edit(path) rules are. Use Edit(~/.claude/orchestrate/**) instead (Edit rules cover all file-editing tools).
+Permission allow rule (../../../.claude/settings.json): Write(~/.claude/projects/-Users-dn-dev-goncloud-Orbit/memory/**) is not matched by file permission checks — only Edit(path) rules are. Use Edit(~/.claude/projects/-Users-dn-dev-goncloud-Orbit/memory/**) instead (Edit rules cover all file-editing tools).
+Warning: claude.ai MCP servers blocked by enterprise policy: claude.ai Microsoft 365, claude.ai Notion, claude.ai Shopify, claude.ai Google Drive, claude.ai Gmail
+
+
+=== Revisor efectivo: claude (binario 'claude') ===

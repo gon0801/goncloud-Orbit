@@ -1,0 +1,11 @@
+# B5-r1 repro B5.3: test_clave_estable_y_request_hash_con_mismo_contrato es tautologico (f(x)==f(x))
+Fecha: 2026-10-04T08:01:40Z HEAD: a47086651ceae2e055d842fc41bc07262b93e46e
+
+Mutante (revertido despues de la corrida): request_sha256 devuelve '0'*64 constante
+Comando: uv run --frozen python -m pytest tests/test_jev_juicios.py -q
+Esperado si el test discriminara: al menos 1 failed (hash constante). Observado:
+
+..........................                                               [100%]
+26 passed in 0.07s
+
+Nota: grep de request_sha256 en tests/ -> solo test_jev_juicios.py importa la funcion (los otros usos son literales SQL de columna en test_jev_catalogo). Ningun otro test la cubre con valores reales.
