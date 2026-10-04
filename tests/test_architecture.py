@@ -45,6 +45,14 @@ MAX_LINEAS_MODULO = 900
 # path relativo (posix) -> razon escrita. Sacar una entrada exige que el
 # modulo haya bajado del umbral; agregarla exige razon y review.
 ALLOWLIST_TAMANO = {
+    "app/jev_ads.py": (
+        "JEV ADS 01: el plan venda las tres capas del asesor a UN modulo "
+        "(tipos+componer puro (1.1), asesor evaluar (1.4) y lectura de "
+        "revisiones (2.1)); partirlo por fronteras diferentes romperia la "
+        "cohesion del dominio y el candado AST de pureza ya acota la IO a "
+        "AsesorAds. Candidato DECLARADO a partirse (dominio/asesor/lectura) "
+        "la proxima vez que se toque en grande"
+    ),
     "app/ads/reports.py": (
         "pipeline compartido de reporting v3 (metricas + search terms + "
         "fusion de grano); candidato DECLARADO a partirse en "
