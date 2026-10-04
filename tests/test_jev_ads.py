@@ -26,6 +26,7 @@ import pytest
 from app.jev_ads import (
     CensoCongelado,
     ClavePar,
+    EstadoAnuncio,
     FalloProveedor,
     FichaFaltante,
     HayCompatible,
@@ -72,11 +73,17 @@ def _miembro(
     *,
     anuncios: tuple[int, ...] = (1,),
     listings: frozenset[int] = frozenset({1}),
+    estados: tuple[EstadoAnuncio, ...] | None = None,
 ) -> MiembroCenso:
+    """Por defecto el miembro trae estado activo conocido (ENABLED): los
+    tests que prueban estados especiales los pasan explicitos."""
+    if estados is None:
+        estados = tuple(EstadoAnuncio("ENABLED", OBS) for _ in anuncios)
     return MiembroCenso(
         anuncio_ids=anuncios,
         producto_id=producto_id,
         listing_ids=listings,
+        estados=estados,
         ficha_version_id=ficha,
     )
 
@@ -174,6 +181,7 @@ def test_fallo_proveedor_da_indeterminado_y_no_incompatibilidad():
 def test_asin_like_no_entra_al_clasificador():
     assert es_asin_like("B0CX4ABCD9")
     assert es_asin_like("b0cx4abcd9")
+    assert not es_asin_like("kit b0abcdefgh rojo")
     assert not es_asin_like("soporte para mesa de aluminio")
     assert not es_asin_like("1234567890")
     assert not es_asin_like("ABCDEFGHIJ")
@@ -185,9 +193,97 @@ def test_asin_like_no_entra_al_clasificador():
 def test_regla_asin_like_coincide_con_fabrica_plan():
     from app.fabrica_plan import PATRON_ASIN
 
-    muestras = ("B0CX4ABCD9", "b0cx4abcd9", "soporte para mesa", "1234567890", "ABCDEFGHIJ")
+    muestras = (
+        "B0CX4ABCD9",
+        "b0cx4abcd9",
+        "kit b0abcdefgh rojo",
+        "soporte para mesa",
+        "1234567890",
+        "ABCDEFGHIJ",
+    )
     for muestra in muestras:
         assert es_asin_like(muestra) == bool(PATRON_ASIN.match(muestra)), muestra
+
+
+# ---------------------------------------------------------------------------
+# Estado del anuncio en la composicion (regresion VEREDICTO-B2-r1 B1)
+# ---------------------------------------------------------------------------
+
+
+def test_anuncio_archived_no_acredita_compatible():
+    censo = CensoCongelado(
+        miembros=(_miembro(11, F1, estados=(EstadoAnuncio("ARCHIVED", OBS),)),),
+        exhaustivo=True,
+    )
+    resultado = componer(censo, (_juicio(F1, "satisface"),))
+    assert resultado == Indeterminado(frozenset({"no_anunciado"}))
+
+
+def test_todos_los_anuncios_archived_no_da_ninguno_compatible():
+    censo = CensoCongelado(
+        miembros=(_miembro(11, F1, estados=(EstadoAnuncio("ARCHIVED", OBS),)),),
+        exhaustivo=True,
+    )
+    resultado = componer(censo, (_juicio(F1, "no_satisface"),))
+    assert resultado == Indeterminado(frozenset({"no_anunciado"}))
+
+
+def test_estado_ausente_bloquea_negativo_universal_y_no_el_compatible():
+    censo_negativo = CensoCongelado(
+        miembros=(_miembro(11, F1, estados=()),),
+        exhaustivo=True,
+    )
+    assert componer(censo_negativo, (_juicio(F1, "no_satisface"),)) == Indeterminado(
+        frozenset({"missing_state"})
+    )
+    censo_mixto = CensoCongelado(
+        miembros=(
+            _miembro(11, F1),
+            _miembro(12, F2, estados=()),
+        ),
+        exhaustivo=True,
+    )
+    pares = (_juicio(F1, "satisface"), _juicio(F2, "no_satisface"))
+    assert componer(censo_mixto, pares) == HayCompatible(
+        producto_ids=(11,),
+        miembros_con_juicio=2,
+        miembros_totales=2,
+    )
+
+
+def test_anuncio_mixto_archived_y_activo_cuenta_como_anunciado():
+    censo = CensoCongelado(
+        miembros=(
+            _miembro(
+                11,
+                F1,
+                estados=(
+                    EstadoAnuncio("ARCHIVED", OBS),
+                    EstadoAnuncio("ENABLED", OBS),
+                ),
+                anuncios=(1, 2),
+            ),
+        ),
+        exhaustivo=True,
+    )
+    assert componer(censo, (_juicio(F1, "no_satisface"),)) == NingunoCompatible(miembros_totales=1)
+
+
+def test_estados_no_paralelos_a_anuncios_es_error_estructural():
+    roto = CensoCongelado(
+        miembros=(
+            MiembroCenso(
+                anuncio_ids=(1, 2),
+                producto_id=11,
+                listing_ids=frozenset({1}),
+                estados=(EstadoAnuncio("ENABLED", OBS),),
+                ficha_version_id=F1,
+            ),
+        ),
+        exhaustivo=True,
+    )
+    with pytest.raises(ValueError):
+        componer(roto, ())
 
 
 # ---------------------------------------------------------------------------

@@ -214,17 +214,24 @@ COMMENT ON COLUMN jev_revision.ficha_version_ids IS
   'Versiones exactas de ficha usadas por la revision. Nunca se buscan '
   'exitos posteriores para mejorar una revision antigua.';
 
--- Reglas temporales de la revision en TRIGGER con UTC fijado: nada
--- decidido ni capturado despues de que la revision exista.
+-- Reglas temporales de la revision en TRIGGER con UTC fijado: nada puede
+-- ser posterior a la INSERCION REAL (clock_timestamp(), no now(): el
+-- DEFAULT now() de created_at fija el inicio de la transaccion y una
+-- captura de censo dentro de la misma tx — flujo del diseno: BEGIN, leer
+-- censo, captured_at, INSERT antes del primer HTTP — es posterior a ese
+-- inicio y anterior al INSERT; comparar contra now() rechazaria revisiones
+-- validas). created_at en el futuro se rechaza igual.
 CREATE FUNCTION jev_revision_tiempos() RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = pg_catalog, public
 SET TimeZone = 'UTC'
 AS $$
 BEGIN
-    IF NEW.captured_at > NEW.created_at OR NEW.decided_at > NEW.created_at THEN
+    IF NEW.created_at > clock_timestamp()
+       OR NEW.captured_at > clock_timestamp()
+       OR NEW.decided_at > clock_timestamp() THEN
         RAISE EXCEPTION
-            'jev_revision: decided_at/captured_at posteriores a created_at'
+            'jev_revision: decided_at/captured_at/created_at posteriores a la insercion'
             USING ERRCODE = 'check_violation';
     END IF;
     IF EXISTS (SELECT 1 FROM unnest(NEW.ficha_version_ids) AS x WHERE x IS NULL)

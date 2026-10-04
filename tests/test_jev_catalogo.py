@@ -116,7 +116,7 @@ def test_migracion_trae_append_only_y_triggers():
     assert "jev_revision_tiempos" in SQL49
     assert "jev_par_evento_encadenado" in SQL49
     assert "revisar_antes_de < NEW.observado_at" in SQL49
-    assert "captured_at > NEW.created_at" in SQL49
+    assert "NEW.captured_at > clock_timestamp()" in SQL49
 
 
 # ---------------------------------------------------------------------------
@@ -431,13 +431,17 @@ def test_reglas_temporales_y_cobertura_en_triggers():
         # Duplicados en listings.
         with pytest.raises(psycopg.errors.CheckViolation):
             _ficha(conn, producto, (listing, listing))
-        # Revision con captured_at posterior a created_at.
+        # Regla temporal: nada posterior a la INSERCION REAL
+        # (clock_timestamp; created_at DEFAULT now() fija el inicio de la
+        # transaccion, y una captura dentro de la misma tx es valida).
+        _revision(
+            conn,
+            created_at="2026-10-03 12:00:00+00",
+            captured_at="2026-10-03 13:00:00+00",
+        )
+        futuro = (datetime.now(UTC) + timedelta(days=1)).isoformat()
         with pytest.raises(psycopg.errors.CheckViolation):
-            _revision(
-                conn,
-                created_at="2026-10-03 12:00:00+00",
-                captured_at="2026-10-03 13:00:00+00",
-            )
+            _revision(conn, captured_at=futuro)
         # Los tiempos guardados vienen en UTC.
         fid = _ficha(conn, producto, (listing,))
         creado = conn.execute(
@@ -571,6 +575,97 @@ def test_lookup_de_ficha_vigente_por_ids():
             )
             is None
         )
+
+
+@_skip_db
+def test_captura_dentro_de_la_transaccion_se_acepta_y_futura_se_rechaza():
+    """Regresion VEREDICTO-B2-r1 B2: el flujo del diseno (snapshot
+    REPEATABLE READ: BEGIN, leer censo, captured_at, INSERT de la revision
+    antes del primer HTTP) produce captured_at posterior al now() del BEGIN
+    y anterior a la insercion real; el trigger lo debe aceptar. Una
+    captured_at futura de verdad se sigue rechazando."""
+    import time
+
+    with db_jev() as conn:
+        with conn.transaction():
+            conn.execute("SELECT 1")
+            time.sleep(0.05)
+            captura = datetime.now(UTC).isoformat()
+            _revision(conn, captured_at=captura)
+        futuro = (datetime.now(UTC) + timedelta(days=1)).isoformat()
+        with pytest.raises(psycopg.errors.CheckViolation):
+            _revision(conn, captured_at=futuro)
+
+
+@_skip_db
+def test_censo_lleva_estado_y_archived_no_acredita_compatible():
+    """Regresion VEREDICTO-B2-r1 B1: el censo conserva status/synced_at por
+    anuncio (LEFT JOIN a ad_entity_state) y componer excluye al producto
+    cuyo unico anuncio esta ARCHIVED: su satisface jamas produce
+    HayCompatible."""
+    with db_jev() as conn:
+        x = _producto(conn, "X")
+        listing_x = _listing(conn, x, asin="B0XXXXXXX1")
+        y = _producto(conn, "Y")
+        listing_y = _listing(conn, y, asin="B0YYYYYYY1")
+        grupo = _grupo(conn, "amazon_mx", (listing_x, listing_y))
+        for i, status in ((0, "ARCHIVED"), (1, "ENABLED")):
+            conn.execute(
+                "INSERT INTO ad_entity_state (ad_entity_id, status, synced_at)"
+                " VALUES ((SELECT id FROM ad_entity WHERE external_id = %s), %s, now())",
+                (f"ad-{grupo}-{i}", status),
+            )
+        censo = censo_grupo(conn, plataforma="amazon_mx", ad_group_id=grupo)
+        por_producto = {m.producto_id: m for m in censo.miembros}
+        assert [e.status for e in por_producto[x].estados] == ["ARCHIVED"]
+        assert por_producto[x].estados[0].synced_at is not None
+        assert [e.status for e in por_producto[y].estados] == ["ENABLED"]
+        ficha_x, ficha_y = uuid.uuid4(), uuid.uuid4()
+        miembros = tuple(
+            MiembroCenso(
+                anuncio_ids=m.anuncio_ids,
+                producto_id=m.producto_id,
+                listing_ids=m.listing_ids,
+                estados=m.estados,
+                ficha_version_id=ficha_x if m.producto_id == x else ficha_y,
+            )
+            for m in censo.miembros
+        )
+        congelado = CensoCongelado(miembros=miembros, exhaustivo=censo.exhaustivo)
+        juicio_x = Juicio(
+            intento_id=uuid.uuid4(),
+            clave=ClavePar(
+                termino_literal_sha256="a" * 64,
+                ficha_version_id=ficha_x,
+                contrato_sha256="b" * 64,
+            ),
+            relacion="satisface",
+            probabilidades={
+                "satisface": Decimal("0.80"),
+                "no_satisface": Decimal("0.10"),
+                "informacion_insuficiente": Decimal("0.10"),
+            },
+            confidence=Decimal("0.90"),
+            observado_at=AHORA,
+        )
+        juicio_y = Juicio(
+            intento_id=uuid.uuid4(),
+            clave=ClavePar(
+                termino_literal_sha256="a" * 64,
+                ficha_version_id=ficha_y,
+                contrato_sha256="b" * 64,
+            ),
+            relacion="no_satisface",
+            probabilidades={
+                "satisface": Decimal("0.10"),
+                "no_satisface": Decimal("0.80"),
+                "informacion_insuficiente": Decimal("0.10"),
+            },
+            confidence=Decimal("0.90"),
+            observado_at=AHORA,
+        )
+        resultado = componer(congelado, (juicio_x, juicio_y))
+        assert resultado == Indeterminado(frozenset({"no_anunciado", "universo_desconocido"}))
 
 
 @_skip_db

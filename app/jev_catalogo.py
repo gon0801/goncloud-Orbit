@@ -4,11 +4,12 @@ JEV ADS 01 (1.2). Adaptador de DB para los tipos puros de `app/jev_ads.py`.
 El producto se resuelve por IDs, jamas por parecido entre nombres (diseno
 "Catalogo y reglas de composicion").
 
-- El censo parte de `ad_group -> product_ad` con LEFT JOIN a `listing` y
-  conserva los faltantes: un anuncio sin listing sigue en el censo (con
-  producto sin resolver) y jamas puede declarar incompatible a todo el
-  grupo. `ad_entity_state` NO entra a proposito: el censo no filtra por
-  estado, asi el estado ausente o incierto no puede descartar un anuncio.
+- El censo parte de `ad_group -> product_ad` con LEFT JOIN a
+  `ad_entity_state` y `listing` y conserva los faltantes: un anuncio sin
+  listing sigue en el censo (con producto sin resolver), un anuncio sin
+  fila de estado conserva `status`/`synced_at` en None, y NINGUNO se
+  descarta por su estado (la exclusion del ARCHIVED es regla de
+  composicion en `app.jev_ads.componer`, no del censo).
 - El universo de grupos Amazon es `desconocido` en V1: `censo_grupo`
   entrega `exhaustivo=False` SIEMPRE (E/0.2: el sincronizador no prueba
   exhaustividad; produccion tiene listings faltantes 1/33 MX y 24/48 US).
@@ -31,7 +32,13 @@ from uuid import UUID, uuid4
 import psycopg
 from psycopg.types.json import Json
 
-from app.jev_ads import CensoCongelado, FichaVersion, HechoConFuente, MiembroCenso
+from app.jev_ads import (
+    CensoCongelado,
+    EstadoAnuncio,
+    FichaVersion,
+    HechoConFuente,
+    MiembroCenso,
+)
 
 _PLATAFORMAS = ("amazon_mx", "amazon_us")
 
@@ -244,11 +251,12 @@ def censo_grupo(conn: psycopg.Connection, *, plataforma: str, ad_group_id: int) 
     sale por IDs (FK de listing), jamas por parecido de nombres.
     """
     filas = conn.execute(
-        "SELECT pa.id AS anuncio_id, pa.listing_id, l.product_id"
+        "SELECT pa.id AS anuncio_id, pa.listing_id, l.product_id, s.status, s.synced_at"
         "  FROM ad_entity ag"
         "  JOIN ad_entity pa"
         "    ON pa.platform = ag.platform AND pa.kind = 'product_ad'"
         "   AND pa.parent_id = ag.id"
+        "  LEFT JOIN ad_entity_state s ON s.ad_entity_id = pa.id"
         "  LEFT JOIN listing l ON l.id = pa.listing_id AND l.platform = pa.platform"
         " WHERE ag.id = %s AND ag.kind = 'ad_group' AND ag.platform = %s"
         " ORDER BY pa.id",
@@ -256,25 +264,30 @@ def censo_grupo(conn: psycopg.Connection, *, plataforma: str, ad_group_id: int) 
     ).fetchall()
     anuncios_por_producto: dict[int, list[int]] = {}
     listings_por_producto: dict[int, set[int]] = {}
+    estados_por_producto: dict[int, list[EstadoAnuncio]] = {}
     sueltos: list[MiembroCenso] = []
-    for anuncio_id, listing_id, producto_id in filas:
+    for anuncio_id, listing_id, producto_id, status, synced_at in filas:
+        estado = EstadoAnuncio(status=status, synced_at=synced_at)
         if producto_id is None:
             sueltos.append(
                 MiembroCenso(
                     anuncio_ids=(anuncio_id,),
                     producto_id=None,
                     listing_ids=frozenset({listing_id} if listing_id else ()),
+                    estados=(estado,),
                 )
             )
             continue
         anuncios_por_producto.setdefault(producto_id, []).append(anuncio_id)
         if listing_id is not None:
             listings_por_producto.setdefault(producto_id, set()).add(listing_id)
+        estados_por_producto.setdefault(producto_id, []).append(estado)
     miembros = [
         MiembroCenso(
             anuncio_ids=tuple(anuncios_por_producto[producto_id]),
             producto_id=producto_id,
             listing_ids=frozenset(listings_por_producto.get(producto_id, ())),
+            estados=tuple(estados_por_producto[producto_id]),
         )
         for producto_id in sorted(anuncios_por_producto)
     ]

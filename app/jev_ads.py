@@ -45,6 +45,8 @@ MotivoIndeterminado = Literal[
     "universo_vacio",
     "fallo_proveedor",
     "texto_no_aplica",
+    "no_anunciado",
+    "missing_state",
 ]
 MotivoNoAplica = Literal["asin_like"]
 
@@ -140,16 +142,33 @@ class FalloProveedor:
 
 EstadoPar = Juicio | FichaFaltante | NoAplicaTexto | FalloProveedor
 
+# Estado conocido activo: solo estos cuentan como anunciado (spec: el censo
+# observa ENABLED/PAUSED; ARCHIVED conocido no se anuncia). Estado ausente no
+# descarta (conserva como incidencia missing_state), no activa.
+ESTADOS_ACTIVOS = frozenset({"ENABLED", "PAUSED"})
+
+
+@dataclass(frozen=True)
+class EstadoAnuncio:
+    """Estado del anuncio observado (ad_entity_state). status None = estado
+    ausente; se conserva y se reporta como incidencia, jamas se descarta."""
+
+    status: str | None = None
+    synced_at: datetime | None = None
+
 
 @dataclass(frozen=True)
 class MiembroCenso:
     """Miembro del universo congelado. La identidad de cada anuncio se
     conserva ANTES de deduplicar productos. `producto_id` None = anuncio sin
-    listing resuelto; se conserva y no acredita ficha jamas."""
+    listing resuelto; se conserva y no acredita ficha jamas. `estados` es
+    paralelo a `anuncio_ids` (misma longitud, mismo orden; vacio = sin dato
+    de estado)."""
 
     anuncio_ids: tuple[int, ...]
     producto_id: int | None
     listing_ids: frozenset[int]
+    estados: tuple[EstadoAnuncio, ...] = ()
     ficha_version_id: UUID | None = None
 
 
@@ -213,6 +232,37 @@ class NoComprobable:
 Vigencia = Vigente | Obsoleta | NoComprobable
 
 
+def _solo_no_activo(estados: tuple[EstadoAnuncio, ...]) -> bool:
+    """True si todos los estados son CONOCIDOS y ninguno activo (p. ej. un
+    unico anuncio ARCHIVED). Estado ausente no excluye: es missing_state."""
+    return bool(estados) and all(
+        estado.status is not None and estado.status not in ESTADOS_ACTIVOS for estado in estados
+    )
+
+
+def _con_estado_ausente(estados: tuple[EstadoAnuncio, ...]) -> bool:
+    return not estados or any(estado.status is None for estado in estados)
+
+
+def _universo_anunciado(
+    censo: CensoCongelado,
+) -> tuple[tuple[MiembroCenso, ...], set[UUID]]:
+    """Universo anunciado (sin los solo-no-activos) y las fichas excluidas.
+
+    Valida la paralelidad estados/anuncio_ids; los demas errores
+    estructurales los valida componer al indexar fichas.
+    """
+    if any(len(miembro.estados) not in (0, len(miembro.anuncio_ids)) for miembro in censo.miembros):
+        raise ValueError("censo con estados no paralelos a anuncio_ids")
+    excluidas = {
+        miembro.ficha_version_id
+        for miembro in censo.miembros
+        if miembro.ficha_version_id is not None and _solo_no_activo(miembro.estados)
+    }
+    universo = tuple(miembro for miembro in censo.miembros if not _solo_no_activo(miembro.estados))
+    return universo, excluidas
+
+
 def componer(censo: CensoCongelado, pares: tuple[EstadoPar, ...]) -> RelevanciaConjunto:
     """Aplica las reglas de composicion del diseno. Determinista y sin IO.
 
@@ -221,12 +271,21 @@ def componer(censo: CensoCongelado, pares: tuple[EstadoPar, ...]) -> RelevanciaC
     Un miembro con ficha pero sin par aporta motivo `juicio_ausente`; con
     par informacion_insuficiente aporta `juicio_insuficiente`.
 
-    Un censo con la misma ficha en dos miembros (o un miembro con ficha y sin
-    producto) es error estructural del llamador y levanta ValueError.
+    El universo se interpreta sobre el ESTADO observado: un miembro cuyos
+    anuncios tienen todos estado conocido no activo (ARCHIVED) no cuenta
+    como anunciado: se excluye del universo (motivo `no_anunciado`) y su
+    juicio no acredita compatibilidad. El estado ausente NO excluye: se
+    conserva como incidencia `missing_state` que impide el negativo
+    universal. La cobertura viaja sobre el universo anunciado.
+
+    Un censo con la misma ficha en dos miembros, un miembro con ficha y sin
+    producto, o `estados` no paralelo a `anuncio_ids` es error estructural
+    del llamador y levanta ValueError.
     """
-    total = len(censo.miembros)
+    universo, excluidas_fichas = _universo_anunciado(censo)
+    total = len(universo)
     por_ficha: dict[UUID, MiembroCenso] = {}
-    for miembro in censo.miembros:
+    for miembro in universo:
         if miembro.ficha_version_id is None:
             continue
         if miembro.ficha_version_id in por_ficha:
@@ -236,11 +295,16 @@ def componer(censo: CensoCongelado, pares: tuple[EstadoPar, ...]) -> RelevanciaC
         por_ficha[miembro.ficha_version_id] = miembro
 
     motivos: set[MotivoIndeterminado] = set()
-    if total == 0:
+    if not censo.miembros:
         motivos.add("universo_vacio")
-    elif not censo.exhaustivo:
-        motivos.add("universo_desconocido")
-    if any(m.ficha_version_id is None for m in censo.miembros):
+    else:
+        if total == 0 or total < len(censo.miembros):
+            motivos.add("no_anunciado")
+        if not censo.exhaustivo:
+            motivos.add("universo_desconocido")
+    if any(_con_estado_ausente(miembro.estados) for miembro in universo):
+        motivos.add("missing_state")
+    if any(miembro.ficha_version_id is None for miembro in universo):
         motivos.add("ficha_ausente")
 
     compatibles: list[int] = []
@@ -257,7 +321,10 @@ def componer(censo: CensoCongelado, pares: tuple[EstadoPar, ...]) -> RelevanciaC
             continue
         miembro = por_ficha.get(par.clave.ficha_version_id)
         if miembro is None:
-            motivos.add("ficha_ausente")
+            if par.clave.ficha_version_id in excluidas_fichas:
+                motivos.add("no_anunciado")
+            else:
+                motivos.add("ficha_ausente")
             continue
         if par.clave.ficha_version_id in juzgados:
             raise ValueError("dos juicios para la misma ficha")
@@ -267,7 +334,7 @@ def componer(censo: CensoCongelado, pares: tuple[EstadoPar, ...]) -> RelevanciaC
         elif par.relacion == "informacion_insuficiente":
             motivos.add("juicio_insuficiente")
 
-    miembros_con_ficha = sum(1 for m in censo.miembros if m.ficha_version_id is not None)
+    miembros_con_ficha = sum(1 for m in universo if m.ficha_version_id is not None)
     if len(juzgados) < miembros_con_ficha:
         motivos.add("juicio_ausente")
 
