@@ -6,6 +6,7 @@
 # git archive, md5, digest antes/despues y health.
 # Uso: cd ~/dev/goncloud-Orbit && bash docs/evidencia/jev-ads-01/ejecucion/2.3/desplegar.sh <sha-de-origin/master>
 set -euo pipefail
+trap 'echo "FALLO en la linea $LINENO. Si ya se aplicaron migraciones: bash $DIR/rollback.sh $STAMP (o --solo-esquema si el codigo no se copio)"' ERR
 
 APROBADO=${1:?uso: desplegar.sh <sha de origin/master con CI verde>}
 REPO=$(git rev-parse --show-toplevel)
@@ -35,7 +36,12 @@ SQL
 echo "$R"
 [ "$R" = "ok|0|f|0|0" ] || { echo "ABORTA: preflight no es ok|0|f|0|0"; exit 1; }
 
-echo "== 2) Backup del esquema (staging + verificacion)"
+echo "== 2) Respaldo del codigo actual y del SHA (antes de tocar la base: toda reversa lo encuentra)"
+ssh goncloud "set -e; cd $SRV; mkdir -p predeploy-$STAMP; \
+  cp -a app Dockerfile .dockerignore pyproject.toml uv.lock tools predeploy-$STAMP/; \
+  echo $APROBADO > predeploy-$STAMP/SHA; ls predeploy-$STAMP"
+
+echo "== 3) Backup del esquema (staging + verificacion)"
 ssh goncloud "set -e; D=$SRV/backups; TMP=\"\$D/.pre0049_0050_schema_$STAMP.sql.tmp\"; \
   docker exec orbit-db-1 pg_dump -U orbit -d orbit --schema-only > \"\$TMP\"; \
   [ -s \"\$TMP\" ] && grep -q 'CREATE TABLE public.decision ' \"\$TMP\" \
@@ -44,23 +50,19 @@ ssh goncloud "set -e; D=$SRV/backups; TMP=\"\$D/.pre0049_0050_schema_$STAMP.sql.
   chmod 600 \"\$TMP\"; mv \"\$TMP\" \"\$D/pre0049_0050_schema_$STAMP.sql\"; \
   ls -l \"\$D/pre0049_0050_schema_$STAMP.sql\""
 
-echo "== 3) Migracion 0049 (catalogo, revisiones, eventos, app_jev)"
+echo "== 4) Migracion 0049 (catalogo, revisiones, eventos, app_jev)"
 git show "$APROBADO:migrations/0049_jev_ads.sql" \
   | ssh goncloud 'docker exec -i orbit-db-1 psql -U orbit -d orbit -v ON_ERROR_STOP=1 -1'
 
-echo "== 4) Migracion 0050 (created_at = insercion real)"
+echo "== 5) Migracion 0050 (created_at = insercion real)"
 git show "$APROBADO:migrations/0050_jev_revision_created_at.sql" \
   | ssh goncloud 'docker exec -i orbit-db-1 psql -U orbit -d orbit -v ON_ERROR_STOP=1 -1'
 
-echo "== 5) Permisos y esquema Jev (esperado: permisos OK)"
+echo "== 6) Permisos y esquema Jev (esperado: permisos OK)"
 R=$(git show "$APROBADO:$DIR/permisos.sql" \
   | ssh goncloud 'docker exec -i orbit-db-1 psql -U orbit -d orbit -v ON_ERROR_STOP=1 -tA')
 echo "$R"
 [ "$R" = "permisos OK" ] || { echo "ABORTA antes del codigo: $R. Reversa: bash $DIR/rollback.sh $STAMP --solo-esquema"; exit 1; }
-
-echo "== 6) Respaldo del codigo actual"
-ssh goncloud "set -e; cd $SRV; mkdir -p predeploy-$STAMP; \
-  cp -a app Dockerfile .dockerignore pyproject.toml uv.lock tools predeploy-$STAMP/; ls predeploy-$STAMP"
 
 echo "== 7) Copiar el codigo del SHA aprobado (git archive, LF)"
 git archive --format=tar "$APROBADO" app Dockerfile .dockerignore pyproject.toml uv.lock \
@@ -68,9 +70,10 @@ git archive --format=tar "$APROBADO" app Dockerfile .dockerignore pyproject.toml
   | ssh goncloud "cd $SRV && tar -xf -"
 
 echo "== 8) md5 server vs SHA aprobado"
+md5_de() { if command -v md5 >/dev/null; then md5 -q; else md5sum | cut -d' ' -f1; fi; }
 for f in Dockerfile app/jev_ads.py app/jev_catalogo.py app/jev_juicios.py app/api_dashboard.py \
          app/api_fabrica.py app/cycle.py tools/jev_ads.py tools/jev_fichas.py; do
-  local_md5=$(git show "$APROBADO:$f" | md5 -q)
+  local_md5=$(git show "$APROBADO:$f" | md5_de)
   srv_md5=$(ssh goncloud "md5sum $SRV/$f" | cut -d' ' -f1)
   [ "$local_md5" = "$srv_md5" ] || { echo "ABORTA: md5 distinto en $f"; exit 1; }
   echo "md5 OK $f"

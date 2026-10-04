@@ -30,7 +30,7 @@ revisa "asesorias no nulas en cortes (sin revisiones aun)" 0 \
 revisa "GET /api/fabrica/asesoria/<64 ceros>" 404 \
   "$(ssh goncloud 'curl -s -o /dev/null -w %{http_code} http://127.0.0.1:8010/api/fabrica/asesoria/0000000000000000000000000000000000000000000000000000000000000000')"
 revisa "logs 'asesoria Jev ilegible' desde el deploy" 0 \
-  "$(ssh goncloud "docker logs orbit-app-1 --since $DESDE 2>&1 | grep -c 'asesoria Jev ilegible'")"
+  "$(ssh goncloud "L=\$(docker logs orbit-app-1 --since $DESDE 2>&1) || { echo 'docker logs fallo'; exit 0; }; printf '%s\n' \"\$L\" | grep -c 'asesoria Jev ilegible'")"
 
 echo "== 2) CLI dentro del contenedor, sin credenciales"
 ssh goncloud 'docker exec orbit-app-1 env -u ORBIT_DSN_ADMIN python -m tools.jev_ads evaluar --plataforma amazon_mx --grupo-id 1 --termino t --solicitud 00000000-0000-0000-0000-000000000001 --aplicar' 2>&1 | tail -1
@@ -50,8 +50,10 @@ revisa "filas Jev (fichas|revocaciones|revisiones|eventos)" "0|0|0|0" \
   "$(echo "SELECT (SELECT count(*) FROM jev_ficha_version), (SELECT count(*) FROM jev_ficha_revocacion), (SELECT count(*) FROM jev_revision), (SELECT count(*) FROM jev_par_evento);" | lee)"
 
 echo "== 5) Primer ciclo del optimizador despues del deploy"
-CICLOS=$(echo "SELECT id || ' ' || coalesce(platform::text, '-') || ' ' || status || ' ' || coalesce(decisions_count, 0) FROM optimizer_cycle WHERE started_at > '$DESDE' ORDER BY id;" | lee)
-if [ -z "$CICLOS" ]; then
+if ! CICLOS=$(echo "SELECT id || ' ' || coalesce(platform::text, '-') || ' ' || status || ' ' || coalesce(decisions_count, 0) FROM optimizer_cycle WHERE started_at > '$DESDE' ORDER BY id;" | lee); then
+  echo "FALLA no se pudo leer optimizer_cycle"
+  FALLAS=$((FALLAS + 1))
+elif [ -z "$CICLOS" ]; then
   echo "INCOMPLETO: todavia no corre un ciclo despues de $DESDE; vuelve a correr el checklist despues del siguiente ciclo"
   PENDIENTE=1
 else

@@ -15,6 +15,14 @@ REPO=$(git rev-parse --show-toplevel)
 SRV=/mnt/data/appdata/orbit
 cd "$REPO"
 
+echo "== 0) SHA desplegado (guardado por desplegar.sh) y sus reversas, ANTES de tocar nada"
+SHA=$(ssh goncloud "cat $SRV/predeploy-$STAMP/SHA") || { echo "ABORTA: no existe $SRV/predeploy-$STAMP/SHA"; exit 1; }
+git fetch -q origin
+for f in migrations/0050_reversa_jev_revision_created_at.sql migrations/0049_reversa_jev_ads.sql; do
+  git cat-file -e "$SHA:$f" || { echo "ABORTA: $f no existe en $SHA"; exit 1; }
+done
+echo "SHA=$SHA"
+
 if [ "$MODO" = "--solo-esquema" ]; then
   echo "== 1) Codigo sin tocar (desplegar.sh aborto antes de copiarlo)"
 else
@@ -29,9 +37,9 @@ else
 fi
 
 echo "== 2) Reversa 0050 y despues 0049"
-git show "origin/master:migrations/0050_reversa_jev_revision_created_at.sql" \
+git show "$SHA:migrations/0050_reversa_jev_revision_created_at.sql" \
   | ssh goncloud 'docker exec -i orbit-db-1 psql -U orbit -d orbit -v ON_ERROR_STOP=1 -1'
-git show "origin/master:migrations/0049_reversa_jev_ads.sql" \
+git show "$SHA:migrations/0049_reversa_jev_ads.sql" \
   | ssh goncloud 'docker exec -i orbit-db-1 psql -U orbit -d orbit -v ON_ERROR_STOP=1 -1'
 
 echo "== 3) Verificacion (esperado: f|0)"
