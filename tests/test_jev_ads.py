@@ -460,12 +460,18 @@ def test_guarda_pureza_caza_import_en_try_de_modulo():
 
 
 def test_guarda_pureza_permitidos_sigue_siendo_lista_blanca():
-    """B5-r3 ronda 2 (delta kimi): `permitidos` sigue siendo lista blanca
-    estricta en alcance de modulo: un stdlib de IO como `sqlite3` o
-    `subprocess` (que la version de 8372f5aa rechazaba) no pasa por el solo
-    hecho de ser stdlib."""
+    """B5-r3 ronda 2 (delta kimi) y ronda 3 (delta codex): `permitidos`
+    sigue siendo lista blanca estricta en alcance de modulo, MODULO POR
+    MODULO: un stdlib de IO como `sqlite3` o `subprocess` (que la version
+    de 8372f5aa rechazaba) no pasa por el solo hecho de ser stdlib. El
+    hallazgo se afirma exacto: un `!= []` agregado dejaria en verde un
+    mutante que perdone uno solo de los tres."""
     codigo = "import sqlite3\nimport subprocess\nimport os\n"
-    assert _fugas_pureza(codigo) != []
+    assert _fugas_pureza(codigo) == [
+        ("top-level", "os"),
+        ("top-level", "sqlite3"),
+        ("top-level", "subprocess"),
+    ]
 
 
 def test_guarda_pureza_deja_pasar_permitido_anidado():
