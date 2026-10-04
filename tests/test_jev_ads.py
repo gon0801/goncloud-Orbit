@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import ast
 import uuid
+from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -322,6 +323,17 @@ def test_dos_juicios_para_la_misma_ficha_es_error_estructural():
         componer(censo, (_juicio(F1, "no_satisface"), _juicio(F1, "satisface")))
 
 
+@pytest.mark.parametrize("campo", ["termino_literal_sha256", "contrato_sha256"])
+def test_juicios_de_otro_termino_o_contrato_es_error_estructural(campo):
+    """R6: una composicion junta juicios de UN termino bajo UN contrato. Un
+    juicio de otro termino u otro contrato no puede acreditar al miembro."""
+    censo = CensoCongelado(miembros=(_miembro(11, F1), _miembro(12, F2)), exhaustivo=True)
+    ajeno = _juicio(F2, "satisface")
+    ajeno = replace(ajeno, clave=replace(ajeno.clave, **{campo: "f" * 64}))
+    with pytest.raises(ValueError, match="termino y contrato"):
+        componer(censo, (_juicio(F1, "no_satisface"), ajeno))
+
+
 def test_relacion_no_reconocida_es_error_estructural():
     """Regresion revision automatica B2-r4 (F3): una relacion fuera del
     contrato no puede contar como juicio y menos producir NingunoCompatible
@@ -355,7 +367,17 @@ _PROHIBIDOS_MODULOS_PUROS = {
     "app.jev_catalogo",
     "app.jev_juicios",
 }
-_PROHIBIDOS_NOMBRES_PUROS = {"psycopg", "httpx", "requests", "socket", "ssl", "conn"}
+# `__import__`/`importlib`: un import dinamico no es un nodo Import (R17).
+_PROHIBIDOS_NOMBRES_PUROS = {
+    "psycopg",
+    "httpx",
+    "requests",
+    "socket",
+    "ssl",
+    "conn",
+    "__import__",
+    "importlib",
+}
 _PERMITIDOS_PUROS = {
     "__future__",
     "collections.abc",
@@ -372,13 +394,14 @@ _PERMITIDOS_PUROS = {
 
 def _candidatos_import(nodo: ast.Import | ast.ImportFrom) -> set[str]:
     """Nombres ABSOLUTOS que trae un nodo de import (B5-r3): los relativos
-    se resuelven contra su paquete (`from . import db` es "app.db" y
-    `from .x import Y` trae "app.x" y "app.x.y"; misma semantica que la
-    guarda B3 de test_jev_cli.py)."""
+    se resuelven contra el paquete `app` (`from . import db` es "app.db",
+    `from .x import Y` trae "app.x" y "app.x.Y"; cada punto extra sube un
+    nivel, R17). Misma semantica que la guarda B3 de test_jev_cli.py."""
     if isinstance(nodo, ast.Import):
         return {alias.name for alias in nodo.names}
-    base = (("app." if nodo.level else "") + (nodo.module or "")).rstrip(".")
-    return {base, *(f"{base}.{alias.name}" for alias in nodo.names)}
+    paquete = ["app"][: max(0, 2 - nodo.level)] if nodo.level else []
+    base = ".".join([*paquete, *([nodo.module] if nodo.module else [])])
+    return {n for n in (base, *(f"{base}.{a.name}" if base else a.name for a in nodo.names)) if n}
 
 
 def _violacion_import(nombre: str, permitidos: set[str]) -> bool:
@@ -393,42 +416,30 @@ def _violacion_import(nombre: str, permitidos: set[str]) -> bool:
 def _fugas_pureza(codigo: str) -> list[tuple[str, str]]:
     """Guarda de pureza del nucleo: devuelve (donde, hallazgo) por cada
     import o nombre IO que la viole. Vacio = puro."""
-    arbol = ast.parse(codigo)
     fugas: list[tuple[str, str]] = []
 
-    # 1) imports de ALCANCE DE MODULO (B5-r3: un `try:`/`if:` top-level
-    #    sigue siendo alcance de modulo, asi que se recorre su cuerpo; los
-    #    def/class no, porque sus imports son perezosos y los juzga el
-    #    punto 2): solo la biblioteca estandar pura.
-    pendientes = list(arbol.body)
-    while pendientes:
-        nodo = pendientes.pop()
-        if isinstance(nodo, (ast.Import, ast.ImportFrom)):
-            for candidato in _candidatos_import(nodo):
-                if _violacion_import(candidato, _PERMITIDOS_PUROS):
-                    fugas.append(("top-level", candidato))
-        elif not isinstance(nodo, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            pendientes.extend(ast.iter_child_nodes(nodo))
+    def juzgar(donde: str, nodos) -> None:
+        for nodo in nodos:
+            for sub in ast.walk(nodo):
+                if isinstance(sub, (ast.Import, ast.ImportFrom)):
+                    for candidato in _candidatos_import(sub):
+                        if _violacion_import(candidato, _PERMITIDOS_PUROS):
+                            fugas.append((donde, candidato))
+                elif isinstance(sub, ast.Name) and sub.id in _PROHIBIDOS_NOMBRES_PUROS:
+                    fugas.append((donde, sub.id))
 
-    # 2) cada nodo top-level EXCEPTO AsesorAds: puro incluso por dentro
-    #    (sin imports vedados ni fuera de permitidos a cualquier
-    #    profundidad, sin nombres IO). Los imports se RESUELVEN antes de
-    #    comparar (B5-r2, B5a): `from app import db` es "app.db" e
-    #    `import urllib.request` cae bajo "urllib"; valen igualdad o prefijo
-    #    con punto.
-    for nodo in arbol.body:
+    # Todo nodo de modulo se juzga entero (imports a cualquier profundidad,
+    # resueltos antes de comparar, y nombres IO). Excepcion unica: los
+    # METODOS de AsesorAds, cuyos imports perezosos son el IO sancionado; el
+    # resto del cuerpo de la clase corre al importar el modulo (R17).
+    for nodo in ast.parse(codigo).body:
         if isinstance(nodo, (ast.Import, ast.ImportFrom)):
-            continue
-        nombre = getattr(nodo, "name", None) or getattr(nodo, "id", "")
-        if nombre == "AsesorAds":
-            continue
-        for sub in ast.walk(nodo):
-            if isinstance(sub, (ast.Import, ast.ImportFrom)):
-                for candidato in _candidatos_import(sub):
-                    if _violacion_import(candidato, _PERMITIDOS_PUROS):
-                        fugas.append((nombre or "<modulo>", candidato))
-            elif isinstance(sub, ast.Name) and sub.id in _PROHIBIDOS_NOMBRES_PUROS:
-                fugas.append((nombre, sub.id))
+            juzgar("top-level", [nodo])
+        elif isinstance(nodo, ast.ClassDef) and nodo.name == "AsesorAds":
+            metodos = (ast.FunctionDef, ast.AsyncFunctionDef)
+            juzgar("AsesorAds", [n for n in nodo.body if not isinstance(n, metodos)])
+        else:
+            juzgar(getattr(nodo, "name", None) or "<modulo>", [nodo])
     return sorted(set(fugas))
 
 
@@ -482,6 +493,44 @@ def test_guarda_pureza_caza_anidado_fuera_de_permitidos():
     veredicto) esta prueba queda roja."""
     codigo = "def componer():\n    import sqlite3\n    return sqlite3\n"
     assert _fugas_pureza(codigo) == [("componer", "sqlite3")]
+
+
+@pytest.mark.parametrize(
+    ("codigo", "esperado"),
+    [
+        (
+            "def componer():\n    return __import__('app.db')\n",
+            [("componer", "__import__")],
+        ),
+        (
+            "def componer():\n    import importlib\n    return importlib.import_module('app.db')\n",
+            [("componer", "importlib")],
+        ),
+        ("class AsesorAds:\n    import httpx\n", [("AsesorAds", "httpx")]),
+        ("class AsesorAds:\n    def evaluar(self):\n        import httpx\n", []),
+        (
+            "def componer():\n    from ..app import db\n",
+            [("componer", "app"), ("componer", "app.db")],
+        ),
+        (
+            "try:\n    import boto3\nexcept ImportError:\n    boto3 = None\n",
+            [("<modulo>", "boto3")],
+        ),
+    ],
+    ids=[
+        "__import__",
+        "importlib",
+        "cuerpo-de-AsesorAds",
+        "metodo-de-AsesorAds-exento",
+        "relativo-nivel-2",
+        "try-un-solo-rotulo",
+    ],
+)
+def test_guarda_pureza_r17(codigo, esperado):
+    """R17: imports dinamicos, el cuerpo de clase de AsesorAds (corre al
+    importar el modulo; solo sus METODOS son perezosos), relativos de nivel
+    2 resueltos contra la raiz y un solo rotulo por hallazgo."""
+    assert _fugas_pureza(codigo) == esperado
 
 
 def test_guarda_pureza_deja_pasar_permitido_anidado():

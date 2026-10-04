@@ -553,6 +553,7 @@ def pagina_cortes(request: Request, conn: ConexionLectura) -> HTMLResponse:
             "items": datos["items"],
             # C.4 B2: propuestas de campana en la misma pantalla.
             "propuestas_campana": datos.get("propuestas_campana", []),
+            "asesoria_disponible": datos["asesoria_disponible"],
         },
     )
 

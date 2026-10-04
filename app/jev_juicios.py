@@ -186,6 +186,9 @@ class ResultadoPar:
     duracion_ms: int
 
 
+MAX_DETALLE_FALLO = 300
+
+
 @dataclass(frozen=True)
 class FalloPar:
     """Fallo visible del par. `codigo` es un estado del dominio; `detalle`
@@ -196,6 +199,12 @@ class FalloPar:
     detalle: str
     duracion_ms: int | None = None
     usage: Mapping[str, object] | None = None
+
+    def __post_init__(self) -> None:
+        # El detalle repite valores del proveedor y se guarda en
+        # jev_par_evento.error: acotado para que no crezca sin limite.
+        if len(self.detalle) > MAX_DETALLE_FALLO:
+            object.__setattr__(self, "detalle", self.detalle[: MAX_DETALLE_FALLO - 1] + "…")
 
 
 def leer_api_key() -> str:

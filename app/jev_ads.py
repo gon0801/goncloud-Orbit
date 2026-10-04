@@ -307,6 +307,13 @@ def componer(censo: CensoCongelado, pares: tuple[EstadoPar, ...]) -> RelevanciaC
     if any(m.ficha_version_id is None for m in universo):
         motivos.add("ficha_ausente")
 
+    claves = {
+        (par.clave.termino_literal_sha256, par.clave.contrato_sha256)
+        for par in pares
+        if isinstance(par, Juicio)
+    }
+    if len(claves) > 1:
+        raise ValueError("juicios de distinto termino y contrato en una composicion")
     compatibles, juzgados, motivos_pares = _absorber_pares(pares, por_ficha, excluidas_fichas)
     motivos |= motivos_pares
 
@@ -394,6 +401,22 @@ def _censo_a_json(censo: CensoCongelado) -> dict:
     }
 
 
+def _censo_crudo(censo: CensoCongelado) -> dict:
+    """El censo sin las fichas resueltas: lo que el sujeto trae de origen."""
+    return _censo_a_json(
+        replace(censo, miembros=tuple(replace(m, ficha_version_id=None) for m in censo.miembros))
+    )
+
+
+def _mismo_origen(congelado: CensoCongelado, crudo: CensoCongelado) -> bool:
+    """El sujeto que se retoma trae el MISMO censo: igual sin fichas, y cada
+    ficha que el llamador ya traia resuelta es la que la revision congelo."""
+    return _censo_crudo(congelado) == _censo_crudo(crudo) and all(
+        traida.ficha_version_id in (None, guardado.ficha_version_id)
+        for guardado, traida in zip(congelado.miembros, crudo.miembros, strict=True)
+    )
+
+
 def _canonico(objeto: object) -> str:
     return json.dumps(objeto, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
@@ -460,14 +483,21 @@ class AsesorAds:
         revision + eventos auditables (retomable por solicitud_id)."""
         from app.jev_juicios import clave_de, request_sha256
 
-        ahora = self._ahora()
-        censo, fichas = self._enriquecer(sujeto.censo, sujeto.plataforma, ahora)
-        destino = None
-        if isinstance(sujeto, DecisionARevisar) and sujeto.destino_censo is not None:
-            destino, fichas_destino = self._enriquecer(
-                sujeto.destino_censo, sujeto.plataforma, ahora
+        destino_crudo = sujeto.destino_censo if isinstance(sujeto, DecisionARevisar) else None
+        guardada = self._conn.execute(
+            "SELECT censos, captured_at FROM jev_revision WHERE solicitud = %s", (solicitud_id,)
+        ).fetchone()
+        if guardada is None:
+            ahora = self._ahora()
+            censo, fichas = self._enriquecer(sujeto.censo, sujeto.plataforma, ahora)
+            destino = None
+            if destino_crudo is not None:
+                destino, fichas_destino = self._enriquecer(destino_crudo, sujeto.plataforma, ahora)
+                fichas = {**fichas, **fichas_destino}
+        else:
+            censo, destino, fichas, ahora = self._retomar(
+                guardada, sujeto.censo, destino_crudo, sujeto.plataforma
             )
-            fichas = {**fichas, **fichas_destino}
         terminos = (sujeto.termino,) if isinstance(sujeto, DecisionARevisar) else sujeto.terminos
         contexto = {
             "censo": _censo_a_json(censo),
@@ -526,24 +556,79 @@ class AsesorAds:
 
     # internos (confirmaciones = los tres puntos del orden sellado)
 
+    def _retomar(self, guardada, censo_crudo, destino_crudo, plataforma):
+        """Reanudacion: el censo y el captured_at CONGELADOS por la revision
+        (R9). Una ficha revocada, vencida o sustituida entre intentos no cambia
+        el payload (la vigencia marcara Obsoleta), pero su par ya no se
+        reutiliza ni se consulta: el spec reutiliza "solo si la ficha sigue
+        aprobada, cubre ese listing y no vencio". Queda como ficha faltante.
+        Un censo crudo distinto si es otro payload."""
+        from app.jev_catalogo import ficha_vigente, fichas_por_id
+
+        contexto, capturado = guardada
+        censo = _censo_de_json(contexto["censo"])
+        destino = _censo_de_json(contexto["destino"]) if "destino" in contexto else None
+        mismo_destino = (destino is None and destino_crudo is None) or (
+            destino is not None
+            and destino_crudo is not None
+            and _mismo_origen(destino, destino_crudo)
+        )
+        if not _mismo_origen(censo, censo_crudo) or not mismo_destino:
+            raise ValueError("misma solicitud con otro payload")
+        miembros = (*censo.miembros, *(destino.miembros if destino is not None else ()))
+        fichas = fichas_por_id(
+            self._conn, (m.ficha_version_id for m in miembros if m.ficha_version_id)
+        )
+        hoy = self._ahora()
+
+        def sigue_vigente(miembro) -> bool:
+            for listing in miembro.listing_ids:
+                actual = ficha_vigente(
+                    self._conn,
+                    producto_id=miembro.producto_id,
+                    plataforma=plataforma,
+                    listing_id=listing,
+                    ahora=hoy,
+                )
+                if actual is None or actual.id != miembro.ficha_version_id:
+                    return False
+            return True
+
+        vencidas = {
+            m.ficha_version_id for m in miembros if m.ficha_version_id and not sigue_vigente(m)
+        }
+        vigentes = {ficha_id: f for ficha_id, f in fichas.items() if ficha_id not in vencidas}
+        return censo, destino, vigentes, capturado
+
+    def fichas_del_censo(self, censo: CensoCongelado, plataforma, ahora) -> dict:
+        """Las fichas que una revision NUEVA usaria hoy (la misma regla que
+        evaluar, R8); solo lectura, para el modo seco del CLI."""
+        return self._enriquecer(censo, plataforma, ahora)[1]
+
     def _enriquecer(self, censo: CensoCongelado, plataforma, ahora):
-        """Ficha vigente por miembro (un solo listing), congelada en el censo."""
+        """Ficha vigente por miembro, congelada en el censo. Un producto con
+        varios listings se acredita solo si la MISMA ficha vigente cubre todos
+        (R8); una ficha que cubre una parte deja al miembro sin ficha."""
         from app.jev_catalogo import ficha_vigente
 
         fichas: dict[UUID, FichaVersion] = {}
         miembros = []
         for miembro in censo.miembros:
-            ficha = (
-                ficha_vigente(
-                    self._conn,
-                    producto_id=miembro.producto_id,
-                    plataforma=plataforma,
-                    listing_id=next(iter(miembro.listing_ids)),
-                    ahora=ahora,
-                )
-                if miembro.producto_id is not None and len(miembro.listing_ids) == 1
-                else None
-            )
+            ficha = None
+            if miembro.producto_id is not None and miembro.listing_ids:
+                por_listing = [
+                    ficha_vigente(
+                        self._conn,
+                        producto_id=miembro.producto_id,
+                        plataforma=plataforma,
+                        listing_id=listing_id,
+                        ahora=ahora,
+                    )
+                    for listing_id in sorted(miembro.listing_ids)
+                ]
+                ids = {f.id if f is not None else None for f in por_listing}
+                if len(ids) == 1 and None not in ids:
+                    ficha = por_listing[0]
             if ficha is not None:
                 fichas[ficha.id] = ficha
                 miembro = replace(miembro, ficha_version_id=ficha.id)
@@ -621,13 +706,14 @@ class AsesorAds:
         ).fetchone()[0]
 
     def _exito_previo(self, solicitud_id, clave):
-        """Exito de ESTA revision para la clave (fallo jamas; otra revision jamas)."""
+        """PRIMER exito validado de ESTA revision para la clave (spec; fallo
+        jamas; otra revision jamas)."""
         return self._conn.execute(
             "SELECT id, respuesta FROM jev_par_evento"
             " WHERE revision_id = %s AND termino_sha256 = %s"
             " AND ficha_version_id = %s AND contrato_sha256 = %s"
             " AND tipo = 'resultado' AND respuesta IS NOT NULL"
-            " ORDER BY ordinal DESC LIMIT 1",
+            " ORDER BY ordinal LIMIT 1",
             (
                 solicitud_id,
                 clave.termino_literal_sha256,
@@ -1017,21 +1103,20 @@ def _fila_dict(fila, columnas) -> dict:
 
 
 def _evento_del_par(eventos: list[dict], hash_termino: str, ficha_id: UUID) -> dict | None:
-    """El resultado del par que la vista debe mostrar: el ULTIMO exito
+    """El resultado del par que la vista debe mostrar: el PRIMER exito
     validado si existe; si no, el ULTIMO resultado. Es la misma regla con la
-    que evaluar reutiliza y compone: una reanudacion de la MISMA revision
+    que evaluar reutiliza y compone (`_exito_previo`): una reanudacion de la MISMA revision
     reintenta un par fallido con ordinal nuevo y la vista no puede quedarse
     con el fallo del primer intento. Los eventos de reutilizacion enlazan a
     un resultado de la misma revision (reutiliza_id), que es el que aqui
     se resuelve."""
     ultimo = None
-    ultimo_exito = None
     for evento in eventos:
         if evento["termino_sha256"] == hash_termino and evento["ficha_version_id"] == ficha_id:
-            ultimo = evento
             if evento["respuesta"] is not None:
-                ultimo_exito = evento
-    return ultimo_exito if ultimo_exito is not None else ultimo
+                return evento
+            ultimo = evento
+    return ultimo
 
 
 def _censo_de_json(datos: dict) -> CensoCongelado:

@@ -3372,6 +3372,51 @@ def test_cortes_plantilla_asesoria_sin_error_economico_y_veto_visible():
     assert "se aplica solo el" in html
 
 
+def test_cortes_asesoria_ilegible_se_avisa_y_la_pantalla_sigue(monkeypatch):
+    """R12 (triage G4-3): si `leer` falla, la pantalla responde 200, los
+    cortes siguen y el operador VE que la asesoria no esta disponible (antes
+    quedaba igual que "sin revision")."""
+    with _db_temporal("orbit_dash_jev_r12") as (conn, dsn):
+        conn.execute(SQL02)
+        conn.execute(SQL_JEV)
+        _siembra_cortes_ui01(conn)
+        cliente = _cliente(dsn, monkeypatch)
+        normal = cliente.get("/api/dashboard/cortes")
+        assert normal.status_code == 200
+        assert normal.json()["asesoria_disponible"] is True
+
+        def leer_roto(self, referencias, *, ahora):
+            raise RuntimeError("relation jev_revision does not exist")
+
+        monkeypatch.setattr("app.jev_ads.AsesorAds.leer", leer_roto)
+        roto = cliente.get("/api/dashboard/cortes")
+        assert roto.status_code == 200
+        assert roto.json()["asesoria_disponible"] is False
+        assert [i["id"] for i in roto.json()["items"]] == [i["id"] for i in normal.json()["items"]]
+        assert roto.json()["items"]
+        html = cliente.get("/cortes")
+        assert html.status_code == 200
+        assert "Asesoria Jev no disponible" in html.text
+
+
+def test_cortes_plantilla_rotula_grupo_sin_destino_y_avisa_si_no_hay_asesoria():
+    """R12: sin destino (negativos) el veredicto es del GRUPO; "origen" y
+    "destino" solo aparecen en harvest. El aviso de asesoria no disponible
+    sale solo cuando la lectura fallo."""
+    from app import ui
+
+    plantilla = ui.templates.env.get_template("cortes.html")
+    ctx = _ctx_cortes_local()
+    ctx["items"][0]["asesoria"]["destinos"] = []
+    plano = " ".join(plantilla.render(**ctx, asesoria_disponible=True).split())
+    assert "grupo · tenis blancos: compatible (7) · cobertura 1/1" in plano
+    assert "origen ·" not in plano
+    assert "Asesoria Jev no disponible" not in plano
+    plano = " ".join(plantilla.render(**ctx, asesoria_disponible=False).split())
+    assert "Asesoria Jev no disponible" in plano
+    assert "error" not in plano.lower()
+
+
 def _ctx_cortes_local():
     """Contexto de cortes con UNA fila negative y asesoria compatible."""
     ctx = {

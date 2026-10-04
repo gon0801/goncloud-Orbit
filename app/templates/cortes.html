@@ -8,6 +8,9 @@
   defecto, editable): el motor no vuelve a proponerla hasta que venza el
   bloqueo, y el rechazo <strong>no se puede deshacer.</strong>
 </p>
+{% if asesoria_disponible is defined and not asesoria_disponible %}
+<p class="chip">Asesoria Jev no disponible por ahora: las propuestas se muestran sin su asesoria.</p>
+{% endif %}
 {% macro filas(direccion) %}
   {% for item in items if item.direccion == direccion %}
       <tr>
@@ -28,8 +31,8 @@
           <button type="button" data-vetar="{{ item.id }}">Rechazar</button>
         </td>
       </tr>
-      {# JEV 2.1: cada veredicto declara su ambito (origen del termino o destino
-   de harvest); sin destino la fila de destino simplemente no aparece. #}
+      {# JEV 2.1/R12: cada veredicto declara su ambito. En harvest, origen y
+   destino; sin destino (negativos) el veredicto es del grupo. #}
 {% macro veredicto(ambito, r) -%}
 <span class="detalle-celda">{{ ambito }} · {{ r.termino }}:
 {% if r.resultado.tipo == "hay_compatible" %}compatible ({{ r.resultado.producto_ids|join(", ") }}) · cobertura {{ r.resultado.miembros_con_juicio }}/{{ r.resultado.miembros_totales }}
@@ -40,7 +43,7 @@
       <tr class="asesoria-jev">
         <td colspan="6">
           <span class="chip">Asesoria Jev · {{ item.asesoria.vigencia }}</span>
-          {% for r in item.asesoria.resultados %}{{ veredicto("origen", r) }}
+          {% for r in item.asesoria.resultados %}{{ veredicto("origen" if item.asesoria.destinos else "grupo", r) }}
           {% endfor %}
           {% for r in item.asesoria.destinos %}{{ veredicto("destino", r) }}
           {% endfor %}

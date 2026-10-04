@@ -40,7 +40,7 @@ from uuid import UUID
 
 from app.db import connect
 from app.jev_ads import AsesorAds, SemillasARevisar
-from app.jev_catalogo import censo_grupo, ficha_vigente
+from app.jev_catalogo import censo_grupo
 from app.jev_juicios import leer_api_key
 from app.redaction import scrub
 
@@ -113,22 +113,11 @@ def main(
     with connect(dsn) as conn:
         censo = censo_grupo(conn, plataforma=args.plataforma, ad_group_id=args.grupo_id)
         if not args.aplicar:
-            ahora = datetime.now(UTC)
-            con_ficha = 0
-            for miembro in censo.miembros:
-                if miembro.producto_id is None or len(miembro.listing_ids) != 1:
-                    continue
-                if (
-                    ficha_vigente(
-                        conn,
-                        producto_id=miembro.producto_id,
-                        plataforma=args.plataforma,
-                        listing_id=next(iter(miembro.listing_ids)),
-                        ahora=ahora,
-                    )
-                    is not None
-                ):
-                    con_ficha += 1
+            con_ficha = len(
+                AsesorAds(conn, pedir=pedir, api_key=api_key).fichas_del_censo(
+                    censo, args.plataforma, datetime.now(UTC)
+                )
+            )
             imprimir(
                 f"lote: {len(args.termino)} termino(s) contra {len(censo.miembros)}"
                 f" miembro(s); fichas vigentes {con_ficha}; presupuesto"
