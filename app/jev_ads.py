@@ -26,6 +26,7 @@ from uuid import UUID
 
 Relacion = Literal["satisface", "no_satisface", "informacion_insuficiente"]
 PlataformaAmazon = Literal["amazon_mx", "amazon_us"]
+Finalidad = Literal["exclusion", "ruteo", "keyword"]
 
 MotivoIndeterminado = Literal[
     "ficha_ausente",
@@ -733,6 +734,56 @@ class AsesorAds:
             motivo=f"{devuelto.codigo}: {devuelto.detalle}",
         )
 
+    def _vigencia_de_miembros(
+        self,
+        censo: CensoCongelado,
+        destino: CensoCongelado | None,
+        contexto: dict,
+        ahora: datetime,
+    ) -> Vigencia:
+        """Vigencia de la revision: para el listing de cada miembro, la ficha
+        del miembro sigue siendo la seleccionada por el MISMO predicado que
+        `ficha_vigente` (no revocada, no vencida, cubre el listing, ultima por
+        observado_at/created_at). Sin comprobaciones posibles: desconocida."""
+        from psycopg.rows import tuple_row
+
+        from app.jev_catalogo import ficha_vigente
+
+        class _FilasPosicionales:
+            """Conexion con filas posicionales: `ficha_vigente` desempaca la
+            fila por posicion y la conexion del dashboard llega con dict_row."""
+
+            def __init__(self, conexion):
+                self._conexion = conexion
+
+            def execute(self, sentencia, parametros=None):
+                return self._conexion.cursor(row_factory=tuple_row).execute(sentencia, parametros)
+
+        plataforma = contexto["plataforma"]
+        seleccionada: dict[int, UUID | None] = {}
+        comprobadas = 0
+        desplazada = False
+        miembros = (*censo.miembros, *(destino.miembros if destino is not None else ()))
+        for miembro in miembros:
+            if miembro.ficha_version_id is None or miembro.producto_id is None:
+                continue
+            for listing in sorted(miembro.listing_ids):
+                if listing not in seleccionada:
+                    vigente = ficha_vigente(
+                        _FilasPosicionales(self._conn),
+                        producto_id=miembro.producto_id,
+                        plataforma=plataforma,
+                        listing_id=listing,
+                        ahora=ahora,
+                    )
+                    seleccionada[listing] = vigente.id if vigente is not None else None
+                comprobadas += 1
+                if seleccionada[listing] != miembro.ficha_version_id:
+                    desplazada = True
+        if not comprobadas:
+            return NoComprobable()
+        return Obsoleta() if desplazada else Vigente()
+
     def _vista_de_revision(self, fila: dict, ahora: datetime) -> VistaAsesoria:
         """Vista historica de UNA revision (vigencia por fichas congeladas)."""
         fila = _fila_dict(fila, _COLUMNAS_REVISION)
@@ -751,9 +802,6 @@ class AsesorAds:
             "sha256",
             "observado_at",
             "revisar_antes_de",
-            "created_at",
-            "revocada",
-            "hay_mas_nueva",
         )
         fichas: list[FichaVersion] = []
         vigencia: Vigencia = NoComprobable()
@@ -762,15 +810,7 @@ class AsesorAds:
                 _fila_dict(una, columnas_ficha)
                 for una in self._conn.execute(
                     "SELECT f.id, f.producto_id, f.plataforma, f.aprobador, f.sha256,"
-                    " f.observado_at, f.revisar_antes_de, f.created_at,"
-                    " EXISTS (SELECT 1 FROM jev_ficha_revocacion r"
-                    "   WHERE r.ficha_version_id = f.id) AS revocada,"
-                    " EXISTS (SELECT 1 FROM jev_ficha_version n"
-                    "   WHERE n.producto_id = f.producto_id"
-                    "   AND n.plataforma = f.plataforma AND n.id <> f.id"
-                    "   AND n.created_at > f.created_at"
-                    "   AND NOT EXISTS (SELECT 1 FROM jev_ficha_revocacion r2"
-                    "       WHERE r2.ficha_version_id = n.id)) AS hay_mas_nueva"
+                    " f.observado_at, f.revisar_antes_de"
                     " FROM jev_ficha_version f WHERE f.id = ANY(%s)",
                     (ids_fichas,),
                 ).fetchall()
@@ -790,12 +830,7 @@ class AsesorAds:
                 )
                 for d in filas
             ]
-            if any(
-                d["revocada"] or d["hay_mas_nueva"] or d["revisar_antes_de"] <= ahora for d in filas
-            ):
-                vigencia = Obsoleta()
-            else:
-                vigencia = Vigente()
+            vigencia = self._vigencia_de_miembros(censo, destino, contexto, ahora)
 
         columnas_evento = (
             "id",
@@ -822,6 +857,8 @@ class AsesorAds:
                 return componer(un_censo, (NoAplicaTexto(motivo="asin_like"),))
             pares: list[EstadoPar] = []
             for miembro in un_censo.miembros:
+                if _solo_no_activo(miembro.estados):
+                    continue
                 if miembro.ficha_version_id is None:
                     pares.append(FichaFaltante(producto_id=miembro.producto_id))
                     continue
@@ -1014,14 +1051,3 @@ def _censo_de_json(datos: dict) -> CensoCongelado:
         for m in datos["miembros"]
     ]
     return CensoCongelado(miembros=tuple(miembros), exhaustivo=datos["exhaustivo"])
-
-
-def _juicio_de_respuesta_guardada(respuesta: dict, clave: ClavePar, evento_id: UUID) -> Juicio:
-    return Juicio(
-        intento_id=evento_id,
-        clave=clave,
-        relacion=respuesta["relacion"],
-        probabilidades={k: Decimal(v) for k, v in respuesta["probabilidades"].items()},
-        confidence=Decimal(respuesta["confidence"]),
-        observado_at=datetime.fromisoformat(respuesta["observado_at"]),
-    )

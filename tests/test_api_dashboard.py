@@ -2654,7 +2654,9 @@ SQL49 = (Path(__file__).resolve().parent.parent / "migrations" / "0049_jev_ads.s
 )
 
 
-def _ficha_jev(conn, producto: int, listing: int, sha: str = "f" * 64) -> object:
+def _ficha_jev(
+    conn, producto: int, listing: int, sha: str = "f" * 64, revisar_antes_de=None
+) -> object:
     import uuid as _uuid
 
     ficha_id = _uuid.uuid4()
@@ -2670,7 +2672,7 @@ def _ficha_jev(conn, producto: int, listing: int, sha: str = "f" * 64) -> object
             json.dumps([{"texto": "hecho", "fuente": "fuente"}]),
             sha,
             AHORA,
-            AHORA + _DIA * 120,
+            revisar_antes_de if revisar_antes_de is not None else AHORA + _DIA * 120,
         ),
     )
     return ficha_id
@@ -2900,6 +2902,172 @@ def test_asesoria_vigencia_vigente_obsoleta_y_no_comprobable(monkeypatch):
         )
         vistas = asesor.leer([dec_neg], ahora=AHORA + _DIA)
         assert vistas[dec_neg].vigencia == NoComprobable()
+
+
+@pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres local")
+def test_asesoria_vigencia_usa_el_predicado_de_ficha_vigente(monkeypatch):
+    """Regresion B4-r3 B1: el chip de vigencia deriva del MISMO predicado que
+    ficha_vigente (cubre el listing, no vencida, seleccionada por
+    observado_at/created_at), no de un EXISTS por producto+plataforma. Una
+    ficha posterior de OTRO listing del mismo producto, o una posterior
+    VENCIDA, no vuelven obsoleta una revision cuya ficha sigue siendo la
+    seleccionada para su listing; una ficha que SI la desplaza, si."""
+    import uuid as _uuid
+
+    from app.jev_ads import AsesorAds, DecisionARevisar, Obsoleta, Vigente
+
+    with _db_temporal("orbit_dash_jevb4r3a") as (conn, dsn):
+        conn.execute(SQL02)
+        conn.execute(SQL49)
+        _siembra_cortes_ui01(conn)
+        p1 = conn.execute(
+            "INSERT INTO product (odoo_sku, name) VALUES ('S-1', 'S-1') RETURNING id"
+        ).fetchone()[0]
+        l1 = conn.execute(
+            "INSERT INTO listing (product_id, platform, external_id)"
+            " VALUES (%s, 'amazon_us', 'B0JEV00001') RETURNING id",
+            (p1,),
+        ).fetchone()[0]
+        l2 = conn.execute(
+            "INSERT INTO listing (product_id, platform, external_id)"
+            " VALUES (%s, 'amazon_us', 'B0JEV00002') RETURNING id",
+            (p1,),
+        ).fetchone()[0]
+        grupo = conn.execute("SELECT id FROM ad_entity WHERE external_id = '9101'").fetchone()[0]
+        conn.execute(
+            "INSERT INTO ad_entity (platform, kind, external_id, parent_id, listing_id)"
+            " VALUES ('amazon_us', 'product_ad', 'jev-ad-1', %s, %s)",
+            (grupo, l1),
+        )
+        conn.execute(
+            "INSERT INTO ad_entity_state (ad_entity_id, status, synced_at)"
+            " VALUES ((SELECT id FROM ad_entity WHERE external_id = 'jev-ad-1'),"
+            " 'ENABLED', now())"
+        )
+        ficha_r1 = _ficha_jev(conn, p1, l1)
+        censo = _censo_jev(conn, "amazon_us", grupo, {p1: ficha_r1})
+        dec_neg = conn.execute(
+            "SELECT id FROM decision WHERE kind = 'negative' LIMIT 1"
+        ).fetchone()[0]
+        asesor = AsesorAds(
+            conn,
+            pedir=lambda termino, ficha: _juicio_falso(termino, ficha, "satisface"),
+            api_key="k",
+            presupuesto=5,
+            ahora=lambda: AHORA,
+        )
+        asesor.evaluar(
+            DecisionARevisar(
+                decision_id=dec_neg,
+                termino="tenis blancos",
+                censo=censo,
+                plataforma="amazon_us",
+                decided_at=AHORA,
+            ),
+            solicitud_id=_uuid.uuid4(),
+        )
+
+        def vigencia():
+            return asesor.leer([dec_neg], ahora=AHORA + _DIA)[dec_neg].vigencia
+
+        # Control: la ficha de la revision sigue siendo la seleccionada.
+        assert vigencia() == Vigente()
+        # Sentido 1: ficha posterior del MISMO producto por OTRO listing no
+        # vuelve obsoleta la revision (la de R1 sigue cubriendo su listing).
+        _ficha_jev(conn, p1, l2, sha="d" * 64)
+        assert vigencia() == Vigente()
+        # Sentido 2: una ficha posterior que cubre el listing pero VENCIDA
+        # tampoco la desplaza (no es seleccionable para ese listing).
+        _ficha_jev(conn, p1, l1, sha="c" * 64, revisar_antes_de=AHORA)
+        assert vigencia() == Vigente()
+        # Inverso (control): una ficha posterior viva que SI cubre el listing
+        # desplaza a la de R1: la revision queda obsoleta.
+        _ficha_jev(conn, p1, l1, sha="b" * 64)
+        assert vigencia() == Obsoleta()
+
+
+@pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres local")
+def test_asesoria_leer_salta_solo_no_activos_como_evaluar(monkeypatch):
+    """Regresion B4-r3 B2: la composicion historica de leer() salta los
+    miembros solo no activos (ARCHIVED) igual que evaluar: un ARCHIVED sin
+    ficha no aporta FichaFaltante de mas y la vista reproduce EXACTAMENTE
+    los motivos que evaluar compuso (fidelidad leer==evaluar)."""
+    import uuid as _uuid
+
+    from app.jev_ads import AsesorAds, DecisionARevisar, Indeterminado
+
+    with _db_temporal("orbit_dash_jevb4r3b") as (conn, dsn):
+        conn.execute(SQL02)
+        conn.execute(SQL49)
+        _siembra_cortes_ui01(conn)
+        p1 = conn.execute(
+            "INSERT INTO product (odoo_sku, name) VALUES ('S-1', 'S-1') RETURNING id"
+        ).fetchone()[0]
+        l1 = conn.execute(
+            "INSERT INTO listing (product_id, platform, external_id)"
+            " VALUES (%s, 'amazon_us', 'B0JEV00001') RETURNING id",
+            (p1,),
+        ).fetchone()[0]
+        p2 = conn.execute(
+            "INSERT INTO product (odoo_sku, name) VALUES ('S-2', 'S-2') RETURNING id"
+        ).fetchone()[0]
+        l2 = conn.execute(
+            "INSERT INTO listing (product_id, platform, external_id)"
+            " VALUES (%s, 'amazon_us', 'B0JEV00003') RETURNING id",
+            (p2,),
+        ).fetchone()[0]
+        grupo = conn.execute("SELECT id FROM ad_entity WHERE external_id = '9101'").fetchone()[0]
+        conn.execute(
+            "INSERT INTO ad_entity (platform, kind, external_id, parent_id, listing_id)"
+            " VALUES ('amazon_us', 'product_ad', 'jev-ad-1', %s, %s)",
+            (grupo, l1),
+        )
+        conn.execute(
+            "INSERT INTO ad_entity_state (ad_entity_id, status, synced_at)"
+            " VALUES ((SELECT id FROM ad_entity WHERE external_id = 'jev-ad-1'),"
+            " 'ENABLED', now())"
+        )
+        conn.execute(
+            "INSERT INTO ad_entity (platform, kind, external_id, parent_id, listing_id)"
+            " VALUES ('amazon_us', 'product_ad', 'jev-ad-2', %s, %s)",
+            (grupo, l2),
+        )
+        conn.execute(
+            "INSERT INTO ad_entity_state (ad_entity_id, status, synced_at)"
+            " VALUES ((SELECT id FROM ad_entity WHERE external_id = 'jev-ad-2'),"
+            " 'ARCHIVED', now())"
+        )
+        ficha_r1 = _ficha_jev(conn, p1, l1)
+        censo = _censo_jev(conn, "amazon_us", grupo, {p1: ficha_r1})
+        dec_neg = conn.execute(
+            "SELECT id FROM decision WHERE kind = 'negative' LIMIT 1"
+        ).fetchone()[0]
+        asesor = AsesorAds(
+            conn,
+            pedir=lambda termino, ficha: _juicio_falso(termino, ficha, "no_satisface"),
+            api_key="k",
+            presupuesto=5,
+            ahora=lambda: AHORA,
+        )
+        revision = asesor.evaluar(
+            DecisionARevisar(
+                decision_id=dec_neg,
+                termino="tenis blancos",
+                censo=censo,
+                plataforma="amazon_us",
+                decided_at=AHORA,
+            ),
+            solicitud_id=_uuid.uuid4(),
+        )
+        resultado_evaluar = revision.resultados[0][1]
+        vista = asesor.leer([dec_neg], ahora=AHORA + _DIA)[dec_neg]
+        resultado_leer = vista.resultados[0][1]
+        assert isinstance(resultado_evaluar, Indeterminado), resultado_evaluar
+        assert isinstance(resultado_leer, Indeterminado), resultado_leer
+        assert resultado_leer.motivos == resultado_evaluar.motivos, (
+            f"leer={resultado_leer.motivos} evaluar={resultado_evaluar.motivos}"
+        )
+        assert "ficha_ausente" not in resultado_leer.motivos
 
 
 @pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres local")
