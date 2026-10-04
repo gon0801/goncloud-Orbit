@@ -5,8 +5,9 @@
 -- 0049 dejo `created_at DEFAULT now()`, que es el inicio de la transaccion.
 -- El flujo del diseno captura el censo DENTRO de esa transaccion, asi que
 -- una revision valida guardaba captured_at > created_at y quien leyera las
--- columnas creeria que la captura fue posterior al registro. Con
--- clock_timestamp() el par queda ordenado y el trigger puede exigir la
+-- columnas creeria que la captura fue posterior al registro. El trigger
+-- ahora FIJA created_at := clock_timestamp() (un valor explicito del
+-- llamador se ignora, asi la cronologia no se puede falsear) y exige la
 -- promesa del encabezado de 0049: decided_at/captured_at <= created_at.
 --
 -- Tambien corrige el typo "jam el parecido" del COMMENT de
@@ -23,13 +24,7 @@ SET search_path = pg_catalog, public
 SET TimeZone = 'UTC'
 AS $$
 BEGIN
-    IF NEW.created_at > clock_timestamp()
-       OR NEW.captured_at > clock_timestamp()
-       OR NEW.decided_at > clock_timestamp() THEN
-        RAISE EXCEPTION
-            'jev_revision: decided_at/captured_at/created_at posteriores a la insercion'
-            USING ERRCODE = 'check_violation';
-    END IF;
+    NEW.created_at := clock_timestamp();
     IF NEW.captured_at > NEW.created_at OR NEW.decided_at > NEW.created_at THEN
         RAISE EXCEPTION
             'jev_revision: decided_at/captured_at posteriores a created_at'
@@ -46,9 +41,9 @@ END;
 $$;
 
 COMMENT ON COLUMN jev_revision.created_at IS
-  'Insercion real de la revision (clock_timestamp(), 0050). decided_at y '
-  'captured_at nunca son posteriores: el trigger jev_revision_tiempos lo '
-  'exige.';
+  'Insercion real de la revision: el trigger jev_revision_tiempos la fija '
+  'con clock_timestamp() e ignora un valor explicito (0050). decided_at y '
+  'captured_at nunca son posteriores.';
 
 COMMENT ON TABLE jev_ficha_version IS
   'JEV ADS 01: ficha de producto aprobada POR VERSION. La unidad de juicio '

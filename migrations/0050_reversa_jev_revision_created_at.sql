@@ -2,7 +2,8 @@
 -- REVERSA DE LA MIGRACION 0050 (patron 0011/0031/0049_reversa_*).
 --
 -- Devuelve jev_revision.created_at a DEFAULT now() y el trigger
--- jev_revision_tiempos a su cuerpo de 0049. No borra datos: las revisiones
+-- jev_revision_tiempos y el COMMENT de jev_ficha_version a su estado de
+-- 0049. No borra datos: las revisiones
 -- ya insertadas conservan sus tiempos. Se corre ANTES de la reversa de 0049
 -- si se deshacen ambas.
 --
@@ -37,5 +38,13 @@ END;
 $$;
 
 COMMENT ON COLUMN jev_revision.created_at IS NULL;
+
+COMMENT ON TABLE jev_ficha_version IS
+  'JEV ADS 01: ficha de producto aprobada POR VERSION. La unidad de juicio '
+  'es termino literal + version de ficha: una correccion inserta version '
+  'nueva y las revisiones guardan la version exacta que usaron. El hash '
+  'canonico (sha256) del contenido hace el registro idempotente; una ficha '
+  'de otra variante no acredita a este producto (el listing cubierto manda, '
+  'jam el parecido de nombres).';
 
 COMMIT;
