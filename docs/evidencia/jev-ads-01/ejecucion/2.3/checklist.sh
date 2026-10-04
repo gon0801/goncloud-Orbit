@@ -42,6 +42,8 @@ revisa "clave TypeSafe en el contenedor" ausente \
 
 echo "== 3) Permisos (consulta como orbit_read)"
 revisa "permisos.sql" "permisos OK" "$(lee < "$DIR/permisos.sql")"
+revisa "orbit_admin miembro de app_jev (CLI del asesor)" t \
+  "$(echo "SELECT pg_has_role('orbit_admin', 'app_jev', 'MEMBER');" | lee)"
 
 echo "== 4) Jev apagado: ninguna tarea automatica lo importa y no hay filas"
 revisa "cycle/apply_cola/apply_harvest importan app.jev_*" False \

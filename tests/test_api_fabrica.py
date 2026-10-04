@@ -1185,7 +1185,19 @@ def test_export_semillas_trae_plan_huella_y_fuentes_sin_tocar_biblioteca(escenar
     assert datos["plan_sha256"] == datos["huella"]
     assert datos["plan_canonico"] == preview["plan"]
     assert datos["fuentes_semillas"]["keywords_biblioteca"] == ["collar"]
+    # G4-4: todas las fuentes, no solo la biblioteca de keywords.
+    assert datos["fuentes_semillas"]["negativos_biblioteca"] == ["antipulgas"]
+    assert isinstance(datos["fuentes_semillas"]["terminos_vendedores"], list)
+    assert isinstance(datos["fuentes_semillas"]["terminos_exactos"], list)
     assert set(datos["terminos_a_cotejar"]) == {"collar", "antipulgas"}
+    # G4-6 (R2): el rol de cada termino viaja con el; y los listings del plan.
+    assert datos["roles_terminos"] == {"antipulgas": ["negativo"], "collar": ["keyword"]}
+    assert datos["listings"] == sorted(
+        fila[0]
+        for fila in conn.execute(
+            "SELECT id FROM listing WHERE product_id = %s AND platform = 'amazon_mx'", (ids[0],)
+        ).fetchall()
+    )
     assert datos["plataforma"] == "amazon_mx"
     assert datos["productos"] == [ids[0]]
     assert (
@@ -1207,7 +1219,8 @@ def test_asesoria_por_huella_cambia_con_el_plan_y_conserva_fuentes(escenario):
     la huella y la revision visible; el GET no escribe."""
     import uuid as _uuid
 
-    from app.jev_ads import AsesorAds, SemillasARevisar
+    from app.jev_ads import SemillasARevisar
+    from app.jev_asesor import AsesorAds
 
     cliente, conn, solicitud, fw, ids = escenario
     conn.execute(
@@ -1355,3 +1368,62 @@ def _juicio_simple(termino, ficha, relacion="satisface"):
 
 
 NOW_FABRICA = dt.datetime(2026, 10, 4, tzinfo=dt.UTC)
+
+
+def test_cli_evaluar_plan_calcula_el_export_y_la_asesoria_queda_por_huella(escenario, tmp_path):
+    """R2 y bloqueante de codex en B10: el CLI no confia en un export editado.
+    Recibe la MISMA solicitud del preview, calcula el export por el camino del
+    endpoint y la asesoria queda en la huella del plan; una solicitud que no
+    valida sale 2 sin escribir."""
+    import uuid as _uuid
+    from decimal import Decimal
+
+    from app.jev_ads import ClavePar, Juicio
+    from app.jev_juicios import ResultadoPar
+    from tools.jev_ads import main as cli_jev
+
+    cliente, conn, solicitud, fw, ids = escenario
+    listing = conn.execute(
+        "SELECT id FROM listing WHERE product_id = %s AND platform = 'amazon_mx'", (ids[0],)
+    ).fetchone()[0]
+    _ficha_jev_fabrica(conn, ids[0], listing)
+    export = cliente.post("/api/fabrica/export-semillas", json=solicitud).json()
+    ruta = tmp_path / "solicitud.json"
+    ruta.write_text(json.dumps(solicitud), encoding="utf-8")
+
+    def pedir(termino, ficha):
+        return ResultadoPar(
+            juicio=Juicio(
+                intento_id=_uuid.uuid4(),
+                clave=ClavePar("a" * 64, ficha.id, "b" * 64),
+                relacion="satisface",
+                probabilidades={
+                    "satisface": Decimal("0.80"),
+                    "no_satisface": Decimal("0.10"),
+                    "informacion_insuficiente": Decimal("0.10"),
+                },
+                confidence=Decimal("0.80"),
+                observado_at=NOW_FABRICA,
+            ),
+            usage=None,
+            duracion_ms=5,
+        )
+
+    argv = ["evaluar-plan", "--plan", str(ruta), "--solicitud", str(_uuid.uuid4())]
+    salida: list[str] = []
+    assert cli_jev(argv, pedir=pedir, imprimir=salida.append) == 0
+    assert any("pares nuevos 1, reutilizables 0; pagaria 1" in linea for linea in salida), salida
+    assert cli_jev([*argv, "--aplicar"], pedir=pedir, imprimir=salida.append) == 0
+    esperado = f"resultado grupo collar (keyword) HayCompatible productos=[{ids[0]}] cobertura=1/1"
+    assert esperado in salida
+    asesoria = cliente.get(f"/api/fabrica/asesoria/{export['huella']}").json()["asesoria"]
+    assert asesoria["plan_sha256"] == export["huella"]
+    assert asesoria["fuentes_semillas"] == export["fuentes_semillas"]
+    ruta.write_text(json.dumps({**solicitud, "modo": "otro"}), encoding="utf-8")
+    revisiones = conn.execute("SELECT count(*) FROM jev_revision").fetchone()[0]
+    assert cli_jev([*argv[:3], "--solicitud", str(_uuid.uuid4()), "--aplicar"], pedir=pedir) == 2
+    assert conn.execute("SELECT count(*) FROM jev_revision").fetchone()[0] == revisiones
+    # Bien formada pero el plan no se arma (producto que no existe): 2 tambien.
+    ruta.write_text(json.dumps({**solicitud, "productos": [999_999]}), encoding="utf-8")
+    assert cli_jev([*argv[:3], "--solicitud", str(_uuid.uuid4()), "--aplicar"], pedir=pedir) == 2
+    assert conn.execute("SELECT count(*) FROM jev_revision").fetchone()[0] == revisiones

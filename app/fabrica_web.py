@@ -780,14 +780,23 @@ def exportar_semillas(conn, solicitud: dict) -> dict:
             "terminos_vendedores": textos_vendedores,
             "terminos_exactos": textos_exactos,
         },
+        "listings": listing_ids,
         "terminos_a_cotejar": sorted(set(kws) | set(negs)),
+        # El rol de cada termino heredado viaja con el (triage G4-6).
+        "roles_terminos": {
+            termino: sorted(
+                (["keyword"] if termino in kws else []) + (["negativo"] if termino in negs else [])
+            )
+            for termino in sorted(set(kws) | set(negs))
+        },
     }
 
 
 def asesoria_por_huella(conn, huella: str, *, ahora: dt.datetime | None = None) -> dict | None:
     """La revision guardada para esa huella (SOLO lectura: sin HTTP y sin
     escrituras); None si nadie la reviso todavia."""
-    from app.jev_ads import AsesorAds, ReferenciaPlan
+    from app.jev_asesor import AsesorAds
+    from app.jev_vista import ReferenciaPlan
 
     asesor = AsesorAds(conn)
     vistas = asesor.leer([ReferenciaPlan(huella)], ahora=ahora or dt.datetime.now(dt.UTC))
