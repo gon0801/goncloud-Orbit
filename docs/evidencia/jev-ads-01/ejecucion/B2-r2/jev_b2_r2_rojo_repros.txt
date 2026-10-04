@@ -1,0 +1,100 @@
+
+campos de MiembroCenso: ['anuncio_ids', 'ficha_version_id', 'listing_ids', 'producto_id']
+componer -> HayCompatible(producto_ids=(1,), miembros_con_juicio=2, miembros_totales=2)
+FF
+=================================== FAILURES ===================================
+_______________ test_repro_censo_no_distingue_anuncio_archivado ________________
+
+    def test_repro_censo_no_distingue_anuncio_archivado():
+        with db_jev("orbit_repro_b2") as conn:
+            x = _producto(conn, "X")
+            lx = _listing(conn, x, asin="B0XXXXXXX1")
+            y = _producto(conn, "Y")
+            ly = _listing(conn, y, asin="B0YYYYYYY1")
+            grupo = _grupo(conn, "amazon_mx", (lx, ly))
+            for i, status in ((0, "ARCHIVED"), (1, "ENABLED")):
+                conn.execute(
+                    "INSERT INTO ad_entity_state (ad_entity_id, status, synced_at)"
+                    " VALUES ((SELECT id FROM ad_entity WHERE external_id = %s), %s, now())",
+                    (f"ad-{grupo}-{i}", status),
+                )
+            censo = censo_grupo(conn, plataforma="amazon_mx", ad_group_id=grupo)
+            campos = {f.name for f in dataclasses.fields(censo.miembros[0])}
+            print("\ncampos de MiembroCenso:", sorted(campos))
+            # El diseno exige el estado por anuncio para interpretar (ARCHIVED fuera).
+            fx, fy = uuid.uuid4(), uuid.uuid4()
+            miembros = tuple(
+                dataclasses.replace(m, ficha_version_id=fx if m.producto_id == x else fy)
+                for m in censo.miembros
+            )
+            censo = dataclasses.replace(censo, miembros=miembros)
+            ahora = datetime.now(UTC)
+            def juicio(f, rel):
+                return Juicio(uuid.uuid4(), ClavePar("a" * 64, f, "b" * 64), rel,
+                              {rel: Decimal("0.9")}, Decimal("0.9"), ahora)
+            res = componer(censo, (juicio(fx, "satisface"), juicio(fy, "no_satisface")))
+            print("componer ->", res)
+>           assert not (isinstance(res, HayCompatible) and res.producto_ids == (x,)), (
+                "HayCompatible por un producto cuyo unico anuncio esta ARCHIVED: "
+                "el censo no lleva estado y nada puede excluirlo al interpretar"
+            )
+E           AssertionError: HayCompatible por un producto cuyo unico anuncio esta ARCHIVED: el censo no lleva estado y nada puede excluirlo al interpretar
+E           assert not (True and (1,) == (1,)
+E            +  where True = isinstance(HayCompatible(producto_ids=(1,), miembros_con_juicio=2, miembros_totales=2), HayCompatible)
+E
+E             Use -v to get more diff)
+
+tests/test_repro_b2_estado_censo.py:49: AssertionError
+___________ test_repro_captura_dentro_de_la_transaccion_es_rechazada ___________
+
+    def test_repro_captura_dentro_de_la_transaccion_es_rechazada():
+        with db_jev("orbit_repro_b2tx") as conn:
+            with conn.transaction():
+                conn.execute("SELECT 1")  # BEGIN ya ocurrio: now() queda fijado aqui
+                time.sleep(0.05)  # se lee el censo
+                captured = datetime.now(UTC).isoformat()  # captura real, ANTES del INSERT
+>               _revision(conn, captured_at=captured)
+
+tests/test_repro_b2_captured_at_tx.py:24:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests/test_jev_catalogo.py:248: in _revision
+    conn.execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [BAD] at 0x108ef9f20>
+query = 'INSERT INTO jev_revision (solicitud, sujeto_tipo, plan_canonico, plan_sha256, fuentes_semillas, censos, contrato, captured_at) VALUES (%s, %s, %s::jsonb, %s, %s::jsonb, %s::jsonb, %s::jsonb, %s)'
+params = (UUID('f157edef-b914-4725-9a1b-b4e080ac580e'), 'semillas', '{"v": 1}', 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc', '{"filas": []}', '{}', ...)
+prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.CheckViolation: jev_revision: decided_at/captured_at posteriores a created_at
+E           CONTEXT:  PL/pgSQL function jev_revision_tiempos() line 4 at RAISE
+
+.venv/lib/python3.14/site-packages/psycopg/connection.py:300: CheckViolation
+=========================== short test summary info ============================
+FAILED tests/test_repro_b2_estado_censo.py::test_repro_censo_no_distingue_anuncio_archivado
+FAILED tests/test_repro_b2_captured_at_tx.py::test_repro_captura_dentro_de_la_transaccion_es_rechazada
+2 failed in 0.50s
