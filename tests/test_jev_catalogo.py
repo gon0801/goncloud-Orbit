@@ -96,28 +96,31 @@ def test_migracion_trae_fks_y_roles():
     assert "GRANT SELECT, INSERT ON jev_revision, jev_par_evento TO app_jev" in SQL49
     assert "GRANT SELECT, INSERT ON jev_ficha_version, jev_ficha_revocacion TO app_admin" in SQL49
     # Minimo privilegio por el ARBOL de sentencias (R18): un GRANT a varias
-    # tablas ya no escapa a una busqueda de texto. Exactamente estas tablas.
-    assert _tablas_cedidas(SQL49, "app_jev") == {
-        "ad_entity",
-        "ad_entity_state",
-        "listing",
-        "product",
-        "jev_revision",
-        "jev_par_evento",
-        "jev_ficha_version",
-        "jev_ficha_revocacion",
-    }
+    # tablas o con otro privilegio ya no escapa a una busqueda de texto.
+    # Exactamente estos pares (tabla, privilegio).
+    lectura = ("ad_entity", "ad_entity_state", "listing", "product")
+    fichas = ("jev_ficha_version", "jev_ficha_revocacion")
+    propias = ("jev_revision", "jev_par_evento")
+    assert _cesiones(SQL49, "app_jev") == (
+        {(t, "select") for t in (*lectura, *fichas, *propias)} | {(t, "insert") for t in propias}
+    )
 
 
-def _tablas_cedidas(sql: str, rol: str) -> set[str]:
-    tablas: set[str] = set()
+def _cesiones(sql: str, rol: str) -> set[tuple[str, str]]:
+    """Pares (tabla, privilegio) que `sql` le concede a `rol`; ALL cuenta como
+    "all" y no pasa por ninguna lista esperada."""
+    pares: set[tuple[str, str]] = set()
     for crudo in pglast.parse_sql(sql):
         sentencia = crudo.stmt
         if type(sentencia).__name__ != "GrantStmt" or not sentencia.is_grant:
             continue
-        if any(getattr(g, "rolename", None) == rol for g in sentencia.grantees):
-            tablas.update(objeto.relname for objeto in sentencia.objects)
-    return tablas
+        if not any(getattr(g, "rolename", None) == rol for g in sentencia.grantees):
+            continue
+        privilegios = (
+            [p.priv_name for p in sentencia.privileges] if sentencia.privileges else ["all"]
+        )
+        pares.update((o.relname, p) for o in sentencia.objects for p in privilegios)
+    return pares
 
 
 def test_migracion_trae_append_only_y_triggers():
