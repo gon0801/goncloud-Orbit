@@ -10,6 +10,7 @@ set -euo pipefail
 
 STAMP=${1:?uso: rollback.sh <STAMP impreso por desplegar.sh> [--solo-esquema]}
 MODO=${2:-}
+case "$MODO" in ''|--solo-esquema) ;; *) echo "ABORTA: opcion desconocida '$MODO'"; exit 2 ;; esac
 REPO=$(git rev-parse --show-toplevel)
 SRV=/mnt/data/appdata/orbit
 cd "$REPO"
@@ -17,14 +18,14 @@ cd "$REPO"
 if [ "$MODO" = "--solo-esquema" ]; then
   echo "== 1) Codigo sin tocar (desplegar.sh aborto antes de copiarlo)"
 else
-echo "== 1) Restaurar el codigo de predeploy-$STAMP y reconstruir"
-ssh goncloud "set -e; cd $SRV; [ -d predeploy-$STAMP/app ] || { echo 'ABORTA: no existe predeploy-$STAMP'; exit 1; }; \
-  rm -rf app tools; cp -a predeploy-$STAMP/app predeploy-$STAMP/tools .; \
-  cp -a predeploy-$STAMP/Dockerfile predeploy-$STAMP/.dockerignore predeploy-$STAMP/pyproject.toml predeploy-$STAMP/uv.lock .; \
-  echo DIGEST antes=\$(docker inspect -f '{{.Image}}' orbit-app-1); \
-  docker compose up -d --no-deps --build app; \
-  echo DIGEST despues=\$(docker inspect -f '{{.Image}}' orbit-app-1); \
-  sleep 5; curl -sS http://127.0.0.1:8010/health; echo"
+  echo "== 1) Restaurar el codigo de predeploy-$STAMP y reconstruir"
+  ssh goncloud "set -e; cd $SRV; [ -d predeploy-$STAMP/app ] || { echo 'ABORTA: no existe predeploy-$STAMP'; exit 1; }; \
+    rm -rf app tools; cp -a predeploy-$STAMP/app predeploy-$STAMP/tools .; \
+    cp -a predeploy-$STAMP/Dockerfile predeploy-$STAMP/.dockerignore predeploy-$STAMP/pyproject.toml predeploy-$STAMP/uv.lock .; \
+    echo DIGEST antes=\$(docker inspect -f '{{.Image}}' orbit-app-1); \
+    docker compose up -d --no-deps --build app; \
+    echo DIGEST despues=\$(docker inspect -f '{{.Image}}' orbit-app-1); \
+    sleep 5; curl -sS http://127.0.0.1:8010/health; echo"
 fi
 
 echo "== 2) Reversa 0050 y despues 0049"

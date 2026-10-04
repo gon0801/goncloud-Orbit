@@ -30,7 +30,7 @@ grep -q 'CREATE TABLE public.decision ' "$TMP/prod.sql" || { echo "ABORTA: dump 
 if grep -q 'jev_revision' "$TMP/prod.sql"; then echo "ABORTA: prod ya tiene tablas Jev"; exit 1; fi
 
 if [ -n "$(psql "$DSN_LOCAL" -tAc "SELECT 1 FROM pg_database WHERE datname = '$DB'")" ]; then
-  echo "ABORTA: ya existe la base local $DB; no es de este ensayo y no se toca"; exit 1
+  echo "ABORTA: ya existe la base local $DB (otra corrida viva, una que murio sin limpiar o una ajena); revisala y borrala a mano si es de un ensayo"; exit 1
 fi
 psql "$DSN_LOCAL" -qc "CREATE DATABASE $DB" >/dev/null
 CREADA=1

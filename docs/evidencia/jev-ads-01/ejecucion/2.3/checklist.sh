@@ -3,7 +3,7 @@
 # despues de desplegar.sh y del siguiente ciclo del optimizador, y deja su
 # salida en checklist-salida.txt. Exit 0 = todo comprobado; 1 = alguna falla;
 # 3 = sin fallas pero todavia sin ciclo posterior (no cuenta como verde).
-# Uso: cd ~/dev/goncloud-Orbit && bash docs/evidencia/jev-ads-01/ejecucion/2.3/checklist.sh <STAMP> | tee docs/evidencia/jev-ads-01/ejecucion/2.3/checklist-salida.txt
+# Uso: cd ~/dev/goncloud-Orbit && bash docs/evidencia/jev-ads-01/ejecucion/2.3/checklist.sh <STAMP> > docs/evidencia/jev-ads-01/ejecucion/2.3/checklist-salida.txt; echo "exit=$?"
 set -uo pipefail
 
 STAMP=${1:?uso: checklist.sh <STAMP impreso por desplegar.sh>}
