@@ -735,3 +735,61 @@ def operar(lote: str, accion: str, confirmacion: str) -> dict:
         except Exception as exc:
             raise _fallo_operacion(exc, lote) from None
         return detalle_lote(conn, lote)
+
+
+# ---------------------------------------------------------------------------
+# JEV 2.2: export del preview (plan + huella + filas fuente de semillas) y
+# asesoria visible por huella. SOLO lectura de fuentes y de jev_*: exportar
+# no escribe en la base ni llama a TypeSafe, y jamas toca la biblioteca.
+# ---------------------------------------------------------------------------
+
+
+def exportar_semillas(conn, solicitud: dict) -> dict:
+    """Exporta del preview el plan canonico, su huella y las filas fuente de
+    las semillas (biblioteca heredada y terminos vendedores). Los terminos a
+    cotejar son los HEREDADOS (biblioteca): se juzgan contra los productos
+    del NUEVO plan."""
+    plan = planificar(conn, solicitud)
+    huella = _huella_plan(plan)
+    kws, negs = fc._biblioteca(conn, plan.tipo_producto, plan.platform)
+    if hasattr(plan, "publicaciones"):
+        listing_ids = sorted({p.listing_id for p in plan.publicaciones})
+        productos = sorted({p.product_id for p in plan.publicaciones})
+    else:
+        listing_ids = sorted({p.listing_id for p in plan.productos})
+        productos = sorted({p.product_id for p in plan.productos})
+    terminos = fc._terminos_producto(conn, plan.platform, listing_ids)
+    terminos_exact = fc._terminos_producto(
+        conn,
+        plan.platform,
+        listing_ids,
+        sql=fc._SQL_TERMINOS_EXACT,
+        ventana=fp.VENTANA_CORTES_DIAS,
+    )
+    textos_vendedores = [t.texto for t in terminos]
+    textos_exactos = [t.texto for t in terminos_exact]
+    return {
+        "huella": huella,
+        "plan_sha256": huella,
+        "plan_canonico": _plan_con_procedencia_2dec(_plan_como_json(plan)),
+        "plataforma": plan.platform,
+        "productos": productos,
+        "fuentes_semillas": {
+            "keywords_biblioteca": list(kws),
+            "negativos_biblioteca": list(negs),
+            "terminos_vendedores": textos_vendedores,
+            "terminos_exactos": textos_exactos,
+        },
+        "terminos_a_cotejar": sorted(set(kws) | set(negs)),
+    }
+
+
+def asesoria_por_huella(conn, huella: str, *, ahora: dt.datetime | None = None) -> dict | None:
+    """La revision guardada para esa huella (SOLO lectura: sin HTTP y sin
+    escrituras); None si nadie la reviso todavia."""
+    from app.jev_ads import AsesorAds, ReferenciaPlan
+
+    asesor = AsesorAds(conn)
+    vistas = asesor.leer([ReferenciaPlan(huella)], ahora=ahora or dt.datetime.now(dt.UTC))
+    vista = vistas[ReferenciaPlan(huella)]
+    return vista.como_dict() if vista is not None else None

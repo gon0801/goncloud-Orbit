@@ -1,0 +1,7 @@
+# Verde focalizado (SHA codigo 2d69858, arbol limpio)
+$ PYTHONPATH=.:tests uv run --frozen python -m pytest -q tests/test_jev_ads.py tests/test_jev_cli.py tests/test_jev_catalogo.py tests/test_jev_juicios.py tests/test_api_dashboard.py tests/test_api_fabrica.py
+233 passed, 1 warning in 19.43s
+
+$ ruff check app/jev_ads.py app/templates tests/test_api_dashboard.py && ruff format --check app/jev_ads.py tests/test_api_dashboard.py
+All checks passed!
+2 files already formatted

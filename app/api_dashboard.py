@@ -1344,6 +1344,21 @@ def cortes(conn: ConexionLectura) -> dict:
     necesita token (es la misma conexion de lectura del dashboard)."""
     conn.row_factory = dict_row
     filas = conn.execute(_SQL_CORTES_PENDIENTES).fetchall()
+    # JEV 2.1: asesoria guardada por decision (SOLO lectura: sin HTTP y sin
+    # escrituras; los resultados vienen de los eventos de SU revision).
+    try:
+        from app.jev_ads import AsesorAds
+
+        vistas = AsesorAds(conn).leer(
+            [fila["decision_id"] for fila in filas], ahora=dt.datetime.now(dt.UTC)
+        )
+        asesoria_por_decision = {
+            decision_id: (vista.como_dict() if vista is not None else None)
+            for decision_id, vista in vistas.items()
+        }
+    except Exception as exc:  # noqa: BLE001 - degradacion visible, no caida
+        logger.warning("cortes: asesoria Jev ilegible: %s", scrub(str(exc)))
+        asesoria_por_decision = {}
     items = []
     for fila in filas:
         # FABRICA 02 (A.6): destino congelado + hermanas del grupo. La query
@@ -1384,6 +1399,7 @@ def cortes(conn: ConexionLectura) -> dict:
                 "indicador": _indicador_harvest(fila["kind"], fila["decision_inputs"]),
                 "destino": destino,
                 "hermanas": hermanas,
+                "asesoria": asesoria_por_decision.get(fila["decision_id"]),
             }
         )
     # C.4 B2: propuestas de campana en la MISMA pantalla (open accionables
