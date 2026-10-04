@@ -226,7 +226,8 @@ def revocar_ficha(
 
 def fichas_por_id(conn: psycopg.Connection, ids: Iterable[UUID]) -> dict[UUID, FichaVersion]:
     """Versiones exactas por ID, revocadas o vencidas incluidas: una revision
-    que se retoma usa las fichas que congelo, no las vigentes hoy (R9)."""
+    que se retoma lee las fichas que congelo (R9); cuales siguen vigentes
+    para reutilizar o consultar lo decide quien llama."""
     ids = sorted(set(ids), key=str)
     if not ids:
         return {}

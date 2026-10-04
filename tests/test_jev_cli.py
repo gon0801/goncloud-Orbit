@@ -330,7 +330,7 @@ def test_reanudacion_tras_crash_la_intencion_huerfana_esta_confirmada():
         assert isinstance(por_termino["t1"], HayCompatible)
 
 
-def test_reanudacion_retoma_las_fichas_congeladas_aunque_se_revoquen():
+def test_reanudacion_con_ficha_revocada_no_es_otro_payload_ni_la_reutiliza():
     """R9: entre el crash y la reanudacion se revoca la ficha. La revision
     ya congelo su contexto: retomar con la misma solicitud NO es "otro
     payload". Pero el par de esa ficha ya no se reutiliza ni se consulta
