@@ -378,6 +378,7 @@ def test_modulo_puro_sin_red_ni_db_en_top_level():
         "dataclasses",
         "datetime",
         "decimal",
+        "hashlib",
         "json",
         "re",
         "typing",

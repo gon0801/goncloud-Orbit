@@ -28,6 +28,23 @@
           <button type="button" data-vetar="{{ item.id }}">Rechazar</button>
         </td>
       </tr>
+      {% if item.asesoria %}
+      <tr class="asesoria-jev">
+        <td colspan="6">
+          <span class="chip">Asesoria Jev · {{ item.asesoria.vigencia }}</span>
+          {% for r in item.asesoria.resultados %}
+            <span class="detalle-celda">{{ r.termino }}:
+            {% if r.resultado.tipo == "hay_compatible" %}compatible ({{ r.resultado.producto_ids|join(", ") }}) · cobertura {{ r.resultado.miembros_con_juicio }}/{{ r.resultado.miembros_totales }}
+            {% elif r.resultado.tipo == "ninguno_compatible" %}sin compatibilidad en {{ r.resultado.miembros_totales }} producto(s)
+            {% else %}indeterminado ({{ r.resultado.motivos|join(", ") }}){% endif %}</span>
+          {% endfor %}
+          {% for f in item.asesoria.fichas %}
+            <span class="detalle-celda">ficha {{ f.sha256 }} · {{ f.aprobador }} · {{ f.observado_at }}</span>
+          {% endfor %}
+          <span class="detalle-celda">revisado con catalogo del {{ item.asesoria.captured_at }}</span>
+        </td>
+      </tr>
+      {% endif %}
       <tr hidden id="form-{{ item.id }}">
         <td colspan="6">
           <form data-veto="{{ item.id }}">

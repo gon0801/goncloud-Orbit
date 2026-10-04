@@ -27,6 +27,7 @@ las reglas del diseno sobre un censo congelado y los pares evaluados:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import uuid
@@ -809,3 +810,325 @@ class AsesorAds:
             producto_id=miembro.producto_id,
             motivo=f"{devuelto.codigo}: {devuelto.detalle}",
         )
+
+    def _vista_de_revision(self, fila: dict, ahora: datetime) -> VistaAsesoria:
+        fila = _fila_dict(fila, _COLUMNAS_REVISION)
+        contexto = fila["censos"]
+        censo = _censo_de_json(contexto["censo"])
+        terminos = list(contexto["terminos"])
+        ids_fichas = [
+            x if isinstance(x, UUID) else UUID(x) for x in fila["ficha_version_ids"] or []
+        ]
+
+        fichas: list[FichaVersion] = []
+        vigencia: Vigencia = NoComprobable()
+        if ids_fichas:
+            filas = self._conn.execute(
+                "SELECT f.id, f.producto_id, f.plataforma, f.aprobador, f.sha256,"
+                " f.observado_at, f.revisar_antes_de, f.created_at,"
+                " EXISTS (SELECT 1 FROM jev_ficha_revocacion r WHERE r.ficha_version_id = f.id)"
+                " AS revocada,"
+                " EXISTS (SELECT 1 FROM jev_ficha_version n WHERE n.producto_id = f.producto_id"
+                "   AND n.plataforma = f.plataforma AND n.id <> f.id"
+                "   AND n.created_at > f.created_at"
+                "   AND NOT EXISTS (SELECT 1 FROM jev_ficha_revocacion r2"
+                "       WHERE r2.ficha_version_id = n.id)) AS hay_mas_nueva"
+                " FROM jev_ficha_version f WHERE f.id = ANY(%s)",
+                (ids_fichas,),
+            ).fetchall()
+            for una in filas:
+                datos = _fila_dict(
+                    una,
+                    (
+                        "id",
+                        "producto_id",
+                        "plataforma",
+                        "aprobador",
+                        "sha256",
+                        "observado_at",
+                        "revisar_antes_de",
+                        "created_at",
+                        "revocada",
+                        "hay_mas_nueva",
+                    ),
+                )
+                fichas.append(
+                    FichaVersion(
+                        id=datos["id"],
+                        producto_id=datos["producto_id"],
+                        plataforma=datos["plataforma"],  # type: ignore[arg-type]
+                        listings=frozenset(),
+                        hechos=(),
+                        desconocidos=frozenset(),
+                        aprobador=datos["aprobador"],
+                        observado_at=datos["observado_at"],
+                        revisar_antes_de=datos["revisar_antes_de"],
+                        sha256=datos["sha256"],
+                    )
+                )
+            vigencia = Vigente()
+            for una in filas:
+                datos = _fila_dict(
+                    una,
+                    (
+                        "id",
+                        "producto_id",
+                        "plataforma",
+                        "aprobador",
+                        "sha256",
+                        "observado_at",
+                        "revisar_antes_de",
+                        "created_at",
+                        "revocada",
+                        "hay_mas_nueva",
+                    ),
+                )
+                if (
+                    datos["revocada"]
+                    or datos["hay_mas_nueva"]
+                    or datos["revisar_antes_de"] <= ahora
+                ):
+                    vigencia = Obsoleta()
+
+        eventos = self._conn.execute(
+            "SELECT id, termino_sha256, ficha_version_id, contrato_sha256, respuesta, error"
+            " FROM jev_par_evento WHERE revision_id = %s AND tipo = 'resultado'"
+            " ORDER BY ordinal",
+            (fila["solicitud"],),
+        ).fetchall()
+
+        resultados = []
+        for termino in terminos:
+            hash_termino = hashlib.sha256(termino.encode("utf-8")).hexdigest()
+            pares: list[EstadoPar] = []
+            if es_asin_like(termino):
+                pares.append(NoAplicaTexto(motivo="asin_like"))
+            else:
+                for miembro in censo.miembros:
+                    if miembro.ficha_version_id is None:
+                        pares.append(FichaFaltante(producto_id=miembro.producto_id))
+                        continue
+                    propio = None
+                    evento_id = None
+                    for evento in eventos:
+                        datos_evento = _fila_dict(
+                            evento,
+                            (
+                                "id",
+                                "termino_sha256",
+                                "ficha_version_id",
+                                "contrato_sha256",
+                                "respuesta",
+                                "error",
+                            ),
+                        )
+                        if (
+                            datos_evento["termino_sha256"] == hash_termino
+                            and datos_evento["ficha_version_id"] == miembro.ficha_version_id
+                        ):
+                            propio = datos_evento
+                            evento_id = datos_evento["id"]
+                            break
+                    if propio is None:
+                        continue
+                    clave = ClavePar(
+                        termino_literal_sha256=hash_termino,
+                        ficha_version_id=miembro.ficha_version_id,
+                        contrato_sha256=propio["contrato_sha256"],
+                    )
+                    if propio["respuesta"] is not None:
+                        pares.append(
+                            _juicio_de_respuesta_guardada(propio["respuesta"], clave, evento_id)
+                        )
+                    else:
+                        pares.append(
+                            FalloProveedor(
+                                producto_id=miembro.producto_id,
+                                motivo=str(propio["error"] or "fallo del proveedor"),
+                            )
+                        )
+            resultados.append((termino, componer(censo, tuple(pares))))
+
+        return VistaAsesoria(
+            solicitud=fila["solicitud"],
+            sujeto=fila["sujeto_tipo"],
+            decision_id=fila["decision_id"],
+            plan_sha256=fila["plan_sha256"],
+            captured_at=fila["captured_at"],
+            resultados=tuple(resultados),
+            fichas=tuple(fichas),
+            fuentes_semillas=fila["fuentes_semillas"],
+            vigencia=vigencia,
+        )
+
+    def leer(self, referencias, *, ahora: datetime) -> dict:
+        """Vistas de las revisiones guardadas para la UI (2.1/2.2).
+
+        `referencias` mezcla decision_id (int) y ReferenciaPlan (huella); la
+        respuesta usa la MISMA referencia como clave y None cuando no hay
+        revision ligada. SOLO lectura: sin HTTP y sin escrituras; cada vista
+        se reconstruye con los eventos de SU revision y el censo congelado
+        (nunca con exitos posteriores de otras revisiones).
+        """
+        salidas: dict = {}
+        for ref in referencias:
+            if isinstance(ref, ReferenciaPlan):
+                fila = self._conn.execute(
+                    "SELECT solicitud, sujeto_tipo, decision_id, plan_sha256, censos,"
+                    " ficha_version_ids, captured_at, fuentes_semillas"
+                    " FROM jev_revision WHERE sujeto_tipo = 'semillas'"
+                    " AND plan_sha256 = %s ORDER BY created_at DESC, solicitud LIMIT 1",
+                    (ref.plan_sha256,),
+                ).fetchone()
+            else:
+                fila = self._conn.execute(
+                    "SELECT solicitud, sujeto_tipo, decision_id, plan_sha256, censos,"
+                    " ficha_version_ids, captured_at, fuentes_semillas"
+                    " FROM jev_revision WHERE sujeto_tipo = 'decision'"
+                    " AND decision_id = %s ORDER BY created_at DESC, solicitud LIMIT 1",
+                    (ref,),
+                ).fetchone()
+            salidas[ref] = self._vista_de_revision(fila, ahora) if fila is not None else None
+        return salidas
+
+
+# ===========================================================================
+# 2.1: lectura de la asesoria guardada (GET; cero HTTP, cero escritura)
+# ===========================================================================
+
+
+@dataclass(frozen=True)
+class ReferenciaPlan:
+    """Referencia de lectura por huella de plan de fabrica (2.2)."""
+
+    plan_sha256: str
+
+
+@dataclass(frozen=True)
+class VistaAsesoria:
+    """Lo que la UI muestra de una revision guardada. Los resultados son
+    HISTORICOS: se reconstruyen SOLO con los eventos de ESA revision y el
+    censo congelado; un exito posterior de otra revision jamas los tine."""
+
+    solicitud: UUID
+    sujeto: str
+    decision_id: int | None
+    plan_sha256: str | None
+    captured_at: datetime | None
+    resultados: tuple[tuple[str, RelevanciaConjunto], ...]
+    fichas: tuple[FichaVersion, ...]
+    fuentes_semillas: Mapping[str, object] | None
+    vigencia: Vigencia
+
+    def como_dict(self) -> dict:
+        nivel = {Vigente: "vigente", Obsoleta: "obsoleta", NoComprobable: "no_comprobable"}
+        return {
+            "solicitud": str(self.solicitud),
+            "sujeto": self.sujeto,
+            "decision_id": self.decision_id,
+            "plan_sha256": self.plan_sha256,
+            "captured_at": (
+                self.captured_at.astimezone(UTC).isoformat()
+                if self.captured_at is not None
+                else None
+            ),
+            "vigencia": nivel[type(self.vigencia)],
+            "resultados": [
+                {"termino": termino, "resultado": _relevancia_a_dict(resultado)}
+                for termino, resultado in self.resultados
+            ],
+            "fichas": [
+                {
+                    "id": str(ficha.id),
+                    "aprobador": ficha.aprobador,
+                    "sha256": ficha.sha256[:12],
+                    "observado_at": ficha.observado_at.isoformat(),
+                }
+                for ficha in self.fichas
+            ],
+            "fuentes_semillas": (dict(self.fuentes_semillas) if self.fuentes_semillas else None),
+        }
+
+
+def _relevancia_a_dict(resultado: RelevanciaConjunto) -> dict:
+    if isinstance(resultado, HayCompatible):
+        return {
+            "tipo": "hay_compatible",
+            "producto_ids": list(resultado.producto_ids),
+            "miembros_con_juicio": resultado.miembros_con_juicio,
+            "miembros_totales": resultado.miembros_totales,
+        }
+    if isinstance(resultado, NingunoCompatible):
+        return {"tipo": "ninguno_compatible", "miembros_totales": resultado.miembros_totales}
+    return {"tipo": "indeterminado", "motivos": sorted(resultado.motivos)}
+
+
+_COLUMNAS_REVISION = (
+    "solicitud",
+    "sujeto_tipo",
+    "decision_id",
+    "plan_sha256",
+    "censos",
+    "ficha_version_ids",
+    "captured_at",
+    "fuentes_semillas",
+)
+
+
+def _fila_dict(fila, columnas) -> dict:
+    if isinstance(fila, dict):
+        return fila
+    return dict(zip(columnas, fila, strict=True))
+
+
+def _censo_de_json(datos: dict) -> CensoCongelado:
+    miembros = []
+    for miembro in datos["miembros"]:
+        miembros.append(
+            MiembroCenso(
+                anuncio_ids=tuple(miembro["anuncio_ids"]),
+                producto_id=miembro["producto_id"],
+                listing_ids=frozenset(miembro["listing_ids"]),
+                estados=tuple(
+                    EstadoAnuncio(
+                        status=estado["status"],
+                        synced_at=(
+                            datetime.fromisoformat(estado["synced_at"])
+                            if estado["synced_at"]
+                            else None
+                        ),
+                    )
+                    for estado in miembro["estados"]
+                ),
+                ficha_version_id=(
+                    UUID(miembro["ficha_version_id"]) if miembro["ficha_version_id"] else None
+                ),
+            )
+        )
+    return CensoCongelado(miembros=tuple(miembros), exhaustivo=datos["exhaustivo"])
+
+
+def _leer_asesor():
+    return AsesorAds
+
+
+def _juicio_de_respuesta_guardada(respuesta: dict, clave: ClavePar, evento_id: UUID) -> Juicio:
+    return Juicio(
+        intento_id=evento_id,
+        clave=clave,
+        relacion=respuesta["relacion"],
+        probabilidades={k: Decimal(v) for k, v in respuesta["probabilidades"].items()},
+        confidence=Decimal(respuesta["confidence"]),
+        observado_at=datetime.fromisoformat(respuesta["observado_at"]),
+    )
+
+
+def _juicio_de_respuesta_guardada(respuesta: dict, clave: ClavePar, evento_id: UUID) -> Juicio:
+    return Juicio(
+        intento_id=evento_id,
+        clave=clave,
+        relacion=respuesta["relacion"],
+        probabilidades={k: Decimal(v) for k, v in respuesta["probabilidades"].items()},
+        confidence=Decimal(respuesta["confidence"]),
+        observado_at=datetime.fromisoformat(respuesta["observado_at"]),
+    )

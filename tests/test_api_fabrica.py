@@ -43,6 +43,7 @@ def escenario(monkeypatch):
             "0021_economia_observada.sql",
             "0022_disponibilidad_snapshot.sql",
             "0028_estimacion_venta.sql",
+            "0049_jev_ads.sql",
         ):
             conn.execute((migraciones / nombre).read_text(encoding="utf-8"))
         conn.row_factory = tuple_row
@@ -1114,3 +1115,242 @@ def test_preview_formatea_procedencia_y_huella_sigue_valida(escenario, monkeypat
     respuesta = _crear(cliente, v2, vista["huella"])
     assert respuesta.status_code == 200, respuesta.text
     assert llamadas == [vista["lote"]]
+
+
+# ---------------------------------------------------------------------------
+# JEV 2.2: export del preview (plan + huella + fuentes de semillas) y
+# asesoria visible por huella (lectura pura; la biblioteca queda intacta)
+# ---------------------------------------------------------------------------
+
+
+def _ficha_jev_fabrica(conn, producto: int, listing: int) -> object:
+    import uuid as _uuid
+
+    ficha_id = _uuid.uuid4()
+    conn.execute(
+        "INSERT INTO jev_ficha_version (id, producto_id, plataforma, listings,"
+        " hechos, desconocidos, sha256, aprobador, observado_at, revisar_antes_de)"
+        " VALUES (%s, %s, 'amazon_mx', ARRAY[%s], %s::jsonb, '{}', %s, 'aprobador',"
+        " now(), now() + interval '120 days')",
+        (
+            ficha_id,
+            producto,
+            listing,
+            json.dumps([{"texto": "hecho", "fuente": "fuente"}]),
+            "f" * 64,
+        ),
+    )
+    return ficha_id
+
+
+def _censo_fabrica(conn, producto: int):
+    from datetime import UTC, datetime
+
+    from app.jev_ads import CensoCongelado, EstadoAnuncio, MiembroCenso
+
+    listing = conn.execute(
+        "SELECT id FROM listing WHERE product_id = %s AND platform = 'amazon_mx'",
+        (producto,),
+    ).fetchone()[0]
+    ficha_id = _ficha_jev_fabrica(conn, producto, listing)
+    miembro = MiembroCenso(
+        anuncio_ids=(listing,),
+        producto_id=producto,
+        listing_ids=frozenset({listing}),
+        estados=(EstadoAnuncio("ENABLED", datetime.now(UTC)),),
+        ficha_version_id=ficha_id,
+    )
+    return CensoCongelado(miembros=(miembro,), exhaustivo=True), ficha_id
+
+
+def test_export_semillas_trae_plan_huella_y_fuentes_sin_tocar_biblioteca(escenario):
+    """DoD 2.2: el export contiene plan, huella y filas fuente de semillas
+    (biblioteca heredada incluida); exportar no crea ni elimina keywords ni
+    modifica la biblioteca."""
+    cliente, conn, solicitud, fw, ids = escenario
+    conn.execute(
+        "INSERT INTO negative_biblioteca(tipo_producto, platform, texto, origen)"
+        " VALUES ('collar_perro', 'amazon_mx', 'antipulgas', 'manual')"
+    )
+    conteos_antes = {
+        tabla: conn.execute(f"SELECT count(*) FROM {tabla}").fetchone()[0]
+        for tabla in ("keyword_biblioteca", "negative_biblioteca")
+    }
+    export = cliente.post("/api/fabrica/export-semillas", json=solicitud)
+    assert export.status_code == 200, export.text
+    datos = export.json()
+    preview = _preview(cliente, solicitud)
+    assert datos["huella"] == preview["huella"]
+    assert datos["plan_sha256"] == datos["huella"]
+    assert datos["plan_canonico"] == preview["plan"]
+    assert datos["fuentes_semillas"]["keywords_biblioteca"] == ["collar"]
+    assert set(datos["terminos_a_cotejar"]) == {"collar", "antipulgas"}
+    assert datos["plataforma"] == "amazon_mx"
+    assert datos["productos"] == [ids[0]]
+    assert (
+        conn.execute(
+            "SELECT count(*) FROM jev_revision WHERE plan_sha256 = %s",
+            (datos["huella"],),
+        ).fetchone()[0]
+        == 0
+    )
+    assert {
+        tabla: conn.execute(f"SELECT count(*) FROM {tabla}").fetchone()[0]
+        for tabla in ("keyword_biblioteca", "negative_biblioteca")
+    } == conteos_antes
+
+
+def test_asesoria_por_huella_cambia_con_el_plan_y_conserva_fuentes(escenario):
+    """DoD 2.2: el negativo heredado se coteja con los productos NUEVOS; la
+    misma huella conserva las fuentes congeladas; cambiar parametros cambia
+    la huella y la revision visible; el GET no escribe."""
+    import uuid as _uuid
+
+    from app.jev_ads import AsesorAds, SemillasARevisar
+
+    cliente, conn, solicitud, fw, ids = escenario
+    conn.execute(
+        "INSERT INTO negative_biblioteca(tipo_producto, platform, texto, origen)"
+        " VALUES ('collar_perro', 'amazon_mx', 'antipulgas', 'manual')"
+    )
+    export = cliente.post("/api/fabrica/export-semillas", json=solicitud).json()
+    censo, ficha_id = _censo_fabrica(conn, ids[0])
+
+    def pedir_satisface(termino, ficha):
+        import uuid as _uuid2
+        from decimal import Decimal
+
+        from app.jev_ads import ClavePar, Juicio
+        from app.jev_juicios import ResultadoPar
+
+        return ResultadoPar(
+            juicio=Juicio(
+                intento_id=_uuid2.uuid4(),
+                clave=ClavePar("a" * 64, ficha.id, "b" * 64),
+                relacion="satisface",
+                probabilidades={
+                    "satisface": Decimal("0.70"),
+                    "no_satisface": Decimal("0.20"),
+                    "informacion_insuficiente": Decimal("0.10"),
+                },
+                confidence=Decimal("0.80"),
+                observado_at=NOW_FABRICA,
+            ),
+            usage=None,
+            duracion_ms=5,
+        )
+
+    asesor = AsesorAds(
+        conn, pedir=pedir_satisface, api_key="k", presupuesto=5, ahora=lambda: NOW_FABRICA
+    )
+    revision = asesor.evaluar(
+        SemillasARevisar(
+            plan_sha256=export["plan_sha256"],
+            plan_canonico=export["plan_canonico"],
+            fuentes_semillas=export["fuentes_semillas"],
+            terminos=tuple(export["terminos_a_cotejar"]),
+            censo=censo,
+            plataforma="amazon_mx",
+        ),
+        solicitud_id=_uuid.uuid4(),
+    )
+    assert revision.presupuesto_agotado is False
+
+    respuesta = cliente.get(f"/api/fabrica/asesoria/{export['huella']}")
+    assert respuesta.status_code == 200, respuesta.text
+    asesoria = respuesta.json()["asesoria"]
+    assert asesoria["sujeto"] == "semillas"
+    assert asesoria["plan_sha256"] == export["huella"]
+    por_termino = {r["termino"]: r["resultado"] for r in asesoria["resultados"]}
+    assert set(por_termino) == {"collar", "antipulgas"}
+    assert por_termino["collar"]["tipo"] == "hay_compatible"
+    assert asesoria["fuentes_semillas"] == export["fuentes_semillas"]
+
+    # Repetir la misma huella conserva las fuentes congeladas (append-only:
+    # una revision nueva con las MISMAS fuentes, la vieja intacta).
+    conteo_revisiones = conn.execute(
+        "SELECT count(*) FROM jev_revision WHERE plan_sha256 = %s",
+        (export["huella"],),
+    ).fetchone()[0]
+    asesor.evaluar(
+        SemillasARevisar(
+            plan_sha256=export["plan_sha256"],
+            plan_canonico=export["plan_canonico"],
+            fuentes_semillas=export["fuentes_semillas"],
+            terminos=tuple(export["terminos_a_cotejar"]),
+            censo=censo,
+            plataforma="amazon_mx",
+        ),
+        solicitud_id=_uuid.uuid4(),
+    )
+    assert (
+        conn.execute(
+            "SELECT count(*) FROM jev_revision WHERE plan_sha256 = %s",
+            (export["huella"],),
+        ).fetchone()[0]
+        == conteo_revisiones + 1
+    )
+    fuentes_guardadas = conn.execute(
+        "SELECT fuentes_semillas FROM jev_revision WHERE plan_sha256 = %s"
+        " ORDER BY created_at DESC LIMIT 1",
+        (export["huella"],),
+    ).fetchone()[0]
+    assert fuentes_guardadas == export["fuentes_semillas"]
+
+    # Cambiar un parametro cambia la huella: esa revision visible es OTRA
+    # (404 hasta que alguien la revise).
+    otra_solicitud = dict(solicitud)
+    otra_solicitud["parametros"] = {
+        rol: {"budget": "200.00", "bid": "4.00"} for rol in fp.ROLES_ORDEN_CREACION
+    }
+    export_2 = cliente.post("/api/fabrica/export-semillas", json=otra_solicitud).json()
+    assert export_2["huella"] != export["huella"]
+    assert cliente.get(f"/api/fabrica/asesoria/{export_2['huella']}").status_code == 404
+    asesor.evaluar(
+        SemillasARevisar(
+            plan_sha256=export_2["plan_sha256"],
+            plan_canonico=export_2["plan_canonico"],
+            fuentes_semillas=export_2["fuentes_semillas"],
+            terminos=tuple(export_2["terminos_a_cotejar"]),
+            censo=censo,
+            plataforma="amazon_mx",
+        ),
+        solicitud_id=_uuid.uuid4(),
+    )
+    respuesta_2 = cliente.get(f"/api/fabrica/asesoria/{export_2['huella']}")
+    assert respuesta_2.status_code == 200
+    assert respuesta_2.json()["asesoria"]["plan_sha256"] == export_2["huella"]
+
+    # El GET no escribe: los conteos de revisiones/eventos no cambian.
+    conteos = {
+        tabla: conn.execute(f"SELECT count(*) FROM {tabla}").fetchone()[0]
+        for tabla in ("jev_revision", "jev_par_evento")
+    }
+    cliente.get(f"/api/fabrica/asesoria/{export['huella']}")
+    assert {
+        tabla: conn.execute(f"SELECT count(*) FROM {tabla}").fetchone()[0]
+        for tabla in ("jev_revision", "jev_par_evento")
+    } == conteos
+
+
+def _juicio_simple(termino, ficha, relacion="satisface"):
+    import uuid as _uuid
+    from decimal import Decimal
+
+    from app.jev_ads import ClavePar, Juicio
+
+    return Juicio(
+        intento_id=_uuid.uuid4(),
+        clave=ClavePar("a" * 64, ficha.id, "b" * 64),
+        relacion=relacion,
+        probabilidades={
+            "satisface": Decimal("0.70"),
+            "no_satisface": Decimal("0.20"),
+            "informacion_insuficiente": Decimal("0.10"),
+        },
+        confidence=Decimal("0.80"),
+        observado_at=NOW_FABRICA,
+    )
+
+
+NOW_FABRICA = dt.datetime(2026, 10, 4, tzinfo=dt.UTC)

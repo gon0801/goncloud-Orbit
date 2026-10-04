@@ -303,6 +303,24 @@ def plan(cuerpo: SolicitudPlan, conn: ConexionLectura):
     return fw.previsualizar(conn, cuerpo.model_dump())
 
 
+@router.post("/export-semillas")
+def export_semillas(cuerpo: SolicitudPlan, conn: ConexionLectura):
+    """JEV 2.2: plan canonico + huella + filas fuente de semillas para
+    revisar el lote con el asesor. SOLO lectura de fuentes: no escribe y no
+    toca la biblioteca."""
+    return fw.exportar_semillas(conn, cuerpo.model_dump())
+
+
+@router.get("/asesoria/{huella}")
+def asesoria_huella(huella: Annotated[str, Path(pattern=r"^[a-f0-9]{64}$")], conn: ConexionLectura):
+    """JEV 2.2: la revision guardada para esa huella (SOLO lectura; 404 si
+    nadie la reviso todavia)."""
+    vista = fw.asesoria_por_huella(conn, huella)
+    if vista is None:
+        raise HTTPException(status_code=404, detail="huella sin revision de asesoria")
+    return {"asesoria": vista}
+
+
 @router.post("/bids-sugeridos")
 def bids_sugeridos(cuerpo: SolicitudBids, conn: ConexionLectura):
     return fw.sugerir_bids(conn, cuerpo.model_dump())
