@@ -11,9 +11,12 @@ Tres sujetos posibles:
   la propia decision; la asesoria aparece en /cortes.
 - `evaluar --plataforma P --grupo-id G --termino T [--termino T2 ...]`: lote
   de semillas de un grupo (plan canonico = el lote, hash por contenido).
-- `evaluar-export --archivo export.json`: el JSON de
-  POST /api/fabrica/export-semillas; el universo son los productos del NUEVO
-  plan y la asesoria aparece en /api/fabrica/asesoria/<huella>.
+- `evaluar-plan --plan solicitud.json`: la MISMA solicitud del preview de
+  fabrica (el cuerpo de POST /api/fabrica/export-semillas). El CLI calcula el
+  export sobre la base, igual que el endpoint: huella, listings y terminos
+  salen del plan, no de un archivo que se pueda editar. El universo son los
+  productos del NUEVO plan y la asesoria aparece en
+  /api/fabrica/asesoria/<huella>.
 
 Ceremonia comun:
 
@@ -38,7 +41,7 @@ Ejemplos:
   tools/jev_ads.py evaluar --decision-id 2367 --solicitud <uuid> --aplicar
   tools/jev_ads.py evaluar --plataforma amazon_mx --grupo-id 5 \\
       --termino 'soporte mesa' --solicitud <uuid> --presupuesto 8 --aplicar
-  tools/jev_ads.py evaluar-export --archivo export.json --solicitud <uuid> --aplicar
+  tools/jev_ads.py evaluar-plan --plan solicitud.json --solicitud <uuid> --aplicar
 """
 
 from __future__ import annotations
@@ -83,9 +86,9 @@ def _parser() -> argparse.ArgumentParser:
     evaluar.add_argument("--plataforma", choices=("amazon_mx", "amazon_us"))
     evaluar.add_argument("--grupo-id", type=int)
     evaluar.add_argument("--termino", action="append", help="termino literal; repetible")
-    exportado = sub.add_parser("evaluar-export", help="JSON de /api/fabrica/export-semillas")
-    exportado.add_argument("--archivo", required=True)
-    for comando in (evaluar, exportado):
+    plan = sub.add_parser("evaluar-plan", help="solicitud de un preview de fabrica")
+    plan.add_argument("--plan", required=True)
+    for comando in (evaluar, plan):
         comando.add_argument("--solicitud", required=True, type=UUID)
         comando.add_argument("--presupuesto", type=_presupuesto, default=10)
         comando.add_argument("--aplicar", action="store_true", help="sin esta bandera es dry-run")
@@ -105,32 +108,41 @@ def _canonico(objeto: object) -> str:
     return json.dumps(objeto, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def _sujeto_de_export(conn, ruta: str):
+def _sujeto_de_plan(conn, ruta: str):
+    """El export se CALCULA aqui con la solicitud del preview, por el mismo
+    camino que POST /api/fabrica/export-semillas (validacion de SolicitudPlan
+    y exportar_semillas): huella, listings y terminos son del plan."""
+    from fastapi import HTTPException
+    from pydantic import ValidationError
+
+    from app import fabrica_web
+    from app.api_fabrica import SolicitudPlan
+
     try:
         with open(ruta, encoding="utf-8") as archivo:
-            export = json.load(archivo)
-        plataforma = export["plataforma"]
-        terminos = _terminos(export["terminos_a_cotejar"])
-        sujeto = SemillasARevisar(
-            plan_sha256=export["plan_sha256"],
-            plan_canonico=export["plan_canonico"],
-            fuentes_semillas=export["fuentes_semillas"],
-            terminos=terminos,
-            censo=censo_de_plan(conn, plataforma=plataforma, listing_ids=export["listings"]),
-            plataforma=plataforma,
-        )
-    except _Configuracion:
-        raise
-    except (OSError, ValueError, KeyError, TypeError) as error:
-        raise _Configuracion(f"export ilegible: {error}") from error
-    return sujeto, export.get("roles_terminos", {})
+            solicitud = SolicitudPlan.model_validate(json.load(archivo)).model_dump()
+    except (OSError, ValueError, ValidationError) as error:
+        raise _Configuracion(f"solicitud de plan ilegible: {error}") from error
+    try:
+        export = fabrica_web.exportar_semillas(conn, solicitud)
+    except HTTPException as error:
+        raise ValueError(f"plan rechazado ({error.status_code}): {error.detail}") from error
+    sujeto = SemillasARevisar(
+        plan_sha256=export["plan_sha256"],
+        plan_canonico=export["plan_canonico"],
+        fuentes_semillas=export["fuentes_semillas"],
+        terminos=_terminos(export["terminos_a_cotejar"]),
+        censo=censo_de_plan(conn, plataforma=export["plataforma"], listing_ids=export["listings"]),
+        plataforma=export["plataforma"],
+    )
+    return sujeto, export["roles_terminos"]
 
 
 def _sujeto(conn, args):
     """El sujeto que se revisa y el rol de cada termino de fabrica (se
     imprime junto a su resultado)."""
-    if args.comando == "evaluar-export":
-        return _sujeto_de_export(conn, args.archivo)
+    if args.comando == "evaluar-plan":
+        return _sujeto_de_plan(conn, args.plan)
     if args.decision_id is not None:
         if args.plataforma or args.grupo_id is not None or args.termino:
             raise _Configuracion(

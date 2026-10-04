@@ -128,6 +128,10 @@ class AsesorAds:
         destinos: list[tuple[str, RelevanciaConjunto]] = []
         http_hechos = 0
         agotado = False
+        # V1 no reintenta dentro del lote: una clave que ya fallo en ESTA
+        # corrida (p. ej. el origen de un harvest) no se paga otra vez en el
+        # destino; plan_seco cuenta por clave unica y asi coincide.
+        fallidos: dict[ClavePar, EstadoPar] = {}
 
         def pares_de(un_censo: CensoCongelado, termino: str) -> list[EstadoPar]:
             nonlocal http_hechos, agotado
@@ -142,6 +146,9 @@ class AsesorAds:
                 if agotado:
                     continue
                 clave = clave_de(termino, ficha, self._contrato)
+                if clave in fallidos:
+                    pares.append(fallidos[clave])
+                    continue
                 exito = self._exito_previo(solicitud_id, clave)
                 if exito is not None:
                     self._reutilizar(solicitud_id, clave, exito)
@@ -156,7 +163,10 @@ class AsesorAds:
                 self._conn.commit()
                 http_hechos += 1
                 devuelto = self._pedir(termino, ficha)
-                pares.append(self._resultado(solicitud_id, clave, intencion_id, devuelto, miembro))
+                par = self._resultado(solicitud_id, clave, intencion_id, devuelto, miembro)
+                if isinstance(par, FalloProveedor):
+                    fallidos[clave] = par
+                pares.append(par)
             return pares
 
         for termino in terminos:

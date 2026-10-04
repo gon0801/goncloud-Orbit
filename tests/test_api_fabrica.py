@@ -1368,3 +1368,58 @@ def _juicio_simple(termino, ficha, relacion="satisface"):
 
 
 NOW_FABRICA = dt.datetime(2026, 10, 4, tzinfo=dt.UTC)
+
+
+def test_cli_evaluar_plan_calcula_el_export_y_la_asesoria_queda_por_huella(escenario, tmp_path):
+    """R2 y bloqueante de codex en B10: el CLI no confia en un export editado.
+    Recibe la MISMA solicitud del preview, calcula el export por el camino del
+    endpoint y la asesoria queda en la huella del plan; una solicitud que no
+    valida sale 2 sin escribir."""
+    import uuid as _uuid
+    from decimal import Decimal
+
+    from app.jev_ads import ClavePar, Juicio
+    from app.jev_juicios import ResultadoPar
+    from tools.jev_ads import main as cli_jev
+
+    cliente, conn, solicitud, fw, ids = escenario
+    listing = conn.execute(
+        "SELECT id FROM listing WHERE product_id = %s AND platform = 'amazon_mx'", (ids[0],)
+    ).fetchone()[0]
+    _ficha_jev_fabrica(conn, ids[0], listing)
+    export = cliente.post("/api/fabrica/export-semillas", json=solicitud).json()
+    ruta = tmp_path / "solicitud.json"
+    ruta.write_text(json.dumps(solicitud), encoding="utf-8")
+
+    def pedir(termino, ficha):
+        return ResultadoPar(
+            juicio=Juicio(
+                intento_id=_uuid.uuid4(),
+                clave=ClavePar("a" * 64, ficha.id, "b" * 64),
+                relacion="satisface",
+                probabilidades={
+                    "satisface": Decimal("0.80"),
+                    "no_satisface": Decimal("0.10"),
+                    "informacion_insuficiente": Decimal("0.10"),
+                },
+                confidence=Decimal("0.80"),
+                observado_at=NOW_FABRICA,
+            ),
+            usage=None,
+            duracion_ms=5,
+        )
+
+    argv = ["evaluar-plan", "--plan", str(ruta), "--solicitud", str(_uuid.uuid4())]
+    salida: list[str] = []
+    assert cli_jev(argv, pedir=pedir, imprimir=salida.append) == 0
+    assert any("pares nuevos 1, reutilizables 0; pagaria 1" in linea for linea in salida), salida
+    assert cli_jev([*argv, "--aplicar"], pedir=pedir, imprimir=salida.append) == 0
+    esperado = f"resultado grupo collar (keyword) HayCompatible productos=[{ids[0]}] cobertura=1/1"
+    assert esperado in salida
+    asesoria = cliente.get(f"/api/fabrica/asesoria/{export['huella']}").json()["asesoria"]
+    assert asesoria["plan_sha256"] == export["huella"]
+    assert asesoria["fuentes_semillas"] == export["fuentes_semillas"]
+    ruta.write_text(json.dumps({**solicitud, "modo": "otro"}), encoding="utf-8")
+    revisiones = conn.execute("SELECT count(*) FROM jev_revision").fetchone()[0]
+    assert cli_jev([*argv[:3], "--solicitud", str(_uuid.uuid4()), "--aplicar"], pedir=pedir) == 2
+    assert conn.execute("SELECT count(*) FROM jev_revision").fetchone()[0] == revisiones

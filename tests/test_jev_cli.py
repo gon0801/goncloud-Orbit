@@ -1162,51 +1162,6 @@ def test_cli_error_de_datos_sale_1_redactado(capsys):
     assert "decision 999999 no existe" in capsys.readouterr().err
 
 
-def test_cli_evaluar_export_de_fabrica(tmp_path):
-    """R2: el pegamento del export de fabrica. El universo son los productos
-    del NUEVO plan (exhaustivo) y cada termino imprime su rol."""
-    from tools.jev_ads import main as cli_jev
-
-    with db_jev() as conn:
-        p1 = _producto(conn, "PLAN1")
-        l1 = _listing(conn, p1, asin="B0PLAN0001")
-        _ficha(conn, p1, (l1,))
-        export = {
-            "huella": "e" * 64,
-            "plan_sha256": "e" * 64,
-            "plan_canonico": {"plan": 1},
-            "plataforma": "amazon_mx",
-            "productos": [p1],
-            "listings": [l1],
-            "fuentes_semillas": {"keywords_biblioteca": ["collar"], "negativos_biblioteca": []},
-            "terminos_a_cotejar": ["collar"],
-            "roles_terminos": {"collar": ["keyword"]},
-        }
-        ruta = tmp_path / "export.json"
-        ruta.write_text(json.dumps(export), encoding="utf-8")
-        salida: list[str] = []
-        argv = [
-            "evaluar-export",
-            "--archivo",
-            str(ruta),
-            "--solicitud",
-            str(uuid.uuid4()),
-            "--aplicar",
-        ]
-        assert (
-            cli_jev(
-                argv,
-                pedir=_Pedido({"collar": "no_satisface"}),
-                dsn=_dsn_jev(),
-                imprimir=salida.append,
-            )
-            == 0
-        )
-        assert "resultado grupo collar (keyword) NingunoCompatible universo=1" in salida, salida
-        ruta.write_text("{}", encoding="utf-8")
-        assert cli_jev(argv, pedir=_Pedido(), dsn=_dsn_jev()) == 2
-
-
 @pytest.mark.parametrize("con_app_jev", [True, False], ids=["admin+app_jev", "solo-app_admin"])
 def test_cli_escribe_con_el_rol_real_de_prod(con_app_jev, capsys):
     """G3-6 (R2): en prod ORBIT_DSN_ADMIN es orbit_admin, NO superusuario. Con
@@ -1289,3 +1244,30 @@ def test_destino_modificado_marca_la_revision_obsoleta():
             (f"ad-{destino}-nuevo", destino, _listing(conn, p4, asin="B0DESTINO4")),
         )
         assert vigencia() == Obsoleta()
+
+
+def test_un_fallo_no_se_repaga_en_el_mismo_lote_y_el_seco_lo_dice():
+    """Bloqueante de codex en B10: con el mismo producto en origen y destino,
+    un fallo del proveedor en el origen se pagaba OTRA vez en el destino y el
+    seco no lo anticipaba. V1 no reintenta dentro del lote: la clave ya
+    intentada reutiliza su resultado y el seco coincide con lo pagado."""
+    from tools.jev_ads import main as cli_jev
+
+    with db_jev() as conn:
+        _, _, _, origen = _grupo_con_fichas(conn)
+        externo = conn.execute(
+            "SELECT external_id FROM ad_entity WHERE id = %s", (origen,)
+        ).fetchone()[0]
+        goal = {"goal": {"harvest": {"ad_group_id": externo}}}
+        decision = _decision_guardada(conn, "harvest", origen, "soporte mesa", goal)
+        argv = _argv_decision(decision, uuid.uuid4(), "--presupuesto", "2")
+        salida: list[str] = []
+        assert cli_jev(argv, pedir=_Pedido(), dsn=_dsn_jev(), imprimir=salida.append) == 0
+        assert any(
+            "pagaria 2 de presupuesto 2" in linea and "agotaria" not in linea for linea in salida
+        ), salida
+        pedido = _Pedido({"soporte mesa": _fallo()})
+        assert (
+            cli_jev([*argv, "--aplicar"], pedir=pedido, dsn=_dsn_jev(), imprimir=salida.append) == 0
+        )
+        assert len(pedido.llamados) == 2
