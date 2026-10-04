@@ -44,6 +44,7 @@ def escenario(monkeypatch):
             "0022_disponibilidad_snapshot.sql",
             "0028_estimacion_venta.sql",
             "0049_jev_ads.sql",
+            "0050_jev_revision_created_at.sql",
         ):
             conn.execute((migraciones / nombre).read_text(encoding="utf-8"))
         conn.row_factory = tuple_row

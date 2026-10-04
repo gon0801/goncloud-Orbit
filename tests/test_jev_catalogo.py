@@ -117,13 +117,22 @@ def test_migracion_trae_append_only_y_triggers():
     assert "jev_par_evento_encadenado" in SQL49
     assert "revisar_antes_de < NEW.observado_at" in SQL49
     assert "NEW.captured_at > clock_timestamp()" in SQL49
+    # 0050 (R1) reemplaza ese cuerpo: created_at lo fija el trigger.
+    sql50 = (ROOT / "migrations" / "0050_jev_revision_created_at.sql").read_text(encoding="utf-8")
+    assert "NEW.created_at := clock_timestamp();" in sql50
+    assert "NEW.captured_at > NEW.created_at OR NEW.decided_at > NEW.created_at" in sql50
 
 
 # ---------------------------------------------------------------------------
 # (b) INTEGRACION: Postgres real con 0001 + 0049
 # ---------------------------------------------------------------------------
 
-ORDEN = ("0001_initial.sql", "0004_ad_entity_kind_product_ad.sql", "0049_jev_ads.sql")
+ORDEN = (
+    "0001_initial.sql",
+    "0004_ad_entity_kind_product_ad.sql",
+    "0049_jev_ads.sql",
+    "0050_jev_revision_created_at.sql",
+)
 
 
 @contextmanager
@@ -220,6 +229,7 @@ def _revision(
     decision_id: int | None = None,
     created_at: str | None = None,
     captured_at: str | None = None,
+    decided_at: str | None = None,
     sujeto_tipo: str = "semillas",
     plan_canonico: str | None = '{"v": 1}',
     plan_sha256: str | None = "c" * 64,
@@ -242,6 +252,8 @@ def _revision(
         valores["created_at"] = created_at
     if captured_at is not None:
         valores["captured_at"] = captured_at
+    if decided_at is not None:
+        valores["decided_at"] = decided_at
     columnas = list(valores)
     jsonb = {"plan_canonico", "fuentes_semillas", "censos", "contrato"}
     placeholders = ", ".join("%s::jsonb" if c in jsonb else "%s" for c in columnas)
@@ -482,13 +494,11 @@ def test_reglas_temporales_y_cobertura_en_triggers():
         # Duplicados en listings.
         with pytest.raises(psycopg.errors.CheckViolation):
             _ficha(conn, producto, (listing, listing))
-        # Regla temporal: nada posterior a la INSERCION REAL
-        # (clock_timestamp; created_at DEFAULT now() fija el inicio de la
-        # transaccion, y una captura dentro de la misma tx es valida).
+        # Regla temporal: nada posterior a la INSERCION REAL (clock_timestamp).
         _revision(
             conn,
             created_at="2026-10-03 12:00:00+00",
-            captured_at="2026-10-03 13:00:00+00",
+            captured_at="2026-10-03 11:00:00+00",
         )
         futuro = (datetime.now(UTC) + timedelta(days=1)).isoformat()
         with pytest.raises(psycopg.errors.CheckViolation):
@@ -646,6 +656,44 @@ def test_captura_dentro_de_la_transaccion_se_acepta_y_futura_se_rechaza():
         futuro = (datetime.now(UTC) + timedelta(days=1)).isoformat()
         with pytest.raises(psycopg.errors.CheckViolation):
             _revision(conn, captured_at=futuro)
+
+
+@_skip_db
+def test_created_at_es_la_insercion_real_y_nunca_precede_a_otros_tiempos():
+    """R1 (B7): con `DEFAULT now()` el created_at de una revision era el
+    inicio de la transaccion y quedaba ANTES de una captura hecha dentro de
+    ella. 0050 hace que el trigger FIJE created_at con clock_timestamp()
+    (un valor explicito se ignora: la cronologia no se puede falsear) y
+    exige decided_at/captured_at <= created_at."""
+    import time
+
+    with db_jev() as conn:
+        with conn.transaction():
+            conn.execute("SELECT 1")
+            time.sleep(0.05)
+            captura = conn.execute("SELECT clock_timestamp()").fetchone()[0]
+            solicitud = _revision(conn, captured_at=captura.isoformat())
+        creado = conn.execute(
+            "SELECT created_at FROM jev_revision WHERE solicitud = %s", (solicitud,)
+        ).fetchone()[0]
+        assert creado >= captura
+        antes = conn.execute("SELECT clock_timestamp()").fetchone()[0]
+        falseada = _revision(
+            conn,
+            created_at="2000-01-01 00:00:00+00",
+            captured_at="2026-10-03 11:59:00+00",
+            decided_at="2026-10-03 11:00:00+00",
+        )
+        despues = conn.execute("SELECT clock_timestamp()").fetchone()[0]
+        creado = conn.execute(
+            "SELECT created_at FROM jev_revision WHERE solicitud = %s", (falseada,)
+        ).fetchone()[0]
+        assert antes <= creado <= despues
+        futuro = (datetime.now(UTC) + timedelta(days=1)).isoformat()
+        with pytest.raises(psycopg.errors.CheckViolation):
+            _revision(conn, captured_at=futuro)
+        with pytest.raises(psycopg.errors.CheckViolation):
+            _revision(conn, decided_at=futuro)
 
 
 @_skip_db
@@ -860,6 +908,47 @@ def test_par_evento_encadena_intencion_resultado_y_reutilizacion():
 
 
 @_skip_db
+def test_reversa_0050_vuelve_a_now_y_reaplicar_restituye():
+    """La reversa de 0050 devuelve el DEFAULT now() y el trigger de 0049
+    (acepta captured_at > created_at); reaplicar 0050 vuelve a exigirlo."""
+    with db_jev() as conn:
+        migraciones = ROOT / "migrations"
+        conn.execute(
+            (migraciones / "0050_reversa_jev_revision_created_at.sql").read_text(encoding="utf-8")
+        )
+        default = conn.execute(
+            "SELECT column_default FROM information_schema.columns"
+            " WHERE table_name = 'jev_revision' AND column_name = 'created_at'"
+        ).fetchone()[0]
+        assert default == "now()"
+        comentario = conn.execute(
+            "SELECT obj_description('jev_ficha_version'::regclass, 'pg_class')"
+        ).fetchone()[0]
+        assert comentario.endswith("jam el parecido de nombres).")
+        viejo = _revision(
+            conn, created_at="2026-10-03 12:00:00+00", captured_at="2026-10-03 13:00:00+00"
+        )
+        assert conn.execute(
+            "SELECT created_at FROM jev_revision WHERE solicitud = %s", (viejo,)
+        ).fetchone()[0] == datetime(2026, 10, 3, 12, tzinfo=UTC)
+        conn.execute((migraciones / "0050_jev_revision_created_at.sql").read_text(encoding="utf-8"))
+        default = conn.execute(
+            "SELECT column_default FROM information_schema.columns"
+            " WHERE table_name = 'jev_revision' AND column_name = 'created_at'"
+        ).fetchone()[0]
+        assert default == "clock_timestamp()"
+        assert (
+            conn.execute("SELECT obj_description('jev_ficha_version'::regclass, 'pg_class')")
+            .fetchone()[0]
+            .endswith("jamas el parecido de nombres).")
+        )
+        nuevo = _revision(conn, created_at="2026-10-03 12:00:00+00")
+        assert conn.execute(
+            "SELECT created_at FROM jev_revision WHERE solicitud = %s", (nuevo,)
+        ).fetchone()[0] > datetime(2026, 10, 3, 12, tzinfo=UTC)
+
+
+@_skip_db
 def test_reversa_deja_la_base_como_0001():
     dsn = _test_dsn()
     db = _db_jev_nombre() + "_reversa"
@@ -869,7 +958,11 @@ def test_reversa_deja_la_base_como_0001():
         admin.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(db)))
         conn = psycopg.connect(dsn, dbname=db, autocommit=True)
         conn.execute("SET TIME ZONE 'UTC'")
-        for nombre in (*ORDEN, "0049_reversa_jev_ads.sql"):
+        for nombre in (
+            *ORDEN,
+            "0050_reversa_jev_revision_created_at.sql",
+            "0049_reversa_jev_ads.sql",
+        ):
             conn.execute((ROOT / "migrations" / nombre).read_text(encoding="utf-8"))
         for tabla in TABLAS_JEV:
             assert (
