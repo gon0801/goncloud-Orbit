@@ -42,20 +42,24 @@ SHAs squash confirmados contra `git log` (40 caracteres):
 - B5 `58d1ea43c6bcd5524a78226764edbdb0f4c790b4`
 - B6a `8d8cdca9bdec7b31e2ca95d275c4d682b9349044`
 
-2.3, 3.1 y 3.2 quedan `cc:TODO` (intactas).
+2.3, 3.1 y 3.2 siguen `cc:TODO`; solo 3.2 queda intacta (2.3 y 3.1
+cambiaron su Depends en B6b-r2).
 
 ## Residuales R1-R20 (TAREA 2)
 
 Sección "Seguimientos de la revisión" en `plans/jev-ads-01.md` con las 20 filas
-(id, contenido, DoD, Depends, Status). R1-R4 con Depends 2.3 (R2, requisito de
-3.1; R14, Depends 2.3 por B4-r1). R19 y R20 arregladas en este mismo cambio
-(`cc:DONE B6b`); R1-R18 quedan `cc:TODO`.
+(id, contenido, DoD, Depends, Status). Depends tras B6b-r2: R1, R2 y R4 con
+`-`; R3 con `R2` (el requisito para 3.1 vive en la fila 3.1); 2.3 depende de
+`2.R, 0.1, R1, R4` y 3.1 de `2.3, R2, R3`; R14 conserva `2.3` con su texto
+(corte después del despliegue). R19 y R20 arregladas en B6b (`cc:DONE B6b`);
+R1-R18 quedan `cc:TODO`.
 
 - R19: `B2-r1/NOTAS.md` decía 15 y 17 pruebas; los artefactos dicen 14
   (`jev_b2_r1_verde_11.txt`: "14 passed") y 32 combinadas
   (`jev_b2_r1_verde_12.txt`: "32 passed" = 14 + 18 propias). Corregido.
 - R20: `/Users/dn` (2 ocurrencias) y el slug `-Users-dn-dev-goncloud-Orbit`
-  sustituidos por `~` y `-usuario-...`. `grep Users/dn` queda vacío.
+  sustituidos por `~` y `-usuario-...`. `grep Users/dn` en
+`reporte-g4-pantallas.txt` queda vacío.
 
 ## Triage (TAREA 3)
 

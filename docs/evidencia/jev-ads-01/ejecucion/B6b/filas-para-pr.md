@@ -12,17 +12,17 @@ arreglo de concurrencia del CI, fuera de tabla. 2.3, 3.1 y 3.2 siguen cc:TODO.
 
 ## Filas R1-R20
 
-- R1 (cc:TODO, Depends 2.3): migración NUEVA con `created_at DEFAULT
+- R1 (cc:TODO, Depends: -): migración NUEVA con `created_at DEFAULT
   clock_timestamp()`; no se edita 0049; re-emite el COMMENT del encabezado y
   corrige el typo del catálogo.
-- R2 (cc:TODO, Depends 2.3; requisito de 3.1): BLOQUE DE OPERACIÓN: camino de
+- R2 (cc:TODO, Depends: -; el requisito vive en 3.1): BLOQUE DE OPERACIÓN: camino de
   producción para crear revisiones de decisiones (`--decision-id` rechazado
   hoy, faltan término y censos de origen/destino); pegamento CLI del export de
   fábrica (`/api/fabrica/export-semillas`); absorbe endurecimiento del CLI y
   el perímetro sin token de `/export-semillas` y `/asesoria/{huella}`.
-- R3 (cc:TODO, Depends 2.3): vigencia: destino modificado no marca la revisión
+- R3 (cc:TODO, Depends: R2): vigencia: destino modificado no marca la revisión
   obsoleta; va con el bloque que cree revisiones de harvest.
-- R4 (cc:TODO, Depends 2.3): decidir la reutilización entre revisiones (el
+- R4 (cc:TODO, Depends: -): decidir la reutilización entre revisiones (el
   spec la permite; 0049 y el asesor la prohíben; cambiarla exige migración).
 - R5 (cc:TODO): `tools/jev_fichas.py revocar` escribe sin `--aplicar`.
 - R6 (cc:TODO): `componer` no valida término y contrato compartidos.
