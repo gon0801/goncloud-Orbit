@@ -150,6 +150,7 @@ de 3.1 (3.1 depende de ellas).
 | R18 | La guarda estática de GRANT (`test_migracion_trae_fks_y_roles`) no ve GRANT multi-tabla; alinearla (pglast) o borrarla: `test_roles_de_minimo_privilegio` ya protege contra la base real. | Una sola fuente de mínimo privilegio; el mutante multi-tabla muere o la guarda no existe. | - | cc:TODO |
 | R19 | Cifras de `docs/evidencia/jev-ads-01/ejecucion/B2-r1/NOTAS.md` (15/17) no cuadran con sus artefactos (14 y 32 combinadas). | Corregidas en este cambio de cierre (B6b). | - | cc:DONE B6b |
 | R20 | Rutas locales `/Users/dn` en `docs/evidencia/jev-ads-01/ejecucion/B5-r1/reporte-g4-pantallas.txt` (Minor de CodeRabbit). | Anonimizadas en este cambio de cierre (B6b). | - | cc:DONE B6b |
+| R21 | `tests/test_ads_write.py::test_moneda_equivocada_revierta_antes_de_cualquier_http` falla en master cuando corre despues de ciertos modulos (aislamiento entre pruebas; visto en B9a). La bateria completa de CI no lo muestra. | La prueba pasa en cualquier orden (por ejemplo, junto con `tests/test_jev_juicios.py` y `tests/test_spapi*.py`); la causa queda escrita. | - | cc:TODO |
 
 ## Pruebas que deben discriminar
 

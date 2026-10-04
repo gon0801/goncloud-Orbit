@@ -425,16 +425,20 @@ def test_leer_api_key_sin_config_da_vacia(tmp_path, monkeypatch):
     assert leer_api_key() == ""
 
 
-def test_leer_api_key_sin_variable_usa_la_ruta_canonica(tmp_path, monkeypatch):
-    """Regresion revision automatica B3-r3 (B2): sin ORBIT_SECRETS_DIR la
-    ruta es la canonica del repo (DEFAULT_SECRETS_DIR de app.ads.config),
-    JAMAS el cwd: un typesafe.json plantado en el directorio actual no se
-    lee y la clave canonica si."""
+@pytest.mark.parametrize("variable", [None, ""], ids=["ausente", "vacia"])
+def test_leer_api_key_sin_variable_usa_la_ruta_canonica(tmp_path, monkeypatch, variable):
+    """Regresion revision automatica B3-r3 (B2) y R11: sin ORBIT_SECRETS_DIR,
+    o con la variable VACIA, la ruta es la canonica del repo
+    (DEFAULT_SECRETS_DIR de app.ads.config), JAMAS el cwd: un typesafe.json
+    plantado en el directorio actual no se lee y la clave canonica si."""
     canonico = tmp_path / "canonico"
     canonico.mkdir()
     (canonico / "typesafe.json").write_text(json.dumps({"api_key": "canonica"}), encoding="utf-8")
     (tmp_path / "typesafe.json").write_text(json.dumps({"api_key": "de-cwd"}), encoding="utf-8")
     monkeypatch.chdir(tmp_path)  # el cwd trampa: contiene su propio typesafe.json
-    monkeypatch.delenv("ORBIT_SECRETS_DIR", raising=False)
+    if variable is None:
+        monkeypatch.delenv("ORBIT_SECRETS_DIR", raising=False)
+    else:
+        monkeypatch.setenv("ORBIT_SECRETS_DIR", variable)
     monkeypatch.setattr("app.ads.config.DEFAULT_SECRETS_DIR", str(canonico))
     assert leer_api_key() == "canonica"

@@ -16,6 +16,7 @@ from pathlib import Path
 
 import httpx
 
+from app.ads.config import directorio_secretos
 from app.redaction import install_scrub_filter, register_secret
 
 logger = logging.getLogger(__name__)
@@ -27,7 +28,6 @@ ACTOR_JUNGLEE_DEFAULT = "junglee~Amazon-crawler"
 # Medido E/0.2 con 2 corridas chicas; la primera corrida real fija el numero.
 TARIFA_JUNGLEE_DEFAULT = 0.0025
 
-DEFAULT_SECRETS_DIR = "/mnt/data/appdata/orbit/secrets"
 MELI_TOKENS_FILENAME = "meli_tokens.json"
 APIFY_TOKEN_FILENAME = "apify_token.json"
 
@@ -78,7 +78,7 @@ class MeliCredentials:
 
     @classmethod
     def from_secrets_dir(cls, secrets_dir: str | Path | None = None) -> MeliCredentials:
-        base = Path(secrets_dir or os.environ.get("ORBIT_SECRETS_DIR", DEFAULT_SECRETS_DIR))
+        base = Path(secrets_dir) if secrets_dir else directorio_secretos()
         ruta = base / MELI_TOKENS_FILENAME
         data = _load_json(ruta)
         access = _require(data, "access_token", MELI_TOKENS_FILENAME)
@@ -120,7 +120,7 @@ class ApifyCredentials:
 
     @classmethod
     def from_secrets_dir(cls, secrets_dir: str | Path | None = None) -> ApifyCredentials:
-        base = Path(secrets_dir or os.environ.get("ORBIT_SECRETS_DIR", DEFAULT_SECRETS_DIR))
+        base = Path(secrets_dir) if secrets_dir else directorio_secretos()
         data = _load_json(base / APIFY_TOKEN_FILENAME)
         token = _require(data, "token", APIFY_TOKEN_FILENAME)
         register_secret(token)
