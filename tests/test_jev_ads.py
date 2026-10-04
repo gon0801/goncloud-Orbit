@@ -387,7 +387,10 @@ def test_modulo_puro_sin_red_ni_db_en_top_level():
     assert importados <= permitidos, importados - permitidos
 
     # 2) cada nodo top-level EXCEPTO AsesorAds: puro incluso por dentro
-    #    (sin imports prohibidos anidados, sin nombres IO).
+    #    (sin imports prohibidos anidados, sin nombres IO). Los imports se
+    #    RESUELVEN antes de comparar (B5-r2, B5a): `from app import db` es
+    #    "app.db" y `import urllib.request` cae bajo "urllib"; valen
+    #    igualdad o prefijo con punto, en cualquier profundidad.
     for nodo in arbol.body:
         if isinstance(nodo, (ast.Import, ast.ImportFrom)):
             continue
@@ -395,10 +398,18 @@ def test_modulo_puro_sin_red_ni_db_en_top_level():
         if nombre == "AsesorAds":
             continue
         for sub in ast.walk(nodo):
+            candidatos: set[str] = set()
             if isinstance(sub, ast.Import):
-                encontrados = {alias.name for alias in sub.names} & prohibidos_modulos
-                assert not encontrados, (nombre, encontrados)
+                candidatos = {alias.name for alias in sub.names}
             elif isinstance(sub, ast.ImportFrom):
-                assert (sub.module or "") not in prohibidos_modulos, (nombre, sub.module)
-            elif isinstance(sub, ast.Name) and sub.id in prohibidos_nombres:
-                raise AssertionError((nombre, sub.id))
+                candidatos = {sub.module or ""}
+                candidatos |= {f"{sub.module or ''}.{alias.name}" for alias in sub.names}
+            else:
+                if isinstance(sub, ast.Name) and sub.id in prohibidos_nombres:
+                    raise AssertionError((nombre, sub.id))
+                continue
+            for candidato in candidatos:
+                assert not any(
+                    candidato == prohibido or candidato.startswith(prohibido + ".")
+                    for prohibido in prohibidos_modulos
+                ), (nombre, candidato)

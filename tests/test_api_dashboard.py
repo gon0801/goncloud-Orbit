@@ -3356,9 +3356,13 @@ def test_cortes_plantilla_asesoria_sin_error_economico_y_veto_visible():
     assert "compatible" in html
     assert "cobertura" in html
     assert "revisado con catalogo del" in html
-    # DoD 2.1: la asesoria distingue el ambito de cada veredicto.
-    assert "origen" in html
-    assert "destino" in html
+    # DoD 2.1: la asesoria distingue el ambito de cada veredicto. B5-r2
+    # (B4): el rotulo va PEGADO a su propio resultado (con espacios
+    # normalizados), no basta que ambas palabras aparezcan por separado:
+    # intercambiar los rotulos de los dos bucles debe romper esta prueba.
+    plano = " ".join(html.split())
+    assert "origen · tenis blancos: compatible (7) · cobertura 1/1" in plano
+    assert "destino · tenis blancos: sin compatibilidad en 3 producto(s)" in plano
     assert "sin compatibilidad" in html
     # Relevancia compatible jamas se presenta como error economico: la
     # palabra "error" no aparece en el HTML renderizado de esta pantalla.
