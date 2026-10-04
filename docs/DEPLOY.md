@@ -129,7 +129,11 @@ cd /mnt/data/appdata/orbit
 #
 #      git archive --format=tar origin/master app Dockerfile .dockerignore \
 #        pyproject.toml uv.lock tools/fabrica_campanas.py \
+#        tools/jev_ads.py tools/jev_fichas.py \
 #        | ssh goncloud "cd /mnt/data/appdata/orbit && tar -xf -"
+#
+#    Los tools/ que se copian son EXACTAMENTE los `COPY tools/...` del
+#    Dockerfile (tests/test_compose_deploy.py los fija).
 #
 #    OJO: `origin/master`, NO `master` — con el checkout en otra rama el ref
 #    local queda viejo (paso el 2026-08-30: se copio un master de 12 h antes).
