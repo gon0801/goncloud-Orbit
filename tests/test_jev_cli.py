@@ -332,9 +332,11 @@ def test_reanudacion_tras_crash_la_intencion_huerfana_esta_confirmada():
 
 def test_reanudacion_retoma_las_fichas_congeladas_aunque_se_revoquen():
     """R9: entre el crash y la reanudacion se revoca la ficha. La revision
-    ya congelo su contexto: retomar con la misma solicitud termina con esas
-    fichas (la vigencia la marcara Obsoleta), no la rechaza como "otro
-    payload". Un censo crudo distinto si sigue siendo otro payload."""
+    ya congelo su contexto: retomar con la misma solicitud NO es "otro
+    payload". Pero el par de esa ficha ya no se reutiliza ni se consulta
+    (spec: reutilizar "solo si la ficha sigue aprobada"; ai-review #400):
+    queda como ficha faltante y sin HTTP. Un censo crudo distinto si sigue
+    siendo otro payload."""
     from app.jev_catalogo import revocar_ficha
 
     with db_jev() as conn:
@@ -355,8 +357,19 @@ def test_reanudacion_retoma_las_fichas_congeladas_aunque_se_revoquen():
             presupuesto=5,
             ahora=lambda: AHORA + timedelta(hours=1),
         ).evaluar(sujeto, solicitud_id=solicitud)
-        assert pedido2.llamados == ["t2"]
-        assert isinstance(dict(revision.resultados)["t1"], HayCompatible)
+        assert pedido2.llamados == []
+        por_termino = dict(revision.resultados)
+        for termino in ("t1", "t2"):
+            assert isinstance(por_termino[termino], Indeterminado)
+            assert "ficha_ausente" in por_termino[termino].motivos
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM jev_par_evento"
+                " WHERE revision_id = %s AND tipo = 'reutilizacion'",
+                (solicitud,),
+            ).fetchone()[0]
+            == 0
+        )
         sin_un_miembro = replace(
             sujeto, censo=CensoCongelado(miembros=censo.miembros[:1], exhaustivo=censo.exhaustivo)
         )

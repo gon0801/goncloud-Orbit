@@ -495,7 +495,9 @@ class AsesorAds:
                 destino, fichas_destino = self._enriquecer(destino_crudo, sujeto.plataforma, ahora)
                 fichas = {**fichas, **fichas_destino}
         else:
-            censo, destino, fichas, ahora = self._retomar(guardada, sujeto.censo, destino_crudo)
+            censo, destino, fichas, ahora = self._retomar(
+                guardada, sujeto.censo, destino_crudo, sujeto.plataforma
+            )
         terminos = (sujeto.termino,) if isinstance(sujeto, DecisionARevisar) else sujeto.terminos
         contexto = {
             "censo": _censo_a_json(censo),
@@ -554,12 +556,14 @@ class AsesorAds:
 
     # internos (confirmaciones = los tres puntos del orden sellado)
 
-    def _retomar(self, guardada, censo_crudo, destino_crudo):
-        """Reanudacion: el censo, las fichas y el captured_at CONGELADOS por la
-        revision (R9). Una ficha revocada o vencida entre intentos no cambia el
-        payload: la vigencia la marcara Obsoleta. Un censo crudo distinto si es
-        otro payload."""
-        from app.jev_catalogo import fichas_por_id
+    def _retomar(self, guardada, censo_crudo, destino_crudo, plataforma):
+        """Reanudacion: el censo y el captured_at CONGELADOS por la revision
+        (R9). Una ficha revocada, vencida o sustituida entre intentos no cambia
+        el payload (la vigencia marcara Obsoleta), pero su par ya no se
+        reutiliza ni se consulta: el spec reutiliza "solo si la ficha sigue
+        aprobada, cubre ese listing y no vencio". Queda como ficha faltante.
+        Un censo crudo distinto si es otro payload."""
+        from app.jev_catalogo import ficha_vigente, fichas_por_id
 
         contexto, capturado = guardada
         censo = _censo_de_json(contexto["censo"])
@@ -575,7 +579,26 @@ class AsesorAds:
         fichas = fichas_por_id(
             self._conn, (m.ficha_version_id for m in miembros if m.ficha_version_id)
         )
-        return censo, destino, fichas, capturado
+        hoy = self._ahora()
+
+        def sigue_vigente(miembro) -> bool:
+            for listing in miembro.listing_ids:
+                actual = ficha_vigente(
+                    self._conn,
+                    producto_id=miembro.producto_id,
+                    plataforma=plataforma,
+                    listing_id=listing,
+                    ahora=hoy,
+                )
+                if actual is None or actual.id != miembro.ficha_version_id:
+                    return False
+            return True
+
+        vencidas = {
+            m.ficha_version_id for m in miembros if m.ficha_version_id and not sigue_vigente(m)
+        }
+        vigentes = {ficha_id: f for ficha_id, f in fichas.items() if ficha_id not in vencidas}
+        return censo, destino, vigentes, capturado
 
     def fichas_del_censo(self, censo: CensoCongelado, plataforma, ahora) -> dict:
         """Las fichas que una revision NUEVA usaria hoy (la misma regla que
