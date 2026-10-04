@@ -932,6 +932,11 @@ def test_reversa_0050_vuelve_a_now_y_reaplicar_restituye():
             " WHERE table_name = 'jev_revision' AND column_name = 'created_at'"
         ).fetchone()[0]
         assert default == "clock_timestamp()"
+        assert (
+            conn.execute("SELECT obj_description('jev_ficha_version'::regclass, 'pg_class')")
+            .fetchone()[0]
+            .endswith("jamas el parecido de nombres).")
+        )
         nuevo = _revision(conn, created_at="2026-10-03 12:00:00+00")
         assert conn.execute(
             "SELECT created_at FROM jev_revision WHERE solicitud = %s", (nuevo,)

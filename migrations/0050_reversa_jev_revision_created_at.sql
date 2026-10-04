@@ -3,8 +3,7 @@
 --
 -- Devuelve jev_revision.created_at a DEFAULT now() y el trigger
 -- jev_revision_tiempos y el COMMENT de jev_ficha_version a su estado de
--- 0049. No borra datos: las revisiones
--- ya insertadas conservan sus tiempos. Se corre ANTES de la reversa de 0049
+-- 0049. No borra datos: las revisiones ya insertadas conservan sus tiempos. Se corre ANTES de la reversa de 0049
 -- si se deshacen ambas.
 --
 -- NO se aplica en el despliegue normal.
