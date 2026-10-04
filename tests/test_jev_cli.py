@@ -1233,3 +1233,52 @@ def test_cli_escribe_con_el_rol_real_de_prod(con_app_jev, capsys):
         finally:
             conn.execute(f"DROP OWNED BY {rol}")
             conn.execute(f"DROP ROLE {rol}")
+
+
+def test_destino_modificado_marca_la_revision_obsoleta():
+    """R3 (spec: "Un destino modificado marca revision obsoleta"): un anuncio
+    nuevo en el grupo destino de un harvest ya revisado hace la revision
+    Obsoleta al leerla; una resincronizacion que solo mueve synced_at no."""
+    from psycopg.rows import dict_row, tuple_row
+
+    from app.jev_ads import Obsoleta, Vigente
+
+    with db_jev() as conn:
+        _, _, _, origen = _grupo_con_fichas(conn)
+        p3 = _producto(conn, "P3")
+        destino = _grupo(conn, "amazon_mx", (_listing(conn, p3, asin="B0DESTINO3"),))
+        externo = conn.execute(
+            "SELECT external_id FROM ad_entity WHERE id = %s", (destino,)
+        ).fetchone()[0]
+        goal = {"goal": {"harvest": {"ad_group_id": externo}}}
+        decision = _decision_guardada(conn, "harvest", origen, "soporte mesa", goal)
+        cli = ["--solicitud", str(uuid.uuid4()), "--aplicar"]
+        from tools.jev_ads import main as cli_jev
+
+        assert (
+            cli_jev(
+                ["evaluar", "--decision-id", str(decision), *cli],
+                pedir=_Pedido(),
+                dsn=_dsn_jev(),
+                imprimir=lambda *a, **k: None,
+            )
+            == 0
+        )
+
+        def vigencia():
+            conn.row_factory = dict_row  # como la conexion del dashboard
+            try:
+                return AsesorAds(conn).leer([decision], ahora=AHORA)[decision].vigencia
+            finally:
+                conn.row_factory = tuple_row
+
+        assert vigencia() == Vigente()
+        conn.execute("UPDATE ad_entity_state SET synced_at = now() + interval '1 minute'")
+        assert vigencia() == Vigente()
+        p4 = _producto(conn, "P4")
+        conn.execute(
+            "INSERT INTO ad_entity (platform, kind, external_id, parent_id, listing_id)"
+            " VALUES ('amazon_mx', 'product_ad', %s, %s, %s)",
+            (f"ad-{destino}-nuevo", destino, _listing(conn, p4, asin="B0DESTINO4")),
+        )
+        assert vigencia() == Obsoleta()

@@ -3298,6 +3298,18 @@ def test_cortes_asesoria_origen_y_destino_por_separado(monkeypatch):
         dec_harv = conn.execute(
             "SELECT id FROM decision WHERE kind = 'harvest' AND inputs ? 'termino' LIMIT 1"
         ).fetchone()[0]
+        # El destino congelado de la decision ES el grupo 9301 (R3: la vista
+        # compara el destino de la revision con el que la decision guarda).
+        # decision es append-only y el corte sembrado apunta a ESTA decision:
+        # solo en el fixture se apaga el trigger para fijarle su destino.
+        conn.execute("ALTER TABLE decision DISABLE TRIGGER USER")
+        conn.execute(
+            "UPDATE decision SET inputs = jsonb_set(inputs, '{goal}',"
+            " coalesce(inputs->'goal', '{}') || '{\"harvest\": {\"ad_group_id\": \"9301\"}}')"
+            " WHERE id = %s",
+            (dec_harv,),
+        )
+        conn.execute("ALTER TABLE decision ENABLE TRIGGER USER")
 
         def pedir(termino, ficha):
             relacion = "satisface" if ficha.id == ficha_destino else "no_satisface"

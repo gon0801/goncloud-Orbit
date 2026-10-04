@@ -413,6 +413,15 @@ def _censo_a_json(censo: CensoCongelado) -> dict:
     }
 
 
+def _identidad_del_censo(censo: CensoCongelado) -> list:
+    """Lo que hace distinto a un universo: anuncios, productos, listings y
+    estados; no la hora de sincronizacion."""
+    return [
+        (m.anuncio_ids, m.producto_id, sorted(m.listing_ids), [e.status for e in m.estados])
+        for m in censo.miembros
+    ]
+
+
 def _censo_crudo(censo: CensoCongelado) -> dict:
     """El censo sin las fichas resueltas: lo que el sujeto trae de origen."""
     return _censo_a_json(
@@ -889,19 +898,7 @@ class AsesorAds:
         del miembro sigue siendo la seleccionada por el MISMO predicado que
         `ficha_vigente` (no revocada, no vencida, cubre el listing, ultima por
         observado_at/created_at). Sin comprobaciones posibles: desconocida."""
-        from psycopg.rows import tuple_row
-
         from app.jev_catalogo import ficha_vigente
-
-        class _FilasPosicionales:
-            """Conexion con filas posicionales: `ficha_vigente` desempaca la
-            fila por posicion y la conexion del dashboard llega con dict_row."""
-
-            def __init__(self, conexion):
-                self._conexion = conexion
-
-            def execute(self, sentencia, parametros=None):
-                return self._conexion.cursor(row_factory=tuple_row).execute(sentencia, parametros)
 
         plataforma = contexto["plataforma"]
         seleccionada: dict[int, UUID | None] = {}
@@ -914,7 +911,7 @@ class AsesorAds:
             for listing in sorted(miembro.listing_ids):
                 if listing not in seleccionada:
                     vigente = ficha_vigente(
-                        _FilasPosicionales(self._conn),
+                        self._posicional(),
                         producto_id=miembro.producto_id,
                         plataforma=plataforma,
                         listing_id=listing,
@@ -927,6 +924,32 @@ class AsesorAds:
         if not comprobadas:
             return NoComprobable()
         return Obsoleta() if desplazada else Vigente()
+
+    def _posicional(self):
+        """La conexion con filas posicionales: el catalogo desempaca filas por
+        posicion y la conexion del dashboard llega con dict_row."""
+        from psycopg.rows import tuple_row
+
+        conexion = self._conn
+
+        class _Posicional:
+            def execute(self, sentencia, parametros=None):
+                return conexion.cursor(row_factory=tuple_row).execute(sentencia, parametros)
+
+        return _Posicional()
+
+    def _destino_cambio(self, decision_id: int, congelado: CensoCongelado) -> bool:
+        """R3: el destino de hoy ya no es el que la revision congelo (otro
+        anuncio, listing o estado). `synced_at` no cuenta: una resincronizacion
+        no cambia el destino. Un destino que ya no se puede leer, tampoco es el
+        mismo."""
+        from app.jev_catalogo import decision_a_revisar
+
+        try:
+            actual = decision_a_revisar(self._posicional(), decision_id).destino_censo
+        except ValueError:
+            return True
+        return actual is None or _identidad_del_censo(actual) != _identidad_del_censo(congelado)
 
     def _vista_de_revision(self, fila: dict, ahora: datetime) -> VistaAsesoria:
         """Vista historica de UNA revision (vigencia por fichas congeladas)."""
@@ -975,6 +998,13 @@ class AsesorAds:
                 for d in filas
             ]
             vigencia = self._vigencia_de_miembros(censo, destino, contexto, ahora)
+        decision_id = fila["decision_id"]
+        if (
+            destino is not None
+            and decision_id is not None
+            and self._destino_cambio(decision_id, destino)
+        ):
+            vigencia = Obsoleta()
 
         columnas_evento = (
             "id",
