@@ -1,0 +1,6 @@
+# Mutante B2 (SHA codigo 2d69858): el destino se compone con el censo del ORIGEN (universos mezclados)
+$ PYTHONPATH=.:tests uv run --frozen python -m pytest -q tests/test_api_dashboard.py::test_cortes_asesoria_origen_y_destino_por_separado
+E           AssertionError: Indeterminado(motivos=frozenset({'ficha_ausente', 'universo_desconocido', 'juicio_ausente'}))
+E           assert False
+E            +  where False = isinstance(Indeterminado(motivos=frozenset({'ficha_ausente', 'universo_desconocido', 'juicio_ausente'})), <class 'app.jev_ads.HayCompatible'>)
+1 failed, 1 warning in 0.60s

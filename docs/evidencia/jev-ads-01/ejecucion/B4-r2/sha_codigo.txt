@@ -1,0 +1,5 @@
+2d69858 jev-ads B4-r2: leer reproduce el exito de la reanudacion (B1) y harvest compone origen/destino por separado en asesoria y /cortes (2.1)
+ app/jev_ads.py              | 145 ++++++++++++++++++++----------
+ app/templates/cortes.html   |  18 ++--
+ tests/test_api_dashboard.py | 213 +++++++++++++++++++++++++++++++++++++++++++-
+ 3 files changed, 321 insertions(+), 55 deletions(-)
