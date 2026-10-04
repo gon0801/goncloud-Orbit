@@ -25,14 +25,12 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-import os
 import time
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
-from pathlib import Path
 from typing import Protocol
 
 import httpx
@@ -212,12 +210,10 @@ class FalloPar:
 def leer_api_key() -> str:
     """Lee la clave de `<ORBIT_SECRETS_DIR>/typesafe.json`, con la ruta
     canonica `DEFAULT_SECRETS_DIR` de app.ads.config cuando la variable no
-    viene (patron notifica.py); NUNCA el cwd. Sin archivo o sin clave
+    viene o viene vacia (`directorio_secretos`); NUNCA el cwd. Sin archivo o sin clave
     devuelve cadena vacia; el llamador produce el estado visible
     sin_api_key sin HTTP."""
-    path = (
-        Path(os.environ.get("ORBIT_SECRETS_DIR", config_ads.DEFAULT_SECRETS_DIR)) / "typesafe.json"
-    )
+    path = config_ads.directorio_secretos() / "typesafe.json"
     try:
         datos = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
