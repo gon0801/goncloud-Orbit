@@ -1348,7 +1348,7 @@ def cortes(conn: ConexionLectura) -> dict:
     # escrituras; los resultados vienen de los eventos de SU revision).
     asesoria_disponible = True
     try:
-        from app.jev_ads import AsesorAds
+        from app.jev_asesor import AsesorAds
 
         vistas = AsesorAds(conn).leer(
             [fila["decision_id"] for fila in filas], ahora=dt.datetime.now(dt.UTC)

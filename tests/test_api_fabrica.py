@@ -1219,7 +1219,8 @@ def test_asesoria_por_huella_cambia_con_el_plan_y_conserva_fuentes(escenario):
     la huella y la revision visible; el GET no escribe."""
     import uuid as _uuid
 
-    from app.jev_ads import AsesorAds, SemillasARevisar
+    from app.jev_ads import SemillasARevisar
+    from app.jev_asesor import AsesorAds
 
     cliente, conn, solicitud, fw, ids = escenario
     conn.execute(

@@ -795,7 +795,8 @@ def exportar_semillas(conn, solicitud: dict) -> dict:
 def asesoria_por_huella(conn, huella: str, *, ahora: dt.datetime | None = None) -> dict | None:
     """La revision guardada para esa huella (SOLO lectura: sin HTTP y sin
     escrituras); None si nadie la reviso todavia."""
-    from app.jev_ads import AsesorAds, ReferenciaPlan
+    from app.jev_asesor import AsesorAds
+    from app.jev_vista import ReferenciaPlan
 
     asesor = AsesorAds(conn)
     vistas = asesor.leer([ReferenciaPlan(huella)], ahora=ahora or dt.datetime.now(dt.UTC))

@@ -41,7 +41,6 @@ from test_jev_catalogo import (
 )
 
 from app.jev_ads import (
-    AsesorAds,
     CensoCongelado,
     DecisionARevisar,
     HayCompatible,
@@ -49,6 +48,7 @@ from app.jev_ads import (
     MiembroCenso,
     SemillasARevisar,
 )
+from app.jev_asesor import AsesorAds
 from app.jev_juicios import Contrato, FalloPar, ResultadoPar, contrato_por_defecto
 
 pytestmark = pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres")
@@ -382,7 +382,7 @@ def test_reanudacion_reutiliza_el_primer_exito_validado():
     """R10: con dos exitos de la misma clave en la revision, se reutiliza el
     PRIMERO (spec: "Se reutiliza el primer exito validado") y la vista
     muestra ese mismo."""
-    from app.jev_ads import _evento_del_par
+    from app.jev_vista import _evento_del_par
 
     with db_jev() as conn:
         censo, _, _, grupo = _grupo_con_fichas(conn, con_ficha_p2=False)
@@ -707,7 +707,14 @@ def test_los_consumidores_no_importan_al_asesor():
     asesor ni a sus modulos, en NINGUNA forma de import (B5-r2, B3):
     resuelve `from app import X` -> "app.X", `from .x import y` ->
     "app.x.y" y los imports anidados en cualquier profundidad."""
-    prohibidos = {"app.jev_ads", "app.jev_juicios", "app.jev_catalogo", "tools.jev_ads"}
+    prohibidos = {
+        "app.jev_ads",
+        "app.jev_asesor",
+        "app.jev_vista",
+        "app.jev_juicios",
+        "app.jev_catalogo",
+        "tools.jev_ads",
+    }
     for nombre in ("cycle.py", "apply_cola.py", "apply_harvest.py"):
         arbol = ast.parse((RAIZ / "app" / nombre).read_text(encoding="utf-8"))
         importados: set[str] = set()

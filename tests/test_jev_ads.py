@@ -366,6 +366,7 @@ _PROHIBIDOS_MODULOS_PUROS = {
     "app.ads",
     "app.jev_catalogo",
     "app.jev_juicios",
+    "app.jev_asesor",
 }
 # `__import__`/`importlib`: un import dinamico no es un nodo Import (R17).
 _PROHIBIDOS_NOMBRES_PUROS = {
@@ -380,6 +381,7 @@ _PROHIBIDOS_NOMBRES_PUROS = {
 }
 _PERMITIDOS_PUROS = {
     "__future__",
+    "app.jev_ads",
     "collections.abc",
     "dataclasses",
     "datetime",
@@ -428,31 +430,27 @@ def _fugas_pureza(codigo: str) -> list[tuple[str, str]]:
                 elif isinstance(sub, ast.Name) and sub.id in _PROHIBIDOS_NOMBRES_PUROS:
                     fugas.append((donde, sub.id))
 
-    # Todo nodo de modulo se juzga entero (imports a cualquier profundidad,
-    # resueltos antes de comparar, y nombres IO). Excepcion unica: los
-    # METODOS de AsesorAds, cuyos imports perezosos son el IO sancionado; el
-    # resto del cuerpo de la clase corre al importar el modulo (R17).
+    # Todo nodo de modulo se juzga entero, sin excepciones: imports a
+    # cualquier profundidad, resueltos antes de comparar, y nombres IO. La IO
+    # vive en otro modulo (app/jev_asesor.py, R14).
     for nodo in ast.parse(codigo).body:
         if isinstance(nodo, (ast.Import, ast.ImportFrom)):
             juzgar("top-level", [nodo])
-        elif isinstance(nodo, ast.ClassDef) and nodo.name == "AsesorAds":
-            metodos = (ast.FunctionDef, ast.AsyncFunctionDef)
-            juzgar("AsesorAds", [n for n in nodo.body if not isinstance(n, metodos)])
         else:
             juzgar(getattr(nodo, "name", None) or "<modulo>", [nodo])
     return sorted(set(fugas))
 
 
-def test_modulo_puro_sin_red_ni_db_en_top_level():
-    """El nucleo (tipos + componer y sus helpers) es PURO: red y DB solo
-    entran con AsesorAds (1.4) y por imports PEREZOSOS dentro de sus
-    metodos. La guarda cubre TODO nodo top-level excepto AsesorAds, con
-    imports anidados a cualquier profundidad y nombres IO (CodeRabbit
-    B3-r3); en alcance de modulo (incluido el cuerpo de un try/if
-    top-level, B5-r3) tampoco hay red, ni DB, ni modulos Jev de IO; los
+@pytest.mark.parametrize("modulo", ["jev_ads.py", "jev_vista.py"])
+def test_modulo_puro_sin_red_ni_db_en_top_level(modulo):
+    """El nucleo (tipos + componer y sus helpers) y la vista son PUROS: red y
+    DB viven en app/jev_asesor.py (R14). La guarda cubre TODO nodo del
+    modulo, con imports anidados a cualquier profundidad y nombres IO
+    (CodeRabbit B3-r3); en alcance de modulo (incluido el cuerpo de un
+    try/if, B5-r3) tampoco hay red, ni DB, ni modulos Jev de IO; los
     relativos se resuelven a absolutos y `permitidos` rige tambien los
     anidados (B5-r3)."""
-    assert _fugas_pureza((RAIZ / "app" / "jev_ads.py").read_text(encoding="utf-8")) == []
+    assert _fugas_pureza((RAIZ / "app" / modulo).read_text(encoding="utf-8")) == []
 
 
 def test_guarda_pureza_caza_relativo_anidado():
@@ -507,7 +505,10 @@ def test_guarda_pureza_caza_anidado_fuera_de_permitidos():
             [("componer", "importlib")],
         ),
         ("class AsesorAds:\n    import httpx\n", [("AsesorAds", "httpx")]),
-        ("class AsesorAds:\n    def evaluar(self):\n        import httpx\n", []),
+        (
+            "class AsesorAds:\n    def evaluar(self):\n        import httpx\n",
+            [("AsesorAds", "httpx")],
+        ),
         (
             "def componer():\n    from ..app import db\n",
             [("componer", "app"), ("componer", "app.db")],
@@ -520,16 +521,16 @@ def test_guarda_pureza_caza_anidado_fuera_de_permitidos():
     ids=[
         "__import__",
         "importlib",
-        "cuerpo-de-AsesorAds",
-        "metodo-de-AsesorAds-exento",
+        "cuerpo-de-clase",
+        "metodo-de-clase-sin-excepcion",
         "relativo-nivel-2",
         "try-un-solo-rotulo",
     ],
 )
 def test_guarda_pureza_r17(codigo, esperado):
-    """R17: imports dinamicos, el cuerpo de clase de AsesorAds (corre al
-    importar el modulo; solo sus METODOS son perezosos), relativos de nivel
-    2 resueltos contra la raiz y un solo rotulo por hallazgo."""
+    """R17 y R14: imports dinamicos, clases enteras (ni su cuerpo ni sus
+    metodos escapan: la IO ya no vive en el nucleo), relativos de nivel 2
+    resueltos contra la raiz y un solo rotulo por hallazgo."""
     assert _fugas_pureza(codigo) == esperado
 
 

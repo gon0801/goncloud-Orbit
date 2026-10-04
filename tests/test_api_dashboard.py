@@ -2698,7 +2698,8 @@ def _censo_jev(conn, platform: str, ad_group: int, ficha_por_producto: dict):
 def test_cortes_asesoria_guardada_sin_escritura_ni_http(monkeypatch):
     import uuid as _uuid
 
-    from app.jev_ads import AsesorAds, DecisionARevisar
+    from app.jev_ads import DecisionARevisar
+    from app.jev_asesor import AsesorAds
 
     with _db_temporal("orbit_dash_jev21") as (conn, dsn):
         conn.execute(SQL02)
@@ -2825,12 +2826,12 @@ def test_asesoria_vigencia_vigente_obsoleta_y_no_comprobable(monkeypatch):
     import uuid as _uuid
 
     from app.jev_ads import (
-        AsesorAds,
         DecisionARevisar,
         NoComprobable,
         Obsoleta,
         Vigente,
     )
+    from app.jev_asesor import AsesorAds
 
     with _db_temporal("orbit_dash_jevvig") as (conn, dsn):
         conn.execute(SQL02)
@@ -2915,7 +2916,8 @@ def test_asesoria_vigencia_usa_el_predicado_de_ficha_vigente(monkeypatch):
     seleccionada para su listing; una ficha que SI la desplaza, si."""
     import uuid as _uuid
 
-    from app.jev_ads import AsesorAds, DecisionARevisar, Obsoleta, Vigente
+    from app.jev_ads import DecisionARevisar, Obsoleta, Vigente
+    from app.jev_asesor import AsesorAds
 
     with _db_temporal("orbit_dash_jevb4r3a") as (conn, dsn):
         conn.execute(SQL02)
@@ -2995,7 +2997,8 @@ def test_asesoria_leer_salta_solo_no_activos_como_evaluar(monkeypatch):
     los motivos que evaluar compuso (fidelidad leer==evaluar)."""
     import uuid as _uuid
 
-    from app.jev_ads import AsesorAds, DecisionARevisar, Indeterminado
+    from app.jev_ads import DecisionARevisar, Indeterminado
+    from app.jev_asesor import AsesorAds
 
     with _db_temporal("orbit_dash_jevb4r3b") as (conn, dsn):
         conn.execute(SQL02)
@@ -3075,7 +3078,8 @@ def test_asesoria_leer_salta_solo_no_activos_como_evaluar(monkeypatch):
 def test_asesoria_lee_solo_eventos_de_su_revision(monkeypatch):
     import uuid as _uuid
 
-    from app.jev_ads import AsesorAds, DecisionARevisar, HayCompatible, Indeterminado
+    from app.jev_ads import DecisionARevisar, HayCompatible, Indeterminado
+    from app.jev_asesor import AsesorAds
 
     with _db_temporal("orbit_dash_jeviso") as (conn, dsn):
         conn.execute(SQL02)
@@ -3166,7 +3170,8 @@ def test_asesoria_muestra_el_exito_de_la_reanudacion(monkeypatch):
     reintento), no quedarse con el fallo del primer intento."""
     import uuid as _uuid
 
-    from app.jev_ads import AsesorAds, DecisionARevisar, HayCompatible
+    from app.jev_ads import DecisionARevisar, HayCompatible
+    from app.jev_asesor import AsesorAds
 
     with _db_temporal("orbit_dash_jevb4r2") as (conn, dsn):
         conn.execute(SQL02)
@@ -3242,7 +3247,8 @@ def test_cortes_asesoria_origen_y_destino_por_separado(monkeypatch):
     termino, resultados distintos, sin mezclar universos."""
     import uuid as _uuid
 
-    from app.jev_ads import AsesorAds, DecisionARevisar, HayCompatible, Indeterminado
+    from app.jev_ads import DecisionARevisar, HayCompatible, Indeterminado
+    from app.jev_asesor import AsesorAds
 
     with _db_temporal("orbit_dash_jevod") as (conn, dsn):
         conn.execute(SQL02)
@@ -3400,7 +3406,7 @@ def test_cortes_asesoria_ilegible_se_avisa_y_la_pantalla_sigue(monkeypatch):
         def leer_roto(self, referencias, *, ahora):
             raise RuntimeError("relation jev_revision does not exist")
 
-        monkeypatch.setattr("app.jev_ads.AsesorAds.leer", leer_roto)
+        monkeypatch.setattr("app.jev_asesor.AsesorAds.leer", leer_roto)
         roto = cliente.get("/api/dashboard/cortes")
         assert roto.status_code == 200
         assert roto.json()["asesoria_disponible"] is False

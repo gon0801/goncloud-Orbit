@@ -53,7 +53,8 @@ from uuid import UUID
 import psycopg
 
 from app.db import OrbitDbError, connect
-from app.jev_ads import AsesorAds, SemillasARevisar
+from app.jev_ads import SemillasARevisar
+from app.jev_asesor import AsesorAds
 from app.jev_catalogo import censo_de_plan, censo_grupo, decision_a_revisar
 from app.jev_juicios import leer_api_key
 from app.redaction import scrub
