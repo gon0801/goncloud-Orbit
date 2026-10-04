@@ -1,0 +1,10 @@
+=== quality-kit cross-review.ps1 ===
+Repo: /Users/dn/dev/wt/jev-ads-worker
+CLI: qwen
+[31;1mException: [0m/Users/dn/quality-kit/cross-review.ps1:601
+[36;1mLine |[0m
+[36;1m[36;1m 601 | [0m         [36;1mthrow "-Desde: '$Desde' no es un commit de este repo ($RepoPa[0m …
+[36;1m     | [31;1m         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[36;1m[31;1m[31;1m[36;1m     | [31;1m-Desde: '6070bbb5fc12a52a6e9ff6355686b4ea6d6acd1' no es un commit de[0m
+[36;1m[31;1m[31;1m[36;1m[31;1m[36;1m     | [31;1meste repo (/Users/dn/dev/wt/jev-ads-worker).[0m
+[36;1m[31;1m[31;1m[36;1m[31;1m[36;1m[31;1m[0m

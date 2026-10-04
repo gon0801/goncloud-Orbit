@@ -78,7 +78,7 @@ y (ii) `_candidatos_import` fija "app." sin importar el nivel relativo
 parsea).
 
 Ronda 2, revisor: (se completa al correr cross-review sobre SOLO los
-arreglos desde el SHA que kimi vio: 6070bbb) — reporte en
+arreglos desde el SHA que kimi vio: 6070bbbb) — reporte en
 delta-reporte-r2.txt.
 
 ## Comandos exactos
