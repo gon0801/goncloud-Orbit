@@ -270,6 +270,47 @@ def _universo_anunciado(
     return universo, excluidas
 
 
+def _absorber_pares(
+    pares: tuple[EstadoPar, ...],
+    por_ficha: dict[UUID, MiembroCenso],
+    excluidas_fichas: set[UUID],
+) -> tuple[list[int], set[UUID], set[MotivoIndeterminado]]:
+    """Clasifica los pares: productos compatibles, fichas juzgadas y motivos.
+
+    Un Juicio fuera del censo aporta `no_anunciado` (ficha excluida) o
+    `ficha_ausente`; un juicio fuera del contrato (relacion desconocida)
+    levanta ValueError: jamas pasa por juicio valido.
+    """
+    compatibles: list[int] = []
+    juzgados: set[UUID] = set()
+    motivos: set[MotivoIndeterminado] = set()
+    for par in pares:
+        if isinstance(par, NoAplicaTexto):
+            motivos.add("texto_no_aplica")
+        elif isinstance(par, FichaFaltante):
+            motivos.add("ficha_ausente")
+        elif isinstance(par, FalloProveedor):
+            motivos.add("fallo_proveedor")
+        else:
+            miembro = por_ficha.get(par.clave.ficha_version_id)
+            if miembro is None:
+                if par.clave.ficha_version_id in excluidas_fichas:
+                    motivos.add("no_anunciado")
+                else:
+                    motivos.add("ficha_ausente")
+            elif par.clave.ficha_version_id in juzgados:
+                raise ValueError("dos juicios para la misma ficha")
+            else:
+                juzgados.add(par.clave.ficha_version_id)
+                if par.relacion == "satisface":
+                    compatibles.append(miembro.producto_id)
+                elif par.relacion == "informacion_insuficiente":
+                    motivos.add("juicio_insuficiente")
+                elif par.relacion != "no_satisface":
+                    raise ValueError(f"relacion fuera del contrato: {par.relacion}")
+    return compatibles, juzgados, motivos
+
+
 def componer(censo: CensoCongelado, pares: tuple[EstadoPar, ...]) -> RelevanciaConjunto:
     """Aplica las reglas de composicion del diseno. Determinista y sin IO.
 
@@ -288,8 +329,9 @@ def componer(censo: CensoCongelado, pares: tuple[EstadoPar, ...]) -> RelevanciaC
     cobertura viaja sobre el universo anunciado.
 
     Un censo con la misma ficha en dos miembros, un miembro con ficha y sin
-    producto, o `estados` no paralelo a `anuncio_ids` es error estructural
-    del llamador y levanta ValueError.
+    producto, `estados` no paralelo a `anuncio_ids`, o un juicio con
+    relacion fuera del contrato, es error estructural del llamador y
+    levanta ValueError.
     """
     universo, excluidas_fichas = _universo_anunciado(censo)
     total = len(universo)
@@ -316,32 +358,8 @@ def componer(censo: CensoCongelado, pares: tuple[EstadoPar, ...]) -> RelevanciaC
     if any(miembro.ficha_version_id is None for miembro in universo):
         motivos.add("ficha_ausente")
 
-    compatibles: list[int] = []
-    juzgados: set[UUID] = set()
-    for par in pares:
-        if isinstance(par, NoAplicaTexto):
-            motivos.add("texto_no_aplica")
-            continue
-        if isinstance(par, FichaFaltante):
-            motivos.add("ficha_ausente")
-            continue
-        if isinstance(par, FalloProveedor):
-            motivos.add("fallo_proveedor")
-            continue
-        miembro = por_ficha.get(par.clave.ficha_version_id)
-        if miembro is None:
-            if par.clave.ficha_version_id in excluidas_fichas:
-                motivos.add("no_anunciado")
-            else:
-                motivos.add("ficha_ausente")
-            continue
-        if par.clave.ficha_version_id in juzgados:
-            raise ValueError("dos juicios para la misma ficha")
-        juzgados.add(par.clave.ficha_version_id)
-        if par.relacion == "satisface":
-            compatibles.append(miembro.producto_id)
-        elif par.relacion == "informacion_insuficiente":
-            motivos.add("juicio_insuficiente")
+    compatibles, juzgados, motivos_pares = _absorber_pares(pares, por_ficha, excluidas_fichas)
+    motivos |= motivos_pares
 
     miembros_con_ficha = sum(1 for m in universo if m.ficha_version_id is not None)
     if len(juzgados) < miembros_con_ficha:

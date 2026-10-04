@@ -322,6 +322,27 @@ def test_dos_juicios_para_la_misma_ficha_es_error_estructural():
         componer(censo, (_juicio(F1, "no_satisface"), _juicio(F1, "satisface")))
 
 
+def test_relacion_no_reconocida_es_error_estructural():
+    """Regresion revision automatica B2-r4 (F3): una relacion fuera del
+    contrato no puede contar como juicio y menos producir NingunoCompatible
+    silencioso."""
+    censo = CensoCongelado(miembros=(_miembro(11, F1),), exhaustivo=True)
+    raro = Juicio(
+        intento_id=uuid.uuid4(),
+        clave=ClavePar(
+            termino_literal_sha256="a" * 64,
+            ficha_version_id=F1,
+            contrato_sha256="b" * 64,
+        ),
+        relacion="desconocida",  # type: ignore[arg-type]
+        probabilidades={"desconocida": Decimal("1.00")},
+        confidence=Decimal("0.90"),
+        observado_at=OBS,
+    )
+    with pytest.raises(ValueError):
+        componer(censo, (raro,))
+
+
 def test_modulo_puro_sin_red_ni_db():
     arbol = ast.parse((RAIZ / "app" / "jev_ads.py").read_text(encoding="utf-8"))
     importados: set[str] = set()

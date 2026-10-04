@@ -366,6 +366,57 @@ def test_hash_de_ficha_y_registro_idempotente():
 
 
 @_skip_db
+def test_listings_vacios_no_registran_ficha():
+    """Regresion revision automatica B2-r4 (F1): array_length('{}',1) es
+    NULL y el CHECK/trigger viejos dejaban pasar una ficha que no cubre
+    nada en tabla append-only."""
+    with db_jev() as conn:
+        producto = _producto(conn)
+        with pytest.raises(psycopg.errors.CheckViolation):
+            _registrar(conn, producto, ())
+        assert conn.execute("SELECT count(*) FROM jev_ficha_version").fetchone()[0] == 0
+
+
+@_skip_db
+def test_desconocidos_generador_no_corrompe_hash_ni_fila():
+    """Regresion revision automatica B2-r4 (F2): desconocidos/hechos/listings
+    se consumen UNA vez; un iterable de un solo uso no puede desalinear el
+    hash guardado con el contenido de la fila."""
+    with db_jev() as conn:
+        producto = _producto(conn)
+        listing = _listing(conn, producto)
+        registro = registrar_ficha(
+            conn,
+            producto_id=producto,
+            plataforma="amazon_mx",
+            listings=iter((listing,)),
+            hechos=iter((("hecho", "fuente"),)),
+            desconocidos=iter(("peso", "material")),
+            aprobador="aprobador",
+            observado_at=AHORA,
+            revisar_antes_de=VENCE,
+        )
+        hash_esperado = hash_ficha(
+            producto_id=producto,
+            plataforma="amazon_mx",
+            listings=(listing,),
+            hechos=(("hecho", "fuente"),),
+            desconocidos=("material", "peso"),
+            aprobador="aprobador",
+            observado_at=AHORA,
+            revisar_antes_de=VENCE,
+        )
+        assert registro.ficha.sha256 == hash_esperado
+        assert registro.ficha.desconocidos == frozenset({"material", "peso"})
+        fila = conn.execute(
+            "SELECT desconocidos, sha256 FROM jev_ficha_version WHERE id = %s",
+            (registro.ficha.id,),
+        ).fetchone()
+        assert sorted(fila[0]) == ["material", "peso"]
+        assert fila[1] == hash_esperado
+
+
+@_skip_db
 def test_solicitud_idempotente_y_discriminador_de_sujeto():
     with db_jev() as conn:
         solicitud = _revision(conn)

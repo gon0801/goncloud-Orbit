@@ -68,7 +68,10 @@ CREATE TABLE jev_ficha_version (
     CONSTRAINT jev_ficha_plataforma_amazon
         CHECK (plataforma IN ('amazon_mx', 'amazon_us')),
     CONSTRAINT jev_ficha_sha256_formato CHECK (sha256 ~ '^[0-9a-f]{64}$'),
-    CONSTRAINT jev_ficha_listings_no_vacios CHECK (array_length(listings, 1) >= 1),
+    -- cardinality, NO array_length: con '{}' array_length devuelve NULL y
+    -- NULL >= 1 no es FALSE: el CHECK viejo dejaba pasar una ficha que no
+    -- cubre nada (revision automatica B2-r4 F1).
+    CONSTRAINT jev_ficha_listings_no_vacios CHECK (cardinality(listings) >= 1),
     CONSTRAINT jev_ficha_hechos_en_arreglo CHECK (jsonb_typeof(hechos) = 'array'),
     CONSTRAINT jev_ficha_aprobador_presente CHECK (btrim(aprobador) <> '')
 );
@@ -116,9 +119,11 @@ BEGIN
             NEW.revisar_antes_de, NEW.observado_at
             USING ERRCODE = 'check_violation';
     END IF;
+    -- COALESCE, NO array_length crudo: con '{}' la comparacion vieja era
+    -- NULL y el IF no mordia (mismo hueco del CHECK, B2-r4 F1).
     IF EXISTS (SELECT 1 FROM unnest(NEW.listings) AS x WHERE x IS NULL)
        OR (SELECT count(DISTINCT y) FROM unnest(NEW.listings) AS y)
-           <> array_length(NEW.listings, 1) THEN
+           <> COALESCE(array_length(NEW.listings, 1), 0) THEN
         RAISE EXCEPTION 'jev_ficha_version: listings con NULL o duplicados'
             USING ERRCODE = 'check_violation';
     END IF;

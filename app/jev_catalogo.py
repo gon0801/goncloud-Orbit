@@ -151,6 +151,11 @@ def registrar_ficha(
     """
     if plataforma not in _PLATAFORMAS:
         raise ValueError(f"plataforma fuera del alcance Jev: {plataforma}")
+    # Materializar UNA vez: hash, INSERT y FichaVersion deben ver el MISMO
+    # contenido aunque el llamador pase iterables de un solo uso (B2-r4 F2).
+    listings = tuple(listings)
+    hechos = tuple(hechos)
+    desconocidos = sorted(desconocidos)
     sha = hash_ficha(
         producto_id=producto_id,
         plataforma=plataforma,
@@ -175,7 +180,7 @@ def registrar_ficha(
             plataforma,
             list(listings),
             Json([{"texto": texto, "fuente": fuente} for texto, fuente in hechos]),
-            sorted(desconocidos),
+            list(desconocidos),
             sha,
             aprobador,
             observado_at,
