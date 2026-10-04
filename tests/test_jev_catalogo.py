@@ -495,6 +495,7 @@ def test_registro_concurrente_del_mismo_contenido_devuelve_la_fila_existente():
                 pytest.fail("la segunda transaccion nunca quedo esperando el lock")
             primera.commit()
             hilo.join(timeout=10)
+            assert not hilo.is_alive(), "la segunda transaccion no termino tras el commit"
         assert "error" not in resultado, resultado.get("error")
         assert resultado["registro"].ya_existia is True
         assert resultado["registro"].ficha.id == propia.ficha.id

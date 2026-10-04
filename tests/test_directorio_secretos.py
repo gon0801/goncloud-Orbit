@@ -33,7 +33,11 @@ def test_con_variable_es_la_variable(monkeypatch):
 def test_ningun_cargador_lee_la_variable_con_default_propio():
     """El patron que cae al cwd con la variable vacia no vuelve a aparecer.
     `api_write` lee la variable a mano a proposito: vacia -> 503 fail-closed."""
-    patron = re.compile(r"""os\.environ\.get\(\s*["']ORBIT_SECRETS_DIR["']\s*,""")
+    patron = re.compile(
+        r"""os\.environ\.get\(\s*["']ORBIT_SECRETS_DIR["']\s*,"""
+        r"""|os\.getenv\(\s*["']ORBIT_SECRETS_DIR["']"""
+        r"""|os\.environ\[\s*["']ORBIT_SECRETS_DIR["']\s*\]"""
+    )
     ofensores = [
         str(ruta.relative_to(RAIZ))
         for ruta in sorted((RAIZ / "app").rglob("*.py"))
