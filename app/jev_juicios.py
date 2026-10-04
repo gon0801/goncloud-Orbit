@@ -133,12 +133,11 @@ def clave_de(termino: str, ficha: FichaVersion, contrato: Contrato) -> ClavePar:
 
 
 def _ficha_a_state(ficha: FichaVersion) -> dict:
+    """SOLO hechos y desconocidos viajan al proveedor: listings/fechas son
+    internos de Orbit (la identidad viaja por ficha id en clave y hash)."""
     return {
         "desconocidos": sorted(ficha.desconocidos),
         "hechos": [{"fuente": hecho.fuente, "texto": hecho.texto} for hecho in ficha.hechos],
-        "listings": sorted(ficha.listings),
-        "observado_at": ficha.observado_at.isoformat(),
-        "revisar_antes_de": ficha.revisar_antes_de.isoformat(),
     }
 
 

@@ -20,7 +20,7 @@ import ast
 import hashlib
 import json
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -30,9 +30,11 @@ from test_jev_catalogo import _dsn_jev, _ficha, _grupo, _listing, _producto, db_
 
 from app.jev_ads import (
     AsesorAds,
+    CensoCongelado,
     DecisionARevisar,
     HayCompatible,
     Indeterminado,
+    MiembroCenso,
     SemillasARevisar,
 )
 from app.jev_juicios import FalloPar, ResultadoPar
@@ -141,37 +143,52 @@ def _eventos(conn, solicitud):
 
 
 def test_revision_e_intencion_confirmadas_antes_del_http():
+    """El orden se observa desde OTRA sesion: el asesor corre SIN autocommit
+    y el pedir espia consulta con una SEGUNDA conexion, que solo ve lo
+    CONFIRMADO. Ver la revision y la intencion (y no el resultado) desde
+    esa segunda sesion demuestra el commit previo al HTTP."""
     with db_jev() as conn:
         censo, _, _, grupo = _grupo_con_fichas(conn, con_ficha_p2=False)
         solicitud = uuid.uuid4()
         estado_al_http = {}
 
-        def pedir_espia(termino, ficha):
-            revision = conn.execute(
-                "SELECT sujeto_tipo, captured_at FROM jev_revision WHERE solicitud = %s",
-                (solicitud,),
-            ).fetchone()
-            intenciones = conn.execute(
-                "SELECT request_sha256 FROM jev_par_evento WHERE revision_id = %s"
-                " AND tipo = 'intencion'",
-                (solicitud,),
-            ).fetchall()
-            resultados = conn.execute(
-                "SELECT count(*) FROM jev_par_evento WHERE revision_id = %s AND tipo = 'resultado'",
-                (solicitud,),
-            ).fetchone()[0]
-            estado_al_http["revision"] = revision
-            estado_al_http["intenciones"] = intenciones
-            estado_al_http["resultados"] = resultados
-            return _Pedido({termino: "satisface"})(termino, ficha)
+        conn.autocommit = False  # el asesor confirma de verdad con commit()
+        observador = psycopg.connect(_dsn_jev())  # otra sesion: solo confirmado
+        try:
 
-        asesor = AsesorAds(conn, pedir=pedir_espia, api_key="k", presupuesto=5, ahora=lambda: AHORA)
-        sujeto = _sujeto(censo)
-        revision = asesor.evaluar(sujeto, solicitud_id=solicitud)
+            def pedir_espia(termino, ficha):
+                revision = observador.execute(
+                    "SELECT sujeto_tipo, captured_at FROM jev_revision WHERE solicitud = %s",
+                    (solicitud,),
+                ).fetchone()
+                intenciones = observador.execute(
+                    "SELECT count(*) FROM jev_par_evento WHERE revision_id = %s"
+                    " AND tipo = 'intencion'",
+                    (solicitud,),
+                ).fetchone()[0]
+                resultados = observador.execute(
+                    "SELECT count(*) FROM jev_par_evento WHERE revision_id = %s"
+                    " AND tipo = 'resultado'",
+                    (solicitud,),
+                ).fetchone()[0]
+                estado_al_http["revision"] = revision
+                estado_al_http["intenciones"] = intenciones
+                estado_al_http["resultados"] = resultados
+                return _Pedido({termino: "satisface"})(termino, ficha)
+
+            asesor = AsesorAds(
+                conn, pedir=pedir_espia, api_key="k", presupuesto=5, ahora=lambda: AHORA
+            )
+            sujeto = _sujeto(censo)
+            revision = asesor.evaluar(sujeto, solicitud_id=solicitud)
+        finally:
+            observador.rollback()
+            observador.close()
+            conn.rollback()
+            conn.autocommit = True
         assert estado_al_http["revision"] is not None
         assert estado_al_http["revision"][0] == "semillas"
-        assert len(estado_al_http["intenciones"]) == 1
-        assert estado_al_http["intenciones"][0][0]
+        assert estado_al_http["intenciones"] == 1
         assert estado_al_http["resultados"] == 0
         # El resultado del par llego DESPUES: fila de resultado confirmada.
         assert (
@@ -211,6 +228,56 @@ def test_producto_sin_ficha_queda_como_ficha_faltante():
 # ---------------------------------------------------------------------------
 # Crash y reanudacion: exito reutilizado, intencion nueva con ordinal nuevo
 # ---------------------------------------------------------------------------
+
+
+def test_reanudacion_tras_crash_la_intencion_huerfana_esta_confirmada():
+    """Igual que el orden sellado: al crash, la intencion del par interrumpido
+    YA esta visible desde OTRA sesion (confirmada), sin su resultado."""
+    with db_jev() as conn:
+        censo, _, _, grupo = _grupo_con_fichas(conn, con_ficha_p2=False)
+        solicitud = uuid.uuid4()
+        sujeto = _sujeto(censo, terminos=("t1", "t2"))
+        visto_al_crash = {}
+
+        conn.autocommit = False
+        observador = psycopg.connect(_dsn_jev())
+        try:
+
+            def pedir_con_espia(termino, ficha):
+                if termino == "t2":
+                    visto_al_crash["intenciones"] = observador.execute(
+                        "SELECT count(*) FROM jev_par_evento WHERE revision_id = %s"
+                        " AND tipo = 'intencion'",
+                        (solicitud,),
+                    ).fetchone()[0]
+                    visto_al_crash["resultados"] = observador.execute(
+                        "SELECT count(*) FROM jev_par_evento WHERE revision_id = %s"
+                        " AND tipo = 'resultado'",
+                        (solicitud,),
+                    ).fetchone()[0]
+                    raise RuntimeError("crash simulado tras la intencion")
+                return _Pedido({termino: "satisface"})(termino, ficha)
+
+            asesor1 = AsesorAds(
+                conn, pedir=pedir_con_espia, api_key="k", presupuesto=5, ahora=lambda: AHORA
+            )
+            with pytest.raises(RuntimeError):
+                asesor1.evaluar(sujeto, solicitud_id=solicitud)
+        finally:
+            observador.rollback()
+            observador.close()
+            conn.rollback()
+            conn.autocommit = True
+        # t1 y t2 confirmados como intenciones; solo t1 tiene resultado.
+        assert visto_al_crash["intenciones"] == 2
+        assert visto_al_crash["resultados"] == 1
+        # Reanudacion normal: t1 reutilizado (cero HTTP) y t2 completa.
+        pedido2 = _Pedido(guion={"t2": "no_satisface"})
+        asesor2 = AsesorAds(conn, pedir=pedido2, api_key="k", presupuesto=5, ahora=lambda: AHORA)
+        revision = asesor2.evaluar(sujeto, solicitud_id=solicitud)
+        assert pedido2.llamados == ["t2"]
+        por_termino = dict(revision.resultados)
+        assert isinstance(por_termino["t1"], HayCompatible)
 
 
 def test_reanudacion_tras_crash_reutiliza_exito():
@@ -336,6 +403,84 @@ def test_sin_clave_jev_apagado_cero_llamadas_y_estados_visibles():
         assert eventos >= 1  # intenciones registradas; el fallo visible en resultados
 
 
+def _decision(conn, ad_entity_id: int) -> int:
+    """Decision real minima (negative) para atar la revision por FK."""
+    from psycopg.types.json import Json
+
+    cfg = conn.execute(
+        "INSERT INTO config_version (settings, label) VALUES (%s, 'prueba') RETURNING id",
+        (Json({}),),
+    ).fetchone()[0]
+    ciclo = conn.execute(
+        "INSERT INTO optimizer_cycle (mode, platform, status, started_at, finished_at)"
+        " VALUES ('shadow', 'amazon_mx', 'done', now(), now()) RETURNING id"
+    ).fetchone()[0]
+    hoy = datetime(2026, 9, 1).date()
+    return conn.execute(
+        "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at,"
+        " config_version_id, data_observed_at, window_start, window_end, inputs,"
+        " search_term)"
+        " VALUES (%s, %s, 'negative', now(), %s, now() - interval '1 hour', %s, %s,"
+        " %s, 'soporte mesa') RETURNING id",
+        (
+            ciclo,
+            ad_entity_id,
+            cfg,
+            hoy - timedelta(days=30),
+            hoy,
+            Json({"prueba": True}),
+        ),
+    ).fetchone()[0]
+
+
+def test_decision_misma_solicitud_otro_termino_rechazado():
+    """Regresion VEREDICTO-B3-r1 B1: para DecisionARevisar el rechazo de la
+    misma solicitud con otro payload compara el CONTEXTO congelado completo
+    (termino + censo + plataforma), no solo decision_id."""
+    with db_jev() as conn:
+        censo, _, _, grupo = _grupo_con_fichas(conn, con_ficha_p2=False)
+        decision_id = _decision(conn, grupo)
+        asesor = AsesorAds(conn, pedir=_Pedido(), api_key="k", presupuesto=5, ahora=lambda: AHORA)
+        solicitud = uuid.uuid4()
+        asesor.evaluar(
+            DecisionARevisar(decision_id, "soporte mesa", censo, "amazon_mx", AHORA),
+            solicitud_id=solicitud,
+        )
+        with pytest.raises(ValueError):
+            asesor.evaluar(
+                DecisionARevisar(decision_id, "lampara de pie", censo, "amazon_mx", AHORA),
+                solicitud_id=solicitud,
+            )
+
+
+def test_semillas_mismo_plan_sha_otro_censo_rechazado():
+    """Regresion VEREDICTO-B3-r1 B1 (rama semillas): con el MISMO plan_sha256
+    pero OTRO censo congelado (otra ficha resuelta), la misma solicitud se
+    rechaza por el contexto, no por el hash del plan."""
+    with db_jev() as conn:
+        censo, ficha1, _, _ = _grupo_con_fichas(conn, con_ficha_p2=False)
+        solicitud = uuid.uuid4()
+        asesor = AsesorAds(conn, pedir=_Pedido(), api_key="k", presupuesto=5, ahora=lambda: AHORA)
+        asesor.evaluar(_sujeto(censo), solicitud_id=solicitud)
+        censo_otro = CensoCongelado(
+            miembros=tuple(
+                MiembroCenso(
+                    anuncio_ids=m.anuncio_ids,
+                    producto_id=m.producto_id,
+                    listing_ids=m.listing_ids,
+                    estados=m.estados,
+                    ficha_version_id=uuid.uuid4(),  # OTRA ficha (otra variante)
+                )
+                for m in censo.miembros
+            ),
+            exhaustivo=censo.exhaustivo,
+        )
+        mismo_plan = _sujeto(censo_otro)
+        assert mismo_plan.plan_sha256 == _sujeto(censo).plan_sha256
+        with pytest.raises(ValueError):
+            asesor.evaluar(mismo_plan, solicitud_id=solicitud)
+
+
 def test_los_consumidores_no_importan_al_asesor():
     for nombre in ("cycle.py", "apply_cola.py", "apply_harvest.py"):
         arbol = ast.parse((RAIZ / "app" / nombre).read_text(encoding="utf-8"))
@@ -361,6 +506,44 @@ def test_termino_asin_like_queda_fuera_del_clasificador_sin_http():
         assert isinstance(resultado, Indeterminado)
         assert "texto_no_aplica" in resultado.motivos
         assert pedido.llamados == []
+
+
+def test_miembro_solo_archived_no_paga_http():
+    """Correccion VEREDICTO-B3-r1: un miembro cuyo unico anuncio esta en
+    estado conocido no activo (ARCHIVED) no recibe intencion ni HTTP, aun
+    con ficha vigente: componer lo excluye como no_anunciado."""
+    with db_jev() as conn:
+        p1 = _producto(conn, "A1")
+        l1 = _listing(conn, p1, asin="B0A1LISTA1")
+        p2 = _producto(conn, "A2")
+        l2 = _listing(conn, p2, asin="B0A2LISTA2")
+        grupo = _grupo(conn, "amazon_mx", (l1, l2))
+        conn.execute(
+            "INSERT INTO ad_entity_state (ad_entity_id, status, synced_at)"
+            " VALUES ((SELECT id FROM ad_entity WHERE external_id = %s), 'ARCHIVED', now())",
+            (f"ad-{grupo}-0",),
+        )
+        conn.execute(
+            "INSERT INTO ad_entity_state (ad_entity_id, status, synced_at)"
+            " VALUES ((SELECT id FROM ad_entity WHERE external_id = %s), 'ENABLED', now())",
+            (f"ad-{grupo}-1",),
+        )
+        _ficha(conn, p1, (l1,))
+        _ficha(conn, p2, (l2,))
+        from app.jev_catalogo import censo_grupo
+
+        censo = censo_grupo(conn, plataforma="amazon_mx", ad_group_id=grupo)
+        pedido = _Pedido(guion={"t": "satisface"})
+        asesor = AsesorAds(conn, pedir=pedido, api_key="k", presupuesto=5, ahora=lambda: AHORA)
+        revision = asesor.evaluar(_sujeto(censo, terminos=("t",)), solicitud_id=uuid.uuid4())
+        assert pedido.llamados == ["t"]  # solo el ENABLED; el ARCHIVED no paga
+        _, resultado = revision.resultados[0]
+        assert isinstance(resultado, HayCompatible)
+        assert resultado.miembros_totales == 1
+        intenciones = conn.execute(
+            "SELECT count(*) FROM jev_par_evento WHERE tipo = 'intencion'"
+        ).fetchone()[0]
+        assert intenciones == 1
 
 
 # ---------------------------------------------------------------------------

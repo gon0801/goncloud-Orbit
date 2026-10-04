@@ -130,14 +130,11 @@ def test_wire_lleva_solo_termino_y_ficha():
     assert payload["model"] == MODELO
     assert set(payload) == {"state", "model", "questions"}
     assert set(payload["state"]) == {"termino", "ficha"}
+    # Correccion VEREDICTO-B3-r1: SOLO hechos y desconocidos viajan al
+    # proveedor; listings/observado_at/revisar_antes_de son internos de
+    # Orbit (la identidad viaja por la ficha id en la clave y en el hash).
     ficha_wire = payload["state"]["ficha"]
-    assert set(ficha_wire) == {
-        "hechos",
-        "desconocidos",
-        "listings",
-        "observado_at",
-        "revisar_antes_de",
-    }
+    assert set(ficha_wire) == {"hechos", "desconocidos"}
     assert ficha_wire["hechos"] == [{"fuente": "fuente", "texto": "hecho"}]
     assert ficha_wire["desconocidos"] == ["peso"]
     pregunta = payload["questions"][PREGUNTA_ID]

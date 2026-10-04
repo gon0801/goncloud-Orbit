@@ -546,6 +546,8 @@ class AsesorAds:
                 pares.append(NoAplicaTexto(motivo="asin_like"))
             else:
                 for miembro in censo.miembros:
+                    if _solo_no_activo(miembro.estados):
+                        continue  # no anunciado (ARCHIVED): no paga intencion ni HTTP
                     ficha = (
                         fichas.get(miembro.ficha_version_id) if miembro.ficha_version_id else None
                     )
@@ -643,6 +645,7 @@ class AsesorAds:
                 guardado[0] == "decision"
                 and guardado[1] == sujeto.decision_id
                 and guardado[2] is None
+                and guardado[3] == contexto
             )
         else:
             self._conn.execute(
