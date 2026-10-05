@@ -319,6 +319,20 @@ def test_probar_roster_48h_mas_un_segundo_ya_no():
         ),
         pytest.param(
             _acta(),
+            _censo(
+                MiembroCenso(
+                    anuncio_ids=(11,),
+                    producto_id=7,
+                    listing_ids=frozenset({5}),
+                    estados=(EstadoAnuncio(status=None, synced_at=None),),
+                )
+            ),
+            "h",
+            "estado_ausente",
+            id="estado-ausente-sin-fila",
+        ),
+        pytest.param(
+            _acta(),
             _censo(_miembro(producto=None, listings=())),
             "h",
             "anuncio_sin_producto",

@@ -1,8 +1,7 @@
 # S.2: comandos, salidas y SHA
 
 Rama: `jev02/s2-nucleo`. Base: `436b8771c987090724247dd237a167a2687f56c8`.
-Commit del PR: `877e833ae72efcaa19cdf0a7db0238c9de3e763a` (cierre J2; suma
-1 linea borrada por comment-sicko sobre el arbol verificado abajo).
+Head: `3dbf105c1018253a1224c05b79261102291507db` (cierre J2).
 
 DSN: ORBIT_TEST_DSN="postgresql://orbit:***@localhost:5432/postgres"
 (variable vacia en el entorno; los tests usaron el default de

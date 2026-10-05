@@ -20,6 +20,7 @@ ORBIT_TEST_DSN="postgresql://orbit:***@localhost:5432/postgres"
 | M9 | `resolver_fichas`: `ficha_version_id=ficha.id` -> `None` | `test_resolver_fichas_conserva_id_traido_y_acredita_archivado` | 1 failed |
 | M10 | `_mismo_origen`: agregar `and _censo_a_json(congelado) == _censo_a_json(crudo)` | `test_mismo_origen_ignora_synced_at_y_exige_identidad_y_exhaustivo` + `test_reanudacion_ignora_synced_at_y_llama_solo_al_pendiente` | 2 failed |
 | M11 | `Libro.pagar`: quitar el `commit()` previo al HTTP | `test_revision_e_intencion_confirmadas_antes_del_http` (existente, fija el traslado) | 1 failed |
+| M12 | `_con_estado_ausente`: solo `bool(anuncio_ids) and not estados` (muere la rama `status is None`) | `test_probar_roster_cada_motivo_por_separado[estado-ausente-sin-fila]` (nuevo, r2 bloqueante B1) | 1 failed, 53 passed; sin mutante 54 passed |
 
 Notas:
 
