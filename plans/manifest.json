@@ -133,7 +133,7 @@
     {
       "name": "jev-ads-01",
       "path": "plans/jev-ads-01.md",
-      "description": "JEV ADS 01 — asesoría semántica de negativos, harvest y semillas; diseño sellado en docs/superpowers/specs/2026-10-03-jev-ads-design.md. Sólo evaluaciones visibles, sin autoridad sobre acciones Ads. Desplegada apagada el 2026-10-04 (25cebe7); piloto 3.1 corrido y acta 3.2: seguir y ampliar en jev-ads-02. Quedan 2.3 (espera el primer ciclo posterior al deploy), R21 y R22."
+      "description": "JEV ADS 01 — asesoría semántica de negativos, harvest y semillas; diseño sellado en docs/superpowers/specs/2026-10-03-jev-ads-design.md. Sólo evaluaciones visibles, sin autoridad sobre acciones Ads. Desplegada apagada el 2026-10-04 (25cebe7); piloto 3.1 corrido y acta 3.2: seguir y ampliar en jev-ads-02. Quedan R21 y R22 (la 2.3 cerró el 2026-10-05 tras el primer ciclo posterior al deploy)."
     },
     {
       "name": "jev-ads-02",
