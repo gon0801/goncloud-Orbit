@@ -82,8 +82,8 @@ Lectura de producción del 2026-10-04 con `orbit_read`; consulta y salida en
 - El juicio recibe solo el término literal y una versión de ficha. Un fallo
   del proveedor es fallo, nunca evidencia.
 - El motor, la cola y `app/optimizer` no importan módulos de Jev. La guarda se
-  amplía a `apply_harvest_reconciliacion.py`, `notifica.py`, `app/optimizer/*`
-  y los módulos nuevos.
+  invierte y pasa a `tests/test_architecture.py`: recorre todo `app/` y
+  `tools/` y solo deja importar Jev a una lista corta de archivos.
 - Un fallo o apagado de Jev deja igual la decisión y su aplicación, incluido
   el veto de 48 horas. "Default al vencer = APLICAR" no se toca.
 - `app_jev` no gana permisos: no lee ni escribe decisiones, cola, ledger,
@@ -156,7 +156,7 @@ cambiar nada visible hasta su interruptor.
 | S.1 | `[stage:implementacion] [lane:gate] [tdd:required]` Acta de listado en la ingesta de estructura. | Una corrida ok deja acta por plataforma y por ad group en su misma transacción; una que falla no deja ninguna. Tras la primera corrida real: cuántos grupos cumplen la regla. | 0.1 | cc:TODO |
 | S.2 | `[stage:implementacion] [lane:gate] [tdd:required]` Núcleo puro `jev_lectura.py` y los dos traslados sin cambio de comportamiento (`Libro.pagar`, `resolver_fichas`). En el mismo bloque, el arreglo de la reanudación del CLI manual: `_mismo_origen` compara la identidad del censo sin `synced_at`, con su prueba roja. | La parte pura de las pruebas 1, 2, 3, 10 y 11 del spec, como tablas de `leer`, `probar_roster` y `anunciados_hoy`; las pruebas del asesor de JEV ADS 01 pasan sin tocarse. | 0.1 | cc:TODO |
 | S.3 | `[stage:implementacion] [lane:gate] [tdd:required]` Migración de señales, login `orbit_jev` y `ORBIT_DSN_JEV` (`docker-compose.yml`, el script de logins de `docs/DEPLOY.md` y `tests/test_compose_deploy.py`, que hoy fija cuatro DSN). | Prueba 7 (perímetro de roles, incluidas las tablas de 0049); la mitad de base de la prueba 1 (los CHECK rechazan `ajena` sin roster o con NULL) y el CHECK de moneda; reversa de la migración ensayada. | S.2 | cc:TODO |
-| S.4 | `[stage:implementacion] [lane:gate] [tdd:required]` El job `jev-senales`, su cron y el bloque de `/salud`. Guarda de imports ampliada. | Pruebas 4, 5 y 6 del spec, la mitad de madurez de la 3 y la 10 de punta a punta (el job arma el roster con `anunciados_hoy`); seco por omisión; con el interruptor ausente no escribe ni llama. | S.1, S.3 | cc:TODO |
+| S.4 | `[stage:implementacion] [lane:gate] [tdd:required]` El job `jev-senales`, su cron y el bloque de `/salud`. Guarda de imports invertida. | Pruebas 4, 5 y 6 del spec, la mitad de madurez de la 3 y la 10 de punta a punta (el job arma el roster con `anunciados_hoy`); seco por omisión; con el interruptor ausente no escribe ni llama. | S.1, S.3 | cc:TODO |
 | S.5 | `[stage:implementacion] [lane:gate] [tdd:required]` Señal en `/cortes` y pantalla `/gasto-sin-venta`. | Prueba 8; la proporción y los productos que dijeron "sí" a la vista; nunca "ninguno" sin roster probado. | S.4 | cc:TODO |
 | S.6 | `[stage:cierre-pr] [lane:release]` Encender con `jev.tope_diario = 0`. | Go del dueño; señales solo con ventas durante una semana; el ciclo y la cola sin diferencias. | S.5 | cc:TODO |
 | S.7 | `[stage:medicion] [lane:release]` Subir el tope y medir con el dueño. | Reporte por mercado, por búsqueda distinta y con etiquetas a ciegas: acuerdo con cada lectura, falsos "ajena", falsos "sí" por ficha, y cuántas de las señaladas vendieron después. | 0.3, 0.5, S.6 | cc:TODO |

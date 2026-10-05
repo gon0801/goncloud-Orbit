@@ -7,7 +7,9 @@
 
 El lead le explicó el diseño en llano y le pidió su visto bueno a cuatro cosas:
 
-1. Que Jev corra sola dos veces al día, con un tope diario de preguntas.
+1. Que Jev corra sola dos veces al día, con un tope diario de preguntas. En el
+   chat se le dijo "dos veces al día"; las horas, 09:30 y 21:30 UTC, están en
+   el spec de esa versión.
 2. Que una respuesta ya pagada se reutilice entre grupos y entre días, en vez
    de pagarla otra vez.
 3. Que Jev pueda decir "no corresponde a ninguno" cuando Orbit pueda probar

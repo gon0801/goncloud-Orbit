@@ -50,7 +50,8 @@ La forma no es obvia por cuatro restricciones que chocan:
 Cinco puntos de contacto. Ninguno coordina pasos internos.
 
 ```python
-# 1. Cron, fuera del ciclo. app/cli.py gana unas 9 líneas ("main del módulo"); tiene 22 libres.
+# 1. Cron, fuera del ciclo. app/cli.py gana unas 9 líneas ("main del módulo"). Tiene 22 libres, pero
+#    su `main` está a una sentencia del tope: antes hay que sacar de ahí la construcción del parser.
 #    30 9,21 * * * flock -n ... docker exec orbit-app-1 python -m app.cli jev-senales --aplicar
 if args.comando == "jev-senales":
     from app import jev_senales
@@ -113,9 +114,13 @@ Decisiones que cargan peso:
   cualquier juicio. Un juicio nunca tapa una venta, y un fallo de TypeSafe o
   la falta de cupo no impiden esas dos lecturas. El job puede encenderse con
   tope 0 y ya entrega lectura sin una sola llamada.
-- **"No vende" solo sobre ventana madura; "vendió" sobre todo lo observado.**
-  Una orden es un hecho positivo aunque tenga 4 días. La ausencia de órdenes
-  solo cuenta en los 30 días que terminan 10 atrás (regla 6 de CONTEXTO).
+- **"No vende" solo sobre ventana madura; "vendió aquí" sobre todo lo
+  observado.** Una orden en este grupo es un hecho positivo aunque tenga 4
+  días. La ausencia de órdenes solo cuenta en los 30 días que terminan 10
+  atrás (regla 6 de CONTEXTO). La venta en otro grupo también se mide en su
+  ventana madura, y la diferencia es a propósito: "ya vendió aquí" invita a no
+  bloquear, y ahí basta cualquier orden; "vende en otro" invita a bloquear
+  aquí, y para eso se pide la misma evidencia madura que usa el motor.
 - **La proporción siempre viaja.** La señal guarda cuántos productos
   corresponden, cuántos se evaluaron y cuántos hay, y cuáles dijeron "sí".
   Se evalúa el grupo completo aunque el primero ya satisfaga: el costo es de
@@ -481,7 +486,7 @@ el…" y aviso si la última corrida tiene más de 36 h. Secciones por lectura,
 cada una con su total. Dentro de "corresponden y no venden en ninguno", las
 filas se ordenan por proporción ascendente y se agrupan en bandas: *ninguno*,
 *pocos* (hasta 15%), *una parte* y *todos* (95% o más). Así una búsqueda que
-corresponde a 8 de 176 productos sube junto a las ajenas, y las de atributo
+corresponde a 8 de 177 productos sube junto a las ajenas, y las de atributo
 (102 de 208) quedan juntas. Las bandas son solo presentación: no se guardan
 ni las lee ningún efecto. Cada fila despliega qué productos dijeron "sí", que
 es lo que permite corregir una ficha cuando el "sí" es un error.
@@ -567,7 +572,7 @@ Cada paso se despliega sin cambiar nada visible hasta su interruptor.
 2. **Núcleo puro** (`jev_lectura.py`) con sus pruebas de tabla, y los dos
    traslados sin cambio de comportamiento (`Libro.pagar`, `resolver_fichas`).
 3. **Migración B, login `orbit_jev` y `ORBIT_DSN_JEV`.**
-4. **El job y su cron**, con `jev.senales` ausente. Guarda ampliada. `/salud`.
+4. **El job y su cron**, con `jev.senales` ausente. Guarda invertida. `/salud`.
 5. **Pantallas.** Vacías hasta que haya señales.
 6. **Encender con `jev.tope_diario = 0`.** Señales solo con ventas. Cero costo.
 7. **Subir el tope.** Jev desempata y aporta la proporción.
@@ -682,6 +687,18 @@ para que el dueño pueda objetarlas:
 - La guarda de imports pasa a ser una lista de quién puede importar Jev.
 - Una propuesta en `shadow` recibe señal y su aviso dice que no se aplica.
 - El CLI manual cuenta para el tope del día y no lo respeta.
+- Telegram avisa otra vez solo si la propuesta pasa a una lectura que no se le
+  había anunciado; si va y regresa, no hay tercer aviso. El texto lleva la
+  fecha en que se aplica.
+- La reversa de la migración de señales solo sirve antes de la primera corrida
+  con `--aplicar`.
+- Un harvest son dos señales completas; la lectura del destino se deriva al
+  pintar.
+- La edad del acta usa la comparación del motor: 48 horas exactas valen.
+- Un índice parcial para contar las intenciones del día, y la columna `cierre`
+  en `jev_corrida`.
+- Cifras del prototipo ya con todos los lotes: 4,811 pares, unas 96 llamadas
+  por búsqueda y 1.5% de gasto ajeno en US.
 
 Lo que falta saber:
 

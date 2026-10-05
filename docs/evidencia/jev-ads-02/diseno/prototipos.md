@@ -2,9 +2,9 @@
 
 Lecturas de producción con `orbit_read` y una corrida de Jev autorizada y
 ejecutada por el dueño. Las consultas están en `consultas/`. Ventana: la de cortes del motor (30 días que terminan
-10 días atrás), términos de texto, última observación por día. Las consultas
-y el detalle por búsqueda viven en una carpeta privada del lead; aquí van los
-resultados agregados. Las búsquedas citadas son términos de compradores, no
+10 días atrás), términos de texto, última observación por día. El detalle por
+búsqueda vive en una carpeta privada del lead; aquí van los resultados
+agregados. Las búsquedas citadas son términos de compradores, no
 nombres de producto.
 
 ## 1. Fichas
@@ -70,7 +70,7 @@ Ejemplos:
 - Ninguno: "caja para arras de boda" 0 de 50; "estuche para arras de boda sin
   arras" 0 de 177; "oro 24k" 0 de 1.
 - Casi ninguno: "arras de boda personalizadas" 20 de 208 (los 20 son los
-  productos personalizados del grupo); "cofre para arras de boda" 8 de 176
+  productos personalizados del grupo); "cofre para arras de boda" 8 de 177
   (8 falsos "sí").
 - Una parte: "arras de plata" 102 de 208; "arras de boda oro" 26 de 50. Jev
   separa oro de plata producto por producto.
@@ -89,7 +89,7 @@ Implicaciones:
 
 1. La proporción "k de n" es lo más informativo que da Jev. Un diseño que pare
    al primer "sí" tira ese dato; evaluar el grupo completo cuesta centavos.
-2. "Ninguno" estricto es alcanzable pero frágil: 8 falsos "sí" de 176 sacan a
+2. "Ninguno" estricto es alcanzable pero frágil: 8 falsos "sí" de 177 sacan a
    una búsqueda de esa clase.
 3. Cerca de la mitad del gasto sin venta de la muestra de MX es de búsquedas
    con atributo en grupos que mezclan productos dorados y plateados. No es

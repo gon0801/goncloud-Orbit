@@ -125,8 +125,11 @@ class Historial:
 @dataclass(frozen=True)
 class Economia:
     """Hecho 3. Todo "no vende" se afirma SOLO sobre la ventana madura de
-    cortes (30 dias que terminan 10 atras); una venta es un hecho positivo y
-    vale aunque sea inmadura o anterior a la ventana.
+    cortes (30 dias que terminan 10 atras). Una venta EN ESTE ad group es un
+    hecho positivo y vale aunque sea inmadura o anterior a la ventana. Una
+    venta en OTRO ad group solo cuenta dentro de su ventana madura: decir
+    "vende en otro" invita a bloquear aqui, y para eso se pide la misma
+    evidencia que usa el motor.
 
     Invariantes:
     - `aqui` es None si el ad group no tiene observaciones (sin ventana).
@@ -153,6 +156,8 @@ MotivoSinProbar = Literal[
     "sin_corrida_reciente",  # ninguna corrida de estructura ok en MAX_EDAD_SYNC
     "plataforma_no_listada",  # la corrida no trae acta de esta plataforma
     "listado_sin_total",  # Amazon no declaro totalResults: sin prueba de fin
+    "listado_no_cuadra",  # total declarado distinto del recibido (defensivo:
+    # la ingesta ya aborta en ese caso y no deja acta)
     "grupo_no_listado",  # el ad group no vino o no se escribio en la corrida
     "anuncios_descartados",  # algun product ad no archivado del grupo se salto
     "anuncios_sin_grupo",  # hubo product ads sin adGroupId: pueden ser de aqui

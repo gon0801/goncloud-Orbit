@@ -1,7 +1,9 @@
 # Consultas de los prototipos
 
-Todas son de solo lectura y se corrieron el 2026-10-04 contra producción con
-el login `orbit_read`. Regeneran las cifras de `../prototipos.md`. Las salidas
+Todas son de solo lectura y se corrieron el 2026-10-04. Las consultas SQL van
+contra la base de producción con el login `orbit_read`. `totales_declarados.py`
+no toca la base: llama a la API de Amazon Ads con el cliente de lectura.
+Regeneran las cifras de `../prototipos.md`. Las salidas
 con detalle por búsqueda no se versionan: quedan en una carpeta privada del
 lead.
 

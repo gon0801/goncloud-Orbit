@@ -9,10 +9,10 @@ Qué construir está en el
 [bosquejo de tipos](../docs/evidencia/jev-ads-02/diseno/bosquejo.py). Esta guía
 dice dónde cae cada pieza en el código de hoy, qué prueba se escribe primero y
 qué candados del repo vas a encontrar. Si la guía y el diseño se contradicen,
-manda el diseño y avisas.
+sigue el diseño y avisa al lead.
 
-Los números de línea son del commit `25cebe7`. Busca por nombre de símbolo si
-el archivo ya cambió.
+Los números de línea son del commit `25cebe7`. Si el archivo ya cambió, busca
+el símbolo por nombre.
 
 ## Antes de empezar
 
@@ -25,30 +25,30 @@ el archivo ya cambió.
 ## Reglas que valen en todos los pasos
 
 **Prueba primero.** Escribe la prueba, mírala fallar por la razón correcta y
-después escribe el código. Cada prueba nombrada aquí lleva un mutante
-registrado en la evidencia: el cambio de una línea que la pone en rojo.
+después escribe el código. Para cada prueba que esta guía nombra, registra en
+la evidencia un mutante: el cambio de una línea que la pone en rojo.
 
-**Lo que CI no ve en un PR.** En un PR solo corre el job `rapido`: pre-commit,
+**Lo que CI no ve en un PR.** En un PR solo corre el job de CI `rapido`: pre-commit,
 `tests/test_architecture.py`, `tests/test_precommit_hooks.py` y
 `tests/test_chat_context_guard.py`, sin Postgres. La batería con base corre en
 el push a `master`. Antes de abrir el PR, corre en local los archivos de prueba
-que tocaste y los que esta guía lista como frágiles. Anota el comando y el
-conteo en la evidencia del paso.
+que tocaste y los que cada paso nombra en "Qué vas a encontrar" y en
+"Comprueba". Anota el comando y el conteo en la evidencia del paso.
 
 **Migraciones.**
 
 - Toma el siguiente número libre al escribirla. Hoy S.1 sería `0051` y S.3
   `0052`. Si otra rama tomó el número, usa el siguiente.
-- Escribe `BEGIN;` y `COMMIT;` dentro del archivo. La migración no se puede
-  correr dos veces.
+- Escribe `BEGIN;` y `COMMIT;` dentro del archivo. No la hagas idempotente: el
+  despliegue corre cada archivo una sola vez.
 - Escribe la reversa en un archivo hermano `NNNN_reversa_<nombre>.sql`.
 - Pon a cada tabla nueva sus dos triggers `prohibir_mutacion()`: uno
   `BEFORE UPDATE OR DELETE ... FOR EACH ROW` y otro `BEFORE TRUNCATE ... FOR
   EACH STATEMENT`. El modelo está en `migrations/0040_ads_report_result.sql`.
 - Pon un índice por cada clave foránea que la clave primaria no encabece.
-- Declara los permisos de forma explícita y cierra con un bloque `DO` que falle
-  la migración si falta o sobra un privilegio. Usa `to_regclass` antes de
-  preguntar por una tabla que una base de prueba puede no tener.
+- Declara cada permiso con un `GRANT` explícito. Cierra la migración con un
+  bloque `DO` que falle si falta o sobra un privilegio. Si el bloque pregunta
+  por una tabla que una base de prueba puede no tener, usa antes `to_regclass`.
 - No escribas en ninguna migración los textos `motivo IN (`, `procedencia IN (`
   ni `CREATE VIEW v_decision_huerfana`. `tests/test_apply_schema.py` busca la
   última migración que los contenga y tomaría la tuya.
@@ -56,11 +56,13 @@ conteo en la evidencia del paso.
 **El conteo de tablas.** `tests/test_schema_docs.py` aplica todas las
 migraciones y exige que el número de tablas sea el que declaran
 `verify/Launch.md` y `verify/Doctor.md`. Hoy es 63. S.1 lo sube a 65 y S.3 a
-70. Actualiza los dos archivos y sus comentarios vecinos en el mismo PR.
+70. Actualiza los dos archivos en el mismo PR, con los números de sus
+comentarios: hoy dicen "14 vistas", "daría 77" y "64 con headers". Tras S.1 son
+14, 79 y 66. Tras S.3, que agrega una vista, son 15, 85 y 71.
 
 **Tamaño y complejidad.** Ningún módulo de `app/` pasa de 900 líneas. Ninguna
 función pasa de complejidad 22, 25 ramas ni 80 sentencias. Si una función
-topa, pártela por lo que cada parte sabe. No uses `noqa` para esquivar el
+llega al límite, pártela por lo que cada parte sabe. No uses `noqa` para esquivar el
 límite.
 
 **Repo público.** Usa búsquedas y productos inventados en pruebas, fixtures y
@@ -75,42 +77,31 @@ documentos. Ningún nombre de producto ni SKU real.
 **Revisión y cierre.** Cada paso con código pasa una revisión cruzada con un
 revisor distinto del autor (`cross-review.ps1`) antes del merge. Solo un
 hallazgo bloqueante y reproducible abre otra ronda. Haz el merge con
-`gh pr merge <n> --squash --match-head-commit <sha>` y comprueba que el job
-`completa` del push a `master` termina en `success` antes de empezar el paso
-siguiente. Marca la fila del paso en `plans/jev-ads-02.md` y agrega una
+`gh pr merge <n> --squash --match-head-commit <sha>`. Antes de empezar el paso
+siguiente, comprueba que el job de CI `completa` del push a `master` terminó
+en `success`. Marca la fila del paso en `plans/jev-ads-02.md` y agrega una
 entrada a `docs/CHAT-CONTEXT.md` en el mismo PR.
 
 ## Restricciones del diseño
 
-Estas salen de por qué el diseño tiene la forma que tiene. Las marcadas con
-[E] están escritas en el diseño o fijadas por código. Las marcadas con [I] son
-lectura del lead a partir del código: si no te cuadran, pregunta antes de
-cambiarlas.
+Las reglas del diseño están en el diseño. Antes de cada paso, relee la sección
+que le toca: "La regla" y "Tipos que fijan invariantes" para S.2,
+"Persistencia" para S.1 y S.3, "Roster probado" para S.1 y S.4, "El trabajo
+fuera del ciclo" para S.4 y "Superficies" para S.5 y S.8.
 
-- [E] `leer` evalúa el historial y la venta en otro grupo antes de mirar a
-  Jev. Un fallo del proveedor o la falta de cupo no impiden esas dos lecturas.
-- [E] "No vende" se afirma solo sobre la ventana de cortes del motor. Un dato
-  NULL nunca cuenta como cero.
-- [E] `satisfacen`, `evaluados`, `miembros` y `productos_ok` se guardan
-  siempre. Se evalúa el grupo completo.
-- [I] Calcula esos conteos desde los pares. `componer` no los devuelve cuando
-  el resultado es `Indeterminado`.
-- [E] No toques `componer`, `_solo_no_activo` ni sus pruebas. El job filtra
-  antes con `anunciados_hoy`.
-- [E] `RosterProbado` solo nace en `probar_roster`. Cualquier duda da
-  `RosterSinProbar`.
-- [E] No toques el trigger `jev_par_evento_encadenado`. El job no escribe
-  eventos `reutilizacion`. La intención y el resultado cuelgan del `lote`.
-- [E] Las tablas nuevas no llevan clave foránea a `apply_queue` ni a
-  `decision`.
-- [E] `app_jev` no gana ningún permiso sobre tablas que ya existen.
-  `app_decide` y `app_ingest` no leen ninguna tabla `jev_*`.
-- [E] `jev_lectura.py` es puro. No importa `app.optimizer.windows`, así que
+El diseño no dice estas cuatro cosas. Son interpretación del lead a partir del
+código. Si alguna no te cuadra, pregunta antes de cambiarla.
+
+- No toques `componer`, `_solo_no_activo` ni el trigger
+  `jev_par_evento_encadenado`, ni las pruebas que los fijan. El diseño se
+  apoya en que se comportan como hoy.
+- Calcula `satisfacen`, `evaluados`, `miembros` y `productos_ok` desde los
+  pares. `componer` no devuelve conteos cuando el resultado es
+  `Indeterminado`.
+- `jev_lectura.py` no puede importar `app.optimizer.windows`. Por eso
   `MAX_EDAD_SYNC` le llega como parámetro.
-- [E] Nada se cuelga de la cola y ningún interruptor `jev.*` se siembra en
-  este bloque. Encender es un cambio de config con el go del dueño.
-- [I] El CLI manual de JEV ADS 01 no cambia de comportamiento, salvo el
-  arreglo de reanudación de S.2.
+- El CLI manual de JEV ADS 01 no cambia de comportamiento, salvo el arreglo de
+  reanudación de S.2.
 
 ## S.1: registra el acta de listado en la ingesta
 
@@ -164,8 +155,9 @@ Escríbelas en `tests/test_structure_sync.py`, junto a las que nombro.
 1. Escribe la migración A con las dos tablas del diseño, sección
    "Persistencia". Agrega lo que el diseño no trae: CHECK de conteos no
    negativos, CHECK de formato de `huella_vivos` (`^[0-9a-f]{64}$`) e índice
-   sobre `ads_listado_grupo (ad_group_id)`. Da `INSERT` a `app_ingest` y a
-   `app_admin`. No nombres a `app_jev` en el bloque `DO`: las bases de prueba
+   sobre `ads_listado_grupo (ad_group_id)`. Da `INSERT` solo a `app_ingest`,
+   que es el rol con que corre toda llamada a `sync_structure`. No nombres a
+   `app_jev` en el bloque `DO`: las bases de prueba
    de la ingesta no aplican 0049 y ese rol no existe ahí.
 2. Escribe la reversa. Borra las dos tablas aunque tengan filas. El acta se
    vuelve a generar en la siguiente corrida.
@@ -202,7 +194,8 @@ Escríbelas en `tests/test_structure_sync.py`, junto a las que nombro.
    migración A: `tests/test_structure_sync.py` (constante junto a `_SQL17`),
    `tests/test_product_ads_vinculo.py` (`_conectar_base_con_0004`) y
    `tests/test_archiva_inertes.py` (`_db_21`).
-9. Sube el conteo de tablas a 65 en `verify/Launch.md` y `verify/Doctor.md`.
+9. Sube el conteo de tablas a 65 en `verify/Launch.md` y `verify/Doctor.md`,
+   con los números de sus comentarios.
 
 ### Comprueba
 
@@ -218,9 +211,9 @@ Deben pasar todas y ninguna debe saltarse.
    `docs/evidencia/jev-ads-02/ejecucion/S.1/`. Cambia la lista de migraciones y
    de reversas, la tabla testigo del preflight, el prefijo del respaldo, los
    archivos del md5 y `permisos.sql`.
-2. No reutilices `ensayo.sh` tal cual. Aborta si producción ya tiene tablas de
-   Jev, y ya las tiene. El volcado de producción trae además permisos de
-   `app_jev`: crea ese rol en la base desechable antes de cargarlo.
+2. No reutilices `ensayo.sh` tal cual. Ese script aborta si producción ya
+   tiene tablas de Jev, y hoy las tiene. El volcado de producción trae además
+   permisos de `app_jev`: crea ese rol en la base desechable antes de cargarlo.
 3. Agrega una guarda que el script anterior no tiene: no recrees el contenedor
    mientras corre la ingesta de estructura de las 06:45 UTC.
 4. Aplica la migración antes que el código. Si el código llega sin las tablas,
@@ -232,7 +225,7 @@ Deben pasar todas y ninguna debe saltarse.
 Después de la primera corrida real, corre una consulta de solo lectura y
 guarda la salida en la evidencia. Debe decir, por plataforma: si los totales
 declarados igualan a los recibidos, cuántos anuncios no archivados se
-descartaron, y cuántos grupos con gasto de búsquedas cumplen las seis
+descartaron, y cuántos grupos con gasto de búsquedas cumplen las
 condiciones de roster del diseño. El día del diseño cumplían 22 en MX y 11 en
 US en lo que se podía medir sin el acta.
 
@@ -261,14 +254,16 @@ JEV ADS 01 se comporta igual que antes. Este paso no depende de S.1.
      NULL en otro grupo da `sin_lectura`. Una orden en un día y `orders` NULL
      en otro día del historial da `vendio_aqui`. `NoEvaluada` sin ventas da
      `sin_lectura` con motivo `jev_no_evaluada`.
-   - `probar_roster`: cada una de las seis condiciones falla por separado con
-     su motivo, y el caso con las seis cumplidas da `RosterProbado`. Una corrida
-     de 48 horas exactas todavía vale.
+   - `probar_roster`: cada motivo de `MotivoSinProbar` sale por separado, y
+     el caso sin ninguno da `RosterProbado`. Una corrida de 48
+     horas exactas todavía vale.
    - `anunciados_hoy`: quita al miembro con todos sus anuncios archivados.
      Conserva al miembro con un estado ausente. No cambia `exhaustivo`.
    - `ajustes_desde_settings`: `Apagado` con la clave ausente, con `"true"`
      como texto, con `1`, con tope negativo y con `jev.min_clics` ausente. Solo
-     el JSON `true` enciende. Un `bool` no cuenta como entero.
+     el JSON `true` enciende. Un `bool` no cuenta como entero. `jev.avisos`
+     ausente o distinto de `true` deja `avisos` en `False` sin apagar el job.
+   - `leer_destino`: una fila por cada valor de relevancia guardada.
    - `planear`: la misma entrada da el mismo plan. Ninguna clave se repite. Las
      propuestas van primero, por vencimiento.
 2. Agrega `"jev_lectura.py"` al `parametrize` de
@@ -299,8 +294,10 @@ JEV ADS 01 se comporta igual que antes. Este paso no depende de S.1.
      con error. Así se comporta hoy el CLI manual.
 
    El orden de `pares_de`, el contador de llamadas, `_exito_previo` y
-   `_reutilizar` se quedan en el asesor. No consultes la base en `__init__`:
-   `AsesorAds(conn)` se construye en cada GET de `/cortes`.
+   `_reutilizar` se quedan en el asesor. `_siguiente_ordinal` se va a `Libro`,
+   que lo expone: `_reutilizar` lo sigue necesitando y lo llama desde ahí.
+   No consultes la base en el `__init__` de `Libro`. `AsesorAds(conn)` se
+   construye en cada GET de `/cortes`, y construye su `Libro` ahí mismo.
 4. Mueve la regla de fichas de `_enriquecer` a `resolver_fichas` en
    `app/jev_catalogo.py`. Importa `replace` de `dataclasses`.
 5. Arregla `_mismo_origen`: compara `_identidad_del_censo` y, aparte,
@@ -377,30 +374,46 @@ va después de S.2.
 2. Escribe la reversa. Tiene tres obligaciones que `ensayo.sh` detecta al
    comparar el esquema: devolver `SELECT` a `app_decide` y `app_ingest` sobre
    las tablas de 0049, restaurar el `COMMENT ON CONSTRAINT` y recrear los dos
-   CHECK con sus nombres. Aborta si ya existe una fila `lote`.
+   CHECK con sus nombres. La reversa debe abortar si ya existe una fila `lote`.
 3. Agrega la migración B a las listas escritas a mano que la van a necesitar:
-   `ORDEN` en `tests/test_jev_catalogo.py`, `SQL_JEV` en
-   `tests/test_api_dashboard.py` y la lista de `tests/test_api_fabrica.py`.
+   `ORDEN` en `tests/test_jev_catalogo.py` y `SQL_JEV` en
+   `tests/test_api_dashboard.py`. Al sumarla a `ORDEN`, corrige en el mismo
+   cambio `test_reversa_deja_la_base_como_0001`: aplica primero la reversa de
+   B. Sin eso falla, porque la reversa de 0049 borra `jev_revision` sin
+   `CASCADE` y las tablas nuevas la referencian. Agrega las cinco tablas nuevas
+   a `TABLAS_JEV`.
 4. Agrega `ORBIT_DSN_JEV` al bloque `environment` del servicio `app` en
    `docker-compose.yml`, y corrige el comentario que dice "SOLO los 4 DSN".
 5. En `docs/DEPLOY.md`, documenta un bloque aparte para crear `orbit_jev` sin
-   rotar los demás: borra solo la línea `^ORBIT_DSN_JEV=`, crea o altera el
-   rol, ejecuta `GRANT app_jev TO orbit_jev`, agrega la línea al `.env` y deja
-   el archivo en modo 600. Suma `jev` al bucle del script completo, para
-   instalaciones nuevas. Actualiza el texto del chequeo de restauración, que
-   cuenta roles y membresías.
-6. Sube el conteo de tablas a 70 en `verify/Launch.md` y `verify/Doctor.md`.
+   rotar las otras contraseñas. El bloque hace esto, en orden:
+   1. Borra solo la línea `^ORBIT_DSN_JEV=` del `.env`.
+   2. Crea o altera el rol `orbit_jev`.
+   3. Ejecuta `GRANT app_jev TO orbit_jev`.
+   4. Agrega la línea nueva al `.env`.
+   5. Deja el `.env` en modo 600.
+
+   Suma también `jev` al bucle del script completo, para instalaciones nuevas.
+   Actualiza el chequeo de roles de la restauración: agrega `app_jev` y
+   `orbit_jev` a su lista de nombres. Los valores que espera pasan de `N=9`,
+   `ATTR=5` y `MEM=4` a `N=11`, `ATTR=6` y `MEM=5`. `ATTR` ya debía ser 6 desde
+   0049, que creó `app_jev`. Corrige también el texto vecino, que dice
+   "9 roles" y "4 usuarios": pasan a 11 y 5.
+6. Sube el conteo de tablas a 70 en `verify/Launch.md` y `verify/Doctor.md`,
+   con los números de sus comentarios.
 
 ### Despliega
 
 1. Escribe los scripts en `docs/evidencia/jev-ads-02/ejecucion/S.3/`.
 2. Crea el login y agrega la línea al `.env` antes del `docker compose up`.
    El contenedor tiene que recrearse para ver la variable.
-3. El script anterior no copia `docker-compose.yml`. Este paso sí lo necesita.
-4. En el checklist, comprueba con `has_table_privilege` los permisos de las
-   pruebas 1 a 3, y que `/cortes` y `/salud` responden 200.
+3. `desplegar.sh` de 2.3 no copia `docker-compose.yml`. S.3 sí necesita
+   copiarlo, porque cambia el `environment` del servicio `app`.
+4. En el checklist, comprueba los permisos de la prueba 1 con
+   `has_table_privilege`. Comprueba que existen los CHECK de las pruebas 2 y 3
+   con una consulta a `pg_constraint`. Comprueba que `/cortes` y `/salud`
+   responden 200.
 
-Nota para los pasos siguientes: el job nocturno `pesada` no aplica las
+Nota para los pasos siguientes: el job de CI nocturno `pesada` no aplica las
 migraciones que tienen reversa hermana. Esa base no tendrá las tablas nuevas.
 Las pantallas de S.5 deben degradar sin fallar cuando falten.
 
@@ -412,7 +425,9 @@ sale con 0. Este paso va después de S.1 y de S.3.
 
 ### Qué vas a encontrar
 
-- `app/cli.py` tiene 878 líneas de 900. El registro del comando ocupa unas 9.
+- `app/cli.py` tiene 878 líneas de 900, y su función `main` tiene 79
+  sentencias de 80. El registro del comando y su despacho suman 3 sentencias:
+  no caben.
 - `app/optimizer/windows.py` tiene 874 de 900. No cabe una consulta nueva.
 - `shell.js` pide `/api/dashboard/cortes` y `/api/dashboard/salud` en cada
   carga de cualquier pantalla. Lo que cuelgues ahí corre en cada vista.
@@ -426,7 +441,7 @@ sale con 0. Este paso va después de S.1 y de S.3.
    y la misma ficha en dos grupos cuesta 1 llamada. Una segunda corrida cuesta
    0. Mover `synced_at` de todos los anuncios entre corridas cuesta 0. Agregar
    un producto al roster cuesta exactamente 1.
-2. El tope aguanta una caída. El `pedir` falla en la llamada k. Corres otra
+2. El tope aguanta una caída. El `pedir` falla en la llamada k. Corre otra
    vez. Las intenciones del día nunca pasan de `jev.tope_diario`.
 3. Apagado es cero. Con `jev.senales` ausente, con `"true"` como texto o con
    tope negativo: ninguna tabla `jev_*` cambia y el transporte no se toca.
@@ -437,7 +452,7 @@ sale con 0. Este paso va después de S.1 y de S.3.
    `miembros` es el número de activos.
 6. La madurez. Una venta de la misma búsqueda en otro grupo, de hace 5 días,
    no cuenta como `vende_en_otro`. En el historial del propio grupo sí cuenta
-   como `vendio_aqui`.
+   como `vendio_aqui`. El diseño explica la diferencia en "La regla".
 7. Un harvest sin destino legible produce su señal de origen y marca
    `destino_ilegible`. El job termina.
 8. Seco por omisión. Sin `--aplicar` el job imprime el plan y cuántas llamadas
@@ -447,8 +462,7 @@ sale con 0. Este paso va después de S.1 y de S.3.
 10. El subquery compartido de `windows` da el mismo `terminos_cortes` que
     antes. Agrega la constante nueva a la lista de
     `test_sql_del_modulo_parsea_como_postgres` de
-    `tests/test_optimizer_windows.py`, formateando su marcador antes de
-    parsear.
+    `tests/test_optimizer_windows.py`. Formatea su marcador antes de parsear.
 11. La guarda de imports, en `tests/test_architecture.py`. Recorre todo `app/`
     y `tools/`. Solo pueden importar un módulo `jev_*` los propios módulos de
     Jev, `app/cli.py`, `app/api_dashboard.py`, `app/fabrica_web.py`,
@@ -472,14 +486,18 @@ sale con 0. Este paso va después de S.1 y de S.3.
    la consulta de afuera: cambia el plan de ejecución del motor. El archivo
    termina en menos de 880 líneas. Actualiza el docstring que enumera sus SQL.
 2. Completa `Libro` con `juicio` y `llamadas_de_hoy`, según el bosquejo. El
-   conteo del día usa `(created_at AT TIME ZONE 'UTC')::date = (now() AT TIME
-   ZONE 'UTC')::date`. La reserva va dentro de `with escritor.transaction():`,
-   con `pg_advisory_xact_lock(hashtext('jev:cupo'))` como primera sentencia.
-   Un candado de transacción suelto en una conexión autocommit se libera al
-   instante.
+   conteo del día filtra por rango: `created_at` desde el inicio del día UTC y
+   antes del inicio del día siguiente. Una igualdad sobre
+   `(created_at AT TIME ZONE 'UTC')::date` no usa el índice parcial de S.3. La
+   reserva va dentro de `with escritor.transaction():`, con
+   `pg_advisory_xact_lock(hashtext('jev:cupo'))` como primera sentencia. Un
+   candado de transacción tomado fuera de ese bloque se libera al instante en
+   una conexión autocommit.
 3. Crea `app/jev_senales.py` con `correr` y `main`.
-   - Abre `lector` con `ORBIT_DSN_READ` y `escritor` con `ORBIT_DSN_JEV`. El
-     escritor va en autocommit.
+   - Abre `lector` con `ORBIT_DSN_READ` y `escritor` con `ORBIT_DSN_JEV`, las
+     dos con `app.db.connect`. Esa función cambia el host del DSN por el del
+     contenedor. Con `psycopg.connect` directo el job no conecta en
+     producción. El escritor va en autocommit.
    - Toma `pg_try_advisory_lock(hashtext('jev:senales'))` dentro del `try` y
      suéltalo en el `finally`. El modelo es `app/precio/corrida.py:138-159`.
    - Lee todo con el lector dentro de una sola transacción `REPEATABLE READ`.
@@ -489,6 +507,9 @@ sale con 0. Este paso va después de S.1 y de S.3.
      en `negative` o `harvest` y `estado` en `pending_veto` o `released`.
      Resuelve el destino de un harvest desde `inputs.goal.harvest.ad_group_id`,
      que es el id externo. Si falta o no existe, marca `destino_ilegible`.
+   - Lee aparte los cortes que Orbit ya aplicó: las filas de `apply_queue` con
+     `estado = 'applied'`, por ad group y búsqueda. `planear` los recibe como
+     `cortes_aplicados` y los deja fuera de las candidatas.
    - Saca los ad groups con observaciones de términos con una consulta propia
      sobre `search_term_observation` por plataforma. No importes `app.cycle`.
    - Llama a `windows.terminos_cortes` por ad group para la ventana madura.
@@ -497,19 +518,32 @@ sale con 0. Este paso va después de S.1 y de S.3.
    - Toma la moneda de `PLATAFORMAS_MONEDA` (`app/optimizer/bid.py`). No
      escribas un diccionario con `"MXN"` y `"USD"`: rompe
      `test_una_sola_fuente_de_moneda_por_plataforma`.
-   - Arma el roster con `censo_grupo`, `resolver_fichas`, `anunciados_hoy` y
-     `probar_roster`. Las conexiones del dashboard usan `dict_row`. Las
-     funciones del catálogo desempacan por posición. Usa un cursor con
-     `tuple_row` donde haga falta.
+   - Arma el roster en este orden: `censo_grupo`, `resolver_fichas`,
+     `anunciados_hoy`, `probar_roster`. Si la prueba es `RosterProbado`, pon
+     `exhaustivo=True` en el censo con `dataclasses.replace`. Ningún otro
+     código lo pone.
+   - Para `probar_roster` necesitas dos lecturas que `censo_grupo` no da. La
+     primera es el acta: la última corrida ok de `amazon_ads_structure_v2` que
+     tenga fila en `ads_listado_plataforma` para esa plataforma, con su fila de
+     `ads_listado_grupo` para ese ad group. La segunda es la huella en base:
+     los `external_id` de los product ads del grupo con estado ENABLED o
+     PAUSED, pasados por `huella_anuncios` de `app.ads.structure_plan`.
+   - `Roster.sha256` es el sha256 del JSON canónico de `_identidad_del_censo`
+     más la ficha de cada miembro. No incluye `synced_at` ni la prueba. Ese
+     mismo JSON es lo que guarda `jev_roster.miembros`.
+   - Las conexiones del dashboard usan `dict_row`. Las funciones del catálogo
+     desempacan por posición. Usa un cursor con `tuple_row` donde haga falta.
    - Calcula `satisfacen`, `evaluados`, `miembros` y `productos_ok` desde los
      pares.
    - Deja fuera el aviso de Telegram. Entra en S.8.
    - Imprime una línea de resumen con `print`. En `app/` no hay
-     `logging.basicConfig`, y solo los avisos llegan al log del cron.
-   - `correr` va a rozar el límite de complejidad. Sepárala por lo que cada
+     `logging.basicConfig`, y solo los `logging.warning` llegan al log del cron.
+   - `correr` va a llegar al límite de complejidad. Pártela por lo que cada
      parte sabe: leer el mundo, armar el roster, sellar una unidad.
-4. En `app/cli.py`, registra el comando después del de `ads-salud` y
-   despáchalo antes del `return _ingest(args, rest)` final. Importa
+4. En `app/cli.py`, saca antes la construcción del parser de `main` a una
+   función aparte, en un commit que no cambie comportamiento. Después registra
+   el comando junto al de `ads-salud` y despáchalo antes del
+   `return _ingest(args, rest)` final. Importa
    `app.jev_senales` dentro del `if`, no arriba: `python -m app.cli cycle` no
    debe cargar Jev.
 5. En `app/api_dashboard.py`, agrega el bloque de salud como clave hermana de
@@ -565,28 +599,38 @@ apagado.
 6. La pantalla nueva: una prueba de forma y totales en la API, una de escape
    de texto en el HTML y una de la ruta. Los modelos son las tres pruebas de
    `/inertes`.
+7. Un harvest pinta dos bloques en `/cortes`, origen y destino. Un destino
+   ilegible se pinta como "sin lectura".
+8. `banda_de_proporcion`, como prueba pura: 0 de n es `ninguno`, hasta 15% es
+   `pocos`, 95% o más es `todos`, lo demás es `una_parte`, y sin evaluados es
+   `sin_dato`.
 
 ### Cambios
 
-1. En `cortes()` (`app/api_dashboard.py:1339`), agrega el bloque de señal
+1. En `app/jev_senales.py`, escribe las dos lecturas de pantalla del
+   bosquejo: `de_propuestas` y `gasto_sin_venta`, con `PantallaGasto`. Solo
+   hacen `SELECT` sobre `jev_senal_vigente` y las tablas de Jev. Dale
+   `como_dict()` a `SenalVista` y a `SenalPropuesta`.
+2. En `cortes()` (`app/api_dashboard.py:1339`), agrega el bloque de señal
    justo después del de asesoría y con su misma forma: bandera en `True`,
-   `try`, import tardío, lectura por `decision_id`, y en el `except` un aviso
-   al log, un diccionario vacío y la bandera en `False`. Cada item gana
-   `senal`, y la respuesta gana `senal_disponible`.
-2. En `app/templates/cortes.html`, pinta la fila "Señal" antes de la fila de
+   `try`, import tardío, lectura por `decision_id`, y en el `except` un
+   `warning` al log, un diccionario vacío y la bandera en `False`. Cada item gana
+   `senal`, y la respuesta gana `senal_disponible`. En `pagina_cortes`
+   (`app/ui.py`), pasa esa bandera a la plantilla con `.get`.
+3. En `app/templates/cortes.html`, pinta la fila "Señal" antes de la fila de
    asesoría. Usa `{% if item.senal %}` y `is defined`, como hace la plantilla
    con `asesoria_disponible`.
-3. Agrega la pantalla nueva siguiendo `/inertes` de punta a punta: una función
+4. Agrega la pantalla nueva siguiendo `/inertes` de punta a punta: una función
    delgada en `api_dashboard.py` que delega a `jev_senales.gasto_sin_venta`,
    la ruta en `ui.py`, la plantilla, y los tres sitios de `base.html`
    (`paginas`, la lista de navegación y `tab_por_pantalla`). Ponla en el grupo
    "Decidir" de la barra lateral. No agregues pestaña a la barra móvil.
-4. Cambia de mercado con `?plataforma=` y `_vocab_o_422`. No existe componente
+5. Cambia de mercado con `?plataforma=` y `_vocab_o_422`. No existe componente
    de pestañas.
-5. Despliega los productos que dijeron "sí" con `<details><summary>`. No
-   escribas JavaScript nuevo ni atributos `on*=`: una prueba recorre todas las
+6. Muestra los productos que dijeron "sí" dentro de un `<details><summary>`
+   plegado. No escribas JavaScript nuevo ni atributos `on*=`: una prueba recorre todas las
    plantillas y los prohíbe.
-6. Pon las bandas de proporción en `jev_vista`, como función pura. No las
+7. Pon las bandas de proporción en `jev_vista`, como función pura. No las
    guardes.
 
 ## S.6: enciende con tope 0
@@ -648,15 +692,17 @@ en 90% o más de al menos 50 búsquedas.
 3. En `jev_senales.correr`, agrega el paso del aviso: inserta `jev_aviso`
    antes de enviar y `jev_aviso_entrega` solo si el envío devolvió `True`.
    `main` inyecta `notifica.envia_aviso`.
-4. Agrega `jev.avisos` a `ajustes_desde_settings`. No apaga el job.
+4. Usa `Ajustes.avisos`, que existe desde S.2: sin `jev.avisos` en `true`,
+   `correr` no envía ni inserta avisos.
 5. Agrega "avisos sin entrega" al bloque de `/salud`.
 
 Encender `jev.avisos` es otro cambio de config, con su go.
 
-## Qué decidir con el lead antes de escribir código
+## Preguntas que siguen abiertas
 
-Esta guía ya resolvió las preguntas que la lectura del código dejó abiertas.
-Estas tres siguen abiertas y no son tuyas:
+Esta guía ya resolvió las preguntas que quedaron abiertas al leer el código.
+Estas tres siguen abiertas. No las resuelvas tú: las decide el lead con el
+dueño.
 
 - Si el CLI manual debe pasar también a la reutilización global. Hoy conserva
   su regla.
