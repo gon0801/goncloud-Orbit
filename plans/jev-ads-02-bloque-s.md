@@ -74,6 +74,22 @@ documentos. Ningún nombre de producto ni SKU real.
 **Evidencia.** Guarda comandos, salidas, mutantes y el SHA de cada paso en
 `docs/evidencia/jev-ads-02/ejecucion/<paso>/`.
 
+**Scripts de despliegue.** Cada paso que despliega trae `desplegar.sh`,
+`rollback.sh` y `checklist.sh` en su carpeta de evidencia. Pártelos de los de
+`docs/evidencia/jev-ads-01/ejecucion/2.3/`. Un paso con migración trae además
+`ensayo.sh` y `permisos.sql`.
+
+- Conserva las salidas del checklist: 0 es comprobado, 1 es una falla y 3 es
+  sin fallas pero todavía sin ciclo posterior.
+- Cambia una regla del checklist de 2.3, que cuenta un ciclo en `running` como
+  falla. Un ciclo en curso todavía no terminó: el checklist sale con 3.
+- Pon en `rollback.sh` las guardas del preflight de `desplegar.sh`. El de 2.3
+  recrea el contenedor sin mirar si hay un ciclo corriendo.
+- Corre `ensayo.sh` antes de pedir la revisión y guarda su salida. Se repite
+  sobre el squash antes de desplegar.
+- Ningún script imprime una contraseña ni un valor `ORBIT_DSN_*`. Antes de
+  guardar una salida en el repo, cambia `/Users/dn` por `~`.
+
 **Revisión y cierre.** Cada paso con código pasa una revisión cruzada con un
 revisor distinto del autor (`cross-review.ps1`) antes del merge. Solo un
 hallazgo bloqueante y reproducible abre otra ronda. Haz el merge con
@@ -401,11 +417,22 @@ va después de S.2.
 6. Sube el conteo de tablas a 70 en `verify/Launch.md` y `verify/Doctor.md`,
    con los números de sus comentarios.
 
+### Comprueba
+
+Corre en local, con Postgres y con el DSN de superusuario:
+
+	uv run pytest tests/test_jev_catalogo.py tests/test_jev_cli.py tests/test_api_dashboard.py tests/test_compose_deploy.py tests/test_schema_docs.py tests/test_apply_schema.py -q
+
+Agrega el archivo donde pusiste las pruebas nuevas, si es otro. Deben pasar
+todas y ninguna debe saltarse: `test_roles_de_minimo_privilegio` se salta sin
+superusuario.
+
 ### Despliega
 
 1. Escribe los scripts en `docs/evidencia/jev-ads-02/ejecucion/S.3/`.
-2. Crea el login y agrega la línea al `.env` antes del `docker compose up`.
-   El contenedor tiene que recrearse para ver la variable.
+2. `desplegar.sh` crea el login y agrega la línea al `.env` antes del
+   `docker compose up`, con el bloque nuevo de `docs/DEPLOY.md`. Nadie corre
+   ese bloque a mano. El contenedor tiene que recrearse para ver la variable.
 3. `desplegar.sh` de 2.3 no copia `docker-compose.yml`. S.3 sí necesita
    copiarlo, porque cambia el `environment` del servicio `app`.
 4. En el checklist, comprueba los permisos de la prueba 1 con
@@ -566,8 +593,26 @@ Corre los archivos de prueba que tocaste y además:
 
 	uv run pytest tests/test_optimizer_windows.py tests/test_optimizer_hygiene.py tests/test_cycle.py tests/test_precio_pantalla.py tests/test_spapi_salud.py tests/test_ui.py tests/test_cli.py -q
 
-Después del despliegue, instala la línea de cron y lee el log de la primera
-corrida. Debe decir que el job está apagado.
+### Despliega
+
+Este paso no trae migración. Sus scripts van en
+`docs/evidencia/jev-ads-02/ejecucion/S.4/`.
+
+1. `desplegar.sh` copia el código y recrea el contenedor. `rollback.sh`
+   restaura el respaldo del código.
+2. Con el contenedor arriba, instala la línea de cron como dice
+   `docs/DEPLOY.md`.
+3. El checklist comprueba:
+   - `/health`, `/cortes` y `/salud` responden 200.
+   - `python -m app.cli jev-senales`, dentro del contenedor y sin `--aplicar`,
+     dice que el job está apagado y sale con 0.
+   - El bloque `jev` de `/api/dashboard/salud` dice apagado.
+   - Las cinco tablas de S.3 tienen cero filas.
+   - Importar `app.cycle`, `app.apply_cola` y `app.apply_harvest` no carga
+     ningún módulo `app.jev_*`. El checklist de 2.3 ya trae esa comprobación.
+   - El crontab de `gon` tiene una sola línea del job.
+4. Lee el log de la primera corrida por cron. Debe decir que el job está
+   apagado.
 
 ## S.5: muestra la señal en `/cortes` y crea `/gasto-sin-venta`
 
@@ -632,6 +677,25 @@ apagado.
    plantillas y los prohíbe.
 7. Pon las bandas de proporción en `jev_vista`, como función pura. No las
    guardes.
+
+### Comprueba
+
+Corre en local, con Postgres:
+
+	uv run pytest tests/test_api_dashboard.py tests/test_ui.py tests/test_ui_tema.py tests/test_jev_ads.py tests/test_jev_lectura.py tests/test_architecture.py -q
+
+Deben pasar todas y ninguna debe saltarse.
+
+### Despliega
+
+Este paso tampoco trae migración. Sus scripts van en
+`docs/evidencia/jev-ads-02/ejecucion/S.5/`, con la misma forma que los de S.4.
+El checklist comprueba:
+
+- `/cortes`, `/gasto-sin-venta` y `/salud` responden 200.
+- `/api/dashboard/cortes` trae `senal_disponible` en `true` y `senal` en `null`
+  en todos sus items, porque el job sigue apagado.
+- La pantalla nueva sale sin filas en las dos plataformas.
 
 ## S.6: enciende con tope 0
 
