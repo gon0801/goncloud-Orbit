@@ -1,7 +1,8 @@
 # S.2: comandos, salidas y SHA
 
-Rama: `jev02/s2-nucleo`. Base y HEAD final (sin commits en este paso):
-`436b8771c987090724247dd237a167a2687f56c8`.
+Rama: `jev02/s2-nucleo`. Base: `436b8771c987090724247dd237a167a2687f56c8`.
+Commit del PR: `877e833ae72efcaa19cdf0a7db0238c9de3e763a` (cierre J2; suma
+1 linea borrada por comment-sicko sobre el arbol verificado abajo).
 
 DSN: ORBIT_TEST_DSN="postgresql://orbit:***@localhost:5432/postgres"
 (variable vacia en el entorno; los tests usaron el default de
@@ -63,3 +64,15 @@ $ uv run --frozen ruff format --check <9 archivos del paso>
 
 `uv sync` corrio al inicio sin enlazar `.venv` al checkout principal
 (cada worktree tiene el suyo).
+
+## Re-corrida J2 sobre el commit del PR (arbol limpio, F1)
+
+```
+$ git rev-parse HEAD && git status --short
+877e833ae72efcaa19cdf0a7db0238c9de3e763a   (limpio)
+
+$ PYTHONPATH=. uv run --frozen pytest tests/test_jev_lectura.py tests/test_jev_ads.py \
+  tests/test_jev_cli.py tests/test_jev_catalogo.py tests/test_api_dashboard.py \
+  tests/test_api_fabrica.py -q
+309 passed, 1 warning in 18.85s   (cero saltadas)
+```
