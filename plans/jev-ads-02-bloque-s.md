@@ -80,15 +80,35 @@ documentos. Ningún nombre de producto ni SKU real.
 `ensayo.sh` y `permisos.sql`.
 
 - Conserva las salidas del checklist: 0 es comprobado, 1 es una falla y 3 es
-  sin fallas pero todavía sin ciclo posterior.
-- Cambia una regla del checklist de 2.3, que cuenta un ciclo en `running` como
-  falla. Un ciclo en curso todavía no terminó: el checklist sale con 3.
+  sin fallas pero todavía sin la prueba posterior.
+- Agrega una cuarta salida: 4 es "no pude medir". El checklist empieza
+  comprobando que el servidor contesta, con
+  `docker inspect -f '{{.State.Running}}' orbit-app-1`. Si no contesta, sale
+  con 4. Un valor leído vacío lleva a la salida 4, no a la 1. El checklist de
+  2.3 cuenta una conexión caída como falla, y una falla puede acabar en una
+  reversa.
+- Cambia otra regla del checklist de 2.3, que cuenta un ciclo en `running`
+  como falla. Un ciclo en curso todavía no terminó: el checklist sale con 3.
+- Cuenta "posterior" desde el arranque del contenedor nuevo
+  (`docker inspect -f '{{.State.StartedAt}}' orbit-app-1`), no desde el sello.
+  El sello se imprime al empezar `desplegar.sh`. Un ciclo que corrió con el
+  contenedor viejo no prueba nada.
+- Quita del checklist de 2.3 las líneas que ya no son ciertas: hoy producción
+  tiene fichas, revisiones y eventos de Jev. Antes de pedir la revisión, corre
+  el checklist contra producción, que solo lee, y guarda la salida como
+  `checklist-antes-del-deploy.txt`. Cada `FALLA` de esa corrida debe ser algo
+  que el despliegue cambia.
+- El preflight exige que ningún comando `app.cli` esté corriendo dentro del
+  contenedor: `docker top orbit-app-1` no lista ninguno. Eso cubre las
+  ingestas, el ciclo y la corrida de precios. Repite las guardas justo antes
+  del `docker compose up`. No pongas guardas por hora.
 - Pon en `rollback.sh` las guardas del preflight de `desplegar.sh`. El de 2.3
   recrea el contenedor sin mirar si hay un ciclo corriendo.
 - Corre `ensayo.sh` antes de pedir la revisión y guarda su salida. Se repite
   sobre el squash antes de desplegar.
-- Ningún script imprime una contraseña ni un valor `ORBIT_DSN_*`. Antes de
-  guardar una salida en el repo, cambia `/Users/dn` por `~`.
+- Ningún script imprime una contraseña ni un valor `ORBIT_DSN_*`. El bloque
+  que crea un login manda su salida a `/dev/null` y reporta solo su código.
+  Antes de guardar una salida en el repo, cambia `/Users/dn` por `~`.
 
 **Revisión y cierre.** Cada paso con código pasa una revisión cruzada con un
 revisor distinto del autor (`cross-review.ps1`) antes del merge. Solo un
@@ -230,11 +250,17 @@ Deben pasar todas y ninguna debe saltarse.
 2. No reutilices `ensayo.sh` tal cual. Ese script aborta si producción ya
    tiene tablas de Jev, y hoy las tiene. El volcado de producción trae además
    permisos de `app_jev`: crea ese rol en la base desechable antes de cargarlo.
-3. Agrega una guarda que el script anterior no tiene: no recrees el contenedor
-   mientras corre la ingesta de estructura de las 06:45 UTC.
+3. La guarda de "ningún `app.cli` corriendo" importa aquí más que en ningún
+   otro paso: no recrees el contenedor mientras corre la ingesta de estructura
+   de las 06:45 UTC.
 4. Aplica la migración antes que el código. Si el código llega sin las tablas,
    la ingesta diaria falla, y a las 48 horas el motor empieza a saltar grupos
    por `MAX_EDAD_SYNC`.
+5. La prueba posterior del checklist de S.1 es la corrida de estructura, además
+   del ciclo. La última corrida de `amazon_ads_structure_v2` que empezó después
+   del arranque del contenedor terminó con `ok` y dejó filas en
+   `ads_listado_plataforma`. Sin corrida todavía: salida 3. Con una corrida
+   fallida o sin acta: salida 1.
 
 ### Mide
 
@@ -444,6 +470,12 @@ superusuario.
    `has_table_privilege`. Comprueba que existen los CHECK de las pruebas 2 y 3
    con una consulta a `pg_constraint`. Comprueba que `/cortes` y `/salud`
    responden 200.
+5. La reversa. `desplegar.sh` respalda `docker-compose.yml` en
+   `predeploy-<sello>/` antes de copiarlo. El `.env` no se copia a ningún lado.
+   `rollback.sh` restaura `docker-compose.yml` con el código, corre la reversa
+   de B y deja el login `orbit_jev` y la línea `ORBIT_DSN_JEV`: sin las tablas
+   no hacen nada. Su comprobación final es que `app_decide` vuelve a tener
+   `SELECT` sobre las cuatro tablas de 0049.
 
 Nota para los pasos siguientes: el job de CI nocturno `pesada` no aplica las
 migraciones que tienen reversa hermana. Esa base no tendrá las tablas nuevas.
@@ -603,10 +635,13 @@ Corre los archivos de prueba que tocaste y además:
 Este paso no trae migración. Sus scripts van en
 `docs/evidencia/jev-ads-02/ejecucion/S.4/`.
 
-1. `desplegar.sh` copia el código y recrea el contenedor. `rollback.sh`
-   restaura el respaldo del código.
-2. Con el contenedor arriba, instala la línea de cron como dice
-   `docs/DEPLOY.md`.
+1. `desplegar.sh` copia el código y recrea el contenedor. `rollback.sh` quita
+   primero la línea de cron y después restaura el respaldo del código.
+2. Con el contenedor arriba y antes del checklist, corre
+   `python -m app.cli jev-senales` dentro del contenedor. Debe decir que el
+   job está apagado y salir con 0. Si no, no instales nada. Después respalda
+   el crontab de `gon`, instala la línea como dice `docs/DEPLOY.md` y
+   comprueba que solo se agregó esa línea.
 3. El checklist comprueba:
    - `/health`, `/cortes` y `/salud` responden 200.
    - `python -m app.cli jev-senales`, dentro del contenedor y sin `--aplicar`,
