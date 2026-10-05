@@ -157,8 +157,8 @@ Escríbelas en `tests/test_structure_sync.py`, junto a las que nombro.
    negativos, CHECK de formato de `huella_vivos` (`^[0-9a-f]{64}$`) e índice
    sobre `ads_listado_grupo (ad_group_id)`. Da `INSERT` solo a `app_ingest`,
    que es el rol con que corre toda llamada a `sync_structure`. No nombres a
-   `app_jev` en el bloque `DO`: las bases de prueba
-   de la ingesta no aplican 0049 y ese rol no existe ahí.
+   `app_jev` en el bloque `DO`: las bases de prueba de la ingesta no aplican
+   0049 y ese rol no existe ahí.
 2. Escribe la reversa. Borra las dos tablas aunque tengan filas. El acta se
    vuelve a generar en la siguiente corrida.
 3. En `app/ads/structure_api.py`, crea `listar_con_prueba` con el cuerpo de

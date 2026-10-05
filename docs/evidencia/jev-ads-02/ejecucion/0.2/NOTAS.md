@@ -45,8 +45,16 @@ El prototipo con Jev (`../../diseno/prototipos.md`, sección 5) mostró un falso
 los 177 productos de su grupo (86 "no" y 1 fallo) porque esa palabra estaba en la frase del acabado de todos los
 productos dorados. El dueño aprobó cambiar la frase. Se registró una versión
 nueva de las 191 fichas de productos dorados (127 en MX y 64 en US, 0 fallos)
-en la que solo cambia ese renglón. Comprobado en producción: ninguna ficha
-vigente conserva la palabra y la cobertura sigue en 249 de 249 y 119 de 119.
+en la que solo cambia ese renglón. La cobertura sigue en 249 de 249 y 119 de
+119.
+
+Comprobado en producción (`frase_corregida.sql` y su salida): ninguna de las
+fichas que el asesor elige conserva la frase anterior, 0 de 249 en MX y 0 de
+119 en US. Una versión nueva no revoca a la anterior. Por eso las versiones sin
+revocar ni vencer subieron de 260 a 387 en MX y de 417 a 481 en US, y de esas
+conservan la frase anterior 138 en MX y 258 en US. El asesor no las usa
+mientras exista una más reciente que cubra los mismos listings. No hay ninguna
+revocación registrada.
 
 Se repitió la misma búsqueda contra los 177 productos del mismo grupo: 0 "sí",
 177 "no", sin abstenciones ni fallos. El resultado de grupo sigue saliendo
