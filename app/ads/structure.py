@@ -146,19 +146,25 @@ from app.ads.structure_api import (  # noqa: F401 - fachada sellada (ESTRUCTURA 
     AdsStructureError,
     EstructuraAds,
     EstructuraPerfil,
+    ListadoConPrueba,
     PerfilAds,
     evaluar_perfiles,
     fetch_structure,
+    listar_con_prueba,
     listar_todo,
     perfiles_aceptados,
 )
-from app.ads.structure_plan import (
+from app.ads.structure_plan import (  # noqa: F401 - fachada sellada (ESTRUCTURA 01)
     _ETIQUETA_KIND,
     _ETIQUETA_PADRE,
     ESTADO_ARCHIVED,
+    ActaGrupo,
+    ActaPlataforma,
     _archivados_por_plataforma,
     _formato_skip_reason,
     _plan_items,
+    armar_acta,
+    huella_anuncios,
 )
 from app.db import connect
 from app.redaction import install_scrub_filter, scrub
@@ -241,6 +247,20 @@ _SQL_CARGAR_LISTINGS = """
     FROM listing l
 """
 
+_SQL_INSERTAR_ACTA_PLATAFORMA = """
+    INSERT INTO ads_listado_plataforma
+        (ingest_run_id, platform, ad_groups_recibidos, ad_groups_declarados,
+         product_ads_recibidos, product_ads_declarados, product_ads_sin_grupo)
+    VALUES (%s, %s, %s, %s, %s, %s, %s)
+"""
+
+_SQL_INSERTAR_ACTA_GRUPO = """
+    INSERT INTO ads_listado_grupo
+        (ingest_run_id, platform, ad_group_id, anuncios_vivos, huella_vivos,
+         descartados)
+    VALUES (%s, %s, %s, %s, %s, %s)
+"""
+
 
 @dataclass
 class ResultadoSync:
@@ -270,6 +290,46 @@ def _sellar_run(
     skip_reason: str | None = None,
 ) -> None:
     conn.execute(_SQL_SELLAR_RUN, (rows_written, rows_skipped, skip_reason, ok, run_id))
+
+
+def _insertar_acta(
+    conn: psycopg.Connection,
+    run_id: int,
+    estructura: EstructuraAds,
+    refs: dict[tuple[str, str, str], int],
+) -> None:
+    """Escribe el acta de listado de esta corrida (JEV ADS 02 S.1).
+
+    Corre DENTRO de la transaccion de trabajo: si el sello ok revienta, el
+    acta se revierte con todo lo demas. Plataforma primero (la fila de grupo
+    la referencia), sin tocar rows_written: el acta no son entidades.
+    """
+    plataformas, grupos = armar_acta(estructura, refs)
+    for fila in plataformas:
+        conn.execute(
+            _SQL_INSERTAR_ACTA_PLATAFORMA,
+            (
+                run_id,
+                fila.platform,
+                fila.ad_groups_recibidos,
+                fila.ad_groups_declarados,
+                fila.product_ads_recibidos,
+                fila.product_ads_declarados,
+                fila.product_ads_sin_grupo,
+            ),
+        )
+    for fila in grupos:
+        conn.execute(
+            _SQL_INSERTAR_ACTA_GRUPO,
+            (
+                run_id,
+                fila.platform,
+                fila.ad_group_id,
+                fila.anuncios_vivos,
+                fila.huella_vivos,
+                fila.descartados,
+            ),
+        )
 
 
 def sync_structure(conn: psycopg.Connection, estructura: EstructuraAds) -> ResultadoSync:
@@ -369,6 +429,8 @@ def sync_structure(conn: psycopg.Connection, estructura: EstructuraAds) -> Resul
                     # el ledger de la corrida diciendo menos escrituras de las
                     # que hubo (hallazgo cross-review codex 2026-08-30).
                     written += cur.rowcount
+
+            _insertar_acta(conn, run_id, estructura, refs)
 
             skip_reason = _formato_skip_reason(skips + clasificacion)
             _sellar_run(

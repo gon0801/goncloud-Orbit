@@ -23,6 +23,7 @@ import json
 import os
 import socket
 from collections import Counter
+from contextlib import contextmanager
 from decimal import Decimal
 from pathlib import Path as _Path
 
@@ -54,6 +55,10 @@ from app.ads.structure import (
 _SQL17 = (_Path(__file__).resolve().parents[1] / "migrations" / "0017_first_seen_at.sql").read_text(
     encoding="utf-8"
 )
+
+_SQL51 = (
+    _Path(__file__).resolve().parents[1] / "migrations" / "0051_ads_acta_listado.sql"
+).read_text(encoding="utf-8")
 
 FAKE_CLIENT_ID = "fake-client-id-123"
 FAKE_CLIENT_SECRET = "fake-client-secret-XYZ"
@@ -498,6 +503,37 @@ def test_paginacion_incompleta_segun_totalresults_da_error():
     assert "1 acumulados de 5" in str(excinfo.value)
 
 
+def test_paginacion_primera_pagina_declara_total_y_ultima_no_da_error():
+    """JEV ADS 02 S.1: el total declarado en una pagina intermedia tambien
+    prueba la lista completa. Pagina 1 declara totalResults 3 y trae
+    nextToken; pagina 2 no declara total y trae un item (acumulado 2 de 3).
+    Hoy pasa en silencio porque solo se compara el total de la ULTIMA
+    pagina: sin esta guarda, una pagina final sin total esconde el truncado."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return httpx.Response(
+                200, json={"access_token": "fake-access-token-largo", "expires_in": 3600}
+            )
+        if request.url.path == "/v2/profiles":
+            return httpx.Response(200, json=[PERFILES_OK[0]])
+        if request.url.path != "/sp/campaigns/list":
+            clave = _PATH_CLAVE[request.url.path]
+            return httpx.Response(200, json={clave: [], "totalResults": 0})
+        cuerpo = json.loads(request.content) if request.content else {}
+        if cuerpo.get("nextToken"):
+            return httpx.Response(200, json={"campaigns": [CAMPANAS_US[1]]})
+        return httpx.Response(
+            200, json={"campaigns": [CAMPANAS_US[0]], "totalResults": 3, "nextToken": "p1"}
+        )
+
+    client = _cliente(handler)
+    with pytest.raises(AdsStructureError) as excinfo:
+        fetch_structure(client)
+    assert "paginacion incompleta" in str(excinfo.value)
+    assert "2 acumulados de 3" in str(excinfo.value)
+
+
 def test_pais_duplicado_rechaza_al_segundo_perfil():
     """[cross-review codex r3] Un perfil por pais es GUARD, no supuesto: el
     segundo perfil aceptable del mismo pais se rechaza con motivo y no
@@ -796,6 +832,47 @@ def test_listar_todo_extrae_product_ads():
     assert listar_todo(_cliente(handler), PATH_PRODUCT_ADS, profile_id=101) == ads
 
 
+def test_listar_con_prueba_devuelve_total_declarado_o_none():
+    """JEV ADS 02 S.1: listar_con_prueba devuelve los items y el total que
+    declaro la primera pagina que trajo totalResults. Sin total declarado
+    devuelve None, y None no es cero: un cero declarado sigue siendo cero."""
+    from app.ads.structure import listar_con_prueba
+
+    ads = [
+        {"adId": "9401", "asin": "B0X", "state": "ENABLED"},
+        {"adId": "9402", "asin": "B0Y", "state": "PAUSED"},
+    ]
+
+    def handler_con_total(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return httpx.Response(200, json={"access_token": "fake-access", "expires_in": 3600})
+        return httpx.Response(200, json={"productAds": ads, "totalResults": 2})
+
+    listado = listar_con_prueba(_cliente(handler_con_total), PATH_PRODUCT_ADS, profile_id=101)
+    assert listado.items == ads
+    assert listado.total_declarado == 2
+
+    def handler_sin_total(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return httpx.Response(200, json={"access_token": "fake-access", "expires_in": 3600})
+        return httpx.Response(200, json={"productAds": ads[:1]})
+
+    listado = listar_con_prueba(_cliente(handler_sin_total), PATH_PRODUCT_ADS, profile_id=101)
+    assert listado.items == ads[:1]
+    assert listado.total_declarado is None
+    assert listado.total_declarado != 0
+
+    def handler_con_cero(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return httpx.Response(200, json={"access_token": "fake-access", "expires_in": 3600})
+        return httpx.Response(200, json={"productAds": [], "totalResults": 0})
+
+    listado = listar_con_prueba(_cliente(handler_con_cero), PATH_PRODUCT_ADS, profile_id=101)
+    assert listado.items == []
+    assert listado.total_declarado == 0
+    assert listado.total_declarado is not None
+
+
 def test_plan_items_product_ads_filtra_estado_padre_y_asin():
     """ENABLED y PAUSED entran; ARCHIVED, estado raro, asin vacio y padre
     ausente se saltan con motivo. Sin el filtro de estado, el archivado
@@ -890,6 +967,120 @@ def test_plan_items_product_ads_filtra_estado_padre_y_asin():
             "product ad con campaignId distinto al de su ad group (payload incoherente)": 1,
         }
     )
+
+
+def test_acta_pura_clasifica_anuncios_y_grupos_sin_tocar_la_base():
+    """JEV ADS 02 S.1: la funcion pura del acta, sobre un payload armado a
+    mano y refs enlatados. Un anuncio vivo escrito entra a la huella de su
+    grupo; un no archivado descartado por un filtro suma a descartados; un
+    archivado no cuenta en nada; uno sin adGroupId suma a
+    product_ads_sin_grupo; y un ad group sin anuncios tiene fila con cero
+    vivos."""
+    from app.ads.structure import armar_acta, huella_anuncios
+
+    perfil = _perfil_us_aceptado()
+    estructura = EstructuraAds(
+        perfiles=[perfil],
+        estructuras=[
+            EstructuraPerfil(
+                perfil=perfil,
+                campanas=[
+                    {
+                        "campaignId": "9001",
+                        "name": "C",
+                        "targetingType": "MANUAL",
+                        "state": "ENABLED",
+                    }
+                ],
+                ad_groups=[
+                    {
+                        "adGroupId": "9101",
+                        "campaignId": "9001",
+                        "defaultBid": 0.5,
+                        "state": "ENABLED",
+                    },
+                    {
+                        "adGroupId": "9102",
+                        "campaignId": "9001",
+                        "defaultBid": 0.5,
+                        "state": "ENABLED",
+                    },
+                ],
+                keywords=[],
+                targets=[],
+                product_ads=[
+                    {
+                        "adId": "9401",
+                        "adGroupId": "9101",
+                        "campaignId": "9001",
+                        "asin": "B0VIVO",
+                        "state": "ENABLED",
+                    },
+                    {
+                        "adId": "9402",
+                        "adGroupId": "9101",
+                        "asin": "",
+                        "state": "ENABLED",
+                    },
+                    {
+                        "adId": "9403",
+                        "adGroupId": "9101",
+                        "asin": "B0VIEJO",
+                        "state": "ARCHIVED",
+                    },
+                    {"adId": "9404", "asin": "B0SUELTO", "state": "ENABLED"},
+                ],
+                ad_groups_declarados=2,
+                product_ads_declarados=4,
+            )
+        ],
+    )
+    refs = {
+        ("amazon_us", "ad_group", "9101"): 11,
+        ("amazon_us", "ad_group", "9102"): 12,
+        ("amazon_us", "product_ad", "9401"): 21,
+    }
+
+    plataformas, grupos = armar_acta(estructura, refs)
+
+    assert len(plataformas) == 1
+    fila = plataformas[0]
+    assert fila.platform == "amazon_us"
+    assert fila.ad_groups_recibidos == 2
+    assert fila.ad_groups_declarados == 2
+    assert fila.product_ads_recibidos == 4
+    assert fila.product_ads_declarados == 4
+    assert fila.product_ads_sin_grupo == 1
+
+    por_grupo = {g.ad_group_id: g for g in grupos}
+    assert set(por_grupo) == {11, 12}
+    con_anuncios = por_grupo[11]
+    assert con_anuncios.platform == "amazon_us"
+    assert con_anuncios.anuncios_vivos == 1
+    assert con_anuncios.huella_vivos == huella_anuncios(["9401"])
+    assert con_anuncios.descartados == 1
+    vacio = por_grupo[12]
+    assert vacio.anuncios_vivos == 0
+    assert vacio.huella_vivos == huella_anuncios([])
+    assert vacio.descartados == 0
+
+
+def test_huella_anuncios_sensible_al_contenido_e_invariante_al_orden():
+    """JEV ADS 02 S.1: huella_anuncios es sha256 hex de los adId ordenados.
+    Cambia con un solo adId distinto y no cambia con el orden del payload;
+    la de vacio tambien es un sha256 valido para el CHECK de la tabla."""
+    import hashlib
+    import re
+
+    from app.ads.structure import huella_anuncios
+
+    assert huella_anuncios(["9401"]) == hashlib.sha256(b"9401").hexdigest()
+    assert huella_anuncios(["9401"]) != huella_anuncios(["9402"])
+    assert huella_anuncios(["9401", "9402"]) == huella_anuncios(["9402", "9401"])
+    assert huella_anuncios(["9401", "9402"]) == hashlib.sha256(b"9401\n9402").hexdigest()
+    assert huella_anuncios([]) == hashlib.sha256(b"").hexdigest()
+    for huella in (huella_anuncios([]), huella_anuncios(["9401", "9402"])):
+        assert re.fullmatch(r"[0-9a-f]{64}", huella), huella
 
 
 # ---------------------------------------------------------------------------
@@ -1258,6 +1449,7 @@ def test_sync_y_resync_estructura_en_vivo(monkeypatch):
         conn.execute("SET TIME ZONE 'UTC'")
         conn.execute(SQL)  # la migracion entera
         conn.execute(_SQL17)  # BIDS 01 2.1: first_seen_at
+        conn.execute(_SQL51)  # JEV ADS 02 S.1: acta de listado
 
         # ------------------------------------------------------------------
         # SYNC 1
@@ -1538,6 +1730,7 @@ def test_product_ad_archivado_en_amazon_deja_de_figurar_vivo_en_el_cache():
         # 0004: sin ella el enum ad_entity_kind no conoce 'product_ad'.
         conn.execute(SQL4)
         conn.execute(_SQL17)  # BIDS 01 2.1: first_seen_at
+        conn.execute(_SQL51)  # JEV ADS 02 S.1: acta de listado
 
         # --- corrida 1: el anuncio esta vivo ---
         sync_structure(conn, _estructura_con_product_ad("ENABLED"))
@@ -1574,3 +1767,163 @@ def test_product_ad_archivado_en_amazon_deja_de_figurar_vivo_en_el_cache():
             pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
         )
         admin.close()
+
+
+# ---------------------------------------------------------------------------
+# JEV ADS 02 S.1: acta de listado en la ingesta
+# ---------------------------------------------------------------------------
+
+
+@contextmanager
+def _db_acta(prefijo):
+    """DB temporal con esquema + product_ad + first_seen_at + acta (S.1)."""
+    psycopg = pytest.importorskip("psycopg")
+    from psycopg import sql as pgsql
+
+    dsn = _test_dsn()
+    db = f"{prefijo}_{socket.gethostname().lower()}_{os.getpid()}"
+    admin = psycopg.connect(dsn, autocommit=True)
+    conn = None
+    try:
+        admin.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(db)))
+        conn = psycopg.connect(dsn, dbname=db, autocommit=True)
+        conn.execute("SET TIME ZONE 'UTC'")
+        conn.execute(SQL)
+        conn.execute(SQL4)
+        conn.execute(_SQL17)  # BIDS 01 2.1: first_seen_at
+        conn.execute(_SQL51)  # JEV ADS 02 S.1: acta de listado
+        yield conn
+    finally:
+        if conn is not None:
+            conn.close()
+        admin.execute(
+            pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
+        )
+        admin.close()
+
+
+@pytest.mark.skipif(
+    not _DSN_EXPLICITO and not _hay_postgres_local(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_corrida_ok_deja_acta_de_listado():
+    """Una corrida ok deja una fila por plataforma y una por ad group
+    escrito, en la misma transaccion que sella ingest_run: la fila de
+    plataforma trae recibidos, declarados y sin_grupo; la de grupo trae
+    vivos, huella y descartados."""
+    from app.ads.structure import huella_anuncios
+
+    with _db_acta("orbit_acta_ok") as conn:
+        estructura = _estructura_con_product_ad("ENABLED")
+        estructura.estructuras[0].ad_groups_declarados = 1
+        estructura.estructuras[0].product_ads_declarados = 2
+
+        res = sync_structure(conn, estructura)
+
+        assert res.ok is True
+        run = conn.execute(
+            "SELECT ok, finished_at FROM ingest_run WHERE id = %s", (res.run_id,)
+        ).fetchone()
+        assert run[0] is True and run[1] is not None
+        plataforma = conn.execute(
+            "SELECT ingest_run_id, platform, ad_groups_recibidos, ad_groups_declarados,"
+            " product_ads_recibidos, product_ads_declarados, product_ads_sin_grupo"
+            " FROM ads_listado_plataforma"
+        ).fetchall()
+        assert plataforma == [(res.run_id, "amazon_mx", 1, 1, 2, 2, 0)]
+        grupo = conn.execute(
+            "SELECT e.external_id, g.anuncios_vivos, g.huella_vivos, g.descartados"
+            " FROM ads_listado_grupo g JOIN ad_entity e ON e.id = g.ad_group_id"
+            " WHERE g.ingest_run_id = %s",
+            (res.run_id,),
+        ).fetchall()
+        assert grupo == [("7101", 1, huella_anuncios(["7401"]), 0)]
+
+
+@pytest.mark.skipif(
+    not _DSN_EXPLICITO and not _hay_postgres_local(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_corrida_fallida_no_deja_acta(monkeypatch):
+    """Una corrida que falla a media escritura no deja acta: ni cuando
+    revienta el trabajo (tabla inexistente, patron existente) ni cuando
+    revienta el sello ok (el acta se revierte con todo lo demas, misma
+    transaccion)."""
+    import app.ads.structure as estructura_modulo
+
+    psycopg = pytest.importorskip("psycopg")
+
+    with _db_acta("orbit_acta_fallo") as conn:
+        upsert_real = estructura_modulo._SQL_UPSERT_STATE
+        monkeypatch.setattr(
+            estructura_modulo,
+            "_SQL_UPSERT_STATE",
+            "INSERT INTO tabla_inexistente_para_fallar VALUES (%s, %s, %s, %s, %s)",
+        )
+        with pytest.raises(psycopg.errors.UndefinedTable):
+            sync_structure(conn, _estructura_con_product_ad("ENABLED"))
+        assert conn.execute("SELECT count(*) FROM ad_entity").fetchone()[0] == 0
+        assert conn.execute("SELECT count(*) FROM ads_listado_plataforma").fetchone()[0] == 0
+        assert conn.execute("SELECT count(*) FROM ads_listado_grupo").fetchone()[0] == 0
+        assert (
+            conn.execute("SELECT ok FROM ingest_run ORDER BY id DESC LIMIT 1").fetchone()[0]
+            is False
+        )
+
+        monkeypatch.setattr(estructura_modulo, "_SQL_UPSERT_STATE", upsert_real)
+        sello_real = estructura_modulo._sellar_run
+
+        def _sellar_que_falla_en_ok(conn, run_id, *, ok, **resto):
+            if ok:
+                raise RuntimeError("falla sembrada: el sello ok revienta")
+            return sello_real(conn, run_id, ok=ok, **resto)
+
+        monkeypatch.setattr(estructura_modulo, "_sellar_run", _sellar_que_falla_en_ok)
+        with pytest.raises(RuntimeError, match="falla sembrada"):
+            sync_structure(conn, _estructura_con_product_ad("ENABLED"))
+        assert conn.execute("SELECT count(*) FROM ad_entity").fetchone()[0] == 0
+        assert conn.execute("SELECT count(*) FROM ads_listado_plataforma").fetchone()[0] == 0
+        assert conn.execute("SELECT count(*) FROM ads_listado_grupo").fetchone()[0] == 0
+        assert (
+            conn.execute("SELECT ok FROM ingest_run ORDER BY id DESC LIMIT 1").fetchone()[0]
+            is False
+        )
+
+
+@pytest.mark.skipif(
+    not _DSN_EXPLICITO and not _hay_postgres_local(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_acta_no_suma_a_rows_written_ni_cambia_entidades():
+    """El acta no suma a rows_written ni cambia lo escrito en ad_entity y
+    ad_entity_state: la misma estructura de siempre da 9 escritos con el
+    mismo mapa de conteos, aunque el acta deje sus 5 filas aparte. Los
+    declarados ausentes quedan NULL."""
+    with _db_acta("orbit_acta_conteo") as conn:
+        res = sync_structure(conn, _estructura_sync1())
+
+        assert res.ok is True
+        assert res.rows_written == 9
+        assert res.rows_skipped == 2
+        sellada = conn.execute(
+            "SELECT rows_written, rows_skipped FROM ingest_run WHERE id = %s", (res.run_id,)
+        ).fetchone()
+        assert sellada == (9, 2)
+        assert res.counts == {
+            ("amazon_us", "campaign"): 1,
+            ("amazon_us", "ad_group"): 2,
+            ("amazon_us", "keyword"): 2,
+            ("amazon_us", "product_target"): 1,
+            ("amazon_mx", "campaign"): 1,
+            ("amazon_mx", "ad_group"): 1,
+            ("amazon_mx", "keyword"): 1,
+        }
+        assert conn.execute("SELECT count(*) FROM ad_entity").fetchone()[0] == 9
+        assert conn.execute("SELECT count(*) FROM ad_entity_state").fetchone()[0] == 9
+        assert conn.execute("SELECT count(*) FROM ads_listado_plataforma").fetchone()[0] == 2
+        assert conn.execute("SELECT count(*) FROM ads_listado_grupo").fetchone()[0] == 3
+        nulos = conn.execute(
+            "SELECT count(*) FROM ads_listado_plataforma"
+            " WHERE ad_groups_declarados IS NULL AND product_ads_declarados IS NULL"
+        ).fetchone()[0]
+        assert nulos == 2

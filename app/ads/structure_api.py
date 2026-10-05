@@ -93,6 +93,8 @@ class EstructuraPerfil:
     keywords: list[dict]
     targets: list[dict]
     product_ads: list[dict] = field(default_factory=list)
+    ad_groups_declarados: int | None = None
+    product_ads_declarados: int | None = None
 
 
 @dataclass
@@ -101,6 +103,19 @@ class EstructuraAds:
 
     perfiles: list[PerfilAds]
     estructuras: list[EstructuraPerfil]
+
+
+@dataclass(frozen=True)
+class ListadoConPrueba:
+    """Una lista v3 completa con el total que Amazon declaro.
+
+    `total_declarado` es el totalResults de la primera pagina que lo trajo;
+    None cuando ninguna pagina lo declaro. None no es cero: un cero declarado
+    indica lista vacia, un None indica que Amazon no dio el total.
+    """
+
+    items: list[dict]
+    total_declarado: int | None
 
 
 # ---------------------------------------------------------------------------
@@ -140,28 +155,39 @@ def _extraer_lista(data: object, path: str) -> list[dict]:
     return lista
 
 
-def listar_todo(client: AdsClient, path: str, *, profile_id: int) -> list[dict]:
-    """Lectura paginada v3 COMPLETA (publica para consumidores read-only).
+def listar_con_prueba(client: AdsClient, path: str, *, profile_id: int) -> ListadoConPrueba:
+    """Lectura paginada v3 COMPLETA con el total declarado (JEV ADS 02 S.1).
 
     Itera la paginacion v3 por nextToken hasta que falta (tope MAX_PAGINAS).
-    Consumidores: fetch_structure y el snapshot read-only de listas
-    (tools/snapshot_listas.py, ORBIT 05 preflight 1.3). El `path` debe estar
-    en _CLAVE_CONTENEDORA y en el allowlist de lectura del cliente
-    (app.ads.client.LIST_REQUEST_TYPES); el guard de totalResults vive aqui,
-    asi que todo consumidor hereda la verificacion de lista completa.
+    El `path` debe estar en _CLAVE_CONTENEDORA y en el allowlist de lectura
+    del cliente (app.ads.client.LIST_REQUEST_TYPES).
 
     Primera pagina con body {} (pageSize se ignora, corrida real); las
     siguientes piden {"nextToken": ...}. La clave es nextToken, NO
-    nextPageToken. Si la respuesta declara totalResults (int), el acumulado
-    final tiene que cuadrar: "falta nextToken" ya no basta como prueba de
-    lista completa (hallazgo cross-review codex, ronda 3).
+    nextPageToken. El total declarado es el totalResults de la primera pagina
+    que lo trae (int); al final se compara contra el acumulado, y si la
+    ultima pagina tambien lo declara se compara ese tambien: "falta
+    nextToken" ya no basta como prueba de lista completa (hallazgo
+    cross-review codex, ronda 3; S.1 lo extiende a paginas intermedias: una
+    ultima pagina sin total escondia el truncado).
     """
     items: list[dict] = []
     next_token: str | None = None
+    declarado: int | None = None
     for _ in range(MAX_PAGINAS):
         body = {"nextToken": next_token} if next_token else {}
         data = _json_de(client.list_objects(path, body, profile_id=profile_id), "POST", path)
         items.extend(_extraer_lista(data, path))
+        if isinstance(data, dict):
+            total_pagina = data.get("totalResults")
+            # Solo un int cuenta como declarado: dato faltante, bool u otro
+            # tipo = sin prueba en esta pagina (regla 3).
+            if (
+                declarado is None
+                and isinstance(total_pagina, int)
+                and not isinstance(total_pagina, bool)
+            ):
+                declarado = total_pagina
         if not isinstance(data, dict) or "nextToken" not in data or data["nextToken"] is None:
             next_token = None
         else:
@@ -173,6 +199,11 @@ def listar_todo(client: AdsClient, path: str, *, profile_id: int) -> list[dict]:
                 raise AdsStructureError(f"nextToken malformado en POST {path}: {candidato!r}")
             next_token = candidato
         if next_token is None:
+            if declarado is not None and declarado != len(items):
+                raise AdsStructureError(
+                    f"paginacion incompleta de POST {path}: {len(items)} acumulados"
+                    f" de {declarado} segun totalResults"
+                )
             total = data.get("totalResults") if isinstance(data, dict) else None
             # Solo se exige cuando totalResults viene como int: dato faltante o
             # de otro tipo = sin prueba, se mantiene el comportamiento actual.
@@ -181,8 +212,20 @@ def listar_todo(client: AdsClient, path: str, *, profile_id: int) -> list[dict]:
                     f"paginacion incompleta de POST {path}: {len(items)} acumulados"
                     f" de {total} segun totalResults"
                 )
-            return items
+            return ListadoConPrueba(items=items, total_declarado=declarado)
     raise AdsStructureError(f"paginacion de POST {path} excede el tope de {MAX_PAGINAS} paginas")
+
+
+def listar_todo(client: AdsClient, path: str, *, profile_id: int) -> list[dict]:
+    """Lectura paginada v3 COMPLETA (publica para consumidores read-only).
+
+    Consumidores: fetch_structure y el snapshot read-only de listas
+    (tools/snapshot_listas.py, ORBIT 05 preflight 1.3). Delega en
+    listar_con_prueba y devuelve solo los items: el guard de totalResults
+    vive ahi, asi que todo consumidor hereda la verificacion de lista
+    completa.
+    """
+    return listar_con_prueba(client, path, profile_id=profile_id).items
 
 
 def _evaluar_perfil(raw: dict) -> PerfilAds:
@@ -294,14 +337,21 @@ def fetch_structure(client: AdsClient) -> EstructuraAds:
         if not perfil.aceptado:
             continue
         # aceptado implica profile_id/platform/moneda fijados por _evaluar_perfil
+        campanas = listar_todo(client, PATH_CAMPAIGNS, profile_id=perfil.profile_id)
+        grupos = listar_con_prueba(client, PATH_AD_GROUPS, profile_id=perfil.profile_id)
+        keywords = listar_todo(client, PATH_KEYWORDS, profile_id=perfil.profile_id)
+        targets = listar_todo(client, PATH_TARGETS, profile_id=perfil.profile_id)
+        anuncios = listar_con_prueba(client, PATH_PRODUCT_ADS, profile_id=perfil.profile_id)
         estructuras.append(
             EstructuraPerfil(
                 perfil=perfil,
-                campanas=listar_todo(client, PATH_CAMPAIGNS, profile_id=perfil.profile_id),
-                ad_groups=listar_todo(client, PATH_AD_GROUPS, profile_id=perfil.profile_id),
-                keywords=listar_todo(client, PATH_KEYWORDS, profile_id=perfil.profile_id),
-                targets=listar_todo(client, PATH_TARGETS, profile_id=perfil.profile_id),
-                product_ads=listar_todo(client, PATH_PRODUCT_ADS, profile_id=perfil.profile_id),
+                campanas=campanas,
+                ad_groups=grupos.items,
+                keywords=keywords,
+                targets=targets,
+                product_ads=anuncios.items,
+                ad_groups_declarados=grupos.total_declarado,
+                product_ads_declarados=anuncios.total_declarado,
             )
         )
     return EstructuraAds(perfiles=perfiles, estructuras=estructuras)

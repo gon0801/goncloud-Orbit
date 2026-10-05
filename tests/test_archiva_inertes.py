@@ -981,6 +981,7 @@ def test_main_linea_de_mutacion_lleva_el_ack(monkeypatch, capsys):
 ROOT = Path(__file__).resolve().parents[1]
 SQL14 = (ROOT / "migrations" / "0014_keyword_archivo_manual.sql").read_text(encoding="utf-8")
 SQL17 = (ROOT / "migrations" / "0017_first_seen_at.sql").read_text(encoding="utf-8")
+SQL51 = (ROOT / "migrations" / "0051_ads_acta_listado.sql").read_text(encoding="utf-8")
 
 
 @contextmanager
@@ -1584,6 +1585,7 @@ def _db_21(prefijo):
         conn.execute(SQL13)
         conn.execute(SQL14)
         conn.execute(SQL17)
+        conn.execute(SQL51)  # JEV ADS 02 S.1: acta de listado
         yield conn
     finally:
         if conn is not None:
