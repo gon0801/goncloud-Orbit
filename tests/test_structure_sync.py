@@ -1981,3 +1981,16 @@ def test_migracion_0051_candados_muerden_en_vivo():
                 " VALUES (%s, 'amazon_us', -1, NULL, 0, NULL, 0)",
                 (res.run_id,),
             )
+        otro_grupo = conn.execute(
+            "INSERT INTO ad_entity (platform, kind, external_id)"
+            " VALUES ('amazon_mx', 'ad_group', 'f2-otro') RETURNING id"
+        ).fetchone()[0]
+        with pytest.raises(psycopg.errors.CheckViolation):
+            conn.execute(
+                "INSERT INTO ads_listado_grupo"
+                " (ingest_run_id, platform, ad_group_id, anuncios_vivos,"
+                " huella_vivos, descartados)"
+                " VALUES (%s, 'amazon_mx', %s, -1,"
+                " '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef', 0)",
+                (res.run_id, otro_grupo),
+            )
