@@ -1,0 +1,21 @@
+Fase roja (TDD): las 7 pruebas fallaron antes de los cambios.
+
+  7 failed in 1.17s:
+  - test_perimetro_jev_con_login_real: FileNotFoundError .../migrations/0052_jev_senales.sql
+  - test_senal_ajena_exige_roster_probado_y_ordenes_otros: CheckViolation en
+    jev_revision_sujeto_coherente (la fila lote aun no existe)
+  - test_senal_moneda_de_plataforma_rechaza_mx_con_usd: idem
+  - test_lote_acepta_intencion_y_resultado_encadenados: idem
+  - test_tablas_nuevas_rechazan_update_delete_y_truncate: idem
+  - test_vista_senal_vigente_marca_vencida_y_roster_revocado: idem
+  - test_compose_db_no_recibe_ningun_dsn: Extra items in the right set: 'JEV'
+
+Hueco pre-B (sonda aparte, base ORDEN sin B, login con app_decide):
+  app_decide lee jev_revision pre-B: 0   (sin error: el hueco existe)
+Con B: InsufficientPrivilege (lo fija test_perimetro_jev_con_login_real).
+
+Confirmaciones de esquema tras aplicar B (base desechable):
+  - SELECT conname FROM pg_constraint WHERE conrelid = 'jev_revision'::regclass
+    incluye jev_revision_sujeto_tipo_check y jev_revision_sujeto_coherente.
+  - COMMENT de jev_revision_sujeto_coherente reescrito (menciona lote).
+  - Triggers jev_%append_only: 18 (8 de 0049 + 10 de B).

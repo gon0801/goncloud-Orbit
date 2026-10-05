@@ -639,6 +639,7 @@ ORBIT_DSN_INGEST=postgresql://orbit_ingest:<pass>@127.0.0.1:5432/orbit
 ORBIT_DSN_DECIDE=postgresql://orbit_decide:<pass>@127.0.0.1:5432/orbit
 ORBIT_DSN_READ=postgresql://orbit_read:<pass>@127.0.0.1:5432/orbit
 ORBIT_DSN_ADMIN=postgresql://orbit_admin:<pass>@127.0.0.1:5432/orbit
+ORBIT_DSN_JEV=postgresql://orbit_jev:<pass>@127.0.0.1:5432/orbit
 ORBIT_DSN_TEST=postgresql://orbit_test:<pass>@127.0.0.1:5432/postgres
 ```
 
@@ -656,7 +657,7 @@ set -euo pipefail
 ENVF=/mnt/data/appdata/orbit/.env
 gen() { head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 32; }
 sed -i '/^ORBIT_DSN_/d' "$ENVF"   # re-corrida = DSNs nuevos, sin duplicados
-for svc in ingest decide read admin; do
+for svc in ingest decide read admin jev; do   # jev requiere 0049 aplicada (app_jev)
   P=$(gen)
   docker exec -i orbit-db-1 psql -U orbit -d orbit -v ON_ERROR_STOP=1 -q <<SQL
 DO \$\$ BEGIN
@@ -697,6 +698,35 @@ SQL
 docker exec -i orbit-db-1 psql -U orbit -d postgres -v ON_ERROR_STOP=1 -q \
   -c 'GRANT app_read, app_ingest, app_decide, app_admin TO orbit_test WITH ADMIN OPTION'
 echo "ORBIT_DSN_TEST=postgresql://orbit_test:${PT}@127.0.0.1:5432/postgres" >> "$ENVF"
+chmod 600 "$ENVF"
+SCRIPT
+```
+
+**Crear solo `orbit_jev` (JEV ADS 02 S.3, sin rotar las otras contraseñas):**
+el script completo de arriba borra todas las líneas `ORBIT_DSN_*` y rota
+las contraseñas. Para agregar el login del job `jev-senales` a una
+instalación viva, este bloque aparte borra solo su línea, crea o altera
+el rol, le da `app_jev` y agrega la línea nueva. Lo corre el
+`desplegar.sh` de S.3; nadie lo corre a mano. Requiere 0049 aplicada.
+
+```bash
+ssh goncloud 'bash -s' <<'SCRIPT'
+set -euo pipefail
+ENVF=/mnt/data/appdata/orbit/.env
+gen() { head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 32; }
+sed -i '/^ORBIT_DSN_JEV=/d' "$ENVF"   # re-corrida = DSN nuevo, sin duplicados
+P=$(gen)
+docker exec -i orbit-db-1 psql -U orbit -d orbit -v ON_ERROR_STOP=1 -q <<SQL
+DO \$\$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'orbit_jev') THEN
+    EXECUTE format('CREATE ROLE orbit_jev LOGIN PASSWORD %L', '$P');
+  ELSE
+    EXECUTE format('ALTER ROLE orbit_jev LOGIN PASSWORD %L', '$P');
+  END IF;
+END \$\$;
+GRANT app_jev TO orbit_jev;
+SQL
+echo "ORBIT_DSN_JEV=postgresql://orbit_jev:${P}@127.0.0.1:5432/orbit" >> "$ENVF"
 chmod 600 "$ENVF"
 SCRIPT
 ```
@@ -1619,7 +1649,7 @@ reconstrucción deliberada. Pasos:
    ```bash
    ssh goncloud "N=\$(docker exec orbit-db-1 psql -U orbit -d postgres -tAc \\
      \"SELECT count(*) FROM pg_roles WHERE rolname IN ('app_ingest','app_decide',\\
-'app_read','app_admin','orbit_ingest','orbit_decide','orbit_read','orbit_admin','orbit_test')\"); \\
+'app_read','app_admin','app_jev','orbit_ingest','orbit_decide','orbit_read','orbit_admin','orbit_jev','orbit_test')\"); \\
      ATTR=\$(docker exec orbit-db-1 psql -U orbit -d postgres -tAc \\
      \"SELECT count(*) FROM pg_roles WHERE (rolname LIKE 'app\\\_%' AND NOT rolcanlogin) OR \\
       (rolname='orbit_test' AND rolcreatedb AND rolcreaterole AND NOT rolsuper)\"); \\
@@ -1627,12 +1657,12 @@ reconstrucción deliberada. Pasos:
      \"SELECT count(*) FROM pg_auth_members m JOIN pg_roles g ON g.oid=m.roleid \\
       JOIN pg_roles u ON u.oid=m.member WHERE g.rolname='app_'||substr(u.rolname,7) \\
       AND u.rolname LIKE 'orbit\\\_%'\"); \\
-     if [ \"\$N\" = 9 ] && [ \"\$ATTR\" = 5 ] && [ \"\$MEM\" = 4 ]; then echo GATE_ROLES_OK; \\
+     if [ \"\$N\" = 11 ] && [ \"\$ATTR\" = 6 ] && [ \"\$MEM\" = 5 ]; then echo GATE_ROLES_OK; \\
      else echo \"GATE_ROLES_FAIL (N=\$N ATTR=\$ATTR MEM=\$MEM): NO restaurar datos\"; exit 1; fi"
    ```
    El gate **detiene el procedure** (exit 1) antes del restore de datos si
-   falta cualquiera de los 9 roles, si los `app_*` no son NOLOGIN, si
-   `orbit_test` no tiene sus atributos, o si los 4 usuarios no son miembros
+   falta cualquiera de los 11 roles, si los `app_*` no son NOLOGIN, si
+   `orbit_test` no tiene sus atributos, o si los 5 usuarios no son miembros
    de su rol `app_*` correspondiente.
 3. **Después los datos**: la base `orbit` YA EXISTE vacía (el compose la
    crea en el initdb vía `POSTGRES_DB=orbit` — un `CREATE DATABASE orbit`

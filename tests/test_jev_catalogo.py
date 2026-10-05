@@ -56,7 +56,17 @@ _skip_db = pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postg
 AHORA = datetime(2026, 10, 3, 12, 0, 0, tzinfo=UTC)
 VENCE = AHORA + timedelta(days=30)
 
-TABLAS_JEV = ("jev_ficha_version", "jev_ficha_revocacion", "jev_revision", "jev_par_evento")
+TABLAS_JEV = (
+    "jev_ficha_version",
+    "jev_ficha_revocacion",
+    "jev_revision",
+    "jev_par_evento",
+    "jev_roster",
+    "jev_senal",
+    "jev_aviso",
+    "jev_aviso_entrega",
+    "jev_corrida",
+)
 
 # ---------------------------------------------------------------------------
 # (a) ESTATICOS
@@ -65,7 +75,7 @@ TABLAS_JEV = ("jev_ficha_version", "jev_ficha_revocacion", "jev_revision", "jev_
 
 def test_migracion_parsea_y_trae_las_cuatro_tablas():
     assert len(tuple(pglast.parse_sql(SQL49))) > 0
-    for tabla in TABLAS_JEV:
+    for tabla in TABLAS_JEV[:4]:
         assert f"CREATE TABLE {tabla} (" in SQL49
 
 
@@ -147,6 +157,7 @@ ORDEN = (
     "0004_ad_entity_kind_product_ad.sql",
     "0049_jev_ads.sql",
     "0050_jev_revision_created_at.sql",
+    "0052_jev_senales.sql",
 )
 
 
@@ -1037,6 +1048,7 @@ def test_reversa_deja_la_base_como_0001():
         conn.execute("SET TIME ZONE 'UTC'")
         for nombre in (
             *ORDEN,
+            "0052_reversa_jev_senales.sql",
             "0050_reversa_jev_revision_created_at.sql",
             "0049_reversa_jev_ads.sql",
         ):
@@ -1045,6 +1057,7 @@ def test_reversa_deja_la_base_como_0001():
             assert (
                 conn.execute("SELECT to_regclass(%s)", (f"public.{tabla}",)).fetchone()[0] is None
             )
+        assert conn.execute("SELECT to_regclass('public.jev_senal_vigente')").fetchone()[0] is None
         assert (
             conn.execute("SELECT count(*) FROM pg_roles WHERE rolname = 'app_jev'").fetchone()[0]
             == 0
@@ -1205,3 +1218,268 @@ def test_resolver_fichas_conserva_id_traido_y_acredita_archivado():
         assert por_producto[p2].ficha_version_id == traido
         assert traido not in fichas
         assert enriquecido.exhaustivo == censo.exhaustivo
+
+
+# ---------------------------------------------------------------------------
+# JEV ADS 02 S.3: senales (migracion B)
+# ---------------------------------------------------------------------------
+
+SQL52 = (ROOT / "migrations" / "0052_jev_senales.sql").read_text(encoding="utf-8")
+
+
+def test_migracion_b_trae_append_only_por_tabla():
+    assert len(tuple(pglast.parse_sql(SQL52))) > 0
+    assert SQL52.count("EXECUTE FUNCTION prohibir_mutacion()") == 10
+    for tabla in TABLAS_JEV[4:]:
+        assert f"CREATE TRIGGER {tabla}_append_only\n" in SQL52
+        assert f"CREATE TRIGGER {tabla}_append_only_truncate\n" in SQL52
+
+
+def _lote(conn, **extra) -> uuid.UUID:
+    return _revision(
+        conn,
+        sujeto_tipo="lote",
+        plan_canonico=None,
+        plan_sha256=None,
+        fuentes_semillas=None,
+        **extra,
+    )
+
+
+def _roster(
+    conn,
+    ad_group: int,
+    plataforma: str = "amazon_mx",
+    fichas: tuple[uuid.UUID, ...] = (),
+) -> str:
+    sha = uuid.uuid4().hex * 2
+    conn.execute(
+        "INSERT INTO jev_roster (sha256, plataforma, ad_group_id, miembros, ficha_version_ids)"
+        " VALUES (%s, %s, %s, %s::jsonb, %s::uuid[])",
+        (sha, plataforma, ad_group, json.dumps([]), list(fichas)),
+    )
+    return sha
+
+
+def _senal(
+    conn,
+    lote: uuid.UUID,
+    ad_group: int,
+    roster_sha: str,
+    plataforma: str = "amazon_mx",
+    **cambios,
+) -> uuid.UUID:
+    valores: dict[str, object] = {
+        "id": uuid.uuid4(),
+        "lote_id": lote,
+        "plataforma": plataforma,
+        "ad_group_id": ad_group,
+        "termino": "tenis blancos",
+        "termino_sha256": uuid.uuid4().hex * 2,
+        "insumos_sha256": uuid.uuid4().hex * 2,
+        "regla_version": 1,
+        "roster_sha256": roster_sha,
+        "roster_probado": True,
+        "roster_prueba": json.dumps({"corrida": 1}),
+        "contrato_sha256": "c" * 64,
+        "relevancia": "ajena",
+        "motivos_jev": [],
+        "productos_ok": [],
+        "evaluados": 1,
+        "miembros": 1,
+        "juicio_ids": [],
+        "moneda": "MXN",
+        "clics": 10,
+        "gasto": Decimal("12.3400"),
+        "ordenes": 0,
+        "otros_que_venden": json.dumps([]),
+        "ordenes_otros": 0,
+        "otros_sin_dato": 0,
+        "ordenes_historial": 0,
+        "lectura": "ajena",
+        "motivos_lectura": [],
+        "valida_hasta": datetime.now(UTC) + timedelta(hours=36),
+    }
+    valores.update(cambios)
+    conn.execute(
+        "INSERT INTO jev_senal (id, lote_id, plataforma, ad_group_id, termino,"
+        " termino_sha256, insumos_sha256, regla_version, roster_sha256, roster_probado,"
+        " roster_prueba, contrato_sha256, relevancia, motivos_jev, productos_ok,"
+        " evaluados, miembros, juicio_ids, moneda, clics, gasto, ordenes,"
+        " otros_que_venden, ordenes_otros, otros_sin_dato, ordenes_historial,"
+        " lectura, motivos_lectura, valida_hasta)"
+        " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s,"
+        " %s::text[], %s::bigint[], %s, %s, %s::uuid[], %s, %s, %s, %s,"
+        " %s::jsonb, %s, %s, %s, %s, %s::text[], %s)",
+        (
+            valores["id"],
+            valores["lote_id"],
+            valores["plataforma"],
+            valores["ad_group_id"],
+            valores["termino"],
+            valores["termino_sha256"],
+            valores["insumos_sha256"],
+            valores["regla_version"],
+            valores["roster_sha256"],
+            valores["roster_probado"],
+            valores["roster_prueba"],
+            valores["contrato_sha256"],
+            valores["relevancia"],
+            valores["motivos_jev"],
+            valores["productos_ok"],
+            valores["evaluados"],
+            valores["miembros"],
+            valores["juicio_ids"],
+            valores["moneda"],
+            valores["clics"],
+            valores["gasto"],
+            valores["ordenes"],
+            valores["otros_que_venden"],
+            valores["ordenes_otros"],
+            valores["otros_sin_dato"],
+            valores["ordenes_historial"],
+            valores["lectura"],
+            valores["motivos_lectura"],
+            valores["valida_hasta"],
+        ),
+    )
+    return valores["id"]  # type: ignore[return-value]
+
+
+def _aviso(
+    conn,
+    lote: uuid.UUID,
+    origen: uuid.UUID,
+    destino: uuid.UUID | None = None,
+    cola_id: int | None = None,
+) -> uuid.UUID:
+    aviso = uuid.uuid4()
+    conn.execute(
+        "INSERT INTO jev_aviso (id, lote_id, cola_id, decision_id, senal_origen_id,"
+        " senal_destino_id, lectura, texto)"
+        " VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+        (
+            aviso,
+            lote,
+            cola_id if cola_id is not None else uuid.uuid4().int % 10**9,
+            7,
+            origen,
+            destino,
+            "ajena",
+            "texto tal cual",
+        ),
+    )
+    return aviso
+
+
+@_skip_db
+def test_senal_ajena_exige_roster_probado_y_ordenes_otros():
+    with db_jev() as conn:
+        grupo = _grupo(conn, "amazon_mx", (None,))
+        lote = _lote(conn)
+        roster = _roster(conn, grupo)
+        with pytest.raises(psycopg.errors.CheckViolation):
+            _senal(conn, lote, grupo, roster, lectura="sin_lectura", roster_probado=False)
+        with pytest.raises(psycopg.errors.CheckViolation):
+            _senal(conn, lote, grupo, roster, ordenes_otros=None)
+        assert conn.execute("SELECT count(*) FROM jev_senal").fetchone()[0] == 0
+
+
+@_skip_db
+def test_senal_moneda_de_plataforma_rechaza_mx_con_usd():
+    with db_jev() as conn:
+        grupo = _grupo(conn, "amazon_mx", (None,))
+        lote = _lote(conn)
+        roster = _roster(conn, grupo)
+        with pytest.raises(psycopg.errors.CheckViolation):
+            _senal(conn, lote, grupo, roster, lectura="sin_lectura", moneda="USD")
+        assert conn.execute("SELECT count(*) FROM jev_senal").fetchone()[0] == 0
+
+
+@_skip_db
+def test_lote_acepta_intencion_y_resultado_encadenados():
+    with db_jev() as conn:
+        producto = _producto(conn)
+        listing = _listing(conn, producto)
+        ficha = _ficha(conn, producto, (listing,))
+        lote = _lote(conn)
+        assert (
+            conn.execute(
+                "SELECT sujeto_tipo FROM jev_revision WHERE solicitud = %s", (lote,)
+            ).fetchone()[0]
+            == "lote"
+        )
+        intencion = _par(conn, lote, ficha, 1, "intencion", request_sha256="d" * 64)
+        _par(
+            conn,
+            lote,
+            ficha,
+            1,
+            "resultado",
+            intencion_id=intencion,
+            respuesta=json.dumps({"juicio": "satisface"}),
+        )
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM jev_par_evento WHERE revision_id = %s", (lote,)
+            ).fetchone()[0]
+            == 2
+        )
+
+
+@_skip_db
+def test_tablas_nuevas_rechazan_update_delete_y_truncate():
+    with db_jev() as conn:
+        grupo = _grupo(conn, "amazon_mx", (None,))
+        lote = _lote(conn)
+        roster = _roster(conn, grupo)
+        senal = _senal(conn, lote, grupo, roster)
+        aviso = _aviso(conn, lote, senal)
+        conn.execute("INSERT INTO jev_aviso_entrega (aviso_id) VALUES (%s)", (aviso,))
+        conn.execute("INSERT INTO jev_corrida (lote_id, evento) VALUES (%s, 'inicio')", (lote,))
+        columna_noop = {
+            "jev_roster": "miembros",
+            "jev_senal": "termino",
+            "jev_aviso": "texto",
+            "jev_aviso_entrega": "entregado_at",
+            "jev_corrida": "resumen",
+        }
+        for tabla, columna in columna_noop.items():
+            with pytest.raises(psycopg.errors.RestrictViolation):
+                conn.execute(f"UPDATE {tabla} SET {columna} = {columna}")
+            with pytest.raises(psycopg.errors.RestrictViolation):
+                conn.execute(f"DELETE FROM {tabla}")
+            # CASCADE: sin el, Postgres rechaza el TRUNCATE por la FK antes
+            # de disparar el trigger (FeatureNotSupported, no el candado).
+            with pytest.raises(psycopg.errors.RestrictViolation):
+                conn.execute(f"TRUNCATE {tabla} CASCADE")
+
+
+@_skip_db
+def test_vista_senal_vigente_marca_vencida_y_roster_revocado():
+    with db_jev() as conn:
+        producto = _producto(conn)
+        listing = _listing(conn, producto)
+        ficha = _ficha(conn, producto, (listing,))
+        grupo = _grupo(conn, "amazon_mx", (None,))
+        lote = _lote(conn)
+        pasada = datetime.now(UTC) - timedelta(hours=1)
+        roster_vencida = _roster(conn, grupo)
+        vencida = _senal(conn, lote, grupo, roster_vencida, valida_hasta=pasada)
+        roster_revocado = _roster(conn, grupo, fichas=(ficha,))
+        conn.execute(
+            "INSERT INTO jev_ficha_revocacion (ficha_version_id, autor, motivo)"
+            " VALUES (%s, 'autor', 'motivo')",
+            (ficha,),
+        )
+        revocada = _senal(conn, lote, grupo, roster_revocado)
+        roster_ok = _roster(conn, grupo)
+        vigente = _senal(conn, lote, grupo, roster_ok)
+        estado = {
+            row[0]: row[1]
+            for row in conn.execute(
+                "SELECT senal_id, vigente FROM jev_senal_vigente WHERE senal_id = ANY(%s)",
+                ([vencida, revocada, vigente],),
+            )
+        }
+        assert estado == {vencida: False, revocada: False, vigente: True}
