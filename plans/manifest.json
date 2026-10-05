@@ -133,7 +133,12 @@
     {
       "name": "jev-ads-01",
       "path": "plans/jev-ads-01.md",
-      "description": "JEV ADS 01 — plan pendiente de asesoría semántica de negativos, harvest y semillas; diseño sellado en docs/superpowers/specs/2026-10-03-jev-ads-design.md. Sólo evaluaciones visibles, sin autoridad sobre acciones Ads."
+      "description": "JEV ADS 01 — asesoría semántica de negativos, harvest y semillas; diseño sellado en docs/superpowers/specs/2026-10-03-jev-ads-design.md. Sólo evaluaciones visibles, sin autoridad sobre acciones Ads. Desplegada apagada el 2026-10-04 (25cebe7); piloto 3.1 corrido y acta 3.2: seguir y ampliar en jev-ads-02. Queda R21."
+    },
+    {
+      "name": "jev-ads-02",
+      "path": "plans/jev-ads-02.md",
+      "description": "JEV ADS 02 — plan propuesto 2026-10-04, espera visto bueno del dueño. Cinco ampliaciones: avisar a tiempo de un bloqueo equivocado, detectar pronto búsquedas ajenas, rutear búsquedas a su campaña, revisar el destino de un harvest y filtrar semillas en la fábrica. Jev corre sola fuera del ciclo y sólo avisa; todo efecto sobre Ads pasa por aprobación del dueño o por un cambio de regla sellado, con interruptor fail-closed, reversa y criterios medidos."
     },
     {
       "name": "repricing-01",

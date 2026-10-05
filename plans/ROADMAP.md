@@ -49,9 +49,11 @@ evidencia de implementación y validación.
   en PR #232); ORBIT 17 espera el paso 4 de la tarea 11 (decisiones en
   sombra del grupo 1, desde el 2026-09-19) para Done.
   F2/AUTO-02 queda desbloqueada (ver secuencia, paso 3).
-- Jev en Ads tiene diseño y [plan propio](jev-ads-01.md). El plan está pendiente:
-  revisará negativos, harvest y semillas como asesoría visible, sin cambiar
-  acciones publicitarias. Reseñas se tratarán aparte.
+- Jev en Ads: [JEV ADS 01](jev-ads-01.md) desplegada apagada el 2026-10-04
+  (asesoría visible de negativos, harvest y semillas, sin cambiar acciones);
+  piloto corrido y decisión del dueño: seguir y ampliar. La ampliación es
+  [JEV ADS 02](jev-ads-02.md), propuesta y en espera de su visto bueno.
+  Reseñas se tratarán aparte.
 - MeLi Ads (proposal-only, bloqueado a nivel cuenta): sin plan ni
   stub. Gap.
 

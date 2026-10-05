@@ -62,8 +62,8 @@ nunca como evidencia.
   lotes 2 a 6 las propuso el lead y el dueño las confirmó o corrigió por
   búsqueda; no fue etiquetado a ciegas par por par.
 - **Una etiqueta se corrigió después.** En el lote 5, "arras de boda
-  personalizadas" se etiquetó "sí"; el dueño aclaró que solo los sets PERS se
+  personalizadas" se etiquetó "sí"; el dueño aclaró que solo los sets personalizados se
   personalizan, y en el lote 6 la etiqueta correcta fue "no". El dataset
   conserva la etiqueta usada en cada lote.
-- **Muestra.** Un solo tipo de producto (sets de arras), 97 productos y 31
+- **Muestra.** Un solo tipo de producto (sets de arras), 102 productos (91 en US y 11 en MX) y 31
   búsquedas distintas.
