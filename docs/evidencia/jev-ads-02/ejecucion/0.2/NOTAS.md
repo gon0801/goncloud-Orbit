@@ -62,5 +62,5 @@ grupo conserva productos solo archivados y su roster no está probado.
   aprobadas y gana la más reciente.
 - Dos productos no tienen nombre en el catálogo; su familia se tomó del SKU
   hermano y la ficha lo dice.
-- El material exacto por producto sigue sin dato: la ficha dice plata (.999 o
-  .925) o baño de oro según el color.
+- El material exacto por producto sigue sin dato: según el color, la ficha
+  dice plata (.999 o .925) o recubierta de oro, no de oro macizo.
