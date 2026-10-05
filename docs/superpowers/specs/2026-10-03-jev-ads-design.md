@@ -214,7 +214,9 @@ La reutilización vale sólo dentro de la misma revisión (decisión R4 del plan
 revisión ya tenga un éxito con la misma clave. Así cada revisión se reconstruye
 con sus propios eventos, sin enlaces a otra, como ya exigen `0049` y el asesor.
 El costo es pagar otra vez un par repetido. Reutilizar entre revisiones exige
-un spec nuevo y una migración.
+un spec nuevo y una migración. Ese spec ya existe para el job automático:
+[JEV ADS 02](2026-10-04-jev-ads-02-design.md) deja que una señal cite un juicio
+pagado por otra corrida. El CLI manual conserva la regla de este párrafo.
 
 La fecha de revisión de la ficha la declara su responsable según la fuente.
 No se inventa un TTL que pretenda medir precisión. Revocar una ficha inserta
