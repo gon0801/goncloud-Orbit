@@ -1,6 +1,7 @@
 # Diseño de JEV ADS 02: la señal por búsqueda-en-grupo
 
-**Estado:** propuesto el 2026-10-04; espera el sello del dueño. Es el spec
+**Estado:** sellado por el dueño el 2026-10-04 ("va, a las cuatro cosas"; ver
+"Lo que el dueño selló"). Es el spec
 delta de la tarea 0.1 de [JEV ADS 02](../../../plans/jev-ads-02.md). El
 [diseño de JEV ADS 01](2026-10-03-jev-ads-design.md) sigue vigente para tipos,
 fichas, composición y el contrato con TypeSafe; aquí solo va lo que se agrega
@@ -559,15 +560,18 @@ Rechazado:
 
 ## Preguntas abiertas y riesgos
 
-Lo que el dueño sella:
+Lo que el dueño selló el 2026-10-04:
 
-1. Que Jev corra sola, con tope diario.
-2. El cambio de R4.
-3. Que un grupo de Amazon pueda dar "ninguno" cuando su roster esté probado.
-4. Los valores iniciales: `jev.tope_diario` (propuesta: 5,000, que cubre la
-   primera pasada de unas 19,000 llamadas en 4 días y cuesta cerca de 0.25 USD
-   diarios como máximo al precio de documentación), `jev.min_clics`
-   (propuesta: 3) y dos corridas al día (09:30 y 21:30 UTC).
+1. Jev corre sola dos veces al día (09:30 y 21:30 UTC), con tope diario.
+2. El cambio de R4: una respuesta ya pagada se reutiliza entre grupos y entre
+   días.
+3. Un grupo de Amazon puede dar "ninguno" cuando su roster esté probado.
+4. Valores iniciales: `jev.tope_diario` 5,000 (cubre la primera pasada de unas
+   19,000 llamadas en 4 días y cuesta cerca de 0.25 USD diarios como máximo al
+   precio de documentación) y `jev.min_clics` 3.
+
+Encender cada interruptor en producción sigue siendo un cambio de config
+aparte, con su go.
 
 Lo que falta saber:
 

@@ -1,8 +1,8 @@
 # JEV ADS 02 — la señal por búsqueda-en-grupo
 
-Estado: plan propuesto el 2026-10-04 y rediseñado el mismo día tras los
-prototipos; espera el visto bueno del dueño. La tarea 0.2 (fichas) se adelantó
-por instrucción suya y quedó cerrada. Nace del acta 3.2 de
+Estado: plan del 2026-10-04, rediseñado el mismo día tras los prototipos. El
+dueño selló el diseño ese día ("va, a las cuatro cosas"). Fichas (0.2), regla
+de roster (0.4) y spec (0.1) cerrados; sigue el bloque S. Nace del acta 3.2 de
 [JEV ADS 01](jev-ads-01.md) ("seguir y ampliar"). Base de planificación:
 commit `25cebe7`. `team_validation_mode: manual-pass`.
 
@@ -89,7 +89,7 @@ Lectura de producción del 2026-10-04 con `orbit_read`; consulta y salida en
 - La madurez no cambia (regla 6): toda afirmación de "no vende" usa la ventana
   de cortes.
 
-**Cambian con este plan** (los sella el dueño al aprobar el spec):
+**Cambian con este plan** (sellados por el dueño el 2026-10-04):
 
 - **Jev corre sola**, en un job fuera del ciclo, con tope diario de llamadas.
 - **Un juicio pagado vale para cualquier señal que lo cite** (cambia la
@@ -137,7 +137,7 @@ el criterio, la fila se cierra como "no se construye", con el motivo.
 
 | Task | Contenido | DoD | Depends | Status |
 | --- | --- | --- | --- | --- |
-| 0.1 | `[stage:planificacion] [lane:gate]` Spec delta y sello del dueño. | El dueño sella los contratos que cambian y los valores de `jev.tope_diario`, `jev.min_clics` y el horario. | - | cc:WIP (spec escrito, espera el sello) |
+| 0.1 | `[stage:planificacion] [lane:gate]` Spec delta y sello del dueño. | El dueño sella los contratos que cambian y los valores de `jev.tope_diario`, `jev.min_clics` y el horario. | - | cc:DONE (sellado 2026-10-04: dos corridas al día, reutilización de juicios, "ninguno" con roster probado, tope 5,000 y 3 clics) |
 | 0.2 | `[stage:medicion] [lane:release]` Completar fichas en MX y US. | Todo producto con anuncio ENABLED tiene una ficha vigente que cubre todos sus listings. | - | cc:DONE (249 de 249 y 119 de 119: `ejecucion/0.2/NOTAS.md`) |
 | 0.3 | `[stage:investigacion] [lane:fast]` Confirmar y versionar la tarifa de TypeSafe. | Tarifa con su fuente y fecha; costo del piloto y del prototipo calculado con su `usage`. | - | cc:TODO |
 | 0.4 | `[stage:investigacion] [lane:gate]` Roster probado: regla y viabilidad. | Regla escrita; grupos que la cumplirían; conteo de anuncios sin producto. | - | cc:DONE (regla en el spec; 22 y 11 grupos con gasto la cumplirían si Amazon declara los totales, lo que mide S.1; los anuncios sin producto no tienen `listing_id` y están en grupos sin gasto: `diseno/prototipos.md`) |
@@ -187,8 +187,7 @@ a Jev términos de biblioteca.
 
 ## Criterios medidos
 
-Valores propuestos por el autor del plan, sin derivación; el dueño los sella
-en 0.1. Se cuentan por búsqueda distinta y por mercado. Las etiquetas se ponen
+Valores propuestos por el autor del plan, sin derivación. Se cuentan por búsqueda distinta y por mercado. Las etiquetas se ponen
 a ciegas: el dueño contesta sin ver la señal. Las búsquedas de una medición no
 pueden ser las que se usaron para corregir fichas.
 
