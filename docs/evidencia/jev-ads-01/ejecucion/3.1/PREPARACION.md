@@ -1,5 +1,8 @@
 # 3.1 — Preparación del piloto (lo que falta es de David)
 
+> El piloto ya corrió el 2026-10-04: ver `REPORTE.md` y `../3.2/ACTA.md`.
+> Esta hoja queda como la preparación con la que se planeó.
+
 El código está desplegado y apagado (2.3). Ninguna tarea automática llama a
 Jev. El piloto 3.1 lo corre una persona, con fichas aprobadas, casos
 etiquetados y un presupuesto fijado. Este archivo deja todo listo para eso;

@@ -2,8 +2,8 @@
 
 Estado: plan creado el 2026-10-03. Cierre de ledger 2026-10-04: filas 0.1 a 2.R
 en `cc:DONE` con su evidencia. Cierre del 2026-10-04 (B7 a B11): R1 a R18 en
-`cc:DONE` y 2.3 desplegada apagada; 3.1 y 3.2 esperan a David (fichas,
-etiquetado y presupuesto: `ejecucion/3.1/PREPARACION.md`); R21 sigue abierta.
+`cc:DONE` y 2.3 desplegada apagada. Piloto 3.1 corrido y decisión 3.2 tomada
+el 2026-10-04: seguir y ampliar en `plans/jev-ads-02.md`. R21 sigue abierta.
 Base de planificación: commit `1a4021f`. `team_validation_mode: manual-pass`.
 
 **Resultado:** el operador ve una evaluación trazable de la relación entre cada
@@ -101,8 +101,8 @@ futuras en este plan. `cc:TODO` significa que la implementación no ha empezado.
 | 2.2 | `[stage:implementacion] [lane:gate] [tdd:required]` Exportar del preview el plan canónico y las filas fuente de semillas, revisarlos mediante CLI y mostrar el resultado para esa huella. | Tests prueban que el export contiene plan, huella y fuentes; cambiar productos, semillas o parámetros cambia la revisión visible; repetir la misma huella conserva fuentes congeladas; un negativo heredado se coteja con nuevos productos; ningún paso crea o elimina keywords ni modifica biblioteca. | 1.4 | cc:DONE B4 #393 a470866 |
 | 2.R | `[stage:revision] [lane:gate]` Revisar con otra IA los cambios de datos y permisos de 1.1 a 2.2, usando `cross-review.ps1`. | El reporte identifica SHA y comandos que reproducen cada bloqueante; una ronda de corrección agrupa hallazgos. Sólo un bloqueante reproducible reabre revisión. Ninguno queda abierto. | 2.1, 2.2 | cc:DONE B5 #394 58d1ea4 |
 | 2.3 | `[stage:cierre-pr] [lane:gate]` Integrar y desplegar el asesor apagado, con rollback probado antes del despliegue. | Hooks y CI completos verdes sobre SHA final; migración y rollback ensayados en entorno de prueba; smoke GET y CLI sin credenciales Ads; ninguna tarea automática llama a Jev; no cambian decisiones, cola, ledger ni bibliotecas. Evidencia incluye SHA, tests, consulta de permisos y checklist de despliegue. | 2.R, 0.1, R1, R4 | cc:TODO |
-| 3.1 | `[stage:medicion] [lane:release]` Ejecutar manualmente el piloto con fichas aprobadas, presupuesto fijado y casos reales etiquetados por una persona. | Reporte separa MX y US y los tres usos; publica denominadores, cobertura, desacuerdos confirmados, errores, abstenciones, orden Choice, latencia y costo USD con `usage` real o desconocido. Cada envío a TypeSafe queda autorizado para el lote; ningún término se registra con secreto ni se envía sin ficha aprobada. | 2.3, R2, R3 | cc:TODO |
-| 3.2 | `[stage:cierre-pr] [lane:release]` Decidir con los resultados si conservar la asesoría V1 y qué ampliar. | Acta enlaza dataset versionado, método, SHA y reporte; declara límites de la muestra y decisión de seguir, ajustar o retirar. Cualquier automatización de acciones abre otro spec y plan con reversa y criterios medidos. | 3.1 | cc:TODO |
+| 3.1 | `[stage:medicion] [lane:release]` Ejecutar manualmente el piloto con fichas aprobadas, presupuesto fijado y casos reales etiquetados por una persona. | Reporte separa MX y US y los tres usos; publica denominadores, cobertura, desacuerdos confirmados, errores, abstenciones, orden Choice, latencia y costo USD con `usage` real o desconocido. Cada envío a TypeSafe queda autorizado para el lote; ningún término se registra con secreto ni se envía sin ficha aprobada. | 2.3, R2, R3 | cc:DONE B11 (piloto US y MX, 648 pares; sin destino de harvest, plan de fábrica ni orden Choice: límites declarados en `ejecucion/3.1/REPORTE.md`, pasan a `jev-ads-02`) |
+| 3.2 | `[stage:cierre-pr] [lane:release]` Decidir con los resultados si conservar la asesoría V1 y qué ampliar. | Acta enlaza dataset versionado, método, SHA y reporte; declara límites de la muestra y decisión de seguir, ajustar o retirar. Cualquier automatización de acciones abre otro spec y plan con reversa y criterios medidos. | 3.1 | cc:DONE B11 (seguir y ampliar: `ejecucion/3.2/ACTA.md`) |
 
 Las tareas 1.2 y 1.3 pueden avanzar en paralelo después de 1.1, con archivos
 distintos. La tarea 1.4 une sus contratos. Las tareas 2.1 y 2.2 también pueden
