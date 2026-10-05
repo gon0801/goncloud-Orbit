@@ -1164,3 +1164,44 @@ def test_cli_revoca_y_rechaza_doble_revocacion(tmp_path, monkeypatch, capsys):
         inexistente = ["revocar", "--ficha-version-id", str(uuid.uuid4()), "--autor", "a"]
         assert cli_fichas([*inexistente, "--motivo", "m"]) == 1
         assert "no existe" in capsys.readouterr().err
+
+
+@_skip_db
+def test_resolver_fichas_conserva_id_traido_y_acredita_archivado():
+    """Caracterizacion S.2 de la regla de fichas (traslado de
+    `AsesorAds._enriquecer`): un miembro que no acredita conserva el
+    `ficha_version_id` que traia, y un miembro archivado tambien recibe
+    ficha."""
+    from dataclasses import replace
+
+    from app.jev_catalogo import resolver_fichas
+
+    with db_jev() as conn:
+        p1 = _producto(conn, "ARCH")
+        l1 = _listing(conn, p1, asin="B0RESUELTO11")
+        p2 = _producto(conn, "SIN")
+        l2 = _listing(conn, p2, asin="B0RESUELTO22")
+        grupo = _grupo(conn, "amazon_mx", (l1, l2))
+        for i, estado in enumerate(("ARCHIVED", "ENABLED")):
+            conn.execute(
+                "INSERT INTO ad_entity_state (ad_entity_id, status, synced_at)"
+                " VALUES ((SELECT id FROM ad_entity WHERE external_id = %s), %s, now())",
+                (f"ad-{grupo}-{i}", estado),
+            )
+        ficha1 = _ficha(conn, p1, (l1,))
+        censo = censo_grupo(conn, plataforma="amazon_mx", ad_group_id=grupo)
+        traido = uuid.uuid4()
+        crudo = replace(
+            censo,
+            miembros=tuple(
+                replace(m, ficha_version_id=traido) if m.producto_id == p2 else m
+                for m in censo.miembros
+            ),
+        )
+        enriquecido, fichas = resolver_fichas(conn, crudo, plataforma="amazon_mx", ahora=AHORA)
+        por_producto = {m.producto_id: m for m in enriquecido.miembros}
+        assert por_producto[p1].ficha_version_id == ficha1
+        assert fichas[ficha1].id == ficha1
+        assert por_producto[p2].ficha_version_id == traido
+        assert traido not in fichas
+        assert enriquecido.exhaustivo == censo.exhaustivo

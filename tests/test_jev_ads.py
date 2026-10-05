@@ -382,6 +382,7 @@ _PROHIBIDOS_NOMBRES_PUROS = {
 _PERMITIDOS_PUROS = {
     "__future__",
     "app.jev_ads",
+    "app.jev_lectura",
     "collections.abc",
     "dataclasses",
     "datetime",
@@ -441,7 +442,7 @@ def _fugas_pureza(codigo: str) -> list[tuple[str, str]]:
     return sorted(set(fugas))
 
 
-@pytest.mark.parametrize("modulo", ["jev_ads.py", "jev_vista.py"])
+@pytest.mark.parametrize("modulo", ["jev_ads.py", "jev_vista.py", "jev_lectura.py"])
 def test_modulo_puro_sin_red_ni_db_en_top_level(modulo):
     """El nucleo (tipos + componer y sus helpers) y la vista son PUROS: red y
     DB viven en app/jev_asesor.py (R14). La guarda cubre TODO nodo del
@@ -548,3 +549,48 @@ def test_guarda_pureza_deja_pasar_permitido_anidado():
         "    return Decimal(0) + uuid.UUID(int=0) if pares else None\n"
     )
     assert _fugas_pureza(codigo) == []
+
+
+def test_mismo_origen_ignora_synced_at_y_exige_identidad_y_exhaustivo():
+    """Variante pura del arreglo de reanudacion (S.2): mover `synced_at`
+    no es otro payload; cambiar estado o `exhaustivo`, si."""
+    from datetime import timedelta
+
+    from app.jev_ads import _mismo_origen
+
+    base = CensoCongelado(
+        miembros=(
+            MiembroCenso(
+                anuncio_ids=(1,),
+                producto_id=7,
+                listing_ids=frozenset({5}),
+                estados=(EstadoAnuncio(status="ENABLED", synced_at=OBS),),
+            ),
+        ),
+        exhaustivo=False,
+    )
+    movido = replace(
+        base,
+        miembros=(
+            replace(
+                base.miembros[0],
+                estados=(EstadoAnuncio(status="ENABLED", synced_at=OBS + timedelta(hours=1)),),
+            ),
+        ),
+    )
+    assert _mismo_origen(base, movido)
+    assert not _mismo_origen(base, replace(movido, exhaustivo=True))
+    con_ficha = replace(base, miembros=(replace(base.miembros[0], ficha_version_id=F1),))
+    assert _mismo_origen(con_ficha, base)
+    otra_ficha = replace(base, miembros=(replace(base.miembros[0], ficha_version_id=F2),))
+    assert not _mismo_origen(con_ficha, otra_ficha)
+    archivado = replace(
+        base,
+        miembros=(
+            replace(
+                base.miembros[0],
+                estados=(EstadoAnuncio(status="ARCHIVED", synced_at=OBS),),
+            ),
+        ),
+    )
+    assert not _mismo_origen(base, archivado)

@@ -1,15 +1,15 @@
-"""El asesor Jev para Ads (JEV ADS 01, 1.4 y 2.1): la UNICA capa con IO.
+"""El asesor Jev para Ads (JEV ADS 01, 1.4 y 2.1).
 
 Une catalogo (`app/jev_catalogo.py`), juicios (`app/jev_juicios.py`) y la
-revision persistida; los tipos y `componer` son del nucleo puro
-(`app/jev_ads.py`) y la vista de lectura de `app/jev_vista.py` (R14).
+revision persistida; los pagos van al Libro (`app/jev_libro.py`). Los tipos
+y `componer` son del nucleo puro (`app/jev_ads.py`) y la vista de lectura
+de `app/jev_vista.py` (R14).
 """
 
 from __future__ import annotations
 
 import hashlib
 import uuid
-from dataclasses import replace
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -21,7 +21,6 @@ from app.jev_ads import (
     FalloProveedor,
     FichaFaltante,
     FichaVersion,
-    Juicio,
     NoAplicaTexto,
     NoComprobable,
     Obsoleta,
@@ -41,6 +40,7 @@ from app.jev_ads import (
     componer,
     es_asin_like,
 )
+from app.jev_libro import Libro
 from app.jev_vista import (
     _COLUMNAS_REVISION,
     ReferenciaPlan,
@@ -94,11 +94,12 @@ class AsesorAds:
                 )
 
         self._pedir = pedir
+        self._libro = Libro(conn, pedir=self._pedir, contrato=self._contrato)
 
     def evaluar(self, sujeto: Sujeto, *, solicitud_id: UUID) -> Revision:
         """Evalua los terminos del sujeto contra el censo congelado y deja
         revision + eventos auditables (retomable por solicitud_id)."""
-        from app.jev_juicios import clave_de, request_sha256
+        from app.jev_juicios import clave_de
 
         destino_crudo = sujeto.destino_censo if isinstance(sujeto, DecisionARevisar) else None
         guardada = self._conn.execute(
@@ -157,13 +158,8 @@ class AsesorAds:
                 if http_hechos >= self._presupuesto:
                     agotado = True
                     continue
-                intencion_id = self._intencion(
-                    solicitud_id, clave, request_sha256(termino, ficha, self._contrato)
-                )
-                self._conn.commit()
                 http_hechos += 1
-                devuelto = self._pedir(termino, ficha)
-                par = self._resultado(solicitud_id, clave, intencion_id, devuelto, miembro)
+                par = self._libro.pagar(termino, ficha, revision=solicitud_id)
                 if isinstance(par, FalloProveedor):
                     fallidos[clave] = par
                 pares.append(par)
@@ -280,34 +276,11 @@ class AsesorAds:
         )
 
     def _enriquecer(self, censo: CensoCongelado, plataforma, ahora):
-        """Ficha vigente por miembro, congelada en el censo. Un producto con
-        varios listings se acredita solo si la MISMA ficha vigente cubre todos
-        (R8); una ficha que cubre una parte deja al miembro sin ficha."""
-        from app.jev_catalogo import ficha_vigente
+        """Ficha vigente por miembro, congelada en el censo (regla en
+        `app.jev_catalogo.resolver_fichas`, compartida con el roster)."""
+        from app.jev_catalogo import resolver_fichas
 
-        fichas: dict[UUID, FichaVersion] = {}
-        miembros = []
-        for miembro in censo.miembros:
-            ficha = None
-            if miembro.producto_id is not None and miembro.listing_ids:
-                por_listing = [
-                    ficha_vigente(
-                        self._conn,
-                        producto_id=miembro.producto_id,
-                        plataforma=plataforma,
-                        listing_id=listing_id,
-                        ahora=ahora,
-                    )
-                    for listing_id in sorted(miembro.listing_ids)
-                ]
-                ids = {f.id if f is not None else None for f in por_listing}
-                if len(ids) == 1 and None not in ids:
-                    ficha = por_listing[0]
-            if ficha is not None:
-                fichas[ficha.id] = ficha
-                miembro = replace(miembro, ficha_version_id=ficha.id)
-            miembros.append(miembro)
-        return CensoCongelado(miembros=tuple(miembros), exhaustivo=censo.exhaustivo), fichas
+        return resolver_fichas(self._conn, censo, plataforma=plataforma, ahora=ahora)
 
     def _abrir_revision(self, sujeto, solicitud_id, contexto, censo, destino, ahora):
         """Revision ANTES del primer HTTP; otro payload con la misma solicitud -> ValueError."""
@@ -365,20 +338,6 @@ class AsesorAds:
         if not coherente:
             raise ValueError("misma solicitud con otro payload")
 
-    def _siguiente_ordinal(self, solicitud_id, clave, tipo) -> int:
-        return self._conn.execute(
-            "SELECT COALESCE(max(ordinal), 0) + 1 FROM jev_par_evento"
-            " WHERE revision_id = %s AND termino_sha256 = %s"
-            " AND ficha_version_id = %s AND contrato_sha256 = %s AND tipo = %s",
-            (
-                solicitud_id,
-                clave.termino_literal_sha256,
-                clave.ficha_version_id,
-                clave.contrato_sha256,
-                tipo,
-            ),
-        ).fetchone()[0]
-
     def _exito_previo(self, solicitud_id, clave):
         """PRIMER exito validado de ESTA revision para la clave (spec; fallo
         jamas; otra revision jamas)."""
@@ -407,93 +366,11 @@ class AsesorAds:
                 clave.termino_literal_sha256,
                 clave.ficha_version_id,
                 clave.contrato_sha256,
-                self._siguiente_ordinal(solicitud_id, clave, "reutilizacion"),
+                self._libro.siguiente_ordinal(solicitud_id, clave, "reutilizacion"),
                 exito[0],
             ),
         )
         self._conn.commit()
-
-    def _intencion(self, solicitud_id, clave, request_hash) -> UUID:
-        intencion_id = uuid.uuid4()
-        self._conn.execute(
-            "INSERT INTO jev_par_evento (id, revision_id, termino_sha256,"
-            " ficha_version_id, contrato_sha256, ordinal, tipo, request_sha256)"
-            " VALUES (%s, %s, %s, %s, %s, %s, 'intencion', %s)",
-            (
-                intencion_id,
-                solicitud_id,
-                clave.termino_literal_sha256,
-                clave.ficha_version_id,
-                clave.contrato_sha256,
-                self._siguiente_ordinal(solicitud_id, clave, "intencion"),
-                request_hash,
-            ),
-        )
-        return intencion_id
-
-    def _resultado(self, solicitud_id, clave, intencion_id, devuelto, miembro) -> EstadoPar:
-        """Resultado (exito o fallo) tras el HTTP, y su EstadoPar."""
-        ordinal = self._siguiente_ordinal(solicitud_id, clave, "resultado")
-        if hasattr(devuelto, "juicio"):
-            juicio_proveedor = devuelto.juicio
-            evento_id = uuid.uuid4()
-            respuesta = {
-                "confidence": str(juicio_proveedor.confidence),
-                "observado_at": juicio_proveedor.observado_at.isoformat(),
-                "probabilidades": {k: str(v) for k, v in juicio_proveedor.probabilidades.items()},
-                "relacion": juicio_proveedor.relacion,
-            }
-            self._conn.execute(
-                "INSERT INTO jev_par_evento (id, revision_id, termino_sha256,"
-                " ficha_version_id, contrato_sha256, ordinal, tipo, respuesta,"
-                " intencion_id, duracion_ms, usage)"
-                " VALUES (%s, %s, %s, %s, %s, %s, 'resultado', %s::jsonb, %s, %s,"
-                " %s::jsonb)",
-                (
-                    evento_id,
-                    solicitud_id,
-                    clave.termino_literal_sha256,
-                    clave.ficha_version_id,
-                    clave.contrato_sha256,
-                    ordinal,
-                    _canonico(respuesta),
-                    intencion_id,
-                    devuelto.duracion_ms,
-                    _canonico(devuelto.usage) if devuelto.usage else None,
-                ),
-            )
-            self._conn.commit()
-            return Juicio(
-                intento_id=evento_id,
-                clave=clave,
-                relacion=juicio_proveedor.relacion,
-                probabilidades=juicio_proveedor.probabilidades,
-                confidence=juicio_proveedor.confidence,
-                observado_at=juicio_proveedor.observado_at,
-            )
-        self._conn.execute(
-            "INSERT INTO jev_par_evento (id, revision_id, termino_sha256,"
-            " ficha_version_id, contrato_sha256, ordinal, tipo, error,"
-            " intencion_id, duracion_ms, usage)"
-            " VALUES (%s, %s, %s, %s, %s, %s, 'resultado', %s, %s, %s, %s::jsonb)",
-            (
-                uuid.uuid4(),
-                solicitud_id,
-                clave.termino_literal_sha256,
-                clave.ficha_version_id,
-                clave.contrato_sha256,
-                ordinal,
-                f"{devuelto.codigo}: {devuelto.detalle}",
-                intencion_id,
-                devuelto.duracion_ms,
-                _canonico(devuelto.usage) if devuelto.usage else None,
-            ),
-        )
-        self._conn.commit()
-        return FalloProveedor(
-            producto_id=miembro.producto_id,
-            motivo=f"{devuelto.codigo}: {devuelto.detalle}",
-        )
 
     def _vigencia_de_miembros(
         self,

@@ -3,7 +3,8 @@ sujetos y serializacion del censo.
 
 El diseno manda: docs/superpowers/specs/2026-10-03-jev-ads-design.md. Este
 modulo no hace IO (candado AST en tests/test_jev_ads.py); la IO vive en
-`app/jev_asesor.py` y la presentacion pura en `app/jev_vista.py` (R14).
+`app/jev_asesor.py` y `app/jev_libro.py`, y la presentacion pura en
+`app/jev_vista.py` (R14).
 
 Unidad de juicio: TERMINO LITERAL + VERSION DE FICHA. Reglas de `componer`:
 un compatible permite HayCompatible con cobertura visible; NingunoCompatible
@@ -17,7 +18,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from typing import Literal
@@ -421,19 +422,18 @@ def _identidad_del_censo(censo: CensoCongelado) -> list:
     ]
 
 
-def _censo_crudo(censo: CensoCongelado) -> dict:
-    """El censo sin las fichas resueltas: lo que el sujeto trae de origen."""
-    return _censo_a_json(
-        replace(censo, miembros=tuple(replace(m, ficha_version_id=None) for m in censo.miembros))
-    )
-
-
 def _mismo_origen(congelado: CensoCongelado, crudo: CensoCongelado) -> bool:
-    """El sujeto que se retoma trae el MISMO censo: igual sin fichas, y cada
-    ficha que el llamador ya traia resuelta es la que la revision congelo."""
-    return _censo_crudo(congelado) == _censo_crudo(crudo) and all(
-        traida.ficha_version_id in (None, guardado.ficha_version_id)
-        for guardado, traida in zip(congelado.miembros, crudo.miembros, strict=True)
+    """El sujeto que se retoma trae el MISMO censo: misma identidad de
+    universo y mismo `exhaustivo` (`synced_at` no cuenta: una
+    resincronizacion no es otro payload), y cada ficha que el llamador ya
+    traia resuelta es la que la revision congelo."""
+    return (
+        _identidad_del_censo(congelado) == _identidad_del_censo(crudo)
+        and congelado.exhaustivo == crudo.exhaustivo
+        and all(
+            traida.ficha_version_id in (None, guardado.ficha_version_id)
+            for guardado, traida in zip(congelado.miembros, crudo.miembros, strict=True)
+        )
     )
 
 

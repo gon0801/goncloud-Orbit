@@ -25,7 +25,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
@@ -264,6 +264,43 @@ def ficha_vigente(
         (producto_id, plataforma, ahora, listing_id),
     ).fetchone()
     return _ficha_de_fila(fila) if fila is not None else None
+
+
+def resolver_fichas(
+    conn: psycopg.Connection,
+    censo: CensoCongelado,
+    *,
+    plataforma: str,
+    ahora: datetime,
+) -> tuple[CensoCongelado, dict[UUID, FichaVersion]]:
+    """Ficha vigente por miembro, congelada en el censo. Un producto con
+    varios listings se acredita solo si la MISMA ficha vigente cubre todos
+    (R8); una ficha que cubre una parte deja al miembro sin ficha. Un
+    miembro que no acredita conserva el id que traia; el estado del anuncio
+    no cuenta (un archivado tambien recibe ficha)."""
+    fichas: dict[UUID, FichaVersion] = {}
+    miembros = []
+    for miembro in censo.miembros:
+        ficha = None
+        if miembro.producto_id is not None and miembro.listing_ids:
+            por_listing = [
+                ficha_vigente(
+                    conn,
+                    producto_id=miembro.producto_id,
+                    plataforma=plataforma,
+                    listing_id=listing_id,
+                    ahora=ahora,
+                )
+                for listing_id in sorted(miembro.listing_ids)
+            ]
+            ids = {f.id if f is not None else None for f in por_listing}
+            if len(ids) == 1 and None not in ids:
+                ficha = por_listing[0]
+        if ficha is not None:
+            fichas[ficha.id] = ficha
+            miembro = replace(miembro, ficha_version_id=ficha.id)
+        miembros.append(miembro)
+    return CensoCongelado(miembros=tuple(miembros), exhaustivo=censo.exhaustivo), fichas
 
 
 def censo_grupo(conn: psycopg.Connection, *, plataforma: str, ad_group_id: int) -> CensoCongelado:
