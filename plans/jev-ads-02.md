@@ -54,7 +54,11 @@ cuenta el asesor: sin revocar, sin vencer y que cubra ese listing.
 - **Costo.** El piloto midió 1,215 tokens por par en MX, 966 en US y 259 ms de
   mediana. Una primera pasada de la opción 2 con el contrato de hoy son unos
   18.6 M de tokens en MX y 3.8 M en US (14.8 M y 3.1 M si se reutilizan pares).
-  La tarifa en USD de TypeSafe sigue sin dato (tarea 0.3).
+  La evidencia del diseño anota un precio de documentación de 0.042 USD por
+  millón de tokens de entrada, con la salida gratis
+  (`docs/evidencia/jev-ads-01/how-why.md`). Con ese precio el piloto costó unos
+  0.03 USD y esa primera pasada menos de 1 USD. Falta confirmarlo y versionarlo
+  con fuente y fecha (tarea 0.3).
 - **Antecedente de la opción 1.** Las tres propuestas `negative` reales del
   piloto eran sobre búsquedas que sí corresponden a los productos del grupo
   (135 de 135 pares `satisface`).
@@ -106,6 +110,12 @@ cuenta el asesor: sin revocar, sin vencer y que cubra ese listing.
   b) aprobación como insumo del ciclo: exige cambio sellado de `docs/APPLY.md`
   §3.1, una rama propia en la re-validación y congelar la aprobación en
   `inputs` para que el replay reproduzca la decisión.
+  Esto es un cambio de postura y el plan lo dice: el diseño v2 rechazó una cola
+  de aprobación humana ("la proposal-only con aprobación humana era parte del
+  problema del stack viejo", `docs/traspaso/ADS_OPTIMIZER_V2_DESIGN.md`) y
+  `cortes-ui-01` rechazó un botón «aprobar». La diferencia es que aquí la
+  aprobación no frena nada que el motor ya decidió: agrega una acción que el
+  motor no propone. El dueño decide en 2.5 y 3.1 si acepta ese cambio.
 - **Que Jev frene sola un bloqueo es condicional y cambia una regla sellada**
   (1.4, 4.3). Retener en la cola rompe "default al vencer = APLICAR; el
   silencio del dueño no bloquea" (`docs/CONTEXTO.md`, `docs/APPLY.md` §1.1) y
@@ -146,8 +156,8 @@ cierra como "no se construye", con el motivo.
 
 | Task | Contenido | DoD | Depends | Status |
 | --- | --- | --- | --- | --- |
-| 0.2 | `[stage:medicion] [lane:release]` Completar fichas. Faltan 238 productos en MX y 53 en US (28 sin ficha y 25 con ficha que no cubre todos sus anuncios). Mismo método del piloto: el lead pregunta, el dueño contesta, el lead arma y el dueño registra. | Todo producto con anuncio ENABLED tiene ficha vigente que cubre sus anuncios, o un motivo escrito; conteo por mercado antes y después con la consulta de planificación; ningún nombre ni SKU en el repo. | - | cc:TODO |
-| 0.3 | `[stage:investigacion] [lane:fast]` Tarifa de TypeSafe versionada y costo en USD del piloto y de cada fase. Decidir con esa cifra si se permite reutilizar pares entre revisiones (hoy prohibido, R4). | Tarifa con su fuente y fecha; costo del piloto calculado con su `usage`; tope diario propuesto; decisión de reutilización escrita. | - | cc:TODO |
+| 0.2 | `[stage:medicion] [lane:release]` Completar fichas. Faltan 238 productos en MX y 53 en US (28 sin ficha y 25 con ficha que no cubre todos sus listings). Mismo método del piloto: el lead pregunta, el dueño contesta, el lead arma y el dueño registra. | Todo producto con anuncio ENABLED tiene una ficha vigente que cubre todos sus listings de esa plataforma (el asesor cuenta también los de anuncios pausados o archivados), o un motivo escrito; conteo por mercado antes y después con la consulta de planificación; ningún nombre ni SKU en el repo. | - | cc:TODO |
+| 0.3 | `[stage:investigacion] [lane:fast]` Confirmar y versionar la tarifa de TypeSafe (la evidencia del diseño anota 0.042 USD por millón de tokens de entrada) y calcular el costo en USD del piloto y de cada fase. Decidir con esa cifra si se permite reutilizar pares entre revisiones (hoy prohibido, R4). | Tarifa con su fuente y fecha; costo del piloto calculado con su `usage`; tope diario propuesto; decisión de reutilización escrita. | - | cc:TODO |
 | 0.4 | `[stage:investigacion] [lane:gate]` Roster probado: averiguar si la ingesta de estructura puede demostrar que trae todos los anuncios de un grupo, y por qué 1,168 anuncios de MX y 920 de US no tienen producto ligado. | Regla escrita de cuándo `censo_grupo` puede decir `exhaustivo=True`; lista de grupos que la cumplirían por mercado; causa de los anuncios sin producto con su conteo. | - | cc:TODO |
 | 0.1 | `[stage:planificacion] [lane:gate]` Spec delta de las fases de aviso: job automático y su reanudación, login propio de Jev, tope diario, reutilización según 0.3, regla de roster según 0.4, y los criterios medidos de abajo sellados por el dueño. | Documento en `docs/superpowers/specs/` con los contratos que cambian y los que no; umbrales sellados por el dueño. | 0.3, 0.4 | cc:TODO |
 | 0.5 | `[stage:medicion] [lane:release]` Medir lo que el piloto dejó fuera: sensibilidad al orden de las opciones Choice, con una muestra etiquetada. | Reporte con denominadores: cuántos pares cambian de respuesta al invertir el orden; si pasa del umbral sellado en 0.1, se corrige el contrato antes de 1.1. | 0.1 | cc:TODO |
@@ -156,10 +166,10 @@ cierra como "no se construye", con el motivo.
 
 | Task | Contenido | DoD | Depends | Status |
 | --- | --- | --- | --- | --- |
-| 1.1 | `[stage:implementacion] [lane:gate] [tdd:required]` Job `jev-revisa` fuera del ciclo: toma las propuestas `negative` y harvest en `pending_veto` sin revisión y las evalúa con `AsesorAds.evaluar`. Lee con el login de lectura y escribe con un login propio miembro sólo de `app_jev`. Cron con `flock` después del ciclo. Arregla la reanudación: hoy compara el censo con `synced_at`, que la ingesta de estructura reescribe a diario, y al día siguiente falla con "misma solicitud con otro payload". | Pruebas: con el interruptor ausente no hace nada; respeta el tope diario; un fallo de TypeSafe deja fallo visible y no toca la cola; una revisión a medias se retoma después de una resincronización sin pagar dos veces (la prueba falla contra el código de hoy); el login de escritura no puede leer ni escribir `apply_queue`, `decision` ni ledger. Salud muestra última corrida, fallos y llamadas del día. | 0.1, 0.5 | cc:TODO |
+| 1.1 | `[stage:implementacion] [lane:gate] [tdd:required]` Job `jev-revisa` fuera del ciclo: toma las propuestas `negative` y harvest en `pending_veto` o `released` (las dos siguen vetables) sin revisión y las evalúa con `AsesorAds.evaluar`. Vive en `app/`, o lleva su línea en el `Dockerfile` y en la prueba que fija los tools copiados. Lee con el login de lectura y escribe con un login propio miembro sólo de `app_jev`. Cron con `flock` después del ciclo. Arregla la reanudación: hoy compara el censo con `synced_at`, que la ingesta de estructura reescribe a diario, y al día siguiente falla con "misma solicitud con otro payload". | Pruebas: con el interruptor ausente no hace nada; respeta el tope diario; un fallo de TypeSafe deja fallo visible y no toca la cola; una revisión a medias se retoma después de una resincronización sin pagar dos veces (la prueba falla contra el código de hoy); el login de escritura no puede leer ni escribir `apply_queue`, `decision` ni ledger. Salud muestra última corrida, fallos y llamadas del día. | 0.1, 0.5 | cc:TODO |
 | 1.2 | `[stage:implementacion] [lane:gate] [tdd:required]` Aviso por Telegram cuando Jev termina una propuesta: qué búsqueda, a cuántos productos del grupo corresponde, cuántos evaluó y cuánto falta para que venza el veto. `/cortes` ya lo muestra. | Prueba del texto en los tres casos (corresponde, no corresponde a los evaluados, no se pudo evaluar) con la cobertura a la vista; nunca dice "ninguno" con universo desconocido; fallo del canal no rompe el job. | 1.1 | cc:TODO |
 | 1.3 | `[stage:medicion] [lane:release]` Medición retrospectiva con el CLI que ya existe (`evaluar --decision-id`): los 18 pares `negative` históricos. El dueño dice de cada búsqueda si el bloqueo era correcto. | Reporte por mercado con denominadores: bloqueos sobre búsquedas que sí corresponden, acuerdo del dueño con Jev, fallos y abstenciones. | 0.2 | cc:TODO |
-| 1.4 | `[stage:planificacion] [lane:gate]` CONDICIONAL. Abstención: el motor no propone un `negative` sobre una búsqueda que Jev ya juzgó que sí corresponde. Señal al decidir, primero en sombra (el ciclo registra qué se habría abstenido, sin cambiar la decisión). | Spec propio y sello del dueño del cambio de contrato; contrafactual: interruptor apagado o juicio ausente dejan el ciclo idéntico; la decisión guarda en `inputs` el juicio usado y el replay la reproduce. | 1.3, 2.4 | cc:TODO |
+| 1.4 | `[stage:planificacion] [lane:gate]` CONDICIONAL. Abstención: el motor no propone un `negative` sobre una búsqueda que Jev ya juzgó que sí corresponde. Señal al decidir, primero en sombra (el ciclo registra qué se habría abstenido, sin cambiar la decisión). | Spec propio y sello del dueño del cambio de contrato; el spec define la "tasa de acción útil" que la sombra debe mejorar (Fase 4 de `docs/CONTEXTO.md`), porque el acuerdo del dueño no la sustituye; contrafactual: interruptor apagado o juicio ausente dejan el ciclo idéntico; la decisión guarda en `inputs` el juicio usado y el replay la reproduce. | 1.3, 2.4 | cc:TODO |
 
 ### Fase 2 — opción 2: detectar pronto las búsquedas ajenas
 
@@ -209,8 +219,11 @@ que crea una acción publicitaria nueva.
 
 ## Criterios medidos
 
-Valores propuestos; el dueño los sella en 0.1. Se cuentan por búsqueda
-distinta y por mercado.
+Valores propuestos por el autor del plan, sin derivación; el dueño los sella
+en 0.1. Se cuentan por búsqueda distinta y por mercado. Las etiquetas se ponen
+a ciegas: el dueño contesta sin ver la respuesta de Jev. Las búsquedas de una
+medición no pueden ser las que se usaron para corregir fichas: en el piloto los
+lotes perfectos repitieron las búsquedas ya corregidas.
 
 | Paso | Criterio para avanzar |
 | --- | --- |
@@ -225,6 +238,27 @@ Lo que el volumen de hoy no alcanza, dicho de frente: el histórico trae 18
 pares `negative` (2 en MX) y 10 de harvest, así que el criterio de 4.3 no se
 cumple pronto y el de 1.4 depende de las etiquetas de 2.4. Mientras no se
 cumplan, el aviso se queda como está.
+
+## Huecos conocidos
+
+Los encontró la lectura del código al explicar el plan. Ninguno está resuelto;
+cada uno lo cierra el spec de la tarea indicada antes de escribir código.
+
+| Hueco | Lo cierra |
+| --- | --- |
+| "Negativo ya puesto" no tiene fuente: los negative keywords no se ingieren como estructura. | 2.1 |
+| Un `negative` aplicado no bloquea su clave; pasado el cooldown el motor puede volver a proponerlo. | 2.1 |
+| La prueba hacia atrás lee la última observación conocida hoy, no la que existía hace 30 días. | 2.4 |
+| `jev_revision` sólo admite los sujetos `decision` y `semillas`; las candidatas reutilizan `semillas` o piden migración. | 0.1, 2.2 |
+| "No pagar dos veces" entre días exige reutilizar entre revisiones o una solicitud estable por candidata. | 0.3, 2.2 |
+| El ciclo no puede leer `jev_*` (falta grant a `app_decide`) y no existe la consulta "juicio vigente de un grupo y una búsqueda". | 1.4, 4.3 |
+| Si `app/notifica.py` importa módulos de Jev, la guarda de imports no lo ve: el ciclo importa `notifica`. | 1.2 |
+| Las semillas del plan van normalizadas y los términos vendedores crudos; la clave del juicio es el texto literal. | 5.1 |
+| El apply de un `negative` escribe en `negative_biblioteca` si el grupo es de fábrica, y el ledger del motor va por `decision_id`. | 2.5 |
+| Juzgar un término contra dos grupos sólo existe atado a una decisión de harvest. | 3.1 |
+| Una decisión de harvest sin destino legible hace fallar su revisión; cuántas de las 10 históricas, sin dato. | 4.2 |
+| El CLI manual no tiene lock; puede correr a la vez que el job. | 1.1 |
+| No hay aviso de fichas por vencer; al vencer, la asesoría pasa a "obsoleta" sin que nadie escriba. | 0.1 |
 
 ## Pruebas que deben discriminar
 

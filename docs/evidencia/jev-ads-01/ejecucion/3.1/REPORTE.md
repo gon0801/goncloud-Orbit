@@ -39,7 +39,8 @@ nunca como evidencia.
 1. Con la ficha completa, Jev acierta: "sí" a las búsquedas del producto,
    "no" a las ajenas, y separa por atributo (color) dentro de un grupo.
 2. En la primera pasada acertó cerca del 75% en los dos mercados (lotes 2 y
-   5). Los desacuerdos tuvieron dos causas: datos que la ficha no traía
+   5); el resto fueron desacuerdos (25 de 192 y 30 de 154), abstenciones y 2
+   fallos. Los desacuerdos tuvieron dos causas: datos que la ficha no traía
    (material, que el set no incluye lazo) e intención del comprador que no es
    literal ("silver coins", "cofre para arras", marca de otro).
 3. Cada causa se corrigió escribiendo el dato o la regla en la ficha, sin

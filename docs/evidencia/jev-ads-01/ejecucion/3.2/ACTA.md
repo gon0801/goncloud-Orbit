@@ -22,8 +22,9 @@ nuevo, `plans/jev-ads-02.md`, para que pase de avisar a proponer y rutear.
 
 - Con la ficha completa Jev acertó en todos los pares de los lotes de
   comprobación (4 y 6) y en las 135 respuestas del lote de negativos reales.
-- Los desacuerdos de la primera pasada (cerca del 25%) se corrigieron con
-  datos y reglas del dueño en la ficha, sin tocar el sistema.
+- En la primera pasada Jev no acertó cerca del 25% de los pares, contando
+  abstenciones y fallos (desacuerdos solos: 13% en US y 19.5% en MX). Se
+  corrigió con datos y reglas del dueño en la ficha, sin tocar el sistema.
 - La asesoría no actúa sola: un error suyo hoy no cambia ninguna acción de Ads.
 
 ## Límites de la muestra
