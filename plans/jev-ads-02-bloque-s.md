@@ -86,7 +86,10 @@ documentos. Ningún nombre de producto ni SKU real.
   `docker inspect -f '{{.State.Running}}' orbit-app-1`. Si no contesta, sale
   con 4. Un valor leído vacío lleva a la salida 4, no a la 1. El checklist de
   2.3 cuenta una conexión caída como falla, y una falla puede acabar en una
-  reversa.
+  reversa. Si hay al menos una `FALLA` medida, sale con 1 aunque otra lectura
+  haya quedado vacía. Sale con 4 solo cuando nada falló y algo no se pudo
+  medir. Un `docker inspect` que contesta `false` es una lectura: el
+  contenedor está parado, y eso es una `FALLA`.
 - Cambia otra regla del checklist de 2.3, que cuenta un ciclo en `running`
   como falla. Un ciclo en curso todavía no terminó: el checklist sale con 3.
 - Cuenta "posterior" desde el arranque del contenedor nuevo
@@ -100,10 +103,18 @@ documentos. Ningún nombre de producto ni SKU real.
   que el despliegue cambia.
 - El preflight exige que ningún comando `app.cli` esté corriendo dentro del
   contenedor: `docker top orbit-app-1` no lista ninguno. Eso cubre las
-  ingestas, el ciclo y la corrida de precios. Repite las guardas justo antes
-  del `docker compose up`. No pongas guardas por hora.
-- Pon en `rollback.sh` las guardas del preflight de `desplegar.sh`. El de 2.3
-  recrea el contenedor sin mirar si hay un ciclo corriendo.
+  ingestas, el ciclo y la corrida de precios. No pongas guardas por hora.
+- Repite las guardas justo antes del `docker compose up`. Si ahí fallan, no
+  abortes: reintenta cada 30 segundos, hasta 30 minutos. Si siguen sin pasar,
+  el script se detiene sin recrear el contenedor, no corre la reversa y lo
+  dice en su salida. La migración aplicada y el código copiado no cambian al
+  contenedor viejo, que sigue corriendo su imagen anterior.
+- Pon en `rollback.sh` las guardas del preflight de `desplegar.sh`, pero
+  evalúalas solo con el contenedor arriba
+  (`docker inspect -f '{{.State.Running}}' orbit-app-1` dice `true`). El de
+  2.3 recrea el contenedor sin mirar si hay un ciclo corriendo. Con el
+  contenedor parado no hay nada que interrumpir y `docker top` no contesta:
+  ahí la reversa corre sin guardas y lo dice en su salida.
 - Corre `ensayo.sh` antes de pedir la revisión y guarda su salida. Se repite
   sobre el squash antes de desplegar.
 - Ningún script imprime una contraseña ni un valor `ORBIT_DSN_*`. El bloque
