@@ -6,7 +6,7 @@ corrió David (`tools/jev_ads.py ... --aplicar`); ningún término se envió sin
 ficha aprobada.
 
 Dataset: `dataset-piloto.csv` (648 filas; sha256
-`25efa2d1fce011be9a69d7814a7d00d371e73d9086f3670135a59c3358e6d950`). Una fila
+`210e5ac9cecde696a17a7290fe136156146a9dfc1e1f2894e6e95a2442712ecb`). Una fila
 por par búsqueda-producto: etiqueta humana, respuesta de Jev, confianza,
 duración y tokens. No lleva nombres ni SKUs del catálogo.
 

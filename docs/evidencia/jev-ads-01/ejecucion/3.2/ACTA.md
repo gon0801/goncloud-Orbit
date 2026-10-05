@@ -12,7 +12,7 @@ nuevo, `plans/jev-ads-02.md`, para que pase de avisar a proponer y rutear.
 
 - Reporte: `docs/evidencia/jev-ads-01/ejecucion/3.1/REPORTE.md`.
 - Dataset versionado: `docs/evidencia/jev-ads-01/ejecucion/3.1/dataset-piloto.csv`
-  (sha256 `25efa2d1fce011be9a69d7814a7d00d371e73d9086f3670135a59c3358e6d950`).
+  (sha256 `210e5ac9cecde696a17a7290fe136156146a9dfc1e1f2894e6e95a2442712ecb`).
 - Código desplegado: `25cebe7` (deploy `20261004-2253`, checklist en
   `ejecucion/2.3/`). Modelo `jev-1.13.0`.
 - Método: 6 lotes manuales con fichas aprobadas por el dueño; 648 pares; cada
