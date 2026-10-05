@@ -52,7 +52,8 @@ evidencia de implementación y validación.
 - Jev en Ads: [JEV ADS 01](jev-ads-01.md) desplegada apagada el 2026-10-04
   (asesoría visible de negativos, harvest y semillas, sin cambiar acciones);
   piloto corrido y decisión del dueño: seguir y ampliar. La ampliación es
-  [JEV ADS 02](jev-ads-02.md), propuesta y en espera de su visto bueno.
+  [JEV ADS 02](jev-ads-02.md), con diseño sellado por el dueño el
+  2026-10-04 y nada construido todavía.
   Reseñas se tratarán aparte.
 - MeLi Ads (proposal-only, bloqueado a nivel cuenta): sin plan ni
   stub. Gap.

@@ -42,7 +42,7 @@ las fichas viven en la base y sus insumos en una carpeta privada.
 
 El prototipo con Jev (`../../diseno/prototipos.md`, sección 5) mostró un falso
 "sí": una búsqueda de una sola palabra, ajena al catálogo, correspondía a 90 de
-176 productos porque esa palabra estaba en la frase del acabado de todos los
+los 177 productos de su grupo (86 "no" y 1 fallo) porque esa palabra estaba en la frase del acabado de todos los
 productos dorados. El dueño aprobó cambiar la frase. Se registró una versión
 nueva de las 191 fichas de productos dorados (127 en MX y 64 en US, 0 fallos)
 en la que solo cambia ese renglón. Comprobado en producción: ninguna ficha

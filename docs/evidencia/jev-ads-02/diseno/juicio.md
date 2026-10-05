@@ -66,9 +66,9 @@ bloqueantes; todos se corrigieron en una ronda:
 - **Bloqueante:** `jev_senal` guardaba importes sin atarlos a una moneda
   (regla 4 de CONTEXTO). Ahora la moneda es obligatoria y un CHECK la liga a
   la plataforma.
-- **El más grave de los no bloqueantes:** `componer` cuenta como universo a
-  los productos con todos sus anuncios archivados, y con ellos nunca da
-  "ninguno". Comprobado en producción: afectaba a 8 de los 22 grupos con
+- **El más grave de los no bloqueantes:** cuando un grupo tiene un producto
+  con todos sus anuncios archivados, `componer` lo saca del universo y marca
+  el motivo `no_anunciado`, y con ese motivo nunca da "ninguno". Comprobado en producción: afectaba a 8 de los 22 grupos con
   gasto de MX. El roster de la señal ahora cuenta solo lo anunciado hoy.
 - El resto: DDL explícito del sujeto `lote`; definición de `insumos_sha256` y
   `valida_hasta`; dónde vive la lectura del destino de un harvest; precedencia

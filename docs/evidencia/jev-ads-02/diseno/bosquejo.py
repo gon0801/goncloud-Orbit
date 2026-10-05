@@ -15,7 +15,7 @@ y una lectura, funcion PURA de los tres, congelada en `jev_senal`. Regla de
 precedencia: los hechos de venta mandan; Jev solo desempata cuando la busqueda
 no vende en ningun ad group.
 
-Archivos que este bosquejo reparte (ver diseno.md, "Mapa de modulos"):
+Archivos que este bosquejo reparte (ver el spec, seccion "Modulos"):
   app/jev_lectura.py   nucleo puro (seccion A)
   app/jev_libro.py     libro de juicios por par + tope diario (seccion B)
   app/jev_senales.py   el job y las lecturas de pantalla (seccion C)
@@ -216,7 +216,8 @@ def probar_roster(
     """Regla de roster probado. FALLA CERRADO: cualquier duda es SinProbar.
 
     Probado si y solo si TODO se cumple:
-      1. hay acta, de una corrida ok, con finished_at > ahora - max_edad;
+      1. hay acta, de una corrida ok, con ahora - finished_at <= max_edad
+         (misma comparacion que windows: 48 h exactas todavia valen);
       2. los totales declarados son int e igualan a los recibidos, en ad
          groups Y en product ads (listados cerrados con prueba; un ad group
          saltado arrastra a sus anuncios sin dejar marca individual);
@@ -351,6 +352,7 @@ class PropuestaEnVeto:
     cola_id: int
     decision_id: int
     kind: Literal["negative", "harvest"]
+    modo: Literal["live", "shadow"]  # shadow nunca se aplica: el aviso lo dice
     origen: ClaveBusqueda
     destino: ClaveBusqueda | None
     destino_ilegible: bool
@@ -493,7 +495,7 @@ MotivoCierre = Literal[
     "ocupado",  # otra corrida tiene el candado: cero filas
     "completa",  # todas las unidades con sus pares
     "tope",  # se acabo el cupo; el resto quedo sellado con lo que habia
-    "proveedor_caido",  # N fallos seguidos: se dejo de pagar, se siguio sellando
+    "proveedor_caido",  # 5 fallos seguidos: se dejo de pagar, se siguio sellando
     "sin_api_key",  # corrida solo con hechos de venta
 ]
 
@@ -562,7 +564,7 @@ def correr(
     #          INSERT jev_aviso_entrega(aviso_id); COMMIT
     #    Un aviso sin entrega se reintenta en la corrida siguiente con el MISMO
     #    texto guardado; canal inactivo no cuenta como entrega.
-    # 8. INSERT jev_corrida(lote, 'fin', motivo, resumen); COMMIT
+    # 8. INSERT jev_corrida(lote, 'fin', cierre, resumen); COMMIT
     #    (el 'inicio' se inserta junto con el lote, en el paso 5)
     """
     raise NotImplementedError
@@ -577,6 +579,11 @@ def main(argv: list[str]) -> int:
 
 
 # --- lecturas de pantalla: SOLO SELECT, conexion de lectura, cero HTTP -------------
+
+
+# SenalVista y SenalPropuesta se DEFINEN en app/jev_lectura.py (puro), aunque
+# quien las llena es jev_senales: jev_vista.texto_aviso las recibe, y la guarda
+# de pureza de jev_vista no le deja importar un modulo con IO.
 
 
 @dataclass(frozen=True)

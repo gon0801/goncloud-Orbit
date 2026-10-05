@@ -15,7 +15,10 @@ sobre Ads nace de esa señal sola.
 **Spec:** [diseño de JEV ADS 02](../docs/superpowers/specs/2026-10-04-jev-ads-02-design.md),
 que es delta del [diseño de JEV ADS 01](../docs/superpowers/specs/2026-10-03-jev-ads-design.md).
 Precedencia: `docs/CONTEXTO.md` > `docs/APPLY.md` > diseño 01 > diseño 02 >
-este plan. Cada efecto sobre Ads tiene además su propia fila de spec y sello.
+este plan. En lo que el diseño 02 declara cambiar (la reutilización de
+juicios, el roster probado y el job automático), prevalece sobre el 01. Cada
+efecto sobre Ads tiene además su propia fila de spec y sello. El detalle paso
+a paso del bloque S está en [la guía de construcción](jev-ads-02-bloque-s.md).
 
 **Alcance:** las cinco ampliaciones que el dueño pidió el 2026-10-04,
 reordenadas por lo que mostraron los prototipos. Reseñas, generación de
@@ -213,6 +216,7 @@ pueden ser las que se usaron para corregir fichas.
 | No hay aviso de fichas por vencer (las primeras, el 2027-01-02). | Bloque de `/salud` de S.4. |
 | El CLI manual no retoma una revisión después de la ingesta diaria (`synced_at`). | Lo cierra S.2. |
 | El CLI manual y el job reutilizan juicios con reglas distintas. | Aceptado; se unifica o se retira el CLI cuando el job lleve un mes. |
+| El CLI manual no toma el candado del job ni respeta el tope diario. | Aceptado en el spec: lo que paga cuenta para el día; el total puede pasar del tope por el presupuesto de esa corrida. |
 | Una decisión de harvest sin destino legible. | El job la avisa con ese motivo, no revienta. |
 | Las semillas del plan van normalizadas y los términos vendedores crudos. | Lo cierra 5.1. |
 

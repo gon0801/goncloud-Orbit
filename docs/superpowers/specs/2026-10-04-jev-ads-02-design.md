@@ -1,7 +1,7 @@
 # Diseño de JEV ADS 02: la señal por búsqueda-en-grupo
 
 **Estado:** sellado por el dueño el 2026-10-04 ("va, a las cuatro cosas"; ver
-"Lo que el dueño selló"). Es el spec
+"Lo que el dueño selló" y "Correcciones posteriores al sello"). Es el spec
 delta de la tarea 0.1 de [JEV ADS 02](../../../plans/jev-ads-02.md). El
 [diseño de JEV ADS 01](2026-10-03-jev-ads-design.md) sigue vigente para tipos,
 fichas, composición y el contrato con TypeSafe; aquí solo va lo que se agrega
@@ -149,7 +149,7 @@ Decisiones que cargan peso:
 | `app/jev_lectura.py` | nuevo, puro | Tipos de la señal, `leer`, `leer_destino`, `anunciados_hoy`, `probar_roster`, `planear`, `ajustes_desde_settings` |
 | `app/jev_libro.py` | nuevo, IO | El libro de juicios por par: único que inserta eventos `intencion` y `resultado` (lo que cuesta dinero) y único que conoce el tope diario |
 | `app/jev_senales.py` | nuevo, IO | El job (`correr`, `main`) y las tres lecturas de pantalla. Único que conoce `jev_senal`, `jev_roster`, `jev_aviso*` y `jev_corrida` |
-| `app/jev_vista.py` | tocado, puro | Texto del aviso, frases por lectura y bandas de proporción |
+| `app/jev_vista.py` | tocado, puro | Texto del aviso, frases por lectura y bandas de proporción. Sus tipos de entrada (`SenalVista`, `SenalPropuesta`, `PropuestaEnVeto`) viven en `jev_lectura`, porque la guarda de pureza no le deja importar un módulo con IO |
 | `app/jev_asesor.py` | tocado | Deja de insertar `intencion` y `resultado` a mano: llama a `Libro.pagar`. Conserva sus eventos `reutilizacion` y su política |
 | `app/jev_catalogo.py` | tocado | `resolver_fichas`: la regla de fichas sale de `_enriquecer` para que asesor y roster usen la misma |
 | `app/ads/structure*.py` | tocados | Registrar el acta de listado. `listar_todo` conserva su firma como envoltura de `listar_con_prueba`, que devuelve además el total declarado (el de la primera página que lo traiga) y lo coteja contra el acumulado al final, como el guard de hoy |
@@ -310,7 +310,7 @@ CREATE TABLE jev_aviso_entrega (         -- existe solo si Telegram aceptó el m
 CREATE TABLE jev_corrida (               -- rastro para /salud: dos eventos por corrida
     lote_id UUID NOT NULL REFERENCES jev_revision(solicitud),
     evento TEXT NOT NULL CHECK (evento IN ('inicio','fin')),
-    motivo TEXT, resumen JSONB, at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    cierre TEXT, resumen JSONB, at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (lote_id, evento));
 
 CREATE VIEW jev_senal_vigente AS         -- LA vigencia, definida una sola vez
@@ -324,7 +324,10 @@ SELECT DISTINCT ON (s.ad_group_id, s.termino_sha256)
 ```
 
 Todas las tablas nuevas son append-only (`prohibir_mutacion`) y llevan índice
-en cada clave foránea, como hizo 0049.
+en cada clave foránea, como hizo 0049. La migración agrega además un índice
+parcial sobre `jev_par_evento (created_at) WHERE tipo = 'intencion'`: el tope
+cuenta las intenciones del día bajo candado, y `/salud` lo consulta en cada
+carga de página.
 
 **`insumos_sha256`** es el hash canónico de todo lo que entra a `leer` más el
 día en que se selló: versión de la regla, contrato, `roster_sha256`,
@@ -351,9 +354,16 @@ omisión, `app_decide` y `app_ingest` ya pueden leer `jev_revision`,
 Jev es la guarda de imports. La migración B revoca también en las cuatro
 tablas de 0049 y termina con un bloque que falla si `app_decide` puede leer
 cualquier tabla `jev_*` o si `app_jev` puede leer `decision`, `apply_queue` o
-`search_term_observation`. Las tablas de Jev no tienen FK hacia tablas del
-motor: guardan el número que les pasa el lector, y así Jev no toma ningún
-candado sobre una fila de la cola.
+`search_term_observation`. Las tablas nuevas no tienen FK hacia tablas del
+motor: guardan el número que les pasa el lector, y así el job no toma ningún
+candado sobre una fila de la cola. La única FK de Jev al motor sigue siendo
+`jev_revision.decision_id`, de 0049, que una fila `lote` deja en NULL.
+
+**Reversa.** La de la migración A borra sus dos tablas aunque tengan filas:
+el acta se vuelve a generar en la siguiente corrida. La de la migración B solo
+sirve antes de la primera corrida con `--aplicar`, igual que la de 0049:
+después hay filas `lote` en una tabla append-only, y lo que se revierte es el
+interruptor, no el esquema.
 
 **Logins.** El job lee con `ORBIT_DSN_READ` y escribe con `ORBIT_DSN_JEV`, un
 login nuevo `orbit_jev` miembro solo de `app_jev`. `app_jev` no gana ningún
@@ -380,8 +390,9 @@ fila. Una corrida que falla no deja acta.
 **La regla** (`probar_roster`). Probado solo si todo se cumple; cada condición
 que falla agrega su motivo:
 
-1. Hay acta de una corrida ok con menos de `windows.MAX_EDAD_SYNC` (48 h, el
-   número que el motor ya usa).
+1. Hay acta de una corrida ok cuya edad no pasa de `windows.MAX_EDAD_SYNC`
+   (48 h). Es el mismo número y la misma comparación que usa el motor: 48 h
+   exactas todavía valen.
 2. Los totales declarados existen e igualan a los recibidos, en ad groups y
    en product ads.
 3. No hubo anuncios sin grupo.
@@ -399,7 +410,9 @@ producto y ficha.
 ### El trabajo fuera del ciclo
 
 - **Qué toma y en qué orden** (`planear`, puro). Primero las propuestas
-  `negative` y harvest en `pending_veto` o `released`, por vencimiento.
+  `negative` y harvest en `pending_veto` o `released`, por vencimiento. Lee
+  también el `modo` de cada fila: una propuesta en `shadow` recibe su señal,
+  pero nunca se aplica, y el aviso lo dice.
   Después las búsquedas con gasto y cero órdenes en la ventana madura, desde
   `jev.min_clics`, no ASIN-like y sin corte ya aplicado por Orbit: primero las
   que necesitan a Jev para tener lectura, por gasto y alternando plataformas
@@ -411,7 +424,10 @@ producto y ficha.
   `intencion` del día UTC, de cualquier origen. La reserva es atómica: candado
   de transacción, conteo, inserción de la intención, commit, y solo entonces
   el HTTP. No hay tabla de contador. Sin clave de API no se abre ninguna
-  intención.
+  intención. El CLI manual no respeta el tope ni toma el candado del job: lo
+  que paga cuenta para el día, y el job paga solo lo que falte para llegar al
+  tope. Si alguien lo corre a mano, el total del día puede pasar del tope por
+  el presupuesto de esa corrida.
 - **Apagado.** `Apagado` si `jev.senales` no es el JSON `true`, o si
   `jev.tope_diario` o `jev.min_clics` faltan o no son enteros válidos. Apagado
   significa cero filas y cero HTTP. `jev.tope_diario = 0` es un modo válido.
@@ -533,9 +549,13 @@ No se construye ningún efecto. Queda la forma del dato.
 11. **Una venta no se borra por un día sin dato.** Historial con una orden un
     día y `orders` NULL otro día: `vendio_aqui`.
 
-La guarda de imports revisa además `apply_harvest_reconciliacion.py`,
-`notifica.py` y `app/optimizer/*`, y suma a su lista de prohibidos los tres
-módulos nuevos. Las pruebas usan
+La guarda de imports se invierte y se muda a `tests/test_architecture.py`,
+que es el archivo que corre en cada PR. En vez de revisar tres archivos del
+motor, recorre todo `app/` y `tools/` y solo deja importar módulos de Jev a
+una lista corta: los propios módulos de Jev, `app/cli.py`, `app/api_dashboard.py`,
+`app/fabrica_web.py` y los dos CLI de `tools/`. Así `notifica.py`,
+`app/optimizer/*`, `apply.py` y cualquier archivo futuro del motor quedan
+cubiertos sin nombrarlos. Las pruebas usan
 búsquedas sintéticas: el repo es público.
 
 ### Orden de entrega
@@ -643,6 +663,25 @@ Lo que el dueño selló el 2026-10-04:
 
 Encender cada interruptor en producción sigue siendo un cambio de config
 aparte, con su go.
+
+### Correcciones posteriores al sello
+
+El sello es de las 20:33 (commit `f81caac`). Dos rondas de revisión y la
+lectura para el plan detallado corrigieron el documento después. Ninguna
+cambia las cuatro cosas selladas; todas arreglan cómo se cumplen. Están aquí
+para que el dueño pueda objetarlas:
+
+- El universo de una señal son los productos anunciados hoy (`anunciados_hoy`).
+- La moneda es obligatoria en cada señal y va atada a la plataforma.
+- El historial lleva su propio cálculo; `windows.py` solo comparte una
+  subconsulta.
+- DDL explícito del sujeto `lote`, y definición de `insumos_sha256` y
+  `valida_hasta`.
+- El paso 8 trae código, no solo config.
+- Este documento prevalece sobre el diseño 01 en lo que declara cambiar.
+- La guarda de imports pasa a ser una lista de quién puede importar Jev.
+- Una propuesta en `shadow` recibe señal y su aviso dice que no se aplica.
+- El CLI manual cuenta para el tope del día y no lo respeta.
 
 Lo que falta saber:
 

@@ -1,7 +1,7 @@
 # Prototipos que cambiaron el diseño (2026-10-04)
 
 Lecturas de producción con `orbit_read` y una corrida de Jev autorizada y
-ejecutada por el dueño. Ventana: la de cortes del motor (30 días que terminan
+ejecutada por el dueño. Las consultas están en `consultas/`. Ventana: la de cortes del motor (30 días que terminan
 10 días atrás), términos de texto, última observación por día. Las consultas
 y el detalle por búsqueda viven en una carpeta privada del lead; aquí van los
 resultados agregados. Las búsquedas citadas son términos de compradores, no
@@ -76,10 +76,14 @@ Ejemplos:
   separa oro de plata producto por producto.
 - Todos: "arras para boda catolica" 177 de 177; "arras" 22 de 22.
 - **Error de Jev:** una búsqueda de una sola palabra que no tiene que ver con
-  el catálogo dio "sí" en 90 de 176 productos, porque esa palabra aparecía en
+  el catálogo dio "sí" en 90 de los 177 productos de su grupo (86 "no" y 1
+  fallo del proveedor), porque esa palabra aparecía en
   la descripción del acabado de una familia entera. Coincidencia literal. El
   dueño aprobó cambiar esa frase de la ficha. Con las fichas corregidas la
   misma búsqueda dio 0 de 177 (`../ejecucion/0.2/NOTAS.md`).
+
+La tabla es anterior a la corrección de fichas: esa búsqueda cuenta ahí como
+"una parte".
 
 Implicaciones:
 
@@ -98,6 +102,10 @@ Implicaciones:
   consulta "como se veía en la fecha X" es posible con esa profundidad.
 - No hay tabla de negative keywords ingeridos. Lo único en base son los que
   Orbit aplicó: 2 `negative` y 6 harvest.
+- **El universo del diseño son los anuncios ENABLED o PAUSED.** Medido así,
+  los productos cubiertos siguen siendo 249 de 249 en MX y 119 de 119 en US,
+  ningún producto tiene solo anuncios pausados y ningún grupo con gasto tiene
+  un anuncio activo sin producto.
 - **Productos solo archivados.** En MX, 8 de los 22 grupos con gasto conservan
   miembros cuyos anuncios están todos archivados (622 en total); en US,
   ninguno. `componer` los cuenta como `no_anunciado` y con ellos nunca da
