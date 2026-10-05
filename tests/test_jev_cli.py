@@ -1272,3 +1272,29 @@ def test_un_fallo_no_se_repaga_en_el_mismo_lote_y_el_seco_lo_dice():
             cli_jev([*argv, "--aplicar"], pedir=pedido, dsn=_dsn_jev(), imprimir=salida.append) == 0
         )
         assert len(pedido.llamados) == 2
+
+
+def test_reanudacion_ignora_synced_at_y_llama_solo_al_pendiente():
+    """Arreglo de reanudacion (S.2): con el presupuesto agotado a la mitad,
+    mover `synced_at` y releer el censo no es otro payload; retoma y llama
+    solo al termino pendiente."""
+    from app.jev_catalogo import censo_grupo
+
+    with db_jev() as conn:
+        censo, _, _, grupo = _grupo_con_fichas(conn, con_ficha_p2=False)
+        solicitud = uuid.uuid4()
+        pedido1 = _Pedido(guion={"t1": "satisface"})
+        AsesorAds(conn, pedir=pedido1, api_key="k", presupuesto=1, ahora=lambda: AHORA).evaluar(
+            _sujeto(censo, terminos=("t1", "t2")), solicitud_id=solicitud
+        )
+        assert pedido1.llamados == ["t1"]
+        conn.execute("UPDATE ad_entity_state SET synced_at = now() + interval '1 minute'")
+        releido = censo_grupo(conn, plataforma="amazon_mx", ad_group_id=grupo)
+        pedido2 = _Pedido(guion={"t2": "no_satisface"})
+        revision = AsesorAds(
+            conn, pedir=pedido2, api_key="k", presupuesto=5, ahora=lambda: AHORA
+        ).evaluar(_sujeto(releido, terminos=("t1", "t2")), solicitud_id=solicitud)
+        assert pedido2.llamados == ["t2"]
+        por_termino = dict(revision.resultados)
+        assert isinstance(por_termino["t1"], HayCompatible)
+        assert isinstance(por_termino["t2"], Indeterminado)
