@@ -89,7 +89,7 @@ def test_compose_db_no_recibe_ningun_dsn():
     assert "env_file" not in operativas_app, "app hereda TODO el .env por env_file"
     # JEV ADS 02 S.3: conjunto EXACTO de cinco DSN. Un sexto DSN o uno
     # faltante revienta: la interpolacion es la unica via de entrada.
-    nombres = set(re.findall(r"ORBIT_DSN_([A-Z0-9_]+):", operativas_app))
+    nombres = set(re.findall(r'ORBIT_DSN_([A-Z0-9_]+)"?:', operativas_app))
     assert nombres == {"INGEST", "DECIDE", "READ", "ADMIN", "JEV"}, (
         f"app recibe DSNs distintos de los cinco de servicio: {sorted(nombres)}"
     )

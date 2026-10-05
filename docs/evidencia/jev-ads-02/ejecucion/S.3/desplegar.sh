@@ -141,5 +141,5 @@ ssh goncloud "set -e; cd $SRV; \
   docker exec orbit-app-1 printenv ORBIT_DSN_JEV | grep -q . && echo JEV-DSN-presente || { echo JEV-DSN-AUSENTE; exit 1; }"
 
 echo "== LISTO. STAMP=$STAMP"
-echo "Siguiente: bash $DIR/checklist.sh"
+echo "Siguiente: bash $DIR/checklist.sh $STAMP"
 echo "Reversa:   bash $DIR/rollback.sh $STAMP"

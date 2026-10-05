@@ -8,10 +8,12 @@
 # (el servidor no contesta o una lectura salio vacia, sin ninguna FALLA
 # medida). Una FALLA medida sale con 1 aunque otra lectura quede vacia.
 # "Posterior" cuenta desde el arranque del contenedor nuevo
-# (docker inspect StartedAt), no desde un sello: por eso no toma argumentos.
-# Uso: cd ~/dev/goncloud-Orbit && bash docs/evidencia/jev-ads-02/ejecucion/S.3/checklist.sh > docs/evidencia/jev-ads-02/ejecucion/S.3/checklist-salida.txt; echo "exit=$?"
+# (docker inspect StartedAt), no desde el sello: el sello que toma como
+# argumento es solo informativo (sale en el encabezado de la corrida).
+# Uso: cd ~/dev/goncloud-Orbit && bash docs/evidencia/jev-ads-02/ejecucion/S.3/checklist.sh <STAMP> > docs/evidencia/jev-ads-02/ejecucion/S.3/checklist-salida.txt; echo "exit=$?"
 set -uo pipefail
 
+SELLO=${1:-sin-sello}
 REPO=$(git rev-parse --show-toplevel)
 DIR=docs/evidencia/jev-ads-02/ejecucion/S.3
 FALLAS=0
@@ -33,7 +35,7 @@ revisa "orbit-app-1 corriendo" true "$RUNNING"
 DESDE=$(ssh goncloud "docker inspect -f '{{.State.StartedAt}}' orbit-app-1" || true)
 if [ -z "$DESDE" ]; then echo "NO MEDIDO arranque del contenedor (StartedAt vacio)"; NOMEDIDO=$((NOMEDIDO + 1)); fi
 
-echo "== Checklist S.3 (solo lectura; contenedor desde ${DESDE:-sin-dato})"
+echo "== Checklist S.3 (solo lectura; sello $SELLO, contenedor desde ${DESDE:-sin-dato})"
 
 echo "== 1) HTTP: health, /cortes, /salud"
 revisa "GET /health" 200 "$(ssh goncloud 'curl -s -o /dev/null -w %{http_code} http://127.0.0.1:8010/health')"
@@ -97,5 +99,5 @@ fi
 
 echo "== RESULTADO: $FALLAS falla(s), $NOMEDIDO sin medir, ciclo posterior $([ "$PENDIENTE" = 1 ] && echo PENDIENTE || echo comprobado)"
 [ "$FALLAS" -eq 0 ] || exit 1
-[ "$PENDIENTE" = 0 ] || exit 3
 [ "$NOMEDIDO" = 0 ] || exit 4
+[ "$PENDIENTE" = 0 ] || exit 3

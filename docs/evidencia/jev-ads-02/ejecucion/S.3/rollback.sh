@@ -79,6 +79,6 @@ LINEA=$(ssh goncloud "grep -c '^ORBIT_DSN_JEV=' $SRV/.env") || LINEA=""
 echo "$R"
 echo "login=$ROLES env=$LINEA"
 [ "$R" = "f|t|t|t|t" ] || { echo "FALLA: la reversa no devolvio el esquema (app_decide sin SELECT en 0049)"; exit 1; }
-[ "$ROLES" = "1" ] && [ "$LINEA" = "1" ] || { echo "FALLA: orbit_jev o la linea ORBIT_DSN_JEV se perdieron (debieron quedarse)"; exit 1; }
+if [ "$MODO" != "--solo-esquema" ]; then [ "$ROLES" = "1" ] && [ "$LINEA" = "1" ] || { echo "FALLA: orbit_jev o la linea ORBIT_DSN_JEV se perdieron (debieron quedarse)"; exit 1; }; fi
 echo "== REVERSA LISTA. Esquema previo de respaldo: $SRV/backups/pre0052_schema_$STAMP.sql"
 echo "NOTA: orbit_jev y ORBIT_DSN_JEV se dejan a proposito (sin las tablas no hacen nada)."
