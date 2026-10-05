@@ -1,0 +1,28 @@
+== 0) El servidor contesta (posterior se cuenta desde el arranque, sello 20261005-1535 solo para los logs)
+OK    contenedor orbit-app-1 corriendo = true
+arranque del contenedor: 2026-10-04T22:53:53.390439208Z
+== 1) HTTP: health, /cortes, asesoria inexistente
+OK    GET /health = 200
+OK    GET /cortes = 200
+OK    GET /api/dashboard/cortes = 200
+OK    GET /api/fabrica/asesoria/<64 ceros> = 404
+OK    logs 'asesoria Jev ilegible' desde el sello = 0
+== 2) CLI dentro del contenedor, sin credenciales; Jev sigue apagado
+OK    tools.jev_ads sin ORBIT_DSN_ADMIN (exit) = 2
+OK    tools.jev_fichas --help (exit) = 0
+OK    cycle/apply_cola/apply_harvest importan app.jev_* = False
+filas Jev (fichas|revisiones|eventos, informativo): 868|24|11272
+== 3) Permisos y esquema S.1 (consulta como orbit_read)
+FALLA permisos.sql: esperado 'permisos OK', obtenido 'PERMISOS FALLAN: tablas del acta ausentes (pre-0051)'
+OK    orbit_admin miembro de app_jev (CLI del asesor) = t
+FALLA tablas del acta (plataforma|grupo): esperado 't|t', obtenido 'f|f'
+FALLA triggers append-only del acta: esperado '4', obtenido '0'
+== 4) Corrida de estructura posterior al arranque (2026-10-04T22:53:53.390439208Z)
+623 ok=true 2026-10-05 06:45:57.218469+00
+OK    ultima corrida posterior ok (623) = t
+FALLA acta de la corrida 623: tabla ausente (el despliegue la crea)
+== 5) Primer ciclo del optimizador despues del arranque
+102 amazon_us done 2
+103 amazon_mx done 4
+OK    ciclos posteriores fallidos = 0
+== RESULTADO: 4 falla(s), prueba posterior comprobada, todo medido

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING
 
@@ -144,6 +145,113 @@ def _archivados_por_plataforma(estructura: EstructuraAds) -> dict[str, list[str]
         if ids:
             archivados.setdefault(platform, []).extend(ids)
     return archivados
+
+
+@dataclass(frozen=True)
+class ActaPlataforma:
+    """Acta de listado por plataforma (JEV ADS 02 S.1, tabla ads_listado_plataforma)."""
+
+    platform: str
+    ad_groups_recibidos: int
+    ad_groups_declarados: int | None
+    product_ads_recibidos: int
+    product_ads_declarados: int | None
+    product_ads_sin_grupo: int
+
+
+@dataclass(frozen=True)
+class ActaGrupo:
+    """Acta de listado por ad group (JEV ADS 02 S.1, tabla ads_listado_grupo)."""
+
+    platform: str
+    ad_group_id: int
+    anuncios_vivos: int
+    huella_vivos: str
+    descartados: int
+
+
+def huella_anuncios(ad_ids: list[str]) -> str:
+    """sha256 hex de los adId ordenados (JEV ADS 02 S.1).
+
+    La huella del acta por ad group: cambia con un solo adId distinto y no
+    con el orden del payload. La de vacio es el sha256 de la cadena vacia.
+    """
+    return hashlib.sha256("\n".join(sorted(ad_ids)).encode("utf-8")).hexdigest()
+
+
+@dataclass
+class _ActaGrupoMutable:
+    """Acumulador interno de armar_acta por ad group escrito."""
+
+    platform: str
+    ad_group_id: int
+    vivos: list[str] = field(default_factory=list)
+    descartados: int = 0
+
+
+def armar_acta(
+    estructura: EstructuraAds, refs: dict[tuple[str, str, str], int]
+) -> tuple[list[ActaPlataforma], list[ActaGrupo]]:
+    """Acta pura de lo listado: que llego, que se escribio, que se descarto.
+
+    Relee el payload crudo (como `_archivados_por_plataforma`) y lo cruza con
+    `refs`, el mapa (platform, kind, external_id) -> ad_entity.id de esta
+    corrida. Regla por cada product ad del payload: ARCHIVED no cuenta; sin
+    adGroupId suma a product_ads_sin_grupo de su plataforma; con un ad group
+    que no esta en refs no suma nada y ese grupo queda sin fila; si su
+    (platform, "product_ad", adId) esta en refs es un vivo escrito y su adId
+    entra a la huella de su grupo; en otro caso suma a descartados de su
+    grupo. El archivado se detecta por payload["state"]: el motivo de skip
+    de `_item_product_ad` no sirve (un archivado sin asin sale "sin asin").
+    """
+    plataformas: list[ActaPlataforma] = []
+    por_grupo: dict[tuple[str, int], _ActaGrupoMutable] = {}
+    for clave, entidad_id in refs.items():
+        platform, kind, _external = clave
+        if kind == "ad_group":
+            por_grupo[(platform, entidad_id)] = _ActaGrupoMutable(
+                platform=platform, ad_group_id=entidad_id
+            )
+    for est in estructura.estructuras:
+        platform = est.perfil.platform or ""
+        sin_grupo = 0
+        for payload in est.product_ads:
+            if payload.get("state") == ESTADO_ARCHIVED:
+                continue
+            ad_group_crudo = payload.get("adGroupId")
+            if ad_group_crudo is None:
+                sin_grupo += 1
+                continue
+            entidad_grupo = refs.get((platform, "ad_group", str(ad_group_crudo)))
+            if entidad_grupo is None:
+                continue
+            grupo = por_grupo[(platform, entidad_grupo)]
+            ad_id = payload.get("adId")
+            if ad_id is not None and (platform, "product_ad", str(ad_id)) in refs:
+                grupo.vivos.append(str(ad_id))
+            else:
+                grupo.descartados += 1
+        plataformas.append(
+            ActaPlataforma(
+                platform=platform,
+                ad_groups_recibidos=len(est.ad_groups),
+                ad_groups_declarados=est.ad_groups_declarados,
+                product_ads_recibidos=len(est.product_ads),
+                product_ads_declarados=est.product_ads_declarados,
+                product_ads_sin_grupo=sin_grupo,
+            )
+        )
+    grupos = [
+        ActaGrupo(
+            platform=acumulado.platform,
+            ad_group_id=acumulado.ad_group_id,
+            anuncios_vivos=len(acumulado.vivos),
+            huella_vivos=huella_anuncios(acumulado.vivos),
+            descartados=acumulado.descartados,
+        )
+        for _clave, acumulado in sorted(por_grupo.items())
+    ]
+    return plataformas, grupos
 
 
 def _plan_items(estructura: EstructuraAds) -> tuple[list[_ItemEntidad], Counter[str]]:
