@@ -1927,3 +1927,57 @@ def test_acta_no_suma_a_rows_written_ni_cambia_entidades():
             " WHERE ad_groups_declarados IS NULL AND product_ads_declarados IS NULL"
         ).fetchone()[0]
         assert nulos == 2
+
+
+def test_migracion_0051_trae_candados_del_acta():
+    """JEV ADS 02 S.1 (F1 revision automatica PR 403): la 0051 trae sus
+    invariantes fijos — 2 tablas x (UPDATE/DELETE + TRUNCATE), patron de
+    test_jev_catalogo.py:128 — y los 3 CHECK con nombre y forma."""
+    # 2 tablas x 2 capas: sin la de sentencia, un TRUNCATE borraria el acta
+    # sin pasar por prohibir_mutacion (hallazgo CodeRabbit, PR #1).
+    assert _SQL51.count("EXECUTE FUNCTION prohibir_mutacion()") == 4
+    assert "ads_listado_plataforma_append_only_truncate" in _SQL51
+    assert "ads_listado_grupo_append_only_truncate" in _SQL51
+    assert "ads_listado_plataforma_conteos_no_negativos" in _SQL51
+    assert "ads_listado_grupo_conteos_no_negativos" in _SQL51
+    assert "ads_listado_grupo_huella_formato" in _SQL51
+    assert "huella_vivos ~ '^[0-9a-f]{64}$'" in _SQL51
+
+
+@pytest.mark.skipif(
+    not _DSN_EXPLICITO and not _hay_postgres_local(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_migracion_0051_candados_muerden_en_vivo():
+    """JEV ADS 02 S.1 (F1 revision automatica PR 403): con la 0051 aplicada,
+    UPDATE/DELETE/TRUNCATE del acta y una huella no-hex revientan."""
+    psycopg = pytest.importorskip("psycopg")
+
+    with _db_acta("orbit_acta_candados") as conn:
+        res = sync_structure(conn, _estructura_con_product_ad("ENABLED"))
+        assert res.ok is True
+        grupo_id = conn.execute(
+            "SELECT id FROM ad_entity WHERE kind = 'ad_group' LIMIT 1"
+        ).fetchone()[0]
+        with pytest.raises(psycopg.errors.RestrictViolation):
+            conn.execute("UPDATE ads_listado_plataforma SET product_ads_sin_grupo = 9")
+        with pytest.raises(psycopg.errors.RestrictViolation):
+            conn.execute("DELETE FROM ads_listado_grupo")
+        with pytest.raises(psycopg.errors.RestrictViolation):
+            conn.execute("TRUNCATE ads_listado_grupo, ads_listado_plataforma")
+        with pytest.raises(psycopg.errors.CheckViolation):
+            conn.execute(
+                "INSERT INTO ads_listado_grupo"
+                " (ingest_run_id, platform, ad_group_id, anuncios_vivos,"
+                " huella_vivos, descartados)"
+                " VALUES (%s, 'amazon_mx', %s, 1, 'no-es-hex', 0)",
+                (res.run_id, grupo_id),
+            )
+        with pytest.raises(psycopg.errors.CheckViolation):
+            conn.execute(
+                "INSERT INTO ads_listado_plataforma"
+                " (ingest_run_id, platform, ad_groups_recibidos, ad_groups_declarados,"
+                " product_ads_recibidos, product_ads_declarados, product_ads_sin_grupo)"
+                " VALUES (%s, 'amazon_us', -1, NULL, 0, NULL, 0)",
+                (res.run_id,),
+            )
