@@ -33,7 +33,7 @@ Cinco lecturas de producción y una corrida de Jev (resultados en
 - **Lo que distingue un bloqueo sano de uno peligroso son las ventas.** En 11
   de esas 17 la búsqueda vende en otro grupo (bloquear aquí consolida); en 8 el
   propio grupo tiene ventas en su historial (bloquear es el riesgo).
-- **Lo ajeno es poco.** En la muestra, 10.7% del gasto sin venta en MX y 1.6%
+- **Lo ajeno es poco.** En la muestra, 10.7% del gasto sin venta en MX y 1.5%
   en US.
 - **La proporción es lo útil de Jev.** "Corresponde a 20 de 208 productos" y
   "a 177 de 177" son búsquedas distintas. Cerca de la mitad del gasto sin
@@ -66,7 +66,7 @@ Lectura de producción del 2026-10-04 con `orbit_read`; consulta y salida en
   2 descartados) y 7 harvest (6 aplicados, 1 vetado). El histórico de
   decisiones tiene 52 `negative` sobre 18 pares distintos y 11 harvest sobre
   10 pares.
-- **Costo.** El prototipo midió unas 94 llamadas por búsqueda (el grupo
+- **Costo.** El prototipo midió unas 96 llamadas por búsqueda (el grupo
   completo) y 259 ms de mediana. La evidencia del diseño anota un precio de
   documentación de 0.042 USD por millón de tokens de entrada; con ese precio
   el prototipo de 4,811 llamadas costó cerca de 0.25 USD. Lo que escasea es el
@@ -140,8 +140,8 @@ el criterio, la fila se cierra como "no se construye", con el motivo.
 | 0.1 | `[stage:planificacion] [lane:gate]` Spec delta y sello del dueño. | El dueño sella los contratos que cambian y los valores de `jev.tope_diario`, `jev.min_clics` y el horario. | - | cc:DONE (sellado 2026-10-04: dos corridas al día, reutilización de juicios, "ninguno" con roster probado, tope 5,000 y 3 clics) |
 | 0.2 | `[stage:medicion] [lane:release]` Completar fichas en MX y US. | Todo producto con anuncio ENABLED tiene una ficha vigente que cubre todos sus listings. | - | cc:DONE (249 de 249 y 119 de 119: `ejecucion/0.2/NOTAS.md`) |
 | 0.3 | `[stage:investigacion] [lane:fast]` Confirmar y versionar la tarifa de TypeSafe. | Tarifa con su fuente y fecha; costo del piloto y del prototipo calculado con su `usage`. | - | cc:TODO |
-| 0.4 | `[stage:investigacion] [lane:gate]` Roster probado: regla y viabilidad. | Regla escrita; grupos que la cumplirían; conteo de anuncios sin producto. | - | cc:DONE (regla en el spec; 22 y 11 grupos con gasto la cumplirían si Amazon declara los totales, lo que mide S.1; los anuncios sin producto no tienen `listing_id` y están en grupos sin gasto: `diseno/prototipos.md`) |
-| 0.5 | `[stage:medicion] [lane:release]` Sensibilidad al orden de las opciones Choice. | Reporte con denominadores; si pasa del umbral sellado, se corrige el contrato antes de S.7. | 0.1 | cc:TODO |
+| 0.4 | `[stage:investigacion] [lane:gate]` Roster probado: regla y viabilidad. | Regla escrita; grupos que la cumplirían; conteo de anuncios sin producto. | - | cc:DONE (regla en el spec; viabilidad medida: Amazon declara los totales en las dos plataformas y en los 22 y 11 grupos con gasto todo anuncio activo liga a producto; las condiciones de descartados y huella las mide S.1; los anuncios sin producto no tienen `listing_id` y están en grupos sin gasto: `diseno/prototipos.md`) |
+| 0.5 | `[stage:medicion] [lane:release]` Sensibilidad al orden de las opciones Choice. | Reporte con denominadores: cuántos pares cambian de respuesta al invertir el orden. El dueño decide con ese dato si se corrige el contrato antes de S.7. | 0.1 | cc:TODO |
 
 ### Bloque S — la señal (opciones 1, 2 y 4)
 
@@ -150,10 +150,10 @@ cambiar nada visible hasta su interruptor.
 
 | Task | Contenido | DoD | Depends | Status |
 | --- | --- | --- | --- | --- |
-| S.1 | `[stage:implementacion] [lane:gate] [tdd:required]` Acta de listado en la ingesta de estructura. | Una corrida ok deja acta por plataforma y por ad group en su misma transacción; una que falla no deja ninguna. Tras la primera corrida real: si Amazon declara los totales y cuántos grupos cumplen la regla. | 0.1 | cc:TODO |
-| S.2 | `[stage:implementacion] [lane:gate] [tdd:required]` Núcleo puro `jev_lectura.py` y los dos traslados sin cambio de comportamiento (`Libro.pagar`, `resolver_fichas`). | Pruebas 1, 2 y 3 del spec en tabla; las pruebas del asesor de JEV ADS 01 pasan sin tocarse. | 0.1 | cc:TODO |
-| S.3 | `[stage:implementacion] [lane:gate] [tdd:required]` Migración de señales, login `orbit_jev` y `ORBIT_DSN_JEV`. | Prueba 7 (perímetro de roles, incluidas las tablas de 0049); reversa de la migración ensayada. | S.2 | cc:TODO |
-| S.4 | `[stage:implementacion] [lane:gate] [tdd:required]` El job `jev-senales`, su cron y el bloque de `/salud`. Guarda de imports ampliada. | Pruebas 4, 5 y 6 del spec; seco por omisión; con el interruptor ausente no escribe ni llama. | S.1, S.3 | cc:TODO |
+| S.1 | `[stage:implementacion] [lane:gate] [tdd:required]` Acta de listado en la ingesta de estructura. | Una corrida ok deja acta por plataforma y por ad group en su misma transacción; una que falla no deja ninguna. Tras la primera corrida real: cuántos grupos cumplen la regla. | 0.1 | cc:TODO |
+| S.2 | `[stage:implementacion] [lane:gate] [tdd:required]` Núcleo puro `jev_lectura.py` y los dos traslados sin cambio de comportamiento (`Libro.pagar`, `resolver_fichas`). | La parte pura de las pruebas 1, 2, 3, 10 y 11 del spec, como tablas de `leer` y `probar_roster`; las pruebas del asesor de JEV ADS 01 pasan sin tocarse. | 0.1 | cc:TODO |
+| S.3 | `[stage:implementacion] [lane:gate] [tdd:required]` Migración de señales, login `orbit_jev` y `ORBIT_DSN_JEV` (`docker-compose.yml`, el script de logins de `docs/DEPLOY.md` y `tests/test_compose_deploy.py`, que hoy fija cuatro DSN). | Prueba 7 (perímetro de roles, incluidas las tablas de 0049); la mitad de base de la prueba 1 (los CHECK rechazan `ajena` sin roster o con NULL) y el CHECK de moneda; reversa de la migración ensayada. | S.2 | cc:TODO |
+| S.4 | `[stage:implementacion] [lane:gate] [tdd:required]` El job `jev-senales`, su cron y el bloque de `/salud`. Guarda de imports ampliada. | Pruebas 4, 5 y 6 del spec y la mitad de madurez de la 3; seco por omisión; con el interruptor ausente no escribe ni llama. | S.1, S.3 | cc:TODO |
 | S.5 | `[stage:implementacion] [lane:gate] [tdd:required]` Señal en `/cortes` y pantalla `/gasto-sin-venta`. | Prueba 8; la proporción y los productos que dijeron "sí" a la vista; nunca "ninguno" sin roster probado. | S.4 | cc:TODO |
 | S.6 | `[stage:cierre-pr] [lane:release]` Encender con `jev.tope_diario = 0`. | Go del dueño; señales solo con ventas durante una semana; el ciclo y la cola sin diferencias. | S.5 | cc:TODO |
 | S.7 | `[stage:medicion] [lane:release]` Subir el tope y medir con el dueño. | Reporte por mercado, por búsqueda distinta y con etiquetas a ciegas: acuerdo con cada lectura, falsos "ajena", falsos "sí" por ficha, y cuántas de las señaladas vendieron después. | 0.3, 0.5, S.6 | cc:TODO |
@@ -204,7 +204,8 @@ pueden ser las que se usaron para corregir fichas.
 
 | Hueco | Estado |
 | --- | --- |
-| ¿Amazon declara siempre los totales del listado? Sin eso ningún roster queda probado. | Lo mide S.1. |
+| Un producto con todos sus anuncios archivados impedía `ajena` en 8 de los 22 grupos con gasto de MX. | Resuelto en el spec: el roster de la señal cuenta solo lo anunciado hoy (prueba 10). |
+| ¿Amazon declara los totales del listado? | Sí, comprobado el 2026-10-04 en las dos plataformas (`diseno/prototipos.md`). S.1 registra que lo siga haciendo en cada corrida. |
 | Los negativos puestos a mano en Amazon no se ingieren. | Aceptado en el spec: la lista puede mostrar una búsqueda que ya no gasta. |
 | Un `negative` aplicado no bloquea su clave; el motor puede volver a proponerlo. | El job excluye los cortes aplicados por Orbit; el resto no cambia. |
 | Una abstención de Jev impide `ajena`. | Se mide en `/salud` desde S.4. |
@@ -217,7 +218,7 @@ pueden ser las que se usaron para corregir fichas.
 
 ## Pruebas que deben discriminar
 
-Las nueve del spec. Las que no pueden faltar en ningún bloque:
+Las once del spec. Las que no pueden faltar en ningún bloque:
 
 1. Interruptor ausente: el ciclo y la cola producen lo mismo que hoy.
 2. `ajena` nunca sin roster probado, ni en pantalla ni en la base.

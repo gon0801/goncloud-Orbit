@@ -53,16 +53,17 @@ búsqueda en otros grupos y el historial del propio grupo.
 ## 5. Prototipo con Jev
 
 Las 25 búsquedas de más gasto por mercado que no venden en ningún grupo, cada
-una contra todos los productos del grupo donde más gastó. 4,811 llamadas,
-unos 6 M de tokens de entrada (cerca de 0.25 USD al precio de documentación),
-9 fallos del proveedor y 11 abstenciones.
+una contra todos los productos del grupo donde más gastó. 4,811 pares (unos
+96 por búsqueda): 2,645 "sí", 2,146 "no", 11 abstenciones y 9 fallos del
+proveedor. Unos 6.1 M de tokens de entrada, cerca de 0.25 USD al precio de
+documentación.
 
 | Productos del grupo que corresponden | MX: búsquedas, % del gasto | US: búsquedas, % del gasto |
 | --- | --- | --- |
-| Ninguno (0 de n, sin fallos ni abstenciones) | 4, 10.7% | 1, 1.6% |
+| Ninguno (0 de n, sin fallos ni abstenciones) | 4, 10.7% | 1, 1.5% |
 | Casi ninguno (hasta 15%) | 3, 8.9% | 0 |
-| Una parte (por atributo: oro o plata, ley del metal) | 12, 48.1% | 10, 22.3% |
-| Todos o casi todos (95% o más) | 6, 32.3% | 10, 71.5% |
+| Una parte (por atributo: oro o plata, ley del metal) | 12, 48.1% | 13, 26.5% |
+| Todos o casi todos (95% o más) | 6, 32.3% | 11, 71.9% |
 
 Ejemplos:
 
@@ -96,6 +97,14 @@ Implicaciones:
   consulta "como se veía en la fecha X" es posible con esa profundidad.
 - No hay tabla de negative keywords ingeridos. Lo único en base son los que
   Orbit aplicó: 2 `negative` y 6 harvest.
+- **Productos solo archivados.** En MX, 8 de los 22 grupos con gasto conservan
+  miembros cuyos anuncios están todos archivados (622 en total); en US,
+  ninguno. `componer` los cuenta como `no_anunciado` y con ellos nunca da
+  "ninguno": el roster de una señal tiene que dejarlos fuera.
+- **Amazon declara el total de sus listados.** Una primera página de solo
+  lectura por plataforma (2026-10-04) trae `totalResults` como entero: ad
+  groups 193 en MX y 79 en US; product ads 31,068 y 6,918. El listado de
+  product ads viene en páginas de 1,000.
 - Por el permiso por omisión de `0001`, `app_decide` y `app_ingest` pueden
   leer hoy `jev_revision`, `jev_par_evento` y `jev_ficha_version`. `app_jev`
   no puede leer `decision`, `apply_queue` ni `search_term_observation`.

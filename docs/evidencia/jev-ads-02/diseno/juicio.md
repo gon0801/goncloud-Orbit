@@ -50,12 +50,33 @@ resincronización entre corridas.
 **Del prototipo, que los tres pasaron por alto.** Bandas de proporción y
 orden por proporción en la pantalla; mostrar qué productos dijeron "sí";
 medir en salud cuántas veces una abstención impide "ajena"; el tope diario, no
-el dinero, es el cuello (unas 94 llamadas por búsqueda).
+el dinero, es el cuello (unas 96 llamadas por búsqueda).
 
 **Rechazado.** El orden de B (un "ninguno" de Jev taparía órdenes del
 historial, y sin cupo no habría lectura). Parar al primer "sí" y no consultar
 a Jev cuando hay ventas (C): tira la proporción. Roster por `synced_at` o por
 conteo.
+
+## Lector fresco sobre el diseño sintetizado
+
+Un lector en otro modelo revisó el spec, el bosquejo y el plan contra el
+código antes de darlos por cerrados. Encontró un bloqueante y once no
+bloqueantes; todos se corrigieron en una ronda:
+
+- **Bloqueante:** `jev_senal` guardaba importes sin atarlos a una moneda
+  (regla 4 de CONTEXTO). Ahora la moneda es obligatoria y un CHECK la liga a
+  la plataforma.
+- **El más grave de los no bloqueantes:** `componer` cuenta como universo a
+  los productos con todos sus anuncios archivados, y con ellos nunca da
+  "ninguno". Comprobado en producción: afectaba a 8 de los 22 grupos con
+  gasto de MX. El roster de la señal ahora cuenta solo lo anunciado hoy.
+- El resto: DDL explícito del sujeto `lote`; definición de `insumos_sha256` y
+  `valida_hasta`; dónde vive la lectura del destino de un harvest; precedencia
+  frente al diseño 01; `listar_todo` como envoltura; el historial no puede
+  reusar el agregado del motor (un día sin dato borraría una venta) ni cabe
+  en `windows.py` (874 de 900 líneas); entrega falsa con el canal de Telegram
+  inactivo; texto del aviso con fecha en vez de horas restantes; y varios
+  desajustes entre plan y spec.
 
 ## Errores que el juez encontró en los candidatos
 

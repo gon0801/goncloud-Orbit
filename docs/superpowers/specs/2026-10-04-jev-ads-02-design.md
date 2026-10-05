@@ -6,7 +6,8 @@ delta de la tarea 0.1 de [JEV ADS 02](../../../plans/jev-ads-02.md). El
 [diseño de JEV ADS 01](2026-10-03-jev-ads-design.md) sigue vigente para tipos,
 fichas, composición y el contrato con TypeSafe; aquí solo va lo que se agrega
 o cambia. Precedencia: `docs/CONTEXTO.md` > `docs/APPLY.md` > diseño 01 > este
-documento > plan.
+documento > plan; en lo que este documento declara cambiar (la reutilización
+de juicios, el roster probado y el job automático) prevalece sobre el 01.
 
 Cómo se llegó: fundamento con lectura del código, cinco prototipos de solo
 lectura en producción, un prototipo con Jev que corrió el dueño, tres
@@ -21,7 +22,7 @@ prototipos mostraron que eso no separa nada en este catálogo:
 - De los 18 pares `negative` que el motor ha propuesto, 17 son búsquedas del
   catálogo. Jev diría "sí corresponde" casi siempre.
 - Casi todo el gasto sin venta es de búsquedas relevantes que no convierten en
-  ese grupo. Lo ajeno estricto fue 10.7% del gasto de la muestra en MX y 1.6%
+  ese grupo. Lo ajeno estricto fue 10.7% del gasto de la muestra en MX y 1.5%
   en US.
 - Lo que separa un bloqueo sano de uno peligroso está en datos que la base ya
   tiene y que el motor no mira al decidir por grupo: si la misma búsqueda
@@ -49,7 +50,7 @@ La forma no es obvia por cuatro restricciones que chocan:
 Cinco puntos de contacto. Ninguno coordina pasos internos.
 
 ```python
-# 1. Cron, fuera del ciclo. app/cli.py gana 5 líneas ("main del módulo").
+# 1. Cron, fuera del ciclo. app/cli.py gana unas 9 líneas ("main del módulo"); tiene 22 libres.
 #    30 9,21 * * * flock -n ... docker exec orbit-app-1 python -m app.cli jev-senales --aplicar
 if args.comando == "jev-senales":
     from app import jev_senales
@@ -99,7 +100,7 @@ Telegram, las pantallas y las costuras leen esa fila; nadie recalcula.
 
 | # | Condición | Lectura | Qué le dice al dueño |
 | --- | --- | --- | --- |
-| 1 | Órdenes en todo el historial de este grupo > 0 | `vendio_aqui` | Aquí ya convirtió. Bloquear es el riesgo. |
+| 1 | Alguna orden en todo el historial de este grupo, contando los días que traen dato | `vendio_aqui` | Aquí ya convirtió. Bloquear es el riesgo. |
 | 2 | Otro grupo de la plataforma tiene órdenes en su ventana madura | `vende_en_otro` | Bloquear aquí junta el tráfico donde ya vende. |
 | 3 | Sin observaciones, o falta un dato de órdenes | `sin_lectura` | Un dato faltante no es cero. |
 | 4 | No vende en ninguno y algún producto corresponde | `relevante_sin_venta` | Es del catálogo y no convierte. |
@@ -126,24 +127,38 @@ Decisiones que cargan peso:
 - **`ajena` es estricta y frágil a propósito.** Un solo falso "sí" o una
   abstención la impide. Es la clase que un efecto futuro podría leer. Para el
   dueño manda la proporción (ver "Superficies").
-- **Harvest.** Una propuesta de harvest son dos búsquedas-en-grupo: origen y
-  destino. Del destino solo importa la relevancia: `destino_corresponde`,
-  `destino_ajeno` o `sin_lectura`.
+- **Harvest.** Una propuesta de harvest son dos búsquedas-en-grupo, origen y
+  destino, y cada una es una señal completa con su `lectura` de `leer`. Para
+  el dueño, del destino importa la relevancia: `leer_destino(relevancia)` da
+  `destino_corresponde`, `destino_ajeno` o `sin_lectura`. Eso se deriva al
+  pintar y al avisar; no se guarda en `jev_senal`.
+- **El universo son los productos anunciados hoy.** El roster de una señal
+  deja fuera a los miembros cuyos anuncios están todos archivados, y
+  `miembros` cuenta solo los que tienen un anuncio ENABLED o PAUSED. Sin eso
+  `componer` agrega `no_anunciado` y `ajena` sería inalcanzable en 8 de los 22
+  grupos con gasto de MX, que conservan 622 productos solo archivados. El CLI
+  manual no cambia.
 
 ### Módulos
 
 | Archivo | Estado | Qué sabe |
 | --- | --- | --- |
 | `app/jev_lectura.py` | nuevo, puro | Tipos de la señal, `leer`, `leer_destino`, `probar_roster`, `planear`, `ajustes_desde_settings` |
-| `app/jev_libro.py` | nuevo, IO | El libro de juicios por par: único que inserta `jev_par_evento` y único que conoce el tope diario |
+| `app/jev_libro.py` | nuevo, IO | El libro de juicios por par: único que inserta eventos `intencion` y `resultado` (lo que cuesta dinero) y único que conoce el tope diario |
 | `app/jev_senales.py` | nuevo, IO | El job (`correr`, `main`) y las tres lecturas de pantalla. Único que conoce `jev_senal`, `jev_roster`, `jev_aviso*` y `jev_corrida` |
 | `app/jev_vista.py` | tocado, puro | Texto del aviso, frases por lectura y bandas de proporción |
-| `app/jev_asesor.py` | tocado | Deja de insertar eventos a mano: llama a `Libro.pagar`. Su política no cambia |
+| `app/jev_asesor.py` | tocado | Deja de insertar `intencion` y `resultado` a mano: llama a `Libro.pagar`. Conserva sus eventos `reutilizacion` y su política |
 | `app/jev_catalogo.py` | tocado | `resolver_fichas`: la regla de fichas sale de `_enriquecer` para que asesor y roster usen la misma |
-| `app/ads/structure*.py` | tocados | Registrar el acta de listado |
-| `app/optimizer/windows.py` | tocado | `historial_terminos`: las mismas sumas colapsadas, sin límite de fechas. No importa Jev |
-| `app/notifica.py` | tocado | `envia_aviso(texto) -> bool`, genérico y fail-silent. No importa Jev |
+| `app/ads/structure*.py` | tocados | Registrar el acta de listado. `listar_todo` queda como envoltura de `listar_con_prueba`, que devuelve además el total declarado; sus otros consumidores no cambian |
+| `app/optimizer/windows.py` | tocado | Expone la subconsulta de colapso (última observación por día) como constante compartida, sin cambiar `terminos_cortes`. Tiene 874 líneas de 900: no cabe una consulta nueva |
+| `app/notifica.py` | tocado | `envia_aviso(texto) -> bool`, genérico y fail-silent; devuelve False si el canal está inactivo. No importa Jev |
 | `app/cli.py`, `api_dashboard.py`, `ui.py`, plantillas | tocados | Registro del comando y las lecturas, con import perezoso |
+
+El historial ("¿vendió alguna vez aquí?") lo arma `jev_senales` sobre esa
+subconsulta compartida, con su propio agregado: cuenta las órdenes de los días
+que sí traen dato y marca aparte si algún día vino sin dato. No puede reusar
+el agregado del motor, que devuelve NULL si falta un solo día: un día sin dato
+borraría una venta real de otro día.
 
 Seguir un caso toca tres archivos: `cli` → `jev_senales.correr` →
 `jev_libro.juicio`. `jev_senales` expone cinco funciones y esconde dos
@@ -153,6 +168,10 @@ juicio de este par; paga solo si hace falta y hay cupo".
 
 ### Tipos que fijan invariantes
 
+El bosquejo completo, con cada firma y sus invariantes, está en
+`docs/evidencia/jev-ads-02/diseno/bosquejo.py`. No es código de `app/`: es el
+contrato que la implementación debe cumplir. Lo que sigue es el resumen.
+
 ```python
 Lectura = Literal["vendio_aqui", "vende_en_otro", "relevante_sin_venta", "ajena", "sin_lectura"]
 
@@ -161,7 +180,8 @@ class Economia:
     aqui: Gasto | None                      # ventana madura; None = sin observaciones
     otros_que_venden: tuple[VentaEnOtroGrupo, ...]   # solo con órdenes > 0
     otros_sin_dato: int                     # mientras sea > 0 no existe "no vende en ninguno"
-    historial: Gasto | None                 # todo lo observado; solo afirma "vendió"
+    historial: Historial | None             # todo lo observado; solo afirma "vendió":
+                                            # órdenes de los días con dato, y cuántos días sin dato
 
 PruebaRoster = RosterProbado | RosterSinProbar          # la prueba es un tipo, no un booleano
 
@@ -218,7 +238,20 @@ CREATE TABLE ads_listado_grupo (
     FOREIGN KEY (ingest_run_id, platform) REFERENCES ads_listado_plataforma);
 
 -- Migración B: señales.
--- jev_revision admite sujeto_tipo 'lote' (sin decisión ni plan).
+ALTER TABLE jev_revision
+  DROP CONSTRAINT jev_revision_sujeto_tipo_check,      -- CHECK inline de 0049
+  ADD  CONSTRAINT jev_revision_sujeto_tipo_check
+       CHECK (sujeto_tipo IN ('decision', 'semillas', 'lote')),
+  DROP CONSTRAINT jev_revision_sujeto_coherente,
+  ADD  CONSTRAINT jev_revision_sujeto_coherente CHECK (
+       (sujeto_tipo = 'decision' AND decision_id IS NOT NULL AND plan_canonico IS NULL
+            AND plan_sha256 IS NULL AND fuentes_semillas IS NULL)
+    OR (sujeto_tipo = 'semillas' AND decision_id IS NULL AND plan_canonico IS NOT NULL
+            AND plan_sha256 IS NOT NULL AND fuentes_semillas IS NOT NULL)
+    OR (sujeto_tipo = 'lote' AND decision_id IS NULL AND plan_canonico IS NULL
+            AND plan_sha256 IS NULL AND fuentes_semillas IS NULL));
+-- Una fila 'lote' llena `censos` (resumen del plan de la corrida) y `contrato`,
+-- que son NOT NULL. Los triggers de 0049 y 0050 la aceptan tal como están.
 CREATE TABLE jev_roster (                -- hecho 1 por contenido: sin synced_at y sin la prueba
     sha256 TEXT PRIMARY KEY, plataforma platform NOT NULL,
     ad_group_id BIGINT NOT NULL REFERENCES ad_entity(id),
@@ -238,7 +271,8 @@ CREATE TABLE jev_senal (
     motivos_jev TEXT[] NOT NULL DEFAULT '{}',
     productos_ok BIGINT[] NOT NULL DEFAULT '{}',
     evaluados INTEGER NOT NULL, miembros INTEGER NOT NULL, juicio_ids UUID[] NOT NULL DEFAULT '{}',
-    ventana_inicio DATE, ventana_fin DATE, datos_hasta TIMESTAMPTZ, moneda currency,
+    ventana_inicio DATE, ventana_fin DATE, datos_hasta TIMESTAMPTZ,
+    moneda currency NOT NULL,     -- la de la plataforma; todo importe de la fila, también en JSONB, va en ella
     clics BIGINT, gasto money_amount, ordenes INTEGER,           -- NULL = dato faltante, nunca cero
     otros_que_venden JSONB NOT NULL DEFAULT '[]', ordenes_otros INTEGER, otros_sin_dato INTEGER NOT NULL,
     historial JSONB, ordenes_historial INTEGER,
@@ -247,6 +281,8 @@ CREATE TABLE jev_senal (
     motivos_lectura TEXT[] NOT NULL DEFAULT '{}',
     valida_hasta TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (ad_group_id, termino_sha256, insumos_sha256),
+    CONSTRAINT jev_senal_moneda_de_plataforma CHECK (             -- regla 4 de CONTEXTO
+        (plataforma = 'amazon_mx' AND moneda = 'MXN') OR (plataforma = 'amazon_us' AND moneda = 'USD')),
     CONSTRAINT jev_senal_ajena_exige_roster CHECK (relevancia <> 'ajena'
         OR (roster_probado AND miembros > 0 AND evaluados = miembros
             AND cardinality(motivos_jev) = 0 AND cardinality(productos_ok) = 0)),
@@ -261,7 +297,8 @@ CREATE TABLE jev_aviso (                 -- lo que se le quiso decir al dueño, 
     cola_id BIGINT NOT NULL, decision_id BIGINT NOT NULL,      -- sin FK al motor
     senal_origen_id UUID NOT NULL REFERENCES jev_senal(id),
     senal_destino_id UUID REFERENCES jev_senal(id),
-    lectura TEXT NOT NULL, texto TEXT NOT NULL,
+    lectura TEXT NOT NULL,                -- la anunciada: la del origen; en harvest, la del destino
+    texto TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(), UNIQUE (cola_id, lectura));
 CREATE TABLE jev_aviso_entrega (         -- existe solo si Telegram aceptó el mensaje
     aviso_id UUID PRIMARY KEY REFERENCES jev_aviso(id),
@@ -282,7 +319,21 @@ SELECT DISTINCT ON (s.ad_group_id, s.termino_sha256)
   FROM jev_senal s ORDER BY s.ad_group_id, s.termino_sha256, s.created_at DESC, s.id DESC;
 ```
 
-Todas las tablas nuevas son append-only (`prohibir_mutacion`).
+Todas las tablas nuevas son append-only (`prohibir_mutacion`) y llevan índice
+en cada clave foránea, como hizo 0049.
+
+**`insumos_sha256`** es el hash canónico de todo lo que entra a `leer` más el
+día en que se selló: versión de la regla, contrato, `roster_sha256`,
+`roster_probado`, ventana, los números de venta (aquí, otros grupos,
+historial), la relevancia con sus `juicio_ids` y motivos, y la fecha UTC. Con
+eso, dos corridas del mismo día con los mismos datos no duplican la fila; una
+corrida que por fin logra los juicios que antes fallaron sí sella una nueva; y
+al día siguiente siempre hay fila nueva, aunque nada haya cambiado.
+
+**`valida_hasta`** es lo que ocurra primero: 36 horas desde que se selló, o el
+vencimiento más próximo (`revisar_antes_de`) de las fichas de su roster. Las 36
+horas son un latido operativo: si el job deja de correr, las señales dejan de
+estar vigentes solas.
 
 | Objeto | `app_jev` | `app_read`, `app_admin` | `app_ingest` | `app_decide` |
 | --- | --- | --- | --- | --- |
@@ -373,15 +424,17 @@ producto y ficha.
 ### Superficies
 
 **Telegram.** Un aviso por propuesta en veto cuando tiene lectura, y otro solo
-si la lectura cambia. Se inserta `jev_aviso` antes de enviar y
-`jev_aviso_entrega` solo si Telegram aceptó; un aviso sin entrega se reintenta
-en la corrida siguiente. Texto plano. Forma (lo que va entre ‹ › lo pone el
+si pasa a una lectura que no se le había anunciado. Se inserta `jev_aviso`
+antes de enviar y `jev_aviso_entrega` solo si Telegram aceptó; canal inactivo
+no cuenta como entrega. Un aviso sin entrega se reintenta en la corrida
+siguiente con el mismo texto guardado, y por eso el texto lleva la fecha en
+que se aplica, no "faltan n horas". Texto plano. Forma (lo que va entre ‹ › lo pone el
 job):
 
 ```
 [Orbit · Jev] negative en veto: "‹búsqueda›"
 ‹plataforma› · ad group ‹nombre›
-Se aplica solo el ‹fecha› (faltan ‹n› h) si no lo rechazas.
+Se aplica solo el ‹fecha y hora UTC› si no lo rechazas.
 
 YA VENDIÓ AQUÍ — RIESGO
 Aquí: 0 órdenes en la ventana, pero ‹n› órdenes y ‹n› clics en todo el historial.
@@ -466,11 +519,17 @@ No se construye ningún efecto. Queda la forma del dato.
    un transporte que revienta y conteos iguales antes y después; tras revocar
    una ficha, la señal sale "desactualizada"; y para toda fila guardada,
    `leer(...)` con sus insumos y su `regla_version` da la `lectura` guardada.
-9. **El aviso es honesto.** Telegram falla: hay `jev_aviso` y no hay entrega;
-   la corrida siguiente lo envía una sola vez.
+9. **El aviso es honesto.** Telegram falla o el canal está inactivo: hay
+   `jev_aviso` y no hay entrega; la corrida siguiente lo envía una sola vez.
+10. **El universo son los anunciados hoy.** Un grupo con un producto cuyos
+    anuncios están todos archivados, roster probado y todos los activos en
+    `no_satisface`: `ajena`, con `miembros` igual al número de activos.
+11. **Una venta no se borra por un día sin dato.** Historial con una orden un
+    día y `orders` NULL otro día: `vendio_aqui`.
 
-La guarda de imports se amplía a `apply_harvest_reconciliacion.py`,
-`notifica.py`, `app/optimizer/*` y los tres módulos nuevos. Las pruebas usan
+La guarda de imports revisa además `apply_harvest_reconciliacion.py`,
+`notifica.py` y `app/optimizer/*`, y suma a su lista de prohibidos los tres
+módulos nuevos. Las pruebas usan
 búsquedas sintéticas: el repo es público.
 
 ### Orden de entrega
@@ -478,8 +537,7 @@ búsquedas sintéticas: el repo es público.
 Cada paso se despliega sin cambiar nada visible hasta su interruptor.
 
 1. **Acta de listado en la ingesta.** Sin consumidor. Tras la primera corrida,
-   una consulta de solo lectura dice si Amazon declara los totales y cuántos
-   grupos cumplen la regla.
+   una consulta de solo lectura dice cuántos grupos cumplen la regla.
 2. **Núcleo puro** (`jev_lectura.py`) con sus pruebas de tabla, y los dos
    traslados sin cambio de comportamiento (`Libro.pagar`, `resolver_fichas`).
 3. **Migración B, login `orbit_jev` y `ORBIT_DSN_JEV`.**
@@ -489,7 +547,9 @@ Cada paso se despliega sin cambiar nada visible hasta su interruptor.
 7. **Subir el tope.** Jev desempata y aporta la proporción.
 8. **`jev.avisos`.** Telegram.
 
-Los pasos 6 a 8 son cambios de config, cada uno con el go del dueño.
+Los pasos 6 y 7 son cambios de config. El 8 trae el código del aviso y su
+interruptor, y se construye después de medir en el 7. Cada encendido lleva el
+go del dueño.
 
 ## Decisión de síntesis
 
@@ -524,7 +584,7 @@ Rechazado:
 
 - Una señal por búsqueda-en-grupo y por día (unas 320 filas diarias), a cambio
   de que lo mostrado sea reconstruible y el motor tenga un dato estable.
-- Pagar el grupo completo en cada búsqueda (unas 94 llamadas en el prototipo),
+- Pagar el grupo completo en cada búsqueda (unas 96 llamadas en el prototipo),
   a cambio de la proporción. Lo que escasea es el tope, no el dinero.
 - Cambiar R4, a cambio de no repagar un grupo por un anuncio pausado.
 - Dos políticas de reutilización mientras exista el CLI manual (él dentro de
@@ -536,7 +596,10 @@ Rechazado:
   búsqueda es del catálogo mejor que un juicio.
 - Un quinto login y DSN, a cambio de que el job no corra con `orbit_admin`.
 - Telegram "al menos una vez": un duplicado es preferible a un aviso perdido
-  dentro de 48 h.
+  dentro de 48 h. Una propuesta que va de una lectura a otra y regresa no se
+  avisa por tercera vez.
+- Claves de config con punto (`jev.senales`), como `fabrica.creacion`, aunque
+  otras del repo usan guion bajo.
 - No saber de negativos puestos a mano en Amazon: no se ingieren. La lista
   puede mostrar una búsqueda que ya no gasta; la ventana lo deja ver en días.
 - `jev_senales` concentra job y lecturas de pantalla. Si se acerca al tope de
@@ -566,19 +629,24 @@ Lo que el dueño selló el 2026-10-04:
 2. El cambio de R4: una respuesta ya pagada se reutiliza entre grupos y entre
    días.
 3. Un grupo de Amazon puede dar "ninguno" cuando su roster esté probado.
-4. Valores iniciales: `jev.tope_diario` 5,000 (cubre la primera pasada de unas
-   19,000 llamadas en 4 días y cuesta cerca de 0.25 USD diarios como máximo al
-   precio de documentación) y `jev.min_clics` 3.
+4. Valores iniciales: `jev.tope_diario` 5,000 (cubre la primera pasada, de
+   15,400 a 19,258 llamadas según cuánto se reutilice, en 3 o 4 días, y cuesta
+   cerca de 0.25 USD diarios como máximo al precio de documentación) y
+   `jev.min_clics` 3.
 
 Encender cada interruptor en producción sigue siendo un cambio de config
 aparte, con su go.
 
 Lo que falta saber:
 
-5. ¿Amazon declara siempre los totales del listado? Si no, ningún roster
-   queda probado. El paso 1 lo contesta con datos reales; si no los declara,
-   el dueño decide si "la paginación terminó" basta como prueba.
-6. Las abstenciones bloquean `ajena`: 11 en 4,717 pares del prototipo. Se mide
+5. Amazon sí declara los totales. Comprobado el 2026-10-04 con una primera
+   página de solo lectura por plataforma: `totalResults` viene como entero en
+   ad groups (193 en MX, 79 en US) y en product ads (31,068 y 6,918). La regla
+   de roster es alcanzable. Se comprobó la primera página, no la última:
+   `listar_con_prueba` toma el total de la primera página que lo declare y lo
+   coteja al final. Que lo siga declarando corrida tras corrida, y las
+   condiciones de descartados y huella, las mide el acta del paso 1.
+6. Las abstenciones bloquean `ajena`: 11 en 4,811 pares del prototipo. Se mide
    en `/salud` antes de pensar en tolerarlas.
 7. Higiene de fichas: una palabra de la ficha que también es una búsqueda
    produce un falso "sí" (pasó con una familia entera). La pantalla lo deja
