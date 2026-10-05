@@ -232,6 +232,17 @@ def probar_roster(
     raise NotImplementedError
 
 
+def anunciados_hoy(censo: CensoCongelado) -> CensoCongelado:
+    """Puro. Quita a los miembros solo-no-activos: los que tienen anuncios y
+    TODOS con estado conocido y no activo (p. ej. ARCHIVED). Es el complemento
+    exacto de `_solo_no_activo` de app/jev_ads.py, la misma regla con que
+    `componer` arma su universo; asi `Relevancia.miembros` coincide con el
+    total de `componer`. Un miembro con estado ausente NO se quita: debe seguir
+    visible como `estado_ausente` en `probar_roster` y `missing_state` en
+    `componer`. No cambia `exhaustivo`."""
+    raise NotImplementedError
+
+
 @dataclass(frozen=True)
 class Roster:
     """Hecho 1 congelado: el censo con sus fichas resueltas y su prueba.
@@ -239,12 +250,12 @@ class Roster:
     Invariante: censo.exhaustivo == isinstance(prueba, RosterProbado). Es la
     UNICA via por la que un censo de ad group llega a exhaustivo=True.
 
-    El censo de un Roster trae SOLO los miembros con algun anuncio ENABLED o
-    PAUSED: el universo es lo anunciado hoy. `censo_grupo` devuelve tambien
-    los productos cuyos anuncios estan todos archivados, y con ellos
-    `componer` agrega `no_anunciado` y jamas da NingunoCompatible (8 de los 22
-    grupos con gasto de MX conservan 622 de esos). Quien arma el Roster los
-    filtra antes; la huella del acta ya cuenta solo anuncios vivos.
+    El censo de un Roster pasa SIEMPRE por `anunciados_hoy`: el universo es
+    lo anunciado hoy. `censo_grupo` devuelve tambien los productos cuyos
+    anuncios estan todos archivados, y con ellos `componer` agrega
+    `no_anunciado` y jamas da NingunoCompatible (8 de los 22 grupos con gasto
+    de MX conservan 622 de esos). La huella del acta ya cuenta solo anuncios
+    vivos.
     `sha256` identifica miembros + fichas (sin synced_at, sin la prueba): el
     mismo roster de ayer es la misma fila de jev_roster."""
 
@@ -310,11 +321,14 @@ def leer(economia: Economia, relevancia: Relevancia) -> tuple[Lectura, frozenset
     raise NotImplementedError
 
 
-def leer_destino(relevancia: Relevancia) -> LecturaDestino:
+def leer_destino(
+    relevancia: Literal["corresponde", "ajena", "sin_veredicto", "no_evaluada"],
+) -> LecturaDestino:
     """Harvest: del ad group destino, al dueno le importa si algun producto
-    atiende la busqueda. HayCompatible -> destino_corresponde;
-    NingunoCompatible -> destino_ajeno; Indeterminado o NoEvaluada ->
-    sin_lectura.
+    atiende la busqueda. Recibe la relevancia tal como se guarda en
+    jev_senal.relevancia: corresponde -> destino_corresponde; ajena ->
+    destino_ajeno; sin_veredicto o no_evaluada -> sin_lectura. Un destino que
+    no se pudo leer (`destino_ilegible`) se anuncia como sin_lectura.
 
     Solo PRESENTACION: la fila de jev_senal del destino es una senal completa
     con la `lectura` que da `leer`; esto se deriva de su relevancia al pintar
@@ -651,11 +665,11 @@ def texto_aviso(
     propuesta: PropuestaEnVeto,
     senal: SenalPropuesta,
     nombre_grupo: Mapping[int, str],
-    *,
-    ahora: datetime,
 ) -> str:
-    """Texto plano del aviso de Telegram de UNA propuesta. Siempre dice cuando
-    se aplica si el dueno no hace nada (el aviso no detiene el reloj). Nunca
+    """Texto plano del aviso de Telegram de UNA propuesta. Siempre dice la
+    fecha y hora UTC en que se aplica si el dueno no hace nada (el aviso no
+    detiene el reloj). No dice "faltan n horas": el texto se guarda en
+    jev_aviso y puede reenviarse tal cual en la corrida siguiente. Nunca
     dice "ninguno" ni "ajena" sin RosterProbado: ese caso no llega aqui porque
     `leer` no lo produce; el texto solo traduce `lectura`."""
     raise NotImplementedError

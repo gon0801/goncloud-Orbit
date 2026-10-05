@@ -10,8 +10,10 @@ hay que hacer todas las fichas México y US 100% completas".
 | Amazon MX | 249 | 11 | 249 |
 | Amazon US | 119 | 66 | 119 |
 
-"Completa" es como lo cuenta el asesor: una ficha vigente que cubre todos los
-listings del producto en esa plataforma. Consulta y salida: `cobertura.sql` y
+"Completa" es como lo cuenta el asesor: para cada listing del producto se
+elige la ficha vigente más reciente que lo cubre, y todos sus listings tienen
+que elegir la misma. Dos fichas distintas que entre las dos cubren todo no
+cuentan. Consulta y salida: `cobertura.sql` y
 `cobertura.salida.txt` (solo lectura, `orbit_read`). El "antes" es la lectura
 de planificación (`../../planificacion/tamano.salida.txt`, sección 3).
 

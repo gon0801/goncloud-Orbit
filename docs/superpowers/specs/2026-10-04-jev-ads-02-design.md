@@ -133,8 +133,11 @@ Decisiones que cargan peso:
   `destino_corresponde`, `destino_ajeno` o `sin_lectura`. Eso se deriva al
   pintar y al avisar; no se guarda en `jev_senal`.
 - **El universo son los productos anunciados hoy.** El roster de una señal
-  deja fuera a los miembros cuyos anuncios están todos archivados, y
-  `miembros` cuenta solo los que tienen un anuncio ENABLED o PAUSED. Sin eso
+  deja fuera a los miembros cuyos anuncios tienen todos un estado conocido y
+  no activo (archivados), con la función pura `anunciados_hoy(censo)`; es el
+  complemento exacto de lo que `componer` ya excluye. Un miembro con estado
+  ausente se queda, para que siga saliendo como `estado_ausente`. `miembros`
+  cuenta lo que queda. Sin eso
   `componer` agrega `no_anunciado` y `ajena` sería inalcanzable en 8 de los 22
   grupos con gasto de MX, que conservan 622 productos solo archivados. El CLI
   manual no cambia.
@@ -143,13 +146,13 @@ Decisiones que cargan peso:
 
 | Archivo | Estado | Qué sabe |
 | --- | --- | --- |
-| `app/jev_lectura.py` | nuevo, puro | Tipos de la señal, `leer`, `leer_destino`, `probar_roster`, `planear`, `ajustes_desde_settings` |
+| `app/jev_lectura.py` | nuevo, puro | Tipos de la señal, `leer`, `leer_destino`, `anunciados_hoy`, `probar_roster`, `planear`, `ajustes_desde_settings` |
 | `app/jev_libro.py` | nuevo, IO | El libro de juicios por par: único que inserta eventos `intencion` y `resultado` (lo que cuesta dinero) y único que conoce el tope diario |
 | `app/jev_senales.py` | nuevo, IO | El job (`correr`, `main`) y las tres lecturas de pantalla. Único que conoce `jev_senal`, `jev_roster`, `jev_aviso*` y `jev_corrida` |
 | `app/jev_vista.py` | tocado, puro | Texto del aviso, frases por lectura y bandas de proporción |
 | `app/jev_asesor.py` | tocado | Deja de insertar `intencion` y `resultado` a mano: llama a `Libro.pagar`. Conserva sus eventos `reutilizacion` y su política |
 | `app/jev_catalogo.py` | tocado | `resolver_fichas`: la regla de fichas sale de `_enriquecer` para que asesor y roster usen la misma |
-| `app/ads/structure*.py` | tocados | Registrar el acta de listado. `listar_todo` queda como envoltura de `listar_con_prueba`, que devuelve además el total declarado; sus otros consumidores no cambian |
+| `app/ads/structure*.py` | tocados | Registrar el acta de listado. `listar_todo` conserva su firma como envoltura de `listar_con_prueba`, que devuelve además el total declarado (el de la primera página que lo traiga) y lo coteja contra el acumulado al final, como el guard de hoy |
 | `app/optimizer/windows.py` | tocado | Expone la subconsulta de colapso (última observación por día) como constante compartida, sin cambiar `terminos_cortes`. Tiene 874 líneas de 900: no cabe una consulta nueva |
 | `app/notifica.py` | tocado | `envia_aviso(texto) -> bool`, genérico y fail-silent; devuelve False si el canal está inactivo. No importa Jev |
 | `app/cli.py`, `api_dashboard.py`, `ui.py`, plantillas | tocados | Registro del comando y las lecturas, con import perezoso |
@@ -298,6 +301,7 @@ CREATE TABLE jev_aviso (                 -- lo que se le quiso decir al dueño, 
     senal_origen_id UUID NOT NULL REFERENCES jev_senal(id),
     senal_destino_id UUID REFERENCES jev_senal(id),
     lectura TEXT NOT NULL,                -- la anunciada: la del origen; en harvest, la del destino
+                                          -- (`sin_lectura` si el destino no se puede leer)
     texto TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(), UNIQUE (cola_id, lectura));
 CREATE TABLE jev_aviso_entrega (         -- existe solo si Telegram aceptó el mensaje
@@ -521,9 +525,11 @@ No se construye ningún efecto. Queda la forma del dato.
    `leer(...)` con sus insumos y su `regla_version` da la `lectura` guardada.
 9. **El aviso es honesto.** Telegram falla o el canal está inactivo: hay
    `jev_aviso` y no hay entrega; la corrida siguiente lo envía una sola vez.
-10. **El universo son los anunciados hoy.** Un grupo con un producto cuyos
-    anuncios están todos archivados, roster probado y todos los activos en
-    `no_satisface`: `ajena`, con `miembros` igual al número de activos.
+10. **El universo son los anunciados hoy.** `anunciados_hoy` quita al producto
+    cuyos anuncios están todos archivados y conserva al de estado ausente. Con
+    roster probado y todos los que quedan en `no_satisface`: `ajena`, con
+    `miembros` igual a los que quedaron. Y de punta a punta: el job arma el
+    roster con esa función.
 11. **Una venta no se borra por un día sin dato.** Historial con una orden un
     día y `orders` NULL otro día: `vendio_aqui`.
 
@@ -629,9 +635,10 @@ Lo que el dueño selló el 2026-10-04:
 2. El cambio de R4: una respuesta ya pagada se reutiliza entre grupos y entre
    días.
 3. Un grupo de Amazon puede dar "ninguno" cuando su roster esté probado.
-4. Valores iniciales: `jev.tope_diario` 5,000 (cubre la primera pasada, de
-   15,400 a 19,258 llamadas según cuánto se reutilice, en 3 o 4 días, y cuesta
-   cerca de 0.25 USD diarios como máximo al precio de documentación) y
+4. Valores iniciales: `jev.tope_diario` 5,000 (cubre en 4 días la primera
+   pasada, que son de 15,400 a 19,258 llamadas según cuánto se reutilice,
+   sección 5 de `docs/evidencia/jev-ads-02/planificacion/tamano.salida.txt`;
+   cuesta cerca de 0.25 USD diarios como máximo al precio de documentación) y
    `jev.min_clics` 3.
 
 Encender cada interruptor en producción sigue siendo un cambio de config

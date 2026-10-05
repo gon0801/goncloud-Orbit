@@ -78,6 +78,13 @@ bloqueantes; todos se corrigieron en una ronda:
   inactivo; texto del aviso con fecha en vez de horas restantes; y varios
   desajustes entre plan y spec.
 
+Segunda ronda, con otro revisor y solo sobre el delta de los arreglos: cero
+bloqueantes. Sus seis notas (una función pura `anunciados_hoy` para que la
+prueba del universo tenga dueño, el filtro como complemento exacto del de
+`componer`, el cotejo del total también al final del listado, la firma de
+`leer_destino`, un parámetro sobrante y una cuenta de días) se aplicaron en la
+misma ronda.
+
 ## Errores que el juez encontró en los candidatos
 
 - B afirmaba que `app_decide` no tendría acceso a las tablas nuevas sin
