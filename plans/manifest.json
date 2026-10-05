@@ -138,7 +138,7 @@
     {
       "name": "jev-ads-02",
       "path": "plans/jev-ads-02.md",
-      "description": "JEV ADS 02 — plan propuesto 2026-10-04, espera visto bueno del dueño. Cinco ampliaciones: avisar a tiempo de un bloqueo equivocado, detectar pronto búsquedas ajenas, rutear búsquedas a su campaña, revisar el destino de un harvest y filtrar semillas en la fábrica. Jev corre sola fuera del ciclo y sólo avisa; todo efecto sobre Ads pasa por aprobación del dueño o por un cambio de regla sellado, con interruptor fail-closed, reversa y criterios medidos."
+      "description": "JEV ADS 02 — plan propuesto 2026-10-04, rediseñado el mismo día tras prototipos; espera visto bueno del dueño. La señal por búsqueda-en-grupo: ya vendió aquí, vende en otro grupo, corresponde y no vende, ajena o sin lectura; las ventas mandan y Jev desempata y aporta la proporción de productos. Job fuera del ciclo con tope diario, roster probado por acta de la ingesta; todo efecto sobre Ads sigue condicionado a medición y sello. Spec: docs/superpowers/specs/2026-10-04-jev-ads-02-design.md. Fichas al 100% (0.2)."
     },
     {
       "name": "repricing-01",
