@@ -38,6 +38,21 @@ aplicación de 231 (0 fallos) y aplicación de las 60 restantes (0 fallos).
 Aprobador de todas: el dueño. Ningún nombre de producto ni SKU entra al repo;
 las fichas viven en la base y sus insumos en una carpeta privada.
 
+## Corrección posterior: una palabra de la ficha que también era una búsqueda
+
+El prototipo con Jev (`../../diseno/prototipos.md`, sección 5) mostró un falso
+"sí": una búsqueda de una sola palabra, ajena al catálogo, correspondía a 90 de
+176 productos porque esa palabra estaba en la frase del acabado de todos los
+productos dorados. El dueño aprobó cambiar la frase. Se registró una versión
+nueva de las 191 fichas de productos dorados (127 en MX y 64 en US, 0 fallos)
+en la que solo cambia ese renglón. Comprobado en producción: ninguna ficha
+vigente conserva la palabra y la cobertura sigue en 249 de 249 y 119 de 119.
+
+Se repitió la misma búsqueda contra los 177 productos del mismo grupo: 0 "sí",
+177 "no", sin abstenciones ni fallos. El resultado de grupo sigue saliendo
+indeterminado, por las dos razones que el diseño de JEV ADS 02 corrige: el
+grupo conserva productos solo archivados y su roster no está probado.
+
 ## Límites
 
 - Todas vencen a los 90 días (`revisar_antes_de`): las primeras el 2027-01-02.

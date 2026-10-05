@@ -78,7 +78,8 @@ Ejemplos:
 - **Error de Jev:** una búsqueda de una sola palabra que no tiene que ver con
   el catálogo dio "sí" en 90 de 176 productos, porque esa palabra aparecía en
   la descripción del acabado de una familia entera. Coincidencia literal. El
-  dueño aprobó cambiar esa frase de la ficha.
+  dueño aprobó cambiar esa frase de la ficha. Con las fichas corregidas la
+  misma búsqueda dio 0 de 177 (`../ejecucion/0.2/NOTAS.md`).
 
 Implicaciones:
 
