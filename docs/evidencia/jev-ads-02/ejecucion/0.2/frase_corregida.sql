@@ -4,6 +4,21 @@
 -- "Sin revocar ni vencer" es el mismo universo que cuenta `cobertura.sql` en su
 -- tercera seccion. "Elegida" es la ficha que usa el asesor
 -- (app/jev_asesor._enriquecer): por cada listing, la mas reciente que lo cubre.
+-- Ejecutar: ssh goncloud 'DSN=$(docker exec orbit-app-1 printenv ORBIT_DSN_READ);
+--   docker exec -i orbit-db-1 psql "$DSN" -X -q -A -F " | " -v ON_ERROR_STOP=1
+--   -v patron="<expresion regular>"' < frase_corregida.sql
+-- Sin patron, o con patron vacio, la consulta coincidiria con todas las fichas:
+-- la guarda de abajo corta antes de leer nada.
+\if :{?patron}
+  SELECT (length(:'patron') = 0) AS patron_malo \gset
+\else
+  \set patron_malo true
+\endif
+\if :patron_malo
+  \echo 'ERROR: falta -v patron=<expresion regular no vacia>'
+  DO $$ BEGIN RAISE EXCEPTION 'falta el patron'; END $$;
+  \quit
+\endif
 \echo == versiones sin revocar ni vencer: total y las que conservan la frase anterior
 WITH v AS (
   SELECT f.id, f.plataforma, (f.hechos::text ~* :'patron') AS con_frase
