@@ -4,9 +4,11 @@ Comando (DSN de superusuario, redactado):
     tests/test_api_dashboard.py tests/test_compose_deploy.py tests/test_schema_docs.py \
     tests/test_apply_schema.py tests/test_jev_perimetro.py -q
 
-Resultado: 182 passed, 1 warning in 14.97s (cero skipped; el warning es
+Resultado: 182 passed, 1 warning in 14.57s (cero skipped; el warning es
 StarletteDeprecationWarning de httpx en fastapi/testclient, preexistente).
 
 Rama: jev02/s3-senales. Base: eda1f90d20bd5696b1d896da2ae4c78f6c64a906.
-Corrida final post-deslop (comment-sicko: 4 comentarios narrativos fuera,
-cero cambios de conducta) sobre el arbol que se commitea.
+Corrida final post-triage (comment-sicko: 4 comentarios narrativos fuera;
+CodeRabbit: guarda app_jev en DEPLOY.md, rc enganoso fuera de desplegar.sh,
+pre-chequeo lote en rollback.sh, regex DSN [A-Z0-9_]+ con mutante JEV2 rojo)
+sobre el arbol que se commitea.

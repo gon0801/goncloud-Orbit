@@ -83,7 +83,7 @@ SQL
 echo "ORBIT_DSN_JEV=postgresql://orbit_jev:${P}@127.0.0.1:5432/orbit" >> "$ENVF"
 chmod 600 "$ENVF"
 SCRIPT
-echo "login orbit_jev rc=$? (salida del bloque a /dev/null: sin contrasenas ni DSN)"
+echo "login orbit_jev aplicado (salida del bloque a /dev/null: sin contrasenas ni DSN)"
 
 echo "== 5b) El login conecta y es miembro de app_jev (esperado conecta=1 miembro=t, sin valor)"
 CONECTA=$(ssh goncloud 'DSN=$(grep ^ORBIT_DSN_JEV= /mnt/data/appdata/orbit/.env | cut -d= -f2-); docker exec -i orbit-db-1 psql "$DSN" -X -q -tA -v ON_ERROR_STOP=1 -c "SELECT 1"' || true)

@@ -37,6 +37,13 @@ else
   echo "contenedor parado: la reversa corre sin guardas (no hay nada que interrumpir)"
 fi
 
+echo "== 0c) Pre-chequeo: sin filas lote (si las hay, la reversa abortaria tras restaurar el codigo)"
+LOTE=$(ssh goncloud 'docker exec -i orbit-db-1 psql -U orbit -d orbit -v ON_ERROR_STOP=1 -tA' <<'SQL'
+SELECT count(*) FROM jev_revision WHERE sujeto_tipo = 'lote';
+SQL
+)
+[ "$LOTE" = "0" ] || { echo "ABORTA: hay $LOTE filas lote; la reversa no aplica (corregir hacia adelante)"; exit 1; }
+
 if [ "$MODO" = "--solo-esquema" ]; then
   echo "== 1) Codigo sin tocar (desplegar.sh aborto antes de copiarlo)"
 else

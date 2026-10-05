@@ -656,8 +656,9 @@ ssh goncloud 'bash -s' <<'SCRIPT'
 set -euo pipefail
 ENVF=/mnt/data/appdata/orbit/.env
 gen() { head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 32; }
+docker exec -i orbit-db-1 psql -U orbit -d orbit -tAc "SELECT 1 FROM pg_roles WHERE rolname = 'app_jev'" | grep -q 1 || { echo "ABORTA: falta app_jev (aplica las migraciones primero)"; exit 1; }
 sed -i '/^ORBIT_DSN_/d' "$ENVF"   # re-corrida = DSNs nuevos, sin duplicados
-for svc in ingest decide read admin jev; do   # jev requiere 0049 aplicada (app_jev)
+for svc in ingest decide read admin jev; do
   P=$(gen)
   docker exec -i orbit-db-1 psql -U orbit -d orbit -v ON_ERROR_STOP=1 -q <<SQL
 DO \$\$ BEGIN
