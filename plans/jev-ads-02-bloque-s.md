@@ -335,6 +335,11 @@ cambio, para y avisa. Las que fijan el traslado son
 reanudación de `tests/test_jev_cli.py` y
 `test_asesoria_muestra_el_exito_de_la_reanudacion`.
 
+### Despliega
+
+Este paso no se despliega por separado. No cambia el esquema, y su código sale
+con el despliegue de S.3.
+
 ## S.3: crea las tablas de señales, el login y el quinto DSN
 
 Al terminar, producción tiene las tablas nuevas vacías, el login `orbit_jev` y
@@ -759,6 +764,20 @@ en 90% o más de al menos 50 búsquedas.
 4. Usa `Ajustes.avisos`, que existe desde S.2: sin `jev.avisos` en `true`,
    `correr` no envía ni inserta avisos.
 5. Agrega "avisos sin entrega" al bloque de `/salud`.
+
+### Comprueba
+
+Corre los archivos de prueba que tocaste y además:
+
+	uv run pytest tests/test_notifica.py tests/test_jev_ads.py tests/test_jev_lectura.py tests/test_api_dashboard.py tests/test_architecture.py -q
+
+### Despliega
+
+Este paso no trae migración: las tablas de avisos existen desde S.3. Sus
+scripts van en `docs/evidencia/jev-ads-02/ejecucion/S.8/`, con la misma forma
+que los de S.4. El checklist comprueba que, con `jev.avisos` ausente,
+`jev_aviso` y `jev_aviso_entrega` siguen con cero filas después de una corrida
+del job.
 
 Encender `jev.avisos` es otro cambio de config, con su go.
 
