@@ -1,6 +1,7 @@
 # JEV ADS 02 — de avisar a proponer y rutear
 
-Estado: plan propuesto el 2026-10-04; espera el visto bueno del dueño. Nace
+Estado: plan propuesto el 2026-10-04; espera el visto bueno del dueño. La
+tarea 0.2 (fichas) se adelantó por instrucción suya y quedó cerrada. Nace
 del acta 3.2 de [JEV ADS 01](jev-ads-01.md) ("seguir y ampliar"). Base de
 planificación: commit `25cebe7`. `team_validation_mode: manual-pass`.
 
@@ -156,7 +157,7 @@ cierra como "no se construye", con el motivo.
 
 | Task | Contenido | DoD | Depends | Status |
 | --- | --- | --- | --- | --- |
-| 0.2 | `[stage:medicion] [lane:release]` Completar fichas. Faltan 238 productos en MX y 53 en US (28 sin ficha y 25 con ficha que no cubre todos sus listings). Mismo método del piloto: el lead pregunta, el dueño contesta, el lead arma y el dueño registra. | Todo producto con anuncio ENABLED tiene una ficha vigente que cubre todos sus listings de esa plataforma (el asesor cuenta también los de anuncios pausados o archivados), o un motivo escrito; conteo por mercado antes y después con la consulta de planificación; ningún nombre ni SKU en el repo. | - | cc:TODO |
+| 0.2 | `[stage:medicion] [lane:release]` Completar fichas. Faltan 238 productos en MX y 53 en US (28 sin ficha y 25 con ficha que no cubre todos sus listings). Mismo método del piloto: el lead pregunta, el dueño contesta, el lead arma y el dueño registra. | Todo producto con anuncio ENABLED tiene una ficha vigente que cubre todos sus listings de esa plataforma (el asesor cuenta también los de anuncios pausados o archivados), o un motivo escrito; conteo por mercado antes y después con la consulta de planificación; ningún nombre ni SKU en el repo. | - | cc:DONE (249 de 249 en MX y 119 de 119 en US: `ejecucion/0.2/NOTAS.md`) |
 | 0.3 | `[stage:investigacion] [lane:fast]` Confirmar y versionar la tarifa de TypeSafe (la evidencia del diseño anota 0.042 USD por millón de tokens de entrada) y calcular el costo en USD del piloto y de cada fase. Decidir con esa cifra si se permite reutilizar pares entre revisiones (hoy prohibido, R4). | Tarifa con su fuente y fecha; costo del piloto calculado con su `usage`; tope diario propuesto; decisión de reutilización escrita. | - | cc:TODO |
 | 0.4 | `[stage:investigacion] [lane:gate]` Roster probado: averiguar si la ingesta de estructura puede demostrar que trae todos los anuncios de un grupo, y por qué 1,168 anuncios de MX y 920 de US no tienen producto ligado. | Regla escrita de cuándo `censo_grupo` puede decir `exhaustivo=True`; lista de grupos que la cumplirían por mercado; causa de los anuncios sin producto con su conteo. | - | cc:TODO |
 | 0.1 | `[stage:planificacion] [lane:gate]` Spec delta de las fases de aviso: job automático y su reanudación, login propio de Jev, tope diario, reutilización según 0.3, regla de roster según 0.4, y los criterios medidos de abajo sellados por el dueño. | Documento en `docs/superpowers/specs/` con los contratos que cambian y los que no; umbrales sellados por el dueño. | 0.3, 0.4 | cc:TODO |
