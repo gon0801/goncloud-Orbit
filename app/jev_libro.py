@@ -62,6 +62,15 @@ def intenciones_del_dia(conn, ahora: datetime) -> int:
     ).fetchone()[0]
 
 
+_PREFIJO_SIN_HTTP = "contexto_excedido: "
+
+
+def fallo_tras_http(fallo: FalloProveedor) -> bool:
+    """True si el fallo vino del HTTP. El exceso de contexto nunca llama
+    (tampoco abre intencion), asi que no cuenta para el disyuntor."""
+    return not fallo.motivo.startswith(_PREFIJO_SIN_HTTP)
+
+
 def _exceso_contexto(termino: str, ficha: FichaVersion, contrato) -> str | None:
     """Lo que no cabe en el contrato, con el mismo motivo que `pedir_juicio`
     (determinista: no abre intencion, no gasta cupo)."""
@@ -70,7 +79,7 @@ def _exceso_contexto(termino: str, ficha: FichaVersion, contrato) -> str | None:
     bytes_termino = len(termino.encode("utf-8"))
     if bytes_termino > contrato.max_bytes_termino:
         return (
-            f"contexto_excedido: termino de {bytes_termino} bytes supera el maximo"
+            f"{_PREFIJO_SIN_HTTP}termino de {bytes_termino} bytes supera el maximo"
             f" {contrato.max_bytes_termino}"
         )
     bytes_ficha = len(
@@ -78,7 +87,7 @@ def _exceso_contexto(termino: str, ficha: FichaVersion, contrato) -> str | None:
     )
     if bytes_ficha > contrato.max_bytes_ficha:
         return (
-            f"contexto_excedido: ficha de {bytes_ficha} bytes supera el maximo"
+            f"{_PREFIJO_SIN_HTTP}ficha de {bytes_ficha} bytes supera el maximo"
             f" {contrato.max_bytes_ficha}"
         )
     return None
@@ -122,6 +131,13 @@ class Libro:
             return SinCupo()
         devuelto = self._pedir(termino, ficha)
         return self._resultado(lote, clave, intencion_id, devuelto, ficha)
+
+    def guardado(self, termino: str, ficha: FichaVersion) -> Juicio | None:
+        """Exito ya pagado, gratis: sin HTTP, sin intencion, sin cupo. Para
+        seguir sellando con lo guardado cuando ya no se puede pagar."""
+        from app.jev_juicios import clave_de
+
+        return exito_global(self._conn, clave_de(termino, ficha, self._contrato))
 
     def llamadas_de_hoy(self) -> int:
         """Gasto del dia: intenciones de hoy UTC, de cualquier origen."""

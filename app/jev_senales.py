@@ -62,7 +62,14 @@ from app.jev_lectura import (
     planear,
     probar_roster,
 )
-from app.jev_libro import Libro, SinCupo, _exceso_contexto, exito_global, intenciones_del_dia
+from app.jev_libro import (
+    Libro,
+    SinCupo,
+    _exceso_contexto,
+    exito_global,
+    fallo_tras_http,
+    intenciones_del_dia,
+)
 from app.optimizer import windows
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.redaction import scrub
@@ -388,7 +395,12 @@ def _pares_de(estado: _Estado, unidad: Unidad, roster: Roster, contrato) -> tupl
         if ficha is None:
             pares.append(FichaFaltante(producto_id=miembro.producto_id))
             continue
-        if _razon_sin_pago(estado) is not None:
+        razon = _razon_sin_pago(estado)
+        if razon is not None:
+            if razon in ("sin_cupo", "proveedor_caido"):
+                guardado = estado.libro.guardado(termino, ficha)
+                if guardado is not None:
+                    pares.append(guardado)
             continue
         clave = clave_de(termino, ficha, contrato)
         if clave in estado.memo_fallos:
@@ -400,9 +412,10 @@ def _pares_de(estado: _Estado, unidad: Unidad, roster: Roster, contrato) -> tupl
             continue
         if isinstance(resultado, FalloProveedor):
             estado.memo_fallos[clave] = resultado
-            estado.fallos_seguidos += 1
-            if estado.fallos_seguidos >= _FALLOS_SEGUIDOS_MAX:
-                estado.proveedor_caido = True
+            if fallo_tras_http(resultado):
+                estado.fallos_seguidos += 1
+                if estado.fallos_seguidos >= _FALLOS_SEGUIDOS_MAX:
+                    estado.proveedor_caido = True
             pares.append(resultado)
             continue
         estado.fallos_seguidos = 0
@@ -637,7 +650,7 @@ def _miembros_pagables(roster: Roster):
 def _seco(
     lector, plan: tuple, ajustes: Ajustes, contrato, ahora: datetime, api_key: str
 ) -> CierreCorrida:
-    llamadas_hoy = intenciones_del_dia(lector, datetime.now(UTC))
+    llamadas_hoy = intenciones_del_dia(lector, ahora)
     restantes = max(0, ajustes.tope_diario - llamadas_hoy)
     pagaria = 0
     if api_key and restantes:
