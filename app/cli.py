@@ -582,7 +582,8 @@ def _precio(args: argparse.Namespace) -> int:
     return 0
 
 
-def main(argv: list[str] | None = None) -> int:
+def _construye_parser() -> argparse.ArgumentParser:
+    """El parser de `main`, aparte para que el despacho quepa en el tope."""
     parser = argparse.ArgumentParser(
         prog="python -m app.cli",
         description=(
@@ -816,6 +817,11 @@ def main(argv: list[str] | None = None) -> int:
     p_precio.add_argument("--desde", default=None, help="YYYY-MM-DD (con --reporte)")
     p_precio.add_argument("--hasta", default=None, help="YYYY-MM-DD (con --reporte)")
 
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = _construye_parser()
     args, rest = parser.parse_known_args(argv)
     if args.comando == "cycle":
         # El ciclo ESCRIBE decisiones: un flag mal tipeado que se ignorara en
