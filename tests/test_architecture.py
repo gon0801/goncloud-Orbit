@@ -2192,13 +2192,6 @@ def test_candado_cuota_caza_reloj_y_entorno(tmp_path):
     assert _usos_import_dinamico(arbol) != []
 
 
-# ---------------------------------------------------------------------------
-# JEV ADS 02 S.4: guarda invertida de imports de Jev (Cambio 11).
-# Reemplaza a test_los_consumidores_no_importan_al_asesor (test_jev_cli.py):
-# en vez de revisar tres archivos del motor, recorre todo app/ y tools/ y
-# solo deja importar modulos jev_* a la lista corta del diseno.
-# ---------------------------------------------------------------------------
-
 # No-Jev que puede importar Jev (grep 2026-10-06: dashboard y fabrica_web;
 # S.4 suma el despacho del job).
 _PERMITIDOS_JEV = frozenset(

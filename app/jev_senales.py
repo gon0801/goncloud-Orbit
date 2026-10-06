@@ -327,8 +327,6 @@ def _acta_de(lector, plataforma: str, grupo: int) -> ActaDeListado | None:
 
 
 def _roster(lector, escritor, clave: ClaveBusqueda, ahora: datetime, *, aplicar: bool) -> Roster:
-    """El roster del grupo: censo, fichas, anunciados hoy y prueba. El unico
-    codigo que pone `exhaustivo=True` en un censo de ad group."""
     censo = censo_grupo(lector, plataforma=clave.plataforma, ad_group_id=clave.ad_group_id)
     con_fichas, fichas = resolver_fichas(lector, censo, plataforma=clave.plataforma, ahora=ahora)
     recortado = anunciados_hoy(con_fichas)
@@ -690,7 +688,6 @@ def _aplicar(
         def pedir_real(termino, ficha):
             return pedir_juicio(termino, ficha, contrato, api_key=api_key)
 
-    # Reloj vivo para el tope: una corrida que cruza medianoche UTC cuenta cada dia real.
     libro = Libro(escritor, pedir=pedir_real, contrato=contrato, ahora=lambda: datetime.now(UTC))
     lote = _abrir_lote(escritor, plan, contrato, ahora)
     motivo_base = None if api_key else "sin_api_key"

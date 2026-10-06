@@ -1822,12 +1822,6 @@ def test_hoja_nueva_hereda_familia_en_previa():
         assert "familia" in previa.niveles
 
 
-# ---------------------------------------------------------------------------
-# JEV ADS 02 S.4: subconsulta de colapso compartida (Cambio 1)
-# ---------------------------------------------------------------------------
-
-# Texto de _SQL_TERMINOS_CORTES ANTES de S.4: el refactor lo deja igual
-# salvo espacios y las mismas filas sobre los mismos datos.
 _SQL_TERMINOS_CORTES_ANTES = """
 SELECT ad_entity_id,
        search_term,

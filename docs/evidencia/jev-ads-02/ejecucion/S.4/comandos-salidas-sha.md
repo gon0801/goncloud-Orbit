@@ -1,7 +1,7 @@
 # S.4 — comandos, salidas y SHA (2026-10-06)
 
 Base: `85e25a8a228fa569f88c8c531d49eea02edcd818` (rama `jev02/s4-job`,
-worktree `/Users/dn/dev/wt/jev02-s4`). DSN de pruebas: localhost:5432
+worktree `~/dev/wt/jev02-s4`). DSN de pruebas: localhost:5432
 (redactado `***`).
 
 ## TDD rojo (13 pruebas primero)
@@ -60,5 +60,6 @@ aplicados, 8 desestimados con razón, 2 filas para el plan.
 
 ## SHA final
 
-Commit 2 (job + pruebas + evidencia): se sella con `git rev-parse HEAD`
-tras commitear (esta línea se rellena sin commit; la lleva el PR).
+Commit 2 (job + pruebas + evidencia):
+`4a1f4a0b4624cffe33a55e3ca9a42bb458c86159`
+(esta línea se rellenó sin commit; la lleva el PR).

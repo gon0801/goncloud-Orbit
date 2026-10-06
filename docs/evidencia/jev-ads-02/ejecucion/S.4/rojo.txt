@@ -5,7 +5,7 @@ __________________________ test_no_se_paga_dos_veces ___________________________
     @_skip_db
     def test_no_se_paga_dos_veces():
 >       from app import jev_senales
-E       ImportError: cannot import name 'jev_senales' from 'app' (/Users/dn/dev/wt/jev02-s4/app/__init__.py)
+E       ImportError: cannot import name 'jev_senales' from 'app' (~/dev/wt/jev02-s4/app/__init__.py)
 
 tests/test_jev_senales.py:312: ImportError
 _________________________ test_tope_aguanta_una_caida __________________________
@@ -13,7 +13,7 @@ _________________________ test_tope_aguanta_una_caida __________________________
     @_skip_db
     def test_tope_aguanta_una_caida():
 >       from app import jev_senales
-E       ImportError: cannot import name 'jev_senales' from 'app' (/Users/dn/dev/wt/jev02-s4/app/__init__.py)
+E       ImportError: cannot import name 'jev_senales' from 'app' (~/dev/wt/jev02-s4/app/__init__.py)
 
 tests/test_jev_senales.py:381: ImportError
 _____________________________ test_apagado_es_cero _____________________________
@@ -23,7 +23,7 @@ capsys = <_pytest.capture.CaptureFixture object at 0x10ca9f8c0>
     @_skip_db
     def test_apagado_es_cero(capsys):
 >       from app import jev_senales
-E       ImportError: cannot import name 'jev_senales' from 'app' (/Users/dn/dev/wt/jev02-s4/app/__init__.py)
+E       ImportError: cannot import name 'jev_senales' from 'app' (~/dev/wt/jev02-s4/app/__init__.py)
 
 tests/test_jev_senales.py:408: ImportError
 _________________ test_sin_clave_sella_ventas_sin_intenciones __________________
@@ -31,7 +31,7 @@ _________________ test_sin_clave_sella_ventas_sin_intenciones __________________
     @_skip_db
     def test_sin_clave_sella_ventas_sin_intenciones():
 >       from app import jev_senales
-E       ImportError: cannot import name 'jev_senales' from 'app' (/Users/dn/dev/wt/jev02-s4/app/__init__.py)
+E       ImportError: cannot import name 'jev_senales' from 'app' (~/dev/wt/jev02-s4/app/__init__.py)
 
 tests/test_jev_senales.py:434: ImportError
 ________________________ test_universo_de_punta_a_punta ________________________
@@ -39,7 +39,7 @@ ________________________ test_universo_de_punta_a_punta ________________________
     @_skip_db
     def test_universo_de_punta_a_punta():
 >       from app import jev_senales
-E       ImportError: cannot import name 'jev_senales' from 'app' (/Users/dn/dev/wt/jev02-s4/app/__init__.py)
+E       ImportError: cannot import name 'jev_senales' from 'app' (~/dev/wt/jev02-s4/app/__init__.py)
 
 tests/test_jev_senales.py:473: ImportError
 _____________________ test_madurez_otro_grupo_vs_historial _____________________
@@ -47,7 +47,7 @@ _____________________ test_madurez_otro_grupo_vs_historial _____________________
     @_skip_db
     def test_madurez_otro_grupo_vs_historial():
 >       from app import jev_senales
-E       ImportError: cannot import name 'jev_senales' from 'app' (/Users/dn/dev/wt/jev02-s4/app/__init__.py)
+E       ImportError: cannot import name 'jev_senales' from 'app' (~/dev/wt/jev02-s4/app/__init__.py)
 
 tests/test_jev_senales.py:523: ImportError
 _______________________ test_harvest_sin_destino_legible _______________________
@@ -55,7 +55,7 @@ _______________________ test_harvest_sin_destino_legible _______________________
     @_skip_db
     def test_harvest_sin_destino_legible():
 >       from app import jev_senales
-E       ImportError: cannot import name 'jev_senales' from 'app' (/Users/dn/dev/wt/jev02-s4/app/__init__.py)
+E       ImportError: cannot import name 'jev_senales' from 'app' (~/dev/wt/jev02-s4/app/__init__.py)
 
 tests/test_jev_senales.py:575: ImportError
 ____________________________ test_seco_por_omision _____________________________
@@ -66,7 +66,7 @@ monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10d5f2030>
     @_skip_db
     def test_seco_por_omision(capsys, monkeypatch):
 >       from app import jev_senales
-E       ImportError: cannot import name 'jev_senales' from 'app' (/Users/dn/dev/wt/jev02-s4/app/__init__.py)
+E       ImportError: cannot import name 'jev_senales' from 'app' (~/dev/wt/jev02-s4/app/__init__.py)
 
 tests/test_jev_senales.py:621: ImportError
 __________________________ test_dos_procesos_a_la_vez __________________________
@@ -76,7 +76,7 @@ capsys = <_pytest.capture.CaptureFixture object at 0x10d46d6d0>
     @_skip_db
     def test_dos_procesos_a_la_vez(capsys):
 >       from app import jev_senales
-E       ImportError: cannot import name 'jev_senales' from 'app' (/Users/dn/dev/wt/jev02-s4/app/__init__.py)
+E       ImportError: cannot import name 'jev_senales' from 'app' (~/dev/wt/jev02-s4/app/__init__.py)
 
 tests/test_jev_senales.py:650: ImportError
 ________________ test_deploy_documenta_la_linea_de_jev_senales _________________
@@ -103,7 +103,7 @@ monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10d4a8460>
         """JEV ADS 02 S.4: `jev-senales` despacha a `app.jev_senales.main` con
         los args restantes y propaga su exit (patron metrics/cobertura)."""
 >       from app import jev_senales
-E       ImportError: cannot import name 'jev_senales' from 'app' (/Users/dn/dev/wt/jev02-s4/app/__init__.py)
+E       ImportError: cannot import name 'jev_senales' from 'app' (~/dev/wt/jev02-s4/app/__init__.py)
 
 tests/test_cli.py:903: ImportError
 ___________________ test_sql_del_modulo_parsea_como_postgres ___________________

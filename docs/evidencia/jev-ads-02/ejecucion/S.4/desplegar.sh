@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Despliegue S.4 de Jev Ads 02: SOLO CODIGO (sin migracion). Copia el SHA
-# aprobado (job jev-senales, bloque jev de /salud, cron documentado pero NO
-# instalado: el cron lo instala el dueno a mano tras el checklist).
+# aprobado (job jev-senales, bloque jev de /salud; el cron lo instala el
+# dueno a mano con el bloque del paso 8, ANTES del checklist, guia Despliega 2).
 # Patron de S.3/desplegar.sh: preflight, respaldo (codigo + compose + SHA;
 # el .env NO se copia a ningun lado), git archive, md5, guardas con
 # reintento, build + recrear + health, y seco del job apagado.
@@ -85,12 +85,22 @@ ssh goncloud "set -e; cd $SRV; \
   sleep 5; curl -sS http://127.0.0.1:8010/health; echo; \
   docker ps --filter name=orbit-app-1 --format '{{.Names}} {{.Status}}'"
 
-echo "== 7) Seco del job apagado (esperado exit=0 y 'apagado' en la salida)"
-SECO=$(ssh goncloud 'docker exec orbit-app-1 python -m app.cli jev-senales' || true)
+echo "== 7) Seco del job apagado (esperado exit=0 y 'apagado' en la salida; si no, no se instala nada)"
+set +e  # medir el exit sin que el trap ERR se adelante
+SECO=$(ssh goncloud 'docker exec orbit-app-1 python -m app.cli jev-senales' 2>&1)
+RC=$?
+set -e
 echo "$SECO"
-echo "$SECO" | grep -q apagado || { echo "ABORTA: el seco no dice apagado"; exit 1; }
+[ "$RC" = "0" ] || { echo "ABORTA: el seco salio con $RC (no instales el cron)"; exit 1; }
+echo "$SECO" | grep -q apagado || { echo "ABORTA: el seco no dice apagado (no instales el cron)"; exit 1; }
 
 echo "== LISTO. STAMP=$STAMP"
-echo "Siguiente: bash $DIR/checklist.sh $STAMP"
-echo "Reversa:   bash $DIR/rollback.sh $STAMP"
-echo "Cron:      NO instalado por este script; el dueno lo agrega a mano (DEPLOY.md) tras el checklist."
+echo "Reversa: bash $DIR/rollback.sh $STAMP"
+echo
+echo "== 8) MANUAL DEL DUENO (despues del merge): instalar la linea de cron (DEPLOY.md, pinzada por tests/test_jev_senales_cron.py::LINEA_JEV_SENALES)"
+echo "Pega este bloque tal cual: respalda el crontab, agrega SOLO la linea y comprueba que el diff es +1:"
+echo "ssh goncloud 'crontab -u gon -l > /tmp/cron-gon-antes-$STAMP.txt && cat /tmp/cron-gon-antes-$STAMP.txt; echo ---; (crontab -u gon -l; echo \"30 9,21 * * * /usr/bin/flock -n /tmp/jev-senales.lock docker exec orbit-app-1 python -m app.cli jev-senales --aplicar >> /mnt/data/appdata/orbit/logs/jev-senales.log 2>&1\") | crontab -u gon - && crontab -u gon -l > /tmp/cron-gon-despues-$STAMP.txt && diff /tmp/cron-gon-antes-$STAMP.txt /tmp/cron-gon-despues-$STAMP.txt; crontab -u gon -l | grep -c jev-senales'"
+echo "Esperado: el diff muestra exactamente una linea agregada (> 30 9,21 ...) y el conteo final es 1."
+echo
+echo "Siguiente: bash $DIR/checklist.sh $STAMP (despues de instalar el cron)"
+echo "Cierre:    leer el log de la primera corrida por cron (debe decir apagado): ssh goncloud 'tail -5 /mnt/data/appdata/orbit/logs/jev-senales.log'"

@@ -583,7 +583,6 @@ def _precio(args: argparse.Namespace) -> int:
 
 
 def _construye_parser() -> argparse.ArgumentParser:
-    """El parser de `main`, aparte para que el despacho quepa en el tope."""
     parser = argparse.ArgumentParser(
         prog="python -m app.cli",
         description=(
