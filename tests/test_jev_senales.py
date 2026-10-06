@@ -675,3 +675,114 @@ def test_dos_procesos_a_la_vez(capsys):
         finally:
             otra.execute("SELECT pg_advisory_unlock(hashtext('jev:senales'))").fetchone()
             otra.close()
+
+
+def _ultima_lectura(conn, grupo: int, termino: str):
+    return conn.execute(
+        "SELECT lectura, evaluados, miembros FROM jev_senal"
+        " WHERE ad_group_id = %s AND termino = %s"
+        " ORDER BY created_at DESC, id DESC LIMIT 1",
+        (grupo, termino),
+    ).fetchone()
+
+
+@_skip_db
+def test_cupo_agotado_reutiliza_juicios_guardados():
+    """B1 (J4-r2): con el cupo agotado, las unidades con juicios guardados
+    conservan su lectura y cuesta 0. La propuesta sin guardar va primero
+    (tramo propuesta) y agota el razon; el resto con todo guardado debe
+    sellar igual que en la corrida 1."""
+    from app import jev_senales
+    from app.ads.structure_plan import huella_anuncios
+
+    with db_s4() as conn:
+        config_id = _config(conn, {"jev.senales": True, "jev.tope_diario": 2, "jev.min_clics": 3})
+        run = _run(conn, finished_at=AHORA - timedelta(hours=1))
+        g_ok, _, _, _ = _grupo_con_roster(conn, n=2)
+        vivos = sorted(externo for _, externo, _ in _ads_de(conn, g_ok))
+        _acta(conn, run, "amazon_mx", 1, 2, ((g_ok, 2, huella_anuncios(vivos), 0),))
+        _ventana(conn, run, "amazon_mx", g_ok, "collar oro")
+        with _escritor() as escritor:
+            pedido = _Pedido()
+            cierre = jev_senales.correr(
+                conn, escritor, ahora=AHORA, aplicar=True, pedir=pedido, api_key="k"
+            )
+            assert cierre.motivo == "completa"
+            assert len(pedido.llamados) == 2
+            assert _intenciones(conn) == 2
+            antes = _ultima_lectura(conn, g_ok, "collar oro")
+            assert antes[0] != "sin_lectura"
+
+            g_nuevo, _, _, _ = _grupo_con_roster(conn, n=1)
+            _ventana(conn, run, "amazon_mx", g_nuevo, "collar plata")
+            ciclo = _ciclo(conn)
+            dec = _decision(conn, ciclo, g_nuevo, "negative", "collar plata", config_id, {})
+            _cola(conn, dec, "amazon_mx", g_nuevo, "collar plata", "negative")
+            pedido2 = _Pedido()
+            cierre2 = jev_senales.correr(
+                conn, escritor, ahora=AHORA, aplicar=True, pedir=pedido2, api_key="k"
+            )
+            assert cierre2.motivo == "tope"
+            assert pedido2.llamados == []
+            assert _intenciones(conn) == 2
+            assert _ultima_lectura(conn, g_ok, "collar oro") == antes
+
+
+@_skip_db
+def test_proveedor_caido_reutiliza_juicios_guardados():
+    """B1 (J4-r2): tras 5 fallos HTTP seguidos, las unidades siguientes con
+    juicios guardados conservan su lectura; el cierre dice proveedor_caido
+    y no se abre ninguna intencion mas."""
+    from app import jev_senales
+    from app.ads.structure_plan import huella_anuncios
+
+    with db_s4() as conn:
+        config_id = _config(conn, ON)
+        run = _run(conn, finished_at=AHORA - timedelta(hours=1))
+        g_ok, _, _, _ = _grupo_con_roster(conn, n=2)
+        vivos = sorted(externo for _, externo, _ in _ads_de(conn, g_ok))
+        _acta(conn, run, "amazon_mx", 1, 2, ((g_ok, 2, huella_anuncios(vivos), 0),))
+        _ventana(conn, run, "amazon_mx", g_ok, "collar oro")
+        with _escritor() as escritor:
+            cierre = jev_senales.correr(
+                conn, escritor, ahora=AHORA, aplicar=True, pedir=_Pedido(), api_key="k"
+            )
+            assert cierre.motivo == "completa"
+            assert _intenciones(conn) == 2
+            antes = _ultima_lectura(conn, g_ok, "collar oro")
+            assert antes[0] != "sin_lectura"
+
+            g_falla, _, _, _ = _grupo_con_roster(conn, n=5)
+            _ventana(conn, run, "amazon_mx", g_falla, "collar plata")
+            ciclo = _ciclo(conn)
+            dec = _decision(conn, ciclo, g_falla, "negative", "collar plata", config_id, {})
+            _cola(conn, dec, "amazon_mx", g_falla, "collar plata", "negative")
+            pedido2 = _Pedido(falla_en={1, 2, 3, 4, 5})
+            cierre2 = jev_senales.correr(
+                conn, escritor, ahora=AHORA, aplicar=True, pedir=pedido2, api_key="k"
+            )
+            assert cierre2.motivo == "proveedor_caido"
+            assert len(pedido2.llamados) == 5
+            assert _intenciones(conn) == 7
+            assert _ultima_lectura(conn, g_ok, "collar oro") == antes
+
+
+@_skip_db
+def test_cinco_excesos_no_tumban_al_proveedor():
+    """NB1 (J4-r2): el disyuntor solo cuenta fallos del HTTP. Cinco excesos
+    de contexto seguidos (nunca llaman) no marcan proveedor_caido."""
+    from app import jev_senales
+
+    with db_s4() as conn:
+        _config(conn, ON)
+        run = _run(conn)
+        grupo, _, _, _ = _grupo_con_roster(conn, n=5)
+        _ventana(conn, run, "amazon_mx", grupo, "x" * 1100)
+        with _escritor() as escritor:
+            pedido = _Pedido()
+            cierre = jev_senales.correr(
+                conn, escritor, ahora=AHORA, aplicar=True, pedir=pedido, api_key="k"
+            )
+            assert cierre.motivo == "completa"
+            assert pedido.llamados == []
+            assert _intenciones(conn) == 0
