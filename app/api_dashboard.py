@@ -1074,9 +1074,9 @@ def _jev_de(conn: ConexionLectura) -> dict | None:
     entrara ahi, shell.js lo pintaria como un mercado. Import tardio y None
     si algo falla (sin tablas S.3, sin config): la pantalla no muere."""
     try:
-        from app import jev_senales
+        from app import jev_salud
 
-        return jev_senales.salud(conn, ahora=dt.datetime.now(dt.UTC)).como_dict()
+        return jev_salud.salud(conn, ahora=dt.datetime.now(dt.UTC)).como_dict()
     except Exception as exc:  # noqa: BLE001 - degradacion visible, no caida
         logger.warning("salud: jev ilegible: %s", scrub(str(exc)))
         return None
