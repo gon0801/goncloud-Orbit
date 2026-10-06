@@ -22,6 +22,7 @@ limpio en los archivos de S.4).
 | 13 | `test_deploy_documenta_la_linea_de_jev_senales` + `test_instalador_no_borra…` | `docs/DEPLOY.md`: `30 9,21` → `31 9,21` en la línea | `assert '<línea 30 …>' in '<DEPLOY…>'` (2 failed) |
 | 14 | `test_cupo_agotado_reutiliza_juicios_guardados` (r2 B1) | `_pares_de`: `in ("sin_cupo", "proveedor_caido")` → `== "proveedor_caido"` | 1 failed (su prueba), la otra en verde |
 | 15 | `test_proveedor_caido_reutiliza_juicios_guardados` (r2 B1) | `_pares_de`: `in ("sin_cupo", "proveedor_caido")` → `== "sin_cupo"` | 1 failed (su prueba), la otra en verde |
+| 16 | `test_presupuesto_de_tamano_por_modulo` (r3 B2) | árbol pre-partición (`jev_senales.py` 905 líneas, sin `jev_salud.py`) | 1 failed (`{'app/jev_senales.py': 905}`); partido (785 + 136): verde |
 
 Notas:
 
