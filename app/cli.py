@@ -803,6 +803,10 @@ def _construye_parser() -> argparse.ArgumentParser:
         "ads-salud",
         help="comprueba atraso de ingesta principal Ads y reintenta avisos pendientes",
     )
+    sub.add_parser(
+        "jev-senales",
+        help="sella la senal Jev por busqueda-en-grupo (seco salvo --aplicar)",
+    )
     p_precio = sub.add_parser(
         "precio",
         help="corrida diaria del motor de precios (--platform) o resumen (--reporte)",
@@ -870,6 +874,10 @@ def main(argv: list[str] | None = None) -> int:
         return spapi_vigilante.main(rest)
     if args.comando == "ads-salud":
         return ads_salud.main(rest)
+    if args.comando == "jev-senales":
+        from app import jev_senales
+
+        return jev_senales.main(rest)
     if args.comando == "precio":
         # Escribe decisiones y cambios: tokens extra SIEMPRE error del
         # operador (patron cycle).

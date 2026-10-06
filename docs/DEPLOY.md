@@ -383,6 +383,7 @@ El server está en UTC: estas horas SON UTC.
 | 07:10 | `ingest:metrics` | `python -m app.cli ingest metrics --fecha D-31 --fecha-fin D-1` |
 | 07:20 | `ingest:metrics:productos` | `python -m app.cli ingest metrics --fecha D-31 --fecha-fin D-1 --productos` (ORBIT 19 B.1; el reporte `spAdvertisedProduct` puede tardar hasta ~25 min por perfil, presupuesto de poll propio) |
 | 08:40 | `ads_optimizer:amazon_us` + `ads_optimizer:amazon_mx` | `python -m app.cli cycle --platform …` (los dos, en serie) |
+| 09:30, 21:30 | `jev-senales` | `python -m app.cli jev-senales --aplicar` (JEV ADS 02 S.4; flock + log, linea exacta abajo) |
 | 13:10 | `precio:amazon_mx` | `python -m app.cli precio --platform amazon_mx` (REPRICING 01 A.5; flock + log, linea exacta abajo) |
 
 Corrida diaria de precios (REPRICING 01 A.5), solo `amazon_mx`: la fase A
@@ -407,6 +408,26 @@ la misma fuente que el CLI. Los de ingesta quedan como comentario en el
 crontab y como `ingest_run.source` (`amazon_ads_structure_v2` /
 `amazon_ads_reports_v3` para el pipeline principal /
 `amazon_ads_products_v3` para productos anunciados desde la migracion 0040).
+
+Señal Jev por búsqueda-en-grupo (JEV ADS 02 S.4): dos corridas al día, con
+el interruptor ausente hasta S.6 (el job imprime que está apagado y sale
+con 0). Línea EXACTA del crontab de `gon` (la prueba
+`test_deploy_documenta_la_linea_de_jev_senales` la pinza de
+`tests/test_jev_senales_cron.py::LINEA_JEV_SENALES`), suelta como la de
+precio — fuera del bloque del instalador de ORBIT 03, cuyo filtro no la
+borra:
+
+```cron
+30 9,21 * * * /usr/bin/flock -n /tmp/jev-senales.lock docker exec orbit-app-1 python -m app.cli jev-senales --aplicar >> /mnt/data/appdata/orbit/logs/jev-senales.log 2>&1
+```
+
+Prerrequisitos: migraciones 0051 y 0052 aplicadas, login `orbit_jev` y
+`ORBIT_DSN_JEV` en el `.env` (bloque S.3 de más abajo), y `ORBIT_DSN_READ`
+presente **dentro** de `orbit-app-1` (`docker exec` no pasa el entorno del
+host). Instalación (dueño, posterior al merge): respaldar el crontab de
+`gon`, agregar la línea con `crontab -e` (nada más se toca) y comprobar que
+solo se agregó esa línea. La **reversa** es borrar la línea del crontab y
+las tablas `jev_*` quedan intactas (el job apagado no escribe).
 
 ADS PROTECCION 01 A.3 requiere aplicar `0040_ads_report_result.sql` y despues
 `0041_ads_ingest_alert.sql` antes de actualizar `orbit-app-1`. La 0041 guarda

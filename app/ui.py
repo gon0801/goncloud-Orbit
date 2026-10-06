@@ -451,7 +451,9 @@ def pagina_salud(request: Request, conn: ConexionLectura) -> HTMLResponse:
     watermarks + skips traducidos."""
     datos = dash.salud(conn=conn)
     return templates.TemplateResponse(
-        request, "salud.html", {"pantalla": "salud", "plataformas": datos["plataformas"]}
+        request,
+        "salud.html",
+        {"pantalla": "salud", "plataformas": datos["plataformas"], "jev": datos.get("jev")},
     )
 
 

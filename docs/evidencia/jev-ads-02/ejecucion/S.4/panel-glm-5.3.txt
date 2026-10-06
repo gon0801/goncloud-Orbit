@@ -1,0 +1,1257 @@
+[0m
+> build · glm-5.3
+[0m
+[0m→ [0mRead plans/jev-ads-02-bloque-s.md
+[0m
+[0m$ [0mgit log --oneline -5 && git status -sb && git diff 85e25a8a228fa569f88c8c531d49eea02edcd818 --stat
+9522b82 Jev Ads S.4: saca el parser de cli.main (sin cambio de comportamiento)
+85e25a8 Jev Ads S.3: senales, login orbit_jev y cierre del perimetro (migracion B 0052) (#405)
+eda1f90 Jev Ads S.2: nucleo puro de lectura + Libro (traslados del asesor) (#404)
+436b877 Jev Ads S.1: acta de listado de la ingesta (migracion 0051) (#403)
+c722db9 Jev Ads B11: cierre del plan 01 y diseño sellado de JEV ADS 02 (#402)
+## jev02/s4-job
+ M app/api_dashboard.py
+ M app/cli.py
+ M app/jev_libro.py
+ M app/optimizer/windows.py
+ M app/templates/salud.html
+ M app/ui.py
+ M docs/DEPLOY.md
+ M tests/test_architecture.py
+ M tests/test_cli.py
+ M tests/test_jev_cli.py
+ M tests/test_optimizer_windows.py
+?? app/jev_senales.py
+?? docs/evidencia/jev-ads-02/ejecucion/S.4/
+?? tests/test_jev_senales.py
+?? tests/test_jev_senales_cron.py
+ app/api_dashboard.py            |  15 +++++-
+ app/cli.py                      |  16 +++++-
+ app/jev_libro.py                | 107 ++++++++++++++++++++++++++++++++++++++--
+ app/optimizer/windows.py        |  51 ++++++++++---------
+ app/templates/salud.html        |  17 +++++++
+ app/ui.py                       |   4 +-
+ docs/DEPLOY.md                  |  21 ++++++++
+ tests/test_architecture.py      |  97 ++++++++++++++++++++++++++++++++++++
+ tests/test_cli.py               |  16 ++++++
+ tests/test_jev_cli.py           |  28 -----------
+ tests/test_optimizer_windows.py |  76 +++++++++++++++++++++++++++-
+ 11 files changed, 384 insertions(+), 64 deletions(-)
+[0m
+[0m→ [0mRead docs/superpowers/specs/2026-10-04-jev-ads-02-design.md
+[0m
+[0m$ [0mgit diff 85e25a8a228fa569f88c8c531d49eea02edcd818 -- app/optimizer/windows.py app/cli.py app/api_dashboard.py app/ui.py app/templates/salud.html docs/DEPLOY.md
+diff --git a/app/api_dashboard.py b/app/api_dashboard.py
+index faefcfc..ea4571c 100644
+--- a/app/api_dashboard.py
++++ b/app/api_dashboard.py
+@@ -1066,7 +1066,20 @@ def salud(conn: ConexionLectura) -> dict:
+             "ads_ingest": _ads_ingest_de(conn, plataforma),
+             "precios": _precios_de(conn, plataforma),
+         }
+-    return {"plataformas": plataformas}
++    return {"plataformas": plataformas, "jev": _jev_de(conn)}
++
++
++def _jev_de(conn: ConexionLectura) -> dict | None:
++    """Bloque jev de /salud (JEV ADS 02 S.4), hermano de `plataformas`: si
++    entrara ahi, shell.js lo pintaria como un mercado. Import tardio y None
++    si algo falla (sin tablas S.3, sin config): la pantalla no muere."""
++    try:
++        from app import jev_senales
++
++        return jev_senales.salud(conn, ahora=dt.datetime.now(dt.UTC)).como_dict()
++    except Exception as exc:  # noqa: BLE001 - degradacion visible, no caida
++        logger.warning("salud: jev ilegible: %s", scrub(str(exc)))
++        return None
+
+
+ def _ads_ingest_de(conn: ConexionLectura, plataforma: str) -> dict | None:
+diff --git a/app/cli.py b/app/cli.py
+index 922896b..2044ecc 100644
+--- a/app/cli.py
++++ b/app/cli.py
+@@ -582,7 +582,8 @@ def _precio(args: argparse.Namespace) -> int:
+     return 0
+
+
+-def main(argv: list[str] | None = None) -> int:
++def _construye_parser() -> argparse.ArgumentParser:
++    """El parser de `main`, aparte para que el despacho quepa en el tope."""
+     parser = argparse.ArgumentParser(
+         prog="python -m app.cli",
+         description=(
+@@ -802,6 +803,10 @@ def main(argv: list[str] | None = None) -> int:
+         "ads-salud",
+         help="comprueba atraso de ingesta principal Ads y reintenta avisos pendientes",
+     )
++    sub.add_parser(
++        "jev-senales",
++        help="sella la senal Jev por busqueda-en-grupo (seco salvo --aplicar)",
++    )
+     p_precio = sub.add_parser(
+         "precio",
+         help="corrida diaria del motor de precios (--platform) o resumen (--reporte)",
+@@ -816,6 +821,11 @@ def main(argv: list[str] | None = None) -> int:
+     p_precio.add_argument("--desde", default=None, help="YYYY-MM-DD (con --reporte)")
+     p_precio.add_argument("--hasta", default=None, help="YYYY-MM-DD (con --reporte)")
+
++    return parser
++
++
++def main(argv: list[str] | None = None) -> int:
++    parser = _construye_parser()
+     args, rest = parser.parse_known_args(argv)
+     if args.comando == "cycle":
+         # El ciclo ESCRIBE decisiones: un flag mal tipeado que se ignorara en
+@@ -864,6 +874,10 @@ def main(argv: list[str] | None = None) -> int:
+         return spapi_vigilante.main(rest)
+     if args.comando == "ads-salud":
+         return ads_salud.main(rest)
++    if args.comando == "jev-senales":
++        from app import jev_senales
++
++        return jev_senales.main(rest)
+     if args.comando == "precio":
+         # Escribe decisiones y cambios: tokens extra SIEMPRE error del
+         # operador (patron cycle).
+diff --git a/app/optimizer/windows.py b/app/optimizer/windows.py
+index 354465e..b0e6202 100644
+--- a/app/optimizer/windows.py
++++ b/app/optimizer/windows.py
+@@ -112,7 +112,7 @@ SQL del modulo (todas de LECTURA; las parsea el test de sintaxis con pglast):
+ _SQL_MAX_FECHA_ENTIDAD, _SQL_AGREGA_METRICAS, _SQL_MAX_FECHA_TERMINOS,
+ _SQL_TERMINOS_CORTES, _SQL_FECHAS_ENTIDAD_TERMINOS, _SQL_WATERMARK_PLATAFORMA,
+ _SQL_SYNC_PLATAFORMA, _SQL_EVIDENCIA_AD_GROUP, _SQL_CONVERSION_GRANO,
+-_SQL_MAPEO_HOJAS, _SQL_CPC_SLICE.
++_SQL_MAPEO_HOJAS, _SQL_CPC_SLICE, _SQL_COLAPSO_TERMINOS.
+ """
+
+ from __future__ import annotations
+@@ -313,22 +313,24 @@ _SQL_MAX_FECHA_TERMINOS = """
+ SELECT max(metric_date) FROM search_term_observation WHERE ad_entity_id = %s
+ """
+
+-# El colapso de terminos NO tiene vista: DISTINCT ON manual con la clave
+-# (ad_entity_id, search_term, metric_date) ORDER BY observed_at DESC,
+-# source_report_id DESC NULLS LAST. El desempate extra cierra el caso dos
+-# observaciones con el MISMO observed_at (mismo run de backfill, reportes
+-# distintos): sin el, DISTINCT ON elegia de forma NO determinista (minor
+-# declarado en la review de 2.1; testeado en tests/test_optimizer_hygiene.py
+-# relajando la PK en la DB temporal, porque bajo el esquema sellado el empate
+-# no puede entrar a la tabla). NULLS LAST porque DESC sin clausula pone los
+-# NULL PRIMEROS: ante empate total gana la fila CON reporte de origen
+-# (trazable) sobre la que no lo tiene (hallazgo codex, ronda 1). Es comparacion
+-# TEXT lexicografica: la propiedad defendida es el DETERMINISMO del query, no
+-# la recencia. La plataforma no va en la clave: entra por el WHERE por
+-# ad_entity_id (la entidad pertenece a una sola plataforma). is_asin_like via
+-# bool_or: fail-closed (ver docstring de AgregadoTermino); observed_at max
+-# alimenta decision.data_observed_at de la decision sobre ese termino.
+-_SQL_TERMINOS_CORTES = """
++# Colapso de terminos (JEV ADS 02 S.4): DISTINCT ON manual con la clave
++# (ad_entity_id, search_term, metric_date); el desempate y NULLS LAST
++# defienden el DETERMINISMO (ver historia en git). {where} lo rellena cada
++# consulta: terminos_cortes filtra entidad y ventana, el historial de
++# jev-senales filtra entidad y termino sin fechas.
++_SQL_COLAPSO_TERMINOS = """
++      SELECT DISTINCT ON (ad_entity_id, search_term, metric_date)
++             ad_entity_id, search_term, metric_date, metric_currency,
++             cost, ad_revenue, clicks, orders, is_asin_like, observed_at,
++             source_report_id
++        FROM search_term_observation
++       {where}
++       ORDER BY ad_entity_id, search_term, metric_date, observed_at DESC,
++                source_report_id DESC NULLS LAST
++"""
++
++_SQL_TERMINOS_CORTES = (
++    """
+ SELECT ad_entity_id,
+        search_term,
+        min(metric_currency),
+@@ -340,19 +342,16 @@ SELECT ad_entity_id,
+        bool_or(is_asin_like),
+        max(observed_at)
+   FROM (
+-      SELECT DISTINCT ON (ad_entity_id, search_term, metric_date)
+-             ad_entity_id, search_term, metric_date, metric_currency,
+-             cost, ad_revenue, clicks, orders, is_asin_like, observed_at,
+-             source_report_id
+-        FROM search_term_observation
+-       WHERE ad_entity_id = %s
+-         AND metric_date BETWEEN %s AND %s
+-       ORDER BY ad_entity_id, search_term, metric_date, observed_at DESC,
+-                source_report_id DESC NULLS LAST
++"""
++    + _SQL_COLAPSO_TERMINOS.format(
++        where="WHERE ad_entity_id = %s AND metric_date BETWEEN %s AND %s"
++    )
++    + """
+   ) colapsado
+  GROUP BY ad_entity_id, search_term
+  ORDER BY search_term
+ """
++)
+
+ # Fechas distintas de la ENTIDAD (todas las observaciones de terminos dentro
+ # de la ventana): la unidad de completitud sellada para hygiene (2.3). Misma
+diff --git a/app/templates/salud.html b/app/templates/salud.html
+index 9b67cff..ddd90e8 100644
+--- a/app/templates/salud.html
++++ b/app/templates/salud.html
+@@ -161,5 +161,22 @@
+   </div>
+ </div>
+ {% endfor %}
++{% if jev %}
++{# JEV ADS 02 S.4: bloque del job jev-senales, fuera del for de plataformas. #}
++<div class="tarjeta">
++  <h2>Jev — señal por búsqueda-en-grupo</h2>
++  {% if jev.interruptor.encendido %}
++  <p>Encendido · tope {{ jev.interruptor.tope_diario }} · min clics {{ jev.interruptor.min_clics }} · avisos {{ "sí" if jev.interruptor.avisos else "no" }}</p>
++  {% else %}
++  <p class="mutado">Apagado{% if jev.interruptor.motivo_apagado %} ({{ jev.interruptor.motivo_apagado }}){% endif %}</p>
++  {% endif %}
++  {% if jev.ultima_corrida %}
++  <p>Última corrida: {{ jev.ultima_corrida.motivo }} · {{ jev.ultima_corrida.unidades }} unidades · {{ jev.ultima_corrida.llamadas }} llamadas · {{ jev.ultima_corrida.senales }} señales{% if jev.ultima_sin_cierre %} · <span class="alerta">inicio sin fin</span>{% endif %}</p>
++  {% elif jev.ultima_inicio %}
++  <p><span class="alerta">Inicio sin fin ({{ jev.ultima_inicio }})</span></p>
++  {% endif %}
++  <p>Llamadas hoy: {{ jev.llamadas_hoy }} · pendientes de Jev: {{ jev.pendientes_de_jev }} · grupos probados: {{ jev.grupos_probados }} de {{ jev.grupos_con_gasto }} · ajena impedida: {{ jev.ajena_impedida_por_abstencion }} · avisos sin entrega: {{ jev.avisos_sin_entrega }} · fichas por vencer: {{ jev.fichas_por_vencer_14d }}</p>
++</div>
++{% endif %}
+ </div>
+ {% endblock %}
+diff --git a/app/ui.py b/app/ui.py
+index cf9bafd..efffa66 100644
+--- a/app/ui.py
++++ b/app/ui.py
+@@ -451,7 +451,9 @@ def pagina_salud(request: Request, conn: ConexionLectura) -> HTMLResponse:
+     watermarks + skips traducidos."""
+     datos = dash.salud(conn=conn)
+     return templates.TemplateResponse(
+-        request, "salud.html", {"pantalla": "salud", "plataformas": datos["plataformas"]}
++        request,
++        "salud.html",
++        {"pantalla": "salud", "plataformas": datos["plataformas"], "jev": datos.get("jev")},
+     )
+
+
+diff --git a/docs/DEPLOY.md b/docs/DEPLOY.md
+index 17f2f56..fd85d43 100644
+--- a/docs/DEPLOY.md
++++ b/docs/DEPLOY.md
+@@ -384,6 +384,7 @@ El server está en UTC: estas horas SON UTC.
+ | 07:20 | `ingest:metrics:productos` | `python -m app.cli ingest metrics --fecha D-31 --fecha-fin D-1 --productos` (ORBIT 19 B.1; el reporte `spAdvertisedProduct` puede tardar hasta ~25 min por perfil, presupuesto de poll propio) |
+ | 08:40 | `ads_optimizer:amazon_us` + `ads_optimizer:amazon_mx` | `python -m app.cli cycle --platform …` (los dos, en serie) |
+ | 13:10 | `precio:amazon_mx` | `python -m app.cli precio --platform amazon_mx` (REPRICING 01 A.5; flock + log, linea exacta abajo) |
++| 09:30, 21:30 | `jev-senales` | `python -m app.cli jev-senales --aplicar` (JEV ADS 02 S.4; flock + log, linea exacta abajo) |
+
+ Corrida diaria de precios (REPRICING 01 A.5), solo `amazon_mx`: la fase A
+ es Amazon Mexico; `amazon_us` y `meli` NO se agendan hasta sus fases (el
+@@ -408,6 +409,26 @@ crontab y como `ingest_run.source` (`amazon_ads_structure_v2` /
+ `amazon_ads_reports_v3` para el pipeline principal /
+ `amazon_ads_products_v3` para productos anunciados desde la migracion 0040).
+
++Señal Jev por búsqueda-en-grupo (JEV ADS 02 S.4): dos corridas al día, con
++el interruptor ausente hasta S.6 (el job imprime que está apagado y sale
++con 0). Línea EXACTA del crontab de `gon` (la prueba
++`test_deploy_documenta_la_linea_de_jev_senales` la pinza de
++`tests/test_jev_senales_cron.py::LINEA_JEV_SENALES`), suelta como la de
++precio — fuera del bloque del instalador de ORBIT 03, cuyo filtro no la
++borra:
++
++```cron
++30 9,21 * * * /usr/bin/flock -n /tmp/jev-senales.lock docker exec orbit-app-1 python -m app.cli jev-senales --aplicar >> /mnt/data/appdata/orbit/logs/jev-senales.log 2>&1
++```
++
++Prerrequisitos: migraciones 0051 y 0052 aplicadas, login `orbit_jev` y
++`ORBIT_DSN_JEV` en el `.env` (bloque S.3 de más abajo), y `ORBIT_DSN_READ`
++presente **dentro** de `orbit-app-1` (`docker exec` no pasa el entorno del
++host). Instalación (dueño, posterior al merge): respaldar el crontab de
++`gon`, agregar la línea con `crontab -e` (nada más se toca) y comprobar que
++solo se agregó esa línea. La **reversa** es borrar la línea del crontab y
++las tablas `jev_*` quedan intactas (el job apagado no escribe).
++
+ ADS PROTECCION 01 A.3 requiere aplicar `0040_ads_report_result.sql` y despues
+ `0041_ads_ingest_alert.sql` antes de actualizar `orbit-app-1`. La 0041 guarda
+ episodios y acuses; no reescribe metricas. Comprobar con
+[0m
+[0m→ [0mRead app/jev_senales.py
+[0m→ [0mRead docs/evidencia/jev-ads-02/diseno/bosquejo.py
+[0m
+[0m$ [0mgit diff 85e25a8a228fa569f88c8c531d49eea02edcd818 -- app/jev_libro.py
+diff --git a/app/jev_libro.py b/app/jev_libro.py
+index d424edc..f0b8040 100644
+--- a/app/jev_libro.py
++++ b/app/jev_libro.py
+@@ -1,14 +1,18 @@
+-"""El Libro de juicios por par de Jev (JEV ADS 02, S.2).
++"""El Libro de juicios por par de Jev (JEV ADS 02, S.2 + S.4).
+
+ Unico que inserta eventos `intencion` y `resultado` (lo que cuesta
+-dinero). En este paso trae `pagar`, traslado textual del asesor manual:
+-intencion confirmada ANTES del HTTP, resultado despues, sin reutilizar y
+-sin tope; y `siguiente_ordinal`, que `_reutilizar` sigue necesitando.
++dinero) y unico que conoce el tope diario. `pagar` es el traslado textual
++del asesor manual (sin reutilizar y sin tope); `juicio` es la pregunta del
++job: reutiliza el primer exito GLOBAL, respeta el tope con reserva
++atomica y jamas abre intencion sin cupo.
+ """
+
+ from __future__ import annotations
+
++import json
+ import uuid
++from dataclasses import dataclass
++from datetime import UTC, datetime, timedelta
+ from uuid import UUID
+
+ from app.jev_ads import (
+@@ -18,17 +22,110 @@ from app.jev_ads import (
+     FichaVersion,
+     Juicio,
+     _canonico,
++    _juicio_de_respuesta,
+ )
+
+
++@dataclass(frozen=True)
++class SinCupo:
++    """El tope diario no deja pagar este par hoy. No es fallo ni evidencia."""
++
++
++class _CupoAgotado(Exception):
++    """Sale del bloque de reserva sin confirmar nada."""
++
++
++def exito_global(conn, clave: ClavePar) -> Juicio | None:
++    """Primer exito de la clave en CUALQUIER revision, por (created_at, id).
++    Las tablas son append-only, asi que ese primero no cambia nunca."""
++    fila = conn.execute(
++        "SELECT id, respuesta FROM jev_par_evento"
++        " WHERE termino_sha256 = %s AND ficha_version_id = %s AND contrato_sha256 = %s"
++        " AND tipo = 'resultado' AND respuesta IS NOT NULL"
++        " ORDER BY created_at, id LIMIT 1",
++        (clave.termino_literal_sha256, clave.ficha_version_id, clave.contrato_sha256),
++    ).fetchone()
++    if fila is None:
++        return None
++    return _juicio_de_respuesta(fila[1], clave, fila[0])
++
++
++def intenciones_del_dia(conn, ahora: datetime) -> int:
++    """Intenciones del dia UTC de `ahora`, por rango: usa el indice parcial
++    de S.3 (una igualdad sobre `::date` no lo usaria)."""
++    dia = ahora.date()
++    inicio = datetime(dia.year, dia.month, dia.day, tzinfo=UTC)
++    return conn.execute(
++        "SELECT count(*) FROM jev_par_evento WHERE tipo = 'intencion'"
++        " AND created_at >= %s AND created_at < %s",
++        (inicio, inicio + timedelta(days=1)),
++    ).fetchone()[0]
++
++
++def _exceso_contexto(termino: str, ficha: FichaVersion, contrato) -> str | None:
++    """Lo que no cabe en el contrato, con el mismo motivo que `pedir_juicio`
++    (determinista: no abre intencion, no gasta cupo)."""
++    from app.jev_juicios import _ficha_a_state
++
++    bytes_termino = len(termino.encode("utf-8"))
++    if bytes_termino > contrato.max_bytes_termino:
++        return (
++            f"contexto_excedido: termino de {bytes_termino} bytes supera el maximo"
++            f" {contrato.max_bytes_termino}"
++        )
++    bytes_ficha = len(
++        json.dumps(_ficha_a_state(ficha), ensure_ascii=False, sort_keys=True).encode("utf-8")
++    )
++    if bytes_ficha > contrato.max_bytes_ficha:
++        return (
++            f"contexto_excedido: ficha de {bytes_ficha} bytes supera el maximo"
++            f" {contrato.max_bytes_ficha}"
++        )
++    return None
++
++
+ class Libro:
+     """Paga juicios a TypeSafe y deja el rastro auditable. Recibe la misma
+     conexion de quien lo construye; el `__init__` no toca la base."""
+
+-    def __init__(self, conn, *, pedir, contrato):
++    def __init__(self, conn, *, pedir, contrato, ahora=None):
+         self._conn = conn
+         self._pedir = pedir
+         self._contrato = contrato
++        self._ahora = ahora or (lambda: datetime.now(UTC))
++
++    def juicio(
++        self, termino: str, ficha: FichaVersion, *, lote: UUID, tope_diario: int
++    ) -> Juicio | FalloProveedor | SinCupo:
++        """El juicio del par, GLOBAL por ClavePar (cambia R4): el primer
++        exito de cualquier revision vale sin HTTP ni filas; lo que no cabe
++        en el contrato falla sin intencion; la reserva (candado, conteo,
++        intencion) es atomica y el HTTP va despues del commit."""
++        from app.jev_juicios import clave_de, request_sha256
++
++        clave = clave_de(termino, ficha, self._contrato)
++        exito = exito_global(self._conn, clave)
++        if exito is not None:
++            return exito
++        exceso = _exceso_contexto(termino, ficha, self._contrato)
++        if exceso is not None:
++            return FalloProveedor(producto_id=ficha.producto_id, motivo=exceso)
++        try:
++            with self._conn.transaction():
++                self._conn.execute("SELECT pg_advisory_xact_lock(hashtext('jev:cupo'))")
++                if self.llamadas_de_hoy() >= tope_diario:
++                    raise _CupoAgotado
++                intencion_id = self._intencion(
++                    lote, clave, request_sha256(termino, ficha, self._contrato)
++                )
++        except _CupoAgotado:
++            return SinCupo()
++        devuelto = self._pedir(termino, ficha)
++        return self._resultado(lote, clave, intencion_id, devuelto, ficha)
++
++    def llamadas_de_hoy(self) -> int:
++        """Gasto del dia: intenciones de hoy UTC, de cualquier origen."""
++        return intenciones_del_dia(self._conn, self._ahora())
+
+     def pagar(
+         self, termino: str, ficha: FichaVersion, *, revision: UUID
+[0m
+[0m$ [0mgrep -n "GRANT\|REVOKE" migrations/0052*.sql | head -60; ls migrations/ | tail -8
+migrations/0052_jev_senales.sql:8:-- PK no encabece, REVOKE explicito tras cada CREATE y bloque DO final.
+migrations/0052_jev_senales.sql:63:REVOKE ALL ON TABLE jev_roster FROM app_decide, app_ingest;
+migrations/0052_jev_senales.sql:104:REVOKE ALL ON TABLE jev_senal FROM app_decide, app_ingest;
+migrations/0052_jev_senales.sql:127:REVOKE ALL ON TABLE jev_aviso FROM app_decide, app_ingest;
+migrations/0052_jev_senales.sql:140:REVOKE ALL ON TABLE jev_aviso_entrega FROM app_decide, app_ingest;
+migrations/0052_jev_senales.sql:151:REVOKE ALL ON TABLE jev_corrida FROM app_decide, app_ingest;
+migrations/0052_jev_senales.sql:165:REVOKE ALL ON TABLE jev_senal_vigente FROM app_decide, app_ingest;
+migrations/0052_jev_senales.sql:173:REVOKE ALL ON TABLE jev_ficha_version, jev_ficha_revocacion, jev_revision, jev_par_evento
+migrations/0052_jev_senales.sql:233:-- 5. GRANTS DE MINIMO PRIVILEGIO
+migrations/0052_jev_senales.sql:236:GRANT SELECT, INSERT ON jev_roster, jev_senal, jev_aviso, jev_aviso_entrega, jev_corrida
+migrations/0052_jev_senales.sql:238:GRANT SELECT ON TABLE jev_senal_vigente TO app_jev;
+migrations/0052_jev_senales.sql:239:GRANT SELECT ON jev_roster, jev_senal, jev_aviso, jev_aviso_entrega, jev_corrida
+migrations/0052_jev_senales.sql:241:GRANT SELECT ON TABLE jev_senal_vigente TO app_read, app_admin;
+migrations/0052_reversa_jev_senales.sql:58:GRANT SELECT ON jev_ficha_version, jev_ficha_revocacion, jev_revision, jev_par_evento
+0049_jev_ads.sql
+0049_reversa_jev_ads.sql
+0050_jev_revision_created_at.sql
+0050_reversa_jev_revision_created_at.sql
+0051_ads_acta_listado.sql
+0051_reversa_ads_acta_listado.sql
+0052_jev_senales.sql
+0052_reversa_jev_senales.sql
+[0m
+[0m$ [0mgrep -n "dict_row\|tuple_row\|row_factory" app/db.py app/api_dashboard.py | head -40
+app/api_dashboard.py:67:from psycopg.rows import dict_row, tuple_row
+app/api_dashboard.py:1292:        # tuple_row EXPLICITO: cortes() trabaja con dict_row y este helper
+app/api_dashboard.py:1294:        with conn.cursor(row_factory=tuple_row) as cur:
+app/api_dashboard.py:1358:    conn.row_factory = dict_row
+app/api_dashboard.py:1443:    conn.row_factory = dict_row
+[0m
+[0m→ [0mRead migrations/0052_jev_senales.sql[90m [limit=90, offset=160][0m
+[0m→ [0mRead app/api_dashboard.py[90m [limit=80, offset=1330][0m
+[0m→ [0mRead app/api_dashboard.py[90m [limit=75, offset=1040][0m
+[0m
+[0m$ [0mgrep -n "ConexionLectura\|def get_conn\|row_factory" app/api.py app/main.py app/db.py 2>/dev/null | head; grep -rn "ConexionLectura = \|ConexionLectura=" app/ | head -5
+app/api.py:143:ConexionLectura = Annotated[psycopg.Connection, Depends(_conexion_lectura)]
+app/api.py:189:def status(conn: ConexionLectura) -> dict:
+app/api.py:204:    INDICE con row_factory por defecto (tuplas); las consultas de audit/goals
+app/api.py:225:    conn: ConexionLectura,
+app/api.py:243:    conn.row_factory = dict_row
+app/api.py:288:    conn: ConexionLectura,
+app/api.py:302:    conn.row_factory = dict_row
+app/api.py:329:    conn: ConexionLectura,
+app/api.py:341:    conn.row_factory = dict_row
+app/api.py:392:def propuestas_campana_visibles(conn: ConexionLectura) -> list[dict]:
+app/api.py:143:ConexionLectura = Annotated[psycopg.Connection, Depends(_conexion_lectura)]
+[0m
+[0m$ [0mgrep -n "def connect" -A 25 app/db.py
+47:def connect(dsn: str, **kw) -> psycopg.Connection:
+48-    """Conecta a Postgres; ante fallo, re-lanza `OrbitDbError` con el DSN redactado.
+49-
+50-    El `except` no se re-lanza dentro de si mismo: se guarda el error y se
+51-    lanza DESPUES de que el bloque `try/except` termina, para que la
+52-    excepcion original (que puede traer el DSN crudo en su propio mensaje)
+53-    no quede enganchada como `__context__` de `OrbitDbError`.
+54-    """
+55-    dsn = aplicar_host_override(dsn, os.environ.get("ORBIT_PG_HOST"))
+56-    error: OrbitDbError | None = None
+57-    try:
+58-        return psycopg.connect(dsn, **kw)
+59-    except psycopg.Error:
+60-        error = OrbitDbError(f"no se pudo conectar a la base de datos: {redact_dsn(dsn)}")
+61-    raise error from None
+[0m
+[0m$ [0mgrep -n "def componer\|def terminos_cortes\|def censo_grupo\|def resolver_fichas\|def _juicio_de_respuesta\|class FichaVersion\|def es_asin_like\|def clave_de\|revisar_antes_de" app/jev_ads.py app/optimizer/windows.py app/jev_catalogo.py app/jev_juicios.py | head -30
+app/jev_ads.py:50:def es_asin_like(termino: str) -> bool:
+app/jev_ads.py:64:class FichaVersion:
+app/jev_ads.py:75:    revisar_antes_de: datetime  # UTC
+app/jev_ads.py:278:def componer(censo: CensoCongelado, pares: tuple[EstadoPar, ...]) -> RelevanciaConjunto:
+app/jev_ads.py:444:def _juicio_de_respuesta(respuesta: dict, clave: ClavePar, evento_id: UUID) -> Juicio:
+app/optimizer/windows.py:532:def terminos_cortes(
+app/jev_catalogo.py:48:    " f.aprobador, f.observado_at, f.revisar_antes_de, f.sha256"
+app/jev_catalogo.py:68:    revisar_antes_de: datetime,
+app/jev_catalogo.py:80:        "revisar_antes_de": _utc_iso(revisar_antes_de),
+app/jev_catalogo.py:109:        revisar_antes_de,
+app/jev_catalogo.py:121:        revisar_antes_de=revisar_antes_de,
+app/jev_catalogo.py:144:    revisar_antes_de: datetime,
+app/jev_catalogo.py:168:        revisar_antes_de=revisar_antes_de,
+app/jev_catalogo.py:175:        " desconocidos, sha256, aprobador, observado_at, revisar_antes_de)"
+app/jev_catalogo.py:188:            revisar_antes_de,
+app/jev_catalogo.py:204:            revisar_antes_de=revisar_antes_de,
+app/jev_catalogo.py:255:    ese listing y con revisar_antes_de no vencido. Ultima por observado_at."""
+app/jev_catalogo.py:260:        "   AND r.id IS NULL AND f.revisar_antes_de >= %s"
+app/jev_catalogo.py:269:def resolver_fichas(
+app/jev_catalogo.py:306:def censo_grupo(conn: psycopg.Connection, *, plataforma: str, ad_group_id: int) -> CensoCongelado:
+app/jev_juicios.py:126:def clave_de(termino: str, ficha: FichaVersion, contrato: Contrato) -> ClavePar:
+[0m
+[0m→ [0mRead app/jev_ads.py[90m [limit=120, offset=240][0m
+[0m→ [0mRead app/optimizer/windows.py[90m [limit=60, offset=520][0m
+Ahora las pruebas y la guarda de imports:
+[0m
+[0m$ [0mgit diff 85e25a8a228fa569f88c8c531d49eea02edcd818 -- tests/ | head -350
+diff --git a/tests/test_architecture.py b/tests/test_architecture.py
+index 6e56c07..3a04843 100644
+--- a/tests/test_architecture.py
++++ b/tests/test_architecture.py
+@@ -2190,3 +2190,100 @@ def test_candado_cuota_caza_reloj_y_entorno(tmp_path):
+     arbol = ast.parse(copia.read_text(encoding="utf-8"))
+     assert _usos_reloj(arbol) != []
+     assert _usos_import_dinamico(arbol) != []
++
++
++# ---------------------------------------------------------------------------
++# JEV ADS 02 S.4: guarda invertida de imports de Jev (Cambio 11).
++# Reemplaza a test_los_consumidores_no_importan_al_asesor (test_jev_cli.py):
++# en vez de revisar tres archivos del motor, recorre todo app/ y tools/ y
++# solo deja importar modulos jev_* a la lista corta del diseno.
++# ---------------------------------------------------------------------------
++
++# No-Jev que puede importar Jev (grep 2026-10-06: dashboard y fabrica_web;
++# S.4 suma el despacho del job).
++_PERMITIDOS_JEV = frozenset(
++    {
++        "app/api_dashboard.py",  # bloque jev de /salud (S.4) + asesoria en /cortes
++        "app/cli.py",  # despacho de jev-senales, con import tardio (S.4)
++        "app/fabrica_web.py",  # asesoria visible del plan de fabrica
++    }
++)
++
++
++def _es_modulo_jev(rel: str) -> bool:
++    return Path(rel).name.startswith("jev_")
++
++
++def _candidatos_jev(path: Path, raiz: Path) -> set[str]:
++    """Modulos jev_* importados por el archivo, en cualquier forma de import
++    y a cualquier profundidad (relativos resueltos contra su paquete)."""
++    rel = path.relative_to(raiz).as_posix()
++    paquete = rel.removesuffix(".py").split("/")[:-1]
++    arbol = ast.parse(path.read_text(encoding="utf-8"))
++    hallados: set[str] = set()
++
++    def _visitar(nodos: list) -> None:
++        for nodo in nodos:
++            if _es_bloque_type_checking(nodo):
++                continue
++            if isinstance(nodo, ast.Import):
++                hallados.update(alias.name for alias in nodo.names)
++            elif isinstance(nodo, ast.ImportFrom):
++                if nodo.level:
++                    base = paquete[: len(paquete) - nodo.level + 1]
++                    if nodo.module:
++                        base = [*base, *nodo.module.split(".")]
++                    hallados.add(".".join(base))
++                    hallados.update(".".join([*base, a.name]) for a in nodo.names)
++                elif nodo.module:
++                    hallados.add(nodo.module)
++                    hallados.update(f"{nodo.module}.{a.name}" for a in nodo.names)
++            else:
++                _visitar(list(ast.iter_child_nodes(nodo)))
++
++    _visitar(arbol.body)
++    return {
++        h
++        for h in hallados
++        if h.startswith("app.jev_") or h.startswith("tools.jev_") or h in ("app.jev",)
++    }
++
++
++def _fugas_jev(raiz: Path) -> list[str]:
++    fugas: list[str] = []
++    for base in ("app", "tools"):
++        for path in sorted((raiz / base).rglob("*.py")):
++            rel = path.relative_to(raiz).as_posix()
++            if rel in _PERMITIDOS_JEV or _es_modulo_jev(rel):
++                continue
++            for candidato in sorted(_candidatos_jev(path, raiz)):
++                fugas.append(f"{rel}: {candidato}")
++    return sorted(fugas)
++
++
++def test_jev_solo_importa_lo_declarado():
++    """S.4 Cambio 11: solo Jev, cli, dashboard, fabrica_web y los CLI de
++    tools importan modulos jev_* (el detector muerde: ver fuga sembrada)."""
++    assert _fugas_jev(RAIZ) == []
++
++
++def test_candado_imports_jev_caza_fuga_sembrada(tmp_path):
++    """S.4 Cambio 11, fuga sembrada: un import de Jev en el motor sale rojo,
++    en sus tres formas (absoluto, desde el paquete y relativo)."""
++    (tmp_path / "app").mkdir()
++    (tmp_path / "tools").mkdir()
++    (tmp_path / "app" / "motor.py").write_text(
++        "from app import jev_ads  # fuga\n", encoding="utf-8"
++    )
++    (tmp_path / "app" / "otro.py").write_text(
++        "from app.jev_asesor import AsesorAds  # fuga\n", encoding="utf-8"
++    )
++    (tmp_path / "app" / "hermano.py").write_text(
++        "from . import jev_vista  # fuga\n", encoding="utf-8"
++    )
++    assert _fugas_jev(tmp_path) == [
++        "app/hermano.py: app.jev_vista",
++        "app/motor.py: app.jev_ads",
++        "app/otro.py: app.jev_asesor",
++        "app/otro.py: app.jev_asesor.AsesorAds",
++    ]
+diff --git a/tests/test_cli.py b/tests/test_cli.py
+index 757507b..cd530d6 100644
+--- a/tests/test_cli.py
++++ b/tests/test_cli.py
+@@ -895,3 +895,19 @@ def test_cli_report_reporte_desconocido_rechazado(capsys):
+         cli.main(["report", "margen"])
+     assert exc.value.code == 2
+     assert "invalid choice" in capsys.readouterr().err
++
++
++def test_cli_jev_senales_despacha_con_sus_args(monkeypatch):
++    """JEV ADS 02 S.4: `jev-senales` despacha a `app.jev_senales.main` con
++    los args restantes y propaga su exit (patron metrics/cobertura)."""
++    from app import jev_senales
++
++    visto: dict = {}
++
++    def _fake_main(rest):
++        visto["rest"] = list(rest)
++        return 7
++
++    monkeypatch.setattr(jev_senales, "main", _fake_main)
++    assert cli.main(["jev-senales", "--aplicar"]) == 7
++    assert visto["rest"] == ["--aplicar"]
+diff --git a/tests/test_jev_cli.py b/tests/test_jev_cli.py
+index bd8d635..8fccc03 100644
+--- a/tests/test_jev_cli.py
++++ b/tests/test_jev_cli.py
+@@ -16,7 +16,6 @@ DoD que fijan (HTTP falso y base de prueba; cero TypeSafe real):
+
+ from __future__ import annotations
+
+-import ast
+ import hashlib
+ import json
+ import os
+@@ -702,33 +701,6 @@ def test_cli_decision_id_combinado_con_grupo_se_rechaza(capsys):
+         assert conn.execute("SELECT count(*) FROM jev_revision").fetchone()[0] == 0
+
+
+-def test_los_consumidores_no_importan_al_asesor():
+-    """Guarda del contrato: cycle/apply_cola/apply_harvest no importan al
+-    asesor ni a sus modulos, en NINGUNA forma de import (B5-r2, B3):
+-    resuelve `from app import X` -> "app.X", `from .x import y` ->
+-    "app.x.y" y los imports anidados en cualquier profundidad."""
+-    prohibidos = {
+-        "app.jev_ads",
+-        "app.jev_asesor",
+-        "app.jev_vista",
+-        "app.jev_juicios",
+-        "app.jev_catalogo",
+-        "tools.jev_ads",
+-    }
+-    for nombre in ("cycle.py", "apply_cola.py", "apply_harvest.py"):
+-        arbol = ast.parse((RAIZ / "app" / nombre).read_text(encoding="utf-8"))
+-        importados: set[str] = set()
+-        for nodo in ast.walk(arbol):
+-            if isinstance(nodo, ast.Import):
+-                importados.update(alias.name for alias in nodo.names)
+-            elif isinstance(nodo, ast.ImportFrom):
+-                # Relativo (level>=1): los modulos guardados viven en app/.
+-                base = (("app." if nodo.level else "") + (nodo.module or "")).rstrip(".")
+-                importados.add(base)
+-                importados.update(f"{base}.{alias.name}" for alias in nodo.names)
+-        assert not (importados & prohibidos), (nombre, importados & prohibidos)
+-
+-
+ def test_termino_asin_like_queda_fuera_del_clasificador_sin_http():
+     with db_jev() as conn:
+         censo, _, _, _ = _grupo_con_fichas(conn, con_ficha_p2=False)
+diff --git a/tests/test_optimizer_windows.py b/tests/test_optimizer_windows.py
+index 14eedaa..6022acf 100644
+--- a/tests/test_optimizer_windows.py
++++ b/tests/test_optimizer_windows.py
+@@ -208,9 +208,12 @@ def test_sql_del_modulo_parsea_como_postgres():
+         "_SQL_CONVERSION_GRANO",
+         "_SQL_MAPEO_HOJAS",
+         "_SQL_CPC_SLICE",
++        "_SQL_COLAPSO_TERMINOS",
+     ):
+-        sql = getattr(w, nombre).replace("%s", "NULL")
+-        assert pglast.parse_sql(sql), f"{nombre} no parseo"
++        sql = getattr(w, nombre)
++        if "{where}" in sql:
++            sql = sql.format(where="WHERE ad_entity_id = NULL")
++        assert pglast.parse_sql(sql.replace("%s", "NULL")), f"{nombre} no parseo"
+
+
+ # ---------------------------------------------------------------------------
+@@ -1817,3 +1820,72 @@ def test_hoja_nueva_hereda_familia_en_previa():
+         assert previa is not None
+         assert previa.familia_id == f1
+         assert "familia" in previa.niveles
++
++
++# ---------------------------------------------------------------------------
++# JEV ADS 02 S.4: subconsulta de colapso compartida (Cambio 1)
++# ---------------------------------------------------------------------------
++
++# Texto de _SQL_TERMINOS_CORTES ANTES de S.4: el refactor lo deja igual
++# salvo espacios y las mismas filas sobre los mismos datos.
++_SQL_TERMINOS_CORTES_ANTES = """
++SELECT ad_entity_id,
++       search_term,
++       min(metric_currency),
++       CASE WHEN bool_and(cost IS NOT NULL) THEN sum(cost) END,
++       CASE WHEN bool_and(ad_revenue IS NOT NULL) THEN sum(ad_revenue) END,
++       CASE WHEN bool_and(clicks IS NOT NULL) THEN sum(clicks)::bigint END,
++       CASE WHEN bool_and(orders IS NOT NULL) THEN sum(orders)::bigint END,
++       count(DISTINCT metric_date),
++       bool_or(is_asin_like),
++       max(observed_at)
++  FROM (
++      SELECT DISTINCT ON (ad_entity_id, search_term, metric_date)
++             ad_entity_id, search_term, metric_date, metric_currency,
++             cost, ad_revenue, clicks, orders, is_asin_like, observed_at,
++             source_report_id
++        FROM search_term_observation
++       WHERE ad_entity_id = %s
++         AND metric_date BETWEEN %s AND %s
++       ORDER BY ad_entity_id, search_term, metric_date, observed_at DESC,
++                source_report_id DESC NULLS LAST
++  ) colapsado
++ GROUP BY ad_entity_id, search_term
++ ORDER BY search_term
++"""
++
++
++def test_subquery_compartido_deja_terminos_cortes_igual():
++    """S.4 Cambio 1: el texto final es el de antes salvo espacios."""
++    assert " ".join(w._SQL_TERMINOS_CORTES.split()) == " ".join(_SQL_TERMINOS_CORTES_ANTES.split())
++
++
++@pytest.mark.skipif(
++    _postgres_obligatorio_ausente(),
++    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
++)
++def test_subquery_compartido_da_las_mismas_filas():
++    """S.4 Cambio 1: la constante vieja y la nueva devuelven lo mismo."""
++    with _db_temporal("orbit_win_s4") as conn:
++        run_id = _run(conn)
++        grupo = _entidad(conn, "amazon_mx", "ad_group", "g-1")
++        for i, fecha in enumerate(_rango(dt.date(2026, 9, 20), dt.date(2026, 9, 26))):
++            _termino(
++                conn,
++                run_id,
++                "amazon_mx",
++                grupo,
++                "collar oro",
++                fecha,
++                _obs(fecha),
++                moneda="MXN",
++                report_id="R",
++                cost=Decimal("10.00"),
++                clicks=5,
++                orders=0 if i < 6 else None,
++            )
++        params = (grupo, dt.date(2026, 9, 20), dt.date(2026, 9, 26))
++        antes = conn.execute(_SQL_TERMINOS_CORTES_ANTES, params).fetchall()
++        ahora = conn.execute(w._SQL_TERMINOS_CORTES, params).fetchall()
++        assert antes == ahora
++        assert len(ahora) == 1
+[0m
+[0m→ [0mRead tests/test_jev_senales.py
+[0m→ [0mRead tests/test_jev_senales_cron.py
+[0m
+[0m$ [0mgrep -n "_identidad_del_censo" -A 12 app/jev_ads.py | head -20; grep -n "def leer_api_key" -A 8 app/jev_juicios.py
+416:def _identidad_del_censo(censo: CensoCongelado) -> list:
+417-    """Lo que hace distinto a un universo: anuncios, productos, listings y
+418-    estados; no la hora de sincronizacion."""
+419-    return [
+420-        (m.anuncio_ids, m.producto_id, sorted(m.listing_ids), [e.status for e in m.estados])
+421-        for m in censo.miembros
+422-    ]
+423-
+424-
+425-def _mismo_origen(congelado: CensoCongelado, crudo: CensoCongelado) -> bool:
+426-    """El sujeto que se retoma trae el MISMO censo: misma identidad de
+427-    universo y mismo `exhaustivo` (`synced_at` no cuenta: una
+428-    resincronizacion no es otro payload), y cada ficha que el llamador ya
+--
+431:        _identidad_del_censo(congelado) == _identidad_del_censo(crudo)
+432-        and congelado.exhaustivo == crudo.exhaustivo
+433-        and all(
+434-            traida.ficha_version_id in (None, guardado.ficha_version_id)
+435-            for guardado, traida in zip(congelado.miembros, crudo.miembros, strict=True)
+436-        )
+210:def leer_api_key() -> str:
+211-    """Lee la clave de `<ORBIT_SECRETS_DIR>/typesafe.json`, con la ruta
+212-    canonica `DEFAULT_SECRETS_DIR` de app.ads.config cuando la variable no
+213-    viene o viene vacia (`directorio_secretos`); NUNCA el cwd. Sin archivo o sin clave
+214-    devuelve cadena vacia; el llamador produce el estado visible
+215-    sin_api_key sin HTTP."""
+216-    path = config_ads.directorio_secretos() / "typesafe.json"
+217-    try:
+218-        datos = json.loads(path.read_text(encoding="utf-8"))
+[0m
+[0m$ [0mgrep -n "class Economia\|class Gasto\|class Historial\|class Unidad\|class Ajustes\|def planear\|def leer\|def probar_roster\|def ajustes_desde_settings\|class ActaDeListado\|class RosterProbado\|^REGLA_VERSION\|class NoEvaluada\|class PropuestaEnVeto" -A 14 app/jev_lectura.py | head -150
+51:REGLA_VERSION = 1
+52-
+53-
+54-@dataclass(frozen=True)
+55-class ClaveBusqueda:
+56-    """Una busqueda en un ad group: plataforma, id interno y termino literal."""
+57-
+58-    plataforma: PlataformaAmazon
+59-    ad_group_id: int
+60-    termino: str
+61-
+62-
+63-@dataclass(frozen=True)
+64:class Gasto:
+65-    """Sumas de una busqueda en un ad group sobre un rango, colapsadas a la
+66-    ultima observacion por dia. None = dato faltante en el rango."""
+67-
+68-    desde: date
+69-    hasta: date
+70-    clics: int | None
+71-    gasto: Decimal | None
+72-    ordenes: int | None
+73-
+74-
+75-@dataclass(frozen=True)
+76-class VentaEnOtroGrupo:
+77-    """Otro ad group de la misma plataforma donde la misma busqueda tiene
+78-    ordenes > 0 en su ventana madura. Solo existe con venta afirmada."""
+--
+85:class Historial:
+86-    """Todo lo observado de una busqueda en un ad group, colapsado por dia.
+87-    No se anula por un dia sin dato: suma las ordenes conocidas y cuenta los
+88-    dias sin dato aparte. Una venta no se borra por un NULL."""
+89-
+90-    desde: date
+91-    hasta: date
+92-    clics: int | None
+93-    ordenes_conocidas: int
+94-    dias_sin_dato: int
+95-
+96-
+97-@dataclass(frozen=True)
+98:class Economia:
+99-    """Hecho 3. "No vende" solo sobre la ventana madura de cortes; "vendio
+100-    aqui" sobre todo lo observado; "vende en otro" en ventana madura ajena.
+101-    `aqui` None = el grupo no tiene observaciones."""
+102-
+103-    moneda: Literal["MXN", "USD"]
+104-    aqui: Gasto | None
+105-    otros_que_venden: tuple[VentaEnOtroGrupo, ...]
+106-    otros_sin_venta: int
+107-    otros_sin_dato: int
+108-    historial: Historial | None
+109-    datos_hasta: datetime | None
+110-
+111-
+112-MotivoSinProbar = Literal[
+--
+127:class ActaDeListado:
+128-    """Lo que la ingesta deja escrito de una corrida para una plataforma y
+129-    un ad group. `del_grupo` None = el grupo no tiene fila en la corrida."""
+130-
+131-    ingest_run_id: int
+132-    finished_at: datetime
+133-    ad_groups_declarados: int | None
+134-    ad_groups_recibidos: int
+135-    declarados: int | None
+136-    recibidos: int
+137-    sin_grupo: int
+138-    del_grupo: ActaDeGrupo | None
+139-
+140-
+141-@dataclass(frozen=True)
+--
+149:class RosterProbado:
+150-    """Se conocen TODOS los productos anunciados del ad group. Solo
+151-    `probar_roster` lo construye."""
+152-
+153-    ingest_run_id: int
+154-    listado_de: datetime
+155-    anuncios_vivos: int
+156-
+157-
+158-@dataclass(frozen=True)
+159-class RosterSinProbar:
+160-    motivos: frozenset[MotivoSinProbar]
+161-
+162-
+163-PruebaRoster = RosterProbado | RosterSinProbar
+--
+203:def probar_roster(
+204-    censo: CensoCongelado,
+205-    acta: ActaDeListado | None,
+206-    *,
+207-    huella_en_base: str,
+208-    ahora: datetime,
+209-    max_edad,
+210-) -> PruebaRoster:
+211-    """Regla de roster probado. Falla cerrado: cada condicion fallida agrega
+212-    su motivo y cualquier duda es SinProbar. `max_edad` es
+213-    `windows.MAX_EDAD_SYNC` (48 h; exactas todavia valen), que este modulo
+214-    no puede importar. Sin acta no hay plataforma listada."""
+215-    motivos = _motivos_de_censo(censo)
+216-    if acta is None:
+217-        motivos.add("plataforma_no_listada")
+--
+259:class NoEvaluada:
+260-    """No se le pregunto a Jev por ningun par: sin cupo, tope 0 o sin api
+261-    key. Distinto de Indeterminado y jamas evidencia."""
+262-
+263-    motivo: Literal["sin_cupo", "tope_cero", "sin_api_key", "proveedor_caido"]
+264-
+265-
+266-@dataclass(frozen=True)
+267-class Relevancia:
+268-    """Hecho 2 compuesto para un ad group. Los conteos van SIEMPRE, tambien
+269-    en Indeterminado; se evalua el grupo completo."""
+270-
+271-    conjunto: RelevanciaConjunto | NoEvaluada
+272-    satisfacen: int
+273-    evaluados: int
+--
+279:def leer(economia: Economia, relevancia: Relevancia) -> tuple[Lectura, frozenset[MotivoSinLectura]]:
+280-    """LA regla. Orden estricto; el primero que aplica gana: las ventas
+281-    mandan y Jev solo desempata cuando nada vende en ningun grupo."""
+282-    historial = economia.historial
+283-    if historial is not None and historial.ordenes_conocidas > 0:
+284-        return "vendio_aqui", frozenset()
+285-    if economia.otros_que_venden:
+286-        return "vende_en_otro", frozenset()
+287-    aqui = economia.aqui
+288-    if aqui is None:
+289-        return "sin_lectura", frozenset({"sin_observaciones"})
+290-    if aqui.ordenes is None or economia.otros_sin_dato > 0:
+291-        return "sin_lectura", frozenset({"dato_de_venta_faltante"})
+292-    conjunto = relevancia.conjunto
+293-    if isinstance(conjunto, HayCompatible):
+--
+304:def leer_destino(
+305-    relevancia: Literal["corresponde", "ajena", "sin_veredicto", "no_evaluada"],
+306-) -> LecturaDestino:
+307-    """Harvest: lo que al dueno le importa del destino. Solo presentacion:
+308-    se deriva de la relevancia guardada al pintar y al avisar."""
+309-    return {
+310-        "corresponde": "destino_corresponde",
+311-        "ajena": "destino_ajeno",
+312-        "sin_veredicto": "sin_lectura",
+313-        "no_evaluada": "sin_lectura",
+314-    }[relevancia]
+315-
+[0m
+[0m$ [0mgrep -n "class AgregadoTermino" -A 14 app/optimizer/windows.py; grep -n "def planear" -A 10 app/jev_lectura.py; grep -n "Tramo = \|tramo:" app/jev_lectura.py | head -5; grep -n "class Unidad" -A 10 app/jev_lectura.py
+194:class AgregadoTermino:
+195-    """Sumas de UN (ad_entity_id, search_term) sobre la ventana de CORTES,
+196-    colapsadas con DISTINCT ON por (entidad, termino, fecha). Sin umbral de
+197-    fechas propio: la completitud la aporta la entidad (sellado).
+198-    `is_asin_like` es bool_or de las observaciones: fail-closed (hallazgo
+199-    codex; el clasificador es determinista, cualquier divergencia salta)."""
+200-
+201-    ad_entity_id: int
+202-    search_term: str
+203-    metric_currency: str | None
+204-    cost: Decimal | None
+205-    ad_revenue: Decimal | None
+206-    clicks: int | None
+207-    orders: int | None
+208-    fechas_distintas: int
+450:def planear(
+451-    propuestas: tuple[PropuestaEnVeto, ...],
+452-    economia: Mapping[ClaveBusqueda, Economia],
+453-    con_senal_vigente: frozenset[ClaveBusqueda],
+454-    cortes_aplicados: frozenset[ClaveBusqueda],
+455-    ajustes: Ajustes,
+456-) -> tuple[Unidad, ...]:
+457-    """Seleccion y ORDEN, puros. Cada clave una sola vez: primero propuestas
+458-    por vencimiento (destino antes que origen), luego desempate y resto por
+459-    gasto alternando plataformas. La misma entrada da el mismo plan."""
+460-    unidades: dict[ClaveBusqueda, Unidad] = {}
+317:Tramo = Literal["propuesta", "desempate", "resto"]
+340:    tramo: Tramo
+485:    por_tramo: dict[str, list[Unidad]] = {"propuesta": [], "desempate": [], "resto": []}
+335:class Unidad:
+336-    """Unidad de trabajo del job: una busqueda-en-grupo con su economia ya
+337-    leida. Su identidad es `clave`; `vence_el` solo en tramo propuesta."""
+338-
+339-    clave: ClaveBusqueda
+340-    tramo: Tramo
+341-    economia: Economia
+342-    vence_el: datetime | None
+343-
+344-
+345-@dataclass(frozen=True)
+[0m
+[0m$ [0mgrep -n "modo" app/cli.py | head -3; grep -rn "import" tools/jev_ads.py tools/jev_fichas.py 2>/dev/null | grep -i jev | head; grep -rn "from app.jev\|from app import jev\|import app.jev" app/ --include="*.py" -l | sort
+tools/jev_ads.py:47:from __future__ import annotations
+tools/jev_ads.py:49:import argparse
+tools/jev_ads.py:50:import hashlib
+tools/jev_ads.py:51:import json
+tools/jev_ads.py:52:import os
+tools/jev_ads.py:53:import sys
+tools/jev_ads.py:54:from uuid import UUID
+tools/jev_ads.py:56:import psycopg
+tools/jev_ads.py:58:from app.db import OrbitDbError, connect
+tools/jev_ads.py:59:from app.jev_ads import SemillasARevisar
+app/api_dashboard.py
+app/cli.py
+app/fabrica_web.py
+app/jev_asesor.py
+app/jev_catalogo.py
+app/jev_juicios.py
+app/jev_lectura.py
+app/jev_libro.py
+app/jev_senales.py
+app/jev_vista.py
+[0m
+[0m→ [0mRead app/jev_libro.py[90m [offset=125][0m
+[0m
+[0m$ [0mwc -l app/jev_senales.py app/optimizer/windows.py app/cli.py app/jev_libro.py; grep -n "PLATAFORMAS_MONEDA = " -A 6 app/optimizer/bid.py; grep -n "modo" migrations/0002_apply.sql | head -5; grep -n "captured_at\|censos\|contrato" migrations/0049_jev_ads.sql | head -10
+895 app/jev_senales.py
+     873 app/optimizer/windows.py
+     892 app/cli.py
+     242 app/jev_libro.py
+    2902 total
+64:    modo            TEXT          NOT NULL
+65:                    CONSTRAINT apply_queue_modo_valido
+66:                    CHECK (modo IN ('shadow', 'live')),
+120:  'el modo efectivo por decisión), con modo shadow marcado para que el dueño '
+203:    IF OLD.modo = 'shadow' AND NEW.estado NOT IN ('vetoed', 'discarded') THEN
+36:-- fichas; decided_at/captured_at <= created_at en revisiones.
+183:    censos           JSONB NOT NULL,
+185:    contrato         JSONB NOT NULL,
+187:    captured_at      TIMESTAMPTZ,
+206:  'contexto y reutilizarla con otro payload (1.4). Congela censos, '
+207:  'versiones de fichas usadas y contrato (modelo, instrucciones y '
+209:  'composicion). decided_at (cuando se tomo la decision) y captured_at '
+226:-- censo, captured_at, INSERT antes del primer HTTP — es posterior a ese
+236:       OR NEW.captured_at > clock_timestamp()
+239:            'jev_revision: decided_at/captured_at/created_at posteriores a la insercion'
+[0m
+[0m$ [0mgrep -rn "ad_entity_id" app/optimizer/windows.py | grep -in "termino" | head -8; grep -n "_SQL_FECHAS_ENTIDAD_TERMINOS\s*=" -A 6 app/optimizer/windows.py
+1:app/optimizer/windows.py:24:  terminos via DISTINCT ON (ad_entity_id, search_term, metric_date)
+36:app/optimizer/windows.py:545:    max_fecha = conn.execute(_SQL_MAX_FECHA_TERMINOS, (ad_entity_id,)).fetchone()[0]
+38:app/optimizer/windows.py:557:        _SQL_FECHAS_ENTIDAD_TERMINOS, (ad_entity_id, window_start, window_end)
+45:app/optimizer/windows.py:598:        terminos=terminos_cortes(conn, ad_entity_id, decided_at),
+359:_SQL_FECHAS_ENTIDAD_TERMINOS = """
+360-SELECT array_agg(DISTINCT metric_date ORDER BY metric_date)
+361-  FROM search_term_observation
+362- WHERE ad_entity_id = %s
+363-   AND metric_date BETWEEN %s AND %s
+364-"""
+365-
+[0m
+[0m$ [0mgrep -rn "terminos_cortes(" app/ --include="*.py" | grep -v def | head; grep -rn "search_term_observation" migrations/0001_initial.sql | head -3
+app/cycle.py:2086:    terminos = windows.terminos_cortes(conn, grupo_id, decided_at)
+app/optimizer/windows.py:598:        terminos=terminos_cortes(conn, ad_entity_id, decided_at),
+app/apply_harvest_reconciliacion.py:218:    terminos = windows.terminos_cortes(conn, grupo, ahora)
+app/apply_cola.py:870:    terminos = windows.terminos_cortes(conn, grupo, ahora)
+app/jev_senales.py:289:            ventanas[(plataforma, grupo)] = windows.terminos_cortes(lector, grupo, ahora)
+migrations/0001_initial.sql:276:  '(no tienen id propio): viven en search_term_observation. '
+migrations/0001_initial.sql:365:CREATE TABLE search_term_observation (
+migrations/0001_initial.sql:391:    ON search_term_observation (platform, ad_entity_id, search_term, metric_date, source_report_id)
+[0m
+[0m$ [0mgrep -rn "class NoAplicaTexto\|class FichaFaltante\|class FalloProveedor" -A 4 app/jev_ads.py | head -20; grep -n "def _ficha_a_state\|def request_sha256" app/jev_juicios.py
+app/jev_ads.py:104:class FichaFaltante:
+app/jev_ads.py-105-    """Producto sin ficha aplicable (o de otra variante que no lo acredita)."""
+app/jev_ads.py-106-
+app/jev_ads.py-107-    producto_id: int | None
+app/jev_ads.py-108-
+--
+app/jev_ads.py:111:class NoAplicaTexto:
+app/jev_ads.py-112-    """Termino fuera del clasificador de texto (ASIN-like)."""
+app/jev_ads.py-113-
+app/jev_ads.py-114-    motivo: MotivoNoAplica
+app/jev_ads.py-115-
+--
+app/jev_ads.py:118:class FalloProveedor:
+app/jev_ads.py-119-    """Fallo de transporte/validacion: JAMAS evidencia de incompatibilidad."""
+app/jev_ads.py-120-
+app/jev_ads.py-121-    producto_id: int | None
+app/jev_ads.py-122-    motivo: str
+134:def _ficha_a_state(ficha: FichaVersion) -> dict:
+157:def request_sha256(termino: str, ficha: FichaVersion, contrato: Contrato) -> str:
+[0m
+[0m$ [0mgrep -n "mutado\|alerta" app/templates/salud.css app/templates/*.html 2>/dev/null | head -6; grep -n "precio:amazon_mx\|flock -n" docs/DEPLOY.md | head -8; grep -n "def salud\|dash.salud\|def _salud" app/api_dashboard.py app/ui.py | head -8
+app/templates/base.html:31:    'reputacion': ('Reputación', 'Rating, reviews, preguntas y alertas por listing'),
+app/templates/base.html:71:      <div id="ciclo-resumen" role="status"><span class="mutado">Sin consultar</span></div>
+app/templates/campanas.html:5:<p class="mutado">La ventana 30d incluye siempre dias inmaduros (D-8..D-1):
+app/templates/campanas.html:81:          <div class="mutado">{{ item.goal.scope }} · {{ item.goal.mode }}
+app/templates/campanas.html:82:            · floor {{ item.goal.floor }} · ceiling {{ item.goal.ceiling }}{% if not item.goal.enabled %} · <span class="alerta">disabled</span>{% endif %}</div>
+app/templates/campanas.html:83:          {% else %}<div class="mutado">sin goal</div>{% endif %}
+386:| 13:10 | `precio:amazon_mx` | `python -m app.cli precio --platform amazon_mx` (REPRICING 01 A.5; flock + log, linea exacta abajo) |
+396:10 13 * * * /usr/bin/flock -n /tmp/precio-corrida.lock docker exec orbit-app-1 python -m app.cli precio --platform amazon_mx >> /mnt/data/appdata/orbit/logs/precio-corrida.log 2>&1
+421:30 9,21 * * * /usr/bin/flock -n /tmp/jev-senales.lock docker exec orbit-app-1 python -m app.cli jev-senales --aplicar >> /mnt/data/appdata/orbit/logs/jev-senales.log 2>&1
+491:00 5 * * * /usr/bin/flock -n /tmp/spapi-diario.lock /mnt/data/appdata/orbit/spapi-diario.sh >> /mnt/data/appdata/orbit/logs/spapi-diario.log 2>&1
+494:`flock -n`: si la corrida de ayer sigue viva, la de hoy sale de
+535:30 7 * * * /usr/bin/flock -n /tmp/spapi-vigilante.lock docker exec orbit-app-1 python -m app.cli spapi_vigilante >> /mnt/data/appdata/orbit/logs/spapi-vigilante.log 2>&1
+1347:  -c \"SELECT apply_cap_de_config('precio:amazon_mx') AS cap_mx, \
+1467:flock -n 9 || { echo "$(date -Is) otro backup ya corre; salgo"; exit 0; }
+app/api_dashboard.py:1028:def salud(conn: ConexionLectura) -> dict:
+app/ui.py:452:    datos = dash.salud(conn=conn)
+[0m
+[0m$ [0mgrep -n "CREATE TABLE jev_par_evento" -A 30 migrations/0049_jev_ads.sql | head -45; grep -n "CREATE INDEX" migrations/0049_jev_ads.sql migrations/0052_jev_senales.sql | grep -i "par_evento\|jev"
+261:CREATE TABLE jev_par_evento (
+262-    id               UUID PRIMARY KEY,
+263-    revision_id      UUID NOT NULL REFERENCES jev_revision(solicitud),
+264-    termino_sha256   TEXT NOT NULL CHECK (termino_sha256 ~ '^[0-9a-f]{64}$'),
+265-    ficha_version_id UUID NOT NULL REFERENCES jev_ficha_version(id),
+266-    contrato_sha256  TEXT NOT NULL CHECK (contrato_sha256 ~ '^[0-9a-f]{64}$'),
+267-    ordinal          INT NOT NULL CHECK (ordinal >= 1),
+268-    tipo             TEXT NOT NULL
+269-                     CHECK (tipo IN ('intencion', 'resultado', 'reutilizacion')),
+270-    request_sha256   TEXT,
+271-    respuesta        JSONB,
+272-    error            TEXT,
+273-    intencion_id     UUID REFERENCES jev_par_evento(id),
+274-    reutiliza_id     UUID REFERENCES jev_par_evento(id),
+275-    duracion_ms      INT,
+276-    usage            JSONB,
+277-    created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+278-    UNIQUE (revision_id, termino_sha256, ficha_version_id,
+279-            contrato_sha256, ordinal, tipo),
+280-    CONSTRAINT jev_par_request_hash_formato
+281-        CHECK (request_sha256 IS NULL OR request_sha256 ~ '^[0-9a-f]{64}$'),
+282-    CONSTRAINT jev_par_duracion_positiva
+283-        CHECK (duracion_ms IS NULL OR duracion_ms >= 0),
+284-    CONSTRAINT jev_par_discriminador CHECK (
+285-        (tipo = 'intencion'
+286-            AND request_sha256 IS NOT NULL
+287-            AND respuesta IS NULL AND error IS NULL
+288-            AND intencion_id IS NULL AND reutiliza_id IS NULL)
+289-     OR (tipo = 'resultado'
+290-            AND intencion_id IS NOT NULL AND reutiliza_id IS NULL
+291-            AND (respuesta IS NULL) <> (error IS NULL))
+migrations/0049_jev_ads.sql:403:CREATE INDEX jev_revision_decision_idx ON jev_revision (decision_id, created_at);
+migrations/0049_jev_ads.sql:404:CREATE INDEX jev_revision_plan_idx ON jev_revision (plan_sha256, created_at);
+migrations/0049_jev_ads.sql:405:CREATE INDEX jev_ficha_version_producto_idx
+migrations/0049_jev_ads.sql:407:CREATE INDEX jev_par_evento_revision_idx ON jev_par_evento (revision_id);
+migrations/0049_jev_ads.sql:408:CREATE INDEX jev_par_evento_clave_idx
+migrations/0049_jev_ads.sql:410:CREATE INDEX jev_par_evento_intencion_idx ON jev_par_evento (intencion_id);
+migrations/0049_jev_ads.sql:411:CREATE INDEX jev_par_evento_reutiliza_idx ON jev_par_evento (reutiliza_id);
+migrations/0052_jev_senales.sql:219:CREATE INDEX jev_roster_ad_group_idx ON jev_roster (ad_group_id);
+migrations/0052_jev_senales.sql:220:CREATE INDEX jev_senal_lote_idx ON jev_senal (lote_id);
+migrations/0052_jev_senales.sql:221:CREATE INDEX jev_senal_roster_idx ON jev_senal (roster_sha256);
+migrations/0052_jev_senales.sql:224:CREATE INDEX jev_aviso_lote_idx ON jev_aviso (lote_id);
+migrations/0052_jev_senales.sql:225:CREATE INDEX jev_aviso_origen_idx ON jev_aviso (senal_origen_id);
+migrations/0052_jev_senales.sql:226:CREATE INDEX jev_aviso_destino_idx ON jev_aviso (senal_destino_id);
+migrations/0052_jev_senales.sql:229:CREATE INDEX jev_par_evento_intencion_fecha_idx
+[0m
+[0m$ [0mgrep -n "class PropuestaEnVeto" -A 12 app/jev_lectura.py; grep -n "def pedir_juicio" -A 6 app/jev_juicios.py; grep -c "^def test_\|^    def test_" tests/test_jev_senales.py tests/test_jev_senales_cron.py
+321:class PropuestaEnVeto:
+322-    """Fila de apply_queue vista por el lector. `destino` solo en harvest."""
+323-
+324-    cola_id: int
+325-    decision_id: int
+326-    kind: Literal["negative", "harvest"]
+327-    modo: Literal["live", "shadow"]
+328-    origen: ClaveBusqueda
+329-    destino: ClaveBusqueda | None
+330-    destino_ilegible: bool
+331-    vence_el: datetime
+332-
+333-
+228:def pedir_juicio(
+229-    termino: str,
+230-    ficha: FichaVersion,
+231-    contrato: Contrato,
+232-    *,
+233-    transporte: Transporte = transporte_httpx,
+234-    api_key: str,
+tests/test_jev_senales.py:9
+tests/test_jev_senales_cron.py:2
+[0m
+[0m$ [0mgit diff 85e25a8a228fa569f88c8c531d49eea02edcd818 --stat -- tests/test_jev_senales.py tests/test_jev_senales_cron.py 2>/dev/null; ls docs/evidencia/jev-ads-02/ejecucion/S.4/ 2>/dev/null
+mutantes.md
+panel-glm-5.2.txt
+panel-glm-5.3.txt
+rojo.txt
+[0m
+[0m→ [0mRead app/cli.py[90m [limit=60, offset=833][0m
+[0m
+[0m$ [0mgrep -n "_es_bloque_type_checking" tests/test_architecture.py | head -3; grep -rn "exhaustivo=True\|exhaustivo = True" app/ | head; grep -n "def _canonico" -A 3 app/jev_ads.py
+133:def _es_bloque_type_checking(nodo: ast.stmt) -> bool:
+145:    if _es_bloque_type_checking(arbol):
+166:            if _es_bloque_type_checking(nodo):
+app/jev_catalogo.py:428:        exhaustivo=True,
+app/jev_ads.py:157:    """Universo congelado; exhaustivo=True solo con enumeracion probada
+Binary file app/__pycache__/jev_ads.cpython-314.pyc matches
+Binary file app/__pycache__/jev_senales.cpython-314.pyc matches
+app/jev_senales.py:335:    codigo que pone `exhaustivo=True` en un censo de ad group."""
+app/jev_senales.py:353:        recortado = replace(recortado, exhaustivo=True)
+440:def _canonico(objeto: object) -> str:
+441-    return json.dumps(objeto, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+442-
+443-
+[0m
+[0m→ [0mRead app/jev_catalogo.py[90m [limit=30, offset=405][0m
+Un último detalle de líneas exactas para citar:
+[0m
+[0m$ [0mgrep -n "_es_bloque_type_checking(nodo)" tests/test_architecture.py | head -2; grep -n "if ficha is None:" app/jev_senales.py; grep -n "if pares:" app/jev_senales.py; grep -n "ahora=lambda: ahora\|len(grupos)," app/jev_senales.py
+166:            if _es_bloque_type_checking(nodo):
+1795:            if _es_bloque_type_checking(nodo):
+394:        if ficha is None:
+658:                if ficha is None:
+422:    if pares:
+694:    libro = Libro(escritor, pedir=pedir_real, contrato=contrato, ahora=lambda: ahora)
+874:        len(grupos),
+[0m
+[0m$ [0mgrep -n "def _candidatos_jev" -A 6 tests/test_architecture.py | head -8
+2217:def _candidatos_jev(path: Path, raiz: Path) -> set[str]:
+2218-    """Modulos jev_* importados por el archivo, en cualquier forma de import
+2219-    y a cualquier profundidad (relativos resueltos contra su paquete)."""
+2220-    rel = path.relative_to(raiz).as_posix()
+2221-    paquete = rel.removesuffix(".py").split("/")[:-1]
+2222-    arbol = ast.parse(path.read_text(encoding="utf-8"))
+2223-    hallados: set[str] = set()
+[0m
+**Verificación puntual de lo pedido:**
+1. **Tope con dos procesos**: la reserva es atómica (`pg_advisory_xact_lock('jev:cupo')` → conteo por rango → INSERT intención → commit → HTTP, `app/jev_libro.py:100-117`) y dos `--aplicar` se excluyen con `pg_try_advisory_lock('jev:senales')` + `flock` (probado: "ocupado", cero filas). El CLI manual no toma el candado, pero es costo aceptado y documentado del diseño. Aguanta, salvo la ventana de medianoche (no bloqueante 1).
+2. **Apagado**: se detecta antes de `_abrir_lote`; cero INSERT `jev_*`, cero `pedir` (probado con clave ausente, `"true"` texto y tope negativo).
+3. **Seco**: solo lector; `_rosteres(..., aplicar=False)` nunca toca el escritor y ningún `pedir`; `main` seco exige solo `ORBIT_DSN_READ` (probado).
+4. **Paga 1 vez**: `exito_global` (primer éxito global por `ClavePar`) va delante de toda reserva; 2 grupos → 1 llamada, 2ª corrida → 0, `synced_at` movido → 0 (fuera de `_identidad_del_censo` y del roster sha), +1 producto → exactamente 1 (probado).
+5. **SQL refactorizado**: `.format(where=...)` reconstruye el texto exacto del viejo (test de igualdad normalizada + test de mismas filas en base real contra la constante vieja); el `BETWEEN` sigue dentro del WHERE interno.
+6. **Guarda de imports**: recorre `app/` y `tools/`, cubre `import app.jev_x`, `from app.jev_x import y`, `from app import jev_x` y relativos, con fuga sembrada en rojo para las tres formas.
+
+BLOQUEANTES (máx 5; cada uno con archivo:línea y por qué rompe el diseño o pierde dinero/datos; si no hay, escribe "ninguno"):
+
+ninguno
+
+NO BLOQUEANTES (máx 8; archivo:línea + sugerencia de una línea; si no hay, escribe "ninguno"):
+
+- app/jev_senales.py:694 — el `Libro` congela `ahora` toda la corrida: si cruza 00:00 UTC (primera pasada a ~2 s/llamada lo cruza desde las 21:30), sigue contando el día de arranque mientras inserta en el día siguiente y el tope diario puede sobrepasarse; derivar el día de la cuenta del reloj real (o `now()` de la base) en cada `llamadas_de_hoy()`.
+- app/jev_senales.py:394,422 — con tope_cero/sin_api_key/sin_cupo y un miembro sin ficha, `pares` queda solo con `FichaFantante` y el conjunto sale `Indeterminado` ("sin_veredicto") en vez de `NoEvaluada`; `pendientes_de_jev` de `/salud` subcuenta esas señales; usar `NoEvaluada` cuando ningún par sea Juicio/Fallo.
+- app/jev_senales.py:874 — `grupos_con_gasto` es en realidad "grupos con señal" (`len(grupos)`, que incluye reseales del tramo resto); contar grupos con observaciones de términos para que el "X de Y" del diseño sea contra gasto.
+- app/jev_libro.py:47 — `_exceso_contexto` duplica los límites de bytes de `pedir_juicio`; si uno cambia, el otro miente; extraer un helper único en `jev_juicios`.
+- tests/test_jev_senales.py:57 — `AHORA` fijo en 2026-10-06T12:00Z alimenta `captured_at` a un trigger que rechaza futuros: corrida antes de ese instante revienta las 9 pruebas; derivar `AHORA` del reloj redondeado.
+- app/jev_senales.py (895/900 líneas) — S.5 agrega `de_propuestas`/`gasto_sin_venta` a este mismo módulo y ya no cabe; partir las lecturas de pantalla antes de S.5.
+- tests/test_architecture.py:2226 — la guarda salta los bloques `TYPE_CHECKING`: una fuga futura escondida ahí no la caza (hoy inocuo, no hay import runtime); cubrirlos o dejarlo dicho en el test.
+- app/jev_senales.py:425 — con universo sin miembros pagables el motivo por omisión queda `"sin_cupo"` sin haber cupo de por medio; darle su propio motivo (p. ej. universo vacío).

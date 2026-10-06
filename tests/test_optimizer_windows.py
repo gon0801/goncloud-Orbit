@@ -208,9 +208,12 @@ def test_sql_del_modulo_parsea_como_postgres():
         "_SQL_CONVERSION_GRANO",
         "_SQL_MAPEO_HOJAS",
         "_SQL_CPC_SLICE",
+        "_SQL_COLAPSO_TERMINOS",
     ):
-        sql = getattr(w, nombre).replace("%s", "NULL")
-        assert pglast.parse_sql(sql), f"{nombre} no parseo"
+        sql = getattr(w, nombre)
+        if "{where}" in sql:
+            sql = sql.format(where="WHERE ad_entity_id = NULL")
+        assert pglast.parse_sql(sql.replace("%s", "NULL")), f"{nombre} no parseo"
 
 
 # ---------------------------------------------------------------------------
@@ -1817,3 +1820,72 @@ def test_hoja_nueva_hereda_familia_en_previa():
         assert previa is not None
         assert previa.familia_id == f1
         assert "familia" in previa.niveles
+
+
+# ---------------------------------------------------------------------------
+# JEV ADS 02 S.4: subconsulta de colapso compartida (Cambio 1)
+# ---------------------------------------------------------------------------
+
+# Texto de _SQL_TERMINOS_CORTES ANTES de S.4: el refactor lo deja igual
+# salvo espacios y las mismas filas sobre los mismos datos.
+_SQL_TERMINOS_CORTES_ANTES = """
+SELECT ad_entity_id,
+       search_term,
+       min(metric_currency),
+       CASE WHEN bool_and(cost IS NOT NULL) THEN sum(cost) END,
+       CASE WHEN bool_and(ad_revenue IS NOT NULL) THEN sum(ad_revenue) END,
+       CASE WHEN bool_and(clicks IS NOT NULL) THEN sum(clicks)::bigint END,
+       CASE WHEN bool_and(orders IS NOT NULL) THEN sum(orders)::bigint END,
+       count(DISTINCT metric_date),
+       bool_or(is_asin_like),
+       max(observed_at)
+  FROM (
+      SELECT DISTINCT ON (ad_entity_id, search_term, metric_date)
+             ad_entity_id, search_term, metric_date, metric_currency,
+             cost, ad_revenue, clicks, orders, is_asin_like, observed_at,
+             source_report_id
+        FROM search_term_observation
+       WHERE ad_entity_id = %s
+         AND metric_date BETWEEN %s AND %s
+       ORDER BY ad_entity_id, search_term, metric_date, observed_at DESC,
+                source_report_id DESC NULLS LAST
+  ) colapsado
+ GROUP BY ad_entity_id, search_term
+ ORDER BY search_term
+"""
+
+
+def test_subquery_compartido_deja_terminos_cortes_igual():
+    """S.4 Cambio 1: el texto final es el de antes salvo espacios."""
+    assert " ".join(w._SQL_TERMINOS_CORTES.split()) == " ".join(_SQL_TERMINOS_CORTES_ANTES.split())
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_subquery_compartido_da_las_mismas_filas():
+    """S.4 Cambio 1: la constante vieja y la nueva devuelven lo mismo."""
+    with _db_temporal("orbit_win_s4") as conn:
+        run_id = _run(conn)
+        grupo = _entidad(conn, "amazon_mx", "ad_group", "g-1")
+        for i, fecha in enumerate(_rango(dt.date(2026, 9, 20), dt.date(2026, 9, 26))):
+            _termino(
+                conn,
+                run_id,
+                "amazon_mx",
+                grupo,
+                "collar oro",
+                fecha,
+                _obs(fecha),
+                moneda="MXN",
+                report_id="R",
+                cost=Decimal("10.00"),
+                clicks=5,
+                orders=0 if i < 6 else None,
+            )
+        params = (grupo, dt.date(2026, 9, 20), dt.date(2026, 9, 26))
+        antes = conn.execute(_SQL_TERMINOS_CORTES_ANTES, params).fetchall()
+        ahora = conn.execute(w._SQL_TERMINOS_CORTES, params).fetchall()
+        assert antes == ahora
+        assert len(ahora) == 1
