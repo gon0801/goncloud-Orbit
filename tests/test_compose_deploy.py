@@ -8,6 +8,7 @@ el diff del compose cambio una linea que no debia.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parent.parent
@@ -77,7 +78,7 @@ def test_compose_db_no_recibe_ningun_dsn():
         "db hereda el .env completo: el DSN admin NO es solo de app"
     )
     assert "ORBIT_DSN" not in operativas, "db recibe DSNs de Orbit: env por servicio roto"
-    # Y el otro lado del contrato: app recibe SOLO los 4 DSN de servicio por
+    # Y el otro lado del contrato: app recibe SOLO los 5 DSN de servicio por
     # interpolacion (CodeRabbit Major PR #36: env_file inyectaba TODO el
     # .env — incluido ORBIT_DSN_TEST, cuyo rol tiene ADMIN OPTION sobre
     # app_* = escritura en prod desde dentro del contenedor).
@@ -86,7 +87,13 @@ def test_compose_db_no_recibe_ningun_dsn():
         ln for ln in bloque_app.splitlines() if not ln.strip().startswith("#")
     )
     assert "env_file" not in operativas_app, "app hereda TODO el .env por env_file"
-    for svc in ("INGEST", "DECIDE", "READ", "ADMIN"):
+    # JEV ADS 02 S.3: conjunto EXACTO de cinco DSN. Un sexto DSN o uno
+    # faltante revienta: la interpolacion es la unica via de entrada.
+    nombres = set(re.findall(r'ORBIT_DSN_([A-Z0-9_]+)"?:', operativas_app))
+    assert nombres == {"INGEST", "DECIDE", "READ", "ADMIN", "JEV"}, (
+        f"app recibe DSNs distintos de los cinco de servicio: {sorted(nombres)}"
+    )
+    for svc in ("INGEST", "DECIDE", "READ", "ADMIN", "JEV"):
         assert f"ORBIT_DSN_{svc}: ${{ORBIT_DSN_{svc}}}" in operativas_app
     assert "ORBIT_DSN_TEST" not in operativas_app, (
         "ORBIT_DSN_TEST no entra al contenedor (ADMIN OPTION sobre app_*)"

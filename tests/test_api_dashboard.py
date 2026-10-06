@@ -2651,7 +2651,11 @@ def test_decisiones_feed_fallback_muestra_abstencion_no_motivo_v1(monkeypatch):
 
 SQL_JEV = "\n".join(
     (Path(__file__).resolve().parent.parent / "migrations" / nombre).read_text(encoding="utf-8")
-    for nombre in ("0049_jev_ads.sql", "0050_jev_revision_created_at.sql")
+    for nombre in (
+        "0049_jev_ads.sql",
+        "0050_jev_revision_created_at.sql",
+        "0052_jev_senales.sql",
+    )
 )
 
 
