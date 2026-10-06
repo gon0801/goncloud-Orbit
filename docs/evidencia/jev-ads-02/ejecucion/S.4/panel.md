@@ -68,3 +68,10 @@ Para fila del plan (no bloqueantes que no se corrigen aquí):
 - Partir `app/jev_senales.py` (job vs lecturas de pantalla) antes de
   S.5 (2/3: 5.3, 5.2; 892/900 líneas).
 - Helper único de límites de bytes en `jev_juicios` (5.3).
+- Precedencia no-pago vs `FichaFaltante` (auto-review F1, PR 406, Low
+  no bloqueante): roster mixto + sin_api_key/sin_cupo sella
+  `sin_veredicto` (ficha_ausente) en vez de `no_evaluada`, y
+  `pendientes_de_jev` no la cuenta. Cambiarlo contradice S.2
+  sellado (`FichaFaltante` → `Indeterminado`) y el diseño
+  (`pendientes` = solo "veredicto falta por cupo"); requiere
+  decisión del dueño + prueba de roster mixto.
