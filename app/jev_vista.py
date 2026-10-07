@@ -7,6 +7,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Literal
 from uuid import UUID
 
 from app.jev_ads import (
@@ -123,3 +124,26 @@ def _evento_del_par(eventos: list[dict], hash_termino: str, ficha_id: UUID) -> d
                 return evento
             ultimo = evento
     return ultimo
+
+
+Banda = Literal["ninguno", "pocos", "una_parte", "todos", "sin_dato"]
+
+
+def banda_de_proporcion(satisfacen: int, evaluados: int) -> Banda:
+    """SOLO PRESENTACION (S.5): agrupa y ordena la pantalla de gasto sin
+    venta por cuantos productos dijeron "si". Cortes de pantalla, no
+    umbrales de aceptacion: no se guarda y ningun efecto la lee (la unica
+    clase que un efecto puede leer es `lectura`).
+
+    ninguno (0 de N), pocos (hasta 15%), todos (95% o mas), una_parte (el
+    resto), sin_dato (evaluados == 0)."""
+    if evaluados == 0:
+        return "sin_dato"
+    if satisfacen == 0:
+        return "ninguno"
+    proporcion = satisfacen / evaluados
+    if proporcion >= 0.95:
+        return "todos"
+    if proporcion <= 0.15:
+        return "pocos"
+    return "una_parte"
