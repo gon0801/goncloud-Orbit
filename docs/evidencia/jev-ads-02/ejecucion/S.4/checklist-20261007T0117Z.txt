@@ -1,0 +1,22 @@
+== 0) El servidor contesta
+OK    orbit-app-1 corriendo = true
+== Checklist S.4 (solo lectura; sello 20261007-0116, contenedor desde 2026-10-07T01:17:22.428431834Z, modo post)
+== 1) HTTP: health, /cortes, /salud
+OK    GET /health = 200
+OK    GET /cortes = 200
+OK    GET /salud = 200
+== 2) Seco del job apagado (exit 0, dice apagado)
+jev-senales apagado: jev.senales ausente
+OK    seco exit = 0
+OK    seco dice apagado = apagado
+== 3) Bloque jev de /api/dashboard/salud dice apagado
+OK    bloque jev = apagado
+== 4) Las cinco tablas de S.3 con cero filas; cero filas lote
+OK    filas en las 5 tablas nuevas = 0
+OK    filas lote = 0
+== 5) El ciclo no importa Jev; el crontab de gon trae la linea del job
+OK    cycle/apply_cola/apply_harvest importan app.jev_* = False
+FALLA lineas jev-senales en el crontab de gon: esperado '1', obtenido '0'
+== 6) Primer ciclo del optimizador posterior al arranque
+INCOMPLETO: todavia no corre un ciclo despues de 2026-10-07T01:17:22.428431834Z; vuelve a correr el checklist despues del siguiente ciclo
+== RESULTADO: 1 falla(s), 0 sin medir, ciclo posterior PENDIENTE
