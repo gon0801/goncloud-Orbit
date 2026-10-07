@@ -161,5 +161,21 @@
   </div>
 </div>
 {% endfor %}
+{% if jev %}
+<div class="tarjeta">
+  <h2>Jev — señal por búsqueda-en-grupo</h2>
+  {% if jev.interruptor.encendido %}
+  <p>Encendido · tope {{ jev.interruptor.tope_diario }} · min clics {{ jev.interruptor.min_clics }} · avisos {{ "sí" if jev.interruptor.avisos else "no" }}</p>
+  {% else %}
+  <p class="mutado">Apagado{% if jev.interruptor.motivo_apagado %} ({{ jev.interruptor.motivo_apagado }}){% endif %}</p>
+  {% endif %}
+  {% if jev.ultima_corrida %}
+  <p>Última corrida: {{ jev.ultima_corrida.motivo }} · {{ jev.ultima_corrida.unidades }} unidades · {{ jev.ultima_corrida.llamadas }} llamadas · {{ jev.ultima_corrida.senales }} señales{% if jev.ultima_sin_cierre %} · <span class="alerta">inicio sin fin</span>{% endif %}</p>
+  {% elif jev.ultima_inicio %}
+  <p><span class="alerta">Inicio sin fin ({{ jev.ultima_inicio }})</span></p>
+  {% endif %}
+  <p>Llamadas hoy: {{ jev.llamadas_hoy }} · pendientes de Jev: {{ jev.pendientes_de_jev }} · grupos probados: {{ jev.grupos_probados }} de {{ jev.grupos_con_gasto }} · ajena impedida: {{ jev.ajena_impedida_por_abstencion }} · avisos sin entrega: {{ jev.avisos_sin_entrega }} · fichas por vencer: {{ jev.fichas_por_vencer_14d }}</p>
+</div>
+{% endif %}
 </div>
 {% endblock %}

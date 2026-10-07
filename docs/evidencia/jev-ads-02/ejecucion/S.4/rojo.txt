@@ -1,0 +1,147 @@
+FFFFFFFFFFFFF....                                                        [100%]
+=================================== FAILURES ===================================
+__________________________ test_no_se_paga_dos_veces ___________________________
+
+    @_skip_db
+    def test_no_se_paga_dos_veces():
+>       from app import jev_senales
+E       ImportError: cannot import name 'jev_senales' from 'app' (~/dev/wt/jev02-s4/app/__init__.py)
+
+tests/test_jev_senales.py:312: ImportError
+_________________________ test_tope_aguanta_una_caida __________________________
+
+    @_skip_db
+    def test_tope_aguanta_una_caida():
+>       from app import jev_senales
+E       ImportError: cannot import name 'jev_senales' from 'app' (~/dev/wt/jev02-s4/app/__init__.py)
+
+tests/test_jev_senales.py:381: ImportError
+_____________________________ test_apagado_es_cero _____________________________
+
+capsys = <_pytest.capture.CaptureFixture object at 0x10ca9f8c0>
+
+    @_skip_db
+    def test_apagado_es_cero(capsys):
+>       from app import jev_senales
+E       ImportError: cannot import name 'jev_senales' from 'app' (~/dev/wt/jev02-s4/app/__init__.py)
+
+tests/test_jev_senales.py:408: ImportError
+_________________ test_sin_clave_sella_ventas_sin_intenciones __________________
+
+    @_skip_db
+    def test_sin_clave_sella_ventas_sin_intenciones():
+>       from app import jev_senales
+E       ImportError: cannot import name 'jev_senales' from 'app' (~/dev/wt/jev02-s4/app/__init__.py)
+
+tests/test_jev_senales.py:434: ImportError
+________________________ test_universo_de_punta_a_punta ________________________
+
+    @_skip_db
+    def test_universo_de_punta_a_punta():
+>       from app import jev_senales
+E       ImportError: cannot import name 'jev_senales' from 'app' (~/dev/wt/jev02-s4/app/__init__.py)
+
+tests/test_jev_senales.py:473: ImportError
+_____________________ test_madurez_otro_grupo_vs_historial _____________________
+
+    @_skip_db
+    def test_madurez_otro_grupo_vs_historial():
+>       from app import jev_senales
+E       ImportError: cannot import name 'jev_senales' from 'app' (~/dev/wt/jev02-s4/app/__init__.py)
+
+tests/test_jev_senales.py:523: ImportError
+_______________________ test_harvest_sin_destino_legible _______________________
+
+    @_skip_db
+    def test_harvest_sin_destino_legible():
+>       from app import jev_senales
+E       ImportError: cannot import name 'jev_senales' from 'app' (~/dev/wt/jev02-s4/app/__init__.py)
+
+tests/test_jev_senales.py:575: ImportError
+____________________________ test_seco_por_omision _____________________________
+
+capsys = <_pytest.capture.CaptureFixture object at 0x10d46d450>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10d5f2030>
+
+    @_skip_db
+    def test_seco_por_omision(capsys, monkeypatch):
+>       from app import jev_senales
+E       ImportError: cannot import name 'jev_senales' from 'app' (~/dev/wt/jev02-s4/app/__init__.py)
+
+tests/test_jev_senales.py:621: ImportError
+__________________________ test_dos_procesos_a_la_vez __________________________
+
+capsys = <_pytest.capture.CaptureFixture object at 0x10d46d6d0>
+
+    @_skip_db
+    def test_dos_procesos_a_la_vez(capsys):
+>       from app import jev_senales
+E       ImportError: cannot import name 'jev_senales' from 'app' (~/dev/wt/jev02-s4/app/__init__.py)
+
+tests/test_jev_senales.py:650: ImportError
+________________ test_deploy_documenta_la_linea_de_jev_senales _________________
+
+    def test_deploy_documenta_la_linea_de_jev_senales():
+        deploy = (RAIZ / "docs/DEPLOY.md").read_text()
+>       assert LINEA_JEV_SENALES in deploy
+E       AssertionError: assert '30 9,21 * * * /usr/bin/flock -n /tmp/jev-senales.lock docker exec orbit-app-1 python -m app.cli jev-senales --aplicar >> /mnt/data/appdata/orbit/logs/jev-senales.log 2>&1' in '# DEPLOY — Orbit en goncloud (Postgres 16 + app)\n\n> Runbook de operación de la base viva y del servicio `app` (API ...eversa y del primer harvest. Con D.3 cierran en el tracker `AUTO-02` y\n`ORBIT 17 — Harvest por grupo (FABRICA 02)`.\n'
+
+tests/test_jev_senales_cron.py:28: AssertionError
+_______________ test_instalador_no_borra_la_linea_de_jev_senales _______________
+
+    def test_instalador_no_borra_la_linea_de_jev_senales():
+        deploy = (RAIZ / "docs/DEPLOY.md").read_text()
+>       assert LINEA_JEV_SENALES in deploy
+E       AssertionError: assert '30 9,21 * * * /usr/bin/flock -n /tmp/jev-senales.lock docker exec orbit-app-1 python -m app.cli jev-senales --aplicar >> /mnt/data/appdata/orbit/logs/jev-senales.log 2>&1' in '# DEPLOY — Orbit en goncloud (Postgres 16 + app)\n\n> Runbook de operación de la base viva y del servicio `app` (API ...eversa y del primer harvest. Con D.3 cierran en el tracker `AUTO-02` y\n`ORBIT 17 — Harvest por grupo (FABRICA 02)`.\n'
+
+tests/test_jev_senales_cron.py:33: AssertionError
+__________________ test_cli_jev_senales_despacha_con_sus_args __________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10d4a8460>
+
+    def test_cli_jev_senales_despacha_con_sus_args(monkeypatch):
+        """JEV ADS 02 S.4: `jev-senales` despacha a `app.jev_senales.main` con
+        los args restantes y propaga su exit (patron metrics/cobertura)."""
+>       from app import jev_senales
+E       ImportError: cannot import name 'jev_senales' from 'app' (~/dev/wt/jev02-s4/app/__init__.py)
+
+tests/test_cli.py:903: ImportError
+___________________ test_sql_del_modulo_parsea_como_postgres ___________________
+
+    def test_sql_del_modulo_parsea_como_postgres():
+        """Patron test_reports_pipeline: pglast es dev-dep declarada y su
+        desaparicion debe FALLAR ruidosamente, no saltar en silencio."""
+        for nombre in (
+            "_SQL_MAX_FECHA_ENTIDAD",
+            "_SQL_AGREGA_METRICAS",
+            "_SQL_MAX_FECHA_TERMINOS",
+            "_SQL_TERMINOS_CORTES",
+            "_SQL_FECHAS_ENTIDAD_TERMINOS",
+            "_SQL_WATERMARK_PLATAFORMA",
+            "_SQL_SYNC_PLATAFORMA",
+            "_SQL_EVIDENCIA_AD_GROUP",
+            "_SQL_CONVERSION_GRANO",
+            "_SQL_MAPEO_HOJAS",
+            "_SQL_CPC_SLICE",
+            "_SQL_COLAPSO_TERMINOS",
+        ):
+>           sql = getattr(w, nombre)
+                  ^^^^^^^^^^^^^^^^^^
+E           AttributeError: module 'app.optimizer.windows' has no attribute '_SQL_COLAPSO_TERMINOS'
+
+tests/test_optimizer_windows.py:213: AttributeError
+=========================== short test summary info ============================
+FAILED tests/test_jev_senales.py::test_no_se_paga_dos_veces - ImportError: ca...
+FAILED tests/test_jev_senales.py::test_tope_aguanta_una_caida - ImportError: ...
+FAILED tests/test_jev_senales.py::test_apagado_es_cero - ImportError: cannot ...
+FAILED tests/test_jev_senales.py::test_sin_clave_sella_ventas_sin_intenciones
+FAILED tests/test_jev_senales.py::test_universo_de_punta_a_punta - ImportErro...
+FAILED tests/test_jev_senales.py::test_madurez_otro_grupo_vs_historial - Impo...
+FAILED tests/test_jev_senales.py::test_harvest_sin_destino_legible - ImportEr...
+FAILED tests/test_jev_senales.py::test_seco_por_omision - ImportError: cannot...
+FAILED tests/test_jev_senales.py::test_dos_procesos_a_la_vez - ImportError: c...
+FAILED tests/test_jev_senales_cron.py::test_deploy_documenta_la_linea_de_jev_senales
+FAILED tests/test_jev_senales_cron.py::test_instalador_no_borra_la_linea_de_jev_senales
+FAILED tests/test_cli.py::test_cli_jev_senales_despacha_con_sus_args - Import...
+FAILED tests/test_optimizer_windows.py::test_sql_del_modulo_parsea_como_postgres
+13 failed, 4 passed in 0.58s

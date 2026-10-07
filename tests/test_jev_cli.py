@@ -16,7 +16,6 @@ DoD que fijan (HTTP falso y base de prueba; cero TypeSafe real):
 
 from __future__ import annotations
 
-import ast
 import hashlib
 import json
 import os
@@ -700,33 +699,6 @@ def test_cli_decision_id_combinado_con_grupo_se_rechaza(capsys):
         assert cli_jev(argv, pedir=_Pedido(), dsn=_dsn_jev()) == 2
         assert "no se combina" in capsys.readouterr().err
         assert conn.execute("SELECT count(*) FROM jev_revision").fetchone()[0] == 0
-
-
-def test_los_consumidores_no_importan_al_asesor():
-    """Guarda del contrato: cycle/apply_cola/apply_harvest no importan al
-    asesor ni a sus modulos, en NINGUNA forma de import (B5-r2, B3):
-    resuelve `from app import X` -> "app.X", `from .x import y` ->
-    "app.x.y" y los imports anidados en cualquier profundidad."""
-    prohibidos = {
-        "app.jev_ads",
-        "app.jev_asesor",
-        "app.jev_vista",
-        "app.jev_juicios",
-        "app.jev_catalogo",
-        "tools.jev_ads",
-    }
-    for nombre in ("cycle.py", "apply_cola.py", "apply_harvest.py"):
-        arbol = ast.parse((RAIZ / "app" / nombre).read_text(encoding="utf-8"))
-        importados: set[str] = set()
-        for nodo in ast.walk(arbol):
-            if isinstance(nodo, ast.Import):
-                importados.update(alias.name for alias in nodo.names)
-            elif isinstance(nodo, ast.ImportFrom):
-                # Relativo (level>=1): los modulos guardados viven en app/.
-                base = (("app." if nodo.level else "") + (nodo.module or "")).rstrip(".")
-                importados.add(base)
-                importados.update(f"{base}.{alias.name}" for alias in nodo.names)
-        assert not (importados & prohibidos), (nombre, importados & prohibidos)
 
 
 def test_termino_asin_like_queda_fuera_del_clasificador_sin_http():

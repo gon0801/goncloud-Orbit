@@ -2190,3 +2190,94 @@ def test_candado_cuota_caza_reloj_y_entorno(tmp_path):
     arbol = ast.parse(copia.read_text(encoding="utf-8"))
     assert _usos_reloj(arbol) != []
     assert _usos_import_dinamico(arbol) != []
+
+
+# No-Jev que puede importar Jev (grep 2026-10-06: dashboard y fabrica_web;
+# S.4 suma el despacho del job).
+_PERMITIDOS_JEV = frozenset(
+    {
+        "app/api_dashboard.py",  # bloque jev de /salud (S.4) + asesoria en /cortes
+        "app/cli.py",  # despacho de jev-senales, con import tardio (S.4)
+        "app/fabrica_web.py",  # asesoria visible del plan de fabrica
+    }
+)
+
+
+def _es_modulo_jev(rel: str) -> bool:
+    return Path(rel).name.startswith("jev_")
+
+
+def _candidatos_jev(path: Path, raiz: Path) -> set[str]:
+    """Modulos jev_* importados por el archivo, en cualquier forma de import
+    y a cualquier profundidad (relativos resueltos contra su paquete)."""
+    rel = path.relative_to(raiz).as_posix()
+    paquete = rel.removesuffix(".py").split("/")[:-1]
+    arbol = ast.parse(path.read_text(encoding="utf-8"))
+    hallados: set[str] = set()
+
+    def _visitar(nodos: list) -> None:
+        for nodo in nodos:
+            # TYPE_CHECKING no corre en runtime: la guarda cubre el acoplamiento real.
+            if _es_bloque_type_checking(nodo):
+                continue
+            if isinstance(nodo, ast.Import):
+                hallados.update(alias.name for alias in nodo.names)
+            elif isinstance(nodo, ast.ImportFrom):
+                if nodo.level:
+                    base = paquete[: len(paquete) - nodo.level + 1]
+                    if nodo.module:
+                        base = [*base, *nodo.module.split(".")]
+                    hallados.add(".".join(base))
+                    hallados.update(".".join([*base, a.name]) for a in nodo.names)
+                elif nodo.module:
+                    hallados.add(nodo.module)
+                    hallados.update(f"{nodo.module}.{a.name}" for a in nodo.names)
+            else:
+                _visitar(list(ast.iter_child_nodes(nodo)))
+
+    _visitar(arbol.body)
+    return {
+        h
+        for h in hallados
+        if h.startswith("app.jev_") or h.startswith("tools.jev_") or h in ("app.jev",)
+    }
+
+
+def _fugas_jev(raiz: Path) -> list[str]:
+    fugas: list[str] = []
+    for base in ("app", "tools"):
+        for path in sorted((raiz / base).rglob("*.py")):
+            rel = path.relative_to(raiz).as_posix()
+            if rel in _PERMITIDOS_JEV or _es_modulo_jev(rel):
+                continue
+            for candidato in sorted(_candidatos_jev(path, raiz)):
+                fugas.append(f"{rel}: {candidato}")
+    return sorted(fugas)
+
+
+def test_jev_solo_importa_lo_declarado():
+    """S.4 Cambio 11: solo Jev, cli, dashboard, fabrica_web y los CLI de
+    tools importan modulos jev_* (el detector muerde: ver fuga sembrada)."""
+    assert _fugas_jev(RAIZ) == []
+
+
+def test_candado_imports_jev_caza_fuga_sembrada(tmp_path):
+    """S.4 Cambio 11, fuga sembrada: un import de Jev en el motor sale rojo,
+    en sus tres formas (absoluto, desde el paquete y relativo)."""
+    (tmp_path / "app").mkdir()
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "app" / "motor.py").write_text(
+        "from app import jev_ads  # fuga\n", encoding="utf-8"
+    )
+    (tmp_path / "app" / "otro.py").write_text(
+        "from app.jev_asesor import AsesorAds  # fuga\n", encoding="utf-8"
+    )
+    (tmp_path / "app" / "hermano.py").write_text(
+        "from . import jev_vista  # fuga\n", encoding="utf-8"
+    )
+    assert _fugas_jev(tmp_path) == [
+        "app/hermano.py: app.jev_vista",
+        "app/motor.py: app.jev_ads",
+        "app/otro.py: app.jev_asesor",
+        "app/otro.py: app.jev_asesor.AsesorAds",
+    ]

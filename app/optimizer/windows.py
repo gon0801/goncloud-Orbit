@@ -112,7 +112,7 @@ SQL del modulo (todas de LECTURA; las parsea el test de sintaxis con pglast):
 _SQL_MAX_FECHA_ENTIDAD, _SQL_AGREGA_METRICAS, _SQL_MAX_FECHA_TERMINOS,
 _SQL_TERMINOS_CORTES, _SQL_FECHAS_ENTIDAD_TERMINOS, _SQL_WATERMARK_PLATAFORMA,
 _SQL_SYNC_PLATAFORMA, _SQL_EVIDENCIA_AD_GROUP, _SQL_CONVERSION_GRANO,
-_SQL_MAPEO_HOJAS, _SQL_CPC_SLICE.
+_SQL_MAPEO_HOJAS, _SQL_CPC_SLICE, _SQL_COLAPSO_TERMINOS.
 """
 
 from __future__ import annotations
@@ -313,22 +313,24 @@ _SQL_MAX_FECHA_TERMINOS = """
 SELECT max(metric_date) FROM search_term_observation WHERE ad_entity_id = %s
 """
 
-# El colapso de terminos NO tiene vista: DISTINCT ON manual con la clave
-# (ad_entity_id, search_term, metric_date) ORDER BY observed_at DESC,
-# source_report_id DESC NULLS LAST. El desempate extra cierra el caso dos
-# observaciones con el MISMO observed_at (mismo run de backfill, reportes
-# distintos): sin el, DISTINCT ON elegia de forma NO determinista (minor
-# declarado en la review de 2.1; testeado en tests/test_optimizer_hygiene.py
-# relajando la PK en la DB temporal, porque bajo el esquema sellado el empate
-# no puede entrar a la tabla). NULLS LAST porque DESC sin clausula pone los
-# NULL PRIMEROS: ante empate total gana la fila CON reporte de origen
-# (trazable) sobre la que no lo tiene (hallazgo codex, ronda 1). Es comparacion
-# TEXT lexicografica: la propiedad defendida es el DETERMINISMO del query, no
-# la recencia. La plataforma no va en la clave: entra por el WHERE por
-# ad_entity_id (la entidad pertenece a una sola plataforma). is_asin_like via
-# bool_or: fail-closed (ver docstring de AgregadoTermino); observed_at max
-# alimenta decision.data_observed_at de la decision sobre ese termino.
-_SQL_TERMINOS_CORTES = """
+# Colapso de terminos (JEV ADS 02 S.4): DISTINCT ON manual con la clave
+# (ad_entity_id, search_term, metric_date); el desempate y NULLS LAST
+# defienden el DETERMINISMO (ver historia en git). {where} lo rellena cada
+# consulta: terminos_cortes filtra entidad y ventana, el historial de
+# jev-senales filtra entidad y termino sin fechas.
+_SQL_COLAPSO_TERMINOS = """
+      SELECT DISTINCT ON (ad_entity_id, search_term, metric_date)
+             ad_entity_id, search_term, metric_date, metric_currency,
+             cost, ad_revenue, clicks, orders, is_asin_like, observed_at,
+             source_report_id
+        FROM search_term_observation
+       {where}
+       ORDER BY ad_entity_id, search_term, metric_date, observed_at DESC,
+                source_report_id DESC NULLS LAST
+"""
+
+_SQL_TERMINOS_CORTES = (
+    """
 SELECT ad_entity_id,
        search_term,
        min(metric_currency),
@@ -340,19 +342,16 @@ SELECT ad_entity_id,
        bool_or(is_asin_like),
        max(observed_at)
   FROM (
-      SELECT DISTINCT ON (ad_entity_id, search_term, metric_date)
-             ad_entity_id, search_term, metric_date, metric_currency,
-             cost, ad_revenue, clicks, orders, is_asin_like, observed_at,
-             source_report_id
-        FROM search_term_observation
-       WHERE ad_entity_id = %s
-         AND metric_date BETWEEN %s AND %s
-       ORDER BY ad_entity_id, search_term, metric_date, observed_at DESC,
-                source_report_id DESC NULLS LAST
+"""
+    + _SQL_COLAPSO_TERMINOS.format(
+        where="WHERE ad_entity_id = %s AND metric_date BETWEEN %s AND %s"
+    )
+    + """
   ) colapsado
  GROUP BY ad_entity_id, search_term
  ORDER BY search_term
 """
+)
 
 # Fechas distintas de la ENTIDAD (todas las observaciones de terminos dentro
 # de la ventana): la unidad de completitud sellada para hygiene (2.3). Misma

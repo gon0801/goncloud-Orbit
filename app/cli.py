@@ -582,7 +582,7 @@ def _precio(args: argparse.Namespace) -> int:
     return 0
 
 
-def main(argv: list[str] | None = None) -> int:
+def _construye_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m app.cli",
         description=(
@@ -802,6 +802,10 @@ def main(argv: list[str] | None = None) -> int:
         "ads-salud",
         help="comprueba atraso de ingesta principal Ads y reintenta avisos pendientes",
     )
+    sub.add_parser(
+        "jev-senales",
+        help="sella la senal Jev por busqueda-en-grupo (seco salvo --aplicar)",
+    )
     p_precio = sub.add_parser(
         "precio",
         help="corrida diaria del motor de precios (--platform) o resumen (--reporte)",
@@ -816,6 +820,11 @@ def main(argv: list[str] | None = None) -> int:
     p_precio.add_argument("--desde", default=None, help="YYYY-MM-DD (con --reporte)")
     p_precio.add_argument("--hasta", default=None, help="YYYY-MM-DD (con --reporte)")
 
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = _construye_parser()
     args, rest = parser.parse_known_args(argv)
     if args.comando == "cycle":
         # El ciclo ESCRIBE decisiones: un flag mal tipeado que se ignorara en
@@ -864,6 +873,10 @@ def main(argv: list[str] | None = None) -> int:
         return spapi_vigilante.main(rest)
     if args.comando == "ads-salud":
         return ads_salud.main(rest)
+    if args.comando == "jev-senales":
+        from app import jev_senales
+
+        return jev_senales.main(rest)
     if args.comando == "precio":
         # Escribe decisiones y cambios: tokens extra SIEMPRE error del
         # operador (patron cycle).

@@ -1066,7 +1066,20 @@ def salud(conn: ConexionLectura) -> dict:
             "ads_ingest": _ads_ingest_de(conn, plataforma),
             "precios": _precios_de(conn, plataforma),
         }
-    return {"plataformas": plataformas}
+    return {"plataformas": plataformas, "jev": _jev_de(conn)}
+
+
+def _jev_de(conn: ConexionLectura) -> dict | None:
+    """Bloque jev de /salud (JEV ADS 02 S.4), hermano de `plataformas`: si
+    entrara ahi, shell.js lo pintaria como un mercado. Import tardio y None
+    si algo falla (sin tablas S.3, sin config): la pantalla no muere."""
+    try:
+        from app import jev_salud
+
+        return jev_salud.salud(conn, ahora=dt.datetime.now(dt.UTC)).como_dict()
+    except Exception as exc:  # noqa: BLE001 - degradacion visible, no caida
+        logger.warning("salud: jev ilegible: %s", scrub(str(exc)))
+        return None
 
 
 def _ads_ingest_de(conn: ConexionLectura, plataforma: str) -> dict | None:

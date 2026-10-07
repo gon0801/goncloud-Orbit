@@ -895,3 +895,19 @@ def test_cli_report_reporte_desconocido_rechazado(capsys):
         cli.main(["report", "margen"])
     assert exc.value.code == 2
     assert "invalid choice" in capsys.readouterr().err
+
+
+def test_cli_jev_senales_despacha_con_sus_args(monkeypatch):
+    """JEV ADS 02 S.4: `jev-senales` despacha a `app.jev_senales.main` con
+    los args restantes y propaga su exit (patron metrics/cobertura)."""
+    from app import jev_senales
+
+    visto: dict = {}
+
+    def _fake_main(rest):
+        visto["rest"] = list(rest)
+        return 7
+
+    monkeypatch.setattr(jev_senales, "main", _fake_main)
+    assert cli.main(["jev-senales", "--aplicar"]) == 7
+    assert visto["rest"] == ["--aplicar"]
