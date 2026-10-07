@@ -1,0 +1,14 @@
+**Veredicto por punto:**
+
+1. **OK** — Bloque espejo completo en `cortes()`: `senal_disponible = True`, `try`, import tardío (`from app import jev_salud`), `except` con `logger.warning` + dict vacío + `False`; items ganan `"senal"` y la respuesta `"senal_disponible"` (api_dashboard.py:1392-1410, 1453, 1469).
+2. **OK** — `conn.row_factory = tuple_row` con `finally: conn.row_factory = dict_row` alrededor de `de_propuestas` (api_dashboard.py:1400-1404), y `gasto_sin_venta` lee `ultima["calculado"]` si dict / `[0]` si tupla (jev_salud.py:274-277), con test `_ConnFalsa` que lo cubre.
+3. **OK** — `otros_sin_venta` no aparece en ninguna plantilla; `_senal.html` solo pinta `aqui`, `otros_que_venden` e `historial`.
+4. **OK** — `ORDER BY s.gasto DESC, s.id` en jev_salud.py:262.
+5. **OK** — El diff no toca `componer`, `_solo_no_activo` ni el trigger `jev_par_evento_encadenado`.
+6. **OK** — Sin claves `jev.*` nuevas, sin TypeSafe en app/ (el test `_transporte_roto` lo vigilca), sin `<script>`/handlers inline (solo mención en docstring de test), bandas puramente presentacionales (test de conteos sin escritura).
+
+7. **Mutantes** (cambio de 1 línea → prueba que rompe):
+   - `app/api_dashboard.py:1400` (`conn.row_factory = tuple_row`): eliminarla hace que `_propuestas` desempaque dicts → `ValueError` → `senal_disponible is False` → **falla** `test_cortes_senal_en_items_con_transporte_roto_y_sin_escrituras` (afirma `is True` y `senal is not None`).
+   - `app/api_dashboard.py` `_banda_honesta`: cambiar `if not fila.get("roster_probado"): return "sin_dato"` por pasar directo a `banda_de_proporcion` → la fila 0/3 sin roster caería en "ninguno" → **falla** `test_gasto_sin_venta_nunca_ninguno_sin_roster_probado` (afirma `bandas == ["sin_dato"]` y `"Ninguno" not in html`).
+
+Sin fallas.

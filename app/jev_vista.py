@@ -147,3 +147,67 @@ def banda_de_proporcion(satisfacen: int, evaluados: int) -> Banda:
     if proporcion <= 0.15:
         return "pocos"
     return "una_parte"
+
+
+# --- Presentacion de la senal en pantallas (S.5 J5b) -----------------------------
+
+TITULO_POR_LECTURA = {
+    "vendio_aqui": "Vendió aquí",
+    "vende_en_otro": "Vende en otro ad group",
+    "relevante_sin_venta": "Corresponde y no vende en ninguno",
+    "ajena": "Ajena",
+    "sin_lectura": "Sin lectura",
+}
+
+TITULO_POR_BANDA: dict[str, str] = {
+    "ninguno": "Ninguno",
+    "pocos": "Pocos (hasta 15%)",
+    "una_parte": "Una parte",
+    "todos": "Todos (95% o más)",
+    "sin_dato": "Sin dato",
+}
+
+FRASE_POR_LECTURA = {
+    "vendio_aqui": "Aquí ya convirtió. Bloquear es el riesgo.",
+    "vende_en_otro": "Bloquear aquí junta el tráfico donde ya vende.",
+    "relevante_sin_venta": "Es del catálogo y no convierte.",
+}
+
+MOTIVO_SIN_LECTURA_ES = {
+    "dato_de_venta_faltante": "falta un dato de venta",
+    "sin_observaciones": "sin observaciones",
+    "jev_sin_veredicto": "Jev no concluyó",
+    "jev_no_evaluada": "Jev no la evaluó",
+}
+
+
+def titulo_de_lectura(lectura: str) -> str:
+    """Cabecera de seccion por lectura (diseno S.5). Lectura ajena al
+    vocabulario: KeyError ruidoso, no un titulo inventado."""
+    return TITULO_POR_LECTURA[lectura]
+
+
+def titulo_de_banda(banda: str) -> str:
+    """Cabecera de banda de proporcion (diseno S.5). Igual de estricta."""
+    return TITULO_POR_BANDA[banda]
+
+
+def frase_de_lectura(
+    lectura: str,
+    motivos: tuple[str, ...] | list[str] = (),
+    miembros: int = 0,
+    datos_hasta: str | None = None,
+) -> str:
+    """La frase que la pantalla pinta junto a la lectura (diseno S.5,
+    "Que le dice al dueno"): SOLO PRESENTACION, pura, sin IO. `motivos`
+    son los `motivos_lectura` guardados; `miembros` y `datos_hasta` (ISO)
+    solo se usan para la frase de `ajena`."""
+    if lectura == "ajena":
+        base = f"No corresponde a ninguno de los {miembros} productos"
+        if datos_hasta:
+            base += f"; lista comprobada con el listado de Amazon del {datos_hasta[:10]}"
+        return base + ". Bloquear, y pronto."
+    if lectura == "sin_lectura":
+        detalle = ", ".join(MOTIVO_SIN_LECTURA_ES.get(motivo, motivo) for motivo in motivos)
+        return f"Sin lectura: {detalle or 'sin motivo'}. Un dato faltante no es cero."
+    return FRASE_POR_LECTURA[lectura]

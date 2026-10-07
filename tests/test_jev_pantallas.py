@@ -610,3 +610,59 @@ def test_vistas_de_claves_punta_a_punta():
         )
         assert list(vistas) == [ClaveBusqueda("amazon_mx", grupo, "zapato rojo")]
         assert vistas[ClaveBusqueda("amazon_mx", grupo, "zapato rojo")].vigente is True
+
+
+# --- frase y titulo de lectura (S.5 J5b, presentacion pura) ------------------------
+
+
+@pytest.mark.parametrize(
+    "lectura,esperada",
+    [
+        ("vendio_aqui", "Aquí ya convirtió. Bloquear es el riesgo."),
+        ("vende_en_otro", "Bloquear aquí junta el tráfico donde ya vende."),
+        ("relevante_sin_venta", "Es del catálogo y no convierte."),
+    ],
+)
+def test_frase_de_lectura_directa(lectura, esperada):
+    from app.jev_vista import frase_de_lectura
+
+    assert frase_de_lectura(lectura) == esperada
+
+
+def test_frase_ajena_nombra_productos_y_fecha():
+    from app.jev_vista import frase_de_lectura
+
+    assert (
+        frase_de_lectura("ajena", [], 5, "2026-09-01T12:00:00+00:00")
+        == "No corresponde a ninguno de los 5 productos; lista comprobada con el"
+        " listado de Amazon del 2026-09-01. Bloquear, y pronto."
+    )
+
+
+def test_frase_sin_lectura_muestra_el_motivo():
+    from app.jev_vista import frase_de_lectura
+
+    assert (
+        frase_de_lectura("sin_lectura", ["dato_de_venta_faltante", "jev_no_evaluada"])
+        == "Sin lectura: falta un dato de venta, Jev no la evaluó."
+        " Un dato faltante no es cero."
+    )
+
+
+def test_titulo_de_lectura_desconocida_falla_cerrado():
+    from app.jev_vista import titulo_de_lectura
+
+    with pytest.raises(KeyError):
+        titulo_de_lectura("lectura_futura")
+
+
+def test_gasto_sin_venta_acepta_conexion_con_dict_row():
+    """Nota J5-r1: el cableado puede traer la conexion con dict_row; la
+    lectura del ultimo `fin` sale por nombre en ese caso."""
+    import app.jev_salud as pantallas
+
+    fila = _fila_base(termino="bota negra", gasto=Decimal("20.00"))
+    conn = _ConnFalsa([[dict(fila)], [{"calculado": AHORA}]])
+    pantalla = pantallas.gasto_sin_venta(conn, plataforma="amazon_mx")
+    assert [v.clave.termino for v in pantalla.filas] == ["bota negra"]
+    assert pantalla.calculado_el == AHORA

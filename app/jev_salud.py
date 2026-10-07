@@ -259,7 +259,7 @@ def gasto_sin_venta(conn, *, plataforma: PlataformaAmazon) -> PantallaGasto:
     lectura, cero HTTP, sin plantillas."""
     filas = conn.execute(
         _SQL_SENAL_BASE + " WHERE s.plataforma = %s AND v.vigente AND s.ordenes = 0 AND s.gasto > 0"
-        " ORDER BY s.gasto DESC",
+        " ORDER BY s.gasto DESC, s.id",
         (plataforma,),
     ).fetchall()
     vistas = tuple(vista_de_dict(_fila_senal(fila)) for fila in filas)
@@ -269,5 +269,10 @@ def gasto_sin_venta(conn, *, plataforma: PlataformaAmazon) -> PantallaGasto:
         gasto = aqui.gasto if aqui is not None and aqui.gasto is not None else Decimal(0)
         cantidad, acumulado = totales.get(vista.lectura, (0, Decimal(0)))
         totales[vista.lectura] = (cantidad + 1, acumulado + gasto)
-    calculado = conn.execute("SELECT max(at) FROM jev_corrida WHERE evento = 'fin'").fetchone()[0]
+    # La conexion puede venir con dict_row (la fija una prueba): se lee por
+    # nombre en ese caso y por posicion con tuplas (nota J5-r1).
+    ultima = conn.execute(
+        "SELECT max(at) AS calculado FROM jev_corrida WHERE evento = 'fin'"
+    ).fetchone()
+    calculado = ultima["calculado"] if isinstance(ultima, dict) else ultima[0]
     return PantallaGasto(plataforma, calculado, vistas, totales)
