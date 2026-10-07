@@ -1,0 +1,27 @@
+== 0) El servidor contesta
+OK    orbit-app-1 corriendo = true
+== Checklist S.4 (solo lectura; sello 20261007-0116, contenedor desde 2026-10-07T01:17:22.428431834Z, modo post)
+== 1) HTTP: health, /cortes, /salud
+OK    GET /health = 200
+OK    GET /cortes = 200
+OK    GET /salud = 200
+== 2) Seco del job apagado (exit 0, dice apagado)
+---continuacion-manual-0245Z---
+jev-senales apagado: jev.senales ausente
+seco-exit=0
+{"plataformas":{"amazon_us":{"watermark":"2026-10-05","synced_at":"2026-10-06T06:45:57.996942Z","ultimo_ciclo":{"id":106,"mode":"live","platform":"amazon_us","started_at":"2026-10-06T16:27:50.774132Z","finished_at":"2026-10-06T16:27:51.689099Z","decisions_count":0,"applied_count":0,"status":"done","notes":{"skips":{"entidad":{"campana_no_enabled":1620,"estado_no_enabled":33,"cooldown_7d":36,"entidad_inerte":108,"sin_banda":17,"pause_cortes_incompleto":70,"bids_incompleto":1,"veto_pendiente":1,"rango_bloquea_ajuste":1},"termino":{"campana_no_enabled":626,"sin_umbral_negative":731,"sin_banda":20,"asin_like":230,"harvest_duplicado":1,"acos_sobre_tope":2}},"decisiones":{},"entidades":1887,"ad_groups":79,"terminos":1610,"ciclos_muertos":[],"degradacion_live":null,"target":{"procedencia":"margen_plataforma","motivo_abstencion":null,"convergiendo_a_setting":false,"margen_neto_pct":"REDACTADO","fraccion":"0.9","cobertura":"REDACTADO","ventana_desde":"2026-06-23","ventana_hasta":"2026-09-21","target_derivado":"REDACTADO","target_aplicado":"REDACTADO","setting":"20","venta_total":"REDACTADO","ad_revenue_ventana":null,"ultimo_avisado":"REDACTADO","ledger_fresco_at":"2026-10-06T08:15:05.135894+00:00","moneda":"MXN","familias":{}},"harvest_destino":{"resueltos":{"grupo":0,"excepcion":0,"terna":8},"saltos_grupo":{}},"apply":{"cortes_encolados":{"live":0,"shadow":0,"choques":0},"bids_aplicados":0,"bids_descartados":0,"bids_divergentes":0,"bids_reconciliados":{"confirmados":0,"fallidos":0},"pausas_reconciliadas":{"confirmadas":0,"fallidas":0},"cortes_liberados":{"liberadas":0,"aplicadas":0,"fallidas":0,"sin_quota":0,"carreras_perdidas":0,"espera_target":0}}}},"historico_14d":[{"cycle_id":106,"fecha":"2026-10-06T16:27:50.774132Z","status":"done","decisions_count":0,"motivo":null},{"cycle_id":104,"fecha":"2026-10-06T08:40:02.658224Z","status":"done","decisions_count":0,"motivo":null},{"cycle
+salud-exit=0
+== 3) Bloque jev = apagado
+== 4) tablas:
+5
+nuevas-tablas-exit=0
+0
+0
+== 5) imports + cron:
+False
+1
+== 6) ciclos posteriores a 2026-10-07T01:17:22.428431834Z:
+ciclos-exit=0
+== RESULTADO: 0 falla(s), 0 sin medir, ciclo posterior PENDIENTE
+exit=3
+[nota J6: valores monetarios de la línea 12 redactados; el original del loop los trae]

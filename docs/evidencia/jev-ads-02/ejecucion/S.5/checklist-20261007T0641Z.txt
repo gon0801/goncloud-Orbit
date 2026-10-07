@@ -1,0 +1,25 @@
+== 0) El servidor contesta
+OK    orbit-app-1 corriendo = true
+== Checklist S.5 (solo lectura; sello 20261007-0640, contenedor desde 2026-10-07T06:40:46.563193505Z, modo post)
+== 1) HTTP: health, /cortes, /gasto-sin-venta (dos mercados), /salud
+OK    GET /health = 200
+OK    GET /cortes = 200
+OK    GET /gasto-sin-venta mx = 200
+OK    GET /gasto-sin-venta us = 200
+OK    GET /salud = 200
+== 2) Seco del job apagado (exit 0, dice apagado)
+jev-senales apagado: jev.senales ausente
+OK    seco exit = 0
+OK    seco dice apagado = apagado
+== 3) /api/dashboard/cortes: senal_disponible true y senal null en todo (job apagado)
+OK    cortes senal + items con senal = true 0
+== 4) La pantalla nueva sale sin filas en las dos plataformas
+OK    gasto-sin-venta amazon_mx total_filas = 0
+OK    HTML gasto-sin-venta amazon_mx sin filas = Sin filas en este mercado
+OK    gasto-sin-venta amazon_us total_filas = 0
+OK    HTML gasto-sin-venta amazon_us sin filas = Sin filas en este mercado
+== 5) Bloque jev de /api/dashboard/salud dice apagado
+OK    bloque jev = apagado
+== 6) Primer ciclo del optimizador posterior al arranque
+INCOMPLETO: todavia no corre un ciclo despues de 2026-10-07T06:40:46.563193505Z; vuelve a correr el checklist despues del siguiente ciclo
+== RESULTADO: 0 falla(s), 0 sin medir, ciclo posterior PENDIENTE

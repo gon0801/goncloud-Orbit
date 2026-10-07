@@ -1,0 +1,12 @@
+== 0) El servidor contesta (posterior se cuenta desde el arranque, sello 20261005-1657 solo para los logs)
+OK    contenedor orbit-app-1 corriendo = true
+arranque del contenedor: 2026-10-05T16:58:15.554117778Z
+== 1) HTTP: health, /cortes, asesoria inexistente
+OK    GET /health = 200
+OK    GET /cortes = 200
+OK    GET /api/dashboard/cortes = 200
+OK    GET /api/fabrica/asesoria/<64 ceros> = 404
+OK    logs 'asesoria Jev ilegible' desde el sello = 0
+== 2) CLI dentro del contenedor, sin credenciales; Jev sigue apagado
+OK    tools.jev_ads sin ORBIT_DSN_ADMIN (exit) = 2
+[nota J6: registro parcial, el original del loop termina aquí (sin RESULTADO ni exit)]

@@ -53,7 +53,10 @@ evidencia de implementación y validación.
   (asesoría visible de negativos, harvest y semillas, sin cambiar acciones);
   piloto corrido y decisión del dueño: seguir y ampliar. La ampliación es
   [JEV ADS 02](jev-ads-02.md), con diseño sellado por el dueño el
-  2026-10-04 y nada construido todavía.
+  2026-10-04: bloque S (S.1–S.5) construido y desplegado apagado el
+  2026-10-07 (acta de listado, núcleo puro, señales + login, job con cron,
+  señal en `/cortes` y `/gasto-sin-venta`); siguen S.6–S.8, 0.3, 0.5, R y
+  D, más 45 notas abiertas del cierre.
   Reseñas se tratarán aparte.
 - MeLi Ads (proposal-only, bloqueado a nivel cuenta): sin plan ni
   stub. Gap.

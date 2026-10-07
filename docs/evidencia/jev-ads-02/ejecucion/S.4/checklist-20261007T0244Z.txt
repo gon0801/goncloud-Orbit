@@ -1,0 +1,8 @@
+== 0) El servidor contesta
+OK    orbit-app-1 corriendo = true
+== Checklist S.4 (solo lectura; sello 20261007-0116, contenedor desde 2026-10-07T01:17:22.428431834Z, modo post)
+== 1) HTTP: health, /cortes, /salud
+OK    GET /health = 200
+OK    GET /cortes = 200
+OK    GET /salud = 200
+== 2) Seco del job apagado (exit 0, dice apagado)
