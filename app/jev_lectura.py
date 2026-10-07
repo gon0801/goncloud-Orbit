@@ -11,9 +11,10 @@ Contrato: docs/evidencia/jev-ads-02/diseno/bosquejo.py (seccion A).
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Literal
 from uuid import UUID
@@ -514,6 +515,76 @@ class SenalVista:
     valida_hasta: datetime
     vigente: bool
 
+    def como_dict(self) -> dict:
+        """Contrato de pantalla (S.5): importes como texto, instantes en ISO
+        UTC, listas ordenadas. Sin plantillas: esto es lo que la UI pinta."""
+        aqui = self.economia.aqui
+        historial = self.economia.historial
+        return {
+            "senal_id": str(self.senal_id),
+            "clave": {
+                "plataforma": self.clave.plataforma,
+                "ad_group_id": self.clave.ad_group_id,
+                "termino": self.clave.termino,
+            },
+            "lectura": self.lectura,
+            "motivos": sorted(self.motivos),
+            "economia": {
+                "moneda": self.economia.moneda,
+                "aqui": (
+                    None
+                    if aqui is None
+                    else {
+                        "desde": aqui.desde.isoformat(),
+                        "hasta": aqui.hasta.isoformat(),
+                        "clics": aqui.clics,
+                        "gasto": None if aqui.gasto is None else str(aqui.gasto),
+                        "ordenes": aqui.ordenes,
+                    }
+                ),
+                "otros_que_venden": [
+                    {
+                        "ad_group_id": v.ad_group_id,
+                        "desde": v.en_ventana.desde.isoformat(),
+                        "hasta": v.en_ventana.hasta.isoformat(),
+                        "clics": v.en_ventana.clics,
+                        "gasto": (None if v.en_ventana.gasto is None else str(v.en_ventana.gasto)),
+                        "ordenes": v.en_ventana.ordenes,
+                    }
+                    for v in self.economia.otros_que_venden
+                ],
+                "otros_sin_venta": self.economia.otros_sin_venta,
+                "otros_sin_dato": self.economia.otros_sin_dato,
+                "historial": (
+                    None
+                    if historial is None
+                    else {
+                        "desde": historial.desde.isoformat(),
+                        "hasta": historial.hasta.isoformat(),
+                        "clics": historial.clics,
+                        "ordenes_conocidas": historial.ordenes_conocidas,
+                        "dias_sin_dato": historial.dias_sin_dato,
+                    }
+                ),
+                "datos_hasta": (
+                    None
+                    if self.economia.datos_hasta is None
+                    else self.economia.datos_hasta.astimezone(UTC).isoformat()
+                ),
+            },
+            "relevancia": self.relevancia_texto,
+            "satisfacen": self.satisfacen,
+            "evaluados": self.evaluados,
+            "miembros": self.miembros,
+            "productos_ok": list(self.productos_ok),
+            "regla_version": self.regla_version,
+            "roster_probado": self.roster_probado,
+            "motivos_roster": sorted(self.motivos_roster),
+            "calculada_el": self.calculada_el.astimezone(UTC).isoformat(),
+            "valida_hasta": self.valida_hasta.astimezone(UTC).isoformat(),
+            "vigente": self.vigente,
+        }
+
 
 @dataclass(frozen=True)
 class SenalPropuesta:
@@ -523,3 +594,203 @@ class SenalPropuesta:
     origen: SenalVista | None
     destino: SenalVista | None
     destino_ilegible: bool
+
+    def como_dict(self) -> dict:
+        return {
+            "origen": None if self.origen is None else self.origen.como_dict(),
+            "destino": None if self.destino is None else self.destino.como_dict(),
+            "destino_ilegible": self.destino_ilegible,
+        }
+
+
+@dataclass(frozen=True)
+class PantallaGasto:
+    """GET /gasto-sin-venta (S.5): senales vigentes con gasto y cero ordenes,
+    por gasto descendente, con totales por lectura. La llena `jev_salud`."""
+
+    plataforma: PlataformaAmazon
+    calculado_el: datetime | None  # cierre de la ultima corrida; None sin corridas
+    filas: tuple[SenalVista, ...]  # aqui.ordenes == 0 y aqui.gasto > 0
+    totales: Mapping[Lectura, tuple[int, Decimal]]  # busquedas y gasto por lectura
+
+    def como_dict(self) -> dict:
+        return {
+            "plataforma": self.plataforma,
+            "calculado_el": (
+                None if self.calculado_el is None else self.calculado_el.astimezone(UTC).isoformat()
+            ),
+            "filas": [fila.como_dict() for fila in self.filas],
+            "totales": {
+                lectura: {"busquedas": n, "gasto": str(gasto)}
+                for lectura, (n, gasto) in self.totales.items()
+            },
+        }
+
+
+def _json_dict(valor: object) -> dict:
+    """JSONB de psycopg (dict) o su forma serializada (str); None es {}.
+
+    Falla cerrado ante otro tipo: una pantalla no inventa contenido."""
+
+    def _falla() -> dict:
+        raise ValueError(f"json de fila ilegible: {type(valor).__name__}")
+
+    if valor is None:
+        return {}
+    if isinstance(valor, dict):
+        return valor
+    if isinstance(valor, str):
+        decodificado = json.loads(valor)
+        return decodificado if isinstance(decodificado, dict) else _falla()
+    return _falla()
+
+
+def _json_lista(valor: object) -> list:
+    """Como `_json_dict` para los JSONB que son listas (`otros_que_venden`)."""
+
+    def _falla() -> list:
+        raise ValueError(f"json de fila ilegible: {type(valor).__name__}")
+
+    if valor is None:
+        return []
+    if isinstance(valor, list):
+        return valor
+    if isinstance(valor, str):
+        decodificado = json.loads(valor)
+        return decodificado if isinstance(decodificado, list) else _falla()
+    return _falla()
+
+
+def _como_fecha(valor: object) -> date | None:
+    if valor is None or isinstance(valor, date):
+        return valor  # type: ignore[return-value]
+    if isinstance(valor, str):
+        return date.fromisoformat(valor)
+    raise ValueError(f"fecha de fila ilegible: {valor!r}")
+
+
+def _como_instante(valor: object) -> datetime | None:
+    if valor is None or isinstance(valor, datetime):
+        return valor  # type: ignore[return-value]
+    if isinstance(valor, str):
+        return datetime.fromisoformat(valor)
+    raise ValueError(f"instante de fila ilegible: {valor!r}")
+
+
+def _como_dinero(valor: object) -> Decimal | None:
+    if valor is None or isinstance(valor, Decimal):
+        return valor  # type: ignore[return-value]
+    if isinstance(valor, (int, str)):
+        return Decimal(str(valor))
+    if isinstance(valor, float):
+        return Decimal(repr(valor))
+    raise ValueError(f"importe de fila ilegible: {valor!r}")
+
+
+def relevancia_de_texto(
+    texto: str,
+    *,
+    productos_ok: tuple[int, ...],
+    evaluados: int,
+    miembros: int,
+    motivos_jev: tuple[str, ...],
+) -> Relevancia:
+    """Reconstruye la relevancia guardada en `jev_senal` (S.5, solo lectura).
+
+    Inversa exacta de `_texto_relevancia` del job: `corresponde` guarda
+    `productos_ok`/`evaluados`/`miembros`; `sin_veredicto` guarda sus motivos
+    en `motivos_jev`; `no_evaluada` guarda su motivo en `motivos_jev[0]`
+    (una fila real siempre lo trae; ausente es `sin_cupo`)."""
+    conjunto: RelevanciaConjunto | NoEvaluada
+    if texto == "corresponde":
+        conjunto = HayCompatible(tuple(productos_ok), evaluados, miembros)
+    elif texto == "ajena":
+        conjunto = NingunoCompatible(miembros)
+    elif texto == "sin_veredicto":
+        conjunto = Indeterminado(frozenset(motivos_jev))
+    elif texto == "no_evaluada":
+        motivo = motivos_jev[0] if motivos_jev else "sin_cupo"
+        conjunto = NoEvaluada(motivo)  # type: ignore[arg-type]
+    else:
+        raise ValueError(f"relevancia guardada ilegible: {texto!r}")
+    return Relevancia(conjunto, len(productos_ok), evaluados, miembros, tuple(productos_ok), ())
+
+
+def vista_de_dict(fila: Mapping[str, object]) -> SenalVista:
+    """Una fila de `jev_senal` (+`vigente` de la vista) a `SenalVista` (S.5).
+
+    Puro: recibe el dict ya normalizado, sin tocar la base. `juicio_ids` no
+    viaja a la pantalla (son rastro, no lectura).
+
+    `otros_sin_venta` NO se guarda en la fila y se expone en 0: ninguna
+    pantalla lo lee y `leer` no lo usa (hay prueba que lo fija); inventar una
+    cuenta seria peor que declarar su ausencia."""
+    aqui = None
+    if fila.get("ventana_inicio") is not None:
+        aqui = Gasto(
+            desde=_como_fecha(fila["ventana_inicio"]),  # type: ignore[arg-type]
+            hasta=_como_fecha(fila["ventana_fin"]),  # type: ignore[arg-type]
+            clics=fila.get("clics"),  # type: ignore[arg-type]
+            gasto=_como_dinero(fila.get("gasto")),
+            ordenes=fila.get("ordenes"),  # type: ignore[arg-type]
+        )
+    otros = tuple(
+        VentaEnOtroGrupo(
+            ad_group_id=extra["ad_group_id"],
+            en_ventana=Gasto(
+                desde=_como_fecha(extra["desde"]),  # type: ignore[arg-type]
+                hasta=_como_fecha(extra["hasta"]),  # type: ignore[arg-type]
+                clics=extra.get("clics"),
+                gasto=_como_dinero(extra.get("gasto")),
+                ordenes=extra.get("ordenes"),
+            ),
+        )
+        for extra in _json_lista(fila.get("otros_que_venden"))
+    )
+    crudo_historial = fila.get("historial")
+    historial = None
+    if crudo_historial is not None:
+        decodificado = _json_dict(crudo_historial)
+        historial = Historial(
+            desde=_como_fecha(decodificado["desde"]),  # type: ignore[arg-type]
+            hasta=_como_fecha(decodificado["hasta"]),  # type: ignore[arg-type]
+            clics=decodificado.get("clics"),
+            ordenes_conocidas=decodificado["ordenes_conocidas"],
+            dias_sin_dato=decodificado["dias_sin_dato"],
+        )
+    prueba = _json_dict(fila.get("roster_prueba"))
+    if prueba.get("probado"):
+        motivos_roster: frozenset = frozenset()
+    else:
+        motivos_roster = frozenset(prueba.get("motivos", []))
+    productos_ok = tuple(fila.get("productos_ok") or ())
+    return SenalVista(
+        senal_id=fila["senal_id"],  # type: ignore[arg-type]
+        clave=ClaveBusqueda(
+            plataforma=fila["plataforma"],  # type: ignore[arg-type]
+            ad_group_id=fila["ad_group_id"],  # type: ignore[arg-type]
+            termino=fila["termino"],  # type: ignore[arg-type]
+        ),
+        lectura=fila["lectura"],  # type: ignore[arg-type]
+        motivos=frozenset(fila.get("motivos_lectura") or ()),
+        economia=Economia(
+            moneda=fila["moneda"],  # type: ignore[arg-type]
+            aqui=aqui,
+            otros_que_venden=otros,  # type: ignore[arg-type]
+            otros_sin_venta=0,
+            otros_sin_dato=fila.get("otros_sin_dato", 0),  # type: ignore[arg-type]
+            historial=historial,
+            datos_hasta=_como_instante(fila.get("datos_hasta")),
+        ),
+        relevancia_texto=fila["relevancia"],  # type: ignore[arg-type]
+        satisfacen=len(productos_ok),
+        evaluados=fila.get("evaluados", 0),  # type: ignore[arg-type]
+        miembros=fila.get("miembros", 0),  # type: ignore[arg-type]
+        productos_ok=productos_ok,  # type: ignore[arg-type]
+        regla_version=fila.get("regla_version", REGLA_VERSION),  # type: ignore[arg-type]
+        roster_probado=bool(fila.get("roster_probado")),
+        motivos_roster=motivos_roster,  # type: ignore[arg-type]
+        calculada_el=_como_instante(fila["created_at"]),  # type: ignore[arg-type]
+        valida_hasta=_como_instante(fila["valida_hasta"]),  # type: ignore[arg-type]
+        vigente=bool(fila.get("vigente")),
+    )
