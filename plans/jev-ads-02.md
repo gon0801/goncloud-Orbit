@@ -153,14 +153,71 @@ cambiar nada visible hasta su interruptor.
 
 | Task | Contenido | DoD | Depends | Status |
 | --- | --- | --- | --- | --- |
-| S.1 | `[stage:implementacion] [lane:gate] [tdd:required]` Acta de listado en la ingesta de estructura. | Una corrida ok deja acta por plataforma y por ad group en su misma transacción; una que falla no deja ninguna. Tras la primera corrida real: cuántos grupos cumplen la regla. | 0.1 | cc:TODO |
-| S.2 | `[stage:implementacion] [lane:gate] [tdd:required]` Núcleo puro `jev_lectura.py` y los dos traslados sin cambio de comportamiento (`Libro.pagar`, `resolver_fichas`). En el mismo bloque, el arreglo de la reanudación del CLI manual: `_mismo_origen` compara la identidad del censo sin `synced_at`, con su prueba roja. | La parte pura de las pruebas 1, 2, 3, 10 y 11 del spec, como tablas de `leer`, `probar_roster` y `anunciados_hoy`; las pruebas del asesor de JEV ADS 01 pasan sin tocarse. | 0.1 | cc:TODO |
-| S.3 | `[stage:implementacion] [lane:gate] [tdd:required]` Migración de señales, login `orbit_jev` y `ORBIT_DSN_JEV` (`docker-compose.yml`, el script de logins de `docs/DEPLOY.md` y `tests/test_compose_deploy.py`, que hoy fija cuatro DSN). | Prueba 7 (perímetro de roles, incluidas las tablas de 0049); la mitad de base de la prueba 1 (los CHECK rechazan `ajena` sin roster o con NULL) y el CHECK de moneda; reversa de la migración ensayada. | S.2 | cc:TODO |
-| S.4 | `[stage:implementacion] [lane:gate] [tdd:required]` El job `jev-senales`, su cron y el bloque de `/salud`. Guarda de imports invertida. | Pruebas 4, 5 y 6 del spec, la mitad de madurez de la 3 y la 10 de punta a punta (el job arma el roster con `anunciados_hoy`); seco por omisión; con el interruptor ausente no escribe ni llama. | S.1, S.3 | cc:TODO |
-| S.5 | `[stage:implementacion] [lane:gate] [tdd:required]` Señal en `/cortes` y pantalla `/gasto-sin-venta`. | Prueba 8; la proporción y los productos que dijeron "sí" a la vista; nunca "ninguno" sin roster probado. | S.4 | cc:TODO |
+| S.1 | `[stage:implementacion] [lane:gate] [tdd:required]` Acta de listado en la ingesta de estructura. | Una corrida ok deja acta por plataforma y por ad group en su misma transacción; una que falla no deja ninguna. Tras la primera corrida real: cuántos grupos cumplen la regla. | 0.1 | cc:DONE J1 #403 436b877, deploy 20261005-1657 |
+| S.2 | `[stage:implementacion] [lane:gate] [tdd:required]` Núcleo puro `jev_lectura.py` y los dos traslados sin cambio de comportamiento (`Libro.pagar`, `resolver_fichas`). En el mismo bloque, el arreglo de la reanudación del CLI manual: `_mismo_origen` compara la identidad del censo sin `synced_at`, con su prueba roja. | La parte pura de las pruebas 1, 2, 3, 10 y 11 del spec, como tablas de `leer`, `probar_roster` y `anunciados_hoy`; las pruebas del asesor de JEV ADS 01 pasan sin tocarse. | 0.1 | cc:DONE J2 #404 eda1f90, deploy 20261006-1000 (sello de J3; S.2 salió con ese despliegue) |
+| S.3 | `[stage:implementacion] [lane:gate] [tdd:required]` Migración de señales, login `orbit_jev` y `ORBIT_DSN_JEV` (`docker-compose.yml`, el script de logins de `docs/DEPLOY.md` y `tests/test_compose_deploy.py`, que hoy fija cuatro DSN). | Prueba 7 (perímetro de roles, incluidas las tablas de 0049); la mitad de base de la prueba 1 (los CHECK rechazan `ajena` sin roster o con NULL) y el CHECK de moneda; reversa de la migración ensayada. | S.2 | cc:DONE J3 #405 85e25a8, deploy 20261006-1000 |
+| S.4 | `[stage:implementacion] [lane:gate] [tdd:required]` El job `jev-senales`, su cron y el bloque de `/salud`. Guarda de imports invertida. | Pruebas 4, 5 y 6 del spec, la mitad de madurez de la 3 y la 10 de punta a punta (el job arma el roster con `anunciados_hoy`); seco por omisión; con el interruptor ausente no escribe ni llama. | S.1, S.3 | cc:DONE J4 #406 96daae6, deploy 20261007-0116 |
+| S.5 | `[stage:implementacion] [lane:gate] [tdd:required]` Señal en `/cortes` y pantalla `/gasto-sin-venta`. | Prueba 8; la proporción y los productos que dijeron "sí" a la vista; nunca "ninguno" sin roster probado. | S.4 | cc:DONE J5b #408 15e4327, deploy 20261007-0640 (contrato puro en J5a #407 80da876) |
 | S.6 | `[stage:cierre-pr] [lane:release]` Encender con `jev.tope_diario = 0`. | Go del dueño; señales solo con ventas durante una semana; el ciclo y la cola sin diferencias. | S.5 | cc:TODO |
 | S.7 | `[stage:medicion] [lane:release]` Subir el tope y medir con el dueño. | Reporte por mercado, por búsqueda distinta y con etiquetas a ciegas: acuerdo con cada lectura, falsos "ajena", falsos "sí" por ficha, y cuántas de las señaladas vendieron después. | 0.3, 0.5, S.6 | cc:TODO |
 | S.8 | `[stage:implementacion] [lane:gate] [tdd:required]` Aviso por Telegram de cada propuesta en veto. | Prueba 9; `jev.avisos` aparte del interruptor del job. | S.7 | cc:TODO |
+
+### Notas abiertas del cierre S.1–S.5 (J6)
+
+Una fila por cada nota no bloqueante que quedó abierta en los veredictos
+del loop (fuente entre paréntesis). Ya resueltas y sin fila: la línea de
+evidencia de J2-r1 (corregida en r2), la partición de `jev_senales.py`
+(hecha en J4-r3), el cableado `dict_row` y el `ORDER BY s.id` de J5-r1
+(hechos en J5b), y `ingest-manual-20261005T2346Z.txt` (excluido de la
+evidencia en este cierre por traer identificadores de Amazon).
+
+| Task | Contenido | DoD | Depends | Status |
+| --- | --- | --- | --- | --- |
+| J6-1 | `[stage:cierre-pr] [lane:fast]` Nombrar en un PR (o reponer en fases intermedias) que S.1 quitó del preflight la guarda de harvest en vuelo del patrón 2.3. (VEREDICTO-J1-r1 N1) | Nombrado o repuesto. | - | cc:TODO |
+| J6-2 | `[stage:cierre-pr] [lane:fast]` Corregir la guía: el "Comprueba" necesita `PYTHONPATH=.`. (VEREDICTO-J1-r1 N2) | Guía corregida. | - | cc:TODO |
+| J6-3 | `[stage:cierre-pr] [lane:fast]` `docs/DATABASE.md`: documentar `ads_listado_plataforma` y `ads_listado_grupo`. (VEREDICTO-J1-r1 N3) | Documentadas. | - | cc:TODO |
+| J6-4 | `[stage:cierre-pr] [lane:fast]` Docstring de `_db_21`: mencionar la 0051. (VEREDICTO-J1-r1 N4) | Mencionada. | - | cc:TODO |
+| J6-5 | `[stage:implementacion] [lane:gate]` `checklist.sh` S.1: imprimir las filas del acta por plataforma. (VEREDICTO-J1-r1 N5) | Se ven por plataforma. | - | cc:TODO |
+| J6-6 | `[stage:implementacion] [lane:gate]` `armar_acta`: un adId repetido contaría dos veces en `vivos` (sin efecto hoy). (VEREDICTO-J1-r1 N6) | Deduplicado o descartado. | - | cc:TODO |
+| J6-7 | `[stage:cierre-pr] [lane:fast]` Registro: LISTO-J1-deploy no citó la ruta del respaldo de código (`predeploy-20261005-1657/`). (VEREDICTO-J1-deploy) | Anotado. | - | cc:TODO |
+| J6-8 | `[stage:implementacion] [lane:gate]` `planear` salta una propuesta sin entrada en `economia`; el job debe leer siempre la economía de las claves de propuesta, fijado en e2e. (VEREDICTO-J2-r1 N2) | Prueba e2e que lo fija. | - | cc:TODO |
+| J6-9 | `[stage:implementacion] [lane:gate]` `leer` confía en que el historial cubre la ventana; prueba que fije que el historial siempre cubre la ventana madura. (VEREDICTO-J2-r1 N3) | Prueba que lo fija. | - | cc:TODO |
+| J6-10 | `[stage:implementacion] [lane:gate]` La mutación de B1 (S.2) tampoco la detectan los tests de JEV ADS 01 (deuda de 01; el roster quedó cubierto). (VEREDICTO-J2-r1 N4) | Detectada o aceptada. | - | cc:TODO |
+| J6-11 | `[stage:implementacion] [lane:gate]` `test_jev_perimetro.py:80` arma el DSN temporal con `rsplit` (perdería `sslmode`); usar `make_conninfo`. (VEREDICTO-J3-r1) | Usa `make_conninfo`. | - | cc:TODO |
+| J6-12 | `[stage:cierre-pr] [lane:fast]` Nombrar que S.3 quitó del preflight la guarda de ciclo en `running` (queda cubierto por `app.cli`). (VEREDICTO-J3-r1) | Nombrado. | - | cc:TODO |
+| J6-13 | `[stage:cierre-pr] [lane:fast]` `checklist.sh` S.3: documentar la precedencia 4-antes-que-3 y que el sello es opcional. (VEREDICTO-J3-r2) | Documentado. | - | cc:TODO |
+| J6-14 | `[stage:implementacion] [lane:gate]` `test_compose_deploy.py:97`: las aserciones literales siguen exigiendo la clave sin comillas; tolerancia a medias. (VEREDICTO-J3-r2) | Unificado. | - | cc:TODO |
+| J6-15 | `[stage:cierre-pr] [lane:fast]` Registro: LISTO-J3-deploy cita `checklist-20261006T1002Z.txt`; el archivo es `...T1001Z.txt`. (VEREDICTO-J3-deploy N1) | Anotado. | - | cc:TODO |
+| J6-16 | `[stage:cierre-pr] [lane:fast]` Proceso: toda corrida manual queda con quién la pidió y por dónde (caso 2026-10-05 23:46). (VEREDICTO-J3-deploy N3) | Regla escrita. | - | cc:TODO |
+| J6-17 | `[stage:implementacion] [lane:gate]` `correr` lee todo el mundo antes de mirar el interruptor (~2,500 consultas para "apagado"); leer ajustes primero. (VEREDICTO-J4-r1) | Ajustes primero. | - | cc:TODO |
+| J6-18 | `[stage:cierre-pr] [lane:fast]` `windows.py`: conservar la razón del `NULLS LAST` en una línea. (VEREDICTO-J4-r1) | Razón en una línea. | - | cc:TODO |
+| J6-19 | `[stage:cierre-pr] [lane:fast]` `docs/DEPLOY.md` dice que el dueño instala el cron; en este loop lo instala el encargo: dejar uno. (VEREDICTO-J4-r1) | Un solo camino. | - | cc:TODO |
+| J6-20 | `[stage:cierre-pr] [lane:fast]` Los tres `panel-glm-*.txt` suman 5,400 líneas crudas en el repo; basta `panel.md`. (VEREDICTO-J4-r1) | Podados o aceptados. | - | cc:TODO |
+| J6-21 | `[stage:planificacion] [lane:gate]` F1 (Low): precedencia no-pago vs `FichaFaltante`; requiere decisión del dueño. (VEREDICTO-J4-r1) | Decisión tomada. | - | cc:TODO |
+| J6-22 | `[stage:cierre-pr] [lane:fast]` Dos caminos documentados para instalar el cron (`crontab -e` y el bloque de `desplegar.sh`); dejar uno. (VEREDICTO-J4-r1 kimi) | Un solo camino. | - | cc:TODO |
+| J6-23 | `[stage:implementacion] [lane:gate]` El `trap ERR` de `desplegar.sh` (S.4) usa `$DIR` y `$STAMP` antes de definirlos. (VEREDICTO-J4-r1 kimi) | Ordenado. | - | cc:TODO |
+| J6-24 | `[stage:implementacion] [lane:gate]` `checklist.sh:113` (S.4): seco que corre sin decir "apagado" sale 4, debería ser 1. (VEREDICTO-J4-r1 kimi) | Sale 1. | - | cc:TODO |
+| J6-25 | `[stage:implementacion] [lane:gate]` `git archive \| tar` no borra en el servidor archivos eliminados entre SHAs. (VEREDICTO-J4-r1 kimi) | Sincroniza borrados. | - | cc:TODO |
+| J6-26 | `[stage:implementacion] [lane:gate]` `sleep 5` fijo antes del `curl /health`. (VEREDICTO-J4-r1 kimi) | Espera con reintento. | - | cc:TODO |
+| J6-27 | `[stage:implementacion] [lane:gate]` `fallo_tras_http` decide por prefijo de texto; un tipo o campo sería más firme. (VEREDICTO-J4-r2) | Tipo o campo. | - | cc:TODO |
+| J6-28 | `[stage:implementacion] [lane:gate]` `desplegar.sh` S.4 lista archivos por nombre para md5 sin `app/jev_salud.py` (ya desplegado así). (VEREDICTO-J4-r3) | Lista completa. | - | cc:TODO |
+| J6-29 | `[stage:implementacion] [lane:gate]` `de_propuestas` relee toda la cola en veto en cada GET de `/cortes` (hoy chica). (VEREDICTO-J5-r1) | Medido o acotado. | - | cc:TODO |
+| J6-30 | `[stage:cierre-pr] [lane:fast]` `jev_lectura.py` en 796 líneas; quedan 104 de presupuesto. (VEREDICTO-J5-r1) | Bajo control. | - | cc:TODO |
+| J6-31 | `[stage:implementacion] [lane:gate]` N1: la frase de `ajena` muestra `datos_hasta` en vez del `listado_de` del diseño; llevar `listado_de` hasta `SenalVista`, usarlo en la frase, y prueba que distinga las dos fechas. ARREGLAR ANTES de S.7 (encargo J5c). (VEREDICTO-J5b-r1 N1) | Frase con `listado_de` + prueba. | S.7 | cc:TODO |
+| J6-32 | `[stage:implementacion] [lane:gate]` `/gasto-sin-venta` no degrada sin tablas Jev (daría 500); envolver como `_jev_de`. (VEREDICTO-J5b-r1) | Degrada. | - | cc:TODO |
+| J6-33 | `[stage:implementacion] [lane:gate]` `_senal.html` pinta "k de evaluados"; mostrar también los miembros. (VEREDICTO-J5b-r1) | Muestra miembros. | - | cc:TODO |
+| J6-34 | `[stage:implementacion] [lane:gate]` `_ORDEN_LECTURAS` duplica el vocabulario del CHECK de `jev_senal.lectura`. (VEREDICTO-J5b-r1) | Una sola fuente. | - | cc:TODO |
+| J6-35 | `[stage:implementacion] [lane:gate]` La pantalla `/gasto-sin-venta` no pagina (hoy pocas filas). (VEREDICTO-J5b-r1) | Pagina o aceptado. | - | cc:TODO |
+| J6-36 | `[stage:cierre-pr] [lane:fast]` El docstring de módulo de `app/jev_vista.py` quedó viejo. (VEREDICTO-J5b-r1) | Actualizado. | - | cc:TODO |
+| J6-37 | `[stage:implementacion] [lane:gate]` `rollback.sh` S.5: línea informativa expande `$(cat ...)` en la Mac y no en el servidor. (VEREDICTO-J5b-r1 kimi) | Expande en servidor. | - | cc:TODO |
+| J6-38 | `[stage:implementacion] [lane:gate]` `checklist.sh` S.5: dos comprobaciones (sin nombrar en el veredicto) saldrían 4 debiendo 1. (VEREDICTO-J5b-r1 kimi) | Salen 1. | - | cc:TODO |
+| J6-39 | `[stage:implementacion] [lane:gate]` El checklist S.5 no avisa de un ciclo en `degraded`. (VEREDICTO-J5b-r1 kimi) | Avisa. | - | cc:TODO |
+| J6-40 | `[stage:implementacion] [lane:gate]` El `trap ERR` S.5 usa variables antes de definirlas. (VEREDICTO-J5b-r1 kimi) | Ordenado. | - | cc:TODO |
+| J6-41 | `[stage:implementacion] [lane:gate]` El sello tiene resolución de minuto. (VEREDICTO-J5b-r1 kimi) | Resolución mayor. | - | cc:TODO |
+| J6-42 | `[stage:implementacion] [lane:gate]` El checklist S.5 corre sin `-e`. (VEREDICTO-J5b-r1 kimi) | Con `-e` o justificado. | - | cc:TODO |
+| J6-43 | `[stage:implementacion] [lane:gate]` La guarda "ningún app.cli corriendo" no protege de un proceso por empezar (deploy 5 min antes de la ingesta; salió bien). (VEREDICTO-J5b-deploy) | Guarda reforzada. | - | cc:TODO |
+| J6-44 | `[stage:medicion] [lane:release]` Ciclos 106 y 107 fuera de horario (2026-10-06 16:27 UTC, `done`): si los disparó este loop, anotar quién; el loop nunca corre `cycle`, sin evidencia de que sean de aquí. (VEREDICTO-J5b-deploy) | Origen aclarado. | - | cc:TODO |
+| J6-45 | `[stage:medicion] [lane:release]` Prueba del ciclo pendiente tras S.5 (no se esperó, por orden del dueño). (VEREDICTO-J5b-r1) | Ciclo posterior visto. | - | cc:TODO |
 
 ### Bloque E — efectos, todos condicionales
 
