@@ -33,7 +33,7 @@
       <tr>
         {# El termino es texto libre de la busqueda: AUTOESCAPE lo escapa #}
         <td>{{ fila.clave.termino }}<span class="detalle-celda mono">grupo #{{ fila.clave.ad_group_id }}</span></td>
-        <td class="num">{{ fila.economia.aqui.gasto if fila.economia.aqui else "—" }}{% if fila.economia.moneda %} {{ fila.economia.moneda }}{% endif %}</td>
+        <td class="num">{{ fila.economia.aqui.gasto if fila.economia.aqui and fila.economia.aqui.gasto is not none else "—" }}{% if fila.economia.moneda %} {{ fila.economia.moneda }}{% endif %}</td>
         <td>{{ senal.bloque(fila) }}</td>
         <td>
           <details>

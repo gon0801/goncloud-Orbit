@@ -1733,6 +1733,51 @@ def test_ui_cortes_senal_antes_de_asesoria_y_sin_error():
     assert "error" not in html.lower()
 
 
+def test_ui_senal_metrica_ausente_pinta_guion_y_cero_se_conserva():
+    """Triage CodeRabbit PR408-1 (valido: `Gasto` admite None por diseno):
+    metrica ausente se pinta "—", nunca "None"; el 0 conocido se conserva.
+    Cubre `_senal.html` (aqui + historial) y la celda de gasto de
+    `gasto_sin_venta.html`, con el entorno REAL."""
+    from test_api_dashboard import _ctx_cortes_local
+
+    cara = _cara_senal_ui("tenis blancos")
+    cara["economia"]["aqui"] = {
+        "desde": "2026-08-03",
+        "hasta": "2026-09-01",
+        "clics": None,
+        "gasto": None,
+        "ordenes": None,
+    }
+    cara["economia"]["historial"]["clics"] = None
+    ctx = _ctx_cortes_local()
+    ctx["items"][0]["senal"] = {
+        "origen": cara,
+        "destino": None,
+        "destino_ilegible": False,
+    }
+    ctx["senal_disponible"] = True
+    html = ui.templates.env.get_template("cortes.html").render(**ctx)
+    assert "None ordenes" not in html
+    assert "None clics" not in html
+    assert "None MXN" not in html
+    assert "— ordenes" in html
+    assert "(— clics)" in html
+    gasto = _ctx_gasto_ui("tenis blancos")
+    gasto["secciones"][0]["filas"][0]["economia"]["aqui"]["gasto"] = None
+    html_gasto = ui.templates.env.get_template("gasto_sin_venta.html").render(**gasto)
+    assert ">None<" not in html_gasto
+    assert "None MXN" not in html_gasto
+    assert ">— MXN<" in html_gasto
+    cara_cero = _cara_senal_ui("tenis blancos")
+    ctx["items"][0]["senal"] = {
+        "origen": cara_cero,
+        "destino": None,
+        "destino_ilegible": False,
+    }
+    html_cero = ui.templates.env.get_template("cortes.html").render(**ctx)
+    assert "0 ordenes" in html_cero
+
+
 @pytest.mark.skipif(
     _postgres_obligatorio_ausente(),
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",

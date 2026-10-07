@@ -55,12 +55,12 @@ ORBIT_TEST_DSN="postgresql://orbit:***@localhost:5432/postgres"
 | J5 | seccion: `"gasto": total["gasto"]` -> `"0"` | `test_gasto_sin_venta_api_forma_totales_y_get_puro` | 1 failed |
 | J6 | `_banda_honesta`: guarda `roster_probado` -> `if False` | `test_gasto_sin_venta_nunca_ninguno_sin_roster_probado` | 1 failed |
 | J7 | vocabulario: `422` -> `400` | `test_gasto_sin_venta_vocab_cerrado_y_mercado_por_omision` | 1 failed |
-| J8 | `gasto_sin_venta.html`: `{{ fila.clave.termino }}` -> `|safe` | `test_ui_gasto_sin_venta_xss_termino_escapado` | 1 failed |
+| J8 | `gasto_sin_venta.html`: `{{ fila.clave.termino }}` -> `\|safe` | `test_ui_gasto_sin_venta_xss_termino_escapado` | 1 failed |
 | J9 | `cortes.html`: `class="senal-jev"` -> `class="senal"` | `test_ui_cortes_senal_antes_de_asesoria_y_sin_error` | 1 failed |
 | J10 | `ui.py`: ruta `/gasto-sin-venta` -> `/gasto-sin-ventas` | `test_ui_gasto_sin_venta_200_con_secciones_y_escape` | 1 failed |
 | J11 | `FRASE_POR_LECTURA[vendio_aqui]` -> `"X"` | `test_frase_de_lectura_directa` | 1 failed, 2 passed |
 | J12 | frase ajena: `if datos_hasta:` -> `if False:` | `test_frase_ajena_nombra_productos_y_fecha` | 1 failed |
-| J13 | frase sin_lectura: `", ".join` -> `"|".join` | `test_frase_sin_lectura_muestra_el_motivo` | 1 failed |
+| J13 | frase sin_lectura: `", ".join` -> `"\|".join` | `test_frase_sin_lectura_muestra_el_motivo` | 1 failed |
 | J14 | `TITULO_POR_LECTURA[lectura]` -> `.get(lectura, "X")` | `test_titulo_de_lectura_desconocida_falla_cerrado` | 1 failed |
 | J15 | `calculado`: lectura por nombre -> `ultima[0]` | `test_gasto_sin_venta_acepta_conexion_con_dict_row` | 1 failed (KeyError) |
 
