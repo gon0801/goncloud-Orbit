@@ -2814,6 +2814,8 @@ def _juicio_falso(termino, ficha, relacion):
 
 
 def _conteos_jev(conn):
+    # S.5 J5b: mas las cinco tablas nuevas (S.3/S.4): el GET puro de las
+    # dos pantallas no escribe en ninguna.
     return {
         tabla: conn.execute(f"SELECT count(*) FROM {tabla}").fetchone()[0]
         for tabla in (
@@ -2821,6 +2823,11 @@ def _conteos_jev(conn):
             "jev_par_evento",
             "jev_ficha_version",
             "jev_ficha_revocacion",
+            "jev_roster",
+            "jev_senal",
+            "jev_aviso",
+            "jev_aviso_entrega",
+            "jev_corrida",
         )
     }
 
@@ -3501,3 +3508,406 @@ def _ctx_cortes_local():
         ],
     }
     return ctx
+
+
+# ---------------------------------------------------------------------------
+# JEV ADS 02 S.5 J5b: senal en /cortes y pantalla /gasto-sin-venta
+# ---------------------------------------------------------------------------
+
+
+def _lote_s5(conn):
+    """Una corrida del job (sujeto 'lote') para colgar senales."""
+    import uuid as _uuid
+
+    lote = _uuid.uuid4()
+    conn.execute(
+        "INSERT INTO jev_revision (solicitud, sujeto_tipo, censos, contrato)"
+        " VALUES (%s, 'lote', '{}'::jsonb, '{}'::jsonb)",
+        (lote,),
+    )
+    return lote
+
+
+def _roster_s5(conn, plataforma, grupo, fichas=(), sha=None):
+    """Roster que cita las fichas dadas (vacio por omision)."""
+    import uuid as _uuid
+
+    sha = sha or f"ro-{_uuid.uuid4().hex[:8]}"
+    conn.execute(
+        "INSERT INTO jev_roster (sha256, plataforma, ad_group_id, miembros,"
+        " ficha_version_ids) VALUES (%s, %s, %s, '[]'::jsonb, %s)",
+        (sha, plataforma, grupo, list(fichas)),
+    )
+    return sha
+
+
+def _senal_s5(conn, plataforma, grupo, termino, lote, roster, **cambios):
+    """Una fila de jev_senal vigente (valida 36 h desde ahora)."""
+    import uuid as _uuid
+    from decimal import Decimal
+
+    valores = {
+        "gasto": Decimal("12.50"),
+        "ordenes": 0,
+        "lectura": "relevante_sin_venta",
+        "relevancia": "corresponde",
+        "clics": 10,
+        "evaluados": 3,
+        "miembros": 5,
+        "productos_ok": [11],
+        "roster_probado": True,
+        "roster_prueba": '{"probado": true}',
+    }
+    valores.update(cambios)
+    ahora = dt.datetime.now(dt.UTC)
+    return conn.execute(
+        "INSERT INTO jev_senal (id, lote_id, plataforma, ad_group_id, termino,"
+        " termino_sha256, insumos_sha256, regla_version, roster_sha256,"
+        " roster_probado, roster_prueba, contrato_sha256, relevancia, motivos_jev,"
+        " productos_ok, evaluados, miembros, juicio_ids, ventana_inicio, ventana_fin,"
+        " moneda, clics, gasto, ordenes, otros_que_venden, otros_sin_dato,"
+        " historial, lectura, motivos_lectura, valida_hasta)"
+        " VALUES (%s, %s, %s, %s, %s, %s, %s, 1, %s, %s,"
+        " %s::jsonb, %s, %s, '{}', %s, %s, %s, '{}',"
+        " '2026-08-03', '2026-09-01', %s, %s, %s, %s, '[]'::jsonb, 0,"
+        ' \'{"desde": "2026-07-01", "hasta": "2026-09-01", "clics": 40,'
+        ' "ordenes_conocidas": 0, "dias_sin_dato": 2}\'::jsonb,'
+        " %s, '{}', %s) RETURNING id",
+        (
+            _uuid.uuid4(),
+            lote,
+            plataforma,
+            grupo,
+            termino,
+            f"ts-{termino}-{grupo}",
+            f"ins-{termino}-{_uuid.uuid4().hex[:8]}",
+            roster,
+            valores["roster_probado"],
+            valores["roster_prueba"],
+            f"ct-{_uuid.uuid4().hex[:8]}",
+            valores["relevancia"],
+            valores["productos_ok"],
+            valores["evaluados"],
+            valores["miembros"],
+            "MXN" if plataforma == "amazon_mx" else "USD",
+            valores["clics"],
+            valores["gasto"],
+            valores["ordenes"],
+            valores["lectura"],
+            ahora + dt.timedelta(hours=36),
+        ),
+    ).fetchone()[0]
+
+
+def _transporte_roto(monkeypatch):
+    """El GET es puro: si algo tocara TypeSafe, revienta."""
+    monkeypatch.setattr(
+        "app.jev_juicios.transporte_httpx",
+        lambda *a, **kw: (_ for _ in ()).throw(AssertionError("el GET no llama a TypeSafe")),
+    )
+
+
+@pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres local")
+def test_cortes_senal_en_items_con_transporte_roto_y_sin_escrituras(monkeypatch):
+    """S.5.1 (mitad /cortes): con transporte que revienta, el GET trae la
+    senal sellada en su item y ninguna tabla jev_* cambia."""
+    with _db_temporal("orbit_dash_jevs5c") as (conn, dsn):
+        conn.execute(SQL02)
+        conn.execute(SQL_JEV)
+        _siembra_cortes_ui01(conn)
+        dec_neg = conn.execute("SELECT id FROM decision WHERE kind = 'negative'").fetchone()[0]
+        kw = conn.execute(
+            "SELECT ad_entity_id FROM apply_queue WHERE decision_id = %s AND kind = 'negative'",
+            (dec_neg,),
+        ).fetchone()[0]
+        ag = conn.execute("SELECT parent_id FROM ad_entity WHERE id = %s", (kw,)).fetchone()[0]
+        lote = _lote_s5(conn)
+        _senal_s5(conn, "amazon_us", kw, "tenis blancos", lote, _roster_s5(conn, "amazon_us", ag))
+        # Otro negative sin sello: su senal es null (la pantalla no inventa).
+        ciclo = conn.execute("SELECT id FROM optimizer_cycle LIMIT 1").fetchone()[0]
+        config = conn.execute("SELECT max(id) FROM config_version").fetchone()[0]
+        dec_sin_sello = _decision(
+            conn,
+            ciclo,
+            kw,
+            kind="negative",
+            config_id=config,
+            inputs={},
+            search_term="sin sello",
+            window_end=dt.date(2026, 8, 1),
+        )
+        _encola_corte(conn, "amazon_us", kw, "negative", dec_sin_sello, "sin sello")
+        conteos_antes = _conteos_jev(conn)
+        _transporte_roto(monkeypatch)
+        resp = _cliente(dsn, monkeypatch).get("/api/dashboard/cortes")
+        assert resp.status_code == 200, resp.text
+        cuerpo = resp.json()
+        assert cuerpo["senal_disponible"] is True
+        por_decision = {item["decision_id"]: item for item in cuerpo["items"]}
+        senal = por_decision[dec_neg]["senal"]
+        assert senal is not None
+        assert senal["origen"]["clave"]["termino"] == "tenis blancos"
+        assert senal["origen"]["lectura"] == "relevante_sin_venta"
+        assert senal["origen"]["frase"] == "Es del catálogo y no convierte."
+        assert senal["origen"]["vigente"] is True
+        assert senal["destino"] is None
+        assert senal["destino_ilegible"] is False
+        # Sin sello para las demas: la pantalla no inventa (null, o el
+        # "sin lectura" del harvest sin destino).
+        assert por_decision[dec_sin_sello]["senal"] is None
+        for item in cuerpo["items"]:
+            if item["decision_id"] in (dec_neg, dec_sin_sello):
+                continue
+            senal = item["senal"]
+            assert senal is None or (
+                senal["origen"] is None
+                and senal["destino"] is None
+                and senal["destino_ilegible"] is True
+            )
+        assert _conteos_jev(conn) == conteos_antes
+
+
+@pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres local")
+def test_cortes_senal_harvest_dos_bloques_y_destino_ilegible(monkeypatch):
+    """S.5.7: un harvest con destino pinta origen y destino; uno sin
+    destino pinta "sin lectura"."""
+    with _db_temporal("orbit_dash_jevs5h") as (conn, dsn):
+        conn.execute(SQL02)
+        conn.execute(SQL_JEV)
+        _siembra_cortes_ui01(conn)
+        camp = conn.execute("SELECT id FROM ad_entity WHERE external_id = '9001'").fetchone()[0]
+        ag = conn.execute("SELECT id FROM ad_entity WHERE external_id = '9101'").fetchone()[0]
+        ag2 = _grupo(conn, "amazon_us", "9102", camp)
+        ciclo = conn.execute("SELECT id FROM optimizer_cycle LIMIT 1").fetchone()
+        config = conn.execute("SELECT max(id) FROM config_version").fetchone()[0]
+        dec_harv = _decision(
+            conn,
+            ciclo[0],
+            ag,
+            kind="harvest",
+            config_id=config,
+            inputs={"goal": {"harvest": {"ad_group_id": "9102"}}},
+            search_term="termino cosecha",
+            moneda="USD",
+            window_end=dt.date(2026, 8, 1),
+        )
+        _encola_corte(conn, "amazon_us", ag, "harvest", dec_harv, "termino cosecha")
+        lote = _lote_s5(conn)
+        _senal_s5(conn, "amazon_us", ag, "termino cosecha", lote, _roster_s5(conn, "amazon_us", ag))
+        _senal_s5(
+            conn,
+            "amazon_us",
+            ag2,
+            "termino cosecha",
+            lote,
+            _roster_s5(conn, "amazon_us", ag2),
+        )
+        resp = _cliente(dsn, monkeypatch).get("/api/dashboard/cortes")
+        assert resp.status_code == 200, resp.text
+        por_decision = {item["decision_id"]: item for item in resp.json()["items"]}
+        dos = por_decision[dec_harv]["senal"]
+        assert dos["origen"]["clave"]["ad_group_id"] == ag
+        assert dos["destino"]["clave"]["ad_group_id"] == ag2
+        assert dos["destino_ilegible"] is False
+        # El harvest sembrado sin goal (dec_harv_sin): destino ilegible.
+        ilegibles = [
+            item["senal"]
+            for item in resp.json()["items"]
+            if item["senal"] is not None and item["senal"]["destino_ilegible"]
+        ]
+        assert ilegibles, "la siembra trae un harvest sin destino"
+        assert all(s["destino"] is None for s in ilegibles)
+        html = _cliente(dsn, monkeypatch).get("/cortes")
+        assert html.status_code == 200
+        assert "Señal · sin lectura" in html.text
+        # El harvest con destino pinta sus dos bloques (origen y destino);
+        # los ilegibles solo el chip "sin lectura".
+        assert html.text.count('class="senal-bloque"') == 2
+        assert "Señal · origen ·" in html.text
+        assert "Señal · destino ·" in html.text
+        assert "error" not in html.text.lower()
+
+
+@pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres local")
+def test_cortes_senal_ilegible_se_avisa_y_la_pantalla_sigue(monkeypatch):
+    """S.5.4 (modelo test_cortes_asesoria_ilegible_se_avisa_y_la_pantalla_sigue):
+    si la lectura de senal falla, 200 con los mismos items y aviso."""
+    with _db_temporal("orbit_dash_jevs5f") as (conn, dsn):
+        conn.execute(SQL02)
+        conn.execute(SQL_JEV)
+        _siembra_cortes_ui01(conn)
+        cliente = _cliente(dsn, monkeypatch)
+        normal = cliente.get("/api/dashboard/cortes")
+        assert normal.status_code == 200
+        assert normal.json()["senal_disponible"] is True
+
+        def de_propuestas_rota(conn_lectura, decision_ids):
+            raise RuntimeError("relation jev_senal does not exist")
+
+        monkeypatch.setattr("app.jev_salud.de_propuestas", de_propuestas_rota)
+        roto = cliente.get("/api/dashboard/cortes")
+        assert roto.status_code == 200
+        assert roto.json()["senal_disponible"] is False
+        assert [i["id"] for i in roto.json()["items"]] == [i["id"] for i in normal.json()["items"]]
+        assert all(i["senal"] is None for i in roto.json()["items"])
+        html = cliente.get("/cortes")
+        assert html.status_code == 200
+        assert "Señal Jev no disponible" in html.text
+        assert "error" not in html.text.lower()
+
+
+@pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres local")
+def test_cortes_senal_revocada_sale_desactualizada(monkeypatch):
+    """S.5.3: tras revocar una ficha citada por el roster, la senal sale
+    "desactualizada" en la API y en el HTML."""
+    with _db_temporal("orbit_dash_jevs5v") as (conn, dsn):
+        conn.execute(SQL02)
+        conn.execute(SQL_JEV)
+        _siembra_cortes_ui01(conn)
+        dec_neg = conn.execute("SELECT id FROM decision WHERE kind = 'negative'").fetchone()[0]
+        kw = conn.execute(
+            "SELECT ad_entity_id FROM apply_queue WHERE decision_id = %s AND kind = 'negative'",
+            (dec_neg,),
+        ).fetchone()[0]
+        ag = conn.execute("SELECT parent_id FROM ad_entity WHERE id = %s", (kw,)).fetchone()[0]
+        p1 = conn.execute(
+            "INSERT INTO product (odoo_sku, name) VALUES ('S-5', 'S-5') RETURNING id"
+        ).fetchone()[0]
+        l1 = conn.execute(
+            "INSERT INTO listing (product_id, platform, external_id)"
+            " VALUES (%s, 'amazon_us', 'B0JEV00005') RETURNING id",
+            (p1,),
+        ).fetchone()[0]
+        ficha = _ficha_jev(conn, p1, l1)
+        lote = _lote_s5(conn)
+        _senal_s5(
+            conn,
+            "amazon_us",
+            kw,
+            "tenis blancos",
+            lote,
+            _roster_s5(conn, "amazon_us", ag, fichas=[ficha]),
+        )
+        cliente = _cliente(dsn, monkeypatch)
+        vigente = cliente.get("/api/dashboard/cortes").json()
+        senal = {i["decision_id"]: i for i in vigente["items"]}[dec_neg]["senal"]
+        assert senal["origen"]["vigente"] is True
+        conn.execute(
+            "INSERT INTO jev_ficha_revocacion (ficha_version_id, autor, motivo)"
+            " VALUES (%s, 'dueno', 'ficha vieja')",
+            (ficha,),
+        )
+        revocada = cliente.get("/api/dashboard/cortes").json()
+        senal = {i["decision_id"]: i for i in revocada["items"]}[dec_neg]["senal"]
+        assert senal["origen"]["vigente"] is False
+        html = cliente.get("/cortes")
+        assert html.status_code == 200
+        assert "desactualizada" in html.text
+
+
+@pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres local")
+def test_gasto_sin_venta_api_forma_totales_y_get_puro(monkeypatch):
+    """S.5.1 (mitad gasto) + S.5.6 (forma y totales en la API): con
+    transporte que revienta, forma, secciones por lectura y totales, sin
+    escribir."""
+    from decimal import Decimal
+
+    with _db_temporal("orbit_dash_jevs5g") as (conn, dsn):
+        conn.execute(SQL02)
+        conn.execute(SQL_JEV)
+        grupo = _grupo(conn, "amazon_mx", "9301", _campana(conn, "amazon_mx", "9300"))
+        lote = _lote_s5(conn)
+        roster = _roster_s5(conn, "amazon_mx", grupo)
+        _senal_s5(conn, "amazon_mx", grupo, "cara", lote, roster)
+        _senal_s5(
+            conn,
+            "amazon_mx",
+            grupo,
+            "barata",
+            lote,
+            roster,
+            gasto=Decimal("5.00"),
+            lectura="vende_en_otro",
+        )
+        _senal_s5(conn, "amazon_mx", grupo, "ya vendio", lote, roster, ordenes=2)  # excluida
+        conteos_antes = _conteos_jev(conn)
+        _transporte_roto(monkeypatch)
+        resp = _cliente(dsn, monkeypatch).get(
+            "/api/dashboard/gasto-sin-venta", params={"plataforma": "amazon_mx"}
+        )
+        assert resp.status_code == 200, resp.text
+        cuerpo = resp.json()
+        assert cuerpo["plataforma"] == "amazon_mx"
+        assert cuerpo["calculado_el"] is None
+        assert cuerpo["aviso_desactualizado"] is True
+        assert cuerpo["total_filas"] == 2
+        secciones = {s["lectura"]: s for s in cuerpo["secciones"]}
+        assert set(secciones) == {"vende_en_otro", "relevante_sin_venta"}
+        assert secciones["vende_en_otro"]["busquedas"] == 1
+        assert secciones["vende_en_otro"]["gasto"] == "5.0000"
+        relevante = secciones["relevante_sin_venta"]
+        assert relevante["busquedas"] == 1
+        assert relevante["gasto"] == "12.5000"
+        assert [b["banda"] for b in relevante["bandas"]] == ["una_parte"]
+        fila = relevante["bandas"][0]["filas"][0]
+        assert fila["clave"]["termino"] == "cara"
+        assert fila["frase"] == "Es del catálogo y no convierte."
+        assert fila["banda"] == "una_parte"
+        assert _conteos_jev(conn) == conteos_antes
+
+
+@pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres local")
+def test_gasto_sin_venta_nunca_ninguno_sin_roster_probado(monkeypatch):
+    """S.5.5: una fila 0 de 3 sin roster probado cae en banda `sin_dato`
+    en la API, y el HTML no pinta ningun "Ninguno"."""
+    with _db_temporal("orbit_dash_jevs5n") as (conn, dsn):
+        conn.execute(SQL02)
+        conn.execute(SQL_JEV)
+        grupo = _grupo(conn, "amazon_mx", "9401", _campana(conn, "amazon_mx", "9400"))
+        lote = _lote_s5(conn)
+        _senal_s5(
+            conn,
+            "amazon_mx",
+            grupo,
+            "dudosa",
+            lote,
+            _roster_s5(conn, "amazon_mx", grupo),
+            productos_ok=[],
+            evaluados=3,
+            roster_probado=False,
+            roster_prueba='{"probado": false, "motivos": ["sin_acta"]}',
+        )
+        cuerpo = (
+            _cliente(dsn, monkeypatch)
+            .get("/api/dashboard/gasto-sin-venta", params={"plataforma": "amazon_mx"})
+            .json()
+        )
+        bandas = [fila["banda"] for seccion in cuerpo["secciones"] for fila in seccion["filas"]]
+        assert bandas == ["sin_dato"]
+        html = _cliente(dsn, monkeypatch).get(
+            "/gasto-sin-venta", params={"plataforma": "amazon_mx"}
+        )
+        assert html.status_code == 200
+        assert "Ninguno" not in html.text
+        assert "Sin dato" in html.text
+
+
+@pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres local")
+def test_gasto_sin_venta_vocab_cerrado_y_mercado_por_omision(monkeypatch):
+    """S.5.6 (ruta) + S.5.5 (mercado): mercado ajeno es 422; sin mercado
+    se mira amazon_mx."""
+    with _db_temporal("orbit_dash_jevs5m") as (conn, dsn):
+        conn.execute(SQL02)
+        conn.execute(SQL_JEV)
+        cliente = _cliente(dsn, monkeypatch)
+        assert cliente.get("/gasto-sin-venta", params={"plataforma": "meli"}).status_code == 422
+        assert (
+            cliente.get("/api/dashboard/gasto-sin-venta", params={"plataforma": "meli"}).status_code
+            == 422
+        )
+        omision = cliente.get("/gasto-sin-venta")
+        assert omision.status_code == 200
+        assert 'aria-current="page">Amazon MX' in omision.text
+        us = cliente.get("/gasto-sin-venta", params={"plataforma": "amazon_us"})
+        assert us.status_code == 200
+        assert 'aria-current="page">Amazon US' in us.text

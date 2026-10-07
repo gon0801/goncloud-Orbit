@@ -556,7 +556,30 @@ def pagina_cortes(request: Request, conn: ConexionLectura) -> HTMLResponse:
             # C.4 B2: propuestas de campana en la misma pantalla.
             "propuestas_campana": datos.get("propuestas_campana", []),
             "asesoria_disponible": datos["asesoria_disponible"],
+            # S.5 J5b: la senal viaja con .get (el contrato viejo no la trae).
+            "senal_disponible": datos.get("senal_disponible", True),
         },
+    )
+
+
+@router.get("/gasto-sin-venta", response_class=HTMLResponse)
+def pagina_gasto_sin_venta(
+    request: Request,
+    conn: ConexionLectura,
+    plataforma: Annotated[str | None, Query()] = None,
+) -> HTMLResponse:
+    """Gasto sin venta (JEV ADS 02, S.5 J5b): busquedas que gastan y no
+    venden, por lectura, con bandas de proporcion en "corresponden y no
+    venden". Server-rendered desde el endpoint (regla 22); el termino es
+    texto libre y se renderiza ESCAPADO ({{ }}). Mercado con
+    `?plataforma=` (vocabulario cerrado, sin componente de pestanas);
+    sin mercado se mira amazon_mx."""
+    mercado = _vocab_o_422(plataforma, frozenset(PLATAFORMAS_MONEDA), "plataforma")
+    datos = dash.gasto_sin_venta(conn=conn, plataforma=mercado or "amazon_mx")
+    return templates.TemplateResponse(
+        request,
+        "gasto_sin_venta.html",
+        {"pantalla": "gasto-sin-venta", **datos},
     )
 
 

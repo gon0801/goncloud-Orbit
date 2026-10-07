@@ -25,6 +25,7 @@
     'salud': ('Salud', 'Ultimo ciclo, historico 14d, quota y skips'),
     'contribucion': ('Contribucion', 'Rango pre-cargos · 90d maduros con vintage D-15 UTC'),
     'cortes': ('Propuestas', 'Pendientes de decision · se aplican solas al vencer'),
+    'gasto-sin-venta': ('Gasto sin venta', 'Busquedas que gastan y no venden, por lectura'),
     'inertes': ('Inertes', 'Hojas activas sin trafico desde 14 dias o mas'),
     'settings': ('Settings', 'Cascada de targets, caps diarios y goals'),
     'fabrica': ('Crear campañas', 'Un grupo de cinco campañas de Sponsored Products'),
@@ -44,7 +45,9 @@
         ('Panel', [('resumen', '/', 'Resumen'), ('campanas', '/campanas', 'Campañas'),
                    ('decisiones', '/decisiones', 'Decisiones'), ('salud', '/salud', 'Salud'),
                    ('contribucion', '/contribucion', 'Contribucion')]),
-        ('Decidir', [('cortes', '/cortes', 'Propuestas'), ('inertes', '/inertes', 'Inertes'),
+        ('Decidir', [('cortes', '/cortes', 'Propuestas'),
+                    ('gasto-sin-venta', '/gasto-sin-venta', 'Gasto sin venta'),
+                    ('inertes', '/inertes', 'Inertes'),
                     ('fabrica', '/campanas/nuevas', 'Crear campañas')])
       ] %}
       <div class="nav-grupo">
@@ -97,7 +100,7 @@
     'decisiones': 'ordenes',
     'campanas': 'gastos', 'fabrica': 'gastos', 'inertes': 'gastos',
     'settings': 'saldos',
-    'cortes': 'revision'
+    'cortes': 'revision', 'gasto-sin-venta': 'revision'
   } %}
   {% set tab_activo = tab_por_pantalla.get(pantalla, 'inicio') %}
   <nav class="tab-bar" aria-label="Navegacion movil">

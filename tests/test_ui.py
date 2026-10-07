@@ -36,6 +36,7 @@ from test_api_dashboard import (
     SQL14,
     SQL17,
     SQL42,
+    SQL_JEV,
     _campana,
     _ciclo,
     _config_version,
@@ -1625,3 +1626,134 @@ def test_ui_decisiones_muestra_linea_de_sombra_v2():
     assert "v2: CPC desconocido tras el cambio" in html
     html_vieja = ui.templates.env.get_template("decisiones.html").render(**_ctx_decisiones())
     assert "v2:" not in html_vieja
+
+
+# ---------------------------------------------------------------------------
+# JEV ADS 02 S.5 J5b: senal en /cortes y pantalla /gasto-sin-venta
+# ---------------------------------------------------------------------------
+
+
+def _cara_senal_ui(termino=PAYLOAD_XSS, **cambios):
+    """Una cara de senal con el shape del endpoint (termino = vector XSS)."""
+    cara = {
+        "senal_id": "00000000-0000-0000-0000-000000000005",
+        "clave": {"plataforma": "amazon_mx", "ad_group_id": 5, "termino": termino},
+        "lectura": "relevante_sin_venta",
+        "titulo": "Corresponde y no vende en ninguno",
+        "frase": "Es del catálogo y no convierte.",
+        "motivos": [],
+        "economia": {
+            "moneda": "MXN",
+            "aqui": {
+                "desde": "2026-08-03",
+                "hasta": "2026-09-01",
+                "clics": 63,
+                "gasto": "28.22",
+                "ordenes": 0,
+            },
+            "otros_que_venden": [],
+            "otros_sin_venta": 0,
+            "otros_sin_dato": 0,
+            "historial": {
+                "desde": "2026-07-01",
+                "hasta": "2026-09-01",
+                "clics": 40,
+                "ordenes_conocidas": 0,
+                "dias_sin_dato": 2,
+            },
+            "datos_hasta": "2026-09-01T00:00:00+00:00",
+        },
+        "relevancia": "corresponde",
+        "satisfacen": 1,
+        "evaluados": 3,
+        "miembros": 5,
+        "productos_ok": [7],
+        "regla_version": 1,
+        "roster_probado": True,
+        "motivos_roster": [],
+        "calculada_el": "2026-09-02T00:00:00+00:00",
+        "valida_hasta": "2026-10-08T00:00:00+00:00",
+        "vigente": True,
+    }
+    cara.update(cambios)
+    return cara
+
+
+def _ctx_gasto_ui(termino=PAYLOAD_XSS):
+    """Contexto minimo de gasto_sin_venta (shape del endpoint)."""
+    fila = _cara_senal_ui(termino)
+    fila["banda"] = "una_parte"
+    return {
+        "pantalla": "gasto-sin-venta",
+        "plataforma": "amazon_mx",
+        "calculado_el": "2026-10-06T12:00:00+00:00",
+        "aviso_desactualizado": False,
+        "secciones": [
+            {
+                "lectura": "relevante_sin_venta",
+                "titulo": "Corresponde y no vende en ninguno",
+                "busquedas": 1,
+                "gasto": "28.22",
+                "moneda": "MXN",
+                "filas": [fila],
+                "bandas": [
+                    {"banda": "una_parte", "titulo": "Una parte", "filas": [fila]},
+                ],
+            }
+        ],
+        "total_filas": 1,
+    }
+
+
+def test_ui_gasto_sin_venta_xss_termino_escapado():
+    """S.5.6 (escape en el HTML, modelo inertes): el termino (texto libre,
+    vector XSS de esta pantalla) va por {{ }} y el entorno REAL lo escapa."""
+    html = ui.templates.env.get_template("gasto_sin_venta.html").render(**_ctx_gasto_ui())
+    assert PAYLOAD_XSS not in html
+    assert "&lt;script&gt;" in html
+
+
+def test_ui_cortes_senal_antes_de_asesoria_y_sin_error():
+    """S.5 (guia Cambios 3): la fila Senal va ANTES que la de asesoria y la
+    palabra "error" no aparece en el HTML renderizado."""
+    from test_api_dashboard import _ctx_cortes_local
+
+    ctx = _ctx_cortes_local()
+    ctx["items"][0]["senal"] = {
+        "origen": _cara_senal_ui("tenis blancos"),
+        "destino": None,
+        "destino_ilegible": False,
+    }
+    ctx["senal_disponible"] = True
+    html = ui.templates.env.get_template("cortes.html").render(**ctx)
+    assert 'class="senal-jev"' in html
+    assert html.index('class="senal-jev"') < html.index('class="asesoria-jev"')
+    assert "Es del catálogo y no convierte." in html
+    assert "Jev: 1 de 3" in html
+    assert "error" not in html.lower()
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_ui_gasto_sin_venta_200_con_secciones_y_escape(monkeypatch):
+    """S.5.6 por el camino REAL (TestClient -> pagina -> endpoint -> vista):
+    200 con secciones, totales, mercado activo y el termino con <script>
+    escapado en el HTML servido."""
+    from test_api_dashboard import _campana, _grupo, _lote_s5, _roster_s5, _senal_s5
+
+    with _db_temporal("orbit_ui_gasto") as (conn, dsn):
+        conn.execute(SQL02)
+        conn.execute(SQL_JEV)
+        grupo = _grupo(conn, "amazon_mx", "9501", _campana(conn, "amazon_mx", "9500"))
+        lote = _lote_s5(conn)
+        _senal_s5(conn, "amazon_mx", grupo, PAYLOAD_XSS, lote, _roster_s5(conn, "amazon_mx", grupo))
+        monkeypatch.setenv("ORBIT_DSN_READ", dsn)
+        resp = TestClient(app).get("/gasto-sin-venta", params={"plataforma": "amazon_mx"})
+        assert resp.status_code == 200, resp.text
+        assert "Corresponde y no vende en ninguno" in resp.text
+        assert "12.50" in resp.text
+        assert 'aria-current="page">Amazon MX' in resp.text
+        assert PAYLOAD_XSS not in resp.text
+        assert "&lt;script&gt;" in resp.text

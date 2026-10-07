@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% import "_senal.html" as senal %}
+{% block contenido %}
+<h2>Gasto sin venta</h2>
+<p class="mutado">
+  Búsquedas que gastan y no venden en este mercado, por lectura. Las bandas
+  solo ordenan la pantalla: no se guardan y ningún efecto las lee.
+</p>
+{# Mercado con enlaces GET (guia S.5.5): no existe componente de pestanas. #}
+<p>
+  <a href="/gasto-sin-venta?plataforma=amazon_mx" {% if plataforma == "amazon_mx" %}aria-current="page"{% endif %}>Amazon MX</a>
+  <a href="/gasto-sin-venta?plataforma=amazon_us" {% if plataforma == "amazon_us" %}aria-current="page"{% endif %}>Amazon US</a>
+</p>
+{% if calculado_el %}
+<p class="mutado">Calculado el {{ calculado_el|ts_ui }}.</p>
+{% endif %}
+{% if aviso_desactualizado %}
+<p class="chip">Sin cálculo reciente: la última corrida tiene más de 36 horas o aún no corre.</p>
+{% endif %}
+{% macro filas_tabla(filas) %}
+  <div class="tabla-scroll" role="region" aria-label="Tabla de datos" tabindex="0">
+  <table>
+    <thead>
+      <tr>
+        <th>Búsqueda</th>
+        <th class="num">Gasto</th>
+        <th>Señal</th>
+        <th>Productos</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for fila in filas %}
+      <tr>
+        {# El termino es texto libre de la busqueda: AUTOESCAPE lo escapa #}
+        <td>{{ fila.clave.termino }}<span class="detalle-celda mono">grupo #{{ fila.clave.ad_group_id }}</span></td>
+        <td class="num">{{ fila.economia.aqui.gasto if fila.economia.aqui else "—" }}{% if fila.economia.moneda %} {{ fila.economia.moneda }}{% endif %}</td>
+        <td>{{ senal.bloque(fila) }}</td>
+        <td>
+          <details>
+            <summary>Productos que dijeron que sí ({{ fila.productos_ok|length }})</summary>
+            {% if fila.productos_ok %}
+            <ul>
+              {% for producto in fila.productos_ok %}<li>#{{ producto }}</li>{% endfor %}
+            </ul>
+            {% else %}
+            <p class="mutado">0 productos en la fila.</p>
+            {% endif %}
+          </details>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+{% endmacro %}
+{% for seccion in secciones %}
+<div class="tarjeta">
+  <h3>{{ seccion.titulo }} <span class="chip">{{ seccion.busquedas }}</span></h3>
+  <p class="mutado">{{ seccion.busquedas }} búsquedas · {{ seccion.gasto }}{% if seccion.moneda %} {{ seccion.moneda }}{% endif %} de gasto</p>
+  {% if seccion.bandas %}
+    {% for banda in seccion.bandas %}
+    <h4>{{ banda.titulo }} <span class="chip">{{ banda.filas|length }}</span></h4>
+    {{ filas_tabla(banda.filas) }}
+    {% endfor %}
+  {% else %}
+    {{ filas_tabla(seccion.filas) }}
+  {% endif %}
+</div>
+{% else %}
+<p>Sin filas en este mercado: el job sigue apagado o nada gasta sin vender.</p>
+{% endfor %}
+{% endblock %}

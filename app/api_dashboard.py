@@ -1349,6 +1349,22 @@ SELECT lote, (min(intentado_at) AT TIME ZONE 'UTC')::date AS primer_intento,
 """
 
 
+def _senal_presentada(propuesta) -> dict | None:
+    """SenalPropuesta a contrato de pantalla (S.5 J5b): cada cara con su
+    titulo y su frase, y None cuando el job todavia no sello nada para esa
+    decision. El destino ilegible si informa (la plantilla lo pinta como
+    "sin lectura")."""
+    origen = _senal_presentada_vista(propuesta.origen)
+    destino = _senal_presentada_vista(propuesta.destino)
+    if origen is None and destino is None and not propuesta.destino_ilegible:
+        return None
+    return {
+        "origen": origen,
+        "destino": destino,
+        "destino_ilegible": propuesta.destino_ilegible,
+    }
+
+
 @router.get("/cortes")
 def cortes(conn: ConexionLectura) -> dict:
     """Cortes pendientes de veto con su vencimiento (regla 22: la UI CONSUME
@@ -1374,6 +1390,25 @@ def cortes(conn: ConexionLectura) -> dict:
         logger.warning("cortes: asesoria Jev ilegible: %s", scrub(str(exc)))
         asesoria_por_decision = {}
         asesoria_disponible = False
+    # S.5 J5b: senal guardada por decision (SOLO lectura, misma forma que
+    # la asesoria). `_propuestas` desempaqueta por posicion: pide tuplas y
+    # devuelve la fabrica a dict_row antes de seguir.
+    senal_disponible = True
+    try:
+        from app import jev_salud as pantallas_jev
+
+        conn.row_factory = tuple_row
+        try:
+            senales = pantallas_jev.de_propuestas(conn, [fila["decision_id"] for fila in filas])
+        finally:
+            conn.row_factory = dict_row
+        senal_por_decision = {
+            decision_id: _senal_presentada(vista) for decision_id, vista in senales.items()
+        }
+    except Exception as exc:  # noqa: BLE001 - degradacion visible, no caida
+        logger.warning("cortes: senal Jev ilegible: %s", scrub(str(exc)))
+        senal_por_decision = {}
+        senal_disponible = False
     items = []
     for fila in filas:
         # FABRICA 02 (A.6): destino congelado + hermanas del grupo. La query
@@ -1415,6 +1450,7 @@ def cortes(conn: ConexionLectura) -> dict:
                 "destino": destino,
                 "hermanas": hermanas,
                 "asesoria": asesoria_por_decision.get(fila["decision_id"]),
+                "senal": senal_por_decision.get(fila["decision_id"]),
             }
         )
     # C.4 B2: propuestas de campana en la MISMA pantalla (open accionables
@@ -1429,7 +1465,131 @@ def cortes(conn: ConexionLectura) -> dict:
         "items": items,
         "propuestas_campana": propuestas,
         "asesoria_disponible": asesoria_disponible,
+        "senal_disponible": senal_disponible,
     }
+
+
+_ORDEN_LECTURAS = (
+    "vendio_aqui",
+    "vende_en_otro",
+    "relevante_sin_venta",
+    "ajena",
+    "sin_lectura",
+)
+
+_ORDEN_BANDAS = ("ninguno", "pocos", "una_parte", "todos", "sin_dato")
+
+
+def _banda_honesta(fila: dict) -> str:
+    """Banda de proporcion de una fila de gasto sin venta (S.5 J5b): sin
+    roster probado no se afirma proporcion (diseno: decir "ninguno" exige
+    conocer todos los productos) y la fila cae en `sin_dato`."""
+    from app.jev_vista import banda_de_proporcion
+
+    if not fila.get("roster_probado"):
+        return "sin_dato"
+    return banda_de_proporcion(fila.get("satisfacen", 0), fila.get("evaluados", 0))
+
+
+@router.get("/gasto-sin-venta")
+def gasto_sin_venta(conn: ConexionLectura, plataforma: str | None = None) -> dict:
+    """Busquedas que gastan y no venden, por lectura (JEV ADS 02, S.5 J5b;
+    regla 22: la UI CONSUME este endpoint). Funcion delgada: delega en
+    `jev_salud.gasto_sin_venta` (SOLO SELECT) y solo presenta — frase,
+    banda honesta, secciones por lectura con sus totales y aviso de
+    calculo viejo (> 36 h). Sin mercado se mira amazon_mx; mercado ajeno
+    es 422."""
+    from app import jev_salud as pantallas_jev
+    from app.jev_vista import titulo_de_banda, titulo_de_lectura
+
+    mercado = plataforma or "amazon_mx"
+    if mercado not in PLATAFORMAS_MONEDA:
+        raise HTTPException(status_code=422, detail="plataforma fuera de vocabulario")
+    pantalla = pantallas_jev.gasto_sin_venta(conn, plataforma=mercado)  # type: ignore[arg-type]
+    base = pantalla.como_dict()
+    filas = []
+    for cruda in base["filas"]:
+        fila = _senal_presentada_vista(cruda)
+        fila["banda"] = _banda_honesta(fila)
+        filas.append(fila)
+    secciones = []
+    for lectura in _ORDEN_LECTURAS:
+        propias = [fila for fila in filas if fila["lectura"] == lectura]
+        if not propias:
+            continue
+        total = base["totales"].get(lectura, {"busquedas": 0, "gasto": "0"})
+        monedas = {fila["economia"]["moneda"] for fila in propias}
+        seccion: dict = {
+            "lectura": lectura,
+            "titulo": titulo_de_lectura(lectura),
+            "busquedas": total["busquedas"],
+            "gasto": total["gasto"],
+            "moneda": next(iter(monedas)) if len(monedas) == 1 else None,
+            "filas": propias,
+        }
+        if lectura == "relevante_sin_venta":
+            propias.sort(key=_proporcion_de)
+            seccion["bandas"] = [
+                {
+                    "banda": banda,
+                    "titulo": titulo_de_banda(banda),
+                    "filas": [fila for fila in propias if fila["banda"] == banda],
+                }
+                for banda in _ORDEN_BANDAS
+                if any(fila["banda"] == banda for fila in propias)
+            ]
+        secciones.append(seccion)
+    calculado = base["calculado_el"]
+    return {
+        "plataforma": mercado,
+        "calculado_el": calculado,
+        "aviso_desactualizado": _calculo_viejo(calculado),
+        "secciones": secciones,
+        "total_filas": len(filas),
+    }
+
+
+def _senal_presentada_vista(vista) -> dict | None:
+    """Una cara de senal (`SenalVista` o su dict de `como_dict`) con su
+    titulo y su frase para la pantalla (presentacion pura de
+    `app.jev_vista`); None si el job aun no la sello."""
+    from app.jev_vista import frase_de_lectura, titulo_de_lectura
+
+    if vista is None:
+        return None
+    fila = vista if isinstance(vista, dict) else vista.como_dict()
+    fila = dict(fila)
+    fila["titulo"] = titulo_de_lectura(fila["lectura"])
+    fila["frase"] = frase_de_lectura(
+        fila["lectura"],
+        fila.get("motivos") or [],
+        fila.get("miembros", 0),
+        (fila.get("economia") or {}).get("datos_hasta"),
+    )
+    return fila
+
+
+def _proporcion_de(fila: dict) -> float:
+    """Proporcion satisfacen/evaluados para ordenar (S.5: ascendente dentro
+    de "corresponden y no venden"). Sin evaluados va primera (banda
+    `sin_dato`)."""
+    evaluados = fila.get("evaluados", 0)
+    return (fila.get("satisfacen", 0) / evaluados) if evaluados else 0.0
+
+
+def _calculo_viejo(calculado_el: str | None) -> bool:
+    """Aviso de la pantalla (diseno S.5): True sin calculo o con la ultima
+    corrida hace mas de 36 horas."""
+    if not calculado_el:
+        return True
+    try:
+        calculado = dt.datetime.fromisoformat(calculado_el)
+    except ValueError:
+        return True
+    ahora = dt.datetime.now(dt.UTC)
+    if calculado.tzinfo is None:
+        calculado = calculado.replace(tzinfo=dt.UTC)
+    return (ahora - calculado) > dt.timedelta(hours=36)
 
 
 @router.get("/inertes")
