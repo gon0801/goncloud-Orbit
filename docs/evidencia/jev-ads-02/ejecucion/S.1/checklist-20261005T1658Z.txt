@@ -1,0 +1,24 @@
+== 0) El servidor contesta (posterior se cuenta desde el arranque, sello 20261005-1657 solo para los logs)
+OK    contenedor orbit-app-1 corriendo = true
+arranque del contenedor: 2026-10-05T16:58:15.554117778Z
+== 1) HTTP: health, /cortes, asesoria inexistente
+OK    GET /health = 200
+OK    GET /cortes = 200
+OK    GET /api/dashboard/cortes = 200
+OK    GET /api/fabrica/asesoria/<64 ceros> = 404
+OK    logs 'asesoria Jev ilegible' desde el sello = 0
+== 2) CLI dentro del contenedor, sin credenciales; Jev sigue apagado
+OK    tools.jev_ads sin ORBIT_DSN_ADMIN (exit) = 2
+OK    tools.jev_fichas --help (exit) = 0
+OK    cycle/apply_cola/apply_harvest importan app.jev_* = False
+filas Jev (fichas|revisiones|eventos, informativo): 868|24|11272
+== 3) Permisos y esquema S.1 (consulta como orbit_read)
+OK    permisos.sql = permisos OK
+OK    orbit_admin miembro de app_jev (CLI del asesor) = t
+OK    tablas del acta (plataforma|grupo) = t|t
+OK    triggers append-only del acta = 4
+== 4) Corrida de estructura posterior al arranque (2026-10-05T16:58:15.554117778Z)
+INCOMPLETO: todavia no corre estructura despues de 2026-10-05T16:58:15.554117778Z; vuelve a correr el checklist despues de la siguiente corrida
+== 5) Primer ciclo del optimizador despues del arranque
+INCOMPLETO: todavia no corre un ciclo despues de 2026-10-05T16:58:15.554117778Z; vuelve a correr el checklist despues del siguiente ciclo
+== RESULTADO: 0 falla(s), prueba posterior PENDIENTE, todo medido
