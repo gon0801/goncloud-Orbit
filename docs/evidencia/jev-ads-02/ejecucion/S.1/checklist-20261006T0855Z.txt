@@ -9,3 +9,4 @@ OK    GET /api/fabrica/asesoria/<64 ceros> = 404
 OK    logs 'asesoria Jev ilegible' desde el sello = 0
 == 2) CLI dentro del contenedor, sin credenciales; Jev sigue apagado
 OK    tools.jev_ads sin ORBIT_DSN_ADMIN (exit) = 2
+[nota J6: registro parcial, el original del loop termina aquí (sin RESULTADO ni exit)]
