@@ -308,7 +308,9 @@ class Cuenta:
 #   `listing_inactivo`, `dia_sin_estado_listing` (eran de FBA); entran
 #   `dia_no_disponible`, `dia_sin_observacion`, `venta_sin_publicacion`,
 #   `evidencia_insuficiente`.
-CausaRetencion = Literal["movimiento_masivo", "insumo_sistemico", "apagador", "corte_errores"]
+CausaRetencion = Literal[
+    "movimiento_masivo", "insumo_sistemico", "apagador", "corte_errores", "goal_cambiado"
+]
 # Buy Box NO es evidencia: perderla avisa y no frena ni baja (decision 5 del
 # dueno, vigente). La evidencia nueva es solo el trafico que pidio en D10.
 EvidenciaSenal = Literal["unidades", "trafico"]
@@ -1338,12 +1340,18 @@ def _aplicar_pendientes(
     # TODO: por decision pendiente, en orden de listing_id:
     #   su universo Retenida y no liberada -> INSERT precio_retencion(causa) ; sigue
     #   config releida: modo ya no alcanza -> retencion `apagador` ; sigue
+    #   goal releido por `decision.goal_id`: ya no vigente, o ya no `live`
+    #     para una decision `live` -> retencion `goal_cambiado` ; sigue
     #   corte.abierto               -> retencion `corte_errores` ; sigue
     #   mode shadow                 -> cambios.registrar_virtual
     #   mode live                   -> r = cambios.aplicar(conn, mercado, id)
     #                                  corte = corte.tras(r.estado)
-    # TODO: la config se relee antes de CADA escritura real (una consulta de
-    #       1 fila contra ~5 s de escritura): apagar a media corrida corta.
+    # TODO: la config Y el goal de la decision se releen antes de CADA
+    #       escritura real (dos consultas de 1 fila contra ~5 s de escritura).
+    #       Apagar a media corrida corta. Pasar un goal a `shadow` o cerrarlo
+    #       tambien: una decision `live` retenida por la manana no se aplica
+    #       en el repaso si su goal cambio entre tanto. El compare-and-set de
+    #       `cambios.aplicar` no basta: solo compara el precio vivo.
     """
     raise NotImplementedError
 
@@ -1570,19 +1578,26 @@ def refrescar_muestras(
 
 @dataclass(frozen=True)
 class Atribucion:
-    """A que publicacion pertenece un evento del ledger. `listing_id is None`
-    = no se pudo decidir; se escribe igual, con el porque."""
+    """A que publicacion pertenece un evento del ledger.
 
-    listing_id: int | None
+    Solo existe si se pudo decidir. Lo que hoy no se decide NO se escribe:
+    la tabla es append-only y una fila `indeterminado` quedaria fija para
+    siempre aunque manana llegue el dato que la resuelve (el canal de la
+    orden, o la fila de `listing`). La siguiente ingesta lo reintenta.
+    """
+
+    listing_id: int
     variante: str | None
-    resuelto_por: Literal["sku", "externo_unico", "producto_unico", "canal_orden", "indeterminado"]
+    resuelto_por: Literal["sku", "externo_unico", "producto_unico", "canal_orden"]
 
 
 class Atribuidor(Protocol):
     """Uno por plataforma de origen. `app/ledger.py` despacha por plataforma
     en vez de la rama `if plataforma == "meli": excluida`."""
 
-    def atribuir(self, fila: Any) -> Atribucion: ...
+    def atribuir(self, fila: Any) -> Atribucion | None:
+        """None = todavia no se puede decidir: no se escribe y se reintenta."""
+        ...
 
 
 # =============================================================================

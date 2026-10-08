@@ -310,9 +310,11 @@ prueba de D2 sin esperar: sembrar a margen de hoy en `shadow` y ver casi todo en
 `mantener(en_tolerancia)` demuestra que la cuenta del motor coincide con la de
 la estimación; cada unidad que no lo esté señala un insumo que cambió.
 
-`apagador` y `corte_errores` usan la misma tabla de retención pero no son
-estado: se reevalúan en cada corrida. La config se relee antes de cada escritura
-real, así que apagar a media corrida corta. El corte por errores seguidos
+`apagador`, `corte_errores` y `goal_cambiado` usan la misma tabla de retención
+pero no son estado: se reevalúan en cada corrida. La config y el goal de la
+decisión se releen antes de cada escritura real. Así, apagar a media corrida
+corta, y pasar un goal a `shadow` o cerrarlo también: una decisión `live`
+retenida en la mañana no se aplica en el repaso si su goal cambió entre tanto. El corte por errores seguidos
 (`Cortacircuito`) detiene la corrida tras N errores de escritura consecutivos.
 
 Y el cooldown deja de contar un cambio en `error` cuyo readback probó que el
@@ -365,9 +367,16 @@ llamador es lo mínimo: qué plataforma y quién es el dueño del lock.
 - **La corrida muere sin cerrar.** Su fila queda `abierta`; la siguiente corrida
   de la plataforma la pasa a `abortada`. `/salud` avisa si a las 14:00 UTC no
   hay corrida cerrada del día ni resumen enviado.
-- **El repaso vuelve a ver un fusible ya avisado.** El aviso `compuerta` y el
-  resumen diario llevan sello (`avisada_at`, `resumen_enviado_at`): salen una
-  vez por disparo y una vez por día.
+- **El repaso vuelve a ver un fusible ya avisado.** Cada repaso es una corrida
+  nueva con su propia medición. Un índice único deja sellar un solo aviso
+  `compuerta` por universo, causa y día, y un solo resumen diario por
+  plataforma y día. La corrida avisa solo si todavía no hay sello, y sella
+  después de enviar.
+- **El dueño pasa un goal a `shadow` con una decisión `live` retenida.** El
+  repaso relee el goal antes de escribir, no aplica esa decisión y deja una
+  retención `goal_cambiado`.
+- **Una venta llega antes que el dato que la atribuye.** No se escribe como
+  indeterminada: queda sin fila y la siguiente ingesta la reintenta.
 - **Los repasos y la cuota de Amazon.** Un repaso no cotiza: las decisiones ya
   están guardadas con su cotización. Solo lee el precio vivo y escribe lo
   pendiente, así que no compite con la estimación de las 12:45 y 18:45 por la
@@ -713,7 +722,9 @@ carril escribe los suyos en un archivo propio, `tests/test_arq_precio_{s,g,f,m}.
 2. Por universo: política sellada por el dueño → sonda de cotización → sonda de
    escritura de ±0.01 con su reversa → siembra a margen de hoy en `shadow` → uno
    o dos días viendo que casi todo queda en tolerancia → `live` en
-   `precio_modo_universo`. Cada universo recorre esta fila por su cuenta; no
+   `precio_modo_universo`. El primer universo que se enciende sube además
+   `precio_modo_global` a `live`: la migración lo siembra en `shadow` y el
+   modo efectivo es el menor. Cada universo recorre esta fila por su cuenta; no
    esperan entre sí (D9).
 3. La migración 0054 siembra las claves nuevas de config (copia la vigente y
    suma las nuevas), así que no hay paso manual. Las `precio_cap_*` se quedan

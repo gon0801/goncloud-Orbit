@@ -18,9 +18,12 @@
 --   (x2) `precio_cambio_confirmado_por_valido` admite un valor mas.
 -- Las dos ENSANCHAN: toda fila que hoy es valida lo sigue siendo.
 -- `listing.product_id` NO se toca: sigue NOT NULL (producto ancla).
--- Todo CHECK nuevo sobre una tabla con filas vivas (`precio_decision`,
--- `estimacion_escenario`) va `NOT VALID`: vale para lo nuevo y no revisa la
--- historia. Sin eso la migracion falla en produccion.
+-- Un CHECK nuevo va `NOT VALID` cuando las filas que ya existen pueden
+-- violarlo: vale para lo nuevo y no revisa la historia. Es el caso de los
+-- que exigen `l_origen`, `verificacion` o los fees partidos en
+-- `precio_decision` y `estimacion_escenario`; sin `NOT VALID` la migracion
+-- falla en produccion. Un CHECK que solo acota una columna recien creada
+-- (nula en toda fila vieja) no lo necesita.
 --
 -- Patrones de acceso dominantes y que los sirve (si la respuesta fuera "luego
 -- un indice", la estructura estaria mal):
@@ -111,7 +114,7 @@ CREATE VIEW v_precio_unidad_miembro AS
 CREATE TABLE ledger_event_atribucion (
     ledger_event_id BIGINT PRIMARY KEY REFERENCES ledger_event (id),
     platform        platform NOT NULL,
-    listing_id      BIGINT,                       -- NULL = indeterminado, con su porque
+    listing_id      BIGINT NOT NULL,
     variante_ext    TEXT,
     resuelto_por    TEXT NOT NULL,
     ingest_run_id   BIGINT NOT NULL REFERENCES ingest_run (id),
@@ -119,9 +122,7 @@ CREATE TABLE ledger_event_atribucion (
         REFERENCES listing (id, platform),
     CONSTRAINT ledger_atribucion_resuelto_valido
         CHECK (resuelto_por IN ('sku', 'externo_unico', 'producto_unico',
-                                'canal_orden', 'indeterminado')),
-    CONSTRAINT ledger_atribucion_indeterminado_sin_listing
-        CHECK ((resuelto_por = 'indeterminado') = (listing_id IS NULL))
+                                'canal_orden'))
 );
 CREATE INDEX ledger_atribucion_por_listing ON ledger_event_atribucion (listing_id);
 CREATE TRIGGER ledger_atribucion_append_only
@@ -130,6 +131,11 @@ CREATE TRIGGER ledger_atribucion_append_only
 -- Escritor unico: la ingesta del ledger (`app_ingest`), INSERT ... ON CONFLICT
 -- DO NOTHING. Un evento atribuido no se re-atribuye: si el mapeo cambia, las
 -- ventas viejas quedan como estaban y se cuenta la diferencia.
+-- Lo que hoy no se puede decidir NO se inserta: una fila `indeterminado`
+-- quedaria fija para siempre y una sola venta dejaria la senal en `sin_dato`
+-- hasta 60 dias. Sin fila, la siguiente ingesta lo reintenta cuando llegue
+-- el canal de la orden o la fila de `listing`. Cada corrida de la ingesta
+-- cuenta en `ingest_run` cuantas ventas siguen sin atribuir.
 
 -- Ventas por UNIDAD. Sustituye al SELECT por `product_id` de `_insumos_ventas`.
 -- Las ventas del producto sin publicacion decidible salen con listing_id NULL:
@@ -315,6 +321,8 @@ COMMENT ON TABLE precio_corrida IS
 -- fusible se mide por `platform/canal`, no por plataforma).
 CREATE TABLE precio_compuerta_medicion (
     corrida_id  BIGINT NOT NULL REFERENCES precio_corrida (id),
+    platform    platform NOT NULL,        -- copia de la corrida, por trigger
+    fecha       DATE NOT NULL,            -- copia de la corrida, por trigger
     canal       estimacion_canal NOT NULL,
     medidas     INTEGER NOT NULL,         -- decisiones de hoy con cuenta (m_actual)
     nuevas      INTEGER NOT NULL,         -- intenciones nuevas no liberadas
@@ -322,7 +330,7 @@ CREATE TABLE precio_compuerta_medicion (
     insumo      TEXT,
     detalle     TEXT,
     medida_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-    avisada_at  TIMESTAMPTZ,              -- el aviso `compuerta` sale UNA vez
+    avisada_at  TIMESTAMPTZ,              -- sello del aviso `compuerta`
     PRIMARY KEY (corrida_id, canal),
     CONSTRAINT precio_medicion_conteos_validos CHECK (medidas >= 0 AND nuevas >= 0),
     CONSTRAINT precio_medicion_causa_valida
@@ -335,6 +343,16 @@ CREATE TABLE precio_compuerta_medicion (
 );
 -- Trigger `precio_medicion_solo_sella_aviso` (BEFORE UPDATE OR DELETE): lo
 -- unico mutable es `avisada_at`, de NULL a valor, una vez. DELETE prohibido.
+-- Trigger `precio_medicion_copia_corrida` (BEFORE INSERT): `platform` y
+--   `fecha` salen de la corrida; ignora las del cliente.
+-- Cada repaso es una corrida nueva y escribe su propia medicion. Sin esto el
+-- mismo disparo avisaria en cada repaso, hasta seis veces al dia. El indice
+-- deja sellar UN aviso por universo, causa y dia. La corrida avisa solo si
+-- todavia no hay sello, y sella despues de enviar: un envio que falla no
+-- deja sello y el repaso lo reintenta.
+CREATE UNIQUE INDEX precio_medicion_un_aviso_por_dia
+    ON precio_compuerta_medicion (platform, fecha, canal, causa)
+    WHERE avisada_at IS NOT NULL;
 COMMENT ON TABLE precio_compuerta_medicion IS
   'REPRICING 02: una fila con causa ES el disparo del fusible de ese universo '
   'en esa corrida. No hay tabla de fusible aparte que sincronizar. Se escribe '
@@ -357,7 +375,7 @@ CREATE TABLE precio_retencion (
     CONSTRAINT precio_retencion_una_por_corrida UNIQUE (decision_id, corrida_id),
     CONSTRAINT precio_retencion_causa_valida
         CHECK (causa IN ('movimiento_masivo', 'insumo_sistemico',
-                         'apagador', 'corte_errores'))
+                         'apagador', 'corte_errores', 'goal_cambiado'))
 );
 CREATE INDEX precio_retencion_por_corrida ON precio_retencion (corrida_id);
 CREATE TRIGGER precio_retencion_append_only
@@ -505,6 +523,10 @@ ALTER TABLE precio_goal
     ADD COLUMN m_referencia NUMERIC(8, 4); -- margen de la unidad al sembrar
 ALTER TABLE precio_goal ADD CONSTRAINT precio_goal_origen_valido
     CHECK (origen IS NULL OR origen IN ('manual', 'margen_de_hoy', 'cambio_de_modo'));
+-- CREATE OR REPLACE FUNCTION precio_goal_solo_cierra_vigencia(): identica a la
+-- 0039, con `origen`, `lote` y `m_referencia` agregadas al ROW(...) de
+-- columnas inmutables. El trigger compara esa lista por nombre: una columna
+-- que no este ahi queda reescribible en un goal ya publicado.
 -- La banda sigue en el CHECK de la 0039 (0.10-0.60) Y en la config
 -- (`precio_goal_min/max_pct`): dos fuentes que ya existian; la config solo
 -- puede estrechar. No se toca aqui.
@@ -564,6 +586,8 @@ GRANT USAGE ON SEQUENCE meli_publicacion_observation_id_seq TO app_ingest;
 --   * una muestra `familia` entra sin donantes;
 --   * una decision nueva con l_valor entra sin l_origen;
 --   * una liberacion entra para una corrida que no retuvo;
+--   * un UPDATE de `origen` sobre un goal ya sembrado entra;
+--   * un segundo aviso de compuerta del mismo universo, causa y dia se sella;
 --   * una decision con `goal_id` de un goal ya cerrado entra;
 --   * una decision `subir` nueva entra sin `verificacion`;
 --   * una segunda corrida del mismo dia sella otro `resumen_enviado_at`;

@@ -255,10 +255,13 @@ importes.
   decide.
 - Si la config cambia a `off` entre dos escrituras, la segunda no ocurre y deja
   una fila en `precio_retencion` con causa `apagador`.
+- Una decisión `live` retenida cuyo goal pasó a `shadow`, o se cerró, no se
+  escribe en el repaso y deja una retención `goal_cambiado`.
 
 **Cambios.** Escribe `compuerta.modo_efectivo` (E). En `_decidir_pendientes`,
 calcula el modo de cada unidad y guárdalo en la decisión. En
-`_aplicar_pendientes`, relee la config antes de cada escritura real. Agrega
+`_aplicar_pendientes`, relee la config y el goal de la decisión antes de cada
+escritura real. Agrega
 `precio_modo_global` y `precio_modo_universo` a la pantalla `/settings`, con el
 mismo camino que usa hoy para editar config.
 
@@ -343,9 +346,11 @@ de cada aviso nuevo no contiene costo, margen ni goal.
 
 **Cambios.** Agrega a `TIPOS_PRECIO` los tipos `resumen_diario`, `compuerta`,
 `cambio_error`, `corte_errores`, `reversa` y `cohorte` (U), cada uno con su
-función pura que arma el texto. Sella `resumen_enviado_at` y `avisada_at`
-después de enviar. Agrega a `/salud` el aviso de que falta la corrida cerrada
-del día.
+función pura que arma el texto. Antes de enviar, comprueba que no exista ya un
+sello del mismo día: de la plataforma para el resumen, y del universo y la causa
+para la compuerta. Sella `resumen_enviado_at` o `avisada_at` después de enviar.
+Un envío que falla no deja sello y el repaso lo reintenta. Agrega a `/salud` el
+aviso de que falta la corrida cerrada del día.
 
 **Comprueba.** El DoD de la fila S.6.
 
@@ -472,10 +477,13 @@ conclusión en `ejecucion/F.0/`.
 **Pruebas primero.** Las cinco del DoD de la fila F.1.
 
 **Cambios.** Escribe el atribuidor de Amazon en `app/ledger_atribucion.py` (P).
-La ingesta inserta en `ledger_event_atribucion` con `ON CONFLICT DO NOTHING`.
+La ingesta inserta en `ledger_event_atribucion` con `ON CONFLICT DO NOTHING`. Si
+el atribuidor devuelve `None`, la ingesta no inserta nada para ese evento y lo
+cuenta en `ingest_run`.
 
 **Comprueba.** En una copia de producción, cuenta las ventas por `resuelto_por`.
-Anota cuántas quedan `indeterminado`.
+Anota cuántas quedan sin atribuir. Corre la ingesta otra vez después de cargar
+el dato que faltaba y comprueba que esas ventas ya se atribuyen.
 
 ### F.2: mide el envío con su origen
 
@@ -621,6 +629,7 @@ lees el resultado.
 Sigue los "Criterios de encendido" del plan en cada universo.
 
 - **X.1, MX FBA.** No necesita sonda de escritura: el camino ya se probó en A.4.
+  Es el primer encendido: el dueño sube también `precio_modo_global` a `live`.
 - **X.2, MX FBM** y **X.3, Estados Unidos.** Corre `tools/precio_sonda.py` en una
   publicación de cada universo antes de pasar a `live`.
 - **X.4, Mercado Libre.** La sonda sella la forma del cuerpo. Escribe la forma

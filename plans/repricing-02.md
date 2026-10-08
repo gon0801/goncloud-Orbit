@@ -101,7 +101,7 @@ El revisor comprueba estas reglas en cada fila. Vienen del diseño.
 | --- | --- | --- |
 | Todo el motor | `precio_modo_global` a `off` en `/settings` | La corrida limpia y sale sin decidir |
 | Un universo | Su entrada de `precio_modo_universo` a `off` o `shadow` | Sus decisiones no se aplican, o se aplican como virtuales |
-| Un producto | Goal a `shadow`, o cerrar el goal | Deja de escribir ese día |
+| Un producto | Goal a `shadow`, o cerrar el goal | Deja de escribir ese día, también lo que estaba retenido |
 | Una corrida en curso | Cualquiera de los tres de arriba | La corrida relee la config antes de cada escritura |
 | Precios ya movidos | `tools/precio_reversa.py --platform <p> --fecha <día>` | Revierte el lote, el mismo día |
 
@@ -129,11 +129,11 @@ arranca S.
 | Task | Contenido | DoD | Depends | Status |
 | --- | --- | --- | --- | --- |
 | S.1 | `[stage:implementacion] [lane:gate] [tdd:required]` Borrar el cupo y la prioridad. | Con 8 decisiones `live` que mueven precio, las 8 se aplican. `app/precio/cuota.py` no existe. `git grep -n "repartir_cupo\|precio_cap_" -- app` no devuelve código. Las cuotas de Ads no cambian. | 0.b | cc:TODO |
-| S.2 | `[stage:implementacion] [lane:gate] [tdd:required]` Apagador: modo global, modo por universo y modo efectivo. | Con el global en `shadow` y un goal `live`, la decisión entra como `shadow` y deja un cambio virtual. Con el global en `off`, la corrida limpia y no decide. Apagar a media corrida corta en la siguiente escritura. Un universo sin entrada vale `off`. | S.1 | cc:TODO |
+| S.2 | `[stage:implementacion] [lane:gate] [tdd:required]` Apagador: modo global, modo por universo y modo efectivo. | Con el global en `shadow` y un goal `live`, la decisión entra como `shadow` y deja un cambio virtual. Con el global en `off`, la corrida limpia y no decide. Apagar a media corrida corta en la siguiente escritura. Un universo sin entrada vale `off`. Una decisión `live` retenida no se aplica si su goal pasó a `shadow` o se cerró: deja una retención `goal_cambiado`. | S.1 | cc:TODO |
 | S.3 | `[stage:implementacion] [lane:gate] [tdd:required]` Compuerta: fusible por universo, insumo sistémico, corte por errores, liberación y repasos. | 80 intenciones nuevas sobre 158 medidas retienen las 80 y no escriben nada. 79 no retienen. Un costo 20 % arriba en 60 de 158 retiene y nombra `costo`. Tras `liberar`, la siguiente corrida aplica lo retenido de hoy. Una segunda ola hacia el mismo goal no cuenta como nueva. Cinco errores seguidos cortan la corrida. | S.2 | cc:TODO |
 | S.4 | `[stage:implementacion] [lane:gate] [tdd:required]` Cambios en `error` sin efecto, huérfanas por lectura viva y cierre por plataforma. | Un `error` con readback igual a `precio_antes` no consume cooldown. Uno con readback igual a `precio_despues` sí. Una huérfana con el precio ya movido queda `confirmado` por `lectura_viva`. La corrida de `amazon_mx` no cierra cambios de `amazon_us`. `frenado(api_error)` se alcanza en tres días. | 0.b | cc:TODO |
 | S.5 | `[stage:implementacion] [lane:gate] [tdd:required]` Reversa en lote por fecha, por corrida o por ids. | El plan no gasta cuota de la plataforma. Un precio que cambió entre el plan y el go salta esa fila y el lote sigue. Un original `enviado` con el precio ya aplicado se cierra y se revierte el mismo día. Con el universo en `live`, el lote aborta. La reversa y la corrida no corren a la vez. | S.4 | cc:TODO |
-| S.6 | `[stage:implementacion] [lane:gate] [tdd:required]` Avisos: resumen diario, compuerta, cambio en error, corte, reversa y aviso de corrida ausente en `/salud`. | Un resumen por plataforma y día, también si nada se movió. Dos corridas el mismo día mandan un resumen. El aviso de compuerta sale una vez por disparo. Ningún texto trae costo, margen ni goal. Un fallo del envío no tumba la corrida. | S.3 | cc:TODO |
+| S.6 | `[stage:implementacion] [lane:gate] [tdd:required]` Avisos: resumen diario, compuerta, cambio en error, corte, reversa y aviso de corrida ausente en `/salud`. | Un resumen por plataforma y día, también si nada se movió. Dos corridas el mismo día mandan un resumen. El aviso de compuerta sale una vez por universo, causa y día, aunque haya repasos. Ningún texto trae costo, margen ni goal. Un fallo del envío no tumba la corrida. | S.3 | cc:TODO |
 | S.7 | `[stage:implementacion] [lane:gate] [tdd:required]` Señal de ventas por unidad, con disponibilidad por canal y evidencia de tráfico. Lectura de cohorte como aviso. | Los casos de `tests/test_precio_reglas.py` sobre `u15` y `u60` dan lo mismo con ventas por unidad. Una unidad FBM con estado activo evalúa sin inventario FBA. Sin subida propia, el tráfico da `sin_dato`. Con ventas sin atribuir, la señal da `sin_dato(venta_sin_publicacion)`. | 0.b | cc:TODO |
 
 ### Carril G: goals en pantalla
@@ -149,7 +149,7 @@ arranca S.
 | Task | Contenido | DoD | Depends | Status |
 | --- | --- | --- | --- | --- |
 | F.0 | `[stage:verificacion] [lane:gate] [tdd:skip:sonda]` Tres lecturas de producción: prefijos de `source_event_id`, Product Fees para una oferta FBM de MX y una de US, y si un listing FBM sin existencias deja de ser `BUYABLE`. | `ejecucion/F.0/` con cada consulta, su salida literal y la conclusión. Si Product Fees no responde `Success`, el universo se registra sin cotizador. | - | cc:TODO |
-| F.1 | `[stage:implementacion] [lane:gate] [tdd:required]` Atribución de ventas de Amazon a publicación. | Una venta con SKU único se atribuye por `sku`. Un producto con FBA y FBM se desempata por `fulfillment_channel`. Lo que no se decide queda `indeterminado` y contado. La primera corrida llena toda la historia. Un evento atribuido no se vuelve a atribuir. | 0.a | cc:TODO |
+| F.1 | `[stage:implementacion] [lane:gate] [tdd:required]` Atribución de ventas de Amazon a publicación. | Una venta con SKU único se atribuye por `sku`. Un producto con FBA y FBM se desempata por `fulfillment_channel`. Lo que hoy no se puede decidir no se escribe, se cuenta y se reintenta en la siguiente ingesta. La primera corrida llena toda la historia. Un evento atribuido no se vuelve a atribuir. | 0.a | cc:TODO |
 | F.2 | `[stage:implementacion] [lane:gate] [tdd:required]` Envío con origen: regla por orden, escalera de origen y job de muestras. | `costo_de_orden` da `max(labman, etiqueta) + HB`. Un mutante que suma las tres muere. Con un envío propio el origen es `propio`. Sin propios y con familia, `familia`. Sin familia, `marketplace`. Sin ningún envío en el universo, no hay muestra. El job corrido dos veces no escribe la segunda. | 0.a, F.0 | cc:TODO |
 | F.3 | `[stage:implementacion] [lane:gate] [tdd:required]` Registro de universos en la estimación: FBM de MX y Estados Unidos. | Una oferta FBM de MX produce escenario `disponible` con `logistica_origen` y fees partidos. La cotización FBM no trae comisión de logística. Una oferta de US sin tasa de cambio da `fx_ausente`. Una tasa más vieja que `fx_max_dias` da `fx_desactualizado`. MX FBA no cambia: su batería pasa sin tocar. | F.1, F.2 | cc:TODO |
 | F.4 | `[stage:implementacion] [lane:gate] [tdd:required]` Adaptador de Amazon para FBM y US, y la sonda genérica de escritura. | La disponibilidad de una unidad FBM sale del estado del listing. `precio --platform amazon_mx --platform amazon_us` corre las dos en serie. `tools/precio_sonda.py` en simulación no escribe. | F.3, 0.b | cc:TODO |
@@ -198,7 +198,10 @@ ventanas de 30 días.
    su reversa. Pasa si Amazon o Mercado Libre aceptan las dos, la lectura
    posterior muestra el precio y una publicación de control no cambia.
 4. **Encender.** El dueño pone el universo en `live` en `/settings` y pasa los
-   goals a `live` en bloque con su go literal.
+   goals a `live` en bloque con su go literal. En el primer encendido (X.1)
+   sube además `precio_modo_global` a `live`: la migración lo siembra en
+   `shadow` y el modo efectivo es el menor de los tres. Sin ese paso ningún
+   precio se mueve y nada lo marca como error.
 
 Después del encendido el lead lee el resumen diario los primeros días. Esa
 lectura no frena a ningún otro universo.
@@ -218,6 +221,10 @@ pone en rojo. Estos mutantes son obligatorios y deben morir:
 - Un segundo escalón hacia el mismo goal cuenta como intención nueva.
 - El cooldown ignora un `error` cuyo readback muestra el precio nuevo.
 - La corrida no relee la config antes de escribir.
+- La corrida aplica en el repaso una decisión `live` cuyo goal ya pasó a
+  `shadow`.
+- Una venta que hoy no se puede atribuir se guarda como fila fija.
+- El aviso de compuerta sale en cada repaso del mismo día.
 - Una decisión `live` entra bajo un goal `shadow`.
 - La decisión entra con un `goal_id` ya cerrado.
 - `aplicar_plan` escribe la mitad del lote cuando una fila falla.
