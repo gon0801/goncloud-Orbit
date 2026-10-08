@@ -660,7 +660,7 @@ imports, sin cambiar una sola línea de comportamiento.
 | G15 | `Envio` como tipo suma; `resolver_envio`; columnas de origen en muestra, escenario y decisión con CHECK (A, C, datos §4). `L` entra a la estimación por `logistica_del_universo` (M). Todo sale del ledger: el export de Seller Central no se usa (D4). |
 | G16 | `clasificar_cargo` y `costo_de_orden` (`max(labman_label, shipping_label, mfn_postage) + shipping_hb`), `Exclusiones` contadas, importes en positivo (C, O). Las 148 ventas sin producto se cuentan en `excl_sin_producto`. |
 | G17 | Declarado, no resuelto: el envío cobrado al cliente se guarda como evidencia (`cobrado_n`, NULL en US) y no se resta de `L`. Razón: sin dato en US y parcial en MX; netearlo mezclaría medido con supuesto. |
-| G18 | Universo `amazon_us/fbm` con su política (I = P, retención, costo y envío convertidos con `fx_resolve`). La política es una fila que inserta el dueño. Declarado: falta la sonda de Product Fees y la respuesta a la pregunta 4. |
+| G18 | Universo `amazon_us/fbm` con su política (I = P, retención, costo y envío convertidos con `fx_resolve`). La política es una fila que inserta el script del despliegue. Declarado: falta la sonda de Product Fees y la respuesta a la pregunta 4. |
 | G19 | `Convertido`; `Cuenta` en una sola moneda por construcción; la muestra se queda en MXN (A, M). |
 | G20 | TACoS junto al margen en `/precios`, solo lectura (T). Ninguna regla lo usa. |
 | G21 | Publicación = fila de `listing` con producto ancla; `listing_miembro`; `miembro_que_manda`; puerta para variantes sin reescribir (B, datos §1). |
@@ -737,7 +737,7 @@ carril escribe los suyos en un archivo propio, `tests/test_arq_precio_{s,g,f,m}.
 **Lo que sí va en fila:**
 
 1. 0a → 0b.
-2. Por universo: política sellada por el dueño → sonda de cotización → sonda de
+2. Por universo: política del plan insertada → sonda de cotización → sonda de
    escritura de ±0.01 con su reversa → siembra a margen de hoy en `shadow` → uno
    o dos días viendo que casi todo queda en tolerancia → `live` en
    `precio_modo_universo`. El primer universo que se enciende sube además

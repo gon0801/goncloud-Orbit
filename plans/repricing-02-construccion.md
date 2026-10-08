@@ -80,9 +80,13 @@ la excepción y solo leen.
 **Evidencia.** Guarda comandos, salidas, mutantes y el SHA de cada paso en
 `docs/evidencia/repricing-02/ejecucion/<id>/`.
 
-**Producción.** Solo el dueño escribe en producción, con un script que tú dejas
-listo y que él corre con `! bash <script>`. Las consultas con `ORBIT_DSN_READ`
-sí las corres tú, con una copia de
+**Producción.** El plan es la autorización completa del dueño: nadie le pide
+permiso ni un go. En producción solo escriben los scripts de un PR aprobado y
+mergeado, sobre una punta de `master` con el job `completa` en verde. Los
+corres tú por `ssh goncloud` cuando claw te lo encarga, y guardas cada salida
+con su código. El lead comprueba el resultado en solo lectura. Nadie escribe en
+producción a mano, fuera de un script. Ningún script imprime una contraseña, un
+token ni un DSN. Las consultas con `ORBIT_DSN_READ` las corres con una copia de
 `docs/evidencia/repricing-01/E.0/correr.sh`. Cada paso que despliega trae
 `desplegar.sh`, `rollback.sh` y `checklist.sh`, y un paso con migración trae
 además `ensayo.sh`. Parte de los de `docs/evidencia/jev-ads-02/ejecucion/S.3/` y
@@ -832,7 +836,7 @@ Reemplaza los lugares de arriba por llamadas al registro. El escenario guarda
 `fee_cotizable`. En Estados Unidos, convierte costo y envío de MXN a USD con
 `convertir` y la tasa del día. Escribe
 `migrations/0055_precio02_escenario_exige.sql` con los dos CHECK del final de
-`datos.sql`. Deja listo el script del dueño que inserta las políticas
+`datos.sql`. Deja listo el script que inserta las políticas
 `amazon_mx/fbm` y `amazon_us/fbm` con los valores de la tabla "Políticas por
 universo" del plan.
 
@@ -927,7 +931,7 @@ cargo. Mide en la evidencia la retención que cobra Mercado Libre: es el
 
 **Cambios.** Escribe `app/meli/estimacion.py`: el escenario por publicación, con
 una cuenta por miembro y la del miembro que manda en la fila. El envío sale de
-`precio_envio_muestra` con la escalera de F.2. Deja listo el script del dueño
+`precio_envio_muestra` con la escalera de F.2. Deja listo el script
 que inserta la política `meli/meli` con los valores de la tabla "Políticas por
 universo" del plan y la retención que midió M.2.
 
@@ -953,8 +957,13 @@ líneas de cron que instala D.4.
 
 ## Despliegues
 
-Cada despliegue lo corre el dueño con `! bash <script>`. Tú dejas los scripts y
-lees el resultado. El crontab se cambia con el bloque de respaldo y `diff` de
+Cada despliegue lo corres tú cuando claw te lo encarga, con los scripts de su
+paquete y en este orden: `ensayo.sh` si hay migración, `desplegar.sh <punta>` y
+`checklist.sh <sello>`. Si `ensayo.sh` falla, no despliegues. No saltes ni
+edites una guarda de `desplegar.sh`. Corre `rollback.sh <sello>` solo si la
+aplicación quedó caída: `/health` distinto de 200 en dos lecturas separadas 60
+segundos. El lead comprueba cada despliegue en solo lectura. El crontab se
+cambia con el bloque de respaldo y `diff` de
 `docs/evidencia/jev-ads-02/ejecucion/S.4/desplegar.sh`.
 
 **D.1** lleva la 0053, la 0054 y el código de 0.b. Aplica las dos migraciones en
@@ -992,16 +1001,36 @@ Mercado Libre, con su propio archivo de candado:
 
 ## Encendido
 
-Sigue los "Criterios de encendido" del plan en cada universo.
+Sigue los "Criterios de encendido" del plan en cada universo. Los corres tú
+cuando claw te lo encarga.
+
+Cada fila X trae sus scripts en `docs/evidencia/repricing-02/ejecucion/X.<n>/`.
+Escríbelos en el PR del paquete de despliegue de su universo: X.1 con D.2, X.2
+y X.3 con D.3, y X.4 con D.4.
+
+- `sembrar.sh` siembra "margen de hoy" en `shadow` con
+  `POST /api/precios/goals/plan` y `POST /api/precios/goals/aplicar`. Guarda el
+  plan, con las unidades que quedaron bloqueadas y su motivo.
+- `sonda.sh` (X.2, X.3 y X.4) corre `tools/precio_sonda.py` con
+  `--acepto-mutacion-real` y `--go` en una publicación. Guarda la lectura
+  posterior y la de una publicación de control.
+- `encender.sh` pone el universo en `live` con `POST /api/settings/{platform}` y
+  pasa los goals a `live` en bloque con el go literal de la fila.
+- `apagar.sh` regresa el universo a `shadow`. Es la reversa de `encender.sh`.
+
+Cada script simula por omisión y escribe solo con `--acepto-mutacion-real`. El
+token de escritura se lee dentro del servidor y no se imprime.
 
 - **X.1, MX FBA.** No necesita sonda de escritura: el camino ya se probó en A.4.
-  Es el primer encendido: el dueño sube también `precio_modo_global` a `live`.
-- **X.2, MX FBM** y **X.3, Estados Unidos.** El dueño corre
-  `tools/precio_sonda.py` en una publicación de cada universo antes de pasar a
+  Es el primer encendido: `encender.sh` sube también `precio_modo_global` a
   `live`.
-- **X.4, Mercado Libre.** El dueño corre la sonda, que es la única que puede
-  escribir con la forma sin sellar. Si pasa, abre un PR que cambia solo
-  `FORMA_ESCRITURA_MELI`. Si no pasa, corrige la forma candidata y repite.
+- **X.2, MX FBM** y **X.3, Estados Unidos.** Corre `sonda.sh` en una
+  publicación de cada universo antes de pasar a `live`.
+- **X.4, Mercado Libre.** `sonda.sh` es la única que puede escribir con la
+  forma sin sellar. Si pasa, abre un PR que cambia solo
+  `FORMA_ESCRITURA_MELI`. Si no pasa, corrige la forma candidata y repite,
+  tres intentos como máximo. Al tercero sin pasar, la fila X.4 queda cerrada
+  con el motivo.
 
 ## Preguntas que siguen abiertas
 
