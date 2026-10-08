@@ -658,7 +658,7 @@ imports, sin cambiar una sola línea de comportamiento.
 | G13 | Señal con dos evidencias en orden (unidades, y tráfico tras una subida propia) y lectura de cohorte como aviso (D). La Buy Box sigue siendo solo aviso. Visitas de Mercado Libre en su observación diaria. Declarado: por producto sigue siendo débil. |
 | G14 | Desaparece: `ingreso_60d` solo alimentaba la prioridad del cupo. |
 | G15 | `Envio` como tipo suma; `resolver_envio`; columnas de origen en muestra, escenario y decisión con CHECK (A, C, datos §4). `L` entra a la estimación por `logistica_del_universo` (M). Todo sale del ledger: el export de Seller Central no se usa (D4). |
-| G16 | `clasificar_cargo` y `costo_de_orden` (`max(labman, etiqueta) + HB`), `Exclusiones` contadas, importes en positivo (C, O). Las 148 ventas sin producto se cuentan en `excl_sin_producto`. |
+| G16 | `clasificar_cargo` y `costo_de_orden` (`max(labman_label, shipping_label, mfn_postage) + shipping_hb`), `Exclusiones` contadas, importes en positivo (C, O). Las 148 ventas sin producto se cuentan en `excl_sin_producto`. |
 | G17 | Declarado, no resuelto: el envío cobrado al cliente se guarda como evidencia (`cobrado_n`, NULL en US) y no se resta de `L`. Razón: sin dato en US y parcial en MX; netearlo mezclaría medido con supuesto. |
 | G18 | Universo `amazon_us/fbm` con su política (I = P, retención, costo y envío convertidos con `fx_resolve`). La política es una fila que inserta el dueño. Declarado: falta la sonda de Product Fees y la respuesta a la pregunta 4. |
 | G19 | `Convertido`; `Cuenta` en una sola moneda por construcción; la muestra se queda en MXN (A, M). |

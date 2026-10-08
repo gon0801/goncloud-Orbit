@@ -75,6 +75,26 @@ No hace falta volver a comprobarlo sobre `72b06d8`:
 - La última migración es la 0052. Los números 0053, 0054, 0055 y 0058 están
   libres.
 
+## Segunda pasada, sobre lo que cambió
+
+Un tercer lector leyó solo el cambio (`72b06d8..1197344`) y volvió a montar la
+base de prueba. Confirmó la corrección principal: con la 0054 aplicada, el
+INSERT de `precio_decision` que hace hoy `corrida.persistir_decision` y el de
+un escenario `disponible` que hace hoy `estimacion_repository` entran. También
+entra el INSERT viejo con `goal_id` nulo bajo el trigger nuevo.
+
+Encontró dos bloqueantes nuevos, los dos en 0.b, ya corregidos:
+
+| # | Hallazgo | Comando que lo probó | Corrección |
+| --- | --- | --- | --- |
+| 15 | 0.b mandaba mover `derivar_ref_fijo` y prohibía tocar `tools/precio_goal.py`, que la importa. La batería habría quedado roja. | `git grep -n derivar_ref_fijo -- tools app tests`. | La función se queda en `objetivo.py`. La llama el adaptador y las reglas dejan de llamarla. |
+| 16 | `comparar.sh` daba `diff` vacío con dos bases sin datos: el volcado no traía las tablas que la corrida lee. | `_SQL_CANO` sobre la base del ensayo da 0 filas. | El volcado trae las tablas que faltaban y el script aborta si no hay una fila por goal vigente o ninguna trae cuenta. |
+
+Hallazgos menores de esa pasada, corregidos: la compuerta de S.1 callaba con
+`cuota.py` todavía presente, el diseño seguía con la regla de envío vieja, F.1
+necesitaba editar `app/ledger.py`, la línea de cron no tenía dueño después de
+D.2, y S.7 no dependía de S.6.
+
 ## Lo que ningún lector pudo comprobar
 
 Son hechos de producción. Los comprueban las lecturas F.0 y M.0 y los ensayos de

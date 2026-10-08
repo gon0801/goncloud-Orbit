@@ -103,16 +103,17 @@ son los que tocan más de un paso, y en qué orden:
 | --- | --- |
 | `tests/test_architecture.py` | 0.a, 0.b, S.1, S.3 y S.5 |
 | `app/precio/tipos.py` | 0.a lo deja completo. S.1 borra el motivo `cuota`. S.7 borra los cuatro submotivos viejos de inventario |
-| `app/ledger.py` | 0.a lo hace despachar por plataforma. Después es del carril M |
+| `app/ledger.py` | 0.a lo hace despachar por plataforma y cablea el INSERT de la atribución y su conteo. Después es del carril M |
 | `app/estimacion_reader.py` | 0.b agrega `leer_cuenta`. Después es del carril F |
 | `app/spapi/precio_mercado.py` | 0.b lo crea. Después es del carril F |
 | `app/api_precios.py` | 0.a lo crea. S.1 le quita el cupo. Después es del carril G |
 | `app/api_dashboard.py` (`salud`) y `salud.html` | Carril S |
 | `app/config_write.py`, la ruta de config de `app/api_write.py`, `settings.html` y `settings.js` | S.2 |
 | `tools/precio_goal.py` | Carril G. El paso 0.b no lo toca |
+| `app/precio/objetivo.py` | Carril S. `derivar_ref_fijo` se queda ahí: la importan el adaptador de Amazon y, hasta G.1, `tools/precio_goal.py` |
 | `_precios_seguridad.html` | S.3 lo construye. G.3 solo lo incluye |
 | `app/reputacion_clientes.py` | M.4, solo para exponer el refresco de token |
-| `docs/DEPLOY.md` y la prueba de la línea de cron | S.3 |
+| `docs/DEPLOY.md` y la prueba de la línea de cron | S.3 para las líneas de D.2, F.4 para las de D.3 y M.4 para las de D.4 |
 
 ## 0.a: escribe los contratos sin cambiar el comportamiento
 
@@ -191,8 +192,9 @@ Este paso crea todo lo que los carriles comparten.
    `CambioPrevio` nace con `sin_efecto: bool = False`.
 6. Crea en `app/estimacion_venta.py` el export `MOTIVOS_ESTIMACION` y arma
    `MOTIVOS_NO_EVALUADO` con él más los motivos propios del motor.
-7. Pon en `app/precio/config.py` los ayudantes de lectura de claves `precio_*` y
-   las claves nuevas de la sección H, con estas cotas: fracción del fusible de
+7. `app/precio/config.py` ya tiene los ayudantes `_numero`, `_fraccion` y
+   `_entero`. Haz que las copias de los otros módulos los llamen, y agrega las
+   claves nuevas de la sección H, con estas cotas: fracción del fusible de
    0.10 a 0.90, mínimo de movimientos de 1 a 100, salto de insumo de 0.01 a
    0.50, fracción de insumo de 0.05 a 0.90, errores seguidos de 2 a 20, tráfico
    mínimo de 20 a 5000, caída de cohorte de 0.05 a 0.90 y ventana de envío de 30
@@ -205,7 +207,11 @@ Este paso crea todo lo que los carriles comparten.
    `app/ledger_atribucion.py` y, en `app/meli/`, `precio_mercado.py`,
    `write_client.py`, `catalogo.py`, `estimacion.py` y `ledger.py`.
 9. Haz que `app/ledger.py` despache la atribución por plataforma con el
-   protocolo `Atribuidor` (P). Mercado Libre sigue saliendo como excluida.
+   protocolo `Atribuidor` (P). La ingesta inserta en `ledger_event_atribucion`
+   con `ON CONFLICT DO NOTHING` cuando el atribuidor devuelve una atribución.
+   Cuando devuelve `None`, no inserta y lo cuenta en `skip_reason` con el motivo
+   `venta_sin_atribuir`. En 0.a los dos atribuidores devuelven `None`. Mercado
+   Libre sigue saliendo como excluida.
 10. Parte `precios.html` en `_precios_seguridad.html` y `_precios_goals.html`.
     Mueve el bloque de precios de `app/api_dashboard.py` a `app/api_precios.py`.
     `api_dashboard.py` reexporta los cinco nombres que usa
@@ -230,7 +236,10 @@ Este paso crea todo lo que los carriles comparten.
 
 		pg_dump "$DSN" --data-only -t product -t listing -t config_version \
 			-t estimacion_politica_version -t estimacion_escenario \
-			-t 'precio_*' > "$TMP/datos.sql"
+			-t "precio_*" > "$TMP/datos.sql"
+
+  El ensayo de referencia corre `pg_dump` dentro de `ssh goncloud '...'`, entre
+  comillas simples. Por eso el patrón va entre comillas dobles.
 
   Carga ese archivo en la base local con `SET session_replication_role = replica`
   y aplica la 0053 y la 0054 en dos corridas de `psql -v ON_ERROR_STOP=1`
@@ -265,8 +274,11 @@ no admite UPDATE.
   importa `armar_entrada`, `_insumos_ventas`, `_fase3_uno` e `_ingreso_60d`.
   `tests/test_precio_write.py` tiene 87 pruebas del protocolo.
   `tests/test_precio_pantalla.py` importa `cerrar_por_observacion`.
-  `tests/test_precio_cobertura.py` usa `fuentes._SQL_CANO` y tiene siete
-  aserciones con `fase_E_envio_fbm` o `fase_M_meli`.
+  `tests/test_precio_cobertura.py` usa `fuentes._SQL_CANO` y menciona
+  `fase_E_envio_fbm` o `fase_M_meli` en cinco líneas.
+- `objetivo.derivar_ref_fijo` la importan `objetivo.paso`,
+  `tools/precio_goal.py` y ocho líneas de `tests/test_precio_reglas.py`.
+  `tests/test_precio_goals.py` corre la herramienta como subproceso.
 
 ### Pruebas primero
 
@@ -292,9 +304,12 @@ no admite UPDATE.
    de `corrida.py`, y `_SQL_CANO` de `fuentes.py`. `Vitrina.insumos` lee por
    lote: una llamada por plataforma.
 2. `MercadoAmazon.cotizar` entrega los fees ya partidos (`Fees.variable` y
-   `Fees.fijo`). Mueve `objetivo.derivar_ref_fijo` al adaptador. `reglas.decidir`
-   usa `Fees.variable` y `Fees.fijo` y deja de revisar monedas: `Cuenta` ya no se
-   construye con monedas mezcladas.
+   `Fees.fijo`). Para partirlos llama a `objetivo.derivar_ref_fijo`, que se
+   queda en `objetivo.py` con sus pruebas. No la muevas ni la borres:
+   `tools/precio_goal.py` la importa y este paso no toca esa herramienta.
+   `reglas.decidir` y `objetivo.paso` dejan de llamarla, usan `Fees.variable` y
+   `Fees.fijo`, y dejan de revisar monedas: `Cuenta` ya no se construye con
+   monedas mezcladas.
 3. Crea `app/precio/cambios.py` (I) con el protocolo que hoy está en
    `precio_write.py`, y mueve ahí `cerrar_huerfanas`. `precio_write.py` se queda
    con lo de Amazon y sigue siendo el único importador de `write_client`.
@@ -315,29 +330,47 @@ no admite UPDATE.
    `tools/precio_reversa.py`. Si `corrida.py` baja de 900 líneas, quítala de
    `ALLOWLIST_TAMANO`.
 9. En las pruebas, cambia solo el armado de los clientes, los imports y los
-   nombres de los puntos de sabotaje. Las siete aserciones `fase_*` de
+   nombres de los puntos de sabotaje. Las aserciones `fase_*` de
    `tests/test_precio_cobertura.py` pasan a contar `universo_apagado`.
 
 ### Comprueba
 
-- Escribe `ejecucion/0.b/comparar.sh`. Crea dos bases locales desde el mismo
-  volcado de prueba. La base A lleva las migraciones hasta la 0052. La base B
-  lleva además la 0053 y la 0054. Corre `correr` del commit de 0.a contra A y el
-  del commit de 0.b contra B, con el mismo transporte falso grabado. Vuelca en
-  cada una:
+- Escribe `ejecucion/0.b/comparar.sh`. Compara lo que decide el commit de 0.a
+  con lo que decide el de 0.b sobre los mismos datos reales.
+
+  El volcado es el del ensayo de 0.a más las tablas que la corrida lee. Tómalo
+  después de la estimación de las 12:45 UTC y corre el script antes de seis
+  horas: pasado ese tiempo la oferta se considera vieja y todo sale
+  `no_evaluado`.
+
+		-t spapi_listing_estado_observation -t spapi_price_observation \
+			-t spapi_inventario_observation -t estimacion_oferta_observation \
+			-t estimacion_fee_observation -t sku_cost -t ingest_run -t ledger_event
+
+  Carga el volcado en dos bases locales. La base A lleva las migraciones hasta
+  la 0052. La base B lleva además la 0053 y la 0054. Corre `correr` del commit
+  de 0.a contra A y el del commit de 0.b contra B. Los dos usan el mismo
+  `httpx.MockTransport`, con la cotización lineal que ya usan las pruebas de
+  `tests/test_precio_corrida.py`. Vuelca en cada base, a `a.txt` y `b.txt`:
 
 		select listing_id, platform, resultado, motivo, canal, m_actual, goal,
 			p_actual, p_objetivo, p_aplicado, i_valor, c_valor, f_valor, l_valor,
 			r_valor, u15, u60, n15, n60, racha_senal, perdiendo, mode
 		from precio_decision where decision_date = :dia order by listing_id
 
-  Esperado: `diff` vacío entre los dos volcados. Las columnas nuevas quedan fuera
-  de la comparación a propósito.
+  Antes del `diff`, el script aborta si la comparación no prueba nada. Cuenta
+  los goals vigentes de `amazon_mx` en la base A. Exige que `a.txt` y `b.txt`
+  tengan esa misma cantidad de filas, que sea mayor a cero, y que al menos una
+  fila de cada archivo traiga `m_actual`. Sin esa guarda, dos bases sin datos
+  dan `diff` vacío.
+
+  Esperado: 6 filas por lado con los goals de hoy, y `diff` vacío. Las columnas
+  nuevas quedan fuera de la comparación a propósito.
 - `tests/test_precio_corrida.py`, `tests/test_precio_write.py` y
   `tests/test_precio_cobertura.py` conservan todas sus aserciones.
-- Esta compuerta sale vacía:
+- Esta compuerta sale vacía. Hoy, antes del paso, da 6 líneas:
 
-		git grep -nE "^(from|import) app\.(spapi|meli|estimacion_fees)|^import httpx|FROM spapi_" \
+		git grep -nE "(from|import) app\.(spapi|meli|estimacion_fees)|import httpx|FROM spapi_" \
 			-- app/precio/corrida.py app/precio/cambios.py app/precio/fuentes.py
 
 ## Carril S: seguridad sin cupo y avisos
@@ -383,11 +416,13 @@ Escribe `migrations/0058_precio02_decision_exige.sql` con los dos CHECK del
 final de `datos.sql`. No toques `apply_quota_state`, sus triggers ni
 `apply_cap_de_config`: son de Ads. No borres `precio_cap_*` de la config.
 
-**Comprueba.** Esta compuerta sale vacía, comentarios incluidos:
+**Comprueba.** Esta compuerta cuenta lo que queda del cupo, comentarios incluidos:
 
-	test ! -e app/precio/cuota.py && git grep -nE \
-		"repartir_cupo|precio_cap_|cuota_mod|cuota_precio|validar_cap|motor_cuota|_cuota_reescrita|_ingreso_60d" \
-		-- app tools
+	{ test -e app/precio/cuota.py && echo "FALTA: app/precio/cuota.py sigue ahi"; \
+		git grep -nE "repartir_cupo|precio_cap_|cuota_mod|cuota_precio|validar_cap|motor_cuota|_cuota_reescrita|_ingreso_60d" \
+		-- app tools; } | wc -l
+
+Esperado: `0`. Hoy, antes del paso, da más de 30.
 
 ### S.2: construye el apagador
 
@@ -674,9 +709,8 @@ Guarda cada script o consulta, su salida literal y la conclusión en
 **Pruebas primero.** Las cinco del DoD de la fila F.1.
 
 **Cambios.** Escribe el atribuidor de Amazon en `app/ledger_atribucion.py` (P).
-La ingesta inserta en `ledger_event_atribucion` con `ON CONFLICT DO NOTHING`. Si
-el atribuidor devuelve `None`, la ingesta no inserta nada para ese evento y lo
-cuenta en `skip_reason` con el motivo `venta_sin_atribuir`.
+No toques `app/ledger.py`: desde 0.a la ingesta ya inserta lo que el atribuidor
+devuelve y cuenta lo que devuelve como `None`.
 
 **Comprueba.** En una copia de producción, cuenta las ventas por `resuelto_por`.
 Anota cuántas quedan sin atribuir. Corre la ingesta otra vez después de cargar
@@ -751,7 +785,8 @@ de la unidad, lee las ventas de `v_precio_venta_unidad` y arma `HistoriaUnidad`
 con las exposiciones y los clics de `ads_product_metric_observation`. Escribe
 `tools/precio_sonda.py`, genérica sobre `Mercado`: simula por omisión y, con
 `--acepto-mutacion-real` y `--go`, mueve una publicación un centavo y la
-revierte.
+revierte. Actualiza `LINEA_CRONTAB_PRECIO` y `docs/DEPLOY.md` a las líneas que
+instala D.3.
 
 **Comprueba.**
 `PYTHONPATH=. python tools/precio_sonda.py --platform amazon_us --listing-id <id>`
@@ -851,7 +886,8 @@ levanta `EscrituraNoDisponible` salvo que reciba `sonda=True`. Escribe
 `MercadoMeli` en `app/meli/precio_mercado.py`. Agrega en
 `tests/test_arq_precio_m.py` los candados: ningún `.put(` fuera de
 `write_client.py`, un solo importador del cliente, `ClienteMeli` solo con GET, y
-`sonda=True` solo en `tools/precio_sonda.py`.
+`sonda=True` solo en `tools/precio_sonda.py`. Agrega a `docs/DEPLOY.md` las
+líneas de cron que instala D.4.
 
 ## Despliegues
 

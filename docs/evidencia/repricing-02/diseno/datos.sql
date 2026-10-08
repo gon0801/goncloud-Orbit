@@ -160,7 +160,8 @@ CREATE VIEW v_precio_venta_unidad AS
       LEFT JOIN ledger_event_atribucion a ON a.ledger_event_id = e.id
      WHERE e.kind = 'sale';
 -- El costo de envio por orden NO es vista: es `app/precio/envio.py` (puro,
--- con la regla `max(labman, etiqueta) + HB` versionada y probada). La fuente
+-- con la regla `max(labman_label, shipping_label, mfn_postage) + shipping_hb`
+-- versionada y probada). La fuente
 -- del cargo se deriva del prefijo de `ledger_event.source_event_id`
 -- (= dedupe_key de contabilidad). Si la sonda muestra que el prefijo no la
 -- trae, se agrega aqui `cargo_fuente TEXT` (numero reservado 0055).

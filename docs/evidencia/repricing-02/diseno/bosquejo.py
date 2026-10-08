@@ -939,8 +939,9 @@ def decidir(
     * `lineal=True` (el mercado respondio `SinCotizador`): no pide cotizacion;
       cierra con el `P*` de la formula y `verificacion = "lineal"`;
 
-    * `ref = fees.variable / precio` y `fijo = fees.fijo` llegan partidos: se
-      borra `derivar_ref_fijo` de las reglas (vive en el adaptador de Amazon);
+    * `ref = fees.variable / precio` y `fijo = fees.fijo` llegan partidos: las
+      reglas dejan de llamar a `derivar_ref_fijo`: la llama el adaptador de
+      Amazon y se queda en `objetivo.py`;
     * el cooldown ignora un `CambioPrevio` con `sin_efecto` (estado `error`
       cuyo readback probo que el precio no se movio): un mal dia de la
       plataforma ya no congela 7 dias y `frenado(api_error)` se vuelve
