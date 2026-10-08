@@ -495,7 +495,8 @@ Esperado: `0`. Hoy, antes del paso, da más de 30.
 0054, `precio_decision_coherente` acepta una decisión `shadow` bajo un goal
 `live`. El precedente está en `app/optimizer/goals.py`. Copia la regla, no la
 importes. `/settings` hoy solo edita claves de Ads: `app/config_write.py` no
-conoce ninguna clave `precio_*` y la ruta es `POST /api/settings/{platform}`.
+conoce ninguna clave `precio_*` y la ruta es
+`POST /api/ads-optimizer/settings/{platform}`.
 
 **Pruebas primero.**
 
@@ -518,11 +519,11 @@ de cada unidad y guárdalo en la decisión. Al aplicar, relee la config y el goa
 de la decisión antes de cada escritura real. Haz que
 `app/config_write.py::proxima_config` acepte `precio_modo_global` y
 `precio_modo_universo`, este último como un objeto de `plataforma/canal` a modo.
-Agrega los dos al cuerpo de `POST /api/settings/{platform}`. La config es
-global: los dos se guardan igual desde cualquier plataforma, y la ruta sigue
-aceptando solo `amazon_us` y `amazon_mx`. El modo de `meli/meli` se guarda con
-una de esas dos y su llave en `precio_modo_universo`. Agrega sus campos a `settings.html` y a
-`settings.js`.
+Agrega los dos al cuerpo de `POST /api/ads-optimizer/settings/{platform}`, la
+ruta que ya existe. No abras otra. La config es global: los dos se guardan
+igual desde cualquier plataforma, y la ruta sigue aceptando solo `amazon_us` y
+`amazon_mx`. El modo de `meli/meli` se guarda con una de esas dos y su llave en
+`precio_modo_universo`. Agrega sus campos a `settings.html` y a `settings.js`.
 
 **Comprueba.** El DoD de la fila S.2.
 
@@ -1020,10 +1021,11 @@ y X.3 con D.3, y X.4 con D.4.
 - `sonda.sh` (X.2, X.3 y X.4) corre `tools/precio_sonda.py` con
   `--acepto-mutacion-real` y `--go` en una publicación. Guarda la lectura
   posterior y la de una publicación de control.
-- `encender.sh` pone el universo en `live` con `POST /api/settings/amazon_mx` y
-  la llave `plataforma/canal` del universo en `precio_modo_universo`. La misma
-  llamada sirve para `meli/meli`, porque la config es global. Después pasa los
-  goals a `live` en bloque con el go literal de la fila.
+- `encender.sh` pone el universo en `live` con
+  `POST /api/ads-optimizer/settings/amazon_mx` y la llave `plataforma/canal` del
+  universo en `precio_modo_universo`. La misma llamada sirve para `meli/meli`,
+  porque la config es global. Después pasa los goals a `live` en bloque con el
+  go literal de la fila.
 - `apagar.sh` regresa el universo a `shadow`. Es la reversa de `encender.sh`.
 
 Cada script simula por omisión y escribe solo con `--acepto-mutacion-real`. El
