@@ -110,10 +110,11 @@ son los que tocan más de un paso, y en qué orden:
 | `app/api_dashboard.py` (`salud`) y `salud.html` | Carril S |
 | `app/config_write.py`, la ruta de config de `app/api_write.py`, `settings.html` y `settings.js` | S.2 |
 | `tools/precio_goal.py` | Carril G. El paso 0.b no lo toca |
-| `app/precio/objetivo.py` | Carril S. `derivar_ref_fijo` se queda ahí: la importan el adaptador de Amazon y, hasta G.1, `tools/precio_goal.py` |
+| `app/precio/objetivo.py` | Carril S. `derivar_ref_fijo` se queda ahí: la importan el adaptador de Amazon, `app/estimacion_reader.py` hasta F.3 y, hasta G.1, `tools/precio_goal.py` |
+| `tools/precio_cobertura.py` y la llamada a `leer_publicaciones` de `app/api_precios.py` | 0.b, por el cambio de firma |
 | `_precios_seguridad.html` | S.3 lo construye. G.3 solo lo incluye |
 | `app/reputacion_clientes.py` | M.4, solo para exponer el refresco de token |
-| `docs/DEPLOY.md` y la prueba de la línea de cron | S.3 para las líneas de D.2, F.4 para las de D.3 y M.4 para las de D.4 |
+| `docs/DEPLOY.md` y la prueba de la línea de cron | S.3 para las líneas de D.2, S.7 para las de D.3 y M.4 para las de D.4 |
 
 ## 0.a: escribe los contratos sin cambiar el comportamiento
 
@@ -168,6 +169,11 @@ Este paso crea todo lo que los carriles comparten.
   un universo sin entrada.
 - `precio_mercados.abrir("meli")` levanta `ConfigInvalida` mientras el adaptador
   de Mercado Libre esté vacío.
+- Con un atribuidor falso que devuelve una atribución, la ingesta deja una fila
+  en `ledger_event_atribucion` para una venta nueva y para una venta ya
+  ingerida. Corrida dos veces deja una sola fila por venta. Con un atribuidor
+  que devuelve `None` no deja ninguna, `skip_reason` trae `venta_sin_atribuir`
+  y `rows_skipped` no cambia.
 
 ### Cambios
 
@@ -210,8 +216,12 @@ Este paso crea todo lo que los carriles comparten.
    protocolo `Atribuidor` (P). La ingesta inserta en `ledger_event_atribucion`
    con `ON CONFLICT DO NOTHING` cuando el atribuidor devuelve una atribución.
    Cuando devuelve `None`, no inserta y lo cuenta en `skip_reason` con el motivo
-   `venta_sin_atribuir`. En 0.a los dos atribuidores devuelven `None`. Mercado
-   Libre sigue saliendo como excluida.
+   `venta_sin_atribuir`. Ese conteo va en un contador aparte y no suma a
+   `rows_skipped`, que sigue contando solo lo no escrito. La ingesta atribuye
+   toda venta del plan, también la que ya estaba en `ledger_event`: busca su
+   `id` por la llave de dedupe. Así la primera corrida con atribuidor llena la
+   historia. En 0.a los dos atribuidores devuelven `None`. Mercado Libre sigue
+   saliendo como excluida.
 10. Parte `precios.html` en `_precios_seguridad.html` y `_precios_goals.html`.
     Mueve el bloque de precios de `app/api_dashboard.py` a `app/api_precios.py`.
     `api_dashboard.py` reexporta los cinco nombres que usa
@@ -234,15 +244,24 @@ Este paso crea todo lo que los carriles comparten.
   `docs/evidencia/jev-ads-02/ejecucion/S.3/`, que solo copia el esquema. Agrégale
   la carga de datos, también con `ORBIT_DSN_READ`:
 
-		pg_dump "$DSN" --data-only -t product -t listing -t config_version \
+		pg_dump "$DSN" --data-only --exclude-table-data="*_seq" \
+			-t product -t listing -t config_version \
 			-t estimacion_politica_version -t estimacion_escenario \
 			-t "precio_*" > "$TMP/datos.sql"
 
-  El ensayo de referencia corre `pg_dump` dentro de `ssh goncloud '...'`, entre
-  comillas simples. Por eso el patrón va entre comillas dobles.
+  El rol de lectura no puede leer las secuencias. Sin `--exclude-table-data`,
+  `pg_dump` falla con `permission denied for sequence product_id_seq`. El
+  ensayo de referencia corre `pg_dump` dentro de `ssh goncloud '...'`, entre
+  comillas simples. Por eso los patrones van entre comillas dobles.
 
-  Carga ese archivo en la base local con `SET session_replication_role = replica`
-  y aplica la 0053 y la 0054 en dos corridas de `psql -v ON_ERROR_STOP=1`
+  Carga ese archivo en la base local con `SET session_replication_role = replica`.
+  El volcado no trae el valor de las secuencias. Después de cargar, ajusta la
+  de cada tabla cargada, o el primer INSERT choca con un `id` que ya existe:
+
+		select setval(pg_get_serial_sequence('<tabla>', 'id'),
+			(select coalesce(max(id), 1) from <tabla>));
+
+  Aplica la 0053 y la 0054 en dos corridas de `psql -v ON_ERROR_STOP=1`
   separadas. El archivo de datos se queda en `$TMP`.
 - El ensayo exige tres cosas. Antes: `select count(*) from precio_envio_muestra`
   da 0. Después: `config_version` creció en una fila y
@@ -276,8 +295,9 @@ no admite UPDATE.
   `tests/test_precio_pantalla.py` importa `cerrar_por_observacion`.
   `tests/test_precio_cobertura.py` usa `fuentes._SQL_CANO` y menciona
   `fase_E_envio_fbm` o `fase_M_meli` en cinco líneas.
-- `objetivo.derivar_ref_fijo` la importan `objetivo.paso`,
-  `tools/precio_goal.py` y ocho líneas de `tests/test_precio_reglas.py`.
+- `objetivo.derivar_ref_fijo` la llaman `objetivo.paso` y, en `reglas.py`,
+  `_subir` y `_bajar`. La importan `reglas.py`, `tools/precio_goal.py` y ocho
+  líneas de `tests/test_precio_reglas.py`.
   `tests/test_precio_goals.py` corre la herramienta como subproceso.
 
 ### Pruebas primero
@@ -309,7 +329,12 @@ no admite UPDATE.
    `tools/precio_goal.py` la importa y este paso no toca esa herramienta.
    `reglas.decidir` y `objetivo.paso` dejan de llamarla, usan `Fees.variable` y
    `Fees.fijo`, y dejan de revisar monedas: `Cuenta` ya no se construye con
-   monedas mezcladas.
+   monedas mezcladas. Hasta F.3 las columnas `fee_variable` y `fee_fijo` del
+   escenario están vacías: en 0.b, `leer_cuenta` parte los fees del escenario
+   con la misma `derivar_ref_fijo`. Agrega una prueba que fije lo de hoy: un
+   escenario sin `ReferralFee` único y dentro de tolerancia sale
+   `mantener(en_tolerancia)`, y el mismo escenario bajo el goal sale
+   `no_evaluado(fee_error:referral_ausente)`.
 3. Crea `app/precio/cambios.py` (I) con el protocolo que hoy está en
    `precio_write.py`, y mueve ahí `cerrar_huerfanas`. `precio_write.py` se queda
    con lo de Amazon y sigue siendo el único importador de `write_client`.
@@ -339,19 +364,40 @@ no admite UPDATE.
   con lo que decide el de 0.b sobre los mismos datos reales.
 
   El volcado es el del ensayo de 0.a más las tablas que la corrida lee. Tómalo
-  después de la estimación de las 12:45 UTC y corre el script antes de seis
-  horas: pasado ese tiempo la oferta se considera vieja y todo sale
-  `no_evaluado`.
+  y corre el script el mismo día UTC, antes de seis horas de la última
+  estimación, que corre a las 00:45, 06:45, 12:45 y 18:45 UTC. Pasado ese
+  tiempo la oferta se considera vieja y todo sale `no_evaluado`.
 
 		-t spapi_listing_estado_observation -t spapi_price_observation \
 			-t spapi_inventario_observation -t estimacion_oferta_observation \
 			-t estimacion_fee_observation -t sku_cost -t ingest_run -t ledger_event
 
   Carga el volcado en dos bases locales. La base A lleva las migraciones hasta
-  la 0052. La base B lleva además la 0053 y la 0054. Corre `correr` del commit
-  de 0.a contra A y el del commit de 0.b contra B. Los dos usan el mismo
-  `httpx.MockTransport`, con la cotización lineal que ya usan las pruebas de
-  `tests/test_precio_corrida.py`. Vuelca en cada base, a `a.txt` y `b.txt`:
+  la 0052. La base B lleva además la 0053 y la 0054.
+
+  La corrida de producción decide a las 13:10 UTC, y `correr` no vuelve a
+  decidir un listing que ya tiene decisión del día. Un volcado posterior trae
+  esas decisiones, y las dos bases devolverían las filas de producción sin que
+  ningún commit decida nada. Por eso, antes de correr, el script borra en las
+  dos bases lo que dejó la corrida de hoy:
+
+		SET session_replication_role = replica;
+		DELETE FROM precio_cambio WHERE decision_id IN
+			(SELECT id FROM precio_decision WHERE decision_date = :'dia');
+		DELETE FROM precio_decision WHERE decision_date = :'dia';
+		DELETE FROM precio_cotizacion
+			WHERE source_event_id LIKE 'precio-cotiz-%-' || :'dia' || '-%';
+		SET session_replication_role = origin;
+
+  El script aborta si después de borrar queda alguna decisión de hoy en
+  cualquiera de las dos bases.
+
+  Corre `correr` del commit de 0.a contra A y el del commit de 0.b contra B.
+  Los dos usan la red falsa de las pruebas: `_RedFalsa` de
+  `tests/test_precio_corrida.py`, importada con `PYTHONPATH=.:tests`. Ármala con
+  el mapa de `source_event_id` a `seller_sku` de `estimacion_oferta_observation`.
+  Sin ese mapa la cotización falla igual en los dos lados. Vuelca en cada base,
+  a `a.txt` y `b.txt`:
 
 		select listing_id, platform, resultado, motivo, canal, m_actual, goal,
 			p_actual, p_objetivo, p_aplicado, i_valor, c_valor, f_valor, l_valor,
@@ -359,19 +405,33 @@ no admite UPDATE.
 		from precio_decision where decision_date = :dia order by listing_id
 
   Antes del `diff`, el script aborta si la comparación no prueba nada. Cuenta
-  los goals vigentes de `amazon_mx` en la base A. Exige que `a.txt` y `b.txt`
-  tengan esa misma cantidad de filas, que sea mayor a cero, y que al menos una
-  fila de cada archivo traiga `m_actual`. Sin esa guarda, dos bases sin datos
-  dan `diff` vacío.
+  los goals vigentes de `amazon_mx` en la base A. Exige, en cada lado:
+
+  - El `Resumen` que devuelve `correr` trae `decisiones` igual a ese conteo.
+    Así las filas las decidió esta corrida y no venían en el volcado.
+  - El conteo es mayor a cero y el archivo tiene esa cantidad de filas.
+  - Al menos una fila trae `m_actual`.
+  - Ninguna fila trae un motivo `fee_error:`. Si lo trae, la red falsa está
+    mal armada.
 
   Esperado: 6 filas por lado con los goals de hoy, y `diff` vacío. Las columnas
   nuevas quedan fuera de la comparación a propósito.
+
+  **El script tiene que probar que puede fallar.** Córrelo una vez más con el
+  lado B roto a propósito: haz que `armar_entrada` levante una excepción.
+  Esperado: el script sale en rojo. Guarda las dos salidas, la verde y la
+  roja, en la evidencia. Un `comparar.sh` que sale verde con el lado B roto no
+  cierra el paso.
 - `tests/test_precio_corrida.py`, `tests/test_precio_write.py` y
   `tests/test_precio_cobertura.py` conservan todas sus aserciones.
-- Esta compuerta sale vacía. Hoy, antes del paso, da 6 líneas:
+- Esta compuerta sale vacía. Hoy, antes del paso, da 8 líneas:
 
-		git grep -nE "(from|import) app\.(spapi|meli|estimacion_fees)|import httpx|FROM spapi_" \
+		git grep --untracked -nE \
+			"(from|import) app\.(spapi|meli|estimacion_fees)|import httpx|spapi_[a-z_]+_observation" \
 			-- app/precio/corrida.py app/precio/cambios.py app/precio/fuentes.py
+
+  `--untracked` hace que también revise `cambios.py`, que es nuevo. No dejes el
+  nombre de una tabla `spapi_*` en un comentario de esos tres archivos.
 
 ## Carril S: seguridad sin cupo y avisos
 
@@ -419,7 +479,8 @@ final de `datos.sql`. No toques `apply_quota_state`, sus triggers ni
 **Comprueba.** Esta compuerta cuenta lo que queda del cupo, comentarios incluidos:
 
 	{ test -e app/precio/cuota.py && echo "FALTA: app/precio/cuota.py sigue ahi"; \
-		git grep -nE "repartir_cupo|precio_cap_|cuota_mod|cuota_precio|validar_cap|motor_cuota|_cuota_reescrita|_ingreso_60d" \
+		git grep --untracked -nE \
+		"repartir_cupo|precio_cap_|cuota_mod|cuota_precio|validar_cap|motor_cuota|_cuota_reescrita|_ingreso_60d|pr\.cuota|\"cuota\"" \
 		-- app tools; } | wc -l
 
 Esperado: `0`. Hoy, antes del paso, da más de 30.
@@ -573,6 +634,8 @@ exige inventario FBA todos los días.
 evalúa después de una subida propia. Escribe `evaluar_cohorte`, que solo avisa.
 `reglas.decidir` acepta `lineal=True` (F). Borra de `tipos.py` los cuatro
 submotivos viejos de inventario. No toques el adaptador: lo entrega F.4.
+Actualiza `LINEA_CRONTAB_PRECIO` y `docs/DEPLOY.md` a las líneas que instala
+D.3. Este paso va después de S.3, así que no las pisa.
 
 **Comprueba.** El DoD de la fila S.7.
 
@@ -785,8 +848,7 @@ de la unidad, lee las ventas de `v_precio_venta_unidad` y arma `HistoriaUnidad`
 con las exposiciones y los clics de `ads_product_metric_observation`. Escribe
 `tools/precio_sonda.py`, genérica sobre `Mercado`: simula por omisión y, con
 `--acepto-mutacion-real` y `--go`, mueve una publicación un centavo y la
-revierte. Actualiza `LINEA_CRONTAB_PRECIO` y `docs/DEPLOY.md` a las líneas que
-instala D.3.
+revierte.
 
 **Comprueba.**
 `PYTHONPATH=. python tools/precio_sonda.py --platform amazon_us --listing-id <id>`

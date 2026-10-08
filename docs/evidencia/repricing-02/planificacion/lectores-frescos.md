@@ -95,6 +95,38 @@ Hallazgos menores de esa pasada, corregidos: la compuerta de S.1 callaba con
 necesitaba editar `app/ledger.py`, la línea de cron no tenía dueño después de
 D.2, y S.7 no dependía de S.6.
 
+## Tercera pasada, sobre la corrección de 0.b
+
+Un cuarto lector leyó solo el cambio `1197344..402d6f5`. Confirmó que la
+corrección de `derivar_ref_fijo` es coherente y que no hay candado ni ciclo de
+imports que la impida. Las dos compuertas daban 6 y 31 líneas antes de ampliar
+sus patrones. Con los patrones ampliados dan hoy 8 y 37.
+
+**El hallazgo 16 regresó**, por otra causa. `comparar.sh` seguía pudiendo salir
+verde sin probar nada: la corrida de producción decide a las 13:10 UTC, el
+volcado trae esas decisiones, y `correr` no vuelve a decidir un listing que ya
+tiene decisión del día. El lector lo probó con el lado nuevo roto a propósito:
+la guarda pasaba y el `diff` salía vacío. También probó la corrección: tras
+borrar las decisiones del día, el lado roto sale en rojo y el sano reproduce
+la fila original.
+
+Es el mismo bloqueante en dos pasadas seguidas. Por la regla 4 del quality-kit
+la revisión se detuvo ahí y la decisión pasó al dueño. La corrección que el
+lector probó quedó escrita en la guía, con una exigencia nueva: el script
+tiene que demostrar que sale en rojo con el lado nuevo roto. Esa exigencia no
+depende de que la prosa de la guía sea completa.
+
+Un segundo bloqueante salió de una lectura de producción del lead:
+
+| # | Hallazgo | Comando que lo probó | Corrección |
+| --- | --- | --- | --- |
+| 17 | El volcado de datos del ensayo falla con el rol de lectura. | `pg_dump "$ORBIT_DSN_READ" --data-only -t product` en producción: `permission denied for sequence product_id_seq`. | `--exclude-table-data="*_seq"`, probado en producción, y `setval` de cada secuencia después de cargar. |
+
+Hallazgos menores de esa pasada, corregidos: quién parte los fees del
+escenario entre 0.b y F.3, el conteo de ventas sin atribuir fuera de
+`rows_skipped`, el orden entre S.3 y F.4 sobre la línea de cron, y tres puntos
+ciegos de las compuertas `git grep`.
+
 ## Lo que ningún lector pudo comprobar
 
 Son hechos de producción. Los comprueban las lecturas F.0 y M.0 y los ensayos de
