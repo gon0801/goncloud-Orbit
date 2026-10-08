@@ -737,9 +737,9 @@ carril escribe los suyos en un archivo propio, `tests/test_arq_precio_{s,g,f,m}.
 **Lo que sí va en fila:**
 
 1. 0a → 0b.
-2. Por universo: política del plan insertada → sonda de cotización → sonda de
-   escritura de ±0.01 con su reversa → siembra a margen de hoy en `shadow` → uno
-   o dos días viendo que casi todo queda en tolerancia → `live` en
+2. Por universo: política del plan insertada → sonda de cotización → siembra a
+   margen de hoy en `shadow` → uno o dos días viendo que casi todo queda en
+   tolerancia → sonda de escritura de ±0.01 con su reversa → `live` en
    `precio_modo_universo`. El primer universo que se enciende sube además
    `precio_modo_global` a `live`: la migración lo siembra en `shadow` y el
    modo efectivo es el menor. Cada universo recorre esta fila por su cuenta; no

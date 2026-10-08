@@ -518,8 +518,10 @@ de cada unidad y guárdalo en la decisión. Al aplicar, relee la config y el goa
 de la decisión antes de cada escritura real. Haz que
 `app/config_write.py::proxima_config` acepte `precio_modo_global` y
 `precio_modo_universo`, este último como un objeto de `plataforma/canal` a modo.
-Agrega los dos al cuerpo de `POST /api/settings/{platform}`: el global se guarda
-igual desde cualquier plataforma. Agrega sus campos a `settings.html` y a
+Agrega los dos al cuerpo de `POST /api/settings/{platform}`. La config es
+global: los dos se guardan igual desde cualquier plataforma, y la ruta sigue
+aceptando solo `amazon_us` y `amazon_mx`. El modo de `meli/meli` se guarda con
+una de esas dos y su llave en `precio_modo_universo`. Agrega sus campos a `settings.html` y a
 `settings.js`.
 
 **Comprueba.** El DoD de la fila S.2.
@@ -962,9 +964,13 @@ paquete y en este orden: `ensayo.sh` si hay migración, `desplegar.sh <punta>` y
 `checklist.sh <sello>`. Si `ensayo.sh` falla, no despliegues. No saltes ni
 edites una guarda de `desplegar.sh`. Corre `rollback.sh <sello>` solo si la
 aplicación quedó caída: `/health` distinto de 200 en dos lecturas separadas 60
-segundos. El lead comprueba cada despliegue en solo lectura. El crontab se
-cambia con el bloque de respaldo y `diff` de
-`docs/evidencia/jev-ads-02/ejecucion/S.4/desplegar.sh`.
+segundos. El lead comprueba cada despliegue en solo lectura.
+
+Cada `desplegar.sh` instala sus líneas de cron él mismo. Parte del bloque de
+respaldo y `diff` de `docs/evidencia/jev-ads-02/ejecucion/S.4/desplegar.sh`. El
+paso manual del dueño de ese script ya no aplica: el script respalda el crontab,
+cambia las líneas, comprueba que el `diff` trae solo las previstas y, si trae
+otra cosa, restaura el respaldo y aborta.
 
 **D.1** lleva la 0053, la 0054 y el código de 0.b. Aplica las dos migraciones en
 dos corridas de `psql` separadas. No cambia el cron. Al día siguiente corre:
@@ -1014,8 +1020,10 @@ y X.3 con D.3, y X.4 con D.4.
 - `sonda.sh` (X.2, X.3 y X.4) corre `tools/precio_sonda.py` con
   `--acepto-mutacion-real` y `--go` en una publicación. Guarda la lectura
   posterior y la de una publicación de control.
-- `encender.sh` pone el universo en `live` con `POST /api/settings/{platform}` y
-  pasa los goals a `live` en bloque con el go literal de la fila.
+- `encender.sh` pone el universo en `live` con `POST /api/settings/amazon_mx` y
+  la llave `plataforma/canal` del universo en `precio_modo_universo`. La misma
+  llamada sirve para `meli/meli`, porque la config es global. Después pasa los
+  goals a `live` en bloque con el go literal de la fila.
 - `apagar.sh` regresa el universo a `shadow`. Es la reversa de `encender.sh`.
 
 Cada script simula por omisión y escribe solo con `--acepto-mutacion-real`. El

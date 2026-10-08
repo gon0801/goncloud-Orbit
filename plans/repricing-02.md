@@ -55,8 +55,8 @@ estos valores hasta que el dueño diga otra cosa:
 ## Políticas por universo
 
 Cada universo nuevo necesita una fila en `estimacion_politica_version`. La
-inserta el script del despliegue con los valores de esta tabla. Este plan es la
-confirmación del dueño.
+inserta el script del despliegue, con el rol `app_admin` y los valores de esta
+tabla. Este plan es la confirmación del dueño.
 
 | Universo | `iva_divisor` | `precio_incluye_iva` | `isr_tasa` | Envío | Edad máxima del tipo de cambio |
 | --- | --- | --- | --- | --- | --- |
@@ -215,7 +215,7 @@ Cada universo recorre su fila por su cuenta. Ninguno espera a otro.
 | X.2 | `[stage:cierre-pr] [lane:release] [tdd:skip:sonda]` Encender MX FBM. | Sonda de escritura de un centavo con su reversa, y criterios de encendido. | D.3 | cc:TODO |
 | X.3 | `[stage:cierre-pr] [lane:release] [tdd:skip:sonda]` Encender Estados Unidos. | Sonda de escritura con su reversa, y criterios de encendido. | D.3 | cc:TODO |
 | D.4 | `[stage:cierre-pr] [lane:release] [tdd:skip:ops]` Desplegar el carril M, con la política `meli/meli`, el catálogo diario y Mercado Libre en el cron. | El checklist sale 0. La cobertura de Mercado Libre cuadra con las activas de la API. | M.4, D.2 | cc:TODO |
-| X.4 | `[stage:cierre-pr] [lane:release] [tdd:skip:sonda]` Encender Mercado Libre. | Sonda de escritura con su reversa. Si pasa, un PR cambia solo la constante de la forma. Después, criterios de encendido. | D.4 | cc:TODO |
+| X.4 | `[stage:cierre-pr] [lane:release] [tdd:skip:sonda]` Encender Mercado Libre. | Sonda de escritura con su reversa, tres intentos como máximo. Si pasa, un PR cambia solo la constante de la forma. Después, criterios de encendido. | D.4 | cc:TODO |
 | C.1 | `[stage:cierre-pr] [lane:fast] [tdd:skip:docs]` Cierre: filas, `plans/ROADMAP.md`, `docs/CHAT-CONTEXT.md` y `docs/DEPLOY.md`. | Los cuatro universos encendidos, o cerrados con el motivo escrito. | X.1 a X.4 | cc:TODO |
 
 ## Criterios de encendido
