@@ -149,6 +149,16 @@
       "name": "repricing-01",
       "path": "plans/repricing-01.md",
       "description": "REPRICING 01 - motor de precios por goal de margen (M1/AUTO-07/ORBIT 09). Spec v1.3 (dos rondas de revision; la segunda invalido cuatro hechos que el plan daba por medidos): proteger margen; goal por producto; sube si el margen estimado no llega, baja solo si caen las unidades de 15 dias contra 60; sombra primero; cuota propia; envio FBM medido de las etiquetas (decision 13); toda publicacion activa contemplada (14); Mercado Libre en alcance (15). Plan v1.3: Fases 8, 10 y 11 cerradas (A.0-A.3, A.5-A.7, R.1 en master); D.0 aplicada en produccion 2026-09-19 (0039 + 20 claves precio_*). A.4 cerrada 2026-09-22: tres cambios y reversas confirmados por Pricing; control intacto. D.1 cerrada 2026-09-23: tres goals MX en sombra, dos corridas automaticas 3/3 y cero cambios nuevos; cinco dias quedan en seguimiento. E.2 parte 1 sello 180 dias el 2026-09-30; parte 2 espera E.0a/E.0b/E.1."
+    },
+    {
+      "name": "repricing-02",
+      "path": "plans/repricing-02.md",
+      "description": "REPRICING 02 - el motor de precios en Amazon MX (FBA y FBM), Amazon US y Mercado Libre. Decisiones del dueno del 2026-10-08: sin cupo (apagador, fusible y resumen diario), sin mediciones de 30 dias, todos los productos califican con envio propio o promedio, goals en pantalla sembrados al margen de hoy, y construccion en paralelo. Sustituye las filas abiertas de repricing-01 (D.2, D.3, E, 0, B, M). Plan del 2026-10-08; nada construido."
+    },
+    {
+      "name": "repricing-02-construccion",
+      "path": "plans/repricing-02-construccion.md",
+      "description": "REPRICING 02, guia de construccion: donde cae cada pieza del diseno en el codigo, que prueba se escribe primero y como se comprueba cada paso (corte 0, carriles S, G, F y M, despliegues y encendido). Escrita el 2026-10-08; nada construido."
     }
   ],
   "active": "fabrica-01"

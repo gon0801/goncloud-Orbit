@@ -529,6 +529,9 @@ conjunto; ninguna fase enciende dos conjuntos a la vez.
 
 ## Estado para la siguiente sesión
 
+- **Desde el 2026-10-08, las filas abiertas de este plan (D.2, D.3 y las fases
+  E, 0, B y M) las sustituye [REPRICING 02](repricing-02.md).** Lo cerrado aquí
+  sigue en pie.
 - Plan v1.3 sobre el spec v1.3. Las fases 8, 10 y 11 están cerradas. **D.0 aplicada**
   en producción el 2026-09-19: migración 0039 y 20 claves `precio_*`.
 - **A.4 cerrada el 2026-09-22**: los cambios 2/3/4 y las reversas 5/6/7
