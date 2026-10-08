@@ -963,9 +963,20 @@ líneas de cron que instala D.4.
 Cada despliegue lo corres tú cuando claw te lo encarga, con los scripts de su
 paquete y en este orden: `ensayo.sh` si hay migración, `desplegar.sh <punta>` y
 `checklist.sh <sello>`. Si `ensayo.sh` falla, no despliegues. No saltes ni
-edites una guarda de `desplegar.sh`. Corre `rollback.sh <sello>` solo si la
-aplicación quedó caída: `/health` distinto de 200 en dos lecturas separadas 60
-segundos. El lead comprueba cada despliegue en solo lectura.
+edites una guarda de `desplegar.sh`. El lead comprueba cada despliegue en solo
+lectura.
+
+Cuándo se corre `rollback.sh <sello>`:
+
+- La aplicación quedó caída: `/health` distinto de 200 en dos lecturas
+  separadas 60 segundos.
+- `desplegar.sh` abortó después de tocar el código, la base o el crontab. Su
+  mensaje de fallo dice qué reversa corre: síguelo.
+- `checklist.sh` sale 1 y su línea `FALLA` es algo que este despliegue cambió.
+
+Una `FALLA` de algo que este despliegue no tocó no se revierte: se reporta.
+Después de una reversa no se despliega ni se enciende nada hasta que el dueño
+decida.
 
 Cada `desplegar.sh` instala sus líneas de cron él mismo. Parte del bloque de
 respaldo y `diff` de `docs/evidencia/jev-ads-02/ejecucion/S.4/desplegar.sh`. El
@@ -1028,8 +1039,10 @@ y X.3 con D.3, y X.4 con D.4.
   go literal de la fila.
 - `apagar.sh` regresa el universo a `shadow`. Es la reversa de `encender.sh`.
 
-Cada script simula por omisión y escribe solo con `--acepto-mutacion-real`. El
-token de escritura se lee dentro del servidor y no se imprime.
+Cada script simula por omisión y escribe solo con `--acepto-mutacion-real`. Los
+cuatro corren dentro de `orbit-app-1`, con la misma forma que la sonda de M.0.
+Fuera del contenedor, un refresco de token de Mercado Libre deja inservible el
+de producción. El token de escritura no sale del servidor ni se imprime.
 
 - **X.1, MX FBA.** No necesita sonda de escritura: el camino ya se probó en A.4.
   Es el primer encendido: `encender.sh` sube también `precio_modo_global` a
