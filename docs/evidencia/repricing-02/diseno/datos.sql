@@ -5,10 +5,20 @@
 -- Todo es ADITIVO sobre la 0039 (produccion tiene goals 6-11, ~9 cambios y
 -- decisiones diarias desde el 20-sep). Ninguna fila existente se toca.
 --
--- Dos archivos, en este orden, y NINGUNO mas en los carriles:
+-- Cuatro archivos:
 --   0053_precio02_canal_meli.sql   solo el valor nuevo del enum (su propia
 --                                  transaccion: no se puede usar donde nace)
---   0054_precio02_base.sql         todo lo demas, de los cuatro carriles
+--   0054_precio02_base.sql         tablas, columnas, triggers y config. La
+--                                  escribe el corte 0.a y se despliega en D.1
+--   0055_precio02_escenario_exige.sql  dos CHECK de `estimacion_escenario`.
+--                                  La escribe F.3 y se despliega en D.3
+--   0058_precio02_decision_exige.sql   dos CHECK de `precio_decision`. La
+--                                  escribe S.1 y se despliega en D.2
+-- La 0054 debe convivir con el codigo que ya corre: NO exige ninguna
+-- columna nueva. Un CHECK `NOT VALID` perdona las filas viejas, no los
+-- INSERT nuevos; si la 0054 exigiera `l_origen` o `logistica_origen`, el
+-- codigo desplegado dejaria de guardar decisiones y escenarios. Cada CHECK
+-- que exige una columna llega con el codigo que la escribe.
 -- Cada uno con su `00NN_reversa_*.sql` (patron de 0049-0052).
 -- Numeros reservados por si un carril descubre DDL que falto: F=0055, M=0056,
 -- G=0057, S=0058. Asi dos carriles no piden el mismo numero.
@@ -20,10 +30,8 @@
 -- `listing.product_id` NO se toca: sigue NOT NULL (producto ancla).
 -- Un CHECK nuevo va `NOT VALID` cuando las filas que ya existen pueden
 -- violarlo: vale para lo nuevo y no revisa la historia. Es el caso de los
--- que exigen `l_origen`, `verificacion` o los fees partidos en
--- `precio_decision` y `estimacion_escenario`; sin `NOT VALID` la migracion
--- falla en produccion. Un CHECK que solo acota una columna recien creada
--- (nula en toda fila vieja) no lo necesita.
+-- cuatro CHECK de la 0055 y la 0058. Un CHECK que solo acota una columna
+-- recien creada (nula en toda fila vieja) no lo necesita.
 --
 -- Patrones de acceso dominantes y que los sirve (si la respuesta fuera "luego
 -- un indice", la estructura estaria mal):
@@ -41,9 +49,13 @@
 -- #############################################################################
 -- 0053_precio02_canal_meli.sql
 -- #############################################################################
--- Solo esto. No re-ejecutable (un segundo ADD VALUE del mismo literal falla),
--- igual que la 0004. Sin BEGIN/COMMIT propios: el runner ya la envuelve.
+-- Solo esto, con su `BEGIN;` y `COMMIT;` como la 0004. No re-ejecutable (un
+-- segundo ADD VALUE del mismo literal falla). Se aplica en una corrida de
+-- `psql` aparte de la 0054. Postgres no deja quitar un valor de enum: su
+-- archivo de reversa solo declara que `meli` queda sin uso.
+BEGIN;
 ALTER TYPE estimacion_canal ADD VALUE 'meli';
+COMMIT;
 
 
 -- #############################################################################
@@ -246,15 +258,10 @@ ALTER TABLE estimacion_escenario
                OR logistica_origen IN ('politica', 'propio', 'familia', 'marketplace')),
     ADD CONSTRAINT estimacion_escenario_muestra_segun_origen
         CHECK ((logistica_origen IN ('propio', 'familia', 'marketplace'))
-               = (envio_muestra_id IS NOT NULL)) NOT VALID,
-    -- desde esta migracion un escenario `disponible` siempre dice su origen
-    ADD CONSTRAINT estimacion_escenario_disponible_exige_origen
-        CHECK (estado <> 'disponible' OR logistica_origen IS NOT NULL) NOT VALID,
-    -- ... y sus fees partidos
-    ADD CONSTRAINT estimacion_escenario_disponible_exige_fees_partidos
-        CHECK (estado <> 'disponible'
-               OR (fee_variable IS NOT NULL AND fee_fijo IS NOT NULL
-                   AND fee_cotizable IS NOT NULL)) NOT VALID;
+               = (envio_muestra_id IS NOT NULL)) NOT VALID;
+-- Con las dos columnas nulas (lo que escribe el codigo de hoy) este CHECK
+-- da NULL y pasa. Los dos CHECK que EXIGEN origen y fees partidos en un
+-- escenario `disponible` van en la 0055, al final de este archivo.
 -- MeLi en `estimacion_oferta_observation` y `estimacion_escenario`: `asin`
 -- lleva el id de la publicacion y `seller_sku` el SKU del miembro que manda
 -- (ambas NOT NULL en la 0028; no se relajan). Deuda de nombre declarada.
@@ -430,14 +437,9 @@ ALTER TABLE precio_decision
                OR senal_evidencia IN ('unidades', 'trafico')),
     ADD CONSTRAINT precio_decision_verificacion_valida
         CHECK (verificacion IS NULL OR verificacion IN ('cotizada', 'lineal')),
-    -- desde hoy, mover precio exige decir como se comprobo el objetivo
-    ADD CONSTRAINT precio_decision_mover_exige_verificacion
-        CHECK (resultado NOT IN ('subir', 'bajar') OR verificacion IS NOT NULL) NOT VALID,
-    -- Regla 3 + D3: desde hoy, toda L escrita dice su origen, y toda L
-    -- medida o imputada apunta a su muestra. Las ~120 filas historicas (FBA,
-    -- sin columna) no se validan.
-    ADD CONSTRAINT precio_decision_l_exige_origen
-        CHECK (l_valor IS NULL OR l_origen IS NOT NULL) NOT VALID,
+    -- Toda L medida o imputada apunta a su muestra. Con las dos columnas
+    -- nulas (codigo de hoy) da NULL y pasa. Los dos CHECK que EXIGEN
+    -- `l_origen` y `verificacion` van en la 0058, al final de este archivo.
     ADD CONSTRAINT precio_decision_muestra_segun_origen
         CHECK ((l_origen IN ('propio', 'familia', 'marketplace'))
                = (envio_muestra_id IS NOT NULL)) NOT VALID;
@@ -584,16 +586,28 @@ GRANT USAGE ON SEQUENCE meli_publicacion_observation_id_seq TO app_ingest;
 --   * una decision `live` entra bajo un goal `shadow`;
 --   * una decision `shadow` NO entra bajo un goal `live`;
 --   * una muestra `familia` entra sin donantes;
---   * una decision nueva con l_valor entra sin l_origen;
 --   * una liberacion entra para una corrida que no retuvo;
 --   * un UPDATE de `origen` sobre un goal ya sembrado entra;
 --   * un segundo aviso de compuerta del mismo universo, causa y dia se sella;
 --   * una decision con `goal_id` de un goal ya cerrado entra;
---   * una decision `subir` nueva entra sin `verificacion`;
 --   * una segunda corrida del mismo dia sella otro `resumen_enviado_at`;
 --   * una corrida pasa de `cerrada` a `abierta`;
 --   * un goal reeditado el mismo dia NO entra.
+--   * el INSERT de decision que hace HOY `corrida.persistir_decision`, sin
+--     ninguna columna nueva, NO entra (la 0054 convive con el codigo viejo);
+--   * el INSERT de escenario `disponible` que hace HOY
+--     `estimacion_repository`, sin ninguna columna nueva, NO entra.
 -- Y que al terminar no queda ni una fila sembrada.
+--
+-- OJO: en este archivo los triggers nuevos y los `CREATE OR REPLACE` estan
+-- descritos en comentarios, y la siembra de la seccion 12 esta comentada.
+-- Quien escribe la 0054 los escribe de verdad: los tres `CREATE OR REPLACE`
+-- (`precio_decision_coherente`, `precio_cambio_sella_transicion`,
+-- `precio_goal_solo_cierra_vigencia`), los seis triggers nuevos
+-- (`precio_corrida_fecha_utc`, `precio_corrida_solo_avanza`,
+-- `precio_medicion_solo_sella_aviso`, `precio_medicion_copia_corrida`,
+-- `precio_retencion_coherente`, `precio_liberacion_exige_retencion`), el
+-- INSERT de config y este bloque DO.
 
 
 -- -----------------------------------------------------------------------------
@@ -625,6 +639,38 @@ GRANT USAGE ON SEQUENCE meli_publicacion_observation_id_seq TO app_ingest;
 -- borrarlas antes del deploy haria salir con `exit 2` a la version vieja.
 
 COMMIT;
+
+
+-- #############################################################################
+-- 0058_precio02_decision_exige.sql  (carril S, paso S.1; se despliega en D.2)
+-- #############################################################################
+-- Desde 0.b `persistir_decision` escribe `l_origen` y `verificacion` en toda
+-- fila. Cuando ese codigo ya corre en produccion (D.1), esta migracion lo
+-- vuelve obligatorio. Las ~120 decisiones anteriores no se validan.
+-- BEGIN;
+-- ALTER TABLE precio_decision
+--     ADD CONSTRAINT precio_decision_l_exige_origen
+--         CHECK (l_valor IS NULL OR l_origen IS NOT NULL) NOT VALID,
+--     ADD CONSTRAINT precio_decision_mover_exige_verificacion
+--         CHECK (resultado NOT IN ('subir', 'bajar') OR verificacion IS NOT NULL) NOT VALID;
+-- COMMIT;
+
+
+-- #############################################################################
+-- 0055_precio02_escenario_exige.sql  (carril F, paso F.3; se despliega en D.3)
+-- #############################################################################
+-- F.3 hace que la estimacion escriba origen del envio y fees partidos en todo
+-- escenario `disponible`. Esta migracion va en el mismo despliegue que ese
+-- codigo, nunca antes: con el codigo viejo, cada escenario nuevo fallaria.
+-- BEGIN;
+-- ALTER TABLE estimacion_escenario
+--     ADD CONSTRAINT estimacion_escenario_disponible_exige_origen
+--         CHECK (estado <> 'disponible' OR logistica_origen IS NOT NULL) NOT VALID,
+--     ADD CONSTRAINT estimacion_escenario_disponible_exige_fees_partidos
+--         CHECK (estado <> 'disponible'
+--                OR (fee_variable IS NOT NULL AND fee_fijo IS NOT NULL
+--                    AND fee_cotizable IS NOT NULL)) NOT VALID;
+-- COMMIT;
 
 
 -- #############################################################################

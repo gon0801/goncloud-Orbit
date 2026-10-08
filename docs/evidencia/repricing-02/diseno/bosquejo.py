@@ -55,6 +55,9 @@ USO (lo que escribe quien llama; los tipos de abajo salen de aqui)
   cambios.revertir_lote(conn, mercado, plan, huella=H, go_literal="revertir 12-oct", owner=owner)
 
 MAPA DE MODULOS (cada seccion dice en que archivo aterriza y quien lo posee)
+  El ORDEN de construccion lo fija plans/repricing-02.md, no este mapa: el
+  paso 0.b pone la corrida detras del `Mercado` con su orden de hoy y con los
+  fees partidos; los tres pasos sobre filas guardadas (seccion J) llegan en S.1.
 
   PURO (candado `test_precio_puro_sin_io`, sin excepciones nuevas)
     A  app/precio/tipos.py       dinero, cuenta, envio con origen, vocabulario      corte 0
@@ -558,9 +561,11 @@ class Mercado(Vitrina, Protocol):
         """Precio propio leido ahora. Levanta `PrecioVivoAusente`."""
         ...
 
-    def escribir(self, unidad: UnidadPrecio, precio: Importe) -> Acuse:
+    def escribir(self, unidad: UnidadPrecio, precio: Importe, *, sonda: bool = False) -> Acuse:
         """Pide a la plataforma que el precio sea `precio`. No toca la base.
-        Levanta `EscrituraNoDisponible` si la sonda no ha sellado la forma."""
+        Levanta `EscrituraNoDisponible` si la forma de escritura no esta
+        sellada, salvo con `sonda=True`. Solo `tools/precio_sonda.py` pasa
+        `sonda=True`; `cambios.aplicar` y `revertir_lote` nunca."""
         ...
 
     def cerrar(self) -> None: ...
@@ -583,7 +588,9 @@ def miembro_que_manda(
 # C. app/precio/envio.py -- PURO. Costo de envio por orden y su origen (carril F)
 # =============================================================================
 
-FuenteCargo = Literal["labman_label", "shipping_label", "shipping_hb", "meli_envio", "otros"]
+FuenteCargo = Literal[
+    "labman_label", "shipping_label", "mfn_postage", "shipping_hb", "meli_envio", "otros"
+]
 
 
 @dataclass(frozen=True)
@@ -599,21 +606,29 @@ class CargoEnvio:
 def clasificar_cargo(source_event_id: str | None, fee_type: str | None) -> FuenteCargo:
     """De donde viene el cargo. Lo desconocido es `otros` y se cuenta.
 
-    # TODO: prefijo de `source_event_id` (= dedupe_key de contabilidad):
-    #   "finance:LabmanLabelPurchase" -> labman_label; "shipping_label" ->
-    #   shipping_label; "...ShippingHB" -> shipping_hb. CONFIRMAR con datos
-    #   reales antes de sellar (regla 8); si el prefijo no lo trae, la ingesta
-    #   lo escribe en `ledger_event_atribucion`.
+    # TODO: la identidad sale de `source_event_id` partido por `|`: el campo 6
+    #   si el campo 2 es `finance`, y si no, el campo 2 (es la expresion de
+    #   docs/evidencia/repricing-01/E.0/consultas/06-par-labman-shippinghb.sql).
+    #   LabmanLabelPurchase -> labman_label ; shipping_label -> shipping_label ;
+    #   MFNPostageFee -> mfn_postage ; ShippingHB -> shipping_hb ;
+    #   ShippingChargeback, MFNShippingChargeback y lo desconocido -> otros.
+    #   La lectura F.0 confirma que no hay identidades fuera de esas seis.
     """
     raise NotImplementedError
 
 
 def costo_de_orden(cargos: Sequence[CargoEnvio]) -> Importe | None:
-    """Regla sellada D5: `max(labman_label, shipping_label) + shipping_hb`.
+    """`max(labman_label, shipping_label, mfn_postage) + shipping_hb`.
 
-    Labman y etiqueta son EL MISMO cobro: se cuenta una vez. `otros` no entra
-    al costo. None si la orden no trae etiqueta alguna. Una sola moneda o
-    `MonedasMezcladas`.
+    Las tres primeras son la etiqueta por tres caminos: se cuenta UNA vez
+    (D5: Labman y `shipping_label` son el mismo cobro). `mfn_postage`
+    (`finance:MFNPostageFee`) es casi todo el envio FBM de Mexico: 649
+    ordenes que no traen ninguna otra etiqueta. `ShippingChargeback` y
+    `MFNShippingChargeback` van a `otros`, que no entra al costo y se cuenta.
+    None si la orden no trae etiqueta alguna. Una sola moneda o
+    `MonedasMezcladas`. Regla propuesta por el lead a partir de
+    `docs/evidencia/repricing-01/E.0/veredicto.md` (tabla de fuentes); la
+    lectura F.0 confirma que no hay identidades fuera de esas.
     """
     raise NotImplementedError
 
@@ -1043,9 +1058,9 @@ class ConfigPrecio:
 
     Sin defaults en codigo: clave ausente o fuera de cota -> `ValueError` que
     la nombra (la corrida sale 2 sin decidir nada = cerrado).
-    SALEN `precio_cap_*`. Orden de despliegue: codigo que ya no las lee
-    primero; borrarlas de `config_version` despues.
-    ENTRAN (insertar la `config_version` ANTES de desplegar):
+    SALEN `precio_cap_*`: nadie las lee desde S.1 y se quedan inertes en
+    `config_version` (borrarlas antes haria fallar a la version vieja).
+    ENTRAN (las siembra la migracion 0054, sin paso manual):
     """
 
     # --- vigentes, sin cambio (se omiten aqui: caida_ventas_pct, senal_dias,
@@ -1650,7 +1665,7 @@ class MercadoAmazon:
     def precio_vivo(self, unidad: UnidadPrecio) -> Importe:
         raise NotImplementedError
 
-    def escribir(self, unidad: UnidadPrecio, precio: Importe) -> Acuse:
+    def escribir(self, unidad: UnidadPrecio, precio: Importe, *, sonda: bool = False) -> Acuse:
         raise NotImplementedError
 
     def cerrar(self) -> None:
@@ -1674,9 +1689,12 @@ class MeliWriteClient:
 
     `modo_confirmado == "live"` exacto o `MutationNotAllowedError` antes de
     construir nada. Un solo metodo publico. La forma del cuerpo (precio en la
-    publicacion o repetido por variacion) la sella la sonda de +-0.01; hasta
-    entonces `FORMA_ESCRITURA_MELI = "pendiente_sonda"` y `poner_precio`
-    levanta `EscrituraNoDisponible` sin tocar la red.
+    publicacion o repetido por variacion) es la CANDIDATA que concluyo la
+    lectura M.0. Mientras `FORMA_ESCRITURA_MELI = "pendiente_sonda"`,
+    `poner_precio` levanta `EscrituraNoDisponible` sin tocar la red, salvo
+    que el llamador pase `sonda=True`: solo `tools/precio_sonda.py` lo pasa,
+    y solo con `--acepto-mutacion-real` y `--go`. La corrida nunca. La sonda
+    de +-0.01 prueba la candidata; si pasa, un PR cambia solo la constante.
     """
 
     def __init__(
@@ -1688,7 +1706,13 @@ class MeliWriteClient:
         raise NotImplementedError
 
     def poner_precio(
-        self, item_id: str, variantes: Sequence[str], precio: Decimal, moneda: str
+        self,
+        item_id: str,
+        variantes: Sequence[str],
+        precio: Decimal,
+        moneda: str,
+        *,
+        sonda: bool = False,
     ) -> Acuse:
         raise NotImplementedError
 
@@ -1734,7 +1758,7 @@ class MercadoMeli:
     def precio_vivo(self, unidad: UnidadPrecio) -> Importe:
         raise NotImplementedError
 
-    def escribir(self, unidad: UnidadPrecio, precio: Importe) -> Acuse:
+    def escribir(self, unidad: UnidadPrecio, precio: Importe, *, sonda: bool = False) -> Acuse:
         raise NotImplementedError
 
     def cerrar(self) -> None:

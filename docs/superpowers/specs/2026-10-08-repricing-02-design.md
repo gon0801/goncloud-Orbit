@@ -80,6 +80,10 @@ hace nada salvo que haya algo pendiente.
 10 15-23/2 * * * (las mismas dos, como repaso)
 ```
 
+Estas líneas muestran la forma. Las líneas reales del servidor, con
+`docker exec` y su archivo de log, y el orden en que se instalan, están en la
+sección "Despliegues" de la guía de construcción.
+
 ```python
 # app/cli.py
 for clave in args.platform:
@@ -677,8 +681,11 @@ la banda de goals (pregunta 9).
 ## Carriles y primer corte
 
 **Corte 0a — contratos (un PR, sin cambio de comportamiento, destraba a todos).**
-Migraciones 0053 y 0054 completas (todo el DDL de los cuatro carriles: ninguno
-vuelve a pedir número). `app/precio/puerto.py`. Tipos y vocabulario nuevos en
+Migraciones 0053 y 0054 completas, salvo los cuatro CHECK que exigen una
+columna nueva. Esos llegan con el código que escribe la columna: la 0058 con
+S.1 y la 0055 con F.3. Un CHECK `NOT VALID` perdona las filas viejas, no los
+INSERT nuevos, así que la 0054 no puede exigir lo que el código desplegado
+todavía no escribe. `app/precio/puerto.py`. Tipos y vocabulario nuevos en
 `tipos.py`. `config.py` como lector único. `app/precio_mercados.py` y
 `app/estimacion_universo.py` con las cuatro entradas ya registradas, apuntando a
 módulos que existen vacíos (`app/meli/…`, `app/estimacion_amazon.py`,
@@ -693,7 +700,7 @@ archivos propios y nadie edita un registro.
 
 **Corte 0b — voltear la corrida (un PR, lo hace el carril S; F revisa).**
 Extraer `MercadoAmazon` de `corrida.py` y `precio_write.py`; `cambios.py`;
-`corrida.py` en tres pasos con la compuerta siempre abierta; `leer_cuenta`;
+`corrida.py` detrás del `Mercado`, con su orden de hoy; `leer_cuenta`;
 cobertura sobre `Vitrina`. Comportamiento idéntico para MX FBA. **Criterio de
 salida:** las decisiones de un día en sombra son idénticas fila por fila antes
 y después, y la lista de activas del adaptador coincide con la consulta actual
@@ -706,13 +713,24 @@ y después, y la lista de activas del adaptador coincide con la consulta actual
 | **G** goals en pantalla | `app/precio/siembra.py`, `goals_write.py`, `app/api_precios.py`, `app/api_precios_write.py` (rutas de goals), `_precios_goals.html`, `static/js/precios.js`, `tools/precio_goal.py` | 0a | `leer_cuenta` (0b) para la vista previa |
 | **S** seguridad y avisos | `corrida.py`, `cambios.py`, `compuerta.py`, `liberaciones.py`, `reglas.py`, `objetivo.py`, `ventas.py`, `fuentes.py`, `notifica.py` (bloque de precios), `_precios_seguridad.html`, `tools/precio_reversa.py` | 0a (0b es suyo) | — |
 
-Archivos que nadie toca después del corte 0: `tipos.py`, `puerto.py`,
-`config.py`, `cobertura.py`, los dos registros, `ledger.py`, `precios.html`,
-las migraciones. Si un carril necesita cambiar uno, es un PR de contrato aparte.
+Los tres pasos sobre filas guardadas (decidir, compuerta, aplicar) llegan en
+S.1, junto con el borrado del cupo. No caben antes: hoy el cupo reescribe la
+decisión a `mantener(cuota)` antes de guardarla, y `precio_decision` no admite
+UPDATE.
+
+S.7 (la señal por unidad) es del carril S pero espera a F.1 y F.4, que
+atribuyen las ventas y arman la historia de cada unidad. Se despliega con el
+carril F. Hasta entonces el motor usa la señal por producto de hoy.
+
+Archivos de contrato, completos desde 0.a: `tipos.py`, `puerto.py`,
+`config.py`, los dos registros y las migraciones 0053 y 0054. Después solo se
+editan para borrar lo que un paso deja de usar. La tabla "Quién edita cada
+archivo compartido" de la guía dice quién toca cada archivo que usa más de un
+paso. Si un carril necesita agregar algo a un contrato, es un PR aparte.
 
 Dos choques que quedan y cómo se evitan: los candados de arquitectura (cada
 carril escribe los suyos en un archivo propio, `tests/test_arq_precio_{s,g,f,m}.py`;
-`tests/test_architecture.py` solo se edita en el corte 0a) y el router de escritura
+`tests/test_architecture.py` lo editan 0.a, 0.b y el carril S) y el router de escritura
 (`/compuerta/liberar` es de S pero vive en el archivo de G: S entrega
 `liberaciones.liberar` y G cablea la ruta de cinco líneas).
 
