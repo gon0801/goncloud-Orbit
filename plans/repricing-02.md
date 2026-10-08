@@ -54,8 +54,9 @@ estos valores hasta que el dueño diga otra cosa:
 
 ## Políticas por universo
 
-Cada universo nuevo necesita una fila en `estimacion_politica_version`. El dueño
-la inserta con el script del despliegue. Correr el script es su confirmación.
+Cada universo nuevo necesita una fila en `estimacion_politica_version`. La
+inserta el script del despliegue, con el rol `app_admin` y los valores de esta
+tabla. Este plan es la confirmación del dueño.
 
 | Universo | `iva_divisor` | `precio_incluye_iva` | `isr_tasa` | Envío | Edad máxima del tipo de cambio |
 | --- | --- | --- | --- | --- | --- |
@@ -136,8 +137,20 @@ modo de cada goal. Cada despliegue trae `rollback.sh`. Cada migración trae su
 ## Tareas y dependencias
 
 La evidencia de cada fila va en `docs/evidencia/repricing-02/ejecucion/<id>/`.
-`cc:TODO` significa que no ha empezado. Muse implementa, el lead revisa y el
-dueño corre lo que toca producción.
+`cc:TODO` significa que no ha empezado. Muse implementa, el lead revisa y claw
+mergea.
+
+**Este plan es la autorización completa del dueño (2026-10-08).** Cubre los
+merges, las migraciones, los cuatro despliegues, las filas de política, la
+siembra de goals, las sondas de escritura de un centavo con su reversa y el paso
+de cada universo y de sus goals a `live`. Nadie le pide permiso ni un go al
+dueño: se le avisa de cada evento.
+
+En producción solo escriben los scripts de un PR aprobado y mergeado. Los corre
+Muse cuando claw se lo encarga, y el lead comprueba el resultado en solo
+lectura. El go literal de cada goal lo escribe el script de su fila:
+`plan repricing-02 X.1`, `plan repricing-02 X.2`, `plan repricing-02 X.3` o
+`plan repricing-02 X.4`.
 
 ### Corte 0: separar lo compartido
 
@@ -195,14 +208,14 @@ Cada universo recorre su fila por su cuenta. Ninguno espera a otro.
 
 | Task | Contenido | DoD | Depends | Status |
 | --- | --- | --- | --- | --- |
-| D.1 | `[stage:cierre-pr] [lane:release] [tdd:skip:ops]` Desplegar el corte 0 (0053, 0054 y el código de 0.b). Lo corre el dueño. | El checklist sale 0. `precio --reporte` del día siguiente muestra 6 decisiones sobre los mismos listings. `/precios` responde 200. | 0.b | cc:TODO |
+| D.1 | `[stage:cierre-pr] [lane:release] [tdd:skip:ops]` Desplegar el corte 0 (0053, 0054 y el código de 0.b). Lo corre Muse. | El checklist sale 0. `precio --reporte` del día siguiente muestra 6 decisiones sobre los mismos listings. `/precios` responde 200. | 0.b | cc:TODO |
 | D.2 | `[stage:cierre-pr] [lane:release] [tdd:skip:ops]` Desplegar S.1 a S.6 y el carril G, con la 0058 y los repasos de MX en el cron. | El checklist sale 0. `/precios` muestra los modos y el bloque de seguridad. El resumen diario llega. | S.1 a S.6, G.3, D.1 | cc:TODO |
 | X.1 | `[stage:cierre-pr] [lane:release] [tdd:skip:ops]` Encender MX FBA. | Criterios de encendido de abajo. | D.2 | cc:TODO |
 | D.3 | `[stage:cierre-pr] [lane:release] [tdd:skip:ops]` Desplegar el carril F y S.7, con la 0055, las políticas `amazon_mx/fbm` y `amazon_us/fbm`, el job de muestras y US en el cron. | El checklist sale 0 después de la primera corrida del job de muestras y de la estimación. Hay escenarios `disponible` de FBM y de US. La cobertura de MX y de US cuadra. | F.4, S.7, D.2 | cc:TODO |
 | X.2 | `[stage:cierre-pr] [lane:release] [tdd:skip:sonda]` Encender MX FBM. | Sonda de escritura de un centavo con su reversa, y criterios de encendido. | D.3 | cc:TODO |
 | X.3 | `[stage:cierre-pr] [lane:release] [tdd:skip:sonda]` Encender Estados Unidos. | Sonda de escritura con su reversa, y criterios de encendido. | D.3 | cc:TODO |
 | D.4 | `[stage:cierre-pr] [lane:release] [tdd:skip:ops]` Desplegar el carril M, con la política `meli/meli`, el catálogo diario y Mercado Libre en el cron. | El checklist sale 0. La cobertura de Mercado Libre cuadra con las activas de la API. | M.4, D.2 | cc:TODO |
-| X.4 | `[stage:cierre-pr] [lane:release] [tdd:skip:sonda]` Encender Mercado Libre. | Sonda de escritura con su reversa. Si pasa, un PR cambia solo la constante de la forma. Después, criterios de encendido. | D.4 | cc:TODO |
+| X.4 | `[stage:cierre-pr] [lane:release] [tdd:skip:sonda]` Encender Mercado Libre. | Sonda de escritura con su reversa, tres intentos como máximo. Si pasa, un PR cambia solo la constante de la forma. Después, criterios de encendido. | D.4 | cc:TODO |
 | C.1 | `[stage:cierre-pr] [lane:fast] [tdd:skip:docs]` Cierre: filas, `plans/ROADMAP.md`, `docs/CHAT-CONTEXT.md` y `docs/DEPLOY.md`. | Los cuatro universos encendidos, o cerrados con el motivo escrito. | X.1 a X.4 | cc:TODO |
 
 ## Criterios de encendido
@@ -210,8 +223,9 @@ Cada universo recorre su fila por su cuenta. Ninguno espera a otro.
 Un universo se enciende con uno o dos días de prueba (D2). No hay pilotos ni
 ventanas de 30 días.
 
-1. **Sembrar en sombra.** El dueño siembra "margen de hoy" en `shadow` a todo el
-   universo desde `/precios`.
+1. **Sembrar en sombra.** Muse siembra "margen de hoy" en `shadow` a todo el
+   universo, con las mismas rutas que usa `/precios`. Las unidades con margen de
+   hoy fuera de la banda no se siembran: se le listan al dueño en el aviso.
 2. **Leer la primera corrida.** Pasa si se cumplen las cuatro:
    - La cobertura cuadra exacta.
    - Al menos 95 % de las unidades sembradas quedan en `mantener(en_tolerancia)`.
@@ -223,14 +237,19 @@ ventanas de 30 días.
      fees y el envío de sus fuentes. Elige una por cada origen de envío que haya
      en el universo. Esta es la comprobación que prueba la cuenta.
 3. **Probar la escritura**, solo en un universo con camino de escritura nuevo
-   (X.2, X.3 y X.4). El dueño corre la sonda de un centavo en una publicación y
-   su reversa. Pasa si Amazon o Mercado Libre aceptan las dos, la lectura
+   (X.2, X.3 y X.4). Muse corre la sonda de un centavo en una publicación y su
+   reversa. Pasa si Amazon o Mercado Libre aceptan las dos, la lectura
    posterior muestra el precio y una publicación de control no cambia.
-4. **Encender.** El dueño pone el universo en `live` en `/settings` y pasa los
-   goals a `live` en bloque con su go literal. En el primer encendido (X.1)
-   sube además `precio_modo_global` a `live`: la migración lo siembra en
-   `shadow` y el modo efectivo es el menor de los tres. Sin ese paso ningún
-   precio se mueve y nada lo marca como error.
+4. **Encender.** Con los pasos anteriores cumplidos y el visto bueno del lead
+   sobre el paso 2, Muse pone el universo en `live` y pasa los goals a `live`
+   en bloque con el go literal de la fila. En el primer encendido (X.1) sube
+   además `precio_modo_global` a `live`: la migración lo siembra en `shadow` y
+   el modo efectivo es el menor de los tres. Sin ese paso ningún precio se
+   mueve y nada lo marca como error.
+
+Si un criterio no se cumple, ese universo no se enciende. Muse entrega el motivo
+medido, la fila X queda cerrada con ese motivo, claw avisa al dueño y los demás
+universos siguen.
 
 Después del encendido el lead lee el resumen diario los primeros días. Esa
 lectura no frena a ningún otro universo.
@@ -274,5 +293,6 @@ y G no lo tocan: escriben sus candados en `tests/test_arq_precio_<carril>.py`,
 que 0.a agrega al job `rapido`.
 
 El plan cierra cuando los cuatro universos están encendidos, o cuando el que
-falte quedó cerrado con el motivo escrito. Ninguna fila autoriza por sí sola
-pasar un universo a `live`. Ese paso lo da el dueño en `/settings`.
+falte quedó cerrado con el motivo escrito. Un universo pasa a `live` solo con
+sus criterios de encendido cumplidos. Ese paso lo da Muse con el script de su
+fila X, sin esperar al dueño.
