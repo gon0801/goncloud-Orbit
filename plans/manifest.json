@@ -159,6 +159,16 @@
       "name": "repricing-02-construccion",
       "path": "plans/repricing-02-construccion.md",
       "description": "REPRICING 02, guia de construccion: donde cae cada pieza del diseno en el codigo, que prueba se escribe primero y como se comprueba cada paso (corte 0, carriles S, G, F y M, despliegues y encendido). Escrita el 2026-10-08; nada construido."
+    },
+    {
+      "name": "bids-02",
+      "path": "plans/bids-02.md",
+      "description": "BIDS 02 - una sola politica de bid, niveles_v3, para una cuenta con poca data. Decide cada hoja con sus datos de 90 dias o con los de su ad group y regresa el bid que desplomo el trafico. Cinco pantallas, impulso de dos campanas por producto y ajustes de campana que aprueba el dueno. Sustituye lo abierto de acos-evidencia. Plan del 2026-10-09. Nada construido."
+    },
+    {
+      "name": "bids-02-construccion",
+      "path": "plans/bids-02-construccion.md",
+      "description": "BIDS 02, guia de construccion: donde cae cada pieza del diseno en el codigo, que prueba se escribe primero y como se comprueba cada paso. Escrita el 2026-10-09. Nada construido."
     }
   ],
   "active": "fabrica-01"

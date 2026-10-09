@@ -1,0 +1,20 @@
+
+== amazon_mx: gasto 43,604, pedidos 280, conversion 2.15%
+   gasto en busquedas sin pedido: 40% | lo que daria el azar: 33%
+   ASIN que pasaron el gasto para concluir sin un pedido: 0 | a medio camino: 2
+   palabras de 1 que pasaron el gasto para concluir sin un pedido: 1
+          469.78   112 clics   16 busquedas  «sin»
+   palabras de 2 que pasaron el gasto para concluir sin un pedido: 3
+          565.02    83 clics    4 busquedas  «cofre para»
+          560.29   124 clics   10 busquedas  «estuche para»
+          416.73    75 clics    6 busquedas  «boda sin»
+
+== amazon_us: gasto 4,146, pedidos 104, conversion 1.05%
+   gasto en busquedas sin pedido: 63% | lo que daria el azar: 62%
+   ASIN que pasaron el gasto para concluir sin un pedido: 2 | a medio camino: 1
+           49.05    84 clics  2 campanas  B0B1TJ4HWJ
+           42.11    69 clics  2 campanas  B09FRG6D7C
+   palabras de 1 que pasaron el gasto para concluir sin un pedido: 1
+           56.15   169 clics   95 busquedas  «box»
+   palabras de 2 que pasaron el gasto para concluir sin un pedido: 1
+           39.00   115 clics    7 busquedas  «coins catholic»
