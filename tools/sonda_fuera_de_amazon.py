@@ -87,12 +87,16 @@ def _rechazado(status, cuerpo):
     return not 200 <= status <= 299 or bool(_errores_put(cuerpo))
 
 
-def _lee_campana(cliente, perfil_id):
-    matches = [
-        c
-        for c in listar_todo(cliente, "/sp/campaigns/list", profile_id=perfil_id)
-        if c.get("name") == CAMPANA
-    ]
+def _lee_campana(cliente, perfil_id, campana_id=None):
+    """Lista igual que siempre; con pin elige por ID (filtrado local, sin
+    campaignIdFilter), sin pin elige por nombre (solo la lectura inicial)."""
+    todas = listar_todo(cliente, "/sp/campaigns/list", profile_id=perfil_id)
+    if campana_id is not None:
+        for campana in todas:
+            if str(campana.get("campaignId")) == str(campana_id):
+                return campana
+        return None
+    matches = [c for c in todas if c.get("name") == CAMPANA]
     return matches[0] if len(matches) == 1 else None
 
 
@@ -148,15 +152,28 @@ def _envia(cliente, perfil_id, registro, nombre, campana_id, off):
         {"nombre": nombre, "cuerpo": envio, "status": status, "respuesta": cuerpo, "rechazado": mal}
     )
     time.sleep(ESPERA_SEGUNDOS)
-    lectura = _lee_campana(cliente, perfil_id)
+    lectura = _lee_campana(cliente, perfil_id, campana_id)
     registro["lecturas"].append({"etapa": f"tras_{nombre}", "campana": lectura})
     return mal, lectura
 
 
 def _deja_minimo(cliente, perfil_id, registro, antes, off_antes):
     """Excepcion autorizada: no se pudo volver a {}; queda MINIMIZE_SPEND."""
-    actual = _lee_campana(cliente, perfil_id)
+    actual = _lee_campana(cliente, perfil_id, antes.get("campaignId"))
     registro["lecturas"].append({"etapa": "previa_desviacion", "campana": actual})
+    if not isinstance(actual, dict):
+        registro["iguales"] = False
+        registro["resultado"] = (
+            "REVISAR: no se pudo leer antes de la desviacion; sin minimizar a ciegas"
+        )
+        return SALIR_REVISAR
+    if actual.get("state") != "PAUSED":
+        registro["iguales"] = False
+        registro["resultado"] = (
+            f"REVISAR: la campana esta {actual.get('state')}, no PAUSED; "
+            "sin desviacion sobre campana viva"
+        )
+        return SALIR_REVISAR
     if _off_de(actual) != {CAMPO: MINIMIZA_GASTO}:
         mal, actual = _envia(
             cliente,
@@ -187,9 +204,9 @@ def _deja_minimo(cliente, perfil_id, registro, antes, off_antes):
     return SALIR_OK
 
 
-def _fase_regreso(cliente, perfil_id, registro, antes, off_antes, aceptado):
+def _fase_regreso(cliente, perfil_id, registro, antes, off_antes, aceptado, ultimo_enviado=None):
     """Regresa a lo leido; si {} no vuelve, aplica la excepcion autorizada."""
-    actual = _lee_campana(cliente, perfil_id)
+    actual = _lee_campana(cliente, perfil_id, antes.get("campaignId"))
     registro["lecturas"].append({"etapa": "previa_regreso", "campana": actual})
     if not isinstance(actual, dict):
         registro["iguales"] = False
@@ -204,18 +221,22 @@ def _fase_regreso(cliente, perfil_id, registro, antes, off_antes, aceptado):
             registro["resultado"] = (
                 "REVISAR: ambos candidatos rechazados, sin sellar; la entidad quedo igual"
             )
+        elif off_antes == {CAMPO: aceptado}:
+            registro["resultado"] = "REVISAR: sin cambio: ya estaba en el valor; sin sellar"
         else:
             registro["resultado"] = (
                 "REVISAR: el PUT aceptado no aplico; sin regreso porque la lectura "
                 "confirma lo de antes"
             )
         return SALIR_REVISAR
+    if aceptado is None and ultimo_enviado is not None and off_actual == {CAMPO: ultimo_enviado}:
+        aceptado = ultimo_enviado
     if aceptado is None or off_actual != {CAMPO: aceptado}:
         registro["iguales"] = False
         registro["resultado"] = "REVISAR: valor inesperado fuera de Amazon; sin regreso a ciegas"
         return SALIR_REVISAR
     mal, final = _envia(cliente, perfil_id, registro, "regreso", antes.get("campaignId"), off_antes)
-    if mal or _off_de(final) != off_antes:
+    if _off_de(final) != off_antes:
         if off_antes == {}:
             return _deja_minimo(cliente, perfil_id, registro, antes, off_antes)
         registro["iguales"] = False
@@ -223,11 +244,13 @@ def _fase_regreso(cliente, perfil_id, registro, antes, off_antes, aceptado):
             "REVISAR: el regreso fue rechazado o no aplico; ver envios y lecturas"
         )
         return SALIR_REVISAR
+    if mal:
+        registro["regreso_reporto_falla_pese_a_aplicar"] = True
     iguales, diferencias = _compara(antes, final)
     registro["iguales"] = iguales
     registro["diferencias"] = diferencias
     if iguales and not registro.get("aceptado_pese_a_rechazo"):
-        registro["resultado"] = f"OK: Amazon acepto {aceptado}; la lectura final es igual a antes"
+        registro["resultado"] = f"OK: Amazon acepto {aceptado}; final igual a antes"
         return SALIR_OK
     if iguales:
         registro["resultado"] = (
@@ -275,6 +298,9 @@ def main(argv=None, cliente=None):
     campana_id = antes.get("campaignId")
     off_antes = _off_de(antes)
     registro["off_hoy"] = off_antes
+    extras = sorted(llave for llave in off_antes if llave != CAMPO)
+    if extras:
+        return _abortado(registro, f"offAmazonSettings trae llaves fuera de {CAMPO}: {extras}")
     registro["cuerpos_planeados"] = [
         {
             "campaigns": [
@@ -292,8 +318,10 @@ def main(argv=None, cliente=None):
         _imprime(registro)
         return SALIR_OK
     aceptado = None
+    ultimo_enviado = None
     try:
         for candidato in CANDIDATOS:
+            ultimo_enviado = candidato
             mal, lectura = _envia(
                 cliente,
                 perfil_id,
@@ -319,7 +347,9 @@ def main(argv=None, cliente=None):
         registro["error_cambio"] = f"{type(exc).__name__}: {exc}"
     finally:
         try:
-            salida = _fase_regreso(cliente, perfil_id, registro, antes, off_antes, aceptado)
+            salida = _fase_regreso(
+                cliente, perfil_id, registro, antes, off_antes, aceptado, ultimo_enviado
+            )
         except Exception as exc:
             registro["error_regreso"] = f"{type(exc).__name__}: {exc}"
             registro["iguales"] = False

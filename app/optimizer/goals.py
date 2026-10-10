@@ -870,25 +870,27 @@ def confianza_subida_desde_settings(settings: Mapping, platform: str) -> Decimal
 # Defaults POR PLATAFORMA (dueno, 2026-10-09): con la clave ausente el motor
 # concluye con 350 MXN / 36 USD. UNICA fuente del numero: lo consumen la regla
 # R9 del motor y el tope por defecto del impulso.
-GASTO_PARA_CONCLUIR_DEFAULT = {
+GASTO_PARA_CONCLUIR_DEFAULT: dict[str, Decimal] = {
     "amazon_mx": Decimal("350"),
     "amazon_us": Decimal("36"),
 }
 
 
 def clave_gasto_para_concluir(platform: str) -> str:
-    """Clave sellada del gasto para concluir
-    (ads_gasto_para_concluir_<platform>, docs/DATABASE.md)."""
+    """Clave de config_version.settings del gasto para concluir
+    (ads_gasto_para_concluir_<platform>)."""
     return f"ads_gasto_para_concluir_{platform}"
 
 
 def gasto_para_concluir_desde_settings(settings: Mapping, platform: str) -> Decimal:
     """Lector fail-closed de `ads_gasto_para_concluir_<platform>`: ausente =
-    350 MXN / 36 USD (dueno, 2026-10-09); presente pero no numerico, NaN/Inf
-    o <= 0 = config CORRUPTA: ValueError ruidoso (regla 3, mismo trato que
+    350 MXN / 36 USD (dueno, 2026-10-09); JSON null = ausente (default),
+    igual que fraccion. Presente pero no numerico, NaN/Inf o <= 0 = config
+    CORRUPTA: ValueError ruidoso (regla 3, mismo trato que
     target/confianza: decidir con un tope que nadie configuro seria inventar
-    el gasto). Plataforma fuera de la tabla = ValueError explicito, no se
-    inventan numeros (mismo trato que DEFAULTS_POR_MONEDA)."""
+    el gasto). Con la clave ausente, plataforma fuera de la tabla =
+    ValueError explicito, no se inventan numeros (mismo trato que
+    DEFAULTS_POR_MONEDA)."""
     clave = clave_gasto_para_concluir(platform)
     valor = settings.get(clave)
     if valor is None:

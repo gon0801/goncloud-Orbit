@@ -84,12 +84,16 @@ def _rechazado(status, cuerpo):
     return not 200 <= status <= 299 or bool(_errores_put(cuerpo))
 
 
-def _lee_campana(cliente, perfil_id):
-    matches = [
-        c
-        for c in listar_todo(cliente, "/sp/campaigns/list", profile_id=perfil_id)
-        if c.get("name") == CAMPANA
-    ]
+def _lee_campana(cliente, perfil_id, campana_id=None):
+    """Lista igual que siempre; con pin elige por ID (filtrado local, sin
+    campaignIdFilter), sin pin elige por nombre (solo la lectura inicial)."""
+    todas = listar_todo(cliente, "/sp/campaigns/list", profile_id=perfil_id)
+    if campana_id is not None:
+        for campana in todas:
+            if str(campana.get("campaignId")) == str(campana_id):
+                return campana
+        return None
+    matches = [c for c in todas if c.get("name") == CAMPANA]
     return matches[0] if len(matches) == 1 else None
 
 
@@ -172,6 +176,33 @@ def _mezcla(lista, placement, percentage):
     return nueva
 
 
+def _veredicto_parcial(
+    registro, tras, placement, nombres, clave_sigue, clave_extra=None, *, cero_ausente
+):
+    """Sella lista_parcial_reemplaza SOLO si los PUTs nombrados pasaron y la
+    lectura es dict (consulta envios[].rechazado); con rechazo o lectura
+    fallida registra "sin sellar"/"lectura_fallida" y fuerza REVISAR."""
+    rechazado = any(e.get("nombre") in nombres and e.get("rechazado") for e in registro["envios"])
+    if not isinstance(tras, dict):
+        motivo = "lectura_fallida"
+    elif rechazado:
+        motivo = "sin sellar"
+    else:
+        motivo = None
+    if motivo is not None:
+        registro["lista_parcial_reemplaza"] = motivo
+        registro["lista_parcial_sin_sellar"] = True
+        return
+    if cero_ausente:
+        sigue = _porcentaje(_lista_de(tras), placement) not in (None, 0)
+    else:
+        sigue = _porcentaje(_lista_de(tras), placement) is not None
+    registro[clave_sigue] = sigue
+    if clave_extra is not None:
+        registro[clave_extra] = placement
+    registro["lista_parcial_reemplaza"] = not sigue
+
+
 def _imprime(registro):
     print(scrub(json.dumps(registro, ensure_ascii=False, indent=1, default=str)))
 
@@ -187,7 +218,7 @@ def _fase_regreso(cliente, perfil_id, registro, contexto):
     """Regresa la lista de `antes`, en 0 lo que sobre, solo si aplica."""
     antes = contexto["antes"]
     lista_antes = contexto["lista_antes"]
-    actual = _lee_campana(cliente, perfil_id)
+    actual = _lee_campana(cliente, perfil_id, antes.get("campaignId"))
     registro["lecturas"].append({"etapa": "previa_regreso", "campana": actual})
     if not isinstance(actual, dict):
         registro["iguales"] = False
@@ -222,7 +253,7 @@ def _fase_regreso(cliente, perfil_id, registro, contexto):
         }
     )
     time.sleep(ESPERA_SEGUNDOS)
-    final = _lee_campana(cliente, perfil_id)
+    final = _lee_campana(cliente, perfil_id, antes.get("campaignId"))
     registro["lecturas"].append({"etapa": "tras_regreso", "campana": final})
     if isinstance(final, dict) and not mal:
         sobrantes = [
@@ -249,7 +280,7 @@ def _fase_regreso(cliente, perfil_id, registro, contexto):
                 }
             )
             time.sleep(ESPERA_SEGUNDOS)
-            final = _lee_campana(cliente, perfil_id)
+            final = _lee_campana(cliente, perfil_id, antes.get("campaignId"))
             registro["lecturas"].append({"etapa": "tras_cero", "campana": final})
             lista_final = _lista_de(final) if isinstance(final, dict) else []
             registro["cero_borra"] = all(
@@ -259,9 +290,14 @@ def _fase_regreso(cliente, perfil_id, registro, contexto):
     iguales, diferencias = _compara(antes, final)
     registro["iguales"] = iguales
     registro["diferencias"] = diferencias
-    if iguales and not mal:
+    if iguales and not mal and not registro.get("lista_parcial_sin_sellar"):
         registro["resultado"] = "OK: cambio y regreso; la lectura final es igual a antes"
         return SALIR_OK
+    if iguales and registro.get("lista_parcial_sin_sellar"):
+        registro["resultado"] = (
+            "REVISAR: la lista parcial no se sello; revertido y verificado, sin sellar"
+        )
+        return SALIR_REVISAR
     registro["resultado"] = "REVISAR: el regreso fue rechazado o se aparto de antes; ver envios"
     return SALIR_REVISAR
 
@@ -377,16 +413,20 @@ def main(argv=None, cliente=None):
             }
         )
         time.sleep(ESPERA_SEGUNDOS)
-        tras_cambio = _lee_campana(cliente, perfil_id)
+        tras_cambio = _lee_campana(cliente, perfil_id, campana_id)
         registro["lecturas"].append({"etapa": "tras_cambio", "campana": tras_cambio})
-        lista_tras = _lista_de(tras_cambio)
         if isinstance(tras_cambio, dict):
             contexto["confirmables"].append(_normaliza_db(tras_cambio.get("dynamicBidding") or {}))
         if otras:
-            otra_sigue = _porcentaje(lista_tras, otras[0].get("placement")) is not None
-            registro["otra_entrada"] = otras[0].get("placement")
-            registro["otra_entrada_sigue"] = otra_sigue
-            registro["lista_parcial_reemplaza"] = not otra_sigue
+            _veredicto_parcial(
+                registro,
+                tras_cambio,
+                otras[0].get("placement"),
+                ("cambio",),
+                "otra_entrada_sigue",
+                "otra_entrada",
+                cero_ausente=True,
+            )
         else:
             status2, cuerpo2, envio2 = _pon_ajustes(
                 cliente, perfil_id, campana_id, strategy, [{"placement": otro, "percentage": 1}]
@@ -401,16 +441,20 @@ def main(argv=None, cliente=None):
                 }
             )
             time.sleep(ESPERA_SEGUNDOS)
-            tras_put2 = _lee_campana(cliente, perfil_id)
+            tras_put2 = _lee_campana(cliente, perfil_id, campana_id)
             registro["lecturas"].append({"etapa": "tras_put2", "campana": tras_put2})
-            lista_put2 = _lista_de(tras_put2)
             if isinstance(tras_put2, dict):
                 contexto["confirmables"].append(
                     _normaliza_db(tras_put2.get("dynamicBidding") or {})
                 )
-            primero_sigue = _porcentaje(lista_put2, objetivo) is not None
-            registro["primero_sigue_tras_put2"] = primero_sigue
-            registro["lista_parcial_reemplaza"] = not primero_sigue
+            _veredicto_parcial(
+                registro,
+                tras_put2,
+                objetivo,
+                ("cambio", "put2"),
+                "primero_sigue_tras_put2",
+                cero_ausente=False,
+            )
     except Exception as exc:
         registro["error_cambio"] = f"{type(exc).__name__}: {exc}"
     finally:

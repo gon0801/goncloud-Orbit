@@ -207,16 +207,26 @@ def _fase_regreso(cliente, perfil_id, registro, antes, presupuesto_antes, puesto
     registro["iguales"] = iguales
     registro["diferencias"] = diferencias
     registro["demas_llaves_iguales"] = all(d["llave"] == "budget" for d in diferencias)
-    if iguales and not mal:
+    if iguales and not mal and not registro.get("minimo_sin_sellar"):
         registro["resultado"] = "OK: subio 1 y regreso; la lectura final es igual a antes"
         return SALIR_OK
+    if iguales and registro.get("minimo_sin_sellar"):
+        registro["resultado"] = (
+            "REVISAR: status y lectura del minimo discrepan; revertido y verificado, sin sellar"
+        )
+        return SALIR_REVISAR
     registro["resultado"] = "REVISAR: el regreso fue rechazado o se aparto de antes; ver envios"
     return SALIR_REVISAR
 
 
 def _lee_unica(cliente, perfil_id, registro):
-    campana, _ = _elige_campana(cliente, perfil_id, registro["platform"])
-    return campana
+    """Relee la campana PINNEADA al ID elegido al inicio (filtrado local sobre
+    el mismo listar_todo; ausente = None y el llamador cierra el camino)."""
+    pin = str((registro.get("campana") or {}).get("campaignId"))
+    for campana in listar_todo(cliente, "/sp/campaigns/list", profile_id=perfil_id):
+        if str(campana.get("campaignId")) == pin:
+            return campana
+    return None
 
 
 def main(argv=None, cliente=None):
@@ -304,14 +314,22 @@ def main(argv=None, cliente=None):
         time.sleep(ESPERA_SEGUNDOS)
         tras_minimo = _lee_unica(cliente, perfil_id, registro)
         registro["lecturas"].append({"etapa": "tras_minimo", "campana": tras_minimo})
-        if mal_minimo:
+        minimo_aplico = _presupuesto_de(tras_minimo) == PRESUPUESTO_MINIMO_PRUEBA
+        if minimo_aplico and not mal_minimo:
+            registro["minimo"] = {"aceptado": True, "minimo_aceptado": PRESUPUESTO_MINIMO_PRUEBA}
+        elif mal_minimo and not minimo_aplico:
             registro["minimo"] = {
                 "aceptado": False,
                 "rechazo_literal": cuerpo,
                 "numeros_en_rechazo": _numeros_en_rechazo(cuerpo),
             }
         else:
-            registro["minimo"] = {"aceptado": True, "minimo_aceptado": PRESUPUESTO_MINIMO_PRUEBA}
+            registro["minimo"] = {
+                "aceptado": minimo_aplico,
+                "status_rechazado": mal_minimo,
+                "valor_leido": _presupuesto_de(tras_minimo),
+            }
+            registro["minimo_sin_sellar"] = True
         status, cuerpo, envio = _pon_presupuesto(cliente, perfil_id, campana_id, presupuesto_nuevo)
         puestos.append(presupuesto_nuevo)
         registro["envios"].append(

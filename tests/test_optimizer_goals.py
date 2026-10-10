@@ -1240,10 +1240,14 @@ def test_familia_efectiva_colapso_estricto():
 
 
 def test_gasto_para_concluir_defaults_por_plataforma():
-    """BIDS 02 0.b: sin clave -> 350 MXN / 36 USD (dueno, 2026-10-09). Con
-    clave presente se lee exacta por plataforma, como target_desde_settings."""
+    """BIDS 02 0.b: sin clave -> 350 MXN / 36 USD (dueno, 2026-10-09). JSON
+    null es ausente (default), igual que fraccion. Con clave presente se lee
+    exacta por plataforma, como target_desde_settings."""
     assert g.gasto_para_concluir_desde_settings({}, "amazon_mx") == Decimal("350")
     assert g.gasto_para_concluir_desde_settings({}, "amazon_us") == Decimal("36")
+    assert g.gasto_para_concluir_desde_settings(
+        {"ads_gasto_para_concluir_amazon_mx": None}, "amazon_mx"
+    ) == Decimal("350")
     settings = {
         "ads_gasto_para_concluir_amazon_mx": "500",
         "ads_gasto_para_concluir_amazon_us": 40,
@@ -1253,12 +1257,18 @@ def test_gasto_para_concluir_defaults_por_plataforma():
 
 
 def test_gasto_para_concluir_invalido_falla_cerrado():
-    """BIDS 02 0.b: valor presente pero no numerico, 0 o negativo es config
-    corrupta: ValueError, jamas se camufla de ausente para caer al default."""
+    """BIDS 02 0.b: valor presente pero no numerico, NaN/Inf, 0 o negativo
+    es config corrupta: ValueError, jamas se camufla de ausente para caer al
+    default."""
     with pytest.raises(ValueError, match="no numerico"):
         g.gasto_para_concluir_desde_settings(
             {"ads_gasto_para_concluir_amazon_mx": "abc"}, "amazon_mx"
         )
+    for malo in ("NaN", "Infinity", float("nan"), float("inf")):
+        with pytest.raises(ValueError, match="debe ser > 0"):
+            g.gasto_para_concluir_desde_settings(
+                {"ads_gasto_para_concluir_amazon_mx": malo}, "amazon_mx"
+            )
     with pytest.raises(ValueError, match="debe ser > 0"):
         g.gasto_para_concluir_desde_settings({"ads_gasto_para_concluir_amazon_mx": 0}, "amazon_mx")
     with pytest.raises(ValueError, match="debe ser > 0"):

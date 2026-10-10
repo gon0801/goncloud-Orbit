@@ -185,8 +185,18 @@ def _reversa_ok(conn, decision_id):
     )
 
 
+def _intento(conn, decision_id, seq, tipo, resultado):
+    conn.execute(
+        "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload,"
+        " quota_cobrada, resultado, finished_at)"
+        " VALUES (%s, %s, %s, %s, false, %s, %s)",
+        (decision_id, seq, tipo, Json({"bid": "intento"}), resultado, _SELLADA),
+    )
+
+
 def _login(conn, rol: str, grupo: str) -> None:
     try:
+        conn.execute(f"DROP ROLE IF EXISTS {rol}")
         conn.execute(f"CREATE ROLE {rol} LOGIN PASSWORD 'clave' NOSUPERUSER")
     except psycopg.errors.InsufficientPrivilege:
         pytest.fail(
@@ -199,9 +209,12 @@ def _login(conn, rol: str, grupo: str) -> None:
 @FALTA_POSTGRES
 def test_v_hoja_activa_exige_triple_enabled():
     """La vista trae la hoja con hoja, ad group y campana ENABLED, con su
-    tipo y su bid. No trae la hoja si UNO de los tres esta PAUSED."""
+    tipo y su bid. No trae la hoja si UNO de los tres esta PAUSED; tampoco
+    un product_ad aunque cuelgue de un triple ENABLED."""
     with _db_bids02("orbit_bids02_hoja") as conn:
         camp, grupo, viva = _triple(conn, tag="viva")
+        fantasma = _entidad(conn, "amazon_mx", "product_ad", "pad-fantasma", grupo)
+        _estado(conn, fantasma, "ENABLED", bid=Decimal("10"), moneda="MXN")
         _triple(conn, hoja="PAUSED", tag="hoja-pausada")
         _triple(conn, grupo="PAUSED", tag="grupo-pausado")
         _triple(conn, campana="PAUSED", tag="campana-pausada")
@@ -215,13 +228,15 @@ def test_v_hoja_activa_exige_triple_enabled():
 @FALTA_POSTGRES
 def test_v_hoja_activa_tipo_campana_cinco_casos():
     """automatica para un product target de campana AUTO; product_targeting
-    para uno de campana manual; exact/phrase/broad segun el match type."""
+    para uno de campana manual; exact/phrase/broad segun el match type. Un
+    match no listado deja tipo_campana NULL (fila presente, no clasificable)."""
     with _db_bids02("orbit_bids02_tipo") as conn:
         _, _, automatica = _triple(conn, targeting="AUTO", hoja_kind="product_target", tag="auto")
         _, _, targeting = _triple(conn, hoja_kind="product_target", tag="manual")
         _, _, exact = _triple(conn, match="EXACT", tag="exact")
         _, _, phrase = _triple(conn, match="PHRASE", tag="phrase")
         _, _, broad = _triple(conn, match="BROAD", tag="broad")
+        _, _, minuscula = _triple(conn, match="exact", tag="minuscula")
         filas = dict(conn.execute("SELECT hoja_id, tipo_campana FROM v_hoja_activa").fetchall())
         assert filas == {
             automatica: "automatica",
@@ -229,13 +244,15 @@ def test_v_hoja_activa_tipo_campana_cinco_casos():
             exact: "exact",
             phrase: "phrase",
             broad: "broad",
+            minuscula: None,
         }
 
 
 @FALTA_POSTGRES
 def test_v_cambio_bid_motor_live_y_sus_exclusiones():
     """La vista trae el bid confirmado por un ciclo live, con motivo o sin
-    el. No trae el de un ciclo shadow, el no verificado ni el no-op."""
+    el. No trae el de un ciclo shadow, el no verificado, el no-op ni la
+    pausa verificada."""
     with _db_bids02("orbit_bids02_cambio") as conn:
         _, _, hoja = _triple(conn, tag="hoja")
         config = _config(conn)
@@ -292,6 +309,9 @@ def test_v_cambio_bid_motor_live_y_sus_exclusiones():
             tag="noop",
         )
         _aplicacion(conn, d_noop, live)
+        # La rama motor es solo kind='bid': una pausa verificada en live no entra.
+        d_pausa = _decision_pausa(conn, ciclo=_ciclo(conn, "live"), hoja=hoja, config=config)
+        _aplicacion(conn, d_pausa, live)
         filas = conn.execute(
             "SELECT hoja_id, confirmado_el, bid_antes, bid_despues, moneda, origen,"
             " decision_id FROM v_cambio_bid ORDER BY decision_id"
@@ -314,7 +334,8 @@ def test_v_cambio_bid_motor_live_y_sus_exclusiones():
 def test_v_cambio_bid_regreso_del_dueno():
     """Cada reversa ok de una decision de bid es una fila de origen
     regreso_del_dueno, con bid_despues = old_value revertido. La reversa
-    de una pausa no es un cambio de bid."""
+    de una pausa no es un cambio de bid; tampoco el intento normal ok ni
+    la reversa con error."""
     with _db_bids02("orbit_bids02_dueno") as conn:
         _, _, hoja = _triple(conn, tag="hoja")
         config = _config(conn)
@@ -328,6 +349,8 @@ def test_v_cambio_bid_regreso_del_dueno():
             tag="bid",
         )
         _reversa_ok(conn, d_bid)
+        _intento(conn, d_bid, 2, "normal", "ok")
+        _intento(conn, d_bid, 3, "reversa", "error")
         d_pausa = _decision_pausa(conn, ciclo=_ciclo(conn, "live"), hoja=hoja, config=config)
         _reversa_ok(conn, d_pausa)
         filas = conn.execute(
