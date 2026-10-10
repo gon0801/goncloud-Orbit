@@ -75,7 +75,7 @@ jobs:
       - name: Guardas (arquitectura + config + contexto, ~1 s)
         run: |
           pip install fastapi "psycopg[binary]" httpx pytest pglast jinja2
-          PYTHONPATH=. pytest -q tests/test_architecture.py tests/test_precommit_hooks.py tests/test_chat_context_guard.py
+          PYTHONPATH=. pytest -q tests/test_architecture.py tests/test_precommit_hooks.py tests/test_chat_context_guard.py tests/test_arq_bids_*.py
 
   completa:
     # Al unir a main: la bateria COMPLETA. No acotar el pytest a rutas:
