@@ -231,6 +231,7 @@ def _fase_regreso(cliente, perfil_id, registro, antes, off_antes, aceptado, ulti
         return SALIR_REVISAR
     if aceptado is None and ultimo_enviado is not None and off_actual == {CAMPO: ultimo_enviado}:
         aceptado = ultimo_enviado
+        registro["aceptado"] = ultimo_enviado
     if aceptado is None or off_actual != {CAMPO: aceptado}:
         registro["iguales"] = False
         registro["resultado"] = "REVISAR: valor inesperado fuera de Amazon; sin regreso a ciegas"
@@ -331,6 +332,12 @@ def main(argv=None, cliente=None):
                 {CAMPO: candidato},
             )
             off_leido = _off_de(lectura)
+            if not isinstance(lectura, dict):
+                # Lectura fallida no es "sin cambios": _off_de(None) es {} y
+                # seguir dispararia el 2o candidato sobre un PUT que quiza
+                # aplico. Se rompe; el regreso decide con re-lectura (F7).
+                registro["lectura_cambio_fallida"] = True
+                break
             if off_leido == {CAMPO: candidato}:
                 aceptado = candidato
                 registro["aceptado"] = candidato

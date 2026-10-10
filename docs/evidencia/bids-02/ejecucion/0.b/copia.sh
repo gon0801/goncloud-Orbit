@@ -13,8 +13,9 @@ DB=orbit_copia_bids02_0b
 TMP=$(mktemp -d)
 DSN_DB="${DSN_LOCAL%/*}/$DB"
 OK=0
+CREATED=0
 limpiar() {
-  if [ "$OK" = 0 ]; then
+  if [ "$CREATED" = 1 ] && [ "$OK" = 0 ]; then
     psql "$DSN_LOCAL" -qc "DROP DATABASE IF EXISTS $DB WITH (FORCE)" >/dev/null
   fi
 }
@@ -35,6 +36,7 @@ if [ -n "$(psql "$DSN_LOCAL" -tAc "SELECT 1 FROM pg_database WHERE datname = '$D
   echo "ABORTA: ya existe la base local $DB (otra copia viva o una que murio sin limpiar); revisala y borrala a mano si es de un ensayo"; exit 1
 fi
 psql "$DSN_LOCAL" -qc "CREATE DATABASE $DB" >/dev/null
+CREATED=1
 psql "$DSN_DB" -q -v ON_ERROR_STOP=1 -f "$TMP/prod.sql" >/dev/null
 # replica: la carga salta FKs y triggers (el orden del dump no es el de
 # insercion). El archivo se queda en $TMP (regla 16: ningun volcado entra al repo).
