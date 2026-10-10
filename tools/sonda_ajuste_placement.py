@@ -290,12 +290,25 @@ def _fase_regreso(cliente, perfil_id, registro, contexto):
     iguales, diferencias = _compara(antes, final)
     registro["iguales"] = iguales
     registro["diferencias"] = diferencias
-    if iguales and not mal and not registro.get("lista_parcial_sin_sellar"):
+    cambio_ok = (
+        not registro.get("error_cambio")
+        and isinstance(registro.get("lista_parcial_reemplaza"), bool)
+        and any(
+            e.get("nombre") == "cambio" and not e.get("rechazado")
+            for e in registro.get("envios", [])
+        )
+    )
+    if iguales and not mal and not registro.get("lista_parcial_sin_sellar") and cambio_ok:
         registro["resultado"] = "OK: cambio y regreso; la lectura final es igual a antes"
         return SALIR_OK
     if iguales and registro.get("lista_parcial_sin_sellar"):
         registro["resultado"] = (
             "REVISAR: la lista parcial no se sello; revertido y verificado, sin sellar"
+        )
+        return SALIR_REVISAR
+    if iguales and not cambio_ok:
+        registro["resultado"] = (
+            "REVISAR: el cambio no quedo sellado; revertido y verificado, sin sellar"
         )
         return SALIR_REVISAR
     registro["resultado"] = "REVISAR: el regreso fue rechazado o se aparto de antes; ver envios"

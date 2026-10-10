@@ -187,7 +187,10 @@ def _fase_regreso(cliente, perfil_id, registro, cuerpos, antes, original, espera
     iguales, diferencias = _compara(antes, final)
     registro["iguales"] = iguales
     registro["diferencias"] = diferencias
-    if iguales and not mal:
+    cambio_ok = not registro.get("error_cambio") and any(
+        e.get("nombre") == "cambio" and not e.get("rechazado") for e in registro.get("envios", [])
+    )
+    if iguales and not mal and cambio_ok:
         registro["resultado"] = "OK: pauso y reactivo; la lectura final es igual a antes"
         return SALIR_OK
     registro["resultado"] = "REVISAR: el regreso fue rechazado o se aparto de antes; ver envios"

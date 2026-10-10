@@ -165,7 +165,26 @@ def _elige_campana(cliente, perfil_id, platform):
     return matches[0], "nombre fijo"
 
 
-def _fase_regreso(cliente, perfil_id, registro, antes, presupuesto_antes, puestos):
+def _cambio_sellado(registro, presupuesto_nuevo):
+    """El OK exige el cambio sellado, no solo el regreso (B1): sin
+    error_cambio, un envio 'cambio' no rechazado y tras_cambio mostrando
+    presupuesto_nuevo."""
+    if registro.get("error_cambio"):
+        return False
+    cambios = [e for e in registro.get("envios", []) if e.get("nombre") == "cambio"]
+    if len(cambios) != 1 or cambios[0].get("rechazado"):
+        return False
+    lecturas = [
+        lec.get("campana")
+        for lec in registro.get("lecturas", [])
+        if lec.get("etapa") == "tras_cambio"
+    ]
+    return len(lecturas) == 1 and _presupuesto_de(lecturas[0]) == presupuesto_nuevo
+
+
+def _fase_regreso(
+    cliente, perfil_id, registro, antes, presupuesto_antes, puestos, presupuesto_nuevo
+):
     """Regresa el presupuesto solo si la lectura confirma un valor puesto aqui."""
     actual = _lee_unica(cliente, perfil_id, registro)
     registro["lecturas"].append({"etapa": "previa_regreso", "campana": actual})
@@ -207,12 +226,18 @@ def _fase_regreso(cliente, perfil_id, registro, antes, presupuesto_antes, puesto
     registro["iguales"] = iguales
     registro["diferencias"] = diferencias
     registro["demas_llaves_iguales"] = all(d["llave"] == "budget" for d in diferencias)
-    if iguales and not mal and not registro.get("minimo_sin_sellar"):
+    cambio_ok = _cambio_sellado(registro, presupuesto_nuevo)
+    if iguales and not mal and not registro.get("minimo_sin_sellar") and cambio_ok:
         registro["resultado"] = "OK: subio 1 y regreso; la lectura final es igual a antes"
         return SALIR_OK
     if iguales and registro.get("minimo_sin_sellar"):
         registro["resultado"] = (
             "REVISAR: status y lectura del minimo discrepan; revertido y verificado, sin sellar"
+        )
+        return SALIR_REVISAR
+    if iguales and not cambio_ok:
+        registro["resultado"] = (
+            "REVISAR: el cambio no quedo sellado; revertido y verificado, sin sellar"
         )
         return SALIR_REVISAR
     registro["resultado"] = "REVISAR: el regreso fue rechazado o se aparto de antes; ver envios"
@@ -348,7 +373,9 @@ def main(argv=None, cliente=None):
         registro["error_cambio"] = f"{type(exc).__name__}: {exc}"
     finally:
         try:
-            salida = _fase_regreso(cliente, perfil_id, registro, antes, presupuesto_antes, puestos)
+            salida = _fase_regreso(
+                cliente, perfil_id, registro, antes, presupuesto_antes, puestos, presupuesto_nuevo
+            )
         except Exception as exc:
             registro["error_regreso"] = f"{type(exc).__name__}: {exc}"
             registro["iguales"] = False

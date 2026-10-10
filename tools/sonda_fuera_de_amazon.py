@@ -255,9 +255,21 @@ def _fase_regreso(cliente, perfil_id, registro, antes, off_antes, aceptado, ulti
     iguales, diferencias = _compara(antes, final)
     registro["iguales"] = iguales
     registro["diferencias"] = diferencias
-    if iguales and not registro.get("aceptado_pese_a_rechazo"):
+    regresos = [e for e in registro["envios"] if e.get("nombre") == "regreso"]
+    regreso_2xx = bool(regresos) and 200 <= regresos[-1].get("status", 0) <= 299
+    if (
+        iguales
+        and regreso_2xx
+        and not registro.get("error_cambio")
+        and not registro.get("aceptado_pese_a_rechazo")
+    ):
         registro["resultado"] = f"OK: Amazon acepto {aceptado}; final igual a antes"
         return SALIR_OK
+    if iguales and registro.get("error_cambio"):
+        registro["resultado"] = (
+            "REVISAR: el cambio lanzo excepcion; revertido y verificado, sin sellar"
+        )
+        return SALIR_REVISAR
     if iguales:
         registro["resultado"] = (
             "REVISAR: el PUT reporto falla pero aplico; revertido y verificado, sin sellar"
