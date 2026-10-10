@@ -15,7 +15,7 @@ cinco entra al total, no a los renglones, y se cuenta aparte.
 from __future__ import annotations
 
 import datetime as dt
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import ROUND_HALF_EVEN, Decimal
 from typing import Literal, get_args
 
@@ -269,6 +269,15 @@ def _dinero2(valor: Decimal | None) -> Decimal | None:
     return valor.quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
 
 
+def umbral_concluir(conn, plataforma: Plataforma) -> Decimal:
+    """Gasto para concluir del mercado (settings vigentes, default del
+    dueno sin config). Un SELECT de una fila; unica fuente del umbral
+    (la usan el lector de ubicaciones, el reparto de avisos y el
+    comando via `notifica`)."""
+    fila_settings = conn.execute(_SQL_SETTINGS).fetchone()
+    return gasto_para_concluir_desde_settings(fila_settings[0] if fila_settings else {}, plataforma)
+
+
 def lee_ubicaciones(
     conn, *, plataforma: Plataforma, desde: dt.date, hasta: dt.date
 ) -> tuple[FilaUbicacion, ...]:
@@ -280,10 +289,7 @@ def lee_ubicaciones(
         fila[0]: fila[1:]
         for fila in conn.execute(_SQL_UBICACIONES, (plataforma, desde, hasta)).fetchall()
     }
-    fila_settings = conn.execute(_SQL_SETTINGS).fetchone()
-    umbral = gasto_para_concluir_desde_settings(
-        fila_settings[0] if fila_settings else {}, plataforma
-    )
+    umbral = umbral_concluir(conn, plataforma)
     total = sum(vals[0] for vals in grupos.values() if vals[0] is not None)
 
     def _fila(ubicacion: str) -> FilaUbicacion:
@@ -441,6 +447,9 @@ def lee_dinero(
         hojas=hojas_total,
     )
     desde_30 = fin - dt.timedelta(days=DIAS_UBICACION - 1)
+    por_ubicacion = lee_ubicaciones(conn, plataforma=plataforma, desde=desde_30, hasta=fin)
+    por_campana = lee_campanas(conn, plataforma=plataforma, desde=desde_30, hasta=fin)
+    por_campana = _con_avisos(conn, plataforma, por_ubicacion, por_campana)
     return PantallaDinero(
         plataforma=plataforma,
         moneda=PLATAFORMAS_MONEDA[plataforma],
@@ -450,6 +459,27 @@ def lee_dinero(
         total=total,
         hojas_sin_clasificar=sum(vals[3] for _, vals in resto),
         target_acos_pct=_target_margen_del_ciclo(conn, plataforma),
-        por_ubicacion=lee_ubicaciones(conn, plataforma=plataforma, desde=desde_30, hasta=fin),
-        por_campana=lee_campanas(conn, plataforma=plataforma, desde=desde_30, hasta=fin),
+        por_ubicacion=por_ubicacion,
+        por_campana=por_campana,
+    )
+
+
+def _con_avisos(conn, plataforma: Plataforma, por_ubicacion, por_campana):
+    """Reparte las frases de campana de `avisos_del_dia` en cada
+    `FilaCampana.avisos` (V.4; import diferido, este modulo no carga el
+    de avisos al importar)."""
+    from app.avisos_campana import avisos_del_dia
+
+    avisos = avisos_del_dia(
+        por_ubicacion,
+        por_campana,
+        plataforma=plataforma,
+        gasto_para_concluir=umbral_concluir(conn, plataforma),
+    )
+    return tuple(
+        replace(
+            fila,
+            avisos=tuple(aviso.frase for aviso in avisos if aviso.campana_id == fila.campana_id),
+        )
+        for fila in por_campana
     )

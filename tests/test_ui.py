@@ -2068,3 +2068,14 @@ def test_ui_donde_poner_el_dinero_200_con_marcador_y_menu(monkeypatch):
     )
     malo = _html_dinero(monkeypatch, [], plataforma="meli")
     assert malo.status_code == 422
+
+
+def test_ui_salud_muestra_avisos_campana_y_sin_bloque_no_rompe(monkeypatch):
+    """V.4: /salud pinta las frases de `avisos_campana`; sin el bloque (pre-
+    V.4) la pantalla no rompe."""
+    base = _plataforma_quota()
+    base["avisos_campana"] = ["Fuera de Amazon: 1,735 MXN en 30 días, 1,127 clics."]
+    html = _salud_html_fakeado(monkeypatch, {"amazon_mx": base})
+    assert "Fuera de Amazon: 1,735 MXN en 30 días, 1,127 clics." in html
+    html2 = _salud_html_fakeado(monkeypatch, {"amazon_mx": _plataforma_quota()})
+    assert "bloque-avisos-campana" not in html2

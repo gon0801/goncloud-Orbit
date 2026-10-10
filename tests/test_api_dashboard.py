@@ -4153,3 +4153,44 @@ def test_donde_poner_el_dinero_api_trae_ubicaciones_y_campanas_de_su_mercado(mon
         assert dato["por_ubicacion"][0]["gasta_sin_vender"] is True
         assert dato["por_campana"][0]["campana_id"] == 7
         assert pedidas == ["amazon_mx"]
+
+
+def test_salud_trae_avisos_campana_por_plataforma(monkeypatch):
+    """V.4: /salud trae `avisos_campana` (frases del dia) por mercado."""
+    from app.pantalla_dinero import FilaUbicacion
+
+    with _db_temporal("orbit_dash_salud_av") as (_conn, dsn):
+        fila = FilaUbicacion(
+            ubicacion="fuera_de_amazon",
+            gasto=Decimal("1735"),
+            clics=1127,
+            pedidos=0,
+            venta=Decimal("0"),
+            cpc=Decimal("1.54"),
+            conversion_pct=Decimal("0.0"),
+            acos_pct=None,
+            parte_del_gasto_pct=Decimal("10.0"),
+            gasta_sin_vender=True,
+        )
+        monkeypatch.setattr("app.pantalla_dinero.lee_ubicaciones", lambda conn, **k: (fila,))
+        monkeypatch.setattr("app.pantalla_dinero.lee_campanas", lambda conn, **k: ())
+        data = _cliente(dsn, monkeypatch).get("/api/dashboard/salud").json()["plataformas"]
+        assert data["amazon_mx"]["avisos_campana"] == [
+            "Fuera de Amazon: 1,735 MXN en 30 días, 1,127 clics, ningún pedido."
+        ]
+        assert data["amazon_us"]["avisos_campana"] == [
+            "Fuera de Amazon: 1,735 USD en 30 días, 1,127 clics, ningún pedido."
+        ]
+
+
+def test_salud_avisos_campana_roto_da_none(monkeypatch):
+    """V.4: lector roto -> `avisos_campana` None, la pantalla no muere."""
+
+    def _roto(conn, **k):
+        raise RuntimeError("0062 ausente")
+
+    with _db_temporal("orbit_dash_salud_av2") as (_conn, dsn):
+        monkeypatch.setattr("app.pantalla_dinero.lee_ubicaciones", _roto)
+        data = _cliente(dsn, monkeypatch).get("/api/dashboard/salud").json()["plataformas"]
+        assert data["amazon_mx"]["avisos_campana"] is None
+        assert data["amazon_us"]["avisos_campana"] is None

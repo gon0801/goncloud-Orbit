@@ -383,6 +383,7 @@ El server está en UTC: estas horas SON UTC.
 | 07:10 | `ingest:metrics` | `python -m app.cli ingest metrics --fecha D-31 --fecha-fin D-1` |
 | 07:20 | `ingest:metrics:productos` | `python -m app.cli ingest metrics --fecha D-31 --fecha-fin D-1 --productos` (ORBIT 19 B.1; el reporte `spAdvertisedProduct` puede tardar hasta ~25 min por perfil, presupuesto de poll propio) |
 | 07:25 | `ingest:metrics:placements` | `python -m app.cli ingest metrics --fecha D-31 --fecha-fin D-1 --placements` (BIDS 02 V.2; `spCampaigns` por `campaignPlacement`, corrida propia) |
+| 08:05 | `avisos-campana` | `python -m app.cli avisos-campana` (BIDS 02 V.4; flock + log, linea exacta abajo) |
 | 08:40 | `ads_optimizer:amazon_us` + `ads_optimizer:amazon_mx` | `python -m app.cli cycle --platform …` (los dos, en serie) |
 | 09:30, 21:30 | `jev-senales` | `python -m app.cli jev-senales --aplicar` (JEV ADS 02 S.4; flock + log, linea exacta abajo) |
 | 13:10 | `precio:amazon_mx` | `python -m app.cli precio --platform amazon_mx` (REPRICING 01 A.5; flock + log, linea exacta abajo) |
@@ -429,6 +430,25 @@ host). Instalación (dueño, posterior al merge): respaldar el crontab de
 `gon`, agregar la línea con `crontab -e` (nada más se toca) y comprobar que
 solo se agregó esa línea. La **reversa** es borrar la línea del crontab y
 las tablas `jev_*` quedan intactas (el job apagado no escribe).
+
+Avisos diarios de campaña (BIDS 02 V.4): Telegram a las 08:05 UTC, tras la
+ingesta de placements (07:25) y antes del ciclo (08:40). Línea EXACTA del
+crontab de `gon` (la prueba `test_deploy_documenta_la_linea_de_avisos` la
+pinza de `tests/test_avisos_campana_cron.py::LINEA_AVISOS_CAMPANA`), suelta
+como la de precio — fuera del bloque del instalador de ORBIT 03, cuyo
+filtro no la borra:
+
+```cron
+5 8 * * * /usr/bin/flock -n /tmp/avisos-campana.lock docker exec orbit-app-1 python -m app.cli avisos-campana >> /mnt/data/appdata/orbit/logs/avisos-campana.log 2>&1
+```
+
+Prerrequisitos: migraciones 0061 y 0062 aplicadas, `ORBIT_DSN_READ` y
+`ORBIT_DSN_INGEST` presentes **dentro** de `orbit-app-1` (`docker exec` no
+pasa el entorno del host). Instalación (dueño, posterior al merge):
+respaldar el crontab de `gon`, agregar la línea con `crontab -e` (nada más
+se toca) y comprobar que solo se agregó esa línea. La **reversa** es borrar
+la línea del crontab (el job apagado no escribe; las marcas quedan en
+`ingest_run` como historia).
 
 ADS PROTECCION 01 A.3 requiere aplicar `0040_ads_report_result.sql` y despues
 `0041_ads_ingest_alert.sql` antes de actualizar `orbit-app-1`. La 0041 guarda

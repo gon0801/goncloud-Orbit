@@ -35,6 +35,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from app import (
+    cli_bids,
     cobertura,
     costs,
     estimacion_ingest,
@@ -819,6 +820,7 @@ def _construye_parser() -> argparse.ArgumentParser:
     p_precio.add_argument("--reporte", action="store_true", help="resumen de solo lectura")
     p_precio.add_argument("--desde", default=None, help="YYYY-MM-DD (con --reporte)")
     p_precio.add_argument("--hasta", default=None, help="YYYY-MM-DD (con --reporte)")
+    cli_bids.registra(sub)
 
     return parser
 
@@ -884,6 +886,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"argumentos desconocidos para 'precio': {rest}", file=sys.stderr)
             return 2
         return _precio(args)
+    if args.comando in cli_bids.COMANDOS:
+        return cli_bids.despacha(args.comando, rest)
     return _ingest(args, rest)
 
 

@@ -89,13 +89,14 @@ def _lee(
     conn = _ConnFalsa(
         [
             list(grupos),
-            notas,
             list(ubicaciones),
             list(settings_fila),
             list(campanas),
             list(gasto_diario),
             list(fuera),
             list(configs_hist),
+            list(settings_fila),
+            notas,
         ]
     )
     pantalla = lee_dinero(conn, plataforma=plataforma, dias=dias, hasta=hasta)
@@ -192,7 +193,8 @@ def test_target_del_ciclo_y_none_sin_ciclo():
     assert pantalla.target_acos_pct == Decimal("13.3")
     pantalla, conn = _lee(_cinco_grupos(), hasta=dt.date(2026, 10, 4))
     assert pantalla.target_acos_pct is None
-    assert conn.consultas[1][1] == ("amazon_mx",)
+    params_target = next(p for s, p in conn.consultas if "optimizer_cycle" in s)
+    assert params_target == ("amazon_mx",)
 
 
 def test_hasta_omiso_es_ayer_utc():
@@ -692,6 +694,9 @@ def test_pg_lee_dinero_llena_ubicaciones_y_campanas():
         assert pantalla.por_ubicacion[3].gasta_sin_vender is True
         assert [f.campana_id for f in pantalla.por_campana] == [c1]
         assert pantalla.por_campana[0].estrategia == "fija"
+        assert pantalla.por_campana[0].avisos == (
+            "Campana 1: este presupuesto no limita. 100 MXN al día y gasta 3.",
+        )
 
 
 def test_como_dict_trae_ubicaciones_y_campanas_con_settings():
@@ -712,7 +717,9 @@ def test_como_dict_trae_ubicaciones_y_campanas_con_settings():
         ["arriba_de_busqueda", 40],
         ["paginas_de_producto", 10],
     ]
-    assert dato["por_campana"][0]["avisos"] == []
+    assert dato["por_campana"][0]["avisos"] == [
+        "Campana: este presupuesto no limita. 100 MXN al día y gasta 3."
+    ]
 
 
 def _fila_ubi_ui(**cambios):

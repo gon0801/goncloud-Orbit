@@ -1528,3 +1528,136 @@ def test_notifica_spapi_silencio_builder_roto_no_levanta(tmp_path, monkeypatch):
         assert (
             notifica.notifica_spapi_silencio([("spapi_orders", "amazon_mx")], desde, hasta) is False
         )
+
+
+# V.4 (BIDS 02 s3): avisar_campanas arma con lectores P.2a + avisos_del_dia.
+# ---------------------------------------------------------------------------
+
+
+class _Cursor9:
+    def __init__(self, filas):
+        self._filas = filas
+
+    def fetchall(self):
+        return self._filas
+
+    def fetchone(self):
+        return self._filas[0] if self._filas else None
+
+
+class _Conn9:
+    def __init__(self, respuestas):
+        self._respuestas = list(respuestas)
+
+    def execute(self, sql, params=None):
+        return _Cursor9(self._respuestas.pop(0))
+
+
+def _conn_campanas(*, ubicaciones=(), settings=(), campanas=(), gasto_diario=(), configs_hist=()):
+    return _Conn9(
+        [
+            list(ubicaciones),
+            list(settings),
+            list(campanas),
+            list(gasto_diario),
+            [],
+            list(configs_hist),
+            list(settings),
+        ]
+    )
+
+
+def test_avisar_campanas_envia_una_clase_y_devuelve_salio(canal_ok):
+    conn = _conn_campanas(
+        ubicaciones=[("fuera_de_amazon", Decimal("1735"), 1127, 0, Decimal("0"))],
+        settings=[({},)],
+    )
+    salieron = notifica.avisar_campanas(
+        conn, dt.date(2026, 10, 10), solo={("amazon_mx", "ubicacion_gasta_sin_vender")}
+    )
+    assert salieron == {("amazon_mx", "ubicacion_gasta_sin_vender"): True}
+    assert [m["text"] for m in canal_ok] == [
+        "Fuera de Amazon: 1,735 MXN en 30 días, 1,127 clics, ningún pedido."
+    ]
+
+
+def test_avisar_campanas_fallo_sigue_con_otras_clases(monkeypatch):
+    hoy = dt.date(2026, 10, 10)
+    conn = _conn_campanas(
+        ubicaciones=[("fuera_de_amazon", Decimal("1735"), 1127, 0, Decimal("0"))],
+        settings=[({},)],
+        campanas=[(7, "Tope", 99, Decimal("100"), "MANUAL", None, None, None)],
+        gasto_diario=[(7, hoy - dt.timedelta(days=i), Decimal("90")) for i in range(1, 6)],
+        configs_hist=[(7, hoy - dt.timedelta(days=10), Decimal("100"))],
+    )
+    llamadas = []
+    resultados = iter([False, True])
+
+    def _falso(texto):
+        llamadas.append(texto)
+        return next(resultados)
+
+    monkeypatch.setattr(notifica, "_envia_texto", _falso)
+    salieron = notifica.avisar_campanas(
+        conn,
+        hoy,
+        solo={
+            ("amazon_mx", "ubicacion_gasta_sin_vender"),
+            ("amazon_mx", "campana_sin_presupuesto"),
+        },
+    )
+    assert salieron == {
+        ("amazon_mx", "ubicacion_gasta_sin_vender"): False,
+        ("amazon_mx", "campana_sin_presupuesto"): True,
+    }
+    assert len(llamadas) == 2
+
+
+def test_avisar_campanas_lectura_us_fallida_no_tumba_mx(monkeypatch, canal_ok, caplog):
+    import app.pantalla_dinero as pd
+    from app.pantalla_dinero import FilaUbicacion
+
+    mx = FilaUbicacion(
+        ubicacion="fuera_de_amazon",
+        gasto=Decimal("1735"),
+        clics=1127,
+        pedidos=0,
+        venta=Decimal("0"),
+        cpc=None,
+        conversion_pct=None,
+        acos_pct=None,
+        parte_del_gasto_pct=None,
+        gasta_sin_vender=True,
+    )
+
+    def _ubi(conn, *, plataforma, desde, hasta):
+        if plataforma == "amazon_us":
+            raise RuntimeError("lectura rota")
+        return (mx,)
+
+    monkeypatch.setattr(pd, "lee_ubicaciones", _ubi)
+    monkeypatch.setattr(pd, "lee_campanas", lambda conn, **kwargs: ())
+    conn = _Conn9([[({},)]])
+    with caplog.at_level(logging.WARNING):
+        salieron = notifica.avisar_campanas(
+            conn,
+            dt.date(2026, 10, 10),
+            solo={
+                ("amazon_us", "ubicacion_gasta_sin_vender"),
+                ("amazon_mx", "ubicacion_gasta_sin_vender"),
+            },
+        )
+    assert salieron == {("amazon_mx", "ubicacion_gasta_sin_vender"): True}
+    assert "campanas: lectura de amazon_us fallida" in caplog.text
+    assert [m["text"] for m in canal_ok] == [
+        "Fuera de Amazon: 1,735 MXN en 30 días, 1,127 clics, ningún pedido."
+    ]
+
+
+def test_avisar_campanas_sin_casos_no_envia(monkeypatch):
+    uno = _conn_campanas(settings=[({},)])._respuestas
+    conn = _Conn9(uno + [list(r) for r in uno])
+    llamadas = []
+    monkeypatch.setattr(notifica, "_envia_texto", lambda texto: llamadas.append(texto))
+    assert notifica.avisar_campanas(conn, dt.date(2026, 10, 10)) == {}
+    assert llamadas == []
