@@ -314,6 +314,7 @@ Este paso no lleva pruebas nuevas: la fila es `[tdd:skip:docs]`.
    | `diseno/sintesis/design.md` | `docs/superpowers/specs/2026-10-09-bids-02-design.md` |
    | `diseno/sintesis/bosquejo.py`, `datos.sql`, `tabla-decision.md`, `borrado.md`, `PRUEBAS.md` y `SINTESIS-NOTA.md` | `docs/evidencia/bids-02/diseno/`, con el mismo nombre |
    | `diseno/sintesis/prototipos/*.py`, `*.txt` y `RESULTADOS.md` | `docs/evidencia/bids-02/diseno/prototipos/` |
+   | `diseno/sintesis/prototipos-base/*.py` y `RESULTADOS.md` | `docs/evidencia/bids-02/diseno/prototipos-base/` |
    | `diseno/sintesis/pruebas/*.py`, `*.sql`, `*.json` y `p4_salida.txt` | `docs/evidencia/bids-02/diseno/pruebas/` |
    | `plan/bids-02.md` | `plans/bids-02.md` |
    | `plan/bids-02-construccion.md` | `plans/bids-02-construccion.md` |

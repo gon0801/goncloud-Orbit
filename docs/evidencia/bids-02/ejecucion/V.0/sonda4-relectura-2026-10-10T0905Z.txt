@@ -1,0 +1,95 @@
+{
+ "sonda": "fuera_de_amazon",
+ "platform": "amazon_us",
+ "mutacion": false,
+ "envios": [],
+ "lecturas": [
+  {
+   "etapa": "antes",
+   "campana": {
+    "budget": {
+     "budget": 9.52,
+     "budgetType": "DAILY"
+    },
+    "campaignId": "138625505369345",
+    "dynamicBidding": {
+     "placementBidding": [
+      {
+       "percentage": 40,
+       "placement": "PLACEMENT_PRODUCT_PAGE"
+      }
+     ],
+     "strategy": "LEGACY_FOR_SALES"
+    },
+    "marketplaceBudgetAllocation": "MANUAL",
+    "name": "A1U - Auto Discovery - US",
+    "offAmazonSettings": {
+     "offAmazonBudgetControlStrategy": "MINIMIZE_SPEND"
+    },
+    "portfolioId": "168079743265695",
+    "startDate": "2026-03-12",
+    "state": "PAUSED",
+    "tags": {},
+    "targetingType": "AUTO"
+   }
+  }
+ ],
+ "perfil_id": 4387591165211712,
+ "campana": {
+  "campaignId": "138625505369345",
+  "name": "A1U - Auto Discovery - US"
+ },
+ "antes": {
+  "budget": {
+   "budget": 9.52,
+   "budgetType": "DAILY"
+  },
+  "campaignId": "138625505369345",
+  "dynamicBidding": {
+   "placementBidding": [
+    {
+     "percentage": 40,
+     "placement": "PLACEMENT_PRODUCT_PAGE"
+    }
+   ],
+   "strategy": "LEGACY_FOR_SALES"
+  },
+  "marketplaceBudgetAllocation": "MANUAL",
+  "name": "A1U - Auto Discovery - US",
+  "offAmazonSettings": {
+   "offAmazonBudgetControlStrategy": "MINIMIZE_SPEND"
+  },
+  "portfolioId": "168079743265695",
+  "startDate": "2026-03-12",
+  "state": "PAUSED",
+  "tags": {},
+  "targetingType": "AUTO"
+ },
+ "off_hoy": {
+  "offAmazonBudgetControlStrategy": "MINIMIZE_SPEND"
+ },
+ "cuerpos_planeados": [
+  {
+   "campaigns": [
+    {
+     "campaignId": "138625505369345",
+     "offAmazonSettings": {
+      "offAmazonBudgetControlStrategy": "MINIMIZE_SPEND"
+     }
+    }
+   ]
+  },
+  {
+   "campaigns": [
+    {
+     "campaignId": "138625505369345",
+     "offAmazonSettings": {
+      "offAmazonBudgetControlStrategy": "MAXIMIZE_REACH"
+     }
+    }
+   ]
+  }
+ ],
+ "iguales": null,
+ "resultado": "OK: simulacro sin escritura; cuerpos_planeados trae los dos"
+}

@@ -1,0 +1,92 @@
+{
+ "sonda": "presupuesto_campana",
+ "platform": "amazon_mx",
+ "mutacion": false,
+ "envios": [],
+ "lecturas": [
+  {
+   "etapa": "antes",
+   "campana": {
+    "budget": {
+     "budget": 500.0,
+     "budgetType": "DAILY"
+    },
+    "campaignId": "177498916708097",
+    "dynamicBidding": {
+     "placementBidding": [],
+     "strategy": "LEGACY_FOR_SALES"
+    },
+    "marketplaceBudgetAllocation": "MANUAL",
+    "name": "Oct 2020",
+    "offAmazonSettings": {},
+    "portfolioId": "61626745153177",
+    "startDate": "2020-10-15",
+    "state": "PAUSED",
+    "tags": {},
+    "targetingType": "AUTO"
+   }
+  }
+ ],
+ "perfil_id": 3850003733258937,
+ "campana": {
+  "campaignId": "177498916708097",
+  "name": "Oct 2020"
+ },
+ "campana_elegida_por": "menor campaignId entre PAUSED con DAILY",
+ "antes": {
+  "budget": {
+   "budget": 500.0,
+   "budgetType": "DAILY"
+  },
+  "campaignId": "177498916708097",
+  "dynamicBidding": {
+   "placementBidding": [],
+   "strategy": "LEGACY_FOR_SALES"
+  },
+  "marketplaceBudgetAllocation": "MANUAL",
+  "name": "Oct 2020",
+  "offAmazonSettings": {},
+  "portfolioId": "61626745153177",
+  "startDate": "2020-10-15",
+  "state": "PAUSED",
+  "tags": {},
+  "targetingType": "AUTO"
+ },
+ "cuerpos_planeados": {
+  "minimo": {
+   "campaigns": [
+    {
+     "campaignId": "177498916708097",
+     "budget": {
+      "budget": 0.01,
+      "budgetType": "DAILY"
+     }
+    }
+   ]
+  },
+  "cambio": {
+   "campaigns": [
+    {
+     "campaignId": "177498916708097",
+     "budget": {
+      "budget": 501.0,
+      "budgetType": "DAILY"
+     }
+    }
+   ]
+  },
+  "regreso": {
+   "campaigns": [
+    {
+     "campaignId": "177498916708097",
+     "budget": {
+      "budget": 500.0,
+      "budgetType": "DAILY"
+     }
+    }
+   ]
+  }
+ },
+ "iguales": null,
+ "resultado": "OK: simulacro sin escritura; cuerpos_planeados trae lo que mandaria"
+}

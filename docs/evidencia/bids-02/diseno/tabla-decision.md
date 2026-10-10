@@ -74,7 +74,7 @@ Escalera de precio (de dónde sale el CPC al bid de hoy), en orden:
 | Vendedora que pierde dinero con certeza | R3 | Recorte de 12 % o de 25 %. | Recorte de 25 %. |
 | Vendedora bajo el target con evidencia | R6, y después R16 | Subida de 15 %. Otra subida solo si la anterior trajo tráfico. | Subida de 15 % solo con 3 pedidos en 30 días. |
 | Vendedora con 1 pedido y pocos clics | R7 | Nada: un solo pedido no vence a la conversión de su ad group. | Nada (pedía 3 pedidos). |
-| Grupo en sangría en US | R4 y R11 | En el mes simulado se recortan 18 hojas que cargan 72 % del gasto de US, con 22 recortes de 12 %. | 138 recortes aplicados en 44 hojas. |
+| Grupo en sangría en US | R4 y R11 | En el mes simulado se recortan 17 hojas que cargan 72 % del gasto de US, con 22 recortes de 12 %. | 138 recortes aplicados en 44 hojas. |
 | Abstención | R5, R7, R8, R10, R12, R13, R18 | Nunca recorta. No existe regreso a otra política. | Con `evidencia_v2` encendida, la abstención regresaba a las bandas viejas. |
 | Recorte que desploma el tráfico | R1 | Regresa al bid anterior al quinto día y aprende ese piso (R17). | Seguía recortando sobre la misma ventana. |
 | Keyword que el dueño regresó desde la pantalla | R2, R15, R17 | Queda protegida: espera 7 días, exige 20 clics nuevos para recortar y no baja del bid que la dañó. | El motor la volvía a recortar al día siguiente. |
