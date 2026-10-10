@@ -1122,14 +1122,12 @@ def _avisos_campana_de(conn: ConexionLectura, plataforma: str) -> list[str] | No
     try:
         from app import avisos_campana as ac
         from app import pantalla_dinero as pd
-        from app.optimizer.goals import gasto_para_concluir_desde_settings
 
         hasta = _hoy_utc() - dt.timedelta(days=1)
         desde = hasta - dt.timedelta(days=pd.DIAS_UBICACION - 1)
         por_ubi = pd.lee_ubicaciones(conn, plataforma=plataforma, desde=desde, hasta=hasta)
         por_camp = pd.lee_campanas(conn, plataforma=plataforma, desde=desde, hasta=hasta)
-        fila = conn.execute(_SQL_CONFIG_VIGENTE).fetchone()
-        umbral = gasto_para_concluir_desde_settings(fila[1] if fila else {}, plataforma)
+        umbral = pd.umbral_concluir(conn, plataforma)
         return [
             aviso.frase
             for aviso in ac.avisos_del_dia(
