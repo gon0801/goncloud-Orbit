@@ -2397,10 +2397,14 @@ del SHA trae exactamente las dos lineas de cron (`git show
 <sha>:docs/DEPLOY.md | grep -E '^[0-9].*(--placements|avisos-campana)'`;
 el ancla `^[0-9]` deja fuera la fila de la tabla de crons). La guarda 5
 de la guia (instalar lineas de cron): respalda el crontab de `gon`,
-instala solo las dos lineas previstas y comprueba que el diff no trae
-nada mas; si trae otra cosa, restaura el respaldo y aborta. El respaldo
-queda en `/mnt/data/appdata/orbit/backups/crontab-gon-pre-d2-<sello>.txt`
-para `rollback.sh`.
+calcula las dos lineas en el paso 1c e instala en el 7b, tras el health
+del contenedor nuevo (instalar antes dejaria las lineas invocando
+comandos que la imagen vieja no tiene si un paso posterior aborta). El
+diff verificado trae solo las previstas; si trae otra cosa, aborta sin
+tocar nada. El respaldo queda en
+`/mnt/data/appdata/orbit/backups/crontab-gon-pre-d2-<sello>.txt` para
+`rollback.sh` (si desplegar no llego a 7b, no hay respaldo y el
+rollback salta el paso cron: el crontab quedo intacto).
 
 `checklist.sh` (solo lectura, salidas 0/1/3/4 del patron S.3) verifica
 `/health` en 200, la vista `v_campana_config_vigente` y las tablas de la

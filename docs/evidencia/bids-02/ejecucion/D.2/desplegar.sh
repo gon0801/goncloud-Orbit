@@ -9,8 +9,10 @@
 # docs/DEPLOY.md del SHA trae exactamente las dos lineas de cron con
 # `git show <sha>:docs/DEPLOY.md | grep -E '^[0-9].*(--placements|avisos-campana)'`.
 # Si una falla, aborta. La guarda 5 (cron): respalda el crontab de gon,
-# instala solo las lineas previstas y comprueba que el diff no trae nada
-# mas; si trae otra cosa, restaura el respaldo y aborta.
+# CALCULA las lineas en 1c e INSTALA en 7b (tras el health del contenedor
+# nuevo; instalar antes dejaria las lineas invocando comandos que la
+# imagen vieja no tiene si un paso posterior aborta). El diff verificado
+# trae solo las previstas; si trae otra cosa, aborta sin tocar nada.
 # En simulacion (ORBIT_SIMULACION=1) todo lo de datos corre de verdad contra
 # ORBIT_SIM_DSN, el crontab es el archivo ${TMPDIR:-/tmp}/orbit-d2-sim/crontab-gon
 # (sembrado del ORBIT_BLOCK del SHA sin placements + una linea accounting
@@ -162,7 +164,8 @@ AVISOS=$(printf '%s\n' "$LINEAS" | grep avisos-campana)
 echo "dos lineas de cron en el SHA OK"
 echo "guardas propias OK"
 
-echo "== 1c) Cron (guarda 5): respaldo, instalar las dos lineas, diff solo previsto"
+echo "== 1c) Cron (guarda 5): respaldo, CALCULAR las dos lineas, diff solo previsto (se instalan en 7b)"
+INSTALAR_CRON=0
 if [ "$SIM" = 1 ]; then
   if [ ! -f "$CRON_SIM" ]; then
     echo "SIMULACION: siembra del crontab pre-D.2 (bloque del SHA sin placements + linea accounting ajena)"
@@ -197,18 +200,14 @@ if [ -s "$NUEVO.agregadas" ]; then
   done < "$NUEVO.agregadas"
   echo "diff solo con lineas previstas:"
   cat "$NUEVO.agregadas"
-  if [ "$SIM" = 1 ]; then
-    mv "$NUEVO" "$CRON_SIM"
-    echo "SIMULACION: crontab instalado en $CRON_SIM (respaldo en $RESPALDO)"
-  else
-    ssh goncloud "mkdir -p $SRV/backups && cat > $SRV/backups/crontab-gon-pre-d2-$STAMP.txt" < "$RESPALDO"
-    cat "$NUEVO" | ssh goncloud "crontab -u gon -"
-    ssh goncloud "crontab -l -u gon" | grep -qF -- --placements || { echo "ABORTA: placements no quedo instalada"; exit 1; }
-    ssh goncloud "crontab -l -u gon" | grep -qF avisos-campana || { echo "ABORTA: avisos-campana no quedo instalada"; exit 1; }
-    echo "crontab instalado (respaldo en $SRV/backups/crontab-gon-pre-d2-$STAMP.txt)"
-  fi
+  # El crontab NO se toca aqui: instalar antes de migrar y recrear dejaria
+  # las lineas nuevas invocando comandos que la imagen vieja no tiene si un
+  # paso posterior aborta. Se instala en 7b, tras el health del contenedor
+  # nuevo; un abort previo deja el crontab intacto.
+  INSTALAR_CRON=1
+  echo "crontab calculado en $NUEVO (se instala en 7b; respaldo en $RESPALDO)"
 else
-  echo "las dos lineas ya estaban: crontab intacto"
+  echo "las dos lineas ya estaban: nada que instalar en 7b"
 fi
 
 echo "== 2) Respaldo del codigo actual y SHA (el .env NO se copia a ningun lado)"
@@ -308,6 +307,23 @@ else
     echo DIGEST despues=\$(docker inspect -f '{{.Image}}' orbit-app-1); \
     sleep 5; curl -sS http://127.0.0.1:8010/health; echo; \
     docker ps --filter name=orbit-app-1 --format '{{.Names}} {{.Status}}'"
+fi
+
+echo "== 7b) Cron: instalar lo calculado en 1c (tras el health del contenedor nuevo)"
+if [ "$INSTALAR_CRON" = 1 ]; then
+  if [ "$SIM" = 1 ]; then
+    mv "$NUEVO" "$CRON_SIM"
+    rm -f "$NUEVO.diff" "$NUEVO.agregadas"
+    echo "SIMULACION: crontab instalado en $CRON_SIM (respaldo en $RESPALDO)"
+  else
+    ssh goncloud "mkdir -p $SRV/backups && cat > $SRV/backups/crontab-gon-pre-d2-$STAMP.txt" < "$RESPALDO"
+    cat "$NUEVO" | ssh goncloud "crontab -u gon -"
+    ssh goncloud "crontab -l -u gon" | grep -qF -- --placements || { echo "ABORTA: placements no quedo instalada"; exit 1; }
+    ssh goncloud "crontab -l -u gon" | grep -qF avisos-campana || { echo "ABORTA: avisos-campana no quedo instalada"; exit 1; }
+    echo "crontab instalado (respaldo en $SRV/backups/crontab-gon-pre-d2-$STAMP.txt)"
+  fi
+else
+  echo "nada que instalar (1c no trajo lineas nuevas)"
 fi
 
 echo "== LISTO. STAMP=$STAMP"

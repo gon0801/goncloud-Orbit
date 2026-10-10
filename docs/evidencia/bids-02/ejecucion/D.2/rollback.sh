@@ -88,21 +88,29 @@ else
 fi
 
 echo "== 1) Cron: restaurar el respaldo pre-d2 (quita lo instalado) + restaurar codigo de predeploy-$STAMP"
+# Sin respaldo, desplegar.sh no llego a 7b (el crontab jamas se toco):
+# nada que restaurar, no aborta.
 if [ "$SIM" = 1 ]; then
-  [ -f "$RESPALDO_CRON" ] || { echo "ABORTA: no existe $RESPALDO_CRON"; exit 1; }
-  cp "$RESPALDO_CRON" "$CRON_SIM"
-  echo "SIMULACION: crontab restaurado del respaldo; respaldo $PRE presente; sin servidor, nada que reconstruir"
-  if grep -q -- --placements "$CRON_SIM" || grep -q avisos-campana "$CRON_SIM"; then
-    echo "ABORTA: el crontab restaurado todavia trae lineas de D.2"; exit 1
+  if [ ! -f "$RESPALDO_CRON" ]; then
+    echo "SIMULACION: sin respaldo cron (desplegar no llego a 7b): crontab intacto, nada que restaurar"
+  else
+    cp "$RESPALDO_CRON" "$CRON_SIM"
+    echo "SIMULACION: crontab restaurado del respaldo; respaldo $PRE presente; sin servidor, nada que reconstruir"
+    if grep -q -- --placements "$CRON_SIM" || grep -q avisos-campana "$CRON_SIM"; then
+      echo "ABORTA: el crontab restaurado todavia trae lineas de D.2"; exit 1
+    fi
+    echo "crontab sin lineas de D.2 OK"
   fi
-  echo "crontab sin lineas de D.2 OK"
 else
-  ssh goncloud "test -f $SRV/backups/crontab-gon-pre-d2-$STAMP.txt" || { echo "ABORTA: no existe el respaldo del crontab en el servidor"; exit 1; }
-  ssh goncloud "crontab -u gon $SRV/backups/crontab-gon-pre-d2-$STAMP.txt && crontab -l -u gon | grep -c -E 'cycle --platform'" || { echo "ABORTA: el crontab restaurado perdio las lineas del ciclo"; exit 1; }
-  if ssh goncloud "crontab -l -u gon | grep -E -e --placements -e avisos-campana"; then
-    echo "ABORTA: el crontab restaurado todavia trae lineas de D.2"; exit 1
+  if ! ssh goncloud "test -f $SRV/backups/crontab-gon-pre-d2-$STAMP.txt"; then
+    echo "sin respaldo cron en el servidor (desplegar no llego a 7b): crontab intacto, nada que restaurar"
+  else
+    ssh goncloud "crontab -u gon $SRV/backups/crontab-gon-pre-d2-$STAMP.txt && crontab -l -u gon | grep -c -E 'cycle --platform'" || { echo "ABORTA: el crontab restaurado perdio las lineas del ciclo"; exit 1; }
+    if ssh goncloud "crontab -l -u gon | grep -E -e --placements -e avisos-campana"; then
+      echo "ABORTA: el crontab restaurado todavia trae lineas de D.2"; exit 1
+    fi
+    echo "crontab restaurado sin lineas de D.2"
   fi
-  echo "crontab restaurado sin lineas de D.2"
   ssh goncloud "set -e; cd $SRV; [ -d predeploy-$STAMP/app ] || { echo 'ABORTA: no existe predeploy-$STAMP'; exit 1; }; \
     [ -f predeploy-$STAMP/docker-compose.yml ] || { echo 'ABORTA: predeploy-$STAMP sin docker-compose.yml'; exit 1; }; \
     rm -rf app tools; cp -a predeploy-$STAMP/app predeploy-$STAMP/tools .; \
