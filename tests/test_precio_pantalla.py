@@ -796,7 +796,8 @@ def test_precio_pantalla_huerfanas_exactas_vs_select():
 
 
 # ---------------------------------------------------------------------------
-# 6. /salud suma precios SIN cambiar las claves existentes
+# 6. /salud suma precios SIN cambiar las claves existentes (BIDS 02 V.4
+# agrega "avisos_campana" al set: bloque pedido por la guia, no accidente)
 # ---------------------------------------------------------------------------
 
 
@@ -809,6 +810,7 @@ def test_precio_pantalla_salud_agrega_precios_sin_cambiar_claves():
             assert set(data["plataformas"][plataforma]) == {
                 *_CLAVES_SALUD_PREVIAS,
                 "precios",
+                "avisos_campana",
             }
 
 
