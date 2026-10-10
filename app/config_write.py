@@ -88,8 +88,7 @@ def _antes(valor) -> str:
 
 
 def _aplica_motor_bid(nuevo: dict, cambios: list[str], platform: str, motor_bid: str) -> None:
-    """Rama M.3 de proxima_config (helper puro: baja la complejidad del
-    presupuesto guardrails-01). Solo los dos valores sellados viajan:
+    """Rama M.3 de proxima_config. Solo los dos valores sellados viajan:
     `niveles_v3` enciende, `apagado` QUITA la clave (ausente = el motor
     no mueve bids). Valor ajeno = SettingsInvalido (el endpoint solo
     manda su Literal: bandas_v1 -> 422)."""

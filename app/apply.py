@@ -1789,7 +1789,7 @@ class RegresoHecho:
     bid_ahora: Decimal  # el restaurado (bid anterior a la racha)
     moneda: str
     decision_revertida_id: int
-    actor: str  # quien pidio el regreso (X.1 guarda la respuesta completa)
+    actor: str
 
     def como_dict(self) -> dict:
         return {
@@ -1901,7 +1901,7 @@ def regreso_del_dueno_todas(
     llama a `regreso_del_dueno` hoja por hoja. Una falla no detiene a las
     demas: en su lugar va el motivo en texto, con su hoja. Idempotente."""
     _actor_no_vacio(actor)
-    pantalla = lee_danadas(conn, plataforma=plataforma)  # type: ignore[arg-type]
+    pantalla = lee_danadas(conn, plataforma=plataforma)
     pendientes = [h for h in pantalla.hojas if not h.ya_regresada]
     esperada = f"REGRESAR {len(pendientes)} KEYWORDS"
     if confirmacion != esperada:

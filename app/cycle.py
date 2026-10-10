@@ -1870,7 +1870,6 @@ def _procesa_grupo(
         target_margen_familia,
     )
     if target is None:
-        # BIDS 02 T.1: sin peldano el grupo se salta con sus terminos.
         contadores.skips_termino[MOTIVO_SIN_TARGET] += len(terminos.terminos)
         tick()
         return
@@ -2338,9 +2337,9 @@ def _recorre_plataforma(
     politica = g.politica_bid_desde_settings(settings, platform)
     lecturas: LecturasPlataforma | None = None
     if politica is not None:
-        # "Llamadas reales" del diseno: economia resuelta UNA vez por
-        # plataforma (las confianzas A3 corruptas tumban igual que hoy: el
-        # motor jamas ve los defaults 0.80/0.70) y cuatro consultas.
+        # Economia resuelta UNA vez por plataforma (las confianzas A3
+        # corruptas tumban igual que hoy; ausentes usan los defaults
+        # 0.80/0.70) y cuatro consultas.
         economia = EconomiaPlataforma(
             moneda=PLATAFORMAS_MONEDA[platform],
             equilibrio_acos_pct=target_ciclo.margen_neto_pct,

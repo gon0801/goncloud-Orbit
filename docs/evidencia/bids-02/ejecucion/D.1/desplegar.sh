@@ -25,7 +25,6 @@ TMPD=${TMPDIR:-/tmp}/orbit-d1-sim
 cd "$REPO"
 trap 'echo "FALLO en la linea $LINENO. Si ya se aplico alguna migracion: bash $DIR/rollback.sh $STAMP"' ERR
 
-# Lectura: en real con ORBIT_DSN_READ dentro del servidor; en sim local.
 q() {
   if [ "$SIM" = 1 ]; then
     psql "$DSN_SIM" -X -q -tA -v ON_ERROR_STOP=1
@@ -33,7 +32,6 @@ q() {
     ssh goncloud 'DSN=$(docker exec orbit-app-1 printenv ORBIT_DSN_READ); docker exec -i orbit-db-1 psql "$DSN" -X -q -tA -v ON_ERROR_STOP=1'
   fi
 }
-# Escritura de migraciones: en real el psql del contenedor db; en sim local.
 w() {
   if [ "$SIM" = 1 ]; then
     psql "$DSN_SIM" -q -v ON_ERROR_STOP=1 -1
@@ -41,7 +39,7 @@ w() {
     ssh goncloud 'docker exec -i orbit-db-1 psql -U orbit -d orbit -v ON_ERROR_STOP=1 -1'
   fi
 }
-guardas_proceso() {  # 0 = nadie corre app.cli dentro del contenedor
+guardas_proceso() {
   local top cli
   top=$(ssh goncloud "docker top orbit-app-1") || return 1
   cli=$(printf '%s\n' "$top" | grep -c 'app\.cli' || true)

@@ -1,12 +1,11 @@
 "use strict";
 // JS de la pantalla de keywords danadas (BIDS 02, P.3b). Vive en /static
 // por la CSP `default-src 'self'`: los <script> inline y los handlers on*=
-// quedan BLOQUEADOS por esa politica. El boton abre el mini-form de su fila
-// y el submit hace fetch POST /api/ads-optimizer/bid/regresar con el token
-// en el header x-orbit-token (la query string JAMAS autentica). "Regresar
-// todas" exige el literal REGRESAR <N> KEYWORDS exacto antes de mandar
-// POST /api/ads-optimizer/bid/regresar-todas; si una falla, la pantalla dice
-// cual quedo pendiente.
+// quedan BLOQUEADOS por esa politica. El submit hace fetch POST
+// /api/ads-optimizer/bid/regresar con el token en el header x-orbit-token
+// (la query string JAMAS autentica). "Regresar todas" exige el literal
+// REGRESAR <N> KEYWORDS exacto antes de mandar POST
+// /api/ads-optimizer/bid/regresar-todas.
 
 function regresar(form) {
   var estado = form.querySelector("[data-estado]");

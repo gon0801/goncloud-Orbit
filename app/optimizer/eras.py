@@ -132,8 +132,7 @@ def _factor_ventana_v1(
     expected_clicks: Decimal | None,
     costo_piso: Decimal,
 ) -> tuple[str | None, Decimal | None]:
-    """Seleccion de factor v1 (BIDS 01 regla A' + bandas de ventana):
-    (motivo, factor) o (None, None) sin banda."""
+    """Seleccion de factor v1 (BIDS 01 regla A' + bandas de ventana)."""
     factor = _factor_cero_ventas(bids, expected_clicks, costo_piso)
     motivo_banda = MOTIVO_BANDA_MENOS_25_CERO_VENTAS if factor is not None else None
     if factor is None:
@@ -143,7 +142,7 @@ def _factor_ventana_v1(
 
 
 def _dec_de_json(valor) -> Decimal | None:
-    """Decimal de vuelta desde el string congelado (regla 4; nunca float)."""
+    """Decimal de vuelta desde el string congelado."""
     return Decimal(str(valor)) if valor is not None else None
 
 
@@ -290,12 +289,10 @@ def _decide_v1(
                 motivo_bids_bloqueado = MOTIVO_DELTA_BAJO_UMBRAL
             else:
                 delta = nuevo - bid_actual
-                direccion_ok = (
-                    delta < 0 if factor_clamped < 0 else delta > 0
-                )  # la banda bajo -> baja; la banda subio -> sube
+                direccion_ok = delta < 0 if factor_clamped < 0 else delta > 0
                 magnitud_ok = delta <= CLAMP_FACTOR_MAX * bid_actual and (
                     -delta <= -CLAMP_FACTOR_MIN * bid_actual
-                )  # cambio final dentro de [-30%, +20%] (multiplicacion, sin division)
+                )
                 if not (direccion_ok and magnitud_ok):
                     motivo_bids_bloqueado = MOTIVO_RANGO_BLOQUEA_AJUSTE
                 else:
@@ -325,9 +322,7 @@ def _decide_v1(
 
 
 def _replay_bid(inputs: dict, target: Decimal | None = None) -> ResultadoBid:
-    """Re-decide una fila vieja (era bandas, sin inputs.politica) con el
-    camino v1 puro. (Mudado de replay.py: la rama via=decide murio con
-    evidencia_v2, que nunca decidio en vivo.)"""
+    """Re-decide una fila vieja (era bandas, sin inputs.politica) con el camino v1 puro."""
     assert inputs.get("politica") != POLITICA_BID, "fila nueva por el camino viejo"
     return _decide_v1(**_args_replay_bid(inputs, target))
 

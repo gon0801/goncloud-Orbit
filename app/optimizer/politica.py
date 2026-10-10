@@ -28,8 +28,7 @@ PASO_SUBIDA = Decimal("0.15")
 CLAMP_FACTOR_MIN = Decimal("-0.30")
 CLAMP_FACTOR_MAX = Decimal("0.20")
 MIN_DELTA_ABSOLUTO = Decimal("0.01")
-# Efecto del ultimo cambio.
-DIAS_EFECTO = 7  # dias para leer un cambio; es el cooldown de hoy con otro nombre (goals.COOLDOWN)
+DIAS_EFECTO = 7  # dias para leer un cambio; espejo de goals.COOLDOWN
 DIAS_GUARDA = 4  # la guarda de desplome ya discrimina con 4 dias (A4)
 DIAS_SALIDA = 14  # invertir direccion sin 20 clics nuevos: salida por tiempo (elegido; sin medir)
 CLICS_NUEVOS = 20  # clics al bid nuevo para repetir direccion (20 clics post-cambio, D.2)
@@ -188,7 +187,7 @@ def decide(caso: CasoHoja) -> Veredicto:
     if not target.is_finite() or target <= 0:
         raise ValueError(f"target_acos_pct invalido: {target!r} (debe ser > 0)")
 
-    # R0: PAUSE identico a hoy; solo un pause real interrumpe (un bloqueo informa y sigue).
+    # R0: PAUSE decide primero; solo un pause real interrumpe (un bloqueo se descarta y sigue).
     pausa, _motivo_bloqueado = _decide_pause(
         caso.pausa.cortes,
         caso.economia.plataforma.moneda,
@@ -556,9 +555,7 @@ def _paso(
         return Mantener(MOTIVO_DELTA_BAJO_UMBRAL)
     delta = nuevo - valor
     direccion_ok = delta < 0 if factor_c < 0 else delta > 0
-    magnitud_ok = delta <= CLAMP_FACTOR_MAX * valor and (
-        -delta <= -CLAMP_FACTOR_MIN * valor
-    )  # cambio final dentro de [-30 %, +20 %] (multiplicacion, sin division)
+    magnitud_ok = delta <= CLAMP_FACTOR_MAX * valor and (-delta <= -CLAMP_FACTOR_MIN * valor)
     if not (direccion_ok and magnitud_ok):
         return Mantener(MOTIVO_RANGO_BLOQUEA_AJUSTE)
     return Mover(factor, nuevo, motivo, nivel)

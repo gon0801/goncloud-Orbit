@@ -42,11 +42,11 @@ from app.optimizer.caso import (
 from app.optimizer.goals import COOLDOWN
 from app.optimizer.windows import DIAS_FRESCURA_BIDS
 
-DIAS_EFECTO = COOLDOWN.days  # pre7/post7 de EfectoCambio (goals.COOLDOWN: una fuente)
+DIAS_EFECTO = COOLDOWN.days  # pre7/post7 de EfectoCambio
 DIAS_PRECIO_DESDE = 33  # PrecioVentana cubre D-33..D-3 (docstring de caso, exporta M.1)
 DIAS_INMADUROS_DESDE = 9  # pedidos inmaduros cubren D-9..D-1 (docstring, exporta M.1)
 DIAS_INMADUROS_HASTA = 1
-DIAS_PRECIO_PREVIO = 30  # tramo de precio anterior al cambio (docstring de EfectoCambio)
+DIAS_PRECIO_PREVIO = 30  # tramo de precio anterior al cambio
 
 
 class Conexion(Protocol):
@@ -184,7 +184,6 @@ SELECT count(*) FILTER (WHERE v.metric_date BETWEEN %s AND %s),
 
 
 def _exige_tz(momento: dt.datetime, nombre: str) -> None:
-    """Rechaza un naive ruidosamente (misma regla que windows._fecha_utc)."""
     if momento.tzinfo is None:
         raise ValueError(f"{nombre} debe ser tz-aware: un naive evaluaria segun la TZ local")
 
@@ -230,7 +229,6 @@ def _junta(valores: list) -> Any:
 
 
 def _enrolla(niveles: list[EvidenciaNivel]) -> EvidenciaNivel | None:
-    """Roll-up en Python de varios niveles hoja (ausente si no hay hojas)."""
     if not niveles:
         return None
     return EvidenciaNivel(

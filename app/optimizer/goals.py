@@ -811,10 +811,8 @@ def clave_bid_politica(platform: str) -> str:
     return f"ads_bid_politica_{platform}"
 
 
-# Politica de bids vigente (BIDS 02 M.3, bosquejo goals.py): el UNICO valor
-# que enciende el motor. Espejo de caso.POLITICA_BID pineado en
-# tests/test_arq_bids_m.py (goals no puede importarlo: caso importa windows
-# y windows importa goals).
+# Politica de bids vigente (BIDS 02 M.3): el UNICO valor que enciende el
+# motor. Espejo de caso.POLITICA_BID pineado en tests/test_arq_bids_m.py.
 POLITICA_BID_VIGENTE = "niveles_v3"
 
 
@@ -929,8 +927,6 @@ def resuelve_target_margen(
     recortado = min(max(derivado, MARGEN_BANDA_MIN), MARGEN_BANDA_MAX)
     if ultimo is None:
         return ResolucionMargen(recortado, derivado, None, False)
-    # BIDS 02 T.1 (PASO_POLITICA): la subida aplica de una vez, la bajada
-    # camina a MARGEN_PASO_MAX_BAJADA por ciclo.
     if recortado >= ultimo:
         return ResolucionMargen(recortado, derivado, None, False)
     return ResolucionMargen(max(recortado, ultimo - MARGEN_PASO_MAX_BAJADA), derivado, None, False)

@@ -5,7 +5,7 @@
 # Dos diferencias propias de D.1. (1) Si una plataforma trae la clave de
 # politica, X.1 ya corrio: el rollback corre primero
 # docs/evidencia/bids-02/ejecucion/X.1/apagar.sh, que quita la clave (el
-# codigo anterior falla cerrado con niveles_v3). Sin apgar.sh a la mano,
+# codigo anterior falla cerrado con niveles_v3). Sin apagar.sh a la mano,
 # aborta antes de tocar nada. (2) NO regresa la fraccion: 0.8 es la
 # decision D1 y vale tambien con el codigo anterior. D.1 no instalo lineas
 # de cron: no hay nada que quitar.
@@ -13,7 +13,7 @@
 # y aplicadas-<sello>.txt viven en ${TMPDIR:-/tmp}/orbit-d1-sim y el codigo
 # no se restaura a ningun servidor (no hay). Solo en simulacion se acepta
 # ORBIT_APAGAR_SH_OVERRIDE para probar el orden de llamada; en modo real la
-# ruta de apgar.sh es siempre la fija.
+# ruta de apagar.sh es siempre la fija.
 # Uso: bash docs/evidencia/bids-02/ejecucion/D.1/rollback.sh <STAMP impreso por desplegar.sh>
 set -euo pipefail
 
@@ -87,7 +87,7 @@ else
   [ "$RC" = "0" ] || { echo "ABORTA: hay $RC ciclo(s) en running"; exit 1; }
 fi
 
-echo "== 0c) Clave de politica: si X.1 ya corrio, apgar.sh va primero"
+echo "== 0c) Clave de politica: si X.1 ya corrio, apagar.sh va primero"
 CLAVES=$(q <<'SQL'
 SELECT settings ? 'ads_bid_politica_amazon_mx', settings ? 'ads_bid_politica_amazon_us' FROM config_version ORDER BY id DESC LIMIT 1;
 SQL
@@ -106,8 +106,8 @@ if [ "$CLAVES" != "f|f" ]; then
 SELECT settings ? 'ads_bid_politica_amazon_mx', settings ? 'ads_bid_politica_amazon_us' FROM config_version ORDER BY id DESC LIMIT 1;
 SQL
 )
-  [ "$CLAVES" = "f|f" ] || { echo "ABORTA: apgar.sh corrio pero las claves siguen en $CLAVES"; exit 1; }
-  echo "apgar.sh OK: claves de vuelta en f|f"
+  [ "$CLAVES" = "f|f" ] || { echo "ABORTA: apagar.sh corrio pero las claves siguen en $CLAVES"; exit 1; }
+  echo "apagar.sh OK: claves de vuelta en f|f"
 else
   echo "X.1 no ha corrido: nada que apagar"
 fi

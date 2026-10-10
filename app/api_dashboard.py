@@ -2378,7 +2378,7 @@ def keywords_danadas(conn: ConexionLectura, plataforma: str | None = None) -> di
     mercado = plataforma or "amazon_mx"
     if mercado not in PLATAFORMAS_MONEDA:
         raise HTTPException(status_code=422, detail="plataforma fuera de vocabulario")
-    return pantalla_danadas.lee_danadas(conn, plataforma=mercado).como_dict()  # type: ignore[arg-type]
+    return pantalla_danadas.lee_danadas(conn, plataforma=mercado).como_dict()
 
 
 @router.get("/ruido")
@@ -2391,4 +2391,4 @@ def ruido(conn: ConexionLectura, plataforma: str | None = None) -> dict:
     mercado = plataforma or "amazon_mx"
     if mercado not in PLATAFORMAS_MONEDA:
         raise HTTPException(status_code=422, detail="plataforma fuera de vocabulario")
-    return pantalla_ruido.lee_ruido(conn, plataforma=mercado).como_dict()  # type: ignore[arg-type]
+    return pantalla_ruido.lee_ruido(conn, plataforma=mercado).como_dict()

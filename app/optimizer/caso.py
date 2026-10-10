@@ -78,26 +78,25 @@ class EvidenciaNivel:
         return self.reciente.gasto + PESO_ANTIGUO * self.antiguo.gasto
 
     def pedidos_crudos(self) -> int | None:
-        """Suma sin pesos de los dos tramos (la usan 'tiene pedidos', el minimo de 3
-        del grupo y la previa)."""
+        """Suma sin pesos de los dos tramos."""
         if self.reciente.pedidos is None or self.antiguo.pedidos is None:
             return None
         return self.reciente.pedidos + self.antiguo.pedidos
 
     def gasto_crudo(self) -> Decimal | None:
-        """Dinero gastado en la ventana, sin pesos: el dinero gastado es dinero gastado."""
+        """Dinero gastado en la ventana, sin pesos."""
         if self.reciente.gasto is None or self.antiguo.gasto is None:
             return None
         return self.reciente.gasto + self.antiguo.gasto
 
     def clics_crudos(self) -> int | None:
-        """Suma sin pesos (la usan la escalera de precio paso 4 y la previa entera)."""
+        """Suma sin pesos."""
         if self.reciente.clics is None or self.antiguo.clics is None:
             return None
         return self.reciente.clics + self.antiguo.clics
 
     def venta_cruda(self) -> Decimal | None:
-        """Suma sin pesos (la usa la previa entera)."""
+        """Suma sin pesos."""
         if self.reciente.venta is None or self.antiguo.venta is None:
             return None
         return self.reciente.venta + self.antiguo.venta
@@ -163,10 +162,10 @@ class EfectoCambio:
 @dataclass(frozen=True)
 class Trayectoria:
     """Historia de bids de la hoja en los ultimos 90 dias (ascendente) y el efecto del
-    ultimo cambio. Sustituye a tres piezas de hoy: cooldown de 7 dias, D.2 y cpc_vigente."""
+    ultimo cambio."""
 
     cambios: tuple[CambioBid, ...]
-    efecto: EfectoCambio | None  # None si y solo si `cambios` esta vacio
+    efecto: EfectoCambio | None
 
     def __post_init__(self) -> None:
         if (self.efecto is None) == bool(self.cambios):
@@ -230,8 +229,7 @@ class BidVigente:
 
 @dataclass(frozen=True)
 class InsumosPausa:
-    """Lo que PAUSE consume hoy, sin cambios (bid._decide_pause): ventana de cortes y
-    umbrales resueltos."""
+    """Lo que PAUSE consume (bid._decide_pause): ventana de cortes y umbrales resueltos."""
 
     cortes: AgregadoMetricas | None
     umbral_clics: int
