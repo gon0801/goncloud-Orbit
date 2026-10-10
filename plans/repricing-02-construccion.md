@@ -1063,9 +1063,12 @@ de producción. El token de escritura no sale del servidor ni se imprime.
   publicación de cada universo antes de pasar a `live`.
 - **X.4, Mercado Libre.** `sonda.sh` es la única que puede escribir con la
   forma sin sellar. Si pasa, abre un PR que cambia solo
-  `FORMA_ESCRITURA_MELI`. Si no pasa, corrige la forma candidata y repite,
-  tres intentos como máximo. Al tercero sin pasar, la fila X.4 queda cerrada
-  con el motivo.
+  `FORMA_ESCRITURA_MELI`. Con ese PR mergeado, vuelve a correr
+  `desplegar.sh <punta>` de D.4 antes de `encender.sh`: sin el código sellado
+  en producción, la corrida levanta `EscrituraNoDisponible` y no escribe. Si
+  no pasa, corrige la forma candidata en un PR, vuelve a desplegar y repite la
+  sonda, tres intentos como máximo. Al tercero sin pasar, la fila X.4 queda
+  cerrada con el motivo.
 
 ## Preguntas que siguen abiertas
 
