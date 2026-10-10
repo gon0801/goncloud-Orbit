@@ -20,7 +20,7 @@ imports):
 ```bash
 pg_isready -h 127.0.0.1 -p 5433                  # "accepting connections"
 TABS="$(psql "$ORBIT_TEST_DSN" -tAc "select count(*) from information_schema.tables where table_schema='public' and table_type='BASE TABLE'")"
-test "$TABS" = 71 || { echo "ESQUEMA INCOMPLETO: $TABS/71 tablas BASE" >&2; exit 1; }
+test "$TABS" = 72 || { echo "ESQUEMA INCOMPLETO: $TABS/72 tablas BASE" >&2; exit 1; }
 # Igualdad estricta con corte de flujo: un cluster parcial imprime el numero
 # chico y sale con error en vez de seguir. Sin table_type='BASE TABLE' daria 89
 # (incluye las 18 vistas v_*). NO usar `\dt | wc -l`: cuenta lineas, no tablas.

@@ -382,6 +382,7 @@ El server está en UTC: estas horas SON UTC.
 | 06:45 | `ingest:structure` | `python -m app.cli ingest structure` |
 | 07:10 | `ingest:metrics` | `python -m app.cli ingest metrics --fecha D-31 --fecha-fin D-1` |
 | 07:20 | `ingest:metrics:productos` | `python -m app.cli ingest metrics --fecha D-31 --fecha-fin D-1 --productos` (ORBIT 19 B.1; el reporte `spAdvertisedProduct` puede tardar hasta ~25 min por perfil, presupuesto de poll propio) |
+| 07:25 | `ingest:metrics:placements` | `python -m app.cli ingest metrics --fecha D-31 --fecha-fin D-1 --placements` (BIDS 02 V.2; `spCampaigns` por `campaignPlacement`, corrida propia) |
 | 08:40 | `ads_optimizer:amazon_us` + `ads_optimizer:amazon_mx` | `python -m app.cli cycle --platform …` (los dos, en serie) |
 | 09:30, 21:30 | `jev-senales` | `python -m app.cli jev-senales --aplicar` (JEV ADS 02 S.4; flock + log, linea exacta abajo) |
 | 13:10 | `precio:amazon_mx` | `python -m app.cli precio --platform amazon_mx` (REPRICING 01 A.5; flock + log, linea exacta abajo) |
@@ -633,6 +634,8 @@ ORBIT_BLOCK=$(cat <<'CRON'
 10 7 * * * FECHA=$(date -u -d "31 days ago" +\%F) FECHA_FIN=$(date -u -d "1 day ago" +\%F) && docker exec orbit-app-1 python -m app.cli ingest metrics --fecha "$FECHA" --fecha-fin "$FECHA_FIN" >> /mnt/data/appdata/orbit/logs/ingest-metrics.log 2>&1
 # job_key=ingest:metrics:productos  ORBIT 19 B.1 (spAdvertisedProduct por ASIN/SKU; poll hasta 25 min/reporte)
 20 7 * * * FECHA=$(date -u -d "31 days ago" +\%F) FECHA_FIN=$(date -u -d "1 day ago" +\%F) && docker exec orbit-app-1 python -m app.cli ingest metrics --fecha "$FECHA" --fecha-fin "$FECHA_FIN" --productos >> /mnt/data/appdata/orbit/logs/ingest-productos.log 2>&1
+# job_key=ingest:metrics:placements  BIDS 02 V.2 (spCampaigns por campaignPlacement)
+25 7 * * * FECHA=$(date -u -d "31 days ago" +\%F) FECHA_FIN=$(date -u -d "1 day ago" +\%F) && docker exec orbit-app-1 python -m app.cli ingest metrics --fecha "$FECHA" --fecha-fin "$FECHA_FIN" --placements >> /mnt/data/appdata/orbit/logs/ingest-placements.log 2>&1
 # job_key=ads-salud  A.3: 10:30 UTC y reintentos hasta 12:50
 */10 10-12 * * * docker exec orbit-app-1 python -m app.cli ads-salud >> /mnt/data/appdata/orbit/logs/ads-salud.log 2>&1
 # job_key=ads_optimizer:amazon_us + ads_optimizer:amazon_mx
@@ -646,7 +649,7 @@ SCRIPT
 ```
 
 Diff obligatorio contra el respaldo: las líneas de accounting deben
-seguir byte-iguales. Solo aparecen las seis líneas del bloque Orbit y sus comentarios.
+seguir byte-iguales. Solo aparecen las siete líneas del bloque Orbit y sus comentarios.
 
 ## Usuarios y DSN
 
