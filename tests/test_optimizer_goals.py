@@ -210,46 +210,6 @@ def test_confianza_bordes_validos_y_fuera_corrupta():
 # ---------------------------------------------------------------------------
 
 
-def test_motor_evidencia_ausente_es_viejo_por_plataforma():
-    """A6-M7 (clave-sin-platform): sin clave (o null) -> False en AMBAS
-    plataformas; la clave de UNA no enciende la otra. bandas_v1
-    explicito tambien es False (revertir es escribirlo, A6-r2 B1)."""
-    assert g.motor_evidencia_desde_settings({}, "amazon_us") is False
-    assert g.motor_evidencia_desde_settings({}, "amazon_mx") is False
-    assert (
-        g.motor_evidencia_desde_settings({"ads_bid_politica_amazon_us": None}, "amazon_us") is False
-    )
-    assert (
-        g.motor_evidencia_desde_settings({"ads_bid_politica_amazon_us": "bandas_v1"}, "amazon_us")
-        is False
-    )
-    solo_us = {"ads_bid_politica_amazon_us": "evidencia_v2"}
-    assert g.motor_evidencia_desde_settings(solo_us, "amazon_us") is True
-    assert g.motor_evidencia_desde_settings(solo_us, "amazon_mx") is False
-    assert g.clave_bid_politica("amazon_mx") == "ads_bid_politica_amazon_mx"
-
-
-def test_motor_evidencia_solo_v2_exacta_y_lo_demas_corrupto():
-    """A6-M8 (default-silencioso): SOLO "evidencia_v2" exacto enciende;
-    PRESENTE con cualquier otro valor ("" a mano, mayusculas, el ID
-    viejo "evidencia", basura, numero) = config CORRUPTA (ValueError,
-    falla cerrado como target/fraccion/confianzas)."""
-    assert (
-        g.motor_evidencia_desde_settings(
-            {"ads_bid_politica_amazon_us": "evidencia_v2"}, "amazon_us"
-        )
-        is True
-    )
-    for malo in ("", "EVIDENCIA_V2", "Evidencia_v2", "evidencia", "bandas", " ", 1, True):
-        with pytest.raises(ValueError, match="politica de bids"):
-            g.motor_evidencia_desde_settings({"ads_bid_politica_amazon_us": malo}, "amazon_us")
-
-
-# ---------------------------------------------------------------------------
-# Floor/ceiling con defaults POR MONEDA (ORBIT 05 preflight 1.2)
-# ---------------------------------------------------------------------------
-
-
 def test_floor_ceiling_usd_guarda_declarada():
     """(b) GUARDA declarada del preflight 1.2, verde ANTES y DESPUES (su
     "verde en rojo" va anotado en el log: la afirmacion no cambia, solo la
@@ -398,8 +358,7 @@ def test_sql_del_modulo_parsea_como_postgres():
     candado."""
     nombres = sorted(n for n in dir(g) if n.startswith("_SQL_"))
     assert nombres, "goals.py sin constantes _SQL_*: el candado quedo ciego"
-    assert "_SQL_EN_COOLDOWN" in nombres
-    assert "_SQL_ULTIMO_BID_APLICADO" in nombres
+    assert nombres == ["_SQL_EN_COOLDOWN"]
     for nombre in nombres:
         sql = getattr(g, nombre).replace("%s", "NULL")
         assert pglast.parse_sql(sql), f"{nombre} no parseo"
@@ -1274,3 +1233,33 @@ def test_gasto_para_concluir_invalido_falla_cerrado():
     # numero (mismo trato que DEFAULTS_POR_MONEDA).
     with pytest.raises(ValueError, match="sin default inventado"):
         g.gasto_para_concluir_desde_settings({}, "meli")
+
+
+# ---------------------------------------------------------------------------
+# Interruptor de la politica de bids (BIDS 02 M.3): niveles_v3 o ausente
+# ---------------------------------------------------------------------------
+
+
+def test_politica_bid_ausente_apaga_por_plataforma():
+    """M.3: sin clave (o null) -> None en AMBAS plataformas; la clave de
+    UNA no enciende la otra. Ausente = el motor no mueve bids ahi."""
+    assert g.politica_bid_desde_settings({}, "amazon_us") is None
+    assert g.politica_bid_desde_settings({}, "amazon_mx") is None
+    assert g.politica_bid_desde_settings({"ads_bid_politica_amazon_us": None}, "amazon_us") is None
+    solo_us = {"ads_bid_politica_amazon_us": "niveles_v3"}
+    assert g.politica_bid_desde_settings(solo_us, "amazon_us") == "niveles_v3"
+    assert g.politica_bid_desde_settings(solo_us, "amazon_mx") is None
+    assert g.clave_bid_politica("amazon_mx") == "ads_bid_politica_amazon_mx"
+
+
+def test_politica_bid_solo_niveles_exacta_y_lo_demas_corrupto():
+    """M.3: SOLO "niveles_v3" exacto enciende; PRESENTE con cualquier otro
+    valor (incluidos los IDs viejos "bandas_v1" y "evidencia_v2") =
+    config CORRUPTA (ValueError, falla cerrado como target/confianzas)."""
+    assert (
+        g.politica_bid_desde_settings({"ads_bid_politica_amazon_us": "niveles_v3"}, "amazon_us")
+        == "niveles_v3"
+    )
+    for malo in ("", "bandas_v1", "evidencia_v2", "NIVELES_V3", "niveles", " ", 1, True):
+        with pytest.raises(ValueError, match="politica de bids"):
+            g.politica_bid_desde_settings({"ads_bid_politica_amazon_us": malo}, "amazon_us")

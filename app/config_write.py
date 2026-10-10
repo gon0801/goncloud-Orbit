@@ -88,22 +88,24 @@ def _antes(valor) -> str:
 
 
 def _aplica_motor_bid(nuevo: dict, cambios: list[str], platform: str, motor_bid: str) -> None:
-    """Rama A6 de proxima_config (helper puro: baja la complejidad del
+    """Rama M.3 de proxima_config (helper puro: baja la complejidad del
     presupuesto guardrails-01). Solo los dos valores sellados viajan:
-    `evidencia_v2` enciende, `bandas_v1` explicito revierte (plan A6
-    carril 10); la ausencia sigue leyendo como v1 pero el editor no la
-    escribe ni la popea. Valor ajeno = 422 (el endpoint solo manda su
-    Literal)."""
+    `niveles_v3` enciende, `apagado` QUITA la clave (ausente = el motor
+    no mueve bids). Valor ajeno = SettingsInvalido (el endpoint solo
+    manda su Literal: bandas_v1 -> 422)."""
     k_motor = g.clave_bid_politica(platform)
-    if motor_bid in (g.POLITICA_BANDAS_V1, g.POLITICA_BANDAS_EVIDENCIA):
+    if motor_bid == "apagado":
+        if k_motor in nuevo:
+            cambios.append(f"motor bid {nuevo.pop(k_motor)} -> ausente")
+        return
+    if motor_bid == g.POLITICA_BID_VIGENTE:
         if nuevo.get(k_motor) != motor_bid:
             cambios.append(f"motor bid {_antes(nuevo.get(k_motor))} -> {motor_bid}")
             nuevo[k_motor] = motor_bid
-    else:
-        raise SettingsInvalido(
-            f"motor bid debe ser {g.POLITICA_BANDAS_V1!r} o"
-            f" {g.POLITICA_BANDAS_EVIDENCIA!r}, llego {motor_bid!r}"
-        )
+        return
+    raise SettingsInvalido(
+        f"motor bid debe ser {g.POLITICA_BID_VIGENTE!r} o 'apagado', llego {motor_bid!r}"
+    )
 
 
 def proxima_config(
@@ -196,7 +198,7 @@ def proxima_config(
         g.fraccion_desde_settings(nuevo, platform)
         g.confianza_recorte_desde_settings(nuevo, platform)
         g.confianza_subida_desde_settings(nuevo, platform)
-        g.motor_evidencia_desde_settings(nuevo, platform)
+        g.politica_bid_desde_settings(nuevo, platform)
     except ValueError as exc:
         raise SettingsInvalido(str(exc)) from None
     return nuevo, cambios

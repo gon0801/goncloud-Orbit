@@ -521,41 +521,62 @@ def bids_del_ciclo(conn: psycopg.Connection, cycle_id: int) -> list[DecisionBid]
     ]
 
 
-# Prioridad por urgencia de hemorragia (sellado 8): el motivo es el
-# vocabulario del motor de bids (bid.MOTIVO_* via _MOTIVO_BANDA).
-# BIDS 01: el motivo nuevo de cero ventas compite con la prioridad de -25%
-# (D6 sellado; literal porque este modulo no importa bid — el vocabulario
-# cerrado lo pinean los tests).
-_PRIORIDAD_BANDA = {
-    "banda_menos_25": 0,
-    "banda_menos_25_cero_ventas": 0,
-    "banda_menos_12": 1,
-    "banda_mas_15": 2,
-}
-# Clave de orden para costo desconocido (regla 3): dentro de SU banda, al
+# Clave de orden para gasto desconocido (regla 3): dentro de SU nivel, al
 # final — es una clave de ORDEN, no un valor de negocio.
-_COSTO_DESCONOCIDO = Decimal(-1)
+_GASTO_DESCONOCIDO = Decimal(-1)
 
 
-def _clave_orden(decision: DecisionBid) -> tuple[int, Decimal]:
-    motivo = decision.inputs.get("motivo")
-    banda = _PRIORIDAD_BANDA.get(motivo, len(_PRIORIDAD_BANDA))
-    ventanas = decision.inputs.get("ventanas") or {}
-    cortes = ventanas.get("cortes") or {}
-    cost = cortes.get("cost")
+def prioridad_bajo_cupo(veredicto_kind: str, motivo: str) -> int:
+    """Nivel de seleccion bajo cap (BIDS 02 M.3, bosquejo apply.py): 0
+    regresos (R1), 1 recortes con evidencia propia (R3, R9), 2 subidas
+    (R6), 3 recortes heredados del ad group (R4, R11); lo demas al
+    final. Motivos como literales, como hoy (este modulo no importa
+    bid/politica; cada literal se pinea contra politica.py en tests)."""
+    if veredicto_kind == "Regresar" or motivo == "regreso_por_desplome":
+        return 0
+    if motivo in (
+        "pierde_dinero",
+        "pierde_dinero_fuerte",
+        "gasto_sin_venta",
+        "gasto_sin_venta_doble",
+    ):
+        return 1
+    if motivo == "bajo_target":
+        return 2
+    if motivo in ("grupo_sangra_vendedora", "grupo_sangra"):
+        return 3
+    return 4
+
+
+def _gasto_caso(inputs: dict) -> Decimal | None:
+    """Gasto crudo de la hoja (el que R9 compara con el gasto para
+    concluir): reciente.gasto + antiguo.gasto de inputs.caso.propia.
+    None si falta el caso o algun tramo (regla 3)."""
     try:
-        costo = Decimal(str(cost)) if cost is not None else _COSTO_DESCONOCIDO
-    except ArithmeticError:  # InvalidOperation: cost corrupto -> como None
-        costo = _COSTO_DESCONOCIDO
-    return (banda, -costo)
+        propia = (inputs.get("caso") or {}).get("propia") or {}
+        reciente = (propia.get("reciente") or {}).get("gasto")
+        antiguo = (propia.get("antiguo") or {}).get("gasto")
+        if reciente is None or antiguo is None:
+            return None
+        return Decimal(str(reciente)) + Decimal(str(antiguo))
+    except ArithmeticError:  # InvalidOperation: gasto corrupto -> como None
+        return None
 
 
-def orden_bids(decisiones: list[DecisionBid]) -> list[DecisionBid]:
-    """Orden sellado de seleccion bajo cap: banda_menos_25 =
-    banda_menos_25_cero_ventas (BIDS 01) > banda_menos_12 > banda_mas_15 y,
-    dentro de cada banda, costo de la ventana DESC (la hemorragia mas cara
-    primero)."""
-    return sorted(decisiones, key=_clave_orden)
+def _clave_cupo(decision: DecisionBid) -> tuple[int, Decimal]:
+    nivel = prioridad_bajo_cupo(
+        decision.inputs.get("veredicto_kind"), decision.inputs.get("motivo")
+    )
+    gasto = _gasto_caso(decision.inputs)
+    return (nivel, -gasto if gasto is not None else -_GASTO_DESCONOCIDO)
+
+
+def orden_bajo_cupo(decisiones: list[DecisionBid]) -> list[DecisionBid]:
+    """Orden sellado de seleccion bajo cap: regresos > recortes con
+    evidencia propia > subidas > recortes heredados y, dentro de cada
+    nivel, gasto crudo de la hoja DESC (el de mas gasto primero; gasto
+    desconocido al final de su nivel)."""
+    return sorted(decisiones, key=_clave_cupo)
 
 
 # ---------------------------------------------------------------------------
@@ -1323,7 +1344,7 @@ class Aplicador:
         sello de ledger + resumen + cache + applied_count (ver docstring del
         modulo). >=400 se captura (ledger sellado con el cuerpo); 5xx/fallo
         ambiguo SUBE (ledger sin sello: la fila ES el rastro)."""
-        ordenadas = orden_bids(decisiones)
+        ordenadas = orden_bajo_cupo(decisiones)
         skips: list[str] = []
         descartadas: list[str] = []
         aplicadas = 0

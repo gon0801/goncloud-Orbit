@@ -1,0 +1,8 @@
+estado: COMPLETA
+inicio_utc: 2026-10-10T13:27:13Z
+fin_utc: 2026-10-10T13:27:18Z
+commit_del_repo: 1767a25426b3bb1d4ab4a4aa363d85d1399b3b0e
+consultas_con_cambios_sin_commitear: 1
+salidas:
+  6494c64f1fcf36222461872535eea95621bca7e55a4233f3044923ba191868f0  01-margen.txt
+  3b6041ccc272c45bb19084bb1dcd810ea6984990cd4985d75851987ab500e40f  02-config.txt

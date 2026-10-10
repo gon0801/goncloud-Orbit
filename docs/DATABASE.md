@@ -228,9 +228,10 @@ valores `off|shadow|live`, ausente → `off` fail-closed),
 `ads_confianza_recorte_<platform>` / `ads_confianza_subida_<platform>`
 (A3: lo conservador del motor, en [0.50, 0.99]; ausentes → defaults
 0.80/0.70; fuera de rango = config corrupta, fail-closed) y
-`ads_bid_politica_<platform>` (A6: `evidencia_v2` = el vivo decide con
-evidencia v2, `bandas_v1` o ausente = bandas v1; cualquier otro valor
-presente = config corrupta, fail-closed; solo-nueva, sin migraciones).
+`ads_bid_politica_<platform>` (BIDS 02 M.3: `niveles_v3` = el vivo
+decide con niveles_v3, ausente = el motor no mueve bids (solo PAUSE,
+negative y harvest); cualquier otro valor presente = config corrupta,
+fail-closed; solo-nueva, sin migraciones).
 **`settings` JAMÁS contiene credenciales**: `app_read` tiene SELECT aquí.
 Contrato fail-closed completo: `ads_optimizer_mode` ausente, NULL o inválida → `off`
 (una config corrupta jamás habilita `live`); si el modo efectivo es `live` sin

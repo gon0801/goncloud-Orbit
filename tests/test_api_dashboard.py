@@ -1952,9 +1952,9 @@ def test_motivo_cero_ventas_tiene_etiqueta_en_decisiones():
     """BIDS 01: el motivo nuevo de cero ventas tiene traduccion en el feed
     (sin ella la pantalla mostraria el id crudo)."""
     from app.api_dashboard import MOTIVOS_ES_DECISIONES
-    from app.optimizer import bid as bid_mod
+    from app.optimizer import eras as eras_mod
 
-    assert MOTIVOS_ES_DECISIONES[bid_mod.MOTIVO_BANDA_MENOS_25_CERO_VENTAS].startswith(
+    assert MOTIVOS_ES_DECISIONES[eras_mod.MOTIVO_BANDA_MENOS_25_CERO_VENTAS].startswith(
         "Cero ventas"
     )
 
@@ -2469,18 +2469,18 @@ def test_motivos_v2_en_ambos_dicts_es():
     """A4: las abstenciones v2 viven en DECISIONES (plan-literal) y en
     SALUD (clase no-op, forward-A6; precedente MOTIVO_PAUSE dual)."""
     from app.api_dashboard import MOTIVOS_ES_DECISIONES, MOTIVOS_ES_SALUD
-    from app.optimizer import bid as b
+    from app.optimizer import evidencia as ev
 
-    assert MOTIVOS_ES_DECISIONES[b.MOTIVO_EVIDENCIA_INSUFICIENTE] == (
+    assert MOTIVOS_ES_DECISIONES[ev.MOTIVO_EVIDENCIA_INSUFICIENTE] == (
         "Sin evidencia: la posterior no alcanza la confianza para ajustar"
     )
-    assert MOTIVOS_ES_DECISIONES[b.MOTIVO_CPC_POST_CAMBIO_INSUFICIENTE] == (
+    assert MOTIVOS_ES_DECISIONES[ev.MOTIVO_CPC_POST_CAMBIO_INSUFICIENTE] == (
         "CPC desconocido tras el cambio: menos de 20 clics al bid vigente"
     )
-    assert MOTIVOS_ES_SALUD[b.MOTIVO_EVIDENCIA_INSUFICIENTE] == (
+    assert MOTIVOS_ES_SALUD[ev.MOTIVO_EVIDENCIA_INSUFICIENTE] == (
         "Sin evidencia: la posterior no alcanza la confianza para ajustar"
     )
-    assert MOTIVOS_ES_SALUD[b.MOTIVO_CPC_POST_CAMBIO_INSUFICIENTE] == (
+    assert MOTIVOS_ES_SALUD[ev.MOTIVO_CPC_POST_CAMBIO_INSUFICIENTE] == (
         "CPC desconocido tras el cambio: menos de 20 clics al bid vigente"
     )
 

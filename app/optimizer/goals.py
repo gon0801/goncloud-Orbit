@@ -3,7 +3,7 @@
 Resuelve QUE config gobierna a cada entidad y con que modo corre el ciclo.
 No decide bids ni cortes: 2.2/2.3 consumen lo que aqui se resuelve, y 3.1
 (orquestador) es quien lo congela en decision.inputs. La IO del modulo son
-DOS lecturas sobre decision_application: en_cooldown y ultimo_bid_aplicado.
+UNA lectura sobre decision_application: en_cooldown.
 
 Reglas selladas (plans/orbit-03.md task 2.4 + Spec delta de CONTEXTO.md):
 
@@ -73,23 +73,12 @@ Reglas selladas (plans/orbit-03.md task 2.4 + Spec delta de CONTEXTO.md):
   contra applied_cycle_id (el ciclo que EJECUTO, sellado con verify_ok en
   0002), no contra d.cycle_id (el que decidio): la decision shadow aplicada
   en live SI enfria desde el apply.
-- ANTI-INVERSION D.2 (ads-proteccion-01; decision del dueno "N = 10",
-  D.2/decision.md): tras un BID aplicado (verify_ok IS TRUE, ciclo
-  ejecutor live), la direccion CONTRARIA exige >= DIAS_EVIDENCIA_INVERSION
-  dias de evidencia posterior al cambio: de la fecha UTC del confirmed_at
-  del ULTIMO bid aplicado hasta el fin de la ventana de bids de la
-  entidad. Misma direccion y PAUSE no se frenan; historia rota o ventana
-  desconocida bloquean (fail-closed). La decision es PURA
-  (permite_reversa_bid) y la consulta la hace ultimo_bid_aplicado; el
-  gate vive en cycle._procesa_decisora (despues del cooldown B.2 y del
-  no-op, solo kind 'bid'), NUNCA dentro de decide_bid: mezclaria la
-  historia de applies con la regla pura.
 - DETERMINISMO: no hay now() escondido; `ahora` llega por parametro y DEBE
   ser tz-aware (mismo principio que windows._fecha_utc, replicado aqui
   localmente: no se importan privados de otro modulo).
 
 SQL del modulo (LECTURA; la parsea el test de sintaxis con pglast):
-_SQL_EN_COOLDOWN y _SQL_ULTIMO_BID_APLICADO.
+_SQL_EN_COOLDOWN.
 """
 
 from __future__ import annotations
@@ -99,8 +88,6 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Literal
-
-from app.optimizer.evidencia import MIN_CLICS_CPC, CostoPorClic
 
 if TYPE_CHECKING:
     import psycopg
@@ -137,15 +124,6 @@ CLAVE_SETTING_PROPUESTAS_CAMPANA = "ads_propuestas_campana"
 HAY_MODULO_APPLY = True
 
 COOLDOWN = dt.timedelta(days=7)  # por ENTIDAD; comparador ESTRICTO en el umbral
-
-# D.2 (ads-proteccion-01): dias de evidencia posterior al cambio que exige
-# la direccion contraria de un BID aplicado. Literal del dueno "N = 10"
-# (D.2/decision.md), alineado al invariante de maduracion >=10d.
-DIAS_EVIDENCIA_INVERSION = 10
-POLITICA_INVERSION = "inversion_n10_v1"  # se congela en inputs.inversion_policy_version
-# A6: bajo evidencia_v2 D.2 ya no cuenta dias sino CPC post-cambio con
-# >= MIN_CLICS_CPC clics (evidencia.py, fuente unica del 20).
-POLITICA_INVERSION_EVIDENCIA = "inversion_cpc20_v2"
 
 # Reticulo de modos: off < shadow < live. modo_efectivo es el INFIMO (meet).
 MODOS = ("off", "shadow", "live")
@@ -584,106 +562,6 @@ def en_cooldown(
     ).fetchone()[0]
 
 
-# D.2 (ads-proteccion-01): historia del ULTIMO BID aplicado de la entidad.
-# Mismos filtros que _SQL_EN_COOLDOWN (verify_ok IS TRUE, ciclo EJECUTOR
-# live via applied_cycle_id) mas kind='bid', y SOLO la fila mas reciente:
-# la direccion vigente es la del ultimo cambio aplicado, no la del primero.
-# confirmed_at se convierte a fecha UTC EN PYTHON: un ::date en SQL usaria
-# la zona de la sesion.
-_SQL_ULTIMO_BID_APLICADO = """
-SELECT d.old_value, d.new_value, da.confirmed_at
-  FROM decision_application da
-  JOIN decision d ON d.id = da.decision_id
-  JOIN optimizer_cycle oc ON oc.id = da.applied_cycle_id AND oc.mode = 'live'
- WHERE d.ad_entity_id = %s
-   AND d.kind = 'bid'
-   AND da.verify_ok IS TRUE
- ORDER BY da.confirmed_at DESC
- LIMIT 1
-"""
-
-
-@dataclass(frozen=True)
-class SinHistoriaBid:
-    """La entidad no tiene NINGUN bid aplicado verificado en vivo: D.2 no
-    aplica y la decision se emite."""
-
-
-@dataclass(frozen=True)
-class HistoriaBidRota:
-    """El ultimo bid aplicado es inservible (old/new None o iguales, o sin
-    confirmed_at): fail-closed, la reversa queda bloqueada."""
-
-
-@dataclass(frozen=True)
-class UltimoBidAplicado:
-    """El ultimo bid aplicado verificado: subio (+1) o bajo (-1), y en que
-    fecha UTC quedo confirmado el cambio."""
-
-    direccion: Literal[-1, 1]
-    fecha_cambio: dt.date
-
-
-HistoriaUltimoBid = SinHistoriaBid | HistoriaBidRota | UltimoBidAplicado
-
-
-def ultimo_bid_aplicado(conn: psycopg.Connection, ad_entity_id: int) -> HistoriaUltimoBid:
-    """Historia del ULTIMO bid aplicado verificado en vivo de la entidad
-    (mismos filtros que en_cooldown mas kind='bid'), o SinHistoriaBid si
-    nunca tuvo uno. Es la unica pieza impura de D.2: parcheable desde los
-    harnesses que corren _procesa_decisora con conn=object(). La fecha del
-    cambio es la fecha UTC de confirmed_at, convertida en Python (un
-    ::date en SQL usaria la TZ de la sesion); una fila inservible devuelve
-    HistoriaBidRota (fail-closed), jamas una direccion inventada."""
-    fila = conn.execute(_SQL_ULTIMO_BID_APLICADO, (ad_entity_id,)).fetchone()
-    if fila is None:
-        return SinHistoriaBid()
-    viejo, nuevo, confirmado = fila
-    if viejo is None or nuevo is None or nuevo == viejo or confirmado is None:
-        return HistoriaBidRota()
-    return UltimoBidAplicado(
-        direccion=1 if nuevo > viejo else -1,
-        fecha_cambio=confirmado.astimezone(dt.UTC).date(),
-    )
-
-
-def permite_reversa_bid(
-    historia: HistoriaUltimoBid,
-    *,
-    nueva_direccion: Literal[-1, 1],
-    fin_ventana_bids: dt.date | None,
-    motor_evidencia: bool = False,
-    cpc: CostoPorClic | None = None,
-) -> bool:
-    """Pura (D.2): True si la hoja puede mover el bid en `nueva_direccion`
-    dada la historia del ultimo bid aplicado. Misma direccion: siempre.
-    Reversa bajo bandas_v1: exige >= DIAS_EVIDENCIA_INVERSION dias de
-    evidencia posterior al cambio (fin de la ventana de bids menos la
-    fecha UTC del cambio); historia rota o ventana desconocida (None)
-    bloquean (fail-closed). El fin de ventana llega del AGREGADO que
-    decidiria (ventanas.bids), jamas del reloj: contar dias de reloj es
-    justo el error del caso 3835. Reversa bajo evidencia_v2 (A6): el
-    check de dias se REEMPLAZA por el CPC post-cambio que el ciclo ya
-    midio antes del vivo (>= MIN_CLICS_CPC clics, post_cambio True); CPC
-    ausente o corto bloquea (fail-closed)."""
-    if isinstance(historia, SinHistoriaBid):
-        return True
-    if isinstance(historia, HistoriaBidRota):
-        return False
-    if historia.direccion == nueva_direccion:
-        return True
-    if motor_evidencia:
-        return (
-            cpc is not None
-            and cpc.post_cambio
-            and cpc.clicks is not None
-            and cpc.clicks >= MIN_CLICS_CPC
-        )
-    if fin_ventana_bids is None:
-        return False
-    return (fin_ventana_bids - historia.fecha_cambio).days >= DIAS_EVIDENCIA_INVERSION
-
-
 # ---------------------------------------------------------------------------
 # ORBIT 06 2.3 - peldano margen_plataforma: medicion + resolucion pura
 # ---------------------------------------------------------------------------
@@ -923,13 +801,8 @@ def gasto_para_concluir_desde_settings(settings: Mapping, platform: str) -> Deci
 
 
 # ---------------------------------------------------------------------------
-# Motor de bids por plataforma (A6): bandas v1 o evidencia v2.
+# Interruptor de la politica de bids por plataforma (BIDS 02 M.3).
 # ---------------------------------------------------------------------------
-
-# Politica de bandas (fuente unica; bid.py la re-exporta): los IDs que
-# el interruptor ads_bid_politica_<platform> acepta (plan A6).
-POLITICA_BANDAS_V1 = "bandas_v1"
-POLITICA_BANDAS_EVIDENCIA = "evidencia_v2"
 
 
 def clave_bid_politica(platform: str) -> str:
@@ -938,27 +811,31 @@ def clave_bid_politica(platform: str) -> str:
     return f"ads_bid_politica_{platform}"
 
 
-def motor_evidencia_desde_settings(settings: Mapping, platform: str) -> bool:
-    """True SOLO si la plataforma decide con evidencia (A6-live). Clave
-    ausente (o JSON null) = False: el default es el motor viejo de bandas
-    v1 y las configs actuales (sin la clave) quedan intactas, SIN
-    migraciones. `bandas_v1` explicito tambien es False (revertir es
-    escribirlo, plan A6 carril 10); SOLO `evidencia_v2` enciende.
-    PRESENTE con cualquier otro valor (incluido "" escrito a mano o
-    "EVIDENCIA_V2") = config CORRUPTA: ValueError ruidoso que tumba al
-    lector (regla 3, mismo trato que target/fraccion/confianzas: decidir
-    v2 con un valor que nadie configuro seria inventar el motor)."""
-    clave = clave_bid_politica(platform)
+# Politica de bids vigente (BIDS 02 M.3, bosquejo goals.py): el UNICO valor
+# que enciende el motor. Espejo de caso.POLITICA_BID pineado en
+# tests/test_arq_bids_m.py (goals no puede importarlo: caso importa windows
+# y windows importa goals).
+POLITICA_BID_VIGENTE = "niveles_v3"
+
+
+def politica_bid_desde_settings(settings: Mapping, plataforma: str) -> Literal["niveles_v3"] | None:
+    """Interruptor fail-closed de la clave que ya existe,
+    `ads_bid_politica_<platform>`:
+      ausente              -> None: el motor NO mueve bids en esa plataforma
+                                (PAUSE, negative y harvest siguen). El ciclo
+                                cuenta cada hoja con motivo `politica_apagada`.
+      'niveles_v3'         -> la politica nueva decide.
+      cualquier otro valor -> ValueError: el ciclo falla cerrado, como hoy.
+    El dia del despliegue la clave esta ausente: desplegar ya detiene los
+    recortes. Apagar es quitarla."""
+    clave = clave_bid_politica(plataforma)
     valor = settings.get(clave)
     if valor is None:
-        return False
-    if valor == POLITICA_BANDAS_EVIDENCIA:
-        return True
-    if valor == POLITICA_BANDAS_V1:
-        return False
+        return None
+    if valor == POLITICA_BID_VIGENTE:
+        return POLITICA_BID_VIGENTE
     raise ValueError(
-        f"setting {clave}: politica de bids debe ser {POLITICA_BANDAS_V1!r} o"
-        f" {POLITICA_BANDAS_EVIDENCIA!r}, llego {valor!r}"
+        f"setting {clave}: politica de bids debe ser {POLITICA_BID_VIGENTE!r}, llego {valor!r}"
     )
 
 

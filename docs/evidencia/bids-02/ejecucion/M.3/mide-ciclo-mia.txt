@@ -1,0 +1,5 @@
+base: la copia ya trae v_hoja_activa
+base: secuencias reparadas (el dump excluye *_seq)
+base: inserte config_version con niveles_v3 en la copia (hereda target/fraccion)
+amazon_mx: ciclo shadow 0.6 0.6 0.6 0.6 0.6 s; mediana 0.6 s (355 hojas activas, 5 corridas)
+amazon_us: ciclo shadow 0.5 0.5 0.5 0.5 0.5 s; mediana 0.5 s (233 hojas activas, 5 corridas)

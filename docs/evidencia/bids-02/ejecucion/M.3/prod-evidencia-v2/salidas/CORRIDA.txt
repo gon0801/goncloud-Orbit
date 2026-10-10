@@ -1,0 +1,7 @@
+estado: COMPLETA
+inicio_utc: 2026-10-10T11:53:28Z
+fin_utc: 2026-10-10T11:53:31Z
+commit_del_repo: 1767a25426b3bb1d4ab4a4aa363d85d1399b3b0e
+consultas_con_cambios_sin_commitear: 1
+salidas:
+  20c75a0635ff04a6412d90747311329094a895545be6791847d4f6000a58a414  evidencia_v2.txt

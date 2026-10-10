@@ -33,7 +33,7 @@ import psycopg
 import pytest
 from fastapi.testclient import TestClient
 from test_api_write import TOKEN, _ConnFake, _db_con_rol_admin, _secrets_token
-from test_cycle import DECIDED_AT, _siembra_maestra
+from test_cycle import DECIDED_AT, _entidad, _estado, _metrica, _obs, _rango, _siembra_maestra
 from test_schema import _postgres_obligatorio_ausente
 
 from app import goals_write
@@ -547,16 +547,35 @@ def test_harvest_all_or_nothing_terna_o_nada():
         assert en_db == (None, None, None)
 
 
+def _relleno_calendario(conn, ag) -> None:
+    """M.3: keyword PAUSED con ceros 05-24..08-21 (calendario completo para
+    los tramos de niveles_v3)."""
+    run_id = conn.execute("SELECT id FROM ingest_run LIMIT 1").fetchone()[0]
+    relleno = _entidad(
+        conn, "amazon_us", "keyword", "9999", parent=ag, match_type="EXACT", keyword_text="relleno"
+    )
+    _estado(conn, relleno, synced_at=DECIDED_AT - dt.timedelta(hours=4), status="PAUSED")
+    for fecha in _rango(dt.date(2026, 5, 24), dt.date(2026, 8, 21)):
+        _metrica(
+            conn, run_id, relleno, fecha, _obs(fecha), cost="0", ad_revenue="0", clicks=0, orders=0
+        )
+
+
 @_skip_db
 def test_edicion_visible_al_ciclo_siguiente_con_rastro():
     """DoD: siembro el goal de plataforma con target A (25), EDITO a B (20)
     por el camino unico y corro UN ciclo real: la decision del motor lleva
     inputs.target_acos_pct_usado == B y congela el goal con B — la fuente del
-    ciclo (_SQL_GOALS de app/cycle) lee la fila EDITADA (regla 2). Con B=20 la
-    banda -25% sigue disparando (ACoS 36% > 1.35x20), asi que la decision bid
-    existe y su unico cambio es el target."""
+    ciclo (_SQL_GOALS de app/cycle) lee la fila EDITADA (regla 2). Con B=20 el
+    recorte sigue disparando (ACoS 36% sobre el target 20), asi que la
+    decision bid existe y su unico cambio es el target."""
     with _db_con_rol_admin("orbit_g_cycle") as (conn, dsn_admin, _dsn_l):
-        ids = _siembra_maestra(conn)  # goal de plataforma target 25, escalera shadow
+        # M.3: politica niveles_v3 + relleno de calendario (la kw 9201 emite
+        # bid bajo el motor nuevo; el objeto del test es el target editado).
+        ids = _siembra_maestra(
+            conn, settings={"ads_bid_politica_amazon_us": "niveles_v3"}
+        )  # goal de plataforma target 25, escalera shadow
+        _relleno_calendario(conn, ids["ag"])
         goal_id = conn.execute(
             "SELECT id FROM ads_optimizer_goal WHERE scope = 'platform'"
         ).fetchone()[0]
@@ -589,7 +608,9 @@ def test_edicion_visible_al_ciclo_siguiente_con_rastro():
             "la decision del ciclo POST-edicion congela el target EDITADO, no el sembrado"
         )
         assert inputs["goal"]["target_acos_pct"] == "20.00"
-        assert inputs["motivo"] == "banda_menos_25"  # la banda sigue disparando con B
+        # M.3: con B=20 el recorte sigue disparando (ACoS 36 % sobre el
+        # target con el grupo en sangrado) bajo el motivo nuevo.
+        assert inputs["motivo"] == "grupo_sangra_vendedora"
 
 
 @_skip_db

@@ -111,8 +111,7 @@ Supuestos declarados (nuevos, de este modulo):
 SQL del modulo (todas de LECTURA; las parsea el test de sintaxis con pglast):
 _SQL_MAX_FECHA_ENTIDAD, _SQL_AGREGA_METRICAS, _SQL_MAX_FECHA_TERMINOS,
 _SQL_TERMINOS_CORTES, _SQL_FECHAS_ENTIDAD_TERMINOS, _SQL_WATERMARK_PLATAFORMA,
-_SQL_SYNC_PLATAFORMA, _SQL_EVIDENCIA_AD_GROUP, _SQL_CONVERSION_GRANO,
-_SQL_MAPEO_HOJAS, _SQL_CPC_SLICE, _SQL_COLAPSO_TERMINOS.
+_SQL_SYNC_PLATAFORMA, _SQL_EVIDENCIA_AD_GROUP, _SQL_COLAPSO_TERMINOS.
 """
 
 from __future__ import annotations
@@ -121,9 +120,6 @@ import datetime as dt
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import TYPE_CHECKING, Literal
-
-from app.optimizer import evidencia as ev
-from app.optimizer import goals as g
 
 if TYPE_CHECKING:
     import psycopg
@@ -234,19 +230,6 @@ class TerminosCortes:
         """Misma unidad sellada que AgregadoMetricas: la ENTIDAD (>= 7 fechas
         distintas), medida sobre SUS observaciones de terminos."""
         return len(self.fechas_entidad) >= MIN_FECHAS_COMPLETITUD
-
-
-@dataclass(frozen=True)
-class VentanasEntidad:
-    """El par de ventanas de una entidad + sus terminos, en un solo pedido.
-    `bids`/`cortes` son None solo si la entidad no tiene NINGUNA observacion
-    de metricas (los ad groups en produccion: no hay reporte de ellos);
-    `terminos` vive SIEMPRE anclado en SUS observaciones (2.3)."""
-
-    ad_entity_id: int
-    bids: AgregadoMetricas | None
-    cortes: AgregadoMetricas | None
-    terminos: TerminosCortes
 
 
 @dataclass(frozen=True)
@@ -422,7 +405,8 @@ def inicio_ventana(window_end: dt.date) -> dt.date:
 
 def fin_ventana_bids(max_metric_date: dt.date) -> dt.date:
     """Bids: la ventana termina en max(metric_date) - 3d (dia en curso y los
-    2 previos fuera; el reporte de hoy esta inflado ~1.5x)."""
+    2 previos fuera; el reporte de hoy esta inflado ~1.5x). Se conserva
+    porque fin_ventana_cortes la usa (el piso max - 3d vale para cortes)."""
     return max_metric_date - dt.timedelta(days=DIAS_FRESCURA_BIDS)
 
 
@@ -486,16 +470,6 @@ def _agrega_metricas(
     )
 
 
-def ventana_bids(conn: psycopg.Connection, ad_entity_id: int) -> AgregadoMetricas | None:
-    """Ventana de bids de UNA entidad: SU max(metric_date) - 3d, agregado sobre
-    SU propia ventana. None si la entidad no tiene ninguna observacion."""
-    max_fecha = _max_fecha(conn, ad_entity_id)
-    if max_fecha is None:
-        return None
-    window_end = fin_ventana_bids(max_fecha)
-    return _agrega_metricas(conn, ad_entity_id, inicio_ventana(window_end), window_end)
-
-
 def ventana_cortes(
     conn: psycopg.Connection, ad_entity_id: int, decided_at: dt.datetime
 ) -> AgregadoMetricas | None:
@@ -508,25 +482,6 @@ def ventana_cortes(
         return None
     window_end = fin_ventana_cortes(max_fecha, decided_at)
     return _agrega_metricas(conn, ad_entity_id, inicio_ventana(window_end), window_end)
-
-
-def _ventanas_metricas(
-    conn: psycopg.Connection, ad_entity_id: int, decided_at: dt.datetime
-) -> tuple[AgregadoMetricas | None, AgregadoMetricas | None]:
-    """El par (bids, cortes) compartiendo el ANCLA: max(metric_date) de la
-    entidad en v_metric_latest se computa UNA vez (misma fila consultada dos
-    veces por ventanas_entidad; plan ORBIT 03 punto 8) y cada agregado corre
-    sobre SU PROPIA ventana con SU PROPIA query (el agregado de cortes NUNCA
-    se deriva del de bids: Spec delta). (None, None) sin observaciones."""
-    max_fecha = _max_fecha(conn, ad_entity_id)
-    if max_fecha is None:
-        return (None, None)
-    fin_bids = fin_ventana_bids(max_fecha)
-    fin_cortes = fin_ventana_cortes(max_fecha, decided_at)
-    return (
-        _agrega_metricas(conn, ad_entity_id, inicio_ventana(fin_bids), fin_bids),
-        _agrega_metricas(conn, ad_entity_id, inicio_ventana(fin_cortes), fin_cortes),
-    )
 
 
 def terminos_cortes(
@@ -580,22 +535,6 @@ def terminos_cortes(
             )
             for fila in filas
         ),
-    )
-
-
-def ventanas_entidad(
-    conn: psycopg.Connection, ad_entity_id: int, decided_at: dt.datetime
-) -> VentanasEntidad:
-    """Las DOS ventanas de una entidad + sus terminos en un solo pedido
-    (conveniencia para 3.1). Cada agregado sale de su propia query sobre su
-    propia ventana; el ancla max(metric_date) se computa UNA sola vez (ver
-    _ventanas_metricas)."""
-    bids, cortes = _ventanas_metricas(conn, ad_entity_id, decided_at)
-    return VentanasEntidad(
-        ad_entity_id=ad_entity_id,
-        bids=bids,
-        cortes=cortes,
-        terminos=terminos_cortes(conn, ad_entity_id, decided_at),
     )
 
 
@@ -703,171 +642,3 @@ def ventanas_evidencia_ad_group(
 # de moneda es de LA plataforma (sums multi-moneda prohibidos; res A6).
 # Veneno por metrica (bool_and) + negativos como veneno (unico dueno:
 # esta frontera; res B5-iii): el roll-up y el pliegue JAMAS re-chequean.
-_SQL_CONVERSION_GRANO = """
-SELECT k.id AS hoja_id,
-       k.parent_id AS ad_group_id,
-       ag.parent_id AS campana_id,
-       CASE WHEN bool_and(v.clicks IS NOT NULL AND v.clicks >= 0)
-            THEN sum(v.clicks)::bigint END,
-       CASE WHEN bool_and(v.orders IS NOT NULL AND v.orders >= 0)
-            THEN sum(v.orders)::bigint END,
-       CASE WHEN bool_and(v.ad_revenue IS NOT NULL AND v.ad_revenue >= 0)
-            THEN sum(v.ad_revenue) END
-  FROM v_metric_latest v
-  JOIN ad_entity k ON k.id = v.ad_entity_id
-  LEFT JOIN ad_entity ag ON ag.id = k.parent_id AND ag.kind = 'ad_group'
- WHERE k.platform = %s::platform
-   AND k.kind IN ('keyword', 'product_target')
-   AND v.metric_currency = %s
-   AND v.metric_date BETWEEN %s AND %s
- GROUP BY k.id, k.parent_id, ag.parent_id
-"""
-
-
-# A4r3 (herencia hoja nueva): mapeo ESTRUCTURAL de TODAS las hojas de
-# la plataforma (MISMA forma que el grano, pero FROM ad_entity: no
-# depende de metricas). La hoja creada en los ultimos 10 dias, o sin
-# filas en D-90..D-10, hereda la previa de SU ad group y familia en vez
-# de caer a plataforma. La familia se resuelve con la mapa A5, igual
-# que el grano.
-_SQL_MAPEO_HOJAS = """
-SELECT k.id AS hoja_id,
-       k.parent_id AS ad_group_id,
-       ag.parent_id AS campana_id
-  FROM ad_entity k
-  LEFT JOIN ad_entity ag ON ag.id = k.parent_id AND ag.kind = 'ad_group'
- WHERE k.platform = %s::platform
-   AND k.kind IN ('keyword', 'product_target')
-"""
-
-
-def conversion_jerarquica(
-    conn: psycopg.Connection,
-    platform: str,
-    decided_at: dt.datetime,
-    *,
-    fam_por_campana: dict[int, int | None],
-    padres: dict[int, int | None],
-) -> ev.ConversionPlataforma:
-    """Conversion para el pliegue v2 (A4): DOS lecturas por plataforma
-    (grano sobre la ventana LITERAL D-90..D-10 + mapeo estructural de
-    TODAS las hojas; mismo D y constantes que
-    ventanas_evidencia_ad_group: LOOKBACK_EVIDENCIA, DIAS_MADUREZ_CORTES)
-    + roll-up puro O(H) en evidencia.enrolla_granos (testeable sin DB).
-    Grano por hoja; niveles agregados en Python con veneno por metrica
-    (semantica identica al bool_and global por nivel). Plataforma sin
-    filas -> roll-up vacio con plataforma None (regla 3). A7: la familia
-    de cada hoja sale de `fam_por_campana` (mapa A5 del ciclo: campana
-    sin product ads o mezcla -> None, regla 3) con niveles via
-    _familia_de_match/_subfamilia_de_match; dicts puros, sin queries."""
-    # Import DIFERIDO: la fuente unica vive en bid.PLATAFORMAS_MONEDA y
-    # bid importa este modulo a nivel top (ciclo real: el mapa se define
-    # DESPUES de sus imports). Cero duplicados (regla 2 + candado
-    # DEFINICIONES_MONEDA_DECLARADAS).
-    from app.optimizer.bid import PLATAFORMAS_MONEDA
-
-    if platform not in PLATAFORMAS_MONEDA:
-        raise ValueError(f"plataforma fuera de vocabulario: {platform!r}")
-    moneda = PLATAFORMAS_MONEDA[platform]
-    fecha_decision = _fecha_utc(decided_at)
-    hasta = fecha_decision - dt.timedelta(days=DIAS_MADUREZ_CORTES)
-    desde = fecha_decision - dt.timedelta(days=LOOKBACK_EVIDENCIA)
-    filas = conn.execute(_SQL_CONVERSION_GRANO, (platform, moneda, desde, hasta)).fetchall()
-    granos = []
-    for fila in filas:
-        fam, sub = _familia_de_campana(fam_por_campana, padres, fila[2])
-        granos.append(
-            ev.GranoHoja(
-                hoja_id=fila[0],
-                ad_group_id=fila[1],
-                familia_id=fam,
-                subfamilia_id=sub,
-                conteo=ev.Conteo(clicks=fila[3], orders=fila[4], ad_revenue=fila[5]),
-            )
-        )
-    mapeo = []
-    for fila in conn.execute(_SQL_MAPEO_HOJAS, (platform,)).fetchall():
-        fam, sub = _familia_de_campana(fam_por_campana, padres, fila[2])
-        mapeo.append(
-            ev.MapeoHoja(hoja_id=fila[0], ad_group_id=fila[1], familia_id=fam, subfamilia_id=sub)
-        )
-    return ev.enrolla_granos(
-        granos, moneda=moneda, ventana_desde=desde, ventana_hasta=hasta, mapeo=mapeo
-    )
-
-
-def _familia_de_campana(
-    fam_por_campana: dict[int, int | None],
-    padres: dict[int, int | None],
-    campana_id: int | None,
-) -> tuple[int | None, int | None]:
-    """(familia, subfamilia) de UNA campana via la mapa A5 (puro): match +
-    su padre resuelven niveles con _familia_de_match/_subfamilia_de_match.
-    Campana ausente, None o mezcla -> (None, None) (regla 3)."""
-    match = fam_por_campana.get(campana_id) if campana_id is not None else None
-    padre = padres.get(match) if match is not None else None
-    return (_familia_de_match(match, padre), _subfamilia_de_match(match, padre))
-
-
-def _familia_de_match(match_id: int | None, padre_id: int | None) -> int | None:
-    """Match etiquetado: si es raiz, familia = match; si es hija,
-    familia = padre (el trigger familia_dos_niveles sella 2 niveles)."""
-    if match_id is None:
-        return None
-    return match_id if padre_id is None else padre_id
-
-
-def _subfamilia_de_match(match_id: int | None, padre_id: int | None) -> int | None:
-    if match_id is None or padre_id is None:
-        return None
-    return match_id
-
-
-# A4 (CPC vigente): costo/clics de UNA hoja en un slice de fechas, con
-# el mismo veneno de frontera que el grano (NULL o negativo -> None;
-# conjunto vacio -> (None, None): sum() sobre vacio es NULL, regla 3).
-_SQL_CPC_SLICE = """
-SELECT CASE WHEN bool_and(v.cost IS NOT NULL AND v.cost >= 0)
-            THEN sum(v.cost) END,
-       CASE WHEN bool_and(v.clicks IS NOT NULL AND v.clicks >= 0)
-            THEN sum(v.clicks)::bigint END
-  FROM v_metric_latest v
- WHERE v.ad_entity_id = %s
-   AND v.metric_currency = %s
-   AND v.metric_date BETWEEN %s AND %s
-"""
-
-
-def cpc_vigente(
-    conn: psycopg.Connection,
-    entidad_id: int,
-    historia: g.HistoriaUltimoBid,
-    ventana: AgregadoMetricas | None,
-) -> ev.CostoPorClic | None:
-    """CPC pagado con el bid VIGENTE (A4): suma cost/clics de la hoja
-    desde max(fecha_cambio + 1, ventana.window_start) hasta
-    ventana.window_end. Sin historia -> la ventana entera (post_cambio
-    False). Historia rota o ventana None/ sin moneda -> None
-    (fail-closed: sin cambio datable no hay CPC post-cambio). MIDE, no
-    juzga: devuelve el struct aunque clicks < 20 (el gate vive en
-    evidencia.clasifica, puro y testeable; el freeze distingue "19
-    clics" de "sin datos")."""
-    if ventana is None or ventana.metric_currency is None:
-        return None
-    if isinstance(historia, g.HistoriaBidRota):
-        return None
-    if isinstance(historia, g.SinHistoriaBid):
-        desde = ventana.window_start
-        post_cambio = False
-    elif isinstance(historia, g.UltimoBidAplicado):
-        desde = max(historia.fecha_cambio + dt.timedelta(days=1), ventana.window_start)
-        post_cambio = True
-    else:
-        raise ValueError(f"historia fuera de vocabulario: {historia!r}")
-    hasta = ventana.window_end
-    cost, clics = conn.execute(
-        _SQL_CPC_SLICE, (entidad_id, ventana.metric_currency, desde, hasta)
-    ).fetchone()
-    return ev.CostoPorClic(
-        cost=cost, clicks=clics, desde=desde, hasta=hasta, post_cambio=post_cambio
-    )

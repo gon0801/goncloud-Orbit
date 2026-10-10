@@ -88,15 +88,6 @@ import datetime as dt
 from dataclasses import dataclass
 from decimal import Decimal
 
-from app.optimizer.cortes import LEGACY_PAUSE
-from app.optimizer.evidencia import (
-    MOTIVO_CPC_POST_CAMBIO_INSUFICIENTE,
-    MOTIVO_EVIDENCIA_INSUFICIENTE,
-    EvidenciaHoja,
-    estima_acos,
-    factor_por_evidencia,
-)
-from app.optimizer.goals import POLITICA_BANDAS_EVIDENCIA, POLITICA_BANDAS_V1
 from app.optimizer.windows import AgregadoMetricas
 
 # ---------------------------------------------------------------------------
@@ -120,15 +111,6 @@ PAUSE_COST_MIN: dict[str, Decimal] = {  # CORTES 03 (dueno 2026-08-28; antes 12/
     "amazon_mx": Decimal("500"),
 }
 
-# Historia congelada (decision del lead 2026-08-28): el piso de costo que
-# VIGIA antes de CORTES 03. SOLO lo consume _replay_bid (cycle.py) para
-# filas sin inputs.corte.cost_min_usado (toda la era anterior; ninguna fila
-# de produccion tenia aun la clave al medir 2026-08-28); JAMAS lo use el
-# camino vivo (decide_bid sin cost_min resuelve PAUSE_COST_MIN).
-REPLAY_PAUSE_COST_PRE_CORTES03: dict[str, Decimal] = {
-    "amazon_us": Decimal("12"),
-    "amazon_mx": Decimal("200"),
-}
 
 MULT_BAJA_FUERTE = Decimal("1.35")  # ACoS > 1.35x target (estricto)
 MULT_BAJA_SUAVE = Decimal("1.15")  # ACoS > 1.15x target (estricto)
@@ -150,29 +132,6 @@ MOTIVO_PAUSE_ECONOMICA_DATO_FALTANTE = "pause_economica_dato_faltante"
 POLITICA_PAUSE_ECONOMICA = "economic_pause_v1"
 EXCESO_MINIMO = {"USD": Decimal("80"), "MXN": Decimal("1000")}
 MULT_PAUSE_ECONOMICA = Decimal("3")
-# BIDS 01 (regla A', spec 2026-08-26 aprobada 2026-09-03): cero ventas con
-# los clicks de una venta y gasto sobre el piso -> -25% con motivo propio.
-MOTIVO_BANDA_MENOS_25_CERO_VENTAS = "banda_menos_25_cero_ventas"
-_MOTIVO_BANDA: dict[Decimal, str] = {
-    FACTOR_BAJA_FUERTE: "banda_menos_25",
-    FACTOR_BAJA_SUAVE: "banda_menos_12",
-    FACTOR_SUBIDA: "banda_mas_15",
-}
-
-# A4 (politica por evidencia, contrafactual v2): los 2 motivos de
-# abstencion se DEFINEN en app.optimizer.evidencia (fuente unica; el ciclo
-# de imports impide definirlos aqui) y se re-exportan para que la lista
-# cerrada siga teniendo una sola cara (este modulo). Los tests los fijan
-# literal; el dashboard los etiqueta en MOTIVOS_ES_*.
-# Politica de bandas (A4; IDs sellados por A6: ads_bid_politica_<p> en
-# {bandas_v1, evidencia_v2}; fuente unica en goals, aqui re-exportados).
-
-# Inversa privada de _MOTIVO_BANDA (A4 res 16): la rama v2 recibe el
-# motivo de banda (motivo-only, cero imports) y recupera el factor.
-_FACTOR_POR_MOTIVO: dict[str, Decimal] = {
-    motivo: factor for factor, motivo in _MOTIVO_BANDA.items()
-}
-
 # Motivo de skip/no-op (vocabulario cerrado; los tests lo fijan literal)
 MOTIVO_PAUSE_CORTES_INCOMPLETO = "pause_cortes_incompleto"
 MOTIVO_PAUSE_MONEDA_INVALIDA = "pause_moneda_agregado_invalida"
@@ -206,15 +165,11 @@ class ResultadoBid:
     agregado QUE decidio (cortes para pause, bids para bid; insumo de
     decision.data_observed_at); en un no-op nada decidio, van en None.
     `value_currency` lleva moneda solo en kind 'bid' (el esquema exige
-    value_currency NULL en pause: un pause no mueve dinero). `politica`
-    (A6, reason declarativo que el ciclo congela) es la politica EFECTIVA:
-    la pedida, salvo que el fallback v1 decidio (entonces bandas_v1). Un
-    bloqueo de la cola NO re-cae (la politica queda la del factor). Con
-    default (constructores posicionales intactos). `abstencion_v2` (A6)
-    es el motivo v2 SOLO cuando el fallback corrio (si v2 decidio o
-    abstuvo sin fallback, None: el motivo YA dice la abstencion)."""
+    value_currency NULL en pause: un pause no mueve dinero). BIDS 02 M.3:
+    las bandas viven en eras.py y la politica vigente en inputs.politica;
+    este resultado solo decide PAUSE (o no-op con el motivo de bloqueo)."""
 
-    kind: str | None  # 'pause' | 'bid' | None (no-op/skip)
+    kind: str | None  # 'pause' | None (no-op/skip)
     motivo: str | None
     old_value: Decimal | None
     new_value: Decimal | None
@@ -223,63 +178,11 @@ class ResultadoBid:
     window_start: dt.date | None
     window_end: dt.date | None
     data_observed_at: dt.datetime | None
-    politica: str = POLITICA_BANDAS_V1
-    abstencion_v2: str | None = None
 
 
 # ---------------------------------------------------------------------------
 # Motor
 # ---------------------------------------------------------------------------
-
-
-def _factor_banda(agregado: AgregadoMetricas, target_acos_pct: Decimal) -> Decimal | None:
-    """Factor de banda que dispara sobre el agregado de BIDS (o None).
-
-    ACoS COMPLETO (cost / ad_revenue; `revenue_same_sku` jamas) comparado por
-    multiplicacion exacta: PROHIBIDO dividir (evita division por cero y
-    mantiene Decimal exacto). orders None no satisface ningun orders>=N
-    (regla 3). Precedencia explicita: -25 antes que -12; +15 excluido de -12
-    por aritmetica exacta (0.85 < 1.15)."""
-    costo = agregado.cost
-    ingreso = agregado.ad_revenue
-    orders = agregado.orders
-    target = target_acos_pct / _CIEN
-    if (
-        costo > MULT_BAJA_FUERTE * target * ingreso
-        and orders is not None
-        and orders >= ORDERS_MIN_BAJA_FUERTE
-    ):
-        return FACTOR_BAJA_FUERTE
-    if costo > MULT_BAJA_SUAVE * target * ingreso:
-        return FACTOR_BAJA_SUAVE
-    if (
-        costo < MULT_SUBIDA * target * ingreso
-        and orders is not None
-        and orders >= ORDERS_MIN_SUBIDA
-    ):
-        return FACTOR_SUBIDA
-    return None
-
-
-def _factor_cero_ventas(
-    agregado: AgregadoMetricas, expected_clicks: Decimal | None, cost_min: Decimal | None
-) -> Decimal | None:
-    """BIDS 01 (spec 2026-08-26 aprobada 2026-09-03, regla A'): gasto sin UNA
-    venta habiendo alcanzado los clicks que en ese grupo cuesta una venta y
-    el piso de costo de pausa -> -25%. Relativa al producto (expected_clicks
-    de CORTES 01), jamas un numero absoluto. Cualquier insumo None = no aplica
-    (regla 3). Se evalua DESPUES del pause y ANTES de las bandas."""
-    if expected_clicks is None or cost_min is None:
-        return None
-    if agregado.orders is None or agregado.ad_revenue is None:
-        return None
-    if agregado.clicks is None or agregado.cost is None:
-        return None
-    if agregado.orders != 0 or agregado.ad_revenue != 0:
-        return None
-    if Decimal(agregado.clicks) >= expected_clicks and agregado.cost >= cost_min:
-        return FACTOR_BAJA_FUERTE
-    return None
 
 
 def exceso_economico(
@@ -308,11 +211,12 @@ def _decide_pause(
     costo_piso: Decimal,
     target_acos_pct: Decimal,
     policy_version: str | None,
-    politica: str = POLITICA_BANDAS_V1,
 ) -> tuple[ResultadoBid | None, str | None]:
-    """El bloque pause es IDENTICO en ambas politicas (corre antes de la
-    rama): `politica` es la PEDIDA (el pause no consume bandas, declara el
-    regimen que lo decidio)."""
+    """El bloque pause: regla de cero pedidos con clicks/cost sobre el
+    piso, y despues la economica versionada. El pause no consume bandas:
+    es identico en todas las eras (lo usan niveles_v3, la revalidacion
+    de la cola y el replay de historia). Devuelve (pause, None) o
+    (None, motivo_de_bloqueo)."""
     if cortes is None:
         return (None, None)
     motivo: str | None = None
@@ -337,7 +241,6 @@ def _decide_pause(
                 cortes.window_start,
                 cortes.window_end,
                 cortes.observed_at_max,
-                politica,
             ),
             None,
         )
@@ -365,7 +268,6 @@ def _decide_pause(
                 cortes.window_start,
                 cortes.window_end,
                 cortes.observed_at_max,
-                politica,
             ),
             None,
         )
@@ -374,317 +276,46 @@ def _decide_pause(
     return (None, motivo)
 
 
-def _valida_politica_bandas(
-    politica_bandas: str,
-    evidencia: EvidenciaHoja | str | None,
-    confianza_recorte: Decimal | None,
-    confianza_subida: Decimal | None,
-    fallback_v1: bool = False,
-) -> bool:
-    """Valida la politica de BANDAS (A4, cerrada y ruidosa) y devuelve si
-    es v2. v1 + params v2 = llamada contradictoria ("crei que corria v2"):
-    ValueError aunque pause gane (incondicional, como policy_version). A6:
-    v1 + fallback_v1 tambien contradice (el fallback solo existe en
-    evidencia_v2). v2 exige evidencia y confianzas resueltas (el ciclo las
-    resuelve 1x/plataforma y las congela; este modulo jamas conoce los
-    defaults)."""
-    if politica_bandas not in (POLITICA_BANDAS_V1, POLITICA_BANDAS_EVIDENCIA):
-        raise ValueError(f"politica de bandas desconocida: {politica_bandas!r}")
-    if politica_bandas == POLITICA_BANDAS_V1:
-        if evidencia is not None or confianza_recorte is not None or confianza_subida is not None:
-            raise ValueError("politica bandas_v1 con parametros v2 (evidencia/confianzas)")
-        if fallback_v1:
-            raise ValueError("politica bandas_v1 con fallback_v1 (el fallback solo existe en v2)")
-        return False
-    if evidencia is None:
-        raise ValueError("politica evidencia_v2 exige evidencia (el ciclo DEBE pasarla)")
-    if confianza_recorte is None or confianza_subida is None:
-        raise ValueError("politica evidencia_v2 exige confianzas resueltas")
-    return True
-
-
-def _motivo_bloqueo_v1(bids: AgregadoMetricas) -> str | None:
-    """Gates v1 que el fallback re-aplica DENTRO de decide_bid (A6): en
-    modo v2 las guardas compartidas NO exigen bids.completa ni ACoS
-    conocido (otra evidencia, otros gates); el fallback v1 SI (completa
-    primero, ACoS despues: el MISMO orden que la guarda v1). bids
-    PRESENTE y moneda coherente ya los verifico la guarda compartida
-    (el fallback nunca corre sin ellos)."""
-    if not bids.completa:
-        return MOTIVO_BIDS_INCOMPLETO
-    if bids.cost is None or bids.ad_revenue is None:
-        return MOTIVO_ACOS_DESCONOCIDO
-    return None
-
-
-def _factor_ventana_v1(
-    bids: AgregadoMetricas,
-    target_acos_pct: Decimal,
-    expected_clicks: Decimal | None,
-    costo_piso: Decimal,
-) -> tuple[str | None, Decimal | None]:
-    """Seleccion de factor v1 (BIDS 01 regla A' + bandas de ventana):
-    (motivo, factor) o (None, None) sin banda."""
-    factor = _factor_cero_ventas(bids, expected_clicks, costo_piso)
-    motivo_banda = MOTIVO_BANDA_MENOS_25_CERO_VENTAS if factor is not None else None
-    if factor is None:
-        factor = _factor_banda(bids, target_acos_pct)
-        motivo_banda = _MOTIVO_BANDA.get(factor) if factor is not None else None
-    return (motivo_banda, factor)
-
-
-def _factor_evidencia(
-    evidencia: EvidenciaHoja | str,
-    target_acos_pct: Decimal,
-    confianza_recorte: Decimal,
-    confianza_subida: Decimal,
-) -> tuple[str, Decimal | None]:
-    """Seleccion de factor v2 (A4): (motivo, factor) o (motivo, None) si
-    abstiene. `evidencia` str = abstencion resuelta en la frontera
-    (motivo del vocabulario; ajeno = ValueError ruidoso). Con
-    EvidenciaHoja estima la posterior y juzga las bandas; la posterior
-    inconclusa abstiene con evidencia_insuficiente (sin_banda jamas
-    ocurre en v2). El motivo de banda se traduce a factor con la
-    inversa de _MOTIVO_BANDA (v2 nunca emite cero_ventas: inyectivo)."""
-    if isinstance(evidencia, str):
-        if evidencia not in (MOTIVO_EVIDENCIA_INSUFICIENTE, MOTIVO_CPC_POST_CAMBIO_INSUFICIENTE):
-            raise ValueError(f"motivo de abstencion v2 ajeno al vocabulario: {evidencia!r}")
-        return (evidencia, None)
-    if not isinstance(evidencia, EvidenciaHoja):
-        raise ValueError(f"evidencia v2 de tipo invalido: {type(evidencia).__name__}")
-    # Fail-stance shadow (res 9): error matematico data-dependent (gamma
-    # sin converger, a fuera de rango) -> abstencion por hoja, JAMAS
-    # excepcion al ciclo ni al replay (ambos comparten este camino). La
-    # convergencia en el rango operativo esta ADEMAS probada por tests;
-    # esto es defensa en profundidad, con motivo auditado (no silencioso).
-    try:
-        estimacion = estima_acos(evidencia, target_acos_pct)
-    except ArithmeticError:
-        return (MOTIVO_EVIDENCIA_INSUFICIENTE, None)
-    motivo = factor_por_evidencia(estimacion, confianza_recorte, confianza_subida)
-    if motivo == MOTIVO_EVIDENCIA_INSUFICIENTE:
-        return (motivo, None)
-    return (motivo, _FACTOR_POR_MOTIVO[motivo])
-
-
-def decide_bid(
+def decide_pause(
     *,
     platform: str,
     bids: AgregadoMetricas | None,
     cortes: AgregadoMetricas | None,
     target_acos_pct: Decimal,
-    bid_actual: Decimal | None,
-    bid_moneda: str | None,
-    floor: Decimal,
-    ceiling: Decimal,
-    umbral_pause: int = LEGACY_PAUSE,
+    umbral_pause: int,
     cost_min: Decimal | None = None,
-    expected_clicks: Decimal | None = None,
     policy_version: str | None = None,
-    evidencia: EvidenciaHoja | str | None = None,
-    politica_bandas: str = POLITICA_BANDAS_V1,
-    confianza_recorte: Decimal | None = None,
-    confianza_subida: Decimal | None = None,
-    fallback_v1: bool = False,
 ) -> ResultadoBid:
-    """Decide PAUSE o ajuste de bid para UNA entidad, puro y determinista.
-
-    `umbral_pause` (CORTES 01 1.3) es el umbral de clicks del PAUSE YA
-    RESUELTO (inclusivo >=): el orquestador lo calcula con
-    cortes.umbral_corte(evidencia del ad group, 'pause') y el replay lee el
-    congelado en inputs.corte.umbral_clicks_usado. `cost_min` (cierre
-    replay CORTES 03, decision del lead 2026-08-28) es el piso de costo del
-    PAUSE YA RESUELTO: None = resuelve el VIGENTE (PAUSE_COST_MIN, fuente
-    unica) -- el ciclo vivo lo pasa EXPLICITO y lo congela en
-    inputs.corte.cost_min_usado, y apply_cola revalida vivo sin pasarlo;
-    el replay pasa el congelado (cost_min_usado) o el historico de su era
-    (REPLAY_PAUSE_COST_PRE_CORTES03). Este modulo jamas recalcula ninguno
-    de los dos. `expected_clicks` (BIDS 01, regla A') es el costo en clicks
-    de UNA venta en el grupo, YA RESUELTO (cortes.umbral_corte, None sin
-    evidencia): el orquestador lo pasa y el replay lee el congelado.
-
-    Orden interno sellado:
-    (1) PAUSE sobre CORTES: primero la regla antigua de cero pedidos y
-        clicks/cost; despues la economica versionada, aun con ventas y sin
-        depender del umbral de clicks. Ambas exigen moneda y madurez.
-    (2) Si no: regla A' y luego bandas sobre el agregado de BIDS (si
-        existe, esta completo y su moneda es la de la plataforma): primero
-        cero ventas con clicks>=expected_clicks y cost>=piso -> -25% con
-        motivo propio; si no, -25/-12/+15 con precedencia. Despues: factor
-        -> clamp por decision [-0.30, +0.20] -> clamp a [floor, ceiling] ->
-        |delta| < 0.01 -> no-op.
-    (3) Sin banda o con guarda bloqueada -> ResultadoBid(None, motivo, ...).
-
-    ASIMETRIA INTENCIONAL: la ventana de cortes incompleta (o ausente) NO
-    impide evaluar bandas sobre la ventana de bids -- son ventanas
-    independientes; solo la ventana que va a decidir exige su completitud y
-    su moneda. El no-op final reporta la primera guarda que bloqueo en orden
-    de evaluacion (pause antes que bids).
-
-    El bid resultante NO se redondea (sin quantize): la presentacion la
-    decide el apply de PR2.
-
-    A4 (politica_bandas): 'bandas_v1' (default) es este comportamiento,
-    intacto; 'evidencia_v2' juzga las bandas sobre la posterior del CVR
-    (app.optimizer.evidencia) con las confianzas YA RESUELTAS por el
-    ciclo (A3). En v2: PAUSE identico a v1 (corre antes de la rama);
-    A' y ORDERS_MIN_* subsumidos (no se evaluan); bids.completa y ACoS
-    conocido NO se exigen (otra evidencia, otros gates); `evidencia`
-    str = abstencion de la frontera (no-op con ese motivo); posterior
-    inconclusa = no-op 'evidencia_insuficiente'. Clamps, floor/ceiling,
-    delta minimo y rango_bloquea_ajuste: IDENTICOS (una sola cola).
-
-    A6 (fallback_v1): SOLO valido con politica evidencia_v2 (con v1 es
-    ValueError). Cuando v2 ABSTIENE (frontera o posterior inconclusa) y
-    el flag viene True, el motor cae al tramo v1 DENTRO de esta llamada:
-    re-aplica los gates v1 (completa, ACoS conocido) y juzga A' + bandas
-    de ventana; el vivo correspondiente decide (banda v1 o no-op con el
-    motivo v1) y `evidencia_insuficiente` JAMAS sale como motivo vivo.
-    Sin el flag (sombra A4), la abstencion sale tal cual. El resultado
-    declara `politica` (efectiva) y `abstencion_v2` (el motivo v2 solo
-    cuando el fallback corrio).
-    """
+    """Decide SOLO la PAUSE con _decide_pause (BIDS 02 M.3): la usan el
+    ciclo con la politica apagada y la revalidacion de la cola. Si pausa,
+    devuelve el pause con la ventana de cortes; si no, no-op con la
+    primera guarda que bloqueo en orden de evaluacion (pause antes que
+    bids, como decide_bid; `bids` solo aporta el motivo de bloqueo, jamas
+    se juzga). `cost_min` None = el piso VIGENTE (PAUSE_COST_MIN)."""
     if platform not in PLATAFORMAS_MONEDA:
         raise ValueError(
             f"plataforma fuera del vocabulario sellado {{amazon_us, amazon_mx}}: {platform!r}"
         )
     if not target_acos_pct.is_finite() or target_acos_pct <= 0:
-        # target 0 haria que cualquier cost>0 dispare una baja; negativo
-        # invierte las bandas. La cascada de 2.4 ya valida sus peldanos, pero
-        # el motor no puede confiar en eso (hallazgo codex+grok, ronda 1).
         raise ValueError(f"target_acos_pct invalido: {target_acos_pct!r} (debe ser > 0)")
-    if floor > ceiling:
-        raise ValueError(f"floor {floor} > ceiling {ceiling}: rango de bid invalido")
     if policy_version not in (None, POLITICA_PAUSE_ECONOMICA):
         raise ValueError(f"politica pause desconocida: {policy_version!r}")
-    es_v2 = _valida_politica_bandas(
-        politica_bandas, evidencia, confianza_recorte, confianza_subida, fallback_v1
-    )
     moneda = PLATAFORMAS_MONEDA[platform]
-
-    # (1) PAUSE sobre la ventana de CORTES (un pause es un corte: regla 6)
-    # piso de costo: el que llega resuelto; None = el VIGENTE (fuente unica)
     costo_piso = cost_min if cost_min is not None else PAUSE_COST_MIN[platform]
     pausa, motivo_pause_bloqueado = _decide_pause(
-        cortes, moneda, umbral_pause, costo_piso, target_acos_pct, policy_version, politica_bandas
+        cortes, moneda, umbral_pause, costo_piso, target_acos_pct, policy_version
     )
     if pausa is not None:
         return pausa
-
-    # (2) Bandas sobre la ventana de BIDS (independiente de cortes).
-    # A4: v2 consume OTRA evidencia (madura + CPC) con sus propios gates
-    # (CPC>=20, previa existente): NO exige bids.completa (la suficiencia
-    # la mide la posterior, no el conteo de fechas) NI acos conocido (no
-    # consume cost/revenue de la ventana). SI exige bids PRESENTE (sus
-    # bounds acotan el slice del CPC; res A16) y moneda coherente. La rama
-    # por politica existe SOLO en la seleccion de factor: la cola
-    # (bid_actual -> clamps -> delta -> rango) es UNA sola, compartida.
     motivo_bids_bloqueado: str | None = None
-    # A6: el motivo v2 cuando el fallback corre (None si v2 decidio o
-    # abstuvo sin fallback) + si el tramo efectivo es v1.
-    abstencion: str | None = None
-    efectiva_v1 = False
     if bids is None:
         motivo_bids_bloqueado = MOTIVO_BIDS_SIN_OBSERVACIONES
-    elif not bids.completa and not es_v2:
+    elif not bids.completa:
         motivo_bids_bloqueado = MOTIVO_BIDS_INCOMPLETO
     elif bids.metric_currency != moneda:
         motivo_bids_bloqueado = MOTIVO_BIDS_MONEDA_INVALIDA
-    elif (bids.cost is None or bids.ad_revenue is None) and not es_v2:
+    elif bids.cost is None or bids.ad_revenue is None:
         motivo_bids_bloqueado = MOTIVO_ACOS_DESCONOCIDO
-    else:
-        # A4: en v2, A' y ORDERS_MIN_* estan subsumidos por la posterior y
-        # NO se evaluan (v1 intacto para replay).
-        if es_v2:
-            assert evidencia is not None  # validado arriba
-            assert confianza_recorte is not None and confianza_subida is not None
-            motivo_banda, factor = _factor_evidencia(
-                evidencia, target_acos_pct, confianza_recorte, confianza_subida
-            )
-            # A6: v2 abstiene + fallback pedido -> el tramo v1 decide
-            # DENTRO de esta llamada (gates v1 re-aplicados; la cola
-            # sigue siendo UNA sola, compartida).
-            if factor is None and fallback_v1:
-                abstencion = motivo_banda
-                bloqueo = _motivo_bloqueo_v1(bids)
-                if bloqueo is not None:
-                    # Guarda pause primero (mismo orden que el no-op
-                    # final: el vivo correspondiente reportaria el pause).
-                    return ResultadoBid(
-                        None,
-                        motivo_pause_bloqueado or bloqueo,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        POLITICA_BANDAS_V1,
-                        abstencion,
-                    )
-                motivo_banda, factor = _factor_ventana_v1(
-                    bids, target_acos_pct, expected_clicks, costo_piso
-                )
-                efectiva_v1 = True
-        else:
-            motivo_banda, factor = _factor_ventana_v1(
-                bids, target_acos_pct, expected_clicks, costo_piso
-            )
-        if factor is None:
-            # v1: sin banda; v2 puro: la abstencion trae su motivo
-            # (_factor_evidencia devuelve (motivo, None); sin_banda jamas
-            # ocurre en v2). Fallback sin banda v1: sin_banda (el tramo
-            # efectivo es v1, con su vocabulario).
-            if efectiva_v1:
-                motivo_bids_bloqueado = MOTIVO_SIN_BANDA
-            else:
-                motivo_bids_bloqueado = motivo_banda if es_v2 else MOTIVO_SIN_BANDA
-        elif bid_actual is None:
-            motivo_bids_bloqueado = MOTIVO_BID_ACTUAL_AUSENTE
-        elif bid_actual <= 0:
-            motivo_bids_bloqueado = MOTIVO_BID_ACTUAL_INVALIDO
-        elif bid_moneda != moneda:
-            motivo_bids_bloqueado = MOTIVO_BID_MONEDA_INVALIDA
-        else:
-            factor_clamped = min(max(factor, CLAMP_FACTOR_MIN), CLAMP_FACTOR_MAX)
-            nuevo = bid_actual * (_UNO + factor_clamped)
-            nuevo = min(max(nuevo, floor), ceiling)
-            if abs(nuevo - bid_actual) < MIN_DELTA_ABSOLUTO:
-                motivo_bids_bloqueado = MOTIVO_DELTA_BAJO_UMBRAL
-            else:
-                delta = nuevo - bid_actual
-                direccion_ok = (
-                    delta < 0 if factor_clamped < 0 else delta > 0
-                )  # la banda bajo -> baja; la banda subio -> sube
-                magnitud_ok = delta <= CLAMP_FACTOR_MAX * bid_actual and (
-                    -delta <= -CLAMP_FACTOR_MIN * bid_actual
-                )  # cambio final dentro de [-30%, +20%] (multiplicacion, sin division)
-                if not (direccion_ok and magnitud_ok):
-                    # El clamp a [floor, ceiling] puede dejar un cambio que ya
-                    # no es el que la banda decidio (bid fuera de rango: -25%
-                    # que termina SUBIENDO al floor, +15% que termina BAJANDO
-                    # al ceiling). Si no hay valor que cumpla el cambio por
-                    # decision Y el rango del goal, no-op (hallazgo codex
-                    # [alta], cross-review ronda 1).
-                    motivo_bids_bloqueado = MOTIVO_RANGO_BLOQUEA_AJUSTE
-                else:
-                    assert motivo_banda is not None  # factor no None implica motivo
-                    return ResultadoBid(
-                        kind="bid",
-                        motivo=motivo_banda,
-                        old_value=bid_actual,
-                        new_value=nuevo,  # sin quantize: presentacion la decide el apply (PR2)
-                        value_currency=bid_moneda,
-                        factor=factor,
-                        window_start=bids.window_start,
-                        window_end=bids.window_end,
-                        data_observed_at=bids.observed_at_max,
-                        politica=(POLITICA_BANDAS_V1 if efectiva_v1 else politica_bandas),
-                        abstencion_v2=abstencion,
-                    )
-
-    # (3) Nada decidio: no-op con la primera guarda que bloqueo (pause -> bids)
     return ResultadoBid(
         kind=None,
         motivo=motivo_pause_bloqueado or motivo_bids_bloqueado,
@@ -695,6 +326,4 @@ def decide_bid(
         window_start=None,
         window_end=None,
         data_observed_at=None,
-        politica=POLITICA_BANDAS_V1 if efectiva_v1 else politica_bandas,
-        abstencion_v2=abstencion,
     )

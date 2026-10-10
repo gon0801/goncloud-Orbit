@@ -1,5 +1,6 @@
-"""La PAUSE madura de una hoja no hereda el cooldown de un BID."""
+"""La PAUSE madura de una hoja no hereda el cooldown de un BID (camino niveles_v3)."""
 
+import dataclasses
 import datetime as dt
 from decimal import Decimal
 from types import SimpleNamespace
@@ -7,17 +8,18 @@ from types import SimpleNamespace
 import pytest
 
 from app import cycle
-from app.optimizer import evidencia as ev
 from app.optimizer import goals, windows
+from app.optimizer.caso import (
+    BidVigente,
+    Economia,
+    EconomiaPlataforma,
+    InsumosPausa,
+    PrecioVentana,
+    Trayectoria,
+)
 
 AHORA = dt.datetime(2026, 9, 14, 8, 40, tzinfo=dt.UTC)
 BID_CONFIRMADO = dt.datetime(2026, 9, 11, 8, 40, 3, tzinfo=dt.UTC)
-
-# A4: el hook contrafactual corre tras D.2; este harness solo emite pause
-# (marcador pause_intacto, cero queries): conv vacia + confianzas fijas.
-_CONV_VACIA = ev.enrolla_granos(
-    [], moneda="USD", ventana_desde=dt.date(2026, 6, 16), ventana_hasta=dt.date(2026, 9, 4)
-)
 
 
 def _agregado(*, orders=0, clicks=164, cost="127.94", fechas=22, fin=dt.date(2026, 9, 4)):
@@ -36,6 +38,47 @@ def _agregado(*, orders=0, clicks=164, cost="127.94", fechas=22, fin=dt.date(202
     )
 
 
+def _caso_base():
+    """Caso sin evidencia (propia None, inmaduros 0): si R0 no dispara, el
+    juicio da sin_gasto. La pausa la inyecta el harness por llamada."""
+    from app.optimizer.caso import CasoHoja
+
+    return CasoHoja(
+        plataforma="amazon_us",
+        hoja_id=4925,
+        ad_group_id=3927,
+        bid=BidVigente(
+            valor=Decimal("1"), moneda="USD", piso=Decimal("0.40"), techo=Decimal("2.50")
+        ),
+        economia=Economia(
+            plataforma=EconomiaPlataforma(
+                moneda="USD",
+                equilibrio_acos_pct=None,
+                gasto_para_concluir=Decimal("36"),
+                confianza_recorte=Decimal("0.80"),
+                confianza_subida=Decimal("0.70"),
+            ),
+            target_acos_pct=Decimal("25"),
+        ),
+        propia=None,
+        pedidos_inmaduros=0,
+        grupo=None,
+        cuenta=None,
+        precio=PrecioVentana(gasto=None, clics=None),
+        trayectoria=Trayectoria(cambios=(), efecto=None),
+        pausa=InsumosPausa(
+            cortes=None,
+            umbral_clics=157,
+            gasto_minimo=Decimal("40"),
+            expected_clicks=None,
+            politica_economica=None,
+        ),
+        ventana_desde=dt.date(2026, 6, 16),
+        ventana_hasta=dt.date(2026, 9, 4),
+        observado_al=AHORA - dt.timedelta(hours=1),
+    )
+
+
 def _corre_hoja(
     monkeypatch,
     *,
@@ -45,17 +88,21 @@ def _corre_hoja(
     estado="ENABLED",
     bloqueada=False,
     inerte=False,
-    flag=True,
     econ=True,
 ):
     corte = _agregado() if corte is None else corte
-    ventanas = SimpleNamespace(bids=_agregado(orders=1, clicks=30, cost="50"), cortes=corte)
-    monkeypatch.setattr(cycle.windows, "ventanas_entidad", lambda *_: ventanas)
+    base = _caso_base()
+    monkeypatch.setattr(cycle.windows, "ventana_cortes", lambda *_: corte)
     monkeypatch.setattr(
         cycle.cortes,
         "umbral_corte",
         lambda *_: SimpleNamespace(umbral=157, expected_clicks=None, elegible=False),
     )
+
+    def _caso(_conn, **kwargs):
+        return dataclasses.replace(base, pausa=kwargs["pausa"])
+
+    lecturas = SimpleNamespace(caso=_caso)
     consultas = []
 
     def cooldown(_conn, _id, *, ahora, kind=None):
@@ -69,9 +116,6 @@ def _corre_hoja(
         )
 
     monkeypatch.setattr(cycle.g, "en_cooldown", cooldown)
-    # D.2: el conn del harness es object(); la historia del ultimo bid se
-    # parchea igual que en_cooldown (ninguna prueba de aqui emite kind bid).
-    monkeypatch.setattr(cycle.g, "ultimo_bid_aplicado", lambda *_: goals.SinHistoriaBid())
     goal = goals.Goal(
         scope="platform",
         ad_entity_id=None,
@@ -106,12 +150,9 @@ def _corre_hoja(
         margen_plataforma=None,
         snapshot_margen={},
         familias_ciclo=cycle._FamiliasCiclo({}, {}, {}, {}, {}, None, AHORA.date(), None, {}),
-        pause_sin_cooldown_bid=flag,
         pause_economica=econ,
-        conv_jerarquica=_CONV_VACIA,
-        confianza_recorte=Decimal("0.80"),
-        confianza_subida=Decimal("0.70"),
-        motor_evidencia=False,
+        politica="niveles_v3",
+        lecturas=lecturas,
     )
     return pendientes, contadores, consultas
 
@@ -120,40 +161,56 @@ def test_4925_pause_madura_14_sep_pasa_bid_cooldown_sin_lookahead(monkeypatch):
     pendientes, contadores, consultas = _corre_hoja(monkeypatch)
     assert [p.kind for p in pendientes] == ["pause"]
     assert pendientes[0].window_end == dt.date(2026, 9, 4)
-    assert pendientes[0].inputs["cooldown_policy_version"] == "pause_after_bid_v1"
+    assert pendientes[0].inputs["politica"] == "niveles_v3"
     assert pendientes[0].inputs["target_procedencia"] == "goal_plataforma"
     assert pendientes[0].inputs["motivo"] == "pause_umbral"
+    assert pendientes[0].inputs["caso"]["pausa"]["umbral_clics"] == 157
     assert contadores.decisiones == {"pause": 1}
     assert consultas == ["pause"]
 
 
-def test_flag_apagado_bloquea_pause_nueva_como_antes_de_b2(monkeypatch):
-    """B.2a: con el flag apagado rige el comportamiento pre-B.2 — el cooldown
-    generico (cualquier apply <7d) bloquea la PAUSE en el gate, sin consulta
-    por kind. Es la prueba de aislamiento: un deploy con el flag apagado NO
-    activa la PAUSE nueva."""
-    pendientes, contadores, consultas = _corre_hoja(monkeypatch, flag=False)
-    assert pendientes == []
-    assert contadores.skips_entidad == {"cooldown_7d": 1}
-    assert consultas == [None]
-
-
 @pytest.mark.parametrize(
-    ("corte", "esperado"),
+    "corte",
     [
-        (_agregado(clicks=156, cost="79"), "cooldown_7d"),
+        _agregado(clicks=156, cost="79"),
         # Obs4r2: costo SOBRE el limite (127.94): solo la abstencion por
         # orders desconocidos impide la PAUSE (con cost 79 el caso no
         # discriminaba: ni la economica cruzaba).
-        (_agregado(orders=None), "cooldown_7d"),
-        (_agregado(fechas=6), "cooldown_7d"),
+        _agregado(orders=None),
+        _agregado(fechas=6),
     ],
 )
-def test_bid_sigue_en_cooldown_si_pause_no_califica(monkeypatch, corte, esperado):
+def test_sin_pause_y_sin_evidencia_el_juicio_decide_sin_cooldown(monkeypatch, corte):
+    """M.3: si la PAUSE no califica, el juicio decide (sin_gasto, sin
+    evidencia) y no hay consulta de cooldown: el gate generico ya no
+    existe y un bid previo no enfria nada."""
     pendientes, contadores, consultas = _corre_hoja(monkeypatch, corte=corte)
     assert pendientes == []
-    assert contadores.skips_entidad == {esperado: 1}
-    assert consultas == [None]
+    assert contadores.skips_entidad == {"sin_gasto": 1}
+    assert consultas == []
+
+
+def test_pause_aplicada_hace_3_dias_no_recibe_otra_pause(monkeypatch):
+    """M.3: una hoja con una PAUSE aplicada hace 3 dias no recibe otra
+    PAUSE y se cuenta con cooldown_7d."""
+    pendientes, contadores, consultas = _corre_hoja(
+        monkeypatch,
+        bid_confirmado=None,
+        pause_confirmada=AHORA - dt.timedelta(days=3),
+    )
+    assert pendientes == []
+    assert contadores.skips_entidad == {"cooldown_7d": 1}
+    assert consultas == ["pause"]
+
+
+def test_bid_aplicado_hace_3_dias_con_datos_maduros_si_recibe_pause(monkeypatch):
+    """M.3: una hoja con un bid aplicado hace 3 dias y datos maduros
+    para pausar SI recibe la PAUSE (un bid previo no enfria una PAUSE)."""
+    pendientes, contadores, consultas = _corre_hoja(
+        monkeypatch, bid_confirmado=AHORA - dt.timedelta(days=3)
+    )
+    assert [p.kind for p in pendientes] == ["pause"]
+    assert consultas == ["pause"]
 
 
 def test_pause_aplicada_y_revertida_conserva_cooldown_7d(monkeypatch):
@@ -191,32 +248,25 @@ def test_vetos_previos_siguen_impidiendo_pause(monkeypatch, opciones, motivo):
     assert contadores.skips_entidad == {motivo: 1}
 
 
-def test_2423_venta_cara_emite_pause_y_congela_regla_economica(monkeypatch):
+def test_2423_venta_cara_emite_pause_y_replayea_con_caso(monkeypatch):
     corte = _agregado(orders=1, clicks=231, cost="105")
     corte = windows.AgregadoMetricas(**{**corte.__dict__, "ad_revenue": Decimal("100")})
     pendientes, contadores, _ = _corre_hoja(monkeypatch, corte=corte)
     assert contadores.decisiones == {"pause": 1}
     assert pendientes[0].inputs["motivo"] == "pause_economica"
-    assert pendientes[0].inputs["economic_policy"]["version"] == "economic_pause_v1"
-    assert pendientes[0].inputs["economic_policy"]["target"] == "25"
-    assert pendientes[0].inputs["economic_policy"]["cost"] == "105"
-    assert pendientes[0].inputs["economic_policy"]["revenue"] == "100"
-    assert pendientes[0].inputs["economic_policy"]["exceso"] == "80"
-    assert cycle.reproduce(pendientes[0].inputs)[0] == "pause"
-    anterior = dict(pendientes[0].inputs)
-    anterior.pop("economic_policy")
-    assert cycle.reproduce(anterior)[0] != "pause"
+    assert pendientes[0].inputs["caso"]["pausa"]["politica_economica"] == "economic_pause_v1"
+    assert cycle.reproduce(pendientes[0].inputs) == ("pause", None, None)
 
 
-def test_flag_economico_apagado_decide_regla_vieja_y_congela_none(monkeypatch):
+def test_flag_economico_apagado_decide_regla_vieja(monkeypatch):
     """C.3 B1: con el flag apagado no hay PAUSE economica (misma hoja que
-    con flag emitiria pause_economica) y el freeze registra version None
-    para que el replay no adopte la regla nueva."""
+    con flag emitiria pause_economica); la umbral sigue pausando."""
     corte = _agregado(orders=1, clicks=231, cost="105")
     corte = windows.AgregadoMetricas(**{**corte.__dict__, "ad_revenue": Decimal("100")})
     pendientes, contadores, _ = _corre_hoja(monkeypatch, corte=corte, econ=False)
     assert pendientes == []
     assert contadores.decisiones == {}
+    assert contadores.skips_entidad == {"sin_gasto": 1}
     umbral, _, _ = _corre_hoja(monkeypatch, econ=False)
     assert umbral[0].inputs["motivo"] == "pause_umbral"
-    assert umbral[0].inputs["economic_policy"]["version"] is None
+    assert umbral[0].inputs["caso"]["pausa"]["politica_economica"] is None

@@ -77,6 +77,7 @@ def test_espejos_de_windows_goals_evidencia_pineados():
     assert g.COOLDOWN.days == p.DIAS_EFECTO
     assert p.CLICS_NUEVOS == ev.MIN_CLICS_CPC
     assert p.PRECISION == ev._PRECISION
+    assert g.POLITICA_BID_VIGENTE == c.POLITICA_BID
 
 
 def test_politica_importa_gamma_y_pausa_en_vez_de_copiar():

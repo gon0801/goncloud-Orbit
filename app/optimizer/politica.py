@@ -14,7 +14,7 @@ from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal, localcontext
 from typing import Literal
 
 from app.optimizer.bid import _decide_pause
-from app.optimizer.caso import POLITICA_BID, PRECISION, CasoHoja, Economia, EvidenciaNivel
+from app.optimizer.caso import PRECISION, CasoHoja, Economia, EvidenciaNivel
 from app.optimizer.evidencia import gamma_p, gamma_q
 
 # Bandas y pasos: los de hoy (docs/CONTEXTO.md), sin tocar.
@@ -209,7 +209,6 @@ def decide(caso: CasoHoja) -> Veredicto:
         caso.pausa.gasto_minimo,
         target,
         caso.pausa.politica_economica,
-        POLITICA_BID,
     )
     if pausa is not None:
         assert pausa.kind == "pause"

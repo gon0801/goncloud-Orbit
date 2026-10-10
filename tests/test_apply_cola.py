@@ -1017,6 +1017,39 @@ def test_revalida_negative_descarta_por_umbral_adaptativo_fresco():
 
 
 @_skip_db
+def test_revalida_pause_sin_decide_bid_bloque_pause_de_bid(monkeypatch):
+    """M.3: una PAUSE en cola se revalida con el bloque de PAUSE de bid.py,
+    sin decide_bid (si la revalidacion llamara a decide_bid, revienta)."""
+    import app.apply_cola as cola
+    from app.optimizer import bid as motor_bid
+
+    def _revienta(**_k):
+        raise AssertionError("la revalidacion de PAUSE no debe llamar a decide_bid")
+
+    # raising=False: decide_bid ya no existe en bid.py; si la revalidacion
+    # lo referenciara, esta trampa reventaria (o AttributeError).
+    monkeypatch.setattr(motor_bid, "decide_bid", _revienta, raising=False)
+    with _db_temporal("orbit_cola_m3pause") as conn:
+        ids = _semilla(conn)
+        d = ids["ahora"]
+        for fecha in _fechas(d.date() - dt.timedelta(days=28), d.date() - dt.timedelta(days=11)):
+            _metrica(conn, ids["run"], ids["kw"], fecha, clicks=7, cost=3, orders=0)
+        dec = _decision_corte(conn, ids["ciclo_dec"], ids["config"], ids["kw"], "pause")
+        _encola_fila(conn, dec, ids["kw"], "pause", payload=_payload_pause("7201"))
+        handler, vistos = _handler_cortes()
+
+        res = libera_vencidos(
+            conn, "amazon_us", ahora=d, aplicador=_aplicador(conn, handler, ids["ciclo_ejec"])
+        )
+
+        # Califica (105 >= 100, 45 >= 40) y aplica: la revalidacion llego
+        # al veredicto sin pasar por decide_bid (parcheado para reventar).
+        assert res.descartadas == []
+        assert len(_mutaciones(vistos)) == 1
+        assert cola  # el modulo se importa (la revalidacion corre por el bloque de PAUSE)
+
+
+@_skip_db
 def test_revalida_pause_descarta_por_umbral_adaptativo_fresco():
     """Pause sobre kw: al decidir calificaba (fallback 100 con CORTES 03,
     clicks de la ventana 105 >= 100 con cost 45 >= 40). Al liberar la

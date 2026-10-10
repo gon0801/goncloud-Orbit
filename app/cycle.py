@@ -86,7 +86,7 @@ resuelto. Toda decision que consulta umbral de clicks congela inputs.corte
 TOP-LEVEL (shape del spec: umbral_clicks_usado FINAL con piso, elegible,
 expected_clicks como string, evidencia con observed_at_max) -- en hygiene
 las negative (las harvest NO lo llevan) y en bids TODAS, incluidas las de
-kind final 'bid': decide_bid evalua PAUSE antes de las bandas y, sin el
+kind final 'bid': R0 evalua PAUSE antes del juicio y, sin el
 freeze, el replay de un bid cuyo umbral adaptativo bloqueo el pause
 rejugaria como pause con la historia sin la clave (25, REPLAY_PAUSE_
 CLICKS_PRE_CORTES01), no con el umbral que SU decision resolvio.
@@ -130,8 +130,8 @@ el `finally` de corre_ciclo — el apply corre con el lock NUESTRO):
   `apply_cola.claves_bloqueadas`) y `_procesa_decisora`/`_procesa_grupo`
   saltan la entidad/termino bloqueado con motivo `veto_pendiente` (funciona en
   shadow y live: el bloqueo es por clave de efecto, no por modo). DECLARADO:
-  el bloqueo entity_cut salta la entidad ENTERA del motor de bids — decide_bid
-  evalua pause y banda en UNA llamada y no existe forma de prohibir solo el
+  el bloqueo entity_cut salta la entidad ENTERA del motor de bids — decide
+  da pause o juicio en UNA llamada y no existe forma de prohibir solo el
   pause sin inventar un umbral (regla 3); su bid vuelve al ciclo siguiente.
 - Si el modo del envelope es 'live': la fase de apply propiamente — la
   FABRICA (`_aplicador_real`, inyectable via `aplicador_factory` para tests)
@@ -197,13 +197,13 @@ from psycopg.types.json import Json
 from app import apply, apply_cola, apply_harvest, notifica, propuestas_campana
 from app.ads.config import AdsCredentials
 from app.apply import Aplicador, CapSaturado
+from app.lecturas_caso import LecturasPlataforma, lee_plataforma
 from app.optimizer import bid, cortes, harvest_destino, hygiene, windows
-from app.optimizer import evidencia as ev
 from app.optimizer import goals as g
 from app.optimizer.bid import PLATAFORMAS_MONEDA
+from app.optimizer.caso import POLITICA_BID, BidVigente, EconomiaPlataforma, InsumosPausa
+from app.optimizer.politica import Mantener, Mover, Pausar, decide
 from app.optimizer.replay import reproduce as reproduce
-from app.optimizer.replay import reproduce_bandas_v1 as reproduce_bandas_v1
-from app.optimizer.replay import reproduce_evidencia_v2 as reproduce_evidencia_v2
 from app.redaction import install_scrub_filter, scrub
 
 logger = logging.getLogger(__name__)
@@ -247,6 +247,9 @@ MOTIVO_INVERSION_SIN_EVIDENCIA = "inversion_sin_evidencia"
 # BIDS 02 T.1: ningun peldano resolvio target (el default 55 era inventado,
 # regla 3): la hoja y el ad group de terminos se saltan sin decidir.
 MOTIVO_SIN_TARGET = "sin_target"
+# BIDS 02 M.3: la clave ads_bid_politica_<p> esta ausente: el motor no mueve
+# bids en esa plataforma (solo decide la PAUSE).
+MOTIVO_POLITICA_APAGADA = "politica_apagada"
 MOTIVO_ESCALERA_OFF = "escalera_off"
 MOTIVO_VETO_PENDIENTE = apply_cola.MOTIVO_VETO_PENDIENTE
 
@@ -684,7 +687,7 @@ def _corte_json(
     + aov como string Decimal|null; misma regla 4). Desde el cierre CORTES
     03 (decision del lead 2026-08-28), el MOTOR DE BIDS congela ADEMAS
     cost_min_usado (string Decimal) cuando le llega `cost_min`: replay fiel
-    por construccion -- queda congelado el piso de costo que decide_bid
+    por construccion -- queda congelado el piso de costo que R0
     consumio; negative NO lo lleva (su freeze queda EXACTO como estaba).
     `piso` None deja el shape EXACTO de 1.2/1.3: solo lo congela quien lo
     consumo (pause/bid NO llevan piso adaptativo, sellado). Lo consumen
@@ -761,7 +764,7 @@ def _goal_json(
 ) -> dict:
     """Goal resuelto congelado (estructura sellada que consume el replay).
     bid_floor/bid_ceiling se congelan EFECTIVOS (resuelve_floor_ceiling):
-    exactamente los que decide_bid consumio. Congelar los crudos divergiria
+    exactamente los que el juicio consumio (caso.bid). Congelar los crudos divergiria
     del replay ante cualquier default/clamp futuro, y un None crudo romperia
     Decimal(None) en reproduce() (hallazgo CodeRabbit major). `moneda` viaja
     EXPLICITA desde el llamador (PLATAFORMAS_MONEDA[platform]): los defaults
@@ -823,87 +826,91 @@ def _goal_json(
     }
 
 
-def _evidencia_v2_json(
+def pendiente_bid(
+    caso,
+    veredicto,
     *,
-    previa: ev.Previa | None,
-    conversion: ev.Conteo | None,
-    cpc: ev.CostoPorClic | None,
-    veredicto: bid.ResultadoBid,
-    confianza_recorte: Decimal,
-    confianza_subida: Decimal,
-    moneda: str,
-    ventana_desde: dt.date,
-    ventana_hasta: dt.date,
-    via: str,
-    abstencion_v2: str | None,
-) -> dict:
-    """Freeze de `inputs.evidencia_v2` (A4, shape EXACTO): insumos CRUDOS
-    (previa/conversion/cpc cada uno nullable, as-measured) + veredicto
-    v2. NO se congela la estimacion (derivada re-derivable exacta: un
-    numero, una fuente). Decimal como string, fechas ISO (regla 4). A6
-    (ADITIVO, shape A4 intacto): `via` ("contrafactual" = sombra de un
-    vivo v1, "decide" = el vivo DECIDIO con evidencia) y `abstencion_v2`
-    (el motivo v2 cuando el fallback v1 decidio, None si no). Filas A4
-    sin `via` = contrafactual (el replay defaultea)."""
-    return {
-        "politica": bid.POLITICA_BANDAS_EVIDENCIA,
-        "via": via,
-        "abstencion_v2": abstencion_v2,
-        "confianza_recorte_usada": _dec_str(confianza_recorte),
-        "confianza_subida_usada": _dec_str(confianza_subida),
-        "moneda": moneda,
-        "ventana_madura": {
-            "desde": ventana_desde.isoformat(),
-            "hasta": ventana_hasta.isoformat(),
-        },
-        "previa": (
-            {
-                "cvr": _dec_str(previa.cvr),
-                "aov": _dec_str(previa.aov),
-                "niveles": list(previa.niveles),
-                "familia_id": previa.familia_id,
-                "subfamilia_id": previa.subfamilia_id,
-            }
-            if previa is not None
-            else None
-        ),
-        "conversion": (
-            {
-                "clicks": conversion.clicks,
-                "orders": conversion.orders,
-                "ad_revenue": _dec_str(conversion.ad_revenue),
-            }
-            if conversion is not None
-            else None
-        ),
-        "cpc": (
-            {
-                "cost": _dec_str(cpc.cost),
-                "clicks": cpc.clicks,
-                "desde": cpc.desde.isoformat(),
-                "hasta": cpc.hasta.isoformat(),
-                "post_cambio": cpc.post_cambio,
-            }
-            if cpc is not None
-            else None
-        ),
-        "veredicto": {
-            "kind": veredicto.kind,
-            "motivo": veredicto.motivo,
-            "factor": _dec_str(veredicto.factor),
-            "new_value": _dec_str(veredicto.new_value),
-        },
+    modo: str,
+    goal: g.Goal,
+    decidido_el: dt.datetime,
+    procedencia: str,
+    snapshot: dict | None,
+    corte: cortes.UmbralResuelto,
+    evidencia: windows.EvidenciaAdGroup | None,
+    cost_min: Decimal,
+) -> _Pendiente:
+    """Fila de `decision` lista para insertar (BIDS 02 M.3, bosquejo
+    cycle.py). inputs = {"motor": "bid", "politica": POLITICA_BID,
+    "platform", "modo", "motivo", "factor", "nivel", "veredicto_kind",
+    "caso": caso.como_json(), mas las claves que leen pantallas
+    existentes (target_acos_pct_usado, target_procedencia, goal,
+    bid_actual, corte)}. El replay re-decide con decide(caso): Mover y
+    Regresar son kind bid, Pausar es kind pause y Mantener jamas llega
+    aqui (cuenta en notes.skips). La ventana es la madura del caso para
+    bid y la de cortes para pause; el sello es el observado del caso,
+    clampeado a decidido_el."""
+    if isinstance(veredicto, Pausar):
+        kind = "pause"
+        cortes_agg = caso.pausa.cortes
+        assert cortes_agg is not None  # R0 solo pausa sobre cortes medidos
+        window_start = cortes_agg.window_start
+        window_end = cortes_agg.window_end
+        obs = cortes_agg.observed_at_max
+        old_value = None
+        new_value = None
+        value_currency = None
+        factor = None
+        nivel = None
+    else:
+        kind = "bid"
+        window_start = caso.ventana_desde
+        window_end = caso.ventana_hasta
+        obs = caso.observado_al
+        old_value = caso.bid.valor
+        new_value = veredicto.bid_nuevo
+        value_currency = caso.bid.moneda
+        factor = veredicto.factor if isinstance(veredicto, Mover) else None
+        nivel = veredicto.nivel if isinstance(veredicto, Mover) else None
+    inputs = {
+        "motor": "bid",
+        "politica": POLITICA_BID,
+        "platform": caso.plataforma,
+        "modo": modo,
+        "motivo": veredicto.motivo,
+        "factor": _dec_str(factor),
+        "nivel": nivel,
+        "veredicto_kind": type(veredicto).__name__,
+        "caso": caso.como_json(),
+        "target_acos_pct_usado": _dec_str(caso.economia.target_acos_pct),
+        "target_procedencia": procedencia,
+        **({"target_snapshot": snapshot} if snapshot is not None else {}),
+        "goal": _goal_json(goal, PLATAFORMAS_MONEDA[caso.plataforma]),
+        "bid_actual": _dec_str(caso.bid.valor),
+        "bid_moneda": caso.bid.moneda,
+        "corte": _corte_json(corte, evidencia, cost_min=cost_min),
     }
+    return _Pendiente(
+        ad_entity_id=caso.hoja_id,
+        kind=kind,
+        data_observed_at=_sello_bitemporal(decidido_el, obs, None),
+        window_start=window_start,
+        window_end=window_end,
+        search_term=None,  # bid/pause deciden sobre la entidad (CHECK del esquema)
+        old_value=old_value,
+        new_value=new_value,
+        value_currency=value_currency,
+        inputs=inputs,
+    )
 
 
-def _pendiente_bid(
+def _pendiente_pause_apagada(
     entidad_id: int,
     resultado: bid.ResultadoBid,
     *,
     platform: str,
     modo: str,
     goal: g.Goal,
-    ventanas: windows.VentanasEntidad,
+    cortes: windows.AgregadoMetricas | None,
     target: Decimal,
     procedencia: str,
     snapshot: dict | None,
@@ -913,118 +920,43 @@ def _pendiente_bid(
     corte: cortes.UmbralResuelto,
     evidencia: windows.EvidenciaAdGroup | None,
     cost_min: Decimal,
-    pause_economica: bool,
-    evidencia_v2: dict,
-    motor_evidencia: bool,
-    bandas_v1: dict | None,
+    policy_version: str | None,
 ) -> _Pendiente:
-    """El freeze de CORTES 01 (1.3): `inputs.corte` se congela en TODA
-    decision del motor de bids -- INCLUIDAS las de kind final 'bid' -- porque
-    decide_bid evalua PAUSE ANTES de las bandas: sin el freeze, el replay de
-    un bid historico cuyo umbral adaptativo de pause BLOQUEO el corte
-    rejugaria como pause con la historia sin la clave (25) y la
-    auditoria divergiria (spec v3). Desde el cierre CORTES 03 (decision del
-    lead 2026-08-28) congela ADEMAS `cost_min_usado`: el piso de costo que
-    el ciclo le pasa a decide_bid (bid.PAUSE_COST_MIN[platform]) viaja por
-    este parametro para que el freeze registre EXACTAMENTE el valor usado
-    (replay fiel por construccion). BIDS 01 revision (regla 4.4): congela
-    ADEMAS `cero_ventas_expected_usado` (lo que decide_bid consumio en
-    expected_clicks, null sin evidencia) — EL marcador que el replay lee;
-    `expected_clicks` queda informativo. El sello bitemporal
-    (_sello_bitemporal) aplica al obs directo del
-    agregado que decidio (cortes para pause, bids para bid) mezclado con la
-    evidencia del grupo, clampeado a decided_at. A4: `evidencia_v2` llega
-    YA SERIALIZADO del hook contrafactual (el vivo no lo consume; el replay
-    lo re-decide con reproduce_evidencia_v2). A6: `politica_bandas_usada`
-    (inputs raiz) es la politica efectiva del vivo (viene del result).
-    DECLARATIVA con verifier A7 (replay.verifica_politica la valida contra
-    la re-derivada; CI-only, sin cablear a compara/dossier): jamas fuente
-    de rutado futura (interrogate A6).
-    A6-r2 B3: `bandas_v1` llega YA SERIALIZADO del contrafactual v1 y se
-    congela SOLO en vivo v2 (None en v1: la fila queda intacta); el
-    replay lo re-decide con reproduce_bandas_v1. `motor_evidencia`
-    congela la version D.2 EFECTIVA (n10 en v1, cpc20 en v2)."""
+    """La PAUSE con la politica apagada (BIDS 02 M.3, cambio 4): freeze
+    Sin caso ni politica, con la forma de la era anterior (ventanas +
+    corte + version economica) para que el replay la re-decida por eras
+    (el pause es identico en todas las eras)."""
+    assert resultado.kind == "pause"
+    assert cortes is not None
     inputs = {
         "motor": "bid",
         "platform": platform,
         "ventanas": {
-            "bids": _agregado_json(ventanas.bids),
-            "cortes": _agregado_json(ventanas.cortes),
+            "bids": None,
+            "cortes": _agregado_json(cortes),
         },
         "goal": _goal_json(goal, PLATAFORMAS_MONEDA[platform]),
         "target_acos_pct_usado": _dec_str(target),
-        # La elegibilidad de PAUSE frente al ultimo BID no se deduce del
-        # resultado puro de decide_bid. Congelarla permite interpretar una
-        # decision posterior sin aplicar retrospectivamente esta politica
-        # a una decision de la era anterior.
-        "cooldown_policy_version": "pause_after_bid_v1",
-        # D.2: la politica anti-inversion que consumo la decision de bid que
-        # pasa el gate (n10 en v1, cpc20 en v2); None en PAUSE (no paso por
-        # el gate, regla 3) para que el replay de cada era no adopte la
-        # regla que no corrio.
-        "inversion_policy_version": (
-            (g.POLITICA_INVERSION_EVIDENCIA if motor_evidencia else g.POLITICA_INVERSION)
-            if resultado.kind == "bid"
-            else None
-        ),
-        "economic_policy": {
-            # C.3 B1: el freeze registra la politica EFECTIVA (None con
-            # flag apagado: el replay de esa era no adopta la regla nueva).
-            "version": bid.POLITICA_PAUSE_ECONOMICA if pause_economica else None,
-            "window_start": _fecha_iso(ventanas.cortes.window_start) if ventanas.cortes else None,
-            "window_end": _fecha_iso(ventanas.cortes.window_end) if ventanas.cortes else None,
-            "moneda": ventanas.cortes.metric_currency if ventanas.cortes else None,
-            "target": _dec_str(target),
-            "target_procedencia": procedencia,
-            "cost": _dec_str(ventanas.cortes.cost) if ventanas.cortes else None,
-            "revenue": _dec_str(ventanas.cortes.ad_revenue) if ventanas.cortes else None,
-            "exceso": _dec_str(
-                bid.exceso_economico(ventanas.cortes, target, PLATAFORMAS_MONEDA[platform])
-            ),
-            "multiplicador": str(bid.MULT_PAUSE_ECONOMICA),
-            "exceso_minimo": _dec_str(bid.EXCESO_MINIMO[PLATAFORMAS_MONEDA[platform]]),
-        },
-        # ORBIT 06 2.3: peldano ganador + snapshot SOLO si gana el margen
-        # (replay no lee estas claves: reproduce() intacto).
+        "economic_policy": {"version": policy_version},
         "target_procedencia": procedencia,
         **({"target_snapshot": snapshot} if snapshot is not None else {}),
         "bid_actual": _dec_str(bid_actual),
         "bid_moneda": bid_moneda,
-        "factor": _dec_str(resultado.factor),
+        "factor": None,
         "motivo": resultado.motivo,
         "modo": modo,
-        # BIDS 01 revision (regla 4.4): marcador que SOLO escriben los
-        # ciclos con la regla activa — exactamente lo que decide_bid
-        # consumio (None = grupo sin evidencia). El replay lee SOLO esta
-        # clave; expected_clicks queda informativo. Se añade AQUI (no en
-        # _corte_json): el camino negative no consume decide_bid y su
-        # freeze queda identico.
-        "corte": {
-            **_corte_json(corte, evidencia, cost_min=cost_min),
-            "cero_ventas_expected_usado": _dec_str(corte.expected_clicks),
-        },
-        # A4: contrafactual v2 congelado en TODA decision del motor de
-        # bids (filas pause llevan el marcador pause_intacto, sin queries;
-        # el replay lo re-decide con reproduce_evidencia_v2).
-        "evidencia_v2": evidencia_v2,
-        # A6: politica EFECTIVA del vivo (reason declarativo v1/v2; la
-        # pone el motor en ResultadoBid.politica, nunca el llamador).
-        # Filas pre-A6 no la llevan (el replay defaultea a bandas_v1).
-        "politica_bandas_usada": resultado.politica,
-        # A6-r2 B3: contrafactual v1 SOLO en vivo v2 (en v1 la clave no
-        # existe: bit-identico a la era pre-B3, como target_snapshot).
-        **({"bandas_v1": bandas_v1} if bandas_v1 is not None else {}),
+        "corte": _corte_json(corte, evidencia, cost_min=cost_min),
     }
     return _Pendiente(
         ad_entity_id=entidad_id,
-        kind=resultado.kind,
-        data_observed_at=_sello_bitemporal(decided_at, resultado.data_observed_at, evidencia),
+        kind="pause",
+        data_observed_at=_sello_bitemporal(decided_at, resultado.data_observed_at, None),
         window_start=resultado.window_start,
         window_end=resultado.window_end,
-        search_term=None,  # bid/pause deciden sobre la entidad (CHECK del esquema)
-        old_value=resultado.old_value,
-        new_value=resultado.new_value,
-        value_currency=resultado.value_currency,
+        search_term=None,
+        old_value=None,
+        new_value=None,
+        value_currency=None,
         inputs=inputs,
     )
 
@@ -1652,109 +1584,6 @@ def _gates_entidad(
     return (goal, motivo)
 
 
-def _contrafactual_v2_json(
-    conn: psycopg.Connection,
-    *,
-    entidad_id: int,
-    platform: str,
-    ventanas: windows.VentanasEntidad,
-    historia,
-    conv: ev.ConversionPlataforma,
-    target: Decimal,
-    bid_actual: Decimal | None,
-    bid_moneda: str | None,
-    floor: Decimal,
-    ceiling: Decimal,
-    corte_pause: cortes.UmbralResuelto,
-    costo_piso: Decimal,
-    pause_economica: bool,
-    confianza_recorte: Decimal,
-    confianza_subida: Decimal,
-) -> dict:
-    """Contrafactual v2 YA SERIALIZADO para `inputs.evidencia_v2` (A4).
-    Mide (cpc_vigente + parciales) y juzga (segundo decide_bid con la
-    politica evidencia y los MISMOS args live). La llamada v2 espeja la
-    live arg-por-arg + los 4 params v2 (evidencia, politica_bandas,
-    confianzas): el replay la reproduce con los insumos congelados."""
-    cpc = windows.cpc_vigente(conn, entidad_id, historia, ventanas.bids)
-    previa, conversion, cpc_medido = ev.parciales_evidencia(conv, entidad_id, cpc)
-    veredicto = bid.decide_bid(
-        platform=platform,
-        bids=ventanas.bids,
-        cortes=ventanas.cortes,
-        target_acos_pct=target,
-        bid_actual=bid_actual,
-        bid_moneda=bid_moneda,
-        floor=floor,
-        ceiling=ceiling,
-        umbral_pause=corte_pause.umbral,
-        cost_min=costo_piso,
-        expected_clicks=corte_pause.expected_clicks,
-        policy_version=bid.POLITICA_PAUSE_ECONOMICA if pause_economica else None,
-        evidencia=ev.clasifica(previa, conversion, cpc_medido),
-        politica_bandas=bid.POLITICA_BANDAS_EVIDENCIA,
-        confianza_recorte=confianza_recorte,
-        confianza_subida=confianza_subida,
-    )
-    return _evidencia_v2_json(
-        previa=previa,
-        conversion=conversion,
-        cpc=cpc_medido,
-        veredicto=veredicto,
-        confianza_recorte=confianza_recorte,
-        confianza_subida=confianza_subida,
-        moneda=conv.moneda,
-        ventana_desde=conv.ventana_desde,
-        ventana_hasta=conv.ventana_hasta,
-        via="contrafactual",
-        abstencion_v2=None,
-    )
-
-
-def _contrafactual_v1_json(
-    *,
-    platform: str,
-    ventanas: windows.VentanasEntidad,
-    target: Decimal,
-    bid_actual: Decimal | None,
-    bid_moneda: str | None,
-    floor: Decimal,
-    ceiling: Decimal,
-    corte_pause: cortes.UmbralResuelto,
-    costo_piso: Decimal,
-    pause_economica: bool,
-) -> dict:
-    """Contrafactual v1 YA SERIALIZADO para `inputs.bandas_v1` (A6 B3).
-    Segundo decide_bid con la politica PURA de bandas (sin D.2, sin
-    cooldown, sin veto: igual que la sombra A4), espejo arg-por-arg del
-    vivo MENOS los params v2. v1 no necesita insumos extra: todo lo que
-    consume ya viaja congelado en inputs (ventanas, target, corte)."""
-    veredicto = bid.decide_bid(
-        platform=platform,
-        bids=ventanas.bids,
-        cortes=ventanas.cortes,
-        target_acos_pct=target,
-        bid_actual=bid_actual,
-        bid_moneda=bid_moneda,
-        floor=floor,
-        ceiling=ceiling,
-        umbral_pause=corte_pause.umbral,
-        cost_min=costo_piso,
-        expected_clicks=corte_pause.expected_clicks,
-        policy_version=bid.POLITICA_PAUSE_ECONOMICA if pause_economica else None,
-    )
-    return {
-        "politica": bid.POLITICA_BANDAS_V1,
-        "via": "contrafactual",
-        "veredicto": {
-            "kind": veredicto.kind,
-            "motivo": veredicto.motivo,
-            "factor": _dec_str(veredicto.factor),
-            "new_value": _dec_str(veredicto.new_value),
-        },
-    }
-
-
 def _procesa_decisora(
     conn: psycopg.Connection,
     *,
@@ -1774,12 +1603,9 @@ def _procesa_decisora(
     margen_plataforma: Decimal | None,
     snapshot_margen: dict,
     familias_ciclo: _FamiliasCiclo,
-    pause_sin_cooldown_bid: bool,
     pause_economica: bool,
-    conv_jerarquica: ev.ConversionPlataforma,
-    confianza_recorte: Decimal,
-    confianza_subida: Decimal,
-    motor_evidencia: bool,
+    politica: str | None,
+    lecturas: LecturasPlataforma | None,
 ) -> None:
     (
         entidad_id,
@@ -1803,10 +1629,11 @@ def _procesa_decisora(
             (MOTIVO_GRUPO_NO_ENABLED, status_grupo),
         ),
         decided_at=decided_at,
-        # B.2a: con el flag apagado rige el gate pre-B.2 (cualquier apply
-        # <7d bloquea tambien la PAUSE); encendido, el cooldown se evalua
-        # por kind despues de decidir (B.2).
-        comprobar_cooldown=not pause_sin_cooldown_bid,
+        # BIDS 02 M.3 (cambio 9): el gate queda fijo en el camino que
+        # produccion corre hoy (flag encendido): sin cooldown generico
+        # aqui; el cooldown de la PAUSE se evalua por kind despues de
+        # decidir. La espera de un bid la decide R2, no este gate.
+        comprobar_cooldown=False,
     )
     if motivo is not None:
         contadores.skips_entidad[motivo] += 1
@@ -1816,7 +1643,7 @@ def _procesa_decisora(
     if (entidad_id, "entity_cut", None) in bloqueadas:
         # 2.2 sellado 5 / 2.4: clave de efecto en vuelo (fila NO terminal o
         # veto vigente) — el ciclo NO re-decide esa clave. Salta la entidad
-        # ENTERA del motor de bids (decide_bid evalua pause y banda en una
+        # ENTERA del motor de bids (decide da pause o juicio en una
         # sola llamada; prohibir solo el pause exigiria inventar un umbral,
         # regla 3 — declarado en el docstring del modulo). CAMPANA ACTIVA 01
         # · 1.6: va DESPUES de los gates — una hoja en campana/grupo no
@@ -1836,13 +1663,12 @@ def _procesa_decisora(
     # no esta en el dict -> evidencia None -> fallback 100 con piso legacy
     # 100 (CORTES 03; antes 50/25; regla 3: jamas un numero inventado).
     # Cierre CORTES 03 (decision del lead 2026-08-28): el piso de costo
-    # VIGENTE tambien va EXPLICITO a decide_bid y al freeze
+    # VIGENTE tambien va EXPLICITO al juicio (InsumosPausa) y al freeze
     # (cost_min_usado) -- replay fiel por construccion.
     if ad_group_id not in corte_pause_por_grupo:
         evidencia = evidencia_ad_groups.get(ad_group_id)
         corte_pause_por_grupo[ad_group_id] = (cortes.umbral_corte(evidencia, "pause"), evidencia)
     corte_pause, evidencia = corte_pause_por_grupo[ad_group_id]
-    ventanas = windows.ventanas_entidad(conn, entidad_id, decided_at)
     # ORBIT 06 2.3: el peldano entra a la cascada del motor; la procedencia
     # sale del mismo nucleo (peldano_target_acos) para el freeze.
     # A5: el peldano familiar se resuelve por hoja (su ancla es el ultimo
@@ -1876,198 +1702,105 @@ def _procesa_decisora(
     contadores.targets[entidad_id] = (target, procedencia)
     floor, ceiling = g.resuelve_floor_ceiling(goal, PLATAFORMAS_MONEDA[platform])
     costo_piso = bid.PAUSE_COST_MIN[platform]
-    # A6-live: con el interruptor en evidencia, la hoja mide SU historia
-    # (D.2 la REUSA abajo: una sola lectura), SU cpc vigente y SUS
-    # parciales ANTES del vivo, y el vivo decide con evidencia + fallback
-    # v1 en LA MISMA llamada (sin segundo call). Con el flag apagado este
-    # bloque no existe: el vivo es v1 EXACTO como hoy (cero queries extra,
-    # cero labels distintos) y la sombra se congela tras D.2.
-    args_v2: dict = {}
-    if motor_evidencia:
-        historia = g.ultimo_bid_aplicado(conn, entidad_id)
-        cpc = windows.cpc_vigente(conn, entidad_id, historia, ventanas.bids)
-        previa, conversion, cpc_medido = ev.parciales_evidencia(conv_jerarquica, entidad_id, cpc)
-        args_v2 = {
-            "evidencia": ev.clasifica(previa, conversion, cpc_medido),
-            "politica_bandas": bid.POLITICA_BANDAS_EVIDENCIA,
-            "confianza_recorte": confianza_recorte,
-            "confianza_subida": confianza_subida,
-            "fallback_v1": True,
-        }
-    resultado = bid.decide_bid(
-        platform=platform,
-        bids=ventanas.bids,
-        cortes=ventanas.cortes,
-        target_acos_pct=target,
-        bid_actual=current_bid,
-        bid_moneda=bid_currency,
-        floor=floor,
-        ceiling=ceiling,
-        umbral_pause=corte_pause.umbral,
-        cost_min=costo_piso,
-        # BIDS 01 (regla A'): el expected YA viaja congelado en
-        # inputs.corte.expected_clicks (nada que congelar: _corte_json lo
-        # sella con el mismo corte_pause).
+    # BIDS 02 M.3: la ventana de BIDS ya no se lee por hoja (la suficiencia
+    # la mide la ventana madura de lecturas, no 30 dias anclados en la hoja).
+    # La de CORTES se sigue leyendo con windows y viaja en InsumosPausa.
+    cortes_hoja = windows.ventana_cortes(conn, entidad_id, decided_at)
+    pausa = InsumosPausa(
+        cortes=cortes_hoja,
+        umbral_clics=corte_pause.umbral,
+        gasto_minimo=costo_piso,
         expected_clicks=corte_pause.expected_clicks,
-        # C.3 B1: sin flag, decide con la regla pre-economica (None).
-        policy_version=bid.POLITICA_PAUSE_ECONOMICA if pause_economica else None,
-        **args_v2,
+        politica_economica=bid.POLITICA_PAUSE_ECONOMICA if pause_economica else None,
     )
-    # El BID verificado no posterga un corte que ya califico con datos maduros.
-    # La PAUSE aplicada (aun revertida) conserva su propio cooldown; si no
-    # califico PAUSE, el BID sigue sujeto al cooldown de cualquier apply.
-    # B.2a: solo con el flag encendido; apagado, el gate de arriba ya aplico
-    # el cooldown generico pre-B.2 y no se consulta de nuevo.
-    if pause_sin_cooldown_bid:
-        kind_cooldown = "pause" if resultado.kind == "pause" else None
-        if g.en_cooldown(conn, entidad_id, ahora=decided_at, kind=kind_cooldown):
+    if politica is None:
+        # Cambio 4: con la politica apagada solo se decide la PAUSE; la
+        # hoja que no pausa se cuenta con politica_apagada (no hay bid).
+        resultado = bid.decide_pause(
+            platform=platform,
+            bids=None,
+            cortes=cortes_hoja,
+            target_acos_pct=target,
+            umbral_pause=corte_pause.umbral,
+            cost_min=costo_piso,
+            policy_version=pausa.politica_economica,
+        )
+        tick()
+        if resultado.kind != "pause":
+            contadores.skips_entidad[MOTIVO_POLITICA_APAGADA] += 1
+            return
+        if g.en_cooldown(conn, entidad_id, ahora=decided_at, kind="pause"):
             contadores.skips_entidad[MOTIVO_COOLDOWN_7D] += 1
             tick()
             return
-    tick()
-    if resultado.kind is None:
-        contadores.skips_entidad[resultado.motivo] += 1
+        pendientes.append(
+            _pendiente_pause_apagada(
+                entidad_id,
+                resultado,
+                platform=platform,
+                modo=modo,
+                goal=goal,
+                cortes=cortes_hoja,
+                target=target,
+                procedencia=procedencia,
+                snapshot=(
+                    snapshot_margen
+                    if procedencia == "margen_plataforma"
+                    else (snapshot_fam if procedencia == "margen_familia" else None)
+                ),
+                bid_actual=current_bid,
+                bid_moneda=bid_currency,
+                decided_at=decided_at,
+                corte=corte_pause,
+                evidencia=evidencia,
+                cost_min=costo_piso,
+                policy_version=pausa.politica_economica,
+            )
+        )
+        contadores.decisiones["pause"] += 1
         return
-    # D.2 (ads-proteccion-01, decision del dueno "N = 10"): solo un BID puede
-    # ser la reversa de otro BID aplicado, y queda DESPUES del cooldown B.2 y
-    # del no-op: una hoja enfriada o sin decision jamas gasta la consulta
-    # (PAUSE y no-op no llegan a ultimo_bid_aplicado). Sin historia la hoja
-    # decide libre; historia rota o ventana de bids desconocida bloquean
-    # (fail-closed), y el contador queda en notes.skips (P1: sin Telegram).
-    if resultado.kind == "bid":
-        # A6-live: la historia YA se midio antes del vivo (se reusa, sin
-        # segunda lectura); con el flag apagado se mide aqui como hoy.
-        # Bajo evidencia D.2 consume ADEMAS el cpc pre-vivo (>= 20 clics
-        # post-cambio en vez de 10 dias; plan A6, inversion_cpc20_v2).
-        if not motor_evidencia:
-            historia = g.ultimo_bid_aplicado(conn, entidad_id)
-        if not g.permite_reversa_bid(
-            historia,
-            nueva_direccion=1 if resultado.new_value > resultado.old_value else -1,
-            fin_ventana_bids=ventanas.bids.window_end,
-            motor_evidencia=motor_evidencia,
-            cpc=cpc_medido if motor_evidencia else None,
-        ):
-            contadores.skips_entidad[MOTIVO_INVERSION_SIN_EVIDENCIA] += 1
-            return
-    # A4 (contrafactual v2): corre tras D.2, SOLO para filas que se
-    # PERSISTEN (kind bid o pause; los no-op no tienen fila donde
-    # congelar). kind bid: segundo decide_bid con la politica evidencia,
-    # REUSANDO la historia de D.2 (costo marginal = 1 query cpc_vigente).
-    # kind pause: marcador pause_intacto, CERO queries (pause es v1 en
-    # ambas politicas: el veredicto coincide por construccion). Politica
-    # pura: sin cooldown, sin D.2, sin veto (el replay la re-decide con
-    # los mismos insumos congelados). El vivo NO lo consume.
-    # A6-live: con el interruptor en evidencia el vivo DECIDIO con
-    # evidencia: se congelan SUS insumos + SU veredicto con via "decide"
-    # Y la politica pura de bandas como contrafactual (B3: segundo call
-    # v1 en kind bid; kind pause lleva el marcador pause_intacto en
-    # AMBOS bloques, CERO calls extra: pause es v1 por construccion).
-    # Costo declarado: en modo evidencia la fila pause/no-op YA gasto
-    # historia + cpc pre-vivo (desechados; precio del vivo v2).
-    if resultado.kind == "pause":
-        evidencia_v2 = {
-            "politica": bid.POLITICA_BANDAS_EVIDENCIA,
-            "via": "pause_intacto",
-            # Shape consistente con _evidencia_v2_json (interrogate A-nit3).
-            "abstencion_v2": None,
-            "veredicto": {
-                "kind": "pause",
-                "motivo": resultado.motivo,
-                "factor": None,
-                "new_value": None,
-            },
-        }
-        bandas_v1 = (
-            {
-                "politica": bid.POLITICA_BANDAS_V1,
-                "via": "pause_intacto",
-                "veredicto": {
-                    "kind": "pause",
-                    "motivo": resultado.motivo,
-                    "factor": None,
-                    "new_value": None,
-                },
-            }
-            if motor_evidencia
-            else None
-        )
-    elif motor_evidencia:
-        evidencia_v2 = _evidencia_v2_json(
-            previa=previa,
-            conversion=conversion,
-            cpc=cpc_medido,
-            veredicto=resultado,
-            confianza_recorte=confianza_recorte,
-            confianza_subida=confianza_subida,
-            moneda=conv_jerarquica.moneda,
-            ventana_desde=conv_jerarquica.ventana_desde,
-            ventana_hasta=conv_jerarquica.ventana_hasta,
-            via="decide",
-            abstencion_v2=resultado.abstencion_v2,
-        )
-        bandas_v1 = _contrafactual_v1_json(
-            platform=platform,
-            ventanas=ventanas,
-            target=target,
-            bid_actual=current_bid,
-            bid_moneda=bid_currency,
-            floor=floor,
-            ceiling=ceiling,
-            corte_pause=corte_pause,
-            costo_piso=costo_piso,
-            pause_economica=pause_economica,
-        )
-    else:
-        evidencia_v2 = _contrafactual_v2_json(
-            conn,
-            entidad_id=entidad_id,
-            platform=platform,
-            ventanas=ventanas,
-            historia=historia,
-            conv=conv_jerarquica,
-            target=target,
-            bid_actual=current_bid,
-            bid_moneda=bid_currency,
-            floor=floor,
-            ceiling=ceiling,
-            corte_pause=corte_pause,
-            costo_piso=costo_piso,
-            pause_economica=pause_economica,
-            confianza_recorte=confianza_recorte,
-            confianza_subida=confianza_subida,
-        )
-        # Vivo v1: el contrafactual v1 ES el vivo (nada que congelar: la
-        # fila queda bit-identica a la era pre-B3).
-        bandas_v1 = None
+    assert lecturas is not None  # _recorre_plataforma: politica => lecturas
+    caso = lecturas.caso(
+        conn,
+        hoja_id=entidad_id,
+        ad_group_id=ad_group_id,
+        bid=BidVigente(valor=current_bid, moneda=bid_currency, piso=floor, techo=ceiling),
+        target_acos_pct=target,
+        pausa=pausa,
+    )
+    veredicto = decide(caso)
+    if isinstance(veredicto, Mantener):
+        contadores.skips_entidad[veredicto.motivo] += 1
+        return
+    tick()
+    # Cambio 9: despues de decidir una PAUSE, su propio cooldown la salta
+    # con cooldown_7d (fijo como produccion con el flag encendido; la rama
+    # de bids kind=None se borro: R2 espera).
+    if isinstance(veredicto, Pausar) and g.en_cooldown(
+        conn, entidad_id, ahora=decided_at, kind="pause"
+    ):
+        contadores.skips_entidad[MOTIVO_COOLDOWN_7D] += 1
+        tick()
+        return
     pendientes.append(
-        _pendiente_bid(
-            entidad_id,
-            resultado,
-            platform=platform,
+        pendiente_bid(
+            caso,
+            veredicto,
             modo=modo,
             goal=goal,
-            ventanas=ventanas,
-            target=target,
+            decidido_el=decided_at,
             procedencia=procedencia,
             snapshot=(
                 snapshot_margen
                 if procedencia == "margen_plataforma"
                 else (snapshot_fam if procedencia == "margen_familia" else None)
             ),
-            bid_actual=current_bid,
-            bid_moneda=bid_currency,
-            decided_at=decided_at,
             corte=corte_pause,
             evidencia=evidencia,
             cost_min=costo_piso,
-            pause_economica=pause_economica,
-            evidencia_v2=evidencia_v2,
-            motor_evidencia=motor_evidencia,
-            bandas_v1=bandas_v1,
         )
     )
-    contadores.decisiones[resultado.kind] += 1
+    contadores.decisiones["pause" if isinstance(veredicto, Pausar) else "bid"] += 1
 
 
 def _procesa_grupo(
@@ -2222,11 +1955,15 @@ def _procesa_grupo(
 class _TargetCiclo:
     """El peldano a nivel ciclo (ORBIT 06 2.3, calculado UNA vez en TX2):
     valor que entra a las cascadas + snapshot para el freeze y notes.target
-    + ancla del ultimo aviso del digest (ultimo_avisado, D-2.3.14)."""
+    + ancla del ultimo aviso del digest (ultimo_avisado, D-2.3.14).
+    `margen_neto_pct` (BIDS 02 M.3) es el margen neto CRUDO medido, SOLO
+    cuando la procedencia es margen_plataforma (el equilibrio de R3); con
+    otra procedencia (o abstencion) es None y R3 no dispara."""
 
     margen: Decimal | None
     snapshot: dict
     ancla: str | None
+    margen_neto_pct: Decimal | None = None
 
 
 def _target_de_notas(notes) -> dict | None:
@@ -2311,8 +2048,9 @@ def _resuelve_target_ciclo(
             suma_ads, n_monedas_ads, moneda_ads, medicion.moneda
         )
     res = g.resuelve_target_margen(medicion, fraccion, hoy, ultimo, setting_target)
+    procedencia = "margen_plataforma" if res.motivo is None else None
     snapshot = {
-        "procedencia": "margen_plataforma" if res.motivo is None else None,
+        "procedencia": procedencia,
         "paso_politica": g.PASO_POLITICA,
         "motivo_abstencion": res.motivo,
         # Cross-review kimi H1 / grok H2: con datos invalidos y ancla previa
@@ -2335,7 +2073,12 @@ def _resuelve_target_ciclo(
         "ledger_fresco_at": _ts(medicion.ledger_fresco_at),
         "moneda": medicion.moneda,
     }
-    return _TargetCiclo(res.aplicado, snapshot, ancla)
+    return _TargetCiclo(
+        res.aplicado,
+        snapshot,
+        ancla,
+        margen_neto_pct=medicion.margen_neto_pct if procedencia == "margen_plataforma" else None,
+    )
 
 
 class _PrevioHoja(NamedTuple):
@@ -2592,31 +2335,25 @@ def _recorre_plataforma(
     corte_pause_por_grupo: dict[
         int, tuple[cortes.UmbralResuelto, windows.EvidenciaAdGroup | None]
     ] = {}
-    # B.2a: el flag se resuelve UNA vez por ciclo y viaja EXPLICITO a
-    # _procesa_decisora (no en `comunes`: el camino de grupos no lo usa,
-    # su gate sigue igual con o sin flag).
-    pause_sin_cooldown_bid = g.pause_sin_cooldown_bid_desde_settings(settings)
     pause_economica = g.pause_economica_desde_settings(settings)
-    # A4 (contrafactual v2): el roll-up de conversion se resuelve UNA vez
-    # por plataforma en TX2 (mismo snapshot REPEATABLE READ) y viaja
-    # EXPLICITO; las confianzas A3 se resuelven UNA vez por plataforma
-    # (fail-closed: corrupta = ValueError = ciclo failed, igual que un
-    # target/fraccion corruptos; el motor jamas ve los defaults 0.80/0.70).
-    # A7: la evidencia usa la regla A5 (mapa de _FamiliasCiclo, leida arriba
-    # en TX2): la hoja etiquetada cuenta en la evidencia y en el target.
-    conv_jerarquica = windows.conversion_jerarquica(
-        conn,
-        platform,
-        decided_at,
-        fam_por_campana=familias_ciclo.fam_por_campana,
-        padres=familias_ciclo.padres,
-    )
-    confianza_recorte = g.confianza_recorte_desde_settings(settings, platform)
-    confianza_subida = g.confianza_subida_desde_settings(settings, platform)
-    # A6-live: el interruptor del motor se resuelve UNA vez por plataforma
-    # en TX2 junto a las confianzas (fail-closed: corrupto = ValueError =
-    # ciclo failed, igual que un target/fraccion/confianza corruptos).
-    motor_evidencia = g.motor_evidencia_desde_settings(settings, platform)
+    # BIDS 02 M.3: el interruptor se resuelve UNA vez por plataforma en TX2
+    # (fail-closed: valor ajeno = ValueError = ciclo failed, igual que un
+    # target/fraccion/confianza corruptos). Con la politica apagada no se
+    # leen lecturas (el ciclo solo decide PAUSE por hoja).
+    politica = g.politica_bid_desde_settings(settings, platform)
+    lecturas: LecturasPlataforma | None = None
+    if politica is not None:
+        # "Llamadas reales" del diseno: economia resuelta UNA vez por
+        # plataforma (las confianzas A3 corruptas tumban igual que hoy: el
+        # motor jamas ve los defaults 0.80/0.70) y cuatro consultas.
+        economia = EconomiaPlataforma(
+            moneda=PLATAFORMAS_MONEDA[platform],
+            equilibrio_acos_pct=target_ciclo.margen_neto_pct,
+            gasto_para_concluir=g.gasto_para_concluir_desde_settings(settings, platform),
+            confianza_recorte=g.confianza_recorte_desde_settings(settings, platform),
+            confianza_subida=g.confianza_subida_desde_settings(settings, platform),
+        )
+        lecturas = lee_plataforma(conn, platform, decided_at, economia=economia)
     comunes = dict(
         platform=platform,
         setting_target=setting_target,
@@ -2643,12 +2380,9 @@ def _recorre_plataforma(
             fila=fila,
             corte_pause_por_grupo=corte_pause_por_grupo,
             inertes=inertes,
-            pause_sin_cooldown_bid=pause_sin_cooldown_bid,
             pause_economica=pause_economica,
-            conv_jerarquica=conv_jerarquica,
-            confianza_recorte=confianza_recorte,
-            confianza_subida=confianza_subida,
-            motor_evidencia=motor_evidencia,
+            politica=politica,
+            lecturas=lecturas,
             **comunes,
         )
     for fila in conn.execute(_SQL_GRUPOS, (platform,)).fetchall():

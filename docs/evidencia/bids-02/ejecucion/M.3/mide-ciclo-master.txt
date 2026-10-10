@@ -1,0 +1,6 @@
+base: aplique 0060 a la copia (esquema de prod no la trae)
+base: secuencias reparadas (el dump excluye *_seq)
+base: pata de origin/master, sin clave de politica (falla cerrado con niveles_v3)
+base: inserte config_version shadow sin clave en la copia (hereda el resto)
+amazon_mx: ciclo shadow 0.8 0.8 0.8 0.8 0.8 s; mediana 0.8 s (355 hojas activas, 5 corridas)
+amazon_us: ciclo shadow 84.9 0.5 0.5 0.5 0.5 s; mediana 0.5 s (233 hojas activas, 5 corridas)

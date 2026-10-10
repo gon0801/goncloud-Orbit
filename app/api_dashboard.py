@@ -91,7 +91,8 @@ from app.dashboard_pagina import (
 )
 from app.etiqueta_entidad import etiqueta_entidad, linea_entidad
 from app.notifica import motivo_precio_es, validar_precio_aviso_dias
-from app.optimizer import bid, hygiene
+from app.optimizer import bid, eras, hygiene, politica
+from app.optimizer import evidencia as ev
 from app.optimizer import goals as g
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.optimizer.windows import _SQL_SYNC_PLATAFORMA, _SQL_WATERMARK_PLATAFORMA
@@ -197,22 +198,32 @@ SELECT id, settings FROM config_version ORDER BY id DESC LIMIT 1
 # sin crash: no se pierde informacion).
 MOTIVOS_ES_DECISIONES: dict[str, str] = {
     bid.MOTIVO_PAUSE: "Pausa: sin ventas con clicks y costo sobre el umbral",
-    bid._MOTIVO_BANDA[bid.FACTOR_BAJA_FUERTE]: "ACoS sobre 1.35x del target: -25%",
-    bid._MOTIVO_BANDA[bid.FACTOR_BAJA_SUAVE]: "ACoS sobre 1.15x del target: -12%",
-    bid.MOTIVO_BANDA_MENOS_25_CERO_VENTAS: (
+    eras._MOTIVO_BANDA[bid.FACTOR_BAJA_FUERTE]: "ACoS sobre 1.35x del target: -25%",
+    eras._MOTIVO_BANDA[bid.FACTOR_BAJA_SUAVE]: "ACoS sobre 1.15x del target: -12%",
+    eras.MOTIVO_BANDA_MENOS_25_CERO_VENTAS: (
         "Cero ventas con los clicks de una venta y gasto sobre el piso: -25%"
     ),
-    bid._MOTIVO_BANDA[bid.FACTOR_SUBIDA]: "ACoS bajo 0.85x del target: +15%",
+    eras._MOTIVO_BANDA[bid.FACTOR_SUBIDA]: "ACoS bajo 0.85x del target: +15%",
     hygiene.MOTIVO_NEGATIVE: "Negativo: termino sin ventas con clicks y costo sobre el umbral",
     hygiene.MOTIVO_HARVEST: "Harvest: termino con ACoS bajo el tope hacia campaña manual",
     # A4: abstenciones del contrafactual v2 (viven en inputs.evidencia_v2,
     # jamas en inputs.motivo; el feed las traduce con lookup de union).
-    bid.MOTIVO_EVIDENCIA_INSUFICIENTE: (
+    ev.MOTIVO_EVIDENCIA_INSUFICIENTE: (
         "Sin evidencia: la posterior no alcanza la confianza para ajustar"
     ),
-    bid.MOTIVO_CPC_POST_CAMBIO_INSUFICIENTE: (
+    ev.MOTIVO_CPC_POST_CAMBIO_INSUFICIENTE: (
         "CPC desconocido tras el cambio: menos de 20 clics al bid vigente"
     ),
+    bid.MOTIVO_PAUSE_ECONOMICA: "Pausa economica: venta cara sobre 3x del target",
+    # BIDS 02 M.3: motivos de niveles_v3 (los que emiten Mover y Regresar).
+    politica.MOTIVO_REGRESO_DESPLOME: "Regreso: el bid nuevo desplomo las ventas",
+    politica.MOTIVO_PIERDE_DINERO: "ACoS sobre el equilibrio: -12%",
+    politica.MOTIVO_PIERDE_DINERO_FUERTE: "ACoS sobre el equilibrio con fuerza: -25%",
+    politica.MOTIVO_GRUPO_SANGRA_VENDEDORA: "La hoja vende pero su grupo sangra: -12%",
+    politica.MOTIVO_BAJO_TARGET: "ACoS bajo el target: +15%",
+    politica.MOTIVO_GASTO_SIN_VENTA: "Gasto sin venta al concluir: -12%",
+    politica.MOTIVO_GASTO_SIN_VENTA_DOBLE: "Gasto sin venta al doble de concluir: -25%",
+    politica.MOTIVO_GRUPO_SANGRA: "El grupo sangra y la hoja no vende: -12%",
 }
 
 # ---------------------------------------------------------------------------
@@ -259,6 +270,23 @@ MOTIVOS_ES_SALUD: dict[str, str] = {
         " (bandas v1) o menos de 20 clics post-cambio (evidencia v2)"
     ),
     ciclo.MOTIVO_ESCALERA_OFF: "Escalera global off",
+    ciclo.MOTIVO_POLITICA_APAGADA: "Motor de bids apagado (sin ads_bid_politica): sin ajuste",
+    # BIDS 02 M.3: motivos de niveles_v3 (los que emite Mantener).
+    politica.MOTIVO_ESPERANDO_EFECTO: "Bid reciente: esperando su efecto (7 dias)",
+    politica.MOTIVO_VENDE_DENTRO_DEL_MARGEN: "La hoja vende dentro del margen: sin ajuste",
+    politica.MOTIVO_AZAR_LO_EXPLICA: "El azar lo explica: sin ajuste",
+    politica.MOTIVO_VENTA_RECIENTE: "Venta reciente en ventana inmadura: sin ajuste",
+    politica.MOTIVO_SIN_GASTO: "Hoja sin gasto: sin ajuste",
+    politica.MOTIVO_HOJA_DELGADA: "Hoja delgada sin dinero que mover: sin ajuste",
+    politica.MOTIVO_GRUPO_CUMPLE: "El grupo cumple: sin ajuste",
+    politica.MOTIVO_SIN_EVIDENCIA: "Sin evidencia en hoja ni grupo: sin ajuste",
+    politica.MOTIVO_ESPERANDO_PRECIO_MEDIDO: "Bid reciente: esperando precio medido",
+    politica.MOTIVO_SIN_CLICS_NUEVOS: "Sin clics nuevos al bid vigente: sin ajuste",
+    politica.MOTIVO_RECORTE_COSTO_TRAFICO: "Recorte frenado por costo de trafico",
+    politica.MOTIVO_SUBIDA_SIN_TRAFICO: "Subida frenada: sin trafico para medirla",
+    politica.MOTIVO_PISO_APRENDIDO: "El recorte tocaria un bid que ya dano: sin ajuste",
+    politica.MOTIVO_DATO_FALTANTE: "Dato faltante: sin ajuste",
+    politica.MOTIVO_SIN_PRECIO: "Sin precio medido: sin ajuste",
     # guardas de plataforma (windows.py; el envelope las persiste como
     # motivo_skip = guarda_<guarda>)
     "guarda_watermark": "Watermark de la plataforma vencido (> 7 dias)",
@@ -283,10 +311,10 @@ MOTIVOS_ES_SALUD: dict[str, str] = {
     # A4: abstenciones v2 (clase no-op; en A4 nada las escribe en
     # notes.skips — forward-A6 — pero el feed las traduce por union;
     # precedente del doble-dict: MOTIVO_PAUSE).
-    bid.MOTIVO_EVIDENCIA_INSUFICIENTE: (
+    ev.MOTIVO_EVIDENCIA_INSUFICIENTE: (
         "Sin evidencia: la posterior no alcanza la confianza para ajustar"
     ),
-    bid.MOTIVO_CPC_POST_CAMBIO_INSUFICIENTE: (
+    ev.MOTIVO_CPC_POST_CAMBIO_INSUFICIENTE: (
         "CPC desconocido tras el cambio: menos de 20 clics al bid vigente"
     ),
     # MOTIVO_* de hygiene (idem)
@@ -1738,12 +1766,14 @@ def settings(conn: ConexionLectura) -> dict:
                 "confianza_subida": _dec_str(
                     g.confianza_subida_desde_settings(settings, plataforma)
                 ),
-                # A6: interruptor del motor de bids: valor CRUDO (None =
-                # ausente = bandas v1) + resuelto (vive: True = evidencia
-                # v2). Clave corrupta = ValueError y la pagina NO se
-                # muestra, igual que target/fraccion/confianzas.
+                # M.3: interruptor del motor de bids: valor CRUDO (None =
+                # ausente = apagado) + resuelto (vive: True = niveles_v3).
+                # Clave corrupta = ValueError y la pagina NO se muestra,
+                # igual que target/fraccion/confianzas.
                 "motor_bid": settings.get(g.clave_bid_politica(plataforma)),
-                "motor_bid_vive": g.motor_evidencia_desde_settings(settings, plataforma),
+                "motor_bid_vive": (
+                    g.politica_bid_desde_settings(settings, plataforma) == g.POLITICA_BID_VIGENTE
+                ),
                 "caps": {kind: _dec_str(cap) for kind, cap in caps.items()},
                 "goal": (_goal_editable(goal_id, goal, plataforma, None, None) if goal else None),
             }

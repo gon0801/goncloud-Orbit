@@ -82,6 +82,11 @@ SQL4 = (
 SQL48 = (Path(__file__).resolve().parents[1] / "migrations" / "0048_margen_familia.sql").read_text(
     encoding="utf-8"
 )
+# M.3: los ciclos con politica niveles_v3 leen v_hoja_activa/v_cambio_bid/
+# v_metric_latest (0060) en TX2 — sin esta TODO ciclo revienta.
+SQL60 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0060_bids02_base_lectura.sql"
+).read_text(encoding="utf-8")
 # A7: el ciclo cruza campana_grupo_rol (0018, harvest_destino) y familia
 # (0047, mapa A5) en TX2 — sin estas TODO ciclo revienta con UndefinedTable.
 SQL18 = (
@@ -425,6 +430,7 @@ def _db_con_rol_admin(prefijo: str, *, con_decide: bool = False):
         conn.execute(SQL47)  # 0047 (A4): familia en TX2
         conn.execute(SQL4)  # 0004 (A5): kind 'product_ad' en TX2
         conn.execute(SQL48)  # 0048 (A5): v_margen_familia en TX2
+        conn.execute(SQL60)  # 0060 (M.3): base de lectura de niveles_v3 en TX2
         # CREATE ROLE es utility statement: NO admite parametros posicionales
         # (revienta con syntax error en $1); la password va como sql.Literal
         # (composicion segura de psycopg, no interpolacion de strings).

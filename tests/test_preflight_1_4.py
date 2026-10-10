@@ -46,13 +46,14 @@ from test_apply import (
 from test_apply import (
     _semilla as _semilla_bids,
 )
-from test_cycle import _config_version, _siembra_maestra
+from test_cycle import _config_version
 from test_cycle_apply import (
     FAKE_CLIENT_ID,
     FAKE_CLIENT_SECRET,
     FAKE_REFRESH_TOKEN,
     _fabrica_real_mock,
     _handler,
+    _siembra_maestra,
 )
 from test_cycle_apply import (
     _corre as _corre_ciclo,
@@ -493,13 +494,14 @@ def test_ciclo_live_cap_agotado_canal_caido_termina_done_con_nota(canal_fail, se
             conn,
             {
                 "ads_optimizer_mode": "live",
+                "ads_bid_politica_amazon_us": "niveles_v3",
                 "ads_apply_cap_amazon_us_bid": 1,
                 "ads_apply_cap_amazon_us_pause": 2,
                 "ads_apply_cap_amazon_us_negative": 5,
                 "ads_apply_cap_amazon_us_harvest": 2,
             },
         )
-        handler, _vistos = _handler({"9201": "0.75"})
+        handler, _vistos = _handler({"9201": "0.88"})
         res = _corre_ciclo(conn, factory=_fabrica_real_mock(handler))
 
         assert res.status == "done", "el fallo del canal no degrada el ciclo"

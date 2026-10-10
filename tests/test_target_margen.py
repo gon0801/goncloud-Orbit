@@ -609,25 +609,24 @@ def _metrica_acos_33(conn, run: int, kw: int) -> None:
 
 @pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres")
 def test_compara_produce_tabla_sobre_base_de_tests():
-    """Rojo (g): un ciclo real con el peldano ganado (29.5) y una decision
-    bid en zona de estrado: la tabla trae 1 fila que cambia de banda
-    (manual 30 sin banda vs derivado 29.5 con -12 %)."""
+    """Rojo (g): un ciclo con notes.target (manual 30, aplicado 29.5) y una
+    decision bid vieja con inputs en zona de estrado: la tabla trae 1 fila
+    que cambia de banda (manual 30 sin banda vs derivado 29.5 con -12 %).
+    Correccion M.3: ya no corre el ciclo (el motor nuevo emite niveles_v3,
+    no bandas); siembra la decision vieja como fila y deja que compara() la
+    reejecute bajo ambos targets."""
+    import json
+
     from test_cycle import (
-        DECIDED_AT,
         _config_version,
-        _corre,
         _db_temporal,
         _entidad,
-        _estado,
-        _run,
-        _siembra_ledger_feliz,
     )
 
     from tools.compara_target_margen import compara
 
     with _db_temporal("orbit_c_compara") as (conn, _c):
-        run = _run(conn)
-        _config_version(
+        cfg = _config_version(
             conn,
             {
                 "ads_optimizer_mode": "shadow",
@@ -635,7 +634,6 @@ def test_compara_produce_tabla_sobre_base_de_tests():
                 "ads_target_fraccion_margen_amazon_us": "0.5",
             },
         )
-        _goal_sin_target(conn)
         camp = _entidad(conn, "amazon_us", "campaign", "9401")
         ag = _entidad(conn, "amazon_us", "ad_group", "9402", parent=camp)
         kw = _entidad(
@@ -647,16 +645,21 @@ def test_compara_produce_tabla_sobre_base_de_tests():
             match_type="EXACT",
             keyword_text="kw compara",
         )
-        sinc = DECIDED_AT - dt.timedelta(hours=4)
-        _estado(conn, kw, synced_at=sinc, current_bid=Decimal("1.00"), bid_currency="USD")
-        _estado(conn, ag, synced_at=sinc)
-        _estado(conn, camp, synced_at=sinc)
-        _metrica_acos_33(conn, run, kw)
-        hoy = conn.execute("SELECT CURRENT_DATE").fetchone()[0]
-        _siembra_ledger_feliz(conn, hoy)
-        res = _corre(conn)
-        assert res.status == "done", res.notes
-        filas, resumen = compara(conn, res.cycle_id)
+        notas = json.dumps({"target": {"setting": "30", "target_aplicado": "29.5"}})
+        ciclo = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform, status, notes)"
+            " VALUES ('shadow', 'amazon_us', 'done', %s) RETURNING id",
+            (notas,),
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO decision (cycle_id, ad_entity_id, kind, config_version_id,"
+            " data_observed_at, window_start, window_end,"
+            " old_value, new_value, value_currency, inputs)"
+            " VALUES (%s, %s, 'bid', %s, now(), '2026-08-07', '2026-08-16',"
+            " 1.00, 0.88, 'USD', %s)",
+            (ciclo, kw, cfg, json.dumps(_inputs_bid_acos_34())),
+        )
+        filas, resumen = compara(conn, ciclo)
         assert resumen["decisiones"] == 1
         assert resumen["cambian_banda"] == 1
         assert len(filas) == 1

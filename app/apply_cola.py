@@ -130,12 +130,8 @@ MOTIVO_ESPERA_TARGET = apply.MOTIVO_ESPERA_TARGET
 MOTIVO_CAMPANA_NO_ENABLED = apply.MOTIVO_CAMPANA_NO_ENABLED
 MOTIVO_GRUPO_NO_ENABLED = apply.MOTIVO_GRUPO_NO_ENABLED
 
-# El PAUSE antiguo no consume target; el economico resuelve el vigente. El
-# floor/ceiling de revalidacion solo satisfacen la firma: bids=None impide
-# que una banda use esos valores o escriba un bid.
+# El PAUSE antiguo no consume target; el economico resuelve el vigente.
 _TARGET_REVALIDA = Decimal("100")
-_FLOOR_REVALIDA = Decimal("0.01")
-_CEILING_REVALIDA = Decimal("10000")
 
 # ---------------------------------------------------------------------------
 # SQL del modulo (parsea el test de sintaxis con pglast)
@@ -800,15 +796,11 @@ def _revalida_pause(
         if target is not None and _flag_pause_economica(conn)
         else None
     )
-    resultado = motor_bid.decide_bid(
+    resultado = motor_bid.decide_pause(
         platform=platform,
         bids=None,  # la re-decision es SOLO de la regla pause (cortes)
         cortes=fresco,
         target_acos_pct=target if target is not None else _TARGET_REVALIDA,
-        bid_actual=None,
-        bid_moneda=None,
-        floor=_FLOOR_REVALIDA,
-        ceiling=_CEILING_REVALIDA,
         umbral_pause=umbral,
         # C.3 B1: la revalidacion economica rige solo con el flag (con
         # flag apagado, camino pre-economico aunque la fila sea vieja).

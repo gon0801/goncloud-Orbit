@@ -72,7 +72,8 @@ from app.apply import (
     consume_quota,
     intentos_sin_sello,
     motor_quota,
-    orden_bids,
+    orden_bajo_cupo,
+    prioridad_bajo_cupo,
     registra_sin_aplicar,
     reversa_bid,
 )
@@ -853,43 +854,290 @@ def test_bid_leido_por_list_cruza_id_en_respuesta_multifila():
 
 
 # ---------------------------------------------------------------------------
-# 13. Orden sellado de bids bajo cap (pure, sin DB)
+# 13. Orden bajo cupo de niveles_v3 (BIDS 02 M.3)
 # ---------------------------------------------------------------------------
 
 
-def _bid_manual(id_: int, motivo: str, cost: str | None) -> DecisionBid:
+def _bid_cupo(id_: int, veredicto_kind: str, motivo: str, gasto: str | None) -> DecisionBid:
+    """Decision manual con inputs de niveles_v3: motivo + caso con el gasto
+    crudo de la hoja (reciente + antiguo). gasto None = desconocido."""
     return DecisionBid(
         id=id_,
         ad_entity_id=id_,
         old_value=Decimal("1.00"),
-        new_value=Decimal("0.75"),
+        new_value=Decimal("0.88"),
         value_currency="USD",
-        inputs={"motivo": motivo, "ventanas": {"cortes": {"cost": cost}}},
+        inputs={
+            "motivo": motivo,
+            "veredicto_kind": veredicto_kind,
+            "caso": {
+                "propia": {
+                    "reciente": {"gasto": gasto},
+                    "antiguo": {"gasto": "0" if gasto is not None else None},
+                }
+            },
+        },
     )
 
 
-def test_orden_bids_prioridad_de_hemorragia_sellada():
-    d25_100 = _bid_manual(1, "banda_menos_25", "100")
-    d25_200 = _bid_manual(2, "banda_menos_25", "200")
-    d12_999 = _bid_manual(3, "banda_menos_12", "999")
-    d15_500 = _bid_manual(4, "banda_mas_15", "500")
-    # BIDS 01 (cross-review grok-1): el motivo nuevo compite en la banda 0;
-    # si el literal de _PRIORIDAD_BANDA tuviera un typo caeria al final.
-    d25c_150 = _bid_manual(7, "banda_menos_25_cero_ventas", "150")
+def test_prioridad_bajo_cupo_niveles_por_motivo():
+    """M.3: 0 regresos (R1), 1 recortes con evidencia propia (R3, R9),
+    2 subidas (R6), 3 recortes heredados (R4, R11); ajeno al final."""
+    assert prioridad_bajo_cupo("Regresar", "regreso_por_desplome") == 0
+    for motivo in (
+        "pierde_dinero",
+        "pierde_dinero_fuerte",
+        "gasto_sin_venta",
+        "gasto_sin_venta_doble",
+    ):
+        assert prioridad_bajo_cupo("Mover", motivo) == 1, motivo
+    assert prioridad_bajo_cupo("Mover", "bajo_target") == 2
+    for motivo in ("grupo_sangra_vendedora", "grupo_sangra"):
+        assert prioridad_bajo_cupo("Mover", motivo) == 3, motivo
+    assert prioridad_bajo_cupo("Mover", "banda_menos_25") == 4
+    assert prioridad_bajo_cupo("Mover", "otro_cosa") == 4
 
-    orden = orden_bids([d15_500, d12_999, d25_100, d25_200, d25c_150])
 
-    assert [d.id for d in orden] == [2, 7, 1, 3, 4], (
-        "banda_menos_25 = banda_menos_25_cero_ventas > banda_menos_12 > "
-        "banda_mas_15; dentro de banda, cost DESC"
+def test_orden_bajo_cupo_nivel_y_gasto_desc():
+    """M.3: regresos, recortes propios, subidas, heredados; dentro de cada
+    nivel va primero el de mas gasto; gasto None al final de su nivel."""
+    reg = _bid_cupo(1, "Regresar", "regreso_por_desplome", "10")
+    propio_caro = _bid_cupo(2, "Mover", "pierde_dinero", "200")
+    propio_barato = _bid_cupo(3, "Mover", "gasto_sin_venta", "100")
+    propio_none = _bid_cupo(4, "Mover", "pierde_dinero_fuerte", None)
+    subida = _bid_cupo(5, "Mover", "bajo_target", "9999")
+    heredado = _bid_cupo(6, "Mover", "grupo_sangra", "9999")
+    orden = orden_bajo_cupo([heredado, subida, propio_none, propio_barato, propio_caro, reg])
+    assert [d.id for d in orden] == [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+    ]
+
+
+def test_prioridad_bajo_cupo_motivos_existen_en_politica():
+    """M.3: cada motivo literal que prioridad_bajo_cupo compara contra
+    `motivo` existe en app/optimizer/politica.py (un typo caeria al
+    final en silencio)."""
+    import ast
+    from pathlib import Path
+
+    from app.optimizer import politica
+
+    motivos_politica = {v for k, v in vars(politica).items() if k.startswith("MOTIVO_")}
+    assert motivos_politica, "politica.py sin constantes MOTIVO_*"
+    arbol = ast.parse(
+        (Path(__file__).resolve().parents[1] / "app" / "apply.py").read_text(encoding="utf-8")
+    )
+    defs = [n for n in ast.walk(arbol) if isinstance(n, ast.FunctionDef)]
+    (nodo,) = [n for n in defs if n.name == "prioridad_bajo_cupo"]
+    literales: set[str] = set()
+    for n in ast.walk(nodo):
+        if not isinstance(n, ast.Compare):
+            continue
+        if isinstance(n.left, ast.Name) and n.left.id == "motivo":
+            for comp in n.comparators:
+                if isinstance(comp, ast.Constant) and isinstance(comp.value, str):
+                    literales.add(comp.value)
+                elif isinstance(comp, ast.Tuple):
+                    literales.update(
+                        e.value
+                        for e in comp.elts
+                        if isinstance(e, ast.Constant) and isinstance(e.value, str)
+                    )
+    assert literales, "prioridad_bajo_cupo no compara literales contra motivo"
+    assert literales <= motivos_politica, (
+        f"literales ajenos a politica.py: {literales - motivos_politica}"
     )
 
-    # cost None (regla 3: costo desconocido) queda al final de SU banda; un
-    # motivo fuera de las bandas (no existe en kind bid) queda al final.
-    d25_none = _bid_manual(5, "banda_menos_25", None)
-    assert [d.id for d in orden_bids([d25_none, d25_100])] == [1, 5]
-    raro = _bid_manual(6, "otro_cosa", "9999")
-    assert [d.id for d in orden_bids([raro, d15_500])] == [4, 6]
+
+def _kw_con_state(conn, parent: int, external: str) -> int:
+    kw = _entidad(conn, "keyword", external, parent=parent)
+    conn.execute(
+        "INSERT INTO ad_entity_state (ad_entity_id, current_bid, bid_currency, status,"
+        " synced_at) VALUES (%s, 1.00, 'USD', 'ENABLED', now())",
+        (kw,),
+    )
+    return kw
+
+
+def _decision_cupo(
+    conn, ciclo: int, config_id: int, entidad: int, *, veredicto_kind: str, motivo: str, gasto: str
+) -> int:
+    """Decision kind='bid' con inputs de niveles_v3 (motivo + caso)."""
+    inputs = {
+        "motor": "bid",
+        "platform": "amazon_us",
+        "motivo": motivo,
+        "veredicto_kind": veredicto_kind,
+        "caso": {"propia": {"reciente": {"gasto": gasto}, "antiguo": {"gasto": "0"}}},
+    }
+    return conn.execute(
+        "INSERT INTO decision (cycle_id, ad_entity_id, kind, config_version_id,"
+        " data_observed_at, window_start, window_end, old_value, new_value, value_currency,"
+        " inputs) VALUES (%s, %s, 'bid', %s, now() - interval '40 days', CURRENT_DATE - 60,"
+        " CURRENT_DATE - 30, 1.00, 0.88, 'USD', %s) RETURNING id",
+        (ciclo, entidad, config_id, Json(inputs)),
+    ).fetchone()[0]
+
+
+@_skip_db
+def test_aplica_bids_cupo_dos_aplica_regreso_y_propio_descarta_resto():
+    """M.3: cupo 2 con cuatro decisiones del mismo ciclo, una por nivel:
+    aplica el regreso y el recorte con evidencia propia; descarta la
+    subida y el recorte heredado con fuera_de_cap."""
+    with _db_temporal("orbit_apply_cupo2") as conn:
+        ids = _semilla(conn, caps={"ads_apply_cap_amazon_us_bid": 2})
+        kw3 = _kw_con_state(conn, ids["ag"], "7203")
+        kw4 = _kw_con_state(conn, ids["ag"], "7204")
+        # Siembra en orden INVERSO al esperado: un orden estable (o por
+        # gasto) aplicaria al heredado primero y la prueba fallaria.
+        dec_heredado = _decision_cupo(
+            conn,
+            ids["ciclo_dec"],
+            ids["config"],
+            kw4,
+            veredicto_kind="Mover",
+            motivo="grupo_sangra",
+            gasto="9999",
+        )
+        dec_subida = _decision_cupo(
+            conn,
+            ids["ciclo_dec"],
+            ids["config"],
+            kw3,
+            veredicto_kind="Mover",
+            motivo="bajo_target",
+            gasto="9999",
+        )
+        dec_propio = _decision_cupo(
+            conn,
+            ids["ciclo_dec"],
+            ids["config"],
+            ids["kw2"],
+            veredicto_kind="Mover",
+            motivo="pierde_dinero",
+            gasto="50",
+        )
+        dec_reg = _decision_cupo(
+            conn,
+            ids["ciclo_dec"],
+            ids["config"],
+            ids["kw"],
+            veredicto_kind="Regresar",
+            motivo="regreso_por_desplome",
+            gasto="10",
+        )
+        handler, vistos = _handler_api(
+            {"7201": "0.88", "7202": "0.88", "7203": "0.88", "7204": "0.88"}
+        )
+        ap = _aplicador(conn, handler, ids["ciclo_ejec"])
+
+        res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
+
+        assert res.orden == [dec_reg, dec_propio, dec_subida, dec_heredado]
+        assert res.aplicadas == 2
+        assert res.descartadas == [MOTIVO_FUERA_DE_CAP, MOTIVO_FUERA_DE_CAP]
+        assert [_obj_de_put(p)["keywordId"] for p in _puts(vistos)] == ["7201", "7202"]
+
+
+@_skip_db
+def test_aplica_bids_cupo_uno_regreso_barato_antes_que_recorte_caro():
+    """M.3: cupo 1: un regreso de poco gasto se aplica antes que un
+    recorte de mucho gasto."""
+    with _db_temporal("orbit_apply_cupo1") as conn:
+        ids = _semilla(conn, caps={"ads_apply_cap_amazon_us_bid": 1})
+        # Siembra inversa: el recorte caro entra primero; solo el nivel
+        # del regreso lo pone delante.
+        dec_propio = _decision_cupo(
+            conn,
+            ids["ciclo_dec"],
+            ids["config"],
+            ids["kw2"],
+            veredicto_kind="Mover",
+            motivo="pierde_dinero_fuerte",
+            gasto="9999",
+        )
+        dec_reg = _decision_cupo(
+            conn,
+            ids["ciclo_dec"],
+            ids["config"],
+            ids["kw"],
+            veredicto_kind="Regresar",
+            motivo="regreso_por_desplome",
+            gasto="10",
+        )
+        handler, vistos = _handler_api({"7201": "0.88", "7202": "0.88"})
+        ap = _aplicador(conn, handler, ids["ciclo_ejec"])
+
+        res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
+
+        assert res.orden == [dec_reg, dec_propio]
+        assert res.aplicadas == 1
+        assert res.descartadas == [MOTIVO_FUERA_DE_CAP]
+        assert [_obj_de_put(p)["keywordId"] for p in _puts(vistos)] == ["7201"]
+
+
+@_skip_db
+def test_aplica_bids_cupo_tres_descarta_heredado_aunque_mas_gasto():
+    """M.3: cupo 3: el descartado es el recorte heredado, aunque sea el
+    de mas gasto."""
+    with _db_temporal("orbit_apply_cupo3") as conn:
+        ids = _semilla(conn, caps={"ads_apply_cap_amazon_us_bid": 3})
+        kw3 = _kw_con_state(conn, ids["ag"], "7203")
+        kw4 = _kw_con_state(conn, ids["ag"], "7204")
+        # Siembra inversa: el heredado de mas gasto entra primero; solo
+        # el nivel lo manda al final.
+        dec_heredado = _decision_cupo(
+            conn,
+            ids["ciclo_dec"],
+            ids["config"],
+            kw4,
+            veredicto_kind="Mover",
+            motivo="grupo_sangra_vendedora",
+            gasto="9999",
+        )
+        dec_subida = _decision_cupo(
+            conn,
+            ids["ciclo_dec"],
+            ids["config"],
+            kw3,
+            veredicto_kind="Mover",
+            motivo="bajo_target",
+            gasto="60",
+        )
+        dec_propio = _decision_cupo(
+            conn,
+            ids["ciclo_dec"],
+            ids["config"],
+            ids["kw2"],
+            veredicto_kind="Mover",
+            motivo="pierde_dinero",
+            gasto="50",
+        )
+        dec_reg = _decision_cupo(
+            conn,
+            ids["ciclo_dec"],
+            ids["config"],
+            ids["kw"],
+            veredicto_kind="Regresar",
+            motivo="regreso_por_desplome",
+            gasto="10",
+        )
+        handler, vistos = _handler_api(
+            {"7201": "0.88", "7202": "0.88", "7203": "0.88", "7204": "0.88"}
+        )
+        ap = _aplicador(conn, handler, ids["ciclo_ejec"])
+
+        res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
+
+        assert res.orden == [dec_reg, dec_propio, dec_subida, dec_heredado]
+        assert res.aplicadas == 3
+        assert res.descartadas == [MOTIVO_FUERA_DE_CAP]
+        assert [_obj_de_put(p)["keywordId"] for p in _puts(vistos)] == ["7201", "7202", "7203"]
 
 
 # ---------------------------------------------------------------------------
