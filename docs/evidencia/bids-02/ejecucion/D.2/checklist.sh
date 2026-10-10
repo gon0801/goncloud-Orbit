@@ -64,13 +64,16 @@ cuerpo() {  # cuerpo <ruta> -> body
   fi
 }
 dinero_filas() {  # lee stdin (JSON de donde-poner-el-dinero): "n_ubi n_camp"
+  # por_ubicacion trae SIEMPRE 4 renglones (uno por ubicacion, con gasto
+  # null sin datos): contar len() seria tautologico. Se cuentan filas con
+  # gasto conocido; por_campana solo trae campanas con metricas.
   python3 -c "import json,sys
 try: d = json.load(sys.stdin)
 except Exception: print('ILEGIBLE -1'); raise SystemExit
 ubi = d.get('por_ubicacion')
 camp = d.get('por_campana')
 if not isinstance(ubi, list) or not isinstance(camp, list): print('ILEGIBLE -1'); raise SystemExit
-print(len(ubi), len(camp))"
+print(sum(1 for f in ubi if isinstance(f, dict) and f.get('gasto') is not None), len(camp))"
 }
 
 echo "== 0) El servidor contesta"
@@ -155,7 +158,7 @@ for MERCADO in amazon_mx amazon_us; do
       FILAS=$(echo "$DINERO" | dinero_filas || true)
       N_UBI=$(printf '%s' "$FILAS" | cut -d' ' -f1)
       N_CAMP=$(printf '%s' "$FILAS" | cut -d' ' -f2)
-      positivo "por_ubicacion con filas $MERCADO" "$N_UBI"
+      positivo "por_ubicacion con gasto $MERCADO" "$N_UBI"
       positivo "por_campana con filas $MERCADO" "$N_CAMP"
     fi
   else
