@@ -1,0 +1,10 @@
+# Candado sembrado de 0.b (guia, Comprueba)
+
+Corrida donde `rapido` fallo por `tests/test_arq_bids_prueba.py`:
+https://github.com/gon0801/goncloud-Orbit/actions/runs/38026822890
+
+Linea del log (paso Guardas):
+`FAILED tests/test_arq_bids_prueba.py::test_candado_sembrado_falla_en_rapido`,
+`1 failed, 111 passed in 3.97s`. El patron `tests/test_arq_bids_*.py` del paso
+de guardas levanta el archivo, y el resto de guardas sigue en verde. El archivo
+se quito con el siguiente commit.
