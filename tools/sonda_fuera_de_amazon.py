@@ -218,9 +218,14 @@ def _fase_regreso(cliente, perfil_id, registro, antes, off_antes, aceptado, ulti
         registro["iguales"] = iguales
         registro["diferencias"] = diferencias
         if aceptado is None:
-            registro["resultado"] = (
-                "REVISAR: ambos candidatos rechazados, sin sellar; la entidad quedo igual"
-            )
+            if registro.get("lectura_cambio_fallida"):
+                registro["resultado"] = (
+                    "REVISAR: la lectura tras el PUT fallo; sin sellar, la entidad quedo igual"
+                )
+            else:
+                registro["resultado"] = (
+                    "REVISAR: ambos candidatos rechazados, sin sellar; la entidad quedo igual"
+                )
         elif off_antes == {CAMPO: aceptado}:
             registro["resultado"] = "REVISAR: sin cambio: ya estaba en el valor; sin sellar"
         else:
