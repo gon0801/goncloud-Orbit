@@ -227,7 +227,10 @@ ventanas de 30 días.
 
 1. **Sembrar en sombra.** Muse siembra "margen de hoy" en `shadow` a todo el
    universo, con las mismas rutas que usa `/precios`. Las unidades con margen de
-   hoy fuera de la banda no se siembran: se le listan al dueño en el aviso.
+   hoy fuera de la banda no se siembran: se le listan al dueño en el aviso. Si
+   el universo no tiene entrada de modo (X.2, X.3 y X.4), la siembra lo pone
+   antes en `shadow`: sin entrada vale `off` y la corrida no decide nada para
+   él. Esos tres se siembran con el checklist de su despliegue en 0.
 2. **Leer la primera corrida.** Pasa si se cumplen las cuatro:
    - La cobertura cuadra exacta.
    - Al menos 95 % de las unidades sembradas quedan en `mantener(en_tolerancia)`.
@@ -244,8 +247,9 @@ ventanas de 30 días.
    posterior muestra el precio y una publicación de control no cambia.
 4. **Encender.** Con los pasos anteriores cumplidos y el visto bueno del lead
    sobre el paso 2, Muse pone el universo en `live` y pasa los goals a `live`
-   en bloque con el go literal de la fila. En el primer encendido (X.1) sube
-   además `precio_modo_global` a `live`: la migración lo siembra en `shadow` y
+   en bloque con el go literal de la fila. El primer universo que se enciende
+   (X.1, o el siguiente si X.1 queda cerrada) sube además `precio_modo_global`
+   a `live`: la migración lo siembra en `shadow` y
    el modo efectivo es el menor de los tres. Sin ese paso ningún precio se
    mueve y nada lo marca como error.
 
