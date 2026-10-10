@@ -95,8 +95,8 @@ además `ensayo.sh`. Parte de los de `docs/evidencia/jev-ads-02/ejecucion/S.3/` 
 sigue las reglas de la sección "Reglas que valen en todos los pasos" de
 [la guía del bloque S de JEV ADS 02](jev-ads-02-bloque-s.md).
 
-**Revisión y cierre.** Cada sección con código pasa una revisión cruzada con un
-revisor distinto del autor antes del merge, sobre el PR entero. Solo un hallazgo
+**Revisión y cierre.** Cada sección con código la revisa el lead antes del merge,
+sobre el PR entero. No hay revisión cruzada con otro modelo. Solo un hallazgo
 bloqueante y reproducible abre otra ronda. Las filas de `plans/repricing-02.md`
 se marcan y la entrada de `docs/CHAT-CONTEXT.md` se agrega en el PR de cierre,
 C.1.
