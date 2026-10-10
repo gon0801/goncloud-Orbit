@@ -72,7 +72,6 @@ from app.apply import (
     DecisionBid,
     RegresoHecho,
     RegresoNoConfirmado,
-    ReversaYaHecha,
     SinRachaDeRecortes,
     bids_del_ciclo,
     consume_quota,
@@ -2440,8 +2439,10 @@ def test_regreso_del_dueno_sin_racha_levanta_sin_tocar_amazon(monkeypatch):
 
 @_skip_db
 def test_regreso_del_dueno_segundo_regreso_no_reescribe(monkeypatch):
-    """Un segundo regreso de la misma racha levanta ReversaYaHecha y el
-    transporte falso no recibe otra llamada (un solo PUT)."""
+    """Un segundo regreso sin recortes nuevos levanta SinRachaDeRecortes
+    (la racha de la accion corta en el ultimo regreso: queda vacia) y el
+    transporte falso no recibe otra llamada (un solo PUT). En el endpoint
+    sigue siendo 409, como la ReversaYaHecha de antes."""
     with _db_m5("orbit_apply_m5_3") as conn:
         ids = _semilla(conn)
         ciclo_a = _ciclo_live(conn)
@@ -2452,10 +2453,46 @@ def test_regreso_del_dueno_segundo_regreso_no_reescribe(monkeypatch):
         transporte = httpx.MockTransport(handler)
 
         regreso_del_dueno(conn, hoja_id=ids["kw"], actor="dueno", transport=transporte)
-        with pytest.raises(ReversaYaHecha):
+        with pytest.raises(SinRachaDeRecortes):
             regreso_del_dueno(conn, hoja_id=ids["kw"], actor="dueno", transport=transporte)
 
         assert len(_puts(vistos)) == 1
+
+
+@_skip_db
+def test_regreso_del_dueno_tras_recorte_nuevo_revierte_el_recorte_nuevo(monkeypatch):
+    """R03-F5: regreso -> recorte nuevo -> regreso: el segundo regreso
+    revierte el recorte NUEVO (la racha de la accion corta en el ultimo
+    regreso), no la decision ya revertida (antes: ReversaYaHecha/409
+    permanente con boton visible)."""
+    with _db_m5("orbit_apply_m5_7") as conn:
+        ids = _semilla(conn)
+        ciclo_a = _ciclo_live(conn)
+        d1 = _decision_bid(conn, ciclo_a, ids["config"], ids["kw"], old="9.74", new="5.00")
+        _aplicada(conn, d1, ids["ciclo_ejec"], _R1_M5)
+        handler, vistos = _handler_regreso()
+        _creds_m5(monkeypatch)
+        transporte = httpx.MockTransport(handler)
+
+        primero = regreso_del_dueno(conn, hoja_id=ids["kw"], actor="dueno", transport=transporte)
+        assert primero.decision_revertida_id == d1
+        regreso_el = conn.execute(
+            "SELECT confirmado_el FROM v_cambio_bid"
+            " WHERE hoja_id = %s AND origen = 'regreso_del_dueno'",
+            (ids["kw"],),
+        ).fetchone()[0]
+        ciclo_c = _ciclo_live(conn)
+        d2 = _decision_bid(conn, ciclo_c, ids["config"], ids["kw"], old="9.74", new="7.00")
+        _aplicada(conn, d2, ids["ciclo_ejec"], regreso_el + dt.timedelta(seconds=1))
+
+        segundo = regreso_del_dueno(conn, hoja_id=ids["kw"], actor="dueno", transport=transporte)
+
+        assert segundo.decision_revertida_id == d2
+        assert segundo.bid_antes == Decimal("7.00")
+        assert segundo.bid_ahora == Decimal("9.74")
+        puts = _puts(vistos)
+        assert len(puts) == 2
+        assert Decimal(str(json.loads(puts[1].content)["keywords"][0]["bid"])) == Decimal("9.74")
 
 
 @_skip_db
@@ -2515,21 +2552,22 @@ def test_regreso_del_dueno_todas_con_n_viejo_no_escribe(monkeypatch):
 
 @_skip_db
 def test_regreso_del_dueno_todas_una_falla_no_detiene_a_las_demas(monkeypatch):
-    """Dos pendientes: la de un regreso en medio de la racha falla con su
-    motivo (ya revertida) y la otra se regresa (un PUT con su bid)."""
+    """Dos pendientes: la revertida al instante del ultimo recorte falla
+    sin racha vigente (el regreso empata al recorte: no es posterior) y
+    la otra se regresa (un PUT con su bid)."""
     with _db_m5("orbit_apply_m5_6") as conn:
         ids = _semilla(conn)
         ingest = _ingest_m5(conn)
         hoja_a = ids["kw"]
         hoja_b = ids["kw2"]
-        d1_a, _d2_a = _danada_m5(
+        _d1_a, d2_a = _danada_m5(
             conn, ids, hoja_a, ingest, vieja="10.00", media="8.00", nueva="6.00"
         )
         conn.execute(
             "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload,"
             " quota_cobrada, resultado, finished_at)"
             " VALUES (%s, 1, 'reversa', %s, false, 'ok', %s)",
-            (d1_a, Json({"bid": "viejo"}), dt.datetime(2026, 9, 22, 12, 0, tzinfo=dt.UTC)),
+            (d2_a, Json({"bid": "viejo"}), _R2_M5),
         )
         _danada_m5(conn, ids, hoja_b, ingest, vieja="12.00", media="9.00", nueva="7.00")
         _metrica_m5(conn, ingest, hoja_a, dt.date(2026, 10, 9), clics=0, pedidos=0, venta=None)
@@ -2550,7 +2588,7 @@ def test_regreso_del_dueno_todas_una_falla_no_detiene_a_las_demas(monkeypatch):
         assert hechos[0].hoja_id == hoja_b
         assert hechos[0].bid_ahora == Decimal("12.00")
         assert f"hoja {hoja_a}" in motivos[0]
-        assert "ya revertida" in motivos[0]
+        assert "no tiene racha vigente de recortes" in motivos[0]
         puts = _puts(vistos)
         assert len(puts) == 1
         body = json.loads(puts[0].content)

@@ -36,7 +36,6 @@ from app.optimizer.politica import (
     Regresar,
     decide,
     estado_grupo,
-    estima,
 )
 
 RAIZ = Path(__file__).resolve().parents[1]
@@ -103,6 +102,60 @@ def test_r1_regresa_tras_desplome():
     assert decide(caso) == Regresar(Decimal("12.00"), "regreso_por_desplome")
 
 
+def test_r1_con_bid_none_abstiene():
+    """R03-F3: R1 con bid vigente None (la hoja hereda del grupo): abstiene
+    con dato_faltante como _paso, en vez de emitir un Regresar irreversible
+    e invisible en v_cambio_bid."""
+    caso = fabrica_caso(
+        bid=BidVigente(None, None, Decimal("0.50"), Decimal("50.00")),
+        trayectoria=trayectoria(
+            [cambio(dt.date(2026, 9, 29), "12.00", "10.00", "motor")],
+            efecto(dias_post=10, pre_impr=5000, post_impr=100, vendia=True),
+        ),
+    )
+    assert decide(caso) == Mantener("dato_faltante")
+
+
+def test_r1_clampea_al_techo_bajado_desde_el_recorte():
+    """R03-F4: el bid de hace 90 dias ignora el goal de hoy: R1 clampea el
+    destino a [piso, techo] antes de regresar."""
+    caso = fabrica_caso(
+        bid=BidVigente(Decimal("10.00"), "MXN", Decimal("0.50"), Decimal("11.00")),
+        trayectoria=trayectoria(
+            [cambio(dt.date(2026, 9, 29), "12.00", "10.00", "motor")],
+            efecto(dias_post=10, pre_impr=5000, post_impr=100, vendia=True),
+        ),
+    )
+    assert decide(caso) == Regresar(Decimal("11.00"), "regreso_por_desplome")
+
+
+def test_r1_con_destino_inmovil_abstiene_por_delta():
+    """R03-F4: si el bid vigente ya esta a menos de 0.01 del destino, R1
+    abstiene con delta_bajo_umbral en vez de regresar."""
+    caso = fabrica_caso(
+        bid=BidVigente(Decimal("10.005"), "MXN", Decimal("0.50"), Decimal("50.00")),
+        trayectoria=trayectoria(
+            [cambio(dt.date(2026, 9, 29), "10.00", "9.00", "motor")],
+            efecto(dias_post=10, pre_impr=5000, post_impr=100, vendia=True),
+        ),
+    )
+    assert decide(caso) == Mantener("delta_bajo_umbral")
+
+
+def test_r1_con_techo_bajo_el_vigente_abstiene_por_rango():
+    """R03-F4: si el clamp deja el destino fuera de la direccion del
+    regreso (el techo bajo del bid vigente), R1 abstiene con
+    rango_bloquea_ajuste."""
+    caso = fabrica_caso(
+        bid=BidVigente(Decimal("10.00"), "MXN", Decimal("0.50"), Decimal("9.00")),
+        trayectoria=trayectoria(
+            [cambio(dt.date(2026, 9, 29), "12.00", "10.00", "motor")],
+            efecto(dias_post=10, pre_impr=5000, post_impr=100, vendia=True),
+        ),
+    )
+    assert decide(caso) == Mantener("rango_bloquea_ajuste")
+
+
 def test_r1_no_regresa_sin_filtro_de_volumen():
     caso = fabrica_caso(
         propia=nivel(tramo(gasto="800")),
@@ -166,6 +219,18 @@ def test_r3_suave_recorta_12_en_us():
         pausa=InsumosPausa(None, 100, Decimal("36"), None, None),
     )
     assert decide(caso) == Mover(Decimal("-0.12"), Decimal("0.4400"), "pierde_dinero", "hoja")
+
+
+def test_r3_con_equilibrio_no_positivo_no_revienta_ni_dispara():
+    """R03-F1: margen <= 0 (equilibrio 0 o negativo): R3 no dispara por
+    equilibrio y el juicio sigue con las demas reglas, sin levantar."""
+    for equilibrio in ("0", "-5"):
+        caso = fabrica_caso(
+            propia=_vendedora_fuerte(),
+            precio=PrecioVentana(Decimal("300"), 60),
+            economia=economia_mx(equilibrio=equilibrio),
+        )
+        assert decide(caso) == Mantener("vende_dentro_del_margen")
 
 
 def test_r4_hereda_12_y_nunca_25():
@@ -464,7 +529,6 @@ def test_ajuste_r2_espera():
 
 def test_ajuste_escalera_no_proyecta():
     caso = _caso_ajuste(10)
-    assert estima(caso).fuente_precio == "ventana_madura"
     assert decide(caso) == Mantener("esperando_precio_medido")
 
 
@@ -499,7 +563,7 @@ def test_ajuste_no_dispara_r1():
 
 
 # ---------------------------------------------------------------------------
-# estado_grupo y estima
+# estado_grupo
 # ---------------------------------------------------------------------------
 
 
@@ -535,23 +599,6 @@ def test_estado_grupo_sin_veredicto_con_dato_none():
             assert estado_grupo(nivel(**tramos), economia) == "sin_veredicto"
     assert estado_grupo(nivel(tramo(pedidos=None)), economia) == "sin_veredicto"
     assert estado_grupo(nivel(tramo(gasto=None)), economia) == "sin_veredicto"
-
-
-def test_estima_no_levanta_sin_datos():
-    estimacion = estima(fabrica_caso(propia=None, pedidos_inmaduros=None))
-    assert estimacion.cpc is None
-    assert estimacion.estado_grupo == "sin_veredicto"
-    assert estimacion.p_sobre_equilibrio is None
-    assert estimacion.acos_grupo_pct is None
-
-
-def test_estima_expone_los_numeros_del_veredicto():
-    caso = fabrica_caso(propia=_vendedora_fuerte(), precio=PrecioVentana(Decimal("300"), 60))
-    estimacion = estima(caso)
-    assert estimacion.cpc == Decimal("5")
-    assert estimacion.fuente_precio == "ventana"
-    assert estimacion.p_sobre_equilibrio >= Decimal("0.80")
-    assert estimacion.estado_grupo == "sin_veredicto"
 
 
 # ---------------------------------------------------------------------------

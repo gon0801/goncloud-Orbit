@@ -1808,13 +1808,19 @@ def _celda_cambio(fila, indice: int, nombre: str):
 
 
 def _racha_vigente_hoja(cambios: list[tuple]) -> list[tuple]:
-    """Recortes posteriores a la ultima subida, con la misma regla que la
-    pantalla de danadas: el regreso del dueno no cuenta ni corta (su
-    bid_antes es NULL), y una subida del motor si corta, incluido un
-    regreso_por_desplome. Cada cambio es
-    (confirmado_el, bid_antes, bid_despues, origen, decision_id, moneda)."""
+    """Recortes posteriores a la ultima subida y al ultimo regreso del
+    dueno: la racha de la ACCION (esta funcion) corta en el ultimo
+    regreso_del_dueno y su primera es el primer recorte posterior a el.
+    Difiere de la racha de la PANTALLA (pantalla_danadas._racha_vigente,
+    guia P.3a cambio 2, donde el regreso no corta). Sin regreso previo,
+    igual que la pantalla: el regreso no cuenta (su bid_antes es NULL) y
+    una subida del motor si corta, incluido un regreso_por_desplome. Cada
+    cambio es (confirmado_el, bid_antes, bid_despues, origen, decision_id,
+    moneda)."""
     subidas = [c[0] for c in cambios if c[1] is not None and c[2] is not None and c[2] > c[1]]
     ultima = max(subidas) if subidas else None
+    regresos = [(c[0], c[4]) for c in cambios if c[3] == ORIGEN_REGRESO_DUENO]
+    ultimo_regreso = max(regresos) if regresos else None
     return [
         c
         for c in cambios
@@ -1823,6 +1829,7 @@ def _racha_vigente_hoja(cambios: list[tuple]) -> list[tuple]:
         and c[2] is not None
         and c[2] < c[1]
         and (ultima is None or c[0] >= ultima)
+        and (ultimo_regreso is None or (c[0], c[4]) > ultimo_regreso)
     ]
 
 

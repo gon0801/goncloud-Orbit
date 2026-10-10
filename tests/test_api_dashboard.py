@@ -1799,6 +1799,18 @@ def test_salud_motivos_f2_traducidos_con_texto_exacto(motivo, esperado):
     assert dash.MOTIVOS_ES_SALUD[motivo] == esperado
 
 
+def test_salud_sin_target_traducido_con_texto_exacto():
+    """R03-(a): sin_target entra a MOTIVOS_ES_SALUD con su texto exacto.
+    El `!=` mata al mutante que devuelve el id crudo."""
+    from app import cycle as ciclo
+
+    assert dash.MOTIVOS_ES_SALUD[ciclo.MOTIVO_SIN_TARGET] != ciclo.MOTIVO_SIN_TARGET
+    assert (
+        dash.MOTIVOS_ES_SALUD[ciclo.MOTIVO_SIN_TARGET]
+        == "Sin target (ningun peldano resolvio): sin ajuste"
+    )
+
+
 def test_salud_motivo_es_helper_fallback_y_none():
     """A.6: `motivo_es` traduce por MOTIVOS_ES_SALUD, cae al id crudo con
     motivos desconocidos y pasa None a None (regla 3)."""
@@ -1929,23 +1941,6 @@ def test_motivos_salud_traducen_los_gates_de_ancestros():
 
     assert MOTIVOS_ES_SALUD[ciclo.MOTIVO_CAMPANA_NO_ENABLED].startswith("Campaña")
     assert MOTIVOS_ES_SALUD[ciclo.MOTIVO_GRUPO_NO_ENABLED].startswith("Ad group")
-
-
-def test_motivo_inversion_sin_evidencia_traducido_en_salud():
-    """R-D2-1 (DeepSeek F1 Low en #357): inversion_sin_evidencia con
-    traduccion en /salud (sin ella la pantalla mostraria el id crudo).
-    A6-r2 F5: la etiqueta nombra la regla de CADA politica (10 dias en
-    v1, 20 clics post-cambio en v2): un texto solo-dias mentiria bajo
-    evidencia_v2."""
-    from app import cycle as ciclo
-    from app.api_dashboard import MOTIVOS_ES_SALUD
-
-    texto = MOTIVOS_ES_SALUD[ciclo.MOTIVO_INVERSION_SIN_EVIDENCIA]
-    assert texto != ciclo.MOTIVO_INVERSION_SIN_EVIDENCIA
-    assert texto == (
-        "Inversión frenada: el último bid aplicado tiene menos de 10 días de evidencia"
-        " (bandas v1) o menos de 20 clics post-cambio (evidencia v2)"
-    )
 
 
 def test_motivo_cero_ventas_tiene_etiqueta_en_decisiones():

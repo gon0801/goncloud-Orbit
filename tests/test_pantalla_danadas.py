@@ -221,6 +221,26 @@ def test_sin_clics_previos_no_entra():
     assert _lee(cambios, metricas=metricas, nombres=nombres).hojas == ()
 
 
+def test_ventana_actual_con_nulls_no_entra():
+    """R03-F6: NULLs recientes (ventana desconocida) sacan a la hoja aunque
+    el resto grite danada: un todo-NULL sumaba 0 y entraba en falso."""
+    cambios = [
+        _cambio(
+            11,
+            Decimal("6"),
+            dt.datetime(2026, 9, 20, 12, tzinfo=UTC),
+            Decimal("10"),
+            Decimal("6"),
+            "motor",
+            101,
+        ),
+    ]
+    nombres = [_nombre(11, "keyword", None, "kw", "C")]
+    assert len(_lee(cambios, metricas=_danada_minima(), nombres=nombres).hojas) == 1
+    con_null = _danada_minima() + [_metrica(11, dt.date(2026, 10, 2))]
+    assert _lee(cambios, metricas=con_null, nombres=nombres).hojas == ()
+
+
 # --- racha vigente ---------------------------------------------------------------
 
 

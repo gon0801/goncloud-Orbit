@@ -32,7 +32,7 @@ MIN_DELTA_ABSOLUTO = Decimal("0.01")
 DIAS_EFECTO = 7  # dias para leer un cambio; es el cooldown de hoy con otro nombre (goals.COOLDOWN)
 DIAS_GUARDA = 4  # la guarda de desplome ya discrimina con 4 dias (A4)
 DIAS_SALIDA = 14  # invertir direccion sin 20 clics nuevos: salida por tiempo (elegido; sin medir)
-CLICS_NUEVOS = 20  # clics al bid nuevo para repetir direccion (evidencia.MIN_CLICS_CPC de hoy)
+CLICS_NUEVOS = 20  # clics al bid nuevo para repetir direccion (20 clics post-cambio, D.2)
 RAZON_DESPLOME = Decimal("0.30")  # P2 y A4
 RAZON_RETIENE = Decimal("0.70")  # recorte que "no costo trafico" (P2, A4)
 RAZON_CRECE = Decimal("1.10")  # subida que "trajo trafico" (A7)
@@ -114,22 +114,6 @@ Veredicto = Mantener | Mover | Regresar | Pausar
 
 
 @dataclass(frozen=True)
-class Estimacion:
-    """Derivada auditable (NO se congela: `estima` la re-deriva exacta del caso). La leen el
-    tablero de ruido y la ficha de una decision."""
-
-    cpc: Decimal | None
-    fuente_precio: FuentePrecio | None
-    acos_hoy_pct: Decimal | None  # CPC al bid de hoy / (conversion x ticket de la ventana pesada)
-    p_sobre_equilibrio: Decimal | None
-    p_sobre_suave: Decimal | None
-    p_sobre_fuerte: Decimal | None
-    p_bajo_target: Decimal | None
-    estado_grupo: EstadoGrupo
-    acos_grupo_pct: Decimal | None
-
-
-@dataclass(frozen=True)
 class _Fondo:
     """Numeros comunes del juicio de una vendedora. None = dato faltante (R18)."""
 
@@ -152,7 +136,9 @@ def decide(caso: CasoHoja) -> Veredicto:
        R1  ultimo cambio = recorte del motor, la hoja vendia, tenia volumen (>= 1000
            impresiones o >= 20 clics en 7 dias), dias_post >= DIAS_GUARDA y
            razon_trafico < RAZON_DESPLOME
-           -> Regresar(ultimo.bid_antes, regreso_por_desplome)
+           -> Regresar(clamp(ultimo.bid_antes, [piso, techo]), regreso_por_desplome);
+           sin bid vigente -> Mantener(dato_faltante); destino inmovil (< 0.01)
+           o fuera de direccion por el clamp -> Mantener con el motivo del clamp
        R2  dias_post < DIAS_EFECTO -> Mantener(esperando_efecto)
 
     2. Juicio. cpc = _precio_de_hoy(caso); grupo = estado_grupo(caso.grupo, caso.economia)
@@ -163,7 +149,8 @@ def decide(caso: CasoHoja) -> Veredicto:
             (beneficio de la duda).
          R3  p_sobre(equilibrio) >= confianza_recorte -> candidato de recorte, nivel hoja:
              fuerte (-25 %) si ademas p_sobre(1.35 x target) >= confianza; si no -12 %.
-             Sin equilibrio (target que no vino del margen) R3 no dispara y el juicio sigue.
+             Sin equilibrio (target que no vino del margen), o equilibrio <= 0
+             (margen que no da para publicidad), R3 no dispara y el juicio sigue.
          R4  si no, y acos_hoy > target y grupo == "sangra" -> candidato -12 %, nivel ad_group
              (una vendedora que no pierde dinero con certeza NUNCA recibe -25 %).
          R5  si no, y p_sobre(1.15 x target) >= confianza -> Mantener(vende_dentro_del_margen)
@@ -223,7 +210,18 @@ def decide(caso: CasoHoja) -> Veredicto:
         if r1 is None:
             return Mantener(MOTIVO_DATO_FALTANTE)
         if r1:
-            return Regresar(ultimo.bid_antes, MOTIVO_REGRESO_DESPLOME)
+            valor = caso.bid.valor
+            if valor is None:
+                return Mantener(MOTIVO_DATO_FALTANTE)
+            # Espejo de _paso (mismas constantes y motivos): el destino es un
+            # bid viejo y el goal pudo cambiar; se clampea a [piso, techo].
+            # Sin factor que clampear: la direccion honesta es hacia bid_antes.
+            destino = min(max(ultimo.bid_antes, caso.bid.piso), caso.bid.techo)
+            if abs(destino - valor) < MIN_DELTA_ABSOLUTO:
+                return Mantener(MOTIVO_DELTA_BAJO_UMBRAL)
+            if (destino - valor) * (ultimo.bid_antes - valor) <= 0:
+                return Mantener(MOTIVO_RANGO_BLOQUEA_AJUSTE)
+            return Regresar(destino, MOTIVO_REGRESO_DESPLOME)
         if efecto.dias_post < DIAS_EFECTO:
             return Mantener(MOTIVO_ESPERANDO_EFECTO)
 
@@ -297,7 +295,7 @@ def _juzga_vendedora(
     target = economia.target_acos_pct
     confianza = economia.plataforma.confianza_recorte
     equilibrio = economia.plataforma.equilibrio_acos_pct
-    if equilibrio is not None and _p_sobre(fondo, equilibrio) >= confianza:
+    if equilibrio is not None and equilibrio > 0 and _p_sobre(fondo, equilibrio) >= confianza:
         if _p_sobre(fondo, MULT_BAJA_FUERTE * target) >= confianza:
             return (PASO_BAJA_FUERTE, MOTIVO_PIERDE_DINERO_FUERTE, "hoja")
         return (PASO_BAJA_SUAVE, MOTIVO_PIERDE_DINERO, "hoja")
@@ -448,50 +446,6 @@ def _previa(
         aov = (ven_r + aov_cuenta) / Decimal(ped_r + 1)
         return (cvr, aov)
     return (cvr_cuenta, aov_cuenta)
-
-
-def estima(caso: CasoHoja) -> Estimacion:
-    """Los numeros detras del veredicto, para pantallas y auditoria. Misma aritmetica que `decide`
-    (comparten los privados); un caso sin datos devuelve campos None, jamas levanta."""
-    with localcontext(prec=PRECISION):
-        cpc, fuente = _precio_de_hoy(caso)
-        estado = estado_grupo(caso.grupo, caso.economia)
-        propia = caso.propia
-        p_eq = p_suave = p_fuerte = p_bajo = acos_hoy = None
-        if propia is not None and (propia.pedidos_crudos() or 0) >= 1 and cpc is not None:
-            fondo = _fondo_juicio(propia, cpc)
-            if fondo is not None:
-                target = caso.economia.target_acos_pct
-                equilibrio = caso.economia.plataforma.equilibrio_acos_pct
-                if equilibrio is not None and equilibrio > 0:
-                    p_eq = _p_sobre(fondo, equilibrio)
-                    p_fuerte = _p_sobre(fondo, MULT_BAJA_FUERTE * target)
-                p_suave = _p_sobre(fondo, MULT_BAJA_SUAVE * target)
-                previa = _previa(caso.cuenta, caso.grupo, propia)
-                if previa is not None:
-                    p_bajo = _p_bajo(fondo, cpc, target, previa)
-                acos_hoy = fondo.acos_hoy_pct
-        return Estimacion(
-            cpc=cpc,
-            fuente_precio=fuente,
-            acos_hoy_pct=acos_hoy,
-            p_sobre_equilibrio=p_eq,
-            p_sobre_suave=p_suave,
-            p_sobre_fuerte=p_fuerte,
-            p_bajo_target=p_bajo,
-            estado_grupo=estado,
-            acos_grupo_pct=_acos_grupo(caso.grupo),
-        )
-
-
-def _acos_grupo(grupo: EvidenciaNivel | None) -> Decimal | None:
-    if grupo is None:
-        return None
-    gasto = grupo.gasto_pesado()
-    venta = grupo.venta_pesada()
-    if gasto is None or venta is None or venta <= 0:
-        return None
-    return _CIEN * gasto / venta
 
 
 def estado_grupo(grupo: EvidenciaNivel | None, economia: Economia) -> EstadoGrupo:

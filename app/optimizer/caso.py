@@ -233,7 +233,7 @@ class InsumosPausa:
     """Lo que PAUSE consume hoy, sin cambios (bid._decide_pause): ventana de cortes y
     umbrales resueltos."""
 
-    cortes: Any  # windows.AgregadoMetricas | None
+    cortes: AgregadoMetricas | None
     umbral_clics: int
     gasto_minimo: Decimal
     expected_clicks: Decimal | None

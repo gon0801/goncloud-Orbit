@@ -241,9 +241,6 @@ MOTIVO_GRUPO_NO_ENABLED = apply.MOTIVO_GRUPO_NO_ENABLED
 # la sirve. Se salta ANTES de resolver ventanas (no gasta consultas ni cupo).
 MOTIVO_ENTIDAD_INERTE = "entidad_inerte"
 MOTIVO_COOLDOWN_7D = "cooldown_7d"
-# D.2 (ads-proteccion-01): hoja cuya reversa de bid no cumple N=10 dias de
-# evidencia posterior al ultimo bid aplicado (decision del dueno).
-MOTIVO_INVERSION_SIN_EVIDENCIA = "inversion_sin_evidencia"
 # BIDS 02 T.1: ningun peldano resolvio target (el default 55 era inventado,
 # regla 3): la hoja y el ad group de terminos se saltan sin decidir.
 MOTIVO_SIN_TARGET = "sin_target"
@@ -1731,7 +1728,6 @@ def _procesa_decisora(
             return
         if g.en_cooldown(conn, entidad_id, ahora=decided_at, kind="pause"):
             contadores.skips_entidad[MOTIVO_COOLDOWN_7D] += 1
-            tick()
             return
         pendientes.append(
             _pendiente_pause_apagada(
@@ -1769,10 +1765,10 @@ def _procesa_decisora(
         pausa=pausa,
     )
     veredicto = decide(caso)
+    tick()
     if isinstance(veredicto, Mantener):
         contadores.skips_entidad[veredicto.motivo] += 1
         return
-    tick()
     # Cambio 9: despues de decidir una PAUSE, su propio cooldown la salta
     # con cooldown_7d (fijo como produccion con el flag encendido; la rama
     # de bids kind=None se borro: R2 espera).
@@ -1780,7 +1776,6 @@ def _procesa_decisora(
         conn, entidad_id, ahora=decided_at, kind="pause"
     ):
         contadores.skips_entidad[MOTIVO_COOLDOWN_7D] += 1
-        tick()
         return
     pendientes.append(
         pendiente_bid(

@@ -397,10 +397,11 @@ def reversa_negative(
 
 
 # Mapeo sellado de errores del regreso del dueno -> HTTP (BIDS 02, M.5):
-# hereda el de la reversa (el regreso reusa reversa_manual: un segundo
-# regreso de la misma racha es ReversaYaHecha -> 409) y suma los propios:
-# SinRachaDeRecortes -> 409, ConfirmacionDesactualizada -> 409 (la lista
-# cambio, X.1 relee N y repite una vez) y RegresoNoConfirmado -> 502.
+# hereda el de la reversa (el regreso reusa reversa_manual) y suma los
+# propios: SinRachaDeRecortes -> 409 (un segundo regreso sin recortes
+# nuevos cae aqui: la racha de la accion corta en el ultimo regreso),
+# ConfirmacionDesactualizada -> 409 (la lista cambio, X.1 relee N y repite
+# una vez) y RegresoNoConfirmado -> 502.
 _ERRORES_REGRESO: dict[type[Exception], int] = {
     **_ERRORES_REVERSA,
     apply.SinRachaDeRecortes: 409,

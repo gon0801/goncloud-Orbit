@@ -216,7 +216,7 @@ MOTIVOS_ES_DECISIONES: dict[str, str] = {
     ),
     bid.MOTIVO_PAUSE_ECONOMICA: "Pausa economica: venta cara sobre 3x del target",
     # BIDS 02 M.3: motivos de niveles_v3 (los que emiten Mover y Regresar).
-    politica.MOTIVO_REGRESO_DESPLOME: "Regreso: el bid nuevo desplomo las ventas",
+    politica.MOTIVO_REGRESO_DESPLOME: "Regreso: el bid nuevo desplomo el trafico",
     politica.MOTIVO_PIERDE_DINERO: "ACoS sobre el equilibrio: -12%",
     politica.MOTIVO_PIERDE_DINERO_FUERTE: "ACoS sobre el equilibrio con fuerza: -25%",
     politica.MOTIVO_GRUPO_SANGRA_VENDEDORA: "La hoja vende pero su grupo sangra: -12%",
@@ -263,14 +263,9 @@ MOTIVOS_ES_SALUD: dict[str, str] = {
         "Entidad sin trafico reciente (sin impresiones en 14 dias): sin ajuste"
     ),
     ciclo.MOTIVO_COOLDOWN_7D: "Cooldown 7d: apply verificado reciente",
-    # R-D2-1: texto del dueno (decision N=10 de D.2) + variante A6-B2:
-    # bajo evidencia_v2 D.2 ya no cuenta dias sino clics post-cambio.
-    ciclo.MOTIVO_INVERSION_SIN_EVIDENCIA: (
-        "Inversión frenada: el último bid aplicado tiene menos de 10 días de evidencia"
-        " (bandas v1) o menos de 20 clics post-cambio (evidencia v2)"
-    ),
     ciclo.MOTIVO_ESCALERA_OFF: "Escalera global off",
     ciclo.MOTIVO_POLITICA_APAGADA: "Motor de bids apagado (sin ads_bid_politica): sin ajuste",
+    ciclo.MOTIVO_SIN_TARGET: "Sin target (ningun peldano resolvio): sin ajuste",
     # BIDS 02 M.3: motivos de niveles_v3 (los que emite Mantener).
     politica.MOTIVO_ESPERANDO_EFECTO: "Bid reciente: esperando su efecto (7 dias)",
     politica.MOTIVO_VENDE_DENTRO_DEL_MARGEN: "La hoja vende dentro del margen: sin ajuste",

@@ -3020,7 +3020,7 @@ def _caso_regreso_dueno(*, dias_post: int, clics_post: int, bid: str) -> CasoHoj
     )
 
 
-def _corre_decisora_niveles(monkeypatch, caso: CasoHoja):
+def _corre_decisora_niveles(monkeypatch, caso: CasoHoja, tick=lambda: None):
     """_procesa_decisora con niveles_v3 y lecturas fijas (el caso dado):
     decide() corre de verdad; el cooldown de pause se parchea ausente."""
     from types import SimpleNamespace
@@ -3056,7 +3056,7 @@ def _corre_decisora_niveles(monkeypatch, caso: CasoHoja):
         decided_at=DECIDED_AT,
         contadores=contadores,
         pendientes=pendientes,
-        tick=lambda: None,
+        tick=tick,
         evidencia_ad_groups={},
         corte_pause_por_grupo={},
         bloqueadas=set(),
@@ -3107,3 +3107,80 @@ def test_ciclo_regreso_dueno_piso_aprendido_frena_recorte(monkeypatch):
     )
     assert pendientes == []
     assert contadores.skips_entidad == {"piso_aprendido": 1}
+
+
+def test_ciclo_decisora_que_abstiene_late(monkeypatch):
+    """R03-F2: la decisora que abstiene (Mantener) tambien late: una
+    entidad procesada es un tick, decida o abstenga."""
+    latidos = []
+    pendientes, contadores = _corre_decisora_niveles(
+        monkeypatch,
+        _caso_regreso_dueno(dias_post=3, clics_post=5, bid="1.00"),
+        tick=lambda: latidos.append(1),
+    )
+    assert pendientes == []
+    assert contadores.skips_entidad == {"esperando_efecto": 1}
+    assert latidos == [1]
+
+
+def _corre_apagada_con_pause(monkeypatch, *, cooldown: bool, tick):
+    """_procesa_decisora con la politica apagada y un pause decidido (el
+    cooldown de pause se parchea segun `cooldown`)."""
+    from types import SimpleNamespace
+
+    from app.optimizer import goals as g
+
+    monkeypatch.setattr(ciclo.windows, "ventana_cortes", lambda *_: None)
+    monkeypatch.setattr(ciclo.bid, "decide_pause", lambda **_: SimpleNamespace(kind="pause"))
+    monkeypatch.setattr(ciclo.g, "en_cooldown", lambda *_a, **_k: cooldown)
+    goal = g.Goal(
+        scope="platform",
+        ad_entity_id=None,
+        platform="amazon_us",
+        target_acos_pct=Decimal("25"),
+        bid_floor=Decimal("0.40"),
+        bid_ceiling=Decimal("2.50"),
+        bid_currency="USD",
+        harvest_campaign_id=None,
+        harvest_ad_group_id=None,
+        harvest_default_bid=None,
+        enabled=True,
+        mode="shadow",
+    )
+    contadores = ciclo._Contadores()
+    pendientes: list = []
+    ciclo._procesa_decisora(
+        object(),
+        fila=(4925, 3927, 3926, Decimal("1.00"), "USD", "ENABLED", None, "ENABLED", "ENABLED"),
+        platform="amazon_us",
+        setting_target=None,
+        goals=(goal, {}),
+        modo="shadow",
+        decided_at=DECIDED_AT,
+        contadores=contadores,
+        pendientes=pendientes,
+        tick=tick,
+        evidencia_ad_groups={},
+        corte_pause_por_grupo={},
+        bloqueadas=set(),
+        inertes=set(),
+        margen_plataforma=None,
+        snapshot_margen={},
+        familias_ciclo=ciclo._FamiliasCiclo({}, {}, {}, {}, {}, None, DECIDED_AT.date(), None, {}),
+        pause_economica=False,
+        politica=None,
+        lecturas=None,
+    )
+    return pendientes, contadores
+
+
+def test_ciclo_apagada_con_cooldown_late_una_sola_vez(monkeypatch):
+    """R03-(d): el camino pause-apagada late una vez por entidad tambien
+    cuando el pause cae en cooldown (el tick de la rama sobraba)."""
+    latidos = []
+    pendientes, contadores = _corre_apagada_con_pause(
+        monkeypatch, cooldown=True, tick=lambda: latidos.append(1)
+    )
+    assert pendientes == []
+    assert contadores.skips_entidad == {"cooldown_7d": 1}
+    assert latidos == [1]

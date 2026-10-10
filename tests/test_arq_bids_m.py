@@ -77,7 +77,6 @@ def test_espejos_de_windows_goals_evidencia_pineados():
     assert c.DIAS_MADUREZ == w.DIAS_MADUREZ_CORTES
     assert c.DIAS_LOOKBACK == w.LOOKBACK_EVIDENCIA
     assert g.COOLDOWN.days == p.DIAS_EFECTO
-    assert p.CLICS_NUEVOS == ev.MIN_CLICS_CPC
     assert p.PRECISION == ev._PRECISION
     assert g.POLITICA_BID_VIGENTE == c.POLITICA_BID
 

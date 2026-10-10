@@ -15,7 +15,9 @@ deja dano nuevo y no marca.
 
 Ventanas (guia P.3a, cambio 3): los 90 y 14 dias previos terminan el dia
 anterior al primer recorte; los ultimos 14 van de HOY - 15 a HOY - 2,
-donde HOY es la ultima fecha con metricas de la plataforma. `bid_hoy` es
+donde HOY es la ultima fecha con metricas de la plataforma. Un clics NULL
+en la ventana actual saca a la hoja (ventana desconocida, regla 3: jamas
+cuenta como cero). `bid_hoy` es
 el bid vigente (`v_hoja_activa.current_bid`), no el del ultimo recorte:
 con un regreso posterior difieren. Sin filtro de `bid_hoy < bid_antes`
 (la consulta de control no lo trae; la guia gana al bosquejo).
@@ -207,6 +209,7 @@ def lee_danadas(conn, *, plataforma: Plataforma) -> PantallaDanadas:
         venta_antes = Decimal(0)
         clics_antes = 0
         clics_ahora = 0
+        ventana_desconocida = False
         for fecha, clics, pedidos, venta in metricas.get(hoja_id, []):
             if inicio - dt.timedelta(days=90) <= fecha <= antes_hasta:
                 if pedidos is not None:
@@ -215,11 +218,13 @@ def lee_danadas(conn, *, plataforma: Plataforma) -> PantallaDanadas:
                     venta_antes += venta
             if inicio - dt.timedelta(days=14) <= fecha <= antes_hasta and clics is not None:
                 clics_antes += clics
-            if (
-                hoy - dt.timedelta(days=15) <= fecha <= hoy - dt.timedelta(days=2)
-                and clics is not None
-            ):
-                clics_ahora += clics
+            if hoy - dt.timedelta(days=15) <= fecha <= hoy - dt.timedelta(days=2):
+                if clics is None:
+                    ventana_desconocida = True
+                else:
+                    clics_ahora += clics
+        if ventana_desconocida:
+            continue
         if not (pedidos_antes >= 1 and clics_antes > 0 and clics_ahora * 10 < clics_antes * 3):
             continue
         regresos = sorted(
