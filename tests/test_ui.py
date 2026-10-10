@@ -686,9 +686,10 @@ def test_ui_cero_no_se_pinta_como_dato_faltante(monkeypatch):
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
 )
 def test_ui_campanas_target_null_pinta_hueco_visible(monkeypatch):
-    """A7r3 B3 (DeepSeek F2): campana sin hojas en el ultimo ciclo trae
-    target_efectivo null; el template debe pintar "—" en valor y chip,
-    nunca un "%" suelto ni un chip vacio (DASHBOARD.md decision 4)."""
+    """A7r3 B3 (DeepSeek F2) + T.1: campana sin hojas en el ultimo ciclo
+    trae target_efectivo null; el template debe pintar "sin target" en
+    valor y chip, nunca un "%" suelto ni un chip vacio (DASHBOARD.md
+    decision 4)."""
     monkeypatch.setattr("app.api_dashboard._hoy_utc", lambda: dt.date(2026, 8, 21))
     with _db_temporal("orbit_ui_null") as (conn, dsn):
         run = _run(conn)
@@ -713,7 +714,7 @@ def test_ui_campanas_target_null_pinta_hueco_visible(monkeypatch):
         assert "Campana B" in html
         assert '<td class="num">%</td>' not in html, "target null pinta % suelto"
         assert '<span class="chip"></span>' not in html, "target null pinta chip vacio"
-        assert html.count('<span class="mutado">—</span>') == 2, (
+        assert html.count('<span class="mutado">sin target</span>') == 2, (
             "metricas completas: los unicos huecos son valor y chip del target"
         )
 
@@ -1802,3 +1803,221 @@ def test_ui_gasto_sin_venta_200_con_secciones_y_escape(monkeypatch):
         assert 'aria-current="page">Amazon MX' in resp.text
         assert PAYLOAD_XSS not in resp.text
         assert "&lt;script&gt;" in resp.text
+
+
+# ---------------------------------------------------------------------------
+# T.1 (BIDS 02 s2): las pantallas dicen "sin target" donde el target es null.
+# ---------------------------------------------------------------------------
+
+
+def test_ui_settings_sin_target_dice_sin_target():
+    """Sin target vigente, /settings dice "sin target" (no pinta None ni
+    una procedencia)."""
+    html = ui.templates.env.get_template("settings.html").render(
+        pantalla="settings",
+        datos={
+            "config_version_id": 1,
+            "modo_global": "live",
+            "advertencia_respaldo": "respaldo",
+            "plataformas": [
+                {
+                    "plataforma": "amazon_us",
+                    "moneda": "USD",
+                    "target_vigente": {"valor": None, "peldano": None},
+                    "target_manual_pct": None,
+                    "margen_habilitado": False,
+                    "fraccion_margen": None,
+                    "confianza_recorte": "0.80",
+                    "confianza_subida": "0.70",
+                    "motor_bid": None,
+                    "motor_bid_vive": False,
+                    "caps": {},
+                    "goal": None,
+                }
+            ],
+            "goals": [],
+        },
+    )
+    assert "sin target" in html
+    assert "None" not in html
+
+
+def test_ui_campanas_sin_target_dice_sin_target(monkeypatch):
+    """Una campana sin target congelado dice "sin target" en /campanas."""
+    item = _item_campana("Zeta US")
+    item["target_efectivo"] = None
+    html = _html_campanas(monkeypatch, [item]).text
+    assert "sin target" in html
+
+
+def test_ui_cortes_propuesta_sin_target_dice_sin_target():
+    """El texto de una propuesta de campana sin target dice "sin target"
+    (jamas "None%")."""
+    ctx = _ctx_cortes()
+    ctx["propuestas_campana"] = [
+        {
+            "id": 7,
+            "platform": "amazon_us",
+            "campaign_external_id": "123458",
+            "nombre": "Campana Nula",
+            "status": "paused_observed",
+            "motivo": "campana_no_enabled",
+            "cost": "200.0000",
+            "sales30d": "0.0000",
+            "currency": "USD",
+            "target_pct": None,
+            "target_source": None,
+            "excess": "200.0000",
+            "acos_pct": None,
+            "window_start": "2026-08-16",
+            "window_end": "2026-09-14",
+            "campaign_status": "PAUSED",
+            "aviso_estado": "pending",
+            "riesgo_ignorando_estado": True,
+        },
+    ]
+    html = ui.templates.env.get_template("cortes.html").render(**ctx)
+    assert "sin target" in html
+    assert "None%" not in html
+
+
+# ---------------------------------------------------------------------------
+# P.3b (BIDS 02 s2): /keywords-danadas.
+# ---------------------------------------------------------------------------
+
+
+def _html_danadas(monkeypatch, hojas: list[dict], **params):
+    """Render del camino REAL (TestClient -> pagina) con el endpoint
+    fakeado: se prueba la vista, no el SQL (modelo _html_campanas)."""
+
+    def _danadas(conn, plataforma=None):
+        return {
+            "plataforma": plataforma or "amazon_mx",
+            "calculado_el": "2026-10-09T00:00:00+00:00",
+            "hojas": hojas,
+        }
+
+    monkeypatch.setattr(ui.dash, "keywords_danadas", _danadas)
+    app.dependency_overrides[_conexion_lectura] = lambda: None
+    try:
+        return TestClient(app).get("/keywords-danadas", params=params)
+    finally:
+        app.dependency_overrides.pop(_conexion_lectura, None)
+
+
+def test_ui_keywords_danadas_200_con_bloque_headers_y_menu(monkeypatch):
+    """La ruta sirve la pantalla con su marcador, el bloque de "Regresar
+    todas", su script, headers CSP/no-store y su entrada de menu; mercado
+    ajeno es 422."""
+    from test_pantalla_danadas import _hoja_ui
+
+    resp = _html_danadas(monkeypatch, [_hoja_ui()])
+    assert resp.status_code == 200, resp.text
+    assert 'data-pantalla="keywords-danadas"' in resp.text
+    assert "Regresar todas" in resp.text
+    assert 'src="/static/js/danadas.js?v=' in resp.text
+    assert "default-src 'self'" in resp.headers["content-security-policy"]
+    assert resp.headers["cache-control"] == "no-store"
+    assert '<a href="/keywords-danadas" aria-current="page">Keywords dañadas</a>' in resp.text
+    malo = _html_danadas(monkeypatch, [], plataforma="meli")
+    assert malo.status_code == 422
+
+
+def test_ui_danadas_nombre_con_script_escapado():
+    """El nombre (texto libre de la keyword) va por {{ }} y el entorno REAL
+    lo escapa, en la fila y en la lista de "Regresar todas"."""
+    from test_pantalla_danadas import _hoja_ui
+
+    html = ui.templates.env.get_template("keywords_danadas.html").render(
+        pantalla="keywords-danadas",
+        plataforma="amazon_mx",
+        calculado_el=None,
+        hojas=[_hoja_ui(nombre=PAYLOAD_XSS)],
+    )
+    assert PAYLOAD_XSS not in html
+    assert "&lt;script&gt;" in html
+
+
+def test_ui_danadas_js_sin_literal_no_manda_regresar_todas():
+    """Con Node (modelo test_ui_fabrica): sin el literal `REGRESAR <N>
+    KEYWORDS` exacto, la pagina no manda `bid/regresar-todas`; con el
+    literal lo manda con plataforma, confirmacion y actor, y dice cual
+    quedo pendiente."""
+    import os
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    archivo = Path(ui.__file__).resolve().parent / "static" / "js" / "danadas.js"
+    assert archivo.exists(), "Falta el cliente de danadas"
+    node = shutil.which("node")
+    if not node:
+        if "CI" in os.environ:
+            pytest.fail("Node es obligatorio en CI para verificar el flujo JavaScript")
+        pytest.skip("Node no disponible; el navegador se verifica en integracion")
+    guion = r"""
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const vm = require("node:vm");
+const estado = {textContent: ""};
+const form = {
+  dataset: {esperada: "REGRESAR 2 KEYWORDS", plataforma: "amazon_mx"},
+  elements: {
+    confirmacion: {value: "REGRESAR 2 KEYWORD"},
+    actor: {value: "dueno"},
+    token: {value: "t"},
+  },
+  events: {},
+  addEventListener(event, fn) { this.events[event] = fn; },
+  querySelector() { return estado; },
+};
+const docEvents = {};
+global.document = {
+  querySelectorAll(selector) {
+    if (selector === "form[data-regresar-todas]") return [form];
+    return [];
+  },
+  addEventListener: (event, fn) => { docEvents[event] = fn; },
+};
+const calls = [];
+const ok = body => ({ok: true, status: 200, json: async () => body});
+global.fetch = async (url, options = {}) => {
+  calls.push({url, options});
+  return ok({plataforma: "amazon_mx", resultados: [
+    {ok: true, hoja_id: 2963, bid_antes: "3.73", bid_ahora: "9.74",
+     moneda: "MXN", decision_revertida_id: 1, actor: "dueno"},
+    {ok: false, motivo: "hoja 2871: sin racha vigente"},
+  ]});
+};
+vm.runInThisContext(fs.readFileSync(process.argv[1], "utf8"));
+(async () => {
+  assert.ok(docEvents.DOMContentLoaded, "danadas.js cablea en DOMContentLoaded");
+  await docEvents.DOMContentLoaded();
+  const emit = async () => {
+    form.events.submit({preventDefault() {}});
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+  };
+  await emit();
+  assert.equal(calls.length, 0, "sin el literal exacto no se manda regresar-todas");
+  assert.match(estado.textContent, /REGRESAR 2 KEYWORDS/);
+  form.elements.confirmacion.value = "REGRESAR 2 KEYWORDS";
+  await emit();
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, "/api/ads-optimizer/bid/regresar-todas");
+  assert.equal(calls[0].options.method, "POST");
+  assert.equal(calls[0].options.headers["x-orbit-token"], "t");
+  assert.deepEqual(JSON.parse(calls[0].options.body),
+    {plataforma: "amazon_mx", confirmacion: "REGRESAR 2 KEYWORDS", actor: "dueno"});
+  assert.match(estado.textContent, /1 de 2/);
+  assert.match(estado.textContent, /hoja 2871/);
+})().catch(error => { console.error(error); process.exitCode = 1; });
+"""
+    resultado = subprocess.run(
+        [node, "-e", guion, str(archivo)],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=15,
+    )
+    assert resultado.returncode == 0, resultado.stdout + resultado.stderr

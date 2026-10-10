@@ -55,6 +55,7 @@ from app import cycle as ciclo
 from app.optimizer import bid as bid_mod
 from app.optimizer import cortes
 from app.optimizer import windows as w
+from app.optimizer.caso import CasoHoja
 
 # BIDS 01 (1.2): la DB de prueba ES la de produccion — el ciclo lee
 # v_entidad_inerte en TX2, asi que el fixture la aplica igual que SQL3.
@@ -112,6 +113,12 @@ SQL47 = (Path(__file__).resolve().parents[1] / "migrations" / "0047_familias.sql
 SQL48 = (Path(__file__).resolve().parents[1] / "migrations" / "0048_margen_familia.sql").read_text(
     encoding="utf-8"
 )
+# BIDS 02 M.3: con niveles_v3 el ciclo arma EconomiaPlataforma y lee
+# v_hoja_activa + v_cambio_bid en TX2 — sin esta TODO ciclo con la clave
+# revienta con UndefinedTable.
+SQL60 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0060_bids02_base_lectura.sql"
+).read_text(encoding="utf-8")
 
 # ---------------------------------------------------------------------------
 # Reloj FIJO y ventanas derivadas (mismas constantes que test_optimizer_windows)
@@ -203,6 +210,8 @@ def _db_temporal(prefijo: str):
         conn.execute(SQL47)
         # A5: el peldano familiar lee v_margen_familia en TX2.
         conn.execute(SQL48)
+        # BIDS 02 M.3: v_hoja_activa + v_cambio_bid para niveles_v3.
+        conn.execute(SQL60)
         yield conn, conectar_extra
     finally:
         if conn is not None:
@@ -649,7 +658,7 @@ def test_ciclo_shadow_completo_decisiones_y_notes_exactos():
         res = _corre(conn)
 
         assert res.status == "done"
-        assert res.decisions_count == 4
+        assert res.decisions_count == 3
         env = _envelope(conn, res.cycle_id)
         assert env[0] == "done"
         assert env[2] == res.notes
@@ -657,42 +666,6 @@ def test_ciclo_shadow_completo_decisiones_y_notes_exactos():
 
         filas = _decisions_de(conn, res.cycle_id)
         por = {(f[0], f[1], f[2]): f for f in filas}
-
-        # keyword kw_bid: banda -25% (ACoS 36% > 1.35x25, orders 5) -> 0.75 USD
-        bid_row = por[(ids["kw_bid"], "bid", None)]
-        assert bid_row[3] == Decimal("1.00")
-        assert bid_row[4] == Decimal("0.75")
-        assert bid_row[5] == "USD"
-        assert (bid_row[6], bid_row[7]) == (INICIO_BIDS, FIN_BIDS)
-        assert bid_row[8] == _obs(FIN_BIDS)
-        ins = bid_row[9]
-        assert ins["motor"] == "bid"
-        assert ins["platform"] == "amazon_us"
-        assert ins["factor"] == "-0.25"
-        assert ins["motivo"] == "banda_menos_25"
-        assert ins["target_acos_pct_usado"] == "25.00"
-        assert ins["bid_actual"] == "1.0000"
-        assert ins["bid_moneda"] == "USD"
-        assert ins["modo"] == "shadow"
-        assert ins["ventanas"]["bids"]["cost"] == "36.0000"
-        assert ins["ventanas"]["bids"]["ad_revenue"] == "100.0000"
-        assert ins["ventanas"]["bids"]["fechas"] == 30
-        assert ins["ventanas"]["bids"]["clicks"] == 50
-        assert ins["ventanas"]["bids"]["orders"] == 5
-        assert ins["ventanas"]["bids"]["moneda"] == "USD"
-        assert ins["ventanas"]["cortes"]["cost"] == "27.0000"
-        assert ins["goal"] == {
-            "scope": "platform",
-            "target_acos_pct": "25.00",
-            "bid_floor": "0.4000",
-            "bid_ceiling": "2.5000",
-            "harvest": {
-                "campaign_id": "9002",
-                "ad_group_id": "9102",
-                "default_bid": "0.7500",
-                "moneda": "USD",
-            },
-        }
 
         # keyword kw_pause: PAUSE sobre la ventana de cortes, SIN dinero
         pause_row = por[(ids["kw_pause"], "pause", None)]
@@ -725,11 +698,6 @@ def test_ciclo_shadow_completo_decisiones_y_notes_exactos():
         assert "aov" not in pause_row[9]["corte"]
         # sello bitemporal: LEAST(decided_at, max(obs cortes, evidencia))
         assert pause_row[8] == _obs(FIN_CORTES)
-        # y la decision BID del mismo ciclo congela EL MISMO freeze (misma
-        # evidencia del grupo ag): decide_bid evalua PAUSE antes de las bandas
-        # y toda decision del motor lleva el corte (spec 1.3)
-        assert bid_row[9]["corte"] == pause_row[9]["corte"]
-
         # termino NEGATIVE: con search_term y SIN dinero
         neg_row = por[(ids["ag"], "negative", "tortugas ninja calzas")]
         assert neg_row[3] is None and neg_row[4] is None and neg_row[5] is None
@@ -794,10 +762,10 @@ def test_ciclo_shadow_completo_decisiones_y_notes_exactos():
 
         notes = json.loads(res.notes)
         assert notes["skips"] == {
-            "entidad": {},
+            "entidad": {"politica_apagada": 1},
             "termino": {"asin_like": 1, "orders_desconocido": 1, "sin_umbral_negative": 3},
         }
-        assert notes["decisiones"] == {"bid": 1, "pause": 1, "negative": 1, "harvest": 1}
+        assert notes["decisiones"] == {"pause": 1, "negative": 1, "harvest": 1}
         assert notes["entidades"] == 2
         assert notes["ad_groups"] == 1
         assert notes["terminos"] == 7
@@ -840,7 +808,7 @@ def test_ciclo_harvest_no_duplica_texto_archivado_en_destino():
         assert harvests == [], "el texto archivado NO se vuelve a cosechar"
         notes = json.loads(res.notes)
         assert notes["skips"]["termino"]["harvest_duplicado"] == 1
-        assert notes["decisiones"] == {"bid": 1, "pause": 1, "negative": 1}
+        assert notes["decisiones"] == {"pause": 1, "negative": 1}
         assert notes["degradacion_live"] is None
 
         # lock liberado al terminar
@@ -982,7 +950,7 @@ def test_decisions_count_cuadra_contra_decision():
         real = conn.execute(
             "SELECT count(*) FROM decision WHERE cycle_id = %s", (res.cycle_id,)
         ).fetchone()[0]
-        assert res.decisions_count == real == 4
+        assert res.decisions_count == real == 3
         assert _envelope(conn, res.cycle_id)[1] == real
 
 
@@ -996,18 +964,29 @@ def test_decisions_count_cuadra_contra_decision():
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
 )
 def test_golden_replay_reproduce_todas_las_decisiones():
+    """M.3: conserva sus filas historicas (era bandas, sin
+    inputs.politica, rejuego con eras) y gana filas de la era nueva
+    (niveles_v3 con inputs.caso)."""
     with _db_temporal("orbit_ciclo_replay") as (conn, _c):
-        _siembra_maestra(conn)
+        _siembra_r9(conn)
         res = _corre(conn)
         filas = conn.execute(
             "SELECT kind, new_value, value_currency, inputs FROM decision WHERE cycle_id = %s",
             (res.cycle_id,),
         ).fetchall()
         kinds = {f[0] for f in filas}
-        assert kinds == {"bid", "pause", "negative", "harvest"}
+        assert kinds == {"bid"}
         for kind, new_value, moneda, inputs in filas:
             # Decimal de string (regla 4): inputs congelo los numeros como str
+            assert inputs["politica"] == "niveles_v3"
             assert ciclo.reproduce(inputs) == (kind, new_value, moneda), kind
+        # Filas historicas literales (era bandas_v1, sin inputs.politica).
+        vieja_pause = _inputs_774()
+        assert "politica" not in vieja_pause
+        assert ciclo.reproduce(vieja_pause) == ("pause", None, None)
+        vieja_banda = _inputs_774()
+        vieja_banda["corte"]["umbral_clicks_usado"] = 100
+        assert ciclo.reproduce(vieja_banda) == ("bid", Decimal("0.22"), "USD")
 
 
 # ---------------------------------------------------------------------------
@@ -1176,14 +1155,14 @@ def test_escalera_global_off_skipped():
     _postgres_obligatorio_ausente(),
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
 )
-def test_sello_fail_closed_decide_bid_explota(monkeypatch):
+def test_sello_fail_closed_decide_explota(monkeypatch):
     with _db_temporal("orbit_ciclo_sello") as (conn, _c):
-        _siembra_maestra(conn)
+        _siembra_maestra(conn, settings={"ads_bid_politica_amazon_us": "niveles_v3"})
 
-        def _boom(**_kwargs):
+        def _boom(_caso):
             raise RuntimeError("boom decidir")
 
-        monkeypatch.setattr(bid_mod, "decide_bid", _boom)
+        monkeypatch.setattr(ciclo, "decide", _boom)
         with pytest.raises(RuntimeError, match="boom"):
             _corre(conn)
         monkeypatch.undo()
@@ -1236,11 +1215,13 @@ def test_opt_out_goal_campana_deshabilitado():
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
 )
 def test_gates_de_elegibilidad_sin_goal_mode_off_estado_y_cooldown():
-    """Los 4 gates de elegibilidad sin test propio (hallazgo verificador):
-    sin_goal (ciclo 1, sin ningun goal), goal_mode_off, estado_no_enabled y
-    cooldown_7d (ciclo 2, con goal de plataforma habilitado + overrides por
-    campana). Cada keyword elegible queda contada por SU motivo exacto y
-    ninguna genera decision."""
+    """Los gates de elegibilidad sin test propio (hallazgo verificador):
+    sin_goal (ciclo 1, sin ningun goal), goal_mode_off, estado_no_enabled
+    (ciclo 2, con goal de plataforma habilitado + overrides por campana).
+    M.3: sin clave de politica el motor no mueve bids (politica_apagada);
+    el gate generico de cooldown ya no existe (el cooldown vive en la
+    PAUSE post-veredicto y la espera de un bid la decide R2). Cada keyword
+    elegible queda contada por SU motivo exacto y ninguna genera decision."""
     with _db_temporal("orbit_ciclo_gates") as (conn, _c):
         run_id = _run(conn)
         config_id = _config_version(conn, {"ads_optimizer_mode": "shadow"})
@@ -1344,18 +1325,22 @@ def test_gates_de_elegibilidad_sin_goal_mode_off_estado_y_cooldown():
         res2 = _corre(conn)
         assert res2.status == "done"
         skips_entidad = json.loads(res2.notes)["skips"]["entidad"]
-        # kw_s ya NO esta en sin_goal: con goal de plataforma y metricas
-        # maduras DECIDE banda -25 (1 decision), no skip. Los tres gates
-        # cuentan cada keyword gateada por SU motivo exacto.
-        assert skips_entidad == {"goal_mode_off": 1, "estado_no_enabled": 1, "cooldown_7d": 1}
+        # kw_s y kw_c ya NO deciden bid (sin clave de politica): caen con
+        # politica_apagada. Los gates cuentan cada keyword gateada por SU
+        # motivo exacto.
+        assert skips_entidad == {
+            "goal_mode_off": 1,
+            "estado_no_enabled": 1,
+            "politica_apagada": 2,
+        }
         decs = conn.execute(
             "SELECT d.ad_entity_id, d.kind FROM decision d JOIN optimizer_cycle oc"
             " ON oc.id = d.cycle_id WHERE oc.id = %s",
             (res2.cycle_id,),
         ).fetchall()
-        # la unica decision del ciclo 2 es la banda de kw_s (target 25 por
-        # plataforma, ACoS 36%): las tres gateadas NO decidieron
-        assert [(d[0], d[1]) for d in decs] == [(kw_s, "bid")]
+        # sin clave de politica nadie decide: las gateadas y las elegibles
+        # NO generan decision
+        assert decs == []
 
 
 # ---------------------------------------------------------------------------
@@ -1371,7 +1356,7 @@ def test_fase_de_lecturas_corre_en_repeatable_read(monkeypatch):
     with _db_temporal("orbit_ciclo_rr") as (conn, _c):
         _siembra_maestra(conn)
         capturado: dict[str, str] = {}
-        original = w.ventanas_entidad
+        original = w.ventana_cortes
 
         def _espia(conn_entrante, ad_entity_id, decided_at):
             capturado["isolation"] = conn_entrante.execute("SHOW transaction_isolation").fetchone()[
@@ -1379,7 +1364,7 @@ def test_fase_de_lecturas_corre_en_repeatable_read(monkeypatch):
             ]
             return original(conn_entrante, ad_entity_id, decided_at)
 
-        monkeypatch.setattr(w, "ventanas_entidad", _espia)
+        monkeypatch.setattr(w, "ventana_cortes", _espia)
         res = _corre(conn)
         assert res.status == "done"
         assert capturado["isolation"] == "repeatable read"
@@ -1676,7 +1661,7 @@ def test_bitemporal_clamp_observed_at_futuro_a_decided_at():
         )
         res = _corre(conn)  # sin clamp: CheckViolation aborta TX3 aqui
         assert res.status == "done"
-        assert res.decisions_count == 4  # el ciclo completo sobrevivio
+        assert res.decisions_count == 3  # el ciclo completo sobrevivio (sin bid: apagado)
         neg = conn.execute(
             "SELECT data_observed_at FROM decision WHERE cycle_id = %s AND kind = 'negative'",
             (res.cycle_id,),
@@ -1811,116 +1796,6 @@ def test_replay_hygiene_legacy_mx_130_exacto():
 # 13. CORTES 01 (1.3): PAUSE adaptativo -- golden bid-que-bloqueo-pause,
 #     piso cableado, camino unico, replay legacy y clamp del motor de bids
 # ---------------------------------------------------------------------------
-
-
-def _siembra_bid_bloquea_pause(conn) -> dict:
-    """Fixture del GOLDEN 1.3: una entidad cuyo PAUSE es BLOQUEADO por el
-    umbral adaptativo y cae a la banda -25% (kind final bid).
-
-    - Ventana de CORTES (07-14..08-12): clicks 30 / cost 15.00 / orders 0
-      -> PAUSE bajo los umbrales pre-CORTES 03 (legacy 25 / 12 USD); bajo
-      los vigentes (fallback 100 / 40 USD) NO pausaria ni sin adaptativo.
-    - Evidencia del grupo (misma hoja, D-90..D-10): orders 0 -> NO elegible
-      -> umbral pause = fallback 100 (CORTES 03) -> 30 < 100 -> PAUSE
-      BLOQUEADO.
-    - Ventana de BIDS propia (max metric_date 08-16 -> fin 08-13): filas de
-      07-15..08-13 -> cost 17.00 / revenue 29.10 / orders 1 (la del 08-13)
-      -> ACoS 58% > 1.35x25 con orders>=1 -> banda -25%: bid 1.00 -> 0.75."""
-    run_id = _run(conn)
-    _config_version(conn, {"ads_optimizer_mode": "shadow"})
-    _goal_plataforma(conn)
-    camp = _entidad(conn, "amazon_us", "campaign", "9501")
-    ag = _entidad(conn, "amazon_us", "ad_group", "9511", parent=camp)
-    kw = _entidad(
-        conn,
-        "amazon_us",
-        "keyword",
-        "9521",
-        parent=ag,
-        match_type="EXACT",
-        keyword_text="kw bloqueo",
-    )
-    synced = DECIDED_AT - dt.timedelta(hours=4)
-    _estado(conn, camp, synced_at=synced)
-    _estado(conn, ag, synced_at=synced)
-    _estado(conn, kw, synced_at=synced, current_bid=Decimal("1.00"), bid_currency="USD")
-    for fecha in _rango(dt.date(2026, 7, 14), dt.date(2026, 8, 12)):
-        _metrica(
-            conn,
-            run_id,
-            kw,
-            fecha,
-            _obs(fecha),
-            cost="0.50",
-            ad_revenue="1.00",
-            clicks=1,
-            orders=0,
-            # BIDS 01: hoja servida -> impressions reales (espera un bid).
-            impressions=10,
-        )
-    for fecha in _rango(dt.date(2026, 8, 13), dt.date(2026, 8, 16)):
-        _metrica(
-            conn,
-            run_id,
-            kw,
-            fecha,
-            _obs(fecha),
-            cost="2.50",
-            ad_revenue="0.10",
-            clicks=6,
-            orders=1,
-            impressions=60,
-        )
-    return {"camp": camp, "ag": ag, "kw": kw}
-
-
-@pytest.mark.skipif(
-    _postgres_obligatorio_ausente(),
-    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
-)
-def test_golden_bid_que_bloqueo_pause():
-    """El test estrella de 1.3: decision de kind final BID cuya existencia
-    depende de que el umbral adaptativo de pause (fallback 100 con CORTES 03,
-    grupo no elegible) BLOQUEO el PAUSE que los umbrales pre-CORTES 03
-    (legacy 25 / 12 USD) si habrian cortado con esta geometria (30 / 15.00).
-    LIMITACION (hallazgo grok, cross-review CORTES 03): con 100/40 esta
-    geometria YA NO discrimina la lectura del freeze -- 30 clicks quedan
-    bloqueados con freeze, sin el, y el costo 15 < 40 mata el pause en toda
-    era; si _replay_bid ignorara umbral_clicks_usado, este test seguiria
-    verde. Esa guarda vive ahora en el test PURO
-    test_replay_pause_lee_el_umbral_congelado_jamas_el_default (freeze 150 vs
-    default 100 con los mismos agregados). El replay-exacto de aqui sigue
-    sellando que la decision bid persistida se rejugable."""
-    with _db_temporal("orbit_ciclo_bqp") as (conn, _c):
-        ids = _siembra_bid_bloquea_pause(conn)
-        res = _corre(conn)
-        assert res.status == "done"
-        assert res.decisions_count == 1
-        fila = conn.execute(
-            "SELECT kind, old_value, new_value, value_currency, data_observed_at, inputs"
-            " FROM decision WHERE cycle_id = %s AND ad_entity_id = %s",
-            (res.cycle_id, ids["kw"]),
-        ).fetchone()
-        # el pause BLOQUEADO: la decision es la banda -25%, no el corte
-        assert fila[0] == "bid"
-        assert (fila[1], fila[2], fila[3]) == (Decimal("1.00"), Decimal("0.75"), "USD")
-        # sello bitemporal: SU ventana de bids termina en max(08-16)-3d =
-        # 08-13, mas reciente que la evidencia (08-12) -> gana el obs directo
-        assert fila[4] == _obs(dt.date(2026, 8, 13))
-        corte = fila[5]["corte"]
-        # fallback 100 CABLEADO con evidencia del grupo (no elegible: orders 0)
-        assert corte["umbral_clicks_usado"] == 100
-        assert corte["elegible"] is False
-        assert corte["expected_clicks"] is None
-        assert corte["evidencia"]["clicks"] == 30
-        assert corte["evidencia"]["orders"] == 0
-        assert corte["evidencia"]["ventana_hasta"] == "2026-08-12"
-        # idem 1.4: decision del motor de bids SIN piso congelado (solo negative)
-        assert "piso_cost_usado" not in corte
-        assert "aov" not in corte
-        # REPLAY EXACTO leyendo el congelado (100): el pause sigue bloqueado
-        # y la banda rejuega igual
-        assert ciclo.reproduce(fila[5]) == ("bid", Decimal("0.75"), "USD")
 
 
 @pytest.mark.skipif(
@@ -2127,11 +2002,13 @@ def test_constantes_historicas_de_replay_son_inmutables():
     toca, este test revienta. PAUSE_COST_MIN se pinea para detectar un
     cambio accidental del VIGENTE (su cambio legitimo exige re-medir el
     replay y actualizar este pin con evidencia)."""
-    assert cortes.REPLAY_PAUSE_CLICKS_PRE_CORTES01 == 25
+    from app.optimizer import eras
+
+    assert eras.REPLAY_PAUSE_CLICKS_PRE_CORTES01 == 25
     assert {
         "amazon_us": Decimal("12"),
         "amazon_mx": Decimal("200"),
-    } == bid_mod.REPLAY_PAUSE_COST_PRE_CORTES03
+    } == eras.REPLAY_PAUSE_COST_PRE_CORTES03
     assert {
         "amazon_us": Decimal("40"),
         "amazon_mx": Decimal("500"),
@@ -2149,7 +2026,15 @@ def test_replay_decision_774_real_reproduce_pause():
     BANDA -12% (bids: cost 25.21, ad_revenue 0, orders 0 -> baja sin minimo
     de ordenes; bid 0.25 x 0.88 = 0.22): un auditor veia un BID donde la
     decision persistida es PAUSE."""
-    inputs_774 = {
+    inputs_774 = _inputs_774()
+    assert ciclo.reproduce(inputs_774) == ("pause", None, None)
+
+
+def _inputs_774() -> dict:
+    """Inputs REALES congelados de la decision 774 (era bandas_v1, sin
+    inputs.politica): 72 >= 50 (freeze de clicks) y 25.21 >= 12 (sin
+    cost_min_usado -> piso historico REPLAY_PAUSE_COST_PRE_CORTES03)."""
+    return {
         "goal": {
             "scope": "platform",
             "harvest": None,
@@ -2205,7 +2090,6 @@ def test_replay_decision_774_real_reproduce_pause():
         "bid_actual": "0.2500",
         "bid_moneda": "USD",
     }
-    assert ciclo.reproduce(inputs_774) == ("pause", None, None)
 
 
 @pytest.mark.skipif(
@@ -2279,19 +2163,12 @@ def test_bitemporal_pause_clamp_observed_at_futuro_a_decided_at():
         )
         res = _corre(conn)  # con codigo 1.2: CheckViolation aborta TX3 aqui
         assert res.status == "done"
-        assert res.decisions_count == 4
+        assert res.decisions_count == 3  # sin bid: apagado
         pause = conn.execute(
             "SELECT data_observed_at FROM decision WHERE cycle_id = %s AND kind = 'pause'",
             (res.cycle_id,),
         ).fetchone()
         assert pause[0] == DECIDED_AT  # LEAST(decided_at, futuro)
-        bid = conn.execute(
-            "SELECT data_observed_at FROM decision WHERE cycle_id = %s AND kind = 'bid'",
-            (res.cycle_id,),
-        ).fetchone()
-        # el bid tambien sella con la evidencia: max(bids 08-16, futuro) =
-        # futuro -> clamp a decided_at
-        assert bid[0] == DECIDED_AT
 
 
 @pytest.mark.skipif(
@@ -2359,8 +2236,10 @@ def test_gate_campana_y_grupo_no_enabled():
         }
         # ninguna hoja gateada decide; el grupo de la campaña pausada tampoco
         assert con_decision.isdisjoint({kw_p, kw_g, kw_n, ag_p})
-        # la campaña ENABLED de la fixture maestra sigue decidiendo igual que antes
-        assert ids["kw_bid"] in con_decision
+        # la campaña ENABLED de la fixture maestra sigue viva: su pause
+        # decide igual que antes (el bid cae politica_apagada, no por gates)
+        assert ids["kw_pause"] in con_decision
+        assert ids["kw_bid"] not in con_decision
 
 
 # ---------------------------------------------------------------------------
@@ -2439,14 +2318,17 @@ def test_ciclo_hoja_sin_impresiones_recientes_es_skip_entidad_inerte():
 
         res = _corre(conn)
         assert res.status == "done"
-        # 4 selladas de la maestra + la viva; la inerte es skip, no decision
-        assert res.decisions_count == 5
+        # 3 selladas de la maestra (sin bid: apagado); la inerte es skip,
+        # la viva pasa la guarda (cae politica_apagada, no inerte)
+        assert res.decisions_count == 3
         skips = json.loads(res.notes)["skips"]
         assert skips["entidad"]["entidad_inerte"] == 1
+        assert skips["entidad"]["politica_apagada"] == 2
         filas = _decisions_de(conn, res.cycle_id)
-        por = {(f[0], f[1], f[2]): f for f in filas}
+        por = {(f[0], f[1], f[2]) for f in filas}
         assert (inerte, "bid", None) not in por
-        assert por[(viva, "bid", None)][9]["motivo"] == "banda_menos_12"
+        assert (inerte, "pause", None) not in por
+        assert (viva, "bid", None) not in por
 
 
 # ---------------------------------------------------------------------------
@@ -2507,133 +2389,6 @@ def test_replay_pre_bids_con_expected_congelado_no_aplica_regla_nueva():
     clave del marcador el replay pasa expected None aunque expected_clicks
     venga congelado — la fila rejuega su -12% persistido, no -25%."""
     assert ciclo.reproduce(_inputs_pre_bids()) == ("bid", Decimal("0.88"), "USD")
-
-
-@pytest.mark.skipif(
-    _postgres_obligatorio_ausente(),
-    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
-)
-def test_ciclo_cero_ventas_con_clics_esperados_baja_25_y_replayea():
-    """BIDS 01 (D1): hoja con cero ventas que alcanza los clicks esperados
-    del grupo (evidencia elegible 72/3/31 -> expected 24) y cost >= piso de
-    pausa -> bid -25% con motivo propio; inputs.corte congela el marcador y
-    reproduce() devuelve lo persistido. La hoja donante de evidencia (sin
-    state: aporta pero no decide) no decide.
-
-    La siembra maestra pone el ancla fresca (max 08-19): sin ella el
-    watermark quedaria en 07-27 y la guarda lo saltaria todo (26 dias);
-    ademas las ventanas de BIDS/CORTES anclan en max-3d. La maestra aporta
-    sus 4 decisiones selladas; la nueva hoja aporta la quinta."""
-    with _db_temporal("orbit_ciclo_cero_ventas") as (conn, _c):
-        ids = _siembra_maestra(conn)
-        run_id = _run(conn)
-        camp = _entidad(conn, "amazon_us", "campaign", "9301")
-        ag = _entidad(conn, "amazon_us", "ad_group", "9302", parent=camp)
-        kw = _entidad(
-            conn,
-            "amazon_us",
-            "keyword",
-            "9303",
-            parent=ag,
-            match_type="EXACT",
-            keyword_text="kw cero ventas",
-        )
-        donante = _entidad(
-            conn,
-            "amazon_us",
-            "keyword",
-            "9304",
-            parent=ag,
-            match_type="EXACT",
-            keyword_text="kw donante",
-        )
-        synced = DECIDED_AT - dt.timedelta(hours=4)
-        _estado(conn, camp, synced_at=synced)
-        _estado(conn, ag, synced_at=synced)
-        _estado(conn, kw, synced_at=synced, current_bid=Decimal("1.00"), bid_currency="USD")
-        # D-1.1.7: el donante NO lleva fila de state (precedente
-        # kw_solo_evidencia): aporta a la evidencia del grupo pero NO decide
-        # (estado_no_enabled). Con state decidiria un -25% clasico en SU
-        # propia ventana: las ventanas de decision anclan en el
-        # max(metric_date) DE LA ENTIDAD (_ventanas_metricas), no en el
-        # watermark global.
-        # Hoja cero ventas: 10 fechas 07-18..07-27 (32 clicks, cost 60.00)
-        # + 7 filas 08-06..08-12 de SECUENCIA (D-1.1.10: impressions=10 con
-        # clicks/cost 0 — cero aporte a clicks, costo y expected, pero la
-        # hoja deja de ser inerte cuando #133 fusione). Con las filas extra
-        # el ancla propia pasa a 08-12 y SU ventana trae 14 fechas con los
-        # mismos 32 clicks / 60.00 (cortes: 32 < 100).
-        for i, fecha in enumerate(_rango(dt.date(2026, 7, 18), dt.date(2026, 7, 27))):
-            _metrica(
-                conn,
-                run_id,
-                kw,
-                fecha,
-                _obs(fecha),
-                cost="6.00",
-                ad_revenue="0.00",
-                clicks=(4 if i < 5 else 3) if i < 7 else 2,
-                orders=0,
-            )
-        for fecha in _rango(dt.date(2026, 8, 6), dt.date(2026, 8, 12)):
-            _metrica(
-                conn,
-                run_id,
-                kw,
-                fecha,
-                _obs(fecha),
-                cost="0.00",
-                ad_revenue="0.00",
-                clicks=0,
-                orders=0,
-                impressions=10,
-            )
-        # Donante de evidencia: 14 fechas 06-01..06-14, 40 clicks y 3
-        # ordenes. Evidencia del grupo: 72 clicks / 3 ordenes / 24 fechas ->
-        # expected 24 exacto, umbral pause 100 (piso).
-        for i, fecha in enumerate(_rango(dt.date(2026, 6, 1), dt.date(2026, 6, 14))):
-            _metrica(
-                conn,
-                run_id,
-                donante,
-                fecha,
-                _obs(fecha),
-                cost="1.00",
-                ad_revenue="10.00" if i < 3 else "0.00",
-                clicks=3 if i < 12 else 2,
-                orders=1 if i < 3 else 0,
-            )
-
-        res = _corre(conn)
-        assert res.status == "done"
-        filas = _decisions_de(conn, res.cycle_id)
-        # 4 selladas de la maestra + 1 de la hoja de cero ventas
-        assert res.decisions_count == 5
-        # el donante sin state skipea (aporta evidencia pero no decide)
-        assert json.loads(res.notes)["skips"]["entidad"].get("estado_no_enabled") == 1
-        por = {(f[0], f[1], f[2]): f for f in filas}
-        # la maestra sigue igual: sin la regla nueva no hay cambio
-        assert por[(ids["kw_bid"], "bid", None)][9]["motivo"] == "banda_menos_25"
-        fila = por[(kw, "bid", None)]
-        assert fila[1] == "bid"
-        assert fila[4] == Decimal("0.75")
-        assert fila[5] == "USD"
-        ins = fila[9]
-        assert ins["motivo"] == "banda_menos_25_cero_ventas"
-        assert ins["factor"] == "-0.25"
-        assert ins["corte"]["expected_clicks"] == "24"
-        # Revision PR #132: el marcador que el replay consume (regla 4.4).
-        assert ins["corte"]["cero_ventas_expected_usado"] == "24"
-        assert ins["corte"]["umbral_clicks_usado"] == 100
-        assert ins["corte"]["elegible"] is True
-        assert ins["corte"]["cost_min_usado"] == "40"
-        assert ciclo.reproduce(ins) == ("bid", Decimal("0.75"), "USD")
-        # El replay lee el MARCADOR, no expected_clicks: con el marcador en
-        # 33 (> 32 clicks de la hoja en su ventana) la regla no dispara y
-        # vuelve el -12% persistido por el camino clasico.
-        alterado = dict(ins)
-        alterado["corte"] = dict(ins["corte"], cero_ventas_expected_usado="33")
-        assert ciclo.reproduce(alterado) == ("bid", Decimal("0.88"), "USD")
 
 
 def _fila_cola_corte(conn, ciclo_dec, config_id, entidad, kind, term=None) -> int:
@@ -2765,11 +2520,29 @@ def _siembra_margen(conn, *, con_ledger: bool = True) -> dict:
             "ads_optimizer_mode": "shadow",
             "ads_target_acos_pct_amazon_us": 30,
             "ads_target_fraccion_margen_amazon_us": "0.5",
+            "ads_bid_politica_amazon_us": "niveles_v3",
         },
     )
     _goal_plataforma_sin_target(conn)
     camp = _entidad(conn, "amazon_us", "campaign", "9301")
     ag = _entidad(conn, "amazon_us", "ad_group", "9302", parent=camp)
+    relleno = _entidad(
+        conn,
+        "amazon_us",
+        "keyword",
+        "9304",
+        parent=ag,
+        match_type="EXACT",
+        keyword_text="relleno",
+    )
+    synced_pre = DECIDED_AT - dt.timedelta(hours=4)
+    _estado(conn, relleno, synced_at=synced_pre, status="PAUSED")
+    dia = dt.date(2026, 5, 24)
+    while dia <= dt.date(2026, 8, 21):
+        _metrica(
+            conn, run_id, relleno, dia, _obs(dia), cost="0", ad_revenue="0", clicks=0, orders=0
+        )
+        dia += dt.timedelta(days=1)
     kw = _entidad(
         conn,
         "amazon_us",
@@ -2783,7 +2556,34 @@ def _siembra_margen(conn, *, con_ledger: bool = True) -> dict:
     _estado(conn, kw, synced_at=synced, current_bid=Decimal("1.00"), bid_currency="USD")
     _estado(conn, ag, synced_at=synced)
     _estado(conn, camp, synced_at=synced)
-    _siembra_kw_bid(conn, run_id, kw)
+    # M.3: metricas R9 (41 USD sin venta, 10 clics): la hoja decide bid
+    # -12% con niveles_v3 y el freeze lleva el target del peldano.
+    for i, fecha in enumerate(_rango(dt.date(2026, 7, 3), dt.date(2026, 8, 12))):
+        _metrica(
+            conn,
+            run_id,
+            kw,
+            fecha,
+            _obs(fecha),
+            cost="1.00",
+            ad_revenue="0",
+            clicks=1 if i < 10 else 0,
+            orders=0,
+            impressions=10,
+        )
+    for fecha in _rango(dt.date(2026, 8, 13), dt.date(2026, 8, 19)):
+        _metrica(
+            conn,
+            run_id,
+            kw,
+            fecha,
+            _obs(fecha),
+            cost="0.10",
+            ad_revenue="0",
+            clicks=0,
+            orders=0,
+            impressions=10,
+        )
     if con_ledger:
         hoy = conn.execute("SELECT CURRENT_DATE").fetchone()[0]
         _siembra_ledger_feliz(conn, hoy)
@@ -2992,401 +2792,136 @@ def test_ciclo_lee_flag_economico_de_settings():
 
 
 # ---------------------------------------------------------------------------
-# A4: freeze evidencia_v2 + replay del contrafactual (pins por clave + golden)
+# BIDS 02 M.3: el cableado del ciclo (niveles_v3 o apagado)
 # ---------------------------------------------------------------------------
 
 
-def test_evidencia_v2_congelada_shape_exacto():
-    """TODA decision del motor de bids congela inputs.evidencia_v2 con el
-    shape EXACTO (claves, Decimal-como-string, fechas ISO); filas pause
-    llevan el marcador pause_intacto (cero queries)."""
-    with _db_temporal("orbit_ciclo_a4") as (conn, _c):
-        ids = _siembra_maestra(conn)
-        # A6 leave-one-out: kw_bid era el UNICO vendedor de la ventana
-        # madura (su previa anterior eran sus propias ventas: el doble
-        # conteo F3). Fondo ajeno SOLO-maduro: la previa LOO de kw_bid
-        # existe y el shape se pinea sobre ella.
-        _fondo_maduro(conn, ids["kw_pause"])
-        res = _corre(conn)
-        assert res.status == "done"
-        filas = _decisions_de(conn, res.cycle_id)
-        por = {(f[0], f[1], f[2]): f for f in filas}
+def _siembra_r9(conn) -> dict:
+    """Una hoja que R9 recorta 12 %: 0 pedidos y 41 USD de gasto en la
+    ventana madura, 10 clics (bajo el umbral de pause), sin cambios de
+    bid previos. El relleno marca ingesta 05-24..08-21 para que los
+    tramos sin fila de la hoja cuenten cero medido (M.2)."""
+    from app.optimizer import caso as caso_mod
 
-        ins_bid = por[(ids["kw_bid"], "bid", None)][9]
-        ev2 = ins_bid["evidencia_v2"]
-        assert set(ev2) == {
-            "politica",
-            "via",
-            "abstencion_v2",
-            "confianza_recorte_usada",
-            "confianza_subida_usada",
-            "moneda",
-            "ventana_madura",
-            "previa",
-            "conversion",
-            "cpc",
-            "veredicto",
-        }
-        assert ev2["politica"] == "evidencia_v2"
-        # A6: sombra de un vivo v1 (flag apagado) -> contrafactual, sin
-        # abstencion; el vivo declara bandas_v1 en la raiz.
-        assert ev2["via"] == "contrafactual"
-        assert ev2["abstencion_v2"] is None
-        assert ins_bid["politica_bandas_usada"] == "bandas_v1"
-        assert ev2["confianza_recorte_usada"] == "0.80"
-        assert ev2["confianza_subida_usada"] == "0.70"
-        assert ev2["moneda"] == "USD"
-        # D = 08-22: madura literal D-90..D-10
-        assert ev2["ventana_madura"] == {"desde": "2026-05-24", "hasta": "2026-08-12"}
-        previa = ev2["previa"]
-        assert previa is not None  # el fondo ajeno vende en la raiz (LOO)
-        assert set(previa) == {"cvr", "aov", "niveles", "familia_id", "subfamilia_id"}
-        assert Decimal(previa["cvr"]) > 0 and Decimal(previa["aov"]) > 0
-        assert previa["niveles"][0] == "plataforma"
-        assert previa["familia_id"] is None  # legacy sin etiquetar
-        conv = ev2["conversion"]
-        assert set(conv) == {"clicks", "orders", "ad_revenue"}
-        assert isinstance(conv["clicks"], int) and isinstance(conv["orders"], int)
-        Decimal(conv["ad_revenue"])
-        cpc = ev2["cpc"]
-        assert set(cpc) == {"cost", "clicks", "desde", "hasta", "post_cambio"}
-        assert isinstance(cpc["post_cambio"], bool)
-        veredicto = ev2["veredicto"]
-        assert set(veredicto) == {"kind", "motivo", "factor", "new_value"}
-        assert veredicto["motivo"] in (
-            "banda_menos_25",
-            "banda_menos_12",
-            "banda_mas_15",
-            "evidencia_insuficiente",
-            "cpc_post_cambio_insuficiente",
+    assert caso_mod.POLITICA_BID == "niveles_v3"
+    run_id = _run(conn)
+    _config_version(
+        conn, {"ads_optimizer_mode": "shadow", "ads_bid_politica_amazon_us": "niveles_v3"}
+    )
+    _goal_plataforma(conn)
+    camp = _entidad(conn, "amazon_us", "campaign", "9301")
+    ag = _entidad(conn, "amazon_us", "ad_group", "9401", parent=camp)
+    kw = _entidad(
+        conn, "amazon_us", "keyword", "9501", parent=ag, match_type="EXACT", keyword_text="kw r9"
+    )
+    relleno = _entidad(
+        conn, "amazon_us", "keyword", "9502", parent=ag, match_type="EXACT", keyword_text="relleno"
+    )
+    synced = DECIDED_AT - dt.timedelta(hours=4)
+    _estado(conn, kw, synced_at=synced, current_bid=Decimal("1.00"), bid_currency="USD")
+    _estado(conn, relleno, synced_at=synced, status="PAUSED")
+    _estado(conn, ag, synced_at=synced)
+    _estado(conn, camp, synced_at=synced)
+    dia = dt.date(2026, 5, 24)
+    while dia <= dt.date(2026, 8, 21):
+        _metrica(
+            conn, run_id, relleno, dia, _obs(dia), cost="0", ad_revenue="0", clicks=0, orders=0
         )
-
-        ins_pause = por[(ids["kw_pause"], "pause", None)][9]
-        pause = ins_pause["evidencia_v2"]
-        assert set(pause) == {"politica", "via", "abstencion_v2", "veredicto"}
-        assert pause["abstencion_v2"] is None
-        assert (pause["politica"], pause["via"]) == ("evidencia_v2", "pause_intacto")
-        assert ins_pause["politica_bandas_usada"] == "bandas_v1"
-        assert pause["veredicto"]["kind"] == "pause"
-        assert pause["veredicto"]["motivo"] == por[(ids["kw_pause"], "pause", None)][9]["motivo"]
-        assert pause["veredicto"]["factor"] is None
-        assert pause["veredicto"]["new_value"] is None
-
-
-def test_replay_evidencia_v2_reproduce_contrafactual_exacto():
-    """Golden A4 (lane 8): reproduce_evidencia_v2 re-decide el veredicto
-    v2 EXACTO (kind, motivo, factor, new_value) para cada decision del
-    motor de bids; el vivo sigue reproduciendo con reproduce()."""
-    from app.optimizer.replay import reproduce, reproduce_evidencia_v2
-
-    with _db_temporal("orbit_ciclo_a4b") as (conn, _c):
-        _siembra_maestra(conn)
-        res = _corre(conn)
-        assert res.status == "done"
-        filas = _decisions_de(conn, res.cycle_id)
-        vistas = 0
-        for fila in filas:
-            ins = fila[9]
-            if ins.get("motor") != "bid":
-                continue
-            vistas += 1
-            assert reproduce(ins) == (fila[1], fila[4], fila[5])
-            assert reproduce_evidencia_v2(ins) == ins["evidencia_v2"]["veredicto"]
-        assert vistas >= 2  # al menos la bid y la pause de la siembra
-
-
-def test_evidencia_v2_confianzas_configuradas_viajan_y_se_congelan():
-    """Las confianzas A3 resueltas 1x/plataforma viajan al motor y se
-    congelan *_usada; el replay usa las congeladas (lane 7)."""
-    with _db_temporal("orbit_ciclo_a4c") as (conn, _c):
-        ids = _siembra_maestra(
-            conn,
-            settings={
-                "ads_confianza_recorte_amazon_us": "0.90",
-                "ads_confianza_subida_amazon_us": "0.60",
-            },
-        )
-        res = _corre(conn)
-        assert res.status == "done"
-        filas = _decisions_de(conn, res.cycle_id)
-        por = {(f[0], f[1], f[2]): f for f in filas}
-        ev2 = por[(ids["kw_bid"], "bid", None)][9]["evidencia_v2"]
-        assert ev2["confianza_recorte_usada"] == "0.90"
-        assert ev2["confianza_subida_usada"] == "0.60"
-
-
-def test_evidencia_v2_confianza_corrupta_tumba_ciclo_fail_closed():
-    """Confianza fuera de [0.50, 0.99] => ciclo failed (fail-closed, igual
-    que un target/fraccion corrupto; desviacion de disponibilidad A4
-    documentada: el trunk jamas leia confianzas)."""
-    with _db_temporal("orbit_ciclo_a4d") as (conn, _c):
-        _siembra_maestra(conn, settings={"ads_confianza_recorte_amazon_us": "0.30"})
-        with pytest.raises(ValueError, match="confianza de recorte"):
-            _corre(conn)
-        ciclo_id, status, notes = conn.execute(
-            "SELECT id, status, notes FROM optimizer_cycle WHERE motor = 'ads_optimizer'"
-        ).fetchone()
-        assert status == "failed"
-        assert json.loads(notes)["error"].startswith("setting ads_confianza_recorte")
-        assert conn.execute("SELECT count(*) FROM decision").fetchone()[0] == 0
-
-
-# ---------------------------------------------------------------------------
-# A6-live: UNA llamada decide_bid en modo evidencia, flag viejo bit-identico
-# ---------------------------------------------------------------------------
-
-
-def _fondo_maduro(conn, kw) -> None:
-    """Ventas ajenas SOLO-maduras (07-08..07-12: fuera de
-    cortes/bids/terminos, dentro de D-90..D-10): la previa LOO existe sin
-    mover el pause (cortes intactos; el piso 100 sigue ganando el umbral
-    de pause; el umbral negative SI baja 22 -> ~15 y puede sumar un
-    negative: artefacto documentado de la siembra, no de A6)."""
-    fondo = _run(conn)
-    for fecha in _rango(dt.date(2026, 7, 8), dt.date(2026, 7, 12)):
+        dia += dt.timedelta(days=1)
+    # Reciente con dato (07-03..08-12: 41 filas): 10 clics y 41 USD sin
+    # venta (R9: gasto para concluir 36 USD); el antiguo (05-24..07-02)
+    # cuenta cero medido.
+    for i, fecha in enumerate(_rango(dt.date(2026, 7, 3), dt.date(2026, 8, 12))):
         _metrica(
             conn,
-            fondo,
+            run_id,
             kw,
             fecha,
             _obs(fecha),
             cost="1.00",
-            ad_revenue="10.00",
-            clicks=2,
-            orders=1,
-            impressions=20,
+            ad_revenue="0",
+            clicks=1 if i < 10 else 0,
+            orders=0,
+            impressions=10,
         )
-
-
-def _cuenta_llamadas(monkeypatch):
-    """Stubs delegantes que cuentan decide_bid (politica, fallback),
-    ultimo_bid_aplicado y cpc_vigente en el ciclo (patron
-    test_cycle_anti_inversion: envuelven al original, cero cambio de
-    comportamiento)."""
-    llamadas, historias, cpcs = [], [], []
-    orig_decide = ciclo.bid.decide_bid
-    orig_historia = ciclo.g.ultimo_bid_aplicado
-    orig_cpc = ciclo.windows.cpc_vigente
-
-    def decide(**kw):
-        llamadas.append((kw.get("politica_bandas", "bandas_v1"), kw.get("fallback_v1", False)))
-        return orig_decide(**kw)
-
-    def historia(conn, entidad):
-        historias.append(entidad)
-        return orig_historia(conn, entidad)
-
-    def cpc(conn, entidad, hist, ventana):
-        cpcs.append(entidad)
-        return orig_cpc(conn, entidad, hist, ventana)
-
-    monkeypatch.setattr(ciclo.bid, "decide_bid", decide)
-    monkeypatch.setattr(ciclo.g, "ultimo_bid_aplicado", historia)
-    monkeypatch.setattr(ciclo.windows, "cpc_vigente", cpc)
-    return llamadas, historias, cpcs
-
-
-def test_flag_apagado_bit_identico_una_sombra(monkeypatch):
-    """A6-M14 (cableo-vivo-sin-flag): flag apagado = camino EXACTO de
-    hoy: el vivo decide v1, la sombra corre tras D.2 sin fallback, el
-    pause no gasta queries. Decisiones, vias y conteos pineados."""
-    with _db_temporal("orbit_ciclo_a6off") as (conn, _c):
-        ids = _siembra_maestra(conn)
-        llamadas, historias, cpcs = _cuenta_llamadas(monkeypatch)
-        res = _corre(conn)
-        assert res.status == "done"
-        # kw_bid: vivo v1 + sombra v2; kw_pause: vivo v1 (pause, sin hook).
-        assert llamadas == [
-            ("bandas_v1", False),
-            ("evidencia_v2", False),
-            ("bandas_v1", False),
-        ]
-        assert historias == [ids["kw_bid"]]  # D.2, solo la fila bid
-        assert cpcs == [ids["kw_bid"]]  # hook, solo la fila bid
-        filas = _decisions_de(conn, res.cycle_id)
-        por = {(f[0], f[1], f[2]): f for f in filas}
-        ins_bid = por[(ids["kw_bid"], "bid", None)][9]
-        assert (ins_bid["motivo"], ins_bid["factor"]) == ("banda_menos_25", "-0.25")
-        assert por[(ids["kw_bid"], "bid", None)][4] == Decimal("0.75")
-        assert ins_bid["evidencia_v2"]["via"] == "contrafactual"
-        assert ins_bid["evidencia_v2"]["abstencion_v2"] is None
-        assert ins_bid["politica_bandas_usada"] == "bandas_v1"
-        ins_pause = por[(ids["kw_pause"], "pause", None)][9]
-        assert ins_pause["motivo"] == "pause_umbral"
-        assert ins_pause["evidencia_v2"]["via"] == "pause_intacto"
-        assert ins_pause["politica_bandas_usada"] == "bandas_v1"
-
-
-def test_flag_encendido_una_llamada_con_fallback(monkeypatch):
-    """A6-M15 (doble-llamada): flag en evidencia = vivo v2 con
-    fallback_v1=True por hoja (D.2 REUSA la historia: una sola lectura
-    por hoja) + SEGUNDO call v1 puro en la fila bid (contrafactual B3);
-    la fila pause lleva marcador, sin segundo call. Sin previa (kw_bid
-    era el unico vendedor), el fallback decide el vivo correspondiente:
-    -25% v1 con la abstencion auditada (nunca-peor: igual que v1)."""
-    with _db_temporal("orbit_ciclo_a6on") as (conn, _c):
-        ids = _siembra_maestra(conn, settings={"ads_bid_politica_amazon_us": "evidencia_v2"})
-        llamadas, historias, cpcs = _cuenta_llamadas(monkeypatch)
-        res = _corre(conn)
-        assert res.status == "done"
-        assert llamadas == [
-            ("evidencia_v2", True),
-            ("bandas_v1", False),
-            ("evidencia_v2", True),
-        ]
-        # Historia y cpc se miden ANTES del vivo (1x por hoja; D.2 reusa).
-        assert sorted(historias) == sorted([ids["kw_bid"], ids["kw_pause"]])
-        assert sorted(cpcs) == sorted([ids["kw_bid"], ids["kw_pause"]])
-        filas = _decisions_de(conn, res.cycle_id)
-        por = {(f[0], f[1], f[2]): f for f in filas}
-        ins_bid = por[(ids["kw_bid"], "bid", None)][9]
-        assert (ins_bid["motivo"], ins_bid["factor"]) == ("banda_menos_25", "-0.25")
-        assert por[(ids["kw_bid"], "bid", None)][4] == Decimal("0.75")
-        assert ins_bid["evidencia_v2"]["via"] == "decide"
-        assert ins_bid["evidencia_v2"]["abstencion_v2"] == "evidencia_insuficiente"
-        assert ins_bid["evidencia_v2"]["previa"] is None
-        assert ins_bid["politica_bandas_usada"] == "bandas_v1"
-        ins_pause = por[(ids["kw_pause"], "pause", None)][9]
-        assert ins_pause["motivo"] == "pause_umbral"
-        assert ins_pause["evidencia_v2"]["via"] == "pause_intacto"
-        assert ins_pause["politica_bandas_usada"] == "evidencia_v2"
-
-
-def test_flag_encendido_v2_dispara_queda_v2(monkeypatch):
-    """A6-M16 (vivo-v2-no-persiste): con previa ajena, v2 dispara SU banda
-    (-12% donde v1 daba -25%: el cambio de numeros ES el fix F3) y se
-    persiste con via decide + politica evidencia_v2, sin abstencion."""
-    with _db_temporal("orbit_ciclo_a6v2") as (conn, _c):
-        ids = _siembra_maestra(conn, settings={"ads_bid_politica_amazon_us": "evidencia_v2"})
-        _fondo_maduro(conn, ids["kw_pause"])
-        llamadas, _, _ = _cuenta_llamadas(monkeypatch)
-        res = _corre(conn)
-        assert res.status == "done"
-        assert llamadas == [
-            ("evidencia_v2", True),
-            ("bandas_v1", False),
-            ("evidencia_v2", True),
-        ]
-        filas = _decisions_de(conn, res.cycle_id)
-        por = {(f[0], f[1], f[2]): f for f in filas}
-        ins_bid = por[(ids["kw_bid"], "bid", None)][9]
-        assert (ins_bid["motivo"], ins_bid["factor"]) == ("banda_menos_12", "-0.12")
-        assert por[(ids["kw_bid"], "bid", None)][4] == Decimal("0.88")
-        assert ins_bid["evidencia_v2"]["via"] == "decide"
-        assert ins_bid["evidencia_v2"]["abstencion_v2"] is None
-        assert ins_bid["evidencia_v2"]["previa"] is not None
-        assert ins_bid["politica_bandas_usada"] == "evidencia_v2"
-
-
-def test_swap_live_contrafactual_entre_politicas():
-    """A6-r2 B3 (the swap of live and counterfactual): con bandas_v1 la
-    sombra es v2 (via contrafactual, sin bloque bandas_v1); con
-    evidencia_v2 el vivo es v2 (via decide) y la sombra es v1 (bloque
-    bandas_v1 con el -25% que v1 decidia donde v2 da -12%). El replay
-    re-decide ambos bloques exactos y D.2 congela su version efectiva."""
-    from app.optimizer.replay import reproduce_bandas_v1, reproduce_evidencia_v2
-
-    with _db_temporal("orbit_ciclo_a6swap1") as (conn, _c):
-        ids = _siembra_maestra(conn)
-        _fondo_maduro(conn, ids["kw_pause"])
-        res = _corre(conn)
-        assert res.status == "done"
-        filas = _decisions_de(conn, res.cycle_id)
-        ins = [f[9] for f in filas if f[0] == ids["kw_bid"]][0]
-        assert (ins["motivo"], ins["factor"]) == ("banda_menos_25", "-0.25")
-        assert ins["evidencia_v2"]["via"] == "contrafactual"
-        sombra = ins["evidencia_v2"]["veredicto"]
-        assert (sombra["kind"], sombra["motivo"], sombra["factor"]) == (
-            "bid",
-            "banda_menos_12",
-            "-0.12",
-        )
-        assert "bandas_v1" not in ins
-        assert ins["inversion_policy_version"] == "inversion_n10_v1"
-        assert reproduce_evidencia_v2(ins) == ins["evidencia_v2"]["veredicto"]
-        assert reproduce_bandas_v1(ins) is None
-
-    with _db_temporal("orbit_ciclo_a6swap2") as (conn, _c):
-        ids = _siembra_maestra(conn, settings={"ads_bid_politica_amazon_us": "evidencia_v2"})
-        _fondo_maduro(conn, ids["kw_pause"])
-        res = _corre(conn)
-        assert res.status == "done"
-        filas = _decisions_de(conn, res.cycle_id)
-        por = {(f[0], f[1], f[2]): f for f in filas}
-        ins = por[(ids["kw_bid"], "bid", None)][9]
-        assert (ins["motivo"], ins["factor"]) == ("banda_menos_12", "-0.12")
-        assert ins["evidencia_v2"]["via"] == "decide"
-        assert ins["bandas_v1"]["via"] == "contrafactual"
-        cf_v1 = ins["bandas_v1"]["veredicto"]
-        assert (cf_v1["kind"], cf_v1["motivo"], cf_v1["factor"]) == (
-            "bid",
-            "banda_menos_25",
-            "-0.25",
-        )
-        assert ins["inversion_policy_version"] == "inversion_cpc20_v2"
-        assert reproduce_bandas_v1(ins) == ins["bandas_v1"]["veredicto"]
-        assert reproduce_evidencia_v2(ins) == ins["evidencia_v2"]["veredicto"]
-        insp = por[(ids["kw_pause"], "pause", None)][9]
-        assert insp["evidencia_v2"]["via"] == "pause_intacto"
-        assert insp["bandas_v1"]["via"] == "pause_intacto"
-        assert insp["bandas_v1"]["veredicto"]["motivo"] == insp["motivo"]
-        assert reproduce_bandas_v1(insp) == insp["bandas_v1"]["veredicto"]
-
-
-def test_pin_contrafactual_v1_noop_bajo_vivo_v2_bid():
-    """A7 Pin2 (residual A6-r2 1): bajo evidencia_v2, hoja con ventana de
-    cortes incompleta pero posterior suficiente: el vivo v2 decide bid y el
-    contrafactual v1 se congela no-op tal cual (kind None, no "bid")."""
-    from app.optimizer.replay import reproduce_bandas_v1
-
-    with _db_temporal("orbit_pin_cf_noop") as (conn, _c):
-        ids = _siembra_maestra(conn, settings={"ads_bid_politica_amazon_us": "evidencia_v2"})
-        _fondo_maduro(conn, ids["kw_pause"])
-        kw = _entidad(
+    # Inmaduras con trafico y sin venta (ni R8 ni inerte).
+    for fecha in _rango(dt.date(2026, 8, 13), dt.date(2026, 8, 19)):
+        _metrica(
             conn,
-            "amazon_us",
-            "keyword",
-            "9203",
-            parent=ids["ag"],
-            match_type="EXACT",
-            keyword_text="kw parcial",
-        )
-        _estado(
-            conn,
+            run_id,
             kw,
-            synced_at=DECIDED_AT - dt.timedelta(hours=4),
-            current_bid=Decimal("1.00"),
-            bid_currency="USD",
+            fecha,
+            _obs(fecha),
+            cost="0.10",
+            ad_revenue="0",
+            clicks=0,
+            orders=0,
+            impressions=10,
         )
-        run = _run(conn)
-        for fecha in _rango(dt.date(2026, 8, 8), dt.date(2026, 8, 12)):
-            _metrica(
-                conn,
-                run,
-                kw,
-                fecha,
-                _obs(fecha),
-                cost="13.00",
-                ad_revenue="30.00",
-                clicks=40,
-                orders=1,
-                impressions=400,
-            )
+    return {"camp": camp, "ag": ag, "kw": kw, "relleno": relleno}
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_ciclo_clave_ausente_no_emite_bids_cuenta_politica_apagada():
+    """M.3: sin ads_bid_politica_<p> el ciclo no guarda ninguna decision
+    bid, cuenta cada hoja con politica_apagada y sigue guardando PAUSE,
+    negative y harvest."""
+    with _db_temporal("orbit_ciclo_m3off") as (conn, _c):
+        ids = _siembra_maestra(conn)
         res = _corre(conn)
         assert res.status == "done"
-        (fila,) = [f for f in _decisions_de(conn, res.cycle_id) if f[0] == kw]
-        assert (fila[1], fila[9]["evidencia_v2"]["via"]) == ("bid", "decide")
-        assert fila[9]["bandas_v1"]["via"] == "contrafactual"
-        assert fila[9]["bandas_v1"]["veredicto"]["kind"] is None
-        assert reproduce_bandas_v1(fila[9]) == fila[9]["bandas_v1"]["veredicto"]
+        filas = _decisions_de(conn, res.cycle_id)
+        kinds = {f[1] for f in filas}
+        assert "bid" not in kinds
+        assert kinds == {"pause", "negative", "harvest"}
+        assert res.decisions_count == 3
+        notes = json.loads(res.notes)
+        assert notes["decisiones"] == {"pause": 1, "negative": 1, "harvest": 1}
+        assert notes["skips"]["entidad"] == {"politica_apagada": 1}
+        assert (ids["kw_pause"], "pause", None) in {(f[0], f[1], f[2]) for f in filas}
 
 
-def test_motor_bid_corrupto_tumba_ciclo_fail_closed():
-    """A6: clave presente pero corrupta => ciclo failed (fail-closed,
-    igual que un target/fraccion/confianza corruptos: jamas habilita v2
-    por accidente)."""
-    with _db_temporal("orbit_ciclo_a6c") as (conn, _c):
-        _siembra_maestra(conn, settings={"ads_bid_politica_amazon_us": "EVIDENCIA_V2"})
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_ciclo_niveles_v3_decide_con_caso_y_replayea():
+    """M.3: con niveles_v3 cada decision bid guarda inputs.politica e
+    inputs.caso, y reproduce(inputs) da el kind, el valor y la moneda
+    guardados."""
+    with _db_temporal("orbit_ciclo_m3on") as (conn, _c):
+        ids = _siembra_r9(conn)
+        res = _corre(conn)
+        assert res.status == "done"
+        filas = _decisions_de(conn, res.cycle_id)
+        por = {(f[0], f[1], f[2]): f for f in filas}
+        bid_row = por[(ids["kw"], "bid", None)]
+        assert bid_row[3] == Decimal("1.00")
+        assert bid_row[4] == Decimal("0.88")
+        assert bid_row[5] == "USD"
+        ins = bid_row[9]
+        assert ins["motor"] == "bid"
+        assert ins["politica"] == "niveles_v3"
+        assert ins["motivo"] == "gasto_sin_venta"
+        assert ins["caso"]["hoja_id"] == ids["kw"]
+        assert ins["caso"]["economia"]["plataforma"]["gasto_para_concluir"] == "36"
+        assert ciclo.reproduce(ins) == ("bid", Decimal("0.88"), "USD")
+        for _ent, kind, _term, _old, new, moneda, *_resto, inputs in filas:
+            assert ciclo.reproduce(inputs) == (kind, new, moneda), kind
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_ciclo_politica_desconocida_falla_cerrado():
+    """M.3: clave presente con otro valor (la config vieja trae
+    bandas_v1) => ciclo failed, igual que un target corrupto."""
+    with _db_temporal("orbit_ciclo_m3bad") as (conn, _c):
+        _siembra_maestra(conn, settings={"ads_bid_politica_amazon_us": "bandas_v1"})
         with pytest.raises(ValueError, match="politica de bids"):
             _corre(conn)
         status, notes = conn.execute(
@@ -3397,163 +2932,255 @@ def test_motor_bid_corrupto_tumba_ciclo_fail_closed():
         assert conn.execute("SELECT count(*) FROM decision").fetchone()[0] == 0
 
 
-def test_replay_decide_fallback_reproduce_vivo_exacto():
-    """A6-M17 (replay-sin-fallback): fila via=decide con fallback =
-    reproduce() Y reproduce_evidencia_v2() re-deciden el vivo EXACTO
-    (banda v1 congelada). Sin fallback en el replay, la previa None
-    daria abstencion != lo congelado. Shape decide == contrafactual."""
-    from app.optimizer.replay import reproduce, reproduce_evidencia_v2
+def _caso_regreso_dueno(*, dias_post: int, clics_post: int, bid: str) -> CasoHoja:
+    """Caso R9 (41 USD sin venta) con trayectoria: recorte del motor
+    1.00 -> 0.50 y regreso del dueno 0.50 -> 1.00 (piso aprendido 0.50).
+    R0 no dispara (cortes None); el juicio y los frenos deciden."""
+    from app.optimizer.caso import (
+        BidVigente,
+        CambioBid,
+        CasoHoja,
+        Economia,
+        EconomiaPlataforma,
+        EfectoCambio,
+        EvidenciaNivel,
+        InsumosPausa,
+        PrecioVentana,
+        Tramo,
+        Trayectoria,
+    )
 
-    with _db_temporal("orbit_ciclo_a6r") as (conn, _c):
-        ids = _siembra_maestra(conn, settings={"ads_bid_politica_amazon_us": "evidencia_v2"})
-        res = _corre(conn)
-        assert res.status == "done"
-        filas = _decisions_de(conn, res.cycle_id)
-        vistas = 0
-        for fila in filas:
-            ins = fila[9]
-            if ins.get("motor") != "bid":
-                continue
-            vistas += 1
-            assert reproduce(ins) == (fila[1], fila[4], fila[5])
-            assert reproduce_evidencia_v2(ins) == ins["evidencia_v2"]["veredicto"]
-        assert vistas >= 2
-        ev2 = [f[9] for f in filas if f[0] == ids["kw_bid"]][0]["evidencia_v2"]
-        assert ev2["via"] == "decide"
-        assert ev2["abstencion_v2"] == "evidencia_insuficiente"
-        assert set(ev2) == {
-            "politica",
-            "via",
-            "abstencion_v2",
-            "confianza_recorte_usada",
-            "confianza_subida_usada",
-            "moneda",
-            "ventana_madura",
-            "previa",
-            "conversion",
-            "cpc",
-            "veredicto",
-        }
-
-
-def test_replay_decide_v2_puro_reproduce_vivo_exacto():
-    """A6-M17b (replay-decide-v2): fila via=decide con banda v2 =
-    reproduce() y reproduce_evidencia_v2() re-deciden el vivo EXACTO
-    (v2 puro, sin abstencion)."""
-    from app.optimizer.replay import reproduce, reproduce_evidencia_v2
-
-    with _db_temporal("orbit_ciclo_a6r2") as (conn, _c):
-        ids = _siembra_maestra(conn, settings={"ads_bid_politica_amazon_us": "evidencia_v2"})
-        _fondo_maduro(conn, ids["kw_pause"])
-        res = _corre(conn)
-        assert res.status == "done"
-        filas = _decisions_de(conn, res.cycle_id)
-        vistas = 0
-        for fila in filas:
-            ins = fila[9]
-            if ins.get("motor") != "bid":
-                continue
-            vistas += 1
-            assert reproduce(ins) == (fila[1], fila[4], fila[5])
-            assert reproduce_evidencia_v2(ins) == ins["evidencia_v2"]["veredicto"]
-        assert vistas >= 2
-        ev2 = [f[9] for f in filas if f[0] == ids["kw_bid"]][0]["evidencia_v2"]
-        assert ev2["via"] == "decide"
-        assert ev2["abstencion_v2"] is None
-
-
-def _inputs_bid_pause(conn, cycle_id, ids):
-    filas = _decisions_de(conn, cycle_id)
-    por = {(f[0], f[1], f[2]): f for f in filas}
-    return (
-        dict(por[(ids["kw_bid"], "bid", None)][9]),
-        dict(por[(ids["kw_pause"], "pause", None)][9]),
+    propia = EvidenciaNivel(
+        reciente=Tramo(
+            clics=10, pedidos=0, venta=Decimal("0"), gasto=Decimal("41"), impresiones=410
+        ),
+        antiguo=Tramo(clics=0, pedidos=0, venta=Decimal("0"), gasto=Decimal("0"), impresiones=0),
+    )
+    efecto = EfectoCambio(
+        dias_post=dias_post,
+        impresiones_pre7=700,
+        clics_pre7=70,
+        impresiones_post=700,
+        dias_post_trafico=min(7, dias_post),
+        clics_post=clics_post,
+        gasto_post=Decimal("5"),
+        clics_pre=70,
+        gasto_pre=Decimal("40"),
+        vendia=True,
+    )
+    return CasoHoja(
+        plataforma="amazon_us",
+        hoja_id=4925,
+        ad_group_id=3927,
+        bid=BidVigente(
+            valor=Decimal(bid), moneda="USD", piso=Decimal("0.40"), techo=Decimal("2.50")
+        ),
+        economia=Economia(
+            plataforma=EconomiaPlataforma(
+                moneda="USD",
+                equilibrio_acos_pct=None,
+                gasto_para_concluir=Decimal("36"),
+                confianza_recorte=Decimal("0.80"),
+                confianza_subida=Decimal("0.70"),
+            ),
+            target_acos_pct=Decimal("25"),
+        ),
+        propia=propia,
+        pedidos_inmaduros=0,
+        grupo=None,
+        cuenta=None,
+        precio=PrecioVentana(gasto=Decimal("5"), clics=10),
+        trayectoria=Trayectoria(
+            cambios=(
+                CambioBid(
+                    fecha=DECIDED_AT.date() - dt.timedelta(days=20),
+                    bid_antes=Decimal("1.00"),
+                    bid_despues=Decimal("0.50"),
+                    origen="motor",
+                ),
+                CambioBid(
+                    fecha=DECIDED_AT.date() - dt.timedelta(days=dias_post),
+                    bid_antes=Decimal("0.50"),
+                    bid_despues=Decimal("1.00"),
+                    origen="regreso_del_dueno",
+                ),
+            ),
+            efecto=efecto,
+        ),
+        pausa=InsumosPausa(
+            cortes=None,
+            umbral_clics=100,
+            gasto_minimo=Decimal("40"),
+            expected_clicks=None,
+            politica_economica=None,
+        ),
+        ventana_desde=dt.date(2026, 5, 24),
+        ventana_hasta=dt.date(2026, 8, 12),
+        observado_al=DECIDED_AT - dt.timedelta(days=3),
     )
 
 
-def test_verifica_politica_acepta_matriz_eras_vias():
-    """A7 B9: freezes REALES del ciclo (via _pendiente_bid) pasan: v1
-    contrafactual + pause intacto, v2 decide puro, decide con fallback
-    (el fallback refira igual) y era pre-A6 sin clave."""
-    from app.optimizer.replay import verifica_politica
+def _corre_decisora_niveles(monkeypatch, caso: CasoHoja, tick=lambda: None):
+    """_procesa_decisora con niveles_v3 y lecturas fijas (el caso dado):
+    decide() corre de verdad; el cooldown de pause se parchea ausente."""
+    from types import SimpleNamespace
 
-    with _db_temporal("orbit_ciclo_a7v1") as (conn, _c):
-        ids = _siembra_maestra(conn)
-        res = _corre(conn)
-        assert res.status == "done"
-        ins_bid, ins_pause = _inputs_bid_pause(conn, res.cycle_id, ids)
-        assert (ins_bid["evidencia_v2"]["via"], ins_bid["politica_bandas_usada"]) == (
-            "contrafactual",
-            "bandas_v1",
-        )
-        verifica_politica(ins_bid)
-        assert (ins_pause["evidencia_v2"]["via"], ins_pause["politica_bandas_usada"]) == (
-            "pause_intacto",
-            "bandas_v1",
-        )
-        verifica_politica(ins_pause)
-    with _db_temporal("orbit_ciclo_a7v2") as (conn, _c):
-        ids = _siembra_maestra(conn, settings={"ads_bid_politica_amazon_us": "evidencia_v2"})
-        res = _corre(conn)
-        assert res.status == "done"
-        ins_bid, ins_pause = _inputs_bid_pause(conn, res.cycle_id, ids)
-        assert (ins_bid["evidencia_v2"]["via"], ins_bid["politica_bandas_usada"]) == (
-            "decide",
-            "bandas_v1",
-        )
-        assert ins_bid["evidencia_v2"]["abstencion_v2"] == "evidencia_insuficiente"
-        verifica_politica(ins_bid)
-        assert (ins_pause["evidencia_v2"]["via"], ins_pause["politica_bandas_usada"]) == (
-            "pause_intacto",
-            "evidencia_v2",
-        )
-        verifica_politica(ins_pause)
-    with _db_temporal("orbit_ciclo_a7v3") as (conn, _c):
-        ids = _siembra_maestra(conn, settings={"ads_bid_politica_amazon_us": "evidencia_v2"})
-        _fondo_maduro(conn, ids["kw_pause"])
-        res = _corre(conn)
-        assert res.status == "done"
-        ins_bid, _ = _inputs_bid_pause(conn, res.cycle_id, ids)
-        assert (ins_bid["evidencia_v2"]["via"], ins_bid["politica_bandas_usada"]) == (
-            "decide",
-            "evidencia_v2",
-        )
-        verifica_politica(ins_bid)
-    verifica_politica({"motivo": "banda_menos_25"})  # pre-A6: sin clave, OK
+    from app.optimizer import goals as g
 
-
-def test_verifica_politica_rechaza_incoherencias():
-    """A7 B9: congelada != re-derivada grita (freeze corrupto) y el
-    vocabulario es cerrado (bandas_v3 grita antes de repelear)."""
-    from app.optimizer.replay import verifica_politica
-
-    with _db_temporal("orbit_ciclo_a7v4") as (conn, _c):
-        ids = _siembra_maestra(conn)
-        res = _corre(conn)
-        assert res.status == "done"
-        ins_bid, _ = _inputs_bid_pause(conn, res.cycle_id, ids)
-        assert ins_bid["politica_bandas_usada"] == "bandas_v1"
-        corrupto = dict(ins_bid, politica_bandas_usada="evidencia_v2")
-        with pytest.raises(ValueError, match="re-derivada"):
-            verifica_politica(corrupto)
-        basura = dict(ins_bid, politica_bandas_usada="bandas_v3")
-        with pytest.raises(ValueError, match="vocabulario"):
-            verifica_politica(basura)
+    monkeypatch.setattr(ciclo.windows, "ventana_cortes", lambda *_: None)
+    monkeypatch.setattr(ciclo.g, "en_cooldown", lambda *_a, **_k: False)
+    goal = g.Goal(
+        scope="platform",
+        ad_entity_id=None,
+        platform="amazon_us",
+        target_acos_pct=Decimal("25"),
+        bid_floor=Decimal("0.40"),
+        bid_ceiling=Decimal("2.50"),
+        bid_currency="USD",
+        harvest_campaign_id=None,
+        harvest_ad_group_id=None,
+        harvest_default_bid=None,
+        enabled=True,
+        mode="shadow",
+    )
+    lecturas = SimpleNamespace(caso=lambda _conn, **_k: caso)
+    contadores = ciclo._Contadores()
+    pendientes: list = []
+    ciclo._procesa_decisora(
+        object(),
+        fila=(4925, 3927, 3926, caso.bid.valor, "USD", "ENABLED", None, "ENABLED", "ENABLED"),
+        platform="amazon_us",
+        setting_target=None,
+        goals=(goal, {}),
+        modo="shadow",
+        decided_at=DECIDED_AT,
+        contadores=contadores,
+        pendientes=pendientes,
+        tick=tick,
+        evidencia_ad_groups={},
+        corte_pause_por_grupo={},
+        bloqueadas=set(),
+        inertes=set(),
+        margen_plataforma=None,
+        snapshot_margen={},
+        familias_ciclo=ciclo._FamiliasCiclo({}, {}, {}, {}, {}, None, DECIDED_AT.date(), None, {}),
+        pause_economica=False,
+        politica="niveles_v3",
+        lecturas=lecturas,
+    )
+    return pendientes, contadores
 
 
-def test_arquitectura_via_politica_pause_declara_bid_efectiva():
-    """A7 B9 (arquitectura via->politica): el pause NO consume bandas, asi
-    que su congelada es el regimen pedido y verifica con CUALQUIER valor
-    del vocabulario (sin replay); la bid con la congelada volteada grita
-    (la efectiva se re-deriva)."""
-    from app.optimizer.replay import verifica_politica
+def test_ciclo_regreso_dueno_espera_efecto_y_precio_medido(monkeypatch):
+    """M.3: reversa ok del dueno hace 3 dias + evidencia para recortar:
+    sin decision, esperando_efecto. Al dia 8 con 19 clics al bid nuevo:
+    esperando_precio_medido. Con 20 clics, o al dia 14: el recorte."""
+    pendientes, contadores = _corre_decisora_niveles(
+        monkeypatch, _caso_regreso_dueno(dias_post=3, clics_post=5, bid="1.00")
+    )
+    assert pendientes == []
+    assert contadores.skips_entidad == {"esperando_efecto": 1}
 
-    with _db_temporal("orbit_ciclo_a7v5") as (conn, _c):
-        ids = _siembra_maestra(conn)
-        res = _corre(conn)
-        assert res.status == "done"
-        ins_bid, ins_pause = _inputs_bid_pause(conn, res.cycle_id, ids)
-        assert ins_pause["politica_bandas_usada"] == "bandas_v1"
-        verifica_politica(dict(ins_pause, politica_bandas_usada="evidencia_v2"))
-        with pytest.raises(ValueError, match="re-derivada"):
-            verifica_politica(dict(ins_bid, politica_bandas_usada="evidencia_v2"))
+    pendientes, contadores = _corre_decisora_niveles(
+        monkeypatch, _caso_regreso_dueno(dias_post=8, clics_post=19, bid="1.00")
+    )
+    assert pendientes == []
+    assert contadores.skips_entidad == {"esperando_precio_medido": 1}
+
+    pendientes, _ = _corre_decisora_niveles(
+        monkeypatch, _caso_regreso_dueno(dias_post=8, clics_post=20, bid="1.00")
+    )
+    assert [(p.kind, p.new_value) for p in pendientes] == [("bid", Decimal("0.88"))]
+    assert pendientes[0].inputs["motivo"] == "gasto_sin_venta"
+
+    pendientes, _ = _corre_decisora_niveles(
+        monkeypatch, _caso_regreso_dueno(dias_post=14, clics_post=19, bid="1.00")
+    )
+    assert [(p.kind, p.new_value) for p in pendientes] == [("bid", Decimal("0.88"))]
+
+
+def test_ciclo_regreso_dueno_piso_aprendido_frena_recorte(monkeypatch):
+    """M.3: un recorte que dejaria el bid en el bid que la dano (0.50)
+    o por debajo se cuenta con piso_aprendido."""
+    pendientes, contadores = _corre_decisora_niveles(
+        monkeypatch, _caso_regreso_dueno(dias_post=8, clics_post=20, bid="0.55")
+    )
+    assert pendientes == []
+    assert contadores.skips_entidad == {"piso_aprendido": 1}
+
+
+def test_ciclo_decisora_que_abstiene_late(monkeypatch):
+    """R03-F2: la decisora que abstiene (Mantener) tambien late: una
+    entidad procesada es un tick, decida o abstenga."""
+    latidos = []
+    pendientes, contadores = _corre_decisora_niveles(
+        monkeypatch,
+        _caso_regreso_dueno(dias_post=3, clics_post=5, bid="1.00"),
+        tick=lambda: latidos.append(1),
+    )
+    assert pendientes == []
+    assert contadores.skips_entidad == {"esperando_efecto": 1}
+    assert latidos == [1]
+
+
+def _corre_apagada_con_pause(monkeypatch, *, cooldown: bool, tick):
+    """_procesa_decisora con la politica apagada y un pause decidido (el
+    cooldown de pause se parchea segun `cooldown`)."""
+    from types import SimpleNamespace
+
+    from app.optimizer import goals as g
+
+    monkeypatch.setattr(ciclo.windows, "ventana_cortes", lambda *_: None)
+    monkeypatch.setattr(ciclo.bid, "decide_pause", lambda **_: SimpleNamespace(kind="pause"))
+    monkeypatch.setattr(ciclo.g, "en_cooldown", lambda *_a, **_k: cooldown)
+    goal = g.Goal(
+        scope="platform",
+        ad_entity_id=None,
+        platform="amazon_us",
+        target_acos_pct=Decimal("25"),
+        bid_floor=Decimal("0.40"),
+        bid_ceiling=Decimal("2.50"),
+        bid_currency="USD",
+        harvest_campaign_id=None,
+        harvest_ad_group_id=None,
+        harvest_default_bid=None,
+        enabled=True,
+        mode="shadow",
+    )
+    contadores = ciclo._Contadores()
+    pendientes: list = []
+    ciclo._procesa_decisora(
+        object(),
+        fila=(4925, 3927, 3926, Decimal("1.00"), "USD", "ENABLED", None, "ENABLED", "ENABLED"),
+        platform="amazon_us",
+        setting_target=None,
+        goals=(goal, {}),
+        modo="shadow",
+        decided_at=DECIDED_AT,
+        contadores=contadores,
+        pendientes=pendientes,
+        tick=tick,
+        evidencia_ad_groups={},
+        corte_pause_por_grupo={},
+        bloqueadas=set(),
+        inertes=set(),
+        margen_plataforma=None,
+        snapshot_margen={},
+        familias_ciclo=ciclo._FamiliasCiclo({}, {}, {}, {}, {}, None, DECIDED_AT.date(), None, {}),
+        pause_economica=False,
+        politica=None,
+        lecturas=None,
+    )
+    return pendientes, contadores
+
+
+def test_ciclo_apagada_con_cooldown_late_una_sola_vez(monkeypatch):
+    """R03-(d): el camino pause-apagada late una vez por entidad tambien
+    cuando el pause cae en cooldown (el tick de la rama sobraba)."""
+    latidos = []
+    pendientes, contadores = _corre_apagada_con_pause(
+        monkeypatch, cooldown=True, tick=lambda: latidos.append(1)
+    )
+    assert pendientes == []
+    assert contadores.skips_entidad == {"cooldown_7d": 1}
+    assert latidos == [1]

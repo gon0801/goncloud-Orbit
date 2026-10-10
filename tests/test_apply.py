@@ -45,6 +45,7 @@ UPPER — corrida de reactivacion, out/reactiva-campanas-20260827.log).
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import os
 import socket
@@ -67,13 +68,21 @@ from app.apply import (
     MOTIVO_TOPE_INTENTOS,
     MOTIVO_YA_APLICADA,
     Aplicador,
+    ConfirmacionDesactualizada,
     DecisionBid,
+    RegresoHecho,
+    RegresoNoConfirmado,
+    SinRachaDeRecortes,
+    VigentePorEncima,
     bids_del_ciclo,
     consume_quota,
     intentos_sin_sello,
     motor_quota,
-    orden_bids,
+    orden_bajo_cupo,
+    prioridad_bajo_cupo,
     registra_sin_aplicar,
+    regreso_del_dueno,
+    regreso_del_dueno_todas,
     reversa_bid,
 )
 
@@ -96,6 +105,12 @@ SQL44 = (
 # (D.1b): CHECK nombrado + choque_clave
 SQL45 = (
     Path(__file__).resolve().parents[1] / "migrations" / "0045_sin_aplicar_choque_clave.sql"
+).read_text(encoding="utf-8")
+
+# BIDS 02 M.5: v_cambio_bid y v_hoja_activa (la racha del regreso sale de la
+# vista, no de otro camino).
+SQL60 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0060_bids02_base_lectura.sql"
 ).read_text(encoding="utf-8")
 
 
@@ -853,43 +868,290 @@ def test_bid_leido_por_list_cruza_id_en_respuesta_multifila():
 
 
 # ---------------------------------------------------------------------------
-# 13. Orden sellado de bids bajo cap (pure, sin DB)
+# 13. Orden bajo cupo de niveles_v3 (BIDS 02 M.3)
 # ---------------------------------------------------------------------------
 
 
-def _bid_manual(id_: int, motivo: str, cost: str | None) -> DecisionBid:
+def _bid_cupo(id_: int, veredicto_kind: str, motivo: str, gasto: str | None) -> DecisionBid:
+    """Decision manual con inputs de niveles_v3: motivo + caso con el gasto
+    crudo de la hoja (reciente + antiguo). gasto None = desconocido."""
     return DecisionBid(
         id=id_,
         ad_entity_id=id_,
         old_value=Decimal("1.00"),
-        new_value=Decimal("0.75"),
+        new_value=Decimal("0.88"),
         value_currency="USD",
-        inputs={"motivo": motivo, "ventanas": {"cortes": {"cost": cost}}},
+        inputs={
+            "motivo": motivo,
+            "veredicto_kind": veredicto_kind,
+            "caso": {
+                "propia": {
+                    "reciente": {"gasto": gasto},
+                    "antiguo": {"gasto": "0" if gasto is not None else None},
+                }
+            },
+        },
     )
 
 
-def test_orden_bids_prioridad_de_hemorragia_sellada():
-    d25_100 = _bid_manual(1, "banda_menos_25", "100")
-    d25_200 = _bid_manual(2, "banda_menos_25", "200")
-    d12_999 = _bid_manual(3, "banda_menos_12", "999")
-    d15_500 = _bid_manual(4, "banda_mas_15", "500")
-    # BIDS 01 (cross-review grok-1): el motivo nuevo compite en la banda 0;
-    # si el literal de _PRIORIDAD_BANDA tuviera un typo caeria al final.
-    d25c_150 = _bid_manual(7, "banda_menos_25_cero_ventas", "150")
+def test_prioridad_bajo_cupo_niveles_por_motivo():
+    """M.3: 0 regresos (R1), 1 recortes con evidencia propia (R3, R9),
+    2 subidas (R6), 3 recortes heredados (R4, R11); ajeno al final."""
+    assert prioridad_bajo_cupo("Regresar", "regreso_por_desplome") == 0
+    for motivo in (
+        "pierde_dinero",
+        "pierde_dinero_fuerte",
+        "gasto_sin_venta",
+        "gasto_sin_venta_doble",
+    ):
+        assert prioridad_bajo_cupo("Mover", motivo) == 1, motivo
+    assert prioridad_bajo_cupo("Mover", "bajo_target") == 2
+    for motivo in ("grupo_sangra_vendedora", "grupo_sangra"):
+        assert prioridad_bajo_cupo("Mover", motivo) == 3, motivo
+    assert prioridad_bajo_cupo("Mover", "banda_menos_25") == 4
+    assert prioridad_bajo_cupo("Mover", "otro_cosa") == 4
 
-    orden = orden_bids([d15_500, d12_999, d25_100, d25_200, d25c_150])
 
-    assert [d.id for d in orden] == [2, 7, 1, 3, 4], (
-        "banda_menos_25 = banda_menos_25_cero_ventas > banda_menos_12 > "
-        "banda_mas_15; dentro de banda, cost DESC"
+def test_orden_bajo_cupo_nivel_y_gasto_desc():
+    """M.3: regresos, recortes propios, subidas, heredados; dentro de cada
+    nivel va primero el de mas gasto; gasto None al final de su nivel."""
+    reg = _bid_cupo(1, "Regresar", "regreso_por_desplome", "10")
+    propio_caro = _bid_cupo(2, "Mover", "pierde_dinero", "200")
+    propio_barato = _bid_cupo(3, "Mover", "gasto_sin_venta", "100")
+    propio_none = _bid_cupo(4, "Mover", "pierde_dinero_fuerte", None)
+    subida = _bid_cupo(5, "Mover", "bajo_target", "9999")
+    heredado = _bid_cupo(6, "Mover", "grupo_sangra", "9999")
+    orden = orden_bajo_cupo([heredado, subida, propio_none, propio_barato, propio_caro, reg])
+    assert [d.id for d in orden] == [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+    ]
+
+
+def test_prioridad_bajo_cupo_motivos_existen_en_politica():
+    """M.3: cada motivo literal que prioridad_bajo_cupo compara contra
+    `motivo` existe en app/optimizer/politica.py (un typo caeria al
+    final en silencio)."""
+    import ast
+    from pathlib import Path
+
+    from app.optimizer import politica
+
+    motivos_politica = {v for k, v in vars(politica).items() if k.startswith("MOTIVO_")}
+    assert motivos_politica, "politica.py sin constantes MOTIVO_*"
+    arbol = ast.parse(
+        (Path(__file__).resolve().parents[1] / "app" / "apply.py").read_text(encoding="utf-8")
+    )
+    defs = [n for n in ast.walk(arbol) if isinstance(n, ast.FunctionDef)]
+    (nodo,) = [n for n in defs if n.name == "prioridad_bajo_cupo"]
+    literales: set[str] = set()
+    for n in ast.walk(nodo):
+        if not isinstance(n, ast.Compare):
+            continue
+        if isinstance(n.left, ast.Name) and n.left.id == "motivo":
+            for comp in n.comparators:
+                if isinstance(comp, ast.Constant) and isinstance(comp.value, str):
+                    literales.add(comp.value)
+                elif isinstance(comp, ast.Tuple):
+                    literales.update(
+                        e.value
+                        for e in comp.elts
+                        if isinstance(e, ast.Constant) and isinstance(e.value, str)
+                    )
+    assert literales, "prioridad_bajo_cupo no compara literales contra motivo"
+    assert literales <= motivos_politica, (
+        f"literales ajenos a politica.py: {literales - motivos_politica}"
     )
 
-    # cost None (regla 3: costo desconocido) queda al final de SU banda; un
-    # motivo fuera de las bandas (no existe en kind bid) queda al final.
-    d25_none = _bid_manual(5, "banda_menos_25", None)
-    assert [d.id for d in orden_bids([d25_none, d25_100])] == [1, 5]
-    raro = _bid_manual(6, "otro_cosa", "9999")
-    assert [d.id for d in orden_bids([raro, d15_500])] == [4, 6]
+
+def _kw_con_state(conn, parent: int, external: str) -> int:
+    kw = _entidad(conn, "keyword", external, parent=parent)
+    conn.execute(
+        "INSERT INTO ad_entity_state (ad_entity_id, current_bid, bid_currency, status,"
+        " synced_at) VALUES (%s, 1.00, 'USD', 'ENABLED', now())",
+        (kw,),
+    )
+    return kw
+
+
+def _decision_cupo(
+    conn, ciclo: int, config_id: int, entidad: int, *, veredicto_kind: str, motivo: str, gasto: str
+) -> int:
+    """Decision kind='bid' con inputs de niveles_v3 (motivo + caso)."""
+    inputs = {
+        "motor": "bid",
+        "platform": "amazon_us",
+        "motivo": motivo,
+        "veredicto_kind": veredicto_kind,
+        "caso": {"propia": {"reciente": {"gasto": gasto}, "antiguo": {"gasto": "0"}}},
+    }
+    return conn.execute(
+        "INSERT INTO decision (cycle_id, ad_entity_id, kind, config_version_id,"
+        " data_observed_at, window_start, window_end, old_value, new_value, value_currency,"
+        " inputs) VALUES (%s, %s, 'bid', %s, now() - interval '40 days', CURRENT_DATE - 60,"
+        " CURRENT_DATE - 30, 1.00, 0.88, 'USD', %s) RETURNING id",
+        (ciclo, entidad, config_id, Json(inputs)),
+    ).fetchone()[0]
+
+
+@_skip_db
+def test_aplica_bids_cupo_dos_aplica_regreso_y_propio_descarta_resto():
+    """M.3: cupo 2 con cuatro decisiones del mismo ciclo, una por nivel:
+    aplica el regreso y el recorte con evidencia propia; descarta la
+    subida y el recorte heredado con fuera_de_cap."""
+    with _db_temporal("orbit_apply_cupo2") as conn:
+        ids = _semilla(conn, caps={"ads_apply_cap_amazon_us_bid": 2})
+        kw3 = _kw_con_state(conn, ids["ag"], "7203")
+        kw4 = _kw_con_state(conn, ids["ag"], "7204")
+        # Siembra en orden INVERSO al esperado: un orden estable (o por
+        # gasto) aplicaria al heredado primero y la prueba fallaria.
+        dec_heredado = _decision_cupo(
+            conn,
+            ids["ciclo_dec"],
+            ids["config"],
+            kw4,
+            veredicto_kind="Mover",
+            motivo="grupo_sangra",
+            gasto="9999",
+        )
+        dec_subida = _decision_cupo(
+            conn,
+            ids["ciclo_dec"],
+            ids["config"],
+            kw3,
+            veredicto_kind="Mover",
+            motivo="bajo_target",
+            gasto="9999",
+        )
+        dec_propio = _decision_cupo(
+            conn,
+            ids["ciclo_dec"],
+            ids["config"],
+            ids["kw2"],
+            veredicto_kind="Mover",
+            motivo="pierde_dinero",
+            gasto="50",
+        )
+        dec_reg = _decision_cupo(
+            conn,
+            ids["ciclo_dec"],
+            ids["config"],
+            ids["kw"],
+            veredicto_kind="Regresar",
+            motivo="regreso_por_desplome",
+            gasto="10",
+        )
+        handler, vistos = _handler_api(
+            {"7201": "0.88", "7202": "0.88", "7203": "0.88", "7204": "0.88"}
+        )
+        ap = _aplicador(conn, handler, ids["ciclo_ejec"])
+
+        res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
+
+        assert res.orden == [dec_reg, dec_propio, dec_subida, dec_heredado]
+        assert res.aplicadas == 2
+        assert res.descartadas == [MOTIVO_FUERA_DE_CAP, MOTIVO_FUERA_DE_CAP]
+        assert [_obj_de_put(p)["keywordId"] for p in _puts(vistos)] == ["7201", "7202"]
+
+
+@_skip_db
+def test_aplica_bids_cupo_uno_regreso_barato_antes_que_recorte_caro():
+    """M.3: cupo 1: un regreso de poco gasto se aplica antes que un
+    recorte de mucho gasto."""
+    with _db_temporal("orbit_apply_cupo1") as conn:
+        ids = _semilla(conn, caps={"ads_apply_cap_amazon_us_bid": 1})
+        # Siembra inversa: el recorte caro entra primero; solo el nivel
+        # del regreso lo pone delante.
+        dec_propio = _decision_cupo(
+            conn,
+            ids["ciclo_dec"],
+            ids["config"],
+            ids["kw2"],
+            veredicto_kind="Mover",
+            motivo="pierde_dinero_fuerte",
+            gasto="9999",
+        )
+        dec_reg = _decision_cupo(
+            conn,
+            ids["ciclo_dec"],
+            ids["config"],
+            ids["kw"],
+            veredicto_kind="Regresar",
+            motivo="regreso_por_desplome",
+            gasto="10",
+        )
+        handler, vistos = _handler_api({"7201": "0.88", "7202": "0.88"})
+        ap = _aplicador(conn, handler, ids["ciclo_ejec"])
+
+        res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
+
+        assert res.orden == [dec_reg, dec_propio]
+        assert res.aplicadas == 1
+        assert res.descartadas == [MOTIVO_FUERA_DE_CAP]
+        assert [_obj_de_put(p)["keywordId"] for p in _puts(vistos)] == ["7201"]
+
+
+@_skip_db
+def test_aplica_bids_cupo_tres_descarta_heredado_aunque_mas_gasto():
+    """M.3: cupo 3: el descartado es el recorte heredado, aunque sea el
+    de mas gasto."""
+    with _db_temporal("orbit_apply_cupo3") as conn:
+        ids = _semilla(conn, caps={"ads_apply_cap_amazon_us_bid": 3})
+        kw3 = _kw_con_state(conn, ids["ag"], "7203")
+        kw4 = _kw_con_state(conn, ids["ag"], "7204")
+        # Siembra inversa: el heredado de mas gasto entra primero; solo
+        # el nivel lo manda al final.
+        dec_heredado = _decision_cupo(
+            conn,
+            ids["ciclo_dec"],
+            ids["config"],
+            kw4,
+            veredicto_kind="Mover",
+            motivo="grupo_sangra_vendedora",
+            gasto="9999",
+        )
+        dec_subida = _decision_cupo(
+            conn,
+            ids["ciclo_dec"],
+            ids["config"],
+            kw3,
+            veredicto_kind="Mover",
+            motivo="bajo_target",
+            gasto="60",
+        )
+        dec_propio = _decision_cupo(
+            conn,
+            ids["ciclo_dec"],
+            ids["config"],
+            ids["kw2"],
+            veredicto_kind="Mover",
+            motivo="pierde_dinero",
+            gasto="50",
+        )
+        dec_reg = _decision_cupo(
+            conn,
+            ids["ciclo_dec"],
+            ids["config"],
+            ids["kw"],
+            veredicto_kind="Regresar",
+            motivo="regreso_por_desplome",
+            gasto="10",
+        )
+        handler, vistos = _handler_api(
+            {"7201": "0.88", "7202": "0.88", "7203": "0.88", "7204": "0.88"}
+        )
+        ap = _aplicador(conn, handler, ids["ciclo_ejec"])
+
+        res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
+
+        assert res.orden == [dec_reg, dec_propio, dec_subida, dec_heredado]
+        assert res.aplicadas == 3
+        assert res.descartadas == [MOTIVO_FUERA_DE_CAP]
+        assert [_obj_de_put(p)["keywordId"] for p in _puts(vistos)] == ["7201", "7202", "7203"]
 
 
 # ---------------------------------------------------------------------------
@@ -1979,3 +2241,398 @@ def test_sin_aplicar_fallo_http_registra_el_skip():
             (dec,),
         ).fetchone()
         assert fila == (ids["ciclo_ejec"], "fallo_http")
+
+
+# ---------------------------------------------------------------------------
+# M.5: regreso del dueno (PG + MockTransport, cero HTTP vivo)
+# ---------------------------------------------------------------------------
+
+_PERFIL_M5 = {
+    "profileId": FAKE_PROFILE_US,
+    "countryCode": "US",
+    "currencyCode": "USD",
+    "accountInfo": {"type": "seller", "name": "Test US", "validPaymentMethod": True},
+}
+
+_R1_M5 = dt.datetime(2026, 9, 20, 12, 0, tzinfo=dt.UTC)
+_R2_M5 = dt.datetime(2026, 9, 25, 12, 0, tzinfo=dt.UTC)
+
+
+@contextmanager
+def _db_m5(prefijo: str):
+    """DB temporal del patron de arriba mas la 0060 (v_cambio_bid)."""
+    with _db_temporal(prefijo) as conn:
+        conn.execute(SQL60)
+        yield conn
+
+
+def _handler_regreso(*, falla_put: bool = False):
+    """Amazon mock del camino de regreso: LWA + /v2/profiles + PUT con bid
+    NUMERO + readback por POST /list (shape del probe 2.5)."""
+    vistos: list[httpx.Request] = []
+    remoto: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return _token_response()
+        vistos.append(request)
+        path, metodo = request.url.path, request.method
+        if metodo == "GET" and path == "/v2/profiles":
+            return httpx.Response(200, json=[_PERFIL_M5])
+        if metodo == "PUT":
+            if falla_put:
+                return httpx.Response(400, json={"detail": "INVALID_BID"})
+            body = json.loads(request.content)
+            obj = body["keywords"][0] if "keywords" in body else body["targetingClauses"][0]
+            ext = str(obj.get("keywordId") or obj.get("targetId"))
+            remoto[ext] = obj["bid"]
+            return httpx.Response(207, json={"ack": obj})
+        if metodo == "POST" and path.endswith("/list"):
+            contenedor, campo = (
+                ("targetingClauses", "targetId")
+                if path == "/sp/targets/list"
+                else ("keywords", "keywordId")
+            )
+            filas = [{campo: ext, "bid": bid, "state": "ENABLED"} for ext, bid in remoto.items()]
+            return httpx.Response(200, json={contenedor: filas, "totalResults": len(filas)})
+        raise AssertionError(f"request inesperado: {metodo} {path}")
+
+    return handler, vistos
+
+
+def _creds_m5(monkeypatch) -> None:
+    monkeypatch.setattr(
+        AdsCredentials, "from_secrets_dir", classmethod(lambda cls, *a, **kw: _fake_credentials())
+    )
+
+
+def _ingest_m5(conn) -> int:
+    return conn.execute("INSERT INTO ingest_run (source) VALUES ('m5') RETURNING id").fetchone()[0]
+
+
+def _ciclo_live(conn) -> int:
+    return conn.execute(
+        "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+    ).fetchone()[0]
+
+
+def _aplicada(conn, decision: int, ejecutor: int, confirmado: dt.datetime) -> None:
+    conn.execute(
+        "INSERT INTO decision_application (decision_id, confirmed_at, platform_ack,"
+        " verify_ok, applied_cycle_id) VALUES (%s, %s, %s, true, %s)",
+        (decision, confirmado, Json({"readback": True}), ejecutor),
+    )
+
+
+def _hoja_us(conn, ag: int, external: str, *, bid: str = "6.00") -> int:
+    hoja = _entidad(conn, "keyword", external, parent=ag)
+    conn.execute(
+        "INSERT INTO ad_entity_state (ad_entity_id, current_bid, bid_currency, status,"
+        " synced_at) VALUES (%s, %s, 'USD', 'ENABLED', now())",
+        (hoja, bid),
+    )
+    return hoja
+
+
+def _metrica_m5(conn, ingest: int, hoja: int, fecha: dt.date, *, clics, pedidos, venta) -> None:
+    conn.execute(
+        "INSERT INTO ads_metric_observation (ad_entity_id, metric_date, observed_at,"
+        " metric_currency, cost, ad_revenue, impressions, clicks, orders, ingest_run_id)"
+        " VALUES (%s, %s, %s, 'USD', %s, %s, %s, %s, %s, %s)",
+        (
+            hoja,
+            fecha,
+            dt.datetime(2026, 10, 9, 12, 0, tzinfo=dt.UTC),
+            venta,
+            venta,
+            (clics or 0) * 100 if clics is not None else None,
+            clics,
+            pedidos,
+            ingest,
+        ),
+    )
+
+
+def _danada_m5(conn, ids, hoja: int, ingest: int, *, vieja: str, media: str, nueva: str) -> tuple:
+    """Racha de dos recortes aplicados + metricas de danada (vende 90d
+    previos, clics de hoy < 30 % de los previos). Devuelve (d1, d2)."""
+    ciclo_a = _ciclo_live(conn)
+    ciclo_b = _ciclo_live(conn)
+    d1 = _decision_bid(conn, ciclo_a, ids["config"], hoja, old=vieja, new=media)
+    d2 = _decision_bid(conn, ciclo_b, ids["config"], hoja, old=media, new=nueva)
+    _aplicada(conn, d1, ids["ciclo_ejec"], _R1_M5)
+    _aplicada(conn, d2, ids["ciclo_ejec"], _R2_M5)
+    _metrica_m5(conn, ingest, hoja, dt.date(2026, 9, 10), clics=100, pedidos=0, venta=Decimal("0"))
+    _metrica_m5(
+        conn, ingest, hoja, dt.date(2026, 8, 1), clics=50, pedidos=2, venta=Decimal("90.00")
+    )
+    _metrica_m5(conn, ingest, hoja, dt.date(2026, 10, 1), clics=20, pedidos=0, venta=None)
+    return d1, d2
+
+
+@_skip_db
+def test_regreso_del_dueno_revierte_la_primera_decision_de_la_racha(monkeypatch):
+    """Racha 9.74 -> 5.00 -> 3.73: Amazon recibe 9.74 (el bid anterior a la
+    racha) y v_cambio_bid trae la fila regreso_del_dueno de esa hoja."""
+    with _db_m5("orbit_apply_m5_1") as conn:
+        ids = _semilla(conn)
+        ciclo_a = _ciclo_live(conn)
+        ciclo_b = _ciclo_live(conn)
+        d1 = _decision_bid(conn, ciclo_a, ids["config"], ids["kw"], old="9.74", new="5.00")
+        d2 = _decision_bid(conn, ciclo_b, ids["config"], ids["kw"], old="5.00", new="3.73")
+        _aplicada(conn, d1, ids["ciclo_ejec"], _R1_M5)
+        _aplicada(conn, d2, ids["ciclo_ejec"], _R2_M5)
+        conn.execute(
+            "UPDATE ad_entity_state SET current_bid = 3.73 WHERE ad_entity_id = %s",
+            (ids["kw"],),
+        )
+        handler, vistos = _handler_regreso()
+        _creds_m5(monkeypatch)
+
+        hecho = regreso_del_dueno(
+            conn, hoja_id=ids["kw"], actor="dueno", transport=httpx.MockTransport(handler)
+        )
+
+        puts = _puts(vistos)
+        assert len(puts) == 1
+        body = json.loads(puts[0].content)
+        assert Decimal(str(body["keywords"][0]["bid"])) == Decimal("9.74")
+        assert body["keywords"][0]["keywordId"] == "7201"
+        fila = conn.execute(
+            "SELECT bid_despues, decision_id FROM v_cambio_bid"
+            " WHERE hoja_id = %s AND origen = 'regreso_del_dueno'",
+            (ids["kw"],),
+        ).fetchall()
+        assert fila == [(Decimal("9.74"), d1)]
+        sello = conn.execute(
+            "SELECT finished_at FROM apply_attempt"
+            " WHERE decision_id = %s AND tipo = 'reversa' ORDER BY seq DESC LIMIT 1",
+            (d1,),
+        ).fetchone()[0]
+        assert hecho == RegresoHecho(
+            hoja_id=ids["kw"],
+            bid_antes=Decimal("3.73"),
+            bid_ahora=Decimal("9.74"),
+            moneda="USD",
+            decision_revertida_id=d1,
+            actor="dueno",
+            regreso_confirmado_at=sello.isoformat(),
+        )
+        dict_hecho = hecho.como_dict()
+        assert dict_hecho["bid_ahora"] == "9.74"
+        assert dict_hecho["decision_revertida_id"] == d1
+        json.dumps(dict_hecho)
+
+
+@_skip_db
+def test_regreso_del_dueno_con_vigente_por_encima_no_baja(monkeypatch):
+    """R03-B1: racha 10 -> 8 -> 6 con el vigente en 12 (cambio fuera de
+    Orbit): el regreso NO escribe (bajaria a 10) y levanta
+    VigentePorEncima con cero HTTP."""
+    with _db_m5("orbit_apply_m5_b1") as conn:
+        ids = _semilla(conn)
+        ciclo_a = _ciclo_live(conn)
+        ciclo_b = _ciclo_live(conn)
+        d1 = _decision_bid(conn, ciclo_a, ids["config"], ids["kw"], old="10.00", new="8.00")
+        d2 = _decision_bid(conn, ciclo_b, ids["config"], ids["kw"], old="8.00", new="6.00")
+        _aplicada(conn, d1, ids["ciclo_ejec"], _R1_M5)
+        _aplicada(conn, d2, ids["ciclo_ejec"], _R2_M5)
+        conn.execute(
+            "UPDATE ad_entity_state SET current_bid = 12.00 WHERE ad_entity_id = %s",
+            (ids["kw"],),
+        )
+        handler, vistos = _handler_regreso()
+        _creds_m5(monkeypatch)
+
+        with pytest.raises(VigentePorEncima):
+            regreso_del_dueno(
+                conn, hoja_id=ids["kw"], actor="dueno", transport=httpx.MockTransport(handler)
+            )
+
+        assert vistos == []
+
+
+@_skip_db
+def test_regreso_del_dueno_sin_racha_levanta_sin_tocar_amazon(monkeypatch):
+    """Una subida del motor cierra la racha y una hoja sin cambios no tiene
+    racha: ambas levantan SinRachaDeRecortes con cero HTTP."""
+    with _db_m5("orbit_apply_m5_2") as conn:
+        ids = _semilla(conn)
+        ciclo_a = _ciclo_live(conn)
+        ciclo_b = _ciclo_live(conn)
+        r1 = _decision_bid(conn, ciclo_a, ids["config"], ids["kw"], old="10.00", new="8.00")
+        s1 = _decision_bid(conn, ciclo_b, ids["config"], ids["kw"], old="8.00", new="9.00")
+        _aplicada(conn, r1, ids["ciclo_ejec"], _R1_M5)
+        _aplicada(conn, s1, ids["ciclo_ejec"], _R2_M5)
+        handler, vistos = _handler_regreso()
+        _creds_m5(monkeypatch)
+        transporte = httpx.MockTransport(handler)
+
+        with pytest.raises(SinRachaDeRecortes):
+            regreso_del_dueno(conn, hoja_id=ids["kw"], actor="dueno", transport=transporte)
+        with pytest.raises(SinRachaDeRecortes):
+            regreso_del_dueno(conn, hoja_id=ids["kw2"], actor="dueno", transport=transporte)
+
+        assert vistos == []
+
+
+@_skip_db
+def test_regreso_del_dueno_segundo_regreso_no_reescribe(monkeypatch):
+    """Un segundo regreso sin recortes nuevos levanta SinRachaDeRecortes
+    (la racha de la accion corta en el ultimo regreso: queda vacia) y el
+    transporte falso no recibe otra llamada (un solo PUT). En el endpoint
+    sigue siendo 409, como la ReversaYaHecha de antes."""
+    with _db_m5("orbit_apply_m5_3") as conn:
+        ids = _semilla(conn)
+        ciclo_a = _ciclo_live(conn)
+        d1 = _decision_bid(conn, ciclo_a, ids["config"], ids["kw"], old="9.74", new="5.00")
+        _aplicada(conn, d1, ids["ciclo_ejec"], _R1_M5)
+        handler, vistos = _handler_regreso()
+        _creds_m5(monkeypatch)
+        transporte = httpx.MockTransport(handler)
+
+        regreso_del_dueno(conn, hoja_id=ids["kw"], actor="dueno", transport=transporte)
+        with pytest.raises(SinRachaDeRecortes):
+            regreso_del_dueno(conn, hoja_id=ids["kw"], actor="dueno", transport=transporte)
+
+        assert len(_puts(vistos)) == 1
+
+
+@_skip_db
+def test_regreso_del_dueno_tras_recorte_nuevo_revierte_el_recorte_nuevo(monkeypatch):
+    """R03-F5: regreso -> recorte nuevo -> regreso: el segundo regreso
+    revierte el recorte NUEVO (la racha de la accion corta en el ultimo
+    regreso), no la decision ya revertida (antes: ReversaYaHecha/409
+    permanente con boton visible)."""
+    with _db_m5("orbit_apply_m5_7") as conn:
+        ids = _semilla(conn)
+        ciclo_a = _ciclo_live(conn)
+        d1 = _decision_bid(conn, ciclo_a, ids["config"], ids["kw"], old="9.74", new="5.00")
+        _aplicada(conn, d1, ids["ciclo_ejec"], _R1_M5)
+        handler, vistos = _handler_regreso()
+        _creds_m5(monkeypatch)
+        transporte = httpx.MockTransport(handler)
+
+        primero = regreso_del_dueno(conn, hoja_id=ids["kw"], actor="dueno", transport=transporte)
+        assert primero.decision_revertida_id == d1
+        regreso_el = conn.execute(
+            "SELECT confirmado_el FROM v_cambio_bid"
+            " WHERE hoja_id = %s AND origen = 'regreso_del_dueno'",
+            (ids["kw"],),
+        ).fetchone()[0]
+        ciclo_c = _ciclo_live(conn)
+        d2 = _decision_bid(conn, ciclo_c, ids["config"], ids["kw"], old="9.74", new="7.00")
+        _aplicada(conn, d2, ids["ciclo_ejec"], regreso_el + dt.timedelta(seconds=1))
+        conn.execute(
+            "UPDATE ad_entity_state SET current_bid = 7.00 WHERE ad_entity_id = %s",
+            (ids["kw"],),
+        )
+
+        segundo = regreso_del_dueno(conn, hoja_id=ids["kw"], actor="dueno", transport=transporte)
+
+        assert segundo.decision_revertida_id == d2
+        assert segundo.bid_antes == Decimal("7.00")
+        assert segundo.bid_ahora == Decimal("9.74")
+        puts = _puts(vistos)
+        assert len(puts) == 2
+        assert Decimal(str(json.loads(puts[1].content)["keywords"][0]["bid"])) == Decimal("9.74")
+
+
+@_skip_db
+def test_regreso_del_dueno_sin_confirmar_levanta_con_el_motivo(monkeypatch):
+    """PUT 400: la reversa queda sellada como fallo, no nace fila en la
+    vista y el regreso levanta RegresoNoConfirmado con el motivo."""
+    with _db_m5("orbit_apply_m5_4") as conn:
+        ids = _semilla(conn)
+        ciclo_a = _ciclo_live(conn)
+        d1 = _decision_bid(conn, ciclo_a, ids["config"], ids["kw"], old="9.74", new="5.00")
+        _aplicada(conn, d1, ids["ciclo_ejec"], _R1_M5)
+        handler, _vistos = _handler_regreso(falla_put=True)
+        _creds_m5(monkeypatch)
+
+        with pytest.raises(RegresoNoConfirmado) as exc:
+            regreso_del_dueno(
+                conn, hoja_id=ids["kw"], actor="dueno", transport=httpx.MockTransport(handler)
+            )
+
+        assert "400" in str(exc.value)
+        filas = conn.execute(
+            "SELECT count(*) FROM v_cambio_bid WHERE hoja_id = %s AND origen = 'regreso_del_dueno'",
+            (ids["kw"],),
+        ).fetchone()[0]
+        assert filas == 0
+
+
+@_skip_db
+def test_regreso_del_dueno_todas_con_n_viejo_no_escribe(monkeypatch):
+    """Seis hojas pendientes y confirmacion REGRESAR 5 KEYWORDS: 409
+    (ConfirmacionDesactualizada con el N vigente) y cero HTTP."""
+    with _db_m5("orbit_apply_m5_5") as conn:
+        ids = _semilla(conn)
+        ingest = _ingest_m5(conn)
+        hojas = [ids["kw"], ids["kw2"]] + [
+            _hoja_us(conn, ids["ag"], f"73{i:02d}") for i in range(4)
+        ]
+        for hoja in hojas:
+            _danada_m5(conn, ids, hoja, ingest, vieja="10.00", media="8.00", nueva="6.00")
+        _metrica_m5(conn, ingest, hojas[0], dt.date(2026, 10, 9), clics=0, pedidos=0, venta=None)
+        handler, vistos = _handler_regreso()
+        _creds_m5(monkeypatch)
+
+        with pytest.raises(ConfirmacionDesactualizada) as exc:
+            regreso_del_dueno_todas(
+                conn,
+                plataforma="amazon_us",
+                confirmacion="REGRESAR 5 KEYWORDS",
+                actor="dueno",
+                transport=httpx.MockTransport(handler),
+            )
+
+        assert "REGRESAR 6 KEYWORDS" in str(exc.value)
+        assert vistos == []
+        assert conn.execute("SELECT count(*) FROM apply_attempt").fetchone()[0] == 0
+
+
+@_skip_db
+def test_regreso_del_dueno_todas_una_falla_no_detiene_a_las_demas(monkeypatch):
+    """Dos pendientes: la revertida al instante del ultimo recorte falla
+    sin racha vigente (el regreso empata al recorte: no es posterior) y
+    la otra se regresa (un PUT con su bid)."""
+    with _db_m5("orbit_apply_m5_6") as conn:
+        ids = _semilla(conn)
+        ingest = _ingest_m5(conn)
+        hoja_a = ids["kw"]
+        hoja_b = ids["kw2"]
+        _d1_a, d2_a = _danada_m5(
+            conn, ids, hoja_a, ingest, vieja="10.00", media="8.00", nueva="6.00"
+        )
+        conn.execute(
+            "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload,"
+            " quota_cobrada, resultado, finished_at)"
+            " VALUES (%s, 1, 'reversa', %s, false, 'ok', %s)",
+            (d2_a, Json({"bid": "viejo"}), _R2_M5),
+        )
+        _danada_m5(conn, ids, hoja_b, ingest, vieja="12.00", media="9.00", nueva="7.00")
+        _metrica_m5(conn, ingest, hoja_a, dt.date(2026, 10, 9), clics=0, pedidos=0, venta=None)
+        handler, vistos = _handler_regreso()
+        _creds_m5(monkeypatch)
+
+        resultado = regreso_del_dueno_todas(
+            conn,
+            plataforma="amazon_us",
+            confirmacion="REGRESAR 2 KEYWORDS",
+            actor="dueno",
+            transport=httpx.MockTransport(handler),
+        )
+
+        hechos = [r for r in resultado if isinstance(r, RegresoHecho)]
+        motivos = [r for r in resultado if isinstance(r, str)]
+        assert len(hechos) == 1 and len(motivos) == 1
+        assert hechos[0].hoja_id == hoja_b
+        assert hechos[0].bid_ahora == Decimal("12.00")
+        assert f"hoja {hoja_a}" in motivos[0]
+        assert "no tiene racha vigente de recortes" in motivos[0]
+        puts = _puts(vistos)
+        assert len(puts) == 1
+        body = json.loads(puts[0].content)
+        assert Decimal(str(body["keywords"][0]["bid"])) == Decimal("12.00")

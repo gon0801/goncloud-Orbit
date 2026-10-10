@@ -21,6 +21,7 @@ from test_cycle import (
     _entidad,
     _estado,
     _goal_plataforma,
+    _goal_plataforma_sin_target,
     _metrica,
     _obs,
     _rango,
@@ -50,62 +51,22 @@ def _hoja_nueva(conn, run_id, *, camp_ext, ag_ext, kw_ext, texto) -> int:
 
 
 def _siembra_hoja_sin_banda(conn, run_id) -> int:
-    """Ventana de bids con ACoS 24% (cost 23.40 / revenue 97.50, entre 0.85x y
-    1.15x del target 25) -> sin banda -> NO-OP sin decision; la de cortes
-    lleva 9 ordenes -> sin pause."""
+    """M.3: hoja no-op de niveles_v3 (servida pero sin gasto: 1 fila el
+    08-10 con 5 impresiones y ceros) -> sin_gasto sin decision; no es
+    inerte (tiene impresion en 14d) y llega al calculo del target."""
     kw = _hoja_nueva(conn, run_id, camp_ext="9301", ag_ext="9311", kw_ext="9321", texto="kw noop")
-    for fecha in _rango(dt.date(2026, 7, 14), dt.date(2026, 7, 17)):
-        _metrica(
-            conn,
-            run_id,
-            kw,
-            fecha,
-            _obs(fecha),
-            cost="0.25",
-            ad_revenue="1.00",
-            clicks=0,
-            orders=1,
-            impressions=10,
-        )
-    for i, fecha in enumerate(_rango(dt.date(2026, 7, 18), dt.date(2026, 8, 12))):
-        _metrica(
-            conn,
-            run_id,
-            kw,
-            fecha,
-            _obs(fecha),
-            cost="0.80",
-            ad_revenue="2.50",
-            clicks=1,
-            orders=1 if i < 5 else 0,
-            impressions=10,
-        )
-    for fecha in _rango(dt.date(2026, 8, 13), dt.date(2026, 8, 16)):
-        _metrica(
-            conn,
-            run_id,
-            kw,
-            fecha,
-            _obs(fecha),
-            cost="0.85",
-            ad_revenue="8.75",
-            clicks=6,
-            orders=0,
-            impressions=60,
-        )
-    for fecha in _rango(dt.date(2026, 8, 17), dt.date(2026, 8, 19)):
-        _metrica(
-            conn,
-            run_id,
-            kw,
-            fecha,
-            _obs(fecha),
-            cost="0.10",
-            ad_revenue="0.10",
-            clicks=1,
-            orders=0,
-            impressions=10,
-        )
+    _metrica(
+        conn,
+        run_id,
+        kw,
+        dt.date(2026, 8, 10),
+        _obs(dt.date(2026, 8, 10)),
+        cost="0",
+        ad_revenue="0",
+        clicks=0,
+        orders=0,
+        impressions=5,
+    )
     return kw
 
 
@@ -152,12 +113,38 @@ def _siembra_hoja_en_cooldown(conn, run_id, config_id: int) -> int:
     return kw
 
 
+def _relleno_calendario(conn, run_id, ag) -> int:
+    """M.3: keyword PAUSED con ceros 05-24..08-21 para que el calendario de
+    ingesta quede completo (los tramos de niveles_v3 lo exigen)."""
+    relleno = _entidad(
+        conn,
+        "amazon_us",
+        "keyword",
+        "9999",
+        parent=ag,
+        match_type="EXACT",
+        keyword_text="relleno",
+    )
+    _estado(conn, relleno, synced_at=_SYNCED, status="PAUSED")
+    for fecha in _rango(dt.date(2026, 5, 24), dt.date(2026, 8, 21)):
+        _metrica(
+            conn, run_id, relleno, fecha, _obs(fecha), cost="0", ad_revenue="0", clicks=0, orders=0
+        )
+    return relleno
+
+
 def _siembra_c2a(conn) -> dict:
     """Maestra del golden con el flag B.2a encendido + las dos hojas extra
-    (no-op y cooldown) en campanias propias."""
+    (no-op y cooldown) en campanias propias. M.3: politica niveles_v3 +
+    relleno de calendario."""
     run_id = _run(conn)
     config_id = _config_version(
-        conn, {"ads_optimizer_mode": "shadow", "ads_pause_sin_cooldown_bid": True}
+        conn,
+        {
+            "ads_optimizer_mode": "shadow",
+            "ads_pause_sin_cooldown_bid": True,
+            "ads_bid_politica_amazon_us": "niveles_v3",
+        },
     )
     _goal_plataforma(conn)
     camp = _entidad(conn, "amazon_us", "campaign", "9001")
@@ -175,6 +162,7 @@ def _siembra_c2a(conn) -> dict:
     _siembra_kw_bid(conn, run_id, kw_bid)
     _siembra_kw_pause(conn, run_id, kw_pause)
     _siembra_terminos(conn, run_id, ag)
+    _relleno_calendario(conn, run_id, ag)
     kw_noop = _siembra_hoja_sin_banda(conn, run_id)
     kw_cooldown = _siembra_hoja_en_cooldown(conn, run_id, config_id)
     return {
@@ -211,7 +199,7 @@ def test_noop_y_cooldown_dejan_su_fila_de_target():
 
         assert res.status == "done"
         notas = json.loads(res.notes)
-        assert notas["skips"]["entidad"]["sin_banda"] == 1
+        assert notas["skips"]["entidad"]["sin_gasto"] == 1
         assert notas["skips"]["entidad"]["cooldown_7d"] == 1
 
         decisiones = {(fila[0], fila[1]) for fila in _decisions_de(conn, res.cycle_id)}
@@ -252,6 +240,75 @@ def test_inputs_target_usado_coincide_con_la_tabla():
             _ent, _decided, target, procedencia = por[entidad_id]
             assert Decimal(inputs["target_acos_pct_usado"]) == target, kind
             assert inputs["target_procedencia"] == procedencia, kind
+
+
+def _siembra_sin_target(conn) -> dict:
+    """Config sin target ni fraccion + goal de plataforma vivo SIN target +
+    una hoja que decidiria bid con target y su grupo con terminos. Sin
+    peldano que resuelva (T.1 retiro cache y default): la hoja y el grupo
+    se saltan con sin_target."""
+    run_id = _run(conn)
+    config_id = _config_version(conn, {"ads_optimizer_mode": "shadow"})
+    _goal_plataforma_sin_target(conn)
+    camp = _entidad(conn, "amazon_us", "campaign", "9501")
+    ag = _entidad(conn, "amazon_us", "ad_group", "9511", parent=camp)
+    kw = _entidad(
+        conn,
+        "amazon_us",
+        "keyword",
+        "9521",
+        parent=ag,
+        match_type="EXACT",
+        keyword_text="kw sintarget",
+    )
+    _estado(conn, kw, synced_at=_SYNCED, current_bid=Decimal("1.00"), bid_currency="USD")
+    _estado(conn, ag, synced_at=_SYNCED)
+    _estado(conn, camp, synced_at=_SYNCED)
+    _siembra_kw_bid(conn, run_id, kw)
+    _siembra_terminos(conn, run_id, ag)
+    return {"config_id": config_id, "kw": kw, "ag": ag}
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_hoja_sin_target_se_salta_sin_decision_ni_fila():
+    """T.1 (BIDS 02 s2): sin target en ningun peldano, la hoja se cuenta
+    con sin_target y regresa ANTES del freeze: no deja decision ni fila
+    en target_acos_ciclo. notes.target declara paso_politica asimetrico_v1."""
+    with _db_temporal("orbit_c2a_sintarget") as (conn, _c):
+        _siembra_sin_target(conn)
+        res = _corre(conn)
+
+        assert res.status == "done", res.notes
+        notas = json.loads(res.notes)
+        assert notas["skips"]["entidad"] == {"sin_target": 1}
+        assert notas["target"]["paso_politica"] == "asimetrico_v1"
+
+        decisiones = _decisions_de(conn, res.cycle_id)
+        assert [fila for fila in decisiones if fila[1] in ("bid", "pause")] == []
+        assert _targets_de(conn, res.cycle_id) == {}
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_grupo_terminos_sin_target_se_salta():
+    """T.1 (BIDS 02 s2): el ad group de terminos sin target se cuenta con
+    sin_target (sus 7 terminos) y no deja decisiones de negative ni
+    harvest."""
+    with _db_temporal("orbit_c2a_sintarget_g") as (conn, _c):
+        _siembra_sin_target(conn)
+        res = _corre(conn)
+
+        assert res.status == "done", res.notes
+        notas = json.loads(res.notes)
+        assert notas["skips"]["termino"] == {"sin_target": 7}
+
+        decisiones = _decisions_de(conn, res.cycle_id)
+        assert [fila for fila in decisiones if fila[1] in ("negative", "harvest")] == []
 
 
 # ---------------------------------------------------------------------------
@@ -342,6 +399,24 @@ def _ledger_ventas(
     )
 
 
+def _metrica_r9(conn, run_id, kw) -> None:
+    """M.3: metricas R9 (0 pedidos, 41 USD, 10 clics en el tramo reciente
+    07-03..08-12) -> la hoja emite bid -12 % bajo niveles_v3."""
+    for i, fecha in enumerate(_rango(dt.date(2026, 7, 3), dt.date(2026, 8, 12))):
+        _metrica(
+            conn,
+            run_id,
+            kw,
+            fecha,
+            _obs(fecha),
+            cost="1.00",
+            ad_revenue="0",
+            clicks=1 if i < 10 else 0,
+            orders=0,
+            impressions=10,
+        )
+
+
 def _mundo_familia(
     conn, *, margen_familia=20, dias=40, mezcla=False, sin_costos=False, suelto_dias=0
 ):
@@ -357,6 +432,7 @@ def _mundo_familia(
             "ads_optimizer_mode": "shadow",
             "ads_target_acos_pct_amazon_us": 30,
             "ads_target_fraccion_margen_amazon_us": "0.5",
+            "ads_bid_politica_amazon_us": "niveles_v3",
         },
     )
     conn.execute(
@@ -374,7 +450,8 @@ def _mundo_familia(
     _estado(conn, kw, synced_at=_SYNCED, current_bid=Decimal("1.00"), bid_currency="USD")
     _estado(conn, ag, synced_at=_SYNCED)
     _estado(conn, camp, synced_at=_SYNCED)
-    _siembra_kw_bid(conn, run_id, kw)
+    _metrica_r9(conn, run_id, kw)
+    _relleno_calendario(conn, run_id, ag)
     hoy = conn.execute("SELECT CURRENT_DATE").fetchone()[0]
     costo = None if sin_costos else 100 - margen_familia - 10
     pid, lid = _producto_con_listing(conn, "SKU-FAM")
@@ -444,111 +521,12 @@ def test_mezcla_dos_familias_cae_a_plataforma():
         assert por[ids["kw"]][3] == "margen_plataforma"
 
 
-def _mundo_evidencia_familia(conn, *, mezcla=False):
-    """Dos keywords hermanas en campana NO fabrica (sin slug) con product
-    ads etiquetados; mezcla=True anuncia dos familias y agrega una campana
-    vecina etiquetada (la mezcla no debe tomar su familia). Sin ledger: el
-    target viene del goal de plataforma y la previa solo necesita metricas."""
-    run_id = _run(conn)
-    _config_version(conn, {"ads_optimizer_mode": "shadow"})
-    _goal_plataforma(conn)
-    camp = _entidad(conn, "amazon_us", "campaign", "9501")
-    ag = _entidad(conn, "amazon_us", "ad_group", "9502", parent=camp)
-    kws = []
-    for n, ext in enumerate(("9503", "9504")):
-        kw = _entidad(
-            conn,
-            "amazon_us",
-            "keyword",
-            ext,
-            parent=ag,
-            match_type="EXACT",
-            keyword_text=f"kw ev{n}",
-        )
-        _estado(conn, kw, synced_at=_SYNCED, current_bid=Decimal("1.00"), bid_currency="USD")
-        _siembra_kw_bid(conn, run_id, kw)
-        kws.append(kw)
-    _estado(conn, ag, synced_at=_SYNCED)
-    _estado(conn, camp, synced_at=_SYNCED)
-    pid, lid = _producto_con_listing(conn, "SKU-EV")
-    fid = _familia(conn, "Evidencia", "evidencia")
-    _etiqueta(conn, pid, fid)
-    _product_ad(conn, ag, lid, "PA-EV1")
-    vecina = None
-    if mezcla:
-        pid2, lid2 = _producto_con_listing(conn, "SKU-EV2")
-        fid2 = _familia(conn, "Otra ev", "otra_ev")
-        _etiqueta(conn, pid2, fid2)
-        _product_ad(conn, ag, lid2, "PA-EV2")
-        camp2 = _entidad(conn, "amazon_us", "campaign", "9505")
-        ag2 = _entidad(conn, "amazon_us", "ad_group", "9506", parent=camp2)
-        vecina = _entidad(
-            conn,
-            "amazon_us",
-            "keyword",
-            "9507",
-            parent=ag2,
-            match_type="EXACT",
-            keyword_text="kw vecina",
-        )
-        _estado(conn, vecina, synced_at=_SYNCED, current_bid=Decimal("1.00"), bid_currency="USD")
-        _estado(conn, ag2, synced_at=_SYNCED)
-        _estado(conn, camp2, synced_at=_SYNCED)
-        _siembra_kw_bid(conn, run_id, vecina)
-        pid3, lid3 = _producto_con_listing(conn, "SKU-EV3")
-        _etiqueta(conn, pid3, fid)
-        _product_ad(conn, ag2, lid3, "PA-EV3")
-    return {"kws": kws, "familia": fid, "vecina": vecina}
-
-
-@pytest.mark.skipif(
-    _postgres_obligatorio_ausente(),
-    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
-)
-def test_evidencia_hereda_familia_etiquetada_sin_slug():
-    """A7 B1: hoja de campana no-fabrica con productos etiquetados (sin
-    slug): su previa trae el nivel familia con la hermana como evidencia
-    (LOO deja al hermano; con un solo kw la resta vaciaria el nivel)."""
-    with _db_temporal("orbit_c5_evmap") as (conn, _c):
-        ids = _mundo_evidencia_familia(conn)
-        res = _corre(conn)
-        assert res.status == "done", res.notes
-        decisiones = {
-            fila[0]: fila[9] for fila in _decisions_de(conn, res.cycle_id) if fila[1] == "bid"
-        }
-        assert set(decisiones) == set(ids["kws"])
-        for kw in ids["kws"]:
-            previa = decisiones[kw]["evidencia_v2"]["previa"]
-            assert previa is not None
-            assert previa["familia_id"] == ids["familia"]
-            assert "familia" in previa["niveles"]
-
-
-@pytest.mark.skipif(
-    _postgres_obligatorio_ausente(),
-    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
-)
-def test_evidencia_mezcla_dos_familias_sin_nivel():
-    """A7 B1: campana que anuncia dos familias: familia efectiva None y la
-    previa de sus hojas no trae nivel familia (plataforma si, del hermano);
-    la vecina etiquetada si resuelve su familia (la mezcla no la toma)."""
-    with _db_temporal("orbit_c5_evmez") as (conn, _c):
-        ids = _mundo_evidencia_familia(conn, mezcla=True)
-        res = _corre(conn)
-        assert res.status == "done", res.notes
-        decisiones = {
-            fila[0]: fila[9] for fila in _decisions_de(conn, res.cycle_id) if fila[1] == "bid"
-        }
-        assert set(decisiones) == set(ids["kws"]) | {ids["vecina"]}
-        for kw in ids["kws"]:
-            previa = decisiones[kw]["evidencia_v2"]["previa"]
-            assert previa is not None
-            assert previa["familia_id"] is None
-            assert "familia" not in previa["niveles"]
-        previa_vecina = decisiones[ids["vecina"]]["evidencia_v2"]["previa"]
-        assert previa_vecina["familia_id"] == ids["familia"]
-        # unica aportante de su familia: el LOO vacia el nivel pero el mapeo queda
-        assert "familia" not in previa_vecina["niveles"]
+# M.3 (cambio 7, borrado.md fila roll-up familia): retirados
+# _mundo_evidencia_familia + test_evidencia_hereda_familia_etiquetada_sin_slug
+# + test_evidencia_mezcla_dos_familias_sin_nivel. Verificaban
+# inputs["evidencia_v2"]["previa"] con nivel familia; el ciclo ya no congela
+# evidencia_v2 y la previa nueva es de dos niveles (cuenta + resto del ad
+# group) y solo frena subidas: no hay contraparte a la que mudarlos.
 
 
 @pytest.mark.skipif(
@@ -627,6 +605,7 @@ def test_subfamilia_10_dias_gobierna_padre():
                 "ads_optimizer_mode": "shadow",
                 "ads_target_acos_pct_amazon_us": 30,
                 "ads_target_fraccion_margen_amazon_us": "0.5",
+                "ads_bid_politica_amazon_us": "niveles_v3",
             },
         )
         conn.execute(
@@ -650,7 +629,8 @@ def test_subfamilia_10_dias_gobierna_padre():
         _estado(conn, kw, synced_at=_SYNCED, current_bid=Decimal("1.00"), bid_currency="USD")
         _estado(conn, ag, synced_at=_SYNCED)
         _estado(conn, camp, synced_at=_SYNCED)
-        _siembra_kw_bid(conn, run_id, kw)
+        _metrica_r9(conn, run_id, kw)
+        _relleno_calendario(conn, run_id, ag)
         hoy = conn.execute("SELECT CURRENT_DATE").fetchone()[0]
         # Padre con 40 días al 40 % + sub con 10 días (no mide).
         pid_padre, _l0 = _producto_con_listing(conn, "SKU-PADRE")
@@ -1129,8 +1109,9 @@ def test_padre_solo_reintento_si_hija_abstiene():
 def test_pin1_previo_ajeno_lejos_camina_desde_el():
     """A7 Pin1: hoja con previo de OTRO peldano (goal 18, a >0.5 del
     destino 30) + familia vigente (derivado 20): el goal se remueve y la
-    hoja camina desde SU numero (18 -> 18.5, ancla sin filtro B-F9), no
-    desde el destino (desde 30 daria 29.5)."""
+    hoja parte de SU numero (18 -> 20 de una vez con el paso asimetrico
+    T.1, ancla sin filtro B-F9), no desde el destino (desde 30 daria
+    29.5)."""
     with _db_temporal("orbit_c5_pin1") as (conn, _c):
         ids = _mundo_familia(conn, margen_familia=40)
         camp = conn.execute(
@@ -1151,4 +1132,4 @@ def test_pin1_previo_ajeno_lejos_camina_desde_el():
         r2 = _corre(conn)
         assert r2.status == "done", r2.notes
         t2 = _targets_de(conn, r2.cycle_id)[ids["kw"]]
-        assert (t2[2], t2[3]) == (Decimal("18.5"), "margen_familia")
+        assert (t2[2], t2[3]) == (Decimal("20"), "margen_familia")

@@ -59,12 +59,15 @@ from test_cycle import (
     SQL15,
     SQL40,
     SQL42,
+    SQL60,
     _config_version,
     _entidad,
     _estado,
     _metrica,
     _rango,
-    _siembra_maestra,
+)
+from test_cycle import (
+    _siembra_maestra as _maestra_v1,
 )
 from test_schema import SQL, SQL2, SQL3, _postgres_obligatorio_ausente, _test_dsn
 
@@ -192,6 +195,7 @@ def _db_temporal(prefijo: str):
         conn.execute(SQL47)  # 0047 (A4): familia en TX2
         conn.execute(SQL4)  # 0004 (A5): kind 'product_ad' en TX2
         conn.execute(SQL48)  # 0048 (A5): v_margen_familia en TX2
+        conn.execute(SQL60)  # 0060 (M.3): v_hoja_activa/v_cambio_bid/v_metric_latest
         yield conn, conectar_extra
     finally:
         if conn is not None:
@@ -210,17 +214,46 @@ def _db_temporal(prefijo: str):
 def _config_live_caps(conn, *, escalera: str = "live") -> int:
     """Config MAS RECIENTE que la de _siembra_maestra (gana por id DESC) con
     la escalera y los caps del dia: sin cap de bid, consume_quota fail-closed
-    y el E2E no aplicaria nada."""
+    y el E2E no aplicaria nada. M.3: trae la politica (la config es
+    reemplazo total, no merge)."""
     return _config_version(
         conn,
         {
             "ads_optimizer_mode": escalera,
+            "ads_bid_politica_amazon_us": "niveles_v3",
             "ads_apply_cap_amazon_us_bid": 10,
             "ads_apply_cap_amazon_us_pause": 2,
             "ads_apply_cap_amazon_us_negative": 5,
             "ads_apply_cap_amazon_us_harvest": 2,
         },
     )
+
+
+def _siembra_maestra(conn, *, escalera: str = "shadow") -> dict:
+    """M.3: la maestra de bandas + politica niveles_v3 + relleno de
+    calendario 05-24..08-21 (keyword PAUSED con ceros, no decide). Con el
+    calendario completo la kw 9201 emite bid 1.00 -> 0.88
+    (grupo_sangra_vendedora, -12 %); los cortes quedan intactos."""
+    ids = _maestra_v1(
+        conn, escalera=escalera, settings={"ads_bid_politica_amazon_us": "niveles_v3"}
+    )
+    run_id = conn.execute("SELECT id FROM ingest_run LIMIT 1").fetchone()[0]
+    relleno = _entidad(
+        conn,
+        "amazon_us",
+        "keyword",
+        "9999",
+        parent=ids["ag"],
+        match_type="EXACT",
+        keyword_text="relleno",
+    )
+    _estado(conn, relleno, synced_at=DECIDED_AT - dt.timedelta(hours=4), status="PAUSED")
+    for fecha in _rango(dt.date(2026, 5, 24), dt.date(2026, 8, 21)):
+        _metrica(
+            conn, run_id, relleno, fecha, _obs(fecha), cost="0", ad_revenue="0", clicks=0, orders=0
+        )
+    ids["relleno"] = relleno
+    return ids
 
 
 def _obs(fecha: dt.date) -> dt.datetime:
@@ -230,57 +263,20 @@ def _obs(fecha: dt.date) -> dt.datetime:
 
 def _siembra_kw2_bid_puro(conn, run_id, kw2) -> None:
     """Segunda keyword 100% BID en su PROPIO campaign/ad_group (no toca la
-    evidencia del grupo maestro): la ventana de CORTES queda en clicks 0
-    (jamas pause) y la de BIDS conserva la hemorragia 36/100/orders 1 ->
-    banda -25, mismo golden 1.00 -> 0.75."""
-    for fecha in _rango(dt.date(2026, 7, 14), dt.date(2026, 7, 17)):
+    evidencia del grupo maestro). M.3: R9 doble bajo niveles_v3 (0 pedidos
+    y 73.80 USD en el tramo reciente 07-03..08-12, 10 clics bajo el umbral
+    de pause) -> recorte -25 %, mismo golden 1.00 -> 0.75. Sin filas en
+    08-13..08-21 (inmaduros 0; el calendario lo cubre el relleno)."""
+    for i, fecha in enumerate(_rango(dt.date(2026, 7, 3), dt.date(2026, 8, 12))):
         _metrica(
             conn,
             run_id,
             kw2,
             fecha,
             _obs(fecha),
-            cost="0.25",
-            ad_revenue="0.50",
-            clicks=0,
-            orders=0,
-        )
-    for i, fecha in enumerate(_rango(dt.date(2026, 7, 18), dt.date(2026, 8, 12))):
-        _metrica(
-            conn,
-            run_id,
-            kw2,
-            fecha,
-            _obs(fecha),
-            cost="1.00",
-            ad_revenue="2.50",
-            clicks=0,
-            orders=1 if i == 0 else 0,
-        )
-    for fecha in _rango(dt.date(2026, 8, 13), dt.date(2026, 8, 16)):
-        _metrica(
-            conn,
-            run_id,
-            kw2,
-            fecha,
-            _obs(fecha),
-            cost="2.50",
-            ad_revenue="8.75",
-            clicks=6,
-            orders=0,
-            # BIDS 01: hoja servida -> impressions reales (espera un bid).
-            impressions=60,
-        )
-    for fecha in _rango(dt.date(2026, 8, 17), dt.date(2026, 8, 19)):
-        _metrica(
-            conn,
-            run_id,
-            kw2,
-            fecha,
-            _obs(fecha),
-            cost="0.10",
-            ad_revenue="0.10",
-            clicks=1,
+            cost="1.80",
+            ad_revenue="0",
+            clicks=1 if i < 10 else 0,
             orders=0,
             impressions=10,
         )
@@ -419,7 +415,7 @@ def test_zombie_y_sucesor_concurrentes_solo_uno_muta(secrets_falsos):
     with _db_temporal("orbit_cyc_zombie") as (conn, _c):
         _siembra_maestra(conn, escalera="live")
         _config_live_caps(conn)
-        handler, vistos = _handler({"9201": "0.75", "9203": "0.75"})
+        handler, vistos = _handler({"9201": "0.88", "9203": "0.75"})
 
         def fabrica_zombie(conn, **kwargs):
             # El zombie pierde el lease MIENTRAS corre (sucesor reclamo el
@@ -474,7 +470,7 @@ def test_zombie_y_sucesor_concurrentes_solo_uno_muta(secrets_falsos):
         assert notas_s["apply"]["cortes_encolados"] == {"live": 0, "shadow": 0, "choques": 0}
         # ADV-04: el rastro del zombie (ledger sin sello, su PUT jamas salio)
         # lo cierra el reconciliador de bids del sucesor — el mock de Amazon
-        # ya tenia 0.75, el GET fresco CONFIRMA sin nuevo HTTP de mutacion.
+        # ya tenia 0.88, el GET fresco CONFIRMA sin nuevo HTTP de mutacion.
         assert notas_s["apply"]["bids_reconciliados"] == {"confirmados": 1, "fallidos": 0}
         assert (
             conn.execute(
@@ -516,7 +512,7 @@ def test_lease_perdido_a_medida_aborta_sin_http(secrets_falsos):
                     (JOB_KEY,),
                 )
 
-        handler, vistos = _handler({"9201": "0.75", "9203": "0.75"}, al_request=al_request)
+        handler, vistos = _handler({"9201": "0.88", "9203": "0.75"}, al_request=al_request)
         res = _corre(conn, factory=_fabrica_real_mock(handler))
 
         assert res.status == "degraded"
@@ -561,7 +557,7 @@ def test_lock_se_libera_despues_del_apply(secrets_falsos):
             ).fetchone()
             vigilados.append(fila[0] if fila is not None else None)
 
-        handler, vistos = _handler({"9201": "0.75"}, al_request=al_request)
+        handler, vistos = _handler({"9201": "0.88"}, al_request=al_request)
         res = _corre(conn, factory=_fabrica_real_mock(handler))
         extra.close()
 
@@ -653,7 +649,7 @@ def test_e2e_live_bids_aplicados_y_cortes_encolados(secrets_falsos):
     with _db_temporal("orbit_cyc_e2e") as (conn, _c):
         ids = _siembra_maestra(conn, escalera="live")
         _config_live_caps(conn)
-        handler, vistos = _handler({"9201": "0.75"})
+        handler, vistos = _handler({"9201": "0.88"})
         res = _corre(conn, factory=_fabrica_real_mock(handler))
 
         assert res.status == "done"
@@ -666,7 +662,7 @@ def test_e2e_live_bids_aplicados_y_cortes_encolados(secrets_falsos):
         # UNA mutacion + UN readback (token, /v2/profiles y /list no son
         # mutaciones); el PUT viaja en el contenedor con bid NUMERO (probe 2.5)
         assert [json.loads(p.content) for p in _puts(vistos)] == [
-            {"keywords": [{"keywordId": "9201", "bid": 0.75}]}
+            {"keywords": [{"keywordId": "9201", "bid": 0.88}]}
         ]
         assert (
             conn.execute("SELECT count(*) FROM apply_attempt WHERE resultado = 'ok'").fetchone()[0]
@@ -690,7 +686,7 @@ def test_e2e_live_bids_aplicados_y_cortes_encolados(secrets_falsos):
         assert conn.execute(
             "SELECT current_bid FROM ad_entity_state WHERE ad_entity_id = %s",
             (ids["kw_bid"],),
-        ).fetchone()[0] == Decimal("0.75")
+        ).fetchone()[0] == Decimal("0.88")
         dec = conn.execute(
             "SELECT id FROM decision WHERE cycle_id = %s AND kind = 'bid'", (res.cycle_id,)
         ).fetchone()[0]
@@ -713,7 +709,7 @@ def test_envelope_live_goal_shadow_no_aplica_ni_encola_live(secrets_falsos):
         ids = _siembra_maestra(conn, escalera="live")
         _config_live_caps(conn)
         conn.execute("UPDATE ads_optimizer_goal SET mode = 'shadow'")  # goal shadow, envelope live
-        handler, vistos = _handler({"9201": "0.75"})
+        handler, vistos = _handler({"9201": "0.88"})
         res = _corre(conn, factory=_fabrica_real_mock(handler))
 
         assert res.status == "done"
@@ -1128,7 +1124,7 @@ def test_envelope_live_goal_shadow_registra_modo_no_live(secrets_falsos):
         _siembra_maestra(conn, escalera="live")
         _config_live_caps(conn)
         conn.execute("UPDATE ads_optimizer_goal SET mode = 'shadow'")
-        handler, vistos = _handler({"9201": "0.75"})
+        handler, vistos = _handler({"9201": "0.88"})
         res = _corre(conn, factory=_fabrica_real_mock(handler))
 
         assert res.status == "done"

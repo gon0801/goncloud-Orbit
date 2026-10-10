@@ -2281,3 +2281,33 @@ def test_candado_imports_jev_caza_fuga_sembrada(tmp_path):
         "app/otro.py: app.jev_asesor",
         "app/otro.py: app.jev_asesor.AsesorAds",
     ]
+
+
+# ---------------------------------------------------------------------------
+# BIDS 02 M.3: el ciclo vivo jamas importa la historia congelada
+# ---------------------------------------------------------------------------
+
+
+def _importa_eras(path: Path) -> list[str]:
+    """Imports de runtime de `path` que tocan app/optimizer/eras (el modulo
+    de historia solo lo importa replay.py)."""
+    return _violaciones(_imports_runtime(path), ("app.optimizer.eras",))
+
+
+def test_ciclo_no_importa_eras():
+    """M.3: app/cycle.py no importa app.optimizer.eras en runtime (ni
+    absoluto ni relativo de nivel >= 2, que desde app alcanza igual)."""
+    assert _importa_eras(APP / "cycle.py") == []
+
+
+def test_candado_eras_caza_import_sembrado(tmp_path):
+    """M.3: el detector muerde: un import de eras en cycle sale listado."""
+    sembrado = tmp_path / "cycle.py"
+    sembrado.write_text(
+        "from app.optimizer import eras\nfrom app.optimizer.eras import decide_bid_era_bandas\n",
+        encoding="utf-8",
+    )
+    assert _importa_eras(sembrado) != []
+    sano = tmp_path / "sano.py"
+    sano.write_text("from app.optimizer import replay\n", encoding="utf-8")
+    assert _importa_eras(sano) == []

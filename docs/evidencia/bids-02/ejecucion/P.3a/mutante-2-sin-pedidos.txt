@@ -1,0 +1,4 @@
+$ mutante: quitar pedidos_antes >= 1 (app/pantalla_danadas.py:227)
+$ pytest -q tests/test_pantalla_danadas.py::test_sin_pedidos_previos_no_entra
+FAILED tests/test_pantalla_danadas.py::test_sin_pedidos_previos_no_entra - As...
+1 failed in 0.11s

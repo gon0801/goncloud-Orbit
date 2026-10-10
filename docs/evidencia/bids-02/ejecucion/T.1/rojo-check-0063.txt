@@ -1,0 +1,23 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+__________________ test_check_0063_rechaza_peldanos_retirados __________________
+
+    @_skip_db
+    def test_check_0063_rechaza_peldanos_retirados():
+        """T.1 (BIDS 02 s2): con la 0063, el CHECK de procedencia rechaza
+        cache_estado y default (retirados de la escalera y de su espejo)."""
+        with _db_temporal_c2a("orbit_tac_0063") as conn:
+            ciclo = conn.execute(
+                "INSERT INTO optimizer_cycle (mode, platform) VALUES ('shadow', 'amazon_us')"
+                " RETURNING id"
+            ).fetchone()[0]
+            for external, peldano in (("9902", "cache_estado"), ("9903", "default")):
+                entidad = _entidad(conn, "campaign", external)
+>               with pytest.raises(psycopg.errors.CheckViolation):
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               Failed: DID NOT RAISE CheckViolation
+
+tests/test_apply_schema.py:1036: Failed
+=========================== short test summary info ============================
+FAILED tests/test_apply_schema.py::test_check_0063_rechaza_peldanos_retirados
+1 failed, 21 deselected in 0.27s

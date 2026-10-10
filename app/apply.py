@@ -128,6 +128,7 @@ from app.ads.write import (
     _bid_payload,
 )
 from app.optimizer import goals as g
+from app.pantalla_danadas import lee_danadas
 from app.redaction import scrub
 
 # Tope de intentos por decision: "no existe 4o intento" es un COUNT verificable
@@ -521,41 +522,62 @@ def bids_del_ciclo(conn: psycopg.Connection, cycle_id: int) -> list[DecisionBid]
     ]
 
 
-# Prioridad por urgencia de hemorragia (sellado 8): el motivo es el
-# vocabulario del motor de bids (bid.MOTIVO_* via _MOTIVO_BANDA).
-# BIDS 01: el motivo nuevo de cero ventas compite con la prioridad de -25%
-# (D6 sellado; literal porque este modulo no importa bid — el vocabulario
-# cerrado lo pinean los tests).
-_PRIORIDAD_BANDA = {
-    "banda_menos_25": 0,
-    "banda_menos_25_cero_ventas": 0,
-    "banda_menos_12": 1,
-    "banda_mas_15": 2,
-}
-# Clave de orden para costo desconocido (regla 3): dentro de SU banda, al
+# Clave de orden para gasto desconocido (regla 3): dentro de SU nivel, al
 # final — es una clave de ORDEN, no un valor de negocio.
-_COSTO_DESCONOCIDO = Decimal(-1)
+_GASTO_DESCONOCIDO = Decimal(-1)
 
 
-def _clave_orden(decision: DecisionBid) -> tuple[int, Decimal]:
-    motivo = decision.inputs.get("motivo")
-    banda = _PRIORIDAD_BANDA.get(motivo, len(_PRIORIDAD_BANDA))
-    ventanas = decision.inputs.get("ventanas") or {}
-    cortes = ventanas.get("cortes") or {}
-    cost = cortes.get("cost")
+def prioridad_bajo_cupo(veredicto_kind: str, motivo: str) -> int:
+    """Nivel de seleccion bajo cap (BIDS 02 M.3, bosquejo apply.py): 0
+    regresos (R1), 1 recortes con evidencia propia (R3, R9), 2 subidas
+    (R6), 3 recortes heredados del ad group (R4, R11); lo demas al
+    final. Motivos como literales, como hoy (este modulo no importa
+    bid/politica; cada literal se pinea contra politica.py en tests)."""
+    if veredicto_kind == "Regresar" or motivo == "regreso_por_desplome":
+        return 0
+    if motivo in (
+        "pierde_dinero",
+        "pierde_dinero_fuerte",
+        "gasto_sin_venta",
+        "gasto_sin_venta_doble",
+    ):
+        return 1
+    if motivo == "bajo_target":
+        return 2
+    if motivo in ("grupo_sangra_vendedora", "grupo_sangra"):
+        return 3
+    return 4
+
+
+def _gasto_caso(inputs: dict) -> Decimal | None:
+    """Gasto crudo de la hoja (el que R9 compara con el gasto para
+    concluir): reciente.gasto + antiguo.gasto de inputs.caso.propia.
+    None si falta el caso o algun tramo (regla 3)."""
     try:
-        costo = Decimal(str(cost)) if cost is not None else _COSTO_DESCONOCIDO
-    except ArithmeticError:  # InvalidOperation: cost corrupto -> como None
-        costo = _COSTO_DESCONOCIDO
-    return (banda, -costo)
+        propia = (inputs.get("caso") or {}).get("propia") or {}
+        reciente = (propia.get("reciente") or {}).get("gasto")
+        antiguo = (propia.get("antiguo") or {}).get("gasto")
+        if reciente is None or antiguo is None:
+            return None
+        return Decimal(str(reciente)) + Decimal(str(antiguo))
+    except ArithmeticError:  # InvalidOperation: gasto corrupto -> como None
+        return None
 
 
-def orden_bids(decisiones: list[DecisionBid]) -> list[DecisionBid]:
-    """Orden sellado de seleccion bajo cap: banda_menos_25 =
-    banda_menos_25_cero_ventas (BIDS 01) > banda_menos_12 > banda_mas_15 y,
-    dentro de cada banda, costo de la ventana DESC (la hemorragia mas cara
-    primero)."""
-    return sorted(decisiones, key=_clave_orden)
+def _clave_cupo(decision: DecisionBid) -> tuple[int, Decimal]:
+    nivel = prioridad_bajo_cupo(
+        decision.inputs.get("veredicto_kind"), decision.inputs.get("motivo")
+    )
+    gasto = _gasto_caso(decision.inputs)
+    return (nivel, -gasto if gasto is not None else -_GASTO_DESCONOCIDO)
+
+
+def orden_bajo_cupo(decisiones: list[DecisionBid]) -> list[DecisionBid]:
+    """Orden sellado de seleccion bajo cap: regresos > recortes con
+    evidencia propia > subidas > recortes heredados y, dentro de cada
+    nivel, gasto crudo de la hoja DESC (el de mas gasto primero; gasto
+    desconocido al final de su nivel)."""
+    return sorted(decisiones, key=_clave_cupo)
 
 
 # ---------------------------------------------------------------------------
@@ -1323,7 +1345,7 @@ class Aplicador:
         sello de ledger + resumen + cache + applied_count (ver docstring del
         modulo). >=400 se captura (ledger sellado con el cuerpo); 5xx/fallo
         ambiguo SUBE (ledger sin sello: la fila ES el rastro)."""
-        ordenadas = orden_bids(decisiones)
+        ordenadas = orden_bajo_cupo(decisiones)
         skips: list[str] = []
         descartadas: list[str] = []
         aplicadas = 0
@@ -1722,3 +1744,209 @@ def reversa_manual(
         }
 
     raise ValueError(f"tipo de reversa desconocido: {tipo!r} (bid|pause|negative)")
+
+
+# ---------------------------------------------------------------------------
+# Regreso del dueno (BIDS 02, M.5): la hoja vuelve al bid anterior a su racha
+# ---------------------------------------------------------------------------
+
+ORIGEN_REGRESO_DUENO = "regreso_del_dueno"
+
+# La racha sale de v_cambio_bid, no de otro camino (fuente unica de la
+# historia de bids). Sin filtro por motivo: la racha se deriva de los bids.
+_SQL_CAMBIOS_HOJA = """
+SELECT confirmado_el, bid_antes, bid_despues, origen, decision_id, moneda
+  FROM v_cambio_bid
+ WHERE hoja_id = %s
+ ORDER BY confirmado_el, decision_id
+"""
+
+# El sello de la ultima reversa de la decision: de ahi sale el motivo cuando
+# Amazon no confirma (el detalle vive en el ledger, regla 10).
+_SQL_MOTIVO_REVERSA = """
+SELECT resultado FROM apply_attempt
+ WHERE decision_id = %s AND tipo = 'reversa'
+ ORDER BY seq DESC LIMIT 1
+"""
+
+# El bid vigente real (el bid puede cambiar fuera de Orbit: la vista de
+# cambios no lo sabe y su ultimo bid_despues queda rancio).
+_SQL_VIGENTE = """
+SELECT current_bid FROM v_hoja_activa WHERE hoja_id = %s
+"""
+
+_SQL_FIN_REVERSA = """
+SELECT finished_at FROM apply_attempt
+ WHERE decision_id = %s AND tipo = 'reversa'
+ ORDER BY seq DESC LIMIT 1
+"""
+
+
+class SinRachaDeRecortes(Exception):
+    """La hoja no tiene recortes vigentes que regresar (409)."""
+
+
+class ConfirmacionDesactualizada(Exception):
+    """La confirmacion no trae el N vigente de pendientes (409: la lista cambio)."""
+
+
+class RegresoNoConfirmado(Exception):
+    """Amazon no confirmo el regreso (502: el sello vive en el ledger)."""
+
+
+class VigentePorEncima(Exception):
+    """El bid vigente ya esta por encima del destino del regreso (409: no
+    se mueve; un regreso nunca baja el bid)."""
+
+
+@dataclass(frozen=True)
+class RegresoHecho:
+    hoja_id: int
+    bid_antes: Decimal  # el vigente al regresar (de v_hoja_activa; el ultimo cambio rancia)
+    bid_ahora: Decimal  # el restaurado (bid anterior a la racha)
+    moneda: str
+    decision_revertida_id: int
+    actor: str
+    regreso_confirmado_at: str | None = None
+
+    def como_dict(self) -> dict:
+        return {
+            "hoja_id": self.hoja_id,
+            "bid_antes": str(self.bid_antes),
+            "bid_ahora": str(self.bid_ahora),
+            "moneda": self.moneda,
+            "decision_revertida_id": self.decision_revertida_id,
+            "actor": self.actor,
+            "regreso_confirmado_at": self.regreso_confirmado_at,
+        }
+
+
+def _celda_cambio(fila, indice: int, nombre: str):
+    """Tupla o dict_row (la conexion puede venir con dict_row)."""
+    return fila[nombre] if isinstance(fila, dict) else fila[indice]
+
+
+def _racha_vigente_hoja(cambios: list[tuple]) -> list[tuple]:
+    """Recortes posteriores a la ultima subida y al ultimo regreso del
+    dueno: la racha de la ACCION (esta funcion) corta en el ultimo
+    regreso_del_dueno y su primera es el primer recorte posterior a el.
+    Difiere de la racha de la PANTALLA (pantalla_danadas._racha_vigente,
+    guia P.3a cambio 2, donde el regreso no corta). Sin regreso previo,
+    igual que la pantalla: el regreso no cuenta (su bid_antes es NULL) y
+    una subida del motor si corta, incluido un regreso_por_desplome. Cada
+    cambio es (confirmado_el, bid_antes, bid_despues, origen, decision_id,
+    moneda)."""
+    subidas = [c[0] for c in cambios if c[1] is not None and c[2] is not None and c[2] > c[1]]
+    ultima = max(subidas) if subidas else None
+    regresos = [(c[0], c[4]) for c in cambios if c[3] == ORIGEN_REGRESO_DUENO]
+    ultimo_regreso = max(regresos) if regresos else None
+    return [
+        c
+        for c in cambios
+        if c[3] != ORIGEN_REGRESO_DUENO
+        and c[1] is not None
+        and c[2] is not None
+        and c[2] < c[1]
+        and (ultima is None or c[0] >= ultima)
+        and (ultimo_regreso is None or (c[0], c[4]) > ultimo_regreso)
+    ]
+
+
+def _actor_no_vacio(actor: str) -> None:
+    """El actor es rastro obligatorio: "   " pasa el min_length de pydantic
+    y lo caza aqui (el endpoint lo mapea a 422, como el descarte C.5)."""
+    if not actor or not actor.strip():
+        raise ValueError("el regreso exige actor no vacio")
+
+
+def regreso_del_dueno(
+    conn: psycopg.Connection,
+    *,
+    hoja_id: int,
+    actor: str,
+    transport: httpx.BaseTransport | None = None,
+) -> RegresoHecho:
+    """Regresa el bid de la hoja al que tenia antes de su racha vigente de
+    recortes. Reusa `reversa_manual(tipo="bid")` sobre la PRIMERA decision de
+    la racha (ledger pre-HTTP, readback, exenta de cupo): no hay escritura
+    nueva a Amazon. El motor lo ve en `v_cambio_bid` con origen
+    `regreso_del_dueno`. Idempotente: una racha ya regresada levanta
+    ReversaYaHecha (409), nunca escribe dos veces. Si el vigente ya esta
+    por encima del destino levanta VigentePorEncima (409): un regreso
+    nunca baja el bid. `transport` es la puerta
+    de tests (MockTransport); el endpoint NO lo pasa."""
+    _actor_no_vacio(actor)
+    cambios = [
+        (
+            _celda_cambio(f, 0, "confirmado_el"),
+            _celda_cambio(f, 1, "bid_antes"),
+            _celda_cambio(f, 2, "bid_despues"),
+            _celda_cambio(f, 3, "origen"),
+            _celda_cambio(f, 4, "decision_id"),
+            _celda_cambio(f, 5, "moneda"),
+        )
+        for f in conn.execute(_SQL_CAMBIOS_HOJA, (hoja_id,)).fetchall()
+    ]
+    racha = _racha_vigente_hoja(cambios)
+    if not racha:
+        raise SinRachaDeRecortes(f"la hoja {hoja_id} no tiene racha vigente de recortes")
+    primera = min(racha, key=lambda c: (c[0], c[4]))
+    # El vigente se lee ANTES del HTTP: despues nace la fila del regreso.
+    # Si el vigente ya esta por encima del destino, no se mueve: un
+    # regreso nunca baja el bid. Con vigente desconocido (NULL: hereda
+    # del grupo) no hay nada que comparar y se sigue como antes.
+    fila_vigente = conn.execute(_SQL_VIGENTE, (hoja_id,)).fetchone()
+    vigente = _celda_cambio(fila_vigente, 0, "current_bid") if fila_vigente is not None else None
+    if vigente is not None and vigente >= primera[1]:
+        raise VigentePorEncima(
+            f"la hoja {hoja_id} trae vigente {vigente} por encima del destino {primera[1]}"
+        )
+    ultimo = max(cambios, key=lambda c: (c[0], c[4]))
+    reversa = reversa_manual(conn, tipo="bid", decision_id=primera[4], transport=transport)
+    if not reversa["confirmada"]:
+        fila = conn.execute(_SQL_MOTIVO_REVERSA, (primera[4],)).fetchone()
+        motivo = fila[0] if fila is not None else "sin sello en el ledger"
+        raise RegresoNoConfirmado(f"regreso de la hoja {hoja_id} sin confirmar: {motivo}")
+    fin = conn.execute(_SQL_FIN_REVERSA, (primera[4],)).fetchone()
+    sello = fin[0].isoformat() if fin is not None and fin[0] is not None else None
+    return RegresoHecho(
+        hoja_id=hoja_id,
+        bid_antes=vigente if vigente is not None else ultimo[2],
+        bid_ahora=primera[1],
+        moneda=primera[5],
+        decision_revertida_id=primera[4],
+        actor=actor,
+        regreso_confirmado_at=sello,
+    )
+
+
+def regreso_del_dueno_todas(
+    conn: psycopg.Connection,
+    *,
+    plataforma: str,
+    confirmacion: str,
+    actor: str,
+    transport: httpx.BaseTransport | None = None,
+) -> tuple[RegresoHecho | str, ...]:
+    """Boton "Regresar todas" (decision D6). Relee la pantalla de danadas,
+    exige la confirmacion literal `REGRESAR <N> KEYWORDS` con el N vigente
+    (numero de hojas con `ya_regresada` en falso; 409 si la lista cambio) y
+    llama a `regreso_del_dueno` hoja por hoja. Una falla no detiene a las
+    demas: en su lugar va el motivo en texto, con su hoja. Idempotente."""
+    _actor_no_vacio(actor)
+    pantalla = lee_danadas(conn, plataforma=plataforma)
+    pendientes = [h for h in pantalla.hojas if not h.ya_regresada]
+    esperada = f"REGRESAR {len(pendientes)} KEYWORDS"
+    if confirmacion != esperada:
+        raise ConfirmacionDesactualizada(
+            f"confirmacion desactualizada: esperaba {esperada!r} (la lista cambio)"
+        )
+    salidas: list[RegresoHecho | str] = []
+    for hoja in pendientes:
+        try:
+            salidas.append(
+                regreso_del_dueno(conn, hoja_id=hoja.hoja_id, actor=actor, transport=transport)
+            )
+        except Exception as exc:
+            salidas.append(f"hoja {hoja.hoja_id}: {exc}")
+    return tuple(salidas)

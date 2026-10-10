@@ -840,9 +840,11 @@ def _ultima_migracion_con(marcador: str) -> str:
     """El SQL de la ULTIMA migracion (nombre mayor) cuyo texto contiene
     `marcador`: los espejos leen la definicion VIGENTE (0045 re-creo el
     CHECK de 0044; una migracion futura puede re-crear la vista), no una
-    version fija."""
+    version fija. Las `*_reversa_*` no cuentan: jamas se despliegan."""
     hallados: list[str] = []
     for ruta in sorted((Path(__file__).resolve().parents[1] / "migrations").glob("*.sql")):
+        if "_reversa_" in ruta.name:
+            continue
         texto = ruta.read_text(encoding="utf-8")
         if marcador in texto:
             hallados.append(texto)
@@ -881,9 +883,9 @@ def _db_temporal_d1(prefijo: str):
 
 @contextmanager
 def _db_temporal_c2a(prefijo: str):
-    """0001 + 0018 + 0046 + 0047 + 0048 (C.2a + A5): el CHECK vigente vive en
-    0048 y la vista exige 0018 + 0047; target_acos_ciclo solo referencia
-    tablas de 0001 y los roles tambien nacen ahi."""
+    """0001 + 0018 + 0046 + 0047 + 0048 + 0063 (C.2a + A5 + T.1): el CHECK
+    vigente vive en 0063 y la vista exige 0018 + 0047; target_acos_ciclo
+    solo referencia tablas de 0001 y los roles tambien nacen ahi."""
     from psycopg import sql as pgsql
 
     dsn = _test_dsn()
@@ -899,6 +901,7 @@ def _db_temporal_c2a(prefijo: str):
         conn.execute(_sql46())  # 0046 (C.2a): target_acos_ciclo
         conn.execute(_sql_mig("0047_familias.sql"))  # 0047: familia/producto_familia
         conn.execute(_sql_mig("0048_margen_familia.sql"))  # 0048 (A5): vista + CHECK
+        conn.execute(_sql_mig("0063_bids02_peldanos_target.sql"))  # 0063 (T.1): CHECK sin retirados
         yield conn
     finally:
         if conn is not None:
@@ -1023,6 +1026,25 @@ def test_procedencia_target_ciclo_espejo_contra_el_check_vivo():
 
 
 @_skip_db
+def test_check_0063_rechaza_peldanos_retirados():
+    """T.1 (BIDS 02 s2): con la 0063, el CHECK de procedencia rechaza
+    cache_estado y default (retirados de la escalera y de su espejo)."""
+    with _db_temporal_c2a("orbit_tac_0063") as conn:
+        ciclo = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform) VALUES ('shadow', 'amazon_us')"
+            " RETURNING id"
+        ).fetchone()[0]
+        for external, peldano in (("9902", "cache_estado"), ("9903", "default")):
+            entidad = _entidad(conn, "campaign", external)
+            with pytest.raises(psycopg.errors.CheckViolation):
+                conn.execute(
+                    "INSERT INTO target_acos_ciclo (cycle_id, ad_entity_id, decided_at,"
+                    " target_acos_pct, procedencia) VALUES (%s, %s, now(), 25, %s)",
+                    (ciclo, entidad, peldano),
+                )
+
+
+@_skip_db
 def test_target_acos_ciclo_append_only_update_y_delete_rechazados_por_la_app():
     """Append-only por GRANTs (estilo 0044): app_decide INSERTA (el ciclo
     escribe el freeze en TX3 junto a decision), NADIE de la app actualiza ni
@@ -1043,7 +1065,7 @@ def test_target_acos_ciclo_append_only_update_y_delete_rechazados_por_la_app():
             conn.execute(
                 "INSERT INTO target_acos_ciclo (cycle_id, ad_entity_id, decided_at,"
                 " target_acos_pct, procedencia)"
-                " VALUES (%s, %s, now(), 25, 'cache_estado') ON CONFLICT DO NOTHING",
+                " VALUES (%s, %s, now(), 25, 'margen_plataforma') ON CONFLICT DO NOTHING",
                 (ciclo, entidad),
             )
             with pytest.raises(psycopg.errors.InsufficientPrivilege):
@@ -1073,7 +1095,8 @@ def test_target_acos_ciclo_append_only_update_y_delete_rechazados_por_la_app():
             with pytest.raises(psycopg.errors.InsufficientPrivilege):
                 conn.execute(
                     "INSERT INTO target_acos_ciclo (cycle_id, ad_entity_id, decided_at,"
-                    " target_acos_pct, procedencia) VALUES (%s, %s, now(), 25, 'default')",
+                    " target_acos_pct, procedencia)"
+                    " VALUES (%s, %s, now(), 25, 'goal_plataforma')",
                     (ciclo, entidad),
                 )
         finally:

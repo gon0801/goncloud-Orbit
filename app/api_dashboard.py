@@ -91,7 +91,8 @@ from app.dashboard_pagina import (
 )
 from app.etiqueta_entidad import etiqueta_entidad, linea_entidad
 from app.notifica import motivo_precio_es, validar_precio_aviso_dias
-from app.optimizer import bid, hygiene
+from app.optimizer import bid, eras, hygiene, politica
+from app.optimizer import evidencia as ev
 from app.optimizer import goals as g
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.optimizer.windows import _SQL_SYNC_PLATAFORMA, _SQL_WATERMARK_PLATAFORMA
@@ -197,22 +198,32 @@ SELECT id, settings FROM config_version ORDER BY id DESC LIMIT 1
 # sin crash: no se pierde informacion).
 MOTIVOS_ES_DECISIONES: dict[str, str] = {
     bid.MOTIVO_PAUSE: "Pausa: sin ventas con clicks y costo sobre el umbral",
-    bid._MOTIVO_BANDA[bid.FACTOR_BAJA_FUERTE]: "ACoS sobre 1.35x del target: -25%",
-    bid._MOTIVO_BANDA[bid.FACTOR_BAJA_SUAVE]: "ACoS sobre 1.15x del target: -12%",
-    bid.MOTIVO_BANDA_MENOS_25_CERO_VENTAS: (
+    eras._MOTIVO_BANDA[bid.FACTOR_BAJA_FUERTE]: "ACoS sobre 1.35x del target: -25%",
+    eras._MOTIVO_BANDA[bid.FACTOR_BAJA_SUAVE]: "ACoS sobre 1.15x del target: -12%",
+    eras.MOTIVO_BANDA_MENOS_25_CERO_VENTAS: (
         "Cero ventas con los clicks de una venta y gasto sobre el piso: -25%"
     ),
-    bid._MOTIVO_BANDA[bid.FACTOR_SUBIDA]: "ACoS bajo 0.85x del target: +15%",
+    eras._MOTIVO_BANDA[bid.FACTOR_SUBIDA]: "ACoS bajo 0.85x del target: +15%",
     hygiene.MOTIVO_NEGATIVE: "Negativo: termino sin ventas con clicks y costo sobre el umbral",
     hygiene.MOTIVO_HARVEST: "Harvest: termino con ACoS bajo el tope hacia campaña manual",
     # A4: abstenciones del contrafactual v2 (viven en inputs.evidencia_v2,
     # jamas en inputs.motivo; el feed las traduce con lookup de union).
-    bid.MOTIVO_EVIDENCIA_INSUFICIENTE: (
+    ev.MOTIVO_EVIDENCIA_INSUFICIENTE: (
         "Sin evidencia: la posterior no alcanza la confianza para ajustar"
     ),
-    bid.MOTIVO_CPC_POST_CAMBIO_INSUFICIENTE: (
+    ev.MOTIVO_CPC_POST_CAMBIO_INSUFICIENTE: (
         "CPC desconocido tras el cambio: menos de 20 clics al bid vigente"
     ),
+    bid.MOTIVO_PAUSE_ECONOMICA: "Pausa economica: venta cara sobre 3x del target",
+    # BIDS 02 M.3: motivos de niveles_v3 (los que emiten Mover y Regresar).
+    politica.MOTIVO_REGRESO_DESPLOME: "Regreso: el bid nuevo desplomo el trafico",
+    politica.MOTIVO_PIERDE_DINERO: "ACoS sobre el equilibrio: -12%",
+    politica.MOTIVO_PIERDE_DINERO_FUERTE: "ACoS sobre el equilibrio con fuerza: -25%",
+    politica.MOTIVO_GRUPO_SANGRA_VENDEDORA: "La hoja vende pero su grupo sangra: -12%",
+    politica.MOTIVO_BAJO_TARGET: "ACoS bajo el target: +15%",
+    politica.MOTIVO_GASTO_SIN_VENTA: "Gasto sin venta al concluir: -12%",
+    politica.MOTIVO_GASTO_SIN_VENTA_DOBLE: "Gasto sin venta al doble de concluir: -25%",
+    politica.MOTIVO_GRUPO_SANGRA: "El grupo sangra y la hoja no vende: -12%",
 }
 
 # ---------------------------------------------------------------------------
@@ -252,13 +263,26 @@ MOTIVOS_ES_SALUD: dict[str, str] = {
         "Entidad sin trafico reciente (sin impresiones en 14 dias): sin ajuste"
     ),
     ciclo.MOTIVO_COOLDOWN_7D: "Cooldown 7d: apply verificado reciente",
-    # R-D2-1: texto del dueno (decision N=10 de D.2) + variante A6-B2:
-    # bajo evidencia_v2 D.2 ya no cuenta dias sino clics post-cambio.
-    ciclo.MOTIVO_INVERSION_SIN_EVIDENCIA: (
-        "Inversión frenada: el último bid aplicado tiene menos de 10 días de evidencia"
-        " (bandas v1) o menos de 20 clics post-cambio (evidencia v2)"
-    ),
     ciclo.MOTIVO_ESCALERA_OFF: "Escalera global off",
+    ciclo.MOTIVO_POLITICA_APAGADA: "Motor de bids apagado (sin ads_bid_politica): sin ajuste",
+    ciclo.MOTIVO_SIN_TARGET: "Sin target (ningun peldano resolvio): sin ajuste",
+    # BIDS 02 M.3: motivos de niveles_v3 (los que emite Mantener).
+    politica.MOTIVO_ESPERANDO_EFECTO: "Bid reciente: esperando su efecto (7 dias)",
+    politica.MOTIVO_VIGENTE_ENCIMA: "Bid vigente por encima del regreso: sin ajuste",
+    politica.MOTIVO_VENDE_DENTRO_DEL_MARGEN: "La hoja vende dentro del margen: sin ajuste",
+    politica.MOTIVO_AZAR_LO_EXPLICA: "El azar lo explica: sin ajuste",
+    politica.MOTIVO_VENTA_RECIENTE: "Venta reciente en ventana inmadura: sin ajuste",
+    politica.MOTIVO_SIN_GASTO: "Hoja sin gasto: sin ajuste",
+    politica.MOTIVO_HOJA_DELGADA: "Hoja delgada sin dinero que mover: sin ajuste",
+    politica.MOTIVO_GRUPO_CUMPLE: "El grupo cumple: sin ajuste",
+    politica.MOTIVO_SIN_EVIDENCIA: "Sin evidencia en hoja ni grupo: sin ajuste",
+    politica.MOTIVO_ESPERANDO_PRECIO_MEDIDO: "Bid reciente: esperando precio medido",
+    politica.MOTIVO_SIN_CLICS_NUEVOS: "Sin clics nuevos al bid vigente: sin ajuste",
+    politica.MOTIVO_RECORTE_COSTO_TRAFICO: "Recorte frenado por costo de trafico",
+    politica.MOTIVO_SUBIDA_SIN_TRAFICO: "Subida frenada: sin trafico para medirla",
+    politica.MOTIVO_PISO_APRENDIDO: "El recorte tocaria un bid que ya dano: sin ajuste",
+    politica.MOTIVO_DATO_FALTANTE: "Dato faltante: sin ajuste",
+    politica.MOTIVO_SIN_PRECIO: "Sin precio medido: sin ajuste",
     # guardas de plataforma (windows.py; el envelope las persiste como
     # motivo_skip = guarda_<guarda>)
     "guarda_watermark": "Watermark de la plataforma vencido (> 7 dias)",
@@ -283,10 +307,10 @@ MOTIVOS_ES_SALUD: dict[str, str] = {
     # A4: abstenciones v2 (clase no-op; en A4 nada las escribe en
     # notes.skips — forward-A6 — pero el feed las traduce por union;
     # precedente del doble-dict: MOTIVO_PAUSE).
-    bid.MOTIVO_EVIDENCIA_INSUFICIENTE: (
+    ev.MOTIVO_EVIDENCIA_INSUFICIENTE: (
         "Sin evidencia: la posterior no alcanza la confianza para ajustar"
     ),
-    bid.MOTIVO_CPC_POST_CAMBIO_INSUFICIENTE: (
+    ev.MOTIVO_CPC_POST_CAMBIO_INSUFICIENTE: (
         "CPC desconocido tras el cambio: menos de 20 clics al bid vigente"
     ),
     # MOTIVO_* de hygiene (idem)
@@ -1674,8 +1698,6 @@ PISA_POR_PELDANO: dict[str, str] = {
     "goal_plataforma": "pisa al goal de la plataforma",
     "margen_plataforma": "pisa al target por margen de la plataforma",
     "setting_plataforma": "pisa al target manual de la plataforma",
-    "cache_estado": "pisa al target cacheado del estado de Amazon",
-    "default": "pisa al default",
 }
 
 
@@ -1713,7 +1735,7 @@ def settings(conn: ConexionLectura) -> dict:
         goal.platform: (goal_id, goal) for goal_id, goal, _, _ in goals if goal.scope == "platform"
     }
     plataformas: list[dict] = []
-    peldanos: dict[str, str] = {}
+    peldanos: dict[str, str | None] = {}
     for plataforma in PLATAFORMAS_MONEDA:
         goal_id, goal = goal_plataforma.get(plataforma, (None, None))
         valor, peldano = g.cascada_target_acos_con_procedencia(
@@ -1740,12 +1762,14 @@ def settings(conn: ConexionLectura) -> dict:
                 "confianza_subida": _dec_str(
                     g.confianza_subida_desde_settings(settings, plataforma)
                 ),
-                # A6: interruptor del motor de bids: valor CRUDO (None =
-                # ausente = bandas v1) + resuelto (vive: True = evidencia
-                # v2). Clave corrupta = ValueError y la pagina NO se
-                # muestra, igual que target/fraccion/confianzas.
+                # M.3: interruptor del motor de bids: valor CRUDO (None =
+                # ausente = apagado) + resuelto (vive: True = niveles_v3).
+                # Clave corrupta = ValueError y la pagina NO se muestra,
+                # igual que target/fraccion/confianzas.
                 "motor_bid": settings.get(g.clave_bid_politica(plataforma)),
-                "motor_bid_vive": g.motor_evidencia_desde_settings(settings, plataforma),
+                "motor_bid_vive": (
+                    g.politica_bid_desde_settings(settings, plataforma) == g.POLITICA_BID_VIGENTE
+                ),
                 "caps": {kind: _dec_str(cap) for kind, cap in caps.items()},
                 "goal": (_goal_editable(goal_id, goal, plataforma, None, None) if goal else None),
             }
@@ -1762,7 +1786,12 @@ def settings(conn: ConexionLectura) -> dict:
                 goal.platform or plataforma_campana,
                 nombre,
                 PISA_POR_PELDANO[peldanos[plataforma_campana]]
-                if goal.scope == "campaign" and plataforma_campana in peldanos
+                if (
+                    goal.scope == "campaign"
+                    and plataforma_campana in peldanos
+                    # T.1: sin peldano no hay a quien pisar (sin KeyError).
+                    and peldanos[plataforma_campana] is not None
+                )
                 else None,
             )
             for goal_id, goal, plataforma_campana, nombre in goals
@@ -2338,3 +2367,29 @@ def precios(conn: ConexionLectura) -> dict:
                 status_code=503, detail=f"precios de {plataforma} ilegibles"
             ) from exc
     return {"hoy": hoy.isoformat(), "plataformas": plataformas}
+
+
+@router.get("/keywords-danadas")
+def keywords_danadas(conn: ConexionLectura, plataforma: str | None = None) -> dict:
+    """Keywords danadas del mercado (BIDS 02, P.3b). Funcion delgada: delega
+    en `pantalla_danadas.lee_danadas` (SOLO SELECT) y pasa su dict tal cual.
+    Sin mercado se mira amazon_mx; mercado ajeno es 422."""
+    from app import pantalla_danadas
+
+    mercado = plataforma or "amazon_mx"
+    if mercado not in PLATAFORMAS_MONEDA:
+        raise HTTPException(status_code=422, detail="plataforma fuera de vocabulario")
+    return pantalla_danadas.lee_danadas(conn, plataforma=mercado).como_dict()
+
+
+@router.get("/ruido")
+def ruido(conn: ConexionLectura, plataforma: str | None = None) -> dict:
+    """Tablero de ruido del mercado (BIDS 02, P.5). Funcion delgada: delega
+    en `pantalla_ruido.lee_ruido` (SOLO SELECT) y pasa su dict tal cual.
+    Sin mercado se mira amazon_mx; mercado ajeno es 422."""
+    from app import pantalla_ruido
+
+    mercado = plataforma or "amazon_mx"
+    if mercado not in PLATAFORMAS_MONEDA:
+        raise HTTPException(status_code=422, detail="plataforma fuera de vocabulario")
+    return pantalla_ruido.lee_ruido(conn, plataforma=mercado).como_dict()

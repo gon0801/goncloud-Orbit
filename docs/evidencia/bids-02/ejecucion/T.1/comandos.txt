@@ -1,0 +1,43 @@
+# T.1 — comandos de verificacion (worktree bids-02/s2-motor, rama bids-02/s2-motor)
+# Base desechable: ORBIT_TEST_DSN=postgresql://orbit:orbit@127.0.0.1:5433/postgres
+# Python/lint: .venv/bin/python -m pytest, .venv/bin/ruff
+
+# 1) Linea base (antes de tocar nada): 8 familias en verde, 0 skips
+ORBIT_TEST_DSN=postgresql://orbit:orbit@127.0.0.1:5433/postgres .venv/bin/python -m pytest tests/test_target_margen.py tests/test_optimizer_goals.py tests/test_cycle_target_ciclo.py tests/test_apply_cola.py tests/test_api_dashboard.py tests/test_ui.py tests/test_apply_schema.py tests/test_schema_docs.py -q
+
+# 2) Pruebas nuevas en rojo (una por archivo en rojo-*.txt)
+ORBIT_TEST_DSN=... .venv/bin/python -m pytest tests/test_target_margen.py -q -k "subida_aplica or bajada_camina or subida_recortada"   # rojo-paso-asimetrico.txt
+ORBIT_TEST_DSN=... .venv/bin/python -m pytest tests/test_optimizer_goals.py -q -k "ya_no_decide or sin_ninguno or compatible_con_el_motor"  # rojo-escalera-none.txt
+ORBIT_TEST_DSN=... .venv/bin/python -m pytest tests/test_cycle_target_ciclo.py -q -k "sin_target_se"                                   # rojo-ciclo-sintarget.txt
+ORBIT_TEST_DSN=... .venv/bin/python -m pytest tests/test_apply_cola.py -q -k "sin_target_espera"                                      # rojo-cola-revalida.txt
+ORBIT_TEST_DSN=... .venv/bin/python -m pytest tests/test_api_dashboard.py -q -k "settings_sin_target"                                 # rojo-settings-null.txt
+ORBIT_TEST_DSN=... .venv/bin/python -m pytest tests/test_ui.py -q -k "sin_target_dice_sin_target"                                      # rojo-paginas-sintarget.txt
+ORBIT_TEST_DSN=... .venv/bin/python -m pytest tests/test_apply_schema.py -q -k "0063_rechaza"                                          # rojo-check-0063.txt
+
+# 3) Prod solo lectura (copia de repricing-01/E.0/correr.sh + solo-select.py)
+bash docs/evidencia/bids-02/ejecucion/T.1/prod-procedencia/correr.sh
+# -> salidas/procedencia.txt: margen_plataforma|3380, goal_campana|230 (cambio 8 no dispara)
+# -> salidas/CORRIDA.txt: estado COMPLETA
+
+# 4) Mutantes obligatorios (goals.py sembrado y revertido; diff vacio tras revertir)
+# mutante-1-subida-camina-05.txt: 4 failed (30.5 vs 45, 19.5 vs 20)
+# mutante-2-bajada-de-una-vez.txt: 3 failed (20.0 vs 20.5)
+
+# 5) Ensayo de la 0063 sobre esquema real de prod (regla 7)
+bash docs/evidencia/bids-02/ejecucion/T.1/ensayo.sh
+# -> ensayo-salida.txt, ultima linea: ENSAYO OK
+
+# 6) Conteos de Comprueba
+git grep -nE "cache_estado|DEFAULT_TARGET_PCT" -- app | wc -l   # -> 0
+
+# 7) Ruff a tocados
+.venv/bin/ruff check app/optimizer/goals.py app/cycle.py app/api_dashboard.py app/propuestas_campana.py tests/test_target_margen.py tests/test_optimizer_goals.py tests/test_cycle_target_ciclo.py tests/test_apply_cola.py tests/test_api_dashboard.py tests/test_ui.py tests/test_apply_schema.py
+.venv/bin/ruff format --check app/optimizer/goals.py app/cycle.py app/api_dashboard.py tests/test_target_margen.py tests/test_optimizer_goals.py tests/test_cycle_target_ciclo.py tests/test_apply_cola.py tests/test_api_dashboard.py tests/test_ui.py tests/test_apply_schema.py
+
+# 8) Suite completa (al final; test_compose_deploy.py excluido: levanta compose)
+ORBIT_TEST_DSN=... .venv/bin/python -m pytest -q --ignore=tests/test_compose_deploy.py -p no:cacheprovider
+# -> 1 failed, 4043 passed: tests/test_jev_catalogo.py::test_reversa_deja_la_base_como_0001,
+#    preexistente ambiental (DROP ROLE app_jev bloqueado por grants en las BDs ajenas
+#    postgres y orbit_copia_bids02_0b; el test solo toca 0001/0004/0049/0050/0052,
+#    archivos fuera de este diff). El drive campanas se actualizo al contrato
+#    nuevo y tests/test_verify_orbit.py pasa completo (17 passed).

@@ -1799,6 +1799,29 @@ def test_salud_motivos_f2_traducidos_con_texto_exacto(motivo, esperado):
     assert dash.MOTIVOS_ES_SALUD[motivo] == esperado
 
 
+def test_salud_sin_target_traducido_con_texto_exacto():
+    """R03-(a): sin_target entra a MOTIVOS_ES_SALUD con su texto exacto.
+    El `!=` mata al mutante que devuelve el id crudo."""
+    from app import cycle as ciclo
+
+    assert dash.MOTIVOS_ES_SALUD[ciclo.MOTIVO_SIN_TARGET] != ciclo.MOTIVO_SIN_TARGET
+    assert (
+        dash.MOTIVOS_ES_SALUD[ciclo.MOTIVO_SIN_TARGET]
+        == "Sin target (ningun peldano resolvio): sin ajuste"
+    )
+
+
+def test_salud_vigente_por_encima_traducido_con_texto_exacto():
+    """R03-B1: vigente_por_encima entra a MOTIVOS_ES_SALUD con su texto exacto."""
+    from app.optimizer import politica
+
+    assert dash.MOTIVOS_ES_SALUD[politica.MOTIVO_VIGENTE_ENCIMA] != politica.MOTIVO_VIGENTE_ENCIMA
+    assert (
+        dash.MOTIVOS_ES_SALUD[politica.MOTIVO_VIGENTE_ENCIMA]
+        == "Bid vigente por encima del regreso: sin ajuste"
+    )
+
+
 def test_salud_motivo_es_helper_fallback_y_none():
     """A.6: `motivo_es` traduce por MOTIVOS_ES_SALUD, cae al id crudo con
     motivos desconocidos y pasa None a None (regla 3)."""
@@ -1931,30 +1954,13 @@ def test_motivos_salud_traducen_los_gates_de_ancestros():
     assert MOTIVOS_ES_SALUD[ciclo.MOTIVO_GRUPO_NO_ENABLED].startswith("Ad group")
 
 
-def test_motivo_inversion_sin_evidencia_traducido_en_salud():
-    """R-D2-1 (DeepSeek F1 Low en #357): inversion_sin_evidencia con
-    traduccion en /salud (sin ella la pantalla mostraria el id crudo).
-    A6-r2 F5: la etiqueta nombra la regla de CADA politica (10 dias en
-    v1, 20 clics post-cambio en v2): un texto solo-dias mentiria bajo
-    evidencia_v2."""
-    from app import cycle as ciclo
-    from app.api_dashboard import MOTIVOS_ES_SALUD
-
-    texto = MOTIVOS_ES_SALUD[ciclo.MOTIVO_INVERSION_SIN_EVIDENCIA]
-    assert texto != ciclo.MOTIVO_INVERSION_SIN_EVIDENCIA
-    assert texto == (
-        "Inversión frenada: el último bid aplicado tiene menos de 10 días de evidencia"
-        " (bandas v1) o menos de 20 clics post-cambio (evidencia v2)"
-    )
-
-
 def test_motivo_cero_ventas_tiene_etiqueta_en_decisiones():
     """BIDS 01: el motivo nuevo de cero ventas tiene traduccion en el feed
     (sin ella la pantalla mostraria el id crudo)."""
     from app.api_dashboard import MOTIVOS_ES_DECISIONES
-    from app.optimizer import bid as bid_mod
+    from app.optimizer import eras as eras_mod
 
-    assert MOTIVOS_ES_DECISIONES[bid_mod.MOTIVO_BANDA_MENOS_25_CERO_VENTAS].startswith(
+    assert MOTIVOS_ES_DECISIONES[eras_mod.MOTIVO_BANDA_MENOS_25_CERO_VENTAS].startswith(
         "Cero ventas"
     )
 
@@ -2469,18 +2475,18 @@ def test_motivos_v2_en_ambos_dicts_es():
     """A4: las abstenciones v2 viven en DECISIONES (plan-literal) y en
     SALUD (clase no-op, forward-A6; precedente MOTIVO_PAUSE dual)."""
     from app.api_dashboard import MOTIVOS_ES_DECISIONES, MOTIVOS_ES_SALUD
-    from app.optimizer import bid as b
+    from app.optimizer import evidencia as ev
 
-    assert MOTIVOS_ES_DECISIONES[b.MOTIVO_EVIDENCIA_INSUFICIENTE] == (
+    assert MOTIVOS_ES_DECISIONES[ev.MOTIVO_EVIDENCIA_INSUFICIENTE] == (
         "Sin evidencia: la posterior no alcanza la confianza para ajustar"
     )
-    assert MOTIVOS_ES_DECISIONES[b.MOTIVO_CPC_POST_CAMBIO_INSUFICIENTE] == (
+    assert MOTIVOS_ES_DECISIONES[ev.MOTIVO_CPC_POST_CAMBIO_INSUFICIENTE] == (
         "CPC desconocido tras el cambio: menos de 20 clics al bid vigente"
     )
-    assert MOTIVOS_ES_SALUD[b.MOTIVO_EVIDENCIA_INSUFICIENTE] == (
+    assert MOTIVOS_ES_SALUD[ev.MOTIVO_EVIDENCIA_INSUFICIENTE] == (
         "Sin evidencia: la posterior no alcanza la confianza para ajustar"
     )
-    assert MOTIVOS_ES_SALUD[b.MOTIVO_CPC_POST_CAMBIO_INSUFICIENTE] == (
+    assert MOTIVOS_ES_SALUD[ev.MOTIVO_CPC_POST_CAMBIO_INSUFICIENTE] == (
         "CPC desconocido tras el cambio: menos de 20 clics al bid vigente"
     )
 
@@ -3911,3 +3917,103 @@ def test_gasto_sin_venta_vocab_cerrado_y_mercado_por_omision(monkeypatch):
         us = cliente.get("/gasto-sin-venta", params={"plataforma": "amazon_us"})
         assert us.status_code == 200
         assert 'aria-current="page">Amazon US' in us.text
+
+
+# ---------------------------------------------------------------------------
+# T.1 (BIDS 02 s2): /settings sin target resuelto en ningun peldano.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_settings_sin_target_publica_null_y_no_pisa(monkeypatch):
+    """Sin goal, margen ni setting, /settings trae target_vigente null sin
+    peldano; un goal de campana no busca a quien pisa (None, no 500)."""
+    with _db_temporal("orbit_settings_sintarget") as (conn, dsn_read):
+        _config_version(conn, {"ads_optimizer_mode": "live"})
+        camp = _campana(conn, "amazon_us", "9601", name="Camp sin target")
+        _goal_db(conn, scope="campaign", ad_entity_id=camp, target="18")
+        cliente = _cliente(dsn_read, monkeypatch)
+        resp = cliente.get("/api/dashboard/settings")
+        assert resp.status_code == 200, resp.text
+        plats = {p["plataforma"]: p for p in resp.json()["plataformas"]}
+        assert plats["amazon_us"]["target_vigente"] == {"valor": None, "peldano": None}
+        goals = resp.json()["goals"]
+        assert len(goals) == 1
+        assert goals[0]["pisa_a"] is None
+
+
+# ---------------------------------------------------------------------------
+# P.3b (BIDS 02 s2): GET /api/dashboard/keywords-danadas, funcion delgada.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_keywords_danadas_api_delgada_vocabulario_y_passthrough(monkeypatch):
+    """El endpoint delega en `lee_danadas` y pasa su dict tal cual; mercado
+    ajeno es 422 y sin mercado se mira amazon_mx."""
+    from app.pantalla_danadas import HojaDanada, PantallaDanadas
+
+    hoja = HojaDanada(
+        hoja_id=2963,
+        nombre="gorra roja",
+        campana="AC - Category Exact",
+        recortes=5,
+        bid_antes=Decimal("9.74"),
+        bid_hoy=Decimal("3.73"),
+        moneda="MXN",
+        clics_antes_14d=133,
+        clics_ahora_14d=16,
+        pedidos_antes_90d=31,
+        venta_antes_90d=Decimal("28672"),
+        ya_regresada=False,
+        regresada_el=None,
+    )
+    pantalla = PantallaDanadas(
+        plataforma="amazon_us",
+        calculado_el=dt.datetime(2026, 10, 9, tzinfo=dt.UTC),
+        hojas=(hoja,),
+    )
+    pedidas = []
+
+    def _falsa(conn, *, plataforma):
+        pedidas.append(plataforma)
+        return pantalla
+
+    monkeypatch.setattr("app.pantalla_danadas.lee_danadas", _falsa)
+    with _db_temporal("orbit_dash_danadas") as (_conn, dsn_read):
+        cliente = _cliente(dsn_read, monkeypatch)
+        resp = cliente.get("/api/dashboard/keywords-danadas", params={"plataforma": "amazon_us"})
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == {
+            "plataforma": "amazon_us",
+            "calculado_el": "2026-10-09T00:00:00+00:00",
+            "hojas": [
+                {
+                    "hoja_id": 2963,
+                    "nombre": "gorra roja",
+                    "campana": "AC - Category Exact",
+                    "recortes": 5,
+                    "bid_antes": "9.74",
+                    "bid_hoy": "3.73",
+                    "moneda": "MXN",
+                    "clics_antes_14d": 133,
+                    "clics_ahora_14d": 16,
+                    "pedidos_antes_90d": 31,
+                    "venta_antes_90d": "28672",
+                    "ya_regresada": False,
+                    "regresada_el": None,
+                }
+            ],
+        }
+        assert pedidas == ["amazon_us"]
+        omision = cliente.get("/api/dashboard/keywords-danadas")
+        assert omision.status_code == 200, omision.text
+        assert pedidas == ["amazon_us", "amazon_mx"]
+        ajeno = cliente.get("/api/dashboard/keywords-danadas", params={"plataforma": "meli"})
+        assert ajeno.status_code == 422

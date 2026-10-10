@@ -1,0 +1,5 @@
+BEGIN
+-- INICIO 02-config
+20|20|live
+-- FIN 02-config
+ROLLBACK

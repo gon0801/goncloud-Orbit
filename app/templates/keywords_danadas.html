@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block contenido %}
+<h2>Keywords dañadas</h2>
+<p class="mutado">
+  Vendían y perdieron su tráfico después de un recorte, con más venta previa
+  arriba. Regresar una le devuelve el bid anterior a su racha de recortes.
+</p>
+{# Mercado con enlaces GET (guia S.5.5): no existe componente de pestanas. #}
+<p>
+  <a href="/keywords-danadas?plataforma=amazon_mx" {% if plataforma == "amazon_mx" %}aria-current="page"{% endif %}>Amazon MX</a>
+  <a href="/keywords-danadas?plataforma=amazon_us" {% if plataforma == "amazon_us" %}aria-current="page"{% endif %}>Amazon US</a>
+</p>
+{% if calculado_el %}
+<p class="mutado">Calculado el {{ calculado_el|ts_ui }}.</p>
+{% endif %}
+{% set pendientes = hojas | selectattr("ya_regresada", "equalto", false) | list %}
+{% if pendientes %}
+<div class="tarjeta">
+  <h3>Regresar todas <span class="chip">{{ pendientes | length }}</span></h3>
+  <ul>
+    {% for hoja in pendientes %}
+    {# El nombre es texto libre de la keyword: AUTOESCAPE lo escapa #}
+    <li>{{ hoja.nombre or "—" }} · vuelve a {{ hoja.bid_antes|dinero_ui }} {{ hoja.moneda }}</li>
+    {% endfor %}
+  </ul>
+  <form data-regresar-todas data-esperada="REGRESAR {{ pendientes | length }} KEYWORDS" data-plataforma="{{ plataforma }}">
+    <p>Escribe <code>REGRESAR {{ pendientes | length }} KEYWORDS</code> para confirmar.</p>
+    <label>Confirmación <input type="text" name="confirmacion" maxlength="100" placeholder="REGRESAR {{ pendientes | length }} KEYWORDS" required></label>
+    <label>Actor <input type="text" name="actor" maxlength="200" placeholder="quien regresa" required></label>
+    <label>Token <input type="password" name="token" placeholder="x-orbit-token" required></label>
+    <button type="submit">Regresar todas</button>
+    <span data-estado class="mutado"></span>
+  </form>
+</div>
+{% endif %}
+{% for hoja in hojas %}
+<div class="tarjeta">
+  {# El nombre es texto libre de la keyword: AUTOESCAPE lo escapa #}
+  <h3>{{ hoja.nombre or "—" }} · {{ hoja.campana or "—" }} - {{ "MX" if plataforma == "amazon_mx" else "US" }}</h3>
+  <p>Vendía {{ hoja.pedidos_antes_90d }} pedidos ({{ hoja.venta_antes_90d|dinero_ui }} {{ hoja.moneda }}) en los 3 meses antes de los recortes.</p>
+  <p>Clics cada 2 semanas: {{ hoja.clics_antes_14d }} antes, {{ hoja.clics_ahora_14d }} ahora. Bid: {{ hoja.bid_antes|dinero_ui }} antes, {{ hoja.bid_hoy|dinero_ui or "—" }} hoy, tras {{ hoja.recortes }} recortes.</p>
+  {% if hoja.ya_regresada %}
+  <p>Regresada el {{ hoja.regresada_el }}.</p>
+  {% else %}
+  {# el click lo cablea /static/js/danadas.js (onclick= inline lo bloquea la CSP) #}
+  <button type="button" data-regresar="{{ hoja.hoja_id }}"{% if hoja.bid_hoy is none %} disabled{% endif %}>Regresar el bid a {{ hoja.bid_antes|dinero_ui }}</button>
+  <div hidden id="regreso-{{ hoja.hoja_id }}">
+    <form data-regreso="{{ hoja.hoja_id }}">
+      <p>Orbit cambia ahora el bid en Amazon de {{ hoja.bid_hoy|dinero_ui or "—" }} a {{ hoja.bid_antes|dinero_ui }} {{ hoja.moneda }}. El motor espera 7 días. Después no la recorta hasta que junte 20 clics al bid nuevo o pasen 14 días, y nunca la baja del bid que la dañó.</p>
+      <label>Actor <input type="text" name="actor" maxlength="200" placeholder="quien regresa" required></label>
+      <label>Token <input type="password" name="token" placeholder="x-orbit-token" required></label>
+      <button type="submit">Confirmar regreso</button>
+      <span data-estado class="mutado"></span>
+    </form>
+  </div>
+  {% endif %}
+</div>
+{% else %}
+<p>Sin keywords dañadas en este mercado: nada que regresar.</p>
+{% endfor %}
+{% endblock %}
+{% block scripts %}<script src="/static/js/danadas.js?v={{ asset_version }}"></script>{% endblock %}

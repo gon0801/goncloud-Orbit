@@ -31,7 +31,7 @@ valer para todos va aquí también.
 app/          # main.py (API), db.py (connect), redaction.py (secretos), ads/ (cliente Amazon READ-ONLY)
 migrations/   # por numero (0001 = esquema inicial); las *_reversa_* y las que salta verify/Launch.md no van en el deploy. NO re-runnable
 tests/        # pytest
-tools/        # scripts operativos (fabrica_campanas.py, compara_evidencia.py, ...)
+tools/        # scripts operativos (fabrica_campanas.py, compara_target_margen.py, ...)
 verify/       # mapa de la app + Drive e2e; receta de arranque en verify/Launch.md
 docs/         # CONTEXTO.md, DATABASE.md, DEPLOY.md, traspaso/ (fuentes verbatim)
 plans/        # manifest.json marca el plan ORBIT NN activo (sigue sus tasks y DoD)

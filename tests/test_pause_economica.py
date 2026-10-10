@@ -28,15 +28,11 @@ def _corte(cost, revenue, *, moneda="USD", fechas=7, clicks=231, orders=1):
 
 
 def _decide(corte, *, platform="amazon_us", target="20", politica="economic_pause_v1"):
-    return bid.decide_bid(
+    return bid.decide_pause(
         platform=platform,
         bids=None,
         cortes=corte,
         target_acos_pct=Decimal(target),
-        bid_actual=Decimal("0.40"),
-        bid_moneda="USD" if platform == "amazon_us" else "MXN",
-        floor=Decimal("0.40"),
-        ceiling=Decimal("2.50"),
         umbral_pause=300,
         policy_version=politica,
     )

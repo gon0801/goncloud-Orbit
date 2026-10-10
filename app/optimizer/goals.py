@@ -3,7 +3,7 @@
 Resuelve QUE config gobierna a cada entidad y con que modo corre el ciclo.
 No decide bids ni cortes: 2.2/2.3 consumen lo que aqui se resuelve, y 3.1
 (orquestador) es quien lo congela en decision.inputs. La IO del modulo son
-DOS lecturas sobre decision_application: en_cooldown y ultimo_bid_aplicado.
+UNA lectura sobre decision_application: en_cooldown.
 
 Reglas selladas (plans/orbit-03.md task 2.4 + Spec delta de CONTEXTO.md):
 
@@ -20,18 +20,19 @@ Reglas selladas (plans/orbit-03.md task 2.4 + Spec delta de CONTEXTO.md):
   goal resuelto (campana pisa a plataforma) -> margen_familia (A5:
   resuelve_target_margen_familia, None = peldano apagado) ->
   margen_plataforma (ORBIT 06 2.3: resuelve_target_margen, None = peldano
-  apagado) -> config_version.settings (clave sellada en docs/DATABASE.md;
-  por plataforma DEL ENUM, amazon_us/amazon_mx) ->
-  ad_entity_state.acos_target (cache de lo publicado en Amazon; NO es la
-  fuente, ver su COMMENT) -> DEFAULT_TARGET_PCT 55.
+  apagado) -> config_version.settings (clave sellada en docs/DATABASE.md,
+  por plataforma DEL ENUM, amazon_us/amazon_mx). Sin peldano que resuelva,
+  la cascada devuelve None y cada llamador trata el hueco (BIDS 02 T.1
+  retiro el cache del estado y el default 55: el cache llegaba vacio en
+  todas las corridas y un target inventado contradice la regla 3).
 - VARIANTE CON PROCEDENCIA (ORBIT 16, task 1.2): `cascada_target_acos_con_procedencia`
-  devuelve (valor, peldano) con los SEIS peldanos (ORBIT 06 2.3 suma
-  margen_plataforma entre goal_plataforma y setting_plataforma) para el
-  dashboard. Compatible con el camino del motor (misma aritmetica; la campana
-  PISA siempre que exista: con un goal de campana de target None, el target
-  del goal de plataforma NO entra -- testeado por equivalencia). La capa web
-  la REUTILIZA, jamas la reimplementa. `peldano_target_acos` devuelve SOLO el
-  nombre para el freeze del motor (mismo nucleo).
+  devuelve (valor, peldano) con los CINCO peldanos (BIDS 02 T.1 retiro
+  los dos ultimos) para el dashboard. Compatible con el camino del motor
+  (misma aritmetica; la campana PISA siempre que existe: con un goal
+  de campana de target None, el target del goal de plataforma NO entra --
+  testeado por equivalencia). La capa web la REUTILIZA, jamas la
+  reimplementa. `peldano_target_acos` devuelve SOLO el nombre para el
+  freeze del motor (mismo nucleo).
 - FLOOR/CEILING: los defaults son POR MONEDA (DEFAULTS_POR_MONEDA: USD
   0.10/2.50 con max real observado 2.00, MXN 1.00/45.00; OTRA moneda =
   ValueError explicito -- sellado 2 del plan plans/orbit-05-preflight.md,
@@ -72,23 +73,12 @@ Reglas selladas (plans/orbit-03.md task 2.4 + Spec delta de CONTEXTO.md):
   contra applied_cycle_id (el ciclo que EJECUTO, sellado con verify_ok en
   0002), no contra d.cycle_id (el que decidio): la decision shadow aplicada
   en live SI enfria desde el apply.
-- ANTI-INVERSION D.2 (ads-proteccion-01; decision del dueno "N = 10",
-  D.2/decision.md): tras un BID aplicado (verify_ok IS TRUE, ciclo
-  ejecutor live), la direccion CONTRARIA exige >= DIAS_EVIDENCIA_INVERSION
-  dias de evidencia posterior al cambio: de la fecha UTC del confirmed_at
-  del ULTIMO bid aplicado hasta el fin de la ventana de bids de la
-  entidad. Misma direccion y PAUSE no se frenan; historia rota o ventana
-  desconocida bloquean (fail-closed). La decision es PURA
-  (permite_reversa_bid) y la consulta la hace ultimo_bid_aplicado; el
-  gate vive en cycle._procesa_decisora (despues del cooldown B.2 y del
-  no-op, solo kind 'bid'), NUNCA dentro de decide_bid: mezclaria la
-  historia de applies con la regla pura.
 - DETERMINISMO: no hay now() escondido; `ahora` llega por parametro y DEBE
   ser tz-aware (mismo principio que windows._fecha_utc, replicado aqui
   localmente: no se importan privados de otro modulo).
 
 SQL del modulo (LECTURA; la parsea el test de sintaxis con pglast):
-_SQL_EN_COOLDOWN y _SQL_ULTIMO_BID_APLICADO.
+_SQL_EN_COOLDOWN.
 """
 
 from __future__ import annotations
@@ -99,16 +89,12 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Literal
 
-from app.optimizer.evidencia import MIN_CLICS_CPC, CostoPorClic
-
 if TYPE_CHECKING:
     import psycopg
 
 # ---------------------------------------------------------------------------
 # Constantes selladas (fuente: plans/orbit-03.md task 2.4 + diseno v2)
 # ---------------------------------------------------------------------------
-
-DEFAULT_TARGET_PCT = Decimal("55")  # ultimo peldano de la cascada
 
 # Defaults de piso/techo POR MONEDA (ORBIT 05 preflight 1.2, sellado 2 del
 # plan plans/orbit-05-preflight.md; spot-check 4.4: con el default unico
@@ -138,15 +124,6 @@ CLAVE_SETTING_PROPUESTAS_CAMPANA = "ads_propuestas_campana"
 HAY_MODULO_APPLY = True
 
 COOLDOWN = dt.timedelta(days=7)  # por ENTIDAD; comparador ESTRICTO en el umbral
-
-# D.2 (ads-proteccion-01): dias de evidencia posterior al cambio que exige
-# la direccion contraria de un BID aplicado. Literal del dueno "N = 10"
-# (D.2/decision.md), alineado al invariante de maduracion >=10d.
-DIAS_EVIDENCIA_INVERSION = 10
-POLITICA_INVERSION = "inversion_n10_v1"  # se congela en inputs.inversion_policy_version
-# A6: bajo evidencia_v2 D.2 ya no cuenta dias sino CPC post-cambio con
-# >= MIN_CLICS_CPC clics (evidencia.py, fuente unica del 20).
-POLITICA_INVERSION_EVIDENCIA = "inversion_cpc20_v2"
 
 # Reticulo de modos: off < shadow < live. modo_efectivo es el INFIMO (meet).
 MODOS = ("off", "shadow", "live")
@@ -220,13 +197,13 @@ def clave_target_plataforma(platform: str) -> str:
 
 def target_desde_settings(settings: Mapping, platform: str) -> Decimal | None:
     """Target ACoS de config_version.settings para la plataforma: None si la
-    clave no esta (el default NO se aplica aqui: eso es del ultimo peldano de
-    la cascada). El valor JSON se normaliza via str a Decimal exacto, nunca
+    clave no esta (sin clave este peldano no resuelve: eso lo decide la
+    cascada). El valor JSON se normaliza via str a Decimal exacto, nunca
     por binario float (regla 4 de estilo numerico del repo). Un valor PRESENTE
     pero no numerico, NaN/Inf, 0 o negativo es config CORRUPTA, no dato
-    faltante: ValueError ruidoso (regla 3 -- camuflarlo de ausente para caer
-    al default 55 decidiria con un target que nadie configuro; hallazgo
-    codex+grok, cross-review ronda 1)."""
+    faltante: ValueError ruidoso (regla 3 -- camuflarlo de ausente decidiria
+    con un target que nadie configuro; hallazgo codex+grok, cross-review
+    ronda 1)."""
     clave = clave_target_plataforma(platform)
     valor = settings.get(clave)
     if valor is None:
@@ -255,31 +232,28 @@ def _valida_target_peldano(valor: Decimal | None, peldano: str) -> Decimal | Non
 def cascada_target_acos(
     target_goal: Decimal | None,
     setting_plataforma: Decimal | None,
-    cache_acos_target: Decimal | None,
     target_margen: Decimal | None = None,
     scope_goal: str | None = None,
     target_margen_familia: Decimal | None = None,
-) -> Decimal:
+) -> Decimal | None:
     """Cascada sellada, peldano por peldano: goal resuelto -> margen_familia
     (A5, None = peldano apagado) -> margen_plataforma (ORBIT 06 2.3, None =
-    peldano apagado) -> setting de plataforma -> cache
-    ad_entity_state.acos_target -> default 55. Cada peldano decide SOLO si el
-    anterior es None (regla 3: dato faltante != valor); un peldano presente
-    pero invalido (<= 0, no finito) revienta, NO cae al siguiente.
+    peldano apagado) -> setting de plataforma. Sin peldano que resuelva
+    devuelve None (BIDS 02 T.1 retiro el cache del estado y el default 55).
+    Cada peldano decide SOLO si el anterior es None (regla 3: dato faltante
+    != valor); un peldano presente pero invalido (<= 0, no finito) revienta,
+    NO cae al siguiente.
     `scope_goal` ('campaign'/'platform') solo nombra el peldano del goal
     para el freeze; sin el, el VALOR es identico al de siempre
     (compatibilidad hacia atras). La precedencia vive en
     _nucleo_target_acos (D-2.3.1: un solo orden); cada variante valida
     sus peldanos con sus mensajes historicos (el setting que llega directo
-    tambien se valida: sin candado en JSONB/cache)."""
+    tambien se valida: sin candado en JSONB)."""
     t_goal = _valida_target_peldano(target_goal, "goal.target_acos_pct")
     margen = _valida_target_peldano(target_margen, "target_margen")
     setting = _valida_target_peldano(setting_plataforma, "setting ads_target_acos_pct")
-    cache = _valida_target_peldano(cache_acos_target, "ad_entity_state.acos_target")
     margen_fam = _valida_target_peldano(target_margen_familia, "target_margen_familia")
-    return _nucleo_target_acos(
-        t_goal, _nombre_goal(scope_goal), margen, setting, cache, margen_fam
-    )[0]
+    return _nucleo_target_acos(t_goal, _nombre_goal(scope_goal), margen, setting, margen_fam)[0]
 
 
 # ---------------------------------------------------------------------------
@@ -289,17 +263,16 @@ def cascada_target_acos(
 # jamas la reimplementa.
 # ---------------------------------------------------------------------------
 
-# Vocabulario sellado de los SIETE peldanos (A5: margen_familia tercero,
-# entre goal_plataforma y margen_plataforma): el dashboard los muestra tal
-# cual; un nombre distinto aqui rompe el contrato.
+# Vocabulario sellado de los CINCO peldanos (BIDS 02 T.1 retiro los dos
+# ultimos; A5: margen_familia tercero, entre goal_plataforma y
+# margen_plataforma): el dashboard los muestra tal cual; un nombre
+# distinto aqui rompe el contrato.
 PELDANOS_CASCADA = (
     "goal_campana",
     "goal_plataforma",
     "margen_familia",
     "margen_plataforma",
     "setting_plataforma",
-    "cache_estado",
-    "default",
 )
 
 
@@ -308,15 +281,15 @@ def _nucleo_target_acos(
     nombre_goal: str | None,
     target_margen: Decimal | None,
     setting_plataforma: Decimal | None,
-    cache_acos_target: Decimal | None,
     target_margen_familia: Decimal | None = None,
-) -> tuple[Decimal, str | None]:
+) -> tuple[Decimal | None, str | None]:
     """Orden de precedencia UNICO (D-2.3.1): goal resuelto -> margen_familia
-    -> margen -> setting -> cache -> default. Los valores llegan VALIDADOS
-    por cada variante (los mensajes historicos de error difieren por variante
-    y se conservan en cada llamador con _valida_target_peldano). nombre_goal
-    es goal_campana / goal_plataforma / None (None = llamador viejo sin
-    scope: el peldano sale None y el motor lo descarta).
+    -> margen -> setting. Sin peldano que resuelva devuelve (None, None).
+    Los valores llegan VALIDADOS por cada variante (los mensajes historicos
+    de error difieren por variante y se conservan en cada llamador con
+    _valida_target_peldano). nombre_goal es goal_campana / goal_plataforma /
+    None (None = llamador viejo sin scope: el peldano sale None y el motor
+    lo descarta).
     `target_margen_familia` va AL FINAL por compatibilidad posicional (C-F10);
     su PRECEDENCIA es tercera aunque su posicion sea ultima."""
     if target_goal is not None:
@@ -327,9 +300,7 @@ def _nucleo_target_acos(
         return (target_margen, "margen_plataforma")
     if setting_plataforma is not None:
         return (setting_plataforma, "setting_plataforma")
-    if cache_acos_target is not None:
-        return (cache_acos_target, "cache_estado")
-    return (DEFAULT_TARGET_PCT, "default")
+    return (None, None)
 
 
 def _nombre_goal(scope_goal: str | None) -> str | None:
@@ -346,22 +317,22 @@ def peldano_target_acos(
     scope_goal: str | None,
     target_margen: Decimal | None,
     setting_plataforma: Decimal | None,
-    cache_acos_target: Decimal | None,
     target_margen_familia: Decimal | None = None,
-) -> str:
+) -> str | None:
     """SOLO el nombre del peldano ganador (para el freeze del motor en
-    cycle.py; la aritmetica es la del nucleo, no otra). scope_goal es
-    obligatorio cuando target_goal viene presente (el ciclo siempre lo
-    tiene: goal.scope); sin el, ValueError ruidoso en vez de un nombre
-    inventado."""
+    cycle.py; la aritmetica es la del nucleo, no otra). Sin peldano que
+    resuelva devuelve None. scope_goal es obligatorio cuando target_goal
+    viene presente (el ciclo siempre lo tiene: goal.scope); sin el,
+    ValueError ruidoso en vez de un nombre inventado."""
     t_goal = _valida_target_peldano(target_goal, "goal.target_acos_pct")
     margen = _valida_target_peldano(target_margen, "target_margen")
     setting = _valida_target_peldano(setting_plataforma, "setting ads_target_acos_pct")
-    cache = _valida_target_peldano(cache_acos_target, "ad_entity_state.acos_target")
     margen_fam = _valida_target_peldano(target_margen_familia, "target_margen_familia")
-    _valor, peldano = _nucleo_target_acos(
-        t_goal, _nombre_goal(scope_goal), margen, setting, cache, margen_fam
+    valor, peldano = _nucleo_target_acos(
+        t_goal, _nombre_goal(scope_goal), margen, setting, margen_fam
     )
+    if valor is None:
+        return None
     if peldano is None:
         raise ValueError("peldano sin nombre: target presente sin scope del goal")
     return peldano
@@ -375,15 +346,22 @@ def cascada_target_acos_con_procedencia(
     platform: str,
     target_margen: Decimal | None = None,
     target_margen_familia: Decimal | None = None,
-) -> tuple[Decimal, str]:
-    """Cascada sellada con PROCEDENCIA: devuelve (valor, peldaño) con los
-    SIETE peldanos y estos nombres EXACTOS (A5 suma margen_familia entre
-    goal_plataforma y margen_plataforma).
+) -> tuple[Decimal | None, str | None]:
+    """Cascada sellada con PROCEDENCIA: devuelve (valor, peldano) con los
+    CINCO peldanos y estos nombres EXACTOS (BIDS 02 T.1 retiro los dos
+    ultimos; A5 suma margen_familia entre goal_plataforma y
+    margen_plataforma). Sin peldano que resuelva devuelve (None, None).
     Cada peldano decide SOLO si el anterior es None (regla 3); un valor
     PRESENTE pero invalido (<= 0, no finito) revienta, jamas cae al
     siguiente. La clave del setting sale de
     clave_target_plataforma(platform) via target_desde_settings -- REUTILIZADA,
     no reimplementada (regla 2).
+
+    `cache_acos_target` se CONSERVA solo por compatibilidad posicional
+    (app/apply_cola.py lo pasa en su llamada y esa tarea no es T.1): se
+    valida como antes pero YA NO DECIDE ni cae a ningun peldano. La tarea
+    duena del llamador retira el argumento y entonces este parametro se
+    borra con las otras dos variantes.
 
     SEMANTICA DE LOS DOS GOALS, identica al camino del motor: el goal de
     campana PISA SIEMPRE que exista (resuelve_goal, INCLUIDO enabled); si su
@@ -406,9 +384,11 @@ def cascada_target_acos_con_procedencia(
     setting = target_desde_settings(settings, platform)
     margen = _valida_target_peldano(target_margen, "target_margen")
     margen_fam = _valida_target_peldano(target_margen_familia, "target_margen_familia")
-    cache = _valida_target_peldano(cache_acos_target, "cache_estado")
-    valor, peldano = _nucleo_target_acos(objetivo, nombre, margen, setting, cache, margen_fam)
-    assert peldano is not None  # con goals el nombre siempre se resuelve
+    # Compat posicional (docstring): se valida, no se usa.
+    _valida_target_peldano(cache_acos_target, "cache_acos_target")
+    valor, peldano = _nucleo_target_acos(objetivo, nombre, margen, setting, margen_fam)
+    if valor is not None:
+        assert peldano is not None  # con valor el nombre siempre se resuelve
     return (valor, peldano)
 
 
@@ -582,106 +562,6 @@ def en_cooldown(
     ).fetchone()[0]
 
 
-# D.2 (ads-proteccion-01): historia del ULTIMO BID aplicado de la entidad.
-# Mismos filtros que _SQL_EN_COOLDOWN (verify_ok IS TRUE, ciclo EJECUTOR
-# live via applied_cycle_id) mas kind='bid', y SOLO la fila mas reciente:
-# la direccion vigente es la del ultimo cambio aplicado, no la del primero.
-# confirmed_at se convierte a fecha UTC EN PYTHON: un ::date en SQL usaria
-# la zona de la sesion.
-_SQL_ULTIMO_BID_APLICADO = """
-SELECT d.old_value, d.new_value, da.confirmed_at
-  FROM decision_application da
-  JOIN decision d ON d.id = da.decision_id
-  JOIN optimizer_cycle oc ON oc.id = da.applied_cycle_id AND oc.mode = 'live'
- WHERE d.ad_entity_id = %s
-   AND d.kind = 'bid'
-   AND da.verify_ok IS TRUE
- ORDER BY da.confirmed_at DESC
- LIMIT 1
-"""
-
-
-@dataclass(frozen=True)
-class SinHistoriaBid:
-    """La entidad no tiene NINGUN bid aplicado verificado en vivo: D.2 no
-    aplica y la decision se emite."""
-
-
-@dataclass(frozen=True)
-class HistoriaBidRota:
-    """El ultimo bid aplicado es inservible (old/new None o iguales, o sin
-    confirmed_at): fail-closed, la reversa queda bloqueada."""
-
-
-@dataclass(frozen=True)
-class UltimoBidAplicado:
-    """El ultimo bid aplicado verificado: subio (+1) o bajo (-1), y en que
-    fecha UTC quedo confirmado el cambio."""
-
-    direccion: Literal[-1, 1]
-    fecha_cambio: dt.date
-
-
-HistoriaUltimoBid = SinHistoriaBid | HistoriaBidRota | UltimoBidAplicado
-
-
-def ultimo_bid_aplicado(conn: psycopg.Connection, ad_entity_id: int) -> HistoriaUltimoBid:
-    """Historia del ULTIMO bid aplicado verificado en vivo de la entidad
-    (mismos filtros que en_cooldown mas kind='bid'), o SinHistoriaBid si
-    nunca tuvo uno. Es la unica pieza impura de D.2: parcheable desde los
-    harnesses que corren _procesa_decisora con conn=object(). La fecha del
-    cambio es la fecha UTC de confirmed_at, convertida en Python (un
-    ::date en SQL usaria la TZ de la sesion); una fila inservible devuelve
-    HistoriaBidRota (fail-closed), jamas una direccion inventada."""
-    fila = conn.execute(_SQL_ULTIMO_BID_APLICADO, (ad_entity_id,)).fetchone()
-    if fila is None:
-        return SinHistoriaBid()
-    viejo, nuevo, confirmado = fila
-    if viejo is None or nuevo is None or nuevo == viejo or confirmado is None:
-        return HistoriaBidRota()
-    return UltimoBidAplicado(
-        direccion=1 if nuevo > viejo else -1,
-        fecha_cambio=confirmado.astimezone(dt.UTC).date(),
-    )
-
-
-def permite_reversa_bid(
-    historia: HistoriaUltimoBid,
-    *,
-    nueva_direccion: Literal[-1, 1],
-    fin_ventana_bids: dt.date | None,
-    motor_evidencia: bool = False,
-    cpc: CostoPorClic | None = None,
-) -> bool:
-    """Pura (D.2): True si la hoja puede mover el bid en `nueva_direccion`
-    dada la historia del ultimo bid aplicado. Misma direccion: siempre.
-    Reversa bajo bandas_v1: exige >= DIAS_EVIDENCIA_INVERSION dias de
-    evidencia posterior al cambio (fin de la ventana de bids menos la
-    fecha UTC del cambio); historia rota o ventana desconocida (None)
-    bloquean (fail-closed). El fin de ventana llega del AGREGADO que
-    decidiria (ventanas.bids), jamas del reloj: contar dias de reloj es
-    justo el error del caso 3835. Reversa bajo evidencia_v2 (A6): el
-    check de dias se REEMPLAZA por el CPC post-cambio que el ciclo ya
-    midio antes del vivo (>= MIN_CLICS_CPC clics, post_cambio True); CPC
-    ausente o corto bloquea (fail-closed)."""
-    if isinstance(historia, SinHistoriaBid):
-        return True
-    if isinstance(historia, HistoriaBidRota):
-        return False
-    if historia.direccion == nueva_direccion:
-        return True
-    if motor_evidencia:
-        return (
-            cpc is not None
-            and cpc.post_cambio
-            and cpc.clicks is not None
-            and cpc.clicks >= MIN_CLICS_CPC
-        )
-    if fin_ventana_bids is None:
-        return False
-    return (fin_ventana_bids - historia.fecha_cambio).days >= DIAS_EVIDENCIA_INVERSION
-
-
 # ---------------------------------------------------------------------------
 # ORBIT 06 2.3 - peldano margen_plataforma: medicion + resolucion pura
 # ---------------------------------------------------------------------------
@@ -689,6 +569,14 @@ def permite_reversa_bid(
 MARGEN_BANDA_MIN = Decimal("10")  # banda dura del spec §5 (inclusiva)
 MARGEN_BANDA_MAX = Decimal("45")
 MARGEN_PASO_MAX = Decimal("0.5")  # puntos por ciclo (spec §7)
+# BIDS 02 T.1: el paso de 0.5 frena solo las BAJADAS (la razon escrita del
+# 0.5 protege contra bajadas bruscas y vaiven; una subida solo afloja y
+# aplica de una vez). MARGEN_PASO_MAX queda para _converge_al_destino, que
+# sigue caminando a 0.5 en los dos sentidos.
+MARGEN_PASO_MAX_BAJADA = Decimal("0.5")
+# Politica del paso, congelada en optimizer_cycle.notes.target (clave
+# paso_politica) para leer bien las anclas viejas.
+PASO_POLITICA = "asimetrico_v1"
 MARGEN_COBERTURA_MIN = Decimal("0.95")
 MARGEN_DIAS_MIN = 60
 MARGEN_DIAS_MIN_FAMILIA = 30  # A5: guards de producto, no de plataforma
@@ -913,13 +801,8 @@ def gasto_para_concluir_desde_settings(settings: Mapping, platform: str) -> Deci
 
 
 # ---------------------------------------------------------------------------
-# Motor de bids por plataforma (A6): bandas v1 o evidencia v2.
+# Interruptor de la politica de bids por plataforma (BIDS 02 M.3).
 # ---------------------------------------------------------------------------
-
-# Politica de bandas (fuente unica; bid.py la re-exporta): los IDs que
-# el interruptor ads_bid_politica_<platform> acepta (plan A6).
-POLITICA_BANDAS_V1 = "bandas_v1"
-POLITICA_BANDAS_EVIDENCIA = "evidencia_v2"
 
 
 def clave_bid_politica(platform: str) -> str:
@@ -928,27 +811,29 @@ def clave_bid_politica(platform: str) -> str:
     return f"ads_bid_politica_{platform}"
 
 
-def motor_evidencia_desde_settings(settings: Mapping, platform: str) -> bool:
-    """True SOLO si la plataforma decide con evidencia (A6-live). Clave
-    ausente (o JSON null) = False: el default es el motor viejo de bandas
-    v1 y las configs actuales (sin la clave) quedan intactas, SIN
-    migraciones. `bandas_v1` explicito tambien es False (revertir es
-    escribirlo, plan A6 carril 10); SOLO `evidencia_v2` enciende.
-    PRESENTE con cualquier otro valor (incluido "" escrito a mano o
-    "EVIDENCIA_V2") = config CORRUPTA: ValueError ruidoso que tumba al
-    lector (regla 3, mismo trato que target/fraccion/confianzas: decidir
-    v2 con un valor que nadie configuro seria inventar el motor)."""
-    clave = clave_bid_politica(platform)
+# Politica de bids vigente (BIDS 02 M.3): el UNICO valor que enciende el
+# motor. Espejo de caso.POLITICA_BID pineado en tests/test_arq_bids_m.py.
+POLITICA_BID_VIGENTE = "niveles_v3"
+
+
+def politica_bid_desde_settings(settings: Mapping, plataforma: str) -> Literal["niveles_v3"] | None:
+    """Interruptor fail-closed de la clave que ya existe,
+    `ads_bid_politica_<platform>`:
+      ausente              -> None: el motor NO mueve bids en esa plataforma
+                                (PAUSE, negative y harvest siguen). El ciclo
+                                cuenta cada hoja con motivo `politica_apagada`.
+      'niveles_v3'         -> la politica nueva decide.
+      cualquier otro valor -> ValueError: el ciclo falla cerrado, como hoy.
+    El dia del despliegue la clave esta ausente: desplegar ya detiene los
+    recortes. Apagar es quitarla."""
+    clave = clave_bid_politica(plataforma)
     valor = settings.get(clave)
     if valor is None:
-        return False
-    if valor == POLITICA_BANDAS_EVIDENCIA:
-        return True
-    if valor == POLITICA_BANDAS_V1:
-        return False
+        return None
+    if valor == POLITICA_BID_VIGENTE:
+        return POLITICA_BID_VIGENTE
     raise ValueError(
-        f"setting {clave}: politica de bids debe ser {POLITICA_BANDAS_V1!r} o"
-        f" {POLITICA_BANDAS_EVIDENCIA!r}, llego {valor!r}"
+        f"setting {clave}: politica de bids debe ser {POLITICA_BID_VIGENTE!r}, llego {valor!r}"
     )
 
 
@@ -1004,8 +889,10 @@ def resuelve_target_margen(
     vez por plataforma y el dashboard no lo reimplementa). Primer match del
     vocabulario cerrado (D-2.3.3, orden D-2.3.11: dias ANTES de margen-None
     porque la vista nulifica el margen ante dias cortos); banda [10, 45]
-    CLAMPEA sobre el derivado (A1, D-2.3.10) y LUEGO aplica el paso maximo
-    ±0.5 desde `ultimo` (None = sin ancla: aplicado = derivado clampeado).
+    CLAMPEA sobre el derivado (A1, D-2.3.10) y LUEGO aplica el paso
+    ASIMETRICO desde `ultimo` (BIDS 02 T.1: derivado >= ancla aplica de una
+    vez, derivado < ancla baja 0.5 por ciclo; None = sin ancla: aplicado =
+    derivado clampeado).
     Sin redondeos: Decimal exacto de punta a punta (la escala del snapshot
     es artefacto deterministico). `dias_min` (A5): la familia exige 30 dias
     (guards de producto), la plataforma 60."""
@@ -1040,8 +927,9 @@ def resuelve_target_margen(
     recortado = min(max(derivado, MARGEN_BANDA_MIN), MARGEN_BANDA_MAX)
     if ultimo is None:
         return ResolucionMargen(recortado, derivado, None, False)
-    aplicado = min(max(recortado, ultimo - MARGEN_PASO_MAX), ultimo + MARGEN_PASO_MAX)
-    return ResolucionMargen(aplicado, derivado, None, False)
+    if recortado >= ultimo:
+        return ResolucionMargen(recortado, derivado, None, False)
+    return ResolucionMargen(max(recortado, ultimo - MARGEN_PASO_MAX_BAJADA), derivado, None, False)
 
 
 def _motivo_dato_invalido(

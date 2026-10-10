@@ -2292,3 +2292,58 @@ según la regla 7. Evidencia: `docs/evidencia/fabrica-02/D.3/preflight.md`.
 E/D.3 lleva los dos go literales, ids reales, ledger y readbacks de la
 reversa y del primer harvest. Con D.3 cierran en el tracker `AUTO-02` y
 `ORBIT 17 — Harvest por grupo (FABRICA 02)`.
+
+## BIDS 02 D.1 — despliegue del motor + fraccion US 0.8
+
+Despliega la seccion 2 (T.1, P.3a, M.1 a M.5, P.3b, P.5) y escribe la
+fraccion de margen de US en 0.8. Corre antes de las 08:40 UTC del dia D,
+cuando claw lo encarga tras el merge del PR de codigo. No cambia el cron.
+Scripts en `docs/evidencia/bids-02/ejecucion/D.1/`, patron S.3. Orden:
+
+```bash
+cd ~/dev/goncloud-Orbit
+bash docs/evidencia/bids-02/ejecucion/D.1/ensayo.sh
+bash docs/evidencia/bids-02/ejecucion/D.1/fraccion.sh                          # simulacro: no escribe
+bash docs/evidencia/bids-02/ejecucion/D.1/fraccion.sh --acepto-mutacion-real   # escribe 0.8, ANTES de desplegar
+bash docs/evidencia/bids-02/ejecucion/D.1/desplegar.sh <sha-de-origin/master>
+bash docs/evidencia/bids-02/ejecucion/D.1/checklist.sh <sello>                 # despues del ciclo de las 08:40 UTC
+```
+
+`fraccion.sh` simula por omision y escribe solo con
+`--acepto-mutacion-real`, por la ruta `POST
+/api/ads-optimizer/settings/amazon_us` con `base_config_version_id` de la
+vigente y cuerpo `margen.habilitado=true, fraccion=0.8`. El token de
+escritura no sale del servidor ni se imprime. Con 409 relee el id y repite
+una vez; un 422 con "edicion vacia" significa que la fraccion ya era 0.8.
+Corre antes de `desplegar.sh` porque el codigo anterior camina al target
+nuevo a 0.5 por ciclo: escribirla antes no produce ningun salto.
+
+`desplegar.sh` aplica las migraciones BIDS 02 del SHA no aplicadas (0060
+de la seccion 1 si sigue pendiente, 0063 de T.1) y trae, ademas de las
+cinco guardas de la guia, tres propias que abortan antes de tocar nada:
+la ultima `config_version` no trae `ads_bid_politica_amazon_mx` ni
+`ads_bid_politica_amazon_us`; la consulta de "Comprueba" de T.1 (`select
+procedencia, count(*) from target_acos_ciclo group by 1`) no trae
+`cache_estado` ni `default`; y `ads_target_fraccion_margen_amazon_us` es
+0.8. La guarda 5 de la guia (instalar lineas de cron) no aplica: D.1 no
+instala lineas, solo verifica en lectura que las del ciclo siguen.
+
+`checklist.sh` (solo lectura, salidas 0/1/3/4 del patron S.3) verifica
+`/health`, `/keywords-danadas` y `/ruido` en 200, las vistas
+`v_hoja_activa` y `v_cambio_bid`, la clave ausente (`f|f`), la fraccion
+0.8, y el primer ciclo posterior de cada plataforma: sin `failed`, sin
+ninguna `decision` con `kind = 'bid'`, con `politica_apagada` en `notes`
+e imprime sus conteos de `pause`, `negative` y `harvest` junto a los del
+ciclo anterior. Ese ciclo es el de las 08:40 UTC del dia de D.1.
+
+CONSECUENCIA (cambio 6 del paso). Despues de D.1 el motor no mueve ningun
+bid hasta X.1: ese es el estado seguro. `rollback.sh` regresa el motor
+anterior, que vuelve a recortar, y NO regresa la fraccion: 0.8 es la
+decision D1 y vale tambien con el codigo anterior. Si una plataforma trae
+la clave de politica, X.1 ya corrio y `rollback.sh` corre primero
+`docs/evidencia/bids-02/ejecucion/X.1/apagar.sh`, que la quita (el codigo
+anterior falla cerrado con `niveles_v3`); sin ese script a la mano,
+aborta antes de tocar nada.
+
+Las salidas de los cinco scripts van en el PR de cierre de la seccion 2
+(rama `bids-02/s2-cierre`).

@@ -24,8 +24,9 @@
   <h3>{{ p.plataforma }} <span class="mutado">({{ p.moneda }})</span></h3>
   <p>
     Target vigente:
-    <strong>{{ p.target_vigente.valor }}</strong>
-    · procedencia <code>{{ p.target_vigente.peldano }}</code>
+    {% if p.target_vigente.valor is none %}<span class="mutado">sin target</span>
+    {% else %}<strong>{{ p.target_vigente.valor }}</strong>
+    · procedencia <code>{{ p.target_vigente.peldano }}</code>{% endif %}
   </p>
 
   <form data-settings-config="{{ p.plataforma }}" data-config-id="{{ datos.config_version_id }}">
@@ -72,11 +73,11 @@
       <legend>Motor de bids</legend>
       <label>Motor
         <select name="motor_bid">
-          <option value="bandas_v1" {% if p.motor_bid != "evidencia_v2" %}selected{% endif %}>v1 · bandas</option>
-          <option value="evidencia_v2" {% if p.motor_bid == "evidencia_v2" %}selected{% endif %}>v2 · evidencia</option>
+          <option value="niveles_v3" {% if p.motor_bid == "niveles_v3" %}selected{% endif %}>niveles v3</option>
+          <option value="apagado" {% if p.motor_bid != "niveles_v3" %}selected{% endif %}>apagado</option>
         </select>
       </label>
-      <p class="mutado">Vive: {% if p.motor_bid_vive %}v2 · evidencia{% else %}v1 · bandas{% endif %}.</p>
+      <p class="mutado">Vive: {% if p.motor_bid_vive %}niveles v3{% else %}apagado{% endif %}.</p>
     </fieldset>
 
     <fieldset>

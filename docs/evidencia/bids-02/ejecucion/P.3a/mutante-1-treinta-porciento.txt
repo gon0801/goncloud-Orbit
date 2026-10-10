@@ -1,0 +1,5 @@
+$ sed: < por <= en el 30 % (app/pantalla_danadas.py:227)
+$ pytest -q tests/test_pantalla_danadas.py::test_treinta_porciento_exacta_no_entra
+=========================== short test summary info ============================
+FAILED tests/test_pantalla_danadas.py::test_treinta_porciento_exacta_no_entra
+1 failed in 0.11s
