@@ -35,7 +35,7 @@ que Cleanup.md borre sin riesgo (ver alla).
    # imprime el numero chico y `test` corta con exit 1; un check que solo
    # imprime (sin test) no falla nunca.
    # table_type='BASE TABLE' es obligatorio: sin el, information_schema.tables
-   # cuenta tambien las 15 vistas (v_*) y daria 85. NO usar `\dt | wc -l`:
+   # cuenta tambien las 17 vistas (v_*) y daria 87. NO usar `\dt | wc -l`:
    # cuenta lineas de la salida (71 con headers), no tablas.
    TABS="$(psql -h 127.0.0.1 -p 5433 -U orbit -d postgres -tAc \
      "select count(*) from information_schema.tables where table_schema='public' and table_type='BASE TABLE'")"
