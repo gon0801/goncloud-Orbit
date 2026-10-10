@@ -121,8 +121,8 @@ documentos. Ningún nombre de producto ni SKU real.
   que crea un login manda su salida a `/dev/null` y reporta solo su código.
   Antes de guardar una salida en el repo, cambia `/Users/dn` por `~`.
 
-**Revisión y cierre.** Cada paso con código pasa una revisión cruzada con un
-revisor distinto del autor (`cross-review.ps1`) antes del merge. Solo un
+**Revisión y cierre.** Cada paso con código lo revisa el lead antes del merge.
+No hay revisión cruzada con otro modelo. Solo un
 hallazgo bloqueante y reproducible abre otra ronda. Haz el merge con
 `gh pr merge <n> --squash --match-head-commit <sha>`. Antes de empezar el paso
 siguiente, comprueba que el job de CI `completa` del push a `master` terminó
