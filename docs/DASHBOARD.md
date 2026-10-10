@@ -60,7 +60,7 @@ Fuente: `GET /api/dashboard/series/plataforma` (§3.1).
 
 ### 2.2 Campañas
 Tabla 30d por campaña: métricas colapsadas (mismo grano campaign, misma ventana
-e inmadurez), **target efectivo CON procedencia de 7 peldaños** (decisión 5: desde A7,
+e inmadurez), **target efectivo CON procedencia de 5 peldaños** (decisión 5: desde A7,
 lo congelado en `target_acos_ciclo` del último ciclo live+done, §3.3) y estado del goal (enabled / floor / ceiling / mode). Cada fila
 lleva su moneda; sin total al pie que mezcle monedas (regla 4).
 Fuente: `GET /api/dashboard/campanas` (§3.3, 1.4).
@@ -168,7 +168,7 @@ Respuesta 200:
 ```
 - `metricas_30d`: misma semántica de grano/ventana/NULL/dinero-string que §3.1/§3.2
   (ventana fija [D-30, D-1]; `inmaduro` = el agregado incluye días D-8..D-1).
-- `target_efectivo` = lo que congeló el ÚLTIMO ciclo live+done de la plataforma (`target_acos_ciclo`, A7): `{valor, minimo, maximo, peldano, ciclo{id_min, id_max, decided_min, decided_max}}` o `null` si la campaña no tiene hojas en ese ciclo (regla 3: en pantalla es "—"). `valor` es único a 2 decimales o rango `"min–max"` si difieren en ese ciclo; `peldano` ∈ `{goal_campana, goal_plataforma, margen_familia, margen_plataforma, setting_plataforma, cache_estado, default}` o `"mixto"` si las hojas traen procedencias distintas. La clave es `peldano` (convención del repo: sin acentos en el código).
+- `target_efectivo` = lo que congeló el ÚLTIMO ciclo live+done de la plataforma (`target_acos_ciclo`, A7): `{valor, minimo, maximo, peldano, ciclo{id_min, id_max, decided_min, decided_max}}` o `null` si la campaña no tiene hojas en ese ciclo (regla 3: en pantalla es "—"). `valor` es único a 2 decimales o rango `"min–max"` si difieren en ese ciclo; `peldano` ∈ `{goal_campana, goal_plataforma, margen_familia, margen_plataforma, setting_plataforma}` o `"mixto"` si las hojas traen procedencias distintas. La clave es `peldano` (convención del repo: sin acentos en el código).
 - `goal` es el estado VIVO del goal RESUELTO (`resuelve_goal`: campaña > plataforma; decisión 17): `enabled`, `floor`, `ceiling`, `mode`, `scope`; `null` si no hay goal (regla 3). `target_acos_pct` del goal NO se expone como target efectivo (eso es la cascada), solo via `target_efectivo`.
 - Cada fila lleva su `moneda`; **NO existe total al pie que sume filas de monedas distintas** (regla 4 — test anti-mezcla).
 
@@ -440,9 +440,9 @@ alias `/propuestas`, misma vista) y agrupa por direccion:
 |---------|-------|--------|
 | `docs/DASHBOARD.md` | 1.1 | Este brief (contrato fino). |
 | `docs/CONTEXTO.md` | 1.1 | Spec delta: sección "Módulo dashboard" (apunta a este brief). |
-| `app/optimizer/goals.py` | 1.2 | `cascada_target_acos_con_procedencia` (7 peldaños desde A5, valor+peldaño). |
+| `app/optimizer/goals.py` | 1.2 | `cascada_target_acos_con_procedencia` (5 peldaños desde BIDS 02 T.1, valor+peldaño). |
 | `app/api_common.py` | 1.3 | Helpers compartidos de la capa API (extracción sellada, decisión 6). |
 | `app/api_dashboard.py` | 1.3 | Módulo nuevo: series por plataforma y por campaña (+ 1.4, 1.5). |
 | `app/main.py` | 1.3 | Incluye el router `/api/dashboard`. |
-| `tests/test_optimizer_goals.py` | 1.2 | Tests de los 7 peldaños (se agregan; los de 2.4 no se tocan). |
+| `tests/test_optimizer_goals.py` | 1.2 | Tests de los 5 peldaños (se agregan; los de 2.4 no se tocan). |
 | `tests/test_api_dashboard.py` | 1.3 | Tests de series + superficie OpenAPI solo-GET + SQL pglast. |
