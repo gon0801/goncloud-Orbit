@@ -604,6 +604,26 @@ def pagina_keywords_danadas(
     )
 
 
+@router.get("/ruido", response_class=HTMLResponse)
+def pagina_ruido(
+    request: Request,
+    conn: ConexionLectura,
+    plataforma: Annotated[str | None, Query()] = None,
+) -> HTMLResponse:
+    """Tablero de ruido (BIDS 02, P.5): decisiones y abstenciones por ciclo,
+    encogimiento por hoja y comparacion simple de antes y despues del
+    encendido. Server-rendered desde el endpoint (regla 22). Mercado con
+    `?plataforma=` (vocabulario cerrado, sin componente de pestanas);
+    sin mercado se mira amazon_mx."""
+    mercado = _vocab_o_422(plataforma, frozenset(PLATAFORMAS_MONEDA), "plataforma")
+    datos = dash.ruido(conn=conn, plataforma=mercado or "amazon_mx")
+    return templates.TemplateResponse(
+        request,
+        "ruido.html",
+        {"pantalla": "ruido", **datos},
+    )
+
+
 @router.get("/settings", response_class=HTMLResponse)
 def pagina_settings(request: Request, conn: ConexionLectura) -> HTMLResponse:
     """Settings de escritura (DASHBOARD 01 3.1, E1-E6): target vigente con

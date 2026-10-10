@@ -2384,3 +2384,16 @@ def keywords_danadas(conn: ConexionLectura, plataforma: str | None = None) -> di
     if mercado not in PLATAFORMAS_MONEDA:
         raise HTTPException(status_code=422, detail="plataforma fuera de vocabulario")
     return pantalla_danadas.lee_danadas(conn, plataforma=mercado).como_dict()  # type: ignore[arg-type]
+
+
+@router.get("/ruido")
+def ruido(conn: ConexionLectura, plataforma: str | None = None) -> dict:
+    """Tablero de ruido del mercado (BIDS 02, P.5). Funcion delgada: delega
+    en `pantalla_ruido.lee_ruido` (SOLO SELECT) y pasa su dict tal cual.
+    Sin mercado se mira amazon_mx; mercado ajeno es 422."""
+    from app import pantalla_ruido
+
+    mercado = plataforma or "amazon_mx"
+    if mercado not in PLATAFORMAS_MONEDA:
+        raise HTTPException(status_code=422, detail="plataforma fuera de vocabulario")
+    return pantalla_ruido.lee_ruido(conn, plataforma=mercado).como_dict()  # type: ignore[arg-type]

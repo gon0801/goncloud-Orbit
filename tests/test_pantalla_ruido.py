@@ -324,6 +324,150 @@ def test_candado_sql_no_lee_llaves_de_caso_ni_filtra_motivo():
     assert any("inputs ? 'caso'" in sql for sql in consultas.values())
 
 
+# --- endpoint y pagina ------------------------------------------------------------------
+
+
+def _pantalla_falsa():
+    from app.pantalla_ruido import PantallaRuido
+
+    return PantallaRuido(
+        plataforma="amazon_us",
+        ciclos=(
+            {
+                "cycle_id": 7,
+                "started_at": "2026-10-09T08:41:00+00:00",
+                "decisiones": [{"motivo": "gasto_sin_venta", "nivel": "hoja", "count": 2}],
+                "abstenciones": {"espera_precio": 1},
+            },
+        ),
+        encogimiento=(
+            {"hoja_id": 11, "bid_base": "10", "bid_hoy": "4", "razon": "0.4", "moneda": "USD"},
+        ),
+        antes_y_despues={
+            "encendido_el": "2026-09-15",
+            "moneda": "USD",
+            "antes": {"gasto": "200.00", "pedidos": 3, "venta": "2000.00", "acos_pct": "10.00"},
+            "despues": None,
+        },
+    )
+
+
+def test_endpoint_ruido_delgado_vocabulario_y_passthrough(monkeypatch):
+    """GET /api/dashboard/ruido delega en lee_ruido y pasa su dict tal cual;
+    mercado ajeno es 422 y sin mercado se mira amazon_mx."""
+    import pytest as _pytest
+    from fastapi import HTTPException
+
+    from app import api_dashboard as dash
+
+    pedidas = []
+
+    def _falsa(conn, *, plataforma):
+        pedidas.append(plataforma)
+        return _pantalla_falsa()
+
+    monkeypatch.setattr("app.pantalla_ruido.lee_ruido", _falsa)
+    resp = dash.ruido(conn=None, plataforma="amazon_us")
+    assert resp["plataforma"] == "amazon_us"
+    assert resp["ciclos"][0]["cycle_id"] == 7
+    assert resp["encogimiento"][0]["razon"] == "0.4"
+    assert resp["antes_y_despues"]["encendido_el"] == "2026-09-15"
+    assert pedidas == ["amazon_us"]
+    dash.ruido(conn=None, plataforma=None)
+    assert pedidas == ["amazon_us", "amazon_mx"]
+    with _pytest.raises(HTTPException) as exc:
+        dash.ruido(conn=None, plataforma="meli")
+    assert exc.value.status_code == 422
+
+
+def _html_ruido(**datos):
+    from app import ui
+
+    base = {
+        "pantalla": "ruido",
+        "plataforma": "amazon_mx",
+        "ciclos": [],
+        "encogimiento": [],
+        "antes_y_despues": None,
+    }
+    base.update(datos)
+    return ui.templates.env.get_template("ruido.html").render(**base)
+
+
+def _plano(html):
+    return " ".join(html.split())
+
+
+def test_pagina_ruido_frase_no_causal_encima_de_la_comparacion():
+    html = _html_ruido(
+        antes_y_despues={
+            "encendido_el": "2026-09-15",
+            "moneda": "MXN",
+            "antes": {"gasto": "200.00", "pedidos": 3, "venta": "2000.00", "acos_pct": "10.00"},
+            "despues": {"gasto": "100.00", "pedidos": 1, "venta": "2000.00", "acos_pct": "5.00"},
+        }
+    )
+    plano = _plano(html)
+    frase = "Es una comparación simple de antes y después. No es causal."
+    assert frase in plano
+    assert "No es causal" in plano
+    assert plano.index(frase) < plano.index("Antes del encendido")
+    assert plano.index(frase) < plano.index("Después del encendido")
+
+
+def test_pagina_ruido_sin_encendido_lo_dice():
+    html = _html_ruido(antes_y_despues=None)
+    assert "todavía no hay comparación de antes y después" in _plano(html)
+
+
+def test_pagina_ruido_ciclo_pinta_decisiones_y_abstenciones_ausentes():
+    html = _html_ruido(
+        ciclos=[
+            {
+                "cycle_id": 7,
+                "started_at": "2026-10-09T08:41:00+00:00",
+                "decisiones": [
+                    {"motivo": "gasto_sin_venta", "nivel": "hoja", "count": 2},
+                    {"motivo": "regreso_por_desplome", "nivel": None, "count": 1},
+                ],
+                "abstenciones": None,
+            }
+        ]
+    )
+    plano = _plano(html)
+    assert "gasto_sin_venta" in plano
+    assert "Sin conteo de abstenciones" in plano
+
+
+def test_ruta_ruido_200_con_marcador_menu_y_headers(monkeypatch):
+    """La ruta /ruido sirve la pantalla con su marcador, su entrada de menu
+    y headers CSP/no-store; mercado ajeno es 422."""
+    from fastapi.testclient import TestClient
+
+    from app import ui
+    from app.api import _conexion_lectura
+    from app.main import app
+
+    def _ruido(conn, plataforma=None):
+        return dict(_pantalla_falsa().como_dict(), plataforma=plataforma or "amazon_mx")
+
+    monkeypatch.setattr(ui.dash, "ruido", _ruido)
+    app.dependency_overrides[_conexion_lectura] = lambda: None
+    try:
+        cliente = TestClient(app)
+        resp = cliente.get("/ruido")
+        assert resp.status_code == 200, resp.text
+        assert 'data-pantalla="ruido"' in resp.text
+        assert "Es una comparación simple de antes y después. No es causal." in _plano(resp.text)
+        assert "default-src 'self'" in resp.headers["content-security-policy"]
+        assert resp.headers["cache-control"] == "no-store"
+        assert '<a href="/ruido" aria-current="page">Ruido</a>' in resp.text
+        malo = cliente.get("/ruido", params={"plataforma": "meli"})
+        assert malo.status_code == 422
+    finally:
+        app.dependency_overrides.pop(_conexion_lectura, None)
+
+
 # --- Postgres -------------------------------------------------------------------
 # DB temporal con todas las migraciones en orden, sin la 0011 y sin las
 # reversas (igual que `tests/test_pantalla_danadas.py`).
