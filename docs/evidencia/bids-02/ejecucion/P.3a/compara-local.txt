@@ -1,0 +1,37 @@
+migraciones aplicadas (sin 0060): 52
+== numeros.py (aplica la 0060 porque la base no trae las vistas)
+0,
+   "clics_antes_14d": 100,
+   "hoja_id": 3,
+   "moneda": "MXN",
+   "nombre": "kw-entra",
+   "pedidos_antes_90d": 2,
+   "recortes": 2,
+   "regresada_el": null,
+   "venta_antes_90d": "90.0000",
+   "ya_regresada": false
+  },
+  {
+   "bid_antes": "10",
+   "bid_hoy": "10.0000",
+   "campana": "Camp regresada",
+   "clics_ahora_14d": 10,
+   "clics_antes_14d": 100,
+   "hoja_id": 18,
+   "moneda": "MXN",
+   "nombre": "kw-regresada",
+   "pedidos_antes_90d": 2,
+   "recortes": 1,
+   "regresada_el": "2026-09-26",
+   "venta_antes_90d": "90.0000",
+   "ya_regresada": true
+  }
+ ],
+ "plataforma": "amazon_mx"
+}
+
+== control.sql
+leido:   {3: (2, 2, 100, 20), 18: (1, 2, 100, 10)}
+control: {3: (2, 2, 100, 20), 18: (1, 2, 100, 10)}
+IGUALES: mismas hojas, recortes, pedidos y clics
+base de prueba borrada
