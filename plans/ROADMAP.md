@@ -58,6 +58,9 @@ evidencia de implementación y validación.
   señal en `/cortes` y `/gasto-sin-venta`); siguen S.6–S.8, 0.3, 0.5, R y
   D, más 45 notas abiertas del cierre.
   Reseñas se tratarán aparte.
+- Motor de bids: [BIDS 02](bids-02.md), plan y diseño del 2026-10-09. Nada construido. Una sola política de
+  bid para una cuenta con poca data, cinco pantallas, impulso por producto y ajustes de campaña. Cubre en
+  parte AUTO-03 a AUTO-06.
 - MeLi Ads (proposal-only, bloqueado a nivel cuenta): sin plan ni
   stub. Gap.
 

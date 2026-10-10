@@ -1,0 +1,67 @@
+
+===== hoja 2963 | amazon_mx | EXACT | ad group AC - Category Exact - MX - AdGroup | target 20.72 | equilibrio 41.43
+  Vista 1: sobre la historia real
+   2026-09-05 motor viejo: banda_menos_12 9.7400->8.571 (aplicado; 30d: 318 clics, 7 pedidos)
+        nueva: 90d pesado: 20.0 pedidos, 728 clics, ACoS 14.7% | ACoS al bid de hoy 19.4% (CPC 4.89 ventana) | ad group 11.5% cumple
+        => MANTENER  (azar_lo_explica)
+   2026-09-13 motor viejo: banda_menos_12 8.5700->7.542 (aplicado; 30d: 299 clics, 7 pedidos)
+        nueva: 90d pesado: 19.5 pedidos, 668 clics, ACoS 14.8% | ACoS al bid de hoy 17.5% (CPC 4.60 medido_tras_cambio) | ad group 10.9% cumple | ultimo cambio 2026-09-05 9.74->8.57, 7 dias, 37 clics nuevos, impresiones 9768->16715 en 7 d (razon 1.71)
+        => MANTENER  (azar_lo_explica)
+   2026-09-21 motor viejo: banda_menos_25 7.5400->5.655 (aplicado; 30d: 304 clics, 4 pedidos)
+        nueva: 90d pesado: 19.0 pedidos, 702 clics, ACoS 16.5% | ACoS al bid de hoy 18.4% (CPC 4.48 medido_tras_cambio) | ad group 11.8% cumple | ultimo cambio 2026-09-13 8.57->7.54, 7 dias, 59 clics nuevos, impresiones 16715->12844 en 7 d (razon 0.77)
+        => MANTENER  (azar_lo_explica)
+   2026-09-29 motor viejo: banda_menos_25 5.6600->4.245 (no aplicado; 30d: 267 clics, 4 pedidos)
+        nueva: 90d pesado: 19.0 pedidos, 728 clics, ACoS 17.6% | ACoS al bid de hoy 12.7% (CPC 2.91 medido_tras_cambio) | ad group 12.1% cumple | ultimo cambio 2026-09-21 7.54->5.66, 7 dias, 21 clics nuevos, impresiones 12844->1539 en 7 d (razon 0.12)
+        => REGRESAR  (regreso_por_desplome)
+   2026-09-30 motor viejo: banda_menos_25 5.6600->4.245 (aplicado; 30d: 257 clics, 4 pedidos)
+        nueva: 90d pesado: 19.0 pedidos, 732 clics, ACoS 17.6% | ACoS al bid de hoy 13.2% (CPC 3.00 medido_tras_cambio) | ad group 12.1% cumple | ultimo cambio 2026-09-21 7.54->5.66, 8 dias, 22 clics nuevos, impresiones 12844->1539 en 7 d (razon 0.12)
+        => REGRESAR  (regreso_por_desplome)
+   2026-10-08 motor viejo: banda_menos_12 4.2400->3.731 (aplicado; 30d: 219 clics, 4 pedidos)
+        nueva: 90d pesado: 16.0 pedidos, 666 clics, ACoS 18.3% | ACoS al bid de hoy 10.9% (CPC 2.36 proyectado) | ad group 12.4% cumple | ultimo cambio 2026-09-30 5.66->4.25, 7 dias, 0 clics nuevos, impresiones 1148->164 en 7 d (razon 0.14)
+        => REGRESAR  (regreso_por_desplome)
+  Guarda de desplome tras cada recorte real (primer dia en que habria regresado el bid):
+   recorte del 2026-09-05 (9.74->8.57): la guarda no dispara
+   recorte del 2026-09-13 (8.57->7.54): la guarda no dispara
+   recorte del 2026-09-21 (7.54->5.66): regresa a 7.54 el 2026-09-26 (dia 5); impresiones 12844 en 7 d antes, 1150 en 4 d despues, razon 0.16
+   recorte del 2026-09-30 (5.66->4.25): regresa a 5.66 el 2026-10-05 (dia 5); impresiones 1148 en 7 d antes, 164 en 4 d despues, razon 0.25
+   recorte del 2026-10-08 (4.24->3.73): la guarda no dispara
+
+===== hoja 4924 | amazon_us | PHRASE | ad group AU2 - Category Phrase - US - AdGroup | target 28.34 | equilibrio 31.49
+  Vista 1: sobre la historia real
+   2026-09-02 motor viejo: banda_menos_25 0.4000->0.300 (aplicado; 30d: 429 clics, 5 pedidos)
+        nueva: 90d pesado: 5.5 pedidos, 368 clics, ACoS 30.9% | ACoS al bid de hoy 33.1% (CPC 0.48 ventana) | ad group 41.3% sangra
+        => RECORTAR -12% (grupo_sangra_vendedora)
+   2026-09-10 motor viejo: banda_menos_25 0.3000->0.225 (aplicado; 30d: 415 clics, 4 pedidos)
+        nueva: 90d pesado: 6.5 pedidos, 521 clics, ACoS 37.9% | ACoS al bid de hoy 30.1% (CPC 0.37 medido_tras_cambio) | ad group 44.2% sangra | ultimo cambio 2026-09-02 0.40->0.30, 7 dias, 48 clics nuevos, impresiones 19954->8336 en 7 d (razon 0.42)
+        => MANTENER  (recorte_costo_trafico)
+   2026-09-18 motor viejo: banda_menos_25 0.2200->0.165 (aplicado; 30d: 379 clics, 3 pedidos)
+        nueva: 90d pesado: 7.5 pedidos, 605 clics, ACoS 38.8% | ACoS al bid de hoy 22.9% (CPC 0.27 proyectado) | ad group 45.8% sangra | ultimo cambio 2026-09-10 0.30->0.23, 7 dias, 3 clics nuevos, impresiones 8336->903 en 7 d (razon 0.11)
+        => REGRESAR  (regreso_por_desplome)
+   2026-09-26 motor viejo: banda_menos_25 0.1600->0.120 (no aplicado; 30d: 293 clics, 3 pedidos)
+        nueva: 90d pesado: 6.5 pedidos, 582 clics, ACoS 40.6% | ACoS al bid de hoy 14.1% (CPC 0.16 proyectado) | ad group 44.7% sangra | ultimo cambio 2026-09-18 0.22->0.17, 7 dias, 1 clics nuevos, impresiones 903->79 en 7 d (razon 0.09)
+        => MANTENER  (esperando_precio_medido)
+   2026-09-27 motor viejo: banda_menos_25 0.1600->0.120 (no aplicado; 30d: 273 clics, 3 pedidos)
+        nueva: 90d pesado: 6.5 pedidos, 574 clics, ACoS 39.8% | ACoS al bid de hoy 13.8% (CPC 0.16 proyectado) | ad group 44.2% sangra | ultimo cambio 2026-09-18 0.22->0.17, 8 dias, 2 clics nuevos, impresiones 903->79 en 7 d (razon 0.09)
+        => MANTENER  (esperando_precio_medido)
+   2026-09-28 motor viejo: banda_menos_25 0.1600->0.120 (no aplicado; 30d: 242 clics, 2 pedidos)
+        nueva: 90d pesado: 6.5 pedidos, 563 clics, ACoS 39.1% | ACoS al bid de hoy 13.6% (CPC 0.16 proyectado) | ad group 43.6% sangra | ultimo cambio 2026-09-18 0.22->0.17, 9 dias, 2 clics nuevos, impresiones 903->79 en 7 d (razon 0.09)
+        => MANTENER  (esperando_precio_medido)
+   2026-09-29 motor viejo: banda_menos_25 0.1600->0.120 (no aplicado; 30d: 212 clics, 2 pedidos)
+        nueva: 90d pesado: 6.5 pedidos, 556 clics, ACoS 38.5% | ACoS al bid de hoy 13.4% (CPC 0.16 proyectado) | ad group 44.4% sangra | ultimo cambio 2026-09-18 0.22->0.17, 10 dias, 2 clics nuevos, impresiones 903->79 en 7 d (razon 0.09)
+        => MANTENER  (esperando_precio_medido)
+   2026-09-30 motor viejo: banda_menos_25 0.1600->0.120 (aplicado; 30d: 193 clics, 2 pedidos)
+        nueva: 90d pesado: 6.5 pedidos, 548 clics, ACoS 38.0% | ACoS al bid de hoy 13.2% (CPC 0.16 proyectado) | ad group 43.9% sangra | ultimo cambio 2026-09-18 0.22->0.17, 11 dias, 2 clics nuevos, impresiones 903->79 en 7 d (razon 0.09)
+        => MANTENER  (esperando_precio_medido)
+   2026-10-08 motor viejo: banda_menos_12 0.1200->0.106 (aplicado; 30d: 58 clics, 0 pedidos)
+        nueva: 90d pesado: 5.5 pedidos, 506 clics, ACoS 42.7% | ACoS al bid de hoy 13.5% (CPC 0.14 proyectado) | ad group 46.7% sangra | ultimo cambio 2026-09-30 0.16->0.12, 7 dias, 0 clics nuevos, impresiones 143->14 en 7 d (razon 0.1)
+        => MANTENER  (esperando_precio_medido)
+  Guarda de desplome tras cada recorte real (primer dia en que habria regresado el bid):
+   recorte del 2026-09-02 (0.40->0.30): la guarda no dispara
+   recorte del 2026-09-10 (0.30->0.23): regresa a 0.30 el 2026-09-15 (dia 5); impresiones 8336 en 7 d antes, 500 en 4 d despues, razon 0.10
+   recorte del 2026-09-18 (0.22->0.17): la guarda no dispara
+   recorte del 2026-09-30 (0.16->0.12): la guarda no dispara
+   recorte del 2026-10-08 (0.12->0.11): la guarda no dispara
+
+  Vista 2: desde el principio (simulacion a2)
+   hoja 2963: ningun cambio en todo el mes
+   hoja 4924: [(datetime.date(2026, 9, 2), 'recortar', 'grupo_sangra_vendedora', 0.4, 0.352)]
