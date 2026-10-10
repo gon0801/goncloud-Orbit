@@ -60,8 +60,8 @@ falta otra, usa 0056 para M y 0057 para G.
 `app/precio/config.py`, `app/precio_mercados.py`, `app/estimacion_universo.py` y
 las migraciones 0053 y 0054 quedan completos en 0.a. Después de 0.a solo se
 editan para borrar lo que un paso deja de usar, y esta guía dice cuál paso borra
-qué. Si necesitas agregar algo a uno de ellos, hazlo en un commit aparte, solo
-con ese cambio, y decláralo en la descripción del PR bajo `Desviaciones`.
+qué. Si necesitas agregar algo a uno de ellos, abre un PR aparte solo con ese
+cambio y avisa al lead. Ese PR se mergea antes de seguir con la sección.
 
 **Candados de arquitectura.** `tests/test_architecture.py` lo editan 0.a, 0.b y
 el carril S. Los carriles F, M y G escriben los suyos en
