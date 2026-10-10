@@ -171,7 +171,7 @@ despliega. Los ids de las tareas no cambian. La letra de un id nombra el tema de
 | Sección | Tareas, en orden | Termina con | Depende de | Qué ve el dueño al terminar |
 | --- | --- | --- | --- | --- |
 | 1. Preparación | 0.a, 0.b, V.0 | Las cuatro sondas con su conclusión | Nada | Nada |
-| 2. El motor | T.1, P.3a, M.1, M.2, M.3, M.4, M.5, P.3b, P.5, D.1, X.1 | El motor encendido en MX y US | Sección 1 | El motor deja de recortar sin evidencia y las keywords dañadas vuelven a su bid |
+| 2. El motor | T.1, P.3a, M.1, M.2, M.3, M.4, M.5, P.3b, P.5, D.1, X.1 | El motor encendido en MX y US | Sección 1 | El motor deja de recortar sin evidencia y las keywords dañadas vuelven a su bid. Tras D.1 y hasta X.1, el motor no mueve ningún bid; la fracción US 0.8 queda aunque haya rollback (D.1) |
 | 3. Ver la campaña | V.1, V.2, P.1, P.2a, V.4, D.2 | Pantalla de dinero y avisos en producción | Sección 1 | El gasto por tipo de campaña, por ubicación y por campaña, y los avisos diarios |
 | 4. Ajustar la campaña | V.3, P.2b, D.3 | Los ajustes del dueño en producción | Secciones 1 y 3, y M.2 de la sección 2 | Botones para limitar el gasto fuera de Amazon, cambiar un ajuste por ubicación y cambiar un presupuesto |
 | 5. Impulso y estructura | I.1, I.2, I.3, I.4, I.5, P.4, E.1, D.4 | El impulso en producción | Sección 1. P.4 necesita además V.2, de la sección 3 | Puede impulsar productos y leer su veredicto |
