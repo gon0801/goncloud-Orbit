@@ -75,7 +75,7 @@ Cada una es una idea de la base o del diagnóstico que este diseño descarta, co
   `campana_grupo_rol`, no se sonda `PUT /sp/adGroups` y no se cambia el dedupe del harvest.
 - **Grupo de control.** El dueño lo descartó el 2026-10-09 (decisión D4): no se construye.
 - **Tabla de estado del impulso.** El estado se deriva de la última lectura y del estado del lote.
-- **Pausar product ads (`PUT /sp/productAds`).** Sería mejor que archivar, pero nunca se sondeó. El retiro usa
-  el archivado con reposición que ya existe; la pausa queda como pregunta abierta.
+- **Pausar product ads (`PUT /sp/productAds`).** Sería mejor que archivar. Se sondeó en V.0 (sonda 1 sellada
+  2026-10-10): el retiro pausa el product ad si la sonda sella; si no, archiva y repone.
 - **Persistir cada abstención como fila de `decision`.** Serían unas 600 filas por día. Las abstenciones
   siguen contadas por motivo en `notes.skips`.
