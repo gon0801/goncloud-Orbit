@@ -108,14 +108,18 @@ if [ -z "${DESDE:-}" ]; then
   NOMEDIDO=$((NOMEDIDO + 1))
 else
   echo "== 3a) Sync de las 06:45 posterior al arranque (sale 3 si todavia no corre)"
-  SYNC_N=$(echo "SELECT count(*) FROM ads_campana_config_observation WHERE observed_at > '$DESDE';" | lee || true)
+  # El gate es la CORRIDA (ingest_run ok), no las filas: guarda_config solo
+  # inserta cuando algo cambio, asi que un dia sin cambios dejaria este gate
+  # en INCOMPLETO para siempre. El conteo de filas es informativo.
+  SYNC_N=$(echo "SELECT count(*) FROM ingest_run WHERE source = 'amazon_ads_structure_v2' AND started_at > '$DESDE' AND ok;" | lee || true)
   if [ -z "$SYNC_N" ]; then
-    echo "NO MEDIDO config posterior (lectura vacia)"; NOMEDIDO=$((NOMEDIDO + 1))
+    echo "NO MEDIDO sync posterior (lectura vacia)"; NOMEDIDO=$((NOMEDIDO + 1))
   elif [ "$SYNC_N" = "0" ]; then
     echo "INCOMPLETO: el sync de las 06:45 UTC todavia no corre despues de $DESDE; vuelve a correr el checklist despues"
     PENDIENTE=1
   else
-    echo "OK    config posterior al arranque = $SYNC_N fila(s)"
+    echo "OK    syncs ok posteriores al arranque = $SYNC_N"
+    echo "      config posterior al arranque = $(echo "SELECT count(*) FROM ads_campana_config_observation WHERE observed_at > '$DESDE';" | lee || true) fila(s) (informativo)"
     SYNC_OK=1
   fi
 fi
