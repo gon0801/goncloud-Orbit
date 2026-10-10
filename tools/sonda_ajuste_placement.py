@@ -179,13 +179,18 @@ def _mezcla(lista, placement, percentage):
 def _veredicto_parcial(
     registro, tras, placement, nombres, clave_sigue, clave_extra=None, *, cero_ausente
 ):
-    """Sella lista_parcial_reemplaza SOLO si los PUTs nombrados pasaron y la
-    lectura es dict (consulta envios[].rechazado); con rechazo o lectura
-    fallida registra "sin sellar"/"lectura_fallida" y fuerza REVISAR."""
+    """Sella lista_parcial_reemplaza SOLO si los PUTs nombrados pasaron, la
+    lectura es dict (consulta envios[].rechazado) y cada PUT se ve en su
+    propia lectura (B2: un 2xx que la lectura no muestra no es semantica de
+    Amazon); si no, registra "sin sellar"/"lectura_fallida" y fuerza REVISAR."""
     rechazado = any(e.get("nombre") in nombres and e.get("rechazado") for e in registro["envios"])
     if not isinstance(tras, dict):
         motivo = "lectura_fallida"
-    elif rechazado:
+    elif (
+        rechazado
+        or not registro.get("cambio_visible_en_tras")
+        or ("put2" in nombres and not registro.get("put2_visible_en_tras"))
+    ):
         motivo = "sin sellar"
     else:
         motivo = None
@@ -290,6 +295,7 @@ def _fase_regreso(cliente, perfil_id, registro, contexto):
     iguales, diferencias = _compara(antes, final)
     registro["iguales"] = iguales
     registro["diferencias"] = diferencias
+    hubo_put2 = any(e.get("nombre") == "put2" for e in registro.get("envios", []))
     cambio_ok = (
         not registro.get("error_cambio")
         and isinstance(registro.get("lista_parcial_reemplaza"), bool)
@@ -297,6 +303,8 @@ def _fase_regreso(cliente, perfil_id, registro, contexto):
             e.get("nombre") == "cambio" and not e.get("rechazado")
             for e in registro.get("envios", [])
         )
+        and registro.get("cambio_visible_en_tras") is True
+        and (not hubo_put2 or registro.get("put2_visible_en_tras") is True)
     )
     if iguales and not mal and not registro.get("lista_parcial_sin_sellar") and cambio_ok:
         registro["resultado"] = "OK: cambio y regreso; la lectura final es igual a antes"
@@ -428,6 +436,9 @@ def main(argv=None, cliente=None):
         time.sleep(ESPERA_SEGUNDOS)
         tras_cambio = _lee_campana(cliente, perfil_id, campana_id)
         registro["lecturas"].append({"etapa": "tras_cambio", "campana": tras_cambio})
+        registro["cambio_visible_en_tras"] = (
+            _porcentaje(_lista_de(tras_cambio), objetivo) == objetivo_mas_uno
+        )
         if isinstance(tras_cambio, dict):
             contexto["confirmables"].append(_normaliza_db(tras_cambio.get("dynamicBidding") or {}))
         if otras:
@@ -456,6 +467,7 @@ def main(argv=None, cliente=None):
             time.sleep(ESPERA_SEGUNDOS)
             tras_put2 = _lee_campana(cliente, perfil_id, campana_id)
             registro["lecturas"].append({"etapa": "tras_put2", "campana": tras_put2})
+            registro["put2_visible_en_tras"] = _porcentaje(_lista_de(tras_put2), otro) == 1
             if isinstance(tras_put2, dict):
                 contexto["confirmables"].append(
                     _normaliza_db(tras_put2.get("dynamicBidding") or {})
