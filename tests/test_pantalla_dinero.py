@@ -1,0 +1,290 @@
+"""Contrato de donde-poner-el-dinero (BIDS 02, P.1).
+
+`FilaTipo`/`PantallaDinero`/`como_dict` son puros; `lee_dinero` es SOLO
+SELECT (fakes aqui; Postgres real al final, como
+`tests/test_pantalla_danadas.py`). Suma HOJAS activas por tipo de campana:
+jamas filas de campana (no doble conteo) y jamas MX con US.
+"""
+
+from __future__ import annotations
+
+import datetime as dt
+import json
+import os
+import socket
+from contextlib import contextmanager
+from decimal import Decimal
+from pathlib import Path
+from typing import get_args
+
+import psycopg
+import pytest
+from psycopg import sql as pgsql
+from test_schema import _postgres_obligatorio_ausente, _test_dsn
+
+from app.pantalla_dinero import TipoCampana, lee_dinero
+
+RAIZ = Path(__file__).resolve().parents[1]
+SQL1 = (RAIZ / "migrations" / "0001_initial.sql").read_text(encoding="utf-8")
+SQL2 = (RAIZ / "migrations" / "0002_apply.sql").read_text(encoding="utf-8")
+SQL60 = (RAIZ / "migrations" / "0060_bids02_base_lectura.sql").read_text(encoding="utf-8")
+
+TIPOS = get_args(TipoCampana)
+
+_skip_db = pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+
+
+class _CursorFalso:
+    def __init__(self, filas):
+        self._filas = filas
+
+    def fetchall(self):
+        return self._filas
+
+    def fetchone(self):
+        return self._filas[0] if self._filas else None
+
+
+class _ConnFalsa:
+    """Conexion de lectura falsa: respuestas en orden de llamada."""
+
+    def __init__(self, respuestas):
+        self._respuestas = list(respuestas)
+        self.consultas = []
+
+    def execute(self, sql, params=None):
+        self.consultas.append((sql, params))
+        return _CursorFalso(self._respuestas.pop(0))
+
+
+def _grupo(tipo, gasto, pedidos, venta, hojas=1):
+    """Fila del SELECT: (tipo_campana, gasto, pedidos, venta, hojas)."""
+    return (tipo, gasto, pedidos, venta, hojas)
+
+
+def _lee(grupos, *, plataforma="amazon_mx", dias=90, hasta=None, target=None):
+    notas = (
+        [(json.dumps({"target": {"procedencia": "margen_plataforma", "target_aplicado": target}}),)]
+        if target is not None
+        else [None]
+    )
+    conn = _ConnFalsa([list(grupos), notas if target is not None else []])
+    pantalla = lee_dinero(conn, plataforma=plataforma, dias=dias, hasta=hasta)
+    return pantalla, conn
+
+
+def _cinco_grupos(**cambios):
+    base = {
+        "exact": (Decimal("100"), 10, Decimal("1000"), 2),
+        "phrase": (Decimal("100"), 10, Decimal("1000"), 2),
+        "broad": (Decimal("100"), 10, Decimal("1000"), 2),
+        "automatica": (Decimal("100"), 10, Decimal("1000"), 2),
+        "product_targeting": (Decimal("100"), 10, Decimal("1000"), 2),
+    }
+    base.update(cambios)
+    return [_grupo(tipo, *vals) for tipo, vals in base.items()]
+
+
+def test_cinco_tipos_dan_cinco_renglones_y_total_parte_100():
+    pantalla, _ = _lee(_cinco_grupos(), hasta=dt.date(2026, 10, 4))
+    assert [f.tipo for f in pantalla.filas] == list(TIPOS)
+    assert pantalla.total.gasto == Decimal("500")
+    assert pantalla.total.pedidos == 50
+    assert pantalla.total.venta == Decimal("5000")
+    assert pantalla.total.acos_pct == Decimal("10.0")
+    assert sum(f.parte_del_gasto_pct for f in pantalla.filas) == Decimal("100.0")
+    assert pantalla.total.parte_del_gasto_pct == Decimal("100.0")
+    assert pantalla.hojas_sin_clasificar == 0
+    assert pantalla.moneda == "MXN"
+    assert (pantalla.desde, pantalla.hasta) == (dt.date(2026, 7, 6), dt.date(2026, 10, 4))
+
+
+def test_pasa_plataforma_y_ventana_al_select():
+    _, conn = _lee([], plataforma="amazon_us", dias=30, hasta=dt.date(2026, 10, 4))
+    sql, params = conn.consultas[0]
+    assert "v_hoja_activa" in sql and "v_metric_latest" in sql
+    assert params == ("amazon_us", dt.date(2026, 9, 4), dt.date(2026, 10, 4))
+
+
+def test_venta_cero_da_acos_none_y_metrica_null_da_suma_none():
+    grupos = _cinco_grupos(exact=(Decimal("100"), 10, Decimal("0"), 2))
+    pantalla, _ = _lee(grupos, hasta=dt.date(2026, 10, 4))
+    exact = pantalla.filas[0]
+    assert exact.acos_pct is None
+
+    grupos = _cinco_grupos(phrase=(None, 10, Decimal("1000"), 2))
+    pantalla, _ = _lee(grupos, hasta=dt.date(2026, 10, 4))
+    assert pantalla.filas[1].gasto is None
+    assert pantalla.filas[1].parte_del_gasto_pct is None
+    assert pantalla.total.gasto is None
+
+
+def test_tipo_null_va_al_total_y_se_cuenta_aparte():
+    grupos = _cinco_grupos() + [_grupo(None, Decimal("50"), 5, Decimal("500"), 3)]
+    pantalla, _ = _lee(grupos, hasta=dt.date(2026, 10, 4))
+    assert [f.tipo for f in pantalla.filas] == list(TIPOS)
+    assert pantalla.total.gasto == Decimal("550")
+    assert pantalla.total.pedidos == 55
+    assert pantalla.hojas_sin_clasificar == 3
+
+
+def test_tipo_fuera_de_vocabulario_es_sin_clasificar():
+    grupos = _cinco_grupos() + [_grupo("raro", Decimal("50"), 5, Decimal("500"), 1)]
+    pantalla, _ = _lee(grupos, hasta=dt.date(2026, 10, 4))
+    assert [f.tipo for f in pantalla.filas] == list(TIPOS)
+    assert pantalla.total.gasto == Decimal("550")
+    assert pantalla.hojas_sin_clasificar == 1
+
+
+def test_sin_hojas_salen_renglones_vacios_y_total_none():
+    pantalla, _ = _lee([], hasta=dt.date(2026, 10, 4))
+    assert [f.tipo for f in pantalla.filas] == list(TIPOS)
+    assert all(f.gasto is None and f.hojas == 0 for f in pantalla.filas)
+    assert pantalla.total.gasto is None
+    assert pantalla.total.acos_pct is None
+    assert pantalla.hojas_sin_clasificar == 0
+
+
+def test_target_del_ciclo_y_none_sin_ciclo():
+    pantalla, _ = _lee(_cinco_grupos(), hasta=dt.date(2026, 10, 4), target="13.3")
+    assert pantalla.target_acos_pct == Decimal("13.3")
+    pantalla, conn = _lee(_cinco_grupos(), hasta=dt.date(2026, 10, 4))
+    assert pantalla.target_acos_pct is None
+    assert conn.consultas[1][1] == ("amazon_mx",)
+
+
+def test_hasta_omiso_es_ayer_utc():
+    pantalla, _ = _lee(_cinco_grupos())
+    ayer = dt.datetime.now(dt.UTC).date() - dt.timedelta(days=1)
+    assert pantalla.hasta == ayer
+    assert pantalla.desde == ayer - dt.timedelta(days=90)
+
+
+def test_como_dict_serializa_decimales_y_fechas():
+    pantalla, _ = _lee(_cinco_grupos(), hasta=dt.date(2026, 10, 4), target="13.3")
+    dato = pantalla.como_dict()
+    assert dato["plataforma"] == "amazon_mx"
+    assert dato["moneda"] == "MXN"
+    assert (dato["desde"], dato["hasta"]) == ("2026-07-06", "2026-10-04")
+    assert dato["hojas_sin_clasificar"] == 0
+    assert dato["target_acos_pct"] == "13.3"
+    assert dato["filas"][0] == {
+        "tipo": "exact",
+        "gasto": "100",
+        "pedidos": 10,
+        "venta": "1000",
+        "acos_pct": "10.0",
+        "parte_del_gasto_pct": "20.0",
+        "hojas": 2,
+    }
+    assert dato["total"]["tipo"] == ""
+    assert dato["total"]["gasto"] == "500"
+
+
+@contextmanager
+def _db_dinero(prefijo: str):
+    dsn = _test_dsn()
+    db = f"{prefijo}_{socket.gethostname().lower()}_{os.getpid()}"
+    admin = psycopg.connect(dsn, autocommit=True)
+    conn = None
+    try:
+        admin.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(db)))
+        conn = psycopg.connect(dsn, dbname=db, autocommit=True)
+        conn.execute("SET TIME ZONE 'UTC'")
+        conn.execute(SQL1)
+        conn.execute(SQL2)
+        conn.execute(SQL60)
+        yield conn
+    finally:
+        if conn is not None:
+            conn.close()
+        admin.execute(
+            pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
+        )
+        admin.close()
+
+
+def _siembra_entidad(conn, platform, kind, external, parent=None, match=None, texto=None):
+    return conn.execute(
+        "INSERT INTO ad_entity (platform, kind, external_id, parent_id, match_type, keyword_text)"
+        " VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
+        (platform, kind, external, parent, match, texto),
+    ).fetchone()[0]
+
+
+def _siembra_estado(conn, entidad, status, targeting=None):
+    conn.execute(
+        "INSERT INTO ad_entity_state (ad_entity_id, status, targeting_type, synced_at)"
+        " VALUES (%s, %s, %s, now())",
+        (entidad, status, targeting),
+    )
+
+
+def _siembra_metrica(conn, entidad, fecha, costo, pedidos, venta, observado, run, moneda="MXN"):
+    conn.execute(
+        "INSERT INTO ads_metric_observation"
+        " (ad_entity_id, metric_date, observed_at, metric_currency, cost, orders, ad_revenue,"
+        "  source_report_id, ingest_run_id)"
+        " VALUES (%s, %s, %s, %s, %s, %s, %s, 'R1', %s)",
+        (entidad, fecha, observado, moneda, costo, pedidos, venta, run),
+    )
+
+
+@_skip_db
+def test_pg_solo_mx_encendido_y_null_al_total():
+    with _db_dinero("orbit_p1_pg") as conn:
+        run = conn.execute("INSERT INTO ingest_run (source) VALUES ('t') RETURNING id").fetchone()[
+            0
+        ]
+        camp = _siembra_entidad(conn, "amazon_mx", "campaign", "c1")
+        ag = _siembra_entidad(conn, "amazon_mx", "ad_group", "a1", parent=camp)
+        kws = [
+            _siembra_entidad(
+                conn, "amazon_mx", "keyword", f"k{i}", parent=ag, match=m, texto=f"t{i}"
+            )
+            for i, m in enumerate(["EXACT", "PHRASE", "BROAD"])
+        ]
+        pt = _siembra_entidad(conn, "amazon_mx", "product_target", "p1", parent=ag)
+        auto_c = _siembra_entidad(conn, "amazon_mx", "campaign", "c2")
+        auto_ag = _siembra_entidad(conn, "amazon_mx", "ad_group", "a2", parent=auto_c)
+        auto_k = _siembra_entidad(
+            conn, "amazon_mx", "keyword", "k9", parent=auto_ag, match="EXACT", texto="t9"
+        )
+        for e in [camp, ag, *kws, pt]:
+            _siembra_estado(conn, e, "ENABLED")
+        for e in [auto_c, auto_ag, auto_k]:
+            _siembra_estado(conn, e, "ENABLED", targeting="AUTO" if e == auto_c else None)
+        # Campana apagada: su hoja no cuenta aunque tenga metricas.
+        off_c = _siembra_entidad(conn, "amazon_mx", "campaign", "c3")
+        off_ag = _siembra_entidad(conn, "amazon_mx", "ad_group", "a3", parent=off_c)
+        off_k = _siembra_entidad(
+            conn, "amazon_mx", "keyword", "k8", parent=off_ag, match="EXACT", texto="t8"
+        )
+        _siembra_estado(conn, off_c, "PAUSED")
+        _siembra_estado(conn, off_ag, "ENABLED")
+        _siembra_estado(conn, off_k, "ENABLED")
+        # Hoja de US: no entra a la tabla de MX.
+        us_c = _siembra_entidad(conn, "amazon_us", "campaign", "c4")
+        us_ag = _siembra_entidad(conn, "amazon_us", "ad_group", "a4", parent=us_c)
+        us_k = _siembra_entidad(
+            conn, "amazon_us", "keyword", "k7", parent=us_ag, match="EXACT", texto="t7"
+        )
+        for e in [us_c, us_ag, us_k]:
+            _siembra_estado(conn, e, "ENABLED")
+        obs = dt.datetime(2026, 10, 5, tzinfo=dt.UTC)
+        for e in [*kws, pt, auto_k, off_k]:
+            _siembra_metrica(
+                conn, e, dt.date(2026, 10, 4), Decimal("10"), 1, Decimal("100"), obs, run
+            )
+        _siembra_metrica(
+            conn, us_k, dt.date(2026, 10, 4), Decimal("10"), 1, Decimal("100"), obs, run, "USD"
+        )
+
+        pantalla = lee_dinero(conn, plataforma="amazon_mx", dias=90, hasta=dt.date(2026, 10, 4))
+        assert [f.tipo for f in pantalla.filas] == list(TIPOS)
+        assert pantalla.total.gasto == Decimal("50")
+        assert pantalla.total.pedidos == 5
+        assert pantalla.filas[0].gasto == Decimal("10")
