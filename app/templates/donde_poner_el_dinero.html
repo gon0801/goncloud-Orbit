@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block contenido %}
+<h2>Dónde poner el dinero</h2>
+<p class="mutado">
+  Solo cuenta lo que hoy está encendido. Lo que apagaste no aparece, así que
+  el total no coincide con el Resumen.
+</p>
+{# Mercado con enlaces GET (guia S.5.5): no existe componente de pestanas. #}
+<p>
+  <a href="/donde-poner-el-dinero?plataforma=amazon_mx" {% if plataforma == "amazon_mx" %}aria-current="page"{% endif %}>Amazon MX</a>
+  <a href="/donde-poner-el-dinero?plataforma=amazon_us" {% if plataforma == "amazon_us" %}aria-current="page"{% endif %}>Amazon US</a>
+</p>
+<p class="mutado">Ventana {{ desde }} a {{ hasta }} ({{ moneda }}).</p>
+{% if hojas_sin_clasificar %}
+<p class="mutado">{{ hojas_sin_clasificar }} hoja{% if hojas_sin_clasificar != 1 %}s{% endif %} sin clasificar entra{% if hojas_sin_clasificar != 1 %}n{% endif %} al total.</p>
+{% endif %}
+<table>
+  <thead>
+    <tr><th>Tipo</th><th>Gasto</th><th>Parte del gasto</th><th>Pedidos</th><th>Venta</th><th>ACoS</th></tr>
+  </thead>
+  <tbody>
+    {% for fila in filas %}
+    <tr>
+      <td>{{ fila.tipo }}</td>
+      <td class="num">{{ fila.gasto|dinero_ui or "—" }}</td>
+      <td class="num">{% if fila.parte_del_gasto_pct is none %}—{% else %}{{ fila.parte_del_gasto_pct }} %{% endif %}</td>
+      <td class="num">{{ fila.pedidos if fila.pedidos is not none else "—" }}</td>
+      <td class="num">{{ fila.venta|dinero_ui or "—" }}</td>
+      <td class="num">
+        {%- if fila.sin_ventas %}sin ventas
+        {%- elif fila.acos_pct is none %}—
+        {%- else %}{{ fila.acos_pct }} %{% endif %}
+        {% if target_acos_pct is not none %}(target {{ target_acos_pct }} %){% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+  <tfoot>
+    <tr>
+      <td>Total</td>
+      <td class="num">{{ total.gasto|dinero_ui or "—" }}</td>
+      <td class="num">{% if total.parte_del_gasto_pct is none %}—{% else %}{{ total.parte_del_gasto_pct }} %{% endif %}</td>
+      <td class="num">{{ total.pedidos if total.pedidos is not none else "—" }}</td>
+      <td class="num">{{ total.venta|dinero_ui or "—" }}</td>
+      <td class="num">
+        {%- if total.sin_ventas %}sin ventas
+        {%- elif total.acos_pct is none %}—
+        {%- else %}{{ total.acos_pct }} %{% endif %}
+        {% if target_acos_pct is not none %}(target {{ target_acos_pct }} %){% endif %}
+      </td>
+    </tr>
+  </tfoot>
+</table>
+{% endblock %}

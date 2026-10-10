@@ -624,6 +624,25 @@ def pagina_ruido(
     )
 
 
+@router.get("/donde-poner-el-dinero", response_class=HTMLResponse)
+def pagina_donde_poner_el_dinero(
+    request: Request,
+    conn: ConexionLectura,
+    plataforma: Annotated[str | None, Query()] = None,
+) -> HTMLResponse:
+    """Donde poner el dinero (BIDS 02, P.1): gasto y ACoS por tipo de
+    campana, solo lo que hoy esta encendido. Server-rendered desde el
+    endpoint (regla 22). Mercado con `?plataforma=` (vocabulario cerrado,
+    sin componente de pestanas); sin mercado se mira amazon_mx."""
+    mercado = _vocab_o_422(plataforma, frozenset(PLATAFORMAS_MONEDA), "plataforma")
+    datos = dash.donde_poner_el_dinero(conn=conn, plataforma=mercado or "amazon_mx")
+    return templates.TemplateResponse(
+        request,
+        "donde_poner_el_dinero.html",
+        {"pantalla": "donde-poner-el-dinero", **datos},
+    )
+
+
 @router.get("/settings", response_class=HTMLResponse)
 def pagina_settings(request: Request, conn: ConexionLectura) -> HTMLResponse:
     """Settings de escritura (DASHBOARD 01 3.1, E1-E6): target vigente con

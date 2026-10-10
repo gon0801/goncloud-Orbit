@@ -2021,3 +2021,50 @@ vm.runInThisContext(fs.readFileSync(process.argv[1], "utf8"));
         timeout=15,
     )
     assert resultado.returncode == 0, resultado.stdout + resultado.stderr
+
+
+# P.1 (BIDS 02 s3): /donde-poner-el-dinero.
+# ---------------------------------------------------------------------------
+
+
+def _html_dinero(monkeypatch, filas: list[dict], **params):
+    """Render del camino REAL (TestClient -> pagina) con el endpoint
+    fakeado: se prueba la vista, no el SQL (modelo _html_danadas)."""
+    from test_pantalla_dinero import _fila_ui
+
+    def _dinero(conn, plataforma=None):
+        return {
+            "plataforma": plataforma or "amazon_mx",
+            "moneda": "MXN",
+            "desde": "2026-07-06",
+            "hasta": "2026-10-04",
+            "filas": filas,
+            "total": _fila_ui(tipo=""),
+            "hojas_sin_clasificar": 0,
+            "target_acos_pct": "13.3",
+        }
+
+    monkeypatch.setattr(ui.dash, "donde_poner_el_dinero", _dinero)
+    app.dependency_overrides[_conexion_lectura] = lambda: None
+    try:
+        return TestClient(app).get("/donde-poner-el-dinero", params=params)
+    finally:
+        app.dependency_overrides.pop(_conexion_lectura, None)
+
+
+def test_ui_donde_poner_el_dinero_200_con_marcador_y_menu(monkeypatch):
+    """La ruta sirve la pantalla con su marcador, headers CSP/no-store y su
+    entrada de menu; mercado ajeno es 422."""
+    from test_pantalla_dinero import _fila_ui
+
+    resp = _html_dinero(monkeypatch, [_fila_ui()])
+    assert resp.status_code == 200, resp.text
+    assert 'data-pantalla="donde-poner-el-dinero"' in resp.text
+    assert "default-src 'self'" in resp.headers["content-security-policy"]
+    assert resp.headers["cache-control"] == "no-store"
+    assert (
+        '<a href="/donde-poner-el-dinero" aria-current="page">Dónde poner el dinero</a>'
+        in resp.text
+    )
+    malo = _html_dinero(monkeypatch, [], plataforma="meli")
+    assert malo.status_code == 422

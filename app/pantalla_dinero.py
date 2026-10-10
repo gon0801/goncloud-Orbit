@@ -43,7 +43,9 @@ SELECT h.tipo_campana AS tipo,
 
 @dataclass(frozen=True)
 class FilaTipo:
-    """Un renglon: `tipo` es un valor de `TipoCampana`, `""` = total."""
+    """Un renglon: `tipo` es un valor de `TipoCampana`, `""` = total. `hojas`
+    cuenta hojas con metricas en la ventana (las del JOIN, no todas las
+    activas): son las que suman al total."""
 
     tipo: str
     gasto: Decimal | None
@@ -52,6 +54,12 @@ class FilaTipo:
     acos_pct: Decimal | None
     parte_del_gasto_pct: Decimal | None
     hojas: int
+
+    @property
+    def sin_ventas(self) -> bool:
+        """Venta conocida igual a 0 (Decimal exacto, regla 4: la plantilla
+        jamas compara dinero con float)."""
+        return self.venta is not None and self.venta == 0
 
     def como_dict(self) -> dict:
         return {
@@ -64,6 +72,7 @@ class FilaTipo:
                 None if self.parte_del_gasto_pct is None else str(self.parte_del_gasto_pct)
             ),
             "hojas": self.hojas,
+            "sin_ventas": self.sin_ventas,
         }
 
 
@@ -155,7 +164,7 @@ def lee_dinero(
         pedidos=pedidos_total,
         venta=venta_total,
         acos_pct=_pct(gasto_total, venta_total),
-        parte_del_gasto_pct=Decimal("100.0") if gasto_total is not None else None,
+        parte_del_gasto_pct=Decimal("100.0") if gasto_total else None,
         hojas=hojas_total,
     )
     return PantallaDinero(

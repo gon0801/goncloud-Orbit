@@ -114,6 +114,8 @@ def test_venta_cero_da_acos_none_y_metrica_null_da_suma_none():
     pantalla, _ = _lee(grupos, hasta=dt.date(2026, 10, 4))
     exact = pantalla.filas[0]
     assert exact.acos_pct is None
+    assert exact.sin_ventas is True
+    assert pantalla.filas[1].sin_ventas is False
 
     grupos = _cinco_grupos(phrase=(None, 10, Decimal("1000"), 2))
     pantalla, _ = _lee(grupos, hasta=dt.date(2026, 10, 4))
@@ -137,6 +139,17 @@ def test_tipo_fuera_de_vocabulario_es_sin_clasificar():
     assert [f.tipo for f in pantalla.filas] == list(TIPOS)
     assert pantalla.total.gasto == Decimal("550")
     assert pantalla.hojas_sin_clasificar == 1
+
+
+def test_gasto_cero_da_parte_none_en_filas_y_total():
+    grupos = _cinco_grupos(exact=(Decimal("0"), 0, Decimal("0"), 1))
+    pantalla, _ = _lee(grupos, hasta=dt.date(2026, 10, 4))
+    assert pantalla.total.parte_del_gasto_pct == Decimal("100.0")
+    ceros = [_grupo(t, Decimal("0"), 0, Decimal("0"), 1) for t in TIPOS]
+    pantalla, _ = _lee(ceros, hasta=dt.date(2026, 10, 4))
+    assert pantalla.total.gasto == Decimal("0")
+    assert all(f.parte_del_gasto_pct is None for f in pantalla.filas)
+    assert pantalla.total.parte_del_gasto_pct is None
 
 
 def test_sin_hojas_salen_renglones_vacios_y_total_none():
@@ -179,6 +192,7 @@ def test_como_dict_serializa_decimales_y_fechas():
         "acos_pct": "10.0",
         "parte_del_gasto_pct": "20.0",
         "hojas": 2,
+        "sin_ventas": False,
     }
     assert dato["total"]["tipo"] == ""
     assert dato["total"]["gasto"] == "500"
@@ -234,7 +248,7 @@ def _siembra_metrica(conn, entidad, fecha, costo, pedidos, venta, observado, run
 
 
 @_skip_db
-def test_pg_solo_mx_encendido_y_null_al_total():
+def test_pg_solo_mx_encendido():
     with _db_dinero("orbit_p1_pg") as conn:
         run = conn.execute("INSERT INTO ingest_run (source) VALUES ('t') RETURNING id").fetchone()[
             0
@@ -288,3 +302,71 @@ def test_pg_solo_mx_encendido_y_null_al_total():
         assert pantalla.total.gasto == Decimal("50")
         assert pantalla.total.pedidos == 5
         assert pantalla.filas[0].gasto == Decimal("10")
+
+
+def _fila_ui(**cambios):
+    fila = {
+        "tipo": "exact",
+        "gasto": "100",
+        "pedidos": 10,
+        "venta": "1000",
+        "acos_pct": "10.0",
+        "parte_del_gasto_pct": "20.0",
+        "hojas": 2,
+        "sin_ventas": False,
+    }
+    fila.update(cambios)
+    return fila
+
+
+def _html_dinero(filas, total=None, **cambios):
+    from app import ui
+
+    datos = {
+        "pantalla": "donde-poner-el-dinero",
+        "plataforma": "amazon_mx",
+        "moneda": "MXN",
+        "desde": "2026-07-06",
+        "hasta": "2026-10-04",
+        "filas": filas,
+        "total": total or _fila_ui(tipo="", gasto="500", pedidos=50, venta="5000", acos_pct="10.0"),
+        "hojas_sin_clasificar": 0,
+        "target_acos_pct": "13.3",
+    }
+    datos.update(cambios)
+    return ui.templates.env.get_template("donde_poner_el_dinero.html").render(**datos)
+
+
+def _plano(html):
+    return " ".join(html.split())
+
+
+def test_pantalla_dinero_pinta_aviso_renglones_y_target():
+    html = _plano(_html_dinero([_fila_ui()]))
+    assert (
+        "Solo cuenta lo que hoy está encendido. Lo que apagaste no aparece, "
+        "así que el total no coincide con el Resumen." in html
+    )
+    assert "exact" in html and "target 13.3 %" in html
+
+
+def test_pantalla_dinero_venta_cero_dice_sin_ventas_y_null_pinta_guion():
+    html = _plano(
+        _html_dinero(
+            [
+                _fila_ui(
+                    tipo="broad",
+                    gasto="50",
+                    pedidos=3,
+                    venta="0",
+                    acos_pct=None,
+                    sin_ventas=True,
+                ),
+                _fila_ui(tipo="phrase", gasto=None, pedidos=None, venta=None, acos_pct=None),
+            ],
+            hojas_sin_clasificar=2,
+        )
+    )
+    assert "sin ventas" in html
+    assert "—" in html
+    assert "2 hojas sin clasificar entran al total." in html

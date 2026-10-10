@@ -20,7 +20,6 @@ from __future__ import annotations
 import datetime as dt
 import os
 import sys
-from decimal import Decimal
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[5]))
@@ -58,21 +57,14 @@ WITH hojas AS (
 """
 
 
-def _norm(valor):
-    if valor is None:
-        return None
-    if isinstance(valor, Decimal):
-        return valor
-    return valor
-
-
 def compara(plataforma: str, conn) -> list[str]:
     diffs: list[str] = []
     pantalla = lee_dinero(conn, plataforma=plataforma, dias=DIAS, hasta=HASTA)  # type: ignore[arg-type]
-    control = {
-        fila[0] or "": fila[1:]
-        for fila in conn.execute(CONTROL, (plataforma, pantalla.desde, pantalla.hasta)).fetchall()
-    }
+    crudas = conn.execute(CONTROL, (plataforma, pantalla.desde, pantalla.hasta)).fetchall()
+    nulas = [fila for fila in crudas if fila[0] is None]
+    if len(nulas) > 1:
+        return [f"{plataforma}: control ambiguo, {len(nulas)} filas con tipo NULL"]
+    control = {fila[0] or "": fila[1:] for fila in crudas}
     print(f"== {plataforma} {pantalla.desde}..{pantalla.hasta} moneda={pantalla.moneda}")
     print(f"   target={pantalla.target_acos_pct} sin_clasificar={pantalla.hojas_sin_clasificar}")
     filas = {f.tipo: f for f in pantalla.filas}
@@ -93,11 +85,9 @@ def compara(plataforma: str, conn) -> list[str]:
             (fila.venta is None) == (venta_c is None or sin_v > 0),
         )
         iguales = (
-            _norm(fila.gasto) == _norm(gasto_c) if fila.gasto is not None else esperan_none[0],
-            _norm(fila.pedidos) == _norm(pedidos_c)
-            if fila.pedidos is not None
-            else esperan_none[1],
-            _norm(fila.venta) == _norm(venta_c) if fila.venta is not None else esperan_none[2],
+            fila.gasto == gasto_c if fila.gasto is not None else esperan_none[0],
+            fila.pedidos == pedidos_c if fila.pedidos is not None else esperan_none[1],
+            fila.venta == venta_c if fila.venta is not None else esperan_none[2],
         )
         marca = "ok" if all(iguales) else "DIFF"
         print(

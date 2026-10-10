@@ -4017,3 +4017,60 @@ def test_keywords_danadas_api_delgada_vocabulario_y_passthrough(monkeypatch):
         assert pedidas == ["amazon_us", "amazon_mx"]
         ajeno = cliente.get("/api/dashboard/keywords-danadas", params={"plataforma": "meli"})
         assert ajeno.status_code == 422
+
+
+# P.1 (BIDS 02 s3): GET /api/dashboard/donde-poner-el-dinero, funcion delgada.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_donde_poner_el_dinero_api_delgada_vocabulario_y_passthrough(monkeypatch):
+    """El endpoint delega en `lee_dinero` y pasa su dict tal cual; mercado
+    ajeno es 422 y sin mercado se mira amazon_mx."""
+    from app.pantalla_dinero import FilaTipo, PantallaDinero
+
+    fila = FilaTipo(
+        tipo="exact",
+        gasto=Decimal("100"),
+        pedidos=10,
+        venta=Decimal("1000"),
+        acos_pct=Decimal("10.0"),
+        parte_del_gasto_pct=Decimal("20.0"),
+        hojas=2,
+    )
+    pantalla = PantallaDinero(
+        plataforma="amazon_us",
+        moneda="USD",
+        desde=dt.date(2026, 7, 6),
+        hasta=dt.date(2026, 10, 4),
+        filas=(fila,),
+        total=fila,
+        hojas_sin_clasificar=0,
+        target_acos_pct=Decimal("13.3"),
+    )
+    pedidas = []
+
+    def _falsa(conn, *, plataforma):
+        pedidas.append(plataforma)
+        return pantalla
+
+    monkeypatch.setattr("app.pantalla_dinero.lee_dinero", _falsa)
+    with _db_temporal("orbit_dash_dinero") as (_conn, dsn_read):
+        cliente = _cliente(dsn_read, monkeypatch)
+        resp = cliente.get(
+            "/api/dashboard/donde-poner-el-dinero", params={"plataforma": "amazon_us"}
+        )
+        assert resp.status_code == 200, resp.text
+        dato = resp.json()
+        assert dato["plataforma"] == "amazon_us"
+        assert dato["filas"][0]["tipo"] == "exact"
+        assert dato["target_acos_pct"] == "13.3"
+        assert pedidas == ["amazon_us"]
+        omision = cliente.get("/api/dashboard/donde-poner-el-dinero")
+        assert omision.status_code == 200, omision.text
+        assert pedidas == ["amazon_us", "amazon_mx"]
+        ajeno = cliente.get("/api/dashboard/donde-poner-el-dinero", params={"plataforma": "meli"})
+        assert ajeno.status_code == 422
