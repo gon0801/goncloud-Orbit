@@ -153,12 +153,12 @@
     {
       "name": "repricing-02",
       "path": "plans/repricing-02.md",
-      "description": "REPRICING 02 - el motor de precios en Amazon MX (FBA y FBM), Amazon US y Mercado Libre. Decisiones del dueno del 2026-10-08: sin cupo (apagador, fusible y resumen diario), sin mediciones de 30 dias, todos los productos califican con envio propio o promedio, goals en pantalla sembrados al margen de hoy, y construccion en paralelo. Sustituye las filas abiertas de repricing-01 (D.2, D.3, E, 0, B, M). Plan del 2026-10-08; nada construido."
+      "description": "REPRICING 02 - el motor de precios en Amazon MX (FBA y FBM), Amazon US y Mercado Libre. Decisiones del dueno del 2026-10-08: sin cupo (apagador, fusible y resumen diario), sin mediciones de 30 dias, todos los productos califican con envio propio o promedio, goals en pantalla sembrados al margen de hoy. Sustituye las filas abiertas de repricing-01 (D.2, D.3, E, 0, B, M). Plan del 2026-10-08, agrupado el 2026-10-09 en seis secciones de entrega con un PR por seccion; nada construido."
     },
     {
       "name": "repricing-02-construccion",
       "path": "plans/repricing-02-construccion.md",
-      "description": "REPRICING 02, guia de construccion: donde cae cada pieza del diseno en el codigo, que prueba se escribe primero y como se comprueba cada paso (corte 0, carriles S, G, F y M, despliegues y encendido). Escrita el 2026-10-08; nada construido."
+      "description": "REPRICING 02, guia de construccion: donde cae cada pieza del diseno en el codigo, que prueba se escribe primero y como se comprueba cada paso (corte 0, carriles S, G, F y M, despliegues y encendido). Un PR por seccion y un commit por paso. Escrita el 2026-10-08; nada construido."
     },
     {
       "name": "bids-02",

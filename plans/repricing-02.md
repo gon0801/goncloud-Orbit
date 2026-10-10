@@ -3,7 +3,9 @@
 Estado: plan del 2026-10-08 UTC. El diseño se terminó el mismo día. Nada está
 construido. Base de planificación: commit `d83bb28`. Dos lectores frescos
 ejecutaron este plan y su guía. Sus hallazgos están en
-`docs/evidencia/repricing-02/planificacion/lectores-frescos.md`.
+`docs/evidencia/repricing-02/planificacion/lectores-frescos.md`. El 2026-10-09
+las tareas se agruparon en seis secciones de entrega, sin cambiar ninguna
+tarea: están en "Secciones de entrega".
 
 **Resultado:** cada publicación activa de Amazon México (FBA y FBM), Amazon
 Estados Unidos y Mercado Libre tiene un goal de margen y el motor la lleva a ese
@@ -283,10 +285,41 @@ pone en rojo. Estos mutantes son obligatorios y deben morir:
 - `MeliWriteClient` se construye sin `modo_confirmado="live"`.
 - La corrida escribe en Mercado Libre con la forma sin sellar.
 
+## Secciones de entrega
+
+Las tareas se entregan en seis secciones, en este orden. Cada sección es una
+rama y un PR, con un commit por tarea en el orden de la tabla. En las secciones
+2 a 5 el último commit es el paquete de despliegue de su fila D, con los scripts
+de sus filas X. Una sola revisión cubre el PR entero. Con el PR mergeado corre
+su despliegue y después el encendido de sus universos.
+
+| Sección | Tareas, en orden | Rama | Después del merge |
+| --- | --- | --- | --- |
+| 1. Lecturas de producción | F.0 y M.0 | `rp02/sec1-lecturas` | - |
+| 2. Corte 0 | 0.a, 0.b y el paquete de D.1 | `rp02/sec2-corte-0` | D.1 |
+| 3. Seguridad y goals | S.1, S.2, S.3, S.4, S.5, S.6, G.1, G.2, G.3 y el paquete de D.2 con los scripts de X.1 | `rp02/sec3-seguridad-goals` | D.2 y X.1 |
+| 4. FBM de México y Estados Unidos | F.1, F.2, F.3, F.4, S.7 y el paquete de D.3 con los scripts de X.2 y X.3 | `rp02/sec4-fbm-us` | D.3, X.2 y X.3 |
+| 5. Mercado Libre | M.1, M.2, M.3, M.4 y el paquete de D.4 con los scripts de X.4 | `rp02/sec5-meli` | D.4 y X.4 |
+| 6. Cierre | C.1 | `rp02/sec6-cierre` | - |
+
+Reglas de una sección:
+
+- Una tarea no empieza con la anterior en rojo. El orden de la tabla cumple la
+  columna Depends de cada fila.
+- La sección 1 solo trae evidencia. Sus conclusiones entran al encargo de la
+  sección 2.
+- Un despliegue lleva todo lo que está en `master`. Por eso una sección no se
+  mergea mientras la anterior esté mergeada y sin desplegar.
+- El encendido de un universo no frena la sección siguiente: sus pasos se
+  intercalan con la construcción.
+- Las filas se marcan y la entrada de `docs/CHAT-CONTEXT.md` se agrega en el PR
+  de cierre, C.1.
+
 ## Orden y salida
 
-Orden: 0.a, después 0.b. Con 0.a cerrado arrancan F, M y G. Con 0.b cerrado
-arranca S. F.0 y M.0 son lecturas y arrancan hoy.
+El orden es el de "Secciones de entrega". Las dependencias que lo explican: 0.a
+va antes que 0.b. Los carriles F, M y G necesitan 0.a, y el carril S necesita
+0.b. F.0 y M.0 son lecturas y no dependen de nada.
 
 `tests/test_architecture.py` lo editan 0.a, 0.b y el carril S. Los carriles F, M
 y G no lo tocan: escriben sus candados en `tests/test_arq_precio_<carril>.py`,

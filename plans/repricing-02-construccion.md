@@ -23,7 +23,9 @@ el símbolo por nombre.
 1. Comprueba que el PR que trae el diseño, el plan y esta guía está en `master`.
 2. Lee el diseño completo. Lee del bosquejo las secciones de tu paso.
 3. Levanta un Postgres local. Las pruebas con base no corren en un PR.
-4. Trabaja cada paso en su rama, con un PR por paso.
+4. Trabaja cada sección en su rama, con un PR por sección y un commit por paso.
+   Las secciones, su orden y sus ramas están en "Secciones de entrega" del
+   plan. Corre las comprobaciones de un paso antes de empezar el siguiente.
 5. Corre las herramientas de `tools/` como `PYTHONPATH=. python tools/<x>.py`.
    Sin `PYTHONPATH=.` fallan con `No module named 'app'`.
 
@@ -58,8 +60,8 @@ falta otra, usa 0056 para M y 0057 para G.
 `app/precio/config.py`, `app/precio_mercados.py`, `app/estimacion_universo.py` y
 las migraciones 0053 y 0054 quedan completos en 0.a. Después de 0.a solo se
 editan para borrar lo que un paso deja de usar, y esta guía dice cuál paso borra
-qué. Si necesitas agregar algo a uno de ellos, abre un PR aparte solo con ese
-cambio y avisa al lead.
+qué. Si necesitas agregar algo a uno de ellos, hazlo en un commit aparte, solo
+con ese cambio, y decláralo en la descripción del PR bajo `Desviaciones`.
 
 **Candados de arquitectura.** `tests/test_architecture.py` lo editan 0.a, 0.b y
 el carril S. Los carriles F, M y G escriben los suyos en
@@ -93,10 +95,11 @@ además `ensayo.sh`. Parte de los de `docs/evidencia/jev-ads-02/ejecucion/S.3/` 
 sigue las reglas de la sección "Reglas que valen en todos los pasos" de
 [la guía del bloque S de JEV ADS 02](jev-ads-02-bloque-s.md).
 
-**Revisión y cierre.** Cada paso con código pasa una revisión cruzada con un
-revisor distinto del autor antes del merge. Solo un hallazgo bloqueante y
-reproducible abre otra ronda. Marca la fila del paso en `plans/repricing-02.md`
-y agrega una entrada a `docs/CHAT-CONTEXT.md` en el mismo PR.
+**Revisión y cierre.** Cada sección con código pasa una revisión cruzada con un
+revisor distinto del autor antes del merge, sobre el PR entero. Solo un hallazgo
+bloqueante y reproducible abre otra ronda. Las filas de `plans/repricing-02.md`
+se marcan y la entrada de `docs/CHAT-CONTEXT.md` se agrega en el PR de cierre,
+C.1.
 
 ## Quién edita cada archivo compartido
 
@@ -1023,8 +1026,8 @@ Sigue los "Criterios de encendido" del plan en cada universo. Los corres tú
 cuando claw te lo encarga.
 
 Cada fila X trae sus scripts en `docs/evidencia/repricing-02/ejecucion/X.<n>/`.
-Escríbelos en el PR del paquete de despliegue de su universo: X.1 con D.2, X.2
-y X.3 con D.3, y X.4 con D.4.
+Escríbelos en el commit del paquete de despliegue, dentro del PR de la sección
+de su universo: X.1 con D.2, X.2 y X.3 con D.3, y X.4 con D.4.
 
 - `sembrar.sh` siembra "margen de hoy" en `shadow` con
   `POST /api/precios/goals/plan` y `POST /api/precios/goals/aplicar`. Guarda el
