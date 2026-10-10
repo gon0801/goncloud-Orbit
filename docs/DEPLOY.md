@@ -2370,3 +2370,54 @@ aborta antes de tocar nada.
 
 Las salidas de los cinco scripts van en el PR de cierre de la seccion 2
 (rama `bids-02/s2-cierre`).
+
+## BIDS 02 D.2 — despliegue de ver la campana + dos lineas de cron
+
+Despliega la seccion 3 (V.1, V.2, P.1, P.2a, V.4): config de campana,
+reporte por placement, pantalla de dinero y avisos diarios. Corre en
+cuanto claw lo encarga tras el merge del PR de codigo. Instala dos
+lineas de cron: la de `--placements` DENTRO del bloque Orbit (tras la
+de `--productos`, porque el instalador de ORBIT 03 borra toda linea
+suelta con `app.cli ingest`) y la de `avisos-campana` SUELTA al final.
+Scripts en `docs/evidencia/bids-02/ejecucion/D.2/`, patron D.1. Orden:
+
+```bash
+cd ~/dev/goncloud-Orbit
+bash docs/evidencia/bids-02/ejecucion/D.2/ensayo.sh
+bash docs/evidencia/bids-02/ejecucion/D.2/desplegar.sh <sha-de-origin/master>
+bash docs/evidencia/bids-02/ejecucion/D.2/checklist.sh <sello>   # despues del sync de las 06:45 UTC y del reporte de las 07:25 UTC
+```
+
+`desplegar.sh` aplica las migraciones BIDS 02 del SHA no aplicadas (0061
+y 0062 de la seccion 3; 0060 de la seccion 1 y 0063 de T.1 si siguen
+pendientes) y trae, ademas de las cinco guardas de la guia, dos propias
+que abortan antes de tocar nada: el SHA trae `app/cli_bids.py` con
+`avisos-campana` registrado y `app/ads/placements.py`, y `docs/DEPLOY.md`
+del SHA trae exactamente las dos lineas de cron (`git show
+<sha>:docs/DEPLOY.md | grep -E '^[0-9].*(--placements|avisos-campana)'`;
+el ancla `^[0-9]` deja fuera la fila de la tabla de crons). La guarda 5
+de la guia (instalar lineas de cron): respalda el crontab de `gon`,
+instala solo las dos lineas previstas y comprueba que el diff no trae
+nada mas; si trae otra cosa, restaura el respaldo y aborta. El respaldo
+queda en `/mnt/data/appdata/orbit/backups/crontab-gon-pre-d2-<sello>.txt`
+para `rollback.sh`.
+
+`checklist.sh` (solo lectura, salidas 0/1/3/4 del patron S.3) verifica
+`/health` en 200, la vista `v_campana_config_vigente` y las tablas de la
+0061 y la 0062, y sale 3 hasta que corren el sync de las 06:45 UTC y el
+reporte de las 07:25 UTC posteriores al arranque del contenedor nuevo.
+Tras el sync: ninguna campana `ENABLED` sin fila en la vista, en cada
+mercado. Tras el reporte: `ads_placement_observation` con filas,
+`/donde-poner-el-dinero` en 200 en MX y US, y `por_ubicacion` y
+`por_campana` con filas en los dos mercados.
+
+CONSECUENCIA. `rollback.sh` restaura primero el crontab del respaldo
+pre-d2 (quita exactamente lo instalado), luego el codigo de
+`predeploy-<sello>` y al final las reversas de
+`aplicadas-<sello>.txt` en orden inverso. Las reversas dropean las
+tablas 0061/0062 con sus filas: son observaciones re-derivables (el
+siguiente sync y el siguiente reporte las vuelven a escribir) y el
+codigo anterior no las lee.
+
+Las salidas de los cuatro scripts van en el PR de cierre de la seccion 3
+(rama `bids-02/s3-cierre`).
