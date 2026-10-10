@@ -31,7 +31,7 @@ que Cleanup.md borre sin riesgo (ver alla).
      case "$f" in *0011_*|*_reversa_*) continue ;; esac
      psql -h 127.0.0.1 -p 5433 -U orbit -d postgres -v ON_ERROR_STOP=1 -f "$f" || exit 1
    done
-   # Igualdad estricta (=71, no >=) con corte de flujo: un cluster parcial
+   # Igualdad estricta (=72, no >=) con corte de flujo: un cluster parcial
    # imprime el numero chico y `test` corta con exit 1; un check que solo
    # imprime (sin test) no falla nunca.
    # table_type='BASE TABLE' es obligatorio: sin el, information_schema.tables
