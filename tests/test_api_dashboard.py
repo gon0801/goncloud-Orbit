@@ -4074,3 +4074,82 @@ def test_donde_poner_el_dinero_api_delgada_vocabulario_y_passthrough(monkeypatch
         assert pedidas == ["amazon_us", "amazon_mx"]
         ajeno = cliente.get("/api/dashboard/donde-poner-el-dinero", params={"plataforma": "meli"})
         assert ajeno.status_code == 422
+
+
+def test_donde_poner_el_dinero_api_trae_ubicaciones_y_campanas_de_su_mercado(monkeypatch):
+    """P.2a: el dict trae `por_ubicacion` y `por_campana`; el mercado pedido
+    es el que se lee (el filtro US/MX vive en los lectores)."""
+    from app.pantalla_dinero import FilaCampana, FilaTipo, FilaUbicacion, PantallaDinero
+
+    pantalla = PantallaDinero(
+        plataforma="amazon_mx",
+        moneda="MXN",
+        desde=dt.date(2026, 9, 5),
+        hasta=dt.date(2026, 10, 4),
+        filas=(
+            FilaTipo(
+                tipo="exact",
+                gasto=Decimal("100"),
+                pedidos=10,
+                venta=Decimal("1000"),
+                acos_pct=Decimal("10.0"),
+                parte_del_gasto_pct=Decimal("20.0"),
+                hojas=2,
+            ),
+        ),
+        total=FilaTipo(
+            tipo="",
+            gasto=Decimal("100"),
+            pedidos=10,
+            venta=Decimal("1000"),
+            acos_pct=Decimal("10.0"),
+            parte_del_gasto_pct=Decimal("100.0"),
+            hojas=2,
+        ),
+        hojas_sin_clasificar=0,
+        target_acos_pct=None,
+        por_ubicacion=(
+            FilaUbicacion(
+                ubicacion="fuera_de_amazon",
+                gasto=Decimal("1735"),
+                clics=1127,
+                pedidos=0,
+                venta=Decimal("0"),
+                cpc=Decimal("1.54"),
+                conversion_pct=Decimal("0.0"),
+                acos_pct=None,
+                parte_del_gasto_pct=Decimal("10.0"),
+                gasta_sin_vender=True,
+            ),
+        ),
+        por_campana=(
+            FilaCampana(
+                campana_id=7,
+                nombre="Campana 7",
+                presupuesto_diario=Decimal("100"),
+                gasto_medio_diario=Decimal("43.00"),
+                uso_presupuesto_pct=Decimal("43.0"),
+                estrategia="fija",
+                ajustes_ubicacion=(("paginas_de_producto", 40),),
+                gasto_fuera_de_amazon=Decimal("25"),
+                dias_al_tope_7d=5,
+            ),
+        ),
+    )
+    pedidas = []
+
+    def _falsa(conn, *, plataforma):
+        pedidas.append(plataforma)
+        return pantalla
+
+    monkeypatch.setattr("app.pantalla_dinero.lee_dinero", _falsa)
+    with _db_temporal("orbit_dash_dinero2a") as (_conn, dsn_read):
+        cliente = _cliente(dsn_read, monkeypatch)
+        resp = cliente.get(
+            "/api/dashboard/donde-poner-el-dinero", params={"plataforma": "amazon_mx"}
+        )
+        assert resp.status_code == 200, resp.text
+        dato = resp.json()
+        assert dato["por_ubicacion"][0]["gasta_sin_vender"] is True
+        assert dato["por_campana"][0]["campana_id"] == 7
+        assert pedidas == ["amazon_mx"]

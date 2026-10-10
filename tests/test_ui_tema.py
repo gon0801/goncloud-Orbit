@@ -185,3 +185,12 @@ def test_css_campanas_apila_tabla_en_40rem():
         r"[^}]*min-width:\s*0[^}]*max-width:\s*100%",
         bloque,
     )
+
+
+def test_miles_ui_miles_y_none():
+    from app.ui import miles_ui
+
+    assert miles_ui("1735") == "1,735"
+    assert miles_ui(1127) == "1,127"
+    assert miles_ui(None) is None
+    assert miles_ui("xyz") == "xyz"

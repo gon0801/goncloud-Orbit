@@ -108,9 +108,10 @@ _SQL_CONFIGS_HIST = """
 SELECT o.ad_entity_id, (o.observed_at AT TIME ZONE 'UTC')::date, o.presupuesto_diario
   FROM ads_campana_config_observation o
   JOIN ad_entity c ON c.id = o.ad_entity_id
+  JOIN ad_entity_state s ON s.ad_entity_id = c.id AND s.status = 'ENABLED'
  WHERE c.platform = %s AND c.kind = 'campaign'
    AND (o.observed_at AT TIME ZONE 'UTC')::date <= %s
- ORDER BY o.ad_entity_id, 2
+ ORDER BY o.ad_entity_id, 2, o.observed_at
 """
 
 
@@ -154,7 +155,7 @@ class FilaUbicacion:
     """Una ubicacion del anuncio en 30 dias. `gasta_sin_vender` = gasto >=
     gasto para concluir y pedidos == 0 (con gasto None, no)."""
 
-    ubicacion: str
+    ubicacion: Ubicacion
     gasto: Decimal | None
     clics: int | None
     pedidos: int | None
@@ -192,7 +193,7 @@ class FilaCampana:
     presupuesto_diario: Decimal | None
     gasto_medio_diario: Decimal | None
     uso_presupuesto_pct: Decimal | None
-    estrategia: str | None
+    estrategia: EstrategiaPuja | None
     ajustes_ubicacion: tuple[tuple[str, int], ...]
     gasto_fuera_de_amazon: Decimal | None
     dias_al_tope_7d: int | None
@@ -370,7 +371,9 @@ def lee_campanas(
                 presupuesto_diario=presupuesto,
                 gasto_medio_diario=medio,
                 uso_presupuesto_pct=_pct(medio, presupuesto),
-                estrategia=None if cfg_id is None else _ESTRATEGIA.get(estrategia_txt, "otra"),
+                estrategia=None
+                if cfg_id is None or estrategia_txt is None
+                else _ESTRATEGIA.get(estrategia_txt, "otra"),
                 ajustes_ubicacion=ajustes,
                 gasto_fuera_de_amazon=fuera.get(cid),
                 dias_al_tope_7d=al_tope,

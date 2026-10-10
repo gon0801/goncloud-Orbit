@@ -10,7 +10,7 @@
   <a href="/donde-poner-el-dinero?plataforma=amazon_mx" {% if plataforma == "amazon_mx" %}aria-current="page"{% endif %}>Amazon MX</a>
   <a href="/donde-poner-el-dinero?plataforma=amazon_us" {% if plataforma == "amazon_us" %}aria-current="page"{% endif %}>Amazon US</a>
 </p>
-<p class="mutado">Ventana {{ desde }} a {{ hasta }} ({{ moneda }}).</p>
+<p class="mutado">Ventana por tipo {{ desde }} a {{ hasta }} ({{ moneda }}); ubicación y campaña, últimos 30 días.</p>
 {% if hojas_sin_clasificar %}
 <p class="mutado">{{ hojas_sin_clasificar }} hoja{% if hojas_sin_clasificar != 1 %}s{% endif %} sin clasificar entra{% if hojas_sin_clasificar != 1 %}n{% endif %} al total.</p>
 {% endif %}
@@ -50,5 +50,66 @@
       </td>
     </tr>
   </tfoot>
+</table>
+{% set UBIS = {
+  "arriba_de_busqueda": "arriba de búsqueda",
+  "resto_de_busqueda": "resto de búsqueda",
+  "paginas_de_producto": "páginas de producto",
+  "fuera_de_amazon": "fuera de Amazon"
+} %}
+{% set NOMBRES_UBI = {
+  "arriba_de_busqueda": "Arriba de búsqueda",
+  "resto_de_busqueda": "Resto de búsqueda",
+  "paginas_de_producto": "Páginas de producto",
+  "fuera_de_amazon": "Fuera de Amazon"
+} %}
+{% set ESTRATEGIAS = {
+  "solo_hacia_abajo": "solo hacia abajo",
+  "arriba_y_abajo": "hacia arriba y hacia abajo",
+  "fija": "fija",
+  "otra": "otra"
+} %}
+<h3>Por ubicación (30 días)</h3>
+<table>
+  <thead>
+    <tr><th>Ubicación</th><th>Gasto</th><th>Parte del gasto</th><th>Pedidos</th><th>CPC</th><th>Conversión</th><th>ACoS</th></tr>
+  </thead>
+  <tbody>
+    {% for fila in por_ubicacion %}
+    <tr>
+      <td>{{ UBIS[fila.ubicacion] }}</td>
+      <td class="num">{{ fila.gasto|dinero_ui or "—" }}</td>
+      <td class="num">{% if fila.parte_del_gasto_pct is none %}—{% else %}{{ fila.parte_del_gasto_pct }} %{% endif %}</td>
+      <td class="num">{{ fila.pedidos if fila.pedidos is not none else "—" }}</td>
+      <td class="num">{{ fila.cpc|dinero_ui or "—" }}</td>
+      <td class="num">{% if fila.conversion_pct is none %}—{% else %}{{ fila.conversion_pct }} %{% endif %}</td>
+      <td class="num">{% if fila.acos_pct is none %}—{% else %}{{ fila.acos_pct }} %{% endif %}</td>
+    </tr>
+    {% if fila.gasta_sin_vender %}
+    <tr>
+      <td colspan="7">{{ NOMBRES_UBI[fila.ubicacion] }}: {{ fila.gasto|miles_ui or "—" }} {{ moneda }} en 30 días, {{ fila.clics|miles_ui or "—" }} clics, ningún pedido.</td>
+    </tr>
+    {% endif %}
+    {% endfor %}
+  </tbody>
+</table>
+<h3>Por campaña</h3>
+<table>
+  <thead>
+    <tr><th>Campaña</th><th>Presupuesto/día</th><th>Gasto medio/día</th><th>Uso</th><th>Estrategia</th><th>Ajustes</th><th>Fuera de Amazon</th></tr>
+  </thead>
+  <tbody>
+    {% for fila in por_campana %}
+    <tr>
+      <td>{{ fila.nombre or "—" }}</td>
+      <td class="num">{{ fila.presupuesto_diario|dinero_ui or "—" }}</td>
+      <td class="num">{{ fila.gasto_medio_diario|dinero_ui or "—" }}</td>
+      <td class="num">{% if fila.uso_presupuesto_pct is none %}—{% else %}{{ fila.uso_presupuesto_pct }} %{% endif %}</td>
+      <td>{% if fila.estrategia is none %}—{% else %}{{ ESTRATEGIAS[fila.estrategia] }}{% endif %}</td>
+      <td>{% for ubi, pct in fila.ajustes_ubicacion %}+{{ pct }} % en {{ UBIS[ubi] }}{% if not loop.last %}; {% endif %}{% else %}—{% endfor %}</td>
+      <td class="num">{{ fila.gasto_fuera_de_amazon|dinero_ui or "—" }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
 </table>
 {% endblock %}

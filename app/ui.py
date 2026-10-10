@@ -97,8 +97,20 @@ def porcentaje_ui(valor: str | None) -> str | None:
         return valor
 
 
+def miles_ui(valor) -> str | None:
+    """Entero con separador de miles («1735» -> «1,735»). None queda None;
+    si no parsea, se deja igual. Redondea a entero (HALF_EVEN)."""
+    if valor is None:
+        return None
+    try:
+        return f"{round(Decimal(str(valor))):,}"
+    except (InvalidOperation, ValueError):
+        return valor
+
+
 templates.env.filters["dinero_ui"] = dinero_ui
 templates.env.filters["porcentaje_ui"] = porcentaje_ui
+templates.env.filters["miles_ui"] = miles_ui
 templates.env.filters["kpis_serie"] = kpis_serie
 templates.env.filters["clase_cambio"] = clase_cambio
 templates.env.filters["kpis_inertes"] = kpis_inertes

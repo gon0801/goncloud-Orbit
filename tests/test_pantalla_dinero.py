@@ -585,18 +585,28 @@ def test_pg_campanas_igual_que_control_tope_y_estrategias():
         c3 = _siembra_campana(conn, "amazon_mx", "c3", "Legacy")
         c4 = _siembra_campana(conn, "amazon_mx", "c4", "Auto")
         c5 = _siembra_campana(conn, "amazon_mx", "c5", "Rara")
+        c8 = _siembra_campana(conn, "amazon_mx", "c8", "Sin estrategia")
+        c9 = _siembra_campana(conn, "amazon_mx", "c9", "Doble config")
         _siembra_campana(conn, "amazon_mx", "c6", "Apagada", status="PAUSED")
         _siembra_campana(conn, "amazon_us", "c7", "US 1")
         _siembra_config(conn, c1, obs_cfg, Decimal("100"), "MANUAL", top=40, prod=10)
         _siembra_config(conn, c3, obs_cfg, Decimal("50"), "LEGACY_FOR_SALES")
         _siembra_config(conn, c4, obs_cfg, Decimal("50"), "AUTO_FOR_SALES")
         _siembra_config(conn, c5, obs_cfg, Decimal("50"), "ALGO_NUEVO")
+        _siembra_config(conn, c8, obs_cfg, Decimal("50"), None)
+        _siembra_config(
+            conn, c9, dt.datetime(2026, 9, 27, 20, tzinfo=dt.UTC), Decimal("100"), "MANUAL"
+        )
+        _siembra_config(
+            conn, c9, dt.datetime(2026, 9, 27, 8, tzinfo=dt.UTC), Decimal("50"), "MANUAL"
+        )
         for i in range(7):
             dia = HASTA_2A - dt.timedelta(days=6 - i)
             _siembra_gasto_campana(
                 conn, c1, dia, Decimal("90") if i < 5 else Decimal("0"), obs, run
             )
         _siembra_gasto_campana(conn, c2, HASTA_2A, Decimal("10"), obs, run)
+        _siembra_gasto_campana(conn, c9, HASTA_2A, Decimal("60"), obs, run)
         _siembra_placement(
             conn,
             "amazon_mx",
@@ -610,9 +620,9 @@ def test_pg_campanas_igual_que_control_tope_y_estrategias():
             Decimal("0"),
         )
         filas = lee_campanas(conn, plataforma="amazon_mx", desde=DESDE_30, hasta=HASTA_2A)
-        assert [f.campana_id for f in filas] == [c1, c2, c3, c4, c5]
+        assert [f.campana_id for f in filas] == [c1, c2, c3, c4, c5, c8, c9]
         control = {r[0]: r[1:] for r in conn.execute(CONTROL_CAMP, ("amazon_mx",)).fetchall()}
-        assert set(control) == {c1, c2, c3, c4, c5}
+        assert set(control) == {c1, c2, c3, c4, c5, c8, c9}
         for fila in filas:
             presup, moneda, _, top, resto, prod = control[fila.campana_id]
             assert fila.presupuesto_diario == presup
@@ -637,6 +647,8 @@ def test_pg_campanas_igual_que_control_tope_y_estrategias():
         ]
         assert por_id[c2].estrategia is None
         assert por_id[c2].presupuesto_diario is None and por_id[c2].uso_presupuesto_pct is None
+        assert por_id[c8].estrategia is None and por_id[c8].presupuesto_diario == Decimal("50")
+        assert por_id[c9].dias_al_tope_7d == 0
         assert por_id[c1].dias_al_tope_7d == 5
         assert por_id[c1].gasto_medio_diario == Decimal("15.00")
         assert por_id[c1].uso_presupuesto_pct == Decimal("15.0")
@@ -701,3 +713,88 @@ def test_como_dict_trae_ubicaciones_y_campanas_con_settings():
         ["paginas_de_producto", 10],
     ]
     assert dato["por_campana"][0]["avisos"] == []
+
+
+def _fila_ubi_ui(**cambios):
+    fila = {
+        "ubicacion": "fuera_de_amazon",
+        "gasto": "1735",
+        "clics": 1127,
+        "pedidos": 0,
+        "venta": "0",
+        "cpc": "1.54",
+        "conversion_pct": "0.0",
+        "acos_pct": None,
+        "parte_del_gasto_pct": "10.0",
+        "gasta_sin_vender": True,
+    }
+    fila.update(cambios)
+    return fila
+
+
+def _fila_camp_ui(**cambios):
+    fila = {
+        "campana_id": 7,
+        "nombre": "Campana 7",
+        "presupuesto_diario": "100",
+        "gasto_medio_diario": "43.00",
+        "uso_presupuesto_pct": "43.0",
+        "estrategia": "solo_hacia_abajo",
+        "ajustes_ubicacion": [["paginas_de_producto", 40]],
+        "gasto_fuera_de_amazon": "25",
+        "dias_al_tope_7d": 5,
+        "avisos": ["Este presupuesto no limita"],
+    }
+    fila.update(cambios)
+    return fila
+
+
+def test_pantalla_dinero_pinta_ubicaciones_con_frase_y_ajuste():
+    html = _plano(
+        _html_dinero(
+            [_fila_ui()],
+            por_ubicacion=[
+                _fila_ubi_ui(ubicacion="arriba_de_busqueda", gasta_sin_vender=False),
+                _fila_ubi_ui(ubicacion="resto_de_busqueda", gasta_sin_vender=False),
+                _fila_ubi_ui(ubicacion="paginas_de_producto", gasta_sin_vender=False),
+                _fila_ubi_ui(),
+                _fila_ubi_ui(ubicacion="resto_de_busqueda", clics=None),
+            ],
+            por_campana=[_fila_camp_ui()],
+        )
+    )
+    assert "arriba de búsqueda" in html
+    assert "resto de búsqueda" in html
+    assert "páginas de producto" in html
+    assert "Fuera de Amazon: 1,735 MXN en 30 días, 1,127 clics, ningún pedido." in html
+    assert "Resto de búsqueda: 1,735 MXN en 30 días, — clics, ningún pedido." in html
+    assert "+40 % en páginas de producto" in html
+    assert "solo hacia abajo" in html
+    tablas = html.split("<h3>Por ubicación", 1)[1]
+    assert "<button" not in tablas and "<form" not in tablas
+    assert "Este presupuesto no limita" not in html
+
+
+def test_pantalla_dinero_estrategias_none_y_sin_frase():
+    html = _plano(
+        _html_dinero(
+            [_fila_ui()],
+            por_ubicacion=[_fila_ubi_ui(gasta_sin_vender=False)],
+            por_campana=[
+                _fila_camp_ui(estrategia="arriba_y_abajo"),
+                _fila_camp_ui(estrategia="fija"),
+                _fila_camp_ui(
+                    estrategia=None,
+                    presupuesto_diario=None,
+                    gasto_medio_diario=None,
+                    uso_presupuesto_pct=None,
+                    ajustes_ubicacion=[],
+                    gasto_fuera_de_amazon=None,
+                ),
+            ],
+        )
+    )
+    assert "hacia arriba y hacia abajo" in html
+    assert "fija" in html
+    assert "—" in html
+    assert "ningún pedido" not in html
