@@ -1,0 +1,103 @@
+FFF                                                                      [100%]
+=================================== FAILURES ===================================
+_________________ test_ui_settings_sin_target_dice_sin_target __________________
+
+    def test_ui_settings_sin_target_dice_sin_target():
+        """Sin target vigente, /settings dice "sin target" (no pinta None ni
+        una procedencia)."""
+        html = ui.templates.env.get_template("settings.html").render(
+            pantalla="settings",
+            datos={
+                "config_version_id": 1,
+                "modo_global": "live",
+                "advertencia_respaldo": "respaldo",
+                "plataformas": [
+                    {
+                        "plataforma": "amazon_us",
+                        "moneda": "USD",
+                        "target_vigente": {"valor": None, "peldano": None},
+                        "target_manual_pct": None,
+                        "margen_habilitado": False,
+                        "fraccion_margen": None,
+                        "confianza_recorte": "0.80",
+                        "confianza_subida": "0.70",
+                        "motor_bid": None,
+                        "motor_bid_vive": False,
+                        "caps": {},
+                        "goal": None,
+                    }
+                ],
+                "goals": [],
+            },
+        )
+>       assert "sin target" in html
+E       assert 'sin target' in '<!DOCTYPE html>\n<html lang="es" data-tema="dia">\n<head>\n  <meta charset="utf-8">\n  <meta name="viewport" content=...9312de7d152f66c8"></script>\n  <script src="/static/js/settings.js?v=9312de7d152f66c8"></script>\n  \n</body>\n</html>'
+
+tests/test_ui.py:1840: AssertionError
+_________________ test_ui_campanas_sin_target_dice_sin_target __________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10e5d2190>
+
+    def test_ui_campanas_sin_target_dice_sin_target(monkeypatch):
+        """Una campana sin target congelado dice "sin target" en /campanas."""
+        item = _item_campana("Zeta US")
+        item["target_efectivo"] = None
+        html = _html_campanas(monkeypatch, [item]).text
+>       assert "sin target" in html
+E       assert 'sin target' in '<!DOCTYPE html>\n<html lang="es" data-tema="dia">\n<head>\n  <meta charset="utf-8">\n  <meta name="viewport" content=...9312de7d152f66c8"></script>\n  <script src="/static/js/settings.js?v=9312de7d152f66c8"></script>\n  \n</body>\n</html>'
+
+tests/test_ui.py:1849: AssertionError
+_____________ test_ui_cortes_propuesta_sin_target_dice_sin_target ______________
+
+    def test_ui_cortes_propuesta_sin_target_dice_sin_target():
+        """El texto de una propuesta de campana sin target dice "sin target"
+        (jamas "None%")."""
+        ctx = _ctx_cortes()
+        ctx["propuestas_campana"] = [
+            {
+                "id": 7,
+                "platform": "amazon_us",
+                "campaign_external_id": "123458",
+                "nombre": "Camp sin target",
+                "status": "paused_observed",
+                "motivo": "campana_no_enabled",
+                "cost": "200.0000",
+                "sales30d": "0.0000",
+                "currency": "USD",
+                "target_pct": None,
+                "target_source": None,
+                "excess": "200.0000",
+                "acos_pct": None,
+                "window_start": "2026-08-16",
+                "window_end": "2026-09-14",
+                "campaign_status": "PAUSED",
+                "aviso_estado": "pending",
+                "riesgo_ignorando_estado": True,
+            },
+        ]
+        html = ui.templates.env.get_template("cortes.html").render(**ctx)
+        assert "sin target" in html
+>       assert "None%" not in html
+E       assert 'None%' not in '<!DOCTYPE h...dy>\n</html>'
+E
+E         'None%' is contained here:
+E                 <td>None%<span class="detalle-celda">None</span></td>
+E         ?           +++++
+E                   <td>200.0000 USD</td>
+E                   <td>—</td>
+E                   <td class="mutado">2026-08-16..2026-09-14</td>...
+E
+E         ...Full output truncated (134 lines hidden), use '-vv' to show
+
+tests/test_ui.py:1880: AssertionError
+=============================== warnings summary ===============================
+.venv/lib/python3.14/site-packages/fastapi/testclient.py:1
+  ~/dev/wt-bids-02-s2/.venv/lib/python3.14/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_ui.py::test_ui_settings_sin_target_dice_sin_target - assert...
+FAILED tests/test_ui.py::test_ui_campanas_sin_target_dice_sin_target - assert...
+FAILED tests/test_ui.py::test_ui_cortes_propuesta_sin_target_dice_sin_target
+3 failed, 58 deselected, 1 warning in 0.40s

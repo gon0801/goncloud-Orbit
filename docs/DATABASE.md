@@ -492,8 +492,9 @@ registrarse.
 una fila por ciclo y hoja con el `target_acos_pct` y la `procedencia`
 EXACTOS que usó la cascada (0046 los captura donde se calcula), incluidas
 las hojas que luego salen por no-op o cooldown; las que no llegaron al
-cálculo —gates, veto, inerte— no tienen fila, igual que los ad groups (no
-es veto ni inerte). PK `(cycle_id, ad_entity_id)`; `target_acos_pct`
+cálculo —gates, veto, inerte, sin_target— no tienen fila, igual que los
+ad groups (no es veto ni inerte). PK `(cycle_id, ad_entity_id)`;
+`target_acos_pct`
 NUMERIC sin escala (conserva el valor exacto consumido, sin redondeo de
 schema); CHECK nombrado `target_acos_ciclo_procedencia_check`, espejo
 sellado de `app.optimizer.goals.PELDANOS_CASCADA` (mismo orden).

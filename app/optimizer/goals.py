@@ -20,18 +20,19 @@ Reglas selladas (plans/orbit-03.md task 2.4 + Spec delta de CONTEXTO.md):
   goal resuelto (campana pisa a plataforma) -> margen_familia (A5:
   resuelve_target_margen_familia, None = peldano apagado) ->
   margen_plataforma (ORBIT 06 2.3: resuelve_target_margen, None = peldano
-  apagado) -> config_version.settings (clave sellada en docs/DATABASE.md;
-  por plataforma DEL ENUM, amazon_us/amazon_mx) ->
-  ad_entity_state.acos_target (cache de lo publicado en Amazon; NO es la
-  fuente, ver su COMMENT) -> DEFAULT_TARGET_PCT 55.
+  apagado) -> config_version.settings (clave sellada en docs/DATABASE.md,
+  por plataforma DEL ENUM, amazon_us/amazon_mx). Sin peldano que resuelva,
+  la cascada devuelve None y cada llamador trata el hueco (BIDS 02 T.1
+  retiro el cache del estado y el default 55: el cache llegaba vacio en
+  todas las corridas y un target inventado contradice la regla 3).
 - VARIANTE CON PROCEDENCIA (ORBIT 16, task 1.2): `cascada_target_acos_con_procedencia`
-  devuelve (valor, peldano) con los SEIS peldanos (ORBIT 06 2.3 suma
-  margen_plataforma entre goal_plataforma y setting_plataforma) para el
-  dashboard. Compatible con el camino del motor (misma aritmetica; la campana
-  PISA siempre que exista: con un goal de campana de target None, el target
-  del goal de plataforma NO entra -- testeado por equivalencia). La capa web
-  la REUTILIZA, jamas la reimplementa. `peldano_target_acos` devuelve SOLO el
-  nombre para el freeze del motor (mismo nucleo).
+  devuelve (valor, peldano) con los CINCO peldanos (BIDS 02 T.1 retiro
+  los dos ultimos) para el dashboard. Compatible con el camino del motor
+  (misma aritmetica; la campana PISA siempre que existe: con un goal
+  de campana de target None, el target del goal de plataforma NO entra --
+  testeado por equivalencia). La capa web la REUTILIZA, jamas la
+  reimplementa. `peldano_target_acos` devuelve SOLO el nombre para el
+  freeze del motor (mismo nucleo).
 - FLOOR/CEILING: los defaults son POR MONEDA (DEFAULTS_POR_MONEDA: USD
   0.10/2.50 con max real observado 2.00, MXN 1.00/45.00; OTRA moneda =
   ValueError explicito -- sellado 2 del plan plans/orbit-05-preflight.md,
@@ -107,8 +108,6 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 # Constantes selladas (fuente: plans/orbit-03.md task 2.4 + diseno v2)
 # ---------------------------------------------------------------------------
-
-DEFAULT_TARGET_PCT = Decimal("55")  # ultimo peldano de la cascada
 
 # Defaults de piso/techo POR MONEDA (ORBIT 05 preflight 1.2, sellado 2 del
 # plan plans/orbit-05-preflight.md; spot-check 4.4: con el default unico
@@ -220,13 +219,13 @@ def clave_target_plataforma(platform: str) -> str:
 
 def target_desde_settings(settings: Mapping, platform: str) -> Decimal | None:
     """Target ACoS de config_version.settings para la plataforma: None si la
-    clave no esta (el default NO se aplica aqui: eso es del ultimo peldano de
-    la cascada). El valor JSON se normaliza via str a Decimal exacto, nunca
+    clave no esta (sin clave este peldano no resuelve: eso lo decide la
+    cascada). El valor JSON se normaliza via str a Decimal exacto, nunca
     por binario float (regla 4 de estilo numerico del repo). Un valor PRESENTE
     pero no numerico, NaN/Inf, 0 o negativo es config CORRUPTA, no dato
-    faltante: ValueError ruidoso (regla 3 -- camuflarlo de ausente para caer
-    al default 55 decidiria con un target que nadie configuro; hallazgo
-    codex+grok, cross-review ronda 1)."""
+    faltante: ValueError ruidoso (regla 3 -- camuflarlo de ausente decidiria
+    con un target que nadie configuro; hallazgo codex+grok, cross-review
+    ronda 1)."""
     clave = clave_target_plataforma(platform)
     valor = settings.get(clave)
     if valor is None:
@@ -255,31 +254,28 @@ def _valida_target_peldano(valor: Decimal | None, peldano: str) -> Decimal | Non
 def cascada_target_acos(
     target_goal: Decimal | None,
     setting_plataforma: Decimal | None,
-    cache_acos_target: Decimal | None,
     target_margen: Decimal | None = None,
     scope_goal: str | None = None,
     target_margen_familia: Decimal | None = None,
-) -> Decimal:
+) -> Decimal | None:
     """Cascada sellada, peldano por peldano: goal resuelto -> margen_familia
     (A5, None = peldano apagado) -> margen_plataforma (ORBIT 06 2.3, None =
-    peldano apagado) -> setting de plataforma -> cache
-    ad_entity_state.acos_target -> default 55. Cada peldano decide SOLO si el
-    anterior es None (regla 3: dato faltante != valor); un peldano presente
-    pero invalido (<= 0, no finito) revienta, NO cae al siguiente.
+    peldano apagado) -> setting de plataforma. Sin peldano que resuelva
+    devuelve None (BIDS 02 T.1 retiro el cache del estado y el default 55).
+    Cada peldano decide SOLO si el anterior es None (regla 3: dato faltante
+    != valor); un peldano presente pero invalido (<= 0, no finito) revienta,
+    NO cae al siguiente.
     `scope_goal` ('campaign'/'platform') solo nombra el peldano del goal
     para el freeze; sin el, el VALOR es identico al de siempre
     (compatibilidad hacia atras). La precedencia vive en
     _nucleo_target_acos (D-2.3.1: un solo orden); cada variante valida
     sus peldanos con sus mensajes historicos (el setting que llega directo
-    tambien se valida: sin candado en JSONB/cache)."""
+    tambien se valida: sin candado en JSONB)."""
     t_goal = _valida_target_peldano(target_goal, "goal.target_acos_pct")
     margen = _valida_target_peldano(target_margen, "target_margen")
     setting = _valida_target_peldano(setting_plataforma, "setting ads_target_acos_pct")
-    cache = _valida_target_peldano(cache_acos_target, "ad_entity_state.acos_target")
     margen_fam = _valida_target_peldano(target_margen_familia, "target_margen_familia")
-    return _nucleo_target_acos(
-        t_goal, _nombre_goal(scope_goal), margen, setting, cache, margen_fam
-    )[0]
+    return _nucleo_target_acos(t_goal, _nombre_goal(scope_goal), margen, setting, margen_fam)[0]
 
 
 # ---------------------------------------------------------------------------
@@ -289,17 +285,16 @@ def cascada_target_acos(
 # jamas la reimplementa.
 # ---------------------------------------------------------------------------
 
-# Vocabulario sellado de los SIETE peldanos (A5: margen_familia tercero,
-# entre goal_plataforma y margen_plataforma): el dashboard los muestra tal
-# cual; un nombre distinto aqui rompe el contrato.
+# Vocabulario sellado de los CINCO peldanos (BIDS 02 T.1 retiro los dos
+# ultimos; A5: margen_familia tercero, entre goal_plataforma y
+# margen_plataforma): el dashboard los muestra tal cual; un nombre
+# distinto aqui rompe el contrato.
 PELDANOS_CASCADA = (
     "goal_campana",
     "goal_plataforma",
     "margen_familia",
     "margen_plataforma",
     "setting_plataforma",
-    "cache_estado",
-    "default",
 )
 
 
@@ -308,15 +303,15 @@ def _nucleo_target_acos(
     nombre_goal: str | None,
     target_margen: Decimal | None,
     setting_plataforma: Decimal | None,
-    cache_acos_target: Decimal | None,
     target_margen_familia: Decimal | None = None,
-) -> tuple[Decimal, str | None]:
+) -> tuple[Decimal | None, str | None]:
     """Orden de precedencia UNICO (D-2.3.1): goal resuelto -> margen_familia
-    -> margen -> setting -> cache -> default. Los valores llegan VALIDADOS
-    por cada variante (los mensajes historicos de error difieren por variante
-    y se conservan en cada llamador con _valida_target_peldano). nombre_goal
-    es goal_campana / goal_plataforma / None (None = llamador viejo sin
-    scope: el peldano sale None y el motor lo descarta).
+    -> margen -> setting. Sin peldano que resuelva devuelve (None, None).
+    Los valores llegan VALIDADOS por cada variante (los mensajes historicos
+    de error difieren por variante y se conservan en cada llamador con
+    _valida_target_peldano). nombre_goal es goal_campana / goal_plataforma /
+    None (None = llamador viejo sin scope: el peldano sale None y el motor
+    lo descarta).
     `target_margen_familia` va AL FINAL por compatibilidad posicional (C-F10);
     su PRECEDENCIA es tercera aunque su posicion sea ultima."""
     if target_goal is not None:
@@ -327,9 +322,7 @@ def _nucleo_target_acos(
         return (target_margen, "margen_plataforma")
     if setting_plataforma is not None:
         return (setting_plataforma, "setting_plataforma")
-    if cache_acos_target is not None:
-        return (cache_acos_target, "cache_estado")
-    return (DEFAULT_TARGET_PCT, "default")
+    return (None, None)
 
 
 def _nombre_goal(scope_goal: str | None) -> str | None:
@@ -346,22 +339,22 @@ def peldano_target_acos(
     scope_goal: str | None,
     target_margen: Decimal | None,
     setting_plataforma: Decimal | None,
-    cache_acos_target: Decimal | None,
     target_margen_familia: Decimal | None = None,
-) -> str:
+) -> str | None:
     """SOLO el nombre del peldano ganador (para el freeze del motor en
-    cycle.py; la aritmetica es la del nucleo, no otra). scope_goal es
-    obligatorio cuando target_goal viene presente (el ciclo siempre lo
-    tiene: goal.scope); sin el, ValueError ruidoso en vez de un nombre
-    inventado."""
+    cycle.py; la aritmetica es la del nucleo, no otra). Sin peldano que
+    resuelva devuelve None. scope_goal es obligatorio cuando target_goal
+    viene presente (el ciclo siempre lo tiene: goal.scope); sin el,
+    ValueError ruidoso en vez de un nombre inventado."""
     t_goal = _valida_target_peldano(target_goal, "goal.target_acos_pct")
     margen = _valida_target_peldano(target_margen, "target_margen")
     setting = _valida_target_peldano(setting_plataforma, "setting ads_target_acos_pct")
-    cache = _valida_target_peldano(cache_acos_target, "ad_entity_state.acos_target")
     margen_fam = _valida_target_peldano(target_margen_familia, "target_margen_familia")
-    _valor, peldano = _nucleo_target_acos(
-        t_goal, _nombre_goal(scope_goal), margen, setting, cache, margen_fam
+    valor, peldano = _nucleo_target_acos(
+        t_goal, _nombre_goal(scope_goal), margen, setting, margen_fam
     )
+    if valor is None:
+        return None
     if peldano is None:
         raise ValueError("peldano sin nombre: target presente sin scope del goal")
     return peldano
@@ -375,15 +368,22 @@ def cascada_target_acos_con_procedencia(
     platform: str,
     target_margen: Decimal | None = None,
     target_margen_familia: Decimal | None = None,
-) -> tuple[Decimal, str]:
-    """Cascada sellada con PROCEDENCIA: devuelve (valor, peldaño) con los
-    SIETE peldanos y estos nombres EXACTOS (A5 suma margen_familia entre
-    goal_plataforma y margen_plataforma).
+) -> tuple[Decimal | None, str | None]:
+    """Cascada sellada con PROCEDENCIA: devuelve (valor, peldano) con los
+    CINCO peldanos y estos nombres EXACTOS (BIDS 02 T.1 retiro los dos
+    ultimos; A5 suma margen_familia entre goal_plataforma y
+    margen_plataforma). Sin peldano que resuelva devuelve (None, None).
     Cada peldano decide SOLO si el anterior es None (regla 3); un valor
     PRESENTE pero invalido (<= 0, no finito) revienta, jamas cae al
     siguiente. La clave del setting sale de
     clave_target_plataforma(platform) via target_desde_settings -- REUTILIZADA,
     no reimplementada (regla 2).
+
+    `cache_acos_target` se CONSERVA solo por compatibilidad posicional
+    (app/apply_cola.py lo pasa en su llamada y esa tarea no es T.1): se
+    valida como antes pero YA NO DECIDE ni cae a ningun peldano. La tarea
+    duena del llamador retira el argumento y entonces este parametro se
+    borra con las otras dos variantes.
 
     SEMANTICA DE LOS DOS GOALS, identica al camino del motor: el goal de
     campana PISA SIEMPRE que exista (resuelve_goal, INCLUIDO enabled); si su
@@ -406,9 +406,11 @@ def cascada_target_acos_con_procedencia(
     setting = target_desde_settings(settings, platform)
     margen = _valida_target_peldano(target_margen, "target_margen")
     margen_fam = _valida_target_peldano(target_margen_familia, "target_margen_familia")
-    cache = _valida_target_peldano(cache_acos_target, "cache_estado")
-    valor, peldano = _nucleo_target_acos(objetivo, nombre, margen, setting, cache, margen_fam)
-    assert peldano is not None  # con goals el nombre siempre se resuelve
+    # Compat posicional (docstring): se valida, no se usa.
+    _valida_target_peldano(cache_acos_target, "cache_acos_target")
+    valor, peldano = _nucleo_target_acos(objetivo, nombre, margen, setting, margen_fam)
+    if valor is not None:
+        assert peldano is not None  # con valor el nombre siempre se resuelve
     return (valor, peldano)
 
 
@@ -689,6 +691,14 @@ def permite_reversa_bid(
 MARGEN_BANDA_MIN = Decimal("10")  # banda dura del spec §5 (inclusiva)
 MARGEN_BANDA_MAX = Decimal("45")
 MARGEN_PASO_MAX = Decimal("0.5")  # puntos por ciclo (spec §7)
+# BIDS 02 T.1: el paso de 0.5 frena solo las BAJADAS (la razon escrita del
+# 0.5 protege contra bajadas bruscas y vaiven; una subida solo afloja y
+# aplica de una vez). MARGEN_PASO_MAX queda para _converge_al_destino, que
+# sigue caminando a 0.5 en los dos sentidos.
+MARGEN_PASO_MAX_BAJADA = Decimal("0.5")
+# Politica del paso, congelada en optimizer_cycle.notes.target (clave
+# paso_politica) para leer bien las anclas viejas.
+PASO_POLITICA = "asimetrico_v1"
 MARGEN_COBERTURA_MIN = Decimal("0.95")
 MARGEN_DIAS_MIN = 60
 MARGEN_DIAS_MIN_FAMILIA = 30  # A5: guards de producto, no de plataforma
@@ -1004,8 +1014,10 @@ def resuelve_target_margen(
     vez por plataforma y el dashboard no lo reimplementa). Primer match del
     vocabulario cerrado (D-2.3.3, orden D-2.3.11: dias ANTES de margen-None
     porque la vista nulifica el margen ante dias cortos); banda [10, 45]
-    CLAMPEA sobre el derivado (A1, D-2.3.10) y LUEGO aplica el paso maximo
-    ±0.5 desde `ultimo` (None = sin ancla: aplicado = derivado clampeado).
+    CLAMPEA sobre el derivado (A1, D-2.3.10) y LUEGO aplica el paso
+    ASIMETRICO desde `ultimo` (BIDS 02 T.1: derivado >= ancla aplica de una
+    vez, derivado < ancla baja 0.5 por ciclo; None = sin ancla: aplicado =
+    derivado clampeado).
     Sin redondeos: Decimal exacto de punta a punta (la escala del snapshot
     es artefacto deterministico). `dias_min` (A5): la familia exige 30 dias
     (guards de producto), la plataforma 60."""
@@ -1040,8 +1052,11 @@ def resuelve_target_margen(
     recortado = min(max(derivado, MARGEN_BANDA_MIN), MARGEN_BANDA_MAX)
     if ultimo is None:
         return ResolucionMargen(recortado, derivado, None, False)
-    aplicado = min(max(recortado, ultimo - MARGEN_PASO_MAX), ultimo + MARGEN_PASO_MAX)
-    return ResolucionMargen(aplicado, derivado, None, False)
+    # BIDS 02 T.1 (PASO_POLITICA): la subida aplica de una vez, la bajada
+    # camina a MARGEN_PASO_MAX_BAJADA por ciclo.
+    if recortado >= ultimo:
+        return ResolucionMargen(recortado, derivado, None, False)
+    return ResolucionMargen(max(recortado, ultimo - MARGEN_PASO_MAX_BAJADA), derivado, None, False)
 
 
 def _motivo_dato_invalido(

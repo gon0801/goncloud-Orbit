@@ -3911,3 +3911,29 @@ def test_gasto_sin_venta_vocab_cerrado_y_mercado_por_omision(monkeypatch):
         us = cliente.get("/gasto-sin-venta", params={"plataforma": "amazon_us"})
         assert us.status_code == 200
         assert 'aria-current="page">Amazon US' in us.text
+
+
+# ---------------------------------------------------------------------------
+# T.1 (BIDS 02 s2): /settings sin target resuelto en ningun peldano.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_settings_sin_target_publica_null_y_no_pisa(monkeypatch):
+    """Sin goal, margen ni setting, /settings trae target_vigente null sin
+    peldano; un goal de campana no busca a quien pisa (None, no 500)."""
+    with _db_temporal("orbit_settings_sintarget") as (conn, dsn_read):
+        _config_version(conn, {"ads_optimizer_mode": "live"})
+        camp = _campana(conn, "amazon_us", "9601", name="Camp sin target")
+        _goal_db(conn, scope="campaign", ad_entity_id=camp, target="18")
+        cliente = _cliente(dsn_read, monkeypatch)
+        resp = cliente.get("/api/dashboard/settings")
+        assert resp.status_code == 200, resp.text
+        plats = {p["plataforma"]: p for p in resp.json()["plataformas"]}
+        assert plats["amazon_us"]["target_vigente"] == {"valor": None, "peldano": None}
+        goals = resp.json()["goals"]
+        assert len(goals) == 1
+        assert goals[0]["pisa_a"] is None

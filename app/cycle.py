@@ -244,6 +244,9 @@ MOTIVO_COOLDOWN_7D = "cooldown_7d"
 # D.2 (ads-proteccion-01): hoja cuya reversa de bid no cumple N=10 dias de
 # evidencia posterior al ultimo bid aplicado (decision del dueno).
 MOTIVO_INVERSION_SIN_EVIDENCIA = "inversion_sin_evidencia"
+# BIDS 02 T.1: ningun peldano resolvio target (el default 55 era inventado,
+# regla 3): la hoja y el ad group de terminos se saltan sin decidir.
+MOTIVO_SIN_TARGET = "sin_target"
 MOTIVO_ESCALERA_OFF = "escalera_off"
 MOTIVO_VETO_PENDIENTE = apply_cola.MOTIVO_VETO_PENDIENTE
 
@@ -396,7 +399,7 @@ SELECT id, settings FROM config_version ORDER BY id DESC LIMIT 1
 """
 
 # Estructura: campanas de la plataforma con su cache de target publicado
-# (tercer peldano de la cascada; NULL si la campana no tiene state).
+# (NULL si la campana no tiene state).
 _SQL_CAMPANAS = """
 SELECT c.id, s.acos_target
   FROM ad_entity c
@@ -1785,7 +1788,7 @@ def _procesa_decisora(
         current_bid,
         bid_currency,
         status,
-        acos_cache,
+        _acos_cache,
         status_grupo,
         status_campana,
     ) = fila
@@ -1850,22 +1853,26 @@ def _procesa_decisora(
     target = g.cascada_target_acos(
         goal.target_acos_pct,
         setting_target,
-        acos_cache,
         margen_plataforma,
         goal.scope,
         target_margen_familia,
     )
+    if target is None:
+        # BIDS 02 T.1: sin peldano no hay target ni fila de freeze (regresa
+        # antes de contadores.targets).
+        contadores.skips_entidad[MOTIVO_SIN_TARGET] += 1
+        tick()
+        return
     procedencia = g.peldano_target_acos(
         goal.target_acos_pct,
         goal.scope,
         margen_plataforma,
         setting_target,
-        acos_cache,
         target_margen_familia,
     )
     # C.2a: el freeze va AQUI, no mas arriba — cascada_target_acos revienta
-    # con cache <= 0 y meterla en hojas que hoy salen limpias (veto/inerte)
-    # inventaria fallas nuevas.
+    # con un peldano invalido y meterla en hojas que hoy salen limpias
+    # (veto/inerte) inventaria fallas nuevas.
     contadores.targets[entidad_id] = (target, procedencia)
     floor, ceiling = g.resuelve_floor_ceiling(goal, PLATAFORMAS_MONEDA[platform])
     costo_piso = bid.PAUSE_COST_MIN[platform]
@@ -2121,7 +2128,6 @@ def _procesa_grupo(
     evidencia = evidencia_ad_groups.get(grupo_id)
     corte_negativo = cortes.umbral_corte(evidencia, "negative")
     piso_neg = cortes.piso_corte(evidencia, platform)
-    cache_campana = acos_campanas.get(campaign_id)
     # A7: el grupo gana trayectoria familiar: converge desde el ancla
     # (ultimo margen_familia entre sus hojas) o camina desde el destino o
     # cae, como hoy, sin ancla.
@@ -2131,17 +2137,20 @@ def _procesa_grupo(
     target = g.cascada_target_acos(
         goal.target_acos_pct,
         setting_target,
-        cache_campana,
         margen_plataforma,
         goal.scope,
         target_margen_familia,
     )
+    if target is None:
+        # BIDS 02 T.1: sin peldano el grupo se salta con sus terminos.
+        contadores.skips_termino[MOTIVO_SIN_TARGET] += len(terminos.terminos)
+        tick()
+        return
     procedencia = g.peldano_target_acos(
         goal.target_acos_pct,
         goal.scope,
         margen_plataforma,
         setting_target,
-        cache_campana,
         target_margen_familia,
     )
     destino = None
@@ -2304,6 +2313,7 @@ def _resuelve_target_ciclo(
     res = g.resuelve_target_margen(medicion, fraccion, hoy, ultimo, setting_target)
     snapshot = {
         "procedencia": "margen_plataforma" if res.motivo is None else None,
+        "paso_politica": g.PASO_POLITICA,
         "motivo_abstencion": res.motivo,
         # Cross-review kimi H1 / grok H2: con datos invalidos y ancla previa
         # el peldano CONVERGE al setting a <=0.5/ciclo en vez de saltar. El

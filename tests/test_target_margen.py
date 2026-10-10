@@ -453,7 +453,8 @@ def test_resolver_banda_clampea_no_abstiene():
 
 def test_resolver_banda_antes_que_paso():
     """Rojo (h, A1): con ultimo 30 y derivado 45.2, primero clamp a 45 y
-    luego paso a 30.5 (el paso no congela el crudo fuera de banda)."""
+    luego la subida aplica de una vez (T.1: 45, antes 30.5 con el paso
+    simetrico; el paso no congela el crudo fuera de banda)."""
     from app.optimizer import goals as g
 
     res = g.resuelve_target_margen(
@@ -461,24 +462,61 @@ def test_resolver_banda_antes_que_paso():
     )
     assert res.motivo is None
     assert res.derivado == Decimal("45.2")
-    assert res.aplicado == Decimal("30.5")
+    assert res.aplicado == Decimal("45")
 
 
 def test_resolver_paso_maximo_medio_punto():
-    """Rojo (c): derivado 20 con ultimo 19 -> 19.5; con ultimo 21 -> 20.5;
+    """Rojo (c) + T.1 asimetrico: la subida aplica de una vez (derivado 20
+    con ultimo 19 -> 20); la bajada camina 0.5 (con ultimo 21 -> 20.5);
     sin ultimo -> derivado sin recorte."""
     from app.optimizer import goals as g
 
     hoy = dt.date(2026, 9, 4)
     med = _medicion()
     assert g.resuelve_target_margen(med, Decimal("0.5"), hoy, Decimal("19")).aplicado == Decimal(
-        "19.5"
+        "20"
     )
     assert g.resuelve_target_margen(med, Decimal("0.5"), hoy, Decimal("21")).aplicado == Decimal(
         "20.5"
     )
     sin = g.resuelve_target_margen(med, Decimal("0.5"), hoy, None)
     assert sin.aplicado == Decimal("20") and sin.motivo is None
+
+
+def test_resolver_subida_aplica_de_una_vez():
+    """T.1 (BIDS 02 s2): el paso de 0.5 frena solo las BAJADAS (una subida
+    solo afloja): derivado 20 con ancla 19 aplica 20, no 19.5."""
+    from app.optimizer import goals as g
+
+    res = g.resuelve_target_margen(_medicion(), Decimal("0.5"), dt.date(2026, 9, 4), Decimal("19"))
+    assert res.motivo is None
+    assert res.derivado == Decimal("20")
+    assert res.aplicado == Decimal("20")
+
+
+def test_resolver_bajada_camina_medio_punto():
+    """T.1 (BIDS 02 s2): derivado 20 con ancla 21 baja a 20.5 (el unico paso
+    que queda protege contra bajadas bruscas y vaiven)."""
+    from app.optimizer import goals as g
+
+    res = g.resuelve_target_margen(_medicion(), Decimal("0.5"), dt.date(2026, 9, 4), Decimal("21"))
+    assert res.motivo is None
+    assert res.derivado == Decimal("20")
+    assert res.aplicado == Decimal("20.5")
+
+
+def test_resolver_subida_recortada_a_banda_aplica_de_una_vez():
+    """T.1 (BIDS 02 s2): con ancla 30 y derivado 45.2, primero clamp a 45 y
+    luego la subida aplica DE UNA VEZ (45, no 30.5): el paso no congela el
+    crudo fuera de banda y no frena subidas."""
+    from app.optimizer import goals as g
+
+    res = g.resuelve_target_margen(
+        _medicion(margen=Decimal("90.4")), Decimal("0.5"), dt.date(2026, 9, 4), Decimal("30")
+    )
+    assert res.motivo is None
+    assert res.derivado == Decimal("45.2")
+    assert res.aplicado == Decimal("45")
 
 
 def test_resolver_fraccion_ausente_abstiene():

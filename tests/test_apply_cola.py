@@ -2216,6 +2216,42 @@ def test_pause_economica_released_sin_quota_descarta_venta_tardia_antes_de_cobra
 
 
 @_skip_db
+def test_revalida_pause_sin_target_espera_como_none_none():
+    """T.1 (BIDS 02 s2): sin target en ningun peldano (goal vivo sin
+    target, settings sin target, margen abstenido, cache que ya no
+    decide), la revalidacion de una economica en cola da espera_target:
+    el mismo resultado que hoy da con (None, None)."""
+    with _db_temporal("orbit_cola_sintarget") as conn:
+        ids = _semilla(conn)
+        conn.execute("UPDATE ads_optimizer_goal SET target_acos_pct = NULL")
+        conn.execute(
+            "UPDATE ad_entity_state SET acos_target = 28 WHERE ad_entity_id = %s",
+            (ids["kw"],),
+        )
+        conn.execute(
+            "UPDATE optimizer_cycle SET notes = %s WHERE id = %s",
+            (Json({"target": {"target_aplicado": None}}), ids["ciclo_ejec"]),
+        )
+        dec = _decision_corte(
+            conn, ids["ciclo_dec"], ids["config"], ids["kw"], "pause", motivo="pause_economica"
+        )
+        q = _encola_fila(conn, dec, ids["kw"], "pause", payload=_payload_pause("7201"))
+        handler, vistos = _handler_cortes()
+        resultado = libera_vencidos(
+            conn,
+            "amazon_us",
+            ahora=ids["ahora"],
+            aplicador=_aplicador(conn, handler, ids["ciclo_ejec"]),
+        )
+        assert resultado.espera_target == 1
+        assert resultado.descartadas == []
+        assert conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q,)).fetchone() == (
+            "released",
+        )
+        assert _mutaciones(vistos) == []
+
+
+@_skip_db
 def test_libera_espera_target_queda_released_y_cuenta(monkeypatch):
     """Obs4: espera_target no descarta ni cobra: released, vetable, contado."""
     import app.apply_cola as cola

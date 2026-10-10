@@ -21,6 +21,7 @@ from test_cycle import (
     _entidad,
     _estado,
     _goal_plataforma,
+    _goal_plataforma_sin_target,
     _metrica,
     _obs,
     _rango,
@@ -252,6 +253,75 @@ def test_inputs_target_usado_coincide_con_la_tabla():
             _ent, _decided, target, procedencia = por[entidad_id]
             assert Decimal(inputs["target_acos_pct_usado"]) == target, kind
             assert inputs["target_procedencia"] == procedencia, kind
+
+
+def _siembra_sin_target(conn) -> dict:
+    """Config sin target ni fraccion + goal de plataforma vivo SIN target +
+    una hoja que decidiria bid con target y su grupo con terminos. Sin
+    peldano que resuelva (T.1 retiro cache y default): la hoja y el grupo
+    se saltan con sin_target."""
+    run_id = _run(conn)
+    config_id = _config_version(conn, {"ads_optimizer_mode": "shadow"})
+    _goal_plataforma_sin_target(conn)
+    camp = _entidad(conn, "amazon_us", "campaign", "9501")
+    ag = _entidad(conn, "amazon_us", "ad_group", "9511", parent=camp)
+    kw = _entidad(
+        conn,
+        "amazon_us",
+        "keyword",
+        "9521",
+        parent=ag,
+        match_type="EXACT",
+        keyword_text="kw sintarget",
+    )
+    _estado(conn, kw, synced_at=_SYNCED, current_bid=Decimal("1.00"), bid_currency="USD")
+    _estado(conn, ag, synced_at=_SYNCED)
+    _estado(conn, camp, synced_at=_SYNCED)
+    _siembra_kw_bid(conn, run_id, kw)
+    _siembra_terminos(conn, run_id, ag)
+    return {"config_id": config_id, "kw": kw, "ag": ag}
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_hoja_sin_target_se_salta_sin_decision_ni_fila():
+    """T.1 (BIDS 02 s2): sin target en ningun peldano, la hoja se cuenta
+    con sin_target y regresa ANTES del freeze: no deja decision ni fila
+    en target_acos_ciclo. notes.target declara paso_politica asimetrico_v1."""
+    with _db_temporal("orbit_c2a_sintarget") as (conn, _c):
+        _siembra_sin_target(conn)
+        res = _corre(conn)
+
+        assert res.status == "done", res.notes
+        notas = json.loads(res.notes)
+        assert notas["skips"]["entidad"] == {"sin_target": 1}
+        assert notas["target"]["paso_politica"] == "asimetrico_v1"
+
+        decisiones = _decisions_de(conn, res.cycle_id)
+        assert [fila for fila in decisiones if fila[1] in ("bid", "pause")] == []
+        assert _targets_de(conn, res.cycle_id) == {}
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_grupo_terminos_sin_target_se_salta():
+    """T.1 (BIDS 02 s2): el ad group de terminos sin target se cuenta con
+    sin_target (sus 7 terminos) y no deja decisiones de negative ni
+    harvest."""
+    with _db_temporal("orbit_c2a_sintarget_g") as (conn, _c):
+        _siembra_sin_target(conn)
+        res = _corre(conn)
+
+        assert res.status == "done", res.notes
+        notas = json.loads(res.notes)
+        assert notas["skips"]["termino"] == {"sin_target": 7}
+
+        decisiones = _decisions_de(conn, res.cycle_id)
+        assert [fila for fila in decisiones if fila[1] in ("negative", "harvest")] == []
 
 
 # ---------------------------------------------------------------------------
@@ -1129,8 +1199,9 @@ def test_padre_solo_reintento_si_hija_abstiene():
 def test_pin1_previo_ajeno_lejos_camina_desde_el():
     """A7 Pin1: hoja con previo de OTRO peldano (goal 18, a >0.5 del
     destino 30) + familia vigente (derivado 20): el goal se remueve y la
-    hoja camina desde SU numero (18 -> 18.5, ancla sin filtro B-F9), no
-    desde el destino (desde 30 daria 29.5)."""
+    hoja parte de SU numero (18 -> 20 de una vez con el paso asimetrico
+    T.1, ancla sin filtro B-F9), no desde el destino (desde 30 daria
+    29.5)."""
     with _db_temporal("orbit_c5_pin1") as (conn, _c):
         ids = _mundo_familia(conn, margen_familia=40)
         camp = conn.execute(
@@ -1151,4 +1222,4 @@ def test_pin1_previo_ajeno_lejos_camina_desde_el():
         r2 = _corre(conn)
         assert r2.status == "done", r2.notes
         t2 = _targets_de(conn, r2.cycle_id)[ids["kw"]]
-        assert (t2[2], t2[3]) == (Decimal("18.5"), "margen_familia")
+        assert (t2[2], t2[3]) == (Decimal("20"), "margen_familia")

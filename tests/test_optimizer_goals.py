@@ -3,8 +3,9 @@
 (a) UNITARIOS (siempre corren, sin DB): precedencia campana > plataforma
     INCLUIDO enabled (el opt-out del Spec delta: campana enabled=False con
     plataforma habilitada deja la entidad EXCLUIDA), cascada de target ACoS
-    peldano por peldano (goal -> setting -> cache -> default 55), claves
-    selladas por plataforma, floor/ceiling con defaults, meet del reticulo
+    peldano por peldano (goal -> margen -> setting; T.1 retiro los dos
+    ultimos), claves selladas por plataforma, floor/ceiling con defaults,
+    meet del reticulo
     off < shadow < live, fail-closed PR1 (live degradado a shadow con nota),
     fail-closed de modo_desde_settings (sin clave o invalido -> off) y la
     guarda tz-aware de en_cooldown (sin tocar conn).
@@ -112,14 +113,14 @@ def test_sin_goals_ninguno_resuelve_ninguno_elegible():
 
 
 def test_cascada_peldano_por_peldano_discriminando():
-    """Con los TRES valores presentes manda el goal (25); goal None -> setting
-    (30); goal y setting None -> cache (28); todos None -> default 55. Cada
-    peldano es discriminado con los demas presentes."""
-    assert g.cascada_target_acos(Decimal("25"), Decimal("30"), Decimal("28")) == Decimal("25")
-    assert g.cascada_target_acos(None, Decimal("30"), Decimal("28")) == Decimal("30")
-    assert g.cascada_target_acos(None, None, Decimal("28")) == Decimal("28")
-    assert g.cascada_target_acos(None, None, None) == Decimal("55")
-    assert g.cascada_target_acos(None, None, None) == g.DEFAULT_TARGET_PCT
+    """Con goal y setting presentes manda el goal (25); goal None ->
+    setting (30); margen presente gana al setting (20); todos None ->
+    None (T.1 retiro el cache del estado y el default 55). Cada peldano
+    es discriminado con los demas presentes."""
+    assert g.cascada_target_acos(Decimal("25"), Decimal("30")) == Decimal("25")
+    assert g.cascada_target_acos(None, Decimal("30")) == Decimal("30")
+    assert g.cascada_target_acos(None, Decimal("30"), Decimal("20")) == Decimal("20")
+    assert g.cascada_target_acos(None, None) is None
 
 
 def test_clave_target_plataforma_sellada():
@@ -147,11 +148,11 @@ def test_target_desde_settings_por_plataforma_y_sin_clave():
 
 
 def test_target_invalido_es_config_corrupta_no_ausente():
-    """Hallazgo codex+grok (ronda 1): el setting JSONB y el cache de
-    ad_entity_state NO tienen candado de positividad (solo el goal lo tiene
-    en DB). Un valor PRESENTE pero 0/negativo/NaN/no numerico es config
-    CORRUPTA: ValueError ruidoso, jamas se camufla de ausente para caer al
-    default 55 (decidiria con un target que nadie configuro)."""
+    """Hallazgo codex+grok (ronda 1): el setting JSONB NO tiene candado de
+    positividad (solo el goal lo tiene en DB). Un valor PRESENTE pero
+    0/negativo/NaN/no numerico es config CORRUPTA: ValueError ruidoso,
+    jamas se camufla de ausente (decidiria con un target que nadie
+    configuro)."""
     with pytest.raises(ValueError, match="debe ser > 0"):
         g.target_desde_settings({"ads_target_acos_pct_amazon_us": 0}, "amazon_us")
     with pytest.raises(ValueError, match="debe ser > 0"):
@@ -161,17 +162,17 @@ def test_target_invalido_es_config_corrupta_no_ausente():
     with pytest.raises(ValueError, match="no numerico"):
         g.target_desde_settings({"ads_target_acos_pct_amazon_us": "abc"}, "amazon_us")
     # la cascada valida IGUAL cada peldano (goal lo cubre el CHECK en DB;
-    # setting y cache no). re.escape: los nombres de peldano llevan puntos
+    # setting no). re.escape: los nombres de peldano llevan puntos
     # (hallazgo CodeRabbit RUF043: sin escapar son comodin de regex).
     with pytest.raises(ValueError, match="setting ads_target_acos_pct"):
-        g.cascada_target_acos(None, Decimal("0"), None)
-    with pytest.raises(ValueError, match=re.escape("ad_entity_state.acos_target")):
-        g.cascada_target_acos(None, None, Decimal("-5"))
+        g.cascada_target_acos(None, Decimal("0"))
     with pytest.raises(ValueError, match=re.escape("goal.target_acos_pct")):
-        g.cascada_target_acos(Decimal("0"), Decimal("30"), Decimal("28"))
+        g.cascada_target_acos(Decimal("0"), Decimal("30"))
+    with pytest.raises(ValueError, match=re.escape("target_margen")):
+        g.cascada_target_acos(None, None, Decimal("-5"))
     # NaN de Decimal (is_finite False), mismo trato
     with pytest.raises(ValueError):
-        g.cascada_target_acos(None, Decimal("NaN"), None)
+        g.cascada_target_acos(None, Decimal("NaN"))
 
 
 def test_confianza_ausente_lee_default_por_plataforma():
@@ -670,18 +671,17 @@ def _settings_target(us=None, mx=None) -> dict:
 
 
 def test_peldanos_vocabulario_exacto():
-    """El vocabulario de los SIETE peldanos es EXACTO y sellado (A5:
-    margen_familia tercero, entre goal_plataforma y margen_plataforma):
-    el dashboard lo muestra tal cual y la variante lo reporta; un nombre
-    distinto aqui rompe el contrato."""
+    """El vocabulario de los CINCO peldanos es EXACTO y sellado (BIDS 02
+    T.1 retiro los dos ultimos; A5: margen_familia tercero, entre
+    goal_plataforma y margen_plataforma): el dashboard lo muestra tal
+    cual y la variante lo reporta; un nombre distinto aqui rompe el
+    contrato."""
     assert g.PELDANOS_CASCADA == (
         "goal_campana",
         "goal_plataforma",
         "margen_familia",
         "margen_plataforma",
         "setting_plataforma",
-        "cache_estado",
-        "default",
     )
 
 
@@ -700,7 +700,7 @@ def test_peldano_goal_campana_gana_y_reporta_su_nombre():
 
 def test_peldano_goal_plataforma_gana_y_reporta_su_nombre():
     """Peldaño 2: sin goal de campaña, el de plataforma gana (y reporta su
-    nombre), pisando setting/cache."""
+    nombre), pisando al setting."""
     plataforma = _goal(target_acos_pct=Decimal("25"))
     settings = _settings_target(us=30)
     valor, peldano = g.cascada_target_acos_con_procedencia(
@@ -726,39 +726,37 @@ def test_peldano_setting_plataforma_gana_y_reporta_su_nombre():
     assert peldano_mx == "setting_plataforma"
 
 
-def test_peldano_cache_estado_gana_y_reporta_su_nombre():
-    """Peldaño 4: sin goals ni setting, el cache de ad_entity_state gana."""
+def test_peldano_cache_estado_ya_no_decide():
+    """T.1 (BIDS 02 s2): retirado el peldano cache_estado, un acos_target
+    del estado ya no decide (ni siquiera presente): sin goal, margen ni
+    setting, la escalera devuelve None."""
     valor, peldano = g.cascada_target_acos_con_procedencia(
         None, None, {}, Decimal("28"), "amazon_us"
     )
-    assert valor == Decimal("28")
-    assert peldano == "cache_estado"
+    assert valor is None
+    assert peldano is None
 
 
-def test_peldano_default_gana_y_reporta_su_nombre():
-    """Peldaño 5: todo None -> default 55 y reporta 'default'."""
+def test_peldano_sin_ninguno_devuelve_none():
+    """T.1 (BIDS 02 s2): retirado el default 55 (un target inventado
+    contradice la regla 3), sin goal, margen ni setting la escalera
+    devuelve None y cada llamador trata el hueco."""
     valor, peldano = g.cascada_target_acos_con_procedencia(None, None, {}, None, "amazon_us")
-    assert valor == Decimal("55")
-    assert peldano == "default"
-    assert valor == g.DEFAULT_TARGET_PCT
+    assert valor is None
+    assert peldano is None
 
 
 def test_peldano_margen_gana_entre_goal_y_setting():
     """Rojo (b) ORBIT 06 2.3: con margen resuelto y sin goals, el peldano
-    nuevo gana sobre setting/cache/default y reporta su nombre EXACTO en
+    nuevo gana sobre el setting y reporta su nombre EXACTO en
     ambas variantes."""
     valor, peldano = g.cascada_target_acos_con_procedencia(
         None, None, _settings_target(us=30), Decimal("28"), "amazon_us", Decimal("20")
     )
     assert valor == Decimal("20")
     assert peldano == "margen_plataforma"
-    assert g.cascada_target_acos(
-        None, Decimal("30"), Decimal("28"), Decimal("20"), None
-    ) == Decimal("20")
-    assert (
-        g.peldano_target_acos(None, None, Decimal("20"), Decimal("30"), Decimal("28"))
-        == "margen_plataforma"
-    )
+    assert g.cascada_target_acos(None, Decimal("30"), Decimal("20"), None) == Decimal("20")
+    assert g.peldano_target_acos(None, None, Decimal("20"), Decimal("30")) == "margen_plataforma"
 
 
 def test_peldano_margen_no_pisa_goals():
@@ -808,7 +806,7 @@ def test_peldano_margen_invalido_revienta():
     with pytest.raises(ValueError, match=re.escape("target_margen")):
         g.cascada_target_acos_con_procedencia(None, None, {}, None, "amazon_us", Decimal("0"))
     with pytest.raises(ValueError, match=re.escape("target_margen")):
-        g.cascada_target_acos(None, None, None, Decimal("-5"), None)
+        g.cascada_target_acos(None, None, Decimal("-5"))
 
 
 def test_procedencia_compatible_con_el_motor_campana_con_target_none():
@@ -827,12 +825,12 @@ def test_procedencia_compatible_con_el_motor_campana_con_target_none():
     )
     assert valor == Decimal("30")  # el 25 de la plataforma NO gana
     assert peldano == "setting_plataforma"
-    # sin setting: cae al cache, tampoco al goal de plataforma
+    # sin setting: None (T.1 retiro cache y default), tampoco al goal de plataforma
     valor2, peldano2 = g.cascada_target_acos_con_procedencia(
         campana, plataforma, {}, Decimal("28"), "amazon_us"
     )
-    assert valor2 == Decimal("28")
-    assert peldano2 == "cache_estado"
+    assert valor2 is None
+    assert peldano2 is None
 
 
 def test_peldano_margen_no_lo_bloquea_goal_campana_sin_target():
@@ -874,7 +872,6 @@ def test_peldano_margen_no_lo_bloquea_goal_campana_sin_target():
         assert g.cascada_target_acos(
             resuelto.target_acos_pct,
             Decimal("30"),
-            Decimal("28"),
             target_margen=Decimal("20"),
             scope_goal=resuelto.scope,
         ) == Decimal("20")
@@ -884,7 +881,6 @@ def test_peldano_margen_no_lo_bloquea_goal_campana_sin_target():
                 resuelto.scope,
                 Decimal("20"),
                 Decimal("30"),
-                Decimal("28"),
             )
             == "margen_plataforma"
         )
@@ -900,7 +896,7 @@ def test_procedencia_equivale_a_la_cascada_del_motor():
     la variante con procedencia es una REFINACION de la cascada del motor, no
     otra aritmética. El motor ya resolvió el goal (resuelve_goal), así que el
     par (goal_campana, goal_plataforma) se compara contra
-    cascada_target_acos(resuelto.target, setting, cache)."""
+    cascada_target_acos(resuelto.target, setting, margen)."""
     casos = [
         (None, None, {}, None, "amazon_us"),
         (None, None, {"ads_target_acos_pct_amazon_us": 30}, None, "amazon_us"),
@@ -961,11 +957,12 @@ def test_procedencia_equivale_a_la_cascada_del_motor():
         margen = caso[5] if len(caso) > 5 else None
         resuelto = g.resuelve_goal(goal_campana, goal_plataforma)
         # el motor normaliza el setting con target_desde_settings ANTES de la
-        # cascada vieja (cycle.py): la comparacion usa la MISMA fuente
+        # cascada vieja (cycle.py): la comparacion usa la MISMA fuente.
+        # T.1: el cache ya no entra a las variantes del motor (ni decide en
+        # la variante con procedencia): viaja en los casos pero no se pasa.
         esperado = g.cascada_target_acos(
             resuelto.target_acos_pct if resuelto is not None else None,
             g.target_desde_settings(settings, platform),
-            cache,
             margen,
             resuelto.scope if resuelto is not None else None,
         )
@@ -979,7 +976,6 @@ def test_procedencia_equivale_a_la_cascada_del_motor():
                 resuelto.scope if resuelto is not None else None,
                 margen,
                 g.target_desde_settings(settings, platform),
-                cache,
             )
             == peldano
         )
@@ -989,7 +985,8 @@ def test_procedencia_peldano_invalido_revienta_no_cae_al_siguiente():
     """Regla 3 (mismo criterio que la cascada vieja): un peldaño PRESENTE pero
     invalido (<= 0, no finito) revienta ruidosamente, jamas cae al siguiente.
     Los nombres de peldaño llevan guion bajo (no puntos): re.escape evita el
-    comodin de regex (patron del test de la cascada vieja)."""
+    comodin de regex (patron del test de la cascada vieja). T.1: el cache
+    ya no decide pero se sigue validando (compat posicional)."""
     campana_malo = _goal(
         scope="campaign", ad_entity_id=1, platform=None, target_acos_pct=Decimal("0")
     )
@@ -998,7 +995,7 @@ def test_procedencia_peldano_invalido_revienta_no_cae_al_siguiente():
     plataforma_mala = _goal(target_acos_pct=Decimal("-5"))
     with pytest.raises(ValueError, match=re.escape("goal_plataforma")):
         g.cascada_target_acos_con_procedencia(None, plataforma_mala, {}, None, "amazon_us")
-    with pytest.raises(ValueError, match=re.escape("cache_estado")):
+    with pytest.raises(ValueError, match=re.escape("cache_acos_target")):
         g.cascada_target_acos_con_procedencia(None, None, {}, Decimal("-5"), "amazon_us")
     # setting corrupto: target_desde_settings (REUTILIZADA, no reimplementada)
     # revienta con la clave sellada en el mensaje
@@ -1218,7 +1215,7 @@ def test_peldano_familia_gana_entre_goal_y_plataforma():
         None, None, {}, None, "amazon_mx", Decimal("20"), Decimal("10")
     )
     assert (valor, peldano) == (Decimal("10"), "margen_familia")
-    assert g.peldano_target_acos(None, None, Decimal("20"), None, None, Decimal("10")) == (
+    assert g.peldano_target_acos(None, None, Decimal("20"), None, Decimal("10")) == (
         "margen_familia"
     )
     # Goal sigue ganando (lane 6); sin familia, plataforma intacta.

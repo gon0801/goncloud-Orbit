@@ -164,7 +164,7 @@
         <td><span class="chip">{{ prop.status }}</span><span class="detalle-celda">{{ prop.campaign_status }}</span></td>
         <td>{{ prop.cost }} {{ prop.currency }}</td>
         <td>{{ prop.sales30d }} {{ prop.currency }}</td>
-        <td>{{ prop.target_pct }}%<span class="detalle-celda">{{ prop.target_source }}</span></td>
+        <td>{% if prop.target_pct is none %}<span class="mutado">sin target</span>{% else %}{{ prop.target_pct }}%<span class="detalle-celda">{{ prop.target_source }}</span>{% endif %}</td>
         <td>{{ prop.excess }} {{ prop.currency }}</td>
         <td>{{ prop.acos_pct ~ "%" if prop.acos_pct is not none else "—" }}</td>
         <td class="mutado">{{ prop.window_start }}..{{ prop.window_end }}</td>

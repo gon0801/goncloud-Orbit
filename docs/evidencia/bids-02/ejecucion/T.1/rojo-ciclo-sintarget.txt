@@ -1,0 +1,56 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+______________ test_hoja_sin_target_se_salta_sin_decision_ni_fila ______________
+
+    @pytest.mark.skipif(
+        _postgres_obligatorio_ausente(),
+        reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+    )
+    def test_hoja_sin_target_se_salta_sin_decision_ni_fila():
+        """T.1 (BIDS 02 s2): sin target en ningun peldano, la hoja se cuenta
+        con sin_target y regresa ANTES del freeze: no deja decision ni fila
+        en target_acos_ciclo. notes.target declara paso_politica asimetrico_v1."""
+        with _db_temporal("orbit_c2a_sintarget") as (conn, _c):
+            ids = _siembra_sin_target(conn)
+            res = _corre(conn)
+
+            assert res.status == "done", res.notes
+            notas = json.loads(res.notes)
+>           assert notas["skips"]["entidad"] == {"sin_target": 1}
+E           AssertionError: assert {} == {'sin_target': 1}
+E
+E             Right contains 1 more item:
+E             {'sin_target': 1}
+E             Use -v to get more diff
+
+tests/test_cycle_target_ciclo.py:294: AssertionError
+___________________ test_grupo_terminos_sin_target_se_salta ____________________
+
+    @pytest.mark.skipif(
+        _postgres_obligatorio_ausente(),
+        reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+    )
+    def test_grupo_terminos_sin_target_se_salta():
+        """T.1 (BIDS 02 s2): el ad group de terminos sin target se cuenta con
+        sin_target (sus 7 terminos) y no deja decisiones de negative ni
+        harvest."""
+        with _db_temporal("orbit_c2a_sintarget_g") as (conn, _c):
+            _siembra_sin_target(conn)
+            res = _corre(conn)
+
+            assert res.status == "done", res.notes
+            notas = json.loads(res.notes)
+>           assert notas["skips"]["termino"] == {"sin_target": 7}
+E           AssertionError: assert {'asin_like':...sconocido': 1} == {'sin_target': 7}
+E
+E             Left contains 3 more items:
+E             {'asin_like': 1, 'orders_desconocido': 1, 'sin_umbral_negative': 4}
+E             Right contains 1 more item:
+E             {'sin_target': 7}
+E             Use -v to get more diff
+
+tests/test_cycle_target_ciclo.py:316: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_cycle_target_ciclo.py::test_hoja_sin_target_se_salta_sin_decision_ni_fila
+FAILED tests/test_cycle_target_ciclo.py::test_grupo_terminos_sin_target_se_salta
+2 failed, 20 deselected in 0.56s

@@ -100,8 +100,8 @@
           {% elif item.metricas_30d.acos %}{{ item.metricas_30d.acos }}%
           {% else %}<span class="mutado">—</span>{% endif %}
         </td>
-        <td class="num">{% if item.target_efectivo is none %}<span class="mutado">—</span>{% else %}{{ item.target_efectivo.valor }}%{% endif %}</td>
-        <td>{% if item.target_efectivo is none %}<span class="mutado">—</span>{% else %}<span class="chip">{{ item.target_efectivo.peldano }}</span>{% endif %}</td>
+        <td class="num">{% if item.target_efectivo is none %}<span class="mutado">sin target</span>{% else %}{{ item.target_efectivo.valor }}%{% endif %}</td>
+        <td>{% if item.target_efectivo is none %}<span class="mutado">sin target</span>{% else %}<span class="chip">{{ item.target_efectivo.peldano }}</span>{% endif %}</td>
       </tr>
       {% endfor %}
     </tbody>

@@ -24,8 +24,9 @@
   <h3>{{ p.plataforma }} <span class="mutado">({{ p.moneda }})</span></h3>
   <p>
     Target vigente:
-    <strong>{{ p.target_vigente.valor }}</strong>
-    · procedencia <code>{{ p.target_vigente.peldano }}</code>
+    {% if p.target_vigente.valor is none %}<span class="mutado">sin target</span>
+    {% else %}<strong>{{ p.target_vigente.valor }}</strong>
+    · procedencia <code>{{ p.target_vigente.peldano }}</code>{% endif %}
   </p>
 
   <form data-settings-config="{{ p.plataforma }}" data-config-id="{{ datos.config_version_id }}">

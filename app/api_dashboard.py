@@ -1674,8 +1674,6 @@ PISA_POR_PELDANO: dict[str, str] = {
     "goal_plataforma": "pisa al goal de la plataforma",
     "margen_plataforma": "pisa al target por margen de la plataforma",
     "setting_plataforma": "pisa al target manual de la plataforma",
-    "cache_estado": "pisa al target cacheado del estado de Amazon",
-    "default": "pisa al default",
 }
 
 
@@ -1713,7 +1711,7 @@ def settings(conn: ConexionLectura) -> dict:
         goal.platform: (goal_id, goal) for goal_id, goal, _, _ in goals if goal.scope == "platform"
     }
     plataformas: list[dict] = []
-    peldanos: dict[str, str] = {}
+    peldanos: dict[str, str | None] = {}
     for plataforma in PLATAFORMAS_MONEDA:
         goal_id, goal = goal_plataforma.get(plataforma, (None, None))
         valor, peldano = g.cascada_target_acos_con_procedencia(
@@ -1762,7 +1760,12 @@ def settings(conn: ConexionLectura) -> dict:
                 goal.platform or plataforma_campana,
                 nombre,
                 PISA_POR_PELDANO[peldanos[plataforma_campana]]
-                if goal.scope == "campaign" and plataforma_campana in peldanos
+                if (
+                    goal.scope == "campaign"
+                    and plataforma_campana in peldanos
+                    # T.1: sin peldano no hay a quien pisar (sin KeyError).
+                    and peldanos[plataforma_campana] is not None
+                )
                 else None,
             )
             for goal_id, goal, plataforma_campana, nombre in goals
