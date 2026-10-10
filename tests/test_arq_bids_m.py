@@ -1,8 +1,9 @@
-"""Guardas de arquitectura de la letra M (BIDS 02 M.1 y M.2; las demas tareas M agregan aqui).
+"""Guardas de arquitectura de la letra M (BIDS 02 M.1, M.2 y M.4; las demas tareas M agregan aqui).
 
 caso.py y politica.py son puros: sin reloj, entorno ni azar. Los numeros que
 espejan a otro modulo llevan su pin de igualdad. lecturas_caso.py solo hace
-SELECT y no importa app.apply ni app.ads. Sin acentos en el codigo.
+SELECT y no importa app.apply ni app.ads. rejuega_niveles.py no importa
+app.apply, app.cycle ni app.ads.write. Sin acentos en el codigo.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from test_architecture import _escritura_en_fuentes, _imports_runtime, _usos_rel
 RAIZ = Path(__file__).resolve().parents[1]
 MODULOS = [RAIZ / "app" / "optimizer" / "caso.py", RAIZ / "app" / "optimizer" / "politica.py"]
 LECTURAS = RAIZ / "app" / "lecturas_caso.py"
+REJUEGA = RAIZ / "tools" / "rejuega_niveles.py"
 
 
 def _fugas_reloj(modulos):
@@ -108,3 +110,20 @@ def test_detector_caza_verbo_e_import_fuga_en_lecturas(tmp_path):
     fuga.write_text('from app import apply\nsql = "INSERT INTO x (a)"\n', encoding="utf-8")
     assert _escritura_en_fuentes(fuga) != []
     assert "app.apply" in _violaciones(_imports_runtime(fuga), ("app.apply", "app.ads"))
+
+
+def test_rejuega_no_importa_frontera_de_escritura():
+    """M.4: `tools/rejuega_niveles.py` es solo lectura: no importa
+    `app.apply`, `app.cycle` ni `app.ads.write`."""
+    assert REJUEGA.exists(), "sin tools/rejuega_niveles.py el candado pasaria en falso"
+    fugas = _violaciones(_imports_runtime(REJUEGA), ("app.apply", "app.cycle", "app.ads.write"))
+    assert not fugas, f"rejuega_niveles.py importa fuera de su frontera: {fugas}"
+
+
+def test_detector_caza_import_prohibido_en_rejuega(tmp_path):
+    """El detector muerde: `from app import cycle` aparece listado."""
+    fuga = tmp_path / "rejuega_niveles.py"
+    fuga.write_text("from app import cycle\n", encoding="utf-8")
+    assert "app.cycle" in _violaciones(
+        _imports_runtime(fuga), ("app.apply", "app.cycle", "app.ads.write")
+    )
