@@ -518,13 +518,17 @@ def _lote(conn):
     return lote
 
 
-def _senal(conn, grupo, termino, lote, roster, **cambios):
+def _reloj_de_la_vista(conn):
+    return conn.execute("SELECT now()").fetchone()[0]
+
+
+def _senal(conn, grupo, termino, lote, roster, *, ahora, **cambios):
     valores = {
         "gasto": Decimal("12.50"),
         "ordenes": 0,
         "lectura": "relevante_sin_venta",
         "relevancia": "corresponde",
-        "valida_hasta": AHORA + timedelta(hours=36),
+        "valida_hasta": ahora + timedelta(hours=36),
         "clics": 10,
     }
     valores.update(cambios)
@@ -565,19 +569,21 @@ def test_gasto_sin_venta_punta_a_punta():
     import app.jev_salud as pantallas
 
     with db_s5() as conn:
+        ahora = _reloj_de_la_vista(conn)
         grupo = _grupo(conn, "amazon_mx", ())
         roster = _roster(conn, grupo)
         lote = _lote(conn)
-        _senal(conn, grupo, "tenis azul", lote, roster, gasto=Decimal("5.00"))
-        _senal(conn, grupo, "bota negra", lote, roster, gasto=Decimal("20.00"))
-        _senal(conn, grupo, "ya vendio", lote, roster, ordenes=2)  # excluida
+        _senal(conn, grupo, "tenis azul", lote, roster, ahora=ahora, gasto=Decimal("5.00"))
+        _senal(conn, grupo, "bota negra", lote, roster, ahora=ahora, gasto=Decimal("20.00"))
+        _senal(conn, grupo, "ya vendio", lote, roster, ahora=ahora, ordenes=2)
         _senal(  # vencida: la vista la marca no vigente
             conn,
             grupo,
             "vencida",
             lote,
             roster,
-            valida_hasta=AHORA - timedelta(hours=1),
+            ahora=ahora,
+            valida_hasta=ahora - timedelta(hours=1),
         )
         pantalla = pantallas.gasto_sin_venta(conn, plataforma="amazon_mx")
         assert [v.clave.termino for v in pantalla.filas] == ["bota negra", "tenis azul"]
@@ -586,10 +592,10 @@ def test_gasto_sin_venta_punta_a_punta():
         conn.execute(
             "INSERT INTO jev_corrida (lote_id, evento, cierre, resumen, at)"
             " VALUES (%s, 'fin', 'completa', '{}'::jsonb, %s)",
-            (lote, AHORA),
+            (lote, ahora),
         )
         pantalla = pantallas.gasto_sin_venta(conn, plataforma="amazon_mx")
-        assert pantalla.calculado_el == AHORA
+        assert pantalla.calculado_el == ahora
 
 
 @_skip_db
@@ -597,10 +603,11 @@ def test_vistas_de_claves_punta_a_punta():
     import app.jev_salud as pantallas
 
     with db_s5() as conn:
+        ahora = _reloj_de_la_vista(conn)
         grupo = _grupo(conn, "amazon_mx", ())
         roster = _roster(conn, grupo)
         lote = _lote(conn)
-        _senal(conn, grupo, "zapato rojo", lote, roster)
+        _senal(conn, grupo, "zapato rojo", lote, roster, ahora=ahora)
         vistas = pantallas._vistas_de_claves(
             conn,
             {
