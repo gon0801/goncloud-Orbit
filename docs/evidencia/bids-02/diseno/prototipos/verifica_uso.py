@@ -20,7 +20,7 @@ YA_EXISTE = {
     "HTTPException": "fastapi",
 }
 raiz = sys.argv[1] if len(sys.argv) > 1 else ".."
-arbol = ast.parse(open(f"{raiz}/bosquejo.py").read())
+arbol = ast.parse(open(f"{raiz}/bosquejo.py", encoding="utf-8").read())
 firmas = {}
 for nodo in ast.walk(arbol):
     if isinstance(nodo, (ast.FunctionDef,)):
@@ -36,7 +36,9 @@ for nodo in ast.walk(arbol):
         firmas.setdefault(nodo.name, []).append((campos, []))
 bloques = re.findall(
     r"```python\n(.*?)```",
-    open(f"{raiz}/../../../superpowers/specs/2026-10-09-bids-02-design.md").read(),
+    open(
+        f"{raiz}/../../../superpowers/specs/2026-10-09-bids-02-design.md", encoding="utf-8"
+    ).read(),
     re.S,
 )
 fallas = vistas = 0
