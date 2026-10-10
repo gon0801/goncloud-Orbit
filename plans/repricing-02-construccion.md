@@ -23,7 +23,9 @@ el símbolo por nombre.
 1. Comprueba que el PR que trae el diseño, el plan y esta guía está en `master`.
 2. Lee el diseño completo. Lee del bosquejo las secciones de tu paso.
 3. Levanta un Postgres local. Las pruebas con base no corren en un PR.
-4. Trabaja cada paso en su rama, con un PR por paso.
+4. Trabaja cada sección en su rama, con un PR por sección y un commit por paso.
+   Las secciones, su orden y sus ramas están en "Secciones de entrega" del
+   plan. Corre las comprobaciones de un paso antes de empezar el siguiente.
 5. Corre las herramientas de `tools/` como `PYTHONPATH=. python tools/<x>.py`.
    Sin `PYTHONPATH=.` fallan con `No module named 'app'`.
 
@@ -59,7 +61,7 @@ falta otra, usa 0056 para M y 0057 para G.
 las migraciones 0053 y 0054 quedan completos en 0.a. Después de 0.a solo se
 editan para borrar lo que un paso deja de usar, y esta guía dice cuál paso borra
 qué. Si necesitas agregar algo a uno de ellos, abre un PR aparte solo con ese
-cambio y avisa al lead.
+cambio y avisa al lead. Ese PR se mergea antes de seguir con la sección.
 
 **Candados de arquitectura.** `tests/test_architecture.py` lo editan 0.a, 0.b y
 el carril S. Los carriles F, M y G escriben los suyos en
@@ -93,10 +95,11 @@ además `ensayo.sh`. Parte de los de `docs/evidencia/jev-ads-02/ejecucion/S.3/` 
 sigue las reglas de la sección "Reglas que valen en todos los pasos" de
 [la guía del bloque S de JEV ADS 02](jev-ads-02-bloque-s.md).
 
-**Revisión y cierre.** Cada paso con código pasa una revisión cruzada con un
-revisor distinto del autor antes del merge. Solo un hallazgo bloqueante y
-reproducible abre otra ronda. Marca la fila del paso en `plans/repricing-02.md`
-y agrega una entrada a `docs/CHAT-CONTEXT.md` en el mismo PR.
+**Revisión y cierre.** Cada sección con código pasa una revisión cruzada con un
+revisor distinto del autor antes del merge, sobre el PR entero. Solo un hallazgo
+bloqueante y reproducible abre otra ronda. Las filas de `plans/repricing-02.md`
+se marcan y la entrada de `docs/CHAT-CONTEXT.md` se agrega en el PR de cierre,
+C.1.
 
 ## Quién edita cada archivo compartido
 
@@ -998,7 +1001,8 @@ precios por estas dos:
 	10 13 * * * /usr/bin/flock -n /tmp/precio-spapi.lock docker exec orbit-app-1 python -m app.cli precio --platform amazon_mx >> /mnt/data/appdata/orbit/logs/precio-corrida.log 2>&1
 	10 15-23/2 * * * /usr/bin/flock -n /tmp/precio-spapi.lock docker exec orbit-app-1 python -m app.cli precio --platform amazon_mx >> /mnt/data/appdata/orbit/logs/precio-corrida.log 2>&1
 
-**D.3** lleva el carril F, S.7 y la 0055. Corre el script de políticas. Agrega
+**D.3** lleva el carril F, S.7 y la 0055. `desplegar.sh` corre `politicas.sh`,
+que vive en `ejecucion/D.3/` y no inserta una política que ya está vigente. Agrega
 `--platform amazon_us` a las dos líneas de D.2. Agrega el job de muestras antes
 de la estimación de las 12:45 UTC:
 
@@ -1008,7 +1012,8 @@ de la estimación de las 12:45 UTC:
 El día del despliegue no hay muestras hasta las 12:15 UTC. El checklist sale 3
 hasta la primera corrida del job y de la estimación, y 0 después.
 
-**D.4** lleva el carril M. Corre el script de la política `meli/meli`. Agrega el
+**D.4** lleva el carril M. `desplegar.sh` corre `politicas.sh` de `ejecucion/D.4/`,
+con la política `meli/meli` y la misma regla: no repite una vigente. Agrega el
 catálogo diario, el job de muestras de `meli` y las dos líneas de precios de
 Mercado Libre, con su propio archivo de candado:
 
@@ -1023,20 +1028,26 @@ Sigue los "Criterios de encendido" del plan en cada universo. Los corres tú
 cuando claw te lo encarga.
 
 Cada fila X trae sus scripts en `docs/evidencia/repricing-02/ejecucion/X.<n>/`.
-Escríbelos en el PR del paquete de despliegue de su universo: X.1 con D.2, X.2
-y X.3 con D.3, y X.4 con D.4.
+Escríbelos en el commit del paquete de despliegue, dentro del PR de la sección
+de su universo: X.1 con D.2, X.2 y X.3 con D.3, y X.4 con D.4.
 
 - `sembrar.sh` siembra "margen de hoy" en `shadow` con
   `POST /api/precios/goals/plan` y `POST /api/precios/goals/aplicar`. Guarda el
-  plan, con las unidades que quedaron bloqueadas y su motivo.
+  plan, con las unidades que quedaron bloqueadas y su motivo. Si el universo no
+  tiene entrada en `precio_modo_universo`, lo pone antes en `shadow` con la
+  llamada de settings de `encender.sh`. Es el caso de X.2, X.3 y X.4: la
+  migración solo siembra `amazon_mx/fba`, un universo sin entrada vale `off` y
+  la corrida no decide nada para él. X.2, X.3 y X.4 se siembran con el checklist
+  de su despliegue en 0: antes no hay escenarios `disponible`.
 - `sonda.sh` (X.2, X.3 y X.4) corre `tools/precio_sonda.py` con
   `--acepto-mutacion-real` y `--go` en una publicación. Guarda la lectura
   posterior y la de una publicación de control.
 - `encender.sh` pone el universo en `live` con
   `POST /api/ads-optimizer/settings/amazon_mx` y la llave `plataforma/canal` del
   universo en `precio_modo_universo`. La misma llamada sirve para `meli/meli`,
-  porque la config es global. Después pasa los goals a `live` en bloque con el
-  go literal de la fila.
+  porque la config es global. Si `precio_modo_global` no está en `live`, lo sube
+  en esa llamada: pasa en el primer universo que se enciende. Después pasa los
+  goals a `live` en bloque con el go literal de la fila.
 - `apagar.sh` regresa el universo a `shadow`. Es la reversa de `encender.sh`.
 
 Cada script simula por omisión y escribe solo con `--acepto-mutacion-real`. Los
@@ -1045,15 +1056,19 @@ Fuera del contenedor, un refresco de token de Mercado Libre deja inservible el
 de producción. El token de escritura no sale del servidor ni se imprime.
 
 - **X.1, MX FBA.** No necesita sonda de escritura: el camino ya se probó en A.4.
-  Es el primer encendido: `encender.sh` sube también `precio_modo_global` a
-  `live`.
+  Es el primer encendido, así que `encender.sh` sube también
+  `precio_modo_global` a `live`. Si X.1 queda cerrada sin encender, lo sube el
+  siguiente universo que se encienda.
 - **X.2, MX FBM** y **X.3, Estados Unidos.** Corre `sonda.sh` en una
   publicación de cada universo antes de pasar a `live`.
 - **X.4, Mercado Libre.** `sonda.sh` es la única que puede escribir con la
   forma sin sellar. Si pasa, abre un PR que cambia solo
-  `FORMA_ESCRITURA_MELI`. Si no pasa, corrige la forma candidata y repite,
-  tres intentos como máximo. Al tercero sin pasar, la fila X.4 queda cerrada
-  con el motivo.
+  `FORMA_ESCRITURA_MELI`. Con ese PR mergeado, vuelve a correr
+  `desplegar.sh <punta>` de D.4 antes de `encender.sh`: sin el código sellado
+  en producción, la corrida levanta `EscrituraNoDisponible` y no escribe. Si
+  no pasa, corrige la forma candidata en un PR, vuelve a desplegar y repite la
+  sonda, tres intentos como máximo. Al tercero sin pasar, la fila X.4 queda
+  cerrada con el motivo.
 
 ## Preguntas que siguen abiertas
 

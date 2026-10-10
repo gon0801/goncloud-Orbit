@@ -3,7 +3,9 @@
 Estado: plan del 2026-10-08 UTC. El diseño se terminó el mismo día. Nada está
 construido. Base de planificación: commit `d83bb28`. Dos lectores frescos
 ejecutaron este plan y su guía. Sus hallazgos están en
-`docs/evidencia/repricing-02/planificacion/lectores-frescos.md`.
+`docs/evidencia/repricing-02/planificacion/lectores-frescos.md`. El 2026-10-09
+las tareas se agruparon en seis secciones de entrega, sin cambiar ninguna
+tarea: están en "Secciones de entrega".
 
 **Resultado:** cada publicación activa de Amazon México (FBA y FBM), Amazon
 Estados Unidos y Mercado Libre tiene un goal de margen y el motor la lleva a ese
@@ -215,7 +217,7 @@ Cada universo recorre su fila por su cuenta. Ninguno espera a otro.
 | X.2 | `[stage:cierre-pr] [lane:release] [tdd:skip:sonda]` Encender MX FBM. | Sonda de escritura de un centavo con su reversa, y criterios de encendido. | D.3 | cc:TODO |
 | X.3 | `[stage:cierre-pr] [lane:release] [tdd:skip:sonda]` Encender Estados Unidos. | Sonda de escritura con su reversa, y criterios de encendido. | D.3 | cc:TODO |
 | D.4 | `[stage:cierre-pr] [lane:release] [tdd:skip:ops]` Desplegar el carril M, con la política `meli/meli`, el catálogo diario y Mercado Libre en el cron. | El checklist sale 0. La cobertura de Mercado Libre cuadra con las activas de la API. | M.4, D.2 | cc:TODO |
-| X.4 | `[stage:cierre-pr] [lane:release] [tdd:skip:sonda]` Encender Mercado Libre. | Sonda de escritura con su reversa, tres intentos como máximo. Si pasa, un PR cambia solo la constante de la forma. Después, criterios de encendido. | D.4 | cc:TODO |
+| X.4 | `[stage:cierre-pr] [lane:release] [tdd:skip:sonda]` Encender Mercado Libre. | Sonda de escritura con su reversa, tres intentos como máximo. Si pasa, un PR cambia solo la constante de la forma y D.4 se vuelve a desplegar. Después, criterios de encendido. | D.4 | cc:TODO |
 | C.1 | `[stage:cierre-pr] [lane:fast] [tdd:skip:docs]` Cierre: filas, `plans/ROADMAP.md`, `docs/CHAT-CONTEXT.md` y `docs/DEPLOY.md`. | Los cuatro universos encendidos, o cerrados con el motivo escrito. | X.1 a X.4 | cc:TODO |
 
 ## Criterios de encendido
@@ -225,7 +227,10 @@ ventanas de 30 días.
 
 1. **Sembrar en sombra.** Muse siembra "margen de hoy" en `shadow` a todo el
    universo, con las mismas rutas que usa `/precios`. Las unidades con margen de
-   hoy fuera de la banda no se siembran: se le listan al dueño en el aviso.
+   hoy fuera de la banda no se siembran: se le listan al dueño en el aviso. Si
+   el universo no tiene entrada de modo (X.2, X.3 y X.4), la siembra lo pone
+   antes en `shadow`: sin entrada vale `off` y la corrida no decide nada para
+   él. Esos tres se siembran con el checklist de su despliegue en 0.
 2. **Leer la primera corrida.** Pasa si se cumplen las cuatro:
    - La cobertura cuadra exacta.
    - Al menos 95 % de las unidades sembradas quedan en `mantener(en_tolerancia)`.
@@ -242,8 +247,9 @@ ventanas de 30 días.
    posterior muestra el precio y una publicación de control no cambia.
 4. **Encender.** Con los pasos anteriores cumplidos y el visto bueno del lead
    sobre el paso 2, Muse pone el universo en `live` y pasa los goals a `live`
-   en bloque con el go literal de la fila. En el primer encendido (X.1) sube
-   además `precio_modo_global` a `live`: la migración lo siembra en `shadow` y
+   en bloque con el go literal de la fila. El primer universo que se enciende
+   (X.1, o el siguiente si X.1 queda cerrada) sube además `precio_modo_global`
+   a `live`: la migración lo siembra en `shadow` y
    el modo efectivo es el menor de los tres. Sin ese paso ningún precio se
    mueve y nada lo marca como error.
 
@@ -283,10 +289,41 @@ pone en rojo. Estos mutantes son obligatorios y deben morir:
 - `MeliWriteClient` se construye sin `modo_confirmado="live"`.
 - La corrida escribe en Mercado Libre con la forma sin sellar.
 
+## Secciones de entrega
+
+Las tareas se entregan en seis secciones, en este orden. Cada sección es una
+rama y un PR, con un commit por tarea en el orden de la tabla. En las secciones
+2 a 5 el último commit es el paquete de despliegue de su fila D, con los scripts
+de sus filas X. Una sola revisión cubre el PR entero. Con el PR mergeado corre
+su despliegue y después el encendido de sus universos.
+
+| Sección | Tareas, en orden | Rama | Después del merge |
+| --- | --- | --- | --- |
+| 1. Lecturas de producción | F.0 y M.0 | `rp02/sec1-lecturas` | - |
+| 2. Corte 0 | 0.a, 0.b y el paquete de D.1 | `rp02/sec2-corte-0` | D.1 |
+| 3. Seguridad y goals | S.1, S.2, S.3, S.4, S.5, S.6, G.1, G.2, G.3 y el paquete de D.2 con los scripts de X.1 | `rp02/sec3-seguridad-goals` | D.2 y X.1 |
+| 4. FBM de México y Estados Unidos | F.1, F.2, F.3, F.4, S.7 y el paquete de D.3 con los scripts de X.2 y X.3 | `rp02/sec4-fbm-us` | D.3, X.2 y X.3 |
+| 5. Mercado Libre | M.1, M.2, M.3, M.4 y el paquete de D.4 con los scripts de X.4 | `rp02/sec5-meli` | D.4 y X.4 |
+| 6. Cierre | C.1 | `rp02/sec6-cierre` | - |
+
+Reglas de una sección:
+
+- Una tarea no empieza con la anterior en rojo. El orden de la tabla cumple la
+  columna Depends de cada fila.
+- La sección 1 solo trae evidencia. Sus conclusiones entran al encargo de la
+  sección 2.
+- Un despliegue lleva todo lo que está en `master`. Por eso una sección no se
+  mergea mientras la anterior esté mergeada y sin desplegar.
+- El encendido de un universo no frena la sección siguiente: sus pasos se
+  intercalan con la construcción.
+- Las filas se marcan y la entrada de `docs/CHAT-CONTEXT.md` se agrega en el PR
+  de cierre, C.1.
+
 ## Orden y salida
 
-Orden: 0.a, después 0.b. Con 0.a cerrado arrancan F, M y G. Con 0.b cerrado
-arranca S. F.0 y M.0 son lecturas y arrancan hoy.
+El orden es el de "Secciones de entrega". Las dependencias que lo explican: 0.a
+va antes que 0.b. Los carriles F, M y G necesitan 0.a, y el carril S necesita
+0.b. F.0 y M.0 son lecturas y no dependen de nada.
 
 `tests/test_architecture.py` lo editan 0.a, 0.b y el carril S. Los carriles F, M
 y G no lo tocan: escriben sus candados en `tests/test_arq_precio_<carril>.py`,
