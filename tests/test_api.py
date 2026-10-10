@@ -587,10 +587,11 @@ def test_goals_lectura_con_filtros(monkeypatch):
 # 3.1, la edicion de goals de ORBIT 04 3.2 (token estatico solo-header en
 # app/api_write.py; ambos despachan a app/goals_write.edita_goal), los
 # settings de plataforma de DASHBOARD 01 3.1 (despacha a
-# app/config_write.guarda_config: fila NUEVA de config_version) y el descarte
+# app/config_write.guarda_config: fila NUEVA de config_version), el descarte
 # humano de propuestas de campana de ADS PROTECCION C.5 (autenticada con
 # exige_token; despacha a app/propuestas_campana.descartar_propuesta: cierra
-# el episodio sin tocar Amazon ni apply_queue).
+# el episodio sin tocar Amazon ni apply_queue) y el regreso del dueno de
+# BIDS 02 M.5 (despachan a apply.regreso_del_dueno y regreso_del_dueno_todas).
 SUPERFICIE_ADS_OPTIMIZER = {
     ("/api/ads-optimizer/status", "get"),
     ("/api/ads-optimizer/audit", "get"),
@@ -603,6 +604,8 @@ SUPERFICIE_ADS_OPTIMIZER = {
     ("/api/ads-optimizer/goals/{goal_id}", "post"),
     ("/api/ads-optimizer/settings/{platform}", "post"),
     ("/api/ads-optimizer/propuestas-campana/{proposal_id}/descartar", "post"),
+    ("/api/ads-optimizer/bid/regresar", "post"),
+    ("/api/ads-optimizer/bid/regresar-todas", "post"),
 }
 
 

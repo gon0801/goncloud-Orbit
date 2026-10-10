@@ -128,6 +128,7 @@ from app.ads.write import (
     _bid_payload,
 )
 from app.optimizer import goals as g
+from app.pantalla_danadas import lee_danadas
 from app.redaction import scrub
 
 # Tope de intentos por decision: "no existe 4o intento" es un COUNT verificable
@@ -1743,3 +1744,169 @@ def reversa_manual(
         }
 
     raise ValueError(f"tipo de reversa desconocido: {tipo!r} (bid|pause|negative)")
+
+
+# ---------------------------------------------------------------------------
+# Regreso del dueno (BIDS 02, M.5): la hoja vuelve al bid anterior a su racha
+# ---------------------------------------------------------------------------
+
+ORIGEN_REGRESO_DUENO = "regreso_del_dueno"
+
+# La racha sale de v_cambio_bid, no de otro camino (fuente unica de la
+# historia de bids). Sin filtro por motivo: la racha se deriva de los bids.
+_SQL_CAMBIOS_HOJA = """
+SELECT confirmado_el, bid_antes, bid_despues, origen, decision_id, moneda
+  FROM v_cambio_bid
+ WHERE hoja_id = %s
+ ORDER BY confirmado_el, decision_id
+"""
+
+# El sello de la ultima reversa de la decision: de ahi sale el motivo cuando
+# Amazon no confirma (el detalle vive en el ledger, regla 10).
+_SQL_MOTIVO_REVERSA = """
+SELECT resultado FROM apply_attempt
+ WHERE decision_id = %s AND tipo = 'reversa'
+ ORDER BY seq DESC LIMIT 1
+"""
+
+
+class SinRachaDeRecortes(Exception):
+    """La hoja no tiene recortes vigentes que regresar (409)."""
+
+
+class ConfirmacionDesactualizada(Exception):
+    """La confirmacion no trae el N vigente de pendientes (409: la lista cambio)."""
+
+
+class RegresoNoConfirmado(Exception):
+    """Amazon no confirmo el regreso (502: el sello vive en el ledger)."""
+
+
+@dataclass(frozen=True)
+class RegresoHecho:
+    hoja_id: int
+    bid_antes: Decimal  # el vigente al regresar (bid_despues del ultimo cambio)
+    bid_ahora: Decimal  # el restaurado (bid anterior a la racha)
+    moneda: str
+    decision_revertida_id: int
+    actor: str  # quien pidio el regreso (X.1 guarda la respuesta completa)
+
+    def como_dict(self) -> dict:
+        return {
+            "hoja_id": self.hoja_id,
+            "bid_antes": str(self.bid_antes),
+            "bid_ahora": str(self.bid_ahora),
+            "moneda": self.moneda,
+            "decision_revertida_id": self.decision_revertida_id,
+            "actor": self.actor,
+        }
+
+
+def _celda_cambio(fila, indice: int, nombre: str):
+    """Tupla o dict_row (la conexion puede venir con dict_row)."""
+    return fila[nombre] if isinstance(fila, dict) else fila[indice]
+
+
+def _racha_vigente_hoja(cambios: list[tuple]) -> list[tuple]:
+    """Recortes posteriores a la ultima subida, con la misma regla que la
+    pantalla de danadas: el regreso del dueno no cuenta ni corta (su
+    bid_antes es NULL), y una subida del motor si corta, incluido un
+    regreso_por_desplome. Cada cambio es
+    (confirmado_el, bid_antes, bid_despues, origen, decision_id, moneda)."""
+    subidas = [c[0] for c in cambios if c[1] is not None and c[2] is not None and c[2] > c[1]]
+    ultima = max(subidas) if subidas else None
+    return [
+        c
+        for c in cambios
+        if c[3] != ORIGEN_REGRESO_DUENO
+        and c[1] is not None
+        and c[2] is not None
+        and c[2] < c[1]
+        and (ultima is None or c[0] >= ultima)
+    ]
+
+
+def _actor_no_vacio(actor: str) -> None:
+    """El actor es rastro obligatorio: "   " pasa el min_length de pydantic
+    y lo caza aqui (el endpoint lo mapea a 422, como el descarte C.5)."""
+    if not actor or not actor.strip():
+        raise ValueError("el regreso exige actor no vacio")
+
+
+def regreso_del_dueno(
+    conn: psycopg.Connection,
+    *,
+    hoja_id: int,
+    actor: str,
+    transport: httpx.BaseTransport | None = None,
+) -> RegresoHecho:
+    """Regresa el bid de la hoja al que tenia antes de su racha vigente de
+    recortes. Reusa `reversa_manual(tipo="bid")` sobre la PRIMERA decision de
+    la racha (ledger pre-HTTP, readback, exenta de cupo): no hay escritura
+    nueva a Amazon. El motor lo ve en `v_cambio_bid` con origen
+    `regreso_del_dueno`. Idempotente: una racha ya regresada levanta
+    ReversaYaHecha (409), nunca escribe dos veces. `transport` es la puerta
+    de tests (MockTransport); el endpoint NO lo pasa."""
+    _actor_no_vacio(actor)
+    cambios = [
+        (
+            _celda_cambio(f, 0, "confirmado_el"),
+            _celda_cambio(f, 1, "bid_antes"),
+            _celda_cambio(f, 2, "bid_despues"),
+            _celda_cambio(f, 3, "origen"),
+            _celda_cambio(f, 4, "decision_id"),
+            _celda_cambio(f, 5, "moneda"),
+        )
+        for f in conn.execute(_SQL_CAMBIOS_HOJA, (hoja_id,)).fetchall()
+    ]
+    racha = _racha_vigente_hoja(cambios)
+    if not racha:
+        raise SinRachaDeRecortes(f"la hoja {hoja_id} no tiene racha vigente de recortes")
+    primera = min(racha, key=lambda c: (c[0], c[4]))
+    # El vigente se lee ANTES del HTTP: despues nace la fila del regreso.
+    ultimo = max(cambios, key=lambda c: (c[0], c[4]))
+    reversa = reversa_manual(conn, tipo="bid", decision_id=primera[4], transport=transport)
+    if not reversa["confirmada"]:
+        fila = conn.execute(_SQL_MOTIVO_REVERSA, (primera[4],)).fetchone()
+        motivo = fila[0] if fila is not None else "sin sello en el ledger"
+        raise RegresoNoConfirmado(f"regreso de la hoja {hoja_id} sin confirmar: {motivo}")
+    return RegresoHecho(
+        hoja_id=hoja_id,
+        bid_antes=ultimo[2],
+        bid_ahora=primera[1],
+        moneda=primera[5],
+        decision_revertida_id=primera[4],
+        actor=actor,
+    )
+
+
+def regreso_del_dueno_todas(
+    conn: psycopg.Connection,
+    *,
+    plataforma: str,
+    confirmacion: str,
+    actor: str,
+    transport: httpx.BaseTransport | None = None,
+) -> tuple[RegresoHecho | str, ...]:
+    """Boton "Regresar todas" (decision D6). Relee la pantalla de danadas,
+    exige la confirmacion literal `REGRESAR <N> KEYWORDS` con el N vigente
+    (numero de hojas con `ya_regresada` en falso; 409 si la lista cambio) y
+    llama a `regreso_del_dueno` hoja por hoja. Una falla no detiene a las
+    demas: en su lugar va el motivo en texto, con su hoja. Idempotente."""
+    _actor_no_vacio(actor)
+    pantalla = lee_danadas(conn, plataforma=plataforma)  # type: ignore[arg-type]
+    pendientes = [h for h in pantalla.hojas if not h.ya_regresada]
+    esperada = f"REGRESAR {len(pendientes)} KEYWORDS"
+    if confirmacion != esperada:
+        raise ConfirmacionDesactualizada(
+            f"confirmacion desactualizada: esperaba {esperada!r} (la lista cambio)"
+        )
+    salidas: list[RegresoHecho | str] = []
+    for hoja in pendientes:
+        try:
+            salidas.append(
+                regreso_del_dueno(conn, hoja_id=hoja.hoja_id, actor=actor, transport=transport)
+            )
+        except Exception as exc:
+            salidas.append(f"hoja {hoja.hoja_id}: {exc}")
+    return tuple(salidas)

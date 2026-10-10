@@ -1067,3 +1067,164 @@ def test_reversa_manual_reversa_fallida_puede_reintentarse(tmp_path, monkeypatch
         assert resultado["confirmada"] is True, "la reversa fallida NO bloquea el reintento"
         puts = [r for r in _mutaciones(vistos) if r.method == "PUT"]
         assert len(puts) == 1
+
+
+# ---------------------------------------------------------------------------
+# M.5: rutas del regreso del dueno (unit: conn falsa + apply espiado)
+# ---------------------------------------------------------------------------
+
+
+def _regreso_monkeypatcheado(monkeypatch, tmp_path, *, resultado=None, error=None, captura=None):
+    """Entorno del endpoint de regreso SIN Postgres: token al dia, connect
+    con conn falsa y regreso_del_dueno / regreso_del_dueno_todas espiados."""
+    import app.api_write as api_write
+
+    _secrets_token(tmp_path, monkeypatch)
+    monkeypatch.setenv("ORBIT_DSN_ADMIN", "postgresql://fake:fake@127.0.0.1:5432/fake")
+    monkeypatch.setattr(api_write, "connect", lambda dsn, **kw: _ConnFake())
+
+    def _uno(conn, *, hoja_id, actor, **kw):
+        if captura is not None:
+            captura.clear()
+            captura.update({"hoja_id": hoja_id, "actor": actor})
+        if error is not None:
+            raise error
+        return resultado
+
+    def _todas(conn, *, plataforma, confirmacion, actor, **kw):
+        if captura is not None:
+            captura.clear()
+            captura.update({"plataforma": plataforma, "confirmacion": confirmacion, "actor": actor})
+        if error is not None:
+            raise error
+        return resultado
+
+    monkeypatch.setattr(apply, "regreso_del_dueno", _uno)
+    monkeypatch.setattr(apply, "regreso_del_dueno_todas", _todas)
+
+
+def _hecho_m5(hoja_id=11):
+    from decimal import Decimal
+
+    return apply.RegresoHecho(
+        hoja_id=hoja_id,
+        bid_antes=Decimal("3.73"),
+        bid_ahora=Decimal("9.74"),
+        moneda="MXN",
+        decision_revertida_id=77,
+        actor="dueno",
+    )
+
+
+def test_regresar_endpoints_despachan_con_sus_parametros(tmp_path, monkeypatch):
+    """/bid/regresar despacha hoja_id y actor; /bid/regresar-todas despacha
+    plataforma, confirmacion y actor."""
+    captura: dict = {}
+    _regreso_monkeypatcheado(monkeypatch, tmp_path, resultado=_hecho_m5(), captura=captura)
+    cliente = TestClient(app)
+    cabecera = {"x-orbit-token": TOKEN}
+
+    r = cliente.post(
+        "/api/ads-optimizer/bid/regresar", json={"hoja_id": 11, "actor": "dueno"}, headers=cabecera
+    )
+    assert r.status_code == 200
+    assert captura == {"hoja_id": 11, "actor": "dueno"}
+    assert r.json()["bid_ahora"] == "9.74"
+
+    _regreso_monkeypatcheado(monkeypatch, tmp_path, resultado=(_hecho_m5(),), captura=captura)
+    r = cliente.post(
+        "/api/ads-optimizer/bid/regresar-todas",
+        json={"plataforma": "amazon_mx", "confirmacion": "REGRESAR 1 KEYWORDS", "actor": "dueno"},
+        headers=cabecera,
+    )
+    assert r.status_code == 200
+    assert captura == {
+        "plataforma": "amazon_mx",
+        "confirmacion": "REGRESAR 1 KEYWORDS",
+        "actor": "dueno",
+    }
+
+
+def test_regresar_endpoints_mapean_errores(tmp_path, monkeypatch):
+    """SinRachaDeRecortes y ReversaYaHecha -> 409 en /bid/regresar;
+    ConfirmacionDesactualizada -> 409 en /bid/regresar-todas;
+    RegresoNoConfirmado -> 502; actor vacio (ValueError) -> 422."""
+    casos = (
+        (
+            "/api/ads-optimizer/bid/regresar",
+            {"hoja_id": 11, "actor": "dueno"},
+            apply.SinRachaDeRecortes("sin racha"),
+            409,
+        ),
+        (
+            "/api/ads-optimizer/bid/regresar",
+            {"hoja_id": 11, "actor": "dueno"},
+            apply.ReversaYaHecha(7),
+            409,
+        ),
+        (
+            "/api/ads-optimizer/bid/regresar-todas",
+            {"plataforma": "amazon_mx", "confirmacion": "REGRESAR 5 KEYWORDS", "actor": "dueno"},
+            apply.ConfirmacionDesactualizada("esperaba 'REGRESAR 6 KEYWORDS'"),
+            409,
+        ),
+        (
+            "/api/ads-optimizer/bid/regresar",
+            {"hoja_id": 11, "actor": "dueno"},
+            apply.RegresoNoConfirmado("sin confirmar: fallo http 500"),
+            502,
+        ),
+        (
+            "/api/ads-optimizer/bid/regresar",
+            {"hoja_id": 11, "actor": "dueno"},
+            ValueError("actor vacio"),
+            422,
+        ),
+    )
+    for ruta, cuerpo, error, codigo in casos:
+        _regreso_monkeypatcheado(monkeypatch, tmp_path, error=error)
+        resp = TestClient(app).post(ruta, json=cuerpo, headers={"x-orbit-token": TOKEN})
+        assert resp.status_code == codigo, f"{ruta} {type(error).__name__} -> {resp.status_code}"
+
+
+def test_regresar_sin_token_401(tmp_path, monkeypatch):
+    """Las dos rutas de regreso responden 401 sin token."""
+    _regreso_monkeypatcheado(monkeypatch, tmp_path, resultado=_hecho_m5())
+    cliente = TestClient(app)
+    sin_token = cliente.post("/api/ads-optimizer/bid/regresar", json={"hoja_id": 1, "actor": "d"})
+    assert sin_token.status_code == 401
+    assert (
+        cliente.post(
+            "/api/ads-optimizer/bid/regresar-todas",
+            json={"plataforma": "amazon_mx", "confirmacion": "REGRESAR 1 KEYWORDS", "actor": "d"},
+        ).status_code
+        == 401
+    )
+
+
+def test_regresar_todas_responde_ok_y_motivo_por_hoja(tmp_path, monkeypatch):
+    """La respuesta trae cada regreso con ok true y cada falla con ok false
+    y su motivo (la pantalla dice cual quedo pendiente)."""
+    _regreso_monkeypatcheado(
+        monkeypatch, tmp_path, resultado=(_hecho_m5(hoja_id=11), "hoja 12: ya revertida la 5")
+    )
+    resp = TestClient(app).post(
+        "/api/ads-optimizer/bid/regresar-todas",
+        json={"plataforma": "amazon_mx", "confirmacion": "REGRESAR 2 KEYWORDS", "actor": "dueno"},
+        headers={"x-orbit-token": TOKEN},
+    )
+    assert resp.status_code == 200
+    cuerpo = resp.json()
+    assert cuerpo["plataforma"] == "amazon_mx"
+    assert cuerpo["resultados"] == [
+        {
+            "ok": True,
+            "hoja_id": 11,
+            "bid_antes": "3.73",
+            "bid_ahora": "9.74",
+            "moneda": "MXN",
+            "decision_revertida_id": 77,
+            "actor": "dueno",
+        },
+        {"ok": False, "motivo": "hoja 12: ya revertida la 5"},
+    ]

@@ -180,6 +180,23 @@ class CuerpoReversaNegative(BaseModel):
     queue_id: int = Field(ge=1)
 
 
+class CuerpoRegresarBid(BaseModel):
+    """Regreso del dueno de UNA hoja (BIDS 02, M.5): vuelve al bid anterior
+    a su racha vigente de recortes."""
+
+    hoja_id: int = Field(ge=1)
+    actor: str = Field(min_length=1, max_length=200)
+
+
+class CuerpoRegresarTodas(BaseModel):
+    """Boton "Regresar todas" (BIDS 02, M.5, decision D6): la confirmacion es
+    el literal `REGRESAR <N> KEYWORDS` con el N vigente de pendientes."""
+
+    plataforma: Literal["amazon_mx", "amazon_us"]
+    confirmacion: str = Field(min_length=1, max_length=100)
+    actor: str = Field(min_length=1, max_length=200)
+
+
 class CuerpoGoal(BaseModel):
     """Edicion de goals (3.2, sellado 26): TODOS los campos opcionales — None
     = no cambiar. Montos gt=0 y strings no vacios (min_length=1) validados
@@ -377,6 +394,68 @@ def reversa_negative(
         return apply.reversa_manual(conn, tipo="negative", queue_id=cuerpo.queue_id)
     except tuple(_ERRORES_REVERSA) as exc:
         raise _error_reversa(exc) from None
+
+
+# Mapeo sellado de errores del regreso del dueno -> HTTP (BIDS 02, M.5):
+# hereda el de la reversa (el regreso reusa reversa_manual: un segundo
+# regreso de la misma racha es ReversaYaHecha -> 409) y suma los propios:
+# SinRachaDeRecortes -> 409, ConfirmacionDesactualizada -> 409 (la lista
+# cambio, X.1 relee N y repite una vez) y RegresoNoConfirmado -> 502.
+_ERRORES_REGRESO: dict[type[Exception], int] = {
+    **_ERRORES_REVERSA,
+    apply.SinRachaDeRecortes: 409,
+    apply.ConfirmacionDesactualizada: 409,
+    apply.RegresoNoConfirmado: 502,
+}
+
+
+@router.post("/bid/regresar")
+def regresar_bid(
+    _token: Annotated[str, Depends(exige_token)],
+    conn: ConexionEscritura,
+    cuerpo: CuerpoRegresarBid,
+) -> dict:
+    """Regresa el bid de la hoja al anterior a su racha vigente de recortes
+    (PUT con ese bid, exento de cupo). Sin racha -> 409; racha ya regresada
+    -> 409; actor vacio -> 422."""
+    try:
+        return apply.regreso_del_dueno(conn, hoja_id=cuerpo.hoja_id, actor=cuerpo.actor).como_dict()
+    except tuple(_ERRORES_REGRESO) as exc:
+        raise HTTPException(status_code=_ERRORES_REGRESO[type(exc)], detail=str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+
+
+@router.post("/bid/regresar-todas")
+def regresar_todas(
+    _token: Annotated[str, Depends(exige_token)],
+    conn: ConexionEscritura,
+    cuerpo: CuerpoRegresarTodas,
+) -> dict:
+    """Regresa todas las hojas pendientes de la pantalla de danadas (las de
+    `ya_regresada` en falso). La confirmacion debe igualar
+    `REGRESAR <N> KEYWORDS` con el N vigente (si no, 409 y cero escrituras).
+    Una falla no detiene a las demas: cada resultado trae ok o motivo."""
+    try:
+        resultados = apply.regreso_del_dueno_todas(
+            conn,
+            plataforma=cuerpo.plataforma,
+            confirmacion=cuerpo.confirmacion,
+            actor=cuerpo.actor,
+        )
+    except tuple(_ERRORES_REGRESO) as exc:
+        raise HTTPException(status_code=_ERRORES_REGRESO[type(exc)], detail=str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    return {
+        "plataforma": cuerpo.plataforma,
+        "resultados": [
+            {"ok": True, **r.como_dict()}
+            if isinstance(r, apply.RegresoHecho)
+            else {"ok": False, "motivo": r}
+            for r in resultados
+        ],
+    }
 
 
 # Mapeo sellado de errores de edita_goal -> HTTP (mismo principio que las

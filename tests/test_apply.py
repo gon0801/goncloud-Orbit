@@ -45,6 +45,7 @@ UPPER — corrida de reactivacion, out/reactiva-campanas-20260827.log).
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import os
 import socket
@@ -67,7 +68,12 @@ from app.apply import (
     MOTIVO_TOPE_INTENTOS,
     MOTIVO_YA_APLICADA,
     Aplicador,
+    ConfirmacionDesactualizada,
     DecisionBid,
+    RegresoHecho,
+    RegresoNoConfirmado,
+    ReversaYaHecha,
+    SinRachaDeRecortes,
     bids_del_ciclo,
     consume_quota,
     intentos_sin_sello,
@@ -75,6 +81,8 @@ from app.apply import (
     orden_bajo_cupo,
     prioridad_bajo_cupo,
     registra_sin_aplicar,
+    regreso_del_dueno,
+    regreso_del_dueno_todas,
     reversa_bid,
 )
 
@@ -97,6 +105,12 @@ SQL44 = (
 # (D.1b): CHECK nombrado + choque_clave
 SQL45 = (
     Path(__file__).resolve().parents[1] / "migrations" / "0045_sin_aplicar_choque_clave.sql"
+).read_text(encoding="utf-8")
+
+# BIDS 02 M.5: v_cambio_bid y v_hoja_activa (la racha del regreso sale de la
+# vista, no de otro camino).
+SQL60 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0060_bids02_base_lectura.sql"
 ).read_text(encoding="utf-8")
 
 
@@ -2227,3 +2241,317 @@ def test_sin_aplicar_fallo_http_registra_el_skip():
             (dec,),
         ).fetchone()
         assert fila == (ids["ciclo_ejec"], "fallo_http")
+
+
+# ---------------------------------------------------------------------------
+# M.5: regreso del dueno (PG + MockTransport, cero HTTP vivo)
+# ---------------------------------------------------------------------------
+
+_PERFIL_M5 = {
+    "profileId": FAKE_PROFILE_US,
+    "countryCode": "US",
+    "currencyCode": "USD",
+    "accountInfo": {"type": "seller", "name": "Test US", "validPaymentMethod": True},
+}
+
+_R1_M5 = dt.datetime(2026, 9, 20, 12, 0, tzinfo=dt.UTC)
+_R2_M5 = dt.datetime(2026, 9, 25, 12, 0, tzinfo=dt.UTC)
+
+
+@contextmanager
+def _db_m5(prefijo: str):
+    """DB temporal del patron de arriba mas la 0060 (v_cambio_bid)."""
+    with _db_temporal(prefijo) as conn:
+        conn.execute(SQL60)
+        yield conn
+
+
+def _handler_regreso(*, falla_put: bool = False):
+    """Amazon mock del camino de regreso: LWA + /v2/profiles + PUT con bid
+    NUMERO + readback por POST /list (shape del probe 2.5)."""
+    vistos: list[httpx.Request] = []
+    remoto: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return _token_response()
+        vistos.append(request)
+        path, metodo = request.url.path, request.method
+        if metodo == "GET" and path == "/v2/profiles":
+            return httpx.Response(200, json=[_PERFIL_M5])
+        if metodo == "PUT":
+            if falla_put:
+                return httpx.Response(400, json={"detail": "INVALID_BID"})
+            body = json.loads(request.content)
+            obj = body["keywords"][0] if "keywords" in body else body["targetingClauses"][0]
+            ext = str(obj.get("keywordId") or obj.get("targetId"))
+            remoto[ext] = obj["bid"]
+            return httpx.Response(207, json={"ack": obj})
+        if metodo == "POST" and path.endswith("/list"):
+            contenedor, campo = (
+                ("targetingClauses", "targetId")
+                if path == "/sp/targets/list"
+                else ("keywords", "keywordId")
+            )
+            filas = [{campo: ext, "bid": bid, "state": "ENABLED"} for ext, bid in remoto.items()]
+            return httpx.Response(200, json={contenedor: filas, "totalResults": len(filas)})
+        raise AssertionError(f"request inesperado: {metodo} {path}")
+
+    return handler, vistos
+
+
+def _creds_m5(monkeypatch) -> None:
+    monkeypatch.setattr(
+        AdsCredentials, "from_secrets_dir", classmethod(lambda cls, *a, **kw: _fake_credentials())
+    )
+
+
+def _ingest_m5(conn) -> int:
+    return conn.execute("INSERT INTO ingest_run (source) VALUES ('m5') RETURNING id").fetchone()[0]
+
+
+def _ciclo_live(conn) -> int:
+    return conn.execute(
+        "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+    ).fetchone()[0]
+
+
+def _aplicada(conn, decision: int, ejecutor: int, confirmado: dt.datetime) -> None:
+    conn.execute(
+        "INSERT INTO decision_application (decision_id, confirmed_at, platform_ack,"
+        " verify_ok, applied_cycle_id) VALUES (%s, %s, %s, true, %s)",
+        (decision, confirmado, Json({"readback": True}), ejecutor),
+    )
+
+
+def _hoja_us(conn, ag: int, external: str, *, bid: str = "6.00") -> int:
+    hoja = _entidad(conn, "keyword", external, parent=ag)
+    conn.execute(
+        "INSERT INTO ad_entity_state (ad_entity_id, current_bid, bid_currency, status,"
+        " synced_at) VALUES (%s, %s, 'USD', 'ENABLED', now())",
+        (hoja, bid),
+    )
+    return hoja
+
+
+def _metrica_m5(conn, ingest: int, hoja: int, fecha: dt.date, *, clics, pedidos, venta) -> None:
+    conn.execute(
+        "INSERT INTO ads_metric_observation (ad_entity_id, metric_date, observed_at,"
+        " metric_currency, cost, ad_revenue, impressions, clicks, orders, ingest_run_id)"
+        " VALUES (%s, %s, %s, 'USD', %s, %s, %s, %s, %s, %s)",
+        (
+            hoja,
+            fecha,
+            dt.datetime(2026, 10, 9, 12, 0, tzinfo=dt.UTC),
+            venta,
+            venta,
+            (clics or 0) * 100 if clics is not None else None,
+            clics,
+            pedidos,
+            ingest,
+        ),
+    )
+
+
+def _danada_m5(conn, ids, hoja: int, ingest: int, *, vieja: str, media: str, nueva: str) -> tuple:
+    """Racha de dos recortes aplicados + metricas de danada (vende 90d
+    previos, clics de hoy < 30 % de los previos). Devuelve (d1, d2)."""
+    ciclo_a = _ciclo_live(conn)
+    ciclo_b = _ciclo_live(conn)
+    d1 = _decision_bid(conn, ciclo_a, ids["config"], hoja, old=vieja, new=media)
+    d2 = _decision_bid(conn, ciclo_b, ids["config"], hoja, old=media, new=nueva)
+    _aplicada(conn, d1, ids["ciclo_ejec"], _R1_M5)
+    _aplicada(conn, d2, ids["ciclo_ejec"], _R2_M5)
+    _metrica_m5(conn, ingest, hoja, dt.date(2026, 9, 10), clics=100, pedidos=0, venta=Decimal("0"))
+    _metrica_m5(
+        conn, ingest, hoja, dt.date(2026, 8, 1), clics=50, pedidos=2, venta=Decimal("90.00")
+    )
+    _metrica_m5(conn, ingest, hoja, dt.date(2026, 10, 1), clics=20, pedidos=0, venta=None)
+    return d1, d2
+
+
+@_skip_db
+def test_regreso_del_dueno_revierte_la_primera_decision_de_la_racha(monkeypatch):
+    """Racha 9.74 -> 5.00 -> 3.73: Amazon recibe 9.74 (el bid anterior a la
+    racha) y v_cambio_bid trae la fila regreso_del_dueno de esa hoja."""
+    with _db_m5("orbit_apply_m5_1") as conn:
+        ids = _semilla(conn)
+        ciclo_a = _ciclo_live(conn)
+        ciclo_b = _ciclo_live(conn)
+        d1 = _decision_bid(conn, ciclo_a, ids["config"], ids["kw"], old="9.74", new="5.00")
+        d2 = _decision_bid(conn, ciclo_b, ids["config"], ids["kw"], old="5.00", new="3.73")
+        _aplicada(conn, d1, ids["ciclo_ejec"], _R1_M5)
+        _aplicada(conn, d2, ids["ciclo_ejec"], _R2_M5)
+        handler, vistos = _handler_regreso()
+        _creds_m5(monkeypatch)
+
+        hecho = regreso_del_dueno(
+            conn, hoja_id=ids["kw"], actor="dueno", transport=httpx.MockTransport(handler)
+        )
+
+        puts = _puts(vistos)
+        assert len(puts) == 1
+        body = json.loads(puts[0].content)
+        assert Decimal(str(body["keywords"][0]["bid"])) == Decimal("9.74")
+        assert body["keywords"][0]["keywordId"] == "7201"
+        fila = conn.execute(
+            "SELECT bid_despues, decision_id FROM v_cambio_bid"
+            " WHERE hoja_id = %s AND origen = 'regreso_del_dueno'",
+            (ids["kw"],),
+        ).fetchall()
+        assert fila == [(Decimal("9.74"), d1)]
+        assert hecho == RegresoHecho(
+            hoja_id=ids["kw"],
+            bid_antes=Decimal("3.73"),
+            bid_ahora=Decimal("9.74"),
+            moneda="USD",
+            decision_revertida_id=d1,
+            actor="dueno",
+        )
+        dict_hecho = hecho.como_dict()
+        assert dict_hecho["bid_ahora"] == "9.74"
+        assert dict_hecho["decision_revertida_id"] == d1
+        json.dumps(dict_hecho)
+
+
+@_skip_db
+def test_regreso_del_dueno_sin_racha_levanta_sin_tocar_amazon(monkeypatch):
+    """Una subida del motor cierra la racha y una hoja sin cambios no tiene
+    racha: ambas levantan SinRachaDeRecortes con cero HTTP."""
+    with _db_m5("orbit_apply_m5_2") as conn:
+        ids = _semilla(conn)
+        ciclo_a = _ciclo_live(conn)
+        ciclo_b = _ciclo_live(conn)
+        r1 = _decision_bid(conn, ciclo_a, ids["config"], ids["kw"], old="10.00", new="8.00")
+        s1 = _decision_bid(conn, ciclo_b, ids["config"], ids["kw"], old="8.00", new="9.00")
+        _aplicada(conn, r1, ids["ciclo_ejec"], _R1_M5)
+        _aplicada(conn, s1, ids["ciclo_ejec"], _R2_M5)
+        handler, vistos = _handler_regreso()
+        _creds_m5(monkeypatch)
+        transporte = httpx.MockTransport(handler)
+
+        with pytest.raises(SinRachaDeRecortes):
+            regreso_del_dueno(conn, hoja_id=ids["kw"], actor="dueno", transport=transporte)
+        with pytest.raises(SinRachaDeRecortes):
+            regreso_del_dueno(conn, hoja_id=ids["kw2"], actor="dueno", transport=transporte)
+
+        assert vistos == []
+
+
+@_skip_db
+def test_regreso_del_dueno_segundo_regreso_no_reescribe(monkeypatch):
+    """Un segundo regreso de la misma racha levanta ReversaYaHecha y el
+    transporte falso no recibe otra llamada (un solo PUT)."""
+    with _db_m5("orbit_apply_m5_3") as conn:
+        ids = _semilla(conn)
+        ciclo_a = _ciclo_live(conn)
+        d1 = _decision_bid(conn, ciclo_a, ids["config"], ids["kw"], old="9.74", new="5.00")
+        _aplicada(conn, d1, ids["ciclo_ejec"], _R1_M5)
+        handler, vistos = _handler_regreso()
+        _creds_m5(monkeypatch)
+        transporte = httpx.MockTransport(handler)
+
+        regreso_del_dueno(conn, hoja_id=ids["kw"], actor="dueno", transport=transporte)
+        with pytest.raises(ReversaYaHecha):
+            regreso_del_dueno(conn, hoja_id=ids["kw"], actor="dueno", transport=transporte)
+
+        assert len(_puts(vistos)) == 1
+
+
+@_skip_db
+def test_regreso_del_dueno_sin_confirmar_levanta_con_el_motivo(monkeypatch):
+    """PUT 400: la reversa queda sellada como fallo, no nace fila en la
+    vista y el regreso levanta RegresoNoConfirmado con el motivo."""
+    with _db_m5("orbit_apply_m5_4") as conn:
+        ids = _semilla(conn)
+        ciclo_a = _ciclo_live(conn)
+        d1 = _decision_bid(conn, ciclo_a, ids["config"], ids["kw"], old="9.74", new="5.00")
+        _aplicada(conn, d1, ids["ciclo_ejec"], _R1_M5)
+        handler, _vistos = _handler_regreso(falla_put=True)
+        _creds_m5(monkeypatch)
+
+        with pytest.raises(RegresoNoConfirmado) as exc:
+            regreso_del_dueno(
+                conn, hoja_id=ids["kw"], actor="dueno", transport=httpx.MockTransport(handler)
+            )
+
+        assert "400" in str(exc.value)
+        filas = conn.execute(
+            "SELECT count(*) FROM v_cambio_bid WHERE hoja_id = %s AND origen = 'regreso_del_dueno'",
+            (ids["kw"],),
+        ).fetchone()[0]
+        assert filas == 0
+
+
+@_skip_db
+def test_regreso_del_dueno_todas_con_n_viejo_no_escribe(monkeypatch):
+    """Seis hojas pendientes y confirmacion REGRESAR 5 KEYWORDS: 409
+    (ConfirmacionDesactualizada con el N vigente) y cero HTTP."""
+    with _db_m5("orbit_apply_m5_5") as conn:
+        ids = _semilla(conn)
+        ingest = _ingest_m5(conn)
+        hojas = [ids["kw"], ids["kw2"]] + [
+            _hoja_us(conn, ids["ag"], f"73{i:02d}") for i in range(4)
+        ]
+        for hoja in hojas:
+            _danada_m5(conn, ids, hoja, ingest, vieja="10.00", media="8.00", nueva="6.00")
+        _metrica_m5(conn, ingest, hojas[0], dt.date(2026, 10, 9), clics=0, pedidos=0, venta=None)
+        handler, vistos = _handler_regreso()
+        _creds_m5(monkeypatch)
+
+        with pytest.raises(ConfirmacionDesactualizada) as exc:
+            regreso_del_dueno_todas(
+                conn,
+                plataforma="amazon_us",
+                confirmacion="REGRESAR 5 KEYWORDS",
+                actor="dueno",
+                transport=httpx.MockTransport(handler),
+            )
+
+        assert "REGRESAR 6 KEYWORDS" in str(exc.value)
+        assert vistos == []
+        assert conn.execute("SELECT count(*) FROM apply_attempt").fetchone()[0] == 0
+
+
+@_skip_db
+def test_regreso_del_dueno_todas_una_falla_no_detiene_a_las_demas(monkeypatch):
+    """Dos pendientes: la de un regreso en medio de la racha falla con su
+    motivo (ya revertida) y la otra se regresa (un PUT con su bid)."""
+    with _db_m5("orbit_apply_m5_6") as conn:
+        ids = _semilla(conn)
+        ingest = _ingest_m5(conn)
+        hoja_a = ids["kw"]
+        hoja_b = ids["kw2"]
+        d1_a, _d2_a = _danada_m5(
+            conn, ids, hoja_a, ingest, vieja="10.00", media="8.00", nueva="6.00"
+        )
+        conn.execute(
+            "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload,"
+            " quota_cobrada, resultado, finished_at)"
+            " VALUES (%s, 1, 'reversa', %s, false, 'ok', %s)",
+            (d1_a, Json({"bid": "viejo"}), dt.datetime(2026, 9, 22, 12, 0, tzinfo=dt.UTC)),
+        )
+        _danada_m5(conn, ids, hoja_b, ingest, vieja="12.00", media="9.00", nueva="7.00")
+        _metrica_m5(conn, ingest, hoja_a, dt.date(2026, 10, 9), clics=0, pedidos=0, venta=None)
+        handler, vistos = _handler_regreso()
+        _creds_m5(monkeypatch)
+
+        resultado = regreso_del_dueno_todas(
+            conn,
+            plataforma="amazon_us",
+            confirmacion="REGRESAR 2 KEYWORDS",
+            actor="dueno",
+            transport=httpx.MockTransport(handler),
+        )
+
+        hechos = [r for r in resultado if isinstance(r, RegresoHecho)]
+        motivos = [r for r in resultado if isinstance(r, str)]
+        assert len(hechos) == 1 and len(motivos) == 1
+        assert hechos[0].hoja_id == hoja_b
+        assert hechos[0].bid_ahora == Decimal("12.00")
+        assert f"hoja {hoja_a}" in motivos[0]
+        assert "ya revertida" in motivos[0]
+        puts = _puts(vistos)
+        assert len(puts) == 1
+        body = json.loads(puts[0].content)
+        assert Decimal(str(body["keywords"][0]["bid"])) == Decimal("12.00")
