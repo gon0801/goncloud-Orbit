@@ -22,12 +22,14 @@ import pytest
 from psycopg import sql as pgsql
 from test_schema import _postgres_obligatorio_ausente, _test_dsn
 
-from app.pantalla_dinero import TipoCampana, lee_dinero
+from app.pantalla_dinero import TipoCampana, lee_campanas, lee_dinero, lee_ubicaciones
 
 RAIZ = Path(__file__).resolve().parents[1]
 SQL1 = (RAIZ / "migrations" / "0001_initial.sql").read_text(encoding="utf-8")
 SQL2 = (RAIZ / "migrations" / "0002_apply.sql").read_text(encoding="utf-8")
 SQL60 = (RAIZ / "migrations" / "0060_bids02_base_lectura.sql").read_text(encoding="utf-8")
+SQL61 = (RAIZ / "migrations" / "0061_bids02_campana_config.sql").read_text(encoding="utf-8")
+SQL62 = (RAIZ / "migrations" / "0062_bids02_placement.sql").read_text(encoding="utf-8")
 
 TIPOS = get_args(TipoCampana)
 
@@ -65,13 +67,37 @@ def _grupo(tipo, gasto, pedidos, venta, hojas=1):
     return (tipo, gasto, pedidos, venta, hojas)
 
 
-def _lee(grupos, *, plataforma="amazon_mx", dias=90, hasta=None, target=None):
+def _lee(
+    grupos,
+    *,
+    plataforma="amazon_mx",
+    dias=90,
+    hasta=None,
+    target=None,
+    ubicaciones=(),
+    settings_fila=(),
+    campanas=(),
+    gasto_diario=(),
+    fuera=(),
+    configs_hist=(),
+):
     notas = (
         [(json.dumps({"target": {"procedencia": "margen_plataforma", "target_aplicado": target}}),)]
         if target is not None
-        else [None]
+        else []
     )
-    conn = _ConnFalsa([list(grupos), notas if target is not None else []])
+    conn = _ConnFalsa(
+        [
+            list(grupos),
+            notas,
+            list(ubicaciones),
+            list(settings_fila),
+            list(campanas),
+            list(gasto_diario),
+            list(fuera),
+            list(configs_hist),
+        ]
+    )
     pantalla = lee_dinero(conn, plataforma=plataforma, dias=dias, hasta=hasta)
     return pantalla, conn
 
@@ -211,6 +237,8 @@ def _db_dinero(prefijo: str):
         conn.execute(SQL1)
         conn.execute(SQL2)
         conn.execute(SQL60)
+        conn.execute(SQL61)
+        conn.execute(SQL62)
         yield conn
     finally:
         if conn is not None:
@@ -370,3 +398,306 @@ def test_pantalla_dinero_venta_cero_dice_sin_ventas_y_null_pinta_guion():
     assert "sin ventas" in html
     assert "—" in html
     assert "2 hojas sin clasificar entran al total." in html
+
+
+# ---------------------------------------------------------------------------
+# P.2a: por ubicacion y por campana (contrato)
+# ---------------------------------------------------------------------------
+
+
+CONTROL_UBI = """
+WITH ultima AS (
+    SELECT DISTINCT ON (o.ad_entity_id, o.placement, o.metric_date)
+           o.placement, o.cost, o.clicks, o.orders
+      FROM ads_placement_observation o
+      JOIN ad_entity_state s ON s.ad_entity_id = o.ad_entity_id AND s.status = 'ENABLED'
+     WHERE o.platform = %s AND o.metric_date BETWEEN %s AND %s
+     ORDER BY o.ad_entity_id, o.placement, o.metric_date, o.observed_at DESC)
+SELECT placement, sum(cost) AS gasto, sum(clicks) AS clics, sum(orders) AS pedidos
+  FROM ultima GROUP BY 1
+"""
+
+CONTROL_CAMP = """
+SELECT c.id, v.presupuesto_diario, v.presupuesto_moneda, v.estrategia_puja,
+       v.ajuste_top_pct, v.ajuste_resto_pct, v.ajuste_producto_pct
+  FROM ad_entity c JOIN ad_entity_state s ON s.ad_entity_id = c.id AND s.status = 'ENABLED'
+  LEFT JOIN LATERAL (SELECT * FROM ads_campana_config_observation o WHERE o.ad_entity_id = c.id
+                      ORDER BY o.observed_at DESC LIMIT 1) v ON true
+ WHERE c.platform = %s AND c.kind = 'campaign' ORDER BY 1
+"""
+
+HASTA_2A = dt.date(2026, 10, 4)
+DESDE_30 = dt.date(2026, 9, 5)
+
+
+def _siembra_campana(conn, platform, external, nombre, status="ENABLED"):
+    cid = _siembra_entidad(conn, platform, "campaign", external)
+    conn.execute("UPDATE ad_entity SET name = %s WHERE id = %s", (nombre, cid))
+    _siembra_estado(conn, cid, status)
+    return cid
+
+
+def _siembra_placement(
+    conn, platform, campana, placement, fecha, observed, costo, clics, pedidos, venta, reporte="R1"
+):
+    conn.execute(
+        "INSERT INTO ads_placement_observation (platform, ad_entity_id, placement, metric_date,"
+        " observed_at, metric_currency, impressions, clicks, cost, orders, ad_revenue,"
+        " source_report_id) VALUES (%s, %s, %s, %s, %s, %s, 0, %s, %s, %s, %s, %s)",
+        (
+            platform,
+            campana,
+            placement,
+            fecha,
+            observed,
+            "MXN" if platform == "amazon_mx" else "USD",
+            clics,
+            costo,
+            pedidos,
+            venta,
+            reporte,
+        ),
+    )
+
+
+def _siembra_config(
+    conn, campana, observed, presupuesto, estrategia, top=None, resto=None, prod=None
+):
+    conn.execute(
+        "INSERT INTO ads_campana_config_observation (ad_entity_id, observed_at, presupuesto_diario,"
+        " presupuesto_moneda, estrategia_puja, ajuste_top_pct, ajuste_resto_pct,"
+        " ajuste_producto_pct) VALUES (%s, %s, %s, 'MXN', %s, %s, %s, %s)",
+        (campana, observed, presupuesto, estrategia, top, resto, prod),
+    )
+
+
+def _siembra_gasto_campana(conn, campana, fecha, gasto, observed, run, moneda="MXN"):
+    conn.execute(
+        "INSERT INTO ads_metric_observation (ad_entity_id, metric_date, observed_at,"
+        " metric_currency, cost, source_report_id, ingest_run_id)"
+        " VALUES (%s, %s, %s, %s, %s, 'R1', %s)",
+        (campana, fecha, observed, moneda, gasto, run),
+    )
+
+
+@_skip_db
+def test_pg_ubicaciones_igual_que_control_y_marca_fuera():
+    with _db_dinero("orbit_p2a_ubi") as conn:
+        c1 = _siembra_campana(conn, "amazon_mx", "c1", "Campana 1")
+        c2 = _siembra_campana(conn, "amazon_mx", "c2", "Apagada", status="PAUSED")
+        c3 = _siembra_campana(conn, "amazon_us", "c3", "US 1")
+        obs_vieja = dt.datetime(2026, 10, 5, tzinfo=dt.UTC)
+        obs_nueva = dt.datetime(2026, 10, 6, tzinfo=dt.UTC)
+        _siembra_placement(
+            conn,
+            "amazon_mx",
+            c1,
+            "fuera_de_amazon",
+            HASTA_2A,
+            obs_vieja,
+            Decimal("999"),
+            5,
+            5,
+            Decimal("10"),
+            reporte="R-viejo",
+        )
+        _siembra_placement(
+            conn,
+            "amazon_mx",
+            c1,
+            "fuera_de_amazon",
+            HASTA_2A,
+            obs_nueva,
+            Decimal("350"),
+            1127,
+            0,
+            Decimal("0"),
+            reporte="R-nuevo",
+        )
+        _siembra_placement(
+            conn,
+            "amazon_mx",
+            c1,
+            "arriba_de_busqueda",
+            HASTA_2A,
+            obs_nueva,
+            Decimal("400"),
+            100,
+            1,
+            Decimal("2000"),
+        )
+        _siembra_placement(
+            conn,
+            "amazon_mx",
+            c2,
+            "fuera_de_amazon",
+            HASTA_2A,
+            obs_nueva,
+            Decimal("50"),
+            5,
+            0,
+            Decimal("0"),
+        )
+        _siembra_placement(
+            conn,
+            "amazon_us",
+            c3,
+            "fuera_de_amazon",
+            HASTA_2A,
+            obs_nueva,
+            Decimal("60"),
+            6,
+            0,
+            Decimal("0"),
+        )
+        filas = lee_ubicaciones(conn, plataforma="amazon_mx", desde=DESDE_30, hasta=HASTA_2A)
+        assert [f.ubicacion for f in filas] == [
+            "arriba_de_busqueda",
+            "resto_de_busqueda",
+            "paginas_de_producto",
+            "fuera_de_amazon",
+        ]
+        control = {
+            r[0]: r[1:]
+            for r in conn.execute(CONTROL_UBI, ("amazon_mx", DESDE_30, HASTA_2A)).fetchall()
+        }
+        for fila in filas:
+            ctrl = control.get(fila.ubicacion)
+            if ctrl is None:
+                assert fila.gasto is None and fila.pedidos is None
+            else:
+                assert (fila.gasto, fila.clics, fila.pedidos) == ctrl
+        fuera = filas[3]
+        assert fuera.gasta_sin_vender is True
+        assert filas[0].gasta_sin_vender is False
+
+
+@_skip_db
+def test_pg_campanas_igual_que_control_tope_y_estrategias():
+    with _db_dinero("orbit_p2a_camp") as conn:
+        run = conn.execute("INSERT INTO ingest_run (source) VALUES ('t') RETURNING id").fetchone()[
+            0
+        ]
+        obs = dt.datetime(2026, 10, 5, tzinfo=dt.UTC)
+        obs_cfg = dt.datetime(2026, 9, 27, tzinfo=dt.UTC)
+        c1 = _siembra_campana(conn, "amazon_mx", "c1", "Tope 5")
+        c2 = _siembra_campana(conn, "amazon_mx", "c2", "Sin config")
+        c3 = _siembra_campana(conn, "amazon_mx", "c3", "Legacy")
+        c4 = _siembra_campana(conn, "amazon_mx", "c4", "Auto")
+        c5 = _siembra_campana(conn, "amazon_mx", "c5", "Rara")
+        _siembra_campana(conn, "amazon_mx", "c6", "Apagada", status="PAUSED")
+        _siembra_campana(conn, "amazon_us", "c7", "US 1")
+        _siembra_config(conn, c1, obs_cfg, Decimal("100"), "MANUAL", top=40, prod=10)
+        _siembra_config(conn, c3, obs_cfg, Decimal("50"), "LEGACY_FOR_SALES")
+        _siembra_config(conn, c4, obs_cfg, Decimal("50"), "AUTO_FOR_SALES")
+        _siembra_config(conn, c5, obs_cfg, Decimal("50"), "ALGO_NUEVO")
+        for i in range(7):
+            dia = HASTA_2A - dt.timedelta(days=6 - i)
+            _siembra_gasto_campana(
+                conn, c1, dia, Decimal("90") if i < 5 else Decimal("0"), obs, run
+            )
+        _siembra_gasto_campana(conn, c2, HASTA_2A, Decimal("10"), obs, run)
+        _siembra_placement(
+            conn,
+            "amazon_mx",
+            c1,
+            "fuera_de_amazon",
+            HASTA_2A,
+            obs,
+            Decimal("25"),
+            10,
+            0,
+            Decimal("0"),
+        )
+        filas = lee_campanas(conn, plataforma="amazon_mx", desde=DESDE_30, hasta=HASTA_2A)
+        assert [f.campana_id for f in filas] == [c1, c2, c3, c4, c5]
+        control = {r[0]: r[1:] for r in conn.execute(CONTROL_CAMP, ("amazon_mx",)).fetchall()}
+        assert set(control) == {c1, c2, c3, c4, c5}
+        for fila in filas:
+            presup, moneda, _, top, resto, prod = control[fila.campana_id]
+            assert fila.presupuesto_diario == presup
+            assert (
+                fila.ajustes_ubicacion
+                == tuple(
+                    par
+                    for par in (
+                        ("arriba_de_busqueda", top),
+                        ("resto_de_busqueda", resto),
+                        ("paginas_de_producto", prod),
+                    )
+                    if par[1] is not None
+                )
+            ) and (moneda == "MXN" or fila.presupuesto_diario is None)
+        por_id = {f.campana_id: f for f in filas}
+        assert [por_id[c].estrategia for c in (c1, c3, c4, c5)] == [
+            "fija",
+            "solo_hacia_abajo",
+            "arriba_y_abajo",
+            "otra",
+        ]
+        assert por_id[c2].estrategia is None
+        assert por_id[c2].presupuesto_diario is None and por_id[c2].uso_presupuesto_pct is None
+        assert por_id[c1].dias_al_tope_7d == 5
+        assert por_id[c1].gasto_medio_diario == Decimal("15.00")
+        assert por_id[c1].uso_presupuesto_pct == Decimal("15.0")
+        assert por_id[c1].gasto_fuera_de_amazon == Decimal("25")
+        assert por_id[c1].avisos == ()
+        assert por_id[c2].dias_al_tope_7d is None
+
+
+@_skip_db
+def test_pg_lee_dinero_llena_ubicaciones_y_campanas():
+    with _db_dinero("orbit_p2a_todo") as conn:
+        run = conn.execute("INSERT INTO ingest_run (source) VALUES ('t') RETURNING id").fetchone()[
+            0
+        ]
+        obs = dt.datetime(2026, 10, 5, tzinfo=dt.UTC)
+        c1 = _siembra_campana(conn, "amazon_mx", "c1", "Campana 1")
+        ag = _siembra_entidad(conn, "amazon_mx", "ad_group", "a1", parent=c1)
+        kw = _siembra_entidad(
+            conn, "amazon_mx", "keyword", "k1", parent=ag, match="EXACT", texto="t1"
+        )
+        for e in [ag, kw]:
+            _siembra_estado(conn, e, "ENABLED")
+        _siembra_metrica(conn, kw, HASTA_2A, Decimal("10"), 1, Decimal("100"), obs, run)
+        _siembra_placement(
+            conn,
+            "amazon_mx",
+            c1,
+            "fuera_de_amazon",
+            HASTA_2A,
+            obs,
+            Decimal("350"),
+            1127,
+            0,
+            Decimal("0"),
+        )
+        _siembra_config(conn, c1, obs, Decimal("100"), "MANUAL")
+        _siembra_gasto_campana(conn, c1, HASTA_2A, Decimal("90"), obs, run)
+        pantalla = lee_dinero(conn, plataforma="amazon_mx", dias=90, hasta=HASTA_2A)
+        assert pantalla.total.gasto == Decimal("10")
+        assert len(pantalla.por_ubicacion) == 4
+        assert pantalla.por_ubicacion[3].gasta_sin_vender is True
+        assert [f.campana_id for f in pantalla.por_campana] == [c1]
+        assert pantalla.por_campana[0].estrategia == "fija"
+
+
+def test_como_dict_trae_ubicaciones_y_campanas_con_settings():
+    pantalla, _ = _lee(
+        _cinco_grupos(),
+        hasta=HASTA_2A,
+        ubicaciones=[("fuera_de_amazon", Decimal("100"), 50, 0, Decimal("0"))],
+        settings_fila=[({"ads_gasto_para_concluir_amazon_mx": "100"},)],
+        campanas=[(7, "Campana", 99, Decimal("100"), "MANUAL", 40, None, 10)],
+        gasto_diario=[(7, HASTA_2A, Decimal("90"))],
+        fuera=[(7, Decimal("50"))],
+        configs_hist=[(7, HASTA_2A, Decimal("100"))],
+    )
+    dato = pantalla.como_dict()
+    assert dato["por_ubicacion"][3]["gasta_sin_vender"] is True
+    assert dato["por_campana"][0]["estrategia"] == "fija"
+    assert dato["por_campana"][0]["ajustes_ubicacion"] == [
+        ["arriba_de_busqueda", 40],
+        ["paginas_de_producto", 10],
+    ]
+    assert dato["por_campana"][0]["avisos"] == []

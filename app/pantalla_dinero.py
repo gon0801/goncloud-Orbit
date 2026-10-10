@@ -20,12 +20,31 @@ from decimal import ROUND_HALF_EVEN, Decimal
 from typing import Literal, get_args
 
 from app.optimizer.bid import PLATAFORMAS_MONEDA
+from app.optimizer.goals import gasto_para_concluir_desde_settings
 
 Plataforma = Literal["amazon_mx", "amazon_us"]
 Moneda = Literal["MXN", "USD"]
 TipoCampana = Literal["exact", "phrase", "broad", "automatica", "product_targeting"]
+Ubicacion = Literal[
+    "arriba_de_busqueda", "resto_de_busqueda", "paginas_de_producto", "fuera_de_amazon"
+]
+EstrategiaPuja = Literal["solo_hacia_abajo", "arriba_y_abajo", "fija", "otra"]
 
 TIPOS: tuple[str, ...] = get_args(TipoCampana)
+UBICACIONES: tuple[str, ...] = get_args(Ubicacion)
+DIAS_UBICACION = 30
+DIAS_TOPE = 7
+
+_ESTRATEGIA = {
+    "LEGACY_FOR_SALES": "solo_hacia_abajo",
+    "AUTO_FOR_SALES": "arriba_y_abajo",
+    "MANUAL": "fija",
+}
+_AJUSTE_A_UBICACION = (
+    ("arriba_de_busqueda", 0),
+    ("resto_de_busqueda", 1),
+    ("paginas_de_producto", 2),
+)
 
 _SQL_GRUPOS = """
 SELECT h.tipo_campana AS tipo,
@@ -38,6 +57,60 @@ SELECT h.tipo_campana AS tipo,
  WHERE h.platform = %s
    AND v.metric_date BETWEEN %s AND %s
  GROUP BY h.tipo_campana
+"""
+
+_SQL_UBICACIONES = """
+SELECT u.placement, sum(u.cost), sum(u.clicks)::bigint, sum(u.orders)::bigint, sum(u.ad_revenue)
+  FROM (SELECT DISTINCT ON (o.ad_entity_id, o.placement, o.metric_date)
+               o.placement, o.cost, o.clicks, o.orders, o.ad_revenue
+          FROM ads_placement_observation o
+          JOIN ad_entity_state s ON s.ad_entity_id = o.ad_entity_id AND s.status = 'ENABLED'
+         WHERE o.platform = %s AND o.metric_date BETWEEN %s AND %s
+         ORDER BY o.ad_entity_id, o.placement, o.metric_date, o.observed_at DESC) u
+ GROUP BY u.placement
+"""
+
+_SQL_SETTINGS = """
+SELECT settings FROM config_version ORDER BY id DESC LIMIT 1
+"""
+
+_SQL_CAMPANAS = """
+SELECT c.id, c.name, v.id, v.presupuesto_diario, v.estrategia_puja,
+       v.ajuste_top_pct, v.ajuste_resto_pct, v.ajuste_producto_pct
+  FROM ad_entity c
+  JOIN ad_entity_state s ON s.ad_entity_id = c.id AND s.status = 'ENABLED'
+  LEFT JOIN v_campana_config_vigente v ON v.ad_entity_id = c.id
+ WHERE c.platform = %s AND c.kind = 'campaign'
+ ORDER BY c.id
+"""
+
+_SQL_GASTO_DIARIO = """
+SELECT v.ad_entity_id, v.metric_date, v.cost
+  FROM v_metric_latest v
+  JOIN ad_entity c ON c.id = v.ad_entity_id
+  JOIN ad_entity_state s ON s.ad_entity_id = c.id AND s.status = 'ENABLED'
+ WHERE c.platform = %s AND c.kind = 'campaign'
+   AND v.metric_date BETWEEN %s AND %s
+"""
+
+_SQL_FUERA_CAMPANA = """
+SELECT u.ad_entity_id, sum(u.cost)
+  FROM (SELECT DISTINCT ON (o.ad_entity_id, o.metric_date) o.ad_entity_id, o.cost
+          FROM ads_placement_observation o
+          JOIN ad_entity_state s ON s.ad_entity_id = o.ad_entity_id AND s.status = 'ENABLED'
+         WHERE o.platform = %s AND o.placement = 'fuera_de_amazon'
+           AND o.metric_date BETWEEN %s AND %s
+         ORDER BY o.ad_entity_id, o.metric_date, o.observed_at DESC) u
+ GROUP BY u.ad_entity_id
+"""
+
+_SQL_CONFIGS_HIST = """
+SELECT o.ad_entity_id, (o.observed_at AT TIME ZONE 'UTC')::date, o.presupuesto_diario
+  FROM ads_campana_config_observation o
+  JOIN ad_entity c ON c.id = o.ad_entity_id
+ WHERE c.platform = %s AND c.kind = 'campaign'
+   AND (o.observed_at AT TIME ZONE 'UTC')::date <= %s
+ ORDER BY o.ad_entity_id, 2
 """
 
 
@@ -77,6 +150,78 @@ class FilaTipo:
 
 
 @dataclass(frozen=True)
+class FilaUbicacion:
+    """Una ubicacion del anuncio en 30 dias. `gasta_sin_vender` = gasto >=
+    gasto para concluir y pedidos == 0 (con gasto None, no)."""
+
+    ubicacion: str
+    gasto: Decimal | None
+    clics: int | None
+    pedidos: int | None
+    venta: Decimal | None
+    cpc: Decimal | None
+    conversion_pct: Decimal | None
+    acos_pct: Decimal | None
+    parte_del_gasto_pct: Decimal | None
+    gasta_sin_vender: bool
+
+    def como_dict(self) -> dict:
+        return {
+            "ubicacion": self.ubicacion,
+            "gasto": None if self.gasto is None else str(self.gasto),
+            "clics": self.clics,
+            "pedidos": self.pedidos,
+            "venta": None if self.venta is None else str(self.venta),
+            "cpc": None if self.cpc is None else str(self.cpc),
+            "conversion_pct": None if self.conversion_pct is None else str(self.conversion_pct),
+            "acos_pct": None if self.acos_pct is None else str(self.acos_pct),
+            "parte_del_gasto_pct": (
+                None if self.parte_del_gasto_pct is None else str(self.parte_del_gasto_pct)
+            ),
+            "gasta_sin_vender": self.gasta_sin_vender,
+        }
+
+
+@dataclass(frozen=True)
+class FilaCampana:
+    """Configuracion vigente de una campana activa y como usa su
+    presupuesto. `avisos` lo llena V.4; aqui siempre vacio."""
+
+    campana_id: int
+    nombre: str | None
+    presupuesto_diario: Decimal | None
+    gasto_medio_diario: Decimal | None
+    uso_presupuesto_pct: Decimal | None
+    estrategia: str | None
+    ajustes_ubicacion: tuple[tuple[str, int], ...]
+    gasto_fuera_de_amazon: Decimal | None
+    dias_al_tope_7d: int | None
+    avisos: tuple[str, ...] = ()
+
+    def como_dict(self) -> dict:
+        return {
+            "campana_id": self.campana_id,
+            "nombre": self.nombre,
+            "presupuesto_diario": None
+            if self.presupuesto_diario is None
+            else str(self.presupuesto_diario),
+            "gasto_medio_diario": None
+            if self.gasto_medio_diario is None
+            else str(self.gasto_medio_diario),
+            "uso_presupuesto_pct": None
+            if self.uso_presupuesto_pct is None
+            else str(self.uso_presupuesto_pct),
+            "estrategia": self.estrategia,
+            "ajustes_ubicacion": [list(par) for par in self.ajustes_ubicacion],
+            "gasto_fuera_de_amazon": None
+            if self.gasto_fuera_de_amazon is None
+            else str(self.gasto_fuera_de_amazon),
+            "dias_al_tope_7d": self.dias_al_tope_7d,
+            "avisos": list(self.avisos),
+        }
+
+
+@dataclass(frozen=True)
 class PantallaDinero:
     """Una tabla por mercado, solo lo que hoy esta encendido."""
 
@@ -88,6 +233,8 @@ class PantallaDinero:
     total: FilaTipo
     hojas_sin_clasificar: int
     target_acos_pct: Decimal | None
+    por_ubicacion: tuple[FilaUbicacion, ...] = ()
+    por_campana: tuple[FilaCampana, ...] = ()
 
     def como_dict(self) -> dict:
         return {
@@ -99,23 +246,146 @@ class PantallaDinero:
             "total": self.total.como_dict(),
             "hojas_sin_clasificar": self.hojas_sin_clasificar,
             "target_acos_pct": None if self.target_acos_pct is None else str(self.target_acos_pct),
+            "por_ubicacion": [fila.como_dict() for fila in self.por_ubicacion],
+            "por_campana": [fila.como_dict() for fila in self.por_campana],
         }
 
 
-def _pct(numerador: Decimal | None, denominador: Decimal | None) -> Decimal | None:
+def _pct(numerador: Decimal | int | None, denominador: Decimal | int | None) -> Decimal | None:
     """Porcentaje 0-100 a 1 decimal (HALF_EVEN, precedente `_dos_dec`).
     Denominador None o 0 da None, nunca division."""
     if numerador is None or denominador is None or denominador == 0:
         return None
-    return (numerador / denominador * 100).quantize(Decimal("0.1"), rounding=ROUND_HALF_EVEN)
+    num = Decimal(numerador) if isinstance(numerador, int) else numerador
+    den = Decimal(denominador) if isinstance(denominador, int) else denominador
+    return (num / den * 100).quantize(Decimal("0.1"), rounding=ROUND_HALF_EVEN)
+
+
+def _dinero2(valor: Decimal | None) -> Decimal | None:
+    """Dinero a 2 decimales (HALF_EVEN, precedente `_dos_dec`)."""
+    if valor is None:
+        return None
+    return valor.quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
+
+
+def lee_ubicaciones(
+    conn, *, plataforma: Plataforma, desde: dt.date, hasta: dt.date
+) -> tuple[FilaUbicacion, ...]:
+    """30 dias de placements por ubicacion, solo campanas ENABLED del
+    mercado, con colapso DISTINCT ON (espejo de la consulta de control
+    P.2a, mas la venta para el ACoS). Sin veneno: la control suma plano
+    y el lector da lo mismo que ella. Siempre los 4 renglones."""
+    grupos = {
+        fila[0]: fila[1:]
+        for fila in conn.execute(_SQL_UBICACIONES, (plataforma, desde, hasta)).fetchall()
+    }
+    fila_settings = conn.execute(_SQL_SETTINGS).fetchone()
+    umbral = gasto_para_concluir_desde_settings(
+        fila_settings[0] if fila_settings else {}, plataforma
+    )
+    total = sum(vals[0] for vals in grupos.values() if vals[0] is not None)
+
+    def _fila(ubicacion: str) -> FilaUbicacion:
+        vals = grupos.get(ubicacion)
+        gasto, clics, pedidos, venta = vals if vals is not None else (None, None, None, None)
+        cpc = _dinero2(gasto / clics) if gasto is not None and clics else None
+        return FilaUbicacion(
+            ubicacion=ubicacion,
+            gasto=gasto,
+            clics=clics,
+            pedidos=pedidos,
+            venta=venta,
+            cpc=cpc,
+            conversion_pct=_pct(pedidos, clics),
+            acos_pct=_pct(gasto, venta),
+            parte_del_gasto_pct=_pct(gasto, total if grupos else None),
+            gasta_sin_vender=gasto is not None and pedidos == 0 and gasto >= umbral,
+        )
+
+    return tuple(_fila(ubicacion) for ubicacion in UBICACIONES)
+
+
+def lee_campanas(
+    conn, *, plataforma: Plataforma, desde: dt.date, hasta: dt.date
+) -> tuple[FilaCampana, ...]:
+    """Campanas ENABLED del mercado con config vigente y gasto. El gasto
+    medio es sobre 30 dias calendario (dias sin dato aportan 0; sin
+    ninguna metrica, None). Un dia cuenta al tope si su gasto conocido es
+    90 % o mas del presupuesto vigente ese dia; dia sin gasto o sin
+    presupuesto no cuenta (la regla de "anterior a la primera
+    observacion" se cumple por construccion: sin gasto no hay tope)."""
+    campanas = conn.execute(_SQL_CAMPANAS, (plataforma,)).fetchall()
+    gasto = {
+        (fila[0], fila[1]): fila[2]
+        for fila in conn.execute(_SQL_GASTO_DIARIO, (plataforma, desde, hasta)).fetchall()
+    }
+    fuera = {
+        fila[0]: fila[1]
+        for fila in conn.execute(_SQL_FUERA_CAMPANA, (plataforma, desde, hasta)).fetchall()
+    }
+    configs: dict[int, list] = {}
+    for cid, vigente_desde, presupuesto in conn.execute(
+        _SQL_CONFIGS_HIST, (plataforma, hasta)
+    ).fetchall():
+        configs.setdefault(cid, []).append((vigente_desde, presupuesto))
+    dias = (hasta - desde).days + 1
+
+    def _presupuesto_dia(cid: int, dia: dt.date) -> Decimal | None:
+        vigente = None
+        for vigente_desde, presupuesto in configs.get(cid, []):
+            if vigente_desde <= dia:
+                vigente = presupuesto
+            else:
+                break
+        return vigente
+
+    filas = []
+    for cid, nombre, cfg_id, presupuesto, estrategia_txt, top, resto, prod in campanas:
+        gastos = [gasto.get((cid, desde + dt.timedelta(days=i))) for i in range(dias)]
+        conocidos = [g for g in gastos if g is not None]
+        medio = _dinero2(sum(conocidos) / dias) if conocidos else None
+        if cfg_id is None:
+            al_tope = None
+        else:
+            al_tope = 0
+            for i in range(DIAS_TOPE):
+                dia = hasta - dt.timedelta(days=DIAS_TOPE - 1 - i)
+                gasto_dia = gasto.get((cid, dia))
+                presup_dia = _presupuesto_dia(cid, dia)
+                if (
+                    gasto_dia is not None
+                    and presup_dia is not None
+                    and gasto_dia >= presup_dia * Decimal("0.9")
+                ):
+                    al_tope += 1
+        ajustes = tuple(
+            (ubicacion, (top, resto, prod)[indice])
+            for ubicacion, indice in _AJUSTE_A_UBICACION
+            if (top, resto, prod)[indice] is not None
+        )
+        filas.append(
+            FilaCampana(
+                campana_id=cid,
+                nombre=nombre,
+                presupuesto_diario=presupuesto,
+                gasto_medio_diario=medio,
+                uso_presupuesto_pct=_pct(medio, presupuesto),
+                estrategia=None if cfg_id is None else _ESTRATEGIA.get(estrategia_txt, "otra"),
+                ajustes_ubicacion=ajustes,
+                gasto_fuera_de_amazon=fuera.get(cid),
+                dias_al_tope_7d=al_tope,
+            )
+        )
+    return tuple(filas)
 
 
 def lee_dinero(
     conn, *, plataforma: Plataforma, dias: int = 90, hasta: dt.date | None = None
 ) -> PantallaDinero:
     """Tabla por tipo de campana del mercado. SOLO SELECT. `hasta` omiso =
-    ayer UTC; la ventana va de `hasta - dias` a `hasta` (BETWEEN inclusivo).
-    El target es el del ultimo ciclo done (`_target_margen_del_ciclo`,
+    ayer UTC; la ventana de tipos va de `hasta - dias` a `hasta` (BETWEEN
+    inclusivo) y las de ubicacion/campana cubren los ultimos 30 dias hasta
+    `hasta`. El target es el del ultimo ciclo done (`_target_margen_del_ciclo`,
     import diferido: este modulo puro no carga el dashboard al importar)."""
     from app.api_dashboard import _target_margen_del_ciclo
 
@@ -167,6 +437,7 @@ def lee_dinero(
         parte_del_gasto_pct=Decimal("100.0") if gasto_total else None,
         hojas=hojas_total,
     )
+    desde_30 = fin - dt.timedelta(days=DIAS_UBICACION - 1)
     return PantallaDinero(
         plataforma=plataforma,
         moneda=PLATAFORMAS_MONEDA[plataforma],
@@ -176,4 +447,6 @@ def lee_dinero(
         total=total,
         hojas_sin_clasificar=sum(vals[3] for _, vals in resto),
         target_acos_pct=_target_margen_del_ciclo(conn, plataforma),
+        por_ubicacion=lee_ubicaciones(conn, plataforma=plataforma, desde=desde_30, hasta=fin),
+        por_campana=lee_campanas(conn, plataforma=plataforma, desde=desde_30, hasta=fin),
     )
