@@ -268,6 +268,7 @@ MOTIVOS_ES_SALUD: dict[str, str] = {
     ciclo.MOTIVO_SIN_TARGET: "Sin target (ningun peldano resolvio): sin ajuste",
     # BIDS 02 M.3: motivos de niveles_v3 (los que emite Mantener).
     politica.MOTIVO_ESPERANDO_EFECTO: "Bid reciente: esperando su efecto (7 dias)",
+    politica.MOTIVO_VIGENTE_ENCIMA: "Bid vigente por encima del regreso: sin ajuste",
     politica.MOTIVO_VENDE_DENTRO_DEL_MARGEN: "La hoja vende dentro del margen: sin ajuste",
     politica.MOTIVO_AZAR_LO_EXPLICA: "El azar lo explica: sin ajuste",
     politica.MOTIVO_VENTA_RECIENTE: "Venta reciente en ventana inmadura: sin ajuste",

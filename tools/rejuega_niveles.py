@@ -181,6 +181,7 @@ class InformeRejuego:
     vendedoras_que_recortaria: tuple[tuple[int, str], ...] = ()
     ciclos: int = 0
     casos: int = 0
+    ciclos_que_aportaron: int = 0
 
     def cumple(self) -> bool:
         """Criterio de encendido, mecanico y del mismo dia:
@@ -356,6 +357,7 @@ def rejuega(conn, *, plataforma: Plataforma, desde: dt.date, hasta: dt.date) -> 
     det_total = 0
     completos = 0
     armados = 0
+    aportaron: set[int] = set()
     for ciclo_id, started, notes in ciclos:
         economia = EconomiaPlataforma(
             moneda=moneda,
@@ -393,6 +395,7 @@ def rejuega(conn, *, plataforma: Plataforma, desde: dt.date, hasta: dt.date) -> 
             )
             veredicto = decide(caso)
             armados += 1
+            aportaron.add(ciclo_id)
             if not (
                 isinstance(veredicto, Mantener) and veredicto.motivo == pol.MOTIVO_DATO_FALTANTE
             ):
@@ -457,6 +460,7 @@ def rejuega(conn, *, plataforma: Plataforma, desde: dt.date, hasta: dt.date) -> 
         vendedoras_que_recortaria=tuple(sorted(vendedoras)),
         ciclos=len(ciclos),
         casos=armados,
+        ciclos_que_aportaron=len(aportaron),
     )
 
 
@@ -466,6 +470,7 @@ def texto_informe(informe: InformeRejuego) -> str:
     lineas = [
         f"rejuego {informe.plataforma} {informe.desde.isoformat()}.."
         f"{informe.hasta.isoformat()}: {informe.ciclos} ciclos live, "
+        f"{informe.ciclos_que_aportaron} aportaron, "
         f"{informe.casos} casos",
         f"deterministas_pct: {informe.deterministas_pct}",
         f"invariantes_rotos: {informe.invariantes_rotos}",

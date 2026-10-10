@@ -30,6 +30,9 @@
     {% endfor %}
   </ul>
   {% endif %}
+  {% if ciclo.shadow %}
+  <p>Shadow, no aplicado: {{ ciclo.shadow }}.</p>
+  {% endif %}
 </div>
 {% else %}
 <p>Sin ciclos del motor en este mercado.</p>
@@ -47,14 +50,14 @@
 <p>Es una comparación simple de antes y después. No es causal.</p>
 {% if antes_y_despues %}
 <p>Encendido el {{ antes_y_despues.encendido_el }}.</p>
-<h4>Antes del encendido</h4>
+<h4>Antes del encendido ({{ antes_y_despues.dias_antes }} día{% if antes_y_despues.dias_antes != 1 %}s{% endif %})</h4>
 {% set bloque = antes_y_despues.antes %}
 {% if bloque %}
 <p>Gasto {{ bloque.gasto|dinero_ui or "—" }} {{ antes_y_despues.moneda }}, {{ bloque.pedidos if bloque.pedidos is not none else "—" }} pedidos, venta {{ bloque.venta|dinero_ui or "—" }}, ACoS {{ bloque.acos_pct or "—" }} %.</p>
 {% else %}
 <p>Sin datos.</p>
 {% endif %}
-<h4>Después del encendido</h4>
+<h4>Después del encendido ({{ antes_y_despues.dias_despues }} día{% if antes_y_despues.dias_despues != 1 %}s{% endif %})</h4>
 {% set bloque = antes_y_despues.despues %}
 {% if bloque %}
 <p>Gasto {{ bloque.gasto|dinero_ui or "—" }} {{ antes_y_despues.moneda }}, {{ bloque.pedidos if bloque.pedidos is not none else "—" }} pedidos, venta {{ bloque.venta|dinero_ui or "—" }}, ACoS {{ bloque.acos_pct or "—" }} %.</p>

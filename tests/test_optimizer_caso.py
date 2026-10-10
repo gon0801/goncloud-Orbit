@@ -416,6 +416,12 @@ def test_razon_trafico_compara_dias_promedio():
     assert efecto(pre_impr=7000, post_impr=700, dias_trafico=7).razon_trafico() == Decimal("0.1")
 
 
+def test_r03b6_razon_trafico_usa_los_dias_medidos_no_7():
+    """R03-B6: con 4 dias medidos divide entre 4 ((400/4)/(700/7) = 1);
+    el mutante que divide entre 7 da 4/7."""
+    assert efecto(pre_impr=700, post_impr=400, dias_trafico=4).razon_trafico() == Decimal("1")
+
+
 def test_razon_trafico_none_sin_base_o_sin_dias():
     assert efecto(pre_impr=0, dias_trafico=7).razon_trafico() is None
     assert efecto(pre_impr=5000, dias_trafico=0).razon_trafico() is None

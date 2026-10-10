@@ -64,9 +64,15 @@ if [ "$SIM" = 1 ]; then
   echo "== MODO SIMULACION: datos reales contra $DSN_SIM, servidor intacto"
   mkdir -p "$TMPD"
   APLICADAS="$TMPD/aplicadas-$STAMP.txt"
-  : > "$APLICADAS"
 else
   APLICADAS="$DIR/aplicadas-$STAMP.txt"
+fi
+# Append-only: un reintento en el mismo minuto conserva lo que anoto la
+# corrida anterior (PENDIENTES ya salta las aplicadas, no hay duplicados);
+# truncar dejaria a rollback.sh sin nada que reversar.
+if [ -f "$APLICADAS" ]; then
+  echo "reintento con $APLICADAS existente: se conserva (append-only)"
+else
   : > "$APLICADAS"
 fi
 

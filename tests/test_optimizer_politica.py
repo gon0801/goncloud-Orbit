@@ -142,18 +142,33 @@ def test_r1_con_destino_inmovil_abstiene_por_delta():
     assert decide(caso) == Mantener("delta_bajo_umbral")
 
 
-def test_r1_con_techo_bajo_el_vigente_abstiene_por_rango():
-    """R03-F4: si el clamp deja el destino fuera de la direccion del
-    regreso (el techo bajo del bid vigente), R1 abstiene con
-    rango_bloquea_ajuste."""
+def test_r1_con_piso_sobre_el_vigente_abstiene_por_rango():
+    """R03-F4 (reclasificado por B1): si el clamp voltea la direccion del
+    regreso (destino por encima del vigente pero bid_antes por debajo),
+    R1 abstiene con rango_bloquea_ajuste. El caso viejo (techo bajo el
+    vigente, destino por debajo) ahora es vigente_por_encima."""
     caso = fabrica_caso(
-        bid=BidVigente(Decimal("10.00"), "MXN", Decimal("0.50"), Decimal("9.00")),
+        bid=BidVigente(Decimal("10.00"), "MXN", Decimal("11.00"), Decimal("50.00")),
         trayectoria=trayectoria(
-            [cambio(dt.date(2026, 9, 29), "12.00", "10.00", "motor")],
+            [cambio(dt.date(2026, 9, 29), "9.00", "8.00", "motor")],
             efecto(dias_post=10, pre_impr=5000, post_impr=100, vendia=True),
         ),
     )
     assert decide(caso) == Mantener("rango_bloquea_ajuste")
+
+
+def test_r1_con_vigente_por_encima_no_baja():
+    """R03-B1: R1 nunca baja el bid vigente. Si el vigente ya esta por
+    encima del bid anterior al recorte (cambio fuera de Orbit), no se
+    mueve, aunque el clamp y la direccion lo dejarian pasar."""
+    caso = fabrica_caso(
+        bid=BidVigente(Decimal("50.00"), "MXN", Decimal("0.50"), Decimal("60.00")),
+        trayectoria=trayectoria(
+            [cambio(dt.date(2026, 9, 29), "12.00", "10.56", "motor")],
+            efecto(dias_post=10, pre_impr=5000, post_impr=100, vendia=True),
+        ),
+    )
+    assert decide(caso) == Mantener("vigente_por_encima")
 
 
 def test_r1_no_regresa_sin_filtro_de_volumen():
@@ -233,6 +248,59 @@ def test_r3_con_equilibrio_no_positivo_no_revienta_ni_dispara():
         assert decide(caso) == Mantener("vende_dentro_del_margen")
 
 
+def test_r03b2_gasto_post_none_abstiene_en_el_paso_que_aplica():
+    """R03-B2: 60 clics post (paso 1 aplica) con gasto_post None: no cae
+    a ventana_madura, abstiene con dato_faltante."""
+    caso = fabrica_caso(
+        propia=_vendedora_fuerte(),
+        precio=PrecioVentana(Decimal("300"), 60),
+        trayectoria=trayectoria(
+            [cambio(dt.date(2026, 9, 29), "8.00", "10.00", "motor")],
+            efecto(
+                dias_post=13,
+                pre_impr=5000,
+                post_impr=6000,
+                clics_post=60,
+                gasto_post=None,
+                vendia=True,
+            ),
+        ),
+    )
+    assert decide(caso) == Mantener("dato_faltante")
+
+
+def test_r03b2_clics_pre_none_abstiene_en_el_paso_2():
+    """R03-B2: paso 1 conocido que no alcanza (20 clics, gasto 0) y
+    clics_pre None: no cae a ventana_madura, abstiene."""
+    caso = fabrica_caso(
+        propia=_vendedora_fuerte(),
+        precio=PrecioVentana(Decimal("300"), 60),
+        trayectoria=trayectoria(
+            [cambio(dt.date(2026, 9, 29), "8.00", "10.00", "motor")],
+            efecto(
+                dias_post=10,
+                pre_impr=5000,
+                post_impr=6000,
+                clics_post=20,
+                gasto_post="0",
+                clics_pre=None,
+                vendia=True,
+            ),
+        ),
+    )
+    assert decide(caso) == Mantener("dato_faltante")
+
+
+def test_r03b2_precio_gasto_none_abstiene_sin_cambio():
+    """R03-B2: sin cambio, 21 clics en ventana (paso 3 aplica) con gasto
+    None: no cae a ventana_madura, abstiene."""
+    caso = fabrica_caso(
+        propia=_vendedora_fuerte(),
+        precio=PrecioVentana(None, 21),
+    )
+    assert decide(caso) == Mantener("dato_faltante")
+
+
 def test_r4_hereda_12_y_nunca_25():
     caso = fabrica_caso(
         propia=_vendedora_suave(),
@@ -310,6 +378,58 @@ def test_r9_simple_y_doble():
         Decimal("-0.25"), Decimal("7.5000"), "gasto_sin_venta_doble", "hoja"
     )
     assert decide(fabrica_caso(propia=nivel(tramo(gasto="349.99")))) == Mantener("sin_evidencia")
+
+
+def test_r03b6_gasto_none_abstiene_no_recorta():
+    """R03-B6 (obligatorio del plan): sin pedidos con gasto None: abstiene
+    con dato_faltante; el mutante que devuelve un recorte muere aqui."""
+    propia = nivel(tramo(gasto=None), tramo(gasto=None))
+    caso = fabrica_caso(propia=propia)
+    assert decide(caso) == Mantener("dato_faltante")
+
+
+def test_r03b6_previa_none_abstiene_no_sube():
+    """R03-B6: candidata a subida (R6) con previa desconocida (cuenta
+    ausente): abstiene; el mutante que sigue con previa plana muere."""
+    propia = nivel(tramo(clics=50, pedidos=5, venta="5000", gasto="200", impresiones=2000))
+    caso = fabrica_caso(
+        propia=propia,
+        grupo=propia,
+        cuenta=None,
+        precio=PrecioVentana(Decimal("100"), 50),
+    )
+    assert decide(caso) == Mantener("dato_faltante")
+
+
+def test_r03b6_r1_con_vendia_none_no_regresa():
+    """R03-B6: R1 con vendia None (volumen y desplome conocidos): abstiene;
+    el mutante que quita la guarda regresaria."""
+    caso = fabrica_caso(
+        trayectoria=trayectoria(
+            [cambio(dt.date(2026, 9, 29), "12.00", "10.56", "motor")],
+            efecto(dias_post=10, pre_impr=5000, post_impr=100, vendia=None),
+        ),
+    )
+    assert decide(caso) == Mantener("dato_faltante")
+
+
+def test_r03b6_freno_con_impresiones_none_abstiene_no_repite():
+    """R03-B6 (R16): recorte candidato tras otro recorte con impresiones
+    desconocidas: abstiene; el mutante que quita la guarda repetiria."""
+    caso = fabrica_caso(
+        propia=nivel(tramo(gasto="400")),
+        trayectoria=trayectoria(
+            [cambio(dt.date(2026, 9, 29), "12.00", "10.00", "motor")],
+            efecto(
+                dias_post=10,
+                pre_impr=None,
+                post_impr=None,
+                clics_post=25,
+                vendia=False,
+            ),
+        ),
+    )
+    assert decide(caso) == Mantener("dato_faltante")
 
 
 def test_r10_sin_gasto():

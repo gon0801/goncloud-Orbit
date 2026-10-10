@@ -73,6 +73,7 @@ from app.apply import (
     RegresoHecho,
     RegresoNoConfirmado,
     SinRachaDeRecortes,
+    VigentePorEncima,
     bids_del_ciclo,
     consume_quota,
     intentos_sin_sello,
@@ -2381,6 +2382,10 @@ def test_regreso_del_dueno_revierte_la_primera_decision_de_la_racha(monkeypatch)
         d2 = _decision_bid(conn, ciclo_b, ids["config"], ids["kw"], old="5.00", new="3.73")
         _aplicada(conn, d1, ids["ciclo_ejec"], _R1_M5)
         _aplicada(conn, d2, ids["ciclo_ejec"], _R2_M5)
+        conn.execute(
+            "UPDATE ad_entity_state SET current_bid = 3.73 WHERE ad_entity_id = %s",
+            (ids["kw"],),
+        )
         handler, vistos = _handler_regreso()
         _creds_m5(monkeypatch)
 
@@ -2399,6 +2404,11 @@ def test_regreso_del_dueno_revierte_la_primera_decision_de_la_racha(monkeypatch)
             (ids["kw"],),
         ).fetchall()
         assert fila == [(Decimal("9.74"), d1)]
+        sello = conn.execute(
+            "SELECT finished_at FROM apply_attempt"
+            " WHERE decision_id = %s AND tipo = 'reversa' ORDER BY seq DESC LIMIT 1",
+            (d1,),
+        ).fetchone()[0]
         assert hecho == RegresoHecho(
             hoja_id=ids["kw"],
             bid_antes=Decimal("3.73"),
@@ -2406,11 +2416,40 @@ def test_regreso_del_dueno_revierte_la_primera_decision_de_la_racha(monkeypatch)
             moneda="USD",
             decision_revertida_id=d1,
             actor="dueno",
+            regreso_confirmado_at=sello.isoformat(),
         )
         dict_hecho = hecho.como_dict()
         assert dict_hecho["bid_ahora"] == "9.74"
         assert dict_hecho["decision_revertida_id"] == d1
         json.dumps(dict_hecho)
+
+
+@_skip_db
+def test_regreso_del_dueno_con_vigente_por_encima_no_baja(monkeypatch):
+    """R03-B1: racha 10 -> 8 -> 6 con el vigente en 12 (cambio fuera de
+    Orbit): el regreso NO escribe (bajaria a 10) y levanta
+    VigentePorEncima con cero HTTP."""
+    with _db_m5("orbit_apply_m5_b1") as conn:
+        ids = _semilla(conn)
+        ciclo_a = _ciclo_live(conn)
+        ciclo_b = _ciclo_live(conn)
+        d1 = _decision_bid(conn, ciclo_a, ids["config"], ids["kw"], old="10.00", new="8.00")
+        d2 = _decision_bid(conn, ciclo_b, ids["config"], ids["kw"], old="8.00", new="6.00")
+        _aplicada(conn, d1, ids["ciclo_ejec"], _R1_M5)
+        _aplicada(conn, d2, ids["ciclo_ejec"], _R2_M5)
+        conn.execute(
+            "UPDATE ad_entity_state SET current_bid = 12.00 WHERE ad_entity_id = %s",
+            (ids["kw"],),
+        )
+        handler, vistos = _handler_regreso()
+        _creds_m5(monkeypatch)
+
+        with pytest.raises(VigentePorEncima):
+            regreso_del_dueno(
+                conn, hoja_id=ids["kw"], actor="dueno", transport=httpx.MockTransport(handler)
+            )
+
+        assert vistos == []
 
 
 @_skip_db
@@ -2484,6 +2523,10 @@ def test_regreso_del_dueno_tras_recorte_nuevo_revierte_el_recorte_nuevo(monkeypa
         ciclo_c = _ciclo_live(conn)
         d2 = _decision_bid(conn, ciclo_c, ids["config"], ids["kw"], old="9.74", new="7.00")
         _aplicada(conn, d2, ids["ciclo_ejec"], regreso_el + dt.timedelta(seconds=1))
+        conn.execute(
+            "UPDATE ad_entity_state SET current_bid = 7.00 WHERE ad_entity_id = %s",
+            (ids["kw"],),
+        )
 
         segundo = regreso_del_dueno(conn, hoja_id=ids["kw"], actor="dueno", transport=transporte)
 

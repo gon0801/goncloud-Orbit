@@ -404,6 +404,7 @@ def reversa_negative(
 # una vez) y RegresoNoConfirmado -> 502.
 _ERRORES_REGRESO: dict[type[Exception], int] = {
     **_ERRORES_REVERSA,
+    apply.VigentePorEncima: 409,
     apply.SinRachaDeRecortes: 409,
     apply.ConfirmacionDesactualizada: 409,
     apply.RegresoNoConfirmado: 502,

@@ -101,7 +101,9 @@ if [ "$CLAVES" != "f|f" ]; then
     echo "SIMULACION: override de pruebas -> $APAGAR"
   fi
   [ -f "$APAGAR" ] || { echo "ABORTA: falta $APAGAR (lo escribe X.1); sin el no se puede reversar con la politica encendida"; exit 1; }
-  bash "$APAGAR"
+  for PLAT in amazon_mx amazon_us; do
+    bash "$APAGAR" --acepto-mutacion-real "$PLAT"
+  done
   CLAVES=$(q <<'SQL'
 SELECT settings ? 'ads_bid_politica_amazon_mx', settings ? 'ads_bid_politica_amazon_us' FROM config_version ORDER BY id DESC LIMIT 1;
 SQL

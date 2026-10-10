@@ -28,7 +28,9 @@ from psycopg import sql as pgsql
 from psycopg.types.json import Json
 from test_schema import _postgres_obligatorio_ausente, _test_dsn
 
-from tools.rejuega_niveles import InformeRejuego, main, rejuega
+import tools.rejuega_niveles as rejuega_mod
+from app.optimizer.politica import Mover
+from tools.rejuega_niveles import InformeRejuego, main, rejuega, texto_informe
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -270,6 +272,13 @@ def test_cumple_falso_con_recorte_sobre_danada():
     assert not _informe(recortes_sobre_danadas=1).cumple()
 
 
+def test_informe_dice_cuantos_ciclos_aportaron():
+    """R03-chico-3: el header no dice solo "30 ciclos": dice cuantos
+    aportaron casos (los otros no tenian target congelado)."""
+    texto = texto_informe(_informe(ciclos=30, ciclos_que_aportaron=14, casos=100))
+    assert texto.splitlines()[0].endswith("30 ciclos live, 14 aportaron, 100 casos")
+
+
 def _grupo_con_hojas(conn, platform, n, tag):
     c = _entidad(conn, platform, "campaign", f"c-{tag}")
     g = _entidad(conn, platform, "ad_group", f"g-{tag}", c)
@@ -374,6 +383,90 @@ def test_vendedoras_lista_hojas_con_pedidos_que_recortan():
     assert informe.cobertura_pct == Decimal("100")
     assert informe.recortes_del_motor_viejo == 0
     assert informe.cumple()
+
+
+@FALTA_PG
+def test_ciclo_sin_target_congelado_no_aporta():
+    """R03-chico-3: de dos ciclos live, el que no trae targets congelados
+    arma cero casos y no cuenta como aportado."""
+    with _db_rejuego() as conn:
+        ingest = _ingest(conn)
+        _config(conn)
+        _goal_platform(conn)
+        _relleno_plataforma(conn, ingest, "amazon_mx", "ap", desde=dt.date(2026, 4, 12), hasta=_D)
+        _, _, (a, b) = _grupo_con_hojas(conn, "amazon_mx", 2, "ap")
+        _diarias(
+            conn,
+            ingest,
+            a,
+            *_REC_MX,
+            dia_gorda=_GORDA,
+            gorda={"clics": 100, "pedidos": 1, "venta": 100, "gasto": 500, "impresiones": 1000},
+        )
+        _diarias(
+            conn,
+            ingest,
+            b,
+            *_REC_MX,
+            dia_gorda=_GORDA,
+            gorda={"clics": 100, "pedidos": 1, "venta": 100, "gasto": 500, "impresiones": 1000},
+        )
+        con_target = _ciclo(conn, notes=_NOTES_SETTING)
+        sin_target = _ciclo(conn, notes=_NOTES_SETTING)
+        assert sin_target != con_target
+        _target(conn, con_target, a)
+        _target(conn, con_target, b)
+        informe = rejuega(conn, plataforma="amazon_mx", desde=_D, hasta=_D)
+    assert informe.ciclos == 2
+    assert informe.casos == 2
+    assert informe.ciclos_que_aportaron == 1
+
+
+@FALTA_PG
+def test_r03b6_recorte_que_viola_cuenta_invariante_y_tumba_cumple(monkeypatch):
+    """R03-B6: un recorte con motivo fuera de MOTIVOS_RECORTE pasa por el
+    conteo real (`if _viola`) y suma invariantes_rotos (cumple falso).
+    El mutante `if False` da 0 y muere aqui."""
+
+    def _mala(_caso):
+        return Mover(Decimal("-0.12"), Decimal("8.8"), "motivo_falso", "hoja")
+
+    monkeypatch.setattr(rejuega_mod, "decide", _mala)
+    with _db_rejuego() as conn:
+        ingest = _ingest(conn)
+        _config(conn)
+        _goal_platform(conn)
+        _relleno_plataforma(
+            conn,
+            ingest,
+            "amazon_mx",
+            "m9",
+            desde=dt.date(2026, 4, 12),
+            hasta=_D,
+        )
+        _, _, (a, sangra) = _grupo_con_hojas(conn, "amazon_mx", 2, "m9")
+        _diarias(
+            conn,
+            ingest,
+            a,
+            *_REC_MX,
+            dia_gorda=_GORDA,
+            gorda={"clics": 100, "pedidos": 1, "venta": 100, "gasto": 500, "impresiones": 1000},
+        )
+        _diarias(
+            conn,
+            ingest,
+            sangra,
+            *_REC_MX,
+            dia_gorda=_GORDA,
+            gorda={"clics": 10, "pedidos": 3, "venta": 300, "gasto": 10, "impresiones": 1000},
+        )
+        ciclo = _ciclo(conn, notes=_NOTES_SETTING)
+        _target(conn, ciclo, a)
+        _target(conn, ciclo, sangra)
+        informe = rejuega(conn, plataforma="amazon_mx", desde=_D, hasta=_D)
+    assert informe.invariantes_rotos == 2
+    assert not informe.cumple()
 
 
 @FALTA_PG

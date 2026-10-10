@@ -12,9 +12,13 @@ vive solo en `app/optimizer/caso.py` y cada caso pasa por
 ciclo sale igual con sus abstenciones).
 
 Decisiones que cuentan: kind 'bid' con `inputs["caso"]` presente; el
-motivo y el nivel viajan tal cual si son texto, None si no. Solo salen
-ciclos con al menos una de esas decisiones: la pantalla nace con el
-motor. Las abstenciones son `notes.skips.entidad` (hojas; los skips de
+motivo y el nivel viajan tal cual si son texto, None si no. Las de
+`inputs["modo"]` 'shadow' no movieron nada: no cuentan como decisiones
+y salen aparte por ciclo. Salen todos los ciclos del motor, tambien sin
+decisiones (B7: con sus abstenciones). El encogimiento trae solo hojas
+que se encogieron (razon menor que 1); la comparacion dice cuantos dias
+suma cada lado.
+Las abstenciones son `notes.skips.entidad` (hojas; los skips de
 termino son harvest, otra pantalla): notes ilegible o sin skips = None,
 jamas 0. SOLO SELECT.
 """
@@ -49,6 +53,10 @@ SELECT c.id, c.started_at, c.notes
   FROM optimizer_cycle c
  WHERE c.id = ANY(%s)
  ORDER BY c.id
+"""
+
+_SQL_CICLOS_MOTOR = """
+SELECT c.id FROM optimizer_cycle c WHERE c.platform = %s AND c.motor = 'ads_optimizer'
 """
 
 _SQL_CAMBIOS = """
@@ -126,12 +134,15 @@ def _abstenciones_de(notes) -> dict | None:
     return dict(entidad)
 
 
-def _cuenta_decisiones(filas) -> tuple[dict[int, dict[tuple, int]], set[int]]:
-    """{(ciclo, motivo, nivel): n} + ciclos vistos. Solo cuenta la decision
-    cuyo caso parsea con `CasoHoja.desde_json`; motivo y nivel salen de las
-    llaves hermanas, en Python (el SQL jamas las nombra)."""
+def _cuenta_decisiones(filas) -> tuple[dict[int, dict[tuple, int]], set[int], dict[int, int]]:
+    """{(ciclo, motivo, nivel): n} + ciclos vistos + shadow por ciclo.
+    Solo cuenta la decision cuyo caso parsea con `CasoHoja.desde_json`;
+    motivo, nivel y modo salen de las llaves hermanas, en Python (el SQL
+    jamas las nombra). Modo 'shadow' no movio nada: sale aparte, no como
+    decision; otro modo o modo ausente cuenta como decision."""
     conteo: dict[tuple, int] = {}
     vistos: set[int] = set()
+    shadow: dict[int, int] = {}
     for fila in filas:
         cycle_id = _celda(fila, 0, "cycle_id")
         inputs = _celda(fila, 1, "inputs")
@@ -141,6 +152,9 @@ def _cuenta_decisiones(filas) -> tuple[dict[int, dict[tuple, int]], set[int]]:
         except (ValueError, TypeError, AttributeError):
             continue
         vistos.add(cycle_id)
+        if inputs.get("modo") == "shadow":
+            shadow[cycle_id] = shadow.get(cycle_id, 0) + 1
+            continue
         clave = (
             cycle_id,
             _texto_o_none(inputs.get("motivo")),
@@ -150,10 +164,10 @@ def _cuenta_decisiones(filas) -> tuple[dict[int, dict[tuple, int]], set[int]]:
     por_ciclo: dict[int, dict[tuple, int]] = {}
     for (ciclo, motivo, nivel), veces in conteo.items():
         por_ciclo.setdefault(ciclo, {})[(motivo, nivel)] = veces
-    return por_ciclo, vistos
+    return por_ciclo, vistos, shadow
 
 
-def _fila_ciclo(fila, conteo: dict[tuple, int]) -> dict:
+def _fila_ciclo(fila, conteo: dict[tuple, int], shadow: int) -> dict:
     decisiones = sorted(
         (
             {"motivo": motivo, "nivel": nivel, "count": veces}
@@ -165,6 +179,7 @@ def _fila_ciclo(fila, conteo: dict[tuple, int]) -> dict:
         "cycle_id": _celda(fila, 0, "id"),
         "started_at": _celda(fila, 1, "started_at").isoformat(),
         "decisiones": decisiones,
+        "shadow": shadow,
         "abstenciones": _abstenciones_de(_celda(fila, 2, "notes")),
     }
 
@@ -172,8 +187,9 @@ def _fila_ciclo(fila, conteo: dict[tuple, int]) -> dict:
 def _encogimiento(filas, moneda: Moneda) -> tuple[dict, ...]:
     """Por hoja activa con cambios en la ventana: bid de hoy (vigente)
     entre el bid previo al cambio mas antiguo. Sin cambios, sin base
-    (regreso sin previo en ventana) o sin bid vigente la hoja no sale.
-    Orden: mas encogido primero; desempate por hoja."""
+    (regreso sin previo en ventana), sin bid vigente o con razon mayor o
+    igual que 1 (la hoja crecio o quedo igual: no se encogio) la hoja no
+    sale. Orden: mas encogido primero; desempate por hoja."""
     por_hoja: dict[int, dict] = {}
     for fila in filas:
         hoja_id = _celda(fila, 0, "hoja_id")
@@ -195,6 +211,8 @@ def _encogimiento(filas, moneda: Moneda) -> tuple[dict, ...]:
             continue
         with localcontext(prec=28):
             razon = hoy / base
+        if razon >= 1:
+            continue
         medidas.append((razon, hoja_id, base, hoy))
     medidas.sort(key=lambda m: (m[0], m[1]))
     return tuple(
@@ -239,7 +257,8 @@ def _bloque(filas) -> dict | None:
 def _comparacion(conn, plataforma: Plataforma, dias: int) -> dict | None:
     """`dias` previos al encendido contra los dias transcurridos desde
     entonces, en `v_metric_latest`, solo campanas ENABLED. Sin fila de
-    encendido = None (comparacion simple, no causal)."""
+    encendido = None (comparacion simple, no causal). Cada lado dice
+    cuantos dias suma (fechas distintas con filas, no filas)."""
     primera = conn.execute(_SQL_ENCENDIDO, (plataforma, POLITICA_BID)).fetchone()
     encendido = _celda(primera, 0, "min") if primera is not None else None
     if encendido is None:
@@ -251,18 +270,29 @@ def _comparacion(conn, plataforma: Plataforma, dias: int) -> dict | None:
     return {
         "encendido_el": dia.isoformat(),
         "moneda": PLATAFORMAS_MONEDA[plataforma],
+        "dias_antes": len({_celda(f, 0, "metric_date") for f in antes}),
+        "dias_despues": len({_celda(f, 0, "metric_date") for f in despues}),
         "antes": _bloque(antes),
         "despues": _bloque(despues),
     }
 
 
 def lee_ruido(conn, *, plataforma: Plataforma, dias: int = 30) -> PantallaRuido:
-    """Tablero de ruido del mercado. SOLO SELECT."""
+    """Tablero de ruido del mercado. SOLO SELECT. Salen todos los ciclos
+    del motor (B7: tambien los que no movieron nada, con sus
+    abstenciones); las decisiones cuentan solo si su caso parsea."""
     filas_decisiones = conn.execute(_SQL_DECISIONES, (plataforma,)).fetchall()
-    conteo, vistos = _cuenta_decisiones(filas_decisiones)
+    conteo, vistos, shadow = _cuenta_decisiones(filas_decisiones)
+    filas_motor = conn.execute(_SQL_CICLOS_MOTOR, (plataforma,)).fetchall()
+    vistos |= {_celda(fila, 0, "id") for fila in filas_motor}
     filas_ciclos = conn.execute(_SQL_CICLOS, (sorted(vistos),)).fetchall() if vistos else []
     ciclos = tuple(
-        _fila_ciclo(fila, conteo.get(_celda(fila, 0, "id"), {})) for fila in filas_ciclos
+        _fila_ciclo(
+            fila,
+            conteo.get(_celda(fila, 0, "id"), {}),
+            shadow.get(_celda(fila, 0, "id"), 0),
+        )
+        for fila in filas_ciclos
     )
     filas_cambios = conn.execute(_SQL_CAMBIOS, (plataforma, DIAS_ENCOGIMIENTO)).fetchall()
     encogimiento = _encogimiento(filas_cambios, PLATAFORMAS_MONEDA[plataforma])

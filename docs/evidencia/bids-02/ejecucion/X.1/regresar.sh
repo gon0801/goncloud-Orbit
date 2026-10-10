@@ -5,9 +5,16 @@
 # "actor": "plan bids-02 X.1"}. N es el vigente por plataforma: hojas con
 # ya_regresada en falso segun lee_danadas. Un 409 significa que la lista
 # cambio: relee N y repite UNA vez. Guarda la respuesta completa por
-# plataforma en ejecucion/X.1/respuesta-regresar-<plataforma>.txt. Una hoja
-# que fallo queda anotada en su motivo y no detiene a las demas (criterio 6
-# del Comprueba: cada llamada trae un RegresoHecho o un motivo por hoja).
+# plataforma en ejecucion/X.1/respuesta-regresar-<plataforma>-<sello>.txt
+# (el sello es por corrida: una segunda corrida no pisa la evidencia de
+# la primera). Una hoja que fallo queda anotada en su motivo y no detiene
+# a las demas (criterio 6 del Comprueba: cada llamada trae un RegresoHecho
+# o un motivo por hoja); pero la corrida sale 1 si alguna hoja quedo con
+# ok:false, tras procesar las dos plataformas. OK y exit 0 solo si todas
+# quedaron ok:true.
+# Verifica su propio 200: la respuesta trae N resultados y cada ok:true
+# trae regreso_confirmado_at; sin el sale PENDIENTE_ANTERIOR para releer
+# (el script aborta; repetir con N fresco es idempotente).
 # N sale de lee_danadas, no de la pantalla: en modo real corre por la
 # entrada estandar del contenedor (que ya trae ORBIT_DSN_READ); en
 # simulacion corre con python local y ORBIT_DSN_READ a ORBIT_SIM_DSN.
@@ -28,6 +35,7 @@ API_SIM=${ORBIT_SIM_API:-http://127.0.0.1:8011}
 DSN_SIM=${ORBIT_SIM_DSN:-postgresql://orbit:orbit@127.0.0.1:5433/orbit_sim_d1}
 PY=${ORBIT_SIM_PYTHON:-$REPO/.venv/bin/python}
 ACTOR="plan bids-02 X.1"
+STAMP=$(date -u +%Y%m%d-%H%M%S)
 cd "$REPO"
 
 # Una sola definicion: imprime N (hojas con ya_regresada en falso) para la
@@ -77,6 +85,27 @@ n_valida() {  # n_valida <N> <plataforma>: aborta si N no es entero >= 0.
   esac
 }
 
+# verifica_200 <txt> <N> <plataforma>: la respuesta trae N resultados y
+# cada ok:true trae regreso_confirmado_at. Sin el: PENDIENTE_ANTERIOR.
+VERIFICA=$(cat <<'PY'
+import json, sys
+txt, n, plat = sys.argv[1], int(sys.argv[2]), sys.argv[3]
+doc = json.load(open(txt))
+res = doc.get("resultados", [])
+if len(res) != n:
+    print(f"ABORTA: {plat} trae {len(res)} hojas, se pidieron {n}")
+    sys.exit(1)
+pend = [
+    r.get("hoja_id", "?")
+    for r in res
+    if r.get("ok") is True and not r.get("regreso_confirmado_at")
+]
+for h in pend:
+    print(f"PENDIENTE_ANTERIOR {plat} hoja={h} (sin regreso_confirmado_at: releer)")
+sys.exit(1 if pend else 0)
+PY
+)
+
 if [ "$MUTAR" = 0 ]; then
   echo "== SIMULACRO: sin --acepto-mutacion-real no se escribe nada"
   for PLAT in amazon_mx amazon_us; do
@@ -97,6 +126,7 @@ if [ "$MUTAR" = 0 ]; then
 fi
 
 echo "== regreso real de danadas (actor: $ACTOR)"
+FALLAS=0
 for PLAT in amazon_mx amazon_us; do
   N=$(lee_n "$PLAT") || { echo "ABORTA: no se pudo leer N para $PLAT"; exit 1; }
   n_valida "$N" "$PLAT"
@@ -116,9 +146,16 @@ for PLAT in amazon_mx amazon_us; do
       *) echo "ABORTA: $PLAT HTTP $CODIGO: $CUERPO_RESP"; exit 1 ;;
     esac
   done
-  printf '%s\n' "$CUERPO_RESP" > "$DIR/respuesta-regresar-$PLAT.txt"
+  TXT="$DIR/respuesta-regresar-$PLAT-$STAMP.txt"
+  printf '%s\n' "$CUERPO_RESP" > "$TXT"
+  printf '%s\n' "$VERIFICA" | "$PY" - "$TXT" "$N" "$PLAT"
   OKS=$(printf '%s\n' "$CUERPO_RESP" | { grep -o '"ok": *true' || true; } | wc -l | tr -d ' ')
   MOTIVOS=$(printf '%s\n' "$CUERPO_RESP" | { grep -o '"ok": *false' || true; } | wc -l | tr -d ' ')
-  echo "$PLAT: HTTP 200, ok=$OKS motivos=$MOTIVOS -> $DIR/respuesta-regresar-$PLAT.txt"
+  FALLAS=$((FALLAS + MOTIVOS))
+  echo "$PLAT: HTTP 200, ok=$OKS motivos=$MOTIVOS -> $TXT"
 done
-echo "OK: respuestas guardadas en $DIR/respuesta-regresar-<plataforma>.txt"
+if [ "$FALLAS" -gt 0 ]; then
+  echo "FALLA: $FALLAS hoja(s) con ok:false (evidencia en $DIR/respuesta-regresar-*-$STAMP.txt); la corrida no fue limpia"
+  exit 1
+fi
+echo "OK: respuestas guardadas en $DIR/respuesta-regresar-<plataforma>-$STAMP.txt"

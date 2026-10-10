@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Rejuego del ultimo mes para X.1 (BIDS 02 seccion 2), paso 2: corre
 # tools/rejuega_niveles.py UNA vez por plataforma y guarda su salida en
-# docs/evidencia/bids-02/ejecucion/X.1/rejuego-<plataforma>.txt. SOLO LEE
-# (el rejuego es SOLO SELECT): no lleva --acepto-mutacion-real, igual que
-# checklist.sh de D.1. Su unico escrito es el txt local de evidencia.
+# docs/evidencia/bids-02/ejecucion/X.1/rejuego-<plataforma>.txt en modo
+# real. SOLO LEE (el rejuego es SOLO SELECT): no lleva
+# --acepto-mutacion-real, igual que checklist.sh de D.1. En simulacion el
+# txt va a /tmp (un rejuego de mentiras no debe armar el encendido).
 # Sale con el exit del rejuego (0 si cumple, 1 si no) y lo imprime.
 # Si cumple() es falso, este script NO escribe no-encendida-<plataforma>.md:
 # lo escribe el OPERADOR a mano en ejecucion/X.1/ (paso 2 del plan), con
@@ -26,7 +27,11 @@ DIR=docs/evidencia/bids-02/ejecucion/X.1
 SIM=${ORBIT_SIMULACION:-0}
 DSN_SIM=${ORBIT_SIM_DSN:-postgresql://orbit:orbit@127.0.0.1:5433/orbit_sim_d1}
 PY=${ORBIT_SIM_PYTHON:-$REPO/.venv/bin/python}
-TXT=$DIR/rejuego-$PLAT.txt
+if [ "$SIM" = 1 ]; then
+  TXT=/tmp/rejuego-$PLAT.txt
+else
+  TXT=$DIR/rejuego-$PLAT.txt
+fi
 cd "$REPO"
 
 CODIGO=0

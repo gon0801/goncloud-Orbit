@@ -911,6 +911,14 @@ def test_pantalla_danadas_fila_pendiente_pinta_tres_lineas_boton_y_frase():
     ) in plano
 
 
+def test_pantalla_danadas_sin_bid_hoy_boton_deshabilitado_con_data():
+    """R03-r2: con bid_hoy desconocido el boton sale deshabilitado pero
+    conserva data-regresar (el cableado JS lo encuentra)."""
+    html = _html_danadas([_hoja_ui(bid_hoy=None)])
+    assert 'data-regresar="2963"' in html
+    assert "disabled" in html
+
+
 def test_pantalla_danadas_fila_regresada_muestra_fecha_y_no_boton():
     """P.3b Comprueba: una fila con `ya_regresada` muestra la fecha de
     `regresada_el` y no pinta el boton."""

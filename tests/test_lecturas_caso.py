@@ -635,10 +635,10 @@ def _decision_suelta(conn, *, hoja, config, old, new):
 
 
 @FALTA_PG
-def test_regreso_sin_cambio_previo_se_omite():
-    """Un `regreso_del_dueno` sin cambio anterior en la ventana no puede
-    derivar su `bid_antes` (seria inventar): se omite de la trayectoria y
-    `caso` no consulta. La vista si trae la fila (la prueba no es vacua)."""
+def test_regreso_sin_cambio_previo_se_conserva_desde_la_revertida():
+    """R03-B3 (revierte M.2): un `regreso_del_dueno` sin cambio anterior
+    en la ventana NO se omite: su `bid_antes` sale del `new_value` de la
+    decision revertida (6, no inventado) y entra a la trayectoria."""
     with _db_lecturas() as conn:
         config = _config(conn)
         _, g, h = _triple(conn, tag="regreso", bid=Decimal("10"))
@@ -653,9 +653,160 @@ def test_regreso_sin_cambio_previo_se_omite():
         lecturas = lee_plataforma(contada, "amazon_mx", _DECIDIDO, economia=_economia())
         assert contada.n == 4
         caso = _arma(lecturas, contada, h, g)
-        assert contada.n == 4
-        assert caso.trayectoria.cambios == ()
-        assert caso.trayectoria.efecto is None
+        assert contada.n == 5
+        (unico,) = caso.trayectoria.cambios
+        assert unico.origen == "regreso_del_dueno"
+        assert unico.bid_antes == Decimal("6")
+        assert unico.bid_despues == Decimal("10")
+
+
+@FALTA_PG
+def test_regreso_huerfano_recorte_de_hace_95_dias_se_conserva():
+    """R03-B3 caso C: recorte aplicado hace 95 dias (fuera de la ventana
+    de 90 del motor) + regreso de ayer: la trayectoria trae el regreso
+    con el bid_antes de la decision revertida, no vacia."""
+    with _db_lecturas() as conn:
+        config = _config(conn)
+        _, g, h = _triple(conn, tag="huerfano", bid=Decimal("1.14"))
+        ejecutor = _ciclo(conn, "live", platform="amazon_mx")
+        d1 = _recorte(
+            conn,
+            hoja=h,
+            config=config,
+            ejecutor=ejecutor,
+            old=Decimal("1.14"),
+            new=Decimal("1.00"),
+            confirmado=dt.datetime(2026, 7, 6, 12, 0, tzinfo=dt.UTC),
+        )
+        _reversa(conn, d1, sellada=dt.datetime(2026, 10, 8, 12, 0, tzinfo=dt.UTC))
+        contada = _Contadora(conn)
+        lecturas = lee_plataforma(contada, "amazon_mx", _DECIDIDO, economia=_economia())
+        caso = _arma(lecturas, contada, h, g)
+        (unico,) = caso.trayectoria.cambios
+        assert unico.origen == "regreso_del_dueno"
+        assert unico.bid_antes == Decimal("1.00")
+        assert unico.bid_despues == Decimal("1.14")
+
+
+@FALTA_PG
+def test_r03b6_regreso_con_previo_usa_el_bid_completo():
+    """R03-B6: regreso con cambio previo en ventana: bid_antes es el
+    bid_despues completo (6); el mutante que lo parte a la mitad muere."""
+    with _db_lecturas() as conn:
+        config = _config(conn)
+        _, g, h = _triple(conn, tag="mitad", bid=Decimal("10"))
+        ejecutor = _ciclo(conn, "live", platform="amazon_mx")
+        d1 = _recorte(
+            conn,
+            hoja=h,
+            config=config,
+            ejecutor=ejecutor,
+            old=Decimal("10"),
+            new=Decimal("6"),
+            confirmado=dt.datetime(2026, 9, 1, 12, 0, tzinfo=dt.UTC),
+        )
+        _reversa(conn, d1, sellada=dt.datetime(2026, 9, 29, 12, 0, tzinfo=dt.UTC))
+        lecturas = lee_plataforma(conn, "amazon_mx", _DECIDIDO, economia=_economia())
+        caso = _arma(lecturas, conn, h, g)
+        viejo, unico = caso.trayectoria.cambios
+        assert viejo.origen == "motor"
+        assert unico.origen == "regreso_del_dueno"
+        assert unico.bid_antes == Decimal("6")
+
+
+@FALTA_PG
+def test_r03b6_hueco_en_d9_d1_deja_inmaduros_none():
+    """R03-B6: hueco de ingesta el 10-07 (dentro de D-9..D-1) con pedidos
+    medidos otros dias: inmaduros None; el mutante que pone 0 muere."""
+    with _db_lecturas() as conn:
+        ingest = _ingest(conn)
+        _, g, h = _triple(conn, tag="inmad", bid=Decimal("6"))
+        _, _, rell = _triple(conn, tag="rell7", campana="PAUSED")
+        obs = dt.datetime(2026, 10, 8, 12, 0, tzinfo=dt.UTC)
+        _relleno(
+            conn,
+            ingest,
+            rell,
+            _D - dt.timedelta(days=180),
+            _D - dt.timedelta(days=1),
+            obs,
+            salta={dt.date(2026, 10, 7)},
+        )
+        _metrica(
+            conn,
+            ingest,
+            h,
+            dt.date(2026, 9, 15),
+            obs,
+            clics=5,
+            pedidos=1,
+            venta=100,
+            gasto=10,
+            impresiones=50,
+        )
+        _metrica(
+            conn,
+            ingest,
+            h,
+            dt.date(2026, 10, 4),
+            obs,
+            clics=2,
+            pedidos=1,
+            venta=60,
+            gasto=4,
+            impresiones=30,
+        )
+        lecturas = lee_plataforma(conn, "amazon_mx", _DECIDIDO, economia=_economia())
+        caso = _arma(lecturas, conn, h, g)
+        assert caso.pedidos_inmaduros is None
+
+
+@FALTA_PG
+def test_r03b6_hueco_tras_cambio_deja_post_none():
+    """R03-B6: recorte el 09-19 con hueco de ingesta el 09-25 (rango
+    post): clics_post None; el mutante que suma igual muere."""
+    with _db_lecturas() as conn:
+        config = _config(conn)
+        ingest = _ingest(conn)
+        _, g, h = _triple(conn, tag="post", bid=Decimal("6"))
+        _, _, rell = _triple(conn, tag="rell8", campana="PAUSED")
+        obs = dt.datetime(2026, 10, 8, 12, 0, tzinfo=dt.UTC)
+        ejecutor = _ciclo(conn, "live", platform="amazon_mx")
+        _recorte(
+            conn,
+            hoja=h,
+            config=config,
+            ejecutor=ejecutor,
+            old=Decimal("10"),
+            new=Decimal("6"),
+            confirmado=dt.datetime(2026, 9, 19, 12, 0, tzinfo=dt.UTC),
+        )
+        _relleno(
+            conn,
+            ingest,
+            rell,
+            _D - dt.timedelta(days=180),
+            _D - dt.timedelta(days=1),
+            obs,
+            salta={dt.date(2026, 9, 25)},
+        )
+        for n in list(range(20, 25)) + list(range(26, 29)):
+            _metrica(
+                conn,
+                ingest,
+                h,
+                dt.date(2026, 9, n),
+                obs,
+                clics=1,
+                pedidos=0,
+                venta=0,
+                gasto=1,
+                impresiones=10,
+            )
+        lecturas = lee_plataforma(conn, "amazon_mx", _DECIDIDO, economia=_economia())
+        caso = _arma(lecturas, conn, h, g)
+        assert caso.trayectoria.efecto is not None
+        assert caso.trayectoria.efecto.clics_post is None
 
 
 @FALTA_PG

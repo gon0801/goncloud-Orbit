@@ -66,6 +66,7 @@ MOTIVO_DATO_FALTANTE = "dato_faltante"
 MOTIVO_SIN_PRECIO = "sin_precio"
 MOTIVO_RANGO_BLOQUEA_AJUSTE = "rango_bloquea_ajuste"  # espejo de bid.py
 MOTIVO_DELTA_BAJO_UMBRAL = "delta_bajo_umbral"  # espejo de bid.py
+MOTIVO_VIGENTE_ENCIMA = "vigente_por_encima"
 
 NivelQueJuzga = Literal["hoja", "ad_group"]
 EstadoGrupo = Literal["sangra", "cumple", "sin_veredicto"]
@@ -137,7 +138,9 @@ def decide(caso: CasoHoja) -> Veredicto:
            razon_trafico < RAZON_DESPLOME
            -> Regresar(clamp(ultimo.bid_antes, [piso, techo]), regreso_por_desplome);
            sin bid vigente -> Mantener(dato_faltante); destino inmovil (< 0.01)
-           o fuera de direccion por el clamp -> Mantener con el motivo del clamp
+           o fuera de direccion por el clamp -> Mantener con el motivo del clamp;
+           destino bajo el vigente -> Mantener(vigente_por_encima): un regreso
+           nunca baja el bid
        R2  dias_post < DIAS_EFECTO -> Mantener(esperando_efecto)
 
     2. Juicio. cpc = _precio_de_hoy(caso); grupo = estado_grupo(caso.grupo, caso.economia)
@@ -218,6 +221,8 @@ def decide(caso: CasoHoja) -> Veredicto:
             destino = min(max(ultimo.bid_antes, caso.bid.piso), caso.bid.techo)
             if abs(destino - valor) < MIN_DELTA_ABSOLUTO:
                 return Mantener(MOTIVO_DELTA_BAJO_UMBRAL)
+            if destino <= valor:
+                return Mantener(MOTIVO_VIGENTE_ENCIMA)
             if (destino - valor) * (ultimo.bid_antes - valor) <= 0:
                 return Mantener(MOTIVO_RANGO_BLOQUEA_AJUSTE)
             return Regresar(destino, MOTIVO_REGRESO_DESPLOME)
@@ -284,6 +289,8 @@ def _evalua_r1(ultimo, efecto) -> bool | None:
 def _juzga_vendedora(
     caso: CasoHoja, propia: EvidenciaNivel, estado: EstadoGrupo
 ) -> Mantener | tuple[Decimal, str, NivelQueJuzga]:
+    if _precio_desconocido(caso):
+        return Mantener(MOTIVO_DATO_FALTANTE)
     cpc, _fuente = _precio_de_hoy(caso)
     if cpc is None:
         return Mantener(MOTIVO_SIN_PRECIO)
@@ -476,6 +483,27 @@ def estado_grupo(grupo: EvidenciaNivel | None, economia: Economia) -> EstadoGrup
         if gasto >= economia.plataforma.gasto_para_concluir:
             return "sangra"
     return "sin_veredicto"
+
+
+def _precio_desconocido(caso: CasoHoja) -> bool:
+    """True si el paso de la escalera que aplica trae su dato en None.
+
+    B2: el None frena con dato_faltante; al paso siguiente solo cae el
+    dato conocido que no alcanza (cero clics, menos de 20, gasto 0).
+    Espejo del orden de _precio_de_hoy (pasos 1-2 con cambio, 3 sin
+    cambio); el paso 4 queda como esta (su None es sin_precio).
+    """
+    ultimo = caso.trayectoria.ultimo
+    if ultimo is not None:
+        efecto = caso.trayectoria.efecto
+        assert efecto is not None
+        if efecto.clics_post is None or efecto.gasto_post is None:
+            return True
+        if efecto.clics_post >= CLICS_NUEVOS and efecto.gasto_post > 0:
+            return False
+        return efecto.clics_pre is None or efecto.gasto_pre is None
+    precio = caso.precio
+    return precio.clics is None or precio.gasto is None
 
 
 def _precio_de_hoy(caso: CasoHoja) -> tuple[Decimal | None, FuentePrecio | None]:

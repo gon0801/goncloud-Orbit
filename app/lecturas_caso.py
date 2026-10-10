@@ -136,9 +136,10 @@ SELECT hoja_id, ad_group_id FROM v_hoja_activa WHERE platform = %s
 # Cambios de bid de 90 dias de toda la plataforma, ascendentes por hoja
 # (el orden lo fija el SQL: la derivacion del regreso lo exige).
 _SQL_CAMBIOS = """
-SELECT c.hoja_id, c.confirmado_el, c.bid_antes, c.bid_despues, c.origen
+SELECT c.hoja_id, c.confirmado_el, c.bid_antes, c.bid_despues, c.origen, d.new_value
   FROM v_cambio_bid c
   JOIN ad_entity k ON k.id = c.hoja_id
+  LEFT JOIN decision d ON d.id = c.decision_id AND c.origen = 'regreso_del_dueno'
  WHERE k.platform = %s::platform
    AND c.confirmado_el >= %s{tope}
  ORDER BY c.hoja_id, c.confirmado_el, c.decision_id
@@ -252,15 +253,20 @@ def _enrolla(niveles: list[EvidenciaNivel]) -> EvidenciaNivel | None:
 def _cambios_por_hoja(filas: list) -> dict[int, tuple[CambioBid, ...]]:
     """Trayectorias ascendentes desde `v_cambio_bid` (el SQL ya ordena). El
     `bid_antes` de un regreso del dueno es el `bid_despues` del cambio
-    anterior de esa hoja; sin cambio anterior se omite (regla 3: inventar
-    el previo corromperia el piso aprendido)."""
+    anterior de esa hoja; sin cambio anterior en la ventana sale del
+    `new_value` de la decision revertida (B3: exacto con racha de un
+    corte; con racha larga sobreestima el piso, lado fail-closed). Solo
+    se omite si tampoco hay decision revertida con `new_value`."""
     por_hoja: dict[int, list[CambioBid]] = {}
-    for hoja_id, confirmado_el, bid_antes, bid_despues, origen in filas:
+    for hoja_id, confirmado_el, bid_antes, bid_despues, origen, revierte_new in filas:
         previos = por_hoja.setdefault(hoja_id, [])
         if bid_antes is None:
-            if not previos:
+            if previos:
+                bid_antes = previos[-1].bid_despues
+            elif revierte_new is not None:
+                bid_antes = revierte_new
+            else:
                 continue
-            bid_antes = previos[-1].bid_despues
         previos.append(
             CambioBid(
                 fecha=confirmado_el.astimezone(dt.UTC).date(),

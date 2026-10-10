@@ -130,6 +130,7 @@ def _lee(respuestas, plataforma="amazon_mx", dias=30):
 def _respuestas_vacias(*, encendido=None):
     return {
         "inputs ? 'caso'": [],
+        "SELECT c.id FROM": [],
         "c.id = ANY": [],
         "v_cambio_bid": [],
         "config_version": [(encendido,)],
@@ -165,6 +166,7 @@ def test_decisiones_por_motivo_y_nivel_y_abstenciones_por_motivo():
                 {"motivo": "grupo_sangra", "nivel": "ad_group", "count": 1},
                 {"motivo": "regreso_por_desplome", "nivel": None, "count": 1},
             ],
+            "shadow": 0,
             "abstenciones": {"espera_precio": 2, "sin_evidencia": 1},
         },
     )
@@ -192,14 +194,20 @@ def test_notes_ilegible_abstenciones_none_no_cero():
     ]
 
 
-def test_ciclo_solo_con_casos_ilegibles_no_sale():
+def test_ciclo_solo_con_casos_ilegibles_sale_sin_decisiones():
+    """R03-B7 (revierte el fix lead de R03-r1): el ciclo del motor sale
+    aunque sus decisiones no cuenten; lo que no sale es la decision
+    rota (decisiones == [])."""
     rotos = dict(_inputs("gasto_sin_venta", "hoja"))
     rotos["caso"] = {"rota": 1}
     respuestas = _respuestas_vacias()
     respuestas["inputs ? 'caso'"] = [(7, rotos)]
+    respuestas["SELECT c.id FROM"] = [(7,)]
     respuestas["c.id = ANY"] = [(7, dt.datetime(2026, 10, 9, 8, 41, tzinfo=UTC), None)]
     pantalla, _conn = _lee(respuestas)
-    assert pantalla.ciclos == ()
+    (unico,) = pantalla.ciclos
+    assert unico["cycle_id"] == 7
+    assert unico["decisiones"] == []
 
 
 def test_caso_ilegible_no_cuenta_la_decision_y_no_revienta():
@@ -214,6 +222,22 @@ def test_caso_ilegible_no_cuenta_la_decision_y_no_revienta():
     assert pantalla.ciclos[0]["decisiones"] == [
         {"motivo": "grupo_sangra", "nivel": "ad_group", "count": 1}
     ]
+
+
+def test_decision_shadow_no_cuenta_como_movida_sale_aparte():
+    """R03-chico-4: modo shadow no movio nada: no entra a decisiones;
+    sale en la llave shadow del ciclo."""
+    sombra = dict(_inputs("gasto_sin_venta", "hoja", hoja_id=12))
+    sombra["modo"] = "shadow"
+    decisiones = [(7, _inputs("gasto_sin_venta", "hoja", hoja_id=11)), (7, sombra)]
+    ciclos = [(7, dt.datetime(2026, 10, 9, 8, 41, tzinfo=UTC), None)]
+    respuestas = _respuestas_vacias()
+    respuestas["inputs ? 'caso'"] = decisiones
+    respuestas["c.id = ANY"] = ciclos
+    pantalla, _conn = _lee(respuestas)
+    (unico,) = pantalla.ciclos
+    assert unico["decisiones"] == [{"motivo": "gasto_sin_venta", "nivel": "hoja", "count": 1}]
+    assert unico["shadow"] == 1
 
 
 # --- encogimiento -----------------------------------------------------------------
@@ -247,6 +271,33 @@ def test_encogimiento_diez_a_cuatro_da_cero_cuatro_y_sin_cambios_no_sale():
     )
 
 
+def test_encogimiento_excluye_hoja_que_crecio():
+    """R03-chico-4: la hoja que crecio (razon mayor que 1) no sale en el
+    encogimiento; la que encogio si."""
+    cambios = [
+        (
+            11,
+            Decimal("4"),
+            dt.datetime(2026, 7, 11, 12, tzinfo=UTC),
+            Decimal("10"),
+            Decimal("8"),
+            101,
+        ),
+        (
+            12,
+            Decimal("21"),
+            dt.datetime(2026, 7, 11, 12, tzinfo=UTC),
+            Decimal("10"),
+            Decimal("21"),
+            103,
+        ),
+    ]
+    respuestas = _respuestas_vacias()
+    respuestas["v_cambio_bid"] = cambios
+    pantalla, _conn = _lee(respuestas)
+    assert [h["hoja_id"] for h in pantalla.encogimiento] == [11]
+
+
 def test_sin_encendido_antes_y_despues_none_y_no_pide_metricas():
     pantalla, conn = _lee(_respuestas_vacias(encendido=None))
     assert pantalla.antes_y_despues is None
@@ -267,6 +318,8 @@ def test_antes_y_despues_suma_ventanas_y_acos():
     assert pantalla.antes_y_despues == {
         "encendido_el": "2026-09-15",
         "moneda": "MXN",
+        "dias_antes": 2,
+        "dias_despues": 2,
         "antes": {"gasto": "200.00", "pedidos": 3, "venta": "2000.00", "acos_pct": "10.00"},
         "despues": {"gasto": "100.00", "pedidos": 1, "venta": "2000.00", "acos_pct": "5.00"},
     }
@@ -280,6 +333,26 @@ def test_ventana_despues_sin_filas_da_bloque_none():
     pantalla, _conn = _lee(respuestas)
     assert pantalla.antes_y_despues["despues"] is None
     assert pantalla.antes_y_despues["antes"]["gasto"] == "100.00"
+
+
+def test_antes_y_despues_dice_cuantos_dias_suma():
+    """R03-chico-4: cada lado dice cuantos dias suma (fechas distintas, no
+    filas: dos hojas el mismo dia cuentan un dia)."""
+    encendido = dt.datetime(2026, 9, 15, 8, 40, tzinfo=UTC)
+    mercado = [
+        (dt.date(2026, 9, 10), Decimal("100.00"), 2, Decimal("1000.00")),
+        (dt.date(2026, 9, 10), Decimal("100.00"), 1, Decimal("1000.00")),
+        (dt.date(2026, 9, 14), Decimal("100.00"), 1, Decimal("1000.00")),
+        (dt.date(2026, 9, 15), Decimal("50.00"), 1, Decimal("1000.00")),
+        (dt.date(2026, 9, 15), Decimal("50.00"), 0, Decimal("1000.00")),
+    ]
+    respuestas = _respuestas_vacias(encendido=encendido)
+    respuestas["v_metric_latest"] = mercado
+    pantalla, _conn = _lee(respuestas)
+    comp = pantalla.antes_y_despues
+    assert comp["dias_antes"] == 2
+    assert comp["dias_despues"] == 1
+    assert comp["antes"]["pedidos"] == 4
 
 
 # --- contrato y candados ----------------------------------------------------------------
@@ -418,6 +491,34 @@ def test_pagina_ruido_frase_no_causal_encima_de_la_comparacion():
 def test_pagina_ruido_sin_encendido_lo_dice():
     html = _html_ruido(antes_y_despues=None)
     assert "todavía no hay comparación de antes y después" in _plano(html)
+
+
+def test_pagina_ruido_pinta_dias_y_shadow():
+    """R03-chico-4: los encabezados dicen cuantos dias suma cada lado y el
+    ciclo pinta sus decisiones shadow aparte (no como movidas)."""
+    html = _html_ruido(
+        ciclos=[
+            {
+                "cycle_id": 7,
+                "started_at": "2026-10-09T08:41:00+00:00",
+                "decisiones": [{"motivo": "gasto_sin_venta", "nivel": "hoja", "count": 1}],
+                "abstenciones": {},
+                "shadow": 2,
+            }
+        ],
+        antes_y_despues={
+            "encendido_el": "2026-09-15",
+            "moneda": "MXN",
+            "dias_antes": 2,
+            "dias_despues": 1,
+            "antes": {"gasto": "200.00", "pedidos": 3, "venta": "2000.00", "acos_pct": "10.00"},
+            "despues": {"gasto": "100.00", "pedidos": 1, "venta": "2000.00", "acos_pct": "5.00"},
+        },
+    )
+    plano = _plano(html)
+    assert "Antes del encendido (2 días)" in plano
+    assert "Después del encendido (1 día)" in plano
+    assert "Shadow, no aplicado: 2." in plano
 
 
 def test_pagina_ruido_ciclo_pinta_decisiones_y_abstenciones_ausentes():
@@ -617,6 +718,26 @@ def _metrica_pg(conn, ingest, hoja, fecha, *, costo=None, pedidos=None, venta=No
 
 
 @_FALTA_PG
+def test_r03b7_ciclo_sin_movimientos_sale_con_sus_abstenciones():
+    """R03-B7 (DoD P.5): ciclo live del motor con 300 abstenciones y cero
+    decisiones bid: sale con decisiones == [] y sus abstenciones."""
+    from app.pantalla_ruido import lee_ruido
+
+    with _db_ruido() as conn:
+        _config(conn)
+        quieto = _ciclo(
+            conn,
+            "live",
+            notes=json.dumps({"skips": {"entidad": {"azar_lo_explica": 300}}}),
+        )
+        conn.execute("UPDATE optimizer_cycle SET motor = 'ads_optimizer' WHERE id = %s", (quieto,))
+        datos = lee_ruido(conn, plataforma="amazon_mx").como_dict()
+        assert [c["cycle_id"] for c in datos["ciclos"]] == [quieto]
+        assert datos["ciclos"][0]["decisiones"] == []
+        assert datos["ciclos"][0]["abstenciones"] == {"azar_lo_explica": 300}
+
+
+@_FALTA_PG
 def test_lee_ruido_punta_a_punta_mx_no_trae_us():
     """MX: un ciclo con decisiones y abstenciones, una hoja que encoge 10 a 4
     (fuera de ventana y sin cambios no salen) y la comparacion antes/después.
@@ -740,22 +861,26 @@ def test_lee_ruido_punta_a_punta_mx_no_trae_us():
 
         mx = lee_ruido(conn, plataforma="amazon_mx").como_dict()
 
-    assert [c["cycle_id"] for c in mx["ciclos"]] == [ciclo_mx, ciclo_mx2]
-    assert mx["ciclos"][0]["decisiones"] == [
+    assert [c["cycle_id"] for c in mx["ciclos"]] == [vivo, ciclo_mx, ciclo_mx2]
+    assert mx["ciclos"][0]["decisiones"] == []
+    assert mx["ciclos"][0]["abstenciones"] is None
+    assert mx["ciclos"][1]["decisiones"] == [
         {"motivo": "gasto_sin_venta", "nivel": "hoja", "count": 2},
         {"motivo": "grupo_sangra", "nivel": "ad_group", "count": 1},
     ]
-    assert mx["ciclos"][0]["abstenciones"] == {"espera_precio": 2}
-    assert mx["ciclos"][1]["decisiones"] == [
+    assert mx["ciclos"][1]["abstenciones"] == {"espera_precio": 2}
+    assert mx["ciclos"][2]["decisiones"] == [
         {"motivo": "gasto_sin_venta", "nivel": "hoja", "count": 2}
     ]
-    assert mx["ciclos"][1]["abstenciones"] is None
+    assert mx["ciclos"][2]["abstenciones"] is None
     assert mx["encogimiento"] == [
         {"hoja_id": h1, "bid_base": "10.0000", "bid_hoy": "4.0000", "razon": "0.4", "moneda": "MXN"}
     ]
     assert mx["antes_y_despues"] == {
         "encendido_el": "2026-09-15",
         "moneda": "MXN",
+        "dias_antes": 2,
+        "dias_despues": 2,
         "antes": {"gasto": "200.0000", "pedidos": 3, "venta": "2000.0000", "acos_pct": "10.00"},
         "despues": {"gasto": "100.0000", "pedidos": 1, "venta": "2000.0000", "acos_pct": "5.00"},
     }

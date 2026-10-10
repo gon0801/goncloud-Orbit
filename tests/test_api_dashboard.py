@@ -1811,6 +1811,17 @@ def test_salud_sin_target_traducido_con_texto_exacto():
     )
 
 
+def test_salud_vigente_por_encima_traducido_con_texto_exacto():
+    """R03-B1: vigente_por_encima entra a MOTIVOS_ES_SALUD con su texto exacto."""
+    from app.optimizer import politica
+
+    assert dash.MOTIVOS_ES_SALUD[politica.MOTIVO_VIGENTE_ENCIMA] != politica.MOTIVO_VIGENTE_ENCIMA
+    assert (
+        dash.MOTIVOS_ES_SALUD[politica.MOTIVO_VIGENTE_ENCIMA]
+        == "Bid vigente por encima del regreso: sin ajuste"
+    )
+
+
 def test_salud_motivo_es_helper_fallback_y_none():
     """A.6: `motivo_es` traduce por MOTIVOS_ES_SALUD, cae al id crudo con
     motivos desconocidos y pasa None a None (regla 3)."""

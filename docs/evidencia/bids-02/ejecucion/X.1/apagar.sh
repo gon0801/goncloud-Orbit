@@ -5,34 +5,23 @@
 # ausente el motor no mueve bids (el codigo anterior falla cerrado con
 # niveles_v3). Un 422 con "edicion vacia" significa que la clave ya estaba
 # ausente (exito idempotente). Verifica created:true y "-> ausente".
-# ATENCION - LA INVOCACION PELADA ESCRIBE: rollback.sh de D.1 la llama como
-# `bash apagar.sh`, SIN argumentos y SIN bandera, y despues exige las
-# claves en f|f. Por esa compatibilidad obligatoria, SIN ARGUMENTOS este
-# script APAGA LAS DOS PLATAFORMAS DE VERDAD (en real: prod; en sim: la
-# base sim). No tiene simulacro pelado. Los humanos simulan con plataforma:
-# `apagar.sh <plataforma>` simula esa (exit 0, nada escrito) y solo
-# --acepto-mutacion-real escribe. Otro uso sale 2. El token jamas se
-# imprime: en modo real vive dentro del ssh, en simulacion viaja solo en
-# el header del curl.
+# La plataforma es obligatoria: sin ella sale 2 (nunca apaga las dos de
+# un golpe, ni siquiera en simulacro). Sin la bandera simula esa
+# plataforma (exit 0, nada escrito); solo --acepto-mutacion-real escribe
+# (rollback.sh de D.1 la pasa explicita, una vez por plataforma). El
+# token jamas se imprime:
+# en modo real vive dentro del ssh, en simulacion viaja solo en el header
+# del curl.
 # Modo simulacion (ORBIT_SIMULACION=1): el POST va a ORBIT_SIM_API (app
 # local apuntada a ORBIT_SIM_DSN) con el token de ORBIT_SIM_TOKEN.
-# Uso: bash docs/evidencia/bids-02/ejecucion/X.1/apagar.sh [--acepto-mutacion-real] [amazon_mx|amazon_us]
+# Uso: bash docs/evidencia/bids-02/ejecucion/X.1/apagar.sh [--acepto-mutacion-real] <amazon_mx|amazon_us>
 set -euo pipefail
 
 MUTAR=0
 if [ "${1:-}" = "--acepto-mutacion-real" ]; then MUTAR=1; shift; fi
-PLATS=""
-if [ $# -eq 0 ]; then
-  # Camino de rollback.sh de D.1: ESCRIBE las dos aunque no venga la bandera.
-  PLATS="amazon_mx amazon_us"
-  MUTAR=1
-  echo "== SIN ARGUMENTOS: apaga AMBAS plataformas DE VERDAD (camino de rollback.sh)"
-elif [ $# -eq 1 ]; then
-  [ "$1" = amazon_mx ] || [ "$1" = amazon_us ] || { echo "uso: apagar.sh [--acepto-mutacion-real] [amazon_mx|amazon_us]"; exit 2; }
-  PLATS=$1
-else
-  echo "uso: apagar.sh [--acepto-mutacion-real] [amazon_mx|amazon_us]"; exit 2
-fi
+[ $# -eq 1 ] || { echo "uso: apagar.sh [--acepto-mutacion-real] <amazon_mx|amazon_us>"; exit 2; }
+[ "$1" = amazon_mx ] || [ "$1" = amazon_us ] || { echo "uso: apagar.sh [--acepto-mutacion-real] <amazon_mx|amazon_us>"; exit 2; }
+PLATS=$1
 REPO=$(git rev-parse --show-toplevel)
 SIM=${ORBIT_SIMULACION:-0}
 API_SIM=${ORBIT_SIM_API:-http://127.0.0.1:8011}

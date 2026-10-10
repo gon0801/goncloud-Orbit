@@ -1103,7 +1103,7 @@ def _regreso_monkeypatcheado(monkeypatch, tmp_path, *, resultado=None, error=Non
     monkeypatch.setattr(apply, "regreso_del_dueno_todas", _todas)
 
 
-def _hecho_m5(hoja_id=11):
+def _hecho_m5(hoja_id=11, sello=None):
     from decimal import Decimal
 
     return apply.RegresoHecho(
@@ -1113,6 +1113,7 @@ def _hecho_m5(hoja_id=11):
         moneda="MXN",
         decision_revertida_id=77,
         actor="dueno",
+        regreso_confirmado_at=sello,
     )
 
 
@@ -1146,8 +1147,8 @@ def test_regresar_endpoints_despachan_con_sus_parametros(tmp_path, monkeypatch):
 
 
 def test_regresar_endpoints_mapean_errores(tmp_path, monkeypatch):
-    """SinRachaDeRecortes y ReversaYaHecha -> 409 en /bid/regresar;
-    ConfirmacionDesactualizada -> 409 en /bid/regresar-todas;
+    """SinRachaDeRecortes, ReversaYaHecha y VigentePorEncima -> 409 en
+    /bid/regresar; ConfirmacionDesactualizada -> 409 en /bid/regresar-todas;
     RegresoNoConfirmado -> 502; actor vacio (ValueError) -> 422."""
     casos = (
         (
@@ -1160,6 +1161,12 @@ def test_regresar_endpoints_mapean_errores(tmp_path, monkeypatch):
             "/api/ads-optimizer/bid/regresar",
             {"hoja_id": 11, "actor": "dueno"},
             apply.ReversaYaHecha(7),
+            409,
+        ),
+        (
+            "/api/ads-optimizer/bid/regresar",
+            {"hoja_id": 11, "actor": "dueno"},
+            apply.VigentePorEncima("vigente 12 por encima del destino 10"),
             409,
         ),
         (
@@ -1203,10 +1210,15 @@ def test_regresar_sin_token_401(tmp_path, monkeypatch):
 
 
 def test_regresar_todas_responde_ok_y_motivo_por_hoja(tmp_path, monkeypatch):
-    """La respuesta trae cada regreso con ok true y cada falla con ok false
-    y su motivo (la pantalla dice cual quedo pendiente)."""
+    """La respuesta trae cada regreso con ok true y su sello regreso_confirmado_at,
+    y cada falla con ok false y su motivo (la pantalla dice cual quedo pendiente)."""
     _regreso_monkeypatcheado(
-        monkeypatch, tmp_path, resultado=(_hecho_m5(hoja_id=11), "hoja 12: ya revertida la 5")
+        monkeypatch,
+        tmp_path,
+        resultado=(
+            _hecho_m5(hoja_id=11, sello="2026-10-09T12:00:00+00:00"),
+            "hoja 12: ya revertida la 5",
+        ),
     )
     resp = TestClient(app).post(
         "/api/ads-optimizer/bid/regresar-todas",
@@ -1225,6 +1237,7 @@ def test_regresar_todas_responde_ok_y_motivo_por_hoja(tmp_path, monkeypatch):
             "moneda": "MXN",
             "decision_revertida_id": 77,
             "actor": "dueno",
+            "regreso_confirmado_at": "2026-10-09T12:00:00+00:00",
         },
         {"ok": False, "motivo": "hoja 12: ya revertida la 5"},
     ]

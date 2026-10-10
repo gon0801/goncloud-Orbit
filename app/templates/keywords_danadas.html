@@ -43,7 +43,7 @@
   <p>Regresada el {{ hoja.regresada_el }}.</p>
   {% else %}
   {# el click lo cablea /static/js/danadas.js (onclick= inline lo bloquea la CSP) #}
-  <button type="button" data-regresar="{{ hoja.hoja_id }}">Regresar el bid a {{ hoja.bid_antes|dinero_ui }}</button>
+  <button type="button" data-regresar="{{ hoja.hoja_id }}"{% if hoja.bid_hoy is none %} disabled{% endif %}>Regresar el bid a {{ hoja.bid_antes|dinero_ui }}</button>
   <div hidden id="regreso-{{ hoja.hoja_id }}">
     <form data-regreso="{{ hoja.hoja_id }}">
       <p>Orbit cambia ahora el bid en Amazon de {{ hoja.bid_hoy|dinero_ui or "—" }} a {{ hoja.bid_antes|dinero_ui }} {{ hoja.moneda }}. El motor espera 7 días. Después no la recorta hasta que junte 20 clics al bid nuevo o pasen 14 días, y nunca la baja del bid que la dañó.</p>

@@ -1769,6 +1769,18 @@ SELECT resultado FROM apply_attempt
  ORDER BY seq DESC LIMIT 1
 """
 
+# El bid vigente real (el bid puede cambiar fuera de Orbit: la vista de
+# cambios no lo sabe y su ultimo bid_despues queda rancio).
+_SQL_VIGENTE = """
+SELECT current_bid FROM v_hoja_activa WHERE hoja_id = %s
+"""
+
+_SQL_FIN_REVERSA = """
+SELECT finished_at FROM apply_attempt
+ WHERE decision_id = %s AND tipo = 'reversa'
+ ORDER BY seq DESC LIMIT 1
+"""
+
 
 class SinRachaDeRecortes(Exception):
     """La hoja no tiene recortes vigentes que regresar (409)."""
@@ -1782,14 +1794,20 @@ class RegresoNoConfirmado(Exception):
     """Amazon no confirmo el regreso (502: el sello vive en el ledger)."""
 
 
+class VigentePorEncima(Exception):
+    """El bid vigente ya esta por encima del destino del regreso (409: no
+    se mueve; un regreso nunca baja el bid)."""
+
+
 @dataclass(frozen=True)
 class RegresoHecho:
     hoja_id: int
-    bid_antes: Decimal  # el vigente al regresar (bid_despues del ultimo cambio)
+    bid_antes: Decimal  # el vigente al regresar (de v_hoja_activa; el ultimo cambio rancia)
     bid_ahora: Decimal  # el restaurado (bid anterior a la racha)
     moneda: str
     decision_revertida_id: int
     actor: str
+    regreso_confirmado_at: str | None = None
 
     def como_dict(self) -> dict:
         return {
@@ -1799,6 +1817,7 @@ class RegresoHecho:
             "moneda": self.moneda,
             "decision_revertida_id": self.decision_revertida_id,
             "actor": self.actor,
+            "regreso_confirmado_at": self.regreso_confirmado_at,
         }
 
 
@@ -1852,7 +1871,9 @@ def regreso_del_dueno(
     la racha (ledger pre-HTTP, readback, exenta de cupo): no hay escritura
     nueva a Amazon. El motor lo ve en `v_cambio_bid` con origen
     `regreso_del_dueno`. Idempotente: una racha ya regresada levanta
-    ReversaYaHecha (409), nunca escribe dos veces. `transport` es la puerta
+    ReversaYaHecha (409), nunca escribe dos veces. Si el vigente ya esta
+    por encima del destino levanta VigentePorEncima (409): un regreso
+    nunca baja el bid. `transport` es la puerta
     de tests (MockTransport); el endpoint NO lo pasa."""
     _actor_no_vacio(actor)
     cambios = [
@@ -1871,19 +1892,31 @@ def regreso_del_dueno(
         raise SinRachaDeRecortes(f"la hoja {hoja_id} no tiene racha vigente de recortes")
     primera = min(racha, key=lambda c: (c[0], c[4]))
     # El vigente se lee ANTES del HTTP: despues nace la fila del regreso.
+    # Si el vigente ya esta por encima del destino, no se mueve: un
+    # regreso nunca baja el bid. Con vigente desconocido (NULL: hereda
+    # del grupo) no hay nada que comparar y se sigue como antes.
+    fila_vigente = conn.execute(_SQL_VIGENTE, (hoja_id,)).fetchone()
+    vigente = _celda_cambio(fila_vigente, 0, "current_bid") if fila_vigente is not None else None
+    if vigente is not None and vigente >= primera[1]:
+        raise VigentePorEncima(
+            f"la hoja {hoja_id} trae vigente {vigente} por encima del destino {primera[1]}"
+        )
     ultimo = max(cambios, key=lambda c: (c[0], c[4]))
     reversa = reversa_manual(conn, tipo="bid", decision_id=primera[4], transport=transport)
     if not reversa["confirmada"]:
         fila = conn.execute(_SQL_MOTIVO_REVERSA, (primera[4],)).fetchone()
         motivo = fila[0] if fila is not None else "sin sello en el ledger"
         raise RegresoNoConfirmado(f"regreso de la hoja {hoja_id} sin confirmar: {motivo}")
+    fin = conn.execute(_SQL_FIN_REVERSA, (primera[4],)).fetchone()
+    sello = fin[0].isoformat() if fin is not None and fin[0] is not None else None
     return RegresoHecho(
         hoja_id=hoja_id,
-        bid_antes=ultimo[2],
+        bid_antes=vigente if vigente is not None else ultimo[2],
         bid_ahora=primera[1],
         moneda=primera[5],
         decision_revertida_id=primera[4],
         actor=actor,
+        regreso_confirmado_at=sello,
     )
 
 
