@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Copia de produccion para 0.b (regla 11): el esquema real mas los datos de
 # las tablas que leen las vistas, en una base local desechable. Cada paso
-# que la usa le agrega sus tablas con -t (P.3a agrego ads_metric_observation).
+# que la usa le agrega sus tablas con -t (P.3a agrego ads_metric_observation,
+# M.2 agrega ingest_run).
 # Solo LEE produccion (orbit_read por ssh); jamas escribe ahi. No imprime
 # DSNs ni credenciales.
 # Uso: cd ~/dev/goncloud-Orbit && bash docs/evidencia/bids-02/ejecucion/0.b/copia.sh
@@ -28,7 +29,7 @@ grep -q 'CREATE TABLE public.decision ' "$TMP/prod.sql" || { echo "ABORTA: dump 
 if grep -q 'v_hoja_activa' "$TMP/prod.sql"; then echo "ABORTA: prod ya tiene las vistas de 0.b"; exit 1; fi
 
 echo "== datos de prod (solo lectura)"
-ssh goncloud 'DSN=$(docker exec orbit-app-1 printenv ORBIT_DSN_READ); docker exec orbit-db-1 pg_dump "$DSN" --data-only --exclude-table-data="*_seq" -t ad_entity -t ad_entity_state -t decision -t decision_application -t optimizer_cycle -t apply_attempt -t ads_metric_observation' \
+ssh goncloud 'DSN=$(docker exec orbit-app-1 printenv ORBIT_DSN_READ); docker exec orbit-db-1 pg_dump "$DSN" --data-only --exclude-table-data="*_seq" -t ad_entity -t ad_entity_state -t decision -t decision_application -t optimizer_cycle -t apply_attempt -t ads_metric_observation -t ingest_run' \
   > "$TMP/datos.sql"
 grep -q 'COPY public.ad_entity ' "$TMP/datos.sql" || { echo "ABORTA: dump de datos invalido"; exit 1; }
 
@@ -41,7 +42,7 @@ psql "$DSN_DB" -q -v ON_ERROR_STOP=1 -f "$TMP/prod.sql" >/dev/null
 # replica: la carga salta FKs y triggers (el orden del dump no es el de
 # insercion). El archivo se queda en $TMP (regla 16: ningun volcado entra al repo).
 { echo "SET session_replication_role = replica;"; cat "$TMP/datos.sql"; } | psql "$DSN_DB" -q -v ON_ERROR_STOP=1 >/dev/null
-for t in ad_entity ad_entity_state decision decision_application optimizer_cycle apply_attempt ads_metric_observation; do
+for t in ad_entity ad_entity_state decision decision_application optimizer_cycle apply_attempt ads_metric_observation ingest_run; do
   echo "$t: $(psql "$DSN_DB" -tAc "SELECT count(*) FROM $t")"
 done
 echo "dumps en: $TMP"

@@ -1,7 +1,8 @@
-"""Guardas de arquitectura de la letra M (BIDS 02 M.1; las demas tareas M agregan aqui).
+"""Guardas de arquitectura de la letra M (BIDS 02 M.1 y M.2; las demas tareas M agregan aqui).
 
 caso.py y politica.py son puros: sin reloj, entorno ni azar. Los numeros que
-espejan a otro modulo llevan su pin de igualdad. Sin acentos en el codigo.
+espejan a otro modulo llevan su pin de igualdad. lecturas_caso.py solo hace
+SELECT y no importa app.apply ni app.ads. Sin acentos en el codigo.
 """
 
 from __future__ import annotations
@@ -9,10 +10,11 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-from test_architecture import _imports_runtime, _usos_reloj
+from test_architecture import _escritura_en_fuentes, _imports_runtime, _usos_reloj, _violaciones
 
 RAIZ = Path(__file__).resolve().parents[1]
 MODULOS = [RAIZ / "app" / "optimizer" / "caso.py", RAIZ / "app" / "optimizer" / "politica.py"]
+LECTURAS = RAIZ / "app" / "lecturas_caso.py"
 
 
 def _fugas_reloj(modulos):
@@ -85,3 +87,23 @@ def test_politica_importa_gamma_y_pausa_en_vez_de_copiar():
     assert p.gamma_p is ev.gamma_p
     assert p.gamma_q is ev.gamma_q
     assert p._decide_pause is b._decide_pause
+
+
+def test_lecturas_caso_solo_select_y_sin_escritura_en_imports():
+    """M.2: `app/lecturas_caso.py` solo hace SELECT (cero verbos de
+    escritura en sus constantes de texto, mismo detector que fuentes.py)
+    y no importa `app.apply` ni `app.ads`."""
+    assert LECTURAS.exists(), "sin app/lecturas_caso.py el candado pasaria en falso"
+    assert _escritura_en_fuentes(LECTURAS) == []
+    assert "SELECT" in LECTURAS.read_text(encoding="utf-8")
+    fugas = _violaciones(_imports_runtime(LECTURAS), ("app.apply", "app.ads"))
+    assert not fugas, f"lecturas_caso.py importa fuera de su frontera: {fugas}"
+
+
+def test_detector_caza_verbo_e_import_fuga_en_lecturas(tmp_path):
+    """El detector muerde: `INSERT` en una constante y `from app import
+    apply` aparecen listados."""
+    fuga = tmp_path / "lecturas_caso.py"
+    fuga.write_text('from app import apply\nsql = "INSERT INTO x (a)"\n', encoding="utf-8")
+    assert _escritura_en_fuentes(fuga) != []
+    assert "app.apply" in _violaciones(_imports_runtime(fuga), ("app.apply", "app.ads"))
