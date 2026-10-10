@@ -3937,3 +3937,77 @@ def test_settings_sin_target_publica_null_y_no_pisa(monkeypatch):
         goals = resp.json()["goals"]
         assert len(goals) == 1
         assert goals[0]["pisa_a"] is None
+
+
+# ---------------------------------------------------------------------------
+# P.3b (BIDS 02 s2): GET /api/dashboard/keywords-danadas, funcion delgada.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_keywords_danadas_api_delgada_vocabulario_y_passthrough(monkeypatch):
+    """El endpoint delega en `lee_danadas` y pasa su dict tal cual; mercado
+    ajeno es 422 y sin mercado se mira amazon_mx."""
+    from app.pantalla_danadas import HojaDanada, PantallaDanadas
+
+    hoja = HojaDanada(
+        hoja_id=2963,
+        nombre="gorra roja",
+        campana="AC - Category Exact",
+        recortes=5,
+        bid_antes=Decimal("9.74"),
+        bid_hoy=Decimal("3.73"),
+        moneda="MXN",
+        clics_antes_14d=133,
+        clics_ahora_14d=16,
+        pedidos_antes_90d=31,
+        venta_antes_90d=Decimal("28672"),
+        ya_regresada=False,
+        regresada_el=None,
+    )
+    pantalla = PantallaDanadas(
+        plataforma="amazon_us",
+        calculado_el=dt.datetime(2026, 10, 9, tzinfo=dt.UTC),
+        hojas=(hoja,),
+    )
+    pedidas = []
+
+    def _falsa(conn, *, plataforma):
+        pedidas.append(plataforma)
+        return pantalla
+
+    monkeypatch.setattr("app.pantalla_danadas.lee_danadas", _falsa)
+    with _db_temporal("orbit_dash_danadas") as (_conn, dsn_read):
+        cliente = _cliente(dsn_read, monkeypatch)
+        resp = cliente.get("/api/dashboard/keywords-danadas", params={"plataforma": "amazon_us"})
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == {
+            "plataforma": "amazon_us",
+            "calculado_el": "2026-10-09T00:00:00+00:00",
+            "hojas": [
+                {
+                    "hoja_id": 2963,
+                    "nombre": "gorra roja",
+                    "campana": "AC - Category Exact",
+                    "recortes": 5,
+                    "bid_antes": "9.74",
+                    "bid_hoy": "3.73",
+                    "moneda": "MXN",
+                    "clics_antes_14d": 133,
+                    "clics_ahora_14d": 16,
+                    "pedidos_antes_90d": 31,
+                    "venta_antes_90d": "28672",
+                    "ya_regresada": False,
+                    "regresada_el": None,
+                }
+            ],
+        }
+        assert pedidas == ["amazon_us"]
+        omision = cliente.get("/api/dashboard/keywords-danadas")
+        assert omision.status_code == 200, omision.text
+        assert pedidas == ["amazon_us", "amazon_mx"]
+        ajeno = cliente.get("/api/dashboard/keywords-danadas", params={"plataforma": "meli"})
+        assert ajeno.status_code == 422

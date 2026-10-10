@@ -2371,3 +2371,16 @@ def precios(conn: ConexionLectura) -> dict:
                 status_code=503, detail=f"precios de {plataforma} ilegibles"
             ) from exc
     return {"hoy": hoy.isoformat(), "plataformas": plataformas}
+
+
+@router.get("/keywords-danadas")
+def keywords_danadas(conn: ConexionLectura, plataforma: str | None = None) -> dict:
+    """Keywords danadas del mercado (BIDS 02, P.3b). Funcion delgada: delega
+    en `pantalla_danadas.lee_danadas` (SOLO SELECT) y pasa su dict tal cual.
+    Sin mercado se mira amazon_mx; mercado ajeno es 422."""
+    from app import pantalla_danadas
+
+    mercado = plataforma or "amazon_mx"
+    if mercado not in PLATAFORMAS_MONEDA:
+        raise HTTPException(status_code=422, detail="plataforma fuera de vocabulario")
+    return pantalla_danadas.lee_danadas(conn, plataforma=mercado).como_dict()  # type: ignore[arg-type]

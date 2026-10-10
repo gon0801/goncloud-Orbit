@@ -828,3 +828,109 @@ def test_lee_danadas_punta_a_punta():
     assert pantalla.hojas[1].ya_regresada is True
     assert pantalla.hojas[1].regresada_el == dt.date(2026, 9, 26)
     assert pantalla.hojas[1].bid_hoy == Decimal("10")
+
+
+# --- P.3b: pantalla ------------------------------------------------------------
+
+
+def _hoja_ui(**cambios):
+    """Fila con el shape de `HojaDanada.como_dict` (los numeros son los
+    reales de la hoja 2963 del diseno)."""
+    hoja = {
+        "hoja_id": 2963,
+        "nombre": "gorra roja",
+        "campana": "AC - Category Exact",
+        "recortes": 5,
+        "bid_antes": "9.7400",
+        "bid_hoy": "3.7300",
+        "moneda": "MXN",
+        "clics_antes_14d": 133,
+        "clics_ahora_14d": 16,
+        "pedidos_antes_90d": 31,
+        "venta_antes_90d": "28672.0000",
+        "ya_regresada": False,
+        "regresada_el": None,
+    }
+    hoja.update(cambios)
+    return hoja
+
+
+def _html_danadas(hojas, plataforma="amazon_mx"):
+    from app import ui
+
+    return ui.templates.env.get_template("keywords_danadas.html").render(
+        pantalla="keywords-danadas",
+        plataforma=plataforma,
+        calculado_el="2026-10-09T00:00:00+00:00",
+        hojas=hojas,
+    )
+
+
+def _plano(html):
+    return " ".join(html.split())
+
+
+def test_pantalla_danadas_fila_pendiente_pinta_tres_lineas_boton_y_frase():
+    """P.3b cambio 2: cada fila trae las tres lineas del ejemplo de la hoja
+    2963, el boton con el bid de antes y la frase literal del paso con los
+    numeros de la fila."""
+    html = _html_danadas([_hoja_ui()])
+    plano = _plano(html)
+    assert "gorra roja · AC - Category Exact - MX" in plano
+    assert "Vendía 31 pedidos (28672.00 MXN) en los 3 meses antes de los recortes." in plano
+    assert (
+        "Clics cada 2 semanas: 133 antes, 16 ahora. Bid: 9.74 antes, 3.73 hoy, tras 5 recortes."
+    ) in plano
+    assert "Regresar el bid a 9.74" in plano
+    assert 'data-regresar="2963"' in html
+    assert (
+        "Orbit cambia ahora el bid en Amazon de 3.73 a 9.74 MXN. "
+        "El motor espera 7 días. Después no la recorta hasta que junte "
+        "20 clics al bid nuevo o pasen 14 días, y nunca la baja del bid "
+        "que la dañó."
+    ) in plano
+
+
+def test_pantalla_danadas_fila_regresada_muestra_fecha_y_no_boton():
+    """P.3b Comprueba: una fila con `ya_regresada` muestra la fecha de
+    `regresada_el` y no pinta el boton."""
+    html = _html_danadas([_hoja_ui(ya_regresada=True, regresada_el="2026-10-09")])
+    assert "2026-10-09" in html
+    assert "Regresar el bid" not in html
+    assert "data-regresar=" not in html
+
+
+def test_pantalla_danadas_regresar_todas_pide_una_confirmacion():
+    """P.3b cambio 3: arriba de la lista, "Regresar todas" muestra el bid al
+    que vuelve cada pendiente y pide el literal `REGRESAR <N> KEYWORDS` en
+    un solo campo (N cuenta solo `ya_regresada` en falso)."""
+    html = _html_danadas(
+        [
+            _hoja_ui(),
+            _hoja_ui(
+                hoja_id=2871,
+                nombre="gorra azul",
+                bid_antes="4.1000",
+                bid_hoy="2.0000",
+            ),
+            _hoja_ui(hoja_id=2880, ya_regresada=True, regresada_el="2026-10-08"),
+        ]
+    )
+    plano = _plano(html)
+    assert plano.index("Regresar todas") < plano.index("gorra roja")
+    assert "REGRESAR 2 KEYWORDS" in plano
+    assert 'data-esperada="REGRESAR 2 KEYWORDS"' in html
+    assert html.count('name="confirmacion"') == 1
+    assert "gorra roja · vuelve a 9.74 MXN" in plano
+    assert "gorra azul · vuelve a 4.10 MXN" in plano
+
+
+def test_pantalla_danadas_sin_pendientes_no_pinta_regresar_todas():
+    """P.3b Pruebas primero: con N en 0 (todas regresadas o lista vacia),
+    el bloque no se pinta."""
+    regresadas = _html_danadas([_hoja_ui(ya_regresada=True, regresada_el="2026-10-09")])
+    assert "Regresar todas" not in regresadas
+    assert "REGRESAR" not in regresadas
+    vacia = _html_danadas([])
+    assert "Regresar todas" not in vacia
+    assert "REGRESAR" not in vacia
