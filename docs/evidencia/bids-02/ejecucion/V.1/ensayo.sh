@@ -21,9 +21,8 @@ limpiar() {
 trap limpiar EXIT
 DSN_DB="${DSN_LOCAL%/*}/$DB"
 
-# El volcado lleva '\restrict TOKEN' con token aleatorio (pg_dump 16.15; el
-# filtro de 2.3 no lo casa porque esperaba la linea sin backslash). Y el
-# orden de los GRANT consecutivos no es semantico: revocar y reotorgar
+# El volcado lleva '\restrict TOKEN' con token aleatorio (pg_dump 16.15).
+# El orden de los GRANT consecutivos no es semantico: revocar y reotorgar
 # mueve la entrada ACL al final aunque el conjunto quede identico. Se
 # quitan las restrict y se ordena cada bloque de GRANT seguidos; cualquier
 # GRANT de mas, de menos o distinto sigue rompiendo el diff.

@@ -253,7 +253,6 @@ md5_de() { if command -v md5 >/dev/null; then md5 -q; else md5sum | cut -d' ' -f
 ARCHIVOS_D2="app/ads/campana_config.py app/ads/placements.py app/avisos_campana.py app/cli_bids.py app/pantalla_dinero.py app/cli.py app/notifica.py app/api_dashboard.py app/ui.py app/templates/donde_poner_el_dinero.html app/templates/salud.html"
 if [ "$SIM" = 1 ]; then
   echo "SIMULACION: sin servidor; se verifica el respaldo local contra el SHA"
-  # shellcheck disable=SC2086
   for f in $ARCHIVOS_D2; do
     a=$(git show "$APROBADO:$f" | md5_de)
     b=$(md5_de < "$TMPD/predeploy-$STAMP/$f")
@@ -264,7 +263,6 @@ else
   git archive --format=tar "$APROBADO" app Dockerfile .dockerignore pyproject.toml uv.lock tools/fabrica_campanas.py \
       tools/jev_ads.py tools/jev_fichas.py \
     | ssh goncloud "cd $SRV && tar -xf -"
-  # shellcheck disable=SC2086
   for f in $ARCHIVOS_D2; do
     a=$(git show "$APROBADO:$f" | md5_de)
     b=$(ssh goncloud "md5sum $SRV/$f" | cut -d' ' -f1)

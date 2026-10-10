@@ -26,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[5]))
 
 import psycopg
 
-from app.pantalla_dinero import TIPOS, lee_dinero
+from app.pantalla_dinero import TIPOS, Plataforma, lee_dinero
 
 HASTA = dt.date(2026, 10, 4)
 DIAS = 90
@@ -57,9 +57,9 @@ WITH hojas AS (
 """
 
 
-def compara(plataforma: str, conn) -> list[str]:
+def compara(plataforma: Plataforma, conn) -> list[str]:
     diffs: list[str] = []
-    pantalla = lee_dinero(conn, plataforma=plataforma, dias=DIAS, hasta=HASTA)  # type: ignore[arg-type]
+    pantalla = lee_dinero(conn, plataforma=plataforma, dias=DIAS, hasta=HASTA)
     crudas = conn.execute(CONTROL, (plataforma, pantalla.desde, pantalla.hasta)).fetchall()
     nulas = [fila for fila in crudas if fila[0] is None]
     if len(nulas) > 1:

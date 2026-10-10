@@ -64,9 +64,7 @@ def test_ubicacion_en_el_umbral_sin_pedidos_avisa_con_frase():
 def test_ubicacion_con_pedido_o_gasto_none_o_bajo_no_avisa():
     assert _avisos(ubis=[_ubi(pedidos=1)]) == ()
     assert _avisos(ubis=[_ubi(gasto=None, gasta_sin_vender=False)]) == ()
-    # El flag viene True pero el gasto no alcanza: el aviso recalcula con
-    # el umbral recibido, no confia en la marca de la fila.
-    assert _avisos(ubis=[_ubi(gasto=Decimal("349.99"))]) == ()
+    assert _avisos(ubis=[_ubi(gasto=Decimal("349.99"), gasta_sin_vender=True)]) == ()
 
 
 def test_ubicacion_justo_en_el_umbral_avisa():
