@@ -127,8 +127,14 @@ fi
 if [ "$SYNC_OK" = 1 ]; then
   echo "== 3b) Ninguna campana ENABLED sin fila en v_campana_config_vigente (esperado 0)"
   for MERCADO in amazon_mx amazon_us; do
-    revisa "ENABLED sin config $MERCADO" 0 \
-      "$(echo "SELECT count(*) FROM ad_entity c JOIN ad_entity_state s ON s.ad_entity_id = c.id AND s.status = 'ENABLED' WHERE c.kind = 'campaign' AND c.platform = '$MERCADO' AND NOT EXISTS (SELECT 1 FROM v_campana_config_vigente v WHERE v.ad_entity_id = c.id);" | lee || true)"
+    N_SIN=$(echo "SELECT count(*) FROM ad_entity c JOIN ad_entity_state s ON s.ad_entity_id = c.id AND s.status = 'ENABLED' WHERE c.kind = 'campaign' AND c.platform = '$MERCADO' AND NOT EXISTS (SELECT 1 FROM v_campana_config_vigente v WHERE v.ad_entity_id = c.id);" | lee || true)
+    # Si hay huerfanas, se listan: la ingesta skipea payloads ilegibles por
+    # diseno, asi que el lead distingue un deploy roto de skips conocidos.
+    if [ -n "$N_SIN" ] && [ "$N_SIN" != "0" ]; then
+      echo "--- $MERCADO sin config (external_id, max 10):"
+      echo "SELECT c.external_id FROM ad_entity c JOIN ad_entity_state s ON s.ad_entity_id = c.id AND s.status = 'ENABLED' WHERE c.kind = 'campaign' AND c.platform = '$MERCADO' AND NOT EXISTS (SELECT 1 FROM v_campana_config_vigente v WHERE v.ad_entity_id = c.id) ORDER BY 1 LIMIT 10;" | lee || true
+    fi
+    revisa "ENABLED sin config $MERCADO" 0 "$N_SIN"
   done
 fi
 
