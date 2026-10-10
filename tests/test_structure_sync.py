@@ -60,6 +60,10 @@ _SQL51 = (
     _Path(__file__).resolve().parents[1] / "migrations" / "0051_ads_acta_listado.sql"
 ).read_text(encoding="utf-8")
 
+_SQL61 = (
+    _Path(__file__).resolve().parents[1] / "migrations" / "0061_bids02_campana_config.sql"
+).read_text(encoding="utf-8")
+
 FAKE_CLIENT_ID = "fake-client-id-123"
 FAKE_CLIENT_SECRET = "fake-client-secret-XYZ"
 FAKE_REFRESH_TOKEN = "fake-refresh-token-ABC"
@@ -1450,15 +1454,17 @@ def test_sync_y_resync_estructura_en_vivo(monkeypatch):
         conn.execute(SQL)  # la migracion entera
         conn.execute(_SQL17)  # BIDS 01 2.1: first_seen_at
         conn.execute(_SQL51)  # JEV ADS 02 S.1: acta de listado
+        conn.execute(_SQL61)  # BIDS 02 V.1: config de campana (el sync la escribe)
 
         # ------------------------------------------------------------------
         # SYNC 1
         # ------------------------------------------------------------------
         res1 = sync_structure(conn, _estructura_sync1())
 
-        # contabilidad: 9 items validos (6 us + 3 mx), 2 saltados
+        # contabilidad: 9 items validos (6 us + 3 mx) + 2 configs de campana,
+        # 2 saltados
         assert res1.ok is True
-        assert res1.rows_written == 9
+        assert res1.rows_written == 11
         assert res1.rows_skipped == 2
         assert res1.entidades_nuevas == 9
         assert res1.counts == {
@@ -1477,7 +1483,7 @@ def test_sync_y_resync_estructura_en_vivo(monkeypatch):
             (res1.run_id,),
         ).fetchone()
         assert run[0] == "amazon_ads_structure_v2"
-        assert run[1] is True and run[2] == 9 and run[3] == 2
+        assert run[1] is True and run[2] == 11 and run[3] == 2
         assert run[4] is not None and run[5] is not None
         # Regla 9: el skip queda AFIRMADO con su motivo y contador. Sin el
         # pre-check de padre, el target huerfano entraria con parent NULL y
@@ -1549,10 +1555,11 @@ def test_sync_y_resync_estructura_en_vivo(monkeypatch):
 
         res2 = sync_structure(conn, _estructura_resync())
 
-        # 9 escritos (6 us + 3 mx), 3 saltados: padre movido, keyword con
+        # 9 escritos (6 us + 3 mx) + 2 configs (9001 cambio, 9002 nueva;
+        # 7001 igual no inserta), 3 saltados: padre movido, keyword con
         # keyword_text divergente (inmutable) y su hijo en cascada
         assert res2.ok is True
-        assert res2.rows_written == 9
+        assert res2.rows_written == 11
         assert res2.rows_skipped == 3
         assert res2.entidades_nuevas == 2  # campana 9002 + keyword 9203
 
@@ -1560,7 +1567,7 @@ def test_sync_y_resync_estructura_en_vivo(monkeypatch):
             "SELECT ok, rows_written, rows_skipped, skip_reason FROM ingest_run WHERE id = %s",
             (res2.run_id,),
         ).fetchone()
-        assert run2[0] is True and run2[1] == 9 and run2[2] == 3
+        assert run2[0] is True and run2[1] == 11 and run2[2] == 3
         # Regla 9: los rechazos por inmutabilidad quedan afirmados con motivo
         assert "ad group con parent_id distinto al existente (inmutable)" in run2[3]
         assert "keyword sin ad group escrito en esta corrida" in run2[3]
@@ -1731,6 +1738,7 @@ def test_product_ad_archivado_en_amazon_deja_de_figurar_vivo_en_el_cache():
         conn.execute(SQL4)
         conn.execute(_SQL17)  # BIDS 01 2.1: first_seen_at
         conn.execute(_SQL51)  # JEV ADS 02 S.1: acta de listado
+        conn.execute(_SQL61)  # BIDS 02 V.1: config de campana (el sync la escribe)
 
         # --- corrida 1: el anuncio esta vivo ---
         sync_structure(conn, _estructura_con_product_ad("ENABLED"))
@@ -1792,6 +1800,7 @@ def _db_acta(prefijo):
         conn.execute(SQL4)
         conn.execute(_SQL17)  # BIDS 01 2.1: first_seen_at
         conn.execute(_SQL51)  # JEV ADS 02 S.1: acta de listado
+        conn.execute(_SQL61)  # BIDS 02 V.1: config de campana (el sync la escribe)
         yield conn
     finally:
         if conn is not None:
@@ -1896,19 +1905,20 @@ def test_corrida_fallida_no_deja_acta(monkeypatch):
 )
 def test_acta_no_suma_a_rows_written_ni_cambia_entidades():
     """El acta no suma a rows_written ni cambia lo escrito en ad_entity y
-    ad_entity_state: la misma estructura de siempre da 9 escritos con el
-    mismo mapa de conteos, aunque el acta deje sus 5 filas aparte. Los
-    declarados ausentes quedan NULL."""
+    ad_entity_state: la misma estructura de siempre da 9 escritos de
+    entidades + 2 configs de campana (V.1) con el mismo mapa de conteos,
+    aunque el acta deje sus 5 filas aparte. Los declarados ausentes
+    quedan NULL."""
     with _db_acta("orbit_acta_conteo") as conn:
         res = sync_structure(conn, _estructura_sync1())
 
         assert res.ok is True
-        assert res.rows_written == 9
+        assert res.rows_written == 11
         assert res.rows_skipped == 2
         sellada = conn.execute(
             "SELECT rows_written, rows_skipped FROM ingest_run WHERE id = %s", (res.run_id,)
         ).fetchone()
-        assert sellada == (9, 2)
+        assert sellada == (11, 2)
         assert res.counts == {
             ("amazon_us", "campaign"): 1,
             ("amazon_us", "ad_group"): 2,
@@ -1927,6 +1937,117 @@ def test_acta_no_suma_a_rows_written_ni_cambia_entidades():
             " WHERE ad_groups_declarados IS NULL AND product_ads_declarados IS NULL"
         ).fetchone()[0]
         assert nulos == 2
+
+
+def _estructura_dos_campanas() -> EstructuraAds:
+    us, mx = _perfil_aceptado(101, "US"), _perfil_aceptado(202, "MX")
+    return EstructuraAds(
+        perfiles=[us, mx],
+        estructuras=[
+            EstructuraPerfil(
+                perfil=us,
+                campanas=[
+                    {
+                        "campaignId": "9001",
+                        "name": "Camp US Uno",
+                        "targetingType": "MANUAL",
+                        "state": "ENABLED",
+                        "budget": {"budget": 10.08, "budgetType": "DAILY"},
+                        "dynamicBidding": {
+                            "strategy": "LEGACY_FOR_SALES",
+                            "placementBidding": [
+                                {"percentage": 40, "placement": "PLACEMENT_PRODUCT_PAGE"}
+                            ],
+                        },
+                        "offAmazonSettings": {},
+                    }
+                ],
+                ad_groups=[],
+                keywords=[],
+                targets=[],
+            ),
+            EstructuraPerfil(
+                perfil=mx,
+                campanas=[
+                    {
+                        "campaignId": "7001",
+                        "name": "Camp MX Uno",
+                        "targetingType": "AUTO",
+                        "state": "ENABLED",
+                        "budget": {"budget": 200.0, "budgetType": "DAILY"},
+                    }
+                ],
+                ad_groups=[],
+                keywords=[],
+                targets=[],
+            ),
+        ],
+    )
+
+
+@pytest.mark.skipif(
+    not _DSN_EXPLICITO and not _hay_postgres_local(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_sync_guarda_config_y_vista_trae_cada_campana():
+    """BIDS 02 V.1: tras el sync, la vista trae por campana presupuesto,
+    moneda, estrategia, los tres ajustes y fuera_de_amazon; written suma
+    las 2 configs."""
+    with _db_acta("orbit_cfg_vista") as conn:
+        res = sync_structure(conn, _estructura_dos_campanas())
+
+        assert res.ok is True
+        assert res.rows_written == 4
+        assert res.rows_skipped == 0
+        filas = conn.execute(
+            "SELECT e.external_id, v.presupuesto_diario, v.presupuesto_moneda,"
+            " v.estrategia_puja, v.ajuste_top_pct, v.ajuste_resto_pct,"
+            " v.ajuste_producto_pct, v.fuera_de_amazon"
+            " FROM v_campana_config_vigente v JOIN ad_entity e ON e.id = v.ad_entity_id"
+            " ORDER BY e.external_id"
+        ).fetchall()
+        assert filas == [
+            ("7001", Decimal("200.0"), "MXN", None, None, None, None, None),
+            ("9001", Decimal("10.08"), "USD", "LEGACY_FOR_SALES", 0, 0, 40, None),
+        ]
+
+
+@pytest.mark.skipif(
+    not _DSN_EXPLICITO and not _hay_postgres_local(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_sync_config_ilegible_cuenta_skip_y_escribe_entidad():
+    """BIDS 02 V.1: campana con budget 0: su ad_entity se escribe y su
+    config se cuenta en skip_reason (no tumba el sync)."""
+    with _db_acta("orbit_cfg_skip") as conn:
+        estructura = _estructura_dos_campanas()
+        estructura.estructuras[0].campanas[0]["budget"] = {"budget": 0, "budgetType": "DAILY"}
+        res = sync_structure(conn, estructura)
+
+        assert res.ok is True
+        assert res.rows_skipped == 1
+        assert "1x config de campana ilegible" in res.skip_reason
+        assert _entidad(conn, "amazon_us", "campaign", "9001") is not None
+        assert (
+            conn.execute("SELECT count(*) FROM ads_campana_config_observation").fetchone()[0] == 1
+        )
+
+
+@pytest.mark.skipif(
+    not _DSN_EXPLICITO and not _hay_postgres_local(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_sync_campana_sin_id_cuenta_un_solo_skip_del_plan():
+    """BIDS 02 V.1: sin campaignId el plan ya la conto; el hook de config
+    no suma otro skip (una cosa mala = un skip)."""
+    with _db_acta("orbit_cfg_noid") as conn:
+        estructura = _estructura_dos_campanas()
+        del estructura.estructuras[0].campanas[0]["campaignId"]
+        res = sync_structure(conn, estructura)
+
+        assert res.ok is True
+        assert res.rows_skipped == 1
+        assert res.skip_reason == "1x campana sin campaignId"
 
 
 def test_migracion_0051_trae_candados_del_acta():
