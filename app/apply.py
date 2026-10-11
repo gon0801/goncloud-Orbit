@@ -2016,6 +2016,9 @@ _SQL_AJUSTE_POR_HUELLA_RECONCILIA = """
 SELECT id, confirmado_el IS NOT NULL, campana_id, clase, despues
   FROM campana_ajuste WHERE huella = %s
 """
+_SQL_CONFIRMADA_POR_ID = """
+SELECT confirmado_el IS NOT NULL FROM campana_ajuste WHERE id = %s
+"""
 
 
 class ConfirmacionInvalida(Exception):
@@ -2120,13 +2123,22 @@ def _config_leida(cliente: AdsWriteClient, plataforma: str, externa: str):
     return None
 
 
-def _aplica_y_confirma(conn, cliente, plataforma, clase, destino, *, ajuste_id) -> None:
-    """PUT de la config completa + readback + sello. El readback manda:
-    si lo leido no coincide en la clase, la fila queda sin confirmar
+def _aplica_y_confirma(conn, cliente, plataforma, clase, destino, *, ajuste_id, llave) -> None:
+    """PUT + readback + sello, serializado por acto (B9). Quien llama ya
+    commiteo la intencion; aqui se toma un candado advisory de
+    transaccion por `llave` y se re-lee la fila: si otro intento ya
+    confirmo, se vuelve sin PUT (un solo PUT por acto). El sello final
+    commitea (durable + libera el candado). El readback manda: si lo
+    leido no coincide en la clase, la fila queda sin confirmar
     (reintentable: el reintento reusa la pendiente)."""
     from app.ads.campana_config import cuerpo_put_campana, guarda_config
     from app.campana_ajustes import coincide_clase
 
+    conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (llave,))
+    ya = conn.execute(_SQL_CONFIRMADA_POR_ID, (ajuste_id,)).fetchone()
+    if ya is not None and ya[0]:
+        conn.rollback()
+        return
     cliente.ajustar_campana(
         destino.campana_externa,
         {k: v for k, v in cuerpo_put_campana(destino).items() if k != "campaignId"},
@@ -2141,6 +2153,7 @@ def _aplica_y_confirma(conn, cliente, plataforma, clase, destino, *, ajuste_id) 
     with conn.transaction():
         conn.execute(_SQL_CONFIRMA_AJUSTE, (ahora, ajuste_id))
         guarda_config(conn, plataforma, [leida], ahora)
+    conn.commit()
 
 
 def _sella_pendiente(conn, ajuste_id: int) -> None:
@@ -2232,7 +2245,13 @@ def aplica_ajuste_campana(
         ajuste_id = metida[0]
     conn.commit()
     _aplica_y_confirma(
-        conn, cliente, plan.plataforma, plan.clase, plan.despues, ajuste_id=ajuste_id
+        conn,
+        cliente,
+        plan.plataforma,
+        plan.clase,
+        plan.despues,
+        ajuste_id=ajuste_id,
+        llave=f"aplica:{huella_efectiva}",
     )
     return AjusteHecho(ajuste_id, plan.campana_id, plan.clase, True)
 
@@ -2342,7 +2361,9 @@ def regresa_ajuste_campana(conn, *, ajuste_id: int, actor: str, transport=None) 
         nuevo_id = metido[0]
     cliente = _cliente_ajuste(plataforma, transport=transport)
     conn.commit()
-    _aplica_y_confirma(conn, cliente, plataforma, clase, antes, ajuste_id=nuevo_id)
+    _aplica_y_confirma(
+        conn, cliente, plataforma, clase, antes, ajuste_id=nuevo_id, llave=f"regresa:{nuevo_id}"
+    )
     return AjusteHecho(nuevo_id, campana_id, clase, True)
 
 

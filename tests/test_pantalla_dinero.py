@@ -1448,3 +1448,11 @@ def test_pg_regresables_y_aviso_propio_en_fila_campana():
         assert (
             fila.aviso_ajuste == "Orbit movió el precio hace 2 días; espera al día 7 para juzgarlo."
         )
+
+
+def test_pantalla_dinero_aplicar_nace_deshabilitado():
+    """H1: el boton Aplicar nace disabled (sin pasar por la vista
+    previa no se puede enviar)."""
+    html = _html_dinero([_fila_ui()], por_campana=[_fila_camp_ui()])
+    assert html.count('<button type="submit" disabled>Aplicar</button>') == 3
+    assert '<button type="submit">Aplicar</button>' not in html

@@ -722,27 +722,25 @@ def test_huella_ajena_no_confirma_otra_campana(monkeypatch):
 
 @_skip_db
 def test_doble_aplica_simultaneo_no_explota_ni_duplica_acto(monkeypatch):
-    """Panel: dos hilos aplican el mismo plan a la vez: sin 500 ni
-    UniqueViolation escapada, y como maximo dos filas (acto + reintento)."""
+    """B9: dos hilos aplican el mismo plan a la vez con conexiones como
+    la ruta (sin autocommit): ambos confirman (reintentando el 409),
+    sale UN solo PUT y queda una sola fila."""
     import threading
 
-    with _db("orbit_aj_race") as conn:
+    with _db_dsn("orbit_aj_race") as (conn, dsn_db):
         camp, _cfg = _siembra(conn)
         _creds_fake(monkeypatch)
-        dsn = conn.execute("SELECT current_database()").fetchone()[0]
         remoto = {EXTERNA: {"budget": {"budget": 100.0, "budgetType": "DAILY"}}}
-        handler, _vistos = _handler_campanas(remoto)
+        handler, vistos = _handler_campanas(remoto)
         plan = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("120")))
         resultados: list = []
 
         def _corre():
-            import os
             import time
 
             import psycopg
 
-            base = os.environ["ORBIT_TEST_DSN"].rsplit("/", 1)[0]
-            hilo_conn = psycopg.connect(f"{base}/{dsn}", autocommit=True)
+            hilo_conn = psycopg.connect(dsn_db)
             try:
                 import app.apply as ap
 
@@ -756,13 +754,14 @@ def test_doble_aplica_simultaneo_no_explota_ni_duplica_acto(monkeypatch):
                             actor="dueno",
                             transport=httpx.MockTransport(handler),
                         )
-                        resultados.append(("ok", hecho.confirmada))
+                        resultados.append(("ok", hecho.confirmada, hecho.ajuste_id))
                         return
                     except ap.AjusteEnCurso:
+                        hilo_conn.rollback()
                         time.sleep(0.05)
-                resultados.append(("error", "reintentos agotados"))
+                resultados.append(("error", "reintentos agotados", None))
             except Exception as exc:  # noqa: BLE001 - el test clasifica
-                resultados.append(("error", type(exc).__name__))
+                resultados.append(("error", type(exc).__name__, None))
             finally:
                 hilo_conn.close()
 
@@ -772,13 +771,75 @@ def test_doble_aplica_simultaneo_no_explota_ni_duplica_acto(monkeypatch):
         for h in hilos:
             h.join(timeout=60)
         assert len(resultados) == 2
-        for estado, _detalle in resultados:
+        for estado, _detalle, _aid in resultados:
             assert estado == "ok", resultados
-        assert all(detalle is True for _, detalle in resultados)
-        filas = conn.execute(
-            "SELECT count(*) FROM campana_ajuste WHERE huella LIKE %s", (plan.huella() + "%",)
-        ).fetchone()[0]
-        assert filas <= 2, resultados
+        assert all(detalle is True for _, detalle, _aid in resultados)
+        assert resultados[0][2] == resultados[1][2]
+        assert len(_puts(vistos)) == 1, resultados
+        filas = conn.execute("SELECT count(*) FROM campana_ajuste").fetchone()[0]
+        assert filas == 1, resultados
+
+
+@_skip_db
+def test_carrera_insert_mismo_instante_pierde_con_409(monkeypatch):
+    """B9/M15: los dos hilos pasan el SELECT sin ver fila e insertan a
+    la vez (barrera en profiles, entre el SELECT y el INSERT): el
+    perdedor recibe AjusteEnCurso (409), nunca un hecho confirmada
+    sobre la fila pendiente del ganador; UN solo PUT."""
+    import threading
+
+    with _db_dsn("orbit_aj_m15") as (conn, dsn_db):
+        camp, _cfg = _siembra(conn)
+        _creds_fake(monkeypatch)
+        remoto = {EXTERNA: {"budget": {"budget": 100.0, "budgetType": "DAILY"}}}
+        base, vistos = _handler_campanas(remoto)
+        plan = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("120")))
+        barrera = threading.Barrier(2, timeout=30)
+        suelta_put = threading.Event()
+        resultados: list = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.method == "GET" and request.url.path == "/v2/profiles":
+                barrera.wait()
+            if request.method == "PUT":
+                assert suelta_put.wait(timeout=30), "el PUT quedo bloqueado"
+            return base(request)
+
+        def _corre():
+            import psycopg
+
+            hilo_conn = psycopg.connect(dsn_db)
+            try:
+                import app.apply as ap
+
+                hecho = ap.aplica_ajuste_campana(
+                    hilo_conn,
+                    plan,
+                    huella=plan.huella(),
+                    confirmacion="APLICAR AJUSTE",
+                    actor="dueno",
+                    transport=httpx.MockTransport(handler),
+                )
+                resultados.append(("ok", hecho.confirmada))
+            except Exception as exc:  # noqa: BLE001 - el test clasifica
+                resultados.append(("error", type(exc).__name__))
+            finally:
+                hilo_conn.close()
+
+        hilos = [threading.Thread(target=_corre) for _ in range(2)]
+        for h in hilos:
+            h.start()
+        import time as _time
+
+        limite = _time.monotonic() + 20
+        while len(resultados) < 1 and _time.monotonic() < limite:
+            _time.sleep(0.05)
+        assert resultados == [("error", "AjusteEnCurso")], resultados
+        suelta_put.set()
+        for h in hilos:
+            h.join(timeout=60)
+        assert sorted(resultados) == [("error", "AjusteEnCurso"), ("ok", True)], resultados
+        assert len(_puts(vistos)) == 1, resultados
 
 
 @_skip_db

@@ -38,7 +38,9 @@ function verPlan(form) {
       }
       frase.textContent = r.data.frase;
       form.dataset.huella = r.data.huella;
-      aplicar.disabled = false;
+      if (!form.dataset.enviando) {
+        aplicar.disabled = false;
+      }
       estado.textContent = "";
     })
     .catch(function () {
@@ -56,6 +58,10 @@ function aplicar(form) {
     estado.textContent = "Escribe APLICAR AJUSTE para confirmar.";
     return;
   }
+  if (form.dataset.enviando) {
+    return;
+  }
+  form.dataset.enviando = "1";
   var aplicarBtn = form.querySelector('button[type="submit"]');
   aplicarBtn.disabled = true;
   estado.textContent = "Enviando…";
@@ -98,11 +104,18 @@ function aplicar(form) {
     .catch(function () {
       estado.textContent = "Error de red al aplicar.";
       aplicarBtn.disabled = false;
+    })
+    .finally(function () {
+      delete form.dataset.enviando;
     });
 }
 
 function regresar(form) {
   var estado = form.querySelector("[data-estado]");
+  if (form.dataset.enviando) {
+    return;
+  }
+  form.dataset.enviando = "1";
   var boton = form.querySelector('button[type="submit"]');
   boton.disabled = true;
   estado.textContent = "Enviando…";
@@ -130,6 +143,9 @@ function regresar(form) {
     .catch(function () {
       estado.textContent = "Error de red al regresar.";
       boton.disabled = false;
+    })
+    .finally(function () {
+      delete form.dataset.enviando;
     });
 }
 
