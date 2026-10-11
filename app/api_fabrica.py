@@ -403,7 +403,7 @@ class SolicitudImpulsoPlan(_Cuerpo):
             monto = Decimal(valor)
         except ArithmeticError:
             raise ValueError("tope fuera del rango permitido") from None
-        if not monto.is_finite() or monto <= 0:
+        if not monto.is_finite() or monto < Decimal("0.0001") or monto > Decimal("9999999999.9999"):
             raise ValueError("tope fuera del rango permitido")
         return valor
 

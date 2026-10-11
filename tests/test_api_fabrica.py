@@ -1567,6 +1567,26 @@ def test_i5_plan_tope_no_numerico_422(escenario, monkeypatch):
     assert r.status_code == 422, r.text
 
 
+def test_i5_plan_tope_fuera_de_rango_422(escenario, monkeypatch):
+    """R09-r2 B-9: tope que redondea a cero o desborda money_amount
+    (NUMERIC 14,4) da 422 en el contrato, no 500 en el INSERT."""
+    cliente, conn, _, _, ids = escenario
+    _db_i5(conn)
+    _sugeridor_fijo_i5(monkeypatch)
+    lid = _lid_de(conn, ids[0])
+    for tope in ("0.00001", "99999999999999"):
+        r = cliente.post(
+            "/api/fabrica/impulso/plan",
+            json={
+                "plataforma": "amazon_mx",
+                "listing_ids": [lid],
+                "subfamilia_por_listing": {str(lid): "aros"},
+                "tope_monto": tope,
+            },
+        )
+        assert r.status_code == 422, (tope, r.text)
+
+
 def test_i5_lanzar_huella_vieja_409_con_vista_nueva(escenario, monkeypatch):
     """I.5: lanzar con huella vieja responde 409, el detalle trae la
     vista previa nueva y no crea ningun lote."""
