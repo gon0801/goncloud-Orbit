@@ -61,6 +61,38 @@
 </div>
 
 <div class="tarjeta">
+  <h3>Retiros abiertos <span class="chip">{{ retiros_abiertos | length }}</span></h3>
+  <p class="mutado">Anuncios retirados sin impulso (motivos sin_pedidos y subfamilia) que aún no regresan.</p>
+  {% if retiros_abiertos %}
+  <table>
+    <thead><tr><th>Motivo</th><th>Anuncio</th><th>SKU</th><th>Retirado (UTC)</th><th></th></tr></thead>
+    <tbody>
+      {% for r in retiros_abiertos %}
+      <tr>
+        <td>{{ r.motivo }}</td>
+        <td>{{ r.ad_id_externo }}</td>
+        <td>{{ r.sku }}</td>
+        <td>{{ r.retirado_el }}</td>
+        <td>
+    <form data-reponer data-retiros="{{ r.retiro_id }}" data-esperada="REGRESAR 1 ANUNCIOS">
+      <p>Escribe <code>REGRESAR 1 ANUNCIOS</code> para confirmar.</p>
+      <label>Confirmación <input type="text" name="confirmacion" maxlength="60" placeholder="REGRESAR 1 ANUNCIOS" required></label>
+      <label>Actor <input type="text" name="actor" maxlength="100" placeholder="quien regresa" required></label>
+      <label>Token <input type="password" name="token" placeholder="x-orbit-token" required></label>
+      <button type="submit">Regresarlo a sus grupos de antes</button>
+      <span data-estado class="mutado"></span>
+    </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p>Sin retiros abiertos.</p>
+  {% endif %}
+</div>
+
+<div class="tarjeta">
   <h3>Sin un pedido en 11 meses <span class="chip">{{ sin_pedido | length }}</span></h3>
   {% if sin_pedido %}
   <table>

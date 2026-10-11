@@ -149,8 +149,9 @@ def test_impulso_en_curso_trae_dia_y_veredicto():
     with _db_p4("orbit_p4_imp") as conn:
         pid, lid = _con_margen(conn)
         ids = _impulso_vivo(conn, pid=pid, lid=lid, lanzado=HOY - dt.timedelta(days=5))
-        _observa(conn, ids["camps"][0], HOY - dt.timedelta(days=1))
-        _observa(conn, ids["camps"][1], HOY - dt.timedelta(days=1))
+        for k in range(5, 0, -1):  # 5 dias con dato (B3: el dia sigue al dato)
+            _observa(conn, ids["camps"][0], HOY - dt.timedelta(days=k))
+            _observa(conn, ids["camps"][1], HOY - dt.timedelta(days=k))
         from app import impulso_io as io
 
         class _Pausa:
@@ -167,7 +168,7 @@ def test_impulso_en_curso_trae_dia_y_veredicto():
         por_id = {i.impulso_id: i for i in pantalla.impulsos}
         visto = por_id[ids["impulso"]]
         assert visto.dia == 6
-        assert (visto.impresiones, visto.clics, visto.pedidos) == (200, 10, 0)
+        assert (visto.impresiones, visto.clics, visto.pedidos) == (1000, 50, 0)
         assert visto.veredicto == "en_curso"
         assert visto.frase.startswith("Día 6 de 14")
         assert "sigue aprendiendo" in visto.frase
@@ -250,3 +251,37 @@ def test_frases_puras():
     assert pp.frase_final("clics_sin_ventas") == "Recibió clics y no vendió. Orbit lo pausó."
     assert pp.frase_fuera_de_amazon(3, 14) == "3 de sus 14 clics vinieron de fuera de Amazon."
     assert pp.frase_fuera_de_amazon(None, 14) is None
+
+
+def _retiro_abierto(conn, pa, ad, motivo):
+    return conn.execute(
+        "INSERT INTO anuncio_retiro (platform, motivo, modo, lote_retiro, impulso_id,"
+        " ad_entity_id, ad_id_externo, ad_group_externo, campana_externa, sku, asin,"
+        " reversa, retirado_el, actor) VALUES ('amazon_mx', %s, 'pausa', 'lote-r8', NULL,"
+        " %s, %s, 'ag-8', 'c-8', 'SS-8', 'B0XXXXXXXX', 'adGroupId=1', now(), 'dueno')"
+        " RETURNING id",
+        (motivo, pa, ad),
+    ).fetchone()[0]
+
+
+@_skip_db
+def test_retiros_abiertos_sin_impulso_aparecen():
+    """R09 B8: retiros abiertos sin impulso (sin_pedidos/subfamilia) salen
+    en retiros_abiertos; al reponer desaparecen."""
+    with _db_p4("orbit_p4_r8") as conn:
+        _pid, lid = _producto(conn, sku="SS-8", asin="B0XXXXXXXX", seller_sku="SS-8")
+        pa = _activa(conn, lid, "ad-8")
+        rid = _retiro_abierto(conn, pa, "ad-8", "sin_pedidos")
+        conn.commit()
+        pantalla = pp.lee_productos(conn, "amazon_mx", HOY)
+        assert [(r.retiro_id, r.motivo, r.ad_id_externo) for r in pantalla.retiros_abiertos] == [
+            (rid, "sin_pedidos", "ad-8")
+        ]
+        assert pantalla.como_dict()["retiros_abiertos"][0]["retiro_id"] == rid
+        conn.execute(
+            "INSERT INTO anuncio_reposicion (retiro_id, ad_id_nuevo, estado_nuevo,"
+            " repuesto_el, actor) VALUES (%s, 'ad-8', 'ENABLED', now(), 'dueno')",
+            (rid,),
+        )
+        conn.commit()
+        assert pp.lee_productos(conn, "amazon_mx", HOY).retiros_abiertos == ()

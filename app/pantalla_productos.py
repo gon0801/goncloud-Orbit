@@ -102,11 +102,30 @@ class ImpulsoVisto:
 
 
 @dataclass(frozen=True)
+class RetiroAbiertoVisto:
+    retiro_id: int
+    motivo: str
+    ad_id_externo: str
+    sku: str
+    retirado_el: str
+
+    def como_dict(self) -> dict:
+        return {
+            "retiro_id": self.retiro_id,
+            "motivo": self.motivo,
+            "ad_id_externo": self.ad_id_externo,
+            "sku": self.sku,
+            "retirado_el": self.retirado_el,
+        }
+
+
+@dataclass(frozen=True)
 class PantallaProductos:
     candidatos: tuple[ProductoCandidato, ...]
     impulsos: tuple[ImpulsoVisto, ...]
     sin_pedido: tuple[ProductoSinPedido, ...]
     anuncios_sin_producto: int
+    retiros_abiertos: tuple[RetiroAbiertoVisto, ...] = ()
 
     def como_dict(self) -> dict:
         return {
@@ -114,6 +133,7 @@ class PantallaProductos:
             "impulsos": [i.como_dict() for i in self.impulsos],
             "sin_pedido": [s.como_dict() for s in self.sin_pedido],
             "anuncios_sin_producto": self.anuncios_sin_producto,
+            "retiros_abiertos": [r.como_dict() for r in self.retiros_abiertos],
         }
 
 
@@ -267,9 +287,18 @@ SELECT r.impulso_id, array_agg(r.id ORDER BY r.id)
  GROUP BY r.impulso_id
 """
 
+_SQL_RETIROS_ABIERTOS_SUELTOS = """
+SELECT r.id, r.motivo, r.ad_id_externo, r.sku,
+       to_char(r.retirado_el AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI')
+  FROM anuncio_retiro r
+ WHERE r.platform = %s AND r.impulso_id IS NULL
+   AND NOT EXISTS (SELECT 1 FROM anuncio_reposicion p WHERE p.retiro_id = r.id)
+ ORDER BY r.id
+"""
+
 
 def lee_productos(conn, plataforma: str, hoy: dt.date) -> PantallaProductos:
-    """Las tres secciones de /productos-sin-clics, solo SELECT."""
+    """Las secciones de /productos-sin-clics, solo SELECT."""
     candidatos = tuple(
         ProductoCandidato(
             f[0],
@@ -370,10 +399,15 @@ def lee_productos(conn, plataforma: str, hoy: dt.date) -> PantallaProductos:
                 retiro_ids=abiertos.get(iid, ()),
             )
         )
+    sueltos = tuple(
+        RetiroAbiertoVisto(f[0], f[1], f[2], f[3] or "", f[4])
+        for f in conn.execute(_SQL_RETIROS_ABIERTOS_SUELTOS, (plataforma,)).fetchall()
+    )
     conn.commit()
     return PantallaProductos(
         candidatos=candidatos,
         impulsos=tuple(impulsos),
         sin_pedido=sin_pedido,
         anuncios_sin_producto=sin_producto,
+        retiros_abiertos=sueltos,
     )
