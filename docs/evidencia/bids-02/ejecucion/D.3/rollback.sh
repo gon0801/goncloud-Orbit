@@ -3,9 +3,10 @@
 # predeploy-<sello> y aplica las reversas de aplicadas-<sello>.txt en
 # orden inverso. Patron: docs/evidencia/bids-02/ejecucion/D.2/rollback.sh.
 # D.3 no toca el cron: no hay nada que quitar ni restaurar.
-# La reversa dropea campana_ajuste con sus filas: un ajuste confirmado
-# vive tambien en Amazon y en la observacion de configuracion que sello
-# el readback (re-derivable), y el codigo anterior no lee la tabla.
+# Con filas en campana_ajuste la reversa ABORTA antes del DROP (B7):
+# actor, huella y config de antes no viven en otro lado (un ajuste
+# confirmado sigue aplicado en Amazon y sin fila se pierde el boton
+# de regreso). Solo reversa la tabla vacia o inexistente.
 # En simulacion (ORBIT_SIMULACION=1) la base es ORBIT_SIM_DSN, el respaldo
 # y aplicadas-<sello>.txt viven en ${TMPDIR:-/tmp}/orbit-d3-sim y el codigo
 # no se restaura a ningun servidor (no hay).
@@ -82,6 +83,16 @@ else
   [ "$RC" = "0" ] || { echo "ABORTA: hay $RC ciclo(s) en running"; exit 1; }
 fi
 
+echo "== 0c) Ajustes del dueno: con filas, abortar antes del DROP (B7)"
+EXISTE67=$(echo "SELECT to_regclass('public.campana_ajuste') IS NOT NULL;" | q)
+if [ "$EXISTE67" = "t" ]; then
+  N67=$(echo "SELECT count(*) FROM campana_ajuste;" | q)
+  [ "$N67" = "0" ] || { echo "ABORTA: hay $N67 ajuste(s) en campana_ajuste; la reversa los borraria (actor, huella y config de antes no viven en otro lado). Respalda o regresa antes de reversar."; exit 1; }
+  echo "campana_ajuste vacia: la reversa puede borrarla"
+else
+  echo "campana_ajuste no existe: nada que cuidar"
+fi
+
 echo "== 1) Restaurar codigo de predeploy-$STAMP (D.3 no toco el cron: nada que quitar)"
 if [ "$SIM" = 1 ]; then
   echo "SIMULACION: respaldo $PRE presente; sin servidor, nada que reconstruir"
@@ -112,4 +123,8 @@ echo "campana_ajuste=$TABLA67"
 case " $REVS " in
   *"0067_reversa_"*) [ "$TABLA67" = "f" ] || { echo "FALLA: campana_ajuste sigue"; exit 1; } ;;
 esac
-echo "== REVERSA LISTA. campana_ajuste se fue con sus filas (re-derivables: viven en Amazon y en la observacion que sello el readback); el codigo anterior no lee la tabla."
+if [ "$TABLA67" = "t" ]; then
+  echo "== REVERSA LISTA (parcial: campana_ajuste sigue porque este sello no la aplico; la deja otro despliegue)."
+else
+  echo "== REVERSA LISTA. campana_ajuste se fue vacia (con filas, el paso 0c aborta antes del DROP); el codigo anterior no lee la tabla."
+fi

@@ -8,10 +8,12 @@
 # botones se verifican contra lo que ya dejo D.2 (config vigente y campanas
 # ENABLED). En simulacion (ORBIT_SIMULACION=1) la base es ORBIT_SIM_DSN y el
 # HTTP es ORBIT_SIM_API: no hay ssh.
-# Comprueba (guia D.3): /health en 200; campana_ajuste existe y esta vacia;
-# la vista previa de un ajuste (clase de CLASES_SELLADAS, campana ENABLED)
-# responde 200 y deja el conteo en 0; /donde-poner-el-dinero en 200 en MX y
-# US con un boton data-ajuste-clase por cada clase sellada; imprime si
+# Comprueba (guia D.3): /health en 200; campana_ajuste existe (puede
+# traer ajustes legitimos del dueno: no se exige vacia, B7/K2); la vista
+# previa de un ajuste (clase de CLASES_SELLADAS, campana ENABLED)
+# responde 200 y no escribe (conteo despues igual al de antes);
+# /donde-poner-el-dinero en 200 en MX y US con un boton
+# data-ajuste-clase por cada clase sellada; imprime si
 # MUTATION_REQUEST_TYPES trae PUT /sp/campaigns.
 # Uso: bash docs/evidencia/bids-02/ejecucion/D.3/checklist.sh <STAMP> > checklist-salida.txt; echo "exit=$?"
 set -uo pipefail
@@ -85,11 +87,15 @@ echo "== Checklist D.3 (solo lectura; sello $SELLO)"
 echo "== 1) HTTP: /health"
 revisa "GET /health" 200 "$(http /health)"
 
-echo "== 2) Esquema de D.3: campana_ajuste existe y esta vacia"
+echo "== 2) Esquema de D.3: campana_ajuste existe (el dueno ya pudo ajustar)"
 revisa "tabla campana_ajuste" t \
   "$(echo "SELECT to_regclass('public.campana_ajuste') IS NOT NULL;" | lee || true)"
-revisa "campana_ajuste vacia antes" 0 \
-  "$(echo 'SELECT count(*) FROM campana_ajuste;' | lee || true)"
+ANTES67="$(echo 'SELECT count(*) FROM campana_ajuste;' | lee || true)"
+if [ -z "$ANTES67" ]; then
+  echo "NO MEDIDO campana_ajuste antes (lectura vacia)"; NOMEDIDO=$((NOMEDIDO + 1))
+else
+  echo "OK    campana_ajuste antes = $ANTES67"
+fi
 
 echo "== 3) Vista previa de un ajuste sellado sobre una campana ENABLED (no escribe)"
 CAMP=$(echo "SELECT c.id FROM ad_entity c JOIN ad_entity_state s ON s.ad_entity_id = c.id AND s.status = 'ENABLED' JOIN v_campana_config_vigente v ON v.ad_entity_id = c.id WHERE c.kind = 'campaign' ORDER BY c.id LIMIT 1;" | lee || true)
@@ -103,8 +109,12 @@ else
   else
     revisa "GET campana-ajuste/plan" 200 \
       "$(http "/api/ads-optimizer/campana-ajuste/plan?campana_id=$CAMP&clase=presupuesto&presupuesto=$MONTO")"
-    revisa "campana_ajuste vacia despues" 0 \
-      "$(echo 'SELECT count(*) FROM campana_ajuste;' | lee || true)"
+    if [ -z "$ANTES67" ]; then
+      echo "NO MEDIDO campana_ajuste despues (no hubo conteo antes)"; NOMEDIDO=$((NOMEDIDO + 1))
+    else
+      revisa "campana_ajuste sin escrituras de la vista previa" "$ANTES67" \
+        "$(echo 'SELECT count(*) FROM campana_ajuste;' | lee || true)"
+    fi
   fi
 fi
 
