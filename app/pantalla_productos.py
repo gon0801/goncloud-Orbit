@@ -155,9 +155,10 @@ def frase_en_curso(
     tope: Decimal,
     moneda: str,
     pedidos: int | None,
+    pausado: bool = False,
 ) -> str:
     """Día 6 de 14 · 1,840 impresiones · 14 clics · 48 de 350 MXN ·
-    sin pedidos · sigue aprendiendo."""
+    sin pedidos · sigue aprendiendo (o 'pausado a mano' si se pausó)."""
     impr = f"{_num(impresiones)} impresiones" if impresiones is not None else "— impresiones"
     cli = f"{_num(clics)} clics" if clics is not None else "— clics"
     gas = _num(gasto) if gasto is not None else "—"
@@ -169,9 +170,9 @@ def frase_en_curso(
         ped = "1 pedido"
     else:
         ped = f"{_num(pedidos)} pedidos"
+    cola = "pausado a mano" if pausado else "sigue aprendiendo"
     return (
-        f"Día {dia} de {plazo} · {impr} · {cli} · {gas} de {_num(tope)} {moneda}"
-        f" · {ped} · sigue aprendiendo"
+        f"Día {dia} de {plazo} · {impr} · {cli} · {gas} de {_num(tope)} {moneda} · {ped} · {cola}"
     )
 
 
@@ -361,18 +362,24 @@ def lee_productos(conn, plataforma: str, hoy: dt.date) -> PantallaProductos:
             veredicto,
         ) = f
         tope_d = Decimal(tope)
+        dia_n = None if dias is None else min(int(dias) + 1, int(plazo))
+        cli_n = None if cli is None else int(cli)
+        fue = fuera.get(iid)
+        if fue is not None and cli_n is not None:
+            fue = min(fue, cli_n)
         if veredicto is None:
             frase = "Aún sin lectura."
         elif veredicto == "en_curso":
             frase = frase_en_curso(
-                dia=int(dias) + 1,
+                dia=dia_n,
                 plazo=int(plazo),
                 impresiones=None if impr is None else int(impr),
-                clics=None if cli is None else int(cli),
+                clics=cli_n,
                 gasto=None if gasto is None else Decimal(gasto),
                 tope=tope_d,
                 moneda=moneda,
                 pedidos=None if ped is None else int(ped),
+                pausado=estado == "pausado",
             )
         else:
             frase = frase_final(veredicto)
@@ -387,15 +394,15 @@ def lee_productos(conn, plataforma: str, hoy: dt.date) -> PantallaProductos:
                 estado_lote=estado,
                 moneda=moneda,
                 tope_monto=str(tope_d),
-                dia=None if dias is None else int(dias) + 1,
+                dia=dia_n,
                 plazo_dias=int(plazo),
                 impresiones=None if impr is None else int(impr),
-                clics=None if cli is None else int(cli),
+                clics=cli_n,
                 gasto=None if gasto is None else str(Decimal(gasto)),
                 pedidos=None if ped is None else int(ped),
                 veredicto=veredicto,
                 frase=frase,
-                clics_fuera_de_amazon=fuera.get(iid),
+                clics_fuera_de_amazon=fue,
                 retiro_ids=abiertos.get(iid, ()),
             )
         )

@@ -285,3 +285,97 @@ def test_retiros_abiertos_sin_impulso_aparecen():
         )
         conn.commit()
         assert pp.lee_productos(conn, "amazon_mx", HOY).retiros_abiertos == ()
+
+
+def _lectura_p4(
+    conn,
+    imp,
+    corte,
+    *,
+    dias,
+    impr,
+    clics,
+    gasto="10",
+    pedidos=0,
+    veredicto="en_curso",
+    final=False,
+    hecho="nada",
+):
+    conn.execute(
+        "INSERT INTO impulso_lectura (impulso_id, corte, leido_el, dias_observados,"
+        " impresiones, clics, gasto, pedidos, veredicto, es_final, hecho)"
+        " VALUES (%s, %s, now(), %s, %s, %s, %s, %s, %s, %s, %s)",
+        (imp, corte, dias, impr, clics, gasto, pedidos, veredicto, final, hecho),
+    )
+
+
+@_skip_db
+def test_p4_clics_fuera_no_superan_clics():
+    """R09 B10 (n2): placement sin tope vs acumulado de la ultima lectura:
+    los de fuera se capan a los del impulso."""
+    from test_impulso_io import _impulso_vivo
+
+    with _db_p4("orbit_p4_r10a") as conn:
+        pid, lid = _con_margen(conn)
+        ids = _impulso_vivo(conn, pid=pid, lid=lid, lanzado=HOY - dt.timedelta(days=30))
+        _lectura_p4(
+            conn,
+            ids["impulso"],
+            HOY - dt.timedelta(days=20),
+            dias=10,
+            impr=900,
+            clics=14,
+            pedidos=1,
+            veredicto="vende",
+            final=True,
+            hecho="graduado",
+        )
+        for d in range(1, 26):
+            conn.execute(
+                "INSERT INTO ads_placement_observation (platform, ad_entity_id, placement,"
+                " metric_date, observed_at, metric_currency, impressions, clicks,"
+                " source_report_id) VALUES ('amazon_mx', %s, 'fuera_de_amazon', %s, now(),"
+                " 'MXN', 50, 2, 'r10')",
+                (ids["camps"][1], HOY - dt.timedelta(days=d)),
+            )
+        conn.commit()
+        visto = pp.lee_productos(conn, "amazon_mx", HOY).impulsos[0]
+        assert visto.clics_fuera_de_amazon <= visto.clics
+
+
+@_skip_db
+def test_p4_pausado_a_mano_no_dice_sigue_aprendiendo():
+    """R09 B10 (n3): lote pausado sin lectura final: la frase no dice
+    'sigue aprendiendo'."""
+    from test_impulso_io import _impulso_vivo
+
+    with _db_p4("orbit_p4_r10b") as conn:
+        pid, lid = _con_margen(conn)
+        ids = _impulso_vivo(conn, pid=pid, lid=lid, lanzado=HOY - dt.timedelta(days=5))
+        _lectura_p4(conn, ids["impulso"], HOY - dt.timedelta(days=1), dias=5, impr=200, clics=3)
+        conn.execute("UPDATE fabrica_lote SET estado = 'pausado' WHERE lote = %s", (ids["lote"],))
+        conn.commit()
+        visto = pp.lee_productos(conn, "amazon_mx", HOY).impulsos[0]
+        assert "sigue aprendiendo" not in visto.frase
+
+
+@_skip_db
+def test_p4_dia_no_pasa_del_plazo():
+    """R09 B10 (n4): en_curso con dias mas alla del plazo: el dia se capa."""
+    from test_impulso_io import _impulso_vivo
+
+    with _db_p4("orbit_p4_r10c") as conn:
+        pid, lid = _con_margen(conn)
+        ids = _impulso_vivo(conn, pid=pid, lid=lid, lanzado=HOY - dt.timedelta(days=19))
+        _lectura_p4(
+            conn,
+            ids["impulso"],
+            HOY - dt.timedelta(days=1),
+            dias=19,
+            impr=5000,
+            clics=40,
+            gasto="120",
+        )
+        conn.commit()
+        visto = pp.lee_productos(conn, "amazon_mx", HOY).impulsos[0]
+        assert visto.dia <= visto.plazo_dias, visto.frase
