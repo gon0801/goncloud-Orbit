@@ -389,6 +389,10 @@ def lanza(
     falla no detiene a los demas."""
     if not solicitud.listing_ids:
         raise ErrorImpulso(422, "impulso sin productos: listing_ids vacio")
+    if not actor or not actor.strip():
+        raise ErrorImpulso(422, "lanzar exige actor")
+    if "\x00" in actor:
+        raise ErrorImpulso(422, "actor con NUL")
     vista = previsualiza(conn, solicitud, sugeridor=sugeridor, hoy=hoy)
     if not vista.planes:
         raise ErrorImpulso(422, "nada lanzable: revisa no_lanzables")
@@ -398,8 +402,6 @@ def lanza(
         raise ErrorImpulso(
             422, f"confirmacion distinta: se esperaba {vista.confirmacion_esperada!r}"
         )
-    if not actor or not actor.strip():
-        raise ErrorImpulso(422, "lanzar exige actor")
     lanzados: list[ImpulsoLanzado] = []
     fallos: dict[int, str] = {}
     for plan in vista.planes:

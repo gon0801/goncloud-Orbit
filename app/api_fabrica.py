@@ -365,6 +365,18 @@ def operar(
 MotivoRetiro = Literal["impulso", "sin_pedidos", "subfamilia"]
 Subfamilia = Annotated[str, Field(min_length=1, max_length=60, pattern=r"^[a-z0-9_]+$")]
 Actor = Annotated[str, Field(min_length=1, max_length=100)]
+
+
+def _actor_limpio(valor: str) -> str:
+    """Actor 1..100 sin NUL (Postgres lo rechaza en text): se valida en
+    el borde, antes de mutar nada."""
+    if "\x00" in valor:
+        raise ValueError("actor con NUL")
+    if not valor.strip():
+        raise ValueError("actor vacio")
+    return valor.strip()
+
+
 Huella = Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]
 Listings = Annotated[list[Identificador], Field(min_length=1, max_length=100)]
 
@@ -428,9 +440,7 @@ class CuerpoLanzarImpulso(_Cuerpo):
     @field_validator("actor")
     @classmethod
     def actor_no_vacio(cls, valor):
-        if not valor.strip():
-            raise ValueError("actor vacio")
-        return valor.strip()
+        return _actor_limpio(valor)
 
 
 class CuerpoPausarImpulso(_Cuerpo):
@@ -470,9 +480,7 @@ class CuerpoRetiroEjecutar(_Cuerpo):
     @field_validator("actor")
     @classmethod
     def actor_no_vacio(cls, valor):
-        if not valor.strip():
-            raise ValueError("actor vacio")
-        return valor.strip()
+        return _actor_limpio(valor)
 
 
 class CuerpoRetiroReponer(_Cuerpo):
@@ -490,9 +498,7 @@ class CuerpoRetiroReponer(_Cuerpo):
     @field_validator("actor")
     @classmethod
     def actor_no_vacio(cls, valor):
-        if not valor.strip():
-            raise ValueError("actor vacio")
-        return valor.strip()
+        return _actor_limpio(valor)
 
 
 def _sugeridor_plataforma(plataforma: str, moneda: str):

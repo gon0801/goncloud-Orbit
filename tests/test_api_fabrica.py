@@ -1792,3 +1792,32 @@ def test_i5_reponer_multiplataforma_422_sin_tocar_amazon(escenario, monkeypatch)
         json={"retiro_ids": rids, "confirmacion": "REGRESAR 2 ANUNCIOS", "actor": "dueno"},
     )
     assert r.status_code == 422, r.text
+
+
+def test_i5_lanzar_actor_con_nul_422_sin_mutar(escenario, monkeypatch):
+    """R09 B2 (v11): actor con NUL se rechaza con 422 ANTES de crear
+    campanas: la fabrica no corre y no queda lote."""
+    cliente, conn, _, _, ids = escenario
+    _db_i5(conn)
+    _sugeridor_fijo_i5(monkeypatch)
+    _ejecutor_siembra_i5(monkeypatch, conn)
+    lid = _lid_de(conn, ids[0])
+    sol = {
+        "plataforma": "amazon_mx",
+        "listing_ids": [lid],
+        "subfamilia_por_listing": {str(lid): "aros"},
+    }
+    vista = cliente.post("/api/fabrica/impulso/plan", json=sol).json()
+    r = cliente.post(
+        "/api/fabrica/impulso/lanzar",
+        headers=HEADERS,
+        json={
+            "solicitud": sol,
+            "huella": vista["huella"],
+            "confirmacion": vista["confirmacion_esperada"],
+            "actor": "due\x00no",
+        },
+    )
+    assert r.status_code == 422, r.text
+    assert conn.execute("SELECT count(*) FROM fabrica_lote").fetchone()[0] == 0
+    assert conn.execute("SELECT count(*) FROM impulso").fetchone()[0] == 0
