@@ -42,12 +42,14 @@ def _db_i4(prefijo):
     return _Db()
 
 
-def _bolsa(conn, lid, external, *, camp="c-vieja", ag="ag-vieja", estado="ENABLED"):
+def _bolsa(
+    conn, lid, external, *, camp="c-vieja", ag="ag-vieja", estado="ENABLED", platform="amazon_mx"
+):
     """Campana + ad group + product ad con listing y estado; devuelve
     (camp_id, ag_id, pa_id)."""
-    camp_id = _entidad(conn, "amazon_mx", "campaign", camp)
-    ag_id = _entidad(conn, "amazon_mx", "ad_group", ag, parent=camp_id)
-    pa_id = _entidad(conn, "amazon_mx", "product_ad", external, parent=ag_id, listing_id=lid)
+    camp_id = _entidad(conn, platform, "campaign", camp)
+    ag_id = _entidad(conn, platform, "ad_group", ag, parent=camp_id)
+    pa_id = _entidad(conn, platform, "product_ad", external, parent=ag_id, listing_id=lid)
     conn.execute(
         "INSERT INTO ad_entity_state (ad_entity_id, status, synced_at) VALUES (%s, %s, now())",
         (pa_id, estado),

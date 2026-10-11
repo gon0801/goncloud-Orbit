@@ -631,14 +631,17 @@ def vigila(
     se atiende (el fallido se reintenta manana). Si muere a medias, la
     siguiente corrida relee y termina."""
     acciones = []
+    escritores: dict[str, object] = {}
     for fila in conn.execute(_SQL_VIVOS).fetchall():
+        platform = fila[1]
+        fijo = escritor_retiro if escritor_retiro is not None else escritores.get(platform)
         try:
-            accion, escritor_retiro = _vigila_uno(
-                conn, pausador, fila, hoy=hoy, escritor_retiro=escritor_retiro
-            )
+            accion, usado = _vigila_uno(conn, pausador, fila, hoy=hoy, escritor_retiro=fijo)
         except Exception as exc:
             conn.rollback()
             print(f"vigila: impulso {fila[0]} fallo ({exc})", file=sys.stderr)
             continue
+        if escritor_retiro is None and usado is not None:
+            escritores[platform] = usado
         acciones.append(accion)
     return acciones

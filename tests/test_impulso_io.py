@@ -440,35 +440,44 @@ class _Pausador:
 
 
 def _impulso_vivo(
-    conn, *, pid=None, lid=None, lote="impulso-vivo-1", lanzado=None, tope="350", diario="25"
+    conn,
+    *,
+    pid=None,
+    lid=None,
+    lote="impulso-vivo-1",
+    lanzado=None,
+    tope="350",
+    diario="25",
+    platform="amazon_mx",
+    moneda="MXN",
 ):
     """Siembra producto+grupo+impulso vivo con 2 campanas; devuelve ids."""
     if pid is None:
         pid, lid = _con_margen(conn)
     conn.execute(
         "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal,"
-        " huella, plan, modo_goal, estado) VALUES (%s, 'amazon_mx', 'aros', 'Base', 'go',"
+        " huella, plan, modo_goal, estado) VALUES (%s, %s, 'aros', 'Base', 'go',"
         " 'h', '{}'::jsonb, 'shadow', 'applied')",
-        (lote,),
+        (lote, platform),
     )
     grupo = conn.execute(
         "INSERT INTO campana_grupo (platform, tipo_producto, nombre_base, lote,"
         " target_acos_pct, target_derivado_pct, fraccion, target_procedencia, go_literal,"
-        " tipo) VALUES ('amazon_mx', 'aros', 'Base', %s, 19.10, 19.1040, 0.5, 'm', 'go',"
+        " tipo) VALUES (%s, 'aros', 'Base', %s, 19.10, 19.1040, 0.5, 'm', 'go',"
         " 'impulso') RETURNING id",
-        (lote,),
+        (platform, lote),
     ).fetchone()[0]
     camps = []
     for rol in ("category_exact", "auto_discovery"):
         camp = conn.execute(
-            "INSERT INTO ad_entity (platform, kind, external_id) VALUES ('amazon_mx',"
+            "INSERT INTO ad_entity (platform, kind, external_id) VALUES (%s,"
             " 'campaign', %s) RETURNING id",
-            (f"{lote}-{rol}",),
+            (platform, f"{lote}-{rol}"),
         ).fetchone()[0]
         ag = conn.execute(
             "INSERT INTO ad_entity (platform, kind, external_id, parent_id)"
-            " VALUES ('amazon_mx', 'ad_group', %s, %s) RETURNING id",
-            (f"{lote}-{rol}-ag", camp),
+            " VALUES (%s, 'ad_group', %s, %s) RETURNING id",
+            (platform, f"{lote}-{rol}-ag", camp),
         ).fetchone()[0]
         conn.execute(
             "INSERT INTO campana_grupo_rol (grupo_id, rol, ad_entity_id,"
@@ -478,28 +487,38 @@ def _impulso_vivo(
         conn.execute(
             "INSERT INTO ads_optimizer_goal (scope, ad_entity_id, target_acos_pct,"
             " bid_floor, bid_ceiling, bid_currency, enabled, mode) VALUES ('campaign',"
-            " %s, NULL, 0.10, 2.50, 'MXN', true, 'shadow')",
-            (camp,),
+            " %s, NULL, 0.10, 2.50, %s, true, 'shadow')",
+            (camp, moneda),
         )
         camps.append(camp)
     imp = conn.execute(
         "INSERT INTO impulso (platform, listing_id, product_id, grupo_id, lote, subfamilia,"
         " tope_monto, tope_moneda, presupuesto_diario, plazo_dias, lanzado_el, actor,"
-        " go_literal) VALUES ('amazon_mx', %s, %s, %s, %s, 'aros', %s, 'MXN', %s, 14,"
+        " go_literal) VALUES (%s, %s, %s, %s, %s, 'aros', %s, %s, %s, 14,"
         " %s, 'dueno', 'go') RETURNING id",
-        (lid, pid, grupo, lote, tope, diario, lanzado or HOY - dt.timedelta(days=6)),
+        (
+            platform,
+            lid,
+            pid,
+            grupo,
+            lote,
+            tope,
+            moneda,
+            diario,
+            lanzado or HOY - dt.timedelta(days=6),
+        ),
     ).fetchone()[0]
     conn.commit()
     return {"impulso": imp, "grupo": grupo, "lote": lote, "camps": camps}
 
 
-def _observa(conn, camp, dia, *, impr=100, clics=5, gasto="10", pedidos=0):
+def _observa(conn, camp, dia, *, impr=100, clics=5, gasto="10", pedidos=0, moneda="MXN"):
     run = conn.execute("INSERT INTO ingest_run (source) VALUES ('t') RETURNING id").fetchone()[0]
     conn.execute(
         "INSERT INTO ads_metric_observation (ad_entity_id, metric_date, observed_at,"
         " metric_currency, cost, impressions, clicks, orders, ingest_run_id)"
-        " VALUES (%s, %s, now(), 'MXN', %s, %s, %s, %s, %s)",
-        (camp, dia, gasto, impr, clics, pedidos, run),
+        " VALUES (%s, %s, now(), %s, %s, %s, %s, %s, %s)",
+        (camp, dia, moneda, gasto, impr, clics, pedidos, run),
     )
     conn.commit()
 
@@ -639,6 +658,48 @@ def test_vigia_retira_una_vez_con_impresiones():
         assert dos[0].hecho == "retiro_de_bolsas"
         assert len(puts) == 1
         assert conn.execute("SELECT count(*) FROM anuncio_retiro").fetchone() == (1,)
+
+
+@_skip_db
+def test_vigia_retira_cada_plataforma_con_su_escritor(monkeypatch):
+    """R09-r2 GLM53-1: con impulsos MX y US que retiran el mismo dia,
+    el vigia prepara un escritor por plataforma (antes reusaba el de
+    MX para US y el retiro US fallaba)."""
+    from app.ads import archivar
+
+    with _db_i3("orbit_i3_2plat") as conn:
+        pid_mx, lid_mx = _producto(conn, sku="SS-2P-MX", platform="amazon_mx")
+        pid_us, lid_us = _producto(
+            conn, sku="SS-2P-US", asin="B0USSS0001", platform="amazon_us", seller_sku="SS-2P-US"
+        )
+        mx = _impulso_vivo(conn, pid=pid_mx, lid=lid_mx, lote="impulso-mx-1")
+        us = _impulso_vivo(
+            conn,
+            pid=pid_us,
+            lid=lid_us,
+            lote="impulso-us-1",
+            platform="amazon_us",
+            moneda="USD",
+        )
+        _bolsa(conn, lid_mx, "ad-mx")
+        _bolsa(conn, lid_us, "ad-us", camp="c-us", ag="ag-us", platform="amazon_us")
+        _observa(conn, mx["camps"][0], HOY - dt.timedelta(days=1))
+        _observa(conn, us["camps"][0], HOY - dt.timedelta(days=1), moneda="USD")
+        escritor_mx, puts_mx = _escritor(_fila("ad-mx", "ENABLED"))
+        escritor_us, puts_us = _escritor(_fila("ad-us", "ENABLED"))
+        llamadas: list[str] = []
+
+        def _preparar(platform):
+            llamadas.append(platform)
+            return {"amazon_mx": escritor_mx, "amazon_us": escritor_us}[platform]
+
+        monkeypatch.setattr(archivar, "preparar_escritor", _preparar)
+        acciones = io.vigila(conn, _Pausador(), hoy=HOY)
+        assert llamadas == ["amazon_mx", "amazon_us"]
+        assert {a.hecho for a in acciones} == {"retiro_de_bolsas"}
+        assert puts_mx == [("ad-mx", "PAUSED")]
+        assert puts_us == [("ad-us", "PAUSED")]
+        assert conn.execute("SELECT count(*) FROM anuncio_retiro").fetchone() == (2,)
 
 
 @_skip_db
