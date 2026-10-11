@@ -11,7 +11,7 @@ import datetime as dt
 import hashlib
 import json
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Literal
 
 from app import fabrica_plan as fp
@@ -33,12 +33,13 @@ AccionVeredicto = Literal["seguir", "pausar", "graduar"]
 
 def presupuesto_diario(tope: Decimal, moneda: str) -> Decimal:
     """Presupuesto diario del impulso entero: el tope entre 14, o dos
-    veces el minimo por campana si se midio y es mayor."""
+    veces el minimo por campana si se midio y es mayor. En centavos:
+    ni Amazon ni la UI aceptan los 28 decimales de la division."""
     minimo = PRESUPUESTO_MINIMO_CAMPANA.get(moneda)
     base = tope / DIAS_DE_PRESUPUESTO
-    if minimo is None:
-        return base
-    return max(base, 2 * minimo)
+    if minimo is not None:
+        base = max(base, 2 * minimo)
+    return base.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
 @dataclass(frozen=True)
@@ -211,7 +212,7 @@ def grupo_v2_de_plan(plan: PlanImpulso) -> fp.PlanGrupoV2:
     con bids acotados (None sale al diario de su campana). Es el unico
     constructor: lanza lo manda a la fabrica y los tests sacan los
     pasos con fp.pasos_del_rol."""
-    mitad = plan.tope.presupuesto_diario / 2
+    mitad = (plan.tope.presupuesto_diario / 2).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     bids, _acotados = acota_bids(plan.bid_por_rol, mitad)
     return fp.PlanGrupoV2(
         plan.plataforma,

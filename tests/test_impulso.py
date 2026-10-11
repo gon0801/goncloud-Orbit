@@ -63,8 +63,11 @@ def test_tope_350_mxn_da_diario_25():
     assert im.presupuesto_diario(Decimal("350"), "MXN") == Decimal("25")
 
 
-def test_tope_36_usd_da_36_entre_14_sin_redondear():
-    assert im.presupuesto_diario(Decimal("36"), "USD") == Decimal("36") / 14
+def test_tope_no_divisible_da_diario_en_centavos():
+    """R09-r2 B-15: el diario sale en centavos (Amazon y la UI no
+    aceptan 28 decimales)."""
+    assert im.presupuesto_diario(Decimal("36"), "USD") == Decimal("2.57")
+    assert im.presupuesto_diario(Decimal("100"), "MXN") == Decimal("7.14")
 
 
 def test_minimo_por_campana_sube_el_diario_y_adelanta_la_pausa(monkeypatch):
