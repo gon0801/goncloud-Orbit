@@ -200,6 +200,7 @@ def test_metrica_ausente_queda_null_y_campana_numerica_casa():
     )
     assert skips == Counter()
     assert plan[0].clicks is None
+    assert plan[0].ad_entity_id == 7
 
 
 def test_fila_sin_ninguna_metrica_salta_y_cero_si_pasa():
@@ -213,7 +214,6 @@ def test_fila_sin_ninguna_metrica_salta_y_cero_si_pasa():
     )
     assert skips == Counter()
     assert len(plan) == 1
-    assert plan[0].ad_entity_id == 7
 
 
 # ---------------------------------------------------------------------------
