@@ -2128,17 +2128,22 @@ def _aplica_y_confirma(
 ) -> None:
     """PUT parcial + readback + sello, serializado por acto (B9). El PUT
     lleva SOLO la llave de la clase (B1); quien llama ya commiteo la
-    intencion; aqui se toma un candado advisory de transaccion por
-    `llave` y se re-lee la fila: si otro intento ya confirmo, se
-    vuelve sin PUT (un solo PUT por acto). El sello final commitea
-    (durable + libera el candado). El readback manda: si lo leido no
-    coincide en la clase, la fila queda sin confirmar (reintentable:
-    el reintento reusa la pendiente). Lo que se guarda es la leida
-    mezclada sobre `previa` (B1: el PUT no mueve campos ajenos)."""
+    intencion; aqui se INTENTA un candado advisory de transaccion por
+    `llave` (try, no espera) y se re-lee la fila: si otro intento ya
+    confirmo, se vuelve sin PUT (un solo PUT por acto); si otro
+    trabaja, 409 AjusteEnCurso. El sello final commitea (durable +
+    libera el candado). El readback manda: si lo leido no coincide en
+    la clase, la fila queda sin confirmar (reintentable: el reintento
+    reusa la pendiente). Lo que se guarda es la leida mezclada sobre
+    `previa` (B1: el PUT no mueve campos ajenos)."""
     from app.ads.campana_config import cuerpo_put_clase, guarda_config, mezcla_observacion
     from app.campana_ajustes import coincide_clase
 
-    conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (llave,))
+    candado = conn.execute("SELECT pg_try_advisory_xact_lock(hashtext(%s))", (llave,)).fetchone()[0]
+    if not candado:
+        # Otro intento trabaja este acto (try, no espera: un reintento
+        # anidado dentro del PUT del primero se interbloquearia, L).
+        raise AjusteEnCurso(f"ajuste {ajuste_id} en curso: reintenta en un momento")
     ya = conn.execute(_SQL_CONFIRMADA_POR_ID, (ajuste_id,)).fetchone()
     if ya is not None and ya[0]:
         conn.rollback()
