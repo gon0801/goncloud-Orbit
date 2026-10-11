@@ -1015,3 +1015,23 @@ def test_lanza_failed_pendiente_otra_huella_da_502_reconcilia():
         assert llamadas == []
         assert conn.execute("SELECT count(*) FROM fabrica_lote").fetchone() == (1,)
         assert conn.execute("SELECT count(*) FROM impulso").fetchone() == (0,)
+
+
+@_skip_db
+def test_vigia_atraso_cuenta_dias_con_dato_no_calendario():
+    """R09 B3 (E): ingesta 3 dias atrasada: el dia 14 de calendario con
+    11 dias con dato sigue en_curso y guarda 11, no 14."""
+    with _db_i3("orbit_i3_r3c") as conn:
+        d0 = HOY - dt.timedelta(days=14)
+        ids = _impulso_vivo(conn, lanzado=d0, lote="impulso-r3c-1")
+        for k in range(11):  # dias 0..10 con dato; 11..13 sin ingesta
+            dia = d0 + dt.timedelta(days=k)
+            for camp in ids["camps"]:
+                _observa(conn, camp, dia, impr=90, clics=1, gasto="3")
+        acciones = io.vigila(conn, _Pausador(), hoy=HOY)
+        assert acciones[0].veredicto.estado == "en_curso"
+        assert acciones[0].veredicto.final is False
+        assert conn.execute(
+            "SELECT corte, dias_observados, es_final FROM impulso_lectura WHERE impulso_id = %s",
+            (ids["impulso"],),
+        ).fetchone() == (d0 + dt.timedelta(days=10), 11, False)

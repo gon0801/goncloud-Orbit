@@ -497,6 +497,12 @@ SELECT max(v.metric_date) FROM v_metric_latest v
  WHERE e.platform = %s
 """
 
+_SQL_DIAS_CON_INGESTA = """
+SELECT count(DISTINCT v.metric_date) FROM v_metric_latest v
+  JOIN ad_entity e ON e.id = v.ad_entity_id
+ WHERE e.platform = %s AND v.metric_date BETWEEN %s AND %s
+"""
+
 _SQL_OBSERVADO = """
 SELECT v.metric_date, v.impressions, v.clicks, v.cost, v.orders
   FROM v_metric_latest v
@@ -530,9 +536,8 @@ def _vigila_uno(conn, pausador, fila, *, hoy, escritor_retiro):
     (imp, platform, lote, monto, moneda, diario, plazo, lanzado, grupo, listing, go) = fila
     tope = im.TopeAprendizaje(Decimal(monto), moneda, Decimal(diario), plazo)
     corte = conn.execute(_SQL_CORTE_PLATAFORMA, (platform,)).fetchone()[0]
-    dias = (hoy - lanzado.date()).days
     if corte is None:
-        lectura = im.LecturaImpulso(hoy, dias, None, None, None, None)
+        lectura = im.LecturaImpulso(hoy, 0, None, None, None, None)
         conn.commit()
         return (
             AccionVigia(imp, lectura, im.VeredictoImpulso("en_curso", False, "seguir"), "nada"),
@@ -541,6 +546,9 @@ def _vigila_uno(conn, pausador, fila, *, hoy, escritor_retiro):
     ayer = hoy - dt.timedelta(days=1)
     if corte > ayer:
         corte = ayer
+    # Dias CON DATO (ingesta de la plataforma entre lanzado y corte),
+    # no de calendario: con atraso, el plazo espera al dato.
+    dias = conn.execute(_SQL_DIAS_CON_INGESTA, (platform, lanzado.date(), corte)).fetchone()[0]
     camps = [f[0] for f in conn.execute(_SQL_CAMPANAS_DE_IMPULSO, (imp,)).fetchall()]
     filas = [f for f in conn.execute(_SQL_OBSERVADO, (camps, lanzado.date())).fetchall()]
     filas = [f for f in filas if f[0] <= corte]
