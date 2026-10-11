@@ -10,6 +10,7 @@
 // x-orbit-token (la query string JAMAS autentica).
 
 var vistaGuardada = null;
+var retiroGuardado = null;
 
 function marcados(selector) {
   var listings = [];
@@ -223,6 +224,123 @@ function reponer(form) {
     });
 }
 
+function listingsMarcados(selector) {
+  var listings = [];
+  document.querySelectorAll(selector).forEach(function (casilla) {
+    if (!casilla.checked) return;
+    casilla.dataset.listings
+      .split(",")
+      .map(function (x) {
+        return Number(x);
+      })
+      .filter(function (x) {
+        return x > 0;
+      })
+      .forEach(function (lid) {
+        listings.push(lid);
+      });
+  });
+  return listings;
+}
+
+function verRetiro() {
+  var zona = document.getElementById("productos-retiro-vista");
+  var bloque = document.getElementById("productos-retiro");
+  var form = document.getElementById("productos-retiro-ejecutar");
+  var listings = listingsMarcados("[data-marcar-sin-pedido]");
+  if (!listings.length) {
+    zona.replaceChildren(parrafo("Marca al menos un producto."));
+    return;
+  }
+  var pedido = {
+    plataforma: form.dataset.plataforma,
+    listing_ids: listings,
+    motivo: "sin_pedidos",
+  };
+  zona.replaceChildren(parrafo("Pidiendo el plan de retiro…"));
+  fetch("/api/fabrica/retiro/plan", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(pedido),
+  })
+    .then(function (resp) {
+      return resp.json().then(function (data) {
+        return { ok: resp.ok, data: data };
+      });
+    })
+    .then(function (r) {
+      if (!r.ok) {
+        zona.replaceChildren(parrafo("Error: " + (r.data.detail || r.data) + "."));
+        return;
+      }
+      retiroGuardado = { pedido: pedido, plan: r.data };
+      zona.replaceChildren();
+      if (!r.data.anuncios.length) {
+        zona.appendChild(parrafo("Nada que sacar: sin anuncios en bolsas viejas."));
+        form.hidden = true;
+        bloque.hidden = false;
+        return;
+      }
+      r.data.anuncios.forEach(function (a) {
+        zona.appendChild(parrafo(a.sku + " · " + (a.ad_group_nombre || a.ad_group_externo)));
+      });
+      var esperada = "SACAR " + r.data.anuncios.length + " ANUNCIOS";
+      document.getElementById("productos-retiro-esperada").textContent = esperada;
+      form.elements.confirmacion.placeholder = esperada;
+      form.hidden = false;
+      bloque.hidden = false;
+    })
+    .catch(function () {
+      zona.replaceChildren(parrafo("Error de red al pedir el plan de retiro."));
+    });
+}
+
+function ejecutarRetiro(form) {
+  var estado = form.querySelector("[data-estado]");
+  if (!retiroGuardado) {
+    estado.textContent = "Pide primero el plan de retiro.";
+    return;
+  }
+  var esperada = "SACAR " + retiroGuardado.plan.anuncios.length + " ANUNCIOS";
+  var confirmacion = form.elements.confirmacion.value;
+  if (confirmacion !== esperada) {
+    estado.textContent = "Escribe " + esperada + " para confirmar.";
+    return;
+  }
+  estado.textContent = "Enviando…";
+  fetch("/api/fabrica/retiro/ejecutar", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-orbit-token": form.elements.token.value,
+    },
+    body: JSON.stringify({
+      plataforma: retiroGuardado.pedido.plataforma,
+      listing_ids: retiroGuardado.pedido.listing_ids,
+      motivo: "sin_pedidos",
+      huella: retiroGuardado.plan.huella,
+      confirmacion: confirmacion,
+      actor: form.elements.actor.value,
+    }),
+  })
+    .then(function (resp) {
+      return resp.json().then(function (data) {
+        return { ok: resp.ok, data: data };
+      });
+    })
+    .then(function (r) {
+      if (!r.ok) {
+        estado.textContent = "Error: " + (r.data.detail || r.data) + ".";
+        return;
+      }
+      retiroGuardado = null;
+      estado.textContent = "Retirados " + r.data.retirados + ".";
+    })
+    .catch(function () {
+      estado.textContent = "Error de red al ejecutar el retiro.";
+    });
+}
+
 document.addEventListener("DOMContentLoaded", function () {
   var verCandidatos = document.getElementById("productos-ver-candidatos");
   if (verCandidatos) {
@@ -234,6 +352,17 @@ document.addEventListener("DOMContentLoaded", function () {
   if (aparte) {
     aparte.addEventListener("click", function () {
       verLanzamiento("[data-marcar-sin-pedido]");
+    });
+  }
+  var sacar = document.getElementById("productos-sacar");
+  if (sacar) {
+    sacar.addEventListener("click", verRetiro);
+  }
+  var formRetiro = document.getElementById("productos-retiro-ejecutar");
+  if (formRetiro) {
+    formRetiro.addEventListener("submit", function (evento) {
+      evento.preventDefault();
+      ejecutarRetiro(formRetiro);
     });
   }
   var form = document.getElementById("productos-lanzar");

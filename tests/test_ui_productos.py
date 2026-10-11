@@ -68,9 +68,21 @@ form.elements = {confirmacion: new Element(), actor: new Element({value: "dueno"
   token: new Element({value: "tok"})};
 form.children = [estado];
 root.children = [casilla1, casilla2, sub1, sub2, zona, bloque, esperada, form];
+const zonaR = new Element(); const bloqueR = new Element(); bloqueR.hidden = true;
+const esperadaR = new Element(); const estadoR2 = new Element(); estadoR2.estado = true;
+const formR2 = new Element({dataset: {plataforma: "amazon_mx"}, hidden: true});
+formR2.elements = {confirmacion: new Element(), actor: new Element({value: "dueno"}),
+  token: new Element({value: "tok"})};
+formR2.children = [estadoR2];
+const casillaV = new Element({dataset: {marcarSinPedido: "", producto: "9", listings: "21"}});
+casillaV.checked = true;
+root.children.push(casillaV);
 const ids = {"productos-vista": zona, "productos-lanzamiento": bloque,
   "productos-esperada": esperada, "productos-lanzar": form,
-  "productos-ver-candidatos": new Element(), "productos-impulsar-aparte": new Element()};
+  "productos-ver-candidatos": new Element(), "productos-impulsar-aparte": new Element(),
+  "productos-sacar": new Element(), "productos-retiro": bloqueR,
+  "productos-retiro-vista": zonaR, "productos-retiro-esperada": esperadaR,
+  "productos-retiro-ejecutar": formR2};
 const docEvents = {};
 global.document = {
   getElementById: id => ids[id] || null,
@@ -102,10 +114,17 @@ global.fetch = (url, opts) => {
   }
   if (url.endsWith("/retiro/reponer"))
     return Promise.resolve({ok: true, json: () => Promise.resolve({repuestos: 1})});
+  if (url.endsWith("/retiro/plan"))
+    return Promise.resolve({ok: true, json: () => Promise.resolve(
+      {huella: "c".repeat(64), anuncios: [{sku: "SV", ad_group_nombre: "Viejos",
+        ad_group_externo: "ag-v", ad_id_externo: "31"}]})});
+  if (url.endsWith("/retiro/ejecutar"))
+    return Promise.resolve({ok: true, json: () => Promise.resolve({retirados: 1})});
   throw new Error("url inesperada " + url);
 };
 const codigo = fs.readFileSync(process.argv[1], "utf8");
-vm.runInThisContext(codigo + "\n" + "this.__api = {verLanzamiento, lanzar, reponer, marcados};");
+vm.runInThisContext(codigo + "\n" + "this.__api = {verLanzamiento, lanzar, reponer,"
+  + " marcados, verRetiro, ejecutarRetiro};");
 const api = vm.runInThisContext("this.__api");
 (async () => {
   // Sin subfamilia en un marcado: no pide nada.
@@ -157,6 +176,25 @@ const api = vm.runInThisContext("this.__api");
   assert.equal(calls[3].url, "/api/fabrica/retiro/reponer");
   assert.deepEqual(calls[3].body.retiro_ids, [5]);
   assert.match(estadoR.textContent, /Repuestos 1/);
+  // Sacar de las bolsas: plan sin_pedidos sin lote, muestra anuncios, exige literal.
+  api.verRetiro();
+  await new Promise(r => setTimeout(r, 10));
+  assert.equal(calls[4].url, "/api/fabrica/retiro/plan");
+  assert.deepEqual(calls[4].body,
+    {plataforma: "amazon_mx", listing_ids: [21], motivo: "sin_pedidos"});
+  assert.match(JSON.stringify(zonaR.children.map(p => p.textContent)), /SV · Viejos/);
+  assert.equal(esperadaR.textContent, "SACAR 1 ANUNCIOS");
+  formR2.elements.confirmacion.value = "SACAR 2 ANUNCIOS";
+  api.ejecutarRetiro(formR2);
+  assert.equal(calls.length, 5);
+  formR2.elements.confirmacion.value = "SACAR 1 ANUNCIOS";
+  api.ejecutarRetiro(formR2);
+  await new Promise(r => setTimeout(r, 10));
+  assert.equal(calls[5].url, "/api/fabrica/retiro/ejecutar");
+  assert.equal(calls[5].body.huella, "c".repeat(64));
+  assert.equal(calls[5].body.actor, "dueno");
+  assert.equal(calls[5].token, "tok");
+  assert.match(estadoR2.textContent, /Retirados 1/);
 })().catch(error => { console.error(error); process.exitCode = 1; });
 """
     proc = subprocess.run(

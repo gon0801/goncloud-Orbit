@@ -156,6 +156,30 @@ def test_planea_respeta_grupo_y_salta_sin_listing():
 
 
 @_skip_db
+def test_plan_con_lote_nuevo_excluye_sus_ad_groups():
+    """E.1 mutante: con el lote de un grupo nuevo, el plan no trae
+    ningun anuncio de sus ad groups (quitar el filtro lo rompe)."""
+    with _db_i4("orbit_e1_lote") as conn:
+        _pid, lid = _producto(conn)
+        _camp_c, ag_c, _pa_c = _bolsa(conn, lid, "ad-nuevo", camp="c-n", ag="ag-n")
+        _bolsa(conn, lid, "ad-viejo", camp="c-v", ag="ag-v")
+        lote = _lote(conn, "fabrica-e1-nuevo")
+        grupo = _grupo(conn, lote)
+        conn.execute(
+            "INSERT INTO campana_grupo_rol (grupo_id, rol, ad_entity_id, ad_group_ad_entity_id)"
+            " VALUES (%s, 'category_exact', %s, %s)",
+            (grupo, _camp_c, ag_c),
+        )
+        conservar = ra.grupo_de_lote(conn, lote)
+        assert conservar == grupo
+        assert ra.grupo_de_lote(conn, "lote-que-no-existe") is None
+        plan = ra.planea_retiro(
+            conn, "amazon_mx", listing_ids=(lid,), motivo="subfamilia", conservar_grupo_id=conservar
+        )
+        assert [a.ad_id_externo for a in plan.anuncios] == ["ad-viejo"]
+
+
+@_skip_db
 def test_ejecuta_pausa_y_segunda_vez_no_repite():
     """I.4: ejecuta pausa (modo 'pausa'), guarda una fila por anuncio y la
     segunda llamada no manda ni una mutacion."""

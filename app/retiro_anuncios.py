@@ -108,6 +108,19 @@ def lote_retiro_de_plan(plan: PlanRetiro) -> str:
     return f"retiro-{plan.huella[:12]}"
 
 
+_SQL_GRUPO_DE_LOTE = """
+SELECT id FROM campana_grupo WHERE lote = %s
+"""
+
+
+def grupo_de_lote(conn, lote: str) -> int | None:
+    """El grupo del lote, o None si no existe. Resuelve en el servidor
+    el `lote` que mandan las pantallas (el cliente nunca manda ids de
+    grupo)."""
+    fila = conn.execute(_SQL_GRUPO_DE_LOTE, (lote,)).fetchone()
+    return fila[0] if fila is not None else None
+
+
 _SQL_YA_RETIRADO = """
 SELECT r.id FROM anuncio_retiro r
  WHERE r.ad_entity_id = %s

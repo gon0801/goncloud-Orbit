@@ -542,10 +542,6 @@ def _error_impulso(exc: io.ErrorImpulso, *, vista: dict | None = None) -> HTTPEx
     return HTTPException(exc.status, detail=detalle)
 
 
-_SQL_GRUPO_DE_LOTE = """
-SELECT id FROM campana_grupo WHERE lote = %s
-"""
-
 _SQL_IMPULSO_DE_GRUPO = """
 SELECT id FROM impulso WHERE grupo_id = %s
 """
@@ -558,15 +554,15 @@ def _conservar_y_impulso(conn, lote: str | None, motivo: str) -> tuple[int | Non
         if motivo == "impulso":
             raise fw.error(422, "El motivo 'impulso' exige el lote del impulso.")
         return None, None
-    grupo = conn.execute(_SQL_GRUPO_DE_LOTE, (lote,)).fetchone()
+    grupo = ra.grupo_de_lote(conn, lote)
     if grupo is None:
         raise fw.error(404, "El lote no existe.", lote)
     if motivo != "impulso":
-        return grupo[0], None
-    imp = conn.execute(_SQL_IMPULSO_DE_GRUPO, (grupo[0],)).fetchone()
+        return grupo, None
+    imp = conn.execute(_SQL_IMPULSO_DE_GRUPO, (grupo,)).fetchone()
     if imp is None:
         raise fw.error(404, "El lote no tiene impulso.", lote)
-    return grupo[0], imp[0]
+    return grupo, imp[0]
 
 
 @router.post("/impulso/plan")

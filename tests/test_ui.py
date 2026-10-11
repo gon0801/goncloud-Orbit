@@ -2529,6 +2529,7 @@ def test_ui_productos_sin_clics_200_con_secciones_y_menu(monkeypatch):
     assert "Candidatos a impulsar" in resp.text
     assert "Ver lanzamiento" in resp.text
     assert "Impulsar aparte" in resp.text
+    assert "Sacar de las bolsas compartidas" in resp.text
     assert "Regresarlo a sus grupos de antes" in resp.text
     assert "Hay 4 anuncios sin producto ligado que no puedo juzgar." in resp.text
     assert "3 de sus 14 clics vinieron de fuera de Amazon." in resp.text

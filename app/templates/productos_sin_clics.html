@@ -76,10 +76,24 @@
     </tbody>
   </table>
   <button type="button" id="productos-impulsar-aparte">Impulsar aparte</button>
+  <button type="button" id="productos-sacar">Sacar de las bolsas compartidas</button>
   {% else %}
   <p>Todo vendió en los últimos 11 meses.</p>
   {% endif %}
   <p class="mutado">Hay {{ anuncios_sin_producto }} anuncios sin producto ligado que no puedo juzgar.</p>
+</div>
+
+<div class="tarjeta" id="productos-retiro" hidden>
+  <h3>Retiro de las bolsas compartidas</h3>
+  <div id="productos-retiro-vista"></div>
+  <form id="productos-retiro-ejecutar" data-plataforma="{{ plataforma }}" hidden>
+    <p>Escribe <code id="productos-retiro-esperada"></code> para confirmar.</p>
+    <label>Confirmación <input type="text" name="confirmacion" maxlength="60" required></label>
+    <label>Actor <input type="text" name="actor" maxlength="100" placeholder="quien saca" required></label>
+    <label>Token <input type="password" name="token" placeholder="x-orbit-token" required></label>
+    <button type="submit">Sacar de las bolsas compartidas</button>
+    <span data-estado class="mutado"></span>
+  </form>
 </div>
 
 <div class="tarjeta" id="productos-lanzamiento" hidden>
