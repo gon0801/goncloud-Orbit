@@ -1665,7 +1665,16 @@ class _Conn9:
         self.rollbacks += 1
 
 
-def _conn_campanas(*, ubicaciones=(), settings=(), campanas=(), gasto_diario=(), configs_hist=()):
+def _conn_campanas(
+    *,
+    ubicaciones=(),
+    settings=(),
+    campanas=(),
+    gasto_diario=(),
+    configs_hist=(),
+    regresables=(),
+    ultimo_precio=(),
+):
     return _Conn9(
         [
             list(ubicaciones),
@@ -1674,6 +1683,8 @@ def _conn_campanas(*, ubicaciones=(), settings=(), campanas=(), gasto_diario=(),
             list(gasto_diario),
             [],
             list(configs_hist),
+            list(regresables),
+            list(ultimo_precio),
             list(settings),
         ]
     )

@@ -445,10 +445,13 @@ def test_queries_cierre_parsean_en_postgres():
 def test_cero_ruta_sp_campaigns_en_camino_de_escritura():
     """C.5: cero llamadas de mutacion de campana — el cliente de escritura y
     los aplicadores no nombran el recurso /sp/campaigns (solo keywords,
-    targets, negativos y productAds; la estructura se LEE en structure_api)."""
+    targets, negativos y productAds; la estructura se LEE en structure_api).
+    Dos excepciones selladas (BIDS 02 V.3, guia V.3 cambio 4 + plan V.3 DoD:
+    PUT /sp/campaigns entra al allowlist con la evidencia de V.0): en
+    write.py solo el allowlist y `ajustar_campana` nombran la ruta (nunca
+    `state`), y en apply.py solo el readback de lectura
+    POST /sp/campaigns/list."""
     for rel in (
-        "app/ads/write.py",
-        "app/apply.py",
         "app/apply_cola.py",
         "app/apply_harvest.py",
         "app/apply_harvest_reconciliacion.py",
@@ -456,6 +459,41 @@ def test_cero_ruta_sp_campaigns_en_camino_de_escritura():
     ):
         fuente = (RAIZ / rel).read_text(encoding="utf-8")
         assert "/sp/campaigns" not in fuente, f"{rel} toca el recurso campana"
+    _solo_put_sellado_en_write()
+    _solo_readback_list_en_apply()
+
+
+def _solo_put_sellado_en_write():
+    """write.py nombra /sp/campaigns solo en el allowlist y en
+    `ajustar_campana` (V.3 sellado por V.0)."""
+    rel = "app/ads/write.py"
+    fuente = (RAIZ / rel).read_text(encoding="utf-8")
+    permitidas: set[int] = set()
+    for nodo in ast.walk(ast.parse(fuente)):
+        if isinstance(nodo, ast.FunctionDef) and nodo.name == "ajustar_campana":
+            permitidas.update(range(nodo.lineno, (nodo.end_lineno or nodo.lineno) + 1))
+        if isinstance(nodo, (ast.Assign, ast.AnnAssign)):
+            blancos = nodo.targets if isinstance(nodo, ast.Assign) else [nodo.target]
+            if any(
+                isinstance(b, ast.Name)
+                and b.id in ("MUTATION_REQUEST_TYPES", "MUTATION_CONTAINERS")
+                for b in blancos
+            ):
+                permitidas.update(range(nodo.lineno, (nodo.end_lineno or nodo.lineno) + 1))
+    assert permitidas, "el allowlist o ajustar_campana desaparecio de write.py"
+    for n, linea in enumerate(fuente.splitlines(), 1):
+        if "/sp/campaigns" in linea and n not in permitidas:
+            raise AssertionError(f"{rel}:{n} toca el recurso campana fuera del PUT sellado")
+
+
+def _solo_readback_list_en_apply():
+    """apply.py nombra /sp/campaigns solo en el readback de lectura
+    POST /sp/campaigns/list (V.3, guia cambio 6)."""
+    rel = "app/apply.py"
+    fuente = (RAIZ / rel).read_text(encoding="utf-8")
+    assert "/sp/campaigns/list" in fuente, "el readback list desaparecio de apply.py"
+    sin_list = fuente.replace("/sp/campaigns/list", "")
+    assert "/sp/campaigns" not in sin_list, f"{rel} toca el recurso campana fuera del readback"
 
 
 @_skip_db

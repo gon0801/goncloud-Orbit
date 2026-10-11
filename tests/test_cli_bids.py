@@ -22,6 +22,7 @@ from test_pantalla_dinero import (
     SQL60,
     SQL61,
     SQL62,
+    SQL67,
     _siembra_campana,
     _siembra_config,
     _siembra_gasto_campana,
@@ -62,6 +63,7 @@ def _db_avisos(prefijo: str):
         conn.execute(SQL60)
         conn.execute(SQL61)
         conn.execute(SQL62)
+        conn.execute(SQL67)
         yield conn
     finally:
         if conn is not None:
