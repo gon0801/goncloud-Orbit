@@ -181,7 +181,6 @@ def ingest_placements(
     report_id: str,
     filas: list[dict],
     *,
-    run_id: int,
     observed_at: dt.datetime,
 ) -> ResultadoIngesta:
     """Inserta las filas de UN reporte de placements (append-only, 0062).
@@ -322,9 +321,7 @@ def sync_placements(
             for perfil, report_id, filas in descargados:
                 perfil_actual, report_id_actual = perfil, report_id
                 observado = dt.datetime.now(dt.UTC)
-                resultado = ingest_placements(
-                    conn, perfil, report_id, filas, run_id=run_id, observed_at=observado
-                )
+                resultado = ingest_placements(conn, perfil, report_id, filas, observed_at=observado)
                 escritos += resultado.rows_written
                 skips.update(resultado.skips)
                 _registrar_resultado(conn, run_id, perfil, PLACEMENTS_CFG, report_id, "written")
