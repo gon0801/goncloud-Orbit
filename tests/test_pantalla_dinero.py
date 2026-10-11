@@ -1181,3 +1181,29 @@ def test_pantalla_enlace_amazon_us_abre_us():
     """U16: el enlace 'Amazon US' lleva a ?plataforma=amazon_us."""
     html = _html_dinero([_fila_ui()], plataforma="amazon_us", moneda="USD")
     assert 'href="/donde-poner-el-dinero?plataforma=amazon_us"' in html
+
+
+def test_como_dict_target_se_pinta_con_un_decimal():
+    """NB1: el target largo sale como '20.8 %', no con 26 decimales."""
+    from app.pantalla_dinero import FilaTipo, PantallaDinero
+
+    total = FilaTipo(
+        tipo="",
+        gasto=None,
+        pedidos=None,
+        venta=None,
+        acos_pct=None,
+        parte_del_gasto_pct=None,
+        hojas=0,
+    )
+    pantalla = PantallaDinero(
+        plataforma="amazon_mx",
+        moneda="MXN",
+        desde=dt.date(2026, 7, 6),
+        hasta=dt.date(2026, 10, 4),
+        filas=(),
+        total=total,
+        hojas_sin_clasificar=0,
+        target_acos_pct=Decimal("20.76500719978248922407256205"),
+    )
+    assert pantalla.como_dict()["target_acos_pct"] == "20.8"

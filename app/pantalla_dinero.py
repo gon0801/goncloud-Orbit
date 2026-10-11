@@ -256,7 +256,11 @@ class PantallaDinero:
             "filas": [fila.como_dict() for fila in self.filas],
             "total": self.total.como_dict(),
             "hojas_sin_clasificar": self.hojas_sin_clasificar,
-            "target_acos_pct": None if self.target_acos_pct is None else str(self.target_acos_pct),
+            "target_acos_pct": (
+                None
+                if self.target_acos_pct is None
+                else str(self.target_acos_pct.quantize(Decimal("0.1"), rounding=ROUND_HALF_EVEN))
+            ),
             "por_ubicacion": [fila.como_dict() for fila in self.por_ubicacion],
             "por_campana": [fila.como_dict() for fila in self.por_campana],
         }
