@@ -2921,13 +2921,26 @@ class _AmazonConPausa(_Amazon):
     def __init__(self, *a, **k):
         super().__init__(*a, **k)
         self.pausadas = []
+        self.puts = []
+        self.post_500_creando = set()
 
     def __call__(self, request):
         if request.method == "PUT" and str(request.url).endswith("/sp/campaigns"):
             cuerpo = json.loads(request.content)["campaigns"][0]
             self.pausadas.append(cuerpo["campaignId"])
+            self.puts.append((cuerpo["campaignId"], cuerpo["state"]))
             self.objetos.setdefault(cuerpo["campaignId"], {})["state"] = cuerpo["state"]
             return httpx.Response(207, json={"campaigns": {"success": [{"index": 0}], "error": []}})
+        if request.method == "POST":
+            path = str(request.url).replace(fc.API, "")
+            n = self.creados.get(path, 0) + 1
+            if (path, n) in self.post_500_creando:
+                cuerpo = json.loads(request.content)
+                envoltura = fp.ENVOLTURA_POR_PATH[path]
+                ext = f"{envoltura}-{n}"
+                self.creados[path] = n
+                self.objetos[ext] = cuerpo[envoltura][0]
+                return httpx.Response(500, text="Internal error")
         return super().__call__(request)
 
     def _list(self, path, body):
@@ -2990,3 +3003,79 @@ def test_mutar_sin_revierte_deja_enabled(monkeypatch):
         ).fetchone()
         assert fila[0] == "failed"
         assert "revertidas" not in fila[1]
+
+
+@_skip_db
+def test_mutar_crear_pausado_nace_pausado_y_activa_al_final(monkeypatch):
+    """R09 B2 (A2): con crear_pausado los POST nacen PAUSED y, con el lote
+    completo, se activan (PUT ENABLED + readback) antes del applied."""
+    import psycopg
+    from test_migracion_0064 import SQL64
+
+    with db_fabrica("orbit_r3_activar") as conn:
+        conn.execute(SQL64)
+        plan = _plan_dos_roles()
+        huella = fp.huella_plan_v2(plan)
+        args = SimpleNamespace(esperado=2, huella=huella, go="impulso test")
+        with psycopg.connect(_test_dsn(), dbname=conn.info.dbname) as conn_motor:
+            amazon = _AmazonConPausa()
+            _frontera_mutacion(monkeypatch, _conn_plan(), conn_motor, amazon)
+            assert (
+                fc._mutar(
+                    args,
+                    plan,
+                    huella,
+                    lote="r3-activar",
+                    revierte_al_fallar=True,
+                    crear_pausado=True,
+                )
+                == 0
+            )
+        posts = [json.loads(p.content)["campaigns"][0] for p in amazon.posts("/sp/campaigns")]
+        assert [p["state"] for p in posts] == ["PAUSED", "PAUSED"]
+        assert amazon.puts == [("campaigns-1", "ENABLED"), ("campaigns-2", "ENABLED")]
+        assert amazon.objetos["campaigns-1"]["state"] == "ENABLED"
+        assert amazon.objetos["campaigns-2"]["state"] == "ENABLED"
+        assert conn.execute(
+            "SELECT estado FROM fabrica_lote WHERE lote = 'r3-activar'"
+        ).fetchone() == ("applied",)
+
+
+@_skip_db
+def test_mutar_crear_pausado_fantasma_500_no_gasta(monkeypatch):
+    """R09 B2 (A2): 500 incierto en la 2a campana: la fantasma nacio PAUSED
+    (no gasta), la 1a se revierte y el lote queda failed."""
+    import psycopg
+    from test_migracion_0064 import SQL64
+
+    with db_fabrica("orbit_r3_fantasma") as conn:
+        conn.execute(SQL64)
+        plan = _plan_dos_roles()
+        huella = fp.huella_plan_v2(plan)
+        args = SimpleNamespace(esperado=2, huella=huella, go="impulso test")
+        with psycopg.connect(_test_dsn(), dbname=conn.info.dbname) as conn_motor:
+            amazon = _AmazonConPausa()
+            amazon.post_500_creando.add(("/sp/campaigns", 2))
+            _frontera_mutacion(monkeypatch, _conn_plan(), conn_motor, amazon)
+            with pytest.raises(fc.Abortar, match="INCERTO"):
+                fc._mutar(
+                    args,
+                    plan,
+                    huella,
+                    lote="r3-fantasma",
+                    revierte_al_fallar=True,
+                    crear_pausado=True,
+                )
+        assert amazon.objetos["campaigns-2"]["state"] == "PAUSED"
+        assert amazon.pausadas == ["campaigns-1"]
+        # Ninguna CAMPANA en ENABLED (ad groups y ads bajo campana
+        # pausada no sirven: sin vigia no se gasta).
+        vivas = [
+            e
+            for e, o in amazon.objetos.items()
+            if e.startswith("campaigns-") and o.get("state") == "ENABLED"
+        ]
+        assert vivas == []
+        assert conn.execute(
+            "SELECT estado FROM fabrica_lote WHERE lote = 'r3-fantasma'"
+        ).fetchone() == ("failed",)

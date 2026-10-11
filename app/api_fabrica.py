@@ -527,7 +527,7 @@ def _ejecutor_lanzar(conn, confirmacion: str):
         args = SimpleNamespace(
             acepto_mutacion_real=True, esperado=2, huella=huella, go=confirmacion
         )
-        fc._mutar(args, plan_grupo, huella, lote=lote, revierte_al_fallar=True)
+        fc._mutar(args, plan_grupo, huella, lote=lote, revierte_al_fallar=True, crear_pausado=True)
         grupo = conn.execute(io._SQL_GRUPO_DE_LOTE, (lote,)).fetchone()
         estado = conn.execute("SELECT estado FROM fabrica_lote WHERE lote = %s", (lote,)).fetchone()
         if grupo is None or estado is None:

@@ -858,6 +858,7 @@ class _Ctx:
     lote: str
     orden: int = 0
     conocidos: list = field(default_factory=list)
+    crear_pausado: bool = False
 
 
 def _token_lwa(cred: AdsCredentials, client) -> str:
@@ -952,7 +953,8 @@ def _monto_wire_cuadra(crudo_leido: Any, crudo_pedido: Any) -> bool:
 
 
 def _readback_cuadra(leido: dict | None, payload: dict) -> bool:
-    if not isinstance(leido, dict) or leido.get("state") != fp.ESTADO_NUEVO:
+    esperado = payload.get("state", fp.ESTADO_NUEVO)
+    if not isinstance(leido, dict) or leido.get("state") != esperado:
         return False
     for clave in (
         "keywordText",
@@ -1075,12 +1077,17 @@ def _falla_paso(ctx: _Ctx, paso: fp.Paso, paso_id: int, ack: dict, external, mot
     raise Abortar(motivo)
 
 
-def _motivo_post_fallido(paso: fp.Paso, ack: dict) -> str:
+def _motivo_post_fallido(ctx: _Ctx, paso: fp.Paso, ack: dict) -> str:
     status = ack.get("status")
     if status == "excepcion" or status in _HTTP_INCERTO:
+        nacido = (
+            "un PAUSED que no gasta"
+            if ctx.crear_pausado and paso.recurso == "campaign"
+            else "un ENABLED"
+        )
         return (
             f"{paso.descripcion} ({paso.rol}) INCERTO (status {status}):"
-            " Amazon pudo crear un ENABLED; no reintentar este POST;"
+            f" Amazon pudo crear {nacido}; no reintentar este POST;"
             " --desarmar solo pausa filas con external_id"
         )
     return f"{paso.descripcion} ({paso.rol}) rechazado (status {status})"
@@ -1088,13 +1095,18 @@ def _motivo_post_fallido(paso: fp.Paso, ack: dict) -> str:
 
 def _ejecuta_paso(ctx: _Ctx, paso: fp.Paso, padres: dict) -> str:
     payload = {**padres, **paso.payload}
+    if ctx.crear_pausado and paso.recurso == "campaign":
+        # Camino impulso: nacen PAUSED y se activan al final, con el
+        # lote completo y verificado. Un 500 incierto deja una fantasma
+        # que no gasta (sin vigia no se sirve nada).
+        payload["state"] = _PAUSADA
     paso_id = _inserta_paso(ctx, paso, payload)
     try:
         ack = _post(ctx.http, ctx.token, ctx.cred, ctx.profile, paso.path, payload)
     except Exception as exc:
         ack = {"status": "excepcion", "cuerpo": {}, "texto": scrub(str(exc))[:300]}
     if not fp.ack_ok(ack):
-        _falla_paso(ctx, paso, paso_id, ack, None, _motivo_post_fallido(paso, ack))
+        _falla_paso(ctx, paso, paso_id, ack, None, _motivo_post_fallido(ctx, paso, ack))
     external = fp.id_creado(ack, fp.CLAVE_ID_POR_PATH[paso.path])
     if external is None:
         _falla_paso(
@@ -1449,7 +1461,13 @@ def _registrar_cmd(args) -> int:
 
 
 def _mutar(
-    args, plan: fp.PlanCanonico, huella: str, *, lote: str | None = None, revierte_al_fallar=False
+    args,
+    plan: fp.PlanCanonico,
+    huella: str,
+    *,
+    lote: str | None = None,
+    revierte_al_fallar=False,
+    crear_pausado=False,
 ) -> int:
     _valida_go(args, huella, len(_roles_del_plan(plan)))
     # D-CURSOR-177-F3: falla cerrado antes de LWA/lote/POST (spec §5.1).
@@ -1475,12 +1493,23 @@ def _mutar(
         http = httpx.Client(timeout=httpx.Timeout(connect=5.0, read=20.0, write=10.0, pool=5.0))
         token = _token_lwa(cred, http)
         _inserta_lote(conn_admin, lote, plan, huella, args.go)
-        ctx = _Ctx(http, token, cred, cliente_lectura, perfiles[plan.platform], conn_admin, lote)
+        ctx = _Ctx(
+            http,
+            token,
+            cred,
+            cliente_lectura,
+            perfiles[plan.platform],
+            conn_admin,
+            lote,
+            crear_pausado=crear_pausado,
+        )
         creadas: list[dict] = []
         try:
             for rol in _roles_del_plan(plan):
                 creadas.append(_ejecuta_rol(ctx, plan, rol))
                 _log("campana_creada", lote=lote, rol=rol, external=creadas[-1]["campaign"])
+            if crear_pausado:
+                _activa_campanas(ctx, lote)
         except Abortar as exc:
             detalle = f"{exc} | creadas: {[c['rol'] for c in creadas]} | conocidos: {ctx.conocidos}"
             _sella_lote(conn_admin, lote, "failed", detalle)
@@ -1609,6 +1638,25 @@ def _revierte_parcial(ctx: _Ctx, lote: str) -> dict:
     except Exception as exc:
         _log("lote_revertido_sin_anotar", lote=lote, error=scrub(str(exc))[:160])
     return resumen
+
+
+def _activa_campanas(ctx: _Ctx, lote: str) -> None:
+    """Camino impulso: tras crear el lote completo PAUSED, lo activa
+    (PUT ENABLED + readback por campana). Falla cerrado: el rollback
+    del llamador vuelve a pausar lo activado."""
+    filas = ctx.conn_admin.execute(_SQL_EXTERNALS_CAMPANA_DEL_LOTE, (lote,)).fetchall()
+    if not filas:
+        raise Abortar(f"lote {lote} sin campanas con external: nada que activar")
+    for (external,) in filas:
+        ack = _put_estado_campana(ctx, external, fp.ESTADO_NUEVO)
+        if not fp.ack_ok(ack):
+            raise Abortar(f"PUT ENABLED de {external} rechazado (status {ack.get('status')})")
+        time.sleep(0.3)
+        leido = _readback(ctx.cliente_lectura, ctx.profile, "/sp/campaigns", external)
+        estado = leido.get("state") if isinstance(leido, dict) else None
+        _log("campana_activada", lote=lote, external=external, readback=estado)
+        if estado != fp.ESTADO_NUEVO:
+            raise Abortar(f"readback de {external} tras activar != ENABLED ({estado})")
 
 
 def _cambia_estado_lote(ctx: _Ctx, lote: str, estado: str, actor: str) -> None:
