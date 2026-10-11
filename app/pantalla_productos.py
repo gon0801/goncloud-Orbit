@@ -186,13 +186,13 @@ WITH activos AS (
      WHERE pa.platform = %s AND pa.kind = 'product_ad'
 ), ventas AS (
     SELECT product_id, sum(quantity)::bigint AS unidades FROM ledger_event
-     WHERE platform = %s AND kind = 'sale' AND event_date >= %s::date - 90 GROUP BY 1
+     WHERE platform = %s AND kind = 'sale' AND event_date >= %s::date - %s GROUP BY 1
 ), clics AS (
     SELECT li.product_id, sum(u.clicks)::bigint AS clics
       FROM (SELECT DISTINCT ON (advertised_asin, advertised_sku, metric_date)
                    advertised_asin, clicks
               FROM ads_product_metric_observation
-             WHERE platform = %s AND metric_date >= %s::date - 60
+             WHERE platform = %s AND metric_date >= %s::date - %s
              ORDER BY advertised_asin, advertised_sku, metric_date, observed_at DESC) u
       JOIN listing li ON li.platform = %s AND li.external_id = u.advertised_asin GROUP BY 1)
 SELECT a.product_id, p.odoo_sku, p.name, v.unidades, c.clics,
@@ -201,7 +201,7 @@ SELECT a.product_id, p.odoo_sku, p.name, v.unidades, c.clics,
   FROM activos a JOIN ventas v USING (product_id)
   LEFT JOIN clics c USING (product_id)
   JOIN product p ON p.id = a.product_id
- WHERE v.unidades >= 2 AND coalesce(c.clics, 0) < 20 ORDER BY 1
+ WHERE v.unidades >= %s AND coalesce(c.clics, 0) < %s ORDER BY 1
 """
 
 _SQL_SIN_PEDIDO = """
@@ -215,7 +215,7 @@ WITH activos AS (
      WHERE pa.platform = %s AND pa.kind = 'product_ad'
 ), ventas AS (
     SELECT product_id, sum(quantity)::bigint AS unidades FROM ledger_event
-     WHERE platform = %s AND kind = 'sale' AND event_date >= %s::date - 330 GROUP BY 1
+     WHERE platform = %s AND kind = 'sale' AND event_date >= %s::date - %s GROUP BY 1
 )
 SELECT a.product_id, p.odoo_sku, p.name,
        (SELECT array_agg(li.id ORDER BY li.id) FROM listing li
@@ -281,12 +281,26 @@ def lee_productos(conn, plataforma: str, hoy: dt.date) -> PantallaProductos:
         )
         for f in conn.execute(
             _SQL_CANDIDATOS,
-            (plataforma, plataforma, hoy, plataforma, hoy, plataforma, plataforma),
+            (
+                plataforma,
+                plataforma,
+                hoy,
+                DIAS_PEDIDOS_CANDIDATO,
+                plataforma,
+                hoy,
+                DIAS_CLICS_CANDIDATO,
+                plataforma,
+                plataforma,
+                PEDIDOS_MINIMOS_CANDIDATO,
+                CLICS_MAXIMOS_CANDIDATO,
+            ),
         ).fetchall()
     )
     sin_pedido = tuple(
         ProductoSinPedido(f[0], f[1] or "", f[2] or "", tuple(f[3] or ()))
-        for f in conn.execute(_SQL_SIN_PEDIDO, (plataforma, plataforma, hoy, plataforma)).fetchall()
+        for f in conn.execute(
+            _SQL_SIN_PEDIDO, (plataforma, plataforma, hoy, DIAS_SIN_PEDIDO, plataforma)
+        ).fetchall()
     )
     sin_producto = conn.execute(_SQL_SIN_PRODUCTO, (plataforma,)).fetchone()[0]
     fuera = {

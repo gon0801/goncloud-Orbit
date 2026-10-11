@@ -108,6 +108,21 @@ def test_candidato_pide_ventas_pocos_clics_y_anuncio():
 
 
 @_skip_db
+def test_candidatos_usan_las_constantes_del_modulo(monkeypatch):
+    """R09-r2 (regla 2): los umbrales salen de las constantes, no de
+    literales en el SQL: con ventana de 5 dias, ventas de hace 10 no
+    cuentan."""
+    with _db_p4("orbit_p4_cte") as conn:
+        pid, lid = _producto(conn, sku="S-CTE", asin="B0CTE00001", seller_sku="SC-CTE")
+        _activa(conn, lid, "ad-cte")
+        _ventas(conn, pid, 2)
+        _clics_ads(conn, "B0CTE00001", "SC-CTE", 3)
+        assert [c.product_id for c in pp.lee_productos(conn, "amazon_mx", HOY).candidatos] == [pid]
+        monkeypatch.setattr(pp, "DIAS_PEDIDOS_CANDIDATO", 5)
+        assert pp.lee_productos(conn, "amazon_mx", HOY).candidatos == ()
+
+
+@_skip_db
 def test_candidato_dos_publicaciones_cuenta_una_y_sin_ads_none():
     """P.4: dos listings activos del mismo producto dan una fila; sin
     filas de ads, los clics son None."""
