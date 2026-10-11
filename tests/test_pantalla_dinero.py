@@ -805,3 +805,156 @@ def test_pantalla_dinero_estrategias_none_y_sin_frase():
     assert "fija" in html
     assert "—" in html
     assert "ningún pedido" not in html
+
+
+def _fila_html(html, marcador):
+    import re
+
+    for m in re.finditer(r"<tr>(.*?)</tr>", html, re.S):
+        if marcador in m.group(1):
+            return m.group(1)
+    raise AssertionError(f"sin fila con {marcador!r}")
+
+
+def test_guion_en_cada_celda_tipo_y_total():
+    nulos = dict(gasto=None, pedidos=None, venta=None, acos_pct=None, parte_del_gasto_pct=None)
+    html = _html_dinero(
+        [_fila_ui(**nulos)],
+        total=_fila_ui(tipo="", **nulos),
+    )
+    assert _fila_html(html, ">exact<").count("—") == 5
+    assert _fila_html(html, ">Total<").count("—") == 5
+
+
+def test_guion_en_cada_celda_ubicacion():
+    html = _html_dinero(
+        [_fila_ui()],
+        por_ubicacion=[
+            _fila_ubi_ui(
+                gasto=None,
+                pedidos=None,
+                venta=None,
+                cpc=None,
+                conversion_pct=None,
+                acos_pct=None,
+                parte_del_gasto_pct=None,
+                gasta_sin_vender=False,
+            )
+        ],
+    )
+    assert _fila_html(html, ">fuera de Amazon<").count("—") == 6
+
+
+def test_guion_en_frase_ubicacion_con_nones():
+    html = _plano(
+        _html_dinero(
+            [_fila_ui()],
+            por_ubicacion=[_fila_ubi_ui(gasto=None, clics=None, gasta_sin_vender=True)],
+        )
+    )
+    assert "Fuera de Amazon: — MXN en 30 días, — clics, ningún pedido." in html
+
+
+def test_guion_en_cada_celda_campana():
+    html = _html_dinero(
+        [_fila_ui()],
+        por_campana=[
+            _fila_camp_ui(
+                nombre=None,
+                presupuesto_diario=None,
+                gasto_medio_diario=None,
+                uso_presupuesto_pct=None,
+                estrategia=None,
+                ajustes_ubicacion=[],
+                gasto_fuera_de_amazon=None,
+            )
+        ],
+    )
+    fila = _fila_html(html, "<td>—</td>")
+    assert fila.count("—") == 7
+
+
+def test_como_dict_none_viaja_none_en_todos_los_campos():
+    from app.pantalla_dinero import (
+        FilaCampana,
+        FilaTipo,
+        FilaUbicacion,
+        PantallaDinero,
+    )
+
+    tipo = FilaTipo(
+        tipo="exact",
+        gasto=None,
+        pedidos=None,
+        venta=None,
+        acos_pct=None,
+        parte_del_gasto_pct=None,
+        hojas=0,
+    )
+    assert tipo.como_dict() == {
+        "tipo": "exact",
+        "gasto": None,
+        "pedidos": None,
+        "venta": None,
+        "acos_pct": None,
+        "parte_del_gasto_pct": None,
+        "hojas": 0,
+        "sin_ventas": False,
+    }
+    ubi = FilaUbicacion(
+        ubicacion="fuera_de_amazon",
+        gasto=None,
+        clics=None,
+        pedidos=None,
+        venta=None,
+        cpc=None,
+        conversion_pct=None,
+        acos_pct=None,
+        parte_del_gasto_pct=None,
+        gasta_sin_vender=False,
+    )
+    dato_ubi = ubi.como_dict()
+    for campo in (
+        "gasto",
+        "clics",
+        "pedidos",
+        "venta",
+        "cpc",
+        "conversion_pct",
+        "acos_pct",
+        "parte_del_gasto_pct",
+    ):
+        assert dato_ubi[campo] is None
+    camp = FilaCampana(
+        campana_id=7,
+        nombre=None,
+        presupuesto_diario=None,
+        gasto_medio_diario=None,
+        uso_presupuesto_pct=None,
+        estrategia=None,
+        ajustes_ubicacion=(),
+        gasto_fuera_de_amazon=None,
+        dias_al_tope_7d=None,
+    )
+    dato_camp = camp.como_dict()
+    for campo in (
+        "nombre",
+        "presupuesto_diario",
+        "gasto_medio_diario",
+        "uso_presupuesto_pct",
+        "estrategia",
+        "gasto_fuera_de_amazon",
+        "dias_al_tope_7d",
+    ):
+        assert dato_camp[campo] is None
+    pantalla = PantallaDinero(
+        plataforma="amazon_mx",
+        moneda="MXN",
+        desde=DESDE_30,
+        hasta=HASTA_2A,
+        filas=(),
+        total=tipo,
+        hojas_sin_clasificar=0,
+        target_acos_pct=None,
+    )
+    assert pantalla.como_dict()["target_acos_pct"] is None
