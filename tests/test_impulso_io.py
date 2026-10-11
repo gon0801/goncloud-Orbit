@@ -1211,3 +1211,138 @@ def test_r09r3_lanza_huerfano_failed_con_grupo_no_se_reutiliza():
         assert "reconcilia" in str(exc.value.fallos)
         assert llamadas == []
         assert conn.execute("SELECT count(*) FROM impulso").fetchone() == (0,)
+
+
+class _AmazonPausa:
+    """Amazon falso para el pausador: registra PUTs y contesta readback."""
+
+    def __init__(self, *, readback="PAUSED", put_status=200):
+        self.readback = readback
+        self.put_status = put_status
+        self.puts = []
+
+    def put(self, request):
+        import json as _json
+
+        import httpx
+
+        cuerpo = _json.loads(request.content.decode("utf-8"))
+        self.puts.append(cuerpo["campaigns"][0])
+        return httpx.Response(self.put_status, json={})
+
+    def list_objects(self, path, body, *, profile_id):
+        from types import SimpleNamespace
+
+        exts = body["campaignIdFilter"]["include"]
+        return SimpleNamespace(
+            status_code=200,
+            json=lambda: {"campaigns": [{"campaignId": e, "state": self.readback} for e in exts]},
+        )
+
+
+def _pausador_real(conn, amazon):
+    """PausadorFabrica real con red falsa: LWA+PUT por MockTransport, LIST
+    por cliente falso. Solo credenciales y red; la logica intacta."""
+    from types import SimpleNamespace
+
+    import httpx
+
+    def _handler(request):
+        if request.url.path == "/auth/o2/token":
+            return httpx.Response(200, json={"access_token": "tok"})
+        if request.method == "PUT" and request.url.path == "/sp/campaigns":
+            return amazon.put(request)
+        return httpx.Response(404, json={})
+
+    http = httpx.Client(transport=httpx.MockTransport(_handler))
+    cred = SimpleNamespace(client_id="cid", client_secret="sec", refresh_token="rt")
+    pausador = io.PausadorFabrica(conn)
+    pausador._armado = (cred, amazon, http, {"amazon_mx": 101})
+    return pausador
+
+
+def _lote_pausable(conn, lote):
+    conn.execute(
+        "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal,"
+        " huella, plan, modo_goal, estado) VALUES (%s, 'amazon_mx', 'aros', 'Base', 'go',"
+        " 'h', '{}'::jsonb, 'shadow', 'applied')",
+        (lote,),
+    )
+    for orden, (rol, ext) in enumerate(
+        (("category_exact", "c-1"), ("auto_discovery", "c-2")), start=1
+    ):
+        conn.execute(
+            "INSERT INTO fabrica_lote_paso (lote, orden, rol, recurso, request_payload,"
+            " external_id, ack, readback_estado, estado) VALUES (%s, %s, %s::campana_rol,"
+            " 'campaign', '{}'::jsonb, %s, '{}'::jsonb, 'ENABLED', 'applied')",
+            (lote, orden, rol, ext),
+        )
+    conn.commit()
+
+
+@_skip_db
+def test_r09r3_v17_pausador_real_pausa_en_amazon():
+    """R09 B12 (V17): PausadorFabrica.pausa manda PUT PAUSED por campana,
+    con fila en el ledger antes, readback y lote pausado."""
+    with _db_i3("orbit_i3_r3v17") as conn:
+        lote = "impulso-v17-1"
+        _lote_pausable(conn, lote)
+        amazon = _AmazonPausa()
+        io.PausadorFabrica(conn)  # sin nada que pausar no toca la red
+        _pausador_real(conn, amazon).pausa(lote)
+        assert amazon.puts == [
+            {"campaignId": "c-2", "state": "PAUSED"},
+            {"campaignId": "c-1", "state": "PAUSED"},
+        ]
+        assert conn.execute(
+            "SELECT estado FROM fabrica_lote WHERE lote = %s", (lote,)
+        ).fetchone() == ("pausado",)
+        assert conn.execute(
+            "SELECT count(*) FROM fabrica_lote_paso WHERE lote = %s"
+            " AND request_payload->>'state' = 'PAUSED' AND estado = 'applied'",
+            (lote,),
+        ).fetchone() == (2,)
+
+
+@_skip_db
+def test_r09r3_t06_pausa_exige_readback():
+    """R09 B12 (T06): si el readback no muestra PAUSED, la pausa aborta."""
+    import tools.fabrica_campanas as fc
+
+    with _db_i3("orbit_i3_r3t06") as conn:
+        lote = "impulso-t06-1"
+        _lote_pausable(conn, lote)
+        amazon = _AmazonPausa(readback="ENABLED")
+        with pytest.raises(fc.Abortar, match="readback"):
+            _pausador_real(conn, amazon).pausa(lote)
+
+
+@_skip_db
+def test_r09r3_t07_put_rechazado_detiene_pausa():
+    """R09 B12 (T07): si Amazon rechaza el PUT, la pausa aborta."""
+    import tools.fabrica_campanas as fc
+
+    with _db_i3("orbit_i3_r3t07") as conn:
+        lote = "impulso-t07-1"
+        _lote_pausable(conn, lote)
+        amazon = _AmazonPausa(put_status=400)
+        with pytest.raises(fc.Abortar, match="rechazado"):
+            _pausador_real(conn, amazon).pausa(lote)
+
+
+@_skip_db
+def test_r09r3_v13_vigia_pausa_a_dos_diarios_del_tope():
+    """R09 B12 (V13): por la ruta del vigia, gasto entre monto-2*diario y
+    monto-diario pausa (con medio margen seguiria)."""
+    with _db_i3("orbit_i3_r3v13") as conn:
+        d0 = HOY - dt.timedelta(days=6)
+        ids = _impulso_vivo(conn, lanzado=d0, lote="impulso-v13-1")
+        for k in range(5):  # 5 dias con dato; gasto total 312.50
+            dia = d0 + dt.timedelta(days=k)
+            for camp in ids["camps"]:
+                _observa(conn, camp, dia, gasto="31.25")
+        pausador = _Pausador()
+        acciones = io.vigila(conn, pausador, hoy=HOY)
+        assert acciones[0].veredicto.estado == "clics_sin_ventas"
+        assert acciones[0].hecho == "pausado"
+        assert pausador.pausados == ["impulso-v13-1"]
