@@ -516,3 +516,50 @@ def test_fallo_en_fase_de_base_sella_ok_false(monkeypatch):
             (SOURCE_PLACEMENTS, False)
         ]
         assert _observadas(conn) == 0
+
+
+def test_fila_futura_y_fuera_de_rango_saltan():
+    """NB5: con rango, lo futuro y lo fuera de [desde, hasta] salta."""
+    dia = dt.date(2026, 10, 5)
+    plan, skips = _planea_filas_placements(
+        [
+            _fila(date="2026-10-05"),
+            _fila(date="2026-12-25"),
+            _fila(date="2026-01-01"),
+        ],
+        entidades={"9001": 7},
+        desde=dia,
+        hasta=dia,
+        hoy=dt.date(2026, 10, 6),
+    )
+    assert [f.metric_date for f in plan] == [dia]
+    assert skips == Counter(
+        {
+            "fila de placements con metric_date futura": 1,
+            "fila de placements con metric_date fuera del rango": 1,
+        }
+    )
+
+
+@_skip_db
+def test_sync_salta_fechas_que_no_pidio():
+    """NB5: el sync escribe solo lo del rango pedido."""
+    hoy = dt.datetime.now(dt.UTC).date()
+    ayer = hoy - dt.timedelta(days=1)
+    filas = {
+        "202": [
+            _fila(date=ayer.isoformat()),
+            _fila(date=(hoy + dt.timedelta(days=5)).isoformat()),
+            _fila(date=(hoy - dt.timedelta(days=60)).isoformat()),
+        ]
+    }
+    with _db_placements("orbit_pl_rango") as conn:
+        _siembra_campana(conn, "amazon_mx", "9001")
+        assert sync_placements(conn, _transporte_ok(filas), desde=ayer, hasta=ayer) == 1
+        fechas = conn.execute(
+            "SELECT DISTINCT metric_date FROM ads_placement_observation"
+        ).fetchall()
+        assert fechas == [(ayer,)]
+        motivo = conn.execute("SELECT skip_reason FROM ingest_run").fetchone()[0]
+        assert "metric_date futura" in motivo
+        assert "fuera del rango" in motivo

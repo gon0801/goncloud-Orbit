@@ -117,14 +117,21 @@ def _clave_externa(crudo: object) -> str | None:
 
 
 def _planea_filas_placements(
-    filas: list[dict], *, entidades: dict[str, int]
+    filas: list[dict],
+    *,
+    entidades: dict[str, int],
+    desde: dt.date | None = None,
+    hasta: dt.date | None = None,
+    hoy: dt.date | None = None,
 ) -> tuple[list[_FilaPlacement], Counter[str]]:
     """Valida cada fila ANTES de tocar la base (vocabulario CERRADO de
     skips, como _planea_filas_productos). Desconocido, negativo o no
     numerico salta la fila y se cuenta; ausente queda NULL (regla 3).
     Fila con las CINCO metricas ausentes salta: se insertaria con NULLs
     y el DISTINCT ON por observed_at DESC taparia datos completos
-    anteriores de esa (campana, ubicacion, fecha)."""
+    anteriores de esa (campana, ubicacion, fecha). Con rango, fecha
+    futura o fuera de [desde, hasta] salta como en el pipeline
+    principal (reports.py: la fuente no manda lo pedido)."""
     plan: list[_FilaPlacement] = []
     skips: Counter[str] = Counter()
     for fila in filas:
@@ -151,6 +158,12 @@ def _planea_filas_placements(
             metric_date = dt.date.fromisoformat(cruda)
         except ValueError:
             skips["fila de placements con date invalida"] += 1
+            continue
+        if hoy is not None and metric_date > hoy:
+            skips["fila de placements con metric_date futura"] += 1
+            continue
+        if desde is not None and hasta is not None and (metric_date < desde or metric_date > hasta):
+            skips["fila de placements con metric_date fuera del rango"] += 1
             continue
         try:
             impressions = _entero_reporte(fila.get("impressions"), "impressions")
@@ -189,12 +202,17 @@ def ingest_placements(
     filas: list[dict],
     *,
     observed_at: dt.datetime,
+    desde: dt.date | None = None,
+    hasta: dt.date | None = None,
+    hoy: dt.date | None = None,
 ) -> ResultadoIngesta:
     """Inserta las filas de UN reporte de placements (append-only, 0062).
 
     Resuelve las campanas en un solo SELECT; la moneda es la del perfil.
     Re-ingestar el MISMO reporte no duplica (ON CONFLICT DO NOTHING
     contra el indice de dedupe) y las absorbidas cuentan como saltadas.
+    Con rango, lo futuro o fuera de [desde, hasta] salta (espejo del
+    pipeline); `hoy` omiso es la fecha de observed_at.
     """
     if not perfil.aceptado or perfil.platform is None or perfil.moneda is None:
         raise AdsReportsError(
@@ -217,7 +235,13 @@ def ingest_placements(
         if externas
         else {}
     )
-    plan, skips = _planea_filas_placements(filas, entidades=entidades)
+    plan, skips = _planea_filas_placements(
+        filas,
+        entidades=entidades,
+        desde=desde,
+        hasta=hasta,
+        hoy=hoy if hoy is not None else observed_at.date(),
+    )
     written = 0
     for fila in plan:
         insertado = conn.execute(
@@ -328,7 +352,9 @@ def sync_placements(
             for perfil, report_id, filas in descargados:
                 perfil_actual, report_id_actual = perfil, report_id
                 observado = dt.datetime.now(dt.UTC)
-                resultado = ingest_placements(conn, perfil, report_id, filas, observed_at=observado)
+                resultado = ingest_placements(
+                    conn, perfil, report_id, filas, observed_at=observado, desde=desde, hasta=hasta
+                )
                 escritos += resultado.rows_written
                 skips.update(resultado.skips)
                 _registrar_resultado(conn, run_id, perfil, PLACEMENTS_CFG, report_id, "written")
