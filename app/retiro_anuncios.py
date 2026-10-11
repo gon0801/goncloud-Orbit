@@ -10,8 +10,10 @@ la reposicion lo recrea con la linea guardada.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Literal
 
@@ -164,6 +166,21 @@ SELECT pa.id FROM ad_entity pa
 """
 
 
+@contextmanager
+def _bloqueados(conn, llaves):
+    """Advisory locks de SESION, ordenados (sobreviven los commits y
+    cubren el HTTP entre lecturas y escrituras). Se sueltan al salir;
+    si la conexion muere, PostgreSQL los libera."""
+    for llave in sorted(set(llaves)):
+        conn.execute("SELECT pg_advisory_lock(hashtext(%s))", (llave,))
+    try:
+        yield
+    finally:
+        for llave in sorted(set(llaves)):
+            with contextlib.suppress(Exception):
+                conn.execute("SELECT pg_advisory_unlock(hashtext(%s))", (llave,))
+
+
 def ejecuta_retiro(
     conn,
     plan: PlanRetiro,
@@ -189,7 +206,7 @@ def ejecuta_retiro(
     if escritor is None:
         escritor = archivar.preparar_escritor(plan.plataforma)
     actor_final = actor if actor is not None else go
-    pendientes = []
+    candidatos = []
     for anuncio in plan.anuncios:
         ent = conn.execute(
             _SQL_ENTIDAD_DE_ANUNCIO, (plan.plataforma, anuncio.ad_id_externo)
@@ -201,14 +218,33 @@ def ejecuta_retiro(
                 raise ValueError(
                     f"anuncio {anuncio.ad_id_externo} sin {campo}: valida antes de pausar"
                 )
-        if conn.execute(_SQL_YA_RETIRADO, (ent[0],)).fetchone() is None:
-            pendientes.append((ent[0], anuncio))
+        candidatos.append((ent[0], anuncio))
     conn.commit()
-    if not pendientes:
+    if not candidatos:
         return 0
     lote = lote_retiro_de_plan(plan)
-    # Lectura previa global ANTES del primer PUT: existencia y reversas.
-    filas = archivar.leer_anuncios(escritor, [a.ad_id_externo for _, a in pendientes])
+    with _bloqueados(conn, [f"retiro-ad:{ent}" for ent, _ in candidatos]):
+        # Re-chequeo bajo lock: otro pudo retirar mientras se esperaba.
+        pendientes = [
+            (ent, anuncio)
+            for ent, anuncio in candidatos
+            if conn.execute(_SQL_YA_RETIRADO, (ent,)).fetchone() is None
+        ]
+        if not pendientes:
+            return 0
+        # Lectura previa global ANTES del primer PUT: existencia y reversas.
+        filas = archivar.leer_anuncios(escritor, [a.ad_id_externo for _, a in pendientes])
+        retirados, fallidos = _ejecuta_pendientes(
+            conn, plan, pendientes, filas, lote, impulso_id, escritor, actor_final
+        )
+    if fallidos:
+        raise RuntimeError(f"retiro no confirmado ({retirados} registrados): {fallidos}")
+    return retirados
+
+
+def _ejecuta_pendientes(conn, plan, pendientes, filas, lote, impulso_id, escritor, actor_final):
+    """INSERT-antes-del-PUT por anuncio (llamador con locks): conserva
+    la fila en lo incierto y nombra al final."""
     retirados = 0
     fallidos: list[str] = []
     for ent, anuncio in pendientes:
@@ -252,9 +288,7 @@ def ejecuta_retiro(
             fallidos.append(
                 f"{anuncio.ad_id_externo} ({res.resultado}, fila {rid} conservada: {detalle})"
             )
-    if fallidos:
-        raise RuntimeError(f"retiro no confirmado ({retirados} registrados): {fallidos}")
-    return retirados
+    return retirados, fallidos
 
 
 _SQL_RETIROS = """
@@ -274,6 +308,7 @@ def repone(
     guardada). Lee el estado actual: PAUSED se reactiva (mismo adId)
     solo si estaba ENABLED; si ya esta como estaba, solo cierra;
     ARCHIVED se recrea con la linea guardada (que trae su state).
+    Uno que falla no bloquea a los demas: se nombran al final.
     Una segunda llamada no repone otra vez. Devuelve cuantos repuso."""
     if not go or not go.strip():
         raise ValueError("reponer exige el literal go del dueno")
@@ -298,43 +333,60 @@ def repone(
     if escritor is None:
         plataforma = next(iter(plataformas))
         escritor = archivar.preparar_escritor(plataforma)
-    estados = archivar.estados_actuales(escritor, [f[1] for f in pendientes])
-    repuestos = 0
-    for rid, ad_id, reversa, _ent, _rep in pendientes:
-        estado = estados.get(ad_id)
-        previo = archivar.parsear_reversa(reversa).get("state")
-        if estado == "PAUSED" and previo == archivar.ESTADO_PAUSADO:
-            nuevo, estado_nuevo = ad_id, "PAUSED"
-        elif estado == "PAUSED":
-            res = archivar.reactivar_anuncios(escritor, [ad_id], ejecutar=True)
-            if not res or res[0].resultado != "reactivado":
-                detalle = res[0].detalle if res else "sin resultado"
-                raise RuntimeError(f"reposicion de {ad_id} no confirmada: {detalle}")
-            nuevo, estado_nuevo = ad_id, "ENABLED"
-        elif estado == "ENABLED" and previo == archivar.ESTADO_PAUSADO:
-            res = archivar.pausar_anuncios(escritor, [ad_id], ejecutar=True)
-            if not res or res[0].resultado != "pausado":
-                detalle = res[0].detalle if res else "sin resultado"
-                raise RuntimeError(f"reposicion de {ad_id} no confirmada: {detalle}")
-            nuevo, estado_nuevo = ad_id, "PAUSED"
-        elif estado == "ARCHIVED":
-            res = archivar.reponer_anuncios(escritor, [reversa], ejecutar=True)
-            if not res or res[0].resultado != "repuesto":
-                detalle = res[0].detalle if res else "sin resultado"
-                raise RuntimeError(f"reposicion de {ad_id} no confirmada: {detalle}")
-            nuevo, estado_nuevo = res[0].ad_id, res[0].estado_previo
-        elif estado == "ENABLED":
-            nuevo, estado_nuevo = ad_id, "ENABLED"
-        else:
-            raise RuntimeError(f"reposicion de {ad_id}: estado {estado!r} sin camino")
-        conn.execute(
-            "INSERT INTO anuncio_reposicion (retiro_id, ad_id_nuevo, estado_nuevo, repuesto_el,"
-            " actor) VALUES (%s, %s, %s, now(), %s)",
-            (rid, nuevo, estado_nuevo, actor_final),
-        )
-        conn.commit()
-        repuestos += 1
+    with _bloqueados(conn, [f"repone-rid:{rid}" for rid in retiro_ids]):
+        # Re-lee bajo lock: otro pudo reponer mientras se esperaba.
+        filas = conn.execute(_SQL_RETIROS, (list(retiro_ids),)).fetchall()
+        pendientes = [f for f in filas if not f[4]]
+        if not pendientes:
+            return 0
+        estados = archivar.estados_actuales(escritor, [f[1] for f in pendientes])
+        repuestos = 0
+        fallidos: list[str] = []
+        for rid, ad_id, reversa, _ent, _rep in pendientes:
+            try:
+                nuevo, estado_nuevo = _repone_uno(escritor, ad_id, reversa, estados.get(ad_id))
+            except Exception as exc:
+                fallidos.append(f"{ad_id} ({exc})")
+                continue
+            conn.execute(
+                "INSERT INTO anuncio_reposicion (retiro_id, ad_id_nuevo, estado_nuevo,"
+                " repuesto_el, actor) VALUES (%s, %s, %s, now(), %s)",
+                (rid, nuevo, estado_nuevo, actor_final),
+            )
+            conn.commit()
+            repuestos += 1
+    if fallidos:
+        raise RuntimeError(f"reposicion parcial ({repuestos} repuestos): {fallidos}")
     return repuestos
+
+
+def _repone_uno(escritor, ad_id, reversa, estado):
+    """Devuelve el anuncio a su estado previo (mismo adId o recreado).
+    Levanta si no se confirma."""
+    previo = archivar.parsear_reversa(reversa).get("state")
+    if estado == "PAUSED" and previo == archivar.ESTADO_PAUSADO:
+        return ad_id, "PAUSED"
+    if estado == "PAUSED":
+        res = archivar.reactivar_anuncios(escritor, [ad_id], ejecutar=True)
+        if not res or res[0].resultado != "reactivado":
+            detalle = res[0].detalle if res else "sin resultado"
+            raise RuntimeError(f"reposicion de {ad_id} no confirmada: {detalle}")
+        return ad_id, "ENABLED"
+    if estado == "ENABLED" and previo == archivar.ESTADO_PAUSADO:
+        res = archivar.pausar_anuncios(escritor, [ad_id], ejecutar=True)
+        if not res or res[0].resultado != "pausado":
+            detalle = res[0].detalle if res else "sin resultado"
+            raise RuntimeError(f"reposicion de {ad_id} no confirmada: {detalle}")
+        return ad_id, "PAUSED"
+    if estado == "ARCHIVED":
+        res = archivar.reponer_anuncios(escritor, [reversa], ejecutar=True)
+        if not res or res[0].resultado != "repuesto":
+            detalle = res[0].detalle if res else "sin resultado"
+            raise RuntimeError(f"reposicion de {ad_id} no confirmada: {detalle}")
+        return res[0].ad_id, res[0].estado_previo
+    if estado == "ENABLED":
+        return ad_id, "ENABLED"
+    raise RuntimeError(f"reposicion de {ad_id}: estado {estado!r} sin camino")
 
 
 def retiros_pendientes_de_impulso(conn, impulso_id: int, plan: PlanRetiro) -> PlanRetiro:

@@ -713,4 +713,6 @@ def retiro_reponer(_token: Annotated[str, Depends(exige_token)], cuerpo: CuerpoR
             )
         except ValueError as exc:
             raise fw.error(422, str(exc)) from None
+        except RuntimeError as exc:
+            raise fw.error(502, f"Reposicion parcial: {exc}") from None
         return {"repuestos": repuestos}

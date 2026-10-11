@@ -296,9 +296,17 @@ def reponer_anuncios(
                     )
                 else:
                     # El ack no basta: un 207 success sin fila viva en el list
-                    # es falso exito (Make Operations Idempotent).
-                    posteriores = estados_actuales(escritor, [nuevo])
-                    estado_nuevo = posteriores.get(nuevo)
+                    # es falso exito (Make Operations Idempotent). El nuevo
+                    # tarda en verse (eventual): se reintenta la RELECTURA,
+                    # nunca el create (un solo anuncio nuevo).
+                    estado_nuevo = None
+                    for intento in range(3):
+                        posteriores = estados_actuales(escritor, [nuevo])
+                        estado_nuevo = posteriores.get(nuevo)
+                        if estado_nuevo is not None and estado_nuevo != ESTADO_ARCHIVADO:
+                            break
+                        if intento < 2:
+                            dormir(pausa)
                     if estado_nuevo is not None and estado_nuevo != ESTADO_ARCHIVADO:
                         resultados.append(
                             ResultadoAnuncio(nuevo, d["state"], "repuesto", "", reversa)

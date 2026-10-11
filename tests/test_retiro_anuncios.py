@@ -57,16 +57,26 @@ def _bolsa(
     return camp_id, ag_id, pa_id
 
 
-def _escritor(filas: dict[str, dict], *, lists_que_fallan=frozenset(), stale_lists=frozenset()):
+def _escritor(
+    filas: dict[str, dict],
+    *,
+    lists_que_fallan=frozenset(),
+    stale_lists=frozenset(),
+    rechaza_put=frozenset(),
+    ocultos=None,
+):
     """Escritor sobre transporte falso: list con filas completas, PUT que
     cambia el estado en vivo, create que devuelve un adId nuevo.
     lists_que_fallan: numeros de LIST (1-based) que responden 500.
-    stale_lists: numeros de LIST que ven el estado previo al ultimo PUT."""
+    stale_lists: numeros de LIST que ven el estado previo al ultimo PUT.
+    rechaza_put: adIds cuyo PUT responde 400.
+    ocultos: {adId: n} LISTs que aun no traen ese ad (eventual)."""
     puts: list[tuple[str, str]] = []
     vivos = {k: dict(v) for k, v in filas.items()}
     foto = {k: dict(v) for k, v in filas.items()}
     nuevo = {"n": 0}
     n_list = {"n": 0}
+    oculta = dict(ocultos or {})
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.host == "api.amazon.com":
@@ -74,6 +84,8 @@ def _escritor(filas: dict[str, dict], *, lists_que_fallan=frozenset(), stale_lis
         cuerpo = json.loads(request.content) if request.content else {}
         if request.method == "PUT" and request.url.path == "/sp/productAds":
             for entrada in cuerpo.get("productAds", []):
+                if str(entrada["adId"]) in rechaza_put:
+                    return httpx.Response(400, json={"code": "400", "details": "rechazado"})
                 puts.append((str(entrada["adId"]), str(entrada["state"])))
                 foto[str(entrada["adId"])] = dict(vivos[str(entrada["adId"])])
                 vivos[str(entrada["adId"])]["state"] = str(entrada["state"])
@@ -96,7 +108,14 @@ def _escritor(filas: dict[str, dict], *, lists_que_fallan=frozenset(), stale_lis
             return httpx.Response(500, text="Internal error")
         fuente = foto if n_list["n"] in stale_lists else vivos
         pedidos = cuerpo.get("adIdFilter", {}).get("include", [])
-        return httpx.Response(200, json={"productAds": [fuente[p] for p in pedidos if p in fuente]})
+        visibles = []
+        for p in pedidos:
+            if oculta.get(p, 0) > 0:
+                oculta[p] -= 1
+                continue
+            if p in fuente:
+                visibles.append(fuente[p])
+        return httpx.Response(200, json={"productAds": visibles})
 
     return make_write_client(handler), puts
 
@@ -471,3 +490,117 @@ def test_repone_previo_pausado_archivado_recrea_pausado():
             "SELECT ad_id_nuevo, estado_nuevo FROM anuncio_reposicion WHERE retiro_id = %s",
             (ret[0],),
         ).fetchone() == ("ad-nuevo-1", "PAUSED")
+
+
+def _otra_conn(conn):
+    import psycopg
+    from test_schema import _test_dsn
+
+    return psycopg.connect(_test_dsn(), dbname=conn.info.dbname, autocommit=True)
+
+
+@_skip_db
+def test_ejecuta_simultaneo_un_retiro_un_put():
+    """R09 B9 (i5): dos ejecutar a la vez sobre el mismo anuncio: una fila,
+    un PUT, sin excepcion (1 y 0)."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    with _db_i4("orbit_i4_r9a") as conn:
+        _pid, lid = _producto(conn)
+        _bolsa(conn, lid, "ad-1")
+        plan = ra.planea_retiro(
+            conn, "amazon_mx", listing_ids=(lid,), motivo="sin_pedidos", conservar_grupo_id=None
+        )
+        escritor, puts = _escritor(_fila("ad-1", "ENABLED"))
+
+        def uno(_):
+            otra = _otra_conn(conn)
+            try:
+                return ra.ejecuta_retiro(otra, plan, go="go dueno", escritor=escritor)
+            finally:
+                otra.close()
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            assert sorted(pool.map(uno, range(2))) == [0, 1]
+        assert puts == [("ad-1", "PAUSED")]
+        assert conn.execute("SELECT count(*) FROM anuncio_retiro").fetchone() == (1,)
+
+
+@_skip_db
+def test_repone_simultaneo_una_reposicion():
+    """R09 B9 (i7/04-b): dos reponer a la vez: una reposicion, un PUT, sin
+    excepcion (1 y 0)."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    with _db_i4("orbit_i4_r9b") as conn:
+        _pid, lid = _producto(conn)
+        _bolsa(conn, lid, "ad-1")
+        plan = ra.planea_retiro(
+            conn, "amazon_mx", listing_ids=(lid,), motivo="sin_pedidos", conservar_grupo_id=None
+        )
+        escritor, puts = _escritor(_fila("ad-1", "ENABLED"))
+        ra.ejecuta_retiro(conn, plan, go="go dueno", escritor=escritor)
+        (ret,) = conn.execute("SELECT id FROM anuncio_retiro").fetchall()
+        puts.clear()
+
+        def uno(_):
+            otra = _otra_conn(conn)
+            try:
+                return ra.repone(otra, retiro_ids=(ret[0],), go="go dueno", escritor=escritor)
+            finally:
+                otra.close()
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            assert sorted(pool.map(uno, range(2))) == [0, 1]
+        assert puts == [("ad-1", "ENABLED")]
+        assert conn.execute("SELECT count(*) FROM anuncio_reposicion").fetchone() == (1,)
+
+
+@_skip_db
+def test_repone_parcial_sigue_y_nombra():
+    """R09 B9 (g): Amazon rechaza reactivar 1 de 3: los buenos se reponen,
+    el error nombra al malo."""
+    with _db_i4("orbit_i4_r9c") as conn:
+        _pid, lid = _producto(conn)
+        _bolsa(conn, lid, "ad-1")
+        _bolsa(conn, lid, "ad-2", ag="ag-2", camp="c-2")
+        _bolsa(conn, lid, "ad-3", ag="ag-3", camp="c-3")
+        plan = ra.planea_retiro(
+            conn, "amazon_mx", listing_ids=(lid,), motivo="sin_pedidos", conservar_grupo_id=None
+        )
+        escritor, _puts = _escritor(
+            {**_fila("ad-1", "ENABLED"), **_fila("ad-2", "ENABLED"), **_fila("ad-3", "ENABLED")},
+        )
+        assert ra.ejecuta_retiro(conn, plan, go="go dueno", escritor=escritor) == 3
+        rids = tuple(
+            r[0] for r in conn.execute("SELECT id FROM anuncio_retiro ORDER BY id").fetchall()
+        )
+        escritor2, _puts2 = _escritor(
+            {**_fila("ad-1", "PAUSED"), **_fila("ad-2", "PAUSED"), **_fila("ad-3", "PAUSED")},
+            rechaza_put={"ad-2"},
+        )
+        with pytest.raises(RuntimeError, match="ad-2"):
+            ra.repone(conn, retiro_ids=rids, go="go dueno", escritor=escritor2)
+        assert conn.execute("SELECT count(*) FROM anuncio_reposicion").fetchone() == (2,)
+
+
+@_skip_db
+def test_repone_create_invisible_reintenta_un_solo_create():
+    """R09 B9 (04-a): el nuevo tarda un LIST en verse: se reintenta la
+    relectura (no el create): un anuncio nuevo, repuesto."""
+    with _db_i4("orbit_i4_r9d") as conn:
+        _pid, lid = _producto(conn)
+        _bolsa(conn, lid, "ad-1")
+        plan = ra.planea_retiro(
+            conn, "amazon_mx", listing_ids=(lid,), motivo="sin_pedidos", conservar_grupo_id=None
+        )
+        escritor, _puts = _escritor(_fila("ad-1", "ENABLED"))
+        ra.ejecuta_retiro(conn, plan, go="go dueno", escritor=escritor)
+        (ret,) = conn.execute("SELECT id FROM anuncio_retiro").fetchall()
+        escritor2, _puts2 = _escritor(_fila("ad-1", "ARCHIVED"), ocultos={"ad-nuevo-1": 1})
+        assert ra.repone(conn, retiro_ids=(ret[0],), go="go dueno", escritor=escritor2) == 1
+        from app.ads import archivar
+
+        assert archivar.estados_actuales(escritor2, ["ad-nuevo-1", "ad-nuevo-2"]) == {
+            "ad-nuevo-1": "ENABLED"
+        }
