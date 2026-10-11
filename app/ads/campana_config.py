@@ -138,7 +138,11 @@ def _ajustes(placements: object) -> tuple[int, int, int]:
         if not isinstance(entrada, dict):
             raise ValueError("entrada de placement con mala forma")
         ubicacion = entrada.get("placement")
-        if ubicacion not in _AJUSTE_POR_PLACEMENT or ubicacion in vistos:
+        if (
+            not isinstance(ubicacion, str)
+            or ubicacion not in _AJUSTE_POR_PLACEMENT
+            or ubicacion in vistos
+        ):
             raise ValueError("placement desconocido o repetido")
         pct = entrada.get("percentage")
         if isinstance(pct, bool) or not isinstance(pct, int) or not 0 <= pct <= _PCT_MAX:

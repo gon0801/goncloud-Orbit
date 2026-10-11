@@ -139,7 +139,8 @@ def _planea_filas_placements(
         if entidad is None:
             skips["fila de placements de campana desconocida"] += 1
             continue
-        ubicacion = _UBICACION.get(fila.get("placementClassification"))
+        cruda_ubi = fila.get("placementClassification")
+        ubicacion = _UBICACION.get(cruda_ubi) if isinstance(cruda_ubi, str) else None
         if ubicacion is None:
             skips["fila de placements con placement desconocido"] += 1
             continue

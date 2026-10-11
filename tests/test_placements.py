@@ -173,6 +173,8 @@ def test_clasificaciones_mapean_a_ubicacion():
 def test_filas_malas_saltan_con_motivo():
     filas = [
         _fila(placementClassification="Luna on-Amazon"),
+        _fila(placementClassification={"lugar": "x"}),
+        _fila(placementClassification=["Top of Search on-Amazon"]),
         _fila(campaignId=4242),
         _fila(cost=-1),
         _fila(clicks=-2),
@@ -183,7 +185,7 @@ def test_filas_malas_saltan_con_motivo():
     assert plan == []
     assert skips == Counter(
         {
-            "fila de placements con placement desconocido": 1,
+            "fila de placements con placement desconocido": 3,
             "fila de placements de campana desconocida": 1,
             "fila de placements con metrica negativa": 2,
             "fila de placements con date invalida": 1,

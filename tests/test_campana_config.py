@@ -133,6 +133,15 @@ def test_budgetType_no_diario_o_ausente_anula_la_campana():
     assert config_de_payload(_item(budget={"budget": 10.08}), "USD") is None
 
 
+@pytest.mark.parametrize("raro", [{"donde": "x"}, ["PLACEMENT_TOP"], 42, None])
+def test_placement_no_texto_anula_sin_levantar(raro):
+    bidding = {
+        "strategy": "LEGACY_FOR_SALES",
+        "placementBidding": [{"percentage": 40, "placement": raro}],
+    }
+    assert config_de_payload(_item(dynamicBidding=bidding), "USD") is None
+
+
 def test_sin_placementBidding_los_ajustes_son_cero():
     config = config_de_payload(_item(dynamicBidding={"strategy": "MANUAL"}), "USD")
     assert config.estrategia_puja == "MANUAL"
