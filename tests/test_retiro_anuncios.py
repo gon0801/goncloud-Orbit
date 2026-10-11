@@ -403,3 +403,71 @@ def test_ejecuta_relectura_atrasada_conserva_fila():
             ra.ejecuta_retiro(conn, plan, go="go dueno", escritor=escritor)
         assert puts == [("ad-1", "PAUSED")]
         assert conn.execute("SELECT count(*) FROM anuncio_retiro").fetchone() == (1,)
+
+
+@_skip_db
+def test_repone_previo_pausado_no_reactiva():
+    """R09 B6 (ad-2): pausado por el dueno antes del retiro: al reponer no
+    se reactiva, se cierra con PAUSED."""
+    with _db_i4("orbit_i4_r6a") as conn:
+        _pid, lid = _producto(conn)
+        _bolsa(conn, lid, "ad-1")
+        plan = ra.planea_retiro(
+            conn, "amazon_mx", listing_ids=(lid,), motivo="sin_pedidos", conservar_grupo_id=None
+        )
+        escritor, puts = _escritor(_fila("ad-1", "PAUSED"))
+        assert ra.ejecuta_retiro(conn, plan, go="go dueno", escritor=escritor) == 1
+        assert puts == []
+        (ret,) = conn.execute("SELECT id FROM anuncio_retiro").fetchall()
+        assert ra.repone(conn, retiro_ids=(ret[0],), go="go dueno", escritor=escritor) == 1
+        assert puts == []
+        assert conn.execute(
+            "SELECT ad_id_nuevo, estado_nuevo FROM anuncio_reposicion WHERE retiro_id = %s",
+            (ret[0],),
+        ).fetchone() == ("ad-1", "PAUSED")
+
+
+@_skip_db
+def test_repone_previo_pausado_actual_enabled_lo_vuelve_a_pausar():
+    """R09 B6: previo PAUSED pero prendido por fuera: reponer lo devuelve
+    a PAUSED."""
+    with _db_i4("orbit_i4_r6b") as conn:
+        _pid, lid = _producto(conn)
+        _bolsa(conn, lid, "ad-1")
+        plan = ra.planea_retiro(
+            conn, "amazon_mx", listing_ids=(lid,), motivo="sin_pedidos", conservar_grupo_id=None
+        )
+        escritor, puts = _escritor(_fila("ad-1", "PAUSED"))
+        ra.ejecuta_retiro(conn, plan, go="go dueno", escritor=escritor)
+        (ret,) = conn.execute("SELECT id FROM anuncio_retiro").fetchall()
+        escritor.cambiar_estado_product_ad("ad-1", "ENABLED")
+        puts.clear()
+        assert ra.repone(conn, retiro_ids=(ret[0],), go="go dueno", escritor=escritor) == 1
+        assert puts == [("ad-1", "PAUSED")]
+        assert conn.execute(
+            "SELECT estado_nuevo FROM anuncio_reposicion WHERE retiro_id = %s",
+            (ret[0],),
+        ).fetchone() == ("PAUSED",)
+
+
+@_skip_db
+def test_repone_previo_pausado_archivado_recrea_pausado():
+    """R09 B6 (ad-4): previo PAUSED y archivado por fuera: se recrea PAUSED."""
+    with _db_i4("orbit_i4_r6c") as conn:
+        _pid, lid = _producto(conn)
+        _bolsa(conn, lid, "ad-1")
+        plan = ra.planea_retiro(
+            conn, "amazon_mx", listing_ids=(lid,), motivo="sin_pedidos", conservar_grupo_id=None
+        )
+        escritor, _puts = _escritor(_fila("ad-1", "PAUSED"))
+        ra.ejecuta_retiro(conn, plan, go="go dueno", escritor=escritor)
+        (ret,) = conn.execute("SELECT id FROM anuncio_retiro").fetchall()
+        escritor2, _puts2 = _escritor(_fila("ad-1", "ARCHIVED"))
+        assert ra.repone(conn, retiro_ids=(ret[0],), go="go dueno", escritor=escritor2) == 1
+        from app.ads import archivar
+
+        assert archivar.estados_actuales(escritor2, ["ad-nuevo-1"]) == {"ad-nuevo-1": "PAUSED"}
+        assert conn.execute(
+            "SELECT ad_id_nuevo, estado_nuevo FROM anuncio_reposicion WHERE retiro_id = %s",
+            (ret[0],),
+        ).fetchone() == ("ad-nuevo-1", "PAUSED")

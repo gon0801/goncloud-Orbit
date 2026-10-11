@@ -239,10 +239,11 @@ def repone(
     conn, *, retiro_ids: tuple[int, ...], go: str, escritor=None, actor: str | None = None
 ) -> int:
     """La reversa (regla 7): deja al producto con un anuncio en cada ad
-    group del que salio, con el estado que tenia. Lee el estado actual:
-    PAUSED se reactiva (mismo adId); ARCHIVED se recrea con la linea
-    guardada; ENABLED ya esta como debe y solo cierra el retiro. Una
-    segunda llamada no repone otra vez. Devuelve cuantos repuso."""
+    group del que salio, con el estado que tenia (el `state` de la linea
+    guardada). Lee el estado actual: PAUSED se reactiva (mismo adId)
+    solo si estaba ENABLED; si ya esta como estaba, solo cierra;
+    ARCHIVED se recrea con la linea guardada (que trae su state).
+    Una segunda llamada no repone otra vez. Devuelve cuantos repuso."""
     if not go or not go.strip():
         raise ValueError("reponer exige el literal go del dueno")
     actor_final = actor if actor is not None else go
@@ -270,12 +271,21 @@ def repone(
     repuestos = 0
     for rid, ad_id, reversa, _ent, _rep in pendientes:
         estado = estados.get(ad_id)
-        if estado == "PAUSED":
+        previo = archivar.parsear_reversa(reversa).get("state")
+        if estado == "PAUSED" and previo == archivar.ESTADO_PAUSADO:
+            nuevo, estado_nuevo = ad_id, "PAUSED"
+        elif estado == "PAUSED":
             res = archivar.reactivar_anuncios(escritor, [ad_id], ejecutar=True)
             if not res or res[0].resultado != "reactivado":
                 detalle = res[0].detalle if res else "sin resultado"
                 raise RuntimeError(f"reposicion de {ad_id} no confirmada: {detalle}")
             nuevo, estado_nuevo = ad_id, "ENABLED"
+        elif estado == "ENABLED" and previo == archivar.ESTADO_PAUSADO:
+            res = archivar.pausar_anuncios(escritor, [ad_id], ejecutar=True)
+            if not res or res[0].resultado != "pausado":
+                detalle = res[0].detalle if res else "sin resultado"
+                raise RuntimeError(f"reposicion de {ad_id} no confirmada: {detalle}")
+            nuevo, estado_nuevo = ad_id, "PAUSED"
         elif estado == "ARCHIVED":
             res = archivar.reponer_anuncios(escritor, [reversa], ejecutar=True)
             if not res or res[0].resultado != "repuesto":
