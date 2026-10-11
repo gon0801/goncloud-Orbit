@@ -1985,6 +1985,9 @@ _SQL_HIJO_REGRESO = """
 SELECT id, confirmado_el IS NOT NULL FROM campana_ajuste
  WHERE regresa_a = %s ORDER BY id
 """
+_SQL_DESPUES_POR_ID = """
+SELECT despues FROM campana_ajuste WHERE id = %s
+"""
 _SQL_CUENTA_HUELLA = """
 SELECT count(*) FROM campana_ajuste WHERE huella = %s OR huella LIKE %s
 """
@@ -2124,20 +2127,28 @@ def _config_leida(cliente: AdsWriteClient, plataforma: str, externa: str):
 
 
 def _aplica_y_confirma(
-    conn, cliente, plataforma, clase, destino, *, ajuste_id, llave, previa
+    conn, cliente, plataforma, clase, destino, ajuste, *, ajuste_id, llave, previa
 ) -> None:
-    """PUT parcial + readback + sello, serializado por acto (B9). El PUT
-    lleva SOLO la llave de la clase (B1); quien llama ya commiteo la
-    intencion; aqui se INTENTA un candado advisory de transaccion por
-    `llave` (try, no espera) y se re-lee la fila: si otro intento ya
-    confirmo, se vuelve sin PUT (un solo PUT por acto); si otro
-    trabaja, 409 AjusteEnCurso. El sello final commitea (durable +
-    libera el candado). El readback manda: si lo leido no coincide en
-    la clase, la fila queda sin confirmar (reintentable: el reintento
-    reusa la pendiente). Lo que se guarda es la leida mezclada sobre
-    `previa` (B1: el PUT no mueve campos ajenos)."""
-    from app.ads.campana_config import cuerpo_put_clase, guarda_config, mezcla_observacion
-    from app.campana_ajustes import coincide_clase
+    """PUT del campo + readback + sello, serializado por acto (B9). El
+    PUT lleva SOLO el campo que el ajuste cambia (B11: un placement
+    solo, con la estrategia leida ANTES del PUT; las otras clases
+    llevan su llave, B1); quien llama ya commiteo la intencion; aqui
+    se INTENTA un candado advisory de transaccion por `llave` (try, no
+    espera) y se re-lee la fila: si otro intento ya confirmo, se
+    vuelve sin PUT (un solo PUT por acto); si otro trabaja, 409
+    AjusteEnCurso. El sello final commitea (durable + libera el
+    candado). El readback manda: si lo leido no coincide en el campo,
+    la fila queda sin confirmar (reintentable: el reintento reusa la
+    pendiente). Lo que se guarda es la leida mezclada sobre `previa`
+    (B1: el PUT no mueve campos ajenos)."""
+    from app.ads.campana_config import (
+        PLACEMENT_POR_CAMPO,
+        cuerpo_put_clase,
+        cuerpo_put_ubicacion,
+        guarda_config,
+        mezcla_observacion,
+    )
+    from app.campana_ajustes import CambiarAjusteUbicacion, campo_del_ajuste, coincide_campo
 
     candado = conn.execute("SELECT pg_try_advisory_xact_lock(hashtext(%s))", (llave,)).fetchone()[0]
     if not candado:
@@ -2148,12 +2159,30 @@ def _aplica_y_confirma(
     if ya is not None and ya[0]:
         conn.rollback()
         return
+    if isinstance(ajuste, CambiarAjusteUbicacion):
+        actual = _config_leida(cliente, plataforma, destino.campana_externa)
+        strategy = actual.estrategia_puja if actual is not None else None
+        if strategy is None:
+            # La lectura no trae dynamicBidding (raro: el vigente si
+            # tenia, o planear habria rechazado): fallback al vigente,
+            # no hay actual que respetar. Sin ninguna, fail-closed.
+            strategy = destino.estrategia_puja
+        if strategy is None:
+            raise AjusteNoConfirmado(
+                f"ajuste {ajuste_id}: sin estrategia no se manda el PUT de un placement"
+            )
+        campo = campo_del_ajuste(ajuste)
+        cuerpo = cuerpo_put_ubicacion(
+            PLACEMENT_POR_CAMPO[campo], ajuste.porcentaje, destino, strategy
+        )
+    else:
+        cuerpo = cuerpo_put_clase(clase, destino)
     cliente.ajustar_campana(
         destino.campana_externa,
-        {k: v for k, v in cuerpo_put_clase(clase, destino).items() if k != "campaignId"},
+        {k: v for k, v in cuerpo.items() if k != "campaignId"},
     )
     leida = _config_leida(cliente, plataforma, destino.campana_externa)
-    if leida is None or not coincide_clase(clase, leida, destino):
+    if leida is None or not coincide_campo(ajuste, leida, destino):
         raise AjusteNoConfirmado(
             f"ajuste {ajuste_id}: Amazon no confirma la config enviada"
             " (readback distinto); la fila queda sin confirmar"
@@ -2259,6 +2288,7 @@ def aplica_ajuste_campana(
         plan.plataforma,
         plan.clase,
         plan.despues,
+        plan.ajuste,
         ajuste_id=ajuste_id,
         llave=f"aplica:{huella_efectiva}",
         previa=plan.antes,
@@ -2310,7 +2340,7 @@ def regresa_ajuste_campana(conn, *, ajuste_id: int, actor: str, transport=None) 
     posteriores de otra clase y podria SUBIR un presupuesto). Un solo
     regreso por ajuste; fuera_de_amazon no tiene regreso sellado (V.0)
     y no presenta boton."""
-    from app.ads.campana_config import config_vigente_con_id
+    from app.ads.campana_config import ConfigCampana, config_vigente_con_id
     from app.campana_ajustes import PlanAjuste, coincide_clase
 
     if not actor or not actor.strip():
@@ -2350,6 +2380,10 @@ def regresa_ajuste_campana(conn, *, ajuste_id: int, actor: str, transport=None) 
         raise AjusteYaRegresado(
             f"ajuste {ajuste_id}: la campana ya tiene el valor de antes en la clase {clase}"
         )
+    despues_padre = ConfigCampana.desde_json(
+        conn.execute(_SQL_DESPUES_POR_ID, (ajuste_id,)).fetchone()[0]
+    )
+    ajuste_hijo = _ajuste_hacia(clase, antes, despues_padre)
     if hijo is not None and not hijo[1]:
         nuevo_id = hijo[0]
     else:
@@ -2357,7 +2391,7 @@ def regresa_ajuste_campana(conn, *, ajuste_id: int, actor: str, transport=None) 
             campana_id=campana_id,
             plataforma=plataforma,
             clase=clase,
-            ajuste=_ajuste_hacia(clase, vigente, antes),
+            ajuste=ajuste_hijo,
             antes=vigente,
             despues=antes,
             frase=(f"Orbit regresa la campaña {antes.campana_externa} a su configuración de antes"),
@@ -2390,6 +2424,7 @@ def regresa_ajuste_campana(conn, *, ajuste_id: int, actor: str, transport=None) 
         plataforma,
         clase,
         antes,
+        ajuste_hijo,
         ajuste_id=nuevo_id,
         llave=f"regresa:{nuevo_id}",
         previa=vigente,
@@ -2421,24 +2456,32 @@ def _config_por_id(conn, config_id: int):
     )
 
 
-def _ajuste_hacia(clase, vigente, antes):
+def _ajuste_hacia(clase, antes, despues_padre):
     """Ajuste representativo del regreso (el destino real es `antes`,
-    del que el PUT solo toma la clase). Solo mira campos de la clase
-    del ajuste (B2); si la clase ya esta en antes, quien llama ya
-    devolvio AjusteYaRegresado."""
+    del que el PUT solo toma el campo, B11). El presupuesto restaura
+    el monto de antes; la ubicacion restaura el placement que el padre
+    movio (diff entre su antes y su despues, no contra el vigente:
+    otro ajuste posterior no se toca)."""
     from app.campana_ajustes import CambiarAjusteUbicacion, CambiarPresupuesto
 
     if clase == "presupuesto":
         if antes.presupuesto_diario is None:
             raise AjusteSinRegreso("la configuracion de antes no trae presupuesto")
         return CambiarPresupuesto(presupuesto_diario=antes.presupuesto_diario)
-    for campo, ubicacion in (
-        ("ajuste_top_pct", "arriba_de_busqueda"),
-        ("ajuste_resto_pct", "resto_de_busqueda"),
-        ("ajuste_producto_pct", "paginas_de_producto"),
-    ):
-        if getattr(antes, campo) != getattr(vigente, campo):
-            if getattr(antes, campo) is None:
-                raise AjusteSinRegreso("la configuracion de antes no trae ese ajuste")
-            return CambiarAjusteUbicacion(ubicacion=ubicacion, porcentaje=getattr(antes, campo))
-    raise AjusteSinRegreso("el regreso solo mueve presupuesto o ajuste de ubicacion")
+    movidos = [
+        (campo, ubicacion)
+        for campo, ubicacion in (
+            ("ajuste_top_pct", "arriba_de_busqueda"),
+            ("ajuste_resto_pct", "resto_de_busqueda"),
+            ("ajuste_producto_pct", "paginas_de_producto"),
+        )
+        if getattr(antes, campo) != getattr(despues_padre, campo)
+    ]
+    if len(movidos) != 1:
+        raise AjusteSinRegreso(
+            "el padre no movio exactamente un placement; el regreso no sabe cual restaurar"
+        )
+    campo, ubicacion = movidos[0]
+    if getattr(antes, campo) is None:
+        raise AjusteSinRegreso("la configuracion de antes no trae ese ajuste")
+    return CambiarAjusteUbicacion(ubicacion=ubicacion, porcentaje=getattr(antes, campo))

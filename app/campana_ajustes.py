@@ -208,6 +208,31 @@ def planea_ajuste(
     )
 
 
+def campo_del_ajuste(ajuste: AjusteCampana) -> str:
+    """Campo de ConfigCampana que el ajuste cambia (B11/B12):
+    presupuesto_diario, el campo del placement o fuera_de_amazon."""
+    if isinstance(ajuste, CambiarPresupuesto):
+        return "presupuesto_diario"
+    if isinstance(ajuste, CambiarAjusteUbicacion):
+        return _CAMPO_POR_UBICACION[ajuste.ubicacion]
+    return "fuera_de_amazon"
+
+
+def coincide_campo(ajuste: AjusteCampana, leida: ConfigCampana, destino: ConfigCampana) -> bool:
+    """El campo que el ajuste cambia coincide entre lo leido y el
+    destino (B11: el readback compara ese campo; B12: la reconciliacion
+    tambien). El presupuesto compara moneda ademas del monto."""
+    if isinstance(ajuste, CambiarPresupuesto):
+        return (
+            leida.presupuesto_diario == destino.presupuesto_diario
+            and leida.moneda == destino.moneda
+        )
+    if isinstance(ajuste, CambiarAjusteUbicacion):
+        campo = _CAMPO_POR_UBICACION[ajuste.ubicacion]
+        return getattr(leida, campo) == getattr(destino, campo)
+    return leida.fuera_de_amazon == destino.fuera_de_amazon
+
+
 def coincide_clase(clase: str, leida: ConfigCampana, destino: ConfigCampana) -> bool:
     """El readback confirma el ajuste si los campos que la clase mueve son
     los del destino (comparar el registro completo diverge ante cualquier

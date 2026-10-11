@@ -943,10 +943,12 @@ def test_aplica_ajuste_ubicacion_por_put_y_readback(monkeypatch):
         )
         assert hecho.confirmada is True
         (put,) = _puts(vistos)
-        assert put["dynamicBidding"]["placementBidding"][2] == {
-            "placement": "PLACEMENT_PRODUCT_PAGE",
-            "percentage": 0,
-        }
+        assert put["dynamicBidding"]["placementBidding"] == [
+            {
+                "placement": "PLACEMENT_PRODUCT_PAGE",
+                "percentage": 0,
+            }
+        ]
         from app.ads.campana_config import config_vigente
 
         assert config_vigente(conn, camp).ajuste_producto_pct == 0
@@ -1707,3 +1709,122 @@ def test_fila_regreso_visible_desde_otra_conexion_cuando_sale_el_put(monkeypatch
         finally:
             c2.close()
         assert visto["filas"] == [(hijo.ajuste_id, hecho.ajuste_id, False)]
+
+
+def _remoto_b11(estrategia="LEGACY_FOR_SALES", top=0, resto=0, producto=40):
+    return {
+        EXTERNA: {
+            "budget": {"budget": 100.0, "budgetType": "DAILY"},
+            "dynamicBidding": {
+                "strategy": estrategia,
+                "placementBidding": [
+                    {"placement": "PLACEMENT_TOP", "percentage": top},
+                    {"placement": "PLACEMENT_REST_OF_SEARCH", "percentage": resto},
+                    {"placement": "PLACEMENT_PRODUCT_PAGE", "percentage": producto},
+                ],
+            },
+        }
+    }
+
+
+def _tops_b11(remoto):
+    return {
+        p["placement"]: p["percentage"]
+        for p in remoto[EXTERNA]["dynamicBidding"]["placementBidding"]
+    }
+
+
+@_skip_db
+def test_ubicacion_no_toca_otro_placement_de_consola(monkeypatch):
+    """B11: el dueno puso +30 % en resto en la consola tras el sync;
+    cambiar arriba de busqueda manda SOLO ese placement."""
+    with _db("orbit_aj_b11a") as conn:
+        camp, _cfg = _siembra(conn)
+        remoto = _remoto_b11(resto=30)
+        handler, vistos = _handler_mezcla(remoto)
+        _creds_fake(monkeypatch)
+        plan = _plan(
+            conn, camp, CambiarAjusteUbicacion(ubicacion="arriba_de_busqueda", porcentaje=20)
+        )
+        hecho = apply.aplica_ajuste_campana(
+            conn,
+            plan,
+            huella=plan.huella(),
+            confirmacion="APLICAR AJUSTE",
+            actor="dueno",
+            transport=httpx.MockTransport(handler),
+        )
+        assert hecho.confirmada is True
+        (put,) = _puts(vistos)
+        assert put["dynamicBidding"]["placementBidding"] == [
+            {"placement": "PLACEMENT_TOP", "percentage": 20}
+        ]
+        assert _tops_b11(remoto)["PLACEMENT_REST_OF_SEARCH"] == 30
+
+
+@_skip_db
+def test_ubicacion_no_toca_strategy_de_consola(monkeypatch):
+    """B11: el dueno cambio la estrategia en la consola tras el sync;
+    el PUT lleva la actual (leida antes del PUT), no la del sync."""
+    with _db("orbit_aj_b11b") as conn:
+        camp, _cfg = _siembra(conn)
+        remoto = _remoto_b11(estrategia="AUTO_FOR_SALES")
+        handler, vistos = _handler_mezcla(remoto)
+        _creds_fake(monkeypatch)
+        plan = _plan(
+            conn, camp, CambiarAjusteUbicacion(ubicacion="arriba_de_busqueda", porcentaje=20)
+        )
+        hecho = apply.aplica_ajuste_campana(
+            conn,
+            plan,
+            huella=plan.huella(),
+            confirmacion="APLICAR AJUSTE",
+            actor="dueno",
+            transport=httpx.MockTransport(handler),
+        )
+        assert hecho.confirmada is True
+        (put,) = _puts(vistos)
+        assert put["dynamicBidding"]["strategy"] == "AUTO_FOR_SALES"
+        assert remoto[EXTERNA]["dynamicBidding"]["strategy"] == "AUTO_FOR_SALES"
+
+
+@_skip_db
+def test_regresar_ubicacion_solo_restaura_su_placement(monkeypatch):
+    """B11: A = top 0->20, B = resto 0->30. Regresar A deja el +30 % de
+    B; regresar B no vuelve a subir A."""
+    with _db("orbit_aj_b11c") as conn:
+        camp, _cfg = _siembra(conn)
+        remoto = _remoto_b11()
+        handler, vistos = _handler_mezcla(remoto)
+        _creds_fake(monkeypatch)
+        transporte = httpx.MockTransport(handler)
+
+        def _aplica(ubicacion, pct):
+            plan = _plan(conn, camp, CambiarAjusteUbicacion(ubicacion=ubicacion, porcentaje=pct))
+            return apply.aplica_ajuste_campana(
+                conn,
+                plan,
+                huella=plan.huella(),
+                confirmacion="APLICAR AJUSTE",
+                actor="dueno",
+                transport=transporte,
+            )
+
+        a1 = _aplica("arriba_de_busqueda", 20)
+        a2 = _aplica("resto_de_busqueda", 30)
+        r1 = apply.regresa_ajuste_campana(
+            conn, ajuste_id=a1.ajuste_id, actor="dueno", transport=transporte
+        )
+        assert r1.confirmada is True
+        assert _puts(vistos)[-1]["dynamicBidding"]["placementBidding"] == [
+            {"placement": "PLACEMENT_TOP", "percentage": 0}
+        ]
+        assert _tops_b11(remoto)["PLACEMENT_REST_OF_SEARCH"] == 30
+        r2 = apply.regresa_ajuste_campana(
+            conn, ajuste_id=a2.ajuste_id, actor="dueno", transport=transporte
+        )
+        assert r2.confirmada is True
+        assert _puts(vistos)[-1]["dynamicBidding"]["placementBidding"] == [
+            {"placement": "PLACEMENT_REST_OF_SEARCH", "percentage": 0}
+        ]
+        assert _tops_b11(remoto).get("PLACEMENT_TOP", 0) == 0

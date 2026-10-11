@@ -316,10 +316,31 @@ def cuerpo_put_campana(config: ConfigCampana) -> dict:
 def cuerpo_put_clase(clase: str, config: ConfigCampana) -> dict:
     """PUT parcial del ajuste (B1): la config completa filtrada a la
     llave de la clase, con campaignId. Clase desconocida = KeyError
-    (fail-closed: no hay PUT sin clase sellada)."""
+    (fail-closed: no hay PUT sin clase sellada). La clase
+    ajuste_ubicacion ya no usa esta funcion: manda un solo placement
+    (B11, cuerpo_put_ubicacion)."""
     completo = cuerpo_put_campana(config)
     return {"campaignId": completo["campaignId"]} | {
         k: completo[k] for k in LLAVES_POR_CLASE[clase] if k in completo
+    }
+
+
+PLACEMENT_POR_CAMPO = dict(_PLACEMENT_POR_CAMPO)
+
+
+def cuerpo_put_ubicacion(
+    placement: str, porcentaje: int, config: ConfigCampana, strategy: str
+) -> dict:
+    """PUT de UN placement (B11): solo ese placement, con la estrategia
+    que Amazon tiene AHORA (leida antes del PUT), no la del ultimo
+    sync. La sonda 3 de V.0 sello que Amazon mezcla la lista: los
+    otros placements y la estrategia de consola quedan intactos."""
+    return {
+        "campaignId": config.campana_externa,
+        "dynamicBidding": {
+            "strategy": strategy,
+            "placementBidding": [{"placement": placement, "percentage": porcentaje}],
+        },
     }
 
 
