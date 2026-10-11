@@ -361,17 +361,21 @@ def test_pg_null_envenena_grupo_ubicacion_y_campana():
         ex1 = _kw("k1", "EXACT")
         ex2 = _kw("k2", "EXACT")
         ph = _kw("k3", "PHRASE")
+        ph2 = _kw("k5", "PHRASE")
         br = _kw("k4", "BROAD")
+        br2 = _kw("k6", "BROAD")
         auto_c = _siembra_entidad(conn, "amazon_mx", "campaign", "c2")
         auto_ag = _siembra_entidad(conn, "amazon_mx", "ad_group", "a2", parent=auto_c)
         auto_k = _kw("k9", "EXACT", padre=auto_ag)
-        for e in [camp, ag, ex1, ex2, ph, br, auto_ag, auto_k]:
+        for e in [camp, ag, ex1, ex2, ph, ph2, br, br2, auto_ag, auto_k]:
             _siembra_estado(conn, e, "ENABLED")
         _siembra_estado(conn, auto_c, "ENABLED", targeting="AUTO")
         _siembra_metrica(conn, ex1, fecha, None, 1, Decimal("100"), obs, run)
         _siembra_metrica(conn, ex2, fecha, Decimal("10"), 1, Decimal("100"), obs, run)
         _siembra_metrica(conn, ph, fecha, Decimal("10"), None, Decimal("100"), obs, run)
+        _siembra_metrica(conn, ph2, fecha, Decimal("10"), 3, Decimal("100"), obs, run)
         _siembra_metrica(conn, br, fecha, Decimal("10"), 1, None, obs, run)
+        _siembra_metrica(conn, br2, fecha, Decimal("10"), 1, Decimal("50"), obs, run)
         _siembra_metrica(conn, auto_k, fecha, None, 1, Decimal("100"), obs, run)
         pantalla = lee_dinero(conn, plataforma="amazon_mx", dias=90, hasta=fecha)
         por_tipo = {f.tipo: f for f in pantalla.filas}
