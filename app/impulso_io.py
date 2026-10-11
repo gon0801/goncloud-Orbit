@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import datetime as dt
 import hashlib
+import sys
 from dataclasses import dataclass
 from decimal import Decimal
 from types import SimpleNamespace
@@ -566,7 +567,7 @@ def _vigila_uno(conn, pausador, fila, *, hoy, escritor_retiro):
         for (gid,) in conn.execute(_SQL_GOALS_DE_IMPULSO, (imp,)).fetchall():
             goals_write.edita_goal(conn, gid, mode="live", updated_at=ahora)
         hecho = "graduado"
-    if hecho == "nada" and (lectura.impresiones or 0) > 0:
+    if hecho in ("nada", "graduado") and (lectura.impresiones or 0) > 0:
         primero = conn.execute(_SQL_YA_TUVO_IMPRESIONES, (imp,)).fetchone() is None
         if primero:
             plan = retiro_anuncios.planea_retiro(
@@ -590,7 +591,8 @@ def _vigila_uno(conn, pausador, fila, *, hoy, escritor_retiro):
                     escritor=escritor_retiro,
                     actor="impulso-vigia",
                 )
-                hecho = "retiro_de_bolsas"
+                if hecho == "nada":
+                    hecho = "retiro_de_bolsas"
     conn.execute(
         "INSERT INTO impulso_lectura (impulso_id, corte, leido_el, dias_observados,"
         " impresiones, clics, gasto, pedidos, veredicto, es_final, hecho)"
@@ -634,8 +636,9 @@ def vigila(
             accion, escritor_retiro = _vigila_uno(
                 conn, pausador, fila, hoy=hoy, escritor_retiro=escritor_retiro
             )
-        except Exception:
+        except Exception as exc:
             conn.rollback()
+            print(f"vigila: impulso {fila[0]} fallo ({exc})", file=sys.stderr)
             continue
         acciones.append(accion)
     return acciones

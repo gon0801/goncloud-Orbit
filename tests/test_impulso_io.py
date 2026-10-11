@@ -642,6 +642,31 @@ def test_vigia_retira_una_vez_con_impresiones():
 
 
 @_skip_db
+def test_vigia_gradua_y_retira_el_mismo_dia():
+    """R09-B: si vende el primer dia con impresiones, el vigia gradua
+    (goals live) Y retira de las bolsas viejas; el ganador no compite
+    consigo mismo."""
+    with _db_i3("orbit_i4_rb") as conn:
+        pid, lid = _con_margen(conn)
+        ids = _impulso_vivo(conn, pid=pid, lid=lid)
+        _bolsa(conn, lid, "ad-viejo")
+        _observa(conn, ids["camps"][0], HOY - dt.timedelta(days=1), pedidos=1)
+        escritor, puts = _escritor(_fila("ad-viejo", "ENABLED"))
+        acciones = io.vigila(conn, _Pausador(), hoy=HOY, escritor_retiro=escritor)
+        assert acciones[0].hecho == "graduado"
+        assert acciones[0].veredicto.final is True
+        assert conn.execute(
+            "SELECT DISTINCT mode FROM ads_optimizer_goal WHERE ad_entity_id = ANY(%s)",
+            (ids["camps"],),
+        ).fetchall() == [("live",)]
+        assert puts == [("ad-viejo", "PAUSED")]
+        assert conn.execute("SELECT motivo, impulso_id FROM anuncio_retiro").fetchone() == (
+            "impulso",
+            ids["impulso"],
+        )
+
+
+@_skip_db
 def test_vigia_sin_observaciones_no_guarda():
     """I.3: sin filas de ingesta, el vigia no inventa lectura."""
     with _db_i3("orbit_i3_v5") as conn:
@@ -727,7 +752,7 @@ def test_vigia_crash_entre_pausar_y_guardar_no_repite_la_pausa():
 
 
 @_skip_db
-def test_vigia_un_fallo_no_detiene_al_vecino():
+def test_vigia_un_fallo_no_detiene_al_vecino(capsys):
     """N5: si un impulso truena, el vecino se atiende igual y el
     fallido queda sin lectura para reintentarse manana."""
     with _db_i3("orbit_i3_n5") as conn:
@@ -760,3 +785,4 @@ def test_vigia_un_fallo_no_detiene_al_vecino():
             ).fetchone()
             is not None
         )
+        assert f"impulso {malo['impulso']} fallo" in capsys.readouterr().err

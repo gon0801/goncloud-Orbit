@@ -144,7 +144,9 @@ def ejecuta_retiro(
 ) -> int:
     """Pausa los anuncios del plan y deja una fila por anuncio en
     `anuncio_retiro` (modo 'pausa'). Reanudable: salta los que ya
-    tienen un retiro abierto. Devuelve cuantos retiro."""
+    tienen un retiro abierto. Si alguno no se confirma, registra los
+    confirmados y falla al final nombrando a los otros. Devuelve
+    cuantos retiro."""
     if not go or not go.strip():
         raise ValueError("ejecutar un retiro exige el literal go del dueno")
     if (plan.motivo == "impulso") != (impulso_id is not None):
@@ -170,11 +172,13 @@ def ejecuta_retiro(
     por_id = {r.ad_id: r for r in resultados}
     lote = lote_retiro_de_plan(plan)
     retirados = 0
+    fallidos: list[str] = []
     for ent, anuncio in pendientes:
         res = por_id.get(anuncio.ad_id_externo)
         if res is None or res.resultado != "pausado":
             detalle = res.detalle if res is not None else "sin resultado"
-            raise RuntimeError(f"retiro de {anuncio.ad_id_externo} no confirmado: {detalle}")
+            fallidos.append(f"{anuncio.ad_id_externo} ({detalle})")
+            continue
         conn.execute(
             "INSERT INTO anuncio_retiro (platform, motivo, modo, lote_retiro, impulso_id,"
             " ad_entity_id, ad_id_externo, ad_group_externo, campana_externa, sku, asin,"
@@ -197,6 +201,8 @@ def ejecuta_retiro(
         )
         conn.commit()
         retirados += 1
+    if fallidos:
+        raise RuntimeError(f"retiro no confirmado ({retirados} registrados): {fallidos}")
     return retirados
 
 

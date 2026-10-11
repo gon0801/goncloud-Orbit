@@ -265,6 +265,35 @@ def test_parejas_ignora_archived():
 
 
 @_skip_db
+def test_ejecuta_un_fallo_no_bloquea_el_registro_de_los_confirmados():
+    """R09-B: con [a, b-archived, c], ejecuta registra a y c y al final
+    falla nombrando a b (antes abortaba y c quedaba pausado en Amazon
+    sin fila ni reversa)."""
+    with _db_i4("orbit_i4_parcial") as conn:
+        _pid, lid = _producto(conn)
+        _bolsa(conn, lid, "ad-1")
+        _bolsa(conn, lid, "ad-2", ag="ag-otra", camp="c-otra")
+        _bolsa(conn, lid, "ad-3", ag="ag-x", camp="c-x")
+        plan = ra.planea_retiro(
+            conn, "amazon_mx", listing_ids=(lid,), motivo="sin_pedidos", conservar_grupo_id=None
+        )
+        assert [a.ad_id_externo for a in plan.anuncios] == ["ad-1", "ad-2", "ad-3"]
+        escritor, puts = _escritor(
+            {
+                **_fila("ad-1", "ENABLED"),
+                **_fila("ad-2", "ARCHIVED"),
+                **_fila("ad-3", "ENABLED"),
+            }
+        )
+        with pytest.raises(RuntimeError, match="ad-2"):
+            ra.ejecuta_retiro(conn, plan, go="go dueno", escritor=escritor)
+        assert puts == [("ad-1", "PAUSED"), ("ad-3", "PAUSED")]
+        assert conn.execute(
+            "SELECT ad_id_externo FROM anuncio_retiro ORDER BY ad_id_externo"
+        ).fetchall() == [("ad-1",), ("ad-3",)]
+
+
+@_skip_db
 def test_repone_archived_recrea_con_la_linea():
     """I.4: si el anuncio se archivo por fuera, reponer lo recrea en su
     ad group con la linea guardada."""
