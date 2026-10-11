@@ -121,7 +121,13 @@ SELECT pa.id FROM ad_entity pa
 
 
 def ejecuta_retiro(
-    conn, plan: PlanRetiro, *, go: str, impulso_id: int | None = None, escritor=None
+    conn,
+    plan: PlanRetiro,
+    *,
+    go: str,
+    impulso_id: int | None = None,
+    escritor=None,
+    actor: str | None = None,
 ) -> int:
     """Pausa los anuncios del plan y deja una fila por anuncio en
     `anuncio_retiro` (modo 'pausa'). Reanudable: salta los que ya
@@ -132,6 +138,7 @@ def ejecuta_retiro(
         raise ValueError("motivo 'impulso' exige impulso_id, y solo ese motivo lo trae")
     if escritor is None:
         escritor = archivar.preparar_escritor(plan.plataforma)
+    actor_final = actor if actor is not None else go
     pendientes = []
     for anuncio in plan.anuncios:
         ent = conn.execute(
@@ -172,7 +179,7 @@ def ejecuta_retiro(
                 anuncio.sku,
                 anuncio.asin,
                 res.reversa,
-                go,
+                actor_final,
             ),
         )
         conn.commit()
@@ -189,7 +196,9 @@ SELECT r.id, r.ad_id_externo, r.reversa, r.ad_entity_id,
 """
 
 
-def repone(conn, *, retiro_ids: tuple[int, ...], go: str, escritor=None) -> int:
+def repone(
+    conn, *, retiro_ids: tuple[int, ...], go: str, escritor=None, actor: str | None = None
+) -> int:
     """La reversa (regla 7): deja al producto con un anuncio en cada ad
     group del que salio, con el estado que tenia. Lee el estado actual:
     PAUSED se reactiva (mismo adId); ARCHIVED se recrea con la linea
@@ -197,6 +206,7 @@ def repone(conn, *, retiro_ids: tuple[int, ...], go: str, escritor=None) -> int:
     segunda llamada no repone otra vez. Devuelve cuantos repuso."""
     if not go or not go.strip():
         raise ValueError("reponer exige el literal go del dueno")
+    actor_final = actor if actor is not None else go
     filas = conn.execute(_SQL_RETIROS, (list(retiro_ids),)).fetchall()
     conn.commit()
     if len(filas) != len(set(retiro_ids)):
@@ -233,7 +243,7 @@ def repone(conn, *, retiro_ids: tuple[int, ...], go: str, escritor=None) -> int:
         conn.execute(
             "INSERT INTO anuncio_reposicion (retiro_id, ad_id_nuevo, estado_nuevo, repuesto_el,"
             " actor) VALUES (%s, %s, %s, now(), %s)",
-            (rid, nuevo, estado_nuevo, go),
+            (rid, nuevo, estado_nuevo, actor_final),
         )
         conn.commit()
         repuestos += 1

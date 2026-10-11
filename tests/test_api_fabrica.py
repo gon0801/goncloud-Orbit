@@ -1427,3 +1427,259 @@ def test_cli_evaluar_plan_calcula_el_export_y_la_asesoria_queda_por_huella(escen
     ruta.write_text(json.dumps({**solicitud, "productos": [999_999]}), encoding="utf-8")
     assert cli_jev([*argv[:3], "--solicitud", str(_uuid.uuid4()), "--aplicar"], pedir=pedir) == 2
     assert conn.execute("SELECT count(*) FROM jev_revision").fetchone()[0] == revisiones
+
+
+# ---------------------------------------------------------------------------
+# I.5: rutas del impulso y del retiro
+# ---------------------------------------------------------------------------
+
+
+def _db_i5(conn):
+    from test_migracion_0064 import SQL64
+    from test_migracion_0065 import SQL65
+    from test_migracion_0066 import SQL66
+
+    conn.execute(SQL64)
+    conn.execute(SQL65)
+    conn.execute(SQL66)
+
+
+def _lid_de(conn, pid):
+    return conn.execute(
+        "SELECT id FROM listing WHERE product_id = %s ORDER BY id LIMIT 1", (pid,)
+    ).fetchone()[0]
+
+
+def _sugeridor_fijo_i5(monkeypatch):
+    from decimal import Decimal
+
+    from app import api_fabrica
+
+    def fijo(plataforma, moneda):
+        def sugiere(asins, expresiones_por_rol):
+            return {
+                rol: (Decimal("1.00") if exprs else None)
+                for rol, exprs in expresiones_por_rol.items()
+            }
+
+        return sugiere
+
+    monkeypatch.setattr(api_fabrica, "_sugeridor_plataforma", fijo)
+
+
+def _ejecutor_siembra_i5(monkeypatch, conn):
+    from app import api_fabrica
+    from app import impulso_io as io
+
+    def fabrica(una_conn, confirmacion):
+        def ejecuta(plan_grupo, huella, lote):
+            una_conn.execute(
+                "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base,"
+                " go_literal, huella, plan, modo_goal, estado) VALUES (%s, 'amazon_mx',"
+                " 'aros', 'Base', %s, %s, '{}'::jsonb, 'shadow', 'applied')",
+                (lote, confirmacion, huella),
+            )
+            grupo = una_conn.execute(
+                "INSERT INTO campana_grupo (platform, tipo_producto, nombre_base, lote,"
+                " target_acos_pct, target_derivado_pct, fraccion, target_procedencia,"
+                " go_literal, tipo) VALUES ('amazon_mx', 'aros', 'Base', %s, 19.10,"
+                " 19.1040, 0.5, 'm', 'go', 'impulso') RETURNING id",
+                (lote,),
+            ).fetchone()[0]
+            una_conn.commit()
+            return io.EjecucionFabrica(lote=lote, grupo_id=grupo, estado_lote="applied")
+
+        return ejecuta
+
+    monkeypatch.setattr(api_fabrica, "_ejecutor_lanzar", fabrica)
+
+
+def test_i5_token_antes_de_conectar_admin(escenario, monkeypatch):
+    """I.5: las cuatro rutas con token responden 401 sin el header y con
+    el token en la query, sin abrir la conexion admin."""
+    cliente, _, _, fw, _ = escenario
+
+    def prohibido(*args, **kwargs):
+        raise AssertionError("conexion antes de auth")
+
+    monkeypatch.setattr(fw, "connect", prohibido)
+    for path in (
+        "impulso/lanzar",
+        "impulso/1/pausar",
+        "retiro/ejecutar",
+        "retiro/reponer",
+    ):
+        r = cliente.post(f"/api/fabrica/{path}?x-orbit-token={TOKEN}", json={})
+        assert r.status_code == 401, path
+    r = cliente.post("/api/fabrica/impulso/lanzar", json={})
+    assert r.status_code == 401
+
+
+def test_i5_planes_200_sin_escribir(escenario, monkeypatch):
+    """I.5: las dos rutas plan responden 200 y no escriben nada."""
+    cliente, conn, _, _, ids = escenario
+    _db_i5(conn)
+    _sugeridor_fijo_i5(monkeypatch)
+    lid = _lid_de(conn, ids[0])
+    antes = (
+        conn.execute("SELECT count(*) FROM fabrica_lote").fetchone()[0],
+        conn.execute("SELECT count(*) FROM impulso").fetchone()[0],
+        conn.execute("SELECT count(*) FROM anuncio_retiro").fetchone()[0],
+    )
+    r = cliente.post(
+        "/api/fabrica/impulso/plan",
+        json={
+            "plataforma": "amazon_mx",
+            "listing_ids": [lid],
+            "subfamilia_por_listing": {str(lid): "aros"},
+        },
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["confirmacion_esperada"] == "LANZAR IMPULSO DE 1 PRODUCTO"
+    r = cliente.post(
+        "/api/fabrica/retiro/plan",
+        json={"plataforma": "amazon_mx", "listing_ids": [lid], "motivo": "sin_pedidos"},
+    )
+    assert r.status_code == 200, r.text
+    assert "huella" in r.json()
+    assert (
+        conn.execute("SELECT count(*) FROM fabrica_lote").fetchone()[0],
+        conn.execute("SELECT count(*) FROM impulso").fetchone()[0],
+        conn.execute("SELECT count(*) FROM anuncio_retiro").fetchone()[0],
+    ) == antes
+
+
+def test_i5_lanzar_huella_vieja_409_con_vista_nueva(escenario, monkeypatch):
+    """I.5: lanzar con huella vieja responde 409, el detalle trae la
+    vista previa nueva y no crea ningun lote."""
+    cliente, conn, _, _, ids = escenario
+    _db_i5(conn)
+    _sugeridor_fijo_i5(monkeypatch)
+    lid = _lid_de(conn, ids[0])
+    sol = {
+        "plataforma": "amazon_mx",
+        "listing_ids": [lid],
+        "subfamilia_por_listing": {str(lid): "aros"},
+    }
+    r = cliente.post(
+        "/api/fabrica/impulso/lanzar",
+        headers=HEADERS,
+        json={
+            "solicitud": sol,
+            "huella": "0" * 64,
+            "confirmacion": "LANZAR IMPULSO DE 1 PRODUCTO",
+            "actor": "dueno",
+        },
+    )
+    assert r.status_code == 409, r.text
+    detalle = r.json()["detail"]
+    assert "vista_previa" in detalle
+    assert detalle["vista_previa"]["confirmacion_esperada"] == "LANZAR IMPULSO DE 1 PRODUCTO"
+    assert conn.execute("SELECT count(*) FROM fabrica_lote").fetchone()[0] == 0
+
+
+def test_i5_lanzar_200_y_pausar_404(escenario, monkeypatch):
+    """I.5: lanzar cableado crea el impulso; pausar un impulso que no
+    existe da 404."""
+    cliente, conn, _, _, ids = escenario
+    _db_i5(conn)
+    _sugeridor_fijo_i5(monkeypatch)
+    _ejecutor_siembra_i5(monkeypatch, conn)
+    lid = _lid_de(conn, ids[0])
+    sol = {
+        "plataforma": "amazon_mx",
+        "listing_ids": [lid],
+        "subfamilia_por_listing": {str(lid): "aros"},
+    }
+    vista = cliente.post("/api/fabrica/impulso/plan", json=sol).json()
+    r = cliente.post(
+        "/api/fabrica/impulso/lanzar",
+        headers=HEADERS,
+        json={
+            "solicitud": sol,
+            "huella": vista["huella"],
+            "confirmacion": vista["confirmacion_esperada"],
+            "actor": "dueno",
+        },
+    )
+    assert r.status_code == 200, r.text
+    assert len(r.json()["lanzados"]) == 1
+    assert conn.execute("SELECT count(*) FROM impulso").fetchone()[0] == 1
+    r = cliente.post(
+        "/api/fabrica/impulso/999999/pausar",
+        headers=HEADERS,
+        json={"confirmacion": "PAUSAR IMPULSO"},
+    )
+    assert r.status_code == 404
+
+
+def test_i5_literales_y_campo_extra_422(escenario, monkeypatch):
+    """I.5: literal distinto (aunque solo cambie N) da 422; un campo
+    extra da 422 sin repetir el valor recibido."""
+    from test_retiro_anuncios import _bolsa, _escritor, _fila
+
+    from app.ads import archivar
+
+    cliente, conn, _, _, ids = escenario
+    _db_i5(conn)
+    _sugeridor_fijo_i5(monkeypatch)
+    _ejecutor_siembra_i5(monkeypatch, conn)
+    lid = _lid_de(conn, ids[0])
+    _bolsa(conn, lid, "ad-i5")
+    sol = {
+        "plataforma": "amazon_mx",
+        "listing_ids": [lid],
+        "subfamilia_por_listing": {str(lid): "aros"},
+    }
+    vista = cliente.post("/api/fabrica/impulso/plan", json=sol).json()
+    base = {"solicitud": sol, "huella": vista["huella"], "actor": "dueno"}
+    r = cliente.post(
+        "/api/fabrica/impulso/lanzar",
+        headers=HEADERS,
+        json={**base, "confirmacion": "LANZAR IMPULSO DE 2 PRODUCTOS"},
+    )
+    assert r.status_code == 422
+    plan = cliente.post(
+        "/api/fabrica/retiro/plan",
+        json={"plataforma": "amazon_mx", "listing_ids": [lid], "motivo": "sin_pedidos"},
+    ).json()
+    rej = {
+        "plataforma": "amazon_mx",
+        "listing_ids": [lid],
+        "motivo": "sin_pedidos",
+        "huella": plan["huella"],
+        "actor": "dueno",
+    }
+    r = cliente.post(
+        "/api/fabrica/retiro/ejecutar",
+        headers=HEADERS,
+        json={**rej, "confirmacion": "SACAR 5 ANUNCIOS"},
+    )
+    assert r.status_code == 422, r.text
+    escritor, _puts = _escritor(_fila("ad-i5", "ENABLED"))
+    monkeypatch.setattr(archivar, "preparar_escritor", lambda platform: escritor)
+    r = cliente.post(
+        "/api/fabrica/retiro/ejecutar",
+        headers=HEADERS,
+        json={**rej, "confirmacion": "SACAR 1 ANUNCIOS"},
+    )
+    assert r.status_code == 200, r.text
+    (ret,) = conn.execute("SELECT id FROM anuncio_retiro").fetchall()
+    r = cliente.post(
+        "/api/fabrica/retiro/reponer",
+        headers=HEADERS,
+        json={"retiro_ids": [ret[0]], "confirmacion": "REGRESAR 2 ANUNCIOS", "actor": "dueno"},
+    )
+    assert r.status_code == 422
+    r = cliente.post(
+        "/api/fabrica/retiro/reponer",
+        headers=HEADERS,
+        json={
+            "retiro_ids": [ret[0]],
+            "confirmacion": "REGRESAR 1 ANUNCIOS",
+            "actor": "dueno",
+            "token": "SECRETO-NO-REPETIBLE",
+        },
+    )
+    assert r.status_code == 422
+    assert "SECRETO-NO-REPETIBLE" not in r.text
