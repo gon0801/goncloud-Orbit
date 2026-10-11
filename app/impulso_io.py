@@ -360,35 +360,6 @@ SELECT estado FROM fabrica_lote WHERE lote = %s
 """
 
 
-def _grupo_v2_de_plan(plan: im.PlanImpulso) -> fp.PlanGrupoV2:
-    """PlanGrupoV2 de dos roles en modo shadow desde el plan de impulso,
-    con bids acotados (None sale al diario de su campana)."""
-    mitad = plan.tope.presupuesto_diario / 2
-    bids, _acotados = im.acota_bids(plan.bid_por_rol, mitad)
-    return fp.PlanGrupoV2(
-        plan.plataforma,
-        plan.subfamilia,
-        plan.seller_sku,
-        plan.fecha,
-        plan.tope.moneda,
-        "shadow",
-        (
-            fp.PublicacionGrupoV2(
-                plan.listing_id,
-                plan.product_id,
-                plan.asin,
-                plan.seller_sku,
-                plan.plataforma,
-                plan.margen_neto_pct,
-            ),
-        ),
-        {rol: fp.ParametrosRol(rol, mitad, bids[rol]) for rol in im.ROLES_IMPULSO},
-        plan.objetivo,
-        fp.Semillas((), (), plan.negatives, plan.keywords_exact),
-        roles=im.ROLES_IMPULSO,
-    )
-
-
 def lanza(
     conn,
     solicitud: SolicitudImpulso,
@@ -451,7 +422,7 @@ def lanza(
                     lanzados=lanzados,
                 )
             try:
-                hecho = ejecutor(_grupo_v2_de_plan(plan), plan.huella(), lote)
+                hecho = ejecutor(im.grupo_v2_de_plan(plan), plan.huella(), lote)
             except Exception as exc:
                 fallos[plan.listing_id] = f"la fabrica fallo ({exc})"
                 continue

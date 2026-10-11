@@ -12,7 +12,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Any, Literal
+from typing import Literal
 
 from app import fabrica_plan as fp
 
@@ -206,16 +206,14 @@ def acota_bids(
     return acotados, tuple(roles)
 
 
-def pasos_del_impulso(plan: PlanImpulso) -> list[Any]:
-    """Pasos de creacion por rol en orden ROLES_IMPULSO, con
-    fabrica_plan.pasos_del_rol. Cada campana lleva la mitad del diario."""
-    if plan.objetivo.origen != "margen_medido":
-        raise fp.PlanInvalido("el impulso no lleva target propio: objetivo margen_medido")
-    if plan.margen_neto_pct is None or plan.margen_neto_pct <= 0:
-        raise fp.PlanInvalido("el impulso exige margen positivo de la publicacion")
+def grupo_v2_de_plan(plan: PlanImpulso) -> fp.PlanGrupoV2:
+    """PlanGrupoV2 de dos roles en modo shadow desde el plan de impulso,
+    con bids acotados (None sale al diario de su campana). Es el unico
+    constructor: lanza lo manda a la fabrica y los tests sacan los
+    pasos con fp.pasos_del_rol."""
     mitad = plan.tope.presupuesto_diario / 2
     bids, _acotados = acota_bids(plan.bid_por_rol, mitad)
-    grupo = fp.PlanGrupoV2(
+    return fp.PlanGrupoV2(
         plan.plataforma,
         plan.subfamilia,
         plan.seller_sku,
@@ -237,7 +235,3 @@ def pasos_del_impulso(plan: PlanImpulso) -> list[Any]:
         fp.Semillas((), (), plan.negatives, plan.keywords_exact),
         roles=ROLES_IMPULSO,
     )
-    pasos: list[Any] = []
-    for rol in ROLES_IMPULSO:
-        pasos.extend(fp.pasos_del_rol(grupo, rol))
-    return pasos

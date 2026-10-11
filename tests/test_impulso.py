@@ -155,8 +155,9 @@ def test_huella_cambia_por_campo():
     assert plan.como_json()["schema_version"] == 3
 
 
-def test_pasos_del_impulso_exact_primero_mitad_sin_placement():
-    pasos = im.pasos_del_impulso(_plan())
+def test_grupo_v2_exact_primero_mitad_sin_placement():
+    grupo = im.grupo_v2_de_plan(_plan())
+    pasos = [p for rol in im.ROLES_IMPULSO for p in fp.pasos_del_rol(grupo, rol)]
     campanas = [p for p in pasos if p.recurso == "campaign"]
     assert len(campanas) == 2
     assert campanas[0].payload["dynamicBidding"] == {"strategy": "LEGACY_FOR_SALES"}
@@ -173,7 +174,8 @@ def test_bid_mayor_baja_al_diario_y_sale_en_acotados():
     assert roles == ("category_exact",)
 
 
-def test_pasos_no_levanta_con_bid_mayor_que_diario():
+def test_grupo_no_levanta_con_bid_mayor_que_diario():
     plan = _plan(bid_por_rol={"category_exact": Decimal("15"), "auto_discovery": Decimal("10")})
-    pasos = im.pasos_del_impulso(plan)
+    grupo = im.grupo_v2_de_plan(plan)
+    pasos = [p for rol in im.ROLES_IMPULSO for p in fp.pasos_del_rol(grupo, rol)]
     assert len([p for p in pasos if p.recurso == "campaign"]) == 2
