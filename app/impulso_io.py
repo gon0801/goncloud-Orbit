@@ -535,6 +535,9 @@ def _vigila_uno(conn, pausador, fila, *, hoy, escritor_retiro):
             AccionVigia(imp, lectura, im.VeredictoImpulso("en_curso", False, "seguir"), "nada"),
             escritor_retiro,
         )
+    ayer = hoy - dt.timedelta(days=1)
+    if corte > ayer:
+        corte = ayer
     camps = [f[0] for f in conn.execute(_SQL_CAMPANAS_DE_IMPULSO, (imp,)).fetchall()]
     filas = [f for f in conn.execute(_SQL_OBSERVADO, (camps, lanzado.date())).fetchall()]
     filas = [f for f in filas if f[0] <= corte]

@@ -802,6 +802,22 @@ def test_vigia_sin_observaciones_no_guarda():
 
 
 @_skip_db
+def test_vigia_descarta_el_dia_en_curso():
+    """R09-r2 B-4 (regla 6): con ingesta solo de hoy, el vigia no la
+    usa: guarda ceros en curso, sin leer parciales."""
+    with _db_i3("orbit_i3_hoy") as conn:
+        ids = _impulso_vivo(conn)
+        _observa(conn, ids["camps"][0], HOY, impr=500, clics=40, gasto="300", pedidos=0)
+        acciones = io.vigila(conn, _Pausador(), hoy=HOY)
+        assert acciones[0].hecho == "nada"
+        assert acciones[0].lectura.impresiones == 0
+        assert conn.execute(
+            "SELECT impresiones, gasto, corte FROM impulso_lectura WHERE impulso_id = %s",
+            (ids["impulso"],),
+        ).fetchone() == (0, Decimal("0"), HOY - dt.timedelta(days=1))
+
+
+@_skip_db
 def test_vigia_dia_sin_fila_cuenta_cero():
     """I.3 mutante M-dia-sin-fila-cero: con ingesta en la plataforma pero
     sin filas de sus campanas, el vigia guarda ceros (no se queda sin
