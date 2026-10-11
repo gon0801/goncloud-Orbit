@@ -100,6 +100,17 @@ for TABLA in impulso anuncio_retiro; do
   fi
 done
 
+echo "== 0d) Lotes de impulso huerfanos (sin fila en impulso): abortar"
+EXISTE_FL=$(echo "SELECT to_regclass('public.fabrica_lote') IS NOT NULL;" | q)
+EXISTE_IM=$(echo "SELECT to_regclass('public.impulso') IS NOT NULL;" | q)
+if [ "$EXISTE_FL" = "t" ] && [ "$EXISTE_IM" = "t" ]; then
+  NH=$(echo "SELECT count(*) FROM fabrica_lote f WHERE f.lote LIKE 'impulso-%' AND f.estado IN ('applied','failed','planeado') AND NOT EXISTS (SELECT 1 FROM impulso i WHERE i.lote = f.lote);" | q)
+  [ "$NH" = "0" ] || { echo "ABORTA: hay $NH lote(s) de impulso huerfano(s) (applied/failed/planeado sin fila en impulso, quiza gastando sin vigia); reconcilia a mano antes de revertir."; exit 1; }
+  echo "sin huerfanos: la reversa puede seguir"
+else
+  echo "sin fabrica_lote o sin impulso: nada que cuidar"
+fi
+
 quitar_cron() {  # quitar_cron <actual> <nuevo> <vigia>: quita solo esa linea
   # Comparacion por texto exacto (sin espacios extremos): un comentario
   # ajeno que nombre impulso-vigia NO se toca. Preserva el terminador
