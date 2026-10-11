@@ -94,6 +94,22 @@ with open(nuevo, "w") as f:
     f.write("\n".join(lineas) + "\n")
 PY
 }
+solo_previsto() {  # solo_previsto <base> <nuevo>: el diff trae solo agregados previstos
+  # El diff va a un archivo: con pipefail, `diff | grep` miente (diff
+  # sale 1 cuando hay diferencias y el if nunca entraria).
+  diff "$1" "$2" > "$2.diff" || [ "$?" = 1 ]
+  if grep -q '^<' "$2.diff"; then
+    echo "ABORTA: el diff trae lineas eliminadas (no previsto); el crontab queda intacto"
+    cat "$2.diff"
+    exit 1
+  fi
+  grep '^>' "$2.diff" | sed 's/^> //' > "$2.agregadas" || true
+  while IFS= read -r ln; do
+    [ "$ln" = "$PLACEMENTS" ] || [ "$ln" = "$AVISOS" ] || {
+      echo "ABORTA: el diff trae una linea no prevista: $ln; el crontab queda intacto"; exit 1
+    }
+  done < "$2.agregadas"
+}
 
 if [ "$SIM" = 1 ]; then
   echo "== MODO SIMULACION: datos reales contra $DSN_SIM, servidor intacto"
@@ -183,21 +199,8 @@ else
   NUEVO="$NUEVO_LOCAL"
   RESPALDO="$RESPALDO_LOCAL"
 fi
-# El diff va a un archivo: con pipefail, `diff | grep` miente (diff sale 1
-# cuando hay diferencias y el if nunca entraria).
-diff "$RESPALDO" "$NUEVO" > "$NUEVO.diff" || [ "$?" = 1 ]
-if grep -q '^<' "$NUEVO.diff"; then
-  echo "ABORTA: el diff trae lineas eliminadas (no previsto); el crontab queda intacto"
-  cat "$NUEVO.diff"
-  exit 1
-fi
-grep '^>' "$NUEVO.diff" | sed 's/^> //' > "$NUEVO.agregadas" || true
+solo_previsto "$RESPALDO" "$NUEVO"
 if [ -s "$NUEVO.agregadas" ]; then
-  while IFS= read -r ln; do
-    [ "$ln" = "$PLACEMENTS" ] || [ "$ln" = "$AVISOS" ] || {
-      echo "ABORTA: el diff trae una linea no prevista: $ln; el crontab queda intacto"; exit 1
-    }
-  done < "$NUEVO.agregadas"
   echo "diff solo con lineas previstas:"
   cat "$NUEVO.agregadas"
   # El crontab NO se toca aqui: instalar antes de migrar y recrear dejaria
@@ -318,15 +321,27 @@ else
     docker ps --filter name=orbit-app-1 --format '{{.Names}} {{.Status}}'"
 fi
 
-echo "== 7b) Cron: instalar lo calculado en 1c (tras el health del contenedor nuevo)"
+echo "== 7b) Cron: RELEER el crontab actual e instalar (tras el health del contenedor nuevo)"
 if [ "$INSTALAR_CRON" = 1 ]; then
+  # E6: entre 1c y 7b otro loop pudo agregar lineas; instalar lo
+  # calculado en 1c las borraria. Se recalcula sobre el actual y se
+  # revalida el diff antes de instalar.
   if [ "$SIM" = 1 ]; then
-    mv "$NUEVO" "$CRON_SIM"
-    rm -f "$NUEVO.diff" "$NUEVO.agregadas"
-    echo "SIMULACION: crontab instalado en $CRON_SIM (respaldo en $RESPALDO)"
+    ACTUAL_7B="$CRON_SIM"
   else
-    ssh goncloud "mkdir -p $SRV/backups && cat > $SRV/backups/crontab-gon-pre-d2-$STAMP.txt" < "$RESPALDO"
-    cat "$NUEVO" | ssh goncloud "crontab -u gon -"
+    ssh goncloud "crontab -l -u gon 2>/dev/null" > "$NUEVO_LOCAL.actual" || { echo "ABORTA: no se pudo releer el crontab de gon"; exit 1; }
+    ACTUAL_7B="$NUEVO_LOCAL.actual"
+  fi
+  instalar_cron "$ACTUAL_7B" "$NUEVO.7b" "$PLACEMENTS" "$AVISOS"
+  solo_previsto "$ACTUAL_7B" "$NUEVO.7b"
+  if [ "$SIM" = 1 ]; then
+    cp "$ACTUAL_7B" "$RESPALDO_CRON"
+    mv "$NUEVO.7b" "$CRON_SIM"
+    rm -f "$NUEVO.diff" "$NUEVO.agregadas" "$NUEVO.7b.diff" "$NUEVO.7b.agregadas"
+    echo "SIMULACION: crontab instalado en $CRON_SIM (respaldo en $RESPALDO_CRON)"
+  else
+    ssh goncloud "mkdir -p $SRV/backups && cat > $SRV/backups/crontab-gon-pre-d2-$STAMP.txt" < "$ACTUAL_7B"
+    cat "$NUEVO.7b" | ssh goncloud "crontab -u gon -"
     ssh goncloud "crontab -l -u gon" | grep -qF -- --placements || { echo "ABORTA: placements no quedo instalada"; exit 1; }
     ssh goncloud "crontab -l -u gon" | grep -qF avisos-campana || { echo "ABORTA: avisos-campana no quedo instalada"; exit 1; }
     echo "crontab instalado (respaldo en $SRV/backups/crontab-gon-pre-d2-$STAMP.txt)"

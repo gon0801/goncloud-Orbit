@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# Reversa del despliegue D.2 (BIDS 02 seccion 3): restaura el crontab de
-# gon del respaldo pre-d2-<sello>, restaura el codigo de predeploy-<sello>
-# y aplica las reversas de aplicadas-<sello>.txt en orden inverso. Patron:
-# docs/evidencia/bids-02/ejecucion/D.1/rollback.sh.
+# Reversa del despliegue D.2 (BIDS 02 seccion 3): quita las dos lineas de
+# cron de D.2 del crontab ACTUAL de gon, restaura el codigo de
+# predeploy-<sello> y aplica las reversas de aplicadas-<sello>.txt en
+# orden inverso. Patron: docs/evidencia/bids-02/ejecucion/D.1/rollback.sh.
 # D.2 si instalo lineas de cron: el respaldo del crontab lo guardo
-# desplegar.sh en $SRV/backups/crontab-gon-pre-d2-<sello>.txt y restaurarlo
-# quita EXACTAMENTE lo instalado (verificado por diff antes de instalar).
+# desplegar.sh en $SRV/backups/crontab-gon-pre-d2-<sello>.txt pero la
+# reversa NO lo restaura completo (E7: otro loop pudo cambiar el crontab
+# despues; restaurarlo borraria lo ajeno). Quita EXACTAMENTE las dos
+# lineas instaladas, por texto exacto del DEPLOY.md del SHA.
 # Las reversas dropean las tablas 0061/0062 con sus filas: son observaciones
 # re-derivables (el siguiente sync de las 06:45 y el siguiente reporte de
 # las 07:25 las vuelven a escribir) y el codigo anterior no las lee.
@@ -87,30 +89,59 @@ else
   [ "$RC" = "0" ] || { echo "ABORTA: hay $RC ciclo(s) en running"; exit 1; }
 fi
 
-echo "== 1) Cron: restaurar el respaldo pre-d2 (quita lo instalado) + restaurar codigo de predeploy-$STAMP"
-# Sin respaldo, desplegar.sh no llego a 7b (el crontab jamas se toco):
-# nada que restaurar, no aborta.
+quitar_cron() {  # quitar_cron <actual> <nuevo> <placements> <avisos>: quita solo esas dos
+  # Comparacion por texto exacto (sin espacios extremos): un comentario
+  # ajeno que nombre --placements o avisos-campana NO se toca. Preserva
+  # el terminador final del archivo.
+  python3 - "$1" "$2" "$3" "$4" <<'PY'
+import sys
+actual, nuevo, placements, avisos = sys.argv[1:5]
+with open(actual, "rb") as f:
+    crudo = f.read().decode("utf-8")
+termina_nl = crudo.endswith("\n")
+lineas = crudo.splitlines()
+blanco = [placements.strip(), avisos.strip()]
+quedan = [ln for ln in lineas if ln.strip() not in blanco]
+print(f"quitadas: {len(lineas) - len(quedan)}")
+with open(nuevo, "w") as f:
+    f.write("\n".join(quedan) + ("\n" if termina_nl and quedan else ""))
+PY
+}
+
+echo "== 1) Cron: quitar SOLO las dos lineas de D.2 del crontab actual + restaurar codigo de predeploy-$STAMP"
+# E7: la reversa puede correr un dia despues; el crontab actual manda y
+# el respaldo queda como evidencia. Sin lineas de D.2 no hay nada que
+# quitar (desplegar no llego a 7b): no aborta.
+LINEAS_R=$(git show "$SHA:docs/DEPLOY.md" | grep -E '^[0-9].*(--placements|avisos-campana)')
+[ "$(printf '%s\n' "$LINEAS_R" | grep -c .)" = 2 ] || { echo "ABORTA: DEPLOY.md del SHA no trae exactamente las dos lineas de cron"; exit 1; }
+PLACEMENTS_R=$(printf '%s\n' "$LINEAS_R" | grep -- --placements)
+AVISOS_R=$(printf '%s\n' "$LINEAS_R" | grep avisos-campana)
 if [ "$SIM" = 1 ]; then
-  if [ ! -f "$RESPALDO_CRON" ]; then
-    echo "SIMULACION: sin respaldo cron (desplegar no llego a 7b): crontab intacto, nada que restaurar"
+  if [ ! -f "$CRON_SIM" ]; then
+    echo "SIMULACION: sin crontab simulado: nada que quitar"
   else
-    cp "$RESPALDO_CRON" "$CRON_SIM"
-    echo "SIMULACION: crontab restaurado del respaldo; respaldo $PRE presente; sin servidor, nada que reconstruir"
-    if grep -q -- --placements "$CRON_SIM" || grep -q avisos-campana "$CRON_SIM"; then
-      echo "ABORTA: el crontab restaurado todavia trae lineas de D.2"; exit 1
+    CICLO_ANTES=$(grep -c -E 'cycle --platform' "$CRON_SIM" || true)
+    quitar_cron "$CRON_SIM" "$CRON_SIM.nuevo" "$PLACEMENTS_R" "$AVISOS_R"
+    if grep -q -- --placements "$CRON_SIM.nuevo" || grep -q avisos-campana "$CRON_SIM.nuevo"; then
+      echo "ABORTA: tras quitar, el crontab todavia trae lineas de D.2"; exit 1
     fi
-    echo "crontab sin lineas de D.2 OK"
+    CICLO_DESPUES=$(grep -c -E 'cycle --platform' "$CRON_SIM.nuevo" || true)
+    [ "$CICLO_ANTES" = "$CICLO_DESPUES" ] || { echo "ABORTA: la quita toco las lineas del ciclo"; exit 1; }
+    mv "$CRON_SIM.nuevo" "$CRON_SIM"
+    echo "SIMULACION: crontab sin lineas de D.2 OK; respaldo $PRE presente; sin servidor, nada que reconstruir"
   fi
 else
-  if ! ssh goncloud "test -f $SRV/backups/crontab-gon-pre-d2-$STAMP.txt"; then
-    echo "sin respaldo cron en el servidor (desplegar no llego a 7b): crontab intacto, nada que restaurar"
-  else
-    ssh goncloud "crontab -u gon $SRV/backups/crontab-gon-pre-d2-$STAMP.txt && crontab -l -u gon | grep -c -E 'cycle --platform'" || { echo "ABORTA: el crontab restaurado perdio las lineas del ciclo"; exit 1; }
-    if ssh goncloud "crontab -l -u gon | grep -E -e --placements -e avisos-campana"; then
-      echo "ABORTA: el crontab restaurado todavia trae lineas de D.2"; exit 1
-    fi
-    echo "crontab restaurado sin lineas de D.2"
+  mkdir -p "$TMPD"
+  ssh goncloud "crontab -l -u gon 2>/dev/null" > "$TMPD/cron-actual-$STAMP.txt" || { echo "ABORTA: no se pudo leer el crontab de gon"; exit 1; }
+  CICLO_ANTES=$(grep -c -E 'cycle --platform' "$TMPD/cron-actual-$STAMP.txt" || true)
+  quitar_cron "$TMPD/cron-actual-$STAMP.txt" "$TMPD/cron-nuevo-$STAMP.txt" "$PLACEMENTS_R" "$AVISOS_R"
+  if grep -q -- --placements "$TMPD/cron-nuevo-$STAMP.txt" || grep -q avisos-campana "$TMPD/cron-nuevo-$STAMP.txt"; then
+    echo "ABORTA: tras quitar, el crontab todavia trae lineas de D.2"; exit 1
   fi
+  CICLO_DESPUES=$(grep -c -E 'cycle --platform' "$TMPD/cron-nuevo-$STAMP.txt" || true)
+  [ "$CICLO_ANTES" = "$CICLO_DESPUES" ] || { echo "ABORTA: la quita toco las lineas del ciclo"; exit 1; }
+  cat "$TMPD/cron-nuevo-$STAMP.txt" | ssh goncloud "crontab -u gon -"
+  echo "crontab sin lineas de D.2 (respaldo pre-d2-$STAMP queda como evidencia)"
   ssh goncloud "set -e; cd $SRV; [ -d predeploy-$STAMP/app ] || { echo 'ABORTA: no existe predeploy-$STAMP'; exit 1; }; \
     [ -f predeploy-$STAMP/docker-compose.yml ] || { echo 'ABORTA: predeploy-$STAMP sin docker-compose.yml'; exit 1; }; \
     rm -rf app tools; cp -a predeploy-$STAMP/app predeploy-$STAMP/tools .; \
