@@ -260,7 +260,7 @@ def test_lectura_contribucion_desactiva_nestloop():
     pagina vuelve a colgarse aunque el SQL sea de una pasada."""
     from pathlib import Path
 
-    src = Path(__file__).resolve().parents[1] / "app" / "dashboard_contribucion.py"
+    src = Path(__file__).resolve().parents[1] / "app" / "db.py"
     texto = src.read_text(encoding="utf-8")
     assert "enable_nestloop" in texto and "off" in texto, (
         "la lectura de /contribucion debe forzar Hash Join en esta conexion"
