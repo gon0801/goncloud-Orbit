@@ -2123,15 +2123,19 @@ def _config_leida(cliente: AdsWriteClient, plataforma: str, externa: str):
     return None
 
 
-def _aplica_y_confirma(conn, cliente, plataforma, clase, destino, *, ajuste_id, llave) -> None:
-    """PUT + readback + sello, serializado por acto (B9). Quien llama ya
-    commiteo la intencion; aqui se toma un candado advisory de
-    transaccion por `llave` y se re-lee la fila: si otro intento ya
-    confirmo, se vuelve sin PUT (un solo PUT por acto). El sello final
-    commitea (durable + libera el candado). El readback manda: si lo
-    leido no coincide en la clase, la fila queda sin confirmar
-    (reintentable: el reintento reusa la pendiente)."""
-    from app.ads.campana_config import cuerpo_put_campana, guarda_config
+def _aplica_y_confirma(
+    conn, cliente, plataforma, clase, destino, *, ajuste_id, llave, previa
+) -> None:
+    """PUT parcial + readback + sello, serializado por acto (B9). El PUT
+    lleva SOLO la llave de la clase (B1); quien llama ya commiteo la
+    intencion; aqui se toma un candado advisory de transaccion por
+    `llave` y se re-lee la fila: si otro intento ya confirmo, se
+    vuelve sin PUT (un solo PUT por acto). El sello final commitea
+    (durable + libera el candado). El readback manda: si lo leido no
+    coincide en la clase, la fila queda sin confirmar (reintentable:
+    el reintento reusa la pendiente). Lo que se guarda es la leida
+    mezclada sobre `previa` (B1: el PUT no mueve campos ajenos)."""
+    from app.ads.campana_config import cuerpo_put_clase, guarda_config, mezcla_observacion
     from app.campana_ajustes import coincide_clase
 
     conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (llave,))
@@ -2141,7 +2145,7 @@ def _aplica_y_confirma(conn, cliente, plataforma, clase, destino, *, ajuste_id, 
         return
     cliente.ajustar_campana(
         destino.campana_externa,
-        {k: v for k, v in cuerpo_put_campana(destino).items() if k != "campaignId"},
+        {k: v for k, v in cuerpo_put_clase(clase, destino).items() if k != "campaignId"},
     )
     leida = _config_leida(cliente, plataforma, destino.campana_externa)
     if leida is None or not coincide_clase(clase, leida, destino):
@@ -2152,7 +2156,7 @@ def _aplica_y_confirma(conn, cliente, plataforma, clase, destino, *, ajuste_id, 
     ahora = datetime.datetime.now(datetime.UTC)
     with conn.transaction():
         conn.execute(_SQL_CONFIRMA_AJUSTE, (ahora, ajuste_id))
-        guarda_config(conn, plataforma, [leida], ahora)
+        guarda_config(conn, plataforma, [mezcla_observacion(previa, leida)], ahora)
     conn.commit()
 
 
@@ -2252,6 +2256,7 @@ def aplica_ajuste_campana(
         plan.despues,
         ajuste_id=ajuste_id,
         llave=f"aplica:{huella_efectiva}",
+        previa=plan.antes,
     )
     return AjusteHecho(ajuste_id, plan.campana_id, plan.clase, True)
 
@@ -2294,12 +2299,14 @@ def reconcilia_ajuste_campana(
 
 
 def regresa_ajuste_campana(conn, *, ajuste_id: int, actor: str, transport=None) -> AjusteHecho:
-    """Regreso del ajuste: aplica la configuracion COMPLETA de antes (la
-    observacion `antes_config_id`), aunque el vigente haya cambiado en mas
-    campos desde entonces. Un solo regreso por ajuste; fuera_de_amazon no
-    tiene regreso sellado (V.0) y no presenta boton."""
+    """Regreso del ajuste: restaura SOLO los campos de la clase de ese
+    ajuste a su valor de antes (B2: el diseno manda "el mismo camino
+    con el valor anterior"; la config completa pisaria ajustes
+    posteriores de otra clase y podria SUBIR un presupuesto). Un solo
+    regreso por ajuste; fuera_de_amazon no tiene regreso sellado (V.0)
+    y no presenta boton."""
     from app.ads.campana_config import config_vigente_con_id
-    from app.campana_ajustes import PlanAjuste
+    from app.campana_ajustes import PlanAjuste, coincide_clase
 
     if not actor or not actor.strip():
         raise ValueError("actor vacio")
@@ -2327,6 +2334,16 @@ def regresa_ajuste_campana(conn, *, ajuste_id: int, actor: str, transport=None) 
         raise AjusteYaRegresado(
             f"ajuste {ajuste_id}: la campana ya tiene la configuracion de antes"
         )
+    if vigente != antes and coincide_clase(clase, vigente, antes):
+        # Solo la clase volvio a antes (otro ajuste posterior o cambio
+        # manual + sync). El `!=` blinda el caso completo-igual para la
+        # rama de arriba (M10).
+        if hijo is not None and not hijo[1]:
+            _sella_pendiente(conn, hijo[0])
+            return AjusteHecho(hijo[0], campana_id, clase, True)
+        raise AjusteYaRegresado(
+            f"ajuste {ajuste_id}: la campana ya tiene el valor de antes en la clase {clase}"
+        )
     if hijo is not None and not hijo[1]:
         nuevo_id = hijo[0]
     else:
@@ -2334,7 +2351,7 @@ def regresa_ajuste_campana(conn, *, ajuste_id: int, actor: str, transport=None) 
             campana_id=campana_id,
             plataforma=plataforma,
             clase=clase,
-            ajuste=_ajuste_hacia(vigente, antes),
+            ajuste=_ajuste_hacia(clase, vigente, antes),
             antes=vigente,
             despues=antes,
             frase=(f"Orbit regresa la campaña {antes.campana_externa} a su configuración de antes"),
@@ -2362,7 +2379,14 @@ def regresa_ajuste_campana(conn, *, ajuste_id: int, actor: str, transport=None) 
     cliente = _cliente_ajuste(plataforma, transport=transport)
     conn.commit()
     _aplica_y_confirma(
-        conn, cliente, plataforma, clase, antes, ajuste_id=nuevo_id, llave=f"regresa:{nuevo_id}"
+        conn,
+        cliente,
+        plataforma,
+        clase,
+        antes,
+        ajuste_id=nuevo_id,
+        llave=f"regresa:{nuevo_id}",
+        previa=vigente,
     )
     return AjusteHecho(nuevo_id, campana_id, clase, True)
 
@@ -2391,12 +2415,14 @@ def _config_por_id(conn, config_id: int):
     )
 
 
-def _ajuste_hacia(vigente, antes):
-    """Ajuste representativo del regreso (el destino real es `antes`
-    completo, no este ajuste)."""
+def _ajuste_hacia(clase, vigente, antes):
+    """Ajuste representativo del regreso (el destino real es `antes`,
+    del que el PUT solo toma la clase). Solo mira campos de la clase
+    del ajuste (B2); si la clase ya esta en antes, quien llama ya
+    devolvio AjusteYaRegresado."""
     from app.campana_ajustes import CambiarAjusteUbicacion, CambiarPresupuesto
 
-    if antes.presupuesto_diario != vigente.presupuesto_diario:
+    if clase == "presupuesto":
         if antes.presupuesto_diario is None:
             raise AjusteSinRegreso("la configuracion de antes no trae presupuesto")
         return CambiarPresupuesto(presupuesto_diario=antes.presupuesto_diario)

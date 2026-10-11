@@ -36,6 +36,17 @@ _PLACEMENT_POR_CAMPO = (
 # Llaves que el PUT /sp/campaigns acepta en el ajuste (sondas V.0):
 # budget y dynamicBidding (2 y 3) y offAmazonSettings (4). Nunca `state`.
 LLAVES_CUERPO_PUT = frozenset({"budget", "dynamicBidding", "offAmazonSettings"})
+# Llave por clase de ajuste (B1): el PUT de aplicar/regresar lleva SOLO
+# la llave de la clase aprobada, con la forma que sello su sonda (sonda
+# 2: solo budget; sonda 3: solo dynamicBidding con strategy + lista de
+# placements, que Amazon mezcla; sonda 4: solo offAmazonSettings). Lo
+# demas no viaja: mandar la config completa pisaria lo que el dueno
+# cambio en la consola despues del sync.
+LLAVES_POR_CLASE = {
+    "presupuesto": ("budget",),
+    "ajuste_ubicacion": ("dynamicBidding",),
+    "fuera_de_amazon": ("offAmazonSettings",),
+}
 _PCT_MAX = 900
 
 
@@ -300,6 +311,45 @@ def cuerpo_put_campana(config: ConfigCampana) -> dict:
     if config.fuera_de_amazon is not None:
         cuerpo["offAmazonSettings"] = json.loads(config.fuera_de_amazon)
     return cuerpo
+
+
+def cuerpo_put_clase(clase: str, config: ConfigCampana) -> dict:
+    """PUT parcial del ajuste (B1): la config completa filtrada a la
+    llave de la clase, con campaignId. Clase desconocida = KeyError
+    (fail-closed: no hay PUT sin clase sellada)."""
+    completo = cuerpo_put_campana(config)
+    return {"campaignId": completo["campaignId"]} | {
+        k: completo[k] for k in LLAVES_POR_CLASE[clase] if k in completo
+    }
+
+
+def mezcla_observacion(previa: ConfigCampana, leida: ConfigCampana) -> ConfigCampana:
+    """Observacion del readback tras un PUT parcial (B1): lo leido
+    manda donde trae valor; donde el list no trae nada (llave que el
+    PUT no toco), se conserva el vigente previo en vez de anotar un
+    borrado que no sucedio. Con el list completo de Amazon la mezcla
+    es la leida tal cual."""
+    trae_budget = leida.presupuesto_diario is not None
+    return ConfigCampana(
+        campana_externa=leida.campana_externa,
+        presupuesto_diario=leida.presupuesto_diario if trae_budget else previa.presupuesto_diario,
+        moneda=leida.moneda if trae_budget else previa.moneda,
+        estrategia_puja=leida.estrategia_puja
+        if leida.estrategia_puja is not None
+        else previa.estrategia_puja,
+        ajuste_top_pct=leida.ajuste_top_pct
+        if leida.ajuste_top_pct is not None
+        else previa.ajuste_top_pct,
+        ajuste_resto_pct=leida.ajuste_resto_pct
+        if leida.ajuste_resto_pct is not None
+        else previa.ajuste_resto_pct,
+        ajuste_producto_pct=leida.ajuste_producto_pct
+        if leida.ajuste_producto_pct is not None
+        else previa.ajuste_producto_pct,
+        fuera_de_amazon=leida.fuera_de_amazon
+        if leida.fuera_de_amazon is not None
+        else previa.fuera_de_amazon,
+    )
 
 
 def guarda_config(

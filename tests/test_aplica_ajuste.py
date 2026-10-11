@@ -3,6 +3,7 @@ cero HTTP vivo. Patron de `test_api_write.py` (reversa_manual)."""
 
 from __future__ import annotations
 
+import copy
 import datetime as dt
 import json
 import os
@@ -164,6 +165,52 @@ def _handler_campanas(remoto: dict, *, divergente: ConfigCampana | None = None):
 
 def _puts(vistos: list[httpx.Request]) -> list[dict]:
     return [json.loads(r.content)["campaigns"][0] for r in vistos if r.method == "PUT"]
+
+
+def _handler_mezcla(remoto: dict):
+    """Amazon mock con la semantica sellada por V.0: el PUT aplica solo
+    las llaves que trae (lo demas queda); placement 0 borra; el list
+    devuelve la campana entera."""
+    vistos: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return httpx.Response(200, json={"access_token": "fake", "expires_in": 3600})
+        vistos.append(request)
+        path, metodo = request.url.path, request.method
+        if metodo == "GET" and path == "/v2/profiles":
+            return httpx.Response(200, json=[PERFIL_MX_RAW])
+        if metodo == "PUT" and path == "/sp/campaigns":
+            obj = json.loads(request.content)["campaigns"][0]
+            camp = remoto[str(obj["campaignId"])]
+            for llave, valor in obj.items():
+                if llave == "campaignId":
+                    continue
+                if llave == "dynamicBidding":
+                    db = camp.setdefault("dynamicBidding", {})
+                    if "strategy" in valor:
+                        db["strategy"] = valor["strategy"]
+                    actuales = {
+                        e["placement"]: e["percentage"] for e in db.get("placementBidding", [])
+                    }
+                    for e in valor.get("placementBidding", []):
+                        if e["percentage"] == 0:
+                            actuales.pop(e["placement"], None)
+                        else:
+                            actuales[e["placement"]] = e["percentage"]
+                    db["placementBidding"] = [
+                        {"percentage": v, "placement": k} for k, v in actuales.items()
+                    ]
+                else:
+                    camp[llave] = valor
+            return httpx.Response(207, json={"campaigns": [{"code": "200"}]})
+        if metodo == "POST" and path == "/sp/campaigns/list":
+            ext = json.loads(request.content)["campaignIdFilter"]["include"][0]
+            cuerpo = copy.deepcopy(remoto[str(ext)])
+            return httpx.Response(200, json={"campaigns": [{"campaignId": str(ext), **cuerpo}]})
+        raise AssertionError(f"request inesperado: {metodo} {path}")
+
+    return handler, vistos
 
 
 @contextmanager
@@ -1097,3 +1144,276 @@ def test_regresar_un_regreso_encadena_sin_500(monkeypatch):
             assert paso.confirmada is True
             actual = paso.ajuste_id
         assert remoto[EXTERNA]["budget"]["budget"] == 100.0
+
+
+def _remoto_b1(budget: float, top: int | None, producto: int = 40) -> dict:
+    placements = []
+    if top is not None:
+        placements.append({"placement": "PLACEMENT_TOP", "percentage": top})
+    placements.append({"placement": "PLACEMENT_PRODUCT_PAGE", "percentage": producto})
+    return {
+        EXTERNA: {
+            "budget": {"budget": budget, "budgetType": "DAILY"},
+            "dynamicBidding": {
+                "strategy": "LEGACY_FOR_SALES",
+                "placementBidding": placements,
+            },
+        }
+    }
+
+
+@_skip_db
+def test_put_lleva_solo_la_llave_de_la_clase(monkeypatch):
+    """B1: cada clase manda su llave sola, con la forma que sello su
+    sonda (presupuesto: budget; ubicacion: dynamicBidding; fuera:
+    offAmazonSettings)."""
+    with _db("orbit_aj_b1k") as conn:
+        camp, _cfg = _siembra(conn)
+        remoto = _remoto_b1(100.0, None)
+        handler, vistos = _handler_mezcla(remoto)
+        _creds_fake(monkeypatch)
+        transporte = httpx.MockTransport(handler)
+
+        def _aplica(ajuste):
+            plan = _plan(conn, camp, ajuste)
+            return apply.aplica_ajuste_campana(
+                conn,
+                plan,
+                huella=plan.huella(),
+                confirmacion="APLICAR AJUSTE",
+                actor="dueno",
+                transport=transporte,
+            )
+
+        assert _aplica(CambiarPresupuesto(presupuesto_diario=Decimal("120"))).confirmada
+        assert _aplica(
+            CambiarAjusteUbicacion(ubicacion="arriba_de_busqueda", porcentaje=50)
+        ).confirmada
+        assert _aplica(LimitarFueraDeAmazon()).confirmada
+        llaves = [sorted(k for k in p if k != "campaignId") for p in _puts(vistos)]
+        assert llaves == [["budget"], ["dynamicBidding"], ["offAmazonSettings"]]
+
+
+@_skip_db
+def test_ajuste_ubicacion_no_revierte_presupuesto_de_consola(monkeypatch):
+    """B1 (deriva 1): el dueno subio el presupuesto en la consola tras
+    el sync; un ajuste de ubicacion no lo revierte."""
+    with _db("orbit_aj_b1a") as conn:
+        camp, _cfg = _siembra(conn)
+        remoto = _remoto_b1(300.0, None)
+        handler, vistos = _handler_mezcla(remoto)
+        _creds_fake(monkeypatch)
+        plan = _plan(
+            conn, camp, CambiarAjusteUbicacion(ubicacion="arriba_de_busqueda", porcentaje=20)
+        )
+        hecho = apply.aplica_ajuste_campana(
+            conn,
+            plan,
+            huella=plan.huella(),
+            confirmacion="APLICAR AJUSTE",
+            actor="dueno",
+            transport=httpx.MockTransport(handler),
+        )
+        assert hecho.confirmada is True
+        (put,) = _puts(vistos)
+        assert "budget" not in put
+        assert remoto[EXTERNA]["budget"]["budget"] == 300.0
+
+
+@_skip_db
+def test_ajuste_presupuesto_no_revierte_ubicacion_de_consola(monkeypatch):
+    """B1 (deriva 2): el dueno puso +50 % arriba en la consola tras el
+    sync; un ajuste de presupuesto no lo borra."""
+    with _db("orbit_aj_b1b") as conn:
+        camp, _cfg = _siembra(conn)
+        remoto = _remoto_b1(100.0, 50)
+        handler, vistos = _handler_mezcla(remoto)
+        _creds_fake(monkeypatch)
+        plan = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("120")))
+        hecho = apply.aplica_ajuste_campana(
+            conn,
+            plan,
+            huella=plan.huella(),
+            confirmacion="APLICAR AJUSTE",
+            actor="dueno",
+            transport=httpx.MockTransport(handler),
+        )
+        assert hecho.confirmada is True
+        (put,) = _puts(vistos)
+        assert "dynamicBidding" not in put
+        tops = {
+            p["placement"]: p["percentage"]
+            for p in remoto[EXTERNA]["dynamicBidding"]["placementBidding"]
+        }
+        assert tops["PLACEMENT_TOP"] == 50
+
+
+@_skip_db
+def test_dos_clases_a_la_vez_dejan_los_dos_cambios(monkeypatch):
+    """B1 (07): presupuesto + ubicacion planeados con el mismo vigente;
+    el PUT de ubicacion sale despues de confirmar el presupuesto y no
+    lo pisa: Amazon queda con los dos cambios."""
+    import threading
+
+    with _db_dsn("orbit_aj_b1c") as (conn, dsn_db):
+        camp, _cfg = _siembra(conn)
+        remoto = _remoto_b1(100.0, None)
+        base, vistos = _handler_mezcla(remoto)
+        _creds_fake(monkeypatch)
+        pa = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("120")))
+        pb = _plan(
+            conn, camp, CambiarAjusteUbicacion(ubicacion="arriba_de_busqueda", porcentaje=50)
+        )
+        b_en_put = threading.Event()
+        a_termino = threading.Event()
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.method == "PUT":
+                obj = json.loads(request.content)["campaigns"][0]
+                es_b = any(
+                    p["placement"] == "PLACEMENT_TOP" and p["percentage"] == 50
+                    for p in obj.get("dynamicBidding", {}).get("placementBidding", [])
+                )
+                if es_b:
+                    b_en_put.set()
+                    assert a_termino.wait(timeout=30)
+            return base(request)
+
+        salidas: dict = {}
+
+        def _tiro_b():
+            import psycopg
+
+            c = psycopg.connect(dsn_db)
+            try:
+                hecho = apply.aplica_ajuste_campana(
+                    c,
+                    pb,
+                    huella=pb.huella(),
+                    confirmacion="APLICAR AJUSTE",
+                    actor="dueno",
+                    transport=httpx.MockTransport(handler),
+                )
+                salidas["b"] = hecho.confirmada
+            finally:
+                c.close()
+
+        hb = threading.Thread(target=_tiro_b)
+        hb.start()
+        assert b_en_put.wait(timeout=30)
+        hecho_a = apply.aplica_ajuste_campana(
+            conn,
+            pa,
+            huella=pa.huella(),
+            confirmacion="APLICAR AJUSTE",
+            actor="dueno",
+            transport=httpx.MockTransport(handler),
+        )
+        a_termino.set()
+        hb.join(timeout=60)
+        assert hecho_a.confirmada is True
+        assert salidas == {"b": True}
+        assert remoto[EXTERNA]["budget"]["budget"] == 120.0
+        tops = {
+            p["placement"]: p["percentage"]
+            for p in remoto[EXTERNA]["dynamicBidding"]["placementBidding"]
+        }
+        assert tops["PLACEMENT_TOP"] == 50
+
+
+@_skip_db
+def test_regresos_cruzados_solo_mueven_su_clase(monkeypatch):
+    """B2 (seccion G): A = presupuesto 100->200, B = top +50. Regresar
+    A deja el +50 % de B; regresar B no toca el presupuesto."""
+    with _db("orbit_aj_b2g") as conn:
+        camp, _cfg = _siembra(conn)
+        remoto = _remoto_b1(100.0, None)
+        handler, vistos = _handler_mezcla(remoto)
+        _creds_fake(monkeypatch)
+        transporte = httpx.MockTransport(handler)
+
+        def _aplica(ajuste):
+            plan = _plan(conn, camp, ajuste)
+            return apply.aplica_ajuste_campana(
+                conn,
+                plan,
+                huella=plan.huella(),
+                confirmacion="APLICAR AJUSTE",
+                actor="dueno",
+                transport=transporte,
+            )
+
+        a1 = _aplica(CambiarPresupuesto(presupuesto_diario=Decimal("200")))
+        a2 = _aplica(CambiarAjusteUbicacion(ubicacion="arriba_de_busqueda", porcentaje=50))
+        r1 = apply.regresa_ajuste_campana(
+            conn, ajuste_id=a1.ajuste_id, actor="dueno", transport=transporte
+        )
+        assert r1.confirmada is True
+        put_a = _puts(vistos)[-1]
+        assert sorted(k for k in put_a if k != "campaignId") == ["budget"]
+        tops = {
+            p["placement"]: p["percentage"]
+            for p in remoto[EXTERNA]["dynamicBidding"]["placementBidding"]
+        }
+        assert tops["PLACEMENT_TOP"] == 50
+        r2 = apply.regresa_ajuste_campana(
+            conn, ajuste_id=a2.ajuste_id, actor="dueno", transport=transporte
+        )
+        assert r2.confirmada is True
+        put_b = _puts(vistos)[-1]
+        assert "budget" not in put_b
+        assert remoto[EXTERNA]["budget"]["budget"] == 100.0
+
+
+@_skip_db
+def test_readback_sin_dynamic_bidding_conserva_vigente_previo(monkeypatch):
+    """B1/mezcla: el PUT parcial de presupuesto no mueve placements; si
+    el list no los trae, el vigente conserva strategy y tops previos."""
+    with _db("orbit_aj_b1m") as conn:
+        from app.ads.campana_config import config_vigente
+
+        camp, _cfg = _siembra(conn)
+        remoto = {EXTERNA: {"budget": {"budget": 100.0, "budgetType": "DAILY"}}}
+        handler, _vistos = _handler_campanas(remoto)
+        _creds_fake(monkeypatch)
+        plan = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("120")))
+        hecho = apply.aplica_ajuste_campana(
+            conn,
+            plan,
+            huella=plan.huella(),
+            confirmacion="APLICAR AJUSTE",
+            actor="dueno",
+            transport=httpx.MockTransport(handler),
+        )
+        assert hecho.confirmada is True
+        vigente = config_vigente(conn, camp)
+        assert vigente.presupuesto_diario == Decimal("120")
+        assert vigente.estrategia_puja == "LEGACY_FOR_SALES"
+        assert (vigente.ajuste_top_pct, vigente.ajuste_producto_pct) == (0, 40)
+
+
+@_skip_db
+def test_regreso_con_vigente_ya_en_antes_no_manda_put(monkeypatch):
+    """M10: el vigente volvio a antes por fuera (el sync observo un
+    cambio manual): regresar responde AjusteYaRegresado sin PUT."""
+    with _db("orbit_aj_m10") as conn:
+        camp, _cfg = _siembra(conn)
+        remoto = {EXTERNA: {"budget": {"budget": 100.0, "budgetType": "DAILY"}}}
+        handler, vistos = _handler_campanas(remoto)
+        _creds_fake(monkeypatch)
+        transporte = httpx.MockTransport(handler)
+        plan = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("120")))
+        hecho = apply.aplica_ajuste_campana(
+            conn,
+            plan,
+            huella=plan.huella(),
+            confirmacion="APLICAR AJUSTE",
+            actor="dueno",
+            transport=transporte,
+        )
+        _observa(conn, camp, plan.antes)
+        with pytest.raises(apply.AjusteYaRegresado):
+            apply.regresa_ajuste_campana(
+                conn, ajuste_id=hecho.ajuste_id, actor="dueno", transport=transporte
+            )
+        assert len(_puts(vistos)) == 1

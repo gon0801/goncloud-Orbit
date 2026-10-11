@@ -754,8 +754,9 @@ def regresar_ajuste(
     cuerpo: CuerpoRegresaAjuste,
     ajuste_id: int = RutaPath(ge=1),
 ) -> dict:
-    """Regreso del ajuste: aplica la configuracion completa de antes. Un
-    solo regreso por ajuste; fuera_de_amazon no tiene regreso (422)."""
+    """Regreso del ajuste: restaura los campos de la clase a su valor de
+    antes (B2). Un solo regreso por ajuste; fuera_de_amazon no tiene
+    regreso (422)."""
     try:
         hecho = apply.regresa_ajuste_campana(conn, ajuste_id=ajuste_id, actor=cuerpo.actor)
     except tuple(_ERRORES_AJUSTE) as exc:

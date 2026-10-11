@@ -73,7 +73,8 @@ _CLASE_POR_TIPO = {
 @dataclass(frozen=True)
 class PlanAjuste:
     """Lo que el dueno ve antes de confirmar. `antes` y `despues` son la
-    configuracion COMPLETA (no un parche): el regreso aplica `antes`."""
+    configuracion COMPLETA (no un parche); el PUT (aplicar y regresar)
+    filtra a la llave de la clase."""
 
     campana_id: int
     plataforma: str
