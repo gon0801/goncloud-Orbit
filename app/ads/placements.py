@@ -121,7 +121,10 @@ def _planea_filas_placements(
 ) -> tuple[list[_FilaPlacement], Counter[str]]:
     """Valida cada fila ANTES de tocar la base (vocabulario CERRADO de
     skips, como _planea_filas_productos). Desconocido, negativo o no
-    numerico salta la fila y se cuenta; ausente queda NULL (regla 3)."""
+    numerico salta la fila y se cuenta; ausente queda NULL (regla 3).
+    Fila con las CINCO metricas ausentes salta: se insertaria con NULLs
+    y el DISTINCT ON por observed_at DESC taparia datos completos
+    anteriores de esa (campana, ubicacion, fecha)."""
     plan: list[_FilaPlacement] = []
     skips: Counter[str] = Counter()
     for fila in filas:
@@ -159,6 +162,9 @@ def _planea_filas_placements(
             continue
         if any(m is not None and m < 0 for m in (impressions, clicks, cost, orders, revenue)):
             skips["fila de placements con metrica negativa"] += 1
+            continue
+        if all(m is None for m in (impressions, clicks, cost, orders, revenue)):
+            skips["fila de placements sin metricas"] += 1
             continue
         plan.append(
             _FilaPlacement(

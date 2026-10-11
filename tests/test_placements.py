@@ -198,6 +198,19 @@ def test_metrica_ausente_queda_null_y_campana_numerica_casa():
     )
     assert skips == Counter()
     assert plan[0].clicks is None
+
+
+def test_fila_sin_ninguna_metrica_salta_y_cero_si_pasa():
+    vacia = _fila(impressions=None, clicks=None, cost=None, purchases30d=None, sales30d=None)
+    plan, skips = _planea_filas_placements([vacia], entidades={"9001": 7})
+    assert plan == []
+    assert skips == Counter({"fila de placements sin metricas": 1})
+    plan, skips = _planea_filas_placements(
+        [_fila(impressions=0, clicks=0, cost=0, purchases30d=0, sales30d=0)],
+        entidades={"9001": 7},
+    )
+    assert skips == Counter()
+    assert len(plan) == 1
     assert plan[0].ad_entity_id == 7
 
 
