@@ -107,7 +107,7 @@ global.fetch = (url, opts) => {
       lanzarPrimero409 = false;
       vista = {...vista, huella: "b".repeat(64)};
       return Promise.resolve({ok: false, status: 409,
-        json: () => Promise.resolve({vista_previa: vista})});
+        json: () => Promise.resolve({detail: {mensaje: "x", vista_previa: vista}})});
     }
     return Promise.resolve({ok: true, status: 200,
       json: () => Promise.resolve({lanzados: [{impulso_id: 1}, {impulso_id: 2}]})});

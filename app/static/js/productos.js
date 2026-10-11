@@ -159,11 +159,12 @@ function lanzar(form) {
     })
     .then(function (r) {
       if (!r.ok) {
-        if (r.status === 409 && r.data.vista_previa) {
-          vistaGuardada = { solicitud: vistaGuardada.solicitud, vista: r.data.vista_previa };
-          pintaVista(document.getElementById("productos-vista"), r.data.vista_previa);
+        var detalle = r.data && r.data.detail ? r.data.detail : {};
+        if (r.status === 409 && detalle.vista_previa) {
+          vistaGuardada = { solicitud: vistaGuardada.solicitud, vista: detalle.vista_previa };
+          pintaVista(document.getElementById("productos-vista"), detalle.vista_previa);
           document.getElementById("productos-esperada").textContent =
-            r.data.vista_previa.confirmacion_esperada;
+            detalle.vista_previa.confirmacion_esperada;
           estado.textContent = "El plan cambió: revisa la vista nueva y confirma de nuevo.";
           return;
         }
