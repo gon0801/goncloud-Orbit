@@ -1051,3 +1051,125 @@ def test_como_dict_none_viaja_none_en_todos_los_campos():
         target_acos_pct=None,
     )
     assert pantalla.como_dict()["target_acos_pct"] is None
+
+
+# B8 (R05 r3): la pantalla de US habla USD y concluye con 36.
+# ---------------------------------------------------------------------------
+
+
+def _notas_target(valor):
+    return json.dumps({"target": {"procedencia": "margen_plataforma", "target_aplicado": valor}})
+
+
+@_skip_db
+def test_pg_us_moneda_y_target_del_ciclo_us():
+    """U7/U9: `lee_dinero` US rotula USD y muestra el target del ciclo US."""
+    with _db_dinero("orbit_b8_us") as conn:
+        ahora = dt.datetime(2026, 10, 5, tzinfo=dt.UTC)
+        for plataforma, valor in (("amazon_mx", 13.3), ("amazon_us", 25.0)):
+            conn.execute(
+                "INSERT INTO optimizer_cycle (motor, mode, platform, status,"
+                " finished_at, decisions_count, notes)"
+                " VALUES ('ads_optimizer', 'shadow', %s::platform, 'done', %s, 0, %s)",
+                (plataforma, ahora, _notas_target(valor)),
+            )
+        pantalla = lee_dinero(conn, plataforma="amazon_us", dias=90, hasta=dt.date(2026, 10, 4))
+        assert pantalla.moneda == "USD"
+        assert pantalla.target_acos_pct == Decimal("25.0")
+
+
+@_skip_db
+def test_pg_us_ubicacion_concluye_con_36():
+    """U8: gasto 100 USD sin pedidos marca gasta-sin-vender en US."""
+    with _db_dinero("orbit_b8_u8") as conn:
+        fecha = dt.date(2026, 10, 4)
+        obs = dt.datetime(2026, 10, 5, tzinfo=dt.UTC)
+        camp = _siembra_campana(conn, "amazon_us", "cu", "US 1")
+        _siembra_placement(
+            conn,
+            "amazon_us",
+            camp,
+            "fuera_de_amazon",
+            fecha,
+            obs,
+            Decimal("100"),
+            5,
+            0,
+            None,
+        )
+        ubis = {
+            u.ubicacion: u
+            for u in lee_ubicaciones(
+                conn, plataforma="amazon_us", desde=fecha - dt.timedelta(days=29), hasta=fecha
+            )
+        }
+        assert ubis["fuera_de_amazon"].gasta_sin_vender is True
+
+
+def test_con_avisos_us_pide_el_umbral_de_us(monkeypatch):
+    """U10: los avisos de la pantalla US se piden con 36, no 350."""
+    from app import avisos_campana
+    from app.pantalla_dinero import FilaCampana, _con_avisos
+
+    fila = FilaCampana(
+        campana_id=1,
+        nombre="C",
+        presupuesto_diario=None,
+        gasto_medio_diario=None,
+        uso_presupuesto_pct=None,
+        estrategia=None,
+        ajustes_ubicacion=(),
+        gasto_fuera_de_amazon=None,
+        dias_al_tope_7d=None,
+    )
+    pedidas = {}
+    real = avisos_campana.avisos_del_dia
+
+    def _espia(*args, **kwargs):
+        pedidas.update(kwargs)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr("app.avisos_campana.avisos_del_dia", _espia)
+    _con_avisos(_ConnFalsa([[]]), "amazon_us", (), (fila,))
+    assert pedidas["gasto_para_concluir"] == Decimal("36")
+
+
+def test_con_avisos_us_frase_en_usd():
+    """U11: el aviso de presupuesto expuesto de US se redacta en USD."""
+    from app.pantalla_dinero import FilaCampana, _con_avisos
+
+    fila = FilaCampana(
+        campana_id=1,
+        nombre="C",
+        presupuesto_diario=Decimal("100"),
+        gasto_medio_diario=Decimal("5"),
+        uso_presupuesto_pct=None,
+        estrategia=None,
+        ajustes_ubicacion=(),
+        gasto_fuera_de_amazon=None,
+        dias_al_tope_7d=None,
+    )
+    (con_aviso,) = _con_avisos(_ConnFalsa([[]]), "amazon_us", (), (fila,))
+    (frase,) = con_aviso.avisos
+    assert "USD" in frase
+    assert "MXN" not in frase
+
+
+def test_pantalla_us_encabezado_y_frase_en_usd():
+    """U14/U15: encabezado (USD) y frase 'USD en 30 días'."""
+    html = _plano(
+        _html_dinero(
+            [_fila_ui()],
+            por_ubicacion=[_fila_ubi_ui()],
+            plataforma="amazon_us",
+            moneda="USD",
+        )
+    )
+    assert "(USD)" in html
+    assert "USD en 30 días" in html
+
+
+def test_pantalla_enlace_amazon_us_abre_us():
+    """U16: el enlace 'Amazon US' lleva a ?plataforma=amazon_us."""
+    html = _html_dinero([_fila_ui()], plataforma="amazon_us", moneda="USD")
+    assert 'href="/donde-poner-el-dinero?plataforma=amazon_us"' in html

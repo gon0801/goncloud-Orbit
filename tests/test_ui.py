@@ -2070,6 +2070,35 @@ def test_ui_donde_poner_el_dinero_200_con_marcador_y_menu(monkeypatch):
     assert malo.status_code == 422
 
 
+def test_ui_donde_poner_el_dinero_pasa_plataforma_us(monkeypatch):
+    """U12: ?plataforma=amazon_us llega al lector (la ruta no lee siempre MX)."""
+    from test_pantalla_dinero import _fila_ui
+
+    pedidas = []
+
+    def _dinero(conn, plataforma=None):
+        pedidas.append(plataforma)
+        return {
+            "plataforma": plataforma or "amazon_mx",
+            "moneda": "USD",
+            "desde": "2026-07-06",
+            "hasta": "2026-10-04",
+            "filas": [_fila_ui()],
+            "total": _fila_ui(tipo=""),
+            "hojas_sin_clasificar": 0,
+            "target_acos_pct": "13.3",
+        }
+
+    monkeypatch.setattr(ui.dash, "donde_poner_el_dinero", _dinero)
+    app.dependency_overrides[_conexion_lectura] = lambda: None
+    try:
+        resp = TestClient(app).get("/donde-poner-el-dinero", params={"plataforma": "amazon_us"})
+    finally:
+        app.dependency_overrides.pop(_conexion_lectura, None)
+    assert resp.status_code == 200, resp.text
+    assert pedidas == ["amazon_us"]
+
+
 def test_ui_salud_muestra_avisos_campana_y_sin_bloque_no_rompe(monkeypatch):
     """V.4: /salud pinta las frases de `avisos_campana`; sin el bloque (pre-
     V.4) la pantalla no rompe."""
