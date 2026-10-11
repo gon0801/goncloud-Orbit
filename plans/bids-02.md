@@ -292,7 +292,7 @@ encarga, y el lead comprueba el resultado en solo lectura.
 
 | Task | Contenido | DoD | Depends | Status |
 | --- | --- | --- | --- | --- |
-| V.3 | `[stage:implementacion] [lane:gate] [tdd:required]` Ajustes del dueño: `app/campana_ajustes.py`, `apply.aplica_ajuste_campana`, `regresa_ajuste_campana`, migración 0067 y sus rutas. Solo los ajustes cuya sonda quedó sellada en V.0. | `planea_ajuste` es pura y rechaza un ajuste que no cambia nada. La fila se inserta antes del HTTP y se confirma solo si el readback coincide. Una huella vieja responde 409. Un ajuste por ubicación confirmado aparece en `v_cambio_bid` y en la `Trayectoria` de cada hoja de la campaña. Regresar aplica la configuración anterior completa. `PUT /sp/campaigns` entra al allowlist con la evidencia de V.0 en el mismo PR. | V.0, V.1, M.2 | cc:TODO |
+| V.3 | `[stage:implementacion] [lane:gate] [tdd:required]` Ajustes del dueño: `app/campana_ajustes.py`, `apply.aplica_ajuste_campana`, `regresa_ajuste_campana`, migración 0067 y sus rutas. Solo los ajustes cuya sonda quedó sellada en V.0. | `planea_ajuste` es pura y rechaza un ajuste que no cambia nada. La fila se inserta antes del HTTP y se confirma solo si el readback coincide. Una huella vieja responde 409. Un ajuste por ubicación confirmado aparece en `v_cambio_bid` y en la `Trayectoria` de cada hoja de la campaña. Regresar restaura solo los campos de la clase del ajuste a su valor de antes (R07-B2: la configuracion anterior completa pisaria ajustes posteriores de otra clase y podria SUBIR un presupuesto). `PUT /sp/campaigns` entra al allowlist con la evidencia de V.0 en el mismo PR. | V.0, V.1, M.2 | cc:TODO |
 | P.2b | `[stage:implementacion] [lane:gate] [tdd:required]` Botones de la tabla por campaña: un botón por cada ajuste sellado, con su vista previa y su confirmación, el botón "Regresar" de un ajuste confirmado y los avisos de cada campaña. | Cada botón abre su vista previa y no escribe sin la confirmación. Un ajuste sin sonda sellada no tiene botón. Un ajuste confirmado y sin regreso muestra su botón "Regresar". La fila de campaña muestra sus avisos. | P.2a, V.3, V.4 | cc:TODO |
 | D.3 | `[stage:cierre-pr] [lane:release] [tdd:skip:ops]` Desplegar la sección 4. | El checklist sale 0. La pantalla de dinero muestra un botón por cada ajuste sellado. La vista previa de un ajuste responde sin escribir. La tabla `campana_ajuste` existe y está vacía. | V.3, P.2b, D.2 | cc:TODO |
 
@@ -418,3 +418,12 @@ El plan cierra cuando el motor está encendido en las dos plataformas, las cinco
 impulso y los ajustes de campaña están desplegados, o cuando lo que falte quedó cerrado con el motivo
 escrito. Lanzar el primer impulso y aplicar el primer ajuste son acciones del dueño y no son condición de
 cierre.
+
+### Ronda R07-3: deuda no bloqueante (revisor R07, PR 428)
+
+| Task | Contenido | DoD | Depends | Status |
+| --- | --- | --- | --- | --- |
+| R07-09C | `[stage:implementacion] [lane:gate] [tdd:required]` Reintento de H#N pendiente: reusar la H#2 pendiente en vez de abrir H#3 huerfana. | 09-C: el reintento confirma la H#2 pendiente (sin PUT si el readback ya coincide); ninguna H#N queda huerfana para siempre. | s4 | cc:TODO |
+| R07-D | `[stage:implementacion] [lane:gate] [tdd:required]` `tools/rejuega_niveles._bid_del_dia` con el ajuste de campana: el SQL del rejuego ignora la tercera rama de `v_cambio_bid` y lee el bid de hoy. | Parte D del repro 02-B: con el ajuste en medio, el bid del dia sale igual que sin el. | s4 | cc:TODO |
+| R07-H | `[stage:implementacion] [lane:gate] [tdd:required]` Pantalla: no ofrecer Regresar cuando la campana ya esta como antes (hoy ofrece y la ruta responde 409). | Seccion H del guion P.2b: sin boton Regresar ofrecido; sin 409. | s4 | cc:TODO |
+| R07-M | `[stage:implementacion] [lane:gate] [tdd:required]` Mutantes no bloqueantes que sobreviven (V04, V12, V13, M07, M09, J5, H2-H7, P1, P2, P5): prueba que mate cada uno. | `bash 05_mutantes.sh` (B), `08_mutantes.py` (A) y `mutantes_p2b.sh` (C) sobre el head: esos ids mueren. | s4 | cc:TODO |

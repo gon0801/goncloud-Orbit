@@ -2023,6 +2023,138 @@ vm.runInThisContext(fs.readFileSync(process.argv[1], "utf8"));
     assert resultado.returncode == 0, resultado.stdout + resultado.stderr
 
 
+def test_ui_dinero_js_plan_sin_post_y_aplicar_exige_literal():
+    """Con Node (modelo danadas): tocar el boton de fuera de Amazon pide
+    `campana-ajuste/plan` (GET) y no manda ningun POST; el submit sin el
+    literal `APLICAR AJUSTE` no manda `campana-ajuste/aplicar`; con el
+    literal lo manda con huella, confirmacion y actor; el regreso manda su
+    POST con actor. Todo con el token en `x-orbit-token`."""
+    import os
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    archivo = Path(ui.__file__).resolve().parent / "static" / "js" / "dinero.js"
+    assert archivo.exists(), "Falta el cliente de dinero"
+    node = shutil.which("node")
+    if not node:
+        if "CI" in os.environ:
+            pytest.fail("Node es obligatorio en CI para verificar el flujo JavaScript")
+        pytest.skip("Node no disponible; el navegador se verifica en integracion")
+    guion = r"""
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const vm = require("node:vm");
+function campo(value) { return {value}; }
+function mockForm(dataset, elements) {
+  const form = {
+    dataset: {...dataset}, elements, events: {}, hidden: true,
+    nodos: {"[data-frase]": {textContent: ""}, "[data-estado]": {textContent: ""},
+            "[data-ver-plan]": {events: {}, addEventListener(e, f) { this.events[e] = f; }},
+            'button[type="submit"]': {disabled: true}},
+    addEventListener(e, f) { this.events[e] = f; },
+    querySelector(sel) { return this.nodos[sel]; },
+  };
+  return form;
+}
+const formFuera = mockForm({campanaId: "7", clase: "fuera_de_amazon"},
+  {actor: campo("dueno"), token: campo("t"), confirmacion: campo("")});
+const formPre = mockForm({campanaId: "7", clase: "presupuesto"},
+  {presupuesto: campo("120"), actor: campo("dueno"), token: campo("t"),
+   confirmacion: campo("")});
+const formReg = mockForm({ajusteId: "9"},
+  {actor: campo("dueno"), token: campo("t")});
+function mockBoton(dataset) {
+  return {dataset, events: {}, addEventListener(e, f) { this.events[e] = f; }};
+}
+const botonFuera = mockBoton({campanaId: "7", ajusteClase: "fuera_de_amazon"});
+const botonPre = mockBoton({campanaId: "7", ajusteClase: "presupuesto"});
+const botonReg = mockBoton({regresarAjuste: "9"});
+const docEvents = {};
+global.document = {
+  querySelectorAll(sel) {
+    if (sel === "button[data-ajuste-clase]") return [botonFuera, botonPre];
+    if (sel === "button[data-regresar-ajuste]") return [botonReg];
+    if (sel === "form[data-ajuste-form]") return [formFuera, formPre];
+    if (sel === "form[data-regresar-form]") return [formReg];
+    return [];
+  },
+  getElementById(id) {
+    if (id === "ajuste-7-fuera_de_amazon") return formFuera;
+    if (id === "ajuste-7-presupuesto") return formPre;
+    if (id === "regreso-ajuste-9") return formReg;
+    return null;
+  },
+  addEventListener: (e, f) => { docEvents[e] = f; },
+};
+const calls = [];
+const ok = body => ({ok: true, status: 200, json: async () => body});
+global.fetch = async (url, options = {}) => {
+  calls.push({url, options});
+  if (url.startsWith("/api/ads-optimizer/campana-ajuste/plan")) {
+    return ok({frase: "Orbit cambia el presupuesto", huella: "h1"});
+  }
+  return ok({confirmada: true});
+};
+vm.runInThisContext(fs.readFileSync(process.argv[1], "utf8"));
+(async () => {
+  assert.ok(docEvents.DOMContentLoaded, "dinero.js cablea en DOMContentLoaded");
+  await docEvents.DOMContentLoaded();
+  const tick = async () => {
+    await new Promise(r => setImmediate(r));
+    await new Promise(r => setImmediate(r));
+  };
+  const posts = () => calls.filter(c => (c.options.method || "GET") === "POST");
+  botonFuera.events.click();
+  await tick();
+  assert.equal(calls.length, 1, "tocar el boton pide el plan una vez");
+  assert.ok(calls[0].url.startsWith("/api/ads-optimizer/campana-ajuste/plan?"));
+  assert.ok(calls[0].url.includes("clase=fuera_de_amazon"));
+  assert.equal(posts().length, 0, "el plan no manda POST");
+  assert.equal(formFuera.nodos["[data-frase]"].textContent, "Orbit cambia el presupuesto");
+  assert.equal(formFuera.nodos['button[type="submit"]'].disabled, false);
+  botonPre.events.click();
+  assert.equal(formPre.hidden, false);
+  assert.equal(calls.length, 1, "abrir el form de presupuesto no pide nada");
+  formPre.nodos["[data-ver-plan]"].events.click();
+  await tick();
+  assert.equal(calls.length, 2);
+  assert.ok(calls[1].url.includes("presupuesto=120"));
+  assert.equal(posts().length, 0);
+  formPre.events.submit({preventDefault() {}});
+  await tick();
+  assert.equal(posts().length, 0, "sin el literal no se manda aplicar");
+  formPre.elements.confirmacion.value = "APLICAR AJUSTE";
+  formPre.events.submit({preventDefault() {}});
+  await tick();
+  assert.equal(posts().length, 1);
+  assert.equal(calls[2].url, "/api/ads-optimizer/campana-ajuste/aplicar");
+  assert.equal(calls[2].options.headers["x-orbit-token"], "t");
+  assert.deepEqual(JSON.parse(calls[2].options.body),
+    {campana_id: 7, clase: "presupuesto", presupuesto: 120,
+     huella: "h1", confirmacion: "APLICAR AJUSTE", actor: "dueno"});
+  assert.equal(formPre.nodos['button[type="submit"]'].disabled, true);
+  botonReg.events.click();
+  assert.equal(formReg.hidden, false);
+  formReg.events.submit({preventDefault() {}});
+  await tick();
+  assert.equal(posts().length, 2);
+  assert.equal(calls[3].url, "/api/ads-optimizer/campana-ajuste/9/regresar");
+  assert.equal(calls[3].options.headers["x-orbit-token"], "t");
+  assert.deepEqual(JSON.parse(calls[3].options.body), {actor: "dueno"});
+  assert.equal(formReg.nodos['button[type="submit"]'].disabled, true);
+})().catch(error => { console.error(error); process.exitCode = 1; });
+"""
+    resultado = subprocess.run(
+        [node, "-e", guion, str(archivo)],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=15,
+    )
+    assert resultado.returncode == 0, resultado.stdout + resultado.stderr
+
+
 # P.1 (BIDS 02 s3): /donde-poner-el-dinero.
 # ---------------------------------------------------------------------------
 
@@ -2033,6 +2165,8 @@ def _html_dinero(monkeypatch, filas: list[dict], **params):
     from test_pantalla_dinero import _fila_ui
 
     def _dinero(conn, plataforma=None):
+        from app.campana_ajustes import CLASES_SELLADAS, ORDEN_CLASES
+
         return {
             "plataforma": plataforma or "amazon_mx",
             "moneda": "MXN",
@@ -2042,6 +2176,9 @@ def _html_dinero(monkeypatch, filas: list[dict], **params):
             "total": _fila_ui(tipo=""),
             "hojas_sin_clasificar": 0,
             "target_acos_pct": "13.3",
+            "por_ubicacion": [],
+            "por_campana": [],
+            "clases_ajuste": [c for c in ORDEN_CLASES if c in CLASES_SELLADAS],
         }
 
     monkeypatch.setattr(ui.dash, "donde_poner_el_dinero", _dinero)
@@ -2077,6 +2214,8 @@ def test_ui_donde_poner_el_dinero_pasa_plataforma_us(monkeypatch):
     pedidas = []
 
     def _dinero(conn, plataforma=None):
+        from app.campana_ajustes import CLASES_SELLADAS, ORDEN_CLASES
+
         pedidas.append(plataforma)
         return {
             "plataforma": plataforma or "amazon_mx",
@@ -2087,6 +2226,9 @@ def test_ui_donde_poner_el_dinero_pasa_plataforma_us(monkeypatch):
             "total": _fila_ui(tipo=""),
             "hojas_sin_clasificar": 0,
             "target_acos_pct": "13.3",
+            "por_ubicacion": [],
+            "por_campana": [],
+            "clases_ajuste": [c for c in ORDEN_CLASES if c in CLASES_SELLADAS],
         }
 
     monkeypatch.setattr(ui.dash, "donde_poner_el_dinero", _dinero)
@@ -2099,6 +2241,15 @@ def test_ui_donde_poner_el_dinero_pasa_plataforma_us(monkeypatch):
     assert pedidas == ["amazon_us"]
 
 
+def test_ui_donde_poner_el_dinero_carga_dinero_js(monkeypatch):
+    """P.2b: la pagina incluye el cliente de ajustes (CSP self, versionado)."""
+    from test_pantalla_dinero import _fila_ui
+
+    resp = _html_dinero(monkeypatch, [_fila_ui()])
+    assert resp.status_code == 200, resp.text
+    assert "/static/js/dinero.js?v=" in resp.text
+
+
 def test_ui_salud_muestra_avisos_campana_y_sin_bloque_no_rompe(monkeypatch):
     """V.4: /salud pinta las frases de `avisos_campana`; sin el bloque (pre-
     V.4) la pantalla no rompe."""
@@ -2108,3 +2259,198 @@ def test_ui_salud_muestra_avisos_campana_y_sin_bloque_no_rompe(monkeypatch):
     assert "Fuera de Amazon: 1,735 MXN en 30 días, 1,127 clics." in html
     html2 = _salud_html_fakeado(monkeypatch, {"amazon_mx": _plataforma_quota()})
     assert "bloque-avisos-campana" not in html2
+
+
+def _guion_dinero_base():
+    """Banco DOM/fetch de guion para dinero.js (patron del test de plan
+    y literal): un form de presupuesto + fetch con cola de respuestas."""
+    return r"""
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const vm = require("node:vm");
+function campo(value) { return {value}; }
+function mockForm(dataset, elements) {
+  return {
+    dataset: {...dataset}, elements, events: {}, hidden: false,
+    nodos: {"[data-frase]": {textContent: ""}, "[data-estado]": {textContent: ""},
+            "[data-ver-plan]": {events: {}, addEventListener(e, f) { this.events[e] = f; }},
+            'button[type="submit"]': {disabled: true}},
+    addEventListener(e, f) { this.events[e] = f; },
+    querySelector(sel) { return this.nodos[sel]; },
+  };
+}
+"""
+
+
+def _corre_guion_dinero(node, archivo, cuerpo):
+    import subprocess
+
+    guion = _guion_dinero_base() + cuerpo
+    resultado = subprocess.run(
+        [node, "-e", guion, str(archivo)],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=15,
+    )
+    assert resultado.returncode == 0, resultado.stdout + resultado.stderr
+
+
+def test_ui_dinero_js_ver_plan_no_rehabilita_con_envio_en_curso():
+    """B9: con el POST de aplicar en vuelo, pedir el plan (200) no
+    rehabilita Aplicar; resolver el envio deja un solo POST."""
+    import shutil
+    from pathlib import Path
+
+    archivo = Path(ui.__file__).resolve().parent / "static" / "js" / "dinero.js"
+    node = shutil.which("node")
+    if not node:
+        import os
+
+        import pytest
+
+        if "CI" in os.environ:
+            pytest.fail("Node es obligatorio en CI para verificar el flujo JavaScript")
+        pytest.skip("Node no disponible; el navegador se verifica en integracion")
+    _corre_guion_dinero(
+        node,
+        archivo,
+        r"""
+const form = mockForm({campanaId: "7", clase: "presupuesto", huella: "h1"},
+  {presupuesto: campo("120"), actor: campo("dueno"), token: campo("t"),
+   confirmacion: campo("APLICAR AJUSTE")});
+const docEvents = {};
+global.document = {
+  querySelectorAll(sel) {
+    if (sel === "form[data-ajuste-form]") return [form];
+    return [];
+  },
+  getElementById(id) { return null; },
+  addEventListener: (e, f) => { docEvents[e] = f; },
+};
+const calls = [];
+let sueltaPost;
+const colaPost = [];
+global.fetch = async (url, options = {}) => {
+  calls.push({url, options});
+  if (url.startsWith("/api/ads-optimizer/campana-ajuste/plan")) {
+    return {ok: true, status: 200, json: async () => ({frase: "f", huella: "h2"})};
+  }
+  return new Promise(res => { colaPost.push(res); });
+};
+vm.runInThisContext(fs.readFileSync(process.argv[1], "utf8"));
+(async () => {
+  await docEvents.DOMContentLoaded();
+  const tick = async () => {
+    await new Promise(r => setImmediate(r));
+    await new Promise(r => setImmediate(r));
+    await new Promise(r => setImmediate(r));
+  };
+  const boton = form.nodos['button[type="submit"]'];
+  const posts = () => calls.filter(c => (c.options.method || "GET") === "POST");
+  form.events.submit({preventDefault() {}});
+  await tick();
+  assert.equal(posts().length, 1, "el envio sale");
+  assert.equal(boton.disabled, true);
+  form.nodos["[data-ver-plan]"].events.click();
+  await tick();
+  assert.equal(boton.disabled, true, "Ver plan con envio en curso no rehabilita");
+  assert.equal(posts().length, 1);
+  colaPost.shift()({ok: true, status: 200, json: async () => ({confirmada: true})});
+  await tick();
+  assert.equal(form.nodos["[data-estado]"].textContent, "Ajuste aplicado.");
+  form.events.submit({preventDefault() {}});
+  form.events.submit({preventDefault() {}});
+  await tick();
+  assert.equal(posts().length, 2, "dos submits seguidos mandan uno (candado propio)");
+})().catch(error => { console.error(error); process.exitCode = 1; });
+""",
+    )
+
+
+def test_ui_dinero_js_plan_sin_token_y_candados():
+    """J1-J4: el GET del plan no lleva token; el literal acepta solo el
+    texto exacto; sin huella no hay POST; un plan rechazado no habilita."""
+    import shutil
+    from pathlib import Path
+
+    archivo = Path(ui.__file__).resolve().parent / "static" / "js" / "dinero.js"
+    node = shutil.which("node")
+    if not node:
+        import os
+
+        import pytest
+
+        if "CI" in os.environ:
+            pytest.fail("Node es obligatorio en CI para verificar el flujo JavaScript")
+        pytest.skip("Node no disponible; el navegador se verifica en integracion")
+    _corre_guion_dinero(
+        node,
+        archivo,
+        r"""
+function banco(confirmacion) {
+  const form = mockForm({campanaId: "7", clase: "presupuesto"},
+    {presupuesto: campo("120"), actor: campo("dueno"), token: campo("SECRETO"),
+     confirmacion: campo(confirmacion)});
+  const docEvents = {};
+  const calls = [];
+  let planResp = {ok: true, status: 200, json: async () => ({frase: "f", huella: "h1"})};
+  const ctxFetch = async (url, options = {}) => {
+    calls.push({url, options});
+    if (url.startsWith("/api/ads-optimizer/campana-ajuste/plan")) return planResp;
+    return {ok: true, status: 200, json: async () => ({confirmada: true})};
+  };
+  return {form, docEvents, calls, ctxFetch, setPlan(r) { planResp = r; }};
+}
+async function cablea(b) {
+  global.document = {
+    querySelectorAll(sel) {
+      if (sel === "form[data-ajuste-form]") return [b.form];
+      return [];
+    },
+    getElementById(id) { return null; },
+    addEventListener: (e, f) => { b.docEvents[e] = f; },
+  };
+  global.fetch = b.ctxFetch;
+  vm.runInThisContext(fs.readFileSync(process.argv[1], "utf8"));
+  await b.docEvents.DOMContentLoaded();
+}
+const tick = async () => {
+  await new Promise(r => setImmediate(r));
+  await new Promise(r => setImmediate(r));
+  await new Promise(r => setImmediate(r));
+};
+(async () => {
+  const posts = b => b.calls.filter(c => (c.options.method || "GET") === "POST");
+  const b1 = banco("");
+  await cablea(b1);
+  b1.form.nodos["[data-ver-plan]"].events.click();
+  await tick();
+  assert.ok(!b1.calls[0].url.includes("token="), "J1: el plan no lleva token en la URL");
+  assert.ok(!b1.calls[0].url.includes("SECRETO"), "J1: el secreto no viaja en la URL");
+  const b2 = banco("otra cosa");
+  await cablea(b2);
+  b2.form.nodos["[data-ver-plan]"].events.click();
+  await tick();
+  b2.form.events.submit({preventDefault() {}});
+  await tick();
+  assert.equal(posts(b2).length, 0, "J2: literal distinto no manda POST");
+  assert.equal(b2.form.nodos["[data-estado]"].textContent,
+    "Escribe APLICAR AJUSTE para confirmar.");
+  const b3 = banco("APLICAR AJUSTE");
+  await cablea(b3);
+  b3.form.events.submit({preventDefault() {}});
+  await tick();
+  assert.equal(posts(b3).length, 0, "J3: sin plan no hay POST");
+  assert.equal(b3.form.nodos["[data-estado]"].textContent, "Pide el plan primero.");
+  const b4 = banco("");
+  await cablea(b4);
+  b4.setPlan({ok: false, status: 422, json: async () => ({detail: "el ajuste no cambia nada"})});
+  b4.form.nodos["[data-ver-plan]"].events.click();
+  await tick();
+  assert.equal(b4.form.nodos['button[type="submit"]'].disabled, true,
+    "J4: plan rechazado no habilita");
+  assert.equal(b4.form.dataset.huella, undefined);
+})().catch(error => { console.error(error); process.exitCode = 1; });
+""",
+    )

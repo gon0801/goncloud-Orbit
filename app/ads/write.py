@@ -66,6 +66,7 @@ from types import MappingProxyType
 
 import httpx
 
+from app.ads.campana_config import LLAVES_CUERPO_PUT
 from app.ads.client import (
     DEFAULT_BASE_URL,
     AdsApiError,
@@ -113,6 +114,11 @@ MUTATION_REQUEST_TYPES: MappingProxyType[tuple[str, str], str] = MappingProxyTyp
         # La REVERSA del archivado (decision del dueno 2026-08-30, invariante
         # 7). SELLADO por la sonda del 2026-08-31: ver crear_product_ad.
         ("POST", "/sp/productAds"): "application/vnd.spproductad.v3+json",
+        # Ajustes de campana del dueno (BIDS 02 V.3). SELLADO por V.0
+        # (2026-10-10, sondas 2/3/4 en pixeles 20978213/21731766/21739728):
+        # las tres clases responden 207 con readback igual; conclusion en
+        # docs/evidencia/bids-02/ejecucion/V.0/ (commit 2db9e20).
+        ("PUT", "/sp/campaigns"): "application/vnd.spcampaign.v3+json",
     }
 )
 
@@ -131,6 +137,8 @@ MUTATION_CONTAINERS: MappingProxyType[str, str] = MappingProxyType(
         # Misma clave que el list de product ads (_CLAVE_CONTENEDORA de
         # app/ads/structure.py, verificada en vivo desde 2026-08-31).
         "/sp/productAds": "productAds",
+        # Misma clave que el list de campanas (sondas V.0 del 2026-10-10).
+        "/sp/campaigns": "campaigns",
     }
 )
 
@@ -210,6 +218,45 @@ class AdsApiErrorMutacion(AdsApiError):
         self.path = path
 
 
+def _errores_put(respuesta: httpx.Response) -> list[str]:
+    """Errores anidados de un PUT bulk v3: `errors` no vacio arriba o por
+    item, o `code` 4xx/5xx arriba o por item. `campaigns` llega como
+    objeto `{error, success}` (las 3 sondas de V.0) o como lista por item:
+    se procesan ambas. Fail-closed (panel): cuerpo ilegible o item
+    no-dict es error, no exito (un rechazo deja pendiente reintentable;
+    un falso exito sella una mentira). Lista vacia solo con exito."""
+    try:
+        cuerpo = respuesta.json()
+    except ValueError:
+        return ["respuesta sin JSON"]
+    if not isinstance(cuerpo, dict):
+        return ["respuesta no es objeto"]
+    errores = []
+    top = cuerpo.get("errors")
+    if isinstance(top, list) and top:
+        errores.extend(str(e) for e in top)
+    codigo_tope = str(cuerpo.get("code", ""))
+    if codigo_tope[:1] in ("4", "5"):
+        errores.append(cuerpo.get("description") or f"code {codigo_tope}")
+    items = cuerpo.get("campaigns")
+    if isinstance(items, dict):
+        fallos = items.get("error")
+        if isinstance(fallos, list) and fallos:
+            errores.extend(str(e) for e in fallos)
+    elif isinstance(items, list):
+        for item in items:
+            if not isinstance(item, dict):
+                errores.append("item de campana ilegible")
+                continue
+            anidados = item.get("errors")
+            if isinstance(anidados, list) and anidados:
+                errores.extend(str(e) for e in anidados)
+            codigo = str(item.get("code", ""))
+            if codigo[:1] in ("4", "5"):
+                errores.append(item.get("description") or f"code {codigo}")
+    return errores
+
+
 def _snippet_cuerpo(resp: httpx.Response, tope: int = 500) -> str:
     """Snippet saneado del body de una respuesta de error: JSON compacto si
     parsea, texto crudo si no; scrub() SIEMPRE (defensa en profundidad: un
@@ -224,7 +271,7 @@ def _snippet_cuerpo(resp: httpx.Response, tope: int = 500) -> str:
 class AdsWriteClient(AdsClient):
     """Cliente de escritura Amazon Ads: SOLO las mutaciones del allowlist.
 
-    La superficie publica es EXACTA (las 10 mutaciones selladas + las dos
+    La superficie publica es EXACTA (las 9 mutaciones selladas + las dos
     puertas de lectura sellada: list_sellado para el readback de entidad y
     get_sellado solo para el PENDIENTE-DE-REGLA-8; ningun metodo generico
     request/post) y ningun metodo acepta profile/platform: el scope vive en
@@ -492,6 +539,36 @@ class AdsWriteClient(AdsClient):
             {"adIdFilter": {"include": [_un_objeto(ad_id, "ad_id")]}},
             envolver=False,
         )
+
+    def ajustar_campana(self, externa: str | int, cuerpo: dict) -> httpx.Response:
+        """PUT /sp/campaigns: aplica la ConfigCampana COMPLETA de UNA
+        campana (BIDS 02 V.3).
+
+        SELLADO EN VIVO por V.0 (2026-10-10): budget (sonda 2), ajustes
+        por placement (sonda 3) y el control fuera de Amazon (sonda 4)
+        responden 207 con readback igual. Solo viajan las llaves de
+        LLAVES_CUERPO_PUT — nunca `state` — y el exito se decide por
+        errores anidados, nunca por el status (una 207 con errores lanza
+        AdsApiErrorMutacion).
+        """
+        desconocidas = set(cuerpo) - LLAVES_CUERPO_PUT
+        if desconocidas:
+            raise ValueError(f"llave desconocida en el PUT de campana: {sorted(desconocidas)}")
+        respuesta = self._mutate(
+            "PUT",
+            "/sp/campaigns",
+            {"campaignId": str(_un_objeto(externa, "externa")), **cuerpo},
+        )
+        errores = _errores_put(respuesta)
+        if errores:
+            raise AdsApiErrorMutacion(
+                f"PUT /sp/campaigns rechazo el ajuste: {errores[0]}",
+                cuerpo=_snippet_cuerpo(respuesta),
+                status=respuesta.status_code,
+                method="PUT",
+                path="/sp/campaigns",
+            )
+        return respuesta
 
     def get_sellado(self, path: str, *, params: dict | None = None) -> httpx.Response:
         """GET con el scope SELLADO de la instancia.

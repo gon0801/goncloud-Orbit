@@ -1,0 +1,26 @@
+== esquema de prod (solo lectura)
+esquema base cargado: 72 tablas
+== lista: _bids02_ del arbol no aplicadas en la base (como desplegar.sh)
+ya aplicada: migrations/0060_bids02_base_lectura.sql
+ya aplicada: migrations/0061_bids02_campana_config.sql
+ya aplicada: migrations/0062_bids02_placement.sql
+ya aplicada: migrations/0063_bids02_peldanos_target.sql
+pendiente: migrations/0067_bids02_campana_ajuste.sql
+reversas: 0067_reversa_bids02_campana_ajuste.sql
+== 1) aplicar la lista
+psql:~/dev/wt-bids-02-s4/migrations/0067_bids02_campana_ajuste.sql:4: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+aplicada 0067_bids02_campana_ajuste.sql
+== 2) reversas en orden inverso
+psql:~/dev/wt-bids-02-s4/migrations/0067_reversa_bids02_campana_ajuste.sql:5: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+aplicada 0067_reversa_bids02_campana_ajuste.sql
+OK: las reversas dejan el esquema identico al base
+== 3) reaplicar la lista
+psql:~/dev/wt-bids-02-s4/migrations/0067_bids02_campana_ajuste.sql:4: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+aplicada 0067_bids02_campana_ajuste.sql
+OK: reaplicar da el mismo esquema que la primera vez
+== 4) huellas de lo aplicado (esperado: todo t)
+huella 0067: t
+ENSAYO OK

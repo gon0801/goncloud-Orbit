@@ -606,6 +606,9 @@ SUPERFICIE_ADS_OPTIMIZER = {
     ("/api/ads-optimizer/propuestas-campana/{proposal_id}/descartar", "post"),
     ("/api/ads-optimizer/bid/regresar", "post"),
     ("/api/ads-optimizer/bid/regresar-todas", "post"),
+    ("/api/ads-optimizer/campana-ajuste/plan", "get"),
+    ("/api/ads-optimizer/campana-ajuste/aplicar", "post"),
+    ("/api/ads-optimizer/campana-ajuste/{ajuste_id}/regresar", "post"),
 }
 
 

@@ -94,9 +94,14 @@
   </tbody>
 </table>
 <h3>Por campaña</h3>
+{% set BOTONES_AJUSTE = {
+  "presupuesto": "Cambiar presupuesto",
+  "ajuste_ubicacion": "Cambiar ajuste de ubicación",
+  "fuera_de_amazon": "Limitar fuera de Amazon"
+} %}
 <table>
   <thead>
-    <tr><th>Campaña</th><th>Presupuesto/día</th><th>Gasto medio/día</th><th>Uso</th><th>Estrategia</th><th>Ajustes</th><th>Fuera de Amazon</th></tr>
+    <tr><th>Campaña</th><th>Presupuesto/día</th><th>Gasto medio/día</th><th>Uso</th><th>Estrategia</th><th>Ajustes</th><th>Fuera de Amazon</th><th>Cambiar</th><th>Avisos</th></tr>
   </thead>
   <tbody>
     {% for fila in por_campana %}
@@ -108,8 +113,53 @@
       <td>{% if fila.estrategia is none %}—{% else %}{{ ESTRATEGIAS[fila.estrategia] }}{% endif %}</td>
       <td>{% for ubi, pct in fila.ajustes_ubicacion %}+{{ pct }} % en {{ UBIS[ubi] }}{% if not loop.last %}; {% endif %}{% else %}—{% endfor %}</td>
       <td class="num">{{ fila.gasto_fuera_de_amazon|dinero_ui or "—" }}</td>
+      <td>
+        {% for clase in clases_ajuste %}
+        <button type="button" data-ajuste-clase="{{ clase }}" data-campana-id="{{ fila.campana_id }}">{{ BOTONES_AJUSTE[clase] }}</button>
+        {% endfor %}
+        {% for reg in fila.ajustes_regresables %}
+        <button type="button" data-regresar-ajuste="{{ reg.ajuste_id }}" title="{{ reg.frase }}">Regresar</button>
+        {% endfor %}
+        {% for clase in clases_ajuste %}
+        <form hidden id="ajuste-{{ fila.campana_id }}-{{ clase }}" data-ajuste-form data-campana-id="{{ fila.campana_id }}" data-clase="{{ clase }}">
+          {% if clase == "presupuesto" %}
+          <label>Presupuesto diario <input name="presupuesto" inputmode="decimal"></label>
+          {% elif clase == "ajuste_ubicacion" %}
+          <label>Ubicación
+            <select name="ubicacion">
+              <option value="arriba_de_busqueda">arriba de búsqueda</option>
+              <option value="resto_de_busqueda">resto de búsqueda</option>
+              <option value="paginas_de_producto">páginas de producto</option>
+            </select>
+          </label>
+          <label>Porcentaje <input name="porcentaje" inputmode="numeric"></label>
+          {% endif %}
+          <button type="button" data-ver-plan>Ver plan</button>
+          <p data-frase></p>
+          <label>Actor <input name="actor"></label>
+          <label>Token <input name="token" type="password"></label>
+          <label>Escribe APLICAR AJUSTE <input name="confirmacion"></label>
+          <button type="submit" disabled>Aplicar</button>
+          <p data-estado></p>
+        </form>
+        {% endfor %}
+        {% for reg in fila.ajustes_regresables %}
+        <form hidden id="regreso-ajuste-{{ reg.ajuste_id }}" data-regresar-form data-ajuste-id="{{ reg.ajuste_id }}">
+          <p>{{ reg.frase }}</p>
+          <label>Actor <input name="actor"></label>
+          <label>Token <input name="token" type="password"></label>
+          <button type="submit">Regresar</button>
+          <p data-estado></p>
+        </form>
+        {% endfor %}
+      </td>
+      <td>
+        {% for aviso in fila.avisos %}<p>{{ aviso }}</p>{% endfor %}
+        {% if fila.aviso_ajuste %}<p>{{ fila.aviso_ajuste }}</p>{% endif %}
+      </td>
     </tr>
     {% endfor %}
   </tbody>
 </table>
 {% endblock %}
+{% block scripts %}<script src="/static/js/dinero.js?v={{ asset_version }}"></script>{% endblock %}

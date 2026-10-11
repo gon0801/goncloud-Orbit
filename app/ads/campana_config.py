@@ -28,6 +28,25 @@ _AJUSTE_POR_PLACEMENT = {
     "PLACEMENT_REST_OF_SEARCH": 1,
     "PLACEMENT_PRODUCT_PAGE": 2,
 }
+_PLACEMENT_POR_CAMPO = (
+    ("ajuste_top_pct", "PLACEMENT_TOP"),
+    ("ajuste_resto_pct", "PLACEMENT_REST_OF_SEARCH"),
+    ("ajuste_producto_pct", "PLACEMENT_PRODUCT_PAGE"),
+)
+# Llaves que el PUT /sp/campaigns acepta en el ajuste (sondas V.0):
+# budget y dynamicBidding (2 y 3) y offAmazonSettings (4). Nunca `state`.
+LLAVES_CUERPO_PUT = frozenset({"budget", "dynamicBidding", "offAmazonSettings"})
+# Llave por clase de ajuste (B1): el PUT de aplicar/regresar lleva SOLO
+# la llave de la clase aprobada, con la forma que sello su sonda (sonda
+# 2: solo budget; sonda 3: solo dynamicBidding con strategy + lista de
+# placements, que Amazon mezcla; sonda 4: solo offAmazonSettings). Lo
+# demas no viaja: mandar la config completa pisaria lo que el dueno
+# cambio en la consola despues del sync.
+LLAVES_POR_CLASE = {
+    "presupuesto": ("budget",),
+    "ajuste_ubicacion": ("dynamicBidding",),
+    "fuera_de_amazon": ("offAmazonSettings",),
+}
 _PCT_MAX = 900
 
 
@@ -233,6 +252,23 @@ SELECT o.presupuesto_diario, o.presupuesto_moneda, o.estrategia_puja, o.ajuste_t
  ORDER BY o.observed_at DESC, o.id DESC
  LIMIT 1
 """
+_SQL_CONFIG_VIGENTE_ID = """
+SELECT o.id
+  FROM ads_campana_config_observation o
+ WHERE o.ad_entity_id = %s
+ ORDER BY o.observed_at DESC, o.id DESC
+ LIMIT 1
+"""
+_SQL_CONFIG_VIGENTE_CON_ID = """
+SELECT o.id, o.presupuesto_diario, o.presupuesto_moneda, o.estrategia_puja,
+       o.ajuste_top_pct, o.ajuste_resto_pct, o.ajuste_producto_pct,
+       o.fuera_de_amazon, e.external_id
+  FROM ads_campana_config_observation o
+  JOIN ad_entity e ON e.id = o.ad_entity_id
+ WHERE o.ad_entity_id = %s
+ ORDER BY o.observed_at DESC, o.id DESC
+ LIMIT 1
+"""
 
 
 def _huella(config: ConfigCampana) -> tuple:
@@ -246,6 +282,94 @@ def _huella(config: ConfigCampana) -> tuple:
         config.ajuste_resto_pct,
         config.ajuste_producto_pct,
         config.fuera_de_amazon,
+    )
+
+
+def cuerpo_put_campana(config: ConfigCampana) -> dict:
+    """Config COMPLETA para el PUT /sp/campaigns (V.3): solo llaves de
+    LLAVES_CUERPO_PUT, nunca `state`; lo ausente (None) no viaja. El
+    budget va como numero (encoding final del wire, como _bid_wire) y el
+    texto JSON de fuera_de_amazon se manda parseado."""
+    cuerpo: dict = {"campaignId": config.campana_externa}
+    if config.presupuesto_diario is not None:
+        cuerpo["budget"] = {
+            "budget": float(config.presupuesto_diario),
+            "budgetType": "DAILY",
+        }
+    bidding: dict = {}
+    if config.estrategia_puja is not None:
+        bidding["strategy"] = config.estrategia_puja
+    ajustes = [
+        {"placement": placement, "percentage": valor}
+        for campo, placement in _PLACEMENT_POR_CAMPO
+        if (valor := getattr(config, campo)) is not None
+    ]
+    if ajustes:
+        bidding["placementBidding"] = ajustes
+    if bidding:
+        cuerpo["dynamicBidding"] = bidding
+    if config.fuera_de_amazon is not None:
+        cuerpo["offAmazonSettings"] = json.loads(config.fuera_de_amazon)
+    return cuerpo
+
+
+def cuerpo_put_clase(clase: str, config: ConfigCampana) -> dict:
+    """PUT parcial del ajuste (B1): la config completa filtrada a la
+    llave de la clase, con campaignId. Clase desconocida = KeyError
+    (fail-closed: no hay PUT sin clase sellada). La clase
+    ajuste_ubicacion ya no usa esta funcion: manda un solo placement
+    (B11, cuerpo_put_ubicacion)."""
+    completo = cuerpo_put_campana(config)
+    return {"campaignId": completo["campaignId"]} | {
+        k: completo[k] for k in LLAVES_POR_CLASE[clase] if k in completo
+    }
+
+
+PLACEMENT_POR_CAMPO = dict(_PLACEMENT_POR_CAMPO)
+
+
+def cuerpo_put_ubicacion(
+    placement: str, porcentaje: int, config: ConfigCampana, strategy: str
+) -> dict:
+    """PUT de UN placement (B11): solo ese placement, con la estrategia
+    que Amazon tiene AHORA (leida antes del PUT), no la del ultimo
+    sync. La sonda 3 de V.0 sello que Amazon mezcla la lista: los
+    otros placements y la estrategia de consola quedan intactos."""
+    return {
+        "campaignId": config.campana_externa,
+        "dynamicBidding": {
+            "strategy": strategy,
+            "placementBidding": [{"placement": placement, "percentage": porcentaje}],
+        },
+    }
+
+
+def mezcla_observacion(previa: ConfigCampana, leida: ConfigCampana) -> ConfigCampana:
+    """Observacion del readback tras un PUT parcial (B1): lo leido
+    manda donde trae valor; donde el list no trae nada (llave que el
+    PUT no toco), se conserva el vigente previo en vez de anotar un
+    borrado que no sucedio. Con el list completo de Amazon la mezcla
+    es la leida tal cual."""
+    trae_budget = leida.presupuesto_diario is not None
+    return ConfigCampana(
+        campana_externa=leida.campana_externa,
+        presupuesto_diario=leida.presupuesto_diario if trae_budget else previa.presupuesto_diario,
+        moneda=leida.moneda if trae_budget else previa.moneda,
+        estrategia_puja=leida.estrategia_puja
+        if leida.estrategia_puja is not None
+        else previa.estrategia_puja,
+        ajuste_top_pct=leida.ajuste_top_pct
+        if leida.ajuste_top_pct is not None
+        else previa.ajuste_top_pct,
+        ajuste_resto_pct=leida.ajuste_resto_pct
+        if leida.ajuste_resto_pct is not None
+        else previa.ajuste_resto_pct,
+        ajuste_producto_pct=leida.ajuste_producto_pct
+        if leida.ajuste_producto_pct is not None
+        else previa.ajuste_producto_pct,
+        fuera_de_amazon=leida.fuera_de_amazon
+        if leida.fuera_de_amazon is not None
+        else previa.fuera_de_amazon,
     )
 
 
@@ -282,6 +406,30 @@ def guarda_config(
         filas.append((entidad, observado_el, *huella))
     conn.cursor().executemany(_SQL_INSERTA, filas)
     return len(filas)
+
+
+def config_vigente_id(conn, ad_entity_id: int) -> int | None:
+    fila = conn.execute(_SQL_CONFIG_VIGENTE_ID, (ad_entity_id,)).fetchone()
+    return fila[0] if fila else None
+
+
+def config_vigente_con_id(conn, ad_entity_id: int) -> tuple[int | None, ConfigCampana | None]:
+    """Vigente + su id en UN select (panel: leerlos por separado con HTTP
+    en medio deja que el sync cuele una observacion entre ambos y el
+    `antes_config_id` apunte a otro `antes` que la huella)."""
+    fila = conn.execute(_SQL_CONFIG_VIGENTE_CON_ID, (ad_entity_id,)).fetchone()
+    if fila is None:
+        return None, None
+    return fila[0], ConfigCampana(
+        campana_externa=fila[8],
+        presupuesto_diario=fila[1],
+        moneda=fila[2],
+        estrategia_puja=fila[3],
+        ajuste_top_pct=fila[4],
+        ajuste_resto_pct=fila[5],
+        ajuste_producto_pct=fila[6],
+        fuera_de_amazon=fila[7],
+    )
 
 
 def config_vigente(conn, ad_entity_id: int) -> ConfigCampana | None:

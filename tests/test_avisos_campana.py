@@ -7,6 +7,7 @@ caso. Los textos jamas dicen costo, margen ni target.
 
 from __future__ import annotations
 
+import datetime as dt
 from dataclasses import replace
 from decimal import Decimal
 
@@ -162,3 +163,23 @@ def test_mensaje_solo_trae_su_plataforma_y_su_clase():
     avisos = _avisos(camps=[_camp()], plataforma="amazon_us")
     assert mensaje_clase("amazon_mx", "campana_sin_presupuesto", avisos) == ""
     assert mensaje_clase("amazon_us", "presupuesto_expuesto", avisos) == ""
+
+
+def test_aviso_propio_dentro_de_la_ventana_de_7_dias():
+    """V.3: ajuste de ubicacion hace 3 dias -> aviso con los dias."""
+    from app.avisos_campana import avisos_ajuste_propio
+
+    assert (
+        avisos_ajuste_propio("ajuste_ubicacion", dt.date(2026, 10, 8), dt.date(2026, 10, 10))
+        == "Orbit movió el precio hace 3 días; espera al día 7 para juzgarlo."
+    )
+
+
+def test_aviso_propio_fuera_de_ventana_u_otra_clase_da_none():
+    from app.avisos_campana import avisos_ajuste_propio
+
+    assert (
+        avisos_ajuste_propio("ajuste_ubicacion", dt.date(2026, 10, 1), dt.date(2026, 10, 10))
+        is None
+    )
+    assert avisos_ajuste_propio("presupuesto", dt.date(2026, 10, 8), dt.date(2026, 10, 10)) is None

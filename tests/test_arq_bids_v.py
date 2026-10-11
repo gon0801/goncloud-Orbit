@@ -5,6 +5,9 @@ Ningun payload de Amazon sale de `config_de_payload`: en `app/`, solo
 
 `app/avisos_campana.py` (V.4) es puro: no importa `psycopg`, `httpx` ni
 `app.notifica` (sin DB ni red).
+
+`app/campana_ajustes.py` (V.3) es puro: no importa `psycopg`, `httpx` ni
+`app.ads.write` (sin DB ni red; la escritura vive en `app/apply.py`).
 """
 
 from __future__ import annotations
@@ -58,3 +61,22 @@ def test_detector_puro_caza_import_sembrado(tmp_path):
     fuga = tmp_path / "app" / "avisos_otro.py"
     fuga.write_text("import httpx\n", encoding="utf-8")
     assert _archivos_que_nombran(tmp_path / "app", IMPUROS) == {fuga}
+
+
+PURO_AJUSTES = APP / "campana_ajustes.py"
+IMPUROS_AJUSTES = ("psycopg", "httpx", "app.ads.write")
+
+
+def test_campana_ajustes_es_puro():
+    assert PURO_AJUSTES.exists()
+    assert _archivos_que_nombran(PURO_AJUSTES.parent, IMPUROS_AJUSTES) & {PURO_AJUSTES} == set()
+
+
+def test_detector_ajustes_caza_import_sembrado(tmp_path):
+    bueno = tmp_path / "app" / "campana_ajustes.py"
+    bueno.parent.mkdir(parents=True)
+    bueno.write_text("from app.ads.campana_config import ConfigCampana\n", encoding="utf-8")
+    assert _archivos_que_nombran(tmp_path / "app", IMPUROS_AJUSTES) == set()
+    fuga = tmp_path / "app" / "campana_ajustes_otro.py"
+    fuga.write_text("import httpx\n", encoding="utf-8")
+    assert _archivos_que_nombran(tmp_path / "app", IMPUROS_AJUSTES) == {fuga}

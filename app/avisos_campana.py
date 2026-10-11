@@ -7,6 +7,7 @@ textos jamas dicen costo, margen ni target.
 
 from __future__ import annotations
 
+import datetime as dt
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Literal
@@ -119,3 +120,15 @@ def mensaje_clase(plataforma: Plataforma, clase: ClaseAviso, avisos: tuple[Aviso
     return "\n".join(
         aviso.frase for aviso in avisos if aviso.plataforma == plataforma and aviso.clase == clase
     )
+
+
+def avisos_ajuste_propio(clase: str, confirmado_el: dt.date, hasta: dt.date) -> str | None:
+    """Aviso propio del ajuste (V.3): la R2 espera 7 dias tras mover el
+    precio. Solo clase ajuste_ubicacion dentro de la ventana (`hasta` es
+    el ultimo dia con dato; hoy = hasta + 1)."""
+    if clase != "ajuste_ubicacion":
+        return None
+    dias = (hasta - confirmado_el).days + 1
+    if dias < 1 or dias > 7:
+        return None
+    return f"Orbit movió el precio hace {dias} días; espera al día 7 para juzgarlo."

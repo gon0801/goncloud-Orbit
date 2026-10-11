@@ -359,6 +359,29 @@ def test_config_vigente_trae_ultima_y_none_sin_filas():
         assert config_vigente(conn, camp) == nueva
 
 
+def test_config_vigente_con_id_trae_id_y_config_en_un_select():
+    """Panel: id + config juntos (leerlos por separado con HTTP en medio
+    deja que el sync cuele una observacion entre ambos)."""
+    import datetime as dt
+
+    from app.ads.campana_config import config_vigente_con_id
+
+    ahora = dt.datetime(2026, 10, 10, 8, 0, tzinfo=dt.UTC)
+    despues = dt.datetime(2026, 10, 10, 9, 0, tzinfo=dt.UTC)
+    with _db_config("orbit_cfg_vigente_id") as conn:
+        camp = _campana(conn)
+        assert config_vigente_con_id(conn, camp) == (None, None)
+        guarda_config(conn, "amazon_mx", [_config()], ahora)
+        nueva = _config(presupuesto_diario=Decimal("12"), estrategia_puja="MANUAL")
+        guarda_config(conn, "amazon_mx", [nueva], despues)
+        obs_id = conn.execute(
+            "SELECT id FROM ads_campana_config_observation WHERE ad_entity_id = %s"
+            " ORDER BY observed_at DESC, id DESC LIMIT 1",
+            (camp,),
+        ).fetchone()[0]
+        assert config_vigente_con_id(conn, camp) == (obs_id, nueva)
+
+
 # B10 (R05 r3): "solo si cambio" contra la ULTIMA fila, sin cruce MX/US.
 # ---------------------------------------------------------------------------
 
@@ -422,3 +445,53 @@ def test_guarda_config_fuera_de_amazon_persiste_y_su_cambio_abre_fila():
             "SELECT fuera_de_amazon FROM ads_campana_config_observation ORDER BY observed_at"
         ).fetchall()
         assert filas == [('{"a": 1}',), ('{"a": 2}',)]
+
+
+def test_cuerpo_put_lleva_config_completa_sin_state():
+    """V.3: el PUT manda budget, dynamicBidding y offAmazonSettings (nunca
+    state); lo ausente no viaja."""
+    from app.ads.campana_config import LLAVES_CUERPO_PUT, cuerpo_put_campana
+
+    llena = ConfigCampana(
+        campana_externa="93529333080113",
+        presupuesto_diario=Decimal("120"),
+        moneda="MXN",
+        estrategia_puja="LEGACY_FOR_SALES",
+        ajuste_top_pct=0,
+        ajuste_resto_pct=0,
+        ajuste_producto_pct=40,
+        fuera_de_amazon='{"offAmazonBudgetControlStrategy": "MINIMIZE_SPEND"}',
+    )
+    assert cuerpo_put_campana(llena) == {
+        "campaignId": "93529333080113",
+        "budget": {"budget": 120.0, "budgetType": "DAILY"},
+        "dynamicBidding": {
+            "strategy": "LEGACY_FOR_SALES",
+            "placementBidding": [
+                {"placement": "PLACEMENT_TOP", "percentage": 0},
+                {"placement": "PLACEMENT_REST_OF_SEARCH", "percentage": 0},
+                {"placement": "PLACEMENT_PRODUCT_PAGE", "percentage": 40},
+            ],
+        },
+        "offAmazonSettings": {"offAmazonBudgetControlStrategy": "MINIMIZE_SPEND"},
+    }
+    assert frozenset({"budget", "dynamicBidding", "offAmazonSettings"}) == LLAVES_CUERPO_PUT
+
+
+def test_cuerpo_put_omite_lo_ausente():
+    from app.ads.campana_config import cuerpo_put_campana
+
+    minima = ConfigCampana(
+        campana_externa="93529333080113",
+        presupuesto_diario=Decimal("120"),
+        moneda="MXN",
+        estrategia_puja=None,
+        ajuste_top_pct=None,
+        ajuste_resto_pct=None,
+        ajuste_producto_pct=None,
+        fuera_de_amazon=None,
+    )
+    assert cuerpo_put_campana(minima) == {
+        "campaignId": "93529333080113",
+        "budget": {"budget": 120.0, "budgetType": "DAILY"},
+    }

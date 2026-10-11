@@ -2425,3 +2425,45 @@ codigo anterior no las lee.
 
 Las salidas de los cuatro scripts van en el PR de cierre de la seccion 3
 (rama `bids-02/s3-cierre`).
+
+## BIDS 02 D.3 — despliegue de los ajustes del dueno (sin cron)
+
+Despliega la seccion 4 (V.3, P.2b): ajustes de campana del dueno con su
+regreso, botones y avisos en la tabla por campana. Corre en cuanto claw
+lo encarga tras el merge del PR de codigo, despues de D.2 (la vista
+previa y los botones leen la config vigente que dejo la seccion 3). No
+cambia el cron: no respalda, calcula ni instala lineas. Scripts en
+`docs/evidencia/bids-02/ejecucion/D.3/`, patron D.2. Orden:
+
+```bash
+cd ~/dev/goncloud-Orbit
+bash docs/evidencia/bids-02/ejecucion/D.3/ensayo.sh
+bash docs/evidencia/bids-02/ejecucion/D.3/desplegar.sh <sha-de-origin/master>
+bash docs/evidencia/bids-02/ejecucion/D.3/checklist.sh <sello>
+```
+
+`desplegar.sh` aplica las migraciones BIDS 02 del SHA no aplicadas (0067
+de la seccion 4; las de otra seccion si siguen pendientes) y trae, ademas
+de las cinco guardas de la guia, sus propias que abortan antes de tocar
+nada: el SHA trae `migrations/0067_bids02_campana_ajuste.sql`,
+`app/campana_ajustes.py`, `app/static/js/dinero.js` y
+`MUTATION_REQUEST_TYPES` con `PUT /sp/campaigns`.
+
+`checklist.sh` (solo lectura, salidas 0/1/4 del patron S.3, sin gates
+temporales: todo se mide contra lo que ya dejo D.2) verifica `/health`
+en 200, que `campana_ajuste` existe y esta vacia, que la vista previa de
+un ajuste de clase sellada sobre una campana `ENABLED` responde 200 y
+deja el conteo en 0, que `/donde-poner-el-dinero` responde 200 en MX y
+US con al menos un boton `data-ajuste-clase` de cada clase sellada, e
+imprime si `MUTATION_REQUEST_TYPES` trae `PUT /sp/campaigns` (FALLA si
+no lo trae).
+
+CONSECUENCIA. `rollback.sh` restaura el codigo de `predeploy-<sello>` y
+aplica las reversas de `aplicadas-<sello>.txt` en orden inverso. La
+reversa de la 0067 dropea `campana_ajuste` con sus filas y revoca el
+`INSERT` sobre la observacion de V.1: un ajuste confirmado vive tambien
+en Amazon y en la observacion de configuracion que sello el readback
+(re-derivable), y el codigo anterior no lee la tabla.
+
+Las salidas de los cuatro scripts van en el PR de cierre de la seccion 4
+(rama `bids-02/s4-cierre`).
