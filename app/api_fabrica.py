@@ -556,22 +556,31 @@ SELECT id FROM impulso WHERE grupo_id = %s
 """
 
 
-def _conservar_y_impulso(conn, lote: str | None, motivo: str) -> tuple[int | None, int | None]:
-    """Resuelve lote -> (grupo, impulso). Motivo 'impulso' exige lote
-    con impulso; otros motivos aceptan lote o nada."""
+def _conservar_y_impulso(
+    conn, lote: str | None, motivo: str, listing_ids
+) -> tuple[int | None, int | None]:
+    """Resuelve lote -> (grupo, impulso). 'impulso' exige lote con impulso
+    que ya midio; 'subfamilia' exige lote propio; otros aceptan lote
+    propio o nada."""
     if lote is None:
         if motivo == "impulso":
             raise fw.error(422, "El motivo 'impulso' exige el lote del impulso.")
+        if motivo == "subfamilia":
+            raise fw.error(422, "El motivo 'subfamilia' exige el lote del grupo nuevo.")
         return None, None
     grupo = ra.grupo_de_lote(conn, lote)
     if grupo is None:
         raise fw.error(404, "El lote no existe.", lote)
-    if motivo != "impulso":
-        return grupo, None
-    imp = conn.execute(_SQL_IMPULSO_DE_GRUPO, (grupo,)).fetchone()
-    if imp is None:
-        raise fw.error(404, "El lote no tiene impulso.", lote)
-    return grupo, imp[0]
+    if motivo == "impulso":
+        imp = conn.execute(_SQL_IMPULSO_DE_GRUPO, (grupo,)).fetchone()
+        if imp is None:
+            raise fw.error(404, "El lote no tiene impulso.", lote)
+        if not ra.impulso_tuvo_impresiones(conn, imp[0]):
+            raise fw.error(422, "El impulso aun no tiene impresiones: nada que retirar.")
+        return grupo, imp[0]
+    if not ra.grupo_alcanza_listings(conn, grupo, listing_ids):
+        raise fw.error(422, "El lote no es de estos productos.")
+    return grupo, None
 
 
 @router.post("/impulso/plan")
@@ -643,7 +652,7 @@ def impulso_pausar(
 
 @router.post("/retiro/plan")
 def retiro_plan(cuerpo: CuerpoRetiroPlan, conn: ConexionLectura):
-    conservar, _imp = _conservar_y_impulso(conn, cuerpo.lote, cuerpo.motivo)
+    conservar, _imp = _conservar_y_impulso(conn, cuerpo.lote, cuerpo.motivo, cuerpo.listing_ids)
     plan = ra.planea_retiro(
         conn,
         cuerpo.plataforma,
@@ -657,7 +666,7 @@ def retiro_plan(cuerpo: CuerpoRetiroPlan, conn: ConexionLectura):
 @router.post("/retiro/ejecutar")
 def retiro_ejecutar(_token: Annotated[str, Depends(exige_token)], cuerpo: CuerpoRetiroEjecutar):
     with fw._conexion("ORBIT_DSN_ADMIN", "retiro") as conn:
-        conservar, imp = _conservar_y_impulso(conn, cuerpo.lote, cuerpo.motivo)
+        conservar, imp = _conservar_y_impulso(conn, cuerpo.lote, cuerpo.motivo, cuerpo.listing_ids)
         plan = ra.planea_retiro(
             conn,
             cuerpo.plataforma,

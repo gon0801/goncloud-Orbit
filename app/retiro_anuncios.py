@@ -70,8 +70,39 @@ SELECT pa.id, pa.external_id, ag.external_id, ag.name, camp.external_id,
    AND (%s::bigint IS NULL OR NOT EXISTS (
        SELECT 1 FROM campana_grupo_rol r
         WHERE r.grupo_id = %s AND r.ad_group_ad_entity_id = ag.id))
+   AND NOT EXISTS (
+       SELECT 1 FROM campana_grupo_rol r2
+        JOIN impulso i2 ON i2.grupo_id = r2.grupo_id
+        LEFT JOIN impulso_lectura l2 ON l2.impulso_id = i2.id AND l2.es_final
+       WHERE r2.ad_group_ad_entity_id = ag.id AND l2.impulso_id IS NULL)
  ORDER BY pa.external_id
 """
+
+
+_SQL_IMPRESIONES_DE_IMPULSO = """
+SELECT 1 FROM impulso_lectura
+ WHERE impulso_id = %s AND impresiones IS NOT NULL AND impresiones > 0
+"""
+
+
+def impulso_tuvo_impresiones(conn, impulso_id: int) -> bool:
+    """Motivo 'impulso' por ruta: solo retira si el impulso ya midio
+    (el vigia dispara con el primer dia con impresiones)."""
+    return conn.execute(_SQL_IMPRESIONES_DE_IMPULSO, (impulso_id,)).fetchone() is not None
+
+
+_SQL_LISTINGS_DE_GRUPO = """
+SELECT DISTINCT pa.listing_id FROM ad_entity pa
+  JOIN campana_grupo_rol r ON r.ad_group_ad_entity_id = pa.parent_id
+ WHERE r.grupo_id = %s AND pa.kind = 'product_ad' AND pa.listing_id IS NOT NULL
+"""
+
+
+def grupo_alcanza_listings(conn, grupo_id: int, listing_ids) -> bool:
+    """El lote a conservar es de estos productos: sin ads (nada que
+    proteger) o con algun ad de los listings."""
+    lids = {f[0] for f in conn.execute(_SQL_LISTINGS_DE_GRUPO, (grupo_id,)).fetchall()}
+    return not lids or bool(lids & set(listing_ids))
 
 
 def planea_retiro(

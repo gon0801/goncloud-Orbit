@@ -1857,3 +1857,141 @@ def test_i5_ejecutar_sin_sku_422_sin_put(escenario, monkeypatch):
     assert r.status_code == 422, r.text
     assert puts == []
     assert conn.execute("SELECT count(*) FROM anuncio_retiro").fetchone()[0] == 0
+
+
+def _plan_retiro(cliente, plataforma, lids, motivo, lote=None):
+    cuerpo = {"plataforma": plataforma, "listing_ids": lids, "motivo": motivo}
+    if lote is not None:
+        cuerpo["lote"] = lote
+    return cliente.post("/api/fabrica/retiro/plan", json=cuerpo)
+
+
+def test_i5_retiro_impulso_sin_impresiones_422(escenario):
+    """R09 B7 (a): motivo 'impulso' sin una lectura con impresiones: 422;
+    con impresiones, el plan trae la bolsa."""
+    from test_impulso_io import _impulso_vivo
+    from test_retiro_anuncios import _bolsa
+
+    _cliente, conn, _, _, ids = escenario
+    _db_i5(conn)
+    lid = _lid_de(conn, ids[0])
+    _bolsa(conn, lid, "ad-bolsa")
+    imp = _impulso_vivo(conn, pid=ids[0], lid=lid, lote="impulso-b7a")
+    r = _plan_retiro(_cliente, "amazon_mx", [lid], "impulso", lote="impulso-b7a")
+    assert r.status_code == 422, r.text
+    conn.execute(
+        "INSERT INTO impulso_lectura (impulso_id, corte, leido_el, dias_observados,"
+        " impresiones, clics, gasto, pedidos, veredicto, es_final, hecho)"
+        " VALUES (%s, CURRENT_DATE, now(), 1, 100, 1, 10, 0, 'en_curso', false, 'nada')",
+        (imp["impulso"],),
+    )
+    conn.commit()
+    r = _plan_retiro(_cliente, "amazon_mx", [lid], "impulso", lote="impulso-b7a")
+    assert r.status_code == 200, r.text
+    assert [a["ad_id_externo"] for a in r.json()["anuncios"]] == ["ad-bolsa"]
+
+
+def test_i5_retiro_sin_pedidos_conserva_impulso_vivo(escenario, monkeypatch):
+    """R09 B7 (b): 'sin_pedidos' sin lote no trae ni retira los anuncios
+    del impulso vivo."""
+    from test_fabrica_migracion import _entidad
+    from test_impulso_io import _impulso_vivo
+    from test_retiro_anuncios import _bolsa, _escritor, _fila
+
+    from app.ads import archivar
+
+    cliente, conn, _, _, ids = escenario
+    _db_i5(conn)
+    lid = _lid_de(conn, ids[0])
+    _bolsa(conn, lid, "ad-bolsa")
+    imp = _impulso_vivo(conn, pid=ids[0], lid=lid, lote="impulso-b7b")
+    ag = conn.execute(
+        "SELECT ad_group_ad_entity_id FROM campana_grupo_rol WHERE grupo_id = %s LIMIT 1",
+        (imp["grupo"],),
+    ).fetchone()[0]
+    pa = _entidad(conn, "amazon_mx", "product_ad", "ad-imp", parent=ag, listing_id=lid)
+    conn.execute(
+        "INSERT INTO ad_entity_state (ad_entity_id, status, synced_at)"
+        " VALUES (%s, 'ENABLED', now())",
+        (pa,),
+    )
+    conn.commit()
+    r = _plan_retiro(cliente, "amazon_mx", [lid], "sin_pedidos")
+    assert r.status_code == 200, r.text
+    assert [a["ad_id_externo"] for a in r.json()["anuncios"]] == ["ad-bolsa"]
+    escritor, puts = _escritor({**_fila("ad-bolsa", "ENABLED"), **_fila("ad-imp", "ENABLED")})
+    monkeypatch.setattr(archivar, "preparar_escritor", lambda platform: escritor)
+    p = r.json()
+    r2 = cliente.post(
+        "/api/fabrica/retiro/ejecutar",
+        headers=HEADERS,
+        json={
+            "plataforma": "amazon_mx",
+            "listing_ids": [lid],
+            "motivo": "sin_pedidos",
+            "huella": p["huella"],
+            "confirmacion": "SACAR 1 ANUNCIOS",
+            "actor": "dueno",
+        },
+    )
+    assert r2.status_code == 200, r2.text
+    assert puts == [("ad-bolsa", "PAUSED")]
+
+
+def test_i5_retiro_subfamilia_exige_lote_propio(escenario):
+    """R09 B7 (c/d): 'subfamilia' sin lote 422; con lote ajeno (grupo con
+    ads de otro listing) 422; con lote propio protege al grupo nuevo."""
+    from test_fabrica_migracion import _entidad, _producto
+    from test_impulso_io import _impulso_vivo
+    from test_retiro_anuncios import _bolsa
+
+    cliente, conn, _, _, ids = escenario
+    _db_i5(conn)
+    lid = _lid_de(conn, ids[0])
+    _bolsa(conn, lid, "ad-bolsa")
+    r = _plan_retiro(cliente, "amazon_mx", [lid], "subfamilia")
+    assert r.status_code == 422, r.text
+    pid2, lid2 = _producto(conn, sku="SS-X", asin="B0XXXXXXXX", seller_sku="SS-X")
+    ajeno = _impulso_vivo(conn, pid=pid2, lid=lid2, lote="lote-ajeno")
+    ag2 = conn.execute(
+        "SELECT ad_group_ad_entity_id FROM campana_grupo_rol WHERE grupo_id = %s LIMIT 1",
+        (ajeno["grupo"],),
+    ).fetchone()[0]
+    pa2 = _entidad(conn, "amazon_mx", "product_ad", "ad-ajeno", parent=ag2, listing_id=lid2)
+    conn.execute(
+        "INSERT INTO ad_entity_state (ad_entity_id, status, synced_at)"
+        " VALUES (%s, 'ENABLED', now())",
+        (pa2,),
+    )
+    conn.commit()
+    r = _plan_retiro(cliente, "amazon_mx", [lid], "subfamilia", lote="lote-ajeno")
+    assert r.status_code == 422, r.text
+    # Lote propio (grupo fabrica5 con un ad del listing): 200 y protege.
+    conn.execute(
+        "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal,"
+        " huella, plan, modo_goal, estado) VALUES ('grupo-5', 'amazon_mx', 'aros', 'B5',"
+        " 'go', 'h', '{}'::jsonb, 'shadow', 'applied')"
+    )
+    gid = conn.execute(
+        "INSERT INTO campana_grupo (platform, tipo_producto, nombre_base, lote,"
+        " target_acos_pct, target_derivado_pct, fraccion, target_procedencia, go_literal,"
+        " tipo) VALUES ('amazon_mx', 'aros', 'B5', 'grupo-5', 19.10, 19.1040, 0.5, 'm',"
+        " 'go', 'fabrica5') RETURNING id"
+    ).fetchone()[0]
+    camp = _entidad(conn, "amazon_mx", "campaign", "c-5")
+    ag5 = _entidad(conn, "amazon_mx", "ad_group", "ag-5", parent=camp)
+    conn.execute(
+        "INSERT INTO campana_grupo_rol (grupo_id, rol, ad_entity_id, ad_group_ad_entity_id)"
+        " VALUES (%s, 'category_exact', %s, %s)",
+        (gid, camp, ag5),
+    )
+    pa5 = _entidad(conn, "amazon_mx", "product_ad", "ad-5", parent=ag5, listing_id=lid)
+    conn.execute(
+        "INSERT INTO ad_entity_state (ad_entity_id, status, synced_at)"
+        " VALUES (%s, 'ENABLED', now())",
+        (pa5,),
+    )
+    conn.commit()
+    r = _plan_retiro(cliente, "amazon_mx", [lid], "subfamilia", lote="grupo-5")
+    assert r.status_code == 200, r.text
+    assert [a["ad_id_externo"] for a in r.json()["anuncios"]] == ["ad-bolsa"]
