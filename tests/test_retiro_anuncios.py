@@ -604,3 +604,24 @@ def test_repone_create_invisible_reintenta_un_solo_create():
         assert archivar.estados_actuales(escritor2, ["ad-nuevo-1", "ad-nuevo-2"]) == {
             "ad-nuevo-1": "ENABLED"
         }
+
+
+@_skip_db
+def test_repone_reversa_legacy_reactiva():
+    """R09 B9 (i7): reversa '{}' sembrada a mano (sin state): previo
+    desconocido, se reactiva sin reventar."""
+    with _db_i4("orbit_i4_r9e") as conn:
+        _pid, lid = _producto(conn)
+        _, _, pa = _bolsa(conn, lid, "ad-1")
+        rid = conn.execute(
+            "INSERT INTO anuncio_retiro (platform, motivo, modo, lote_retiro, ad_entity_id,"
+            " ad_id_externo, ad_group_externo, campana_externa, sku, asin, reversa,"
+            " retirado_el, actor) VALUES ('amazon_mx', 'sin_pedidos', 'pausa', 'lot', %s,"
+            " 'ad-1', 'ag-vieja', 'c-vieja', 'sku', 'asin', '{}', now(), 'dueno')"
+            " RETURNING id",
+            (pa,),
+        ).fetchone()[0]
+        conn.commit()
+        escritor, puts = _escritor(_fila("ad-1", "PAUSED"))
+        assert ra.repone(conn, retiro_ids=(rid,), go="go dueno", escritor=escritor) == 1
+        assert puts == [("ad-1", "ENABLED")]

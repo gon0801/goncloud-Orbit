@@ -362,8 +362,12 @@ def repone(
 
 def _repone_uno(escritor, ad_id, reversa, estado):
     """Devuelve el anuncio a su estado previo (mismo adId o recreado).
-    Levanta si no se confirma."""
-    previo = archivar.parsear_reversa(reversa).get("state")
+    Levanta si no se confirma. Reversa legacy (sin `state`): previo
+    desconocido, se sigue el camino historico (PAUSED reactiva)."""
+    try:
+        previo = archivar.parsear_reversa(reversa).get("state")
+    except archivar.ListaInvalida:
+        previo = None
     if estado == "PAUSED" and previo == archivar.ESTADO_PAUSADO:
         return ad_id, "PAUSED"
     if estado == "PAUSED":
