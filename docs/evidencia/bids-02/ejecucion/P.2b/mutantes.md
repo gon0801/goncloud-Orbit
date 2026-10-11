@@ -37,3 +37,6 @@ restaurando despues.
   test_ui_dinero_js_plan_sin_post_y_aplicar_exige_literal en rojo.
 - Regreso a otra ruta (`/revertir` en vez de `/regresar`) ->
   test_ui_dinero_js_plan_sin_post_y_aplicar_exige_literal en rojo.
+- Aplicar sin `disabled = true` ->
+  test_ui_dinero_js_plan_sin_post_y_aplicar_exige_literal en rojo (panel:
+  el doble-clic manda dos POST).

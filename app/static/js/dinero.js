@@ -1,9 +1,7 @@
 "use strict";
 // JS de donde-poner-el-dinero (BIDS 02, P.2b). Vive en /static por la CSP
 // `default-src 'self'`: los <script> inline y los handlers on*= quedan
-// BLOQUEADOS por esa politica. Cada boton de clase abre su formulario; el
-// plan (GET campana-ajuste/plan, sin token) muestra la frase y habilita el
-// aplicar. Sin el literal `APLICAR AJUSTE` exacto no sale el POST
+// BLOQUEADOS por esa politica. Sin el literal `APLICAR AJUSTE` exacto no sale el POST
 // campana-ajuste/aplicar. El boton Regresar manda POST
 // campana-ajuste/{ajuste_id}/regresar con actor y token en x-orbit-token
 // (la query string JAMAS autentica). El plan jamas se calcula en JS: todo
@@ -58,6 +56,8 @@ function aplicar(form) {
     estado.textContent = "Escribe APLICAR AJUSTE para confirmar.";
     return;
   }
+  var aplicarBtn = form.querySelector('button[type="submit"]');
+  aplicarBtn.disabled = true;
   estado.textContent = "Enviando…";
   var cuerpo = {
     campana_id: Number(form.dataset.campanaId),
@@ -93,14 +93,18 @@ function aplicar(form) {
       }
       var detalle = r.data.detail;
       estado.textContent = "Error: " + ((detalle && detalle.message) || detalle || r.data) + ".";
+      aplicarBtn.disabled = false;
     })
     .catch(function () {
       estado.textContent = "Error de red al aplicar.";
+      aplicarBtn.disabled = false;
     });
 }
 
 function regresar(form) {
   var estado = form.querySelector("[data-estado]");
+  var boton = form.querySelector('button[type="submit"]');
+  boton.disabled = true;
   estado.textContent = "Enviando…";
   fetch("/api/ads-optimizer/campana-ajuste/" + form.dataset.ajusteId + "/regresar", {
     method: "POST",
@@ -120,10 +124,12 @@ function regresar(form) {
         estado.textContent = "Ajuste regresado.";
       } else {
         estado.textContent = "Error: " + (r.data.detail || r.data) + ".";
+        boton.disabled = false;
       }
     })
     .catch(function () {
       estado.textContent = "Error de red al regresar.";
+      boton.disabled = false;
     });
 }
 

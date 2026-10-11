@@ -2133,6 +2133,7 @@ vm.runInThisContext(fs.readFileSync(process.argv[1], "utf8"));
   assert.deepEqual(JSON.parse(calls[2].options.body),
     {campana_id: 7, clase: "presupuesto", presupuesto: 120,
      huella: "h1", confirmacion: "APLICAR AJUSTE", actor: "dueno"});
+  assert.equal(formPre.nodos['button[type="submit"]'].disabled, true);
   botonReg.events.click();
   assert.equal(formReg.hidden, false);
   formReg.events.submit({preventDefault() {}});
@@ -2141,6 +2142,7 @@ vm.runInThisContext(fs.readFileSync(process.argv[1], "utf8"));
   assert.equal(calls[3].url, "/api/ads-optimizer/campana-ajuste/9/regresar");
   assert.equal(calls[3].options.headers["x-orbit-token"], "t");
   assert.deepEqual(JSON.parse(calls[3].options.body), {actor: "dueno"});
+  assert.equal(formReg.nodos['button[type="submit"]'].disabled, true);
 })().catch(error => { console.error(error); process.exitCode = 1; });
 """
     resultado = subprocess.run(
