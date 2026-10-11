@@ -2565,3 +2565,30 @@ def test_ui_productos_nombre_con_script_escapado():
     assert PAYLOAD_XSS not in html
     assert "&lt;script&gt;" in html
     assert ">—<" in html, "clics None pinta el guion"
+
+
+def test_ui_productos_casillas_mandan_ids_reales():
+    """R09 B12 (T1/T6): la casilla manda los listings (no el product_id) y
+    regresar manda los retiros (no el impulso_id)."""
+    base = _pantalla_p4()
+    base["candidatos"] = [
+        {
+            "product_id": 1,
+            "sku": "SC-1",
+            "nombre": "Collar",
+            "unidades_90d": 2,
+            "clics_ads_60d": 19,
+            "listing_ids": [11, 12],
+        }
+    ]
+    base["impulsos"][0]["retiro_ids"] = [5, 6]
+    base["sin_pedido"] = [{"product_id": 2, "sku": "SO-1", "nombre": "Viejo", "listing_ids": [13]}]
+    html = ui.templates.env.get_template("productos_sin_clics.html").render(
+        pantalla="productos-sin-clics",
+        asset_version="x",
+        **base,
+    )
+    assert 'data-listings="11,12"' in html
+    assert 'data-listings="1"' not in html
+    assert 'data-retiros="5,6"' in html
+    assert 'data-retiros="7"' not in html

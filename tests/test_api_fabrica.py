@@ -2028,3 +2028,142 @@ def test_i5_ejecutar_devuelve_retiro_ids(escenario, monkeypatch):
     assert r.status_code == 200, r.text
     rid = conn.execute("SELECT id FROM anuncio_retiro").fetchone()[0]
     assert r.json()["retiro_ids"] == [rid]
+
+
+def test_i5_ejecutar_huella_vieja_409(escenario, monkeypatch):
+    """R09 B12 (R7): ejecutar el retiro con una huella vieja da 409."""
+    from test_retiro_anuncios import _bolsa
+
+    cliente, conn, _, _, ids = escenario
+    _db_i5(conn)
+    lid = _lid_de(conn, ids[0])
+    _bolsa(conn, lid, "ad-a")
+    plan = cliente.post(
+        "/api/fabrica/retiro/plan",
+        json={"plataforma": "amazon_mx", "listing_ids": [lid], "motivo": "sin_pedidos"},
+    ).json()
+    assert plan["huella"] != "0" * 64
+    r = cliente.post(
+        "/api/fabrica/retiro/ejecutar",
+        headers=HEADERS,
+        json={
+            "plataforma": "amazon_mx",
+            "listing_ids": [lid],
+            "motivo": "sin_pedidos",
+            "huella": "0" * 64,
+            "confirmacion": "SACAR 1 ANUNCIOS",
+            "actor": "dueno",
+        },
+    )
+    assert r.status_code == 409, r.text
+    assert conn.execute("SELECT count(*) FROM anuncio_retiro").fetchone()[0] == 0
+
+
+def test_i5_lanzar_con_ejecutor_real_200(escenario, monkeypatch):
+    """R09 B12 (R5): lanzar con el ejecutor REAL crea las 2 campanas en
+    Amazon (falso) y el impulso; con esperado=5 abortaria todo."""
+    from types import SimpleNamespace
+
+    import httpx
+    import psycopg
+    from test_fabrica_campanas import _CREDS, _Amazon, _ClienteLectura, _perfil
+
+    import tools.fabrica_campanas as fc
+    from app.ads.config import AdsCredentials
+
+    class _AmazonPausado(_Amazon):
+        def __call__(self, request):
+            if request.method == "PUT" and str(request.url).endswith("/sp/campaigns"):
+                cuerpo = json.loads(request.content)
+                for c in cuerpo["campaigns"]:
+                    self.objetos[str(c["campaignId"])]["state"] = str(c["state"])
+                return httpx.Response(207, json={"campaigns": {"success": [], "error": []}})
+            return super().__call__(request)
+
+        def _list(self, path, body):
+            import app.fabrica_plan as fp
+
+            filtro = fp.FILTRO_ID_POR_LIST[path]
+            ext = body[filtro]["include"][0]
+            contenedor = fp.CONTENEDOR_POR_LIST[path]
+            clave = fp.CLAVE_ID_POR_PATH[path.removesuffix("/list")]
+            estado = self.objetos.get(ext, {}).get("state", "ENABLED")
+            return httpx.Response(
+                200, json={contenedor: [{**self.objetos.get(ext, {}), clave: ext, "state": estado}]}
+            )
+
+    cliente, conn, _, _, ids = escenario
+    _db_i5(conn)
+    _sugeridor_fijo_i5(monkeypatch)
+    amazon = _AmazonPausado()
+    transporte = httpx.MockTransport(amazon)
+    monkeypatch.setattr(
+        AdsCredentials, "from_secrets_dir", classmethod(lambda cls, *a, **k: _CREDS)
+    )
+    monkeypatch.setattr(fc, "AdsClient", lambda cred: _ClienteLectura(transporte))
+    monkeypatch.setattr(fc, "evaluar_perfiles", lambda c: [_perfil()])
+    monkeypatch.setattr(
+        fc,
+        "httpx",
+        SimpleNamespace(
+            Client=lambda **kw: httpx.Client(transport=transporte),
+            Timeout=lambda **kw: None,
+        ),
+    )
+    monkeypatch.setattr(fc.time, "sleep", lambda s: None)
+    dsn = conn.info.dsn
+    dbname = conn.info.dbname
+    monkeypatch.setattr(fc, "connect", lambda d: psycopg.connect(dsn, dbname=dbname))
+
+    def _sync(cliente_lectura):
+        propia = psycopg.connect(dsn, dbname=dbname, autocommit=True)
+        try:
+            camps = {}
+            for ext in amazon.objetos:
+                base, num = ext.rsplit("-", 1)
+                if base == "campaigns":
+                    camps[num] = propia.execute(
+                        "INSERT INTO ad_entity (platform, kind, external_id) VALUES"
+                        " ('amazon_mx', 'campaign', %s) ON CONFLICT DO NOTHING RETURNING id",
+                        (ext,),
+                    ).fetchone()[0]
+            for ext in amazon.objetos:
+                base, num = ext.rsplit("-", 1)
+                if base == "adGroups":
+                    propia.execute(
+                        "INSERT INTO ad_entity (platform, kind, external_id, parent_id)"
+                        " VALUES ('amazon_mx', 'ad_group', %s, %s) ON CONFLICT DO NOTHING",
+                        (ext, camps[num]),
+                    )
+        finally:
+            propia.close()
+
+    monkeypatch.setattr(fc, "_sync", _sync)
+    lid = _lid_de(conn, ids[0])
+    sol = {
+        "plataforma": "amazon_mx",
+        "listing_ids": [lid],
+        "subfamilia_por_listing": {str(lid): "aros"},
+    }
+    vista = cliente.post("/api/fabrica/impulso/plan", json=sol).json()
+    r = cliente.post(
+        "/api/fabrica/impulso/lanzar",
+        headers=HEADERS,
+        json={
+            "solicitud": sol,
+            "huella": vista["huella"],
+            "confirmacion": vista["confirmacion_esperada"],
+            "actor": "dueno",
+        },
+    )
+    assert r.status_code == 200, r.text
+    assert len(r.json()["lanzados"]) == 1
+    assert conn.execute("SELECT count(*) FROM impulso").fetchone()[0] == 1
+    assert amazon.creados.get("/sp/campaigns") == 2
+    assert (
+        conn.execute(
+            "SELECT estado FROM fabrica_lote WHERE lote = %s",
+            (r.json()["lanzados"][0]["lote"],),
+        ).fetchone()[0]
+        == "applied"
+    )

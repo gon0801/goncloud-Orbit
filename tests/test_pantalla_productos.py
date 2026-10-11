@@ -379,3 +379,72 @@ def test_p4_dia_no_pasa_del_plazo():
         conn.commit()
         visto = pp.lee_productos(conn, "amazon_mx", HOY).impulsos[0]
         assert visto.dia <= visto.plazo_dias, visto.frase
+
+
+def _ventas_us(conn, pid, unidades, *, hace_dias=10):
+    run = conn.execute("INSERT INTO ingest_run (source) VALUES ('t') RETURNING id").fetchone()[0]
+    conn.execute(
+        "INSERT INTO ledger_event (platform, kind, event_date, product_id, quantity, amount,"
+        " amount_currency, ingest_run_id) VALUES ('amazon_us', 'sale', %s, %s, %s, %s, 'USD',"
+        " %s)",
+        (HOY - dt.timedelta(days=hace_dias), pid, unidades, 10 + pid, run),
+    )
+
+
+@_skip_db
+def test_r09r3_s03_pedidos_no_mezclan_mx_us():
+    """R09 B12 (S3): los pedidos del candidato de MX no suman los de US."""
+    with _db_p4("orbit_p4_r3s03") as conn:
+        pid, lid = _producto(conn, sku="S-S03", asin="B0S0300001", seller_sku="SC-S03")
+        _activa(conn, lid, "ad-s03")
+        _ventas(conn, pid, 2)
+        _ventas_us(conn, pid, 5)
+        _clics_ads(conn, "B0S0300001", "SC-S03", 3)
+        pantalla = pp.lee_productos(conn, "amazon_mx", HOY)
+        assert [c.product_id for c in pantalla.candidatos] == [pid]
+        assert pantalla.candidatos[0].unidades_90d == 2
+
+
+@_skip_db
+def test_r09r3_s09_candidato_solo_sus_publicaciones():
+    """R09 B12 (S9): el candidato de MX no trae sus listings de US."""
+    with _db_p4("orbit_p4_r3s09") as conn:
+        pid, lid = _producto(conn, sku="S-S09", asin="B0S0900001", seller_sku="SC-S09")
+        lid_us = conn.execute(
+            "INSERT INTO listing (product_id, platform, external_id, seller_sku)"
+            " VALUES (%s, 'amazon_us', 'B0S0900002', 'SC-S09-US') RETURNING id",
+            (pid,),
+        ).fetchone()[0]
+        _activa(conn, lid, "ad-s09")
+        _ventas(conn, pid, 2)
+        _clics_ads(conn, "B0S0900001", "SC-S09", 3)
+        pantalla = pp.lee_productos(conn, "amazon_mx", HOY)
+        assert [c.product_id for c in pantalla.candidatos] == [pid]
+        assert pantalla.candidatos[0].listing_ids == (lid,)
+        assert lid_us not in pantalla.candidatos[0].listing_ids
+
+
+@_skip_db
+def test_r09r3_s11_impulsos_no_mezclan_mx_us():
+    """R09 B12 (S11): la pantalla de MX no trae los impulsos de US."""
+    with _db_p4("orbit_p4_r3s11") as conn:
+        pid, lid = _con_margen(conn)
+        mx = _impulso_vivo(conn, pid=pid, lid=lid, lote="impulso-s11-mx")
+        pid_us, lid_us = _producto(
+            conn,
+            sku="SS-S11-US",
+            asin="B0S11US001",
+            platform="amazon_us",
+            seller_sku="SS-S11-US",
+        )
+        us = _impulso_vivo(
+            conn,
+            pid=pid_us,
+            lid=lid_us,
+            lote="impulso-s11-us",
+            platform="amazon_us",
+            moneda="USD",
+        )
+        pantalla = pp.lee_productos(conn, "amazon_mx", HOY)
+        assert {i.impulso_id for i in pantalla.impulsos} == {mx["impulso"]}
+        assert us["impulso"] not in {i.impulso_id for i in pantalla.impulsos}

@@ -158,6 +158,7 @@ const api = vm.runInThisContext("this.__api");
   assert.equal(calls.length, 2);
   assert.equal(calls[1].body.huella, "a".repeat(64));
   assert.equal(calls[1].body.actor, "dueno");
+  assert.deepEqual(calls[1].body.solicitud, calls[0].body);
   assert.equal(calls[1].token, "tok");
   assert.match(estado.textContent, /cambió/);
   assert.equal(form.elements.token.value, "tok");
@@ -199,9 +200,101 @@ const api = vm.runInThisContext("this.__api");
   assert.equal(calls[5].url, "/api/fabrica/retiro/ejecutar");
   assert.equal(calls[5].body.huella, "c".repeat(64));
   assert.equal(calls[5].body.actor, "dueno");
+  assert.deepEqual(calls[5].body.listing_ids, [21]);
+  assert.equal(calls[5].body.plataforma, "amazon_mx");
   assert.equal(calls[5].token, "tok");
   assert.match(estadoR2.textContent, /Retirados 1/);
   assert.equal(formR2.elements.token.value, "");
+})().catch(error => { console.error(error); process.exitCode = 1; });
+"""
+    proc = subprocess.run(
+        [node, "-e", guion, str(archivo)], capture_output=True, text=True, timeout=60
+    )
+    assert proc.returncode == 0, proc.stderr or proc.stdout
+
+
+def test_r09r3_js_pantalla_us_pide_plan_en_us():
+    """R09 B12 (J1): en la pantalla de US, el plan se pide en amazon_us."""
+    import os
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    raiz = Path(__file__).resolve().parents[1]
+    archivo = raiz / "app" / "static" / "js" / "productos.js"
+    assert archivo.exists(), "Falta el cliente de productos"
+    node = shutil.which("node")
+    if not node:
+        if "CI" in os.environ:
+            pytest.fail("Node es obligatorio en CI para verificar el flujo JavaScript")
+        pytest.skip("Node no disponible; el navegador se verifica en integracion")
+    guion = r"""
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const vm = require("node:vm");
+class Element {
+  constructor(attrs = {}) {
+    Object.assign(this, attrs);
+    this.children = []; this.events = {}; this.value = attrs.value || "";
+    this.checked = !!attrs.checked; this.hidden = !!attrs.hidden;
+    this.textContent = ""; this.dataset = attrs.dataset || {};
+    this.elements = attrs.elements || {};
+  }
+  append(...items) { this.children.push(...items); }
+  appendChild(item) { this.append(item); return item; }
+  replaceChildren(...items) { this.children = items; }
+  addEventListener(event, fn) { this.events[event] = fn; }
+  querySelector(sel) { return this.querySelectorAll(sel)[0] || null; }
+  querySelectorAll(sel) {
+    const all = this.children.flatMap(c => [c, ...c.querySelectorAll("*")]);
+    if (sel === "*") return all;
+    const m = sel.match(/^\[data-([a-z-]+)(="([^"]+)")?\]$/);
+    if (m) return all.filter(c => m[3] === undefined
+      ? (c.dataset[m[1].replace(/-([a-z])/g, (_, x) => x.toUpperCase())] !== undefined)
+      : String(c.dataset[m[1].replace(/-([a-z])/g, (_, x) => x.toUpperCase())]) === m[3]);
+    return [];
+  }
+}
+const root = new Element();
+const casilla = new Element({dataset: {marcarCandidato: "", producto: "1", listings: "11"}});
+casilla.checked = true;
+const sub = new Element({value: "aros"});
+sub.dataset = {subfamilia: "1"};
+const zona = new Element(); zona.id = "productos-vista";
+const bloque = new Element(); bloque.id = "productos-lanzamiento"; bloque.hidden = true;
+const esperada = new Element(); esperada.id = "productos-esperada";
+const estado = new Element();
+const form = new Element({dataset: {plataforma: "amazon_us"}, hidden: true});
+form.id = "productos-lanzar";
+form.elements = {confirmacion: new Element(), actor: new Element({value: "dueno"}),
+  token: new Element({value: "tok"})};
+form.children = [estado];
+root.children = [casilla, sub, zona, bloque, esperada, form];
+const ids = {"productos-vista": zona, "productos-lanzamiento": bloque,
+  "productos-esperada": esperada, "productos-lanzar": form};
+global.document = {
+  getElementById: id => ids[id] || null,
+  createElement: () => new Element(),
+  querySelector: sel => root.querySelector(sel),
+  querySelectorAll: sel => root.querySelectorAll(sel),
+  addEventListener: () => {},
+};
+const calls = [];
+global.fetch = (url, opts) => {
+  calls.push({url, body: JSON.parse(opts.body)});
+  return Promise.resolve({ok: true, json: () => Promise.resolve(
+    {huella: "a".repeat(64), confirmacion_esperada: "LANZAR IMPULSO DE 1 PRODUCTO",
+     planes: [], no_lanzables: []})});
+};
+const codigo = fs.readFileSync(process.argv[1], "utf8");
+vm.runInThisContext(codigo + "\n" + "this.__api = {verLanzamiento};");
+const api = vm.runInThisContext("this.__api");
+(async () => {
+  api.verLanzamiento("[data-marcar-candidato]");
+  await new Promise(r => setTimeout(r, 10));
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].body.plataforma, "amazon_us");
+  assert.deepEqual(calls[0].body.listing_ids, [11]);
 })().catch(error => { console.error(error); process.exitCode = 1; });
 """
     proc = subprocess.run(
