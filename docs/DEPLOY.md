@@ -2480,3 +2480,61 @@ en Amazon y en la observacion de configuracion que sello el readback
 
 Las salidas de los cuatro scripts van en el PR de cierre de la seccion 4
 (rama `bids-02/s4-cierre`).
+
+## BIDS 02 D.4 — despliegue del impulso, los productos y el retiro (con cron)
+
+Despliega la seccion 5 (I.1 a I.5, P.4, E.1): grupos de dos en
+`shadow`, impulso con tope y plazo, vigia diario, retiro de bolsas con
+su reposicion, pantalla de productos sin clics y botones de retiro.
+Corre en cuanto claw lo encarga tras el merge del PR de codigo,
+despues de D.3. Instala UNA linea de cron: la suelta de
+`impulso-vigia` (08:20 UTC, tras las ingestas de 07:10/07:20/07:25 y
+antes del ciclo de 08:40). Scripts en
+`docs/evidencia/bids-02/ejecucion/D.4/`, patron D.2 (cron) + D.3
+(pasos). Orden:
+
+```bash
+cd ~/dev/goncloud-Orbit
+bash docs/evidencia/bids-02/ejecucion/D.4/ensayo.sh
+bash docs/evidencia/bids-02/ejecucion/D.4/desplegar.sh <sha-de-origin/master>
+bash docs/evidencia/bids-02/ejecucion/D.4/checklist.sh <sello>
+```
+
+`desplegar.sh` aplica las migraciones BIDS 02 del SHA no aplicadas
+(0064, 0065 y 0066 de la seccion 5; las de otra seccion si siguen
+pendientes) y trae, ademas de las cinco guardas de la guia, sus
+propias que abortan antes de tocar nada: el SHA trae
+`migrations/0064_bids02_grupo_tipo.sql`,
+`migrations/0065_bids02_impulso.sql`,
+`migrations/0066_bids02_retiro_anuncios.sql`, `app/impulso_io.py`,
+`app/retiro_anuncios.py`, `app/static/js/productos.js`,
+`app/cli_bids.py` con `impulso-vigia` registrado,
+`MUTATION_REQUEST_TYPES` con `PUT /sp/productAds` y la linea de
+`impulso-vigia` en este `docs/DEPLOY.md`. Antes de instalar el cron
+corre el vigia una vez con la imagen nueva (paso 7v): si no sale 0 o
+`impulso_lectura` trae alguna fila despues, aborta sin instalar la
+linea.
+
+`checklist.sh` (solo lectura, salidas 0/1/4 del patron S.3, sin gates
+temporales) verifica `/health` en 200, que `impulso`,
+`impulso_lectura`, `anuncio_retiro` y `anuncio_reposicion` existen y
+estan vacias, que `/productos-sin-clics` responde 200 en MX y US, que
+el crontab de `gon` trae UNA linea `impulso-vigia`, que la vista
+previa del impulso con un candidato de
+`GET /api/dashboard/productos-sin-clics` responde 200 y deja iguales
+los conteos de `fabrica_lote` e `impulso`, e imprime si
+`MUTATION_REQUEST_TYPES` trae `PUT /sp/productAds` (FALLA si no lo
+trae).
+
+CONSECUENCIA. `rollback.sh` quita SOLO la linea de `impulso-vigia` del
+crontab actual de `gon` (comparacion por texto exacto; el respaldo de
+`$SRV/backups/crontab-gon-pre-d4-<sello>.txt` queda como evidencia),
+restaura el codigo de `predeploy-<sello>` y aplica las reversas de
+`aplicadas-<sello>.txt` en orden inverso. Las reversas de la 0065 y la
+0066 ABORTAN si `impulso` o `anuncio_retiro` ya tienen una fila: un
+impulso lanzado vive tambien en Amazon (campanas creadas) y sin fila
+se pierde su tope, su vigia y su regreso; despues del primer
+lanzamiento, un problema se corrige hacia adelante.
+
+Las salidas de los cuatro scripts van en el PR de cierre de la seccion 5
+(rama `bids-02/s5-cierre`).
