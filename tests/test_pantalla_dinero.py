@@ -132,7 +132,7 @@ def test_cinco_tipos_dan_cinco_renglones_y_total_parte_100():
 def test_pasa_plataforma_y_ventana_al_select():
     _, conn = _lee([], plataforma="amazon_us", dias=30, hasta=dt.date(2026, 10, 4))
     sql, params = conn.consultas[0]
-    assert "v_hoja_activa" in sql and "v_metric_latest" in sql
+    assert "v_hoja_activa" in sql and "ads_metric_observation" in sql
     assert params == ("amazon_us", dt.date(2026, 9, 4), dt.date(2026, 10, 4))
 
 

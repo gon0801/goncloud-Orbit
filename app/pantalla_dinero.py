@@ -47,17 +47,27 @@ _AJUSTE_A_UBICACION = (
 )
 
 _SQL_GRUPOS = """
+WITH h AS (
+    SELECT hoja_id, tipo_campana FROM v_hoja_activa WHERE platform = %s)
 SELECT h.tipo_campana AS tipo,
        CASE WHEN bool_and(v.cost IS NOT NULL) THEN sum(v.cost) END AS gasto,
        CASE WHEN bool_and(v.orders IS NOT NULL) THEN sum(v.orders)::bigint END AS pedidos,
        CASE WHEN bool_and(v.ad_revenue IS NOT NULL) THEN sum(v.ad_revenue) END AS venta,
        count(DISTINCT h.hoja_id) AS hojas
-  FROM v_hoja_activa h
-  JOIN v_metric_latest v ON v.ad_entity_id = h.hoja_id
- WHERE h.platform = %s
-   AND v.metric_date BETWEEN %s AND %s
+  FROM h
+  JOIN LATERAL (
+        SELECT DISTINCT ON (o.metric_date) o.cost, o.orders, o.ad_revenue
+          FROM ads_metric_observation o
+         WHERE o.ad_entity_id = h.hoja_id
+           AND o.metric_date BETWEEN %s AND %s
+         ORDER BY o.metric_date, o.observed_at DESC) v ON true
  GROUP BY h.tipo_campana
 """
+# El LATERAL equivale a v_metric_latest por hoja (DISTINCT ON fecha con la
+# observacion mas reciente) pero recorre la tabla por indice, una vez por
+# hoja, en vez de una vez entera por hoja: medido 2026-10-11 sobre la copia
+# (173,850 filas), MX pasa de 19.87 s a 0.04 s con numeros identicos
+# (ronda 3, B3; evidencia en docs/evidencia/bids-02/ejecucion/P.1/).
 
 _SQL_UBICACIONES = """
 SELECT u.placement, sum(u.cost), sum(u.clicks)::bigint, sum(u.orders)::bigint, sum(u.ad_revenue)
