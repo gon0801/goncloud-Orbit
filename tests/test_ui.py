@@ -2454,3 +2454,113 @@ const tick = async () => {
 })().catch(error => { console.error(error); process.exitCode = 1; });
 """,
     )
+
+
+# ---------------------------------------------------------------------------
+# P.4 (BIDS 02 s5): /productos-sin-clics.
+# ---------------------------------------------------------------------------
+
+
+def _pantalla_p4(**cambios):
+    base = {
+        "plataforma": "amazon_mx",
+        "candidatos": [
+            {
+                "product_id": 1,
+                "sku": "SC-1",
+                "nombre": "Collar",
+                "unidades_90d": 2,
+                "clics_ads_60d": 19,
+                "listing_ids": [11],
+            }
+        ],
+        "impulsos": [
+            {
+                "impulso_id": 7,
+                "product_id": 1,
+                "sku": "SC-1",
+                "nombre": "Collar",
+                "subfamilia": "aros",
+                "lote": "impulso-x",
+                "estado_lote": "applied",
+                "moneda": "MXN",
+                "tope_monto": "350",
+                "dia": 6,
+                "plazo_dias": 14,
+                "impresiones": 1840,
+                "clics": 14,
+                "gasto": "48",
+                "pedidos": 0,
+                "veredicto": "en_curso",
+                "frase": "Día 6 de 14 · sigue aprendiendo",
+                "clics_fuera_de_amazon": 3,
+                "retiro_ids": [5],
+                "frase_fuera_de_amazon": "3 de sus 14 clics vinieron de fuera de Amazon.",
+            }
+        ],
+        "sin_pedido": [{"product_id": 2, "sku": "SO-1", "nombre": "Viejo", "listing_ids": [12]}],
+        "anuncios_sin_producto": 4,
+    }
+    base.update(cambios)
+    return base
+
+
+def _html_productos(monkeypatch, datos, **params):
+    """Render del camino REAL con el endpoint fakeado: se prueba la
+    vista, no el SQL (modelo _html_danadas)."""
+
+    def _productos(conn, plataforma=None):
+        return {**datos, "plataforma": plataforma or "amazon_mx"}
+
+    monkeypatch.setattr(ui.dash, "productos_sin_clics", _productos)
+    app.dependency_overrides[_conexion_lectura] = lambda: None
+    try:
+        return TestClient(app).get("/productos-sin-clics", params=params)
+    finally:
+        app.dependency_overrides.pop(_conexion_lectura, None)
+
+
+def test_ui_productos_sin_clics_200_con_secciones_y_menu(monkeypatch):
+    """La ruta sirve las tres secciones, los botones de flujo, su
+    script y su entrada de menu; mercado ajeno es 422."""
+    resp = _html_productos(monkeypatch, _pantalla_p4())
+    assert resp.status_code == 200, resp.text
+    assert 'data-pantalla="productos-sin-clics"' in resp.text
+    assert "Candidatos a impulsar" in resp.text
+    assert "Ver lanzamiento" in resp.text
+    assert "Impulsar aparte" in resp.text
+    assert "Regresarlo a sus grupos de antes" in resp.text
+    assert "Hay 4 anuncios sin producto ligado que no puedo juzgar." in resp.text
+    assert "3 de sus 14 clics vinieron de fuera de Amazon." in resp.text
+    assert 'src="/static/js/productos.js?v=' in resp.text
+    assert "default-src 'self'" in resp.headers["content-security-policy"]
+    assert resp.headers["cache-control"] == "no-store"
+    assert '<a href="/productos-sin-clics" aria-current="page">Productos sin clics</a>' in resp.text
+    malo = _html_productos(monkeypatch, _pantalla_p4(), plataforma="meli")
+    assert malo.status_code == 422
+
+
+def test_ui_productos_nombre_con_script_escapado():
+    """El nombre (texto libre del producto) va por {{ }} y el entorno
+    REAL lo escapa, en candidatos, impulsos y 11 meses."""
+    html = ui.templates.env.get_template("productos_sin_clics.html").render(
+        pantalla="productos-sin-clics",
+        plataforma="amazon_mx",
+        candidatos=[
+            {
+                "product_id": 1,
+                "sku": "S",
+                "nombre": PAYLOAD_XSS,
+                "unidades_90d": 2,
+                "clics_ads_60d": None,
+                "listing_ids": [11],
+            }
+        ],
+        impulsos=[],
+        sin_pedido=[{"product_id": 2, "sku": "S2", "nombre": PAYLOAD_XSS, "listing_ids": [12]}],
+        anuncios_sin_producto=0,
+        asset_version="x",
+    )
+    assert PAYLOAD_XSS not in html
+    assert "&lt;script&gt;" in html
+    assert ">—<" in html, "clics None pinta el guion"

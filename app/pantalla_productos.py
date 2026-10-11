@@ -26,6 +26,7 @@ class ProductoCandidato:
     nombre: str
     unidades_90d: int
     clics_ads_60d: int | None
+    listing_ids: tuple[int, ...]
 
     def como_dict(self) -> dict:
         return {
@@ -34,6 +35,7 @@ class ProductoCandidato:
             "nombre": self.nombre,
             "unidades_90d": self.unidades_90d,
             "clics_ads_60d": self.clics_ads_60d,
+            "listing_ids": list(self.listing_ids),
         }
 
 
@@ -42,9 +44,15 @@ class ProductoSinPedido:
     product_id: int
     sku: str
     nombre: str
+    listing_ids: tuple[int, ...]
 
     def como_dict(self) -> dict:
-        return {"product_id": self.product_id, "sku": self.sku, "nombre": self.nombre}
+        return {
+            "product_id": self.product_id,
+            "sku": self.sku,
+            "nombre": self.nombre,
+            "listing_ids": list(self.listing_ids),
+        }
 
 
 @dataclass(frozen=True)
@@ -187,7 +195,9 @@ WITH activos AS (
              WHERE platform = %s AND metric_date >= %s::date - 60
              ORDER BY advertised_asin, advertised_sku, metric_date, observed_at DESC) u
       JOIN listing li ON li.platform = %s AND li.external_id = u.advertised_asin GROUP BY 1)
-SELECT a.product_id, p.odoo_sku, p.name, v.unidades, c.clics
+SELECT a.product_id, p.odoo_sku, p.name, v.unidades, c.clics,
+       (SELECT array_agg(li.id ORDER BY li.id) FROM listing li
+         WHERE li.product_id = a.product_id AND li.platform = %s)
   FROM activos a JOIN ventas v USING (product_id)
   LEFT JOIN clics c USING (product_id)
   JOIN product p ON p.id = a.product_id
@@ -207,7 +217,9 @@ WITH activos AS (
     SELECT product_id, sum(quantity)::bigint AS unidades FROM ledger_event
      WHERE platform = %s AND kind = 'sale' AND event_date >= %s::date - 330 GROUP BY 1
 )
-SELECT a.product_id, p.odoo_sku, p.name
+SELECT a.product_id, p.odoo_sku, p.name,
+       (SELECT array_agg(li.id ORDER BY li.id) FROM listing li
+         WHERE li.product_id = a.product_id AND li.platform = %s)
   FROM activos a
   LEFT JOIN ventas v USING (product_id)
   JOIN product p ON p.id = a.product_id
@@ -260,15 +272,21 @@ def lee_productos(conn, plataforma: str, hoy: dt.date) -> PantallaProductos:
     """Las tres secciones de /productos-sin-clics, solo SELECT."""
     candidatos = tuple(
         ProductoCandidato(
-            f[0], f[1] or "", f[2] or "", int(f[3]), None if f[4] is None else int(f[4])
+            f[0],
+            f[1] or "",
+            f[2] or "",
+            int(f[3]),
+            None if f[4] is None else int(f[4]),
+            tuple(f[5] or ()),
         )
         for f in conn.execute(
-            _SQL_CANDIDATOS, (plataforma, plataforma, hoy, plataforma, hoy, plataforma)
+            _SQL_CANDIDATOS,
+            (plataforma, plataforma, hoy, plataforma, hoy, plataforma, plataforma),
         ).fetchall()
     )
     sin_pedido = tuple(
-        ProductoSinPedido(f[0], f[1] or "", f[2] or "")
-        for f in conn.execute(_SQL_SIN_PEDIDO, (plataforma, plataforma, hoy)).fetchall()
+        ProductoSinPedido(f[0], f[1] or "", f[2] or "", tuple(f[3] or ()))
+        for f in conn.execute(_SQL_SIN_PEDIDO, (plataforma, plataforma, hoy, plataforma)).fetchall()
     )
     sin_producto = conn.execute(_SQL_SIN_PRODUCTO, (plataforma,)).fetchone()[0]
     fuera = {

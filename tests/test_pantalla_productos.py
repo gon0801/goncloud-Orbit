@@ -124,6 +124,7 @@ def test_candidato_dos_publicaciones_cuenta_una_y_sin_ads_none():
         pantalla = pp.lee_productos(conn, "amazon_mx", HOY)
         assert [c.product_id for c in pantalla.candidatos] == [pid]
         assert pantalla.candidatos[0].clics_ads_60d is None
+        assert pantalla.candidatos[0].listing_ids == (lid, lid2)
 
 
 @_skip_db

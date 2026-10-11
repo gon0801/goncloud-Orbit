@@ -4258,3 +4258,64 @@ def test_salud_avisos_campana_roto_da_none(monkeypatch):
         data = _cliente(dsn, monkeypatch).get("/api/dashboard/salud").json()["plataformas"]
         assert data["amazon_mx"]["avisos_campana"] is None
         assert data["amazon_us"]["avisos_campana"] is None
+
+
+# ---------------------------------------------------------------------------
+# P.4 (BIDS 02 s5): /api/dashboard/productos-sin-clics
+# ---------------------------------------------------------------------------
+
+
+def _db_p4_dash(conn):
+    import test_pantalla_productos as tp
+    from test_fabrica_migracion import ORDEN
+    from test_migracion_0064 import SQL64
+    from test_migracion_0065 import SQL65
+    from test_migracion_0066 import SQL66
+
+    migraciones = Path(__file__).resolve().parent.parent / "migrations"
+    aplicadas = {"0001_initial.sql", "0004_ad_entity_kind_product_ad.sql", "0047_familias.sql"}
+    for nombre in ORDEN:
+        if nombre not in aplicadas:
+            conn.execute((migraciones / nombre).read_text(encoding="utf-8"))
+    conn.execute(tp.SQL20)
+    conn.execute(tp.SQL62)
+    conn.execute(SQL64)
+    conn.execute(SQL65)
+    conn.execute(SQL66)
+
+
+@pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres local")
+def test_productos_sin_clics_api_forma_y_422(monkeypatch):
+    """P.4: el endpoint trae las tres secciones y el conteo, sin escribir;
+    mercado ajeno es 422."""
+    import test_pantalla_productos as tp
+    from test_fabrica_migracion import _producto
+
+    with _db_temporal("orbit_dash_p4") as (conn, dsn):
+        _db_p4_dash(conn)
+        pid, lid = _producto(conn, sku="S-API", asin="B0API00001", seller_sku="SA-1")
+        tp._activa(conn, lid, "ad-api")
+        tp._ventas(conn, pid, 2)
+        tp._clics_ads(conn, "B0API00001", "SA-1", 19)
+        antes = (
+            conn.execute("SELECT count(*) FROM impulso").fetchone()[0],
+            conn.execute("SELECT count(*) FROM anuncio_retiro").fetchone()[0],
+        )
+        resp = _cliente(dsn, monkeypatch).get(
+            "/api/dashboard/productos-sin-clics", params={"plataforma": "amazon_mx"}
+        )
+        assert resp.status_code == 200, resp.text
+        cuerpo = resp.json()
+        assert cuerpo["plataforma"] == "amazon_mx"
+        assert [c["product_id"] for c in cuerpo["candidatos"]] == [pid]
+        assert cuerpo["candidatos"][0]["listing_ids"] == [lid]
+        assert cuerpo["impulsos"] == [] and cuerpo["sin_pedido"] == []
+        assert cuerpo["anuncios_sin_producto"] == 0
+        assert (
+            conn.execute("SELECT count(*) FROM impulso").fetchone()[0],
+            conn.execute("SELECT count(*) FROM anuncio_retiro").fetchone()[0],
+        ) == antes
+        malo = _cliente(dsn, monkeypatch).get(
+            "/api/dashboard/productos-sin-clics", params={"plataforma": "meli"}
+        )
+        assert malo.status_code == 422
