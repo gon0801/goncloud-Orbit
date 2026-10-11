@@ -1995,3 +1995,36 @@ def test_i5_retiro_subfamilia_exige_lote_propio(escenario):
     r = _plan_retiro(cliente, "amazon_mx", [lid], "subfamilia", lote="grupo-5")
     assert r.status_code == 200, r.text
     assert [a["ad_id_externo"] for a in r.json()["anuncios"]] == ["ad-bolsa"]
+
+
+def test_i5_ejecutar_devuelve_retiro_ids(escenario, monkeypatch):
+    """R09 B8 (p2): ejecutar trae los ids abiertos del lote."""
+    from test_retiro_anuncios import _bolsa, _escritor, _fila
+
+    from app.ads import archivar
+
+    cliente, conn, _, _, ids = escenario
+    _db_i5(conn)
+    lid = _lid_de(conn, ids[0])
+    _bolsa(conn, lid, "ad-a")
+    plan = cliente.post(
+        "/api/fabrica/retiro/plan",
+        json={"plataforma": "amazon_mx", "listing_ids": [lid], "motivo": "sin_pedidos"},
+    ).json()
+    escritor, _puts = _escritor(_fila("ad-a", "ENABLED"))
+    monkeypatch.setattr(archivar, "preparar_escritor", lambda platform: escritor)
+    r = cliente.post(
+        "/api/fabrica/retiro/ejecutar",
+        headers=HEADERS,
+        json={
+            "plataforma": "amazon_mx",
+            "listing_ids": [lid],
+            "motivo": "sin_pedidos",
+            "huella": plan["huella"],
+            "confirmacion": "SACAR 1 ANUNCIOS",
+            "actor": "dueno",
+        },
+    )
+    assert r.status_code == 200, r.text
+    rid = conn.execute("SELECT id FROM anuncio_retiro").fetchone()[0]
+    assert r.json()["retiro_ids"] == [rid]

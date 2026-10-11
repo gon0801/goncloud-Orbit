@@ -687,11 +687,20 @@ def retiro_ejecutar(_token: Annotated[str, Depends(exige_token)], cuerpo: Cuerpo
             raise fw.error(422, str(exc)) from None
         except RuntimeError as exc:
             raise fw.error(502, f"Retiro parcial: {exc}") from None
-        return {"retirados": retirados, "lote_retiro": ra.lote_retiro_de_plan(plan)}
+        lote = ra.lote_retiro_de_plan(plan)
+        ids = [f[0] for f in conn.execute(_SQL_ABIERTOS_DE_LOTE, (lote,)).fetchall()]
+        return {"retirados": retirados, "lote_retiro": lote, "retiro_ids": ids}
 
 
 _SQL_RETIROS_EXISTEN = """
 SELECT count(*) FROM anuncio_retiro WHERE id = ANY(%s)
+"""
+
+_SQL_ABIERTOS_DE_LOTE = """
+SELECT r.id FROM anuncio_retiro r
+ WHERE r.lote_retiro = %s
+   AND NOT EXISTS (SELECT 1 FROM anuncio_reposicion p WHERE p.retiro_id = r.id)
+ ORDER BY r.id
 """
 
 
