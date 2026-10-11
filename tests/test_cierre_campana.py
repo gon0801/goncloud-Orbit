@@ -445,10 +445,13 @@ def test_queries_cierre_parsean_en_postgres():
 def test_cero_ruta_sp_campaigns_en_camino_de_escritura():
     """C.5: cero llamadas de mutacion de campana — el cliente de escritura y
     los aplicadores no nombran el recurso /sp/campaigns (solo keywords,
-    targets, negativos y productAds; la estructura se LEE en structure_api)."""
+    targets, negativos y productAds; la estructura se LEE en structure_api).
+    Dos excepciones selladas (BIDS 02 V.3, guia V.3 cambio 4 + plan V.3 DoD:
+    PUT /sp/campaigns entra al allowlist con la evidencia de V.0): en
+    write.py solo el allowlist y `ajustar_campana` nombran la ruta (nunca
+    `state`), y en apply.py solo el readback de lectura
+    POST /sp/campaigns/list."""
     for rel in (
-        "app/ads/write.py",
-        "app/apply.py",
         "app/apply_cola.py",
         "app/apply_harvest.py",
         "app/apply_harvest_reconciliacion.py",
@@ -456,6 +459,110 @@ def test_cero_ruta_sp_campaigns_en_camino_de_escritura():
     ):
         fuente = (RAIZ / rel).read_text(encoding="utf-8")
         assert "/sp/campaigns" not in fuente, f"{rel} toca el recurso campana"
+    _solo_put_sellado_en_write()
+    _solo_readback_list_en_apply()
+
+
+def _solo_put_sellado_en_write():
+    """write.py nombra /sp/campaigns solo en el allowlist y en
+    `ajustar_campana` (V.3 sellado por V.0). El contenido sellado se
+    fija en el AST: cada self._mutate constante a /sp/campaigns es
+    PUT y vive en ajustar_campana, la entrada del allowlist y el
+    contenedor existen, y no hay `state` fuera del docstring."""
+    rel = "app/ads/write.py"
+    fuente = (RAIZ / rel).read_text(encoding="utf-8")
+    lineas = fuente.splitlines()
+    arbol = ast.parse(fuente)
+    allowlist: set[int] = set()
+    metodo: set[int] = set()
+    docstring: set[int] = set()
+    tipos = None
+    contenedores = None
+    for nodo in ast.walk(arbol):
+        if isinstance(nodo, ast.FunctionDef) and nodo.name == "ajustar_campana":
+            metodo.update(range(nodo.lineno, (nodo.end_lineno or nodo.lineno) + 1))
+            primero = nodo.body[0] if nodo.body else None
+            if (
+                isinstance(primero, ast.Expr)
+                and isinstance(primero.value, ast.Constant)
+                and isinstance(primero.value.value, str)
+            ):
+                docstring.update(range(primero.lineno, (primero.end_lineno or primero.lineno) + 1))
+        if isinstance(nodo, (ast.Assign, ast.AnnAssign)):
+            blancos = nodo.targets if isinstance(nodo, ast.Assign) else [nodo.target]
+            nombres = {b.id for b in blancos if isinstance(b, ast.Name)}
+            if nombres & {"MUTATION_REQUEST_TYPES", "MUTATION_CONTAINERS"}:
+                allowlist.update(range(nodo.lineno, (nodo.end_lineno or nodo.lineno) + 1))
+            if "MUTATION_REQUEST_TYPES" in nombres:
+                tipos = nodo
+            if "MUTATION_CONTAINERS" in nombres:
+                contenedores = nodo
+    assert allowlist and metodo, "el allowlist o ajustar_campana desaparecio de write.py"
+    # El verbo sellado se verifica en el AST, no por linea: el verbo y
+    # la ruta de cada self._mutate viven en lineas distintas.
+    pares_campana = []
+    for nodo in ast.walk(arbol):
+        if not (
+            isinstance(nodo, ast.Call)
+            and isinstance(nodo.func, ast.Attribute)
+            and nodo.func.attr == "_mutate"
+            and len(nodo.args) >= 2
+            and isinstance(nodo.args[0], ast.Constant)
+            and isinstance(nodo.args[1], ast.Constant)
+        ):
+            continue
+        if nodo.args[1].value == "/sp/campaigns":
+            assert nodo.args[0].value == "PUT", f"{rel}:{nodo.lineno} muta campana sin PUT sellado"
+            pares_campana.append(nodo.lineno)
+    assert pares_campana, "desaparecio el PUT /sp/campaigns de write.py"
+    for n in pares_campana:
+        assert n in metodo, f"{rel}:{n} muta campana fuera de ajustar_campana"
+    # La entrada del allowlist y el contenedor existen (nadie los quita
+    # en silencio).
+    assert tipos is not None and any(
+        isinstance(e, ast.Tuple)
+        and [c.value for c in e.elts if isinstance(c, ast.Constant)] == ["PUT", "/sp/campaigns"]
+        for e in ast.walk(tipos)
+    ), "desaparecio (PUT, /sp/campaigns) de MUTATION_REQUEST_TYPES"
+    assert contenedores is not None and any(
+        isinstance(nodo, ast.Dict)
+        and any(
+            isinstance(k, ast.Constant)
+            and k.value == "/sp/campaigns"
+            and isinstance(v, ast.Constant)
+            and v.value == "campaigns"
+            for k, v in zip(nodo.keys, nodo.values, strict=True)
+        )
+        for nodo in ast.walk(contenedores)
+    ), "desaparecio /sp/campaigns de MUTATION_CONTAINERS"
+    for n in sorted(metodo - docstring):
+        assert '"state"' not in lineas[n - 1], f"{rel}:{n} mete state al PUT de campana"
+    for n, linea in enumerate(lineas, 1):
+        if "/sp/campaigns" not in linea:
+            continue
+        if n in allowlist:
+            assert '("PUT", "/sp/campaigns")' in linea or '"/sp/campaigns": "campaigns"' in linea, (
+                f"{rel}:{n} agrega al allowlist otra forma de /sp/campaigns"
+            )
+        elif n in metodo:
+            assert (
+                n in docstring
+                or '"/sp/campaigns",' in linea
+                or "PUT /sp/campaigns" in linea
+                or 'path="/sp/campaigns"' in linea
+            ), f"{rel}:{n} toca el recurso campana fuera del PUT sellado"
+        else:
+            raise AssertionError(f"{rel}:{n} toca el recurso campana fuera del PUT sellado")
+
+
+def _solo_readback_list_en_apply():
+    """apply.py nombra /sp/campaigns solo en el readback de lectura
+    POST /sp/campaigns/list (V.3, guia cambio 6)."""
+    rel = "app/apply.py"
+    fuente = (RAIZ / rel).read_text(encoding="utf-8")
+    assert "/sp/campaigns/list" in fuente, "el readback list desaparecio de apply.py"
+    sin_list = fuente.replace("/sp/campaigns/list", "")
+    assert "/sp/campaigns" not in sin_list, f"{rel} toca el recurso campana fuera del readback"
 
 
 @_skip_db
