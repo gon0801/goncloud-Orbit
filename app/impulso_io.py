@@ -554,15 +554,13 @@ def _vigila_uno(conn, pausador, fila, *, hoy, escritor_retiro):
         return AccionVigia(imp, lectura, veredicto, ya[0]), escritor_retiro
     if veredicto.accion == "pausar":
         estado_lote = conn.execute(_SQL_ESTADO_LOTE, (lote,)).fetchone()
-        if estado_lote is not None and estado_lote[0] == "pausado":
-            hecho = "pausado"
-        else:
+        if estado_lote is None or estado_lote[0] != "pausado":
             pausador.pausa(lote)
             conn.execute(
                 "UPDATE fabrica_lote SET estado = 'pausado' WHERE lote = %s AND estado = 'applied'",
                 (lote,),
             )
-            hecho = "pausado"
+        hecho = "pausado"
     elif veredicto.accion == "graduar":
         ahora = dt.datetime.now(dt.UTC)
         for (gid,) in conn.execute(_SQL_GOALS_DE_IMPULSO, (imp,)).fetchall():
