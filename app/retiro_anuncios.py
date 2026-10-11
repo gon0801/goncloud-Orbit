@@ -255,7 +255,7 @@ def repone(
             if not res or res[0].resultado != "repuesto":
                 detalle = res[0].detalle if res else "sin resultado"
                 raise RuntimeError(f"reposicion de {ad_id} no confirmada: {detalle}")
-            nuevo, estado_nuevo = res[0].ad_id, res[0].estado
+            nuevo, estado_nuevo = res[0].ad_id, res[0].estado_previo
         elif estado == "ENABLED":
             nuevo, estado_nuevo = ad_id, "ENABLED"
         else:
