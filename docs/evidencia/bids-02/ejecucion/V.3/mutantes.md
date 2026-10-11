@@ -11,6 +11,7 @@ despues (la suite quedo en `4 passed`).
 | `test_0067_delete_y_truncate_rechazados` | En `migrations/0067_bids02_campana_ajuste.sql`: el trigger DELETE con `prohibir_mutacion()` por `campana_ajuste_0067_solo_confirmado()` | El DELETE revienta con otro mensaje (no `APPEND-ONLY`): `1 failed`. |
 | `test_0067_rama_ajuste_ubicacion_y_presupuesto_fuera` | En `migrations/0067_bids02_campana_ajuste.sql`: `a.clase = 'ajuste_ubicacion'` por `a.clase = 'presupuesto'` | Vivo al inicio: ambas clases producen la misma tupla y la prueba no distinguia que ajuste la produjo. Se endurecio la prueba (presupuesto solo -> 0 filas; luego ubicacion -> 1 fila) y el mutante muere: `1 failed`. |
 | `test_0067_reversa_deja_vista_de_dos_ramas_y_esquema_igual` | En `migrations/0067_reversa_bids02_campana_ajuste.sql`: `DROP FUNCTION campana_ajuste_0067_solo_confirmado();` comentado | La funcion sobrevive a la reversa: la foto del catalogo difiere, `1 failed`. |
+| `test_0067_reversa_deja_vista_de_dos_ramas_y_esquema_igual` (grants; hallazgo del ensayo D.3) | En `migrations/0067_reversa_bids02_campana_ajuste.sql`: `REVOKE INSERT ON ads_campana_config_observation FROM app_admin;` borrado | El INSERT residual sobrevive: `has_table_privilege` da t, `1 failed`. El ensayo D.3 encontro el hueco (diff de ACLs); la reversa y el test se endurecieron en el commit de arreglo V.3. |
 
 ## Obligatorios del paso (verificados 2026-10-11, todos MUEREN)
 

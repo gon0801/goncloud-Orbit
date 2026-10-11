@@ -39,4 +39,10 @@ COMMENT ON VIEW v_cambio_bid IS
 DROP TABLE campana_ajuste;
 DROP FUNCTION campana_ajuste_0067_solo_confirmado();
 
+-- La 0067 otorgo INSERT sobre la observacion de V.1 y USAGE en su
+-- secuencia a app_admin (el readback confirmado): se revocan para que
+-- el esquema quede EXACTO al base (el ensayo lo exige).
+REVOKE INSERT ON ads_campana_config_observation FROM app_admin;
+REVOKE USAGE, SELECT ON SEQUENCE ads_campana_config_observation_id_seq FROM app_admin;
+
 COMMIT;

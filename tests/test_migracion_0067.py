@@ -194,6 +194,20 @@ def test_0067_reversa_deja_vista_de_dos_ramas_y_esquema_igual():
         definicion = conn.execute("SELECT pg_get_viewdef('v_cambio_bid'::regclass)").fetchone()[0]
         assert "regreso_del_dueno" in definicion
         assert "ajuste_de_campana" not in definicion
+        assert (
+            conn.execute(
+                "SELECT has_table_privilege('app_admin',"
+                " 'ads_campana_config_observation', 'INSERT')"
+            ).fetchone()[0]
+            is False
+        )
+        assert (
+            conn.execute(
+                "SELECT has_sequence_privilege('app_admin',"
+                " 'ads_campana_config_observation_id_seq', 'USAGE')"
+            ).fetchone()[0]
+            is False
+        )
 
 
 def _foto(conn) -> dict:
