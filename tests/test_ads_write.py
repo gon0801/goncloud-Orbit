@@ -45,6 +45,7 @@ from app.ads.write import (
     MUTATION_CONTAINERS,
     MUTATION_REQUEST_TYPES,
     PLATAFORMA_MONEDA,
+    AdsApiErrorMutacion,
     AdsWriteClient,
 )
 
@@ -148,6 +149,7 @@ METODOS_PUBLICOS = {
     "borrar_keyword",
     "archivar_product_ad",
     "crear_product_ad",
+    "ajustar_campana",
     "get_sellado",
     "list_sellado",
 }
@@ -306,6 +308,18 @@ CASOS_MUTACION = [
         {"adGroupId": 31, "campaignId": 21, "sku": "SKU-VIVO", "state": "PAUSED"},
         id="crear-product-ad",
     ),
+    pytest.param(
+        "ajustar_campana",
+        ("93529333080113", {"budget": {"budget": 120.0, "budgetType": "DAILY"}}),
+        "PUT",
+        "/sp/campaigns",
+        "application/vnd.spcampaign.v3+json",
+        {
+            "campaignId": "93529333080113",
+            "budget": {"budget": 120.0, "budgetType": "DAILY"},
+        },
+        id="ajustar-campana",
+    ),
 ]
 
 
@@ -439,6 +453,7 @@ def test_allowlist_sellada_contenido_y_congelamiento():
         ("POST", "/sp/keywords/delete"),
         ("POST", "/sp/productAds/delete"),
         ("POST", "/sp/productAds"),
+        ("PUT", "/sp/campaigns"),
     }
     assert MUTATION_REQUEST_TYPES[("PUT", "/sp/keywords")] == ("application/vnd.spkeyword.v3+json")
     assert MUTATION_REQUEST_TYPES[("POST", "/sp/negativeKeywords/delete")] == (
@@ -449,6 +464,38 @@ def test_allowlist_sellada_contenido_y_congelamiento():
     )
     with pytest.raises(TypeError):
         MUTATION_REQUEST_TYPES[("POST", "/sp/campaigns")] = "application/vnd.sp.v3+json"
+
+
+def test_ajustar_campana_rechaza_llave_desconocida_sin_http():
+    """Solo budget, dynamicBidding y offAmazonSettings viajan (y nunca
+    state): una llave fuera se rechaza antes del token."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("jamas debe salir a la red")
+
+    client = make_write_client(handler)
+    with pytest.raises(ValueError, match="llave desconocida"):
+        client.ajustar_campana("93529333080113", {"state": "PAUSED"})
+
+
+def test_ajustar_campana_207_con_errores_anidados_lanza():
+    """Exito se decide por errores anidados, nunca por el status."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return _token_response()
+        return httpx.Response(
+            207,
+            json={
+                "campaigns": [
+                    {"campaignId": "93529333080113", "code": "400", "description": "nope"}
+                ]
+            },
+        )
+
+    client = make_write_client(handler)
+    with pytest.raises(AdsApiErrorMutacion, match="nope"):
+        client.ajustar_campana("93529333080113", {"budget": {"budget": 120.0}})
 
 
 def test_la_reversa_del_archivado_repone_el_estado_que_tenia():

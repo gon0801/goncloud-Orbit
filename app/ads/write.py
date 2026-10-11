@@ -66,6 +66,7 @@ from types import MappingProxyType
 
 import httpx
 
+from app.ads.campana_config import LLAVES_CUERPO_PUT
 from app.ads.client import (
     DEFAULT_BASE_URL,
     AdsApiError,
@@ -113,6 +114,11 @@ MUTATION_REQUEST_TYPES: MappingProxyType[tuple[str, str], str] = MappingProxyTyp
         # La REVERSA del archivado (decision del dueno 2026-08-30, invariante
         # 7). SELLADO por la sonda del 2026-08-31: ver crear_product_ad.
         ("POST", "/sp/productAds"): "application/vnd.spproductad.v3+json",
+        # Ajustes de campana del dueno (BIDS 02 V.3). SELLADO por V.0
+        # (2026-10-10, sondas 2/3/4 en pixeles 20978213/21731766/21739728):
+        # las tres clases responden 207 con readback igual; conclusion en
+        # docs/evidencia/bids-02/ejecucion/V.0/ (commit 2db9e20).
+        ("PUT", "/sp/campaigns"): "application/vnd.spcampaign.v3+json",
     }
 )
 
@@ -131,6 +137,8 @@ MUTATION_CONTAINERS: MappingProxyType[str, str] = MappingProxyType(
         # Misma clave que el list de product ads (_CLAVE_CONTENEDORA de
         # app/ads/structure.py, verificada en vivo desde 2026-08-31).
         "/sp/productAds": "productAds",
+        # Misma clave que el list de campanas (sondas V.0 del 2026-10-10).
+        "/sp/campaigns": "campaigns",
     }
 )
 
@@ -208,6 +216,34 @@ class AdsApiErrorMutacion(AdsApiError):
         self.status = status
         self.method = method
         self.path = path
+
+
+def _errores_put(respuesta: httpx.Response) -> list[str]:
+    """Errores anidados de un PUT bulk v3: `errors` no vacio arriba o por
+    item, o `code` 4xx/5xx por item. Lista vacia con exito (un 207 limpio
+    no trae ni errors ni codes de fallo)."""
+    try:
+        cuerpo = respuesta.json()
+    except ValueError:
+        return []
+    if not isinstance(cuerpo, dict):
+        return []
+    errores = []
+    top = cuerpo.get("errors")
+    if isinstance(top, list) and top:
+        errores.extend(str(e) for e in top)
+    items = cuerpo.get("campaigns")
+    if isinstance(items, list):
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            anidados = item.get("errors")
+            if isinstance(anidados, list) and anidados:
+                errores.extend(str(e) for e in anidados)
+            codigo = str(item.get("code", ""))
+            if codigo[:1] in ("4", "5"):
+                errores.append(item.get("description") or f"code {codigo}")
+    return errores
 
 
 def _snippet_cuerpo(resp: httpx.Response, tope: int = 500) -> str:
@@ -492,6 +528,36 @@ class AdsWriteClient(AdsClient):
             {"adIdFilter": {"include": [_un_objeto(ad_id, "ad_id")]}},
             envolver=False,
         )
+
+    def ajustar_campana(self, externa: str | int, cuerpo: dict) -> httpx.Response:
+        """PUT /sp/campaigns: aplica la ConfigCampana COMPLETA de UNA
+        campana (BIDS 02 V.3).
+
+        SELLADO EN VIVO por V.0 (2026-10-10): budget (sonda 2), ajustes
+        por placement (sonda 3) y el control fuera de Amazon (sonda 4)
+        responden 207 con readback igual. Solo viajan las llaves de
+        LLAVES_CUERPO_PUT — nunca `state` — y el exito se decide por
+        errores anidados, nunca por el status (una 207 con errores lanza
+        AdsApiErrorMutacion).
+        """
+        desconocidas = set(cuerpo) - LLAVES_CUERPO_PUT
+        if desconocidas:
+            raise ValueError(f"llave desconocida en el PUT de campana: {sorted(desconocidas)}")
+        respuesta = self._mutate(
+            "PUT",
+            "/sp/campaigns",
+            {"campaignId": str(_un_objeto(externa, "externa")), **cuerpo},
+        )
+        errores = _errores_put(respuesta)
+        if errores:
+            raise AdsApiErrorMutacion(
+                f"PUT /sp/campaigns rechazo el ajuste: {errores[0]}",
+                cuerpo=_snippet_cuerpo(respuesta),
+                status=respuesta.status_code,
+                method="PUT",
+                path="/sp/campaigns",
+            )
+        return respuesta
 
     def get_sellado(self, path: str, *, params: dict | None = None) -> httpx.Response:
         """GET con el scope SELLADO de la instancia.

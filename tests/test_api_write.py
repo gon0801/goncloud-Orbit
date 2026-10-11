@@ -97,6 +97,12 @@ SQL47 = (Path(__file__).resolve().parents[1] / "migrations" / "0047_familias.sql
 )
 
 TOKEN = "token-escritura-de-test-314159"
+SQL61 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0061_bids02_campana_config.sql"
+).read_text(encoding="utf-8")
+SQL67 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0067_bids02_campana_ajuste.sql"
+).read_text(encoding="utf-8")
 
 _skip_db = pytest.mark.skipif(
     _postgres_obligatorio_ausente(),
@@ -1241,3 +1247,334 @@ def test_regresar_todas_responde_ok_y_motivo_por_hoja(tmp_path, monkeypatch):
         },
         {"ok": False, "motivo": "hoja 12: ya revertida la 5"},
     ]
+
+
+# ---------------------------------------------------------------------------
+# V.3: rutas de ajustes de campana (vista previa sin token, aplicar/regresar
+# con token). PG + MockTransport, cero HTTP vivo.
+# ---------------------------------------------------------------------------
+
+
+def _db_ajustes(prefijo: str):
+    """_db_con_rol_admin + 0061 + 0067."""
+
+    @contextmanager
+    def _ctx():
+        with _db_con_rol_admin(prefijo) as (conn, dsn_admin, dsn_l):
+            conn.execute(SQL61)
+            conn.execute(SQL67)
+            yield conn, dsn_admin, dsn_l
+
+    return _ctx()
+
+
+def _siembra_ajuste(conn) -> int:
+    import datetime as _dt
+    from decimal import Decimal as _Decimal
+
+    from app.ads.campana_config import ConfigCampana, guarda_config
+
+    camp = conn.execute(
+        "INSERT INTO ad_entity (platform, kind, external_id) VALUES ('amazon_mx',"
+        " 'campaign', '93529333080113') RETURNING id"
+    ).fetchone()[0]
+    conn.execute(
+        "INSERT INTO ad_entity_state (ad_entity_id, status, synced_at) VALUES"
+        " (%s, 'ENABLED', now())",
+        (camp,),
+    )
+    guarda_config(
+        conn,
+        "amazon_mx",
+        [
+            ConfigCampana(
+                campana_externa="93529333080113",
+                presupuesto_diario=_Decimal("100"),
+                moneda="MXN",
+                estrategia_puja="LEGACY_FOR_SALES",
+                ajuste_top_pct=0,
+                ajuste_resto_pct=0,
+                ajuste_producto_pct=40,
+                fuera_de_amazon=None,
+            )
+        ],
+        _dt.datetime.now(_dt.UTC),
+    )
+    return camp
+
+
+def _handler_ajustes(remoto: dict):
+    vistos: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return httpx.Response(200, json={"access_token": "fake", "expires_in": 3600})
+        vistos.append(request)
+        path, metodo = request.url.path, request.method
+        if metodo == "GET" and path == "/v2/profiles":
+            return httpx.Response(200, json=[{**PERFIL_US_RAW, "countryCode": "MX"}])
+        if metodo == "PUT" and path == "/sp/campaigns":
+            obj = json.loads(request.content)["campaigns"][0]
+            remoto[str(obj["campaignId"])] = {k: v for k, v in obj.items() if k != "campaignId"}
+            return httpx.Response(207, json={"campaigns": [{"code": "200"}]})
+        if metodo == "POST" and path == "/sp/campaigns/list":
+            ext = json.loads(request.content)["campaignIdFilter"]["include"][0]
+            return httpx.Response(
+                200, json={"campaigns": [{"campaignId": str(ext), **remoto[str(ext)]}]}
+            )
+        raise AssertionError(f"request inesperado: {metodo} {path}")
+
+    return handler, vistos
+
+
+def _mock_cliente_ajuste(monkeypatch, handler):
+    from app.ads.write import AdsWriteClient
+
+    creds = AdsCredentials(
+        client_id="fake-client-id",
+        client_secret="fake-client-secret",
+        refresh_token="fake-refresh-token",
+    )
+
+    def _cliente_mock(platform, *, transport):
+        return AdsWriteClient(
+            creds,
+            platform=platform,
+            profile_id=404040,
+            modo_confirmado="live",
+            transport=httpx.MockTransport(handler),
+            sleep=lambda seconds: None,
+        )
+
+    monkeypatch.setattr(apply, "_cliente_ajuste", _cliente_mock)
+
+
+@_skip_db
+def test_plan_sin_token_devuelve_frase_y_huella(tmp_path, monkeypatch):
+    with _db_ajustes("orbit_wa_plan") as (conn, _dsn_admin, dsn_l):
+        camp = _siembra_ajuste(conn)
+        monkeypatch.setenv("ORBIT_DSN_READ", dsn_l)
+        resp = TestClient(app).get(
+            "/api/ads-optimizer/campana-ajuste/plan",
+            params={"campana_id": camp, "clase": "presupuesto", "presupuesto": 120},
+        )
+        assert resp.status_code == 200, resp.text
+        dato = resp.json()
+        assert "120" in dato["frase"] and "100" in dato["frase"]
+        assert len(dato["huella"]) == 64
+        assert dato["despues"]["presupuesto_diario"] == "120.0"
+        assert conn.execute("SELECT count(*) FROM campana_ajuste").fetchone()[0] == 0
+
+
+@_skip_db
+@_skip_db
+def test_regresar_sin_token_da_401(tmp_path, monkeypatch):
+    with _db_ajustes("orbit_wa_401r") as (_conn, dsn_admin, _dsn_l):
+        _secrets_token(tmp_path, monkeypatch)
+        monkeypatch.setenv("ORBIT_DSN_ADMIN", dsn_admin)
+        resp = TestClient(app).post(
+            "/api/ads-optimizer/campana-ajuste/1/regresar",
+            json={"actor": "dueno"},
+        )
+        assert resp.status_code == 401
+
+
+@_skip_db
+def test_aplicar_sin_token_da_401(tmp_path, monkeypatch):
+    with _db_ajustes("orbit_wa_401") as (conn, dsn_admin, _dsn_l):
+        camp = _siembra_ajuste(conn)
+        _secrets_token(tmp_path, monkeypatch)
+        monkeypatch.setenv("ORBIT_DSN_ADMIN", dsn_admin)
+        resp = TestClient(app).post(
+            "/api/ads-optimizer/campana-ajuste/aplicar",
+            json={
+                "campana_id": camp,
+                "clase": "presupuesto",
+                "presupuesto": 120,
+                "huella": "x",
+                "confirmacion": "APLICAR AJUSTE",
+                "actor": "dueno",
+            },
+        )
+        assert resp.status_code == 401
+
+
+@_skip_db
+def test_aplicar_con_token_confirma(tmp_path, monkeypatch):
+    with _db_ajustes("orbit_wa_ok") as (conn, dsn_admin, dsn_l):
+        camp = _siembra_ajuste(conn)
+        remoto = {"93529333080113": {"budget": {"budget": 100.0, "budgetType": "DAILY"}}}
+        handler, _vistos = _handler_ajustes(remoto)
+        _mock_cliente_ajuste(monkeypatch, handler)
+        _secrets_token(tmp_path, monkeypatch)
+        monkeypatch.setenv("ORBIT_DSN_ADMIN", dsn_admin)
+        monkeypatch.setenv("ORBIT_DSN_READ", dsn_l)
+        plan = (
+            TestClient(app)
+            .get(
+                "/api/ads-optimizer/campana-ajuste/plan",
+                params={"campana_id": camp, "clase": "presupuesto", "presupuesto": 120},
+            )
+            .json()
+        )
+        resp = TestClient(app).post(
+            "/api/ads-optimizer/campana-ajuste/aplicar",
+            json={
+                "campana_id": camp,
+                "clase": "presupuesto",
+                "presupuesto": 120,
+                "huella": plan["huella"],
+                "confirmacion": "APLICAR AJUSTE",
+                "actor": "dueno",
+            },
+            headers={"x-orbit-token": TOKEN},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["confirmada"] is True
+        assert remoto["93529333080113"]["budget"]["budget"] == 120.0
+
+
+@_skip_db
+def test_aplicar_huella_vieja_da_409_con_plan_nuevo(tmp_path, monkeypatch):
+    with _db_ajustes("orbit_wa_409") as (conn, dsn_admin, dsn_l):
+        import datetime as _dt
+        from dataclasses import replace as _replace
+        from decimal import Decimal as _Decimal
+
+        from app.ads.campana_config import config_vigente, guarda_config
+
+        camp = _siembra_ajuste(conn)
+        monkeypatch.setenv("ORBIT_DSN_READ", dsn_l)
+        plan = (
+            TestClient(app)
+            .get(
+                "/api/ads-optimizer/campana-ajuste/plan",
+                params={"campana_id": camp, "clase": "presupuesto", "presupuesto": 120},
+            )
+            .json()
+        )
+        guarda_config(
+            conn,
+            "amazon_mx",
+            [_replace(config_vigente(conn, camp), presupuesto_diario=_Decimal("110"))],
+            _dt.datetime.now(_dt.UTC),
+        )
+        _secrets_token(tmp_path, monkeypatch)
+        monkeypatch.setenv("ORBIT_DSN_ADMIN", dsn_admin)
+        resp = TestClient(app).post(
+            "/api/ads-optimizer/campana-ajuste/aplicar",
+            json={
+                "campana_id": camp,
+                "clase": "presupuesto",
+                "presupuesto": 120,
+                "huella": plan["huella"],
+                "confirmacion": "APLICAR AJUSTE",
+                "actor": "dueno",
+            },
+            headers={"x-orbit-token": TOKEN},
+        )
+        assert resp.status_code == 409, resp.text
+        nuevo = resp.json()["detail"]["plan_nuevo"]
+        assert nuevo["despues"]["presupuesto_diario"] == "120.0"
+        assert nuevo["antes"]["presupuesto_diario"] == "110.0000"
+
+
+@_skip_db
+def test_aplicar_otro_literal_da_422(tmp_path, monkeypatch):
+    with _db_ajustes("orbit_wa_422") as (conn, dsn_admin, _dsn_l):
+        camp = _siembra_ajuste(conn)
+        _secrets_token(tmp_path, monkeypatch)
+        monkeypatch.setenv("ORBIT_DSN_ADMIN", dsn_admin)
+        resp = TestClient(app).post(
+            "/api/ads-optimizer/campana-ajuste/aplicar",
+            json={
+                "campana_id": camp,
+                "clase": "presupuesto",
+                "presupuesto": 120,
+                "huella": "x",
+                "confirmacion": "aplicar ajuste",
+                "actor": "dueno",
+            },
+            headers={"x-orbit-token": TOKEN},
+        )
+        assert resp.status_code == 422
+
+
+@_skip_db
+def test_regresar_confirma_y_segundo_da_409(tmp_path, monkeypatch):
+    with _db_ajustes("orbit_wa_reg") as (conn, dsn_admin, dsn_l):
+        camp = _siembra_ajuste(conn)
+        remoto = {"93529333080113": {"budget": {"budget": 100.0, "budgetType": "DAILY"}}}
+        handler, _vistos = _handler_ajustes(remoto)
+        _mock_cliente_ajuste(monkeypatch, handler)
+        _secrets_token(tmp_path, monkeypatch)
+        monkeypatch.setenv("ORBIT_DSN_ADMIN", dsn_admin)
+        monkeypatch.setenv("ORBIT_DSN_READ", dsn_l)
+        plan = (
+            TestClient(app)
+            .get(
+                "/api/ads-optimizer/campana-ajuste/plan",
+                params={"campana_id": camp, "clase": "presupuesto", "presupuesto": 120},
+            )
+            .json()
+        )
+        aplicado = (
+            TestClient(app)
+            .post(
+                "/api/ads-optimizer/campana-ajuste/aplicar",
+                json={
+                    "campana_id": camp,
+                    "clase": "presupuesto",
+                    "presupuesto": 120,
+                    "huella": plan["huella"],
+                    "confirmacion": "APLICAR AJUSTE",
+                    "actor": "dueno",
+                },
+                headers={"x-orbit-token": TOKEN},
+            )
+            .json()
+        )
+        web = TestClient(app)
+        resp = web.post(
+            f"/api/ads-optimizer/campana-ajuste/{aplicado['ajuste_id']}/regresar",
+            json={"actor": "dueno"},
+            headers={"x-orbit-token": TOKEN},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["confirmada"] is True
+        assert remoto["93529333080113"]["budget"]["budget"] == 100.0
+        resp2 = web.post(
+            f"/api/ads-optimizer/campana-ajuste/{aplicado['ajuste_id']}/regresar",
+            json={"actor": "dueno"},
+            headers={"x-orbit-token": TOKEN},
+        )
+        assert resp2.status_code == 409
+
+
+@_skip_db
+def test_regresar_inexistente_da_404(tmp_path, monkeypatch):
+    with _db_ajustes("orbit_wa_404") as (conn, dsn_admin, _dsn_l):
+        _secrets_token(tmp_path, monkeypatch)
+        monkeypatch.setenv("ORBIT_DSN_ADMIN", dsn_admin)
+        resp = TestClient(app).post(
+            "/api/ads-optimizer/campana-ajuste/999/regresar",
+            json={"actor": "dueno"},
+            headers={"x-orbit-token": TOKEN},
+        )
+        assert resp.status_code == 404
+
+
+def test_mapeo_errores_ajuste_trae_sus_codigos():
+    """Puro: el dict de la ruta mapea cada error de ajuste a su codigo.
+    (ConfirmacionInvalida es inalcanzable por HTTP — pydantic veta el
+    literal antes — pero el mapeo existe y este test lo fija.)"""
+    from app.api_write import _ERRORES_AJUSTE
+
+    assert {
+        apply.ConfirmacionInvalida: 422,
+        apply.AjusteSinRegreso: 422,
+        apply.AjusteInexistente: 404,
+        apply.AjusteYaRegresado: 409,
+        apply.AjusteNoConfirmado: 502,
+        apply.SinPerfilAjuste: 503,
+    } == _ERRORES_AJUSTE

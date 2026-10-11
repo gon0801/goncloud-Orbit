@@ -885,3 +885,32 @@ def test_null_envenena_solo_su_metrica_y_contagia_al_grupo():
             gasto=Decimal("16"),
             impresiones=140,
         )
+
+
+@FALTA_PG
+def test_ajuste_ubicacion_confirmado_entra_a_la_trayectoria():
+    """V.3: un ajuste de ubicacion confirmado pone en la trayectoria de
+    cada hoja de la campana un cambio con origen ajuste_de_campana,
+    decision_id NULL y el bid vigente en bid_antes y bid_despues."""
+    import json
+
+    with _db_lecturas() as conn:
+        c, g, h = _triple(conn, tag="ajuste", bid=Decimal("6"))
+        cfg = conn.execute(
+            "INSERT INTO ads_campana_config_observation (ad_entity_id, observed_at,"
+            " presupuesto_diario, presupuesto_moneda, estrategia_puja) VALUES"
+            " (%s, %s, 100, 'MXN', 'MANUAL') RETURNING id",
+            (c, _ANCLA),
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO campana_ajuste (campana_id, platform, clase, antes_config_id,"
+            " despues, huella, actor, go_literal, confirmado_el) VALUES (%s,"
+            " 'amazon_mx', 'ajuste_ubicacion', %s, %s, 'h-tray', 'dueno',"
+            " 'APLICAR AJUSTE', %s)",
+            (c, cfg, json.dumps({"clase": "ajuste_ubicacion"}), _DECIDIDA),
+        )
+        lecturas = lee_plataforma(conn, "amazon_mx", _DECIDIDO, economia=_economia())
+        caso = _arma(lecturas, conn, h, g)
+        (unico,) = caso.trayectoria.cambios
+        assert unico.origen == "ajuste_de_campana"
+        assert unico.bid_antes == unico.bid_despues == Decimal("6")

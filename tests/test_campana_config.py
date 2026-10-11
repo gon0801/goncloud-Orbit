@@ -422,3 +422,53 @@ def test_guarda_config_fuera_de_amazon_persiste_y_su_cambio_abre_fila():
             "SELECT fuera_de_amazon FROM ads_campana_config_observation ORDER BY observed_at"
         ).fetchall()
         assert filas == [('{"a": 1}',), ('{"a": 2}',)]
+
+
+def test_cuerpo_put_lleva_config_completa_sin_state():
+    """V.3: el PUT manda budget, dynamicBidding y offAmazonSettings (nunca
+    state); lo ausente no viaja."""
+    from app.ads.campana_config import LLAVES_CUERPO_PUT, cuerpo_put_campana
+
+    llena = ConfigCampana(
+        campana_externa="93529333080113",
+        presupuesto_diario=Decimal("120"),
+        moneda="MXN",
+        estrategia_puja="LEGACY_FOR_SALES",
+        ajuste_top_pct=0,
+        ajuste_resto_pct=0,
+        ajuste_producto_pct=40,
+        fuera_de_amazon='{"offAmazonBudgetControlStrategy": "MINIMIZE_SPEND"}',
+    )
+    assert cuerpo_put_campana(llena) == {
+        "campaignId": "93529333080113",
+        "budget": {"budget": 120.0, "budgetType": "DAILY"},
+        "dynamicBidding": {
+            "strategy": "LEGACY_FOR_SALES",
+            "placementBidding": [
+                {"placement": "PLACEMENT_TOP", "percentage": 0},
+                {"placement": "PLACEMENT_REST_OF_SEARCH", "percentage": 0},
+                {"placement": "PLACEMENT_PRODUCT_PAGE", "percentage": 40},
+            ],
+        },
+        "offAmazonSettings": {"offAmazonBudgetControlStrategy": "MINIMIZE_SPEND"},
+    }
+    assert frozenset({"budget", "dynamicBidding", "offAmazonSettings"}) == LLAVES_CUERPO_PUT
+
+
+def test_cuerpo_put_omite_lo_ausente():
+    from app.ads.campana_config import cuerpo_put_campana
+
+    minima = ConfigCampana(
+        campana_externa="93529333080113",
+        presupuesto_diario=Decimal("120"),
+        moneda="MXN",
+        estrategia_puja=None,
+        ajuste_top_pct=None,
+        ajuste_resto_pct=None,
+        ajuste_producto_pct=None,
+        fuera_de_amazon=None,
+    )
+    assert cuerpo_put_campana(minima) == {
+        "campaignId": "93529333080113",
+        "budget": {"budget": 120.0, "budgetType": "DAILY"},
+    }
