@@ -15,8 +15,8 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Literal
 
 from app import fabrica_plan as fp
+from app.fabrica_plan import ROLES_IMPULSO
 
-ROLES_IMPULSO = ("category_exact", "auto_discovery")
 PLAZO_VEREDICTO_DIAS = 14
 IMPRESIONES_MINIMAS = 2000
 CLICS_MINIMOS = 20

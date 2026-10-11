@@ -37,6 +37,10 @@ ROLES_ORDEN_CREACION = (
     "product_targeting",
     "auto_discovery",
 )
+# Roles del grupo de impulso (BIDS 02, I.1): exact + discovery. Vive aqui
+# porque tools/fabrica_campanas.py solo puede importar lo declarado en su
+# allowlist de arquitectura (app.fabrica_plan si, app.impulso no).
+ROLES_IMPULSO = ("category_exact", "auto_discovery")
 MATCH_POR_ROL = {"category_exact": "EXACT", "category_phrase": "PHRASE", "category_broad": "BROAD"}
 EXPRESION_BID_POR_ROL = {
     "category_exact": "KEYWORD_EXACT_MATCH",
