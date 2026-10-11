@@ -176,7 +176,7 @@ def test_sugeridor_real_una_llamada_por_producto():
         assert _Cliente.llamadas == 1
 
 
-def _ejecutor_falso(conn, *, falla_en=()):
+def _ejecutor_falso(conn, *, falla_en=(), platform="amazon_mx", moneda="MXN"):
     """Ejecutor de fabrica falso: siembra lote+grupo+roles+goals reales.
 
     Como el real (_mutar), escribe por SU PROPIA conexion, no por la
@@ -194,27 +194,27 @@ def _ejecutor_falso(conn, *, falla_en=()):
         try:
             propia.execute(
                 "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base,"
-                " go_literal, huella, plan, modo_goal, estado) VALUES (%s, 'amazon_mx',"
+                " go_literal, huella, plan, modo_goal, estado) VALUES (%s, %s,"
                 " 'aros', 'Base', 'go', %s, '{}'::jsonb, 'shadow', 'applied')",
-                (lote, huella),
+                (lote, platform, huella),
             )
             grupo = propia.execute(
                 "INSERT INTO campana_grupo (platform, tipo_producto, nombre_base, lote,"
                 " target_acos_pct, target_derivado_pct, fraccion, target_procedencia,"
-                " go_literal, tipo) VALUES ('amazon_mx', 'aros', 'Base', %s, 19.10,"
+                " go_literal, tipo) VALUES (%s, 'aros', 'Base', %s, 19.10,"
                 " 19.1040, 0.5, 'm', 'go', 'impulso') RETURNING id",
-                (lote,),
+                (platform, lote),
             ).fetchone()[0]
             for rol in ("category_exact", "auto_discovery"):
                 camp = propia.execute(
-                    "INSERT INTO ad_entity (platform, kind, external_id) VALUES ('amazon_mx',"
+                    "INSERT INTO ad_entity (platform, kind, external_id) VALUES (%s,"
                     " 'campaign', %s) RETURNING id",
-                    (f"{lote}-{rol}",),
+                    (platform, f"{lote}-{rol}"),
                 ).fetchone()[0]
                 ag = propia.execute(
                     "INSERT INTO ad_entity (platform, kind, external_id, parent_id)"
-                    " VALUES ('amazon_mx', 'ad_group', %s, %s) RETURNING id",
-                    (f"{lote}-{rol}-ag", camp),
+                    " VALUES (%s, 'ad_group', %s, %s) RETURNING id",
+                    (platform, f"{lote}-{rol}-ag", camp),
                 ).fetchone()[0]
                 propia.execute(
                     "INSERT INTO campana_grupo_rol (grupo_id, rol, ad_entity_id,"
@@ -224,8 +224,8 @@ def _ejecutor_falso(conn, *, falla_en=()):
                 propia.execute(
                     "INSERT INTO ads_optimizer_goal (scope, ad_entity_id, target_acos_pct,"
                     " bid_floor, bid_ceiling, bid_currency, enabled, mode) VALUES"
-                    " ('campaign', %s, NULL, 0.10, 2.50, 'MXN', true, 'shadow')",
-                    (camp,),
+                    " ('campaign', %s, NULL, 0.10, 2.50, %s, true, 'shadow')",
+                    (camp, moneda),
                 )
         finally:
             propia.close()
@@ -1072,3 +1072,142 @@ def test_vigia_graduar_lote_desarmado_no_revive():
         acciones = io.vigila(conn, pausador, hoy=HOY)
         assert acciones[0].hecho == "graduado"
         assert pausador.reactivados == []
+
+
+def _con_margen_us(conn, *, sku="SS-US", asin="B0US000001", seller_sku="SS-US"):
+    pid, lid = _producto(conn, sku=sku, asin=asin, platform="amazon_us", seller_sku=seller_sku)
+    _ledger_producto(conn, pid, hoy=HOY - dt.timedelta(days=1), platform="amazon_us")
+    from psycopg.types.json import Json
+
+    conn.execute(
+        "INSERT INTO config_version(label,settings) VALUES ('fabrica',%s)",
+        (
+            Json(
+                {
+                    "ads_target_fraccion_margen_amazon_mx": "0.5",
+                    "ads_target_fraccion_margen_amazon_us": "0.5",
+                }
+            ),
+        ),
+    )
+    conn.commit()
+    return pid, lid
+
+
+@_skip_db
+def test_r09r3_preview_us_moneda_y_tope_por_plataforma():
+    """R09 B12 (L10/L11/L12): en US el plan sale en USD con tope 36, no 350 MXN."""
+    with _db_i3("orbit_i3_r3us") as conn:
+        _, lid = _con_margen_us(conn)
+        solicitud = io.SolicitudImpulso(
+            plataforma="amazon_us",
+            listing_ids=(lid,),
+            subfamilia_por_listing={lid: "aros"},
+        )
+        vista = io.previsualiza(conn, solicitud, sugeridor=_sugeridor_fijo())
+        assert vista.moneda == "USD"
+        assert vista.tope_total == Decimal("36")
+        assert vista.planes[0].tope.moneda == "USD"
+        assert vista.planes[0].tope.monto == Decimal("36")
+
+
+@_skip_db
+def test_r09r3_lanza_us_guarda_moneda_del_plan():
+    """R09 B12 (L09): lanzar en US guarda USD como moneda del tope, no MXN fijo."""
+    with _db_i3("orbit_i3_r3us2") as conn:
+        _, lid = _con_margen_us(conn)
+        solicitud = io.SolicitudImpulso(
+            plataforma="amazon_us",
+            listing_ids=(lid,),
+            subfamilia_por_listing={lid: "aros"},
+        )
+        vista = io.previsualiza(conn, solicitud, sugeridor=_sugeridor_fijo())
+        lanzados = io.lanza(
+            conn,
+            solicitud,
+            huella=vista.huella,
+            confirmacion=vista.confirmacion_esperada,
+            actor="dueno",
+            ejecutor=_ejecutor_falso(conn, platform="amazon_us", moneda="USD"),
+            sugeridor=_sugeridor_fijo(),
+        )
+        assert len(lanzados) == 1
+        assert conn.execute(
+            "SELECT tope_moneda, tope_monto FROM impulso WHERE id = %s",
+            (lanzados[0].impulso_id,),
+        ).fetchone() == ("USD", Decimal("36"))
+
+
+@_skip_db
+def test_r09r3_lanza_lote_no_applied_no_sella_impulso():
+    """R09 B12 (L06): si la fabrica deja el lote fuera de applied, lanza da
+    502 y no sella impulso."""
+    with _db_i3("orbit_i3_r3l06") as conn:
+        _, lid = _con_margen(conn)
+        solicitud = _solicitud(conn, [lid])
+        vista = io.previsualiza(conn, solicitud, sugeridor=_sugeridor_fijo())
+        base = _ejecutor_falso(conn)
+
+        def _casi(plan_grupo, huella, lote):
+            hecho = base(plan_grupo, huella, lote)
+            return io.EjecucionFabrica(
+                lote=hecho.lote, grupo_id=hecho.grupo_id, estado_lote="failed"
+            )
+
+        with pytest.raises(io.ErrorImpulso) as exc:
+            io.lanza(
+                conn,
+                solicitud,
+                huella=vista.huella,
+                confirmacion=vista.confirmacion_esperada,
+                actor="dueno",
+                ejecutor=_casi,
+                sugeridor=_sugeridor_fijo(),
+            )
+        assert exc.value.status == 502
+        assert conn.execute("SELECT count(*) FROM impulso").fetchone() == (0,)
+
+
+@_skip_db
+def test_r09r3_lanza_huerfano_failed_con_grupo_no_se_reutiliza():
+    """R09 B12 (L07): huerfano failed con grupo: el reintento da 502, no
+    sella impulso sobre el lote caido."""
+    with _db_i3("orbit_i3_r3l07") as conn:
+        _, lid = _con_margen(conn)
+        solicitud = _solicitud(conn, [lid])
+        vista = io.previsualiza(conn, solicitud, sugeridor=_sugeridor_fijo())
+        lote = io.lote_de_plan(vista.planes[0])
+        conn.execute(
+            "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal,"
+            " huella, plan, modo_goal, estado) VALUES (%s, 'amazon_mx', 'aros', 'Base', 'go',"
+            " 'bbbb', '{}'::jsonb, 'shadow', 'failed')",
+            (lote,),
+        )
+        conn.execute(
+            "INSERT INTO campana_grupo (platform, tipo_producto, nombre_base, lote,"
+            " target_acos_pct, target_derivado_pct, fraccion, target_procedencia,"
+            " go_literal, tipo) VALUES ('amazon_mx', 'aros', 'Base', %s, 19.10,"
+            " 19.1040, 0.5, 'm', 'go', 'impulso')",
+            (lote,),
+        )
+        conn.commit()
+        llamadas = []
+
+        def _cuenta(plan_grupo, huella, lote_llamado):
+            llamadas.append(lote_llamado)
+            return io.EjecucionFabrica(lote=lote_llamado, grupo_id=-1, estado_lote="applied")
+
+        with pytest.raises(io.ErrorImpulso) as exc:
+            io.lanza(
+                conn,
+                solicitud,
+                huella=vista.huella,
+                confirmacion=vista.confirmacion_esperada,
+                actor="dueno",
+                ejecutor=_cuenta,
+                sugeridor=_sugeridor_fijo(),
+            )
+        assert exc.value.status == 502
+        assert "reconcilia" in str(exc.value.fallos)
+        assert llamadas == []
+        assert conn.execute("SELECT count(*) FROM impulso").fetchone() == (0,)
