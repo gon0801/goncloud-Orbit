@@ -59,6 +59,8 @@ from typing import Any
 
 import httpx
 import psycopg
+from httpx import HTTPError as _HTTPError
+from httpx import TimeoutException as _TimeoutException
 from psycopg.rows import tuple_row
 
 from app import fabrica_plan as fp
@@ -1516,9 +1518,12 @@ def _mutar(
                 _log("campana_creada", lote=lote, rol=rol, external=creadas[-1]["campaign"])
             if crear_pausado:
                 _activa_campanas(ctx, lote)
-        except Abortar as exc:
+        except Exception as exc:
+            # Abortar, red, timeout o muerte-viva: mismo cierre (failed +
+            # rollback best-effort). Lo incierto lo reconcilia el vigia.
             detalle = f"{exc} | creadas: {[c['rol'] for c in creadas]} | conocidos: {ctx.conocidos}"
             _sella_lote(conn_admin, lote, "failed", detalle)
+            rollback_incompleto = ""
             if revierte_al_fallar:
                 resumen = _revierte_parcial(ctx, lote)
                 nota = (
@@ -1526,6 +1531,8 @@ def _mutar(
                     + (f"; errores {resumen['errores']}" if resumen["errores"] else "; sin errores")
                     + "; el reintento se bloquea hasta --desarmar y nueva vista"
                 )
+                if resumen["errores"]:
+                    rollback_incompleto = "; ".join(resumen["errores"])
             else:
                 nota = (
                     "las creadas quedan ENABLED en Amazon; --desarmar <lote> las pausa"
@@ -1543,6 +1550,11 @@ def _mutar(
                 conocidos=ctx.conocidos,
                 nota=nota,
             )
+            if rollback_incompleto:
+                raise Abortar(
+                    f"{exc} || rollback incompleto ({rollback_incompleto}): puede quedar"
+                    " ENABLED en Amazon; el vigia la pausa al reconciliar"
+                ) from exc
             raise
         try:
             _registrar(ctx, plan, creadas)
@@ -1554,6 +1566,13 @@ def _mutar(
                 "failed",
                 f"campanas creadas en Amazon, registro interno incompleto: {exc}",
             )
+            rollback_txt = ""
+            if revierte_al_fallar:
+                # L8: sin grupo no hay impulso; las activadas se pausan
+                # (best effort) para no gastar sin tope.
+                resumen = _revierte_parcial(ctx, lote)
+                if resumen["errores"]:
+                    rollback_txt = f" || rollback incompleto ({'; '.join(resumen['errores'])})"
             _log(
                 "lote_detenido",
                 lote=lote,
@@ -1561,7 +1580,7 @@ def _mutar(
                 creadas=[c["rol"] for c in creadas],
                 nota="--registrar <lote> reintenta SOLO el registro (no toca Amazon)",
             )
-            raise Abortar(f"registro interno incompleto: {exc}") from exc
+            raise Abortar(f"registro interno incompleto: {exc}{rollback_txt}") from exc
         _sella_lote(conn_admin, lote, "applied", None)
         _log("reconciliacion_final", lote=lote, campanas=[c["campaign"] for c in creadas], ok=True)
         return 0
@@ -1570,17 +1589,28 @@ def _mutar(
 
 
 def _put_estado_campana(ctx: _Ctx, external: str, estado: str) -> dict:
-    resp = ctx.http.put(
-        f"{API}/sp/campaigns",
-        headers={
-            "Authorization": f"Bearer {ctx.token}",
-            "Amazon-Advertising-API-ClientId": ctx.cred.client_id,
-            "Amazon-Advertising-API-Scope": str(ctx.profile),
-            "Content-Type": VENDOR_CAMPANAS,
-            "Accept": VENDOR_CAMPANAS,
-        },
-        json={"campaigns": [{"campaignId": str(external), "state": estado}]},
-    )
+    # R09-r4 L3/L3b: la excepcion de red no sale pelada (como el POST
+    # declara INCERTO): se envuelve en Abortar para que _mutar selle
+    # failed + revierta y el dueno lea un mensaje, no un traceback.
+    # Timeout = INCERTO (pudo aplicarse); lo demas = fallo.
+    try:
+        resp = ctx.http.put(
+            f"{API}/sp/campaigns",
+            headers={
+                "Authorization": f"Bearer {ctx.token}",
+                "Amazon-Advertising-API-ClientId": ctx.cred.client_id,
+                "Amazon-Advertising-API-Scope": str(ctx.profile),
+                "Content-Type": VENDOR_CAMPANAS,
+                "Accept": VENDOR_CAMPANAS,
+            },
+            json={"campaigns": [{"campaignId": str(external), "state": estado}]},
+        )
+    except _TimeoutException as exc:
+        raise Abortar(
+            f"PUT {estado} de {external} INCERTO (timeout: {exc}): pudo aplicarse"
+        ) from exc
+    except _HTTPError as exc:
+        raise Abortar(f"PUT {estado} de {external} fallo (red: {exc})") from exc
     cuerpo: dict = {}
     with contextlib.suppress(ValueError):
         cuerpo = resp.json()
@@ -1711,6 +1741,12 @@ def _cambia_estado_lote(ctx: _Ctx, lote: str, estado: str, actor: str) -> None:
         if visto != nuevo:
             raise Abortar(f"readback de {external} ({rol}) != {nuevo} ({visto}): se detiene")
     _sella_lote(ctx.conn_admin, lote, estado, f"go: {actor}")
+    # G1: quien pauso queda registrado; al reanudar se limpia.
+    ctx.conn_admin.execute(
+        "UPDATE fabrica_lote SET pausado_por = %s WHERE lote = %s",
+        (actor if estado == "pausado" else None, lote),
+    )
+    ctx.conn_admin.commit()
 
 
 def pausar_lote(ctx: _Ctx, lote: str, actor: str) -> None:
@@ -1757,6 +1793,10 @@ def reactiva_lote(ctx: _Ctx, lote: str, actor: str) -> None:
             raise Abortar(f"readback de {external} ({rol}) != ENABLED ({visto}): se detiene")
     if actual == "pausado":
         _sella_lote(ctx.conn_admin, lote, "applied", f"go: {actor}")
+        ctx.conn_admin.execute(
+            "UPDATE fabrica_lote SET pausado_por = NULL WHERE lote = %s", (lote,)
+        )
+        ctx.conn_admin.commit()
 
 
 def _desarmar(args) -> int:

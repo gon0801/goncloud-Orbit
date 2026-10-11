@@ -301,3 +301,50 @@ const api = vm.runInThisContext("this.__api");
         [node, "-e", guion, str(archivo)], capture_output=True, text=True, timeout=60
     )
     assert proc.returncode == 0, proc.stderr or proc.stdout
+
+
+def test_r09r4_t01_t07_retiros_abiertos_form_ids_escape():
+    """R09-r4 B6 (T01-T07): la tabla de retiros abiertos pinta cada
+    form con su retiro_id (T01), enganche JS (T07) y literal 1 (T02);
+    pinta todos (T05) con su motivo (T06); sku y adId escapados
+    (T03/T04 XSS). Render puro, sin base."""
+    from types import SimpleNamespace
+
+    from jinja2 import Environment, FileSystemLoader, select_autoescape
+
+    env = Environment(
+        loader=FileSystemLoader("app/templates"),
+        autoescape=select_autoescape(["html"]),
+    )
+    html = env.get_template("productos_sin_clics.html").render(
+        plataforma="amazon_mx",
+        pantalla="productos-sin-clics",
+        asset_version="t",
+        candidatos=[],
+        impulsos=[],
+        sin_pedido=[],
+        anuncios_sin_producto=0,
+        retiros_abiertos=[
+            SimpleNamespace(
+                retiro_id=7,
+                motivo="subfamilia",
+                ad_id_externo="ad-<b>x",
+                sku="<script>alert(1)</script>",
+                retirado_el="hoy",
+            ),
+            SimpleNamespace(
+                retiro_id=9,
+                motivo="sin_pedidos",
+                ad_id_externo="ad-9",
+                sku="SS-9",
+                retirado_el="hoy",
+            ),
+        ],
+    )
+    assert 'data-reponer data-retiros="7"' in html
+    assert 'data-reponer data-retiros="9"' in html
+    assert html.count('data-esperada="REGRESAR 1 ANUNCIOS"') == 2
+    assert html.count("data-reponer") == 2
+    assert "<td>subfamilia</td>" in html
+    assert "<script>" not in html and "&lt;script&gt;" in html
+    assert "ad-<b>x" not in html and "ad-&lt;b&gt;x" in html

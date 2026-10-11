@@ -487,6 +487,65 @@ def test_ack_con_adId_sin_fila_en_list_es_sin_confirmar():
     assert "readback" in resultado.detalle
 
 
+def test_r09r4_ar02_relecturas_con_pausa():
+    """R09-r4 B6 (AR02): el nuevo tarda 1 list en verse: se duerme
+    entre relecturas (no salen seguidas)."""
+    ack = httpx.Response(207, json={"productAds": {"success": [{"adId": "999"}]}})
+    base, _ = _handler_create(ack, readback_state="ENABLED")
+    llamadas = {"list": 0}
+    dormidas: list = []
+
+    def handler(request):
+        if request.url.host == "api.amazon.com":
+            return _token_response()
+        if request.url.path.endswith(PATH_LIST):
+            llamadas["list"] += 1
+            if llamadas["list"] < 2:
+                return httpx.Response(200, json={"productAds": []})
+        return base(request)
+
+    (resultado,) = reponer_anuncios(
+        make_write_client(handler),
+        ["adGroupId=77 campaignId=55 sku=SKU-1 state=ENABLED"],
+        ejecutar=True,
+        avisar=lambda _m: None,
+        dormir=lambda s: dormidas.append(s),
+        pausa=0.2,
+    )
+    assert resultado.resultado == "repuesto"
+    # Una entre relecturas + una por anuncio procesado.
+    assert dormidas == [0.2, 0.2]
+
+
+def test_r09r4_ar03_archived_no_corta_reintento():
+    """R09-r4 B6 (AR03): relectura ARCHIVED del anuncio recreado: no
+    corta, sigue hasta verlo vivo (o agotar los 3 intentos)."""
+    ack = httpx.Response(207, json={"productAds": {"success": [{"adId": "999"}]}})
+    base, _ = _handler_create(ack, readback_state="ENABLED")
+    llamadas = {"list": 0}
+
+    def handler(request):
+        if request.url.host == "api.amazon.com":
+            return _token_response()
+        if request.url.path.endswith(PATH_LIST):
+            llamadas["list"] += 1
+            if llamadas["list"] < 3:
+                return httpx.Response(
+                    200, json={"productAds": [{"adId": "999", "state": "ARCHIVED"}]}
+                )
+        return base(request)
+
+    (resultado,) = reponer_anuncios(
+        make_write_client(handler),
+        ["adGroupId=77 campaignId=55 sku=SKU-1 state=ENABLED"],
+        ejecutar=True,
+        avisar=lambda _m: None,
+        dormir=lambda _s: None,
+    )
+    assert resultado.resultado == "repuesto"
+    assert llamadas["list"] == 3
+
+
 def test_una_linea_incompleta_aborta_antes_de_crear_nada():
     """Reponer con un dato adivinado crearia el anuncio equivocado, y eso
     gasta plata. Y se parsea TODO antes de mandar: una linea rota a mitad
@@ -634,6 +693,30 @@ def test_pausa_solo_los_enabled_y_reactivar_solo_los_paused():
     )
     assert _puts(llamadas2) == [("2", "ENABLED")]
     assert {r.ad_id: r.resultado for r in reactiva} == {"1": "ya_estaba", "2": "reactivado"}
+
+
+def test_r09r4_previa_caida_es_sin_confirmar_no_no_existe():
+    """R09-r4 B4 (f): si la lectura previa cae (500), no se sabe nada:
+    sale `sin_confirmar` (retomable), NO `no_existe` (que cerraria el
+    retiro para siempre). Cero PUTs."""
+    llamadas: list = []
+
+    def handler(request):
+        if request.url.host == "api.amazon.com":
+            return _token_response()
+        llamadas.append(request.url.path)
+        return httpx.Response(500, json={"message": "caido"})
+
+    (res,) = pausar_anuncios(
+        make_write_client(handler),
+        ["1"],
+        ejecutar=True,
+        avisar=lambda _m: None,
+        dormir=lambda _s: None,
+    )
+    assert res.resultado == "sin_confirmar"
+    assert "previa" in res.detalle
+    assert [p for p in llamadas if p == PATH_PUT_ADS] == []
 
 
 def test_put_no_toca_archived_y_ensayo_no_muta():

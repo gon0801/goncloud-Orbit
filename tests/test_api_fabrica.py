@@ -1438,10 +1438,14 @@ def _db_i5(conn):
     from test_migracion_0064 import SQL64
     from test_migracion_0065 import SQL65
     from test_migracion_0066 import SQL66
+    from test_migracion_0068 import SQL68
+    from test_migracion_0069 import SQL69
 
     conn.execute(SQL64)
     conn.execute(SQL65)
     conn.execute(SQL66)
+    conn.execute(SQL68)
+    conn.execute(SQL69)
 
 
 def _lid_de(conn, pid):
@@ -1721,6 +1725,185 @@ def test_i5_literales_y_campo_extra_422(escenario, monkeypatch):
     )
     assert r.status_code == 422
     assert "SECRETO-NO-REPETIBLE" not in r.text
+
+
+def test_r09r4_ap04_ejecutar_con_lote_propio_200(escenario, monkeypatch):
+    """R09-r4 B6 (AP04): ejecutar valida el lote contra los listings
+    pedidos (no contra lista vacia): lote propio pasa."""
+    from test_retiro_anuncios import _bolsa, _escritor, _fila
+
+    from app.ads import archivar
+
+    cliente, conn, _, _, ids = escenario
+    _db_i5(conn)
+    lid = _lid_de(conn, ids[0])
+    _bolsa(conn, lid, "ad-ap04")
+    conn.execute(
+        "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal,"
+        " huella, plan, modo_goal, estado) VALUES ('grupo-ap04', 'amazon_mx', 'aros', 'B5',"
+        " 'go', 'h', '{}'::jsonb, 'shadow', 'applied')"
+    )
+    gid = conn.execute(
+        "INSERT INTO campana_grupo (platform, tipo_producto, nombre_base, lote,"
+        " target_acos_pct, target_derivado_pct, fraccion, target_procedencia, go_literal,"
+        " tipo) VALUES ('amazon_mx', 'aros', 'B5', 'grupo-ap04', 19.10, 19.1040, 0.5, 'm',"
+        " 'go', 'fabrica5') RETURNING id"
+    ).fetchone()[0]
+    from test_fabrica_migracion import _entidad
+
+    camp = _entidad(conn, "amazon_mx", "campaign", "c-ap04")
+    ag5 = _entidad(conn, "amazon_mx", "ad_group", "ag-ap04", parent=camp)
+    conn.execute(
+        "INSERT INTO campana_grupo_rol (grupo_id, rol, ad_entity_id, ad_group_ad_entity_id)"
+        " VALUES (%s, 'category_exact', %s, %s)",
+        (gid, camp, ag5),
+    )
+    _entidad(conn, "amazon_mx", "product_ad", "ad-5ap04", parent=ag5, listing_id=lid)
+    conn.commit()
+    plan = cliente.post(
+        "/api/fabrica/retiro/plan",
+        json={
+            "plataforma": "amazon_mx",
+            "listing_ids": [lid],
+            "motivo": "subfamilia",
+            "lote": "grupo-ap04",
+        },
+    ).json()
+    escritor, _puts = _escritor(_fila("ad-ap04", "ENABLED"))
+    monkeypatch.setattr(archivar, "preparar_escritor", lambda platform: escritor)
+    r = cliente.post(
+        "/api/fabrica/retiro/ejecutar",
+        headers=HEADERS,
+        json={
+            "plataforma": "amazon_mx",
+            "listing_ids": [lid],
+            "motivo": "subfamilia",
+            "lote": "grupo-ap04",
+            "huella": plan["huella"],
+            "confirmacion": f"SACAR {len(plan['anuncios'])} ANUNCIOS",
+            "actor": "dueno",
+        },
+    )
+    assert r.status_code == 200, r.text
+
+
+def test_r09r4_ap06_reponer_parcial_502_no_500(escenario, monkeypatch):
+    """R09-r4 B6 (AP06): regreso parcial (uno falla): 502 con detalle,
+    no 500 pelado."""
+    from test_retiro_anuncios import _bolsa, _escritor, _fila
+
+    from app.ads import archivar
+
+    cliente, conn, _, _, ids = escenario
+    _db_i5(conn)
+    lid = _lid_de(conn, ids[0])
+    _bolsa(conn, lid, "ad-ok6")
+    _bolsa(conn, lid, "ad-bad6", ag="ag-b6", camp="c-b6")
+    plan = cliente.post(
+        "/api/fabrica/retiro/plan",
+        json={"plataforma": "amazon_mx", "listing_ids": [lid], "motivo": "sin_pedidos"},
+    ).json()
+    escritor, _puts = _escritor({**_fila("ad-ok6", "ENABLED"), **_fila("ad-bad6", "ENABLED")})
+    monkeypatch.setattr(archivar, "preparar_escritor", lambda platform: escritor)
+    r = cliente.post(
+        "/api/fabrica/retiro/ejecutar",
+        headers=HEADERS,
+        json={
+            "plataforma": "amazon_mx",
+            "listing_ids": [lid],
+            "motivo": "sin_pedidos",
+            "huella": plan["huella"],
+            "confirmacion": f"SACAR {len(plan['anuncios'])} ANUNCIOS",
+            "actor": "dueno",
+        },
+    )
+    assert r.status_code == 200, r.text
+    rids = r.json()["retiro_ids"]
+    escritor2, _puts2 = _escritor(
+        {**_fila("ad-ok6", "PAUSED"), **_fila("ad-bad6", "PAUSED")},
+        rechaza_put=frozenset({"ad-bad6"}),
+    )
+    monkeypatch.setattr(archivar, "preparar_escritor", lambda platform: escritor2)
+    r = cliente.post(
+        "/api/fabrica/retiro/reponer",
+        headers=HEADERS,
+        json={"retiro_ids": rids, "confirmacion": "REGRESAR 2 ANUNCIOS", "actor": "dueno"},
+    )
+    assert r.status_code == 502, r.text
+    assert "ad-bad6" in r.text
+
+
+def test_r09r4_ap08_ids_solo_abiertos(escenario, monkeypatch):
+    """R09-r4 B6 (AP08): retiro_ids de la respuesta trae solo abiertos
+    del lote (no los ya regresados)."""
+    from test_retiro_anuncios import _bolsa, _escritor, _fila
+
+    from app.ads import archivar
+
+    cliente, conn, _, _, ids = escenario
+    _db_i5(conn)
+    lid = _lid_de(conn, ids[0])
+    _bolsa(conn, lid, "ad-ok8")
+    _bolsa(conn, lid, "ad-8b", ag="ag-8b", camp="c-8b")
+    plan = cliente.post(
+        "/api/fabrica/retiro/plan",
+        json={"plataforma": "amazon_mx", "listing_ids": [lid], "motivo": "sin_pedidos"},
+    ).json()
+    escritor, _puts = _escritor({**_fila("ad-ok8", "ENABLED"), **_fila("ad-8b", "ENABLED")})
+    monkeypatch.setattr(archivar, "preparar_escritor", lambda platform: escritor)
+    cuerpo = {
+        "plataforma": "amazon_mx",
+        "listing_ids": [lid],
+        "motivo": "sin_pedidos",
+        "huella": plan["huella"],
+        "confirmacion": f"SACAR {len(plan['anuncios'])} ANUNCIOS",
+        "actor": "dueno",
+    }
+    r = cliente.post("/api/fabrica/retiro/ejecutar", headers=HEADERS, json=cuerpo)
+    assert r.status_code == 200, r.text
+    primero, segundo = r.json()["retiro_ids"]
+    r = cliente.post(
+        "/api/fabrica/retiro/reponer",
+        headers=HEADERS,
+        json={"retiro_ids": [primero], "confirmacion": "REGRESAR 1 ANUNCIOS", "actor": "dueno"},
+    )
+    assert r.status_code == 200, r.text
+    r = cliente.post("/api/fabrica/retiro/ejecutar", headers=HEADERS, json=cuerpo)
+    assert r.status_code == 200, r.text
+    # El repuesto se retira de nuevo (nuevo rid); los ids traen solo
+    # abiertos del lote, nunca el ya regresado.
+    assert primero not in r.json()["retiro_ids"]
+    assert segundo in r.json()["retiro_ids"]
+
+
+def test_r09r4_ap12_impulso_lote_sin_impulso_404(escenario):
+    """R09-r4 B6 (AP12): motivo 'impulso' con lote que no tiene
+    impulso: 404, no pasa con impulso None."""
+    cliente, conn, _, _, ids = escenario
+    _db_i5(conn)
+    lid = _lid_de(conn, ids[0])
+    conn.execute(
+        "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal,"
+        " huella, plan, modo_goal, estado) VALUES ('grupo-a12', 'amazon_mx', 'aros', 'B5',"
+        " 'go', 'h', '{}'::jsonb, 'shadow', 'applied')"
+    )
+    conn.execute(
+        "INSERT INTO campana_grupo (platform, tipo_producto, nombre_base, lote,"
+        " target_acos_pct, target_derivado_pct, fraccion, target_procedencia, go_literal,"
+        " tipo) VALUES ('amazon_mx', 'aros', 'B5', 'grupo-a12', 19.10, 19.1040, 0.5, 'm',"
+        " 'go', 'fabrica5')"
+    )
+    conn.commit()
+    r = cliente.post(
+        "/api/fabrica/retiro/plan",
+        json={
+            "plataforma": "amazon_mx",
+            "listing_ids": [lid],
+            "motivo": "impulso",
+            "lote": "grupo-a12",
+        },
+    )
+    assert r.status_code == 404, r.text
 
 
 def test_i5_ejecutar_parcial_502_con_detalle(escenario, monkeypatch):
@@ -2268,3 +2451,62 @@ def test_i5_ejecutar_amazon_no_disponible_502(escenario, monkeypatch):
         monkeypatch.setattr(archivar, "preparar_escritor", _falla)
         r = cliente.post("/api/fabrica/retiro/ejecutar", headers=HEADERS, json=cuerpo)
         assert r.status_code == 502, (exc, r.text)
+
+
+def test_r09r4_a03_actor_nul_rechazado_en_borde():
+    """A03: lanzar, retiro y reponer comparten _actor_limpio: el NUL se
+    rechaza en el borde, antes de mutar nada."""
+    from pydantic import ValidationError
+
+    api_fabrica, _fw = _modulos()
+    with pytest.raises(ValidationError):
+        api_fabrica.CuerpoLanzarImpulso(
+            solicitud={
+                "plataforma": "amazon_mx",
+                "listing_ids": [1],
+                "subfamilia_por_listing": {"1": "impulso"},
+            },
+            huella="a" * 64,
+            confirmacion="LANZAR",
+            actor="op\x00x",
+        )
+    with pytest.raises(ValidationError):
+        api_fabrica.CuerpoRetiroEjecutar(
+            plataforma="amazon_mx",
+            listing_ids=[1],
+            motivo="sin_pedidos",
+            huella="b" * 64,
+            confirmacion="RETIRAR",
+            actor="op\x00x",
+        )
+    with pytest.raises(ValidationError):
+        api_fabrica.CuerpoRetiroReponer(retiro_ids=[1], confirmacion="REPONER", actor="op\x00x")
+
+
+def test_r09r4_a04_lanzar_traduce_abortar_a_422(monkeypatch):
+    """A04: impulso_lanzar traduce fc.Abortar a 422, no deja un 500 crudo."""
+    from contextlib import nullcontext
+
+    import tools.fabrica_campanas as fc
+
+    api_fabrica, fw = _modulos()
+
+    def _boom(*args, **kwargs):
+        raise fc.Abortar("amazon dijo no")
+
+    monkeypatch.setattr(api_fabrica.io, "lanza", _boom)
+    monkeypatch.setattr(api_fabrica, "_sugeridor_plataforma", lambda *a: None)
+    monkeypatch.setattr(fw, "_conexion", lambda *a, **k: nullcontext(object()))
+    cuerpo = api_fabrica.CuerpoLanzarImpulso(
+        solicitud={
+            "plataforma": "amazon_mx",
+            "listing_ids": [1],
+            "subfamilia_por_listing": {"1": "impulso"},
+        },
+        huella="c" * 64,
+        confirmacion="LANZAR",
+        actor="probador",
+    )
+    with pytest.raises(HTTPException) as ei:
+        api_fabrica.impulso_lanzar("tok", cuerpo)
+    assert ei.value.status_code == 422, ei.value.detail

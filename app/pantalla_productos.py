@@ -267,7 +267,7 @@ SELECT v.id, v.product_id, p.odoo_sku, p.name, v.subfamilia, v.lote, v.estado_lo
 """
 
 _SQL_CLICS_FUERA = """
-SELECT i.id, sum(u.clicks)::bigint
+SELECT i.id, CASE WHEN bool_or(u.clicks IS NULL) THEN NULL ELSE sum(u.clicks)::bigint END
   FROM impulso i
   JOIN campana_grupo_rol r ON r.grupo_id = i.grupo_id
   JOIN (SELECT DISTINCT ON (o.ad_entity_id, o.metric_date) o.ad_entity_id, o.clicks,
@@ -276,7 +276,9 @@ SELECT i.id, sum(u.clicks)::bigint
          WHERE o.platform = %s AND o.placement = 'fuera_de_amazon'
          ORDER BY o.ad_entity_id, o.metric_date, o.observed_at DESC) u
     ON u.ad_entity_id = r.ad_entity_id AND u.metric_date >= i.lanzado_el::date
- WHERE i.platform = %s
+  LEFT JOIN (SELECT l.impulso_id, max(l.corte) AS corte FROM impulso_lectura l GROUP BY 1) c
+    ON c.impulso_id = i.id
+ WHERE i.platform = %s AND u.metric_date <= coalesce(c.corte, %s::date)
  GROUP BY i.id
 """
 
@@ -335,7 +337,7 @@ def lee_productos(conn, plataforma: str, hoy: dt.date) -> PantallaProductos:
     sin_producto = conn.execute(_SQL_SIN_PRODUCTO, (plataforma,)).fetchone()[0]
     fuera = {
         f[0]: (None if f[1] is None else int(f[1]))
-        for f in conn.execute(_SQL_CLICS_FUERA, (plataforma, plataforma)).fetchall()
+        for f in conn.execute(_SQL_CLICS_FUERA, (plataforma, plataforma, hoy)).fetchall()
     }
     abiertos: dict[int, tuple[int, ...]] = {
         f[0]: tuple(f[1]) for f in conn.execute(_SQL_RETIROS_ABIERTOS).fetchall()

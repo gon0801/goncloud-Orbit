@@ -11,6 +11,8 @@ from test_impulso_io import _con_margen, _impulso_vivo, _observa
 from test_migracion_0064 import SQL64
 from test_migracion_0065 import SQL65
 from test_migracion_0066 import SQL66
+from test_migracion_0068 import SQL68
+from test_migracion_0069 import SQL69
 from test_schema import _postgres_obligatorio_ausente
 
 from app import pantalla_productos as pp
@@ -36,6 +38,8 @@ def _db_p4(prefijo):
             conn.execute(SQL64)
             conn.execute(SQL65)
             conn.execute(SQL66)
+            conn.execute(SQL68)
+            conn.execute(SQL69)
             conn.execute(
                 "INSERT INTO config_version(label,settings) VALUES ('fabrica','{}'::jsonb)"
             )
@@ -257,8 +261,9 @@ def _retiro_abierto(conn, pa, ad, motivo):
     return conn.execute(
         "INSERT INTO anuncio_retiro (platform, motivo, modo, lote_retiro, impulso_id,"
         " ad_entity_id, ad_id_externo, ad_group_externo, campana_externa, sku, asin,"
-        " reversa, retirado_el, actor) VALUES ('amazon_mx', %s, 'pausa', 'lote-r8', NULL,"
-        " %s, %s, 'ag-8', 'c-8', 'SS-8', 'B0XXXXXXXX', 'adGroupId=1', now(), 'dueno')"
+        " reversa, retirado_el, actor) VALUES ('amazon_mx', %s, 'pausa',"
+        " 'lote-r8', NULL, %s, %s, 'ag-8', 'c-8', 'SS-8', 'B0XXXXXXXX', 'adGroupId=1',"
+        " now(), 'dueno')"
         " RETURNING id",
         (motivo, pa, ad),
     ).fetchone()[0]
@@ -310,6 +315,48 @@ def _lectura_p4(
 
 
 @_skip_db
+def test_r09r4_pp05_retiros_mx_y_us_no_se_mezclan():
+    """R09-r4 B6 (PP05): retiros abiertos de MX y US: cada pantalla
+    muestra solo los suyos."""
+    with _db_p4("orbit_p4_r4pp05") as conn:
+        _pid, lid = _producto(conn, sku="SS-5", asin="B0PP050001", seller_sku="SS-5")
+        _pidu, lidu = _producto(
+            conn, sku="SS-5U", asin="B0PP050002", platform="amazon_us", seller_sku="SS-5U"
+        )
+        pa = _activa(conn, lid, "ad-pp05mx")
+        _retiro_abierto(conn, pa, "ad-pp05mx", "sin_pedidos")
+        pa_u = _entidad(conn, "amazon_us", "product_ad", "ad-pp05us", listing_id=lidu)
+        conn.execute(
+            "INSERT INTO anuncio_retiro (platform, motivo, modo, lote_retiro, impulso_id,"
+            " ad_entity_id, ad_id_externo, ad_group_externo, campana_externa, sku, asin,"
+            " reversa, retirado_el, actor) VALUES ('amazon_us', 'sin_pedidos',"
+            " 'pausa', 'lote-pp05', NULL, %s, 'ad-pp05us', 'ag-u', 'c-u', 'SS-5U',"
+            " 'B0PP050002', 'x', now(), 'dueno')",
+            (pa_u,),
+        )
+        conn.commit()
+        mx = pp.lee_productos(conn, "amazon_mx", HOY)
+        us = pp.lee_productos(conn, "amazon_us", HOY)
+        assert [r.ad_id_externo for r in mx.retiros_abiertos] == ["ad-pp05mx"]
+        assert [r.ad_id_externo for r in us.retiros_abiertos] == ["ad-pp05us"]
+
+
+@_skip_db
+def test_r09r4_pp07_retiro_subfamilia_sale_en_pantalla():
+    """R09-r4 B6 (PP07): retiros abiertos de motivo 'subfamilia'
+    tambien salen (no solo 'sin_pedidos')."""
+    with _db_p4("orbit_p4_r4pp07") as conn:
+        _pid, lid = _producto(conn, sku="SS-7", asin="B0PP070001", seller_sku="SS-7")
+        pa = _activa(conn, lid, "ad-pp07")
+        rid = _retiro_abierto(conn, pa, "ad-pp07", "subfamilia")
+        conn.commit()
+        pantalla = pp.lee_productos(conn, "amazon_mx", HOY)
+        assert [(r.retiro_id, r.motivo, r.ad_id_externo) for r in pantalla.retiros_abiertos] == [
+            (rid, "subfamilia", "ad-pp07")
+        ]
+
+
+@_skip_db
 def test_p4_clics_fuera_no_superan_clics():
     """R09 B10 (n2): placement sin tope vs acumulado de la ultima lectura:
     los de fuera se capan a los del impulso."""
@@ -341,6 +388,50 @@ def test_p4_clics_fuera_no_superan_clics():
         conn.commit()
         visto = pp.lee_productos(conn, "amazon_mx", HOY).impulsos[0]
         assert visto.clics_fuera_de_amazon <= visto.clics
+
+
+@_skip_db
+def test_r09r4_4a_fuera_solo_ventana_y_4b_null_es_none():
+    """R09-r4 B5 (4a): clics de fuera anteriores al lanzamiento o
+    posteriores al corte no cuentan; solo lanzado..corte. (4b): un dia
+    sin dato (clicks NULL) en la ventana deja el total en None."""
+    with _db_p4("orbit_p4_r44") as conn:
+        pid, lid = _con_margen(conn)
+        ids = _impulso_vivo(conn, pid=pid, lid=lid, lanzado=HOY - dt.timedelta(days=30))
+        _lectura_p4(
+            conn,
+            ids["impulso"],
+            HOY - dt.timedelta(days=20),
+            dias=10,
+            impr=900,
+            clics=14,
+            pedidos=1,
+            veredicto="vende",
+            final=True,
+            hecho="graduado",
+        )
+
+        def _fuera(camp, dia, clics, tarde=False):
+            conn.execute(
+                "INSERT INTO ads_placement_observation (platform, ad_entity_id, placement,"
+                " metric_date, observed_at, metric_currency, impressions, clicks,"
+                " source_report_id) VALUES ('amazon_mx', %s, 'fuera_de_amazon', %s,"
+                " now() + make_interval(hours => %s), 'MXN', 50, %s, %s)",
+                (camp, dia, 1 if tarde else 0, clics, f"r4-{camp}-{dia}-{clics}"),
+            )
+
+        _fuera(ids["camps"][1], HOY - dt.timedelta(days=40), 100)  # pre-lanzamiento: no cuenta
+        for d in range(20, 26):  # ventana dias 25..20: 2 por dia = 12
+            _fuera(ids["camps"][1], HOY - dt.timedelta(days=d), 2)
+        _fuera(ids["camps"][1], HOY - dt.timedelta(days=1), 50)  # post-corte: no cuenta
+        conn.commit()
+        visto = pp.lee_productos(conn, "amazon_mx", HOY).impulsos[0]
+        assert visto.clics_fuera_de_amazon == 12
+        # 4b: el dia 22 llega sin dato (NULL mas reciente): total None.
+        _fuera(ids["camps"][1], HOY - dt.timedelta(days=22), None, tarde=True)
+        conn.commit()
+        visto = pp.lee_productos(conn, "amazon_mx", HOY).impulsos[0]
+        assert visto.clics_fuera_de_amazon is None
 
 
 @_skip_db
@@ -448,3 +539,71 @@ def test_r09r3_s11_impulsos_no_mezclan_mx_us():
         pantalla = pp.lee_productos(conn, "amazon_mx", HOY)
         assert {i.impulso_id for i in pantalla.impulsos} == {mx["impulso"]}
         assert us["impulso"] not in {i.impulso_id for i in pantalla.impulsos}
+
+
+@_skip_db
+def test_r09r4_intencion_no_se_ofrece_regresar():
+    """R09-r4 B4 (tabla propia): una intencion pendiente no sale en
+    retiros abiertos; el retiro sellado si."""
+    with _db_p4("orbit_p4_r4sello") as conn:
+        pid, lid = _producto(conn, sku="S-R4", asin="B0R4000001", seller_sku="SC-R4")
+        camp = _entidad(conn, "amazon_mx", "campaign", "c-r4")
+        ag = _entidad(conn, "amazon_mx", "ad_group", "ag-r4", parent=camp)
+        pa = _entidad(conn, "amazon_mx", "product_ad", "ad-r4", parent=ag, listing_id=lid)
+        conn.execute(
+            "INSERT INTO anuncio_retiro_intencion (platform, motivo, modo, lote_retiro,"
+            " ad_entity_id, ad_id_externo, ad_group_externo, campana_externa, sku, asin,"
+            " reversa, actor, creada_el) VALUES ('amazon_mx', 'sin_pedidos', 'pausa',"
+            " 'lote-r4', %s, 'ad-r4', 'ag-r4', 'c-r4', 'SC-R4', 'B0R4000001',"
+            " 'state=ENABLED', 'dueno', now())",
+            (pa,),
+        )
+        assert pp.lee_productos(conn, "amazon_mx", HOY).retiros_abiertos == ()
+        rid = conn.execute(
+            "INSERT INTO anuncio_retiro (platform, motivo, modo, lote_retiro, impulso_id,"
+            " ad_entity_id, ad_id_externo, ad_group_externo, campana_externa, sku, asin,"
+            " reversa, retirado_el, actor) VALUES ('amazon_mx', 'sin_pedidos', 'pausa',"
+            " 'lote-r4', NULL, %s, 'ad-r4', 'ag-r4', 'c-r4', 'SC-R4', 'B0R4000001',"
+            " 'state=ENABLED', now(), 'dueno') RETURNING id",
+            (pa,),
+        ).fetchone()[0]
+        assert [r.retiro_id for r in pp.lee_productos(conn, "amazon_mx", HOY).retiros_abiertos] == [
+            rid
+        ]
+
+
+@_skip_db
+def test_r09r4_pp12_fuera_no_supera_clics_aun_en_ventana():
+    """R09-r4 B6 (PP12): si Amazon trae mas clics de fuera que clics
+    totales en la ventana (dato inconsistente), el tope capa: fuera
+    nunca supera clics."""
+    with _db_p4("orbit_p4_r4pp12") as conn:
+        pid, lid = _con_margen(conn)
+        ids = _impulso_vivo(conn, pid=pid, lid=lid, lanzado=HOY - dt.timedelta(days=30))
+        _lectura_p4(
+            conn,
+            ids["impulso"],
+            HOY - dt.timedelta(days=20),
+            dias=10,
+            impr=900,
+            clics=12,
+            pedidos=1,
+            veredicto="vende",
+            final=True,
+            hecho="graduado",
+        )
+
+        def _fuera(camp, dia, clics):
+            conn.execute(
+                "INSERT INTO ads_placement_observation (platform, ad_entity_id, placement,"
+                " metric_date, observed_at, metric_currency, impressions, clicks,"
+                " source_report_id) VALUES ('amazon_mx', %s, 'fuera_de_amazon', %s,"
+                " now(), 'MXN', 50, %s, %s)",
+                (camp, dia, clics, f"pp12-{camp}-{dia}-{clics}"),
+            )
+
+        for d in range(20, 27):  # ventana dias 26..20: 2 por dia = 14 > 12 clics
+            _fuera(ids["camps"][1], HOY - dt.timedelta(days=d), 2)
+        conn.commit()
+        visto = pp.lee_productos(conn, "amazon_mx", HOY).impulsos[0]
+        assert visto.clics_fuera_de_amazon == 12

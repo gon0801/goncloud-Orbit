@@ -2758,9 +2758,13 @@ def _ctx_pausa(conn, transporte, lote):
 def _lote_applied_dos(conn):
     from test_migracion_0064 import SQL64
     from test_migracion_0065 import SQL65
+    from test_migracion_0066 import SQL66
+    from test_migracion_0068 import SQL68
 
     conn.execute(SQL64)
     conn.execute(SQL65)
+    conn.execute(SQL66)
+    conn.execute(SQL68)
     conn.execute(
         "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base,"
         " go_literal, huella, plan, modo_goal, estado) VALUES ('LP2', 'amazon_mx',"
@@ -2837,9 +2841,13 @@ def _lote_applied_orden_real(conn, lote="LP1"):
     """Lote applied con pasos 1..2 como los deja _mutar (no 10+i)."""
     from test_migracion_0064 import SQL64
     from test_migracion_0065 import SQL65
+    from test_migracion_0066 import SQL66
+    from test_migracion_0068 import SQL68
 
     conn.execute(SQL64)
     conn.execute(SQL65)
+    conn.execute(SQL66)
+    conn.execute(SQL68)
     conn.execute(
         "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base,"
         " go_literal, huella, plan, modo_goal, estado) VALUES (%s, 'amazon_mx',"
@@ -2978,6 +2986,243 @@ def test_mutar_revierte_pausa_creadas_al_fallar_segunda(monkeypatch):
         ).fetchone()
         assert fila[0] == "failed"
         assert "revertidas: ['campaigns-1']" in fila[1]
+
+
+@_skip_db
+def test_r09r4_n10_activar_lote_sin_campanas_aborta():
+    """R09-r4 B6 (N10): activar un lote sin campanas con external
+    aborta, no sigue a applied vacio."""
+    from types import SimpleNamespace
+
+    with db_fabrica("orbit_r4_n10") as conn:
+        from test_migracion_0064 import SQL64
+        from test_migracion_0065 import SQL65
+
+        conn.execute(SQL64)
+        conn.execute(SQL65)
+        conn.execute(
+            "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base,"
+            " go_literal, huella, plan, modo_goal, estado) VALUES ('r4-n10', 'amazon_mx',"
+            " 'aros', 'Base', 'go', 'h', '{}', 'shadow', 'planeado')"
+        )
+        ctx = SimpleNamespace(conn_admin=conn, lote="r4-n10")
+        with pytest.raises(fc.Abortar, match="nada que activar"):
+            fc._activa_campanas(ctx, "r4-n10")
+
+
+@_skip_db
+def test_r09r4_n19_reactiva_no_revive_desarmado():
+    """R09-r4 B6 (N19): reactiva_lote sobre un lote desarmado aborta
+    (nunca revive), sin PUTs."""
+    from types import SimpleNamespace
+
+    with db_fabrica("orbit_r4_n19") as conn:
+        from test_migracion_0064 import SQL64
+        from test_migracion_0065 import SQL65
+
+        conn.execute(SQL64)
+        conn.execute(SQL65)
+        conn.execute(
+            "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base,"
+            " go_literal, huella, plan, modo_goal, estado) VALUES ('r4-n19', 'amazon_mx',"
+            " 'aros', 'Base', 'go', 'h', '{}', 'shadow', 'desarmado')"
+        )
+        ctx = SimpleNamespace(conn_admin=conn, lote="r4-n19")
+        with pytest.raises(fc.Abortar, match="nunca revive"):
+            fc.reactiva_lote(ctx, "r4-n19", "impulso-vigia")
+
+
+class _AmazonPausaFalla(_AmazonConPausa):
+    """PUT programable por numero: 'red' (ConnectError), 'expira'
+    (aplica + ReadTimeout) o '400' (rechazo). Lo demas aplica."""
+
+    def __init__(self, *a, put_falla=None, **k):
+        super().__init__(*a, **k)
+        self.put_falla = dict(put_falla or {})
+        self.n_put = 0
+
+    def __call__(self, request):
+        if request.method == "PUT" and str(request.url).endswith("/sp/campaigns"):
+            self.n_put += 1
+            modo = self.put_falla.get(self.n_put)
+            cuerpo = json.loads(request.content)["campaigns"][0]
+            if modo == "red":
+                raise httpx.ConnectError("red caida (falso)")
+            if modo == "400":
+                return httpx.Response(400, json={"code": "400", "details": "rechazado"})
+            if modo == "expira":
+                self.objetos.setdefault(cuerpo["campaignId"], {})["state"] = cuerpo["state"]
+                self.puts.append((cuerpo["campaignId"], cuerpo["state"]))
+                raise httpx.ReadTimeout("expiro (falso); Amazon SI aplico")
+            if modo == "sordo":
+                self.puts.append((cuerpo["campaignId"], cuerpo["state"]))
+                return httpx.Response(
+                    207, json={"campaigns": {"success": [{"index": 0}], "error": []}}
+                )
+            if modo == "miente":
+                self.objetos.setdefault(cuerpo["campaignId"], {})["state"] = cuerpo["state"]
+                self.puts.append((cuerpo["campaignId"], cuerpo["state"]))
+                return httpx.Response(400, json={"code": "400", "details": "rechazado"})
+        return super().__call__(request)
+
+
+@_skip_db
+def test_r09r4_l3_red_en_activacion_revierte_y_falla_cerrado(monkeypatch):
+    """R09-r4 B1 (L3): ConnectError (no Abortar) en el PUT de activar:
+    _mutar lo atrapa, revierte (ambas PAUSED) y falla con Abortar,
+    no con la excepcion de red pelada."""
+    import psycopg
+    from test_migracion_0064 import SQL64
+
+    with db_fabrica("orbit_r4_l3") as conn:
+        conn.execute(SQL64)
+        plan = _plan_dos_roles()
+        huella = fp.huella_plan_v2(plan)
+        args = SimpleNamespace(esperado=2, huella=huella, go="impulso test")
+        with psycopg.connect(_test_dsn(), dbname=conn.info.dbname) as conn_motor:
+            amazon = _AmazonPausaFalla(put_falla={2: "red"})
+            _frontera_mutacion(monkeypatch, _conn_plan(), conn_motor, amazon)
+            with pytest.raises(fc.Abortar):
+                fc._mutar(
+                    args, plan, huella, lote="r4-l3", revierte_al_fallar=True, crear_pausado=True
+                )
+        assert amazon.objetos["campaigns-1"]["state"] == "PAUSED"
+        assert amazon.objetos["campaigns-2"]["state"] == "PAUSED"
+        fila = conn.execute(
+            "SELECT estado, detalle FROM fabrica_lote WHERE lote = 'r4-l3'"
+        ).fetchone()
+        assert fila[0] == "failed"
+        assert "revertidas: ['campaigns-1', 'campaigns-2']" in fila[1]
+
+
+@_skip_db
+def test_r09r4_l3b_timeout_tras_aplicar_revierte_ambas(monkeypatch):
+    """R09-r4 B1 (L3b): el PUT aplica en Amazon pero la respuesta
+    expira: se revierte igual y nada queda ENABLED."""
+    import psycopg
+    from test_migracion_0064 import SQL64
+
+    with db_fabrica("orbit_r4_l3b") as conn:
+        conn.execute(SQL64)
+        plan = _plan_dos_roles()
+        huella = fp.huella_plan_v2(plan)
+        args = SimpleNamespace(esperado=2, huella=huella, go="impulso test")
+        with psycopg.connect(_test_dsn(), dbname=conn.info.dbname) as conn_motor:
+            amazon = _AmazonPausaFalla(put_falla={2: "expira"})
+            _frontera_mutacion(monkeypatch, _conn_plan(), conn_motor, amazon)
+            with pytest.raises(fc.Abortar):
+                fc._mutar(
+                    args, plan, huella, lote="r4-l3b", revierte_al_fallar=True, crear_pausado=True
+                )
+        assert amazon.objetos["campaigns-1"]["state"] == "PAUSED"
+        assert amazon.objetos["campaigns-2"]["state"] == "PAUSED"
+        fila = conn.execute("SELECT estado FROM fabrica_lote WHERE lote = 'r4-l3b'").fetchone()
+        assert fila[0] == "failed"
+
+
+@_skip_db
+def test_r09r4_n06_rollback_con_readback_malo_lo_registra(monkeypatch):
+    """R09-r4 B6 (N06): PUT PAUSED con ack ok pero readback que no
+    confirma (sordo): el rollback lo registra como error (no como
+    revertida) y el mensaje lo dice."""
+    import psycopg
+    from test_migracion_0064 import SQL64
+
+    with db_fabrica("orbit_r4_n06") as conn:
+        conn.execute(SQL64)
+        plan = _plan_dos_roles()
+        huella = fp.huella_plan_v2(plan)
+        args = SimpleNamespace(esperado=2, huella=huella, go="impulso test")
+        with psycopg.connect(_test_dsn(), dbname=conn.info.dbname) as conn_motor:
+            amazon = _AmazonPausaFalla(put_falla={2: "400", 3: "sordo", 4: "sordo"})
+            _frontera_mutacion(monkeypatch, _conn_plan(), conn_motor, amazon)
+            with pytest.raises(fc.Abortar) as exc:
+                fc._mutar(
+                    args, plan, huella, lote="r4-n06", revierte_al_fallar=True, crear_pausado=True
+                )
+        assert "rollback incompleto" in str(exc.value)
+        assert "readback tras PUT: ENABLED" in str(exc.value)
+        fila = conn.execute("SELECT detalle FROM fabrica_lote WHERE lote = 'r4-n06'").fetchone()
+        # c2 nacio PAUSED (su PUT ENABLED fue el rechazado): el rollback
+        # la confirma; c1 quedo ENABLED y se registra por readback.
+        assert "revertidas: ['campaigns-2']" in fila[0]
+        assert "campaigns-1: readback tras PUT: ENABLED" in fila[0]
+
+
+@_skip_db
+def test_r09r4_l2_rollback_fallido_lo_dice(monkeypatch):
+    """R09-r4 B1 (L2): si la activacion falla Y el rollback tambien,
+    el mensaje al dueno dice que puede quedar ENABLED y que el vigia
+    la pausa al reconciliar."""
+    import psycopg
+    from test_migracion_0064 import SQL64
+
+    with db_fabrica("orbit_r4_l2m") as conn:
+        conn.execute(SQL64)
+        plan = _plan_dos_roles()
+        huella = fp.huella_plan_v2(plan)
+        args = SimpleNamespace(esperado=2, huella=huella, go="impulso test")
+        with psycopg.connect(_test_dsn(), dbname=conn.info.dbname) as conn_motor:
+            amazon = _AmazonPausaFalla(put_falla={2: "400", 3: "400", 4: "400"})
+            _frontera_mutacion(monkeypatch, _conn_plan(), conn_motor, amazon)
+            with pytest.raises(fc.Abortar) as exc:
+                fc._mutar(
+                    args, plan, huella, lote="r4-l2m", revierte_al_fallar=True, crear_pausado=True
+                )
+        assert "rollback incompleto" in str(exc.value)
+        assert "el vigia la pausa al reconciliar" in str(exc.value)
+        assert "PUT PAUSED rechazado (status 400)" in str(exc.value)
+        assert amazon.objetos["campaigns-1"]["state"] == "ENABLED"
+
+
+@_skip_db
+def test_r09r4_n08_activa_no_ignora_ack(monkeypatch):
+    """R09-r4 B6 (N08): PUT ENABLED que aplica pero responde 400: se
+    aborta por el ack (no se sigue porque el readback diga ENABLED)."""
+    import psycopg
+    from test_migracion_0064 import SQL64
+
+    with db_fabrica("orbit_r4_n08") as conn:
+        conn.execute(SQL64)
+        plan = _plan_dos_roles()
+        huella = fp.huella_plan_v2(plan)
+        args = SimpleNamespace(esperado=2, huella=huella, go="impulso test")
+        with psycopg.connect(_test_dsn(), dbname=conn.info.dbname) as conn_motor:
+            amazon = _AmazonPausaFalla(put_falla={2: "miente"})
+            _frontera_mutacion(monkeypatch, _conn_plan(), conn_motor, amazon)
+            with pytest.raises(fc.Abortar) as exc:
+                fc._mutar(
+                    args, plan, huella, lote="r4-n08", revierte_al_fallar=True, crear_pausado=True
+                )
+        assert "PUT ENABLED de campaigns-2 rechazado (status 400)" in str(exc.value)
+        assert conn.execute("SELECT estado FROM fabrica_lote WHERE lote = 'r4-n08'").fetchone() == (
+            "failed",
+        )
+
+
+@_skip_db
+def test_r09r4_n09_activa_verifica_readback(monkeypatch):
+    """R09-r4 B6 (N09): PUT ENABLED sordo (ack ok, no aplica): el
+    readback lo detecta y se aborta (no queda applied a medias)."""
+    import psycopg
+    from test_migracion_0064 import SQL64
+
+    with db_fabrica("orbit_r4_n09") as conn:
+        conn.execute(SQL64)
+        plan = _plan_dos_roles()
+        huella = fp.huella_plan_v2(plan)
+        args = SimpleNamespace(esperado=2, huella=huella, go="impulso test")
+        with psycopg.connect(_test_dsn(), dbname=conn.info.dbname) as conn_motor:
+            amazon = _AmazonPausaFalla(put_falla={1: "sordo", 2: "sordo"})
+            _frontera_mutacion(monkeypatch, _conn_plan(), conn_motor, amazon)
+            with pytest.raises(fc.Abortar) as exc:
+                fc._mutar(
+                    args, plan, huella, lote="r4-n09", revierte_al_fallar=True, crear_pausado=True
+                )
+        assert "tras activar != ENABLED (PAUSED)" in str(exc.value)
+        assert conn.execute("SELECT estado FROM fabrica_lote WHERE lote = 'r4-n09'").fetchone() == (
+            "failed",
+        )
 
 
 @_skip_db

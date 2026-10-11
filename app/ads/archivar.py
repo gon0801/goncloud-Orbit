@@ -446,7 +446,15 @@ def _cambiar_estado_anuncios(
     if len(set(ids)) != len(ids):
         raise ListaInvalida("hay adIds repetidos en la lista: se aborta antes de mutar")
 
-    filas = leer_anuncios(escritor, ids)
+    try:
+        filas = leer_anuncios(escritor, ids)
+    except AdsApiError as exc:
+        # Previa caida: no se sabe nada; nada se muta. Cada anuncio sale
+        # `sin_confirmar` (NO `no_existe`): quiza existe y el PUT nunca
+        # salio; el retiro conserva la intencion y el reintento retoma.
+        detalle = f"previa caida ({exc}): PUT no enviado, se retoma"
+        avisar(f"lectura previa caida: {exc}")
+        return [ResultadoAnuncio(ad_id, None, "sin_confirmar", detalle) for ad_id in ids]
     previos = {k: str(v["state"]) for k, v in filas.items()}
     avisar(f"lectura previa: {len(previos)} de {len(ids)} adIds existen en la cuenta")
 

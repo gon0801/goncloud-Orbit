@@ -64,7 +64,10 @@ _SQL_ANUNCIOS = """
 SELECT pa.id, pa.external_id, ag.external_id, ag.name, camp.external_id,
        li.seller_sku, li.external_id
   FROM ad_entity pa
-  JOIN ad_entity_state es ON es.ad_entity_id = pa.id AND es.status = 'ENABLED'
+  JOIN ad_entity_state es ON es.ad_entity_id = pa.id
+   AND (es.status = 'ENABLED' OR EXISTS (
+       SELECT 1 FROM anuncio_retiro_intencion i WHERE i.ad_entity_id = pa.id
+         AND i.cerrada_el IS NULL))
   JOIN ad_entity ag ON ag.id = pa.parent_id AND ag.kind = 'ad_group'
   JOIN ad_entity camp ON camp.id = ag.parent_id AND camp.kind = 'campaign'
   JOIN listing li ON li.id = pa.listing_id
@@ -162,6 +165,81 @@ SELECT r.id FROM anuncio_retiro r
    AND NOT EXISTS (SELECT 1 FROM anuncio_reposicion p WHERE p.retiro_id = r.id)
 """
 
+
+_SQL_INTENCION_ABIERTA = """
+SELECT i.id FROM anuncio_retiro_intencion i
+ WHERE i.ad_entity_id = %s
+   AND i.cerrada_el IS NULL
+"""
+
+
+def _abre_intencion(conn, plan, lote, impulso_id, ent, anuncio, reversa, actor: str) -> int:
+    """Intencion ANTES del PUT (tabla propia 0069): si el PUT es
+    incierto o el proceso muere, el reintento la retoma. Una
+    pendiente por anuncio (UNIQUE parcial)."""
+    iid = conn.execute(
+        "INSERT INTO anuncio_retiro_intencion (platform, motivo, modo, lote_retiro, impulso_id,"
+        " ad_entity_id, ad_id_externo, ad_group_externo, campana_externa, sku, asin,"
+        " reversa, actor, creada_el) VALUES (%s, %s, 'pausa', %s, %s, %s, %s, %s, %s,"
+        " %s, %s, %s, %s, now()) RETURNING id",
+        (
+            plan.plataforma,
+            plan.motivo,
+            lote,
+            impulso_id,
+            ent,
+            anuncio.ad_id_externo,
+            anuncio.ad_group_externo,
+            anuncio.campana_externa,
+            anuncio.sku,
+            anuncio.asin,
+            reversa,
+            actor,
+        ),
+    ).fetchone()[0]
+    conn.commit()
+    return iid
+
+
+def _sella_retiro(conn, plan, lote, impulso_id, ent, anuncio, reversa, actor: str) -> int:
+    """Fila de retiro SOLO tras el readback que confirma (toda fila de
+    anuncio_retiro es un retiro sellado: 'fila = retirado')."""
+    rid = conn.execute(
+        "INSERT INTO anuncio_retiro (platform, motivo, modo, lote_retiro, impulso_id,"
+        " ad_entity_id, ad_id_externo, ad_group_externo, campana_externa, sku, asin,"
+        " reversa, retirado_el, actor) VALUES (%s, %s, 'pausa', %s, %s, %s, %s, %s, %s,"
+        " %s, %s, %s, now(), %s) RETURNING id",
+        (
+            plan.plataforma,
+            plan.motivo,
+            lote,
+            impulso_id,
+            ent,
+            anuncio.ad_id_externo,
+            anuncio.ad_group_externo,
+            anuncio.campana_externa,
+            anuncio.sku,
+            anuncio.asin,
+            reversa,
+            actor,
+        ),
+    ).fetchone()[0]
+    conn.commit()
+    return rid
+
+
+def _cierra_intencion(conn, iid: int, detalle: str, retiro_id: int | None) -> None:
+    """Cierra la intencion (solo-cierre 0069): con el retiro que sello
+    si el readback confirmo, o sin retiro si se sabe que Amazon no
+    cambio (rechazo limpio). Se nombra igual (no se retiro)."""
+    conn.execute(
+        "UPDATE anuncio_retiro_intencion SET cerrada_el = now(), detalle = %s,"
+        " retiro_id = %s WHERE id = %s",
+        (detalle, retiro_id, iid),
+    )
+    conn.commit()
+
+
 _SQL_ENTIDAD_DE_ANUNCIO = """
 SELECT pa.id FROM ad_entity pa
  WHERE pa.platform = %s AND pa.kind = 'product_ad' AND pa.external_id = %s
@@ -192,15 +270,17 @@ def ejecuta_retiro(
     escritor=None,
     actor: str | None = None,
 ) -> int:
-    """Pausa los anuncios del plan y deja una fila por anuncio en
-    `anuncio_retiro` (modo 'pausa'). La fila se escribe ANTES de su PUT
-    (append-only: sin UPDATE ni DELETE) con la reversa de la lectura
-    previa: si el PUT es incierto (red o relectura caida), la fila
-    conservada es lo que permite reponerlo despues. Reanudable: salta
+    """Pausa los anuncios del plan (modo 'pausa'). Patron intencion /
+    sello (0069, tabla propia): la intencion se escribe ANTES de su
+    PUT con la reversa de la lectura previa; la fila de
+    `anuncio_retiro` solo se escribe tras el readback que confirma
+    (toda fila es un retiro sellado). Si el PUT es incierto o el
+    proceso muere, la intencion pendiente es lo que el reintento
+    retoma (manda el PUT sobre la misma intencion). Reanudable: salta
     los que ya tienen un retiro abierto. Todo se valida antes del
     primer PUT (entidad, campos NOT NULL, existencia en Amazon). Un
-    rechazo limpio deja su fila (visible; reponer la cierra) y se
-    nombra al final. Devuelve cuantos retiro."""
+    rechazo limpio cierra su intencion sin fila de retiro y se nombra
+    al final. Devuelve cuantos retiro."""
     if not go or not go.strip():
         raise ValueError("ejecutar un retiro exige el literal go del dueno")
     if (plan.motivo == "impulso") != (impulso_id is not None):
@@ -237,10 +317,16 @@ def ejecuta_retiro(
         ]
         if not pendientes:
             return 0
+        # Intencion pendiente de un intento anterior: se retoma (mismo
+        # iid, sin INSERT); el resto abre intencion nueva antes de su PUT.
+        trabajo = []
+        for ent, anuncio in pendientes:
+            prev = conn.execute(_SQL_INTENCION_ABIERTA, (ent,)).fetchone()
+            trabajo.append((ent, anuncio, prev[0] if prev is not None else None))
         # Lectura previa global ANTES del primer PUT: existencia y reversas.
         filas = archivar.leer_anuncios(escritor, [a.ad_id_externo for _, a in pendientes])
         retirados, fallidos = _ejecuta_pendientes(
-            conn, plan, pendientes, filas, lote, impulso_id, escritor, actor_final
+            conn, plan, trabajo, filas, lote, impulso_id, escritor, actor_final
         )
     if fallidos:
         raise RuntimeError(f"retiro no confirmado ({retirados} registrados): {fallidos}")
@@ -248,11 +334,12 @@ def ejecuta_retiro(
 
 
 def _ejecuta_pendientes(conn, plan, pendientes, filas, lote, impulso_id, escritor, actor_final):
-    """INSERT-antes-del-PUT por anuncio (llamador con locks): conserva
-    la fila en lo incierto y nombra al final."""
+    """Intencion-antes-del-PUT por anuncio (llamador con locks): la
+    intencion se confirma con el readback (fila de retiro) o queda
+    pendiente para el reintento; al final se nombra."""
     retirados = 0
     fallidos: list[str] = []
-    for ent, anuncio in pendientes:
+    for ent, anuncio, previo in pendientes:
         fila = filas.get(anuncio.ad_id_externo)
         if fila is None:
             fallidos.append(f"{anuncio.ad_id_externo} (no_existe en Amazon: no se mando nada)")
@@ -260,38 +347,52 @@ def _ejecuta_pendientes(conn, plan, pendientes, filas, lote, impulso_id, escrito
         if fila.get("state") == archivar.ESTADO_ARCHIVADO:
             fallidos.append(f"{anuncio.ad_id_externo} (ARCHIVED: el PUT no lo mueve)")
             continue
-        rid = conn.execute(
-            "INSERT INTO anuncio_retiro (platform, motivo, modo, lote_retiro, impulso_id,"
-            " ad_entity_id, ad_id_externo, ad_group_externo, campana_externa, sku, asin,"
-            " reversa, retirado_el, actor) VALUES (%s, %s, 'pausa', %s, %s, %s, %s, %s, %s,"
-            " %s, %s, %s, now(), %s) RETURNING id",
-            (
-                plan.plataforma,
-                plan.motivo,
+        if previo is None:
+            iid = _abre_intencion(
+                conn,
+                plan,
                 lote,
                 impulso_id,
                 ent,
-                anuncio.ad_id_externo,
-                anuncio.ad_group_externo,
-                anuncio.campana_externa,
-                anuncio.sku,
-                anuncio.asin,
+                anuncio,
                 archivar.reversa_de_fila(fila),
                 actor_final,
-            ),
-        ).fetchone()[0]
-        conn.commit()
+            )
+        else:
+            iid = previo
         try:
             res = archivar.pausar_anuncios(escritor, [anuncio.ad_id_externo], ejecutar=True)[0]
         except Exception as exc:
-            fallidos.append(f"{anuncio.ad_id_externo} (PUT incierto, fila {rid} conservada: {exc})")
+            fallidos.append(
+                f"{anuncio.ad_id_externo} (PUT incierto, intencion {iid} pendiente: {exc})"
+            )
             continue
         if res.resultado in ("pausado", "ya_estaba"):
+            rid = _sella_retiro(
+                conn,
+                plan,
+                lote,
+                impulso_id,
+                ent,
+                anuncio,
+                archivar.reversa_de_fila(fila),
+                actor_final,
+            )
+            _cierra_intencion(conn, iid, "sello del readback", rid)
             retirados += 1
-        else:  # fallo, no_existe, sin_confirmar: la fila queda (append-only)
+        elif res.resultado in ("fallo", "no_existe"):
+            # Rechazo limpio o PUT nunca enviado: se sabe que Amazon no
+            # cambio; la intencion se cierra SIN fila de retiro y el
+            # reintento abre una nueva. Se nombra igual.
+            detalle = res.detalle if res.detalle else res.resultado
+            _cierra_intencion(conn, iid, detalle, None)
+            fallidos.append(
+                f"{anuncio.ad_id_externo} ({res.resultado}, intencion {iid} cerrada: {detalle})"
+            )
+        else:  # sin_confirmar: incierto; la intencion queda pendiente y el reintento la retoma
             detalle = res.detalle if res.detalle else res.resultado
             fallidos.append(
-                f"{anuncio.ad_id_externo} ({res.resultado}, fila {rid} conservada: {detalle})"
+                f"{anuncio.ad_id_externo} ({res.resultado}, intencion {iid} pendiente: {detalle})"
             )
     return retirados, fallidos
 
@@ -341,7 +442,9 @@ def repone(
             escritor = archivar.preparar_escritor(plataforma)
         except (ValueError, AdsApiError, AdsConfigError) as exc:
             raise RuntimeError(f"Amazon no disponible para reponer: {exc}") from exc
-    with _bloqueados(conn, [f"repone-rid:{rid}" for rid in retiro_ids]):
+    # Misma llave que ejecuta (por anuncio): retirar y regresar el mismo
+    # anuncio se excluyen; con llaves distintas se cruzaban (Y-05 c).
+    with _bloqueados(conn, [f"retiro-ad:{f[3]}" for f in pendientes]):
         # Re-lee bajo lock: otro pudo reponer mientras se esperaba.
         filas = conn.execute(_SQL_RETIROS, (list(retiro_ids),)).fetchall()
         pendientes = [f for f in filas if not f[4]]
@@ -350,6 +453,9 @@ def repone(
         estados = archivar.estados_actuales(escritor, [f[1] for f in pendientes])
         repuestos = 0
         fallidos: list[str] = []
+        # Toda fila de anuncio_retiro es un retiro sellado; una
+        # intencion pendiente no tiene retiro_id, asi que regresarla
+        # es imposible estructuralmente (no manda nada a Amazon).
         for rid, ad_id, reversa, _ent, _rep in pendientes:
             try:
                 nuevo, estado_nuevo = _repone_uno(escritor, ad_id, reversa, estados.get(ad_id))

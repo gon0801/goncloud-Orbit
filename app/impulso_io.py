@@ -134,16 +134,18 @@ class PausadorFabrica:
         self._armado = None
 
     def _ctx_para(self, lote: str):
-        import httpx
-
         import tools.fabrica_campanas as fc
-        from app.ads.client import AdsClient
         from app.ads.config import AdsCredentials
 
         if self._armado is None:
             cred = AdsCredentials.from_secrets_dir()
-            cliente = AdsClient(cred)
-            http = httpx.Client(timeout=httpx.Timeout(connect=5.0, read=20.0, write=10.0, pool=5.0))
+            # fc.AdsClient (no app.ads.client directo): la misma fuente
+            # que el resto de la fabrica, para que la frontera de
+            # pruebas aplique parejo al PUT y al readback.
+            cliente = fc.AdsClient(cred)
+            http = fc.httpx.Client(
+                timeout=fc.httpx.Timeout(connect=5.0, read=20.0, write=10.0, pool=5.0)
+            )
             self._armado = (cred, cliente, http, fc._perfiles(cliente))
         cred, cliente, http, perfiles = self._armado
         fila = self._conn.execute(
@@ -174,7 +176,56 @@ class PausadorFabrica:
     def reactiva(self, lote: str) -> None:
         import tools.fabrica_campanas as fc
 
+        fila = self._conn.execute(
+            "SELECT pausado_por FROM fabrica_lote WHERE lote = %s", (lote,)
+        ).fetchone()
+        self._conn.commit()
+        if fila is not None and fila[0] not in (None, "impulso-vigia"):
+            # G1: lo pauso el dueno; graduar no reenciende (sin PUTs).
+            return
         fc.reactiva_lote(self._ctx_para(lote), lote, self._actor)
+
+    def pausa_huerfanas(self, lote: str) -> bool:
+        """Reconciliacion: pausa las campanas ENABLED del lote (PUT +
+        readback por campana, con fila en el ledger antes de cada PUT).
+        Para lotes de impulso sin impulso (muerte a medias). Devuelve
+        si pauso alguna; si alguna queda ENABLED, levanta."""
+        import tools.fabrica_campanas as fc
+
+        ctx = self._ctx_para(lote)
+        filas = self._conn.execute(
+            "SELECT DISTINCT p.rol::text, p.external_id FROM fabrica_lote_paso p"
+            " WHERE p.lote = %s AND p.recurso = 'campaign' AND p.external_id IS NOT NULL",
+            (lote,),
+        ).fetchall()
+        # Como pausar_lote: los pasos nuevos siguen al max(orden);
+        # sin esto el INSERT choca con UNIQUE(lote, orden).
+        ctx.orden = self._conn.execute(
+            "SELECT coalesce(max(orden), 0) FROM fabrica_lote_paso WHERE lote = %s",
+            (lote,),
+        ).fetchone()[0]
+        self._conn.commit()
+        pauso = False
+        pendientes: list[str] = []
+        for rol, external in filas:
+            leido = fc._readback(ctx.cliente_lectura, ctx.profile, "/sp/campaigns", external)
+            if not isinstance(leido, dict) or leido.get("state") != "ENABLED":
+                continue
+            paso = fp.Paso(rol, "campaign", "/sp/campaigns", {}, "reconciliar huerfana")
+            paso_id = fc._inserta_paso(ctx, paso, {"campaignId": str(external), "state": "PAUSED"})
+            ack = fc._put_estado_campana(ctx, external, "PAUSED")
+            visto = None
+            if fp.ack_ok(ack):
+                releido = fc._readback(ctx.cliente_lectura, ctx.profile, "/sp/campaigns", external)
+                visto = releido.get("state") if isinstance(releido, dict) else None
+            fc._sella_paso(ctx, paso_id, visto == "PAUSED", external, ack, visto)
+            if visto == "PAUSED":
+                pauso = True
+            else:
+                pendientes.append(str(external))
+        if pendientes:
+            raise fc.Abortar(f"reconciliacion de {lote} incompleta: siguen ENABLED {pendientes}")
+        return pauso
 
 
 def lote_de_plan(plan: im.PlanImpulso) -> str:
@@ -385,6 +436,121 @@ SELECT estado FROM fabrica_lote WHERE lote = %s
 """
 
 
+def _tiene_externals(conn, lote: str) -> bool:
+    """Si el lote creo algo en Amazon (algun paso con external_id)."""
+    fila = conn.execute(
+        "SELECT 1 FROM fabrica_lote_paso WHERE lote = %s AND external_id IS NOT NULL LIMIT 1",
+        (lote,),
+    ).fetchone()
+    return fila is not None
+
+
+def _archiva_lote_vacio(conn, lote: str) -> None:
+    """H6: un lote failed/planeado SIN nada creado no bloquea: se copia
+    a un nombre -descartado (historia preservada, estado desarmado),
+    se mueven pasos y grupo, y se borra el canonico para que el
+    reintento lo reuse. INSERT-copia + UPDATE hijos + DELETE viejo, en
+    ese orden: las FKs no son diferibles y el UPDATE-rename viola.
+    Conexion propia: el ejecutor crea por la suya y debe ver el nombre
+    libre. Con impulso no se archiva (el impulso manda)."""
+    import psycopg
+
+    propia = psycopg.connect(conn.info.dsn, dbname=conn.info.dbname, autocommit=True)
+    try:
+        if propia.execute("SELECT 1 FROM impulso WHERE lote = %s", (lote,)).fetchone() is not None:
+            raise ErrorImpulso(502, f"lote {lote} tiene impulso: no se archiva")
+        base, n = f"{lote}-descartado", 0
+        while True:
+            nuevo = base if n == 0 else f"{base}-{n}"
+            n += 1
+            if (
+                propia.execute("SELECT 1 FROM fabrica_lote WHERE lote = %s", (nuevo,)).fetchone()
+                is None
+            ):
+                break
+        propia.execute(
+            "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal,"
+            " huella, plan, modo_goal, estado, detalle, created_at, finished_at, pausado_por)"
+            " SELECT %s, platform, tipo_producto, nombre_base, go_literal, huella, plan,"
+            " modo_goal, 'desarmado',"
+            " 'H6: fallo sin nada creado; el reintento reusa el nombre',"
+            " created_at, finished_at, pausado_por FROM fabrica_lote WHERE lote = %s",
+            (nuevo, lote),
+        )
+        propia.execute("UPDATE fabrica_lote_paso SET lote = %s WHERE lote = %s", (nuevo, lote))
+        propia.execute("UPDATE campana_grupo SET lote = %s WHERE lote = %s", (nuevo, lote))
+        propia.execute("DELETE FROM fabrica_lote WHERE lote = %s", (lote,))
+    finally:
+        propia.close()
+
+
+def _plan_coincide_con_lote(conn, plan: im.PlanImpulso, lote: str) -> bool:
+    """H2: el huerfano solo se reutiliza si su presupuesto y bids son
+    los del plan confirmado (por rol: budget = diario/2, bid acotado).
+    Ante la duda (plan ilegible), no coincide."""
+    from decimal import InvalidOperation
+
+    fila = conn.execute("SELECT plan FROM fabrica_lote WHERE lote = %s", (lote,)).fetchone()
+    if fila is None or not isinstance(fila[0], dict):
+        return False
+    guardado = fila[0].get("parametros") or {}
+    mitad = plan.tope.presupuesto_diario / 2
+    bids, _roles = im.acota_bids(plan.bid_por_rol, mitad)
+    for rol in im.ROLES_IMPULSO:
+        viejo = guardado.get(rol) or {}
+        try:
+            if Decimal(str(viejo.get("budget"))) != mitad:
+                return False
+            if Decimal(str(viejo.get("bid"))) != bids[rol]:
+                return False
+        except (InvalidOperation, ValueError, TypeError, KeyError):
+            return False
+    return True
+
+
+def _archiva_vacios(conn, listing_id: int) -> None:
+    """H6: los failed/planeado sin nada creado (de otra huella) no
+    bloquean: se archivan para que el reintento cree el par."""
+    for otro, estado_otro, _ in conn.execute(
+        _SQL_PENDIENTES_LISTING, (f"impulso-{listing_id}-%",)
+    ).fetchall():
+        if estado_otro in ("failed", "planeado") and not _tiene_externals(conn, otro):
+            _archiva_lote_vacio(conn, otro)
+
+
+def _pausador_propio(conn) -> PausadorFabrica:
+    """PausadorFabrica con conexion propia: pausar/activar un huerfano no
+    rompe la transaccion de lanza. Quien llama cierra la conexion."""
+    import psycopg
+
+    propia = psycopg.connect(conn.info.dsn, dbname=conn.info.dbname)
+    pausador = PausadorFabrica(propia)
+    pausador._propia = propia
+    return pausador
+
+
+def _descarta_huerfano(conn, lote_viejo: str, actor: str) -> None:
+    """H2: el huerfano es de otro plan: se pausa (best effort, con
+    conexion propia) y desarma con el motivo; el par nuevo nace aparte.
+    Si la pausa falla, el vigia lo reconcilia."""
+    pausador = _pausador_propio(conn)
+    try:
+        try:
+            pausador.pausa(lote_viejo)
+            extra = "pausado"
+        except Exception as exc:
+            extra = f"pausa best-effort fallo ({exc}); el vigia reconcilia"
+    finally:
+        pausador._propia.close()
+    conn.execute(
+        "UPDATE fabrica_lote SET estado = 'desarmado', detalle = %s WHERE lote = %s",
+        (
+            f"H2: plan distinto al confirmado ({extra}); el par nuevo nace aparte",
+            lote_viejo,
+        ),
+    )
+
+
 def lanza(
     conn,
     solicitud: SolicitudImpulso,
@@ -439,8 +605,15 @@ def lanza(
                     imp = _sella_impulso(conn, plan, grupo[0], lote, actor, confirmacion)
                     lanzados.append(ImpulsoLanzado(imp, lote, "applied"))
                     continue
-                fallos[plan.listing_id] = f"lote {lote} quedo en {huerfano[0]}: reconcilia a mano"
-                continue
+                if huerfano[0] in ("failed", "planeado") and not _tiene_externals(conn, lote):
+                    # H6: fallo sin nada creado en Amazon: no bloquea; se
+                    # archiva el nombre y el reintento crea el par.
+                    _archiva_lote_vacio(conn, lote)
+                else:
+                    fallos[plan.listing_id] = (
+                        f"lote {lote} quedo en {huerfano[0]}: reconcilia a mano"
+                    )
+                    continue
             vivo = conn.execute(_SQL_VIVO, (plan.plataforma, plan.listing_id)).fetchone()
             if vivo is not None:
                 raise ErrorImpulso(
@@ -455,6 +628,11 @@ def lanza(
                 _SQL_PENDIENTES_LISTING, (f"impulso-{plan.listing_id}-%",)
             ).fetchall()
             if pendientes:
+                _archiva_vacios(conn, plan.listing_id)
+                pendientes = conn.execute(
+                    _SQL_PENDIENTES_LISTING, (f"impulso-{plan.listing_id}-%",)
+                ).fetchall()
+            if pendientes:
                 malos = [p for p in pendientes if p[1] != "applied" or p[2] is None]
                 if malos:
                     fallos[plan.listing_id] = (
@@ -464,9 +642,25 @@ def lanza(
                     )
                     continue
                 viejo, _, grupo_viejo = pendientes[0]
-                imp = _sella_impulso(conn, plan, grupo_viejo, viejo, actor, confirmacion)
-                lanzados.append(ImpulsoLanzado(imp, viejo, "applied"))
-                continue
+                if _plan_coincide_con_lote(conn, plan, viejo):
+                    # L1/L4/L8c: mismo plan; si quedo pausado se activa
+                    # antes de sellar (un impulso vivo gasta).
+                    pausador = _pausador_propio(conn)
+                    try:
+                        pausador.reactiva(viejo)
+                    except Exception as exc:
+                        fallos[plan.listing_id] = (
+                            f"huerfano {viejo} coincide pero no activa ({exc})"
+                        )
+                        continue
+                    finally:
+                        pausador._propia.close()
+                    imp = _sella_impulso(conn, plan, grupo_viejo, viejo, actor, confirmacion)
+                    lanzados.append(ImpulsoLanzado(imp, viejo, "applied"))
+                    continue
+                # H2: otro plan; el huerfano se pausa y desarma, y cae al
+                # ejecutor: el par nuevo nace con el plan confirmado.
+                _descarta_huerfano(conn, viejo, actor)
             try:
                 hecho = ejecutor(im.grupo_v2_de_plan(plan), plan.huella(), lote)
             except Exception as exc:
@@ -508,13 +702,14 @@ SELECT r.ad_entity_id
 _SQL_CORTE_PLATAFORMA = """
 SELECT max(v.metric_date) FROM v_metric_latest v
   JOIN ad_entity e ON e.id = v.ad_entity_id
- WHERE e.platform = %s
+ WHERE e.platform = %s AND e.kind = 'campaign'
 """
 
 _SQL_DIAS_CON_INGESTA = """
 SELECT count(DISTINCT v.metric_date) FROM v_metric_latest v
   JOIN ad_entity e ON e.id = v.ad_entity_id
  WHERE e.platform = %s AND v.metric_date BETWEEN %s AND %s
+   AND e.kind = 'campaign'
 """
 
 _SQL_OBSERVADO = """
@@ -585,21 +780,36 @@ def _vigila_uno(conn, pausador, fila, *, hoy, escritor_retiro):
         if estado_lote is None or estado_lote[0] != "pausado":
             pausador.pausa(lote)
             conn.execute(
-                "UPDATE fabrica_lote SET estado = 'pausado' WHERE lote = %s AND estado = 'applied'",
+                "UPDATE fabrica_lote SET estado = 'pausado', pausado_por = 'impulso-vigia'"
+                " WHERE lote = %s AND estado = 'applied'",
                 (lote,),
             )
         hecho = "pausado"
     elif veredicto.accion == "graduar":
-        # Graduar casa con Amazon: reactiva las campanas pausadas (del
-        # vigia o del dueno) antes de pasar goals a live. Desarmado no
-        # revive: solo goals.
+        # Graduar casa con Amazon: reactiva las campanas que pauso el
+        # vigia antes de pasar goals a live. Si pauso el dueno,
+        # reactiva es noop: gradua sin reencender y lo dice (hecho y
+        # detalle del lote). Desarmado no revive: solo goals.
         estado_lote = conn.execute(_SQL_ESTADO_LOTE, (lote,)).fetchone()
         if estado_lote is not None and estado_lote[0] != "desarmado":
             pausador.reactiva(lote)
         ahora = dt.datetime.now(dt.UTC)
         for (gid,) in conn.execute(_SQL_GOALS_DE_IMPULSO, (imp,)).fetchall():
             goals_write.edita_goal(conn, gid, mode="live", updated_at=ahora)
-        hecho = "graduado"
+        pauso = conn.execute(
+            "SELECT pausado_por FROM fabrica_lote WHERE lote = %s", (lote,)
+        ).fetchone()
+        if pauso is not None and pauso[0] not in (None, "impulso-vigia"):
+            hecho = "graduado_sin_reencender"
+            conn.execute(
+                "UPDATE fabrica_lote SET detalle = %s WHERE lote = %s",
+                (
+                    f"graduado sin reencender: pauso {pauso[0]}, goals a live",
+                    lote,
+                ),
+            )
+        else:
+            hecho = "graduado"
     if hecho in ("nada", "graduado") and (lectura.impresiones or 0) > 0:
         primero = conn.execute(_SQL_YA_TUVO_IMPRESIONES, (imp,)).fetchone() is None
         if primero:
@@ -648,6 +858,43 @@ def _vigila_uno(conn, pausador, fila, *, hoy, escritor_retiro):
     return AccionVigia(imp, lectura, veredicto, hecho), escritor_retiro
 
 
+_SQL_LOTES_HUERFANOS = """
+SELECT f.lote FROM fabrica_lote f
+ WHERE f.lote LIKE 'impulso-%%'
+   AND f.estado IN ('planeado', 'failed', 'applied', 'desarmado')
+   AND NOT EXISTS (SELECT 1 FROM impulso i WHERE i.lote = f.lote)
+   AND f.created_at < %s::date
+   AND EXISTS (SELECT 1 FROM fabrica_lote_paso p
+                WHERE p.lote = f.lote AND p.external_id IS NOT NULL)
+"""
+
+
+def reconcilia_huerfanos(conn, pausador, hoy: dt.date) -> list[str]:
+    """Cierra lo que un lanzamiento dejo a medias (muerte del proceso):
+    pausa en Amazon las campanas ENABLED de lotes de impulso de dias
+    anteriores sin impulso. Solo dias anteriores: un lote de hoy puede
+    ser un lanzamiento en curso. Best effort por lote; nunca levanta
+    (lo que falle se reintenta en la siguiente corrida)."""
+    reconcilia = getattr(pausador, "pausa_huerfanas", None)
+    if reconcilia is None:
+        return []
+    lotes = [r[0] for r in conn.execute(_SQL_LOTES_HUERFANOS, (hoy,)).fetchall()]
+    conn.commit()
+    pausados = []
+    for lote in lotes:
+        try:
+            if reconcilia(lote):
+                pausados.append(lote)
+        except Exception as exc:
+            # Aislado por lote: revierte lo suyo (la corrida sigue;
+            # el fallido se reintenta manana).
+            conn.rollback()
+            print(f"reconcilia: lote {lote} fallo ({exc})", file=sys.stderr)
+    if pausados:
+        print(f"reconcilia: pausadas huerfanas de {pausados}", file=sys.stderr)
+    return pausados
+
+
 def vigila(
     conn, pausador: PausadorDeCampanas, *, hoy: dt.date, escritor_retiro=None
 ) -> list[AccionVigia]:
@@ -665,6 +912,7 @@ def vigila(
     se atiende (el fallido se reintenta manana). Si muere a medias, la
     siguiente corrida relee y termina."""
     acciones = []
+    reconcilia_huerfanos(conn, pausador, hoy)
     escritores: dict[str, object] = {}
     for fila in conn.execute(_SQL_VIVOS).fetchall():
         platform = fila[1]

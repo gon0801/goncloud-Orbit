@@ -45,6 +45,12 @@ MAX_LINEAS_MODULO = 900
 # path relativo (posix) -> razon escrita. Sacar una entrada exige que el
 # modulo haya bajado del umbral; agregarla exige razon y review.
 ALLOWLIST_TAMANO = {
+    "app/impulso_io.py": (
+        "BIDS 02 R09-r4: IO transaccional del impulso (previa + lanza + "
+        "vigia + reconciliacion H2/H6): un solo flujo con estados "
+        "compartidos (pendientes, sellos, pausador propio); partirlo por "
+        "cuota separaria lanza de su reconciliacion — jamas partir por partir"
+    ),
     "app/ads/reports.py": (
         "pipeline compartido de reporting v3 (metricas + search terms + "
         "fusion de grano); candidato DECLARADO a partirse en "
@@ -624,6 +630,8 @@ ALLOWLIST_IMPORTS_FABRICA_CAMPANAS = frozenset(
         "typing",
         "typing.Any",
         "httpx",
+        "httpx.HTTPError",
+        "httpx.TimeoutException",
         "psycopg",
         "psycopg.rows",
         "psycopg.rows.tuple_row",
