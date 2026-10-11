@@ -33,6 +33,7 @@ from decimal import Decimal
 from types import SimpleNamespace
 
 import httpx
+import psycopg
 import pytest
 from test_apply_harvest import (
     TERMINO,
@@ -616,6 +617,105 @@ def test_carga_contribucion_digest_execute_falla(caplog):
     assert out is not None
     assert out.lectura_fallida is True
     assert any("fallo leyendo contribucion" in r.message for r in caplog.records)
+
+
+class _ConnNestloopObservado:
+    """Envuelve una conexion real y, al pasar la consulta de
+    v_contribucion_entidad, lee SHOW enable_nestloop en esa misma sesion."""
+
+    def __init__(self, inner):
+        self._inner = inner
+        self.nestloop_durante = None
+
+    def execute(self, sql, params=None):
+        if "v_contribucion_entidad" in sql:
+            self.nestloop_durante = self._inner.execute("SHOW enable_nestloop").fetchone()[0]
+        return self._inner.execute(sql, params)
+
+    def __getattr__(self, nombre):
+        return getattr(self._inner, nombre)
+
+
+@contextmanager
+def _db_contribucion_mx(prefijo: str):
+    """DB temporal con el esquema de las vistas y la keyword MX sembrada
+    (contrib 26/50 MXN). Devuelve (dsn de esa DB, conexion autocommit)."""
+    import os
+    import socket
+
+    from psycopg import sql as pgsql
+    from psycopg.conninfo import make_conninfo
+    from test_contribucion_entidad import _aplicar_esquema, _semilla_mx_completa
+    from test_schema import _test_dsn
+
+    dsn = _test_dsn()
+    name = f"{prefijo}_{socket.gethostname().lower()}_{os.getpid()}"
+    admin = psycopg.connect(dsn, autocommit=True)
+    conn = None
+    try:
+        admin.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(name)))
+        conn = psycopg.connect(dsn, dbname=name, autocommit=True)
+        _aplicar_esquema(conn)
+        _semilla_mx_completa(conn)
+        yield make_conninfo(dsn, dbname=name), conn
+    finally:
+        if conn is not None:
+            conn.close()
+        admin.execute(
+            pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(name))
+        )
+        admin.close()
+
+
+RANGO_MX_SEMILLA = notifica.RangoContribucion("MXN", 1, Decimal("26"), Decimal("50"))
+
+
+@_skip_db
+def test_carga_contribucion_digest_lee_sin_nestloop_y_no_lo_deja_pegado():
+    """Prod 2026-09-24..10-09: 32 veces 'canceling statement due to statement
+    timeout' leyendo contribucion para el digest. v_contribucion_* con
+    Nested Loop (CTE estimado en pocas filas, 95M filas descartadas en el
+    join) tarda 13-16s por plataforma contra un tope de 10s; con
+    enable_nestloop=off la misma lectura da lo mismo en 4-6s (mismo remedio
+    que el tablero, PR 113). Con conexion prestada el GUC vuelve a on al
+    salir: SET LOCAL, no session."""
+    with _db_contribucion_mx("orbit_digest_nl") as (_dsn, conn):
+        conn.execute("SET enable_nestloop = on")
+        observada = _ConnNestloopObservado(conn)
+        out = notifica.carga_contribucion_digest("amazon_mx", conn=observada)
+        despues = conn.execute("SHOW enable_nestloop").fetchone()[0]
+
+    assert out is not None and out.lectura_fallida is False
+    assert out.rango == RANGO_MX_SEMILLA
+    assert observada.nestloop_durante == "off", (
+        f"v_contribucion_entidad se leyo con enable_nestloop={observada.nestloop_durante}"
+    )
+    assert despues == "on", f"leftover enable_nestloop={despues} en la conexion prestada"
+
+
+@_skip_db
+def test_carga_contribucion_digest_conexion_propia_lee_sin_nestloop(monkeypatch):
+    """Camino de produccion: sin conn inyectada, carga_contribucion_digest
+    abre la suya via app.db.connect (sin autocommit, como el ciclo). Ahi el
+    SET LOCAL tambien tiene que estar vigente durante la lectura."""
+    abiertas: list[_ConnNestloopObservado] = []
+
+    def connect_observado(dsn, **kw):
+        observada = _ConnNestloopObservado(psycopg.connect(dsn, **kw))
+        abiertas.append(observada)
+        return observada
+
+    with _db_contribucion_mx("orbit_digest_nl_propia") as (dsn, _conn):
+        monkeypatch.setenv("ORBIT_DSN_READ", dsn)
+        monkeypatch.setattr(notifica, "connect", connect_observado)
+        out = notifica.carga_contribucion_digest("amazon_mx")
+
+    assert out is not None and out.lectura_fallida is False
+    assert out.rango == RANGO_MX_SEMILLA
+    assert len(abiertas) == 1
+    assert abiertas[0].nestloop_durante == "off", (
+        f"v_contribucion_entidad se leyo con enable_nestloop={abiertas[0].nestloop_durante}"
+    )
 
 
 def test_notifica_digest_falla_lectura_muestra_lectura_no_disponible(monkeypatch, tmp_path):
