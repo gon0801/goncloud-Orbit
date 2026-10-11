@@ -687,7 +687,13 @@ def retiro_reponer(_token: Annotated[str, Depends(exige_token)], cuerpo: CuerpoR
         n = len(cuerpo.retiro_ids)
         if cuerpo.confirmacion != f"REGRESAR {n} ANUNCIOS":
             raise fw.error(422, "La confirmación no coincide con la operación.")
-        repuestos = ra.repone(
-            conn, retiro_ids=tuple(cuerpo.retiro_ids), go=cuerpo.confirmacion, actor=cuerpo.actor
-        )
+        try:
+            repuestos = ra.repone(
+                conn,
+                retiro_ids=tuple(cuerpo.retiro_ids),
+                go=cuerpo.confirmacion,
+                actor=cuerpo.actor,
+            )
+        except ValueError as exc:
+            raise fw.error(422, str(exc)) from None
         return {"repuestos": repuestos}

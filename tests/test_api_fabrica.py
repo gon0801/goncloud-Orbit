@@ -1756,3 +1756,39 @@ def test_i5_ejecutar_parcial_502_con_detalle(escenario, monkeypatch):
     assert r.status_code == 502, r.text
     assert "ad-bad" in r.text
     assert conn.execute("SELECT ad_id_externo FROM anuncio_retiro").fetchall() == [("ad-ok",)]
+
+
+def test_i5_reponer_multiplataforma_422_sin_tocar_amazon(escenario, monkeypatch):
+    """R09-r2 A-9: reponer retiros de MX+US da 422 antes de preparar
+    ningun escritor (uno por plataforma)."""
+    from test_fabrica_migracion import _entidad
+
+    from app.ads import archivar
+
+    cliente, conn, _, _, _ids = escenario
+    _db_i5(conn)
+    rids = []
+    for plat, ad in (("amazon_mx", "ad-mx"), ("amazon_us", "ad-us")):
+        ent = _entidad(conn, plat, "product_ad", ad)
+        rids.append(
+            conn.execute(
+                "INSERT INTO anuncio_retiro (platform, motivo, modo, lote_retiro,"
+                " ad_entity_id, ad_id_externo, ad_group_externo, campana_externa, sku,"
+                " asin, reversa, retirado_el, actor) VALUES (%s, 'sin_pedidos', 'pausa',"
+                " 'lot', %s, %s, 'ag', 'camp', 'sku', 'asin', '{}', now(), 'dueno')"
+                " RETURNING id",
+                (plat, ent, ad),
+            ).fetchone()[0]
+        )
+    conn.commit()
+
+    def _no_debe_llamarse(platform):
+        raise AssertionError("no debe preparar escritor con mezcla")
+
+    monkeypatch.setattr(archivar, "preparar_escritor", _no_debe_llamarse)
+    r = cliente.post(
+        "/api/fabrica/retiro/reponer",
+        headers=HEADERS,
+        json={"retiro_ids": rids, "confirmacion": "REGRESAR 2 ANUNCIOS", "actor": "dueno"},
+    )
+    assert r.status_code == 422, r.text

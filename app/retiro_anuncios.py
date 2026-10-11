@@ -234,11 +234,18 @@ def repone(
     pendientes = [f for f in filas if not f[4]]
     if not pendientes:
         return 0
+    plataformas = {
+        r[0]
+        for r in conn.execute(
+            "SELECT DISTINCT platform::text FROM anuncio_retiro WHERE id = ANY(%s)",
+            ([f[0] for f in pendientes],),
+        ).fetchall()
+    }
+    conn.commit()
+    if len(plataformas) > 1:
+        raise ValueError(f"reponer mezcla plataformas {sorted(plataformas)}: una por llamada")
     if escritor is None:
-        plataforma = conn.execute(
-            "SELECT platform::text FROM anuncio_retiro WHERE id = %s", (pendientes[0][0],)
-        ).fetchone()[0]
-        conn.commit()
+        plataforma = next(iter(plataformas))
         escritor = archivar.preparar_escritor(plataforma)
     estados = archivar.estados_actuales(escritor, [f[1] for f in pendientes])
     repuestos = 0
