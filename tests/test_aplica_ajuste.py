@@ -969,3 +969,70 @@ def test_reconcilia_regreso_sin_autocommit_y_cierra_sin_commit(monkeypatch):
             (hecho.ajuste_id,),
         ).fetchone()[0]
         assert confirmada is True
+
+
+@_skip_db
+def test_reaplicar_y_regresar_otra_vez_no_choca_huella(monkeypatch):
+    """B8: aplicar, regresar, re-aplicar, regresar: el segundo regreso
+    confirma (nunca 500 por UNIQUE(huella))."""
+    with _db("orbit_aj_b8") as conn:
+        camp, _cfg = _siembra(conn)
+        remoto = {EXTERNA: {"budget": {"budget": 100.0, "budgetType": "DAILY"}}}
+        handler, _vistos = _handler_campanas(remoto)
+        _creds_fake(monkeypatch)
+        transporte = httpx.MockTransport(handler)
+
+        def _aplica(monto: str):
+            plan = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal(monto)))
+            return apply.aplica_ajuste_campana(
+                conn,
+                plan,
+                huella=plan.huella(),
+                confirmacion="APLICAR AJUSTE",
+                actor="dueno",
+                transport=transporte,
+            )
+
+        a1 = _aplica("120")
+        r1 = apply.regresa_ajuste_campana(
+            conn, ajuste_id=a1.ajuste_id, actor="dueno", transport=transporte
+        )
+        assert r1.confirmada is True
+        a2 = _aplica("120")
+        assert a2.ajuste_id != a1.ajuste_id
+        r2 = apply.regresa_ajuste_campana(
+            conn, ajuste_id=a2.ajuste_id, actor="dueno", transport=transporte
+        )
+        assert r2.confirmada is True
+        assert remoto[EXTERNA]["budget"]["budget"] == 100.0
+
+
+@_skip_db
+def test_regresar_un_regreso_encadena_sin_500(monkeypatch):
+    """B8: regresar un regreso rehace el ajuste; tres eslabones seguidos
+    confirman (nunca 500 por UNIQUE(huella))."""
+    with _db("orbit_aj_b8e") as conn:
+        camp, _cfg = _siembra(conn)
+        remoto = {EXTERNA: {"budget": {"budget": 100.0, "budgetType": "DAILY"}}}
+        handler, _vistos = _handler_campanas(remoto)
+        _creds_fake(monkeypatch)
+        transporte = httpx.MockTransport(handler)
+        plan = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("120")))
+        hecho = apply.aplica_ajuste_campana(
+            conn,
+            plan,
+            huella=plan.huella(),
+            confirmacion="APLICAR AJUSTE",
+            actor="dueno",
+            transport=transporte,
+        )
+        previos = [120.0, 100.0, 120.0]
+        actual = hecho.ajuste_id
+        for esperado in previos:
+            assert remoto[EXTERNA]["budget"]["budget"] == esperado
+            paso = apply.regresa_ajuste_campana(
+                conn, ajuste_id=actual, actor="dueno", transport=transporte
+            )
+            assert paso.confirmada is True
+            actual = paso.ajuste_id
+        assert remoto[EXTERNA]["budget"]["budget"] == 100.0

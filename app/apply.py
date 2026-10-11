@@ -97,6 +97,7 @@ Aplicador pasan por el transport.
 from __future__ import annotations
 
 import datetime
+import hashlib
 import json
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -2327,7 +2328,7 @@ def regresa_ajuste_campana(conn, *, ajuste_id: int, actor: str, transport=None) 
                 clase,
                 vigente_id,
                 json.dumps(antes.como_json()),
-                regreso.huella(),
+                _huella_regreso(regreso.huella(), ajuste_id),
                 actor.strip(),
                 GO_REGRESO_AJUSTE,
                 ajuste_id,
@@ -2343,6 +2344,14 @@ def regresa_ajuste_campana(conn, *, ajuste_id: int, actor: str, transport=None) 
     conn.commit()
     _aplica_y_confirma(conn, cliente, plataforma, clase, antes, ajuste_id=nuevo_id)
     return AjusteHecho(nuevo_id, campana_id, clase, True)
+
+
+def _huella_regreso(base: str, ajuste_id: int) -> str:
+    """Huella del regreso: la del plan mas el padre que regresa (B8).
+    Sin el padre, dos regresos del mismo antes/despues (aplicar,
+    regresar, re-aplicar, regresar) chocan en UNIQUE(huella) con 500;
+    el padre distingue cada acto."""
+    return hashlib.sha256(f"{base}:regresa:{ajuste_id}".encode()).hexdigest()
 
 
 def _config_por_id(conn, config_id: int):
