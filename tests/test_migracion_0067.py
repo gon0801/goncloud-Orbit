@@ -248,3 +248,36 @@ def _foto(conn) -> dict:
         "rutinas": sorted(rutinas),
         "checks": sorted(checks),
     }
+
+
+@_skip_db
+def test_0067_sello_no_permite_cambiar_ninguna_otra_columna():
+    """T03-T12: sellar y cambiar a la vez campana, plataforma, clase,
+    antes, despues, huella, actor, literal, regresa_a o creado revienta."""
+    from psycopg.types.json import Json
+
+    with db_67("orbit_67_t") as conn:
+        camp = _campana(conn)
+        camp2 = _campana(conn, external="c-0067-b")
+        cfg = _config(conn, camp)
+        cfg2 = _config(conn, camp2)
+        aj3 = _ajuste(conn, camp, cfg, huella="h-destino")
+        casos = [
+            ("campana_id", camp2),
+            ("platform", "amazon_us"),
+            ("clase", "presupuesto"),
+            ("antes_config_id", cfg2),
+            ("despues", Json({"x": 1})),
+            ("huella", "h-otra"),
+            ("actor", "otro"),
+            ("go_literal", "OTRO LITERAL"),
+            ("regresa_a", aj3),
+            ("creado_el", _ANCLA + dt.timedelta(hours=1)),
+        ]
+        for i, (columna, valor) in enumerate(casos):
+            aj = _ajuste(conn, camp, cfg, huella=f"h-t-{i}")
+            with pytest.raises(psycopg.Error, match="SOLO-CONFIRMADO"):
+                conn.execute(
+                    f"UPDATE campana_ajuste SET {columna} = %s, confirmado_el = %s WHERE id = %s",
+                    (valor, _ANCLA, aj),
+                )

@@ -96,7 +96,7 @@ SELECT h.hoja_id,
        'ajuste_de_campana',
        NULL::bigint
   FROM campana_ajuste a
-  JOIN v_hoja_activa h ON h.campana_id = a.campana_id
+  JOIN v_hoja_activa h ON h.campana_id = a.campana_id AND h.current_bid IS NOT NULL
  WHERE a.confirmado_el IS NOT NULL AND a.clase = 'ajuste_ubicacion';
 
 COMMENT ON TABLE campana_ajuste IS

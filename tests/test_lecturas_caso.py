@@ -914,3 +914,122 @@ def test_ajuste_ubicacion_confirmado_entra_a_la_trayectoria():
         (unico,) = caso.trayectoria.cambios
         assert unico.origen == "ajuste_de_campana"
         assert unico.bid_antes == unico.bid_despues == Decimal("6")
+
+
+def _obs_config(conn, camp):
+    return conn.execute(
+        "INSERT INTO ads_campana_config_observation (ad_entity_id, observed_at,"
+        " presupuesto_diario, presupuesto_moneda, estrategia_puja) VALUES"
+        " (%s, %s, 100, 'MXN', 'MANUAL') RETURNING id",
+        (camp, _ANCLA),
+    ).fetchone()[0]
+
+
+def _ajuste_lec(conn, camp, cfg, cuando, huella, *, confirmado=True):
+    conn.execute(
+        "INSERT INTO campana_ajuste (campana_id, platform, clase, antes_config_id,"
+        " despues, huella, actor, go_literal, confirmado_el) VALUES (%s,"
+        " 'amazon_mx', 'ajuste_ubicacion', %s, %s, %s, 'dueno',"
+        " 'APLICAR AJUSTE', %s)",
+        (camp, cfg, Json({"clase": "ajuste_ubicacion"}), huella, cuando if confirmado else None),
+    )
+
+
+@FALTA_PG
+def test_ajuste_con_hoja_sin_bid_no_tumba_la_trayectoria():
+    """B5: hoja activa con current_bid NULL (bid heredado) y un recorte
+    previo del motor, en campana con ajuste confirmado: la vista no
+    trae filas sin bid y la direccion se calcula (sin TypeError)."""
+    with _db_lecturas() as conn:
+        c = _entidad(conn, "amazon_mx", "campaign", "c-b5")
+        g = _entidad(conn, "amazon_mx", "ad_group", "g-b5", c)
+        h = _entidad(conn, "amazon_mx", "keyword", "h-b5", g, match="EXACT", texto="kw-b5")
+        _estado(conn, c, "ENABLED", targeting="MANUAL")
+        _estado(conn, g, "ENABLED")
+        _estado(conn, h, "ENABLED")
+        config = _config(conn)
+        _recorte(
+            conn,
+            hoja=h,
+            config=config,
+            ejecutor=_ciclo(conn, "live"),
+            old=Decimal("2.00"),
+            new=Decimal("1.76"),
+            confirmado=_ANCLA,
+        )
+        _ajuste_lec(conn, c, _obs_config(conn, c), _DECIDIDA, "h-b5")
+        filas = conn.execute(
+            "SELECT bid_antes, bid_despues FROM v_cambio_bid WHERE hoja_id = %s", (h,)
+        ).fetchall()
+        assert filas
+        assert all(a is not None and d is not None for a, d in filas)
+        lecturas = lee_plataforma(conn, "amazon_mx", _DECIDIDO, economia=_economia())
+        caso = _arma(lecturas, conn, h, g)
+        assert [c.direccion for c in caso.trayectoria.cambios] == [-1]
+
+
+@FALTA_PG
+def test_ajuste_en_medio_no_cambia_piso_ni_regreso():
+    """B6 (parte C): recorte del motor -> ajuste -> regreso del dueno:
+    el regreso deriva su bid_antes del recorte (no del bid de hoy que
+    trae la fila del ajuste) y el piso sale igual que sin el ajuste."""
+    with _db_lecturas() as conn:
+        c, g, h = _triple(conn, tag="b6", bid=Decimal("1.50"))
+        config = _config(conn)
+        dec = _recorte(
+            conn,
+            hoja=h,
+            config=config,
+            ejecutor=_ciclo(conn, "live"),
+            old=Decimal("1.50"),
+            new=Decimal("1.00"),
+            confirmado=dt.datetime(2026, 8, 25, 12, 0, tzinfo=dt.UTC),
+        )
+        _reversa(conn, dec, sellada=dt.datetime(2026, 9, 15, 12, 0, tzinfo=dt.UTC))
+        conn.execute("UPDATE ad_entity_state SET current_bid = 1.50 WHERE ad_entity_id = %s", (h,))
+        base = _arma(lee_plataforma(conn, "amazon_mx", _DECIDIDO, economia=_economia()), conn, h, g)
+        _ajuste_lec(
+            conn,
+            c,
+            _obs_config(conn, c),
+            dt.datetime(2026, 9, 5, 12, 0, tzinfo=dt.UTC),
+            "h-b6",
+        )
+        con = _arma(lee_plataforma(conn, "amazon_mx", _DECIDIDO, economia=_economia()), conn, h, g)
+        sin_ajuste = [x for x in con.trayectoria.cambios if x.origen != "ajuste_de_campana"]
+        assert [(x.bid_antes, x.bid_despues, x.origen) for x in sin_ajuste] == [
+            (x.bid_antes, x.bid_despues, x.origen) for x in base.trayectoria.cambios
+        ]
+        assert con.trayectoria.piso_aprendido == base.trayectoria.piso_aprendido == Decimal("1.00")
+
+
+@FALTA_PG
+def test_ajuste_pendiente_no_entra_a_la_vista():
+    """V02: un ajuste sin confirmar no pone filas en v_cambio_bid."""
+    with _db_lecturas() as conn:
+        c, _g, h = _triple(conn, tag="v02", bid=Decimal("6"))
+        _ajuste_lec(conn, c, _obs_config(conn, c), _DECIDIDA, "h-v02", confirmado=False)
+        assert (
+            conn.execute("SELECT count(*) FROM v_cambio_bid WHERE hoja_id = %s", (h,)).fetchone()[0]
+            == 0
+        )
+
+
+@FALTA_PG
+def test_ajuste_solo_toca_hojas_de_su_campana():
+    """V06/V07: el ajuste de la campana A no pone filas en hojas de
+    otra campana (ni de la misma plataforma ni de otra)."""
+    with _db_lecturas() as conn:
+        ca, _ga, ha = _triple(conn, tag="v-a", bid=Decimal("6"))
+        _cb, _gb, hb = _triple(conn, tag="v-b", bid=Decimal("7"))
+        cc, _gc, hc = _triple(conn, "amazon_us", tag="v-c", bid=Decimal("8"))
+        _ajuste_lec(conn, ca, _obs_config(conn, ca), _DECIDIDA, "h-v67")
+
+        def _cuenta(hoja):
+            return conn.execute(
+                "SELECT count(*) FROM v_cambio_bid WHERE hoja_id = %s", (hoja,)
+            ).fetchone()[0]
+
+        assert _cuenta(ha) == 1
+        assert _cuenta(hb) == 0
+        assert _cuenta(hc) == 0

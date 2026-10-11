@@ -261,8 +261,11 @@ def _cambios_por_hoja(filas: list) -> dict[int, tuple[CambioBid, ...]]:
     for hoja_id, confirmado_el, bid_antes, bid_despues, origen, revierte_new in filas:
         previos = por_hoja.setdefault(hoja_id, [])
         if bid_antes is None:
-            if previos:
-                bid_antes = previos[-1].bid_despues
+            anterior = next((p for p in reversed(previos) if p.origen != "ajuste_de_campana"), None)
+            if anterior is not None:
+                # B6: la fila del ajuste trae el bid de HOY, no un
+                # historico; derivar de ella falsea el piso aprendido.
+                bid_antes = anterior.bid_despues
             elif revierte_new is not None:
                 bid_antes = revierte_new
             else:
