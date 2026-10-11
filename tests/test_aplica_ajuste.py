@@ -1828,3 +1828,108 @@ def test_regresar_ubicacion_solo_restaura_su_placement(monkeypatch):
             {"placement": "PLACEMENT_REST_OF_SEARCH", "percentage": 0}
         ]
         assert _tops_b11(remoto).get("PLACEMENT_TOP", 0) == 0
+
+
+@_skip_db
+def test_reconcilia_sella_aunque_otro_campo_haya_cambiado(monkeypatch):
+    """B12: PUT aplicado + sync que observo el campo del ajuste con OTRO
+    campo distinto: la reconciliacion sella (Amazon tiene el ajuste)."""
+    import time
+    from dataclasses import replace
+
+    from app.ads.campana_config import guarda_config
+
+    with _db("orbit_aj_b12") as conn:
+        camp, _cfg = _siembra(conn)
+        remoto = _remoto_b11()
+        base, _vistos = _handler_mezcla(remoto)
+        _creds_fake(monkeypatch)
+        monkeypatch.setattr(time, "sleep", lambda _s: None)
+        ajuste = CambiarAjusteUbicacion(ubicacion="arriba_de_busqueda", porcentaje=20)
+        plan = _plan(conn, camp, ajuste)
+        cae = {"si": True}
+
+        def con_readback_caido(request: httpx.Request) -> httpx.Response:
+            if cae["si"] and request.method == "POST" and request.url.path == "/sp/campaigns/list":
+                return httpx.Response(500, json={"message": "caido"})
+            return base(request)
+
+        with pytest.raises(apply.AdsApiError):
+            apply.aplica_ajuste_campana(
+                conn,
+                plan,
+                huella=plan.huella(),
+                confirmacion="APLICAR AJUSTE",
+                actor="dueno",
+                transport=httpx.MockTransport(con_readback_caido),
+            )
+        cae["si"] = False
+        import datetime as dt
+
+        guarda_config(
+            conn,
+            "amazon_mx",
+            [replace(_vigente_config(), ajuste_top_pct=20, presupuesto_diario=Decimal("150"))],
+            dt.datetime.now(dt.UTC),
+        )
+        hecho = apply.reconcilia_ajuste_campana(
+            conn, camp, "ajuste_ubicacion", ajuste, huella=plan.huella(), actor="dueno"
+        )
+        assert hecho.confirmada is True
+        fila = conn.execute(
+            "SELECT confirmado_el IS NOT NULL FROM campana_ajuste WHERE huella = %s",
+            (plan.huella(),),
+        ).fetchone()[0]
+        assert fila is True
+
+
+@_skip_db
+def test_reconcilia_con_campo_distinto_no_sella(monkeypatch):
+    """N6: si ni el campo del ajuste esta en el destino, la
+    reconciliacion responde desactualizada sin sellar."""
+    import time
+    from dataclasses import replace
+
+    from app.ads.campana_config import guarda_config
+
+    with _db("orbit_aj_n6") as conn:
+        camp, _cfg = _siembra(conn)
+        remoto = _remoto_b11()
+        base, _vistos = _handler_mezcla(remoto)
+        _creds_fake(monkeypatch)
+        monkeypatch.setattr(time, "sleep", lambda _s: None)
+        ajuste = CambiarAjusteUbicacion(ubicacion="arriba_de_busqueda", porcentaje=20)
+        plan = _plan(conn, camp, ajuste)
+        cae = {"si": True}
+
+        def con_readback_caido(request: httpx.Request) -> httpx.Response:
+            if cae["si"] and request.method == "POST" and request.url.path == "/sp/campaigns/list":
+                return httpx.Response(500, json={"message": "caido"})
+            return base(request)
+
+        with pytest.raises(apply.AdsApiError):
+            apply.aplica_ajuste_campana(
+                conn,
+                plan,
+                huella=plan.huella(),
+                confirmacion="APLICAR AJUSTE",
+                actor="dueno",
+                transport=httpx.MockTransport(con_readback_caido),
+            )
+        import datetime as dt
+
+        guarda_config(
+            conn,
+            "amazon_mx",
+            [replace(_vigente_config(), ajuste_top_pct=30)],
+            dt.datetime.now(dt.UTC),
+        )
+        with pytest.raises(apply.HuellaDesactualizada):
+            apply.reconcilia_ajuste_campana(
+                conn, camp, "ajuste_ubicacion", ajuste, huella=plan.huella(), actor="dueno"
+            )
+        fila = conn.execute(
+            "SELECT confirmado_el IS NOT NULL FROM campana_ajuste WHERE huella = %s",
+            (plan.huella(),),
+        ).fetchone()[0]
+        assert fila is False

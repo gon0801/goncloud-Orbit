@@ -2304,9 +2304,11 @@ def reconcilia_ajuste_campana(
     AjusteSinCambio). El replay identico tras el exito devuelve el
     mismo hecho y una pendiente con el destino ya observado se sella
     (commit dentro de _sella_pendiente, B3); sin fila previa con esa
-    huella, ValueError (422, como antes)."""
+    huella, ValueError (422, como antes). Si el completo difiere pero
+    el campo del ajuste ya esta en el destino (otro campo cambio por
+    fuera), tambien sella (B12)."""
     from app.ads.campana_config import ConfigCampana, config_vigente
-    from app.campana_ajustes import AjusteSinCambio, planea_ajuste
+    from app.campana_ajustes import AjusteSinCambio, coincide_campo, planea_ajuste
 
     if not actor or not actor.strip():
         raise ValueError("actor vacio")
@@ -2325,6 +2327,13 @@ def reconcilia_ajuste_campana(
     if vigente == ConfigCampana.desde_json(despues):
         if not confirmada:
             _sella_pendiente(conn, _eid)
+        return AjusteHecho(_eid, campana_id, clase, True)
+    if coincide_campo(ajuste, vigente, ConfigCampana.desde_json(despues)):
+        # B12: Amazon tiene el ajuste; otro campo cambio por fuera y el
+        # completo ya no coincide. Se sella igual: el acto se cumplio.
+        if confirmada:
+            return AjusteHecho(_eid, campana_id, clase, True)
+        _sella_pendiente(conn, _eid)
         return AjusteHecho(_eid, campana_id, clase, True)
     try:
         fresco = planea_ajuste(vigente, ajuste, campana_id=campana_id, plataforma=fila[0])
