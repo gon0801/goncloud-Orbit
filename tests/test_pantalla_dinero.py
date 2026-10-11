@@ -275,13 +275,15 @@ def _siembra_estado(conn, entidad, status, targeting=None):
     )
 
 
-def _siembra_metrica(conn, entidad, fecha, costo, pedidos, venta, observado, run, moneda="MXN"):
+def _siembra_metrica(
+    conn, entidad, fecha, costo, pedidos, venta, observado, run, moneda="MXN", reporte="R1"
+):
     conn.execute(
         "INSERT INTO ads_metric_observation"
         " (ad_entity_id, metric_date, observed_at, metric_currency, cost, orders, ad_revenue,"
         "  source_report_id, ingest_run_id)"
-        " VALUES (%s, %s, %s, %s, %s, %s, %s, 'R1', %s)",
-        (entidad, fecha, observado, moneda, costo, pedidos, venta, run),
+        " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        (entidad, fecha, observado, moneda, costo, pedidos, venta, reporte, run),
     )
 
 
@@ -1207,3 +1209,47 @@ def test_como_dict_target_se_pinta_con_un_decimal():
         target_acos_pct=Decimal("20.76500719978248922407256205"),
     )
     assert pantalla.como_dict()["target_acos_pct"] == "20.8"
+
+
+@_skip_db
+def test_pg_grupos_toman_la_ultima_observacion_del_dia():
+    """L1: con dos observaciones del mismo dia, la tabla por tipo suma la
+    mas reciente (Amazon re-emite 31 dias cada dia)."""
+    with _db_dinero("orbit_p1_ultima") as conn:
+        run = conn.execute("INSERT INTO ingest_run (source) VALUES ('t') RETURNING id").fetchone()[
+            0
+        ]
+        fecha = dt.date(2026, 10, 4)
+        camp = _siembra_entidad(conn, "amazon_mx", "campaign", "c1")
+        ag = _siembra_entidad(conn, "amazon_mx", "ad_group", "a1", parent=camp)
+        kw = _siembra_entidad(
+            conn, "amazon_mx", "keyword", "k1", parent=ag, match="EXACT", texto="t1"
+        )
+        for e in [camp, ag, kw]:
+            _siembra_estado(conn, e, "ENABLED")
+        _siembra_metrica(
+            conn,
+            kw,
+            fecha,
+            Decimal("10"),
+            1,
+            Decimal("100"),
+            dt.datetime(2026, 10, 5, 8, 0, tzinfo=dt.UTC),
+            run,
+        )
+        _siembra_metrica(
+            conn,
+            kw,
+            fecha,
+            Decimal("99"),
+            2,
+            Decimal("200"),
+            dt.datetime(2026, 10, 5, 9, 0, tzinfo=dt.UTC),
+            run,
+            reporte="R2",
+        )
+        pantalla = lee_dinero(conn, plataforma="amazon_mx", dias=90, hasta=fecha)
+        exact = [f for f in pantalla.filas if f.tipo == "exact"][0]
+        assert exact.gasto == Decimal("99")
+        assert exact.pedidos == 2
+        assert exact.venta == Decimal("200")
