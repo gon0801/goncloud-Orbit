@@ -172,9 +172,10 @@ class PausadorFabrica:
 
 
 def lote_de_plan(plan: im.PlanImpulso) -> str:
-    """Lote durable del impulso: deriva de la huella del plan (mismo plan,
-    mismo lote: reintentar no duplica)."""
-    return f"impulso-{plan.huella()[:12]}"
+    """Lote durable del impulso: lleva el listing y la huella corta (mismo
+    plan, mismo lote: reintentar no duplica; otra huella, otro lote del
+    MISMO listing: el reintento encuentra el huerfano por prefijo)."""
+    return f"impulso-{plan.listing_id}-{plan.huella()[:8]}"
 
 
 def _huella_vista(planes: tuple[im.PlanImpulso, ...]) -> str:
@@ -329,6 +330,16 @@ _SQL_GRUPO_DE_LOTE = """
 SELECT id FROM campana_grupo WHERE lote = %s
 """
 
+_SQL_PENDIENTES_LISTING = """
+SELECT f.lote, f.estado, g.id
+  FROM fabrica_lote f
+  LEFT JOIN campana_grupo g ON g.lote = f.lote
+ WHERE f.lote LIKE %s
+   AND f.estado IN ('applied', 'failed', 'planeado')
+   AND NOT EXISTS (SELECT 1 FROM impulso i WHERE i.lote = f.lote)
+ ORDER BY f.created_at DESC
+"""
+
 
 def _sella_impulso(conn, plan, grupo_id, lote, actor, confirmacion):
     """Inserta la fila de impulso de un lote ya applied (lanza normal o
@@ -421,6 +432,25 @@ def lanza(
                     f"listing {plan.listing_id} ya tiene un impulso vivo",
                     lanzados=lanzados,
                 )
+            # Otro lote, mismo listing (otra huella: otro bid u otro dia):
+            # el huerfano applied se reutiliza; un failed/planeado o un
+            # applied sin grupo bloquea hasta reconciliar a mano.
+            pendientes = conn.execute(
+                _SQL_PENDIENTES_LISTING, (f"impulso-{plan.listing_id}-%",)
+            ).fetchall()
+            if pendientes:
+                malos = [p for p in pendientes if p[1] != "applied" or p[2] is None]
+                if malos:
+                    fallos[plan.listing_id] = (
+                        "lotes pendientes de este listing: "
+                        + ", ".join(f"{lote} ({estado})" for lote, estado, _ in malos)
+                        + ": reconcilia a mano"
+                    )
+                    continue
+                viejo, _, grupo_viejo = pendientes[0]
+                imp = _sella_impulso(conn, plan, grupo_viejo, viejo, actor, confirmacion)
+                lanzados.append(ImpulsoLanzado(imp, viejo, "applied"))
+                continue
             try:
                 hecho = ejecutor(im.grupo_v2_de_plan(plan), plan.huella(), lote)
             except Exception as exc:

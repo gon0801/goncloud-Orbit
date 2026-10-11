@@ -925,3 +925,93 @@ def test_vigia_un_fallo_no_detiene_al_vecino(capsys):
             is not None
         )
         assert f"impulso {malo['impulso']} fallo" in capsys.readouterr().err
+
+
+@_skip_db
+def test_lanza_reintento_otra_huella_reutiliza_huerfano_sin_segundo_par():
+    """R09 B2 (i3/B1/B3): crash entre _mutar e INSERT deja applied sin
+    impulso; el reintento con OTRA huella (otro bid, otro dia) reutiliza
+    ese lote por listing y no crea un segundo par."""
+    with _db_i3("orbit_i3_r3a") as conn:
+        _, lid = _con_margen(conn)
+        solicitud = _solicitud(conn, [lid])
+        huerfano = f"impulso-{lid}-aaaaaaaa"
+        conn.execute(
+            "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal,"
+            " huella, plan, modo_goal, estado) VALUES (%s, 'amazon_mx', 'aros', 'SS-1', 'go',"
+            " 'aaaa', '{}'::jsonb, 'shadow', 'applied')",
+            (huerfano,),
+        )
+        grupo = conn.execute(
+            "INSERT INTO campana_grupo (platform, tipo_producto, nombre_base, lote,"
+            " target_acos_pct, target_derivado_pct, fraccion, target_procedencia, go_literal,"
+            " tipo) VALUES ('amazon_mx', 'aros', 'SS-1', %s, 19.10, 19.1040, 0.5, 'm', 'go',"
+            " 'impulso') RETURNING id",
+            (huerfano,),
+        ).fetchone()[0]
+        conn.commit()
+        vista = io.previsualiza(
+            conn, solicitud, sugeridor=_sugeridor_fijo(auto_discovery=Decimal("7.10"))
+        )
+        assert io.lote_de_plan(vista.planes[0]) != huerfano
+        llamadas = []
+
+        def _cuenta(plan_grupo, huella, lote_llamado):
+            llamadas.append(lote_llamado)
+            raise AssertionError("la fabrica no debio ejecutarse")
+
+        lanzados = io.lanza(
+            conn,
+            solicitud,
+            huella=vista.huella,
+            confirmacion=vista.confirmacion_esperada,
+            actor="dueno",
+            ejecutor=_cuenta,
+            sugeridor=_sugeridor_fijo(auto_discovery=Decimal("7.10")),
+        )
+        assert llamadas == []
+        assert [(x.impulso_id is not None, x.lote) for x in lanzados] == [(True, huerfano)]
+        assert conn.execute("SELECT count(*) FROM fabrica_lote").fetchone() == (1,)
+        assert conn.execute(
+            "SELECT grupo_id FROM impulso WHERE lote = %s", (huerfano,)
+        ).fetchone() == (grupo,)
+
+
+@_skip_db
+def test_lanza_failed_pendiente_otra_huella_da_502_reconcilia():
+    """R09 B2 (i3b): lote failed del listing sin reconciliar: el reintento
+    con otra huella se detiene con 502 y no lanza otro par al lado."""
+    with _db_i3("orbit_i3_r3b") as conn:
+        _, lid = _con_margen(conn)
+        solicitud = _solicitud(conn, [lid])
+        conn.execute(
+            "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal,"
+            " huella, plan, modo_goal, estado) VALUES (%s, 'amazon_mx', 'aros', 'Base', 'go',"
+            " 'bbbb', '{}'::jsonb, 'shadow', 'failed')",
+            (f"impulso-{lid}-bbbbbbbb",),
+        )
+        conn.commit()
+        vista = io.previsualiza(
+            conn, solicitud, sugeridor=_sugeridor_fijo(auto_discovery=Decimal("7.10"))
+        )
+        llamadas = []
+
+        def _cuenta(plan_grupo, huella, lote_llamado):
+            llamadas.append(lote_llamado)
+            return io.EjecucionFabrica(lote=lote_llamado, grupo_id=-1, estado_lote="applied")
+
+        with pytest.raises(io.ErrorImpulso) as exc:
+            io.lanza(
+                conn,
+                solicitud,
+                huella=vista.huella,
+                confirmacion=vista.confirmacion_esperada,
+                actor="dueno",
+                ejecutor=_cuenta,
+                sugeridor=_sugeridor_fijo(auto_discovery=Decimal("7.10")),
+            )
+        assert exc.value.status == 502
+        assert "reconcilia" in str(exc.value.fallos)
+        assert llamadas == []
+        assert conn.execute("SELECT count(*) FROM fabrica_lote").fetchone() == (1,)
+        assert conn.execute("SELECT count(*) FROM impulso").fetchone() == (0,)
