@@ -1,0 +1,180 @@
+== 0) SHA aprobado con la bateria completa verde
+APROBADO=d62544fdb005b1fcdcb73d0f9a2ffb9dca2cb366 CI=success
+== 1) Preflight: nadie corre, sin harvest en vuelo, migraciones pendientes
+cli=0
+ciclos running=0
+harvest en vuelo=0
+ya aplicada: migrations/0060_bids02_base_lectura.sql
+pendiente: migrations/0061_bids02_campana_config.sql
+pendiente: migrations/0062_bids02_placement.sql
+ya aplicada: migrations/0063_bids02_peldanos_target.sql
+== 1b) Guardas propias de D.2 (las dos abortan si fallan)
+comando avisos-campana y --placements presentes en el SHA
+dos lineas de cron en el SHA OK
+guardas propias OK
+== 1c) Cron (guarda 5): respaldo, CALCULAR las dos lineas, diff solo previsto (se instalan en 7b)
+placements: instalada tras --productos
+avisos: instalada suelta al final
+diff solo con lineas previstas:
+25 7 * * * FECHA=$(date -u -d "31 days ago" +\%F) FECHA_FIN=$(date -u -d "1 day ago" +\%F) && docker exec orbit-app-1 python -m app.cli ingest metrics --fecha "$FECHA" --fecha-fin "$FECHA_FIN" --placements >> /mnt/data/appdata/orbit/logs/ingest-placements.log 2>&1
+5 8 * * * /usr/bin/flock -n /tmp/avisos-campana.lock docker exec orbit-app-1 python -m app.cli avisos-campana >> /mnt/data/appdata/orbit/logs/avisos-campana.log 2>&1
+crontab calculado en /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-d2-sim-nuevo-crontab-20261011-0351.txt (se instala en 7b; respaldo en /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-d2-sim-respaldo-crontab-20261011-0351.txt)
+== 2) Respaldo del codigo actual y SHA (el .env NO se copia a ningun lado)
+app
+docker-compose.yml
+Dockerfile
+pyproject.toml
+SHA
+tools
+uv.lock
+== 3) Backup del esquema (staging + verificacion)
+-rw------- 1 root root 501894 Oct 11 03:52 /mnt/data/appdata/orbit/backups/pred2_schema_20261011-0351.sql
+== 4) Migraciones BIDS 02 pendientes, cada una en su propio psql -1
+BEGIN
+WARNING:  there is already a transaction in progress
+CREATE TABLE
+CREATE VIEW
+CREATE FUNCTION
+CREATE TRIGGER
+CREATE FUNCTION
+CREATE TRIGGER
+CREATE TRIGGER
+CREATE TRIGGER
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+DO
+COMMIT
+WARNING:  there is no transaction in progress
+aplicada migrations/0061_bids02_campana_config.sql (anotada en docs/evidencia/bids-02/ejecucion/D.2/aplicadas-20261011-0351.txt)
+BEGIN
+WARNING:  there is already a transaction in progress
+CREATE TABLE
+CREATE INDEX
+CREATE FUNCTION
+CREATE TRIGGER
+CREATE FUNCTION
+CREATE TRIGGER
+CREATE FUNCTION
+CREATE TRIGGER
+CREATE TRIGGER
+CREATE TRIGGER
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+GRANT
+GRANT
+GRANT
+DO
+COMMIT
+WARNING:  there is no transaction in progress
+aplicada migrations/0062_bids02_placement.sql (anotada en docs/evidencia/bids-02/ejecucion/D.2/aplicadas-20261011-0351.txt)
+== 5) md5 del codigo desplegado vs SHA aprobado
+md5 OK app/ads/campana_config.py
+md5 OK app/ads/placements.py
+md5 OK app/avisos_campana.py
+md5 OK app/cli_bids.py
+md5 OK app/pantalla_dinero.py
+md5 OK app/cli.py
+md5 OK app/notifica.py
+md5 OK app/api_dashboard.py
+md5 OK app/ui.py
+md5 OK app/templates/donde_poner_el_dinero.html
+md5 OK app/templates/salud.html
+== 6) Guardas antes de recrear
+guardas OK
+== 7) Build + recrear app (digest antes/despues) + health
+DIGEST antes=sha256:df44529884ff853d59c95f5e1a118eac2006852f026e5eb5d76258a60f3a3435
+ Image orbit-app Building
+#1 [internal] load local bake definitions
+#1 reading from stdin 482B done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 952B done
+#2 DONE 0.0s
+
+#3 [internal] load metadata for docker.io/library/python:3.12-slim-bookworm
+#3 ...
+
+#4 [internal] load metadata for ghcr.io/astral-sh/uv:0.11.11
+#4 DONE 0.5s
+
+#3 [internal] load metadata for docker.io/library/python:3.12-slim-bookworm
+#3 DONE 0.6s
+
+#5 [internal] load .dockerignore
+#5 transferring context: 199B done
+#5 DONE 0.0s
+
+#6 FROM ghcr.io/astral-sh/uv:0.11.11@sha256:798712e57f879c5393777cbda2bb309b29fcdeb0532129d4b1c3125c5385975a
+#6 resolve ghcr.io/astral-sh/uv:0.11.11@sha256:798712e57f879c5393777cbda2bb309b29fcdeb0532129d4b1c3125c5385975a 0.0s done
+#6 DONE 0.0s
+
+#7 [stage-0 1/9] FROM docker.io/library/python:3.12-slim-bookworm@sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3a1509accc92a4e24a07258
+#7 resolve docker.io/library/python:3.12-slim-bookworm@sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3a1509accc92a4e24a07258 0.0s done
+#7 DONE 0.0s
+
+#8 [internal] load build context
+#8 transferring context: 3.41MB 0.0s done
+#8 DONE 0.0s
+
+#9 [stage-0 4/9] COPY pyproject.toml uv.lock ./
+#9 CACHED
+
+#10 [stage-0 3/9] WORKDIR /app
+#10 CACHED
+
+#11 [stage-0 2/9] COPY --from=ghcr.io/astral-sh/uv:0.11.11 /uv /uvx /bin/
+#11 CACHED
+
+#12 [stage-0 5/9] RUN uv sync --frozen --no-dev --no-install-project --no-cache
+#12 CACHED
+
+#13 [stage-0 6/9] COPY app ./app
+#13 DONE 0.0s
+
+#14 [stage-0 7/9] COPY tools/fabrica_campanas.py ./tools/fabrica_campanas.py
+#14 DONE 0.0s
+
+#15 [stage-0 8/9] COPY tools/jev_ads.py ./tools/jev_ads.py
+#15 DONE 0.0s
+
+#16 [stage-0 9/9] COPY tools/jev_fichas.py ./tools/jev_fichas.py
+#16 DONE 0.0s
+
+#17 exporting to image
+#17 exporting layers 0.1s done
+#17 exporting manifest sha256:9bc4f117146730b34a679d587100b097f562f0255385e96e2d806b9bc21eb34e done
+#17 exporting config sha256:91b3f71ba7255c6ade421f329fac74fd23761f60fcc954c6c1fa3e19abd41a32 done
+#17 exporting attestation manifest sha256:30115be2f01412549b0c99a1b5f9c57a712b78813b4befe76d470b9692823684 done
+#17 exporting manifest list sha256:b3bec3f2d22962ca5ca40bee0360fae491bfefce171f59f88f8bd147503f2663 done
+#17 naming to docker.io/library/orbit-app:latest done
+#17 unpacking to docker.io/library/orbit-app:latest 0.1s done
+#17 DONE 0.2s
+
+#18 resolving provenance for metadata file
+#18 DONE 0.0s
+ Image orbit-app Built
+ Container orbit-app-1 Recreate
+ Container orbit-app-1 Recreated
+ Container orbit-app-1 Starting
+ Container orbit-app-1 Started
+DIGEST despues=sha256:b3bec3f2d22962ca5ca40bee0360fae491bfefce171f59f88f8bd147503f2663
+{"status":"ok"}
+orbit-app-1 Up 5 seconds
+== 7b) Cron: RELEER el crontab actual e instalar (tras el health del contenedor nuevo)
+placements: instalada tras --productos
+avisos: instalada suelta al final
+crontab instalado (respaldo en /mnt/data/appdata/orbit/backups/crontab-gon-pre-d2-20261011-0351.txt)
+== LISTO. STAMP=20261011-0351
+Siguiente: bash docs/evidencia/bids-02/ejecucion/D.2/checklist.sh 20261011-0351 (despues del sync de las 06:45 UTC y del reporte de las 07:25 UTC)
+Reversa:   bash docs/evidencia/bids-02/ejecucion/D.2/rollback.sh 20261011-0351
