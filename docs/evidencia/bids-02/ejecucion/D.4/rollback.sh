@@ -142,7 +142,7 @@ if [ "$SIM" = 1 ]; then
   else
     AGENDA_ANTES=$(grep -c -E 'cycle --platform' "$CRON_SIM" || true)
     quitar_cron "$CRON_SIM" "$CRON_SIM.nuevo" "$VIGIA_R"
-    if grep -q impulso-vigia "$CRON_SIM.nuevo"; then
+    if grep -qF -- "$VIGIA_R" "$CRON_SIM.nuevo"; then
       echo "ABORTA: tras quitar, el crontab todavia trae la linea de D.4"; exit 1
     fi
     AGENDA_DESPUES=$(grep -c -E 'cycle --platform' "$CRON_SIM.nuevo" || true)
@@ -155,7 +155,7 @@ else
   ssh goncloud "crontab -l -u gon 2>/dev/null" > "$TMPD/cron-actual-$STAMP.txt" || { echo "ABORTA: no se pudo leer el crontab de gon"; exit 1; }
   quitar_cron "$TMPD/cron-actual-$STAMP.txt" "$TMPD/cron-nuevo-$STAMP.txt" "$VIGIA_R"
   cat "$TMPD/cron-nuevo-$STAMP.txt" | ssh goncloud "crontab -u gon -"
-  ssh goncloud "crontab -l -u gon" | grep -q impulso-vigia && { echo "ABORTA: la linea de D.4 sigue instalada"; exit 1; }
+  ssh goncloud "crontab -l -u gon" | grep -qF -- "$VIGIA_R" && { echo "ABORTA: la linea de D.4 sigue instalada"; exit 1; }
   echo "cron sin linea de D.4 OK"
 fi
 if [ "$SIM" = 1 ]; then

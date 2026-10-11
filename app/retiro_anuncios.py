@@ -19,6 +19,8 @@ from typing import Literal
 
 from app import impulso as im
 from app.ads import archivar
+from app.ads.client import AdsApiError
+from app.ads.config import AdsConfigError
 
 MotivoRetiro = Literal["impulso", "sin_pedidos", "subfamilia"]
 
@@ -204,7 +206,10 @@ def ejecuta_retiro(
     if (plan.motivo == "impulso") != (impulso_id is not None):
         raise ValueError("motivo 'impulso' exige impulso_id, y solo ese motivo lo trae")
     if escritor is None:
-        escritor = archivar.preparar_escritor(plan.plataforma)
+        try:
+            escritor = archivar.preparar_escritor(plan.plataforma)
+        except (ValueError, AdsApiError, AdsConfigError) as exc:
+            raise RuntimeError(f"Amazon no disponible para retirar: {exc}") from exc
     actor_final = actor if actor is not None else go
     candidatos = []
     for anuncio in plan.anuncios:
@@ -332,7 +337,10 @@ def repone(
         raise ValueError(f"reponer mezcla plataformas {sorted(plataformas)}: una por llamada")
     if escritor is None:
         plataforma = next(iter(plataformas))
-        escritor = archivar.preparar_escritor(plataforma)
+        try:
+            escritor = archivar.preparar_escritor(plataforma)
+        except (ValueError, AdsApiError, AdsConfigError) as exc:
+            raise RuntimeError(f"Amazon no disponible para reponer: {exc}") from exc
     with _bloqueados(conn, [f"repone-rid:{rid}" for rid in retiro_ids]):
         # Re-lee bajo lock: otro pudo reponer mientras se esperaba.
         filas = conn.execute(_SQL_RETIROS, (list(retiro_ids),)).fetchall()

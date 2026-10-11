@@ -9,8 +9,9 @@
 # ENABLED). En simulacion (ORBIT_SIMULACION=1) la base es ORBIT_SIM_DSN y el
 # HTTP es ORBIT_SIM_API: no hay ssh.
 # Comprueba (guia D.4): /health en 200; impulso, impulso_lectura,
-# anuncio_retiro y anuncio_reposicion existen y estan vacias (recien
-# desplegado nadie lanzo ni retiro); /productos-sin-clics en 200 en MX y
+# anuncio_retiro y anuncio_reposicion existen (el dueno ya pudo lanzar:
+# se guardan sus conteos y al final se verifica que el checklist no
+# escribio); /productos-sin-clics en 200 en MX y
 # US; crontab -u gon -l trae UNA linea impulso-vigia; la vista previa
 # del impulso con un candidato del dashboard responde 200 y no escribe
 # (conteos de fabrica_lote e impulso iguales antes y despues); imprime
@@ -94,12 +95,17 @@ echo "== Checklist D.4 (solo lectura; sello $SELLO)"
 echo "== 1) HTTP: /health"
 revisa "GET /health" 200 "$(http /health)"
 
-echo "== 2) Esquema de D.4: las cuatro tablas existen y estan vacias"
+echo "== 2) Esquema de D.4: las cuatro tablas existen (el dueno ya pudo lanzar)"
 for TABLA in impulso impulso_lectura anuncio_retiro anuncio_reposicion; do
   revisa "tabla $TABLA" t \
     "$(echo "SELECT to_regclass('public.$TABLA') IS NOT NULL;" | lee || true)"
-  revisa "$TABLA vacia" 0 \
-    "$(echo "SELECT count(*) FROM $TABLA;" | lee || true)"
+  N_ANTES="$(echo "SELECT count(*) FROM $TABLA;" | lee || true)"
+  if [ -z "$N_ANTES" ]; then
+    echo "NO MEDIDO $TABLA antes (lectura vacia)"; NOMEDIDO=$((NOMEDIDO + 1))
+  else
+    echo "OK    $TABLA antes = $N_ANTES"
+  fi
+  eval "ANTES_$TABLA='$N_ANTES'"
 done
 
 echo "== 3) La pantalla de productos responde en cada mercado"
@@ -145,6 +151,17 @@ fi
 
 echo "== 6) MUTATION_REQUEST_TYPES trae PUT /sp/productAds"
 revisa "PUT /sp/productAds en allowlist" true "$(trae_put)"
+
+echo "== 7) Las cuatro tablas sin escrituras del checklist"
+for TABLA in impulso impulso_lectura anuncio_retiro anuncio_reposicion; do
+  eval "ANTES=\$ANTES_$TABLA"
+  if [ -z "$ANTES" ]; then
+    echo "NO MEDIDO $TABLA despues (no hubo conteo antes)"; NOMEDIDO=$((NOMEDIDO + 1))
+  else
+    revisa "$TABLA sin escrituras del checklist" "$ANTES" \
+      "$(echo "SELECT count(*) FROM $TABLA;" | lee || true)"
+  fi
+done
 
 echo "== RESULTADO: $FALLAS falla(s), $NOMEDIDO sin medir"
 [ "$FALLAS" -eq 0 ] || exit 1

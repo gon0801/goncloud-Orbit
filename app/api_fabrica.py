@@ -585,6 +585,8 @@ def _conservar_y_impulso(
 
 @router.post("/impulso/plan")
 def impulso_plan(cuerpo: SolicitudImpulsoPlan, conn: ConexionLectura):
+    import tools.fabrica_campanas as fc
+
     moneda = fp.MONEDA_POR_PLATAFORMA[cuerpo.plataforma]
     try:
         vista = io.previsualiza(
@@ -594,11 +596,15 @@ def impulso_plan(cuerpo: SolicitudImpulsoPlan, conn: ConexionLectura):
         )
     except io.ErrorImpulso as exc:
         raise _error_impulso(exc) from None
+    except fc.Abortar as exc:
+        raise fw.error(422, str(exc)) from None
     return vista.como_dict()
 
 
 @router.post("/impulso/lanzar")
 def impulso_lanzar(_token: Annotated[str, Depends(exige_token)], cuerpo: CuerpoLanzarImpulso):
+    import tools.fabrica_campanas as fc
+
     with fw._conexion("ORBIT_DSN_ADMIN", "impulso") as conn:
         moneda = fp.MONEDA_POR_PLATAFORMA[cuerpo.solicitud.plataforma]
         sugeridor = _sugeridor_plataforma(cuerpo.solicitud.plataforma, moneda)
@@ -615,10 +621,15 @@ def impulso_lanzar(_token: Annotated[str, Depends(exige_token)], cuerpo: CuerpoL
         except io.ErrorImpulso as exc:
             vista = None
             if exc.status == 409:
-                vista = io.previsualiza(
-                    conn, cuerpo.solicitud.como_solicitud(), sugeridor=sugeridor
-                ).como_dict()
+                try:
+                    vista = io.previsualiza(
+                        conn, cuerpo.solicitud.como_solicitud(), sugeridor=sugeridor
+                    ).como_dict()
+                except fc.Abortar:
+                    vista = None
             raise _error_impulso(exc, vista=vista) from None
+        except fc.Abortar as exc:
+            raise fw.error(422, str(exc)) from None
         return {
             "lanzados": [
                 {"impulso_id": x.impulso_id, "lote": x.lote, "estado_lote": x.estado_lote}

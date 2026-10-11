@@ -2167,3 +2167,104 @@ def test_i5_lanzar_con_ejecutor_real_200(escenario, monkeypatch):
         ).fetchone()[0]
         == "applied"
     )
+
+
+def test_i5_plan_listing_inexistente_no_lanzable(escenario, monkeypatch):
+    """No-bloq 3 (v5): un listing inexistente sale como no lanzable, no 500."""
+    cliente, conn, _, _, ids = escenario
+    _db_i5(conn)
+    _sugeridor_fijo_i5(monkeypatch)
+    lid = _lid_de(conn, ids[0])
+    r = cliente.post(
+        "/api/fabrica/impulso/plan",
+        json={
+            "plataforma": "amazon_mx",
+            "listing_ids": [lid, 999999],
+            "subfamilia_por_listing": {str(lid): "aros", "999999": "aros"},
+        },
+    )
+    assert r.status_code == 200, r.text
+    assert [p["listing_id"] for p in r.json()["planes"]] == [lid]
+    assert [n["listing_id"] for n in r.json()["no_lanzables"]] == [999999]
+
+
+def test_i5_plan_listing_otro_mercado_no_lanzable(escenario, monkeypatch):
+    """No-bloq 3 (v6): un listing MX pedido como US sale no lanzable, no 500."""
+    cliente, conn, _, _, ids = escenario
+    _db_i5(conn)
+    _sugeridor_fijo_i5(monkeypatch)
+    lid = _lid_de(conn, ids[0])
+    r = cliente.post(
+        "/api/fabrica/impulso/plan",
+        json={
+            "plataforma": "amazon_us",
+            "listing_ids": [lid],
+            "subfamilia_por_listing": {str(lid): "aros"},
+        },
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["planes"] == []
+    assert [n["listing_id"] for n in r.json()["no_lanzables"]] == [lid]
+
+
+def test_i5_plan_sin_sku_no_tumba_a_los_demas(escenario, monkeypatch):
+    """No-bloq 3 (v7): una publicacion sin seller_sku no tumba la vista."""
+    cliente, conn, _, _, ids = escenario
+    _db_i5(conn)
+    _sugeridor_fijo_i5(monkeypatch)
+    lid = _lid_de(conn, ids[0])
+    sin_sku = conn.execute(
+        "INSERT INTO listing (product_id, platform, external_id, seller_sku)"
+        " VALUES (%s, 'amazon_mx', 'B0SYNSINSK', NULL) RETURNING id",
+        (ids[0],),
+    ).fetchone()[0]
+    r = cliente.post(
+        "/api/fabrica/impulso/plan",
+        json={
+            "plataforma": "amazon_mx",
+            "listing_ids": [lid, sin_sku],
+            "subfamilia_por_listing": {str(lid): "aros", str(sin_sku): "aros"},
+        },
+    )
+    assert r.status_code == 200, r.text
+    assert [p["listing_id"] for p in r.json()["planes"]] == [lid]
+    assert [n["listing_id"] for n in r.json()["no_lanzables"]] == [sin_sku]
+
+
+def test_i5_ejecutar_amazon_no_disponible_502(escenario, monkeypatch):
+    """No-bloq 3 (e6): sin credenciales, sin perfil o con Amazon caido,
+    ejecutar responde 502, no 500 ni 422."""
+    from test_retiro_anuncios import _bolsa
+
+    from app.ads import archivar
+    from app.ads.client import AdsApiError
+    from app.ads.config import AdsConfigError
+
+    cliente, conn, _, _, ids = escenario
+    _db_i5(conn)
+    lid = _lid_de(conn, ids[0])
+    _bolsa(conn, lid, "ad-a")
+    plan = cliente.post(
+        "/api/fabrica/retiro/plan",
+        json={"plataforma": "amazon_mx", "listing_ids": [lid], "motivo": "sin_pedidos"},
+    ).json()
+    cuerpo = {
+        "plataforma": "amazon_mx",
+        "listing_ids": [lid],
+        "motivo": "sin_pedidos",
+        "huella": plan["huella"],
+        "confirmacion": "SACAR 1 ANUNCIOS",
+        "actor": "dueno",
+    }
+    for exc in (
+        AdsConfigError("no existe el archivo de credenciales"),
+        ValueError("se esperaba EXACTAMENTE 1 perfil aceptado, hay 0"),
+        AdsApiError("503 de Amazon"),
+    ):
+
+        def _falla(platform, _exc=exc):
+            raise _exc
+
+        monkeypatch.setattr(archivar, "preparar_escritor", _falla)
+        r = cliente.post("/api/fabrica/retiro/ejecutar", headers=HEADERS, json=cuerpo)
+        assert r.status_code == 502, (exc, r.text)

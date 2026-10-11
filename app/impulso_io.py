@@ -226,6 +226,14 @@ def _plan_producto(
     hoy: dt.date,
     settings: dict,
 ) -> im.PlanImpulso:
+    fila = conn.execute(
+        "SELECT seller_sku FROM listing WHERE id = %s AND platform = %s",
+        (listing_id, plataforma),
+    ).fetchone()
+    if fila is None:
+        raise fp.PlanInvalido(f"listing {listing_id} no existe en {plataforma}")
+    if not fila[0]:
+        raise fp.PlanInvalido(f"listing {listing_id} sin seller_sku: no se lanza")
     args = SimpleNamespace(
         listing_ids=str(listing_id),
         plataforma=plataforma,
