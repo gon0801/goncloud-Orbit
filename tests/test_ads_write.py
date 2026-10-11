@@ -503,6 +503,43 @@ def test_ajustar_campana_falla_en_cerrado_ante_basura():
         client.ajustar_campana("1", {"budget": {"budget": 1.0, "budgetType": "DAILY"}})
 
 
+def test_ajustar_campana_procesa_campaigns_objeto_de_v0():
+    """CodeRabbit + evidencia V.0: las 3 sondas responden `campaigns` como
+    objeto `{error, success}`; un `error` no vacio lanza."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return _token_response()
+        return httpx.Response(
+            207, json={"campaigns": {"error": [{"campaignId": "1"}], "success": []}}
+        )
+
+    client = make_write_client(handler)
+    with pytest.raises(AdsApiErrorMutacion, match="campaignId"):
+        client.ajustar_campana("1", {"budget": {"budget": 1.0, "budgetType": "DAILY"}})
+
+
+def test_ajustar_campana_campaigns_objeto_vacio_no_lanza():
+    """El objeto `{error: [], success: [...]}` de las sondas es exito."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return _token_response()
+        return httpx.Response(
+            207,
+            json={
+                "campaigns": {
+                    "error": [],
+                    "success": [{"campaignId": "1", "index": 0}],
+                }
+            },
+        )
+
+    client = make_write_client(handler)
+    resp = client.ajustar_campana("1", {"budget": {"budget": 1.0, "budgetType": "DAILY"}})
+    assert resp.status_code == 207
+
+
 def test_ajustar_campana_207_con_errores_anidados_lanza():
     """Exito se decide por errores anidados, nunca por el status."""
 

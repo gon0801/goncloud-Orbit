@@ -605,7 +605,7 @@ ClaseAjuste = Literal["fuera_de_amazon", "ajuste_ubicacion", "presupuesto"]
 class CuerpoAplicaAjuste(BaseModel):
     campana_id: int = Field(ge=1)
     clase: ClaseAjuste
-    presupuesto: float | None = Field(default=None, gt=0)
+    presupuesto: Decimal | None = Field(default=None, gt=0)
     ubicacion: str | None = None
     porcentaje: int | None = None
     huella: str
@@ -618,7 +618,10 @@ class CuerpoRegresaAjuste(BaseModel):
 
 
 def _ajuste_de(
-    clase: str, presupuesto: float | None, ubicacion: str | None, porcentaje: int | None
+    clase: str,
+    presupuesto: Decimal | None,
+    ubicacion: str | None,
+    porcentaje: int | None,
 ):
     """Construye el AjusteCampana desde query/body. Faltantes o clase
     desconocida -> ValueError (la ruta lo vuelve 422)."""
@@ -631,7 +634,7 @@ def _ajuste_de(
     if clase == "presupuesto":
         if presupuesto is None:
             raise ValueError("clase presupuesto exige presupuesto")
-        return CambiarPresupuesto(presupuesto_diario=Decimal(str(presupuesto)))
+        return CambiarPresupuesto(presupuesto_diario=presupuesto)
     if clase == "ajuste_ubicacion":
         if ubicacion is None or porcentaje is None:
             raise ValueError("clase ajuste_ubicacion exige ubicacion y porcentaje")
@@ -663,7 +666,7 @@ def plan_ajuste(
     conn: ConexionLectura,
     campana_id: int,
     clase: ClaseAjuste,
-    presupuesto: float | None = None,
+    presupuesto: Decimal | None = None,
     ubicacion: str | None = None,
     porcentaje: int | None = None,
 ) -> dict:

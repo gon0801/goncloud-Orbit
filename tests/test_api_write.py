@@ -1665,6 +1665,22 @@ def test_aplicar_actor_largo_da_422(tmp_path, monkeypatch):
         assert isinstance(resp.json()["detail"], list)
 
 
+@_skip_db
+def test_plan_presupuesto_fraccionario_llega_exacta_sin_float(tmp_path, monkeypatch):
+    """CodeRabbit/regla 4: 100.125 por query llega Decimal exacta (el plan
+    la cuantiza a 100.12); ningun float en el borde."""
+    with _db_ajustes("orbit_wa_dec") as (conn, _dsn_admin, dsn_l):
+        camp = _siembra_ajuste(conn)
+        _secrets_token(tmp_path, monkeypatch)
+        monkeypatch.setenv("ORBIT_DSN_READ", dsn_l)
+        resp = TestClient(app).get(
+            "/api/ads-optimizer/campana-ajuste/plan",
+            params={"campana_id": camp, "clase": "presupuesto", "presupuesto": "100.125"},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["despues"]["presupuesto_diario"] == "100.12"
+
+
 def test_mapeo_errores_ajuste_trae_sus_codigos():
     """Puro: el dict de la ruta mapea cada error de ajuste a su codigo.
     (ConfirmacionInvalida es inalcanzable por HTTP — pydantic veta el

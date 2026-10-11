@@ -220,10 +220,11 @@ class AdsApiErrorMutacion(AdsApiError):
 
 def _errores_put(respuesta: httpx.Response) -> list[str]:
     """Errores anidados de un PUT bulk v3: `errors` no vacio arriba o por
-    item, o `code` 4xx/5xx arriba o por item. Fail-closed (panel): cuerpo
-    ilegible o item no-dict es error, no exito (un rechazo deja pendiente
-    reintentable; un falso exito sella una mentira). Lista vacia solo con
-    exito (un 207 limpio no trae ni errors ni codes de fallo)."""
+    item, o `code` 4xx/5xx arriba o por item. `campaigns` llega como
+    objeto `{error, success}` (las 3 sondas de V.0) o como lista por item:
+    se procesan ambas. Fail-closed (panel): cuerpo ilegible o item
+    no-dict es error, no exito (un rechazo deja pendiente reintentable;
+    un falso exito sella una mentira). Lista vacia solo con exito."""
     try:
         cuerpo = respuesta.json()
     except ValueError:
@@ -238,7 +239,11 @@ def _errores_put(respuesta: httpx.Response) -> list[str]:
     if codigo_tope[:1] in ("4", "5"):
         errores.append(cuerpo.get("description") or f"code {codigo_tope}")
     items = cuerpo.get("campaigns")
-    if isinstance(items, list):
+    if isinstance(items, dict):
+        fallos = items.get("error")
+        if isinstance(fallos, list) and fallos:
+            errores.extend(str(e) for e in fallos)
+    elif isinstance(items, list):
         for item in items:
             if not isinstance(item, dict):
                 errores.append("item de campana ilegible")

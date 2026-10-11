@@ -178,3 +178,12 @@ despues (la suite quedo en `4 passed`).
 - Ruido sin `AND c.origen <> 'ajuste_de_campana'` ->
   test_encogimiento_ignora_ajuste_de_campana_antiguo en rojo (la hoja
   desaparece del tablero: el ajuste corrompia la base).
+
+## CodeRabbit PR 428 (verificados 2026-10-11, todos MUEREN)
+
+- Sin la rama de `campaigns`-objeto (`if False:`) ->
+  test_ajustar_campana_procesa_campaigns_objeto_de_v0 en rojo (las 3
+  sondas responden `{error, success}`; ignorarlo era fail-open).
+- Query `presupuesto` como `float` ->
+  test_plan_presupuesto_fraccionario_llega_exacta_sin_float en rojo
+  (regla 4: el borde es Decimal; el plan cuantiza a 100.12).
