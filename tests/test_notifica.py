@@ -28,7 +28,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import logging
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from decimal import Decimal
 from types import SimpleNamespace
 
@@ -564,7 +564,12 @@ def test_carga_contribucion_digest_rango_y_sin_dato():
             self._respuestas = list(respuestas)
 
         def execute(self, _sql, _params=None):
+            if _sql.startswith("SET LOCAL"):
+                return None
             return _Cur(self._respuestas.pop(0))
+
+        def transaction(self):
+            return nullcontext()
 
     mx = notifica.carga_contribucion_digest(
         "amazon_mx",
@@ -611,6 +616,9 @@ def test_carga_contribucion_digest_execute_falla(caplog):
     class _Conn:
         def execute(self, _sql, _params=None):
             raise RuntimeError("server closed the connection unexpectedly")
+
+        def transaction(self):
+            return nullcontext()
 
     caplog.set_level(logging.WARNING, logger="app.notifica")
     out = notifica.carga_contribucion_digest("amazon_mx", conn=_Conn())
