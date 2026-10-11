@@ -1597,6 +1597,9 @@ def avisar_campanas(conn, hoy=None, *, solo=None):
             )
         except Exception as exc:  # noqa: BLE001 - fail-continues (docstring)
             logger.warning("campanas: lectura de %s fallida: %s", plataforma, scrub(str(exc)))
+            # Sin rollback, un error de SQL deja la transaccion abortada y la
+            # siguiente plataforma falla con "current transaction is aborted".
+            conn.rollback()
             continue
         for clase in clases:
             texto = mensaje_clase(plataforma, clase, avisos)

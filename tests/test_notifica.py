@@ -1656,9 +1656,13 @@ class _Cursor9:
 class _Conn9:
     def __init__(self, respuestas):
         self._respuestas = list(respuestas)
+        self.rollbacks = 0
 
     def execute(self, sql, params=None):
         return _Cursor9(self._respuestas.pop(0))
+
+    def rollback(self):
+        self.rollbacks += 1
 
 
 def _conn_campanas(*, ubicaciones=(), settings=(), campanas=(), gasto_diario=(), configs_hist=()):
@@ -1756,6 +1760,7 @@ def test_avisar_campanas_lectura_us_fallida_no_tumba_mx(monkeypatch, canal_ok, c
             },
         )
     assert salieron == {("amazon_mx", "ubicacion_gasta_sin_vender"): True}
+    assert conn.rollbacks == 1
     assert "campanas: lectura de amazon_us fallida" in caplog.text
     assert [m["text"] for m in canal_ok] == [
         "Fuera de Amazon: 1,735 MXN en 30 días, 1,127 clics, ningún pedido."

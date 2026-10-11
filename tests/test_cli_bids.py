@@ -25,6 +25,7 @@ from test_pantalla_dinero import (
     _siembra_campana,
     _siembra_config,
     _siembra_gasto_campana,
+    _siembra_placement,
 )
 from test_schema import _postgres_obligatorio_ausente, _test_dsn
 
@@ -122,6 +123,58 @@ def test_comando_dos_veces_mismo_dia_envia_una(monkeypatch, tmp_path):
             assert cli_bids.main_avisos_campana([]) == 0
             assert cli_bids.main_avisos_campana([]) == 0
             assert len(mensajes) == 1
+
+
+@_skip_db
+def test_comando_error_sql_en_us_no_calla_mx(monkeypatch, tmp_path):
+    import app.pantalla_dinero as pd
+
+    with _db_avisos("orbit_v4_tx") as conn:
+        run = conn.execute("INSERT INTO ingest_run (source) VALUES ('t') RETURNING id").fetchone()[
+            0
+        ]
+        hoy = _hoy()
+        hasta = hoy - dt.timedelta(days=1)
+        obs = dt.datetime.combine(hoy, dt.time(), tzinfo=dt.UTC)
+        c1 = _siembra_campana(conn, "amazon_mx", "c1", "Ubic")
+        _siembra_placement(
+            conn,
+            "amazon_mx",
+            c1,
+            "fuera_de_amazon",
+            hasta,
+            obs,
+            Decimal("1735"),
+            1127,
+            0,
+            Decimal("0"),
+        )
+        c2 = _siembra_campana(conn, "amazon_mx", "c2", "Tope")
+        _siembra_config(conn, c2, obs - dt.timedelta(days=10), Decimal("100"), "MANUAL")
+        for i in range(7):
+            _siembra_gasto_campana(
+                conn,
+                c2,
+                hasta - dt.timedelta(days=6 - i),
+                Decimal("90") if i < 5 else Decimal("0"),
+                obs,
+                run,
+            )
+        c3 = _siembra_campana(conn, "amazon_mx", "c3", "Holgada")
+        _siembra_config(conn, c3, obs - dt.timedelta(days=1), Decimal("500"), "MANUAL")
+        _siembra_gasto_campana(conn, c3, hasta, Decimal("1"), obs, run)
+        _dsns(monkeypatch, conn)
+        real = pd.lee_ubicaciones
+
+        def _lee(c, *, plataforma, desde, hasta):
+            if plataforma == "amazon_us":
+                c.execute("SELECT 1/0")
+            return real(c, plataforma=plataforma, desde=desde, hasta=hasta)
+
+        monkeypatch.setattr(pd, "lee_ubicaciones", _lee)
+        with _canal(tmp_path, monkeypatch) as mensajes:
+            assert cli_bids.main_avisos_campana([]) == 0
+            assert len(mensajes) == 3
 
 
 @_skip_db
