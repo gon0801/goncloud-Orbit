@@ -1486,7 +1486,6 @@ def _ejecutor_siembra_i5(monkeypatch, conn):
                 " 19.1040, 0.5, 'm', 'go', 'impulso') RETURNING id",
                 (lote,),
             ).fetchone()[0]
-            una_conn.commit()
             return io.EjecucionFabrica(lote=lote, grupo_id=grupo, estado_lote="applied")
 
         return ejecuta
@@ -1702,3 +1701,38 @@ def test_i5_literales_y_campo_extra_422(escenario, monkeypatch):
     )
     assert r.status_code == 422
     assert "SECRETO-NO-REPETIBLE" not in r.text
+
+
+def test_i5_ejecutar_parcial_502_con_detalle(escenario, monkeypatch):
+    """R09-r2 B-7: con un anuncio no confirmable, ejecutar registra el
+    bueno y responde 502 nombrando al otro (no 500 pelado)."""
+    from test_retiro_anuncios import _bolsa, _escritor, _fila
+
+    from app.ads import archivar
+
+    cliente, conn, _, _, ids = escenario
+    _db_i5(conn)
+    lid = _lid_de(conn, ids[0])
+    _bolsa(conn, lid, "ad-ok")
+    _bolsa(conn, lid, "ad-bad", ag="ag-bad", camp="c-bad")
+    plan = cliente.post(
+        "/api/fabrica/retiro/plan",
+        json={"plataforma": "amazon_mx", "listing_ids": [lid], "motivo": "sin_pedidos"},
+    ).json()
+    escritor, _puts = _escritor({**_fila("ad-ok", "ENABLED"), **_fila("ad-bad", "ARCHIVED")})
+    monkeypatch.setattr(archivar, "preparar_escritor", lambda platform: escritor)
+    r = cliente.post(
+        "/api/fabrica/retiro/ejecutar",
+        headers=HEADERS,
+        json={
+            "plataforma": "amazon_mx",
+            "listing_ids": [lid],
+            "motivo": "sin_pedidos",
+            "huella": plan["huella"],
+            "confirmacion": "SACAR 2 ANUNCIOS",
+            "actor": "dueno",
+        },
+    )
+    assert r.status_code == 502, r.text
+    assert "ad-bad" in r.text
+    assert conn.execute("SELECT ad_id_externo FROM anuncio_retiro").fetchall() == [("ad-ok",)]

@@ -664,9 +664,12 @@ def retiro_ejecutar(_token: Annotated[str, Depends(exige_token)], cuerpo: Cuerpo
         n = len(plan.anuncios)
         if cuerpo.confirmacion != f"SACAR {n} ANUNCIOS":
             raise fw.error(422, "La confirmación no coincide con la operación.")
-        retirados = ra.ejecuta_retiro(
-            conn, plan, go=cuerpo.confirmacion, impulso_id=imp, actor=cuerpo.actor
-        )
+        try:
+            retirados = ra.ejecuta_retiro(
+                conn, plan, go=cuerpo.confirmacion, impulso_id=imp, actor=cuerpo.actor
+            )
+        except RuntimeError as exc:
+            raise fw.error(502, f"Retiro parcial: {exc}") from None
         return {"retirados": retirados, "lote_retiro": ra.lote_retiro_de_plan(plan)}
 
 
