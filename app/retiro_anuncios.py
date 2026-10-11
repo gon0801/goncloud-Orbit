@@ -145,8 +145,9 @@ def ejecuta_retiro(
     """Pausa los anuncios del plan y deja una fila por anuncio en
     `anuncio_retiro` (modo 'pausa'). Reanudable: salta los que ya
     tienen un retiro abierto. Si alguno no se confirma, registra los
-    confirmados y falla al final nombrando a los otros. Devuelve
-    cuantos retiro."""
+    confirmados y falla al final nombrando a los otros. Un anuncio que
+    ya estaba pausado (crash entre PUT e INSERT) se registra: el
+    readback lo confirma. Devuelve cuantos retiro."""
     if not go or not go.strip():
         raise ValueError("ejecutar un retiro exige el literal go del dueno")
     if (plan.motivo == "impulso") != (impulso_id is not None):
@@ -175,7 +176,7 @@ def ejecuta_retiro(
     fallidos: list[str] = []
     for ent, anuncio in pendientes:
         res = por_id.get(anuncio.ad_id_externo)
-        if res is None or res.resultado != "pausado":
+        if res is None or res.resultado not in ("pausado", "ya_estaba"):
             detalle = res.detalle if res is not None else "sin resultado"
             fallidos.append(f"{anuncio.ad_id_externo} ({detalle})")
             continue

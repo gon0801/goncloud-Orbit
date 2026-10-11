@@ -294,6 +294,26 @@ def test_ejecuta_un_fallo_no_bloquea_el_registro_de_los_confirmados():
 
 
 @_skip_db
+def test_ejecuta_ya_pausado_se_registra_sin_fallar():
+    """R09-r2 B-2: crash entre PUT e INSERT: en la re-corrida el anuncio
+    ya esta PAUSED (ya_estaba) y se registra como retirado sin PUT ni
+    RuntimeError (antes bloqueaba el retiro para siempre)."""
+    with _db_i4("orbit_i4_yaestaba") as conn:
+        _pid, lid = _producto(conn)
+        _bolsa(conn, lid, "ad-1")
+        _bolsa(conn, lid, "ad-2", ag="ag-otra", camp="c-otra")
+        plan = ra.planea_retiro(
+            conn, "amazon_mx", listing_ids=(lid,), motivo="sin_pedidos", conservar_grupo_id=None
+        )
+        escritor, puts = _escritor({**_fila("ad-1", "ENABLED"), **_fila("ad-2", "PAUSED")})
+        assert ra.ejecuta_retiro(conn, plan, go="go dueno", escritor=escritor) == 2
+        assert puts == [("ad-1", "PAUSED")]
+        assert conn.execute(
+            "SELECT ad_id_externo FROM anuncio_retiro ORDER BY ad_id_externo"
+        ).fetchall() == [("ad-1",), ("ad-2",)]
+
+
+@_skip_db
 def test_repone_archived_recrea_con_la_linea():
     """I.4: si el anuncio se archivo por fuera, reponer lo recrea en su
     ad group con la linea guardada."""
