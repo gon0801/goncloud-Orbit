@@ -600,7 +600,8 @@ def vigila(
     NULL llega como None (en_curso). Paso 4: si es el primer dia con
     impresiones y hay retiros pendientes, saca el producto de sus
     bolsas viejas (primero nace lo nuevo, despues sale de lo viejo).
-    Aislado por impulso: si uno falla, se revierte el suyo y el resto
+    Aislado por impulso: si uno falla, se revierte lo suyo de base
+    (lo de Amazon se tolera por relectura: B1, ya_estaba) y el resto
     se atiende (el fallido se reintenta manana). Si muere a medias, la
     siguiente corrida relee y termina."""
     acciones = []
