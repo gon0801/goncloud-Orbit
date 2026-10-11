@@ -232,6 +232,10 @@ _SQL_ESTADO_LOTE = "SELECT estado FROM fabrica_lote WHERE lote = %s"
 _SQL_SELLA_LOTE = """
 UPDATE fabrica_lote SET estado = %s, detalle = %s, finished_at = now() WHERE lote = %s
 """
+_SQL_EXTERNALS_CAMPANA_DEL_LOTE = """
+SELECT DISTINCT external_id FROM fabrica_lote_paso
+ WHERE lote = %s AND recurso = 'campaign' AND external_id IS NOT NULL
+"""
 _SQL_INSERTA_PASO = """
 INSERT INTO fabrica_lote_paso (lote, orden, rol, recurso, request_payload, estado)
 VALUES (%s, %s, %s::campana_rol, %s, %s::jsonb, 'planeado')
@@ -1444,7 +1448,9 @@ def _registrar_cmd(args) -> int:
         _cierra(conn_admin)
 
 
-def _mutar(args, plan: fp.PlanCanonico, huella: str, *, lote: str | None = None) -> int:
+def _mutar(
+    args, plan: fp.PlanCanonico, huella: str, *, lote: str | None = None, revierte_al_fallar=False
+) -> int:
     _valida_go(args, huella, len(_roles_del_plan(plan)))
     # D-CURSOR-177-F3: falla cerrado antes de LWA/lote/POST (spec §5.1).
     _dsn_ingest()
@@ -1478,14 +1484,22 @@ def _mutar(args, plan: fp.PlanCanonico, huella: str, *, lote: str | None = None)
         except Abortar as exc:
             detalle = f"{exc} | creadas: {[c['rol'] for c in creadas]} | conocidos: {ctx.conocidos}"
             _sella_lote(conn_admin, lote, "failed", detalle)
-            nota = (
-                "las creadas quedan ENABLED en Amazon; --desarmar <lote> las pausa"
-                if "INCERTO" not in str(exc)
-                else (
-                    "resultado INCERTO: no reintentar POST; --desarmar solo pausa"
-                    " filas con external_id; verificar consola Amazon por nombre"
+            if revierte_al_fallar:
+                resumen = _revierte_parcial(ctx, lote)
+                nota = (
+                    f"rollback impulso: pausadas {resumen['pausadas']}"
+                    + (f"; errores {resumen['errores']}" if resumen["errores"] else "; sin errores")
+                    + "; el reintento se bloquea hasta --desarmar y nueva vista"
                 )
-            )
+            else:
+                nota = (
+                    "las creadas quedan ENABLED en Amazon; --desarmar <lote> las pausa"
+                    if "INCERTO" not in str(exc)
+                    else (
+                        "resultado INCERTO: no reintentar POST; --desarmar solo pausa"
+                        " filas con external_id; verificar consola Amazon por nombre"
+                    )
+                )
             _log(
                 "lote_detenido",
                 lote=lote,
@@ -1564,6 +1578,37 @@ def _pausa_una(ctx: _Ctx, rol: str, external: str, goal_id) -> None:
             enabled=False,
             updated_at=datetime.datetime.now(datetime.UTC),
         )
+
+
+def _revierte_parcial(ctx: _Ctx, lote: str) -> dict:
+    """Rollback del camino impulso: pausa en Amazon las campanas del lote
+    con external_id (sin vigia no gastan) y lo anota en detalle. Nunca
+    levanta: el lote ya va failed y el reintento se bloquea igual."""
+    resumen: dict = {"pausadas": [], "errores": []}
+    filas = ctx.conn_admin.execute(_SQL_EXTERNALS_CAMPANA_DEL_LOTE, (lote,)).fetchall()
+    for (external,) in filas:
+        try:
+            ack = _put_estado_campana(ctx, external, _PAUSADA)
+            if not fp.ack_ok(ack):
+                raise Abortar(f"PUT PAUSED rechazado (status {ack.get('status')})")
+            time.sleep(0.3)
+            leido = _readback(ctx.cliente_lectura, ctx.profile, "/sp/campaigns", external)
+            estado = leido.get("state") if isinstance(leido, dict) else None
+            if estado != _PAUSADA:
+                raise Abortar(f"readback tras PUT: {estado}")
+            resumen["pausadas"].append(external)
+        except Exception as exc:
+            resumen["errores"].append(f"{external}: {scrub(str(exc))[:160]}")
+    _log("lote_revertido", lote=lote, **resumen)
+    try:
+        ctx.conn_admin.execute(
+            "UPDATE fabrica_lote SET detalle = COALESCE(detalle, '') || %s WHERE lote = %s",
+            (f" | revertidas: {resumen['pausadas']} errores: {resumen['errores']}", lote),
+        )
+        ctx.conn_admin.commit()
+    except Exception as exc:
+        _log("lote_revertido_sin_anotar", lote=lote, error=scrub(str(exc))[:160])
+    return resumen
 
 
 def _cambia_estado_lote(ctx: _Ctx, lote: str, estado: str, actor: str) -> None:

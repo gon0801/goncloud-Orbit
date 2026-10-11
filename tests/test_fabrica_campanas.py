@@ -2913,3 +2913,80 @@ def test_pausar_lote_rechaza_transiciones_ilegales():
         ctx2 = _ctx_pausa(conn, httpx.MockTransport(_handler_pausa("ENABLED")), "LP2")
         with pytest.raises(fc.Abortar, match="desde pausado"):
             fc.reanudar_lote(ctx2, "LP2", "dueno")
+
+
+class _AmazonConPausa(_Amazon):
+    """_Amazon con PUT real: pausa y refleja el state en LIST."""
+
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self.pausadas = []
+
+    def __call__(self, request):
+        if request.method == "PUT" and str(request.url).endswith("/sp/campaigns"):
+            cuerpo = json.loads(request.content)["campaigns"][0]
+            self.pausadas.append(cuerpo["campaignId"])
+            self.objetos.setdefault(cuerpo["campaignId"], {})["state"] = cuerpo["state"]
+            return httpx.Response(207, json={"campaigns": {"success": [{"index": 0}], "error": []}})
+        return super().__call__(request)
+
+    def _list(self, path, body):
+        filtro = fp.FILTRO_ID_POR_LIST[path]
+        ext = body[filtro]["include"][0]
+        contenedor = fp.CONTENEDOR_POR_LIST[path]
+        clave = fp.CLAVE_ID_POR_PATH[path.removesuffix("/list")]
+        estado = self.objetos.get(ext, {}).get("state", "ENABLED")
+        return httpx.Response(
+            200, json={contenedor: [{**self.objetos.get(ext, {}), clave: ext, "state": estado}]}
+        )
+
+
+@_skip_db
+def test_mutar_revierte_pausa_creadas_al_fallar_segunda(monkeypatch):
+    """R09 B2 (A): con revierte_al_fallar, si cae la 2a campana la 1a queda
+    PAUSED en Amazon y el lote failed anota el rollback."""
+    import psycopg
+    from test_migracion_0064 import SQL64
+
+    with db_fabrica("orbit_r3_revierte") as conn:
+        conn.execute(SQL64)
+        plan = _plan_dos_roles()
+        huella = fp.huella_plan_v2(plan)
+        args = SimpleNamespace(esperado=2, huella=huella, go="impulso test")
+        with psycopg.connect(_test_dsn(), dbname=conn.info.dbname) as conn_motor:
+            amazon = _AmazonConPausa(fallar_en=("/sp/campaigns", 2))
+            _frontera_mutacion(monkeypatch, _conn_plan(), conn_motor, amazon)
+            with pytest.raises(fc.Abortar):
+                fc._mutar(args, plan, huella, lote="r3-revierte", revierte_al_fallar=True)
+        assert amazon.pausadas == ["campaigns-1"]
+        assert amazon.objetos["campaigns-1"]["state"] == "PAUSED"
+        fila = conn.execute(
+            "SELECT estado, detalle FROM fabrica_lote WHERE lote = 'r3-revierte'"
+        ).fetchone()
+        assert fila[0] == "failed"
+        assert "revertidas: ['campaigns-1']" in fila[1]
+
+
+@_skip_db
+def test_mutar_sin_revierte_deja_enabled(monkeypatch):
+    """R09 B2 (A): sin revierte_al_fallar (fabrica 01) el fallo no pausa:
+    el contrato ENABLED + --desarmar queda intacto."""
+    import psycopg
+    from test_migracion_0064 import SQL64
+
+    with db_fabrica("orbit_r3_sinrev") as conn:
+        conn.execute(SQL64)
+        plan = _plan_dos_roles()
+        huella = fp.huella_plan_v2(plan)
+        args = SimpleNamespace(esperado=2, huella=huella, go="impulso test")
+        with psycopg.connect(_test_dsn(), dbname=conn.info.dbname) as conn_motor:
+            amazon = _AmazonConPausa(fallar_en=("/sp/campaigns", 2))
+            _frontera_mutacion(monkeypatch, _conn_plan(), conn_motor, amazon)
+            with pytest.raises(fc.Abortar):
+                fc._mutar(args, plan, huella, lote="r3-sinrev")
+        assert amazon.pausadas == []
+        fila = conn.execute(
+            "SELECT estado, detalle FROM fabrica_lote WHERE lote = 'r3-sinrev'"
+        ).fetchone()
+        assert fila[0] == "failed"
+        assert "revertidas" not in fila[1]
