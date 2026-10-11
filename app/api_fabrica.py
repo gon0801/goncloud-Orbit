@@ -522,7 +522,7 @@ def _ejecutor_lanzar(conn, confirmacion: str):
             acepto_mutacion_real=True, esperado=2, huella=huella, go=confirmacion
         )
         fc._mutar(args, plan_grupo, huella, lote=lote)
-        grupo = conn.execute("SELECT id FROM campana_grupo WHERE lote = %s", (lote,)).fetchone()
+        grupo = conn.execute(io._SQL_GRUPO_DE_LOTE, (lote,)).fetchone()
         estado = conn.execute("SELECT estado FROM fabrica_lote WHERE lote = %s", (lote,)).fetchone()
         if grupo is None or estado is None:
             raise fc.Abortar(f"lote {lote} sin grupo o estado tras _mutar")
