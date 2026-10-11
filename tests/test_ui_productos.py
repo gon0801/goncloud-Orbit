@@ -96,6 +96,7 @@ let vista = {huella: "a".repeat(64), confirmacion_esperada: "LANZAR IMPULSO DE 2
   planes: [{seller_sku: "S1", subfamilia: "aros",
     tope: {monto: "350", moneda: "MXN", presupuesto_diario: "25"},
     keywords_exact: ["k"], negatives: ["n"], bids_acotados: ["r1"],
+    bid_por_rol: {category_exact: null, auto_discovery: "1.50"},
     retiros: [{ad_id_externo: "9"}]}], no_lanzables: [{listing_id: 99, motivo: "sin margen"}]};
 let lanzarPrimero409 = true;
 global.fetch = (url, opts) => {
@@ -144,6 +145,8 @@ const api = vm.runInThisContext("this.__api");
     ...c.children.map(p => p.textContent)]));
   assert.match(texto, /acotados/);
   assert.match(texto, /No lanzable 99/);
+  assert.match(texto, /Sin sugerencia/);
+  assert.match(texto, /category_exact/);
   // Literal distinto: no manda.
   form.elements.confirmacion.value = "LANZAR IMPULSO DE 3 PRODUCTOS";
   api.lanzar(form);

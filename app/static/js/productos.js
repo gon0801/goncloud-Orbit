@@ -70,6 +70,16 @@ function pintaVista(zona, vista) {
     if (plan.bids_acotados && plan.bids_acotados.length) {
       div.appendChild(parrafo("Bids acotados: " + plan.bids_acotados.join(", ")));
     }
+    var sinSugerencia = plan.bid_por_rol
+      ? Object.keys(plan.bid_por_rol).filter(function (rol) {
+          return plan.bid_por_rol[rol] === null || plan.bid_por_rol[rol] === undefined;
+        })
+      : [];
+    if (sinSugerencia.length) {
+      div.appendChild(
+        parrafo("Sin sugerencia (salen al diario de su campana): " + sinSugerencia.join(", "))
+      );
+    }
     if (plan.retiros && plan.retiros.length) {
       div.appendChild(parrafo("Sale de " + plan.retiros.length + " anuncios viejos."));
     }
