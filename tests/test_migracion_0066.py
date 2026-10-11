@@ -167,3 +167,24 @@ def test_motivo_impulso_exige_impulso_id():
         imp = _impulso(conn, lote, grupo, pid, lid)
         ent = _anuncio(conn, lid)
         assert _retiro(conn, ent, impulso=imp, motivo="impulso") is not None
+
+
+@_skip_db
+def test_r09r3_nadie_hace_update_ni_delete_en_reposicion():
+    """R09 B12 (M06/M07): UPDATE y DELETE se rechazan en reposicion."""
+    with _db_i4("orbit_i4_r3inm") as conn:
+        _pid, lid = _producto(conn)
+        ent = _anuncio(conn, lid)
+        ret = _retiro(conn, ent)
+        conn.execute(
+            "INSERT INTO anuncio_reposicion (retiro_id, ad_id_nuevo, estado_nuevo, repuesto_el,"
+            " actor) VALUES (%s, 'ad-2', 'PAUSED', now(), 'dueno')",
+            (ret,),
+        )
+        with pytest.raises(psycopg.errors.RaiseException, match="append-only"):
+            conn.execute(
+                "UPDATE anuncio_reposicion SET estado_nuevo = 'ENABLED' WHERE retiro_id = %s",
+                (ret,),
+            )
+        with pytest.raises(psycopg.errors.RaiseException, match="append-only"):
+            conn.execute("DELETE FROM anuncio_reposicion WHERE retiro_id = %s", (ret,))

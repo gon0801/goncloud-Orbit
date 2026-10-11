@@ -625,3 +625,63 @@ def test_repone_reversa_legacy_reactiva():
         escritor, puts = _escritor(_fila("ad-1", "PAUSED"))
         assert ra.repone(conn, retiro_ids=(rid,), go="go dueno", escritor=escritor) == 1
         assert puts == [("ad-1", "ENABLED")]
+
+
+@_skip_db
+def test_r09r3_p02_plan_no_cruza_plataforma():
+    """R09 B12 (P02): el plan de MX no lista anuncios de US."""
+    with _db_i4("orbit_i4_r3p02") as conn:
+        _p1, lid_mx = _producto(conn, sku="SS-P02-MX", seller_sku="SS-P02-MX")
+        _p2, lid_us = _producto(
+            conn,
+            sku="SS-P02-US",
+            asin="B0P02US0001",
+            platform="amazon_us",
+            seller_sku="SS-P02-US",
+        )
+        _bolsa(conn, lid_mx, "ad-mx")
+        _bolsa(conn, lid_us, "ad-us", camp="c-us", ag="ag-us", platform="amazon_us")
+        plan = ra.planea_retiro(
+            conn,
+            "amazon_mx",
+            listing_ids=(lid_mx, lid_us),
+            motivo="sin_pedidos",
+            conservar_grupo_id=None,
+        )
+        assert [a.ad_id_externo for a in plan.anuncios] == ["ad-mx"]
+
+
+@_skip_db
+def test_r09r3_p03_plan_solo_sus_productos():
+    """R09 B12 (P03): el plan no lista anuncios de otro producto."""
+    with _db_i4("orbit_i4_r3p03") as conn:
+        _p1, lid1 = _producto(conn, sku="SS-P03-1", seller_sku="SS-P03-1")
+        _p2, lid2 = _producto(conn, sku="SS-P03-2", asin="B0P030000002", seller_sku="SS-P03-2")
+        _bolsa(conn, lid1, "ad-1")
+        _bolsa(conn, lid2, "ad-2", camp="c-2", ag="ag-2")
+        plan = ra.planea_retiro(
+            conn,
+            "amazon_mx",
+            listing_ids=(lid1,),
+            motivo="sin_pedidos",
+            conservar_grupo_id=None,
+        )
+        assert [a.ad_id_externo for a in plan.anuncios] == ["ad-1"]
+
+
+@_skip_db
+def test_r09r3_e01_repuesto_se_puede_retirar_de_nuevo():
+    """R09 B12 (E01): un anuncio ya repuesto se puede retirar otra vez
+    (el retiro cerrado no bloquea)."""
+    with _db_i4("orbit_i4_r3e01") as conn:
+        _pid, lid = _producto(conn)
+        _bolsa(conn, lid, "ad-1")
+        plan = ra.planea_retiro(
+            conn, "amazon_mx", listing_ids=(lid,), motivo="sin_pedidos", conservar_grupo_id=None
+        )
+        escritor, _puts = _escritor(_fila("ad-1", "ENABLED"))
+        assert ra.ejecuta_retiro(conn, plan, go="go dueno", escritor=escritor) == 1
+        (ret,) = conn.execute("SELECT id FROM anuncio_retiro").fetchall()
+        assert ra.repone(conn, retiro_ids=(ret[0],), go="go dueno", escritor=escritor) == 1
+        assert ra.ejecuta_retiro(conn, plan, go="go dueno", escritor=escritor) == 1
+        assert conn.execute("SELECT count(*) FROM anuncio_retiro").fetchone() == (2,)

@@ -1346,3 +1346,71 @@ def test_r09r3_v13_vigia_pausa_a_dos_diarios_del_tope():
         assert acciones[0].veredicto.estado == "clics_sin_ventas"
         assert acciones[0].hecho == "pausado"
         assert pausador.pausados == ["impulso-v13-1"]
+
+
+@_skip_db
+def test_r09r3_v04_vigia_no_retira_del_propio_grupo(monkeypatch):
+    """R09 B12 (V04): el vigia saca de las bolsas viejas pero conserva los
+    anuncios del propio grupo del impulso (pasa su grupo al plan)."""
+    from app import retiro_anuncios
+
+    real = retiro_anuncios.planea_retiro
+    vistos = []
+
+    def _espia(conn, plataforma, **kw):
+        vistos.append(kw.get("conservar_grupo_id"))
+        return real(conn, plataforma, **kw)
+
+    monkeypatch.setattr(retiro_anuncios, "planea_retiro", _espia)
+    with _db_i3("orbit_i3_r3v04") as conn:
+        pid, lid = _con_margen(conn)
+        ids = _impulso_vivo(conn, pid=pid, lid=lid, lote="impulso-v04-1")
+        ag_propio = conn.execute(
+            "SELECT ad_group_ad_entity_id FROM campana_grupo_rol WHERE grupo_id = %s",
+            (ids["grupo"],),
+        ).fetchone()[0]
+        _bolsa(conn, lid, "ad-viejo")
+        propio = _entidad(conn, "amazon_mx", "product_ad", "ad-propio", ag_propio, lid)
+        conn.execute(
+            "INSERT INTO ad_entity_state (ad_entity_id, status, synced_at)"
+            " VALUES (%s, 'ENABLED', now())",
+            (propio,),
+        )
+        conn.commit()
+        _observa(conn, ids["camps"][0], HOY - dt.timedelta(days=1))
+        escritor, puts = _escritor(
+            {**_fila("ad-viejo", "ENABLED"), **_fila("ad-propio", "ENABLED")}
+        )
+        uno = io.vigila(conn, _Pausador(), hoy=HOY, escritor_retiro=escritor)
+        assert uno[0].hecho == "retiro_de_bolsas"
+        assert vistos == [ids["grupo"]]
+        assert puts == [("ad-viejo", "PAUSED")]
+        assert conn.execute("SELECT ad_id_externo FROM anuncio_retiro").fetchone() == ("ad-viejo",)
+
+
+@_skip_db
+def test_r09r3_v05_vigia_descuenta_retiro_abierto():
+    """R09 B12 (V05): si el unico anuncio de la bolsa ya tiene un retiro
+    abierto, el vigia no ejecuta otro (hecho nada)."""
+    with _db_i3("orbit_i3_r3v05") as conn:
+        pid, lid = _con_margen(conn)
+        ids = _impulso_vivo(conn, pid=pid, lid=lid, lote="impulso-v05-1")
+        _bolsa(conn, lid, "ad-viejo")
+        ent = conn.execute(
+            "SELECT id FROM ad_entity WHERE kind = 'product_ad' AND external_id = 'ad-viejo'"
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO anuncio_retiro (platform, motivo, modo, lote_retiro, impulso_id,"
+            " ad_entity_id, ad_id_externo, ad_group_externo, campana_externa, sku, asin,"
+            " reversa, retirado_el, actor) VALUES ('amazon_mx', 'sin_pedidos', 'pausa',"
+            " 'retiro-v05', NULL, %s, 'ad-viejo', 'ag-vieja', 'c-vieja', 'SS-1',"
+            " 'B0AAAAAAAA', 'state=ENABLED', now(), 'dueno')",
+            (ent,),
+        )
+        conn.commit()
+        _observa(conn, ids["camps"][0], HOY - dt.timedelta(days=1))
+        escritor, puts = _escritor(_fila("ad-viejo", "ENABLED"))
+        uno = io.vigila(conn, _Pausador(), hoy=HOY, escritor_retiro=escritor)
+        assert uno[0].hecho == "nada"
+        assert puts == []
+        assert conn.execute("SELECT count(*) FROM anuncio_retiro").fetchone() == (1,)

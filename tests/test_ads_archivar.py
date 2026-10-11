@@ -658,3 +658,32 @@ def test_put_no_toca_archived_y_ensayo_no_muta():
     )
     assert ensayo.resultado == "sin_confirmar" and ensayo.detalle == "ENSAYO"
     assert _puts(llamadas2) == []
+
+
+def test_r09r3_pausa_207_con_rechazo_por_item_es_fallo():
+    """R09 B12 (A08): al pausar, un 207 con error por item y readback sin
+    cambio se reporta `fallo`, no `pausado`."""
+    import json as _json
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return _token_response()
+        if request.method == "PUT" and request.url.path == PATH_PUT_ADS:
+            return httpx.Response(
+                207,
+                json={"productAds": {"error": [{"errors": [{"errorType": "NO_PUDO"}]}]}},
+            )
+        pedidos = _json.loads(request.content).get("adIdFilter", {}).get("include", [])
+        return httpx.Response(
+            200,
+            json={"productAds": [{"adId": i, "state": "ENABLED"} for i in pedidos]},
+        )
+
+    (resultado,) = pausar_anuncios(
+        make_write_client(handler),
+        ["1"],
+        ejecutar=True,
+        avisar=lambda _m: None,
+        dormir=lambda _s: None,
+    )
+    assert resultado.resultado == "fallo"
