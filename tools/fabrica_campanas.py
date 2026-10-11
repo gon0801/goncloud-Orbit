@@ -67,6 +67,7 @@ from app.ads.client import DEFAULT_BASE_URL, AdsClient
 from app.ads.config import AdsCredentials
 from app.ads.structure import evaluar_perfiles, fetch_structure, sync_structure
 from app.db import connect
+from app.impulso import ROLES_IMPULSO
 from app.optimizer.goals import fraccion_desde_settings
 from app.redaction import install_scrub_filter, register_secret, scrub
 
@@ -1202,7 +1203,7 @@ def _registrar(ctx: _Ctx, plan: fp.PlanCanonico, creadas: list[dict]) -> int:
     goal_target = fp.target_para_goals(plan)
     inserta_grupo = (
         _SQL_INSERTA_GRUPO_IMPULSO
-        if isinstance(plan, fp.PlanGrupoV2) and plan.roles == ("category_exact", "auto_discovery")
+        if isinstance(plan, fp.PlanGrupoV2) and plan.roles == ROLES_IMPULSO
         else _SQL_INSERTA_GRUPO
     )
     grupo = conn.execute(

@@ -2630,8 +2630,8 @@ def test_sql_del_ledger_contra_postgres_real():
         fc._sella_paso(ctx, pid4, False, None, {"status": 400}, None)
         filas = conn.execute(fc._SQL_CAMPANAS_DEL_LOTE, ("L1",)).fetchall()
         assert [(f[0], f[1], f[2]) for f in filas] == [
-            ("category_exact", "c-1", None),
             ("category_broad", "c-3", None),
+            ("category_exact", "c-1", None),
         ]
         pend = conn.execute(fc._SQL_PENDIENTES, ("L1", "L1", None, None)).fetchall()
         esperado = [
@@ -2702,6 +2702,39 @@ def test_mutar_plan_dos_roles_crea_dos_y_registra_impulso(monkeypatch):
         assert conn.execute("SELECT count(*) FROM campana_grupo_rol").fetchone() == (2,)
         assert conn.execute("SELECT tipo FROM campana_grupo").fetchone() == ("impulso",)
         assert conn.execute("SELECT count(*) FROM ads_optimizer_goal").fetchone() == (2,)
+
+
+@_skip_db
+def test_registrar_tipifica_por_roles_de_impulso_no_literal(monkeypatch):
+    """R09-r2: _registrar compara plan.roles contra ROLES_IMPULSO (si
+    cambian, el grupo ya no sale impulso)."""
+    import psycopg
+    from test_migracion_0064 import SQL64
+
+    with db_fabrica("orbit_i1_tupla") as conn:
+        conn.execute(SQL64)
+        plan = _plan_dos_roles()
+        huella = fp.huella_plan_v2(plan)
+        args = SimpleNamespace(esperado=2, huella=huella, go="impulso test")
+        for i in (1, 2):
+            camp = _entidad(conn, "amazon_mx", "campaign", f"campaigns-{i}")
+            _entidad(conn, "amazon_mx", "ad_group", f"adGroups-{i}", parent=camp)
+        conn.execute(
+            "INSERT INTO product (id, odoo_sku, name) OVERRIDING SYSTEM VALUE"
+            " VALUES (1, 'SS-1', 'SS-1')"
+        )
+        conn.execute(
+            "INSERT INTO listing (id, product_id, platform, external_id, seller_sku)"
+            " OVERRIDING SYSTEM VALUE VALUES (11, 1, 'amazon_mx', 'B0AAAAAAAA', 'SS-1'),"
+            " (12, 1, 'amazon_mx', 'B0AAAAAAAB', 'SS-2')"
+        )
+        with psycopg.connect(_test_dsn(), dbname=conn.info.dbname) as conn_motor:
+            amazon = _Amazon()
+            _frontera_mutacion(monkeypatch, _conn_plan(), conn_motor, amazon, stub_registrar=False)
+            monkeypatch.setattr(fc, "_sync", lambda cliente: None)
+            monkeypatch.setattr(fc, "ROLES_IMPULSO", ("solo_un_rol",), raising=False)
+            assert fc._mutar(args, plan, huella, lote="i1-tupla") == 0
+        assert conn.execute("SELECT tipo FROM campana_grupo").fetchone() == ("fabrica5",)
 
 
 def test_mutar_plan_dos_roles_con_esperado_cinco_aborta_sin_post(monkeypatch):
