@@ -4159,6 +4159,66 @@ def test_donde_poner_el_dinero_api_trae_ubicaciones_y_campanas_de_su_mercado(mon
         assert pedidas == ["amazon_mx"]
 
 
+def test_donde_poner_el_dinero_api_trae_clases_y_regresables(monkeypatch):
+    """P.2b: el dict trae `clases_ajuste` (selladas en orden) y cada
+    campana sus `ajustes_regresables` (id y frase) y su `aviso_ajuste`."""
+    from app.pantalla_dinero import AjusteRegresable, FilaCampana, FilaTipo, PantallaDinero
+
+    pantalla = PantallaDinero(
+        plataforma="amazon_mx",
+        moneda="MXN",
+        desde=dt.date(2026, 9, 5),
+        hasta=dt.date(2026, 10, 4),
+        filas=(),
+        total=FilaTipo(
+            tipo="",
+            gasto=None,
+            pedidos=None,
+            venta=None,
+            acos_pct=None,
+            parte_del_gasto_pct=None,
+            hojas=0,
+        ),
+        hojas_sin_clasificar=0,
+        target_acos_pct=None,
+        por_campana=(
+            FilaCampana(
+                campana_id=7,
+                nombre="Campana 7",
+                presupuesto_diario=None,
+                gasto_medio_diario=None,
+                uso_presupuesto_pct=None,
+                estrategia=None,
+                ajustes_ubicacion=(),
+                gasto_fuera_de_amazon=None,
+                dias_al_tope_7d=None,
+                avisos=("Este presupuesto no limita",),
+                ajustes_regresables=(
+                    AjusteRegresable(
+                        ajuste_id=9,
+                        clase="presupuesto",
+                        texto="el presupuesto",
+                        confirmado_el=dt.date(2026, 10, 3),
+                    ),
+                ),
+                aviso_ajuste="Orbit movió el precio hace 2 días.",
+            ),
+        ),
+    )
+    monkeypatch.setattr("app.pantalla_dinero.lee_dinero", lambda conn, **kw: pantalla)
+    with _db_temporal("orbit_dash_dinero2b") as (_conn, dsn_read):
+        resp = _cliente(dsn_read, monkeypatch).get("/api/dashboard/donde-poner-el-dinero")
+        assert resp.status_code == 200, resp.text
+        dato = resp.json()
+        assert dato["clases_ajuste"] == ["presupuesto", "ajuste_ubicacion", "fuera_de_amazon"]
+        fila = dato["por_campana"][0]
+        assert fila["ajustes_regresables"] == [
+            {"ajuste_id": 9, "frase": "Regresar el presupuesto del 2026-10-03"}
+        ]
+        assert fila["aviso_ajuste"] == "Orbit movió el precio hace 2 días."
+        assert fila["avisos"] == ["Este presupuesto no limita"]
+
+
 def test_salud_trae_avisos_campana_por_plataforma(monkeypatch):
     """V.4: /salud trae `avisos_campana` (frases del dia) por mercado."""
     from app.pantalla_dinero import FilaUbicacion

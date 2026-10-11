@@ -56,6 +56,7 @@ from psycopg.rows import dict_row
 from pydantic import BaseModel, Field
 
 from app import apply, config_write, familias, goals_write, propuestas_campana
+from app.api import ConexionLectura
 from app.db import OrbitDbError, connect
 from app.redaction import install_scrub_filter, register_secret
 
@@ -592,3 +593,162 @@ def asignar_familia(
         raise HTTPException(status_code=_ERRORES_FAMILIA[type(exc)], detail=str(exc)) from None
     conn.commit()
     return salida
+
+
+# ---------------------------------------------------------------------------
+# Ajustes de campana del dueno (BIDS 02, V.3)
+# ---------------------------------------------------------------------------
+
+ClaseAjuste = Literal["fuera_de_amazon", "ajuste_ubicacion", "presupuesto"]
+
+
+class CuerpoAplicaAjuste(BaseModel):
+    campana_id: int = Field(ge=1)
+    clase: ClaseAjuste
+    presupuesto: Decimal | None = Field(default=None, gt=0)
+    ubicacion: str | None = None
+    porcentaje: int | None = None
+    huella: str
+    confirmacion: Literal["APLICAR AJUSTE"]
+    actor: str = Field(min_length=1, max_length=200)
+
+
+class CuerpoRegresaAjuste(BaseModel):
+    actor: str = Field(min_length=1, max_length=200)
+
+
+def _ajuste_de(
+    clase: str,
+    presupuesto: Decimal | None,
+    ubicacion: str | None,
+    porcentaje: int | None,
+):
+    """Construye el AjusteCampana desde query/body. Faltantes o clase
+    desconocida -> ValueError (la ruta lo vuelve 422)."""
+    from app.campana_ajustes import (
+        CambiarAjusteUbicacion,
+        CambiarPresupuesto,
+        LimitarFueraDeAmazon,
+    )
+
+    if clase == "presupuesto":
+        if presupuesto is None:
+            raise ValueError("clase presupuesto exige presupuesto")
+        return CambiarPresupuesto(presupuesto_diario=presupuesto)
+    if clase == "ajuste_ubicacion":
+        if ubicacion is None or porcentaje is None:
+            raise ValueError("clase ajuste_ubicacion exige ubicacion y porcentaje")
+        return CambiarAjusteUbicacion(ubicacion=ubicacion, porcentaje=porcentaje)
+    if clase == "fuera_de_amazon":
+        return LimitarFueraDeAmazon()
+    raise ValueError(f"clase desconocida: {clase}")
+
+
+def _plan_de(conn, campana_id: int, clase: str, ajuste):
+    """Vigente + planea. Sin vigente o plan invalido -> ValueError (422)."""
+    from app.ads.campana_config import config_vigente
+    from app.campana_ajustes import planea_ajuste
+
+    vigente = config_vigente(conn, campana_id)
+    if vigente is None:
+        raise ValueError(f"campana {campana_id} sin configuracion vigente")
+    fila = conn.execute(
+        "SELECT platform::text FROM ad_entity WHERE id = %s AND kind = 'campaign'",
+        (campana_id,),
+    ).fetchone()
+    if fila is None:
+        raise ValueError(f"campana {campana_id} no existe")
+    return planea_ajuste(vigente, ajuste, campana_id=campana_id, plataforma=fila[0])
+
+
+@router.get("/campana-ajuste/plan")
+def plan_ajuste(
+    conn: ConexionLectura,
+    campana_id: int,
+    clase: ClaseAjuste,
+    presupuesto: Decimal | None = None,
+    ubicacion: str | None = None,
+    porcentaje: int | None = None,
+) -> dict:
+    """Vista previa del ajuste (SIN token, solo lectura): frase + huella.
+    El dueno confirma con POST /aplicar."""
+    try:
+        plan = _plan_de(
+            conn,
+            campana_id,
+            clase,
+            _ajuste_de(clase, presupuesto, ubicacion, porcentaje),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    return plan.como_dict()
+
+
+_ERRORES_AJUSTE: dict[type[Exception], int] = {
+    apply.ConfirmacionInvalida: 422,
+    apply.AjusteSinRegreso: 422,
+    apply.AjusteInexistente: 404,
+    apply.AjusteYaRegresado: 409,
+    apply.AjusteEnCurso: 409,
+    apply.AjusteNoConfirmado: 502,
+    apply.AdsApiErrorMutacion: 502,
+    apply.SinPerfilAjuste: 503,
+}
+
+
+@router.post("/campana-ajuste/aplicar")
+def aplicar_ajuste(
+    _token: Annotated[str, Depends(exige_token)],
+    conn: ConexionEscritura,
+    cuerpo: CuerpoAplicaAjuste,
+) -> dict:
+    """Aplica el plan que el dueno vio: exige huella + literal. 409 con el
+    plan nuevo si el vigente cambio."""
+    try:
+        plan = _plan_de(
+            conn,
+            cuerpo.campana_id,
+            cuerpo.clase,
+            _ajuste_de(cuerpo.clase, cuerpo.presupuesto, cuerpo.ubicacion, cuerpo.porcentaje),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    try:
+        hecho = apply.aplica_ajuste_campana(
+            conn,
+            plan,
+            huella=cuerpo.huella,
+            confirmacion=cuerpo.confirmacion,
+            actor=cuerpo.actor,
+        )
+    except apply.HuellaDesactualizada as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": str(exc),
+                "plan_nuevo": exc.plan_nuevo.como_dict() if exc.plan_nuevo else None,
+            },
+        ) from None
+    except tuple(_ERRORES_AJUSTE) as exc:
+        raise HTTPException(status_code=_ERRORES_AJUSTE[type(exc)], detail=str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    return hecho.como_dict()
+
+
+@router.post("/campana-ajuste/{ajuste_id}/regresar")
+def regresar_ajuste(
+    _token: Annotated[str, Depends(exige_token)],
+    conn: ConexionEscritura,
+    cuerpo: CuerpoRegresaAjuste,
+    ajuste_id: int = RutaPath(ge=1),
+) -> dict:
+    """Regreso del ajuste: aplica la configuracion completa de antes. Un
+    solo regreso por ajuste; fuera_de_amazon no tiene regreso (422)."""
+    try:
+        hecho = apply.regresa_ajuste_campana(conn, ajuste_id=ajuste_id, actor=cuerpo.actor)
+    except tuple(_ERRORES_AJUSTE) as exc:
+        raise HTTPException(status_code=_ERRORES_AJUSTE[type(exc)], detail=str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    return hecho.como_dict()

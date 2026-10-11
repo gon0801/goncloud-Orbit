@@ -30,6 +30,7 @@ SQL2 = (RAIZ / "migrations" / "0002_apply.sql").read_text(encoding="utf-8")
 SQL60 = (RAIZ / "migrations" / "0060_bids02_base_lectura.sql").read_text(encoding="utf-8")
 SQL61 = (RAIZ / "migrations" / "0061_bids02_campana_config.sql").read_text(encoding="utf-8")
 SQL62 = (RAIZ / "migrations" / "0062_bids02_placement.sql").read_text(encoding="utf-8")
+SQL67 = (RAIZ / "migrations" / "0067_bids02_campana_ajuste.sql").read_text(encoding="utf-8")
 
 TIPOS = get_args(TipoCampana)
 
@@ -80,6 +81,8 @@ def _lee(
     gasto_diario=(),
     fuera=(),
     configs_hist=(),
+    regresables=(),
+    ultimo_precio=(),
 ):
     notas = (
         [(json.dumps({"target": {"procedencia": "margen_plataforma", "target_aplicado": target}}),)]
@@ -95,6 +98,8 @@ def _lee(
             list(gasto_diario),
             list(fuera),
             list(configs_hist),
+            list(regresables),
+            list(ultimo_precio),
             list(settings_fila),
             notas,
         ]
@@ -249,6 +254,7 @@ def _db_dinero(prefijo: str):
         conn.execute(SQL60)
         conn.execute(SQL61)
         conn.execute(SQL62)
+        conn.execute(SQL67)
         yield conn
     finally:
         if conn is not None:
@@ -451,6 +457,7 @@ def _html_dinero(filas, total=None, **cambios):
         "total": total or _fila_ui(tipo="", gasto="500", pedidos=50, venta="5000", acos_pct="10.0"),
         "hojas_sin_clasificar": 0,
         "target_acos_pct": "13.3",
+        "clases_ajuste": _clases_ui(),
     }
     datos.update(cambios)
     return ui.templates.env.get_template("donde_poner_el_dinero.html").render(**datos)
@@ -849,9 +856,17 @@ def _fila_camp_ui(**cambios):
         "gasto_fuera_de_amazon": "25",
         "dias_al_tope_7d": 5,
         "avisos": ["Este presupuesto no limita"],
+        "ajustes_regresables": [],
+        "aviso_ajuste": None,
     }
     fila.update(cambios)
     return fila
+
+
+def _clases_ui():
+    from app.campana_ajustes import CLASES_SELLADAS, ORDEN_CLASES
+
+    return [c for c in ORDEN_CLASES if c in CLASES_SELLADAS]
 
 
 def test_pantalla_dinero_pinta_ubicaciones_con_frase_y_ajuste():
@@ -875,9 +890,88 @@ def test_pantalla_dinero_pinta_ubicaciones_con_frase_y_ajuste():
     assert "Resto de búsqueda: 1,735 MXN en 30 días, — clics, ningún pedido." in html
     assert "+40 % en páginas de producto" in html
     assert "solo hacia abajo" in html
-    tablas = html.split("<h3>Por ubicación", 1)[1]
-    assert "<button" not in tablas and "<form" not in tablas
-    assert "Este presupuesto no limita" not in html
+    ubicacion = html.split("<h3>Por ubicación", 1)[1].split("<h3>Por campaña", 1)[0]
+    assert "<button" not in ubicacion and "<form" not in ubicacion
+
+
+def test_pantalla_dinero_boton_por_clase_sellada_en_cada_campana():
+    """P.2b: cada fila de campaña trae un botón por cada clase de
+    CLASES_SELLADAS, con su clase en data-ajuste-clase."""
+    html = _plano(
+        _html_dinero(
+            [_fila_ui()],
+            por_ubicacion=[_fila_ubi_ui(gasta_sin_vender=False)],
+            por_campana=[_fila_camp_ui(), _fila_camp_ui(campana_id=8, nombre="Campana 8")],
+        )
+    )
+    campanas = html.split("<h3>Por campaña", 1)[1]
+    for clase in ("presupuesto", "ajuste_ubicacion", "fuera_de_amazon"):
+        assert campanas.count(f'data-ajuste-clase="{clase}"') == 2
+    assert "Cambiar presupuesto" in campanas
+    assert "Limitar fuera de Amazon" in campanas
+
+
+def test_pantalla_dinero_clase_sin_sellar_sin_boton_y_dato_pintado(monkeypatch):
+    """P.2b: con una clase fuera de CLASES_SELLADAS no hay botón, pero su
+    dato sí se pinta."""
+    import app.campana_ajustes as ca
+
+    monkeypatch.setattr(ca, "CLASES_SELLADAS", frozenset({"presupuesto", "ajuste_ubicacion"}))
+    html = _plano(
+        _html_dinero(
+            [_fila_ui()],
+            por_ubicacion=[_fila_ubi_ui(gasta_sin_vender=False)],
+            por_campana=[_fila_camp_ui()],
+        )
+    )
+    campanas = html.split("<h3>Por campaña", 1)[1]
+    assert 'data-ajuste-clase="fuera_de_amazon"' not in campanas
+    assert campanas.count("data-ajuste-clase=") == 2
+    assert "+40 % en páginas de producto" in campanas
+
+
+def test_pantalla_dinero_regresar_y_avisos_en_fila_campana():
+    """P.2b: ajuste confirmado sin regreso trae su botón Regresar; la fila
+    pinta cada frase de avisos y el aviso propio del ajuste."""
+    html = _plano(
+        _html_dinero(
+            [_fila_ui()],
+            por_ubicacion=[_fila_ubi_ui(gasta_sin_vender=False)],
+            por_campana=[
+                _fila_camp_ui(
+                    ajustes_regresables=[
+                        {
+                            "ajuste_id": 9,
+                            "frase": "Regresar el presupuesto del 2026-10-03",
+                        }
+                    ],
+                    aviso_ajuste=(
+                        "Orbit movió el precio hace 2 días; espera al día 7 para juzgarlo."
+                    ),
+                )
+            ],
+        )
+    )
+    campanas = html.split("<h3>Por campaña", 1)[1]
+    assert 'data-regresar-ajuste="9"' in campanas
+    assert ">Regresar<" in campanas
+    assert "Regresar el presupuesto del 2026-10-03" in campanas
+    assert "Este presupuesto no limita" in campanas
+    assert "Orbit movió el precio hace 2 días; espera al día 7 para juzgarlo." in campanas
+
+
+def test_pantalla_dinero_sin_avisos_no_pinta_frases():
+    """P.2b: fila sin avisos ni aviso propio no pinta ninguna frase."""
+    html = _plano(
+        _html_dinero(
+            [_fila_ui()],
+            por_ubicacion=[_fila_ubi_ui(gasta_sin_vender=False)],
+            por_campana=[_fila_camp_ui(avisos=[])],
+        )
+    )
+    campanas = html.split("<h3>Por campaña", 1)[1]
+    assert "Este presupuesto no limita" not in campanas
+    assert "Orbit movió el precio" not in campanas
 
 
 def test_pantalla_dinero_estrategias_none_y_sin_frase():
@@ -1253,3 +1347,104 @@ def test_pg_grupos_toman_la_ultima_observacion_del_dia():
         assert exact.gasto == Decimal("99")
         assert exact.pedidos == 2
         assert exact.venta == Decimal("200")
+
+
+@_skip_db
+def test_clases_ajuste_del_dict_filtra_sin_sellar(monkeypatch):
+    """P.2b: el dict trae las selladas en ORDEN_CLASES; una clase fuera
+    no llega al template y no trae boton."""
+    import app.campana_ajustes as ca
+    from app.pantalla_dinero import FilaTipo, PantallaDinero
+
+    monkeypatch.setattr(ca, "CLASES_SELLADAS", frozenset({"presupuesto"}))
+    pantalla = PantallaDinero(
+        plataforma="amazon_mx",
+        moneda="MXN",
+        desde=dt.date(2026, 9, 5),
+        hasta=dt.date(2026, 10, 4),
+        filas=(),
+        total=FilaTipo(
+            tipo="",
+            gasto=None,
+            pedidos=None,
+            venta=None,
+            acos_pct=None,
+            parte_del_gasto_pct=None,
+            hojas=0,
+        ),
+        hojas_sin_clasificar=0,
+        target_acos_pct=None,
+    )
+    assert pantalla.como_dict()["clases_ajuste"] == ["presupuesto"]
+
+
+def test_pg_regresables_y_aviso_propio_en_fila_campana():
+    """V.3: confirmado sin regreso sale en regresables (fuera_de_amazon
+    no, sin regreso sellado); ajuste de ubicacion reciente pinta aviso."""
+    import json
+
+    with _db_dinero("orbit_p1_reg") as conn:
+        fecha = dt.date(2026, 10, 4)
+        camp = _siembra_campana(conn, "amazon_mx", "cr", "Reg")
+        cfg = conn.execute(
+            "INSERT INTO ads_campana_config_observation (ad_entity_id, observed_at,"
+            " presupuesto_diario, presupuesto_moneda, estrategia_puja, ajuste_top_pct)"
+            " VALUES (%s, %s, 100, 'MXN', 'MANUAL', 30) RETURNING id",
+            (camp, dt.datetime(2026, 10, 1, tzinfo=dt.UTC)),
+        ).fetchone()[0]
+        cfg_vacio = conn.execute(
+            "INSERT INTO ads_campana_config_observation (ad_entity_id, observed_at)"
+            " VALUES (%s, %s) RETURNING id",
+            (camp, dt.datetime(2026, 10, 1, 1, tzinfo=dt.UTC)),
+        ).fetchone()[0]
+
+        def _ajuste(clase, huella, confirmado, regresa_a=None, antes=None):
+            return conn.execute(
+                "INSERT INTO campana_ajuste (campana_id, platform, clase, antes_config_id,"
+                " despues, huella, actor, go_literal, regresa_a, confirmado_el)"
+                " VALUES (%s, 'amazon_mx', %s, %s, %s, %s, 'dueno', 'APLICAR AJUSTE',"
+                " %s, %s) RETURNING id",
+                (
+                    camp,
+                    clase,
+                    cfg if antes is None else antes,
+                    json.dumps({"clase": clase}),
+                    huella,
+                    regresa_a,
+                    confirmado,
+                ),
+            ).fetchone()[0]
+
+        ubi = _ajuste("ajuste_ubicacion", "h-ubi", dt.datetime(2026, 10, 3, tzinfo=dt.UTC))
+        pre = _ajuste("presupuesto", "h-pre", dt.datetime(2026, 10, 3, tzinfo=dt.UTC))
+        # Panel: antes sin el campo de la clase -> sin boton (el regreso no
+        # podria confirmarse: Amazon conserva lo que el PUT no manda).
+        _ajuste(
+            "presupuesto",
+            "h-vacio",
+            dt.datetime(2026, 10, 3, tzinfo=dt.UTC),
+            antes=cfg_vacio,
+        )
+        _ajuste("fuera_de_amazon", "h-fuera", dt.datetime(2026, 10, 3, tzinfo=dt.UTC))
+        _ajuste("presupuesto", "h-pend", None)
+        reg = _ajuste(
+            "presupuesto", "h-reg", dt.datetime(2026, 10, 4, tzinfo=dt.UTC), regresa_a=pre
+        )
+        filas = {
+            f.campana_id: f
+            for f in lee_campanas(
+                conn, plataforma="amazon_mx", desde=fecha - dt.timedelta(days=29), hasta=fecha
+            )
+        }
+        fila = filas[camp]
+        assert [(r.ajuste_id, r.clase) for r in fila.ajustes_regresables] == [
+            (ubi, "ajuste_ubicacion"),
+            (reg, "presupuesto"),
+        ]
+        assert [r.frase for r in fila.ajustes_regresables] == [
+            "Regresar el ajuste de ubicación del 2026-10-03",
+            "Regresar el presupuesto del 2026-10-04",
+        ]
+        assert (
+            fila.aviso_ajuste == "Orbit movió el precio hace 2 días; espera al día 7 para juzgarlo."
+        )

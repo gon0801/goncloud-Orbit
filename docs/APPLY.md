@@ -573,9 +573,12 @@ Ninguna acción irreversible sin su reversa implementada antes (regla 7):
 | harvest parcial (solo negativo creado) | delete del negativo |
 | harvest completo (negativo + keyword) | delete de la keyword PRIMERO, delete del negativo DESPUÉS |
 | harvest con hermanas (F2) | delete de la keyword PRIMERO, deletes SOLO de las hermanas con `creada = true` (las adoptadas con `creada = false` no se tocan), delete del negativo de origen AL FINAL |
+| ajuste de campaña (BIDS 02 V.3) | regreso: PUT con la configuración COMPLETA de `antes_config_id` (un solo regreso por ajuste; `fuera_de_amazon` no tiene regreso sellado y no presenta botón) |
 
 - Cada reversa vive en el ledger como **tipo `reversa`**, **exenta de
-  quota** (con test). Las filas por hermana del camino de ida son
+  quota** (con test), salvo el regreso de un ajuste de campaña, que vive
+  en `campana_ajuste` con `regresa_a` (BIDS 02 V.3; operado por el dueño,
+  fuera de quota). Las filas por hermana del camino de ida son
   **tipo `hermana`** (migración 0038; también exentas: `quota_cobrada =
   false`); la reversa de cada borrado es su propia fila `tipo='reversa'`.
   `tools/reversa_harvest.py --job` (A.3) ejecuta ese orden.
@@ -616,6 +619,7 @@ Ninguna acción irreversible sin su reversa implementada antes (regla 7):
 | delete negative | POST `/sp/negativeKeywords/delete` (filtro de ids; archiva) |
 | create keyword | POST `/sp/keywords` (`matchType=EXACT`, `state=ENABLED`, bid número) |
 | delete keyword | POST `/sp/keywords/delete` (filtro de ids; archiva) |
+| ajuste de campaña (BIDS 02 V.3) | PUT `/sp/campaigns` (body `{campaigns: [{campaignId, budget?, dynamicBidding?, offAmazonSettings?}]}`, vendor `application/vnd.spcampaign.v3+json`; nunca `state`) |
 
 (r2 grok 4: 549 targets US + 861 MX reciben decisiones del motor y la v2
 los olvidó.) Todo path fuera de la allowlist se rechaza — default-deny,

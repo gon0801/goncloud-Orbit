@@ -96,6 +96,7 @@ Aplicador pasan por el transport.
 
 from __future__ import annotations
 
+import datetime
 import json
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -1826,6 +1827,14 @@ def _celda_cambio(fila, indice: int, nombre: str):
     return fila[nombre] if isinstance(fila, dict) else fila[indice]
 
 
+def _clave_orden_cambio(cambio):
+    """Ordena cambios por (confirmado_el, decision_id) sin reventar ante
+    la tercera rama de la vista (panel: `decision_id` NULL de
+    `ajuste_de_campana` empatado con un id rompia min/max con TypeError).
+    El NULL ordena ultimo, como en el SQL."""
+    return (cambio[0], cambio[4] is None, cambio[4] or 0)
+
+
 def _racha_vigente_hoja(cambios: list[tuple]) -> list[tuple]:
     """Recortes posteriores a la ultima subida y al ultimo regreso del
     dueno: la racha de la ACCION (esta funcion) corta en el ultimo
@@ -1890,7 +1899,7 @@ def regreso_del_dueno(
     racha = _racha_vigente_hoja(cambios)
     if not racha:
         raise SinRachaDeRecortes(f"la hoja {hoja_id} no tiene racha vigente de recortes")
-    primera = min(racha, key=lambda c: (c[0], c[4]))
+    primera = min(racha, key=_clave_orden_cambio)
     # El vigente se lee ANTES del HTTP: despues nace la fila del regreso.
     # Si el vigente ya esta por encima del destino, no se mueve: un
     # regreso nunca baja el bid. Con vigente desconocido (NULL: hereda
@@ -1901,7 +1910,7 @@ def regreso_del_dueno(
         raise VigentePorEncima(
             f"la hoja {hoja_id} trae vigente {vigente} por encima del destino {primera[1]}"
         )
-    ultimo = max(cambios, key=lambda c: (c[0], c[4]))
+    ultimo = max(cambios, key=_clave_orden_cambio)
     reversa = reversa_manual(conn, tipo="bid", decision_id=primera[4], transport=transport)
     if not reversa["confirmada"]:
         fila = conn.execute(_SQL_MOTIVO_REVERSA, (primera[4],)).fetchone()
@@ -1950,3 +1959,379 @@ def regreso_del_dueno_todas(
         except Exception as exc:
             salidas.append(f"hoja {hoja.hoja_id}: {exc}")
     return tuple(salidas)
+
+
+# ---------------------------------------------------------------------------
+# Ajustes de campana del dueno (BIDS 02, V.3): aplica y regresa
+# ---------------------------------------------------------------------------
+
+GO_AJUSTE = "APLICAR AJUSTE"
+GO_REGRESO_AJUSTE = "REGRESAR AJUSTE"
+
+_SQL_PLATAFORMA_CAMPANA = """
+SELECT platform::text, external_id FROM ad_entity WHERE id = %s AND kind = 'campaign'
+"""
+_SQL_AJUSTE_POR_HUELLA = """
+SELECT id, confirmado_el IS NOT NULL, campana_id, clase FROM campana_ajuste WHERE huella = %s
+"""
+_SQL_AJUSTE_POR_ID = """
+SELECT id, campana_id, platform::text, clase, antes_config_id, confirmado_el,
+       (SELECT count(*) FROM campana_ajuste r
+         WHERE r.regresa_a = campana_ajuste.id AND r.confirmado_el IS NOT NULL)
+  FROM campana_ajuste WHERE id = %s
+"""
+_SQL_HIJO_REGRESO = """
+SELECT id, confirmado_el IS NOT NULL FROM campana_ajuste
+ WHERE regresa_a = %s ORDER BY id
+"""
+_SQL_CUENTA_HUELLA = """
+SELECT count(*) FROM campana_ajuste WHERE huella = %s OR huella LIKE %s
+"""
+_SQL_CONFIG_POR_ID = """
+SELECT o.presupuesto_diario, o.presupuesto_moneda, o.estrategia_puja, o.ajuste_top_pct,
+       o.ajuste_resto_pct, o.ajuste_producto_pct, o.fuera_de_amazon, e.external_id
+  FROM ads_campana_config_observation o
+  JOIN ad_entity e ON e.id = o.ad_entity_id
+ WHERE o.id = %s
+"""
+_SQL_INSERTA_AJUSTE = """
+INSERT INTO campana_ajuste (campana_id, platform, clase, antes_config_id, despues,
+    huella, actor, go_literal, regresa_a)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+ON CONFLICT (huella) DO NOTHING
+RETURNING id
+"""
+_SQL_INSERTA_REGRESO = """
+INSERT INTO campana_ajuste (campana_id, platform, clase, antes_config_id, despues,
+    huella, actor, go_literal, regresa_a)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+ON CONFLICT (regresa_a) DO NOTHING
+RETURNING id
+"""
+_SQL_CONFIRMA_AJUSTE = """
+UPDATE campana_ajuste SET confirmado_el = %s WHERE id = %s
+"""
+
+
+class ConfirmacionInvalida(Exception):
+    pass
+
+
+class HuellaDesactualizada(Exception):
+    """El vigente cambio desde la vista previa. Lleva el plan fresco para
+    que la ruta lo devuelva en el 409."""
+
+    def __init__(self, mensaje: str, plan_nuevo=None) -> None:
+        super().__init__(mensaje)
+        self.plan_nuevo = plan_nuevo
+
+
+class AjusteNoConfirmado(Exception):
+    """El PUT salio pero el readback no coincide: Amazon no aplico (o aun
+    no refleja) el cambio. La fila queda sin confirmar y el reintento la
+    reusa (o la reconciliacion la sella si el sync ya observo el destino)."""
+
+
+class AjusteEnCurso(Exception):
+    """Otro intento con la misma huella o regreso gano la carrera: su fila
+    sigue pendiente. Reintentar (409)."""
+
+
+class AjusteInexistente(Exception):
+    pass
+
+
+class AjusteYaRegresado(Exception):
+    pass
+
+
+class AjusteSinRegreso(Exception):
+    """La clase no tiene camino de regreso sellado (V.0: fuera_de_amazon —
+    mandar {} no regresa nada) o la configuracion de antes no es
+    expresable como ajuste."""
+
+
+class SinPerfilAjuste(Exception):
+    pass
+
+
+class AjusteHecho:
+    def __init__(self, ajuste_id: int, campana_id: int, clase: str, confirmada: bool) -> None:
+        self.ajuste_id = ajuste_id
+        self.campana_id = campana_id
+        self.clase = clase
+        self.confirmada = confirmada
+
+    def como_dict(self) -> dict:
+        return {
+            "ajuste_id": self.ajuste_id,
+            "campana_id": self.campana_id,
+            "clase": self.clase,
+            "confirmada": self.confirmada,
+        }
+
+
+def _cliente_ajuste(platform: str, *, transport) -> AdsWriteClient:
+    """Write client del ajuste (mismo camino del ciclo)."""
+    credentials = AdsCredentials.from_secrets_dir()
+    perfil = perfil_aceptado_de(credentials, platform, transport=transport)
+    if perfil is None:
+        raise SinPerfilAjuste(
+            f"sin perfil aceptado para {platform} en /v2/profiles: el ajuste"
+            " aborta fail-closed (regla 3: jamas un profile inventado)"
+        )
+    return AdsWriteClient(
+        credentials,
+        platform=platform,
+        profile_id=perfil.profile_id,
+        modo_confirmado=MODO_CONFIRMADO_LIVE,
+        transport=transport,
+    )
+
+
+def _config_leida(cliente: AdsWriteClient, plataforma: str, externa: str):
+    """Readback de la campana por POST /sp/campaigns/list (scope sellado):
+    la config parseada, o None si Amazon no la trae, trae otra (cruce por
+    id, nunca items[0]: la API ignora filtros en silencio) o la trae
+    ilegible (fail-closed, reintentable)."""
+    from app.ads.campana_config import config_de_payload
+    from app.optimizer.bid import PLATAFORMAS_MONEDA
+
+    respuesta = cliente.list_sellado(
+        "/sp/campaigns/list", {"campaignIdFilter": {"include": [externa]}}
+    )
+    try:
+        cuerpo = respuesta.json()
+    except ValueError:
+        return None
+    if not isinstance(cuerpo, dict):
+        return None
+    for item in cuerpo.get("campaigns", []):
+        if isinstance(item, dict) and str(item.get("campaignId")) == str(externa):
+            try:
+                return config_de_payload(item, PLATAFORMAS_MONEDA[plataforma])
+            except ValueError:
+                return None
+    return None
+
+
+def _aplica_y_confirma(conn, cliente, plataforma, clase, destino, *, ajuste_id) -> None:
+    """PUT de la config completa + readback + sello. El readback manda:
+    si lo leido no coincide en la clase, la fila queda sin confirmar
+    (reintentable: el reintento reusa la pendiente)."""
+    from app.ads.campana_config import cuerpo_put_campana, guarda_config
+    from app.campana_ajustes import coincide_clase
+
+    cliente.ajustar_campana(
+        destino.campana_externa,
+        {k: v for k, v in cuerpo_put_campana(destino).items() if k != "campaignId"},
+    )
+    leida = _config_leida(cliente, plataforma, destino.campana_externa)
+    if leida is None or not coincide_clase(clase, leida, destino):
+        raise AjusteNoConfirmado(
+            f"ajuste {ajuste_id}: Amazon no confirma la config enviada"
+            " (readback distinto); la fila queda sin confirmar"
+        )
+    ahora = datetime.datetime.now(datetime.UTC)
+    with conn.transaction():
+        conn.execute(_SQL_CONFIRMA_AJUSTE, (ahora, ajuste_id))
+        guarda_config(conn, plataforma, [leida], ahora)
+
+
+def _sella_pendiente(conn, ajuste_id: int) -> None:
+    """Sella una fila pendiente sin PUT (reconciliacion: el vigente ya es
+    el destino porque el sync observo lo que el PUT si aplico)."""
+    with conn.transaction():
+        conn.execute(_SQL_CONFIRMA_AJUSTE, (datetime.datetime.now(datetime.UTC), ajuste_id))
+
+
+def aplica_ajuste_campana(
+    conn,
+    plan,
+    *,
+    huella: str,
+    confirmacion: str,
+    actor: str,
+    transport=None,
+) -> AjusteHecho:
+    """Aplica el plan que el dueno vio: re-planea con el vigente, exige la
+    huella y el literal, escribe la fila ANTES del HTTP (intencion durable
+    pre-HTTP, como reversa_bid) y confirma con el readback. Idempotente por
+    huella: el mismo plan dos veces hace UN PUT, y solo cuando el vigente
+    sigue en destino (tras un regreso, re-aplicar es un acto nuevo con
+    huella H#N). Una pendiente con el vigente ya en destino se reconcilia
+    sin PUT; una carrera perdida devuelve 409, nunca 500."""
+    from app.ads.campana_config import config_vigente_con_id
+    from app.campana_ajustes import planea_ajuste
+
+    if confirmacion != GO_AJUSTE:
+        raise ConfirmacionInvalida(f"confirmacion invalida: esperaba {GO_AJUSTE!r}")
+    if not actor or not actor.strip():
+        raise ValueError("actor vacio")
+    fila = conn.execute(_SQL_PLATAFORMA_CAMPANA, (plan.campana_id,)).fetchone()
+    if fila is None or fila[0] != plan.plataforma:
+        raise ValueError(f"campana {plan.campana_id} no es de {plan.plataforma}")
+    # Vigente + id en UN select y ANTES de la red: el sync no se cuela.
+    antes_id, vigente = config_vigente_con_id(conn, plan.campana_id)
+    if vigente is None:
+        raise HuellaDesactualizada(
+            f"campana {plan.campana_id} sin configuracion vigente: re-planea", None
+        )
+    existente = conn.execute(_SQL_AJUSTE_POR_HUELLA, (huella,)).fetchone()
+    huella_efectiva = huella
+    ajuste_id = None
+    if existente is not None:
+        _eid, confirmada, ecamp, eclase = existente
+        if ecamp != plan.campana_id or eclase != plan.clase:
+            raise ValueError(f"la huella {huella} es de otra campana o clase")
+        if confirmada:
+            if vigente == plan.despues:
+                return AjusteHecho(_eid, plan.campana_id, plan.clase, True)
+            n = 1 + conn.execute(_SQL_CUENTA_HUELLA, (huella, huella + "#%")).fetchone()[0]
+            huella_efectiva = f"{huella}#{n}"
+        elif vigente == plan.despues:
+            _sella_pendiente(conn, _eid)
+            return AjusteHecho(_eid, plan.campana_id, plan.clase, True)
+        else:
+            ajuste_id = _eid
+    fresco = planea_ajuste(
+        vigente, plan.ajuste, campana_id=plan.campana_id, plataforma=plan.plataforma
+    )
+    if fresco.huella() != huella or plan.huella() != huella:
+        raise HuellaDesactualizada("el vigente cambio desde la vista previa", fresco)
+    cliente = _cliente_ajuste(plan.plataforma, transport=transport)
+    if ajuste_id is None:
+        metida = conn.execute(
+            _SQL_INSERTA_AJUSTE,
+            (
+                plan.campana_id,
+                plan.plataforma,
+                plan.clase,
+                antes_id,
+                json.dumps(plan.despues.como_json()),
+                huella_efectiva,
+                actor.strip(),
+                confirmacion,
+                None,
+            ),
+        ).fetchone()
+        if metida is None:
+            ganadora = conn.execute(_SQL_AJUSTE_POR_HUELLA, (huella_efectiva,)).fetchone()
+            if ganadora is not None and ganadora[1]:
+                return AjusteHecho(ganadora[0], plan.campana_id, plan.clase, True)
+            raise AjusteEnCurso(f"huella {huella_efectiva} en curso en otro intento: reintenta")
+        ajuste_id = metida[0]
+    conn.commit()
+    _aplica_y_confirma(
+        conn, cliente, plan.plataforma, plan.clase, plan.despues, ajuste_id=ajuste_id
+    )
+    return AjusteHecho(ajuste_id, plan.campana_id, plan.clase, True)
+
+
+def regresa_ajuste_campana(conn, *, ajuste_id: int, actor: str, transport=None) -> AjusteHecho:
+    """Regreso del ajuste: aplica la configuracion COMPLETA de antes (la
+    observacion `antes_config_id`), aunque el vigente haya cambiado en mas
+    campos desde entonces. Un solo regreso por ajuste; fuera_de_amazon no
+    tiene regreso sellado (V.0) y no presenta boton."""
+    from app.ads.campana_config import config_vigente_con_id
+    from app.campana_ajustes import PlanAjuste
+
+    if not actor or not actor.strip():
+        raise ValueError("actor vacio")
+    fila = conn.execute(_SQL_AJUSTE_POR_ID, (ajuste_id,)).fetchone()
+    if fila is None:
+        raise AjusteInexistente(f"ajuste {ajuste_id} no existe")
+    _id, campana_id, plataforma, clase, antes_id, confirmado, regresos = fila
+    if confirmado is None:
+        raise AjusteNoConfirmado(
+            f"ajuste {ajuste_id} sin confirmar: no se regresa lo que Amazon no aplico"
+        )
+    if regresos:
+        raise AjusteYaRegresado(f"ajuste {ajuste_id} ya tiene su regreso")
+    if clase == "fuera_de_amazon":
+        raise AjusteSinRegreso(
+            f"ajuste {ajuste_id}: fuera_de_amazon no tiene regreso sellado (V.0)"
+        )
+    antes = _config_por_id(conn, antes_id)
+    vigente_id, vigente = config_vigente_con_id(conn, campana_id)
+    hijo = conn.execute(_SQL_HIJO_REGRESO, (ajuste_id,)).fetchone()
+    if vigente is None or vigente == antes:
+        if hijo is not None and not hijo[1]:
+            _sella_pendiente(conn, hijo[0])
+            return AjusteHecho(hijo[0], campana_id, clase, True)
+        raise AjusteYaRegresado(
+            f"ajuste {ajuste_id}: la campana ya tiene la configuracion de antes"
+        )
+    if hijo is not None and not hijo[1]:
+        nuevo_id = hijo[0]
+    else:
+        regreso = PlanAjuste(
+            campana_id=campana_id,
+            plataforma=plataforma,
+            clase=clase,
+            ajuste=_ajuste_hacia(vigente, antes),
+            antes=vigente,
+            despues=antes,
+            frase=(f"Orbit regresa la campaña {antes.campana_externa} a su configuración de antes"),
+        )
+        metido = conn.execute(
+            _SQL_INSERTA_REGRESO,
+            (
+                campana_id,
+                plataforma,
+                clase,
+                vigente_id,
+                json.dumps(antes.como_json()),
+                regreso.huella(),
+                actor.strip(),
+                GO_REGRESO_AJUSTE,
+                ajuste_id,
+            ),
+        ).fetchone()
+        if metido is None:
+            ganador = conn.execute(_SQL_HIJO_REGRESO, (ajuste_id,)).fetchone()
+            if ganador is not None and ganador[1]:
+                raise AjusteYaRegresado(f"ajuste {ajuste_id} ya tiene su regreso")
+            raise AjusteEnCurso(f"regreso de {ajuste_id} en curso en otro intento: reintenta")
+        nuevo_id = metido[0]
+    cliente = _cliente_ajuste(plataforma, transport=transport)
+    conn.commit()
+    _aplica_y_confirma(conn, cliente, plataforma, clase, antes, ajuste_id=nuevo_id)
+    return AjusteHecho(nuevo_id, campana_id, clase, True)
+
+
+def _config_por_id(conn, config_id: int):
+    from app.ads.campana_config import ConfigCampana
+
+    fila = conn.execute(_SQL_CONFIG_POR_ID, (config_id,)).fetchone()
+    return ConfigCampana(
+        campana_externa=fila[7],
+        presupuesto_diario=fila[0],
+        moneda=fila[1],
+        estrategia_puja=fila[2],
+        ajuste_top_pct=fila[3],
+        ajuste_resto_pct=fila[4],
+        ajuste_producto_pct=fila[5],
+        fuera_de_amazon=fila[6],
+    )
+
+
+def _ajuste_hacia(vigente, antes):
+    """Ajuste representativo del regreso (el destino real es `antes`
+    completo, no este ajuste)."""
+    from app.campana_ajustes import CambiarAjusteUbicacion, CambiarPresupuesto
+
+    if antes.presupuesto_diario != vigente.presupuesto_diario:
+        if antes.presupuesto_diario is None:
+            raise AjusteSinRegreso("la configuracion de antes no trae presupuesto")
+        return CambiarPresupuesto(presupuesto_diario=antes.presupuesto_diario)
+    for campo, ubicacion in (
+        ("ajuste_top_pct", "arriba_de_busqueda"),
+        ("ajuste_resto_pct", "resto_de_busqueda"),
+        ("ajuste_producto_pct", "paginas_de_producto"),
+    ):
+        if getattr(antes, campo) != getattr(vigente, campo):
+            if getattr(antes, campo) is None:
+                raise AjusteSinRegreso("la configuracion de antes no trae ese ajuste")
+            return CambiarAjusteUbicacion(ubicacion=ubicacion, porcentaje=getattr(antes, campo))
+    raise AjusteSinRegreso("el regreso solo mueve presupuesto o ajuste de ubicacion")

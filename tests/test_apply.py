@@ -2636,3 +2636,17 @@ def test_regreso_del_dueno_todas_una_falla_no_detiene_a_las_demas(monkeypatch):
         assert len(puts) == 1
         body = json.loads(puts[0].content)
         assert Decimal(str(body["keywords"][0]["bid"])) == Decimal("12.00")
+
+
+def test_clave_orden_cambio_empate_con_null_no_revienta():
+    """Panel: decision_id NULL de ajuste_de_campana empatado con un id
+    ordena (NULL ultimo, como el SQL) en vez de TypeError."""
+    import datetime as dt
+
+    from app.apply import _clave_orden_cambio
+
+    ancla = dt.datetime(2026, 10, 4, 12, 0)
+    motor = (ancla, 1, 2, "MXN", 7)
+    ajuste = (ancla, 2, 2, "MXN", None)
+    assert max([motor, ajuste], key=_clave_orden_cambio) == ajuste
+    assert min([motor, ajuste], key=_clave_orden_cambio) == motor

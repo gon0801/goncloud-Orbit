@@ -123,6 +123,41 @@ SELECT o.ad_entity_id, (o.observed_at AT TIME ZONE 'UTC')::date, o.presupuesto_d
    AND (o.observed_at AT TIME ZONE 'UTC')::date <= %s
  ORDER BY o.ad_entity_id, 2, o.observed_at
 """
+_SQL_REGRESABLES = """
+SELECT a.id, a.campana_id, a.clase, (a.confirmado_el AT TIME ZONE 'UTC')::date
+  FROM campana_ajuste a
+  JOIN ads_campana_config_observation o ON o.id = a.antes_config_id
+ WHERE a.platform = %s
+   AND a.confirmado_el IS NOT NULL
+   AND a.clase <> 'fuera_de_amazon'
+   AND NOT EXISTS (SELECT 1 FROM campana_ajuste r
+                    WHERE r.regresa_a = a.id AND r.confirmado_el IS NOT NULL)
+   AND ((a.clase = 'presupuesto' AND o.presupuesto_diario IS NOT NULL)
+        OR (a.clase = 'ajuste_ubicacion' AND o.estrategia_puja IS NOT NULL
+            AND (o.ajuste_top_pct IS NOT NULL OR o.ajuste_resto_pct IS NOT NULL
+                 OR o.ajuste_producto_pct IS NOT NULL)))
+ ORDER BY a.id
+"""
+_SQL_ULTIMO_AJUSTE_PRECIO = """
+SELECT a.campana_id, max((a.confirmado_el AT TIME ZONE 'UTC')::date)
+  FROM campana_ajuste a
+ WHERE a.platform = %s
+   AND a.confirmado_el IS NOT NULL
+   AND a.clase = 'ajuste_ubicacion'
+ GROUP BY a.campana_id
+"""
+_TEXTO_CLASE_AJUSTE = {
+    "presupuesto": "el presupuesto",
+    "ajuste_ubicacion": "el ajuste de ubicación",
+}
+
+
+def _aviso_ajuste_de(confirmado: dt.date | None, hasta: dt.date) -> str | None:
+    if confirmado is None:
+        return None
+    from app.avisos_campana import avisos_ajuste_propio
+
+    return avisos_ajuste_propio("ajuste_ubicacion", confirmado, hasta)
 
 
 @dataclass(frozen=True)
@@ -194,6 +229,21 @@ class FilaUbicacion:
 
 
 @dataclass(frozen=True)
+class AjusteRegresable:
+    """Ajuste CONFIRMADO sin regreso y con regreso sellado (V.3): la
+    pantalla le pinta su boton Regresar con `frase` (P.2b)."""
+
+    ajuste_id: int
+    clase: str
+    texto: str
+    confirmado_el: dt.date
+
+    @property
+    def frase(self) -> str:
+        return f"Regresar {self.texto} del {self.confirmado_el.isoformat()}"
+
+
+@dataclass(frozen=True)
 class FilaCampana:
     """Configuracion vigente de una campana activa y como usa su
     presupuesto. `avisos` lo llena V.4; aqui siempre vacio."""
@@ -208,6 +258,8 @@ class FilaCampana:
     gasto_fuera_de_amazon: Decimal | None
     dias_al_tope_7d: int | None
     avisos: tuple[str, ...] = ()
+    ajustes_regresables: tuple[AjusteRegresable, ...] = ()
+    aviso_ajuste: str | None = None
 
     def como_dict(self) -> dict:
         return {
@@ -229,6 +281,10 @@ class FilaCampana:
             else str(self.gasto_fuera_de_amazon),
             "dias_al_tope_7d": self.dias_al_tope_7d,
             "avisos": list(self.avisos),
+            "ajustes_regresables": [
+                {"ajuste_id": r.ajuste_id, "frase": r.frase} for r in self.ajustes_regresables
+            ],
+            "aviso_ajuste": self.aviso_ajuste,
         }
 
 
@@ -248,11 +304,14 @@ class PantallaDinero:
     por_campana: tuple[FilaCampana, ...] = ()
 
     def como_dict(self) -> dict:
+        from app.campana_ajustes import CLASES_SELLADAS, ORDEN_CLASES
+
         return {
             "plataforma": self.plataforma,
             "moneda": self.moneda,
             "desde": self.desde.isoformat(),
             "hasta": self.hasta.isoformat(),
+            "clases_ajuste": [c for c in ORDEN_CLASES if c in CLASES_SELLADAS],
             "filas": [fila.como_dict() for fila in self.filas],
             "total": self.total.como_dict(),
             "hojas_sin_clasificar": self.hojas_sin_clasificar,
@@ -350,6 +409,20 @@ def lee_campanas(
         _SQL_CONFIGS_HIST, (plataforma, hasta)
     ).fetchall():
         configs.setdefault(cid, []).append((vigente_desde, presupuesto))
+    regresables: dict[int, list] = {}
+    for aid, cid, clase, confirmado in conn.execute(_SQL_REGRESABLES, (plataforma,)).fetchall():
+        regresables.setdefault(cid, []).append(
+            AjusteRegresable(
+                ajuste_id=aid,
+                clase=clase,
+                texto=_TEXTO_CLASE_AJUSTE[clase],
+                confirmado_el=confirmado,
+            )
+        )
+    ultimo_precio = {
+        cid: confirmado
+        for cid, confirmado in conn.execute(_SQL_ULTIMO_AJUSTE_PRECIO, (plataforma,)).fetchall()
+    }
     dias = (hasta - desde).days + 1
 
     def _presupuesto_dia(cid: int, dia: dt.date) -> Decimal | None:
@@ -398,6 +471,8 @@ def lee_campanas(
                 ajustes_ubicacion=ajustes,
                 gasto_fuera_de_amazon=fuera.get(cid),
                 dias_al_tope_7d=al_tope,
+                ajustes_regresables=tuple(regresables.get(cid, ())),
+                aviso_ajuste=_aviso_ajuste_de(ultimo_precio.get(cid), hasta),
             )
         )
     return tuple(filas)
