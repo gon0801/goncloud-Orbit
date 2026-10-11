@@ -1590,14 +1590,18 @@ def test_fila_visible_desde_otra_conexion_cuando_sale_el_put(monkeypatch):
                     ).fetchall()
             return base(request)
 
-        hecho = apply.aplica_ajuste_campana(
-            conn,
-            plan,
-            huella=plan.huella(),
-            confirmacion="APLICAR AJUSTE",
-            actor="dueno",
-            transport=httpx.MockTransport(handler),
-        )
+        c2 = psycopg.connect(dsn_db)
+        try:
+            hecho = apply.aplica_ajuste_campana(
+                c2,
+                plan,
+                huella=plan.huella(),
+                confirmacion="APLICAR AJUSTE",
+                actor="dueno",
+                transport=httpx.MockTransport(handler),
+            )
+        finally:
+            c2.close()
         assert visto["filas"] == [(hecho.ajuste_id, False)]
 
 
@@ -1692,10 +1696,14 @@ def test_fila_regreso_visible_desde_otra_conexion_cuando_sale_el_put(monkeypatch
                     ).fetchall()
             return base(request)
 
-        hijo = apply.regresa_ajuste_campana(
-            conn,
-            ajuste_id=hecho.ajuste_id,
-            actor="dueno",
-            transport=httpx.MockTransport(handler),
-        )
+        c2 = psycopg.connect(dsn_db)
+        try:
+            hijo = apply.regresa_ajuste_campana(
+                c2,
+                ajuste_id=hecho.ajuste_id,
+                actor="dueno",
+                transport=httpx.MockTransport(handler),
+            )
+        finally:
+            c2.close()
         assert visto["filas"] == [(hijo.ajuste_id, hecho.ajuste_id, False)]
