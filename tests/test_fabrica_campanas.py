@@ -2802,6 +2802,67 @@ def test_reanudar_lote_revive():
         )
 
 
+def _lote_applied_orden_real(conn, lote="LP1"):
+    """Lote applied con pasos 1..2 como los deja _mutar (no 10+i)."""
+    from test_migracion_0064 import SQL64
+    from test_migracion_0065 import SQL65
+
+    conn.execute(SQL64)
+    conn.execute(SQL65)
+    conn.execute(
+        "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base,"
+        " go_literal, huella, plan, modo_goal, estado) VALUES (%s, 'amazon_mx',"
+        " 'aros', 'Base', 'go', 'h', '{}', 'shadow', 'applied')",
+        (lote,),
+    )
+    for i, rol in enumerate(("category_exact", "auto_discovery"), start=1):
+        conn.execute(
+            "INSERT INTO fabrica_lote_paso (lote, orden, rol, recurso, request_payload,"
+            " estado, external_id, ack, readback_estado) VALUES (%s, %s, %s, 'campaign',"
+            " '{}', 'applied', %s, '{}', 'ENABLED')",
+            (lote, i, rol, f"c-{i}"),
+        )
+    conn.commit()
+
+
+def _handler_pausa_cuenta(puts):
+    def handler(request):
+        if request.url.path == "/sp/campaigns" and request.method == "PUT":
+            cuerpo = json.loads(request.content)["campaigns"][0]
+            puts.append((cuerpo["campaignId"], cuerpo["state"]))
+            return httpx.Response(207, json={"campaigns": {"success": [{"index": 0}], "error": []}})
+        pedido = json.loads(request.content)["campaignIdFilter"]["include"][0]
+        estado = next((e for _c, e in reversed(puts) if _c == pedido), "ENABLED")
+        return httpx.Response(
+            200, json={"campaigns": [{"campaignId": pedido, "state": estado, "name": "n"}]}
+        )
+
+    return handler
+
+
+@_skip_db
+def test_pausar_lote_continua_el_ledger_y_no_repite_puts():
+    """R09-r2 A-1/A-8: con pasos 1..2 de _mutar, pausar no colisiona
+    UNIQUE(lote, orden), pausa una vez por rol, y reanudar no repite
+    los PUTs historicos."""
+    with db_fabrica("orbit_i3_pl1") as conn:
+        _lote_applied_orden_real(conn)
+        puts: list = []
+        ctx = _ctx_pausa(conn, httpx.MockTransport(_handler_pausa_cuenta(puts)), "LP1")
+        fc.pausar_lote(ctx, "LP1", "dueno")
+        assert conn.execute("SELECT estado FROM fabrica_lote WHERE lote = 'LP1'").fetchone() == (
+            "pausado",
+        )
+        assert [p for _, p in puts] == ["PAUSED", "PAUSED"]
+        assert conn.execute(
+            "SELECT orden FROM fabrica_lote_paso WHERE lote = 'LP1' ORDER BY orden"
+        ).fetchall() == [(1,), (2,), (3,), (4,)]
+        puts.clear()
+        ctx2 = _ctx_pausa(conn, httpx.MockTransport(_handler_pausa_cuenta(puts)), "LP1")
+        fc.reanudar_lote(ctx2, "LP1", "dueno")
+        assert [p for _, p in puts] == ["ENABLED", "ENABLED"]
+
+
 @_skip_db
 def test_pausar_lote_rechaza_transiciones_ilegales():
     """I.3: desarmado nunca revive, pausar exige applied, reanudar exige

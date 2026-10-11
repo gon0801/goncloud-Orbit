@@ -303,14 +303,14 @@ SELECT orden, rol::text, recurso, estado, external_id, request_payload, ack, rea
  ORDER BY orden
 """
 _SQL_CAMPANAS_DEL_LOTE = """
-SELECT p.rol::text, p.external_id, g.id
+SELECT DISTINCT ON (p.rol) p.rol::text, p.external_id, g.id
   FROM fabrica_lote_paso p
   LEFT JOIN campana_grupo cg ON cg.lote = p.lote
   LEFT JOIN campana_grupo_rol r ON r.grupo_id = cg.id AND r.rol = p.rol
   LEFT JOIN ads_optimizer_goal g ON g.ad_entity_id = r.ad_entity_id AND g.scope = 'campaign'
  WHERE p.lote = %s AND p.recurso = 'campaign'
    AND p.estado IN ('applied', 'failed') AND p.external_id IS NOT NULL
- ORDER BY p.orden
+ ORDER BY p.rol, p.orden DESC
 """
 _SQL_PENDIENTES = """
 SELECT p.id, p.lote, p.rol::text, l.platform::text, p.recurso, CASE p.recurso
@@ -1574,6 +1574,9 @@ def _cambia_estado_lote(ctx: _Ctx, lote: str, estado: str, actor: str) -> None:
     ctx.conn_admin.commit()
     if not filas:
         raise Abortar(f"lote {lote} sin campanas en fabrica_lote_paso: nada que {estado}")
+    ctx.orden = ctx.conn_admin.execute(
+        "SELECT coalesce(max(orden), 0) FROM fabrica_lote_paso WHERE lote = %s", (lote,)
+    ).fetchone()[0]
     nuevo = "PAUSED" if estado == "pausado" else "ENABLED"
     for rol, external, _goal in filas:
         paso = fp.Paso(rol, "campaign", "/sp/campaigns", {}, f"{estado} {rol}")
