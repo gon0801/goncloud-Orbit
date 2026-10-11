@@ -465,16 +465,20 @@ def test_cero_ruta_sp_campaigns_en_camino_de_escritura():
 
 def _solo_put_sellado_en_write():
     """write.py nombra /sp/campaigns solo en el allowlist y en
-    `ajustar_campana` (V.3 sellado por V.0), y dentro de esos rangos
-    solo con las formas selladas: PUT (nunca otro verbo) y sin la
-    llave `state` fuera del docstring."""
+    `ajustar_campana` (V.3 sellado por V.0). El contenido sellado se
+    fija en el AST: cada self._mutate constante a /sp/campaigns es
+    PUT y vive en ajustar_campana, la entrada del allowlist y el
+    contenedor existen, y no hay `state` fuera del docstring."""
     rel = "app/ads/write.py"
     fuente = (RAIZ / rel).read_text(encoding="utf-8")
     lineas = fuente.splitlines()
+    arbol = ast.parse(fuente)
     allowlist: set[int] = set()
     metodo: set[int] = set()
     docstring: set[int] = set()
-    for nodo in ast.walk(ast.parse(fuente)):
+    tipos = None
+    contenedores = None
+    for nodo in ast.walk(arbol):
         if isinstance(nodo, ast.FunctionDef) and nodo.name == "ajustar_campana":
             metodo.update(range(nodo.lineno, (nodo.end_lineno or nodo.lineno) + 1))
             primero = nodo.body[0] if nodo.body else None
@@ -486,13 +490,51 @@ def _solo_put_sellado_en_write():
                 docstring.update(range(primero.lineno, (primero.end_lineno or primero.lineno) + 1))
         if isinstance(nodo, (ast.Assign, ast.AnnAssign)):
             blancos = nodo.targets if isinstance(nodo, ast.Assign) else [nodo.target]
-            if any(
-                isinstance(b, ast.Name)
-                and b.id in ("MUTATION_REQUEST_TYPES", "MUTATION_CONTAINERS")
-                for b in blancos
-            ):
+            nombres = {b.id for b in blancos if isinstance(b, ast.Name)}
+            if nombres & {"MUTATION_REQUEST_TYPES", "MUTATION_CONTAINERS"}:
                 allowlist.update(range(nodo.lineno, (nodo.end_lineno or nodo.lineno) + 1))
+            if "MUTATION_REQUEST_TYPES" in nombres:
+                tipos = nodo
+            if "MUTATION_CONTAINERS" in nombres:
+                contenedores = nodo
     assert allowlist and metodo, "el allowlist o ajustar_campana desaparecio de write.py"
+    # El verbo sellado se verifica en el AST, no por linea: el verbo y
+    # la ruta de cada self._mutate viven en lineas distintas.
+    pares_campana = []
+    for nodo in ast.walk(arbol):
+        if not (
+            isinstance(nodo, ast.Call)
+            and isinstance(nodo.func, ast.Attribute)
+            and nodo.func.attr == "_mutate"
+            and len(nodo.args) >= 2
+            and isinstance(nodo.args[0], ast.Constant)
+            and isinstance(nodo.args[1], ast.Constant)
+        ):
+            continue
+        if nodo.args[1].value == "/sp/campaigns":
+            assert nodo.args[0].value == "PUT", f"{rel}:{nodo.lineno} muta campana sin PUT sellado"
+            pares_campana.append(nodo.lineno)
+    assert pares_campana, "desaparecio el PUT /sp/campaigns de write.py"
+    for n in pares_campana:
+        assert n in metodo, f"{rel}:{n} muta campana fuera de ajustar_campana"
+    # La entrada del allowlist y el contenedor existen (nadie los quita
+    # en silencio).
+    assert tipos is not None and any(
+        isinstance(e, ast.Tuple)
+        and [c.value for c in e.elts if isinstance(c, ast.Constant)] == ["PUT", "/sp/campaigns"]
+        for e in ast.walk(tipos)
+    ), "desaparecio (PUT, /sp/campaigns) de MUTATION_REQUEST_TYPES"
+    assert contenedores is not None and any(
+        isinstance(nodo, ast.Dict)
+        and any(
+            isinstance(k, ast.Constant)
+            and k.value == "/sp/campaigns"
+            and isinstance(v, ast.Constant)
+            and v.value == "campaigns"
+            for k, v in zip(nodo.keys, nodo.values, strict=True)
+        )
+        for nodo in ast.walk(contenedores)
+    ), "desaparecio /sp/campaigns de MUTATION_CONTAINERS"
     for n in sorted(metodo - docstring):
         assert '"state"' not in lineas[n - 1], f"{rel}:{n} mete state al PUT de campana"
     for n, linea in enumerate(lineas, 1):
