@@ -344,3 +344,68 @@ def test_config_vigente_trae_ultima_y_none_sin_filas():
         nueva = _config(presupuesto_diario=Decimal("12"), estrategia_puja="MANUAL")
         guarda_config(conn, "amazon_mx", [nueva], despues)
         assert config_vigente(conn, camp) == nueva
+
+
+# B10 (R05 r3): "solo si cambio" contra la ULTIMA fila, sin cruce MX/US.
+# ---------------------------------------------------------------------------
+
+
+@_skip_db
+def test_guarda_config_a_b_a_deja_tres_filas_y_vigente_a():
+    """v1-02: volver al valor anterior tambien es cambio (compara contra
+    la ultima fila, no la primera)."""
+    import datetime as dt
+
+    base = dt.datetime(2026, 10, 10, 8, 0, tzinfo=dt.UTC)
+    with _db_config("orbit_cfg_aba") as conn:
+        _campana(conn)
+        for i, presupuesto in enumerate(("10", "12", "10")):
+            guarda_config(
+                conn,
+                "amazon_mx",
+                [_config(presupuesto_diario=Decimal(presupuesto))],
+                base + dt.timedelta(hours=i),
+            )
+        filas = conn.execute(
+            "SELECT presupuesto_diario FROM ads_campana_config_observation ORDER BY observed_at"
+        ).fetchall()
+        assert [f[0] for f in filas] == [Decimal("10"), Decimal("12"), Decimal("10")]
+
+
+@_skip_db
+def test_guarda_config_mismo_id_en_dos_mercados_no_se_cruza():
+    """v1-07: el mismo campaignId en MX y US guarda cada config en su campana."""
+    import datetime as dt
+
+    ahora = dt.datetime(2026, 10, 10, 8, 0, tzinfo=dt.UTC)
+    with _db_config("orbit_cfg_mxus") as conn:
+        mx = _campana(conn, "amazon_mx", "c-1")
+        us = _campana(conn, "amazon_us", "c-1")
+        assert (
+            guarda_config(conn, "amazon_mx", [_config(presupuesto_diario=Decimal("200"))], ahora)
+            == 1
+        )
+        assert guarda_config(conn, "amazon_us", [_config(moneda="USD")], ahora) == 1
+        filas = dict(
+            conn.execute(
+                "SELECT ad_entity_id, presupuesto_moneda FROM ads_campana_config_observation"
+            ).fetchall()
+        )
+        assert filas == {mx: "MXN", us: "USD"}
+
+
+@_skip_db
+def test_guarda_config_fuera_de_amazon_persiste_y_su_cambio_abre_fila():
+    """v1-08: fuera_de_amazon llega a la base y su cambio abre fila."""
+    import datetime as dt
+
+    ahora = dt.datetime(2026, 10, 10, 8, 0, tzinfo=dt.UTC)
+    despues = dt.datetime(2026, 10, 10, 9, 0, tzinfo=dt.UTC)
+    with _db_config("orbit_cfg_fuera") as conn:
+        _campana(conn)
+        guarda_config(conn, "amazon_mx", [_config(fuera_de_amazon='{"a": 1}')], ahora)
+        assert guarda_config(conn, "amazon_mx", [_config(fuera_de_amazon='{"a": 2}')], despues) == 1
+        filas = conn.execute(
+            "SELECT fuera_de_amazon FROM ads_campana_config_observation ORDER BY observed_at"
+        ).fetchall()
+        assert filas == [('{"a": 1}',), ('{"a": 2}',)]

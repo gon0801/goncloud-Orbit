@@ -219,3 +219,34 @@ def _foto(conn) -> dict:
         "rutinas": sorted(r[0] for r in rutinas),
         "checks": sorted(checks),
     }
+
+
+@_skip_db
+def test_0062_placements_append_only_rechaza_update_delete_truncate():
+    """v2-16: la tabla de placements es append-only de verdad."""
+    with db_62("orbit_62_ao") as conn:
+        _observa(conn, _campana(conn))
+        for sentencia in (
+            "UPDATE ads_placement_observation SET observed_at = now()",
+            "DELETE FROM ads_placement_observation",
+            "TRUNCATE ads_placement_observation",
+        ):
+            with pytest.raises(psycopg.Error, match="APPEND-ONLY"):
+                conn.execute(sentencia)
+
+
+@_skip_db
+def test_0062_dominio_placement_exactamente_ubicacion():
+    """v2-17: el dominio del CHECK es EXACTAMENTE Ubicacion (ni uno mas)."""
+    import re
+    from typing import get_args
+
+    from app.ads.placements import _UBICACION, Ubicacion
+
+    with db_62("orbit_62_dom") as conn:
+        definicion = conn.execute(
+            "SELECT pg_get_constraintdef(oid) FROM pg_constraint"
+            " WHERE conname = 'placement_vocabulario'"
+        ).fetchone()[0]
+    en_base = set(re.findall(r"'([^']+)'::text", definicion))
+    assert en_base == set(get_args(Ubicacion)) == set(_UBICACION.values())

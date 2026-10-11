@@ -248,3 +248,36 @@ def test_v_campana_config_vigente_trae_ultima_por_campana():
                 None,
             ),
         ]
+
+
+@_skip_db
+def test_0061_config_append_only_rechaza_update_delete_truncate():
+    """v1-11: la tabla de config es append-only de verdad."""
+    with db_61("orbit_61_ao") as conn:
+        _observa(conn, _campana(conn))
+        for sentencia in (
+            "UPDATE ads_campana_config_observation SET observed_at = now()",
+            "DELETE FROM ads_campana_config_observation",
+            "TRUNCATE ads_campana_config_observation",
+        ):
+            with pytest.raises(psycopg.Error, match="APPEND-ONLY"):
+                conn.execute(sentencia)
+
+
+@_skip_db
+def test_0061_rechaza_presupuesto_cero_y_ajuste_negativo():
+    """v1-12/v1-13: presupuesto 0 y ajuste negativo revientan en su CHECK."""
+    with db_61("orbit_61_chk") as conn:
+        camp = _campana(conn)
+        with pytest.raises(psycopg.errors.CheckViolation, match="config_presupuesto_positivo"):
+            conn.execute(
+                "INSERT INTO ads_campana_config_observation (ad_entity_id, observed_at,"
+                " presupuesto_diario, presupuesto_moneda) VALUES (%s, now(), 0, 'MXN')",
+                (camp,),
+            )
+        with pytest.raises(psycopg.errors.CheckViolation, match="config_ajustes_en_rango"):
+            conn.execute(
+                "INSERT INTO ads_campana_config_observation (ad_entity_id, observed_at,"
+                " ajuste_top_pct) VALUES (%s, now(), -1)",
+                (camp,),
+            )

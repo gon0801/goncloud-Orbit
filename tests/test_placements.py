@@ -459,6 +459,7 @@ def test_main_placements_preflight_roto_sella_run_propia(monkeypatch):
 
 @_skip_db
 def test_main_placements_exito_devuelve_0(monkeypatch):
+    """v2-05: con --placements y todo bien, tampoco corren los 4 reportes."""
     from urllib.parse import urlsplit, urlunsplit
 
     from app.ads.reports import main
@@ -476,5 +477,42 @@ def test_main_placements_exito_devuelve_0(monkeypatch):
             "from_secrets_dir",
             classmethod(lambda cls: None),
         )
+
+        def _espia(*a, **k):
+            raise AssertionError("sync_metrics no debe correr con --placements")
+
+        monkeypatch.setattr("app.ads.reports.sync_metrics", _espia)
         assert main(["--placements", "--fecha", "2026-10-05", "--fecha-fin", "2026-10-05"]) == 0
         assert _observadas(conn) == 2
+
+
+@_skip_db
+def test_metrica_ausente_se_guarda_null_en_la_base():
+    """v2-09/v2-10: la metrica ausente llega NULL hasta la BASE (no 0)."""
+    ayer = dt.date(2026, 10, 5)
+    with _db_placements("orbit_pl_null") as conn:
+        _siembra_campana(conn, "amazon_mx", "9001")
+        filas = {"202": [_fila(clicks=None, cost=None, purchases30d=None, sales30d=None)]}
+        assert sync_placements(conn, _transporte_ok(filas), desde=ayer, hasta=ayer) == 1
+        assert conn.execute(
+            "SELECT impressions, clicks, cost, orders, ad_revenue FROM ads_placement_observation"
+        ).fetchall() == [(100, None, None, None, None)]
+
+
+@_skip_db
+def test_fallo_en_fase_de_base_sella_ok_false(monkeypatch):
+    """v2-20: un fallo en la fase de base sella la run ok=false y no deja filas."""
+    ayer = dt.date(2026, 10, 5)
+
+    def _revienta(*a, **k):
+        raise RuntimeError("base caida a media ingesta")
+
+    with _db_placements("orbit_pl_dbfail") as conn:
+        _siembra_campana(conn, "amazon_mx", "9001")
+        monkeypatch.setattr("app.ads.placements.ingest_placements", _revienta)
+        with pytest.raises(RuntimeError, match="base caida"):
+            sync_placements(conn, _transporte_ok({"202": [_fila()]}), desde=ayer, hasta=ayer)
+        assert conn.execute("SELECT source, ok FROM ingest_run").fetchall() == [
+            (SOURCE_PLACEMENTS, False)
+        ]
+        assert _observadas(conn) == 0
