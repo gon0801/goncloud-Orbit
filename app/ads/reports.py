@@ -2092,9 +2092,10 @@ def main(argv: list[str] | None = None) -> int:
         try:
             reportes = (PRODUCTOS_CFG,) if args.productos else REPORTES_CFG
             if args.placements:
-                # La corrida propia sella su preflight con su source: con
-                # credenciales rotas la run visible en Salud es la de
-                # placements, no una del pipeline principal (hallazgo panel).
+                # La corrida propia sella su preflight con su source (no con
+                # el del pipeline principal). Ojo: Salud NO muestra ese
+                # source (igual que productos): lo fallido solo queda en
+                # ingest_run y en el log del cron.
                 from app.ads.placements import SOURCE_PLACEMENTS
 
                 source = SOURCE_PLACEMENTS
