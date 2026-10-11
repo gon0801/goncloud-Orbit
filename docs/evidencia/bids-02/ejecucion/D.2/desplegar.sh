@@ -211,12 +211,21 @@ else
 fi
 
 echo "== 2) Respaldo del codigo actual y SHA (el .env NO se copia a ningun lado)"
+# Si predeploy-<sello> ya existe (reintento en el mismo minuto), se
+# conserva: copiar encima guardaria el codigo NUEVO que dejo la corrida
+# anterior y la reversa restauraria codigo nuevo sin tablas.
 if [ "$SIM" = 1 ]; then
-  mkdir -p "$TMPD/predeploy-$STAMP"
-  git archive --format=tar "$APROBADO" app Dockerfile .dockerignore pyproject.toml uv.lock tools docker-compose.yml \
-    | tar -x -C "$TMPD/predeploy-$STAMP"
-  echo "$APROBADO" > "$TMPD/predeploy-$STAMP/SHA"
-  echo "SIMULACION: respaldo local en $TMPD/predeploy-$STAMP"
+  if [ -f "$TMPD/predeploy-$STAMP/SHA" ]; then
+    echo "SIMULACION: reintento, $TMPD/predeploy-$STAMP se conserva (no se pisa)"
+  else
+    mkdir -p "$TMPD/predeploy-$STAMP"
+    git archive --format=tar "$APROBADO" app Dockerfile .dockerignore pyproject.toml uv.lock tools docker-compose.yml \
+      | tar -x -C "$TMPD/predeploy-$STAMP"
+    echo "$APROBADO" > "$TMPD/predeploy-$STAMP/SHA"
+    echo "SIMULACION: respaldo local en $TMPD/predeploy-$STAMP"
+  fi
+elif ssh goncloud "test -f $SRV/predeploy-$STAMP/SHA"; then
+  echo "reintento: predeploy-$STAMP ya existe, se conserva (no se pisa)"
 else
   ssh goncloud "set -e; cd $SRV; mkdir -p predeploy-$STAMP; \
     cp -a app Dockerfile .dockerignore pyproject.toml uv.lock tools docker-compose.yml predeploy-$STAMP/; \
