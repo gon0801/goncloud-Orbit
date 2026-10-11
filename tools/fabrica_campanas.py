@@ -236,6 +236,12 @@ _SQL_EXTERNALS_CAMPANA_DEL_LOTE = """
 SELECT DISTINCT external_id FROM fabrica_lote_paso
  WHERE lote = %s AND recurso = 'campaign' AND external_id IS NOT NULL
 """
+_SQL_CAMPANAS_CON_EXTERNAL = """
+SELECT DISTINCT ON (p.rol) p.rol::text, p.external_id
+  FROM fabrica_lote_paso p
+ WHERE p.lote = %s AND p.recurso = 'campaign' AND p.external_id IS NOT NULL
+ ORDER BY p.rol, p.orden DESC
+"""
 _SQL_INSERTA_PASO = """
 INSERT INTO fabrica_lote_paso (lote, orden, rol, recurso, request_payload, estado)
 VALUES (%s, %s, %s::campana_rol, %s, %s::jsonb, 'planeado')
@@ -1715,6 +1721,42 @@ def pausar_lote(ctx: _Ctx, lote: str, actor: str) -> None:
 def reanudar_lote(ctx: _Ctx, lote: str, actor: str) -> None:
     """Reanuda un lote pausado."""
     _cambia_estado_lote(ctx, lote, "applied", actor)
+
+
+def reactiva_lote(ctx: _Ctx, lote: str, actor: str) -> None:
+    """Graduar casa con Amazon: PUT ENABLED (ledger + readback) a las
+    campanas del lote que no esten ENABLED, y sello applied si estaba
+    pausado. Nunca revive desarmados."""
+    actual = _estado_lote(ctx.conn_admin, lote)
+    if actual is None:
+        raise Abortar(f"lote {lote} no existe")
+    if actual == "desarmado":
+        raise Abortar(f"lote {lote} desarmado: nunca revive")
+    ctx.orden = ctx.conn_admin.execute(
+        "SELECT coalesce(max(orden), 0) FROM fabrica_lote_paso WHERE lote = %s", (lote,)
+    ).fetchone()[0]
+    for rol, external in ctx.conn_admin.execute(_SQL_CAMPANAS_CON_EXTERNAL, (lote,)).fetchall():
+        leido = _readback(ctx.cliente_lectura, ctx.profile, "/sp/campaigns", external)
+        visto = leido.get("state") if isinstance(leido, dict) else None
+        if visto == fp.ESTADO_NUEVO:
+            continue
+        paso = fp.Paso(rol, "campaign", "/sp/campaigns", {}, f"reactivar {rol}")
+        paso_id = _inserta_paso(ctx, paso, {"campaignId": str(external), "state": "ENABLED"})
+        ack = _put_estado_campana(ctx, external, fp.ESTADO_NUEVO)
+        if not fp.ack_ok(ack):
+            _sella_paso(ctx, paso_id, False, external, ack, None)
+            raise Abortar(
+                f"PUT ENABLED de {external} ({rol}) rechazado (status {ack.get('status')})"
+            )
+        time.sleep(0.3)
+        leido = _readback(ctx.cliente_lectura, ctx.profile, "/sp/campaigns", external)
+        visto = leido.get("state") if isinstance(leido, dict) else None
+        _log("reactivar", lote=lote, rol=rol, external=external, readback=visto)
+        _sella_paso(ctx, paso_id, visto == fp.ESTADO_NUEVO, external, ack, visto)
+        if visto != fp.ESTADO_NUEVO:
+            raise Abortar(f"readback de {external} ({rol}) != ENABLED ({visto}): se detiene")
+    if actual == "pausado":
+        _sella_lote(ctx.conn_admin, lote, "applied", f"go: {actor}")
 
 
 def _desarmar(args) -> int:

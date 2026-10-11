@@ -493,12 +493,16 @@ class _Pausador:
     def __init__(self):
         self.pausados = []
         self.reanudados = []
+        self.reactivados = []
 
     def pausa(self, lote):
         self.pausados.append(lote)
 
     def reanuda(self, lote):
         self.reanudados.append(lote)
+
+    def reactiva(self, lote):
+        self.reactivados.append(lote)
 
 
 def _impulso_vivo(
@@ -1035,3 +1039,36 @@ def test_vigia_atraso_cuenta_dias_con_dato_no_calendario():
             "SELECT corte, dias_observados, es_final FROM impulso_lectura WHERE impulso_id = %s",
             (ids["impulso"],),
         ).fetchone() == (d0 + dt.timedelta(days=10), 11, False)
+
+
+@_skip_db
+def test_vigia_graduar_reactiva_lote_pausado():
+    """R09 B4 (D): pedido con lote pausado: gradua (goals live) y reactiva
+    las campanas para casar con Amazon."""
+    with _db_i3("orbit_i3_r3d") as conn:
+        ids = _impulso_vivo(conn, lote="impulso-r3d-1")
+        conn.execute("UPDATE fabrica_lote SET estado = 'pausado' WHERE lote = %s", (ids["lote"],))
+        conn.commit()
+        _observa(conn, ids["camps"][0], HOY - dt.timedelta(days=1), pedidos=1)
+        pausador = _Pausador()
+        acciones = io.vigila(conn, pausador, hoy=HOY)
+        assert acciones[0].hecho == "graduado"
+        assert pausador.reactivados == [ids["lote"]]
+        assert conn.execute(
+            "SELECT mode FROM ads_optimizer_goal WHERE ad_entity_id = %s", (ids["camps"][0],)
+        ).fetchone() == ("live",)
+
+
+@_skip_db
+def test_vigia_graduar_lote_desarmado_no_revive():
+    """R09 B4: pedido con lote desarmado: gradua goals pero no reactiva
+    (muerto es muerto)."""
+    with _db_i3("orbit_i3_r3d2") as conn:
+        ids = _impulso_vivo(conn, lote="impulso-r3d2-1")
+        conn.execute("UPDATE fabrica_lote SET estado = 'desarmado' WHERE lote = %s", (ids["lote"],))
+        conn.commit()
+        _observa(conn, ids["camps"][0], HOY - dt.timedelta(days=1), pedidos=1)
+        pausador = _Pausador()
+        acciones = io.vigila(conn, pausador, hoy=HOY)
+        assert acciones[0].hecho == "graduado"
+        assert pausador.reactivados == []

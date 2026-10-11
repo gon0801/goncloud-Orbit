@@ -3079,3 +3079,60 @@ def test_mutar_crear_pausado_fantasma_500_no_gasta(monkeypatch):
         assert conn.execute(
             "SELECT estado FROM fabrica_lote WHERE lote = 'r3-fantasma'"
         ).fetchone() == ("failed",)
+
+
+def _handler_estados(estados, puts):
+    """Mock con state por campana: LIST lee, PUT escribe."""
+
+    def handler(request):
+        if request.url.path == "/sp/campaigns":
+            cuerpo = json.loads(request.content)["campaigns"][0]
+            puts.append((cuerpo["campaignId"], cuerpo["state"]))
+            estados[cuerpo["campaignId"]] = cuerpo["state"]
+            return httpx.Response(207, json={"campaigns": {"success": [{"index": 0}], "error": []}})
+        pedido = json.loads(request.content)["campaignIdFilter"]["include"][0]
+        return httpx.Response(
+            200, json={"campaigns": [{"campaignId": pedido, "state": estados[pedido], "name": "n"}]}
+        )
+
+    return handler
+
+
+@_skip_db
+def test_reactiva_lote_pausado_activa_todo_y_sella_applied():
+    """R09 B4 (D): lote pausado con las 2 pausadas en Amazon: PUT ENABLED
+    a las 2 (ledger + readback) y el lote vuelve a applied."""
+    with db_fabrica("orbit_r3_reactiva") as conn:
+        _lote_applied_dos(conn)
+        conn.execute("UPDATE fabrica_lote SET estado = 'pausado' WHERE lote = 'LP2'")
+        conn.commit()
+        estados = {"c-0": "PAUSED", "c-1": "PAUSED"}
+        puts = []
+        ctx = _ctx_pausa(conn, httpx.MockTransport(_handler_estados(estados, puts)), "LP2")
+        fc.reactiva_lote(ctx, "LP2", "dueno")
+        assert puts == [("c-1", "ENABLED"), ("c-0", "ENABLED")]  # orden: rol
+        assert estados == {"c-0": "ENABLED", "c-1": "ENABLED"}
+        assert conn.execute("SELECT estado FROM fabrica_lote WHERE lote = 'LP2'").fetchone() == (
+            "applied",
+        )
+        assert conn.execute(
+            "SELECT count(*) FROM fabrica_lote_paso WHERE lote = 'LP2'"
+            " AND request_payload->>'state' = 'ENABLED' AND estado = 'applied'"
+        ).fetchone() == (2,)
+
+
+@_skip_db
+def test_reactiva_lote_applied_solo_suelta():
+    """R09 B4 (A): lote applied con una campana PAUSED en Amazon: solo esa
+    recibe PUT; el lote sigue applied."""
+    with db_fabrica("orbit_r3_suelta") as conn:
+        _lote_applied_dos(conn)
+        conn.commit()
+        estados = {"c-0": "ENABLED", "c-1": "PAUSED"}
+        puts = []
+        ctx = _ctx_pausa(conn, httpx.MockTransport(_handler_estados(estados, puts)), "LP2")
+        fc.reactiva_lote(ctx, "LP2", "dueno")
+        assert puts == [("c-1", "ENABLED")]
+        assert conn.execute("SELECT estado FROM fabrica_lote WHERE lote = 'LP2'").fetchone() == (
+            "applied",
+        )

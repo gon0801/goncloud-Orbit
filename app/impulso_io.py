@@ -118,6 +118,7 @@ class PausadorDeCampanas(Protocol):
 
     def pausa(self, lote: str) -> None: ...
     def reanuda(self, lote: str) -> None: ...
+    def reactiva(self, lote: str) -> None: ...
 
 
 class PausadorFabrica:
@@ -169,6 +170,11 @@ class PausadorFabrica:
         import tools.fabrica_campanas as fc
 
         fc.reanudar_lote(self._ctx_para(lote), lote, self._actor)
+
+    def reactiva(self, lote: str) -> None:
+        import tools.fabrica_campanas as fc
+
+        fc.reactiva_lote(self._ctx_para(lote), lote, self._actor)
 
 
 def lote_de_plan(plan: im.PlanImpulso) -> str:
@@ -576,6 +582,12 @@ def _vigila_uno(conn, pausador, fila, *, hoy, escritor_retiro):
             )
         hecho = "pausado"
     elif veredicto.accion == "graduar":
+        # Graduar casa con Amazon: reactiva las campanas pausadas (del
+        # vigia o del dueno) antes de pasar goals a live. Desarmado no
+        # revive: solo goals.
+        estado_lote = conn.execute(_SQL_ESTADO_LOTE, (lote,)).fetchone()
+        if estado_lote is not None and estado_lote[0] != "desarmado":
+            pausador.reactiva(lote)
         ahora = dt.datetime.now(dt.UTC)
         for (gid,) in conn.execute(_SQL_GOALS_DE_IMPULSO, (imp,)).fetchall():
             goals_write.edita_goal(conn, gid, mode="live", updated_at=ahora)
