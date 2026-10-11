@@ -317,7 +317,7 @@ else
     echo DIGEST antes=\$(docker inspect -f '{{.Image}}' orbit-app-1); \
     docker compose up -d --no-deps --build app; \
     echo DIGEST despues=\$(docker inspect -f '{{.Image}}' orbit-app-1); \
-    sleep 5; curl -sS http://127.0.0.1:8010/health; echo; \
+    sleep 5; curl -sSf http://127.0.0.1:8010/health; echo; \
     docker ps --filter name=orbit-app-1 --format '{{.Names}} {{.Status}}'"
 fi
 
