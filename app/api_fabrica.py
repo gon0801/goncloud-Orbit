@@ -674,6 +674,8 @@ def retiro_ejecutar(_token: Annotated[str, Depends(exige_token)], cuerpo: Cuerpo
             retirados = ra.ejecuta_retiro(
                 conn, plan, go=cuerpo.confirmacion, impulso_id=imp, actor=cuerpo.actor
             )
+        except ValueError as exc:
+            raise fw.error(422, str(exc)) from None
         except RuntimeError as exc:
             raise fw.error(502, f"Retiro parcial: {exc}") from None
         return {"retirados": retirados, "lote_retiro": ra.lote_retiro_de_plan(plan)}

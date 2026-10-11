@@ -1821,3 +1821,39 @@ def test_i5_lanzar_actor_con_nul_422_sin_mutar(escenario, monkeypatch):
     assert r.status_code == 422, r.text
     assert conn.execute("SELECT count(*) FROM fabrica_lote").fetchone()[0] == 0
     assert conn.execute("SELECT count(*) FROM impulso").fetchone()[0] == 0
+
+
+def test_i5_ejecutar_sin_sku_422_sin_put(escenario, monkeypatch):
+    """R09 B5 (h): ejecutar con anuncio sin sku (seller_sku NULL): 422
+    antes del primer PUT, sin filas."""
+    from test_retiro_anuncios import _bolsa, _escritor, _fila
+
+    from app.ads import archivar
+
+    cliente, conn, _, _, ids = escenario
+    _db_i5(conn)
+    lid = _lid_de(conn, ids[0])
+    _bolsa(conn, lid, "ad-h")
+    conn.execute("UPDATE listing SET seller_sku = NULL WHERE id = %s", (lid,))
+    conn.commit()
+    plan = cliente.post(
+        "/api/fabrica/retiro/plan",
+        json={"plataforma": "amazon_mx", "listing_ids": [lid], "motivo": "sin_pedidos"},
+    ).json()
+    escritor, puts = _escritor(_fila("ad-h", "ENABLED"))
+    monkeypatch.setattr(archivar, "preparar_escritor", lambda platform: escritor)
+    r = cliente.post(
+        "/api/fabrica/retiro/ejecutar",
+        headers=HEADERS,
+        json={
+            "plataforma": "amazon_mx",
+            "listing_ids": [lid],
+            "motivo": "sin_pedidos",
+            "huella": plan["huella"],
+            "confirmacion": "SACAR 1 ANUNCIOS",
+            "actor": "dueno",
+        },
+    )
+    assert r.status_code == 422, r.text
+    assert puts == []
+    assert conn.execute("SELECT count(*) FROM anuncio_retiro").fetchone()[0] == 0
