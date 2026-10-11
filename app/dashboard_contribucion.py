@@ -13,6 +13,7 @@ import time
 
 from app.api import ConexionLectura
 from app.api_common import _dec_str
+from app.db import preparar_lectura_contribucion
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 
 ETIQUETA_CONTRIBUCION = "contribucion pre-cargos · no decisoria"
@@ -146,19 +147,6 @@ def invalidar_cache_contribucion() -> None:
         _cache = None
 
 
-def _preparar_lectura_contribucion(conn: ConexionLectura) -> None:
-    """Hash Join solo en ESTA transaccion (SET LOCAL, no session).
-
-    El planner estima los CTE de v_contribucion_entidad / cobertura en
-    rows=1 y elige Nested Loop. Medido 2026-09-01 (200 hojas x 90d):
-    cogs_diario hace 18k x 18k = 324M filas (~60s la vista). Con
-    enable_nestloop=off la misma vista baja a ~2.5s (Hash Join). USERSET:
-    orbit_read puede cambiarlo. SET LOCAL muere al COMMIT: un pool no
-    hereda nestloop=off.
-    """
-    conn.execute("SET LOCAL enable_nestloop = off")
-
-
 def _motivo_contribucion_es(motivo: str | None) -> str | None:
     if motivo is None:
         return None
@@ -199,7 +187,7 @@ def _ventana_de(conn: ConexionLectura, filas) -> dict:
 def _contribucion_todas(conn: ConexionLectura) -> dict:
     """Una consulta: ambas plataformas, vistas evaluadas una vez cada una."""
     with conn.transaction():
-        _preparar_lectura_contribucion(conn)
+        preparar_lectura_contribucion(conn)
         filas = conn.execute(_SQL_CONTRIBUCION_CAMPANAS).fetchall()
     ventana = _ventana_de(conn, filas)
     por_plat: dict[str, list] = {p: [] for p in PLATAFORMAS_MONEDA}

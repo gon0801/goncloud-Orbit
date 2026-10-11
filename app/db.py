@@ -59,3 +59,17 @@ def connect(dsn: str, **kw) -> psycopg.Connection:
     except psycopg.Error:
         error = OrbitDbError(f"no se pudo conectar a la base de datos: {redact_dsn(dsn)}")
     raise error from None
+
+
+def preparar_lectura_contribucion(conn: psycopg.Connection) -> None:
+    """Hash Join solo en ESTA transaccion (SET LOCAL, no session).
+
+    El planner estima los CTE de v_contribucion_entidad / cobertura en
+    rows=1 y elige Nested Loop. Medido 2026-09-01 (200 hojas x 90d):
+    cogs_diario hace 18k x 18k = 324M filas (~60s la vista). Con
+    enable_nestloop=off la misma vista baja a ~2.5s (Hash Join). USERSET:
+    orbit_read puede cambiarlo. SET LOCAL muere al COMMIT: un pool no
+    hereda nestloop=off. Lo usan el tablero (/contribucion) y el digest
+    del ciclo (notifica), que leen las mismas vistas.
+    """
+    conn.execute("SET LOCAL enable_nestloop = off")

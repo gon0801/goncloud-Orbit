@@ -35,7 +35,7 @@ from typing import TYPE_CHECKING
 import httpx
 
 from app.ads.config import directorio_secretos
-from app.db import connect
+from app.db import connect, preparar_lectura_contribucion
 from app.redaction import install_scrub_filter, register_secret, scrub
 
 if TYPE_CHECKING:
@@ -407,8 +407,10 @@ def carga_contribucion_digest(plataforma: str, *, conn=None) -> ContribucionDige
             if not dsn:
                 return None
             conn = _contrib_conn(dsn)
-        filas_rango = conn.execute(SQL_CONTRIB_RANGO, (plataforma,)).fetchall()
-        filas_ausentes = conn.execute(SQL_CONTRIB_AUSENTES, (plataforma,)).fetchall()
+        with conn.transaction():
+            preparar_lectura_contribucion(conn)
+            filas_rango = conn.execute(SQL_CONTRIB_RANGO, (plataforma,)).fetchall()
+            filas_ausentes = conn.execute(SQL_CONTRIB_AUSENTES, (plataforma,)).fetchall()
         residual_row = conn.execute(SQL_RESIDUAL_TACOS, (plataforma,)).fetchone()
         residual = residual_row[0] if residual_row else None
         return _arma_contribucion_digest(filas_rango, filas_ausentes, residual)
