@@ -4076,6 +4076,10 @@ def test_donde_poner_el_dinero_api_delgada_vocabulario_y_passthrough(monkeypatch
         assert ajeno.status_code == 422
 
 
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
 def test_donde_poner_el_dinero_api_trae_ubicaciones_y_campanas_de_su_mercado(monkeypatch):
     """P.2a: el dict trae `por_ubicacion` y `por_campana`; el mercado pedido
     es el que se lee (el filtro US/MX vive en los lectores)."""
