@@ -338,6 +338,7 @@ class _ConnFalsa:
         goals=(),
         familias_productos=(),
         productos_de_listings=(),
+        estado_lote=None,
     ):
         self.settings = settings
         self.productos = list(productos)
@@ -356,6 +357,7 @@ class _ConnFalsa:
         self.goals = list(goals)
         self.familias_productos = list(familias_productos)
         self.productos_de_listings = list(productos_de_listings)
+        self.estado_lote = estado_lote
         self.escrituras = []  # (sql plano, params)
         self.commits = 0
         self.closes = 0
@@ -410,7 +412,7 @@ class _ConnFalsa:
         if "pg_advisory_xact_lock" in bajo:
             return _Cursor([(None,)])
         if bajo.startswith("select estado from fabrica_lote"):
-            return _Cursor([])
+            return _Cursor([(self.estado_lote,)] if self.estado_lote is not None else [])
         if "from fabrica_lote" in bajo and "platform" in bajo:
             return _Cursor([(self.lote_platform,)])
         if "from ads_optimizer_goal" in bajo:
@@ -2712,3 +2714,110 @@ def test_mutar_plan_dos_roles_con_esperado_cinco_aborta_sin_post(monkeypatch):
     with pytest.raises(fc.Abortar, match="esperado 5"):
         fc._mutar(args, plan, huella, lote="i1-aborta")
     assert amazon.pedidos == []
+
+
+# I.3 (BIDS 02 s5): pausar y reanudar un lote sin desarmarlo ----------------------------
+
+
+def _ctx_pausa(conn, transporte, lote):
+    cliente_http = httpx.Client(transport=transporte)
+    return fc._Ctx(cliente_http, "tok", _CREDS, _ClienteLectura(transporte), 101, conn, lote)
+
+
+def _lote_applied_dos(conn):
+    from test_migracion_0064 import SQL64
+    from test_migracion_0065 import SQL65
+
+    conn.execute(SQL64)
+    conn.execute(SQL65)
+    conn.execute(
+        "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base,"
+        " go_literal, huella, plan, modo_goal, estado) VALUES ('LP2', 'amazon_mx',"
+        " 'aros', 'Base', 'go', 'h', '{}', 'shadow', 'applied')"
+    )
+    for i, rol in enumerate(("category_exact", "auto_discovery")):
+        conn.execute(
+            "INSERT INTO fabrica_lote_paso (lote, orden, rol, recurso, request_payload,"
+            " estado, external_id, ack, readback_estado) VALUES ('LP2', %s, %s, 'campaign',"
+            " '{}', 'applied', %s, '{}', 'ENABLED')",
+            (10 + i, rol, f"c-{i}"),
+        )
+
+
+def _handler_pausa(estado):
+    def handler(request):
+        if request.url.path == "/sp/campaigns":
+            cuerpo = json.loads(request.content)["campaigns"][0]
+            assert cuerpo["state"] == estado
+            return httpx.Response(207, json={"campaigns": {"success": [{"index": 0}], "error": []}})
+        pedido = json.loads(request.content)["campaignIdFilter"]["include"][0]
+        return httpx.Response(
+            200, json={"campaigns": [{"campaignId": pedido, "state": estado, "name": "n"}]}
+        )
+
+    return handler
+
+
+@_skip_db
+def test_pausar_lote_fila_pre_put_y_no_toca_goals():
+    """I.3: pausar_lote deja fila en el ledger antes de cada PUT, pausa
+    con readback, sella pausado y no toca los goals."""
+    with db_fabrica("orbit_i3_pl") as conn:
+        _lote_applied_dos(conn)
+        gid = conn.execute(
+            "INSERT INTO ad_entity (platform, kind, external_id) VALUES ('amazon_mx',"
+            " 'campaign', 'c-0') RETURNING id"
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO ads_optimizer_goal (scope, ad_entity_id, enabled, mode,"
+            " bid_currency, bid_floor, bid_ceiling) VALUES ('campaign', %s, true,"
+            " 'shadow', 'MXN', 0.10, 2.50)",
+            (gid,),
+        )
+        ctx = _ctx_pausa(conn, httpx.MockTransport(_handler_pausa("PAUSED")), "LP2")
+        fc.pausar_lote(ctx, "LP2", "dueno")
+        assert conn.execute("SELECT estado FROM fabrica_lote WHERE lote = 'LP2'").fetchone() == (
+            "pausado",
+        )
+        filas = conn.execute(
+            "SELECT request_payload, estado FROM fabrica_lote_paso WHERE lote = 'LP2'"
+            " AND request_payload::text LIKE '%PAUSED%'"
+        ).fetchall()
+        assert len(filas) == 2 and all(f[1] == "applied" for f in filas)
+        assert conn.execute(
+            "SELECT enabled, mode FROM ads_optimizer_goal WHERE ad_entity_id = %s", (gid,)
+        ).fetchone() == (True, "shadow")
+
+
+@_skip_db
+def test_reanudar_lote_revive():
+    """I.3: reanudar_lote revive un lote pausado."""
+    with db_fabrica("orbit_i3_rl") as conn:
+        _lote_applied_dos(conn)
+        conn.execute("UPDATE fabrica_lote SET estado = 'pausado' WHERE lote = 'LP2'")
+        ctx = _ctx_pausa(conn, httpx.MockTransport(_handler_pausa("ENABLED")), "LP2")
+        fc.reanudar_lote(ctx, "LP2", "dueno")
+        assert conn.execute("SELECT estado FROM fabrica_lote WHERE lote = 'LP2'").fetchone() == (
+            "applied",
+        )
+
+
+@_skip_db
+def test_pausar_lote_rechaza_transiciones_ilegales():
+    """I.3: desarmado nunca revive, pausar exige applied, reanudar exige
+    pausado, lote ausente aborta."""
+    with db_fabrica("orbit_i3_nop") as conn:
+        _lote_applied_dos(conn)
+        conn.execute(
+            "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base,"
+            " go_literal, huella, plan, modo_goal, estado) VALUES ('LD', 'amazon_mx',"
+            " 'aros', 'Base', 'go', 'h', '{}', 'shadow', 'desarmado')"
+        )
+        ctx = _ctx_pausa(conn, httpx.MockTransport(_handler_pausa("PAUSED")), "LD")
+        with pytest.raises(fc.Abortar, match="nunca revive"):
+            fc.pausar_lote(ctx, "LD", "dueno")
+        with pytest.raises(fc.Abortar, match="no existe"):
+            fc.pausar_lote(ctx, "LX", "dueno")
+        ctx2 = _ctx_pausa(conn, httpx.MockTransport(_handler_pausa("ENABLED")), "LP2")
+        with pytest.raises(fc.Abortar, match="desde pausado"):
+            fc.reanudar_lote(ctx2, "LP2", "dueno")

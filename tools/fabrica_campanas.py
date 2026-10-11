@@ -1556,6 +1556,61 @@ def _pausa_una(ctx: _Ctx, rol: str, external: str, goal_id) -> None:
         )
 
 
+def _cambia_estado_lote(ctx: _Ctx, lote: str, estado: str, actor: str) -> None:
+    """Pausa o reanuda las campanas de un lote sin desarmarlo: fila en
+    el ledger antes de cada PUT, _put_estado_campana, readback y sello.
+    No toca los goals (a diferencia de _pausa_una): el motor sigue
+    decidiendo y el vigia gradua despues."""
+    actual = _estado_lote(ctx.conn_admin, lote)
+    if actual is None:
+        raise Abortar(f"lote {lote} no existe")
+    if actual == "desarmado":
+        raise Abortar(f"lote {lote} desarmado: nunca revive")
+    if estado == "pausado" and actual != "applied":
+        raise Abortar(f"lote {lote} en {actual}: solo se pausa desde applied")
+    if estado == "applied" and actual != "pausado":
+        raise Abortar(f"lote {lote} en {actual}: solo se reanuda desde pausado")
+    filas = ctx.conn_admin.execute(_SQL_CAMPANAS_DEL_LOTE, (lote,)).fetchall()
+    ctx.conn_admin.commit()
+    if not filas:
+        raise Abortar(f"lote {lote} sin campanas en fabrica_lote_paso: nada que {estado}")
+    nuevo = "PAUSED" if estado == "pausado" else "ENABLED"
+    for rol, external, _goal in filas:
+        paso = fp.Paso(rol, "campaign", "/sp/campaigns", {}, f"{estado} {rol}")
+        paso_id = _inserta_paso(ctx, paso, {"campaignId": str(external), "state": nuevo})
+        ack = _put_estado_campana(ctx, external, nuevo)
+        if not fp.ack_ok(ack):
+            _sella_paso(ctx, paso_id, False, external, ack, None)
+            raise Abortar(
+                f"PUT {nuevo} de {external} ({rol}) rechazado (status {ack.get('status')})"
+            )
+        time.sleep(0.3)
+        leido = _readback(ctx.cliente_lectura, ctx.profile, "/sp/campaigns", external)
+        visto = leido.get("state") if isinstance(leido, dict) else None
+        _log(
+            "cambio_estado",
+            lote=lote,
+            rol=rol,
+            external=external,
+            readback=visto,
+            ok=visto == nuevo,
+        )
+        _sella_paso(ctx, paso_id, visto == nuevo, external, ack, visto)
+        if visto != nuevo:
+            raise Abortar(f"readback de {external} ({rol}) != {nuevo} ({visto}): se detiene")
+    _sella_lote(ctx.conn_admin, lote, estado, f"go: {actor}")
+
+
+def pausar_lote(ctx: _Ctx, lote: str, actor: str) -> None:
+    """Pausa un lote applied (reversible)."""
+    _cambia_estado_lote(ctx, lote, "pausado", actor)
+
+
+def reanudar_lote(ctx: _Ctx, lote: str, actor: str) -> None:
+    """Reanuda un lote pausado."""
+    _cambia_estado_lote(ctx, lote, "applied", actor)
+
+
 def _desarmar(args) -> int:
     conn_admin = None
     http = None

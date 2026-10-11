@@ -80,7 +80,7 @@ class PlanImpulso:
     fecha: dt.date
     objetivo: fp.ObjetivoPlanV2
     tope: TopeAprendizaje
-    bid_por_rol: dict[str, Decimal]
+    bid_por_rol: dict[str, Decimal | None]
     keywords_exact: tuple[str, ...]
     negatives: tuple[str, ...]
     retiros: tuple[AnuncioARetirar, ...] = ()
@@ -117,7 +117,10 @@ class PlanImpulso:
                 "presupuesto_diario": str(self.tope.presupuesto_diario),
                 "plazo_dias": self.tope.plazo_dias,
             },
-            "bid_por_rol": {rol: str(bid) for rol, bid in sorted(self.bid_por_rol.items())},
+            "bid_por_rol": {
+                rol: str(bid) if bid is not None else None
+                for rol, bid in sorted(self.bid_por_rol.items())
+            },
             "keywords_exact": list(self.keywords_exact),
             "negatives": list(self.negatives),
             "retiros": [
@@ -184,14 +187,18 @@ def veredicto_impulso(lectura: LecturaImpulso, tope: TopeAprendizaje) -> Veredic
 
 
 def acota_bids(
-    bid_por_rol: dict[str, Decimal], diario_por_campana: Decimal
+    bid_por_rol: dict[str, Decimal | None], diario_por_campana: Decimal
 ) -> tuple[dict[str, Decimal], tuple[str, ...]]:
     """Baja al presupuesto diario de su campana cada bid sugerido mayor
-    que el. Devuelve bids y roles acotados."""
+    que el. Un bid None (sin sugerencia: la vista previa lo muestra y
+    el dueno decide si lanza) sale al diario de su campana. Devuelve
+    bids y roles acotados."""
     acotados = {}
     roles = []
     for rol, bid in bid_por_rol.items():
-        if bid > diario_por_campana:
+        if bid is None:
+            acotados[rol] = diario_por_campana
+        elif bid > diario_por_campana:
             acotados[rol] = diario_por_campana
             roles.append(rol)
         else:
@@ -227,7 +234,7 @@ def pasos_del_impulso(plan: PlanImpulso) -> list[Any]:
         ),
         {rol: fp.ParametrosRol(rol, mitad, bids[rol]) for rol in ROLES_IMPULSO},
         plan.objetivo,
-        fp.Semillas(plan.keywords_exact, (), plan.negatives, ()),
+        fp.Semillas((), (), plan.negatives, plan.keywords_exact),
         roles=ROLES_IMPULSO,
     )
     pasos: list[Any] = []
