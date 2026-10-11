@@ -119,6 +119,11 @@ MUTATION_REQUEST_TYPES: MappingProxyType[tuple[str, str], str] = MappingProxyTyp
         # las tres clases responden 207 con readback igual; conclusion en
         # docs/evidencia/bids-02/ejecucion/V.0/ (commit 2db9e20).
         ("PUT", "/sp/campaigns"): "application/vnd.spcampaign.v3+json",
+        # Pausa y reactivacion de product ad (BIDS 02 I.4). SELLADO por V.0
+        # (2026-10-10, sonda 1): PAUSED y regreso a ENABLED responden 207
+        # con readback igual; conclusion y salidas literales en
+        # docs/evidencia/bids-02/ejecucion/V.0/.
+        ("PUT", "/sp/productAds"): "application/vnd.spproductad.v3+json",
     }
 )
 
@@ -218,10 +223,10 @@ class AdsApiErrorMutacion(AdsApiError):
         self.path = path
 
 
-def _errores_put(respuesta: httpx.Response) -> list[str]:
+def _errores_put(respuesta: httpx.Response, contenedor: str = "campaigns") -> list[str]:
     """Errores anidados de un PUT bulk v3: `errors` no vacio arriba o por
-    item, o `code` 4xx/5xx arriba o por item. `campaigns` llega como
-    objeto `{error, success}` (las 3 sondas de V.0) o como lista por item:
+    item, o `code` 4xx/5xx arriba o por item. El contenedor llega como
+    objeto `{error, success}` (las 4 sondas de V.0) o como lista por item:
     se procesan ambas. Fail-closed (panel): cuerpo ilegible o item
     no-dict es error, no exito (un rechazo deja pendiente reintentable;
     un falso exito sella una mentira). Lista vacia solo con exito."""
@@ -238,7 +243,7 @@ def _errores_put(respuesta: httpx.Response) -> list[str]:
     codigo_tope = str(cuerpo.get("code", ""))
     if codigo_tope[:1] in ("4", "5"):
         errores.append(cuerpo.get("description") or f"code {codigo_tope}")
-    items = cuerpo.get("campaigns")
+    items = cuerpo.get(contenedor)
     if isinstance(items, dict):
         fallos = items.get("error")
         if isinstance(fallos, list) and fallos:
@@ -246,7 +251,7 @@ def _errores_put(respuesta: httpx.Response) -> list[str]:
     elif isinstance(items, list):
         for item in items:
             if not isinstance(item, dict):
-                errores.append("item de campana ilegible")
+                errores.append(f"item de {contenedor} ilegible")
                 continue
             anidados = item.get("errors")
             if isinstance(anidados, list) and anidados:
@@ -539,6 +544,40 @@ class AdsWriteClient(AdsClient):
             {"adIdFilter": {"include": [_un_objeto(ad_id, "ad_id")]}},
             envolver=False,
         )
+
+    def cambiar_estado_product_ad(self, ad_id: str | int, estado: str) -> httpx.Response:
+        """PUT /sp/productAds: pausa o reactiva UN anuncio (BIDS 02 I.4).
+
+        SELLADO EN VIVO por la sonda 1 de V.0 (2026-10-10, perfil
+        amazon_us, ad 284583606382521): PAUSED respondio 207 con readback
+        PAUSED y el regreso a ENABLED respondio 207 con readback ENABLED
+        (salidas literales en docs/evidencia/bids-02/ejecucion/V.0/,
+        copiadas a docs/evidencia/bids-02/ejecucion/I.4/). Solo viajan
+        ENABLED y PAUSED: ARCHIVED va por POST /delete y PROPOSED no se
+        escribe. El exito se decide por errores anidados, nunca por el
+        status.
+        """
+        estado_wire = _un_objeto(estado, "estado")
+        if estado_wire not in (ESTADO_PUT_ENABLED, ESTADO_PUT_PAUSED):
+            raise ValueError(
+                "estado de product ad debe ser ENABLED o PAUSED (UPPER wire);"
+                f" llego {estado_wire!r}"
+            )
+        respuesta = self._mutate(
+            "PUT",
+            "/sp/productAds",
+            {"adId": str(_un_objeto(ad_id, "ad_id")), "state": estado_wire},
+        )
+        errores = _errores_put(respuesta, "productAds")
+        if errores:
+            raise AdsApiErrorMutacion(
+                f"PUT /sp/productAds rechazo el cambio: {errores[0]}",
+                cuerpo=_snippet_cuerpo(respuesta),
+                status=respuesta.status_code,
+                method="PUT",
+                path="/sp/productAds",
+            )
+        return respuesta
 
     def ajustar_campana(self, externa: str | int, cuerpo: dict) -> httpx.Response:
         """PUT /sp/campaigns: aplica la ConfigCampana COMPLETA de UNA

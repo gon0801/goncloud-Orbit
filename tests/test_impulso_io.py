@@ -6,9 +6,11 @@ import datetime as dt
 from decimal import Decimal
 
 import pytest
-from test_fabrica_migracion import _ledger_producto, _producto, db_fabrica
+from test_fabrica_migracion import _entidad, _ledger_producto, _producto, db_fabrica
 from test_migracion_0064 import SQL64
 from test_migracion_0065 import SQL65
+from test_migracion_0066 import SQL66
+from test_retiro_anuncios import _bolsa, _escritor, _fila
 from test_schema import _postgres_obligatorio_ausente
 
 from app import impulso_io as io
@@ -32,6 +34,7 @@ def _db_i3(prefijo):
             conn = self._ctx.__enter__()
             conn.execute(SQL64)
             conn.execute(SQL65)
+            conn.execute(SQL66)
             conn.execute(
                 "INSERT INTO config_version(label,settings) VALUES ('fabrica',%s)",
                 (Json({"ads_target_fraccion_margen_amazon_mx": "0.5"}),),
@@ -135,6 +138,18 @@ def test_vista_previa_sin_terminos_deja_bid_none():
         )
         assert vista.planes[0].bid_por_rol["category_exact"] is None
         assert vista.planes[0].bid_por_rol["auto_discovery"] == Decimal("7.00")
+
+
+@_skip_db
+def test_vista_previa_trae_retiros_de_bolsas():
+    """I.4: la vista previa lista los anuncios ENABLED del producto en
+    bolsas viejas, para que el dueno vea que saldran."""
+    with _db_i3("orbit_i4_prev") as conn:
+        _pid, lid = _con_margen(conn)
+        _bolsa(conn, lid, "ad-viejo")
+        vista = io.previsualiza(conn, _solicitud(conn, [lid]), sugeridor=_sugeridor_fijo())
+        assert [r.ad_id_externo for r in vista.planes[0].retiros] == ["ad-viejo"]
+        assert vista.planes[0].retiros[0].campana_externa == "c-vieja"
 
 
 @_skip_db
@@ -501,6 +516,49 @@ def test_vigia_segunda_corrida_no_repite_la_accion():
         assert conn.execute(
             "SELECT count(*) FROM impulso_lectura WHERE impulso_id = %s", (ids["impulso"],)
         ).fetchone() == (1,)
+
+
+@_skip_db
+def test_vigia_no_retira_sin_impresiones():
+    """I.4 mutante: el retiro no saca un anuncio antes de las
+    impresiones (0 o None)."""
+    with _db_i3("orbit_i4_r0") as conn:
+        pid, lid = _con_margen(conn)
+        _impulso_vivo(conn, pid=pid, lid=lid)
+        _bolsa(conn, lid, "ad-viejo")
+        ajena = _entidad(conn, "amazon_mx", "campaign", "ajena-r0")
+        conn.commit()
+        _observa(conn, ajena, HOY - dt.timedelta(days=1))
+        escritor, puts = _escritor(_fila("ad-viejo", "ENABLED"))
+        acciones = io.vigila(conn, _Pausador(), hoy=HOY, escritor_retiro=escritor)
+        assert acciones[0].hecho == "nada"
+        assert acciones[0].lectura.impresiones == 0
+        assert puts == []
+        assert conn.execute("SELECT count(*) FROM anuncio_retiro").fetchone() == (0,)
+
+
+@_skip_db
+def test_vigia_retira_una_vez_con_impresiones():
+    """I.4: el primer dia con impresiones, el vigia saca el producto de
+    sus bolsas viejas y guarda `retiro_de_bolsas`; no repite."""
+    with _db_i3("orbit_i4_r1") as conn:
+        pid, lid = _con_margen(conn)
+        ids = _impulso_vivo(conn, pid=pid, lid=lid)
+        _bolsa(conn, lid, "ad-viejo")
+        _observa(conn, ids["camps"][0], HOY - dt.timedelta(days=1))
+        escritor, puts = _escritor(_fila("ad-viejo", "ENABLED"))
+        uno = io.vigila(conn, _Pausador(), hoy=HOY, escritor_retiro=escritor)
+        assert uno[0].hecho == "retiro_de_bolsas"
+        assert puts == [("ad-viejo", "PAUSED")]
+        assert conn.execute("SELECT motivo, modo, impulso_id FROM anuncio_retiro").fetchone() == (
+            "impulso",
+            "pausa",
+            ids["impulso"],
+        )
+        dos = io.vigila(conn, _Pausador(), hoy=HOY, escritor_retiro=escritor)
+        assert dos[0].hecho == "retiro_de_bolsas"
+        assert len(puts) == 1
+        assert conn.execute("SELECT count(*) FROM anuncio_retiro").fetchone() == (1,)
 
 
 @_skip_db

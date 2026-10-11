@@ -17,7 +17,7 @@ from typing import Protocol
 
 from app import fabrica_bids as br
 from app import fabrica_plan as fp
-from app import goals_write
+from app import goals_write, retiro_anuncios
 from app import impulso as im
 from app.fabrica_plan import MONEDA_POR_PLATAFORMA
 from app.optimizer.goals import gasto_para_concluir_desde_settings
@@ -242,6 +242,9 @@ def _plan_producto(
     bids = sugeridor((pub.asin,), expresiones)
     bid_por_rol = {rol: bids.get(rol) for rol in im.ROLES_IMPULSO}
     _, acotados = im.acota_bids(bid_por_rol, tope.presupuesto_diario / 2)
+    retiros = retiro_anuncios.planea_retiro(
+        conn, plataforma, listing_ids=(pub.listing_id,), motivo="impulso", conservar_grupo_id=None
+    ).anuncios
     return im.PlanImpulso(
         plataforma=plataforma,
         listing_id=pub.listing_id,
@@ -257,6 +260,7 @@ def _plan_producto(
         keywords_exact=tuple(semillas.exact),
         negatives=tuple(semillas.negativos),
         bids_acotados=acotados,
+        retiros=retiros,
     )
 
 
@@ -439,11 +443,16 @@ def lanza(
 
 _SQL_VIVOS = """
 SELECT i.id, i.platform, i.lote, i.tope_monto, i.tope_moneda, i.presupuesto_diario,
-       i.plazo_dias, i.lanzado_el
+       i.plazo_dias, i.lanzado_el, i.grupo_id, i.listing_id, i.go_literal
   FROM impulso i
   LEFT JOIN impulso_lectura l ON l.impulso_id = i.id AND l.es_final
  WHERE l.impulso_id IS NULL
  ORDER BY i.id
+"""
+
+_SQL_YA_TUVO_IMPRESIONES = """
+SELECT 1 FROM impulso_lectura
+ WHERE impulso_id = %s AND impresiones IS NOT NULL AND impresiones > 0
 """
 
 _SQL_CAMPANAS_DE_IMPULSO = """
@@ -484,19 +493,33 @@ def _acumula(filas):
     return tuple(tot)
 
 
-def vigila(conn, pausador: PausadorDeCampanas, *, hoy: dt.date) -> list[AccionVigia]:
+def vigila(
+    conn, pausador: PausadorDeCampanas, *, hoy: dt.date, escritor_retiro=None
+) -> list[AccionVigia]:
     """Cron diario, despues de la ingesta y antes del ciclo. Por cada
     impulso vivo: lee el acumulado en v_metric_latest hasta el ultimo
     dia con ingesta de su plataforma, guarda (idempotente por
     (impulso_id, corte)) y actua: pausar con el pausador y lote
     'pausado'; graduar con goals a live; seguir no toca nada. Un dia
     con ingesta y sin fila de la campana cuenta como cero; una metrica
-    NULL llega como None (en_curso). Si muere a medias, la siguiente
-    corrida relee y termina."""
+    NULL llega como None (en_curso). Paso 4: si es el primer dia con
+    impresiones y hay retiros pendientes, saca el producto de sus
+    bolsas viejas (primero nace lo nuevo, despues sale de lo viejo).
+    Si muere a medias, la siguiente corrida relee y termina."""
     acciones = []
-    for imp, platform, lote, monto, moneda, diario, plazo, lanzado in conn.execute(
-        _SQL_VIVOS
-    ).fetchall():
+    for (
+        imp,
+        platform,
+        lote,
+        monto,
+        moneda,
+        diario,
+        plazo,
+        lanzado,
+        grupo,
+        listing,
+        go,
+    ) in conn.execute(_SQL_VIVOS).fetchall():
         tope = im.TopeAprendizaje(Decimal(monto), moneda, Decimal(diario), plazo)
         corte = conn.execute(_SQL_CORTE_PLATAFORMA, (platform,)).fetchone()[0]
         dias = (hoy - lanzado.date()).days
@@ -537,6 +560,26 @@ def vigila(conn, pausador: PausadorDeCampanas, *, hoy: dt.date) -> list[AccionVi
             for (gid,) in conn.execute(_SQL_GOALS_DE_IMPULSO, (imp,)).fetchall():
                 goals_write.edita_goal(conn, gid, mode="live", updated_at=ahora)
             hecho = "graduado"
+        if hecho == "nada" and (lectura.impresiones or 0) > 0:
+            primero = conn.execute(_SQL_YA_TUVO_IMPRESIONES, (imp,)).fetchone() is None
+            if primero:
+                plan = retiro_anuncios.planea_retiro(
+                    conn,
+                    platform,
+                    listing_ids=(listing,),
+                    motivo="impulso",
+                    conservar_grupo_id=grupo,
+                )
+                pendientes = retiro_anuncios.retiros_pendientes_de_impulso(conn, imp, plan)
+                if pendientes.anuncios:
+                    if escritor_retiro is None:
+                        from app.ads import archivar
+
+                        escritor_retiro = archivar.preparar_escritor(platform)
+                    retiro_anuncios.ejecuta_retiro(
+                        conn, pendientes, go=go, impulso_id=imp, escritor=escritor_retiro
+                    )
+                    hecho = "retiro_de_bolsas"
         conn.execute(
             "INSERT INTO impulso_lectura (impulso_id, corte, leido_el, dias_observados,"
             " impresiones, clics, gasto, pedidos, veredicto, es_final, hecho)"

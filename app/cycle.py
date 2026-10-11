@@ -465,14 +465,17 @@ SELECT familia_id, padre_id, ventana_desde, ventana_hasta, venta_cubierta,
 
 # A5: parejas (campana, familia | None) por producto anunciado, via product
 # ads (campana -> ad groups -> product_ad.listing_id -> product ->
-# producto_familia). Una fila por product_ad; el colapso a familia efectiva
-# (mezcla o sin etiqueta -> None estricto) es goals.familia_efectiva_por_campana
-# en Python (regla UNICA compartida con el dashboard, regla 2).
+# producto_familia). Una fila por product_ad VIVO (ENABLED o PAUSED: un
+# anuncio archivado ya no define la familia de la campana, BIDS 02 I.4);
+# el colapso a familia efectiva (mezcla o sin etiqueta -> None estricto)
+# es goals.familia_efectiva_por_campana en Python (regla UNICA compartida
+# con el dashboard, regla 2).
 _SQL_PAREJAS_CAMPANA_FAMILIA = """
 SELECT camp.id AS campana_id, pf.familia_id, f.padre_id
   FROM ad_entity camp
   JOIN ad_entity ag ON ag.parent_id = camp.id AND ag.kind = 'ad_group'
   JOIN ad_entity pa ON pa.parent_id = ag.id AND pa.kind = 'product_ad'
+  JOIN ad_entity_state es ON es.ad_entity_id = pa.id AND es.status IN ('ENABLED', 'PAUSED')
   LEFT JOIN listing li ON li.id = pa.listing_id
   LEFT JOIN producto_familia pf
     ON pf.product_id = li.product_id AND pf.platform = camp.platform

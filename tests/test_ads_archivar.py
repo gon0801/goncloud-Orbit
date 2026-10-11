@@ -23,6 +23,8 @@ from app.ads.archivar import (
     RESULTADOS,
     archivar_anuncios,
     estados_actuales,
+    pausar_anuncios,
+    reactivar_anuncios,
     reponer_anuncios,
     resumen,
 )
@@ -569,3 +571,90 @@ def test_el_rechazo_REAL_de_amazon_al_crear_se_lee_como_fallo():
     )
     assert resultado.resultado == "fallo", "un 207 con error[] NO es exito"
     assert "AD_INELIGIBLE" in resultado.detalle
+
+
+PATH_PUT_ADS = "/sp/productAds"
+
+
+def _handler_put(estados: dict[str, str]):
+    """Transporte falso: el list responde `estados` y cada PUT actualiza
+    el estado en vivo (el readback confirma lo mutado)."""
+    llamadas: list[tuple[str, dict]] = []
+    vivos = dict(estados)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return _token_response()
+        cuerpo = json.loads(request.content) if request.content else {}
+        llamadas.append((request.url.path, cuerpo))
+        if request.method == "PUT" and request.url.path == PATH_PUT_ADS:
+            for entrada in cuerpo.get("productAds", []):
+                vivos[str(entrada["adId"])] = str(entrada["state"])
+            return httpx.Response(207, json={"productAds": {"error": [], "success": []}})
+        pedidos = cuerpo.get("adIdFilter", {}).get("include", [])
+        filas = [{"adId": ad_id, "state": vivos[ad_id]} for ad_id in pedidos if ad_id in vivos]
+        return httpx.Response(200, json={"productAds": filas})
+
+    return handler, llamadas
+
+
+def _puts(llamadas) -> list[tuple[str, str]]:
+    return [
+        (e["adId"], e["state"])
+        for path, cuerpo in llamadas
+        if path == PATH_PUT_ADS
+        for e in cuerpo.get("productAds", [])
+    ]
+
+
+def test_pausa_solo_los_enabled_y_reactivar_solo_los_paused():
+    """I.4: pausar toca ENABLED, reactivar toca PAUSED; lo que ya esta en
+    destino sale `ya_estaba` y lo inexistente `no_existe`."""
+    handler, llamadas = _handler_put({"1": "ENABLED", "2": "PAUSED"})
+    pausa = pausar_anuncios(
+        make_write_client(handler),
+        ["1", "2", "3"],
+        ejecutar=True,
+        avisar=lambda _m: None,
+        dormir=lambda _s: None,
+    )
+    assert _puts(llamadas) == [("1", "PAUSED")]
+    assert {r.ad_id: r.resultado for r in pausa} == {
+        "1": "pausado",
+        "2": "ya_estaba",
+        "3": "no_existe",
+    }
+    handler2, llamadas2 = _handler_put({"1": "ENABLED", "2": "PAUSED"})
+    reactiva = reactivar_anuncios(
+        make_write_client(handler2),
+        ["1", "2"],
+        ejecutar=True,
+        avisar=lambda _m: None,
+        dormir=lambda _s: None,
+    )
+    assert _puts(llamadas2) == [("2", "ENABLED")]
+    assert {r.ad_id: r.resultado for r in reactiva} == {"1": "ya_estaba", "2": "reactivado"}
+
+
+def test_put_no_toca_archived_y_ensayo_no_muta():
+    """I.4: un ARCHIVED sale `fallo` sin PUT; el ensayo no manda nada."""
+    handler, llamadas = _handler_put({"1": "ARCHIVED", "2": "ENABLED"})
+    (arch,) = pausar_anuncios(
+        make_write_client(handler),
+        ["1"],
+        ejecutar=True,
+        avisar=lambda _m: None,
+        dormir=lambda _s: None,
+    )
+    assert arch.resultado == "fallo"
+    assert _puts(llamadas) == []
+    handler2, llamadas2 = _handler_put({"2": "ENABLED"})
+    (ensayo,) = pausar_anuncios(
+        make_write_client(handler2),
+        ["2"],
+        ejecutar=False,
+        avisar=lambda _m: None,
+        dormir=lambda _s: None,
+    )
+    assert ensayo.resultado == "sin_confirmar" and ensayo.detalle == "ENSAYO"
+    assert _puts(llamadas2) == []
