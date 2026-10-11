@@ -437,3 +437,13 @@ cierre.
 | R09-C | `[stage:diseno] [lane:fast]` `impulso_lectura.gasto` sin moneda: decidir si se sella moneda por fila o se documenta moneda-unica-por-plataforma (hoy mezcla teorica MX/US imposible en la practica). | Decision escrita en design.md o columna de moneda con su migracion. | s5 | cc:TODO |
 | R09-D | `[stage:implementacion] [lane:fast] [tdd:required]` `productos.js` muestra `detail` objeto como `[object Object]`; extraer `mensajeError(data)` como en `fabrica.js` y usarla en las cinco lineas. | Un 502 parcial muestra mensaje y fallos por producto. | s5 | cc:TODO |
 | R09-E | `[stage:implementacion] [lane:fast]` 0065: GRANT SELECT explicito sobre `v_impulso_estado` a app_read/app_admin + verificacion en el bloque DO (hoy solo default privileges). | Ensayo D.4 verde con el GRANT verificado. | s5 | cc:TODO |
+
+### Ronda R09-r2: deuda no bloqueante (panel interrogate 2 Muse + 3 GLM, PR 432)
+
+| Task | Contenido | DoD | Depends | Status |
+| --- | --- | --- | --- | --- |
+| R09-F | `[stage:implementacion] [lane:fast] [tdd:required]` Observabilidad del vigia: sale 0 aunque todos los impulsos fallen y calla sin ingesta (corte None). Salida distinta de cero o alarma cuando nada se pudo atender. | Cron con todo fallado sale != 0 o avisa; sin ingesta avisa en vez de callar. | s5 | cc:TODO |
+| R09-G | `[stage:diseno] [lane:fast]` Tope por producto vs por listing: un producto con 2 listings impulsados a la vez gasta 2 topes (uno por impulso). Decidir si el tope limita por producto. | Decision escrita en design.md o validacion en previa/lanzar. | s5 | cc:TODO |
+| R09-H | `[stage:diseno] [lane:fast]` `lanza` aborta el batch al primer vivo con 409 (su docstring dice que un fallo no detiene). Decidir si continua con los demas y devuelve 207/multiestilo. | Decision escrita o batch que continua con fallos adjuntos. | s5 | cc:TODO |
+| R09-I | `[stage:implementacion] [lane:gate] [tdd:required]` `_desarmar` (fuera de R09) tiene el mismo bug de orden que A-1: `_Ctx` fresco en 0 colisiona UNIQUE(lote, orden) al desarmar un lote aplicado. | Test con pasos 1..N: desarmar continua el ledger sin colision. | s4 | cc:TODO |
+| R09-J | `[stage:implementacion] [lane:fast] [tdd:required]` Atar `impulso.grupo_id` al tipo: FK o trigger que rechace grupo con tipo distinto de 'impulso' (hoy solo la tupla de roles en `_registrar`). | Migracion + test: impulso sobre grupo fabrica5 se rechaza. | s5 | cc:TODO |
