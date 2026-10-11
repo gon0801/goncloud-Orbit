@@ -75,7 +75,7 @@ fi
 
 echo "== 0) SHA aprobado con la bateria completa verde"
 if [ "$SIM" = 1 ]; then
-  git cat-file -e "$APROBADO:migrations/0067_bids02_campana_ajuste.sql" || { echo "ABORTA: $APROBADO no trae la 0062"; exit 1; }
+  git cat-file -e "$APROBADO:migrations/0067_bids02_campana_ajuste.sql" || { echo "ABORTA: $APROBADO no trae la 0067"; exit 1; }
   echo "SIMULACION: $APROBADO existe local; sin fetch ni gh (no hay red a prod)"
 else
   git fetch -q origin

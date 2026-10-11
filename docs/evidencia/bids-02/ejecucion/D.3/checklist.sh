@@ -111,6 +111,11 @@ fi
 echo "== 4) La pantalla de dinero trae un boton por clase sellada en cada mercado"
 for MERCADO in amazon_mx amazon_us; do
   revisa "HTML donde-poner-el-dinero $MERCADO" 200 "$(http "/donde-poner-el-dinero?plataforma=$MERCADO")"
+  HAY=$(echo "SELECT count(*) FROM ad_entity c JOIN ad_entity_state s ON s.ad_entity_id = c.id AND s.status = 'ENABLED' WHERE c.platform = '$MERCADO' AND c.kind = 'campaign';" | lee || true)
+  if [ "$HAY" = 0 ]; then
+    echo "NO MEDIDO botones $MERCADO (sin campanas ENABLED: no hay filas que los traigan)"; NOMEDIDO=$((NOMEDIDO + 1))
+    continue
+  fi
   HTML=$(cuerpo "/donde-poner-el-dinero?plataforma=$MERCADO" || true)
   if [ -z "$HTML" ]; then
     echo "NO MEDIDO botones $MERCADO (respuesta vacia)"; NOMEDIDO=$((NOMEDIDO + 1))
