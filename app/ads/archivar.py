@@ -187,7 +187,7 @@ def _errores_del_ack(ack: object) -> list:
 CLAVES_REVERSA = ("adGroupId", "campaignId", "sku", "state", "asin")
 
 
-def _reversa(fila: dict) -> str:
+def reversa_de_fila(fila: dict) -> str:
     """Con que se volveria a crear ESTE anuncio, en formato `clave=valor`.
 
     Lleva TODO lo que pide el create (adGroupId, campaignId, sku y el estado
@@ -261,13 +261,13 @@ def reponer_anuncios(
     avisar(f"a reponer: {len(datos)} anuncios")
     if not ejecutar:
         return [
-            ResultadoAnuncio(d["sku"], d["state"], "sin_confirmar", "ENSAYO", _reversa(d))
+            ResultadoAnuncio(d["sku"], d["state"], "sin_confirmar", "ENSAYO", reversa_de_fila(d))
             for d in datos
         ]
 
     resultados: list[ResultadoAnuncio] = []
     for i, d in enumerate(datos, 1):
-        reversa = _reversa(d)
+        reversa = reversa_de_fila(d)
         try:
             resp = escritor.crear_product_ad(d["adGroupId"], d["campaignId"], d["sku"], d["state"])
         except AdsApiError as exc:
@@ -351,7 +351,7 @@ def archivar_anuncios(
             resultados.append(ResultadoAnuncio(ad_id, None, "no_existe"))
         elif estado == ESTADO_ARCHIVADO:
             resultados.append(
-                ResultadoAnuncio(ad_id, estado, "ya_estaba", reversa=_reversa(filas[ad_id]))
+                ResultadoAnuncio(ad_id, estado, "ya_estaba", reversa=reversa_de_fila(filas[ad_id]))
             )
         else:
             a_mutar.append(ad_id)
@@ -366,7 +366,7 @@ def archivar_anuncios(
         for ad_id in a_mutar:
             resultados.append(
                 ResultadoAnuncio(
-                    ad_id, previos[ad_id], "sin_confirmar", "ENSAYO", _reversa(filas[ad_id])
+                    ad_id, previos[ad_id], "sin_confirmar", "ENSAYO", reversa_de_fila(filas[ad_id])
                 )
             )
         return resultados
@@ -394,7 +394,7 @@ def archivar_anuncios(
 
     posteriores = estados_actuales(escritor, a_mutar)
     for ad_id in a_mutar:
-        reversa = _reversa(filas[ad_id])
+        reversa = reversa_de_fila(filas[ad_id])
         rechazo = rechazos.get(ad_id)
         if posteriores.get(ad_id) == ESTADO_ARCHIVADO:
             # El estado en Amazon MANDA sobre lo que dijo el envio: un corte
@@ -450,12 +450,16 @@ def _cambiar_estado_anuncios(
             resultados.append(ResultadoAnuncio(ad_id, None, "no_existe"))
         elif estado == destino:
             resultados.append(
-                ResultadoAnuncio(ad_id, estado, "ya_estaba", reversa=_reversa(filas[ad_id]))
+                ResultadoAnuncio(ad_id, estado, "ya_estaba", reversa=reversa_de_fila(filas[ad_id]))
             )
         elif estado == ESTADO_ARCHIVADO:
             resultados.append(
                 ResultadoAnuncio(
-                    ad_id, estado, "fallo", "ARCHIVED: el PUT no lo mueve", _reversa(filas[ad_id])
+                    ad_id,
+                    estado,
+                    "fallo",
+                    "ARCHIVED: el PUT no lo mueve",
+                    reversa_de_fila(filas[ad_id]),
                 )
             )
         else:
@@ -467,7 +471,7 @@ def _cambiar_estado_anuncios(
         for ad_id in a_mutar:
             resultados.append(
                 ResultadoAnuncio(
-                    ad_id, previos[ad_id], "sin_confirmar", "ENSAYO", _reversa(filas[ad_id])
+                    ad_id, previos[ad_id], "sin_confirmar", "ENSAYO", reversa_de_fila(filas[ad_id])
                 )
             )
         return resultados
@@ -484,7 +488,7 @@ def _cambiar_estado_anuncios(
 
     posteriores = estados_actuales(escritor, a_mutar)
     for ad_id in a_mutar:
-        reversa = _reversa(filas[ad_id])
+        reversa = reversa_de_fila(filas[ad_id])
         rechazo = rechazos.get(ad_id)
         if posteriores.get(ad_id) == destino:
             detalle = f"quedo {destino} pese al rechazo del envio: {rechazo}" if rechazo else ""

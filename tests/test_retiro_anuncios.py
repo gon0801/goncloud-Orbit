@@ -57,12 +57,16 @@ def _bolsa(
     return camp_id, ag_id, pa_id
 
 
-def _escritor(filas: dict[str, dict]):
+def _escritor(filas: dict[str, dict], *, lists_que_fallan=frozenset(), stale_lists=frozenset()):
     """Escritor sobre transporte falso: list con filas completas, PUT que
-    cambia el estado en vivo, create que devuelve un adId nuevo."""
+    cambia el estado en vivo, create que devuelve un adId nuevo.
+    lists_que_fallan: numeros de LIST (1-based) que responden 500.
+    stale_lists: numeros de LIST que ven el estado previo al ultimo PUT."""
     puts: list[tuple[str, str]] = []
     vivos = {k: dict(v) for k, v in filas.items()}
+    foto = {k: dict(v) for k, v in filas.items()}
     nuevo = {"n": 0}
+    n_list = {"n": 0}
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.host == "api.amazon.com":
@@ -71,6 +75,7 @@ def _escritor(filas: dict[str, dict]):
         if request.method == "PUT" and request.url.path == "/sp/productAds":
             for entrada in cuerpo.get("productAds", []):
                 puts.append((str(entrada["adId"]), str(entrada["state"])))
+                foto[str(entrada["adId"])] = dict(vivos[str(entrada["adId"])])
                 vivos[str(entrada["adId"])]["state"] = str(entrada["state"])
             return httpx.Response(207, json={"productAds": {"error": [], "success": []}})
         if request.method == "POST" and request.url.path == "/sp/productAds":
@@ -86,8 +91,12 @@ def _escritor(filas: dict[str, dict]):
             return httpx.Response(
                 207, json={"productAds": {"error": [], "success": [{"adId": ad_id}]}}
             )
+        n_list["n"] += 1
+        if n_list["n"] in lists_que_fallan:
+            return httpx.Response(500, text="Internal error")
+        fuente = foto if n_list["n"] in stale_lists else vivos
         pedidos = cuerpo.get("adIdFilter", {}).get("include", [])
-        return httpx.Response(200, json={"productAds": [vivos[p] for p in pedidos if p in vivos]})
+        return httpx.Response(200, json={"productAds": [fuente[p] for p in pedidos if p in fuente]})
 
     return make_write_client(handler), puts
 
@@ -337,3 +346,60 @@ def test_repone_archived_recrea_con_la_linea():
             "SELECT ad_id_nuevo, estado_nuevo FROM anuncio_reposicion WHERE retiro_id = %s",
             (ret[0],),
         ).fetchone() == ("ad-nuevo-1", "ENABLED")
+
+
+@_skip_db
+def test_ejecuta_relectura_caida_conserva_fila():
+    """R09 B5 (f/A): el PUT pasa y la relectura da 500 (con reintentos):
+    el anuncio queda pausado CON fila (reponible) y el error lo nombra."""
+    with _db_i4("orbit_i4_r5a") as conn:
+        _pid, lid = _producto(conn)
+        _bolsa(conn, lid, "ad-1")
+        plan = ra.planea_retiro(
+            conn, "amazon_mx", listing_ids=(lid,), motivo="sin_pedidos", conservar_grupo_id=None
+        )
+        escritor, puts = _escritor(
+            _fila("ad-1", "ENABLED"),
+            lists_que_fallan=set(range(3, 12)),  # relectura + reintentos
+        )
+        with pytest.raises(RuntimeError, match="ad-1"):
+            ra.ejecuta_retiro(conn, plan, go="go dueno", escritor=escritor)
+        assert puts == [("ad-1", "PAUSED")]
+        assert conn.execute("SELECT count(*) FROM anuncio_retiro").fetchone() == (1,)
+
+
+@_skip_db
+def test_ejecuta_sin_sku_falla_antes_del_put():
+    """R09 B5 (h/B): anuncio sin sku (listing con seller_sku NULL): ValueError
+    antes del primer PUT, sin filas."""
+    with _db_i4("orbit_i4_r5b") as conn:
+        _pid, lid = _producto(conn)
+        conn.execute("UPDATE listing SET seller_sku = NULL WHERE id = %s", (lid,))
+        conn.commit()
+        _bolsa(conn, lid, "ad-1")
+        plan = ra.planea_retiro(
+            conn, "amazon_mx", listing_ids=(lid,), motivo="sin_pedidos", conservar_grupo_id=None
+        )
+        assert plan.anuncios[0].sku is None
+        escritor, puts = _escritor(_fila("ad-1", "ENABLED"))
+        with pytest.raises(ValueError, match="sin sku"):
+            ra.ejecuta_retiro(conn, plan, go="go dueno", escritor=escritor)
+        assert puts == []
+        assert conn.execute("SELECT count(*) FROM anuncio_retiro").fetchone() == (0,)
+
+
+@_skip_db
+def test_ejecuta_relectura_atrasada_conserva_fila():
+    """R09 B5 (C): relectura stale (ve ENABLED tras el PUT): sin_confirmar
+    conserva la fila y el error la nombra."""
+    with _db_i4("orbit_i4_r5c") as conn:
+        _pid, lid = _producto(conn)
+        _bolsa(conn, lid, "ad-1")
+        plan = ra.planea_retiro(
+            conn, "amazon_mx", listing_ids=(lid,), motivo="sin_pedidos", conservar_grupo_id=None
+        )
+        escritor, puts = _escritor(_fila("ad-1", "ENABLED"), stale_lists={3})
+        with pytest.raises(RuntimeError, match="sin_confirmar"):
+            ra.ejecuta_retiro(conn, plan, go="go dueno", escritor=escritor)
+        assert puts == [("ad-1", "PAUSED")]
+        assert conn.execute("SELECT count(*) FROM anuncio_retiro").fetchone() == (1,)

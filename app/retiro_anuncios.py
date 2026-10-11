@@ -143,11 +143,14 @@ def ejecuta_retiro(
     actor: str | None = None,
 ) -> int:
     """Pausa los anuncios del plan y deja una fila por anuncio en
-    `anuncio_retiro` (modo 'pausa'). Reanudable: salta los que ya
-    tienen un retiro abierto. Si alguno no se confirma, registra los
-    confirmados y falla al final nombrando a los otros. Un anuncio que
-    ya estaba pausado (crash entre PUT e INSERT) se registra: el
-    readback lo confirma. Devuelve cuantos retiro."""
+    `anuncio_retiro` (modo 'pausa'). La fila se escribe ANTES de su PUT
+    (append-only: sin UPDATE ni DELETE) con la reversa de la lectura
+    previa: si el PUT es incierto (red o relectura caida), la fila
+    conservada es lo que permite reponerlo despues. Reanudable: salta
+    los que ya tienen un retiro abierto. Todo se valida antes del
+    primer PUT (entidad, campos NOT NULL, existencia en Amazon). Un
+    rechazo limpio deja su fila (visible; reponer la cierra) y se
+    nombra al final. Devuelve cuantos retiro."""
     if not go or not go.strip():
         raise ValueError("ejecutar un retiro exige el literal go del dueno")
     if (plan.motivo == "impulso") != (impulso_id is not None):
@@ -162,29 +165,34 @@ def ejecuta_retiro(
         ).fetchone()
         if ent is None:
             raise ValueError(f"anuncio {anuncio.ad_id_externo} sin fila en ad_entity")
+        for campo in ("ad_group_externo", "campana_externa", "sku", "asin"):
+            if not getattr(anuncio, campo):
+                raise ValueError(
+                    f"anuncio {anuncio.ad_id_externo} sin {campo}: valida antes de pausar"
+                )
         if conn.execute(_SQL_YA_RETIRADO, (ent[0],)).fetchone() is None:
             pendientes.append((ent[0], anuncio))
     conn.commit()
     if not pendientes:
         return 0
-    resultados = archivar.pausar_anuncios(
-        escritor, [a.ad_id_externo for _, a in pendientes], ejecutar=True
-    )
-    por_id = {r.ad_id: r for r in resultados}
     lote = lote_retiro_de_plan(plan)
+    # Lectura previa global ANTES del primer PUT: existencia y reversas.
+    filas = archivar.leer_anuncios(escritor, [a.ad_id_externo for _, a in pendientes])
     retirados = 0
     fallidos: list[str] = []
     for ent, anuncio in pendientes:
-        res = por_id.get(anuncio.ad_id_externo)
-        if res is None or res.resultado not in ("pausado", "ya_estaba"):
-            detalle = res.detalle if res is not None else "sin resultado"
-            fallidos.append(f"{anuncio.ad_id_externo} ({detalle})")
+        fila = filas.get(anuncio.ad_id_externo)
+        if fila is None:
+            fallidos.append(f"{anuncio.ad_id_externo} (no_existe en Amazon: no se mando nada)")
             continue
-        conn.execute(
+        if fila.get("state") == archivar.ESTADO_ARCHIVADO:
+            fallidos.append(f"{anuncio.ad_id_externo} (ARCHIVED: el PUT no lo mueve)")
+            continue
+        rid = conn.execute(
             "INSERT INTO anuncio_retiro (platform, motivo, modo, lote_retiro, impulso_id,"
             " ad_entity_id, ad_id_externo, ad_group_externo, campana_externa, sku, asin,"
             " reversa, retirado_el, actor) VALUES (%s, %s, 'pausa', %s, %s, %s, %s, %s, %s,"
-            " %s, %s, %s, now(), %s)",
+            " %s, %s, %s, now(), %s) RETURNING id",
             (
                 plan.plataforma,
                 plan.motivo,
@@ -196,12 +204,23 @@ def ejecuta_retiro(
                 anuncio.campana_externa,
                 anuncio.sku,
                 anuncio.asin,
-                res.reversa,
+                archivar.reversa_de_fila(fila),
                 actor_final,
             ),
-        )
+        ).fetchone()[0]
         conn.commit()
-        retirados += 1
+        try:
+            res = archivar.pausar_anuncios(escritor, [anuncio.ad_id_externo], ejecutar=True)[0]
+        except Exception as exc:
+            fallidos.append(f"{anuncio.ad_id_externo} (PUT incierto, fila {rid} conservada: {exc})")
+            continue
+        if res.resultado in ("pausado", "ya_estaba"):
+            retirados += 1
+        else:  # fallo, no_existe, sin_confirmar: la fila queda (append-only)
+            detalle = res.detalle if res.detalle else res.resultado
+            fallidos.append(
+                f"{anuncio.ad_id_externo} ({res.resultado}, fila {rid} conservada: {detalle})"
+            )
     if fallidos:
         raise RuntimeError(f"retiro no confirmado ({retirados} registrados): {fallidos}")
     return retirados
