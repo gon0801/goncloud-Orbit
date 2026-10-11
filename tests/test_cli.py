@@ -980,3 +980,38 @@ def test_impulso_vigia_args_extra_o_sin_dsn_da_2(monkeypatch):
     assert cli_bids.main_impulso_vigia(["--x"]) == 2
     monkeypatch.delenv("ORBIT_DSN_ADMIN", raising=False)
     assert cli_bids.main_impulso_vigia([]) == 2
+
+
+def test_impulso_vigia_usa_pausador_fabrica(monkeypatch):
+    """R09 B12 (C01): el cron corre el vigia CON PausadorFabrica, no sin pausador."""
+    from app import cli_bids
+    from app import impulso_io as io
+
+    class _Nada:
+        def fetchall(self):
+            return []
+
+        def fetchone(self):
+            return None
+
+    class _Conn:
+        def execute(self, *a, **k):
+            return _Nada()
+
+        def commit(self):
+            pass
+
+        def close(self):
+            pass
+
+    visto = {}
+
+    def _vigia(conn, pausador, *, hoy):
+        visto["pausador"] = pausador
+        return []
+
+    monkeypatch.setenv("ORBIT_DSN_ADMIN", "dsn-x")
+    monkeypatch.setattr("app.db.connect", lambda dsn: _Conn())
+    monkeypatch.setattr(io, "vigila", _vigia)
+    assert cli_bids.main_impulso_vigia([]) == 0
+    assert isinstance(visto["pausador"], io.PausadorFabrica)

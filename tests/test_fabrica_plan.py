@@ -965,3 +965,10 @@ def test_plan_v2_rechaza_roles_invalidos(roles):
     plan = replace(_plan_v2(), roles=roles)
     with pytest.raises(fp.PlanInvalido, match="roles"):
         fp.plan_v2_como_json(plan)
+
+
+def test_r09r3_payload_campana_sin_off_amazon():
+    """R09 B12 (PY3): la campana nace sin offAmazonSettings."""
+    pasos = fp.pasos_del_rol(_plan(), "category_exact")
+    campana = next(p for p in pasos if p.recurso == "campaign")
+    assert "offAmazonSettings" not in campana.payload

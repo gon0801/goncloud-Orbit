@@ -182,3 +182,8 @@ def test_grupo_no_levanta_con_bid_mayor_que_diario():
     grupo = im.grupo_v2_de_plan(plan)
     pasos = [p for rol in im.ROLES_IMPULSO for p in fp.pasos_del_rol(grupo, rol)]
     assert len([p for p in pasos if p.recurso == "campaign"]) == 2
+
+
+def test_r09r3_grupo_v2_de_plan_nace_en_shadow():
+    """R09 B12 (P16): los goals nacen en shadow, no en live."""
+    assert im.grupo_v2_de_plan(_plan()).modo == "shadow"
