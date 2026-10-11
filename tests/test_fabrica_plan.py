@@ -909,3 +909,59 @@ def test_plan_v2_desde_json_relee_manual_historico_fuera_de_banda(valor):
     assert plan.objetivo.acos_pct == Decimal(valor)
     with pytest.raises(fp.PlanInvalido, match="banda"):
         fp.valida_banda_manual(Decimal(valor))
+
+
+# I.1 (BIDS 02 s5): roles en el plan v2 -------------------------------------------------
+
+
+def _parametros_dos():
+    return {
+        rol: fp.ParametrosRol(rol, Decimal("120"), Decimal("5.00"))
+        for rol in ("category_exact", "auto_discovery")
+    }
+
+
+def test_plan_v2_cinco_roles_misma_huella_y_sin_llave_roles():
+    """I.1: un plan v2 de cinco da la huella fijada en origin/master y su
+    JSON no trae la llave `roles`."""
+    plan = _plan_v2()
+    assert (
+        fp.huella_plan_v2(plan)
+        == "a93711700879d407b06bf425fdf29a3c088e6b1b92301b887fdda8c03a1a636a"
+    )
+    assert "roles" not in fp.plan_v2_como_json(plan)
+
+
+def test_plan_v2_dos_roles_valida_serializa_y_da_pasos():
+    """I.1: un plan v2 con roles exact+auto valida con dos parametros, trae
+    `roles` en su JSON, sobrevive a desde_json y da pasos por rol."""
+    plan = replace(
+        _plan_v2(), roles=("category_exact", "auto_discovery"), parametros=_parametros_dos()
+    )
+    fp.valida_parametros(plan.parametros, plan.moneda, plan.semillas, roles=plan.roles)
+    serializado = fp.plan_v2_como_json(plan)
+    assert serializado["roles"] == ["category_exact", "auto_discovery"]
+    releido = fp.plan_v2_desde_json(serializado)
+    assert releido.roles == ("category_exact", "auto_discovery")
+    assert fp.huella_plan_v2(releido) == fp.huella_plan_v2(plan)
+    pasos_exact = fp.pasos_del_rol(plan, "category_exact")
+    assert pasos_exact[0].recurso == "campaign" and pasos_exact[1].recurso == "ad_group"
+    assert fp.pasos_del_rol(plan, "auto_discovery")[0].recurso == "campaign"
+
+
+@pytest.mark.parametrize(
+    "roles",
+    [
+        (),
+        ("category_exact", "category_exact"),
+        ("category_exact", "rol_ajeno"),
+        ("auto_discovery",),
+        ("auto_discovery", "category_exact"),
+    ],
+)
+def test_plan_v2_rechaza_roles_invalidos(roles):
+    """I.1: _valida_plan_v2 rechaza roles vacio, repetido, ajeno, sin exact
+    o en otro orden que ROLES_ORDEN_CREACION."""
+    plan = replace(_plan_v2(), roles=roles)
+    with pytest.raises(fp.PlanInvalido, match="roles"):
+        fp.plan_v2_como_json(plan)

@@ -142,6 +142,7 @@ def _plan_con_procedencia_2dec(plan_json: dict) -> dict:
 
 def _bids_como_json(plan: fp.PlanGrupo | fp.PlanGrupoV2) -> dict[str, list[dict]]:
     """Detalle auditable de cada objetivo Amazon y del bid que se enviaria."""
+    roles = plan.roles if isinstance(plan, fp.PlanGrupoV2) else fp.ROLES_ORDEN_CREACION
     return {
         rol: [
             {
@@ -159,7 +160,7 @@ def _bids_como_json(plan: fp.PlanGrupo | fp.PlanGrupoV2) -> dict[str, list[dict]
             }
             for recomendacion in plan.parametros[rol].recomendaciones
         ]
-        for rol in fp.ROLES_ORDEN_CREACION
+        for rol in roles
     }
 
 

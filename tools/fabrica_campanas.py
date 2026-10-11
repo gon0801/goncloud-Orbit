@@ -220,7 +220,6 @@ def _dsn_ingest() -> str:
 API = DEFAULT_BASE_URL
 LWA_TOKEN_URL = "https://api.amazon.com/auth/o2/token"
 VENDOR_CAMPANAS = fp.VENDOR_POR_PATH["/sp/campaigns"]
-_ESPERADO_ROLES = 5
 _PAUSADA = "PAUSED"
 
 _SQL_INSERTA_LOTE = """
@@ -263,6 +262,15 @@ INSERT INTO campana_grupo (platform, tipo_producto, nombre_base, lote, target_ac
                            target_derivado_pct, fraccion, target_origen, target_procedencia,
                            go_literal)
 SELECT %s::platform, %s, %s, %s, %s, %s, %s, %s, %s, go_literal
+  FROM fabrica_lote WHERE lote = %s
+ON CONFLICT (lote) DO UPDATE SET lote = EXCLUDED.lote
+RETURNING id
+"""
+_SQL_INSERTA_GRUPO_IMPULSO = """
+INSERT INTO campana_grupo (platform, tipo_producto, nombre_base, lote, target_acos_pct,
+                           target_derivado_pct, fraccion, target_origen, target_procedencia,
+                           go_literal, tipo)
+SELECT %s::platform, %s, %s, %s, %s, %s, %s, %s, %s, go_literal, 'impulso'
   FROM fabrica_lote WHERE lote = %s
 ON CONFLICT (lote) DO UPDATE SET lote = EXCLUDED.lote
 RETURNING id
@@ -699,7 +707,7 @@ def _imprime_dry_run(plan: fp.PlanGrupo | fp.PlanGrupoV2, huella: str) -> None:
     if plan.advertencia_mezcla is not None:
         print(f"advertencia: {plan.advertencia_mezcla}", flush=True)
     if isinstance(plan, fp.PlanGrupoV2):
-        for rol in fp.ROLES_ORDEN_CREACION:
+        for rol in _roles_del_plan(plan):
             parametro = plan.parametros[rol]
             semillas = sum(
                 paso.recurso in ("keyword", "target", "negative_keyword")
@@ -1137,11 +1145,20 @@ def _ejecuta_rol(ctx: _Ctx, plan: fp.PlanCanonico, rol: str) -> dict:
     return externos
 
 
-def _valida_go(args, huella: str) -> None:
+def _roles_del_plan(plan: fp.PlanCanonico) -> tuple[str, ...]:
+    """I.1: roles a recorrer: los del plan v2, los cinco en v1."""
+    if isinstance(plan, fp.PlanGrupoV2):
+        return plan.roles
+    return fp.ROLES_ORDEN_CREACION
+
+
+def _valida_go(args, huella: str, n_roles: int) -> None:
     if args.esperado is None:
-        raise Abortar("mutacion real exige --esperado 5 (las 5 campanas del grupo)")
-    if args.esperado != _ESPERADO_ROLES:
-        raise Abortar(f"--esperado {args.esperado} != {_ESPERADO_ROLES} campanas del grupo")
+        raise Abortar(
+            f"mutacion real exige --esperado {n_roles} (las {n_roles} campanas del grupo)"
+        )
+    if args.esperado != n_roles:
+        raise Abortar(f"--esperado {args.esperado} != {n_roles} campanas del grupo")
     if not args.huella:
         raise Abortar("mutacion real exige --huella del dry-run (autorizacion por conjunto)")
     if args.huella != huella:
@@ -1183,8 +1200,13 @@ def _registrar(ctx: _Ctx, plan: fp.PlanCanonico, creadas: list[dict]) -> int:
     # los goals solo fijan target con manual confirmado, si no nacen NULL y
     # resuelven por margen_plataforma cada ciclo.
     goal_target = fp.target_para_goals(plan)
+    inserta_grupo = (
+        _SQL_INSERTA_GRUPO_IMPULSO
+        if isinstance(plan, fp.PlanGrupoV2) and plan.roles == ("category_exact", "auto_discovery")
+        else _SQL_INSERTA_GRUPO
+    )
     grupo = conn.execute(
-        _SQL_INSERTA_GRUPO,
+        inserta_grupo,
         (
             plan.platform,
             plan.tipo_producto,
@@ -1327,7 +1349,7 @@ def _exige_ledger_completo(conn, plan: fp.PlanCanonico, lote: str) -> None:
             camp_ag.setdefault(f["rol"], {})[f["recurso"]] = str(f["external_id"])
     usados: set[int] = set()
     faltan: list[str] = []
-    for rol in fp.ROLES_ORDEN_CREACION:
+    for rol in _roles_del_plan(plan):
         ids = camp_ag.get(rol, {})
         if "campaign" not in ids or "ad_group" not in ids:
             faltan.append(f"{rol}: falta campaign/ad_group applied")
@@ -1391,7 +1413,7 @@ def _registrar_cmd(args) -> int:
             creadas.setdefault(rol, {"rol": rol, "product_ads": [], "semillas": []})[recurso] = (
                 external
             )
-        faltan = [r for r in fp.ROLES_ORDEN_CREACION if "ad_group" not in creadas.get(r, {})]
+        faltan = [r for r in _roles_del_plan(plan) if "ad_group" not in creadas.get(r, {})]
         if faltan:
             raise Abortar(
                 f"lote {args.registrar} sin campana+ad group applied para"
@@ -1405,7 +1427,7 @@ def _registrar_cmd(args) -> int:
         ctx = _Ctx(
             None, "", cred, cliente_lectura, perfiles[plan.platform], conn_admin, args.registrar
         )
-        _registrar(ctx, plan, [creadas[r] for r in fp.ROLES_ORDEN_CREACION])
+        _registrar(ctx, plan, [creadas[r] for r in _roles_del_plan(plan)])
         _sella_lote(conn_admin, args.registrar, "applied", "registro reintentado")
         return 0
     finally:
@@ -1413,7 +1435,7 @@ def _registrar_cmd(args) -> int:
 
 
 def _mutar(args, plan: fp.PlanCanonico, huella: str, *, lote: str | None = None) -> int:
-    _valida_go(args, huella)
+    _valida_go(args, huella, len(_roles_del_plan(plan)))
     # D-CURSOR-177-F3: falla cerrado antes de LWA/lote/POST (spec §5.1).
     _dsn_ingest()
     if lote is None:
@@ -1440,7 +1462,7 @@ def _mutar(args, plan: fp.PlanCanonico, huella: str, *, lote: str | None = None)
         ctx = _Ctx(http, token, cred, cliente_lectura, perfiles[plan.platform], conn_admin, lote)
         creadas: list[dict] = []
         try:
-            for rol in fp.ROLES_ORDEN_CREACION:
+            for rol in _roles_del_plan(plan):
                 creadas.append(_ejecuta_rol(ctx, plan, rol))
                 _log("campana_creada", lote=lote, rol=rol, external=creadas[-1]["campaign"])
         except Abortar as exc:

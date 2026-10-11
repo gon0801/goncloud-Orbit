@@ -2647,3 +2647,68 @@ def test_sql_del_ledger_contra_postgres_real():
         fc._sella_lote(conn, "L1", "failed", "detalle")
         fila = conn.execute("SELECT estado, detalle FROM fabrica_lote WHERE lote = 'L1'").fetchone()
         assert fila == ("failed", "detalle")
+
+
+# I.1 (BIDS 02 s5): grupo de dos ------------------------------------------------------------------
+
+
+def _plan_dos_roles():
+    import dataclasses
+
+    base = _plan_v2_min()
+    return dataclasses.replace(
+        base,
+        roles=("category_exact", "auto_discovery"),
+        parametros={
+            rol: fp.ParametrosRol(rol, Decimal("120"), Decimal("6.00"))
+            for rol in ("category_exact", "auto_discovery")
+        },
+    )
+
+
+@_skip_db
+def test_mutar_plan_dos_roles_crea_dos_y_registra_impulso(monkeypatch):
+    """I.1: con un plan de dos roles y --esperado 2, _mutar crea 2 campanas,
+    2 ad groups, 2 filas de rol y 2 goals, y el grupo queda tipo impulso."""
+    import psycopg
+    from test_migracion_0064 import SQL64
+
+    with db_fabrica("orbit_i1_mutar") as conn:
+        conn.execute(SQL64)
+        plan = _plan_dos_roles()
+        huella = fp.huella_plan_v2(plan)
+        args = SimpleNamespace(esperado=2, huella=huella, go="impulso test")
+        for i in (1, 2):
+            camp = _entidad(conn, "amazon_mx", "campaign", f"campaigns-{i}")
+            _entidad(conn, "amazon_mx", "ad_group", f"adGroups-{i}", parent=camp)
+        conn.execute(
+            "INSERT INTO product (id, odoo_sku, name) OVERRIDING SYSTEM VALUE"
+            " VALUES (1, 'SS-1', 'SS-1')"
+        )
+        conn.execute(
+            "INSERT INTO listing (id, product_id, platform, external_id, seller_sku)"
+            " OVERRIDING SYSTEM VALUE VALUES (11, 1, 'amazon_mx', 'B0AAAAAAAA', 'SS-1'),"
+            " (12, 1, 'amazon_mx', 'B0AAAAAAAB', 'SS-2')"
+        )
+        with psycopg.connect(_test_dsn(), dbname=conn.info.dbname) as conn_motor:
+            amazon = _Amazon()
+            _frontera_mutacion(monkeypatch, _conn_plan(), conn_motor, amazon, stub_registrar=False)
+            monkeypatch.setattr(fc, "_sync", lambda cliente: None)
+            assert fc._mutar(args, plan, huella, lote="i1-dos") == 0
+        assert len(amazon.posts("/sp/campaigns")) == 2
+        assert len(amazon.posts("/sp/adGroups")) == 2
+        assert conn.execute("SELECT count(*) FROM campana_grupo_rol").fetchone() == (2,)
+        assert conn.execute("SELECT tipo FROM campana_grupo").fetchone() == ("impulso",)
+        assert conn.execute("SELECT count(*) FROM ads_optimizer_goal").fetchone() == (2,)
+
+
+def test_mutar_plan_dos_roles_con_esperado_cinco_aborta_sin_post(monkeypatch):
+    """I.1: con --esperado 5 y un plan de dos, _mutar aborta sin POST."""
+    plan = _plan_dos_roles()
+    huella = fp.huella_plan_v2(plan)
+    args = SimpleNamespace(esperado=5, huella=huella, go="impulso test")
+    amazon = _Amazon()
+    _frontera_mutacion(monkeypatch, _conn_plan(), _ConnFalsa(), amazon)
+    with pytest.raises(fc.Abortar, match="esperado 5"):
+        fc._mutar(args, plan, huella, lote="i1-aborta")
+    assert amazon.pedidos == []
