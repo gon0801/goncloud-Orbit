@@ -1661,3 +1661,41 @@ def test_readback_500_sale_como_error_de_amazon(monkeypatch):
             (plan.huella(),),
         ).fetchone()[0]
         assert fila is True
+
+
+@_skip_db
+def test_fila_regreso_visible_desde_otra_conexion_cuando_sale_el_put(monkeypatch):
+    """M02: la intencion pre-HTTP del regreso es durable: cuando sale
+    su PUT, otra conexion ya ve la fila hija pendiente."""
+    with _db_dsn("orbit_aj_rput") as (conn, dsn_db):
+        camp, _cfg = _siembra(conn)
+        remoto = {EXTERNA: {"budget": {"budget": 100.0, "budgetType": "DAILY"}}}
+        base, _vistos = _handler_campanas(remoto)
+        _creds_fake(monkeypatch)
+        plan = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("120")))
+        hecho = apply.aplica_ajuste_campana(
+            conn,
+            plan,
+            huella=plan.huella(),
+            confirmacion="APLICAR AJUSTE",
+            actor="dueno",
+            transport=httpx.MockTransport(base),
+        )
+        visto: dict = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.method == "PUT":
+                with psycopg.connect(dsn_db, autocommit=True) as otra:
+                    visto["filas"] = otra.execute(
+                        "SELECT id, regresa_a, confirmado_el IS NOT NULL FROM campana_ajuste"
+                        " WHERE regresa_a IS NOT NULL"
+                    ).fetchall()
+            return base(request)
+
+        hijo = apply.regresa_ajuste_campana(
+            conn,
+            ajuste_id=hecho.ajuste_id,
+            actor="dueno",
+            transport=httpx.MockTransport(handler),
+        )
+        assert visto["filas"] == [(hijo.ajuste_id, hecho.ajuste_id, False)]
