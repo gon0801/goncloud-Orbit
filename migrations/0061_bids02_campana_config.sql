@@ -10,10 +10,12 @@
 -- docs/evidencia/bids-02/diseno/datos.sql: la tabla y la vista van intactas;
 -- fuera_de_amazon la agrega la guia, V.1 cambio 2.)
 --
--- Regla 7: BEGIN/COMMIT dentro del archivo, NO idempotente, dos triggers
--- prohibir_mutacion(), GRANT declarados y bloque DO que falla si falta o
--- sobra un privilegio. El trigger de kind es funcion propia de esta
--- migracion: la unica reutilizable nombra otra tabla en su error.
+-- Regla 7: BEGIN/COMMIT dentro del archivo, NO idempotente, triggers
+-- prohibir_mutacion() (UPDATE/DELETE + TRUNCATE), GRANT declarados y
+-- bloque DO que falla si falta o sobra un privilegio. Los triggers de
+-- kind y de moneda son funciones propias de esta migracion: la unica
+-- reutilizable nombra otra tabla en su error (kind), y ampliar la
+-- compartida de moneda romperia el diff de la reversa (ronda 3, B1).
 -- ---------------------------------------------------------------------------
 
 BEGIN;
@@ -22,8 +24,8 @@ CREATE TABLE ads_campana_config_observation (
     id                  BIGSERIAL PRIMARY KEY,
     ad_entity_id        BIGINT      NOT NULL REFERENCES ad_entity (id),
     observed_at         TIMESTAMPTZ NOT NULL,
-    presupuesto_diario  NUMERIC,
-    presupuesto_moneda  TEXT,
+    presupuesto_diario  money_amount,
+    presupuesto_moneda  currency,
     estrategia_puja     TEXT,            -- texto tal cual de Amazon; el vocabulario real se sella con la sonda
     ajuste_top_pct      INTEGER,
     ajuste_resto_pct    INTEGER,
@@ -32,7 +34,10 @@ CREATE TABLE ads_campana_config_observation (
     CONSTRAINT config_presupuesto_con_moneda
         CHECK ((presupuesto_diario IS NULL) = (presupuesto_moneda IS NULL)),
     CONSTRAINT config_presupuesto_positivo
-        CHECK (presupuesto_diario IS NULL OR presupuesto_diario > 0),
+        CHECK (presupuesto_diario IS NULL
+               OR (presupuesto_diario > 0 AND presupuesto_diario <> 'NaN')),
+    CONSTRAINT config_estrategia_no_vacia
+        CHECK (estrategia_puja IS NULL OR estrategia_puja <> ''),
     CONSTRAINT config_ajustes_en_rango
         CHECK (COALESCE(ajuste_top_pct, 0) BETWEEN 0 AND 900
            AND COALESCE(ajuste_resto_pct, 0) BETWEEN 0 AND 900
@@ -67,6 +72,43 @@ CREATE TRIGGER ads_campana_config_observation_kind
     BEFORE INSERT OR UPDATE ON ads_campana_config_observation
     FOR EACH ROW EXECUTE FUNCTION ads_campana_config_0061_kind();
 
+-- Sello plataforma<->moneda (regla 4, patron metric_moneda_de_plataforma
+-- de 0001/0020, en funcion propia para no romper el diff de la reversa).
+-- La plataforma sale de la campana; sin presupuesto no hay moneda que
+-- sellar (config_presupuesto_con_moneda ata la nulidad).
+CREATE FUNCTION ads_campana_config_0061_moneda() RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public
+AS $$
+DECLARE
+    v_platform platform;
+    v_esperada currency;
+BEGIN
+    IF NEW.presupuesto_moneda IS NULL THEN
+        RETURN NEW;
+    END IF;
+    SELECT e.platform INTO v_platform
+      FROM ad_entity e
+     WHERE e.id = NEW.ad_entity_id;
+    v_esperada := CASE v_platform
+                      WHEN 'amazon_mx' THEN 'MXN'::currency
+                      WHEN 'amazon_us' THEN 'USD'::currency
+                      WHEN 'meli'      THEN 'MXN'::currency
+                  END;
+    IF NEW.presupuesto_moneda IS DISTINCT FROM v_esperada THEN
+        RAISE EXCEPTION
+            'ads_campana_config_observation: la campana % es % pero su '
+            'presupuesto viene en %, no en %.',
+            NEW.ad_entity_id, v_platform, NEW.presupuesto_moneda, v_esperada
+            USING ERRCODE = 'check_violation';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+CREATE TRIGGER ads_campana_config_observation_moneda_sellada
+    BEFORE INSERT OR UPDATE ON ads_campana_config_observation
+    FOR EACH ROW EXECUTE FUNCTION ads_campana_config_0061_moneda();
+
 CREATE TRIGGER ads_campana_config_observation_append_only
     BEFORE UPDATE OR DELETE ON ads_campana_config_observation
     FOR EACH ROW EXECUTE FUNCTION prohibir_mutacion();
@@ -85,6 +127,9 @@ COMMENT ON VIEW v_campana_config_vigente IS
 COMMENT ON FUNCTION ads_campana_config_0061_kind IS
   'BIDS 02 V.1 (0061): la observacion de configuracion es de kind=campaign '
   '(la FK sola admite cualquier entidad).';
+COMMENT ON FUNCTION ads_campana_config_0061_moneda IS
+  'BIDS 02 V.1 (0061, ronda 3): el presupuesto se sella contra la moneda '
+  'de la plataforma de la campana (regla 4).';
 
 -- Solo app_ingest escribe: es el rol con que corre sync_structure. SELECT
 -- explicito a lectura, admin e ingest (guarda_config lee la vigente con la
