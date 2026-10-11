@@ -161,6 +161,8 @@ def _dinamica(bidding: object) -> tuple[str | None, tuple[int | None, int | None
     estrategia = bidding.get("strategy")
     if estrategia is not None and not isinstance(estrategia, str):
         raise ValueError("strategy no es texto")
+    if isinstance(estrategia, str) and not estrategia.strip():
+        raise ValueError("strategy vacia")
     return estrategia, _ajustes(bidding.get("placementBidding"))
 
 

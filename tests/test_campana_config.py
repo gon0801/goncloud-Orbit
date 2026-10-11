@@ -179,6 +179,19 @@ def test_dynamicBidding_con_mala_forma_anula_la_campana():
     )
 
 
+def test_strategy_vacia_anula_en_frontera_sin_reventar_base():
+    """NB1 r4: strategy '' es ilegible (None, se cuenta), no revienta en
+    config_estrategia_no_vacia dentro del sync."""
+    assert (
+        config_de_payload(_item(dynamicBidding={"strategy": "", "placementBidding": []}), "USD")
+        is None
+    )
+    assert (
+        config_de_payload(_item(dynamicBidding={"strategy": "   ", "placementBidding": []}), "USD")
+        is None
+    )
+
+
 def test_sin_campaignId_anula_y_numerico_se_hace_texto():
     assert config_de_payload(_item(campaignId=None), "USD") is None
     item = _item()
