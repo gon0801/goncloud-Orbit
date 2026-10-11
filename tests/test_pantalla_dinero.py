@@ -652,8 +652,8 @@ def test_pg_campanas_igual_que_control_tope_y_estrategias():
         assert por_id[c8].estrategia is None and por_id[c8].presupuesto_diario == Decimal("50")
         assert por_id[c9].dias_al_tope_7d == 0
         assert por_id[c1].dias_al_tope_7d == 5
-        assert por_id[c1].gasto_medio_diario == Decimal("15.00")
-        assert por_id[c1].uso_presupuesto_pct == Decimal("15.0")
+        assert por_id[c1].gasto_medio_diario == Decimal("64.29")
+        assert por_id[c1].uso_presupuesto_pct == Decimal("64.3")
         assert por_id[c1].gasto_fuera_de_amazon == Decimal("25")
         assert por_id[c1].avisos == ()
         assert por_id[c2].dias_al_tope_7d is None
@@ -694,9 +694,9 @@ def test_pg_lee_dinero_llena_ubicaciones_y_campanas():
         assert pantalla.por_ubicacion[3].gasta_sin_vender is True
         assert [f.campana_id for f in pantalla.por_campana] == [c1]
         assert pantalla.por_campana[0].estrategia == "fija"
-        assert pantalla.por_campana[0].avisos == (
-            "Campana 1: este presupuesto no limita. 100 MXN al día y gasta 3.",
-        )
+        assert pantalla.por_campana[0].gasto_medio_diario == Decimal("90.00")
+        assert pantalla.por_campana[0].uso_presupuesto_pct == Decimal("90.0")
+        assert pantalla.por_campana[0].avisos == ()
 
 
 def test_como_dict_trae_ubicaciones_y_campanas_con_settings():
@@ -717,9 +717,9 @@ def test_como_dict_trae_ubicaciones_y_campanas_con_settings():
         ["arriba_de_busqueda", 40],
         ["paginas_de_producto", 10],
     ]
-    assert dato["por_campana"][0]["avisos"] == [
-        "Campana: este presupuesto no limita. 100 MXN al día y gasta 3."
-    ]
+    assert dato["por_campana"][0]["gasto_medio_diario"] == "90.00"
+    assert dato["por_campana"][0]["uso_presupuesto_pct"] == "90.0"
+    assert dato["por_campana"][0]["avisos"] == []
 
 
 def _fila_ubi_ui(**cambios):

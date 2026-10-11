@@ -316,8 +316,9 @@ def lee_campanas(
     conn, *, plataforma: Plataforma, desde: dt.date, hasta: dt.date
 ) -> tuple[FilaCampana, ...]:
     """Campanas ENABLED del mercado con config vigente y gasto. El gasto
-    medio es sobre 30 dias calendario (dias sin dato aportan 0; sin
-    ninguna metrica, None). Un dia cuenta al tope si su gasto conocido es
+    medio es sobre dias con dato desde el primer dia con dato (dias sin
+    dato no cuentan; sin ninguna metrica, None). Un dia cuenta al tope
+    si su gasto conocido es
     90 % o mas del presupuesto vigente ese dia; dia sin gasto o sin
     presupuesto no cuenta (la regla de "anterior a la primera
     observacion" se cumple por construccion: sin gasto no hay tope)."""
@@ -350,7 +351,7 @@ def lee_campanas(
     for cid, nombre, cfg_id, presupuesto, estrategia_txt, top, resto, prod in campanas:
         gastos = [gasto.get((cid, desde + dt.timedelta(days=i))) for i in range(dias)]
         conocidos = [g for g in gastos if g is not None]
-        medio = _dinero2(sum(conocidos) / dias) if conocidos else None
+        medio = _dinero2(sum(conocidos) / len(conocidos)) if conocidos else None
         if cfg_id is None:
             al_tope = None
         else:
