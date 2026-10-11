@@ -1697,3 +1697,128 @@ def test_mapeo_errores_ajuste_trae_sus_codigos():
         apply.AdsApiErrorMutacion: 502,
         apply.SinPerfilAjuste: 503,
     } == _ERRORES_AJUSTE
+
+
+@_skip_db
+def test_replay_identico_tras_exito_devuelve_mismo_hecho(tmp_path, monkeypatch):
+    """B4-A: repetir el mismo envio por HTTP devuelve el mismo hecho
+    (200, mismo ajuste_id, sin segundo PUT), no un 422."""
+    with _db_ajustes("orbit_wa_b4a") as (conn, dsn_admin, dsn_l):
+        camp = _siembra_ajuste(conn)
+        remoto = {"93529333080113": {"budget": {"budget": 100.0, "budgetType": "DAILY"}}}
+        handler, vistos = _handler_ajustes(remoto)
+        _mock_cliente_ajuste(monkeypatch, handler)
+        _secrets_token(tmp_path, monkeypatch)
+        monkeypatch.setenv("ORBIT_DSN_ADMIN", dsn_admin)
+        monkeypatch.setenv("ORBIT_DSN_READ", dsn_l)
+        web = TestClient(app)
+        plan = web.get(
+            "/api/ads-optimizer/campana-ajuste/plan",
+            params={"campana_id": camp, "clase": "presupuesto", "presupuesto": 120},
+        ).json()
+        cuerpo = {
+            "campana_id": camp,
+            "clase": "presupuesto",
+            "presupuesto": 120,
+            "huella": plan["huella"],
+            "confirmacion": "APLICAR AJUSTE",
+            "actor": "dueno",
+        }
+        r1 = web.post(
+            "/api/ads-optimizer/campana-ajuste/aplicar",
+            json=cuerpo,
+            headers={"x-orbit-token": TOKEN},
+        )
+        assert r1.status_code == 200, r1.text
+        r2 = web.post(
+            "/api/ads-optimizer/campana-ajuste/aplicar",
+            json=cuerpo,
+            headers={"x-orbit-token": TOKEN},
+        )
+        assert r2.status_code == 200, r2.text
+        assert r2.json() == r1.json()
+        puts = [r for r in vistos if r.method == "PUT"]
+        assert len(puts) == 1
+
+
+@_skip_db
+def test_reintento_tras_sync_sella_y_permite_regreso(tmp_path, monkeypatch):
+    """B4-B: PUT aplicado + readback que fallo + sync que observo el
+    destino: el reintento HTTP sella la fila (sin PUT) y el ajuste se
+    puede regresar."""
+    with _db_ajustes("orbit_wa_b4b") as (conn, dsn_admin, dsn_l):
+        camp = _siembra_ajuste(conn)
+        remoto = {"93529333080113": {"budget": {"budget": 100.0, "budgetType": "DAILY"}}}
+        base, vistos = _handler_ajustes(remoto)
+        divergente = {"list": True}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if (
+                divergente["list"]
+                and request.method == "POST"
+                and request.url.path == "/sp/campaigns/list"
+            ):
+                divergente["list"] = False
+                return httpx.Response(
+                    200,
+                    json={
+                        "campaigns": [
+                            {
+                                "campaignId": "93529333080113",
+                                "budget": {"budget": 100.0, "budgetType": "DAILY"},
+                            }
+                        ]
+                    },
+                )
+            return base(request)
+
+        _mock_cliente_ajuste(monkeypatch, handler)
+        _secrets_token(tmp_path, monkeypatch)
+        monkeypatch.setenv("ORBIT_DSN_ADMIN", dsn_admin)
+        monkeypatch.setenv("ORBIT_DSN_READ", dsn_l)
+        web = TestClient(app)
+        plan = web.get(
+            "/api/ads-optimizer/campana-ajuste/plan",
+            params={"campana_id": camp, "clase": "presupuesto", "presupuesto": 120},
+        ).json()
+        cuerpo = {
+            "campana_id": camp,
+            "clase": "presupuesto",
+            "presupuesto": 120,
+            "huella": plan["huella"],
+            "confirmacion": "APLICAR AJUSTE",
+            "actor": "dueno",
+        }
+        r1 = web.post(
+            "/api/ads-optimizer/campana-ajuste/aplicar",
+            json=cuerpo,
+            headers={"x-orbit-token": TOKEN},
+        )
+        assert r1.status_code == 502, r1.text
+        assert remoto["93529333080113"]["budget"]["budget"] == 120.0
+        conn.execute(
+            "INSERT INTO ads_campana_config_observation (ad_entity_id, observed_at,"
+            " presupuesto_diario, presupuesto_moneda, estrategia_puja, ajuste_top_pct,"
+            " ajuste_resto_pct, ajuste_producto_pct, fuera_de_amazon)"
+            " VALUES (%s, now(), 120, 'MXN', 'LEGACY_FOR_SALES', 0, 0, 40, NULL)",
+            (camp,),
+        )
+        r2 = web.post(
+            "/api/ads-optimizer/campana-ajuste/aplicar",
+            json=cuerpo,
+            headers={"x-orbit-token": TOKEN},
+        )
+        assert r2.status_code == 200, r2.text
+        assert r2.json()["confirmada"] is True
+        assert len([r for r in vistos if r.method == "PUT"]) == 1
+        fila = conn.execute(
+            "SELECT confirmado_el IS NOT NULL FROM campana_ajuste WHERE huella = %s",
+            (plan["huella"],),
+        ).fetchone()[0]
+        assert fila is True
+        r3 = web.post(
+            f"/api/ads-optimizer/campana-ajuste/{r2.json()['ajuste_id']}/regresar",
+            json={"actor": "dueno"},
+            headers={"x-orbit-token": TOKEN},
+        )
+        assert r3.status_code == 200, r3.text

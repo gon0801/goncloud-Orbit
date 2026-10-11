@@ -2011,6 +2011,10 @@ RETURNING id
 _SQL_CONFIRMA_AJUSTE = """
 UPDATE campana_ajuste SET confirmado_el = %s WHERE id = %s
 """
+_SQL_AJUSTE_POR_HUELLA_RECONCILIA = """
+SELECT id, confirmado_el IS NOT NULL, campana_id, clase, despues
+  FROM campana_ajuste WHERE huella = %s
+"""
 
 
 class ConfirmacionInvalida(Exception):
@@ -2230,6 +2234,43 @@ def aplica_ajuste_campana(
         conn, cliente, plan.plataforma, plan.clase, plan.despues, ajuste_id=ajuste_id
     )
     return AjusteHecho(ajuste_id, plan.campana_id, plan.clase, True)
+
+
+def reconcilia_ajuste_campana(
+    conn, campana_id: int, clase: str, ajuste, *, huella: str, actor: str
+) -> AjusteHecho:
+    """Reconcilia un envio cuyo ajuste ya no cambia nada contra el
+    vigente (B4: la ruta llega aqui cuando planear falla con
+    AjusteSinCambio). El replay identico tras el exito devuelve el
+    mismo hecho y una pendiente con el destino ya observado se sella
+    (commit dentro de _sella_pendiente, B3); sin fila previa con esa
+    huella, ValueError (422, como antes)."""
+    from app.ads.campana_config import ConfigCampana, config_vigente
+    from app.campana_ajustes import AjusteSinCambio, planea_ajuste
+
+    if not actor or not actor.strip():
+        raise ValueError("actor vacio")
+    fila = conn.execute(_SQL_PLATAFORMA_CAMPANA, (campana_id,)).fetchone()
+    if fila is None:
+        raise ValueError(f"campana {campana_id} no existe o no es campana")
+    vigente = config_vigente(conn, campana_id)
+    if vigente is None:
+        raise ValueError(f"campana {campana_id} sin configuracion vigente")
+    previa = conn.execute(_SQL_AJUSTE_POR_HUELLA_RECONCILIA, (huella,)).fetchone()
+    if previa is None:
+        raise ValueError("el ajuste no cambia nada")
+    _eid, confirmada, ecamp, eclase, despues = previa
+    if ecamp != campana_id or eclase != clase:
+        raise HuellaDesactualizada(f"la huella {huella} es de otra campana o clase", None)
+    if vigente == ConfigCampana.desde_json(despues):
+        if not confirmada:
+            _sella_pendiente(conn, _eid)
+        return AjusteHecho(_eid, campana_id, clase, True)
+    try:
+        fresco = planea_ajuste(vigente, ajuste, campana_id=campana_id, plataforma=fila[0])
+    except AjusteSinCambio:
+        fresco = None
+    raise HuellaDesactualizada("el vigente cambio desde la vista previa", fresco)
 
 
 def regresa_ajuste_campana(conn, *, ajuste_id: int, actor: str, transport=None) -> AjusteHecho:

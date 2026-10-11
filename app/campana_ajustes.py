@@ -56,6 +56,13 @@ class CambiarPresupuesto:
 
 AjusteCampana = LimitarFueraDeAmazon | CambiarAjusteUbicacion | CambiarPresupuesto
 
+
+class AjusteSinCambio(ValueError):
+    """El ajuste pedido no cambia nada contra el vigente. Subclase de
+    ValueError (los callers que mapean ValueError a 422 no cambian); la
+    ruta la distingue para reconciliar replays (B4)."""
+
+
 _CLASE_POR_TIPO = {
     LimitarFueraDeAmazon: "fuera_de_amazon",
     CambiarAjusteUbicacion: "ajuste_ubicacion",
@@ -137,7 +144,7 @@ def planea_ajuste(
             raise ValueError(f"presupuesto debe ser > 0, llego {ajuste.presupuesto_diario}")
         monto = ajuste.presupuesto_diario.quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
         if vigente.presupuesto_diario == monto:
-            raise ValueError("el ajuste no cambia nada")
+            raise AjusteSinCambio("el ajuste no cambia nada")
         despues = replace(
             vigente,
             presupuesto_diario=monto,
@@ -167,7 +174,7 @@ def planea_ajuste(
             raise ValueError(f"porcentaje fuera de 0..{_PCT_MAX}: {ajuste.porcentaje}")
         actual = getattr(vigente, campo) or 0
         if actual == ajuste.porcentaje:
-            raise ValueError("el ajuste no cambia nada")
+            raise AjusteSinCambio("el ajuste no cambia nada")
         despues = replace(vigente, **{campo: ajuste.porcentaje})
         frase = (
             f"Orbit cambia el ajuste de {_NOMBRE_UBICACION[ajuste.ubicacion]}"
@@ -176,7 +183,7 @@ def planea_ajuste(
         )
     else:
         if _ya_limitado(vigente.fuera_de_amazon):
-            raise ValueError("el ajuste no cambia nada")
+            raise AjusteSinCambio("el ajuste no cambia nada")
         despues = replace(vigente, fuera_de_amazon=_FUERA_LIMITADO)
         frase = (
             "Orbit limita el gasto fuera de Amazon (MINIMIZE_SPEND)"

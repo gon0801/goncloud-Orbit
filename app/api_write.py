@@ -703,17 +703,28 @@ def aplicar_ajuste(
     cuerpo: CuerpoAplicaAjuste,
 ) -> dict:
     """Aplica el plan que el dueno vio: exige huella + literal. 409 con el
-    plan nuevo si el vigente cambio."""
+    plan nuevo si el vigente cambio. Si el ajuste ya no cambia nada pero
+    hay fila previa con esa huella, reconcilia (B4: replay idempotente)."""
+    from app.campana_ajustes import AjusteSinCambio
+
     try:
-        plan = _plan_de(
-            conn,
-            cuerpo.campana_id,
-            cuerpo.clase,
-            _ajuste_de(cuerpo.clase, cuerpo.presupuesto, cuerpo.ubicacion, cuerpo.porcentaje),
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from None
-    try:
+        try:
+            plan = _plan_de(
+                conn,
+                cuerpo.campana_id,
+                cuerpo.clase,
+                _ajuste_de(cuerpo.clase, cuerpo.presupuesto, cuerpo.ubicacion, cuerpo.porcentaje),
+            )
+        except AjusteSinCambio:
+            hecho = apply.reconcilia_ajuste_campana(
+                conn,
+                cuerpo.campana_id,
+                cuerpo.clase,
+                _ajuste_de(cuerpo.clase, cuerpo.presupuesto, cuerpo.ubicacion, cuerpo.porcentaje),
+                huella=cuerpo.huella,
+                actor=cuerpo.actor,
+            )
+            return hecho.como_dict()
         hecho = apply.aplica_ajuste_campana(
             conn,
             plan,
