@@ -141,8 +141,8 @@ SELECT a.campana_id, max((a.confirmado_el AT TIME ZONE 'UTC')::date)
  GROUP BY a.campana_id
 """
 _TEXTO_CLASE_AJUSTE = {
-    "presupuesto": "presupuesto",
-    "ajuste_ubicacion": "ajuste de ubicación",
+    "presupuesto": "el presupuesto",
+    "ajuste_ubicacion": "el ajuste de ubicación",
 }
 
 
@@ -225,12 +225,16 @@ class FilaUbicacion:
 @dataclass(frozen=True)
 class AjusteRegresable:
     """Ajuste CONFIRMADO sin regreso y con regreso sellado (V.3): la
-    pantalla le pinta su boton Regresar."""
+    pantalla le pinta su boton Regresar con `frase` (P.2b)."""
 
     ajuste_id: int
     clase: str
     texto: str
     confirmado_el: dt.date
+
+    @property
+    def frase(self) -> str:
+        return f"Regresar {self.texto} del {self.confirmado_el.isoformat()}"
 
 
 @dataclass(frozen=True)
@@ -248,7 +252,7 @@ class FilaCampana:
     gasto_fuera_de_amazon: Decimal | None
     dias_al_tope_7d: int | None
     avisos: tuple[str, ...] = ()
-    regresables: tuple[AjusteRegresable, ...] = ()
+    ajustes_regresables: tuple[AjusteRegresable, ...] = ()
     aviso_ajuste: str | None = None
 
     def como_dict(self) -> dict:
@@ -271,14 +275,8 @@ class FilaCampana:
             else str(self.gasto_fuera_de_amazon),
             "dias_al_tope_7d": self.dias_al_tope_7d,
             "avisos": list(self.avisos),
-            "regresables": [
-                {
-                    "ajuste_id": r.ajuste_id,
-                    "clase": r.clase,
-                    "texto": r.texto,
-                    "confirmado_el": r.confirmado_el.isoformat(),
-                }
-                for r in self.regresables
+            "ajustes_regresables": [
+                {"ajuste_id": r.ajuste_id, "frase": r.frase} for r in self.ajustes_regresables
             ],
             "aviso_ajuste": self.aviso_ajuste,
         }
@@ -300,11 +298,14 @@ class PantallaDinero:
     por_campana: tuple[FilaCampana, ...] = ()
 
     def como_dict(self) -> dict:
+        from app.campana_ajustes import CLASES_SELLADAS, ORDEN_CLASES
+
         return {
             "plataforma": self.plataforma,
             "moneda": self.moneda,
             "desde": self.desde.isoformat(),
             "hasta": self.hasta.isoformat(),
+            "clases_ajuste": [c for c in ORDEN_CLASES if c in CLASES_SELLADAS],
             "filas": [fila.como_dict() for fila in self.filas],
             "total": self.total.como_dict(),
             "hojas_sin_clasificar": self.hojas_sin_clasificar,
@@ -464,7 +465,7 @@ def lee_campanas(
                 ajustes_ubicacion=ajustes,
                 gasto_fuera_de_amazon=fuera.get(cid),
                 dias_al_tope_7d=al_tope,
-                regresables=tuple(regresables.get(cid, ())),
+                ajustes_regresables=tuple(regresables.get(cid, ())),
                 aviso_ajuste=_aviso_ajuste_de(ultimo_precio.get(cid), hasta),
             )
         )

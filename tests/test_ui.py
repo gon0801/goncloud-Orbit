@@ -2023,6 +2023,136 @@ vm.runInThisContext(fs.readFileSync(process.argv[1], "utf8"));
     assert resultado.returncode == 0, resultado.stdout + resultado.stderr
 
 
+def test_ui_dinero_js_plan_sin_post_y_aplicar_exige_literal():
+    """Con Node (modelo danadas): tocar el boton de fuera de Amazon pide
+    `campana-ajuste/plan` (GET) y no manda ningun POST; el submit sin el
+    literal `APLICAR AJUSTE` no manda `campana-ajuste/aplicar`; con el
+    literal lo manda con huella, confirmacion y actor; el regreso manda su
+    POST con actor. Todo con el token en `x-orbit-token`."""
+    import os
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    archivo = Path(ui.__file__).resolve().parent / "static" / "js" / "dinero.js"
+    assert archivo.exists(), "Falta el cliente de dinero"
+    node = shutil.which("node")
+    if not node:
+        if "CI" in os.environ:
+            pytest.fail("Node es obligatorio en CI para verificar el flujo JavaScript")
+        pytest.skip("Node no disponible; el navegador se verifica en integracion")
+    guion = r"""
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const vm = require("node:vm");
+function campo(value) { return {value}; }
+function mockForm(dataset, elements) {
+  const form = {
+    dataset: {...dataset}, elements, events: {}, hidden: true,
+    nodos: {"[data-frase]": {textContent: ""}, "[data-estado]": {textContent: ""},
+            "[data-ver-plan]": {events: {}, addEventListener(e, f) { this.events[e] = f; }},
+            'button[type="submit"]': {disabled: true}},
+    addEventListener(e, f) { this.events[e] = f; },
+    querySelector(sel) { return this.nodos[sel]; },
+  };
+  return form;
+}
+const formFuera = mockForm({campanaId: "7", clase: "fuera_de_amazon"},
+  {actor: campo("dueno"), token: campo("t"), confirmacion: campo("")});
+const formPre = mockForm({campanaId: "7", clase: "presupuesto"},
+  {presupuesto: campo("120"), actor: campo("dueno"), token: campo("t"),
+   confirmacion: campo("")});
+const formReg = mockForm({ajusteId: "9"},
+  {actor: campo("dueno"), token: campo("t")});
+function mockBoton(dataset) {
+  return {dataset, events: {}, addEventListener(e, f) { this.events[e] = f; }};
+}
+const botonFuera = mockBoton({campanaId: "7", ajusteClase: "fuera_de_amazon"});
+const botonPre = mockBoton({campanaId: "7", ajusteClase: "presupuesto"});
+const botonReg = mockBoton({regresarAjuste: "9"});
+const docEvents = {};
+global.document = {
+  querySelectorAll(sel) {
+    if (sel === "button[data-ajuste-clase]") return [botonFuera, botonPre];
+    if (sel === "button[data-regresar-ajuste]") return [botonReg];
+    if (sel === "form[data-ajuste-form]") return [formFuera, formPre];
+    if (sel === "form[data-regresar-form]") return [formReg];
+    return [];
+  },
+  getElementById(id) {
+    if (id === "ajuste-7-fuera_de_amazon") return formFuera;
+    if (id === "ajuste-7-presupuesto") return formPre;
+    if (id === "regreso-ajuste-9") return formReg;
+    return null;
+  },
+  addEventListener: (e, f) => { docEvents[e] = f; },
+};
+const calls = [];
+const ok = body => ({ok: true, status: 200, json: async () => body});
+global.fetch = async (url, options = {}) => {
+  calls.push({url, options});
+  if (url.startsWith("/api/ads-optimizer/campana-ajuste/plan")) {
+    return ok({frase: "Orbit cambia el presupuesto", huella: "h1"});
+  }
+  return ok({confirmada: true});
+};
+vm.runInThisContext(fs.readFileSync(process.argv[1], "utf8"));
+(async () => {
+  assert.ok(docEvents.DOMContentLoaded, "dinero.js cablea en DOMContentLoaded");
+  await docEvents.DOMContentLoaded();
+  const tick = async () => {
+    await new Promise(r => setImmediate(r));
+    await new Promise(r => setImmediate(r));
+  };
+  const posts = () => calls.filter(c => (c.options.method || "GET") === "POST");
+  botonFuera.events.click();
+  await tick();
+  assert.equal(calls.length, 1, "tocar el boton pide el plan una vez");
+  assert.ok(calls[0].url.startsWith("/api/ads-optimizer/campana-ajuste/plan?"));
+  assert.ok(calls[0].url.includes("clase=fuera_de_amazon"));
+  assert.equal(posts().length, 0, "el plan no manda POST");
+  assert.equal(formFuera.nodos["[data-frase]"].textContent, "Orbit cambia el presupuesto");
+  assert.equal(formFuera.nodos['button[type="submit"]'].disabled, false);
+  botonPre.events.click();
+  assert.equal(formPre.hidden, false);
+  assert.equal(calls.length, 1, "abrir el form de presupuesto no pide nada");
+  formPre.nodos["[data-ver-plan]"].events.click();
+  await tick();
+  assert.equal(calls.length, 2);
+  assert.ok(calls[1].url.includes("presupuesto=120"));
+  assert.equal(posts().length, 0);
+  formPre.events.submit({preventDefault() {}});
+  await tick();
+  assert.equal(posts().length, 0, "sin el literal no se manda aplicar");
+  formPre.elements.confirmacion.value = "APLICAR AJUSTE";
+  formPre.events.submit({preventDefault() {}});
+  await tick();
+  assert.equal(posts().length, 1);
+  assert.equal(calls[2].url, "/api/ads-optimizer/campana-ajuste/aplicar");
+  assert.equal(calls[2].options.headers["x-orbit-token"], "t");
+  assert.deepEqual(JSON.parse(calls[2].options.body),
+    {campana_id: 7, clase: "presupuesto", presupuesto: 120,
+     huella: "h1", confirmacion: "APLICAR AJUSTE", actor: "dueno"});
+  botonReg.events.click();
+  assert.equal(formReg.hidden, false);
+  formReg.events.submit({preventDefault() {}});
+  await tick();
+  assert.equal(posts().length, 2);
+  assert.equal(calls[3].url, "/api/ads-optimizer/campana-ajuste/9/regresar");
+  assert.equal(calls[3].options.headers["x-orbit-token"], "t");
+  assert.deepEqual(JSON.parse(calls[3].options.body), {actor: "dueno"});
+})().catch(error => { console.error(error); process.exitCode = 1; });
+"""
+    resultado = subprocess.run(
+        [node, "-e", guion, str(archivo)],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=15,
+    )
+    assert resultado.returncode == 0, resultado.stdout + resultado.stderr
+
+
 # P.1 (BIDS 02 s3): /donde-poner-el-dinero.
 # ---------------------------------------------------------------------------
 
@@ -2033,6 +2163,8 @@ def _html_dinero(monkeypatch, filas: list[dict], **params):
     from test_pantalla_dinero import _fila_ui
 
     def _dinero(conn, plataforma=None):
+        from app.campana_ajustes import CLASES_SELLADAS, ORDEN_CLASES
+
         return {
             "plataforma": plataforma or "amazon_mx",
             "moneda": "MXN",
@@ -2042,6 +2174,9 @@ def _html_dinero(monkeypatch, filas: list[dict], **params):
             "total": _fila_ui(tipo=""),
             "hojas_sin_clasificar": 0,
             "target_acos_pct": "13.3",
+            "por_ubicacion": [],
+            "por_campana": [],
+            "clases_ajuste": [c for c in ORDEN_CLASES if c in CLASES_SELLADAS],
         }
 
     monkeypatch.setattr(ui.dash, "donde_poner_el_dinero", _dinero)
@@ -2077,6 +2212,8 @@ def test_ui_donde_poner_el_dinero_pasa_plataforma_us(monkeypatch):
     pedidas = []
 
     def _dinero(conn, plataforma=None):
+        from app.campana_ajustes import CLASES_SELLADAS, ORDEN_CLASES
+
         pedidas.append(plataforma)
         return {
             "plataforma": plataforma or "amazon_mx",
@@ -2087,6 +2224,9 @@ def test_ui_donde_poner_el_dinero_pasa_plataforma_us(monkeypatch):
             "total": _fila_ui(tipo=""),
             "hojas_sin_clasificar": 0,
             "target_acos_pct": "13.3",
+            "por_ubicacion": [],
+            "por_campana": [],
+            "clases_ajuste": [c for c in ORDEN_CLASES if c in CLASES_SELLADAS],
         }
 
     monkeypatch.setattr(ui.dash, "donde_poner_el_dinero", _dinero)
@@ -2097,6 +2237,15 @@ def test_ui_donde_poner_el_dinero_pasa_plataforma_us(monkeypatch):
         app.dependency_overrides.pop(_conexion_lectura, None)
     assert resp.status_code == 200, resp.text
     assert pedidas == ["amazon_us"]
+
+
+def test_ui_donde_poner_el_dinero_carga_dinero_js(monkeypatch):
+    """P.2b: la pagina incluye el cliente de ajustes (CSP self, versionado)."""
+    from test_pantalla_dinero import _fila_ui
+
+    resp = _html_dinero(monkeypatch, [_fila_ui()])
+    assert resp.status_code == 200, resp.text
+    assert "/static/js/dinero.js?v=" in resp.text
 
 
 def test_ui_salud_muestra_avisos_campana_y_sin_bloque_no_rompe(monkeypatch):

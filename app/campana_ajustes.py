@@ -19,6 +19,10 @@ from app.ads.campana_config import ConfigCampana
 
 CLASES_SELLADAS = frozenset({"fuera_de_amazon", "ajuste_ubicacion", "presupuesto"})
 
+# Orden fijo de los botones de la pantalla (P.2b): el dict filtra por
+# selladas, asi una clase sin sonda no trae boton.
+ORDEN_CLASES = ("presupuesto", "ajuste_ubicacion", "fuera_de_amazon")
+
 _PCT_MAX = 900
 _FUERA_LIMITADO = '{"offAmazonBudgetControlStrategy": "MINIMIZE_SPEND"}'
 _CAMPO_POR_UBICACION = {
