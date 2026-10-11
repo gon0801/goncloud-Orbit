@@ -1,0 +1,4 @@
+interlock OK: docs/evidencia/bids-02/ejecucion/X.1/rejuego-amazon_mx.txt termina en cumple: true
+== encendido real de amazon_mx (motor_bid niveles_v3)
+intento 1 con id=24 -> HTTP 200
+OK: {"config_version_id":25,"created":true,"label":"settings UI · settings-ui · 2026-10-11 · amazon_mx: motor bid ausente -> niveles_v3"}

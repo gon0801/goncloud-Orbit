@@ -1,0 +1,19 @@
+rejuego amazon_us 2026-09-13..2026-10-11: 30 ciclos live, 15 aportaron, 1629 casos
+deterministas_pct: 100
+invariantes_rotos: 0
+cobertura_pct: 95.15039901780233271945979128
+recortes_sobre_danadas: 0
+recortes_del_motor_viejo: 110
+recortes_que_se_repetirian: 3
+hojas_recortadas: 4
+parte_del_gasto_recortada_pct: 50.66357506788296671446441102
+regresos: 6
+por_motivo:
+  grupo_sangra_vendedora: 10
+  bajo_target: 2
+vendedoras_que_recortaria (4):
+  hoja 4934: grupo_sangra_vendedora
+  hoja 5336: grupo_sangra_vendedora
+  hoja 5565: grupo_sangra_vendedora
+  hoja 363926: grupo_sangra_vendedora
+cumple: true
