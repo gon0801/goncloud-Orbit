@@ -67,7 +67,6 @@ from app.ads.client import DEFAULT_BASE_URL, AdsClient
 from app.ads.config import AdsCredentials
 from app.ads.structure import evaluar_perfiles, fetch_structure, sync_structure
 from app.db import connect
-from app.impulso import ROLES_IMPULSO
 from app.optimizer.goals import fraccion_desde_settings
 from app.redaction import install_scrub_filter, register_secret, scrub
 
@@ -304,6 +303,16 @@ SELECT orden, rol::text, recurso, estado, external_id, request_payload, ack, rea
  ORDER BY orden
 """
 _SQL_CAMPANAS_DEL_LOTE = """
+SELECT p.rol::text, p.external_id, g.id
+  FROM fabrica_lote_paso p
+  LEFT JOIN campana_grupo cg ON cg.lote = p.lote
+  LEFT JOIN campana_grupo_rol r ON r.grupo_id = cg.id AND r.rol = p.rol
+  LEFT JOIN ads_optimizer_goal g ON g.ad_entity_id = r.ad_entity_id AND g.scope = 'campaign'
+ WHERE p.lote = %s AND p.recurso = 'campaign'
+   AND p.estado IN ('applied', 'failed') AND p.external_id IS NOT NULL
+ ORDER BY p.orden
+"""
+_SQL_CAMPANAS_DEL_LOTE_PARA_PAUSA = """
 SELECT DISTINCT ON (p.rol) p.rol::text, p.external_id, g.id
   FROM fabrica_lote_paso p
   LEFT JOIN campana_grupo cg ON cg.lote = p.lote
@@ -1203,7 +1212,7 @@ def _registrar(ctx: _Ctx, plan: fp.PlanCanonico, creadas: list[dict]) -> int:
     goal_target = fp.target_para_goals(plan)
     inserta_grupo = (
         _SQL_INSERTA_GRUPO_IMPULSO
-        if isinstance(plan, fp.PlanGrupoV2) and plan.roles == ROLES_IMPULSO
+        if isinstance(plan, fp.PlanGrupoV2) and plan.roles == fp.ROLES_IMPULSO
         else _SQL_INSERTA_GRUPO
     )
     grupo = conn.execute(
@@ -1571,7 +1580,7 @@ def _cambia_estado_lote(ctx: _Ctx, lote: str, estado: str, actor: str) -> None:
         raise Abortar(f"lote {lote} en {actual}: solo se pausa desde applied")
     if estado == "applied" and actual != "pausado":
         raise Abortar(f"lote {lote} en {actual}: solo se reanuda desde pausado")
-    filas = ctx.conn_admin.execute(_SQL_CAMPANAS_DEL_LOTE, (lote,)).fetchall()
+    filas = ctx.conn_admin.execute(_SQL_CAMPANAS_DEL_LOTE_PARA_PAUSA, (lote,)).fetchall()
     ctx.conn_admin.commit()
     if not filas:
         raise Abortar(f"lote {lote} sin campanas en fabrica_lote_paso: nada que {estado}")

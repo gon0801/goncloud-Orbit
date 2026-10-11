@@ -338,7 +338,6 @@ class _ConnFalsa:
         goals=(),
         familias_productos=(),
         productos_de_listings=(),
-        estado_lote=None,
     ):
         self.settings = settings
         self.productos = list(productos)
@@ -357,7 +356,6 @@ class _ConnFalsa:
         self.goals = list(goals)
         self.familias_productos = list(familias_productos)
         self.productos_de_listings = list(productos_de_listings)
-        self.estado_lote = estado_lote
         self.escrituras = []  # (sql plano, params)
         self.commits = 0
         self.closes = 0
@@ -412,7 +410,7 @@ class _ConnFalsa:
         if "pg_advisory_xact_lock" in bajo:
             return _Cursor([(None,)])
         if bajo.startswith("select estado from fabrica_lote"):
-            return _Cursor([(self.estado_lote,)] if self.estado_lote is not None else [])
+            return _Cursor([])
         if "from fabrica_lote" in bajo and "platform" in bajo:
             return _Cursor([(self.lote_platform,)])
         if "from ads_optimizer_goal" in bajo:
@@ -2630,8 +2628,8 @@ def test_sql_del_ledger_contra_postgres_real():
         fc._sella_paso(ctx, pid4, False, None, {"status": 400}, None)
         filas = conn.execute(fc._SQL_CAMPANAS_DEL_LOTE, ("L1",)).fetchall()
         assert [(f[0], f[1], f[2]) for f in filas] == [
-            ("category_broad", "c-3", None),
             ("category_exact", "c-1", None),
+            ("category_broad", "c-3", None),
         ]
         pend = conn.execute(fc._SQL_PENDIENTES, ("L1", "L1", None, None)).fetchall()
         esperado = [
@@ -2732,7 +2730,7 @@ def test_registrar_tipifica_por_roles_de_impulso_no_literal(monkeypatch):
             amazon = _Amazon()
             _frontera_mutacion(monkeypatch, _conn_plan(), conn_motor, amazon, stub_registrar=False)
             monkeypatch.setattr(fc, "_sync", lambda cliente: None)
-            monkeypatch.setattr(fc, "ROLES_IMPULSO", ("solo_un_rol",), raising=False)
+            monkeypatch.setattr(fp, "ROLES_IMPULSO", ("solo_un_rol",))
             assert fc._mutar(args, plan, huella, lote="i1-tupla") == 0
         assert conn.execute("SELECT tipo FROM campana_grupo").fetchone() == ("fabrica5",)
 
