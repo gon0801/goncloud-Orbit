@@ -177,47 +177,58 @@ def test_sugeridor_real_una_llamada_por_producto():
 
 
 def _ejecutor_falso(conn, *, falla_en=()):
-    """Ejecutor de fabrica falso: siembra lote+grupo+roles+goals reales."""
+    """Ejecutor de fabrica falso: siembra lote+grupo+roles+goals reales.
+
+    Como el real (_mutar), escribe por SU PROPIA conexion, no por la
+    del llamador: asi no rompe la transaccion de lanza."""
+
+    import psycopg
+
+    dsn = conn.info.dsn
+    dbname = conn.info.dbname
 
     def ejecuta(plan_grupo, huella, lote):
         if lote in falla_en:
             raise RuntimeError("amazon caido")
-        conn.execute(
-            "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal,"
-            " huella, plan, modo_goal, estado) VALUES (%s, 'amazon_mx', 'aros', 'Base', 'go',"
-            " %s, '{}'::jsonb, 'shadow', 'applied')",
-            (lote, huella),
-        )
-        grupo = conn.execute(
-            "INSERT INTO campana_grupo (platform, tipo_producto, nombre_base, lote,"
-            " target_acos_pct, target_derivado_pct, fraccion, target_procedencia, go_literal,"
-            " tipo) VALUES ('amazon_mx', 'aros', 'Base', %s, 19.10, 19.1040, 0.5, 'm', 'go',"
-            " 'impulso') RETURNING id",
-            (lote,),
-        ).fetchone()[0]
-        for rol in ("category_exact", "auto_discovery"):
-            camp = conn.execute(
-                "INSERT INTO ad_entity (platform, kind, external_id) VALUES ('amazon_mx',"
-                " 'campaign', %s) RETURNING id",
-                (f"{lote}-{rol}",),
-            ).fetchone()[0]
-            ag = conn.execute(
-                "INSERT INTO ad_entity (platform, kind, external_id, parent_id)"
-                " VALUES ('amazon_mx', 'ad_group', %s, %s) RETURNING id",
-                (f"{lote}-{rol}-ag", camp),
-            ).fetchone()[0]
-            conn.execute(
-                "INSERT INTO campana_grupo_rol (grupo_id, rol, ad_entity_id,"
-                " ad_group_ad_entity_id) VALUES (%s, %s, %s, %s)",
-                (grupo, rol, camp, ag),
+        propia = psycopg.connect(dsn, dbname=dbname, autocommit=True)
+        try:
+            propia.execute(
+                "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base,"
+                " go_literal, huella, plan, modo_goal, estado) VALUES (%s, 'amazon_mx',"
+                " 'aros', 'Base', 'go', %s, '{}'::jsonb, 'shadow', 'applied')",
+                (lote, huella),
             )
-            conn.execute(
-                "INSERT INTO ads_optimizer_goal (scope, ad_entity_id, target_acos_pct,"
-                " bid_floor, bid_ceiling, bid_currency, enabled, mode) VALUES ('campaign',"
-                " %s, NULL, 0.10, 2.50, 'MXN', true, 'shadow')",
-                (camp,),
-            )
-        conn.commit()
+            grupo = propia.execute(
+                "INSERT INTO campana_grupo (platform, tipo_producto, nombre_base, lote,"
+                " target_acos_pct, target_derivado_pct, fraccion, target_procedencia,"
+                " go_literal, tipo) VALUES ('amazon_mx', 'aros', 'Base', %s, 19.10,"
+                " 19.1040, 0.5, 'm', 'go', 'impulso') RETURNING id",
+                (lote,),
+            ).fetchone()[0]
+            for rol in ("category_exact", "auto_discovery"):
+                camp = propia.execute(
+                    "INSERT INTO ad_entity (platform, kind, external_id) VALUES ('amazon_mx',"
+                    " 'campaign', %s) RETURNING id",
+                    (f"{lote}-{rol}",),
+                ).fetchone()[0]
+                ag = propia.execute(
+                    "INSERT INTO ad_entity (platform, kind, external_id, parent_id)"
+                    " VALUES ('amazon_mx', 'ad_group', %s, %s) RETURNING id",
+                    (f"{lote}-{rol}-ag", camp),
+                ).fetchone()[0]
+                propia.execute(
+                    "INSERT INTO campana_grupo_rol (grupo_id, rol, ad_entity_id,"
+                    " ad_group_ad_entity_id) VALUES (%s, %s, %s, %s)",
+                    (grupo, rol, camp, ag),
+                )
+                propia.execute(
+                    "INSERT INTO ads_optimizer_goal (scope, ad_entity_id, target_acos_pct,"
+                    " bid_floor, bid_ceiling, bid_currency, enabled, mode) VALUES"
+                    " ('campaign', %s, NULL, 0.10, 2.50, 'MXN', true, 'shadow')",
+                    (camp,),
+                )
+        finally:
+            propia.close()
         return io.EjecucionFabrica(lote=lote, grupo_id=grupo, estado_lote="applied")
 
     return ejecuta
@@ -257,6 +268,57 @@ def test_lanza_dos_crea_impulsos_y_es_idempotente():
         )
         assert [x.impulso_id for x in otra] == [x.impulso_id for x in lanzados]
         assert conn.execute("SELECT count(*) FROM impulso").fetchone() == (2,)
+
+
+@_skip_db
+def test_lanza_concurrente_mismo_listing_un_solo_vivo():
+    """R09-r2 GLM47-2: dos lanzar al mismo listing en dos conexiones
+    autocommit (como prod): uno crea, el otro relee por el candado
+    (idempotente); jamas dos vivos ni UniqueViolation cruda."""
+    import threading
+
+    import psycopg
+
+    with _db_i3("orbit_i3_race") as conn:
+        _, lid = _con_margen(conn)
+        solicitud = _solicitud(conn, [lid])
+        vista = io.previsualiza(conn, solicitud, sugeridor=_sugeridor_fijo())
+        barrera = threading.Barrier(2)
+        resultados: dict = {}
+
+        def _corre(n, c):
+            try:
+                barrera.wait(timeout=30)
+                r = io.lanza(
+                    c,
+                    solicitud,
+                    huella=vista.huella,
+                    confirmacion=vista.confirmacion_esperada,
+                    actor="dueno",
+                    ejecutor=_ejecutor_falso(c),
+                    sugeridor=_sugeridor_fijo(),
+                )
+                resultados[n] = ("ok", [x.impulso_id for x in r])
+            except Exception as exc:  # noqa: BLE001 - el test clasifica
+                resultados[n] = ("crash", type(exc).__name__)
+
+        conn2 = psycopg.connect(conn.info.dsn, dbname=conn.info.dbname, autocommit=True)
+        try:
+            hilos = [
+                threading.Thread(target=_corre, args=(1, conn)),
+                threading.Thread(target=_corre, args=(2, conn2)),
+            ]
+            for h in hilos:
+                h.start()
+            for h in hilos:
+                h.join(timeout=60)
+                assert not h.is_alive()
+        finally:
+            conn2.close()
+        assert resultados[1][0] == "ok", resultados
+        assert resultados[2][0] == "ok", resultados
+        assert resultados[1][1] == resultados[2][1]
+        assert conn.execute("SELECT count(*) FROM impulso").fetchone() == (1,)
 
 
 @_skip_db

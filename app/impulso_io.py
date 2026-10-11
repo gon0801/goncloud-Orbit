@@ -422,45 +422,44 @@ def lanza(
     fallos: dict[int, str] = {}
     for plan in vista.planes:
         lote = lote_de_plan(plan)
-        conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (f"impulso:{plan.listing_id}",))
-        existente = conn.execute(_SQL_IMPULSO_DE_LOTE, (lote,)).fetchone()
-        if existente is not None:
-            estado = conn.execute(_SQL_ESTADO_LOTE, (lote,)).fetchone()[0]
-            lanzados.append(ImpulsoLanzado(existente[0], lote, estado))
-            conn.commit()
-            continue
-        huerfano = conn.execute(_SQL_ESTADO_LOTE, (lote,)).fetchone()
-        if huerfano is not None:
-            grupo = conn.execute(_SQL_GRUPO_DE_LOTE, (lote,)).fetchone()
-            if huerfano[0] == "applied" and grupo is not None:
-                imp = _sella_impulso(conn, plan, grupo[0], lote, actor, confirmacion)
-                conn.commit()
-                lanzados.append(ImpulsoLanzado(imp, lote, "applied"))
-                continue
-            conn.rollback()
-            fallos[plan.listing_id] = f"lote {lote} quedo en {huerfano[0]}: reconcilia a mano"
-            continue
-        vivo = conn.execute(_SQL_VIVO, (plan.plataforma, plan.listing_id)).fetchone()
-        if vivo is not None:
-            conn.rollback()
-            raise ErrorImpulso(
-                409,
-                f"listing {plan.listing_id} ya tiene un impulso vivo",
-                lanzados=lanzados,
+        # Una transaccion por producto: el candado advisory dura la
+        # transaccion (en autocommit, sin esto se libera al instante y
+        # dos lanzar crean dos vivos). Salir commitea; fallar revierte.
+        with conn.transaction():
+            conn.execute(
+                "SELECT pg_advisory_xact_lock(hashtext(%s))", (f"impulso:{plan.listing_id}",)
             )
-        try:
-            hecho = ejecutor(_grupo_v2_de_plan(plan), plan.huella(), lote)
-        except Exception as exc:
-            conn.rollback()
-            fallos[plan.listing_id] = f"la fabrica fallo ({exc})"
-            continue
-        if hecho.estado_lote != "applied":
-            conn.rollback()
-            fallos[plan.listing_id] = f"lote {lote} no quedo applied"
-            continue
-        imp = _sella_impulso(conn, plan, hecho.grupo_id, lote, actor, confirmacion)
-        conn.commit()
-        lanzados.append(ImpulsoLanzado(imp, lote, hecho.estado_lote))
+            existente = conn.execute(_SQL_IMPULSO_DE_LOTE, (lote,)).fetchone()
+            if existente is not None:
+                estado = conn.execute(_SQL_ESTADO_LOTE, (lote,)).fetchone()[0]
+                lanzados.append(ImpulsoLanzado(existente[0], lote, estado))
+                continue
+            huerfano = conn.execute(_SQL_ESTADO_LOTE, (lote,)).fetchone()
+            if huerfano is not None:
+                grupo = conn.execute(_SQL_GRUPO_DE_LOTE, (lote,)).fetchone()
+                if huerfano[0] == "applied" and grupo is not None:
+                    imp = _sella_impulso(conn, plan, grupo[0], lote, actor, confirmacion)
+                    lanzados.append(ImpulsoLanzado(imp, lote, "applied"))
+                    continue
+                fallos[plan.listing_id] = f"lote {lote} quedo en {huerfano[0]}: reconcilia a mano"
+                continue
+            vivo = conn.execute(_SQL_VIVO, (plan.plataforma, plan.listing_id)).fetchone()
+            if vivo is not None:
+                raise ErrorImpulso(
+                    409,
+                    f"listing {plan.listing_id} ya tiene un impulso vivo",
+                    lanzados=lanzados,
+                )
+            try:
+                hecho = ejecutor(_grupo_v2_de_plan(plan), plan.huella(), lote)
+            except Exception as exc:
+                fallos[plan.listing_id] = f"la fabrica fallo ({exc})"
+                continue
+            if hecho.estado_lote != "applied":
+                fallos[plan.listing_id] = f"lote {lote} no quedo applied"
+                continue
+            imp = _sella_impulso(conn, plan, hecho.grupo_id, lote, actor, confirmacion)
+            lanzados.append(ImpulsoLanzado(imp, lote, hecho.estado_lote))
     if fallos:
         raise ErrorImpulso(
             502, "algunos productos no se lanzaron", lanzados=lanzados, fallos=fallos
