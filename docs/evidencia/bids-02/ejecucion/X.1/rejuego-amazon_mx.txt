@@ -1,0 +1,16 @@
+rejuego amazon_mx 2026-09-15..2026-10-11: 31 ciclos live, 15 aportaron, 2028 casos
+deterministas_pct: 100
+invariantes_rotos: 0
+cobertura_pct: 96.25246548323471400394477318
+recortes_sobre_danadas: 0
+recortes_del_motor_viejo: 149
+recortes_que_se_repetirian: 2
+hojas_recortadas: 1
+parte_del_gasto_recortada_pct: 10.80511621450681548000023765
+regresos: 13
+por_motivo:
+  bajo_target: 58
+  grupo_sangra_vendedora: 2
+vendedoras_que_recortaria (1):
+  hoja 3861: grupo_sangra_vendedora
+cumple: true

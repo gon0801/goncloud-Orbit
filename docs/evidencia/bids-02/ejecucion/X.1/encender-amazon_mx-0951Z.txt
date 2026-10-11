@@ -1,0 +1,10 @@
+interlock OK: docs/evidencia/bids-02/ejecucion/X.1/rejuego-amazon_mx.txt termina en cumple: true
+== SIMULACRO: sin --acepto-mutacion-real no se escribe nada
+ssh goncloud 'curl -sS -X POST http://127.0.0.1:8010/api/ads-optimizer/settings/amazon_mx \
+-H "Content-Type: application/json" \
+-H "x-orbit-token: $(cat /mnt/data/appdata/orbit/secrets/api_write_token)" \
+-d "{\"base_config_version_id\": <id>, \"motor_bid\": \"niveles_v3\"}"'
+(llamada literal del paso X.1, cambio 5; el token no sale del servidor)
+base_config_version_id seria: 24
+cuerpo seria: {"base_config_version_id": 24, "motor_bid": "niveles_v3"}
+SIMULACRO OK (nada escrito)

@@ -1,0 +1,33 @@
+== 0) El servidor contesta
+OK    orbit-app-1 corriendo = true
+== Checklist D.1 (solo lectura; sello 20261010-2022, contenedor desde 2026-10-11T03:52:46.202586112Z)
+== 1) HTTP: /health, /keywords-danadas, /ruido
+OK    GET /health = 200
+OK    GET /keywords-danadas = 200
+OK    GET /ruido = 200
+== 2) Esquema de D.1 (esperado t|t)
+OK    v_hoja_activa y v_cambio_bid creadas = t|t
+== 3) Clave ausente y fraccion US (esperado f|f y 0.8)
+OK    claves de politica mx|us = f|f
+OK    fraccion US = 0.8
+== 4) Primer ciclo posterior vs ciclo anterior, por plataforma
+117|amazon_mx|done|2026-10-11 08:41
+116|amazon_us|done|2026-10-11 08:40
+OK    ciclos posteriores fallidos = 0
+-- amazon_mx: posterior id=117 hora_utc=08:41, anterior id=115
+OK    hora del primer ciclo amazon_mx = 08:41 (ventana 08:40-08:59 UTC)
+OK    decisiones bid del ciclo posterior amazon_mx = 0
+OK    notes con politica_apagada amazon_mx = t
+conteo pause amazon_mx: anterior=0 posterior=0
+conteo negative amazon_mx: anterior=0 posterior=0
+conteo harvest amazon_mx: anterior=0 posterior=0
+OK    amazon_mx decide como antes (anterior=0 posterior=0)
+-- amazon_us: posterior id=116 hora_utc=08:40, anterior id=114
+OK    hora del primer ciclo amazon_us = 08:40 (ventana 08:40-08:59 UTC)
+OK    decisiones bid del ciclo posterior amazon_us = 0
+OK    notes con politica_apagada amazon_us = t
+conteo pause amazon_us: anterior=0 posterior=0
+conteo negative amazon_us: anterior=0 posterior=0
+conteo harvest amazon_us: anterior=0 posterior=0
+OK    amazon_us decide como antes (anterior=0 posterior=0)
+== RESULTADO: 0 falla(s), 0 sin medir, ciclo posterior comprobado
