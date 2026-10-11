@@ -220,22 +220,28 @@ class AdsApiErrorMutacion(AdsApiError):
 
 def _errores_put(respuesta: httpx.Response) -> list[str]:
     """Errores anidados de un PUT bulk v3: `errors` no vacio arriba o por
-    item, o `code` 4xx/5xx por item. Lista vacia con exito (un 207 limpio
-    no trae ni errors ni codes de fallo)."""
+    item, o `code` 4xx/5xx arriba o por item. Fail-closed (panel): cuerpo
+    ilegible o item no-dict es error, no exito (un rechazo deja pendiente
+    reintentable; un falso exito sella una mentira). Lista vacia solo con
+    exito (un 207 limpio no trae ni errors ni codes de fallo)."""
     try:
         cuerpo = respuesta.json()
     except ValueError:
-        return []
+        return ["respuesta sin JSON"]
     if not isinstance(cuerpo, dict):
-        return []
+        return ["respuesta no es objeto"]
     errores = []
     top = cuerpo.get("errors")
     if isinstance(top, list) and top:
         errores.extend(str(e) for e in top)
+    codigo_tope = str(cuerpo.get("code", ""))
+    if codigo_tope[:1] in ("4", "5"):
+        errores.append(cuerpo.get("description") or f"code {codigo_tope}")
     items = cuerpo.get("campaigns")
     if isinstance(items, list):
         for item in items:
             if not isinstance(item, dict):
+                errores.append("item de campana ilegible")
                 continue
             anidados = item.get("errors")
             if isinstance(anidados, list) and anidados:
@@ -260,7 +266,7 @@ def _snippet_cuerpo(resp: httpx.Response, tope: int = 500) -> str:
 class AdsWriteClient(AdsClient):
     """Cliente de escritura Amazon Ads: SOLO las mutaciones del allowlist.
 
-    La superficie publica es EXACTA (las 10 mutaciones selladas + las dos
+    La superficie publica es EXACTA (las 9 mutaciones selladas + las dos
     puertas de lectura sellada: list_sellado para el readback de entidad y
     get_sellado solo para el PENDIENTE-DE-REGLA-8; ningun metodo generico
     request/post) y ningun metodo acepta profile/platform: el scope vive en

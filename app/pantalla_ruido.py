@@ -64,6 +64,8 @@ SELECT h.hoja_id, h.current_bid, c.confirmado_el, c.bid_antes, c.bid_despues, c.
   FROM v_hoja_activa h
   JOIN v_cambio_bid c ON c.hoja_id = h.hoja_id
  WHERE h.platform = %s
+   -- Un ajuste no mueve bids (antes == despues): incluirlo corrompe la base.
+   AND c.origen <> 'ajuste_de_campana'
    AND (c.confirmado_el AT TIME ZONE 'UTC')::date >= (now() AT TIME ZONE 'UTC')::date - %s
  ORDER BY h.hoja_id, c.confirmado_el, c.decision_id
 """

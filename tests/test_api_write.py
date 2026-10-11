@@ -1362,11 +1362,10 @@ def test_plan_sin_token_devuelve_frase_y_huella(tmp_path, monkeypatch):
         dato = resp.json()
         assert "120" in dato["frase"] and "100" in dato["frase"]
         assert len(dato["huella"]) == 64
-        assert dato["despues"]["presupuesto_diario"] == "120.0"
+        assert dato["despues"]["presupuesto_diario"] == "120.00"
         assert conn.execute("SELECT count(*) FROM campana_ajuste").fetchone()[0] == 0
 
 
-@_skip_db
 @_skip_db
 def test_regresar_sin_token_da_401(tmp_path, monkeypatch):
     with _db_ajustes("orbit_wa_401r") as (_conn, dsn_admin, _dsn_l):
@@ -1475,7 +1474,7 @@ def test_aplicar_huella_vieja_da_409_con_plan_nuevo(tmp_path, monkeypatch):
         )
         assert resp.status_code == 409, resp.text
         nuevo = resp.json()["detail"]["plan_nuevo"]
-        assert nuevo["despues"]["presupuesto_diario"] == "120.0"
+        assert nuevo["despues"]["presupuesto_diario"] == "120.00"
         assert nuevo["antes"]["presupuesto_diario"] == "110.0000"
 
 
@@ -1564,6 +1563,108 @@ def test_regresar_inexistente_da_404(tmp_path, monkeypatch):
         assert resp.status_code == 404
 
 
+@_skip_db
+def test_aplicar_actor_blanco_da_422(tmp_path, monkeypatch):
+    """Panel: ValueError de apply (actor en blanco) mapea a 422, no 500."""
+    with _db_ajustes("orbit_wa_blanco") as (conn, dsn_admin, dsn_l):
+        camp = _siembra_ajuste(conn)
+        remoto = {"93529333080113": {"budget": {"budget": 100.0, "budgetType": "DAILY"}}}
+        handler, _vistos = _handler_ajustes(remoto)
+        _mock_cliente_ajuste(monkeypatch, handler)
+        _secrets_token(tmp_path, monkeypatch)
+        monkeypatch.setenv("ORBIT_DSN_ADMIN", dsn_admin)
+        monkeypatch.setenv("ORBIT_DSN_READ", dsn_l)
+        plan = (
+            TestClient(app)
+            .get(
+                "/api/ads-optimizer/campana-ajuste/plan",
+                params={"campana_id": camp, "clase": "presupuesto", "presupuesto": 120},
+            )
+            .json()
+        )
+        resp = TestClient(app).post(
+            "/api/ads-optimizer/campana-ajuste/aplicar",
+            json={
+                "campana_id": camp,
+                "clase": "presupuesto",
+                "presupuesto": 120,
+                "huella": plan["huella"],
+                "confirmacion": "APLICAR AJUSTE",
+                "actor": " ",
+            },
+            headers={"x-orbit-token": TOKEN},
+        )
+        assert resp.status_code == 422, resp.text
+
+
+@_skip_db
+def test_aplicar_put_rechazado_da_502(tmp_path, monkeypatch):
+    """Panel: PUT rechazado por Amazon mapea a 502, no 500."""
+    with _db_ajustes("orbit_wa_502") as (conn, dsn_admin, dsn_l):
+        camp = _siembra_ajuste(conn)
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "api.amazon.com":
+                return httpx.Response(200, json={"access_token": "fake", "expires_in": 3600})
+            if request.method == "GET" and request.url.path == "/v2/profiles":
+                return httpx.Response(200, json=[{**PERFIL_US_RAW, "countryCode": "MX"}])
+            if request.method == "PUT" and request.url.path == "/sp/campaigns":
+                return httpx.Response(
+                    207, json={"campaigns": [{"code": "400", "description": "nope"}]}
+                )
+            raise AssertionError(f"request inesperado: {request.method} {request.url.path}")
+
+        _mock_cliente_ajuste(monkeypatch, handler)
+        _secrets_token(tmp_path, monkeypatch)
+        monkeypatch.setenv("ORBIT_DSN_ADMIN", dsn_admin)
+        monkeypatch.setenv("ORBIT_DSN_READ", dsn_l)
+        plan = (
+            TestClient(app)
+            .get(
+                "/api/ads-optimizer/campana-ajuste/plan",
+                params={"campana_id": camp, "clase": "presupuesto", "presupuesto": 120},
+            )
+            .json()
+        )
+        resp = TestClient(app).post(
+            "/api/ads-optimizer/campana-ajuste/aplicar",
+            json={
+                "campana_id": camp,
+                "clase": "presupuesto",
+                "presupuesto": 120,
+                "huella": plan["huella"],
+                "confirmacion": "APLICAR AJUSTE",
+                "actor": "dueno",
+            },
+            headers={"x-orbit-token": TOKEN},
+        )
+        assert resp.status_code == 502, resp.text
+
+
+@_skip_db
+def test_aplicar_actor_largo_da_422(tmp_path, monkeypatch):
+    """Panel: actor de mas de 200 (la columna) se veta en el borde: el
+    422 sale de pydantic (detail lista), no de apply."""
+    with _db_ajustes("orbit_wa_largo") as (conn, dsn_admin, _dsn_l):
+        camp = _siembra_ajuste(conn)
+        _secrets_token(tmp_path, monkeypatch)
+        monkeypatch.setenv("ORBIT_DSN_ADMIN", dsn_admin)
+        resp = TestClient(app).post(
+            "/api/ads-optimizer/campana-ajuste/aplicar",
+            json={
+                "campana_id": camp,
+                "clase": "presupuesto",
+                "presupuesto": 120,
+                "huella": "x",
+                "confirmacion": "APLICAR AJUSTE",
+                "actor": "d" * 201,
+            },
+            headers={"x-orbit-token": TOKEN},
+        )
+        assert resp.status_code == 422, resp.text
+        assert isinstance(resp.json()["detail"], list)
+
+
 def test_mapeo_errores_ajuste_trae_sus_codigos():
     """Puro: el dict de la ruta mapea cada error de ajuste a su codigo.
     (ConfirmacionInvalida es inalcanzable por HTTP — pydantic veta el
@@ -1575,6 +1676,8 @@ def test_mapeo_errores_ajuste_trae_sus_codigos():
         apply.AjusteSinRegreso: 422,
         apply.AjusteInexistente: 404,
         apply.AjusteYaRegresado: 409,
+        apply.AjusteEnCurso: 409,
         apply.AjusteNoConfirmado: 502,
+        apply.AdsApiErrorMutacion: 502,
         apply.SinPerfilAjuste: 503,
     } == _ERRORES_AJUSTE

@@ -1388,22 +1388,43 @@ def test_pg_regresables_y_aviso_propio_en_fila_campana():
         camp = _siembra_campana(conn, "amazon_mx", "cr", "Reg")
         cfg = conn.execute(
             "INSERT INTO ads_campana_config_observation (ad_entity_id, observed_at,"
-            " presupuesto_diario, presupuesto_moneda, estrategia_puja) VALUES"
-            " (%s, %s, 100, 'MXN', 'MANUAL') RETURNING id",
+            " presupuesto_diario, presupuesto_moneda, estrategia_puja, ajuste_top_pct)"
+            " VALUES (%s, %s, 100, 'MXN', 'MANUAL', 30) RETURNING id",
             (camp, dt.datetime(2026, 10, 1, tzinfo=dt.UTC)),
         ).fetchone()[0]
+        cfg_vacio = conn.execute(
+            "INSERT INTO ads_campana_config_observation (ad_entity_id, observed_at)"
+            " VALUES (%s, %s) RETURNING id",
+            (camp, dt.datetime(2026, 10, 1, 1, tzinfo=dt.UTC)),
+        ).fetchone()[0]
 
-        def _ajuste(clase, huella, confirmado, regresa_a=None):
+        def _ajuste(clase, huella, confirmado, regresa_a=None, antes=None):
             return conn.execute(
                 "INSERT INTO campana_ajuste (campana_id, platform, clase, antes_config_id,"
                 " despues, huella, actor, go_literal, regresa_a, confirmado_el)"
                 " VALUES (%s, 'amazon_mx', %s, %s, %s, %s, 'dueno', 'APLICAR AJUSTE',"
                 " %s, %s) RETURNING id",
-                (camp, clase, cfg, json.dumps({"clase": clase}), huella, regresa_a, confirmado),
+                (
+                    camp,
+                    clase,
+                    cfg if antes is None else antes,
+                    json.dumps({"clase": clase}),
+                    huella,
+                    regresa_a,
+                    confirmado,
+                ),
             ).fetchone()[0]
 
         ubi = _ajuste("ajuste_ubicacion", "h-ubi", dt.datetime(2026, 10, 3, tzinfo=dt.UTC))
         pre = _ajuste("presupuesto", "h-pre", dt.datetime(2026, 10, 3, tzinfo=dt.UTC))
+        # Panel: antes sin el campo de la clase -> sin boton (el regreso no
+        # podria confirmarse: Amazon conserva lo que el PUT no manda).
+        _ajuste(
+            "presupuesto",
+            "h-vacio",
+            dt.datetime(2026, 10, 3, tzinfo=dt.UTC),
+            antes=cfg_vacio,
+        )
         _ajuste("fuera_de_amazon", "h-fuera", dt.datetime(2026, 10, 3, tzinfo=dt.UTC))
         _ajuste("presupuesto", "h-pend", None)
         reg = _ajuste(

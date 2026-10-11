@@ -478,6 +478,31 @@ def test_ajustar_campana_rechaza_llave_desconocida_sin_http():
         client.ajustar_campana("93529333080113", {"state": "PAUSED"})
 
 
+def test_ajustar_campana_falla_en_cerrado_ante_basura():
+    """Panel: code 4xx de tope, item no-dict o cuerpo ilegible lanzan
+    (nunca falso exito: un rechazo deja pendiente reintentable)."""
+
+    def _put(contenido, *, crudo=None):
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "api.amazon.com":
+                return _token_response()
+            if crudo is not None:
+                return httpx.Response(207, content=crudo)
+            return httpx.Response(207, json=contenido)
+
+        return make_write_client(handler)
+
+    client = _put({"code": "400"})
+    with pytest.raises(AdsApiErrorMutacion, match="code 400"):
+        client.ajustar_campana("1", {"budget": {"budget": 1.0, "budgetType": "DAILY"}})
+    client = _put({"campaigns": ["x"]})
+    with pytest.raises(AdsApiErrorMutacion, match="ilegible"):
+        client.ajustar_campana("1", {"budget": {"budget": 1.0, "budgetType": "DAILY"}})
+    client = _put(None, crudo=b"no-json")
+    with pytest.raises(AdsApiErrorMutacion, match="sin JSON"):
+        client.ajustar_campana("1", {"budget": {"budget": 1.0, "budgetType": "DAILY"}})
+
+
 def test_ajustar_campana_207_con_errores_anidados_lanza():
     """Exito se decide por errores anidados, nunca por el status."""
 

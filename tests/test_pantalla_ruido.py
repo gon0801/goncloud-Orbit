@@ -905,3 +905,50 @@ def test_lee_ruido_punta_a_punta_mx_no_trae_us():
 
     assert [c["cycle_id"] for c in us["ciclos"]] == [ciclo]
     assert us["antes_y_despues"] is None
+
+
+@_FALTA_PG
+def test_encogimiento_ignora_ajuste_de_campana_antiguo():
+    """Panel: un ajuste confirmado antiguo en la campana no corrompe la
+    base del encogimiento (el ajuste no mueve bids: antes == despues)."""
+    from app.pantalla_ruido import lee_ruido
+
+    with _db_ruido() as conn:
+        config = _config(conn)
+        camp, _grupo, hoja = _triple(conn, "amazon_mx", tag="enc", bid=Decimal("4"))
+        ciclo = _ciclo(conn, "live", "amazon_mx")
+        decision = _decision_caso(
+            conn,
+            ciclo,
+            hoja,
+            config,
+            "gasto_sin_venta",
+            "hoja",
+            old=Decimal("10.0000"),
+            new=Decimal("4.0000"),
+        )
+        _aplicada(conn, decision, ciclo, dt.datetime(2026, 10, 1, 12, 0, tzinfo=UTC))
+        obs = conn.execute(
+            "INSERT INTO ads_campana_config_observation (ad_entity_id, observed_at,"
+            " presupuesto_diario, presupuesto_moneda) VALUES (%s, %s, 100, 'MXN')"
+            " RETURNING id",
+            (camp, dt.datetime(2026, 7, 10, 12, 0, tzinfo=UTC)),
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO campana_ajuste (campana_id, platform, clase, antes_config_id,"
+            " despues, huella, actor, go_literal, confirmado_el)"
+            " VALUES (%s, 'amazon_mx', 'ajuste_ubicacion', %s, '{}', 'h-ruido',"
+            " 'dueno', 'APLICAR AJUSTE', %s)",
+            (camp, obs, dt.datetime(2026, 7, 15, 12, 0, tzinfo=UTC)),
+        )
+        pantalla = lee_ruido(conn, plataforma="amazon_mx", dias=90).como_dict()
+
+    assert pantalla["encogimiento"] == [
+        {
+            "hoja_id": hoja,
+            "bid_base": "10.0000",
+            "bid_hoy": "4.0000",
+            "razon": "0.4",
+            "moneda": "MXN",
+        },
+    ]

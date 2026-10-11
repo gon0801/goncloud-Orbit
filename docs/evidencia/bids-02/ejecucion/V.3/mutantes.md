@@ -129,3 +129,52 @@ despues (la suite quedo en `4 passed`).
   ser 0). Fuga revertida.
 - El candado nuevo trae su detector con fuga sembrada (regla 14):
   test_detector_ajustes_caza_import_sembrado.
+
+## Panel interrogate (verificados 2026-10-11, todos MUEREN)
+
+- Sin quantize (`monto` sin `quantize`) ->
+  test_presupuesto_se_cuantiza_a_centavos en rojo.
+- Sin `is_finite` -> test_presupuesto_nan_o_infinito_levanta en rojo.
+- Ubicacion sin `dynamicBidding` pasa (`if False:`) ->
+  test_ubicacion_sin_dynamicBidding_previo_se_rechaza en rojo.
+- Sin moneda estrenada -> test_presupuesto_sin_previo_estrena_moneda_del_perfil en rojo.
+- `coincide_clase` compara el registro completo ->
+  test_coincide_clase_mira_solo_lo_que_la_clase_mueve en rojo.
+- Early-return ciego (`if True:`) ->
+  test_reaplica_tras_regreso_hace_put_nuevo en rojo (no sale el PUT 3).
+- Sin reconciliacion (`elif False:`) ->
+  test_pendiente_con_destino_observado_se_reconcilia_sin_put en rojo
+  (sale un PUT que el test prohibe).
+- Sin reuso de regreso pendiente (`if False:`) ->
+  test_regreso_fallido_se_puede_reintentar en rojo (UNIQUE, no reintento).
+- Count de regresos con pendientes ->
+  test_regreso_fallido_se_puede_reintentar en rojo (409 prematuro).
+- Sin cruce por id en `_config_leida` ->
+  test_config_leida_elige_por_id_entre_varias en rojo (elige la ajena).
+  El test de integracion no discrimina esta capa sola: `coincide_clase`
+  tambien cruza por externa (doble capa intencional).
+- `_clave_orden_cambio` sin NULL ->
+  test_clave_orden_cambio_empate_con_null_no_revienta en rojo (TypeError).
+- Sin `ON CONFLICT (huella)` ->
+  test_doble_aplica_simultaneo_no_explota_ni_duplica_acto en rojo 3/3
+  (UniqueViolation escapada).
+- Sin sufijo `H#N` -> test_reaplica_tras_regreso_hace_put_nuevo en rojo
+  (UNIQUE en vez de acto nuevo).
+- Sin check de huella ajena (`if False:`) ->
+  test_huella_ajena_no_confirma_otra_campana en rojo (sale a la red).
+- Sin code de tope en `_errores_put` (`if False:`) ->
+  test_ajustar_campana_falla_en_cerrado_ante_basura en rojo.
+- Item no-dict saltado (sin `append`) ->
+  test_ajustar_campana_falla_en_cerrado_ante_basura en rojo.
+- Aplicar sin `except ValueError` -> test_aplicar_actor_blanco_da_422 en
+  rojo (500 en vez de 422).
+- `AdsApiErrorMutacion` a 500 -> test_aplicar_put_rechazado_da_502 en rojo.
+- Sin `max_length` en actor -> test_aplicar_actor_largo_da_422 en rojo
+  (el 422 sale de apply, no de pydantic).
+- Regresables con `antes` vacio ->
+  test_pg_regresables_y_aviso_propio_en_fila_campana en rojo (sale h-vacio).
+- `config_vigente_con_id` con orden invertido ->
+  test_config_vigente_con_id_trae_id_y_config_en_un_select en rojo.
+- Ruido sin `AND c.origen <> 'ajuste_de_campana'` ->
+  test_encogimiento_ignora_ajuste_de_campana_antiguo en rojo (la hoja
+  desaparece del tablero: el ajuste corrompia la base).

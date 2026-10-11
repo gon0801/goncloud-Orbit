@@ -576,7 +576,9 @@ Ninguna acción irreversible sin su reversa implementada antes (regla 7):
 | ajuste de campaña (BIDS 02 V.3) | regreso: PUT con la configuración COMPLETA de `antes_config_id` (un solo regreso por ajuste; `fuera_de_amazon` no tiene regreso sellado y no presenta botón) |
 
 - Cada reversa vive en el ledger como **tipo `reversa`**, **exenta de
-  quota** (con test). Las filas por hermana del camino de ida son
+  quota** (con test), salvo el regreso de un ajuste de campaña, que vive
+  en `campana_ajuste` con `regresa_a` (BIDS 02 V.3; operado por el dueño,
+  fuera de quota). Las filas por hermana del camino de ida son
   **tipo `hermana`** (migración 0038; también exentas: `quota_cobrada =
   false`); la reversa de cada borrado es su propia fila `tipo='reversa'`.
   `tools/reversa_harvest.py --job` (A.3) ejecuta ese orden.

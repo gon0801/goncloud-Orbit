@@ -248,6 +248,16 @@ SELECT o.id
  ORDER BY o.observed_at DESC, o.id DESC
  LIMIT 1
 """
+_SQL_CONFIG_VIGENTE_CON_ID = """
+SELECT o.id, o.presupuesto_diario, o.presupuesto_moneda, o.estrategia_puja,
+       o.ajuste_top_pct, o.ajuste_resto_pct, o.ajuste_producto_pct,
+       o.fuera_de_amazon, e.external_id
+  FROM ads_campana_config_observation o
+  JOIN ad_entity e ON e.id = o.ad_entity_id
+ WHERE o.ad_entity_id = %s
+ ORDER BY o.observed_at DESC, o.id DESC
+ LIMIT 1
+"""
 
 
 def _huella(config: ConfigCampana) -> tuple:
@@ -328,9 +338,27 @@ def guarda_config(
 
 
 def config_vigente_id(conn, ad_entity_id: int) -> int | None:
-    """Id de la observacion vigente (el `antes_config_id` del ajuste)."""
     fila = conn.execute(_SQL_CONFIG_VIGENTE_ID, (ad_entity_id,)).fetchone()
     return fila[0] if fila else None
+
+
+def config_vigente_con_id(conn, ad_entity_id: int) -> tuple[int | None, ConfigCampana | None]:
+    """Vigente + su id en UN select (panel: leerlos por separado con HTTP
+    en medio deja que el sync cuele una observacion entre ambos y el
+    `antes_config_id` apunte a otro `antes` que la huella)."""
+    fila = conn.execute(_SQL_CONFIG_VIGENTE_CON_ID, (ad_entity_id,)).fetchone()
+    if fila is None:
+        return None, None
+    return fila[0], ConfigCampana(
+        campana_externa=fila[8],
+        presupuesto_diario=fila[1],
+        moneda=fila[2],
+        estrategia_puja=fila[3],
+        ajuste_top_pct=fila[4],
+        ajuste_resto_pct=fila[5],
+        ajuste_producto_pct=fila[6],
+        fuera_de_amazon=fila[7],
+    )
 
 
 def config_vigente(conn, ad_entity_id: int) -> ConfigCampana | None:

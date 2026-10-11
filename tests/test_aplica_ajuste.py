@@ -407,6 +407,89 @@ def test_regresa_aplica_antes_y_segundo_regreso_rechazado(monkeypatch):
 
 
 @_skip_db
+def test_reaplica_tras_regreso_hace_put_nuevo(monkeypatch):
+    """Panel: aplica->regresa->reaplica el mismo plan manda un tercer PUT
+    (el early-return idempotente solo vale si el vigente sigue en destino)."""
+    with _db("orbit_aj_reap") as conn:
+        camp, _cfg = _siembra(conn)
+        remoto = {EXTERNA: {"budget": {"budget": 100.0, "budgetType": "DAILY"}}}
+        handler, vistos = _handler_campanas(remoto)
+        _creds_fake(monkeypatch)
+        plan = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("120")))
+        transporte = httpx.MockTransport(handler)
+        hecho = apply.aplica_ajuste_campana(
+            conn,
+            plan,
+            huella=plan.huella(),
+            confirmacion="APLICAR AJUSTE",
+            actor="dueno",
+            transport=transporte,
+        )
+        apply.regresa_ajuste_campana(
+            conn, ajuste_id=hecho.ajuste_id, actor="dueno", transport=transporte
+        )
+        plan2 = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("120")))
+        assert plan2.huella() == plan.huella()
+        hecho2 = apply.aplica_ajuste_campana(
+            conn,
+            plan2,
+            huella=plan2.huella(),
+            confirmacion="APLICAR AJUSTE",
+            actor="dueno",
+            transport=transporte,
+        )
+        assert hecho2.confirmada is True
+        assert hecho2.ajuste_id != hecho.ajuste_id
+        assert [p["budget"]["budget"] for p in _puts(vistos)] == [120.0, 100.0, 120.0]
+
+
+@_skip_db
+def test_regreso_fallido_se_puede_reintentar(monkeypatch):
+    """Panel: regreso con readback divergente deja pendiente reintentable
+    (como el aplica); el reintento confirma y un tercero se rechaza."""
+    with _db("orbit_aj_reint") as conn:
+        camp, _cfg = _siembra(conn)
+        remoto = {EXTERNA: {"budget": {"budget": 100.0, "budgetType": "DAILY"}}}
+        _creds_fake(monkeypatch)
+        plan = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("120")))
+        handler_ok, _vistos = _handler_campanas(remoto)
+        hecho = apply.aplica_ajuste_campana(
+            conn,
+            plan,
+            huella=plan.huella(),
+            confirmacion="APLICAR AJUSTE",
+            actor="dueno",
+            transport=httpx.MockTransport(handler_ok),
+        )
+        from dataclasses import replace
+
+        divergente = replace(_vigente_config(), presupuesto_diario=Decimal("999"))
+        handler_mal, _vistos_mal = _handler_campanas(remoto, divergente=divergente)
+        with pytest.raises(apply.AjusteNoConfirmado):
+            apply.regresa_ajuste_campana(
+                conn,
+                ajuste_id=hecho.ajuste_id,
+                actor="dueno",
+                transport=httpx.MockTransport(handler_mal),
+            )
+        handler_ok2, _vistos2 = _handler_campanas(remoto)
+        regreso = apply.regresa_ajuste_campana(
+            conn,
+            ajuste_id=hecho.ajuste_id,
+            actor="dueno",
+            transport=httpx.MockTransport(handler_ok2),
+        )
+        assert regreso.confirmada is True
+        with pytest.raises(apply.AjusteYaRegresado):
+            apply.regresa_ajuste_campana(
+                conn,
+                ajuste_id=hecho.ajuste_id,
+                actor="dueno",
+                transport=httpx.MockTransport(handler_ok2),
+            )
+
+
+@_skip_db
 def test_regresa_inexistente_da_404(monkeypatch):
     with _db("orbit_aj_404") as conn:
         _creds_fake(monkeypatch)
@@ -418,6 +501,238 @@ def test_regresa_inexistente_da_404(monkeypatch):
             apply.regresa_ajuste_campana(
                 conn, ajuste_id=999, actor="dueno", transport=httpx.MockTransport(_nada)
             )
+
+
+def test_config_leida_elige_por_id_entre_varias():
+    """Panel, unitario: el list trae otra campana primero; el readback
+    elige la pedida por id (nunca items[0])."""
+    from app.apply import _config_leida
+
+    class _ListFake:
+        def list_sellado(self, _path, _body):
+            return httpx.Response(
+                200,
+                json={
+                    "campaigns": [
+                        {"campaignId": "1", "budget": {"budget": 999.0}},
+                        {
+                            "campaignId": EXTERNA,
+                            "budget": {"budget": 120.0, "budgetType": "DAILY"},
+                        },
+                    ]
+                },
+            )
+
+    leida = _config_leida(_ListFake(), "amazon_mx", EXTERNA)
+    assert leida is not None
+    assert leida.campana_externa == EXTERNA
+    assert leida.presupuesto_diario == Decimal("120")
+
+
+@_skip_db
+def test_readback_cruza_por_id_y_no_por_items_0(monkeypatch):
+    """Panel: list que trae otra campana primero no confirma (cruce por
+    id); si solo trae la ajena, no hay falso exito."""
+    with _db("orbit_aj_cruce") as conn:
+        camp, _cfg = _siembra(conn)
+        _creds_fake(monkeypatch)
+        plan = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("120")))
+
+        def handler_ajena(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "api.amazon.com":
+                return httpx.Response(200, json={"access_token": "fake", "expires_in": 3600})
+            if request.method == "GET" and request.url.path == "/v2/profiles":
+                return httpx.Response(200, json=[PERFIL_MX_RAW])
+            if request.method == "PUT" and request.url.path == "/sp/campaigns":
+                return httpx.Response(207, json={"campaigns": [{"code": "200"}]})
+            if request.method == "POST" and request.url.path == "/sp/campaigns/list":
+                return httpx.Response(
+                    200,
+                    json={
+                        "campaigns": [
+                            {
+                                "campaignId": "1",
+                                "budget": {"budget": 120.0, "budgetType": "DAILY"},
+                            }
+                        ]
+                    },
+                )
+            raise AssertionError(f"request inesperado: {request.method} {request.url.path}")
+
+        with pytest.raises(apply.AjusteNoConfirmado):
+            apply.aplica_ajuste_campana(
+                conn,
+                plan,
+                huella=plan.huella(),
+                confirmacion="APLICAR AJUSTE",
+                actor="dueno",
+                transport=httpx.MockTransport(handler_ajena),
+            )
+
+
+@_skip_db
+def test_pendiente_con_destino_observado_se_reconcilia_sin_put(monkeypatch):
+    """Panel: PUT salio pero el readback fallo; el sync observo el
+    destino: el reintento sella sin un segundo PUT."""
+    with _db("orbit_aj_recon") as conn:
+        camp, _cfg = _siembra(conn)
+        remoto = {EXTERNA: {"budget": {"budget": 100.0, "budgetType": "DAILY"}}}
+        _creds_fake(monkeypatch)
+        plan = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("120")))
+        handler_mal, _v = _handler_campanas(remoto, divergente=_vigente_config())
+        with pytest.raises(apply.AjusteNoConfirmado):
+            apply.aplica_ajuste_campana(
+                conn,
+                plan,
+                huella=plan.huella(),
+                confirmacion="APLICAR AJUSTE",
+                actor="dueno",
+                transport=httpx.MockTransport(handler_mal),
+            )
+        # El sync observa lo que el PUT si aplico (= plan.despues).
+        remoto[EXTERNA] = {"budget": {"budget": 120.0, "budgetType": "DAILY"}}
+        despues = plan.despues
+        conn.execute(
+            "INSERT INTO ads_campana_config_observation (ad_entity_id, observed_at,"
+            " presupuesto_diario, presupuesto_moneda, estrategia_puja, ajuste_top_pct,"
+            " ajuste_resto_pct, ajuste_producto_pct, fuera_de_amazon)"
+            " VALUES (%s, now(), %s, %s, %s, %s, %s, %s, %s)",
+            (
+                camp,
+                despues.presupuesto_diario,
+                despues.moneda,
+                despues.estrategia_puja,
+                despues.ajuste_top_pct,
+                despues.ajuste_resto_pct,
+                despues.ajuste_producto_pct,
+                despues.fuera_de_amazon,
+            ),
+        )
+        conn.commit()
+        handler_ok, vistos = _handler_campanas(remoto)
+
+        def _sin_put(request: httpx.Request) -> httpx.Response:
+            assert request.method != "PUT", "la reconciliacion no hace PUT"
+            return handler_ok(request)
+
+        hecho = apply.aplica_ajuste_campana(
+            conn,
+            plan,
+            huella=plan.huella(),
+            confirmacion="APLICAR AJUSTE",
+            actor="dueno",
+            transport=httpx.MockTransport(_sin_put),
+        )
+        assert hecho.confirmada is True
+        assert _puts(vistos) == []
+
+
+@_skip_db
+def test_huella_ajena_no_confirma_otra_campana(monkeypatch):
+    """Panel: huella de un plan de otra campana no confirma nada (422)."""
+    with _db("orbit_aj_huella") as conn:
+        camp, _cfg = _siembra(conn)
+        camp_b = conn.execute(
+            "INSERT INTO ad_entity (platform, kind, external_id) VALUES ('amazon_mx',"
+            " 'campaign', '00000000000001') RETURNING id"
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO ad_entity_state (ad_entity_id, status, synced_at) VALUES"
+            " (%s, 'ENABLED', now())",
+            (camp_b,),
+        )
+        conn.execute(
+            "INSERT INTO ads_campana_config_observation (ad_entity_id, observed_at,"
+            " presupuesto_diario, presupuesto_moneda) VALUES (%s, now(), 100, 'MXN')",
+            (camp_b,),
+        )
+        _creds_fake(monkeypatch)
+        plan_a = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("120")))
+        plan_b = _plan(conn, camp_b, CambiarPresupuesto(presupuesto_diario=Decimal("120")))
+        remoto = {EXTERNA: {"budget": {"budget": 100.0, "budgetType": "DAILY"}}}
+        handler, _vistos = _handler_campanas(remoto)
+        apply.aplica_ajuste_campana(
+            conn,
+            plan_a,
+            huella=plan_a.huella(),
+            confirmacion="APLICAR AJUSTE",
+            actor="dueno",
+            transport=httpx.MockTransport(handler),
+        )
+
+        def _nada(request: httpx.Request) -> httpx.Response:
+            raise AssertionError("jamas debe salir a la red")
+
+        with pytest.raises(ValueError, match="otra campana"):
+            apply.aplica_ajuste_campana(
+                conn,
+                plan_b,
+                huella=plan_a.huella(),
+                confirmacion="APLICAR AJUSTE",
+                actor="dueno",
+                transport=httpx.MockTransport(_nada),
+            )
+
+
+@_skip_db
+def test_doble_aplica_simultaneo_no_explota_ni_duplica_acto(monkeypatch):
+    """Panel: dos hilos aplican el mismo plan a la vez: sin 500 ni
+    UniqueViolation escapada, y como maximo dos filas (acto + reintento)."""
+    import threading
+
+    with _db("orbit_aj_race") as conn:
+        camp, _cfg = _siembra(conn)
+        _creds_fake(monkeypatch)
+        dsn = conn.execute("SELECT current_database()").fetchone()[0]
+        remoto = {EXTERNA: {"budget": {"budget": 100.0, "budgetType": "DAILY"}}}
+        handler, _vistos = _handler_campanas(remoto)
+        plan = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("120")))
+        resultados: list = []
+
+        def _corre():
+            import os
+            import time
+
+            import psycopg
+
+            base = os.environ["ORBIT_TEST_DSN"].rsplit("/", 1)[0]
+            hilo_conn = psycopg.connect(f"{base}/{dsn}", autocommit=True)
+            try:
+                import app.apply as ap
+
+                for _intento in range(10):
+                    try:
+                        hecho = ap.aplica_ajuste_campana(
+                            hilo_conn,
+                            plan,
+                            huella=plan.huella(),
+                            confirmacion="APLICAR AJUSTE",
+                            actor="dueno",
+                            transport=httpx.MockTransport(handler),
+                        )
+                        resultados.append(("ok", hecho.confirmada))
+                        return
+                    except ap.AjusteEnCurso:
+                        time.sleep(0.05)
+                resultados.append(("error", "reintentos agotados"))
+            except Exception as exc:  # noqa: BLE001 - el test clasifica
+                resultados.append(("error", type(exc).__name__))
+            finally:
+                hilo_conn.close()
+
+        hilos = [threading.Thread(target=_corre) for _ in range(2)]
+        for h in hilos:
+            h.start()
+        for h in hilos:
+            h.join(timeout=60)
+        assert len(resultados) == 2
+        for estado, _detalle in resultados:
+            assert estado == "ok", resultados
+        assert all(detalle is True for _, detalle in resultados)
+        filas = conn.execute(
+            "SELECT count(*) FROM campana_ajuste WHERE huella LIKE %s", (plan.huella() + "%",)
+        ).fetchone()[0]
+        assert filas <= 2, resultados
 
 
 @_skip_db

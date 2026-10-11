@@ -126,10 +126,16 @@ SELECT o.ad_entity_id, (o.observed_at AT TIME ZONE 'UTC')::date, o.presupuesto_d
 _SQL_REGRESABLES = """
 SELECT a.id, a.campana_id, a.clase, (a.confirmado_el AT TIME ZONE 'UTC')::date
   FROM campana_ajuste a
+  JOIN ads_campana_config_observation o ON o.id = a.antes_config_id
  WHERE a.platform = %s
    AND a.confirmado_el IS NOT NULL
    AND a.clase <> 'fuera_de_amazon'
-   AND NOT EXISTS (SELECT 1 FROM campana_ajuste r WHERE r.regresa_a = a.id)
+   AND NOT EXISTS (SELECT 1 FROM campana_ajuste r
+                    WHERE r.regresa_a = a.id AND r.confirmado_el IS NOT NULL)
+   AND ((a.clase = 'presupuesto' AND o.presupuesto_diario IS NOT NULL)
+        OR (a.clase = 'ajuste_ubicacion' AND o.estrategia_puja IS NOT NULL
+            AND (o.ajuste_top_pct IS NOT NULL OR o.ajuste_resto_pct IS NOT NULL
+                 OR o.ajuste_producto_pct IS NOT NULL)))
  ORDER BY a.id
 """
 _SQL_ULTIMO_AJUSTE_PRECIO = """

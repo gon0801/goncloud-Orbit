@@ -13,9 +13,10 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass, replace
-from decimal import Decimal
+from decimal import ROUND_HALF_EVEN, Decimal
 
 from app.ads.campana_config import ConfigCampana
+from app.optimizer.bid import PLATAFORMAS_MONEDA
 
 CLASES_SELLADAS = frozenset({"fuera_de_amazon", "ajuste_ubicacion", "presupuesto"})
 
@@ -76,7 +77,7 @@ class PlanAjuste:
     frase: str
 
     def huella(self) -> str:
-        """sha256 hex del plan canonico (como la huella de la fabrica)."""
+        """Huella del plan (como la de la fabrica)."""
         canonico = json.dumps(
             {
                 "campana_id": self.campana_id,
@@ -122,32 +123,46 @@ def planea_ajuste(
     vigente: ConfigCampana, ajuste: AjusteCampana, *, campana_id: int, plataforma: str
 ) -> PlanAjuste:
     """Pura. Rechaza con ValueError la clase sin sonda sellada, un ajuste
-    que no cambia nada, un porcentaje fuera de 0..900 y un presupuesto
-    que no es > 0."""
+    que no cambia nada, un porcentaje fuera de 0..900, un presupuesto
+    que no es > 0 finito y un ajuste de ubicacion sobre un vigente sin
+    `dynamicBidding` (forma que V.0 no sondo: el PUT mezclaria y el
+    readback divergiria siempre). El presupuesto se cuantiza a centavos
+    (lo que Amazon ecoa) y estrena la moneda del perfil si el vigente no
+    trae (si no, el readback trae moneda y el destino no: divergencia)."""
     clase = _CLASE_POR_TIPO.get(type(ajuste))
     if clase is None or clase not in CLASES_SELLADAS:
         raise ValueError(f"clase sin sonda sellada: {type(ajuste).__name__}")
     if isinstance(ajuste, CambiarPresupuesto):
-        if ajuste.presupuesto_diario <= 0:
+        if not ajuste.presupuesto_diario.is_finite() or ajuste.presupuesto_diario <= 0:
             raise ValueError(f"presupuesto debe ser > 0, llego {ajuste.presupuesto_diario}")
-        if vigente.presupuesto_diario == ajuste.presupuesto_diario:
+        monto = ajuste.presupuesto_diario.quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
+        if vigente.presupuesto_diario == monto:
             raise ValueError("el ajuste no cambia nada")
-        despues = replace(vigente, presupuesto_diario=ajuste.presupuesto_diario)
+        despues = replace(
+            vigente,
+            presupuesto_diario=monto,
+            moneda=vigente.moneda or PLATAFORMAS_MONEDA[plataforma],
+        )
         if vigente.presupuesto_diario is None:
             frase = (
-                f"Orbit pone el presupuesto diario en {_dinero_txt(ajuste.presupuesto_diario)}"
-                f" {vigente.moneda} en campaña {vigente.campana_externa} (antes sin presupuesto)"
+                f"Orbit pone el presupuesto diario en {_dinero_txt(monto)}"
+                f" {despues.moneda} en campaña {vigente.campana_externa} (antes sin presupuesto)"
             )
         else:
             frase = (
                 f"Orbit cambia el presupuesto diario de {_dinero_txt(vigente.presupuesto_diario)}"
-                f" {vigente.moneda} a {_dinero_txt(ajuste.presupuesto_diario)} {vigente.moneda}"
+                f" {vigente.moneda} a {_dinero_txt(monto)} {vigente.moneda}"
                 f" en campaña {vigente.campana_externa}"
             )
     elif isinstance(ajuste, CambiarAjusteUbicacion):
         campo = _CAMPO_POR_UBICACION.get(ajuste.ubicacion)
         if campo is None:
             raise ValueError(f"ubicacion sin ajuste: {ajuste.ubicacion}")
+        if vigente.estrategia_puja is None:
+            raise ValueError(
+                "campana sin dynamicBidding: V.0 no sello esa forma,"
+                " el ajuste de ubicacion divergiria"
+            )
         if not 0 <= ajuste.porcentaje <= _PCT_MAX:
             raise ValueError(f"porcentaje fuera de 0..{_PCT_MAX}: {ajuste.porcentaje}")
         actual = getattr(vigente, campo) or 0
@@ -176,3 +191,25 @@ def planea_ajuste(
         despues=despues,
         frase=frase,
     )
+
+
+def coincide_clase(clase: str, leida: ConfigCampana, destino: ConfigCampana) -> bool:
+    """El readback confirma el ajuste si los campos que la clase mueve son
+    los del destino (comparar el registro completo diverge ante cualquier
+    normalizacion de Amazon en campos ajenos: estrategia por default,
+    ceros, moneda estrenada)."""
+    if leida.campana_externa != destino.campana_externa:
+        return False
+    if clase == "presupuesto":
+        return (
+            leida.presupuesto_diario == destino.presupuesto_diario
+            and leida.moneda == destino.moneda
+        )
+    if clase == "ajuste_ubicacion":
+        return (
+            leida.estrategia_puja == destino.estrategia_puja
+            and leida.ajuste_top_pct == destino.ajuste_top_pct
+            and leida.ajuste_resto_pct == destino.ajuste_resto_pct
+            and leida.ajuste_producto_pct == destino.ajuste_producto_pct
+        )
+    return leida.fuera_de_amazon == destino.fuera_de_amazon

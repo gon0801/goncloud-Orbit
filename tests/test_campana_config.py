@@ -359,6 +359,29 @@ def test_config_vigente_trae_ultima_y_none_sin_filas():
         assert config_vigente(conn, camp) == nueva
 
 
+def test_config_vigente_con_id_trae_id_y_config_en_un_select():
+    """Panel: id + config juntos (leerlos por separado con HTTP en medio
+    deja que el sync cuele una observacion entre ambos)."""
+    import datetime as dt
+
+    from app.ads.campana_config import config_vigente_con_id
+
+    ahora = dt.datetime(2026, 10, 10, 8, 0, tzinfo=dt.UTC)
+    despues = dt.datetime(2026, 10, 10, 9, 0, tzinfo=dt.UTC)
+    with _db_config("orbit_cfg_vigente_id") as conn:
+        camp = _campana(conn)
+        assert config_vigente_con_id(conn, camp) == (None, None)
+        guarda_config(conn, "amazon_mx", [_config()], ahora)
+        nueva = _config(presupuesto_diario=Decimal("12"), estrategia_puja="MANUAL")
+        guarda_config(conn, "amazon_mx", [nueva], despues)
+        obs_id = conn.execute(
+            "SELECT id FROM ads_campana_config_observation WHERE ad_entity_id = %s"
+            " ORDER BY observed_at DESC, id DESC LIMIT 1",
+            (camp,),
+        ).fetchone()[0]
+        assert config_vigente_con_id(conn, camp) == (obs_id, nueva)
+
+
 # B10 (R05 r3): "solo si cambio" contra la ULTIMA fila, sin cruce MX/US.
 # ---------------------------------------------------------------------------
 

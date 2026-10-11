@@ -132,3 +132,61 @@ def test_huella_estable_ante_mismo_plan():
     plan1 = _planea(CambiarPresupuesto(presupuesto_diario=Decimal("120")))
     plan2 = _planea(CambiarPresupuesto(presupuesto_diario=Decimal("120")))
     assert plan1.huella() == plan2.huella()
+
+
+def test_presupuesto_nan_o_infinito_levanta():
+    """Panel: NaN/Inf no son presupuestos (Decimal('NaN') <= 0 es False)."""
+    with pytest.raises(ValueError, match="presupuesto"):
+        _planea(CambiarPresupuesto(presupuesto_diario=Decimal("NaN")))
+    with pytest.raises(ValueError, match="presupuesto"):
+        _planea(CambiarPresupuesto(presupuesto_diario=Decimal("Infinity")))
+
+
+def test_presupuesto_se_cuantiza_a_centavos():
+    """Panel: 100.125 se vuelve 100.12 (lo que Amazon ecoa; precede _bid)."""
+    plan = _planea(CambiarPresupuesto(presupuesto_diario=Decimal("100.125")))
+    assert plan.despues.presupuesto_diario == Decimal("100.12")
+    assert "100.12" in plan.frase
+
+
+def test_presupuesto_sin_previo_estrena_moneda_del_perfil():
+    """Panel: vigente sin presupuesto ni moneda -> destino con MXN (si no,
+    el readback trae moneda y el destino no: divergencia determinista)."""
+    plan = _planea(
+        CambiarPresupuesto(presupuesto_diario=Decimal("120")),
+        vigente=_vigente(presupuesto_diario=None, moneda=None),
+    )
+    assert plan.despues.moneda == "MXN"
+    assert "120 MXN" in plan.frase
+
+
+def test_ubicacion_sin_dynamicBidding_previo_se_rechaza():
+    """Panel: forma que V.0 no sondo (el PUT mezclaria y divergiria)."""
+    with pytest.raises(ValueError, match="dynamicBidding"):
+        _planea(
+            CambiarAjusteUbicacion(ubicacion="arriba_de_busqueda", porcentaje=50),
+            vigente=_vigente(
+                estrategia_puja=None,
+                ajuste_top_pct=None,
+                ajuste_resto_pct=None,
+                ajuste_producto_pct=None,
+            ),
+        )
+
+
+def test_coincide_clase_mira_solo_lo_que_la_clase_mueve():
+    """Panel: normalizacion de Amazon en campos ajenos no diverge."""
+    from app.campana_ajustes import coincide_clase
+
+    destino = _planea(CambiarPresupuesto(presupuesto_diario=Decimal("120"))).despues
+    assert coincide_clase("presupuesto", replace(destino, estrategia_puja="OTRA"), destino)
+    assert not coincide_clase(
+        "presupuesto", replace(destino, presupuesto_diario=Decimal("121")), destino
+    )
+    assert not coincide_clase("presupuesto", replace(destino, campana_externa="1"), destino)
+    ubi = _planea(CambiarAjusteUbicacion(ubicacion="paginas_de_producto", porcentaje=0)).despues
+    assert coincide_clase("ajuste_ubicacion", replace(ubi, presupuesto_diario=Decimal("999")), ubi)
+    assert not coincide_clase("ajuste_ubicacion", replace(ubi, ajuste_producto_pct=10), ubi)
+    fuera = _planea(LimitarFueraDeAmazon()).despues
+    assert coincide_clase("fuera_de_amazon", replace(fuera, moneda="USD"), fuera)
+    assert not coincide_clase("fuera_de_amazon", replace(fuera, fuera_de_amazon=None), fuera)

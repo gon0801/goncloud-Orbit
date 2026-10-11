@@ -610,11 +610,11 @@ class CuerpoAplicaAjuste(BaseModel):
     porcentaje: int | None = None
     huella: str
     confirmacion: Literal["APLICAR AJUSTE"]
-    actor: str = Field(min_length=1)
+    actor: str = Field(min_length=1, max_length=200)
 
 
 class CuerpoRegresaAjuste(BaseModel):
-    actor: str = Field(min_length=1)
+    actor: str = Field(min_length=1, max_length=200)
 
 
 def _ajuste_de(
@@ -686,7 +686,9 @@ _ERRORES_AJUSTE: dict[type[Exception], int] = {
     apply.AjusteSinRegreso: 422,
     apply.AjusteInexistente: 404,
     apply.AjusteYaRegresado: 409,
+    apply.AjusteEnCurso: 409,
     apply.AjusteNoConfirmado: 502,
+    apply.AdsApiErrorMutacion: 502,
     apply.SinPerfilAjuste: 503,
 }
 
@@ -726,7 +728,8 @@ def aplicar_ajuste(
         ) from None
     except tuple(_ERRORES_AJUSTE) as exc:
         raise HTTPException(status_code=_ERRORES_AJUSTE[type(exc)], detail=str(exc)) from None
-    conn.commit()
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
     return hecho.como_dict()
 
 
@@ -743,5 +746,6 @@ def regresar_ajuste(
         hecho = apply.regresa_ajuste_campana(conn, ajuste_id=ajuste_id, actor=cuerpo.actor)
     except tuple(_ERRORES_AJUSTE) as exc:
         raise HTTPException(status_code=_ERRORES_AJUSTE[type(exc)], detail=str(exc)) from None
-    conn.commit()
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
     return hecho.como_dict()
