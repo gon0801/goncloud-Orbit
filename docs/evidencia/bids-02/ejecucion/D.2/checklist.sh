@@ -3,8 +3,10 @@
 # vez despues de desplegar.sh, del sync de las 06:45 UTC y del reporte por
 # placement de las 07:25 UTC, y deja su salida en un txt.
 # Patron de salidas del de S.3: 0 = todo comprobado; 1 = alguna FALLA
-# medida; 3 = sin fallas pero todavia sin sync ni reporte posteriores al
-# arranque (o sin reporte todavia); 4 = no pudo medir (el servidor no
+# medida (un sync o reporte posterior con ok=false es FALLA nombrada, no
+# INCOMPLETO: la reversa solo se dispara con 1); 3 = sin fallas pero
+# todavia sin sync ni reporte posteriores al arranque (o sin reporte
+# todavia); 4 = no pudo medir (el servidor no
 # contesta o una lectura salio vacia, sin ninguna FALLA medida). Una FALLA
 # medida sale con 1 aunque otra lectura quede vacia. "Posterior" cuenta desde
 # el arranque del contenedor nuevo (docker inspect StartedAt), no desde el
@@ -115,8 +117,17 @@ else
   if [ -z "$SYNC_N" ]; then
     echo "NO MEDIDO sync posterior (lectura vacia)"; NOMEDIDO=$((NOMEDIDO + 1))
   elif [ "$SYNC_N" = "0" ]; then
-    echo "INCOMPLETO: el sync de las 06:45 UTC todavia no corre despues de $DESDE; vuelve a correr el checklist despues"
-    PENDIENTE=1
+    SYNC_FAIL_N=$(echo "SELECT count(*) FROM ingest_run WHERE source = 'amazon_ads_structure_v2' AND started_at > '$DESDE' AND NOT ok;" | lee || true)
+    if [ -z "$SYNC_FAIL_N" ]; then
+      echo "NO MEDIDO syncs fallidos posteriores (lectura vacia)"; NOMEDIDO=$((NOMEDIDO + 1))
+    elif [ "$SYNC_FAIL_N" != "0" ]; then
+      SYNC_MOTIVO=$(echo "SELECT coalesce(skip_reason, '(sin motivo)') FROM ingest_run WHERE source = 'amazon_ads_structure_v2' AND started_at > '$DESDE' AND NOT ok ORDER BY started_at DESC LIMIT 1;" | lee || true)
+      echo "FALLA sync de las 06:45 posterior a $DESDE: $SYNC_FAIL_N corrida(s) con ok=false (motivo: ${SYNC_MOTIVO:-sin-dato}); la reversa aplica"
+      FALLAS=$((FALLAS + 1))
+    else
+      echo "INCOMPLETO: el sync de las 06:45 UTC todavia no corre despues de $DESDE; vuelve a correr el checklist despues"
+      PENDIENTE=1
+    fi
   else
     echo "OK    syncs ok posteriores al arranque = $SYNC_N"
     echo "      config posterior al arranque = $(echo "SELECT count(*) FROM ads_campana_config_observation WHERE observed_at > '$DESDE';" | lee || true) fila(s) (informativo)"
@@ -144,8 +155,17 @@ if [ -n "${DESDE:-}" ]; then
   if [ -z "$REP_N" ]; then
     echo "NO MEDIDO placements posteriores (lectura vacia)"; NOMEDIDO=$((NOMEDIDO + 1))
   elif [ "$REP_N" = "0" ]; then
-    echo "INCOMPLETO: el reporte de las 07:25 UTC todavia no corre despues de $DESDE; vuelve a correr el checklist despues"
-    PENDIENTE=1
+    REP_FAIL_N=$(echo "SELECT count(*) FROM ingest_run WHERE source = 'amazon_ads_placements_v3' AND started_at > '$DESDE' AND NOT ok;" | lee || true)
+    if [ -z "$REP_FAIL_N" ]; then
+      echo "NO MEDIDO reportes fallidos posteriores (lectura vacia)"; NOMEDIDO=$((NOMEDIDO + 1))
+    elif [ "$REP_FAIL_N" != "0" ]; then
+      REP_MOTIVO=$(echo "SELECT coalesce(skip_reason, '(sin motivo)') FROM ingest_run WHERE source = 'amazon_ads_placements_v3' AND started_at > '$DESDE' AND NOT ok ORDER BY started_at DESC LIMIT 1;" | lee || true)
+      echo "FALLA reporte de las 07:25 posterior a $DESDE: $REP_FAIL_N corrida(s) con ok=false (motivo: ${REP_MOTIVO:-sin-dato}); la reversa aplica"
+      FALLAS=$((FALLAS + 1))
+    else
+      echo "INCOMPLETO: el reporte de las 07:25 UTC todavia no corre despues de $DESDE; vuelve a correr el checklist despues"
+      PENDIENTE=1
+    fi
   else
     echo "OK    placements posteriores al arranque = $REP_N fila(s)"
     REPORTE_OK=1
