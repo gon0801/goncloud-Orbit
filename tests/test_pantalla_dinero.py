@@ -550,13 +550,21 @@ def _siembra_placement(
 
 
 def _siembra_config(
-    conn, campana, observed, presupuesto, estrategia, top=None, resto=None, prod=None
+    conn,
+    campana,
+    observed,
+    presupuesto,
+    estrategia,
+    top=None,
+    resto=None,
+    prod=None,
+    moneda="MXN",
 ):
     conn.execute(
         "INSERT INTO ads_campana_config_observation (ad_entity_id, observed_at, presupuesto_diario,"
         " presupuesto_moneda, estrategia_puja, ajuste_top_pct, ajuste_resto_pct,"
-        " ajuste_producto_pct) VALUES (%s, %s, %s, 'MXN', %s, %s, %s, %s)",
-        (campana, observed, presupuesto, estrategia, top, resto, prod),
+        " ajuste_producto_pct) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+        (campana, observed, presupuesto, moneda, estrategia, top, resto, prod),
     )
 
 
