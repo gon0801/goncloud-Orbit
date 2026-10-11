@@ -281,3 +281,13 @@ def test_0061_rechaza_presupuesto_cero_y_ajuste_negativo():
                 " ajuste_top_pct) VALUES (%s, now(), -1)",
                 (camp,),
             )
+
+
+@_skip_db
+def test_0061_sello_moneda_rechaza_mx_en_usd():
+    """S1: el presupuesto de una campana MX en USD revienta en el sello."""
+    with (
+        db_61("orbit_61_sello") as conn,
+        pytest.raises(psycopg.errors.CheckViolation, match="presupuesto viene en"),
+    ):
+        _observa(conn, _campana(conn), presupuesto_moneda="USD")

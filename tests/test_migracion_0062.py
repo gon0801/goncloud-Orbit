@@ -250,3 +250,55 @@ def test_0062_dominio_placement_exactamente_ubicacion():
         ).fetchone()[0]
     en_base = set(re.findall(r"'([^']+)'::text", definicion))
     assert en_base == set(get_args(Ubicacion)) == set(_UBICACION.values())
+
+
+@_skip_db
+def test_0062_sello_moneda_rechaza_mx_en_usd():
+    """S2: las metricas de una campana MX en USD revientan en el sello."""
+    with (
+        db_62("orbit_62_sello") as conn,
+        pytest.raises(psycopg.errors.CheckViolation, match="reporta sus metricas"),
+    ):
+        _observa(conn, _campana(conn), metric_currency="USD")
+
+
+@_skip_db
+def test_0062_rechaza_costo_negativo():
+    """S3: costo -1 revienta en placement_no_negativos."""
+    with (
+        db_62("orbit_62_negs") as conn,
+        pytest.raises(psycopg.errors.CheckViolation, match="placement_no_negativos"),
+    ):
+        _observa(conn, _campana(conn), cost=Decimal("-1"))
+
+
+@_skip_db
+def test_0062_rechaza_fila_con_plataforma_de_otra_campana():
+    """S4: la fila que declara US para una campana MX revienta en el sello."""
+    with (
+        db_62("orbit_62_plat") as conn,
+        pytest.raises(psycopg.errors.CheckViolation, match="declara plataforma"),
+    ):
+        _observa(conn, _campana(conn), platform="amazon_us", metric_currency="USD")
+
+
+@_skip_db
+def test_0062_rechaza_entidad_que_no_es_campana():
+    """S5: un ad group revienta en el sello de kind."""
+    with db_62("orbit_62_kind") as conn:
+        grupo = conn.execute(
+            "INSERT INTO ad_entity (platform, kind, external_id, parent_id) VALUES"
+            " ('amazon_mx', 'ad_group', 'g-0062-s5', %s) RETURNING id",
+            (_campana(conn),),
+        ).fetchone()[0]
+        with pytest.raises(psycopg.errors.CheckViolation, match="no es kind=campaign"):
+            _observa(conn, grupo)
+
+
+@_skip_db
+def test_0062_rechaza_metric_date_futura():
+    """S6: metric_date de manana revienta en el sello de fecha."""
+    with db_62("orbit_62_fecha") as conn:
+        manana = dt.datetime.now(dt.UTC).date() + dt.timedelta(days=1)
+        with pytest.raises(psycopg.errors.CheckViolation, match="es futura"):
+            _observa(conn, _campana(conn), metric_date=manana)
