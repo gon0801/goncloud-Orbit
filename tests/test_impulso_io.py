@@ -485,6 +485,25 @@ def test_vigia_dos_corridas_no_duplica_y_sin_datos_no_guarda():
 
 
 @_skip_db
+def test_vigia_segunda_corrida_no_repite_la_accion():
+    """I.3: con veredicto pausar, la segunda corrida del mismo dia no
+    vuelve a llamar al pausador."""
+    with _db_i3("orbit_i3_v6") as conn:
+        ids = _impulso_vivo(conn)
+        _observa(conn, ids["camps"][0], HOY - dt.timedelta(days=1), gasto="200", clics=30)
+        _observa(conn, ids["camps"][1], HOY - dt.timedelta(days=1), gasto="150", clics=30)
+        pausador = _Pausador()
+        uno = io.vigila(conn, pausador, hoy=HOY)
+        dos = io.vigila(conn, pausador, hoy=HOY)
+        assert uno[0].hecho == "pausado"
+        assert dos == []
+        assert pausador.pausados == [ids["lote"]]
+        assert conn.execute(
+            "SELECT count(*) FROM impulso_lectura WHERE impulso_id = %s", (ids["impulso"],)
+        ).fetchone() == (1,)
+
+
+@_skip_db
 def test_vigia_sin_observaciones_no_guarda():
     """I.3: sin filas de ingesta, el vigia no inventa lectura."""
     with _db_i3("orbit_i3_v5") as conn:

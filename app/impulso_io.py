@@ -119,6 +119,57 @@ class PausadorDeCampanas(Protocol):
     def reanuda(self, lote: str) -> None: ...
 
 
+class PausadorFabrica:
+    """PausadorDeCampanas sobre `pausar_lote`/`reanudar_lote` del tool:
+    fila en el ledger antes de cada PUT, readback y sello. Las
+    credenciales y el HTTP se arman al primer uso, para que el vigia
+    lea sin red cuando no hay nada que pausar."""
+
+    def __init__(self, conn, *, actor: str = "impulso-vigia") -> None:
+        self._conn = conn
+        self._actor = actor
+        self._ctxs: dict[str, object] = {}
+        self._armado = None
+
+    def _ctx_para(self, lote: str):
+        import httpx
+
+        import tools.fabrica_campanas as fc
+        from app.ads.client import AdsClient
+        from app.ads.config import AdsCredentials
+
+        if self._armado is None:
+            cred = AdsCredentials.from_secrets_dir()
+            cliente = AdsClient(cred)
+            http = httpx.Client(timeout=httpx.Timeout(connect=5.0, read=20.0, write=10.0, pool=5.0))
+            self._armado = (cred, cliente, http, fc._perfiles(cliente))
+        cred, cliente, http, perfiles = self._armado
+        fila = self._conn.execute(
+            "SELECT platform::text FROM fabrica_lote WHERE lote = %s", (lote,)
+        ).fetchone()
+        self._conn.commit()
+        if fila is None or fila[0] not in perfiles:
+            raise ErrorImpulso(422, f"sin perfil aceptado para el lote {lote}")
+        platform = fila[0]
+        if platform not in self._ctxs:
+            self._ctxs[platform] = fc._Ctx(
+                http, fc._token_lwa(cred, http), cred, cliente, perfiles[platform], self._conn, lote
+            )
+        ctx = self._ctxs[platform]
+        ctx.lote = lote
+        return ctx
+
+    def pausa(self, lote: str) -> None:
+        import tools.fabrica_campanas as fc
+
+        fc.pausar_lote(self._ctx_para(lote), lote, self._actor)
+
+    def reanuda(self, lote: str) -> None:
+        import tools.fabrica_campanas as fc
+
+        fc.reanudar_lote(self._ctx_para(lote), lote, self._actor)
+
+
 def lote_de_plan(plan: im.PlanImpulso) -> str:
     """Lote durable del impulso: deriva de la huella del plan (mismo plan,
     mismo lote: reintentar no duplica)."""
@@ -466,6 +517,14 @@ def vigila(conn, pausador: PausadorDeCampanas, *, hoy: dt.date) -> list[AccionVi
         lectura = im.LecturaImpulso(corte, dias, impr, clics, gasto, pedidos)
         veredicto = im.veredicto_impulso(lectura, tope)
         hecho = "nada"
+        ya = conn.execute(
+            "SELECT hecho FROM impulso_lectura WHERE impulso_id = %s AND corte = %s",
+            (imp, corte),
+        ).fetchone()
+        if ya is not None:
+            conn.commit()
+            acciones.append(AccionVigia(imp, lectura, veredicto, ya[0]))
+            continue
         if veredicto.accion == "pausar":
             pausador.pausa(lote)
             conn.execute(
