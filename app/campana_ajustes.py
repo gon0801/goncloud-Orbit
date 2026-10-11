@@ -13,7 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass, replace
-from decimal import ROUND_HALF_EVEN, Decimal
+from decimal import ROUND_HALF_EVEN, Decimal, InvalidOperation
 
 from app.ads.campana_config import ConfigCampana
 from app.optimizer.bid import PLATAFORMAS_MONEDA
@@ -141,9 +141,16 @@ def planea_ajuste(
     if clase is None or clase not in CLASES_SELLADAS:
         raise ValueError(f"clase sin sonda sellada: {type(ajuste).__name__}")
     if isinstance(ajuste, CambiarPresupuesto):
-        if not ajuste.presupuesto_diario.is_finite() or ajuste.presupuesto_diario <= 0:
+        if not ajuste.presupuesto_diario.is_finite():
+            raise ValueError(f"presupuesto debe ser finito, llego {ajuste.presupuesto_diario}")
+        try:
+            monto = ajuste.presupuesto_diario.quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
+        except InvalidOperation:
+            raise ValueError(
+                f"presupuesto fuera de rango, llego {ajuste.presupuesto_diario}"
+            ) from None
+        if monto <= 0:
             raise ValueError(f"presupuesto debe ser > 0, llego {ajuste.presupuesto_diario}")
-        monto = ajuste.presupuesto_diario.quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
         if vigente.presupuesto_diario == monto:
             raise AjusteSinCambio("el ajuste no cambia nada")
         despues = replace(

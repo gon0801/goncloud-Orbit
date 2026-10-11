@@ -49,7 +49,7 @@ echo "== esquema de prod (orbit_read, solo lectura)"
 ssh goncloud 'DSN=$(docker exec orbit-app-1 printenv ORBIT_DSN_READ); docker exec orbit-db-1 pg_dump "$DSN" --schema-only' \
   > "$TMP/prod.sql"
 grep -q 'CREATE TABLE public.decision ' "$TMP/prod.sql" || { echo "ABORTA: dump de prod invalido"; exit 1; }
-if grep -q 'ads_campana_ajuste_observation' "$TMP/prod.sql"; then echo "ABORTA: prod ya tiene la tabla de V.3"; exit 1; fi
+if grep -q 'CREATE TABLE public.campana_ajuste ' "$TMP/prod.sql"; then echo "ABORTA: prod ya tiene la tabla de V.3"; exit 1; fi
 
 if [ -n "$(psql "$DSN_LOCAL" -tAc "SELECT 1 FROM pg_database WHERE datname = '$DB'")" ]; then
   echo "ABORTA: ya existe la base local $DB (otra corrida viva, una que murio sin limpiar o una ajena); revisala y borrala a mano si es de un ensayo"; exit 1
@@ -63,7 +63,7 @@ echo "esquema de prod cargado: $(grep -c '^CREATE TABLE' "$TMP/a_prod.sql") tabl
 echo "== 1) aplicar 0067"
 aplicar 0067_bids02_campana_ajuste.sql
 volcar b_con_config
-echo "tabla 0067: $(grep -c '^CREATE TABLE public.ads_campana_ajuste_observation ' "$TMP/b_con_config.sql") (1 de 0067)"
+echo "tabla 0067: $(grep -c '^CREATE TABLE public.campana_ajuste ' "$TMP/b_con_config.sql") (1 de 0067)"
 
 echo "== 2) reversa de 0067"
 aplicar 0067_reversa_bids02_campana_ajuste.sql

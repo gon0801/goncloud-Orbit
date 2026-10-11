@@ -1417,3 +1417,247 @@ def test_regreso_con_vigente_ya_en_antes_no_manda_put(monkeypatch):
                 conn, ajuste_id=hecho.ajuste_id, actor="dueno", transport=transporte
             )
         assert len(_puts(vistos)) == 1
+
+
+@_skip_db
+def test_aplica_campana_de_otra_plataforma_rechazado(monkeypatch):
+    """M06: un plan cuya plataforma no es la de la campana no pasa."""
+    with _db("orbit_aj_m06") as conn:
+        from app.ads.campana_config import config_vigente
+
+        camp, _cfg = _siembra(conn)
+        remoto = {EXTERNA: {"budget": {"budget": 100.0, "budgetType": "DAILY"}}}
+        handler, _vistos = _handler_campanas(remoto)
+        _creds_fake(monkeypatch)
+        plan = planea_ajuste(
+            config_vigente(conn, camp),
+            CambiarPresupuesto(presupuesto_diario=Decimal("120")),
+            campana_id=camp,
+            plataforma="amazon_us",
+        )
+        with pytest.raises(ValueError, match="no es de amazon_us"):
+            apply.aplica_ajuste_campana(
+                conn,
+                plan,
+                huella=plan.huella(),
+                confirmacion="APLICAR AJUSTE",
+                actor="dueno",
+                transport=httpx.MockTransport(handler),
+            )
+
+
+@_skip_db
+def test_regresa_ajuste_sin_confirmar_rechazado(monkeypatch):
+    """M08: regresar un ajuste pendiente (PUT salio, readback fallo)
+    responde AjusteNoConfirmado, sin segundo PUT."""
+    with _db("orbit_aj_m08") as conn:
+        camp, _cfg = _siembra(conn)
+        remoto = {EXTERNA: {"budget": {"budget": 100.0, "budgetType": "DAILY"}}}
+        _creds_fake(monkeypatch)
+        plan = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("120")))
+        handler_mal, _v = _handler_campanas(remoto, divergente=_vigente_config())
+        with pytest.raises(apply.AjusteNoConfirmado):
+            apply.aplica_ajuste_campana(
+                conn,
+                plan,
+                huella=plan.huella(),
+                confirmacion="APLICAR AJUSTE",
+                actor="dueno",
+                transport=httpx.MockTransport(handler_mal),
+            )
+        (ajuste_id,) = conn.execute("SELECT id FROM campana_ajuste").fetchone()
+        handler_ok, vistos = _handler_campanas(remoto)
+        with pytest.raises(apply.AjusteNoConfirmado):
+            apply.regresa_ajuste_campana(
+                conn,
+                ajuste_id=ajuste_id,
+                actor="dueno",
+                transport=httpx.MockTransport(handler_ok),
+            )
+        assert _puts(vistos) == []
+
+
+@_skip_db
+def test_aplica_entidad_que_no_es_campana_rechazado(monkeypatch):
+    """M12: aplicar sobre una entidad que no es campana no pasa."""
+    with _db("orbit_aj_m12") as conn:
+        from app.ads.campana_config import config_vigente
+
+        camp, _cfg = _siembra(conn)
+        kw = conn.execute(
+            "INSERT INTO ad_entity (platform, kind, external_id, match_type,"
+            " keyword_text) VALUES ('amazon_mx', 'keyword', 'k-m12', 'EXACT', 't')"
+            " RETURNING id"
+        ).fetchone()[0]
+        remoto = {EXTERNA: {"budget": {"budget": 100.0, "budgetType": "DAILY"}}}
+        handler, _vistos = _handler_campanas(remoto)
+        _creds_fake(monkeypatch)
+        plan = planea_ajuste(
+            config_vigente(conn, camp),
+            CambiarPresupuesto(presupuesto_diario=Decimal("120")),
+            campana_id=kw,
+            plataforma="amazon_mx",
+        )
+        with pytest.raises(ValueError, match="no es de amazon_mx"):
+            apply.aplica_ajuste_campana(
+                conn,
+                plan,
+                huella=plan.huella(),
+                confirmacion="APLICAR AJUSTE",
+                actor="dueno",
+                transport=httpx.MockTransport(handler),
+            )
+
+
+@_skip_db
+def test_put_207_con_error_de_tope_aborta(monkeypatch):
+    """M42: un 207 con errores de tope lanza (no cuenta como exito)."""
+    with _db("orbit_aj_m42") as conn:
+        from app.ads.write import AdsApiErrorMutacion
+
+        camp, _cfg = _siembra(conn)
+        remoto = {EXTERNA: {"budget": {"budget": 100.0, "budgetType": "DAILY"}}}
+        base, _vistos = _handler_campanas(remoto)
+        _creds_fake(monkeypatch)
+        plan = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("120")))
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.method == "PUT":
+                return httpx.Response(
+                    207, json={"errors": [{"errorType": "topeError", "index": 0}]}
+                )
+            return base(request)
+
+        with pytest.raises(AdsApiErrorMutacion):
+            apply.aplica_ajuste_campana(
+                conn,
+                plan,
+                huella=plan.huella(),
+                confirmacion="APLICAR AJUSTE",
+                actor="dueno",
+                transport=httpx.MockTransport(handler),
+            )
+
+
+@_skip_db
+def test_put_207_con_error_anidado_aborta(monkeypatch):
+    """M43: un 207 con errores anidados por item lanza."""
+    with _db("orbit_aj_m43") as conn:
+        from app.ads.write import AdsApiErrorMutacion
+
+        camp, _cfg = _siembra(conn)
+        remoto = {EXTERNA: {"budget": {"budget": 100.0, "budgetType": "DAILY"}}}
+        base, _vistos = _handler_campanas(remoto)
+        _creds_fake(monkeypatch)
+        plan = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("120")))
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.method == "PUT":
+                return httpx.Response(
+                    207,
+                    json={"campaigns": [{"errors": [{"errorType": "budgetError"}], "index": 0}]},
+                )
+            return base(request)
+
+        with pytest.raises(AdsApiErrorMutacion):
+            apply.aplica_ajuste_campana(
+                conn,
+                plan,
+                huella=plan.huella(),
+                confirmacion="APLICAR AJUSTE",
+                actor="dueno",
+                transport=httpx.MockTransport(handler),
+            )
+
+
+@_skip_db
+def test_fila_visible_desde_otra_conexion_cuando_sale_el_put(monkeypatch):
+    """B10: la intencion pre-HTTP es durable: cuando sale el PUT, otra
+    conexion ya ve la fila pendiente (M01 muere aqui tambien)."""
+    with _db_dsn("orbit_aj_put") as (conn, dsn_db):
+        camp, _cfg = _siembra(conn)
+        remoto = {EXTERNA: {"budget": {"budget": 100.0, "budgetType": "DAILY"}}}
+        base, _vistos = _handler_campanas(remoto)
+        _creds_fake(monkeypatch)
+        plan = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("120")))
+        visto: dict = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.method == "PUT":
+                with psycopg.connect(dsn_db, autocommit=True) as otra:
+                    visto["filas"] = otra.execute(
+                        "SELECT id, confirmado_el IS NOT NULL FROM campana_ajuste"
+                    ).fetchall()
+            return base(request)
+
+        hecho = apply.aplica_ajuste_campana(
+            conn,
+            plan,
+            huella=plan.huella(),
+            confirmacion="APLICAR AJUSTE",
+            actor="dueno",
+            transport=httpx.MockTransport(handler),
+        )
+        assert visto["filas"] == [(hecho.ajuste_id, False)]
+
+
+@_skip_db
+def test_put_500_sale_como_error_de_amazon(monkeypatch):
+    """No-bloq 3: PUT con 500 persistente lanza AdsApiError (502 por
+    HTTP via _ERRORES_AJUSTE), no 500."""
+    with _db("orbit_aj_e500") as conn:
+        camp, _cfg = _siembra(conn)
+        remoto = {EXTERNA: {"budget": {"budget": 100.0, "budgetType": "DAILY"}}}
+        base, _vistos = _handler_campanas(remoto)
+        _creds_fake(monkeypatch)
+        plan = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("120")))
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.method == "PUT":
+                return httpx.Response(500, json={"message": "caido"})
+            return base(request)
+
+        with pytest.raises(apply.AdsApiError):
+            apply.aplica_ajuste_campana(
+                conn,
+                plan,
+                huella=plan.huella(),
+                confirmacion="APLICAR AJUSTE",
+                actor="dueno",
+                transport=httpx.MockTransport(handler),
+            )
+
+
+@_skip_db
+def test_readback_500_sale_como_error_de_amazon(monkeypatch):
+    """No-bloq 3: readback con 500 persistente lanza AdsApiError (502
+    por HTTP), con la fila pendiente reintentable."""
+    with _db("orbit_aj_r500") as conn:
+        import time
+
+        camp, _cfg = _siembra(conn)
+        monkeypatch.setattr(time, "sleep", lambda _s: None)
+        remoto = {EXTERNA: {"budget": {"budget": 100.0, "budgetType": "DAILY"}}}
+        base, _vistos = _handler_campanas(remoto)
+        _creds_fake(monkeypatch)
+        plan = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("120")))
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.method == "POST" and request.url.path == "/sp/campaigns/list":
+                return httpx.Response(500, json={"message": "caido"})
+            return base(request)
+
+        with pytest.raises(apply.AdsApiError):
+            apply.aplica_ajuste_campana(
+                conn,
+                plan,
+                huella=plan.huella(),
+                confirmacion="APLICAR AJUSTE",
+                actor="dueno",
+                transport=httpx.MockTransport(handler),
+            )
+        fila = conn.execute(
+            "SELECT confirmado_el IS NULL FROM campana_ajuste WHERE huella = %s",
+            (plan.huella(),),
+        ).fetchone()[0]
+        assert fila is True

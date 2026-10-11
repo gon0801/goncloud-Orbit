@@ -692,6 +692,7 @@ _ERRORES_AJUSTE: dict[type[Exception], int] = {
     apply.AjusteEnCurso: 409,
     apply.AjusteNoConfirmado: 502,
     apply.AdsApiErrorMutacion: 502,
+    apply.AdsApiError: 502,
     apply.SinPerfilAjuste: 503,
 }
 

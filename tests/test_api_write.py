@@ -1695,6 +1695,7 @@ def test_mapeo_errores_ajuste_trae_sus_codigos():
         apply.AjusteEnCurso: 409,
         apply.AjusteNoConfirmado: 502,
         apply.AdsApiErrorMutacion: 502,
+        apply.AdsApiError: 502,
         apply.SinPerfilAjuste: 503,
     } == _ERRORES_AJUSTE
 

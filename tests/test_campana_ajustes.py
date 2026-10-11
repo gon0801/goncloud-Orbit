@@ -190,3 +190,16 @@ def test_coincide_clase_mira_solo_lo_que_la_clase_mueve():
     fuera = _planea(LimitarFueraDeAmazon()).despues
     assert coincide_clase("fuera_de_amazon", replace(fuera, moneda="USD"), fuera)
     assert not coincide_clase("fuera_de_amazon", replace(fuera, fuera_de_amazon=None), fuera)
+
+
+def test_presupuesto_que_cuantiza_a_cero_levanta():
+    """No-bloq 2: 0.004 cuantiza a 0.00: se rechaza (antes validaba >
+    0 pre-cuantizacion y el 0.00 salia a Amazon)."""
+    with pytest.raises(ValueError, match="debe ser > 0"):
+        _planea(CambiarPresupuesto(presupuesto_diario=Decimal("0.004")))
+
+
+def test_presupuesto_fuera_de_rango_levanta():
+    """No-bloq 3: 1e30 no cuantiza (InvalidOperation): 422, no 500."""
+    with pytest.raises(ValueError, match="fuera de rango"):
+        _planea(CambiarPresupuesto(presupuesto_diario=Decimal("1e30")))
