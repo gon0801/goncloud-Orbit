@@ -2338,7 +2338,8 @@ def regresa_ajuste_campana(conn, *, ajuste_id: int, actor: str, transport=None) 
         # Solo la clase volvio a antes (otro ajuste posterior o cambio
         # manual + sync). El `!=` blinda el caso completo-igual para la
         # rama de arriba (M10).
-        if hijo is not None and not hijo[1]:
+        hijo_pendiente = hijo is not None and not hijo[1]
+        if hijo_pendiente:
             _sella_pendiente(conn, hijo[0])
             return AjusteHecho(hijo[0], campana_id, clase, True)
         raise AjusteYaRegresado(
