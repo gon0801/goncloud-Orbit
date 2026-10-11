@@ -294,7 +294,7 @@ def _plan_items(estructura: EstructuraAds) -> tuple[list[_ItemEntidad], Counter[
                     keyword_text=None,
                     status=payload.get("state"),
                     targeting_type=payload.get("targetingType"),
-                    bid=None,  # budget sin moneda: no se guarda (docstring)
+                    bid=None,  # el budget se guarda en 0061; current_bid es de entidad
                     bid_currency=None,
                 )
             )

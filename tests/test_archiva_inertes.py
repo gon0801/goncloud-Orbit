@@ -982,6 +982,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SQL14 = (ROOT / "migrations" / "0014_keyword_archivo_manual.sql").read_text(encoding="utf-8")
 SQL17 = (ROOT / "migrations" / "0017_first_seen_at.sql").read_text(encoding="utf-8")
 SQL51 = (ROOT / "migrations" / "0051_ads_acta_listado.sql").read_text(encoding="utf-8")
+SQL61 = (ROOT / "migrations" / "0061_bids02_campana_config.sql").read_text(encoding="utf-8")
 
 
 @contextmanager
@@ -1586,6 +1587,7 @@ def _db_21(prefijo):
         conn.execute(SQL14)
         conn.execute(SQL17)
         conn.execute(SQL51)  # JEV ADS 02 S.1: acta de listado
+        conn.execute(SQL61)  # BIDS 02 V.1: config de campana (el sync la escribe)
         yield conn
     finally:
         if conn is not None:

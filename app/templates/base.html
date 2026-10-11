@@ -28,6 +28,7 @@
     'gasto-sin-venta': ('Gasto sin venta', 'Busquedas que gastan y no venden, por lectura'),
     'keywords-danadas': ('Keywords dañadas', 'Vendian y perdieron su trafico tras un recorte'),
     'ruido': ('Ruido', 'Decisiones y abstenciones por ciclo, encogimiento y antes/despues'),
+    'donde-poner-el-dinero': ('Dónde poner el dinero', 'Gasto y ACoS por tipo de campaña, solo lo encendido'),
     'inertes': ('Inertes', 'Hojas activas sin trafico desde 14 dias o mas'),
     'settings': ('Settings', 'Cascada de targets, caps diarios y goals'),
     'fabrica': ('Crear campañas', 'Un grupo de cinco campañas de Sponsored Products'),
@@ -51,6 +52,7 @@
                     ('gasto-sin-venta', '/gasto-sin-venta', 'Gasto sin venta'),
                     ('keywords-danadas', '/keywords-danadas', 'Keywords dañadas'),
                     ('ruido', '/ruido', 'Ruido'),
+                    ('donde-poner-el-dinero', '/donde-poner-el-dinero', 'Dónde poner el dinero'),
                     ('inertes', '/inertes', 'Inertes'),
                     ('fabrica', '/campanas/nuevas', 'Crear campañas')])
       ] %}
@@ -105,7 +107,7 @@
     'campanas': 'gastos', 'fabrica': 'gastos', 'inertes': 'gastos',
     'settings': 'saldos',
     'cortes': 'revision', 'gasto-sin-venta': 'revision', 'keywords-danadas': 'revision',
-    'ruido': 'revision'
+    'ruido': 'revision', 'donde-poner-el-dinero': 'revision'
   } %}
   {% set tab_activo = tab_por_pantalla.get(pantalla, 'inicio') %}
   <nav class="tab-bar" aria-label="Navegacion movil">

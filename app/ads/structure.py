@@ -25,9 +25,9 @@ todas las formas de abajo fueron verificadas con status 200):
 - `bid` SOLO aparece en keywords de campanas manuales (831/1000 en la
   pagina 1 de US) y en 513/549 targets: su ausencia NO es error, es bid
   NULL con su moneda NULL (regla 3). `defaultBid` de ad group es escalar.
-- `budget` de campana viene como {budget, budgetType} SIN moneda: no se
-  guarda (regla 4; ademas current_bid es el bid de la entidad, no el
-  presupuesto).
+- `budget` de campana viene como {budget, budgetType} SIN moneda: se
+  guarda en 0061 con la del perfil (igual que los bids). current_bid
+  sigue siendo el bid de la entidad, no el presupuesto (campanas: NULL).
 - acos_target: CONFIRMADO ausente en todos los items de la corrida real
   (2026-08-22) -> queda NULL por diseno, no por omision.
 - Totales reales de la corrida del 2026-08-22 (5897 entidades escritas,
@@ -123,6 +123,7 @@ re-exporta los nombres que importan app/, tools/ y tests/.
 
 from __future__ import annotations
 
+import datetime as dt
 import logging
 import os
 import sys
@@ -131,6 +132,7 @@ from dataclasses import dataclass
 
 import psycopg
 
+from app.ads.campana_config import config_de_payload, guarda_config
 from app.ads.client import AdsClient
 from app.ads.config import AdsCredentials
 from app.ads.structure_api import (  # noqa: F401 - fachada sellada (ESTRUCTURA 01)
@@ -332,6 +334,26 @@ def _insertar_acta(
         )
 
 
+def _guardar_configs_sync(conn, estructura: EstructuraAds, skips: Counter) -> int:
+    """Config de campana (V.1): convierte `est.campanas` de cada perfil y
+    guarda. Ilegibles a skips (su ad_entity ya se escribio). Sin
+    campaignId no cuenta aqui: el plan ya la conto. Devuelve filas."""
+    observado = dt.datetime.now(dt.UTC)
+    insertadas = 0
+    for est in estructura.estructuras:
+        configs = []
+        for payload in est.campanas:
+            if not isinstance(payload, dict) or payload.get("campaignId") is None:
+                continue
+            config = config_de_payload(payload, est.perfil.moneda)
+            if config is None:
+                skips["config de campana ilegible"] += 1
+            else:
+                configs.append(config)
+        insertadas += guarda_config(conn, est.perfil.platform or "", configs, observado)
+    return insertadas
+
+
 def sync_structure(conn: psycopg.Connection, estructura: EstructuraAds) -> ResultadoSync:
     """Escribe ad_entity + ad_entity_state y sella la ingest_run.
 
@@ -431,6 +453,7 @@ def sync_structure(conn: psycopg.Connection, estructura: EstructuraAds) -> Resul
                     written += cur.rowcount
 
             _insertar_acta(conn, run_id, estructura, refs)
+            written += _guardar_configs_sync(conn, estructura, skips)
 
             skip_reason = _formato_skip_reason(skips + clasificacion)
             _sellar_run(

@@ -1089,6 +1089,7 @@ def salud(conn: ConexionLectura) -> dict:
             "spapi": _spapi_de(conn, plataforma),
             "ads_ingest": _ads_ingest_de(conn, plataforma),
             "precios": _precios_de(conn, plataforma),
+            "avisos_campana": _avisos_campana_de(conn, plataforma),
         }
     return {"plataformas": plataformas, "jev": _jev_de(conn)}
 
@@ -1111,6 +1112,30 @@ def _ads_ingest_de(conn: ConexionLectura, plataforma: str) -> dict | None:
         return bloque_ads_ingest(conn, plataforma)
     except Exception as exc:  # noqa: BLE001 - version de schema visible en log
         logger.warning("salud: ads_ingest %s ilegible: %s", plataforma, scrub(str(exc)))
+        return None
+
+
+def _avisos_campana_de(conn: ConexionLectura, plataforma: str) -> list[str] | None:
+    """Bloque avisos_campana de UNA plataforma (BIDS 02, V.4): frases del
+    dia (lectores P.2a + `avisos_del_dia`, ventana de 30 dias hasta ayer).
+    None si algo falla (patron _jev_de: sin tablas V.2, sin config)."""
+    try:
+        from app import avisos_campana as ac
+        from app import pantalla_dinero as pd
+
+        hasta = _hoy_utc() - dt.timedelta(days=1)
+        desde = hasta - dt.timedelta(days=pd.DIAS_UBICACION - 1)
+        por_ubi = pd.lee_ubicaciones(conn, plataforma=plataforma, desde=desde, hasta=hasta)
+        por_camp = pd.lee_campanas(conn, plataforma=plataforma, desde=desde, hasta=hasta)
+        umbral = pd.umbral_concluir(conn, plataforma)
+        return [
+            aviso.frase
+            for aviso in ac.avisos_del_dia(
+                por_ubi, por_camp, plataforma=plataforma, gasto_para_concluir=umbral
+            )
+        ]
+    except Exception as exc:  # noqa: BLE001 - degradacion visible, no caida
+        logger.warning("salud: avisos_campana %s ilegible: %s", plataforma, scrub(str(exc)))
         return None
 
 
@@ -2393,3 +2418,16 @@ def ruido(conn: ConexionLectura, plataforma: str | None = None) -> dict:
     if mercado not in PLATAFORMAS_MONEDA:
         raise HTTPException(status_code=422, detail="plataforma fuera de vocabulario")
     return pantalla_ruido.lee_ruido(conn, plataforma=mercado).como_dict()
+
+
+@router.get("/donde-poner-el-dinero")
+def donde_poner_el_dinero(conn: ConexionLectura, plataforma: str | None = None) -> dict:
+    """Donde poner el dinero del mercado (BIDS 02, P.1). Funcion delgada:
+    delega en `pantalla_dinero.lee_dinero` (SOLO SELECT) y pasa su dict tal
+    cual. Sin mercado se mira amazon_mx; mercado ajeno es 422."""
+    from app import pantalla_dinero
+
+    mercado = plataforma or "amazon_mx"
+    if mercado not in PLATAFORMAS_MONEDA:
+        raise HTTPException(status_code=422, detail="plataforma fuera de vocabulario")
+    return pantalla_dinero.lee_dinero(conn, plataforma=mercado).como_dict()

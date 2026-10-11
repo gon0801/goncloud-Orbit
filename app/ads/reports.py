@@ -2058,7 +2058,19 @@ def main(argv: list[str] | None = None) -> int:
             "ads_product_metric_observation; sin el, los 4 reportes de siempre"
         ),
     )
+    parser.add_argument(
+        "--placements",
+        action="store_true",
+        help=(
+            "solo el reporte spCampaigns por placement (BIDS 02 V.2) a "
+            "ads_placement_observation; excluyente con --productos"
+        ),
+    )
     args = parser.parse_args(argv)
+
+    if args.placements and args.productos:
+        print("--placements es excluyente con --productos", file=sys.stderr)
+        return 2
 
     try:
         fecha_ini, fecha_fin = _rango_desde_args(
@@ -2079,7 +2091,16 @@ def main(argv: list[str] | None = None) -> int:
         conn = connect(dsn)
         try:
             reportes = (PRODUCTOS_CFG,) if args.productos else REPORTES_CFG
-            source = SOURCE_PRODUCTOS if args.productos else SOURCE
+            if args.placements:
+                # La corrida propia sella su preflight con su source (no con
+                # el del pipeline principal). Ojo: Salud NO muestra ese
+                # source (igual que productos): lo fallido solo queda en
+                # ingest_run y en el log del cron.
+                from app.ads.placements import SOURCE_PLACEMENTS
+
+                source = SOURCE_PLACEMENTS
+            else:
+                source = SOURCE_PRODUCTOS if args.productos else SOURCE
             try:
                 client = AdsClient(AdsCredentials.from_secrets_dir())
             except Exception as exc:
@@ -2105,6 +2126,12 @@ def main(argv: list[str] | None = None) -> int:
                     )
                 intentar_procesar_run(conn, run_id)
                 raise
+            if args.placements:
+                from app.ads.placements import sync_placements
+
+                escritos = sync_placements(conn, client, desde=fecha_ini, hasta=fecha_fin)
+                print(f"placements {fecha_ini}..{fecha_fin}: rows_written={escritos}")
+                return 0
             resultado = sync_metrics(
                 conn, client, fecha_ini=fecha_ini, fecha_fin=fecha_fin, reportes=reportes
             )

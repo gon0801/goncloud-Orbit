@@ -24,6 +24,9 @@ _SQL17 = (_Path(__file__).resolve().parents[1] / "migrations" / "0017_first_seen
 _SQL51 = (
     _Path(__file__).resolve().parents[1] / "migrations" / "0051_ads_acta_listado.sql"
 ).read_text(encoding="utf-8")
+_SQL61 = (
+    _Path(__file__).resolve().parents[1] / "migrations" / "0061_bids02_campana_config.sql"
+).read_text(encoding="utf-8")
 
 _DSN_EXPLICITO = bool(os.environ.get("ORBIT_TEST_DSN"))
 
@@ -88,6 +91,7 @@ def _conectar_base_con_0004():
     conn.execute(SQL4)
     conn.execute(_SQL17)  # BIDS 01 2.1: first_seen_at
     conn.execute(_SQL51)  # JEV ADS 02 S.1: acta de listado
+    conn.execute(_SQL61)  # BIDS 02 V.1: config de campana (el sync la escribe)
     return psycopg, pgsql, admin, conn, db
 
 

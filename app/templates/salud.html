@@ -142,6 +142,22 @@
   </div>
   {% endif %}
 
+  {% if datos.avisos_campana is defined %}
+  {# BIDS 02 V.4: frases del dia (mismas que Telegram). #}
+  <h3>Avisos de campaña</h3>
+  <div id="bloque-avisos-campana-{{ plataforma }}">
+  {% if datos.avisos_campana %}
+  <ul>
+    {% for frase in datos.avisos_campana %}
+    <li>{{ frase }}</li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="mutado">Sin avisos de campaña hoy.</p>
+  {% endif %}
+  </div>
+  {% endif %}
+
   <h3>Historico (14d)</h3>
   <div class="tabla-scroll" role="region" aria-label="Tabla de datos" tabindex="0">
   <table>

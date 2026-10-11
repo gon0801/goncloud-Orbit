@@ -4017,3 +4017,184 @@ def test_keywords_danadas_api_delgada_vocabulario_y_passthrough(monkeypatch):
         assert pedidas == ["amazon_us", "amazon_mx"]
         ajeno = cliente.get("/api/dashboard/keywords-danadas", params={"plataforma": "meli"})
         assert ajeno.status_code == 422
+
+
+# P.1 (BIDS 02 s3): GET /api/dashboard/donde-poner-el-dinero, funcion delgada.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_donde_poner_el_dinero_api_delgada_vocabulario_y_passthrough(monkeypatch):
+    """El endpoint delega en `lee_dinero` y pasa su dict tal cual; mercado
+    ajeno es 422 y sin mercado se mira amazon_mx."""
+    from app.pantalla_dinero import FilaTipo, PantallaDinero
+
+    fila = FilaTipo(
+        tipo="exact",
+        gasto=Decimal("100"),
+        pedidos=10,
+        venta=Decimal("1000"),
+        acos_pct=Decimal("10.0"),
+        parte_del_gasto_pct=Decimal("20.0"),
+        hojas=2,
+    )
+    pantalla = PantallaDinero(
+        plataforma="amazon_us",
+        moneda="USD",
+        desde=dt.date(2026, 7, 6),
+        hasta=dt.date(2026, 10, 4),
+        filas=(fila,),
+        total=fila,
+        hojas_sin_clasificar=0,
+        target_acos_pct=Decimal("13.3"),
+    )
+    pedidas = []
+
+    def _falsa(conn, *, plataforma):
+        pedidas.append(plataforma)
+        return pantalla
+
+    monkeypatch.setattr("app.pantalla_dinero.lee_dinero", _falsa)
+    with _db_temporal("orbit_dash_dinero") as (_conn, dsn_read):
+        cliente = _cliente(dsn_read, monkeypatch)
+        resp = cliente.get(
+            "/api/dashboard/donde-poner-el-dinero", params={"plataforma": "amazon_us"}
+        )
+        assert resp.status_code == 200, resp.text
+        dato = resp.json()
+        assert dato["plataforma"] == "amazon_us"
+        assert dato["filas"][0]["tipo"] == "exact"
+        assert dato["target_acos_pct"] == "13.3"
+        assert pedidas == ["amazon_us"]
+        omision = cliente.get("/api/dashboard/donde-poner-el-dinero")
+        assert omision.status_code == 200, omision.text
+        assert pedidas == ["amazon_us", "amazon_mx"]
+        ajeno = cliente.get("/api/dashboard/donde-poner-el-dinero", params={"plataforma": "meli"})
+        assert ajeno.status_code == 422
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_donde_poner_el_dinero_api_trae_ubicaciones_y_campanas_de_su_mercado(monkeypatch):
+    """P.2a: el dict trae `por_ubicacion` y `por_campana`; el mercado pedido
+    es el que se lee (el filtro US/MX vive en los lectores)."""
+    from app.pantalla_dinero import FilaCampana, FilaTipo, FilaUbicacion, PantallaDinero
+
+    pantalla = PantallaDinero(
+        plataforma="amazon_mx",
+        moneda="MXN",
+        desde=dt.date(2026, 9, 5),
+        hasta=dt.date(2026, 10, 4),
+        filas=(
+            FilaTipo(
+                tipo="exact",
+                gasto=Decimal("100"),
+                pedidos=10,
+                venta=Decimal("1000"),
+                acos_pct=Decimal("10.0"),
+                parte_del_gasto_pct=Decimal("20.0"),
+                hojas=2,
+            ),
+        ),
+        total=FilaTipo(
+            tipo="",
+            gasto=Decimal("100"),
+            pedidos=10,
+            venta=Decimal("1000"),
+            acos_pct=Decimal("10.0"),
+            parte_del_gasto_pct=Decimal("100.0"),
+            hojas=2,
+        ),
+        hojas_sin_clasificar=0,
+        target_acos_pct=None,
+        por_ubicacion=(
+            FilaUbicacion(
+                ubicacion="fuera_de_amazon",
+                gasto=Decimal("1735"),
+                clics=1127,
+                pedidos=0,
+                venta=Decimal("0"),
+                cpc=Decimal("1.54"),
+                conversion_pct=Decimal("0.0"),
+                acos_pct=None,
+                parte_del_gasto_pct=Decimal("10.0"),
+                gasta_sin_vender=True,
+            ),
+        ),
+        por_campana=(
+            FilaCampana(
+                campana_id=7,
+                nombre="Campana 7",
+                presupuesto_diario=Decimal("100"),
+                gasto_medio_diario=Decimal("43.00"),
+                uso_presupuesto_pct=Decimal("43.0"),
+                estrategia="fija",
+                ajustes_ubicacion=(("paginas_de_producto", 40),),
+                gasto_fuera_de_amazon=Decimal("25"),
+                dias_al_tope_7d=5,
+            ),
+        ),
+    )
+    pedidas = []
+
+    def _falsa(conn, *, plataforma):
+        pedidas.append(plataforma)
+        return pantalla
+
+    monkeypatch.setattr("app.pantalla_dinero.lee_dinero", _falsa)
+    with _db_temporal("orbit_dash_dinero2a") as (_conn, dsn_read):
+        cliente = _cliente(dsn_read, monkeypatch)
+        resp = cliente.get(
+            "/api/dashboard/donde-poner-el-dinero", params={"plataforma": "amazon_mx"}
+        )
+        assert resp.status_code == 200, resp.text
+        dato = resp.json()
+        assert dato["por_ubicacion"][0]["gasta_sin_vender"] is True
+        assert dato["por_campana"][0]["campana_id"] == 7
+        assert pedidas == ["amazon_mx"]
+
+
+def test_salud_trae_avisos_campana_por_plataforma(monkeypatch):
+    """V.4: /salud trae `avisos_campana` (frases del dia) por mercado."""
+    from app.pantalla_dinero import FilaUbicacion
+
+    with _db_temporal("orbit_dash_salud_av") as (_conn, dsn):
+        fila = FilaUbicacion(
+            ubicacion="fuera_de_amazon",
+            gasto=Decimal("1735"),
+            clics=1127,
+            pedidos=0,
+            venta=Decimal("0"),
+            cpc=Decimal("1.54"),
+            conversion_pct=Decimal("0.0"),
+            acos_pct=None,
+            parte_del_gasto_pct=Decimal("10.0"),
+            gasta_sin_vender=True,
+        )
+        monkeypatch.setattr("app.pantalla_dinero.lee_ubicaciones", lambda conn, **k: (fila,))
+        monkeypatch.setattr("app.pantalla_dinero.lee_campanas", lambda conn, **k: ())
+        data = _cliente(dsn, monkeypatch).get("/api/dashboard/salud").json()["plataformas"]
+        assert data["amazon_mx"]["avisos_campana"] == [
+            "Fuera de Amazon: 1,735 MXN en 30 días, 1,127 clics, ningún pedido."
+        ]
+        assert data["amazon_us"]["avisos_campana"] == [
+            "Fuera de Amazon: 1,735 USD en 30 días, 1,127 clics, ningún pedido."
+        ]
+
+
+def test_salud_avisos_campana_roto_da_none(monkeypatch):
+    """V.4: lector roto -> `avisos_campana` None, la pantalla no muere."""
+
+    def _roto(conn, **k):
+        raise RuntimeError("0062 ausente")
+
+    with _db_temporal("orbit_dash_salud_av2") as (_conn, dsn):
+        monkeypatch.setattr("app.pantalla_dinero.lee_ubicaciones", _roto)
+        data = _cliente(dsn, monkeypatch).get("/api/dashboard/salud").json()["plataformas"]
+        assert data["amazon_mx"]["avisos_campana"] is None
+        assert data["amazon_us"]["avisos_campana"] is None

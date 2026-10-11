@@ -97,8 +97,20 @@ def porcentaje_ui(valor: str | None) -> str | None:
         return valor
 
 
+def miles_ui(valor) -> str | None:
+    """Entero con separador de miles («1735» -> «1,735»). None queda None;
+    si no parsea, se deja igual. Redondea a entero (HALF_EVEN)."""
+    if valor is None:
+        return None
+    try:
+        return f"{round(Decimal(str(valor))):,}"
+    except (InvalidOperation, ValueError):
+        return valor
+
+
 templates.env.filters["dinero_ui"] = dinero_ui
 templates.env.filters["porcentaje_ui"] = porcentaje_ui
+templates.env.filters["miles_ui"] = miles_ui
 templates.env.filters["kpis_serie"] = kpis_serie
 templates.env.filters["clase_cambio"] = clase_cambio
 templates.env.filters["kpis_inertes"] = kpis_inertes
@@ -621,6 +633,25 @@ def pagina_ruido(
         request,
         "ruido.html",
         {"pantalla": "ruido", **datos},
+    )
+
+
+@router.get("/donde-poner-el-dinero", response_class=HTMLResponse)
+def pagina_donde_poner_el_dinero(
+    request: Request,
+    conn: ConexionLectura,
+    plataforma: Annotated[str | None, Query()] = None,
+) -> HTMLResponse:
+    """Donde poner el dinero (BIDS 02, P.1): gasto y ACoS por tipo de
+    campana, solo lo que hoy esta encendido. Server-rendered desde el
+    endpoint (regla 22). Mercado con `?plataforma=` (vocabulario cerrado,
+    sin componente de pestanas); sin mercado se mira amazon_mx."""
+    mercado = _vocab_o_422(plataforma, frozenset(PLATAFORMAS_MONEDA), "plataforma")
+    datos = dash.donde_poner_el_dinero(conn=conn, plataforma=mercado or "amazon_mx")
+    return templates.TemplateResponse(
+        request,
+        "donde_poner_el_dinero.html",
+        {"pantalla": "donde-poner-el-dinero", **datos},
     )
 
 

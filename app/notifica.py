@@ -1557,3 +1557,53 @@ def avisar_precio(conn, platform: str, hoy, resumen) -> int:
     except Exception as exc:  # noqa: BLE001 - fail-silent (docstring del modulo)
         logger.warning("telegram: fallo armando los avisos de precio: %s", scrub(str(exc)))
         return 0
+
+
+def avisar_campanas(conn, hoy=None, *, solo=None):
+    """Avisos diarios de campana (BIDS 02, V.4): lee los lectores de P.2a
+    por mercado (ventana de 30 dias hasta ayer), arma con `avisos_del_dia`
+    y envia un mensaje por plataforma y clase con `_envia_texto`. `solo`
+    restringe a {(plataforma, clase)} (el comando salta lo ya enviado).
+    Una clase fallida no tumba las demas; una plataforma con lectura
+    fallida no tumba la otra; sin casos no envia nada.
+    Devuelve {(plataforma, clase): salio} de lo intentado."""
+    from app.avisos_campana import CLASES, avisos_del_dia, mensaje_clase
+    from app.optimizer.bid import PLATAFORMAS_MONEDA
+    from app.pantalla_dinero import (
+        DIAS_UBICACION,
+        lee_campanas,
+        lee_ubicaciones,
+        umbral_concluir,
+    )
+
+    dia = hoy if hoy is not None else dt.datetime.now(dt.UTC).date()
+    hasta = dia - dt.timedelta(days=1)
+    desde = hasta - dt.timedelta(days=DIAS_UBICACION - 1)
+    if solo is None:
+        pedidos = [(p, c) for p in PLATAFORMAS_MONEDA for c in CLASES]
+    else:
+        pedidos = [(p, c) for p in PLATAFORMAS_MONEDA for c in CLASES if (p, c) in solo]
+    salieron = {}
+    for plataforma in PLATAFORMAS_MONEDA:
+        clases = [c for p, c in pedidos if p == plataforma]
+        if not clases:
+            continue
+        try:
+            avisos = avisos_del_dia(
+                lee_ubicaciones(conn, plataforma=plataforma, desde=desde, hasta=hasta),
+                lee_campanas(conn, plataforma=plataforma, desde=desde, hasta=hasta),
+                plataforma=plataforma,
+                gasto_para_concluir=umbral_concluir(conn, plataforma),
+            )
+        except Exception as exc:  # noqa: BLE001 - fail-continues (docstring)
+            logger.warning("campanas: lectura de %s fallida: %s", plataforma, scrub(str(exc)))
+            # Sin rollback, un error de SQL deja la transaccion abortada y la
+            # siguiente plataforma falla con "current transaction is aborted".
+            conn.rollback()
+            continue
+        for clase in clases:
+            texto = mensaje_clase(plataforma, clase, avisos)
+            if not texto:
+                continue
+            salieron[(plataforma, clase)] = _envia_texto(texto)
+    return salieron

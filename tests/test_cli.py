@@ -911,3 +911,18 @@ def test_cli_jev_senales_despacha_con_sus_args(monkeypatch):
     monkeypatch.setattr(jev_senales, "main", _fake_main)
     assert cli.main(["jev-senales", "--aplicar"]) == 7
     assert visto["rest"] == ["--aplicar"]
+
+
+def test_cli_avisos_campana_registrado_y_despachado(monkeypatch, capsys):
+    """`avisos-campana` existe en el CLI y despacha a `cli_bids` (V.4)."""
+    from app import cli_bids
+
+    llamadas = []
+
+    def _falso(rest):
+        llamadas.append(rest)
+        return 7
+
+    monkeypatch.setitem(cli_bids.COMANDOS, "avisos-campana", _falso)
+    assert cli.main(["avisos-campana"]) == 7
+    assert llamadas == [[]]

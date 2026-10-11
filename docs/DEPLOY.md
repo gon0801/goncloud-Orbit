@@ -382,6 +382,8 @@ El server está en UTC: estas horas SON UTC.
 | 06:45 | `ingest:structure` | `python -m app.cli ingest structure` |
 | 07:10 | `ingest:metrics` | `python -m app.cli ingest metrics --fecha D-31 --fecha-fin D-1` |
 | 07:20 | `ingest:metrics:productos` | `python -m app.cli ingest metrics --fecha D-31 --fecha-fin D-1 --productos` (ORBIT 19 B.1; el reporte `spAdvertisedProduct` puede tardar hasta ~25 min por perfil, presupuesto de poll propio) |
+| 07:25 | `ingest:metrics:placements` | `python -m app.cli ingest metrics --fecha D-31 --fecha-fin D-1 --placements` (BIDS 02 V.2; `spCampaigns` por `campaignPlacement`, corrida propia) |
+| 08:05 | `avisos-campana` | `python -m app.cli avisos-campana` (BIDS 02 V.4; flock + log, linea exacta abajo) |
 | 08:40 | `ads_optimizer:amazon_us` + `ads_optimizer:amazon_mx` | `python -m app.cli cycle --platform …` (los dos, en serie) |
 | 09:30, 21:30 | `jev-senales` | `python -m app.cli jev-senales --aplicar` (JEV ADS 02 S.4; flock + log, linea exacta abajo) |
 | 13:10 | `precio:amazon_mx` | `python -m app.cli precio --platform amazon_mx` (REPRICING 01 A.5; flock + log, linea exacta abajo) |
@@ -428,6 +430,25 @@ host). Instalación (dueño, posterior al merge): respaldar el crontab de
 `gon`, agregar la línea con `crontab -e` (nada más se toca) y comprobar que
 solo se agregó esa línea. La **reversa** es borrar la línea del crontab y
 las tablas `jev_*` quedan intactas (el job apagado no escribe).
+
+Avisos diarios de campaña (BIDS 02 V.4): Telegram a las 08:05 UTC, tras la
+ingesta de placements (07:25) y antes del ciclo (08:40). Línea EXACTA del
+crontab de `gon` (la prueba `test_deploy_documenta_la_linea_de_avisos` la
+pinza de `tests/test_avisos_campana_cron.py::LINEA_AVISOS_CAMPANA`), suelta
+como la de precio — fuera del bloque del instalador de ORBIT 03, cuyo
+filtro no la borra:
+
+```cron
+5 8 * * * /usr/bin/flock -n /tmp/avisos-campana.lock docker exec orbit-app-1 python -m app.cli avisos-campana >> /mnt/data/appdata/orbit/logs/avisos-campana.log 2>&1
+```
+
+Prerrequisitos: migraciones 0061 y 0062 aplicadas, `ORBIT_DSN_READ` y
+`ORBIT_DSN_INGEST` presentes **dentro** de `orbit-app-1` (`docker exec` no
+pasa el entorno del host). Instalación (dueño, posterior al merge):
+respaldar el crontab de `gon`, agregar la línea con `crontab -e` (nada más
+se toca) y comprobar que solo se agregó esa línea. La **reversa** es borrar
+la línea del crontab (el job apagado no escribe; las marcas quedan en
+`ingest_run` como historia).
 
 ADS PROTECCION 01 A.3 requiere aplicar `0040_ads_report_result.sql` y despues
 `0041_ads_ingest_alert.sql` antes de actualizar `orbit-app-1`. La 0041 guarda
@@ -633,6 +654,8 @@ ORBIT_BLOCK=$(cat <<'CRON'
 10 7 * * * FECHA=$(date -u -d "31 days ago" +\%F) FECHA_FIN=$(date -u -d "1 day ago" +\%F) && docker exec orbit-app-1 python -m app.cli ingest metrics --fecha "$FECHA" --fecha-fin "$FECHA_FIN" >> /mnt/data/appdata/orbit/logs/ingest-metrics.log 2>&1
 # job_key=ingest:metrics:productos  ORBIT 19 B.1 (spAdvertisedProduct por ASIN/SKU; poll hasta 25 min/reporte)
 20 7 * * * FECHA=$(date -u -d "31 days ago" +\%F) FECHA_FIN=$(date -u -d "1 day ago" +\%F) && docker exec orbit-app-1 python -m app.cli ingest metrics --fecha "$FECHA" --fecha-fin "$FECHA_FIN" --productos >> /mnt/data/appdata/orbit/logs/ingest-productos.log 2>&1
+# job_key=ingest:metrics:placements  BIDS 02 V.2 (spCampaigns por campaignPlacement)
+25 7 * * * FECHA=$(date -u -d "31 days ago" +\%F) FECHA_FIN=$(date -u -d "1 day ago" +\%F) && docker exec orbit-app-1 python -m app.cli ingest metrics --fecha "$FECHA" --fecha-fin "$FECHA_FIN" --placements >> /mnt/data/appdata/orbit/logs/ingest-placements.log 2>&1
 # job_key=ads-salud  A.3: 10:30 UTC y reintentos hasta 12:50
 */10 10-12 * * * docker exec orbit-app-1 python -m app.cli ads-salud >> /mnt/data/appdata/orbit/logs/ads-salud.log 2>&1
 # job_key=ads_optimizer:amazon_us + ads_optimizer:amazon_mx
@@ -646,7 +669,7 @@ SCRIPT
 ```
 
 Diff obligatorio contra el respaldo: las líneas de accounting deben
-seguir byte-iguales. Solo aparecen las seis líneas del bloque Orbit y sus comentarios.
+seguir byte-iguales. Solo aparecen las siete líneas del bloque Orbit y sus comentarios.
 
 ## Usuarios y DSN
 
@@ -2347,3 +2370,58 @@ aborta antes de tocar nada.
 
 Las salidas de los cinco scripts van en el PR de cierre de la seccion 2
 (rama `bids-02/s2-cierre`).
+
+## BIDS 02 D.2 — despliegue de ver la campana + dos lineas de cron
+
+Despliega la seccion 3 (V.1, V.2, P.1, P.2a, V.4): config de campana,
+reporte por placement, pantalla de dinero y avisos diarios. Corre en
+cuanto claw lo encarga tras el merge del PR de codigo. Instala dos
+lineas de cron: la de `--placements` DENTRO del bloque Orbit (tras la
+de `--productos`, porque el instalador de ORBIT 03 borra toda linea
+suelta con `app.cli ingest`) y la de `avisos-campana` SUELTA al final.
+Scripts en `docs/evidencia/bids-02/ejecucion/D.2/`, patron D.1. Orden:
+
+```bash
+cd ~/dev/goncloud-Orbit
+bash docs/evidencia/bids-02/ejecucion/D.2/ensayo.sh
+bash docs/evidencia/bids-02/ejecucion/D.2/desplegar.sh <sha-de-origin/master>
+bash docs/evidencia/bids-02/ejecucion/D.2/checklist.sh <sello>   # despues del sync de las 06:45 UTC y del reporte de las 07:25 UTC
+```
+
+`desplegar.sh` aplica las migraciones BIDS 02 del SHA no aplicadas (0061
+y 0062 de la seccion 3; 0060 de la seccion 1 y 0063 de T.1 si siguen
+pendientes) y trae, ademas de las cinco guardas de la guia, dos propias
+que abortan antes de tocar nada: el SHA trae `app/cli_bids.py` con
+`avisos-campana` registrado y `app/ads/placements.py`, y `docs/DEPLOY.md`
+del SHA trae exactamente las dos lineas de cron (`git show
+<sha>:docs/DEPLOY.md | grep -E '^[0-9].*(--placements|avisos-campana)'`;
+el ancla `^[0-9]` deja fuera la fila de la tabla de crons). La guarda 5
+de la guia (instalar lineas de cron): respalda el crontab de `gon`,
+calcula las dos lineas en el paso 1c e instala en el 7b, tras el health
+del contenedor nuevo (instalar antes dejaria las lineas invocando
+comandos que la imagen vieja no tiene si un paso posterior aborta). El
+diff verificado trae solo las previstas; si trae otra cosa, aborta sin
+tocar nada. El respaldo queda en
+`/mnt/data/appdata/orbit/backups/crontab-gon-pre-d2-<sello>.txt` para
+`rollback.sh` (si desplegar no llego a 7b, no hay respaldo y el
+rollback salta el paso cron: el crontab quedo intacto).
+
+`checklist.sh` (solo lectura, salidas 0/1/3/4 del patron S.3) verifica
+`/health` en 200, la vista `v_campana_config_vigente` y las tablas de la
+0061 y la 0062, y sale 3 hasta que corren el sync de las 06:45 UTC y el
+reporte de las 07:25 UTC posteriores al arranque del contenedor nuevo.
+Tras el sync: ninguna campana `ENABLED` sin fila en la vista, en cada
+mercado. Tras el reporte: `ads_placement_observation` con filas,
+`/donde-poner-el-dinero` en 200 en MX y US, y `por_ubicacion` y
+`por_campana` con filas en los dos mercados.
+
+CONSECUENCIA. `rollback.sh` restaura primero el crontab del respaldo
+pre-d2 (quita exactamente lo instalado), luego el codigo de
+`predeploy-<sello>` y al final las reversas de
+`aplicadas-<sello>.txt` en orden inverso. Las reversas dropean las
+tablas 0061/0062 con sus filas: son observaciones re-derivables (el
+siguiente sync y el siguiente reporte las vuelven a escribir) y el
+codigo anterior no las lee.
+
+Las salidas de los cuatro scripts van en el PR de cierre de la seccion 3
+(rama `bids-02/s3-cierre`).
