@@ -824,6 +824,11 @@ def test_guion_en_cada_celda_tipo_y_total():
     )
     assert _fila_html(html, ">exact<").count("—") == 5
     assert _fila_html(html, ">Total<").count("—") == 5
+    sin_ventas = _html_dinero(
+        [_fila_ui()],
+        total=_fila_ui(tipo="", venta="0", sin_ventas=True),
+    )
+    assert "sin ventas" in _fila_html(sin_ventas, ">Total<")
 
 
 def test_guion_en_cada_celda_ubicacion():
