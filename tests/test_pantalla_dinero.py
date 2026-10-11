@@ -150,6 +150,13 @@ def test_venta_cero_da_acos_none_y_metrica_null_da_suma_none():
     assert pantalla.filas[1].parte_del_gasto_pct is None
     assert pantalla.total.gasto is None
 
+    grupos = _cinco_grupos(phrase=(Decimal("100"), None, Decimal("1000"), 2))
+    pantalla, _ = _lee(grupos, hasta=dt.date(2026, 10, 4))
+    assert pantalla.total.pedidos is None
+    grupos = _cinco_grupos(phrase=(Decimal("100"), 10, None, 2))
+    pantalla, _ = _lee(grupos, hasta=dt.date(2026, 10, 4))
+    assert pantalla.total.venta is None
+
 
 def test_tipo_null_va_al_total_y_se_cuenta_aparte():
     grupos = _cinco_grupos() + [_grupo(None, Decimal("50"), 5, Decimal("500"), 3)]
@@ -183,6 +190,7 @@ def test_sin_hojas_salen_renglones_vacios_y_total_none():
     pantalla, _ = _lee([], hasta=dt.date(2026, 10, 4))
     assert [f.tipo for f in pantalla.filas] == list(TIPOS)
     assert all(f.gasto is None and f.hojas == 0 for f in pantalla.filas)
+    assert all(f.pedidos is None and f.venta is None for f in pantalla.filas)
     assert pantalla.total.gasto is None
     assert pantalla.total.acos_pct is None
     assert pantalla.hojas_sin_clasificar == 0
@@ -332,6 +340,81 @@ def test_pg_solo_mx_encendido():
         assert pantalla.total.gasto == Decimal("50")
         assert pantalla.total.pedidos == 5
         assert pantalla.filas[0].gasto == Decimal("10")
+
+
+@_skip_db
+def test_pg_null_envenena_grupo_ubicacion_y_campana():
+    with _db_dinero("orbit_p1_null") as conn:
+        run = conn.execute("INSERT INTO ingest_run (source) VALUES ('t') RETURNING id").fetchone()[
+            0
+        ]
+        fecha = dt.date(2026, 10, 4)
+        obs = dt.datetime(2026, 10, 5, tzinfo=dt.UTC)
+        camp = _siembra_entidad(conn, "amazon_mx", "campaign", "c1")
+        ag = _siembra_entidad(conn, "amazon_mx", "ad_group", "a1", parent=camp)
+
+        def _kw(ext, match, padre=ag, texto="t"):
+            return _siembra_entidad(
+                conn, "amazon_mx", "keyword", ext, parent=padre, match=match, texto=texto
+            )
+
+        ex1 = _kw("k1", "EXACT")
+        ex2 = _kw("k2", "EXACT")
+        ph = _kw("k3", "PHRASE")
+        br = _kw("k4", "BROAD")
+        auto_c = _siembra_entidad(conn, "amazon_mx", "campaign", "c2")
+        auto_ag = _siembra_entidad(conn, "amazon_mx", "ad_group", "a2", parent=auto_c)
+        auto_k = _kw("k9", "EXACT", padre=auto_ag)
+        for e in [camp, ag, ex1, ex2, ph, br, auto_ag, auto_k]:
+            _siembra_estado(conn, e, "ENABLED")
+        _siembra_estado(conn, auto_c, "ENABLED", targeting="AUTO")
+        _siembra_metrica(conn, ex1, fecha, None, 1, Decimal("100"), obs, run)
+        _siembra_metrica(conn, ex2, fecha, Decimal("10"), 1, Decimal("100"), obs, run)
+        _siembra_metrica(conn, ph, fecha, Decimal("10"), None, Decimal("100"), obs, run)
+        _siembra_metrica(conn, br, fecha, Decimal("10"), 1, None, obs, run)
+        _siembra_metrica(conn, auto_k, fecha, None, 1, Decimal("100"), obs, run)
+        pantalla = lee_dinero(conn, plataforma="amazon_mx", dias=90, hasta=fecha)
+        por_tipo = {f.tipo: f for f in pantalla.filas}
+        assert por_tipo["exact"].gasto is None
+        assert por_tipo["exact"].acos_pct is None
+        assert por_tipo["exact"].pedidos == 2
+        assert por_tipo["phrase"].pedidos is None
+        assert por_tipo["broad"].venta is None
+        assert por_tipo["automatica"].gasto is None
+
+        c_ubi = _siembra_campana(conn, "amazon_mx", "cu", "Ubi")
+        _siembra_placement(
+            conn,
+            "amazon_mx",
+            c_ubi,
+            "fuera_de_amazon",
+            fecha,
+            obs,
+            None,
+            5,
+            0,
+            None,
+        )
+        ubis = {
+            u.ubicacion: u
+            for u in lee_ubicaciones(
+                conn, plataforma="amazon_mx", desde=fecha - dt.timedelta(days=29), hasta=fecha
+            )
+        }
+        assert ubis["fuera_de_amazon"].gasto is None
+
+        c_vacia = _siembra_campana(conn, "amazon_mx", "cv", "Vacia")
+        c_sin_place = _siembra_campana(conn, "amazon_mx", "cs", "SinPlace")
+        _siembra_gasto_campana(conn, c_sin_place, fecha, Decimal("10"), obs, run)
+        campanas = {
+            c.campana_id: c
+            for c in lee_campanas(
+                conn, plataforma="amazon_mx", desde=fecha - dt.timedelta(days=29), hasta=fecha
+            )
+        }
+        assert campanas[c_vacia].gasto_medio_diario is None
+        assert campanas[c_sin_place].gasto_fuera_de_amazon is None
+        assert campanas[c_ubi].gasto_fuera_de_amazon is None
 
 
 def _fila_ui(**cambios):
@@ -567,6 +650,7 @@ def test_pg_ubicaciones_igual_que_control_y_marca_fuera():
             ctrl = control.get(fila.ubicacion)
             if ctrl is None:
                 assert fila.gasto is None and fila.pedidos is None
+                assert fila.venta is None and fila.clics is None
             else:
                 assert (fila.gasto, fila.clics, fila.pedidos) == ctrl
         fuera = filas[3]
