@@ -465,13 +465,25 @@ def test_cero_ruta_sp_campaigns_en_camino_de_escritura():
 
 def _solo_put_sellado_en_write():
     """write.py nombra /sp/campaigns solo en el allowlist y en
-    `ajustar_campana` (V.3 sellado por V.0)."""
+    `ajustar_campana` (V.3 sellado por V.0), y dentro de esos rangos
+    solo con las formas selladas: PUT (nunca otro verbo) y sin la
+    llave `state` fuera del docstring."""
     rel = "app/ads/write.py"
     fuente = (RAIZ / rel).read_text(encoding="utf-8")
-    permitidas: set[int] = set()
+    lineas = fuente.splitlines()
+    allowlist: set[int] = set()
+    metodo: set[int] = set()
+    docstring: set[int] = set()
     for nodo in ast.walk(ast.parse(fuente)):
         if isinstance(nodo, ast.FunctionDef) and nodo.name == "ajustar_campana":
-            permitidas.update(range(nodo.lineno, (nodo.end_lineno or nodo.lineno) + 1))
+            metodo.update(range(nodo.lineno, (nodo.end_lineno or nodo.lineno) + 1))
+            primero = nodo.body[0] if nodo.body else None
+            if (
+                isinstance(primero, ast.Expr)
+                and isinstance(primero.value, ast.Constant)
+                and isinstance(primero.value.value, str)
+            ):
+                docstring.update(range(primero.lineno, (primero.end_lineno or primero.lineno) + 1))
         if isinstance(nodo, (ast.Assign, ast.AnnAssign)):
             blancos = nodo.targets if isinstance(nodo, ast.Assign) else [nodo.target]
             if any(
@@ -479,10 +491,25 @@ def _solo_put_sellado_en_write():
                 and b.id in ("MUTATION_REQUEST_TYPES", "MUTATION_CONTAINERS")
                 for b in blancos
             ):
-                permitidas.update(range(nodo.lineno, (nodo.end_lineno or nodo.lineno) + 1))
-    assert permitidas, "el allowlist o ajustar_campana desaparecio de write.py"
-    for n, linea in enumerate(fuente.splitlines(), 1):
-        if "/sp/campaigns" in linea and n not in permitidas:
+                allowlist.update(range(nodo.lineno, (nodo.end_lineno or nodo.lineno) + 1))
+    assert allowlist and metodo, "el allowlist o ajustar_campana desaparecio de write.py"
+    for n in sorted(metodo - docstring):
+        assert '"state"' not in lineas[n - 1], f"{rel}:{n} mete state al PUT de campana"
+    for n, linea in enumerate(lineas, 1):
+        if "/sp/campaigns" not in linea:
+            continue
+        if n in allowlist:
+            assert '("PUT", "/sp/campaigns")' in linea or '"/sp/campaigns": "campaigns"' in linea, (
+                f"{rel}:{n} agrega al allowlist otra forma de /sp/campaigns"
+            )
+        elif n in metodo:
+            assert (
+                n in docstring
+                or '"/sp/campaigns",' in linea
+                or "PUT /sp/campaigns" in linea
+                or 'path="/sp/campaigns"' in linea
+            ), f"{rel}:{n} toca el recurso campana fuera del PUT sellado"
+        else:
             raise AssertionError(f"{rel}:{n} toca el recurso campana fuera del PUT sellado")
 
 
