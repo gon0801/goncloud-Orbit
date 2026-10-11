@@ -2140,9 +2140,13 @@ def _aplica_y_confirma(conn, cliente, plataforma, clase, destino, *, ajuste_id) 
 
 def _sella_pendiente(conn, ajuste_id: int) -> None:
     """Sella una fila pendiente sin PUT (reconciliacion: el vigente ya es
-    el destino porque el sync observo lo que el PUT si aplico)."""
+    el destino porque el sync observo lo que el PUT si aplico). El commit
+    es explicito: quien llama (la ruta, sin autocommit) solo cierra, y
+    sin commit el `with transaction` es un savepoint revertido al cerrar
+    (B3: respondia confirmada:true sin sello durable)."""
     with conn.transaction():
         conn.execute(_SQL_CONFIRMA_AJUSTE, (datetime.datetime.now(datetime.UTC), ajuste_id))
+    conn.commit()
 
 
 def aplica_ajuste_campana(

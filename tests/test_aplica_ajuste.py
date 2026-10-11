@@ -166,6 +166,52 @@ def _puts(vistos: list[httpx.Request]) -> list[dict]:
     return [json.loads(r.content)["campaigns"][0] for r in vistos if r.method == "PUT"]
 
 
+@contextmanager
+def _db_dsn(prefijo: str):
+    """Como _db, pero entrega (conn, dsn_db) para abrir mas conexiones
+    contra la misma base (rutas reales: sin autocommit)."""
+    from psycopg import sql as pgsql
+
+    dsn = _test_dsn()
+    db = f"{prefijo}_{socket.gethostname().lower()}_{os.getpid()}"
+    admin = psycopg.connect(dsn, autocommit=True)
+    conn = None
+    try:
+        admin.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(db)))
+        conn = psycopg.connect(dsn, dbname=db, autocommit=True)
+        conn.execute("SET TIME ZONE 'UTC'")
+        for nombre in ORDEN:
+            conn.execute((ROOT / "migrations" / nombre).read_text(encoding="utf-8"))
+        yield conn, f"{dsn.rsplit('/', 1)[0]}/{db}"
+    finally:
+        if conn is not None:
+            conn.close()
+        admin.execute(
+            pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
+        )
+        admin.close()
+
+
+def _observa(conn, camp: int, config: ConfigCampana) -> None:
+    """Lo que haria el sync: guarda la config que lee de Amazon."""
+    conn.execute(
+        "INSERT INTO ads_campana_config_observation (ad_entity_id, observed_at,"
+        " presupuesto_diario, presupuesto_moneda, estrategia_puja, ajuste_top_pct,"
+        " ajuste_resto_pct, ajuste_producto_pct, fuera_de_amazon)"
+        " VALUES (%s, now(), %s, %s, %s, %s, %s, %s, %s)",
+        (
+            camp,
+            config.presupuesto_diario,
+            config.moneda,
+            config.estrategia_puja,
+            config.ajuste_top_pct,
+            config.ajuste_resto_pct,
+            config.ajuste_producto_pct,
+            config.fuera_de_amazon,
+        ),
+    )
+
+
 @_skip_db
 def test_aplica_presupuesto_confirma_y_guarda_vigente(monkeypatch):
     with _db("orbit_aj_aplica") as conn:
@@ -821,3 +867,105 @@ def test_aplica_fuera_de_amazon_por_put_y_readback(monkeypatch):
         assert hecho.confirmada is True
         (put,) = _puts(vistos)
         assert put["offAmazonSettings"] == {"offAmazonBudgetControlStrategy": "MINIMIZE_SPEND"}
+
+
+@_skip_db
+def test_reconcilia_aplica_sin_autocommit_y_cierra_sin_commit(monkeypatch):
+    """B3/M03: PUT aplicado + sync que observo el destino: la
+    reconciliacion sella DURABLE aunque quien llama cierre sin commit
+    (como _conexion_escritura de la ruta)."""
+    with _db_dsn("orbit_aj_b3a") as (conn, dsn_db):
+        camp, _cfg = _siembra(conn)
+        remoto = {EXTERNA: {"budget": {"budget": 100.0, "budgetType": "DAILY"}}}
+        _creds_fake(monkeypatch)
+        plan = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("120")))
+        handler_mal, _v = _handler_campanas(remoto, divergente=_vigente_config())
+        with pytest.raises(apply.AjusteNoConfirmado):
+            apply.aplica_ajuste_campana(
+                conn,
+                plan,
+                huella=plan.huella(),
+                confirmacion="APLICAR AJUSTE",
+                actor="dueno",
+                transport=httpx.MockTransport(handler_mal),
+            )
+        _observa(conn, camp, plan.despues)
+        handler_ok, vistos = _handler_campanas(remoto)
+
+        def _sin_put(request: httpx.Request) -> httpx.Response:
+            assert request.method != "PUT", "la reconciliacion no hace PUT"
+            return handler_ok(request)
+
+        c2 = psycopg.connect(dsn_db)
+        try:
+            hecho = apply.aplica_ajuste_campana(
+                c2,
+                plan,
+                huella=plan.huella(),
+                confirmacion="APLICAR AJUSTE",
+                actor="dueno",
+                transport=httpx.MockTransport(_sin_put),
+            )
+            assert hecho.confirmada is True
+        finally:
+            c2.rollback()
+            c2.close()
+        assert _puts(vistos) == []
+        confirmada = conn.execute(
+            "SELECT confirmado_el IS NOT NULL FROM campana_ajuste WHERE huella = %s",
+            (plan.huella(),),
+        ).fetchone()[0]
+        assert confirmada is True
+
+
+@_skip_db
+def test_reconcilia_regreso_sin_autocommit_y_cierra_sin_commit(monkeypatch):
+    """B3/M17: lo mismo para el regreso (hijo pendiente + sync que
+    observo el antes)."""
+    with _db_dsn("orbit_aj_b3r") as (conn, dsn_db):
+        camp, _cfg = _siembra(conn)
+        remoto = {EXTERNA: {"budget": {"budget": 100.0, "budgetType": "DAILY"}}}
+        _creds_fake(monkeypatch)
+        plan = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("120")))
+        handler, _vistos = _handler_campanas(remoto)
+        hecho = apply.aplica_ajuste_campana(
+            conn,
+            plan,
+            huella=plan.huella(),
+            confirmacion="APLICAR AJUSTE",
+            actor="dueno",
+            transport=httpx.MockTransport(handler),
+        )
+        handler_mal, _v = _handler_campanas(remoto, divergente=plan.despues)
+        with pytest.raises(apply.AjusteNoConfirmado):
+            apply.regresa_ajuste_campana(
+                conn,
+                ajuste_id=hecho.ajuste_id,
+                actor="dueno",
+                transport=httpx.MockTransport(handler_mal),
+            )
+        _observa(conn, camp, plan.antes)
+        handler_ok, vistos = _handler_campanas(remoto)
+
+        def _sin_put(request: httpx.Request) -> httpx.Response:
+            assert request.method != "PUT", "la reconciliacion no hace PUT"
+            return handler_ok(request)
+
+        c2 = psycopg.connect(dsn_db)
+        try:
+            reintento = apply.regresa_ajuste_campana(
+                c2,
+                ajuste_id=hecho.ajuste_id,
+                actor="dueno",
+                transport=httpx.MockTransport(_sin_put),
+            )
+            assert reintento.confirmada is True
+        finally:
+            c2.rollback()
+            c2.close()
+        assert _puts(vistos) == []
+        confirmada = conn.execute(
+            "SELECT confirmado_el IS NOT NULL FROM campana_ajuste WHERE regresa_a = %s",
+            (hecho.ajuste_id,),
+        ).fetchone()[0]
+        assert confirmada is True
