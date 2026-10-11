@@ -330,7 +330,10 @@ def test_repone_archived_recrea_con_la_linea():
         (ret,) = conn.execute("SELECT id FROM anuncio_retiro").fetchall()
         escritor2, _puts2 = _escritor(_fila("ad-1", "ARCHIVED"))
         assert ra.repone(conn, retiro_ids=(ret[0],), go="go dueno", escritor=escritor2) == 1
+        from app.ads import archivar
+
+        assert archivar.estados_actuales(escritor2, ["ad-nuevo-1"]) == {"ad-nuevo-1": "ENABLED"}
         assert conn.execute(
             "SELECT ad_id_nuevo, estado_nuevo FROM anuncio_reposicion WHERE retiro_id = %s",
             (ret[0],),
-        ).fetchone() == ("ad-nuevo-1", "PAUSED")
+        ).fetchone() == ("ad-nuevo-1", "ENABLED")
