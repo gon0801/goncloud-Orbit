@@ -324,6 +324,36 @@ _SQL_IMPULSO_DE_LOTE = """
 SELECT id FROM impulso WHERE lote = %s
 """
 
+_SQL_GRUPO_DE_LOTE = """
+SELECT id FROM campana_grupo WHERE lote = %s
+"""
+
+
+def _sella_impulso(conn, plan, grupo_id, lote, actor, confirmacion):
+    """Inserta la fila de impulso de un lote ya applied (lanza normal o
+    reanudacion tras crash entre _mutar e INSERT). Devuelve el id."""
+    return conn.execute(
+        "INSERT INTO impulso (platform, listing_id, product_id, grupo_id, lote, subfamilia,"
+        " tope_monto, tope_moneda, presupuesto_diario, plazo_dias, lanzado_el, actor,"
+        " go_literal) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now(), %s, %s)"
+        " RETURNING id",
+        (
+            plan.plataforma,
+            plan.listing_id,
+            plan.product_id,
+            grupo_id,
+            lote,
+            plan.subfamilia,
+            plan.tope.monto,
+            plan.tope.moneda,
+            plan.tope.presupuesto_diario,
+            plan.tope.plazo_dias,
+            actor,
+            confirmacion,
+        ),
+    ).fetchone()[0]
+
+
 _SQL_ESTADO_LOTE = """
 SELECT estado FROM fabrica_lote WHERE lote = %s
 """
@@ -398,10 +428,25 @@ def lanza(
             lanzados.append(ImpulsoLanzado(existente[0], lote, estado))
             conn.commit()
             continue
+        huerfano = conn.execute(_SQL_ESTADO_LOTE, (lote,)).fetchone()
+        if huerfano is not None:
+            grupo = conn.execute(_SQL_GRUPO_DE_LOTE, (lote,)).fetchone()
+            if huerfano[0] == "applied" and grupo is not None:
+                imp = _sella_impulso(conn, plan, grupo[0], lote, actor, confirmacion)
+                conn.commit()
+                lanzados.append(ImpulsoLanzado(imp, lote, "applied"))
+                continue
+            conn.rollback()
+            fallos[plan.listing_id] = f"lote {lote} quedo en {huerfano[0]}: reconcilia a mano"
+            continue
         vivo = conn.execute(_SQL_VIVO, (plan.plataforma, plan.listing_id)).fetchone()
         if vivo is not None:
             conn.rollback()
-            raise ErrorImpulso(409, f"listing {plan.listing_id} ya tiene un impulso vivo")
+            raise ErrorImpulso(
+                409,
+                f"listing {plan.listing_id} ya tiene un impulso vivo",
+                lanzados=lanzados,
+            )
         try:
             hecho = ejecutor(_grupo_v2_de_plan(plan), plan.huella(), lote)
         except Exception as exc:
@@ -412,26 +457,7 @@ def lanza(
             conn.rollback()
             fallos[plan.listing_id] = f"lote {lote} no quedo applied"
             continue
-        imp = conn.execute(
-            "INSERT INTO impulso (platform, listing_id, product_id, grupo_id, lote, subfamilia,"
-            " tope_monto, tope_moneda, presupuesto_diario, plazo_dias, lanzado_el, actor,"
-            " go_literal) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now(), %s, %s)"
-            " RETURNING id",
-            (
-                plan.plataforma,
-                plan.listing_id,
-                plan.product_id,
-                hecho.grupo_id,
-                lote,
-                plan.subfamilia,
-                plan.tope.monto,
-                plan.tope.moneda,
-                plan.tope.presupuesto_diario,
-                plan.tope.plazo_dias,
-                actor,
-                confirmacion,
-            ),
-        ).fetchone()[0]
+        imp = _sella_impulso(conn, plan, hecho.grupo_id, lote, actor, confirmacion)
         conn.commit()
         lanzados.append(ImpulsoLanzado(imp, lote, hecho.estado_lote))
     if fallos:
@@ -493,6 +519,102 @@ def _acumula(filas):
     return tuple(tot)
 
 
+def _vigila_uno(conn, pausador, fila, *, hoy, escritor_retiro):
+    """Un impulso vivo: lee, actua y guarda. Devuelve la accion y el
+    escritor de retiro (se crea al primer retiro y se reusa). Si el
+    lote ya esta pausado (crash entre pausar y guardar), no llama al
+    pausador: registra pausado y sigue."""
+    (imp, platform, lote, monto, moneda, diario, plazo, lanzado, grupo, listing, go) = fila
+    tope = im.TopeAprendizaje(Decimal(monto), moneda, Decimal(diario), plazo)
+    corte = conn.execute(_SQL_CORTE_PLATAFORMA, (platform,)).fetchone()[0]
+    dias = (hoy - lanzado.date()).days
+    if corte is None:
+        lectura = im.LecturaImpulso(hoy, dias, None, None, None, None)
+        conn.commit()
+        return (
+            AccionVigia(imp, lectura, im.VeredictoImpulso("en_curso", False, "seguir"), "nada"),
+            escritor_retiro,
+        )
+    camps = [f[0] for f in conn.execute(_SQL_CAMPANAS_DE_IMPULSO, (imp,)).fetchall()]
+    filas = [f for f in conn.execute(_SQL_OBSERVADO, (camps, lanzado.date())).fetchall()]
+    filas = [f for f in filas if f[0] <= corte]
+    if filas:
+        impr, clics, gasto, pedidos = _acumula(filas)
+    else:
+        impr, clics, gasto, pedidos = 0, 0, Decimal("0"), 0
+    lectura = im.LecturaImpulso(corte, dias, impr, clics, gasto, pedidos)
+    veredicto = im.veredicto_impulso(lectura, tope)
+    hecho = "nada"
+    ya = conn.execute(
+        "SELECT hecho FROM impulso_lectura WHERE impulso_id = %s AND corte = %s",
+        (imp, corte),
+    ).fetchone()
+    if ya is not None:
+        conn.commit()
+        return AccionVigia(imp, lectura, veredicto, ya[0]), escritor_retiro
+    if veredicto.accion == "pausar":
+        estado_lote = conn.execute(_SQL_ESTADO_LOTE, (lote,)).fetchone()
+        if estado_lote is not None and estado_lote[0] == "pausado":
+            hecho = "pausado"
+        else:
+            pausador.pausa(lote)
+            conn.execute(
+                "UPDATE fabrica_lote SET estado = 'pausado' WHERE lote = %s AND estado = 'applied'",
+                (lote,),
+            )
+            hecho = "pausado"
+    elif veredicto.accion == "graduar":
+        ahora = dt.datetime.now(dt.UTC)
+        for (gid,) in conn.execute(_SQL_GOALS_DE_IMPULSO, (imp,)).fetchall():
+            goals_write.edita_goal(conn, gid, mode="live", updated_at=ahora)
+        hecho = "graduado"
+    if hecho == "nada" and (lectura.impresiones or 0) > 0:
+        primero = conn.execute(_SQL_YA_TUVO_IMPRESIONES, (imp,)).fetchone() is None
+        if primero:
+            plan = retiro_anuncios.planea_retiro(
+                conn,
+                platform,
+                listing_ids=(listing,),
+                motivo="impulso",
+                conservar_grupo_id=grupo,
+            )
+            pendientes = retiro_anuncios.retiros_pendientes_de_impulso(conn, imp, plan)
+            if pendientes.anuncios:
+                if escritor_retiro is None:
+                    from app.ads import archivar
+
+                    escritor_retiro = archivar.preparar_escritor(platform)
+                retiro_anuncios.ejecuta_retiro(
+                    conn,
+                    pendientes,
+                    go=go,
+                    impulso_id=imp,
+                    escritor=escritor_retiro,
+                    actor="impulso-vigia",
+                )
+                hecho = "retiro_de_bolsas"
+    conn.execute(
+        "INSERT INTO impulso_lectura (impulso_id, corte, leido_el, dias_observados,"
+        " impresiones, clics, gasto, pedidos, veredicto, es_final, hecho)"
+        " VALUES (%s, %s, now(), %s, %s, %s, %s, %s, %s, %s, %s)"
+        " ON CONFLICT (impulso_id, corte) DO NOTHING",
+        (
+            imp,
+            corte,
+            dias,
+            impr,
+            clics,
+            gasto,
+            pedidos,
+            veredicto.estado,
+            veredicto.final,
+            hecho,
+        ),
+    )
+    conn.commit()
+    return AccionVigia(imp, lectura, veredicto, hecho), escritor_retiro
+
+
 def vigila(
     conn, pausador: PausadorDeCampanas, *, hoy: dt.date, escritor_retiro=None
 ) -> list[AccionVigia]:
@@ -505,99 +627,17 @@ def vigila(
     NULL llega como None (en_curso). Paso 4: si es el primer dia con
     impresiones y hay retiros pendientes, saca el producto de sus
     bolsas viejas (primero nace lo nuevo, despues sale de lo viejo).
-    Si muere a medias, la siguiente corrida relee y termina."""
+    Aislado por impulso: si uno falla, se revierte el suyo y el resto
+    se atiende (el fallido se reintenta manana). Si muere a medias, la
+    siguiente corrida relee y termina."""
     acciones = []
-    for (
-        imp,
-        platform,
-        lote,
-        monto,
-        moneda,
-        diario,
-        plazo,
-        lanzado,
-        grupo,
-        listing,
-        go,
-    ) in conn.execute(_SQL_VIVOS).fetchall():
-        tope = im.TopeAprendizaje(Decimal(monto), moneda, Decimal(diario), plazo)
-        corte = conn.execute(_SQL_CORTE_PLATAFORMA, (platform,)).fetchone()[0]
-        dias = (hoy - lanzado.date()).days
-        if corte is None:
-            lectura = im.LecturaImpulso(hoy, dias, None, None, None, None)
-            acciones.append(
-                AccionVigia(imp, lectura, im.VeredictoImpulso("en_curso", False, "seguir"), "nada")
+    for fila in conn.execute(_SQL_VIVOS).fetchall():
+        try:
+            accion, escritor_retiro = _vigila_uno(
+                conn, pausador, fila, hoy=hoy, escritor_retiro=escritor_retiro
             )
-            conn.commit()
+        except Exception:
+            conn.rollback()
             continue
-        camps = [f[0] for f in conn.execute(_SQL_CAMPANAS_DE_IMPULSO, (imp,)).fetchall()]
-        filas = [f for f in conn.execute(_SQL_OBSERVADO, (camps, lanzado.date())).fetchall()]
-        filas = [f for f in filas if f[0] <= corte]
-        if filas:
-            impr, clics, gasto, pedidos = _acumula(filas)
-        else:
-            impr, clics, gasto, pedidos = 0, 0, Decimal("0"), 0
-        lectura = im.LecturaImpulso(corte, dias, impr, clics, gasto, pedidos)
-        veredicto = im.veredicto_impulso(lectura, tope)
-        hecho = "nada"
-        ya = conn.execute(
-            "SELECT hecho FROM impulso_lectura WHERE impulso_id = %s AND corte = %s",
-            (imp, corte),
-        ).fetchone()
-        if ya is not None:
-            conn.commit()
-            acciones.append(AccionVigia(imp, lectura, veredicto, ya[0]))
-            continue
-        if veredicto.accion == "pausar":
-            pausador.pausa(lote)
-            conn.execute(
-                "UPDATE fabrica_lote SET estado = 'pausado' WHERE lote = %s AND estado = 'applied'",
-                (lote,),
-            )
-            hecho = "pausado"
-        elif veredicto.accion == "graduar":
-            ahora = dt.datetime.now(dt.UTC)
-            for (gid,) in conn.execute(_SQL_GOALS_DE_IMPULSO, (imp,)).fetchall():
-                goals_write.edita_goal(conn, gid, mode="live", updated_at=ahora)
-            hecho = "graduado"
-        if hecho == "nada" and (lectura.impresiones or 0) > 0:
-            primero = conn.execute(_SQL_YA_TUVO_IMPRESIONES, (imp,)).fetchone() is None
-            if primero:
-                plan = retiro_anuncios.planea_retiro(
-                    conn,
-                    platform,
-                    listing_ids=(listing,),
-                    motivo="impulso",
-                    conservar_grupo_id=grupo,
-                )
-                pendientes = retiro_anuncios.retiros_pendientes_de_impulso(conn, imp, plan)
-                if pendientes.anuncios:
-                    if escritor_retiro is None:
-                        from app.ads import archivar
-
-                        escritor_retiro = archivar.preparar_escritor(platform)
-                    retiro_anuncios.ejecuta_retiro(
-                        conn, pendientes, go=go, impulso_id=imp, escritor=escritor_retiro
-                    )
-                    hecho = "retiro_de_bolsas"
-        conn.execute(
-            "INSERT INTO impulso_lectura (impulso_id, corte, leido_el, dias_observados,"
-            " impresiones, clics, gasto, pedidos, veredicto, es_final, hecho)"
-            " VALUES (%s, %s, now(), %s, %s, %s, %s, %s, %s, %s, %s)"
-            " ON CONFLICT (impulso_id, corte) DO NOTHING",
-            (
-                imp,
-                corte,
-                dias,
-                impr,
-                clics,
-                gasto,
-                pedidos,
-                veredicto.estado,
-                veredicto.final,
-                hecho,
-            ),
-        )
-        conn.commit()
-        acciones.append(AccionVigia(imp, lectura, veredicto, hecho))
+        acciones.append(accion)
     return acciones

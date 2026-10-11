@@ -157,11 +157,15 @@ const api = vm.runInThisContext("this.__api");
   assert.equal(calls[1].body.actor, "dueno");
   assert.equal(calls[1].token, "tok");
   assert.match(estado.textContent, /cambió/);
+  // N8: tras el 409 el token sigue (el reintento lo necesita).
+  assert.equal(form.elements.token.value, "tok");
   // Segundo intento con la vista nueva: exito.
   api.lanzar(form);
   await new Promise(r => setTimeout(r, 10));
   assert.equal(calls[2].body.huella, "b".repeat(64));
   assert.match(estado.textContent, /Lanzados 2/);
+  // N8: tras el exito el token se borra del campo.
+  assert.equal(form.elements.token.value, "");
   // Reponer: literal distinto no manda; exacto si.
   const estadoR = new Element(); estadoR.estado = true;
   const formR = new Element({dataset: {retiros: "5", esperada: "REGRESAR 1 ANUNCIOS"}});
@@ -176,6 +180,7 @@ const api = vm.runInThisContext("this.__api");
   assert.equal(calls[3].url, "/api/fabrica/retiro/reponer");
   assert.deepEqual(calls[3].body.retiro_ids, [5]);
   assert.match(estadoR.textContent, /Repuestos 1/);
+  assert.equal(formR.elements.token.value, "");
   // Sacar de las bolsas: plan sin_pedidos sin lote, muestra anuncios, exige literal.
   api.verRetiro();
   await new Promise(r => setTimeout(r, 10));
@@ -195,6 +200,7 @@ const api = vm.runInThisContext("this.__api");
   assert.equal(calls[5].body.actor, "dueno");
   assert.equal(calls[5].token, "tok");
   assert.match(estadoR2.textContent, /Retirados 1/);
+  assert.equal(formR2.elements.token.value, "");
 })().catch(error => { console.error(error); process.exitCode = 1; });
 """
     proc = subprocess.run(

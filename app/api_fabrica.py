@@ -399,7 +399,10 @@ class SolicitudImpulsoPlan(_Cuerpo):
     def tope_valido(cls, valor):
         if valor is None:
             return valor
-        monto = Decimal(valor)
+        try:
+            monto = Decimal(valor)
+        except ArithmeticError:
+            raise ValueError("tope fuera del rango permitido") from None
         if not monto.is_finite() or monto <= 0:
             raise ValueError("tope fuera del rango permitido")
         return valor

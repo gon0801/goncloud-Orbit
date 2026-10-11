@@ -171,6 +171,7 @@ function lanzar(form) {
         return;
       }
       vistaGuardada = null;
+      form.elements.token.value = "";
       estado.textContent = "Lanzados " + (r.data.lanzados || []).length + ".";
     })
     .catch(function () {
@@ -217,6 +218,7 @@ function reponer(form) {
         estado.textContent = "Error: " + (r.data.detail || r.data) + ".";
         return;
       }
+      form.elements.token.value = "";
       estado.textContent = "Repuestos " + r.data.repuestos + ".";
     })
     .catch(function () {
@@ -334,6 +336,7 @@ function ejecutarRetiro(form) {
         return;
       }
       retiroGuardado = null;
+      form.elements.token.value = "";
       estado.textContent = "Retirados " + r.data.retirados + ".";
     })
     .catch(function () {

@@ -703,6 +703,13 @@ Regímenes de lectura, explícitos (reemplazan al "todo lee lo maduro"):
   sin `order_id` por participación en la venta de la plataforma; mismos
   guards → `margen_neto_pct` NULL (regla 3). La escribe `app_admin`;
   `app_decide` solo lee (`campana_grupo_rol` es el destino de harvest de F2).
+- **Migración `0064` (BIDS 02 I.1)** — `campana_grupo.tipo`
+  (`'fabrica5'` por defecto, `'impulso'` para grupos de dos; CHECK):
+  trigger `campana_grupo_rol_roles_de_impulso` rechaza en un grupo
+  impulso cualquier rol fuera de `category_exact`/`auto_discovery`.
+  Sin GRANTs nuevos (hereda los de `0018`; bloque DO los verifica).
+  **Reversa** `0064_reversa_bids02_grupo_tipo.sql`: quita trigger,
+  función, CHECK y columna.
 
 ### Estimación por venta antes de Ads (MARGEN ESTIMADO 01, migración `0028`)
 

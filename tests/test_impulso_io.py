@@ -348,6 +348,85 @@ def test_lanza_rechaza_vivo_y_acepta_ids_vacios_con_422():
         assert exc.value.status == 422
 
 
+@_skip_db
+def test_lanza_lote_huerfano_sella_sin_llamar_a_la_fabrica():
+    """N3: crash entre _mutar e INSERT: el lote applied sin impulso se
+    acepta, se sella el impulso y la fabrica no se toca."""
+    with _db_i3("orbit_i3_n3") as conn:
+        _, lid = _con_margen(conn)
+        solicitud = _solicitud(conn, [lid])
+        vista = io.previsualiza(conn, solicitud, sugeridor=_sugeridor_fijo())
+        lote = io.lote_de_plan(vista.planes[0])
+        conn.execute(
+            "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal,"
+            " huella, plan, modo_goal, estado) VALUES (%s, 'amazon_mx', 'aros', 'Base', 'go',"
+            " %s, '{}'::jsonb, 'shadow', 'applied')",
+            (lote, vista.planes[0].huella()),
+        )
+        grupo = conn.execute(
+            "INSERT INTO campana_grupo (platform, tipo_producto, nombre_base, lote,"
+            " target_acos_pct, target_derivado_pct, fraccion, target_procedencia, go_literal,"
+            " tipo) VALUES ('amazon_mx', 'aros', 'Base', %s, 19.10, 19.1040, 0.5, 'm', 'go',"
+            " 'impulso') RETURNING id",
+            (lote,),
+        ).fetchone()[0]
+        conn.commit()
+
+        def _truena_si_llaman(plan_grupo, huella, lote_llamado):
+            raise AssertionError("la fabrica no debio ejecutarse")
+
+        lanzados = io.lanza(
+            conn,
+            solicitud,
+            huella=vista.huella,
+            confirmacion=vista.confirmacion_esperada,
+            actor="dueno",
+            ejecutor=_truena_si_llaman,
+            sugeridor=_sugeridor_fijo(),
+        )
+        assert len(lanzados) == 1
+        assert lanzados[0].estado_lote == "applied"
+        assert conn.execute(
+            "SELECT grupo_id, actor FROM impulso WHERE lote = %s", (lote,)
+        ).fetchone() == (grupo, "dueno")
+
+
+@_skip_db
+def test_lanza_409_por_vivo_adjunta_lo_lanzado():
+    """N4: si el segundo producto choca con un vivo, el 409 trae en
+    lanzados al primero que si salio."""
+    with _db_i3("orbit_i3_n4") as conn:
+        _, lid1 = _con_margen(conn)
+        _, lid2 = _con_margen(conn, sku="SS-2", asin="B0AAAAAAAB", seller_sku="SS-2", desfase=20)
+        solo2 = _solicitud(conn, [lid2])
+        vista2 = io.previsualiza(conn, solo2, sugeridor=_sugeridor_fijo())
+        io.lanza(
+            conn,
+            solo2,
+            huella=vista2.huella,
+            confirmacion=vista2.confirmacion_esperada,
+            actor="dueno",
+            ejecutor=_ejecutor_falso(conn),
+            sugeridor=_sugeridor_fijo(),
+        )
+        solicitud = _solicitud(conn, [lid1, lid2], subfamilias={lid2: "collares"})
+        vista = io.previsualiza(conn, solicitud, sugeridor=_sugeridor_fijo())
+        with pytest.raises(io.ErrorImpulso) as exc:
+            io.lanza(
+                conn,
+                solicitud,
+                huella=vista.huella,
+                confirmacion=vista.confirmacion_esperada,
+                actor="dueno",
+                ejecutor=_ejecutor_falso(conn),
+                sugeridor=_sugeridor_fijo(),
+            )
+        assert exc.value.status == 409
+        assert len(exc.value.lanzados) == 1
+        assert exc.value.lanzados[0].lote == io.lote_de_plan(vista.planes[0])
+        assert conn.execute("SELECT count(*) FROM impulso").fetchone() == (2,)
+
+
 class _Pausador:
     def __init__(self):
         self.pausados = []
@@ -555,6 +634,7 @@ def test_vigia_retira_una_vez_con_impresiones():
             "pausa",
             ids["impulso"],
         )
+        assert conn.execute("SELECT actor FROM anuncio_retiro").fetchone() == ("impulso-vigia",)
         dos = io.vigila(conn, _Pausador(), hoy=HOY, escritor_retiro=escritor)
         assert dos[0].hecho == "retiro_de_bolsas"
         assert len(puts) == 1
@@ -625,3 +705,58 @@ def test_vigia_usa_el_tope_guardado():
         _observa(conn, ids["camps"][0], HOY - dt.timedelta(days=1), gasto="25", clics=30)
         acciones = io.vigila(conn, _Pausador(), hoy=HOY)
         assert acciones[0].hecho == "pausado"
+
+
+@_skip_db
+def test_vigia_crash_entre_pausar_y_guardar_no_repite_la_pausa():
+    """B1: si el lote ya quedo pausado (murio antes de guardar la
+    lectura), la re-corrida no llama al pausador y sella 'pausado'."""
+    with _db_i3("orbit_i3_b1") as conn:
+        ids = _impulso_vivo(conn, lote="impulso-crash-1")
+        _observa(conn, ids["camps"][0], HOY - dt.timedelta(days=1), gasto="200", clics=30)
+        _observa(conn, ids["camps"][1], HOY - dt.timedelta(days=1), gasto="150", clics=30)
+        conn.execute("UPDATE fabrica_lote SET estado = 'pausado' WHERE lote = %s", (ids["lote"],))
+        conn.commit()
+        pausador = _Pausador()
+        acciones = io.vigila(conn, pausador, hoy=HOY)
+        assert acciones[0].hecho == "pausado"
+        assert pausador.pausados == []
+        assert conn.execute(
+            "SELECT hecho FROM impulso_lectura WHERE impulso_id = %s", (ids["impulso"],)
+        ).fetchone() == ("pausado",)
+
+
+@_skip_db
+def test_vigia_un_fallo_no_detiene_al_vecino():
+    """N5: si un impulso truena, el vecino se atiende igual y el
+    fallido queda sin lectura para reintentarse manana."""
+    with _db_i3("orbit_i3_n5") as conn:
+        pid_malo, lid_malo = _con_margen(conn, sku="SS-N5M", asin="B0NNNNN5M1", seller_sku="SS-N5M")
+        pid_bueno, lid_bueno = _con_margen(
+            conn, sku="SS-N5B", asin="B0NNNNN5B1", seller_sku="SS-N5B", desfase=7
+        )
+        malo = _impulso_vivo(
+            conn, pid=pid_malo, lid=lid_malo, lote="impulso-malo-1", tope="1", diario="1"
+        )
+        bueno = _impulso_vivo(conn, pid=pid_bueno, lid=lid_bueno, lote="impulso-bueno-1")
+        _observa(conn, bueno["camps"][0], HOY - dt.timedelta(days=1))
+
+        class _Truena(_Pausador):
+            def pausa(self, lote):
+                if lote == "impulso-malo-1":
+                    raise RuntimeError("amazon caido")
+                super().pausa(lote)
+
+        _observa(conn, malo["camps"][0], HOY - dt.timedelta(days=1), gasto="50", clics=30)
+        pausador = _Truena()
+        acciones = io.vigila(conn, pausador, hoy=HOY)
+        assert {a.impulso_id for a in acciones} == {bueno["impulso"]}
+        assert conn.execute(
+            "SELECT count(*) FROM impulso_lectura WHERE impulso_id = %s", (malo["impulso"],)
+        ).fetchone() == (0,)
+        assert (
+            conn.execute(
+                "SELECT hecho FROM impulso_lectura WHERE impulso_id = %s", (bueno["impulso"],)
+            ).fetchone()
+            is not None
+        )

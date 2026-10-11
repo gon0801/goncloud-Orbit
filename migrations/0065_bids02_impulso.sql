@@ -23,16 +23,15 @@ CREATE TABLE impulso (
     grupo_id           BIGINT      NOT NULL UNIQUE REFERENCES campana_grupo (id),
     lote               TEXT        NOT NULL UNIQUE REFERENCES fabrica_lote (lote),
     subfamilia         TEXT        NOT NULL,
-    tope_monto         NUMERIC     NOT NULL,
-    tope_moneda        TEXT        NOT NULL,
-    presupuesto_diario NUMERIC     NOT NULL,
+    tope_monto         money_amount NOT NULL,
+    tope_moneda        currency    NOT NULL,
+    presupuesto_diario money_amount NOT NULL,
     plazo_dias         INTEGER     NOT NULL,
     lanzado_el         TIMESTAMPTZ NOT NULL,
     actor              TEXT        NOT NULL,
     go_literal         TEXT        NOT NULL,
     CONSTRAINT impulso_tope_positivo  CHECK (tope_monto > 0 AND presupuesto_diario > 0 AND plazo_dias > 0),
-    CONSTRAINT impulso_tope_cabe      CHECK (presupuesto_diario <= tope_monto),
-    CONSTRAINT impulso_moneda         CHECK (tope_moneda IN ('MXN', 'USD'))
+    CONSTRAINT impulso_tope_cabe      CHECK (presupuesto_diario <= tope_monto)
 );
 
 CREATE TABLE impulso_lectura (
@@ -42,7 +41,7 @@ CREATE TABLE impulso_lectura (
     dias_observados INTEGER     NOT NULL,
     impresiones     BIGINT,
     clics           BIGINT,
-    gasto           NUMERIC,
+    gasto           money_amount,
     pedidos         BIGINT,
     veredicto       TEXT        NOT NULL,
     es_final        BOOLEAN     NOT NULL,

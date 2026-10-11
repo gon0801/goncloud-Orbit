@@ -39,6 +39,29 @@ def _impulso(conn, lote, grupo, producto, listing, *, moneda="MXN", platform="am
 
 
 @_skip_db
+def test_dinero_con_dominio_y_enum_sellados():
+    """I.3 (panel): montos en money_amount y moneda en currency (regla
+    4 por schema), no NUMERIC pelado ni TEXT."""
+    with db_fabrica("orbit_65_dinero") as conn:
+        conn.execute(SQL64)
+        conn.execute(SQL65)
+        tipos = {
+            r[0]: (r[1], r[2])
+            for r in conn.execute(
+                "SELECT column_name, udt_name, domain_name FROM information_schema.columns"
+                " WHERE table_name IN ('impulso', 'impulso_lectura')"
+                " AND column_name IN ('tope_monto', 'tope_moneda', 'presupuesto_diario', 'gasto')"
+            ).fetchall()
+        }
+        assert {c: d for c, (_u, d) in tipos.items() if c != "tope_moneda"} == {
+            "tope_monto": "money_amount",
+            "presupuesto_diario": "money_amount",
+            "gasto": "money_amount",
+        }
+        assert tipos["tope_moneda"] == ("currency", None)
+
+
+@_skip_db
 def test_impulso_coherente_se_inserta_y_lote_acepta_pausado():
     """I.3: impulso coherente se inserta, el estado deriva sin lectura y el
     lote acepta 'pausado'."""

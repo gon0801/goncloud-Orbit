@@ -1549,6 +1549,25 @@ def test_i5_planes_200_sin_escribir(escenario, monkeypatch):
     ) == antes
 
 
+def test_i5_plan_tope_no_numerico_422(escenario, monkeypatch):
+    """N1: tope_monto 'abc' da 422, no 500 (Decimal lanza
+    InvalidOperation, no ValueError)."""
+    cliente, conn, _, _, ids = escenario
+    _db_i5(conn)
+    _sugeridor_fijo_i5(monkeypatch)
+    lid = _lid_de(conn, ids[0])
+    r = cliente.post(
+        "/api/fabrica/impulso/plan",
+        json={
+            "plataforma": "amazon_mx",
+            "listing_ids": [lid],
+            "subfamilia_por_listing": {str(lid): "aros"},
+            "tope_monto": "abc",
+        },
+    )
+    assert r.status_code == 422, r.text
+
+
 def test_i5_lanzar_huella_vieja_409_con_vista_nueva(escenario, monkeypatch):
     """I.5: lanzar con huella vieja responde 409, el detalle trae la
     vista previa nueva y no crea ningun lote."""
