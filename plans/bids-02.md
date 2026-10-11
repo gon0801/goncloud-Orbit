@@ -418,3 +418,12 @@ El plan cierra cuando el motor está encendido en las dos plataformas, las cinco
 impulso y los ajustes de campaña están desplegados, o cuando lo que falte quedó cerrado con el motivo
 escrito. Lanzar el primer impulso y aplicar el primer ajuste son acciones del dueño y no son condición de
 cierre.
+
+### Ronda R07-3: deuda no bloqueante (revisor R07, PR 428)
+
+| Task | Contenido | DoD | Depends | Status |
+| --- | --- | --- | --- | --- |
+| R07-09C | `[stage:implementacion] [lane:gate] [tdd:required]` Reintento de H#N pendiente: reusar la H#2 pendiente en vez de abrir H#3 huerfana. | 09-C: el reintento confirma la H#2 pendiente (sin PUT si el readback ya coincide); ninguna H#N queda huerfana para siempre. | s4 | cc:TODO |
+| R07-D | `[stage:implementacion] [lane:gate] [tdd:required]` `tools/rejuega_niveles._bid_del_dia` con el ajuste de campana: el SQL del rejuego ignora la tercera rama de `v_cambio_bid` y lee el bid de hoy. | Parte D del repro 02-B: con el ajuste en medio, el bid del dia sale igual que sin el. | s4 | cc:TODO |
+| R07-H | `[stage:implementacion] [lane:gate] [tdd:required]` Pantalla: no ofrecer Regresar cuando la campana ya esta como antes (hoy ofrece y la ruta responde 409). | Seccion H del guion P.2b: sin boton Regresar ofrecido; sin 409. | s4 | cc:TODO |
+| R07-M | `[stage:implementacion] [lane:gate] [tdd:required]` Mutantes no bloqueantes que sobreviven (V04, V12, V13, M07, M09, J5, H2-H7, P1, P2, P5): prueba que mate cada uno. | `bash 05_mutantes.sh` (B), `08_mutantes.py` (A) y `mutantes_p2b.sh` (C) sobre el head: esos ids mueren. | s4 | cc:TODO |
