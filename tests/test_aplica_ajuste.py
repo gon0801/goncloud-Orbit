@@ -1933,3 +1933,126 @@ def test_reconcilia_con_campo_distinto_no_sella(monkeypatch):
             (plan.huella(),),
         ).fetchone()[0]
         assert fila is False
+
+
+@_skip_db
+def test_candado_perdido_responde_en_curso_sin_put(monkeypatch):
+    """N8: otra conexion retiene el candado del acto: aplicar responde
+    AjusteEnCurso (409) sin PUT."""
+    with _db_dsn("orbit_aj_n8") as (conn, dsn_db):
+        camp, _cfg = _siembra(conn)
+        remoto = {EXTERNA: {"budget": {"budget": 100.0, "budgetType": "DAILY"}}}
+        base, vistos = _handler_campanas(remoto)
+        _creds_fake(monkeypatch)
+        plan = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("120")))
+        c1 = psycopg.connect(dsn_db)
+        c2 = psycopg.connect(dsn_db)
+        try:
+            c1.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (f"aplica:{plan.huella()}",))
+            with pytest.raises(apply.AjusteEnCurso):
+                apply.aplica_ajuste_campana(
+                    c2,
+                    plan,
+                    huella=plan.huella(),
+                    confirmacion="APLICAR AJUSTE",
+                    actor="dueno",
+                    transport=httpx.MockTransport(base),
+                )
+            assert _puts(vistos) == []
+        finally:
+            c1.rollback()
+            c1.close()
+            c2.close()
+
+
+@_skip_db
+def test_acto_ya_confirmado_no_repite_put(monkeypatch):
+    """N9: si otro intento ya confirmo la fila cuando se toma el
+    candado, se vuelve sin PUT (unidad sobre _aplica_y_confirma: por
+    el camino publico el interleaving no es determinista)."""
+    with _db("orbit_aj_n9") as conn:
+        from app.ads.campana_config import cuerpo_put_campana
+
+        camp, _cfg = _siembra(conn)
+        remoto = {EXTERNA: {"budget": {"budget": 100.0, "budgetType": "DAILY"}}}
+        handler, _vistos = _handler_campanas(remoto)
+        _creds_fake(monkeypatch)
+        plan = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("120")))
+        hecho = apply.aplica_ajuste_campana(
+            conn,
+            plan,
+            huella=plan.huella(),
+            confirmacion="APLICAR AJUSTE",
+            actor="dueno",
+            transport=httpx.MockTransport(handler),
+        )
+        assert hecho.confirmada is True
+
+        class _Stub:
+            def __init__(self):
+                self.puts = []
+
+            def ajustar_campana(self, externa, cuerpo):
+                self.puts.append((externa, cuerpo))
+
+            def list_sellado(self, _path, _body):
+                class _R:
+                    def json(s):
+                        return {"campaigns": [cuerpo_put_campana(plan.despues)]}
+
+                return _R()
+
+        stub = _Stub()
+        apply._aplica_y_confirma(
+            conn,
+            stub,
+            plan.plataforma,
+            plan.clase,
+            plan.despues,
+            plan.ajuste,
+            ajuste_id=hecho.ajuste_id,
+            llave="n9:distinta",
+            previa=plan.antes,
+        )
+        assert stub.puts == []
+
+
+@_skip_db
+def test_regreso_con_clase_ya_en_antes_no_manda_put(monkeypatch):
+    """N10: la clase volvio a antes por fuera (sync observo cambio
+    manual) aunque el completo difiera: regresar responde
+    AjusteYaRegresado sin PUT."""
+    import datetime as dt
+    from dataclasses import replace
+
+    from app.ads.campana_config import guarda_config
+
+    with _db("orbit_aj_n10") as conn:
+        camp, _cfg = _siembra(conn)
+        remoto = _remoto_b11()
+        handler, vistos = _handler_mezcla(remoto)
+        _creds_fake(monkeypatch)
+        transporte = httpx.MockTransport(handler)
+        plan = _plan(
+            conn, camp, CambiarAjusteUbicacion(ubicacion="arriba_de_busqueda", porcentaje=50)
+        )
+        hecho = apply.aplica_ajuste_campana(
+            conn,
+            plan,
+            huella=plan.huella(),
+            confirmacion="APLICAR AJUSTE",
+            actor="dueno",
+            transport=transporte,
+        )
+        assert hecho.confirmada is True
+        guarda_config(
+            conn,
+            "amazon_mx",
+            [replace(_vigente_config(), presupuesto_diario=Decimal("150"))],
+            dt.datetime.now(dt.UTC),
+        )
+        with pytest.raises(apply.AjusteYaRegresado):
+            apply.regresa_ajuste_campana(
+                conn, ajuste_id=hecho.ajuste_id, actor="dueno", transport=transporte
+            )
+        assert len(_puts(vistos)) == 1
