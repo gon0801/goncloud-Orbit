@@ -329,11 +329,19 @@ def _producto_con_listing(conn, sku, platform="amazon_us", moneda="USD"):
 
 
 def _product_ad(conn, ag, lid, external):
-    return conn.execute(
+    pa = conn.execute(
         "INSERT INTO ad_entity (platform, kind, external_id, parent_id, listing_id)"
         " VALUES ('amazon_us', 'product_ad', %s, %s, %s) RETURNING id",
         (external, ag, lid),
     ).fetchone()[0]
+    # BIDS 02 I.4: solo un anuncio ENABLED o PAUSED da familia a su
+    # campana; el sync diario siembra este estado en prod.
+    conn.execute(
+        "INSERT INTO ad_entity_state (ad_entity_id, status, synced_at)"
+        " VALUES (%s, 'ENABLED', now())",
+        (pa,),
+    )
+    return pa
 
 
 def _familia(conn, nombre, slug, padre_id=None, platform="amazon_us"):

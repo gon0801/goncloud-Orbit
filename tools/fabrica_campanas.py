@@ -59,6 +59,8 @@ from typing import Any
 
 import httpx
 import psycopg
+from httpx import HTTPError as _HTTPError
+from httpx import TimeoutException as _TimeoutException
 from psycopg.rows import tuple_row
 
 from app import fabrica_plan as fp
@@ -220,7 +222,6 @@ def _dsn_ingest() -> str:
 API = DEFAULT_BASE_URL
 LWA_TOKEN_URL = "https://api.amazon.com/auth/o2/token"
 VENDOR_CAMPANAS = fp.VENDOR_POR_PATH["/sp/campaigns"]
-_ESPERADO_ROLES = 5
 _PAUSADA = "PAUSED"
 
 _SQL_INSERTA_LOTE = """
@@ -232,6 +233,16 @@ _SQL_BLOQUEA_LOTE = "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))"
 _SQL_ESTADO_LOTE = "SELECT estado FROM fabrica_lote WHERE lote = %s"
 _SQL_SELLA_LOTE = """
 UPDATE fabrica_lote SET estado = %s, detalle = %s, finished_at = now() WHERE lote = %s
+"""
+_SQL_EXTERNALS_CAMPANA_DEL_LOTE = """
+SELECT DISTINCT external_id FROM fabrica_lote_paso
+ WHERE lote = %s AND recurso = 'campaign' AND external_id IS NOT NULL
+"""
+_SQL_CAMPANAS_CON_EXTERNAL = """
+SELECT DISTINCT ON (p.rol) p.rol::text, p.external_id
+  FROM fabrica_lote_paso p
+ WHERE p.lote = %s AND p.recurso = 'campaign' AND p.external_id IS NOT NULL
+ ORDER BY p.rol, p.orden DESC
 """
 _SQL_INSERTA_PASO = """
 INSERT INTO fabrica_lote_paso (lote, orden, rol, recurso, request_payload, estado)
@@ -263,6 +274,15 @@ INSERT INTO campana_grupo (platform, tipo_producto, nombre_base, lote, target_ac
                            target_derivado_pct, fraccion, target_origen, target_procedencia,
                            go_literal)
 SELECT %s::platform, %s, %s, %s, %s, %s, %s, %s, %s, go_literal
+  FROM fabrica_lote WHERE lote = %s
+ON CONFLICT (lote) DO UPDATE SET lote = EXCLUDED.lote
+RETURNING id
+"""
+_SQL_INSERTA_GRUPO_IMPULSO = """
+INSERT INTO campana_grupo (platform, tipo_producto, nombre_base, lote, target_acos_pct,
+                           target_derivado_pct, fraccion, target_origen, target_procedencia,
+                           go_literal, tipo)
+SELECT %s::platform, %s, %s, %s, %s, %s, %s, %s, %s, go_literal, 'impulso'
   FROM fabrica_lote WHERE lote = %s
 ON CONFLICT (lote) DO UPDATE SET lote = EXCLUDED.lote
 RETURNING id
@@ -303,6 +323,16 @@ SELECT p.rol::text, p.external_id, g.id
  WHERE p.lote = %s AND p.recurso = 'campaign'
    AND p.estado IN ('applied', 'failed') AND p.external_id IS NOT NULL
  ORDER BY p.orden
+"""
+_SQL_CAMPANAS_DEL_LOTE_PARA_PAUSA = """
+SELECT DISTINCT ON (p.rol) p.rol::text, p.external_id, g.id
+  FROM fabrica_lote_paso p
+  LEFT JOIN campana_grupo cg ON cg.lote = p.lote
+  LEFT JOIN campana_grupo_rol r ON r.grupo_id = cg.id AND r.rol = p.rol
+  LEFT JOIN ads_optimizer_goal g ON g.ad_entity_id = r.ad_entity_id AND g.scope = 'campaign'
+ WHERE p.lote = %s AND p.recurso = 'campaign'
+   AND p.estado IN ('applied', 'failed') AND p.external_id IS NOT NULL
+ ORDER BY p.rol, p.orden DESC
 """
 _SQL_PENDIENTES = """
 SELECT p.id, p.lote, p.rol::text, l.platform::text, p.recurso, CASE p.recurso
@@ -699,7 +729,7 @@ def _imprime_dry_run(plan: fp.PlanGrupo | fp.PlanGrupoV2, huella: str) -> None:
     if plan.advertencia_mezcla is not None:
         print(f"advertencia: {plan.advertencia_mezcla}", flush=True)
     if isinstance(plan, fp.PlanGrupoV2):
-        for rol in fp.ROLES_ORDEN_CREACION:
+        for rol in _roles_del_plan(plan):
             parametro = plan.parametros[rol]
             semillas = sum(
                 paso.recurso in ("keyword", "target", "negative_keyword")
@@ -836,6 +866,7 @@ class _Ctx:
     lote: str
     orden: int = 0
     conocidos: list = field(default_factory=list)
+    crear_pausado: bool = False
 
 
 def _token_lwa(cred: AdsCredentials, client) -> str:
@@ -930,7 +961,8 @@ def _monto_wire_cuadra(crudo_leido: Any, crudo_pedido: Any) -> bool:
 
 
 def _readback_cuadra(leido: dict | None, payload: dict) -> bool:
-    if not isinstance(leido, dict) or leido.get("state") != fp.ESTADO_NUEVO:
+    esperado = payload.get("state", fp.ESTADO_NUEVO)
+    if not isinstance(leido, dict) or leido.get("state") != esperado:
         return False
     for clave in (
         "keywordText",
@@ -1053,12 +1085,17 @@ def _falla_paso(ctx: _Ctx, paso: fp.Paso, paso_id: int, ack: dict, external, mot
     raise Abortar(motivo)
 
 
-def _motivo_post_fallido(paso: fp.Paso, ack: dict) -> str:
+def _motivo_post_fallido(ctx: _Ctx, paso: fp.Paso, ack: dict) -> str:
     status = ack.get("status")
     if status == "excepcion" or status in _HTTP_INCERTO:
+        nacido = (
+            "un PAUSED que no gasta"
+            if ctx.crear_pausado and paso.recurso == "campaign"
+            else "un ENABLED"
+        )
         return (
             f"{paso.descripcion} ({paso.rol}) INCERTO (status {status}):"
-            " Amazon pudo crear un ENABLED; no reintentar este POST;"
+            f" Amazon pudo crear {nacido}; no reintentar este POST;"
             " --desarmar solo pausa filas con external_id"
         )
     return f"{paso.descripcion} ({paso.rol}) rechazado (status {status})"
@@ -1066,13 +1103,18 @@ def _motivo_post_fallido(paso: fp.Paso, ack: dict) -> str:
 
 def _ejecuta_paso(ctx: _Ctx, paso: fp.Paso, padres: dict) -> str:
     payload = {**padres, **paso.payload}
+    if ctx.crear_pausado and paso.recurso == "campaign":
+        # Camino impulso: nacen PAUSED y se activan al final, con el
+        # lote completo y verificado. Un 500 incierto deja una fantasma
+        # que no gasta (sin vigia no se sirve nada).
+        payload["state"] = _PAUSADA
     paso_id = _inserta_paso(ctx, paso, payload)
     try:
         ack = _post(ctx.http, ctx.token, ctx.cred, ctx.profile, paso.path, payload)
     except Exception as exc:
         ack = {"status": "excepcion", "cuerpo": {}, "texto": scrub(str(exc))[:300]}
     if not fp.ack_ok(ack):
-        _falla_paso(ctx, paso, paso_id, ack, None, _motivo_post_fallido(paso, ack))
+        _falla_paso(ctx, paso, paso_id, ack, None, _motivo_post_fallido(ctx, paso, ack))
     external = fp.id_creado(ack, fp.CLAVE_ID_POR_PATH[paso.path])
     if external is None:
         _falla_paso(
@@ -1137,11 +1179,20 @@ def _ejecuta_rol(ctx: _Ctx, plan: fp.PlanCanonico, rol: str) -> dict:
     return externos
 
 
-def _valida_go(args, huella: str) -> None:
+def _roles_del_plan(plan: fp.PlanCanonico) -> tuple[str, ...]:
+    """I.1: roles a recorrer: los del plan v2, los cinco en v1."""
+    if isinstance(plan, fp.PlanGrupoV2):
+        return plan.roles
+    return fp.ROLES_ORDEN_CREACION
+
+
+def _valida_go(args, huella: str, n_roles: int) -> None:
     if args.esperado is None:
-        raise Abortar("mutacion real exige --esperado 5 (las 5 campanas del grupo)")
-    if args.esperado != _ESPERADO_ROLES:
-        raise Abortar(f"--esperado {args.esperado} != {_ESPERADO_ROLES} campanas del grupo")
+        raise Abortar(
+            f"mutacion real exige --esperado {n_roles} (las {n_roles} campanas del grupo)"
+        )
+    if args.esperado != n_roles:
+        raise Abortar(f"--esperado {args.esperado} != {n_roles} campanas del grupo")
     if not args.huella:
         raise Abortar("mutacion real exige --huella del dry-run (autorizacion por conjunto)")
     if args.huella != huella:
@@ -1183,8 +1234,13 @@ def _registrar(ctx: _Ctx, plan: fp.PlanCanonico, creadas: list[dict]) -> int:
     # los goals solo fijan target con manual confirmado, si no nacen NULL y
     # resuelven por margen_plataforma cada ciclo.
     goal_target = fp.target_para_goals(plan)
+    inserta_grupo = (
+        _SQL_INSERTA_GRUPO_IMPULSO
+        if isinstance(plan, fp.PlanGrupoV2) and plan.roles == fp.ROLES_IMPULSO
+        else _SQL_INSERTA_GRUPO
+    )
     grupo = conn.execute(
-        _SQL_INSERTA_GRUPO,
+        inserta_grupo,
         (
             plan.platform,
             plan.tipo_producto,
@@ -1327,7 +1383,7 @@ def _exige_ledger_completo(conn, plan: fp.PlanCanonico, lote: str) -> None:
             camp_ag.setdefault(f["rol"], {})[f["recurso"]] = str(f["external_id"])
     usados: set[int] = set()
     faltan: list[str] = []
-    for rol in fp.ROLES_ORDEN_CREACION:
+    for rol in _roles_del_plan(plan):
         ids = camp_ag.get(rol, {})
         if "campaign" not in ids or "ad_group" not in ids:
             faltan.append(f"{rol}: falta campaign/ad_group applied")
@@ -1391,7 +1447,7 @@ def _registrar_cmd(args) -> int:
             creadas.setdefault(rol, {"rol": rol, "product_ads": [], "semillas": []})[recurso] = (
                 external
             )
-        faltan = [r for r in fp.ROLES_ORDEN_CREACION if "ad_group" not in creadas.get(r, {})]
+        faltan = [r for r in _roles_del_plan(plan) if "ad_group" not in creadas.get(r, {})]
         if faltan:
             raise Abortar(
                 f"lote {args.registrar} sin campana+ad group applied para"
@@ -1405,15 +1461,23 @@ def _registrar_cmd(args) -> int:
         ctx = _Ctx(
             None, "", cred, cliente_lectura, perfiles[plan.platform], conn_admin, args.registrar
         )
-        _registrar(ctx, plan, [creadas[r] for r in fp.ROLES_ORDEN_CREACION])
+        _registrar(ctx, plan, [creadas[r] for r in _roles_del_plan(plan)])
         _sella_lote(conn_admin, args.registrar, "applied", "registro reintentado")
         return 0
     finally:
         _cierra(conn_admin)
 
 
-def _mutar(args, plan: fp.PlanCanonico, huella: str, *, lote: str | None = None) -> int:
-    _valida_go(args, huella)
+def _mutar(
+    args,
+    plan: fp.PlanCanonico,
+    huella: str,
+    *,
+    lote: str | None = None,
+    revierte_al_fallar=False,
+    crear_pausado=False,
+) -> int:
+    _valida_go(args, huella, len(_roles_del_plan(plan)))
     # D-CURSOR-177-F3: falla cerrado antes de LWA/lote/POST (spec §5.1).
     _dsn_ingest()
     if lote is None:
@@ -1437,23 +1501,47 @@ def _mutar(args, plan: fp.PlanCanonico, huella: str, *, lote: str | None = None)
         http = httpx.Client(timeout=httpx.Timeout(connect=5.0, read=20.0, write=10.0, pool=5.0))
         token = _token_lwa(cred, http)
         _inserta_lote(conn_admin, lote, plan, huella, args.go)
-        ctx = _Ctx(http, token, cred, cliente_lectura, perfiles[plan.platform], conn_admin, lote)
+        ctx = _Ctx(
+            http,
+            token,
+            cred,
+            cliente_lectura,
+            perfiles[plan.platform],
+            conn_admin,
+            lote,
+            crear_pausado=crear_pausado,
+        )
         creadas: list[dict] = []
         try:
-            for rol in fp.ROLES_ORDEN_CREACION:
+            for rol in _roles_del_plan(plan):
                 creadas.append(_ejecuta_rol(ctx, plan, rol))
                 _log("campana_creada", lote=lote, rol=rol, external=creadas[-1]["campaign"])
-        except Abortar as exc:
+            if crear_pausado:
+                _activa_campanas(ctx, lote)
+        except Exception as exc:
+            # Abortar, red, timeout o muerte-viva: mismo cierre (failed +
+            # rollback best-effort). Lo incierto lo reconcilia el vigia.
             detalle = f"{exc} | creadas: {[c['rol'] for c in creadas]} | conocidos: {ctx.conocidos}"
             _sella_lote(conn_admin, lote, "failed", detalle)
-            nota = (
-                "las creadas quedan ENABLED en Amazon; --desarmar <lote> las pausa"
-                if "INCERTO" not in str(exc)
-                else (
-                    "resultado INCERTO: no reintentar POST; --desarmar solo pausa"
-                    " filas con external_id; verificar consola Amazon por nombre"
+            rollback_incompleto = ""
+            if revierte_al_fallar:
+                resumen = _revierte_parcial(ctx, lote)
+                nota = (
+                    f"rollback impulso: pausadas {resumen['pausadas']}"
+                    + (f"; errores {resumen['errores']}" if resumen["errores"] else "; sin errores")
+                    + "; el reintento se bloquea hasta --desarmar y nueva vista"
                 )
-            )
+                if resumen["errores"]:
+                    rollback_incompleto = "; ".join(resumen["errores"])
+            else:
+                nota = (
+                    "las creadas quedan ENABLED en Amazon; --desarmar <lote> las pausa"
+                    if "INCERTO" not in str(exc)
+                    else (
+                        "resultado INCERTO: no reintentar POST; --desarmar solo pausa"
+                        " filas con external_id; verificar consola Amazon por nombre"
+                    )
+                )
             _log(
                 "lote_detenido",
                 lote=lote,
@@ -1462,6 +1550,11 @@ def _mutar(args, plan: fp.PlanCanonico, huella: str, *, lote: str | None = None)
                 conocidos=ctx.conocidos,
                 nota=nota,
             )
+            if rollback_incompleto:
+                raise Abortar(
+                    f"{exc} || rollback incompleto ({rollback_incompleto}): puede quedar"
+                    " ENABLED en Amazon; el vigia la pausa al reconciliar"
+                ) from exc
             raise
         try:
             _registrar(ctx, plan, creadas)
@@ -1473,6 +1566,13 @@ def _mutar(args, plan: fp.PlanCanonico, huella: str, *, lote: str | None = None)
                 "failed",
                 f"campanas creadas en Amazon, registro interno incompleto: {exc}",
             )
+            rollback_txt = ""
+            if revierte_al_fallar:
+                # L8: sin grupo no hay impulso; las activadas se pausan
+                # (best effort) para no gastar sin tope.
+                resumen = _revierte_parcial(ctx, lote)
+                if resumen["errores"]:
+                    rollback_txt = f" || rollback incompleto ({'; '.join(resumen['errores'])})"
             _log(
                 "lote_detenido",
                 lote=lote,
@@ -1480,7 +1580,7 @@ def _mutar(args, plan: fp.PlanCanonico, huella: str, *, lote: str | None = None)
                 creadas=[c["rol"] for c in creadas],
                 nota="--registrar <lote> reintenta SOLO el registro (no toca Amazon)",
             )
-            raise Abortar(f"registro interno incompleto: {exc}") from exc
+            raise Abortar(f"registro interno incompleto: {exc}{rollback_txt}") from exc
         _sella_lote(conn_admin, lote, "applied", None)
         _log("reconciliacion_final", lote=lote, campanas=[c["campaign"] for c in creadas], ok=True)
         return 0
@@ -1489,17 +1589,28 @@ def _mutar(args, plan: fp.PlanCanonico, huella: str, *, lote: str | None = None)
 
 
 def _put_estado_campana(ctx: _Ctx, external: str, estado: str) -> dict:
-    resp = ctx.http.put(
-        f"{API}/sp/campaigns",
-        headers={
-            "Authorization": f"Bearer {ctx.token}",
-            "Amazon-Advertising-API-ClientId": ctx.cred.client_id,
-            "Amazon-Advertising-API-Scope": str(ctx.profile),
-            "Content-Type": VENDOR_CAMPANAS,
-            "Accept": VENDOR_CAMPANAS,
-        },
-        json={"campaigns": [{"campaignId": str(external), "state": estado}]},
-    )
+    # R09-r4 L3/L3b: la excepcion de red no sale pelada (como el POST
+    # declara INCERTO): se envuelve en Abortar para que _mutar selle
+    # failed + revierta y el dueno lea un mensaje, no un traceback.
+    # Timeout = INCERTO (pudo aplicarse); lo demas = fallo.
+    try:
+        resp = ctx.http.put(
+            f"{API}/sp/campaigns",
+            headers={
+                "Authorization": f"Bearer {ctx.token}",
+                "Amazon-Advertising-API-ClientId": ctx.cred.client_id,
+                "Amazon-Advertising-API-Scope": str(ctx.profile),
+                "Content-Type": VENDOR_CAMPANAS,
+                "Accept": VENDOR_CAMPANAS,
+            },
+            json={"campaigns": [{"campaignId": str(external), "state": estado}]},
+        )
+    except _TimeoutException as exc:
+        raise Abortar(
+            f"PUT {estado} de {external} INCERTO (timeout: {exc}): pudo aplicarse"
+        ) from exc
+    except _HTTPError as exc:
+        raise Abortar(f"PUT {estado} de {external} fallo (red: {exc})") from exc
     cuerpo: dict = {}
     with contextlib.suppress(ValueError):
         cuerpo = resp.json()
@@ -1532,6 +1643,170 @@ def _pausa_una(ctx: _Ctx, rol: str, external: str, goal_id) -> None:
             enabled=False,
             updated_at=datetime.datetime.now(datetime.UTC),
         )
+
+
+def _revierte_parcial(ctx: _Ctx, lote: str) -> dict:
+    """Rollback del camino impulso: pausa en Amazon las campanas del lote
+    con external_id (sin vigia no gastan) y lo anota en detalle. Nunca
+    levanta: el lote ya va failed y el reintento se bloquea igual."""
+    resumen: dict = {"pausadas": [], "errores": []}
+    filas = ctx.conn_admin.execute(_SQL_EXTERNALS_CAMPANA_DEL_LOTE, (lote,)).fetchall()
+    for (external,) in filas:
+        try:
+            ack = _put_estado_campana(ctx, external, _PAUSADA)
+            if not fp.ack_ok(ack):
+                raise Abortar(f"PUT PAUSED rechazado (status {ack.get('status')})")
+            time.sleep(0.3)
+            leido = _readback(ctx.cliente_lectura, ctx.profile, "/sp/campaigns", external)
+            estado = leido.get("state") if isinstance(leido, dict) else None
+            if estado != _PAUSADA:
+                raise Abortar(f"readback tras PUT: {estado}")
+            resumen["pausadas"].append(external)
+        except Exception as exc:
+            resumen["errores"].append(f"{external}: {scrub(str(exc))[:160]}")
+    _log("lote_revertido", lote=lote, **resumen)
+    try:
+        ctx.conn_admin.execute(
+            "UPDATE fabrica_lote SET detalle = COALESCE(detalle, '') || %s WHERE lote = %s",
+            (f" | revertidas: {resumen['pausadas']} errores: {resumen['errores']}", lote),
+        )
+        ctx.conn_admin.commit()
+    except Exception as exc:
+        _log("lote_revertido_sin_anotar", lote=lote, error=scrub(str(exc))[:160])
+    return resumen
+
+
+def _activa_campanas(ctx: _Ctx, lote: str) -> None:
+    """Camino impulso: tras crear el lote completo PAUSED, lo activa
+    (PUT ENABLED + readback por campana). Falla cerrado: el rollback
+    del llamador vuelve a pausar lo activado."""
+    filas = ctx.conn_admin.execute(_SQL_EXTERNALS_CAMPANA_DEL_LOTE, (lote,)).fetchall()
+    if not filas:
+        raise Abortar(f"lote {lote} sin campanas con external: nada que activar")
+    for (external,) in filas:
+        ack = _put_estado_campana(ctx, external, fp.ESTADO_NUEVO)
+        if not fp.ack_ok(ack):
+            raise Abortar(f"PUT ENABLED de {external} rechazado (status {ack.get('status')})")
+        time.sleep(0.3)
+        leido = _readback(ctx.cliente_lectura, ctx.profile, "/sp/campaigns", external)
+        estado = leido.get("state") if isinstance(leido, dict) else None
+        _log("campana_activada", lote=lote, external=external, readback=estado)
+        if estado != fp.ESTADO_NUEVO:
+            raise Abortar(f"readback de {external} tras activar != ENABLED ({estado})")
+
+
+def _cambia_estado_lote(ctx: _Ctx, lote: str, estado: str, actor: str) -> None:
+    """Pausa o reanuda las campanas de un lote sin desarmarlo: fila en
+    el ledger antes de cada PUT, _put_estado_campana, readback y sello.
+    No toca los goals (a diferencia de _pausa_una): el motor sigue
+    decidiendo y el vigia gradua despues."""
+    actual = _estado_lote(ctx.conn_admin, lote)
+    if actual is None:
+        raise Abortar(f"lote {lote} no existe")
+    if actual == "desarmado":
+        raise Abortar(f"lote {lote} desarmado: nunca revive")
+    if estado == "pausado" and actual != "applied":
+        raise Abortar(f"lote {lote} en {actual}: solo se pausa desde applied")
+    if estado == "applied" and actual != "pausado":
+        raise Abortar(f"lote {lote} en {actual}: solo se reanuda desde pausado")
+    filas = ctx.conn_admin.execute(_SQL_CAMPANAS_DEL_LOTE_PARA_PAUSA, (lote,)).fetchall()
+    ctx.conn_admin.commit()
+    if not filas:
+        raise Abortar(f"lote {lote} sin campanas en fabrica_lote_paso: nada que {estado}")
+    ctx.orden = ctx.conn_admin.execute(
+        "SELECT coalesce(max(orden), 0) FROM fabrica_lote_paso WHERE lote = %s", (lote,)
+    ).fetchone()[0]
+    if estado == "pausado":
+        # G9: el actor queda grabado antes del primer PUT, con
+        # COMMIT: si Amazon rechaza a medias, el lote dice (applied,
+        # actor) = "intento pausar y no se completo". No se anota
+        # "a medias": pausado_por guarda actores exactos, y el
+        # estado sin sellar ya cuenta que la pausa no cerro.
+        ctx.conn_admin.execute(
+            "UPDATE fabrica_lote SET pausado_por = %s WHERE lote = %s", (actor, lote)
+        )
+        ctx.conn_admin.commit()
+    nuevo = "PAUSED" if estado == "pausado" else "ENABLED"
+    for rol, external, _goal in filas:
+        paso = fp.Paso(rol, "campaign", "/sp/campaigns", {}, f"{estado} {rol}")
+        paso_id = _inserta_paso(ctx, paso, {"campaignId": str(external), "state": nuevo})
+        ack = _put_estado_campana(ctx, external, nuevo)
+        if not fp.ack_ok(ack):
+            _sella_paso(ctx, paso_id, False, external, ack, None)
+            raise Abortar(
+                f"PUT {nuevo} de {external} ({rol}) rechazado (status {ack.get('status')})"
+            )
+        time.sleep(0.3)
+        leido = _readback(ctx.cliente_lectura, ctx.profile, "/sp/campaigns", external)
+        visto = leido.get("state") if isinstance(leido, dict) else None
+        _log(
+            "cambio_estado",
+            lote=lote,
+            rol=rol,
+            external=external,
+            readback=visto,
+            ok=visto == nuevo,
+        )
+        _sella_paso(ctx, paso_id, visto == nuevo, external, ack, visto)
+        if visto != nuevo:
+            raise Abortar(f"readback de {external} ({rol}) != {nuevo} ({visto}): se detiene")
+    _sella_lote(ctx.conn_admin, lote, estado, f"go: {actor}")
+    # G1: quien pauso queda registrado; al reanudar se limpia.
+    ctx.conn_admin.execute(
+        "UPDATE fabrica_lote SET pausado_por = %s WHERE lote = %s",
+        (actor if estado == "pausado" else None, lote),
+    )
+    ctx.conn_admin.commit()
+
+
+def pausar_lote(ctx: _Ctx, lote: str, actor: str) -> None:
+    """Pausa un lote applied (reversible)."""
+    _cambia_estado_lote(ctx, lote, "pausado", actor)
+
+
+def reanudar_lote(ctx: _Ctx, lote: str, actor: str) -> None:
+    """Reanuda un lote pausado."""
+    _cambia_estado_lote(ctx, lote, "applied", actor)
+
+
+def reactiva_lote(ctx: _Ctx, lote: str, actor: str) -> None:
+    """Graduar casa con Amazon: PUT ENABLED (ledger + readback) a las
+    campanas del lote que no esten ENABLED, y sello applied si estaba
+    pausado. Nunca revive desarmados."""
+    actual = _estado_lote(ctx.conn_admin, lote)
+    if actual is None:
+        raise Abortar(f"lote {lote} no existe")
+    if actual == "desarmado":
+        raise Abortar(f"lote {lote} desarmado: nunca revive")
+    ctx.orden = ctx.conn_admin.execute(
+        "SELECT coalesce(max(orden), 0) FROM fabrica_lote_paso WHERE lote = %s", (lote,)
+    ).fetchone()[0]
+    for rol, external in ctx.conn_admin.execute(_SQL_CAMPANAS_CON_EXTERNAL, (lote,)).fetchall():
+        leido = _readback(ctx.cliente_lectura, ctx.profile, "/sp/campaigns", external)
+        visto = leido.get("state") if isinstance(leido, dict) else None
+        if visto == fp.ESTADO_NUEVO:
+            continue
+        paso = fp.Paso(rol, "campaign", "/sp/campaigns", {}, f"reactivar {rol}")
+        paso_id = _inserta_paso(ctx, paso, {"campaignId": str(external), "state": "ENABLED"})
+        ack = _put_estado_campana(ctx, external, fp.ESTADO_NUEVO)
+        if not fp.ack_ok(ack):
+            _sella_paso(ctx, paso_id, False, external, ack, None)
+            raise Abortar(
+                f"PUT ENABLED de {external} ({rol}) rechazado (status {ack.get('status')})"
+            )
+        time.sleep(0.3)
+        leido = _readback(ctx.cliente_lectura, ctx.profile, "/sp/campaigns", external)
+        visto = leido.get("state") if isinstance(leido, dict) else None
+        _log("reactivar", lote=lote, rol=rol, external=external, readback=visto)
+        _sella_paso(ctx, paso_id, visto == fp.ESTADO_NUEVO, external, ack, visto)
+        if visto != fp.ESTADO_NUEVO:
+            raise Abortar(f"readback de {external} ({rol}) != ENABLED ({visto}): se detiene")
+    if actual == "pausado":
+        _sella_lote(ctx.conn_admin, lote, "applied", f"go: {actor}")
+        ctx.conn_admin.execute(
+            "UPDATE fabrica_lote SET pausado_por = NULL WHERE lote = %s", (lote,)
+        )
+        ctx.conn_admin.commit()
 
 
 def _desarmar(args) -> int:

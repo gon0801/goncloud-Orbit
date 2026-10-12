@@ -655,6 +655,27 @@ def pagina_donde_poner_el_dinero(
     )
 
 
+@router.get("/productos-sin-clics", response_class=HTMLResponse)
+def pagina_productos_sin_clics(
+    request: Request,
+    conn: ConexionLectura,
+    plataforma: Annotated[str | None, Query()] = None,
+) -> HTMLResponse:
+    """Productos sin clics (BIDS 02, P.4): candidatos a impulsar, impulsos
+    en curso y sin pedido en 11 meses, con el flujo de lanzamiento y el
+    regreso a sus grupos. Server-rendered desde el endpoint (regla 22);
+    el nombre es texto libre y se renderiza ESCAPADO ({{ }}). Mercado con
+    `?plataforma=` (vocabulario cerrado, sin componente de pestanas);
+    sin mercado se mira amazon_mx."""
+    mercado = _vocab_o_422(plataforma, frozenset(PLATAFORMAS_MONEDA), "plataforma")
+    datos = dash.productos_sin_clics(conn=conn, plataforma=mercado or "amazon_mx")
+    return templates.TemplateResponse(
+        request,
+        "productos_sin_clics.html",
+        {"pantalla": "productos-sin-clics", **datos},
+    )
+
+
 @router.get("/settings", response_class=HTMLResponse)
 def pagina_settings(request: Request, conn: ConexionLectura) -> HTMLResponse:
     """Settings de escritura (DASHBOARD 01 3.1, E1-E6): target vigente con

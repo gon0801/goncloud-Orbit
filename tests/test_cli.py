@@ -926,3 +926,92 @@ def test_cli_avisos_campana_registrado_y_despachado(monkeypatch, capsys):
     monkeypatch.setitem(cli_bids.COMANDOS, "avisos-campana", _falso)
     assert cli.main(["avisos-campana"]) == 7
     assert llamadas == [[]]
+
+
+def test_cli_impulso_vigia_registrado_y_despachado(monkeypatch):
+    """`impulso-vigia` existe en el CLI y despacha a `cli_bids` (I.3)."""
+    from app import cli_bids
+
+    llamadas = []
+
+    def _falso(rest):
+        llamadas.append(rest)
+        return 7
+
+    monkeypatch.setitem(cli_bids.COMANDOS, "impulso-vigia", _falso)
+    assert cli.main(["impulso-vigia"]) == 7
+    assert llamadas == [[]]
+
+
+def test_impulso_vigia_sin_impulsos_sale_0(monkeypatch, capsys):
+    """I.3: sin impulsos vivos el vigia no hace nada y sale 0."""
+    from app import cli_bids
+    from app import impulso_io as io
+
+    class _Nada:
+        def fetchall(self):
+            return []
+
+        def fetchone(self):
+            return None
+
+    class _Conn:
+        def execute(self, *a, **k):
+            return _Nada()
+
+        def commit(self):
+            pass
+
+        def close(self):
+            pass
+
+    monkeypatch.setenv("ORBIT_DSN_ADMIN", "dsn-x")
+    monkeypatch.setattr("app.db.connect", lambda dsn: _Conn())
+    assert cli_bids.main_impulso_vigia([]) == 0
+    assert capsys.readouterr().out == ""
+    assert io.vigila(_Conn(), None, hoy=dt.date(2026, 10, 9)) == []
+
+
+def test_impulso_vigia_args_extra_o_sin_dsn_da_2(monkeypatch):
+    """I.3: args extra o falta de DSN salen 2 sin tocar nada."""
+    from app import cli_bids
+
+    monkeypatch.setenv("ORBIT_DSN_ADMIN", "dsn-x")
+    assert cli_bids.main_impulso_vigia(["--x"]) == 2
+    monkeypatch.delenv("ORBIT_DSN_ADMIN", raising=False)
+    assert cli_bids.main_impulso_vigia([]) == 2
+
+
+def test_impulso_vigia_usa_pausador_fabrica(monkeypatch):
+    """R09 B12 (C01): el cron corre el vigia CON PausadorFabrica, no sin pausador."""
+    from app import cli_bids
+    from app import impulso_io as io
+
+    class _Nada:
+        def fetchall(self):
+            return []
+
+        def fetchone(self):
+            return None
+
+    class _Conn:
+        def execute(self, *a, **k):
+            return _Nada()
+
+        def commit(self):
+            pass
+
+        def close(self):
+            pass
+
+    visto = {}
+
+    def _vigia(conn, pausador, *, hoy):
+        visto["pausador"] = pausador
+        return []
+
+    monkeypatch.setenv("ORBIT_DSN_ADMIN", "dsn-x")
+    monkeypatch.setattr("app.db.connect", lambda dsn: _Conn())
+    monkeypatch.setattr(io, "vigila", _vigia)
+    assert cli_bids.main_impulso_vigia([]) == 0
+    assert isinstance(visto["pausador"], io.PausadorFabrica)

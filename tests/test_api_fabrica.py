@@ -1427,3 +1427,1217 @@ def test_cli_evaluar_plan_calcula_el_export_y_la_asesoria_queda_por_huella(escen
     ruta.write_text(json.dumps({**solicitud, "productos": [999_999]}), encoding="utf-8")
     assert cli_jev([*argv[:3], "--solicitud", str(_uuid.uuid4()), "--aplicar"], pedir=pedir) == 2
     assert conn.execute("SELECT count(*) FROM jev_revision").fetchone()[0] == revisiones
+
+
+# ---------------------------------------------------------------------------
+# I.5: rutas del impulso y del retiro
+# ---------------------------------------------------------------------------
+
+
+def _db_i5(conn):
+    from test_migracion_0064 import SQL64
+    from test_migracion_0065 import SQL65
+    from test_migracion_0066 import SQL66
+    from test_migracion_0068 import SQL68
+    from test_migracion_0069 import SQL69
+
+    conn.execute(SQL64)
+    conn.execute(SQL65)
+    conn.execute(SQL66)
+    conn.execute(SQL68)
+    conn.execute(SQL69)
+
+
+def _lid_de(conn, pid):
+    return conn.execute(
+        "SELECT id FROM listing WHERE product_id = %s ORDER BY id LIMIT 1", (pid,)
+    ).fetchone()[0]
+
+
+def _sugeridor_fijo_i5(monkeypatch):
+    from decimal import Decimal
+
+    from app import api_fabrica
+
+    def fijo(plataforma, moneda):
+        def sugiere(asins, expresiones_por_rol):
+            return {
+                rol: (Decimal("1.00") if exprs else None)
+                for rol, exprs in expresiones_por_rol.items()
+            }
+
+        return sugiere
+
+    monkeypatch.setattr(api_fabrica, "_sugeridor_plataforma", fijo)
+
+
+def _ejecutor_siembra_i5(monkeypatch, conn):
+    from app import api_fabrica
+    from app import impulso_io as io
+
+    def fabrica(una_conn, confirmacion):
+        def ejecuta(plan_grupo, huella, lote):
+            una_conn.execute(
+                "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base,"
+                " go_literal, huella, plan, modo_goal, estado) VALUES (%s, 'amazon_mx',"
+                " 'aros', 'Base', %s, %s, '{}'::jsonb, 'shadow', 'applied')",
+                (lote, confirmacion, huella),
+            )
+            grupo = una_conn.execute(
+                "INSERT INTO campana_grupo (platform, tipo_producto, nombre_base, lote,"
+                " target_acos_pct, target_derivado_pct, fraccion, target_procedencia,"
+                " go_literal, tipo) VALUES ('amazon_mx', 'aros', 'Base', %s, 19.10,"
+                " 19.1040, 0.5, 'm', 'go', 'impulso') RETURNING id",
+                (lote,),
+            ).fetchone()[0]
+            return io.EjecucionFabrica(lote=lote, grupo_id=grupo, estado_lote="applied")
+
+        return ejecuta
+
+    monkeypatch.setattr(api_fabrica, "_ejecutor_lanzar", fabrica)
+
+
+def test_i5_token_antes_de_conectar_admin(escenario, monkeypatch):
+    """I.5: las cuatro rutas con token responden 401 sin el header y con
+    el token en la query, sin abrir la conexion admin."""
+    cliente, _, _, fw, _ = escenario
+
+    def prohibido(*args, **kwargs):
+        raise AssertionError("conexion antes de auth")
+
+    monkeypatch.setattr(fw, "connect", prohibido)
+    for path in (
+        "impulso/lanzar",
+        "impulso/1/pausar",
+        "retiro/ejecutar",
+        "retiro/reponer",
+    ):
+        r = cliente.post(f"/api/fabrica/{path}?x-orbit-token={TOKEN}", json={})
+        assert r.status_code == 401, path
+    r = cliente.post("/api/fabrica/impulso/lanzar", json={})
+    assert r.status_code == 401
+
+
+def test_i5_planes_200_sin_escribir(escenario, monkeypatch):
+    """I.5: las dos rutas plan responden 200 y no escriben nada."""
+    cliente, conn, _, _, ids = escenario
+    _db_i5(conn)
+    _sugeridor_fijo_i5(monkeypatch)
+    lid = _lid_de(conn, ids[0])
+    antes = (
+        conn.execute("SELECT count(*) FROM fabrica_lote").fetchone()[0],
+        conn.execute("SELECT count(*) FROM impulso").fetchone()[0],
+        conn.execute("SELECT count(*) FROM anuncio_retiro").fetchone()[0],
+    )
+    r = cliente.post(
+        "/api/fabrica/impulso/plan",
+        json={
+            "plataforma": "amazon_mx",
+            "listing_ids": [lid],
+            "subfamilia_por_listing": {str(lid): "aros"},
+        },
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["confirmacion_esperada"] == "LANZAR IMPULSO DE 1 PRODUCTO"
+    r = cliente.post(
+        "/api/fabrica/retiro/plan",
+        json={"plataforma": "amazon_mx", "listing_ids": [lid], "motivo": "sin_pedidos"},
+    )
+    assert r.status_code == 200, r.text
+    assert "huella" in r.json()
+    assert (
+        conn.execute("SELECT count(*) FROM fabrica_lote").fetchone()[0],
+        conn.execute("SELECT count(*) FROM impulso").fetchone()[0],
+        conn.execute("SELECT count(*) FROM anuncio_retiro").fetchone()[0],
+    ) == antes
+
+
+def test_i5_plan_tope_no_numerico_422(escenario, monkeypatch):
+    """N1: tope_monto 'abc' da 422, no 500 (Decimal lanza
+    InvalidOperation, no ValueError)."""
+    cliente, conn, _, _, ids = escenario
+    _db_i5(conn)
+    _sugeridor_fijo_i5(monkeypatch)
+    lid = _lid_de(conn, ids[0])
+    r = cliente.post(
+        "/api/fabrica/impulso/plan",
+        json={
+            "plataforma": "amazon_mx",
+            "listing_ids": [lid],
+            "subfamilia_por_listing": {str(lid): "aros"},
+            "tope_monto": "abc",
+        },
+    )
+    assert r.status_code == 422, r.text
+
+
+def test_i5_plan_tope_fuera_de_rango_422(escenario, monkeypatch):
+    """R09-r2 B-9: tope que redondea a cero o desborda money_amount
+    (NUMERIC 14,4) da 422 en el contrato, no 500 en el INSERT."""
+    cliente, conn, _, _, ids = escenario
+    _db_i5(conn)
+    _sugeridor_fijo_i5(monkeypatch)
+    lid = _lid_de(conn, ids[0])
+    for tope in ("0.00001", "99999999999999"):
+        r = cliente.post(
+            "/api/fabrica/impulso/plan",
+            json={
+                "plataforma": "amazon_mx",
+                "listing_ids": [lid],
+                "subfamilia_por_listing": {str(lid): "aros"},
+                "tope_monto": tope,
+            },
+        )
+        assert r.status_code == 422, (tope, r.text)
+
+
+def test_i5_lanzar_huella_vieja_409_con_vista_nueva(escenario, monkeypatch):
+    """I.5: lanzar con huella vieja responde 409, el detalle trae la
+    vista previa nueva y no crea ningun lote."""
+    cliente, conn, _, _, ids = escenario
+    _db_i5(conn)
+    _sugeridor_fijo_i5(monkeypatch)
+    lid = _lid_de(conn, ids[0])
+    sol = {
+        "plataforma": "amazon_mx",
+        "listing_ids": [lid],
+        "subfamilia_por_listing": {str(lid): "aros"},
+    }
+    r = cliente.post(
+        "/api/fabrica/impulso/lanzar",
+        headers=HEADERS,
+        json={
+            "solicitud": sol,
+            "huella": "0" * 64,
+            "confirmacion": "LANZAR IMPULSO DE 1 PRODUCTO",
+            "actor": "dueno",
+        },
+    )
+    assert r.status_code == 409, r.text
+    detalle = r.json()["detail"]
+    assert "vista_previa" in detalle
+    assert detalle["vista_previa"]["confirmacion_esperada"] == "LANZAR IMPULSO DE 1 PRODUCTO"
+    assert conn.execute("SELECT count(*) FROM fabrica_lote").fetchone()[0] == 0
+
+
+def test_i5_lanzar_200_y_pausar_404(escenario, monkeypatch):
+    """I.5: lanzar cableado crea el impulso; pausar un impulso que no
+    existe da 404."""
+    cliente, conn, _, _, ids = escenario
+    _db_i5(conn)
+    _sugeridor_fijo_i5(monkeypatch)
+    _ejecutor_siembra_i5(monkeypatch, conn)
+    lid = _lid_de(conn, ids[0])
+    sol = {
+        "plataforma": "amazon_mx",
+        "listing_ids": [lid],
+        "subfamilia_por_listing": {str(lid): "aros"},
+    }
+    vista = cliente.post("/api/fabrica/impulso/plan", json=sol).json()
+    r = cliente.post(
+        "/api/fabrica/impulso/lanzar",
+        headers=HEADERS,
+        json={
+            "solicitud": sol,
+            "huella": vista["huella"],
+            "confirmacion": vista["confirmacion_esperada"],
+            "actor": "dueno",
+        },
+    )
+    assert r.status_code == 200, r.text
+    assert len(r.json()["lanzados"]) == 1
+    assert conn.execute("SELECT count(*) FROM impulso").fetchone()[0] == 1
+    r = cliente.post(
+        "/api/fabrica/impulso/999999/pausar",
+        headers=HEADERS,
+        json={"confirmacion": "PAUSAR IMPULSO"},
+    )
+    assert r.status_code == 404
+
+
+def test_i5_literales_y_campo_extra_422(escenario, monkeypatch):
+    """I.5: literal distinto (aunque solo cambie N) da 422; un campo
+    extra da 422 sin repetir el valor recibido."""
+    from test_retiro_anuncios import _bolsa, _escritor, _fila
+
+    from app.ads import archivar
+
+    cliente, conn, _, _, ids = escenario
+    _db_i5(conn)
+    _sugeridor_fijo_i5(monkeypatch)
+    _ejecutor_siembra_i5(monkeypatch, conn)
+    lid = _lid_de(conn, ids[0])
+    _bolsa(conn, lid, "ad-i5")
+    sol = {
+        "plataforma": "amazon_mx",
+        "listing_ids": [lid],
+        "subfamilia_por_listing": {str(lid): "aros"},
+    }
+    vista = cliente.post("/api/fabrica/impulso/plan", json=sol).json()
+    base = {"solicitud": sol, "huella": vista["huella"], "actor": "dueno"}
+    r = cliente.post(
+        "/api/fabrica/impulso/lanzar",
+        headers=HEADERS,
+        json={**base, "confirmacion": "LANZAR IMPULSO DE 2 PRODUCTOS"},
+    )
+    assert r.status_code == 422
+    plan = cliente.post(
+        "/api/fabrica/retiro/plan",
+        json={"plataforma": "amazon_mx", "listing_ids": [lid], "motivo": "sin_pedidos"},
+    ).json()
+    rej = {
+        "plataforma": "amazon_mx",
+        "listing_ids": [lid],
+        "motivo": "sin_pedidos",
+        "huella": plan["huella"],
+        "actor": "dueno",
+    }
+    r = cliente.post(
+        "/api/fabrica/retiro/ejecutar",
+        headers=HEADERS,
+        json={**rej, "confirmacion": "SACAR 5 ANUNCIOS"},
+    )
+    assert r.status_code == 422, r.text
+    escritor, _puts = _escritor(_fila("ad-i5", "ENABLED"))
+    monkeypatch.setattr(archivar, "preparar_escritor", lambda platform: escritor)
+    r = cliente.post(
+        "/api/fabrica/retiro/ejecutar",
+        headers=HEADERS,
+        json={**rej, "confirmacion": "SACAR 1 ANUNCIOS"},
+    )
+    assert r.status_code == 200, r.text
+    (ret,) = conn.execute("SELECT id FROM anuncio_retiro").fetchall()
+    r = cliente.post(
+        "/api/fabrica/retiro/reponer",
+        headers=HEADERS,
+        json={"retiro_ids": [ret[0]], "confirmacion": "REGRESAR 2 ANUNCIOS", "actor": "dueno"},
+    )
+    assert r.status_code == 422
+    r = cliente.post(
+        "/api/fabrica/retiro/reponer",
+        headers=HEADERS,
+        json={
+            "retiro_ids": [ret[0]],
+            "confirmacion": "REGRESAR 1 ANUNCIOS",
+            "actor": "dueno",
+            "token": "SECRETO-NO-REPETIBLE",
+        },
+    )
+    assert r.status_code == 422
+    assert "SECRETO-NO-REPETIBLE" not in r.text
+
+
+def test_r09r4_ap04_ejecutar_con_lote_propio_200(escenario, monkeypatch):
+    """R09-r4 B6 (AP04): ejecutar valida el lote contra los listings
+    pedidos (no contra lista vacia): lote propio pasa."""
+    from test_retiro_anuncios import _bolsa, _escritor, _fila
+
+    from app.ads import archivar
+
+    cliente, conn, _, _, ids = escenario
+    _db_i5(conn)
+    lid = _lid_de(conn, ids[0])
+    _bolsa(conn, lid, "ad-ap04")
+    conn.execute(
+        "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal,"
+        " huella, plan, modo_goal, estado) VALUES ('grupo-ap04', 'amazon_mx', 'aros', 'B5',"
+        " 'go', 'h', '{}'::jsonb, 'shadow', 'applied')"
+    )
+    gid = conn.execute(
+        "INSERT INTO campana_grupo (platform, tipo_producto, nombre_base, lote,"
+        " target_acos_pct, target_derivado_pct, fraccion, target_procedencia, go_literal,"
+        " tipo) VALUES ('amazon_mx', 'aros', 'B5', 'grupo-ap04', 19.10, 19.1040, 0.5, 'm',"
+        " 'go', 'fabrica5') RETURNING id"
+    ).fetchone()[0]
+    from test_fabrica_migracion import _entidad
+
+    camp = _entidad(conn, "amazon_mx", "campaign", "c-ap04")
+    ag5 = _entidad(conn, "amazon_mx", "ad_group", "ag-ap04", parent=camp)
+    conn.execute(
+        "INSERT INTO campana_grupo_rol (grupo_id, rol, ad_entity_id, ad_group_ad_entity_id)"
+        " VALUES (%s, 'category_exact', %s, %s)",
+        (gid, camp, ag5),
+    )
+    _entidad(conn, "amazon_mx", "product_ad", "ad-5ap04", parent=ag5, listing_id=lid)
+    conn.commit()
+    plan = cliente.post(
+        "/api/fabrica/retiro/plan",
+        json={
+            "plataforma": "amazon_mx",
+            "listing_ids": [lid],
+            "motivo": "subfamilia",
+            "lote": "grupo-ap04",
+        },
+    ).json()
+    escritor, _puts = _escritor(_fila("ad-ap04", "ENABLED"))
+    monkeypatch.setattr(archivar, "preparar_escritor", lambda platform: escritor)
+    r = cliente.post(
+        "/api/fabrica/retiro/ejecutar",
+        headers=HEADERS,
+        json={
+            "plataforma": "amazon_mx",
+            "listing_ids": [lid],
+            "motivo": "subfamilia",
+            "lote": "grupo-ap04",
+            "huella": plan["huella"],
+            "confirmacion": f"SACAR {len(plan['anuncios'])} ANUNCIOS",
+            "actor": "dueno",
+        },
+    )
+    assert r.status_code == 200, r.text
+
+
+def test_r09r4_ap06_reponer_parcial_502_no_500(escenario, monkeypatch):
+    """R09-r4 B6 (AP06): regreso parcial (uno falla): 502 con detalle,
+    no 500 pelado."""
+    from test_retiro_anuncios import _bolsa, _escritor, _fila
+
+    from app.ads import archivar
+
+    cliente, conn, _, _, ids = escenario
+    _db_i5(conn)
+    lid = _lid_de(conn, ids[0])
+    _bolsa(conn, lid, "ad-ok6")
+    _bolsa(conn, lid, "ad-bad6", ag="ag-b6", camp="c-b6")
+    plan = cliente.post(
+        "/api/fabrica/retiro/plan",
+        json={"plataforma": "amazon_mx", "listing_ids": [lid], "motivo": "sin_pedidos"},
+    ).json()
+    escritor, _puts = _escritor({**_fila("ad-ok6", "ENABLED"), **_fila("ad-bad6", "ENABLED")})
+    monkeypatch.setattr(archivar, "preparar_escritor", lambda platform: escritor)
+    r = cliente.post(
+        "/api/fabrica/retiro/ejecutar",
+        headers=HEADERS,
+        json={
+            "plataforma": "amazon_mx",
+            "listing_ids": [lid],
+            "motivo": "sin_pedidos",
+            "huella": plan["huella"],
+            "confirmacion": f"SACAR {len(plan['anuncios'])} ANUNCIOS",
+            "actor": "dueno",
+        },
+    )
+    assert r.status_code == 200, r.text
+    rids = r.json()["retiro_ids"]
+    escritor2, _puts2 = _escritor(
+        {**_fila("ad-ok6", "PAUSED"), **_fila("ad-bad6", "PAUSED")},
+        rechaza_put=frozenset({"ad-bad6"}),
+    )
+    monkeypatch.setattr(archivar, "preparar_escritor", lambda platform: escritor2)
+    r = cliente.post(
+        "/api/fabrica/retiro/reponer",
+        headers=HEADERS,
+        json={"retiro_ids": rids, "confirmacion": "REGRESAR 2 ANUNCIOS", "actor": "dueno"},
+    )
+    assert r.status_code == 502, r.text
+    assert "ad-bad6" in r.text
+
+
+def test_r09r4_ap08_ids_solo_abiertos(escenario, monkeypatch):
+    """R09-r4 B6 (AP08): retiro_ids de la respuesta trae solo abiertos
+    del lote (no los ya regresados)."""
+    from test_retiro_anuncios import _bolsa, _escritor, _fila
+
+    from app.ads import archivar
+
+    cliente, conn, _, _, ids = escenario
+    _db_i5(conn)
+    lid = _lid_de(conn, ids[0])
+    _bolsa(conn, lid, "ad-ok8")
+    _bolsa(conn, lid, "ad-8b", ag="ag-8b", camp="c-8b")
+    plan = cliente.post(
+        "/api/fabrica/retiro/plan",
+        json={"plataforma": "amazon_mx", "listing_ids": [lid], "motivo": "sin_pedidos"},
+    ).json()
+    escritor, _puts = _escritor({**_fila("ad-ok8", "ENABLED"), **_fila("ad-8b", "ENABLED")})
+    monkeypatch.setattr(archivar, "preparar_escritor", lambda platform: escritor)
+    cuerpo = {
+        "plataforma": "amazon_mx",
+        "listing_ids": [lid],
+        "motivo": "sin_pedidos",
+        "huella": plan["huella"],
+        "confirmacion": f"SACAR {len(plan['anuncios'])} ANUNCIOS",
+        "actor": "dueno",
+    }
+    r = cliente.post("/api/fabrica/retiro/ejecutar", headers=HEADERS, json=cuerpo)
+    assert r.status_code == 200, r.text
+    primero, segundo = r.json()["retiro_ids"]
+    r = cliente.post(
+        "/api/fabrica/retiro/reponer",
+        headers=HEADERS,
+        json={"retiro_ids": [primero], "confirmacion": "REGRESAR 1 ANUNCIOS", "actor": "dueno"},
+    )
+    assert r.status_code == 200, r.text
+    r = cliente.post("/api/fabrica/retiro/ejecutar", headers=HEADERS, json=cuerpo)
+    assert r.status_code == 200, r.text
+    # El repuesto se retira de nuevo (nuevo rid); los ids traen solo
+    # abiertos del lote, nunca el ya regresado.
+    assert primero not in r.json()["retiro_ids"]
+    assert segundo in r.json()["retiro_ids"]
+
+
+def test_r09r4_ap12_impulso_lote_sin_impulso_404(escenario):
+    """R09-r4 B6 (AP12): motivo 'impulso' con lote que no tiene
+    impulso: 404, no pasa con impulso None."""
+    cliente, conn, _, _, ids = escenario
+    _db_i5(conn)
+    lid = _lid_de(conn, ids[0])
+    conn.execute(
+        "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal,"
+        " huella, plan, modo_goal, estado) VALUES ('grupo-a12', 'amazon_mx', 'aros', 'B5',"
+        " 'go', 'h', '{}'::jsonb, 'shadow', 'applied')"
+    )
+    conn.execute(
+        "INSERT INTO campana_grupo (platform, tipo_producto, nombre_base, lote,"
+        " target_acos_pct, target_derivado_pct, fraccion, target_procedencia, go_literal,"
+        " tipo) VALUES ('amazon_mx', 'aros', 'B5', 'grupo-a12', 19.10, 19.1040, 0.5, 'm',"
+        " 'go', 'fabrica5')"
+    )
+    conn.commit()
+    r = cliente.post(
+        "/api/fabrica/retiro/plan",
+        json={
+            "plataforma": "amazon_mx",
+            "listing_ids": [lid],
+            "motivo": "impulso",
+            "lote": "grupo-a12",
+        },
+    )
+    assert r.status_code == 404, r.text
+
+
+def test_i5_ejecutar_parcial_502_con_detalle(escenario, monkeypatch):
+    """R09-r2 B-7: con un anuncio no confirmable, ejecutar registra el
+    bueno y responde 502 nombrando al otro (no 500 pelado)."""
+    from test_retiro_anuncios import _bolsa, _escritor, _fila
+
+    from app.ads import archivar
+
+    cliente, conn, _, _, ids = escenario
+    _db_i5(conn)
+    lid = _lid_de(conn, ids[0])
+    _bolsa(conn, lid, "ad-ok")
+    _bolsa(conn, lid, "ad-bad", ag="ag-bad", camp="c-bad")
+    plan = cliente.post(
+        "/api/fabrica/retiro/plan",
+        json={"plataforma": "amazon_mx", "listing_ids": [lid], "motivo": "sin_pedidos"},
+    ).json()
+    escritor, _puts = _escritor({**_fila("ad-ok", "ENABLED"), **_fila("ad-bad", "ARCHIVED")})
+    monkeypatch.setattr(archivar, "preparar_escritor", lambda platform: escritor)
+    r = cliente.post(
+        "/api/fabrica/retiro/ejecutar",
+        headers=HEADERS,
+        json={
+            "plataforma": "amazon_mx",
+            "listing_ids": [lid],
+            "motivo": "sin_pedidos",
+            "huella": plan["huella"],
+            "confirmacion": "SACAR 2 ANUNCIOS",
+            "actor": "dueno",
+        },
+    )
+    assert r.status_code == 502, r.text
+    assert "ad-bad" in r.text
+    assert conn.execute("SELECT ad_id_externo FROM anuncio_retiro").fetchall() == [("ad-ok",)]
+
+
+def test_i5_reponer_multiplataforma_422_sin_tocar_amazon(escenario, monkeypatch):
+    """R09-r2 A-9: reponer retiros de MX+US da 422 antes de preparar
+    ningun escritor (uno por plataforma)."""
+    from test_fabrica_migracion import _entidad
+
+    from app.ads import archivar
+
+    cliente, conn, _, _, _ids = escenario
+    _db_i5(conn)
+    rids = []
+    for plat, ad in (("amazon_mx", "ad-mx"), ("amazon_us", "ad-us")):
+        ent = _entidad(conn, plat, "product_ad", ad)
+        rids.append(
+            conn.execute(
+                "INSERT INTO anuncio_retiro (platform, motivo, modo, lote_retiro,"
+                " ad_entity_id, ad_id_externo, ad_group_externo, campana_externa, sku,"
+                " asin, reversa, retirado_el, actor) VALUES (%s, 'sin_pedidos', 'pausa',"
+                " 'lot', %s, %s, 'ag', 'camp', 'sku', 'asin', '{}', now(), 'dueno')"
+                " RETURNING id",
+                (plat, ent, ad),
+            ).fetchone()[0]
+        )
+    conn.commit()
+
+    def _no_debe_llamarse(platform):
+        raise AssertionError("no debe preparar escritor con mezcla")
+
+    monkeypatch.setattr(archivar, "preparar_escritor", _no_debe_llamarse)
+    r = cliente.post(
+        "/api/fabrica/retiro/reponer",
+        headers=HEADERS,
+        json={"retiro_ids": rids, "confirmacion": "REGRESAR 2 ANUNCIOS", "actor": "dueno"},
+    )
+    assert r.status_code == 422, r.text
+
+
+def test_i5_lanzar_actor_con_nul_422_sin_mutar(escenario, monkeypatch):
+    """R09 B2 (v11): actor con NUL se rechaza con 422 ANTES de crear
+    campanas: la fabrica no corre y no queda lote."""
+    cliente, conn, _, _, ids = escenario
+    _db_i5(conn)
+    _sugeridor_fijo_i5(monkeypatch)
+    _ejecutor_siembra_i5(monkeypatch, conn)
+    lid = _lid_de(conn, ids[0])
+    sol = {
+        "plataforma": "amazon_mx",
+        "listing_ids": [lid],
+        "subfamilia_por_listing": {str(lid): "aros"},
+    }
+    vista = cliente.post("/api/fabrica/impulso/plan", json=sol).json()
+    r = cliente.post(
+        "/api/fabrica/impulso/lanzar",
+        headers=HEADERS,
+        json={
+            "solicitud": sol,
+            "huella": vista["huella"],
+            "confirmacion": vista["confirmacion_esperada"],
+            "actor": "due\x00no",
+        },
+    )
+    assert r.status_code == 422, r.text
+    assert conn.execute("SELECT count(*) FROM fabrica_lote").fetchone()[0] == 0
+    assert conn.execute("SELECT count(*) FROM impulso").fetchone()[0] == 0
+
+
+def test_i5_ejecutar_sin_sku_422_sin_put(escenario, monkeypatch):
+    """R09 B5 (h): ejecutar con anuncio sin sku (seller_sku NULL): 422
+    antes del primer PUT, sin filas."""
+    from test_retiro_anuncios import _bolsa, _escritor, _fila
+
+    from app.ads import archivar
+
+    cliente, conn, _, _, ids = escenario
+    _db_i5(conn)
+    lid = _lid_de(conn, ids[0])
+    _bolsa(conn, lid, "ad-h")
+    conn.execute("UPDATE listing SET seller_sku = NULL WHERE id = %s", (lid,))
+    conn.commit()
+    plan = cliente.post(
+        "/api/fabrica/retiro/plan",
+        json={"plataforma": "amazon_mx", "listing_ids": [lid], "motivo": "sin_pedidos"},
+    ).json()
+    escritor, puts = _escritor(_fila("ad-h", "ENABLED"))
+    monkeypatch.setattr(archivar, "preparar_escritor", lambda platform: escritor)
+    r = cliente.post(
+        "/api/fabrica/retiro/ejecutar",
+        headers=HEADERS,
+        json={
+            "plataforma": "amazon_mx",
+            "listing_ids": [lid],
+            "motivo": "sin_pedidos",
+            "huella": plan["huella"],
+            "confirmacion": "SACAR 1 ANUNCIOS",
+            "actor": "dueno",
+        },
+    )
+    assert r.status_code == 422, r.text
+    assert puts == []
+    assert conn.execute("SELECT count(*) FROM anuncio_retiro").fetchone()[0] == 0
+
+
+def _plan_retiro(cliente, plataforma, lids, motivo, lote=None):
+    cuerpo = {"plataforma": plataforma, "listing_ids": lids, "motivo": motivo}
+    if lote is not None:
+        cuerpo["lote"] = lote
+    return cliente.post("/api/fabrica/retiro/plan", json=cuerpo)
+
+
+def test_i5_retiro_impulso_sin_impresiones_422(escenario):
+    """R09 B7 (a): motivo 'impulso' sin una lectura con impresiones: 422;
+    con impresiones, el plan trae la bolsa."""
+    from test_impulso_io import _impulso_vivo
+    from test_retiro_anuncios import _bolsa
+
+    _cliente, conn, _, _, ids = escenario
+    _db_i5(conn)
+    lid = _lid_de(conn, ids[0])
+    _bolsa(conn, lid, "ad-bolsa")
+    imp = _impulso_vivo(conn, pid=ids[0], lid=lid, lote="impulso-b7a")
+    r = _plan_retiro(_cliente, "amazon_mx", [lid], "impulso", lote="impulso-b7a")
+    assert r.status_code == 422, r.text
+    conn.execute(
+        "INSERT INTO impulso_lectura (impulso_id, corte, leido_el, dias_observados,"
+        " impresiones, clics, gasto, gasto_moneda, pedidos, veredicto, es_final, hecho)"
+        " VALUES (%s, CURRENT_DATE, now(), 1, 100, 1, 10, 'MXN', 0, 'en_curso', false, 'nada')",
+        (imp["impulso"],),
+    )
+    conn.commit()
+    r = _plan_retiro(_cliente, "amazon_mx", [lid], "impulso", lote="impulso-b7a")
+    assert r.status_code == 200, r.text
+    assert [a["ad_id_externo"] for a in r.json()["anuncios"]] == ["ad-bolsa"]
+
+
+def test_i5_retiro_sin_pedidos_conserva_impulso_vivo(escenario, monkeypatch):
+    """R09 B7 (b): 'sin_pedidos' sin lote no trae ni retira los anuncios
+    del impulso vivo."""
+    from test_fabrica_migracion import _entidad
+    from test_impulso_io import _impulso_vivo
+    from test_retiro_anuncios import _bolsa, _escritor, _fila
+
+    from app.ads import archivar
+
+    cliente, conn, _, _, ids = escenario
+    _db_i5(conn)
+    lid = _lid_de(conn, ids[0])
+    _bolsa(conn, lid, "ad-bolsa")
+    imp = _impulso_vivo(conn, pid=ids[0], lid=lid, lote="impulso-b7b")
+    ag = conn.execute(
+        "SELECT ad_group_ad_entity_id FROM campana_grupo_rol WHERE grupo_id = %s LIMIT 1",
+        (imp["grupo"],),
+    ).fetchone()[0]
+    pa = _entidad(conn, "amazon_mx", "product_ad", "ad-imp", parent=ag, listing_id=lid)
+    conn.execute(
+        "INSERT INTO ad_entity_state (ad_entity_id, status, synced_at)"
+        " VALUES (%s, 'ENABLED', now())",
+        (pa,),
+    )
+    conn.commit()
+    r = _plan_retiro(cliente, "amazon_mx", [lid], "sin_pedidos")
+    assert r.status_code == 200, r.text
+    assert [a["ad_id_externo"] for a in r.json()["anuncios"]] == ["ad-bolsa"]
+    escritor, puts = _escritor({**_fila("ad-bolsa", "ENABLED"), **_fila("ad-imp", "ENABLED")})
+    monkeypatch.setattr(archivar, "preparar_escritor", lambda platform: escritor)
+    p = r.json()
+    r2 = cliente.post(
+        "/api/fabrica/retiro/ejecutar",
+        headers=HEADERS,
+        json={
+            "plataforma": "amazon_mx",
+            "listing_ids": [lid],
+            "motivo": "sin_pedidos",
+            "huella": p["huella"],
+            "confirmacion": "SACAR 1 ANUNCIOS",
+            "actor": "dueno",
+        },
+    )
+    assert r2.status_code == 200, r2.text
+    assert puts == [("ad-bolsa", "PAUSED")]
+
+
+def test_i5_retiro_subfamilia_exige_lote_propio(escenario):
+    """R09 B7 (c/d): 'subfamilia' sin lote 422; con lote ajeno (grupo con
+    ads de otro listing) 422; con lote propio protege al grupo nuevo."""
+    from test_fabrica_migracion import _entidad, _producto
+    from test_impulso_io import _impulso_vivo
+    from test_retiro_anuncios import _bolsa
+
+    cliente, conn, _, _, ids = escenario
+    _db_i5(conn)
+    lid = _lid_de(conn, ids[0])
+    _bolsa(conn, lid, "ad-bolsa")
+    r = _plan_retiro(cliente, "amazon_mx", [lid], "subfamilia")
+    assert r.status_code == 422, r.text
+    pid2, lid2 = _producto(conn, sku="SS-X", asin="B0XXXXXXXX", seller_sku="SS-X")
+    ajeno = _impulso_vivo(conn, pid=pid2, lid=lid2, lote="lote-ajeno")
+    ag2 = conn.execute(
+        "SELECT ad_group_ad_entity_id FROM campana_grupo_rol WHERE grupo_id = %s LIMIT 1",
+        (ajeno["grupo"],),
+    ).fetchone()[0]
+    pa2 = _entidad(conn, "amazon_mx", "product_ad", "ad-ajeno", parent=ag2, listing_id=lid2)
+    conn.execute(
+        "INSERT INTO ad_entity_state (ad_entity_id, status, synced_at)"
+        " VALUES (%s, 'ENABLED', now())",
+        (pa2,),
+    )
+    conn.commit()
+    r = _plan_retiro(cliente, "amazon_mx", [lid], "subfamilia", lote="lote-ajeno")
+    assert r.status_code == 422, r.text
+    # Lote propio (grupo fabrica5 con un ad del listing): 200 y protege.
+    conn.execute(
+        "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal,"
+        " huella, plan, modo_goal, estado) VALUES ('grupo-5', 'amazon_mx', 'aros', 'B5',"
+        " 'go', 'h', '{}'::jsonb, 'shadow', 'applied')"
+    )
+    gid = conn.execute(
+        "INSERT INTO campana_grupo (platform, tipo_producto, nombre_base, lote,"
+        " target_acos_pct, target_derivado_pct, fraccion, target_procedencia, go_literal,"
+        " tipo) VALUES ('amazon_mx', 'aros', 'B5', 'grupo-5', 19.10, 19.1040, 0.5, 'm',"
+        " 'go', 'fabrica5') RETURNING id"
+    ).fetchone()[0]
+    camp = _entidad(conn, "amazon_mx", "campaign", "c-5")
+    ag5 = _entidad(conn, "amazon_mx", "ad_group", "ag-5", parent=camp)
+    conn.execute(
+        "INSERT INTO campana_grupo_rol (grupo_id, rol, ad_entity_id, ad_group_ad_entity_id)"
+        " VALUES (%s, 'category_exact', %s, %s)",
+        (gid, camp, ag5),
+    )
+    pa5 = _entidad(conn, "amazon_mx", "product_ad", "ad-5", parent=ag5, listing_id=lid)
+    conn.execute(
+        "INSERT INTO ad_entity_state (ad_entity_id, status, synced_at)"
+        " VALUES (%s, 'ENABLED', now())",
+        (pa5,),
+    )
+    conn.commit()
+    r = _plan_retiro(cliente, "amazon_mx", [lid], "subfamilia", lote="grupo-5")
+    assert r.status_code == 200, r.text
+    assert [a["ad_id_externo"] for a in r.json()["anuncios"]] == ["ad-bolsa"]
+
+
+def test_i5_ejecutar_devuelve_retiro_ids(escenario, monkeypatch):
+    """R09 B8 (p2): ejecutar trae los ids abiertos del lote."""
+    from test_retiro_anuncios import _bolsa, _escritor, _fila
+
+    from app.ads import archivar
+
+    cliente, conn, _, _, ids = escenario
+    _db_i5(conn)
+    lid = _lid_de(conn, ids[0])
+    _bolsa(conn, lid, "ad-a")
+    plan = cliente.post(
+        "/api/fabrica/retiro/plan",
+        json={"plataforma": "amazon_mx", "listing_ids": [lid], "motivo": "sin_pedidos"},
+    ).json()
+    escritor, _puts = _escritor(_fila("ad-a", "ENABLED"))
+    monkeypatch.setattr(archivar, "preparar_escritor", lambda platform: escritor)
+    r = cliente.post(
+        "/api/fabrica/retiro/ejecutar",
+        headers=HEADERS,
+        json={
+            "plataforma": "amazon_mx",
+            "listing_ids": [lid],
+            "motivo": "sin_pedidos",
+            "huella": plan["huella"],
+            "confirmacion": "SACAR 1 ANUNCIOS",
+            "actor": "dueno",
+        },
+    )
+    assert r.status_code == 200, r.text
+    rid = conn.execute("SELECT id FROM anuncio_retiro").fetchone()[0]
+    assert r.json()["retiro_ids"] == [rid]
+
+
+def test_i5_ejecutar_huella_vieja_409(escenario, monkeypatch):
+    """R09 B12 (R7): ejecutar el retiro con una huella vieja da 409."""
+    from test_retiro_anuncios import _bolsa
+
+    cliente, conn, _, _, ids = escenario
+    _db_i5(conn)
+    lid = _lid_de(conn, ids[0])
+    _bolsa(conn, lid, "ad-a")
+    plan = cliente.post(
+        "/api/fabrica/retiro/plan",
+        json={"plataforma": "amazon_mx", "listing_ids": [lid], "motivo": "sin_pedidos"},
+    ).json()
+    assert plan["huella"] != "0" * 64
+    r = cliente.post(
+        "/api/fabrica/retiro/ejecutar",
+        headers=HEADERS,
+        json={
+            "plataforma": "amazon_mx",
+            "listing_ids": [lid],
+            "motivo": "sin_pedidos",
+            "huella": "0" * 64,
+            "confirmacion": "SACAR 1 ANUNCIOS",
+            "actor": "dueno",
+        },
+    )
+    assert r.status_code == 409, r.text
+    assert conn.execute("SELECT count(*) FROM anuncio_retiro").fetchone()[0] == 0
+
+
+def test_i5_lanzar_con_ejecutor_real_200(escenario, monkeypatch):
+    """R09 B12 (R5): lanzar con el ejecutor REAL crea las 2 campanas en
+    Amazon (falso) y el impulso; con esperado=5 abortaria todo."""
+    from types import SimpleNamespace
+
+    import httpx
+    import psycopg
+    from test_fabrica_campanas import _CREDS, _Amazon, _ClienteLectura, _perfil
+
+    import tools.fabrica_campanas as fc
+    from app.ads.config import AdsCredentials
+
+    class _AmazonPausado(_Amazon):
+        def __call__(self, request):
+            if request.method == "PUT" and str(request.url).endswith("/sp/campaigns"):
+                cuerpo = json.loads(request.content)
+                for c in cuerpo["campaigns"]:
+                    self.objetos[str(c["campaignId"])]["state"] = str(c["state"])
+                return httpx.Response(207, json={"campaigns": {"success": [], "error": []}})
+            return super().__call__(request)
+
+        def _list(self, path, body):
+            import app.fabrica_plan as fp
+
+            filtro = fp.FILTRO_ID_POR_LIST[path]
+            ext = body[filtro]["include"][0]
+            contenedor = fp.CONTENEDOR_POR_LIST[path]
+            clave = fp.CLAVE_ID_POR_PATH[path.removesuffix("/list")]
+            estado = self.objetos.get(ext, {}).get("state", "ENABLED")
+            return httpx.Response(
+                200, json={contenedor: [{**self.objetos.get(ext, {}), clave: ext, "state": estado}]}
+            )
+
+    cliente, conn, _, _, ids = escenario
+    _db_i5(conn)
+    _sugeridor_fijo_i5(monkeypatch)
+    amazon = _AmazonPausado()
+    transporte = httpx.MockTransport(amazon)
+    monkeypatch.setattr(
+        AdsCredentials, "from_secrets_dir", classmethod(lambda cls, *a, **k: _CREDS)
+    )
+    monkeypatch.setattr(fc, "AdsClient", lambda cred: _ClienteLectura(transporte))
+    monkeypatch.setattr(fc, "evaluar_perfiles", lambda c: [_perfil()])
+    monkeypatch.setattr(
+        fc,
+        "httpx",
+        SimpleNamespace(
+            Client=lambda **kw: httpx.Client(transport=transporte),
+            Timeout=lambda **kw: None,
+        ),
+    )
+    monkeypatch.setattr(fc.time, "sleep", lambda s: None)
+    dsn = _test_dsn()
+    dbname = conn.info.dbname
+    monkeypatch.setattr(fc, "connect", lambda d: psycopg.connect(dsn, dbname=dbname))
+
+    def _sync(cliente_lectura):
+        propia = psycopg.connect(dsn, dbname=dbname, autocommit=True)
+        try:
+            camps = {}
+            for ext in amazon.objetos:
+                base, num = ext.rsplit("-", 1)
+                if base == "campaigns":
+                    camps[num] = propia.execute(
+                        "INSERT INTO ad_entity (platform, kind, external_id) VALUES"
+                        " ('amazon_mx', 'campaign', %s) ON CONFLICT DO NOTHING RETURNING id",
+                        (ext,),
+                    ).fetchone()[0]
+            for ext in amazon.objetos:
+                base, num = ext.rsplit("-", 1)
+                if base == "adGroups":
+                    propia.execute(
+                        "INSERT INTO ad_entity (platform, kind, external_id, parent_id)"
+                        " VALUES ('amazon_mx', 'ad_group', %s, %s) ON CONFLICT DO NOTHING",
+                        (ext, camps[num]),
+                    )
+        finally:
+            propia.close()
+
+    monkeypatch.setattr(fc, "_sync", _sync)
+    lid = _lid_de(conn, ids[0])
+    sol = {
+        "plataforma": "amazon_mx",
+        "listing_ids": [lid],
+        "subfamilia_por_listing": {str(lid): "aros"},
+    }
+    vista = cliente.post("/api/fabrica/impulso/plan", json=sol).json()
+    r = cliente.post(
+        "/api/fabrica/impulso/lanzar",
+        headers=HEADERS,
+        json={
+            "solicitud": sol,
+            "huella": vista["huella"],
+            "confirmacion": vista["confirmacion_esperada"],
+            "actor": "dueno",
+        },
+    )
+    assert r.status_code == 200, r.text
+    assert len(r.json()["lanzados"]) == 1
+    assert conn.execute("SELECT count(*) FROM impulso").fetchone()[0] == 1
+    assert amazon.creados.get("/sp/campaigns") == 2
+    assert (
+        conn.execute(
+            "SELECT estado FROM fabrica_lote WHERE lote = %s",
+            (r.json()["lanzados"][0]["lote"],),
+        ).fetchone()[0]
+        == "applied"
+    )
+
+
+def test_i5_plan_listing_inexistente_no_lanzable(escenario, monkeypatch):
+    """No-bloq 3 (v5): un listing inexistente sale como no lanzable, no 500."""
+    cliente, conn, _, _, ids = escenario
+    _db_i5(conn)
+    _sugeridor_fijo_i5(monkeypatch)
+    lid = _lid_de(conn, ids[0])
+    r = cliente.post(
+        "/api/fabrica/impulso/plan",
+        json={
+            "plataforma": "amazon_mx",
+            "listing_ids": [lid, 999999],
+            "subfamilia_por_listing": {str(lid): "aros", "999999": "aros"},
+        },
+    )
+    assert r.status_code == 200, r.text
+    assert [p["listing_id"] for p in r.json()["planes"]] == [lid]
+    assert [n["listing_id"] for n in r.json()["no_lanzables"]] == [999999]
+
+
+def test_i5_plan_listing_otro_mercado_no_lanzable(escenario, monkeypatch):
+    """No-bloq 3 (v6): un listing MX pedido como US sale no lanzable, no 500."""
+    cliente, conn, _, _, ids = escenario
+    _db_i5(conn)
+    _sugeridor_fijo_i5(monkeypatch)
+    lid = _lid_de(conn, ids[0])
+    r = cliente.post(
+        "/api/fabrica/impulso/plan",
+        json={
+            "plataforma": "amazon_us",
+            "listing_ids": [lid],
+            "subfamilia_por_listing": {str(lid): "aros"},
+        },
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["planes"] == []
+    assert [n["listing_id"] for n in r.json()["no_lanzables"]] == [lid]
+
+
+def test_i5_plan_sin_sku_no_tumba_a_los_demas(escenario, monkeypatch):
+    """No-bloq 3 (v7): una publicacion sin seller_sku no tumba la vista."""
+    cliente, conn, _, _, ids = escenario
+    _db_i5(conn)
+    _sugeridor_fijo_i5(monkeypatch)
+    lid = _lid_de(conn, ids[0])
+    sin_sku = conn.execute(
+        "INSERT INTO listing (product_id, platform, external_id, seller_sku)"
+        " VALUES (%s, 'amazon_mx', 'B0SYNSINSK', NULL) RETURNING id",
+        (ids[0],),
+    ).fetchone()[0]
+    r = cliente.post(
+        "/api/fabrica/impulso/plan",
+        json={
+            "plataforma": "amazon_mx",
+            "listing_ids": [lid, sin_sku],
+            "subfamilia_por_listing": {str(lid): "aros", str(sin_sku): "aros"},
+        },
+    )
+    assert r.status_code == 200, r.text
+    assert [p["listing_id"] for p in r.json()["planes"]] == [lid]
+    assert [n["listing_id"] for n in r.json()["no_lanzables"]] == [sin_sku]
+
+
+def test_i5_ejecutar_amazon_no_disponible_502(escenario, monkeypatch):
+    """No-bloq 3 (e6): sin credenciales, sin perfil o con Amazon caido,
+    ejecutar responde 502, no 500 ni 422."""
+    from test_retiro_anuncios import _bolsa
+
+    from app.ads import archivar
+    from app.ads.client import AdsApiError
+    from app.ads.config import AdsConfigError
+
+    cliente, conn, _, _, ids = escenario
+    _db_i5(conn)
+    lid = _lid_de(conn, ids[0])
+    _bolsa(conn, lid, "ad-a")
+    plan = cliente.post(
+        "/api/fabrica/retiro/plan",
+        json={"plataforma": "amazon_mx", "listing_ids": [lid], "motivo": "sin_pedidos"},
+    ).json()
+    cuerpo = {
+        "plataforma": "amazon_mx",
+        "listing_ids": [lid],
+        "motivo": "sin_pedidos",
+        "huella": plan["huella"],
+        "confirmacion": "SACAR 1 ANUNCIOS",
+        "actor": "dueno",
+    }
+    for exc in (
+        AdsConfigError("no existe el archivo de credenciales"),
+        ValueError("se esperaba EXACTAMENTE 1 perfil aceptado, hay 0"),
+        AdsApiError("503 de Amazon"),
+    ):
+
+        def _falla(platform, _exc=exc):
+            raise _exc
+
+        monkeypatch.setattr(archivar, "preparar_escritor", _falla)
+        r = cliente.post("/api/fabrica/retiro/ejecutar", headers=HEADERS, json=cuerpo)
+        assert r.status_code == 502, (exc, r.text)
+
+
+def test_r09r4_a03_actor_nul_rechazado_en_borde():
+    """A03: lanzar, retiro y reponer comparten _actor_limpio: el NUL se
+    rechaza en el borde, antes de mutar nada."""
+    from pydantic import ValidationError
+
+    api_fabrica, _fw = _modulos()
+    with pytest.raises(ValidationError):
+        api_fabrica.CuerpoLanzarImpulso(
+            solicitud={
+                "plataforma": "amazon_mx",
+                "listing_ids": [1],
+                "subfamilia_por_listing": {"1": "impulso"},
+            },
+            huella="a" * 64,
+            confirmacion="LANZAR",
+            actor="op\x00x",
+        )
+    with pytest.raises(ValidationError):
+        api_fabrica.CuerpoRetiroEjecutar(
+            plataforma="amazon_mx",
+            listing_ids=[1],
+            motivo="sin_pedidos",
+            huella="b" * 64,
+            confirmacion="RETIRAR",
+            actor="op\x00x",
+        )
+    with pytest.raises(ValidationError):
+        api_fabrica.CuerpoRetiroReponer(retiro_ids=[1], confirmacion="REPONER", actor="op\x00x")
+
+
+def test_r09r4_a04_lanzar_traduce_abortar_a_422(monkeypatch):
+    """A04: impulso_lanzar traduce fc.Abortar a 422, no deja un 500 crudo."""
+    from contextlib import nullcontext
+
+    import tools.fabrica_campanas as fc
+
+    api_fabrica, fw = _modulos()
+
+    def _boom(*args, **kwargs):
+        raise fc.Abortar("amazon dijo no")
+
+    monkeypatch.setattr(api_fabrica.io, "lanza", _boom)
+    monkeypatch.setattr(api_fabrica, "_sugeridor_plataforma", lambda *a: None)
+    monkeypatch.setattr(fw, "_conexion", lambda *a, **k: nullcontext(object()))
+    cuerpo = api_fabrica.CuerpoLanzarImpulso(
+        solicitud={
+            "plataforma": "amazon_mx",
+            "listing_ids": [1],
+            "subfamilia_por_listing": {"1": "impulso"},
+        },
+        huella="c" * 64,
+        confirmacion="LANZAR",
+        actor="probador",
+    )
+    with pytest.raises(HTTPException) as ei:
+        api_fabrica.impulso_lanzar("tok", cuerpo)
+    assert ei.value.status_code == 422, ei.value.detail
+
+
+def test_r09r5_g9_pausar_a_medias_502_no_500(escenario, monkeypatch):
+    """R09-r5 B2b (G9): si Amazon rechaza a media pausa, la ruta
+    responde 502 con detalle (no 500 pelado)."""
+    import tools.fabrica_campanas as fc
+    from app import impulso_io as io
+
+    cliente, conn, _, _, ids = escenario
+    _db_i5(conn)
+    _sugeridor_fijo_i5(monkeypatch)
+    _ejecutor_siembra_i5(monkeypatch, conn)
+    lid = _lid_de(conn, ids[0])
+    sol = {
+        "plataforma": "amazon_mx",
+        "listing_ids": [lid],
+        "subfamilia_por_listing": {str(lid): "aros"},
+    }
+    vista = cliente.post("/api/fabrica/impulso/plan", json=sol).json()
+    r = cliente.post(
+        "/api/fabrica/impulso/lanzar",
+        headers=HEADERS,
+        json={
+            "solicitud": sol,
+            "huella": vista["huella"],
+            "confirmacion": vista["confirmacion_esperada"],
+            "actor": "dueno",
+        },
+    )
+    assert r.status_code == 200, r.text
+    (iid,) = conn.execute("SELECT id FROM impulso").fetchone()
+
+    def _abortar(self, lote):
+        raise fc.Abortar("PUT PAUSED de c-x rechazado (status 400)")
+
+    monkeypatch.setattr(io.PausadorFabrica, "pausa", _abortar)
+    r = cliente.post(
+        f"/api/fabrica/impulso/{iid}/pausar",
+        headers=HEADERS,
+        json={"confirmacion": "PAUSAR IMPULSO"},
+    )
+    assert r.status_code == 502, r.text
+    assert "rechazado" in r.text
+
+
+def test_r09r5_g18_lotes_y_detalle_200_en_cada_estado(escenario):
+    """R09-r5 B5 (G18): la lista y el detalle de lotes responden 200
+    con un lote en cada estado posible (pausado no da KeyError)."""
+    cliente, conn, _, _, _ = escenario
+    conn.execute("ALTER TABLE fabrica_lote DROP CONSTRAINT fabrica_lote_estado_check")
+    conn.execute(
+        "ALTER TABLE fabrica_lote ADD CONSTRAINT fabrica_lote_estado_check"
+        " CHECK (estado IN ('planeado', 'applied', 'failed', 'pausado', 'desarmado'))"
+    )
+    conn.commit()
+    for estado in ("planeado", "applied", "failed", "pausado", "desarmado"):
+        conn.execute(
+            "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal,"
+            " huella, plan, modo_goal, estado, detalle) VALUES (%s, 'amazon_mx', 'aros',"
+            " 'Base', 'go', 'h', '{}'::jsonb, 'shadow', %s, %s)",
+            (f"lote-{estado}", estado, f"go: dueno ({estado})"),
+        )
+    conn.commit()
+    r = cliente.get("/api/fabrica/lotes", params={"plataforma": "amazon_mx"})
+    assert r.status_code == 200, r.text
+    assert {x["estado"] for x in r.json()["items"]} >= {
+        "planeado",
+        "applied",
+        "failed",
+        "pausado",
+        "desarmado",
+    }
+    for estado in ("planeado", "applied", "failed", "pausado", "desarmado"):
+        r = cliente.get(f"/api/fabrica/lotes/lote-{estado}")
+        assert r.status_code == 200, (estado, r.text)
+
+
+def test_r09r5_a05_pausa_por_ruta_anota_dueno(escenario, monkeypatch):
+    """R09-r5 B6 (A05): pausar por la ruta anota pausado_por='dueno'
+    (nunca el default del vigia)."""
+    from app import impulso_io as io
+
+    cliente, conn, _, _, ids = escenario
+    _db_i5(conn)
+    _sugeridor_fijo_i5(monkeypatch)
+    _ejecutor_siembra_i5(monkeypatch, conn)
+    lid = _lid_de(conn, ids[0])
+    sol = {
+        "plataforma": "amazon_mx",
+        "listing_ids": [lid],
+        "subfamilia_por_listing": {str(lid): "aros"},
+    }
+    vista = cliente.post("/api/fabrica/impulso/plan", json=sol).json()
+    r = cliente.post(
+        "/api/fabrica/impulso/lanzar",
+        headers=HEADERS,
+        json={
+            "solicitud": sol,
+            "huella": vista["huella"],
+            "confirmacion": vista["confirmacion_esperada"],
+            "actor": "dueno",
+        },
+    )
+    assert r.status_code == 200, r.text
+    (iid, lote) = conn.execute("SELECT id, lote FROM impulso").fetchone()
+    actores = {}
+    Real = io.PausadorFabrica
+
+    class Espia(Real):
+        def __init__(self, conn, *, actor="impulso-vigia"):
+            actores["actor"] = actor
+            super().__init__(conn, actor=actor)
+
+        def pausa(self, lote):
+            conn.execute(
+                "UPDATE fabrica_lote SET estado = 'pausado', pausado_por = %s WHERE lote = %s",
+                (actores["actor"], lote),
+            )
+            conn.commit()
+
+    monkeypatch.setattr(io, "PausadorFabrica", Espia)
+    r = cliente.post(
+        f"/api/fabrica/impulso/{iid}/pausar",
+        headers=HEADERS,
+        json={"confirmacion": "PAUSAR IMPULSO"},
+    )
+    assert r.status_code == 200, r.text
+    assert actores["actor"] == "dueno"
+    assert conn.execute(
+        "SELECT pausado_por FROM fabrica_lote WHERE lote = %s", (lote,)
+    ).fetchone() == ("dueno",)

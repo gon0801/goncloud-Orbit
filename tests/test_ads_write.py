@@ -150,13 +150,14 @@ METODOS_PUBLICOS = {
     "archivar_product_ad",
     "crear_product_ad",
     "ajustar_campana",
+    "cambiar_estado_product_ad",
     "get_sellado",
     "list_sellado",
 }
 
 
 def test_superficie_publica_exacta():
-    """Las 12 mutaciones selladas + list_sellado (readback de entidad, probe
+    """Las 14 mutaciones selladas + list_sellado (readback de entidad, probe
     2.5) + get_sellado (solo bidrec PENDIENTE-DE-REGLA-8), NADA mas; ningun
     metodo generico request/post y ninguna ampliacion silenciosa (vars() de
     la clase: lo heredado del read client no se re-sella aqui)."""
@@ -454,6 +455,7 @@ def test_allowlist_sellada_contenido_y_congelamiento():
         ("POST", "/sp/productAds/delete"),
         ("POST", "/sp/productAds"),
         ("PUT", "/sp/campaigns"),
+        ("PUT", "/sp/productAds"),
     }
     assert MUTATION_REQUEST_TYPES[("PUT", "/sp/keywords")] == ("application/vnd.spkeyword.v3+json")
     assert MUTATION_REQUEST_TYPES[("POST", "/sp/negativeKeywords/delete")] == (
@@ -464,6 +466,61 @@ def test_allowlist_sellada_contenido_y_congelamiento():
     )
     with pytest.raises(TypeError):
         MUTATION_REQUEST_TYPES[("POST", "/sp/campaigns")] = "application/vnd.sp.v3+json"
+
+
+def test_cambiar_estado_product_ad_manda_el_cuerpo_de_la_sonda():
+    """I.4: PUT /sp/productAds con el cuerpo que sello la sonda 1 de V.0
+    (una entrada bajo `productAds`); el 207 con success vacio de errores
+    es exito."""
+
+    import json as _json
+
+    enviados: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return _token_response()
+        enviados.append(request)
+        return httpx.Response(
+            207, json={"productAds": {"error": [], "success": [{"adId": "1", "index": 0}]}}
+        )
+
+    client = make_write_client(handler)
+    resp = client.cambiar_estado_product_ad("284583606382521", "PAUSED")
+    assert resp.status_code == 207
+    assert len(enviados) == 1
+    assert enviados[0].method == "PUT"
+    assert enviados[0].url.path == "/sp/productAds"
+    assert enviados[0].headers["Content-Type"] == "application/vnd.spproductad.v3+json"
+    assert _json.loads(enviados[0].content) == {
+        "productAds": [{"adId": "284583606382521", "state": "PAUSED"}]
+    }
+
+
+def test_cambiar_estado_product_ad_rechaza_estado_malo_sin_http():
+    """I.4: solo ENABLED y PAUSED viajan; otra cosa se rechaza antes del
+    token (ARCHIVED va por delete, PROPOSED no se escribe)."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("jamas debe salir a la red")
+
+    client = make_write_client(handler)
+    for estado in ("ARCHIVED", "PROPOSED", "paused", "", None):
+        with pytest.raises(ValueError, match="estado"):
+            client.cambiar_estado_product_ad("1", estado)
+
+
+def test_cambiar_estado_product_ad_207_con_error_lanza():
+    """I.4: exito se decide por errores anidados, nunca por el status."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return _token_response()
+        return httpx.Response(207, json={"productAds": {"error": [{"adId": "1"}], "success": []}})
+
+    client = make_write_client(handler)
+    with pytest.raises(AdsApiErrorMutacion, match="adId"):
+        client.cambiar_estado_product_ad("1", "PAUSED")
 
 
 def test_ajustar_campana_rechaza_llave_desconocida_sin_http():

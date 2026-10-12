@@ -19,10 +19,24 @@ import pglast
 import psycopg
 import pytest
 from psycopg import sql as pgsql
+from psycopg.conninfo import make_conninfo
 from test_schema import _postgres_obligatorio_ausente, _test_dsn
 
 ROOT = Path(__file__).resolve().parents[1]
 MIGRACIONES = ROOT / "migrations"
+
+
+def _dsn_propia(conn):
+    """DSN con credencial para conexiones propias en tests: conn.info.dsn
+    NO trae la password (psycopg la excluye); se reinyecta desde
+    conn.info.password. Sin esto, contra una base con contrasena
+    (produccion, p01) la conexion propia falla."""
+    dsn = conn.info.dsn
+    if conn.info.password:
+        dsn = make_conninfo(dsn, password=conn.info.password)
+    return dsn
+
+
 # Orden minimo para que 0018 aplique: enum product_ad (0004), first_seen_at
 # (0017) y la vista de plataforma (0015/0016) cuya maquinaria copia 0018.
 ORDEN = (

@@ -81,6 +81,7 @@ document.addEventListener("DOMContentLoaded", function () {
   let preview = null;
   let loteActual = null;
   let detalleDisponible = false;
+  let lotePlan = null, lotePlataforma = null, planRetiro = null, retiroElegible = false;
   let versionComparador = 0;
   let comparadorDatos = null;
   const intentados = new Set();
@@ -196,6 +197,7 @@ document.addEventListener("DOMContentLoaded", function () {
     porId("recuperacion").disabled = mutando || !detalleDisponible;
     porId("lote-recargar").disabled = !loteActual;
     porId("historial-recargar").disabled = mutando;
+    porId("retiro-boton").disabled = mutando || !detalleDisponible || !retiroElegible;
   }
 
   function actualizarTotal() {
@@ -1061,6 +1063,19 @@ document.addEventListener("DOMContentLoaded", function () {
 
   function mostrarLote(datos) {
     if (datos.lote !== loteActual) return;
+    lotePlan = datos.plan || null;
+    lotePlataforma = datos.plataforma;
+    planRetiro = null;
+    porId("retiro-datos").replaceChildren();
+    porId("retiro-ejecutar").hidden = true;
+    porId("retiro-confirmacion").value = "";
+    const pubs = lotePlan && lotePlan.schema_version === 2 && Array.isArray(lotePlan.publicaciones)
+      ? lotePlan.publicaciones.map(p => p.listing_id).filter(x => x > 0)
+      : [];
+    retiroElegible = datos.estado === "applied" && pubs.length > 0;
+    estado("retiro-estado", retiroElegible ? "" : (datos.estado === "applied"
+      ? "Este lote no trae publicaciones: nada que sacar."
+      : "El retiro solo se ofrece con el lote creado y registrado."));
     const contenedor = porId("lote-datos");
     contenedor.replaceChildren();
     ficha(contenedor, [["Plataforma", datos.plataforma], ["Estado", estadosLote[datos.estado] || datos.estado], ["Detalle", datos.detalle],
@@ -1224,6 +1239,61 @@ document.addEventListener("DOMContentLoaded", function () {
     finally { token = null; mutando = false; actualizarBotones(); cargarHistorial(); }
   }
 
+  async function pedirRetiro() {
+    if (mutando || !loteActual || !detalleDisponible || !retiroElegible) return;
+    const listings = lotePlan.publicaciones.map(p => p.listing_id).filter(x => x > 0);
+    estado("retiro-estado", "Pidiendo el plan de retiro…");
+    try {
+      const datos = await solicitar("/retiro/plan", {
+        plataforma: lotePlataforma, listing_ids: listings, motivo: "subfamilia", lote: loteActual,
+      });
+      planRetiro = datos;
+      const contenedor = porId("retiro-datos");
+      contenedor.replaceChildren();
+      if (!datos.anuncios.length) {
+        contenedor.append(nodo("p", "Nada que sacar: sin anuncios en bolsas viejas."));
+        porId("retiro-ejecutar").hidden = true;
+        estado("retiro-estado", "");
+        return;
+      }
+      tabla(contenedor, ["Anuncio", "Grupo", "Campaña", "SKU"], datos.anuncios.map(a =>
+        [a.ad_id_externo, a.ad_group_nombre || a.ad_group_externo, a.campana_externa, a.sku]));
+      const esperada = "SACAR " + datos.anuncios.length + " ANUNCIOS";
+      porId("retiro-esperada").textContent = esperada;
+      porId("retiro-confirmacion").placeholder = esperada;
+      porId("retiro-ejecutar").hidden = false;
+      estado("retiro-estado", "");
+    } catch (error) { estado("retiro-estado", error.message, true); }
+  }
+
+  async function ejecutarRetiro(evento) {
+    evento.preventDefault();
+    if (mutando || !loteActual || !planRetiro) return;
+    const esperada = "SACAR " + planRetiro.anuncios.length + " ANUNCIOS";
+    const confirmacion = porId("retiro-confirmacion").value;
+    if (confirmacion !== esperada) {
+      estado("retiro-estado", "Escribe exactamente " + esperada + " para confirmar.", true); return;
+    }
+    const actor = porId("retiro-actor").value;
+    if (!actor.trim()) { estado("retiro-estado", "Escribe quién saca los anuncios.", true); return; }
+    let token;
+    try { token = tomarToken(); } catch (error) { estado("retiro-estado", error.message, true); return; }
+    mutando = true; actualizarBotones();
+    porId("retiro-confirmacion").value = "";
+    estado("retiro-estado", "Sacando los anuncios…");
+    try {
+      const listings = lotePlan.publicaciones.map(p => p.listing_id).filter(x => x > 0);
+      const resultado = await solicitar("/retiro/ejecutar", {
+        plataforma: lotePlataforma, listing_ids: listings, motivo: "subfamilia",
+        lote: loteActual, huella: planRetiro.huella, confirmacion, actor: actor.trim(),
+      }, token);
+      planRetiro = null;
+      porId("retiro-ejecutar").hidden = true;
+      estado("retiro-estado", "Retirados " + resultado.retirados + ".");
+    } catch (error) { estado("retiro-estado", error.message, true); }
+    finally { token = null; mutando = false; actualizarBotones(); }
+  }
+
   function cambioFormulario(evento) {
     // El buscador filtra lo ya cargado: no invalida el plan revisado (F1).
     if (evento.target === porId("buscar")) return;
@@ -1279,6 +1349,8 @@ document.addEventListener("DOMContentLoaded", function () {
   });
   porId("historial-recargar").addEventListener("click", cargarHistorial);
   porId("lote-recargar").addEventListener("click", cargarLote);
+  porId("retiro-boton").addEventListener("click", pedirRetiro);
+  porId("retiro-ejecutar").addEventListener("submit", ejecutarRetiro);
   porId("comparador-recargar").addEventListener("click", cargarComparador);
   porId("comparador-orden").addEventListener("change", cargarComparador);
   porId("comparador-direccion").addEventListener("change", cargarComparador);

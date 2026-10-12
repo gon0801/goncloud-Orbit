@@ -74,12 +74,40 @@ def main_avisos_campana(argv: list[str]) -> int:
     return 0
 
 
-COMANDOS = {"avisos-campana": main_avisos_campana}
+def main_impulso_vigia(argv: list[str]) -> int:
+    """Vigia diario del impulso (BIDS 02 I.3): lee, guarda y actua. Sin
+    impulsos vivos sale 0 sin tocar la red. 2 sin DSN o con args extra."""
+    from app import impulso_io
+    from app.db import connect
+
+    if argv:
+        print(f"argumentos desconocidos para 'impulso-vigia': {argv}", file=sys.stderr)
+        return 2
+    dsn_admin = os.environ.get("ORBIT_DSN_ADMIN")
+    if not dsn_admin:
+        print("impulso-vigia: falta ORBIT_DSN_ADMIN", file=sys.stderr)
+        return 2
+    conn = connect(dsn_admin)
+    try:
+        hoy = dt.datetime.now(dt.UTC).date()
+        acciones = impulso_io.vigila(conn, impulso_io.PausadorFabrica(conn), hoy=hoy)
+    finally:
+        conn.close()
+    for accion in acciones:
+        print(
+            f"impulso {accion.impulso_id}: {accion.veredicto.estado} -> {accion.hecho}",
+            flush=True,
+        )
+    return 0
+
+
+COMANDOS = {"avisos-campana": main_avisos_campana, "impulso-vigia": main_impulso_vigia}
 
 
 def registra(sub) -> None:
     """Agrega los subparsers BIDS al CLI principal."""
     sub.add_parser("avisos-campana", help="avisos diarios de campana por Telegram (BIDS 02 V.4)")
+    sub.add_parser("impulso-vigia", help="vigia diario del impulso (BIDS 02 I.3)")
 
 
 def despacha(comando: str, rest: list[str]) -> int:

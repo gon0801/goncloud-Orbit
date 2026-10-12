@@ -248,6 +248,9 @@ SELECT r.rol::text, ce.external_id, ae.external_id
   JOIN ad_entity ae ON ae.id = r.ad_group_ad_entity_id
  WHERE r.grupo_id = %s
 """
+_SQL_TIPO_GRUPO = """
+SELECT tipo FROM campana_grupo WHERE id = %s
+"""
 
 _SQL_ROL_ORIGEN = """
 SELECT rol::text FROM campana_grupo_rol WHERE ad_entity_id = %s
@@ -1760,6 +1763,9 @@ def _roster_hermanas(conn: psycopg.Connection, job: _Job, ctx: _Contexto) -> dic
     nacio)."""
     if ctx.grupo_id is None:
         return MOTIVO_ENTIDAD_INCOMPLETA
+    tipo = conn.execute(_SQL_TIPO_GRUPO, (ctx.grupo_id,)).fetchone()
+    if tipo is not None and tipo[0] == "impulso":
+        return {}
     por_rol = {r: (c, a) for r, c, a in conn.execute(_SQL_ROSTER, (ctx.grupo_id,)).fetchall()}
     padre = conn.execute(_SQL_PADRE, (job.ad_entity_id,)).fetchone()
     rol_origen = None

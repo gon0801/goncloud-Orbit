@@ -2431,3 +2431,26 @@ def donde_poner_el_dinero(conn: ConexionLectura, plataforma: str | None = None) 
     if mercado not in PLATAFORMAS_MONEDA:
         raise HTTPException(status_code=422, detail="plataforma fuera de vocabulario")
     return pantalla_dinero.lee_dinero(conn, plataforma=mercado).como_dict()
+
+
+@router.get("/productos-sin-clics")
+def productos_sin_clics(conn: ConexionLectura, plataforma: str | None = None) -> dict:
+    """Productos que venden y casi no reciben clics (BIDS 02, P.4).
+    Funcion delgada: delega en `pantalla_productos.lee_productos` (SOLO
+    SELECT) y agrega la frase de clics fuera de Amazon por impulso. Sin
+    mercado se mira amazon_mx; mercado ajeno es 422."""
+    import datetime as dt
+
+    from app import pantalla_productos
+
+    mercado = plataforma or "amazon_mx"
+    if mercado not in PLATAFORMAS_MONEDA:
+        raise HTTPException(status_code=422, detail="plataforma fuera de vocabulario")
+    base = pantalla_productos.lee_productos(
+        conn, plataforma=mercado, hoy=dt.datetime.now(dt.UTC).date()
+    ).como_dict()
+    for impulso in base["impulsos"]:
+        impulso["frase_fuera_de_amazon"] = pantalla_productos.frase_fuera_de_amazon(
+            impulso["clics_fuera_de_amazon"], impulso["clics"]
+        )
+    return {"plataforma": mercado, **base}

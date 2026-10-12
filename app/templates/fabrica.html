@@ -211,6 +211,21 @@
         <button id="fabrica-accion-boton" type="submit">Confirmar acción del lote</button>
       </fieldset>
     </form>
+    <div id="fabrica-retiro">
+      <button id="fabrica-retiro-boton" type="button" disabled>Sacar estos productos de sus bolsas viejas</button>
+      <p id="fabrica-retiro-estado" role="status" aria-live="polite"></p>
+      <div id="fabrica-retiro-datos"></div>
+      <form id="fabrica-retiro-ejecutar" autocomplete="off" hidden>
+        <p>Escribe <code id="fabrica-retiro-esperada"></code> para confirmar.</p>
+        <label for="fabrica-retiro-confirmacion">Confirmación
+          <input id="fabrica-retiro-confirmacion" required autocomplete="off" spellcheck="false">
+        </label>
+        <label for="fabrica-retiro-actor">Actor
+          <input id="fabrica-retiro-actor" required autocomplete="off" spellcheck="false">
+        </label>
+        <button id="fabrica-retiro-ejecutar-boton" type="submit">Sacar de las bolsas viejas</button>
+      </form>
+    </div>
   </section>
 </div>
 {% endblock %}

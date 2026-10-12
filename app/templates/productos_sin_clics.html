@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block contenido %}
+<h2>Productos sin clics</h2>
+<p class="mutado">
+  Venden y casi no reciben clics de anuncios. Márcalos, escribe la subfamilia
+  de búsqueda de cada uno y lanza su impulso: dos campañas por producto que
+  aprenden con tope y plazo.
+</p>
+{# Mercado con enlaces GET (guia S.5.5): no existe componente de pestanas. #}
+<p>
+  <a href="/productos-sin-clics?plataforma=amazon_mx" {% if plataforma == "amazon_mx" %}aria-current="page"{% endif %}>Amazon MX</a>
+  <a href="/productos-sin-clics?plataforma=amazon_us" {% if plataforma == "amazon_us" %}aria-current="page"{% endif %}>Amazon US</a>
+</p>
+
+<div class="tarjeta">
+  <h3>Candidatos a impulsar <span class="chip">{{ candidatos | length }}</span></h3>
+  <p class="mutado">2 pedidos o más en 3 meses y menos de 20 clics de anuncios en 60 días.</p>
+  {% if candidatos %}
+  <table>
+    <thead><tr><th></th><th>Producto</th><th>Pedidos 90d</th><th>Clics ads 60d</th><th>Subfamilia</th></tr></thead>
+    <tbody>
+      {% for c in candidatos %}
+      <tr>
+        <td><input type="checkbox" data-marcar-candidato data-producto="{{ c.product_id }}" data-listings="{{ c.listing_ids | join(',') }}" aria-label="marcar {{ c.sku }}"></td>
+        {# El nombre es texto libre del producto: AUTOESCAPE lo escapa #}
+        <td>{{ c.nombre or "—" }} <span class="mutado">{{ c.sku }}</span></td>
+        <td>{{ c.unidades_90d }}</td>
+        <td>{{ c.clics_ads_60d if c.clics_ads_60d is not none else "—" }}</td>
+        <td><input type="text" data-subfamilia="{{ c.product_id }}" maxlength="60" placeholder="aros" aria-label="subfamilia de {{ c.sku }}"></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <button type="button" id="productos-ver-candidatos">Ver lanzamiento</button>
+  {% else %}
+  <p>Sin candidatos en este mercado.</p>
+  {% endif %}
+</div>
+
+<div class="tarjeta">
+  <h3>Impulsos <span class="chip">{{ impulsos | length }}</span></h3>
+  {% for i in impulsos %}
+  <div class="tarjeta">
+    <h4>{{ i.nombre or "—" }} <span class="mutado">{{ i.sku }} · {{ i.subfamilia }}</span></h4>
+    <p>{{ i.frase }}</p>
+    <p class="mutado">{{ i.frase_fuera_de_amazon or "—" }}</p>
+    {% if i.retiro_ids %}
+    <form data-reponer data-retiros="{{ i.retiro_ids | join(',') }}" data-esperada="REGRESAR {{ i.retiro_ids | length }} ANUNCIOS">
+      <p>Escribe <code>REGRESAR {{ i.retiro_ids | length }} ANUNCIOS</code> para confirmar.</p>
+      <label>Confirmación <input type="text" name="confirmacion" maxlength="60" placeholder="REGRESAR {{ i.retiro_ids | length }} ANUNCIOS" required></label>
+      <label>Actor <input type="text" name="actor" maxlength="100" placeholder="quien regresa" required></label>
+      <label>Token <input type="password" name="token" placeholder="x-orbit-token" required></label>
+      <button type="submit">Regresarlo a sus grupos de antes</button>
+      <span data-estado class="mutado"></span>
+    </form>
+    {% endif %}
+  </div>
+  {% else %}
+  <p>Sin impulsos en este mercado.</p>
+  {% endfor %}
+</div>
+
+<div class="tarjeta">
+  <h3>Retiros abiertos <span class="chip">{{ retiros_abiertos | length }}</span></h3>
+  <p class="mutado">Anuncios retirados sin impulso (motivos sin_pedidos y subfamilia) que aún no regresan.</p>
+  {% if retiros_abiertos %}
+  <table>
+    <thead><tr><th>Motivo</th><th>Anuncio</th><th>SKU</th><th>Retirado (UTC)</th><th></th></tr></thead>
+    <tbody>
+      {% for r in retiros_abiertos %}
+      <tr>
+        <td>{{ r.motivo }}</td>
+        <td>{{ r.ad_id_externo }}</td>
+        <td>{{ r.sku }}</td>
+        <td>{{ r.retirado_el }}</td>
+        <td>
+    <form data-reponer data-retiros="{{ r.retiro_id }}" data-esperada="REGRESAR 1 ANUNCIOS">
+      <p>Escribe <code>REGRESAR 1 ANUNCIOS</code> para confirmar.</p>
+      <label>Confirmación <input type="text" name="confirmacion" maxlength="60" placeholder="REGRESAR 1 ANUNCIOS" required></label>
+      <label>Actor <input type="text" name="actor" maxlength="100" placeholder="quien regresa" required></label>
+      <label>Token <input type="password" name="token" placeholder="x-orbit-token" required></label>
+      <button type="submit">Regresarlo a sus grupos de antes</button>
+      <span data-estado class="mutado"></span>
+    </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p>Sin retiros abiertos.</p>
+  {% endif %}
+</div>
+
+<div class="tarjeta">
+  <h3>Sin un pedido en 11 meses <span class="chip">{{ sin_pedido | length }}</span></h3>
+  {% if sin_pedido %}
+  <table>
+    <thead><tr><th></th><th>Producto</th><th>Subfamilia</th></tr></thead>
+    <tbody>
+      {% for s in sin_pedido %}
+      <tr>
+        <td><input type="checkbox" data-marcar-sin-pedido data-producto="{{ s.product_id }}" data-listings="{{ s.listing_ids | join(',') }}" aria-label="marcar {{ s.sku }}"></td>
+        <td>{{ s.nombre or "—" }} <span class="mutado">{{ s.sku }}</span></td>
+        <td><input type="text" data-subfamilia="{{ s.product_id }}" maxlength="60" placeholder="aros" aria-label="subfamilia de {{ s.sku }}"></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <button type="button" id="productos-impulsar-aparte">Impulsar aparte</button>
+  <button type="button" id="productos-sacar">Sacar de las bolsas compartidas</button>
+  {% else %}
+  <p>Todo vendió en los últimos 11 meses.</p>
+  {% endif %}
+  <p class="mutado">Hay {{ anuncios_sin_producto }} anuncios sin producto ligado que no puedo juzgar.</p>
+</div>
+
+<div class="tarjeta" id="productos-retiro" hidden>
+  <h3>Retiro de las bolsas compartidas</h3>
+  <div id="productos-retiro-vista"></div>
+  <form id="productos-retiro-ejecutar" data-plataforma="{{ plataforma }}" hidden>
+    <p>Escribe <code id="productos-retiro-esperada"></code> para confirmar.</p>
+    <label>Confirmación <input type="text" name="confirmacion" maxlength="60" required></label>
+    <label>Actor <input type="text" name="actor" maxlength="100" placeholder="quien saca" required></label>
+    <label>Token <input type="password" name="token" placeholder="x-orbit-token" required></label>
+    <button type="submit">Sacar de las bolsas compartidas</button>
+    <span data-estado class="mutado"></span>
+  </form>
+</div>
+
+<div class="tarjeta" id="productos-lanzamiento" hidden>
+  <h3>Lanzamiento</h3>
+  <div id="productos-vista"></div>
+  <form id="productos-lanzar" data-plataforma="{{ plataforma }}" hidden>
+    <p>Escribe <code id="productos-esperada"></code> para confirmar.</p>
+    <label>Confirmación <input type="text" name="confirmacion" maxlength="60" required></label>
+    <label>Actor <input type="text" name="actor" maxlength="100" placeholder="quien lanza" required></label>
+    <label>Token <input type="password" name="token" placeholder="x-orbit-token" required></label>
+    <button type="submit">Lanzar impulso</button>
+    <span data-estado class="mutado"></span>
+  </form>
+</div>
+{% endblock %}
+{% block scripts %}<script src="/static/js/productos.js?v={{ asset_version }}"></script>{% endblock %}

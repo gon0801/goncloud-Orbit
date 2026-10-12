@@ -14,6 +14,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from app import fabrica_plan as fp
 from app import fabrica_web as fw
+from app import impulso_io as io
+from app import retiro_anuncios as ra
 from app.api import ConexionLectura
 from app.api_write import exige_token
 from app.publicacion_fotos import FotoNoDisponible, fotos_publicacion
@@ -354,3 +356,390 @@ def operar(
     if cuerpo.confirmacion != f"{accion.upper()} GRUPO":
         raise fw.error(422, "La confirmación no coincide con la operación.", lote)
     return fw.operar(lote, accion, cuerpo.confirmacion)
+
+
+# ---------------------------------------------------------------------------
+# Impulso y retiro (BIDS 02 I.5)
+# ---------------------------------------------------------------------------
+
+MotivoRetiro = Literal["impulso", "sin_pedidos", "subfamilia"]
+Subfamilia = Annotated[str, Field(min_length=1, max_length=60, pattern=r"^[a-z0-9_]+$")]
+Actor = Annotated[str, Field(min_length=1, max_length=100)]
+
+
+def _actor_limpio(valor: str) -> str:
+    """Actor 1..100 sin NUL (Postgres lo rechaza en text): se valida en
+    el borde, antes de mutar nada."""
+    if "\x00" in valor:
+        raise ValueError("actor con NUL")
+    if not valor.strip():
+        raise ValueError("actor vacio")
+    return valor.strip()
+
+
+Huella = Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]
+Listings = Annotated[list[Identificador], Field(min_length=1, max_length=100)]
+
+
+class SolicitudImpulsoPlan(_Cuerpo):
+    plataforma: Plataforma
+    listing_ids: Listings
+    subfamilia_por_listing: dict[str, Subfamilia]
+    tope_monto: Annotated[str, Field(min_length=1, max_length=14)] | None = None
+
+    @field_validator("listing_ids")
+    @classmethod
+    def listings_unicos(cls, valor):
+        if len(valor) != len(set(valor)):
+            raise ValueError("publicaciones repetidas")
+        return valor
+
+    @field_validator("subfamilia_por_listing")
+    @classmethod
+    def subfamilias_validas(cls, valor):
+        for clave in valor:
+            try:
+                lid = int(clave)
+            except ValueError:
+                raise ValueError(f"listing invalido en subfamilias: {clave!r}") from None
+            if lid < 1:
+                raise ValueError(f"listing invalido en subfamilias: {clave!r}")
+        return valor
+
+    @field_validator("tope_monto")
+    @classmethod
+    def tope_valido(cls, valor):
+        if valor is None:
+            return valor
+        try:
+            monto = Decimal(valor)
+        except ArithmeticError:
+            raise ValueError("tope fuera del rango permitido") from None
+        if not monto.is_finite() or monto < Decimal("0.0001") or monto > Decimal("9999999999.9999"):
+            raise ValueError("tope fuera del rango permitido")
+        return valor
+
+    def como_solicitud(self) -> io.SolicitudImpulso:
+        return io.SolicitudImpulso(
+            plataforma=self.plataforma,
+            listing_ids=tuple(self.listing_ids),
+            subfamilia_por_listing={int(k): v for k, v in self.subfamilia_por_listing.items()},
+            tope_monto=Decimal(self.tope_monto) if self.tope_monto is not None else None,
+        )
+
+
+class CuerpoLanzarImpulso(_Cuerpo):
+    """POST /api/fabrica/impulso/lanzar. `confirmacion` debe igualar
+    VistaPreviaImpulso.confirmacion_esperada."""
+
+    solicitud: SolicitudImpulsoPlan
+    huella: Huella
+    confirmacion: str = Field(min_length=1, max_length=60)
+    actor: Actor
+
+    @field_validator("actor")
+    @classmethod
+    def actor_no_vacio(cls, valor):
+        return _actor_limpio(valor)
+
+
+class CuerpoPausarImpulso(_Cuerpo):
+    confirmacion: Literal["PAUSAR IMPULSO"]
+
+
+class CuerpoRetiroPlan(_Cuerpo):
+    plataforma: Plataforma
+    listing_ids: Listings
+    motivo: MotivoRetiro
+    lote: Lote | None = None
+
+    @field_validator("listing_ids")
+    @classmethod
+    def listings_unicos(cls, valor):
+        if len(valor) != len(set(valor)):
+            raise ValueError("publicaciones repetidas")
+        return valor
+
+
+class CuerpoRetiroEjecutar(_Cuerpo):
+    plataforma: Plataforma
+    listing_ids: Listings
+    motivo: MotivoRetiro
+    lote: Lote | None = None
+    huella: Huella
+    confirmacion: str = Field(min_length=1, max_length=60)
+    actor: Actor
+
+    @field_validator("listing_ids")
+    @classmethod
+    def listings_unicos(cls, valor):
+        if len(valor) != len(set(valor)):
+            raise ValueError("publicaciones repetidas")
+        return valor
+
+    @field_validator("actor")
+    @classmethod
+    def actor_no_vacio(cls, valor):
+        return _actor_limpio(valor)
+
+
+class CuerpoRetiroReponer(_Cuerpo):
+    retiro_ids: Listings
+    confirmacion: str = Field(min_length=1, max_length=60)
+    actor: Actor
+
+    @field_validator("retiro_ids")
+    @classmethod
+    def retiros_unicos(cls, valor):
+        if len(valor) != len(set(valor)):
+            raise ValueError("retiros repetidos")
+        return valor
+
+    @field_validator("actor")
+    @classmethod
+    def actor_no_vacio(cls, valor):
+        return _actor_limpio(valor)
+
+
+def _sugeridor_plataforma(plataforma: str, moneda: str):
+    """Una llamada a recommend_bids por producto, con el perfil sellado
+    de la plataforma. Falla 503 sin un perfil unico aceptado."""
+    from app.ads.client import AdsClient
+    from app.ads.config import AdsCredentials
+    from app.ads.structure import evaluar_perfiles
+
+    cred = AdsCredentials.from_secrets_dir()
+    cliente = AdsClient(cred)
+    perfiles = [p for p in evaluar_perfiles(cliente) if p.aceptado and p.platform == plataforma]
+    if len(perfiles) != 1:
+        raise fw.error(503, "Sin perfil aceptado unico para sugerir bids.")
+    return io.sugeridor_amazon(cliente, perfiles[0].profile_id, moneda)
+
+
+def _ejecutor_lanzar(conn, confirmacion: str):
+    """EjecutorFabrica real: crea el lote con fc._mutar (shadow,
+    esperado 2) y lee el grupo creado."""
+    from types import SimpleNamespace
+
+    import tools.fabrica_campanas as fc
+
+    def ejecuta(plan_grupo, huella: str, lote: str) -> io.EjecucionFabrica:
+        args = SimpleNamespace(
+            acepto_mutacion_real=True, esperado=2, huella=huella, go=confirmacion
+        )
+        fc._mutar(args, plan_grupo, huella, lote=lote, revierte_al_fallar=True, crear_pausado=True)
+        grupo = conn.execute(io._SQL_GRUPO_DE_LOTE, (lote,)).fetchone()
+        estado = conn.execute("SELECT estado FROM fabrica_lote WHERE lote = %s", (lote,)).fetchone()
+        if grupo is None or estado is None:
+            raise fc.Abortar(f"lote {lote} sin grupo o estado tras _mutar")
+        return io.EjecucionFabrica(lote=lote, grupo_id=grupo[0], estado_lote=estado[0])
+
+    return ejecuta
+
+
+def _error_impulso(exc: io.ErrorImpulso, *, vista: dict | None = None) -> HTTPException:
+    detalle: dict = {"mensaje": str(exc)}
+    if vista is not None:
+        detalle["vista_previa"] = vista
+    if exc.lanzados:
+        detalle["lanzados"] = [
+            {"impulso_id": x.impulso_id, "lote": x.lote, "estado_lote": x.estado_lote}
+            for x in exc.lanzados
+        ]
+    if exc.fallos:
+        detalle["fallos"] = {str(k): v for k, v in exc.fallos.items()}
+    return HTTPException(exc.status, detail=detalle)
+
+
+_SQL_IMPULSO_DE_GRUPO = """
+SELECT id FROM impulso WHERE grupo_id = %s
+"""
+
+
+def _conservar_y_impulso(
+    conn, lote: str | None, motivo: str, listing_ids
+) -> tuple[int | None, int | None]:
+    """Resuelve lote -> (grupo, impulso). 'impulso' exige lote con impulso
+    que ya midio; 'subfamilia' exige lote propio; otros aceptan lote
+    propio o nada."""
+    if lote is None:
+        if motivo == "impulso":
+            raise fw.error(422, "El motivo 'impulso' exige el lote del impulso.")
+        if motivo == "subfamilia":
+            raise fw.error(422, "El motivo 'subfamilia' exige el lote del grupo nuevo.")
+        return None, None
+    grupo = ra.grupo_de_lote(conn, lote)
+    if grupo is None:
+        raise fw.error(404, "El lote no existe.", lote)
+    if motivo == "impulso":
+        imp = conn.execute(_SQL_IMPULSO_DE_GRUPO, (grupo,)).fetchone()
+        if imp is None:
+            raise fw.error(404, "El lote no tiene impulso.", lote)
+        if not ra.impulso_tuvo_impresiones(conn, imp[0]):
+            raise fw.error(422, "El impulso aun no tiene impresiones: nada que retirar.")
+        return grupo, imp[0]
+    if not ra.grupo_alcanza_listings(conn, grupo, listing_ids):
+        raise fw.error(422, "El lote no es de estos productos.")
+    return grupo, None
+
+
+@router.post("/impulso/plan")
+def impulso_plan(cuerpo: SolicitudImpulsoPlan, conn: ConexionLectura):
+    import tools.fabrica_campanas as fc
+
+    moneda = fp.MONEDA_POR_PLATAFORMA[cuerpo.plataforma]
+    try:
+        vista = io.previsualiza(
+            conn,
+            cuerpo.como_solicitud(),
+            sugeridor=_sugeridor_plataforma(cuerpo.plataforma, moneda),
+        )
+    except io.ErrorImpulso as exc:
+        raise _error_impulso(exc) from None
+    except fc.Abortar as exc:
+        raise fw.error(422, str(exc)) from None
+    return vista.como_dict()
+
+
+@router.post("/impulso/lanzar")
+def impulso_lanzar(_token: Annotated[str, Depends(exige_token)], cuerpo: CuerpoLanzarImpulso):
+    import tools.fabrica_campanas as fc
+
+    with fw._conexion("ORBIT_DSN_ADMIN", "impulso") as conn:
+        moneda = fp.MONEDA_POR_PLATAFORMA[cuerpo.solicitud.plataforma]
+        sugeridor = _sugeridor_plataforma(cuerpo.solicitud.plataforma, moneda)
+        try:
+            lanzados = io.lanza(
+                conn,
+                cuerpo.solicitud.como_solicitud(),
+                huella=cuerpo.huella,
+                confirmacion=cuerpo.confirmacion,
+                actor=cuerpo.actor,
+                ejecutor=_ejecutor_lanzar(conn, cuerpo.confirmacion),
+                sugeridor=sugeridor,
+            )
+        except io.ErrorImpulso as exc:
+            vista = None
+            if exc.status == 409:
+                try:
+                    vista = io.previsualiza(
+                        conn, cuerpo.solicitud.como_solicitud(), sugeridor=sugeridor
+                    ).como_dict()
+                except fc.Abortar:
+                    vista = None
+            raise _error_impulso(exc, vista=vista) from None
+        except fc.Abortar as exc:
+            raise fw.error(422, str(exc)) from None
+        return {
+            "lanzados": [
+                {"impulso_id": x.impulso_id, "lote": x.lote, "estado_lote": x.estado_lote}
+                for x in lanzados
+            ]
+        }
+
+
+_SQL_LOTE_DE_IMPULSO = """
+SELECT lote FROM impulso WHERE id = %s
+"""
+
+
+@router.post("/impulso/{impulso_id}/pausar")
+def impulso_pausar(
+    _token: Annotated[str, Depends(exige_token)],
+    impulso_id: Annotated[int, Path(ge=1, le=9223372036854775807)],
+    cuerpo: CuerpoPausarImpulso,
+):
+    import tools.fabrica_campanas as fc
+
+    with fw._conexion("ORBIT_DSN_ADMIN", "impulso") as conn:
+        fila = conn.execute(_SQL_LOTE_DE_IMPULSO, (impulso_id,)).fetchone()
+        if fila is None:
+            raise fw.error(404, "El impulso no existe.")
+        try:
+            io.PausadorFabrica(conn, actor="dueno").pausa(fila[0])
+        except io.ErrorImpulso as exc:
+            raise _error_impulso(exc) from None
+        except fc.Abortar as exc:
+            # G9: Amazon rechazo a media pausa (el actor ya quedo
+            # grabado antes del primer PUT): 502 con el detalle,
+            # no 500 pelado.
+            raise fw.error(502, str(exc)) from None
+        conn.commit()
+        return {"impulso_id": impulso_id, "lote": fila[0], "estado": "pausado"}
+
+
+@router.post("/retiro/plan")
+def retiro_plan(cuerpo: CuerpoRetiroPlan, conn: ConexionLectura):
+    conservar, _imp = _conservar_y_impulso(conn, cuerpo.lote, cuerpo.motivo, cuerpo.listing_ids)
+    plan = ra.planea_retiro(
+        conn,
+        cuerpo.plataforma,
+        listing_ids=tuple(cuerpo.listing_ids),
+        motivo=cuerpo.motivo,
+        conservar_grupo_id=conservar,
+    )
+    return plan.como_dict()
+
+
+@router.post("/retiro/ejecutar")
+def retiro_ejecutar(_token: Annotated[str, Depends(exige_token)], cuerpo: CuerpoRetiroEjecutar):
+    with fw._conexion("ORBIT_DSN_ADMIN", "retiro") as conn:
+        conservar, imp = _conservar_y_impulso(conn, cuerpo.lote, cuerpo.motivo, cuerpo.listing_ids)
+        plan = ra.planea_retiro(
+            conn,
+            cuerpo.plataforma,
+            listing_ids=tuple(cuerpo.listing_ids),
+            motivo=cuerpo.motivo,
+            conservar_grupo_id=conservar,
+        )
+        if plan.huella != cuerpo.huella:
+            raise fw.error(409, "El plan cambió. Vuelve a previsualizar antes de ejecutar.")
+        n = len(plan.anuncios)
+        if cuerpo.confirmacion != f"SACAR {n} ANUNCIOS":
+            raise fw.error(422, "La confirmación no coincide con la operación.")
+        try:
+            retirados = ra.ejecuta_retiro(
+                conn, plan, go=cuerpo.confirmacion, impulso_id=imp, actor=cuerpo.actor
+            )
+        except ValueError as exc:
+            raise fw.error(422, str(exc)) from None
+        except RuntimeError as exc:
+            raise fw.error(502, f"Retiro parcial: {exc}") from None
+        lote = ra.lote_retiro_de_plan(plan)
+        ids = [f[0] for f in conn.execute(_SQL_ABIERTOS_DE_LOTE, (lote,)).fetchall()]
+        return {"retirados": retirados, "lote_retiro": lote, "retiro_ids": ids}
+
+
+_SQL_RETIROS_EXISTEN = """
+SELECT count(*) FROM anuncio_retiro WHERE id = ANY(%s)
+"""
+
+_SQL_ABIERTOS_DE_LOTE = """
+SELECT r.id FROM anuncio_retiro r
+ WHERE r.lote_retiro = %s
+   AND NOT EXISTS (SELECT 1 FROM anuncio_reposicion p WHERE p.retiro_id = r.id)
+ ORDER BY r.id
+"""
+
+
+@router.post("/retiro/reponer")
+def retiro_reponer(_token: Annotated[str, Depends(exige_token)], cuerpo: CuerpoRetiroReponer):
+    with fw._conexion("ORBIT_DSN_ADMIN", "retiro") as conn:
+        hay = conn.execute(_SQL_RETIROS_EXISTEN, (list(cuerpo.retiro_ids),)).fetchone()[0]
+        if hay != len(cuerpo.retiro_ids):
+            raise fw.error(404, "Algun retiro pedido no existe.")
+        n = len(cuerpo.retiro_ids)
+        if cuerpo.confirmacion != f"REGRESAR {n} ANUNCIOS":
+            raise fw.error(422, "La confirmación no coincide con la operación.")
+        try:
+            repuestos = ra.repone(
+                conn,
+                retiro_ids=tuple(cuerpo.retiro_ids),
+                go=cuerpo.confirmacion,
+                actor=cuerpo.actor,
+            )
+        except ValueError as exc:
+            raise fw.error(422, str(exc)) from None
+        except RuntimeError as exc:
+            raise fw.error(502, f"Reposicion parcial: {exc}") from None
+        return {"repuestos": repuestos}

@@ -23,6 +23,8 @@ from app.ads.archivar import (
     RESULTADOS,
     archivar_anuncios,
     estados_actuales,
+    pausar_anuncios,
+    reactivar_anuncios,
     reponer_anuncios,
     resumen,
 )
@@ -485,6 +487,65 @@ def test_ack_con_adId_sin_fila_en_list_es_sin_confirmar():
     assert "readback" in resultado.detalle
 
 
+def test_r09r4_ar02_relecturas_con_pausa():
+    """R09-r4 B6 (AR02): el nuevo tarda 1 list en verse: se duerme
+    entre relecturas (no salen seguidas)."""
+    ack = httpx.Response(207, json={"productAds": {"success": [{"adId": "999"}]}})
+    base, _ = _handler_create(ack, readback_state="ENABLED")
+    llamadas = {"list": 0}
+    dormidas: list = []
+
+    def handler(request):
+        if request.url.host == "api.amazon.com":
+            return _token_response()
+        if request.url.path.endswith(PATH_LIST):
+            llamadas["list"] += 1
+            if llamadas["list"] < 2:
+                return httpx.Response(200, json={"productAds": []})
+        return base(request)
+
+    (resultado,) = reponer_anuncios(
+        make_write_client(handler),
+        ["adGroupId=77 campaignId=55 sku=SKU-1 state=ENABLED"],
+        ejecutar=True,
+        avisar=lambda _m: None,
+        dormir=lambda s: dormidas.append(s),
+        pausa=0.2,
+    )
+    assert resultado.resultado == "repuesto"
+    # Una entre relecturas + una por anuncio procesado.
+    assert dormidas == [0.2, 0.2]
+
+
+def test_r09r4_ar03_archived_no_corta_reintento():
+    """R09-r4 B6 (AR03): relectura ARCHIVED del anuncio recreado: no
+    corta, sigue hasta verlo vivo (o agotar los 3 intentos)."""
+    ack = httpx.Response(207, json={"productAds": {"success": [{"adId": "999"}]}})
+    base, _ = _handler_create(ack, readback_state="ENABLED")
+    llamadas = {"list": 0}
+
+    def handler(request):
+        if request.url.host == "api.amazon.com":
+            return _token_response()
+        if request.url.path.endswith(PATH_LIST):
+            llamadas["list"] += 1
+            if llamadas["list"] < 3:
+                return httpx.Response(
+                    200, json={"productAds": [{"adId": "999", "state": "ARCHIVED"}]}
+                )
+        return base(request)
+
+    (resultado,) = reponer_anuncios(
+        make_write_client(handler),
+        ["adGroupId=77 campaignId=55 sku=SKU-1 state=ENABLED"],
+        ejecutar=True,
+        avisar=lambda _m: None,
+        dormir=lambda _s: None,
+    )
+    assert resultado.resultado == "repuesto"
+    assert llamadas["list"] == 3
+
+
 def test_una_linea_incompleta_aborta_antes_de_crear_nada():
     """Reponer con un dato adivinado crearia el anuncio equivocado, y eso
     gasta plata. Y se parsea TODO antes de mandar: una linea rota a mitad
@@ -569,3 +630,143 @@ def test_el_rechazo_REAL_de_amazon_al_crear_se_lee_como_fallo():
     )
     assert resultado.resultado == "fallo", "un 207 con error[] NO es exito"
     assert "AD_INELIGIBLE" in resultado.detalle
+
+
+PATH_PUT_ADS = "/sp/productAds"
+
+
+def _handler_put(estados: dict[str, str]):
+    """Transporte falso: el list responde `estados` y cada PUT actualiza
+    el estado en vivo (el readback confirma lo mutado)."""
+    llamadas: list[tuple[str, dict]] = []
+    vivos = dict(estados)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return _token_response()
+        cuerpo = json.loads(request.content) if request.content else {}
+        llamadas.append((request.url.path, cuerpo))
+        if request.method == "PUT" and request.url.path == PATH_PUT_ADS:
+            for entrada in cuerpo.get("productAds", []):
+                vivos[str(entrada["adId"])] = str(entrada["state"])
+            return httpx.Response(207, json={"productAds": {"error": [], "success": []}})
+        pedidos = cuerpo.get("adIdFilter", {}).get("include", [])
+        filas = [{"adId": ad_id, "state": vivos[ad_id]} for ad_id in pedidos if ad_id in vivos]
+        return httpx.Response(200, json={"productAds": filas})
+
+    return handler, llamadas
+
+
+def _puts(llamadas) -> list[tuple[str, str]]:
+    return [
+        (e["adId"], e["state"])
+        for path, cuerpo in llamadas
+        if path == PATH_PUT_ADS
+        for e in cuerpo.get("productAds", [])
+    ]
+
+
+def test_pausa_solo_los_enabled_y_reactivar_solo_los_paused():
+    """I.4: pausar toca ENABLED, reactivar toca PAUSED; lo que ya esta en
+    destino sale `ya_estaba` y lo inexistente `no_existe`."""
+    handler, llamadas = _handler_put({"1": "ENABLED", "2": "PAUSED"})
+    pausa = pausar_anuncios(
+        make_write_client(handler),
+        ["1", "2", "3"],
+        ejecutar=True,
+        avisar=lambda _m: None,
+        dormir=lambda _s: None,
+    )
+    assert _puts(llamadas) == [("1", "PAUSED")]
+    assert {r.ad_id: r.resultado for r in pausa} == {
+        "1": "pausado",
+        "2": "ya_estaba",
+        "3": "no_existe",
+    }
+    handler2, llamadas2 = _handler_put({"1": "ENABLED", "2": "PAUSED"})
+    reactiva = reactivar_anuncios(
+        make_write_client(handler2),
+        ["1", "2"],
+        ejecutar=True,
+        avisar=lambda _m: None,
+        dormir=lambda _s: None,
+    )
+    assert _puts(llamadas2) == [("2", "ENABLED")]
+    assert {r.ad_id: r.resultado for r in reactiva} == {"1": "ya_estaba", "2": "reactivado"}
+
+
+def test_r09r4_previa_caida_es_sin_confirmar_no_no_existe():
+    """R09-r4 B4 (f): si la lectura previa cae (500), no se sabe nada:
+    sale `sin_confirmar` (retomable), NO `no_existe` (que cerraria el
+    retiro para siempre). Cero PUTs."""
+    llamadas: list = []
+
+    def handler(request):
+        if request.url.host == "api.amazon.com":
+            return _token_response()
+        llamadas.append(request.url.path)
+        return httpx.Response(500, json={"message": "caido"})
+
+    (res,) = pausar_anuncios(
+        make_write_client(handler),
+        ["1"],
+        ejecutar=True,
+        avisar=lambda _m: None,
+        dormir=lambda _s: None,
+    )
+    assert res.resultado == "sin_confirmar"
+    assert "previa" in res.detalle
+    assert [p for p in llamadas if p == PATH_PUT_ADS] == []
+
+
+def test_put_no_toca_archived_y_ensayo_no_muta():
+    """I.4: un ARCHIVED sale `fallo` sin PUT; el ensayo no manda nada."""
+    handler, llamadas = _handler_put({"1": "ARCHIVED", "2": "ENABLED"})
+    (arch,) = pausar_anuncios(
+        make_write_client(handler),
+        ["1"],
+        ejecutar=True,
+        avisar=lambda _m: None,
+        dormir=lambda _s: None,
+    )
+    assert arch.resultado == "fallo"
+    assert _puts(llamadas) == []
+    handler2, llamadas2 = _handler_put({"2": "ENABLED"})
+    (ensayo,) = pausar_anuncios(
+        make_write_client(handler2),
+        ["2"],
+        ejecutar=False,
+        avisar=lambda _m: None,
+        dormir=lambda _s: None,
+    )
+    assert ensayo.resultado == "sin_confirmar" and ensayo.detalle == "ENSAYO"
+    assert _puts(llamadas2) == []
+
+
+def test_r09r3_pausa_207_con_rechazo_por_item_es_fallo():
+    """R09 B12 (A08): al pausar, un 207 con error por item y readback sin
+    cambio se reporta `fallo`, no `pausado`."""
+    import json as _json
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return _token_response()
+        if request.method == "PUT" and request.url.path == PATH_PUT_ADS:
+            return httpx.Response(
+                207,
+                json={"productAds": {"error": [{"errors": [{"errorType": "NO_PUDO"}]}]}},
+            )
+        pedidos = _json.loads(request.content).get("adIdFilter", {}).get("include", [])
+        return httpx.Response(
+            200,
+            json={"productAds": [{"adId": i, "state": "ENABLED"} for i in pedidos]},
+        )
+
+    (resultado,) = pausar_anuncios(
+        make_write_client(handler),
+        ["1"],
+        ejecutar=True,
+        avisar=lambda _m: None,
+        dormir=lambda _s: None,
+    )
+    assert resultado.resultado == "fallo"

@@ -65,6 +65,9 @@ ORDEN_F2 = (
     "0047_familias.sql",
     # A5: el peldano familiar lee v_margen_familia en TX2.
     "0048_margen_familia.sql",
+    # I.1: _roster_hermanas lee campana_grupo.tipo (regla 9: sin tolerar
+    # columna ausente, el fixture la necesita).
+    "0064_bids02_grupo_tipo.sql",
     # Nada de F2 depende de migraciones 0005-0012 ni 0020-0037 (verificado
     # por grep en A.2: no mencionan harvest_job/apply_attempt/goals/grupos).
 )

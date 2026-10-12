@@ -37,6 +37,10 @@ ROLES_ORDEN_CREACION = (
     "product_targeting",
     "auto_discovery",
 )
+# Roles del grupo de impulso (BIDS 02, I.1): exact + discovery. Vive aqui
+# porque tools/fabrica_campanas.py solo puede importar lo declarado en su
+# allowlist de arquitectura (app.fabrica_plan si, app.impulso no).
+ROLES_IMPULSO = ("category_exact", "auto_discovery")
 MATCH_POR_ROL = {"category_exact": "EXACT", "category_phrase": "PHRASE", "category_broad": "BROAD"}
 EXPRESION_BID_POR_ROL = {
     "category_exact": "KEYWORD_EXACT_MATCH",
@@ -233,6 +237,8 @@ class PlanGrupoV2:
     familia: str | None = None
     # A2: aviso cuando el grupo mezcla familias (None = sin mezcla).
     advertencia_mezcla: str | None = None
+    # I.1: roles del grupo; los cinco por omision, dos en impulso.
+    roles: tuple[str, ...] = ROLES_ORDEN_CREACION
 
 
 PlanCanonico = PlanGrupo | PlanGrupoV2
@@ -352,15 +358,18 @@ def valida_objetivo_margen_v2(
 
 
 def valida_parametros(
-    parametros: dict[str, ParametrosRol], moneda: str, semillas: Semillas | None = None
+    parametros: dict[str, ParametrosRol],
+    moneda: str,
+    semillas: Semillas | None = None,
+    roles: tuple[str, ...] = ROLES_ORDEN_CREACION,
 ) -> None:
     """Bids dentro de [piso, techo] de SU moneda (DEFAULTS_POR_MONEDA, regla 4)
-    y budgets > 0 y >= bid; los 5 roles presentes."""
+    y budgets > 0 y >= bid; los roles del plan presentes."""
     try:
         piso, techo = g.DEFAULTS_POR_MONEDA[moneda]
     except KeyError:
         raise PlanInvalido(f"moneda {moneda!r} sin piso/techo en DEFAULTS_POR_MONEDA") from None
-    for rol in ROLES_ORDEN_CREACION:
+    for rol in roles:
         p = parametros.get(rol)
         if p is None:
             raise PlanInvalido(f"faltan --bid/--budget de {rol}")
@@ -595,6 +604,22 @@ def version_creacion_desde_settings(settings: object) -> str:
     return version if version in VERSIONES_CREACION else "v1"
 
 
+def _valida_roles(roles: tuple[str, ...]) -> None:
+    """I.1: roles no vacios, sin repetir, del vocabulario, con exact y en
+    el orden de creacion (la exact primero: si el lote muere a medias,
+    jamas queda una discovery sin destino de harvest)."""
+    if not roles:
+        raise PlanInvalido("roles v2 vacio")
+    if len(set(roles)) != len(roles):
+        raise PlanInvalido("roles v2 con rol repetido")
+    if any(rol not in ROLES_ORDEN_CREACION for rol in roles):
+        raise PlanInvalido("roles v2 con rol ajeno")
+    if "category_exact" not in roles:
+        raise PlanInvalido("roles v2 sin category_exact")
+    if tuple(roles) != tuple(r for r in ROLES_ORDEN_CREACION if r in roles):
+        raise PlanInvalido("roles v2 en otro orden que ROLES_ORDEN_CREACION")
+
+
 def _valida_plan_v2(plan: PlanGrupoV2) -> None:
     if plan.platform not in MONEDA_POR_PLATAFORMA:
         raise PlanInvalido(f"plataforma v2 invalida: {plan.platform!r}")
@@ -635,7 +660,8 @@ def _valida_plan_v2(plan: PlanGrupoV2) -> None:
     elif plan.objetivo.fraccion is not None or plan.objetivo.derivado is not None:
         raise PlanInvalido("objetivo manual v2 no lleva fraccion ni derivado")
     valida_tipo_producto(plan.tipo_producto)
-    valida_parametros(plan.parametros, plan.moneda, plan.semillas)
+    _valida_roles(plan.roles)
+    valida_parametros(plan.parametros, plan.moneda, plan.semillas, plan.roles)
 
 
 def _publicacion_v2_como_json(publicacion: PublicacionGrupoV2) -> dict:
@@ -654,7 +680,7 @@ def _publicacion_v2_como_json(publicacion: PublicacionGrupoV2) -> dict:
 def plan_v2_como_json(plan: PlanGrupoV2) -> dict:
     """Serializa v2 sin reusar el shape v1 ni convertir ausencias en cero."""
     _valida_plan_v2(plan)
-    return {
+    datos = {
         "schema_version": 2,
         "platform": plan.platform,
         "tipo_producto": plan.tipo_producto,
@@ -688,6 +714,9 @@ def plan_v2_como_json(plan: PlanGrupoV2) -> dict:
             "exact": list(plan.semillas.exact),
         },
     }
+    if plan.roles != ROLES_ORDEN_CREACION:
+        datos["roles"] = list(plan.roles)
+    return datos
 
 
 def huella_plan_v2(plan: PlanGrupoV2) -> str:
@@ -736,6 +765,7 @@ def plan_v2_desde_json(datos: dict) -> PlanGrupoV2:
             tuple(semillas["negativos"]),
             tuple(semillas["exact"]),
         ),
+        roles=tuple(datos.get("roles", ROLES_ORDEN_CREACION)),
     )
     _valida_plan_v2(plan)
     return plan

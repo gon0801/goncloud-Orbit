@@ -2423,3 +2423,110 @@ def test_ack_durable_con_posterior_unknown_y_prueba_tardia():
             (dec, ag0),
         ).fetchone()
         assert sello is not None and sello[0] == "ok", "la prueba sella la abierta"
+
+
+# I.1 (BIDS 02 s5): harvest en grupo impulso ---------------------------
+
+
+def _grupo_impulso_listo(conn, *, term: str = TERMINO_F2) -> dict:
+    """Variante de _grupo_listo con grupo `impulso` de dos roles (exact +
+    auto): states ENABLED + termino calificado en la auto (origen).
+    db_f2 ya aplica la 0064 (ORDEN_F2)."""
+    ids = _semilla(conn)
+    lote = "fabrica-impulso-amazon_us-aro-t1"
+    conn.execute(
+        "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal,"
+        " huella, plan, modo_goal, estado) VALUES (%s, 'amazon_us', 'aro', 'Base I1', 'go',"
+        " 'h', '{}'::jsonb, 'live', 'applied')",
+        (lote,),
+    )
+    grupo_id = conn.execute(
+        "INSERT INTO campana_grupo (platform, tipo_producto, nombre_base, lote,"
+        " target_acos_pct, target_derivado_pct, fraccion, target_procedencia, go_literal,"
+        " tipo) VALUES ('amazon_us', 'aro', 'Base I1', %s, 20, 20, 0.5, 'humo', 'go',"
+        " 'impulso') RETURNING id",
+        (lote,),
+    ).fetchone()[0]
+    roles: dict[str, dict] = {}
+    for i, rol in enumerate(("category_exact", "auto_discovery")):
+        camp_ext, ag_ext = f"63{i:02d}", f"64{i:02d}"
+        camp = conn.execute(
+            "INSERT INTO ad_entity (platform, kind, external_id) VALUES ('amazon_us',"
+            " 'campaign', %s) RETURNING id",
+            (camp_ext,),
+        ).fetchone()[0]
+        ag = conn.execute(
+            "INSERT INTO ad_entity (platform, kind, external_id, parent_id)"
+            " VALUES ('amazon_us', 'ad_group', %s, %s) RETURNING id",
+            (ag_ext, camp),
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO campana_grupo_rol (grupo_id, rol, ad_entity_id, ad_group_ad_entity_id)"
+            " VALUES (%s, %s, %s, %s)",
+            (grupo_id, rol, camp, ag),
+        )
+        conn.execute(
+            "INSERT INTO ads_optimizer_goal (scope, ad_entity_id, target_acos_pct,"
+            " bid_floor, bid_ceiling, bid_currency, harvest_campaign_id, harvest_ad_group_id,"
+            " harvest_default_bid, enabled, mode) VALUES ('campaign', %s, 20, 0.10, 2.50,"
+            " 'USD', '6300', '6400', 11.62, true, 'live')",
+            (camp,),
+        )
+        _estado(conn, camp)
+        _estado(conn, ag)
+        roles[rol] = {"camp": camp, "ag": ag, "camp_ext": camp_ext, "ag_ext": ag_ext}
+    _termino_calificado(conn, roles["auto_discovery"]["ag"], term=term)
+    return {
+        **ids,
+        "grupo_id": grupo_id,
+        "lote": lote,
+        "roles": roles,
+        "origen_rol": "auto_discovery",
+        "origen": roles["auto_discovery"],
+    }
+
+
+@_skip_db
+def test_harvest_grupo_impulso_done_sin_hermanas_ni_reversa():
+    """I.1: un harvest desde la auto de un grupo impulso termina done, deja
+    la keyword en la exact, guarda hermanas_objetivo == {} y no manda POST
+    de negative de hermana ni a /sp/keywords/delete."""
+    with db_f2("orbit_hna_impulso") as conn:
+        setup = _grupo_impulso_listo(conn)
+        sal = _corre_harvest_grupo(conn, setup)
+        assert sal["res"].aplicadas == 1
+        job = _job_de(conn, sal["dec"])
+        assert job["fase"] == "done", job
+        assert job["ext"].get("hermanas_objetivo") == {}, job["ext"]
+        muts = [r for r in sal["vistos"] if r.method == "POST" and not r.url.path.endswith("/list")]
+        assert [r.url.path for r in muts] == ["/sp/negativeKeywords", "/sp/keywords"], [
+            r.url.path for r in muts
+        ]
+        post_kw = next(r for r in muts if r.url.path == "/sp/keywords")
+        assert (
+            json.loads(post_kw.content)["keywords"][0]["adGroupId"]
+            == setup["roles"]["category_exact"]["ag_ext"]
+        )
+        cola = conn.execute(
+            "SELECT estado FROM apply_queue WHERE id = %s", (sal["qid"],)
+        ).fetchone()[0]
+        assert cola == "applied"
+
+
+@_skip_db
+def test_grupo_fabrica5_sin_rol_discovery_falla_entidad_incompleta():
+    """I.1: un grupo fabrica5 sin uno de sus roles de descubrimiento cierra
+    failed con entidad_incompleta (el roster incompleto no se perdona)."""
+    with db_f2("orbit_hna_incompl") as conn:
+        setup = _grupo_listo(conn)
+        faltante = next(r for r in ROLES_DISCOVERY if r != setup["origen_rol"])
+        conn.execute(
+            "DELETE FROM campana_grupo_rol WHERE grupo_id = %s AND rol = %s",
+            (setup["grupo_id"], faltante),
+        )
+        sal = _corre_harvest_grupo(conn, setup)
+        job = _job_de(conn, sal["dec"])
+        assert job["fase"] == "failed", job
+        assert [a.motivo for a in sal["res"].alertas] == ["entidad_incompleta"]
+        muts = [r for r in sal["vistos"] if r.method == "POST" and not r.url.path.endswith("/list")]
+        assert "/sp/keywords/delete" in [r.url.path for r in muts], "la keyword se revierte"

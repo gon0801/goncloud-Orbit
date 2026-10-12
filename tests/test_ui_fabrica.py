@@ -1877,3 +1877,150 @@ const AVISO = "Amazon no devolvió sugerencia: puja manual";
   assert.equal(veces, 4, "la revision repite el aviso en las cuatro campanas manuales");
 })().catch(error => { console.error(error); process.exitCode = 1; });
 """)
+
+
+def test_boton_retiro_presente_en_detalle_del_lote():
+    """E.1: la pagina trae el boton de retiro (desactivado hasta un lote applied)."""
+    respuesta = TestClient(app).get("/campanas/nuevas")
+    assert respuesta.status_code == 200
+    assert "Sacar estos productos de sus bolsas viejas" in respuesta.text
+    assert 'id="fabrica-retiro-boton"' in respuesta.text
+
+
+def test_flujo_js_retiro_solo_applied_y_con_literal():
+    """E.1: el boton solo se activa con lote applied; pide retiro/plan con
+    listings, subfamilia y lote; sin el literal no manda ejecutar."""
+    archivo = RAIZ / "static/js/fabrica.js"
+    assert archivo.exists(), "Falta el cliente de fabrica"
+    node = shutil.which("node")
+    if not node:
+        if "CI" in os.environ:
+            pytest.fail("Node es obligatorio en CI para verificar el flujo JavaScript")
+        pytest.skip("Node no disponible; el navegador se verifica en integracion")
+    html = TestClient(app).get("/campanas/nuevas").text
+    elementos = [attrs for _, attrs in Elementos(html).elementos if "id" in attrs]
+    guion = r"""
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const vm = require("node:vm");
+class Element {
+  constructor(attrs = {}) {
+    Object.assign(this, attrs);
+    this.children = []; this.events = {}; this.value = attrs.value || "";
+    this.disabled = "disabled" in attrs; this.hidden = "hidden" in attrs;
+    this.checked = false; this.textContent = ""; this.dataset = {};
+  }
+  append(...items) { this.children.push(...items); }
+  appendChild(item) { this.append(item); return item; }
+  replaceChildren(...items) { this.children = items; this.textContent = ""; }
+  addEventListener(event, fn) { this.events[event] = fn; }
+  setAttribute(name, value) { this[name] = value; }
+  focus() {}
+  reportValidity() { return true; }
+  querySelectorAll(selector) {
+    const all = this.children.flatMap(child => [child, ...child.querySelectorAll("*")]);
+    if (selector === "*") return all;
+    return all.filter(child => child.type === "checkbox" &&
+      (!selector.includes(":checked") || child.checked));
+  }
+}
+const attrs = JSON.parse(process.argv[1]);
+const ids = Object.fromEntries(attrs.map(a => [a.id, new Element(a)]));
+const el = id => ids["fabrica-" + id];
+el("plataforma").value = "amazon_mx";
+el("plan").elements = Object.fromEntries(attrs.filter(a => a.name).map(a => [a.name, ids[a.id]]));
+const docEvents = {}, windowEvents = {};
+global.document = {
+  getElementById: id => ids[id],
+  createElement: tag => new Element({tagName: tag}),
+  addEventListener: (event, fn) => { docEvents[event] = fn; },
+};
+global.window = {
+  location: {href: "http://orbit.test/campanas/nuevas?lote=web-r", search: "?lote=web-r"},
+  addEventListener: (event, fn) => { windowEvents[event] = fn; },
+  history: { replaceState: (_state, _title, url) => {
+    window.location.href = String(url); window.location.search = new URL(url).search;
+  } },
+};
+const planV2 = {schema_version: 2, platform: "amazon_mx", moneda: "MXN", modo: "shadow",
+  fecha: "2026-09-06", nombre_base: "Gorras", tipo_producto: "gorras",
+  objetivo: {origen: "manual_lanzamiento", acos_pct: "25.00", procedencia: "confirmado",
+    fraccion: null, derivado: null},
+  publicaciones: [
+    {listing_id: 11, product_id: 1, seller_sku: "SA", asin: "B0AAAAAAAA",
+      margen_neto_pct: null, motivos: []},
+    {listing_id: 12, product_id: 1, seller_sku: "SA", asin: "B0AAAAAAAA",
+      margen_neto_pct: null, motivos: []}],
+  parametros: Object.fromEntries(["category_exact", "category_phrase", "category_broad",
+    "product_targeting", "auto_discovery"].map(rol =>
+    [rol, {budget: "120.00", bid: "4.00", fuente_bid: "manual"}])),
+  semillas: {exact: [], keywords: [], asins: [], negativos: []}};
+let estadoLote = "failed";
+const detalle = () => ({lote: "web-r", plataforma: "amazon_mx", estado: estadoLote,
+  detalle: "", created_at: "2026-09-06", finished_at: null, plan: planV2, pasos: []});
+const calls = [];
+const ok = body => ({ok: true, status: 200, json: async () => body});
+global.fetch = async (url, options = {}) => {
+  calls.push({url, options});
+  if (url.includes("/catalogo"))
+    return ok({plataforma: "amazon_mx", moneda: "MXN", tipos_producto: [], productos: []});
+  if (url.includes("/evaluacion"))
+    return ok({plataforma: "amazon_mx", ventana_ads: {desde: "2026-08-06", hasta: "2026-09-05"},
+      orden: "margen_observado", direccion: "desc", publicaciones: []});
+  if (url.includes("/lotes?")) return ok({items: []});
+  if (url.includes("/retiro/plan")) {
+    assert.deepEqual(JSON.parse(options.body),
+      {plataforma: "amazon_mx", listing_ids: [11, 12], motivo: "subfamilia", lote: "web-r"});
+    return ok({huella: "d".repeat(64), anuncios: [
+      {ad_id_externo: "31", ad_group_nombre: "Viejos", ad_group_externo: "ag-v",
+        campana_externa: "c-v", sku: "SA"},
+      {ad_id_externo: "32", ad_group_nombre: "", ad_group_externo: "ag-w",
+        campana_externa: "c-v", sku: "SA"}]});
+  }
+  if (url.includes("/retiro/ejecutar")) return ok({retirados: 2});
+  return ok(detalle());
+};
+const tick = () => new Promise(resolve => setImmediate(resolve));
+vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
+(async () => {
+  await docEvents.DOMContentLoaded();
+  await tick(); await tick();
+  const boton = el("retiro-boton");
+  assert.equal(boton.disabled, true, "con lote failed el retiro sigue desactivado");
+  estadoLote = "applied";
+  el("lote-recargar").events.click();
+  await tick(); await tick();
+  assert.equal(boton.disabled, false, "con lote applied se activa");
+  boton.events.click();
+  await tick(); await tick();
+  const planes = calls.filter(c => c.url.includes("/retiro/plan"));
+  assert.equal(planes.length, 1);
+  assert.equal(el("retiro-ejecutar").hidden, false);
+  assert.equal(el("retiro-esperada").textContent, "SACAR 2 ANUNCIOS");
+  el("retiro-confirmacion").value = "SACAR 1 ANUNCIOS";
+  el("retiro-actor").value = "dueno";
+  el("token").value = "tok";
+  el("retiro-ejecutar").events.submit({preventDefault() {}});
+  await tick();
+  assert.equal(calls.filter(c => c.url.includes("/retiro/ejecutar")).length, 0,
+    "sin el literal exacto no manda ejecutar");
+  el("retiro-confirmacion").value = "SACAR 2 ANUNCIOS";
+  el("retiro-ejecutar").events.submit({preventDefault() {}});
+  await tick(); await tick();
+  const runs = calls.filter(c => c.url.includes("/retiro/ejecutar"));
+  assert.equal(runs.length, 1);
+  const cuerpo = JSON.parse(runs[0].options.body);
+  assert.equal(cuerpo.huella, "d".repeat(64));
+  assert.equal(cuerpo.actor, "dueno");
+  assert.equal(runs[0].options.headers["x-orbit-token"], "tok");
+  assert.match(el("retiro-estado").textContent, /Retirados 2/);
+})().catch(error => { console.error(error); process.exitCode = 1; });
+"""
+    resultado = subprocess.run(
+        [node, "-e", guion, json.dumps(elementos), str(archivo)],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=15,
+    )
+    assert resultado.returncode == 0, resultado.stdout + resultado.stderr

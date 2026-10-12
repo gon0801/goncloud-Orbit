@@ -31,13 +31,14 @@ from dataclasses import dataclass
 from app.ads.client import AdsApiError, AdsClient
 from app.ads.config import AdsCredentials
 from app.ads.structure import PATH_PRODUCT_ADS, evaluar_perfiles
-from app.ads.write import AdsWriteClient
+from app.ads.write import AdsApiErrorMutacion, AdsWriteClient
 
 # Estados wire del list (UPPER, mismo vocabulario que app/apply.py).
 ESTADO_ARCHIVADO = "ARCHIVED"
 # Estado por default al reponer: PAUSED. Un anuncio repuesto en ENABLED
 # empieza a gastar solo; que lo encienda un humano.
 ESTADO_PAUSADO = "PAUSED"
+ESTADO_HABILITADO = "ENABLED"
 
 # Ids por llamada de LECTURA. Las lecturas si baten (el sync pagina de a
 # 1000); la regla "una entrada, jamas un lote" es de las MUTACIONES.
@@ -76,11 +77,13 @@ class ResultadoAnuncio:
 RESULTADOS = frozenset(
     {
         "archivado",  # estaba vivo, se archivo y el readback lo confirma
-        "ya_estaba",  # ya venia ARCHIVED: no se mando nada
+        "ya_estaba",  # ya venia en el estado destino: no se mando nada
         "no_existe",  # el id no aparece en la cuenta: no se mando nada
-        "sin_confirmar",  # se mando, pero el readback no lo vio ARCHIVED
+        "sin_confirmar",  # se mando, pero el readback no lo vio en destino
         "repuesto",  # la REVERSA: el anuncio se volvio a crear
         "fallo",  # Amazon rechazo la mutacion
+        "pausado",  # estaba ENABLED, se pauso y el readback lo confirma
+        "reactivado",  # estaba PAUSED, se reactivo y el readback lo confirma
     }
 )
 
@@ -184,7 +187,7 @@ def _errores_del_ack(ack: object) -> list:
 CLAVES_REVERSA = ("adGroupId", "campaignId", "sku", "state", "asin")
 
 
-def _reversa(fila: dict) -> str:
+def reversa_de_fila(fila: dict) -> str:
     """Con que se volveria a crear ESTE anuncio, en formato `clave=valor`.
 
     Lleva TODO lo que pide el create (adGroupId, campaignId, sku y el estado
@@ -258,13 +261,13 @@ def reponer_anuncios(
     avisar(f"a reponer: {len(datos)} anuncios")
     if not ejecutar:
         return [
-            ResultadoAnuncio(d["sku"], d["state"], "sin_confirmar", "ENSAYO", _reversa(d))
+            ResultadoAnuncio(d["sku"], d["state"], "sin_confirmar", "ENSAYO", reversa_de_fila(d))
             for d in datos
         ]
 
     resultados: list[ResultadoAnuncio] = []
     for i, d in enumerate(datos, 1):
-        reversa = _reversa(d)
+        reversa = reversa_de_fila(d)
         try:
             resp = escritor.crear_product_ad(d["adGroupId"], d["campaignId"], d["sku"], d["state"])
         except AdsApiError as exc:
@@ -293,9 +296,17 @@ def reponer_anuncios(
                     )
                 else:
                     # El ack no basta: un 207 success sin fila viva en el list
-                    # es falso exito (Make Operations Idempotent).
-                    posteriores = estados_actuales(escritor, [nuevo])
-                    estado_nuevo = posteriores.get(nuevo)
+                    # es falso exito (Make Operations Idempotent). El nuevo
+                    # tarda en verse (eventual): se reintenta la RELECTURA,
+                    # nunca el create (un solo anuncio nuevo).
+                    estado_nuevo = None
+                    for intento in range(3):
+                        posteriores = estados_actuales(escritor, [nuevo])
+                        estado_nuevo = posteriores.get(nuevo)
+                        if estado_nuevo is not None and estado_nuevo != ESTADO_ARCHIVADO:
+                            break
+                        if intento < 2:
+                            dormir(pausa)
                     if estado_nuevo is not None and estado_nuevo != ESTADO_ARCHIVADO:
                         resultados.append(
                             ResultadoAnuncio(nuevo, d["state"], "repuesto", "", reversa)
@@ -348,7 +359,7 @@ def archivar_anuncios(
             resultados.append(ResultadoAnuncio(ad_id, None, "no_existe"))
         elif estado == ESTADO_ARCHIVADO:
             resultados.append(
-                ResultadoAnuncio(ad_id, estado, "ya_estaba", reversa=_reversa(filas[ad_id]))
+                ResultadoAnuncio(ad_id, estado, "ya_estaba", reversa=reversa_de_fila(filas[ad_id]))
             )
         else:
             a_mutar.append(ad_id)
@@ -363,7 +374,7 @@ def archivar_anuncios(
         for ad_id in a_mutar:
             resultados.append(
                 ResultadoAnuncio(
-                    ad_id, previos[ad_id], "sin_confirmar", "ENSAYO", _reversa(filas[ad_id])
+                    ad_id, previos[ad_id], "sin_confirmar", "ENSAYO", reversa_de_fila(filas[ad_id])
                 )
             )
         return resultados
@@ -391,7 +402,7 @@ def archivar_anuncios(
 
     posteriores = estados_actuales(escritor, a_mutar)
     for ad_id in a_mutar:
-        reversa = _reversa(filas[ad_id])
+        reversa = reversa_de_fila(filas[ad_id])
         rechazo = rechazos.get(ad_id)
         if posteriores.get(ad_id) == ESTADO_ARCHIVADO:
             # El estado en Amazon MANDA sobre lo que dijo el envio: un corte
@@ -414,6 +425,176 @@ def archivar_anuncios(
                 )
             )
     return resultados
+
+
+def _cambiar_estado_anuncios(
+    escritor: AdsWriteClient,
+    ad_ids: Sequence[str],
+    destino: str,
+    verbo: str,
+    *,
+    ejecutar: bool,
+    avisar: Callable[[str], None],
+    dormir: Callable[[float], None],
+    pausa: float,
+) -> list[ResultadoAnuncio]:
+    """Tres pasadas como `archivar_anuncios`: lee el estado de todos,
+    muta UNO POR UNO con PUT y relee todos para confirmar. Un anuncio
+    ARCHIVED no se toca: el PUT no lo mueve (sale `fallo`, nunca
+    silencio)."""
+    ids = [str(x) for x in ad_ids]
+    if len(set(ids)) != len(ids):
+        raise ListaInvalida("hay adIds repetidos en la lista: se aborta antes de mutar")
+
+    try:
+        filas = leer_anuncios(escritor, ids)
+    except AdsApiError as exc:
+        # Previa caida: no se sabe nada; nada se muta. Cada anuncio sale
+        # `sin_confirmar` (NO `no_existe`): quiza existe y el PUT nunca
+        # salio; el retiro conserva la intencion y el reintento retoma.
+        detalle = f"previa caida ({exc}): PUT no enviado, se retoma"
+        avisar(f"lectura previa caida: {exc}")
+        return [ResultadoAnuncio(ad_id, None, "sin_confirmar", detalle) for ad_id in ids]
+    previos = {k: str(v["state"]) for k, v in filas.items()}
+    avisar(f"lectura previa: {len(previos)} de {len(ids)} adIds existen en la cuenta")
+
+    resultados: list[ResultadoAnuncio] = []
+    a_mutar: list[str] = []
+    for ad_id in ids:
+        estado = previos.get(ad_id)
+        if estado is None:
+            resultados.append(ResultadoAnuncio(ad_id, None, "no_existe"))
+        elif estado == destino:
+            resultados.append(
+                ResultadoAnuncio(ad_id, estado, "ya_estaba", reversa=reversa_de_fila(filas[ad_id]))
+            )
+        elif estado == ESTADO_ARCHIVADO:
+            resultados.append(
+                ResultadoAnuncio(
+                    ad_id,
+                    estado,
+                    "fallo",
+                    "ARCHIVED: el PUT no lo mueve",
+                    reversa_de_fila(filas[ad_id]),
+                )
+            )
+        else:
+            a_mutar.append(ad_id)
+
+    avisar(f"a {verbo}: {len(a_mutar)}")
+
+    if not ejecutar:
+        for ad_id in a_mutar:
+            resultados.append(
+                ResultadoAnuncio(
+                    ad_id, previos[ad_id], "sin_confirmar", "ENSAYO", reversa_de_fila(filas[ad_id])
+                )
+            )
+        return resultados
+
+    rechazos: dict[str, str] = {}
+    inciertos: dict[str, str] = {}
+    for i, ad_id in enumerate(a_mutar, 1):
+        try:
+            escritor.cambiar_estado_product_ad(ad_id, destino)
+        except AdsApiError as exc:
+            # R09-r5 B3 (3b): solo el rechazo EXPLICITO (4xx o 207
+            # con errores: Amazon proceso y dijo que no) es `fallo`.
+            # 5xx, timeout y red son inciertos: el PUT pudo aplicarse
+            # (y el readback puede ir atrasado); salen sin_confirmar.
+            texto = str(getattr(exc, "cuerpo", "") or exc)[:300]
+            if _es_rechazo_explicito(exc):
+                rechazos[ad_id] = texto
+            else:
+                inciertos[ad_id] = texto
+        if i % 25 == 0:
+            avisar(f"  ... {i}/{len(a_mutar)}")
+        dormir(pausa)
+
+    posteriores = estados_actuales(escritor, a_mutar)
+    for ad_id in a_mutar:
+        reversa = reversa_de_fila(filas[ad_id])
+        rechazo = rechazos.get(ad_id)
+        incierto = inciertos.get(ad_id)
+        if posteriores.get(ad_id) == destino:
+            detalle = f"quedo {destino} pese al rechazo del envio: {rechazo}" if rechazo else ""
+            if incierto and not rechazo:
+                detalle = f"quedo {destino} pese al envio incierto: {incierto}"
+            resultados.append(ResultadoAnuncio(ad_id, previos[ad_id], verbo, detalle, reversa))
+        elif rechazo:
+            resultados.append(ResultadoAnuncio(ad_id, previos[ad_id], "fallo", rechazo, reversa))
+        elif incierto:
+            resultados.append(
+                ResultadoAnuncio(
+                    ad_id, previos[ad_id], "sin_confirmar", f"envio incierto: {incierto}", reversa
+                )
+            )
+        else:
+            resultados.append(
+                ResultadoAnuncio(
+                    ad_id,
+                    previos[ad_id],
+                    "sin_confirmar",
+                    f"readback dijo {posteriores.get(ad_id)!r}",
+                    reversa,
+                )
+            )
+    return resultados
+
+
+def _es_rechazo_explicito(exc: AdsApiError) -> bool:
+    """Un PUT trae rechazo explicito solo si Amazon proceso la mutacion
+    y dijo que no: 4xx, o 207 con errores anidados (status < 500 con
+    cuerpo de mutacion). 5xx, timeout y red son inciertos."""
+    return isinstance(exc, AdsApiErrorMutacion) and exc.status is not None and exc.status < 500
+
+
+def pausar_anuncios(
+    escritor: AdsWriteClient,
+    ad_ids: Sequence[str],
+    *,
+    ejecutar: bool,
+    avisar: Callable[[str], None] = print,
+    dormir: Callable[[float], None] = time.sleep,
+    pausa: float = 0.2,
+) -> list[ResultadoAnuncio]:
+    """Pausa product ads ENABLED (BIDS 02 I.4, sonda 1 de V.0 sellada):
+    lectura previa, un PUT por anuncio y readback. Reversible con
+    `reactivar_anuncios`."""
+    return _cambiar_estado_anuncios(
+        escritor,
+        ad_ids,
+        ESTADO_PAUSADO,
+        "pausado",
+        ejecutar=ejecutar,
+        avisar=avisar,
+        dormir=dormir,
+        pausa=pausa,
+    )
+
+
+def reactivar_anuncios(
+    escritor: AdsWriteClient,
+    ad_ids: Sequence[str],
+    *,
+    ejecutar: bool,
+    avisar: Callable[[str], None] = print,
+    dormir: Callable[[float], None] = time.sleep,
+    pausa: float = 0.2,
+) -> list[ResultadoAnuncio]:
+    """Reactiva product ads PAUSED al estado que tenian (BIDS 02 I.4):
+    lectura previa, un PUT por anuncio y readback. La vuelta atras de
+    `pausar_anuncios`."""
+    return _cambiar_estado_anuncios(
+        escritor,
+        ad_ids,
+        ESTADO_HABILITADO,
+        "reactivado",
+        ejecutar=ejecutar,
+        avisar=avisar,
+        dormir=dormir,
+        pausa=pausa,
+    )
 
 
 def resumen(resultados: Iterable[ResultadoAnuncio]) -> dict[str, int]:

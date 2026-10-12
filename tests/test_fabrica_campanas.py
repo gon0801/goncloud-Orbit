@@ -2647,3 +2647,786 @@ def test_sql_del_ledger_contra_postgres_real():
         fc._sella_lote(conn, "L1", "failed", "detalle")
         fila = conn.execute("SELECT estado, detalle FROM fabrica_lote WHERE lote = 'L1'").fetchone()
         assert fila == ("failed", "detalle")
+
+
+# I.1 (BIDS 02 s5): grupo de dos ------------------------------------------------------------------
+
+
+def _plan_dos_roles():
+    import dataclasses
+
+    base = _plan_v2_min()
+    return dataclasses.replace(
+        base,
+        roles=("category_exact", "auto_discovery"),
+        parametros={
+            rol: fp.ParametrosRol(rol, Decimal("120"), Decimal("6.00"))
+            for rol in ("category_exact", "auto_discovery")
+        },
+    )
+
+
+@_skip_db
+def test_mutar_plan_dos_roles_crea_dos_y_registra_impulso(monkeypatch):
+    """I.1: con un plan de dos roles y --esperado 2, _mutar crea 2 campanas,
+    2 ad groups, 2 filas de rol y 2 goals, y el grupo queda tipo impulso."""
+    import psycopg
+    from test_migracion_0064 import SQL64
+
+    with db_fabrica("orbit_i1_mutar") as conn:
+        conn.execute(SQL64)
+        plan = _plan_dos_roles()
+        huella = fp.huella_plan_v2(plan)
+        args = SimpleNamespace(esperado=2, huella=huella, go="impulso test")
+        for i in (1, 2):
+            camp = _entidad(conn, "amazon_mx", "campaign", f"campaigns-{i}")
+            _entidad(conn, "amazon_mx", "ad_group", f"adGroups-{i}", parent=camp)
+        conn.execute(
+            "INSERT INTO product (id, odoo_sku, name) OVERRIDING SYSTEM VALUE"
+            " VALUES (1, 'SS-1', 'SS-1')"
+        )
+        conn.execute(
+            "INSERT INTO listing (id, product_id, platform, external_id, seller_sku)"
+            " OVERRIDING SYSTEM VALUE VALUES (11, 1, 'amazon_mx', 'B0AAAAAAAA', 'SS-1'),"
+            " (12, 1, 'amazon_mx', 'B0AAAAAAAB', 'SS-2')"
+        )
+        with psycopg.connect(_test_dsn(), dbname=conn.info.dbname) as conn_motor:
+            amazon = _Amazon()
+            _frontera_mutacion(monkeypatch, _conn_plan(), conn_motor, amazon, stub_registrar=False)
+            monkeypatch.setattr(fc, "_sync", lambda cliente: None)
+            assert fc._mutar(args, plan, huella, lote="i1-dos") == 0
+        assert len(amazon.posts("/sp/campaigns")) == 2
+        assert len(amazon.posts("/sp/adGroups")) == 2
+        assert conn.execute("SELECT count(*) FROM campana_grupo_rol").fetchone() == (2,)
+        assert conn.execute("SELECT tipo FROM campana_grupo").fetchone() == ("impulso",)
+        assert conn.execute("SELECT count(*) FROM ads_optimizer_goal").fetchone() == (2,)
+
+
+@_skip_db
+def test_registrar_tipifica_por_roles_de_impulso_no_literal(monkeypatch):
+    """R09-r2: _registrar compara plan.roles contra ROLES_IMPULSO (si
+    cambian, el grupo ya no sale impulso)."""
+    import psycopg
+    from test_migracion_0064 import SQL64
+
+    with db_fabrica("orbit_i1_tupla") as conn:
+        conn.execute(SQL64)
+        plan = _plan_dos_roles()
+        huella = fp.huella_plan_v2(plan)
+        args = SimpleNamespace(esperado=2, huella=huella, go="impulso test")
+        for i in (1, 2):
+            camp = _entidad(conn, "amazon_mx", "campaign", f"campaigns-{i}")
+            _entidad(conn, "amazon_mx", "ad_group", f"adGroups-{i}", parent=camp)
+        conn.execute(
+            "INSERT INTO product (id, odoo_sku, name) OVERRIDING SYSTEM VALUE"
+            " VALUES (1, 'SS-1', 'SS-1')"
+        )
+        conn.execute(
+            "INSERT INTO listing (id, product_id, platform, external_id, seller_sku)"
+            " OVERRIDING SYSTEM VALUE VALUES (11, 1, 'amazon_mx', 'B0AAAAAAAA', 'SS-1'),"
+            " (12, 1, 'amazon_mx', 'B0AAAAAAAB', 'SS-2')"
+        )
+        with psycopg.connect(_test_dsn(), dbname=conn.info.dbname) as conn_motor:
+            amazon = _Amazon()
+            _frontera_mutacion(monkeypatch, _conn_plan(), conn_motor, amazon, stub_registrar=False)
+            monkeypatch.setattr(fc, "_sync", lambda cliente: None)
+            monkeypatch.setattr(fp, "ROLES_IMPULSO", ("solo_un_rol",))
+            assert fc._mutar(args, plan, huella, lote="i1-tupla") == 0
+        assert conn.execute("SELECT tipo FROM campana_grupo").fetchone() == ("fabrica5",)
+
+
+def test_mutar_plan_dos_roles_con_esperado_cinco_aborta_sin_post(monkeypatch):
+    """I.1: con --esperado 5 y un plan de dos, _mutar aborta sin POST."""
+    plan = _plan_dos_roles()
+    huella = fp.huella_plan_v2(plan)
+    args = SimpleNamespace(esperado=5, huella=huella, go="impulso test")
+    amazon = _Amazon()
+    _frontera_mutacion(monkeypatch, _conn_plan(), _ConnFalsa(), amazon)
+    with pytest.raises(fc.Abortar, match="esperado 5"):
+        fc._mutar(args, plan, huella, lote="i1-aborta")
+    assert amazon.pedidos == []
+
+
+# I.3 (BIDS 02 s5): pausar y reanudar un lote sin desarmarlo ----------------------------
+
+
+def _ctx_pausa(conn, transporte, lote):
+    cliente_http = httpx.Client(transport=transporte)
+    return fc._Ctx(cliente_http, "tok", _CREDS, _ClienteLectura(transporte), 101, conn, lote)
+
+
+def _lote_applied_dos(conn):
+    from test_migracion_0064 import SQL64
+    from test_migracion_0065 import SQL65
+    from test_migracion_0066 import SQL66
+    from test_migracion_0068 import SQL68
+
+    conn.execute(SQL64)
+    conn.execute(SQL65)
+    conn.execute(SQL66)
+    conn.execute(SQL68)
+    conn.execute(
+        "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base,"
+        " go_literal, huella, plan, modo_goal, estado) VALUES ('LP2', 'amazon_mx',"
+        " 'aros', 'Base', 'go', 'h', '{}', 'shadow', 'applied')"
+    )
+    for i, rol in enumerate(("category_exact", "auto_discovery")):
+        conn.execute(
+            "INSERT INTO fabrica_lote_paso (lote, orden, rol, recurso, request_payload,"
+            " estado, external_id, ack, readback_estado) VALUES ('LP2', %s, %s, 'campaign',"
+            " '{}', 'applied', %s, '{}', 'ENABLED')",
+            (10 + i, rol, f"c-{i}"),
+        )
+
+
+def _handler_pausa(estado):
+    def handler(request):
+        if request.url.path == "/sp/campaigns":
+            cuerpo = json.loads(request.content)["campaigns"][0]
+            assert cuerpo["state"] == estado
+            return httpx.Response(207, json={"campaigns": {"success": [{"index": 0}], "error": []}})
+        pedido = json.loads(request.content)["campaignIdFilter"]["include"][0]
+        return httpx.Response(
+            200, json={"campaigns": [{"campaignId": pedido, "state": estado, "name": "n"}]}
+        )
+
+    return handler
+
+
+@_skip_db
+def test_pausar_lote_fila_pre_put_y_no_toca_goals():
+    """I.3: pausar_lote deja fila en el ledger antes de cada PUT, pausa
+    con readback, sella pausado y no toca los goals."""
+    with db_fabrica("orbit_i3_pl") as conn:
+        _lote_applied_dos(conn)
+        gid = conn.execute(
+            "INSERT INTO ad_entity (platform, kind, external_id) VALUES ('amazon_mx',"
+            " 'campaign', 'c-0') RETURNING id"
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO ads_optimizer_goal (scope, ad_entity_id, enabled, mode,"
+            " bid_currency, bid_floor, bid_ceiling) VALUES ('campaign', %s, true,"
+            " 'shadow', 'MXN', 0.10, 2.50)",
+            (gid,),
+        )
+        ctx = _ctx_pausa(conn, httpx.MockTransport(_handler_pausa("PAUSED")), "LP2")
+        fc.pausar_lote(ctx, "LP2", "dueno")
+        assert conn.execute("SELECT estado FROM fabrica_lote WHERE lote = 'LP2'").fetchone() == (
+            "pausado",
+        )
+        filas = conn.execute(
+            "SELECT request_payload, estado FROM fabrica_lote_paso WHERE lote = 'LP2'"
+            " AND request_payload::text LIKE '%PAUSED%'"
+        ).fetchall()
+        assert len(filas) == 2 and all(f[1] == "applied" for f in filas)
+        assert conn.execute(
+            "SELECT enabled, mode FROM ads_optimizer_goal WHERE ad_entity_id = %s", (gid,)
+        ).fetchone() == (True, "shadow")
+
+
+@_skip_db
+def test_reanudar_lote_revive():
+    """I.3: reanudar_lote revive un lote pausado."""
+    with db_fabrica("orbit_i3_rl") as conn:
+        _lote_applied_dos(conn)
+        conn.execute("UPDATE fabrica_lote SET estado = 'pausado' WHERE lote = 'LP2'")
+        ctx = _ctx_pausa(conn, httpx.MockTransport(_handler_pausa("ENABLED")), "LP2")
+        fc.reanudar_lote(ctx, "LP2", "dueno")
+        assert conn.execute("SELECT estado FROM fabrica_lote WHERE lote = 'LP2'").fetchone() == (
+            "applied",
+        )
+
+
+def _lote_applied_orden_real(conn, lote="LP1"):
+    """Lote applied con pasos 1..2 como los deja _mutar (no 10+i)."""
+    from test_migracion_0064 import SQL64
+    from test_migracion_0065 import SQL65
+    from test_migracion_0066 import SQL66
+    from test_migracion_0068 import SQL68
+
+    conn.execute(SQL64)
+    conn.execute(SQL65)
+    conn.execute(SQL66)
+    conn.execute(SQL68)
+    conn.execute(
+        "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base,"
+        " go_literal, huella, plan, modo_goal, estado) VALUES (%s, 'amazon_mx',"
+        " 'aros', 'Base', 'go', 'h', '{}', 'shadow', 'applied')",
+        (lote,),
+    )
+    for i, rol in enumerate(("category_exact", "auto_discovery"), start=1):
+        conn.execute(
+            "INSERT INTO fabrica_lote_paso (lote, orden, rol, recurso, request_payload,"
+            " estado, external_id, ack, readback_estado) VALUES (%s, %s, %s, 'campaign',"
+            " '{}', 'applied', %s, '{}', 'ENABLED')",
+            (lote, i, rol, f"c-{i}"),
+        )
+    conn.commit()
+
+
+def _handler_pausa_cuenta(puts):
+    def handler(request):
+        if request.url.path == "/sp/campaigns" and request.method == "PUT":
+            cuerpo = json.loads(request.content)["campaigns"][0]
+            puts.append((cuerpo["campaignId"], cuerpo["state"]))
+            return httpx.Response(207, json={"campaigns": {"success": [{"index": 0}], "error": []}})
+        pedido = json.loads(request.content)["campaignIdFilter"]["include"][0]
+        estado = next((e for _c, e in reversed(puts) if _c == pedido), "ENABLED")
+        return httpx.Response(
+            200, json={"campaigns": [{"campaignId": pedido, "state": estado, "name": "n"}]}
+        )
+
+    return handler
+
+
+@_skip_db
+def test_pausar_lote_continua_el_ledger_y_no_repite_puts():
+    """R09-r2 A-1/A-8: con pasos 1..2 de _mutar, pausar no colisiona
+    UNIQUE(lote, orden), pausa una vez por rol, y reanudar no repite
+    los PUTs historicos."""
+    with db_fabrica("orbit_i3_pl1") as conn:
+        _lote_applied_orden_real(conn)
+        puts: list = []
+        ctx = _ctx_pausa(conn, httpx.MockTransport(_handler_pausa_cuenta(puts)), "LP1")
+        fc.pausar_lote(ctx, "LP1", "dueno")
+        assert conn.execute("SELECT estado FROM fabrica_lote WHERE lote = 'LP1'").fetchone() == (
+            "pausado",
+        )
+        assert [p for _, p in puts] == ["PAUSED", "PAUSED"]
+        assert conn.execute(
+            "SELECT orden FROM fabrica_lote_paso WHERE lote = 'LP1' ORDER BY orden"
+        ).fetchall() == [(1,), (2,), (3,), (4,)]
+        puts.clear()
+        ctx2 = _ctx_pausa(conn, httpx.MockTransport(_handler_pausa_cuenta(puts)), "LP1")
+        fc.reanudar_lote(ctx2, "LP1", "dueno")
+        assert [p for _, p in puts] == ["ENABLED", "ENABLED"]
+
+
+@_skip_db
+def test_pausar_lote_rechaza_transiciones_ilegales():
+    """I.3: desarmado nunca revive, pausar exige applied, reanudar exige
+    pausado, lote ausente aborta."""
+    with db_fabrica("orbit_i3_nop") as conn:
+        _lote_applied_dos(conn)
+        conn.execute(
+            "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base,"
+            " go_literal, huella, plan, modo_goal, estado) VALUES ('LD', 'amazon_mx',"
+            " 'aros', 'Base', 'go', 'h', '{}', 'shadow', 'desarmado')"
+        )
+        ctx = _ctx_pausa(conn, httpx.MockTransport(_handler_pausa("PAUSED")), "LD")
+        with pytest.raises(fc.Abortar, match="nunca revive"):
+            fc.pausar_lote(ctx, "LD", "dueno")
+        with pytest.raises(fc.Abortar, match="no existe"):
+            fc.pausar_lote(ctx, "LX", "dueno")
+        ctx2 = _ctx_pausa(conn, httpx.MockTransport(_handler_pausa("ENABLED")), "LP2")
+        with pytest.raises(fc.Abortar, match="desde pausado"):
+            fc.reanudar_lote(ctx2, "LP2", "dueno")
+
+
+class _AmazonConPausa(_Amazon):
+    """_Amazon con PUT real: pausa y refleja el state en LIST."""
+
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self.pausadas = []
+        self.puts = []
+        self.post_500_creando = set()
+
+    def __call__(self, request):
+        if request.method == "PUT" and str(request.url).endswith("/sp/campaigns"):
+            cuerpo = json.loads(request.content)["campaigns"][0]
+            self.pausadas.append(cuerpo["campaignId"])
+            self.puts.append((cuerpo["campaignId"], cuerpo["state"]))
+            self.objetos.setdefault(cuerpo["campaignId"], {})["state"] = cuerpo["state"]
+            return httpx.Response(207, json={"campaigns": {"success": [{"index": 0}], "error": []}})
+        if request.method == "POST":
+            path = str(request.url).replace(fc.API, "")
+            n = self.creados.get(path, 0) + 1
+            if (path, n) in self.post_500_creando:
+                cuerpo = json.loads(request.content)
+                envoltura = fp.ENVOLTURA_POR_PATH[path]
+                ext = f"{envoltura}-{n}"
+                self.creados[path] = n
+                self.objetos[ext] = cuerpo[envoltura][0]
+                return httpx.Response(500, text="Internal error")
+        return super().__call__(request)
+
+    def _list(self, path, body):
+        filtro = fp.FILTRO_ID_POR_LIST[path]
+        ext = body[filtro]["include"][0]
+        contenedor = fp.CONTENEDOR_POR_LIST[path]
+        clave = fp.CLAVE_ID_POR_PATH[path.removesuffix("/list")]
+        estado = self.objetos.get(ext, {}).get("state", "ENABLED")
+        return httpx.Response(
+            200, json={contenedor: [{**self.objetos.get(ext, {}), clave: ext, "state": estado}]}
+        )
+
+
+@_skip_db
+def test_mutar_revierte_pausa_creadas_al_fallar_segunda(monkeypatch):
+    """R09 B2 (A): con revierte_al_fallar, si cae la 2a campana la 1a queda
+    PAUSED en Amazon y el lote failed anota el rollback."""
+    import psycopg
+    from test_migracion_0064 import SQL64
+
+    with db_fabrica("orbit_r3_revierte") as conn:
+        conn.execute(SQL64)
+        plan = _plan_dos_roles()
+        huella = fp.huella_plan_v2(plan)
+        args = SimpleNamespace(esperado=2, huella=huella, go="impulso test")
+        with psycopg.connect(_test_dsn(), dbname=conn.info.dbname) as conn_motor:
+            amazon = _AmazonConPausa(fallar_en=("/sp/campaigns", 2))
+            _frontera_mutacion(monkeypatch, _conn_plan(), conn_motor, amazon)
+            with pytest.raises(fc.Abortar):
+                fc._mutar(args, plan, huella, lote="r3-revierte", revierte_al_fallar=True)
+        assert amazon.pausadas == ["campaigns-1"]
+        assert amazon.objetos["campaigns-1"]["state"] == "PAUSED"
+        fila = conn.execute(
+            "SELECT estado, detalle FROM fabrica_lote WHERE lote = 'r3-revierte'"
+        ).fetchone()
+        assert fila[0] == "failed"
+        assert "revertidas: ['campaigns-1']" in fila[1]
+
+
+@_skip_db
+def test_r09r4_n10_activar_lote_sin_campanas_aborta():
+    """R09-r4 B6 (N10): activar un lote sin campanas con external
+    aborta, no sigue a applied vacio."""
+    from types import SimpleNamespace
+
+    with db_fabrica("orbit_r4_n10") as conn:
+        from test_migracion_0064 import SQL64
+        from test_migracion_0065 import SQL65
+
+        conn.execute(SQL64)
+        conn.execute(SQL65)
+        conn.execute(
+            "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base,"
+            " go_literal, huella, plan, modo_goal, estado) VALUES ('r4-n10', 'amazon_mx',"
+            " 'aros', 'Base', 'go', 'h', '{}', 'shadow', 'planeado')"
+        )
+        ctx = SimpleNamespace(conn_admin=conn, lote="r4-n10")
+        with pytest.raises(fc.Abortar, match="nada que activar"):
+            fc._activa_campanas(ctx, "r4-n10")
+
+
+@_skip_db
+def test_r09r4_n19_reactiva_no_revive_desarmado():
+    """R09-r4 B6 (N19): reactiva_lote sobre un lote desarmado aborta
+    (nunca revive), sin PUTs."""
+    from types import SimpleNamespace
+
+    with db_fabrica("orbit_r4_n19") as conn:
+        from test_migracion_0064 import SQL64
+        from test_migracion_0065 import SQL65
+
+        conn.execute(SQL64)
+        conn.execute(SQL65)
+        conn.execute(
+            "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base,"
+            " go_literal, huella, plan, modo_goal, estado) VALUES ('r4-n19', 'amazon_mx',"
+            " 'aros', 'Base', 'go', 'h', '{}', 'shadow', 'desarmado')"
+        )
+        ctx = SimpleNamespace(conn_admin=conn, lote="r4-n19")
+        with pytest.raises(fc.Abortar, match="nunca revive"):
+            fc.reactiva_lote(ctx, "r4-n19", "impulso-vigia")
+
+
+class _AmazonPausaFalla(_AmazonConPausa):
+    """PUT programable por numero: 'red' (ConnectError), 'expira'
+    (aplica + ReadTimeout) o '400' (rechazo). Lo demas aplica."""
+
+    def __init__(self, *a, put_falla=None, **k):
+        super().__init__(*a, **k)
+        self.put_falla = dict(put_falla or {})
+        self.n_put = 0
+
+    def __call__(self, request):
+        if request.method == "PUT" and str(request.url).endswith("/sp/campaigns"):
+            self.n_put += 1
+            modo = self.put_falla.get(self.n_put)
+            cuerpo = json.loads(request.content)["campaigns"][0]
+            if modo == "red":
+                raise httpx.ConnectError("red caida (falso)")
+            if modo == "400":
+                return httpx.Response(400, json={"code": "400", "details": "rechazado"})
+            if modo == "expira":
+                self.objetos.setdefault(cuerpo["campaignId"], {})["state"] = cuerpo["state"]
+                self.puts.append((cuerpo["campaignId"], cuerpo["state"]))
+                raise httpx.ReadTimeout("expiro (falso); Amazon SI aplico")
+            if modo == "sordo":
+                self.puts.append((cuerpo["campaignId"], cuerpo["state"]))
+                return httpx.Response(
+                    207, json={"campaigns": {"success": [{"index": 0}], "error": []}}
+                )
+            if modo == "miente":
+                self.objetos.setdefault(cuerpo["campaignId"], {})["state"] = cuerpo["state"]
+                self.puts.append((cuerpo["campaignId"], cuerpo["state"]))
+                return httpx.Response(400, json={"code": "400", "details": "rechazado"})
+        return super().__call__(request)
+
+
+@_skip_db
+def test_r09r4_l3_red_en_activacion_revierte_y_falla_cerrado(monkeypatch):
+    """R09-r4 B1 (L3): ConnectError (no Abortar) en el PUT de activar:
+    _mutar lo atrapa, revierte (ambas PAUSED) y falla con Abortar,
+    no con la excepcion de red pelada."""
+    import psycopg
+    from test_migracion_0064 import SQL64
+
+    with db_fabrica("orbit_r4_l3") as conn:
+        conn.execute(SQL64)
+        plan = _plan_dos_roles()
+        huella = fp.huella_plan_v2(plan)
+        args = SimpleNamespace(esperado=2, huella=huella, go="impulso test")
+        with psycopg.connect(_test_dsn(), dbname=conn.info.dbname) as conn_motor:
+            amazon = _AmazonPausaFalla(put_falla={2: "red"})
+            _frontera_mutacion(monkeypatch, _conn_plan(), conn_motor, amazon)
+            with pytest.raises(fc.Abortar):
+                fc._mutar(
+                    args, plan, huella, lote="r4-l3", revierte_al_fallar=True, crear_pausado=True
+                )
+        assert amazon.objetos["campaigns-1"]["state"] == "PAUSED"
+        assert amazon.objetos["campaigns-2"]["state"] == "PAUSED"
+        fila = conn.execute(
+            "SELECT estado, detalle FROM fabrica_lote WHERE lote = 'r4-l3'"
+        ).fetchone()
+        assert fila[0] == "failed"
+        assert "revertidas: ['campaigns-1', 'campaigns-2']" in fila[1]
+
+
+@_skip_db
+def test_r09r4_l3b_timeout_tras_aplicar_revierte_ambas(monkeypatch):
+    """R09-r4 B1 (L3b): el PUT aplica en Amazon pero la respuesta
+    expira: se revierte igual y nada queda ENABLED."""
+    import psycopg
+    from test_migracion_0064 import SQL64
+
+    with db_fabrica("orbit_r4_l3b") as conn:
+        conn.execute(SQL64)
+        plan = _plan_dos_roles()
+        huella = fp.huella_plan_v2(plan)
+        args = SimpleNamespace(esperado=2, huella=huella, go="impulso test")
+        with psycopg.connect(_test_dsn(), dbname=conn.info.dbname) as conn_motor:
+            amazon = _AmazonPausaFalla(put_falla={2: "expira"})
+            _frontera_mutacion(monkeypatch, _conn_plan(), conn_motor, amazon)
+            with pytest.raises(fc.Abortar):
+                fc._mutar(
+                    args, plan, huella, lote="r4-l3b", revierte_al_fallar=True, crear_pausado=True
+                )
+        assert amazon.objetos["campaigns-1"]["state"] == "PAUSED"
+        assert amazon.objetos["campaigns-2"]["state"] == "PAUSED"
+        fila = conn.execute("SELECT estado FROM fabrica_lote WHERE lote = 'r4-l3b'").fetchone()
+        assert fila[0] == "failed"
+
+
+@_skip_db
+def test_r09r4_n06_rollback_con_readback_malo_lo_registra(monkeypatch):
+    """R09-r4 B6 (N06): PUT PAUSED con ack ok pero readback que no
+    confirma (sordo): el rollback lo registra como error (no como
+    revertida) y el mensaje lo dice."""
+    import psycopg
+    from test_migracion_0064 import SQL64
+
+    with db_fabrica("orbit_r4_n06") as conn:
+        conn.execute(SQL64)
+        plan = _plan_dos_roles()
+        huella = fp.huella_plan_v2(plan)
+        args = SimpleNamespace(esperado=2, huella=huella, go="impulso test")
+        with psycopg.connect(_test_dsn(), dbname=conn.info.dbname) as conn_motor:
+            amazon = _AmazonPausaFalla(put_falla={2: "400", 3: "sordo", 4: "sordo"})
+            _frontera_mutacion(monkeypatch, _conn_plan(), conn_motor, amazon)
+            with pytest.raises(fc.Abortar) as exc:
+                fc._mutar(
+                    args, plan, huella, lote="r4-n06", revierte_al_fallar=True, crear_pausado=True
+                )
+        assert "rollback incompleto" in str(exc.value)
+        assert "readback tras PUT: ENABLED" in str(exc.value)
+        fila = conn.execute("SELECT detalle FROM fabrica_lote WHERE lote = 'r4-n06'").fetchone()
+        # c2 nacio PAUSED (su PUT ENABLED fue el rechazado): el rollback
+        # la confirma; c1 quedo ENABLED y se registra por readback.
+        assert "revertidas: ['campaigns-2']" in fila[0]
+        assert "campaigns-1: readback tras PUT: ENABLED" in fila[0]
+
+
+@_skip_db
+def test_r09r4_l2_rollback_fallido_lo_dice(monkeypatch):
+    """R09-r4 B1 (L2): si la activacion falla Y el rollback tambien,
+    el mensaje al dueno dice que puede quedar ENABLED y que el vigia
+    la pausa al reconciliar."""
+    import psycopg
+    from test_migracion_0064 import SQL64
+
+    with db_fabrica("orbit_r4_l2m") as conn:
+        conn.execute(SQL64)
+        plan = _plan_dos_roles()
+        huella = fp.huella_plan_v2(plan)
+        args = SimpleNamespace(esperado=2, huella=huella, go="impulso test")
+        with psycopg.connect(_test_dsn(), dbname=conn.info.dbname) as conn_motor:
+            amazon = _AmazonPausaFalla(put_falla={2: "400", 3: "400", 4: "400"})
+            _frontera_mutacion(monkeypatch, _conn_plan(), conn_motor, amazon)
+            with pytest.raises(fc.Abortar) as exc:
+                fc._mutar(
+                    args, plan, huella, lote="r4-l2m", revierte_al_fallar=True, crear_pausado=True
+                )
+        assert "rollback incompleto" in str(exc.value)
+        assert "el vigia la pausa al reconciliar" in str(exc.value)
+        assert "PUT PAUSED rechazado (status 400)" in str(exc.value)
+        assert amazon.objetos["campaigns-1"]["state"] == "ENABLED"
+
+
+@_skip_db
+def test_r09r4_n08_activa_no_ignora_ack(monkeypatch):
+    """R09-r4 B6 (N08): PUT ENABLED que aplica pero responde 400: se
+    aborta por el ack (no se sigue porque el readback diga ENABLED)."""
+    import psycopg
+    from test_migracion_0064 import SQL64
+
+    with db_fabrica("orbit_r4_n08") as conn:
+        conn.execute(SQL64)
+        plan = _plan_dos_roles()
+        huella = fp.huella_plan_v2(plan)
+        args = SimpleNamespace(esperado=2, huella=huella, go="impulso test")
+        with psycopg.connect(_test_dsn(), dbname=conn.info.dbname) as conn_motor:
+            amazon = _AmazonPausaFalla(put_falla={2: "miente"})
+            _frontera_mutacion(monkeypatch, _conn_plan(), conn_motor, amazon)
+            with pytest.raises(fc.Abortar) as exc:
+                fc._mutar(
+                    args, plan, huella, lote="r4-n08", revierte_al_fallar=True, crear_pausado=True
+                )
+        assert "PUT ENABLED de campaigns-2 rechazado (status 400)" in str(exc.value)
+        assert conn.execute("SELECT estado FROM fabrica_lote WHERE lote = 'r4-n08'").fetchone() == (
+            "failed",
+        )
+
+
+@_skip_db
+def test_r09r4_n09_activa_verifica_readback(monkeypatch):
+    """R09-r4 B6 (N09): PUT ENABLED sordo (ack ok, no aplica): el
+    readback lo detecta y se aborta (no queda applied a medias)."""
+    import psycopg
+    from test_migracion_0064 import SQL64
+
+    with db_fabrica("orbit_r4_n09") as conn:
+        conn.execute(SQL64)
+        plan = _plan_dos_roles()
+        huella = fp.huella_plan_v2(plan)
+        args = SimpleNamespace(esperado=2, huella=huella, go="impulso test")
+        with psycopg.connect(_test_dsn(), dbname=conn.info.dbname) as conn_motor:
+            amazon = _AmazonPausaFalla(put_falla={1: "sordo", 2: "sordo"})
+            _frontera_mutacion(monkeypatch, _conn_plan(), conn_motor, amazon)
+            with pytest.raises(fc.Abortar) as exc:
+                fc._mutar(
+                    args, plan, huella, lote="r4-n09", revierte_al_fallar=True, crear_pausado=True
+                )
+        assert "tras activar != ENABLED (PAUSED)" in str(exc.value)
+        assert conn.execute("SELECT estado FROM fabrica_lote WHERE lote = 'r4-n09'").fetchone() == (
+            "failed",
+        )
+
+
+@_skip_db
+def test_mutar_sin_revierte_deja_enabled(monkeypatch):
+    """R09 B2 (A): sin revierte_al_fallar (fabrica 01) el fallo no pausa:
+    el contrato ENABLED + --desarmar queda intacto."""
+    import psycopg
+    from test_migracion_0064 import SQL64
+
+    with db_fabrica("orbit_r3_sinrev") as conn:
+        conn.execute(SQL64)
+        plan = _plan_dos_roles()
+        huella = fp.huella_plan_v2(plan)
+        args = SimpleNamespace(esperado=2, huella=huella, go="impulso test")
+        with psycopg.connect(_test_dsn(), dbname=conn.info.dbname) as conn_motor:
+            amazon = _AmazonConPausa(fallar_en=("/sp/campaigns", 2))
+            _frontera_mutacion(monkeypatch, _conn_plan(), conn_motor, amazon)
+            with pytest.raises(fc.Abortar):
+                fc._mutar(args, plan, huella, lote="r3-sinrev")
+        assert amazon.pausadas == []
+        fila = conn.execute(
+            "SELECT estado, detalle FROM fabrica_lote WHERE lote = 'r3-sinrev'"
+        ).fetchone()
+        assert fila[0] == "failed"
+        assert "revertidas" not in fila[1]
+
+
+@_skip_db
+def test_mutar_crear_pausado_nace_pausado_y_activa_al_final(monkeypatch):
+    """R09 B2 (A2): con crear_pausado los POST nacen PAUSED y, con el lote
+    completo, se activan (PUT ENABLED + readback) antes del applied."""
+    import psycopg
+    from test_migracion_0064 import SQL64
+
+    with db_fabrica("orbit_r3_activar") as conn:
+        conn.execute(SQL64)
+        plan = _plan_dos_roles()
+        huella = fp.huella_plan_v2(plan)
+        args = SimpleNamespace(esperado=2, huella=huella, go="impulso test")
+        with psycopg.connect(_test_dsn(), dbname=conn.info.dbname) as conn_motor:
+            amazon = _AmazonConPausa()
+            _frontera_mutacion(monkeypatch, _conn_plan(), conn_motor, amazon)
+            assert (
+                fc._mutar(
+                    args,
+                    plan,
+                    huella,
+                    lote="r3-activar",
+                    revierte_al_fallar=True,
+                    crear_pausado=True,
+                )
+                == 0
+            )
+        posts = [json.loads(p.content)["campaigns"][0] for p in amazon.posts("/sp/campaigns")]
+        assert [p["state"] for p in posts] == ["PAUSED", "PAUSED"]
+        assert amazon.puts == [("campaigns-1", "ENABLED"), ("campaigns-2", "ENABLED")]
+        assert amazon.objetos["campaigns-1"]["state"] == "ENABLED"
+        assert amazon.objetos["campaigns-2"]["state"] == "ENABLED"
+        assert conn.execute(
+            "SELECT estado FROM fabrica_lote WHERE lote = 'r3-activar'"
+        ).fetchone() == ("applied",)
+
+
+@_skip_db
+def test_mutar_crear_pausado_fantasma_500_no_gasta(monkeypatch):
+    """R09 B2 (A2): 500 incierto en la 2a campana: la fantasma nacio PAUSED
+    (no gasta), la 1a se revierte y el lote queda failed."""
+    import psycopg
+    from test_migracion_0064 import SQL64
+
+    with db_fabrica("orbit_r3_fantasma") as conn:
+        conn.execute(SQL64)
+        plan = _plan_dos_roles()
+        huella = fp.huella_plan_v2(plan)
+        args = SimpleNamespace(esperado=2, huella=huella, go="impulso test")
+        with psycopg.connect(_test_dsn(), dbname=conn.info.dbname) as conn_motor:
+            amazon = _AmazonConPausa()
+            amazon.post_500_creando.add(("/sp/campaigns", 2))
+            _frontera_mutacion(monkeypatch, _conn_plan(), conn_motor, amazon)
+            with pytest.raises(fc.Abortar, match="INCERTO"):
+                fc._mutar(
+                    args,
+                    plan,
+                    huella,
+                    lote="r3-fantasma",
+                    revierte_al_fallar=True,
+                    crear_pausado=True,
+                )
+        assert amazon.objetos["campaigns-2"]["state"] == "PAUSED"
+        assert amazon.pausadas == ["campaigns-1"]
+        # Ninguna CAMPANA en ENABLED (ad groups y ads bajo campana
+        # pausada no sirven: sin vigia no se gasta).
+        vivas = [
+            e
+            for e, o in amazon.objetos.items()
+            if e.startswith("campaigns-") and o.get("state") == "ENABLED"
+        ]
+        assert vivas == []
+        assert conn.execute(
+            "SELECT estado FROM fabrica_lote WHERE lote = 'r3-fantasma'"
+        ).fetchone() == ("failed",)
+
+
+def _handler_estados(estados, puts):
+    """Mock con state por campana: LIST lee, PUT escribe."""
+
+    def handler(request):
+        if request.url.path == "/sp/campaigns":
+            cuerpo = json.loads(request.content)["campaigns"][0]
+            puts.append((cuerpo["campaignId"], cuerpo["state"]))
+            estados[cuerpo["campaignId"]] = cuerpo["state"]
+            return httpx.Response(207, json={"campaigns": {"success": [{"index": 0}], "error": []}})
+        pedido = json.loads(request.content)["campaignIdFilter"]["include"][0]
+        return httpx.Response(
+            200, json={"campaigns": [{"campaignId": pedido, "state": estados[pedido], "name": "n"}]}
+        )
+
+    return handler
+
+
+@_skip_db
+def test_reactiva_lote_pausado_activa_todo_y_sella_applied():
+    """R09 B4 (D): lote pausado con las 2 pausadas en Amazon: PUT ENABLED
+    a las 2 (ledger + readback) y el lote vuelve a applied."""
+    with db_fabrica("orbit_r3_reactiva") as conn:
+        _lote_applied_dos(conn)
+        conn.execute("UPDATE fabrica_lote SET estado = 'pausado' WHERE lote = 'LP2'")
+        conn.commit()
+        estados = {"c-0": "PAUSED", "c-1": "PAUSED"}
+        puts = []
+        ctx = _ctx_pausa(conn, httpx.MockTransport(_handler_estados(estados, puts)), "LP2")
+        fc.reactiva_lote(ctx, "LP2", "dueno")
+        assert puts == [("c-1", "ENABLED"), ("c-0", "ENABLED")]  # orden: rol
+        assert estados == {"c-0": "ENABLED", "c-1": "ENABLED"}
+        assert conn.execute("SELECT estado FROM fabrica_lote WHERE lote = 'LP2'").fetchone() == (
+            "applied",
+        )
+        assert conn.execute(
+            "SELECT count(*) FROM fabrica_lote_paso WHERE lote = 'LP2'"
+            " AND request_payload->>'state' = 'ENABLED' AND estado = 'applied'"
+        ).fetchone() == (2,)
+
+
+@_skip_db
+def test_reactiva_lote_applied_solo_suelta():
+    """R09 B4 (A): lote applied con una campana PAUSED en Amazon: solo esa
+    recibe PUT; el lote sigue applied."""
+    with db_fabrica("orbit_r3_suelta") as conn:
+        _lote_applied_dos(conn)
+        conn.commit()
+        estados = {"c-0": "ENABLED", "c-1": "PAUSED"}
+        puts = []
+        ctx = _ctx_pausa(conn, httpx.MockTransport(_handler_estados(estados, puts)), "LP2")
+        fc.reactiva_lote(ctx, "LP2", "dueno")
+        assert puts == [("c-1", "ENABLED")]
+        assert conn.execute("SELECT estado FROM fabrica_lote WHERE lote = 'LP2'").fetchone() == (
+            "applied",
+        )
+
+
+@_skip_db
+def test_r09r5_g9_pausa_a_medias_deja_actor():
+    """R09-r5 B2b (G9): si la pausa falla a medias (PUT#2 rechazado),
+    el actor ya quedo anotado antes del primer PUT: al graduar no se
+    reenciende lo que el dueno quiso pausar."""
+    with db_fabrica("orbit_i3_r5g9") as conn:
+        _lote_applied_dos(conn)
+        n_put = 0
+
+        def handler(request):
+            nonlocal n_put
+            if request.url.path == "/sp/campaigns":
+                n_put += 1
+                if n_put == 2:
+                    return httpx.Response(400, json={"code": "400", "details": "no"})
+                return httpx.Response(
+                    207, json={"campaigns": {"success": [{"index": 0}], "error": []}}
+                )
+            pedido = json.loads(request.content)["campaignIdFilter"]["include"][0]
+            return httpx.Response(
+                200, json={"campaigns": [{"campaignId": pedido, "state": "PAUSED", "name": "n"}]}
+            )
+
+        ctx = _ctx_pausa(conn, httpx.MockTransport(handler), "LP2")
+        with pytest.raises(fc.Abortar):
+            fc.pausar_lote(ctx, "LP2", "dueno")
+        assert conn.execute(
+            "SELECT pausado_por FROM fabrica_lote WHERE lote = 'LP2'"
+        ).fetchone() == ("dueno",)
+
+
+def test_r09r5_f05_put_timeout_declara_incierto():
+    """R09-r5 B6 (F05, L3b): timeout del PUT de campana: Abortar dice
+    INCERTO (pudo aplicarse), no 'fallo (red'."""
+    import httpx
+
+    def _expira(*args, **kwargs):
+        raise httpx.TimeoutException("simulado")
+
+    ctx = SimpleNamespace(
+        http=SimpleNamespace(put=_expira),
+        token="t",
+        cred=SimpleNamespace(client_id="c"),
+        profile="p",
+    )
+    with pytest.raises(fc.Abortar, match="INCERTO"):
+        fc._put_estado_campana(ctx, "c-1", "PAUSED")

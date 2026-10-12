@@ -142,6 +142,7 @@ def _plan_con_procedencia_2dec(plan_json: dict) -> dict:
 
 def _bids_como_json(plan: fp.PlanGrupo | fp.PlanGrupoV2) -> dict[str, list[dict]]:
     """Detalle auditable de cada objetivo Amazon y del bid que se enviaria."""
+    roles = plan.roles if isinstance(plan, fp.PlanGrupoV2) else fp.ROLES_ORDEN_CREACION
     return {
         rol: [
             {
@@ -159,7 +160,7 @@ def _bids_como_json(plan: fp.PlanGrupo | fp.PlanGrupoV2) -> dict[str, list[dict]
             }
             for recomendacion in plan.parametros[rol].recomendaciones
         ]
-        for rol in fp.ROLES_ORDEN_CREACION
+        for rol in roles
     }
 
 
@@ -574,10 +575,14 @@ def _fila_lote(fila) -> dict:
                 "completar el registro o pausar las campañas conocidas."
             )
     elif datos["detalle"] is not None:
+        # G18: 'pausado' tambien mapea (sin esto, KeyError -> 500 en
+        # lista y detalle en cuanto se pausa un impulso). El .get
+        # conserva el detalle guardado para un estado futuro.
         datos["detalle"] = {
             "desarmado": "Las campañas conocidas del lote están pausadas.",
             "applied": "El grupo quedó registrado.",
-        }[datos["estado"]]
+            "pausado": "El lote está pausado; sus campañas no gastan.",
+        }.get(datos["estado"], datos["detalle"])
     return datos
 
 

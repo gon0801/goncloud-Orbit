@@ -33,7 +33,8 @@ echo "== datos de prod (solo lectura)"
 # app/lecturas_caso.py, goals/evidencia/windows/hygiene y las vistas
 # 0015/0047/0048/0060): config y goals, lock y cola, terminos, freeze del
 # target, ledger y costos con familias, listings y mapa de grupo, archivo.
-ssh goncloud 'DSN=$(docker exec orbit-app-1 printenv ORBIT_DSN_READ); docker exec orbit-db-1 pg_dump "$DSN" --data-only --exclude-table-data="*_seq" -t ad_entity -t ad_entity_state -t decision -t decision_application -t optimizer_cycle -t apply_attempt -t ads_metric_observation -t ingest_run -t config_version -t ads_optimizer_lock -t ads_optimizer_goal -t search_term_observation -t target_acos_ciclo -t apply_queue -t apply_quota_state -t ledger_event -t sku_cost -t familia -t producto_familia -t listing -t campana_grupo_rol -t keyword_archivo_manual' \
+# P.4: product y ads_product_metric_observation (candidatos de numeros.py).
+ssh goncloud 'DSN=$(docker exec orbit-app-1 printenv ORBIT_DSN_READ); docker exec orbit-db-1 pg_dump "$DSN" --data-only --exclude-table-data="*_seq" -t ad_entity -t ad_entity_state -t decision -t decision_application -t optimizer_cycle -t apply_attempt -t ads_metric_observation -t ingest_run -t config_version -t ads_optimizer_lock -t ads_optimizer_goal -t search_term_observation -t target_acos_ciclo -t apply_queue -t apply_quota_state -t ledger_event -t sku_cost -t familia -t producto_familia -t listing -t campana_grupo_rol -t keyword_archivo_manual -t product -t ads_product_metric_observation' \
   > "$TMP/datos.sql"
 grep -q 'COPY public.ad_entity ' "$TMP/datos.sql" || { echo "ABORTA: dump de datos invalido"; exit 1; }
 
@@ -46,7 +47,7 @@ psql "$DSN_DB" -q -v ON_ERROR_STOP=1 -f "$TMP/prod.sql" >/dev/null
 # replica: la carga salta FKs y triggers (el orden del dump no es el de
 # insercion). El archivo se queda en $TMP (regla 16: ningun volcado entra al repo).
 { echo "SET session_replication_role = replica;"; cat "$TMP/datos.sql"; } | psql "$DSN_DB" -q -v ON_ERROR_STOP=1 >/dev/null
-for t in ad_entity ad_entity_state decision decision_application optimizer_cycle apply_attempt ads_metric_observation ingest_run config_version ads_optimizer_lock ads_optimizer_goal search_term_observation target_acos_ciclo apply_queue apply_quota_state ledger_event sku_cost familia producto_familia listing campana_grupo_rol keyword_archivo_manual; do
+for t in ad_entity ad_entity_state decision decision_application optimizer_cycle apply_attempt ads_metric_observation ingest_run config_version ads_optimizer_lock ads_optimizer_goal search_term_observation target_acos_ciclo apply_queue apply_quota_state ledger_event sku_cost familia producto_familia listing campana_grupo_rol keyword_archivo_manual product ads_product_metric_observation; do
   echo "$t: $(psql "$DSN_DB" -tAc "SELECT count(*) FROM $t")"
 done
 echo "dumps en: $TMP"
