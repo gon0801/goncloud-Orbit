@@ -445,6 +445,57 @@ def test_lee_asin_propio_de_listing_en_minusculas_y_de_us():
 
 
 @_skip_db
+def test_lee_campana_sin_nombre_no_revienta():
+    """P.6 (revision del PR 435): una campana con nombre NULL
+    (ad_entity.name nullable) no revienta al ordenar los nombres del
+    ASIN; se lista por su external_id y su gasto si suma."""
+    with _db_p6() as conn:
+        run = _run(conn)
+        sin_nombre = conn.execute(
+            "INSERT INTO ad_entity (platform, kind, external_id)"
+            " VALUES ('amazon_mx', 'campaign', 'c-sinnombre') RETURNING id"
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO ad_entity_state (ad_entity_id, status, synced_at)"
+            " VALUES (%s, 'ENABLED', now())",
+            (sin_nombre,),
+        )
+        ag1 = _ad_group(conn, sin_nombre, "ag-sn")
+        ag2 = _ad_group(conn, _campana(conn, "c-nombre", "Campana Uno"), "ag-nombre")
+        visto = dt.datetime(2026, 9, 2, tzinfo=dt.UTC)
+        _obs(
+            conn,
+            ag1,
+            "B0SINNOMBR1",
+            dt.date(2026, 9, 1),
+            visto=visto,
+            cost=200,
+            clics=2,
+            pedidos=0,
+            asin=True,
+            run=run,
+        )
+        _obs(
+            conn,
+            ag2,
+            "B0SINNOMBR1",
+            dt.date(2026, 9, 1),
+            visto=visto,
+            cost=150,
+            clics=2,
+            pedidos=0,
+            asin=True,
+            run=run,
+        )
+        pantalla = pb.lee_busquedas(conn, plataforma="amazon_mx", hoy=HOY)
+        assert pantalla.asins == (
+            pb.FilaAsinAjeno(
+                "B0SINNOMBR1", 4, Decimal("350"), ("Campana Uno", "c-sinnombre"), False
+            ),
+        )
+
+
+@_skip_db
 def test_lee_minimo_de_settings_y_default_350():
     """P.6: sin config_version manda el default de 350; con la clave de
     la plataforma manda ella."""

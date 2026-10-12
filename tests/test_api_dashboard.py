@@ -4321,6 +4321,7 @@ def test_productos_sin_clics_api_forma_y_422(monkeypatch):
         assert malo.status_code == 422
 
 
+@pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres local")
 def test_busquedas_sin_venta_api_forma_y_422(monkeypatch):
     """P.6: el endpoint trae referencia, ASIN, palabras y los dos
     conteos, con la moneda del mercado; plataforma ajena es 422."""

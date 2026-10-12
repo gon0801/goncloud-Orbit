@@ -257,7 +257,7 @@ _SQL_BUSQUEDAS = """
 WITH ultima AS (
     SELECT DISTINCT ON (o.ad_entity_id, o.search_term, o.metric_date)
            o.ad_entity_id, o.search_term, o.is_asin_like, o.cost, o.clicks, o.orders,
-           c.name AS campana
+           coalesce(c.name, c.external_id) AS campana
       FROM search_term_observation o
       JOIN ad_entity ag ON ag.id = o.ad_entity_id
       JOIN ad_entity c ON c.id = ag.parent_id AND c.kind = 'campaign'
