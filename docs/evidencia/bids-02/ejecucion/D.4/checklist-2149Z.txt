@@ -1,0 +1,36 @@
+== 0) El servidor contesta
+OK    orbit-app-1 corriendo = true
+== Checklist D.4 (solo lectura; sello 20261012-2146)
+== 1) HTTP: /health
+OK    GET /health = 200
+== 2) Esquema de D.4: las cinco tablas existen (el dueno ya pudo lanzar)
+OK    tabla impulso = t
+OK    impulso antes = 0
+OK    tabla impulso_lectura = t
+OK    impulso_lectura antes = 0
+OK    tabla anuncio_retiro = t
+OK    anuncio_retiro antes = 0
+OK    tabla anuncio_reposicion = t
+OK    anuncio_reposicion antes = 0
+OK    tabla anuncio_retiro_intencion = t
+OK    anuncio_retiro_intencion antes = 0
+OK    columna fabrica_lote.pausado_por (0068) = t
+OK    app_admin DELETE en fabrica_lote (0070) = t
+== 3) La pantalla de productos responde en cada mercado
+OK    HTML productos-sin-clics amazon_mx = 200
+OK    HTML productos-sin-clics amazon_us = 200
+== 4) El crontab trae UNA linea impulso-vigia
+OK    lineas impulso-vigia = 1
+== 5) Vista previa del impulso con un candidato del dashboard (no escribe)
+OK    POST impulso/plan = 200
+OK    fabrica_lote sin escrituras de la vista previa = 1
+OK    impulso sin escrituras de la vista previa = 0
+== 6) MUTATION_REQUEST_TYPES trae PUT /sp/productAds
+OK    PUT /sp/productAds en allowlist = true
+== 7) Las cinco tablas sin escrituras del checklist
+OK    impulso sin escrituras del checklist = 0
+OK    impulso_lectura sin escrituras del checklist = 0
+OK    anuncio_retiro sin escrituras del checklist = 0
+OK    anuncio_reposicion sin escrituras del checklist = 0
+OK    anuncio_retiro_intencion sin escrituras del checklist = 0
+== RESULTADO: 0 falla(s), 0 sin medir
