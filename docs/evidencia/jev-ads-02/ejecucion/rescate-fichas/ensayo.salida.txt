@@ -1,0 +1,31 @@
+== paso 1: origen (orbit_rescate_jev) ==
+ORIGEN sha256 del apartado ok (e77a3195f1636552974f0766eb63013e094ace7a1b98b6f300b160f58e457d21)
+ORIGEN ya existia
+ORIGEN conteos: 868,0,24,0,11272
+== paso 2: destino ==
+DESTINO ensayo recreado desde orbit_2026-10-12
+== paso 3: guardas del destino (orbit_rescate_ensayo) ==
+GUARDA conteos (fichas,revocaciones,revisiones,no_lote,juicios): 0,0,9,0,0
+GUARDA triggers (11 en O): t
+GUARDA columnas orbit_rescate_ensayo.jev_ficha_version ok
+GUARDA columnas orbit_rescate_ensayo.jev_ficha_revocacion ok
+GUARDA columnas orbit_rescate_ensayo.jev_revision ok
+GUARDA columnas orbit_rescate_ensayo.jev_par_evento ok
+GUARDA columnas orbit_rescate_jev.jev_ficha_version ok
+GUARDA columnas orbit_rescate_jev.jev_ficha_revocacion ok
+GUARDA columnas orbit_rescate_jev.jev_revision ok
+GUARDA columnas orbit_rescate_jev.jev_par_evento ok
+GUARDA candado ok
+GUARDA estado: cargar
+== paso 4: hashes esperados (orbit_rescate_jev) ==
+HASH origen jev_ficha_version 4db9041b55dd943cb60d9b4a97fb21ab
+HASH origen jev_par_evento 30dd54cdaa6e96524777392bdb92b8ad
+HASH origen jev_revision ef22dee86f2735f5ea283ed3b0373019
+== pasos 5 y 6: datos y carga en una transaccion (orbit_rescate_ensayo) ==
+DATOS listos (12208 lineas)
+CARGA CONFIRMADA en orbit_rescate_ensayo
+== paso 7: segunda lectura (orbit_rescate_ensayo) ==
+HASH destino jev_ficha_version 4db9041b55dd943cb60d9b4a97fb21ab
+HASH destino jev_par_evento 30dd54cdaa6e96524777392bdb92b8ad
+HASH destino jev_revision ef22dee86f2735f5ea283ed3b0373019
+RESCATE ensayo OK
