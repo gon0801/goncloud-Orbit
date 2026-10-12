@@ -113,3 +113,28 @@ def test_detector_excluye_type_checking_y_resuelve_relativo_nivel_1(tmp_path):
     assert "app.etiqueta_entidad" in imp
     assert "app.optimizer.bid" in imp
     assert _violaciones_pantalla(imp) == []
+
+
+PROHIBIDOS_TEXTO_BUSQUEDAS = ("apply_queue", "INSERT", "UPDATE", "DELETE")
+
+
+def _fugas_busquedas(ruta: Path) -> list[str]:
+    texto = ruta.read_text(encoding="utf-8")
+    return [p for p in PROHIBIDOS_TEXTO_BUSQUEDAS if p in texto]
+
+
+def test_pantalla_busquedas_sin_cola_ni_escritura_sql():
+    """P.6: la pantalla de busquedas no encola ni escribe SQL (D11)."""
+    ruta = APP / "pantalla_busquedas.py"
+    assert ruta.exists(), "sin app/pantalla_busquedas.py el candado pasaria en falso"
+    assert _fugas_busquedas(ruta) == []
+
+
+def test_detector_busquedas_caza_fuga_sembrada(tmp_path):
+    """El candado muerde: fuga sembrada con escritura SQL y con la cola."""
+    fuga = tmp_path / "pantalla_busquedas.py"
+    fuga.write_text(
+        "conn.execute('INSERT INTO apply_queue VALUES (1)')\n",
+        encoding="utf-8",
+    )
+    assert _fugas_busquedas(fuga) == ["apply_queue", "INSERT"]
