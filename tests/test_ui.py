@@ -2596,7 +2596,7 @@ def test_ui_productos_casillas_mandan_ids_reales():
 
 
 def _pantalla_p6(**cambios):
-    """Contexto de busquedas-sin-venta (shape del endpoint)."""
+    """Contexto de busquedas-sin-venta (forma del endpoint)."""
     datos = {
         "plataforma": "amazon_mx",
         "moneda": "MXN",
@@ -2636,7 +2636,7 @@ def _pantalla_p6(**cambios):
 
 
 def _html_busquedas(monkeypatch, datos, **params):
-    """Camino real con el endpoint fakeado (modelo _html_productos)."""
+    """Camino real con el endpoint falso (modelo _html_productos)."""
 
     def _busquedas(conn, plataforma=None):
         return {**datos, "plataforma": plataforma or "amazon_mx"}

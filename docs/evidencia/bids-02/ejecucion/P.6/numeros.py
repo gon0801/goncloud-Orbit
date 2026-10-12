@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """P.6: el contrato da los mismos numeros que las consultas de control.
 
-Sobre la copia local de prod (solo lectura en la practica: este script
-solo hace SELECT), corre `lee_busquedas` para la plataforma y el dia
+Sobre la copia local de prod (este script solo hace SELECT), corre
+`lee_busquedas` para la plataforma y el dia
 dados y compara ASIN, referencia de azar y palabras contra las tres
 consultas de `control.sql` (tablas base, sin usar el codigo del paso).
 Las fechas impresas son las que recibe `control.sql` por -v.

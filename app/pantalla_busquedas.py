@@ -238,7 +238,7 @@ def _resumenes_palabra(filas, minimo):
 def resume_busquedas(
     filas: tuple[FilaBusqueda, ...], *, gasto_para_concluir: Decimal, asins_propios: frozenset[str]
 ) -> tuple[ReferenciaAzar, tuple[FilaAsinAjeno, ...], tuple[FilaPalabra, ...], int, int]:
-    """Pura. Una fila con clics, gasto o pedidos None no suma y no
+    """Es pura: una fila con clics, gasto o pedidos None no suma y no
     cuenta como cero (regla 3)."""
     completas = tuple(
         f for f in filas if f.clics is not None and f.gasto is not None and f.pedidos is not None
