@@ -298,8 +298,8 @@ def test_r09r4_ra02_plan_protege_impulso_vivo_con_lectura_en_curso():
         )
         conn.execute(
             "INSERT INTO impulso_lectura (impulso_id, corte, leido_el, dias_observados,"
-            " impresiones, clics, gasto, pedidos, veredicto, es_final, hecho)"
-            " VALUES (%s, CURRENT_DATE, now(), 3, 100, 5, 10, 0, 'en_curso', false, 'nada')",
+            " impresiones, clics, gasto, gasto_moneda, pedidos, veredicto, es_final, hecho)"
+            " VALUES (%s, CURRENT_DATE, now(), 3, 100, 5, 10, 'MXN', 0, 'en_curso', false, 'nada')",
             (ids["impulso"],),
         )
         conn.commit()
@@ -321,16 +321,17 @@ def test_r09r4_ra04_impulso_sin_impresiones_no_retira():
         assert ra.impulso_tuvo_impresiones(conn, ids["impulso"]) is False
         conn.execute(
             "INSERT INTO impulso_lectura (impulso_id, corte, leido_el, dias_observados,"
-            " impresiones, clics, gasto, pedidos, veredicto, es_final, hecho)"
-            " VALUES (%s, CURRENT_DATE, now(), 3, 0, 0, 0, 0, 'en_curso', false, 'nada')",
+            " impresiones, clics, gasto, gasto_moneda, pedidos, veredicto, es_final, hecho)"
+            " VALUES (%s, CURRENT_DATE, now(), 3, 0, 0, 0, 'MXN', 0, 'en_curso', false, 'nada')",
             (ids["impulso"],),
         )
         conn.commit()
         assert ra.impulso_tuvo_impresiones(conn, ids["impulso"]) is False
         conn.execute(
             "INSERT INTO impulso_lectura (impulso_id, corte, leido_el, dias_observados,"
-            " impresiones, clics, gasto, pedidos, veredicto, es_final, hecho)"
-            " VALUES (%s, CURRENT_DATE + 1, now(), 4, 7, 1, 1, 0, 'en_curso', false, 'nada')",
+            " impresiones, clics, gasto, gasto_moneda, pedidos, veredicto, es_final, hecho)"
+            " VALUES (%s, CURRENT_DATE + 1, now(), 4, 7, 1, 1, 'MXN', 0,"
+            " 'en_curso', false, 'nada')",
             (ids["impulso"],),
         )
         conn.commit()
@@ -1597,8 +1598,8 @@ def test_r09r5_reconcilia_impulso_terminado():
         ).fetchone()
         conn.execute(
             "INSERT INTO impulso_lectura (impulso_id, corte, leido_el, dias_observados,"
-            " impresiones, clics, gasto, pedidos, veredicto, es_final, hecho)"
-            " VALUES (%s, now()::date - 1, now(), 5, 100, 5, 50, 1, 'vende', TRUE,"
+            " impresiones, clics, gasto, gasto_moneda, pedidos, veredicto, es_final, hecho)"
+            " VALUES (%s, now()::date - 1, now(), 5, 100, 5, 50, 'MXN', 1, 'vende', TRUE,"
             " 'graduado')",
             (imp,),
         )

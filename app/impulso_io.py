@@ -953,8 +953,8 @@ def _vigila_uno(conn, pausador, fila, *, hoy, escritor_retiro):
                     hecho = "retiro_de_bolsas"
     conn.execute(
         "INSERT INTO impulso_lectura (impulso_id, corte, leido_el, dias_observados,"
-        " impresiones, clics, gasto, pedidos, veredicto, es_final, hecho)"
-        " VALUES (%s, %s, now(), %s, %s, %s, %s, %s, %s, %s, %s)"
+        " impresiones, clics, gasto, gasto_moneda, pedidos, veredicto, es_final, hecho)"
+        " VALUES (%s, %s, now(), %s, %s, %s, %s, %s, %s, %s, %s, %s)"
         " ON CONFLICT (impulso_id, corte) DO NOTHING",
         (
             imp,
@@ -963,6 +963,10 @@ def _vigila_uno(conn, pausador, fila, *, hoy, escritor_retiro):
             impr,
             clics,
             gasto,
+            # Regla 4: el monto va sellado con su moneda (la del tope
+            # del impulso); gasto None (dato faltante) va con moneda
+            # None, nunca una constante.
+            moneda if gasto is not None else None,
             pedidos,
             veredicto.estado,
             veredicto.final,

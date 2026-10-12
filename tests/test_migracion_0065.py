@@ -50,15 +50,19 @@ def test_dinero_con_dominio_y_enum_sellados():
             for r in conn.execute(
                 "SELECT column_name, udt_name, domain_name FROM information_schema.columns"
                 " WHERE table_name IN ('impulso', 'impulso_lectura')"
-                " AND column_name IN ('tope_monto', 'tope_moneda', 'presupuesto_diario', 'gasto')"
+                " AND column_name IN ('tope_monto', 'tope_moneda', 'presupuesto_diario',"
+                " 'gasto', 'gasto_moneda')"
             ).fetchall()
         }
-        assert {c: d for c, (_u, d) in tipos.items() if c != "tope_moneda"} == {
+        assert {
+            c: d for c, (_u, d) in tipos.items() if c not in ("tope_moneda", "gasto_moneda")
+        } == {
             "tope_monto": "money_amount",
             "presupuesto_diario": "money_amount",
             "gasto": "money_amount",
         }
         assert tipos["tope_moneda"] == ("currency", None)
+        assert tipos["gasto_moneda"] == ("currency", None)
 
 
 @_skip_db
@@ -98,6 +102,45 @@ def test_impulso_moneda_o_listing_incoherente_se_rechaza():
         with pytest.raises(psycopg.errors.RaiseException, match="listing"):
             _impulso(conn, lote, grupo, pid, lid2)
         assert (pid2, lid2) != (pid, lid)
+
+
+@_skip_db
+def test_r09r7_lectura_gasto_solo_con_su_moneda():
+    """R09-r7 F2 (regla 4): gasto va sellado con su moneda. Sin moneda
+    o moneda sin gasto el CHECK lo rechaza; otra moneda que la del
+    tope del impulso la rechaza el trigger. El par correcto y el par
+    nulo (dato faltante) si pasan."""
+    with db_fabrica("orbit_i3_r7f2") as conn:
+        conn.execute(SQL64)
+        conn.execute(SQL65)
+        pid, lid = _producto(conn)
+        lote = _lote(conn, "fabrica-imp-r7")
+        grupo = _grupo(conn, lote)
+        imp = _impulso(conn, lote, grupo, pid, lid)
+
+        def _lectura(corte, gasto, moneda):
+            conn.execute(
+                "INSERT INTO impulso_lectura (impulso_id, corte, leido_el, dias_observados,"
+                " impresiones, clics, gasto, gasto_moneda, pedidos, veredicto, es_final, hecho)"
+                " VALUES (%s, %s, now(), 1, 100, 5, %s, %s, 0, 'en_curso', false, 'nada')",
+                (imp, corte, gasto, moneda),
+            )
+
+        with pytest.raises(psycopg.errors.CheckViolation):
+            _lectura("2026-10-06", 10, None)
+        with pytest.raises(psycopg.errors.CheckViolation):
+            _lectura("2026-10-07", None, "MXN")
+        with pytest.raises(psycopg.errors.RaiseException, match="gasto_moneda"):
+            _lectura("2026-10-08", 10, "USD")
+        _lectura("2026-10-09", 10, "MXN")
+        _lectura("2026-10-10", None, None)
+        assert conn.execute(
+            "SELECT gasto, gasto_moneda FROM impulso_lectura WHERE impulso_id = %s ORDER BY corte",
+            (imp,),
+        ).fetchall() == [(10, "MXN"), (None, None)]
+        assert conn.execute(
+            "SELECT gasto_moneda FROM v_impulso_estado WHERE id = %s", (imp,)
+        ).fetchone() == (None,)
 
 
 @_skip_db

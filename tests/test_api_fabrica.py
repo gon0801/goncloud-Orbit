@@ -2064,8 +2064,8 @@ def test_i5_retiro_impulso_sin_impresiones_422(escenario):
     assert r.status_code == 422, r.text
     conn.execute(
         "INSERT INTO impulso_lectura (impulso_id, corte, leido_el, dias_observados,"
-        " impresiones, clics, gasto, pedidos, veredicto, es_final, hecho)"
-        " VALUES (%s, CURRENT_DATE, now(), 1, 100, 1, 10, 0, 'en_curso', false, 'nada')",
+        " impresiones, clics, gasto, gasto_moneda, pedidos, veredicto, es_final, hecho)"
+        " VALUES (%s, CURRENT_DATE, now(), 1, 100, 1, 10, 'MXN', 0, 'en_curso', false, 'nada')",
         (imp["impulso"],),
     )
     conn.commit()

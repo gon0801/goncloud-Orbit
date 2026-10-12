@@ -624,10 +624,12 @@ def test_vigia_en_curso_guarda_y_no_toca():
         assert acciones[0].veredicto.estado == "en_curso"
         assert pausador.pausados == []
         fila = conn.execute(
-            "SELECT veredicto, es_final, hecho, gasto FROM impulso_lectura WHERE impulso_id = %s",
+            "SELECT veredicto, es_final, hecho, gasto, gasto_moneda"
+            " FROM impulso_lectura WHERE impulso_id = %s",
             (ids["impulso"],),
         ).fetchone()
-        assert fila == ("en_curso", False, "nada", Decimal("20"))
+        # R09-r7 F2: el vigia sella el gasto con la moneda del tope.
+        assert fila == ("en_curso", False, "nada", Decimal("20"), "MXN")
         assert conn.execute(
             "SELECT mode FROM ads_optimizer_goal WHERE ad_entity_id = %s", (ids["camps"][0],)
         ).fetchone() == ("shadow",)
@@ -1193,8 +1195,8 @@ def test_r09r4_i06_impulso_cerrado_no_se_reutiliza(monkeypatch):
         viejo = lanzados[0].lote
         conn.execute(
             "INSERT INTO impulso_lectura (impulso_id, corte, leido_el, dias_observados,"
-            " impresiones, clics, gasto, pedidos, veredicto, es_final, hecho)"
-            " VALUES (%s, %s, now(), 1, 100, 5, 10, 1, 'vende', true, 'graduado')",
+            " impresiones, clics, gasto, gasto_moneda, pedidos, veredicto, es_final, hecho)"
+            " VALUES (%s, %s, now(), 1, 100, 5, 10, 'MXN', 1, 'vende', true, 'graduado')",
             (lanzados[0].impulso_id, ayer),
         )
         conn.commit()
@@ -2648,8 +2650,8 @@ def test_r09r5_vf_vigia_resuelve_pendiente_de_impulso_terminado():
         ids = _impulso_vivo(conn, pid=pid, lid=lid, lote="impulso-r5vf-1")
         conn.execute(
             "INSERT INTO impulso_lectura (impulso_id, corte, leido_el, dias_observados,"
-            " impresiones, clics, gasto, pedidos, veredicto, es_final, hecho)"
-            " VALUES (%s, %s, now(), 5, 100, 5, 50, 0, 'clics_sin_ventas', TRUE, 'pausado')",
+            " impresiones, clics, gasto, gasto_moneda, pedidos, veredicto, es_final, hecho)"
+            " VALUES (%s, %s, now(), 5, 100, 5, 50, 'MXN', 0, 'clics_sin_ventas', TRUE, 'pausado')",
             (ids["impulso"], HOY - dt.timedelta(days=1)),
         )
         conn.commit()

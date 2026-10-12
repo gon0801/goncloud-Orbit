@@ -311,9 +311,21 @@ def _lectura_p4(
 ):
     conn.execute(
         "INSERT INTO impulso_lectura (impulso_id, corte, leido_el, dias_observados,"
-        " impresiones, clics, gasto, pedidos, veredicto, es_final, hecho)"
-        " VALUES (%s, %s, now(), %s, %s, %s, %s, %s, %s, %s, %s)",
-        (imp, corte, dias, impr, clics, gasto, pedidos, veredicto, final, hecho),
+        " impresiones, clics, gasto, gasto_moneda, pedidos, veredicto, es_final, hecho)"
+        " VALUES (%s, %s, now(), %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        (
+            imp,
+            corte,
+            dias,
+            impr,
+            clics,
+            gasto,
+            "MXN" if gasto is not None else None,
+            pedidos,
+            veredicto,
+            final,
+            hecho,
+        ),
     )
 
 
@@ -622,8 +634,8 @@ def test_r09r5_p05_ventana_termina_en_ultima_lectura():
         for corte in (HOY - dt.timedelta(days=4), HOY - dt.timedelta(days=2)):
             conn.execute(
                 "INSERT INTO impulso_lectura (impulso_id, corte, leido_el, dias_observados,"
-                " impresiones, clics, gasto, pedidos, veredicto, es_final, hecho)"
-                " VALUES (%s, %s, now(), 1, 100, 10, 1, 0, 'en_curso', FALSE, 'nada')",
+                " impresiones, clics, gasto, gasto_moneda, pedidos, veredicto, es_final, hecho)"
+                " VALUES (%s, %s, now(), 1, 100, 10, 1, 'MXN', 0, 'en_curso', FALSE, 'nada')",
                 (ids["impulso"], corte),
             )
         conn.execute(

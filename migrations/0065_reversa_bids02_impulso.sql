@@ -16,6 +16,8 @@ DROP VIEW v_impulso_estado;
 DROP TRIGGER impulso_lectura_sin_update_delete ON impulso_lectura;
 DROP TRIGGER impulso_sin_update_delete ON impulso;
 DROP FUNCTION impulso_inmutable();
+DROP TRIGGER lectura_moneda_coherente ON impulso_lectura;
+DROP FUNCTION lectura_moneda_coherente();
 DROP TRIGGER impulso_coherente ON impulso;
 DROP FUNCTION impulso_coherente();
 DROP TABLE impulso_lectura;

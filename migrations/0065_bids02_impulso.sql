@@ -42,10 +42,14 @@ CREATE TABLE impulso_lectura (
     impresiones     BIGINT,
     clics           BIGINT,
     gasto           money_amount,
+    gasto_moneda    currency,
     pedidos         BIGINT,
     veredicto       TEXT        NOT NULL,
     es_final        BOOLEAN     NOT NULL,
     hecho           TEXT        NOT NULL,
+    CONSTRAINT lectura_gasto_con_moneda CHECK (
+        (gasto IS NULL AND gasto_moneda IS NULL)
+        OR (gasto IS NOT NULL AND gasto_moneda IS NOT NULL)),
     CONSTRAINT lectura_veredicto CHECK (veredicto IN
         ('en_curso', 'vende', 'clics_sin_ventas', 'impresiones_sin_clics', 'sin_impresiones')),
     CONSTRAINT lectura_hecho CHECK (hecho IN ('nada', 'pausado', 'graduado', 'retiro_de_bolsas')),
@@ -57,7 +61,7 @@ CREATE VIEW v_impulso_estado AS
 SELECT i.*,
        l.corte, l.dias_observados, l.impresiones, l.clics, l.gasto, l.pedidos,
        l.veredicto, l.es_final,
-       f.estado AS estado_lote
+       f.estado AS estado_lote, l.gasto_moneda
   FROM impulso i
   JOIN fabrica_lote f ON f.lote = i.lote
   LEFT JOIN LATERAL (
@@ -90,6 +94,32 @@ CREATE TRIGGER impulso_coherente
     BEFORE INSERT OR UPDATE ON impulso
     FOR EACH ROW EXECUTE FUNCTION impulso_coherente();
 
+-- R09-r7 F2 (regla 4): gasto nunca va sin su moneda ni con otra. El
+-- CHECK de la tabla exige el par (gasto, gasto_moneda) co-nulos; este
+-- trigger ata la moneda sellada a la del impulso (tope_moneda), que a
+-- su vez el trigger impulso_coherente fija por plataforma. La lectura
+-- es append-only (sin UPDATE), asi que INSERT basta.
+CREATE FUNCTION lectura_moneda_coherente() RETURNS trigger
+    LANGUAGE plpgsql AS $$
+DECLARE
+    moneda_real currency;
+BEGIN
+    IF NEW.gasto_moneda IS NULL THEN
+        RETURN NEW;
+    END IF;
+    SELECT i.tope_moneda INTO moneda_real FROM impulso i WHERE i.id = NEW.impulso_id;
+    IF moneda_real IS DISTINCT FROM NEW.gasto_moneda THEN
+        RAISE EXCEPTION 'impulso_lectura: gasto_moneda % no es la del impulso % (%)',
+            NEW.gasto_moneda, NEW.impulso_id, moneda_real;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER lectura_moneda_coherente
+    BEFORE INSERT ON impulso_lectura
+    FOR EACH ROW EXECUTE FUNCTION lectura_moneda_coherente();
+
 -- La fabrica pausa y reanuda las campanas de un lote sin darlo por
 -- desarmado: 'pausado' es reversible, 'desarmado' sigue terminal.
 ALTER TABLE fabrica_lote DROP CONSTRAINT fabrica_lote_estado_check;
@@ -100,6 +130,8 @@ COMMENT ON TABLE impulso IS
     'BIDS 02 I.3: un producto, un grupo de dos, un tope. Fila inmutable; el estado se deriva.';
 COMMENT ON TABLE impulso_lectura IS
     'BIDS 02 I.3: lectura diaria del vigia, append-only, clave (impulso_id, corte).';
+COMMENT ON COLUMN impulso_lectura.gasto_moneda IS
+    'Moneda de gasto (regla 4: el par va junto y co-nulo; igual al tope_moneda del impulso, ver lectura_moneda_coherente).';
 
 -- La fila impulso es inmutable y la lectura es append-only: nadie hace
 -- UPDATE ni DELETE sobre las dos tablas (trigger, no solo GRANT).
