@@ -3585,3 +3585,95 @@ def test_r09r5_mut_excepcion_cruda_sella_failed_y_revierte(monkeypatch):
         assert {p["state"] for x, p in amazon.objetos.items() if x.startswith("campaigns-")} == {
             "PAUSED"
         }
+
+
+@_skip_db
+def test_r09r6_i86_vigila_reconcilia_huerfanos(monkeypatch):
+    """R09-r6 (I86): vigila (no solo reconcilia_huerfanos directo)
+    pausa en Amazon las campanas ENABLED de un lote de impulso
+    huerfano envejecido, aunque no haya ningun impulso vivo. Si
+    vigila deja de llamar a la reconciliacion, quedan ENABLED."""
+    with _db_i3("orbit_i3_r6i86") as conn:
+        amazon = _amazon_estado()
+        _frontera_impulso(monkeypatch, conn, amazon)
+        conn.execute(
+            "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal,"
+            " huella, plan, modo_goal, estado, created_at) VALUES ('impulso-9-r6i86',"
+            " 'amazon_mx', 'aros', 'Base', 'go', 'x', '{}'::jsonb, 'shadow', 'failed',"
+            " now() - make_interval(mins => 120))"
+        )
+        conn.execute(
+            "INSERT INTO fabrica_lote_paso (lote, orden, rol, recurso, request_payload,"
+            " external_id, ack, readback_estado, estado) VALUES ('impulso-9-r6i86', 1,"
+            " 'category_exact'::campana_rol, 'campaign', '{}'::jsonb, 'campaigns-1',"
+            " '{}'::jsonb, 'ENABLED', 'applied')"
+        )
+        amazon.objetos["campaigns-1"] = {"campaignId": "campaigns-1", "state": "ENABLED"}
+        conn.commit()
+        acciones = io.vigila(conn, io.PausadorFabrica(conn), hoy=HOY)
+        assert acciones == []
+        assert amazon.objetos["campaigns-1"]["state"] == "PAUSED"
+
+
+@_skip_db
+def test_r09r6_i81_reconcilia_no_toca_lote_con_impulso(monkeypatch):
+    """R09-r6 (I81): un lote de mas de 60 minutos que SI tiene impulso
+    no es huerfano: la reconciliacion no lo toca (cero PUT, sigue
+    ENABLED en Amazon). Sin el NOT EXISTS, el vigia apagaria cada
+    dia las campanas de todo impulso sano."""
+    with _db_i3("orbit_i3_r6i81") as conn:
+        ids = _impulso_vivo(conn, lote="impulso-r6i81-1")
+        conn.execute(
+            "UPDATE fabrica_lote SET created_at = now() - make_interval(mins => 120)"
+            " WHERE lote = %s",
+            (ids["lote"],),
+        )
+        amazon = _amazon_estado()
+        _frontera_impulso(monkeypatch, conn, amazon)
+        for i in range(2):
+            ext = f"campaigns-{i + 1}"
+            amazon.objetos[ext] = {"campaignId": ext, "state": "ENABLED"}
+            conn.execute(
+                "INSERT INTO fabrica_lote_paso (lote, orden, rol, recurso, request_payload,"
+                " external_id, ack, readback_estado, estado) VALUES (%s, %s,"
+                " %s::campana_rol, 'campaign', '{}'::jsonb, %s, '{}'::jsonb,"
+                " 'ENABLED', 'applied')",
+                (ids["lote"], 10 + i, ("category_exact", "auto_discovery")[i], ext),
+            )
+        conn.commit()
+        assert io.reconcilia_huerfanos(conn, io.PausadorFabrica(conn)) == []
+        assert [r for r in amazon.pedidos if r.method == "PUT"] == []
+        assert {p["state"] for p in amazon.objetos.values()} == {"ENABLED"}
+
+
+@_skip_db
+def test_r09r6_i75_detalle_graduado_sin_reencender(monkeypatch):
+    """R09-r6 (I75): graduar sin reencender guarda en el lote el
+    detalle que el dueno lee en la fabrica (quien pauso y que los
+    goals pasaron a live), ademas del hecho en la lectura."""
+    with _db_i3("orbit_i3_r6i75") as conn:
+        ids = _impulso_vivo(conn, lote="impulso-r6i75-1")
+        conn.execute(
+            "UPDATE fabrica_lote SET estado = 'pausado', pausado_por = 'dueno' WHERE lote = %s",
+            (ids["lote"],),
+        )
+        conn.commit()
+        _observa(conn, ids["camps"][0], HOY - dt.timedelta(days=1), pedidos=1)
+        amazon = _amazon_estado()
+        _frontera_impulso(monkeypatch, conn, amazon)
+        for i in range(2):
+            ext = f"campaigns-{i + 1}"
+            amazon.objetos[ext] = {"campaignId": ext, "state": "PAUSED"}
+            conn.execute(
+                "INSERT INTO fabrica_lote_paso (lote, orden, rol, recurso, request_payload,"
+                " external_id, ack, readback_estado, estado) VALUES (%s, %s,"
+                " %s::campana_rol, 'campaign', '{}'::jsonb, %s, '{}'::jsonb,"
+                " 'PAUSED', 'applied')",
+                (ids["lote"], 10 + i, ("category_exact", "auto_discovery")[i], ext),
+            )
+        conn.commit()
+        acciones = io.vigila(conn, io.PausadorFabrica(conn), hoy=HOY)
+        assert acciones[0].hecho == "graduado_sin_reencender"
+        assert conn.execute(
+            "SELECT detalle FROM fabrica_lote WHERE lote = %s", (ids["lote"],)
+        ).fetchone() == ("graduado sin reencender: pauso dueno, goals a live",)

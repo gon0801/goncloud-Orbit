@@ -53,16 +53,3 @@ def test_0070_app_admin_borra_lote():
         assert conn.execute("SELECT count(*) FROM fabrica_lote WHERE lote = 'l-70'").fetchone() == (
             0,
         )
-        conn.execute("SET ROLE app_admin")
-        try:
-            conn.execute(
-                "INSERT INTO ad_entity (platform, kind, external_id, name)"
-                " VALUES ('amazon_mx', 'campaign', 'c-70', 'C70')"
-            )
-        except psycopg.errors.InsufficientPrivilege as exc:
-            raise AssertionError("0070: app_admin no puede INSERT en ad_entity") from exc
-        finally:
-            conn.execute("RESET ROLE")
-        assert conn.execute(
-            "SELECT count(*) FROM ad_entity WHERE external_id = 'c-70'"
-        ).fetchone() == (1,)

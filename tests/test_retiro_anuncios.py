@@ -2037,3 +2037,70 @@ def test_r09r5_reconcilia_incierto_sigue_pendiente():
             "SELECT cerrada_el IS NULL FROM anuncio_retiro_intencion WHERE id = %s",
             (iid,),
         ).fetchone() == (True,)
+
+
+def _pausa_con_resultado(resultado):
+    """Sustituto de archivar.pausar_anuncios: el anuncio cambio entre
+    la lectura del llamador (ENABLED) y la previa interna de pausar,
+    que ya lo ve pausado por fuera o ya no lo encuentra."""
+    from app.ads import archivar
+
+    def _fake(escritor, ad_ids, ejecutar=True):
+        return [archivar.ResultadoAnuncio(ad_ids[0], "ENABLED", resultado)]
+
+    return _fake
+
+
+@_skip_db
+def test_r09r6_r12b_reconcilia_ya_estaba_sella(monkeypatch):
+    """R09-r6 (R12b): en la reconciliacion, si el anuncio se pauso por
+    fuera entre la lectura y el PUT (ya_estaba), sella el retiro y
+    cierra la intencion con su fila; no queda pendiente."""
+    from app.ads import archivar
+
+    with _db_i4("orbit_i4_r6r12b") as conn:
+        _pid, lid = _producto(conn)
+        iid = _intencion_pendiente(conn, lid, "ad-1")
+        escritor, _puts = _escritor(_fila("ad-1", "ENABLED"))
+        monkeypatch.setattr(archivar, "pausar_anuncios", _pausa_con_resultado("ya_estaba"))
+        res = ra.reconcilia_intenciones(conn, escritor=escritor)
+        assert res == [(iid, "sellado")]
+        assert conn.execute("SELECT count(*) FROM anuncio_retiro").fetchone() == (1,)
+        assert conn.execute(
+            "SELECT cerrada_el IS NOT NULL, retiro_id IS NOT NULL"
+            " FROM anuncio_retiro_intencion WHERE id = %s",
+            (iid,),
+        ).fetchone() == (True, True)
+
+
+@_skip_db
+def test_r09r6_r15a_ejecuta_no_existe_cierra_intencion(monkeypatch):
+    """R09-r6 (R15a): al ejecutar, si el anuncio desaparece entre la
+    lectura previa y la previa de pausar (no_existe), la intencion
+    se cierra sin fila de retiro (no pendiente) y el fallo se nombra."""
+    from app.ads import archivar
+
+    with _db_i4("orbit_i4_r6r15a") as conn:
+        _lid, plan = _retiro_listo(conn)
+        escritor, _puts = _escritor(_fila("ad-1", "ENABLED"))
+        monkeypatch.setattr(archivar, "pausar_anuncios", _pausa_con_resultado("no_existe"))
+        with pytest.raises(RuntimeError, match="cerrada"):
+            ra.ejecuta_retiro(conn, plan, go="go dueno", escritor=escritor)
+        assert _cuenta(conn) == (0, 0, 1)
+
+
+@_skip_db
+def test_r09r6_r15b_reconcilia_no_existe_cierra(monkeypatch):
+    """R09-r6 (R15b): en la reconciliacion, si el anuncio desaparece
+    entre la lectura y la previa de pausar (no_existe), la intencion
+    se cierra sin fila de retiro; no sigue pendiente."""
+    from app.ads import archivar
+
+    with _db_i4("orbit_i4_r6r15b") as conn:
+        _pid, lid = _producto(conn)
+        iid = _intencion_pendiente(conn, lid, "ad-1")
+        escritor, _puts = _escritor(_fila("ad-1", "ENABLED"))
+        monkeypatch.setattr(archivar, "pausar_anuncios", _pausa_con_resultado("no_existe"))
+        res = ra.reconcilia_intenciones(conn, escritor=escritor)
+        assert res == [(iid, "cerrado")]
+        assert _cuenta(conn) == (0, 0, 1)

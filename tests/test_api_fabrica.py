@@ -2294,7 +2294,7 @@ def test_i5_lanzar_con_ejecutor_real_200(escenario, monkeypatch):
         ),
     )
     monkeypatch.setattr(fc.time, "sleep", lambda s: None)
-    dsn = conn.info.dsn
+    dsn = _test_dsn()
     dbname = conn.info.dbname
     monkeypatch.setattr(fc, "connect", lambda d: psycopg.connect(dsn, dbname=dbname))
 
