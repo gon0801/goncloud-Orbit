@@ -52,7 +52,8 @@ Todo se corre con `cd` a esta carpeta. Los scripts corren en la Mac y hacen todo
      triggers no cuadran, y `COMMIT`. Con `prod` la carga corre bajo
      `flock -n` del candado del job `jev-senales` (si el job está corriendo sale con
      código 75 y no escribe).
-  7. **Segunda lectura** de los tres hashes en el destino, ya después del `COMMIT`.
+  7. **Segunda lectura** de los tres hashes en el destino, ya después del `COMMIT`
+     (con un solo reintento si la lectura misma falla).
   8. Última línea: `RESCATE <modo> OK`, `RESCATE <modo> FALLA: <causa>`,
      `RESCATE <modo> FALLA: JOB CORRIENDO` (código 75) o
      `RESCATE <modo> CARGADO CON DIFERENCIA: <tabla>`.

@@ -11,15 +11,18 @@ SHA=e77a3195f1636552974f0766eb63013e094ace7a1b98b6f300b160f58e457d21
 DUMP=orbit_2026-10-06.dump
 
 if [ ! -d "$B/apartado_jev_2026-10-06" ]; then
-  cp -a -T "$B/orbit_2026-10-06" "$B/apartado_jev_2026-10-06.parcial"
-  s=$(sha256sum "$B/apartado_jev_2026-10-06.parcial/$DUMP" | awk '{print $1}')
+  if ! cp -a -T "$B/orbit_2026-10-06" "$B/apartado_jev_2026-10-06.parcial"; then
+    echo "APARTADO MAL"
+    exit 1
+  fi
+  s=$(sha256sum "$B/apartado_jev_2026-10-06.parcial/$DUMP" | awk '{print $1}') || { echo "APARTADO MAL"; exit 1; }
   if [ "$s" = "$SHA" ]; then
-    mv -T "$B/apartado_jev_2026-10-06.parcial" "$B/apartado_jev_2026-10-06"
+    mv -T "$B/apartado_jev_2026-10-06.parcial" "$B/apartado_jev_2026-10-06" || { echo "APARTADO MAL"; exit 1; }
   fi
 fi
 
 if [ -f "$B/apartado_jev_2026-10-06/$DUMP" ]; then
-  s=$(sha256sum "$B/apartado_jev_2026-10-06/$DUMP" | awk '{print $1}')
+  s=$(sha256sum "$B/apartado_jev_2026-10-06/$DUMP" | awk '{print $1}') || s="error"
 else
   s=ausente
 fi

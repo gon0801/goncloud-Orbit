@@ -108,7 +108,7 @@ echo "$s1"
 conteos=$(echo "$s1" | sed -n 's/^ORIGEN conteos: //p' | tail -n1)
 if [ "$conteos" != "$ESPERADO_ORIGEN" ]; then
   echo "conteos del origen no dan ($conteos): limpiar.sh y un solo reintento"
-  bash limpiar.sh
+  bash limpiar.sh || falla "limpiar.sh fallo en el reintento del origen"
   s1=$(paso1) || { echo "$s1"; falla "origen tras reintento: $(echo "$s1" | tail -n1)"; }
   echo "$s1"
   conteos=$(echo "$s1" | sed -n 's/^ORIGEN conteos: //p' | tail -n1)
@@ -241,6 +241,11 @@ done
 segunda_lectura_y_final() {
   mensaje_ok="$1"
   s7=$(hashes_md5 "$DESTINO" destino) && rc7=0 || rc7=$?
+  if [ "$rc7" != "0" ]; then
+    echo "segunda lectura fallo ($s7); un solo reintento en 5s"
+    sleep 5
+    s7=$(hashes_md5 "$DESTINO" destino) && rc7=0 || rc7=$?
+  fi
   echo "$s7"
   if [ "$rc7" != "0" ]; then
     echo "RESCATE $MODO CARGADO CON DIFERENCIA: segunda lectura fallo"
@@ -280,14 +285,14 @@ trap 'rm -f "$DATOS"' EXIT
 # paso 5: archivo de datos (no sale del servidor; se borra con rm -f al final)
 if ! docker exec orbit-db-1 pg_dump -U orbit -d orbit_rescate_jev --data-only \
      -t public.jev_ficha_version -t public.jev_revision > "$DATOS" 2>"$ERR"; then
-  echo "CARGA FALLA datos pg_dump: $(head -n1 "$ERR")"
+  echo "CARGA FALLA: datos pg_dump: $(head -n1 "$ERR")"
   exit 1
 fi
 printf '%s\n' "COPY public.jev_par_evento (id, revision_id, termino_sha256, ficha_version_id, contrato_sha256, ordinal, tipo, request_sha256, respuesta, error, intencion_id, reutiliza_id, duracion_ms, usage, created_at) FROM stdin;" >> "$DATOS"
 if ! docker exec orbit-db-1 psql -U orbit -d orbit_rescate_jev -X -q -v ON_ERROR_STOP=1 \
      -c "COPY (SELECT id, revision_id, termino_sha256, ficha_version_id, contrato_sha256, ordinal, tipo, request_sha256, respuesta, error, intencion_id, reutiliza_id, duracion_ms, usage, created_at FROM public.jev_par_evento ORDER BY CASE tipo WHEN 'intencion' THEN 1 WHEN 'resultado' THEN 2 ELSE 3 END, created_at, id) TO STDOUT" \
      >> "$DATOS" 2>"$ERR"; then
-  echo "CARGA FALLA datos copy: $(head -n1 "$ERR")"
+  echo "CARGA FALLA: datos copy: $(head -n1 "$ERR")"
   exit 1
 fi
 printf '%s\n' '\.' >> "$DATOS"
@@ -381,7 +386,7 @@ if [ "$rc56" = "75" ]; then
   exit 75
 fi
 if [ "$rc56" != "0" ]; then
-  causa=$(echo "$s56" | sed -n 's/^CARGA FALLA //p' | tail -n1)
+  causa=$(echo "$s56" | sed -n 's/^CARGA FALLA: //p' | tail -n1)
   [ -n "$causa" ] || causa=$(echo "$s56" | tail -n1)
   [ -n "$causa" ] || causa="falla remota sin mensaje"
   falla "$causa"

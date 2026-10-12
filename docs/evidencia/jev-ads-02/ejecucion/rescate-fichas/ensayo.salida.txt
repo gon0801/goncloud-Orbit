@@ -1,6 +1,6 @@
 == paso 1: origen (orbit_rescate_jev) ==
 ORIGEN sha256 del apartado ok (e77a3195f1636552974f0766eb63013e094ace7a1b98b6f300b160f58e457d21)
-ORIGEN restaurado desde el apartado
+ORIGEN ya existia
 ORIGEN conteos: 868,0,24,0,11272
 == paso 2: destino ==
 DESTINO ensayo recreado desde orbit_2026-10-12
