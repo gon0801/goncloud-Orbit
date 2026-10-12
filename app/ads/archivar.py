@@ -31,7 +31,7 @@ from dataclasses import dataclass
 from app.ads.client import AdsApiError, AdsClient
 from app.ads.config import AdsCredentials
 from app.ads.structure import PATH_PRODUCT_ADS, evaluar_perfiles
-from app.ads.write import AdsWriteClient
+from app.ads.write import AdsApiErrorMutacion, AdsWriteClient
 
 # Estados wire del list (UPPER, mismo vocabulario que app/apply.py).
 ESTADO_ARCHIVADO = "ARCHIVED"
@@ -493,11 +493,20 @@ def _cambiar_estado_anuncios(
         return resultados
 
     rechazos: dict[str, str] = {}
+    inciertos: dict[str, str] = {}
     for i, ad_id in enumerate(a_mutar, 1):
         try:
             escritor.cambiar_estado_product_ad(ad_id, destino)
         except AdsApiError as exc:
-            rechazos[ad_id] = str(getattr(exc, "cuerpo", "") or exc)[:300]
+            # R09-r5 B3 (3b): solo el rechazo EXPLICITO (4xx o 207
+            # con errores: Amazon proceso y dijo que no) es `fallo`.
+            # 5xx, timeout y red son inciertos: el PUT pudo aplicarse
+            # (y el readback puede ir atrasado); salen sin_confirmar.
+            texto = str(getattr(exc, "cuerpo", "") or exc)[:300]
+            if _es_rechazo_explicito(exc):
+                rechazos[ad_id] = texto
+            else:
+                inciertos[ad_id] = texto
         if i % 25 == 0:
             avisar(f"  ... {i}/{len(a_mutar)}")
         dormir(pausa)
@@ -506,11 +515,20 @@ def _cambiar_estado_anuncios(
     for ad_id in a_mutar:
         reversa = reversa_de_fila(filas[ad_id])
         rechazo = rechazos.get(ad_id)
+        incierto = inciertos.get(ad_id)
         if posteriores.get(ad_id) == destino:
             detalle = f"quedo {destino} pese al rechazo del envio: {rechazo}" if rechazo else ""
+            if incierto and not rechazo:
+                detalle = f"quedo {destino} pese al envio incierto: {incierto}"
             resultados.append(ResultadoAnuncio(ad_id, previos[ad_id], verbo, detalle, reversa))
         elif rechazo:
             resultados.append(ResultadoAnuncio(ad_id, previos[ad_id], "fallo", rechazo, reversa))
+        elif incierto:
+            resultados.append(
+                ResultadoAnuncio(
+                    ad_id, previos[ad_id], "sin_confirmar", f"envio incierto: {incierto}", reversa
+                )
+            )
         else:
             resultados.append(
                 ResultadoAnuncio(
@@ -522,6 +540,13 @@ def _cambiar_estado_anuncios(
                 )
             )
     return resultados
+
+
+def _es_rechazo_explicito(exc: AdsApiError) -> bool:
+    """Un PUT trae rechazo explicito solo si Amazon proceso la mutacion
+    y dijo que no: 4xx, o 207 con errores anidados (status < 500 con
+    cuerpo de mutacion). 5xx, timeout y red son inciertos."""
+    return isinstance(exc, AdsApiErrorMutacion) and exc.status is not None and exc.status < 500
 
 
 def pausar_anuncios(

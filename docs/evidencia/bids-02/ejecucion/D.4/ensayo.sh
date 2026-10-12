@@ -3,9 +3,9 @@
 # Patron: docs/evidencia/bids-02/ejecucion/D.1/ensayo.sh.
 # En modo real toma el esquema de prod con solo lectura, lo carga en una base
 # nueva y comprueba:
-#   1) las _bids02_ no aplicadas (las de D.4 son 0064, 0065 y 0066;
-#      mas 0060-0063, 0067 y las de otra seccion si siguen pendientes,
-#      como las lista desplegar.sh)
+#   1) las _bids02_ no aplicadas (las de D.4 son 0064, 0065, 0066,
+#      0068, 0069 y 0070; mas 0060-0063, 0067 y las de otra seccion
+#      si siguen pendientes, como las lista desplegar.sh)
 #      aplican con psql -1 sobre el esquema de prod;
 #   2) las reversas en orden inverso devuelven el esquema EXACTO de prod;
 #   3) reaplicar da el mismo esquema que la primera vez;
@@ -43,6 +43,9 @@ aplicada() {
     0065) echo "SELECT to_regclass('public.impulso') IS NOT NULL;" ;;
     0066) echo "SELECT to_regclass('public.anuncio_retiro') IS NOT NULL;" ;;
     0067) echo "SELECT to_regclass('public.campana_ajuste') IS NOT NULL;" ;;
+    0068) echo "SELECT count(*) = 1 FROM information_schema.columns WHERE table_name = 'fabrica_lote' AND column_name = 'pausado_por';" ;;
+    0069) echo "SELECT to_regclass('public.anuncio_retiro_intencion') IS NOT NULL;" ;;
+    0070) echo "SELECT has_table_privilege('app_admin', 'public.fabrica_lote', 'DELETE');" ;;
     *) echo "ABORTA: migracion $1 sin consulta de aplicada en la guia" >&2; exit 1 ;;
   esac | psql "$DSN_DB" -X -q -tA -v ON_ERROR_STOP=1
 }

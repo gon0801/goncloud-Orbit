@@ -1716,6 +1716,16 @@ def _cambia_estado_lote(ctx: _Ctx, lote: str, estado: str, actor: str) -> None:
     ctx.orden = ctx.conn_admin.execute(
         "SELECT coalesce(max(orden), 0) FROM fabrica_lote_paso WHERE lote = %s", (lote,)
     ).fetchone()[0]
+    if estado == "pausado":
+        # G9: el actor queda grabado antes del primer PUT, con
+        # COMMIT: si Amazon rechaza a medias, el lote dice (applied,
+        # actor) = "intento pausar y no se completo". No se anota
+        # "a medias": pausado_por guarda actores exactos, y el
+        # estado sin sellar ya cuenta que la pausa no cerro.
+        ctx.conn_admin.execute(
+            "UPDATE fabrica_lote SET pausado_por = %s WHERE lote = %s", (actor, lote)
+        )
+        ctx.conn_admin.commit()
     nuevo = "PAUSED" if estado == "pausado" else "ENABLED"
     for rol, external, _goal in filas:
         paso = fp.Paso(rol, "campaign", "/sp/campaigns", {}, f"{estado} {rol}")

@@ -182,7 +182,10 @@ fi
 echo "== 3) Verificacion (esperado: f en lo que aplico este despliegue)"
 TABLA65=$(echo "SELECT to_regclass('public.impulso') IS NOT NULL;" | q)
 TABLA66=$(echo "SELECT to_regclass('public.anuncio_retiro') IS NOT NULL;" | q)
-echo "impulso=$TABLA65 anuncio_retiro=$TABLA66"
+TABLA69=$(echo "SELECT to_regclass('public.anuncio_retiro_intencion') IS NOT NULL;" | q)
+COL68=$(echo "SELECT count(*) = 1 FROM information_schema.columns WHERE table_name = 'fabrica_lote' AND column_name = 'pausado_por';" | q)
+GRANT70=$(echo "SELECT has_table_privilege('app_admin', 'public.fabrica_lote', 'DELETE');" | q)
+echo "impulso=$TABLA65 anuncio_retiro=$TABLA66 intencion=$TABLA69 pausado_por=$COL68 grant_delete=$GRANT70"
 # Solo se exige f en lo que este despliegue aplico (aplicadas-STAMP.txt);
 # una tabla que ya venia aplicada la deja otro despliegue.
 case " $REVS " in
@@ -191,8 +194,17 @@ esac
 case " $REVS " in
   *"0066_reversa_"*) [ "$TABLA66" = "f" ] || { echo "FALLA: anuncio_retiro sigue"; exit 1; } ;;
 esac
-if [ "$TABLA65" = "t" ] || [ "$TABLA66" = "t" ]; then
+case " $REVS " in
+  *"0068_reversa_"*) [ "$COL68" = "f" ] || { echo "FALLA: pausado_por sigue"; exit 1; } ;;
+esac
+case " $REVS " in
+  *"0069_reversa_"*) [ "$TABLA69" = "f" ] || { echo "FALLA: anuncio_retiro_intencion sigue"; exit 1; } ;;
+esac
+case " $REVS " in
+  *"0070_reversa_"*) [ "$GRANT70" = "f" ] || { echo "FALLA: el GRANT DELETE de app_admin sigue"; exit 1; } ;;
+esac
+if [ "$TABLA65" = "t" ] || [ "$TABLA66" = "t" ] || [ "$TABLA69" = "t" ]; then
   echo "== REVERSA LISTA (parcial: alguna tabla sigue porque este sello no la aplico; la deja otro despliegue)."
 else
-  echo "== REVERSA LISTA. impulso y anuncio_retiro se fueron vacias (con filas, el paso 0c aborta antes del DROP); el codigo anterior no lee las tablas."
+  echo "== REVERSA LISTA. impulso, anuncio_retiro e intencion se fueron vacias (con filas, el paso 0c aborta antes del DROP); el codigo anterior no lee las tablas."
 fi

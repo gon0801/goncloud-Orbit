@@ -2510,3 +2510,134 @@ def test_r09r4_a04_lanzar_traduce_abortar_a_422(monkeypatch):
     with pytest.raises(HTTPException) as ei:
         api_fabrica.impulso_lanzar("tok", cuerpo)
     assert ei.value.status_code == 422, ei.value.detail
+
+
+def test_r09r5_g9_pausar_a_medias_502_no_500(escenario, monkeypatch):
+    """R09-r5 B2b (G9): si Amazon rechaza a media pausa, la ruta
+    responde 502 con detalle (no 500 pelado)."""
+    import tools.fabrica_campanas as fc
+    from app import impulso_io as io
+
+    cliente, conn, _, _, ids = escenario
+    _db_i5(conn)
+    _sugeridor_fijo_i5(monkeypatch)
+    _ejecutor_siembra_i5(monkeypatch, conn)
+    lid = _lid_de(conn, ids[0])
+    sol = {
+        "plataforma": "amazon_mx",
+        "listing_ids": [lid],
+        "subfamilia_por_listing": {str(lid): "aros"},
+    }
+    vista = cliente.post("/api/fabrica/impulso/plan", json=sol).json()
+    r = cliente.post(
+        "/api/fabrica/impulso/lanzar",
+        headers=HEADERS,
+        json={
+            "solicitud": sol,
+            "huella": vista["huella"],
+            "confirmacion": vista["confirmacion_esperada"],
+            "actor": "dueno",
+        },
+    )
+    assert r.status_code == 200, r.text
+    (iid,) = conn.execute("SELECT id FROM impulso").fetchone()
+
+    def _abortar(self, lote):
+        raise fc.Abortar("PUT PAUSED de c-x rechazado (status 400)")
+
+    monkeypatch.setattr(io.PausadorFabrica, "pausa", _abortar)
+    r = cliente.post(
+        f"/api/fabrica/impulso/{iid}/pausar",
+        headers=HEADERS,
+        json={"confirmacion": "PAUSAR IMPULSO"},
+    )
+    assert r.status_code == 502, r.text
+    assert "rechazado" in r.text
+
+
+def test_r09r5_g18_lotes_y_detalle_200_en_cada_estado(escenario):
+    """R09-r5 B5 (G18): la lista y el detalle de lotes responden 200
+    con un lote en cada estado posible (pausado no da KeyError)."""
+    cliente, conn, _, _, _ = escenario
+    conn.execute("ALTER TABLE fabrica_lote DROP CONSTRAINT fabrica_lote_estado_check")
+    conn.execute(
+        "ALTER TABLE fabrica_lote ADD CONSTRAINT fabrica_lote_estado_check"
+        " CHECK (estado IN ('planeado', 'applied', 'failed', 'pausado', 'desarmado'))"
+    )
+    conn.commit()
+    for estado in ("planeado", "applied", "failed", "pausado", "desarmado"):
+        conn.execute(
+            "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal,"
+            " huella, plan, modo_goal, estado, detalle) VALUES (%s, 'amazon_mx', 'aros',"
+            " 'Base', 'go', 'h', '{}'::jsonb, 'shadow', %s, %s)",
+            (f"lote-{estado}", estado, f"go: dueno ({estado})"),
+        )
+    conn.commit()
+    r = cliente.get("/api/fabrica/lotes", params={"plataforma": "amazon_mx"})
+    assert r.status_code == 200, r.text
+    assert {x["estado"] for x in r.json()["items"]} >= {
+        "planeado",
+        "applied",
+        "failed",
+        "pausado",
+        "desarmado",
+    }
+    for estado in ("planeado", "applied", "failed", "pausado", "desarmado"):
+        r = cliente.get(f"/api/fabrica/lotes/lote-{estado}")
+        assert r.status_code == 200, (estado, r.text)
+
+
+def test_r09r5_a05_pausa_por_ruta_anota_dueno(escenario, monkeypatch):
+    """R09-r5 B6 (A05): pausar por la ruta anota pausado_por='dueno'
+    (nunca el default del vigia)."""
+    from app import impulso_io as io
+
+    cliente, conn, _, _, ids = escenario
+    _db_i5(conn)
+    _sugeridor_fijo_i5(monkeypatch)
+    _ejecutor_siembra_i5(monkeypatch, conn)
+    lid = _lid_de(conn, ids[0])
+    sol = {
+        "plataforma": "amazon_mx",
+        "listing_ids": [lid],
+        "subfamilia_por_listing": {str(lid): "aros"},
+    }
+    vista = cliente.post("/api/fabrica/impulso/plan", json=sol).json()
+    r = cliente.post(
+        "/api/fabrica/impulso/lanzar",
+        headers=HEADERS,
+        json={
+            "solicitud": sol,
+            "huella": vista["huella"],
+            "confirmacion": vista["confirmacion_esperada"],
+            "actor": "dueno",
+        },
+    )
+    assert r.status_code == 200, r.text
+    (iid, lote) = conn.execute("SELECT id, lote FROM impulso").fetchone()
+    actores = {}
+    Real = io.PausadorFabrica
+
+    class Espia(Real):
+        def __init__(self, conn, *, actor="impulso-vigia"):
+            actores["actor"] = actor
+            super().__init__(conn, actor=actor)
+
+        def pausa(self, lote):
+            conn.execute(
+                "UPDATE fabrica_lote SET estado = 'pausado', pausado_por = %s WHERE lote = %s",
+                (actores["actor"], lote),
+            )
+            conn.commit()
+
+    monkeypatch.setattr(io, "PausadorFabrica", Espia)
+    r = cliente.post(
+        f"/api/fabrica/impulso/{iid}/pausar",
+        headers=HEADERS,
+        json={"confirmacion": "PAUSAR IMPULSO"},
+    )
+    assert r.status_code == 200, r.text
+    assert actores["actor"] == "dueno"
+    assert conn.execute(
+        "SELECT pausado_por FROM fabrica_lote WHERE lote = %s", (lote,)
+    ).fetchone() == ("dueno",)

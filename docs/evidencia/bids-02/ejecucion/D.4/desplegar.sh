@@ -6,7 +6,7 @@
 # docs/evidencia/bids-02/ejecucion/D.2/desplegar.sh (cron) +
 # docs/evidencia/bids-02/ejecucion/D.3/desplegar.sh (pasos) + las cinco
 # guardas de "Como se despliega una seccion" de la guia. Sus guardas
-# propias: el SHA trae las 0064/0065/0066, app/impulso_io.py,
+# propias: el SHA trae las 0064/0065/0066/0068/0069/0070, app/impulso_io.py,
 # app/static/js/productos.js, MUTATION_REQUEST_TYPES con PUT /sp/productAds
 # y la linea de impulso-vigia en docs/DEPLOY.md. Si una falla, aborta.
 # CALCULA la linea en 1c e INSTALA en 7b (tras el health del contenedor
@@ -64,6 +64,9 @@ aplicada() {
     0065) echo "SELECT to_regclass('public.impulso') IS NOT NULL;" | q ;;
     0066) echo "SELECT to_regclass('public.anuncio_retiro') IS NOT NULL;" | q ;;
     0067) echo "SELECT to_regclass('public.campana_ajuste') IS NOT NULL;" | q ;;
+    0068) echo "SELECT count(*) = 1 FROM information_schema.columns WHERE table_name = 'fabrica_lote' AND column_name = 'pausado_por';" | q ;;
+    0069) echo "SELECT to_regclass('public.anuncio_retiro_intencion') IS NOT NULL;" | q ;;
+    0070) echo "SELECT has_table_privilege('app_admin', 'public.fabrica_lote', 'DELETE');" | q ;;
     *) echo "ABORTA: migracion $1 sin consulta de aplicada en la guia" >&2; exit 1 ;;
   esac
 }
@@ -158,7 +161,7 @@ for m in $(git ls-tree --name-only "$APROBADO" migrations/ | grep _bids02_ | gre
 done
 
 echo "== 1b) Guardas propias de D.4 (abortan si fallan)"
-for N in 0064_bids02_grupo_tipo 0065_bids02_impulso 0066_bids02_retiro_anuncios; do
+for N in 0064_bids02_grupo_tipo 0065_bids02_impulso 0066_bids02_retiro_anuncios 0068_bids02_sellos 0069_bids02_retiro_intencion 0070_bids02_permisos_lanza; do
   git cat-file -e "$APROBADO:migrations/$N.sql" || { echo "ABORTA: $APROBADO no trae $N"; exit 1; }
 done
 git cat-file -e "$APROBADO:app/impulso_io.py" || { echo "ABORTA: $APROBADO no trae app/impulso_io.py (I.3)"; exit 1; }
@@ -166,7 +169,7 @@ git cat-file -e "$APROBADO:app/retiro_anuncios.py" || { echo "ABORTA: $APROBADO 
 git cat-file -e "$APROBADO:app/static/js/productos.js" || { echo "ABORTA: $APROBADO no trae app/static/js/productos.js (P.4)"; exit 1; }
 git show "$APROBADO:app/cli_bids.py" | grep -q '"impulso-vigia"' || { echo "ABORTA: app/cli_bids.py del SHA no registra impulso-vigia"; exit 1; }
 git show "$APROBADO:app/ads/write.py" | grep -q '("PUT", "/sp/productAds")' || { echo "ABORTA: MUTATION_REQUEST_TYPES del SHA no trae PUT /sp/productAds"; exit 1; }
-echo "0064/0065/0066, impulso, retiro, productos.js, comando y PUT /sp/productAds presentes en el SHA"
+echo "0064/0065/0066/0068/0069/0070, impulso, retiro, productos.js, comando y PUT /sp/productAds presentes en el SHA"
 VIGIA=$(git show "$APROBADO:docs/DEPLOY.md" | grep -E '^[0-9].*impulso-vigia')
 [ "$(printf '%s\n' "$VIGIA" | grep -c .)" = 1 ] || { echo "ABORTA: DEPLOY.md del SHA no trae exactamente la linea de impulso-vigia"; exit 1; }
 echo "linea de impulso-vigia en el SHA OK"

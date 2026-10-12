@@ -7,6 +7,7 @@ import json
 import httpx
 import pytest
 from test_fabrica_migracion import (
+    _dsn_propia,
     _entidad,
     _grupo,
     _lote,
@@ -68,12 +69,22 @@ def _escritor(
     stale_lists=frozenset(),
     rechaza_put=frozenset(),
     ocultos=None,
+    puts_500_que_aplican=frozenset(),
+    puts_207_con_error=frozenset(),
+    puts_red_caida=frozenset(),
+    puts_timeout_que_aplican=frozenset(),
+    puts_timeout_sin_aplicar=frozenset(),
 ):
     """Escritor sobre transporte falso: list con filas completas, PUT que
     cambia el estado en vivo, create que devuelve un adId nuevo.
     lists_que_fallan: numeros de LIST (1-based) que responden 500.
     stale_lists: numeros de LIST que ven el estado previo al ultimo PUT.
     rechaza_put: adIds cuyo PUT responde 400.
+    puts_500_que_aplican: adIds cuyo PUT aplica pero responde 500.
+    puts_207_con_error: adIds cuyo PUT responde 207 con error por item.
+    puts_red_caida: adIds cuyo PUT corta la conexion sin aplicar.
+    puts_timeout_que_aplican: adIds cuyo PUT aplica pero expira.
+    puts_timeout_sin_aplicar: adIds cuyo PUT expira sin aplicar.
     ocultos: {adId: n} LISTs que aun no traen ese ad (eventual)."""
     puts: list[tuple[str, str]] = []
     vivos = {k: dict(v) for k, v in filas.items()}
@@ -90,6 +101,30 @@ def _escritor(
             for entrada in cuerpo.get("productAds", []):
                 if str(entrada["adId"]) in rechaza_put:
                     return httpx.Response(400, json={"code": "400", "details": "rechazado"})
+                if str(entrada["adId"]) in puts_500_que_aplican:
+                    foto[str(entrada["adId"])] = dict(vivos[str(entrada["adId"])])
+                    vivos[str(entrada["adId"])]["state"] = str(entrada["state"])
+                    puts.append((str(entrada["adId"]), str(entrada["state"])))
+                    return httpx.Response(500, text="Internal error")
+                if str(entrada["adId"]) in puts_207_con_error:
+                    return httpx.Response(
+                        207,
+                        json={
+                            "productAds": {
+                                "error": [{"code": "400", "adId": str(entrada["adId"])}],
+                                "success": [],
+                            }
+                        },
+                    )
+                if str(entrada["adId"]) in puts_red_caida:
+                    raise httpx.ConnectError("conexion cortada antes de Amazon")
+                if str(entrada["adId"]) in puts_timeout_que_aplican:
+                    foto[str(entrada["adId"])] = dict(vivos[str(entrada["adId"])])
+                    vivos[str(entrada["adId"])]["state"] = str(entrada["state"])
+                    puts.append((str(entrada["adId"]), str(entrada["state"])))
+                    raise httpx.TimeoutException("respuesta perdida tras aplicar")
+                if str(entrada["adId"]) in puts_timeout_sin_aplicar:
+                    raise httpx.TimeoutException("expiro sin aplicar")
                 puts.append((str(entrada["adId"]), str(entrada["state"])))
                 foto[str(entrada["adId"])] = dict(vivos[str(entrada["adId"])])
                 vivos[str(entrada["adId"])]["state"] = str(entrada["state"])
@@ -315,10 +350,11 @@ def test_r09r4_ra07_grupo_sin_anuncios_no_bloquea_lote():
 
 
 @_skip_db
-def test_r09r4_ra28b_retoma_desaparecido_no_sella_ni_cierra():
-    """R09-r4 B6 (RA28, segundo sitio): reintento cuya previa ya no
-    trae el anuncio: se nombra no_existe, sin PUT; la intencion sigue
-    abierta (ni sello ni reposicion)."""
+def test_r09r4_ra28b_retoma_desaparecido_cierra_sin_fallar():
+    """R09-r4 B6 (RA28, segundo sitio), R09-r5 B3 (iii): reintento cuya
+    previa ya no trae el anuncio: sin PUT, cierra la intencion con
+    detalle (inexistente: nada que pausar) y no falla: el reintento
+    converge en vez de responder 502 para siempre."""
     import pytest
 
     with _db_i4("orbit_i4_r4ra28b") as conn:
@@ -338,12 +374,13 @@ def test_r09r4_ra28b_retoma_desaparecido_no_sella_ni_cierra():
         )
         assert [a.ad_id_externo for a in plan2.anuncios] == ["ad-28b"]
         escritor2, puts2 = _escritor({})
-        with pytest.raises(RuntimeError, match="no_existe"):
-            ra.ejecuta_retiro(conn, plan2, go="SACAR 1", escritor=escritor2, actor="dueno")
+        assert ra.ejecuta_retiro(conn, plan2, go="SACAR 1", escritor=escritor2, actor="dueno") == 0
         assert puts2 == []
         assert conn.execute(
-            "SELECT cerrada_el IS NULL FROM anuncio_retiro_intencion WHERE id = %s", (iid[0],)
-        ).fetchone() == (True,)
+            "SELECT cerrada_el IS NOT NULL, retiro_id IS NULL FROM anuncio_retiro_intencion"
+            " WHERE id = %s",
+            (iid[0],),
+        ).fetchone() == (True, True)
         assert conn.execute("SELECT count(*) FROM anuncio_retiro").fetchone() == (0,)
         assert conn.execute("SELECT count(*) FROM anuncio_reposicion").fetchone() == (0,)
 
@@ -1144,9 +1181,10 @@ def test_r09r4_c_retiro_y_regreso_a_la_vez_se_excluyen():
         res = {}
         try:
             info = conn.info
+            dsn_hilos = _dsn_propia(conn)
 
             def _regresa():
-                with psycopg.connect(info.dsn, dbname=info.dbname, autocommit=True) as c2:
+                with psycopg.connect(dsn_hilos, dbname=info.dbname, autocommit=True) as c2:
                     try:
                         res["regreso"] = ra.repone(
                             c2, retiro_ids=(rid,), go="go uno", escritor=escritor, actor="uno"
@@ -1155,7 +1193,7 @@ def test_r09r4_c_retiro_y_regreso_a_la_vez_se_excluyen():
                         res["regreso"] = exc
 
             def _retira():
-                with psycopg.connect(info.dsn, dbname=info.dbname, autocommit=True) as c3:
+                with psycopg.connect(dsn_hilos, dbname=info.dbname, autocommit=True) as c3:
                     try:
                         res["retiro"] = ra.ejecuta_retiro(
                             c3, plan, go="go dos", escritor=escritor, actor="dos"
@@ -1307,3 +1345,695 @@ def test_r09r4_ra21_archived_ni_abre_intencion():
         assert puts == []
         assert conn.execute("SELECT count(*) FROM anuncio_retiro_intencion").fetchone() == (0,)
         assert conn.execute("SELECT count(*) FROM anuncio_retiro").fetchone() == (0,)
+
+
+@_skip_db
+def test_r09r5_r01_reintento_sella_con_reversa_de_la_intencion():
+    """R09-r5 B3 (r01, caso E): PUT aplicado pero incierto; el
+    reintento lee PAUSED y sella. El retiro lleva la reversa
+    guardada en la intencion (state=ENABLED, la foto previa al
+    primer PUT), no la de la lectura del reintento; 'Regresar'
+    manda PUT ENABLED y el anuncio vuelve."""
+    with _db_i4("orbit_i4_r5r01") as conn:
+        _pid, lid = _producto(conn)
+        _bolsa(conn, lid, "ad-1")
+        plan = ra.planea_retiro(
+            conn, "amazon_mx", listing_ids=(lid,), motivo="sin_pedidos", conservar_grupo_id=None
+        )
+        escritor, puts = _escritor(_fila("ad-1", "ENABLED"), lists_que_fallan=set(range(3, 12)))
+        with pytest.raises(RuntimeError, match="retiro no confirmado"):
+            ra.ejecuta_retiro(conn, plan, go="go dueno", escritor=escritor)
+        assert puts == [("ad-1", "PAUSED")]
+        (rev_intencion,) = conn.execute(
+            "SELECT reversa FROM anuncio_retiro_intencion WHERE cerrada_el IS NULL"
+        ).fetchone()
+        assert "state=ENABLED" in rev_intencion
+        plan2 = ra.planea_retiro(
+            conn, "amazon_mx", listing_ids=(lid,), motivo="sin_pedidos", conservar_grupo_id=None
+        )
+        escritor2, puts2 = _escritor(_fila("ad-1", "PAUSED"))
+        assert ra.ejecuta_retiro(conn, plan2, go="go dueno", escritor=escritor2) == 1
+        (rev_retiro,) = conn.execute("SELECT reversa FROM anuncio_retiro").fetchone()
+        assert rev_retiro == rev_intencion
+        assert "state=ENABLED" in rev_retiro
+        (rid,) = conn.execute("SELECT id FROM anuncio_retiro").fetchone()
+        escritor3, puts3 = _escritor(_fila("ad-1", "PAUSED"))
+        assert ra.repone(conn, retiro_ids=(rid,), go="go dueno", escritor=escritor3) == 1
+        assert puts3 == [("ad-1", "ENABLED")]
+
+
+@_skip_db
+def test_r09r5_3b_put_500_que_aplica_deja_intencion_pendiente():
+    """R09-r5 B3 (3b, VT/VQ): el PUT aplica pero responde 500 y el
+    readback va una lectura atrasado (ve ENABLED): NO es rechazo,
+    es incierto: sin fila de retiro y con intencion pendiente (la
+    reconciliacion la sella al leer PAUSED)."""
+    with _db_i4("orbit_i4_r53b") as conn:
+        _pid, lid = _producto(conn)
+        _bolsa(conn, lid, "ad-1")
+        plan = ra.planea_retiro(
+            conn, "amazon_mx", listing_ids=(lid,), motivo="sin_pedidos", conservar_grupo_id=None
+        )
+        escritor, puts = _escritor(
+            _fila("ad-1", "ENABLED"), puts_500_que_aplican={"ad-1"}, stale_lists={3}
+        )
+        with pytest.raises(RuntimeError, match="retiro no confirmado"):
+            ra.ejecuta_retiro(conn, plan, go="go dueno", escritor=escritor)
+        assert puts == [("ad-1", "PAUSED")]
+        assert conn.execute("SELECT count(*) FROM anuncio_retiro").fetchone() == (0,)
+        fila = conn.execute(
+            "SELECT cerrada_el IS NULL, retiro_id FROM anuncio_retiro_intencion"
+        ).fetchone()
+        assert fila == (True, None)
+
+
+@_skip_db
+def test_r09r5_nq_reintento_cierra_intencion_con_retiro_ya_sellado(monkeypatch):
+    """R09-r5 B3 (10 n/q, 11 E): muerte entre el sello y el cierre:
+    retiro sellado + intencion pendiente. El reintento NO manda PUT
+    ni duplica la fila: cierra la intencion apuntando al retiro."""
+    with _db_i4("orbit_i4_r5nq") as conn:
+        _pid, lid = _producto(conn)
+        _bolsa(conn, lid, "ad-1")
+        plan = ra.planea_retiro(
+            conn, "amazon_mx", listing_ids=(lid,), motivo="sin_pedidos", conservar_grupo_id=None
+        )
+        escritor, puts = _escritor(_fila("ad-1", "ENABLED"))
+
+        class Muerte(BaseException):
+            pass
+
+        def _muere(*args, **kwargs):
+            raise Muerte("kill -9 entre sello y cierre")
+
+        monkeypatch.setattr(ra, "_cierra_intencion", _muere)
+        with pytest.raises(Muerte):
+            ra.ejecuta_retiro(conn, plan, go="go dueno", escritor=escritor)
+        monkeypatch.undo()
+        assert puts == [("ad-1", "PAUSED")]
+        assert conn.execute("SELECT count(*) FROM anuncio_retiro").fetchone() == (1,)
+        (rid,) = conn.execute("SELECT id FROM anuncio_retiro").fetchone()
+        assert conn.execute(
+            "SELECT count(*) FROM anuncio_retiro_intencion WHERE cerrada_el IS NULL"
+        ).fetchone() == (1,)
+        plan2 = ra.planea_retiro(
+            conn, "amazon_mx", listing_ids=(lid,), motivo="sin_pedidos", conservar_grupo_id=None
+        )
+        escritor2, puts2 = _escritor(_fila("ad-1", "PAUSED"))
+        assert ra.ejecuta_retiro(conn, plan2, go="go dueno", escritor=escritor2) == 0
+        assert puts2 == []
+        assert conn.execute("SELECT count(*) FROM anuncio_retiro").fetchone() == (1,)
+        fila = conn.execute(
+            "SELECT cerrada_el IS NOT NULL, retiro_id FROM anuncio_retiro_intencion"
+        ).fetchone()
+        assert fila == (True, rid)
+
+
+@_skip_db
+def test_r09r5_d3_archivado_por_fuera_cierra_intencion_sin_fallar():
+    """R09-r5 B3 (11 D3/B, 3c): intencion pendiente de un anuncio que
+    se archiva por fuera: el reintento cierra la intencion con
+    detalle y NO falla (nunca 502 cada vez; el vigia no se atora)."""
+    with _db_i4("orbit_i4_r5d3") as conn:
+        _pid, lid = _producto(conn)
+        _bolsa(conn, lid, "ad-1")
+        plan = ra.planea_retiro(
+            conn, "amazon_mx", listing_ids=(lid,), motivo="sin_pedidos", conservar_grupo_id=None
+        )
+        # Muerte antes del PUT: intencion pendiente, Amazon intacto.
+        import app.ads.archivar as archivar_real
+
+        real_pausar = archivar_real.pausar_anuncios
+
+        class Muerte(BaseException):
+            pass
+
+        def _muere(*args, **kwargs):
+            raise Muerte("kill -9 antes del PUT")
+
+        escritor, _puts = _escritor(_fila("ad-1", "ENABLED"))
+        archivar_real.pausar_anuncios = _muere
+        try:
+            with pytest.raises(Muerte):
+                ra.ejecuta_retiro(conn, plan, go="go dueno", escritor=escritor)
+        finally:
+            archivar_real.pausar_anuncios = real_pausar
+        # El anuncio se archiva por fuera; el reintento converge.
+        plan2 = ra.planea_retiro(
+            conn, "amazon_mx", listing_ids=(lid,), motivo="sin_pedidos", conservar_grupo_id=None
+        )
+        assert [a.ad_id_externo for a in plan2.anuncios] == ["ad-1"]
+        escritor2, puts2 = _escritor(_fila("ad-1", "ARCHIVED"))
+        assert ra.ejecuta_retiro(conn, plan2, go="go dueno", escritor=escritor2) == 0
+        assert puts2 == []
+        assert conn.execute("SELECT count(*) FROM anuncio_retiro").fetchone() == (0,)
+        fila = conn.execute(
+            "SELECT cerrada_el IS NOT NULL, retiro_id IS NULL, detalle"
+            " FROM anuncio_retiro_intencion"
+        ).fetchone()
+        assert fila[0] and fila[1] and "ARCHIVED" in fila[2]
+
+
+def _intencion_pendiente(conn, lid, external, *, motivo="sin_pedidos", impulso_id=None):
+    """Siembra ad + intencion pendiente con reversa ENABLED; devuelve iid."""
+    _bolsa(conn, lid, external)
+    (ent,) = conn.execute(
+        "SELECT id FROM ad_entity WHERE kind = 'product_ad' AND external_id = %s",
+        (external,),
+    ).fetchone()
+    (iid,) = conn.execute(
+        "INSERT INTO anuncio_retiro_intencion (platform, motivo, modo, lote_retiro, impulso_id,"
+        " ad_entity_id, ad_id_externo, ad_group_externo, campana_externa, sku, asin,"
+        " reversa, actor, creada_el) VALUES ('amazon_mx', %s, 'pausa', 'retiro-r5', %s,"
+        " %s, %s, 'ag-vieja', 'c-vieja', 'SS-1', 'B0AAAAAAAA',"
+        " 'adGroupId=ag-vieja campaignId=c-vieja sku=SS-1 state=ENABLED asin=B0AAAAAAAA',"
+        " 'dueno', now()) RETURNING id",
+        (motivo, impulso_id, ent, external),
+    ).fetchone()
+    conn.commit()
+    return iid
+
+
+@_skip_db
+def test_r09r5_reconcilia_paused_sella():
+    """R09-r5 B3 (11 A): pendiente + PAUSED en Amazon (nadie
+    reintenta): la reconciliacion sella el retiro con la reversa de
+    la intencion y la cierra, sin PUT."""
+    with _db_i4("orbit_i4_r5ra") as conn:
+        _pid, lid = _producto(conn)
+        iid = _intencion_pendiente(conn, lid, "ad-1")
+        escritor, puts = _escritor(_fila("ad-1", "PAUSED"))
+        res = ra.reconcilia_intenciones(conn, escritor=escritor)
+        assert puts == []
+        assert res == [(iid, "sellado")]
+        assert conn.execute("SELECT count(*) FROM anuncio_retiro").fetchone() == (1,)
+        (rev,) = conn.execute("SELECT reversa FROM anuncio_retiro").fetchone()
+        assert "state=ENABLED" in rev
+        assert conn.execute(
+            "SELECT cerrada_el IS NOT NULL FROM anuncio_retiro_intencion WHERE id = %s", (iid,)
+        ).fetchone() == (True,)
+
+
+@_skip_db
+def test_r09r5_reconcilia_enabled_reintenta():
+    """R09-r5 B3 (iii): pendiente + ENABLED en Amazon: la
+    reconciliacion reintenta el PUT y sella."""
+    with _db_i4("orbit_i4_r5rb") as conn:
+        _pid, lid = _producto(conn)
+        iid = _intencion_pendiente(conn, lid, "ad-1")
+        escritor, puts = _escritor(_fila("ad-1", "ENABLED"))
+        res = ra.reconcilia_intenciones(conn, escritor=escritor)
+        assert puts == [("ad-1", "PAUSED")]
+        assert res == [(iid, "sellado")]
+        assert conn.execute("SELECT count(*) FROM anuncio_retiro").fetchone() == (1,)
+
+
+@_skip_db
+def test_r09r5_reconcilia_archived_cierra():
+    """R09-r5 B3 (iii): pendiente + ARCHIVED en Amazon: cierra sin
+    retiro, con detalle, sin PUT."""
+    with _db_i4("orbit_i4_r5rc") as conn:
+        _pid, lid = _producto(conn)
+        iid = _intencion_pendiente(conn, lid, "ad-1")
+        escritor, puts = _escritor(_fila("ad-1", "ARCHIVED"))
+        res = ra.reconcilia_intenciones(conn, escritor=escritor)
+        assert puts == []
+        assert res == [(iid, "cerrado")]
+        assert conn.execute("SELECT count(*) FROM anuncio_retiro").fetchone() == (0,)
+        (detalle,) = conn.execute(
+            "SELECT detalle FROM anuncio_retiro_intencion WHERE id = %s", (iid,)
+        ).fetchone()
+        assert "ARCHIVED" in detalle
+
+
+@_skip_db
+def test_r09r5_reconcilia_inexistente_cierra():
+    """R09-r5 B3 (iii): pendiente + ad inexistente en Amazon: cierra
+    sin retiro, con detalle, sin PUT."""
+    with _db_i4("orbit_i4_r5rd") as conn:
+        _pid, lid = _producto(conn)
+        iid = _intencion_pendiente(conn, lid, "ad-1")
+        escritor, puts = _escritor({})
+        res = ra.reconcilia_intenciones(conn, escritor=escritor)
+        assert puts == []
+        assert res == [(iid, "cerrado")]
+        assert conn.execute("SELECT count(*) FROM anuncio_retiro").fetchone() == (0,)
+
+
+@_skip_db
+def test_r09r5_reconcilia_impulso_terminado():
+    """R09-r5 B3 (16 VF): pendiente de motivo impulso con el impulso
+    ya terminado: la reconciliacion la resuelve igual (PAUSED sella)."""
+    with _db_i4("orbit_i4_r5re") as conn:
+        _pid, lid = _producto(conn)
+        lote = _lote(conn, "impulso-9-terminado")
+        grupo = _grupo(conn, lote)
+        (imp,) = conn.execute(
+            "INSERT INTO impulso (platform, listing_id, product_id, grupo_id, lote,"
+            " subfamilia, tope_monto, tope_moneda, presupuesto_diario, plazo_dias,"
+            " lanzado_el, actor, go_literal) VALUES ('amazon_mx', %s, %s, %s, %s,"
+            " 'aros', 350, 'MXN', 25, 30, now(), 'dueno', 'go') RETURNING id",
+            (lid, _pid, grupo, lote),
+        ).fetchone()
+        conn.execute(
+            "INSERT INTO impulso_lectura (impulso_id, corte, leido_el, dias_observados,"
+            " impresiones, clics, gasto, pedidos, veredicto, es_final, hecho)"
+            " VALUES (%s, now()::date - 1, now(), 5, 100, 5, 50, 1, 'vende', TRUE,"
+            " 'graduado')",
+            (imp,),
+        )
+        conn.commit()
+        iid = _intencion_pendiente(conn, lid, "ad-1", motivo="impulso", impulso_id=imp)
+        escritor, puts = _escritor(_fila("ad-1", "PAUSED"))
+        res = ra.reconcilia_intenciones(conn, escritor=escritor)
+        assert res == [(iid, "sellado")]
+        assert conn.execute("SELECT count(*) FROM anuncio_retiro").fetchone() == (1,)
+
+
+@_skip_db
+def test_r09r5_reconcilia_list_caido_no_tumba():
+    """R09-r5 B3 (iii): LIST caido: la pendiente sigue pendiente y la
+    reconciliacion no levanta (manana sera)."""
+    with _db_i4("orbit_i4_r5rf") as conn:
+        _pid, lid = _producto(conn)
+        iid = _intencion_pendiente(conn, lid, "ad-1")
+        _bolsa(conn, lid, "ad-2", camp="c-vieja-2", ag="ag-vieja-2")
+        (ent2,) = conn.execute(
+            "SELECT id FROM ad_entity WHERE kind = 'product_ad' AND external_id = 'ad-2'"
+        ).fetchone()
+        (iid2,) = conn.execute(
+            "INSERT INTO anuncio_retiro_intencion (platform, motivo, modo, lote_retiro,"
+            " ad_entity_id, ad_id_externo, ad_group_externo, campana_externa, sku, asin,"
+            " reversa, actor, creada_el) VALUES ('amazon_mx', 'sin_pedidos', 'pausa',"
+            " 'retiro-r5', %s, 'ad-2', 'ag-vieja-2', 'c-vieja-2', 'SS-1', 'B0AAAAAAAA',"
+            " 'adGroupId=ag-vieja-2 campaignId=c-vieja-2 sku=SS-1 state=ENABLED"
+            " asin=B0AAAAAAAA', 'dueno', now()) RETURNING id",
+            (ent2,),
+        ).fetchone()
+        conn.commit()
+        escritor, puts = _escritor(
+            {**_fila("ad-1", "PAUSED"), **_fila("ad-2", "PAUSED")},
+            lists_que_fallan=set(range(1, 40)),
+        )
+        res = ra.reconcilia_intenciones(conn, escritor=escritor)
+        assert res == []
+        assert puts == []
+        assert conn.execute(
+            "SELECT count(*) FROM anuncio_retiro_intencion WHERE cerrada_el IS NULL"
+        ).fetchone() == (2,)
+        assert {iid, iid2} == {
+            r[0]
+            for r in conn.execute(
+                "SELECT id FROM anuncio_retiro_intencion WHERE cerrada_el IS NULL"
+            ).fetchall()
+        }
+
+
+def _retiro_listo(conn):
+    """Producto + bolsa + plan sin_pedidos; devuelve (lid, plan)."""
+    _pid, lid = _producto(conn)
+    _bolsa(conn, lid, "ad-1")
+    plan = ra.planea_retiro(
+        conn, "amazon_mx", listing_ids=(lid,), motivo="sin_pedidos", conservar_grupo_id=None
+    )
+    return lid, plan
+
+
+def _cuenta(conn):
+    """(retiros, intenciones pendientes, intenciones cerradas)."""
+    return (
+        conn.execute("SELECT count(*) FROM anuncio_retiro").fetchone()[0],
+        conn.execute(
+            "SELECT count(*) FROM anuncio_retiro_intencion WHERE cerrada_el IS NULL"
+        ).fetchone()[0],
+        conn.execute(
+            "SELECT count(*) FROM anuncio_retiro_intencion WHERE cerrada_el IS NOT NULL"
+        ).fetchone()[0],
+    )
+
+
+class _Muerte10(BaseException):
+    pass
+
+
+def _plan2(conn, lid):
+    return ra.planea_retiro(
+        conn, "amazon_mx", listing_ids=(lid,), motivo="sin_pedidos", conservar_grupo_id=None
+    )
+
+
+@_skip_db
+def test_r09r5_10b_put_207_con_error_cierra_y_reintento_sella():
+    """R09-r5 B3 (10 b): PUT 207 con error por item = rechazo limpio:
+    cierra sin fila; el reintento (Amazon ya acepta) sella."""
+    with _db_i4("orbit_i4_r510b") as conn:
+        lid, plan = _retiro_listo(conn)
+        escritor, puts = _escritor(_fila("ad-1", "ENABLED"), puts_207_con_error={"ad-1"})
+        with pytest.raises(RuntimeError, match="retiro no confirmado"):
+            ra.ejecuta_retiro(conn, plan, go="go dueno", escritor=escritor)
+        assert _cuenta(conn) == (0, 0, 1)
+        escritor2, puts2 = _escritor(_fila("ad-1", "ENABLED"))
+        assert ra.ejecuta_retiro(conn, _plan2(conn, lid), go="go dueno", escritor=escritor2) == 1
+        assert puts2 == [("ad-1", "PAUSED")]
+        assert _cuenta(conn) == (1, 0, 2)
+
+
+@_skip_db
+def test_r09r5_10c_red_caida_sin_aplicar_pendiente_y_reintento_sella():
+    """R09-r5 B3 (10 c): la conexion falla y el PUT no llega: incierto
+    (pendiente, sin fila); el reintento manda el PUT y sella."""
+    with _db_i4("orbit_i4_r510c") as conn:
+        lid, plan = _retiro_listo(conn)
+        escritor, puts = _escritor(_fila("ad-1", "ENABLED"), puts_red_caida={"ad-1"})
+        with pytest.raises(RuntimeError, match="retiro no confirmado"):
+            ra.ejecuta_retiro(conn, plan, go="go dueno", escritor=escritor)
+        assert puts == []
+        assert _cuenta(conn) == (0, 1, 0)
+        escritor2, puts2 = _escritor(_fila("ad-1", "ENABLED"))
+        assert ra.ejecuta_retiro(conn, _plan2(conn, lid), go="go dueno", escritor=escritor2) == 1
+        assert puts2 == [("ad-1", "PAUSED")]
+        assert _cuenta(conn) == (1, 0, 1)
+
+
+@_skip_db
+def test_r09r5_10d_timeout_que_aplica_pendiente_y_reintento_sella():
+    """R09-r5 B3 (10 d): PUT aplica pero expira, readback al dia: el
+    readback manda (sella en el primer intento, con nota de envio
+    incierto) y Regresar vuelve a ENABLED."""
+    with _db_i4("orbit_i4_r510d") as conn:
+        lid, plan = _retiro_listo(conn)
+        escritor, puts = _escritor(_fila("ad-1", "ENABLED"), puts_timeout_que_aplican={"ad-1"})
+        assert ra.ejecuta_retiro(conn, plan, go="go dueno", escritor=escritor) == 1
+        assert puts == [("ad-1", "PAUSED")]
+        assert _cuenta(conn) == (1, 0, 1)
+        (rev,) = conn.execute("SELECT reversa FROM anuncio_retiro").fetchone()
+        assert "state=ENABLED" in rev
+        (rid,) = conn.execute("SELECT id FROM anuncio_retiro").fetchone()
+        escritor3, puts3 = _escritor(_fila("ad-1", "PAUSED"))
+        assert ra.repone(conn, retiro_ids=(rid,), go="go dueno", escritor=escritor3) == 1
+        assert puts3 == [("ad-1", "ENABLED")]
+
+
+@_skip_db
+def test_r09r5_10e_500_que_aplica_pendiente_y_reintento_sella():
+    """R09-r5 B3 (10 e): PUT aplica pero responde 500, readback al dia:
+    el readback manda (sella en el primer intento, con nota de envio
+    incierto)."""
+    with _db_i4("orbit_i4_r510e") as conn:
+        lid, plan = _retiro_listo(conn)
+        escritor, puts = _escritor(_fila("ad-1", "ENABLED"), puts_500_que_aplican={"ad-1"})
+        assert ra.ejecuta_retiro(conn, plan, go="go dueno", escritor=escritor) == 1
+        assert puts == [("ad-1", "PAUSED")]
+        assert _cuenta(conn) == (1, 0, 1)
+
+
+@_skip_db
+def test_r09r5_10f_timeout_que_aplica_con_stale_queda_pendiente():
+    """R09-r5 B3 (10 f): PUT aplica pero expira y el readback va una
+    lectura atrasado: incierto (pendiente, sin fila), nunca rechazo."""
+    with _db_i4("orbit_i4_r510f") as conn:
+        _lid, plan = _retiro_listo(conn)
+        escritor, puts = _escritor(
+            _fila("ad-1", "ENABLED"), puts_timeout_que_aplican={"ad-1"}, stale_lists={3}
+        )
+        with pytest.raises(RuntimeError, match="retiro no confirmado"):
+            ra.ejecuta_retiro(conn, plan, go="go dueno", escritor=escritor)
+        assert puts == [("ad-1", "PAUSED")]
+        assert _cuenta(conn) == (0, 1, 0)
+
+
+@_skip_db
+def test_r09r5_10g_expira_aplica_tarde_y_reintento_sella():
+    """R09-r5 B3 (10 g): el PUT expira sin aplicar y Amazon lo aplica
+    DESPUES del readback: pendiente; el reintento (ya PAUSED) sella
+    con la reversa de la intencion."""
+    with _db_i4("orbit_i4_r510g") as conn:
+        lid, plan = _retiro_listo(conn)
+        escritor, puts = _escritor(_fila("ad-1", "ENABLED"), puts_timeout_sin_aplicar={"ad-1"})
+        with pytest.raises(RuntimeError, match="retiro no confirmado"):
+            ra.ejecuta_retiro(conn, plan, go="go dueno", escritor=escritor)
+        assert puts == []
+        assert _cuenta(conn) == (0, 1, 0)
+        # Amazon aplico tarde el PUT expirado: el reintento lo confirma.
+        escritor2, puts2 = _escritor(_fila("ad-1", "PAUSED"))
+        assert ra.ejecuta_retiro(conn, _plan2(conn, lid), go="go dueno", escritor=escritor2) == 1
+        assert puts2 == []
+        (rev,) = conn.execute("SELECT reversa FROM anuncio_retiro").fetchone()
+        assert "state=ENABLED" in rev
+        assert _cuenta(conn) == (1, 0, 1)
+
+
+@_skip_db
+def test_r09r5_10p_previa_interna_caida_put_nunca_sale():
+    """R09-r5 B3 (10 p): cae la previa interna de pausar (el PUT nunca
+    sale): pendiente, cero PUT; el reintento manda el PUT y sella."""
+    with _db_i4("orbit_i4_r510p") as conn:
+        lid, plan = _retiro_listo(conn)
+        escritor, puts = _escritor(_fila("ad-1", "ENABLED"), lists_que_fallan=set(range(2, 20)))
+        with pytest.raises(RuntimeError, match="retiro no confirmado"):
+            ra.ejecuta_retiro(conn, plan, go="go dueno", escritor=escritor)
+        assert puts == []
+        assert _cuenta(conn) == (0, 1, 0)
+        escritor2, puts2 = _escritor(_fila("ad-1", "ENABLED"))
+        assert ra.ejecuta_retiro(conn, _plan2(conn, lid), go="go dueno", escritor=escritor2) == 1
+        assert puts2 == [("ad-1", "PAUSED")]
+
+
+@_skip_db
+def test_r09r5_10l_muerte_entre_put_y_readback_reintento_sella(monkeypatch):
+    """R09-r5 B3 (10 l): muerte entre el PUT y el readback: pendiente
+    con Amazon PAUSED; el reintento confirma y sella."""
+    import app.ads.archivar as archivar_real
+
+    with _db_i4("orbit_i4_r510l") as conn:
+        lid, plan = _retiro_listo(conn)
+        escritor, puts = _escritor(_fila("ad-1", "ENABLED"))
+
+        def _muere(*args, **kwargs):
+            raise _Muerte10("kill -9 entre PUT y readback")
+
+        monkeypatch.setattr(archivar_real, "estados_actuales", _muere)
+        with pytest.raises(_Muerte10):
+            ra.ejecuta_retiro(conn, plan, go="go dueno", escritor=escritor)
+        monkeypatch.undo()
+        assert puts == [("ad-1", "PAUSED")]
+        assert _cuenta(conn) == (0, 1, 0)
+        escritor2, puts2 = _escritor(_fila("ad-1", "PAUSED"))
+        assert ra.ejecuta_retiro(conn, _plan2(conn, lid), go="go dueno", escritor=escritor2) == 1
+        assert _cuenta(conn) == (1, 0, 1)
+
+
+@_skip_db
+def test_r09r5_10m_muerte_entre_readback_y_sello_reintento_sella(monkeypatch):
+    """R09-r5 B3 (10 m): muerte entre el readback y el INSERT: pendiente
+    con Amazon PAUSED; el reintento confirma y sella."""
+    with _db_i4("orbit_i4_r510m") as conn:
+        lid, plan = _retiro_listo(conn)
+        escritor, puts = _escritor(_fila("ad-1", "ENABLED"))
+
+        def _muere(*args, **kwargs):
+            raise _Muerte10("kill -9 entre readback y sello")
+
+        monkeypatch.setattr(ra, "_sella_retiro", _muere)
+        with pytest.raises(_Muerte10):
+            ra.ejecuta_retiro(conn, plan, go="go dueno", escritor=escritor)
+        monkeypatch.undo()
+        assert puts == [("ad-1", "PAUSED")]
+        assert _cuenta(conn) == (0, 1, 0)
+        escritor2, _puts2 = _escritor(_fila("ad-1", "PAUSED"))
+        assert ra.ejecuta_retiro(conn, _plan2(conn, lid), go="go dueno", escritor=escritor2) == 1
+        assert _cuenta(conn) == (1, 0, 1)
+
+
+@_skip_db
+def test_r09r5_10r_base_falla_en_intencion_sin_put_y_reintento_sella(monkeypatch):
+    """R09-r5 B3 (10 r): la base rechaza el INSERT de la intencion: sin
+    PUT, sin intencion, sin fila; el reintento abre y sella."""
+    with _db_i4("orbit_i4_r510r") as conn:
+        lid, plan = _retiro_listo(conn)
+        escritor, puts = _escritor(_fila("ad-1", "ENABLED"))
+
+        def _falla(*args, **kwargs):
+            raise RuntimeError("la base rechazo el INSERT de la intencion (simulado)")
+
+        monkeypatch.setattr(ra, "_abre_intencion", _falla)
+        with pytest.raises(RuntimeError, match="INSERT de la intencion"):
+            ra.ejecuta_retiro(conn, plan, go="go dueno", escritor=escritor)
+        monkeypatch.undo()
+        assert puts == []
+        assert _cuenta(conn) == (0, 0, 0)
+        escritor2, puts2 = _escritor(_fila("ad-1", "ENABLED"))
+        assert ra.ejecuta_retiro(conn, _plan2(conn, lid), go="go dueno", escritor=escritor2) == 1
+        assert puts2 == [("ad-1", "PAUSED")]
+
+
+@_skip_db
+def test_r09r5_10s_muerte_antes_de_intencion_reintento_sella(monkeypatch):
+    """R09-r5 B3 (10 s): muerte entre la previa y la intencion: sin
+    PUT, sin intencion, sin fila; el reintento abre y sella."""
+    with _db_i4("orbit_i4_r510s") as conn:
+        lid, plan = _retiro_listo(conn)
+        escritor, puts = _escritor(_fila("ad-1", "ENABLED"))
+
+        def _muere(*args, **kwargs):
+            raise _Muerte10("kill -9 antes de la intencion")
+
+        monkeypatch.setattr(ra, "_abre_intencion", _muere)
+        with pytest.raises(_Muerte10):
+            ra.ejecuta_retiro(conn, plan, go="go dueno", escritor=escritor)
+        monkeypatch.undo()
+        assert puts == []
+        assert _cuenta(conn) == (0, 0, 0)
+        escritor2, puts2 = _escritor(_fila("ad-1", "ENABLED"))
+        assert ra.ejecuta_retiro(conn, _plan2(conn, lid), go="go dueno", escritor=escritor2) == 1
+        assert puts2 == [("ad-1", "PAUSED")]
+
+
+@_skip_db
+def test_r09r5_10o_base_falla_en_sello_reintento_sella(monkeypatch):
+    """R09-r5 B3 (10 o): la base rechaza el INSERT del retiro: pendiente
+    con Amazon PAUSED; el reintento confirma y sella."""
+    with _db_i4("orbit_i4_r510o") as conn:
+        lid, plan = _retiro_listo(conn)
+        escritor, puts = _escritor(_fila("ad-1", "ENABLED"))
+
+        def _falla(*args, **kwargs):
+            raise RuntimeError("la base rechazo el INSERT del retiro (simulado)")
+
+        monkeypatch.setattr(ra, "_sella_retiro", _falla)
+        with pytest.raises(RuntimeError, match="INSERT del retiro"):
+            ra.ejecuta_retiro(conn, plan, go="go dueno", escritor=escritor)
+        monkeypatch.undo()
+        assert puts == [("ad-1", "PAUSED")]
+        assert _cuenta(conn) == (0, 1, 0)
+        escritor2, _puts2 = _escritor(_fila("ad-1", "PAUSED"))
+        assert ra.ejecuta_retiro(conn, _plan2(conn, lid), go="go dueno", escritor=escritor2) == 1
+        assert _cuenta(conn) == (1, 0, 1)
+
+
+@_skip_db
+def test_r09r5_10q_base_falla_en_cierre_reintento_cierra(monkeypatch):
+    """R09-r5 B3 (10 q): la base rechaza el cierre (excepcion, no
+    muerte): retiro sellado + pendiente; el reintento cierra sin PUT
+    ni fila nueva."""
+    with _db_i4("orbit_i4_r510q") as conn:
+        lid, plan = _retiro_listo(conn)
+        escritor, puts = _escritor(_fila("ad-1", "ENABLED"))
+
+        def _falla(*args, **kwargs):
+            raise RuntimeError("la base rechazo el cierre de la intencion (simulado)")
+
+        monkeypatch.setattr(ra, "_cierra_intencion", _falla)
+        with pytest.raises(RuntimeError, match="cierre de la intencion"):
+            ra.ejecuta_retiro(conn, plan, go="go dueno", escritor=escritor)
+        monkeypatch.undo()
+        assert puts == [("ad-1", "PAUSED")]
+        assert _cuenta(conn) == (1, 1, 0)
+        (rid,) = conn.execute("SELECT id FROM anuncio_retiro").fetchone()
+        escritor2, puts2 = _escritor(_fila("ad-1", "PAUSED"))
+        assert ra.ejecuta_retiro(conn, _plan2(conn, lid), go="go dueno", escritor=escritor2) == 0
+        assert puts2 == []
+        assert _cuenta(conn) == (1, 0, 1)
+        assert conn.execute("SELECT retiro_id FROM anuncio_retiro_intencion").fetchone() == (rid,)
+
+
+@_skip_db
+def test_r09r5_r05_sello_confirma_antes_de_cerrar(monkeypatch):
+    """R09-r5 B6 (R05): muerte entre el sello y el cierre, conexion
+    SIN autocommit (como el cron): el retiro persiste (su commit es
+    propio) y la intencion queda pendiente."""
+    with _db_i4("orbit_i4_r5r05") as conn:
+        conn.autocommit = False
+        _pid, lid = _producto(conn)
+        _bolsa(conn, lid, "ad-1")
+        plan = ra.planea_retiro(
+            conn, "amazon_mx", listing_ids=(lid,), motivo="sin_pedidos", conservar_grupo_id=None
+        )
+        conn.commit()
+        escritor, puts = _escritor(_fila("ad-1", "ENABLED"))
+
+        def _muere(*args, **kwargs):
+            raise _Muerte10("kill -9 entre sello y cierre")
+
+        monkeypatch.setattr(ra, "_cierra_intencion", _muere)
+        with pytest.raises(_Muerte10):
+            ra.ejecuta_retiro(conn, plan, go="go dueno", escritor=escritor)
+        monkeypatch.undo()
+        # La muerte suelta lo no confirmado: solo persiste lo que
+        # trajo su propio commit.
+        conn.rollback()
+        assert puts == [("ad-1", "PAUSED")]
+        assert conn.execute("SELECT count(*) FROM anuncio_retiro").fetchone() == (1,)
+        assert conn.execute(
+            "SELECT count(*) FROM anuncio_retiro_intencion WHERE cerrada_el IS NULL"
+        ).fetchone() == (1,)
+
+
+@_skip_db
+def test_r09r5_r06_cierre_confirma(monkeypatch):
+    """R09-r5 B6 (R06): muerte tras el cierre (antes del commit del
+    llamador), conexion SIN autocommit: el cierre persiste (su
+    commit es propio)."""
+    with _db_i4("orbit_i4_r5r06") as conn:
+        conn.autocommit = False
+        _pid, lid = _producto(conn)
+        _bolsa(conn, lid, "ad-1")
+        plan = ra.planea_retiro(
+            conn, "amazon_mx", listing_ids=(lid,), motivo="sin_pedidos", conservar_grupo_id=None
+        )
+        conn.commit()
+        escritor, _puts = _escritor(_fila("ad-1", "ENABLED"))
+        real_cierra = ra._cierra_intencion
+
+        def _muere(*args, **kwargs):
+            real_cierra(*args, **kwargs)
+            raise _Muerte10("kill -9 tras el cierre")
+
+        monkeypatch.setattr(ra, "_cierra_intencion", _muere)
+        with pytest.raises(_Muerte10):
+            ra.ejecuta_retiro(conn, plan, go="go dueno", escritor=escritor)
+        monkeypatch.undo()
+        # La muerte suelta lo no confirmado: solo persiste lo que
+        # trajo su propio commit.
+        conn.rollback()
+        assert conn.execute(
+            "SELECT cerrada_el IS NOT NULL FROM anuncio_retiro_intencion"
+        ).fetchone() == (True,)
+
+
+@_skip_db
+def test_r09r5_reconcilia_rechazo_cierra():
+    """R09-r5 B3 (iii, decision 1): pendiente + ENABLED + PUT
+    rechazado (400): la reconciliacion cierra sin retiro."""
+    with _db_i4("orbit_i4_r5rg") as conn:
+        _pid, lid = _producto(conn)
+        iid = _intencion_pendiente(conn, lid, "ad-1")
+        escritor, puts = _escritor(_fila("ad-1", "ENABLED"), rechaza_put={"ad-1"})
+        res = ra.reconcilia_intenciones(conn, escritor=escritor)
+        assert puts == []  # el 400 no aplica nada
+        assert res == [(iid, "cerrado")]
+        assert conn.execute("SELECT count(*) FROM anuncio_retiro").fetchone() == (0,)
+        (detalle,) = conn.execute(
+            "SELECT detalle FROM anuncio_retiro_intencion WHERE id = %s", (iid,)
+        ).fetchone()
+        assert "fallo" in detalle
+
+
+@_skip_db
+def test_r09r5_reconcilia_incierto_sigue_pendiente():
+    """R09-r5 B6 (iii): pendiente + ENABLED + PUT incierto (500 que
+    aplica + readback atrasado): sigue pendiente, sin fila."""
+    with _db_i4("orbit_i4_r5rh") as conn:
+        _pid, lid = _producto(conn)
+        iid = _intencion_pendiente(conn, lid, "ad-1")
+        escritor, puts = _escritor(
+            _fila("ad-1", "ENABLED"), puts_500_que_aplican={"ad-1"}, stale_lists={3}
+        )
+        res = ra.reconcilia_intenciones(conn, escritor=escritor)
+        assert puts == [("ad-1", "PAUSED")]
+        assert res == []
+        assert conn.execute("SELECT count(*) FROM anuncio_retiro").fetchone() == (0,)
+        assert conn.execute(
+            "SELECT cerrada_el IS NULL FROM anuncio_retiro_intencion WHERE id = %s",
+            (iid,),
+        ).fetchone() == (True,)

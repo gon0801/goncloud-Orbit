@@ -9,7 +9,8 @@
 # ENABLED). En simulacion (ORBIT_SIMULACION=1) la base es ORBIT_SIM_DSN y el
 # HTTP es ORBIT_SIM_API: no hay ssh.
 # Comprueba (guia D.4): /health en 200; impulso, impulso_lectura,
-# anuncio_retiro y anuncio_reposicion existen (el dueno ya pudo lanzar:
+# anuncio_retiro, anuncio_reposicion y anuncio_retiro_intencion existen
+# (el dueno ya pudo lanzar:
 # se guardan sus conteos y al final se verifica que el checklist no
 # escribio); /productos-sin-clics en 200 en MX y
 # US; crontab -u gon -l trae UNA linea impulso-vigia; la vista previa
@@ -95,8 +96,8 @@ echo "== Checklist D.4 (solo lectura; sello $SELLO)"
 echo "== 1) HTTP: /health"
 revisa "GET /health" 200 "$(http /health)"
 
-echo "== 2) Esquema de D.4: las cuatro tablas existen (el dueno ya pudo lanzar)"
-for TABLA in impulso impulso_lectura anuncio_retiro anuncio_reposicion; do
+echo "== 2) Esquema de D.4: las cinco tablas existen (el dueno ya pudo lanzar)"
+for TABLA in impulso impulso_lectura anuncio_retiro anuncio_reposicion anuncio_retiro_intencion; do
   revisa "tabla $TABLA" t \
     "$(echo "SELECT to_regclass('public.$TABLA') IS NOT NULL;" | lee || true)"
   N_ANTES="$(echo "SELECT count(*) FROM $TABLA;" | lee || true)"
@@ -107,6 +108,10 @@ for TABLA in impulso impulso_lectura anuncio_retiro anuncio_reposicion; do
   fi
   eval "ANTES_$TABLA='$N_ANTES'"
 done
+revisa "columna fabrica_lote.pausado_por (0068)" t \
+  "$(echo "SELECT count(*) = 1 FROM information_schema.columns WHERE table_name = 'fabrica_lote' AND column_name = 'pausado_por';" | lee || true)"
+revisa "app_admin DELETE en fabrica_lote (0070)" t \
+  "$(echo "SELECT has_table_privilege('app_admin', 'public.fabrica_lote', 'DELETE');" | lee || true)"
 
 echo "== 3) La pantalla de productos responde en cada mercado"
 for MERCADO in amazon_mx amazon_us; do
@@ -152,8 +157,8 @@ fi
 echo "== 6) MUTATION_REQUEST_TYPES trae PUT /sp/productAds"
 revisa "PUT /sp/productAds en allowlist" true "$(trae_put)"
 
-echo "== 7) Las cuatro tablas sin escrituras del checklist"
-for TABLA in impulso impulso_lectura anuncio_retiro anuncio_reposicion; do
+echo "== 7) Las cinco tablas sin escrituras del checklist"
+for TABLA in impulso impulso_lectura anuncio_retiro anuncio_reposicion anuncio_retiro_intencion; do
   eval "ANTES=\$ANTES_$TABLA"
   if [ -z "$ANTES" ]; then
     echo "NO MEDIDO $TABLA despues (no hubo conteo antes)"; NOMEDIDO=$((NOMEDIDO + 1))

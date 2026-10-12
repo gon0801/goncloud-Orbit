@@ -162,6 +162,9 @@ def test_impulso_en_curso_trae_dia_y_veredicto():
             def pausa(self, lote):
                 pass
 
+            def pausa_huerfanas(self, lote):
+                return False
+
             def reanuda(self, lote):
                 pass
 
@@ -607,3 +610,67 @@ def test_r09r4_pp12_fuera_no_supera_clics_aun_en_ventana():
         conn.commit()
         visto = pp.lee_productos(conn, "amazon_mx", HOY).impulsos[0]
         assert visto.clics_fuera_de_amazon == 12
+
+
+@_skip_db
+def test_r09r5_p05_ventana_termina_en_ultima_lectura():
+    """R09-r5 B6 (P05): con dos lecturas, los clics de fuera cuentan
+    hasta la ULTIMA lectura (no la primera)."""
+    with _db_p4("orbit_p4_p05") as conn:
+        pid, lid = _con_margen(conn)
+        ids = _impulso_vivo(conn, pid=pid, lid=lid, lanzado=HOY - dt.timedelta(days=10))
+        for corte in (HOY - dt.timedelta(days=4), HOY - dt.timedelta(days=2)):
+            conn.execute(
+                "INSERT INTO impulso_lectura (impulso_id, corte, leido_el, dias_observados,"
+                " impresiones, clics, gasto, pedidos, veredicto, es_final, hecho)"
+                " VALUES (%s, %s, now(), 1, 100, 10, 1, 0, 'en_curso', FALSE, 'nada')",
+                (ids["impulso"], corte),
+            )
+        conn.execute(
+            "INSERT INTO ads_placement_observation (platform, ad_entity_id, placement,"
+            " metric_date, observed_at, metric_currency, clicks, source_report_id)"
+            " VALUES ('amazon_mx', %s, 'fuera_de_amazon', %s, now(), 'MXN', 2, 'r1')",
+            (ids["camps"][0], HOY - dt.timedelta(days=3)),
+        )
+        conn.commit()
+        pantalla = pp.lee_productos(conn, "amazon_mx", HOY)
+        por_id = {i.impulso_id: i for i in pantalla.impulsos}
+        assert por_id[ids["impulso"]].clics_fuera_de_amazon == 2
+
+
+@_skip_db
+def test_r09r5_p07_sin_lectura_cota_hoy():
+    """R09-r5 B6 (P07): sin lectura, los clics de fuera cuentan hasta
+    hoy (no ayer)."""
+    with _db_p4("orbit_p4_p07") as conn:
+        pid, lid = _con_margen(conn)
+        ids = _impulso_vivo(conn, pid=pid, lid=lid)
+        conn.execute(
+            "INSERT INTO ads_placement_observation (platform, ad_entity_id, placement,"
+            " metric_date, observed_at, metric_currency, clicks, source_report_id)"
+            " VALUES ('amazon_mx', %s, 'fuera_de_amazon', %s, now(), 'MXN', 4, 'r1')",
+            (ids["camps"][0], HOY),
+        )
+        conn.commit()
+        pantalla = pp.lee_productos(conn, "amazon_mx", HOY)
+        por_id = {i.impulso_id: i for i in pantalla.impulsos}
+        assert por_id[ids["impulso"]].clics_fuera_de_amazon == 4
+
+
+@_skip_db
+def test_r09r5_p08_dia_lanzamiento_cuenta():
+    """R09-r5 B6 (P08): los clics de fuera del dia del lanzamiento
+    cuentan (el dia no queda fuera)."""
+    with _db_p4("orbit_p4_p08") as conn:
+        pid, lid = _con_margen(conn)
+        ids = _impulso_vivo(conn, pid=pid, lid=lid, lanzado=HOY - dt.timedelta(days=5))
+        conn.execute(
+            "INSERT INTO ads_placement_observation (platform, ad_entity_id, placement,"
+            " metric_date, observed_at, metric_currency, clicks, source_report_id)"
+            " VALUES ('amazon_mx', %s, 'fuera_de_amazon', %s, now(), 'MXN', 6, 'r1')",
+            (ids["camps"][0], HOY - dt.timedelta(days=5)),
+        )
+        conn.commit()
+        pantalla = pp.lee_productos(conn, "amazon_mx", HOY)
+        por_id = {i.impulso_id: i for i in pantalla.impulsos}
+        assert por_id[ids["impulso"]].clics_fuera_de_amazon == 6

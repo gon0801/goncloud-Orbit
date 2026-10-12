@@ -649,6 +649,8 @@ def impulso_pausar(
     impulso_id: Annotated[int, Path(ge=1, le=9223372036854775807)],
     cuerpo: CuerpoPausarImpulso,
 ):
+    import tools.fabrica_campanas as fc
+
     with fw._conexion("ORBIT_DSN_ADMIN", "impulso") as conn:
         fila = conn.execute(_SQL_LOTE_DE_IMPULSO, (impulso_id,)).fetchone()
         if fila is None:
@@ -657,6 +659,11 @@ def impulso_pausar(
             io.PausadorFabrica(conn, actor="dueno").pausa(fila[0])
         except io.ErrorImpulso as exc:
             raise _error_impulso(exc) from None
+        except fc.Abortar as exc:
+            # G9: Amazon rechazo a media pausa (el actor ya quedo
+            # grabado antes del primer PUT): 502 con el detalle,
+            # no 500 pelado.
+            raise fw.error(502, str(exc)) from None
         conn.commit()
         return {"impulso_id": impulso_id, "lote": fila[0], "estado": "pausado"}
 

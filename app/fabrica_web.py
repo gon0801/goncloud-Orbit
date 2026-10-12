@@ -575,10 +575,14 @@ def _fila_lote(fila) -> dict:
                 "completar el registro o pausar las campañas conocidas."
             )
     elif datos["detalle"] is not None:
+        # G18: 'pausado' tambien mapea (sin esto, KeyError -> 500 en
+        # lista y detalle en cuanto se pausa un impulso). El .get
+        # conserva el detalle guardado para un estado futuro.
         datos["detalle"] = {
             "desarmado": "Las campañas conocidas del lote están pausadas.",
             "applied": "El grupo quedó registrado.",
-        }[datos["estado"]]
+            "pausado": "El lote está pausado; sus campañas no gastan.",
+        }.get(datos["estado"], datos["detalle"])
     return datos
 
 

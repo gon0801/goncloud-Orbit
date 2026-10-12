@@ -3381,3 +3381,52 @@ def test_reactiva_lote_applied_solo_suelta():
         assert conn.execute("SELECT estado FROM fabrica_lote WHERE lote = 'LP2'").fetchone() == (
             "applied",
         )
+
+
+@_skip_db
+def test_r09r5_g9_pausa_a_medias_deja_actor():
+    """R09-r5 B2b (G9): si la pausa falla a medias (PUT#2 rechazado),
+    el actor ya quedo anotado antes del primer PUT: al graduar no se
+    reenciende lo que el dueno quiso pausar."""
+    with db_fabrica("orbit_i3_r5g9") as conn:
+        _lote_applied_dos(conn)
+        n_put = 0
+
+        def handler(request):
+            nonlocal n_put
+            if request.url.path == "/sp/campaigns":
+                n_put += 1
+                if n_put == 2:
+                    return httpx.Response(400, json={"code": "400", "details": "no"})
+                return httpx.Response(
+                    207, json={"campaigns": {"success": [{"index": 0}], "error": []}}
+                )
+            pedido = json.loads(request.content)["campaignIdFilter"]["include"][0]
+            return httpx.Response(
+                200, json={"campaigns": [{"campaignId": pedido, "state": "PAUSED", "name": "n"}]}
+            )
+
+        ctx = _ctx_pausa(conn, httpx.MockTransport(handler), "LP2")
+        with pytest.raises(fc.Abortar):
+            fc.pausar_lote(ctx, "LP2", "dueno")
+        assert conn.execute(
+            "SELECT pausado_por FROM fabrica_lote WHERE lote = 'LP2'"
+        ).fetchone() == ("dueno",)
+
+
+def test_r09r5_f05_put_timeout_declara_incierto():
+    """R09-r5 B6 (F05, L3b): timeout del PUT de campana: Abortar dice
+    INCERTO (pudo aplicarse), no 'fallo (red'."""
+    import httpx
+
+    def _expira(*args, **kwargs):
+        raise httpx.TimeoutException("simulado")
+
+    ctx = SimpleNamespace(
+        http=SimpleNamespace(put=_expira),
+        token="t",
+        cred=SimpleNamespace(client_id="c"),
+        profile="p",
+    )
+    with pytest.raises(fc.Abortar, match="INCERTO"):
+        fc._put_estado_campana(ctx, "c-1", "PAUSED")

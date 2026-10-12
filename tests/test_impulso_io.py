@@ -6,7 +6,13 @@ import datetime as dt
 from decimal import Decimal
 
 import pytest
-from test_fabrica_migracion import _entidad, _ledger_producto, _producto, db_fabrica
+from test_fabrica_migracion import (
+    _dsn_propia,
+    _entidad,
+    _ledger_producto,
+    _producto,
+    db_fabrica,
+)
 from test_migracion_0064 import SQL64
 from test_migracion_0065 import SQL65
 from test_migracion_0066 import SQL66
@@ -188,7 +194,7 @@ def _ejecutor_falso(conn, *, falla_en=(), platform="amazon_mx", moneda="MXN"):
 
     import psycopg
 
-    dsn = conn.info.dsn
+    dsn = _dsn_propia(conn)
     dbname = conn.info.dbname
 
     def ejecuta(plan_grupo, huella, lote):
@@ -306,7 +312,7 @@ def test_lanza_concurrente_mismo_listing_un_solo_vivo():
             except Exception as exc:  # noqa: BLE001 - el test clasifica
                 resultados[n] = ("crash", type(exc).__name__)
 
-        conn2 = psycopg.connect(conn.info.dsn, dbname=conn.info.dbname, autocommit=True)
+        conn2 = psycopg.connect(_dsn_propia(conn), dbname=conn.info.dbname, autocommit=True)
         try:
             hilos = [
                 threading.Thread(target=_corre, args=(1, conn)),
@@ -494,19 +500,30 @@ def test_lanza_409_por_vivo_adjunta_lo_lanzado():
 
 
 class _Pausador:
-    def __init__(self):
+    def __init__(self, estados=None):
         self.pausados = []
+        self.aseguradas = []
         self.reanudados = []
         self.reactivados = []
+        self._estados = dict(estados or {})
 
     def pausa(self, lote):
         self.pausados.append(lote)
+
+    def pausa_huerfanas(self, lote):
+        # G7: verificar no es pausar: lista propia (el crash-test
+        # exige que pausa() no se repita).
+        self.aseguradas.append(lote)
+        return False
 
     def reanuda(self, lote):
         self.reanudados.append(lote)
 
     def reactiva(self, lote):
         self.reactivados.append(lote)
+
+    def estados(self, lote):
+        return dict(self._estados)
 
 
 def _impulso_vivo(
@@ -630,6 +647,10 @@ def test_vigia_agotado_pausa_y_sella():
         assert conn.execute(
             "SELECT estado FROM fabrica_lote WHERE lote = %s", (ids["lote"],)
         ).fetchone() == ("pausado",)
+        # R09-r5 B6 (I72): la pausa del vigia deja pausado_por.
+        assert conn.execute(
+            "SELECT pausado_por FROM fabrica_lote WHERE lote = %s", (ids["lote"],)
+        ).fetchone() == ("impulso-vigia",)
         assert conn.execute(
             "SELECT veredicto, es_final FROM impulso_lectura WHERE impulso_id = %s",
             (ids["impulso"],),
@@ -1374,11 +1395,16 @@ def test_vigia_d3_keywords_al_dia_no_cuentan_dias():
 
 @_skip_db
 def test_vigia_graduar_reactiva_lote_pausado():
-    """R09 B4 (D): pedido con lote pausado: gradua (goals live) y reactiva
-    las campanas para casar con Amazon."""
+    """R09 B4 (D): pedido con lote pausado por el vigia: gradua (goals
+    live) y reactiva las campanas para casar con Amazon. R09-r5 B2a:
+    solo reactiva lo que pauso el vigia (pausado_por exacto)."""
     with _db_i3("orbit_i3_r3d") as conn:
         ids = _impulso_vivo(conn, lote="impulso-r3d-1")
-        conn.execute("UPDATE fabrica_lote SET estado = 'pausado' WHERE lote = %s", (ids["lote"],))
+        conn.execute(
+            "UPDATE fabrica_lote SET estado = 'pausado', pausado_por = 'impulso-vigia'"
+            " WHERE lote = %s",
+            (ids["lote"],),
+        )
         conn.commit()
         _observa(conn, ids["camps"][0], HOY - dt.timedelta(days=1), pedidos=1)
         pausador = _Pausador()
@@ -1476,10 +1502,11 @@ def test_r09r4_g1_dueno_pausa_gradua_sin_reencender(monkeypatch):
 
 
 @_skip_db
-def test_r09r4_i21_applied_a_medias_tambien_reactiva(monkeypatch):
-    """R09-r4 B6 (I21, caso A): lote applied (no 'pausado') con las
-    campanas PAUSED en Amazon + pedido: gradua Y reactiva (PUTs).
-    Pausador real, Amazon falso."""
+def test_r09r5_i21_applied_fuera_de_orbit_no_reactiva(monkeypatch):
+    """R09-r4 B6 (I21, caso A), R09-r5 B2a: lote applied con las
+    campanas PAUSED en Amazon + pedido, pausado fuera de Orbit
+    (pausado_por NULL): gradua SIN reactivar (cero PUTs): lo que
+    no pauso el vigia no se toca. Pausador real, Amazon falso."""
     with _db_i3("orbit_i3_r4i21") as conn:
         ids = _impulso_vivo(conn, lote="impulso-r4i21-1")
         _observa(conn, ids["camps"][0], HOY - dt.timedelta(days=1), pedidos=1)
@@ -1497,9 +1524,9 @@ def test_r09r4_i21_applied_a_medias_tambien_reactiva(monkeypatch):
             )
         conn.commit()
         acciones = io.vigila(conn, io.PausadorFabrica(conn), hoy=HOY)
-        assert acciones[0].hecho == "graduado"
-        assert [r for r in amazon.pedidos if r.method == "PUT"] != []
-        assert {p["state"] for p in amazon.objetos.values()} == {"ENABLED"}
+        assert acciones[0].hecho == "graduado_sin_reencender"
+        assert [r for r in amazon.pedidos if r.method == "PUT"] == []
+        assert {p["state"] for p in amazon.objetos.values()} == {"PAUSED"}
 
 
 @_skip_db
@@ -1780,6 +1807,13 @@ def test_r09r4_lanza_failed_con_grupo_sin_externals_archiva_y_reusa_nombre(monke
             " 19.1040, 0.5, 'm', 'go', 'impulso')",
             (lote,),
         )
+        # R09-r5 B6 (I44): un paso sin external viaja al -descartado.
+        conn.execute(
+            "INSERT INTO fabrica_lote_paso (lote, orden, rol, recurso, request_payload,"
+            " estado) VALUES (%s, 1, 'category_exact'::campana_rol, 'campaign',"
+            " '{}'::jsonb, 'failed')",
+            (lote,),
+        )
         conn.commit()
         lanzados = io.lanza(
             conn,
@@ -1799,6 +1833,9 @@ def test_r09r4_lanza_failed_con_grupo_sin_externals_archiva_y_reusa_nombre(monke
         ).fetchone() == ("desarmado",)
         assert conn.execute(
             "SELECT lote FROM campana_grupo WHERE lote = %s", (f"{lote}-descartado",)
+        ).fetchone() == (f"{lote}-descartado",)
+        assert conn.execute(
+            "SELECT lote FROM fabrica_lote_paso WHERE lote = %s", (f"{lote}-descartado",)
         ).fetchone() == (f"{lote}-descartado",)
         assert conn.execute("SELECT count(*) FROM impulso WHERE lote = %s", (lote,)).fetchone() == (
             1,
@@ -2010,8 +2047,10 @@ def test_r09r3_v05_vigia_descuenta_retiro_abierto():
 
 @_skip_db
 def test_r09r4_v_vigia_retoma_intencion_pendiente():
-    """R09-r4 B4 (Y-01 V, tabla propia): una intencion pendiente no
-    descuenta: el vigia la incluye, manda el PUT y sella el retiro."""
+    """R09-r4 B4 (Y-01 V, tabla propia), R09-r5 B3 (iii): una intencion
+    pendiente no descuenta: el paso diario del vigia la retoma (manda
+    el PUT y sella el retiro); el paso 4 del impulso ya no tiene
+    pendientes, asi que su hecho es 'nada'."""
     with _db_i3("orbit_i3_r4v") as conn:
         pid, lid = _con_margen(conn)
         ids = _impulso_vivo(conn, pid=pid, lid=lid, lote="impulso-r4v")
@@ -2031,7 +2070,7 @@ def test_r09r4_v_vigia_retoma_intencion_pendiente():
         _observa(conn, ids["camps"][0], HOY - dt.timedelta(days=1))
         escritor, puts = _escritor(_fila("ad-viejo", "ENABLED"))
         uno = io.vigila(conn, _Pausador(), hoy=HOY, escritor_retiro=escritor)
-        assert uno[0].hecho == "retiro_de_bolsas"
+        assert uno[0].hecho == "nada"
         assert puts == [("ad-viejo", "PAUSED")]
         assert conn.execute("SELECT count(*) FROM anuncio_retiro").fetchone() == (1,)
         assert (
@@ -2074,7 +2113,7 @@ def _frontera_impulso(monkeypatch, conn, amazon):
         ),
     )
     monkeypatch.setattr(fc.time, "sleep", lambda s: None)
-    dsn = conn.info.dsn
+    dsn = _dsn_propia(conn)
     dbname = conn.info.dbname
     monkeypatch.setattr(fc, "connect", lambda d: psycopg.connect(dsn, dbname=dbname))
     for var in ("ORBIT_DSN_READ", "ORBIT_DSN_ADMIN", "ORBIT_DSN_INGEST"):
@@ -2171,13 +2210,16 @@ def _amazon_estado():
 @_skip_db
 @_skip_db
 def test_r09r4_l2_vigia_pausa_huerfana_enabled_de_dia_anterior(monkeypatch):
-    """R09-r4 B1 (L2): lote de impulso de AYER con campanas ENABLED en
-    Amazon y sin impulso: el vigia las pausa (PUT + readback). Un lote
-    de HOY no se toca (puede ser un lanzamiento en curso)."""
+    """R09-r4 B1 (L2), R09-r5 no-bloq 1 (v01): lote de impulso
+    envejecido (>60 min) con campanas ENABLED en Amazon y sin impulso:
+    el vigia las pausa (PUT + readback). Un lote
+    recien nacido no se toca (puede ser un lanzamiento en curso);
+    uno de hoy con mas de 60 minutos si (v01: no espera 32 horas)."""
     with _db_i3("orbit_i3_r4l2v") as conn:
         amazon = _amazon_estado()
         _frontera_impulso(monkeypatch, conn, amazon)
         viejo, nuevo = "impulso-9-viejo000", "impulso-9-hoy00000"
+        envejecido = "impulso-9-hoy00001"
         conn.execute(
             "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal,"
             " huella, plan, modo_goal, estado, created_at) VALUES (%s, 'amazon_mx', 'aros',"
@@ -2187,13 +2229,21 @@ def test_r09r4_l2_vigia_pausa_huerfana_enabled_de_dia_anterior(monkeypatch):
         conn.execute(
             "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal,"
             " huella, plan, modo_goal, estado, created_at) VALUES (%s, 'amazon_mx', 'aros',"
-            " 'Base', 'go', 'n', '{}'::jsonb, 'shadow', 'applied', '2026-10-09 12:00+00')",
+            " 'Base', 'go', 'n', '{}'::jsonb, 'shadow', 'applied', now())",
             (nuevo,),
+        )
+        conn.execute(
+            "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal,"
+            " huella, plan, modo_goal, estado, created_at) VALUES (%s, 'amazon_mx', 'aros',"
+            " 'Base', 'go', 'e', '{}'::jsonb, 'shadow', 'applied',"
+            " now() - make_interval(mins => 61))",
+            (envejecido,),
         )
         semillas = (
             (viejo, "category_exact", "campaigns-1"),
             (viejo, "auto_discovery", "campaigns-2"),
             (nuevo, "category_exact", "campaigns-3"),
+            (envejecido, "category_exact", "campaigns-4"),
         )
         for i, (lote, rol, ext) in enumerate(semillas, start=1):
             conn.execute(
@@ -2204,11 +2254,12 @@ def test_r09r4_l2_vigia_pausa_huerfana_enabled_de_dia_anterior(monkeypatch):
             )
             amazon.objetos[ext] = {"campaignId": ext, "state": "ENABLED"}
         conn.commit()
-        pausados = io.reconcilia_huerfanos(conn, io.PausadorFabrica(conn), HOY)
-        assert pausados == [viejo]
+        pausados = io.reconcilia_huerfanos(conn, io.PausadorFabrica(conn))
+        assert pausados == [envejecido, viejo]
         assert amazon.objetos["campaigns-1"]["state"] == "PAUSED"
         assert amazon.objetos["campaigns-2"]["state"] == "PAUSED"
         assert amazon.objetos["campaigns-3"]["state"] == "ENABLED"
+        assert amazon.objetos["campaigns-4"]["state"] == "PAUSED"
 
 
 @_skip_db
@@ -2394,3 +2445,1143 @@ def test_r09r4_i02_like_funcional_31_no_toca_al_3():
             ).fetchone()[0]
             == 0
         )
+
+
+def test_r09r5_b1a_conexion_propia_lleva_credencial(monkeypatch):
+    """R09-r5 B1a: la conexion propia reinyecta la password (info.dsn
+    no la trae; en produccion sin ella falla). Si manana alguien
+    vuelve a conectar con info.dsn pelado, este test falla."""
+    import psycopg
+
+    with _db_i3("orbit_i3_r5b1a") as conn:
+        assert conn.info.password, "el DSN de test debe traer password"
+        visto = {}
+        real_connect = psycopg.connect
+
+        def _espia(dsn, **kw):
+            visto["dsn"] = str(dsn)
+            return real_connect(dsn, **kw)
+
+        monkeypatch.setattr(psycopg, "connect", _espia)
+        pausador = io._pausador_propio(conn)
+        pausador._propia.close()
+        assert "password" in visto["dsn"], visto["dsn"]
+
+
+def test_r09r5_h10_misma_huella_pausada_reactiva_antes_de_sellar(monkeypatch):
+    """R09-r5 B1c (H10): lote applied con grupo cuyas campanas quedaron
+    PAUSED (falla + reversa + REGISTRAR GRUPO): relanzar el mismo dia
+    (misma huella) las REACTIVA antes de sellar (PUT ENABLED x2 con
+    readback); jamas sella un impulso con campanas apagadas."""
+    from decimal import Decimal
+
+    from app import impulso as im
+    from app.api_fabrica import _ejecutor_lanzar
+
+    with _db_i3("orbit_i3_r5h10") as conn:
+        _, lid = _con_margen(conn)
+        amazon = _amazon_estado()
+        _frontera_impulso(monkeypatch, conn, amazon)
+        sol = io.SolicitudImpulso(
+            plataforma="amazon_mx",
+            listing_ids=(lid,),
+            subfamilia_por_listing={lid: "aros"},
+            tope_monto=Decimal("350"),
+        )
+        vista = io.previsualiza(conn, sol, sugeridor=_sugeridor_fijo())
+        plan = vista.planes[0]
+        lote = io.lote_de_plan(plan)
+        hecho = _ejecutor_lanzar(conn, vista.confirmacion_esperada)(
+            im.grupo_v2_de_plan(plan), plan.huella(), lote
+        )
+        assert hecho.estado_lote == "applied"
+        for ext in list(amazon.objetos):
+            amazon.objetos[ext]["state"] = "PAUSED"
+        n_put = list(amazon.pedidos)
+        lanzados = io.lanza(
+            conn,
+            sol,
+            huella=vista.huella,
+            confirmacion=vista.confirmacion_esperada,
+            actor="dueno",
+            ejecutor=_ejecutor_lanzar(conn, vista.confirmacion_esperada),
+            sugeridor=_sugeridor_fijo(),
+        )
+        assert len(lanzados) == 1
+        assert lanzados[0].lote == lote
+
+        def _puts(pedidos):
+            return [
+                r for r in pedidos if r.method == "PUT" and str(r.url).endswith("/sp/campaigns")
+            ]
+
+        assert len(_puts(amazon.pedidos)) - len(_puts(n_put)) == 2
+        exts = {
+            r[0]
+            for r in conn.execute(
+                "SELECT external_id FROM ad_entity WHERE kind = 'campaign'"
+            ).fetchall()
+        }
+        assert {amazon.objetos[e]["state"] for e in exts} == {"ENABLED"}
+
+
+def test_r09r5_h17_pausa_huerfano_falla_se_dice_en_502(monkeypatch):
+    """R09-r5 B1d (H17): huerfano de otro plan cuya pausa Amazon rechaza:
+    el par nuevo nace pero NO se responde OK sin decirlo: 502 con el
+    lanzado parcial y fallo que nombra el huerfano ENABLED."""
+    from decimal import Decimal
+
+    from app import impulso as im
+    from app.api_fabrica import _ejecutor_lanzar
+
+    with _db_i3("orbit_i3_r5h17") as conn:
+        _, lid = _con_margen(conn)
+        amazon = _amazon_estado()
+        _frontera_impulso(monkeypatch, conn, amazon)
+        sub = {lid: "aros"}
+        sol1 = io.SolicitudImpulso(
+            plataforma="amazon_mx",
+            listing_ids=(lid,),
+            subfamilia_por_listing=sub,
+            tope_monto=Decimal("350"),
+        )
+        vista1 = io.previsualiza(conn, sol1, sugeridor=_sugeridor_fijo())
+        plan1 = vista1.planes[0]
+        hecho = _ejecutor_lanzar(conn, vista1.confirmacion_esperada)(
+            im.grupo_v2_de_plan(plan1), plan1.huella(), io.lote_de_plan(plan1)
+        )
+        assert hecho.estado_lote == "applied"
+        viejo = io.lote_de_plan(plan1)
+        sol2 = io.SolicitudImpulso(
+            plataforma="amazon_mx",
+            listing_ids=(lid,),
+            subfamilia_por_listing=sub,
+            tope_monto=Decimal("140"),
+        )
+        vista2 = io.previsualiza(conn, sol2, sugeridor=_sugeridor_fijo())
+        amazon.n_put = 0
+        amazon.put_falla = {1: True}
+        with pytest.raises(io.ErrorImpulso) as ei:
+            io.lanza(
+                conn,
+                sol2,
+                huella=vista2.huella,
+                confirmacion=vista2.confirmacion_esperada,
+                actor="dueno",
+                ejecutor=_ejecutor_lanzar(conn, vista2.confirmacion_esperada),
+                sugeridor=_sugeridor_fijo(),
+            )
+        assert ei.value.status == 502
+        assert [x.lote for x in ei.value.lanzados] != []
+        assert "ENABLED" in ei.value.fallos[lid]
+        assert viejo in ei.value.fallos[lid]
+
+
+@_skip_db
+def test_r09r5_g7_lote_pausado_con_encendidas_las_pausa(monkeypatch):
+    """R09-r5 B2c (G7): el lote dice pausado pero el dueno reencendio
+    en consola; con veredicto pausar, el vigia lee Amazon y manda PUT
+    PAUSED (no anota 'pausado' creyendole al lote)."""
+    with _db_i3("orbit_i3_r5g7") as conn:
+        ids = _impulso_vivo(conn, lote="impulso-r5g7-1")
+        conn.execute(
+            "UPDATE fabrica_lote SET estado = 'pausado', pausado_por = 'dueno' WHERE lote = %s",
+            (ids["lote"],),
+        )
+        conn.commit()
+        _observa(conn, ids["camps"][0], HOY - dt.timedelta(days=1), gasto="200", clics=30)
+        _observa(conn, ids["camps"][1], HOY - dt.timedelta(days=1), gasto="150", clics=30)
+        amazon = _amazon_estado()
+        _frontera_impulso(monkeypatch, conn, amazon)
+        for i in range(2):
+            ext = f"campaigns-{i + 1}"
+            amazon.objetos[ext] = {"campaignId": ext, "state": "ENABLED"}
+            conn.execute(
+                "INSERT INTO fabrica_lote_paso (lote, orden, rol, recurso, request_payload,"
+                " external_id, ack, readback_estado, estado) VALUES (%s, %s,"
+                " %s::campana_rol, 'campaign', '{}'::jsonb, %s, '{}'::jsonb,"
+                " 'PAUSED', 'applied')",
+                (ids["lote"], 10 + i, ("category_exact", "auto_discovery")[i], ext),
+            )
+        conn.commit()
+        acciones = io.vigila(conn, io.PausadorFabrica(conn), hoy=HOY)
+        assert acciones[0].hecho == "pausado"
+        assert acciones[0].veredicto.final is True
+        assert {p["state"] for p in amazon.objetos.values()} == {"PAUSED"}
+        assert [r for r in amazon.pedidos if r.method == "PUT"] != []
+
+
+@_skip_db
+def test_r09r5_g01_pausado_fuera_de_orbit_no_reenciende():
+    """R09-r5 B2a (g01): lote pausado con pausado_por NULL (consola)
+    + pedido: gradua sin reencender, cero PUT (fake: reactivados
+    vacio). Solo pausado_por == vigia reactiva."""
+    with _db_i3("orbit_i3_r5g01") as conn:
+        ids = _impulso_vivo(conn, lote="impulso-r5g01-1")
+        conn.execute(
+            "UPDATE fabrica_lote SET estado = 'pausado', pausado_por = NULL WHERE lote = %s",
+            (ids["lote"],),
+        )
+        conn.commit()
+        _observa(conn, ids["camps"][0], HOY - dt.timedelta(days=1), pedidos=1)
+        pausador = _Pausador()
+        acciones = io.vigila(conn, pausador, hoy=HOY)
+        assert acciones[0].hecho == "graduado_sin_reencender"
+        assert pausador.reactivados == []
+        assert pausador.pausados == []
+        assert conn.execute(
+            "SELECT mode FROM ads_optimizer_goal WHERE ad_entity_id = %s", (ids["camps"][0],)
+        ).fetchone() == ("live",)
+
+
+@_skip_db
+def test_r09r5_vf_vigia_resuelve_pendiente_de_impulso_terminado():
+    """R09-r5 B3 (16 VF): pendiente de motivo impulso + PAUSED en
+    Amazon: el vigia diario la sella aunque el impulso ya haya
+    terminado (nadie mas la retoma)."""
+    from test_retiro_anuncios import _escritor as _escritor_retiro
+    from test_retiro_anuncios import _fila as _fila_retiro
+    from test_retiro_anuncios import _intencion_pendiente
+
+    with _db_i3("orbit_i3_r5vf") as conn:
+        pid, lid = _con_margen(conn)
+        ids = _impulso_vivo(conn, pid=pid, lid=lid, lote="impulso-r5vf-1")
+        conn.execute(
+            "INSERT INTO impulso_lectura (impulso_id, corte, leido_el, dias_observados,"
+            " impresiones, clics, gasto, pedidos, veredicto, es_final, hecho)"
+            " VALUES (%s, %s, now(), 5, 100, 5, 50, 0, 'clics_sin_ventas', TRUE, 'pausado')",
+            (ids["impulso"], HOY - dt.timedelta(days=1)),
+        )
+        conn.commit()
+        iid = _intencion_pendiente(conn, lid, "ad-1", motivo="impulso", impulso_id=ids["impulso"])
+        escritor, _puts = _escritor_retiro(_fila_retiro("ad-1", "PAUSED"))
+        io.vigila(conn, _Pausador(), hoy=HOY, escritor_retiro=escritor)
+        assert conn.execute("SELECT count(*) FROM anuncio_retiro").fetchone() == (1,)
+        assert conn.execute(
+            "SELECT cerrada_el IS NOT NULL, retiro_id IS NOT NULL"
+            " FROM anuncio_retiro_intencion WHERE id = %s",
+            (iid,),
+        ).fetchone() == (True, True)
+
+
+@_skip_db
+def test_r09r5_11b_pendiente_archivada_no_tumba_lectura():
+    """R09-r5 B3 (11 B, 3c): intencion pendiente de un anuncio que se
+    archiva por fuera: el vigia cierra la intencion, guarda la
+    lectura y no falla (nunca 'vigila: impulso N fallo')."""
+    from test_retiro_anuncios import _bolsa as _bolsa_retiro
+    from test_retiro_anuncios import _escritor as _escritor_retiro
+    from test_retiro_anuncios import _fila as _fila_retiro
+
+    with _db_i3("orbit_i3_r511b") as conn:
+        pid, lid = _con_margen(conn)
+        ids = _impulso_vivo(conn, pid=pid, lid=lid, lote="impulso-r511b-1")
+        _bolsa_retiro(conn, lid, "ad-1")
+        _observa(conn, ids["camps"][0], HOY - dt.timedelta(days=1))
+        _observa(conn, ids["camps"][1], HOY - dt.timedelta(days=1))
+        # Dia 1: primer dia con impresiones -> retira bolsas; el PUT
+        # muere antes de salir: intencion pendiente, Amazon intacto.
+        import app.ads.archivar as archivar_real
+
+        real_pausar = archivar_real.pausar_anuncios
+
+        class Muerte(BaseException):
+            pass
+
+        def _muere(*args, **kwargs):
+            raise Muerte("kill -9 antes del PUT")
+
+        escritor1, _p1 = _escritor_retiro(_fila_retiro("ad-1", "ENABLED"))
+        archivar_real.pausar_anuncios = _muere
+        try:
+            with pytest.raises(Muerte):
+                io.vigila(conn, _Pausador(), hoy=HOY, escritor_retiro=escritor1)
+        finally:
+            archivar_real.pausar_anuncios = real_pausar
+        # Dia 2: el anuncio se archivo por fuera; el vigia guarda.
+        conn.execute(
+            "UPDATE ad_entity_state SET status = 'ARCHIVED'"
+            " WHERE ad_entity_id = (SELECT id FROM ad_entity WHERE external_id = 'ad-1')"
+        )
+        conn.commit()
+        escritor2, puts2 = _escritor_retiro(_fila_retiro("ad-1", "ARCHIVED"))
+        acciones = io.vigila(
+            conn, _Pausador(), hoy=HOY + dt.timedelta(days=1), escritor_retiro=escritor2
+        )
+        assert puts2 == []
+        assert len(acciones) == 1
+        assert conn.execute(
+            "SELECT count(*) FROM impulso_lectura WHERE impulso_id = %s", (ids["impulso"],)
+        ).fetchone() == (1,)
+        assert conn.execute(
+            "SELECT cerrada_el IS NOT NULL FROM anuncio_retiro_intencion"
+        ).fetchone() == (True,)
+
+
+@_skip_db
+def test_r09r5_h11_diario_impar_coincide_con_huerfano():
+    """R09-r5 no-bloq 3 (H11): diario de centavo impar (25.01): el
+    mismo plan reconoce a su huerfano (budget 12.51, no 12.505)."""
+    from psycopg.types.json import Json
+
+    from app import fabrica_plan as fp
+    from app import impulso as im
+
+    with _db_i3("orbit_i3_r5h11") as conn:
+        _, lid = _con_margen(conn)
+        sol = io.SolicitudImpulso(
+            plataforma="amazon_mx",
+            listing_ids=(lid,),
+            subfamilia_por_listing={lid: "aros"},
+            tope_monto=Decimal("350.14"),
+        )
+        vista = io.previsualiza(conn, sol, sugeridor=_sugeridor_fijo())
+        plan = vista.planes[0]
+        assert plan.tope.presupuesto_diario == Decimal("25.01")
+        lote = io.lote_de_plan(plan)
+        conn.execute(
+            "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal,"
+            " huella, plan, modo_goal, estado) VALUES (%s, 'amazon_mx', 'aros', 'Base', 'go',"
+            " 'h', %s, 'shadow', 'applied')",
+            (lote, Json(fp.plan_v2_como_json(im.grupo_v2_de_plan(plan)))),
+        )
+        conn.commit()
+        assert io._plan_coincide_con_lote(conn, plan, lote) is True
+
+
+@_skip_db
+def test_r09r5_mut_reconcilia_planeado_desarmado_no_fabrica(monkeypatch):
+    """R09-r5 B6 (I77/I80/I76): la reconciliacion alcanza lotes
+    'planeado' (muerte en activacion) y 'desarmado' (H2 con pausa
+    fallida), pero nunca un lote que no es de impulso."""
+    with _db_i3("orbit_i3_r5mut") as conn:
+        amazon = _amazon_estado()
+        _frontera_impulso(monkeypatch, conn, amazon)
+        plano, desarm, ajeno = "impulso-9-planeado", "impulso-9-desarm", "fabrica-9-ajeno"
+        for lote, estado in ((plano, "planeado"), (desarm, "desarmado"), (ajeno, "failed")):
+            conn.execute(
+                "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base,"
+                " go_literal, huella, plan, modo_goal, estado, created_at) VALUES (%s,"
+                " 'amazon_mx', 'aros', 'Base', 'go', 'x', '{}'::jsonb, 'shadow', %s,"
+                " now() - make_interval(mins => 120))",
+                (lote, estado),
+            )
+        semillas = (
+            (plano, "category_exact", "campaigns-1"),
+            (desarm, "category_exact", "campaigns-2"),
+            (ajeno, "category_exact", "campaigns-3"),
+        )
+        for i, (lote, rol, ext) in enumerate(semillas, start=1):
+            conn.execute(
+                "INSERT INTO fabrica_lote_paso (lote, orden, rol, recurso, request_payload,"
+                " external_id, ack, readback_estado, estado) VALUES (%s, %s, %s::campana_rol,"
+                " 'campaign', '{}'::jsonb, %s, '{}'::jsonb, 'ENABLED', 'applied')",
+                (lote, i, rol, ext),
+            )
+            amazon.objetos[ext] = {"campaignId": ext, "state": "ENABLED"}
+        conn.commit()
+        pausados = io.reconcilia_huerfanos(conn, io.PausadorFabrica(conn))
+        assert pausados == [desarm, plano]
+        assert amazon.objetos["campaigns-1"]["state"] == "PAUSED"
+        assert amazon.objetos["campaigns-2"]["state"] == "PAUSED"
+        assert amazon.objetos["campaigns-3"]["state"] == "ENABLED"
+
+
+@_skip_db
+def test_r09r5_mut_reconcilia_falla_y_vigia_sigue():
+    """R09-r5 B6 (I84): un lote que falla al reconciliar no tumba el
+    vigia: los impulsos se vigilan ese dia."""
+    with _db_i3("orbit_i3_r5mu84") as conn:
+        ids = _impulso_vivo(conn, lote="impulso-mu84-1")
+        _observa(conn, ids["camps"][0], HOY - dt.timedelta(days=1))
+        _observa(conn, ids["camps"][1], HOY - dt.timedelta(days=1))
+        conn.execute(
+            "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal,"
+            " huella, plan, modo_goal, estado, created_at) VALUES ('impulso-9-malo',"
+            " 'amazon_mx', 'aros', 'Base', 'go', 'x', '{}'::jsonb, 'shadow', 'failed',"
+            " now() - make_interval(mins => 120))"
+        )
+        conn.execute(
+            "INSERT INTO fabrica_lote_paso (lote, orden, rol, recurso, request_payload,"
+            " external_id, ack, readback_estado, estado) VALUES ('impulso-9-malo', 1,"
+            " 'category_exact'::campana_rol, 'campaign', '{}'::jsonb, 'c-malo',"
+            " '{}'::jsonb, 'ENABLED', 'applied')"
+        )
+        conn.commit()
+
+        class _Truena(_Pausador):
+            def pausa_huerfanas(self, lote):
+                raise RuntimeError("amazon caido")
+
+        acciones = io.vigila(conn, _Truena(), hoy=HOY)
+        assert len(acciones) == 1
+        assert conn.execute(
+            "SELECT count(*) FROM impulso_lectura WHERE impulso_id = %s", (ids["impulso"],)
+        ).fetchone() == (1,)
+
+
+@_skip_db
+def test_r09r5_mut_reconcilia_revierte_tras_fallar():
+    """R09-r5 B6 (I85): tras fallar un lote, la reconciliacion revierte
+    su transaccion: el siguiente lote se atiende. Conexion SIN
+    autocommit, como el cron (en autocommit no hay nada que
+    revertir)."""
+    with _db_i3("orbit_i3_r5mu85") as conn:
+        conn.autocommit = False
+        # 'amalo' < 'bueno': el que ensucia va primero (ORDER BY lote).
+        for lote in ("impulso-9-amalo", "impulso-9-bueno"):
+            conn.execute(
+                "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base,"
+                " go_literal, huella, plan, modo_goal, estado, created_at) VALUES (%s,"
+                " 'amazon_mx', 'aros', 'Base', 'go', 'x', '{}'::jsonb, 'shadow', 'failed',"
+                " now() - make_interval(mins => 120))",
+                (lote,),
+            )
+            conn.execute(
+                "INSERT INTO fabrica_lote_paso (lote, orden, rol, recurso, request_payload,"
+                " external_id, ack, readback_estado, estado) VALUES (%s, 1,"
+                " 'category_exact'::campana_rol, 'campaign', '{}'::jsonb, %s,"
+                " '{}'::jsonb, 'ENABLED', 'applied')",
+                (lote, f"c-{lote}"),
+            )
+        conn.commit()
+
+        class _Ensucia(_Pausador):
+            def pausa_huerfanas(self, lote):
+                if lote == "impulso-9-amalo":
+                    conn.execute("SELECT 1/0")
+                    raise RuntimeError("no llega")
+                conn.execute("SELECT 1")
+                self.aseguradas.append(lote)
+                return True
+
+        pausados = io.reconcilia_huerfanos(conn, _Ensucia())
+        assert pausados == ["impulso-9-bueno"]
+
+
+@_skip_db
+def test_r09r5_mut_pausador_minimo_no_tumba_vigia():
+    """R09-r5 B6 (I88): un pausador sin pausa_huerfanas no tumba el
+    vigia (la reconciliacion se salta)."""
+    with _db_i3("orbit_i3_r5mu88") as conn:
+        ids = _impulso_vivo(conn, lote="impulso-mu88-1")
+        _observa(conn, ids["camps"][0], HOY - dt.timedelta(days=1))
+
+        class _Minimo:
+            def pausa(self, lote):
+                pass
+
+            def reanuda(self, lote):
+                pass
+
+            def reactiva(self, lote):
+                pass
+
+            def estados(self, lote):
+                return {}
+
+        acciones = io.vigila(conn, _Minimo(), hoy=HOY)
+        assert len(acciones) == 1
+
+
+@_skip_db
+def test_r09r5_mut_reconcilia_put_miente_levanta(monkeypatch):
+    """R09-r5 B6 (I34): PUT rechazado (400) aunque aplique: reconciliar
+    NO relee para darse por bien (levanta Abortar); la relectura solo
+    vale tras un ACK ok."""
+    import tools.fabrica_campanas as fc
+
+    with _db_i3("orbit_i3_r5mu34") as conn:
+        amazon = _amazon_estado()
+        _frontera_impulso(monkeypatch, conn, amazon)
+        amazon.put_falla = {1: "miente"}
+        conn.execute(
+            "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal,"
+            " huella, plan, modo_goal, estado, created_at) VALUES ('impulso-9-miente',"
+            " 'amazon_mx', 'aros', 'Base', 'go', 'x', '{}'::jsonb, 'shadow', 'failed',"
+            " now() - make_interval(mins => 120))"
+        )
+        conn.execute(
+            "INSERT INTO fabrica_lote_paso (lote, orden, rol, recurso, request_payload,"
+            " external_id, ack, readback_estado, estado) VALUES ('impulso-9-miente', 1,"
+            " 'category_exact'::campana_rol, 'campaign', '{}'::jsonb, 'campaigns-1',"
+            " '{}'::jsonb, 'ENABLED', 'applied')"
+        )
+        amazon.objetos["campaigns-1"] = {"campaignId": "campaigns-1", "state": "ENABLED"}
+        conn.commit()
+        with pytest.raises(fc.Abortar):
+            io.PausadorFabrica(conn).pausa_huerfanas("impulso-9-miente")
+
+
+@_skip_db
+def test_r09r5_mut_reconcilia_put_sordo_levanta(monkeypatch):
+    """R09-r5 B6 (I35/I36): PUT sordo (207 sin aplicar, sigue ENABLED):
+    reconciliar levanta Abortar (no dice que pauso ni calla)."""
+    import tools.fabrica_campanas as fc
+
+    with _db_i3("orbit_i3_r5mu35") as conn:
+        amazon = _amazon_estado()
+        _frontera_impulso(monkeypatch, conn, amazon)
+        amazon.put_falla = {1: "sordo"}
+        conn.execute(
+            "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal,"
+            " huella, plan, modo_goal, estado, created_at) VALUES ('impulso-9-sordo',"
+            " 'amazon_mx', 'aros', 'Base', 'go', 'x', '{}'::jsonb, 'shadow', 'failed',"
+            " now() - make_interval(mins => 120))"
+        )
+        conn.execute(
+            "INSERT INTO fabrica_lote_paso (lote, orden, rol, recurso, request_payload,"
+            " external_id, ack, readback_estado, estado) VALUES ('impulso-9-sordo', 1,"
+            " 'category_exact'::campana_rol, 'campaign', '{}'::jsonb, 'campaigns-1',"
+            " '{}'::jsonb, 'ENABLED', 'applied')"
+        )
+        amazon.objetos["campaigns-1"] = {"campaignId": "campaigns-1", "state": "ENABLED"}
+        conn.commit()
+        with pytest.raises(fc.Abortar, match="siguen ENABLED"):
+            io.PausadorFabrica(conn).pausa_huerfanas("impulso-9-sordo")
+
+
+@_skip_db
+def test_r09r5_mut_reanudar_limpia_pausado_por(monkeypatch):
+    """R09-r5 B6 (F09): reanudar un lote limpia pausado_por (no queda
+    el actor que reanudo)."""
+    with _db_i3("orbit_i3_r5f09") as conn:
+        ids = _impulso_vivo(conn, lote="impulso-r5f09-1")
+        amazon = _amazon_estado()
+        _frontera_impulso(monkeypatch, conn, amazon)
+        for i in range(2):
+            ext = f"campaigns-{i + 1}"
+            amazon.objetos[ext] = {"campaignId": ext, "state": "ENABLED"}
+            conn.execute(
+                "INSERT INTO fabrica_lote_paso (lote, orden, rol, recurso, request_payload,"
+                " external_id, ack, readback_estado, estado) VALUES (%s, %s,"
+                " %s::campana_rol, 'campaign', '{}'::jsonb, %s, '{}'::jsonb,"
+                " 'ENABLED', 'applied')",
+                (ids["lote"], 10 + i, ("category_exact", "auto_discovery")[i], ext),
+            )
+        conn.commit()
+        pausador = io.PausadorFabrica(conn, actor="dueno")
+        pausador.pausa(ids["lote"])
+        assert conn.execute(
+            "SELECT estado, pausado_por FROM fabrica_lote WHERE lote = %s", (ids["lote"],)
+        ).fetchone() == ("pausado", "dueno")
+        pausador.reanuda(ids["lote"])
+        assert conn.execute(
+            "SELECT estado, pausado_por FROM fabrica_lote WHERE lote = %s", (ids["lote"],)
+        ).fetchone() == ("applied", None)
+
+
+@_skip_db
+def test_r09r5_mut_reactiva_limpia_pausado_por(monkeypatch):
+    """R09-r5 B6 (F10): reactivar un lote pausado por el vigia limpia
+    pausado_por."""
+    with _db_i3("orbit_i3_r5f10") as conn:
+        ids = _impulso_vivo(conn, lote="impulso-r5f10-1")
+        conn.execute(
+            "UPDATE fabrica_lote SET estado = 'pausado', pausado_por = 'impulso-vigia'"
+            " WHERE lote = %s",
+            (ids["lote"],),
+        )
+        amazon = _amazon_estado()
+        _frontera_impulso(monkeypatch, conn, amazon)
+        for i in range(2):
+            ext = f"campaigns-{i + 1}"
+            amazon.objetos[ext] = {"campaignId": ext, "state": "PAUSED"}
+            conn.execute(
+                "INSERT INTO fabrica_lote_paso (lote, orden, rol, recurso, request_payload,"
+                " external_id, ack, readback_estado, estado) VALUES (%s, %s,"
+                " %s::campana_rol, 'campaign', '{}'::jsonb, %s, '{}'::jsonb,"
+                " 'PAUSED', 'applied')",
+                (ids["lote"], 10 + i, ("category_exact", "auto_discovery")[i], ext),
+            )
+        conn.commit()
+        io.PausadorFabrica(conn).reactiva(ids["lote"])
+        assert conn.execute(
+            "SELECT estado, pausado_por FROM fabrica_lote WHERE lote = %s", (ids["lote"],)
+        ).fetchone() == ("applied", None)
+
+
+@_skip_db
+def test_r09r5_mut_reconcilia_no_repite_put_a_pausadas(monkeypatch):
+    """R09-r5 B6 (I32): reconciliar solo manda PUT a las ENABLED (a las
+    PAUSED no: sin PUT ni fila nueva)."""
+    with _db_i3("orbit_i3_r5i32") as conn:
+        amazon = _amazon_estado()
+        _frontera_impulso(monkeypatch, conn, amazon)
+        conn.execute(
+            "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal,"
+            " huella, plan, modo_goal, estado, created_at) VALUES ('impulso-9-i32',"
+            " 'amazon_mx', 'aros', 'Base', 'go', 'x', '{}'::jsonb, 'shadow', 'failed',"
+            " now() - make_interval(mins => 120))"
+        )
+        for i, (rol, ext, estado) in enumerate(
+            (
+                ("category_exact", "campaigns-1", "ENABLED"),
+                ("auto_discovery", "campaigns-2", "PAUSED"),
+            ),
+            start=1,
+        ):
+            conn.execute(
+                "INSERT INTO fabrica_lote_paso (lote, orden, rol, recurso, request_payload,"
+                " external_id, ack, readback_estado, estado) VALUES ('impulso-9-i32', %s,"
+                " %s::campana_rol, 'campaign', '{}'::jsonb, %s, '{}'::jsonb, %s, 'applied')",
+                (i, rol, ext, estado),
+            )
+            amazon.objetos[ext] = {"campaignId": ext, "state": estado}
+        conn.commit()
+        assert io.PausadorFabrica(conn).pausa_huerfanas("impulso-9-i32") is True
+        assert [r for r in amazon.pedidos if r.method == "PUT"] != []
+        assert all(
+            "campaigns-1" in r.content.decode("utf-8", "replace")
+            for r in amazon.pedidos
+            if r.method == "PUT"
+        )
+
+
+@_skip_db
+def test_r09r5_mut_reconcilia_solo_campanas(monkeypatch):
+    """R09-r5 B6 (I39): reconciliar solo toma pasos de campana (un paso
+    de ad_group con external no recibe PUT)."""
+    with _db_i3("orbit_i3_r5i39") as conn:
+        amazon = _amazon_estado()
+        _frontera_impulso(monkeypatch, conn, amazon)
+        conn.execute(
+            "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal,"
+            " huella, plan, modo_goal, estado, created_at) VALUES ('impulso-9-i39',"
+            " 'amazon_mx', 'aros', 'Base', 'go', 'x', '{}'::jsonb, 'shadow', 'failed',"
+            " now() - make_interval(mins => 120))"
+        )
+        conn.execute(
+            "INSERT INTO fabrica_lote_paso (lote, orden, rol, recurso, request_payload,"
+            " external_id, ack, readback_estado, estado) VALUES ('impulso-9-i39', 1,"
+            " 'category_exact'::campana_rol, 'ad_group', '{}'::jsonb, 'ag-1',"
+            " '{}'::jsonb, 'ENABLED', 'applied')"
+        )
+        conn.execute(
+            "INSERT INTO fabrica_lote_paso (lote, orden, rol, recurso, request_payload,"
+            " external_id, ack, readback_estado, estado) VALUES ('impulso-9-i39', 2,"
+            " 'auto_discovery'::campana_rol, 'campaign', '{}'::jsonb, 'campaigns-1',"
+            " '{}'::jsonb, 'ENABLED', 'applied')"
+        )
+        amazon.objetos["campaigns-1"] = {"campaignId": "campaigns-1", "state": "ENABLED"}
+        conn.commit()
+        assert io.PausadorFabrica(conn).pausa_huerfanas("impulso-9-i39") is True
+        puts = [r for r in amazon.pedidos if r.method == "PUT"]
+        assert len(puts) == 1
+        assert "campaigns-1" in puts[0].content.decode("utf-8", "replace")
+
+
+@_skip_db
+def test_r09r5_mut_archivar_con_impulso_levanta():
+    """R09-r5 B6 (I41): archivar un lote que tiene impulso levanta
+    (nunca mueve su grupo)."""
+    with _db_i3("orbit_i3_r5i41") as conn:
+        ids = _impulso_vivo(conn, lote="impulso-r5i41-1")
+        with pytest.raises(io.ErrorImpulso, match="tiene impulso"):
+            io._archiva_lote_vacio(conn, ids["lote"])
+        assert conn.execute(
+            "SELECT lote FROM campana_grupo WHERE id = %s", (ids["grupo"],)
+        ).fetchone() == (ids["lote"],)
+
+
+@_skip_db
+def test_r09r5_mut_segundo_archivado_usa_sufijo():
+    """R09-r5 B6 (I42): el segundo archivado del mismo nombre usa
+    -descartado-1 (no choca con el -descartado ya usado)."""
+    with _db_i3("orbit_i3_r5i42") as conn:
+        for _ in range(2):
+            conn.execute(
+                "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base,"
+                " go_literal, huella, plan, modo_goal, estado) VALUES ('impulso-9-i42',"
+                " 'amazon_mx', 'aros', 'Base', 'go', 'x', '{}'::jsonb, 'shadow', 'failed')"
+            )
+            conn.commit()
+            io._archiva_lote_vacio(conn, "impulso-9-i42")
+        assert conn.execute(
+            "SELECT lote FROM fabrica_lote WHERE lote LIKE 'impulso-9-i42%' ORDER BY lote"
+        ).fetchall() == [("impulso-9-i42-descartado",), ("impulso-9-i42-descartado-1",)]
+
+
+@_skip_db
+def test_r09r5_mut_archivada_conserva_created_at():
+    """R09-r5 B6 (I47): la copia archivada conserva la fecha original
+    del lote (no now())."""
+    with _db_i3("orbit_i3_r5i47") as conn:
+        conn.execute(
+            "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal,"
+            " huella, plan, modo_goal, estado, created_at) VALUES ('impulso-9-i47',"
+            " 'amazon_mx', 'aros', 'Base', 'go', 'x', '{}'::jsonb, 'shadow', 'failed',"
+            " '2026-10-01 03:04:05+00')"
+        )
+        conn.commit()
+        io._archiva_lote_vacio(conn, "impulso-9-i47")
+        assert conn.execute(
+            "SELECT created_at FROM fabrica_lote WHERE lote = 'impulso-9-i47-descartado'"
+        ).fetchone()[0] == dt.datetime(2026, 10, 1, 3, 4, 5, tzinfo=dt.UTC)
+
+
+@_skip_db
+def test_r09r5_mut_coincide_plan_ilegible_no_coincide():
+    """R09-r5 B6 (I48/I51): plan guardado ilegible (lote ido, plan no
+    objeto, valores no numericos): no coincide."""
+    from psycopg.types.json import Json
+
+    with _db_i3("orbit_i3_r5i48") as conn:
+        _, lid = _con_margen(conn)
+        sol = io.SolicitudImpulso(
+            plataforma="amazon_mx",
+            listing_ids=(lid,),
+            subfamilia_por_listing={lid: "aros"},
+            tope_monto=Decimal("350"),
+        )
+        plan = io.previsualiza(conn, sol, sugeridor=_sugeridor_fijo()).planes[0]
+        assert io._plan_coincide_con_lote(conn, plan, "impulso-9-inexistente") is False
+        conn.execute(
+            "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal,"
+            " huella, plan, modo_goal, estado) VALUES ('impulso-9-nodict', 'amazon_mx', 'aros',"
+            " 'Base', 'go', 'x', %s, 'shadow', 'failed')",
+            (Json(["no", "objeto"]),),
+        )
+        conn.execute(
+            "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal,"
+            " huella, plan, modo_goal, estado) VALUES ('impulso-9-ilegible', 'amazon_mx',"
+            " 'aros', 'Base', 'go', 'x', %s, 'shadow', 'failed')",
+            (
+                Json(
+                    {
+                        "parametros": {
+                            "category_exact": {"budget": "abc", "bid": "1"},
+                            "auto_discovery": {"budget": "25", "bid": "2"},
+                        }
+                    }
+                ),
+            ),
+        )
+        conn.commit()
+        assert io._plan_coincide_con_lote(conn, plan, "impulso-9-nodict") is False
+        assert io._plan_coincide_con_lote(conn, plan, "impulso-9-ilegible") is False
+
+
+@_skip_db
+def test_r09r5_mut_coincide_mira_los_dos_roles():
+    """R09-r5 B6 (I52): coincide compara los DOS roles (el segundo con
+    otro presupuesto no coincide)."""
+    from psycopg.types.json import Json
+
+    from app import fabrica_plan as fp
+    from app import impulso as im
+
+    with _db_i3("orbit_i3_r5i52") as conn:
+        _, lid = _con_margen(conn)
+        sol = io.SolicitudImpulso(
+            plataforma="amazon_mx",
+            listing_ids=(lid,),
+            subfamilia_por_listing={lid: "aros"},
+            tope_monto=Decimal("350"),
+        )
+        plan = io.previsualiza(conn, sol, sugeridor=_sugeridor_fijo()).planes[0]
+        guardado = fp.plan_v2_como_json(im.grupo_v2_de_plan(plan))
+        guardado["parametros"]["auto_discovery"]["budget"] = "99.99"
+        conn.execute(
+            "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal,"
+            " huella, plan, modo_goal, estado) VALUES ('impulso-9-rol2', 'amazon_mx', 'aros',"
+            " 'Base', 'go', 'x', %s, 'shadow', 'failed')",
+            (Json(guardado),),
+        )
+        conn.commit()
+        assert io._plan_coincide_con_lote(conn, plan, "impulso-9-rol2") is False
+
+
+@_skip_db
+def test_r09r5_mut_coincide_otro_budget_no_coincide():
+    """R09-r5 B6 (I49): huerfano con otro presupuesto: no coincide (el
+    plan confirmado manda)."""
+    from psycopg.types.json import Json
+
+    from app import fabrica_plan as fp
+    from app import impulso as im
+
+    with _db_i3("orbit_i3_r5i49") as conn:
+        _, lid = _con_margen(conn)
+        sol = io.SolicitudImpulso(
+            plataforma="amazon_mx",
+            listing_ids=(lid,),
+            subfamilia_por_listing={lid: "aros"},
+            tope_monto=Decimal("350"),
+        )
+        plan = io.previsualiza(conn, sol, sugeridor=_sugeridor_fijo()).planes[0]
+        guardado = fp.plan_v2_como_json(im.grupo_v2_de_plan(plan))
+        guardado["parametros"]["category_exact"]["budget"] = "99.99"
+        conn.execute(
+            "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal,"
+            " huella, plan, modo_goal, estado) VALUES ('impulso-9-budget', 'amazon_mx',"
+            " 'aros', 'Base', 'go', 'x', %s, 'shadow', 'failed')",
+            (Json(guardado),),
+        )
+        conn.commit()
+        assert io._plan_coincide_con_lote(conn, plan, "impulso-9-budget") is False
+
+
+@_skip_db
+def test_r09r5_mut_coincide_otro_bid_no_coincide():
+    """R09-r5 B6 (I50): huerfano con otro bid: no coincide."""
+    from psycopg.types.json import Json
+
+    from app import fabrica_plan as fp
+    from app import impulso as im
+
+    with _db_i3("orbit_i3_r5i50") as conn:
+        _, lid = _con_margen(conn)
+        sol = io.SolicitudImpulso(
+            plataforma="amazon_mx",
+            listing_ids=(lid,),
+            subfamilia_por_listing={lid: "aros"},
+            tope_monto=Decimal("350"),
+        )
+        plan = io.previsualiza(conn, sol, sugeridor=_sugeridor_fijo()).planes[0]
+        guardado = fp.plan_v2_como_json(im.grupo_v2_de_plan(plan))
+        guardado["parametros"]["category_exact"]["bid"] = "9.99"
+        conn.execute(
+            "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal,"
+            " huella, plan, modo_goal, estado) VALUES ('impulso-9-bid', 'amazon_mx', 'aros',"
+            " 'Base', 'go', 'x', %s, 'shadow', 'failed')",
+            (Json(guardado),),
+        )
+        conn.commit()
+        assert io._plan_coincide_con_lote(conn, plan, "impulso-9-bid") is False
+
+
+@_skip_db
+def test_r09r5_mut_planeado_vacio_otra_huella_archiva(monkeypatch):
+    """R09-r5 B6 (I55): lote planeado vacio de otra huella: se archiva,
+    no bloquea."""
+    from app.api_fabrica import _ejecutor_lanzar
+
+    with _db_i3("orbit_i3_r5i55") as conn:
+        _, lid = _con_margen(conn)
+        amazon = _amazon_estado()
+        _frontera_impulso(monkeypatch, conn, amazon)
+        viejo = f"impulso-{lid}-00000000"
+        conn.execute(
+            "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal,"
+            " huella, plan, modo_goal, estado) VALUES (%s, 'amazon_mx', 'aros', 'Base', 'go',"
+            " '0000', '{}'::jsonb, 'shadow', 'planeado')",
+            (viejo,),
+        )
+        conn.commit()
+        sol = io.SolicitudImpulso(
+            plataforma="amazon_mx",
+            listing_ids=(lid,),
+            subfamilia_por_listing={lid: "aros"},
+            tope_monto=Decimal("350"),
+        )
+        vista = io.previsualiza(conn, sol, sugeridor=_sugeridor_fijo())
+        assert io.lote_de_plan(vista.planes[0]) != viejo
+        lanzados = io.lanza(
+            conn,
+            sol,
+            huella=vista.huella,
+            confirmacion=vista.confirmacion_esperada,
+            actor="dueno",
+            ejecutor=_ejecutor_lanzar(conn, vista.confirmacion_esperada),
+            sugeridor=_sugeridor_fijo(),
+        )
+        assert lanzados[0].lote == io.lote_de_plan(vista.planes[0])
+        assert conn.execute(
+            "SELECT estado FROM fabrica_lote WHERE lote = %s", (f"{viejo}-descartado",)
+        ).fetchone() == ("desarmado",)
+
+
+@_skip_db
+def test_r09r5_mut_failed_con_externals_no_se_archiva(monkeypatch):
+    """R09-r5 B6 (I60): failed CON campanas creadas (misma huella): no
+    se archiva: 502 reconcilia a mano, lote intacto."""
+    from app.api_fabrica import _ejecutor_lanzar
+
+    with _db_i3("orbit_i3_r5i60") as conn:
+        _, lid = _con_margen(conn)
+        amazon = _amazon_estado()
+        _frontera_impulso(monkeypatch, conn, amazon)
+        sol = io.SolicitudImpulso(
+            plataforma="amazon_mx",
+            listing_ids=(lid,),
+            subfamilia_por_listing={lid: "aros"},
+            tope_monto=Decimal("350"),
+        )
+        vista = io.previsualiza(conn, sol, sugeridor=_sugeridor_fijo())
+        lote = io.lote_de_plan(vista.planes[0])
+        conn.execute(
+            "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal,"
+            " huella, plan, modo_goal, estado) VALUES (%s, 'amazon_mx', 'aros', 'Base', 'go',"
+            " 'bbbb', '{}'::jsonb, 'shadow', 'failed')",
+            (lote,),
+        )
+        conn.execute(
+            "INSERT INTO fabrica_lote_paso (lote, orden, rol, recurso, request_payload,"
+            " external_id, ack, readback_estado, estado) VALUES (%s, 1,"
+            " 'category_exact'::campana_rol, 'campaign', '{}'::jsonb, 'campaigns-1',"
+            " '{}'::jsonb, 'ENABLED', 'applied')",
+            (lote,),
+        )
+        conn.commit()
+        with pytest.raises(io.ErrorImpulso) as exc:
+            io.lanza(
+                conn,
+                sol,
+                huella=vista.huella,
+                confirmacion=vista.confirmacion_esperada,
+                actor="dueno",
+                ejecutor=_ejecutor_lanzar(conn, vista.confirmacion_esperada),
+                sugeridor=_sugeridor_fijo(),
+            )
+        assert exc.value.status == 502
+        assert conn.execute(
+            "SELECT count(*) FROM fabrica_lote WHERE lote = %s", (f"{lote}-descartado",)
+        ).fetchone() == (0,)
+        assert conn.execute(
+            "SELECT estado FROM fabrica_lote WHERE lote = %s", (lote,)
+        ).fetchone() == ("failed",)
+
+
+@_skip_db
+def test_r09r5_mut_planeado_vacio_misma_huella_archiva(monkeypatch):
+    """R09-r5 B6 (I62): lote planeado vacio de la misma huella (muerte
+    antes del primer POST): se archiva y el reintento crea."""
+    from app.api_fabrica import _ejecutor_lanzar
+
+    with _db_i3("orbit_i3_r5i62") as conn:
+        _, lid = _con_margen(conn)
+        amazon = _amazon_estado()
+        _frontera_impulso(monkeypatch, conn, amazon)
+        sol = io.SolicitudImpulso(
+            plataforma="amazon_mx",
+            listing_ids=(lid,),
+            subfamilia_por_listing={lid: "aros"},
+            tope_monto=Decimal("350"),
+        )
+        vista = io.previsualiza(conn, sol, sugeridor=_sugeridor_fijo())
+        lote = io.lote_de_plan(vista.planes[0])
+        conn.execute(
+            "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal,"
+            " huella, plan, modo_goal, estado) VALUES (%s, 'amazon_mx', 'aros', 'Base', 'go',"
+            " 'bbbb', '{}'::jsonb, 'shadow', 'planeado')",
+            (lote,),
+        )
+        conn.commit()
+        lanzados = io.lanza(
+            conn,
+            sol,
+            huella=vista.huella,
+            confirmacion=vista.confirmacion_esperada,
+            actor="dueno",
+            ejecutor=_ejecutor_lanzar(conn, vista.confirmacion_esperada),
+            sugeridor=_sugeridor_fijo(),
+        )
+        assert lanzados[0].lote == lote
+        assert conn.execute(
+            "SELECT estado FROM fabrica_lote WHERE lote = %s", (lote,)
+        ).fetchone() == ("applied",)
+        assert conn.execute(
+            "SELECT estado FROM fabrica_lote WHERE lote = %s", (f"{lote}-descartado",)
+        ).fetchone() == ("desarmado",)
+
+
+@_skip_db
+def test_r09r5_mut_reactiva_falla_no_sella(monkeypatch):
+    """R09-r5 B6 (I67): huerfano que coincide pero no activa (Amazon
+    rechaza ENABLED): 502 con fallos, SIN sellar el impulso."""
+    import datetime as _dt
+
+    from app import impulso as im
+    from app.api_fabrica import _ejecutor_lanzar
+
+    with _db_i3("orbit_i3_r5i67") as conn:
+        _, lid = _con_margen(conn)
+        amazon = _amazon_estado()
+        _frontera_impulso(monkeypatch, conn, amazon)
+        sol = io.SolicitudImpulso(
+            plataforma="amazon_mx",
+            listing_ids=(lid,),
+            subfamilia_por_listing={lid: "aros"},
+            tope_monto=Decimal("350"),
+        )
+        ayer = HOY - _dt.timedelta(days=1)
+        vista_ayer = io.previsualiza(conn, sol, sugeridor=_sugeridor_fijo(), hoy=ayer)
+        plan_ayer = vista_ayer.planes[0]
+        viejo = io.lote_de_plan(plan_ayer)
+        hecho = _ejecutor_lanzar(conn, vista_ayer.confirmacion_esperada)(
+            im.grupo_v2_de_plan(plan_ayer), plan_ayer.huella(), viejo
+        )
+        assert hecho.estado_lote == "applied"
+        for ext, payload in amazon.objetos.items():
+            if ext.startswith("campaigns-"):
+                payload["state"] = "PAUSED"
+        amazon.n_put = 0
+        amazon.put_falla = {1: True}
+        vista_hoy = io.previsualiza(conn, sol, sugeridor=_sugeridor_fijo(), hoy=HOY)
+        with pytest.raises(io.ErrorImpulso) as exc:
+            io.lanza(
+                conn,
+                sol,
+                huella=vista_hoy.huella,
+                confirmacion=vista_hoy.confirmacion_esperada,
+                actor="dueno",
+                ejecutor=_ejecutor_lanzar(conn, vista_hoy.confirmacion_esperada),
+                sugeridor=_sugeridor_fijo(),
+                hoy=HOY,
+            )
+        assert exc.value.status == 502
+        assert conn.execute("SELECT count(*) FROM impulso").fetchone() == (0,)
+
+
+@_skip_db
+def test_r09r5_mut_corte_sale_de_campanas_no_keywords():
+    """R09-r5 B6 (I70): keywords de ayer y campanas de anteayer: el
+    corte sale de las campanas (anteayer), no de las keywords."""
+    with _db_i3("orbit_i3_r5i70") as conn:
+        ids = _impulso_vivo(conn, lote="impulso-r5i70-1")
+        for camp in ids["camps"]:
+            _observa(conn, camp, HOY - dt.timedelta(days=2), impr=90, clics=1, gasto="3")
+        kid = conn.execute(
+            "INSERT INTO ad_entity (platform, kind, external_id, parent_id, name,"
+            " match_type, keyword_text) VALUES ('amazon_mx', 'keyword', 'kw-i70',"
+            " %s, 'kw i70', 'EXACT', 'kw i70') RETURNING id",
+            (ids["camps"][0],),
+        ).fetchone()[0]
+        _observa(conn, kid, HOY - dt.timedelta(days=1), impr=10, clics=1, gasto="1")
+        acciones = io.vigila(conn, _Pausador(), hoy=HOY)
+        assert acciones[0].veredicto.estado == "en_curso"
+        assert conn.execute(
+            "SELECT corte FROM impulso_lectura WHERE impulso_id = %s", (ids["impulso"],)
+        ).fetchone() == (HOY - dt.timedelta(days=2),)
+
+
+@_skip_db
+def test_r09r5_mut_registro_falla_pausa_activadas(monkeypatch):
+    """R09-r5 B6 (F03, L8): falla el registro interno tras activar: las
+    activadas se pausan (rollback) y el lote queda failed."""
+    import tools.fabrica_campanas as fc
+    from app.api_fabrica import _ejecutor_lanzar
+
+    with _db_i3("orbit_i3_r5f03") as conn:
+        _, lid = _con_margen(conn)
+        amazon = _amazon_estado()
+        _frontera_impulso(monkeypatch, conn, amazon)
+        sol = io.SolicitudImpulso(
+            plataforma="amazon_mx",
+            listing_ids=(lid,),
+            subfamilia_por_listing={lid: "aros"},
+            tope_monto=Decimal("350"),
+        )
+        vista = io.previsualiza(conn, sol, sugeridor=_sugeridor_fijo())
+        lote = io.lote_de_plan(vista.planes[0])
+
+        def _registro_roto(*args, **kwargs):
+            raise RuntimeError("sync de estructura fallo (simulado)")
+
+        monkeypatch.setattr(fc, "_registrar", _registro_roto)
+        with pytest.raises(io.ErrorImpulso) as exc:
+            io.lanza(
+                conn,
+                sol,
+                huella=vista.huella,
+                confirmacion=vista.confirmacion_esperada,
+                actor="dueno",
+                ejecutor=_ejecutor_lanzar(conn, vista.confirmacion_esperada),
+                sugeridor=_sugeridor_fijo(),
+            )
+        assert exc.value.status == 502
+        assert conn.execute(
+            "SELECT estado FROM fabrica_lote WHERE lote = %s", (lote,)
+        ).fetchone() == ("failed",)
+        assert {p["state"] for x, p in amazon.objetos.items() if x.startswith("campaigns-")} == {
+            "PAUSED"
+        }
+
+
+@_skip_db
+def test_r09r5_mut_rollback_incompleto_se_nombra(monkeypatch):
+    """R09-r5 B6 (F04, L8): registro falla y el rollback queda
+    incompleto (una pausa rechazada): el mensaje lo nombra."""
+    import tools.fabrica_campanas as fc
+    from app.api_fabrica import _ejecutor_lanzar
+
+    with _db_i3("orbit_i3_r5f04") as conn:
+        _, lid = _con_margen(conn)
+        amazon = _amazon_estado()
+        _frontera_impulso(monkeypatch, conn, amazon)
+        amazon.put_falla = {3: True}
+        sol = io.SolicitudImpulso(
+            plataforma="amazon_mx",
+            listing_ids=(lid,),
+            subfamilia_por_listing={lid: "aros"},
+            tope_monto=Decimal("350"),
+        )
+        vista = io.previsualiza(conn, sol, sugeridor=_sugeridor_fijo())
+
+        def _registro_roto(*args, **kwargs):
+            raise RuntimeError("sync de estructura fallo (simulado)")
+
+        monkeypatch.setattr(fc, "_registrar", _registro_roto)
+        with pytest.raises(io.ErrorImpulso) as exc:
+            io.lanza(
+                conn,
+                sol,
+                huella=vista.huella,
+                confirmacion=vista.confirmacion_esperada,
+                actor="dueno",
+                ejecutor=_ejecutor_lanzar(conn, vista.confirmacion_esperada),
+                sugeridor=_sugeridor_fijo(),
+            )
+        assert exc.value.status == 502
+        assert "rollback incompleto" in exc.value.fallos[lid]
+
+
+@_skip_db
+def test_r09r5_mut_excepcion_cruda_sella_failed_y_revierte(monkeypatch):
+    """R09-r5 B6 (F01): excepcion cruda (no Abortar) creando el
+    segundo rol: sella failed y revierte (pausa la creada)."""
+    import tools.fabrica_campanas as fc
+    from app.api_fabrica import _ejecutor_lanzar
+
+    with _db_i3("orbit_i3_r5f01") as conn:
+        _, lid = _con_margen(conn)
+        amazon = _amazon_estado()
+        _frontera_impulso(monkeypatch, conn, amazon)
+        sol = io.SolicitudImpulso(
+            plataforma="amazon_mx",
+            listing_ids=(lid,),
+            subfamilia_por_listing={lid: "aros"},
+            tope_monto=Decimal("350"),
+        )
+        vista = io.previsualiza(conn, sol, sugeridor=_sugeridor_fijo())
+        lote = io.lote_de_plan(vista.planes[0])
+        real = fc._ejecuta_rol
+        veces = {"n": 0}
+
+        def _truena(ctx, plan, rol):
+            veces["n"] += 1
+            if veces["n"] == 2:
+                raise RuntimeError("muerte viva (simulada)")
+            return real(ctx, plan, rol)
+
+        monkeypatch.setattr(fc, "_ejecuta_rol", _truena)
+        with pytest.raises(io.ErrorImpulso) as exc:
+            io.lanza(
+                conn,
+                sol,
+                huella=vista.huella,
+                confirmacion=vista.confirmacion_esperada,
+                actor="dueno",
+                ejecutor=_ejecutor_lanzar(conn, vista.confirmacion_esperada),
+                sugeridor=_sugeridor_fijo(),
+            )
+        assert exc.value.status == 502
+        assert conn.execute(
+            "SELECT estado FROM fabrica_lote WHERE lote = %s", (lote,)
+        ).fetchone() == ("failed",)
+        # Solo campanas: los ad groups nacen ENABLED y la reversa no
+        # los toca (como A01).
+        assert {p["state"] for x, p in amazon.objetos.items() if x.startswith("campaigns-")} == {
+            "PAUSED"
+        }

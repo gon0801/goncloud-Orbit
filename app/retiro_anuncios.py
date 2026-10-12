@@ -13,6 +13,7 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
+import sys
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Literal
@@ -310,11 +311,20 @@ def ejecuta_retiro(
     lote = lote_retiro_de_plan(plan)
     with _bloqueados(conn, [f"retiro-ad:{ent}" for ent, _ in candidatos]):
         # Re-chequeo bajo lock: otro pudo retirar mientras se esperaba.
-        pendientes = [
-            (ent, anuncio)
-            for ent, anuncio in candidatos
-            if conn.execute(_SQL_YA_RETIRADO, (ent,)).fetchone() is None
-        ]
+        # 10 n/q: si ya hay retiro abierto Y una intencion pendiente
+        # (muerte entre el sello y el cierre), la intencion se cierra
+        # apuntando al retiro: el reintento converge sin PUT ni fila.
+        pendientes = []
+        for ent, anuncio in candidatos:
+            ya = conn.execute(_SQL_YA_RETIRADO, (ent,)).fetchone()
+            if ya is None:
+                pendientes.append((ent, anuncio))
+                continue
+            prev = conn.execute(_SQL_INTENCION_ABIERTA, (ent,)).fetchone()
+            if prev is not None:
+                _cierra_intencion(
+                    conn, prev[0], f"retiro {ya[0]} ya sellado (muerte entre sello y cierre)", ya[0]
+                )
         if not pendientes:
             return 0
         # Intencion pendiente de un intento anterior: se retoma (mismo
@@ -341,25 +351,38 @@ def _ejecuta_pendientes(conn, plan, pendientes, filas, lote, impulso_id, escrito
     fallidos: list[str] = []
     for ent, anuncio, previo in pendientes:
         fila = filas.get(anuncio.ad_id_externo)
-        if fila is None:
-            fallidos.append(f"{anuncio.ad_id_externo} (no_existe en Amazon: no se mando nada)")
-            continue
-        if fila.get("state") == archivar.ESTADO_ARCHIVADO:
-            fallidos.append(f"{anuncio.ad_id_externo} (ARCHIVED: el PUT no lo mueve)")
+        if fila is None or fila.get("state") == archivar.ESTADO_ARCHIVADO:
+            # 11 D3/B: con intencion previa, ARCHIVED o inexistente
+            # CIERRA la intencion con detalle y no falla (el reintento
+            # converge; el vigia no se atora). Sin previa, se nombra
+            # como fallo (RA21: fail fast, 0 escrituras).
+            if previo is None:
+                motivo = (
+                    "no_existe en Amazon: no se mando nada"
+                    if fila is None
+                    else "ARCHIVED: el PUT no lo mueve"
+                )
+                fallidos.append(f"{anuncio.ad_id_externo} ({motivo})")
+                continue
+            detalle_cierre = (
+                f"{anuncio.ad_id_externo} inexistente en Amazon: nada que pausar"
+                if fila is None
+                else f"{anuncio.ad_id_externo} ARCHIVED en Amazon: el PUT no lo mueve"
+            )
+            _cierra_intencion(conn, previo, detalle_cierre, None)
             continue
         if previo is None:
-            iid = _abre_intencion(
-                conn,
-                plan,
-                lote,
-                impulso_id,
-                ent,
-                anuncio,
-                archivar.reversa_de_fila(fila),
-                actor_final,
-            )
+            reversa = archivar.reversa_de_fila(fila)
+            iid = _abre_intencion(conn, plan, lote, impulso_id, ent, anuncio, reversa, actor_final)
         else:
+            # r01: el reintento sella con la reversa guardada en la
+            # intencion (la foto previa al primer PUT), no con la
+            # de su lectura (que ya ve PAUSED): si no, 'Regresar'
+            # no manda ningun PUT y el anuncio queda apagado.
             iid = previo
+            (reversa,) = conn.execute(
+                "SELECT reversa FROM anuncio_retiro_intencion WHERE id = %s", (iid,)
+            ).fetchone()
         try:
             res = archivar.pausar_anuncios(escritor, [anuncio.ad_id_externo], ejecutar=True)[0]
         except Exception as exc:
@@ -368,16 +391,7 @@ def _ejecuta_pendientes(conn, plan, pendientes, filas, lote, impulso_id, escrito
             )
             continue
         if res.resultado in ("pausado", "ya_estaba"):
-            rid = _sella_retiro(
-                conn,
-                plan,
-                lote,
-                impulso_id,
-                ent,
-                anuncio,
-                archivar.reversa_de_fila(fila),
-                actor_final,
-            )
+            rid = _sella_retiro(conn, plan, lote, impulso_id, ent, anuncio, reversa, actor_final)
             _cierra_intencion(conn, iid, "sello del readback", rid)
             retirados += 1
         elif res.resultado in ("fallo", "no_existe"):
@@ -505,6 +519,160 @@ def _repone_uno(escritor, ad_id, reversa, estado):
     if estado == "ENABLED":
         return ad_id, "ENABLED"
     raise RuntimeError(f"reposicion de {ad_id}: estado {estado!r} sin camino")
+
+
+_SQL_INTENCIONES_PENDIENTES = """
+SELECT i.id, i.platform, i.motivo, i.lote_retiro, i.impulso_id, i.ad_entity_id,
+       i.ad_id_externo, i.ad_group_externo, i.campana_externa, i.sku, i.asin,
+       i.reversa, i.actor
+  FROM anuncio_retiro_intencion i
+ WHERE i.cerrada_el IS NULL
+ ORDER BY i.id
+"""
+
+
+def reconcilia_intenciones(conn, *, escritor=None, escritores=None) -> list[tuple[int, str]]:
+    """Paso diario: resuelve TODA intencion pendiente, de cualquier
+    motivo y aunque el impulso ya haya terminado, leyendo Amazon:
+    PAUSED sella (con la reversa guardada en la intencion), ENABLED
+    reintenta el PUT (sella; rechazo explicito cierra; incierto sigue
+    pendiente), ARCHIVED o inexistente cierra con detalle. Best effort
+    por intencion: una atorada nunca tumba a las demas. Devuelve
+    (intencion_id, 'sellado'|'cerrado') por cada una resuelta."""
+    resueltas: list[tuple[int, str]] = []
+    filas = conn.execute(_SQL_INTENCIONES_PENDIENTES).fetchall()
+    conn.commit()
+    propios: dict[str, object] = dict(escritores or {})
+    for fila in filas:
+        (
+            iid,
+            platform,
+            motivo,
+            lote,
+            impulso_id,
+            ent,
+            ad_id,
+            ag,
+            camp,
+            sku,
+            asin,
+            reversa,
+            actor,
+        ) = fila
+        try:
+            with _bloqueados(conn, [f"retiro-ad:{ent}"]):
+                vigente = conn.execute(
+                    "SELECT 1 FROM anuncio_retiro_intencion WHERE id = %s AND cerrada_el IS NULL",
+                    (iid,),
+                ).fetchone()
+                if vigente is None:
+                    continue
+                ya = conn.execute(_SQL_YA_RETIRADO, (ent,)).fetchone()
+                if ya is not None:
+                    _cierra_intencion(
+                        conn, iid, f"retiro {ya[0]} ya sellado (reconciliacion)", ya[0]
+                    )
+                    resueltas.append((iid, "sellado"))
+                    continue
+                esc = escritor if escritor is not None else propios.get(platform)
+                if esc is None:
+                    esc = archivar.preparar_escritor(platform)
+                    propios[platform] = esc
+                try:
+                    leidas = archivar.leer_anuncios(esc, [ad_id])
+                except AdsApiError as exc:
+                    print(
+                        f"reconcilia retiros: LIST caido para {ad_id} ({exc})",
+                        file=sys.stderr,
+                    )
+                    continue
+                vista = leidas.get(ad_id)
+                if vista is None or vista.get("state") == archivar.ESTADO_ARCHIVADO:
+                    detalle = (
+                        f"{ad_id} inexistente en Amazon: nada que pausar"
+                        if vista is None
+                        else f"{ad_id} ARCHIVED en Amazon: el PUT no lo mueve"
+                    )
+                    _cierra_intencion(conn, iid, f"reconciliacion: {detalle}", None)
+                    resueltas.append((iid, "cerrado"))
+                    continue
+                if vista.get("state") == archivar.ESTADO_PAUSADO:
+                    rid = _sella_desde_intencion(
+                        conn,
+                        platform,
+                        motivo,
+                        lote,
+                        impulso_id,
+                        ent,
+                        ad_id,
+                        ag,
+                        camp,
+                        sku,
+                        asin,
+                        reversa,
+                        actor,
+                    )
+                    _cierra_intencion(conn, iid, "reconciliacion: Amazon ya lo tenia PAUSED", rid)
+                    resueltas.append((iid, "sellado"))
+                    continue
+                res = archivar.pausar_anuncios(esc, [ad_id], ejecutar=True)[0]
+                if res.resultado in ("pausado", "ya_estaba"):
+                    rid = _sella_desde_intencion(
+                        conn,
+                        platform,
+                        motivo,
+                        lote,
+                        impulso_id,
+                        ent,
+                        ad_id,
+                        ag,
+                        camp,
+                        sku,
+                        asin,
+                        reversa,
+                        actor,
+                    )
+                    _cierra_intencion(conn, iid, "reconciliacion: reintento sello", rid)
+                    resueltas.append((iid, "sellado"))
+                elif res.resultado in ("fallo", "no_existe"):
+                    _cierra_intencion(
+                        conn, iid, f"reconciliacion: {res.resultado} ({res.detalle})", None
+                    )
+                    resueltas.append((iid, "cerrado"))
+                # sin_confirmar: incierto; sigue pendiente (manana sera).
+        except Exception as exc:
+            conn.rollback()
+            print(f"reconcilia retiros: intencion {iid} fallo ({exc})", file=sys.stderr)
+    return resueltas
+
+
+def _sella_desde_intencion(
+    conn,
+    platform,
+    motivo,
+    lote,
+    impulso_id,
+    ent,
+    ad_id,
+    ag,
+    camp,
+    sku,
+    asin,
+    reversa,
+    actor,
+) -> int:
+    """Sella el retiro con los datos guardados en la intencion (su
+    reversa es la foto previa al primer PUT)."""
+    plan = PlanRetiro(platform, motivo, (), "")
+    anuncio = im.AnuncioARetirar(
+        ad_id_externo=ad_id,
+        ad_group_externo=ag,
+        campana_externa=camp,
+        ad_group_nombre="",
+        sku=sku,
+        asin=asin,
+    )
+    return _sella_retiro(conn, plan, lote, impulso_id, ent, anuncio, reversa, actor)
 
 
 def retiros_pendientes_de_impulso(conn, impulso_id: int, plan: PlanRetiro) -> PlanRetiro:
