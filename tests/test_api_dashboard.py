@@ -4319,3 +4319,54 @@ def test_productos_sin_clics_api_forma_y_422(monkeypatch):
             "/api/dashboard/productos-sin-clics", params={"plataforma": "meli"}
         )
         assert malo.status_code == 422
+
+
+def test_busquedas_sin_venta_api_forma_y_422(monkeypatch):
+    """P.6: el endpoint trae referencia, ASIN, palabras y los dos
+    conteos, con la moneda del mercado; plataforma ajena es 422."""
+    import datetime as dt
+
+    import test_pantalla_busquedas as tb
+
+    with _db_temporal("orbit_dash_p6") as (conn, dsn):
+        run = tb._run(conn)
+        ag = tb._ad_group(conn, tb._campana(conn, "c-p6", "Campana P6"), "ag-p6")
+        tb._obs(
+            conn,
+            ag,
+            "B0APIP6001",
+            dt.date(2026, 10, 1),
+            visto=dt.datetime(2026, 10, 2, tzinfo=dt.UTC),
+            cost=400,
+            clics=4,
+            pedidos=0,
+            asin=True,
+            run=run,
+        )
+        tb._obs(
+            conn,
+            ag,
+            "gama uno",
+            dt.date(2026, 10, 1),
+            visto=dt.datetime(2026, 10, 2, tzinfo=dt.UTC),
+            cost=400,
+            clics=4,
+            pedidos=0,
+            run=run,
+        )
+        resp = _cliente(dsn, monkeypatch).get(
+            "/api/dashboard/busquedas-sin-venta", params={"plataforma": "amazon_mx"}
+        )
+        assert resp.status_code == 200, resp.text
+        cuerpo = resp.json()
+        assert cuerpo["plataforma"] == "amazon_mx"
+        assert cuerpo["moneda"] == "MXN"
+        assert set(cuerpo["referencia"]) == {"visto_pct", "azar_pct"}
+        assert [a["asin"] for a in cuerpo["asins"]] == ["B0APIP6001"]
+        assert [p["palabra"] for p in cuerpo["palabras"]] == ["gama", "gama uno", "uno"]
+        assert cuerpo["asins_a_medio_camino"] == 0
+        assert cuerpo["palabras_a_medio_camino"] == 0
+        malo = _cliente(dsn, monkeypatch).get(
+            "/api/dashboard/busquedas-sin-venta", params={"plataforma": "meli"}
+        )
+        assert malo.status_code == 422

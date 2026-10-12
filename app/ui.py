@@ -676,6 +676,26 @@ def pagina_productos_sin_clics(
     )
 
 
+@router.get("/busquedas-sin-venta", response_class=HTMLResponse)
+def pagina_busquedas_sin_venta(
+    request: Request,
+    conn: ConexionLectura,
+    plataforma: Annotated[str | None, Query()] = None,
+) -> HTMLResponse:
+    """Busquedas que gastan sin vender (BIDS 02, P.6): paginas de
+    producto ajenas y palabras que ya gastaron el minimo sin un
+    pedido, con la referencia de azar. Solo lectura: ningun boton y
+    la busqueda de ejemplo se renderiza ESCAPADA ({{ }}). Mercado con
+    `?plataforma=`; sin mercado se mira amazon_mx."""
+    mercado = _vocab_o_422(plataforma, frozenset(PLATAFORMAS_MONEDA), "plataforma")
+    datos = dash.busquedas_sin_venta(conn=conn, plataforma=mercado or "amazon_mx")
+    return templates.TemplateResponse(
+        request,
+        "busquedas_sin_venta.html",
+        {"pantalla": "busquedas-sin-venta", **datos},
+    )
+
+
 @router.get("/settings", response_class=HTMLResponse)
 def pagina_settings(request: Request, conn: ConexionLectura) -> HTMLResponse:
     """Settings de escritura (DASHBOARD 01 3.1, E1-E6): target vigente con
