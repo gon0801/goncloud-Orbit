@@ -2,9 +2,11 @@
 OK   md5 en el contenedor app/jev_avisos.py: 2594bfc9f31eba46c6cc5bac6fb1a52f
 OK   md5 en el contenedor app/jev_senales.py: b90db7898655027ab9642076cebd5679
 OK   md5 en el contenedor app/jev_juicios.py: 950d5756efe057fafde0be251ea1c5e5
-OK   md5 en el contenedor app/jev_salud.py: dd734b35a2cdd37e8525a4e5d253429a
 OK   md5 en el contenedor app/jev_vista.py: 53ddce50eaeeed6e14ea1cf3701a7e71
+OK   md5 en el contenedor app/jev_lectura.py: 75c659eff13b2535d033b6288c97e122
+OK   md5 en el contenedor app/jev_salud.py: dd734b35a2cdd37e8525a4e5d253429a
 OK   md5 en el contenedor app/api_dashboard.py: 86973a40a885d12c095d8484aca596dd
+OK   md5 en el contenedor app/notifica.py: 7863797e4872034480d9c9057fd8a6f8
 OK   md5 en el contenedor app/templates/salud.html: c013ddb380e03610b4ddde21e333f2dc
 == 2) HTTP
 OK   GET /health: 200

@@ -80,15 +80,16 @@ Con tope 0 tampoco habrían pagado. El job pagó sus primeras 50 llamadas el
 
 Las 100 llamadas que el seco del checklist cuenta para el 2026-10-13
 (`llamadas_hoy=100`) son de la medición 0.5, no del job
-(`ejecucion/0.5/NOTAS.md`). El seco anticipa 4,900 llamadas para el cron de
-las 09:30 UTC del 2026-10-13, la primera corrida del cron con el tope en
-5,000.
+(`ejecucion/0.5/NOTAS.md`). El seco anticipaba 4,900 llamadas para el cron
+de las 09:30 UTC del 2026-10-13. Esa corrida se adelantó a las 05:08 UTC
+(sección "Primera corrida con el tope en 5,000"); con el día en 5,000 de
+5,000, los cron de las 09:30 y 21:30 UTC del 13 no pagan.
 
 ## Notas J6
 
 J6-31 se arregló. J6-1 a J6-30 y J6-32 a J6-45 se aceptan sin arreglo de
-código: no bloqueaban el cierre y el dueño ordenó no esperarlas. J6-21 sigue
-sin decisión del dueño; no se inventó.
+código: no bloqueaban el cierre y el dueño ordenó no esperarlas. J6-21 ya
+tiene decisión del dueño (sección "J6-21", abajo).
 
 ## Observación de la revisión del cierre
 
@@ -148,6 +149,13 @@ opción, 0.015 con las tres del contrato.
 `desplegar.sh`: solo código. Respaldo en `predeploy-20261013-0633`. Las
 salidas de esta carpeta son las de ese despliegue. El checklist dio 0 mal,
 con 19 señales ajenas, todas con `listado_de`.
+
+El seco del checklist corrió con el cupo del día agotado (`pagaria=0`,
+`llamadas_hoy=5000`). Con cupo en cero el seco no recorre pares: esa
+sección prueba que el job arranca con el código nuevo y lee la config, no
+la validación nueva ni el cierre con `avisos_error`. Esas dos las cubren
+las pruebas de #444; en producción la validación corre en la siguiente
+corrida que pague.
 
 ## J6-21
 
