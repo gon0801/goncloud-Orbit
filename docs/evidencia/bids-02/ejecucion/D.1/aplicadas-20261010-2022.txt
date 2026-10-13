@@ -1,0 +1,2 @@
+migrations/0060_bids02_base_lectura.sql
+migrations/0063_bids02_peldanos_target.sql
