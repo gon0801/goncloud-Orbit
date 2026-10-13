@@ -196,8 +196,9 @@ mal con el ciclo posterior comprobado; la salida está en
 `checklist-post-ciclo-salida.txt`. Los ciclos corrieron con el código de
 #444: el 120 (`amazon_us`, 08:40 UTC, 2 decisiones aplicadas) y el 121
 (`amazon_mx`, 08:41 UTC, 1 aplicada), los dos en `done`. Los nueve archivos
-coinciden por md5 con ese SHA, las cinco rutas responden 200, hay 19
-señales ajenas y todas traen `listado_de`, la config vigente es la 30,
+coinciden por md5 con ese SHA, las cinco rutas responden 200, hay 25
+señales ajenas y todas traen `listado_de` (eran 19 en `checklist-salida.txt`;
+la corrida de las 09:30 UTC ya estaba escribiendo), la config vigente es la 30,
 `jev.avisos` sigue ausente, `jev_aviso` tiene 0 filas y `secrets/` sigue en
 700 con el puerto en loopback. Con un sello posterior a los dos ciclos
 (`20261013-0900`) el mismo script sale 3, y con uno que solo deja ver el
