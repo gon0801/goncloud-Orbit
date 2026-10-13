@@ -1,6 +1,19 @@
 # Mutantes de P.4
 
-Nota con el motivo. El bloque de esta pantalla no guardo una lista
-de mutantes por id en su entrega, asi que no hay tabla que copiar
-sin inventarla. La tabla de mutantes que si existe con ids es la
-de busquedas y vive en la carpeta de P.6.
+Todos mueren con la reversa en verde y el arbol limpio en la
+entrega de su bloque.
+
+| id | que cambia | veredicto |
+|---|---|---|
+| M1 | el roster del impulso trae campanas de mas | MUERE |
+| M2 | el vigia no pausa cuando falta un solo diario | MUERE |
+| M3 | el veredicto final sale con un None | MUERE |
+| M4 | retiro antes de contar impresiones | MUERE |
+| B1 | tolera el pausado con un falso fijo | MUERE |
+| N1 | Decimal sin try | MUERE |
+| N2 | la moneda y el monto cambian de tipo en la 0065 | MUERE |
+| N3 | la rama del huerfano queda apagada | MUERE |
+| N4 | el vivo da 409 sin lanzados | MUERE |
+| N5 | el vigia corre sin try | MUERE |
+| N6 | el vigia corre sin su actor | MUERE |
+| N8 | los asserts del token van contra el JS sin limpiar | MUERE |

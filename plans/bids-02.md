@@ -459,9 +459,27 @@ la respuesta no-2xx como falla; la tabla-decision ya dice 17 hojas y 22 recortes
 sonda de V.0; R1 solo dispara con ultimo cambio de origen motor, con sus dos pruebas). PR412-R13
 (`prototipos/verifica_uso.py:57` acepta llamadas con menos argumentos de los que pide la firma) vive en
 evidencia congelada del diseno: no se reescribe. De VEREDICTO-R11-r2: el punto 8 (D.5 no aplica
-migraciones pendientes) queda sin accion porque ya no hay despliegues de este plan; la ventana de 91 dias
+migraciones pendientes) quedo cubierto por los despliegues que si vinieron despues. D.6 aplica las
+migraciones que trae pendientes y D.7 aborta si alguna de este plan no esta aplicada; la ventana de 91 dias
 con rotulo de 90 es definicion sellada de la guia; el `checklist.sh` que pide dos veces cada pagina y el
 `skipif` sobre el ayudante `_db_p6` no hacen dano.
+
+Sin fila, con el motivo, del remate: la rama de pendiente con el vigente ya en destino solo se alcanza
+por una carrera entre el plan y la relectura, y lo que hace es sellar sin PUT. El ciclo de un solo
+elemento en `app/api_dashboard.py:1563` es cosmetico y da el mismo resultado. El gasto de otros grupos
+que venden sale con cuatro decimales en el JSON, queda fuera de R13-K y su pagina no lo pinta, porque
+solo muestra el grupo y sus ordenes. La pantalla de dinero hace una consulta por cada ajuste regresable
+y hoy esa tabla tiene cero filas en produccion, con pocos regresables por diseno. El predicado del
+conflicto se repite en una linea entre pantalla y ruta y los dos lados se apoyan en la misma funcion
+`coincide_clase`. El None de `config_por_id` es inalcanzable por la llave foranea de los ajustes. La
+prueba de R07-D mira la consulta y el repro original si ejerce la funcion del bid del dia y pasa. El
+sello puede compartir respaldo entre un ensayo y un despliegue del mismo minuto, pero la simulacion
+escribe en su carpeta temporal y no en el servidor, y ya no quedan despliegues de este plan. De R14
+quedan con motivo la carrera de dos conexiones sin su prueba, que el candado por producto ya cubre por
+su lado; la vista previa que no marca el vivo del mismo listing con otro plan, porque lanzar lo rechaza
+en el parcial y es comportamiento anterior al remate; el 500 de sellar el impulso que es inalcanzable
+porque el registro fija el tipo por roles; y los dos psql del rollback de la 0071, porque la reversa
+vigente ya es la de D.7 y no pasa por ahi.
 
 | Task | Contenido | DoD | Depends | Status |
 | --- | --- | --- | --- | --- |

@@ -28,8 +28,10 @@ pantalla_dinero, campana_config, api_dashboard, rejuega_niveles).
   depender de que `orbit-app-1` este arriba (R13-L).
 
 Las salidas de las corridas (esta carpeta, `*-sim.txt`) se guardan
-con su linea `exit=` al final (R13-M); lo mismo haran las de la
-corrida real post-merge.
+con su linea `exit=` al final (R13-M); lo mismo traen las de la
+corrida real, ya guardadas en esta carpeta con su cierre. Esas
+salidas de simulacion son de un SHA anterior al mergeado, el
+b342707, y la corrida real es la del sello 20261013-1436.
 
 ## Simulacion contra la base local
 

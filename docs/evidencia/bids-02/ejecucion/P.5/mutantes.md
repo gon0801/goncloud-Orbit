@@ -1,6 +1,7 @@
 # Mutantes de P.5
 
-Nota con el motivo. El bloque de esta pantalla no guardo una lista
-de mutantes por id en su entrega, asi que no hay tabla que copiar
-sin inventarla. La tabla de mutantes que si existe con ids es la
-de busquedas y vive en la carpeta de P.6.
+Nota con el motivo exacto. La entrega de su bloque nombra la
+prueba que mata a su mutante como la de la division de P.5, sin
+darle un id. Los nueve mutantes con id de esa misma entrega son
+del motor y no de esta pantalla, asi que no hay tabla de esta
+pantalla que copiar sin inventarla.

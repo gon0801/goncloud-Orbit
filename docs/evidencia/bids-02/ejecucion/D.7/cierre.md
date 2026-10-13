@@ -24,6 +24,11 @@ al final, como pide R13-M.
   reversa de este sello lo necesita y lo lee de esta misma
   carpeta.
 
+El checklist de este despliegue pide el JSON de busquedas por
+mercado y exige que su moneda sea la del mercado, y su
+desplegar imprime la huella del crontab antes y despues y aborta
+si cambia sin instalar linea, como pide R13-E.
+
 La reversa vigente es rollback.sh 20261013-1436 de esta carpeta.
 Lee su configuracion sin depender de que el contenedor de la app
 este arriba, como pide R13-L.
