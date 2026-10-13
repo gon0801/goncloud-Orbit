@@ -14,7 +14,7 @@ aplicada 0072_bids02_impulso_grupo_tipo.sql
 psql:/Users/dn/dev/wt-bids-02-s8/migrations/0072_reversa_bids02_impulso_grupo_tipo.sql:5: WARNING:  there is already a transaction in progress
 WARNING:  there is no transaction in progress
 aplicada 0072_reversa_bids02_impulso_grupo_tipo.sql
-psql:/Users/dn/dev/wt-bids-02-s8/migrations/0071_reversa_bids02_grant_vista_impulso.sql:8: WARNING:  there is already a transaction in progress
+psql:/Users/dn/dev/wt-bids-02-s8/migrations/0071_reversa_bids02_grant_vista_impulso.sql:6: WARNING:  there is already a transaction in progress
 WARNING:  there is no transaction in progress
 aplicada 0071_reversa_bids02_grant_vista_impulso.sql
 OK: las reversas dejan el esquema identico al base

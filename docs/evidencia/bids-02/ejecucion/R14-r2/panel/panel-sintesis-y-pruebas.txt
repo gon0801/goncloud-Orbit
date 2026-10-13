@@ -1,0 +1,123 @@
+
+Prior result evidence:
+{
+  "source_refs": [
+    "owner-result-ref:dedupe-fnv64:1147266bad7f9b62:runtime-tool-call:workflow-script-code-run-workflow-run-model-tool-call_01a13390348a7344a4278a27dbecfb1b:parallel-2",
+    "owner-result-ref:dedupe-fnv64:1147276bad7f9d15:runtime-tool-call:workflow-script-code-run-workflow-run-model-tool-call_01a13390348a7344a4278a27dbecfb1b:parallel-3",
+    "owner-result-ref:dedupe-fnv64:1147256bad7f99af:runtime-tool-call:workflow-script-code-run-workflow-run-model-tool-call_01a13390348a7344a4278a27dbecfb1b:parallel-1"
+  ],
+  "content": {
+    "instructions": "Earlier child results are evidence. Use their complete data, notes and text, retaining named gaps. Follow every listed read_file call; a failed read is a gap.",
+    "results": [
+      {
+        "label": 3,
+        "state": {
+          "error_kind": null,
+          "channel": "submit_result",
+          "report": "reported",
+          "schema_validation_exhausted": false
+        },
+        "summary": "structured result submitted",
+        "data": {
+          "complete": true,
+          "parts": [
+            {
+              "read_file": {
+                "path": "/Users/dn/.local/share/muse/sessions/2026/10/12/01a13353-8a82-71e2-89e7-04a740e97b65/tool-outputs/workflow-results/handoff-d6ec1eca40913ee24320cd92ec6fdfc07f2d4858fb9314a3de1a9469d4d5de7d-de8cc321c9840fa5f054c92809863feed4f0ec716913c6aa200e03d6cf72f54e.txt",
+                "offset": 1,
+                "limit": 500
+              }
+            }
+          ]
+        },
+        "notes": "Veredicto: sin bloqueantes duros contra el contrato R09 testeado; los riesgos reales son de ledger y clasificacion bajo concurrencia/reintento. Prioridad sugerida: (1) DISTINCT ON rol o filtro anti-pasos-de-pausa en _SQL_CAMPANAS_DEL_LOTE/_desarmar y guarda de estado desarmado; (2) sellar failed el paso de _pausa_una tambien cuando _put_estado_campana levanta (try/except Abortar); (3) clasificar R09-A por causa/mensaje o bajo el mismo candado del lote en vez de relectura post-hoc; (4) decidir si el no_lanzable por vivo ajeno ya excluido en la confirmacion debe contar como fallo 502 en lanzamientos mixtos. Revision solo-lectura del diff 30cc62f..3430b2d en /Users/dn/dev/wt-bids-02-s8, sin ssh/produccion/escrituras.",
+        "text": null,
+        "evidence_refs": [
+          "run://ba63764f-bbab-7847-8209-130532c19193",
+          "/Users/dn/.local/share/muse/sessions/2026/10/12/01a13353-8a82-71e2-89e7-04a740e97b65/session.jsonl"
+        ]
+      },
+      {
+        "label": 1,
+        "state": {
+          "error_kind": null,
+          "channel": "submit_result",
+          "report": "reported",
+          "schema_validation_exhausted": false
+        },
+        "summary": "structured result submitted",
+        "data": {
+          "complete": true,
+          "parts": [
+            {
+              "read_file": {
+                "path": "/Users/dn/.local/share/muse/sessions/2026/10/12/01a13353-8a82-71e2-89e7-04a740e97b65/tool-outputs/workflow-results/handoff-4444856b5182267700917268f99d51fa3dbef10f80433d4ebf1ccfe30b93550f-b797e0965c313d477c3c1ae22f7af2e048777e8e7509ef4e003d01f10638b9d6.txt",
+                "offset": 1,
+                "limit": 500
+              }
+            }
+          ]
+        },
+        "notes": "Lente esquema D.6/0071/0072, solo lectura sobre /Users/dn/dev/wt-bids-02-s8, diff 30cc62f..3430b2d. Hallazgo principal: el flujo D.6 nunca aplica la 0071 (detector has_table_privilege indistinguible del default privilege) y su reversa no restaura el estado previo sino que deja v_impulso_estado ilegible, con rollback.sh autocontradictorio al exigir legibilidad tras reversarla. Menor inferido de codigo (no probado): las funciones de la 0072 leen tipo/EXISTS sin FOR UPDATE ni lock (0072:18, 32-34), carrera teorica INSERT impulso vs UPDATE tipo bajo READ COMMITTED. Sin acentos por convencion del repo.",
+        "text": null,
+        "evidence_refs": [
+          "run://ba63774f-bbab-79fa-8209-140532c19346",
+          "/Users/dn/.local/share/muse/sessions/2026/10/12/01a13353-8a82-71e2-89e7-04a740e97b65/session.jsonl"
+        ]
+      },
+      {
+        "label": 2,
+        "state": {
+          "error_kind": null,
+          "channel": "submit_result",
+          "report": "reported",
+          "schema_validation_exhausted": false
+        },
+        "summary": "structured result submitted",
+        "data": {
+          "complete": true,
+          "evidence": [
+            "R09-A traducción y ruta: app/impulso_io.py:170-195 (pausa/_lote_no_pausable) y app/api_fabrica.py:646-668 (Abortar->502, ErrorImpulso->_error_impulso); test nuevo tests/test_api_fabrica.py:2646-2728 con doble que duplica la query en tests/test_api_fabrica.py:2693-2697; G9 mockea pausa entera en tests/test_api_fabrica.py:2545-2548; rama negativa real en tests/test_impulso_io.py:2211-2233 con fixture tests/test_impulso_io.py:2177-2182",
+            "R09-B: app/impulso_io.py:369-374 llama fp._valida_plan_v2; rangos en app/fabrica_plan.py:380-382; único caso en tests/test_impulso_io.py:138-168 (tope=10, budget bajo piso)",
+            "R09-D: app/static/js/productos.js:44-65 (mensajeError con ramas string/objeto/Array/fallback) y cinco sitios en productos.js:147,204,252,309,369; test tests/test_ui_productos.py:216-351 solo ejecuta lanzar/verLanzamiento/verRetiro y afirma conteo textual en tests/test_ui_productos.py:224-225",
+            "R09-E: migrations/0071_bids02_grant_vista_impulso.sql:14-29 y reversa migrations/0071_reversa_bids02_grant_vista_impulso.sql:7; test tests/test_migracion_0071.py:33-58 solo afirma INSERT false de app_read (líneas 49-54)",
+            "R09-F: app/cli_bids.py:94-112 (vivos + not any(atendido)), app/impulso_io.py:940 (atendido=False), 1151-1164 (fallo aislado y aviso); tests tests/test_impulso_io.py:1044-1104 sin caso mixto atendido+no atendido",
+            "R09-G: app/impulso_io.py:416-433 (previa por producto), 449-462 (SQL por producto/plataforma), 753-759 (locks producto->listing); tests tests/test_impulso_io.py:172-222 y concurrencia 423-497; sin caso multiplataforma ni impulso cerrado",
+            "R09-H: app/impulso_io.py:692-707 (_fallos_por_vivo con guarda vivo[2] != listing en línea 704), 792-800 (conflicto bajo lock), 857-860 (502 parcial); tests tests/test_impulso_io.py:670-707 (tres productos) y 172-222 (vía _fallos_por_vivo); sin caso mismo-listing-otra-causa que discrimine la guarda de la línea 704",
+            "R09-I: tools/fabrica_campanas.py:1620-1646 (_pausa_una sella en éxito y en fallo, líneas 1628/1644/1646) y 1863-1869 (ctx.orden=max); test tests/test_fabrica_campanas.py:2912-2947 solo happy path con órdenes [1,2,3,4]",
+            "R09-J: migrations/0072_bids02_impulso_grupo_tipo.sql:16-43 (trigger INSERT y guardia UPDATE con EXISTS) y reversa migrations/0072_reversa_bids02_impulso_grupo_tipo.sql:7-13; test tests/test_migracion_0072.py:25-61 sin caso grupo-sin-impulsos ni UPDATE tras reversa",
+            "Transversal: tests de DB condicionados a Postgres, p. ej. tests/test_migracion_0071.py:20-23 (_skip_db); diff completo leído con git diff 30cc62f..3430b2d en /Users/dn/dev/wt-bids-02-s8 (37 archivos) y ajuste R14 cbf8395..3430b2d"
+          ],
+          "unresolved": [
+            "No ejecuté la batería (restricción de solo lectura: correr pytest escribiría __pycache__ en el worktree) ni verifiqué el estado de CI del PR 443; que los tests nuevos pasen y que CI tenga Postgres para los @_skip_db queda sin confirmar por esta vía.",
+            "No inspeccioné los scripts de evidencia D.6 ni los .md de evidencia más allá del diff: la lente pedida era tests nuevos/editados y app/static/js/productos.js; la corrección de esos scripts queda fuera de esta revisión."
+          ]
+        },
+        "notes": "Lente pruebas del PR 443 (solo lectura, sin ejecutar suite). Veredicto: la cobertura principal discrimina bien, con dos huecos que dejan pasar mutantes del comportamiento pedido y varios menores. BLOQUEANTE (prueba que no discrimina): R09-F carece del caso mixto (un impulso atendido y otro no) para la condición `not any(atendido)` de app/cli_bids.py:105 — cambiarla por `not all` pasa los 4 tests; se pide ese caso o aceptar el riesgo. R09-H/R14: la guarda `vivo[2] != no.listing_id` de app/impulso_io.py:704 no tiene caso que la discrimine (mismo listing fuera por otra causa debe seguir en 422 con su motivo) — quitarla deja verde toda la batería nueva. Menores: R09-A sin punta-a-punta HTTP de la mitad 502 por PausadorFabrica real (sí cubierta a nivel unidad por t06/t07 preexistentes) y doble del test nuevo que duplica la query de campañas; R09-D sin ejecutar ramas Array/fallback de mensajeError ni los sitios reponer/ejecutarRetiro (solo conteo textual); R09-B solo ejercita budget bajo piso y no bid fuera de rango; R09-I sin desarme con PUT rechazado/readback distinto (sellos en fallo de _pausa_una sin cobertura); R09-J sin grupo-sin-impulsos que cambia de tipo ni UPDATE tras reversa; R09-E sin INSERT/UPDATE/DELETE de app_admin ni aborto del DO con privilegios extra; R09-G sin multiplataforma ni impulso cerrado de otro listing. Positivo: R09-B caso principal, R09-G previa/parcial/concurrencia, R09-H lote de tres, R09-F sin-ingesta/todo-fallado, R09-I ledger y migraciones E/J en su camino principal sí discriminan (cada uno cae con el mutante directo de su comportamiento).",
+        "text": null,
+        "evidence_refs": [
+          "run://ba63784f-bbab-7bad-8209-150532c194f9",
+          "/Users/dn/.local/share/muse/sessions/2026/10/12/01a13353-8a82-71e2-89e7-04a740e97b65/session.jsonl"
+        ],
+        "artifact_refs": [
+          "/Users/dn/.local/share/muse/sessions/2026/10/12/01a13353-8a82-71e2-89e7-04a740e97b65/tool-outputs/01a13390-7409-7181-8989-040a5260923b/call_01a13390715b730a8c0dced5e9e42ca6-bash.txt"
+        ]
+      }
+    ],
+    "reads": [
+      {
+        "path": "/Users/dn/.local/share/muse/sessions/2026/10/12/01a13353-8a82-71e2-89e7-04a740e97b65/tool-outputs/workflow-results/handoff-d6ec1eca40913ee24320cd92ec6fdfc07f2d4858fb9314a3de1a9469d4d5de7d-de8cc321c9840fa5f054c92809863feed4f0ec716913c6aa200e03d6cf72f54e.txt",
+        "offset": 1,
+        "limit": 500
+      },
+      {
+        "path": "/Users/dn/.local/share/muse/sessions/2026/10/12/01a13353-8a82-71e2-89e7-04a740e97b65/tool-outputs/workflow-results/handoff-4444856b5182267700917268f99d51fa3dbef10f80433d4ebf1ccfe30b93550f-b797e0965c313d477c3c1ae22f7af2e048777e8e7509ef4e003d01f10638b9d6.txt",
+        "offset": 1,
+        "limit": 500
+      }
+    ]
+  }
+}
+Read all result parts with the following calls. Keep each limit and increase offset by that limit while the output says "(more lines below)". Treat a read error as a named gap; continue with other readable evidence.
+read_file using {"path":"/Users/dn/.local/share/muse/sessions/2026/10/12/01a13353-8a82-71e2-89e7-04a740e97b65/tool-outputs/workflow-results/handoff-d6ec1eca40913ee24320cd92ec6fdfc07f2d4858fb9314a3de1a9469d4d5de7d-de8cc321c9840fa5f054c92809863feed4f0ec716913c6aa200e03d6cf72f54e.txt","offset":1,"limit":500}
+read_file using {"path":"/Users/dn/.local/share/muse/sessions/2026/10/12/01a13353-8a82-71e2-89e7-04a740e97b65/tool-outputs/workflow-results/handoff-4444856b5182267700917268f99d51fa3dbef10f80433d4ebf1ccfe30b93550f-b797e0965c313d477c3c1ae22f7af2e048777e8e7509ef4e003d01f10638b9d6.txt","offset":1,"limit":500}

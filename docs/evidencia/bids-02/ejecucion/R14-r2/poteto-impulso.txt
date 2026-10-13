@@ -1,0 +1,37 @@
+El hallazgo principal es bloqueante y está en el orden de chequeos de `lanza`. El candado por producto no cubre la reutilización de lotes huérfanos, así que un producto puede terminar con dos impulsos vivos.
+
+throughput checkpoint: n/a, read-only investigation
+
+Cargué poteto-mode, how y unslop, más principle-model-the-domain, principle-boundary-discipline y principle-prove-it-works. Esos principios cambiaron tres decisiones. Revisé el estado vivo como un estado derivado y no como banderas sueltas. Revisé los códigos 409, 422 y 502 en la frontera HTTP y no dentro de la fábrica. Cada hallazgo trae la lectura o el comando que lo prueba. No lancé subagentes porque tu tajada son cuatro archivos y la pude cubrir con lectura directa. No corrí pytest porque pediste solo lectura y sin escribir archivos.
+
+**Hallazgos**
+
+1. Bloqueante. [impulso_io.py](/Users/dn/dev/wt-bids-02-s8/app/impulso_io.py:768) reutiliza un huérfano `applied` con grupo y sella el impulso en la línea 780 sin pasar por el chequeo de vivo. Ese chequeo recién aparece en la línea 792 y solo guarda el camino de lote nuevo. La reutilización del lote viejo de otro plan repite el problema en las líneas 822 a la 837. El escenario es el que el propio diseño prevé. Un lanzamiento muere después de que `_mutar` deja el lote `applied` y antes del sello, el otro listing del mismo producto lanza porque `_SQL_VIVO_PRODUCTO` de las líneas 457 a la 462 solo mira filas de `impulso` y el huérfano no tiene ninguna, y el reintento del primero sella el segundo vivo. Viola el párrafo R09-G de [2026-10-09-bids-02-design.md](/Users/dn/dev/wt-bids-02-s8/docs/superpowers/specs/2026-10-09-bids-02-design.md:257), que prohíbe dos impulsos sin terminar del mismo producto en la misma plataforma. Prueba por lectura de las líneas 457 a la 462, 476 a la 484 y 765 a la 837 de impulso_io.py.
+
+2. No bloqueante. [impulso_io.py](/Users/dn/dev/wt-bids-02-s8/app/impulso_io.py:421) solo marca no lanzable el vivo de otro listing porque `_SQL_VIVO_OTRO_LISTING` de las líneas 449 a la 455 excluye el listing pedido. Un vivo del mismo listing con un plan distinto se muestra lanzable en la previa y recién cae en la línea 792 como fallo 502. El invariante se protege al lanzar, pero la previa miente. Prueba por lectura de las líneas 416 a la 434 y 792 a la 800.
+
+3. No bloqueante. [fabrica_campanas.py](/Users/dn/dev/wt-bids-02-s8/tools/fabrica_campanas.py:1724) y el nuevo [fabrica_campanas.py](/Users/dn/dev/wt-bids-02-s8/tools/fabrica_campanas.py:1865) fijan `ctx.orden` con `MAX(orden)` sin ningún candado de lote, y `_inserta_paso` de las líneas 1062 a la 1068 inserta y commitea ese número. Dos pausas o un desarme y una pausa concurrentes sobre el mismo lote insertan el mismo orden y uno muere contra `UNIQUE (lote, orden)` de [0018_fabrica_campanas.sql](/Users/dn/dev/wt-bids-02-s8/migrations/0018_fabrica_campanas.sql:60). En [api_fabrica.py](/Users/dn/dev/wt-bids-02-s8/app/api_fabrica.py:659) la ruta de pausar solo traduce ErrorImpulso y Abortar, así que esa colisión sale como 500. En el vigía queda absorbida y se reintenta al día siguiente. Prueba por lectura de esas líneas y de `grep pg_advisory` en los tres archivos, que muestra candado solo en el lanzamiento y en `_mutar`.
+
+4. No bloqueante. [fabrica_campanas.py](/Users/dn/dev/wt-bids-02-s8/tools/fabrica_campanas.py:317) trae una fila por paso histórico `applied` o `failed` y no una por campaña, a diferencia de `_SQL_CAMPANAS_DEL_LOTE_PARA_PAUSA` de las líneas 327 a la 336 que sí usa `DISTINCT ON` por rol. `_desarmar` cicla esas filas en la línea 1871 y ahora cada fila repetida inserta y sella otro paso de pausa por R09-I en las líneas 1624 a la 1646, además de repetir el PUT y la baja del goal. El estado final queda bien y el ledger queda inflado en lotes que ya pasaron por pausa o graduación. Prueba por lectura de las líneas 317 a la 336 y 1863 a la 1874.
+
+5. No bloqueante. [impulso_io.py](/Users/dn/dev/wt-bids-02-s8/app/impulso_io.py:180) decide si un Abortar de pausa es 409 o 502 releyendo el estado del lote después del fallo, con commits intermedios en las líneas 185 a la 195 y sin candado. Si otro actor reanuda o pausa el lote entre el Abortar y la relectura, la clasificación puede salir 502 donde correspondía 409. La ventana es chica y no corrompe datos. Prueba por lectura de las líneas 170 a la 195.
+
+6. No bloqueante. [cli_bids.py](/Users/dn/dev/wt-bids-02-s8/app/cli_bids.py:94) cuenta los vivos antes de barrer y [impulso_io.py](/Users/dn/dev/wt-bids-02-s8/app/impulso_io.py:1146) los vuelve a leer dentro de `vigila`, mientras las excepciones por impulso se omiten de `acciones` en las líneas 1151 a la 1154. Si durante el barrido entra un impulso nuevo que sí se atiende, el `any(atendido)` de [cli_bids.py](/Users/dn/dev/wt-bids-02-s8/app/cli_bids.py:105) puede tapar que todos los vivos del conteo quedaron sin atender y el cron sale 0. Prueba por lectura de esas líneas.
+
+**Áreas que están bien**
+
+El orden de candados en `lanza` es fijo, primero por producto y después por listing, y el chequeo de vivo del lote nuevo corre dentro de la transacción. [impulso_io.py](/Users/dn/dev/wt-bids-02-s8/app/impulso_io.py:752)
+
+La confirmación se valida antes de escribir, con huella en 409 y confirmación en 422, y la previa no muta nada. [impulso_io.py](/Users/dn/dev/wt-bids-02-s8/app/impulso_io.py:737)
+
+`app/api_fabrica.py` no tiene cambios en este rango y su ruta de pausar ya traduce ErrorImpulso antes que Abortar, así que el 409 nuevo llega bien. Prueba con `git -C /Users/dn/dev/wt-bids-02-s8 diff 30cc62f3971c6651781b084ec1780d4d5c139856..3430b2dcac68dc857513dedfe9ecd551de2edbc6 -- app/api_fabrica.py`, que sale vacío.
+
+La máquina de estados de la fábrica solo permite pausar desde `applied` y reanudar desde `pausado`, y `desarmado` es terminal también al reactivar. [fabrica_campanas.py](/Users/dn/dev/wt-bids-02-s8/tools/fabrica_campanas.py:1711)
+
+La validación R09-B corre dentro de `_plan_producto` y la previa la captura como PlanInvalido, así que el plan fuera de rango ya no llega lanzable al 502. [impulso_io.py](/Users/dn/dev/wt-bids-02-s8/app/impulso_io.py:369)
+
+El vigía marca `atendido` en falso solo cuando no hay corte de su plataforma y avisa por stderr sin guardar una lectura inventada. [impulso_io.py](/Users/dn/dev/wt-bids-02-s8/app/impulso_io.py:930)
+
+El patrón del ledger nuevo es correcto en su forma, con fila antes del PUT y sello contra readback igual que `_cambia_estado_lote`. [fabrica_campanas.py](/Users/dn/dev/wt-bids-02-s8/tools/fabrica_campanas.py:1620)
+
+Ningún camino nuevo escribe sin confirmación. `lanza` confirma antes del loop, pausar exige el literal por Pydantic y `_desarmar` exige `--acepto-mutacion-real` y `--go` antes de crear el contexto.
