@@ -6,7 +6,8 @@ de roster (0.4), spec (0.1), tarifa (0.3), orden de opciones (0.5) y el
 bloque S quedaron cerrados el 2026-10-12. Los efectos sobre Amazon y la
 fábrica no se construyen (`ejecucion/cierre/NOTAS.md`). El cambio de cierre
 (#440) y su remate (#444) se desplegaron el 2026-10-13 con el aviso apagado.
-Ese día corrió la primera corrida con el tope en 5,000. Nace
+Ese día corrió la primera corrida con el tope en 5,000 y el checklist
+posterior al primer ciclo del motor dio 0 mal. Nace
 del acta 3.2 de
 [JEV ADS 01](jev-ads-01.md) ("seguir y ampliar"). Base de planificación:
 commit `25cebe7`. `team_validation_mode: manual-pass`.
@@ -248,7 +249,7 @@ a Jev términos de biblioteca.
 | Task | Contenido | DoD | Depends | Status |
 | --- | --- | --- | --- | --- |
 | R | `[stage:revision] [lane:gate]` Cada bloque de código pasa `cross-review.ps1` con un revisor distinto del autor. | Regla 4 de quality-kit. | cada bloque | cc:DONE (no se corre: cross-review.ps1 quedó fuera por regla permanente) |
-| D | `[stage:cierre-pr] [lane:release]` Despliegue por paso, apagado, con scripts nuevos que siguen el patrón de `jev-ads-01/ejecucion/2.3` y rollback ensayado. | Checklist verde tras el primer ciclo; cada interruptor se enciende en un cambio de config aparte. | cada paso | cc:DONE (S.1 a S.5 ya desplegados; el cierre con S.8 y J6-31 se desplegó el 2026-10-13, sello 20261013-0357, con el aviso apagado y checklist en 0 mal antes del primer ciclo; el remate (#444 `6c6486d`) se desplegó el mismo día, sello 20261013-0633, checklist en 0 mal; el checklist tras el ciclo de las 08:40 UTC no está en este cierre. `ejecucion/cierre/NOTAS.md`) |
+| D | `[stage:cierre-pr] [lane:release]` Despliegue por paso, apagado, con scripts nuevos que siguen el patrón de `jev-ads-01/ejecucion/2.3` y rollback ensayado. | Checklist verde tras el primer ciclo; cada interruptor se enciende en un cambio de config aparte. | cada paso | cc:DONE (S.1 a S.5 ya desplegados; el cierre con S.8 y J6-31 se desplegó el 2026-10-13, sello 20261013-0357, con el aviso apagado y checklist en 0 mal antes del primer ciclo; el remate (#444 `6c6486d`) se desplegó el mismo día, sello 20261013-0633, checklist en 0 mal; tras el primer ciclo posterior (ciclos 120 y 121, 08:40 y 08:41 UTC del 2026-10-13, los dos `done`) el checklist volvió a dar 0 mal, salida en `ejecucion/cierre/checklist-post-ciclo-salida.txt`. `ejecucion/cierre/NOTAS.md`) |
 
 ## Criterios medidos
 

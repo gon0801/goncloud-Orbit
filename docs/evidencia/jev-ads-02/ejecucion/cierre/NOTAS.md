@@ -174,3 +174,24 @@ llamadas, el seco posterior anticipa 5,000 más (`pagaria=5000 tope=10000
 llamadas_hoy=5000`): el cron de las 09:30 UTC del 13 sí paga. A la tarifa
 de `ejecucion/0.3/NOTAS.md` (0.042 USD por millón de tokens de entrada), el
 tope completo cuesta cerca de 0.52 USD al día.
+
+El comando del cupo se corrió dos veces. La segunda creó la
+`config_version` 30 (2026-10-13 07:24 UTC), con ajustes idénticos a los de
+la 29, comparados en producción. La tabla solo agrega filas, así que la
+vigente es la 30 y el tope sigue en 10,000.
+
+## Checklist tras el primer ciclo
+
+Los ciclos del 2026-10-13 corrieron con el código de #444: el 120
+(`amazon_us`, 08:40 UTC, 2 decisiones aplicadas) y el 121 (`amazon_mx`,
+08:41 UTC, 1 aplicada), los dos en `done` y ninguno en `running`. A las
+09:07 UTC `checklist.sh 6c6486d` dio 0 mal; la salida está en
+`checklist-post-ciclo-salida.txt`. Los nueve archivos coinciden por md5
+con ese SHA, las cinco rutas responden 200, hay 19 señales ajenas y todas
+traen `listado_de`, `jev.avisos` sigue ausente, `jev_aviso` tiene 0 filas
+y `secrets/` sigue en 700 con el puerto en loopback.
+
+El seco ya no corrió con el cupo agotado: `pagaria=5000 tope=10000
+llamadas_hoy=5000`. El seco no llama a TypeSafe, así que la validación de
+#444 se ejercita en la siguiente corrida que pague, la del cron de las
+09:30 UTC. Con esto cierra la fila D.
