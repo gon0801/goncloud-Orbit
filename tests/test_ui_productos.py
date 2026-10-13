@@ -343,6 +343,17 @@ const api = vm.runInThisContext("this.__api");
   const textoV = JSON.stringify(zona.children.map(p => p.textContent));
   assert.match(textoV, /sin candidatos con margen/);
   assert.doesNotMatch(textoV, /\[object Object\]/);
+  global.fetch = (url, opts) => {
+    if (url.endsWith("/impulso/plan"))
+      return Promise.resolve({ok: false, status: 422, json: () => Promise.resolve(
+        {detail: [{msg: "listing_ids: falta el campo"}, {msg: "tope: fuera de rango"}]})});
+    throw new Error("url inesperada " + url);
+  };
+  api.verLanzamiento("[data-marcar-candidato]");
+  await new Promise(r => setTimeout(r, 10));
+  const textoA = JSON.stringify(zona.children.map(p => p.textContent));
+  assert.match(textoA, /listing_ids: falta el campo; tope: fuera de rango/);
+  assert.doesNotMatch(textoA, /\[object Object\]/);
 })().catch(error => { console.error(error); process.exitCode = 1; });
 """
     proc = subprocess.run(

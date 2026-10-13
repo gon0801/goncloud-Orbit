@@ -683,7 +683,7 @@ def test_r14r2_huerfano_no_sella_un_segundo_vivo_del_producto():
 
 
 @_skip_db
-def test_lanza_409_por_vivo_adjunta_lo_lanzado():
+def test_lanza_parcial_por_vivo_adjunta_lo_lanzado():
     """N4 + R09-H: si el segundo producto choca con un vivo, el parcial
     trae en lanzados al primero que si salio y el choque en fallos."""
     with _db_i3("orbit_i3_n4") as conn:
@@ -1154,6 +1154,28 @@ def test_r09f_cli_vigia_con_todo_fallado_sale_1(monkeypatch, capsys):
 
         monkeypatch.setattr(io.PausadorFabrica, "pausa", _truena)
         assert _corre_vigia_cli(conn, monkeypatch) == 1
+        assert "fallo" in capsys.readouterr().err
+
+
+@_skip_db
+def test_r14r2_cli_vigia_mixto_sale_0(monkeypatch, capsys):
+    """R14-r2: con un impulso atendido y otro que falla, el comando
+    sale 0. Solo sale 1 cuando ninguno de los vivos se atendio."""
+    with _db_i3("orbit_i3_r14r2f") as conn:
+        pid1, lid1 = _con_margen(conn)
+        ids1 = _impulso_vivo(conn, pid=pid1, lid=lid1, lote="impulso-vivo-1")
+        _observa(conn, ids1["camps"][0], HOY - dt.timedelta(days=1))
+        _observa(conn, ids1["camps"][1], HOY - dt.timedelta(days=1))
+        pid2, lid2 = _con_margen(conn, sku="SS-2", asin="B0AAAAAAAB", seller_sku="SS-2", desfase=20)
+        ids2 = _impulso_vivo(conn, pid=pid2, lid=lid2, lote="impulso-vivo-2")
+        _observa(conn, ids2["camps"][0], HOY - dt.timedelta(days=1), gasto="200", clics=30)
+        _observa(conn, ids2["camps"][1], HOY - dt.timedelta(days=1), gasto="150", clics=30)
+
+        def _truena(self, lote):
+            raise RuntimeError("amazon caido")
+
+        monkeypatch.setattr(io.PausadorFabrica, "pausa", _truena)
+        assert _corre_vigia_cli(conn, monkeypatch) == 0
         assert "fallo" in capsys.readouterr().err
 
 

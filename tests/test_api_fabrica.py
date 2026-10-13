@@ -2726,3 +2726,20 @@ def test_r09a_pausar_repetido_desarmado_y_sin_campanas_409(escenario, monkeypatc
     r = _pausa()
     assert r.status_code == 409, r.text
     assert "sin campanas" in r.text
+    # Rama contraria: applied y con campanas, pero Amazon rechaza la
+    # pausa; eso no es un conflicto del dueno y sigue en 502.
+    for orden, rol in enumerate(("category_exact", "auto_discovery"), start=1):
+        conn.execute(
+            "INSERT INTO fabrica_lote_paso (lote, orden, rol, recurso, request_payload,"
+            " estado, external_id, ack, readback_estado) VALUES (%s, %s, %s, 'campaign',"
+            " '{}'::jsonb, 'applied', %s, '{}'::jsonb, 'ENABLED')",
+            (lote, orden, rol, f"c-{rol}"),
+        )
+    conn.commit()
+
+    def _pausa_rechazada(ctx, lote_, actor):
+        raise fc.Abortar("PUT PAUSED rechazado por Amazon")
+
+    monkeypatch.setattr(fc, "pausar_lote", _pausa_rechazada)
+    r = _pausa()
+    assert r.status_code == 502, r.text

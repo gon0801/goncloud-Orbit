@@ -315,14 +315,14 @@ SELECT orden, rol::text, recurso, estado, external_id, request_payload, ack, rea
  ORDER BY orden
 """
 _SQL_CAMPANAS_DEL_LOTE = """
-SELECT p.rol::text, p.external_id, g.id
+SELECT DISTINCT ON (p.rol) p.rol::text, p.external_id, g.id
   FROM fabrica_lote_paso p
   LEFT JOIN campana_grupo cg ON cg.lote = p.lote
   LEFT JOIN campana_grupo_rol r ON r.grupo_id = cg.id AND r.rol = p.rol
   LEFT JOIN ads_optimizer_goal g ON g.ad_entity_id = r.ad_entity_id AND g.scope = 'campaign'
  WHERE p.lote = %s AND p.recurso = 'campaign'
    AND p.estado IN ('applied', 'failed') AND p.external_id IS NOT NULL
- ORDER BY p.orden
+ ORDER BY p.rol, p.orden DESC
 """
 _SQL_CAMPANAS_DEL_LOTE_PARA_PAUSA = """
 SELECT DISTINCT ON (p.rol) p.rol::text, p.external_id, g.id
@@ -1623,7 +1623,11 @@ def _pausa_una(ctx: _Ctx, rol: str, external: str, goal_id) -> None:
     # _desarmar, que fija ctx.orden con el maximo del lote.
     paso = fp.Paso(rol, "campaign", "/sp/campaigns", {}, f"desarmar {rol}")
     paso_id = _inserta_paso(ctx, paso, {"campaignId": external, "state": _PAUSADA})
-    ack = _put_estado_campana(ctx, external, _PAUSADA)
+    try:
+        ack = _put_estado_campana(ctx, external, _PAUSADA)
+    except Abortar:
+        _sella_paso(ctx, paso_id, False, external, {}, None)
+        raise
     if not fp.ack_ok(ack):
         _sella_paso(ctx, paso_id, False, external, ack, None)
         _log("lote_detenido", lote=ctx.lote, motivo=f"PUT PAUSED de {rol} rechazado")

@@ -2947,6 +2947,94 @@ def test_r09i_desarmar_con_pasos_1_a_n_continua_el_ledger(monkeypatch):
             conn2.close()
 
 
+class _AmazonDesarmeRechaza(_AmazonDesarme):
+    """El PUT responde sin exito: el paso de pausa queda sellado failed."""
+
+    def __call__(self, request):
+        if request.method == "PUT":
+            self.puts.append(request)
+            cuerpo = json.loads(request.content)["campaigns"][0]
+            return httpx.Response(
+                207,
+                json={
+                    "campaigns": {
+                        "success": [],
+                        "error": [{"index": 0, "campaignId": cuerpo["campaignId"]}],
+                    }
+                },
+            )
+        return super().__call__(request)
+
+
+def _corre_desarmar(monkeypatch, amazon, lote="LI1"):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "fabrica_campanas",
+            "--desarmar",
+            lote,
+            "--acepto-mutacion-real",
+            "--go",
+            f"DESARMAR {lote}",
+        ],
+    )
+    return fc.main()
+
+
+@_skip_db
+def test_r14r2_desarmar_con_put_rechazado_sella_el_paso_failed(monkeypatch):
+    """R14-r2: si Amazon rechaza el PUT de pausa al desarmar, el paso
+    nuevo del ledger queda sellado failed y el lote no se desarma."""
+    with db_fabrica("orbit_fc_r14r2_fallo") as conn:
+        _lote_applied_orden_real(conn, lote="LI1")
+        dsn = _dsn_propia(conn)
+        dbname = conn.info.dbname
+        amazon = _AmazonDesarmeRechaza()
+        _frontera_mutacion(monkeypatch, conn, conn, amazon, stub_registrar=False)
+        with pytest.raises(fc.Abortar, match="rechazado"):
+            _corre_desarmar(monkeypatch, amazon)
+        conn2 = psycopg.connect(dsn, dbname=dbname)
+        try:
+            filas = conn2.execute(
+                "SELECT orden, estado FROM fabrica_lote_paso WHERE lote = 'LI1' ORDER BY orden"
+            ).fetchall()
+            assert filas[:2] == [(1, "applied"), (2, "applied")]
+            assert filas[2][1] == "failed"
+            assert conn2.execute(
+                "SELECT estado FROM fabrica_lote WHERE lote = 'LI1'"
+            ).fetchone() == ("applied",)
+        finally:
+            conn2.close()
+
+
+@_skip_db
+def test_r14r2_desarmar_no_duplica_pasos_por_rol(monkeypatch):
+    """R14-r2: un lote con dos pasos applied del mismo rol se desarma
+    con un solo PUT por rol, no uno por paso historico."""
+    with db_fabrica("orbit_fc_r14r2_dup") as conn:
+        _lote_applied_orden_real(conn, lote="LI1")
+        conn.execute(
+            "INSERT INTO fabrica_lote_paso (lote, orden, rol, recurso, request_payload,"
+            " estado, external_id, ack, readback_estado) VALUES ('LI1', 3, 'category_exact',"
+            " 'campaign', '{}', 'applied', 'c-1', '{}', 'PAUSED')"
+        )
+        conn.commit()
+        amazon = _AmazonDesarme()
+        dsn = _dsn_propia(conn)
+        dbname = conn.info.dbname
+        _frontera_mutacion(monkeypatch, conn, conn, amazon, stub_registrar=False)
+        assert _corre_desarmar(monkeypatch, amazon) == 0
+        assert len(amazon.puts) == 2
+        conn2 = psycopg.connect(dsn, dbname=dbname)
+        try:
+            assert conn2.execute(
+                "SELECT estado FROM fabrica_lote WHERE lote = 'LI1'"
+            ).fetchone() == ("desarmado",)
+        finally:
+            conn2.close()
+
+
 @_skip_db
 def test_pausar_lote_rechaza_transiciones_ilegales():
     """I.3: desarmado nunca revive, pausar exige applied, reanudar exige
