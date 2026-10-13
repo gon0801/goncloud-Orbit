@@ -450,7 +450,9 @@ def _correr(conn, args, imprimir) -> int:
         raise _Configuracion(f"faltan literales para {faltan} pares")
     fichas = fichas_por_id(conn, [uuid.UUID(par.ficha_version_id) for par in muestra])
     marcas = [_marca(conn, par, contrato.sha256()) for par in muestra]
-    acciones = [accion_del_par(resultado, intencion) for resultado, intencion in marcas]
+    acciones = [
+        accion_del_par(respuesta, error, intencion) for respuesta, error, intencion in marcas
+    ]
     pendientes = sum(accion == "pagar" for accion in acciones)
     saltadas = sum(accion == "saltar" for accion in acciones)
     abiertas = sum(accion == "abierta" for accion in acciones)
