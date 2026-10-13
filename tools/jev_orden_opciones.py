@@ -299,10 +299,18 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _dominante(conn) -> str:
+    """Contrato con mas exitos fuera de esta medicion.
+
+    Los resultados invertidos viven en SOLICITUD. Si contaran, un empate
+    con el contrato normal (la prueba siembra uno y uno) rechazaria la
+    reanudacion.
+    """
     filas = conn.execute(
         "SELECT contrato_sha256, count(*) FROM jev_par_evento"
         " WHERE tipo = 'resultado' AND respuesta IS NOT NULL"
-        " GROUP BY contrato_sha256 ORDER BY count(*) DESC"
+        " AND revision_id <> %s"
+        " GROUP BY contrato_sha256 ORDER BY count(*) DESC",
+        (SOLICITUD,),
     ).fetchall()
     if not filas:
         raise _Configuracion("no hay resultados con respuesta")
