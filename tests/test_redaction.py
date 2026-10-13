@@ -32,9 +32,8 @@ def test_secreto_de_un_caracter_tambien_redacta():
     # Tumba la mutacion de piso bajo 'if not value or len(value) < 2:'
     # (apendice ronda 2, mutacion 1). Un fixture de N caracteres solo
     # discrimina pisos MAYORES que N: el de exactamente 1 caracter es el
-    # unico que atrapa este piso. '~' es no alfanumerico y no aparece en
-    # ningun texto que la suite pase por scrub()/redact_* (verificado con
-    # la bateria completa: el registro es global de proceso y no se limpia).
+    # unico que atrapa este piso. El registro es global de proceso, pero
+    # `conftest.py` lo restaura tras cada prueba (R21 de JEV ADS 01).
     register_secret("~")
     assert scrub("eco ~ fin") == "eco ***REDACTED*** fin"
 
