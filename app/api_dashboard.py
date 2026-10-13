@@ -1559,6 +1559,14 @@ def gasto_sin_venta(conn: ConexionLectura, plataforma: str | None = None) -> dic
     filas = []
     for cruda in base["filas"]:
         fila = _senal_presentada_vista(cruda)
+        economia = dict(fila.get("economia") or {})
+        for parte in ("aqui", "historial"):
+            if economia.get(parte) and economia[parte].get("gasto") is not None:
+                economia[parte] = {
+                    **economia[parte],
+                    "gasto": _dinero_2(economia[parte]["gasto"]),
+                }
+        fila["economia"] = economia
         fila["banda"] = _banda_honesta(fila)
         filas.append(fila)
     secciones = []
@@ -1572,7 +1580,7 @@ def gasto_sin_venta(conn: ConexionLectura, plataforma: str | None = None) -> dic
             "lectura": lectura,
             "titulo": titulo_de_lectura(lectura),
             "busquedas": total["busquedas"],
-            "gasto": total["gasto"],
+            "gasto": _dinero_2(total["gasto"]),
             "moneda": next(iter(monedas)) if len(monedas) == 1 else None,
             "filas": propias,
         }

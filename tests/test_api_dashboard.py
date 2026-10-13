@@ -3850,16 +3850,34 @@ def test_gasto_sin_venta_api_forma_totales_y_get_puro(monkeypatch):
         secciones = {s["lectura"]: s for s in cuerpo["secciones"]}
         assert set(secciones) == {"vende_en_otro", "relevante_sin_venta"}
         assert secciones["vende_en_otro"]["busquedas"] == 1
-        assert secciones["vende_en_otro"]["gasto"] == "5.0000"
+        assert secciones["vende_en_otro"]["gasto"] == "5.00"
         relevante = secciones["relevante_sin_venta"]
         assert relevante["busquedas"] == 1
-        assert relevante["gasto"] == "12.5000"
+        assert relevante["gasto"] == "12.50"
         assert [b["banda"] for b in relevante["bandas"]] == ["una_parte"]
         fila = relevante["bandas"][0]["filas"][0]
         assert fila["clave"]["termino"] == "cara"
         assert fila["frase"] == "Es del catálogo y no convierte."
         assert fila["banda"] == "una_parte"
         assert _conteos_jev(conn) == conteos_antes
+
+
+def test_r13k_pagina_gasto_sin_venta_dos_decimales(monkeypatch):
+    """R13-K: la pagina pinta el gasto con dos decimales, no cuatro."""
+    with _db_temporal("orbit_dash_r13k") as (conn, dsn):
+        conn.execute(SQL02)
+        conn.execute(SQL_JEV)
+        grupo = _grupo(conn, "amazon_mx", "9301", _campana(conn, "amazon_mx", "9300"))
+        lote = _lote_s5(conn)
+        roster = _roster_s5(conn, "amazon_mx", grupo)
+        _senal_s5(conn, "amazon_mx", grupo, "cara", lote, roster)
+        _transporte_roto(monkeypatch)
+        resp = _cliente(dsn, monkeypatch).get(
+            "/gasto-sin-venta", params={"plataforma": "amazon_mx"}
+        )
+        assert resp.status_code == 200, resp.text
+        assert "12.50 MXN" in resp.text
+        assert "12.5000" not in resp.text
 
 
 @pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres local")
