@@ -11,5 +11,5 @@ SIMULACION: respaldo /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-d7-
 nada que reversar en la base
 == 3) Verificacion: el crontab no cambio
 crontab despues: md5 y lineas = 1f971f3802a7bb2736aa9fb1c27c196f 5
-== REVERSA LISTA. Codigo de predeploy-20261013-0941 restaurado; sin reversas de esquema ni tocar el crontab.
+== REVERSA LISTA (simulacion). Respaldo de predeploy-20261013-0941 presente y crontab intacto; sin servidor, no se restauro codigo en ningun destino.
 exit=0

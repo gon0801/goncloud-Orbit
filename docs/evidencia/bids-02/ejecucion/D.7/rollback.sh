@@ -118,4 +118,8 @@ echo "== 3) Verificacion: el crontab no cambio"
 HUELLA_DESPUES=$(huella_cron) || { echo "ABORTA: no se pudo releer el crontab de gon"; exit 1; }
 echo "crontab despues: md5 y lineas = $HUELLA_DESPUES"
 [ "$HUELLA_DESPUES" = "$HUELLA_ANTES" ] || { echo "ABORTA: el crontab cambio durante la reversa y D.7 no toca lineas"; exit 1; }
-echo "== REVERSA LISTA. Codigo de predeploy-$STAMP restaurado; sin reversas de esquema ni tocar el crontab."
+if [ "$SIM" = 1 ]; then
+  echo "== REVERSA LISTA (simulacion). Respaldo de predeploy-$STAMP presente y crontab intacto; sin servidor, no se restauro codigo en ningun destino."
+else
+  echo "== REVERSA LISTA. Codigo de predeploy-$STAMP restaurado; sin reversas de esquema ni tocar el crontab."
+fi

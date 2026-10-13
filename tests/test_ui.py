@@ -2830,6 +2830,35 @@ def test_ui_busquedas_ejemplo_con_script_escapado():
     assert "&lt;script&gt;" in html
 
 
+def test_r13k_pagina_busquedas_pinta_el_gasto_en_dos_decimales(monkeypatch):
+    """R13-K: la pagina servida pinta el gasto con dos decimales por el
+    camino real (endpoint que formatea y plantilla que imprime)."""
+    from decimal import Decimal
+
+    from app import pantalla_busquedas as pb
+
+    pantalla = pb.PantallaBusquedas(
+        plataforma="amazon_mx",
+        moneda="MXN",
+        desde=dt.date(2026, 7, 6),
+        hasta=dt.date(2026, 10, 4),
+        referencia=pb.ReferenciaAzar(None, None),
+        asins=(pb.FilaAsinAjeno("B0PAGINA0001", 4, Decimal("400.5000"), ("C1",), False),),
+        palabras=(),
+        asins_a_medio_camino=0,
+        palabras_a_medio_camino=0,
+    )
+    monkeypatch.setattr(pb, "lee_busquedas", lambda conn, **kw: pantalla)
+    app.dependency_overrides[_conexion_lectura] = lambda: None
+    try:
+        resp = TestClient(app).get("/busquedas-sin-venta", params={"plataforma": "amazon_mx"})
+    finally:
+        app.dependency_overrides.pop(_conexion_lectura, None)
+    assert resp.status_code == 200, resp.text
+    assert "400.50 MXN" in resp.text
+    assert "400.5000" not in resp.text
+
+
 def test_r13f_pagina_pinta_los_conteos_de_medio_camino():
     """R13-F W10: la pagina pinta los dos conteos de medio camino."""
     html = ui.templates.env.get_template("busquedas_sin_venta.html").render(

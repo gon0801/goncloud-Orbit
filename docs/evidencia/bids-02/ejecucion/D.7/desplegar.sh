@@ -201,7 +201,7 @@ echo "== 5) md5 del codigo desplegado vs SHA aprobado"
 md5_de() { if command -v md5 >/dev/null; then md5 -q; else md5sum | cut -d' ' -f1; fi; }
 ARCHIVOS_D7="app/apply.py app/pantalla_dinero.py app/ads/campana_config.py app/api_dashboard.py tools/rejuega_niveles.py"
 if [ "$SIM" = 1 ]; then
-  echo "SIMULACION: sin servidor; se verifica el respaldo local contra el SHA"
+  echo "SIMULACION: sin servidor; el md5 solo verifica que la extraccion del respaldo local quedo integra (contra el servidor se compara en la corrida real)"
   for f in $ARCHIVOS_D7; do
     a=$(git show "$APROBADO:$f" | md5_de)
     b=$(md5_de < "$TMPD/predeploy-$STAMP/$f")

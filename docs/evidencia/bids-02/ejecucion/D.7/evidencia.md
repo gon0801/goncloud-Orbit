@@ -33,27 +33,43 @@ corrida real post-merge.
 
 ## Simulacion contra la base local
 
-Bases: `orbit_copia_d7` (esquema completo vigente, con la 0071 y la
-0072 aplicadas) y `orbit_sim_d7` (clon para el despliegue), con una
-fila de busquedas sembrada para que el gasto de dos decimales se
-mida. La app local corre contra `orbit_sim_d7` en el puerto 8012.
-Comandos:
+Requisitos previos: `psql` y `pg_dump` en el PATH (en esta maquina
+salen de `/opt/homebrew/bin`) y el Postgres local del puerto 5433
+arriba. Bases: `orbit_copia_d7` (esquema completo vigente, con la
+0071 y la 0072 aplicadas) y `orbit_sim_d7` (clon para el despliegue),
+con una fila de busquedas sembrada para que el gasto de dos
+decimales se mida. El checklist pide la app por HTTP, asi que antes
+del tercer comando se levanta la app local contra `orbit_sim_d7` en
+el puerto 8012 y se deja corriendo hasta terminar la reversa:
+
+```bash
+export PATH="/opt/homebrew/bin:$PATH"
+ORBIT_DSN_READ=postgresql://orbit:orbit@127.0.0.1:5433/orbit_sim_d7 \
+  ORBIT_DSN_ADMIN=postgresql://orbit:orbit@127.0.0.1:5433/orbit_sim_d7 \
+  ORBIT_SECRETS_DIR=$(mktemp -d) \
+  .venv/bin/python -m uvicorn app.main:app --port 8012
+```
+
+Comandos, desde la raiz del repo (el SHA es el HEAD ya mergeado y el
+STAMP lo imprime desplegar.sh al final de su salida):
 
 ```bash
 ORBIT_SIMULACION=1 ORBIT_TEST_DSN=postgresql://orbit:orbit@127.0.0.1:5433/postgres \
   ORBIT_ENSAYO_DSN=postgresql://orbit:orbit@127.0.0.1:5433/orbit_copia_d7 \
-  bash docs/evidencia/bids-02/ejecucion/D.7/ensayo.sh <SHA>
+  bash docs/evidencia/bids-02/ejecucion/D.7/ensayo.sh $(git rev-parse HEAD)
 ORBIT_SIMULACION=1 ORBIT_SIM_DSN=postgresql://orbit:orbit@127.0.0.1:5433/orbit_sim_d7 \
-  bash docs/evidencia/bids-02/ejecucion/D.7/desplegar.sh <SHA>
+  bash docs/evidencia/bids-02/ejecucion/D.7/desplegar.sh $(git rev-parse HEAD)
 ORBIT_SIMULACION=1 ORBIT_SIM_DSN=postgresql://orbit:orbit@127.0.0.1:5433/orbit_sim_d7 \
-  ORBIT_SIM_API=http://127.0.0.1:8012 bash docs/evidencia/bids-02/ejecucion/D.7/checklist.sh <STAMP>
+  ORBIT_SIM_API=http://127.0.0.1:8012 bash docs/evidencia/bids-02/ejecucion/D.7/checklist.sh $(grep -o 'STAMP=[0-9-]*' docs/evidencia/bids-02/ejecucion/D.7/desplegar-sim.txt | tail -1 | cut -d= -f2)
 ORBIT_SIMULACION=1 ORBIT_SIM_DSN=postgresql://orbit:orbit@127.0.0.1:5433/orbit_sim_d7 \
-  bash docs/evidencia/bids-02/ejecucion/D.7/rollback.sh <STAMP>
+  bash docs/evidencia/bids-02/ejecucion/D.7/rollback.sh $(grep -o 'STAMP=[0-9-]*' docs/evidencia/bids-02/ejecucion/D.7/desplegar-sim.txt | tail -1 | cut -d= -f2)
 ```
 
 Resultados guardados en esta carpeta: ensayo `ENSAYO OK` (exit=0,
 el esquema queda identico tras desplegar y tras la reversa);
-desplegar exit=0 (crontab intacto, md5 de los cinco archivos OK);
+desplegar exit=0 (crontab intacto; en simulacion el md5 solo
+verifica que la extraccion del respaldo quedo integra, la
+comparacion contra el codigo del servidor corre en la corrida real);
 checklist con 0 fallas y 1 sin medir (exit=4: US no trae filas con
 gasto en la base de simulacion, asi que su formato de gasto no se
 mide; la moneda y la plataforma de los dos mercados si); rollback
