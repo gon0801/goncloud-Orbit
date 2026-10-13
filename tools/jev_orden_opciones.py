@@ -4,9 +4,8 @@ Seco por omision. `--aplicar` paga una muestra de pares con Libro.pagar
 bajo un Contrato con opciones y criterios al reves. El lado normal ya esta
 en jev_par_evento y no se vuelve a pagar.
 
-No corre si el tope diario del job sigue abierto: las intenciones de esta
-medicion cuentan para ese tope. Con el tope ya agotado, el cron del dia no
-iba a pagar mas.
+No consulta el tope diario del job. Libro.pagar tampoco lo tiene. Las
+intenciones si cuentan para ese tope; el tope del job es otro ajuste.
 
 DSN: ORBIT_DSN_ADMIN. Ese login necesita el grupo app_jev para escribir
 revisiones (docs/DEPLOY.md: GRANT app_jev TO orbit_admin).
@@ -137,27 +136,16 @@ def contrato_invertido(base=None):
     )
 
 
-def permite_aplicar(intenciones: int, tope: int) -> bool:
-    """True solo cuando el job ya no puede pagar mas hoy.
-
-    Un tope de 0 no cuenta como agotado. El cron no gasto cupo, y subirlo
-    el mismo dia lo encontraria ocupado por esta medicion.
-    """
-    return tope > 0 and intenciones >= tope
-
-
 def listo_para_pagar(
     *,
     aplicar: bool,
     api_key: str,
-    intenciones: int,
     tope: int | None,
     pendientes: int,
 ) -> str:
-    """seco, completo, sin_api_key, apagado, cupo_abierto o pagar.
+    """seco, completo, sin_api_key, apagado o pagar.
 
-    apagado es el job sin ajustes (o con el interruptor cerrado). No es
-    lo mismo que un tope positivo que el cron todavia no gasto.
+    apagado es el job sin ajustes. El tope diario no bloquea esta medicion.
     """
     if pendientes == 0:
         return "completo"
@@ -167,8 +155,6 @@ def listo_para_pagar(
         return "sin_api_key"
     if tope is None:
         return "apagado"
-    if not permite_aplicar(intenciones, tope):
-        return "cupo_abierto"
     return "pagar"
 
 
@@ -472,7 +458,6 @@ def _correr(conn, args, imprimir) -> int:
     decision = listo_para_pagar(
         aplicar=args.aplicar,
         api_key=api_key,
-        intenciones=hoy,
         tope=tope,
         pendientes=pendientes,
     )
@@ -501,8 +486,6 @@ def _correr(conn, args, imprimir) -> int:
         raise _Configuracion("falta la clave de TypeSafe")
     if decision == "apagado":
         raise _Configuracion("job apagado o sin ajustes de jev")
-    if decision == "cupo_abierto":
-        raise _Configuracion(f"cupo del dia abierto: intenciones={hoy} tope={tope}")
     if guardada is None:
         _insertar_revision(conn, muestra, contrato, ahora)
 

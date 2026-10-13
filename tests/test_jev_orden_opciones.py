@@ -33,7 +33,6 @@ from tools.jev_orden_opciones import (
     ids_de_fichas,
     listo_para_pagar,
     pares_de_censos,
-    permite_aplicar,
 )
 
 
@@ -105,39 +104,12 @@ def test_cupos_de_cien_son_mitad_y_mitad():
     assert cupos(100, 1419, 1015) == (50, 50)
 
 
-def test_permite_aplicar_solo_con_tope_agotado():
-    assert permite_aplicar(50, 50) is True
-    assert permite_aplicar(80, 50) is True
-    assert permite_aplicar(49, 50) is False
-    assert permite_aplicar(0, 0) is False
-    assert permite_aplicar(10, 0) is False
-
-
-def test_sin_clave_o_con_cupo_abierto_no_paga():
-    assert (
-        listo_para_pagar(aplicar=True, api_key="", intenciones=50, tope=50, pendientes=100)
-        == "sin_api_key"
-    )
-    assert (
-        listo_para_pagar(aplicar=True, api_key="x", intenciones=0, tope=50, pendientes=100)
-        == "cupo_abierto"
-    )
-    assert (
-        listo_para_pagar(aplicar=True, api_key="x", intenciones=0, tope=None, pendientes=100)
-        == "apagado"
-    )
-    assert (
-        listo_para_pagar(aplicar=False, api_key="", intenciones=0, tope=50, pendientes=100)
-        == "seco"
-    )
-    assert (
-        listo_para_pagar(aplicar=True, api_key="x", intenciones=0, tope=50, pendientes=0)
-        == "completo"
-    )
-    assert (
-        listo_para_pagar(aplicar=True, api_key="x", intenciones=50, tope=50, pendientes=4)
-        == "pagar"
-    )
+def test_el_tope_abierto_no_bloquea_la_medicion():
+    assert listo_para_pagar(aplicar=True, api_key="", tope=50, pendientes=100) == "sin_api_key"
+    assert listo_para_pagar(aplicar=True, api_key="x", tope=50, pendientes=100) == "pagar"
+    assert listo_para_pagar(aplicar=True, api_key="x", tope=None, pendientes=100) == "apagado"
+    assert listo_para_pagar(aplicar=False, api_key="", tope=50, pendientes=100) == "seco"
+    assert listo_para_pagar(aplicar=True, api_key="x", tope=50, pendientes=0) == "completo"
 
 
 def test_aviso_cuando_n_no_es_la_muestra_congelada():
