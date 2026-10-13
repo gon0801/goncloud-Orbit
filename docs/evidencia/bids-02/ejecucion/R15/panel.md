@@ -70,3 +70,50 @@ base 83d2d73.
   invariante. Esos se quedan: son el unico lugar donde las dos
   puertas de R07-09C y el contrato 409 de R07-H quedan escritos
   junto al codigo que los cumple.
+
+## Pasada interrogate de R15-r2
+
+Skills cargadas con read_skill en esta pasada: poteto-mode,
+interrogate, unslop, lectores-frescos, deslop, no-comments,
+durable-test-collateral y git. El panel de interrogate corrio con dos
+hijos poteto-agent en paralelo sobre el diff 83d2d73..0083793 y con
+revisores GLM por opencode (glm-5.3 y glm-5.2).
+
+- Hijo poteto-agent de correccion: un bloqueante. La reconciliacion
+  sellaba solo la primera pendiente en destino y la segunda quedaba
+  huerfana. Regresion nacida en rojo y arreglo en 0166976, que sella
+  todas las pendientes en destino con un ayudante compartido por las
+  dos puertas.
+- Hijo poteto-agent de simplicidad: sin bloqueantes. Se acepto la
+  cache del vigente por campana en b892ae5, la vuelta muerta de
+  historial en el formato de gasto en 57a59dc y un solo constructor
+  de config desde fila en 24fa141.
+- glm-5.3 interrogate: sin bloqueantes. Verifico baterias enfocadas
+  y dos mutantes muertos.
+- glm-5.2 interrogate: su sonda de dos pendientes confirmo el mismo
+  bloqueante ya corregido en 0166976. Su bateria completa dio 4887
+  passed con una sola falla ambiental conocida, la reversa que no
+  puede borrar el rol app_jev por bases de simulacion viejas. Su
+  grep final destapo que la guarda de D.7 seguia buscando el nombre
+  viejo en singular y abortaba todo despliegue. Corregido en
+  c3b7e92 con la prueba del grep en rojo antes y en verde despues.
+
+## comment-sicko de R15-r2
+
+Marco como MUST KILL los docstrings nuevos de los ayudantes de
+sellado y un docstring de prueba. Se rechaza el borrado con el mismo
+criterio aceptado en la primera pasada. Esos textos atan cada
+arreglo a su fila y a su invariante junto al codigo que los cumple,
+y quitarlos dejaria el por que fuera del repo. La deduplicacion de
+constructores que si era slop se aplico en 24fa141.
+
+## No bloqueantes de R15-r2 que quedan nombrados
+
+- El predicado 409 de regresar sigue duplicado entre la pantalla y
+  la ruta. Moverlo es un refactor mayor que esta pasada no toca.
+- El config de antes de cada regresable se sigue leyendo por fila.
+  Solo el vigente se cachea por campana desde b892ae5.
+- config_por_id devuelve None sin trato en dos consumidores.
+  Sigue inalcanzable por la llave foranea de antes_config_id.
+- La carrera transitoria de 422 entre el plan y la relectura del
+  vigente que noto glm-5.3 se cura sola en el siguiente intento.
