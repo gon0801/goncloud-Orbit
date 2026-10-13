@@ -209,8 +209,7 @@ if [ "$SIM" = 1 ]; then
     echo "md5 OK $f"
   done
 else
-  git archive --format=tar "$APROBADO" app Dockerfile .dockerignore pyproject.toml uv.lock tools/fabrica_campanas.py \
-      tools/jev_ads.py tools/jev_fichas.py \
+  git archive --format=tar "$APROBADO" app Dockerfile .dockerignore pyproject.toml uv.lock tools \
     | ssh goncloud "cd $SRV && tar -xf -"
   for f in $ARCHIVOS_D7; do
     a=$(git show "$APROBADO:$f" | md5_de)
