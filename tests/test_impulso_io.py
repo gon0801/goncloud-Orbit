@@ -630,6 +630,59 @@ def test_lanza_lote_huerfano_sella_sin_llamar_a_la_fabrica():
 
 
 @_skip_db
+def test_r14r2_huerfano_no_sella_un_segundo_vivo_del_producto():
+    """R14-r2: con un impulso vivo del listing, un lote huerfano applied
+    del mismo listing con otro plan no se sella como segundo vivo. El
+    chequeo de vivo corre tambien en la reutilizacion de huerfanos."""
+    with _db_i3("orbit_i3_r14r2") as conn:
+        _, lid = _con_margen(conn)
+        solicitud = _solicitud(conn, [lid])
+        vista = io.previsualiza(conn, solicitud, sugeridor=_sugeridor_fijo())
+        io.lanza(
+            conn,
+            solicitud,
+            huella=vista.huella,
+            confirmacion=vista.confirmacion_esperada,
+            actor="dueno",
+            ejecutor=_ejecutor_falso(conn),
+            sugeridor=_sugeridor_fijo(),
+        )
+        assert conn.execute("SELECT count(*) FROM impulso").fetchone() == (1,)
+        otra = _solicitud(conn, [lid], subfamilias={lid: "collares"})
+        vista2 = io.previsualiza(conn, otra, sugeridor=_sugeridor_fijo())
+        assert len(vista2.planes) == 1
+        lote2 = io.lote_de_plan(vista2.planes[0])
+        conn.execute(
+            "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal,"
+            " huella, plan, modo_goal, estado) VALUES (%s, 'amazon_mx', 'collares', 'Base', 'go',"
+            " %s, '{}'::jsonb, 'shadow', 'applied')",
+            (lote2, vista2.planes[0].huella()),
+        )
+        conn.execute(
+            "INSERT INTO campana_grupo (platform, tipo_producto, nombre_base, lote,"
+            " target_acos_pct, target_derivado_pct, fraccion, target_procedencia, go_literal,"
+            " tipo) VALUES ('amazon_mx', 'collares', 'Base', %s, 19.10, 19.1040, 0.5, 'm', 'go',"
+            " 'impulso')",
+            (lote2,),
+        )
+        conn.commit()
+        with pytest.raises(io.ErrorImpulso) as exc:
+            io.lanza(
+                conn,
+                otra,
+                huella=vista2.huella,
+                confirmacion=vista2.confirmacion_esperada,
+                actor="dueno",
+                ejecutor=_ejecutor_falso(conn),
+                sugeridor=_sugeridor_fijo(),
+            )
+        assert exc.value.status == 502
+        assert list(exc.value.fallos) == [lid]
+        assert "impulso vivo" in exc.value.fallos[lid]
+        assert conn.execute("SELECT count(*) FROM impulso").fetchone() == (1,)
+
+
+@_skip_db
 def test_lanza_409_por_vivo_adjunta_lo_lanzado():
     """N4 + R09-H: si el segundo producto choca con un vivo, el parcial
     trae en lanzados al primero que si salio y el choque en fallos."""

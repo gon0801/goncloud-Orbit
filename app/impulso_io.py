@@ -762,6 +762,17 @@ def lanza(
                 estado = conn.execute(_SQL_ESTADO_LOTE, (lote,)).fetchone()[0]
                 lanzados.append(ImpulsoLanzado(existente[0], lote, estado))
                 continue
+            # El chequeo de vivo va antes de reutilizar huerfanos: sellar
+            # un huerfano applied tambien crea un vivo del producto.
+            vivo = conn.execute(_SQL_VIVO_PRODUCTO, (plan.plataforma, plan.product_id)).fetchone()
+            if vivo is not None:
+                # R09-H: el conflicto es un fallo del producto, no un
+                # aborto del lote: los demas siguen.
+                fallos[plan.listing_id] = (
+                    f"el producto ya tiene un impulso vivo en el listing {vivo[2]}"
+                    " (tope por producto)"
+                )
+                continue
             huerfano = conn.execute(_SQL_ESTADO_LOTE, (lote,)).fetchone()
             if huerfano is not None:
                 grupo = conn.execute(_SQL_GRUPO_DE_LOTE, (lote,)).fetchone()
@@ -789,15 +800,6 @@ def lanza(
                         f"lote {lote} quedo en {huerfano[0]}: reconcilia a mano"
                     )
                     continue
-            vivo = conn.execute(_SQL_VIVO_PRODUCTO, (plan.plataforma, plan.product_id)).fetchone()
-            if vivo is not None:
-                # R09-H: el conflicto es un fallo del producto, no un
-                # aborto del lote: los demas siguen.
-                fallos[plan.listing_id] = (
-                    f"el producto ya tiene un impulso vivo en el listing {vivo[2]}"
-                    " (tope por producto)"
-                )
-                continue
             # Otro lote, mismo listing (otra huella: otro bid u otro dia):
             # el huerfano applied se reutiliza; un failed/planeado o un
             # applied sin grupo bloquea hasta reconciliar a mano.
