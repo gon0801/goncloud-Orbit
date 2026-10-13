@@ -135,114 +135,83 @@ ruta: /users/{vendedor}/items/search
 
 total publicaciones en la primera pagina: 50
 
-== 1: agregado de SKU en publicaciones (hasta 30) ==
-ruta: /items/{id}
+== 1: agregado con include_attributes=all (hasta 30 publicaciones) ==
+ruta: /items/{id}?include_attributes=all
 {
   "publicaciones": 30,
   "con_variantes": 24,
-  "variantes_totales": 143,
-  "variantes_con_seller_sku": 0,
-  "variantes_con_seller_custom_field": 0,
+  "variantes": 143,
+  "var_campo_seller_sku": 0,
+  "var_campo_seller_custom_field": 0,
+  "var_con_clave_attributes": 143,
+  "var_con_attr_SELLER_SKU": 143,
   "raices_con_seller_custom_field": 6,
-  "raiz_o_variaciones_con_forma_odoo": 0
+  "raices_con_attr_SELLER_SKU": 6,
+  "pub_con_variantes_todas_con_sku": 24,
+  "pub_sin_variantes_con_sku_en_raiz": 6,
+  "pub_con_variantes_precio_distinto": 0,
+  "sku_variacion_distintos": 143
+}
+
+== 1: la misma publicacion SIN include_attributes ==
+ruta: /items/{id}
+{
+  "variaciones": 6,
+  "variaciones_con_clave_attributes": 0,
+  "raiz_con_attr_SELLER_SKU": false
 }
 
 == 1 y 3: publicacion CON variantes (forma) ==
-ruta: /items/{id}
+ruta: /items/{id}?include_attributes=all
 {
   "status": "active",
   "category_id": "MLM1440",
   "listing_type_id": "gold_pro",
-  "sku_campo_seller_custom_field_raiz": {
-    "presente": false,
-    "longitud": null,
-    "forma_odoo_sku": null
-  },
+  "sku_en_atributo_raiz": false,
+  "seller_custom_field_raiz": false,
   "precio_raiz": 1989,
   "moneda": "MXN",
   "n_variaciones": 6,
-  "sku_por_variacion": [
+  "variaciones": [
     {
-      "sku_campo_seller_sku": {
-        "presente": false,
-        "longitud": null,
-        "forma_odoo_sku": null
-      },
-      "sku_campo_seller_custom_field": {
-        "presente": false,
-        "longitud": null,
-        "forma_odoo_sku": null
-      },
+      "sku_en_atributo": true,
+      "campo_seller_sku": false,
+      "campo_seller_custom_field": false,
       "price": 1989,
       "available_quantity": 11
     },
     {
-      "sku_campo_seller_sku": {
-        "presente": false,
-        "longitud": null,
-        "forma_odoo_sku": null
-      },
-      "sku_campo_seller_custom_field": {
-        "presente": false,
-        "longitud": null,
-        "forma_odoo_sku": null
-      },
+      "sku_en_atributo": true,
+      "campo_seller_sku": false,
+      "campo_seller_custom_field": false,
       "price": 1989,
       "available_quantity": 0
     },
     {
-      "sku_campo_seller_sku": {
-        "presente": false,
-        "longitud": null,
-        "forma_odoo_sku": null
-      },
-      "sku_campo_seller_custom_field": {
-        "presente": false,
-        "longitud": null,
-        "forma_odoo_sku": null
-      },
+      "sku_en_atributo": true,
+      "campo_seller_sku": false,
+      "campo_seller_custom_field": false,
       "price": 1989,
       "available_quantity": 0
     },
     {
-      "sku_campo_seller_sku": {
-        "presente": false,
-        "longitud": null,
-        "forma_odoo_sku": null
-      },
-      "sku_campo_seller_custom_field": {
-        "presente": false,
-        "longitud": null,
-        "forma_odoo_sku": null
-      },
+      "sku_en_atributo": true,
+      "campo_seller_sku": false,
+      "campo_seller_custom_field": false,
       "price": 1989,
       "available_quantity": 0
     },
     {
-      "sku_campo_seller_sku": {
-        "presente": false,
-        "longitud": null,
-        "forma_odoo_sku": null
-      },
-      "sku_campo_seller_custom_field": {
-        "presente": false,
-        "longitud": null,
-        "forma_odoo_sku": null
-      },
+      "sku_en_atributo": true,
+      "campo_seller_sku": false,
+      "campo_seller_custom_field": false,
       "price": 1989,
       "available_quantity": 11
     },
     {
-      "sku_campo_seller_sku": {
-        "presente": false,
-        "longitud": null,
-        "forma_odoo_sku": null
-      },
-      "sku_campo_seller_custom_field": {
-        "presente": false,
-        "longitud": null,
-        "forma_odoo_sku": null
-      },
+      "sku_en_atributo": true,
+      "campo_seller_sku": false,
+      "campo_seller_custom_field": false,
       "price": 1989,
       "available_quantity": 0
     }
@@ -250,44 +219,99 @@ ruta: /items/{id}
 }
 
 == 1: publicacion SIN variantes (forma) ==
-ruta: /items/{id}
+ruta: /items/{id}?include_attributes=all
 {
   "status": "active",
   "category_id": "MLM1440",
   "listing_type_id": "gold_pro",
-  "sku_campo_seller_custom_field_raiz": {
-    "presente": true,
-    "longitud": 18,
-    "forma_odoo_sku": false
-  },
+  "sku_en_atributo_raiz": true,
+  "seller_custom_field_raiz": true,
   "precio_raiz": 979.11,
   "moneda": "MXN",
   "n_variaciones": 0,
-  "sku_por_variacion": []
+  "variaciones": []
 }
 
-== 2: cargos de la publicacion con variantes ==
-ruta: /pricing/llm/listing-charges
-ERROR: MeLi GET /pricing/llm/listing-charges -> 404
+== 1: cruce de los SKU leidos contra product.odoo_sku (conteos) ==
+ruta: select ... from (values pub,sku) left join product on odoo_sku = sku
+{
+  "lineas": [
+    "miembros|149|con_sku|149|mapeados_a_product|143|productos_distintos|143",
+    "publicaciones|30|todos_mapeados|24|alguno|6|ninguno|0"
+  ]
+}
 
-== 2: tabla de cargos por categoria, tipo y precio ==
-ruta: /pricing/llm/listing-charges/tables
-ERROR: MeLi GET /pricing/llm/listing-charges/tables -> 404
+== 2: cargos por precio 1989 (categoria y tipo de la muestra) ==
+ruta: /sites/{sitio}/listing_prices
+{
+  "currency_id": "MXN",
+  "free_relist": false,
+  "listing_exposure": "highest",
+  "listing_fee_amount": 0,
+  "listing_fee_details": {
+    "fixed_fee": 0,
+    "gross_amount": 0
+  },
+  "listing_type_id": "gold_pro",
+  "listing_type_name": "Premium",
+  "requires_picture": true,
+  "sale_fee_amount": 387.86,
+  "sale_fee_details": {
+    "fixed_fee": 0,
+    "gross_amount": 387.86,
+    "percentage_fee": 19.5
+  },
+  "stop_time": "2046-10-08T00:00:00.000-04:00"
+}
 
-== 2: comision de venta por categoria y tipo a este precio ==
-ruta: /categories/MLM1440/listing_types/gold_pro/sale_fee
-ERROR: MeLi GET /categories/MLM1440/listing_types/gold_pro/sale_fee -> 404
+== 2: cargos por precio 979.11 (categoria y tipo de la muestra) ==
+ruta: /sites/{sitio}/listing_prices
+{
+  "currency_id": "MXN",
+  "free_relist": false,
+  "listing_exposure": "highest",
+  "listing_fee_amount": 0,
+  "listing_fee_details": {
+    "fixed_fee": 0,
+    "gross_amount": 0
+  },
+  "listing_type_id": "gold_pro",
+  "listing_type_name": "Premium",
+  "requires_picture": true,
+  "sale_fee_amount": 190.93,
+  "sale_fee_details": {
+    "fixed_fee": 0,
+    "gross_amount": 190.93,
+    "percentage_fee": 19.5
+  },
+  "stop_time": "2046-10-08T00:00:00.000-04:00"
+}
 
-== 2: comision de venta de la publicacion sin variantes ==
-ruta: /sale_fee
-ERROR: MeLi GET /sale_fee -> 404
+== 2: cargos por precio 150 (categoria y tipo de la muestra) ==
+ruta: /sites/{sitio}/listing_prices
+{
+  "currency_id": "MXN",
+  "free_relist": false,
+  "listing_exposure": "highest",
+  "listing_fee_amount": 0,
+  "listing_fee_details": {
+    "fixed_fee": 0,
+    "gross_amount": 0
+  },
+  "listing_type_id": "gold_pro",
+  "listing_type_name": "Premium",
+  "requires_picture": true,
+  "sale_fee_amount": 29.25,
+  "sale_fee_details": {
+    "fixed_fee": 0,
+    "gross_amount": 29.25,
+    "percentage_fee": 19.5
+  },
+  "stop_time": "2046-10-08T00:00:00.000-04:00"
+}
 
-== 2: precio de publicacion por categoria y tipo ==
-ruta: /listing_prices
-ERROR: MeLi GET /listing_prices -> 404
-
-== 2: tipo de publicacion (estructura de cargos del sitio) ==
-ruta: /sites/MLM/listing_types/gold_pro
+== 2: apoyo · tipo de publicacion (estructura de cargos del sitio) ==
+ruta: /sites/{sitio}/listing_types/{tipo}
 {
   "id": "<id>",
   "not_available_in_categories": [
@@ -329,8 +353,8 @@ ruta: /sites/MLM/listing_types/gold_pro
   "exceptions_by_category": []
 }
 
-== 2: tipo de publicacion en la categoria (excepciones de cargo) ==
-ruta: /categories/MLM1440/listing_types/gold_pro
+== 2: apoyo · tipo de publicacion en la categoria ==
+ruta: /categories/{categoria}/listing_types/{tipo}
 {
   "id": "<id>",
   "configuration": {
@@ -369,12 +393,67 @@ ruta: /categories/MLM1440/listing_types/gold_pro
 }
 
 == visitas de la publicacion con variantes (ventana de 7 dias) ==
-ruta: /items/{id}/visits/time-window
-ERROR: MeLi GET /items/<item>/visits/time-window -> 404
-
-== visitas de la publicacion con variantes (total) ==
-ruta: /items/{id}/visits
-ERROR: MeLi GET /items/<item>/visits -> 400
+ruta: /items/{id}/visits/time_window
+{
+  "item_id": "<id>",
+  "date_from": "2026-10-06T00:00:00Z",
+  "date_to": "2026-10-13T00:00:00Z",
+  "total_visits": 10,
+  "last": 7,
+  "unit": "day",
+  "results": [
+    {
+      "date": "2026-10-08T00:00:00Z",
+      "total": 2,
+      "visits_detail": [
+        {
+          "company": "mercadolibre",
+          "quantity": 2
+        }
+      ]
+    },
+    {
+      "date": "2026-10-07T00:00:00Z",
+      "total": 2,
+      "visits_detail": [
+        {
+          "company": "mercadolibre",
+          "quantity": 2
+        }
+      ]
+    },
+    {
+      "date": "2026-10-09T00:00:00Z",
+      "total": 4,
+      "visits_detail": [
+        {
+          "company": "mercadolibre",
+          "quantity": 4
+        }
+      ]
+    },
+    {
+      "date": "2026-10-10T00:00:00Z",
+      "total": 1,
+      "visits_detail": [
+        {
+          "company": "mercadolibre",
+          "quantity": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-10-11T00:00:00Z",
+      "total": 1,
+      "visits_detail": [
+        {
+          "company": "mercadolibre",
+          "quantity": 1
+        }
+      ]
+    }
+  ]
+}
 
 == visitas por ids (total) ==
 ruta: /visits/items?ids={id}

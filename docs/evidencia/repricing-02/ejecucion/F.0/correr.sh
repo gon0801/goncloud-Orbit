@@ -11,8 +11,8 @@
 # y SKUs (repo publico: la salida que se commitea es la saneada; la cruda
 # no se escribe en ninguna parte).
 #
-# Lo corre Muse (solo SELECT, solo por el rol lector ORBIT_DSN_READ, dentro
-# de BEGIN READ ONLY):
+# Lo corre GLM en opencode (solo SELECT, solo por el rol lector
+# ORBIT_DSN_READ, dentro de BEGIN READ ONLY):
 #
 #   ! bash docs/evidencia/repricing-02/ejecucion/F.0/correr.sh
 #
@@ -106,12 +106,14 @@ for archivo in "$CONSULTAS_DIR"/*.sql; do
         test -n "$DSN" || { echo "ATORADO: ORBIT_DSN_READ vacio"; exit 1; }
         docker exec -i orbit-db-1 psql "$DSN" -X -P pager=off -tA -v ON_ERROR_STOP=1
     ' | python3 "$DIR/sanear_salidas.py" > "$parcial" 2> "$err"
-    # PIPESTATUS[1] es el estado del ssh/psql y [2] el del filtro de saneo
-    # (el bloque { ... } de la izquierda casi siempre sale 0 porque solo
-    # hace echo/cat).
-    estado="${PIPESTATUS[1]:-$?}"
-    saneo="${PIPESTATUS[2]:-0}"
+    # PIPESTATUS hay que capturarlo EN UNA SOLA LINEA: leerlo en dos
+    # asignaciones pisa el arreglo y el saneo quedaria siempre en 0
+    # (revision R01-r2). [0] es el bloque { ... } (casi siempre 0 porque
+    # solo hace echo/cat), [1] el ssh/psql y [2] el filtro de saneo.
+    estados=("${PIPESTATUS[@]}")
     set -e
+    estado="${estados[1]:-$?}"
+    saneo="${estados[2]:-0}"
 
     if [ "$estado" -ne 0 ] || [ "$saneo" -ne 0 ]; then
         echo "ATORADO: $nombre salió con código $estado (saneo $saneo); ver $err" >&2

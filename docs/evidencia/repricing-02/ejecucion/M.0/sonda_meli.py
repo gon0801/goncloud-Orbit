@@ -14,17 +14,21 @@ produccion):
 
 Antes de imprimir, cada respuesta pasa por ``sanea``: ids de publicacion,
 de vendedor y de aplicacion, titulos, enlaces, imagenes y SKUs salen
-redactados (repo publico). Las cuatro preguntas:
+redactados (repo publico); el cruce contra ``product`` se imprime solo por
+conteos. Las cuatro preguntas:
 
 1. De donde sale el SKU de cada variante (una publicacion con variantes y
-   una sin variantes).
+   una sin variantes): del atributo ``SELLER_SKU`` del item, que solo llega
+   pidiendo ``include_attributes=all`` (ronda r2: sin el parametro las
+   variaciones no traen ``attributes``).
 2. Si hay consulta de cargos por precio, categoria y tipo de publicacion
-   que separe porcentaje y fijo.
+   que separe porcentaje y fijo: ``/sites/{sitio}/listing_prices``.
 3. Si el precio de una publicacion con variantes va una vez o por variante.
 4. Si el token permite escribir, leido de los permisos que declara la
    aplicacion (nunca escribiendo).
 
-De paso, visitas de la publicacion con variantes (senal de trafico, D10).
+De paso, visitas de la publicacion con variantes (senal de trafico, D10) y
+la estructura de cargos del sitio y de la categoria como dato de apoyo.
 """
 
 from __future__ import annotations
@@ -33,9 +37,11 @@ import json
 import re
 import sys
 
+import psycopg
+
+from app.db import aplicar_host_override
 from app.reputacion_clientes import ClienteMeli, MeliCredentials, ReputacionError
 
-FORMA_ODDO = re.compile(r"^[A-Z0-9]{2}-[A-Z0-9]{4}-[A-Z0-9]{4}$")
 _ID_ITEM = re.compile(r"\bMLM\d{6,}\b")
 _VENDEDOR_RUTA = re.compile(r"/users/\d+")
 
@@ -117,44 +123,80 @@ def consultar(
     return datos
 
 
-def forma_oddo(valor) -> bool | None:
-    if not isinstance(valor, str) or not valor:
-        return None
-    return bool(FORMA_ODDO.match(valor))
+def sku_de_atributos(atributos) -> str | None:
+    """El SKU del item vive en el atributo SELLER_SKU (value_name)."""
+    for atributo in atributos or []:
+        if atributo.get("id") == "SELLER_SKU":
+            valor = atributo.get("value_name")
+            if isinstance(valor, str) and valor.strip():
+                return valor.strip()
+    return None
 
 
-def sku_presente(valor) -> dict:
-    """Dice SI un campo trae SKU y si calza con la forma de odoo_sku."""
-    presente = isinstance(valor, str) and bool(valor.strip())
-    return {
-        "presente": presente,
-        "longitud": len(valor) if presente else None,
-        "forma_odoo_sku": forma_oddo(valor) if presente else None,
-    }
+def presente(valor) -> bool:
+    return isinstance(valor, str) and bool(valor.strip())
 
 
 def proyectar_item(item: dict) -> dict:
-    """La forma de la publicacion sin SKU ni id: solo presencia y precios."""
+    """La forma de la publicacion sin SKU ni id: presencia y precios."""
     variaciones = item.get("variations") or []
-    proyeccion = {
+    return {
         "status": item.get("status"),
         "category_id": item.get("category_id"),
         "listing_type_id": item.get("listing_type_id"),
-        "sku_campo_seller_custom_field_raiz": sku_presente(item.get("seller_custom_field")),
+        "sku_en_atributo_raiz": presente(sku_de_atributos(item.get("attributes"))),
+        "seller_custom_field_raiz": presente(item.get("seller_custom_field")),
         "precio_raiz": item.get("price"),
         "moneda": item.get("currency_id"),
         "n_variaciones": len(variaciones),
-        "sku_por_variacion": [
+        "variaciones": [
             {
-                "sku_campo_seller_sku": sku_presente(variacion.get("seller_sku")),
-                "sku_campo_seller_custom_field": sku_presente(variacion.get("seller_custom_field")),
+                "sku_en_atributo": presente(sku_de_atributos(variacion.get("attributes"))),
+                "campo_seller_sku": presente(variacion.get("seller_sku")),
+                "campo_seller_custom_field": presente(variacion.get("seller_custom_field")),
                 "price": variacion.get("price"),
                 "available_quantity": variacion.get("available_quantity"),
             }
             for variacion in variaciones
         ],
     }
-    return proyeccion
+
+
+def cruzar_con_product(miembros: list[tuple[int, str | None]]) -> dict | None:
+    """Cruce por conteo contra product.odoo_sku, rol lector, READ ONLY.
+
+    Los SKU nunca se imprimen: solo cuantos miembros mapean a un producto y
+    cuantas publicaciones quedan con todos, alguno o ningun miembro mapeado
+    (la misma cuenta que la revision R01-r2 reprodujo con gen_cruce.py).
+    """
+    import os
+
+    dsn = os.environ.get("ORBIT_DSN_READ")
+    if not dsn:
+        return None
+    sql_consulta = (
+        "with m(pub, sku) as (select unnest(%s::int[]), unnest(%s::text[])),"
+        " x as (select m.pub, m.sku, p.id as pid from m"
+        " left join product p on p.odoo_sku = m.sku),"
+        " porpub as (select pub, count(*) as n, count(pid) as mapeados from x group by 1)"
+        " select 'miembros', count(*), 'con_sku', count(sku),"
+        " 'mapeados_a_product', count(pid), 'productos_distintos',"
+        " count(distinct pid) from x"
+        " union all select 'publicaciones', count(*), 'todos_mapeados',"
+        " count(*) filter (where mapeados = n), 'alguno',"
+        " count(*) filter (where mapeados > 0 and mapeados < n), 'ninguno',"
+        " count(*) filter (where mapeados = 0) from porpub"
+    )
+    try:
+        with psycopg.connect(aplicar_host_override(dsn, os.environ.get("ORBIT_PG_HOST"))) as conn:
+            conn.read_only = True
+            with conn.cursor() as cur:
+                cur.execute(sql_consulta, ([p for p, _ in miembros], [s for _, s in miembros]))
+                filas = cur.fetchall()
+            conn.rollback()
+        return {"lineas": ["|".join(map(str, f)) for f in filas]}
+    except Exception as exc:  # noqa: BLE001
+        return {"error": sanea(f"{type(exc).__name__}: {exc}")[:200]}
 
 
 def cargar_credenciales() -> tuple[MeliCredentials, dict]:
@@ -183,158 +225,127 @@ def cargar_credenciales() -> tuple[MeliCredentials, dict]:
     return creds, datos
 
 
-def main() -> int:
-    credenciales, archivo_token = cargar_credenciales()
-    cliente = ClienteMeli(credenciales)
-
-    # Punto de partida: quien vende (el id del vendedor no se imprime).
-    try:
-        yo, _ = cliente.get("/users/me")
-    except ReputacionError as exc:
-        print(f"/users/me: ERROR {exc}")
-        return 1
-    vendedor = yo.get("id")
-    print("== vendedor ==")
-    print(f"ruta: /users/me -> {{'id': '<id>', 'site_id': {yo.get('site_id')!r}}}")
-
-    # 1 y 3: una publicacion con variantes y una sin.
-    busqueda = consultar(
-        cliente,
-        "publicaciones (ids redactados)",
-        f"/users/{vendedor}/items/search",
-        {"search_type": "scan", "limit": 50},
-        ruta_mostrar="/users/{vendedor}/items/search",
-    )
-    ids = [str(i) for i in (busqueda or {}).get("results") or []]
-    print(f"\ntotal publicaciones en la primera pagina: {len(ids)}")
-
-    con_variantes = None
-    sin_variantes = None
+def inspeccionar(cliente: ClienteMeli, ids: list[str]):
+    """Recorre hasta 30 publicaciones con include_attributes=all."""
     agregado = {
         "publicaciones": 0,
         "con_variantes": 0,
-        "variantes_totales": 0,
-        "variantes_con_seller_sku": 0,
-        "variantes_con_seller_custom_field": 0,
+        "variantes": 0,
+        "var_campo_seller_sku": 0,
+        "var_campo_seller_custom_field": 0,
+        "var_con_clave_attributes": 0,
+        "var_con_attr_SELLER_SKU": 0,
         "raices_con_seller_custom_field": 0,
-        "raiz_o_variaciones_con_forma_odoo": 0,
+        "raices_con_attr_SELLER_SKU": 0,
+        "pub_con_variantes_todas_con_sku": 0,
+        "pub_sin_variantes_con_sku_en_raiz": 0,
+        "pub_con_variantes_precio_distinto": 0,
     }
-    for id_item in ids[:30]:
+    skus_variacion: list[str] = []
+    miembros: list[tuple[int, str | None]] = []
+    con_variantes = None
+    sin_variantes = None
+    for indice, id_item in enumerate(ids[:30], 1):
         item = None
         try:
-            item, _ = cliente.get(f"/items/{id_item}")
+            item, _ = cliente.get(f"/items/{id_item}", {"include_attributes": "all"})
         except ReputacionError as exc:
             print(f"items/{{id}}: ERROR {sanea(str(exc))}")
             continue
         agregado["publicaciones"] += 1
         variaciones = item.get("variations") or []
-        raiz_custom = item.get("seller_custom_field")
+        sku_raiz = sku_de_atributos(item.get("attributes"))
+        if sku_raiz:
+            agregado["raices_con_attr_SELLER_SKU"] += 1
+        if presente(item.get("seller_custom_field")):
+            agregado["raices_con_seller_custom_field"] += 1
         if variaciones:
             agregado["con_variantes"] += 1
-            agregado["variantes_totales"] += len(variaciones)
-            agregado["variantes_con_seller_sku"] += sum(
-                1 for v in variaciones if sku_presente(v.get("seller_sku"))["presente"]
-            )
-            agregado["variantes_con_seller_custom_field"] += sum(
-                1 for v in variaciones if sku_presente(v.get("seller_custom_field"))["presente"]
-            )
-        if sku_presente(raiz_custom)["presente"]:
-            agregado["raices_con_seller_custom_field"] += 1
-        if forma_oddo(raiz_custom) or any(forma_oddo(v.get("seller_sku")) for v in variaciones):
-            agregado["raiz_o_variaciones_con_forma_oddo"] += 1
-        if con_variantes is None and variaciones:
-            con_variantes = item
-        if sin_variantes is None and not variaciones:
-            sin_variantes = item
-    imprimir("1: agregado de SKU en publicaciones (hasta 30)", "/items/{id}", agregado)
-    if con_variantes is None or sin_variantes is None:
-        print("FALTA: no se encontro una publicacion de cada tipo")
-        return 1
+            agregado["variantes"] += len(variaciones)
+            con_sku = 0
+            for variacion in variaciones:
+                if presente(variacion.get("seller_sku")):
+                    agregado["var_campo_seller_sku"] += 1
+                if presente(variacion.get("seller_custom_field")):
+                    agregado["var_campo_seller_custom_field"] += 1
+                if "attributes" in variacion:
+                    agregado["var_con_clave_attributes"] += 1
+                sku = sku_de_atributos(variacion.get("attributes"))
+                miembros.append((indice, sku))
+                if sku:
+                    agregado["var_con_attr_SELLER_SKU"] += 1
+                    skus_variacion.append(sku)
+                    con_sku += 1
+            if con_sku == len(variaciones):
+                agregado["pub_con_variantes_todas_con_sku"] += 1
+            if len({v.get("price") for v in variaciones} | {item.get("price")}) > 1:
+                agregado["pub_con_variantes_precio_distinto"] += 1
+            if con_variantes is None:
+                con_variantes = item
+        else:
+            miembros.append((indice, sku_raiz))
+            if sku_raiz:
+                agregado["pub_sin_variantes_con_sku_en_raiz"] += 1
+            if sin_variantes is None:
+                sin_variantes = item
+    agregado["sku_variacion_distintos"] = len(set(skus_variacion))
+    return agregado, miembros, skus_variacion, con_variantes, sin_variantes
 
-    imprimir(
-        "1 y 3: publicacion CON variantes (forma)",
-        "/items/{id}",
-        proyectar_item(con_variantes),
-    )
-    imprimir(
-        "1: publicacion SIN variantes (forma)",
-        "/items/{id}",
-        proyectar_item(sin_variantes),
-    )
 
-    # 2: consulta de cargos por precio, categoria y tipo de publicacion.
-    # Las rutas de pricing/llm dieron 404 en la primera corrida; se prueban
-    # las alternativas publicas de cargo por categoria, tipo y precio.
-    precio = con_variantes.get("price")
+def pregunta_cargos_y_visitas(
+    cliente: ClienteMeli, con_variantes: dict, sin_variantes: dict
+) -> None:
+    """Pregunta 2 (cargos por precio/categoria/tipo) y visitas de apoyo."""
+    # cargos: consulta de cargos por precio, categoria y tipo de publicacion.
+    # La ruta es /sites/{sitio}/listing_prices (ronda r2: /listing_prices
+    # en la raiz daba 404). Tres precios, incluido uno bajo.
     categoria = con_variantes.get("category_id")
     tipo = con_variantes.get("listing_type_id")
-    id_con_variantes = con_variantes.get("id")
-    rutas_cargos = (
-        (
-            "2: cargos de la publicacion con variantes",
-            "/pricing/llm/listing-charges",
-            {"item_id": id_con_variantes, "price": precio, "quantity": 1},
-        ),
-        (
-            "2: tabla de cargos por categoria, tipo y precio",
-            "/pricing/llm/listing-charges/tables",
-            {"category_id": categoria, "listing_type_id": tipo, "price": precio, "quantity": 1},
-        ),
-        (
-            "2: comision de venta por categoria y tipo a este precio",
-            f"/categories/{categoria}/listing_types/{tipo}/sale_fee",
-            {"price": precio, "quantity": 1},
-        ),
-        (
-            "2: comision de venta de la publicacion sin variantes",
-            "/sale_fee",
-            {"item_id": sin_variantes.get("id"), "price": sin_variantes.get("price")},
-        ),
-        (
-            "2: precio de publicacion por categoria y tipo",
-            "/listing_prices",
-            {
-                "price": precio,
-                "category_id": categoria,
-                "listing_type_id": tipo,
-            },
-        ),
-        (
-            "2: tipo de publicacion (estructura de cargos del sitio)",
-            f"/sites/{con_variantes.get('site_id')}/listing_types/{tipo}",
-        ),
-        (
-            "2: tipo de publicacion en la categoria (excepciones de cargo)",
-            f"/categories/{categoria}/listing_types/{tipo}",
-        ),
+    sitio = con_variantes.get("site_id")
+    for precio in (con_variantes.get("price"), sin_variantes.get("price"), 150):
+        consultar(
+            cliente,
+            f"2: cargos por precio {precio} (categoria y tipo de la muestra)",
+            f"/sites/{sitio}/listing_prices",
+            {"price": precio, "category_id": categoria, "listing_type_id": tipo},
+            ruta_mostrar="/sites/{sitio}/listing_prices",
+        )
+    # Dato de apoyo: la estructura porcentual del sitio y de la categoria.
+    consultar(
+        cliente,
+        "2: apoyo · tipo de publicacion (estructura de cargos del sitio)",
+        f"/sites/{sitio}/listing_types/{tipo}",
+        ruta_mostrar="/sites/{sitio}/listing_types/{tipo}",
     )
-    for titulo, ruta, *params in rutas_cargos:
-        consultar(cliente, titulo, ruta, params[0] if params else None)
-
-    # Visitas de la misma publicacion (trafico, D10).
-    rutas_visitas = (
-        (
-            "visitas de la publicacion con variantes (ventana de 7 dias)",
-            f"/items/{id_con_variantes}/visits/time-window",
-            {"last": 7, "unit": "day"},
-            "/items/{id}/visits/time-window",
-        ),
-        (
-            "visitas de la publicacion con variantes (total)",
-            f"/items/{id_con_variantes}/visits",
-            None,
-            "/items/{id}/visits",
-        ),
-        (
-            "visitas por ids (total)",
-            "/visits/items",
-            {"ids": id_con_variantes},
-            "/visits/items?ids={id}",
-        ),
+    consultar(
+        cliente,
+        "2: apoyo · tipo de publicacion en la categoria",
+        f"/categories/{categoria}/listing_types/{tipo}",
+        ruta_mostrar="/categories/{categoria}/listing_types/{tipo}",
     )
-    for titulo, ruta, params, mostrar in rutas_visitas:
-        consultar(cliente, titulo, ruta, params, ruta_mostrar=mostrar)
 
+    # Visitas de la misma publicacion (trafico, D10). La ventana lleva
+    # guion bajo (ronda r2: time-window con guion daba 404).
+    consultar(
+        cliente,
+        "visitas de la publicacion con variantes (ventana de 7 dias)",
+        f"/items/{con_variantes.get('id')}/visits/time_window",
+        {"last": 7, "unit": "day"},
+        ruta_mostrar="/items/{id}/visits/time_window",
+    )
+    consultar(
+        cliente,
+        "visitas por ids (total)",
+        "/visits/items",
+        {"ids": con_variantes.get("id")},
+        ruta_mostrar="/visits/items?ids={id}",
+    )
+
+
+def pregunta_permisos(
+    cliente: ClienteMeli, credenciales: MeliCredentials, archivo_token: dict, vendedor
+) -> None:
+    """Pregunta 4: scopes declarados por la aplicacion (sin escribir)."""
     # 4: permisos que la aplicacion declara para este vendedor. Dos caminos:
     # el detalle por aplicacion (si hay client_id) o la lista de
     # aplicaciones autorizadas; de respaldo, el scope del propio token.
@@ -363,6 +374,84 @@ def main() -> int:
         if scopes is None:
             print("\nscopes del token (del archivo, sin consulta):")
             print(f"scope: {archivo_token.get('scope')}")
+
+
+def main() -> int:
+    credenciales, archivo_token = cargar_credenciales()
+    cliente = ClienteMeli(credenciales)
+
+    # Punto de partida: quien vende (el id del vendedor no se imprime).
+    try:
+        yo, _ = cliente.get("/users/me")
+    except ReputacionError as exc:
+        print(f"/users/me: ERROR {sanea(str(exc))}")
+        return 1
+    vendedor = yo.get("id")
+    print("== vendedor ==")
+    print(f"ruta: /users/me -> {{'id': '<id>', 'site_id': {yo.get('site_id')!r}}}")
+
+    # 1 y 3: una publicacion con variantes y una sin, con TODOS los atributos.
+    busqueda = consultar(
+        cliente,
+        "publicaciones (ids redactados)",
+        f"/users/{vendedor}/items/search",
+        {"search_type": "scan", "limit": 50},
+        ruta_mostrar="/users/{vendedor}/items/search",
+    )
+    ids = [str(i) for i in (busqueda or {}).get("results") or []]
+    print(f"\ntotal publicaciones en la primera pagina: {len(ids)}")
+
+    agregado, miembros, skus_variacion, con_variantes, sin_variantes = inspeccionar(cliente, ids)
+    imprimir(
+        "1: agregado con include_attributes=all (hasta 30 publicaciones)",
+        "/items/{id}?include_attributes=all",
+        agregado,
+    )
+    if con_variantes is None or sin_variantes is None:
+        print("FALTA: no se encontro una publicacion de cada tipo")
+        return 1
+
+    # La misma publicacion SIN el parametro: por que la ronda r2 no veia SKUs.
+    mostrar_sin_parametro = None
+    try:
+        plano, _ = cliente.get(f"/items/{con_variantes.get('id')}")
+        plano_variaciones = plano.get("variations") or []
+        mostrar_sin_parametro = {
+            "variaciones": len(plano_variaciones),
+            "variaciones_con_clave_attributes": sum(
+                1 for v in plano_variaciones if "attributes" in v
+            ),
+            "raiz_con_attr_SELLER_SKU": presente(sku_de_atributos(plano.get("attributes"))),
+        }
+    except ReputacionError as exc:
+        mostrar_sin_parametro = {"error": sanea(str(exc))}
+    imprimir(
+        "1: la misma publicacion SIN include_attributes",
+        "/items/{id}",
+        mostrar_sin_parametro,
+    )
+
+    imprimir(
+        "1 y 3: publicacion CON variantes (forma)",
+        "/items/{id}?include_attributes=all",
+        proyectar_item(con_variantes),
+    )
+    imprimir(
+        "1: publicacion SIN variantes (forma)",
+        "/items/{id}?include_attributes=all",
+        proyectar_item(sin_variantes),
+    )
+
+    # Cruce real contra product.odoo_sku: por conteo, sin imprimir SKU.
+    imprimir(
+        "1: cruce de los SKU leidos contra product.odoo_sku (conteos)",
+        "select ... from (values pub,sku) left join product on odoo_sku = sku",
+        cruzar_con_product(miembros) or {"error": "sin ORBIT_DSN_READ"},
+    )
+
+    pregunta_cargos_y_visitas(cliente, con_variantes, sin_variantes)
+
+    pregunta_permisos(cliente, credenciales, archivo_token, vendedor)
 
     cliente.close()
     return 0
