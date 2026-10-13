@@ -69,7 +69,7 @@ fi
 
 echo "== 3) Copiar el codigo del SHA y comparar md5"
 md5_de() { if command -v md5 >/dev/null; then md5 -q; else md5sum | cut -d' ' -f1; fi; }
-ARCHIVOS="app/jev_avisos.py app/jev_senales.py app/jev_vista.py app/jev_lectura.py app/jev_salud.py app/api_dashboard.py app/notifica.py"
+ARCHIVOS="app/jev_avisos.py app/jev_senales.py app/jev_juicios.py app/jev_vista.py app/jev_lectura.py app/jev_salud.py app/api_dashboard.py app/notifica.py"
 git archive --format=tar "$APROBADO" app Dockerfile .dockerignore pyproject.toml uv.lock tools/fabrica_campanas.py \
     tools/jev_ads.py tools/jev_fichas.py \
   | ssh goncloud "cd $SRV && tar -xf -"

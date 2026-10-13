@@ -683,7 +683,12 @@ def _aplicar(
         motivo = "sin_api_key"
     else:
         motivo = "completa"
-    avisos = _avisos_de(ajustes, avisar, lector, escritor, lote, propuestas)
+    avisos, avisos_error = 0, None
+    try:
+        avisos = _avisos_de(ajustes, avisar, lector, escritor, lote, propuestas)
+    except Exception as exc:  # las senales ya estan escritas: la corrida cierra igual
+        avisos_error = type(exc).__name__
+        print(f"jev-senales avisos fallo: {avisos_error}: {scrub(str(exc))}", file=sys.stderr)
     resumen = {
         "motivo": motivo,
         "unidades": len(plan),
@@ -693,6 +698,8 @@ def _aplicar(
         "avisos_enviados": avisos,
         "propuestas_ilegibles": list(ilegibles),
     }
+    if avisos_error is not None:
+        resumen["avisos_error"] = avisos_error
     escritor.execute(
         "INSERT INTO jev_corrida (lote_id, evento, cierre, resumen)"
         " VALUES (%s, 'fin', %s, %s::jsonb)",

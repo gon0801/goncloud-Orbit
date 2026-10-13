@@ -876,6 +876,37 @@ def test_aviso_falla_guarda_el_texto_y_el_reintento_usa_el_mismo():
 
 
 @_skip_db
+def test_aviso_que_truena_no_deja_la_corrida_sin_cierre():
+    """Las senales ya estan escritas cuando corre el paso de avisos. Si ese
+    paso levanta, la corrida igual escribe su `fin` y dice que el aviso fallo."""
+    with db_s4() as conn:
+        jev_senales, _grupo = _aviso_de_venta(conn, avisos=True)
+
+        def avisar(_texto):
+            raise RuntimeError("canal roto")
+
+        with _escritor() as escritor:
+            cierre = jev_senales.correr(
+                conn,
+                escritor,
+                ahora=AHORA,
+                aplicar=True,
+                pedir=_Pedido(),
+                api_key="",
+                avisar=avisar,
+            )
+            assert cierre.avisos_enviados == 0
+            assert conn.execute("SELECT count(*) FROM jev_senal").fetchone()[0] >= 1
+            fin = conn.execute(
+                "SELECT resumen FROM jev_corrida WHERE lote_id = %s AND evento = 'fin'",
+                (cierre.corrida_id,),
+            ).fetchone()
+            assert fin is not None
+            assert fin[0]["avisos_error"] == "RuntimeError"
+            assert fin[0]["avisos_enviados"] == 0
+
+
+@_skip_db
 def test_sin_jev_avisos_no_inserta_ni_llama():
     with db_s4() as conn:
         jev_senales, _grupo = _aviso_de_venta(conn, avisos=False)
