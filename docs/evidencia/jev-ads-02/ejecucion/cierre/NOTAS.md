@@ -94,5 +94,7 @@ sin decisión del dueño; no se inventó.
 No bloquea con el aviso apagado. En `_aplicar` el paso de avisos corre antes
 de escribir el evento `fin`. Si ese paso levanta una excepción, la corrida
 queda abierta en `jev_corrida` aunque sus señales ya estén escritas. Está
-anotado en "Huecos conocidos" del plan y se arregla antes de encender
-`jev.avisos`.
+anotado en "Huecos conocidos" del plan.
+
+Resuelto en #444: la corrida escribe su `fin` con `avisos_error` y las
+entregas que sí salieron, y después falla con salida 1.

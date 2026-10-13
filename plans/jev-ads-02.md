@@ -280,7 +280,7 @@ pueden ser las que se usaron para corregir fichas.
 | El CLI manual no toma el candado del job ni respeta el tope diario. | Aceptado en el spec: lo que paga cuenta para el día; el total puede pasar del tope por el presupuesto de esa corrida. |
 | Una decisión de harvest sin destino legible. | El job la avisa con ese motivo, no revienta. |
 | Las semillas del plan van normalizadas y los términos vendedores crudos. | Lo cierra 5.1. |
-| Si el paso de avisos levanta una excepción, la corrida queda sin su evento `fin` aunque las señales ya estén escritas. | Abierto. No pasa con `jev.avisos` ausente. Se arregla antes de encender `jev.avisos`. |
+| Si el paso de avisos levanta una excepción, la corrida quedaba sin su evento `fin` aunque las señales ya estuvieran escritas. | Resuelto en #444: la corrida escribe su `fin` con `avisos_error` y las entregas que sí salieron, y después falla con salida 1. |
 
 ## Pruebas que deben discriminar
 

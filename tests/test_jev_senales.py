@@ -876,34 +876,45 @@ def test_aviso_falla_guarda_el_texto_y_el_reintento_usa_el_mismo():
 
 
 @_skip_db
-def test_aviso_que_truena_no_deja_la_corrida_sin_cierre():
+def test_aviso_que_truena_cierra_la_corrida_y_falla():
     """Las senales ya estan escritas cuando corre el paso de avisos. Si ese
-    paso levanta, la corrida igual escribe su `fin` y dice que el aviso fallo."""
+    paso levanta, la corrida escribe su `fin` con el error y las entregas
+    que si salieron, y despues falla: el job sale con 1."""
     with db_s4() as conn:
-        jev_senales, _grupo = _aviso_de_venta(conn, avisos=True)
+        jev_senales, grupo = _aviso_de_venta(conn, avisos=True)
+        config_id = conn.execute("SELECT max(id) FROM config_version").fetchone()[0]
+        decision = _decision(conn, _ciclo(conn), grupo, "negative", "anillo plata", config_id, {})
+        _cola(conn, decision, "amazon_mx", grupo, "anillo plata", "negative")
+        enviados = []
 
-        def avisar(_texto):
-            raise RuntimeError("canal roto")
+        def avisar(texto):
+            enviados.append(texto)
+            if len(enviados) > 1:
+                raise RuntimeError("canal roto")
+            return True
 
         with _escritor() as escritor:
-            cierre = jev_senales.correr(
-                conn,
-                escritor,
-                ahora=AHORA,
-                aplicar=True,
-                pedir=_Pedido(),
-                api_key="",
-                avisar=avisar,
-            )
-            assert cierre.avisos_enviados == 0
-            assert conn.execute("SELECT count(*) FROM jev_senal").fetchone()[0] >= 1
-            fin = conn.execute(
-                "SELECT resumen FROM jev_corrida WHERE lote_id = %s AND evento = 'fin'",
-                (cierre.corrida_id,),
+            with pytest.raises(RuntimeError, match="canal roto"):
+                jev_senales.correr(
+                    conn,
+                    escritor,
+                    ahora=AHORA,
+                    aplicar=True,
+                    pedir=_Pedido(),
+                    api_key="",
+                    avisar=avisar,
+                )
+            assert conn.execute("SELECT count(*) FROM jev_senal").fetchone()[0] >= 2
+            inicios, fines = conn.execute(
+                "SELECT count(*) FILTER (WHERE evento = 'inicio'),"
+                " count(*) FILTER (WHERE evento = 'fin') FROM jev_corrida"
             ).fetchone()
-            assert fin is not None
-            assert fin[0]["avisos_error"] == "RuntimeError"
-            assert fin[0]["avisos_enviados"] == 0
+            assert (inicios, fines) == (1, 1)
+            resumen = conn.execute(
+                "SELECT resumen FROM jev_corrida WHERE evento = 'fin'"
+            ).fetchone()[0]
+            assert resumen["avisos_error"] == "RuntimeError"
+            assert resumen["avisos_enviados"] == 1
 
 
 @_skip_db
