@@ -2266,6 +2266,7 @@ def test_r07m_plantilla_dinero_formularios_ocultos_y_escape(monkeypatch):
     html = resp.text
     assert '<form hidden id="ajuste-7-presupuesto"' in html
     assert 'name="token" type="password"' in html
+    assert 'name="token" type="text"' not in html
     assert 'method="get"' not in html
     assert "<script>alert(1)</script>" not in html
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html

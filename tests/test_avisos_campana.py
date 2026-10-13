@@ -180,7 +180,7 @@ def test_r07m_aviso_propio_en_el_dia_8_da_none():
     from app.avisos_campana import avisos_ajuste_propio
 
     assert (
-        avisos_ajuste_propio("ajuste_ubicacion", dt.date(2026, 10, 2), dt.date(2026, 10, 10))
+        avisos_ajuste_propio("ajuste_ubicacion", dt.date(2026, 10, 3), dt.date(2026, 10, 10))
         is None
     )
 
