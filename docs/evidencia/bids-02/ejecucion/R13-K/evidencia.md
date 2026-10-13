@@ -2,7 +2,9 @@
 
 La pagina pintaba el gasto tal cual (511.8600 MXN). La presentacion
 del endpoint que la pagina consume ahora formatea el gasto de cada
-seccion y el de cada fila (aqui e historial) con dos decimales.
+seccion y el de cada fila de la parte de aqui con dos decimales.
+El contrato crudo no trae gasto en historial, asi que ahi no hay
+nada que formatear.
 
 Prueba primero: tests/test_api_dashboard.py::test_r13k_pagina_gasto_sin_venta_dos_decimales
 pide la pagina y exige 12.50 MXN sin 12.5000; caia con el valor de

@@ -1,0 +1,129 @@
+== 0) SHA aprobado con la bateria completa verde
+APROBADO=ea3405859fe6fcee7984bf77ff87dd914ca9c256 CI=success
+== 1) Preflight: nadie corre, sin harvest en vuelo, sin migraciones pendientes
+cli=0
+ciclos running=0
+harvest en vuelo=0
+ya aplicada: migrations/0060_bids02_base_lectura.sql
+ya aplicada: migrations/0061_bids02_campana_config.sql
+ya aplicada: migrations/0062_bids02_placement.sql
+ya aplicada: migrations/0063_bids02_peldanos_target.sql
+ya aplicada: migrations/0064_bids02_grupo_tipo.sql
+ya aplicada: migrations/0065_bids02_impulso.sql
+ya aplicada: migrations/0066_bids02_retiro_anuncios.sql
+ya aplicada: migrations/0067_bids02_campana_ajuste.sql
+ya aplicada: migrations/0068_bids02_sellos.sql
+ya aplicada: migrations/0069_bids02_retiro_intencion.sql
+ya aplicada: migrations/0070_bids02_permisos_lanza.sql
+ya aplicada: migrations/0071_bids02_grant_vista_impulso.sql
+ya aplicada: migrations/0072_bids02_impulso_grupo_tipo.sql
+sin migraciones pendientes: D.7 solo mueve codigo
+== 1b) Guardas propias de D.7 (abortan si fallan)
+apply, pantalla_dinero, campana_config, api_dashboard y rejuega_niveles presentes en el SHA, con sus senales
+guardas propias OK
+== 1c) Cron: D.7 no instala linea; se imprime la huella antes (R13-E)
+crontab antes: md5 y lineas = 7c5a5fbcf3cef38dc5af843bcc635eab 60 (sin tocarlo)
+== 2) Respaldo del codigo actual y SHA (el .env NO se copia a ningun lado)
+app
+docker-compose.yml
+Dockerfile
+pyproject.toml
+SHA
+tools
+uv.lock
+== 3) Backup del esquema (staging + verificacion)
+-rw------- 1 root root 551926 Oct 13 14:36 /mnt/data/appdata/orbit/backups/pred7_schema_20261013-1436.sql
+== 4) Migraciones: ninguna (la guarda del paso 1 ya aborto si habia una pendiente)
+aplicadas-20261013-1436.txt queda vacio a proposito: la reversa de D.7 solo restaura codigo
+== 5) md5 del codigo desplegado vs SHA aprobado
+md5 OK app/apply.py
+md5 OK app/pantalla_dinero.py
+md5 OK app/ads/campana_config.py
+md5 OK app/api_dashboard.py
+md5 OK tools/rejuega_niveles.py
+== 6) Guardas antes de recrear
+guardas OK
+== 7) Build + recrear app (digest antes/despues) + health
+DIGEST antes=sha256:b4c0651125c1f321ae33300bf89cc348bbfa0c56cc3e6b589216eab2e3fdfc60
+ Image orbit-app Building
+#1 [internal] load local bake definitions
+#1 reading from stdin 482B done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 952B done
+#2 DONE 0.0s
+
+#3 [internal] load metadata for docker.io/library/python:3.12-slim-bookworm
+#3 DONE 0.7s
+
+#4 [internal] load metadata for ghcr.io/astral-sh/uv:0.11.11
+#4 DONE 0.7s
+
+#5 [internal] load .dockerignore
+#5 transferring context: 199B done
+#5 DONE 0.0s
+
+#6 FROM ghcr.io/astral-sh/uv:0.11.11@sha256:798712e57f879c5393777cbda2bb309b29fcdeb0532129d4b1c3125c5385975a
+#6 resolve ghcr.io/astral-sh/uv:0.11.11@sha256:798712e57f879c5393777cbda2bb309b29fcdeb0532129d4b1c3125c5385975a 0.0s done
+#6 DONE 0.0s
+
+#7 [stage-0 1/9] FROM docker.io/library/python:3.12-slim-bookworm@sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3a1509accc92a4e24a07258
+#7 resolve docker.io/library/python:3.12-slim-bookworm@sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3a1509accc92a4e24a07258 0.0s done
+#7 DONE 0.0s
+
+#8 [internal] load build context
+#8 transferring context: 3.67MB 0.0s done
+#8 DONE 0.0s
+
+#9 [stage-0 2/9] COPY --from=ghcr.io/astral-sh/uv:0.11.11 /uv /uvx /bin/
+#9 CACHED
+
+#10 [stage-0 4/9] COPY pyproject.toml uv.lock ./
+#10 CACHED
+
+#11 [stage-0 3/9] WORKDIR /app
+#11 CACHED
+
+#12 [stage-0 5/9] RUN uv sync --frozen --no-dev --no-install-project --no-cache
+#12 CACHED
+
+#13 [stage-0 6/9] COPY app ./app
+#13 DONE 0.1s
+
+#14 [stage-0 7/9] COPY tools/fabrica_campanas.py ./tools/fabrica_campanas.py
+#14 DONE 0.0s
+
+#15 [stage-0 8/9] COPY tools/jev_ads.py ./tools/jev_ads.py
+#15 DONE 0.0s
+
+#16 [stage-0 9/9] COPY tools/jev_fichas.py ./tools/jev_fichas.py
+#16 DONE 0.0s
+
+#17 exporting to image
+#17 exporting layers 0.1s done
+#17 exporting manifest sha256:75d6dcfb0c59e3c1bf40deb2d3267e01bea6f1c37b148dc5c7466bbd14a181b9 done
+#17 exporting config sha256:d7875a0c04126863c6f00f21efc79795ee2d30fbfa729d67dbf01dc870b515ba done
+#17 exporting attestation manifest sha256:c5cc998b9699a4e51ca6c642008ef04ab44847089ed78a13e81f30a3bba937dd done
+#17 exporting manifest list sha256:412b20ea22f57da27734691f003e99bdb64ef60f61f33fc8acd936789f164f91 done
+#17 naming to docker.io/library/orbit-app:latest done
+#17 unpacking to docker.io/library/orbit-app:latest 0.1s done
+#17 DONE 0.3s
+
+#18 resolving provenance for metadata file
+#18 DONE 0.0s
+ Image orbit-app Built
+ Container orbit-app-1 Recreate
+ Container orbit-app-1 Recreated
+ Container orbit-app-1 Starting
+ Container orbit-app-1 Started
+DIGEST despues=sha256:412b20ea22f57da27734691f003e99bdb64ef60f61f33fc8acd936789f164f91
+{"status":"ok"}
+orbit-app-1 Up 5 seconds
+== 8) Cron: la huella no cambio (D.7 no instala linea: R13-E)
+crontab despues: md5 y lineas = 7c5a5fbcf3cef38dc5af843bcc635eab 60
+crontab intacto
+== LISTO. STAMP=20261013-1436
+Siguiente: bash docs/evidencia/bids-02/ejecucion/D.7/checklist.sh 20261013-1436
+Reversa:   bash docs/evidencia/bids-02/ejecucion/D.7/rollback.sh 20261013-1436
+exit=0

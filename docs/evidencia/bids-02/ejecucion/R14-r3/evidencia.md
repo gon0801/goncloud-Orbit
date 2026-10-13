@@ -43,7 +43,7 @@ nuevas de esta ronda.
 
 Las rutas del equipo en la evidencia nueva se reemplazaron por rutas
 relativas y el diff contra la base ya no trae ninguna aparicion de
-`/Users/dn`. Las pruebas de impulso arman su base con la 0072
+la ruta del equipo. Las pruebas de impulso arman su base con la 0072
 incluida, asi el lanzamiento corre con el esquema completo.
 
 ## Lo que queda para R16

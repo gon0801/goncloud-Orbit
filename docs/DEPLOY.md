@@ -2600,3 +2600,18 @@ migraciones ni instalo cron: no hay reversas que aplicar ni
 lineas que quitar.
 
 Las salidas de los cuatro scripts van en el PR de cierre de la seccion 6.
+
+## BIDS 02 D.6 y D.7: reversa vigente
+
+La reversa vigente es la del ultimo despliegue, D.7, con
+`rollback.sh 20261013-1436` de la carpeta de D.7 en la evidencia
+de bids-02. Ese rollback lee su configuracion sin depender de que
+el contenedor de la app este arriba y restaura el codigo de
+`predeploy-20261013-1436`. D.7 no aplico migraciones ni instalo
+linea de cron, asi que su reversa solo mueve codigo. Las reversas de D.4 y D.5 no se reescriben: dejaron de ser la vigente y son evidencia de su despliegue. Leen el DSN del contenedor de la app; si hiciera falta correr una con la app caida, el DSN se toma del `.env` del servidor, como hacen las de D.6 y D.7.
+
+La guia de ensayo de D.7 no es el paso generico. El ensayo pide
+el SHA a desplegar como argumento, corre solo con
+`ORBIT_SIMULACION=1` y necesita una base local con el esquema
+vigente completo como base de partida. Sin eso aborta antes de
+tocar nada y eso no es un despliegue frenado.

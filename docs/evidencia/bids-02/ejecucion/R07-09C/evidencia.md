@@ -5,7 +5,10 @@ regreso), un readback divergente dejaba la fila H#2 pendiente y el
 siguiente reintento abria la H#3, dejando la H#2 huerfana para
 siempre. Ahora el reintento busca primero una H#N pendiente de la
 misma campana y clase y la reusa: la confirma con el PUT, o la sella
-sin PUT si el vigente ya esta en destino.
+sin PUT si el vigente ya esta en destino. Esa frase se lee asi: se
+sella sin PUT cuando la configuracion leida ya esta en el destino.
+Si el sync aun no la observo, el reintento manda un segundo PUT
+identico y confirma. Es el mismo trato que la fila base ya traia.
 
 Prueba primero: tests/test_aplica_ajuste.py::test_r07_09c_reintento_reusa_la_pendiente_hn
 caia con el id nuevo (4) en vez del de la H#2 (3). Mutante: buscar la
