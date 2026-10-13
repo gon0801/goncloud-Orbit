@@ -15,10 +15,9 @@ suman las correcciones de la ronda de despliegue anterior (R13-E/L/M).
   numero de lineas del crontab de `gon` antes y despues y aborta si
   cambian (R13-E).
 - `checklist.sh`: las comprobaciones de D.4 conservadas, mas el GRANT
-  de la 0071 y el candado de la 0072, y el JSON de la pantalla de
-  busquedas por mercado (`busquedas-amazon_mx.json` y
-  `busquedas-amazon_us.json` en este dir) con la moneda de su mercado
-  en cada renglon (R13-E).
+  de la 0071 y el candado de la 0072, y la pantalla de busquedas por
+  mercado, que el propio script pide por HTTP a cada mercado para
+  comparar su moneda y su plataforma (R13-E).
 - `rollback.sh`: restaura el codigo de `predeploy-<sello>` y aplica
   las reversas en orden inverso. Lee el DSN del `.env` del servidor
   sin depender de que `orbit-app-1` este arriba (R13-L); el crontab
