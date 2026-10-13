@@ -513,6 +513,30 @@ def test_no_lee_nada_observado_despues_de_started_at():
 
 
 @FALTA_PG
+def test_r07d_cambios_del_rejuego_ignoran_el_ajuste_de_campana():
+    """R07-D: la tercera rama de v_cambio_bid (ajuste_de_campana, con
+    bid_antes = bid_despues = bid de hoy) no entra a los cambios del
+    rejuego; si entrara, el bid del dia saldria el de hoy."""
+    with _db_rejuego() as conn:
+        camp, _g, (h,) = _grupo_con_hojas(conn, "amazon_mx", 1, "d")
+        cfg = conn.execute(
+            "INSERT INTO ads_campana_config_observation (ad_entity_id, observed_at,"
+            " presupuesto_diario, presupuesto_moneda, estrategia_puja) VALUES"
+            " (%s, %s, 100, 'MXN', 'MANUAL') RETURNING id",
+            (camp, _ANCLA),
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO campana_ajuste (campana_id, platform, clase, antes_config_id,"
+            " despues, huella, actor, go_literal, confirmado_el) VALUES (%s,"
+            " 'amazon_mx', 'ajuste_ubicacion', %s, %s, 'h-r07d', 'dueno',"
+            " 'APLICAR AJUSTE', %s)",
+            (camp, cfg, json.dumps({"clase": "ajuste_ubicacion"}), _CICLO),
+        )
+        filas = conn.execute(rejuega_mod._SQL_CAMBIOS, ("amazon_mx",)).fetchall()
+        assert [f for f in filas if f[0] == h] == []
+
+
+@FALTA_PG
 def test_caso_trae_target_congelado_y_bid_del_dia():
     with _db_rejuego() as conn:
         ingest = _ingest(conn)
