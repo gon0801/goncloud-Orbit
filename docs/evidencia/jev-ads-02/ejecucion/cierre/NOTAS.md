@@ -82,8 +82,9 @@ Las 100 llamadas que el seco del checklist cuenta para el 2026-10-13
 (`llamadas_hoy=100`) son de la medición 0.5, no del job
 (`ejecucion/0.5/NOTAS.md`). El seco anticipaba 4,900 llamadas para el cron
 de las 09:30 UTC del 2026-10-13. Esa corrida se adelantó a las 05:08 UTC
-(sección "Primera corrida con el tope en 5,000"); con el día en 5,000 de
-5,000, los cron de las 09:30 y 21:30 UTC del 13 no pagan.
+(sección "Primera corrida con el tope en 5,000"). Con el tope de la 28 el
+día quedaba en 5,000 de 5,000 y los cron del 13 no pagaban; la 29 lo cambió
+ese mismo día (sección "Tope en 10,000").
 
 ## Notas J6
 
@@ -171,4 +172,5 @@ la 28 y solo cambia `jev.tope_diario` de 5000 a 10000; el resto de los
 ajustes es idéntico y `jev.avisos` sigue ausente. Con el día en 5,000
 llamadas, el seco posterior anticipa 5,000 más (`pagaria=5000 tope=10000
 llamadas_hoy=5000`): el cron de las 09:30 UTC del 13 sí paga. A la tarifa
-de 0.3, el tope completo cuesta cerca de 0.52 USD al día.
+de `ejecucion/0.3/NOTAS.md` (0.042 USD por millón de tokens de entrada), el
+tope completo cuesta cerca de 0.52 USD al día.
