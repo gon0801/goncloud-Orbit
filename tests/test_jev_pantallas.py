@@ -28,11 +28,12 @@ from app.jev_lectura import (
     ClaveBusqueda,
     Gasto,
     PropuestaEnVeto,
+    SenalPropuesta,
     leer,
     relevancia_de_texto,
     vista_de_dict,
 )
-from app.jev_vista import banda_de_proporcion
+from app.jev_vista import banda_de_proporcion, texto_aviso
 
 RAIZ = Path(__file__).resolve().parents[1]
 ORDEN_S5 = (
@@ -640,10 +641,37 @@ def test_frase_ajena_nombra_productos_y_fecha():
     from app.jev_vista import frase_de_lectura
 
     assert (
-        frase_de_lectura("ajena", [], 5, "2026-09-01T12:00:00+00:00")
+        frase_de_lectura("ajena", [], 5, listado_de="2026-10-01T08:00:00+00:00")
         == "No corresponde a ninguno de los 5 productos; lista comprobada con el"
-        " listado de Amazon del 2026-09-01. Bloquear, y pronto."
+        " listado de Amazon del 2026-10-01. Bloquear, y pronto."
     )
+
+
+def test_frase_ajena_usa_el_dia_del_listado_no_el_de_las_ventas():
+    """J6-31: `datos_hasta` es el cierre de las ventas; la frase cita el
+    acta (`roster_prueba.listado_de`). Las dos fechas distintas no pueden
+    coincidir en el texto."""
+    from app.api_dashboard import _senal_presentada_vista
+
+    ventas = datetime(2026, 9, 1, tzinfo=UTC)
+    vista = vista_de_dict(
+        _fila_base(
+            lectura="ajena",
+            relevancia="ajena",
+            productos_ok=[],
+            datos_hasta=ventas,
+            roster_prueba={
+                "probado": True,
+                "ingest_run_id": 9,
+                "listado_de": "2026-10-01T08:00:00+00:00",
+            },
+        )
+    )
+    assert vista.economia.datos_hasta == ventas
+    assert vista.listado_de == datetime(2026, 10, 1, 8, 0, tzinfo=UTC)
+    frase = _senal_presentada_vista(vista)["frase"]
+    assert "2026-10-01" in frase
+    assert "2026-09-01" not in frase
 
 
 def test_frase_sin_lectura_muestra_el_motivo():
@@ -661,6 +689,138 @@ def test_titulo_de_lectura_desconocida_falla_cerrado():
 
     with pytest.raises(KeyError):
         titulo_de_lectura("lectura_futura")
+
+
+def _propuesta_aviso(vista, *, kind="negative", modo="live", destino=None, ilegible=False):
+    return PropuestaEnVeto(
+        41,
+        7,
+        kind,
+        modo,
+        vista.clave,
+        None if destino is None else destino.clave,
+        ilegible,
+        datetime(2026, 10, 8, 18, 0, tzinfo=UTC),
+    )
+
+
+def test_texto_aviso_live_lleva_la_hora_utc_y_no_un_plazo():
+    vista = vista_de_dict(
+        _fila_base(
+            lectura="vendio_aqui",
+            ordenes=0,
+            historial={
+                "desde": "2026-07-01",
+                "hasta": "2026-09-01",
+                "clics": 40,
+                "ordenes_conocidas": 3,
+                "dias_sin_dato": 0,
+            },
+        )
+    )
+    texto = texto_aviso(_propuesta_aviso(vista), SenalPropuesta(vista, None, False), {7: "Arras"})
+    assert "Se aplica solo el 2026-10-08 18:00 UTC si no lo rechazas." in texto
+    assert "faltan" not in texto
+    assert "YA VENDIÓ AQUÍ — RIESGO" in texto
+    assert "0 órdenes en la ventana, pero 3 órdenes y 40 clics" in texto
+    assert "ad group Arras" in texto
+    assert texto.startswith('[Orbit · Jev] negative en veto: "zapato rojo"')
+
+
+def test_texto_aviso_sombra_dice_que_no_se_aplica_y_conserva_la_hora():
+    vista = vista_de_dict(_fila_base())
+    texto = texto_aviso(
+        _propuesta_aviso(vista, modo="shadow"),
+        SenalPropuesta(vista, None, False),
+        {},
+    )
+    assert "No se aplica: la propuesta está en sombra. Vence el 2026-10-08 18:00 UTC." in texto
+    assert "Se aplica solo el" not in texto
+    assert "faltan" not in texto
+
+
+def test_texto_aviso_ajena_cita_el_listado_y_no_el_dia_de_las_ventas():
+    vista = vista_de_dict(
+        _fila_base(
+            lectura="ajena",
+            relevancia="ajena",
+            productos_ok=[],
+            evaluados=5,
+            miembros=5,
+            datos_hasta=datetime(2026, 9, 1, tzinfo=UTC),
+            roster_prueba={
+                "probado": True,
+                "ingest_run_id": 9,
+                "listado_de": "2026-10-01T08:00:00+00:00",
+            },
+        )
+    )
+    texto = texto_aviso(_propuesta_aviso(vista), SenalPropuesta(vista, None, False), {7: "Grupo"})
+    assert "lista comprobada con el listado de Amazon del 2026-10-01" in texto
+    assert "2026-09-01" not in texto
+    assert "ninguno de los 5 productos" in texto
+
+
+def test_texto_aviso_sin_roster_probado_no_dice_ninguno_ni_ajena():
+    vista = vista_de_dict(
+        _fila_base(
+            lectura="relevante_sin_venta",
+            roster_probado=False,
+            roster_prueba={"probado": False, "motivos": ["grupo_no_listado"]},
+        )
+    )
+    texto = texto_aviso(_propuesta_aviso(vista), SenalPropuesta(vista, None, False), {}).lower()
+    assert "ninguno" not in texto
+    assert "ajena" not in texto
+    assert "corresponde y no vende — riesgo" in texto
+
+
+def test_texto_aviso_harvest_anuncia_la_lectura_del_destino():
+    origen = vista_de_dict(_fila_base(lectura="vendio_aqui", ad_group_id=7, termino="arras"))
+    destino = vista_de_dict(
+        _fila_base(
+            lectura="ajena",
+            relevancia="ajena",
+            ad_group_id=8,
+            termino="arras",
+            productos_ok=[],
+            evaluados=4,
+            miembros=4,
+            roster_prueba={
+                "probado": True,
+                "ingest_run_id": 9,
+                "listado_de": "2026-10-01T08:00:00+00:00",
+            },
+        )
+    )
+    propuesta = PropuestaEnVeto(
+        41,
+        7,
+        "harvest",
+        "live",
+        origen.clave,
+        destino.clave,
+        False,
+        datetime(2026, 10, 8, 18, 0, tzinfo=UTC),
+    )
+    texto = texto_aviso(
+        propuesta, SenalPropuesta(origen, destino, False), {7: "Origen", 8: "Destino"}
+    )
+    assert "harvest en veto" in texto
+    assert "ad group Destino" in texto
+    assert "ad group Origen" not in texto
+    assert "AJENA" in texto
+    assert "YA VENDIÓ" not in texto
+
+
+def test_texto_aviso_harvest_sin_destino_es_sin_lectura():
+    origen = vista_de_dict(_fila_base(lectura="vendio_aqui"))
+    propuesta = _propuesta_aviso(origen, kind="harvest", ilegible=True)
+    texto = texto_aviso(propuesta, SenalPropuesta(origen, None, True), {7: "Grupo"})
+    assert "SIN LECTURA" in texto
+    assert "El destino no se puede leer." in texto
+    assert "ninguno" not in texto.lower()
+    assert "YA VENDIÓ" not in texto
 
 
 def test_gasto_sin_venta_acepta_conexion_con_dict_row():

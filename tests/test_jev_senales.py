@@ -786,3 +786,114 @@ def test_cinco_excesos_no_tumban_al_proveedor():
             assert cierre.motivo == "completa"
             assert pedido.llamados == []
             assert _intenciones(conn) == 0
+
+
+def _aviso_de_venta(conn, *, avisos: bool):
+    """Propuesta negative de un termino que ya vendio aqui, sin API."""
+    from app import jev_senales
+
+    settings = dict(ON)
+    if avisos:
+        settings["jev.avisos"] = True
+    config_id = _config(conn, settings)
+    run = _run(conn)
+    grupo, _, _, _ = _grupo_con_roster(conn)
+    conn.execute("UPDATE ad_entity SET name = 'NOMBRE UNO' WHERE id = %s", (grupo,))
+    _obs(
+        conn,
+        run,
+        "amazon_mx",
+        grupo,
+        "anillo oro",
+        datetime(2026, 10, 1, tzinfo=UTC).date(),
+        cost=50,
+        clicks=9,
+        orders=1,
+    )
+    ciclo = _ciclo(conn)
+    decision = _decision(conn, ciclo, grupo, "negative", "anillo oro", config_id, {})
+    _cola(conn, decision, "amazon_mx", grupo, "anillo oro", "negative")
+    return jev_senales, grupo
+
+
+@_skip_db
+def test_aviso_falla_guarda_el_texto_y_el_reintento_usa_el_mismo():
+    """Prueba 9: Telegram falla y queda el aviso sin entrega; la corrida
+    siguiente envia una sola vez, con el texto guardado, no con uno nuevo."""
+    with db_s4() as conn:
+        jev_senales, grupo = _aviso_de_venta(conn, avisos=True)
+        enviados = []
+
+        def avisar(texto):
+            enviados.append(texto)
+            return len(enviados) > 1
+
+        with _escritor() as escritor:
+            cierre = jev_senales.correr(
+                conn,
+                escritor,
+                ahora=AHORA,
+                aplicar=True,
+                pedir=_Pedido(),
+                api_key="",
+                avisar=avisar,
+            )
+            assert cierre.avisos_enviados == 0
+            assert conn.execute("SELECT count(*) FROM jev_aviso").fetchone()[0] == 1
+            assert conn.execute("SELECT count(*) FROM jev_aviso_entrega").fetchone()[0] == 0
+            guardado = conn.execute("SELECT texto, lectura FROM jev_aviso").fetchone()
+            assert guardado[1] == "vendio_aqui"
+            assert guardado[0] == enviados[0]
+            assert "NOMBRE UNO" in guardado[0]
+            assert "2026-10-08 12:00 UTC" in guardado[0]
+            assert "faltan" not in guardado[0]
+            conn.execute("UPDATE ad_entity SET name = 'NOMBRE DOS' WHERE id = %s", (grupo,))
+            cierre2 = jev_senales.correr(
+                conn,
+                escritor,
+                ahora=AHORA,
+                aplicar=True,
+                pedir=_Pedido(),
+                api_key="",
+                avisar=avisar,
+            )
+            assert cierre2.avisos_enviados == 1
+            assert enviados[1] == enviados[0]
+            assert "NOMBRE DOS" not in enviados[1]
+            assert conn.execute("SELECT count(*) FROM jev_aviso").fetchone()[0] == 1
+            assert conn.execute("SELECT count(*) FROM jev_aviso_entrega").fetchone()[0] == 1
+            cierre3 = jev_senales.correr(
+                conn,
+                escritor,
+                ahora=AHORA,
+                aplicar=True,
+                pedir=_Pedido(),
+                api_key="",
+                avisar=avisar,
+            )
+            assert cierre3.avisos_enviados == 0
+            assert len(enviados) == 2
+
+
+@_skip_db
+def test_sin_jev_avisos_no_inserta_ni_llama():
+    with db_s4() as conn:
+        jev_senales, _grupo = _aviso_de_venta(conn, avisos=False)
+
+        def avisar(_texto):
+            raise AssertionError("jev.avisos apagado no llama")
+
+        with _escritor() as escritor:
+            cierre = jev_senales.correr(
+                conn,
+                escritor,
+                ahora=AHORA,
+                aplicar=True,
+                pedir=_Pedido(),
+                api_key="",
+                avisar=avisar,
+            )
+            assert cierre.avisos_enviados == 0
+            assert conn.execute("SELECT count(*) FROM jev_senal").fetchone()[0] >= 1
+            assert conn.execute("SELECT count(*) FROM jev_aviso").fetchone()[0] == 0
+            assert conn.execute("SELECT count(*) FROM jev_aviso_entrega").fetchone()[0] == 0

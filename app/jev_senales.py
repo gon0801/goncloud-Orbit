@@ -1,7 +1,8 @@
 """El job jev-senales (JEV ADS 02, S.4): sella la senal por busqueda-en-grupo.
 
 Lee con `lector` (READ), escribe solo `jev_*` con `escritor` (JEV, autocommit).
-Apagado u ocupado: 0 sin escribir. Seco: plan y cuenta. Avisos en S.8.
+Apagado u ocupado: 0 sin escribir. Seco: plan y cuenta. Avisos solo si
+`jev.avisos` es true: fila antes de enviar, entrega solo si el envio fue True.
 """
 
 from __future__ import annotations
@@ -32,6 +33,7 @@ from app.jev_ads import (
     componer,
     es_asin_like,
 )
+from app.jev_avisos import _avisos_de
 from app.jev_catalogo import censo_grupo, resolver_fichas
 from app.jev_juicios import (
     clave_de,
@@ -643,6 +645,8 @@ def _aplicar(
     ahora: datetime,
     pedir,
     api_key: str,
+    propuestas: tuple = (),
+    avisar=None,
 ) -> CierreCorrida:
     pedir_real = pedir
     if pedir_real is None:
@@ -679,13 +683,14 @@ def _aplicar(
         motivo = "sin_api_key"
     else:
         motivo = "completa"
+    avisos = _avisos_de(ajustes, avisar, lector, escritor, lote, propuestas)
     resumen = {
         "motivo": motivo,
         "unidades": len(plan),
         "llamadas": llamadas,
         "fallos": fallos,
         "senales_nuevas": senales,
-        "avisos_enviados": 0,
+        "avisos_enviados": avisos,
         "propuestas_ilegibles": list(ilegibles),
     }
     escritor.execute(
@@ -695,9 +700,9 @@ def _aplicar(
     )
     print(
         f"jev-senales motivo={motivo} unidades={len(plan)} llamadas={llamadas}"
-        f" fallos={fallos} senales={senales} avisos=0"
+        f" fallos={fallos} senales={senales} avisos={avisos}"
     )
-    return CierreCorrida(lote, motivo, len(plan), llamadas, fallos, senales, 0)
+    return CierreCorrida(lote, motivo, len(plan), llamadas, fallos, senales, avisos)
 
 
 def correr(
@@ -708,6 +713,7 @@ def correr(
     aplicar: bool = False,
     pedir=None,
     api_key: str = "",
+    avisar=None,
 ) -> CierreCorrida:
     """La corrida: ajustes, candado, foto del mundo, plan, lote y sellado por
     unidad. Sin `--aplicar` no escribe ni llama; apagado u ocupado salen con
@@ -731,7 +737,17 @@ def correr(
             contrato = contrato_por_defecto()
             plan = planear(propuestas, economia, vigentes, aplicados, ajustes)
             return _aplicar(
-                lector, escritor, plan, ilegibles, ajustes, contrato, ahora, pedir, api_key
+                lector,
+                escritor,
+                plan,
+                ilegibles,
+                ajustes,
+                contrato,
+                ahora,
+                pedir,
+                api_key,
+                propuestas,
+                avisar,
             )
         finally:
             escritor.execute("SELECT pg_advisory_unlock(hashtext('jev:senales'))").fetchone()
@@ -767,12 +783,15 @@ def main(argv: list[str]) -> int:
         lector = connect(dsn_read)
         if args.aplicar:
             escritor = connect(dsn_jev, autocommit=True)
+        from app.notifica import envia_aviso
+
         correr(
             lector,
             escritor,
             ahora=datetime.now(UTC),
             aplicar=args.aplicar,
             api_key=leer_api_key(),
+            avisar=envia_aviso,
         )
     except Exception as exc:
         print(f"jev-senales fallo: {type(exc).__name__}: {scrub(str(exc))}", file=sys.stderr)

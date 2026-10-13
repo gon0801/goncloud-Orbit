@@ -514,6 +514,7 @@ class SenalVista:
     calculada_el: datetime
     valida_hasta: datetime
     vigente: bool
+    listado_de: datetime | None = None  # acta del listado; no es datos_hasta
 
     def como_dict(self) -> dict:
         """Contrato de pantalla (S.5): importes como texto, instantes en ISO
@@ -583,6 +584,9 @@ class SenalVista:
             "calculada_el": self.calculada_el.astimezone(UTC).isoformat(),
             "valida_hasta": self.valida_hasta.astimezone(UTC).isoformat(),
             "vigente": self.vigente,
+            "listado_de": (
+                None if self.listado_de is None else self.listado_de.astimezone(UTC).isoformat()
+            ),
         }
 
 
@@ -793,4 +797,5 @@ def vista_de_dict(fila: Mapping[str, object]) -> SenalVista:
         calculada_el=_como_instante(fila["created_at"]),  # type: ignore[arg-type]
         valida_hasta=_como_instante(fila["valida_hasta"]),  # type: ignore[arg-type]
         vigente=bool(fila.get("vigente")),
+        listado_de=_como_instante(prueba.get("listado_de")),
     )

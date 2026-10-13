@@ -422,9 +422,11 @@ crontab y como `ingest_run.source` (`amazon_ads_structure_v2` /
 `amazon_ads_reports_v3` para el pipeline principal /
 `amazon_ads_products_v3` para productos anunciados desde la migracion 0040).
 
-Señal Jev por búsqueda-en-grupo (JEV ADS 02 S.4): dos corridas al día, con
-el interruptor ausente hasta S.6 (el job imprime que está apagado y sale
-con 0). Línea EXACTA del crontab de `gon` (la prueba
+Señal Jev por búsqueda-en-grupo (JEV ADS 02): dos corridas al día. En
+producción el job está encendido (`config_version` 28: `jev.senales` true,
+`jev.tope_diario` 5000, `jev.min_clics` 3). `jev.avisos` sigue ausente, así
+que no hay Telegram. Apagar las señales es otra fila de config sin
+`jev.senales`. Línea EXACTA del crontab de `gon` (la prueba
 `test_deploy_documenta_la_linea_de_jev_senales` la pinza de
 `tests/test_jev_senales_cron.py::LINEA_JEV_SENALES`), suelta como la de
 precio — fuera del bloque del instalador de ORBIT 03, cuyo filtro no la

@@ -1,8 +1,8 @@
 """Bloque `jev` de /salud (JEV ADS 02, S.4, partido de `jev_senales` en r3).
 
 Solo lecturas baratas para la pantalla. Importa los tipos de corrida del
-job (`CierreCorrida`, `_ajustes`); el job nunca importa este modulo, asi
-que no hay ciclo.
+job (`CierreCorrida`, `_ajustes`). El job importa `_vistas_de_claves` solo
+dentro del paso de avisos, cuando este modulo ya cargo.
 
 S.5 suma aqui las lecturas de pantalla (fila Senal en cortes +
 gasto sin venta): SOLO SELECT, conexion de lectura, cero HTTP.

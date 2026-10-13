@@ -5,6 +5,8 @@ FAIL-SILENT por diseno: un fallo del canal JAMAS tumba el ciclo que notifica
 (visible en Salud), que es la UNICA visibilidad del fallo: el silencio del
 canal no es invisible (sellado 2, decision 19). Canal DESHABILITADO (sin
 secrets) NO es fallo: los ``notifica_*`` devuelven True y NO generan NOTA.
+``envia_aviso`` es la excepcion (JEV ADS 02 S.8): inactivo devuelve False
+y no llama, porque ese silencio no cuenta como entrega.
 
 Config: ``<ORBIT_SECRETS_DIR>/telegram.json`` con ``{"bot_token": "...",
 "chat_id": "..."}`` (strings no vacios; claves extra toleradas, mismo patron
@@ -229,6 +231,15 @@ def _envia_texto(texto: str, transport: httpx.BaseTransport | None = None) -> bo
     except Exception as exc:  # noqa: BLE001 - fail-silent (docstring del modulo)
         logger.warning("telegram: fallo el envio: %s", scrub(str(exc)) or type(exc).__name__)
         return False
+
+
+def envia_aviso(texto: str, *, transport: httpx.BaseTransport | None = None) -> bool:
+    """Aviso generico (JEV ADS 02 S.8). Canal inactivo devuelve False y no
+    llama: a diferencia de los demas envios, inactivo no cuenta como entrega.
+    Fail-silent igual que el resto: un fallo de red es False y no levanta."""
+    if _config_canal() is None:
+        return False
+    return _envia_texto(texto, transport)
 
 
 # ---------------------------------------------------------------------------

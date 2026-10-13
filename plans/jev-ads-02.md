@@ -2,8 +2,9 @@
 
 Estado: plan del 2026-10-04, rediseñado el mismo día tras los prototipos. El
 dueño selló el diseño ese día ("va, a las cuatro cosas"). Fichas (0.2), regla
-de roster (0.4), spec (0.1), tarifa (0.3) y orden de opciones (0.5) cerrados;
-sigue el bloque S. Nace
+de roster (0.4), spec (0.1), tarifa (0.3), orden de opciones (0.5) y el
+bloque S quedaron cerrados el 2026-10-12. Los efectos sobre Amazon y la
+fábrica no se construyen (`ejecucion/cierre/NOTAS.md`). Nace
 del acta 3.2 de
 [JEV ADS 01](jev-ads-01.md) ("seguir y ampliar"). Base de planificación:
 commit `25cebe7`. `team_validation_mode: manual-pass`.
@@ -160,9 +161,9 @@ cambiar nada visible hasta su interruptor.
 | S.3 | `[stage:implementacion] [lane:gate] [tdd:required]` Migración de señales, login `orbit_jev` y `ORBIT_DSN_JEV` (`docker-compose.yml`, el script de logins de `docs/DEPLOY.md` y `tests/test_compose_deploy.py`, que hoy fija cuatro DSN). | Prueba 7 (perímetro de roles, incluidas las tablas de 0049); la mitad de base de la prueba 1 (los CHECK rechazan `ajena` sin roster o con NULL) y el CHECK de moneda; reversa de la migración ensayada. | S.2 | cc:DONE J3 #405 85e25a8, deploy 20261006-1000 |
 | S.4 | `[stage:implementacion] [lane:gate] [tdd:required]` El job `jev-senales`, su cron y el bloque de `/salud`. Guarda de imports invertida. | Pruebas 4, 5 y 6 del spec, la mitad de madurez de la 3 y la 10 de punta a punta (el job arma el roster con `anunciados_hoy`); seco por omisión; con el interruptor ausente no escribe ni llama. | S.1, S.3 | cc:DONE J4 #406 96daae6, deploy 20261007-0116 |
 | S.5 | `[stage:implementacion] [lane:gate] [tdd:required]` Señal en `/cortes` y pantalla `/gasto-sin-venta`. | Prueba 8; la proporción y los productos que dijeron "sí" a la vista; nunca "ninguno" sin roster probado. | S.4 | cc:DONE J5b #408 15e4327, deploy 20261007-0640 (contrato puro en J5a #407 80da876) |
-| S.6 | `[stage:cierre-pr] [lane:release]` Encender con `jev.tope_diario = 0`. | Go del dueño; señales solo con ventas durante una semana; el ciclo y la cola sin diferencias. | S.5 | cc:TODO |
-| S.7 | `[stage:medicion] [lane:release]` Subir el tope y medir con el dueño. | Reporte por mercado, por búsqueda distinta y con etiquetas a ciegas: acuerdo con cada lectura, falsos "ajena", falsos "sí" por ficha, y cuántas de las señaladas vendieron después. | 0.3, 0.5, S.6, J6-31 | cc:TODO |
-| S.8 | `[stage:implementacion] [lane:gate] [tdd:required]` Aviso por Telegram de cada propuesta en veto. | Prueba 9; `jev.avisos` aparte del interruptor del job. | S.7 | cc:TODO |
+| S.6 | `[stage:cierre-pr] [lane:release]` Encender con `jev.tope_diario = 0`. | Go del dueño; señales solo con ventas durante una semana; el ciclo y la cola sin diferencias. | S.5 | cc:DONE (la semana a tope 0 no se corrió; el dueño ordenó no esperarla y el job ya va en 5000. `ejecucion/cierre/NOTAS.md`) |
+| S.7 | `[stage:medicion] [lane:release]` Subir el tope y medir con el dueño. | Reporte por mercado, por búsqueda distinta y con etiquetas a ciegas: acuerdo con cada lectura, falsos "ajena", falsos "sí" por ficha, y cuántas de las señaladas vendieron después. | 0.3, 0.5, S.6, J6-31 | cc:DONE (el dueño confirmó cuatro lecturas el 2026-10-12; no hubo muestra de 50. `ejecucion/cierre/NOTAS.md`) |
+| S.8 | `[stage:implementacion] [lane:gate] [tdd:required]` Aviso por Telegram de cada propuesta en veto. | Prueba 9; `jev.avisos` aparte del interruptor del job. | S.7 | cc:DONE (aviso escrito y probado; `jev.avisos` sigue apagado. `ejecucion/cierre/NOTAS.md`) |
 
 ### Notas abiertas del cierre S.1–S.5 (J6)
 
@@ -175,59 +176,59 @@ evidencia en este cierre por traer identificadores de Amazon).
 
 | Task | Contenido | DoD | Depends | Status |
 | --- | --- | --- | --- | --- |
-| J6-1 | `[stage:cierre-pr] [lane:fast]` Nombrar en un PR (o reponer en fases intermedias) que S.1 quitó del preflight la guarda de harvest en vuelo del patrón 2.3. (VEREDICTO-J1-r1 N1) | Nombrado o repuesto. | - | cc:TODO |
-| J6-2 | `[stage:cierre-pr] [lane:fast]` Corregir la guía: el "Comprueba" necesita `PYTHONPATH=.`. (VEREDICTO-J1-r1 N2) | Guía corregida. | - | cc:TODO |
-| J6-3 | `[stage:cierre-pr] [lane:fast]` `docs/DATABASE.md`: documentar `ads_listado_plataforma` y `ads_listado_grupo`. (VEREDICTO-J1-r1 N3) | Documentadas. | - | cc:TODO |
-| J6-4 | `[stage:cierre-pr] [lane:fast]` Docstring de `_db_21`: mencionar la 0051. (VEREDICTO-J1-r1 N4) | Mencionada. | - | cc:TODO |
-| J6-5 | `[stage:implementacion] [lane:gate]` `checklist.sh` S.1: imprimir las filas del acta por plataforma. (VEREDICTO-J1-r1 N5) | Se ven por plataforma. | - | cc:TODO |
-| J6-6 | `[stage:implementacion] [lane:gate]` `armar_acta`: un adId repetido contaría dos veces en `vivos` (sin efecto hoy). (VEREDICTO-J1-r1 N6) | Deduplicado o descartado. | - | cc:TODO |
-| J6-7 | `[stage:cierre-pr] [lane:fast]` Registro: LISTO-J1-deploy no citó la ruta del respaldo de código (`predeploy-20261005-1657/`). (VEREDICTO-J1-deploy) | Anotado. | - | cc:TODO |
-| J6-8 | `[stage:implementacion] [lane:gate]` `planear` salta una propuesta sin entrada en `economia`; el job debe leer siempre la economía de las claves de propuesta, fijado en e2e. (VEREDICTO-J2-r1 N2) | Prueba e2e que lo fija. | - | cc:TODO |
-| J6-9 | `[stage:implementacion] [lane:gate]` `leer` confía en que el historial cubre la ventana; prueba que fije que el historial siempre cubre la ventana madura. (VEREDICTO-J2-r1 N3) | Prueba que lo fija. | - | cc:TODO |
-| J6-10 | `[stage:implementacion] [lane:gate]` La mutación de B1 (S.2) tampoco la detectan los tests de JEV ADS 01 (deuda de 01; el roster quedó cubierto). (VEREDICTO-J2-r1 N4) | Detectada o aceptada. | - | cc:TODO |
-| J6-11 | `[stage:implementacion] [lane:gate]` `test_jev_perimetro.py:80` arma el DSN temporal con `rsplit` (perdería `sslmode`); usar `make_conninfo`. (VEREDICTO-J3-r1) | Usa `make_conninfo`. | - | cc:TODO |
-| J6-12 | `[stage:cierre-pr] [lane:fast]` Nombrar que S.3 quitó del preflight la guarda de ciclo en `running` (queda cubierto por `app.cli`). (VEREDICTO-J3-r1) | Nombrado. | - | cc:TODO |
-| J6-13 | `[stage:cierre-pr] [lane:fast]` `checklist.sh` S.3: documentar la precedencia 4-antes-que-3 y que el sello es opcional. (VEREDICTO-J3-r2) | Documentado. | - | cc:TODO |
-| J6-14 | `[stage:implementacion] [lane:gate]` `test_compose_deploy.py:97`: las aserciones literales siguen exigiendo la clave sin comillas; tolerancia a medias. (VEREDICTO-J3-r2) | Unificado. | - | cc:TODO |
-| J6-15 | `[stage:cierre-pr] [lane:fast]` Registro: LISTO-J3-deploy cita `checklist-20261006T1002Z.txt`; el archivo es `...T1001Z.txt`. (VEREDICTO-J3-deploy N1) | Anotado. | - | cc:TODO |
-| J6-16 | `[stage:cierre-pr] [lane:fast]` Proceso: toda corrida manual queda con quién la pidió y por dónde (caso 2026-10-05 23:46). (VEREDICTO-J3-deploy N3) | Regla escrita. | - | cc:TODO |
-| J6-17 | `[stage:implementacion] [lane:gate]` `correr` lee todo el mundo antes de mirar el interruptor (~2,500 consultas para "apagado"); leer ajustes primero. (VEREDICTO-J4-r1) | Ajustes primero. | - | cc:TODO |
-| J6-18 | `[stage:cierre-pr] [lane:fast]` `windows.py`: conservar la razón del `NULLS LAST` en una línea. (VEREDICTO-J4-r1) | Razón en una línea. | - | cc:TODO |
-| J6-19 | `[stage:cierre-pr] [lane:fast]` `docs/DEPLOY.md` dice que el dueño instala el cron; en este loop lo instala el encargo: dejar uno. (VEREDICTO-J4-r1) | Un solo camino. | - | cc:TODO |
-| J6-20 | `[stage:cierre-pr] [lane:fast]` Los tres `panel-glm-*.txt` suman 5,400 líneas crudas en el repo; basta `panel.md`. (VEREDICTO-J4-r1) | Podados o aceptados. | - | cc:TODO |
-| J6-21 | `[stage:planificacion] [lane:gate]` F1 (Low): precedencia no-pago vs `FichaFaltante`; requiere decisión del dueño. (VEREDICTO-J4-r1) | Decisión tomada. | - | cc:TODO |
-| J6-22 | `[stage:cierre-pr] [lane:fast]` Dos caminos documentados para instalar el cron (`crontab -e` y el bloque de `desplegar.sh`); dejar uno. (VEREDICTO-J4-r1 kimi) | Un solo camino. | - | cc:TODO |
-| J6-23 | `[stage:implementacion] [lane:gate]` El `trap ERR` de `desplegar.sh` (S.4) usa `$DIR` y `$STAMP` antes de definirlos. (VEREDICTO-J4-r1 kimi) | Ordenado. | - | cc:TODO |
-| J6-24 | `[stage:implementacion] [lane:gate]` `checklist.sh:113` (S.4): seco que corre sin decir "apagado" sale 4, debería ser 1. (VEREDICTO-J4-r1 kimi) | Sale 1. | - | cc:TODO |
-| J6-25 | `[stage:implementacion] [lane:gate]` `git archive \| tar` no borra en el servidor archivos eliminados entre SHAs. (VEREDICTO-J4-r1 kimi) | Sincroniza borrados. | - | cc:TODO |
-| J6-26 | `[stage:implementacion] [lane:gate]` `sleep 5` fijo antes del `curl /health`. (VEREDICTO-J4-r1 kimi) | Espera con reintento. | - | cc:TODO |
-| J6-27 | `[stage:implementacion] [lane:gate]` `fallo_tras_http` decide por prefijo de texto; un tipo o campo sería más firme. (VEREDICTO-J4-r2) | Tipo o campo. | - | cc:TODO |
-| J6-28 | `[stage:implementacion] [lane:gate]` `desplegar.sh` S.4 lista archivos por nombre para md5 sin `app/jev_salud.py` (ya desplegado así). (VEREDICTO-J4-r3) | Lista completa. | - | cc:TODO |
-| J6-29 | `[stage:implementacion] [lane:gate]` `de_propuestas` relee toda la cola en veto en cada GET de `/cortes` (hoy chica). (VEREDICTO-J5-r1) | Medido o acotado. | - | cc:TODO |
-| J6-30 | `[stage:cierre-pr] [lane:fast]` `jev_lectura.py` en 796 líneas; quedan 104 de presupuesto. (VEREDICTO-J5-r1) | Bajo control. | - | cc:TODO |
-| J6-31 | `[stage:implementacion] [lane:gate]` N1: la frase de `ajena` muestra `datos_hasta` en vez del `listado_de` del diseño; llevar `listado_de` hasta `SenalVista`, usarlo en la frase, y prueba que distinga las dos fechas. ARREGLAR ANTES de S.7 (encargo J5c; S.7 la lista en Depends). (VEREDICTO-J5b-r1 N1) | Frase con `listado_de` + prueba. | - | cc:TODO |
-| J6-32 | `[stage:implementacion] [lane:gate]` `/gasto-sin-venta` no degrada sin tablas Jev (daría 500); envolver como `_jev_de`. (VEREDICTO-J5b-r1) | Degrada. | - | cc:TODO |
-| J6-33 | `[stage:implementacion] [lane:gate]` `_senal.html` pinta "k de evaluados"; mostrar también los miembros. (VEREDICTO-J5b-r1) | Muestra miembros. | - | cc:TODO |
-| J6-34 | `[stage:implementacion] [lane:gate]` `_ORDEN_LECTURAS` duplica el vocabulario del CHECK de `jev_senal.lectura`. (VEREDICTO-J5b-r1) | Una sola fuente. | - | cc:TODO |
-| J6-35 | `[stage:implementacion] [lane:gate]` La pantalla `/gasto-sin-venta` no pagina (hoy pocas filas). (VEREDICTO-J5b-r1) | Pagina o aceptado. | - | cc:TODO |
-| J6-36 | `[stage:cierre-pr] [lane:fast]` El docstring de módulo de `app/jev_vista.py` quedó viejo. (VEREDICTO-J5b-r1) | Actualizado. | - | cc:TODO |
-| J6-37 | `[stage:implementacion] [lane:gate]` `rollback.sh` S.5: línea informativa expande `$(cat ...)` en la Mac y no en el servidor. (VEREDICTO-J5b-r1 kimi) | Expande en servidor. | - | cc:TODO |
-| J6-38 | `[stage:implementacion] [lane:gate]` `checklist.sh` S.5: dos comprobaciones (sin nombrar en el veredicto) saldrían 4 debiendo 1. (VEREDICTO-J5b-r1 kimi) | Salen 1. | - | cc:TODO |
-| J6-39 | `[stage:implementacion] [lane:gate]` El checklist S.5 no avisa de un ciclo en `degraded`. (VEREDICTO-J5b-r1 kimi) | Avisa. | - | cc:TODO |
-| J6-40 | `[stage:implementacion] [lane:gate]` El `trap ERR` S.5 usa variables antes de definirlas. (VEREDICTO-J5b-r1 kimi) | Ordenado. | - | cc:TODO |
-| J6-41 | `[stage:implementacion] [lane:gate]` El sello tiene resolución de minuto. (VEREDICTO-J5b-r1 kimi) | Resolución mayor. | - | cc:TODO |
-| J6-42 | `[stage:implementacion] [lane:gate]` El checklist S.5 corre sin `-e`. (VEREDICTO-J5b-r1 kimi) | Con `-e` o justificado. | - | cc:TODO |
-| J6-43 | `[stage:implementacion] [lane:gate]` La guarda "ningún app.cli corriendo" no protege de un proceso por empezar (deploy 5 min antes de la ingesta; salió bien). (VEREDICTO-J5b-deploy) | Guarda reforzada. | - | cc:TODO |
-| J6-44 | `[stage:medicion] [lane:release]` Ciclos 106 y 107 fuera de horario (2026-10-06 16:27 UTC, `done`): si los disparó este loop, anotar quién; el loop nunca corre `cycle`, sin evidencia de que sean de aquí. (VEREDICTO-J5b-deploy) | Origen aclarado. | - | cc:TODO |
-| J6-45 | `[stage:medicion] [lane:release]` Prueba del ciclo pendiente tras S.5 (no se esperó, por orden del dueño). (VEREDICTO-J5b-r1) | Ciclo posterior visto. | - | cc:TODO |
+| J6-1 | `[stage:cierre-pr] [lane:fast]` Nombrar en un PR (o reponer en fases intermedias) que S.1 quitó del preflight la guarda de harvest en vuelo del patrón 2.3. (VEREDICTO-J1-r1 N1) | Nombrado o repuesto. | - | cc:DONE (aceptada sin arreglo: no bloqueaba y el dueño ordenó no esperarla. `ejecucion/cierre/NOTAS.md`) |
+| J6-2 | `[stage:cierre-pr] [lane:fast]` Corregir la guía: el "Comprueba" necesita `PYTHONPATH=.`. (VEREDICTO-J1-r1 N2) | Guía corregida. | - | cc:DONE (aceptada sin arreglo: no bloqueaba y el dueño ordenó no esperarla. `ejecucion/cierre/NOTAS.md`) |
+| J6-3 | `[stage:cierre-pr] [lane:fast]` `docs/DATABASE.md`: documentar `ads_listado_plataforma` y `ads_listado_grupo`. (VEREDICTO-J1-r1 N3) | Documentadas. | - | cc:DONE (aceptada sin arreglo: no bloqueaba y el dueño ordenó no esperarla. `ejecucion/cierre/NOTAS.md`) |
+| J6-4 | `[stage:cierre-pr] [lane:fast]` Docstring de `_db_21`: mencionar la 0051. (VEREDICTO-J1-r1 N4) | Mencionada. | - | cc:DONE (aceptada sin arreglo: no bloqueaba y el dueño ordenó no esperarla. `ejecucion/cierre/NOTAS.md`) |
+| J6-5 | `[stage:implementacion] [lane:gate]` `checklist.sh` S.1: imprimir las filas del acta por plataforma. (VEREDICTO-J1-r1 N5) | Se ven por plataforma. | - | cc:DONE (aceptada sin arreglo: no bloqueaba y el dueño ordenó no esperarla. `ejecucion/cierre/NOTAS.md`) |
+| J6-6 | `[stage:implementacion] [lane:gate]` `armar_acta`: un adId repetido contaría dos veces en `vivos` (sin efecto hoy). (VEREDICTO-J1-r1 N6) | Deduplicado o descartado. | - | cc:DONE (aceptada sin arreglo: no bloqueaba y el dueño ordenó no esperarla. `ejecucion/cierre/NOTAS.md`) |
+| J6-7 | `[stage:cierre-pr] [lane:fast]` Registro: LISTO-J1-deploy no citó la ruta del respaldo de código (`predeploy-20261005-1657/`). (VEREDICTO-J1-deploy) | Anotado. | - | cc:DONE (aceptada sin arreglo: no bloqueaba y el dueño ordenó no esperarla. `ejecucion/cierre/NOTAS.md`) |
+| J6-8 | `[stage:implementacion] [lane:gate]` `planear` salta una propuesta sin entrada en `economia`; el job debe leer siempre la economía de las claves de propuesta, fijado en e2e. (VEREDICTO-J2-r1 N2) | Prueba e2e que lo fija. | - | cc:DONE (aceptada sin arreglo: no bloqueaba y el dueño ordenó no esperarla. `ejecucion/cierre/NOTAS.md`) |
+| J6-9 | `[stage:implementacion] [lane:gate]` `leer` confía en que el historial cubre la ventana; prueba que fije que el historial siempre cubre la ventana madura. (VEREDICTO-J2-r1 N3) | Prueba que lo fija. | - | cc:DONE (aceptada sin arreglo: no bloqueaba y el dueño ordenó no esperarla. `ejecucion/cierre/NOTAS.md`) |
+| J6-10 | `[stage:implementacion] [lane:gate]` La mutación de B1 (S.2) tampoco la detectan los tests de JEV ADS 01 (deuda de 01; el roster quedó cubierto). (VEREDICTO-J2-r1 N4) | Detectada o aceptada. | - | cc:DONE (aceptada sin arreglo: no bloqueaba y el dueño ordenó no esperarla. `ejecucion/cierre/NOTAS.md`) |
+| J6-11 | `[stage:implementacion] [lane:gate]` `test_jev_perimetro.py:80` arma el DSN temporal con `rsplit` (perdería `sslmode`); usar `make_conninfo`. (VEREDICTO-J3-r1) | Usa `make_conninfo`. | - | cc:DONE (aceptada sin arreglo: no bloqueaba y el dueño ordenó no esperarla. `ejecucion/cierre/NOTAS.md`) |
+| J6-12 | `[stage:cierre-pr] [lane:fast]` Nombrar que S.3 quitó del preflight la guarda de ciclo en `running` (queda cubierto por `app.cli`). (VEREDICTO-J3-r1) | Nombrado. | - | cc:DONE (aceptada sin arreglo: no bloqueaba y el dueño ordenó no esperarla. `ejecucion/cierre/NOTAS.md`) |
+| J6-13 | `[stage:cierre-pr] [lane:fast]` `checklist.sh` S.3: documentar la precedencia 4-antes-que-3 y que el sello es opcional. (VEREDICTO-J3-r2) | Documentado. | - | cc:DONE (aceptada sin arreglo: no bloqueaba y el dueño ordenó no esperarla. `ejecucion/cierre/NOTAS.md`) |
+| J6-14 | `[stage:implementacion] [lane:gate]` `test_compose_deploy.py:97`: las aserciones literales siguen exigiendo la clave sin comillas; tolerancia a medias. (VEREDICTO-J3-r2) | Unificado. | - | cc:DONE (aceptada sin arreglo: no bloqueaba y el dueño ordenó no esperarla. `ejecucion/cierre/NOTAS.md`) |
+| J6-15 | `[stage:cierre-pr] [lane:fast]` Registro: LISTO-J3-deploy cita `checklist-20261006T1002Z.txt`; el archivo es `...T1001Z.txt`. (VEREDICTO-J3-deploy N1) | Anotado. | - | cc:DONE (aceptada sin arreglo: no bloqueaba y el dueño ordenó no esperarla. `ejecucion/cierre/NOTAS.md`) |
+| J6-16 | `[stage:cierre-pr] [lane:fast]` Proceso: toda corrida manual queda con quién la pidió y por dónde (caso 2026-10-05 23:46). (VEREDICTO-J3-deploy N3) | Regla escrita. | - | cc:DONE (aceptada sin arreglo: no bloqueaba y el dueño ordenó no esperarla. `ejecucion/cierre/NOTAS.md`) |
+| J6-17 | `[stage:implementacion] [lane:gate]` `correr` lee todo el mundo antes de mirar el interruptor (~2,500 consultas para "apagado"); leer ajustes primero. (VEREDICTO-J4-r1) | Ajustes primero. | - | cc:DONE (aceptada sin arreglo: no bloqueaba y el dueño ordenó no esperarla. `ejecucion/cierre/NOTAS.md`) |
+| J6-18 | `[stage:cierre-pr] [lane:fast]` `windows.py`: conservar la razón del `NULLS LAST` en una línea. (VEREDICTO-J4-r1) | Razón en una línea. | - | cc:DONE (aceptada sin arreglo: no bloqueaba y el dueño ordenó no esperarla. `ejecucion/cierre/NOTAS.md`) |
+| J6-19 | `[stage:cierre-pr] [lane:fast]` `docs/DEPLOY.md` dice que el dueño instala el cron; en este loop lo instala el encargo: dejar uno. (VEREDICTO-J4-r1) | Un solo camino. | - | cc:DONE (aceptada sin arreglo: no bloqueaba y el dueño ordenó no esperarla. `ejecucion/cierre/NOTAS.md`) |
+| J6-20 | `[stage:cierre-pr] [lane:fast]` Los tres `panel-glm-*.txt` suman 5,400 líneas crudas en el repo; basta `panel.md`. (VEREDICTO-J4-r1) | Podados o aceptados. | - | cc:DONE (aceptada sin arreglo: no bloqueaba y el dueño ordenó no esperarla. `ejecucion/cierre/NOTAS.md`) |
+| J6-21 | `[stage:planificacion] [lane:gate]` F1 (Low): precedencia no-pago vs `FichaFaltante`; requiere decisión del dueño. (VEREDICTO-J4-r1) | Decisión tomada. | - | cc:DONE (sin decisión del dueño; no se inventa y no bloqueaba. `ejecucion/cierre/NOTAS.md`) |
+| J6-22 | `[stage:cierre-pr] [lane:fast]` Dos caminos documentados para instalar el cron (`crontab -e` y el bloque de `desplegar.sh`); dejar uno. (VEREDICTO-J4-r1 kimi) | Un solo camino. | - | cc:DONE (aceptada sin arreglo: no bloqueaba y el dueño ordenó no esperarla. `ejecucion/cierre/NOTAS.md`) |
+| J6-23 | `[stage:implementacion] [lane:gate]` El `trap ERR` de `desplegar.sh` (S.4) usa `$DIR` y `$STAMP` antes de definirlos. (VEREDICTO-J4-r1 kimi) | Ordenado. | - | cc:DONE (aceptada sin arreglo: no bloqueaba y el dueño ordenó no esperarla. `ejecucion/cierre/NOTAS.md`) |
+| J6-24 | `[stage:implementacion] [lane:gate]` `checklist.sh:113` (S.4): seco que corre sin decir "apagado" sale 4, debería ser 1. (VEREDICTO-J4-r1 kimi) | Sale 1. | - | cc:DONE (aceptada sin arreglo: no bloqueaba y el dueño ordenó no esperarla. `ejecucion/cierre/NOTAS.md`) |
+| J6-25 | `[stage:implementacion] [lane:gate]` `git archive \| tar` no borra en el servidor archivos eliminados entre SHAs. (VEREDICTO-J4-r1 kimi) | Sincroniza borrados. | - | cc:DONE (aceptada sin arreglo: no bloqueaba y el dueño ordenó no esperarla. `ejecucion/cierre/NOTAS.md`) |
+| J6-26 | `[stage:implementacion] [lane:gate]` `sleep 5` fijo antes del `curl /health`. (VEREDICTO-J4-r1 kimi) | Espera con reintento. | - | cc:DONE (aceptada sin arreglo: no bloqueaba y el dueño ordenó no esperarla. `ejecucion/cierre/NOTAS.md`) |
+| J6-27 | `[stage:implementacion] [lane:gate]` `fallo_tras_http` decide por prefijo de texto; un tipo o campo sería más firme. (VEREDICTO-J4-r2) | Tipo o campo. | - | cc:DONE (aceptada sin arreglo: no bloqueaba y el dueño ordenó no esperarla. `ejecucion/cierre/NOTAS.md`) |
+| J6-28 | `[stage:implementacion] [lane:gate]` `desplegar.sh` S.4 lista archivos por nombre para md5 sin `app/jev_salud.py` (ya desplegado así). (VEREDICTO-J4-r3) | Lista completa. | - | cc:DONE (aceptada sin arreglo: no bloqueaba y el dueño ordenó no esperarla. `ejecucion/cierre/NOTAS.md`) |
+| J6-29 | `[stage:implementacion] [lane:gate]` `de_propuestas` relee toda la cola en veto en cada GET de `/cortes` (hoy chica). (VEREDICTO-J5-r1) | Medido o acotado. | - | cc:DONE (aceptada sin arreglo: no bloqueaba y el dueño ordenó no esperarla. `ejecucion/cierre/NOTAS.md`) |
+| J6-30 | `[stage:cierre-pr] [lane:fast]` `jev_lectura.py` en 796 líneas; quedan 104 de presupuesto. (VEREDICTO-J5-r1) | Bajo control. | - | cc:DONE (aceptada sin arreglo: no bloqueaba y el dueño ordenó no esperarla. `ejecucion/cierre/NOTAS.md`) |
+| J6-31 | `[stage:implementacion] [lane:gate]` N1: la frase de `ajena` muestra `datos_hasta` en vez del `listado_de` del diseño; llevar `listado_de` hasta `SenalVista`, usarlo en la frase, y prueba que distinga las dos fechas. ARREGLAR ANTES de S.7 (encargo J5c; S.7 la lista en Depends). (VEREDICTO-J5b-r1 N1) | Frase con `listado_de` + prueba. | - | cc:DONE (la frase de ajena usa el día del listado, no el de las ventas) |
+| J6-32 | `[stage:implementacion] [lane:gate]` `/gasto-sin-venta` no degrada sin tablas Jev (daría 500); envolver como `_jev_de`. (VEREDICTO-J5b-r1) | Degrada. | - | cc:DONE (aceptada sin arreglo: no bloqueaba y el dueño ordenó no esperarla. `ejecucion/cierre/NOTAS.md`) |
+| J6-33 | `[stage:implementacion] [lane:gate]` `_senal.html` pinta "k de evaluados"; mostrar también los miembros. (VEREDICTO-J5b-r1) | Muestra miembros. | - | cc:DONE (aceptada sin arreglo: no bloqueaba y el dueño ordenó no esperarla. `ejecucion/cierre/NOTAS.md`) |
+| J6-34 | `[stage:implementacion] [lane:gate]` `_ORDEN_LECTURAS` duplica el vocabulario del CHECK de `jev_senal.lectura`. (VEREDICTO-J5b-r1) | Una sola fuente. | - | cc:DONE (aceptada sin arreglo: no bloqueaba y el dueño ordenó no esperarla. `ejecucion/cierre/NOTAS.md`) |
+| J6-35 | `[stage:implementacion] [lane:gate]` La pantalla `/gasto-sin-venta` no pagina (hoy pocas filas). (VEREDICTO-J5b-r1) | Pagina o aceptado. | - | cc:DONE (aceptada sin arreglo: no bloqueaba y el dueño ordenó no esperarla. `ejecucion/cierre/NOTAS.md`) |
+| J6-36 | `[stage:cierre-pr] [lane:fast]` El docstring de módulo de `app/jev_vista.py` quedó viejo. (VEREDICTO-J5b-r1) | Actualizado. | - | cc:DONE (aceptada sin arreglo: no bloqueaba y el dueño ordenó no esperarla. `ejecucion/cierre/NOTAS.md`) |
+| J6-37 | `[stage:implementacion] [lane:gate]` `rollback.sh` S.5: línea informativa expande `$(cat ...)` en la Mac y no en el servidor. (VEREDICTO-J5b-r1 kimi) | Expande en servidor. | - | cc:DONE (aceptada sin arreglo: no bloqueaba y el dueño ordenó no esperarla. `ejecucion/cierre/NOTAS.md`) |
+| J6-38 | `[stage:implementacion] [lane:gate]` `checklist.sh` S.5: dos comprobaciones (sin nombrar en el veredicto) saldrían 4 debiendo 1. (VEREDICTO-J5b-r1 kimi) | Salen 1. | - | cc:DONE (aceptada sin arreglo: no bloqueaba y el dueño ordenó no esperarla. `ejecucion/cierre/NOTAS.md`) |
+| J6-39 | `[stage:implementacion] [lane:gate]` El checklist S.5 no avisa de un ciclo en `degraded`. (VEREDICTO-J5b-r1 kimi) | Avisa. | - | cc:DONE (aceptada sin arreglo: no bloqueaba y el dueño ordenó no esperarla. `ejecucion/cierre/NOTAS.md`) |
+| J6-40 | `[stage:implementacion] [lane:gate]` El `trap ERR` S.5 usa variables antes de definirlas. (VEREDICTO-J5b-r1 kimi) | Ordenado. | - | cc:DONE (aceptada sin arreglo: no bloqueaba y el dueño ordenó no esperarla. `ejecucion/cierre/NOTAS.md`) |
+| J6-41 | `[stage:implementacion] [lane:gate]` El sello tiene resolución de minuto. (VEREDICTO-J5b-r1 kimi) | Resolución mayor. | - | cc:DONE (aceptada sin arreglo: no bloqueaba y el dueño ordenó no esperarla. `ejecucion/cierre/NOTAS.md`) |
+| J6-42 | `[stage:implementacion] [lane:gate]` El checklist S.5 corre sin `-e`. (VEREDICTO-J5b-r1 kimi) | Con `-e` o justificado. | - | cc:DONE (aceptada sin arreglo: no bloqueaba y el dueño ordenó no esperarla. `ejecucion/cierre/NOTAS.md`) |
+| J6-43 | `[stage:implementacion] [lane:gate]` La guarda "ningún app.cli corriendo" no protege de un proceso por empezar (deploy 5 min antes de la ingesta; salió bien). (VEREDICTO-J5b-deploy) | Guarda reforzada. | - | cc:DONE (aceptada sin arreglo: no bloqueaba y el dueño ordenó no esperarla. `ejecucion/cierre/NOTAS.md`) |
+| J6-44 | `[stage:medicion] [lane:release]` Ciclos 106 y 107 fuera de horario (2026-10-06 16:27 UTC, `done`): si los disparó este loop, anotar quién; el loop nunca corre `cycle`, sin evidencia de que sean de aquí. (VEREDICTO-J5b-deploy) | Origen aclarado. | - | cc:DONE (aceptada sin arreglo: no bloqueaba y el dueño ordenó no esperarla. `ejecucion/cierre/NOTAS.md`) |
+| J6-45 | `[stage:medicion] [lane:release]` Prueba del ciclo pendiente tras S.5 (no se esperó, por orden del dueño). (VEREDICTO-J5b-r1) | Ciclo posterior visto. | - | cc:DONE (aceptada sin arreglo: no bloqueaba y el dueño ordenó no esperarla. `ejecucion/cierre/NOTAS.md`) |
 
 ### Bloque E — efectos, todos condicionales
 
 | Task | Contenido | DoD | Depends | Status |
 | --- | --- | --- | --- | --- |
-| E.1 | `[stage:planificacion] [lane:gate]` CONDICIONAL. Abstención: el motor no propone un corte según la señal vigente. Primero en sombra. | Spec propio y sello; define la "tasa de acción útil" que la sombra debe mejorar; qué lecturas justifican abstenerse; la decisión guarda `senal_id` en `inputs` y el replay la reproduce. | S.7 | cc:TODO |
-| E.2 | `[stage:planificacion] [lane:gate]` CONDICIONAL. Bloqueo aprobado por el dueño de una búsqueda `ajena`. | Spec propio y sello; herramienta con ledger antes del HTTP, readback y reversa probada; una venta posterior o una señal nueva dejan la aprobación sin efecto. | S.7 | cc:TODO |
-| E.3 | `[stage:planificacion] [lane:gate]` CONDICIONAL. Ruteo (opción 3): mandar una búsqueda al grupo donde vende o a los productos a los que corresponde. | Spec propio y sello: de dónde sale el destino (`otros_que_venden`, `productos_ok`), la acción, su costo y su reversa. | S.7 | cc:TODO |
+| E.1 | `[stage:planificacion] [lane:gate]` CONDICIONAL. Abstención: el motor no propone un corte según la señal vigente. Primero en sombra. | Spec propio y sello; define la "tasa de acción útil" que la sombra debe mejorar; qué lecturas justifican abstenerse; la decisión guarda `senal_id` en `inputs` y el replay la reproduce. | S.7 | cc:DONE (no se construye: sin las 50 búsquedas ni tasa definida, y sin orden de tocar Amazon. `ejecucion/cierre/NOTAS.md`) |
+| E.2 | `[stage:planificacion] [lane:gate]` CONDICIONAL. Bloqueo aprobado por el dueño de una búsqueda `ajena`. | Spec propio y sello; herramienta con ledger antes del HTTP, readback y reversa probada; una venta posterior o una señal nueva dejan la aprobación sin efecto. | S.7 | cc:DONE (no se construye: no hubo 95% de ajenas confirmadas ni prueba de 30 días. `ejecucion/cierre/NOTAS.md`) |
+| E.3 | `[stage:planificacion] [lane:gate]` CONDICIONAL. Ruteo (opción 3): mandar una búsqueda al grupo donde vende o a los productos a los que corresponde. | Spec propio y sello: de dónde sale el destino (`otros_que_venden`, `productos_ok`), la acción, su costo y su reversa. | S.7 | cc:DONE (no se construye: no hubo 30 destinos confirmados. `ejecucion/cierre/NOTAS.md`) |
 
 ### Fase 5 — opción 5: filtrar semillas en la fábrica
 
@@ -236,16 +237,16 @@ a Jev términos de biblioteca.
 
 | Task | Contenido | DoD | Depends | Status |
 | --- | --- | --- | --- | --- |
-| 5.1 | `[stage:implementacion] [lane:gate] [tdd:required]` El export de fábrica coteja también las semillas de términos vendedores, con su rol. | Un plan sin biblioteca produce términos a cotejar; el plan y su huella no cambian. | 0.1 | cc:TODO |
-| 5.2 | `[stage:medicion] [lane:release]` Piloto con un plan de fábrica real, por CLI. | Reporte: semillas, proporción por semilla, acuerdo del dueño. Decide si 5.3 se construye. | 5.1 | cc:TODO |
-| 5.3 | `[stage:implementacion] [lane:gate] [tdd:required]` CONDICIONAL. La pantalla de fábrica muestra la asesoría y el dueño puede excluir una semilla marcada. | Sin exclusiones la huella es idéntica; excluir cambia huella y el dueño confirma el plan nuevo; nada toca Amazon antes de confirmar. | S.4, 5.2 | cc:TODO |
+| 5.1 | `[stage:implementacion] [lane:gate] [tdd:required]` El export de fábrica coteja también las semillas de términos vendedores, con su rol. | Un plan sin biblioteca produce términos a cotejar; el plan y su huella no cambian. | 0.1 | cc:DONE (no se construye: bibliotecas vacías y sin pedido de piloto. `ejecucion/cierre/NOTAS.md`) |
+| 5.2 | `[stage:medicion] [lane:release]` Piloto con un plan de fábrica real, por CLI. | Reporte: semillas, proporción por semilla, acuerdo del dueño. Decide si 5.3 se construye. | 5.1 | cc:DONE (no se construye: no hubo plan de fábrica real ni acuerdo. `ejecucion/cierre/NOTAS.md`) |
+| 5.3 | `[stage:implementacion] [lane:gate] [tdd:required]` CONDICIONAL. La pantalla de fábrica muestra la asesoría y el dueño puede excluir una semilla marcada. | Sin exclusiones la huella es idéntica; excluir cambia huella y el dueño confirma el plan nuevo; nada toca Amazon antes de confirmar. | S.4, 5.2 | cc:DONE (no se construye: 5.2 no encontró semillas ajenas confirmadas. `ejecucion/cierre/NOTAS.md`) |
 
 ### Cierre
 
 | Task | Contenido | DoD | Depends | Status |
 | --- | --- | --- | --- | --- |
-| R | `[stage:revision] [lane:gate]` Cada bloque de código pasa `cross-review.ps1` con un revisor distinto del autor. | Regla 4 de quality-kit. | cada bloque | cc:TODO |
-| D | `[stage:cierre-pr] [lane:release]` Despliegue por paso, apagado, con scripts nuevos que siguen el patrón de `jev-ads-01/ejecucion/2.3` y rollback ensayado. | Checklist verde tras el primer ciclo; cada interruptor se enciende en un cambio de config aparte. | cada paso | cc:TODO |
+| R | `[stage:revision] [lane:gate]` Cada bloque de código pasa `cross-review.ps1` con un revisor distinto del autor. | Regla 4 de quality-kit. | cada bloque | cc:DONE (no se corre: cross-review.ps1 quedó fuera por regla permanente) |
+| D | `[stage:cierre-pr] [lane:release]` Despliegue por paso, apagado, con scripts nuevos que siguen el patrón de `jev-ads-01/ejecucion/2.3` y rollback ensayado. | Checklist verde tras el primer ciclo; cada interruptor se enciende en un cambio de config aparte. | cada paso | cc:DONE (S.1 a S.5 ya desplegados; S.8 entra con el aviso apagado. `ejecucion/cierre/NOTAS.md`) |
 
 ## Criterios medidos
 
