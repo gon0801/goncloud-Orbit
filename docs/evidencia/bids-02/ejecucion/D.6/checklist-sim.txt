@@ -1,0 +1,40 @@
+== 0) El servidor contesta
+MODO SIMULACION: base postgresql://orbit:orbit@127.0.0.1:5433/orbit_sim_d6, HTTP http://127.0.0.1:8012
+== Checklist D.6 (solo lectura; sello 20261013-0422)
+== 1) HTTP: /health
+OK    GET /health = 200
+== 2) Esquema: las cinco tablas existen (el dueno ya pudo lanzar)
+OK    tabla impulso = t
+OK    impulso antes = 0
+OK    tabla impulso_lectura = t
+OK    impulso_lectura antes = 0
+OK    tabla anuncio_retiro = t
+OK    anuncio_retiro antes = 0
+OK    tabla anuncio_reposicion = t
+OK    anuncio_reposicion antes = 0
+OK    tabla anuncio_retiro_intencion = t
+OK    anuncio_retiro_intencion antes = 0
+OK    columna fabrica_lote.pausado_por (0068) = t
+OK    app_admin DELETE en fabrica_lote (0070) = t
+OK    GRANT SELECT de v_impulso_estado a app_read y app_admin (0071) = t
+OK    candado de tipo del grupo del impulso (0072) = t
+== 3) La pantalla de productos responde en cada mercado
+OK    HTML productos-sin-clics amazon_mx = 200
+OK    HTML productos-sin-clics amazon_us = 200
+== 4) El crontab trae UNA linea impulso-vigia
+OK    lineas impulso-vigia = 1
+== 5) Vista previa del impulso con un candidato del dashboard (no escribe)
+NO MEDIDO vista previa del impulso (sin candidato con listings en MX)
+== 6) MUTATION_REQUEST_TYPES trae PUT /sp/productAds
+OK    PUT /sp/productAds en allowlist = true
+== 7) Las cinco tablas sin escrituras del checklist
+OK    impulso sin escrituras del checklist = 0
+OK    impulso_lectura sin escrituras del checklist = 0
+OK    anuncio_retiro sin escrituras del checklist = 0
+OK    anuncio_reposicion sin escrituras del checklist = 0
+OK    anuncio_retiro_intencion sin escrituras del checklist = 0
+== 8) JSON de la pantalla de busquedas por mercado, con la moneda de su mercado (R13-E)
+NO MEDIDO busquedas amazon_mx (falta docs/evidencia/bids-02/ejecucion/D.6/busquedas-amazon_mx.json)
+NO MEDIDO busquedas amazon_us (falta docs/evidencia/bids-02/ejecucion/D.6/busquedas-amazon_us.json)
+== RESULTADO: 0 falla(s), 3 sin medir
+exit=4
