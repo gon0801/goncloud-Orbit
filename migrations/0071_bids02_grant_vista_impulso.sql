@@ -3,8 +3,11 @@
 -- La 0065 creo la vista sin GRANT propio: hoy la leen app_read y
 -- app_admin solo por los default privileges del esquema. El GRANT
 -- queda declarado en una migracion, verificado en su bloque DO, en
--- vez de depender de ese default. La 0065 ya esta aplicada en
--- produccion y no se edita.
+-- vez de depender de ese default. Los roles app_ingest y app_decide
+-- conservan la lectura por el mismo default y no reciben grant
+-- declarado: ningun camino de codigo los conecta con esta vista, que
+-- solo lee la pantalla de productos con el rol de lectura. La 0065
+-- ya esta aplicada en produccion y no se edita.
 --
 -- La marca es el COMMENT de la vista: el privilegio solo no distingue
 -- si la 0071 ya corrio (en produccion la vista ya se lee por default

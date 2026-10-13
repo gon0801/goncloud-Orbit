@@ -7,7 +7,7 @@ listings distintos. Queda escrita en la decision 4 de
 
 ## Prueba primero
 
-`tests/test_impulso_io.py::test_r09g_tope_por_producto_previa_marca_y_lanza_rechaza_409`
+`tests/test_impulso_io.py::test_r09g_tope_por_producto_previa_marca_y_parcial`
 
 Comando:
 
@@ -20,7 +20,8 @@ ORBIT_TEST_DSN=postgresql://orbit:orbit@127.0.0.1:5433/postgres \
   mismo producto (`planes` con 2).
 - Despues: 1 passed. La previa marca el segundo no lanzable (en la
   misma solicitud y contra un vivo de otro listing) y `lanza` lo
-  rechaza con 409 sin crear impulso. Vecinos
+  deja como fallo del resultado parcial (502, tras R09-H) sin crear
+  impulso. Vecinos
   (`tests/test_impulso_io.py`, `tests/test_api_fabrica.py`):
   211 passed, 0 saltadas.
 
@@ -29,7 +30,8 @@ ORBIT_TEST_DSN=postgresql://orbit:orbit@127.0.0.1:5433/postgres \
 - `app/impulso_io.py`: `previsualiza` excluye el segundo listing de un
   producto ya presente en la vista y el de un producto con impulso
   vivo en otro listing. `lanza` suma el chequeo previo
-  `_rechaza_si_producto_con_vivo` (409 sin crear nada) y el chequeo
+  `_rechaza_si_producto_con_vivo` (sin crear nada; tras R09-H el
+  conflicto entra como fallo del parcial) y el chequeo
   bajo el advisory lock pasa de listing a producto
   (`_SQL_VIVO_PRODUCTO`). `_SQL_VIVO` (solo listing) se elimino.
 - `docs/superpowers/specs/2026-10-09-bids-02-design.md`: la decision

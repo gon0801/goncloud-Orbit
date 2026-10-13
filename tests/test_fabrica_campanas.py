@@ -3135,6 +3135,21 @@ def test_r14r3_sql_campanas_del_lote_respeta_el_orden_del_ledger():
 
 
 @_skip_db
+def test_r14r4_desarmar_un_lote_ya_desarmado_aborta_sin_puts(monkeypatch):
+    """R14-r4 F7: desarmar dos veces no repite los PUT ni engorda el
+    ledger: la segunda corrida aborta por el estado del lote."""
+    with db_fabrica("orbit_fc_r14r4_ya") as conn:
+        _lote_applied_orden_real(conn, lote="LI1")
+        conn.execute("UPDATE fabrica_lote SET estado = 'desarmado' WHERE lote = 'LI1'")
+        conn.commit()
+        amazon = _AmazonDesarme()
+        _frontera_mutacion(monkeypatch, conn, conn, amazon, stub_registrar=False)
+        with pytest.raises(fc.Abortar, match="desarmado"):
+            _corre_desarmar(monkeypatch, amazon)
+        assert amazon.puts == []
+
+
+@_skip_db
 def test_pausar_lote_rechaza_transiciones_ilegales():
     """I.3: desarmado nunca revive, pausar exige applied, reanudar exige
     pausado, lote ausente aborta."""

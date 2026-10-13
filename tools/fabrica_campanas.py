@@ -1834,6 +1834,8 @@ def _desarmar(args) -> int:
     http = None
     try:
         conn_admin = connect(_dsn_admin())
+        if _estado_lote(conn_admin, args.desarmar) == "desarmado":
+            raise Abortar(f"lote {args.desarmar} desarmado: nunca revive")
         filas = conn_admin.execute(_SQL_CAMPANAS_DEL_LOTE, (args.desarmar,)).fetchall()
         conn_admin.commit()
         if not filas:
