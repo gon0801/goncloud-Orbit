@@ -1,0 +1,166 @@
+"""Muestra, cupo y contrato invertido de tools/jev_orden_opciones.py."""
+
+from __future__ import annotations
+
+import pytest
+
+from app.jev_juicios import contrato_por_defecto
+from tools.jev_orden_opciones import (
+    Par,
+    accion_del_par,
+    clasificar,
+    contrato_invertido,
+    cupos,
+    elegir_muestra,
+    ids_de_fichas,
+    listo_para_pagar,
+    pares_de_censos,
+    permite_aplicar,
+)
+
+
+def _pares(relacion: str, n: int, prefijo: str) -> list[Par]:
+    return [Par(f"{prefijo}{i:04d}", "ficha", relacion) for i in range(n)]
+
+
+def test_contrato_invertido_cambia_orden_y_sha():
+    base = contrato_por_defecto()
+    invertido = contrato_invertido(base)
+    assert invertido.opciones == tuple(reversed(base.opciones))
+    assert invertido.criterios == tuple(reversed(base.criterios))
+    assert [criterio[0] for criterio in invertido.criterios] == list(invertido.opciones)
+    assert invertido.sha256() != base.sha256()
+    assert base.sha256() == "0fe322c8aa063997c65e101a8835e616cf00275dd022f0061e30ef227c7443e6"
+    assert invertido.sha256() == "9a155982ddacdb4445fa2f3444a56a3fc6b814e9a23bef520da55753e6b62700"
+
+
+def test_mitad_y_mitad_cuando_hay_de_las_dos():
+    pares = _pares("satisface", 20, "s") + _pares("no_satisface", 20, "n")
+    muestra = elegir_muestra(pares, 10)
+    assert sum(par.relacion == "satisface" for par in muestra) == 5
+    assert sum(par.relacion == "no_satisface" for par in muestra) == 5
+
+
+def test_el_impar_da_el_extra_a_satisface():
+    pares = _pares("satisface", 10, "s") + _pares("no_satisface", 10, "n")
+    muestra = elegir_muestra(pares, 5)
+    assert sum(par.relacion == "satisface" for par in muestra) == 3
+    assert sum(par.relacion == "no_satisface" for par in muestra) == 2
+
+
+def test_rellena_con_la_clase_que_sobra():
+    pares = _pares("satisface", 3, "s") + _pares("no_satisface", 20, "n")
+    muestra = elegir_muestra(pares, 10)
+    assert sum(par.relacion == "satisface" for par in muestra) == 3
+    assert sum(par.relacion == "no_satisface" for par in muestra) == 7
+
+
+def test_no_inventa_pares_si_no_alcanzan():
+    assert elegir_muestra([Par("a", "1", "satisface")], 100) == (Par("a", "1", "satisface"),)
+
+
+def test_ignora_la_abstencion():
+    pares = [Par("a", "1", "informacion_insuficiente"), Par("b", "1", "satisface")]
+    assert elegir_muestra(pares, 10) == (Par("b", "1", "satisface"),)
+
+
+def test_reparte_entre_terminos_y_el_orden_es_estable():
+    pares = [Par("aa", f"{i:04d}", "satisface") for i in range(30)]
+    pares += [Par(f"{i:02x}", "0000", "satisface") for i in range(1, 6)]
+    muestra = elegir_muestra(pares, 10)
+    assert len(muestra) == 10
+    assert len({par.termino_sha256 for par in muestra}) == 6
+    assert elegir_muestra(pares, 10) == muestra
+    ordenados = [
+        Par("bb", "2", "satisface"),
+        Par("aa", "2", "satisface"),
+        Par("aa", "1", "satisface"),
+    ]
+    assert elegir_muestra(ordenados, 3) == (
+        Par("aa", "1", "satisface"),
+        Par("bb", "2", "satisface"),
+        Par("aa", "2", "satisface"),
+    )
+
+
+def test_cupos_de_cien_son_mitad_y_mitad():
+    assert cupos(100, 1419, 1015) == (50, 50)
+
+
+def test_permite_aplicar_solo_con_tope_agotado():
+    assert permite_aplicar(50, 50) is True
+    assert permite_aplicar(80, 50) is True
+    assert permite_aplicar(49, 50) is False
+    assert permite_aplicar(0, 0) is False
+    assert permite_aplicar(10, 0) is False
+
+
+def test_sin_clave_o_con_cupo_abierto_no_paga():
+    assert (
+        listo_para_pagar(aplicar=True, api_key="", intenciones=50, tope=50, pendientes=100)
+        == "sin_api_key"
+    )
+    assert (
+        listo_para_pagar(aplicar=True, api_key="x", intenciones=0, tope=50, pendientes=100)
+        == "cupo_abierto"
+    )
+    assert (
+        listo_para_pagar(aplicar=True, api_key="x", intenciones=0, tope=None, pendientes=100)
+        == "cupo_abierto"
+    )
+    assert (
+        listo_para_pagar(aplicar=False, api_key="", intenciones=0, tope=50, pendientes=100)
+        == "seco"
+    )
+    assert (
+        listo_para_pagar(aplicar=True, api_key="x", intenciones=0, tope=50, pendientes=0)
+        == "completo"
+    )
+    assert (
+        listo_para_pagar(aplicar=True, api_key="x", intenciones=50, tope=50, pendientes=4)
+        == "pagar"
+    )
+
+
+def test_una_intencion_abierta_no_se_vuelve_a_pagar():
+    assert accion_del_par(False, True) == "abierta"
+    assert accion_del_par(True, True) == "saltar"
+    assert accion_del_par(True, False) == "saltar"
+    assert accion_del_par(False, False) == "pagar"
+
+
+def test_clasificar_separa_cambio_abstencion_y_fallo():
+    assert clasificar("satisface", "no_satisface", fallo=False) == "cambio"
+    assert clasificar("no_satisface", "satisface", fallo=False) == "cambio"
+    assert clasificar("satisface", "satisface", fallo=False) == "igual"
+    assert clasificar("satisface", "informacion_insuficiente", fallo=False) == "abstencion"
+    assert clasificar("satisface", None, fallo=True) == "fallo"
+    assert clasificar("satisface", None, fallo=False) == "sin_respuesta"
+
+
+def test_ids_de_fichas_sin_duplicados():
+    pares = (
+        Par("a", "f2", "satisface"),
+        Par("b", "f1", "no_satisface"),
+        Par("c", "f2", "satisface"),
+    )
+    assert ids_de_fichas(pares) == ["f1", "f2"]
+
+
+def test_pares_de_censos_rechaza_otro_experimento():
+    with pytest.raises(ValueError, match="orden_opciones"):
+        pares_de_censos({"experimento": "otro", "pares": [{"a": 1}]})
+
+
+def test_pares_de_censos_lee_la_muestra_congelada():
+    censos = {
+        "experimento": "orden_opciones",
+        "pares": [
+            {
+                "termino_sha256": "aa",
+                "ficha_version_id": "f1",
+                "relacion_normal": "no_satisface",
+            }
+        ],
+    }
+    assert pares_de_censos(censos) == (Par("aa", "f1", "no_satisface"),)
