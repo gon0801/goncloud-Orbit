@@ -54,7 +54,7 @@ base 83d2d73.
 - Bases de simulacion de rondas anteriores (orbit_sim_d5,
   orbit_sim_d6 y otras) dejan el rol app_jev con objetos vivos y la
   prueba test_reversa_deja_la_base_como_0001 falla en este cluster
-  local; en CI, con Postgres fresco, no pasa. Las dos bases de esta
+  local; en CI, con Postgres fresco, esa falla no ocurre. Las dos bases de esta
   ronda (orbit_sim_d7 y orbit_copia_d7) ya se borraron.
 - El sello de despliegue tiene precision de minuto y un ensayo y un
   despliegue dentro del mismo minuto comparten respaldo; patron
