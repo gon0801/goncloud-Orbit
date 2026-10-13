@@ -1560,7 +1560,7 @@ def gasto_sin_venta(conn: ConexionLectura, plataforma: str | None = None) -> dic
     for cruda in base["filas"]:
         fila = _senal_presentada_vista(cruda)
         economia = dict(fila.get("economia") or {})
-        for parte in ("aqui", "historial"):
+        for parte in ("aqui",):
             if economia.get(parte) and economia[parte].get("gasto") is not None:
                 economia[parte] = {
                     **economia[parte],
