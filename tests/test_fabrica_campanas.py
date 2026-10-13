@@ -3031,6 +3031,95 @@ def test_r14r2_desarmar_no_duplica_pasos_por_rol(monkeypatch):
             conn2.close()
 
 
+class _AmazonDesarmeTimeout(_AmazonDesarme):
+    def __call__(self, request):
+        if request.method == "PUT":
+            self.puts.append(request)
+            raise httpx.ReadTimeout("t", request=request)
+        return super().__call__(request)
+
+
+def _pasos_del_desarme(conn, lote="LI1"):
+    return conn.execute(
+        "SELECT orden, estado, readback_estado FROM fabrica_lote_paso"
+        " WHERE lote = %s ORDER BY orden",
+        (lote,),
+    ).fetchall()
+
+
+@_skip_db
+def test_r14r3_desarmar_con_put_timeout_sella_el_paso_failed(monkeypatch):
+    """R14-r3 B2: el PUT que levanta por timeout deja el paso failed."""
+    with db_fabrica("orbit_fc_r14r3_timeout") as conn:
+        _lote_applied_orden_real(conn, lote="LI1")
+        dsn = _dsn_propia(conn)
+        dbname = conn.info.dbname
+        amazon = _AmazonDesarmeTimeout()
+        _frontera_mutacion(monkeypatch, conn, conn, amazon, stub_registrar=False)
+        with pytest.raises(fc.Abortar, match="INCERTO"):
+            _corre_desarmar(monkeypatch, amazon)
+        conn2 = psycopg.connect(dsn, dbname=dbname)
+        try:
+            filas = _pasos_del_desarme(conn2)
+            assert filas[:2] == [(1, "applied", "ENABLED"), (2, "applied", "ENABLED")]
+            assert filas[2][1] == "failed"
+            assert conn2.execute(
+                "SELECT estado FROM fabrica_lote WHERE lote = 'LI1'"
+            ).fetchone() == ("applied",)
+        finally:
+            conn2.close()
+
+
+@_skip_db
+def test_r14r3_desarmar_con_readback_distinto_sella_el_paso_failed(monkeypatch):
+    """R14-r3 B2: el readback que no vuelve PAUSED deja su estado."""
+    with db_fabrica("orbit_fc_r14r3_readback") as conn:
+        _lote_applied_orden_real(conn, lote="LI1")
+        dsn = _dsn_propia(conn)
+        dbname = conn.info.dbname
+        amazon = _AmazonDesarme(estado_readback="ENABLED")
+        _frontera_mutacion(monkeypatch, conn, conn, amazon, stub_registrar=False)
+        with pytest.raises(fc.Abortar, match="readback"):
+            _corre_desarmar(monkeypatch, amazon)
+        conn2 = psycopg.connect(dsn, dbname=dbname)
+        try:
+            filas = _pasos_del_desarme(conn2)
+            assert filas[2][1] == "failed"
+            assert filas[2][2] == "ENABLED"
+            assert conn2.execute(
+                "SELECT estado FROM fabrica_lote WHERE lote = 'LI1'"
+            ).fetchone() == ("applied",)
+        finally:
+            conn2.close()
+
+
+@_skip_db
+def test_r14r3_desarmar_con_readback_que_levanta_sella_el_paso_failed(monkeypatch):
+    """R14-r3 B2: si el readback levanta, el paso no queda planeado."""
+    with db_fabrica("orbit_fc_r14r3_rblevanta") as conn:
+        _lote_applied_orden_real(conn, lote="LI1")
+        dsn = _dsn_propia(conn)
+        dbname = conn.info.dbname
+        amazon = _AmazonDesarme()
+        _frontera_mutacion(monkeypatch, conn, conn, amazon, stub_registrar=False)
+
+        def _truena(*args, **kwargs):
+            raise RuntimeError("lectura caida")
+
+        monkeypatch.setattr(fc, "_readback", _truena)
+        with pytest.raises(fc.Abortar, match="readback"):
+            _corre_desarmar(monkeypatch, amazon)
+        conn2 = psycopg.connect(dsn, dbname=dbname)
+        try:
+            filas = _pasos_del_desarme(conn2)
+            assert filas[2][1] == "failed"
+            assert conn2.execute(
+                "SELECT estado FROM fabrica_lote WHERE lote = 'LI1'"
+            ).fetchone() == ("applied",)
+        finally:
+            conn2.close()
+
+
 @_skip_db
 def test_pausar_lote_rechaza_transiciones_ilegales():
     """I.3: desarmado nunca revive, pausar exige applied, reanudar exige

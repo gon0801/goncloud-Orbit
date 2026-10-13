@@ -1637,7 +1637,11 @@ def _pausa_una(ctx: _Ctx, rol: str, external: str, goal_id) -> None:
         _log("lote_detenido", lote=ctx.lote, motivo=f"PUT PAUSED de {rol} rechazado")
         raise Abortar(f"PUT PAUSED de {external} ({rol}) rechazado (status {ack.get('status')})")
     time.sleep(0.3)
-    leido = _readback(ctx.cliente_lectura, ctx.profile, "/sp/campaigns", external)
+    try:
+        leido = _readback(ctx.cliente_lectura, ctx.profile, "/sp/campaigns", external)
+    except Exception as exc:
+        _sella_paso(ctx, paso_id, False, external, ack, None)
+        raise Abortar(f"readback de {external} ({rol}) levanto ({exc}): se detiene") from exc
     estado = leido.get("state") if isinstance(leido, dict) else None
     _log(
         "desarmar",
