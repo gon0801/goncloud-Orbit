@@ -55,3 +55,17 @@ def test_linea_borrada_con_marker_no_dispara():
     )
     codigo, _ = evaluar(["plans/orbit-03.md"], diff_solo_borrado)
     assert codigo == 0
+
+
+def test_muerde_tambien_con_el_marker_cc_done():
+    """R22 de JEV ADS 01: los planes nuevos cierran con `cc:DONE`."""
+    diff = (
+        "--- a/plans/jev-ads-01.md\n"
+        "+++ b/plans/jev-ads-01.md\n"
+        "-| R21 | Aislamiento ... | ... | - | cc:TODO |\n"
+        "+| R21 | Aislamiento ... | ... | - | cc:DONE (#441) |\n"
+    )
+    codigo, mensaje = evaluar(["plans/jev-ads-01.md"], diff)
+    assert codigo == 1
+    assert "FALLO" in mensaje
+    assert evaluar(["plans/jev-ads-01.md", "docs/CHAT-CONTEXT.md"], diff)[0] == 0

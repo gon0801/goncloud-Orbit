@@ -259,3 +259,15 @@ def test_install_scrub_filter_no_se_instala_dos_veces():
     finally:
         for filtro in list(log.filters):
             log.removeFilter(filtro)
+
+
+def test_r21_una_prueba_registra_un_secreto():
+    register_secret("zz-r21-aislamiento")
+    assert scrub("eco zz-r21-aislamiento fin") == "eco ***REDACTED*** fin"
+
+
+def test_r21_el_secreto_de_la_prueba_anterior_no_sobrevive():
+    """R21 de JEV ADS 01: el registro es global al proceso. Sin limpiarlo
+    entre pruebas, el token "X" de un fixture de Mercado Libre dejaba "MXN"
+    como "M***REDACTED***N" en cualquier prueba posterior."""
+    assert scrub("eco zz-r21-aislamiento fin") == "eco zz-r21-aislamiento fin"
