@@ -2,6 +2,8 @@
 
 import logging
 
+import pytest
+
 from app.redaction import (
     SecretScrubFilter,
     install_scrub_filter,
@@ -30,9 +32,8 @@ def test_secreto_de_un_caracter_tambien_redacta():
     # Tumba la mutacion de piso bajo 'if not value or len(value) < 2:'
     # (apendice ronda 2, mutacion 1). Un fixture de N caracteres solo
     # discrimina pisos MAYORES que N: el de exactamente 1 caracter es el
-    # unico que atrapa este piso. '~' es no alfanumerico y no aparece en
-    # ningun texto que la suite pase por scrub()/redact_* (verificado con
-    # la bateria completa: el registro es global de proceso y no se limpia).
+    # unico que atrapa este piso. El registro es global de proceso, pero
+    # `conftest.py` lo restaura tras cada prueba (R21 de JEV ADS 01).
     register_secret("~")
     assert scrub("eco ~ fin") == "eco ***REDACTED*** fin"
 
@@ -259,3 +260,21 @@ def test_install_scrub_filter_no_se_instala_dos_veces():
     finally:
         for filtro in list(log.filters):
             log.removeFilter(filtro)
+
+
+@pytest.fixture(scope="module")
+def _r21_despues_de_la_prueba():
+    """Se desmonta despues del fixture por prueba de `conftest.py`: ahi el
+    secreto que registro la prueba ya no debe estar."""
+    yield
+    assert scrub("eco zz-r21-aislamiento fin") == "eco zz-r21-aislamiento fin"
+
+
+def test_r21_el_secreto_de_una_prueba_no_sobrevive(_r21_despues_de_la_prueba):
+    """R21 de JEV ADS 01: el registro es global al proceso. Sin limpiarlo
+    entre pruebas, el token "X" de un fixture de Mercado Libre dejaba "MXN"
+    como "M***REDACTED***N" en cualquier prueba posterior. La comprobacion
+    va en el desmontaje del fixture de modulo, asi no depende de que corra
+    otra prueba antes."""
+    register_secret("zz-r21-aislamiento")
+    assert scrub("eco zz-r21-aislamiento fin") == "eco ***REDACTED*** fin"
