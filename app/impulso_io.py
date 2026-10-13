@@ -346,7 +346,7 @@ def _plan_producto(
     retiros = retiro_anuncios.planea_retiro(
         conn, plataforma, listing_ids=(pub.listing_id,), motivo="impulso", conservar_grupo_id=None
     ).anuncios
-    return im.PlanImpulso(
+    plan = im.PlanImpulso(
         plataforma=plataforma,
         listing_id=pub.listing_id,
         product_id=pub.product_id,
@@ -363,6 +363,12 @@ def _plan_producto(
         bids_acotados=acotados,
         retiros=retiros,
     )
+    # R09-B: el mismo PlanGrupoV2 que la fabrica validaria al crear los
+    # pasos se valida aqui: un bid o budget fuera de rango (piso/techo
+    # de la moneda) deja el producto no lanzable en la vista previa, en
+    # vez de morir con 502 al lanzar.
+    fp._valida_plan_v2(im.grupo_v2_de_plan(plan))
+    return plan
 
 
 def previsualiza(

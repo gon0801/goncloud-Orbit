@@ -135,6 +135,40 @@ def test_vista_previa_sin_margen_no_bloquea_al_vecino():
 
 
 @_skip_db
+def test_r09b_previa_tope_bajo_el_piso_no_lanzable_y_lanza_sin_502():
+    """R09-B: con un tope cuyo presupuesto por campana queda bajo el
+    piso de bid de la moneda, la vista previa marca el producto no
+    lanzable (antes se mostraba lanzable y lanzar moria con 502)."""
+    with _db_i3("orbit_i3_r09b") as conn:
+        _, lid = _con_margen(conn)
+        buena = io.previsualiza(conn, _solicitud(conn, [lid]), sugeridor=_sugeridor_fijo())
+        assert len(buena.planes) == 1
+        baja = io.SolicitudImpulso(
+            plataforma="amazon_mx",
+            listing_ids=(lid,),
+            subfamilia_por_listing={lid: "aros"},
+            tope_monto=Decimal("10"),
+        )
+        vista = io.previsualiza(conn, baja, sugeridor=_sugeridor_fijo())
+        assert vista.planes == ()
+        assert [n.listing_id for n in vista.no_lanzables] == [lid]
+        assert "fuera de" in vista.no_lanzables[0].motivo
+        with pytest.raises(io.ErrorImpulso) as exc:
+            io.lanza(
+                conn,
+                baja,
+                huella=vista.huella,
+                confirmacion=vista.confirmacion_esperada,
+                actor="dueno",
+                ejecutor=_ejecutor_falso(conn),
+                sugeridor=_sugeridor_fijo(),
+            )
+        assert exc.value.status == 422
+        assert conn.execute("SELECT count(*) FROM fabrica_lote").fetchone() == (0,)
+        assert conn.execute("SELECT count(*) FROM impulso").fetchone() == (0,)
+
+
+@_skip_db
 def test_vista_previa_sin_terminos_deja_bid_none():
     """I.3: sin terminos, el rol exact queda con bid None."""
     with _db_i3("orbit_i3_noterm") as conn:
