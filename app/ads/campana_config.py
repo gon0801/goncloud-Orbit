@@ -432,6 +432,32 @@ def config_vigente_con_id(conn, ad_entity_id: int) -> tuple[int | None, ConfigCa
     )
 
 
+_SQL_CONFIG_POR_ID = """
+SELECT o.presupuesto_diario, o.presupuesto_moneda, o.estrategia_puja, o.ajuste_top_pct,
+       o.ajuste_resto_pct, o.ajuste_producto_pct, o.fuera_de_amazon, e.external_id
+  FROM ads_campana_config_observation o
+  JOIN ad_entity e ON e.id = o.ad_entity_id
+ WHERE o.id = %s
+"""
+
+
+def config_por_id(conn, config_id: int) -> ConfigCampana | None:
+    """Configuracion de una observacion por su id, o None sin fila."""
+    fila = conn.execute(_SQL_CONFIG_POR_ID, (config_id,)).fetchone()
+    if fila is None:
+        return None
+    return ConfigCampana(
+        campana_externa=fila[7],
+        presupuesto_diario=fila[0],
+        moneda=fila[1],
+        estrategia_puja=fila[2],
+        ajuste_top_pct=fila[3],
+        ajuste_resto_pct=fila[4],
+        ajuste_producto_pct=fila[5],
+        fuera_de_amazon=fila[6],
+    )
+
+
 def config_vigente(conn, ad_entity_id: int) -> ConfigCampana | None:
     """Ultima configuracion de la campana, o None sin filas. Sin
     presupuesto la moneda es desconocida (la fila no la trae)."""

@@ -1991,13 +1991,6 @@ SELECT despues FROM campana_ajuste WHERE id = %s
 _SQL_CUENTA_HUELLA = """
 SELECT count(*) FROM campana_ajuste WHERE huella = %s OR huella LIKE %s
 """
-_SQL_CONFIG_POR_ID = """
-SELECT o.presupuesto_diario, o.presupuesto_moneda, o.estrategia_puja, o.ajuste_top_pct,
-       o.ajuste_resto_pct, o.ajuste_producto_pct, o.fuera_de_amazon, e.external_id
-  FROM ads_campana_config_observation o
-  JOIN ad_entity e ON e.id = o.ad_entity_id
- WHERE o.id = %s
-"""
 _SQL_INSERTA_AJUSTE = """
 INSERT INTO campana_ajuste (campana_id, platform, clase, antes_config_id, despues,
     huella, actor, go_literal, regresa_a)
@@ -2467,19 +2460,9 @@ def _huella_regreso(base: str, ajuste_id: int) -> str:
 
 
 def _config_por_id(conn, config_id: int):
-    from app.ads.campana_config import ConfigCampana
+    from app.ads.campana_config import config_por_id
 
-    fila = conn.execute(_SQL_CONFIG_POR_ID, (config_id,)).fetchone()
-    return ConfigCampana(
-        campana_externa=fila[7],
-        presupuesto_diario=fila[0],
-        moneda=fila[1],
-        estrategia_puja=fila[2],
-        ajuste_top_pct=fila[3],
-        ajuste_resto_pct=fila[4],
-        ajuste_producto_pct=fila[5],
-        fuera_de_amazon=fila[6],
-    )
+    return config_por_id(conn, config_id)
 
 
 def _ajuste_hacia(clase, antes, despues_padre):

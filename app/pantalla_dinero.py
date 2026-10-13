@@ -410,8 +410,7 @@ def lee_campanas(
         _SQL_CONFIGS_HIST, (plataforma, hasta)
     ).fetchall():
         configs.setdefault(cid, []).append((vigente_desde, presupuesto))
-    from app.ads.campana_config import config_vigente_con_id
-    from app.apply import _config_por_id
+    from app.ads.campana_config import config_por_id, config_vigente_con_id
     from app.campana_ajustes import coincide_clase
 
     regresables: dict[int, list] = {}
@@ -422,7 +421,7 @@ def lee_campanas(
         # regreso contesta 409; la pantalla no ofrece el boton.
         _vid, vigente = config_vigente_con_id(conn, cid)
         if vigente is not None:
-            antes = _config_por_id(conn, antes_id)
+            antes = config_por_id(conn, antes_id)
             if vigente == antes or coincide_clase(clase, vigente, antes):
                 continue
         regresables.setdefault(cid, []).append(
