@@ -213,6 +213,128 @@ const api = vm.runInThisContext("this.__api");
     assert proc.returncode == 0, proc.stderr or proc.stdout
 
 
+def test_r09d_error_objeto_muestra_mensaje_y_fallos_sin_object_object():
+    """R09-D: un 502 parcial (detail objeto con mensaje y fallos por
+    producto) se pinta con su mensaje y cada fallo, nunca como
+    [object Object]; un detail de texto se pinta tal cual."""
+    archivo = RAIZ / "app" / "static" / "js" / "productos.js"
+    assert archivo.exists(), "Falta el cliente de productos"
+    node = shutil.which("node")
+    if not node:
+        if "CI" in os.environ:
+            pytest.fail("Node es obligatorio en CI para verificar el flujo JavaScript")
+        pytest.skip("Node no disponible; el navegador se verifica en integracion")
+    guion = r"""
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const vm = require("node:vm");
+class Element {
+  constructor(attrs = {}) {
+    Object.assign(this, attrs);
+    this.children = []; this.events = {}; this.value = attrs.value || "";
+    this.checked = !!attrs.checked; this.hidden = !!attrs.hidden;
+    this.textContent = ""; this.dataset = attrs.dataset || {};
+    this.elements = attrs.elements || {};
+  }
+  append(...items) { this.children.push(...items); }
+  appendChild(item) { this.append(item); return item; }
+  replaceChildren(...items) { this.children = items; }
+  addEventListener(event, fn) { this.events[event] = fn; }
+  querySelector(sel) { return this.querySelectorAll(sel)[0] || null; }
+  querySelectorAll(sel) {
+    const all = this.children.flatMap(c => [c, ...c.querySelectorAll("*")]);
+    if (sel === "*") return all;
+    if (sel === "[data-estado]") return all.filter(c => c.estado === true);
+    const m = sel.match(/^\[data-([a-z-]+)(="([^"]+)")?\]$/);
+    if (m) return all.filter(c => m[3] === undefined
+      ? (c.dataset[m[1].replace(/-([a-z])/g, (_, x) => x.toUpperCase())] !== undefined)
+      : String(c.dataset[m[1].replace(/-([a-z])/g, (_, x) => x.toUpperCase())]) === m[3]);
+    return [];
+  }
+}
+const root = new Element();
+const casilla = new Element({dataset: {marcarCandidato: "", producto: "1", listings: "11"}});
+casilla.checked = true;
+const sub = new Element({value: "aros"});
+sub.dataset = {subfamilia: "1"};
+const zona = new Element(); zona.id = "productos-vista";
+const bloque = new Element(); bloque.id = "productos-lanzamiento"; bloque.hidden = true;
+const esperada = new Element(); esperada.id = "productos-esperada";
+const estado = new Element(); estado.estado = true;
+const form = new Element({dataset: {plataforma: "amazon_mx"}, hidden: true});
+form.id = "productos-lanzar";
+form.elements = {confirmacion: new Element(), actor: new Element({value: "dueno"}),
+  token: new Element({value: "tok"})};
+form.children = [estado];
+const casillaV = new Element({dataset: {marcarSinPedido: "", producto: "9", listings: "21"}});
+casillaV.checked = true;
+const zonaR = new Element(); zonaR.id = "productos-retiro-vista";
+const bloqueR = new Element(); bloqueR.id = "productos-retiro"; bloqueR.hidden = true;
+const esperadaR = new Element(); esperadaR.id = "productos-retiro-esperada";
+const estadoR = new Element(); estadoR.estado = true;
+const formR = new Element({dataset: {plataforma: "amazon_mx"}, hidden: true});
+formR.id = "productos-retiro-ejecutar";
+formR.elements = {confirmacion: new Element(), actor: new Element({value: "dueno"}),
+  token: new Element({value: "tok"})};
+formR.children = [estadoR];
+root.children = [casilla, sub, zona, bloque, esperada, form, casillaV, zonaR, bloqueR,
+  esperadaR, formR];
+const ids = {"productos-vista": zona, "productos-lanzamiento": bloque,
+  "productos-esperada": esperada, "productos-lanzar": form,
+  "productos-retiro-vista": zonaR, "productos-retiro": bloqueR,
+  "productos-retiro-esperada": esperadaR, "productos-retiro-ejecutar": formR};
+global.document = {
+  getElementById: id => ids[id] || null,
+  createElement: () => new Element(),
+  querySelector: sel => root.querySelector(sel),
+  querySelectorAll: sel => root.querySelectorAll(sel),
+  addEventListener: () => {},
+};
+global.fetch = (url, opts) => {
+  if (url.endsWith("/impulso/plan"))
+    return Promise.resolve({ok: true, status: 200, json: () => Promise.resolve(
+      {huella: "a".repeat(64), confirmacion_esperada: "LANZAR IMPULSO DE 1 PRODUCTO",
+       planes: [{seller_sku: "S1", subfamilia: "aros",
+         tope: {monto: "350", moneda: "MXN", presupuesto_diario: "25"},
+         keywords_exact: [], negatives: [], bids_acotados: [],
+         bid_por_rol: {}, retiros: []}], no_lanzables: []})});
+  if (url.endsWith("/impulso/lanzar"))
+    return Promise.resolve({ok: false, status: 502, json: () => Promise.resolve(
+      {detail: {mensaje: "algunos productos no se lanzaron",
+        lanzados: [{impulso_id: 7, lote: "impulso-12-x", estado_lote: "applied"}],
+        fallos: {"11": "sin margen medido", "12": "lote en failed: reconcilia a mano"}}})});
+  if (url.endsWith("/retiro/plan"))
+    return Promise.resolve({ok: false, status: 422, json: () => Promise.resolve(
+      {detail: "El lote no existe."})});
+  throw new Error("url inesperada " + url);
+};
+const codigo = fs.readFileSync(process.argv[1], "utf8");
+vm.runInThisContext(codigo + "\n" + "this.__api = {verLanzamiento, lanzar, verRetiro};");
+const api = vm.runInThisContext("this.__api");
+(async () => {
+  api.verLanzamiento("[data-marcar-candidato]");
+  await new Promise(r => setTimeout(r, 10));
+  assert.equal(form.hidden, false);
+  form.elements.confirmacion.value = "LANZAR IMPULSO DE 1 PRODUCTO";
+  api.lanzar(form);
+  await new Promise(r => setTimeout(r, 10));
+  assert.match(estado.textContent, /algunos productos no se lanzaron/);
+  assert.match(estado.textContent, /sin margen medido/);
+  assert.match(estado.textContent, /reconcilia a mano/);
+  assert.doesNotMatch(estado.textContent, /\[object Object\]/);
+  api.verRetiro();
+  await new Promise(r => setTimeout(r, 10));
+  const textoR = JSON.stringify(zonaR.children.map(p => p.textContent));
+  assert.match(textoR, /El lote no existe\./);
+  assert.doesNotMatch(textoR, /\[object Object\]/);
+})().catch(error => { console.error(error); process.exitCode = 1; });
+"""
+    proc = subprocess.run(
+        [node, "-e", guion, str(archivo)], capture_output=True, text=True, timeout=60
+    )
+    assert proc.returncode == 0, proc.stderr or proc.stdout
+
+
 def test_r09r3_js_pantalla_us_pide_plan_en_us():
     """R09 B12 (J1): en la pantalla de US, el plan se pide en amazon_us."""
     import os

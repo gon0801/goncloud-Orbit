@@ -41,6 +41,27 @@ function marcados(selector) {
   return { listings: listings, subfamilias: subfamilias, faltan: faltan };
 }
 
+function mensajeError(data) {
+  var detalle = data && data.detail;
+  if (typeof detalle === "string") return detalle;
+  if (detalle && detalle.mensaje) {
+    var texto = detalle.mensaje;
+    var fallos = detalle.fallos || {};
+    Object.keys(fallos).forEach(function (lid) {
+      texto += " · " + lid + ": " + fallos[lid];
+    });
+    return texto;
+  }
+  if (Array.isArray(detalle)) {
+    return detalle
+      .map(function (e) {
+        return e.msg;
+      })
+      .join("; ");
+  }
+  return "No se pudo completar la solicitud.";
+}
+
 function parrafo(texto) {
   var p = document.createElement("p");
   p.textContent = texto;
@@ -121,7 +142,7 @@ function verLanzamiento(selectorCasillas) {
     })
     .then(function (r) {
       if (!r.ok) {
-        zona.replaceChildren(parrafo("Error: " + (r.data.detail || r.data) + "."));
+        zona.replaceChildren(parrafo("Error: " + mensajeError(r.data) + "."));
         return;
       }
       vistaGuardada = { solicitud: solicitud, vista: r.data };
@@ -178,7 +199,7 @@ function lanzar(form) {
           estado.textContent = "El plan cambió: revisa la vista nueva y confirma de nuevo.";
           return;
         }
-        estado.textContent = "Error: " + (r.data.detail || r.data) + ".";
+        estado.textContent = "Error: " + mensajeError(r.data) + ".";
         return;
       }
       vistaGuardada = null;
@@ -226,7 +247,7 @@ function reponer(form) {
     })
     .then(function (r) {
       if (!r.ok) {
-        estado.textContent = "Error: " + (r.data.detail || r.data) + ".";
+        estado.textContent = "Error: " + mensajeError(r.data) + ".";
         return;
       }
       form.elements.token.value = "";
@@ -283,7 +304,7 @@ function verRetiro() {
     })
     .then(function (r) {
       if (!r.ok) {
-        zona.replaceChildren(parrafo("Error: " + (r.data.detail || r.data) + "."));
+        zona.replaceChildren(parrafo("Error: " + mensajeError(r.data) + "."));
         return;
       }
       retiroGuardado = { pedido: pedido, plan: r.data };
@@ -343,7 +364,7 @@ function ejecutarRetiro(form) {
     })
     .then(function (r) {
       if (!r.ok) {
-        estado.textContent = "Error: " + (r.data.detail || r.data) + ".";
+        estado.textContent = "Error: " + mensajeError(r.data) + ".";
         return;
       }
       retiroGuardado = null;
