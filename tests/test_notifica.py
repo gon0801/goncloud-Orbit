@@ -811,6 +811,31 @@ def test_alerta_harvest_failed_contenido():
 # ---------------------------------------------------------------------------
 
 
+def test_envia_aviso_inactivo_es_false_y_no_llama(tmp_path, monkeypatch):
+    """S.8: lo contrario de los demas envios. Canal apagado no es entrega."""
+    monkeypatch.setenv("ORBIT_SECRETS_DIR", str(tmp_path))
+    llamados = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        llamados.append(request.url.path)
+        return httpx.Response(200, json={"ok": True})
+
+    monkeypatch.setattr(notifica, "_transporte_test", httpx.MockTransport(handler))
+    notifica._reset()
+    assert notifica.envia_aviso("texto del aviso") is False
+    assert llamados == []
+    notifica._reset()
+
+
+def test_envia_aviso_activo_manda_el_texto_y_un_500_es_false(tmp_path, monkeypatch):
+    with _canal(tmp_path, monkeypatch) as mensajes:
+        assert notifica.envia_aviso("texto del aviso") is True
+    assert [m["text"] for m in mensajes] == ["texto del aviso"]
+    with _canal(tmp_path, monkeypatch, status=500) as mensajes:
+        assert notifica.envia_aviso("texto del aviso") is False
+    assert len(mensajes) == 1
+
+
 def test_envia_texto_ok_envia_chat_id_y_texto(tmp_path, monkeypatch):
     with _canal(tmp_path, monkeypatch) as mensajes:
         assert notifica._envia_texto("hola mundo") is True

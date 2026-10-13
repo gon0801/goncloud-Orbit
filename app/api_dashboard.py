@@ -1613,7 +1613,7 @@ def _senal_presentada_vista(vista) -> dict | None:
         fila["lectura"],
         fila.get("motivos") or [],
         fila.get("miembros", 0),
-        (fila.get("economia") or {}).get("datos_hasta"),
+        fila.get("listado_de"),
     )
     return fila
 
