@@ -1,6 +1,6 @@
 == 0) El servidor contesta
 MODO SIMULACION: base postgresql://orbit:orbit@127.0.0.1:5433/orbit_sim_d6, HTTP http://127.0.0.1:8012
-== Checklist D.6 (solo lectura; sello 20261013-0512)
+== Checklist D.6 (solo lectura; sello 20261013-0536)
 == 1) HTTP: /health
 OK    GET /health = 200
 == 2) Esquema: las cinco tablas existen (el dueno ya pudo lanzar)
@@ -35,7 +35,9 @@ OK    anuncio_retiro sin escrituras del checklist = 0
 OK    anuncio_reposicion sin escrituras del checklist = 0
 OK    anuncio_retiro_intencion sin escrituras del checklist = 0
 == 8) JSON de la pantalla de busquedas por mercado, con la moneda de su mercado (R13-E)
-NO MEDIDO busquedas amazon_mx (falta docs/evidencia/bids-02/ejecucion/D.6/busquedas-amazon_mx.json)
-NO MEDIDO busquedas amazon_us (falta docs/evidencia/bids-02/ejecucion/D.6/busquedas-amazon_us.json)
-== RESULTADO: 0 falla(s), 3 sin medir
+OK    busquedas amazon_mx moneda = MXN
+OK    busquedas amazon_mx plataforma = amazon_mx
+OK    busquedas amazon_us moneda = USD
+OK    busquedas amazon_us plataforma = amazon_us
+== RESULTADO: 0 falla(s), 1 sin medir
 exit=4

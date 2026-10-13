@@ -45,10 +45,22 @@ ORBIT_SIMULACION=1 ORBIT_SIM_DSN=postgresql://orbit:orbit@127.0.0.1:5433/orbit_s
 
 Resultados guardados en esta carpeta: ensayo `ENSAYO OK` (exit=0);
 desplegar exit=0 (aplico la 0071 y la 0072 y las anoto para el
-rollback); checklist con 0 fallas y 3 sin medir (exit=4: el candidato
-del dashboard y los dos JSON de busquedas son insumos que el dueno
-aporta tras el despliegue, no fallas del script); rollback exit=0 con
-el candado fuera, la vista legible y la huella del crontab intacta.
+rollback); checklist con 0 fallas y 1 sin medir (exit=4: el candidato
+del dashboard no sale en la base de simulacion, no es una falla del
+script; las busquedas por mercado se miden en los dos mercados);
+rollback exit=0 con el candado fuera, la vista legible y la huella
+del crontab intacta.
+
+## Correccion de la tercera ronda (R14-r3)
+
+El paso 8 del checklist leia archivos `busquedas-*.json` que nadie
+guardaba y comparaba una clave que el JSON real no trae, asi que daba
+OK con cualquier moneda. Ahora el script pide el JSON de cada mercado
+por HTTP y compara los campos `moneda` y `plataforma` de arriba, sin
+escribir el cuerpo en ningun lado. La simulacion de esta carpeta trae
+los dos mercados en OK; la corrida forzada con la moneda cruzada esta
+en `docs/evidencia/bids-02/ejecucion/R14-r3/checklist-forzada.txt` y
+da FALLA con `exit=1`.
 
 ## Correccion de la segunda relectura (R14-r2)
 
