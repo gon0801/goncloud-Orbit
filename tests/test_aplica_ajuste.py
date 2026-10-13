@@ -691,6 +691,69 @@ def test_r07_09c_reconcilia_sella_la_pendiente_hn(monkeypatch):
 
 
 @_skip_db
+def test_r07_09c_reconcilia_sella_todas_las_pendientes(monkeypatch):
+    """R07-09C: con dos pendientes de la misma huella (el residuo que
+    el defecto previo pudo dejar), la reconciliacion sella las dos si
+    su destino ya es el vigente; sellar solo la primera deja la otra
+    huerfana."""
+    with _db("orbit_aj_09c_rec2") as conn:
+        camp, _cfg = _siembra(conn)
+        remoto = {EXTERNA: {"budget": {"budget": 100.0, "budgetType": "DAILY"}}}
+        handler_ok, _vistos = _handler_campanas(remoto)
+        _creds_fake(monkeypatch)
+        plan = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("120")))
+        transporte_ok = httpx.MockTransport(handler_ok)
+        hecho = apply.aplica_ajuste_campana(
+            conn,
+            plan,
+            huella=plan.huella(),
+            confirmacion="APLICAR AJUSTE",
+            actor="dueno",
+            transport=transporte_ok,
+        )
+        apply.regresa_ajuste_campana(
+            conn, ajuste_id=hecho.ajuste_id, actor="dueno", transport=transporte_ok
+        )
+        handler_div, _v2 = _handler_campanas(remoto, divergente=_vigente_config())
+        with pytest.raises(apply.AjusteNoConfirmado):
+            apply.aplica_ajuste_campana(
+                conn,
+                plan,
+                huella=plan.huella(),
+                confirmacion="APLICAR AJUSTE",
+                actor="dueno",
+                transport=httpx.MockTransport(handler_div),
+            )
+        base = plan.huella()
+        conn.execute(
+            "INSERT INTO campana_ajuste (campana_id, platform, clase, antes_config_id,"
+            " despues, huella, actor, go_literal)"
+            " SELECT campana_id, platform, clase, antes_config_id, despues,"
+            " %s, actor, go_literal FROM campana_ajuste WHERE huella = %s",
+            (base + "#3", base + "#2"),
+        )
+        from app.ads.campana_config import guarda_config
+
+        guarda_config(conn, "amazon_mx", [plan.despues], dt.datetime.now(dt.UTC))
+        conn.commit()
+        hecho2 = apply.reconcilia_ajuste_campana(
+            conn,
+            camp,
+            "presupuesto",
+            CambiarPresupuesto(presupuesto_diario=Decimal("120")),
+            huella=base,
+            actor="dueno",
+        )
+        assert hecho2.confirmada is True
+        filas = conn.execute(
+            "SELECT confirmado_el IS NOT NULL FROM campana_ajuste"
+            " WHERE huella = %s OR huella LIKE %s",
+            (base, base + "#%"),
+        ).fetchall()
+        assert [f for f in filas if not f[0]] == []
+
+
+@_skip_db
 def test_regreso_fallido_se_puede_reintentar(monkeypatch):
     """Panel: regreso con readback divergente deja pendiente reintentable
     (como el aplica); el reintento confirma y un tercero se rechaza."""

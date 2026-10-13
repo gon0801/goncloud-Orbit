@@ -24,3 +24,12 @@ test_r07_09c_reconcilia_sella_la_pendiente_hn nacio en rojo
 reconciliacion busca la H#N pendiente de la huella y la sella cuando
 el vigente ya es su destino, y devuelve esa fila. Salida: 50 passed
 en test_aplica_ajuste y 61 passed en test_api_write y test_api.
+
+Correccion de interrogate (r2): la reconciliacion sellaba solo la
+primera pendiente de la huella (LIMIT 1); con dos pendientes del
+residuo previo, la segunda quedaba huerfana. La regresion
+test_r07_09c_reconcilia_sella_todas_las_pendientes nacio en rojo
+(quedaba una fila sin sellar). Ahora las dos puertas leen todas las
+pendientes con un solo ayudante y sellan cada una cuyo destino ya es
+el vigente. De paso cayo el envoltorio _config_por_id de apply, que
+solo pasaba la llamada a campana_config.

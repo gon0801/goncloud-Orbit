@@ -2008,10 +2008,10 @@ RETURNING id
 _SQL_CONFIRMA_AJUSTE = """
 UPDATE campana_ajuste SET confirmado_el = %s WHERE id = %s
 """
-_SQL_AJUSTE_PENDIENTE_HN = """
+_SQL_AJUSTES_PENDIENTES_HN = """
 SELECT id, huella, despues FROM campana_ajuste
  WHERE huella LIKE %s AND confirmado_el IS NULL AND campana_id = %s AND clase = %s
- ORDER BY id LIMIT 1
+ ORDER BY id
 """
 _SQL_AJUSTE_POR_HUELLA_RECONCILIA = """
 SELECT id, confirmado_el IS NOT NULL, campana_id, clase, despues
@@ -2192,6 +2192,29 @@ def _aplica_y_confirma(
     conn.commit()
 
 
+def _pendientes_hn(conn, huella: str, campana_id: int, clase: str) -> list:
+    """Todas las H#N pendientes de la huella, de la mas vieja a la mas
+    nueva. Las dos puertas de R07-09C leen de aqui para no divergir."""
+    return conn.execute(_SQL_AJUSTES_PENDIENTES_HN, (huella + "#%", campana_id, clase)).fetchall()
+
+
+def _sella_pendientes_en_destino(conn, pendientes, ajuste, vigente) -> int | None:
+    """Sella cada pendiente cuyo destino ya es el vigente y devuelve el
+    id de la primera, o None si ninguna llego. Sellar solo la primera
+    dejaria el resto huerfanas con el mismo efecto vivo."""
+    from app.ads.campana_config import ConfigCampana
+    from app.campana_ajustes import coincide_campo
+
+    sellada = None
+    for pid, _huella, despues in pendientes:
+        destino = ConfigCampana.desde_json(despues)
+        if vigente == destino or coincide_campo(ajuste, vigente, destino):
+            _sella_pendiente(conn, pid)
+            if sellada is None:
+                sellada = pid
+    return sellada
+
+
 def _sella_pendiente(conn, ajuste_id: int) -> None:
     """Sella una fila pendiente sin PUT (reconciliacion: el vigente ya es
     el destino porque el sync observo lo que el PUT si aplico). El commit
@@ -2245,15 +2268,13 @@ def aplica_ajuste_campana(
         if confirmada:
             # R07-09C: una H#N pendiente se reusa; abrir la siguiente
             # la dejaria huerfana para siempre.
-            pendiente_hn = conn.execute(
-                _SQL_AJUSTE_PENDIENTE_HN, (huella + "#%", plan.campana_id, plan.clase)
-            ).fetchone()
-            if pendiente_hn is not None:
+            pendientes = _pendientes_hn(conn, huella, plan.campana_id, plan.clase)
+            if pendientes:
                 if vigente == plan.despues:
-                    _sella_pendiente(conn, pendiente_hn[0])
-                    return AjusteHecho(pendiente_hn[0], plan.campana_id, plan.clase, True)
-                ajuste_id = pendiente_hn[0]
-                huella_efectiva = pendiente_hn[1]
+                    sellada = _sella_pendientes_en_destino(conn, pendientes, plan.ajuste, vigente)
+                    return AjusteHecho(sellada, plan.campana_id, plan.clase, True)
+                ajuste_id = pendientes[0][0]
+                huella_efectiva = pendientes[0][1]
             elif vigente == plan.despues:
                 return AjusteHecho(_eid, plan.campana_id, plan.clase, True)
             else:
@@ -2334,17 +2355,14 @@ def reconcilia_ajuste_campana(
     _eid, confirmada, ecamp, eclase, despues = previa
     if ecamp != campana_id or eclase != clase:
         raise HuellaDesactualizada(f"la huella {huella} es de otra campana o clase", None)
-    pendiente = conn.execute(
-        _SQL_AJUSTE_PENDIENTE_HN, (huella + "#%", campana_id, clase)
-    ).fetchone()
-    if pendiente is not None:
-        # R07-09C: la H#N pendiente es el acto cuyo efecto el sync ya
-        # observo; sellarla aqui. Devolver la base sellada la dejaria
-        # huerfana para siempre con su efecto vivo.
-        destino_hn = ConfigCampana.desde_json(pendiente[2])
-        if vigente == destino_hn or coincide_campo(ajuste, vigente, destino_hn):
-            _sella_pendiente(conn, pendiente[0])
-            return AjusteHecho(pendiente[0], campana_id, clase, True)
+    # R07-09C: cada H#N pendiente cuyo efecto el sync ya observo se
+    # sella aqui. Devolver la base sellada dejaria las pendientes
+    # huerfanas para siempre con su efecto vivo.
+    sellada = _sella_pendientes_en_destino(
+        conn, _pendientes_hn(conn, huella, campana_id, clase), ajuste, vigente
+    )
+    if sellada is not None:
+        return AjusteHecho(sellada, campana_id, clase, True)
     if vigente == ConfigCampana.desde_json(despues):
         if not confirmada:
             _sella_pendiente(conn, _eid)
@@ -2370,7 +2388,7 @@ def regresa_ajuste_campana(conn, *, ajuste_id: int, actor: str, transport=None) 
     posteriores de otra clase y podria SUBIR un presupuesto). Un solo
     regreso por ajuste; fuera_de_amazon no tiene regreso sellado (V.0)
     y no presenta boton."""
-    from app.ads.campana_config import ConfigCampana, config_vigente_con_id
+    from app.ads.campana_config import ConfigCampana, config_por_id, config_vigente_con_id
     from app.campana_ajustes import PlanAjuste, coincide_clase
 
     if not actor or not actor.strip():
@@ -2389,7 +2407,7 @@ def regresa_ajuste_campana(conn, *, ajuste_id: int, actor: str, transport=None) 
         raise AjusteSinRegreso(
             f"ajuste {ajuste_id}: fuera_de_amazon no tiene regreso sellado (V.0)"
         )
-    antes = _config_por_id(conn, antes_id)
+    antes = config_por_id(conn, antes_id)
     vigente_id, vigente = config_vigente_con_id(conn, campana_id)
     hijo = conn.execute(_SQL_HIJO_REGRESO, (ajuste_id,)).fetchone()
     if vigente is None or vigente == antes:
@@ -2468,12 +2486,6 @@ def _huella_regreso(base: str, ajuste_id: int) -> str:
     regresar, re-aplicar, regresar) chocan en UNIQUE(huella) con 500;
     el padre distingue cada acto."""
     return hashlib.sha256(f"{base}:regresa:{ajuste_id}".encode()).hexdigest()
-
-
-def _config_por_id(conn, config_id: int):
-    from app.ads.campana_config import config_por_id
-
-    return config_por_id(conn, config_id)
 
 
 def _ajuste_hacia(clase, antes, despues_padre):
