@@ -2,7 +2,8 @@
 
 Estado: plan del 2026-10-04, rediseñado el mismo día tras los prototipos. El
 dueño selló el diseño ese día ("va, a las cuatro cosas"). Fichas (0.2), regla
-de roster (0.4), spec (0.1) y tarifa (0.3) cerrados; sigue el bloque S. Nace
+de roster (0.4), spec (0.1), tarifa (0.3) y orden de opciones (0.5) cerrados;
+sigue el bloque S. Nace
 del acta 3.2 de
 [JEV ADS 01](jev-ads-01.md) ("seguir y ampliar"). Base de planificación:
 commit `25cebe7`. `team_validation_mode: manual-pass`.
@@ -145,7 +146,7 @@ el criterio, la fila se cierra como "no se construye", con el motivo.
 | 0.2 | `[stage:medicion] [lane:release]` Completar fichas en MX y US. | Todo producto con anuncio ENABLED tiene una ficha vigente que cubre todos sus listings. | - | cc:DONE (249 de 249 y 119 de 119: `ejecucion/0.2/NOTAS.md`) |
 | 0.3 | `[stage:investigacion] [lane:fast]` Confirmar y versionar la tarifa de TypeSafe. | Tarifa con su fuente y fecha; costo del piloto y del prototipo calculado con su `usage`. | - | cc:DONE (0.042 USD por millón de tokens de entrada, salida gratis; piloto 0.02704569 USD y prototipo 0.256488792 USD: `ejecucion/0.3/NOTAS.md`) |
 | 0.4 | `[stage:investigacion] [lane:gate]` Roster probado: regla y viabilidad. | Regla escrita; grupos que la cumplirían; conteo de anuncios sin producto. | - | cc:DONE (regla en el spec; viabilidad medida: Amazon declara los totales en las dos plataformas y en los 22 y 11 grupos con gasto todo anuncio activo liga a producto; las condiciones de descartados y huella las mide S.1; los anuncios sin producto no tienen `listing_id` y están en grupos sin gasto: `diseno/prototipos.md`) |
-| 0.5 | `[stage:medicion] [lane:release]` Sensibilidad al orden de las opciones Choice. | Reporte con denominadores: cuántos pares cambian de respuesta al invertir el orden. El dueño decide con ese dato si se corrige el contrato antes de S.7. | 0.1 | cc:TODO |
+| 0.5 | `[stage:medicion] [lane:release]` Sensibilidad al orden de las opciones Choice. | Reporte con denominadores: cuántos pares cambian de respuesta al invertir el orden. El dueño decide con ese dato si se corrige el contrato antes de S.7. | 0.1 | cc:DONE (100 pares, 99 decisivos en ambos lados, 0 cambiaron, 1 abstención: `ejecucion/0.5/NOTAS.md`) |
 
 ### Bloque S — la señal (opciones 1, 2 y 4)
 
