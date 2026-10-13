@@ -1,0 +1,21 @@
+== esquema de prod (solo lectura)
+esquema base cargado
+== 1) ninguna _bids02_ pendiente (D.5 no aplica migraciones)
+ya aplicada: migrations/0060_bids02_base_lectura.sql
+ya aplicada: migrations/0061_bids02_campana_config.sql
+ya aplicada: migrations/0062_bids02_placement.sql
+ya aplicada: migrations/0063_bids02_peldanos_target.sql
+ya aplicada: migrations/0064_bids02_grupo_tipo.sql
+ya aplicada: migrations/0065_bids02_impulso.sql
+ya aplicada: migrations/0066_bids02_retiro_anuncios.sql
+ya aplicada: migrations/0067_bids02_campana_ajuste.sql
+ya aplicada: migrations/0068_bids02_sellos.sql
+ya aplicada: migrations/0069_bids02_retiro_intencion.sql
+ya aplicada: migrations/0070_bids02_permisos_lanza.sql
+OK: 0 pendientes
+== 2) guardas propias de D.5 en el arbol
+OK: archivos y rutas presentes
+== 3) lee_busquedas contra el esquema de prod (listas vacias sin datos)
+OK amazon_mx: moneda MXN, ventana 2026-07-12..2026-10-10, listas vacias
+OK amazon_us: moneda USD, ventana 2026-07-12..2026-10-10, listas vacias
+ENSAYO OK
