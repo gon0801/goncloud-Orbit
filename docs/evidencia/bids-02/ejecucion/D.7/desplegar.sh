@@ -27,7 +27,7 @@ SIM=${ORBIT_SIMULACION:-0}
 DSN_SIM=${ORBIT_SIM_DSN:-postgresql://orbit:orbit@127.0.0.1:5433/orbit_sim_d7}
 TMPD=${TMPDIR:-/tmp}/orbit-d7-sim
 cd "$REPO"
-trap 'echo "FALLO en la linea $LINENO. Si ya se copio codigo o se toco el crontab: bash $DIR/rollback.sh $STAMP"' ERR
+trap 'rc=$?; [ "$rc" = 0 ] || echo "FALLO (exit=$rc). Si ya se copio codigo o se toco el crontab: bash $DIR/rollback.sh $STAMP"' EXIT
 
 q() {
   if [ "$SIM" = 1 ]; then
@@ -157,6 +157,8 @@ fi
 HUELLA_ANTES=$(huella_cron) || { echo "ABORTA: no se pudo leer el crontab de gon"; exit 1; }
 echo "crontab antes: md5 y lineas = $HUELLA_ANTES (sin tocarlo)"
 
+md5_de() { if command -v md5 >/dev/null; then md5 -q; else md5sum | cut -d' ' -f1; fi; }
+
 echo "== 2) Respaldo del codigo actual y SHA (el .env NO se copia a ningun lado)"
 # Si predeploy-<sello> ya existe (reintento en el mismo minuto), se
 # conserva: copiar encima guardaria el codigo NUEVO que dejo la corrida
@@ -174,6 +176,12 @@ if [ "$SIM" = 1 ]; then
 elif ssh goncloud "test -f $SRV/predeploy-$STAMP/SHA"; then
   echo "reintento: predeploy-$STAMP ya existe, se conserva (no se pisa)"
 else
+  # Un reintento en otro minuto no debe respaldar como previo el
+  # codigo nuevo que dejo una corrida fallida: si el servidor ya
+  # tiene el codigo aprobado, se usa el predeploy del sello anterior.
+  YA=$(git show "$APROBADO:app/apply.py" | md5_de)
+  AHORA=$(ssh goncloud "md5sum $SRV/app/apply.py" | cut -d' ' -f1)
+  [ "$AHORA" != "$YA" ] || { echo "ABORTA: el servidor ya tiene el codigo de $APROBADO; usa el predeploy del sello de la corrida que lo copio"; exit 1; }
   ssh goncloud "set -e; cd $SRV; mkdir -p predeploy-$STAMP; \
     cp -a app Dockerfile .dockerignore pyproject.toml uv.lock tools docker-compose.yml predeploy-$STAMP/; \
     echo $APROBADO > predeploy-$STAMP/SHA; ls predeploy-$STAMP"
@@ -198,7 +206,6 @@ echo "== 4) Migraciones: ninguna (la guarda del paso 1 ya aborto si habia una pe
 echo "aplicadas-$STAMP.txt queda vacio a proposito: la reversa de D.7 solo restaura codigo"
 
 echo "== 5) md5 del codigo desplegado vs SHA aprobado"
-md5_de() { if command -v md5 >/dev/null; then md5 -q; else md5sum | cut -d' ' -f1; fi; }
 ARCHIVOS_D7="app/apply.py app/pantalla_dinero.py app/ads/campana_config.py app/api_dashboard.py tools/rejuega_niveles.py"
 if [ "$SIM" = 1 ]; then
   echo "SIMULACION: sin servidor; el md5 solo verifica que la extraccion del respaldo local quedo integra (contra el servidor se compara en la corrida real)"

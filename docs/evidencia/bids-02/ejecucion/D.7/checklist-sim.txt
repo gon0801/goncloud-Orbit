@@ -1,6 +1,6 @@
 == 0) El servidor contesta
 MODO SIMULACION: base postgresql://orbit:orbit@127.0.0.1:5433/orbit_sim_d7, HTTP http://127.0.0.1:8012
-== Checklist D.7 (solo lectura; sello 20261013-0941)
+== Checklist D.7 (solo lectura; sello 20261013-1047)
 == 1) HTTP: /health
 OK    GET /health = 200
 == 2) Esquema: las tablas de la seccion existen
