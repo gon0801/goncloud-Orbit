@@ -18,12 +18,14 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import UTC, date
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from typing import Any
 
 import psycopg
 
 from app.precio.cobertura import FilaPublicacion
+from app.precio.config import _entero as config_entero
+from app.precio.config import _numero as config_numero
 
 __all__ = [
     "max_dias_desde_settings",
@@ -61,30 +63,12 @@ _SQL_HOY = "SELECT (now() AT TIME ZONE 'UTC')::date"
 
 
 def _numero(settings: Mapping, clave: str) -> Decimal:
-    """Con la forma de `app/precio/config.py::_numero` (A.7 no edita `config.py`)."""
-    if clave not in settings or settings[clave] is None:
-        raise ValueError(f"config sin {clave}")
-    valor = settings[clave]
-    if isinstance(valor, bool):
-        raise ValueError(f"setting {clave}: valor no numerico: {valor!r}")
-    try:
-        numero = Decimal(str(valor).strip() if isinstance(valor, str) else str(valor))
-    except (InvalidOperation, ValueError) as exc:
-        raise ValueError(f"setting {clave}: valor no numerico: {valor!r}") from exc
-    if not numero.is_finite():
-        raise ValueError(f"setting {clave}: valor no finito: {valor!r}")
-    return numero
+    """El ayudante unico de `app/precio/config.py` (REPRICING 02 0.a)."""
+    return config_numero(settings, clave)
 
 
 def _entero(settings: Mapping, clave: str, *, minimo: int, maximo: int) -> int:
-    """Con la forma de `app/precio/config.py::_entero` (l.64-72)."""
-    numero = _numero(settings, clave)
-    if numero != numero.to_integral_value():
-        raise ValueError(f"setting {clave}: debe ser entero: {numero}")
-    entero = int(numero)
-    if not minimo <= entero <= maximo:
-        raise ValueError(f"setting {clave}: fuera de cota [{minimo}, {maximo}]: {entero}")
-    return entero
+    return config_entero(settings, clave, minimo=minimo, maximo=maximo)
 
 
 def max_dias_desde_settings(settings: Mapping) -> int:

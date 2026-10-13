@@ -1234,6 +1234,44 @@ def test_precio_init_tambien_se_escanea(tmp_path, monkeypatch):
         test_precio_puro_sin_io()
 
 
+_ADAPTADORES_PRECIO = ("app.spapi.precio_mercado", "app.meli.precio_mercado")
+
+
+def _importadores_de_adaptadores(raiz: Path) -> dict[str, set[str]]:
+    """Archivos de `app/` (fuera de precio_mercados) que importan un
+    adaptador de plataforma del motor de precios."""
+    fugas: dict[str, set[str]] = {}
+    for ruta in sorted(raiz.rglob("*.py")):
+        posix = ruta.relative_to(raiz).as_posix()
+        if posix == "precio_mercados.py":
+            continue
+        hallados = {
+            adaptador for adaptador in _ADAPTADORES_PRECIO if adaptador in _imports_runtime(ruta)
+        }
+        if hallados:
+            fugas[posix] = hallados
+    return fugas
+
+
+def test_precio_mercados_es_el_unico_importador_de_los_adaptadores():
+    """REPRICING 02 0.a: `app/precio_mercados.py` es la raiz de composicion,
+    el UNICO modulo que conoce a los dos adaptadores de plataforma. Todo lo
+    demas abre su mercado con `precio_mercados.abrir`."""
+    fugas = _importadores_de_adaptadores(APP)
+    assert not fugas, f"modulos que importan adaptadores directamente: {fugas}"
+
+
+def test_candado_precio_mercados_caza_fuga_sembrada(tmp_path):
+    """REPRICING 02 0.a, fuga sembrada: un modulo cualquiera que importe un
+    adaptador aparece nombrado por el candado."""
+    (tmp_path / "fuga_corrida.py").write_text(
+        "from app.meli.precio_mercado import MercadoMeli  # fuga\n",
+        encoding="utf-8",
+    )
+    fugas = _importadores_de_adaptadores(tmp_path)
+    assert fugas == {"fuga_corrida.py": {"app.meli.precio_mercado"}}
+
+
 def test_precio_frontera_caza_reloj_con_alias(tmp_path, monkeypatch):
     """r1-B5, fuga sembrada de reloj: `from datetime import datetime as dt`
     + `dt.now()` hace fallar el candado con el nombre del archivo."""

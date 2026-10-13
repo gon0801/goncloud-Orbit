@@ -48,6 +48,7 @@ from app.estimacion_insumos import OfertaResuelta
 from app.estimacion_reader import leer_escenarios
 from app.estimacion_venta import DetalleFee
 from app.precio.config import ConfigPrecio, leer_config
+from app.precio.config import _entero as _entero_config
 from app.precio.reglas import decidir, repartir_cupo
 from app.precio.tipos import (
     CambioPrevio,
@@ -252,23 +253,9 @@ def freno_no_confirmado(
 
 
 def _numero_entero(settings: Mapping, clave: str, *, minimo: int, maximo: int) -> int:
-    """Replica de `app/precio/config.py::_entero` (punto (f): `config.py`
-    no se toca y `_entero` es privado; `ValueError` nombra la clave)."""
-    if clave not in settings or settings[clave] is None:
-        raise ValueError(f"config sin {clave}")
-    valor = settings[clave]
-    if isinstance(valor, bool):
-        raise ValueError(f"setting {clave}: valor no numerico: {valor!r}")
-    try:
-        numero = Decimal(str(valor).strip() if isinstance(valor, str) else str(valor))
-    except (InvalidOperation, ValueError) as exc:
-        raise ValueError(f"setting {clave}: valor no numerico: {valor!r}") from exc
-    if not numero.is_finite() or numero != numero.to_integral_value():
-        raise ValueError(f"setting {clave}: debe ser entero: {valor!r}")
-    entero = int(numero)
-    if not minimo <= entero <= maximo:
-        raise ValueError(f"setting {clave}: fuera de cota [{minimo}, {maximo}]: {entero}")
-    return entero
+    """El ayudante unico de `app/precio/config.py` (REPRICING 02 0.a: la
+    copia privada se borro)."""
+    return _entero_config(settings, clave, minimo=minimo, maximo=maximo)
 
 
 def validar_freno_dias_error(settings: Mapping) -> int:

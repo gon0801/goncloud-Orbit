@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 
-from app.estimacion_venta import DetalleFee
+from app.estimacion_venta import MOTIVOS_ESTIMACION, DetalleFee
 
 __all__ = [
     "RESULTADOS",
@@ -32,7 +32,21 @@ __all__ = [
     "MOTIVOS_GOAL_INALCANZABLE",
     "MOTIVOS_FRENADO",
     "SUBMOTIVOS_SIN_DATO",
+    "CAUSAS_RETENCION",
+    "EVIDENCIAS_SENAL",
+    "VERIFICACIONES",
+    "MonedasMezcladas",
     "Importe",
+    "TasaFx",
+    "Convertido",
+    "convertir",
+    "MuestraEnvio",
+    "EnvioIncluido",
+    "EnvioPropio",
+    "EnvioImputado",
+    "Fees",
+    "Tasas",
+    "Cuenta",
     "Componentes",
     "Escenario",
     "ObservacionPricing",
@@ -68,31 +82,8 @@ MOTIVOS_MANTENER = frozenset(
     }
 )
 
-MOTIVOS_NO_EVALUADO = frozenset(
+_MOTIVOS_PROPIOS_DEL_MOTOR = frozenset(
     {
-        # Los que ya declara la estimacion (S2, pasan tal cual).
-        "oferta_desactualizada",
-        "oferta_futura",
-        "costo_desactualizado",
-        "costo_no_vigente",
-        "fx_ausente",
-        "fee_ausente",
-        "impuesto_fee_pendiente",
-        "fee_incompatible",
-        "fee_invalido",
-        "precio_ausente",
-        "precio_invalido",
-        "costo_ausente",
-        "costo_invalido",
-        "costo_impuesto_incompatible",
-        "costo_base_fiscal_ausente",
-        "fx_direccion_invalida",
-        "fx_tasa_invalida",
-        "politica_ausente",
-        "politica_ambigua",
-        "politica_no_vigente",
-        "politica_invalida",
-        "identidad_ambigua",
         # Motivo de estimacion futuro o de otra fuente: nunca revienta la
         # corrida (r2-A1, decision 11 «ningun silencio»); el crudo viaja en
         # `diagnostico` y lo pone quien llama, no este vocabulario.
@@ -110,8 +101,33 @@ MOTIVOS_NO_EVALUADO = frozenset(
         # declarada al PR): precio cotizado distinto del actual, fees que no
         # suman F, I o R fuera de formula. El que falla viaja en `diagnostico`.
         "escenario_incoherente",
+        # REPRICING 02: universos y envio (F y M traen los datos).
+        "envio_sin_historia",
+        "variante_sin_mapear",
+        "fx_desactualizado",
+        # REPRICING 02 (S.1): el goal cambio a media tarde y la cotizacion
+        # guardada ya no corresponde a esta decision.
+        "cotizacion_de_otro_goal",
     }
 )
+
+# REPRICING 02 0.a: la estimacion es duena de sus motivos
+# (`app.estimacion_venta.MOTIVOS_ESTIMACION`); el motor aporta los suyos.
+MOTIVOS_NO_EVALUADO = frozenset(MOTIVOS_ESTIMACION) | _MOTIVOS_PROPIOS_DEL_MOTOR
+
+CAUSAS_RETENCION = frozenset(
+    {
+        "movimiento_masivo",
+        "insumo_sistemico",
+        "apagador",
+        "corte_errores",
+        "goal_cambiado",
+    }
+)
+
+EVIDENCIAS_SENAL = frozenset({"unidades", "trafico"})
+
+VERIFICACIONES = frozenset({"cotizada", "lineal"})
 
 MOTIVOS_GOAL_INALCANZABLE = frozenset(
     {
@@ -158,9 +174,18 @@ def exigir_decimal(valor: object, *, campo: str) -> Decimal:
     return valor
 
 
+class MonedasMezcladas(TypeError):
+    """Se intento operar dos importes de moneda distinta. Nunca se convierte
+    solo: la unica puerta entre monedas es `convertir`."""
+
+
 @dataclass(frozen=True)
 class Importe:
-    """Dinero con su moneda (regla 4 de Orbit)."""
+    """Dinero con su moneda (regla 4 de Orbit).
+
+    La aritmetica revienta con `MonedasMezcladas` si las monedas difieren;
+    no hay conversion implicita ni multiplicacion entre importes.
+    """
 
     valor: Decimal
     moneda: str
@@ -169,6 +194,217 @@ class Importe:
         exigir_decimal(self.valor, campo="importe.valor")
         if not isinstance(self.moneda, str) or not self.moneda.strip():
             raise ValueError("importe.moneda vacia")
+
+    def _misma_moneda(self, otro: Importe) -> None:
+        if self.moneda != otro.moneda:
+            raise MonedasMezcladas(f"monedas distintas: {self.moneda} y {otro.moneda}")
+
+    def __add__(self, otro: Importe) -> Importe:
+        self._misma_moneda(otro)
+        return Importe(self.valor + otro.valor, self.moneda)
+
+    def __sub__(self, otro: Importe) -> Importe:
+        self._misma_moneda(otro)
+        return Importe(self.valor - otro.valor, self.moneda)
+
+    def __lt__(self, otro: Importe) -> bool:
+        self._misma_moneda(otro)
+        return self.valor < otro.valor
+
+    def __le__(self, otro: Importe) -> bool:
+        self._misma_moneda(otro)
+        return self.valor <= otro.valor
+
+    def __gt__(self, otro: Importe) -> bool:
+        self._misma_moneda(otro)
+        return self.valor > otro.valor
+
+    def __ge__(self, otro: Importe) -> bool:
+        self._misma_moneda(otro)
+        return self.valor >= otro.valor
+
+    def escalar(self, factor: Decimal) -> Importe:
+        exigir_decimal(factor, campo="importe.factor")
+        return Importe(self.valor * factor, self.moneda)
+
+
+@dataclass(frozen=True)
+class TasaFx:
+    """Tasa usada, con su fecha y fuente. `quote` por 1 `base`."""
+
+    base: str
+    quote: str
+    tasa: Decimal
+    fecha: date
+    fuente: str
+
+    def __post_init__(self) -> None:
+        exigir_decimal(self.tasa, campo="tasa.tasa")
+        if self.tasa <= 0:
+            raise ValueError("tasa.tasa no positiva")
+        if not self.base or not self.quote or self.base == self.quote:
+            raise ValueError("tasa con par de monedas invalido")
+
+
+@dataclass(frozen=True)
+class Convertido:
+    """Un importe medido en una moneda y llevado a otra. Guarda las dos
+    puntas y la tasa: es el unico tipo que cruza monedas."""
+
+    original: Importe
+    en: Importe
+    tasa: TasaFx
+
+    def __post_init__(self) -> None:
+        if self.original.moneda == self.en.moneda:
+            raise ValueError("convertido sin cruzar monedas")
+        if {self.tasa.base, self.tasa.quote} != {self.original.moneda, self.en.moneda}:
+            raise ValueError("convertido con tasa que no une las dos puntas")
+
+
+def convertir(importe: Importe, tasa: TasaFx) -> Convertido:
+    """La unica puerta entre monedas. Sin tasa no hay llamada: `fx_ausente`."""
+    if importe.moneda != tasa.base:
+        raise ValueError(f"tasa {tasa.base}->{tasa.quote} no aplica a {importe.moneda}")
+    en = Importe((importe.valor * tasa.tasa).quantize(Decimal("0.0001")), tasa.quote)
+    return Convertido(original=importe, en=en, tasa=tasa)
+
+
+# --- Envio (L) con origen: un imputado no se puede confundir con un medido ---
+
+
+@dataclass(frozen=True)
+class MuestraEnvio:
+    """Fila de `precio_envio_muestra` ya leida (evidencia de `L`)."""
+
+    id: int
+    product_id: int
+    plataforma: str
+    canal: str
+    origen: str
+    valor: Importe
+    envios: int
+    donantes: int | None
+    ventana: tuple[date, date]
+    regla_version: str
+
+    def __post_init__(self) -> None:
+        if self.origen not in ("propio", "familia", "marketplace"):
+            raise ValueError(f"muestra.origen invalido: {self.origen!r}")
+        if self.origen == "propio" and self.donantes is not None:
+            raise ValueError("muestra propia no trae donantes")
+        if self.origen in ("familia", "marketplace") and (
+            self.donantes is None or self.donantes < 1
+        ):
+            raise ValueError("muestra imputada exige donantes")
+        if self.envios < 1:
+            raise ValueError("muestra.envios no positivo")
+
+
+@dataclass(frozen=True)
+class EnvioIncluido:
+    """FBA: la logistica ya va dentro del fee; `L` es la constante de la
+    politica."""
+
+    importe: Importe
+    origen: str = "politica"
+
+
+@dataclass(frozen=True)
+class EnvioPropio:
+    """Medido con envios de ESTE producto."""
+
+    importe: Importe
+    muestra: MuestraEnvio
+    conversion: Convertido | None = None
+
+    def __post_init__(self) -> None:
+        if self.muestra.origen != "propio":
+            raise ValueError("envio propio exige muestra propia")
+
+
+@dataclass(frozen=True)
+class EnvioImputado:
+    """NO es de este producto: mediana de hermanos (`familia`) o del
+    marketplace. Clase distinta a `EnvioPropio` a proposito: quien quiera
+    tratarlo como medido tiene que escribir el `isinstance`."""
+
+    importe: Importe
+    muestra: MuestraEnvio
+    conversion: Convertido | None = None
+
+    def __post_init__(self) -> None:
+        if self.muestra.origen not in ("familia", "marketplace"):
+            raise ValueError("envio imputado exige muestra familia o marketplace")
+
+
+@dataclass(frozen=True)
+class Fees:
+    """Fees a UN precio, ya partidos por el adaptador en parte variable y
+    fija. Invariante: `total == variable + fijo`, misma moneda."""
+
+    total: Importe
+    variable: Importe
+    fijo: Importe
+    impuesto_pendiente: bool
+    detalle: tuple[DetalleFee, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.total != self.variable + self.fijo:
+            raise ValueError(
+                f"fees incoherentes: total {self.total} != variable + fijo "
+                f"({self.variable} + {self.fijo})"
+            )
+
+
+@dataclass(frozen=True)
+class Tasas:
+    """Tasas de la politica del universo, tal como las uso el escenario."""
+
+    iva_divisor: Decimal
+    precio_incluye_iva: bool
+    retencion_tasa: Decimal
+
+    def __post_init__(self) -> None:
+        exigir_decimal(self.iva_divisor, campo="tasas.iva_divisor")
+        exigir_decimal(self.retencion_tasa, campo="tasas.retencion_tasa")
+        if self.iva_divisor <= 0:
+            raise ValueError("tasas.iva_divisor no positiva")
+        if self.retencion_tasa < 0:
+            raise ValueError("tasas.retencion_tasa negativa")
+
+
+@dataclass(frozen=True)
+class Cuenta:
+    """P, I, C, F, L, R de UN miembro a UN precio. Los seis importes van en
+    la MISMA moneda, la de venta: monedas mezcladas no construyen."""
+
+    precio: Importe
+    ingreso: Importe
+    costo: Importe
+    fees: Fees
+    envio: EnvioIncluido | EnvioPropio | EnvioImputado
+    retencion: Importe
+
+    def __post_init__(self) -> None:
+        monedas = {
+            self.precio.moneda,
+            self.ingreso.moneda,
+            self.costo.moneda,
+            self.fees.total.moneda,
+            self.envio.importe.moneda,
+            self.retencion.moneda,
+        }
+        if len(monedas) != 1:
+            raise MonedasMezcladas(f"cuenta con monedas mezcladas: {sorted(monedas)}")
+        if self.ingreso.valor <= 0:
+            raise ValueError("cuenta.ingreso no positivo")
+
+    @property
+    def margen(self) -> Decimal:
+        """`(I - C - F - L - R) / I`."""
+        neto = self.ingreso - self.costo - self.fees.total - self.envio.importe - self.retencion
+        return neto.valor / self.ingreso.valor
 
 
 @dataclass(frozen=True)
@@ -226,6 +462,7 @@ class CambioPrevio:
     estado: str
     es_reversa: bool = False
     aplicado: bool = True
+    sin_efecto: bool = False
 
     def __post_init__(self) -> None:
         if self.direccion is not None and self.direccion not in ("subir", "bajar"):

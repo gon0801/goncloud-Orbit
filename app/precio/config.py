@@ -18,7 +18,10 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
-__all__ = ["ConfigPrecio", "leer_config"]
+__all__ = ["ConfigPrecio", "ConfigMotor", "leer_config", "leer_config_motor"]
+
+MODOS = ("off", "shadow", "live")
+_MONEDA_ORDEN = {"off": 0, "shadow": 1, "live": 2}
 
 
 @dataclass(frozen=True)
@@ -102,6 +105,105 @@ def _fechas_excluidas(settings: Mapping, clave: str) -> tuple[tuple[date, date],
     if not isinstance(valor, (list, tuple)):
         raise ValueError(f"setting {clave}: debe ser lista de rangos: {valor!r}")
     return tuple(_rango_fechas(rango, clave=clave) for rango in valor)
+
+
+@dataclass(frozen=True)
+class ConfigMotor:
+    """Claves `precio_*` que no son de las reglas (REPRICING 02, seccion H).
+
+    Apagador (modos), compuerta (fusible, insumo sistemico, corte), senal de
+    trafico, cohorte, ventana de envio y las que hoy leen `banda_desde_settings`,
+    `max_dias_desde_settings`, `validar_freno_dias_error` y
+    `validar_precio_aviso_dias`. Sin defaults: clave ausente o fuera de cota
+    -> `ValueError` que la nombra. Las reglas puras siguen en `ConfigPrecio`
+    para no exigirle estas claves al codigo que corre hoy.
+    """
+
+    modo_global: str
+    modo_universo: Mapping[str, str]
+    banda_goal: tuple[Decimal, Decimal]
+    freno_dias_error: int
+    catalogo_max_dias_sin_reportar: int
+    aviso_dias_sin_evaluar: int
+    fusible_frac: Decimal
+    fusible_min_movimientos: int
+    insumo_salto_pct: Decimal
+    insumo_salto_frac: Decimal
+    corte_errores_consecutivos: int
+    senal_trafico_min: int
+    cohorte_caida_pct: Decimal
+    envio_ventana_dias: int
+
+    def modo_de(self, plataforma: str, canal: str | None) -> str:
+        """`min(modo_global, modo_universo[platform/canal])`. Universo sin
+        entrada = `off` (la config es valida; el universo esta apagado)."""
+        universo = self.modo_universo.get(f"{plataforma}/{canal}", "off")
+        return min(self.modo_global, universo, key=lambda modo: _MONEDA_ORDEN[modo])
+
+
+def _modo(settings: Mapping, clave: str) -> str:
+    if clave not in settings or settings[clave] is None:
+        raise ValueError(f"config sin {clave}")
+    valor = settings[clave]
+    if valor not in MODOS:
+        raise ValueError(f"setting {clave}: modo invalido (off|shadow|live): {valor!r}")
+    return valor
+
+
+def _modo_universo(settings: Mapping, clave: str) -> dict[str, str]:
+    if clave not in settings or settings[clave] is None:
+        raise ValueError(f"config sin {clave}")
+    valor = settings[clave]
+    if not isinstance(valor, Mapping):
+        raise ValueError(f"setting {clave}: debe ser objeto plataforma/canal -> modo: {valor!r}")
+    resultado: dict[str, str] = {}
+    for universo, modo in valor.items():
+        if not isinstance(universo, str) or "/" not in universo:
+            raise ValueError(f"setting {clave}: universo invalido: {universo!r}")
+        if modo not in MODOS:
+            raise ValueError(f"setting {clave}: modo invalido para {universo}: {modo!r}")
+        resultado[universo] = modo
+    return resultado
+
+
+def leer_config_motor(settings: Mapping) -> ConfigMotor:
+    """Valida las claves `precio_*` de la seccion H contra sus cotas."""
+    banda = (
+        _fraccion(settings, "precio_goal_min_pct", minima="0", maxima="1"),
+        _fraccion(settings, "precio_goal_max_pct", minima="0", maxima="1"),
+    )
+    if not Decimal(0) < banda[0] < banda[1] < Decimal(1):
+        raise ValueError(f"config precio_goal incoherente: exige 0 < min < max < 1: {banda}")
+    return ConfigMotor(
+        modo_global=_modo(settings, "precio_modo_global"),
+        modo_universo=_modo_universo(settings, "precio_modo_universo"),
+        banda_goal=banda,
+        freno_dias_error=_entero(settings, "precio_freno_dias_error", minimo=1, maximo=14),
+        catalogo_max_dias_sin_reportar=_entero(
+            settings, "precio_catalogo_max_dias_sin_reportar", minimo=1, maximo=14
+        ),
+        aviso_dias_sin_evaluar=_entero(
+            settings, "precio_aviso_dias_sin_evaluar", minimo=1, maximo=14
+        ),
+        fusible_frac=_fraccion(settings, "precio_fusible_frac", minima="0.10", maxima="0.90"),
+        fusible_min_movimientos=_entero(
+            settings, "precio_fusible_min_movimientos", minimo=1, maximo=100
+        ),
+        insumo_salto_pct=_fraccion(
+            settings, "precio_insumo_salto_pct", minima="0.01", maxima="0.50"
+        ),
+        insumo_salto_frac=_fraccion(
+            settings, "precio_insumo_salto_frac", minima="0.05", maxima="0.90"
+        ),
+        corte_errores_consecutivos=_entero(
+            settings, "precio_corte_errores_consecutivos", minimo=2, maximo=20
+        ),
+        senal_trafico_min=_entero(settings, "precio_senal_trafico_min", minimo=20, maximo=5000),
+        cohorte_caida_pct=_fraccion(
+            settings, "precio_cohorte_caida_pct", minima="0.05", maxima="0.90"
+        ),
+        envio_ventana_dias=_entero(settings, "precio_envio_ventana_dias", minimo=30, maximo=365),
+    )
 
 
 def leer_config(settings: Mapping) -> ConfigPrecio:
