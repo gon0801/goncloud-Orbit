@@ -1,3 +1,18 @@
+## 2026-10-13 - BIDS 02 C.1: cierre del plan (solo documentos)
+
+- Commit unico de documentos en la rama `bids-02/s7-cierre`:
+  `plans/bids-02.md` (C.1 y R09-C en `cc:完了`; las 34 filas de las
+  secciones 1 a 7 quedan completas; rango de migraciones corregido a
+  0060-0070 con sus tres filas; tabla nueva «Ronda R13» con la deuda
+  no bloqueante abierta como filas R13-A a R13-J), `plans/ROADMAP.md`
+  (AUTO-03 a AUTO-06 «sin cubrir por BIDS 02»), `docs/CONTEXTO.md`
+  (la politica vigente es `niveles_v3`; fraccion US 0.8; el target sube
+  de una vez y baja 0.5 por ciclo) y `docs/DEPLOY.md` (interruptor de
+  politica y nota del ensayo).
+- Comprobado en produccion, solo lectura: `config_version` 27 con
+  fraccion US 0.8 y `niveles_v3` en MX y US (criterios 4 y 5) y las
+  cinco pantallas en 200.
+
 **2026-10-13 UTC — BIDS 02 sección 6 cerrada: el dueño ve qué búsquedas gastan sin vender.** P.6 construyó la pantalla de solo lectura (`app/pantalla_busquedas.py`, sin migración: ASIN y palabras que ya gastaron el gasto para concluir sin un pedido en 90 días, con la referencia de azar y los conteos a medio camino; no escribe nada en Amazon ni en la cola, el dueño niega a mano). D.5 desplegó el SHA `6a154bd` (sello 20261013-0051, ensayo exit 0, sin migraciones ni cron nuevo, crontab intacto) y el checklist salió 0 con 0 fallas y sin diferidas (la página 200 en MX y US con su frase, `search_term_observation` sin escrituras). Filas P.6 y D.5 en `cc:完了`. Evidencia: `docs/evidencia/bids-02/ejecucion/D.5/` (4 salidas + `cierre.md`). Sigue la sección 7 (C.1).
 
 **2026-10-12 UTC — BIDS 02 sección 5 cerrada: el dueño impulsa un producto con su par de campañas.** I.1 declaró los roles del grupo de dos (`campana_grupo.tipo`, 0064, roster de hermanas vacío); I.2 escribió plan, tope y veredicto puros; I.3 puso vista previa, lanzamiento y vigía (0065, comando `impulso-vigia`, goals `shadow` a `live` al graduar); I.4 saca un producto de sus bolsas viejas y lo regresa con intención sellada (0066, `PUT /sp/productAds`); I.5 abrió las rutas del impulso en la fábrica; P.4 construyó la pantalla de productos que venden y casi no reciben clics, con los impulsos en curso; E.1 agregó los dos botones de retiro. D.4 desplegó el SHA `540a5e5` (sello 20261012-2146, ensayo exit 0, aplicadas 0064 a 0070, cron `impulso-vigia` 08:20 UTC instalado con respaldo) y el checklist salió 0 con 0 fallas y sin diferidas (las cinco tablas existen y vacías, vista previa 200 sin escribir, vigía 0 sin impulsos); el primer vigía corre solo por cron. Filas I.1-I.5, P.4, E.1 y D.4 en `cc:完了`. Evidencia: `docs/evidencia/bids-02/ejecucion/D.4/` (3 salidas + `cierre.md`). Sigue la sección 6 (P.6, D.5).

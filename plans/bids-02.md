@@ -138,7 +138,7 @@ El revisor comprueba estas reglas en cada fila. Vienen del diseño y de `docs/CO
 
 REPRICING 02 está planeado y sin arrancar. Puede correr al mismo tiempo. Dos reglas evitan el choque:
 
-- **Migraciones.** REPRICING 02 reserva de la 0053 a la 0058. BIDS 02 usa de la 0060 a la 0067, una por
+- **Migraciones.** REPRICING 02 reserva de la 0053 a la 0058. BIDS 02 usa de la 0060 a la 0070, una por
   tarea. La 0059 queda libre. Si al aplicar una migración su número ya existe en `origin/master`, toma el
   siguiente libre, cambia el nombre del archivo y de su reversa, y avisa al lead.
 
@@ -152,6 +152,9 @@ REPRICING 02 está planeado y sin arrancar. Puede correr al mismo tiempo. Dos re
   | 0065 | I.3 | 5 | `impulso`, `impulso_lectura` y los estados nuevos de `fabrica_lote` |
   | 0066 | I.4 | 5 | `anuncio_retiro` y `anuncio_reposicion` |
   | 0067 | V.3 | 4 | `campana_ajuste` y la tercera rama de `v_cambio_bid` |
+  | 0068 | I.3 | 5 | Actor de la pausa y hecho de graduacion |
+  | 0069 | I.4 | 5 | `anuncio_retiro_intencion` (la intencion va antes del HTTP) |
+  | 0070 | I.4 | 5 | Permiso de borrado para el lanzamiento |
 
   `datos.sql` agrupa estas migraciones en cuatro bloques por tema. Esta tabla manda sobre sus números.
 - **Archivos compartidos.** `tests/test_architecture.py`, `app/config_write.py`, la ruta de config de
@@ -322,7 +325,7 @@ Esta sección corre al final, después de todas las demás.
 
 | Task | Contenido | DoD | Depends | Status |
 | --- | --- | --- | --- | --- |
-| C.1 | `[stage:cierre-pr] [lane:fast] [tdd:skip:docs]` Cierre: filas, `plans/ROADMAP.md`, `docs/CHAT-CONTEXT.md`, `docs/CONTEXTO.md` y `docs/DEPLOY.md`. | El motor está encendido en las dos plataformas, o cerrado con el motivo escrito. Las cinco pantallas responden. Las filas AUTO-03 a AUTO-06 del roadmap dicen qué cubrió este plan y qué no. | X.1, D.3, D.4, D.5 | cc:TODO |
+| C.1 | `[stage:cierre-pr] [lane:fast] [tdd:skip:docs]` Cierre: filas, `plans/ROADMAP.md`, `docs/CHAT-CONTEXT.md`, `docs/CONTEXTO.md` y `docs/DEPLOY.md`. | El motor está encendido en las dos plataformas, o cerrado con el motivo escrito. Las cinco pantallas responden. Las filas AUTO-03 a AUTO-06 del roadmap dicen qué cubrió este plan y qué no. | X.1, D.3, D.4, D.5 | cc:完了 |
 
 Los números de control del 2026-10-09 están en `PRUEBAS.md` y en `prototipos/RESULTADOS.md`: 355 y 233 hojas
 activas, 6 y 3 keywords dañadas, 10 y 5 candidatos. Sirven de referencia. Una copia de producción posterior da
@@ -434,7 +437,7 @@ cierre.
 | --- | --- | --- | --- | --- |
 | R09-A | `[stage:implementacion] [lane:gate] [tdd:required]` `impulso_pausar` traduce `fc.Abortar` (lote ya pausado, desarmado, sin campanas) a 409 con su mensaje; hoy da 500. | Doble pausa responde 409 con el mensaje; lote desarmado 409. | s5 | cc:TODO |
 | R09-B | `[stage:implementacion] [lane:gate] [tdd:required]` La vista previa valida el PlanGrupoV2 (piso/techo de bid y budget) antes de mostrarlo lanzable; hoy un fuera de rango falla con 502 en lanzar. | Previa con tope bajo el piso marca no lanzable; lanzar no da 502 por rango. | s5 | cc:TODO |
-| R09-C | `[stage:diseno] [lane:fast]` `impulso_lectura.gasto` sin moneda: decidir si se sella moneda por fila o se documenta moneda-unica-por-plataforma (hoy mezcla teorica MX/US imposible en la practica). | Decision escrita en design.md o columna de moneda con su migracion. | s5 | cc:TODO |
+| R09-C | `[stage:diseno] [lane:fast]` `impulso_lectura.gasto` sin moneda: decidir si se sella moneda por fila o se documenta moneda-unica-por-plataforma (hoy mezcla teorica MX/US imposible en la practica). | Decision escrita en design.md o columna de moneda con su migracion. | s5 | cc:完了 |
 | R09-D | `[stage:implementacion] [lane:fast] [tdd:required]` `productos.js` muestra `detail` objeto como `[object Object]`; extraer `mensajeError(data)` como en `fabrica.js` y usarla en las cinco lineas. | Un 502 parcial muestra mensaje y fallos por producto. | s5 | cc:TODO |
 | R09-E | `[stage:implementacion] [lane:fast]` 0065: GRANT SELECT explicito sobre `v_impulso_estado` a app_read/app_admin + verificacion en el bloque DO (hoy solo default privileges). | Ensayo D.4 verde con el GRANT verificado. | s5 | cc:TODO |
 
@@ -447,3 +450,18 @@ cierre.
 | R09-H | `[stage:diseno] [lane:fast]` `lanza` aborta el batch al primer vivo con 409 (su docstring dice que un fallo no detiene). Decidir si continua con los demas y devuelve 207/multiestilo. | Decision escrita o batch que continua con fallos adjuntos. | s5 | cc:TODO |
 | R09-I | `[stage:implementacion] [lane:gate] [tdd:required]` `_desarmar` (fuera de R09) tiene el mismo bug de orden que A-1: `_Ctx` fresco en 0 colisiona UNIQUE(lote, orden) al desarmar un lote aplicado. | Test con pasos 1..N: desarmar continua el ledger sin colision. | s4 | cc:TODO |
 | R09-J | `[stage:implementacion] [lane:fast] [tdd:required]` Atar `impulso.grupo_id` al tipo: FK o trigger que rechace grupo con tipo distinto de 'impulso' (hoy solo la tupla de roles en `_registrar`). | Migracion + test: impulso sobre grupo fabrica5 se rechaza. | s5 | cc:TODO |
+
+### Ronda R13: deuda no bloqueante (cierre C.1; PR 412, PR 435, PR 438 y despliegues)
+
+| Task | Contenido | DoD | Depends | Status |
+| --- | --- | --- | --- | --- |
+| R13-A | `[stage:diseno] [lane:fast]` PR412-R02, tres arreglos: la tabla-decision dice US 18 y el diseno dice 22 recortes (17 hojas); el bloque de borrado de pausa de product ads se queda si la sonda sella; a `construccion:312` le falta `prototipos-base/`. | Los tres textos corregidos en su fuente. | - | cc:TODO |
+| R13-B | `[stage:implementacion] [lane:gate] [tdd:required]` PR412-R01: la sonda no trata la respuesta no-2xx. | Prueba: respuesta no-2xx contada como fallo, no como vacio. | - | cc:TODO |
+| R13-C | `[stage:implementacion] [lane:gate] [tdd:required]` PR412-R03: R1 solo cuando el ultimo cambio es de origen motor. | Prueba: ultimo cambio manual no dispara R1. | - | cc:TODO |
+| R13-D | `[stage:diseno] [lane:fast]` PR412-R13: la firma de `verifica_uso.py:57` no dice que uso no es uso de presupuesto. | Firma o nombre que lo diga. | - | cc:TODO |
+| R13-E | `[stage:cierre] [lane:fast]` Evidencia de despliegue futura: guardar el JSON del checklist por mercado y la salida del crontab (hoy solo la huella md5 y el conteo de lineas). | La carpeta de ejecucion del proximo despliegue trae los dos archivos. | - | cc:TODO |
+| R13-F | `[stage:implementacion] [lane:gate] [tdd:required]` Mutantes de borde que sobreviven (PR 435): L6, G3b, G3c, L1, W10, W11, P3, W5, W6, W13, U2, U3, U4, U7, P4, P5, P6, P7, R4, R5, L3, G1c. | Prueba que mate cada id de la lista. | - | cc:TODO |
+| R13-G | `[stage:cierre] [lane:fast]` Al regenerar los scripts de un despliegue, pregonar en la cabecera que son la segunda version. | Cabecera de segunda version en los scripts regenerados. | - | cc:TODO |
+| R13-H | `[stage:cierre] [lane:fast]` El despliegue hace su propio respaldo con sello nuevo aunque exista uno del mismo minuto; el rollback usa el de su corrida. | Dicho en la seccion de despliegue (queda aseverado, sin cambio de codigo). | - | cc:TODO |
+| R13-I | `[stage:cierre] [lane:fast]` Las copias `aplicadas-*.txt` de D.1 a D.4 viven solo en el arbol de despliegue local y la carpeta `ejecucion/D.4/` no esta en HEAD. | Copias en el repo o nota con el motivo en cada carpeta. | - | cc:TODO |
+| R13-J | `[stage:cierre] [lane:fast]` La evidencia de P.6 no guarda la linea de la comparacion con el control (mercados, fecha y `NUMEROS OK`, sin textos de produccion) ni el `mutantes.md` (pasa igual con P.1, P.4 y P.5). | Las dos piezas en `ejecucion/P.6/` o el motivo escrito. | - | cc:TODO |
