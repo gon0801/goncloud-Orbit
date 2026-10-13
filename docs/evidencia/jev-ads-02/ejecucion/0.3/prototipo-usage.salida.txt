@@ -1,0 +1,6 @@
+== usage del prototipo
+  fuente  | filas | input_tokens | output_tokens | eventos | con_respuesta | con_error | sin_usage | sin_termino_en_censo | terminos_repetidos
+----------+-------+--------------+---------------+---------+---------------+-----------+-----------+----------------------+--------------------
+ analisis |    50 |      6106876 |        251894 |    4811 |               |           |           |                    0 |                  0
+ directa  |    15 |      6106876 |        251894 |    4811 |          4802 |         9 |         9 |                      |
+(2 rows)
