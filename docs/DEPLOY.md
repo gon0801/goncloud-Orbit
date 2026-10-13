@@ -406,6 +406,16 @@ sembradas (D.0); `ORBIT_DSN_DECIDE` presente **dentro** de `orbit-app-1`
 aplica goals `live` (sin goals o todos en `shadow`, no toca Amazon); y la
 forma del parche sellada (A.4): antes de A.4 solo goals en `shadow`.
 
+Interruptor de politica de bid (BIDS 02): la clave
+`ads_bid_politica_<plataforma>` de la `config_version` vigente manda.
+Ausente = el ciclo corre sin mover bids (PAUSE, negativos y cosecha
+siguen); con valor `niveles_v3` = motor encendido. X.1 la escribio
+en MX y en US junto con
+`ads_target_fraccion_margen_amazon_us = 0.8` (decision D1; MX sigue
+en 0.5). Apagar es quitar la clave con
+`docs/evidencia/bids-02/ejecucion/X.1/apagar.sh`; no hay regreso a
+la politica vieja.
+
 `job_key` del ciclo es `app.cycle.job_key_de` (`ads_optimizer:<platform>`),
 la misma fuente que el CLI. Los de ingesta quedan como comentario en el
 crontab y como `ingest_run.source` (`amazon_ads_structure_v2` /
@@ -2558,6 +2568,11 @@ bash docs/evidencia/bids-02/ejecucion/D.5/ensayo.sh
 bash docs/evidencia/bids-02/ejecucion/D.5/desplegar.sh <sha-de-origin/master>
 bash docs/evidencia/bids-02/ejecucion/D.5/checklist.sh <sello>
 ```
+
+Antes del ensayo: el arbol desde el que se corre necesita su `.venv`
+(`uv sync` una vez por worktree; sin el, el ensayo muere con
+`ModuleNotFoundError: psycopg`) y, en local, `ORBIT_TEST_DSN`
+apuntando al cluster de pruebas (5433), no al 5432 muerto.
 
 El ensayo comprueba que ninguna migracion BIDS 02 sigue pendiente
 (aborta si alguna lo esta: la aplica su propio despliegue), las

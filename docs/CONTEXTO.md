@@ -127,17 +127,28 @@ Reglas numéricas selladas (resumen; el documento manda):
   (solo-replay: clics 25, piso 12/200), jamás el vigente — replay fiel por
   construcción (decisión del lead 2026-08-28: 34/34 pauses medidas
   fieles).
-- **−25%** si ACoS > 1.35×target (orders≥1); **−12%** si > 1.15×target;
-  **+15%** si ACoS < 0.85×target ∧ orders≥3. Clamp por decisión ∈ [−30%, +20%],
-  resultado ∈ [floor, ceiling] (defaults de goal POR MONEDA, regla 4).
-- **BIDS 01 (2026-09-03): cero ventas → −25%** con motivo propio
-  (`banda_menos_25_cero_ventas`) cuando clicks ≥ `expected_clicks` del grupo
-  (CORTES 01, relativo al producto) y cost ≥ piso de pausa (40 USD / 500
-  MXN); antes −12%; PAUSE al 1.5× sin cambio (se evalúa antes). El replay
-  rejuega por el marcador congelado `cero_ventas_expected_usado` (solo lo
-  escriben ciclos con la regla), no por `expected_clicks` informativo —
-  las filas pre-BIDS rejuegan lo persistido (revisión PR #132, 17
-  decisiones US).
+- **La politica de bid vigente es `niveles_v3`** (`app/optimizer/politica.py`,
+  funcion pura `decide(caso)`; el replay es la misma funcion). Reemplaza a
+  las bandas con previa jerarquica, sin regreso a ellas. Una regla por linea:
+  - La hoja se juzga con sus datos; si no concluyen, hereda el veredicto de
+    su ad group (grupo con 3 pedidos o mas); "no opino" nunca recorta.
+  - La previa jerarquica solo frena subidas; ya no devuelve la decision a
+    la regla vieja.
+  - Pasos y bandas sin cambio (**−25%**, **−12%**, **+15%** sobre las bandas
+    1.35×, 1.15× y 0.85× del target), juzgados por la posterior gamma con
+    la confianza de la plataforma, no por el ACoS crudo. Clamp por decisión
+    ∈ [−30%, +20%], resultado ∈ [floor, ceiling] (defaults de goal POR
+    MONEDA, regla 4).
+  - Cero ventas con gasto alto no deriva a PAUSE: baja por gasto para
+    concluir (motivos `gasto_sin_venta`); PAUSE al 1.5× sin cambio se
+    evalua antes, con su reloj de una sola vez intacto.
+  - Trayectoria: repetir la misma direccion pide 20 clics al bid nuevo;
+    invertirla pide 20 clics o 14 dias. Si el trafico se desploma, el bid
+    regresa al anterior de una vez y ese piso aprendido no se vuelve a
+    cruzar hacia abajo.
+  - Interruptor por plataforma `ads_bid_politica_<plataforma>`: ausente =
+    el motor no mueve bids (PAUSE, negativos y cosecha siguen); con valor
+    `niveles_v3` = encendido.
 - **NEGATIVE_EXACT**: orders=0 ∧ clicks≥umbral_corte ∧ cost≥{us: 8, mx: 130};
   términos ASIN-like siempre skip. Umbral de clicks **adaptativo por
   producto** (CORTES 01): la evidencia del ad group (suma de sus hojas
@@ -299,25 +310,29 @@ manda para la implementación; este párrafo es el spec delta sellado:
   plataforma sin mezclar (regla 4), día en curso excluido y D-8..D-1 marcados
   inmaduros (regla 6), SELECT real antes de los tests (regla 8), regresión
   demostrada fallando (regla 9).
-- **Procedencia del target**: la cascada de `app/optimizer/goals.py` gana una
-  variante valor+peldaño con CINCO peldaños (goal_campana, goal_plataforma,
-  setting_plataforma, cache_estado, default), compatible con el camino del
-  motor — la capa web jamás la reimplementa.
+- **Procedencia del target**: la cascada de `app/optimizer/goals.py` tiene
+  CINCO peldaños de procedencia (`goal_campana`, `goal_plataforma`,
+  `margen_familia`, `margen_plataforma`, `setting_plataforma`), compatible
+  con el camino del motor — la capa web jamás la reimplementa. BIDS 02 T.1
+  retiro los peldaños `cache_estado` y `default` (migracion 0063): ya no
+  existe target por defecto. Sin target resuelto en ningun peldaño, la hoja
+  y su ad group se saltan con motivo `sin_target` y las pantallas dicen
+  «sin target».
 - **Target derivado del margen (ORBIT 06 Fase 2, sello del dueño 2026-09-03)**:
-  la cascada pasa a SIETE peldaños — `goal_campana → goal_plataforma →
-  margen_familia (A5: fraccion × margen de la familia) → margen_plataforma →
-  setting_plataforma → cache_estado → default`. El
+  orden de la cascada — goal resuelto (la campaña pisa a la plataforma) →
+  `margen_familia` (A5: fraccion × margen de la familia) →
+  `margen_plataforma` → `setting_plataforma`. El
   peldaño `margen_plataforma` = `fraccion × margen neto antes de publicidad`
   de la plataforma (ledger, 90 días maduros `[D-105, D-15)`, cargos sin
   `fee_type = ads`, COGS a la fecha, misma moneda, cobertura ≥ 95 %), con
   `fraccion` en `ads_target_fraccion_margen_<platform>` (dueño: **«La mitad
-  (utilidad)»** = 0.5 → ≈ 20 MX / ≈ 18 US; ausente = interruptor, presente
-  e inválida = ValueError). Señal ausente, rancia (> 3 días), corta (< 60
-  días con venta), con cobertura por monto baja, moneda mezclada o cargo
-  sin clasificar → el peldaño **se abstiene** y la cascada sigue al
-  setting; jamás cero (regla 3). El derivado fuera de la banda [10, 45]
-  NO abstiene: **clampea** al extremo (más paso máximo 0.5 puntos por
-  ciclo). Margen sobre venta CUBIERTA con cargos de plataforma prorrateados
+  (utilidad)»** = 0.5 en MX; **0.8 en US** por decision D1 de BIDS 02;
+  ausente = interruptor, presente e inválida = ValueError). Señal ausente,
+  rancia (> 3 días), corta (< 60 días con venta), con cobertura por monto
+  baja, moneda mezclada o cargo sin clasificar → el peldaño **se abstiene**
+  y la cascada sigue al setting; jamás cero (regla 3). El derivado fuera de
+  la banda [10, 45] NO abstiene: **clampea** al extremo. El target derivado
+  sube de una vez hasta su valor y baja como maximo 0.5 puntos por ciclo. Margen sobre venta CUBIERTA con cargos de plataforma prorrateados
   (cross-review §10.bis del spec, 2026-09-04). Requisito literal del dueño:
   «se va a ir ajustando automaticamente» → ledger y FX en cron diario.
   `v_contribucion_entidad` (por palabra) sigue NO decisoria.
