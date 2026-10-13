@@ -1450,6 +1450,48 @@ def test_pg_regresables_y_aviso_propio_en_fila_campana():
         )
 
 
+def test_r07h_no_ofrece_regresar_si_ya_esta_como_antes():
+    """R07-H: si la configuracion vigente ya volvio al valor de antes,
+    la pantalla no pinta el boton Regresar (la ruta contestaria 409)."""
+    import json
+
+    with _db_dinero("orbit_p1_r07h") as conn:
+        fecha = dt.date(2026, 10, 4)
+        camp = _siembra_campana(conn, "amazon_mx", "r07h", "R07H")
+        cfg_antes = conn.execute(
+            "INSERT INTO ads_campana_config_observation (ad_entity_id, observed_at,"
+            " presupuesto_diario, presupuesto_moneda, estrategia_puja)"
+            " VALUES (%s, %s, 100, 'MXN', 'MANUAL') RETURNING id",
+            (camp, dt.datetime(2026, 10, 1, tzinfo=dt.UTC)),
+        ).fetchone()[0]
+        # El vigente de hoy ya es el de antes (volvio solo, por sync).
+        conn.execute(
+            "INSERT INTO ads_campana_config_observation (ad_entity_id, observed_at,"
+            " presupuesto_diario, presupuesto_moneda, estrategia_puja)"
+            " VALUES (%s, %s, 100, 'MXN', 'MANUAL')",
+            (camp, dt.datetime(2026, 10, 4, tzinfo=dt.UTC)),
+        )
+        conn.execute(
+            "INSERT INTO campana_ajuste (campana_id, platform, clase, antes_config_id,"
+            " despues, huella, actor, go_literal, confirmado_el)"
+            " VALUES (%s, 'amazon_mx', 'presupuesto', %s, %s, 'h-r07h', 'dueno',"
+            " 'APLICAR AJUSTE', %s)",
+            (
+                camp,
+                cfg_antes,
+                json.dumps({"clase": "presupuesto"}),
+                dt.datetime(2026, 10, 3, tzinfo=dt.UTC),
+            ),
+        )
+        filas = {
+            f.campana_id: f
+            for f in lee_campanas(
+                conn, plataforma="amazon_mx", desde=fecha - dt.timedelta(days=29), hasta=fecha
+            )
+        }
+        assert filas[camp].ajustes_regresables == ()
+
+
 def test_pantalla_dinero_aplicar_nace_deshabilitado():
     """H1: el boton Aplicar nace disabled (sin pasar por la vista
     previa no se puede enviar)."""

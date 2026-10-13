@@ -124,7 +124,8 @@ SELECT o.ad_entity_id, (o.observed_at AT TIME ZONE 'UTC')::date, o.presupuesto_d
  ORDER BY o.ad_entity_id, 2, o.observed_at
 """
 _SQL_REGRESABLES = """
-SELECT a.id, a.campana_id, a.clase, (a.confirmado_el AT TIME ZONE 'UTC')::date
+SELECT a.id, a.campana_id, a.clase, (a.confirmado_el AT TIME ZONE 'UTC')::date,
+       a.antes_config_id
   FROM campana_ajuste a
   JOIN ads_campana_config_observation o ON o.id = a.antes_config_id
  WHERE a.platform = %s
@@ -409,8 +410,21 @@ def lee_campanas(
         _SQL_CONFIGS_HIST, (plataforma, hasta)
     ).fetchall():
         configs.setdefault(cid, []).append((vigente_desde, presupuesto))
+    from app.ads.campana_config import config_vigente_con_id
+    from app.apply import _config_por_id
+    from app.campana_ajustes import coincide_clase
+
     regresables: dict[int, list] = {}
-    for aid, cid, clase, confirmado in conn.execute(_SQL_REGRESABLES, (plataforma,)).fetchall():
+    for aid, cid, clase, confirmado, antes_id in conn.execute(
+        _SQL_REGRESABLES, (plataforma,)
+    ).fetchall():
+        # R07-H: si el vigente ya volvio al valor de antes, la ruta de
+        # regreso contesta 409; la pantalla no ofrece el boton.
+        _vid, vigente = config_vigente_con_id(conn, cid)
+        if vigente is not None:
+            antes = _config_por_id(conn, antes_id)
+            if vigente == antes or coincide_clase(clase, vigente, antes):
+                continue
         regresables.setdefault(cid, []).append(
             AjusteRegresable(
                 ajuste_id=aid,
