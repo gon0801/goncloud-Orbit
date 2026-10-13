@@ -1,0 +1,15 @@
+== MODO SIMULACION: datos reales contra postgresql://orbit:orbit@127.0.0.1:5433/orbit_sim_d7, servidor intacto
+SHA=773a555a54011993277596fec6161d7c0e8834ad
+== 0) aplicadas-20261013-0941.txt viene vacio, ANTES de tocar nada (D.7 no aplica migraciones)
+sin migraciones que reversar: la reversa solo restaura codigo
+== 0b) Guardas (ciclos en running abortan)
+guardas OK (sin ciclos en running)
+== 1) Restaurar codigo de predeploy-20261013-0941 (el crontab no se toca)
+crontab antes: md5 y lineas = 1f971f3802a7bb2736aa9fb1c27c196f 5 (sin tocarlo)
+SIMULACION: respaldo /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-d7-sim/predeploy-20261013-0941 presente; sin servidor, nada que reconstruir
+== 2) Reversas de esquema: ninguna (D.7 no aplico migraciones)
+nada que reversar en la base
+== 3) Verificacion: el crontab no cambio
+crontab despues: md5 y lineas = 1f971f3802a7bb2736aa9fb1c27c196f 5
+== REVERSA LISTA. Codigo de predeploy-20261013-0941 restaurado; sin reversas de esquema ni tocar el crontab.
+exit=0
