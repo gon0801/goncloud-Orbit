@@ -37,6 +37,7 @@ from app.reputacion_clientes import ClienteMeli, MeliCredentials, ReputacionErro
 
 FORMA_ODDO = re.compile(r"^[A-Z0-9]{2}-[A-Z0-9]{4}-[A-Z0-9]{4}$")
 _ID_ITEM = re.compile(r"\bMLM\d{6,}\b")
+_VENDEDOR_RUTA = re.compile(r"/users/\d+")
 
 CLAVES_ID = {
     "id",
@@ -79,13 +80,16 @@ def sanea(obj):
                 salida[clave] = "<fuera>"
             elif clave in CLAVES_ID:
                 salida[clave] = "<id>"
+            elif isinstance(clave, str) and _ID_ITEM.fullmatch(clave):
+                salida["<item>"] = sanea(valor)
             else:
                 salida[clave] = sanea(valor)
         return salida
     if isinstance(obj, list):
         return [sanea(item) for item in obj]
     if isinstance(obj, str):
-        return _ID_ITEM.sub("<item>", obj)
+        texto = _ID_ITEM.sub("<item>", obj)
+        return _VENDEDOR_RUTA.sub("/users/{vendedor}", texto)
     return obj
 
 
@@ -107,7 +111,7 @@ def consultar(
     except ReputacionError as exc:
         print(f"\n== {titulo} ==")
         print(f"ruta: {ruta_mostrar or ruta}")
-        print(f"ERROR: {exc}")
+        print(f"ERROR: {sanea(str(exc))}")
         return None
     imprimir(titulo, ruta_mostrar or ruta, datos)
     return datos
@@ -136,14 +140,14 @@ def proyectar_item(item: dict) -> dict:
         "status": item.get("status"),
         "category_id": item.get("category_id"),
         "listing_type_id": item.get("listing_type_id"),
-        "seller_custom_field_raiz": sku_presente(item.get("seller_custom_field")),
+        "sku_campo_seller_custom_field_raiz": sku_presente(item.get("seller_custom_field")),
         "precio_raiz": item.get("price"),
         "moneda": item.get("currency_id"),
         "n_variaciones": len(variaciones),
         "sku_por_variacion": [
             {
-                "seller_sku": sku_presente(variacion.get("seller_sku")),
-                "seller_custom_field": sku_presente(variacion.get("seller_custom_field")),
+                "sku_campo_seller_sku": sku_presente(variacion.get("seller_sku")),
+                "sku_campo_seller_custom_field": sku_presente(variacion.get("seller_custom_field")),
                 "price": variacion.get("price"),
                 "available_quantity": variacion.get("available_quantity"),
             }
@@ -153,8 +157,34 @@ def proyectar_item(item: dict) -> dict:
     return proyeccion
 
 
+def cargar_credenciales() -> tuple[MeliCredentials, dict]:
+    """Lee meli_tokens.json sin exigir client_id/client_secret.
+
+    En produccion ese archivo trae solo la respuesta OAuth (access_token,
+    refresh_token, scope, ...). Con el token vivo los GET bastan; si el
+    archivo trajera client_id/client_secret (futuro), se usan tambien. Un
+    401 con client_id vacio hace que el refresh del cliente falle ANTES de
+    reescribir el archivo: la sonda reporta el error y no rompe nada.
+    """
+    import json
+
+    from app.ads.config import directorio_secretos
+    from app.reputacion_clientes import MELI_TOKENS_FILENAME
+
+    ruta = directorio_secretos() / MELI_TOKENS_FILENAME
+    datos = json.loads(ruta.read_text())
+    creds = MeliCredentials(
+        access_token=datos["access_token"],
+        refresh_token=datos.get("refresh_token", ""),
+        client_id=datos.get("client_id", ""),
+        client_secret=datos.get("client_secret", ""),
+        ruta=ruta,
+    )
+    return creds, datos
+
+
 def main() -> int:
-    credenciales = MeliCredentials.from_secrets_dir()
+    credenciales, archivo_token = cargar_credenciales()
     cliente = ClienteMeli(credenciales)
 
     # Punto de partida: quien vende (el id del vendedor no se imprime).
@@ -180,30 +210,43 @@ def main() -> int:
 
     con_variantes = None
     sin_variantes = None
-    candidatos = []
+    agregado = {
+        "publicaciones": 0,
+        "con_variantes": 0,
+        "variantes_totales": 0,
+        "variantes_con_seller_sku": 0,
+        "variantes_con_seller_custom_field": 0,
+        "raices_con_seller_custom_field": 0,
+        "raiz_o_variaciones_con_forma_odoo": 0,
+    }
     for id_item in ids[:30]:
         item = None
         try:
             item, _ = cliente.get(f"/items/{id_item}")
         except ReputacionError as exc:
-            print(f"items/{{id}}: ERROR {exc}")
+            print(f"items/{{id}}: ERROR {sanea(str(exc))}")
             continue
-        candidatos.append(
-            {
-                "variantes": len(item.get("variations") or []),
-                "status": item.get("status"),
-            }
-        )
-        if con_variantes is None and item.get("variations"):
+        agregado["publicaciones"] += 1
+        variaciones = item.get("variations") or []
+        raiz_custom = item.get("seller_custom_field")
+        if variaciones:
+            agregado["con_variantes"] += 1
+            agregado["variantes_totales"] += len(variaciones)
+            agregado["variantes_con_seller_sku"] += sum(
+                1 for v in variaciones if sku_presente(v.get("seller_sku"))["presente"]
+            )
+            agregado["variantes_con_seller_custom_field"] += sum(
+                1 for v in variaciones if sku_presente(v.get("seller_custom_field"))["presente"]
+            )
+        if sku_presente(raiz_custom)["presente"]:
+            agregado["raices_con_seller_custom_field"] += 1
+        if forma_oddo(raiz_custom) or any(forma_oddo(v.get("seller_sku")) for v in variaciones):
+            agregado["raiz_o_variaciones_con_forma_oddo"] += 1
+        if con_variantes is None and variaciones:
             con_variantes = item
-        if sin_variantes is None and not item.get("variations"):
+        if sin_variantes is None and not variaciones:
             sin_variantes = item
-        if con_variantes is not None and sin_variantes is not None:
-            break
-    print(
-        f"publicaciones inspeccionadas: {len(candidatos)} "
-        f"(con variantes: {sum(1 for c in candidatos if c['variantes'])})"
-    )
+    imprimir("1: agregado de SKU en publicaciones (hasta 30)", "/items/{id}", agregado)
     if con_variantes is None or sin_variantes is None:
         print("FALTA: no se encontro una publicacion de cada tipo")
         return 1
@@ -220,44 +263,106 @@ def main() -> int:
     )
 
     # 2: consulta de cargos por precio, categoria y tipo de publicacion.
+    # Las rutas de pricing/llm dieron 404 en la primera corrida; se prueban
+    # las alternativas publicas de cargo por categoria, tipo y precio.
     precio = con_variantes.get("price")
     categoria = con_variantes.get("category_id")
     tipo = con_variantes.get("listing_type_id")
-    consultar(
-        cliente,
-        "2: cargos de la publicacion con variantes",
-        "/pricing/llm/listing-charges",
-        {"item_id": con_variantes.get("id"), "price": precio, "quantity": 1},
+    id_con_variantes = con_variantes.get("id")
+    rutas_cargos = (
+        (
+            "2: cargos de la publicacion con variantes",
+            "/pricing/llm/listing-charges",
+            {"item_id": id_con_variantes, "price": precio, "quantity": 1},
+        ),
+        (
+            "2: tabla de cargos por categoria, tipo y precio",
+            "/pricing/llm/listing-charges/tables",
+            {"category_id": categoria, "listing_type_id": tipo, "price": precio, "quantity": 1},
+        ),
+        (
+            "2: comision de venta por categoria y tipo a este precio",
+            f"/categories/{categoria}/listing_types/{tipo}/sale_fee",
+            {"price": precio, "quantity": 1},
+        ),
+        (
+            "2: comision de venta de la publicacion sin variantes",
+            "/sale_fee",
+            {"item_id": sin_variantes.get("id"), "price": sin_variantes.get("price")},
+        ),
+        (
+            "2: precio de publicacion por categoria y tipo",
+            "/listing_prices",
+            {
+                "price": precio,
+                "category_id": categoria,
+                "listing_type_id": tipo,
+            },
+        ),
+        (
+            "2: tipo de publicacion (estructura de cargos del sitio)",
+            f"/sites/{con_variantes.get('site_id')}/listing_types/{tipo}",
+        ),
+        (
+            "2: tipo de publicacion en la categoria (excepciones de cargo)",
+            f"/categories/{categoria}/listing_types/{tipo}",
+        ),
     )
-    consultar(
-        cliente,
-        "2: tabla de cargos por categoria, tipo y precio",
-        "/pricing/llm/listing-charges/tables",
-        {
-            "category_id": categoria,
-            "listing_type_id": tipo,
-            "price": precio,
-            "quantity": 1,
-        },
-    )
-    # Visitas de la misma publicacion (trafico, D10).
-    consultar(
-        cliente,
-        "visitas de la publicacion con variantes (7 dias)",
-        f"/items/{con_variantes.get('id')}/visits/time-window",
-        {"last": 7, "unit": "day"},
-        ruta_mostrar="/items/{id}/visits/time-window",
-    )
+    for titulo, ruta, *params in rutas_cargos:
+        consultar(cliente, titulo, ruta, params[0] if params else None)
 
-    # 4: permisos que la aplicacion declara para este vendedor.
-    permisos = consultar(
-        cliente,
-        "4: permisos del token (scopes declarados por la aplicacion)",
-        f"/users/{vendedor}/applications/{credenciales.client_id}",
-        ruta_mostrar="/users/{vendedor}/applications/{aplicacion}",
+    # Visitas de la misma publicacion (trafico, D10).
+    rutas_visitas = (
+        (
+            "visitas de la publicacion con variantes (ventana de 7 dias)",
+            f"/items/{id_con_variantes}/visits/time-window",
+            {"last": 7, "unit": "day"},
+            "/items/{id}/visits/time-window",
+        ),
+        (
+            "visitas de la publicacion con variantes (total)",
+            f"/items/{id_con_variantes}/visits",
+            None,
+            "/items/{id}/visits",
+        ),
+        (
+            "visitas por ids (total)",
+            "/visits/items",
+            {"ids": id_con_variantes},
+            "/visits/items?ids={id}",
+        ),
     )
-    if permisos is not None:
-        print(f"\nscopes: {sorted(permisos.get('scopes') or [])}")
+    for titulo, ruta, params, mostrar in rutas_visitas:
+        consultar(cliente, titulo, ruta, params, ruta_mostrar=mostrar)
+
+    # 4: permisos que la aplicacion declara para este vendedor. Dos caminos:
+    # el detalle por aplicacion (si hay client_id) o la lista de
+    # aplicaciones autorizadas; de respaldo, el scope del propio token.
+    permisos = None
+    if credenciales.client_id:
+        permisos = consultar(
+            cliente,
+            "4: permisos del token (scopes declarados por la aplicacion)",
+            f"/users/{vendedor}/applications/{credenciales.client_id}",
+            ruta_mostrar="/users/{vendedor}/applications/{aplicacion}",
+        )
+        if permisos is not None:
+            print(f"\nscopes: {sorted(permisos.get('scopes') or [])}")
+    if permisos is None:
+        lista = consultar(
+            cliente,
+            "4: aplicaciones autorizadas por el vendedor",
+            f"/users/{vendedor}/applications",
+            ruta_mostrar="/users/{vendedor}/applications",
+        )
+        scopes = None
+        for entrada in lista or []:
+            if isinstance(entrada, dict) and entrada.get("scopes"):
+                scopes = sorted(entrada.get("scopes") or [])
+                print(f"\nscopes declarados por la aplicacion: {scopes}")
+        if scopes is None:
+            print("\nscopes del token (del archivo, sin consulta):")
+            print(f"scope: {archivo_token.get('scope')}")
 
     cliente.close()
     return 0
