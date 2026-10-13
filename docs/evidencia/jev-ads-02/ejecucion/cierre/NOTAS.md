@@ -62,12 +62,21 @@ no cambió a la vista. Lo que cambió es que la API ya devuelve `listado_de`.
 
 ## El job antes del 2026-10-12
 
-Del 2026-10-07 al 2026-10-12 las corridas del cron cerraron con
-`sin_api_key` y tope 0: `typesafe.json` llegó al servidor el 2026-10-12 a
-las 23:29 UTC. El job pagó 50 llamadas ese día, en una corrida manual con
-tope 50. El tope 5,000 es de la `config_version` 28 (2026-10-13 01:37 UTC).
-La corrida en seco del checklist anticipa 4,900 llamadas para la del cron
-de las 09:30 UTC del 2026-10-13, la primera con ese tope.
+El tope sale de `config_version`. De la 23 (2026-10-07) a la 26 valió 0.
+La 27 (2026-10-12 23:34 UTC) lo puso en 50. La 28 (2026-10-13 01:37 UTC) lo
+puso en 5,000.
+
+Las once corridas del cron del 2026-10-07 al 2026-10-12 21:30 UTC, y una
+manual del 12 a las 23:18 UTC, cerraron con `sin_api_key`: `typesafe.json`
+llegó al servidor ese día a las 23:29 UTC.
+Con tope 0 tampoco habrían pagado. El job pagó sus primeras 50 llamadas el
+2026-10-12 a las 23:34 UTC, en una corrida manual con el tope en 50.
+
+Las 100 llamadas que el seco del checklist cuenta para el 2026-10-13
+(`llamadas_hoy=100`) son de la medición 0.5, no del job
+(`ejecucion/0.5/NOTAS.md`). El seco anticipa 4,900 llamadas para el cron de
+las 09:30 UTC del 2026-10-13, la primera corrida del cron con el tope en
+5,000.
 
 ## Notas J6
 

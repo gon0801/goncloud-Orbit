@@ -68,10 +68,10 @@ SECO=$(ssh goncloud "docker exec orbit-app-1 python -m app.cli jev-senales" 2>&1
 echo "$SECO"
 case "$SECO" in "jev-senales seco: unidades="*) echo "OK   seco";; *) echo "MAL  seco"; MAL=$((MAL + 1));; esac
 
-echo "== 6) secrets/ sin tocar y puerto en loopback"
+echo "== 6) secrets/ con su modo y puerto en loopback"
 revisa "bind 8010" 1 "$(ssh goncloud "ss -lnt | grep -c '127.0.0.1:8010'")"
 revisa "bind publico 8010" 0 "$(ssh goncloud "ss -lnt | grep -c -E '(\*|0\.0\.0\.0):8010' || true")"
-ssh goncloud "stat -c '%a %U:%G %n' $SRV/secrets"
+revisa "modo de secrets/" 700 "$(ssh goncloud "stat -c '%a' $SRV/secrets")"
 
 echo "== RESULTADO: $MAL mal"
 [ "$MAL" = "0" ]

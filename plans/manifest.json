@@ -133,7 +133,7 @@
     {
       "name": "jev-ads-01",
       "path": "plans/jev-ads-01.md",
-      "description": "JEV ADS 01 — asesoría semántica de negativos, harvest y semillas; diseño sellado en docs/superpowers/specs/2026-10-03-jev-ads-design.md. Sólo evaluaciones visibles, sin autoridad sobre acciones Ads. Desplegada apagada el 2026-10-04 (25cebe7); piloto 3.1 corrido y acta 3.2: seguir y ampliar en jev-ads-02. La 2.3 cerró el 2026-10-05 tras el primer ciclo posterior al deploy; R21 y R22 cerradas el 2026-10-13 (#441)."
+      "description": "JEV ADS 01 — asesoría semántica de negativos, harvest y semillas; diseño sellado en docs/superpowers/specs/2026-10-03-jev-ads-design.md. Sólo evaluaciones visibles, sin autoridad sobre acciones Ads. Desplegada apagada el 2026-10-04 (25cebe7); piloto 3.1 corrido y acta 3.2: seguir y ampliar en jev-ads-02. La 2.3 cerró el 2026-10-05 tras el primer ciclo posterior al deploy; R21 y R22 cerradas el 2026-10-13 (#441, 8af01c9)."
     },
     {
       "name": "jev-ads-02",
@@ -143,7 +143,7 @@
     {
       "name": "jev-ads-02-bloque-s",
       "path": "plans/jev-ads-02-bloque-s.md",
-      "description": "JEV ADS 02, guía de construcción del bloque S (S.1 a S.8): dónde cae cada pieza del diseño en el código, qué prueba se escribe primero y qué candados del repo hay. No construye efectos sobre Ads. Escrita el 2026-10-04; S.1 a S.8 construidos y desplegados (S.8 con el aviso apagado)."
+      "description": "JEV ADS 02, guía de construcción del bloque S (S.1 a S.8): dónde cae cada pieza del diseño en el código, qué prueba se escribe primero y qué candados del repo hay. No construye efectos sobre Ads. Escrita el 2026-10-04; S.1 a S.5 y S.8 desplegados (S.8 con el aviso apagado); S.6 y S.7 cerrados por orden del dueño, sin la semana a tope 0 ni la muestra de 50."
     },
     {
       "name": "repricing-01",

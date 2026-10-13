@@ -17,8 +17,8 @@ OK   filas en jev_aviso: 0
 == 5) El job corre en seco con el codigo nuevo
 jev-senales seco: unidades=370 propuesta=0 desempate=246 resto=124 pagaria=4900 tope=5000 llamadas_hoy=100
 OK   seco
-== 6) secrets/ sin tocar y puerto en loopback
+== 6) secrets/ con su modo y puerto en loopback
 OK   bind 8010: 1
 OK   bind publico 8010: 0
-700 UNKNOWN:UNKNOWN /mnt/data/appdata/orbit/secrets
+OK   modo de secrets/: 700
 == RESULTADO: 0 mal
