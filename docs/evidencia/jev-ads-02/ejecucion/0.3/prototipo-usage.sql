@@ -53,7 +53,12 @@ directa AS (
          count(*) AS eventos,
          count(*) FILTER (WHERE respuesta IS NOT NULL) AS con_respuesta,
          count(*) FILTER (WHERE error IS NOT NULL) AS con_error,
-         count(*) FILTER (WHERE usage IS NULL) AS sin_usage
+         count(*) FILTER (WHERE usage IS NULL) AS sin_usage,
+         count(*) FILTER (
+           WHERE usage IS NOT NULL
+             AND ((usage->>'input_tokens') IS NULL
+               OR (usage->>'output_tokens') IS NULL)
+         ) AS usage_incompleto
     FROM jev_par_evento
    WHERE tipo = 'resultado'
      AND revision_id IN (SELECT solicitud FROM ids)
@@ -85,6 +90,7 @@ SELECT 'analisis' AS fuente,
        NULL::bigint AS con_respuesta,
        NULL::bigint AS con_error,
        NULL::bigint AS sin_usage,
+       NULL::bigint AS usage_incompleto,
        (SELECT sin_termino FROM huecos) AS sin_termino_en_censo,
        (SELECT n FROM repetidos) AS terminos_repetidos
   FROM por_termino
@@ -97,6 +103,7 @@ SELECT 'directa',
        con_respuesta,
        con_error,
        sin_usage,
+       usage_incompleto,
        NULL,
        NULL
   FROM directa;

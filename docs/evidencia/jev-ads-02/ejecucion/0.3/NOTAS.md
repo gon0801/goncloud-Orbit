@@ -33,7 +33,7 @@ La salida suma 0 USD.
 | Cruce de la consulta de análisis, por término | 4,811 | 6,106,876 | 251,894 |
 | Suma directa sobre `jev_par_evento` | 4,811 | 6,106,876 | 251,894 |
 
-Las dos sumas coinciden. De los 4,811 resultados, 4,802 traen respuesta y 9 traen error. Esos 9 no traen `usage`. Ningún resultado quedó fuera del censo de su solicitud, y ningún término está repetido dentro de una solicitud.
+Las dos sumas coinciden. De los 4,811 resultados, 4,802 traen respuesta y 9 traen error. Esos 9 no traen `usage`. Ninguna fila con `usage` dejó fuera `input_tokens` o `output_tokens` (`usage_incompleto` = 0 en la relectura del 2026-10-13; los totales no se movieron). Ningún resultado quedó fuera del censo de su solicitud, y ningún término está repetido dentro de una solicitud.
 
 `prototipos.md` decía unos 6.1 M de tokens de entrada. La suma es 6,106,876. Contra 6,100,000 hay 6,876 tokens de más, que es el redondeo de "unos 6.1 M". No apareció otro bloque de usage.
 
