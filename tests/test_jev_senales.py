@@ -879,7 +879,7 @@ def test_aviso_falla_guarda_el_texto_y_el_reintento_usa_el_mismo():
 def test_aviso_que_truena_cierra_la_corrida_y_falla():
     """Las senales ya estan escritas cuando corre el paso de avisos. Si ese
     paso levanta, la corrida escribe su `fin` con el error y las entregas
-    que si salieron, y despues falla: el job sale con 1."""
+    que si salieron, y despues falla: el job sale con 1. /salud lo dice."""
     with db_s4() as conn:
         jev_senales, grupo = _aviso_de_venta(conn, avisos=True)
         config_id = conn.execute("SELECT max(id) FROM config_version").fetchone()[0]
@@ -915,6 +915,11 @@ def test_aviso_que_truena_cierra_la_corrida_y_falla():
             ).fetchone()[0]
             assert resumen["avisos_error"] == "RuntimeError"
             assert resumen["avisos_enviados"] == 1
+            from app import jev_salud
+
+            ultima = jev_salud.salud(conn, ahora=AHORA).como_dict()["ultima_corrida"]
+            assert ultima["avisos_error"] == "RuntimeError"
+            assert ultima["avisos"] == 1
 
 
 @_skip_db

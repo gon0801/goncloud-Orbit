@@ -91,6 +91,7 @@ class CierreCorrida:
     fallos: int
     senales_nuevas: int
     avisos_enviados: int
+    avisos_error: str | None = None
 
 
 @dataclass

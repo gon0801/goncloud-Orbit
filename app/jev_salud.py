@@ -69,6 +69,7 @@ class SaludJev:
                 "fallos": ultima.fallos,
                 "senales": ultima.senales_nuevas,
                 "avisos": ultima.avisos_enviados,
+                "avisos_error": ultima.avisos_error,
             },
             "ultima_inicio": self.ultima_inicio.isoformat() if self.ultima_inicio else None,
             "ultima_sin_cierre": self.ultima_sin_cierre,
@@ -104,7 +105,7 @@ def salud(conn, *, ahora: datetime) -> SaludJev:
             k: resumen.get(k, 0)
             for k in ("unidades", "llamadas", "fallos", "senales_nuevas", "avisos_enviados")
         }
-        ultima = CierreCorrida(fin[0], fin[1], **nums)
+        ultima = CierreCorrida(fin[0], fin[1], **nums, avisos_error=resumen.get("avisos_error"))
     inicio = cuenta("SELECT max(at) FROM jev_corrida WHERE evento = 'inicio'")
     grupos = conn.execute(
         "SELECT ad_group_id, roster_probado, roster_prueba FROM (SELECT DISTINCT ON"
