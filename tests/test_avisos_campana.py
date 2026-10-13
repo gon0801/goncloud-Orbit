@@ -175,6 +175,16 @@ def test_aviso_propio_dentro_de_la_ventana_de_7_dias():
     )
 
 
+def test_r07m_aviso_propio_en_el_dia_8_da_none():
+    """R07-M (P5): el dia 8 ya esta fuera de la ventana de 7 dias."""
+    from app.avisos_campana import avisos_ajuste_propio
+
+    assert (
+        avisos_ajuste_propio("ajuste_ubicacion", dt.date(2026, 10, 3), dt.date(2026, 10, 10))
+        is None
+    )
+
+
 def test_aviso_propio_fuera_de_ventana_u_otra_clase_da_none():
     from app.avisos_campana import avisos_ajuste_propio
 

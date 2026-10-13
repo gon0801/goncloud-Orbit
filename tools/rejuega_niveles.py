@@ -130,7 +130,7 @@ _SQL_CAMBIOS = """
 SELECT c.hoja_id, c.confirmado_el, c.bid_antes, c.bid_despues, c.origen
   FROM v_cambio_bid c
   JOIN ad_entity k ON k.id = c.hoja_id
- WHERE k.platform = %s::platform
+ WHERE k.platform = %s::platform AND c.origen <> 'ajuste_de_campana'
  ORDER BY c.hoja_id, c.confirmado_el, c.decision_id
 """
 

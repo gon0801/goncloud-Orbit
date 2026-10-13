@@ -1,0 +1,27 @@
+== 0) El servidor contesta
+MODO SIMULACION: base postgresql://orbit:orbit@127.0.0.1:5433/orbit_sim_d7, HTTP http://127.0.0.1:8012
+== Checklist D.7 (solo lectura; sello 20261013-1047)
+== 1) HTTP: /health
+OK    GET /health = 200
+== 2) Esquema: las tablas de la seccion existen
+OK    tabla campana_ajuste = t
+OK    campana_ajuste antes = 0
+OK    tabla ads_campana_config_observation = t
+OK    ads_campana_config_observation antes = 0
+== 3) La pantalla de productos responde en cada mercado
+OK    HTML productos-sin-clics amazon_mx = 200
+OK    HTML productos-sin-clics amazon_us = 200
+== 4) El crontab trae UNA linea impulso-vigia
+OK    lineas impulso-vigia = 1
+== 5) Las dos tablas sin escrituras del checklist
+OK    campana_ajuste sin escrituras del checklist = 0
+OK    ads_campana_config_observation sin escrituras del checklist = 0
+== 6) JSON de la pantalla de busquedas por mercado: su moneda y su plataforma (R13-E), gastos en dos decimales (R13-K)
+OK    busquedas amazon_mx moneda = MXN
+OK    busquedas amazon_mx plataforma = amazon_mx
+OK    busquedas amazon_mx gastos en dos decimales = ok
+OK    busquedas amazon_us moneda = USD
+OK    busquedas amazon_us plataforma = amazon_us
+NO MEDIDO busquedas amazon_us gastos en dos decimales (sin filas con gasto)
+== RESULTADO: 0 falla(s), 1 sin medir
+exit=4

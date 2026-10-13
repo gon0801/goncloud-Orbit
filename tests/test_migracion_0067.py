@@ -185,6 +185,42 @@ def test_0067_rama_ajuste_ubicacion_y_presupuesto_fuera():
 
 
 @_skip_db
+def test_r07m_rama3_fuera_regreso_y_fecha_de_confirmado():
+    """R07-M (V04, V12, V13): fuera_de_amazon no entra a la rama 3; el
+    regreso de un ajuste de ubicacion si entra; la fecha de la fila es
+    confirmado_el, no creado_el."""
+    import json
+
+    with db_67("orbit_67_r07m") as conn:
+        camp = _campana(conn)
+        kw = _hoja(conn, camp)
+        cfg = _config(conn, camp)
+        _ajuste(conn, camp, cfg, clase="fuera_de_amazon", huella="h-fuera", confirmado=_ANCLA)
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM v_cambio_bid WHERE origen = 'ajuste_de_campana'"
+            ).fetchone()[0]
+            == 0
+        )
+        padre = _ajuste(conn, camp, cfg, huella="h-padre", confirmado=_ANCLA)
+        creado = _ANCLA + dt.timedelta(days=2)
+        confirmado = _ANCLA + dt.timedelta(days=5)
+        conn.execute(
+            "INSERT INTO campana_ajuste (campana_id, platform, clase, antes_config_id,"
+            " despues, huella, actor, go_literal, regresa_a, creado_el, confirmado_el)"
+            " VALUES (%s, 'amazon_mx', 'ajuste_ubicacion', %s, %s, 'h-regreso', 'dueno',"
+            " 'REGRESAR AJUSTE', %s, %s, %s)",
+            (camp, cfg, json.dumps({"clase": "ajuste_ubicacion"}), padre, creado, confirmado),
+        )
+        filas = conn.execute(
+            "SELECT hoja_id, confirmado_el FROM v_cambio_bid"
+            " WHERE origen = 'ajuste_de_campana' ORDER BY confirmado_el"
+        ).fetchall()
+        assert (kw, confirmado) in filas
+        assert (kw, creado) not in filas
+
+
+@_skip_db
 def test_0067_reversa_deja_vista_de_dos_ramas_y_esquema_igual():
     with db_67("orbit_67_rev", solo_base=True) as conn:
         antes = _foto(conn)

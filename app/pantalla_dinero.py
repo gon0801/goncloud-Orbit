@@ -124,7 +124,10 @@ SELECT o.ad_entity_id, (o.observed_at AT TIME ZONE 'UTC')::date, o.presupuesto_d
  ORDER BY o.ad_entity_id, 2, o.observed_at
 """
 _SQL_REGRESABLES = """
-SELECT a.id, a.campana_id, a.clase, (a.confirmado_el AT TIME ZONE 'UTC')::date
+SELECT a.id, a.campana_id, a.clase, (a.confirmado_el AT TIME ZONE 'UTC')::date,
+       a.antes_config_id,
+       EXISTS (SELECT 1 FROM campana_ajuste r
+                WHERE r.regresa_a = a.id AND r.confirmado_el IS NULL)
   FROM campana_ajuste a
   JOIN ads_campana_config_observation o ON o.id = a.antes_config_id
  WHERE a.platform = %s
@@ -409,8 +412,25 @@ def lee_campanas(
         _SQL_CONFIGS_HIST, (plataforma, hasta)
     ).fetchall():
         configs.setdefault(cid, []).append((vigente_desde, presupuesto))
+    from app.ads.campana_config import config_por_id, config_vigente_con_id
+    from app.campana_ajustes import coincide_clase
+
     regresables: dict[int, list] = {}
-    for aid, cid, clase, confirmado in conn.execute(_SQL_REGRESABLES, (plataforma,)).fetchall():
+    vigentes: dict[int, object] = {}
+    for aid, cid, clase, confirmado, antes_id, regreso_pendiente in conn.execute(
+        _SQL_REGRESABLES, (plataforma,)
+    ).fetchall():
+        # R07-H: si el vigente ya volvio al valor de antes, la ruta de
+        # regreso contesta 409; la pantalla no ofrece el boton. Con un
+        # regreso pendiente cuyo efecto ya se observo, la ruta lo sella
+        # y contesta 200: ahi el boton si se ofrece.
+        if cid not in vigentes:
+            vigentes[cid] = config_vigente_con_id(conn, cid)[1]
+        vigente = vigentes[cid]
+        if vigente is not None and not regreso_pendiente:
+            antes = config_por_id(conn, antes_id)
+            if vigente == antes or coincide_clase(clase, vigente, antes):
+                continue
         regresables.setdefault(cid, []).append(
             AjusteRegresable(
                 ajuste_id=aid,
