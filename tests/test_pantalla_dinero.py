@@ -1544,6 +1544,56 @@ def test_r07h_no_ofrece_regresar_si_ya_esta_como_antes():
         assert filas[camp].ajustes_regresables == ()
 
 
+def test_r07h_ofrece_regresar_si_hay_un_regreso_pendiente():
+    """R07-H: con un regreso hijo pendiente cuyo efecto el sync ya
+    observo (el vigente ya es el de antes), el boton SI se ofrece: la
+    ruta lo sella y contesta 200, no 409; esconderlo dejaria el
+    regreso pendiente para siempre."""
+    import json
+
+    with _db_dinero("orbit_p1_r07h_pend") as conn:
+        fecha = dt.date(2026, 10, 4)
+        camp = _siembra_campana(conn, "amazon_mx", "r07hp", "R07HP")
+        cfg_antes = conn.execute(
+            "INSERT INTO ads_campana_config_observation (ad_entity_id, observed_at,"
+            " presupuesto_diario, presupuesto_moneda, estrategia_puja)"
+            " VALUES (%s, %s, 100, 'MXN', 'MANUAL') RETURNING id",
+            (camp, dt.datetime(2026, 10, 1, tzinfo=dt.UTC)),
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO ads_campana_config_observation (ad_entity_id, observed_at,"
+            " presupuesto_diario, presupuesto_moneda, estrategia_puja)"
+            " VALUES (%s, %s, 100, 'MXN', 'MANUAL')",
+            (camp, dt.datetime(2026, 10, 4, tzinfo=dt.UTC)),
+        )
+        padre = conn.execute(
+            "INSERT INTO campana_ajuste (campana_id, platform, clase, antes_config_id,"
+            " despues, huella, actor, go_literal, confirmado_el)"
+            " VALUES (%s, 'amazon_mx', 'presupuesto', %s, %s, 'h-r07hp', 'dueno',"
+            " 'APLICAR AJUSTE', %s) RETURNING id",
+            (
+                camp,
+                cfg_antes,
+                json.dumps({"clase": "presupuesto"}),
+                dt.datetime(2026, 10, 3, tzinfo=dt.UTC),
+            ),
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO campana_ajuste (campana_id, platform, clase, antes_config_id,"
+            " despues, huella, actor, go_literal, regresa_a)"
+            " VALUES (%s, 'amazon_mx', 'presupuesto', %s, %s, 'h-r07hp:regresa', 'dueno',"
+            " 'REGRESAR AJUSTE', %s)",
+            (camp, cfg_antes, json.dumps({"clase": "presupuesto"}), padre),
+        )
+        filas = {
+            f.campana_id: f
+            for f in lee_campanas(
+                conn, plataforma="amazon_mx", desde=fecha - dt.timedelta(days=29), hasta=fecha
+            )
+        }
+        assert [a.ajuste_id for a in filas[camp].ajustes_regresables] == [padre]
+
+
 def test_pantalla_dinero_aplicar_nace_deshabilitado():
     """H1: el boton Aplicar nace disabled (sin pasar por la vista
     previa no se puede enviar)."""

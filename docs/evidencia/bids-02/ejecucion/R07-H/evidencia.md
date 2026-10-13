@@ -17,3 +17,11 @@ en `app/ads/campana_config.config_por_id`, `apply` delega en ella y
 la pantalla la importa desde ahi. Salida: 141 passed en
 test_arq_bids_p, test_pantalla_dinero, test_aplica_ajuste y
 test_campana_config.
+
+Correccion de GLM (panel): con un regreso hijo pendiente cuyo
+efecto el sync ya observo, el filtro escondia el boton y el regreso
+quedaba pendiente para siempre, aunque la ruta lo sella con 200. La
+regresion test_r07h_ofrece_regresar_si_hay_un_regreso_pendiente
+nacio en rojo (sin regresables) y ahora la pantalla ofrece el boton
+en ese caso, porque la ruta sella en vez de contestar 409. Salida:
+43 passed en test_pantalla_dinero.
