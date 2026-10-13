@@ -390,26 +390,48 @@ def previsualiza(
     settings = dict(fila[0]) if fila and fila[0] else {}
     planes = []
     no_lanzables = []
+    productos_en_vista: set[int] = set()
     for lid in sorted(set(solicitud.listing_ids)):
         subfamilia = solicitud.subfamilia_por_listing.get(lid)
         if not subfamilia:
             no_lanzables.append(NoLanzable(lid, "sin subfamilia del dueno"))
             continue
         try:
-            planes.append(
-                _plan_producto(
-                    conn,
-                    solicitud.plataforma,
-                    lid,
-                    subfamilia,
-                    solicitud.tope_monto,
-                    sugeridor,
-                    dia,
-                    settings,
-                )
+            plan = _plan_producto(
+                conn,
+                solicitud.plataforma,
+                lid,
+                subfamilia,
+                solicitud.tope_monto,
+                sugeridor,
+                dia,
+                settings,
             )
         except fp.PlanInvalido as exc:
             no_lanzables.append(NoLanzable(lid, str(exc)))
+            continue
+        # R09-G: el tope limita por producto, no por listing. Dos
+        # listings del mismo producto no van a la vez, ni en esta misma
+        # vista ni contra un impulso vivo de otro listing.
+        if plan.product_id in productos_en_vista:
+            no_lanzables.append(
+                NoLanzable(lid, "el producto ya va en este lanzamiento (tope por producto)")
+            )
+            continue
+        vivo_otro = conn.execute(
+            _SQL_VIVO_OTRO_LISTING, (solicitud.plataforma, plan.product_id, plan.listing_id)
+        ).fetchone()
+        if vivo_otro is not None:
+            no_lanzables.append(
+                NoLanzable(
+                    lid,
+                    f"el producto ya tiene un impulso vivo en el listing {vivo_otro[0]}"
+                    " (tope por producto)",
+                )
+            )
+            continue
+        productos_en_vista.add(plan.product_id)
+        planes.append(plan)
     planes_t = tuple(planes)
     moneda = MONEDA_POR_PLATAFORMA[solicitud.plataforma]
     n = len(planes_t)
@@ -424,10 +446,23 @@ def previsualiza(
     )
 
 
-_SQL_VIVO = """
-SELECT i.id, i.lote FROM impulso i
+_SQL_VIVO_OTRO_LISTING = """
+SELECT i.listing_id FROM impulso i
  LEFT JOIN impulso_lectura l ON l.impulso_id = i.id AND l.es_final
- WHERE i.platform = %s AND i.listing_id = %s AND l.impulso_id IS NULL
+ WHERE i.platform = %s AND i.product_id = %s AND i.listing_id <> %s
+   AND l.impulso_id IS NULL
+ LIMIT 1
+"""
+
+_SQL_VIVO_PRODUCTO = """
+SELECT i.id, i.lote, i.listing_id FROM impulso i
+ LEFT JOIN impulso_lectura l ON l.impulso_id = i.id AND l.es_final
+ WHERE i.platform = %s AND i.product_id = %s AND l.impulso_id IS NULL
+ LIMIT 1
+"""
+
+_SQL_PRODUCTO_DE_LISTING = """
+SELECT product_id FROM listing WHERE id = %s AND platform = %s
 """
 
 _SQL_IMPULSO_DE_LOTE = """
@@ -654,6 +689,26 @@ def _descarta_huerfano(conn, lote_viejo: str, actor: str) -> str | None:
     return aviso
 
 
+def _rechaza_si_producto_con_vivo(conn, solicitud: SolicitudImpulso) -> None:
+    """R09-G: el tope es por producto. Si un listing pedido es de un
+    producto con un impulso vivo en otro listing, lanzar se rechaza
+    con 409 sin crear nada (la vista previa ya lo marca no lanzable;
+    este chequeo cierra la via directa)."""
+    for lid in sorted(set(solicitud.listing_ids)):
+        prod = conn.execute(_SQL_PRODUCTO_DE_LISTING, (lid, solicitud.plataforma)).fetchone()
+        if prod is None:
+            continue
+        vivo_otro = conn.execute(
+            _SQL_VIVO_OTRO_LISTING, (solicitud.plataforma, prod[0], lid)
+        ).fetchone()
+        if vivo_otro is not None:
+            raise ErrorImpulso(
+                409,
+                f"el producto del listing {lid} ya tiene un impulso vivo en el listing"
+                f" {vivo_otro[0]} (tope por producto)",
+            )
+
+
 def lanza(
     conn,
     solicitud: SolicitudImpulso,
@@ -676,6 +731,7 @@ def lanza(
         raise ErrorImpulso(422, "lanzar exige actor")
     if "\x00" in actor:
         raise ErrorImpulso(422, "actor con NUL")
+    _rechaza_si_producto_con_vivo(conn, solicitud)
     vista = previsualiza(conn, solicitud, sugeridor=sugeridor, hoy=hoy)
     if not vista.planes:
         raise ErrorImpulso(422, "nada lanzable: revisa no_lanzables")
@@ -728,11 +784,12 @@ def lanza(
                         f"lote {lote} quedo en {huerfano[0]}: reconcilia a mano"
                     )
                     continue
-            vivo = conn.execute(_SQL_VIVO, (plan.plataforma, plan.listing_id)).fetchone()
+            vivo = conn.execute(_SQL_VIVO_PRODUCTO, (plan.plataforma, plan.product_id)).fetchone()
             if vivo is not None:
                 raise ErrorImpulso(
                     409,
-                    f"listing {plan.listing_id} ya tiene un impulso vivo",
+                    f"el producto ya tiene un impulso vivo en el listing {vivo[2]}"
+                    " (tope por producto)",
                     lanzados=lanzados,
                 )
             # Otro lote, mismo listing (otra huella: otro bid u otro dia):

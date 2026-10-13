@@ -169,6 +169,57 @@ def test_r09b_previa_tope_bajo_el_piso_no_lanzable_y_lanza_sin_502():
 
 
 @_skip_db
+def test_r09g_tope_por_producto_previa_marca_y_lanza_rechaza_409():
+    """R09-G: el tope limita por producto. Dos listings del mismo
+    producto no tienen impulso vivo a la vez en la misma plataforma:
+    la vista previa marca el segundo no lanzable y lanzar lo rechaza
+    con 409."""
+    with _db_i3("orbit_i3_r09g") as conn:
+        pid, lid1 = _con_margen(conn)
+        lid2 = conn.execute(
+            "INSERT INTO listing (product_id, platform, external_id, seller_sku)"
+            " VALUES (%s, 'amazon_mx', 'B0AAAAAAAC', 'SS-1B') RETURNING id",
+            (pid,),
+        ).fetchone()[0]
+        conn.commit()
+        juntos = io.previsualiza(conn, _solicitud(conn, [lid1, lid2]), sugeridor=_sugeridor_fijo())
+        assert [p.listing_id for p in juntos.planes] == [lid1]
+        assert [n.listing_id for n in juntos.no_lanzables] == [lid2]
+        assert "producto" in juntos.no_lanzables[0].motivo
+        solicitud1 = _solicitud(conn, [lid1])
+        vista1 = io.previsualiza(conn, solicitud1, sugeridor=_sugeridor_fijo())
+        io.lanza(
+            conn,
+            solicitud1,
+            huella=vista1.huella,
+            confirmacion=vista1.confirmacion_esperada,
+            actor="dueno",
+            ejecutor=_ejecutor_falso(conn),
+            sugeridor=_sugeridor_fijo(),
+        )
+        assert conn.execute("SELECT count(*) FROM impulso").fetchone() == (1,)
+        previa2 = io.previsualiza(conn, _solicitud(conn, [lid2]), sugeridor=_sugeridor_fijo())
+        assert previa2.planes == ()
+        assert [n.listing_id for n in previa2.no_lanzables] == [lid2]
+        assert "producto" in previa2.no_lanzables[0].motivo
+        solicitud2 = _solicitud(conn, [lid2], subfamilias={lid2: "collares"})
+        previa2b = io.previsualiza(conn, solicitud2, sugeridor=_sugeridor_fijo())
+        with pytest.raises(io.ErrorImpulso) as exc:
+            io.lanza(
+                conn,
+                solicitud2,
+                huella=previa2b.huella,
+                confirmacion=previa2b.confirmacion_esperada,
+                actor="dueno",
+                ejecutor=_ejecutor_falso(conn),
+                sugeridor=_sugeridor_fijo(),
+            )
+        assert exc.value.status == 409
+        assert "producto" in str(exc.value)
+        assert conn.execute("SELECT count(*) FROM impulso").fetchone() == (1,)
+
+
+@_skip_db
 def test_vista_previa_sin_terminos_deja_bid_none():
     """I.3: sin terminos, el rol exact queda con bid None."""
     with _db_i3("orbit_i3_noterm") as conn:
