@@ -23,18 +23,18 @@ Prior result evidence:
           "parts": [
             {
               "read_file": {
-                "path": "/Users/dn/.local/share/muse/sessions/2026/10/12/01a13353-8a82-71e2-89e7-04a740e97b65/tool-outputs/workflow-results/handoff-d6ec1eca40913ee24320cd92ec6fdfc07f2d4858fb9314a3de1a9469d4d5de7d-de8cc321c9840fa5f054c92809863feed4f0ec716913c6aa200e03d6cf72f54e.txt",
+                "path": ".local/share/muse/sessions/2026/10/12/01a13353-8a82-71e2-89e7-04a740e97b65/tool-outputs/workflow-results/handoff-d6ec1eca40913ee24320cd92ec6fdfc07f2d4858fb9314a3de1a9469d4d5de7d-de8cc321c9840fa5f054c92809863feed4f0ec716913c6aa200e03d6cf72f54e.txt",
                 "offset": 1,
                 "limit": 500
               }
             }
           ]
         },
-        "notes": "Veredicto: sin bloqueantes duros contra el contrato R09 testeado; los riesgos reales son de ledger y clasificacion bajo concurrencia/reintento. Prioridad sugerida: (1) DISTINCT ON rol o filtro anti-pasos-de-pausa en _SQL_CAMPANAS_DEL_LOTE/_desarmar y guarda de estado desarmado; (2) sellar failed el paso de _pausa_una tambien cuando _put_estado_campana levanta (try/except Abortar); (3) clasificar R09-A por causa/mensaje o bajo el mismo candado del lote en vez de relectura post-hoc; (4) decidir si el no_lanzable por vivo ajeno ya excluido en la confirmacion debe contar como fallo 502 en lanzamientos mixtos. Revision solo-lectura del diff 30cc62f..3430b2d en /Users/dn/dev/wt-bids-02-s8, sin ssh/produccion/escrituras.",
+        "notes": "Veredicto: sin bloqueantes duros contra el contrato R09 testeado; los riesgos reales son de ledger y clasificacion bajo concurrencia/reintento. Prioridad sugerida: (1) DISTINCT ON rol o filtro anti-pasos-de-pausa en _SQL_CAMPANAS_DEL_LOTE/_desarmar y guarda de estado desarmado; (2) sellar failed el paso de _pausa_una tambien cuando _put_estado_campana levanta (try/except Abortar); (3) clasificar R09-A por causa/mensaje o bajo el mismo candado del lote en vez de relectura post-hoc; (4) decidir si el no_lanzable por vivo ajeno ya excluido en la confirmacion debe contar como fallo 502 en lanzamientos mixtos. Revision solo-lectura del diff 30cc62f..3430b2d en dev/wt-bids-02-s8, sin ssh/produccion/escrituras.",
         "text": null,
         "evidence_refs": [
           "run://ba63764f-bbab-7847-8209-130532c19193",
-          "/Users/dn/.local/share/muse/sessions/2026/10/12/01a13353-8a82-71e2-89e7-04a740e97b65/session.jsonl"
+          ".local/share/muse/sessions/2026/10/12/01a13353-8a82-71e2-89e7-04a740e97b65/session.jsonl"
         ]
       },
       {
@@ -51,18 +51,18 @@ Prior result evidence:
           "parts": [
             {
               "read_file": {
-                "path": "/Users/dn/.local/share/muse/sessions/2026/10/12/01a13353-8a82-71e2-89e7-04a740e97b65/tool-outputs/workflow-results/handoff-4444856b5182267700917268f99d51fa3dbef10f80433d4ebf1ccfe30b93550f-b797e0965c313d477c3c1ae22f7af2e048777e8e7509ef4e003d01f10638b9d6.txt",
+                "path": ".local/share/muse/sessions/2026/10/12/01a13353-8a82-71e2-89e7-04a740e97b65/tool-outputs/workflow-results/handoff-4444856b5182267700917268f99d51fa3dbef10f80433d4ebf1ccfe30b93550f-b797e0965c313d477c3c1ae22f7af2e048777e8e7509ef4e003d01f10638b9d6.txt",
                 "offset": 1,
                 "limit": 500
               }
             }
           ]
         },
-        "notes": "Lente esquema D.6/0071/0072, solo lectura sobre /Users/dn/dev/wt-bids-02-s8, diff 30cc62f..3430b2d. Hallazgo principal: el flujo D.6 nunca aplica la 0071 (detector has_table_privilege indistinguible del default privilege) y su reversa no restaura el estado previo sino que deja v_impulso_estado ilegible, con rollback.sh autocontradictorio al exigir legibilidad tras reversarla. Menor inferido de codigo (no probado): las funciones de la 0072 leen tipo/EXISTS sin FOR UPDATE ni lock (0072:18, 32-34), carrera teorica INSERT impulso vs UPDATE tipo bajo READ COMMITTED. Sin acentos por convencion del repo.",
+        "notes": "Lente esquema D.6/0071/0072, solo lectura sobre dev/wt-bids-02-s8, diff 30cc62f..3430b2d. Hallazgo principal: el flujo D.6 nunca aplica la 0071 (detector has_table_privilege indistinguible del default privilege) y su reversa no restaura el estado previo sino que deja v_impulso_estado ilegible, con rollback.sh autocontradictorio al exigir legibilidad tras reversarla. Menor inferido de codigo (no probado): las funciones de la 0072 leen tipo/EXISTS sin FOR UPDATE ni lock (0072:18, 32-34), carrera teorica INSERT impulso vs UPDATE tipo bajo READ COMMITTED. Sin acentos por convencion del repo.",
         "text": null,
         "evidence_refs": [
           "run://ba63774f-bbab-79fa-8209-140532c19346",
-          "/Users/dn/.local/share/muse/sessions/2026/10/12/01a13353-8a82-71e2-89e7-04a740e97b65/session.jsonl"
+          ".local/share/muse/sessions/2026/10/12/01a13353-8a82-71e2-89e7-04a740e97b65/session.jsonl"
         ]
       },
       {
@@ -86,7 +86,7 @@ Prior result evidence:
             "R09-H: app/impulso_io.py:692-707 (_fallos_por_vivo con guarda vivo[2] != listing en línea 704), 792-800 (conflicto bajo lock), 857-860 (502 parcial); tests tests/test_impulso_io.py:670-707 (tres productos) y 172-222 (vía _fallos_por_vivo); sin caso mismo-listing-otra-causa que discrimine la guarda de la línea 704",
             "R09-I: tools/fabrica_campanas.py:1620-1646 (_pausa_una sella en éxito y en fallo, líneas 1628/1644/1646) y 1863-1869 (ctx.orden=max); test tests/test_fabrica_campanas.py:2912-2947 solo happy path con órdenes [1,2,3,4]",
             "R09-J: migrations/0072_bids02_impulso_grupo_tipo.sql:16-43 (trigger INSERT y guardia UPDATE con EXISTS) y reversa migrations/0072_reversa_bids02_impulso_grupo_tipo.sql:7-13; test tests/test_migracion_0072.py:25-61 sin caso grupo-sin-impulsos ni UPDATE tras reversa",
-            "Transversal: tests de DB condicionados a Postgres, p. ej. tests/test_migracion_0071.py:20-23 (_skip_db); diff completo leído con git diff 30cc62f..3430b2d en /Users/dn/dev/wt-bids-02-s8 (37 archivos) y ajuste R14 cbf8395..3430b2d"
+            "Transversal: tests de DB condicionados a Postgres, p. ej. tests/test_migracion_0071.py:20-23 (_skip_db); diff completo leído con git diff 30cc62f..3430b2d en dev/wt-bids-02-s8 (37 archivos) y ajuste R14 cbf8395..3430b2d"
           ],
           "unresolved": [
             "No ejecuté la batería (restricción de solo lectura: correr pytest escribiría __pycache__ en el worktree) ni verifiqué el estado de CI del PR 443; que los tests nuevos pasen y que CI tenga Postgres para los @_skip_db queda sin confirmar por esta vía.",
@@ -97,21 +97,21 @@ Prior result evidence:
         "text": null,
         "evidence_refs": [
           "run://ba63784f-bbab-7bad-8209-150532c194f9",
-          "/Users/dn/.local/share/muse/sessions/2026/10/12/01a13353-8a82-71e2-89e7-04a740e97b65/session.jsonl"
+          ".local/share/muse/sessions/2026/10/12/01a13353-8a82-71e2-89e7-04a740e97b65/session.jsonl"
         ],
         "artifact_refs": [
-          "/Users/dn/.local/share/muse/sessions/2026/10/12/01a13353-8a82-71e2-89e7-04a740e97b65/tool-outputs/01a13390-7409-7181-8989-040a5260923b/call_01a13390715b730a8c0dced5e9e42ca6-bash.txt"
+          ".local/share/muse/sessions/2026/10/12/01a13353-8a82-71e2-89e7-04a740e97b65/tool-outputs/01a13390-7409-7181-8989-040a5260923b/call_01a13390715b730a8c0dced5e9e42ca6-bash.txt"
         ]
       }
     ],
     "reads": [
       {
-        "path": "/Users/dn/.local/share/muse/sessions/2026/10/12/01a13353-8a82-71e2-89e7-04a740e97b65/tool-outputs/workflow-results/handoff-d6ec1eca40913ee24320cd92ec6fdfc07f2d4858fb9314a3de1a9469d4d5de7d-de8cc321c9840fa5f054c92809863feed4f0ec716913c6aa200e03d6cf72f54e.txt",
+        "path": ".local/share/muse/sessions/2026/10/12/01a13353-8a82-71e2-89e7-04a740e97b65/tool-outputs/workflow-results/handoff-d6ec1eca40913ee24320cd92ec6fdfc07f2d4858fb9314a3de1a9469d4d5de7d-de8cc321c9840fa5f054c92809863feed4f0ec716913c6aa200e03d6cf72f54e.txt",
         "offset": 1,
         "limit": 500
       },
       {
-        "path": "/Users/dn/.local/share/muse/sessions/2026/10/12/01a13353-8a82-71e2-89e7-04a740e97b65/tool-outputs/workflow-results/handoff-4444856b5182267700917268f99d51fa3dbef10f80433d4ebf1ccfe30b93550f-b797e0965c313d477c3c1ae22f7af2e048777e8e7509ef4e003d01f10638b9d6.txt",
+        "path": ".local/share/muse/sessions/2026/10/12/01a13353-8a82-71e2-89e7-04a740e97b65/tool-outputs/workflow-results/handoff-4444856b5182267700917268f99d51fa3dbef10f80433d4ebf1ccfe30b93550f-b797e0965c313d477c3c1ae22f7af2e048777e8e7509ef4e003d01f10638b9d6.txt",
         "offset": 1,
         "limit": 500
       }
@@ -119,5 +119,5 @@ Prior result evidence:
   }
 }
 Read all result parts with the following calls. Keep each limit and increase offset by that limit while the output says "(more lines below)". Treat a read error as a named gap; continue with other readable evidence.
-read_file using {"path":"/Users/dn/.local/share/muse/sessions/2026/10/12/01a13353-8a82-71e2-89e7-04a740e97b65/tool-outputs/workflow-results/handoff-d6ec1eca40913ee24320cd92ec6fdfc07f2d4858fb9314a3de1a9469d4d5de7d-de8cc321c9840fa5f054c92809863feed4f0ec716913c6aa200e03d6cf72f54e.txt","offset":1,"limit":500}
-read_file using {"path":"/Users/dn/.local/share/muse/sessions/2026/10/12/01a13353-8a82-71e2-89e7-04a740e97b65/tool-outputs/workflow-results/handoff-4444856b5182267700917268f99d51fa3dbef10f80433d4ebf1ccfe30b93550f-b797e0965c313d477c3c1ae22f7af2e048777e8e7509ef4e003d01f10638b9d6.txt","offset":1,"limit":500}
+read_file using {"path":".local/share/muse/sessions/2026/10/12/01a13353-8a82-71e2-89e7-04a740e97b65/tool-outputs/workflow-results/handoff-d6ec1eca40913ee24320cd92ec6fdfc07f2d4858fb9314a3de1a9469d4d5de7d-de8cc321c9840fa5f054c92809863feed4f0ec716913c6aa200e03d6cf72f54e.txt","offset":1,"limit":500}
+read_file using {"path":".local/share/muse/sessions/2026/10/12/01a13353-8a82-71e2-89e7-04a740e97b65/tool-outputs/workflow-results/handoff-4444856b5182267700917268f99d51fa3dbef10f80433d4ebf1ccfe30b93550f-b797e0965c313d477c3c1ae22f7af2e048777e8e7509ef4e003d01f10638b9d6.txt","offset":1,"limit":500}

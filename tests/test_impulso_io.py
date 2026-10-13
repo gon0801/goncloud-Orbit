@@ -18,6 +18,7 @@ from test_migracion_0065 import SQL65
 from test_migracion_0066 import SQL66
 from test_migracion_0068 import SQL68
 from test_migracion_0069 import SQL69
+from test_migracion_0072 import SQL72
 from test_retiro_anuncios import _bolsa, _escritor, _fila
 from test_schema import _postgres_obligatorio_ausente
 
@@ -45,6 +46,7 @@ def _db_i3(prefijo):
             conn.execute(SQL66)
             conn.execute(SQL68)
             conn.execute(SQL69)
+            conn.execute(SQL72)
             conn.execute(
                 "INSERT INTO config_version(label,settings) VALUES ('fabrica',%s)",
                 (Json({"ads_target_fraccion_margen_amazon_mx": "0.5"}),),
@@ -220,6 +222,43 @@ def test_r09g_tope_por_producto_previa_marca_y_parcial():
         assert list(exc.value.fallos) == [lid2]
         assert "producto" in exc.value.fallos[lid2]
         assert conn.execute("SELECT count(*) FROM impulso").fetchone() == (1,)
+
+
+@_skip_db
+def test_r14r3_mismo_listing_sin_subfamilia_con_vivo_sigue_en_422():
+    """R14-r3: si el listing ya tiene un impulso vivo pero quedo fuera
+    por otra causa (sin subfamilia), el motivo real manda y lanzar
+    sigue en 422 nada lanzable, no en el parcial 502."""
+    with _db_i3("orbit_i3_r14r3m4") as conn:
+        _, lid = _con_margen(conn)
+        solicitud = _solicitud(conn, [lid])
+        vista = io.previsualiza(conn, solicitud, sugeridor=_sugeridor_fijo())
+        io.lanza(
+            conn,
+            solicitud,
+            huella=vista.huella,
+            confirmacion=vista.confirmacion_esperada,
+            actor="dueno",
+            ejecutor=_ejecutor_falso(conn),
+            sugeridor=_sugeridor_fijo(),
+        )
+        sin_sub = io.SolicitudImpulso(
+            plataforma="amazon_mx", listing_ids=(lid,), subfamilia_por_listing={}
+        )
+        vista2 = io.previsualiza(conn, sin_sub, sugeridor=_sugeridor_fijo())
+        assert vista2.planes == ()
+        assert vista2.no_lanzables[0].motivo == "sin subfamilia del dueno"
+        with pytest.raises(io.ErrorImpulso) as exc:
+            io.lanza(
+                conn,
+                sin_sub,
+                huella=vista2.huella,
+                confirmacion=vista2.confirmacion_esperada,
+                actor="dueno",
+                ejecutor=_ejecutor_falso(conn),
+                sugeridor=_sugeridor_fijo(),
+            )
+        assert exc.value.status == 422
 
 
 @_skip_db

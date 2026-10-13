@@ -3121,6 +3121,21 @@ def test_r14r3_desarmar_con_readback_que_levanta_sella_el_paso_failed(monkeypatc
 
 
 @_skip_db
+def test_r14r3_sql_campanas_del_lote_respeta_el_orden_del_ledger():
+    """R14-r3: la consulta del desarme devuelve los roles en el orden
+    del ledger, no en orden alfabetico de rol."""
+    with db_fabrica("orbit_fc_r14r3_orden") as conn:
+        fc._inserta_lote(conn, "L1", _plan_min(), "h", "go")
+        ctx = fc._Ctx(None, "tok", None, None, 101, conn, "L1")
+        for rol, ext in (("auto_discovery", "c-auto"), ("category_exact", "c-exact")):
+            paso = fp.Paso(rol, "campaign", "/sp/campaigns", {"name": "x"}, "c")
+            pid = fc._inserta_paso(ctx, paso, {"name": "x"})
+            fc._sella_paso(ctx, pid, True, ext, {"ok": 1}, "ENABLED")
+        filas = conn.execute(fc._SQL_CAMPANAS_DEL_LOTE, ("L1",)).fetchall()
+        assert [f[0] for f in filas] == ["auto_discovery", "category_exact"]
+
+
+@_skip_db
 def test_pausar_lote_rechaza_transiciones_ilegales():
     """I.3: desarmado nunca revive, pausar exige applied, reanudar exige
     pausado, lote ausente aborta."""
