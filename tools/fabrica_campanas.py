@@ -315,14 +315,18 @@ SELECT orden, rol::text, recurso, estado, external_id, request_payload, ack, rea
  ORDER BY orden
 """
 _SQL_CAMPANAS_DEL_LOTE = """
-SELECT DISTINCT ON (p.rol) p.rol::text, p.external_id, g.id
-  FROM fabrica_lote_paso p
-  LEFT JOIN campana_grupo cg ON cg.lote = p.lote
-  LEFT JOIN campana_grupo_rol r ON r.grupo_id = cg.id AND r.rol = p.rol
-  LEFT JOIN ads_optimizer_goal g ON g.ad_entity_id = r.ad_entity_id AND g.scope = 'campaign'
- WHERE p.lote = %s AND p.recurso = 'campaign'
-   AND p.estado IN ('applied', 'failed') AND p.external_id IS NOT NULL
- ORDER BY p.rol, p.orden DESC
+SELECT t.rol, t.external_id, t.goal_id
+  FROM (
+    SELECT DISTINCT ON (p.rol) p.rol::text AS rol, p.external_id, g.id AS goal_id, p.orden
+      FROM fabrica_lote_paso p
+      LEFT JOIN campana_grupo cg ON cg.lote = p.lote
+      LEFT JOIN campana_grupo_rol r ON r.grupo_id = cg.id AND r.rol = p.rol
+      LEFT JOIN ads_optimizer_goal g ON g.ad_entity_id = r.ad_entity_id AND g.scope = 'campaign'
+     WHERE p.lote = %s AND p.recurso = 'campaign'
+       AND p.estado IN ('applied', 'failed') AND p.external_id IS NOT NULL
+     ORDER BY p.rol, p.orden DESC
+  ) t
+ ORDER BY t.orden
 """
 _SQL_CAMPANAS_DEL_LOTE_PARA_PAUSA = """
 SELECT DISTINCT ON (p.rol) p.rol::text, p.external_id, g.id
