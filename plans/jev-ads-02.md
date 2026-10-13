@@ -4,7 +4,8 @@ Estado: plan del 2026-10-04, rediseñado el mismo día tras los prototipos. El
 dueño selló el diseño ese día ("va, a las cuatro cosas"). Fichas (0.2), regla
 de roster (0.4), spec (0.1), tarifa (0.3), orden de opciones (0.5) y el
 bloque S quedaron cerrados el 2026-10-12. Los efectos sobre Amazon y la
-fábrica no se construyen (`ejecucion/cierre/NOTAS.md`). Nace
+fábrica no se construyen (`ejecucion/cierre/NOTAS.md`). El cambio de cierre
+(#440) se desplegó el 2026-10-13 con el aviso apagado. Nace
 del acta 3.2 de
 [JEV ADS 01](jev-ads-01.md) ("seguir y ampliar"). Base de planificación:
 commit `25cebe7`. `team_validation_mode: manual-pass`.
@@ -246,7 +247,7 @@ a Jev términos de biblioteca.
 | Task | Contenido | DoD | Depends | Status |
 | --- | --- | --- | --- | --- |
 | R | `[stage:revision] [lane:gate]` Cada bloque de código pasa `cross-review.ps1` con un revisor distinto del autor. | Regla 4 de quality-kit. | cada bloque | cc:DONE (no se corre: cross-review.ps1 quedó fuera por regla permanente) |
-| D | `[stage:cierre-pr] [lane:release]` Despliegue por paso, apagado, con scripts nuevos que siguen el patrón de `jev-ads-01/ejecucion/2.3` y rollback ensayado. | Checklist verde tras el primer ciclo; cada interruptor se enciende en un cambio de config aparte. | cada paso | cc:DONE (S.1 a S.5 ya desplegados; S.8 entra con el aviso apagado. `ejecucion/cierre/NOTAS.md`) |
+| D | `[stage:cierre-pr] [lane:release]` Despliegue por paso, apagado, con scripts nuevos que siguen el patrón de `jev-ads-01/ejecucion/2.3` y rollback ensayado. | Checklist verde tras el primer ciclo; cada interruptor se enciende en un cambio de config aparte. | cada paso | cc:DONE (S.1 a S.5 ya desplegados; el cierre con S.8 y J6-31 se desplegó el 2026-10-13, sello 20261013-0357, con el aviso apagado y checklist en 0 mal antes del primer ciclo; el checklist tras el ciclo de las 08:40 UTC no está en este cierre. `ejecucion/cierre/NOTAS.md`) |
 
 ## Criterios medidos
 
@@ -279,6 +280,7 @@ pueden ser las que se usaron para corregir fichas.
 | El CLI manual no toma el candado del job ni respeta el tope diario. | Aceptado en el spec: lo que paga cuenta para el día; el total puede pasar del tope por el presupuesto de esa corrida. |
 | Una decisión de harvest sin destino legible. | El job la avisa con ese motivo, no revienta. |
 | Las semillas del plan van normalizadas y los términos vendedores crudos. | Lo cierra 5.1. |
+| Si el paso de avisos levanta una excepción, la corrida queda sin su evento `fin` aunque las señales ya estén escritas. | Abierto. No pasa con `jev.avisos` ausente. Se arregla antes de encender `jev.avisos`. |
 
 ## Pruebas que deben discriminar
 

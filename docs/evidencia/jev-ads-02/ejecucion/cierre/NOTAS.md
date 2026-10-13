@@ -10,6 +10,11 @@ La semana con tope 0 no se corrió. El job ya estaba encendido con tope 5,000
 `jev.min_clics` 3). El dueño rechazó esperar esa semana. La fila se cierra
 por esa orden, no porque la semana haya ocurrido.
 
+El tope sí valió 0 del 2026-10-07 al 2026-10-12 (ver "El job antes del
+2026-10-12"). Fueron cinco días y no siete, sin clave de TypeSafe, y no hay
+evidencia de la comparación del ciclo y la cola que pide el DoD. Por eso no
+cuenta como la semana de S.6.
+
 ## S.7
 
 No hubo muestra de 50 búsquedas por mercado ni etiquetas a ciegas. El dueño
@@ -45,8 +50,49 @@ R no se corre: `cross-review.ps1` quedó fuera por regla permanente.
 D: S.1 a S.5 ya estaban desplegados. S.8 entra en este cambio con el aviso
 apagado.
 
+## Despliegue del cierre
+
+El cambio de cierre (#440, `30cc62f`) se unió a master sin desplegar. Se
+desplegó el 2026-10-13 a las 03:57 UTC con `desplegar.sh` de esta carpeta:
+solo código, sin migración ni cron. Respaldo en `predeploy-20261013-0357`;
+la reversa es `docs/evidencia/bids-02/ejecucion/D.5/rollback.sh` con ese
+sello. Salidas en `desplegar-salida.txt` y `checklist-salida.txt`.
+
+El checklist dio 0 mal: el contenedor corre el código del SHA, las cuatro
+pantallas responden 200, la única señal ajena trae `listado_de` y su frase
+cita ese día, `jev.avisos` sigue ausente y `jev_aviso` tiene 0 filas.
+
+Las dos fechas de esa señal («baño») caen el 2026-10-12, así que la frase
+no cambió a la vista. Lo que cambió es que la API ya devuelve `listado_de`.
+
+## El job antes del 2026-10-12
+
+El tope sale de `config_version`. De la 23 (2026-10-07) a la 26 valió 0.
+La 27 (2026-10-12 23:34 UTC) lo puso en 50. La 28 (2026-10-13 01:37 UTC) lo
+puso en 5,000.
+
+Las once corridas del cron del 2026-10-07 al 2026-10-12 21:30 UTC, y una
+manual del 12 a las 23:18 UTC, cerraron con `sin_api_key`: `typesafe.json`
+llegó al servidor ese día a las 23:29 UTC.
+Con tope 0 tampoco habrían pagado. El job pagó sus primeras 50 llamadas el
+2026-10-12 a las 23:34 UTC, en una corrida manual con el tope en 50.
+
+Las 100 llamadas que el seco del checklist cuenta para el 2026-10-13
+(`llamadas_hoy=100`) son de la medición 0.5, no del job
+(`ejecucion/0.5/NOTAS.md`). El seco anticipa 4,900 llamadas para el cron de
+las 09:30 UTC del 2026-10-13, la primera corrida del cron con el tope en
+5,000.
+
 ## Notas J6
 
 J6-31 se arregló. J6-1 a J6-30 y J6-32 a J6-45 se aceptan sin arreglo de
 código: no bloqueaban el cierre y el dueño ordenó no esperarlas. J6-21 sigue
 sin decisión del dueño; no se inventó.
+
+## Observación de la revisión del cierre
+
+No bloquea con el aviso apagado. En `_aplicar` el paso de avisos corre antes
+de escribir el evento `fin`. Si ese paso levanta una excepción, la corrida
+queda abierta en `jev_corrida` aunque sus señales ya estén escritas. Está
+anotado en "Huecos conocidos" del plan y se arregla antes de encender
+`jev.avisos`.

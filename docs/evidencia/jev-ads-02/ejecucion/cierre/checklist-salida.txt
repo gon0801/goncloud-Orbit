@@ -1,0 +1,24 @@
+== 1) El contenedor corre el codigo del SHA
+OK   md5 en el contenedor app/jev_avisos.py: 2594bfc9f31eba46c6cc5bac6fb1a52f
+OK   md5 en el contenedor app/jev_senales.py: 92d266fb95d4693a4eaaf0088d2f0a29
+OK   md5 en el contenedor app/jev_vista.py: 53ddce50eaeeed6e14ea1cf3701a7e71
+OK   md5 en el contenedor app/api_dashboard.py: 86973a40a885d12c095d8484aca596dd
+== 2) HTTP
+OK   GET /health: 200
+OK   GET /cortes: 200
+OK   GET /salud: 200
+OK   GET /gasto-sin-venta?plataforma=amazon_mx: 200
+OK   GET /gasto-sin-venta?plataforma=amazon_us: 200
+== 3) J6-31: toda senal ajena con roster probado trae listado_de y la frase cita ese dia
+ajenas=1 sin_listado_de=0 frase_con_otra_fecha=0
+== 4) El aviso sigue apagado y no hay filas de aviso
+OK   jev.avisos: ausente
+OK   filas en jev_aviso: 0
+== 5) El job corre en seco con el codigo nuevo
+jev-senales seco: unidades=370 propuesta=0 desempate=246 resto=124 pagaria=4900 tope=5000 llamadas_hoy=100
+OK   seco
+== 6) secrets/ con su modo y puerto en loopback
+OK   bind 8010: 1
+OK   bind publico 8010: 0
+OK   modo de secrets/: 700
+== RESULTADO: 0 mal
