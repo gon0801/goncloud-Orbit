@@ -142,7 +142,7 @@ echo "== 1b) Guardas propias de D.7 (abortan si fallan)"
 for F in app/apply.py app/pantalla_dinero.py app/ads/campana_config.py app/api_dashboard.py tools/rejuega_niveles.py; do
   git cat-file -e "$APROBADO:$F" || { echo "ABORTA: $APROBADO no trae $F (seccion 9)"; exit 1; }
 done
-git show "$APROBADO:app/apply.py" | grep -q '_SQL_AJUSTE_PENDIENTE_HN' || { echo "ABORTA: app/apply.py del SHA no trae el reuso de la H pendiente (R07-09C)"; exit 1; }
+git show "$APROBADO:app/apply.py" | grep -q '_SQL_AJUSTES_PENDIENTES_HN' || { echo "ABORTA: app/apply.py del SHA no trae el reuso de la H pendiente (R07-09C)"; exit 1; }
 git show "$APROBADO:tools/rejuega_niveles.py" | grep -q "ajuste_de_campana" || { echo "ABORTA: rejuega_niveles.py del SHA no excluye el ajuste de campana (R07-D)"; exit 1; }
 echo "apply, pantalla_dinero, campana_config, api_dashboard y rejuega_niveles presentes en el SHA, con sus senales"
 echo "guardas propias OK"
