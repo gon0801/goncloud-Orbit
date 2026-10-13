@@ -442,7 +442,6 @@ SELECT o.presupuesto_diario, o.presupuesto_moneda, o.estrategia_puja, o.ajuste_t
 
 
 def config_por_id(conn, config_id: int) -> ConfigCampana | None:
-    """Configuracion de una observacion por su id, o None sin fila."""
     fila = conn.execute(_SQL_CONFIG_POR_ID, (config_id,)).fetchone()
     if fila is None:
         return None
