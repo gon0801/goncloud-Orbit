@@ -186,7 +186,7 @@
   <p class="mutado">Apagado{% if jev.interruptor.motivo_apagado %} ({{ jev.interruptor.motivo_apagado }}){% endif %}</p>
   {% endif %}
   {% if jev.ultima_corrida %}
-  <p>Última corrida: {{ jev.ultima_corrida.motivo }} · {{ jev.ultima_corrida.unidades }} unidades · {{ jev.ultima_corrida.llamadas }} llamadas · {{ jev.ultima_corrida.senales }} señales{% if jev.ultima_sin_cierre %} · <span class="alerta">inicio sin fin</span>{% endif %}</p>
+  <p>Última corrida: {{ jev.ultima_corrida.motivo }} · {{ jev.ultima_corrida.unidades }} unidades · {{ jev.ultima_corrida.llamadas }} llamadas · {{ jev.ultima_corrida.senales }} señales{% if jev.ultima_corrida.avisos_error %} · <span class="alerta">el aviso falló ({{ jev.ultima_corrida.avisos_error }})</span>{% endif %}{% if jev.ultima_sin_cierre %} · <span class="alerta">inicio sin fin</span>{% endif %}</p>
   {% elif jev.ultima_inicio %}
   <p><span class="alerta">Inicio sin fin ({{ jev.ultima_inicio }})</span></p>
   {% endif %}

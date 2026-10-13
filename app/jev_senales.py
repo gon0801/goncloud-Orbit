@@ -91,6 +91,7 @@ class CierreCorrida:
     fallos: int
     senales_nuevas: int
     avisos_enviados: int
+    avisos_error: str | None = None
 
 
 @dataclass
@@ -683,7 +684,16 @@ def _aplicar(
         motivo = "sin_api_key"
     else:
         motivo = "completa"
-    avisos = _avisos_de(ajustes, avisar, lector, escritor, lote, propuestas)
+    avisos_error: Exception | None = None
+    try:
+        avisos = _avisos_de(ajustes, avisar, lector, escritor, lote, propuestas)
+    except Exception as exc:  # las senales ya estan escritas: el `fin` va antes de fallar
+        avisos_error = exc
+        avisos = escritor.execute(
+            "SELECT count(*) FROM jev_aviso_entrega WHERE entregado_at >="
+            " (SELECT at FROM jev_corrida WHERE lote_id = %s AND evento = 'inicio')",
+            (lote,),
+        ).fetchone()[0]
     resumen = {
         "motivo": motivo,
         "unidades": len(plan),
@@ -693,11 +703,15 @@ def _aplicar(
         "avisos_enviados": avisos,
         "propuestas_ilegibles": list(ilegibles),
     }
+    if avisos_error is not None:
+        resumen["avisos_error"] = type(avisos_error).__name__
     escritor.execute(
         "INSERT INTO jev_corrida (lote_id, evento, cierre, resumen)"
         " VALUES (%s, 'fin', %s, %s::jsonb)",
         (lote, motivo, _canonico(resumen)),
     )
+    if avisos_error is not None:
+        raise avisos_error
     print(
         f"jev-senales motivo={motivo} unidades={len(plan)} llamadas={llamadas}"
         f" fallos={fallos} senales={senales} avisos={avisos}"

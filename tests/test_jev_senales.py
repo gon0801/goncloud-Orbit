@@ -876,6 +876,53 @@ def test_aviso_falla_guarda_el_texto_y_el_reintento_usa_el_mismo():
 
 
 @_skip_db
+def test_aviso_que_truena_cierra_la_corrida_y_falla():
+    """Las senales ya estan escritas cuando corre el paso de avisos. Si ese
+    paso levanta, la corrida escribe su `fin` con el error y las entregas
+    que si salieron, y despues falla: el job sale con 1. /salud lo dice."""
+    with db_s4() as conn:
+        jev_senales, grupo = _aviso_de_venta(conn, avisos=True)
+        config_id = conn.execute("SELECT max(id) FROM config_version").fetchone()[0]
+        decision = _decision(conn, _ciclo(conn), grupo, "negative", "anillo plata", config_id, {})
+        _cola(conn, decision, "amazon_mx", grupo, "anillo plata", "negative")
+        enviados = []
+
+        def avisar(texto):
+            enviados.append(texto)
+            if len(enviados) > 1:
+                raise RuntimeError("canal roto")
+            return True
+
+        with _escritor() as escritor:
+            with pytest.raises(RuntimeError, match="canal roto"):
+                jev_senales.correr(
+                    conn,
+                    escritor,
+                    ahora=AHORA,
+                    aplicar=True,
+                    pedir=_Pedido(),
+                    api_key="",
+                    avisar=avisar,
+                )
+            assert conn.execute("SELECT count(*) FROM jev_senal").fetchone()[0] >= 2
+            inicios, fines = conn.execute(
+                "SELECT count(*) FILTER (WHERE evento = 'inicio'),"
+                " count(*) FILTER (WHERE evento = 'fin') FROM jev_corrida"
+            ).fetchone()
+            assert (inicios, fines) == (1, 1)
+            resumen = conn.execute(
+                "SELECT resumen FROM jev_corrida WHERE evento = 'fin'"
+            ).fetchone()[0]
+            assert resumen["avisos_error"] == "RuntimeError"
+            assert resumen["avisos_enviados"] == 1
+            from app import jev_salud
+
+            ultima = jev_salud.salud(conn, ahora=AHORA).como_dict()["ultima_corrida"]
+            assert ultima["avisos_error"] == "RuntimeError"
+            assert ultima["avisos"] == 1
+
+
+@_skip_db
 def test_sin_jev_avisos_no_inserta_ni_llama():
     with db_s4() as conn:
         jev_senales, _grupo = _aviso_de_venta(conn, avisos=False)

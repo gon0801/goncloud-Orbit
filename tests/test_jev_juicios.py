@@ -5,7 +5,8 @@ DoD que fijan (todo con HTTP FALSO; cero llamadas reales, cero claves):
 - El wire lleva SOLO termino y ficha (sin grupo, campana, metricas ni otros
   productos), con modelo fijo `jev-1.13.0` y la pregunta Choice.
 - La respuesta se valida estricta: modelo, IDs, categorias, probabilidades
-  finitas que suman 1 y confidence en [0, 1].
+  finitas que suman 1 (salvo el redondeo a dos decimales) y confidence en
+  [0, 1].
 - La clave del par cambia si cambia el orden de opciones o la version del
   contrato; y es estable con el mismo contrato.
 - Timeout, respuesta invalida, redireccion y contexto excedido producen
@@ -315,6 +316,34 @@ def test_respuesta_invalida_da_estado_visible(cuerpo):
     assert hasattr(resultado, "codigo")
     assert resultado.codigo == "respuesta_invalida"
     assert not hasattr(resultado, "juicio")
+
+
+@pytest.mark.parametrize(
+    "probabilidades",
+    [
+        {"satisface": 0.33, "no_satisface": 0.33, "informacion_insuficiente": 0.33},
+        {"satisface": 0.34, "no_satisface": 0.33, "informacion_insuficiente": 0.34},
+    ],
+)
+def test_suma_desviada_por_redondeo_a_dos_decimales_es_valida(probabilidades):
+    """El proveedor redondea cada probabilidad a dos decimales. En la corrida
+    del 2026-10-13, 16 de 4,900 respuestas sumaron 0.99 y se descartaron."""
+    cuerpo = _con_respuesta_muta(choice="satisface", probabilities=probabilidades)
+    resultado = _pedir(_Transporte(cuerpo))
+    assert resultado.juicio.relacion == "satisface"
+    assert resultado.juicio.probabilidades["no_satisface"] == Decimal("0.33")
+
+
+@pytest.mark.parametrize(
+    "probabilidades",
+    [
+        {"satisface": 0.33, "no_satisface": 0.33, "informacion_insuficiente": 0.32},
+        {"satisface": 0.34, "no_satisface": 0.34, "informacion_insuficiente": 0.34},
+    ],
+)
+def test_suma_desviada_mas_que_el_redondeo_sigue_invalida(probabilidades):
+    cuerpo = _con_respuesta_muta(choice="satisface", probabilities=probabilidades)
+    assert _pedir(_Transporte(cuerpo)).codigo == "respuesta_invalida"
 
 
 @pytest.mark.parametrize(

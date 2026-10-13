@@ -11,7 +11,8 @@ Jev y reutilizacion").
   limites de bytes) queda versionado: cambiar orden de opciones o version
   cambia la clave del par y el request hash.
 - La respuesta se valida estricta (modelo, IDs, categorias, probabilidades
-  finitas que suman 1, confidence en [0, 1]); todo fallo produce un estado
+  finitas que suman 1 salvo el redondeo a dos decimales del proveedor,
+  confidence en [0, 1]); todo fallo produce un estado
   visible SIN secreto en la salida. V1 no reintenta: registra y permite
   retomar.
 - Contexto excedido se detecta ANTES del HTTP por bytes, sin truncar
@@ -301,6 +302,11 @@ def pedir_juicio(
     )
 
 
+# El proveedor redondea cada probabilidad a dos decimales: la suma se puede
+# desviar de 1 hasta medio centesimo por opcion.
+_DESVIO_POR_OPCION = 0.005
+
+
 def _validar_respuesta(
     cuerpo: object, contrato: Contrato
 ) -> tuple[Relacion, Mapping[Relacion, Decimal], Decimal] | str:
@@ -329,7 +335,7 @@ def _validar_respuesta(
             return f"probabilidad no finita o negativa para {opcion}"
         total += valor
         distribucion[opcion] = Decimal(str(valor))
-    if abs(total - 1.0) > 1e-6:
+    if abs(total - 1.0) > _DESVIO_POR_OPCION * len(contrato.opciones) + 1e-9:
         return f"las probabilidades suman {total}"
     confidence = respuesta.get("confidence")
     if (
