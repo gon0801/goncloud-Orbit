@@ -187,10 +187,11 @@ La tabla solo agrega filas, así que la vigente es la 30 y el tope sigue en
 `config_version` estaba vigente. Ahora recibe el sello del despliegue como
 segundo argumento: la sección 7 lista los ciclos posteriores a ese sello,
 falla si alguno quedó `failed` o `running` y exige un `done` de `amazon_us`
-y otro de `amazon_mx`. Sin sello, o sin ciclo todavía, sale 3, que no
-cuenta como verde. La sección 4 imprime la versión vigente.
+y otro de `amazon_mx`. Sin sello, o si todavía no corre el ciclo de alguna
+de las dos plataformas, sale 3, que no cuenta como verde. La sección 4
+imprime la versión vigente.
 
-A las 09:18 UTC del 2026-10-13, `checklist.sh 6c6486d 20261013-0633` dio 0
+A las 09:33 UTC del 2026-10-13, `checklist.sh 6c6486d 20261013-0633` dio 0
 mal con el ciclo posterior comprobado; la salida está en
 `checklist-post-ciclo-salida.txt`. Los ciclos corrieron con el código de
 #444: el 120 (`amazon_us`, 08:40 UTC, 2 decisiones aplicadas) y el 121
@@ -198,10 +199,12 @@ mal con el ciclo posterior comprobado; la salida está en
 coinciden por md5 con ese SHA, las cinco rutas responden 200, hay 19
 señales ajenas y todas traen `listado_de`, la config vigente es la 30,
 `jev.avisos` sigue ausente, `jev_aviso` tiene 0 filas y `secrets/` sigue en
-700 con el puerto en loopback. Con un sello posterior a los ciclos
-(`20261013-0900`) el mismo script sale 3.
+700 con el puerto en loopback. Con un sello posterior a los dos ciclos
+(`20261013-0900`) el mismo script sale 3, y con uno que solo deja ver el
+ciclo de MX (`20261013-0841`) también sale 3, sin marcar falla.
 
-El seco ya no corrió con el cupo agotado: `pagaria=5000 tope=10000
-llamadas_hoy=5000`. El seco no llama a TypeSafe, así que la validación de
-#444 se ejercita en la siguiente corrida que pague, la del cron de las
-09:30 UTC. Con esto cierra la fila D.
+El seco corrió con la corrida del cron de las 09:30 UTC en curso (`inicio`
+a las 09:30:11): `pagaria=3939 tope=10000 llamadas_hoy=6061`. El cron sí
+paga con el tope nuevo. El seco no llama a TypeSafe; la validación de #444
+se ejercita en esa corrida pagada, cuyo resultado no está en este cierre.
+Con esto cierra la fila D.

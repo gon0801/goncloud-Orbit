@@ -87,6 +87,7 @@ else
   if ! CICLOS=$(echo "SELECT id || ' ' || coalesce(platform::text, '-') || ' ' || status || ' ' || started_at || ' decisiones=' || coalesce(decisions_count, 0) || ' aplicadas=' || coalesce(applied_count, 0) FROM optimizer_cycle WHERE started_at > '$DESDE' ORDER BY id;" | q); then
     echo "MAL  no se pudo leer optimizer_cycle"
     MAL=$((MAL + 1))
+    PENDIENTE=1
   elif [ -z "$CICLOS" ]; then
     echo "INCOMPLETO: todavia no corre un ciclo despues de $DESDE"
     PENDIENTE=1
@@ -94,7 +95,15 @@ else
     echo "$CICLOS"
     revisa "ciclos posteriores fallidos o colgados" 0 "$(echo "$CICLOS" | grep -c -E ' (failed|running) ')"
     for plataforma in amazon_us amazon_mx; do
-      revisa "hay ciclo done de $plataforma desde $DESDE" si "$(echo "$CICLOS" | grep -q " $plataforma done " && echo si || echo no)"
+      if echo "$CICLOS" | grep -q " $plataforma done "; then
+        echo "OK   hay ciclo done de $plataforma desde $DESDE"
+      elif echo "$CICLOS" | grep -q " $plataforma "; then
+        echo "MAL  $plataforma corrio desde $DESDE y ningun ciclo quedo done"
+        MAL=$((MAL + 1))
+      else
+        echo "INCOMPLETO: todavia no corre el ciclo de $plataforma despues de $DESDE"
+        PENDIENTE=1
+      fi
     done
   fi
 fi
