@@ -29,3 +29,22 @@ Dos ids no mueren y quedan nombrados:
 - M09 ya no aplica: el texto que muta (guardar el destino tras
   confirmar) ya no existe en apply.py, porque hoy se guarda la mezcla
   leida; el script lo reporta NO-APLICA.
+
+## Corrida repetida tras el panel (HEAD 627c2e7)
+
+El panel noto que esta evidencia no guardaba salidas repetibles de
+los tres scripts. Se repitio la corrida sobre una copia del HEAD
+vigente (git archive, nunca el worktree) y cada id de la fila salio
+asi:
+
+- V04 MUERE (test_r07m_rama3_fuera_regreso_y_fecha_de_confirmado)
+- V12 MUERE (la misma prueba)
+- V13 MUERE (la misma prueba)
+- M07 muere (huella existente de otra clase pasa)
+- J5 MUERE (el error se pinta con innerHTML)
+- H2 MUERE, H3 MUERE, H4 MUERE, H5 MUERE, H6 MUERE, H7 MUERE
+- P1 MUERE, P5 MUERE
+- P2 SOBREVIVE: equivalente, porque max(confirmado_el) ignora los
+  NULL y quitar el filtro IS NOT NULL no cambia ninguna salida.
+- M09 NO APLICA: el texto a mutar aparece 0 veces en el HEAD.
+- J8 NO APLICA: el texto a mutar aparece 0 veces en el HEAD.
