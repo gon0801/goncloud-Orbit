@@ -2,7 +2,8 @@
 
 Estado: plan del 2026-10-04, rediseñado el mismo día tras los prototipos. El
 dueño selló el diseño ese día ("va, a las cuatro cosas"). Fichas (0.2), regla
-de roster (0.4) y spec (0.1) cerrados; sigue el bloque S. Nace del acta 3.2 de
+de roster (0.4), spec (0.1) y tarifa (0.3) cerrados; sigue el bloque S. Nace
+del acta 3.2 de
 [JEV ADS 01](jev-ads-01.md) ("seguir y ampliar"). Base de planificación:
 commit `25cebe7`. `team_validation_mode: manual-pass`.
 
