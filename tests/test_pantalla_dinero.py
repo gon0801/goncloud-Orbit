@@ -1594,6 +1594,80 @@ def test_r07h_ofrece_regresar_si_hay_un_regreso_pendiente():
         assert [a.ajuste_id for a in filas[camp].ajustes_regresables] == [padre]
 
 
+def _siembra_config_r07h(conn, camp, cuando, presupuesto, top=None):
+    return conn.execute(
+        "INSERT INTO ads_campana_config_observation (ad_entity_id, observed_at,"
+        " presupuesto_diario, presupuesto_moneda, estrategia_puja, ajuste_top_pct)"
+        " VALUES (%s, %s, %s, 'MXN', 'MANUAL', %s) RETURNING id",
+        (camp, cuando, presupuesto, top),
+    ).fetchone()[0]
+
+
+def _siembra_ajuste_r07h(conn, camp, cfg_antes, huella):
+    return conn.execute(
+        "INSERT INTO campana_ajuste (campana_id, platform, clase, antes_config_id,"
+        " despues, huella, actor, go_literal, confirmado_el)"
+        " VALUES (%s, 'amazon_mx', 'presupuesto', %s, %s, %s, 'dueno', 'APLICAR AJUSTE', %s)"
+        " RETURNING id",
+        (
+            camp,
+            cfg_antes,
+            json.dumps({"clase": "presupuesto"}),
+            huella,
+            dt.datetime(2026, 10, 3, tzinfo=dt.UTC),
+        ),
+    ).fetchone()[0]
+
+
+def _campanas_r07h(conn):
+    fecha = dt.date(2026, 10, 4)
+    return {
+        f.campana_id: f
+        for f in lee_campanas(
+            conn, plataforma="amazon_mx", desde=fecha - dt.timedelta(days=29), hasta=fecha
+        )
+    }
+
+
+@_skip_db
+def test_r07h_no_ofrece_regresar_si_volvio_la_clase_aunque_otro_campo_cambio():
+    """R07-H: el presupuesto ya volvio a 100 pero el ajuste top cambio
+    a 50: no se ofrece Regresar (la clase del ajuste ya esta como
+    antes)."""
+    with _db_dinero("orbit_p1_r07h_clase") as conn:
+        camp = _siembra_campana(conn, "amazon_mx", "r07hc", "R07HC")
+        cfg_antes = _siembra_config_r07h(conn, camp, dt.datetime(2026, 10, 1, tzinfo=dt.UTC), 100)
+        _siembra_config_r07h(conn, camp, dt.datetime(2026, 10, 4, tzinfo=dt.UTC), 100, top=50)
+        _siembra_ajuste_r07h(conn, camp, cfg_antes, "h-r07h-clase")
+        assert _campanas_r07h(conn)[camp].ajustes_regresables == ()
+
+
+@_skip_db
+@pytest.mark.parametrize("vuelta_primero", [True, False])
+def test_r07h_dos_campanas_cada_una_contra_su_vigente(vuelta_primero):
+    """R07-H: con dos campanas, la que ya volvio no ofrece Regresar y
+    la otra si, sin importar el orden."""
+    with _db_dinero("orbit_p1_r07h_dos") as conn:
+        c1 = _siembra_campana(conn, "amazon_mx", "r07hd1", "R07HD1")
+        c2 = _siembra_campana(conn, "amazon_mx", "r07hd2", "R07HD2")
+        vuelta, viva = (c1, c2) if vuelta_primero else (c2, c1)
+        ids = {}
+        for camp in (c1, c2):
+            cfg_antes = _siembra_config_r07h(
+                conn, camp, dt.datetime(2026, 10, 1, tzinfo=dt.UTC), 100
+            )
+            _siembra_config_r07h(
+                conn,
+                camp,
+                dt.datetime(2026, 10, 4, tzinfo=dt.UTC),
+                100 if camp == vuelta else 200,
+            )
+            ids[camp] = _siembra_ajuste_r07h(conn, camp, cfg_antes, f"h-r07h-dos-{camp}")
+        filas = _campanas_r07h(conn)
+        assert filas[vuelta].ajustes_regresables == ()
+        assert [a.ajuste_id for a in filas[viva].ajustes_regresables] == [ids[viva]]
+
+
 def test_pantalla_dinero_aplicar_nace_deshabilitado():
     """H1: el boton Aplicar nace disabled (sin pasar por la vista
     previa no se puede enviar)."""

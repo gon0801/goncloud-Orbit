@@ -754,6 +754,122 @@ def test_r07_09c_reconcilia_sella_todas_las_pendientes(monkeypatch):
 
 
 @_skip_db
+def test_r07_09c_reintento_no_reusa_la_pendiente_de_otro_plan(monkeypatch):
+    """R07-09C: con una H#2 pendiente del plan de 120 y otra pendiente
+    del plan de 150 en la misma campana y clase, reintentar el de 120
+    confirma SU H#2 y deja la del 150 sin confirmar."""
+    with _db("orbit_aj_09c_otro") as conn:
+        camp, _cfg = _siembra(conn)
+        remoto = {EXTERNA: {"budget": {"budget": 100.0, "budgetType": "DAILY"}}}
+        handler_ok, _vistos = _handler_campanas(remoto)
+        _creds_fake(monkeypatch)
+        transporte_ok = httpx.MockTransport(handler_ok)
+        plan_120 = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("120")))
+        hecho = apply.aplica_ajuste_campana(
+            conn,
+            plan_120,
+            huella=plan_120.huella(),
+            confirmacion="APLICAR AJUSTE",
+            actor="dueno",
+            transport=transporte_ok,
+        )
+        apply.regresa_ajuste_campana(
+            conn, ajuste_id=hecho.ajuste_id, actor="dueno", transport=transporte_ok
+        )
+        handler_div, _v2 = _handler_campanas(remoto, divergente=_vigente_config())
+        transporte_div = httpx.MockTransport(handler_div)
+        plan_150 = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("150")))
+        with pytest.raises(apply.AjusteNoConfirmado):
+            apply.aplica_ajuste_campana(
+                conn,
+                plan_150,
+                huella=plan_150.huella(),
+                confirmacion="APLICAR AJUSTE",
+                actor="dueno",
+                transport=transporte_div,
+            )
+        with pytest.raises(apply.AjusteNoConfirmado):
+            apply.aplica_ajuste_campana(
+                conn,
+                plan_120,
+                huella=plan_120.huella(),
+                confirmacion="APLICAR AJUSTE",
+                actor="dueno",
+                transport=transporte_div,
+            )
+        filas = conn.execute("SELECT id, huella FROM campana_ajuste ORDER BY id").fetchall()
+        (id_h2,) = [f[0] for f in filas if f[1] == plan_120.huella() + "#2"]
+        (id_otra,) = [f[0] for f in filas if f[1] == plan_150.huella()]
+        hecho2 = apply.aplica_ajuste_campana(
+            conn,
+            plan_120,
+            huella=plan_120.huella(),
+            confirmacion="APLICAR AJUSTE",
+            actor="dueno",
+            transport=transporte_ok,
+        )
+        confirmada = dict(
+            conn.execute("SELECT id, confirmado_el IS NOT NULL FROM campana_ajuste").fetchall()
+        )
+        assert hecho2.ajuste_id == id_h2
+        assert confirmada[id_h2] is True
+        assert confirmada[id_otra] is False
+
+
+@_skip_db
+def test_r07_09c_reconcilia_con_huella_de_otro_plan_no_sella(monkeypatch):
+    """R07-09C: si el vigente observado es el destino de OTRO plan,
+    reconciliar con la huella de este responde HuellaDesactualizada y
+    la H#2 pendiente sigue sin sellar."""
+    from app.ads.campana_config import guarda_config
+
+    with _db("orbit_aj_09c_rec_otro") as conn:
+        camp, _cfg = _siembra(conn)
+        remoto = {EXTERNA: {"budget": {"budget": 100.0, "budgetType": "DAILY"}}}
+        handler_ok, _vistos = _handler_campanas(remoto)
+        _creds_fake(monkeypatch)
+        transporte_ok = httpx.MockTransport(handler_ok)
+        plan_150 = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("150")))
+        hecho = apply.aplica_ajuste_campana(
+            conn,
+            plan_150,
+            huella=plan_150.huella(),
+            confirmacion="APLICAR AJUSTE",
+            actor="dueno",
+            transport=transporte_ok,
+        )
+        apply.regresa_ajuste_campana(
+            conn, ajuste_id=hecho.ajuste_id, actor="dueno", transport=transporte_ok
+        )
+        handler_div, _v2 = _handler_campanas(remoto, divergente=_vigente_config())
+        with pytest.raises(apply.AjusteNoConfirmado):
+            apply.aplica_ajuste_campana(
+                conn,
+                plan_150,
+                huella=plan_150.huella(),
+                confirmacion="APLICAR AJUSTE",
+                actor="dueno",
+                transport=httpx.MockTransport(handler_div),
+            )
+        plan_120 = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("120")))
+        guarda_config(conn, "amazon_mx", [plan_120.despues], dt.datetime.now(dt.UTC))
+        conn.commit()
+        with pytest.raises(apply.HuellaDesactualizada):
+            apply.reconcilia_ajuste_campana(
+                conn,
+                camp,
+                "presupuesto",
+                CambiarPresupuesto(presupuesto_diario=Decimal("120")),
+                huella=plan_150.huella(),
+                actor="dueno",
+            )
+        pendientes = conn.execute(
+            "SELECT huella FROM campana_ajuste WHERE confirmado_el IS NULL ORDER BY id"
+        ).fetchall()
+        assert [f[0] for f in pendientes] == [plan_150.huella() + "#2"]
+
+
+@_skip_db
 def test_regreso_fallido_se_puede_reintentar(monkeypatch):
     """Panel: regreso con readback divergente deja pendiente reintentable
     (como el aplica); el reintento confirma y un tercero se rechaza."""
