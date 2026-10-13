@@ -3049,7 +3049,7 @@ def _pasos_del_desarme(conn, lote="LI1"):
 
 @_skip_db
 def test_r14r3_desarmar_con_put_timeout_sella_el_paso_failed(monkeypatch):
-    """R14-r3 B2: el PUT que levanta por timeout deja el paso failed."""
+    """R14-r3 B2: el lote sigue applied si el PUT muere a mitad."""
     with db_fabrica("orbit_fc_r14r3_timeout") as conn:
         _lote_applied_orden_real(conn, lote="LI1")
         dsn = _dsn_propia(conn)
@@ -3072,7 +3072,7 @@ def test_r14r3_desarmar_con_put_timeout_sella_el_paso_failed(monkeypatch):
 
 @_skip_db
 def test_r14r3_desarmar_con_readback_distinto_sella_el_paso_failed(monkeypatch):
-    """R14-r3 B2: el readback que no vuelve PAUSED deja su estado."""
+    """R14-r3 B2: el readback_estado guardado es el que volvio."""
     with db_fabrica("orbit_fc_r14r3_readback") as conn:
         _lote_applied_orden_real(conn, lote="LI1")
         dsn = _dsn_propia(conn)
@@ -3095,7 +3095,7 @@ def test_r14r3_desarmar_con_readback_distinto_sella_el_paso_failed(monkeypatch):
 
 @_skip_db
 def test_r14r3_desarmar_con_readback_que_levanta_sella_el_paso_failed(monkeypatch):
-    """R14-r3 B2: si el readback levanta, el paso no queda planeado."""
+    """R14-r3 B2: ningun fallo de _pausa_una deja su fila en planeado."""
     with db_fabrica("orbit_fc_r14r3_rblevanta") as conn:
         _lote_applied_orden_real(conn, lote="LI1")
         dsn = _dsn_propia(conn)
@@ -3122,8 +3122,7 @@ def test_r14r3_desarmar_con_readback_que_levanta_sella_el_paso_failed(monkeypatc
 
 @_skip_db
 def test_r14r3_sql_campanas_del_lote_respeta_el_orden_del_ledger():
-    """R14-r3: la consulta del desarme devuelve los roles en el orden
-    del ledger, no en orden alfabetico de rol."""
+    """R14-r3: el orden no es el alfabetico de rol."""
     with db_fabrica("orbit_fc_r14r3_orden") as conn:
         fc._inserta_lote(conn, "L1", _plan_min(), "h", "go")
         ctx = fc._Ctx(None, "tok", None, None, 101, conn, "L1")

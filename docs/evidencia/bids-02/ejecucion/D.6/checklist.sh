@@ -17,8 +17,7 @@
 # UNA linea impulso-vigia; la vista previa del impulso con un candidato
 # del dashboard responde 200 y no escribe (conteos de fabrica_lote e
 # impulso iguales antes y despues); PUT /sp/productAds en la allowlist;
-# y el JSON de la pantalla de busquedas por mercado, pedido por HTTP
-# a cada mercado, trae su moneda (MXN/USD: R13-E).
+# y la pantalla de busquedas de cada mercado trae su moneda (R13-E).
 # Uso: bash docs/evidencia/bids-02/ejecucion/D.6/checklist.sh <STAMP> > checklist-<sello>.txt 2>&1; echo "exit=$?" >> checklist-<sello>.txt
 set -uo pipefail
 
@@ -169,21 +168,22 @@ for TABLA in impulso impulso_lectura anuncio_retiro anuncio_reposicion anuncio_r
   fi
 done
 
-echo "== 8) JSON de la pantalla de busquedas por mercado, con la moneda de su mercado (R13-E)"
-# El JSON se pide por HTTP a cada mercado y el cuerpo no se imprime:
-# solo salen moneda y plataforma. Respuesta vacia, JSON invalido o
-# sin moneda queda NO MEDIDO, nunca OK.
-for PAR in "amazon_mx MXN" "amazon_us USD"; do
-  MERCADO=${PAR%% *}
-  MONEDA=${PAR##* }
-  DATO=$(cuerpo "/api/dashboard/busquedas-sin-venta?plataforma=$MERCADO" | python3 -c "
+moneda_y_plataforma() {  # stdin: cuerpo JSON -> "moneda|plataforma" o vacio
+  python3 -c "
 import json, sys
 try:
     datos = json.load(sys.stdin)
 except ValueError:
     raise SystemExit(0)
 print(str(datos.get('moneda') or '') + '|' + str(datos.get('plataforma') or ''))
-" || true)
+"
+}
+
+echo "== 8) JSON de la pantalla de busquedas por mercado, con la moneda de su mercado (R13-E)"
+for PAR in "amazon_mx MXN" "amazon_us USD"; do
+  MERCADO=${PAR%% *}
+  MONEDA=${PAR##* }
+  DATO=$(cuerpo "/api/dashboard/busquedas-sin-venta?plataforma=$MERCADO" | moneda_y_plataforma || true)
   revisa "busquedas $MERCADO moneda" "$MONEDA" "$(printf '%s' "$DATO" | cut -d'|' -f1)"
   revisa "busquedas $MERCADO plataforma" "$MERCADO" "$(printf '%s' "$DATO" | cut -d'|' -f2)"
 done

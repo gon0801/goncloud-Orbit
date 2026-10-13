@@ -226,9 +226,7 @@ def test_r09g_tope_por_producto_previa_marca_y_parcial():
 
 @_skip_db
 def test_r14r3_mismo_listing_sin_subfamilia_con_vivo_sigue_en_422():
-    """R14-r3: si el listing ya tiene un impulso vivo pero quedo fuera
-    por otra causa (sin subfamilia), el motivo real manda y lanzar
-    sigue en 422 nada lanzable, no en el parcial 502."""
+    """R14-r3: el vivo del mismo listing no pisa el motivo real."""
     with _db_i3("orbit_i3_r14r3m4") as conn:
         _, lid = _con_margen(conn)
         solicitud = _solicitud(conn, [lid])

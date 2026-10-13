@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-# B1 (R14-r3): el paso 8 da FALLA con la moneda cruzada. Adaptado del
-# repro del revisor a la lectura por HTTP. Sirve un JSON con la forma
-# real de /api/dashboard/busquedas-sin-venta y la moneda cruzada.
+# B1 (R14-r3): sirve la moneda cruzada y exige FALLA en el paso 8.
 set -uo pipefail
 PUERTO=${1:-18099}
 python3 - "$PUERTO" << 'PY' &
