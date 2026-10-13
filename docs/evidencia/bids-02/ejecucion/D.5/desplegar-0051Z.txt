@@ -1,0 +1,107 @@
+== 0) SHA aprobado con la bateria completa verde
+APROBADO=6a154bdf4478facc3da9df88e6a5e07fb3e7fa9f CI=success
+== 1) Preflight: nadie corre, sin harvest en vuelo
+cli=0
+ciclos running=0
+harvest en vuelo=0
+== 1b) Guardas propias de D.5 (abortan si fallan)
+pantalla_busquedas, plantilla y rutas /busquedas-sin-venta presentes en el SHA
+guardas propias OK
+== 2) Respaldo del codigo actual y SHA (el .env NO se copia a ningun lado)
+app
+docker-compose.yml
+Dockerfile
+pyproject.toml
+SHA
+tools
+uv.lock
+== 3) Backup del esquema (staging + verificacion)
+-rw------- 1 root root 550043 Oct 13 00:52 /mnt/data/appdata/orbit/backups/pred5_schema_20261013-0051.sql
+== 4) md5 del codigo desplegado vs SHA aprobado
+md5 OK app/pantalla_busquedas.py
+md5 OK app/api_dashboard.py
+md5 OK app/ui.py
+md5 OK app/templates/busquedas_sin_venta.html
+md5 OK app/templates/base.html
+== 5) Guardas antes de recrear
+guardas OK
+== 6) Build + recrear app (digest antes/despues) + health
+DIGEST antes=sha256:b76e3d39d6854aa5c829a9218fc53cea762021fd5bf9224594dd923496550109
+ Image orbit-app Building
+#1 [internal] load local bake definitions
+#1 reading from stdin 482B done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 952B done
+#2 DONE 0.0s
+
+#3 [internal] load metadata for ghcr.io/astral-sh/uv:0.11.11
+#3 DONE 0.5s
+
+#4 [internal] load metadata for docker.io/library/python:3.12-slim-bookworm
+#4 DONE 0.6s
+
+#5 [internal] load .dockerignore
+#5 transferring context: 199B done
+#5 DONE 0.0s
+
+#6 [stage-0 1/9] FROM docker.io/library/python:3.12-slim-bookworm@sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3a1509accc92a4e24a07258
+#6 resolve docker.io/library/python:3.12-slim-bookworm@sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3a1509accc92a4e24a07258 0.0s done
+#6 DONE 0.0s
+
+#7 FROM ghcr.io/astral-sh/uv:0.11.11@sha256:798712e57f879c5393777cbda2bb309b29fcdeb0532129d4b1c3125c5385975a
+#7 resolve ghcr.io/astral-sh/uv:0.11.11@sha256:798712e57f879c5393777cbda2bb309b29fcdeb0532129d4b1c3125c5385975a 0.0s done
+#7 DONE 0.0s
+
+#8 [internal] load build context
+#8 transferring context: 3.65MB 0.0s done
+#8 DONE 0.0s
+
+#9 [stage-0 2/9] COPY --from=ghcr.io/astral-sh/uv:0.11.11 /uv /uvx /bin/
+#9 CACHED
+
+#10 [stage-0 4/9] COPY pyproject.toml uv.lock ./
+#10 CACHED
+
+#11 [stage-0 3/9] WORKDIR /app
+#11 CACHED
+
+#12 [stage-0 5/9] RUN uv sync --frozen --no-dev --no-install-project --no-cache
+#12 CACHED
+
+#13 [stage-0 6/9] COPY app ./app
+#13 DONE 0.0s
+
+#14 [stage-0 7/9] COPY tools/fabrica_campanas.py ./tools/fabrica_campanas.py
+#14 DONE 0.0s
+
+#15 [stage-0 8/9] COPY tools/jev_ads.py ./tools/jev_ads.py
+#15 DONE 0.0s
+
+#16 [stage-0 9/9] COPY tools/jev_fichas.py ./tools/jev_fichas.py
+#16 DONE 0.0s
+
+#17 exporting to image
+#17 exporting layers 0.1s done
+#17 exporting manifest sha256:1cfed8135fc95eff95d03e4db069bbe2999adb0ff56f8bb69d95e3f1d866a225 done
+#17 exporting config sha256:b9343ed99059e51c0fc174f19e456931d2391e236a65d9803f678222698317a9 done
+#17 exporting attestation manifest sha256:a66ca7b7d0b5b9cb92c2acc9b883993a2e78ebdd848765afe55e13253e33391e done
+#17 exporting manifest list sha256:188b4657953bcf9cf7296f50bb72fa96dc5818f89dc79d0d43f53470a379cb99 done
+#17 naming to docker.io/library/orbit-app:latest done
+#17 unpacking to docker.io/library/orbit-app:latest 0.1s done
+#17 DONE 0.2s
+
+#18 resolving provenance for metadata file
+#18 DONE 0.0s
+ Image orbit-app Built
+ Container orbit-app-1 Recreate
+ Container orbit-app-1 Recreated
+ Container orbit-app-1 Starting
+ Container orbit-app-1 Started
+DIGEST despues=sha256:188b4657953bcf9cf7296f50bb72fa96dc5818f89dc79d0d43f53470a379cb99
+{"status":"ok"}
+orbit-app-1 Up 5 seconds
+== LISTO. STAMP=20261013-0051
+Siguiente: bash docs/evidencia/bids-02/ejecucion/D.5/checklist.sh 20261013-0051
+Reversa:   bash docs/evidencia/bids-02/ejecucion/D.5/rollback.sh 20261013-0051
