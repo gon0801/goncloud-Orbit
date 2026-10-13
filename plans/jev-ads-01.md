@@ -3,7 +3,7 @@
 Estado: plan creado el 2026-10-03. Cierre de ledger 2026-10-04: filas 0.1 a 2.R
 en `cc:DONE` con su evidencia. Cierre del 2026-10-04 (B7 a B11): R1 a R18 en
 `cc:DONE` y 2.3 desplegada apagada. Piloto 3.1 corrido y decisión 3.2 tomada
-el 2026-10-04: seguir y ampliar en `plans/jev-ads-02.md`. R21 y R22 siguen abiertas.
+el 2026-10-04: seguir y ampliar en `plans/jev-ads-02.md`. R21 y R22 cerradas el 2026-10-13 (#441).
 Base de planificación: commit `1a4021f`. `team_validation_mode: manual-pass`.
 
 **Resultado:** el operador ve una evaluación trazable de la relación entre cada
@@ -151,8 +151,8 @@ de 3.1 (3.1 depende de ellas).
 | R18 | La guarda estática de GRANT (`test_migracion_trae_fks_y_roles`) no ve GRANT multi-tabla; alinearla (pglast) o borrarla: `test_roles_de_minimo_privilegio` ya protege contra la base real. | Una sola fuente de mínimo privilegio; el mutante multi-tabla muere o la guarda no existe. | - | cc:DONE B9a #399 e9789d4 |
 | R19 | Cifras de `docs/evidencia/jev-ads-01/ejecucion/B2-r1/NOTAS.md` (15/17) no cuadran con sus artefactos (14 y 32 combinadas). | Corregidas en este cambio de cierre (B6b). | - | cc:DONE B6b |
 | R20 | Rutas locales `/Users/dn` en `docs/evidencia/jev-ads-01/ejecucion/B5-r1/reporte-g4-pantallas.txt` (Minor de CodeRabbit). | Anonimizadas en este cambio de cierre (B6b). | - | cc:DONE B6b |
-| R21 | `tests/test_ads_write.py::test_moneda_equivocada_revierta_antes_de_cualquier_http` falla en master cuando corre despues de ciertos modulos (aislamiento entre pruebas; visto en B9a). La bateria completa de CI no lo muestra. | La prueba pasa en cualquier orden (por ejemplo, junto con `tests/test_jev_juicios.py` y `tests/test_spapi*.py`); la causa queda escrita. | - | cc:TODO |
-| R22 | El candado `tools/check_chat_context_fresh.py` sólo reconoce el marker `cc:完了`; un cierre con `cc:DONE` (como los de este plan) pasa sin exigir `docs/CHAT-CONTEXT.md` (Medium de ai-review en #402). | El candado reconoce los dos markers; prueba en `tests/test_chat_context_guard.py` que falla contra el código de hoy. | - | cc:TODO |
+| R21 | `tests/test_ads_write.py::test_moneda_equivocada_revierta_antes_de_cualquier_http` falla en master cuando corre despues de ciertos modulos (aislamiento entre pruebas; visto en B9a). La bateria completa de CI no lo muestra. | La prueba pasa en cualquier orden (por ejemplo, junto con `tests/test_jev_juicios.py` y `tests/test_spapi*.py`); la causa queda escrita. | - | cc:DONE (#441: el registro de secretos de `app.redaction` es global al proceso y el token `X` de un fixture de `tests/test_reputacion.py` dejaba `MXN` como `M***REDACTED***N`; `tests/conftest.py` lo restaura tras cada prueba) |
+| R22 | El candado `tools/check_chat_context_fresh.py` sólo reconoce el marker `cc:完了`; un cierre con `cc:DONE` (como los de este plan) pasa sin exigir `docs/CHAT-CONTEXT.md` (Medium de ai-review en #402). | El candado reconoce los dos markers; prueba en `tests/test_chat_context_guard.py` que falla contra el código de hoy. | - | cc:DONE (#441: el candado reconoce `cc:完了` y `cc:DONE`) |
 
 ## Pruebas que deben discriminar
 

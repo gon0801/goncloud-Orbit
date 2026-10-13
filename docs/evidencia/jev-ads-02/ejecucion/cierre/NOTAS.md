@@ -74,3 +74,11 @@ de las 09:30 UTC del 2026-10-13, la primera con ese tope.
 J6-31 se arregló. J6-1 a J6-30 y J6-32 a J6-45 se aceptan sin arreglo de
 código: no bloqueaban el cierre y el dueño ordenó no esperarlas. J6-21 sigue
 sin decisión del dueño; no se inventó.
+
+## Observación de la revisión del cierre
+
+No bloquea con el aviso apagado. En `_aplicar` el paso de avisos corre antes
+de escribir el evento `fin`. Si ese paso levanta una excepción, la corrida
+queda abierta en `jev_corrida` aunque sus señales ya estén escritas. Está
+anotado en "Huecos conocidos" del plan y se arregla antes de encender
+`jev.avisos`.
