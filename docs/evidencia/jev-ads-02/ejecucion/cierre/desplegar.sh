@@ -104,5 +104,6 @@ ssh goncloud "set -e; cd $SRV; \
   docker ps --filter name=orbit-app-1 --format '{{.Names}} {{.Status}}'"
 
 echo "== LISTO. STAMP=$STAMP"
-echo "Siguiente: bash $DIR/checklist.sh $APROBADO"
+echo "Siguiente: bash $DIR/checklist.sh $APROBADO          # antes del ciclo: sale 3, falta el ciclo posterior"
+echo "           bash $DIR/checklist.sh $APROBADO $STAMP   # despues del ciclo de las 08:40 UTC"
 echo "Reversa:   bash $REVERSA $STAMP"
