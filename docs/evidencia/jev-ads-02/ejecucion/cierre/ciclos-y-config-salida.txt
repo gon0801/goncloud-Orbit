@@ -1,0 +1,16 @@
+# 2026-10-13 09:16:41 UTC consultas de solo lectura en produccion (orbit-db-1)
+
+== 1) Ciclos del 2026-10-13 y ciclos en running
+-- SELECT id, platform, mode, status, started_at, finished_at, decisions_count, applied_count FROM optimizer_cycle WHERE started_at >= '2026-10-13 00:00+00' OR status = 'running' ORDER BY id;
+120|amazon_us|live|done|2026-10-13 08:40:02.719911+00|2026-10-13 08:40:04.120596+00|2|2
+121|amazon_mx|live|done|2026-10-13 08:41:02.386835+00|2026-10-13 08:41:03.806089+00|1|1
+-- SELECT count(*) FROM optimizer_cycle WHERE status = 'running';
+0
+
+== 2) config_version vigente y comparacion 29 contra 30
+-- SELECT id, label, created_at, settings->>'jev.tope_diario', settings->>'jev.senales', settings->>'jev.min_clics', COALESCE(settings->>'jev.avisos','ausente') FROM config_version WHERE id >= 28 ORDER BY id;
+28|jev tope_diario 5000|2026-10-13 01:37:23.27051+00|5000|true|3|ausente
+29|jev.tope_diario 5000 -> 10000 (go dueno 2026-10-13: el cupo del dia hazlo el doble)|2026-10-13 07:05:56.47128+00|10000|true|3|ausente
+30|jev.tope_diario 5000 -> 10000 (go dueno 2026-10-13: el cupo del dia hazlo el doble)|2026-10-13 07:24:35.811117+00|10000|true|3|ausente
+-- SELECT (SELECT max(id) FROM config_version) AS vigente, (SELECT settings FROM config_version WHERE id = 29) = (SELECT settings FROM config_version WHERE id = 30) AS identicas;
+30|t
