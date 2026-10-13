@@ -532,6 +532,8 @@ def test_r07d_cambios_del_rejuego_ignoran_el_ajuste_de_campana():
             " 'APLICAR AJUSTE', %s)",
             (camp, cfg, json.dumps({"clase": "ajuste_ubicacion"}), _CICLO),
         )
+        vista = conn.execute("SELECT origen FROM v_cambio_bid WHERE hoja_id = %s", (h,)).fetchall()
+        assert [f[0] for f in vista] == ["ajuste_de_campana"]
         filas = conn.execute(rejuega_mod._SQL_CAMBIOS, ("amazon_mx",)).fetchall()
         assert [f for f in filas if f[0] == h] == []
 
