@@ -423,8 +423,8 @@ crontab y como `ingest_run.source` (`amazon_ads_structure_v2` /
 `amazon_ads_products_v3` para productos anunciados desde la migracion 0040).
 
 Señal Jev por búsqueda-en-grupo (JEV ADS 02): dos corridas al día. En
-producción el job está encendido (`config_version` 28: `jev.senales` true,
-`jev.tope_diario` 5000, `jev.min_clics` 3). `jev.avisos` sigue ausente, así
+producción el job está encendido (`config_version` 29: `jev.senales` true,
+`jev.tope_diario` 10000, `jev.min_clics` 3). `jev.avisos` sigue ausente, así
 que no hay Telegram. Apagar las señales es otra fila de config sin
 `jev.senales`. Línea EXACTA del crontab de `gon` (la prueba
 `test_deploy_documenta_la_linea_de_jev_senales` la pinza de
