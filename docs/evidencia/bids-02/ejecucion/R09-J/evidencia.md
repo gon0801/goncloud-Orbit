@@ -28,6 +28,13 @@ Ultima linea de la corrida: `ENSAYO OK`. El ensayo comprueba que
 reversa devuelve el esquema identico y que reaplicar lo reproduce.
 La conducta la fija la prueba permanente.
 
+## Ajuste de relectura
+
+La 0072 suma un segundo candado: un grupo que ya tiene impulsos no
+puede dejar de ser tipo impulso por un `UPDATE campana_grupo SET tipo`
+posterior (trigger `grupo_impulso_tipo_guardia`). El test suma ese
+caso y `permisos.sql` verifica las cuatro senales.
+
 ## FK o trigger
 
 Una FK no puede condicionar a `campana_grupo.tipo`; el invariante va

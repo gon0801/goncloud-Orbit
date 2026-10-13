@@ -24,6 +24,10 @@ de `fabrica.js`, con los fallos por producto del parcial adjuntos al
 mensaje. Las cinco lineas que pintaban `(r.data.detail || r.data)`
 ahora usan `mensajeError(r.data)`.
 
+El mensaje del parcial suma el conteo de lanzados cuando el detalle
+los trae. La prueba afirma ademas que los cinco sitios usan
+`mensajeError(r.data)` y que ninguno conserva el patron viejo.
+
 ## Mutante
 
 Devolver la linea de `lanzar` a `(r.data.detail || r.data)` repone el

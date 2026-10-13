@@ -27,12 +27,29 @@ CREATE TRIGGER impulso_grupo_tipo
     FOR EACH ROW
     EXECUTE FUNCTION impulso_grupo_es_impulso();
 
+CREATE OR REPLACE FUNCTION grupo_con_impulso_no_cambia_tipo() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF NEW.tipo IS DISTINCT FROM 'impulso'
+       AND EXISTS (SELECT 1 FROM impulso WHERE grupo_id = NEW.id) THEN
+        RAISE EXCEPTION 'el grupo % tiene impulsos y no puede dejar de ser tipo impulso', NEW.id;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER grupo_impulso_tipo_guardia
+    BEFORE UPDATE OF tipo ON campana_grupo
+    FOR EACH ROW
+    EXECUTE FUNCTION grupo_con_impulso_no_cambia_tipo();
+
 DO $$
 BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_trigger WHERE tgname = 'impulso_grupo_tipo' AND NOT tgisinternal
+    ) OR NOT EXISTS (
+        SELECT 1 FROM pg_trigger WHERE tgname = 'grupo_impulso_tipo_guardia' AND NOT tgisinternal
     ) THEN
-        RAISE EXCEPTION '0072: falta el trigger impulso_grupo_tipo';
+        RAISE EXCEPTION '0072: falta un trigger del candado de tipo del impulso';
     END IF;
 END;
 $$;

@@ -690,9 +690,10 @@ def _descarta_huerfano(conn, lote_viejo: str, actor: str) -> str | None:
 
 
 def _fallos_por_vivo(conn, solicitud: SolicitudImpulso, vista: VistaPreviaImpulso, fallos) -> None:
-    """R09-H: un no lanzable cuyo producto ya tiene un impulso vivo
-    entra al resultado parcial como fallo de conflicto, para que el
-    lote devuelva el resultado por producto completo."""
+    """R09-H: un no lanzable cuyo producto ya tiene un impulso vivo en
+    OTRO listing entra al resultado parcial como fallo de conflicto
+    (ese es su motivo al lanzar). Si el vivo es del mismo listing y el
+    producto quedo fuera por otra causa, el motivo real manda."""
     for no in vista.no_lanzables:
         prod = conn.execute(
             _SQL_PRODUCTO_DE_LISTING, (no.listing_id, solicitud.plataforma)
@@ -700,7 +701,7 @@ def _fallos_por_vivo(conn, solicitud: SolicitudImpulso, vista: VistaPreviaImpuls
         if prod is None:
             continue
         vivo = conn.execute(_SQL_VIVO_PRODUCTO, (solicitud.plataforma, prod[0])).fetchone()
-        if vivo is not None:
+        if vivo is not None and vivo[2] != no.listing_id:
             fallos[no.listing_id] = (
                 f"el producto ya tiene un impulso vivo en el listing {vivo[2]} (tope por producto)"
             )
@@ -745,7 +746,14 @@ def lanza(
         # Una transaccion por producto: el candado advisory dura la
         # transaccion (en autocommit, sin esto se libera al instante y
         # dos lanzar crean dos vivos). Salir commitea; fallar revierte.
+        # Primero por producto (R09-G: dos listings del mismo producto
+        # no crean dos vivos) y despues por listing, siempre en ese
+        # orden.
         with conn.transaction():
+            conn.execute(
+                "SELECT pg_advisory_xact_lock(hashtext(%s))",
+                (f"impulso-producto:{plan.plataforma}:{plan.product_id}",),
+            )
             conn.execute(
                 "SELECT pg_advisory_xact_lock(hashtext(%s))", (f"impulso:{plan.listing_id}",)
             )

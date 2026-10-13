@@ -46,6 +46,8 @@ function mensajeError(data) {
   if (typeof detalle === "string") return detalle;
   if (detalle && detalle.mensaje) {
     var texto = detalle.mensaje;
+    var lanzados = detalle.lanzados || [];
+    if (lanzados.length) texto += " · lanzados: " + lanzados.length;
     var fallos = detalle.fallos || {};
     Object.keys(fallos).forEach(function (lid) {
       texto += " · " + lid + ": " + fallos[lid];

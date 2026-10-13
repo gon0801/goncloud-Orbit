@@ -47,6 +47,10 @@ def test_0072_impulso_sobre_grupo_fabrica5_se_rechaza():
         conn.rollback()
         imp = _impulso(conn, lote2, grupo_imp, pid, lid)
         assert conn.execute("SELECT count(*) FROM impulso WHERE id = %s", (imp,)).fetchone() == (1,)
+        # El candado tambien cierra el UPDATE: un grupo con impulsos no
+        # puede dejar de ser tipo impulso despues.
+        with pytest.raises(psycopg.errors.RaiseException, match="no puede dejar de ser"):
+            conn.execute("UPDATE campana_grupo SET tipo = 'fabrica5' WHERE id = %s", (grupo_imp,))
         conn.rollback()
         conn.execute(REVERSA72)
         conn.commit()

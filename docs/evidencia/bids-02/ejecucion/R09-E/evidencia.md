@@ -32,6 +32,14 @@ La base simulada `orbit_copia_r09e` es el esquema completo del repo
 comprueba que `permisos.sql` dice `permisos OK` con el GRANT, que la
 reversa devuelve el esquema identico y que reaplicar lo reproduce.
 
+Limite conocido: la ACL de Postgres no distingue si un privilegio
+vino de los default privileges o de esta migracion. En produccion,
+donde la vista ya se lee por default, revertir la 0071 con su REVOKE
+quitaria tambien ese privilegio previo; el rollback de D.6 lo
+detecta (exige la vista legible tras la reversa) y la correccion es
+reaplicar la 0071. En la base del ensayo el REVOKE preparatorio
+deja el estado exacto que la reversa debe restaurar.
+
 ## Mutante
 
 Quitar la linea `GRANT SELECT ...` de la 0071: la propia migracion

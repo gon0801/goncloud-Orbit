@@ -5,7 +5,9 @@
 WITH esperado(senal, debe) AS (
     VALUES
         ('trigger impulso_grupo_tipo en impulso', true),
-        ('funcion impulso_grupo_es_impulso', true)
+        ('funcion impulso_grupo_es_impulso', true),
+        ('trigger grupo_impulso_tipo_guardia en campana_grupo', true),
+        ('funcion grupo_con_impulso_no_cambia_tipo', true)
 ),
 real AS (
     SELECT senal, debe,
@@ -16,6 +18,12 @@ real AS (
                       AND c.relname = 'impulso')
                WHEN 'funcion impulso_grupo_es_impulso' THEN EXISTS (
                    SELECT 1 FROM pg_proc WHERE proname = 'impulso_grupo_es_impulso')
+               WHEN 'trigger grupo_impulso_tipo_guardia en campana_grupo' THEN EXISTS (
+                   SELECT 1 FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
+                    WHERE t.tgname = 'grupo_impulso_tipo_guardia' AND NOT t.tgisinternal
+                      AND c.relname = 'campana_grupo')
+               WHEN 'funcion grupo_con_impulso_no_cambia_tipo' THEN EXISTS (
+                   SELECT 1 FROM pg_proc WHERE proname = 'grupo_con_impulso_no_cambia_tipo')
            END AS tiene
       FROM esperado
 ),

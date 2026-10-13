@@ -1618,9 +1618,9 @@ def _put_estado_campana(ctx: _Ctx, external: str, estado: str) -> dict:
 
 
 def _pausa_una(ctx: _Ctx, rol: str, external: str, goal_id) -> None:
-    # R09-I: como _cambia_estado_lote, la pausa de _desarmar deja fila
-    # en el ledger antes del PUT y el readback la sella (ctx.orden lo
-    # fija quien cicla: _desarmar o pausa_huerfanas).
+    # R09-I: como _cambia_estado_lote, la pausa deja fila en el ledger
+    # antes del PUT y el readback la sella. Su unico llamador hoy es
+    # _desarmar, que fija ctx.orden con el maximo del lote.
     paso = fp.Paso(rol, "campaign", "/sp/campaigns", {}, f"desarmar {rol}")
     paso_id = _inserta_paso(ctx, paso, {"campaignId": external, "state": _PAUSADA})
     ack = _put_estado_campana(ctx, external, _PAUSADA)

@@ -169,7 +169,7 @@ def test_r09b_previa_tope_bajo_el_piso_no_lanzable_y_lanza_sin_502():
 
 
 @_skip_db
-def test_r09g_tope_por_producto_previa_marca_y_lanza_rechaza_409():
+def test_r09g_tope_por_producto_previa_marca_y_parcial():
     """R09-G: el tope limita por producto. Dos listings del mismo
     producto no tienen impulso vivo a la vez en la misma plataforma:
     la vista previa marca el segundo no lanzable y lanzar lo rechaza
@@ -416,6 +416,81 @@ def test_lanza_concurrente_mismo_listing_un_solo_vivo():
         assert resultados[1][0] == "ok", resultados
         assert resultados[2][0] == "ok", resultados
         assert resultados[1][1] == resultados[2][1]
+        assert conn.execute("SELECT count(*) FROM impulso").fetchone() == (1,)
+
+
+@_skip_db
+def test_r09g_dos_listings_del_mismo_producto_en_concurrencia_un_solo_vivo():
+    """R09-G (relectura): el candado corre por producto. Dos lanzar a
+    la vez de dos listings del mismo producto, en conexiones
+    distintas: solo uno crea el impulso; el otro cae en el parcial
+    con el fallo de conflicto."""
+    import threading
+    import time
+
+    import psycopg
+
+    with _db_i3("orbit_i3_r09g_race") as conn:
+        pid, lid1 = _con_margen(conn)
+        lid2 = conn.execute(
+            "INSERT INTO listing (product_id, platform, external_id, seller_sku)"
+            " VALUES (%s, 'amazon_mx', 'B0AAAAAAAC', 'SS-1B') RETURNING id",
+            (pid,),
+        ).fetchone()[0]
+        conn.commit()
+
+        class _Lento:
+            def __init__(self, c):
+                self._e = _ejecutor_falso(c)
+
+            def __call__(self, grupo, huella, lote):
+                time.sleep(0.5)
+                return self._e(grupo, huella, lote)
+
+        vistas = {}
+        for lid in (lid1, lid2):
+            vistas[lid] = io.previsualiza(
+                conn, _solicitud(conn, [lid]), sugeridor=_sugeridor_fijo()
+            )
+        barrera = threading.Barrier(2)
+        resultados: dict = {}
+
+        def _corre(n, c, lid):
+            sol = _solicitud(conn, [lid])
+            try:
+                barrera.wait(timeout=30)
+                r = io.lanza(
+                    c,
+                    sol,
+                    huella=vistas[lid].huella,
+                    confirmacion=vistas[lid].confirmacion_esperada,
+                    actor="dueno",
+                    ejecutor=_Lento(c),
+                    sugeridor=_sugeridor_fijo(),
+                )
+                resultados[n] = ("ok", [x.impulso_id for x in r])
+            except io.ErrorImpulso as exc:
+                resultados[n] = ("errorimpulso", exc.status, exc.fallos)
+            except Exception as exc:  # noqa: BLE001 - el test clasifica
+                resultados[n] = ("crash", type(exc).__name__)
+
+        conn2 = psycopg.connect(_dsn_propia(conn), dbname=conn.info.dbname, autocommit=True)
+        try:
+            hilos = [
+                threading.Thread(target=_corre, args=(1, conn, lid1)),
+                threading.Thread(target=_corre, args=(2, conn2, lid2)),
+            ]
+            for h in hilos:
+                h.start()
+            for h in hilos:
+                h.join(timeout=60)
+                assert not h.is_alive()
+        finally:
+            conn2.close()
+        tipos = sorted(v[0] for v in resultados.values())
+        assert tipos == ["errorimpulso", "ok"], resultados
+        parcial = next(v for v in resultados.values() if v[0] == "errorimpulso")
+        assert parcial[1] == 502 and len(parcial[2]) == 1
         assert conn.execute("SELECT count(*) FROM impulso").fetchone() == (1,)
 
 

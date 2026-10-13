@@ -7,8 +7,11 @@
 # lineas) antes y despues y se aborta si cambio (R13-E). Las reversas
 # de la 0071 y la 0072 no borran tablas ni filas (REVOKE y DROP del
 # trigger/funcion): son seguras con impulsos creados, y la reversa de
-# la 0071 devuelve el privilegio al estado por default privileges con
-# el que la vista ya se leia. El DSN de lectura sale del .env del
+# OJO con la reversa de la 0071: la ACL no distingue si el GRANT vino
+# del default o de la migracion; un REVOKE real quita tambien el
+# privilegio que ya existia por default privileges (solo se otorga al
+# crear el objeto). La verificacion de abajo lo detecta (la vista
+# dejaria de ser legible) y la correccion es reaplicar la 0071. El DSN de lectura sale del .env del
 # servidor, sin depender de que orbit-app-1 este arriba (R13-L): se
 # resuelve dentro del servidor y nunca viaja en claro.
 # En simulacion (ORBIT_SIMULACION=1) la base es ORBIT_SIM_DSN, el
@@ -146,9 +149,9 @@ echo "trigger_0072=$TRIG72 vista_legible_por_app_read=$VISTA_LEIBLE"
 case " $REVS " in
   *"0072_reversa_"*) [ "$TRIG72" = "f" ] || { echo "FALLA: el candado de la 0072 sigue"; exit 1; } ;;
 esac
-# La reversa de la 0071 devuelve el privilegio al default del esquema
-# (la vista ya se leia asi antes de D.6): no se exige f; se exige que
-# la vista siga existiendo y legible, para no dejar la app sin lectura.
+# La reversa de la 0071 quita el SELECT de la ACL (tambien el que
+# venia de default privileges): no se exige f; se exige que la vista
+# siga legible, y si no, FALLA en voz alta y se reaplica la 0071.
 [ "$VISTA_LEIBLE" = "t" ] || { echo "FALLA: v_impulso_estado no es legible por app_read tras la reversa"; exit 1; }
 HUELLA_DESPUES=$(huella_cron) || { echo "ABORTA: no se pudo releer el crontab de gon"; exit 1; }
 echo "crontab despues: md5 y lineas = $HUELLA_DESPUES"

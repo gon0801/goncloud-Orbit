@@ -42,3 +42,13 @@ Anular la consulta de vivo de otro listing en la vista previa
 reversion se hizo con `git checkout` sobre el archivo sin commitear,
 lo que obligo a reaplicar el cambio de la fila; reaplicado, la prueba
 volvio a verde y la bateria de vecinos dio 211 passed.
+
+## Ajuste de relectura
+
+El candado corre por producto: `lanza` toma primero un advisory lock
+por (plataforma, producto) y despues por listing, siempre en ese
+orden. Sin el, dos lanzar a la vez de dos listings del mismo producto
+creaban dos vivos (`test_r09g_dos_listings_del_mismo_producto_en_concurrencia_un_solo_vivo`,
+en rojo antes del arreglo: los dos resultados `ok`). El parrafo de la
+decision en el diseno quedo actualizado (parcial de R09-H y lock por
+producto).

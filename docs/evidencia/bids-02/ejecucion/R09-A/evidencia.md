@@ -25,6 +25,11 @@ campanas con external), lo traduce a `ErrorImpulso(409, mensaje)`. El
 rechazo de Amazon con el lote `applied` se re-levanta y la ruta sigue
 respondiendo 502.
 
+La prueba usa un doble de `pausar_lote` que reproduce sus `Abortar`
+segun el estado de la base: fija la traduccion 409/502 de la fila. El
+contrato del `pausar_lote` real (que levanta esos `Abortar`) ya lo
+fijan las pruebas de `tests/test_fabrica_campanas.py` con base real.
+
 ## Mutante
 
 En `_lote_no_pausable`, quitar `or fila[0] != "applied"` de la

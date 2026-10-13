@@ -42,3 +42,10 @@ y en el chequeo por producto bajo el advisory lock).
 Volver el conflicto bajo lock a `raise ErrorImpulso(409, ...)`:
 las tres pruebas del parcial pasan a rojo (3 failed). Revertido:
 4 passed en el subconjunto de la fila.
+
+## Ajuste de relectura
+
+`_fallos_por_vivo` solo convierte a fallo cuando el vivo es de OTRO
+listing: si el vivo es del mismo listing y el producto quedo fuera
+por otra causa (sin margen, sin subfamilia), el motivo real manda y
+el "nada lanzable" sigue en 422.
