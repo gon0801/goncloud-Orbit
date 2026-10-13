@@ -441,10 +441,7 @@ SELECT o.presupuesto_diario, o.presupuesto_moneda, o.estrategia_puja, o.ajuste_t
 """
 
 
-def config_por_id(conn, config_id: int) -> ConfigCampana | None:
-    fila = conn.execute(_SQL_CONFIG_POR_ID, (config_id,)).fetchone()
-    if fila is None:
-        return None
+def _config_desde_fila(fila) -> ConfigCampana:
     return ConfigCampana(
         campana_externa=fila[7],
         presupuesto_diario=fila[0],
@@ -455,6 +452,13 @@ def config_por_id(conn, config_id: int) -> ConfigCampana | None:
         ajuste_producto_pct=fila[5],
         fuera_de_amazon=fila[6],
     )
+
+
+def config_por_id(conn, config_id: int) -> ConfigCampana | None:
+    fila = conn.execute(_SQL_CONFIG_POR_ID, (config_id,)).fetchone()
+    if fila is None:
+        return None
+    return _config_desde_fila(fila)
 
 
 def config_vigente(conn, ad_entity_id: int) -> ConfigCampana | None:
@@ -463,13 +467,4 @@ def config_vigente(conn, ad_entity_id: int) -> ConfigCampana | None:
     fila = conn.execute(_SQL_CONFIG_VIGENTE, (ad_entity_id,)).fetchone()
     if fila is None:
         return None
-    return ConfigCampana(
-        campana_externa=fila[7],
-        presupuesto_diario=fila[0],
-        moneda=fila[1],
-        estrategia_puja=fila[2],
-        ajuste_top_pct=fila[3],
-        ajuste_resto_pct=fila[4],
-        ajuste_producto_pct=fila[5],
-        fuera_de_amazon=fila[6],
-    )
+    return _config_desde_fila(fila)
