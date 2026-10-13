@@ -5,7 +5,8 @@ dueño selló el diseño ese día ("va, a las cuatro cosas"). Fichas (0.2), regl
 de roster (0.4), spec (0.1), tarifa (0.3), orden de opciones (0.5) y el
 bloque S quedaron cerrados el 2026-10-12. Los efectos sobre Amazon y la
 fábrica no se construyen (`ejecucion/cierre/NOTAS.md`). El cambio de cierre
-(#440) se desplegó el 2026-10-13 con el aviso apagado. Nace
+(#440) y su remate (#444) se desplegaron el 2026-10-13 con el aviso apagado.
+Ese día corrió la primera corrida con el tope en 5,000. Nace
 del acta 3.2 de
 [JEV ADS 01](jev-ads-01.md) ("seguir y ampliar"). Base de planificación:
 commit `25cebe7`. `team_validation_mode: manual-pass`.
@@ -197,7 +198,7 @@ evidencia en este cierre por traer identificadores de Amazon).
 | J6-18 | `[stage:cierre-pr] [lane:fast]` `windows.py`: conservar la razón del `NULLS LAST` en una línea. (VEREDICTO-J4-r1) | Razón en una línea. | - | cc:DONE (aceptada sin arreglo: no bloqueaba y el dueño ordenó no esperarla. `ejecucion/cierre/NOTAS.md`) |
 | J6-19 | `[stage:cierre-pr] [lane:fast]` `docs/DEPLOY.md` dice que el dueño instala el cron; en este loop lo instala el encargo: dejar uno. (VEREDICTO-J4-r1) | Un solo camino. | - | cc:DONE (aceptada sin arreglo: no bloqueaba y el dueño ordenó no esperarla. `ejecucion/cierre/NOTAS.md`) |
 | J6-20 | `[stage:cierre-pr] [lane:fast]` Los tres `panel-glm-*.txt` suman 5,400 líneas crudas en el repo; basta `panel.md`. (VEREDICTO-J4-r1) | Podados o aceptados. | - | cc:DONE (aceptada sin arreglo: no bloqueaba y el dueño ordenó no esperarla. `ejecucion/cierre/NOTAS.md`) |
-| J6-21 | `[stage:planificacion] [lane:gate]` F1 (Low): precedencia no-pago vs `FichaFaltante`; requiere decisión del dueño. (VEREDICTO-J4-r1) | Decisión tomada. | - | cc:DONE (sin decisión del dueño; no se inventa y no bloqueaba. `ejecucion/cierre/NOTAS.md`) |
+| J6-21 | `[stage:planificacion] [lane:gate]` F1 (Low): precedencia no-pago vs `FichaFaltante`; requiere decisión del dueño. (VEREDICTO-J4-r1) | Decisión tomada. | - | cc:DONE (decisión del dueño, 2026-10-13 UTC: se queda como está; `FichaFaltante` sigue en `Indeterminado`, como selló S.2. El caso no ocurre hoy: ninguna señal del lote del 2026-10-13 trae ficha ausente. `ejecucion/cierre/NOTAS.md`) |
 | J6-22 | `[stage:cierre-pr] [lane:fast]` Dos caminos documentados para instalar el cron (`crontab -e` y el bloque de `desplegar.sh`); dejar uno. (VEREDICTO-J4-r1 kimi) | Un solo camino. | - | cc:DONE (aceptada sin arreglo: no bloqueaba y el dueño ordenó no esperarla. `ejecucion/cierre/NOTAS.md`) |
 | J6-23 | `[stage:implementacion] [lane:gate]` El `trap ERR` de `desplegar.sh` (S.4) usa `$DIR` y `$STAMP` antes de definirlos. (VEREDICTO-J4-r1 kimi) | Ordenado. | - | cc:DONE (aceptada sin arreglo: no bloqueaba y el dueño ordenó no esperarla. `ejecucion/cierre/NOTAS.md`) |
 | J6-24 | `[stage:implementacion] [lane:gate]` `checklist.sh:113` (S.4): seco que corre sin decir "apagado" sale 4, debería ser 1. (VEREDICTO-J4-r1 kimi) | Sale 1. | - | cc:DONE (aceptada sin arreglo: no bloqueaba y el dueño ordenó no esperarla. `ejecucion/cierre/NOTAS.md`) |
@@ -247,7 +248,7 @@ a Jev términos de biblioteca.
 | Task | Contenido | DoD | Depends | Status |
 | --- | --- | --- | --- | --- |
 | R | `[stage:revision] [lane:gate]` Cada bloque de código pasa `cross-review.ps1` con un revisor distinto del autor. | Regla 4 de quality-kit. | cada bloque | cc:DONE (no se corre: cross-review.ps1 quedó fuera por regla permanente) |
-| D | `[stage:cierre-pr] [lane:release]` Despliegue por paso, apagado, con scripts nuevos que siguen el patrón de `jev-ads-01/ejecucion/2.3` y rollback ensayado. | Checklist verde tras el primer ciclo; cada interruptor se enciende en un cambio de config aparte. | cada paso | cc:DONE (S.1 a S.5 ya desplegados; el cierre con S.8 y J6-31 se desplegó el 2026-10-13, sello 20261013-0357, con el aviso apagado y checklist en 0 mal antes del primer ciclo; el checklist tras el ciclo de las 08:40 UTC no está en este cierre. `ejecucion/cierre/NOTAS.md`) |
+| D | `[stage:cierre-pr] [lane:release]` Despliegue por paso, apagado, con scripts nuevos que siguen el patrón de `jev-ads-01/ejecucion/2.3` y rollback ensayado. | Checklist verde tras el primer ciclo; cada interruptor se enciende en un cambio de config aparte. | cada paso | cc:DONE (S.1 a S.5 ya desplegados; el cierre con S.8 y J6-31 se desplegó el 2026-10-13, sello 20261013-0357, con el aviso apagado y checklist en 0 mal antes del primer ciclo; el remate (#444 `6c6486d`) se desplegó el mismo día, sello 20261013-0633, checklist en 0 mal; el checklist tras el ciclo de las 08:40 UTC no está en este cierre. `ejecucion/cierre/NOTAS.md`) |
 
 ## Criterios medidos
 
@@ -280,7 +281,8 @@ pueden ser las que se usaron para corregir fichas.
 | El CLI manual no toma el candado del job ni respeta el tope diario. | Aceptado en el spec: lo que paga cuenta para el día; el total puede pasar del tope por el presupuesto de esa corrida. |
 | Una decisión de harvest sin destino legible. | El job la avisa con ese motivo, no revienta. |
 | Las semillas del plan van normalizadas y los términos vendedores crudos. | Lo cierra 5.1. |
-| Si el paso de avisos levanta una excepción, la corrida quedaba sin su evento `fin` aunque las señales ya estuvieran escritas. | Resuelto en #444: la corrida escribe su `fin` con `avisos_error` y las entregas que sí salieron, y después falla con salida 1. |
+| Si el paso de avisos levanta una excepción, la corrida quedaba sin su evento `fin` aunque las señales ya estuvieran escritas. | Resuelto en #444: la corrida escribe su `fin` con `avisos_error` y las entregas que sí salieron, y después falla con salida 1. `/salud` lo muestra. |
+| El proveedor redondea las probabilidades a dos decimales y 16 de 4,900 respuestas sumaron 0.99; se descartaban como inválidas. | Resuelto en #444: la validación admite medio centésimo de desvío por opción. |
 
 ## Pruebas que deben discriminar
 

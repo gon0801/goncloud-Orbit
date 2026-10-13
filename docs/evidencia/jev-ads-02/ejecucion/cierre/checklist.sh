@@ -19,7 +19,7 @@ http() { ssh goncloud "curl -s -o /dev/null -w %{http_code} 'http://127.0.0.1:80
 md5_de() { if command -v md5 >/dev/null; then md5 -q; else md5sum | cut -d' ' -f1; fi; }
 
 echo "== 1) El contenedor corre el codigo del SHA"
-for f in app/jev_avisos.py app/jev_senales.py app/jev_juicios.py app/jev_vista.py app/api_dashboard.py; do
+for f in app/jev_avisos.py app/jev_senales.py app/jev_juicios.py app/jev_salud.py app/jev_vista.py app/api_dashboard.py app/templates/salud.html; do
   revisa "md5 en el contenedor $f" "$(git show "$SHA:$f" | md5_de)" \
     "$(ssh goncloud "docker exec orbit-app-1 md5sum $f" | cut -d' ' -f1)"
 done

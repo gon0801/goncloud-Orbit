@@ -56,7 +56,8 @@ El cambio de cierre (#440, `30cc62f`) se unió a master sin desplegar. Se
 desplegó el 2026-10-13 a las 03:57 UTC con `desplegar.sh` de esta carpeta:
 solo código, sin migración ni cron. Respaldo en `predeploy-20261013-0357`;
 la reversa es `docs/evidencia/bids-02/ejecucion/D.5/rollback.sh` con ese
-sello. Salidas en `desplegar-salida.txt` y `checklist-salida.txt`.
+sello. Las salidas de ese despliegue están en el historial de git
+(`2ce27ab`); los archivos de esta carpeta son los del remate.
 
 El checklist dio 0 mal: el contenedor corre el código del SHA, las cuatro
 pantallas responden 200, la única señal ajena trae `listado_de` y su frase
@@ -98,3 +99,58 @@ anotado en "Huecos conocidos" del plan.
 
 Resuelto en #444: la corrida escribe su `fin` con `avisos_error` y las
 entregas que sí salieron, y después falla con salida 1.
+`/salud` muestra ese error en la última corrida.
+
+## Primera corrida con el tope en 5,000
+
+El dueño ordenó no esperar al cron. La corrida se lanzó a mano el
+2026-10-13 a las 05:08 UTC como `gon`, con la línea del cron, y cerró a las
+05:30 UTC: motivo `tope`, 370 unidades, 4,900 llamadas, 16 fallos, 370
+señales, 0 avisos. Con las 100 llamadas de la medición 0.5 el día quedó en
+5,000 de 5,000.
+
+Lecturas del lote anterior (2026-10-12 23:34 UTC) y de este:
+
+| Lectura | Antes | Después |
+| --- | ---: | ---: |
+| `sin_lectura` | 194 | 153 |
+| `relevante_sin_venta` | 61 | 93 |
+| `vende_en_otro` | 60 | 62 |
+| `vendio_aqui` | 43 | 43 |
+| `ajena` | 1 | 19 |
+
+De las 153 sin lectura, 125 traen `jev_no_evaluada` (se acabó el cupo), 19
+`sin_observaciones` y 9 `jev_sin_veredicto`. Las 19 ajenas son 16 de
+amazon_mx y 3 de amazon_us.
+
+Entrada: 6,238,281 tokens. Con la tarifa de `ejecucion/0.3/NOTAS.md`:
+
+```text
+6238281 * Decimal("0.042") / Decimal("1000000") = 0.262007802
+```
+
+Mediana de 253 ms por llamada.
+
+Dos intentos anteriores, lanzados como `root`, no corrieron: `flock` no
+pudo abrir `/tmp/jev-senales.lock`, que es de `gon`. Dejaron dos líneas de
+error en `jev-senales.log` y nada más.
+
+## Los 16 fallos
+
+Los 16 son `respuesta_invalida: las probabilidades suman 0.99`. Las otras
+4,884 respuestas suman 1.00. El proveedor redondea cada probabilidad a dos
+decimales. #444 cambia la validación: admite medio centésimo de desvío por
+opción, 0.015 con las tres del contrato.
+
+## Despliegue del remate
+
+#444 (`6c6486d`) se desplegó el 2026-10-13 a las 06:33 UTC con el mismo
+`desplegar.sh`: solo código. Respaldo en `predeploy-20261013-0633`. Las
+salidas de esta carpeta son las de ese despliegue. El checklist dio 0 mal,
+con 19 señales ajenas, todas con `listado_de`.
+
+## J6-21
+
+El dueño decidió el 2026-10-13 UTC dejarlo como está. Un producto sin ficha
+sigue dando `Indeterminado`, como selló S.2, aunque además falte cupo. En
+el lote del 2026-10-13 ninguna señal trae ficha ausente.
