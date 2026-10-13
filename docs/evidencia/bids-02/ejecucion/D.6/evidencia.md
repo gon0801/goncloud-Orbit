@@ -45,10 +45,22 @@ ORBIT_SIMULACION=1 ORBIT_SIM_DSN=postgresql://orbit:orbit@127.0.0.1:5433/orbit_s
 ```
 
 Resultados guardados en esta carpeta: ensayo `ENSAYO OK` (exit=0);
-desplegar exit=0 (aplico la 0072; la 0071 ya se lee aplicada porque
-el privilegio existe por default privileges, que es justo el estado
-que su ensayo verifica con el REVOKE preparatorio); checklist con
-0 fallas y 3 sin medir (exit=4: el candidato del dashboard y los dos
-JSON de busquedas son insumos que el dueno aporta tras el despliegue,
-no fallas del script); rollback exit=0 con el candado fuera, la vista
-legible y la huella del crontab intacta.
+desplegar exit=0 (aplico la 0071 y la 0072 y las anoto para el
+rollback); checklist con 0 fallas y 3 sin medir (exit=4: el candidato
+del dashboard y los dos JSON de busquedas son insumos que el dueno
+aporta tras el despliegue, no fallas del script); rollback exit=0 con
+el candado fuera, la vista legible y la huella del crontab intacta.
+
+## Correccion de la segunda relectura (R14-r2)
+
+La 0071 no se detectaba aplicada con `has_table_privilege`, porque en
+produccion la vista ya se lee por default privileges y el despliegue
+la daba por aplicada sin correrla. La migracion ahora deja una marca
+(el comentario de la vista) y la deteccion, el checklist y la reversa
+usan esa marca. La reversa quita la marca y el privilegio; si la vista
+deja de ser legible porque el `REVOKE` tambien quito el privilegio que
+venia de los default privileges, el rollback vuelve a otorgar el
+`SELECT` suelto y lo deja dicho en su salida. Las salidas de
+simulacion de esta carpeta se repitieron con este codigo: el
+despliegue anota la 0071 y la 0072, y el rollback reversa las dos y
+termina con la vista legible tras reotorgar el `SELECT`.

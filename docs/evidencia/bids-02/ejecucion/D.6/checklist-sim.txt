@@ -1,6 +1,6 @@
 == 0) El servidor contesta
 MODO SIMULACION: base postgresql://orbit:orbit@127.0.0.1:5433/orbit_sim_d6, HTTP http://127.0.0.1:8012
-== Checklist D.6 (solo lectura; sello 20261013-0422)
+== Checklist D.6 (solo lectura; sello 20261013-0452)
 == 1) HTTP: /health
 OK    GET /health = 200
 == 2) Esquema: las cinco tablas existen (el dueno ya pudo lanzar)
@@ -17,7 +17,8 @@ OK    anuncio_retiro_intencion antes = 0
 OK    columna fabrica_lote.pausado_por (0068) = t
 OK    app_admin DELETE en fabrica_lote (0070) = t
 OK    GRANT SELECT de v_impulso_estado a app_read y app_admin (0071) = t
-OK    candado de tipo del grupo del impulso (0072) = t
+OK    marca de la 0071 en v_impulso_estado = GRANT SELECT declarado por la migracion 0071 (BIDS 02 R09-E)
+OK    candado de tipo del grupo del impulso (0072, los dos triggers) = t
 == 3) La pantalla de productos responde en cada mercado
 OK    HTML productos-sin-clics amazon_mx = 200
 OK    HTML productos-sin-clics amazon_us = 200
