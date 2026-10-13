@@ -162,3 +162,13 @@ corrida que pague.
 El dueño decidió el 2026-10-13 UTC dejarlo como está. Un producto sin ficha
 sigue dando `Indeterminado`, como selló S.2, aunque además falte cupo. En
 el lote del 2026-10-13 ninguna señal trae ficha ausente.
+
+## Tope en 10,000
+
+El dueño ordenó el 2026-10-13 UTC duplicar el cupo ("el cupo del dia hazlo
+el doble"). La `config_version` 29 (2026-10-13 07:05 UTC) copia
+la 28 y solo cambia `jev.tope_diario` de 5000 a 10000; el resto de los
+ajustes es idéntico y `jev.avisos` sigue ausente. Con el día en 5,000
+llamadas, el seco posterior anticipa 5,000 más (`pagaria=5000 tope=10000
+llamadas_hoy=5000`): el cron de las 09:30 UTC del 13 sí paga. A la tarifa
+de 0.3, el tope completo cuesta cerca de 0.52 USD al día.
