@@ -2476,6 +2476,12 @@ def busquedas_sin_venta(conn: ConexionLectura, plataforma: str | None = None) ->
     mercado = plataforma or "amazon_mx"
     if mercado not in PLATAFORMAS_MONEDA:
         raise HTTPException(status_code=422, detail="plataforma fuera de vocabulario")
-    return pantalla_busquedas.lee_busquedas(
+    datos = pantalla_busquedas.lee_busquedas(
         conn, plataforma=mercado, hoy=dt.datetime.now(dt.UTC).date()
     ).como_dict()
+    # R13-K: la plantilla de la pagina imprime el gasto tal cual; sale
+    # de aqui con dos decimales, como el de gasto_sin_venta.
+    for clave in ("asins", "palabras"):
+        for fila in datos[clave]:
+            fila["gasto"] = _dinero_2(fila["gasto"])
+    return datos
