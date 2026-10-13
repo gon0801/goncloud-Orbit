@@ -2,6 +2,8 @@
 
 import logging
 
+import pytest
+
 from app.redaction import (
     SecretScrubFilter,
     install_scrub_filter,
@@ -261,13 +263,19 @@ def test_install_scrub_filter_no_se_instala_dos_veces():
             log.removeFilter(filtro)
 
 
-def test_r21_una_prueba_registra_un_secreto():
-    register_secret("zz-r21-aislamiento")
-    assert scrub("eco zz-r21-aislamiento fin") == "eco ***REDACTED*** fin"
+@pytest.fixture(scope="module")
+def _r21_despues_de_la_prueba():
+    """Se desmonta despues del fixture por prueba de `conftest.py`: ahi el
+    secreto que registro la prueba ya no debe estar."""
+    yield
+    assert scrub("eco zz-r21-aislamiento fin") == "eco zz-r21-aislamiento fin"
 
 
-def test_r21_el_secreto_de_la_prueba_anterior_no_sobrevive():
+def test_r21_el_secreto_de_una_prueba_no_sobrevive(_r21_despues_de_la_prueba):
     """R21 de JEV ADS 01: el registro es global al proceso. Sin limpiarlo
     entre pruebas, el token "X" de un fixture de Mercado Libre dejaba "MXN"
-    como "M***REDACTED***N" en cualquier prueba posterior."""
-    assert scrub("eco zz-r21-aislamiento fin") == "eco zz-r21-aislamiento fin"
+    como "M***REDACTED***N" en cualquier prueba posterior. La comprobacion
+    va en el desmontaje del fixture de modulo, asi no depende de que corra
+    otra prueba antes."""
+    register_secret("zz-r21-aislamiento")
+    assert scrub("eco zz-r21-aislamiento fin") == "eco ***REDACTED*** fin"
