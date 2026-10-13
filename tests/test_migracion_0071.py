@@ -52,8 +52,6 @@ def test_0071_grant_explicito_sobre_la_vista_y_su_reversa():
         conn.commit()
         assert _select_vista(conn, "app_read") is True
         assert _select_vista(conn, "app_admin") is True
-        # La marca distingue la 0071 aplicada del privilegio que ya
-        # venia de los default privileges.
         assert _marca_0071(conn) == "GRANT SELECT declarado por la migracion 0071 (BIDS 02 R09-E)"
         for rol in ("app_read", "app_admin"):
             for privilegio in ("INSERT", "UPDATE", "DELETE"):

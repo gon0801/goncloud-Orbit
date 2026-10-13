@@ -152,10 +152,6 @@ case " $REVS " in
   *"0072_reversa_"*)
     [ "$TRIG72" = "f" ] && [ "$GUARDIA72" = "f" ] || { echo "FALLA: el candado de la 0072 sigue"; exit 1; } ;;
 esac
-# La reversa de la 0071 quita el SELECT de la ACL (tambien el que
-# venia de default privileges): si la vista dejo de ser legible, se
-# vuelve a otorgar el SELECT suelto (sin la marca de la 0071) para
-# devolver la lectura que ya existia antes del despliegue.
 if [ "$VISTA_LEIBLE" != "t" ]; then
   case " $REVS " in
     *"0071_reversa_"*)

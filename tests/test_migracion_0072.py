@@ -63,9 +63,7 @@ def test_0072_impulso_sobre_grupo_fabrica5_se_rechaza():
 
 @_skip_db
 def test_0072_grupo_sin_impulsos_si_puede_cambiar_de_tipo():
-    """R14-r2: la guardia de UPDATE solo cierra el tipo de grupos que
-    ya tienen impulsos; un grupo tipo impulso sin impulsos puede
-    cambiar de tipo."""
+    """R14-r2: la guardia de UPDATE mira el EXISTS sobre impulso."""
     with db_fabrica("orbit_72_libre") as conn:
         conn.execute(SQL64)
         conn.execute(SQL65)
@@ -87,9 +85,7 @@ def test_0072_grupo_sin_impulsos_si_puede_cambiar_de_tipo():
 
 @_skip_db
 def test_0072_con_impulso_previo_sobre_fabrica5_aborta():
-    """R14-r2: si ya existe un impulso sobre un grupo que no es tipo
-    impulso, la 0072 aborta en su verificacion en vez de dejar el
-    candado aplicado sobre el dato roto."""
+    """R14-r2: el dato roto previo no queda bajo el candado en silencio."""
     with db_fabrica("orbit_72_previo") as conn:
         conn.execute(SQL64)
         conn.execute(SQL65)

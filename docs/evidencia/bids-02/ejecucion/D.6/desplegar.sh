@@ -275,8 +275,6 @@ fi
 echo "== 7v) Corre el vigia una vez con la imagen nueva (solo si no hay impulsos vivos)"
 VIVOS=$(echo "SELECT count(*) FROM impulso i LEFT JOIN impulso_lectura l ON l.impulso_id = i.id AND l.es_final WHERE l.impulso_id IS NULL;" | q)
 if [ "$VIVOS" != "0" ]; then
-  # Con vivos, el vigia es trabajo del dueno (puede pausar o graduar):
-  # el despliegue no lo corre ni exige lecturas en cero.
   echo "vigia no corrido en el despliegue: hay $VIVOS impulso(s) vivo(s); lo atiende el cron"
 else
   LEIDAS_ANTES=$(echo "SELECT count(*) FROM impulso_lectura;" | q)

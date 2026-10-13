@@ -2948,8 +2948,6 @@ def test_r09i_desarmar_con_pasos_1_a_n_continua_el_ledger(monkeypatch):
 
 
 class _AmazonDesarmeRechaza(_AmazonDesarme):
-    """El PUT responde sin exito: el paso de pausa queda sellado failed."""
-
     def __call__(self, request):
         if request.method == "PUT":
             self.puts.append(request)
@@ -2984,8 +2982,7 @@ def _corre_desarmar(monkeypatch, amazon, lote="LI1"):
 
 @_skip_db
 def test_r14r2_desarmar_con_put_rechazado_sella_el_paso_failed(monkeypatch):
-    """R14-r2: si Amazon rechaza el PUT de pausa al desarmar, el paso
-    nuevo del ledger queda sellado failed y el lote no se desarma."""
+    """R14-r2: el lote no se marca desarmado si el PUT de pausa cae."""
     with db_fabrica("orbit_fc_r14r2_fallo") as conn:
         _lote_applied_orden_real(conn, lote="LI1")
         dsn = _dsn_propia(conn)
@@ -3010,8 +3007,7 @@ def test_r14r2_desarmar_con_put_rechazado_sella_el_paso_failed(monkeypatch):
 
 @_skip_db
 def test_r14r2_desarmar_no_duplica_pasos_por_rol(monkeypatch):
-    """R14-r2: un lote con dos pasos applied del mismo rol se desarma
-    con un solo PUT por rol, no uno por paso historico."""
+    """R14-r2: el paso repetido del mismo rol no genera un segundo PUT."""
     with db_fabrica("orbit_fc_r14r2_dup") as conn:
         _lote_applied_orden_real(conn, lote="LI1")
         conn.execute(

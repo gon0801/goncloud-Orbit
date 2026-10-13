@@ -707,6 +707,19 @@ def _fallos_por_vivo(conn, solicitud: SolicitudImpulso, vista: VistaPreviaImpuls
             )
 
 
+def _falla_si_hay_vivo(conn, plan, fallos) -> bool:
+    """True si el producto ya tiene un impulso vivo. Sellar cualquier
+    lote (nuevo o huerfano reutilizado) crearia un segundo vivo, asi
+    que esta guardia va antes de reutilizar huerfanos."""
+    vivo = conn.execute(_SQL_VIVO_PRODUCTO, (plan.plataforma, plan.product_id)).fetchone()
+    if vivo is None:
+        return False
+    fallos[plan.listing_id] = (
+        f"el producto ya tiene un impulso vivo en el listing {vivo[2]} (tope por producto)"
+    )
+    return True
+
+
 def lanza(
     conn,
     solicitud: SolicitudImpulso,
@@ -762,16 +775,7 @@ def lanza(
                 estado = conn.execute(_SQL_ESTADO_LOTE, (lote,)).fetchone()[0]
                 lanzados.append(ImpulsoLanzado(existente[0], lote, estado))
                 continue
-            # El chequeo de vivo va antes de reutilizar huerfanos: sellar
-            # un huerfano applied tambien crea un vivo del producto.
-            vivo = conn.execute(_SQL_VIVO_PRODUCTO, (plan.plataforma, plan.product_id)).fetchone()
-            if vivo is not None:
-                # R09-H: el conflicto es un fallo del producto, no un
-                # aborto del lote: los demas siguen.
-                fallos[plan.listing_id] = (
-                    f"el producto ya tiene un impulso vivo en el listing {vivo[2]}"
-                    " (tope por producto)"
-                )
+            if _falla_si_hay_vivo(conn, plan, fallos):
                 continue
             huerfano = conn.execute(_SQL_ESTADO_LOTE, (lote,)).fetchone()
             if huerfano is not None:

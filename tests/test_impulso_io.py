@@ -631,9 +631,7 @@ def test_lanza_lote_huerfano_sella_sin_llamar_a_la_fabrica():
 
 @_skip_db
 def test_r14r2_huerfano_no_sella_un_segundo_vivo_del_producto():
-    """R14-r2: con un impulso vivo del listing, un lote huerfano applied
-    del mismo listing con otro plan no se sella como segundo vivo. El
-    chequeo de vivo corre tambien en la reutilizacion de huerfanos."""
+    """R14-r2: la reutilizacion de huerfanos pasa por la guardia de vivo."""
     with _db_i3("orbit_i3_r14r2") as conn:
         _, lid = _con_margen(conn)
         solicitud = _solicitud(conn, [lid])
@@ -1159,8 +1157,7 @@ def test_r09f_cli_vigia_con_todo_fallado_sale_1(monkeypatch, capsys):
 
 @_skip_db
 def test_r14r2_cli_vigia_mixto_sale_0(monkeypatch, capsys):
-    """R14-r2: con un impulso atendido y otro que falla, el comando
-    sale 0. Solo sale 1 cuando ninguno de los vivos se atendio."""
+    """R14-r2: el 1 del CLI exige que ningun vivo se haya atendido."""
     with _db_i3("orbit_i3_r14r2f") as conn:
         pid1, lid1 = _con_margen(conn)
         ids1 = _impulso_vivo(conn, pid=pid1, lid=lid1, lote="impulso-vivo-1")

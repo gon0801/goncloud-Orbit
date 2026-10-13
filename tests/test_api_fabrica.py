@@ -2726,8 +2726,6 @@ def test_r09a_pausar_repetido_desarmado_y_sin_campanas_409(escenario, monkeypatc
     r = _pausa()
     assert r.status_code == 409, r.text
     assert "sin campanas" in r.text
-    # Rama contraria: applied y con campanas, pero Amazon rechaza la
-    # pausa; eso no es un conflicto del dueno y sigue en 502.
     for orden, rol in enumerate(("category_exact", "auto_discovery"), start=1):
         conn.execute(
             "INSERT INTO fabrica_lote_paso (lote, orden, rol, recurso, request_payload,"

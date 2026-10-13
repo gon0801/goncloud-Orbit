@@ -58,8 +58,6 @@ BEGIN
     ) THEN
         RAISE EXCEPTION '0072: falta un trigger del candado de tipo del impulso';
     END IF;
-    -- Un impulso ya colgando de un grupo que no es tipo impulso no se
-    -- queda en silencio: la migracion aborta y se reconcilia a mano.
     IF EXISTS (
         SELECT 1 FROM impulso i JOIN campana_grupo g ON g.id = i.grupo_id
          WHERE g.tipo IS DISTINCT FROM 'impulso'
