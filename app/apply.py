@@ -2015,6 +2015,11 @@ RETURNING id
 _SQL_CONFIRMA_AJUSTE = """
 UPDATE campana_ajuste SET confirmado_el = %s WHERE id = %s
 """
+_SQL_AJUSTE_PENDIENTE_HN = """
+SELECT id, huella FROM campana_ajuste
+ WHERE huella LIKE %s AND confirmado_el IS NULL AND campana_id = %s AND clase = %s
+ ORDER BY id LIMIT 1
+"""
 _SQL_AJUSTE_POR_HUELLA_RECONCILIA = """
 SELECT id, confirmado_el IS NOT NULL, campana_id, clase, despues
   FROM campana_ajuste WHERE huella = %s
@@ -2245,10 +2250,22 @@ def aplica_ajuste_campana(
         if ecamp != plan.campana_id or eclase != plan.clase:
             raise ValueError(f"la huella {huella} es de otra campana o clase")
         if confirmada:
-            if vigente == plan.despues:
+            # R07-09C: una H#N pendiente se reusa; abrir la siguiente
+            # la dejaria huerfana para siempre.
+            pendiente_hn = conn.execute(
+                _SQL_AJUSTE_PENDIENTE_HN, (huella + "#%", plan.campana_id, plan.clase)
+            ).fetchone()
+            if pendiente_hn is not None:
+                if vigente == plan.despues:
+                    _sella_pendiente(conn, pendiente_hn[0])
+                    return AjusteHecho(pendiente_hn[0], plan.campana_id, plan.clase, True)
+                ajuste_id = pendiente_hn[0]
+                huella_efectiva = pendiente_hn[1]
+            elif vigente == plan.despues:
                 return AjusteHecho(_eid, plan.campana_id, plan.clase, True)
-            n = 1 + conn.execute(_SQL_CUENTA_HUELLA, (huella, huella + "#%")).fetchone()[0]
-            huella_efectiva = f"{huella}#{n}"
+            else:
+                n = 1 + conn.execute(_SQL_CUENTA_HUELLA, (huella, huella + "#%")).fetchone()[0]
+                huella_efectiva = f"{huella}#{n}"
         elif vigente == plan.despues:
             _sella_pendiente(conn, _eid)
             return AjusteHecho(_eid, plan.campana_id, plan.clase, True)
