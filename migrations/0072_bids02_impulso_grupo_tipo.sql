@@ -51,10 +51,12 @@ BEGIN
         SELECT 1 FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
          WHERE t.tgname = 'impulso_grupo_tipo' AND NOT t.tgisinternal
            AND c.relname = 'impulso' AND t.tgenabled <> 'D'
+           AND t.tgfoid = 'impulso_grupo_es_impulso()'::regprocedure
     ) OR NOT EXISTS (
         SELECT 1 FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
          WHERE t.tgname = 'grupo_impulso_tipo_guardia' AND NOT t.tgisinternal
            AND c.relname = 'campana_grupo' AND t.tgenabled <> 'D'
+           AND t.tgfoid = 'grupo_con_impulso_no_cambia_tipo()'::regprocedure
     ) THEN
         RAISE EXCEPTION '0072: falta un trigger del candado de tipo del impulso';
     END IF;
