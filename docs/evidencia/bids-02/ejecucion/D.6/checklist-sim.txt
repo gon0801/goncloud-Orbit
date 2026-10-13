@@ -1,6 +1,6 @@
 == 0) El servidor contesta
 MODO SIMULACION: base postgresql://orbit:orbit@127.0.0.1:5433/orbit_sim_d6, HTTP http://127.0.0.1:8012
-== Checklist D.6 (solo lectura; sello 20261013-0536)
+== Checklist D.6 (solo lectura; sello 20261013-0542)
 == 1) HTTP: /health
 OK    GET /health = 200
 == 2) Esquema: las cinco tablas existen (el dueno ya pudo lanzar)
