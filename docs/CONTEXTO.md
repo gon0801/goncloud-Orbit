@@ -146,6 +146,9 @@ Reglas numéricas selladas (resumen; el documento manda):
     invertirla pide 20 clics o 14 dias. Si el trafico se desploma, el bid
     regresa al anterior de una vez y ese piso aprendido no se vuelve a
     cruzar hacia abajo.
+  - Tras un cambio, el motor no vuelve a juzgar esa hoja antes de 7
+    dias (`DIAS_EFECTO` en `app/optimizer/politica.py`): deja que el
+    cambio haga efecto antes de opinar otra vez.
   - Interruptor por plataforma `ads_bid_politica_<plataforma>`: ausente =
     el motor no mueve bids (PAUSE, negativos y cosecha siguen); con valor
     `niveles_v3` = encendido.

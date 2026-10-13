@@ -1,7 +1,8 @@
 # BIDS 02: el motor de pujas para una cuenta con poca data
 
-Estado: plan del 2026-10-09 UTC. El diseño se terminó el mismo día. Nada está construido. Base de
-planificación: commit `45b7de3` de `origin/master`.
+Estado: plan del 2026-10-09 UTC. El diseño se terminó el mismo día. Construido, desplegado y
+encendido: el motor `niveles_v3` corre en MX y US y las pantallas y ajustes de este plan estan en
+produccion. Base de planificación: commit `45b7de3` de `origin/master`.
 
 **Resultado:** una sola política de bid, `niveles_v3`, decide cada keyword y cada product target con sus
 propios datos de 90 días, o con los de su ad group cuando los propios no alcanzan. El motor deja de recortar
@@ -426,30 +427,30 @@ cierre.
 
 | Task | Contenido | DoD | Depends | Status |
 | --- | --- | --- | --- | --- |
-| R07-09C | `[stage:implementacion] [lane:gate] [tdd:required]` Reintento de H#N pendiente: reusar la H#2 pendiente en vez de abrir H#3 huerfana. | 09-C: el reintento confirma la H#2 pendiente (sin PUT si el readback ya coincide); ninguna H#N queda huerfana para siempre. | s4 | cc:TODO |
-| R07-D | `[stage:implementacion] [lane:gate] [tdd:required]` `tools/rejuega_niveles._bid_del_dia` con el ajuste de campana: el SQL del rejuego ignora la tercera rama de `v_cambio_bid` y lee el bid de hoy. | Parte D del repro 02-B: con el ajuste en medio, el bid del dia sale igual que sin el. | s4 | cc:TODO |
-| R07-H | `[stage:implementacion] [lane:gate] [tdd:required]` Pantalla: no ofrecer Regresar cuando la campana ya esta como antes (hoy ofrece y la ruta responde 409). | Seccion H del guion P.2b: sin boton Regresar ofrecido; sin 409. | s4 | cc:TODO |
-| R07-M | `[stage:implementacion] [lane:gate] [tdd:required]` Mutantes no bloqueantes que sobreviven (V04, V12, V13, M07, M09, J5, H2-H7, P1, P2, P5): prueba que mate cada uno. | `bash 05_mutantes.sh` (B), `08_mutantes.py` (A) y `mutantes_p2b.sh` (C) sobre el head: esos ids mueren. | s4 | cc:TODO |
+| R07-09C | `[stage:implementacion] [lane:gate] [tdd:required]` Reintento de H#N pendiente: reusar la H#2 pendiente en vez de abrir H#3 huerfana. | 09-C: el reintento confirma la H#2 pendiente (sin PUT si el readback ya coincide); ninguna H#N queda huerfana para siempre. | s4 | cc:完了 |
+| R07-D | `[stage:implementacion] [lane:gate] [tdd:required]` `tools/rejuega_niveles._bid_del_dia` con el ajuste de campana: el SQL del rejuego ignora la tercera rama de `v_cambio_bid` y lee el bid de hoy. | Parte D del repro 02-B: con el ajuste en medio, el bid del dia sale igual que sin el. | s4 | cc:完了 |
+| R07-H | `[stage:implementacion] [lane:gate] [tdd:required]` Pantalla: no ofrecer Regresar cuando la campana ya esta como antes (hoy ofrece y la ruta responde 409). | Seccion H del guion P.2b: sin boton Regresar ofrecido; sin 409. | s4 | cc:完了 |
+| R07-M | `[stage:implementacion] [lane:gate] [tdd:required]` Mutantes no bloqueantes que sobreviven (V04, V12, V13, M07, M09, J5, H2-H7, P1, P2, P5): prueba que mate cada uno. | `bash 05_mutantes.sh` (B), `08_mutantes.py` (A) y `mutantes_p2b.sh` (C) sobre el head: esos ids mueren. | s4 | cc:完了 |
 
 ### Ronda R09: deuda no bloqueante (CodeRabbit, PR 432)
 
 | Task | Contenido | DoD | Depends | Status |
 | --- | --- | --- | --- | --- |
-| R09-A | `[stage:implementacion] [lane:gate] [tdd:required]` `impulso_pausar` traduce `fc.Abortar` (lote ya pausado, desarmado, sin campanas) a 409 con su mensaje; hoy da 500. | Doble pausa responde 409 con el mensaje; lote desarmado 409. | s5 | cc:TODO |
-| R09-B | `[stage:implementacion] [lane:gate] [tdd:required]` La vista previa valida el PlanGrupoV2 (piso/techo de bid y budget) antes de mostrarlo lanzable; hoy un fuera de rango falla con 502 en lanzar. | Previa con tope bajo el piso marca no lanzable; lanzar no da 502 por rango. | s5 | cc:TODO |
+| R09-A | `[stage:implementacion] [lane:gate] [tdd:required]` `impulso_pausar` traduce `fc.Abortar` (lote ya pausado, desarmado, sin campanas) a 409 con su mensaje; hoy da 500. | Doble pausa responde 409 con el mensaje; lote desarmado 409. | s5 | cc:完了 |
+| R09-B | `[stage:implementacion] [lane:gate] [tdd:required]` La vista previa valida el PlanGrupoV2 (piso/techo de bid y budget) antes de mostrarlo lanzable; hoy un fuera de rango falla con 502 en lanzar. | Previa con tope bajo el piso marca no lanzable; lanzar no da 502 por rango. | s5 | cc:完了 |
 | R09-C | `[stage:diseno] [lane:fast]` `impulso_lectura.gasto` sin moneda: decidir si se sella moneda por fila o se documenta moneda-unica-por-plataforma (hoy mezcla teorica MX/US imposible en la practica). | Decision escrita en design.md o columna de moneda con su migracion. | s5 | cc:完了 |
-| R09-D | `[stage:implementacion] [lane:fast] [tdd:required]` `productos.js` muestra `detail` objeto como `[object Object]`; extraer `mensajeError(data)` como en `fabrica.js` y usarla en las cinco lineas. | Un 502 parcial muestra mensaje y fallos por producto. | s5 | cc:TODO |
-| R09-E | `[stage:implementacion] [lane:fast]` 0065: GRANT SELECT explicito sobre `v_impulso_estado` a app_read/app_admin + verificacion en el bloque DO (hoy solo default privileges). | Ensayo D.4 verde con el GRANT verificado. | s5 | cc:TODO |
+| R09-D | `[stage:implementacion] [lane:fast] [tdd:required]` `productos.js` muestra `detail` objeto como `[object Object]`; extraer `mensajeError(data)` como en `fabrica.js` y usarla en las cinco lineas. | Un 502 parcial muestra mensaje y fallos por producto. | s5 | cc:完了 |
+| R09-E | `[stage:implementacion] [lane:fast]` 0065: GRANT SELECT explicito sobre `v_impulso_estado` a app_read/app_admin + verificacion en el bloque DO (hoy solo default privileges). | Ensayo D.4 verde con el GRANT verificado. | s5 | cc:完了 |
 
 ### Ronda R09-r2: deuda no bloqueante (panel interrogate 2 Muse + 3 GLM, PR 432)
 
 | Task | Contenido | DoD | Depends | Status |
 | --- | --- | --- | --- | --- |
-| R09-F | `[stage:implementacion] [lane:fast] [tdd:required]` Observabilidad del vigia: sale 0 aunque todos los impulsos fallen y calla sin ingesta (corte None). Salida distinta de cero o alarma cuando nada se pudo atender. | Cron con todo fallado sale != 0 o avisa; sin ingesta avisa en vez de callar. | s5 | cc:TODO |
-| R09-G | `[stage:diseno] [lane:fast]` Tope por producto vs por listing: un producto con 2 listings impulsados a la vez gasta 2 topes (uno por impulso). Decidir si el tope limita por producto. | Decision escrita en design.md o validacion en previa/lanzar. | s5 | cc:TODO |
-| R09-H | `[stage:diseno] [lane:fast]` `lanza` aborta el batch al primer vivo con 409 (su docstring dice que un fallo no detiene). Decidir si continua con los demas y devuelve 207/multiestilo. | Decision escrita o batch que continua con fallos adjuntos. | s5 | cc:TODO |
-| R09-I | `[stage:implementacion] [lane:gate] [tdd:required]` `_desarmar` (fuera de R09) tiene el mismo bug de orden que A-1: `_Ctx` fresco en 0 colisiona UNIQUE(lote, orden) al desarmar un lote aplicado. | Test con pasos 1..N: desarmar continua el ledger sin colision. | s4 | cc:TODO |
-| R09-J | `[stage:implementacion] [lane:fast] [tdd:required]` Atar `impulso.grupo_id` al tipo: FK o trigger que rechace grupo con tipo distinto de 'impulso' (hoy solo la tupla de roles en `_registrar`). | Migracion + test: impulso sobre grupo fabrica5 se rechaza. | s5 | cc:TODO |
+| R09-F | `[stage:implementacion] [lane:fast] [tdd:required]` Observabilidad del vigia: sale 0 aunque todos los impulsos fallen y calla sin ingesta (corte None). Salida distinta de cero o alarma cuando nada se pudo atender. | Cron con todo fallado sale != 0 o avisa; sin ingesta avisa en vez de callar. | s5 | cc:完了 |
+| R09-G | `[stage:diseno] [lane:fast]` Tope por producto vs por listing: un producto con 2 listings impulsados a la vez gasta 2 topes (uno por impulso). Decidir si el tope limita por producto. | Decision escrita en design.md o validacion en previa/lanzar. | s5 | cc:完了 |
+| R09-H | `[stage:diseno] [lane:fast]` `lanza` aborta el batch al primer vivo con 409 (su docstring dice que un fallo no detiene). Decidir si continua con los demas y devuelve 207/multiestilo. | Decision escrita o batch que continua con fallos adjuntos. | s5 | cc:完了 |
+| R09-I | `[stage:implementacion] [lane:gate] [tdd:required]` `_desarmar` (fuera de R09) tiene el mismo bug de orden que A-1: `_Ctx` fresco en 0 colisiona UNIQUE(lote, orden) al desarmar un lote aplicado. | Test con pasos 1..N: desarmar continua el ledger sin colision. | s4 | cc:完了 |
+| R09-J | `[stage:implementacion] [lane:fast] [tdd:required]` Atar `impulso.grupo_id` al tipo: FK o trigger que rechace grupo con tipo distinto de 'impulso' (hoy solo la tupla de roles en `_registrar`). | Migracion + test: impulso sobre grupo fabrica5 se rechaza. | s5 | cc:完了 |
 
 ### Ronda R13: deuda no bloqueante (cierre C.1; PR 412, PR 435, PR 438 y despliegues)
 
@@ -464,10 +465,10 @@ con rotulo de 90 es definicion sellada de la guia; el `checklist.sh` que pide do
 
 | Task | Contenido | DoD | Depends | Status |
 | --- | --- | --- | --- | --- |
-| R13-E | `[stage:cierre] [lane:fast]` Los scripts de D.5 no comprueban todo lo que la guia pide: `checklist.sh` no pide el JSON por mercado ni exige que `moneda` sea la del mercado, y `desplegar.sh` no imprime el crontab ni mide que de lo mismo antes y despues (la huella md5 basta; el crontab completo no va al repo publico). | El proximo despliegue trae las dos comprobaciones en sus scripts. | - | cc:TODO |
-| R13-F | `[stage:implementacion] [lane:gate] [tdd:required]` Mutantes de borde que sobreviven (PR 435): L6, G3b, G3c, L1, W10, W11, P3, W5, W6, W13, U2, U3, U4, U7, P4, P5, P6, P7, R4, R5, L3, G1c. | Prueba que mate cada id de la lista. | - | cc:TODO |
-| R13-I | `[stage:cierre] [lane:fast]` Las copias `aplicadas-*.txt` de D.1 a D.4 viven solo en el arbol de despliegue local y no estan en el repo. | Copias en el repo o nota con el motivo en cada carpeta. | - | cc:TODO |
-| R13-J | `[stage:cierre] [lane:fast]` La evidencia de P.6 no guarda la linea de la comparacion con el control (mercados, fecha y `NUMEROS OK`, sin textos de produccion) ni el `mutantes.md` (pasa igual con P.1, P.4 y P.5). | Las dos piezas en `ejecucion/P.6/` o el motivo escrito. | - | cc:TODO |
-| R13-K | `[stage:implementacion] [lane:fast] [tdd:required]` El gasto de la pantalla de busquedas se pinta con cuatro decimales (`511.8600 MXN`): la plantilla imprime el valor tal cual. | Gasto pintado con dos decimales y prueba de la pagina. | - | cc:TODO |
-| R13-L | `[stage:cierre] [lane:fast]` La reversa de D.5 (y D.4) no corre con la app caida: `rollback.sh` necesita `orbit-app-1` arriba para leer el DSN (F4 Low del PR 435, abierto). | Reversa que lee el DSN sin el contenedor, o motivo escrito en la seccion de despliegue. | - | cc:TODO |
-| R13-M | `[stage:cierre] [lane:fast]` Las salidas guardadas de D.4 y D.5 no traen la linea `exit=`; el codigo de salida se deduce de la ultima linea de cada archivo. | Las salidas futuras se guardan con su linea `exit=`. | - | cc:TODO |
+| R13-E | `[stage:cierre] [lane:fast]` Los scripts de D.5 no comprueban todo lo que la guia pide: `checklist.sh` no pide el JSON por mercado ni exige que `moneda` sea la del mercado, y `desplegar.sh` no imprime el crontab ni mide que de lo mismo antes y despues (la huella md5 basta; el crontab completo no va al repo publico). | El proximo despliegue trae las dos comprobaciones en sus scripts. | - | cc:完了 |
+| R13-F | `[stage:implementacion] [lane:gate] [tdd:required]` Mutantes de borde que sobreviven (PR 435): L6, G3b, G3c, L1, W10, W11, P3, W5, W6, W13, U2, U3, U4, U7, P4, P5, P6, P7, R4, R5, L3, G1c. | Prueba que mate cada id de la lista. | - | cc:完了 |
+| R13-I | `[stage:cierre] [lane:fast]` Las copias `aplicadas-*.txt` de D.1 a D.4 viven solo en el arbol de despliegue local y no estan en el repo. | Copias en el repo o nota con el motivo en cada carpeta. | - | cc:完了 |
+| R13-J | `[stage:cierre] [lane:fast]` La evidencia de P.6 no guarda la linea de la comparacion con el control (mercados, fecha y `NUMEROS OK`, sin textos de produccion) ni el `mutantes.md` (pasa igual con P.1, P.4 y P.5). | Las dos piezas en `ejecucion/P.6/` o el motivo escrito. | - | cc:完了 |
+| R13-K | `[stage:implementacion] [lane:fast] [tdd:required]` El gasto de la pantalla de busquedas se pinta con cuatro decimales (`511.8600 MXN`): la plantilla imprime el valor tal cual. | Gasto pintado con dos decimales y prueba de la pagina. | - | cc:完了 |
+| R13-L | `[stage:cierre] [lane:fast]` La reversa de D.5 (y D.4) no corre con la app caida: `rollback.sh` necesita `orbit-app-1` arriba para leer el DSN (F4 Low del PR 435, abierto). | Reversa que lee el DSN sin el contenedor, o motivo escrito en la seccion de despliegue. | - | cc:完了 |
+| R13-M | `[stage:cierre] [lane:fast]` Las salidas guardadas de D.4 y D.5 no traen la linea `exit=`; el codigo de salida se deduce de la ultima linea de cada archivo. | Las salidas futuras se guardan con su linea `exit=`. | - | cc:完了 |

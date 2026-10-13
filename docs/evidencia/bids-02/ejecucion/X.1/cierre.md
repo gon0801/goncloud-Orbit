@@ -40,6 +40,12 @@ Regreso de danadas (actor `plan bids-02 X.1`, 9 regresos, 0 fallas):
 - `respuesta-regresar-amazon_us-20261011-095310.txt`: 3 ok, hojas
   4919, 5894 y 4924, cada una con su regreso_confirmado_at.
 
-Pendiente (no frena este cierre): el primer ciclo con la politica
-encendida es el del dia siguiente a las 08:40 UTC; despues va
-`lectura.sql` (criterio 7 de X.1), con brief de lectura aparte.
+Lectura del primer ciclo (criterio 7 de X.1), en solo lectura
+contra produccion con la copia de lectura.sql filtrada por los
+ciclos 118 de US y 119 de MX, los primeros con la politica
+encendida. Consulta y salida en lectura-ciclos-118-119.sql y
+lectura-ciclos-118-119.txt de esta carpeta, con exit cero. Salio
+lo esperado: 3 bids en total, los 3 con inputs.caso, y 0
+recortes. El target de US quedo en 24.85% en vez del 25.19% del
+plan porque el margen de la ventana paso a 31.06% con la
+fraccion en 0.8.
