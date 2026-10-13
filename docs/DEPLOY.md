@@ -2538,3 +2538,48 @@ lanzamiento, un problema se corrige hacia adelante.
 
 Las salidas de los cuatro scripts van en el PR de cierre de la seccion 5
 (rama `bids-02/s5-cierre`).
+
+## BIDS 02 D.5 — despliegue de la pantalla de busquedas (sin migracion ni cron)
+
+Despliega la seccion 6 (P.6): la pantalla «Búsquedas que gastan sin
+vender», solo lectura (contrato `app/pantalla_busquedas.py`, ruta
+delgada `/busquedas-sin-venta` y su plantilla). Corre tras el merge
+del PR de codigo, despues de D.4. NO lleva migracion (la pantalla lee
+tablas que ya existen) y NO instala ninguna linea de cron: el
+crontab no se toca en ningun paso. Scripts en
+`docs/evidencia/bids-02/ejecucion/D.5/`, patron D.4 con cinco
+aflojaduras (sin paso de migraciones, sin cron, backup de esquema
+conservado, guardas propias por grep de texto, y el cierre reducido
+a build, recrear y health). Orden:
+
+```bash
+cd ~/dev/goncloud-Orbit
+bash docs/evidencia/bids-02/ejecucion/D.5/ensayo.sh
+bash docs/evidencia/bids-02/ejecucion/D.5/desplegar.sh <sha-de-origin/master>
+bash docs/evidencia/bids-02/ejecucion/D.5/checklist.sh <sello>
+```
+
+El ensayo comprueba que ninguna migracion BIDS 02 sigue pendiente
+(aborta si alguna lo esta: la aplica su propio despliegue), las
+guardas propias del arbol, y que `lee_busquedas` corre contra el
+esquema de prod en los dos mercados. `desplegar.sh` trae, ademas de
+las guardas de la guia, sus propias que abortan antes de tocar
+nada: el SHA trae `app/pantalla_busquedas.py`,
+`app/templates/busquedas_sin_venta.html` y la ruta
+`/busquedas-sin-venta` en `app/api_dashboard.py` y en `app/ui.py`
+(grep de texto). El paso 6 es build, recrear y health; no hay
+paso predeploy que correr ni linea que instalar despues.
+
+`checklist.sh` (solo lectura, salidas 0/1/4 del patron S.3, sin
+gates temporales) verifica `/health` en 200, que
+`/busquedas-sin-venta` responde 200 en MX y US y trae su frase de
+referencia (la de los porcentajes o la de sin referencia), que
+`/productos-sin-clics` sigue en 200 en MX y US, y que el conteo de
+`search_term_observation` no cambio.
+
+CONSECUENCIA. `rollback.sh` restaura SOLO el codigo de
+`predeploy-<sello>`, reconstruye y comprueba health. D.5 no aplico
+migraciones ni instalo cron: no hay reversas que aplicar ni
+lineas que quitar.
+
+Las salidas de los cuatro scripts van en el PR de cierre de la seccion 6.

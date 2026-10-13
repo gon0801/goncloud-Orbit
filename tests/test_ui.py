@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import datetime as dt
 import re
+from pathlib import Path
 
 import jinja2
 import pytest
@@ -2592,3 +2593,118 @@ def test_ui_productos_casillas_mandan_ids_reales():
     assert 'data-listings="1"' not in html
     assert 'data-retiros="5,6"' in html
     assert 'data-retiros="7"' not in html
+
+
+def _pantalla_p6(**cambios):
+    """Contexto de busquedas-sin-venta (forma del endpoint)."""
+    datos = {
+        "plataforma": "amazon_mx",
+        "moneda": "MXN",
+        "desde": "2026-07-06",
+        "hasta": "2026-10-04",
+        "referencia": {"visto_pct": "60", "azar_pct": "25"},
+        "asins": [
+            {
+                "asin": "B0AJENO001",
+                "clics": 50,
+                "gasto": "350",
+                "campanas": ["Campana Uno"],
+                "es_propio": False,
+            },
+            {
+                "asin": "B0PROPIO01",
+                "clics": 4,
+                "gasto": "400",
+                "campanas": ["Campana Dos"],
+                "es_propio": True,
+            },
+        ],
+        "palabras": [
+            {
+                "palabra": "gama",
+                "busquedas": 2,
+                "clics": 20,
+                "gasto": "400",
+                "ejemplos": ["gama dos", "gama uno"],
+            }
+        ],
+        "asins_a_medio_camino": 3,
+        "palabras_a_medio_camino": 5,
+    }
+    datos.update(cambios)
+    return datos
+
+
+def _html_busquedas(monkeypatch, datos, **params):
+    """Camino real con el endpoint falso (modelo _html_productos)."""
+
+    def _busquedas(conn, plataforma=None):
+        return {**datos, "plataforma": plataforma or "amazon_mx"}
+
+    monkeypatch.setattr(ui.dash, "busquedas_sin_venta", _busquedas)
+    app.dependency_overrides[_conexion_lectura] = lambda: None
+    try:
+        return TestClient(app).get("/busquedas-sin-venta", params=params)
+    finally:
+        app.dependency_overrides.pop(_conexion_lectura, None)
+
+
+def test_ui_busquedas_sin_venta_200_frase_tablas_y_menu(monkeypatch):
+    """P.6: la ruta sirve la frase con sus dos porcentajes, las dos
+    tablas, los conteos y su entrada de menu; mercado ajeno es 422."""
+    resp = _html_busquedas(monkeypatch, _pantalla_p6())
+    assert resp.status_code == 200, resp.text
+    assert 'data-pantalla="busquedas-sin-venta"' in resp.text
+    assert (
+        "60 % de tu gasto cayó en búsquedas que no vendieron."
+        " Con la conversión de tu cuenta, el azar daría 25 %." in resp.text
+    )
+    assert "Páginas de producto ajenas" in resp.text
+    assert "B0AJENO001" in resp.text and "B0PROPIO01" in resp.text
+    assert resp.text.count("es un producto tuyo") == 1
+    assert "Palabras y frases" in resp.text
+    assert "gama dos" in resp.text
+    assert "A medio camino" in resp.text
+    fuente = (
+        Path(__file__).resolve().parents[1] / "app" / "templates" / "busquedas_sin_venta.html"
+    ).read_text(encoding="utf-8")
+    assert "<button" not in fuente
+    assert "<form" not in fuente
+    assert (
+        '<a href="/busquedas-sin-venta" aria-current="page">Búsquedas que gastan sin vender</a>'
+        in resp.text
+    )
+    assert "default-src 'self'" in resp.headers["content-security-policy"]
+    malo = _html_busquedas(monkeypatch, _pantalla_p6(), plataforma="meli")
+    assert malo.status_code == 422
+
+
+def test_ui_busquedas_sin_referencia_pinta_la_frase_sin_porcentajes():
+    """P.6: sin referencia no hay porcentaje inventado (cambio 28)."""
+    html = ui.templates.env.get_template("busquedas_sin_venta.html").render(
+        pantalla="busquedas-sin-venta",
+        **_pantalla_p6(referencia={"visto_pct": None, "azar_pct": None}),
+    )
+    assert "Sin pedidos o sin clics en estos 90 días: no hay referencia de azar." in html
+    assert "de tu gasto cayó" not in html
+
+
+def test_ui_busquedas_listas_vacias_pintan_su_frase():
+    """P.6: sin candidatos, cada lista pinta su frase (cambio 31)."""
+    html = ui.templates.env.get_template("busquedas_sin_venta.html").render(
+        pantalla="busquedas-sin-venta",
+        **_pantalla_p6(asins=[], palabras=[]),
+    )
+    assert "Ninguna página de producto pasó el mínimo sin vender." in html
+    assert "Ninguna palabra pasó el mínimo sin vender." in html
+
+
+def test_ui_busquedas_ejemplo_con_script_escapado():
+    """P.6: la busqueda de ejemplo (texto libre) va escapada."""
+    datos = _pantalla_p6()
+    datos["palabras"][0]["ejemplos"] = [PAYLOAD_XSS]
+    html = ui.templates.env.get_template("busquedas_sin_venta.html").render(
+        pantalla="busquedas-sin-venta", **datos
+    )
+    assert PAYLOAD_XSS not in html
+    assert "&lt;script&gt;" in html

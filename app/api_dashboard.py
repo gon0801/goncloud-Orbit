@@ -2454,3 +2454,20 @@ def productos_sin_clics(conn: ConexionLectura, plataforma: str | None = None) ->
             impulso["clics_fuera_de_amazon"], impulso["clics"]
         )
     return {"plataforma": mercado, **base}
+
+
+@router.get("/busquedas-sin-venta")
+def busquedas_sin_venta(conn: ConexionLectura, plataforma: str | None = None) -> dict:
+    """Busquedas que gastan sin vender (BIDS 02, P.6). Funcion
+    delgada: delega en `pantalla_busquedas.lee_busquedas` (SOLO
+    SELECT). Sin mercado se mira amazon_mx; mercado ajeno es 422."""
+    import datetime as dt
+
+    from app import pantalla_busquedas
+
+    mercado = plataforma or "amazon_mx"
+    if mercado not in PLATAFORMAS_MONEDA:
+        raise HTTPException(status_code=422, detail="plataforma fuera de vocabulario")
+    return pantalla_busquedas.lee_busquedas(
+        conn, plataforma=mercado, hoy=dt.datetime.now(dt.UTC).date()
+    ).como_dict()
