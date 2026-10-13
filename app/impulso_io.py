@@ -167,7 +167,29 @@ class PausadorFabrica:
     def pausa(self, lote: str) -> None:
         import tools.fabrica_campanas as fc
 
-        fc.pausar_lote(self._ctx_para(lote), lote, self._actor)
+        try:
+            fc.pausar_lote(self._ctx_para(lote), lote, self._actor)
+        except fc.Abortar as exc:
+            if self._lote_no_pausable(lote):
+                raise ErrorImpulso(409, str(exc)) from None
+            raise
+
+    def _lote_no_pausable(self, lote: str) -> bool:
+        """R09-A: True si el Abortar de la pausa se explica por el
+        estado del lote (ya pausado, desarmado o sin campanas que
+        pausar). Es un conflicto que el dueno resuelve (409), no un
+        rechazo de Amazon a media pausa (502)."""
+        fila = self._conn.execute(_SQL_ESTADO_LOTE, (lote,)).fetchone()
+        self._conn.commit()
+        if fila is None or fila[0] != "applied":
+            return True
+        hay = self._conn.execute(
+            "SELECT 1 FROM fabrica_lote_paso WHERE lote = %s AND recurso = 'campaign'"
+            " AND estado IN ('applied', 'failed') AND external_id IS NOT NULL LIMIT 1",
+            (lote,),
+        ).fetchone()
+        self._conn.commit()
+        return hay is None
 
     def reanuda(self, lote: str) -> None:
         import tools.fabrica_campanas as fc

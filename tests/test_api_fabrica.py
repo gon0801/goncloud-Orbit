@@ -2641,3 +2641,88 @@ def test_r09r5_a05_pausa_por_ruta_anota_dueno(escenario, monkeypatch):
     assert conn.execute(
         "SELECT pausado_por FROM fabrica_lote WHERE lote = %s", (lote,)
     ).fetchone() == ("dueno",)
+
+
+def test_r09a_pausar_repetido_desarmado_y_sin_campanas_409(escenario, monkeypatch):
+    """R09-A: pausar un lote que ya no se puede pausar (ya pausado,
+    desarmado o sin campanas) responde 409 con el mensaje de la fabrica;
+    el rechazo de Amazon a media pausa sigue en 502 (G9)."""
+    import tools.fabrica_campanas as fc
+    from app import impulso_io as io
+
+    cliente, conn, _, _, ids = escenario
+    _db_i5(conn)
+    _sugeridor_fijo_i5(monkeypatch)
+    _ejecutor_siembra_i5(monkeypatch, conn)
+    lid = _lid_de(conn, ids[0])
+    sol = {
+        "plataforma": "amazon_mx",
+        "listing_ids": [lid],
+        "subfamilia_por_listing": {str(lid): "aros"},
+    }
+    vista = cliente.post("/api/fabrica/impulso/plan", json=sol).json()
+    r = cliente.post(
+        "/api/fabrica/impulso/lanzar",
+        headers=HEADERS,
+        json={
+            "solicitud": sol,
+            "huella": vista["huella"],
+            "confirmacion": vista["confirmacion_esperada"],
+            "actor": "dueno",
+        },
+    )
+    assert r.status_code == 200, r.text
+    (iid, lote) = conn.execute("SELECT id, lote FROM impulso").fetchone()
+    for orden, rol in enumerate(("category_exact", "auto_discovery"), start=1):
+        conn.execute(
+            "INSERT INTO fabrica_lote_paso (lote, orden, rol, recurso, request_payload,"
+            " estado, external_id, ack, readback_estado) VALUES (%s, %s, %s, 'campaign',"
+            " '{}'::jsonb, 'applied', %s, '{}'::jsonb, 'ENABLED')",
+            (lote, orden, rol, f"c-{rol}"),
+        )
+    conn.commit()
+
+    def _pausa_segun_base(ctx, lote_, actor):
+        estado = conn.execute(
+            "SELECT estado FROM fabrica_lote WHERE lote = %s", (lote_,)
+        ).fetchone()[0]
+        if estado == "desarmado":
+            raise fc.Abortar(f"lote {lote_} desarmado: nunca revive")
+        if estado != "applied":
+            raise fc.Abortar(f"lote {lote_} en {estado}: solo se pausa desde applied")
+        hay = conn.execute(
+            "SELECT 1 FROM fabrica_lote_paso WHERE lote = %s AND recurso = 'campaign'"
+            " AND estado IN ('applied', 'failed') AND external_id IS NOT NULL LIMIT 1",
+            (lote_,),
+        ).fetchone()
+        if hay is None:
+            raise fc.Abortar(f"lote {lote_} sin campanas en fabrica_lote_paso: nada que pausado")
+        conn.execute("UPDATE fabrica_lote SET estado = 'pausado' WHERE lote = %s", (lote_,))
+        conn.commit()
+
+    monkeypatch.setattr(io.PausadorFabrica, "_ctx_para", lambda self, lote_: object())
+    monkeypatch.setattr(fc, "pausar_lote", _pausa_segun_base)
+
+    def _pausa():
+        return cliente.post(
+            f"/api/fabrica/impulso/{iid}/pausar",
+            headers=HEADERS,
+            json={"confirmacion": "PAUSAR IMPULSO"},
+        )
+
+    r = _pausa()
+    assert r.status_code == 200, r.text
+    r = _pausa()
+    assert r.status_code == 409, r.text
+    assert "solo se pausa desde applied" in r.text
+    conn.execute("UPDATE fabrica_lote SET estado = 'desarmado' WHERE lote = %s", (lote,))
+    conn.commit()
+    r = _pausa()
+    assert r.status_code == 409, r.text
+    assert "desarmado" in r.text
+    conn.execute("UPDATE fabrica_lote SET estado = 'applied' WHERE lote = %s", (lote,))
+    conn.execute("DELETE FROM fabrica_lote_paso WHERE lote = %s", (lote,))
+    conn.commit()
+    r = _pausa()
+    assert r.status_code == 409, r.text
+    assert "sin campanas" in r.text
