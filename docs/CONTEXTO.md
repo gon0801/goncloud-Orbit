@@ -142,10 +142,10 @@ Reglas numéricas selladas (resumen; el documento manda):
   - Cero ventas con gasto alto no deriva a PAUSE: baja por gasto para
     concluir (motivos `gasto_sin_venta`); PAUSE al 1.5× sin cambio se
     evalua antes, con su reloj de una sola vez intacto.
-  - Trayectoria: tras un cambio se esperan 7 dias o 20 clics al bid nuevo
-    (salida a los 14 dias); si el trafico se desploma, el bid regresa al
-    anterior de una vez y ese piso aprendido no se vuelve a cruzar hacia
-    abajo.
+  - Trayectoria: repetir la misma direccion pide 20 clics al bid nuevo;
+    invertirla pide 20 clics o 14 dias. Si el trafico se desploma, el bid
+    regresa al anterior de una vez y ese piso aprendido no se vuelve a
+    cruzar hacia abajo.
   - Interruptor por plataforma `ads_bid_politica_<plataforma>`: ausente =
     el motor no mueve bids (PAUSE, negativos y cosecha siguen); con valor
     `niveles_v3` = encendido.
@@ -310,14 +310,18 @@ manda para la implementación; este párrafo es el spec delta sellado:
   plataforma sin mezclar (regla 4), día en curso excluido y D-8..D-1 marcados
   inmaduros (regla 6), SELECT real antes de los tests (regla 8), regresión
   demostrada fallando (regla 9).
-- **Procedencia del target**: la cascada de `app/optimizer/goals.py` gana una
-  variante valor+peldaño con CINCO peldaños (goal_campana, goal_plataforma,
-  setting_plataforma, cache_estado, default), compatible con el camino del
-  motor — la capa web jamás la reimplementa.
+- **Procedencia del target**: la cascada de `app/optimizer/goals.py` tiene
+  CINCO peldaños de procedencia (`goal_campana`, `goal_plataforma`,
+  `margen_familia`, `margen_plataforma`, `setting_plataforma`), compatible
+  con el camino del motor — la capa web jamás la reimplementa. BIDS 02 T.1
+  retiro los peldaños `cache_estado` y `default` (migracion 0063): ya no
+  existe target por defecto. Sin target resuelto en ningun peldaño, la hoja
+  y su ad group se saltan con motivo `sin_target` y las pantallas dicen
+  «sin target».
 - **Target derivado del margen (ORBIT 06 Fase 2, sello del dueño 2026-09-03)**:
-  la cascada pasa a SIETE peldaños — `goal_campana → goal_plataforma →
-  margen_familia (A5: fraccion × margen de la familia) → margen_plataforma →
-  setting_plataforma → cache_estado → default`. El
+  orden de la cascada — goal resuelto (la campaña pisa a la plataforma) →
+  `margen_familia` (A5: fraccion × margen de la familia) →
+  `margen_plataforma` → `setting_plataforma`. El
   peldaño `margen_plataforma` = `fraccion × margen neto antes de publicidad`
   de la plataforma (ledger, 90 días maduros `[D-105, D-15)`, cargos sin
   `fee_type = ads`, COGS a la fecha, misma moneda, cobertura ≥ 95 %), con

@@ -1,17 +1,4 @@
-## 2026-10-13 - BIDS 02 C.1: cierre del plan (solo documentos)
-
-- Commit unico de documentos en la rama `bids-02/s7-cierre`:
-  `plans/bids-02.md` (C.1 y R09-C en `cc:完了`; las 34 filas de las
-  secciones 1 a 7 quedan completas; rango de migraciones corregido a
-  0060-0070 con sus tres filas; tabla nueva «Ronda R13» con la deuda
-  no bloqueante abierta como filas R13-A a R13-J), `plans/ROADMAP.md`
-  (AUTO-03 a AUTO-06 «sin cubrir por BIDS 02»), `docs/CONTEXTO.md`
-  (la politica vigente es `niveles_v3`; fraccion US 0.8; el target sube
-  de una vez y baja 0.5 por ciclo) y `docs/DEPLOY.md` (interruptor de
-  politica y nota del ensayo).
-- Comprobado en produccion, solo lectura: `config_version` 27 con
-  fraccion US 0.8 y `niveles_v3` en MX y US (criterios 4 y 5) y las
-  cinco pantallas en 200.
+**2026-10-13 UTC — BIDS 02 C.1: el plan cierra (solo documentos).** `plans/bids-02.md` deja las 34 filas de las secciones 1 a 7 en `cc:完了` (C.1 y R09-C eran las ultimas), corrige el rango de migraciones a 0060-0070 y registra la deuda no bloqueante abierta como filas R13-E a R13-M con sus motivos. `plans/ROADMAP.md` dice que parte de AUTO-03 a AUTO-06 cubrio BIDS 02 (datos por ubicacion, ajustes del dueno, impulso y retiro) y que parte sigue pendiente (que el motor lo haga por su cuenta). `docs/CONTEXTO.md` describe la politica vigente `niveles_v3` (fraccion US 0.8; el target sube de una vez y baja 0.5 por ciclo; sin los peldanos `cache_estado` y `default`, y sin target la hoja se salta con `sin_target`) y `docs/DEPLOY.md` deja el interruptor de politica junto a la tabla de crons. Comprobado en produccion, solo lectura: `config_version` 27 con fraccion US 0.8 y `niveles_v3` en MX y US (criterios 4 y 5) y las cinco pantallas en 200. Sin codigo, sin migraciones y sin despliegue.
 
 **2026-10-13 UTC — BIDS 02 sección 6 cerrada: el dueño ve qué búsquedas gastan sin vender.** P.6 construyó la pantalla de solo lectura (`app/pantalla_busquedas.py`, sin migración: ASIN y palabras que ya gastaron el gasto para concluir sin un pedido en 90 días, con la referencia de azar y los conteos a medio camino; no escribe nada en Amazon ni en la cola, el dueño niega a mano). D.5 desplegó el SHA `6a154bd` (sello 20261013-0051, ensayo exit 0, sin migraciones ni cron nuevo, crontab intacto) y el checklist salió 0 con 0 fallas y sin diferidas (la página 200 en MX y US con su frase, `search_term_observation` sin escrituras). Filas P.6 y D.5 en `cc:完了`. Evidencia: `docs/evidencia/bids-02/ejecucion/D.5/` (4 salidas + `cierre.md`). Sigue la sección 7 (C.1).
 

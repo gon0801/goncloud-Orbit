@@ -154,7 +154,7 @@ REPRICING 02 está planeado y sin arrancar. Puede correr al mismo tiempo. Dos re
   | 0067 | V.3 | 4 | `campana_ajuste` y la tercera rama de `v_cambio_bid` |
   | 0068 | I.3 | 5 | Actor de la pausa y hecho de graduacion |
   | 0069 | I.4 | 5 | `anuncio_retiro_intencion` (la intencion va antes del HTTP) |
-  | 0070 | I.4 | 5 | Permiso de borrado para el lanzamiento |
+  | 0070 | I.3 | 5 | Permiso de borrado para el lanzamiento |
 
   `datos.sql` agrupa estas migraciones en cuatro bloques por tema. Esta tabla manda sobre sus números.
 - **Archivos compartidos.** `tests/test_architecture.py`, `app/config_write.py`, la ruta de config de
@@ -453,15 +453,21 @@ cierre.
 
 ### Ronda R13: deuda no bloqueante (cierre C.1; PR 412, PR 435, PR 438 y despliegues)
 
+Sin fila, con el motivo: PR412-R01, PR412-R02 y PR412-R03 ya estan resueltos en sus rondas (la sonda trata
+la respuesta no-2xx como falla; la tabla-decision ya dice 17 hojas y 22 recortes y `borrado.md` ya trae la
+sonda de V.0; R1 solo dispara con ultimo cambio de origen motor, con sus dos pruebas). PR412-R13
+(`prototipos/verifica_uso.py:57` acepta llamadas con menos argumentos de los que pide la firma) vive en
+evidencia congelada del diseno: no se reescribe. De VEREDICTO-R11-r2: el punto 8 (D.5 no aplica
+migraciones pendientes) queda sin accion porque ya no hay despliegues de este plan; la ventana de 91 dias
+con rotulo de 90 es definicion sellada de la guia; el `checklist.sh` que pide dos veces cada pagina y el
+`skipif` sobre el ayudante `_db_p6` no hacen dano.
+
 | Task | Contenido | DoD | Depends | Status |
 | --- | --- | --- | --- | --- |
-| R13-A | `[stage:diseno] [lane:fast]` PR412-R02, tres arreglos: la tabla-decision dice US 18 y el diseno dice 22 recortes (17 hojas); el bloque de borrado de pausa de product ads se queda si la sonda sella; a `construccion:312` le falta `prototipos-base/`. | Los tres textos corregidos en su fuente. | - | cc:TODO |
-| R13-B | `[stage:implementacion] [lane:gate] [tdd:required]` PR412-R01: la sonda no trata la respuesta no-2xx. | Prueba: respuesta no-2xx contada como fallo, no como vacio. | - | cc:TODO |
-| R13-C | `[stage:implementacion] [lane:gate] [tdd:required]` PR412-R03: R1 solo cuando el ultimo cambio es de origen motor. | Prueba: ultimo cambio manual no dispara R1. | - | cc:TODO |
-| R13-D | `[stage:diseno] [lane:fast]` PR412-R13: la firma de `verifica_uso.py:57` no dice que uso no es uso de presupuesto. | Firma o nombre que lo diga. | - | cc:TODO |
-| R13-E | `[stage:cierre] [lane:fast]` Evidencia de despliegue futura: guardar el JSON del checklist por mercado y la salida del crontab (hoy solo la huella md5 y el conteo de lineas). | La carpeta de ejecucion del proximo despliegue trae los dos archivos. | - | cc:TODO |
+| R13-E | `[stage:cierre] [lane:fast]` Los scripts de D.5 no comprueban todo lo que la guia pide: `checklist.sh` no pide el JSON por mercado ni exige que `moneda` sea la del mercado, y `desplegar.sh` no imprime el crontab ni mide que de lo mismo antes y despues (la huella md5 basta; el crontab completo no va al repo publico). | El proximo despliegue trae las dos comprobaciones en sus scripts. | - | cc:TODO |
 | R13-F | `[stage:implementacion] [lane:gate] [tdd:required]` Mutantes de borde que sobreviven (PR 435): L6, G3b, G3c, L1, W10, W11, P3, W5, W6, W13, U2, U3, U4, U7, P4, P5, P6, P7, R4, R5, L3, G1c. | Prueba que mate cada id de la lista. | - | cc:TODO |
-| R13-G | `[stage:cierre] [lane:fast]` Al regenerar los scripts de un despliegue, pregonar en la cabecera que son la segunda version. | Cabecera de segunda version en los scripts regenerados. | - | cc:TODO |
-| R13-H | `[stage:cierre] [lane:fast]` El despliegue hace su propio respaldo con sello nuevo aunque exista uno del mismo minuto; el rollback usa el de su corrida. | Dicho en la seccion de despliegue (queda aseverado, sin cambio de codigo). | - | cc:TODO |
-| R13-I | `[stage:cierre] [lane:fast]` Las copias `aplicadas-*.txt` de D.1 a D.4 viven solo en el arbol de despliegue local y la carpeta `ejecucion/D.4/` no esta en HEAD. | Copias en el repo o nota con el motivo en cada carpeta. | - | cc:TODO |
+| R13-I | `[stage:cierre] [lane:fast]` Las copias `aplicadas-*.txt` de D.1 a D.4 viven solo en el arbol de despliegue local y no estan en el repo. | Copias en el repo o nota con el motivo en cada carpeta. | - | cc:TODO |
 | R13-J | `[stage:cierre] [lane:fast]` La evidencia de P.6 no guarda la linea de la comparacion con el control (mercados, fecha y `NUMEROS OK`, sin textos de produccion) ni el `mutantes.md` (pasa igual con P.1, P.4 y P.5). | Las dos piezas en `ejecucion/P.6/` o el motivo escrito. | - | cc:TODO |
+| R13-K | `[stage:implementacion] [lane:fast] [tdd:required]` El gasto de la pantalla de busquedas se pinta con cuatro decimales (`511.8600 MXN`): la plantilla imprime el valor tal cual. | Gasto pintado con dos decimales y prueba de la pagina. | - | cc:TODO |
+| R13-L | `[stage:cierre] [lane:fast]` La reversa de D.5 (y D.4) no corre con la app caida: `rollback.sh` necesita `orbit-app-1` arriba para leer el DSN (F4 Low del PR 435, abierto). | Reversa que lee el DSN sin el contenedor, o motivo escrito en la seccion de despliegue. | - | cc:TODO |
+| R13-M | `[stage:cierre] [lane:fast]` Las salidas guardadas de D.4 y D.5 no traen la linea `exit=`; el codigo de salida se deduce de la ultima linea de cada archivo. | Las salidas futuras se guardan con su linea `exit=`. | - | cc:TODO |
