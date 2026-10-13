@@ -548,6 +548,180 @@ def test_lee_minimo_de_settings_y_default_350():
         assert {a.asin for a in pantalla.asins} == {"B0MINIMO01", "B0MINIMO02", "B0MINIMO03"}
 
 
+@_skip_db
+def test_r13f_un_dia_con_clics_nulos_anula_los_clics():
+    """R13-F G3b: una fecha con clicks NULL deja los clics en None y la
+    busqueda no suma, no se rellena con 0."""
+    with _db_p6() as conn:
+        run = _run(conn)
+        ag = _ad_group(conn, _campana(conn, "c-1", "Campana Uno"), "ag-1")
+        _obs(
+            conn,
+            ag,
+            "B0CLICSNUL1",
+            dt.date(2026, 9, 1),
+            visto=dt.datetime(2026, 9, 2, tzinfo=dt.UTC),
+            cost=900,
+            clics=9,
+            pedidos=0,
+            asin=True,
+            run=run,
+        )
+        _obs(
+            conn,
+            ag,
+            "B0CLICSNUL1",
+            dt.date(2026, 9, 2),
+            visto=dt.datetime(2026, 9, 3, tzinfo=dt.UTC),
+            cost=900,
+            clics=None,
+            pedidos=0,
+            asin=True,
+            run=run,
+        )
+        pantalla = pb.lee_busquedas(conn, plataforma="amazon_mx", hoy=HOY)
+        assert pantalla.asins == ()
+        assert pantalla.asins_a_medio_camino == 0
+
+
+@_skip_db
+def test_r13f_un_dia_con_pedidos_nulos_anula_los_pedidos():
+    """R13-F G3c: una fecha con orders NULL deja los pedidos en None y
+    la busqueda no suma, no se rellena con 0."""
+    with _db_p6() as conn:
+        run = _run(conn)
+        ag = _ad_group(conn, _campana(conn, "c-1", "Campana Uno"), "ag-1")
+        _obs(
+            conn,
+            ag,
+            "B0PEDNULO01",
+            dt.date(2026, 9, 1),
+            visto=dt.datetime(2026, 9, 2, tzinfo=dt.UTC),
+            cost=900,
+            clics=9,
+            pedidos=0,
+            asin=True,
+            run=run,
+        )
+        _obs(
+            conn,
+            ag,
+            "B0PEDNULO01",
+            dt.date(2026, 9, 2),
+            visto=dt.datetime(2026, 9, 3, tzinfo=dt.UTC),
+            cost=900,
+            clics=9,
+            pedidos=None,
+            asin=True,
+            run=run,
+        )
+        pantalla = pb.lee_busquedas(conn, plataforma="amazon_mx", hoy=HOY)
+        assert pantalla.asins == ()
+        assert pantalla.asins_a_medio_camino == 0
+
+
+def test_r13f_el_desempate_por_reporte_queda_en_el_sql():
+    """R13-F G1c: el empate de observed_at dentro de un grupo no se
+    puede sembrar (la PK de la 0001 incluye observed_at), asi que el
+    desempate por source_report_id se guarda en el texto de la
+    consulta: si alguien lo quita, esta prueba lo caza."""
+    assert "o.source_report_id DESC NULLS LAST" in pb._SQL_BUSQUEDAS
+
+
+@_skip_db
+def test_r13f_settings_vigentes_son_los_ultimos():
+    """R13-F L1: el minimo sale de la ultima config_version, no de la
+    primera."""
+    with _db_p6() as conn:
+        run = _run(conn)
+        conn.execute(
+            "INSERT INTO config_version (label, settings) VALUES ('vieja', %s)",
+            (Json({"ads_gasto_para_concluir_amazon_mx": "99999"}),),
+        )
+        conn.execute(
+            "INSERT INTO config_version (label, settings) VALUES ('nueva', %s)",
+            (Json({"ads_gasto_para_concluir_amazon_mx": "100"}),),
+        )
+        ag = _ad_group(conn, _campana(conn, "c-1", "Campana Uno"), "ag-1")
+        _obs(
+            conn,
+            ag,
+            "B0VIGENTE01",
+            dt.date(2026, 9, 1),
+            visto=dt.datetime(2026, 9, 2, tzinfo=dt.UTC),
+            cost=150,
+            clics=2,
+            pedidos=0,
+            asin=True,
+            run=run,
+        )
+        pantalla = pb.lee_busquedas(conn, plataforma="amazon_mx", hoy=HOY)
+        assert [a.asin for a in pantalla.asins] == ["B0VIGENTE01"]
+
+
+@_skip_db
+def test_r13f_asin_propio_con_listing_en_minusculas():
+    """R13-F L3: el listing guardado en minusculas tambien marca el
+    ASIN como propio."""
+    with _db_p6() as conn:
+        run = _run(conn)
+        pid = conn.execute(
+            "INSERT INTO product (odoo_sku, name) VALUES ('SKU-P6B', 'Producto P6B') RETURNING id"
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO listing (product_id, platform, external_id, seller_sku)"
+            " VALUES (%s, 'amazon_mx', 'b0propio02', 'SKU-P6B')",
+            (pid,),
+        )
+        ag = _ad_group(conn, _campana(conn, "c-1", "Campana Uno"), "ag-1")
+        _obs(
+            conn,
+            ag,
+            "B0PROPIO02",
+            dt.date(2026, 9, 1),
+            visto=dt.datetime(2026, 9, 2, tzinfo=dt.UTC),
+            cost=400,
+            clics=4,
+            pedidos=0,
+            asin=True,
+            run=run,
+        )
+        pantalla = pb.lee_busquedas(conn, plataforma="amazon_mx", hoy=HOY)
+        assert pantalla.asins == (
+            pb.FilaAsinAjeno("B0PROPIO02", 4, Decimal("400"), ("Campana Uno",), True),
+        )
+
+
+@_skip_db
+def test_r13f_moneda_de_us_es_usd():
+    """R13-F L6: la pantalla de US trae su moneda, no MXN fijo."""
+    with _db_p6() as conn:
+        run = _run(conn)
+        ag = _ad_group(
+            conn,
+            _campana(conn, "c-us", "Campana US", platform="amazon_us"),
+            "ag-us",
+            platform="amazon_us",
+        )
+        _obs(
+            conn,
+            ag,
+            "B0USD000001",
+            dt.date(2026, 9, 1),
+            visto=dt.datetime(2026, 9, 2, tzinfo=dt.UTC),
+            cost=400,
+            clics=4,
+            pedidos=0,
+            asin=True,
+            run=run,
+            platform="amazon_us",
+            moneda="USD",
+        )
+        pantalla = pb.lee_busquedas(conn, plataforma="amazon_us", hoy=HOY)
+        assert pantalla.moneda == "USD"
+        assert [a.asin for a in pantalla.asins] == ["B0USD000001"]
+
+
 class _CursorFalso:
     def __init__(self, filas):
         self._filas = filas
@@ -578,6 +752,93 @@ def test_lee_solo_tres_consultas_select():
     assert len(conn.consultas) == 3
     for sql, _params in conn.consultas:
         assert sql.lstrip().upper().startswith(("SELECT", "WITH"))
+
+
+def test_r13f_palabra_en_el_minimo_exacto_entra():
+    """R13-F U2: la palabra con gasto igual al minimo entra (>=)."""
+    _ref, _a, palabras, _am, _pm = _resume([_fila(1, "C1", "gama uno", 10, 350, 0)])
+    assert [p.palabra for p in palabras if p.palabra == "gama"]
+    _ref, _a, palabras, _am, _pm = _resume([_fila(1, "C1", "gama uno", 10, "349.99", 0)])
+    assert not [p for p in palabras if p.palabra == "gama"]
+
+
+def test_r13f_asin_bajo_la_mitad_no_es_medio_camino():
+    """R13-F U3: el ASIN entre un tercio y la mitad del minimo no cuenta
+    a medio camino; en la mitad exacta si."""
+    _ref, _a, _p, am, _pm = _resume([_fila(1, "C1", "B0TERCIO001", 5, 140, 0, es_asin=True)])
+    assert am == 0
+    _ref, _a, _p, am, _pm = _resume([_fila(1, "C1", "B0MITAD0001", 5, 175, 0, es_asin=True)])
+    assert am == 1
+
+
+def test_r13f_palabra_bajo_la_mitad_no_es_medio_camino():
+    """R13-F U4 y U7: la palabra entre un tercio y la mitad no cuenta, y
+    la que no llega ni a un tercio tampoco."""
+    _ref, _a, _p, _am, pm = _resume([_fila(1, "C1", "gama uno", 5, 140, 0)])
+    assert pm == 0
+    _ref, _a, _p, _am, pm = _resume([_fila(1, "C1", "gama uno", 5, 100, 0)])
+    assert pm == 0
+    _ref, _a, _p, _am, pm = _resume([_fila(1, "C1", "gama uno", 5, 175, 0)])
+    assert pm >= 1
+
+
+def test_r13f_ejemplos_son_tres_y_no_cuatro():
+    """R13-F P3: los ejemplos de una palabra son hasta tres."""
+    filas = [_fila(1, "C1", f"gama texto{i}", 5, 100, 0) for i in ("uno", "dos", "tres", "cuatro")]
+    _ref, _a, palabras, _am, _pm = _resume(filas)
+    (gama,) = [p for p in palabras if p.palabra == "gama"]
+    assert len(gama.ejemplos) == 3
+
+
+def test_r13f_ejemplos_ordenados_por_gasto_mayor():
+    """R13-F P7: los ejemplos salen con el de mas gasto primero."""
+    filas = [
+        _fila(1, "C1", "gama uno", 5, 100, 0),
+        _fila(1, "C1", "gama dos", 5, 300, 0),
+        _fila(1, "C1", "gama tres", 5, 50, 0),
+    ]
+    _ref, _a, palabras, _am, _pm = _resume(filas)
+    (gama,) = [p for p in palabras if p.palabra == "gama"]
+    assert gama.ejemplos == ("gama dos", "gama uno", "gama tres")
+
+
+def test_r13f_asins_ordenados_por_gasto_mayor():
+    """R13-F P5: los ASIN salen de mayor a menor gasto."""
+    filas = [
+        _fila(1, "C1", "B0MENOR0001", 5, 400, 0, es_asin=True),
+        _fila(1, "C1", "B0MAYOR0001", 5, 500, 0, es_asin=True),
+    ]
+    _ref, asins, _p, _am, _pm = _resume(filas)
+    assert [a.asin for a in asins] == ["B0MAYOR0001", "B0MENOR0001"]
+
+
+def test_r13f_palabras_ordenadas_por_gasto_mayor():
+    """R13-F P6: las palabras salen de mayor a menor gasto."""
+    filas = [
+        _fila(1, "C1", "omega uno", 5, 400, 0),
+        _fila(1, "C1", "gama uno", 5, 500, 0),
+    ]
+    _ref, _a, palabras, _am, _pm = _resume(filas)
+    orden = [p.palabra for p in palabras]
+    assert orden.index("gama") < orden.index("omega")
+
+
+def test_r13f_referencia_redondea_mitad_hacia_arriba():
+    """R13-F R4: el porcentaje en .5 exacto sube (HALF_UP), no se va al
+    par (redondeo bancario)."""
+    ref, *_ = _resume([_fila(1, "C1", "alfa", 1, 1, 0), _fila(1, "C1", "beta", 1, 7, 1)])
+    assert ref.visto_pct == Decimal("13")
+
+
+def test_r13f_referencia_incluye_los_asin():
+    """R13-F R5: la referencia de azar se calcula con todas las filas,
+    ASIN incluidos."""
+    filas = [
+        _fila(1, "C1", "gama uno", 10, 100, 1),
+        _fila(1, "C1", "B0REFE00001", 10, 100, 0, es_asin=True),
+    ]
+    ref, *_ = _resume(filas)
+    assert ref.visto_pct == Decimal("50")
 
 
 def test_como_dict_gastos_texto_y_none_none():

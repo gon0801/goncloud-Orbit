@@ -2828,3 +2828,54 @@ def test_ui_busquedas_ejemplo_con_script_escapado():
     )
     assert PAYLOAD_XSS not in html
     assert "&lt;script&gt;" in html
+
+
+def test_r13f_pagina_pinta_los_conteos_de_medio_camino():
+    """R13-F W10: la pagina pinta los dos conteos de medio camino."""
+    html = ui.templates.env.get_template("busquedas_sin_venta.html").render(
+        pantalla="busquedas-sin-venta", **_pantalla_p6()
+    )
+    assert "3 páginas de producto y 5" in html
+
+
+def test_r13f_pagina_pinta_el_gasto_de_la_palabra():
+    """R13-F W11: la fila de palabra trae su gasto con la moneda."""
+    datos = _pantalla_p6()
+    datos["palabras"][0]["gasto"] = "777"
+    html = ui.templates.env.get_template("busquedas_sin_venta.html").render(
+        pantalla="busquedas-sin-venta", **datos
+    )
+    assert "777 MXN" in html
+
+
+def test_r13f_pagina_escapa_el_asin():
+    """R13-F W13: el ASIN de la fila va escapado."""
+    datos = _pantalla_p6()
+    datos["asins"][0]["asin"] = PAYLOAD_XSS
+    html = ui.templates.env.get_template("busquedas_sin_venta.html").render(
+        pantalla="busquedas-sin-venta", **datos
+    )
+    assert PAYLOAD_XSS not in html
+    assert "&lt;script&gt;" in html
+
+
+def test_r13f_pagina_escapa_las_campanas():
+    """R13-F W5: los nombres de campana de la fila van escapados."""
+    datos = _pantalla_p6()
+    datos["asins"][0]["campanas"] = [PAYLOAD_XSS]
+    html = ui.templates.env.get_template("busquedas_sin_venta.html").render(
+        pantalla="busquedas-sin-venta", **datos
+    )
+    assert PAYLOAD_XSS not in html
+    assert "&lt;script&gt;" in html
+
+
+def test_r13f_pagina_escapa_la_palabra():
+    """R13-F W6: la palabra de la fila va escapada."""
+    datos = _pantalla_p6()
+    datos["palabras"][0]["palabra"] = PAYLOAD_XSS
+    html = ui.templates.env.get_template("busquedas_sin_venta.html").render(
+        pantalla="busquedas-sin-venta", **datos
+    )
+    assert PAYLOAD_XSS not in html
+    assert "&lt;script&gt;" in html
