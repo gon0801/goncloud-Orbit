@@ -45,6 +45,30 @@ R no se corre: `cross-review.ps1` quedó fuera por regla permanente.
 D: S.1 a S.5 ya estaban desplegados. S.8 entra en este cambio con el aviso
 apagado.
 
+## Despliegue del cierre
+
+El cambio de cierre (#440, `30cc62f`) se unió a master sin desplegar. Se
+desplegó el 2026-10-13 a las 03:57 UTC con `desplegar.sh` de esta carpeta:
+solo código, sin migración ni cron. Respaldo en `predeploy-20261013-0357`;
+la reversa es `docs/evidencia/bids-02/ejecucion/D.5/rollback.sh` con ese
+sello. Salidas en `desplegar-salida.txt` y `checklist-salida.txt`.
+
+El checklist dio 0 mal: el contenedor corre el código del SHA, las cuatro
+pantallas responden 200, la única señal ajena trae `listado_de` y su frase
+cita ese día, `jev.avisos` sigue ausente y `jev_aviso` tiene 0 filas.
+
+Las dos fechas de esa señal («baño») caen el 2026-10-12, así que la frase
+no cambió a la vista. Lo que cambió es que la API ya devuelve `listado_de`.
+
+## El job antes del 2026-10-12
+
+Del 2026-10-07 al 2026-10-12 las corridas del cron cerraron con
+`sin_api_key` y tope 0: `typesafe.json` llegó al servidor el 2026-10-12 a
+las 23:29 UTC. El job pagó 50 llamadas ese día, en una corrida manual con
+tope 50. El tope 5,000 es de la `config_version` 28 (2026-10-13 01:37 UTC).
+La corrida en seco del checklist anticipa 4,900 llamadas para la del cron
+de las 09:30 UTC del 2026-10-13, la primera con ese tope.
+
 ## Notas J6
 
 J6-31 se arregló. J6-1 a J6-30 y J6-32 a J6-45 se aceptan sin arreglo de
