@@ -1,0 +1,469 @@
+== vendedor ==
+ruta: /users/me -> {'id': '<id>', 'site_id': 'MLM'}
+
+== publicaciones (ids redactados) ==
+ruta: /users/{vendedor}/items/search
+{
+  "scroll_id": "<fuera>",
+  "seller_id": "<id>",
+  "results": [
+    "<item>",
+    "<item>",
+    "<item>",
+    "<item>",
+    "<item>",
+    "<item>",
+    "<item>",
+    "<item>",
+    "<item>",
+    "<item>",
+    "<item>",
+    "<item>",
+    "<item>",
+    "<item>",
+    "<item>",
+    "<item>",
+    "<item>",
+    "<item>",
+    "<item>",
+    "<item>",
+    "<item>",
+    "<item>",
+    "<item>",
+    "<item>",
+    "<item>",
+    "<item>",
+    "<item>",
+    "<item>",
+    "<item>",
+    "<item>",
+    "<item>",
+    "<item>",
+    "<item>",
+    "<item>",
+    "<item>",
+    "<item>",
+    "<item>",
+    "<item>",
+    "<item>",
+    "<item>",
+    "<item>",
+    "<item>",
+    "<item>",
+    "<item>",
+    "<item>",
+    "<item>",
+    "<item>",
+    "<item>",
+    "<item>",
+    "<item>"
+  ],
+  "paging": {
+    "limit": 50,
+    "total": 64
+  },
+  "query": null,
+  "orders": [
+    {
+      "id": "<id>",
+      "name": "Order by stop time ascending"
+    }
+  ],
+  "available_orders": [
+    {
+      "id": "<id>",
+      "name": "Order by stop time ascending"
+    },
+    {
+      "id": "<id>",
+      "name": "Order by stop time descending"
+    },
+    {
+      "id": "<id>",
+      "name": "Order by start time ascending"
+    },
+    {
+      "id": "<id>",
+      "name": "Order by start time descending"
+    },
+    {
+      "id": "<id>",
+      "name": "Order by available quantity ascending"
+    },
+    {
+      "id": "<id>",
+      "name": "Order by available quantity descending"
+    },
+    {
+      "id": "<id>",
+      "name": "Order by sold quantity ascending"
+    },
+    {
+      "id": "<id>",
+      "name": "Order by sold quantity descending"
+    },
+    {
+      "id": "<id>",
+      "name": "Order by price ascending"
+    },
+    {
+      "id": "<id>",
+      "name": "Order by price descending"
+    },
+    {
+      "id": "<id>",
+      "name": "Order by lastUpdated descending"
+    },
+    {
+      "id": "<id>",
+      "name": "Order by last updated ascending"
+    },
+    {
+      "id": "<id>",
+      "name": "Order by total sold quantity ascending"
+    },
+    {
+      "id": "<id>",
+      "name": "Order by total sold quantity descending"
+    },
+    {
+      "id": "<id>",
+      "name": "Order by inventory id ascending"
+    }
+  ]
+}
+
+total publicaciones en la primera pagina: 50
+
+== 1: agregado con include_attributes=all (hasta 30 publicaciones) ==
+ruta: /items/{id}?include_attributes=all
+{
+  "publicaciones": 30,
+  "con_variantes": 24,
+  "variantes": 143,
+  "var_campo_seller_sku": 0,
+  "var_campo_seller_custom_field": 0,
+  "var_con_clave_attributes": 143,
+  "var_con_attr_SELLER_SKU": 143,
+  "raices_con_seller_custom_field": 6,
+  "raices_con_attr_SELLER_SKU": 6,
+  "pub_con_variantes_todas_con_sku": 24,
+  "pub_sin_variantes_con_sku_en_raiz": 6,
+  "pub_con_variantes_precio_distinto": 0,
+  "sku_variacion_distintos": 143
+}
+
+== 1: la misma publicacion SIN include_attributes ==
+ruta: /items/{id}
+{
+  "variaciones": 6,
+  "variaciones_con_clave_attributes": 0,
+  "raiz_con_attr_SELLER_SKU": false
+}
+
+== 1 y 3: publicacion CON variantes (forma) ==
+ruta: /items/{id}?include_attributes=all
+{
+  "status": "active",
+  "category_id": "MLM1440",
+  "listing_type_id": "gold_pro",
+  "sku_en_atributo_raiz": false,
+  "seller_custom_field_raiz": false,
+  "precio_raiz": 1989,
+  "moneda": "MXN",
+  "n_variaciones": 6,
+  "variaciones": [
+    {
+      "sku_en_atributo": true,
+      "campo_seller_sku": false,
+      "campo_seller_custom_field": false,
+      "price": 1989,
+      "available_quantity": 11
+    },
+    {
+      "sku_en_atributo": true,
+      "campo_seller_sku": false,
+      "campo_seller_custom_field": false,
+      "price": 1989,
+      "available_quantity": 0
+    },
+    {
+      "sku_en_atributo": true,
+      "campo_seller_sku": false,
+      "campo_seller_custom_field": false,
+      "price": 1989,
+      "available_quantity": 0
+    },
+    {
+      "sku_en_atributo": true,
+      "campo_seller_sku": false,
+      "campo_seller_custom_field": false,
+      "price": 1989,
+      "available_quantity": 0
+    },
+    {
+      "sku_en_atributo": true,
+      "campo_seller_sku": false,
+      "campo_seller_custom_field": false,
+      "price": 1989,
+      "available_quantity": 11
+    },
+    {
+      "sku_en_atributo": true,
+      "campo_seller_sku": false,
+      "campo_seller_custom_field": false,
+      "price": 1989,
+      "available_quantity": 0
+    }
+  ]
+}
+
+== 1: publicacion SIN variantes (forma) ==
+ruta: /items/{id}?include_attributes=all
+{
+  "status": "active",
+  "category_id": "MLM1440",
+  "listing_type_id": "gold_pro",
+  "sku_en_atributo_raiz": true,
+  "seller_custom_field_raiz": true,
+  "precio_raiz": 979.11,
+  "moneda": "MXN",
+  "n_variaciones": 0,
+  "variaciones": []
+}
+
+== 1: cruce de los SKU leidos contra product.odoo_sku (conteos) ==
+ruta: select ... from (values pub,sku) left join product on odoo_sku = sku
+{
+  "lineas": [
+    "miembros|149|con_sku|149|mapeados_a_product|143|productos_distintos|143",
+    "publicaciones|30|todos_mapeados|24|alguno|6|ninguno|0"
+  ]
+}
+
+== 2: cargos por precio 1989 (categoria y tipo de la muestra) ==
+ruta: /sites/{sitio}/listing_prices
+{
+  "currency_id": "MXN",
+  "free_relist": false,
+  "listing_exposure": "highest",
+  "listing_fee_amount": 0,
+  "listing_fee_details": {
+    "fixed_fee": 0,
+    "gross_amount": 0
+  },
+  "listing_type_id": "gold_pro",
+  "listing_type_name": "Premium",
+  "requires_picture": true,
+  "sale_fee_amount": 387.86,
+  "sale_fee_details": {
+    "fixed_fee": 0,
+    "gross_amount": 387.86,
+    "percentage_fee": 19.5
+  },
+  "stop_time": "2046-10-08T00:00:00.000-04:00"
+}
+
+== 2: cargos por precio 979.11 (categoria y tipo de la muestra) ==
+ruta: /sites/{sitio}/listing_prices
+{
+  "currency_id": "MXN",
+  "free_relist": false,
+  "listing_exposure": "highest",
+  "listing_fee_amount": 0,
+  "listing_fee_details": {
+    "fixed_fee": 0,
+    "gross_amount": 0
+  },
+  "listing_type_id": "gold_pro",
+  "listing_type_name": "Premium",
+  "requires_picture": true,
+  "sale_fee_amount": 190.93,
+  "sale_fee_details": {
+    "fixed_fee": 0,
+    "gross_amount": 190.93,
+    "percentage_fee": 19.5
+  },
+  "stop_time": "2046-10-08T00:00:00.000-04:00"
+}
+
+== 2: cargos por precio 150 (categoria y tipo de la muestra) ==
+ruta: /sites/{sitio}/listing_prices
+{
+  "currency_id": "MXN",
+  "free_relist": false,
+  "listing_exposure": "highest",
+  "listing_fee_amount": 0,
+  "listing_fee_details": {
+    "fixed_fee": 0,
+    "gross_amount": 0
+  },
+  "listing_type_id": "gold_pro",
+  "listing_type_name": "Premium",
+  "requires_picture": true,
+  "sale_fee_amount": 29.25,
+  "sale_fee_details": {
+    "fixed_fee": 0,
+    "gross_amount": 29.25,
+    "percentage_fee": 19.5
+  },
+  "stop_time": "2046-10-08T00:00:00.000-04:00"
+}
+
+== 2: apoyo · tipo de publicacion (estructura de cargos del sitio) ==
+ruta: /sites/{sitio}/listing_types/{tipo}
+{
+  "id": "<id>",
+  "not_available_in_categories": [
+    "MLM1743",
+    "MLM1459",
+    "MLM1540"
+  ],
+  "configuration": {
+    "name": "Premium",
+    "listing_exposure": "highest",
+    "requires_picture": true,
+    "max_stock_per_item": 99999,
+    "duration_days": {
+      "buy_it_now": 7300,
+      "auction": null,
+      "classified": null
+    },
+    "immediate_payment": {
+      "buy_it_now": true,
+      "auction": false,
+      "classified": false
+    },
+    "mercado_pago": "mandatory",
+    "deduction_profile_id": null,
+    "differential_pricing_id": 19568774,
+    "listing_fee_criteria": {
+      "min_fee_amount": 0,
+      "max_fee_amount": 0,
+      "percentage_of_fee_amount": 0,
+      "currency": "MXN"
+    },
+    "sale_fee_criteria": {
+      "min_fee_amount": 0,
+      "max_fee_amount": 283350,
+      "percentage_of_fee_amount": 22.5,
+      "currency": "MXN"
+    }
+  },
+  "exceptions_by_category": []
+}
+
+== 2: apoyo · tipo de publicacion en la categoria ==
+ruta: /categories/{categoria}/listing_types/{tipo}
+{
+  "id": "<id>",
+  "configuration": {
+    "name": "Premium",
+    "listing_exposure": "highest",
+    "requires_picture": true,
+    "max_stock_per_item": 99999,
+    "duration_days": {
+      "buy_it_now": 7300,
+      "auction": null,
+      "classified": null
+    },
+    "immediate_payment": {
+      "buy_it_now": true,
+      "auction": false,
+      "classified": false
+    },
+    "mercado_pago": "mandatory",
+    "deduction_profile_id": null,
+    "differential_pricing_id": 19568774,
+    "listing_fee_criteria": {
+      "min_fee_amount": 0,
+      "max_fee_amount": 0,
+      "percentage_of_fee_amount": 0,
+      "currency": "MXN"
+    },
+    "sale_fee_criteria": {
+      "min_fee_amount": 0,
+      "max_fee_amount": 283350,
+      "percentage_of_fee_amount": 19.5,
+      "currency": "MXN"
+    },
+    "free_relist_available": false,
+    "stop_time": ""
+  }
+}
+
+== visitas de la publicacion con variantes (ventana de 7 dias) ==
+ruta: /items/{id}/visits/time_window
+{
+  "item_id": "<id>",
+  "date_from": "2026-10-06T00:00:00Z",
+  "date_to": "2026-10-13T00:00:00Z",
+  "total_visits": 10,
+  "last": 7,
+  "unit": "day",
+  "results": [
+    {
+      "date": "2026-10-08T00:00:00Z",
+      "total": 2,
+      "visits_detail": [
+        {
+          "company": "mercadolibre",
+          "quantity": 2
+        }
+      ]
+    },
+    {
+      "date": "2026-10-07T00:00:00Z",
+      "total": 2,
+      "visits_detail": [
+        {
+          "company": "mercadolibre",
+          "quantity": 2
+        }
+      ]
+    },
+    {
+      "date": "2026-10-09T00:00:00Z",
+      "total": 4,
+      "visits_detail": [
+        {
+          "company": "mercadolibre",
+          "quantity": 4
+        }
+      ]
+    },
+    {
+      "date": "2026-10-10T00:00:00Z",
+      "total": 1,
+      "visits_detail": [
+        {
+          "company": "mercadolibre",
+          "quantity": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-10-11T00:00:00Z",
+      "total": 1,
+      "visits_detail": [
+        {
+          "company": "mercadolibre",
+          "quantity": 1
+        }
+      ]
+    }
+  ]
+}
+
+== visitas por ids (total) ==
+ruta: /visits/items?ids={id}
+{
+  "<item>": 1164
+}
+
+== 4: aplicaciones autorizadas por el vendedor ==
+ruta: /users/{vendedor}/applications
+ERROR: MeLi GET /users/{vendedor}/applications: respuesta no-objeto
+
+scopes del token (del archivo, sin consulta):
+scope: offline_access read urn:global:admin:info:/read-write urn:global:admin:oauth:/read-write urn:global:admin:users:/read-write urn:ml:all:comunication:/read-write urn:ml:all:publish-sync:/read-write urn:ml:mktp:ads:/read-write urn:ml:mktp:comunication:/read-write urn:ml:mktp:invoices:/read-write urn:ml:mktp:metrics:/read-only urn:ml:mktp:offers:/read-write urn:ml:mktp:orders-shipments:/read-write urn:ml:mktp:publish-sync:/read-write urn:ml:vis:comunication:/read-write urn:ml:vis:publish-sync:/read-write urn:mp:online:payments/read-only urn:mp:online:payments:cancel/read-only urn:mp:online:payments:refunds/read-only write
