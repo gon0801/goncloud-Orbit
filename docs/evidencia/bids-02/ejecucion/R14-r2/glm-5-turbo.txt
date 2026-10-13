@@ -1,0 +1,226 @@
+[0m
+> build · glm-5-turbo
+[0m
+[0m$ [0mgit diff 30cc62f3971c6651781b084ec1780d4d5c139856..3430b2dcac68dc857513dedfe9ecd551de2edbc6 -- migrations/ && git diff --stat 30cc62f3971c6651781b084ec1780d4d5c139856..3430b2dcac68dc857513dedfe9ecd551de2edbc6 -- migrations/
+diff --git a/migrations/0071_bids02_grant_vista_impulso.sql b/migrations/0071_bids02_grant_vista_impulso.sql
+new file mode 100644
+index 0000000..6884275
+--- /dev/null
++++ b/migrations/0071_bids02_grant_vista_impulso.sql
+@@ -0,0 +1,31 @@
++-- 0071 (BIDS 02 R09-E): GRANT SELECT explicito sobre v_impulso_estado.
++--
++-- La 0065 creo la vista sin GRANT propio: hoy la leen app_read y
++-- app_admin solo por los default privileges del esquema. El GRANT
++-- queda declarado en una migracion, verificado en su bloque DO, en
++-- vez de depender de ese default. La 0065 ya esta aplicada en
++-- produccion y no se edita.
++--
++-- Regla 7: BEGIN/COMMIT dentro del archivo, NO idempotente, con su
++-- reversa en 0071_reversa_bids02_grant_vista_impulso.sql.
++
++BEGIN;
++
++GRANT SELECT ON v_impulso_estado TO app_read, app_admin;
++
++DO $$
++BEGIN
++    IF NOT has_table_privilege('app_read', 'public.v_impulso_estado', 'SELECT')
++       OR NOT has_table_privilege('app_admin', 'public.v_impulso_estado', 'SELECT')
++       OR has_table_privilege('app_read', 'public.v_impulso_estado', 'INSERT')
++       OR has_table_privilege('app_read', 'public.v_impulso_estado', 'UPDATE')
++       OR has_table_privilege('app_read', 'public.v_impulso_estado', 'DELETE')
++       OR has_table_privilege('app_admin', 'public.v_impulso_estado', 'INSERT')
++       OR has_table_privilege('app_admin', 'public.v_impulso_estado', 'UPDATE')
++       OR has_table_privilege('app_admin', 'public.v_impulso_estado', 'DELETE') THEN
++        RAISE EXCEPTION '0071: privilegios de v_impulso_estado distintos de los declarados';
++    END IF;
++END;
++$$;
++
++COMMIT;
+diff --git a/migrations/0071_reversa_bids02_grant_vista_impulso.sql b/migrations/0071_reversa_bids02_grant_vista_impulso.sql
+new file mode 100644
+index 0000000..17ea851
+--- /dev/null
++++ b/migrations/0071_reversa_bids02_grant_vista_impulso.sql
+@@ -0,0 +1,9 @@
++-- Reversa de 0071 (BIDS 02 R09-E): quita el GRANT SELECT explicito
++-- sobre v_impulso_estado. REVOKE siempre seguro (no borra filas).
++-- No idempotente (regla 7).
++
++BEGIN;
++
++REVOKE SELECT ON v_impulso_estado FROM app_read, app_admin;
++
++COMMIT;
+diff --git a/migrations/0072_bids02_impulso_grupo_tipo.sql b/migrations/0072_bids02_impulso_grupo_tipo.sql
+new file mode 100644
+index 0000000..a0d0c14
+--- /dev/null
++++ b/migrations/0072_bids02_impulso_grupo_tipo.sql
+@@ -0,0 +1,57 @@
++-- 0072 (BIDS 02 R09-J): candado de tipo del grupo del impulso.
++--
++-- Hoy solo lo garantiza la tupla de roles en _registrar: nada en la
++-- base impide que un impulso cuelgue de un grupo fabrica5 si entra
++-- por otro camino. El invariante (un impulso solo vive sobre un
++-- grupo tipo impulso) se hace cumplir en el esquema, como los demas
++-- (impulso_coherente de la 0065), para que valga venga de donde
++-- venga. Una FK no puede cruzar a campana_grupo.tipo; por eso es
++-- trigger, no FK.
++--
++-- Regla 7: BEGIN/COMMIT dentro del archivo, NO idempotente, con su
++-- reversa en 0072_reversa_bids02_impulso_grupo_tipo.sql.
++
++BEGIN;
++
++CREATE OR REPLACE FUNCTION impulso_grupo_es_impulso() RETURNS trigger LANGUAGE plpgsql AS $$
++BEGIN
++    IF (SELECT tipo FROM campana_grupo WHERE id = NEW.grupo_id) IS DISTINCT FROM 'impulso' THEN
++        RAISE EXCEPTION 'impulso %: el grupo % no es de tipo impulso', NEW.id, NEW.grupo_id;
++    END IF;
++    RETURN NEW;
++END;
++$$;
++
++CREATE TRIGGER impulso_grupo_tipo
++    BEFORE INSERT ON impulso
++    FOR EACH ROW
++    EXECUTE FUNCTION impulso_grupo_es_impulso();
++
++CREATE OR REPLACE FUNCTION grupo_con_impulso_no_cambia_tipo() RETURNS trigger LANGUAGE plpgsql AS $$
++BEGIN
++    IF NEW.tipo IS DISTINCT FROM 'impulso'
++       AND EXISTS (SELECT 1 FROM impulso WHERE grupo_id = NEW.id) THEN
++        RAISE EXCEPTION 'el grupo % tiene impulsos y no puede dejar de ser tipo impulso', NEW.id;
++    END IF;
++    RETURN NEW;
++END;
++$$;
++
++CREATE TRIGGER grupo_impulso_tipo_guardia
++    BEFORE UPDATE OF tipo ON campana_grupo
++    FOR EACH ROW
++    EXECUTE FUNCTION grupo_con_impulso_no_cambia_tipo();
++
++DO $$
++BEGIN
++    IF NOT EXISTS (
++        SELECT 1 FROM pg_trigger WHERE tgname = 'impulso_grupo_tipo' AND NOT tgisinternal
++    ) OR NOT EXISTS (
++        SELECT 1 FROM pg_trigger WHERE tgname = 'grupo_impulso_tipo_guardia' AND NOT tgisinternal
++    ) THEN
++        RAISE EXCEPTION '0072: falta un trigger del candado de tipo del impulso';
++    END IF;
++END;
++$$;
++
++COMMIT;
+diff --git a/migrations/0072_reversa_bids02_impulso_grupo_tipo.sql b/migrations/0072_reversa_bids02_impulso_grupo_tipo.sql
+new file mode 100644
+index 0000000..b0e3ddd
+--- /dev/null
++++ b/migrations/0072_reversa_bids02_impulso_grupo_tipo.sql
+@@ -0,0 +1,15 @@
++-- Reversa de 0072 (BIDS 02 R09-J): quita el candado de tipo del
++-- grupo del impulso. Solo quita los triggers y las funciones; no
++-- borra filas. No idempotente (regla 7).
++
++BEGIN;
++
++DROP TRIGGER grupo_impulso_tipo_guardia ON campana_grupo;
++
++DROP TRIGGER impulso_grupo_tipo ON impulso;
++
++DROP FUNCTION grupo_con_impulso_no_cambia_tipo();
++
++DROP FUNCTION impulso_grupo_es_impulso();
++
++COMMIT;
+ migrations/0071_bids02_grant_vista_impulso.sql     | 31 ++++++++++++
+ .../0071_reversa_bids02_grant_vista_impulso.sql    |  9 ++++
+ migrations/0072_bids02_impulso_grupo_tipo.sql      | 57 ++++++++++++++++++++++
+ .../0072_reversa_bids02_impulso_grupo_tipo.sql     | 15 ++++++
+ 4 files changed, 112 insertions(+)
+[0m
+[0m→ [0mRead migrations/0071_bids02_grant_vista_impulso.sql
+[0m→ [0mRead migrations/0072_bids02_impulso_grupo_tipo.sql
+[0m→ [0mRead migrations/0072_reversa_bids02_impulso_grupo_tipo.sql
+[0m→ [0mRead migrations/0071_reversa_bids02_grant_vista_impulso.sql
+[0m✱ [0mGrep "v_impulso_estado|app_read|app_admin|ALTER DEFAULT PRIVILEGES"[90m in migrations · 100 matches[0m
+[0m
+[0m$ [0mgit log --oneline -5 && git log --oneline -3 3430b2dcac68dc857513dedfe9ecd551de2edbc6 && git status --short -- migrations/
+74a1a0c BIDS 02 R14-r2: guardia de vivo con nombre propio y comentarios recortados
+5cbd06d BIDS 02 R14-r2: el DISTINCT ON del desarme conserva el orden del ledger
+18f51ee BIDS 02 R14-r2: desarmar no duplica PUT por rol y las pruebas nuevas discriminan
+381247d BIDS 02 R14-r2: simulacion D.6 repetida con la marca de la 0071
+e24438a BIDS 02 R14-r2: la 0071 deja marca distinguible y D.6 verifica las dos guardias de la 0072
+3430b2d BIDS 02 R14: ajustes de la relectura (candado por producto, guardia de tipo, textos)
+cbf8395 BIDS 02 D.6: scripts del despliegue del remate, probados en simulacion
+4b87c39 BIDS 02 R09-J: migracion 0072 ata el impulso a un grupo tipo impulso
+[0m
+El working tree (HEAD `74a1a0c`) está adelantado al SHA `3430b2d`: los archivos completos incluyen ajustes posteriores (`FOR UPDATE`, marca por `COMMENT`, chequeo con `tgenabled`). Reviso los archivos completos actuales. Ahora el contexto previo (0065, esquema de `impulso`/`campana_grupo`, default privileges):
+[0m✱ [0mGrep "impulso_grupo_es_impulso|grupo_con_impulso_no_cambia_tipo"[90m in migrations · 6 matches[0m
+[0m
+[0m$ [0mls migrations/ | grep -E "006[45]|0065" ; rg -l "CREATE.*VIEW v_impulso_estado|ALTER DEFAULT PRIVILEGES" migrations/ | sort
+0064_bids02_grupo_tipo.sql
+0064_reversa_bids02_grupo_tipo.sql
+0065_bids02_impulso.sql
+0065_reversa_bids02_impulso.sql
+zsh:1: command not found: rg
+[0m
+[0m→ [0mRead migrations/0065_bids02_impulso.sql
+[0m
+[0m$ [0mgrep -rn "ALTER DEFAULT PRIVILEGES" migrations/ | head -20; grep -rn "COMMENT ON VIEW v_impulso_estado" migrations/
+migrations/0001_initial.sql:1521:ALTER DEFAULT PRIVILEGES IN SCHEMA public
+migrations/0002_apply.sql:676:-- 0001). El ALTER DEFAULT PRIVILEGES de 0001 también daría SELECT a app_read
+migrations/0071_bids02_grant_vista_impulso.sql:21:COMMENT ON VIEW v_impulso_estado IS 'GRANT SELECT declarado por la migracion 0071 (BIDS 02 R09-E)';
+migrations/0071_reversa_bids02_grant_vista_impulso.sql:8:COMMENT ON VIEW v_impulso_estado IS NULL;
+[0m
+[0m→ [0mRead migrations/0001_initial.sql[90m [offset=1505, limit=30][0m
+[0m
+[0m$ [0mgrep -n "tipo" migrations/0064_bids02_grupo_tipo.sql | head -20; grep -rn "v_impulso_estado" app/ tests/ tools/ verify/ 2>/dev/null | head -15
+1:-- 0064 (BIDS 02 I.1, seccion 5): de que tipo es el grupo.
+3:-- campana_grupo.tipo ('fabrica5' o 'impulso'): la fabrica sigue creando
+11:-- reversa en 0064_reversa_bids02_grupo_tipo.sql (quita trigger,
+18:ALTER TABLE campana_grupo ADD COLUMN tipo TEXT NOT NULL DEFAULT 'fabrica5'
+19:    CHECK (tipo IN ('fabrica5', 'impulso'));
+24:    IF (SELECT tipo FROM campana_grupo WHERE id = NEW.grupo_id) = 'impulso'
+37:COMMENT ON COLUMN campana_grupo.tipo IS
+Binary file app/__pycache__/pantalla_productos.cpython-314.pyc matches
+app/pantalla_productos.py:263:  FROM v_impulso_estado v
+tests/test_migracion_0071.py:28:        "SELECT has_table_privilege(%s, 'public.v_impulso_estado', 'SELECT')", (rol,)
+tests/test_migracion_0071.py:34:        "SELECT obj_description('public.v_impulso_estado'::regclass, 'pg_class')"
+tests/test_migracion_0071.py:47:        conn.execute("REVOKE SELECT ON v_impulso_estado FROM app_read, app_admin")
+tests/test_migracion_0071.py:60:                        "SELECT has_table_privilege(%s, 'public.v_impulso_estado', %s)",
+tests/test_migracion_0065.py:80:            "SELECT veredicto, es_final, estado_lote FROM v_impulso_estado WHERE id = %s", (imp,)
+tests/test_migracion_0065.py:142:            "SELECT gasto_moneda FROM v_impulso_estado WHERE id = %s", (imp,)
+Binary file tests/__pycache__/test_migracion_0065.cpython-314-pytest-9.1.1.pyc matches
+Binary file tests/__pycache__/test_migracion_0071.cpython-314-pytest-9.1.1.pyc matches
+[0m
+# Revisión 0071/0072 (solo lectura)
+
+Aclaración de alcance: el diff `30cc62f..3430b2d` muestra versiones intermedias (0071 sin la marca `COMMENT`, 0072 sin el `FOR UPDATE` y con chequeo de triggers sin tabla/`tgenabled`); HEAD (`74a1a0c`, commits `e24438a`/`74a1a0c`) ya las endureció. Reviso los archivos completos actuales, que son los que se aplicarían.
+
+## Hallazgos
+
+**1. `migrations/0071_reversa_bids02_grant_vista_impulso.sql:10` — la reversa no restaura el estado previo — no bloqueante (documentado).**
+La vista nació en 0065:60, *después* del `ALTER DEFAULT PRIVILEGES ... GRANT SELECT ON TABLES TO app_read, ...` de `0001_initial.sql:1521-1522`, así que ya tenía ACE de SELECT para `app_read`/`app_admin`. El `REVOKE` de la reversa quita ese privilegio previo, no solo el de la 0071: tras reversar, `app_read`/`app_admin` quedan sin SELECT y `app/pantalla_productos.py:263` deja de leer. Lo admite el propio comentario (L2-4) y lo compensa el script externo D.6, pero la reversa sola deja la vista inaccesible. Lectura: `sed -n '1519,1523p' migrations/0001_initial.sql` + `sed -n '60,69p' migrations/0065_bids02_impulso.sql` + L10 de la reversa.
+
+**2. `migrations/0071_bids02_grant_vista_impulso.sql:25-35` — la verificación declara "privilegios distintos de los declarados" pero no cubre todo el estado — no bloqueante.**
+`app_ingest`/`app_decide` conservan SELECT sobre la vista por los mismos default privileges (0001:1522), aunque 0065:155 se los revocó sobre las tablas base `impulso`/`impulso_lectura`. El DO no lo chequea ni hay REVOKE; si la intención de 0065 era cerrarles todo el dominio impulso, la vista lo reabre. Patrón ya presente en 0061:138-141, así que parece aceptado; lo señalo por si no lo es. Lectura: `grep -n "REVOKE SELECT ON impulso" migrations/0065_bids02_impulso.sql` + 0001:1521-1522.
+
+**3. `migrations/0072_bids02_impulso_grupo_tipo.sql:48-58` — chequeo de triggers sin `tgfoid` — no bloqueante (menor).**
+Verifica nombre+tabla+`tgenabled <> 'D'` pero no que los triggers apunten a *estas* funciones; un trigger homónimo con otra función pasaría. Irrelevante en estado limpio (los nombres son nuevos en el repo). Lectura: `grep -rn "impulso_grupo_tipo\|grupo_impulso_tipo_guardia" migrations/ | grep -v 0072` (solo aparece en 0072).
+
+**4. `migrations/0072_bids02_impulso_grupo_tipo.sql:16,33` — `CREATE OR REPLACE` en migración declarada no idempotente — no bloqueante (menor).**
+Re-aplicar sobre un entorno donde ya corrió una versión previa del mismo número falla recién en `CREATE TRIGGER` (L28) con "already exists": error claro, no silencioso, pero `CREATE FUNCTION` simple sería igual de explícito con la regla 7. Lectura: encabezado L11-12 vs L16/L33.
+
+## Lo que está bien
+
+- **0072 concurrencia: cerrada correctamente.** El INSERT toma `FOR UPDATE` de la fila del grupo (L21) y un `UPDATE OF tipo` concurrente espera el lock de fila *antes* de correr sus triggers BEFORE, cuyo `EXISTS` (L36) ya ve los impulsos comprometidos; en ambos órdenes no hay ventana, y el comentario L18-20 lo describe bien.
+- **0072 sin guardia de DELETE: correcto.** La FK `NO ACTION` de `impulso.grupo_id` (0065:23) ya impide borrar un grupo con impulsos.
+- **0072 verificación de datos existentes (L61-66): correcta** y dentro de la transacción: si falla, el ROLLBACK deshace también triggers y funciones.
+- **Reversa 0072: correcta y completa.** Los cuatro objetos nacieron en 0072 (grep sin otros orígenes), orden triggers→funciones, sin `CASCADE`, sin tocar filas: restaura el estado previo exacto.
+- **0071 mecánica SQL: correcta.** GRANT+COMMENT+DO en una transacción con verificación antes del COMMIT; `has_table_privilege` refleja la ACL de la vista y los checks de INSERT/UPDATE/DELETE son válidos aunque la vista no sea escribible (garantizan ACL limpia); la marca `COMMENT` (L21,33-34) resuelve el problema de la versión de `3430b2d` que no distinguía si ya había corrido.

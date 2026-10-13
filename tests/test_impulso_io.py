@@ -18,6 +18,7 @@ from test_migracion_0065 import SQL65
 from test_migracion_0066 import SQL66
 from test_migracion_0068 import SQL68
 from test_migracion_0069 import SQL69
+from test_migracion_0072 import SQL72
 from test_retiro_anuncios import _bolsa, _escritor, _fila
 from test_schema import _postgres_obligatorio_ausente
 
@@ -45,6 +46,7 @@ def _db_i3(prefijo):
             conn.execute(SQL66)
             conn.execute(SQL68)
             conn.execute(SQL69)
+            conn.execute(SQL72)
             conn.execute(
                 "INSERT INTO config_version(label,settings) VALUES ('fabrica',%s)",
                 (Json({"ads_target_fraccion_margen_amazon_mx": "0.5"}),),
@@ -127,6 +129,129 @@ def test_vista_previa_sin_margen_no_bloquea_al_vecino():
                 _solicitud(conn, [lid_sin]),
                 huella=solo_sin.huella,
                 confirmacion=solo_sin.confirmacion_esperada,
+                actor="dueno",
+                ejecutor=_ejecutor_falso(conn),
+                sugeridor=_sugeridor_fijo(),
+            )
+        assert exc.value.status == 422
+
+
+@_skip_db
+def test_r09b_previa_tope_bajo_el_piso_no_lanzable_y_lanza_sin_502():
+    """R09-B: con un tope cuyo presupuesto por campana queda bajo el
+    piso de bid de la moneda, la vista previa marca el producto no
+    lanzable (antes se mostraba lanzable y lanzar moria con 502)."""
+    with _db_i3("orbit_i3_r09b") as conn:
+        _, lid = _con_margen(conn)
+        buena = io.previsualiza(conn, _solicitud(conn, [lid]), sugeridor=_sugeridor_fijo())
+        assert len(buena.planes) == 1
+        baja = io.SolicitudImpulso(
+            plataforma="amazon_mx",
+            listing_ids=(lid,),
+            subfamilia_por_listing={lid: "aros"},
+            tope_monto=Decimal("10"),
+        )
+        vista = io.previsualiza(conn, baja, sugeridor=_sugeridor_fijo())
+        assert vista.planes == ()
+        assert [n.listing_id for n in vista.no_lanzables] == [lid]
+        assert "fuera de" in vista.no_lanzables[0].motivo
+        with pytest.raises(io.ErrorImpulso) as exc:
+            io.lanza(
+                conn,
+                baja,
+                huella=vista.huella,
+                confirmacion=vista.confirmacion_esperada,
+                actor="dueno",
+                ejecutor=_ejecutor_falso(conn),
+                sugeridor=_sugeridor_fijo(),
+            )
+        assert exc.value.status == 422
+        assert conn.execute("SELECT count(*) FROM fabrica_lote").fetchone() == (0,)
+        assert conn.execute("SELECT count(*) FROM impulso").fetchone() == (0,)
+
+
+@_skip_db
+def test_r09g_tope_por_producto_previa_marca_y_parcial():
+    """R09-G: el tope limita por producto. Dos listings del mismo
+    producto no tienen impulso vivo a la vez en la misma plataforma:
+    la vista previa marca el segundo no lanzable y lanzar lo rechaza
+    (tras R09-H, como fallo de conflicto del resultado parcial)."""
+    with _db_i3("orbit_i3_r09g") as conn:
+        pid, lid1 = _con_margen(conn)
+        lid2 = conn.execute(
+            "INSERT INTO listing (product_id, platform, external_id, seller_sku)"
+            " VALUES (%s, 'amazon_mx', 'B0AAAAAAAC', 'SS-1B') RETURNING id",
+            (pid,),
+        ).fetchone()[0]
+        conn.commit()
+        juntos = io.previsualiza(conn, _solicitud(conn, [lid1, lid2]), sugeridor=_sugeridor_fijo())
+        assert [p.listing_id for p in juntos.planes] == [lid1]
+        assert [n.listing_id for n in juntos.no_lanzables] == [lid2]
+        assert "producto" in juntos.no_lanzables[0].motivo
+        solicitud1 = _solicitud(conn, [lid1])
+        vista1 = io.previsualiza(conn, solicitud1, sugeridor=_sugeridor_fijo())
+        io.lanza(
+            conn,
+            solicitud1,
+            huella=vista1.huella,
+            confirmacion=vista1.confirmacion_esperada,
+            actor="dueno",
+            ejecutor=_ejecutor_falso(conn),
+            sugeridor=_sugeridor_fijo(),
+        )
+        assert conn.execute("SELECT count(*) FROM impulso").fetchone() == (1,)
+        previa2 = io.previsualiza(conn, _solicitud(conn, [lid2]), sugeridor=_sugeridor_fijo())
+        assert previa2.planes == ()
+        assert [n.listing_id for n in previa2.no_lanzables] == [lid2]
+        assert "producto" in previa2.no_lanzables[0].motivo
+        solicitud2 = _solicitud(conn, [lid2], subfamilias={lid2: "collares"})
+        previa2b = io.previsualiza(conn, solicitud2, sugeridor=_sugeridor_fijo())
+        with pytest.raises(io.ErrorImpulso) as exc:
+            io.lanza(
+                conn,
+                solicitud2,
+                huella=previa2b.huella,
+                confirmacion=previa2b.confirmacion_esperada,
+                actor="dueno",
+                ejecutor=_ejecutor_falso(conn),
+                sugeridor=_sugeridor_fijo(),
+            )
+        # R09-H: el rechazo del segundo es el fallo de conflicto dentro
+        # del resultado parcial, no un aborto del lote.
+        assert exc.value.status == 502
+        assert list(exc.value.fallos) == [lid2]
+        assert "producto" in exc.value.fallos[lid2]
+        assert conn.execute("SELECT count(*) FROM impulso").fetchone() == (1,)
+
+
+@_skip_db
+def test_r14r3_mismo_listing_sin_subfamilia_con_vivo_sigue_en_422():
+    """R14-r3: el vivo del mismo listing no pisa el motivo real."""
+    with _db_i3("orbit_i3_r14r3m4") as conn:
+        _, lid = _con_margen(conn)
+        solicitud = _solicitud(conn, [lid])
+        vista = io.previsualiza(conn, solicitud, sugeridor=_sugeridor_fijo())
+        io.lanza(
+            conn,
+            solicitud,
+            huella=vista.huella,
+            confirmacion=vista.confirmacion_esperada,
+            actor="dueno",
+            ejecutor=_ejecutor_falso(conn),
+            sugeridor=_sugeridor_fijo(),
+        )
+        sin_sub = io.SolicitudImpulso(
+            plataforma="amazon_mx", listing_ids=(lid,), subfamilia_por_listing={}
+        )
+        vista2 = io.previsualiza(conn, sin_sub, sugeridor=_sugeridor_fijo())
+        assert vista2.planes == ()
+        assert vista2.no_lanzables[0].motivo == "sin subfamilia del dueno"
+        with pytest.raises(io.ErrorImpulso) as exc:
+            io.lanza(
+                conn,
+                sin_sub,
+                huella=vista2.huella,
+                confirmacion=vista2.confirmacion_esperada,
                 actor="dueno",
                 ejecutor=_ejecutor_falso(conn),
                 sugeridor=_sugeridor_fijo(),
@@ -332,6 +457,81 @@ def test_lanza_concurrente_mismo_listing_un_solo_vivo():
 
 
 @_skip_db
+def test_r09g_dos_listings_del_mismo_producto_en_concurrencia_un_solo_vivo():
+    """R09-G (relectura): el candado corre por producto. Dos lanzar a
+    la vez de dos listings del mismo producto, en conexiones
+    distintas: solo uno crea el impulso; el otro cae en el parcial
+    con el fallo de conflicto."""
+    import threading
+    import time
+
+    import psycopg
+
+    with _db_i3("orbit_i3_r09g_race") as conn:
+        pid, lid1 = _con_margen(conn)
+        lid2 = conn.execute(
+            "INSERT INTO listing (product_id, platform, external_id, seller_sku)"
+            " VALUES (%s, 'amazon_mx', 'B0AAAAAAAC', 'SS-1B') RETURNING id",
+            (pid,),
+        ).fetchone()[0]
+        conn.commit()
+
+        class _Lento:
+            def __init__(self, c):
+                self._e = _ejecutor_falso(c)
+
+            def __call__(self, grupo, huella, lote):
+                time.sleep(0.5)
+                return self._e(grupo, huella, lote)
+
+        vistas = {}
+        for lid in (lid1, lid2):
+            vistas[lid] = io.previsualiza(
+                conn, _solicitud(conn, [lid]), sugeridor=_sugeridor_fijo()
+            )
+        barrera = threading.Barrier(2)
+        resultados: dict = {}
+
+        def _corre(n, c, lid):
+            sol = _solicitud(conn, [lid])
+            try:
+                barrera.wait(timeout=30)
+                r = io.lanza(
+                    c,
+                    sol,
+                    huella=vistas[lid].huella,
+                    confirmacion=vistas[lid].confirmacion_esperada,
+                    actor="dueno",
+                    ejecutor=_Lento(c),
+                    sugeridor=_sugeridor_fijo(),
+                )
+                resultados[n] = ("ok", [x.impulso_id for x in r])
+            except io.ErrorImpulso as exc:
+                resultados[n] = ("errorimpulso", exc.status, exc.fallos)
+            except Exception as exc:  # noqa: BLE001 - el test clasifica
+                resultados[n] = ("crash", type(exc).__name__)
+
+        conn2 = psycopg.connect(_dsn_propia(conn), dbname=conn.info.dbname, autocommit=True)
+        try:
+            hilos = [
+                threading.Thread(target=_corre, args=(1, conn, lid1)),
+                threading.Thread(target=_corre, args=(2, conn2, lid2)),
+            ]
+            for h in hilos:
+                h.start()
+            for h in hilos:
+                h.join(timeout=60)
+                assert not h.is_alive()
+        finally:
+            conn2.close()
+        tipos = sorted(v[0] for v in resultados.values())
+        assert tipos == ["errorimpulso", "ok"], resultados
+        parcial = next(v for v in resultados.values() if v[0] == "errorimpulso")
+        assert parcial[1] == 502 and len(parcial[2]) == 1
+        assert conn.execute("SELECT count(*) FROM impulso").fetchone() == (1,)
+
+
+@_skip_db
 def test_lanza_huella_distinta_da_409():
     """I.3: si el plan cambio desde la vista previa, 409 sin escribir."""
     with _db_i3("orbit_i3_409") as conn:
@@ -378,8 +578,9 @@ def test_lanza_un_fallo_no_detiene_al_otro():
 
 @_skip_db
 def test_lanza_rechaza_vivo_y_acepta_ids_vacios_con_422():
-    """I.3: relanzar un vivo con plan distinto da 409; listing_ids vacio
-    da 422."""
+    """I.3 + R09-H: relanzar un vivo con plan distinto ya no aborta el
+    lote: va al parcial como fallo del producto (502 con fallos);
+    listing_ids vacio da 422."""
     with _db_i3("orbit_i3_vivo") as conn:
         _, lid = _con_margen(conn)
         solicitud = _solicitud(conn, [lid])
@@ -406,7 +607,9 @@ def test_lanza_rechaza_vivo_y_acepta_ids_vacios_con_422():
                 ejecutor=_ejecutor_falso(conn),
                 sugeridor=_sugeridor_fijo(),
             )
-        assert exc.value.status == 409
+        assert exc.value.status == 502
+        assert list(exc.value.fallos) == [lid]
+        assert "impulso vivo" in exc.value.fallos[lid]
         with pytest.raises(io.ErrorImpulso) as exc:
             io.lanza(
                 conn,
@@ -464,9 +667,60 @@ def test_lanza_lote_huerfano_sella_sin_llamar_a_la_fabrica():
 
 
 @_skip_db
-def test_lanza_409_por_vivo_adjunta_lo_lanzado():
-    """N4: si el segundo producto choca con un vivo, el 409 trae en
-    lanzados al primero que si salio."""
+def test_r14r2_huerfano_no_sella_un_segundo_vivo_del_producto():
+    """R14-r2: la reutilizacion de huerfanos pasa por la guardia de vivo."""
+    with _db_i3("orbit_i3_r14r2") as conn:
+        _, lid = _con_margen(conn)
+        solicitud = _solicitud(conn, [lid])
+        vista = io.previsualiza(conn, solicitud, sugeridor=_sugeridor_fijo())
+        io.lanza(
+            conn,
+            solicitud,
+            huella=vista.huella,
+            confirmacion=vista.confirmacion_esperada,
+            actor="dueno",
+            ejecutor=_ejecutor_falso(conn),
+            sugeridor=_sugeridor_fijo(),
+        )
+        assert conn.execute("SELECT count(*) FROM impulso").fetchone() == (1,)
+        otra = _solicitud(conn, [lid], subfamilias={lid: "collares"})
+        vista2 = io.previsualiza(conn, otra, sugeridor=_sugeridor_fijo())
+        assert len(vista2.planes) == 1
+        lote2 = io.lote_de_plan(vista2.planes[0])
+        conn.execute(
+            "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal,"
+            " huella, plan, modo_goal, estado) VALUES (%s, 'amazon_mx', 'collares', 'Base', 'go',"
+            " %s, '{}'::jsonb, 'shadow', 'applied')",
+            (lote2, vista2.planes[0].huella()),
+        )
+        conn.execute(
+            "INSERT INTO campana_grupo (platform, tipo_producto, nombre_base, lote,"
+            " target_acos_pct, target_derivado_pct, fraccion, target_procedencia, go_literal,"
+            " tipo) VALUES ('amazon_mx', 'collares', 'Base', %s, 19.10, 19.1040, 0.5, 'm', 'go',"
+            " 'impulso')",
+            (lote2,),
+        )
+        conn.commit()
+        with pytest.raises(io.ErrorImpulso) as exc:
+            io.lanza(
+                conn,
+                otra,
+                huella=vista2.huella,
+                confirmacion=vista2.confirmacion_esperada,
+                actor="dueno",
+                ejecutor=_ejecutor_falso(conn),
+                sugeridor=_sugeridor_fijo(),
+            )
+        assert exc.value.status == 502
+        assert list(exc.value.fallos) == [lid]
+        assert "impulso vivo" in exc.value.fallos[lid]
+        assert conn.execute("SELECT count(*) FROM impulso").fetchone() == (1,)
+
+
+@_skip_db
+def test_lanza_parcial_por_vivo_adjunta_lo_lanzado():
+    """N4 + R09-H: si el segundo producto choca con un vivo, el parcial
+    trae en lanzados al primero que si salio y el choque en fallos."""
     with _db_i3("orbit_i3_n4") as conn:
         _, lid1 = _con_margen(conn)
         _, lid2 = _con_margen(conn, sku="SS-2", asin="B0AAAAAAAB", seller_sku="SS-2", desfase=20)
@@ -493,10 +747,52 @@ def test_lanza_409_por_vivo_adjunta_lo_lanzado():
                 ejecutor=_ejecutor_falso(conn),
                 sugeridor=_sugeridor_fijo(),
             )
-        assert exc.value.status == 409
+        assert exc.value.status == 502
         assert len(exc.value.lanzados) == 1
         assert exc.value.lanzados[0].lote == io.lote_de_plan(vista.planes[0])
+        assert list(exc.value.fallos) == [lid2]
         assert conn.execute("SELECT count(*) FROM impulso").fetchone() == (2,)
+
+
+@_skip_db
+def test_r09h_lote_de_tres_con_el_segundo_en_conflicto_lanza_los_otros():
+    """R09-H: en un lote de tres con el segundo en conflicto (su
+    producto ya tiene un impulso vivo), el primero y el tercero se
+    lanzan y el resultado parcial trae el fallo del segundo."""
+    with _db_i3("orbit_i3_r09h") as conn:
+        _, lid1 = _con_margen(conn)
+        _, lid2 = _con_margen(conn, sku="SS-2", asin="B0AAAAAAAB", seller_sku="SS-2", desfase=20)
+        _, lid3 = _con_margen(conn, sku="SS-3", asin="B0AAAAAAAC", seller_sku="SS-3", desfase=40)
+        solo2 = _solicitud(conn, [lid2])
+        vista2 = io.previsualiza(conn, solo2, sugeridor=_sugeridor_fijo())
+        io.lanza(
+            conn,
+            solo2,
+            huella=vista2.huella,
+            confirmacion=vista2.confirmacion_esperada,
+            actor="dueno",
+            ejecutor=_ejecutor_falso(conn),
+            sugeridor=_sugeridor_fijo(),
+        )
+        solicitud = _solicitud(conn, [lid1, lid2, lid3], subfamilias={lid2: "collares"})
+        vista = io.previsualiza(conn, solicitud, sugeridor=_sugeridor_fijo())
+        with pytest.raises(io.ErrorImpulso) as exc:
+            io.lanza(
+                conn,
+                solicitud,
+                huella=vista.huella,
+                confirmacion=vista.confirmacion_esperada,
+                actor="dueno",
+                ejecutor=_ejecutor_falso(conn),
+                sugeridor=_sugeridor_fijo(),
+            )
+        assert exc.value.status == 502
+        esperados = {io.lote_de_plan(p) for p in vista.planes if p.listing_id in (lid1, lid3)}
+        assert len(esperados) == 2
+        assert {x.lote for x in exc.value.lanzados} == esperados
+        assert list(exc.value.fallos) == [lid2]
+        assert "impulso vivo" in exc.value.fallos[lid2]
+        assert conn.execute("SELECT count(*) FROM impulso").fetchone() == (3,)
 
 
 class _Pausador:
@@ -830,6 +1126,91 @@ def test_vigia_sin_observaciones_no_guarda():
         assert conn.execute(
             "SELECT count(*) FROM impulso_lectura WHERE impulso_id = %s", (ids["impulso"],)
         ).fetchone() == (0,)
+
+
+@_skip_db
+def test_r09f_vigia_sin_ingesta_avisa_y_marca_no_atendido(capsys):
+    """R09-F: sin ingesta de la plataforma (corte None) el vigia avisa
+    por stderr y la accion queda no atendida, en vez de callar."""
+    with _db_i3("orbit_i3_r09f1") as conn:
+        ids = _impulso_vivo(conn)
+        acciones = io.vigila(conn, _Pausador(), hoy=HOY)
+        err = capsys.readouterr().err
+        assert acciones[0].atendido is False
+        assert "sin ingesta" in err
+        assert str(ids["impulso"]) in err
+        assert conn.execute(
+            "SELECT count(*) FROM impulso_lectura WHERE impulso_id = %s", (ids["impulso"],)
+        ).fetchone() == (0,)
+
+
+def _corre_vigia_cli(conn, monkeypatch):
+    import psycopg
+
+    from app import cli_bids
+
+    monkeypatch.setenv("ORBIT_DSN_ADMIN", "simulado")
+
+    def conecta(dsn):
+        return psycopg.connect(_dsn_propia(conn), dbname=conn.info.dbname)
+
+    monkeypatch.setattr("app.db.connect", conecta)
+    return cli_bids.main_impulso_vigia([])
+
+
+@_skip_db
+def test_r09f_cli_vigia_sin_impulsos_sale_0(monkeypatch):
+    """R09-F: sin impulsos vivos el comando sale 0 (no toca la red)."""
+    with _db_i3("orbit_i3_r09f2") as conn:
+        assert _corre_vigia_cli(conn, monkeypatch) == 0
+
+
+@_skip_db
+def test_r09f_cli_vigia_sin_ingesta_sale_1_y_avisa(monkeypatch, capsys):
+    """R09-F: con un impulso vivo y sin ingesta, el comando avisa y
+    sale distinto de cero."""
+    with _db_i3("orbit_i3_r09f3") as conn:
+        _impulso_vivo(conn)
+        assert _corre_vigia_cli(conn, monkeypatch) == 1
+        assert "sin ingesta" in capsys.readouterr().err
+
+
+@_skip_db
+def test_r09f_cli_vigia_con_todo_fallado_sale_1(monkeypatch, capsys):
+    """R09-F: si todos los impulsos vivos fallan, el comando sale
+    distinto de cero (el fallo individual ya salio por stderr)."""
+    with _db_i3("orbit_i3_r09f4") as conn:
+        ids = _impulso_vivo(conn)
+        _observa(conn, ids["camps"][0], HOY - dt.timedelta(days=1), gasto="200", clics=30)
+        _observa(conn, ids["camps"][1], HOY - dt.timedelta(days=1), gasto="150", clics=30)
+
+        def _truena(self, lote):
+            raise RuntimeError("amazon caido")
+
+        monkeypatch.setattr(io.PausadorFabrica, "pausa", _truena)
+        assert _corre_vigia_cli(conn, monkeypatch) == 1
+        assert "fallo" in capsys.readouterr().err
+
+
+@_skip_db
+def test_r14r2_cli_vigia_mixto_sale_0(monkeypatch, capsys):
+    """R14-r2: el 1 del CLI exige que ningun vivo se haya atendido."""
+    with _db_i3("orbit_i3_r14r2f") as conn:
+        pid1, lid1 = _con_margen(conn)
+        ids1 = _impulso_vivo(conn, pid=pid1, lid=lid1, lote="impulso-vivo-1")
+        _observa(conn, ids1["camps"][0], HOY - dt.timedelta(days=1))
+        _observa(conn, ids1["camps"][1], HOY - dt.timedelta(days=1))
+        pid2, lid2 = _con_margen(conn, sku="SS-2", asin="B0AAAAAAAB", seller_sku="SS-2", desfase=20)
+        ids2 = _impulso_vivo(conn, pid=pid2, lid=lid2, lote="impulso-vivo-2")
+        _observa(conn, ids2["camps"][0], HOY - dt.timedelta(days=1), gasto="200", clics=30)
+        _observa(conn, ids2["camps"][1], HOY - dt.timedelta(days=1), gasto="150", clics=30)
+
+        def _truena(self, lote):
+            raise RuntimeError("amazon caido")
+
+        monkeypatch.setattr(io.PausadorFabrica, "pausa", _truena)
+        assert _corre_vigia_cli(conn, monkeypatch) == 0
+        assert "fallo" in capsys.readouterr().err
 
 
 @_skip_db

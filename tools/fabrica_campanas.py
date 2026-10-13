@@ -315,14 +315,18 @@ SELECT orden, rol::text, recurso, estado, external_id, request_payload, ack, rea
  ORDER BY orden
 """
 _SQL_CAMPANAS_DEL_LOTE = """
-SELECT p.rol::text, p.external_id, g.id
-  FROM fabrica_lote_paso p
-  LEFT JOIN campana_grupo cg ON cg.lote = p.lote
-  LEFT JOIN campana_grupo_rol r ON r.grupo_id = cg.id AND r.rol = p.rol
-  LEFT JOIN ads_optimizer_goal g ON g.ad_entity_id = r.ad_entity_id AND g.scope = 'campaign'
- WHERE p.lote = %s AND p.recurso = 'campaign'
-   AND p.estado IN ('applied', 'failed') AND p.external_id IS NOT NULL
- ORDER BY p.orden
+SELECT t.rol, t.external_id, t.goal_id
+  FROM (
+    SELECT DISTINCT ON (p.rol) p.rol::text AS rol, p.external_id, g.id AS goal_id, p.orden
+      FROM fabrica_lote_paso p
+      LEFT JOIN campana_grupo cg ON cg.lote = p.lote
+      LEFT JOIN campana_grupo_rol r ON r.grupo_id = cg.id AND r.rol = p.rol
+      LEFT JOIN ads_optimizer_goal g ON g.ad_entity_id = r.ad_entity_id AND g.scope = 'campaign'
+     WHERE p.lote = %s AND p.recurso = 'campaign'
+       AND p.estado IN ('applied', 'failed') AND p.external_id IS NOT NULL
+     ORDER BY p.rol, p.orden DESC
+  ) t
+ ORDER BY t.orden
 """
 _SQL_CAMPANAS_DEL_LOTE_PARA_PAUSA = """
 SELECT DISTINCT ON (p.rol) p.rol::text, p.external_id, g.id
@@ -1618,12 +1622,26 @@ def _put_estado_campana(ctx: _Ctx, external: str, estado: str) -> dict:
 
 
 def _pausa_una(ctx: _Ctx, rol: str, external: str, goal_id) -> None:
-    ack = _put_estado_campana(ctx, external, _PAUSADA)
+    # R09-I: como _cambia_estado_lote, la pausa deja fila en el ledger
+    # antes del PUT y el readback la sella. Su unico llamador hoy es
+    # _desarmar, que fija ctx.orden con el maximo del lote.
+    paso = fp.Paso(rol, "campaign", "/sp/campaigns", {}, f"desarmar {rol}")
+    paso_id = _inserta_paso(ctx, paso, {"campaignId": external, "state": _PAUSADA})
+    try:
+        ack = _put_estado_campana(ctx, external, _PAUSADA)
+    except Abortar:
+        _sella_paso(ctx, paso_id, False, external, {}, None)
+        raise
     if not fp.ack_ok(ack):
+        _sella_paso(ctx, paso_id, False, external, ack, None)
         _log("lote_detenido", lote=ctx.lote, motivo=f"PUT PAUSED de {rol} rechazado")
         raise Abortar(f"PUT PAUSED de {external} ({rol}) rechazado (status {ack.get('status')})")
     time.sleep(0.3)
-    leido = _readback(ctx.cliente_lectura, ctx.profile, "/sp/campaigns", external)
+    try:
+        leido = _readback(ctx.cliente_lectura, ctx.profile, "/sp/campaigns", external)
+    except Exception as exc:
+        _sella_paso(ctx, paso_id, False, external, ack, None)
+        raise Abortar(f"readback de {external} ({rol}) levanto ({exc}): se detiene") from exc
     estado = leido.get("state") if isinstance(leido, dict) else None
     _log(
         "desarmar",
@@ -1635,7 +1653,9 @@ def _pausa_una(ctx: _Ctx, rol: str, external: str, goal_id) -> None:
         ok=estado == _PAUSADA,
     )
     if estado != _PAUSADA:
+        _sella_paso(ctx, paso_id, False, external, ack, estado)
         raise Abortar(f"readback de {external} ({rol}) != PAUSED ({estado}): se detiene")
+    _sella_paso(ctx, paso_id, True, external, ack, estado)
     if goal_id is not None:
         goals_write.edita_goal(
             ctx.conn_admin,
@@ -1814,6 +1834,8 @@ def _desarmar(args) -> int:
     http = None
     try:
         conn_admin = connect(_dsn_admin())
+        if _estado_lote(conn_admin, args.desarmar) == "desarmado":
+            raise Abortar(f"lote {args.desarmar} desarmado: nunca revive")
         filas = conn_admin.execute(_SQL_CAMPANAS_DEL_LOTE, (args.desarmar,)).fetchall()
         conn_admin.commit()
         if not filas:
@@ -1852,6 +1874,13 @@ def _desarmar(args) -> int:
             conn_admin,
             args.desarmar,
         )
+        # R09-I: el ledger de _pausa_una continua en max(orden), como
+        # _cambia_estado_lote (con _Ctx fresco en 0 chocaria UNIQUE).
+        ctx.orden = conn_admin.execute(
+            "SELECT COALESCE(MAX(orden), 0) FROM fabrica_lote_paso WHERE lote = %s",
+            (args.desarmar,),
+        ).fetchone()[0]
+        conn_admin.commit()
         pausadas = 0
         for rol, external, goal_id in filas:
             _pausa_una(ctx, rol, external, goal_id)

@@ -1,0 +1,25 @@
+== MODO SIMULACION: datos reales contra postgresql://orbit:orbit@127.0.0.1:5433/orbit_sim_d6, servidor intacto
+SHA=7b606e7
+== 0) Reversas de aplicadas-20261013-0542.txt existen en el SHA, ANTES de tocar nada
+reversas en orden: 0072_reversa_bids02_impulso_grupo_tipo.sql 0071_reversa_bids02_grant_vista_impulso.sql
+== 0b) Guardas (ciclos en running abortan)
+guardas OK (sin ciclos en running)
+== 0c) Filas en impulso (conteo informativo: las reversas no borran filas)
+impulso trae 0 fila(s): la 0072 y la 0071 se reversan igual (no hay DROP de tablas)
+== 1) Restaurar codigo de predeploy-20261013-0542 (el crontab no se toca)
+crontab antes: md5 y lineas = 1f971f3802a7bb2736aa9fb1c27c196f 5 (sin tocarlo)
+SIMULACION: respaldo /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-d6-sim/predeploy-20261013-0542 presente; sin servidor, nada que reconstruir
+== 2) Reversas en orden inverso
+WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+reversa aplicada 0072_reversa_bids02_impulso_grupo_tipo.sql
+WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+reversa aplicada 0071_reversa_bids02_grant_vista_impulso.sql
+== 3) Verificacion (esperado: f en lo que reverso este despliegue)
+trigger_0072=f guardia_0072=f vista_legible=f
+la reversa de la 0071 quito tambien el SELECT previo: se vuelve a otorgar suelto
+vista_legible tras reotorgar=t
+crontab despues: md5 y lineas = 1f971f3802a7bb2736aa9fb1c27c196f 5
+== REVERSA LISTA. Codigo de predeploy-20261013-0542 restaurado y reversas aplicadas; sin tocar el crontab.
+exit=0

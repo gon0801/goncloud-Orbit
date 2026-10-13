@@ -76,7 +76,9 @@ def main_avisos_campana(argv: list[str]) -> int:
 
 def main_impulso_vigia(argv: list[str]) -> int:
     """Vigia diario del impulso (BIDS 02 I.3): lee, guarda y actua. Sin
-    impulsos vivos sale 0 sin tocar la red. 2 sin DSN o con args extra."""
+    impulsos vivos sale 0 sin tocar la red. 2 sin DSN o con args extra.
+    R09-F: con impulsos vivos y ninguno atendido (todos fallaron o sin
+    ingesta) avisa y sale 1, para que el cron no calle un dia perdido."""
     from app import impulso_io
     from app.db import connect
 
@@ -89,6 +91,8 @@ def main_impulso_vigia(argv: list[str]) -> int:
         return 2
     conn = connect(dsn_admin)
     try:
+        vivos = len(conn.execute(impulso_io._SQL_VIVOS).fetchall())
+        conn.commit()
         hoy = dt.datetime.now(dt.UTC).date()
         acciones = impulso_io.vigila(conn, impulso_io.PausadorFabrica(conn), hoy=hoy)
     finally:
@@ -98,6 +102,13 @@ def main_impulso_vigia(argv: list[str]) -> int:
             f"impulso {accion.impulso_id}: {accion.veredicto.estado} -> {accion.hecho}",
             flush=True,
         )
+    if vivos > 0 and not any(accion.atendido for accion in acciones):
+        print(
+            f"impulso-vigia: {vivos} impulso(s) vivo(s) y ninguno atendido;"
+            " el dia no se proceso (fallos o sin ingesta)",
+            file=sys.stderr,
+        )
+        return 1
     return 0
 
 

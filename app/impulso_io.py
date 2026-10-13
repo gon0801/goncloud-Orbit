@@ -103,6 +103,9 @@ class AccionVigia:
     lectura: im.LecturaImpulso
     veredicto: im.VeredictoImpulso
     hecho: str
+    # R09-F: False cuando no se pudo atender (sin ingesta de su
+    # plataforma: no hay corte y no se guardo lectura).
+    atendido: bool = True
 
 
 class EjecutorFabrica(Protocol):
@@ -167,7 +170,29 @@ class PausadorFabrica:
     def pausa(self, lote: str) -> None:
         import tools.fabrica_campanas as fc
 
-        fc.pausar_lote(self._ctx_para(lote), lote, self._actor)
+        try:
+            fc.pausar_lote(self._ctx_para(lote), lote, self._actor)
+        except fc.Abortar as exc:
+            if self._lote_no_pausable(lote):
+                raise ErrorImpulso(409, str(exc)) from None
+            raise
+
+    def _lote_no_pausable(self, lote: str) -> bool:
+        """R09-A: True si el Abortar de la pausa se explica por el
+        estado del lote (ya pausado, desarmado o sin campanas que
+        pausar). Es un conflicto que el dueno resuelve (409), no un
+        rechazo de Amazon a media pausa (502)."""
+        fila = self._conn.execute(_SQL_ESTADO_LOTE, (lote,)).fetchone()
+        self._conn.commit()
+        if fila is None or fila[0] != "applied":
+            return True
+        hay = self._conn.execute(
+            "SELECT 1 FROM fabrica_lote_paso WHERE lote = %s AND recurso = 'campaign'"
+            " AND estado IN ('applied', 'failed') AND external_id IS NOT NULL LIMIT 1",
+            (lote,),
+        ).fetchone()
+        self._conn.commit()
+        return hay is None
 
     def reanuda(self, lote: str) -> None:
         import tools.fabrica_campanas as fc
@@ -324,7 +349,7 @@ def _plan_producto(
     retiros = retiro_anuncios.planea_retiro(
         conn, plataforma, listing_ids=(pub.listing_id,), motivo="impulso", conservar_grupo_id=None
     ).anuncios
-    return im.PlanImpulso(
+    plan = im.PlanImpulso(
         plataforma=plataforma,
         listing_id=pub.listing_id,
         product_id=pub.product_id,
@@ -341,6 +366,12 @@ def _plan_producto(
         bids_acotados=acotados,
         retiros=retiros,
     )
+    # R09-B: el mismo PlanGrupoV2 que la fabrica validaria al crear los
+    # pasos se valida aqui: un bid o budget fuera de rango (piso/techo
+    # de la moneda) deja el producto no lanzable en la vista previa, en
+    # vez de morir con 502 al lanzar.
+    fp._valida_plan_v2(im.grupo_v2_de_plan(plan))
+    return plan
 
 
 def previsualiza(
@@ -359,26 +390,48 @@ def previsualiza(
     settings = dict(fila[0]) if fila and fila[0] else {}
     planes = []
     no_lanzables = []
+    productos_en_vista: set[int] = set()
     for lid in sorted(set(solicitud.listing_ids)):
         subfamilia = solicitud.subfamilia_por_listing.get(lid)
         if not subfamilia:
             no_lanzables.append(NoLanzable(lid, "sin subfamilia del dueno"))
             continue
         try:
-            planes.append(
-                _plan_producto(
-                    conn,
-                    solicitud.plataforma,
-                    lid,
-                    subfamilia,
-                    solicitud.tope_monto,
-                    sugeridor,
-                    dia,
-                    settings,
-                )
+            plan = _plan_producto(
+                conn,
+                solicitud.plataforma,
+                lid,
+                subfamilia,
+                solicitud.tope_monto,
+                sugeridor,
+                dia,
+                settings,
             )
         except fp.PlanInvalido as exc:
             no_lanzables.append(NoLanzable(lid, str(exc)))
+            continue
+        # R09-G: el tope limita por producto, no por listing. Dos
+        # listings del mismo producto no van a la vez, ni en esta misma
+        # vista ni contra un impulso vivo de otro listing.
+        if plan.product_id in productos_en_vista:
+            no_lanzables.append(
+                NoLanzable(lid, "el producto ya va en este lanzamiento (tope por producto)")
+            )
+            continue
+        vivo_otro = conn.execute(
+            _SQL_VIVO_OTRO_LISTING, (solicitud.plataforma, plan.product_id, plan.listing_id)
+        ).fetchone()
+        if vivo_otro is not None:
+            no_lanzables.append(
+                NoLanzable(
+                    lid,
+                    f"el producto ya tiene un impulso vivo en el listing {vivo_otro[0]}"
+                    " (tope por producto)",
+                )
+            )
+            continue
+        productos_en_vista.add(plan.product_id)
+        planes.append(plan)
     planes_t = tuple(planes)
     moneda = MONEDA_POR_PLATAFORMA[solicitud.plataforma]
     n = len(planes_t)
@@ -393,10 +446,23 @@ def previsualiza(
     )
 
 
-_SQL_VIVO = """
-SELECT i.id, i.lote FROM impulso i
+_SQL_VIVO_OTRO_LISTING = """
+SELECT i.listing_id FROM impulso i
  LEFT JOIN impulso_lectura l ON l.impulso_id = i.id AND l.es_final
- WHERE i.platform = %s AND i.listing_id = %s AND l.impulso_id IS NULL
+ WHERE i.platform = %s AND i.product_id = %s AND i.listing_id <> %s
+   AND l.impulso_id IS NULL
+ LIMIT 1
+"""
+
+_SQL_VIVO_PRODUCTO = """
+SELECT i.id, i.lote, i.listing_id FROM impulso i
+ LEFT JOIN impulso_lectura l ON l.impulso_id = i.id AND l.es_final
+ WHERE i.platform = %s AND i.product_id = %s AND l.impulso_id IS NULL
+ LIMIT 1
+"""
+
+_SQL_PRODUCTO_DE_LISTING = """
+SELECT product_id FROM listing WHERE id = %s AND platform = %s
 """
 
 _SQL_IMPULSO_DE_LOTE = """
@@ -623,6 +689,37 @@ def _descarta_huerfano(conn, lote_viejo: str, actor: str) -> str | None:
     return aviso
 
 
+def _fallos_por_vivo(conn, solicitud: SolicitudImpulso, vista: VistaPreviaImpulso, fallos) -> None:
+    """R09-H: un no lanzable cuyo producto ya tiene un impulso vivo en
+    OTRO listing entra al resultado parcial como fallo de conflicto
+    (ese es su motivo al lanzar). Si el vivo es del mismo listing y el
+    producto quedo fuera por otra causa, el motivo real manda."""
+    for no in vista.no_lanzables:
+        prod = conn.execute(
+            _SQL_PRODUCTO_DE_LISTING, (no.listing_id, solicitud.plataforma)
+        ).fetchone()
+        if prod is None:
+            continue
+        vivo = conn.execute(_SQL_VIVO_PRODUCTO, (solicitud.plataforma, prod[0])).fetchone()
+        if vivo is not None and vivo[2] != no.listing_id:
+            fallos[no.listing_id] = (
+                f"el producto ya tiene un impulso vivo en el listing {vivo[2]} (tope por producto)"
+            )
+
+
+def _falla_si_hay_vivo(conn, plan, fallos) -> bool:
+    """True si el producto ya tiene un impulso vivo. Sellar cualquier
+    lote (nuevo o huerfano reutilizado) crearia un segundo vivo, asi
+    que esta guardia va antes de reutilizar huerfanos."""
+    vivo = conn.execute(_SQL_VIVO_PRODUCTO, (plan.plataforma, plan.product_id)).fetchone()
+    if vivo is None:
+        return False
+    fallos[plan.listing_id] = (
+        f"el producto ya tiene un impulso vivo en el listing {vivo[2]} (tope por producto)"
+    )
+    return True
+
+
 def lanza(
     conn,
     solicitud: SolicitudImpulso,
@@ -636,8 +733,8 @@ def lanza(
 ) -> list[ImpulsoLanzado]:
     """Re-planifica, compara la huella (409 si cambio) y crea un lote por
     producto con el ejecutor de la fabrica (modo shadow). Candado por
-    listing: un vivo con otro lote da 409. La fila de impulso se
-    inserta despues de que su lote queda applied. Un producto que
+    producto: un vivo es un fallo mas del parcial. La fila de impulso
+    se inserta despues de que su lote queda applied. Un producto que
     falla no detiene a los demas."""
     if not solicitud.listing_ids:
         raise ErrorImpulso(422, "impulso sin productos: listing_ids vacio")
@@ -646,7 +743,9 @@ def lanza(
     if "\x00" in actor:
         raise ErrorImpulso(422, "actor con NUL")
     vista = previsualiza(conn, solicitud, sugeridor=sugeridor, hoy=hoy)
-    if not vista.planes:
+    fallos: dict[int, str] = {}
+    _fallos_por_vivo(conn, solicitud, vista, fallos)
+    if not vista.planes and not fallos:
         raise ErrorImpulso(422, "nada lanzable: revisa no_lanzables")
     if vista.huella != huella:
         raise ErrorImpulso(409, "el plan cambio desde la vista previa: previsualiza de nuevo")
@@ -655,13 +754,19 @@ def lanza(
             422, f"confirmacion distinta: se esperaba {vista.confirmacion_esperada!r}"
         )
     lanzados: list[ImpulsoLanzado] = []
-    fallos: dict[int, str] = {}
     for plan in vista.planes:
         lote = lote_de_plan(plan)
         # Una transaccion por producto: el candado advisory dura la
         # transaccion (en autocommit, sin esto se libera al instante y
         # dos lanzar crean dos vivos). Salir commitea; fallar revierte.
+        # Primero por producto (R09-G: dos listings del mismo producto
+        # no crean dos vivos) y despues por listing, siempre en ese
+        # orden.
         with conn.transaction():
+            conn.execute(
+                "SELECT pg_advisory_xact_lock(hashtext(%s))",
+                (f"impulso-producto:{plan.plataforma}:{plan.product_id}",),
+            )
             conn.execute(
                 "SELECT pg_advisory_xact_lock(hashtext(%s))", (f"impulso:{plan.listing_id}",)
             )
@@ -669,6 +774,8 @@ def lanza(
             if existente is not None:
                 estado = conn.execute(_SQL_ESTADO_LOTE, (lote,)).fetchone()[0]
                 lanzados.append(ImpulsoLanzado(existente[0], lote, estado))
+                continue
+            if _falla_si_hay_vivo(conn, plan, fallos):
                 continue
             huerfano = conn.execute(_SQL_ESTADO_LOTE, (lote,)).fetchone()
             if huerfano is not None:
@@ -697,13 +804,6 @@ def lanza(
                         f"lote {lote} quedo en {huerfano[0]}: reconcilia a mano"
                     )
                     continue
-            vivo = conn.execute(_SQL_VIVO, (plan.plataforma, plan.listing_id)).fetchone()
-            if vivo is not None:
-                raise ErrorImpulso(
-                    409,
-                    f"listing {plan.listing_id} ya tiene un impulso vivo",
-                    lanzados=lanzados,
-                )
             # Otro lote, mismo listing (otra huella: otro bid u otro dia):
             # el huerfano applied se reutiliza; un failed/planeado o un
             # applied sin grupo bloquea hasta reconciliar a mano.
@@ -838,7 +938,13 @@ def _vigila_uno(conn, pausador, fila, *, hoy, escritor_retiro):
         lectura = im.LecturaImpulso(hoy, 0, None, None, None, None)
         conn.commit()
         return (
-            AccionVigia(imp, lectura, im.VeredictoImpulso("en_curso", False, "seguir"), "nada"),
+            AccionVigia(
+                imp,
+                lectura,
+                im.VeredictoImpulso("en_curso", False, "seguir"),
+                "nada",
+                atendido=False,
+            ),
             escritor_retiro,
         )
     ayer = hoy - dt.timedelta(days=1)
@@ -1054,5 +1160,13 @@ def vigila(
             continue
         if escritor_retiro is None and usado is not None:
             escritores[platform] = usado
+        if not accion.atendido:
+            # R09-F: sin ingesta no hay nada que guardar, pero tampoco
+            # se calla: el aviso va al log del cron.
+            print(
+                f"vigila: impulso {accion.impulso_id} sin ingesta de su plataforma"
+                " (corte None): no se guardo lectura",
+                file=sys.stderr,
+            )
         acciones.append(accion)
     return acciones

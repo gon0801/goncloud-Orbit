@@ -1,0 +1,36 @@
+Panel R14-r2: sintesis y lente de pruebas
+
+Tres hijos Muse revisaron el diff 30cc62f..3430b2d en paralelo
+(esquema, correccion y pruebas) y un cuarto junto los resultados.
+La sintesis ordeno los riesgos asi: (1) una fila por rol o filtro
+anti-pasos-de-pausa en la consulta del desarme y guarda de estado
+desarmado; (2) sellar failed el paso de _pausa_una tambien cuando el
+PUT levanta; (3) clasificar R09-A por causa en vez de relectura
+posterior; (4) decidir si el no lanzable por vivo ajeno ya excluido
+de la confirmacion cuenta como fallo 502 en lanzamientos mixtos.
+
+Notas de la lente de esquema: el flujo D.6 nunca aplicaba la 0071
+porque el detector con privilegios no distinguia el default, y su
+reversa dejaba la vista ilegible; la carrera de la 0072 entre el
+INSERT de impulso y el UPDATE de tipo se infirio del codigo.
+
+Evidencia de la lente de pruebas:
+- R09-A traducción y ruta: app/impulso_io.py:170-195 (pausa/_lote_no_pausable) y app/api_fabrica.py:646-668 (Abortar->502, ErrorImpulso->_error_impulso); test nuevo tests/test_api_fabrica.py:2646-2728 con doble que duplica la query en tests/test_api_fabrica.py:2693-2697; G9 mockea pausa entera en tests/test_api_fabrica.py:2545-2548; rama negativa real en tests/test_impulso_io.py:2211-2233 con fixture tests/test_impulso_io.py:2177-2182
+- R09-B: app/impulso_io.py:369-374 llama fp._valida_plan_v2; rangos en app/fabrica_plan.py:380-382; único caso en tests/test_impulso_io.py:138-168 (tope=10, budget bajo piso)
+- R09-D: app/static/js/productos.js:44-65 (mensajeError con ramas string/objeto/Array/fallback) y cinco sitios en productos.js:147,204,252,309,369; test tests/test_ui_productos.py:216-351 solo ejecuta lanzar/verLanzamiento/verRetiro y afirma conteo textual en tests/test_ui_productos.py:224-225
+- R09-E: migrations/0071_bids02_grant_vista_impulso.sql:14-29 y reversa migrations/0071_reversa_bids02_grant_vista_impulso.sql:7; test tests/test_migracion_0071.py:33-58 solo afirma INSERT false de app_read (líneas 49-54)
+- R09-F: app/cli_bids.py:94-112 (vivos + not any(atendido)), app/impulso_io.py:940 (atendido=False), 1151-1164 (fallo aislado y aviso); tests tests/test_impulso_io.py:1044-1104 sin caso mixto atendido+no atendido
+- R09-G: app/impulso_io.py:416-433 (previa por producto), 449-462 (SQL por producto/plataforma), 753-759 (locks producto->listing); tests tests/test_impulso_io.py:172-222 y concurrencia 423-497; sin caso multiplataforma ni impulso cerrado
+- R09-H: app/impulso_io.py:692-707 (_fallos_por_vivo con guarda vivo[2] != listing en línea 704), 792-800 (conflicto bajo lock), 857-860 (502 parcial); tests tests/test_impulso_io.py:670-707 (tres productos) y 172-222 (vía _fallos_por_vivo); sin caso mismo-listing-otra-causa que discrimine la guarda de la línea 704
+- R09-I: tools/fabrica_campanas.py:1620-1646 (_pausa_una sella en éxito y en fallo, líneas 1628/1644/1646) y 1863-1869 (ctx.orden=max); test tests/test_fabrica_campanas.py:2912-2947 solo happy path con órdenes [1,2,3,4]
+- R09-J: migrations/0072_bids02_impulso_grupo_tipo.sql:16-43 (trigger INSERT y guardia UPDATE con EXISTS) y reversa migrations/0072_reversa_bids02_impulso_grupo_tipo.sql:7-13; test tests/test_migracion_0072.py:25-61 sin caso grupo-sin-impulsos ni UPDATE tras reversa
+- Transversal: tests de DB condicionados a Postgres, p. ej. tests/test_migracion_0071.py:20-23 (_skip_db); diff completo leído con git diff 30cc62f..3430b2d en dev/wt-bids-02-s8 (37 archivos) y ajuste R14 cbf8395..3430b2d
+
+Sin confirmar por esa lente:
+- No ejecuté la batería (restricción de solo lectura: correr pytest escribiría __pycache__ en el worktree) ni verifiqué el estado de CI del PR 443; que los tests nuevos pasen y que CI tenga Postgres para los @_skip_db queda sin confirmar por esta vía.
+- No inspeccioné los scripts de evidencia D.6 ni los .md de evidencia más allá del diff: la lente pedida era tests nuevos/editados y app/static/js/productos.js; la corrección de esos scripts queda fuera de esta revisión.
+
+Veredicto de la lente de pruebas: la cobertura principal discrimina,
+con el caso mixto del vigia y la guarda del vivo del mismo listing
+como huecos que dejaban pasar mutantes, mas huecos menores en
+R09-A, R09-D, R09-B, R09-I, R09-J y R09-E.
