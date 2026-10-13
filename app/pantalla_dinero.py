@@ -416,6 +416,7 @@ def lee_campanas(
     from app.campana_ajustes import coincide_clase
 
     regresables: dict[int, list] = {}
+    vigentes: dict[int, object] = {}
     for aid, cid, clase, confirmado, antes_id, regreso_pendiente in conn.execute(
         _SQL_REGRESABLES, (plataforma,)
     ).fetchall():
@@ -423,7 +424,9 @@ def lee_campanas(
         # regreso contesta 409; la pantalla no ofrece el boton. Con un
         # regreso pendiente cuyo efecto ya se observo, la ruta lo sella
         # y contesta 200: ahi el boton si se ofrece.
-        _vid, vigente = config_vigente_con_id(conn, cid)
+        if cid not in vigentes:
+            vigentes[cid] = config_vigente_con_id(conn, cid)[1]
+        vigente = vigentes[cid]
         if vigente is not None and not regreso_pendiente:
             antes = config_por_id(conn, antes_id)
             if vigente == antes or coincide_clase(clase, vigente, antes):
