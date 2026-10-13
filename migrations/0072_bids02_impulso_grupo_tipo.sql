@@ -15,7 +15,10 @@ BEGIN;
 
 CREATE OR REPLACE FUNCTION impulso_grupo_es_impulso() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
-    IF (SELECT tipo FROM campana_grupo WHERE id = NEW.grupo_id) IS DISTINCT FROM 'impulso' THEN
+    -- FOR UPDATE sobre el grupo: un UPDATE de tipo simultaneo espera a
+    -- esta lectura (o esta lectura espera a ese UPDATE) y el chequeo ve
+    -- el tipo ya confirmado.
+    IF (SELECT tipo FROM campana_grupo WHERE id = NEW.grupo_id FOR UPDATE) IS DISTINCT FROM 'impulso' THEN
         RAISE EXCEPTION 'impulso %: el grupo % no es de tipo impulso', NEW.id, NEW.grupo_id;
     END IF;
     RETURN NEW;
@@ -45,11 +48,23 @@ CREATE TRIGGER grupo_impulso_tipo_guardia
 DO $$
 BEGIN
     IF NOT EXISTS (
-        SELECT 1 FROM pg_trigger WHERE tgname = 'impulso_grupo_tipo' AND NOT tgisinternal
+        SELECT 1 FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
+         WHERE t.tgname = 'impulso_grupo_tipo' AND NOT t.tgisinternal
+           AND c.relname = 'impulso' AND t.tgenabled <> 'D'
     ) OR NOT EXISTS (
-        SELECT 1 FROM pg_trigger WHERE tgname = 'grupo_impulso_tipo_guardia' AND NOT tgisinternal
+        SELECT 1 FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
+         WHERE t.tgname = 'grupo_impulso_tipo_guardia' AND NOT t.tgisinternal
+           AND c.relname = 'campana_grupo' AND t.tgenabled <> 'D'
     ) THEN
         RAISE EXCEPTION '0072: falta un trigger del candado de tipo del impulso';
+    END IF;
+    -- Un impulso ya colgando de un grupo que no es tipo impulso no se
+    -- queda en silencio: la migracion aborta y se reconcilia a mano.
+    IF EXISTS (
+        SELECT 1 FROM impulso i JOIN campana_grupo g ON g.id = i.grupo_id
+         WHERE g.tipo IS DISTINCT FROM 'impulso'
+    ) THEN
+        RAISE EXCEPTION '0072: ya hay impulsos sobre grupos que no son tipo impulso';
     END IF;
 END;
 $$;

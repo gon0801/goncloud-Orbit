@@ -29,6 +29,12 @@ def _select_vista(conn, rol):
     ).fetchone()[0]
 
 
+def _marca_0071(conn):
+    return conn.execute(
+        "SELECT obj_description('public.v_impulso_estado'::regclass, 'pg_class')"
+    ).fetchone()[0]
+
+
 @_skip_db
 def test_0071_grant_explicito_sobre_la_vista_y_su_reversa():
     """R09-E: la 0065 crea la vista sin GRANT propio; la 0071 declara
@@ -46,13 +52,20 @@ def test_0071_grant_explicito_sobre_la_vista_y_su_reversa():
         conn.commit()
         assert _select_vista(conn, "app_read") is True
         assert _select_vista(conn, "app_admin") is True
-        assert (
-            conn.execute(
-                "SELECT has_table_privilege('app_read', 'public.v_impulso_estado', 'INSERT')"
-            ).fetchone()[0]
-            is False
-        )
+        # La marca distingue la 0071 aplicada del privilegio que ya
+        # venia de los default privileges.
+        assert _marca_0071(conn) == "GRANT SELECT declarado por la migracion 0071 (BIDS 02 R09-E)"
+        for rol in ("app_read", "app_admin"):
+            for privilegio in ("INSERT", "UPDATE", "DELETE"):
+                assert (
+                    conn.execute(
+                        "SELECT has_table_privilege(%s, 'public.v_impulso_estado', %s)",
+                        (rol, privilegio),
+                    ).fetchone()[0]
+                    is False
+                )
         conn.execute(REVERSA71)
         conn.commit()
         assert _select_vista(conn, "app_read") is False
         assert _select_vista(conn, "app_admin") is False
+        assert _marca_0071(conn) is None

@@ -38,13 +38,6 @@ revisa() {  # revisa <nombre> <esperado> <obtenido>
   elif [ "$2" = "$3" ]; then echo "OK    $1 = $3";
   else echo "FALLA $1: esperado '$2', obtenido '$3'"; FALLAS=$((FALLAS + 1)); fi
 }
-positivo() {  # positivo <nombre> <obtenido>: OK si es un entero > 0
-  case "$2" in
-    ''|*[!0-9]*) echo "NO MEDIDO $1 (lectura vacia)"; NOMEDIDO=$((NOMEDIDO + 1)) ;;
-    0) echo "FALLA $1: esperado > 0, obtenido 0"; FALLAS=$((FALLAS + 1)) ;;
-    *) echo "OK    $1 = $2" ;;
-  esac
-}
 lee() {
   if [ "$SIM" = 1 ]; then
     psql "$DSN_SIM" -X -q -tA -v ON_ERROR_STOP=1
@@ -117,8 +110,10 @@ revisa "app_admin DELETE en fabrica_lote (0070)" t \
   "$(echo "SELECT has_table_privilege('app_admin', 'public.fabrica_lote', 'DELETE');" | lee || true)"
 revisa "GRANT SELECT de v_impulso_estado a app_read y app_admin (0071)" t \
   "$(echo "SELECT has_table_privilege('app_read', 'public.v_impulso_estado', 'SELECT') AND has_table_privilege('app_admin', 'public.v_impulso_estado', 'SELECT');" | lee || true)"
-revisa "candado de tipo del grupo del impulso (0072)" t \
-  "$(echo "SELECT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'impulso_grupo_tipo' AND NOT tgisinternal);" | lee || true)"
+revisa "marca de la 0071 en v_impulso_estado" "GRANT SELECT declarado por la migracion 0071 (BIDS 02 R09-E)" \
+  "$(echo "SELECT obj_description('public.v_impulso_estado'::regclass, 'pg_class');" | lee || true)"
+revisa "candado de tipo del grupo del impulso (0072, los dos triggers)" t \
+  "$(echo "SELECT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'impulso_grupo_tipo' AND NOT tgisinternal) AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'grupo_impulso_tipo_guardia' AND NOT tgisinternal);" | lee || true)"
 
 echo "== 3) La pantalla de productos responde en cada mercado"
 for MERCADO in amazon_mx amazon_us; do

@@ -104,6 +104,10 @@ else
   echo "FALLA: las reversas no devuelven el esquema base"; exit 1
 fi
 senales
+P71=$(psql "$DSN_DB" -X -q -tA -v ON_ERROR_STOP=1 -f "$REPO/docs/evidencia/bids-02/ejecucion/R09-E/permisos.sql")
+P72=$(psql "$DSN_DB" -X -q -tA -v ON_ERROR_STOP=1 -f "$REPO/docs/evidencia/bids-02/ejecucion/R09-J/permisos.sql")
+[ "$P71" != "permisos OK" ] && [ "$P72" != "permisos OK" ] || { echo "FALLA: las senales siguen OK tras reversar"; exit 1; }
+echo "OK: tras reversar, las senales de la 0071 y la 0072 ya no dan permisos OK"
 
 echo "== 4) reaplicar la 0071 y la 0072"
 for m in $MIGS; do aplicar "$m"; done

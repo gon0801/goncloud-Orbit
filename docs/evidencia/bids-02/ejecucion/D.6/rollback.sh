@@ -6,12 +6,13 @@
 # linea de cron: el crontab no se toca; se imprime su huella (md5 y
 # lineas) antes y despues y se aborta si cambio (R13-E). Las reversas
 # de la 0071 y la 0072 no borran tablas ni filas (REVOKE y DROP del
-# trigger/funcion): son seguras con impulsos creados, y la reversa de
+# trigger/funcion): son seguras con impulsos creados.
 # OJO con la reversa de la 0071: la ACL no distingue si el GRANT vino
 # del default o de la migracion; un REVOKE real quita tambien el
 # privilegio que ya existia por default privileges (solo se otorga al
 # crear el objeto). La verificacion de abajo lo detecta (la vista
-# dejaria de ser legible) y la correccion es reaplicar la 0071. El DSN de lectura sale del .env del
+# dejaria de ser legible) y vuelve a otorgar el SELECT suelto, sin la
+# marca de la 0071. El DSN de lectura sale del .env del
 # servidor, sin depender de que orbit-app-1 este arriba (R13-L): se
 # resuelve dentro del servidor y nunca viaja en claro.
 # En simulacion (ORBIT_SIMULACION=1) la base es ORBIT_SIM_DSN, el
@@ -144,15 +145,28 @@ fi
 
 echo "== 3) Verificacion (esperado: f en lo que reverso este despliegue)"
 TRIG72=$(echo "SELECT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'impulso_grupo_tipo' AND NOT tgisinternal);" | q)
-VISTA_LEIBLE=$(echo "SELECT has_table_privilege('app_read', 'public.v_impulso_estado', 'SELECT');" | q)
-echo "trigger_0072=$TRIG72 vista_legible_por_app_read=$VISTA_LEIBLE"
+GUARDIA72=$(echo "SELECT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'grupo_impulso_tipo_guardia' AND NOT tgisinternal);" | q)
+VISTA_LEIBLE=$(echo "SELECT has_table_privilege('app_read', 'public.v_impulso_estado', 'SELECT') AND has_table_privilege('app_admin', 'public.v_impulso_estado', 'SELECT');" | q)
+echo "trigger_0072=$TRIG72 guardia_0072=$GUARDIA72 vista_legible=$VISTA_LEIBLE"
 case " $REVS " in
-  *"0072_reversa_"*) [ "$TRIG72" = "f" ] || { echo "FALLA: el candado de la 0072 sigue"; exit 1; } ;;
+  *"0072_reversa_"*)
+    [ "$TRIG72" = "f" ] && [ "$GUARDIA72" = "f" ] || { echo "FALLA: el candado de la 0072 sigue"; exit 1; } ;;
 esac
 # La reversa de la 0071 quita el SELECT de la ACL (tambien el que
-# venia de default privileges): no se exige f; se exige que la vista
-# siga legible, y si no, FALLA en voz alta y se reaplica la 0071.
-[ "$VISTA_LEIBLE" = "t" ] || { echo "FALLA: v_impulso_estado no es legible por app_read tras la reversa"; exit 1; }
+# venia de default privileges): si la vista dejo de ser legible, se
+# vuelve a otorgar el SELECT suelto (sin la marca de la 0071) para
+# devolver la lectura que ya existia antes del despliegue.
+if [ "$VISTA_LEIBLE" != "t" ]; then
+  case " $REVS " in
+    *"0071_reversa_"*)
+      echo "la reversa de la 0071 quito tambien el SELECT previo: se vuelve a otorgar suelto"
+      echo "GRANT SELECT ON v_impulso_estado TO app_read, app_admin;" | w >/dev/null
+      VISTA_LEIBLE=$(echo "SELECT has_table_privilege('app_read', 'public.v_impulso_estado', 'SELECT') AND has_table_privilege('app_admin', 'public.v_impulso_estado', 'SELECT');" | q)
+      echo "vista_legible tras reotorgar=$VISTA_LEIBLE"
+      ;;
+  esac
+fi
+[ "$VISTA_LEIBLE" = "t" ] || { echo "FALLA: v_impulso_estado no es legible por app_read y app_admin tras la reversa"; exit 1; }
 HUELLA_DESPUES=$(huella_cron) || { echo "ABORTA: no se pudo releer el crontab de gon"; exit 1; }
 echo "crontab despues: md5 y lineas = $HUELLA_DESPUES"
 [ "$HUELLA_DESPUES" = "$HUELLA_ANTES" ] || { echo "ABORTA: el crontab cambio durante la reversa y D.6 no toca lineas"; exit 1; }

@@ -62,8 +62,8 @@ aplicada() {
     0068) echo "SELECT count(*) = 1 FROM information_schema.columns WHERE table_name = 'fabrica_lote' AND column_name = 'pausado_por';" | q ;;
     0069) echo "SELECT to_regclass('public.anuncio_retiro_intencion') IS NOT NULL;" | q ;;
     0070) echo "SELECT has_table_privilege('app_admin', 'public.fabrica_lote', 'DELETE');" | q ;;
-    0071) echo "SELECT has_table_privilege('app_read', 'public.v_impulso_estado', 'SELECT') AND has_table_privilege('app_admin', 'public.v_impulso_estado', 'SELECT');" | q ;;
-    0072) echo "SELECT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'impulso_grupo_tipo' AND NOT tgisinternal);" | q ;;
+    0071) echo "SELECT COALESCE(obj_description('public.v_impulso_estado'::regclass, 'pg_class'), '') = 'GRANT SELECT declarado por la migracion 0071 (BIDS 02 R09-E)';" | q ;;
+    0072) echo "SELECT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'impulso_grupo_tipo' AND NOT tgisinternal) AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'grupo_impulso_tipo_guardia' AND NOT tgisinternal);" | q ;;
     *) echo "ABORTA: migracion $1 sin consulta de aplicada en la guia" >&2; exit 1 ;;
   esac
 }
@@ -272,19 +272,25 @@ else
     docker ps --filter name=orbit-app-1 --format '{{.Names}} {{.Status}}'"
 fi
 
-echo "== 7v) Corre el vigia una vez con la imagen nueva (sin impulsos sale 0 sin escribir)"
-if [ "$SIM" = 1 ]; then
-  # La base sim trae el esquema completo sin impulsos vivos: con el
-  # codigo nuevo (R09-F) el vigia sale 0 y no guarda lecturas.
-  PY="$REPO/.venv/bin/python"
-  [ -x "$PY" ] || PY=python3
-  ORBIT_DSN_ADMIN="$DSN_SIM" "$PY" -m app.cli impulso-vigia || { echo "ABORTA: impulso-vigia no salio 0 en sim"; exit 1; }
+echo "== 7v) Corre el vigia una vez con la imagen nueva (solo si no hay impulsos vivos)"
+VIVOS=$(echo "SELECT count(*) FROM impulso i LEFT JOIN impulso_lectura l ON l.impulso_id = i.id AND l.es_final WHERE l.impulso_id IS NULL;" | q)
+if [ "$VIVOS" != "0" ]; then
+  # Con vivos, el vigia es trabajo del dueno (puede pausar o graduar):
+  # el despliegue no lo corre ni exige lecturas en cero.
+  echo "vigia no corrido en el despliegue: hay $VIVOS impulso(s) vivo(s); lo atiende el cron"
 else
-  ssh goncloud "docker exec orbit-app-1 python -m app.cli impulso-vigia" || { echo "ABORTA: impulso-vigia no salio 0"; exit 1; }
+  LEIDAS_ANTES=$(echo "SELECT count(*) FROM impulso_lectura;" | q)
+  if [ "$SIM" = 1 ]; then
+    PY="$REPO/.venv/bin/python"
+    [ -x "$PY" ] || PY=python3
+    ORBIT_DSN_ADMIN="$DSN_SIM" "$PY" -m app.cli impulso-vigia || { echo "ABORTA: impulso-vigia no salio 0 en sim"; exit 1; }
+  else
+    ssh goncloud "docker exec orbit-app-1 python -m app.cli impulso-vigia" || { echo "ABORTA: impulso-vigia no salio 0"; exit 1; }
+  fi
+  LEIDAS=$(echo "SELECT count(*) FROM impulso_lectura;" | q)
+  [ "$LEIDAS" = "$LEIDAS_ANTES" ] || { echo "ABORTA: impulso_lectura paso de $LEIDAS_ANTES a $LEIDAS fila(s) tras el vigia"; exit 1; }
+  echo "vigia OK: salio 0 sin impulsos y sin guardar (lecturas antes=$LEIDAS_ANTES despues=$LEIDAS)"
 fi
-LEIDAS=$(echo "SELECT count(*) FROM impulso_lectura;" | q)
-[ "$LEIDAS" = "0" ] || { echo "ABORTA: impulso_lectura trae $LEIDAS fila(s) tras el vigia"; exit 1; }
-echo "vigia OK: salio 0 sin impulsos y sin guardar"
 
 echo "== 8) Cron: la huella no cambio (D.6 no instala linea: R13-E)"
 HUELLA_DESPUES=$(huella_cron) || { echo "ABORTA: no se pudo releer el crontab de gon"; exit 1; }
