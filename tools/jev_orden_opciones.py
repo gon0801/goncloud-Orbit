@@ -172,11 +172,16 @@ def listo_para_pagar(
     return "pagar"
 
 
-def accion_del_par(tiene_resultado: bool, tiene_intencion: bool) -> str:
-    """saltar, abierta o pagar. Una intencion sin resultado no se repite:
-    repetirla cobraria otra llamada por un par que quiza ya se pago."""
-    if tiene_resultado:
+def accion_del_par(tiene_respuesta: bool, tiene_error: bool, tiene_intencion: bool) -> str:
+    """saltar, fallo, abierta o pagar.
+
+    Un resultado con error ya se pago: no se repite, y no se cuenta como
+    saltada. Una intencion sin resultado tampoco se repite.
+    """
+    if tiene_respuesta:
         return "saltar"
+    if tiene_error:
+        return "fallo"
     if tiene_intencion:
         return "abierta"
     return "pagar"
@@ -334,18 +339,22 @@ def _revision(conn):
     ).fetchone()
 
 
-def _marca(conn, par: Par, contrato_sha: str) -> tuple[bool, bool]:
+def _marca(conn, par: Par, contrato_sha: str) -> tuple[bool, bool, bool]:
+    """respuesta, error, intencion. Sin filas, los tres en falso."""
     fila = conn.execute(
-        "SELECT bool_or(tipo = 'resultado'), bool_or(tipo = 'intencion')"
+        "SELECT"
+        " bool_or(tipo = 'resultado' AND respuesta IS NOT NULL),"
+        " bool_or(tipo = 'resultado' AND respuesta IS NULL),"
+        " bool_or(tipo = 'intencion')"
         " FROM jev_par_evento"
         " WHERE revision_id = %s AND termino_sha256 = %s"
         " AND ficha_version_id = %s AND contrato_sha256 = %s"
         " AND tipo IN ('intencion', 'resultado')",
         (SOLICITUD, par.termino_sha256, par.ficha_version_id, contrato_sha),
     ).fetchone()
-    if fila is None or fila[0] is None:
-        return False, False
-    return bool(fila[0]), bool(fila[1])
+    if fila is None or fila == (None, None, None):
+        return False, False, False
+    return bool(fila[0]), bool(fila[1]), bool(fila[2])
 
 
 def _insertar_revision(conn, muestra: tuple[Par, ...], contrato, ahora: datetime) -> None:
@@ -396,7 +405,9 @@ def _insertar_revision(conn, muestra: tuple[Par, ...], contrato, ahora: datetime
     conn.commit()
 
 
-def _resumen(imprimir, *, contrato, muestra, poblacion, pendientes, saltadas, abiertas, hoy, tope):
+def _resumen(
+    imprimir, *, contrato, muestra, poblacion, pendientes, saltadas, abiertas, fallos, hoy, tope
+):
     si = sum(par.relacion == "satisface" for par in muestra)
     no = sum(par.relacion == "no_satisface" for par in muestra)
     pob_si = sum(par.relacion == "satisface" for par in poblacion)
@@ -408,7 +419,7 @@ def _resumen(imprimir, *, contrato, muestra, poblacion, pendientes, saltadas, ab
     imprimir(f"elegibles={len(poblacion)} si={pob_si} no={pob_no}")
     imprimir(
         f"muestra={len(muestra)} si={si} no={no} pendientes={pendientes}"
-        f" saltadas={saltadas} abiertas={abiertas}"
+        f" saltadas={saltadas} abiertas={abiertas} fallos={fallos}"
     )
     imprimir(f"intenciones_hoy={hoy} tope={tope if tope is not None else 'apagado'}")
 
@@ -443,6 +454,7 @@ def _correr(conn, args, imprimir) -> int:
     pendientes = sum(accion == "pagar" for accion in acciones)
     saltadas = sum(accion == "saltar" for accion in acciones)
     abiertas = sum(accion == "abierta" for accion in acciones)
+    fallos = sum(accion == "fallo" for accion in acciones)
     hoy = intenciones_del_dia(conn, ahora)
     ajustes = _ajustes(conn)
     tope = ajustes.tope_diario if isinstance(ajustes, Ajustes) else None
@@ -462,6 +474,7 @@ def _correr(conn, args, imprimir) -> int:
         pendientes=pendientes,
         saltadas=saltadas,
         abiertas=abiertas,
+        fallos=fallos,
         hoy=hoy,
         tope=tope,
     )
@@ -469,7 +482,10 @@ def _correr(conn, args, imprimir) -> int:
         imprimir("seco: nada escrito ni llamado; agrega --aplicar")
         return 0
     if decision == "completo":
-        imprimir("muestra completa, nada por pagar")
+        if abiertas or fallos:
+            imprimir(f"sin pendientes; abiertas={abiertas} fallos={fallos}")
+        else:
+            imprimir("muestra completa, nada por pagar")
         return 0
     if decision == "sin_api_key":
         raise _Configuracion("falta la clave de TypeSafe")

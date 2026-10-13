@@ -20,7 +20,7 @@ from test_jev_catalogo import (
 )
 
 from app.jev_ads import ClavePar, Juicio
-from app.jev_juicios import ResultadoPar, contrato_por_defecto
+from app.jev_juicios import FalloPar, ResultadoPar, contrato_por_defecto
 from tools import jev_orden_opciones as orden
 from tools.jev_orden_opciones import (
     Par,
@@ -146,10 +146,11 @@ def test_aviso_cuando_n_no_es_la_muestra_congelada():
 
 
 def test_una_intencion_abierta_no_se_vuelve_a_pagar():
-    assert accion_del_par(False, True) == "abierta"
-    assert accion_del_par(True, True) == "saltar"
-    assert accion_del_par(True, False) == "saltar"
-    assert accion_del_par(False, False) == "pagar"
+    assert accion_del_par(False, False, True) == "abierta"
+    assert accion_del_par(True, False, True) == "saltar"
+    assert accion_del_par(True, True, False) == "saltar"
+    assert accion_del_par(False, True, False) == "fallo"
+    assert accion_del_par(False, False, False) == "pagar"
 
 
 def test_clasificar_separa_cambio_abstencion_y_fallo():
@@ -195,15 +196,18 @@ _REQUIERE_POSTGRES = pytest.mark.skipif(_postgres_obligatorio_ausente(), reason=
 class _Pedido:
     """Juicio falso. crash=True simula la muerte entre la intencion y el resultado."""
 
-    def __init__(self, relacion: str, crash: bool = False):
+    def __init__(self, relacion: str, crash: bool = False, fallo: bool = False):
         self.relacion = relacion
         self.crash = crash
+        self.fallo = fallo
         self.llamados: list[str] = []
 
     def __call__(self, termino, ficha, contrato, api_key=""):
         self.llamados.append(termino)
         if self.crash:
             raise RuntimeError("crash tras la intencion")
+        if self.fallo:
+            return FalloPar(codigo="timeout", detalle="se agoto", duracion_ms=12)
         return ResultadoPar(
             juicio=Juicio(
                 intento_id=uuid.uuid4(),
@@ -304,4 +308,23 @@ def test_intencion_abierta_no_se_repite(monkeypatch):
         assert orden.main(["--aplicar"], dsn=_dsn_jev(), imprimir=lineas.append) == 0
         assert pedido.llamados == ["mesa"]
         assert any("abiertas=1" in linea for linea in lineas)
+        assert "sin pendientes; abiertas=1 fallos=0" in lineas
+        assert _resultados(conn) == 0
+
+
+@_REQUIERE_POSTGRES
+def test_resultado_con_error_no_se_cuenta_como_saltada(monkeypatch):
+    pedido = _Pedido("no_satisface", fallo=True)
+    monkeypatch.setattr(orden, "pedir_juicio", pedido)
+    monkeypatch.setattr(orden, "leer_api_key", lambda: "clave-de-prueba")
+    with db_jev() as conn:
+        _sembrar_par(conn, "mesa", "satisface")
+        _tope_agotado(conn)
+        assert orden.main(["--n", "1", "--aplicar"], dsn=_dsn_jev()) == 0
+        assert pedido.llamados == ["mesa"]
+        lineas: list[str] = []
+        assert orden.main(["--aplicar"], dsn=_dsn_jev(), imprimir=lineas.append) == 0
+        assert pedido.llamados == ["mesa"]
+        assert any("fallos=1" in linea and "saltadas=0" in linea for linea in lineas)
+        assert "sin pendientes; abiertas=0 fallos=1" in lineas
         assert _resultados(conn) == 0
