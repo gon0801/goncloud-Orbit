@@ -229,7 +229,8 @@ class _Pedido:
 def _sembrar_par(conn, termino: str, relacion: str) -> None:
     producto = _producto(conn)
     listing = _listing(conn, producto)
-    ficha = _ficha(conn, producto, (listing,))
+    # El guion filtra con el reloj real. VENCE del catalogo (2026-11-02) caduca.
+    ficha = _ficha(conn, producto, (listing,), vence=datetime(2099, 1, 1, tzinfo=UTC))
     solicitud = _revision(conn, censos=json.dumps({"terminos": [termino]}))
     digest = hashlib.sha256(termino.encode("utf-8")).hexdigest()
     intencion = uuid.uuid4()
