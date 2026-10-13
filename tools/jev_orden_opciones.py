@@ -11,11 +11,13 @@ iba a pagar mas.
 DSN: ORBIT_DSN_ADMIN. Ese login necesita el grupo app_jev para escribir
 revisiones (docs/DEPLOY.md: GRANT app_jev TO orbit_admin).
 
-Ejemplos:
+No esta en la imagen. En el host, con el archivo ya copiado, el guion
+entra por stdin (docs/DEPLOY.md, tools fuera de la imagen). --n y
+--aplicar van antes del redirect:
 
-  python tools/jev_orden_opciones.py
-  python tools/jev_orden_opciones.py --aplicar
-  python tools/jev_orden_opciones.py --n 100 --aplicar
+  docker exec -i orbit-app-1 python - < tools/jev_orden_opciones.py
+  docker exec -i orbit-app-1 python - --aplicar < tools/jev_orden_opciones.py
+  docker exec -i orbit-app-1 python - --n 100 --aplicar < tools/jev_orden_opciones.py
 """
 
 from __future__ import annotations
@@ -152,14 +154,20 @@ def listo_para_pagar(
     tope: int | None,
     pendientes: int,
 ) -> str:
-    """seco, completo, sin_api_key, cupo_abierto o pagar."""
+    """seco, completo, sin_api_key, apagado, cupo_abierto o pagar.
+
+    apagado es el job sin ajustes (o con el interruptor cerrado). No es
+    lo mismo que un tope positivo que el cron todavia no gasto.
+    """
     if pendientes == 0:
         return "completo"
     if not aplicar:
         return "seco"
     if not api_key:
         return "sin_api_key"
-    if tope is None or not permite_aplicar(intenciones, tope):
+    if tope is None:
+        return "apagado"
+    if not permite_aplicar(intenciones, tope):
         return "cupo_abierto"
     return "pagar"
 
@@ -185,6 +193,14 @@ def clasificar(normal: str, invertido: str | None, *, fallo: bool) -> str:
     if invertido != normal:
         return "cambio"
     return "igual"
+
+
+def aviso_muestra_congelada(n_pedido: int, n_muestra: int) -> str | None:
+    """Aviso si --n no es el tamano de la muestra ya escrita. La revision
+    es append-only: no se puede re-muestrear."""
+    if n_muestra == n_pedido:
+        return None
+    return f"muestra congelada={n_muestra} n_pedido={n_pedido}"
 
 
 def ids_de_fichas(pares: tuple[Par, ...] | list[Par]) -> list[str]:
@@ -414,11 +430,14 @@ def _correr(conn, args, imprimir) -> int:
         invertido_guardado = (guardada[0] or {}).get("contrato_invertido")
         if invertido_guardado != contrato.sha256():
             raise _Configuracion("la revision congelada usa otro contrato")
+        aviso = aviso_muestra_congelada(args.n, len(muestra))
+        if aviso:
+            imprimir(aviso)
     literales = _literales(conn, [par.termino_sha256 for par in muestra])
     faltan = sum(1 for par in muestra if par.termino_sha256 not in literales)
     if faltan:
         raise _Configuracion(f"faltan literales para {faltan} pares")
-    fichas_por_id(conn, [uuid.UUID(par.ficha_version_id) for par in muestra])
+    fichas = fichas_por_id(conn, [uuid.UUID(par.ficha_version_id) for par in muestra])
     marcas = [_marca(conn, par, contrato.sha256()) for par in muestra]
     acciones = [accion_del_par(resultado, intencion) for resultado, intencion in marcas]
     pendientes = sum(accion == "pagar" for accion in acciones)
@@ -454,11 +473,12 @@ def _correr(conn, args, imprimir) -> int:
         return 0
     if decision == "sin_api_key":
         raise _Configuracion("falta la clave de TypeSafe")
+    if decision == "apagado":
+        raise _Configuracion("job apagado o sin ajustes de jev")
     if decision == "cupo_abierto":
         raise _Configuracion(f"cupo del dia abierto: intenciones={hoy} tope={tope}")
     if guardada is None:
         _insertar_revision(conn, muestra, contrato, ahora)
-    fichas = fichas_por_id(conn, [uuid.UUID(par.ficha_version_id) for par in muestra])
 
     def pedir(termino: str, ficha):
         return pedir_juicio(termino, ficha, contrato, api_key=api_key)

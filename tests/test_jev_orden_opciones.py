@@ -2,12 +2,30 @@
 
 from __future__ import annotations
 
-import pytest
+import hashlib
+import json
+import uuid
+from datetime import UTC, datetime
+from decimal import Decimal
 
-from app.jev_juicios import contrato_por_defecto
+import pytest
+from test_jev_catalogo import (
+    _dsn_jev,
+    _ficha,
+    _listing,
+    _postgres_obligatorio_ausente,
+    _producto,
+    _revision,
+    db_jev,
+)
+
+from app.jev_ads import ClavePar, Juicio
+from app.jev_juicios import ResultadoPar, contrato_por_defecto
+from tools import jev_orden_opciones as orden
 from tools.jev_orden_opciones import (
     Par,
     accion_del_par,
+    aviso_muestra_congelada,
     clasificar,
     contrato_invertido,
     cupos,
@@ -106,7 +124,7 @@ def test_sin_clave_o_con_cupo_abierto_no_paga():
     )
     assert (
         listo_para_pagar(aplicar=True, api_key="x", intenciones=0, tope=None, pendientes=100)
-        == "cupo_abierto"
+        == "apagado"
     )
     assert (
         listo_para_pagar(aplicar=False, api_key="", intenciones=0, tope=50, pendientes=100)
@@ -120,6 +138,11 @@ def test_sin_clave_o_con_cupo_abierto_no_paga():
         listo_para_pagar(aplicar=True, api_key="x", intenciones=50, tope=50, pendientes=4)
         == "pagar"
     )
+
+
+def test_aviso_cuando_n_no_es_la_muestra_congelada():
+    assert aviso_muestra_congelada(100, 100) is None
+    assert aviso_muestra_congelada(200, 100) == "muestra congelada=100 n_pedido=200"
 
 
 def test_una_intencion_abierta_no_se_vuelve_a_pagar():
@@ -164,3 +187,121 @@ def test_pares_de_censos_lee_la_muestra_congelada():
         ],
     }
     assert pares_de_censos(censos) == (Par("aa", "f1", "no_satisface"),)
+
+
+_REQUIERE_POSTGRES = pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres")
+
+
+class _Pedido:
+    """Juicio falso. crash=True simula la muerte entre la intencion y el resultado."""
+
+    def __init__(self, relacion: str, crash: bool = False):
+        self.relacion = relacion
+        self.crash = crash
+        self.llamados: list[str] = []
+
+    def __call__(self, termino, ficha, contrato, api_key=""):
+        self.llamados.append(termino)
+        if self.crash:
+            raise RuntimeError("crash tras la intencion")
+        return ResultadoPar(
+            juicio=Juicio(
+                intento_id=uuid.uuid4(),
+                clave=ClavePar("a" * 64, ficha.id, "b" * 64),
+                relacion=self.relacion,
+                probabilidades={
+                    "satisface": Decimal("0.10"),
+                    "no_satisface": Decimal("0.80"),
+                    "informacion_insuficiente": Decimal("0.10"),
+                },
+                confidence=Decimal("0.90"),
+                observado_at=datetime(2026, 10, 13, tzinfo=UTC),
+            ),
+            usage={"input_tokens": 5, "output_tokens": 1},
+            duracion_ms=7,
+        )
+
+
+def _sembrar_par(conn, termino: str, relacion: str) -> None:
+    producto = _producto(conn)
+    listing = _listing(conn, producto)
+    ficha = _ficha(conn, producto, (listing,))
+    solicitud = _revision(conn, censos=json.dumps({"terminos": [termino]}))
+    digest = hashlib.sha256(termino.encode("utf-8")).hexdigest()
+    intencion = uuid.uuid4()
+    normal = contrato_por_defecto().sha256()
+    conn.execute(
+        "INSERT INTO jev_par_evento (id, revision_id, termino_sha256, ficha_version_id,"
+        " contrato_sha256, ordinal, tipo, request_sha256)"
+        " VALUES (%s, %s, %s, %s, %s, 1, 'intencion', %s)",
+        (intencion, solicitud, digest, ficha, normal, "d" * 64),
+    )
+    conn.execute(
+        "INSERT INTO jev_par_evento (id, revision_id, termino_sha256, ficha_version_id,"
+        " contrato_sha256, ordinal, tipo, respuesta, intencion_id)"
+        " VALUES (%s, %s, %s, %s, %s, 1, 'resultado', %s::jsonb, %s)",
+        (
+            uuid.uuid4(),
+            solicitud,
+            digest,
+            ficha,
+            normal,
+            json.dumps({"relacion": relacion}),
+            intencion,
+        ),
+    )
+
+
+def _tope_agotado(conn) -> None:
+    conn.execute(
+        "INSERT INTO config_version (settings) VALUES (%s::jsonb)",
+        (json.dumps({"jev.senales": True, "jev.tope_diario": 1, "jev.min_clics": 1}),),
+    )
+
+
+def _resultados(conn) -> int:
+    return conn.execute(
+        "SELECT count(*) FROM jev_par_evento"
+        " WHERE revision_id = %s AND tipo = 'resultado' AND respuesta IS NOT NULL",
+        (orden.SOLICITUD,),
+    ).fetchone()[0]
+
+
+@_REQUIERE_POSTGRES
+def test_segunda_corrida_no_vuelve_a_pagar(monkeypatch):
+    pedido = _Pedido("no_satisface")
+    monkeypatch.setattr(orden, "pedir_juicio", pedido)
+    monkeypatch.setattr(orden, "leer_api_key", lambda: "clave-de-prueba")
+    with db_jev() as conn:
+        _sembrar_par(conn, "mesa", "satisface")
+        _tope_agotado(conn)
+        lineas: list[str] = []
+        assert orden.main(["--n", "1", "--aplicar"], dsn=_dsn_jev(), imprimir=lineas.append) == 0
+        assert pedido.llamados == ["mesa"]
+        assert _resultados(conn) == 1
+        lineas.clear()
+        assert orden.main(["--n", "5", "--aplicar"], dsn=_dsn_jev(), imprimir=lineas.append) == 0
+        assert pedido.llamados == ["mesa"]
+        assert "muestra congelada=1 n_pedido=5" in lineas
+        assert any("saltadas=1" in linea for linea in lineas)
+        assert _resultados(conn) == 1
+
+
+@_REQUIERE_POSTGRES
+def test_intencion_abierta_no_se_repite(monkeypatch):
+    pedido = _Pedido("no_satisface", crash=True)
+    monkeypatch.setattr(orden, "pedir_juicio", pedido)
+    monkeypatch.setattr(orden, "leer_api_key", lambda: "clave-de-prueba")
+    with db_jev() as conn:
+        _sembrar_par(conn, "mesa", "satisface")
+        _tope_agotado(conn)
+        with pytest.raises(RuntimeError, match="crash tras la intencion"):
+            orden.main(["--n", "1", "--aplicar"], dsn=_dsn_jev())
+        assert pedido.llamados == ["mesa"]
+        assert _resultados(conn) == 0
+        pedido.crash = False
+        lineas: list[str] = []
+        assert orden.main(["--aplicar"], dsn=_dsn_jev(), imprimir=lineas.append) == 0
+        assert pedido.llamados == ["mesa"]
+        assert any("abiertas=1" in linea for linea in lineas)
+        assert _resultados(conn) == 0
