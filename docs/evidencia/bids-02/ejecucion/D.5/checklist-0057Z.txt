@@ -1,0 +1,17 @@
+== 0) El servidor contesta
+OK    orbit-app-1 corriendo = true
+== Checklist D.5 (solo lectura; sello 20261013-0051)
+== 1) HTTP: /health
+OK    GET /health = 200
+OK    search_term_observation antes = 164152
+== 2) La pantalla de busquedas responde en cada mercado y trae su frase
+OK    HTML busquedas-sin-venta amazon_mx = 200
+OK    frase de referencia amazon_mx (con porcentajes)
+OK    HTML busquedas-sin-venta amazon_us = 200
+OK    frase de referencia amazon_us (con porcentajes)
+== 3) La pantalla de productos sigue respondiendo en cada mercado
+OK    HTML productos-sin-clics amazon_mx = 200
+OK    HTML productos-sin-clics amazon_us = 200
+== 4) search_term_observation sin escrituras del checklist
+OK    search_term_observation sin escrituras del checklist = 164152
+== RESULTADO: 0 falla(s), 0 sin medir
