@@ -20,10 +20,11 @@ from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import httpx
+import psycopg
 import pytest
 from psycopg.rows import tuple_row
 from psycopg.types.json import Json
-from test_fabrica_migracion import _entidad, _ledger_producto, _producto, db_fabrica
+from test_fabrica_migracion import _dsn_propia, _entidad, _ledger_producto, _producto, db_fabrica
 from test_schema import _postgres_obligatorio_ausente, _test_dsn
 
 from app.ads.client import AdsClient
@@ -397,6 +398,9 @@ class _ConnFalsa:
             return _Cursor([(t,) for t in self.biblioteca[1]])
         if "ad_entity_state" in bajo and "product_ad" in bajo:
             return _Cursor(self.existentes)
+        if "max(orden)" in bajo:
+            # R09-I: _desarmar fija ctx.orden con el maximo del lote.
+            return _Cursor([(0,)])
         if "from fabrica_lote_paso" in bajo and "left join campana_grupo" in bajo:
             return _Cursor(self.grupo)
         if "from fabrica_lote_paso" in bajo and "join fabrica_lote" in bajo:
@@ -2477,9 +2481,11 @@ def test_ensayo_staging_lote_v2_parcial_se_recupera_con_v1_sin_post_de_creacion(
         assert conn.execute("SELECT estado FROM fabrica_lote WHERE lote = 'L2'").fetchone() == (
             "desarmado",
         )
+        # R09-I: el desarme deja una fila de pausa sellada applied por
+        # rol, continuando el ledger (antes no escribia ninguna).
         assert conn.execute(
             "SELECT count(*) FROM fabrica_lote_paso WHERE lote = 'L2' AND estado = 'applied'"
-        ).fetchone()[0] == len(ledger)
+        ).fetchone()[0] == len(ledger) + len(fp.ROLES_ORDEN_CREACION)
         assert (
             conn.execute("SELECT count(*) FROM campana_grupo WHERE lote = 'L2'").fetchone()[0] == 1
         )
@@ -2900,6 +2906,45 @@ def test_pausar_lote_continua_el_ledger_y_no_repite_puts():
         ctx2 = _ctx_pausa(conn, httpx.MockTransport(_handler_pausa_cuenta(puts)), "LP1")
         fc.reanudar_lote(ctx2, "LP1", "dueno")
         assert [p for _, p in puts] == ["ENABLED", "ENABLED"]
+
+
+@_skip_db
+def test_r09i_desarmar_con_pasos_1_a_n_continua_el_ledger(monkeypatch):
+    """R09-I: desarmar un lote aplicado con pasos 1..N deja los pasos
+    de pausa en N+1.. sin chocar UNIQUE(lote, orden), como ya hace
+    pausar_lote (A-1)."""
+    with db_fabrica("orbit_fc_r09i") as conn:
+        _lote_applied_orden_real(conn, lote="LI1")
+        dsn = _dsn_propia(conn)
+        dbname = conn.info.dbname
+        _frontera_mutacion(monkeypatch, conn, conn, _AmazonDesarme(), stub_registrar=False)
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "fabrica_campanas",
+                "--desarmar",
+                "LI1",
+                "--acepto-mutacion-real",
+                "--go",
+                "DESARMAR LI1",
+            ],
+        )
+        assert fc.main() == 0
+        conn2 = psycopg.connect(dsn, dbname=dbname)
+        try:
+            filas = conn2.execute(
+                "SELECT orden, estado, request_payload::text FROM fabrica_lote_paso"
+                " WHERE lote = 'LI1' ORDER BY orden"
+            ).fetchall()
+            assert [f[0] for f in filas] == [1, 2, 3, 4]
+            nuevos = filas[2:]
+            assert all(f[1] == "applied" and "PAUSED" in f[2] for f in nuevos)
+            assert conn2.execute(
+                "SELECT estado FROM fabrica_lote WHERE lote = 'LI1'"
+            ).fetchone() == ("desarmado",)
+        finally:
+            conn2.close()
 
 
 @_skip_db

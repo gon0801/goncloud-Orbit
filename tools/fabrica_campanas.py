@@ -1618,8 +1618,14 @@ def _put_estado_campana(ctx: _Ctx, external: str, estado: str) -> dict:
 
 
 def _pausa_una(ctx: _Ctx, rol: str, external: str, goal_id) -> None:
+    # R09-I: como _cambia_estado_lote, la pausa de _desarmar deja fila
+    # en el ledger antes del PUT y el readback la sella (ctx.orden lo
+    # fija quien cicla: _desarmar o pausa_huerfanas).
+    paso = fp.Paso(rol, "campaign", "/sp/campaigns", {}, f"desarmar {rol}")
+    paso_id = _inserta_paso(ctx, paso, {"campaignId": external, "state": _PAUSADA})
     ack = _put_estado_campana(ctx, external, _PAUSADA)
     if not fp.ack_ok(ack):
+        _sella_paso(ctx, paso_id, False, external, ack, None)
         _log("lote_detenido", lote=ctx.lote, motivo=f"PUT PAUSED de {rol} rechazado")
         raise Abortar(f"PUT PAUSED de {external} ({rol}) rechazado (status {ack.get('status')})")
     time.sleep(0.3)
@@ -1635,7 +1641,9 @@ def _pausa_una(ctx: _Ctx, rol: str, external: str, goal_id) -> None:
         ok=estado == _PAUSADA,
     )
     if estado != _PAUSADA:
+        _sella_paso(ctx, paso_id, False, external, ack, estado)
         raise Abortar(f"readback de {external} ({rol}) != PAUSED ({estado}): se detiene")
+    _sella_paso(ctx, paso_id, True, external, ack, estado)
     if goal_id is not None:
         goals_write.edita_goal(
             ctx.conn_admin,
@@ -1852,6 +1860,13 @@ def _desarmar(args) -> int:
             conn_admin,
             args.desarmar,
         )
+        # R09-I: el ledger de _pausa_una continua en max(orden), como
+        # _cambia_estado_lote (con _Ctx fresco en 0 chocaria UNIQUE).
+        ctx.orden = conn_admin.execute(
+            "SELECT COALESCE(MAX(orden), 0) FROM fabrica_lote_paso WHERE lote = %s",
+            (args.desarmar,),
+        ).fetchone()[0]
+        conn_admin.commit()
         pausadas = 0
         for rol, external, goal_id in filas:
             _pausa_una(ctx, rol, external, goal_id)
