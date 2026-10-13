@@ -6,7 +6,7 @@ entrega de su bloque.
 | id | que cambia | veredicto |
 |---|---|---|
 | M1 | el roster del impulso trae campanas de mas | MUERE |
-| M2 | el vigia no pausa cuando falta un solo diario | MUERE |
+| M2 | el vigia pausa cuando falta un solo diario | MUERE |
 | M3 | el veredicto final sale con un None | MUERE |
 | M4 | retiro antes de contar impresiones | MUERE |
 | B1 | tolera el pausado con un falso fijo | MUERE |

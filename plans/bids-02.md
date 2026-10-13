@@ -367,7 +367,7 @@ siguiente.
    plataforma, con la confirmación `REGRESAR <N> KEYWORDS` del N vigente y el actor `plan bids-02 X.1`. El
    2026-10-09 eran 6 en MX y 3 en US.
 7. **Leer el primer ciclo.** A la mañana siguiente el lead comprueba en solo lectura que el ciclo guardó
-   `inputs.caso`, que el target de US es 25.19 % y que ningún recorte salió de una regla prohibida. Esta
+   `inputs.caso`, que el target de US es 25.19 % (en la lectura real salio 24.85 %, por el margen de la ventana: ver `docs/evidencia/bids-02/ejecucion/X.1/cierre.md`) y que ningún recorte salió de una regla prohibida. Esta
    lectura no frena nada.
 
 Si el paso 2 falla en una plataforma, esa plataforma no se enciende. Muse entrega el motivo medido, claw
@@ -475,8 +475,7 @@ conflicto se repite en una linea entre pantalla y ruta y los dos lados se apoyan
 prueba de R07-D mira la consulta y el repro original si ejerce la funcion del bid del dia y pasa. El
 sello puede compartir respaldo entre un ensayo y un despliegue del mismo minuto, pero la simulacion
 escribe en su carpeta temporal y no en el servidor, y ya no quedan despliegues de este plan. De R14
-quedan con motivo la carrera de dos conexiones sin su prueba, que el candado por producto ya cubre por
-su lado; la vista previa que no marca el vivo del mismo listing con otro plan, porque lanzar lo rechaza
+quedan con motivo la carrera de dos conexiones que cierra el FOR UPDATE de la 0072 sin su prueba, porque ningun camino del codigo cambia el tipo de un grupo ya creado; la vista previa que no marca el vivo del mismo listing con otro plan, porque lanzar lo rechaza
 en el parcial y es comportamiento anterior al remate; el 500 de sellar el impulso que es inalcanzable
 porque el registro fija el tipo por roles; y los dos psql del rollback de la 0071, porque la reversa
 vigente ya es la de D.7 y no pasa por ahi.
