@@ -689,23 +689,20 @@ def _descarta_huerfano(conn, lote_viejo: str, actor: str) -> str | None:
     return aviso
 
 
-def _rechaza_si_producto_con_vivo(conn, solicitud: SolicitudImpulso) -> None:
-    """R09-G: el tope es por producto. Si un listing pedido es de un
-    producto con un impulso vivo en otro listing, lanzar se rechaza
-    con 409 sin crear nada (la vista previa ya lo marca no lanzable;
-    este chequeo cierra la via directa)."""
-    for lid in sorted(set(solicitud.listing_ids)):
-        prod = conn.execute(_SQL_PRODUCTO_DE_LISTING, (lid, solicitud.plataforma)).fetchone()
+def _fallos_por_vivo(conn, solicitud: SolicitudImpulso, vista: VistaPreviaImpulso, fallos) -> None:
+    """R09-H: un no lanzable cuyo producto ya tiene un impulso vivo
+    entra al resultado parcial como fallo de conflicto, para que el
+    lote devuelva el resultado por producto completo."""
+    for no in vista.no_lanzables:
+        prod = conn.execute(
+            _SQL_PRODUCTO_DE_LISTING, (no.listing_id, solicitud.plataforma)
+        ).fetchone()
         if prod is None:
             continue
-        vivo_otro = conn.execute(
-            _SQL_VIVO_OTRO_LISTING, (solicitud.plataforma, prod[0], lid)
-        ).fetchone()
-        if vivo_otro is not None:
-            raise ErrorImpulso(
-                409,
-                f"el producto del listing {lid} ya tiene un impulso vivo en el listing"
-                f" {vivo_otro[0]} (tope por producto)",
+        vivo = conn.execute(_SQL_VIVO_PRODUCTO, (solicitud.plataforma, prod[0])).fetchone()
+        if vivo is not None:
+            fallos[no.listing_id] = (
+                f"el producto ya tiene un impulso vivo en el listing {vivo[2]} (tope por producto)"
             )
 
 
@@ -722,8 +719,8 @@ def lanza(
 ) -> list[ImpulsoLanzado]:
     """Re-planifica, compara la huella (409 si cambio) y crea un lote por
     producto con el ejecutor de la fabrica (modo shadow). Candado por
-    listing: un vivo con otro lote da 409. La fila de impulso se
-    inserta despues de que su lote queda applied. Un producto que
+    producto: un vivo es un fallo mas del parcial. La fila de impulso
+    se inserta despues de que su lote queda applied. Un producto que
     falla no detiene a los demas."""
     if not solicitud.listing_ids:
         raise ErrorImpulso(422, "impulso sin productos: listing_ids vacio")
@@ -731,9 +728,10 @@ def lanza(
         raise ErrorImpulso(422, "lanzar exige actor")
     if "\x00" in actor:
         raise ErrorImpulso(422, "actor con NUL")
-    _rechaza_si_producto_con_vivo(conn, solicitud)
     vista = previsualiza(conn, solicitud, sugeridor=sugeridor, hoy=hoy)
-    if not vista.planes:
+    fallos: dict[int, str] = {}
+    _fallos_por_vivo(conn, solicitud, vista, fallos)
+    if not vista.planes and not fallos:
         raise ErrorImpulso(422, "nada lanzable: revisa no_lanzables")
     if vista.huella != huella:
         raise ErrorImpulso(409, "el plan cambio desde la vista previa: previsualiza de nuevo")
@@ -742,7 +740,6 @@ def lanza(
             422, f"confirmacion distinta: se esperaba {vista.confirmacion_esperada!r}"
         )
     lanzados: list[ImpulsoLanzado] = []
-    fallos: dict[int, str] = {}
     for plan in vista.planes:
         lote = lote_de_plan(plan)
         # Una transaccion por producto: el candado advisory dura la
@@ -786,12 +783,13 @@ def lanza(
                     continue
             vivo = conn.execute(_SQL_VIVO_PRODUCTO, (plan.plataforma, plan.product_id)).fetchone()
             if vivo is not None:
-                raise ErrorImpulso(
-                    409,
+                # R09-H: el conflicto es un fallo del producto, no un
+                # aborto del lote: los demas siguen.
+                fallos[plan.listing_id] = (
                     f"el producto ya tiene un impulso vivo en el listing {vivo[2]}"
-                    " (tope por producto)",
-                    lanzados=lanzados,
+                    " (tope por producto)"
                 )
+                continue
             # Otro lote, mismo listing (otra huella: otro bid u otro dia):
             # el huerfano applied se reutiliza; un failed/planeado o un
             # applied sin grupo bloquea hasta reconciliar a mano.

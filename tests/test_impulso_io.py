@@ -173,7 +173,7 @@ def test_r09g_tope_por_producto_previa_marca_y_lanza_rechaza_409():
     """R09-G: el tope limita por producto. Dos listings del mismo
     producto no tienen impulso vivo a la vez en la misma plataforma:
     la vista previa marca el segundo no lanzable y lanzar lo rechaza
-    con 409."""
+    (tras R09-H, como fallo de conflicto del resultado parcial)."""
     with _db_i3("orbit_i3_r09g") as conn:
         pid, lid1 = _con_margen(conn)
         lid2 = conn.execute(
@@ -214,8 +214,11 @@ def test_r09g_tope_por_producto_previa_marca_y_lanza_rechaza_409():
                 ejecutor=_ejecutor_falso(conn),
                 sugeridor=_sugeridor_fijo(),
             )
-        assert exc.value.status == 409
-        assert "producto" in str(exc.value)
+        # R09-H: el rechazo del segundo es el fallo de conflicto dentro
+        # del resultado parcial, no un aborto del lote.
+        assert exc.value.status == 502
+        assert list(exc.value.fallos) == [lid2]
+        assert "producto" in exc.value.fallos[lid2]
         assert conn.execute("SELECT count(*) FROM impulso").fetchone() == (1,)
 
 
@@ -463,8 +466,9 @@ def test_lanza_un_fallo_no_detiene_al_otro():
 
 @_skip_db
 def test_lanza_rechaza_vivo_y_acepta_ids_vacios_con_422():
-    """I.3: relanzar un vivo con plan distinto da 409; listing_ids vacio
-    da 422."""
+    """I.3 + R09-H: relanzar un vivo con plan distinto ya no aborta el
+    lote: va al parcial como fallo del producto (502 con fallos);
+    listing_ids vacio da 422."""
     with _db_i3("orbit_i3_vivo") as conn:
         _, lid = _con_margen(conn)
         solicitud = _solicitud(conn, [lid])
@@ -491,7 +495,9 @@ def test_lanza_rechaza_vivo_y_acepta_ids_vacios_con_422():
                 ejecutor=_ejecutor_falso(conn),
                 sugeridor=_sugeridor_fijo(),
             )
-        assert exc.value.status == 409
+        assert exc.value.status == 502
+        assert list(exc.value.fallos) == [lid]
+        assert "impulso vivo" in exc.value.fallos[lid]
         with pytest.raises(io.ErrorImpulso) as exc:
             io.lanza(
                 conn,
@@ -550,8 +556,8 @@ def test_lanza_lote_huerfano_sella_sin_llamar_a_la_fabrica():
 
 @_skip_db
 def test_lanza_409_por_vivo_adjunta_lo_lanzado():
-    """N4: si el segundo producto choca con un vivo, el 409 trae en
-    lanzados al primero que si salio."""
+    """N4 + R09-H: si el segundo producto choca con un vivo, el parcial
+    trae en lanzados al primero que si salio y el choque en fallos."""
     with _db_i3("orbit_i3_n4") as conn:
         _, lid1 = _con_margen(conn)
         _, lid2 = _con_margen(conn, sku="SS-2", asin="B0AAAAAAAB", seller_sku="SS-2", desfase=20)
@@ -578,10 +584,52 @@ def test_lanza_409_por_vivo_adjunta_lo_lanzado():
                 ejecutor=_ejecutor_falso(conn),
                 sugeridor=_sugeridor_fijo(),
             )
-        assert exc.value.status == 409
+        assert exc.value.status == 502
         assert len(exc.value.lanzados) == 1
         assert exc.value.lanzados[0].lote == io.lote_de_plan(vista.planes[0])
+        assert list(exc.value.fallos) == [lid2]
         assert conn.execute("SELECT count(*) FROM impulso").fetchone() == (2,)
+
+
+@_skip_db
+def test_r09h_lote_de_tres_con_el_segundo_en_conflicto_lanza_los_otros():
+    """R09-H: en un lote de tres con el segundo en conflicto (su
+    producto ya tiene un impulso vivo), el primero y el tercero se
+    lanzan y el resultado parcial trae el fallo del segundo."""
+    with _db_i3("orbit_i3_r09h") as conn:
+        _, lid1 = _con_margen(conn)
+        _, lid2 = _con_margen(conn, sku="SS-2", asin="B0AAAAAAAB", seller_sku="SS-2", desfase=20)
+        _, lid3 = _con_margen(conn, sku="SS-3", asin="B0AAAAAAAC", seller_sku="SS-3", desfase=40)
+        solo2 = _solicitud(conn, [lid2])
+        vista2 = io.previsualiza(conn, solo2, sugeridor=_sugeridor_fijo())
+        io.lanza(
+            conn,
+            solo2,
+            huella=vista2.huella,
+            confirmacion=vista2.confirmacion_esperada,
+            actor="dueno",
+            ejecutor=_ejecutor_falso(conn),
+            sugeridor=_sugeridor_fijo(),
+        )
+        solicitud = _solicitud(conn, [lid1, lid2, lid3], subfamilias={lid2: "collares"})
+        vista = io.previsualiza(conn, solicitud, sugeridor=_sugeridor_fijo())
+        with pytest.raises(io.ErrorImpulso) as exc:
+            io.lanza(
+                conn,
+                solicitud,
+                huella=vista.huella,
+                confirmacion=vista.confirmacion_esperada,
+                actor="dueno",
+                ejecutor=_ejecutor_falso(conn),
+                sugeridor=_sugeridor_fijo(),
+            )
+        assert exc.value.status == 502
+        esperados = {io.lote_de_plan(p) for p in vista.planes if p.listing_id in (lid1, lid3)}
+        assert len(esperados) == 2
+        assert {x.lote for x in exc.value.lanzados} == esperados
+        assert list(exc.value.fallos) == [lid2]
+        assert "impulso vivo" in exc.value.fallos[lid2]
+        assert conn.execute("SELECT count(*) FROM impulso").fetchone() == (3,)
 
 
 class _Pausador:
