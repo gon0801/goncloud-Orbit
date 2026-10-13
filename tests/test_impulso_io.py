@@ -867,6 +867,70 @@ def test_vigia_sin_observaciones_no_guarda():
 
 
 @_skip_db
+def test_r09f_vigia_sin_ingesta_avisa_y_marca_no_atendido(capsys):
+    """R09-F: sin ingesta de la plataforma (corte None) el vigia avisa
+    por stderr y la accion queda no atendida, en vez de callar."""
+    with _db_i3("orbit_i3_r09f1") as conn:
+        ids = _impulso_vivo(conn)
+        acciones = io.vigila(conn, _Pausador(), hoy=HOY)
+        err = capsys.readouterr().err
+        assert acciones[0].atendido is False
+        assert "sin ingesta" in err
+        assert str(ids["impulso"]) in err
+        assert conn.execute(
+            "SELECT count(*) FROM impulso_lectura WHERE impulso_id = %s", (ids["impulso"],)
+        ).fetchone() == (0,)
+
+
+def _corre_vigia_cli(conn, monkeypatch):
+    import psycopg
+
+    from app import cli_bids
+
+    monkeypatch.setenv("ORBIT_DSN_ADMIN", "simulado")
+
+    def conecta(dsn):
+        return psycopg.connect(_dsn_propia(conn), dbname=conn.info.dbname)
+
+    monkeypatch.setattr("app.db.connect", conecta)
+    return cli_bids.main_impulso_vigia([])
+
+
+@_skip_db
+def test_r09f_cli_vigia_sin_impulsos_sale_0(monkeypatch):
+    """R09-F: sin impulsos vivos el comando sale 0 (no toca la red)."""
+    with _db_i3("orbit_i3_r09f2") as conn:
+        assert _corre_vigia_cli(conn, monkeypatch) == 0
+
+
+@_skip_db
+def test_r09f_cli_vigia_sin_ingesta_sale_1_y_avisa(monkeypatch, capsys):
+    """R09-F: con un impulso vivo y sin ingesta, el comando avisa y
+    sale distinto de cero."""
+    with _db_i3("orbit_i3_r09f3") as conn:
+        _impulso_vivo(conn)
+        assert _corre_vigia_cli(conn, monkeypatch) == 1
+        assert "sin ingesta" in capsys.readouterr().err
+
+
+@_skip_db
+def test_r09f_cli_vigia_con_todo_fallado_sale_1(monkeypatch, capsys):
+    """R09-F: si todos los impulsos vivos fallan, el comando sale
+    distinto de cero (el fallo individual ya salio por stderr)."""
+    with _db_i3("orbit_i3_r09f4") as conn:
+        ids = _impulso_vivo(conn)
+        _observa(conn, ids["camps"][0], HOY - dt.timedelta(days=1), gasto="200", clics=30)
+        _observa(conn, ids["camps"][1], HOY - dt.timedelta(days=1), gasto="150", clics=30)
+
+        def _truena(self, lote):
+            raise RuntimeError("amazon caido")
+
+        monkeypatch.setattr(io.PausadorFabrica, "pausa", _truena)
+        assert _corre_vigia_cli(conn, monkeypatch) == 1
+        assert "fallo" in capsys.readouterr().err
+
+
+@_skip_db
 def test_vigia_descarta_el_dia_en_curso():
     """R09-r2 B-4 (regla 6): con ingesta solo de hoy, el vigia no la
     usa: guarda ceros en curso, sin leer parciales."""

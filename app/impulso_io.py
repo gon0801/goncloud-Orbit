@@ -103,6 +103,9 @@ class AccionVigia:
     lectura: im.LecturaImpulso
     veredicto: im.VeredictoImpulso
     hecho: str
+    # R09-F: False cuando no se pudo atender (sin ingesta de su
+    # plataforma: no hay corte y no se guardo lectura).
+    atendido: bool = True
 
 
 class EjecutorFabrica(Protocol):
@@ -866,7 +869,13 @@ def _vigila_uno(conn, pausador, fila, *, hoy, escritor_retiro):
         lectura = im.LecturaImpulso(hoy, 0, None, None, None, None)
         conn.commit()
         return (
-            AccionVigia(imp, lectura, im.VeredictoImpulso("en_curso", False, "seguir"), "nada"),
+            AccionVigia(
+                imp,
+                lectura,
+                im.VeredictoImpulso("en_curso", False, "seguir"),
+                "nada",
+                atendido=False,
+            ),
             escritor_retiro,
         )
     ayer = hoy - dt.timedelta(days=1)
@@ -1082,5 +1091,13 @@ def vigila(
             continue
         if escritor_retiro is None and usado is not None:
             escritores[platform] = usado
+        if not accion.atendido:
+            # R09-F: sin ingesta no hay nada que guardar, pero tampoco
+            # se calla: el aviso va al log del cron.
+            print(
+                f"vigila: impulso {accion.impulso_id} sin ingesta de su plataforma"
+                " (corte None): no se guardo lectura",
+                file=sys.stderr,
+            )
         acciones.append(accion)
     return acciones
