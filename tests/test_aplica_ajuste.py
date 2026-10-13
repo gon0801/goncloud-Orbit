@@ -626,6 +626,71 @@ def test_r07_09c_reintento_reusa_la_pendiente_hn(monkeypatch):
 
 
 @_skip_db
+def test_r07_09c_reconcilia_sella_la_pendiente_hn(monkeypatch):
+    """R07-09C: si el sync observa el destino antes del reintento, la
+    ruta entra por reconcilia (AjusteSinCambio) y esa puerta tambien
+    sella la H#2 pendiente en vez de devolver la fila base ya sellada
+    y dejar la H#2 huerfana con su efecto vivo."""
+    with _db("orbit_aj_09c_rec") as conn:
+        camp, _cfg = _siembra(conn)
+        remoto = {EXTERNA: {"budget": {"budget": 100.0, "budgetType": "DAILY"}}}
+        handler_ok, _vistos = _handler_campanas(remoto)
+        _creds_fake(monkeypatch)
+        plan = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("120")))
+        transporte_ok = httpx.MockTransport(handler_ok)
+        hecho = apply.aplica_ajuste_campana(
+            conn,
+            plan,
+            huella=plan.huella(),
+            confirmacion="APLICAR AJUSTE",
+            actor="dueno",
+            transport=transporte_ok,
+        )
+        apply.regresa_ajuste_campana(
+            conn, ajuste_id=hecho.ajuste_id, actor="dueno", transport=transporte_ok
+        )
+        handler_div, _v2 = _handler_campanas(remoto, divergente=_vigente_config())
+        with pytest.raises(apply.AjusteNoConfirmado):
+            apply.aplica_ajuste_campana(
+                conn,
+                plan,
+                huella=plan.huella(),
+                confirmacion="APLICAR AJUSTE",
+                actor="dueno",
+                transport=httpx.MockTransport(handler_div),
+            )
+        base = plan.huella()
+        filas = conn.execute(
+            "SELECT id, huella, confirmado_el IS NOT NULL FROM campana_ajuste"
+            " WHERE huella = %s OR huella LIKE %s ORDER BY id",
+            (base, base + "#%"),
+        ).fetchall()
+        pendientes = [f for f in filas if f[1].endswith("#2") and not f[2]]
+        assert len(pendientes) == 1
+        id_h2 = pendientes[0][0]
+        from app.ads.campana_config import guarda_config
+
+        guarda_config(conn, "amazon_mx", [plan.despues], dt.datetime.now(dt.UTC))
+        conn.commit()
+        hecho2 = apply.reconcilia_ajuste_campana(
+            conn,
+            camp,
+            "presupuesto",
+            CambiarPresupuesto(presupuesto_diario=Decimal("120")),
+            huella=base,
+            actor="dueno",
+        )
+        assert hecho2.ajuste_id == id_h2
+        assert hecho2.confirmada is True
+        filas = conn.execute(
+            "SELECT confirmado_el IS NOT NULL FROM campana_ajuste"
+            " WHERE huella = %s OR huella LIKE %s",
+            (base, base + "#%"),
+        ).fetchall()
+        assert [f for f in filas if not f[0]] == []
+
+
+@_skip_db
 def test_regreso_fallido_se_puede_reintentar(monkeypatch):
     """Panel: regreso con readback divergente deja pendiente reintentable
     (como el aplica); el reintento confirma y un tercero se rechaza."""

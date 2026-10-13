@@ -2009,7 +2009,7 @@ _SQL_CONFIRMA_AJUSTE = """
 UPDATE campana_ajuste SET confirmado_el = %s WHERE id = %s
 """
 _SQL_AJUSTE_PENDIENTE_HN = """
-SELECT id, huella FROM campana_ajuste
+SELECT id, huella, despues FROM campana_ajuste
  WHERE huella LIKE %s AND confirmado_el IS NULL AND campana_id = %s AND clase = %s
  ORDER BY id LIMIT 1
 """
@@ -2334,6 +2334,17 @@ def reconcilia_ajuste_campana(
     _eid, confirmada, ecamp, eclase, despues = previa
     if ecamp != campana_id or eclase != clase:
         raise HuellaDesactualizada(f"la huella {huella} es de otra campana o clase", None)
+    pendiente = conn.execute(
+        _SQL_AJUSTE_PENDIENTE_HN, (huella + "#%", campana_id, clase)
+    ).fetchone()
+    if pendiente is not None:
+        # R07-09C: la H#N pendiente es el acto cuyo efecto el sync ya
+        # observo; sellarla aqui. Devolver la base sellada la dejaria
+        # huerfana para siempre con su efecto vivo.
+        destino_hn = ConfigCampana.desde_json(pendiente[2])
+        if vigente == destino_hn or coincide_campo(ajuste, vigente, destino_hn):
+            _sella_pendiente(conn, pendiente[0])
+            return AjusteHecho(pendiente[0], campana_id, clase, True)
     if vigente == ConfigCampana.desde_json(despues):
         if not confirmada:
             _sella_pendiente(conn, _eid)
