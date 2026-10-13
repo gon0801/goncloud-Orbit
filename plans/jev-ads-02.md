@@ -247,7 +247,7 @@ a Jev términos de biblioteca.
 | Task | Contenido | DoD | Depends | Status |
 | --- | --- | --- | --- | --- |
 | R | `[stage:revision] [lane:gate]` Cada bloque de código pasa `cross-review.ps1` con un revisor distinto del autor. | Regla 4 de quality-kit. | cada bloque | cc:DONE (no se corre: cross-review.ps1 quedó fuera por regla permanente) |
-| D | `[stage:cierre-pr] [lane:release]` Despliegue por paso, apagado, con scripts nuevos que siguen el patrón de `jev-ads-01/ejecucion/2.3` y rollback ensayado. | Checklist verde tras el primer ciclo; cada interruptor se enciende en un cambio de config aparte. | cada paso | cc:DONE (S.1 a S.5 ya desplegados; el cierre con S.8 y J6-31 se desplegó el 2026-10-13, sello 20261013-0357, con el aviso apagado y checklist en 0 mal. `ejecucion/cierre/NOTAS.md`) |
+| D | `[stage:cierre-pr] [lane:release]` Despliegue por paso, apagado, con scripts nuevos que siguen el patrón de `jev-ads-01/ejecucion/2.3` y rollback ensayado. | Checklist verde tras el primer ciclo; cada interruptor se enciende en un cambio de config aparte. | cada paso | cc:DONE (S.1 a S.5 ya desplegados; el cierre con S.8 y J6-31 se desplegó el 2026-10-13, sello 20261013-0357, con el aviso apagado y checklist en 0 mal antes del primer ciclo; el checklist tras el ciclo de las 08:40 UTC no está en este cierre. `ejecucion/cierre/NOTAS.md`) |
 
 ## Criterios medidos
 

@@ -10,6 +10,11 @@ La semana con tope 0 no se corrió. El job ya estaba encendido con tope 5,000
 `jev.min_clics` 3). El dueño rechazó esperar esa semana. La fila se cierra
 por esa orden, no porque la semana haya ocurrido.
 
+El tope sí valió 0 del 2026-10-07 al 2026-10-12 (ver "El job antes del
+2026-10-12"). Fueron cinco días y no siete, sin clave de TypeSafe, y no hay
+evidencia de la comparación del ciclo y la cola que pide el DoD. Por eso no
+cuenta como la semana de S.6.
+
 ## S.7
 
 No hubo muestra de 50 búsquedas por mercado ni etiquetas a ciegas. El dueño
