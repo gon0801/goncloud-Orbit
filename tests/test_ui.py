@@ -2156,6 +2156,125 @@ vm.runInThisContext(fs.readFileSync(process.argv[1], "utf8"));
     assert resultado.returncode == 0, resultado.stdout + resultado.stderr
 
 
+def test_r07m_dinero_js_error_de_api_se_pinta_como_texto():
+    """R07-M (J5): el error de la API al aplicar se pinta con
+    textContent, nunca con innerHTML (el texto del error es del otro)."""
+    import os
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    archivo = Path(ui.__file__).resolve().parent / "static" / "js" / "dinero.js"
+    node = shutil.which("node")
+    if not node:
+        if "CI" in os.environ:
+            pytest.fail("Node es obligatorio en CI para verificar el flujo JavaScript")
+        pytest.skip("Node no disponible; el navegador se verifica en integracion")
+    guion = r"""
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const vm = require("node:vm");
+function campo(value) { return {value}; }
+const estado = {textContent: ""};
+const form = {
+  dataset: {campanaId: "7", clase: "presupuesto", huella: "h1"}, hidden: false,
+  elements: {presupuesto: campo("120"), actor: campo("dueno"), token: campo("t"),
+             confirmacion: campo("APLICAR AJUSTE")},
+  events: {},
+  nodos: {"[data-frase]": {textContent: ""}, "[data-estado]": estado,
+          "[data-ver-plan]": {events: {}, addEventListener(e, f) { this.events[e] = f; }},
+          'button[type="submit"]': {disabled: false}},
+  addEventListener(e, f) { this.events[e] = f; },
+  querySelector(sel) { return this.nodos[sel]; },
+};
+const docEvents = {};
+global.document = {
+  querySelectorAll(sel) {
+    if (sel === "form[data-ajuste-form]") return [form];
+    return [];
+  },
+  getElementById() { return null; },
+  addEventListener: (e, f) => { docEvents[e] = f; },
+};
+global.fetch = async () => ({
+  ok: false, status: 409,
+  json: async () => ({detail: "<img src=x onerror=alert(1)>"}),
+});
+vm.runInThisContext(fs.readFileSync(process.argv[1], "utf8"));
+(async () => {
+  await docEvents.DOMContentLoaded();
+  form.events.submit({preventDefault() {}});
+  await new Promise(r => setImmediate(r));
+  await new Promise(r => setImmediate(r));
+  assert.ok(estado.textContent.includes("<img src=x onerror=alert(1)>"),
+    "el error se pinta como texto: " + estado.textContent);
+  assert.equal(estado.innerHTML, undefined, "jamas innerHTML con texto ajeno");
+})().catch(error => { console.error(error); process.exitCode = 1; });
+"""
+    resultado = subprocess.run(
+        [node, "-e", guion, str(archivo)],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=15,
+    )
+    assert resultado.returncode == 0, resultado.stdout + resultado.stderr
+
+
+def test_r07m_plantilla_dinero_formularios_ocultos_y_escape(monkeypatch):
+    """R07-M (H2-H7): el formulario de ajuste nace hidden, el token es
+    password, no hay method=get, y nombre, frase y avisos se escapan."""
+    from test_pantalla_dinero import _fila_ui
+
+    fila = _fila_ui(
+        campana_id=7,
+        nombre="<script>alert(1)</script>",
+        ajustes_regresables=[{"ajuste_id": 9, "frase": "<b>volver</b>"}],
+        avisos=["<i>ojo</i>"],
+        presupuesto_diario="100",
+        gasto_medio_diario="10",
+        uso_presupuesto_pct=None,
+        estrategia=None,
+        ajustes_ubicacion=[],
+        gasto_fuera_de_amazon="0",
+    )
+
+    def _dinero(conn, plataforma=None):
+        from app.campana_ajustes import CLASES_SELLADAS, ORDEN_CLASES
+
+        return {
+            "plataforma": "amazon_mx",
+            "moneda": "MXN",
+            "desde": "2026-07-06",
+            "hasta": "2026-10-04",
+            "filas": [],
+            "total": _fila_ui(tipo=""),
+            "hojas_sin_clasificar": 0,
+            "target_acos_pct": "13.3",
+            "por_ubicacion": [],
+            "por_campana": [fila],
+            "clases_ajuste": [c for c in ORDEN_CLASES if c in CLASES_SELLADAS],
+        }
+
+    monkeypatch.setattr(ui.dash, "donde_poner_el_dinero", _dinero)
+    app.dependency_overrides[_conexion_lectura] = lambda: None
+    try:
+        resp = TestClient(app).get("/donde-poner-el-dinero")
+    finally:
+        app.dependency_overrides.pop(_conexion_lectura, None)
+    assert resp.status_code == 200, resp.text
+    html = resp.text
+    assert '<form hidden id="ajuste-7-presupuesto"' in html
+    assert 'name="token" type="password"' in html
+    assert 'method="get"' not in html
+    assert "<script>alert(1)</script>" not in html
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html
+    assert "<b>volver</b>" not in html
+    assert "&lt;b&gt;volver&lt;/b&gt;" in html
+    assert "<i>ojo</i>" not in html
+    assert "&lt;i&gt;ojo&lt;/i&gt;" in html
+
+
 # P.1 (BIDS 02 s3): /donde-poner-el-dinero.
 # ---------------------------------------------------------------------------
 

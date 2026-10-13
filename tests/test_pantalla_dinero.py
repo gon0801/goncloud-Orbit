@@ -1450,6 +1450,58 @@ def test_pg_regresables_y_aviso_propio_en_fila_campana():
         )
 
 
+def test_r07m_regreso_pendiente_no_quita_el_boton_ni_cuenta_sin_confirmar():
+    """R07-M (P1 y P2): un regreso sin confirmar no quita el boton
+    Regresar, y un ajuste de ubicacion sin confirmar no enciende el
+    aviso de precio movido."""
+    import json
+
+    with _db_dinero("orbit_p1_r07m") as conn:
+        fecha = dt.date(2026, 10, 4)
+        camp = _siembra_campana(conn, "amazon_mx", "r07m", "R07M")
+        cfg = conn.execute(
+            "INSERT INTO ads_campana_config_observation (ad_entity_id, observed_at,"
+            " estrategia_puja, ajuste_top_pct) VALUES (%s, %s, 'MANUAL', 30) RETURNING id",
+            (camp, dt.datetime(2026, 10, 1, tzinfo=dt.UTC)),
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO ads_campana_config_observation (ad_entity_id, observed_at,"
+            " ajuste_top_pct) VALUES (%s, %s, 50)",
+            (camp, dt.datetime(2026, 10, 4, tzinfo=dt.UTC)),
+        )
+        despues = json.dumps({"clase": "ajuste_ubicacion"})
+        ajuste = conn.execute(
+            "INSERT INTO campana_ajuste (campana_id, platform, clase, antes_config_id,"
+            " despues, huella, actor, go_literal, confirmado_el)"
+            " VALUES (%s, 'amazon_mx', 'ajuste_ubicacion', %s, %s, 'h-r07m-1', 'dueno',"
+            " 'APLICAR AJUSTE', %s) RETURNING id",
+            (camp, cfg, despues, dt.datetime(2026, 10, 3, tzinfo=dt.UTC)),
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO campana_ajuste (campana_id, platform, clase, antes_config_id,"
+            " despues, huella, actor, go_literal, regresa_a)"
+            " VALUES (%s, 'amazon_mx', 'ajuste_ubicacion', %s, %s, 'h-r07m-2', 'dueno',"
+            " 'REGRESAR AJUSTE', %s)",
+            (camp, cfg, despues, ajuste),
+        )
+        conn.execute(
+            "INSERT INTO campana_ajuste (campana_id, platform, clase, antes_config_id,"
+            " despues, huella, actor, go_literal)"
+            " VALUES (%s, 'amazon_mx', 'ajuste_ubicacion', %s, %s, 'h-r07m-3', 'dueno',"
+            " 'APLICAR AJUSTE')",
+            (camp, cfg, despues),
+        )
+        filas = {
+            f.campana_id: f
+            for f in lee_campanas(
+                conn, plataforma="amazon_mx", desde=fecha - dt.timedelta(days=29), hasta=fecha
+            )
+        }
+        fila = filas[camp]
+        assert [r.ajuste_id for r in fila.ajustes_regresables] == [ajuste]
+        assert fila.aviso_ajuste is not None  # el confirmado del 3 si cuenta
+
+
 def test_r07h_no_ofrece_regresar_si_ya_esta_como_antes():
     """R07-H: si la configuracion vigente ya volvio al valor de antes,
     la pantalla no pinta el boton Regresar (la ruta contestaria 409)."""

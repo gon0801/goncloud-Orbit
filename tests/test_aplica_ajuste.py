@@ -537,6 +537,34 @@ def test_reaplica_tras_regreso_hace_put_nuevo(monkeypatch):
 
 
 @_skip_db
+def test_r07m_huella_existente_de_otra_clase_no_pasa(monkeypatch):
+    """R07-M (M07): una fila con la misma huella pero de otra clase no
+    se reusa ni se pisa; aplicar con esa huella es error de datos."""
+    with _db("orbit_aj_m07") as conn:
+        camp, cfg = _siembra(conn)
+        remoto = {EXTERNA: {"budget": {"budget": 100.0, "budgetType": "DAILY"}}}
+        handler, _vistos = _handler_campanas(remoto)
+        _creds_fake(monkeypatch)
+        plan = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("120")))
+        conn.execute(
+            "INSERT INTO campana_ajuste (campana_id, platform, clase, antes_config_id,"
+            " despues, huella, actor, go_literal) VALUES (%s, 'amazon_mx',"
+            " 'ajuste_ubicacion', %s, '{}'::jsonb, %s, 'dueno', 'APLICAR AJUSTE')",
+            (camp, cfg, plan.huella()),
+        )
+        conn.commit()
+        with pytest.raises(ValueError, match="otra campana o clase"):
+            apply.aplica_ajuste_campana(
+                conn,
+                plan,
+                huella=plan.huella(),
+                confirmacion="APLICAR AJUSTE",
+                actor="dueno",
+                transport=httpx.MockTransport(handler),
+            )
+
+
+@_skip_db
 def test_r07_09c_reintento_reusa_la_pendiente_hn(monkeypatch):
     """R07-09C: reaplicar tras un regreso con readback divergente deja
     la H#2 pendiente; el reintento la confirma en vez de abrir una H#3
