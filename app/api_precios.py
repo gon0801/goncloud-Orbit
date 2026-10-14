@@ -167,6 +167,42 @@ def _huerfanas_precio(conn: ConexionLectura, plataforma: str) -> int:
     return int(conn.execute(_SQL_HUERFANAS_PRECIO, (plataforma,)).fetchone()[0])
 
 
+def _seguridad_precio(conn: ConexionLectura, plataforma: str, hoy: dt.date) -> dict:
+    """`EstadoSeguridad` serializado para /precios (JSON + HTML): modos,
+    ultima corrida, retenciones abiertas del dia y corrida liberable."""
+    estado = fuentes_precio.leer_seguridad(conn, plataforma, hoy=hoy)
+    ultima = estado.ultima_corrida
+    return {
+        "modo_global": estado.modo_global,
+        "modo_universo": (dict(estado.modo_universo) if estado.modo_universo is not None else None),
+        "ultima_corrida": (
+            None
+            if ultima is None
+            else {
+                "corrida_id": ultima.corrida_id,
+                "fecha": ultima.fecha.isoformat(),
+                "estado": ultima.estado,
+                "decisiones": ultima.decisiones,
+                "movidas": ultima.movidas,
+                "retenidas": ultima.retenidas,
+                "errores": ultima.errores,
+            }
+        ),
+        "retenciones_abiertas": {
+            canal: {
+                "causa": retenida.causa,
+                "medidas": retenida.medidas,
+                "nuevas": retenida.nuevas,
+                "insumo": retenida.insumo,
+                "detalle": retenida.detalle,
+            }
+            for canal, retenida in estado.retenciones_abiertas.items()
+        },
+        "liberable_corrida_id": estado.liberable_corrida_id,
+        "cohorte": None,
+    }
+
+
 def _recuadro_precio(conn: ConexionLectura, plataforma: str, hoy: dt.date) -> dict:
     """Recuadro S10 serializado (la ecuacion cuadra: cobertura.cuadra_exact).
     La clave de dias la lee fuentes.py de la config (este modulo no conoce
@@ -475,6 +511,7 @@ def _bloque_precios(
     }
     if con_recuadro:
         bloque["recuadro"] = bloque["cobertura"]
+        bloque["seguridad"] = _seguridad_precio(conn, plataforma, hoy)
         bloque["con_goal"] = _con_goal_precio(
             conn, plataforma, hoy, {fila["listing_id"]: fila for fila in detalle}
         )

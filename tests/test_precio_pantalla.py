@@ -2696,3 +2696,41 @@ def test_r1b2_m58_goal_anulado_hoy_fuera_de_con_goal():
         )
         filas = dash.precios(conn)["plataformas"]["amazon_mx"]["con_goal"]
         assert [f["sku"] for f in filas] == ["SKU-R1B2-M58K"]
+
+
+# ---------------------------------------------------------------------------
+# REPRICING 02 S.3: bloque de seguridad de /precios (modos, ultima corrida,
+# retenciones del dia, boton Soltar). Otros carriles anexan debajo.
+# ---------------------------------------------------------------------------
+
+
+@_skip_sin_pg
+def test_s3_precios_trae_bloque_seguridad_con_soltar(monkeypatch):
+    """S.3: /precios trae el bloque de seguridad: modos, ultima corrida,
+    retenciones abiertas del dia y el boton Soltar con la corrida liberable;
+    el JSON trae la misma `seguridad`."""
+    with _db_pantalla("s3-seg") as (conn, dsn):
+        cfg = _config_pantalla(conn)
+        corrida = conn.execute(
+            "INSERT INTO precio_corrida (platform, owner, config_version_id, modo_global)"
+            " VALUES ('amazon_mx', 'tdd-s3', %s, 'live') RETURNING id",
+            (cfg,),
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO precio_compuerta_medicion (corrida_id, canal, medidas, nuevas, causa)"
+            " VALUES (%s, 'fba', 158, 80, 'movimiento_masivo')",
+            (corrida,),
+        )
+        html = _html_precios(conn, dsn, monkeypatch)
+        assert "bloque-seguridad-amazon_mx" in html
+        assert "Soltar" in html
+        assert f'data-liberar-corrida="{corrida}"' in html
+        assert "movimiento_masivo" in html
+        data = _cliente_pantalla(dsn, monkeypatch).get("/api/dashboard/precios").json()
+        seg = data["plataformas"]["amazon_mx"]["seguridad"]
+        assert seg["modo_global"] == "live"
+        assert seg["modo_universo"]["amazon_mx/fba"] == "live"
+        assert seg["ultima_corrida"]["corrida_id"] == corrida
+        assert seg["retenciones_abiertas"]["fba"]["causa"] == "movimiento_masivo"
+        assert seg["liberable_corrida_id"] == corrida
+        assert seg["cohorte"] is None

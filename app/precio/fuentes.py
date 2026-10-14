@@ -15,6 +15,7 @@ Las consultas viven tambien en `docs/evidencia/repricing-01/A.7/consultas/`
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 from typing import Any
@@ -22,7 +23,9 @@ from typing import Any
 import psycopg
 
 from app.precio.cobertura import FilaPublicacion
+from app.precio.compuerta import Retenida
 from app.precio.config import _entero as config_entero
+from app.precio.config import _modo_universo as config_modo_universo
 from app.precio.config import _numero as config_numero
 
 __all__ = [
@@ -32,6 +35,9 @@ __all__ = [
     "leer_publicaciones",
     "contar_listing_identidad",
     "universos_encendidos",
+    "UltimaCorrida",
+    "EstadoSeguridad",
+    "leer_seguridad",
 ]
 
 _SQL_CANAL = (
@@ -159,3 +165,115 @@ def contar_listing_identidad(conn: psycopg.Connection, *, platform: str) -> int:
     """Filas de `listing` por plataforma: identidad, no activas (el estado
     del puente no esta en Orbit)."""
     return int(conn.execute(_SQL_LISTING_IDENTIDAD, (platform,)).fetchone()[0])
+
+
+@dataclass(frozen=True)
+class UltimaCorrida:
+    """La ultima fila `precio_corrida` de la plataforma (abierta o cerrada)."""
+
+    corrida_id: int
+    fecha: date
+    estado: str
+    decisiones: int | None
+    movidas: int | None
+    retenidas: int | None
+    errores: int | None
+
+
+@dataclass(frozen=True)
+class EstadoSeguridad:
+    """Lo que `/precios` muestra arriba (bosquejo T, S.3).
+
+    `retenciones_abiertas`: las del dia sin soltar, una por canal (la de la
+    corrida mas reciente). `liberable_corrida_id`: la corrida que el boton
+    Soltar suelta (`POST /api/precios/compuerta/{id}/liberar`, ruta de G.2),
+    `None` si no hay que soltar. `cohorte` la llena S.7 (siempre `None`).
+    Los modos son `None` con config vieja (sin claves del apagador): la
+    pantalla observa sin exigir (B9), solo el motor fail-closea.
+    """
+
+    modo_global: str | None
+    modo_universo: Mapping[str, str] | None
+    ultima_corrida: UltimaCorrida | None
+    retenciones_abiertas: Mapping[str, Retenida]
+    liberable_corrida_id: int | None
+    cohorte: None
+
+
+_SQL_SEG_ULTIMA = (
+    "SELECT id, fecha, estado, decisiones, movidas, retenidas, errores"
+    " FROM precio_corrida WHERE platform = %s ORDER BY id DESC LIMIT 1"
+)
+
+_SEG_ABIERTA_WHERE = (
+    " FROM precio_compuerta_medicion m JOIN precio_corrida c ON c.id = m.corrida_id"
+    " WHERE c.platform = %s AND c.fecha = %s AND m.causa IS NOT NULL"
+    " AND NOT EXISTS (SELECT 1 FROM precio_compuerta_liberacion l"
+    " WHERE l.corrida_id = m.corrida_id)"
+)
+
+_SQL_SEG_ABIERTAS = (
+    "SELECT m.canal::text, m.causa, m.medidas, m.nuevas, m.insumo, m.detalle"
+    + _SEG_ABIERTA_WHERE
+    + " ORDER BY m.corrida_id DESC"
+)
+
+_SQL_SEG_LIBERABLE = "SELECT max(m.corrida_id)" + _SEG_ABIERTA_WHERE
+
+
+def leer_seguridad(conn: psycopg.Connection, plataforma: str, *, hoy: date) -> EstadoSeguridad:
+    """Modos, ultima corrida y retenciones abiertas del dia sin soltar.
+
+    Fail-open en los modos (como `universos_encendidos`): config sin
+    claves del apagador = modos `None`, pero la ultima corrida y las
+    retenciones se leen igual. Clave presente pero invalida = `ValueError`
+    que la nombra.
+    """
+    from app.precio.config import MODOS
+
+    settings = config_vigente_settings(conn)
+    modo_global = settings.get("precio_modo_global")
+    if modo_global is not None and modo_global not in MODOS:
+        raise ValueError(f"setting precio_modo_global: modo invalido: {modo_global!r}")
+    crudo_universo = settings.get("precio_modo_universo")
+    if modo_global is None or crudo_universo is None:
+        modo_universo = None
+    else:
+        modo_universo = config_modo_universo(settings, "precio_modo_universo")
+    fila = conn.execute(_SQL_SEG_ULTIMA, (plataforma,)).fetchone()
+    ultima = (
+        UltimaCorrida(
+            corrida_id=fila[0],
+            fecha=fila[1],
+            estado=fila[2],
+            decisiones=fila[3],
+            movidas=fila[4],
+            retenidas=fila[5],
+            errores=fila[6],
+        )
+        if fila is not None
+        else None
+    )
+    abiertas: dict[str, Retenida] = {}
+    for canal, causa, medidas, nuevas, insumo, detalle in conn.execute(
+        _SQL_SEG_ABIERTAS, (plataforma, hoy)
+    ).fetchall():
+        abiertas.setdefault(
+            canal,
+            Retenida(
+                causa=causa,
+                medidas=medidas,
+                nuevas=nuevas,
+                insumo=insumo,
+                detalle=detalle or "",
+            ),
+        )
+    liberable = conn.execute(_SQL_SEG_LIBERABLE, (plataforma, hoy)).fetchone()[0]
+    return EstadoSeguridad(
+        modo_global=modo_global,
+        modo_universo=dict(modo_universo) if modo_universo is not None else None,
+        ultima_corrida=ultima,
+        retenciones_abiertas=abiertas,
+        liberable_corrida_id=liberable,
+        cohorte=None,
+    )

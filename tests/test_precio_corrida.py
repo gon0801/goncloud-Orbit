@@ -59,7 +59,7 @@ _CONTADOR = itertools.count()
 PROPIO = VENDEDORES_PROPIOS[MERCADOS["amazon_mx"]]
 CRED = {"lwa_app_id": "id-a5", "lwa_client_secret": "sec-a5", "refresh_token": "r-a5"}
 
-# Todas las claves que lee la corrida (`leer_config` + modo global + freno).
+# Todas las claves que lee la corrida (`leer_config` + `leer_config_motor`).
 SETTINGS = {
     "precio_caida_ventas_pct": "0.40",
     "precio_senal_dias": 3,
@@ -77,6 +77,19 @@ SETTINGS = {
     "precio_freno_dias_error": 3,
     "precio_modo_global": "live",
     "precio_modo_universo": {"amazon_mx/fba": "live"},
+    # S.3: la compuerta exige el motor completo (valores de la 0054).
+    "precio_goal_min_pct": "0.10",
+    "precio_goal_max_pct": "0.60",
+    "precio_catalogo_max_dias_sin_reportar": 3,
+    "precio_aviso_dias_sin_evaluar": 3,
+    "precio_fusible_frac": "0.50",
+    "precio_fusible_min_movimientos": 10,
+    "precio_insumo_salto_pct": "0.05",
+    "precio_insumo_salto_frac": "0.30",
+    "precio_corte_errores_consecutivos": 5,
+    "precio_senal_trafico_min": 200,
+    "precio_cohorte_caida_pct": "0.25",
+    "precio_envio_ventana_dias": 180,
 }
 
 
@@ -347,6 +360,8 @@ def _escenario(
     estado="disponible",
     costo="60",
     motivos=None,
+    fee_variable=None,
+    fee_fijo=None,
 ) -> int:
     evento = evento or f"esc-{sku}"
     observed = datetime.now(UTC)
@@ -360,10 +375,11 @@ def _escenario(
         " valoracion_date, observed_at, politica_version_id, formula_version,"
         " oferta_observation_id, fee_observation_id, sku_cost_id, costo_validation_run_id,"
         " costo_validated_at, moneda, contribucion, contribucion_pct, estado, motivos,"
-        " componentes, exclusiones, canonical_input, context_fingerprint, source_event_id)"
+        " componentes, exclusiones, canonical_input, context_fingerprint, source_event_id,"
+        " fee_variable, fee_fijo)"
         " VALUES (%s, %s, %s, %s, 'fba', %s, %s, %s, 'vtest', %s, %s, %s, %s,"
         " %s, " + moneda_sql + ", %s, %s, %s, %s, %s, %s, %s,"
-        " %s, %s) RETURNING id",
+        " %s, %s, %s, %s) RETURNING id",
         (
             listing,
             platform,
@@ -387,6 +403,8 @@ def _escenario(
             Json({}),
             huella,
             evento,
+            None if fee_variable is None else Decimal(fee_variable),
+            None if fee_fijo is None else Decimal(fee_fijo),
         ),
     ).fetchone()[0]
 
@@ -1127,9 +1145,9 @@ def test_compuerta_corre_una_vez_por_plataforma(monkeypatch):
         llamadas = []
         real = corrida_mod._medir_compuerta
 
-        def _espia(conn_e, plataforma, hoy, config):
+        def _espia(conn_e, plataforma, hoy, config, corrida_id):
             llamadas.append(plataforma)
-            return real(conn_e, plataforma, hoy, config)
+            return real(conn_e, plataforma, hoy, config, corrida_id)
 
         monkeypatch.setattr(corrida_mod, "_medir_compuerta", _espia)
         red = _RedFalsa(skus={datos["evento"]: datos["sku"]})
@@ -1380,23 +1398,32 @@ def test_virtual_de_sombra_dispara_freno_6():
 # CLI `precio` y cron
 # ---------------------------------------------------------------------------
 
-# Fuente unica de la linea (docs/DEPLOY.md la copia de aqui).
+# Fuente unica de las lineas (docs/DEPLOY.md las copia de aqui). D.2: la
+# diaria de las 13:10 UTC mas los repasos cada 2 h de 15:10 a 23:10 UTC.
 LINEA_CRONTAB_PRECIO = (
-    "10 13 * * * /usr/bin/flock -n /tmp/precio-corrida.lock"
+    "10 13 * * * /usr/bin/flock -n /tmp/precio-spapi.lock"
+    " docker exec orbit-app-1 python -m app.cli precio --platform amazon_mx"
+    " >> /mnt/data/appdata/orbit/logs/precio-corrida.log 2>&1"
+)
+LINEA_CRONTAB_PRECIO_REPASOS = (
+    "10 15-23/2 * * * /usr/bin/flock -n /tmp/precio-spapi.lock"
     " docker exec orbit-app-1 python -m app.cli precio --platform amazon_mx"
     " >> /mnt/data/appdata/orbit/logs/precio-corrida.log 2>&1"
 )
 
 
 def test_linea_crontab_en_deploy():
-    """`docs/DEPLOY.md` trae la linea EXACTA y los previos a instalarla.
+    """`docs/DEPLOY.md` trae las dos lineas EXACTAS y los previos a instalarlas.
 
-    D15: se afirma contra el doc, no contra la constante (y B6: los
-    renglones previos a instalar la linea).
+    D15: se afirma contra el doc, no contra las constantes (y B6: los
+    renglones previos a instalar las lineas).
     """
     deploy = (RAIZ / "docs" / "DEPLOY.md").read_text(encoding="utf-8")
     assert LINEA_CRONTAB_PRECIO in deploy
+    assert LINEA_CRONTAB_PRECIO_REPASOS in deploy
     assert "10 13 * * *" in deploy
+    assert "10 15-23/2 * * *" in deploy
+    assert "precio-spapi.lock" in deploy
     assert "flock" in deploy
     assert "precio-corrida.log" in deploy
     assert "claves `precio_*" in deploy
@@ -3609,3 +3636,660 @@ def test_s2_universo_sin_entrada_vale_off():
         assert _cuenta_decisiones(conn) == 0
         assert conn.execute("SELECT count(*) FROM precio_cotizacion").fetchone()[0] == 0
         assert red.n_patch == 0 and red.n_fees == 0
+
+
+# ---------------------------------------------------------------------------
+# REPRICING 02 S.3: la compuerta (fusible, insumo sistemico, corte, liberacion)
+# ---------------------------------------------------------------------------
+
+
+def _hoy(conn):
+    return conn.execute("SELECT (now() AT TIME ZONE 'UTC')::date").fetchone()[0]
+
+
+def _motor_de(settings):
+    from app.precio.config import leer_config_motor
+
+    return leer_config_motor(settings)
+
+
+def _decision_s3(
+    conn,
+    lid,
+    *,
+    resultado="subir",
+    motivo=None,
+    mode="shadow",
+    canal="fba",
+    m="0.25",
+    i="10",
+    c="20",
+    f="12",
+    logi="5",
+    r="8",
+    p_actual="100",
+    p_objetivo="110",
+    p_aplicado="110",
+    goal="0.30",
+    goal_id=None,
+    escenario_id=None,
+    dia=None,
+    con_cuenta=True,
+):
+    """Decision con cuenta completa (mide) o pelada (`no_evaluado`, no mide).
+
+    Con `dia`, la fila nace en ese dia (triggers de usuario fuera: el de
+    fecha y el de coherencia; FKs y CHECKs siguen activos). Sin `dia`, el
+    trigger fija hoy y valida el goal.
+    """
+    mueve = resultado in ("subir", "bajar")
+    columnas = (
+        "listing_id, platform, resultado, motivo, mode, goal, m_actual,"
+        " p_actual, p_actual_currency, p_objetivo, p_objetivo_currency,"
+        " p_aplicado, p_aplicado_currency, i_valor, i_currency, c_valor,"
+        " c_currency, f_valor, f_currency, l_valor, l_currency, r_valor,"
+        " r_currency, l_origen, verificacion, goal_id, canal, escenario_id"
+    )
+    valores = (
+        lid,
+        "amazon_mx",
+        resultado,
+        motivo,
+        mode,
+        Decimal(goal),
+        Decimal(m) if con_cuenta else None,
+        Decimal(p_actual) if con_cuenta else None,
+        "MXN",
+        Decimal(p_objetivo) if con_cuenta and mueve else None,
+        "MXN",
+        Decimal(p_aplicado) if con_cuenta and mueve else None,
+        "MXN",
+        Decimal(i) if con_cuenta else None,
+        "MXN",
+        Decimal(c) if con_cuenta else None,
+        "MXN",
+        Decimal(f) if con_cuenta else None,
+        "MXN",
+        Decimal(logi) if con_cuenta else None,
+        "MXN",
+        Decimal(r) if con_cuenta else None,
+        "MXN",
+        "politica" if con_cuenta else None,
+        "cotizada" if mueve and con_cuenta else None,
+        goal_id,
+        canal,
+        escenario_id,
+    )
+    if dia is not None:
+        columnas += ", decision_date"
+        valores += (dia,)
+        conn.execute("ALTER TABLE precio_decision DISABLE TRIGGER USER")
+        try:
+            return conn.execute(
+                f"INSERT INTO precio_decision ({columnas})"
+                f" VALUES ({', '.join(['%s'] * len(valores))}) RETURNING id",
+                valores,
+            ).fetchone()[0]
+        finally:
+            conn.execute("ALTER TABLE precio_decision ENABLE TRIGGER USER")
+    return conn.execute(
+        f"INSERT INTO precio_decision ({columnas})"
+        f" VALUES ({', '.join(['%s'] * len(valores))}) RETURNING id",
+        valores,
+    ).fetchone()[0]
+
+
+def _unidad_s3(conn, tag, *, mode="shadow"):
+    """Producto + listing + goal vigente hace 30 dias. Devuelve `(lid, gid)`."""
+    prod = _producto(conn, f"ODOO-S3-{tag}")
+    lid = _listing(conn, prod, ext=f"B0S3{tag}", sku=f"SKU-S3-{tag}")
+    return lid, _goal(conn, lid, mode=mode)
+
+
+def _corrida_s3(conn, cfg, *, platform="amazon_mx", modo="live"):
+    return conn.execute(
+        "INSERT INTO precio_corrida (platform, owner, config_version_id, modo_global)"
+        " VALUES (%s, 'tdd-s3', %s, %s) RETURNING id",
+        (platform, cfg, modo),
+    ).fetchone()[0]
+
+
+def _medicion_de(conn, corrida):
+    return conn.execute(
+        "SELECT canal, medidas, nuevas, causa, insumo FROM precio_compuerta_medicion"
+        " WHERE corrida_id = %s ORDER BY canal",
+        (corrida,),
+    ).fetchall()
+
+
+class _MercadoEstricto:
+    """Cualquier llamada es un fallo: el repaso ocioso no toca al Mercado."""
+
+    clave = "amazon_mx"
+
+    def __getattr__(self, nombre):
+        raise AssertionError(f"el repaso llamo al Mercado: {nombre}")
+
+
+class _MercadoErrorSiempre:
+    """Vivo legible, escritura siempre rechazada (Acuse, no excepcion)."""
+
+    clave = "amazon_mx"
+
+    def __init__(self):
+        self.escrituras = 0
+
+    def validar_destino(self, unidad) -> None:
+        return None
+
+    def observado(self, conn, unidad, *, despues_de, hasta):
+        return None
+
+    def precio_vivo(self, unidad):
+        from app.precio.tipos import Importe
+
+        # Vivo = p_actual sembrado (100): el compare-and-set pasa y escribe.
+        return Importe(Decimal("100.00"), "MXN")
+
+    def escribir(self, unidad, destino):
+        from app.precio.puerto import Acuse
+
+        self.escrituras += 1
+        return Acuse(aceptada=False, codigo="tdd-falla", cuerpo={})
+
+
+@_skip_sin_pg
+def test_s3_80_intenciones_nuevas_retienen_y_no_escriben_nada():
+    """S.3: 80 subir nuevas sobre 158 medidas retienen con
+    `movimiento_masivo`: 80 retenciones, cero cambios, cero PATCH."""
+    from types import SimpleNamespace
+
+    from app.precio.corrida import _aplicar_pendientes, _medir_compuerta
+
+    with _db() as (conn, _dsn):
+        cfg = _config(conn)
+        hoy = _hoy(conn)
+        for n in range(158):
+            lid, gid = _unidad_s3(conn, f"80-{n:03d}")
+            if n < 80:
+                _decision_s3(conn, lid, goal_id=gid)
+            else:
+                _decision_s3(conn, lid, resultado="mantener", motivo="en_tolerancia", goal_id=gid)
+        corrida = _corrida_s3(conn, cfg)
+        motor = _motor_de(SETTINGS)
+        veredictos = _medir_compuerta(conn, "amazon_mx", hoy, motor, corrida)
+        assert set(veredictos) == {"fba"}
+        assert veredictos["fba"].causa == "movimiento_masivo"
+        assert _medicion_de(conn, corrida) == [("fba", 158, 80, "movimiento_masivo", None)]
+        mercado = SimpleNamespace(clave="amazon_mx")
+        resultado = _aplicar_pendientes(
+            conn,
+            mercado,
+            veredictos,
+            hoy,
+            owner="tdd",
+            ahora=datetime.now(UTC),
+            corrida_id=corrida,
+            corte=motor.corte_errores_consecutivos,
+        )
+        assert resultado == (0, 0, 80, [])
+        assert _cuenta_cambios(conn) == 0
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM precio_retencion WHERE causa = 'movimiento_masivo'"
+            ).fetchone()[0]
+            == 80
+        )
+
+
+@_skip_sin_pg
+def test_s3_79_intenciones_pasan_y_aplican():
+    """S.3: 79 nuevas sobre 158 medidas no retienen (mayor estricto): la
+    corrida aplica las 79 en sombra."""
+    from types import SimpleNamespace
+
+    from app.precio.compuerta import Abierta
+    from app.precio.corrida import _aplicar_pendientes, _medir_compuerta
+
+    with _db() as (conn, _dsn):
+        cfg = _config(conn)
+        hoy = _hoy(conn)
+        for n in range(158):
+            lid, gid = _unidad_s3(conn, f"79-{n:03d}")
+            if n < 79:
+                _decision_s3(conn, lid, goal_id=gid)
+            else:
+                _decision_s3(conn, lid, resultado="mantener", motivo="en_tolerancia", goal_id=gid)
+        corrida = _corrida_s3(conn, cfg)
+        motor = _motor_de(SETTINGS)
+        veredictos = _medir_compuerta(conn, "amazon_mx", hoy, motor, corrida)
+        assert veredictos["fba"] == Abierta(medidas=158, nuevas=79)
+        assert _medicion_de(conn, corrida) == [("fba", 158, 79, None, None)]
+        mercado = SimpleNamespace(clave="amazon_mx")
+        resultado = _aplicar_pendientes(
+            conn,
+            mercado,
+            veredictos,
+            hoy,
+            owner="tdd",
+            ahora=datetime.now(UTC),
+            corrida_id=corrida,
+            corte=motor.corte_errores_consecutivos,
+        )
+        assert resultado == (0, 79, 0, [])
+        assert _cuenta_cambios(conn) == 79
+
+
+@_skip_sin_pg
+def test_s3_no_evaluado_no_cuenta_en_las_medidas():
+    """S.3: 2 subir con cuenta + 3 `no_evaluado` sin cuenta = 2 medidas
+    (uno con canal, como la ruta `escenario_incoherente`: ni asi mide)."""
+    from app.precio.corrida import _medir_compuerta
+
+    with _db() as (conn, _dsn):
+        cfg = _config(conn)
+        hoy = _hoy(conn)
+        for n in range(2):
+            lid, gid = _unidad_s3(conn, f"ne-s-{n}")
+            _decision_s3(conn, lid, goal_id=gid)
+        for n, motivo, canal in (
+            (0, "precio_ausente", None),
+            (1, "escenario_incoherente", "fba"),
+            (2, "precio_sin_observar", None),
+        ):
+            lid, gid = _unidad_s3(conn, f"ne-n-{n}")
+            _decision_s3(
+                conn,
+                lid,
+                resultado="no_evaluado",
+                motivo=motivo,
+                canal=canal,
+                goal_id=gid,
+                con_cuenta=False,
+            )
+        corrida = _corrida_s3(conn, cfg)
+        veredictos = _medir_compuerta(conn, "amazon_mx", hoy, _motor_de(SETTINGS), corrida)
+        assert veredictos["fba"].medidas == 2
+        assert _medicion_de(conn, corrida) == [("fba", 2, 2, None, None)]
+
+
+@_skip_sin_pg
+def test_s3_segunda_ola_al_mismo_goal_no_cuenta_como_nueva():
+    """S.3: subir de hoy con subir ayer hacia el mismo goal no es nueva
+    (nuevas = 1 de 2 subir); sin ayer, si."""
+    from app.precio.corrida import _medir_compuerta
+
+    with _db() as (conn, _dsn):
+        cfg = _config(conn)
+        hoy = _hoy(conn)
+        ayer = hoy - timedelta(days=1)
+        lid_a, gid_a = _unidad_s3(conn, "ola-a")
+        _decision_s3(conn, lid_a, goal_id=gid_a, dia=ayer)
+        _decision_s3(conn, lid_a, goal_id=gid_a)
+        lid_b, gid_b = _unidad_s3(conn, "ola-b")
+        _decision_s3(conn, lid_b, goal_id=gid_b)
+        corrida = _corrida_s3(conn, cfg)
+        veredictos = _medir_compuerta(conn, "amazon_mx", hoy, _motor_de(SETTINGS), corrida)
+        assert (veredictos["fba"].medidas, veredictos["fba"].nuevas) == (2, 1)
+        assert _medicion_de(conn, corrida) == [("fba", 2, 1, None, None)]
+
+
+@_skip_sin_pg
+def test_s3_costo_20_en_60_retiene_nombrando_costo():
+    """S.3: costo +20 % en 60 de 158 comparables retiene con causa
+    `insumo_sistemico` e insumo `costo` (sin movimiento masivo)."""
+    from app.precio.corrida import _medir_compuerta
+
+    with _db() as (conn, _dsn):
+        cfg = _config(conn)
+        hoy = _hoy(conn)
+        ayer = hoy - timedelta(days=1)
+        for n in range(158):
+            lid, gid = _unidad_s3(conn, f"c-{n:03d}")
+            _decision_s3(
+                conn,
+                lid,
+                resultado="mantener",
+                motivo="en_tolerancia",
+                goal_id=gid,
+                c="100",
+                dia=ayer,
+            )
+            _decision_s3(
+                conn,
+                lid,
+                resultado="mantener",
+                motivo="en_tolerancia",
+                goal_id=gid,
+                c="120" if n < 60 else "100",
+            )
+        corrida = _corrida_s3(conn, cfg)
+        veredictos = _medir_compuerta(conn, "amazon_mx", hoy, _motor_de(SETTINGS), corrida)
+        retenida = veredictos["fba"]
+        assert (retenida.causa, retenida.insumo) == ("insumo_sistemico", "costo")
+        assert (retenida.medidas, retenida.nuevas) == (158, 0)
+        assert _medicion_de(conn, corrida) == [("fba", 158, 0, "insumo_sistemico", "costo")]
+        detalle = conn.execute(
+            "SELECT detalle FROM precio_compuerta_medicion WHERE corrida_id = %s",
+            (corrida,),
+        ).fetchone()[0]
+        assert detalle and "costo" in detalle
+
+
+@_skip_sin_pg
+def test_s3_salto_solo_fbm_retiene_fbm_y_deja_pasar_fba():
+    """S.3: con FBA y FBM en la plataforma, un salto que solo afecta a FBM
+    retiene FBM (`insumo_sistemico`) y aplica FBA."""
+    from types import SimpleNamespace
+
+    from app.precio.compuerta import Abierta
+    from app.precio.corrida import _aplicar_pendientes, _medir_compuerta
+
+    settings = {
+        **SETTINGS,
+        "precio_modo_universo": {"amazon_mx/fba": "live", "amazon_mx/fbm": "live"},
+    }
+    with _db() as (conn, _dsn):
+        cfg = _config(conn, settings)
+        hoy = _hoy(conn)
+        ayer = hoy - timedelta(days=1)
+        for n in range(5):
+            lid, gid = _unidad_s3(conn, f"a-{n}")
+            _decision_s3(
+                conn,
+                lid,
+                resultado="mantener",
+                motivo="en_tolerancia",
+                goal_id=gid,
+                c="100",
+                dia=ayer,
+            )
+            _decision_s3(
+                conn, lid, resultado="mantener", motivo="en_tolerancia", goal_id=gid, c="100"
+            )
+        for n in range(2):
+            lid, gid = _unidad_s3(conn, f"a-s-{n}")
+            _decision_s3(conn, lid, goal_id=gid)
+        for n in range(12):
+            lid, gid = _unidad_s3(conn, f"b-{n}")
+            _decision_s3(
+                conn,
+                lid,
+                resultado="mantener",
+                motivo="en_tolerancia",
+                goal_id=gid,
+                c="100",
+                canal="fbm",
+                dia=ayer,
+            )
+            _decision_s3(
+                conn,
+                lid,
+                resultado="mantener",
+                motivo="en_tolerancia",
+                goal_id=gid,
+                c="120",
+                canal="fbm",
+            )
+        for n in range(2):
+            lid, gid = _unidad_s3(conn, f"b-s-{n}")
+            _decision_s3(conn, lid, goal_id=gid, canal="fbm")
+        corrida = _corrida_s3(conn, cfg)
+        motor = _motor_de(settings)
+        veredictos = _medir_compuerta(conn, "amazon_mx", hoy, motor, corrida)
+        assert set(veredictos) == {"fba", "fbm"}
+        assert veredictos["fba"] == Abierta(medidas=7, nuevas=2)
+        assert (veredictos["fbm"].causa, veredictos["fbm"].insumo) == (
+            "insumo_sistemico",
+            "costo",
+        )
+        assert _medicion_de(conn, corrida) == [
+            ("fba", 7, 2, None, None),
+            ("fbm", 14, 2, "insumo_sistemico", "costo"),
+        ]
+        mercado = SimpleNamespace(clave="amazon_mx")
+        resultado = _aplicar_pendientes(
+            conn,
+            mercado,
+            veredictos,
+            hoy,
+            owner="tdd",
+            ahora=datetime.now(UTC),
+            corrida_id=corrida,
+            corte=motor.corte_errores_consecutivos,
+        )
+        assert resultado == (0, 2, 2, [])
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM precio_retencion WHERE causa = 'insumo_sistemico'"
+            ).fetchone()[0]
+            == 2
+        )
+
+
+@_skip_sin_pg
+def test_s3_liberar_aplica_lo_retenido_de_hoy_y_no_lo_de_ayer():
+    """S.3: tras `liberar`, la corrida siguiente aplica lo retenido de hoy;
+    lo de ayer nunca es pendiente."""
+    from types import SimpleNamespace
+
+    from app.precio.compuerta import Abierta
+    from app.precio.corrida import _aplicar_pendientes, _medir_compuerta
+    from app.precio.liberaciones import liberar
+
+    settings = {**SETTINGS, "precio_fusible_min_movimientos": 2}
+    with _db() as (conn, _dsn):
+        cfg = _config(conn, settings)
+        hoy = _hoy(conn)
+        ayer = hoy - timedelta(days=1)
+        for n in range(3):
+            lid, gid = _unidad_s3(conn, f"lib-{n}")
+            _decision_s3(conn, lid, goal_id=gid)
+        lid_viejo, gid_viejo = _unidad_s3(conn, "lib-viejo")
+        dec_ayer = _decision_s3(conn, lid_viejo, goal_id=gid_viejo, dia=ayer)
+        primera = _corrida_s3(conn, cfg)
+        motor = _motor_de(settings)
+        retenidos = _medir_compuerta(conn, "amazon_mx", hoy, motor, primera)
+        assert retenidos["fba"].causa == "movimiento_masivo"
+        mercado = SimpleNamespace(clave="amazon_mx")
+        momento = datetime.now(UTC)
+        assert _aplicar_pendientes(
+            conn,
+            mercado,
+            retenidos,
+            hoy,
+            owner="tdd",
+            ahora=momento,
+            corrida_id=primera,
+            corte=motor.corte_errores_consecutivos,
+        ) == (0, 0, 3, [])
+        assert _cuenta_cambios(conn) == 0
+        soltada = liberar(conn, corrida_id=primera, actor="dueno", nota="ola real, soltar")
+        assert (soltada.corrida_id, soltada.actor) == (primera, "dueno")
+        assert soltada.liberada_en is not None
+        segunda = _corrida_s3(conn, cfg)
+        abiertos = _medir_compuerta(conn, "amazon_mx", hoy, motor, segunda)
+        assert abiertos["fba"] == Abierta(medidas=3, nuevas=0)
+        assert _aplicar_pendientes(
+            conn,
+            mercado,
+            abiertos,
+            hoy,
+            owner="tdd",
+            ahora=momento,
+            corrida_id=segunda,
+            corte=motor.corte_errores_consecutivos,
+        ) == (0, 3, 0, [])
+        assert _cuenta_cambios(conn) == 3
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM precio_cambio WHERE decision_id = %s", (dec_ayer,)
+            ).fetchone()[0]
+            == 0
+        )
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM precio_retencion WHERE decision_id = %s", (dec_ayer,)
+            ).fetchone()[0]
+            == 0
+        )
+
+
+@_skip_sin_pg
+def test_s3_liberar_dos_veces_devuelve_la_fila_y_sin_retencion_levanta():
+    """S.3: `liberar` es idempotente por corrida; sin medicion con causa
+    (o sin medicion, o corrida inexistente) levanta `CorridaSinRetencion`."""
+    from app.precio.liberaciones import CorridaSinRetencion, liberar
+
+    with _db() as (conn, _dsn):
+        cfg = _config(conn)
+        retenida = _corrida_s3(conn, cfg)
+        conn.execute(
+            "INSERT INTO precio_compuerta_medicion (corrida_id, canal, medidas, nuevas, causa)"
+            " VALUES (%s, 'fba', 10, 8, 'movimiento_masivo')",
+            (retenida,),
+        )
+        primera = liberar(conn, corrida_id=retenida, actor="dueno", nota="soltar")
+        segunda = liberar(conn, corrida_id=retenida, actor="otro", nota="otra nota")
+        assert segunda == primera
+        assert conn.execute("SELECT count(*) FROM precio_compuerta_liberacion").fetchone()[0] == 1
+        limpia = _corrida_s3(conn, cfg)
+        conn.execute(
+            "INSERT INTO precio_compuerta_medicion (corrida_id, canal, medidas, nuevas)"
+            " VALUES (%s, 'fba', 10, 1)",
+            (limpia,),
+        )
+        with pytest.raises(CorridaSinRetencion):
+            liberar(conn, corrida_id=limpia, actor="dueno", nota="nada que soltar")
+        vacia = _corrida_s3(conn, cfg)
+        with pytest.raises(CorridaSinRetencion):
+            liberar(conn, corrida_id=vacia, actor="dueno", nota="nada que soltar")
+        with pytest.raises(CorridaSinRetencion):
+            liberar(conn, corrida_id=999999, actor="dueno", nota="nada que soltar")
+
+
+@_skip_sin_pg
+def test_s3_repaso_sin_nada_pendiente_no_llama_al_mercado():
+    """S.3: segunda corrida sin nada pendiente: 0/0 sin tocar al Mercado
+    (cualquier llamada revienta en `_MercadoEstricto`)."""
+    with _db() as (conn, _dsn):
+        datos = _cadena(conn, mode="live")
+        _price_obs(conn)
+        red = _RedFalsa(skus={datos["evento"]: datos["sku"]})
+        primera = _corre(conn, red)
+        assert (primera.decisiones, primera.escritas) == (1, 1)
+        segunda = correr(conn, _MercadoEstricto(), owner="tdd")
+        assert (segunda.decisiones, segunda.escritas) == (0, 0)
+        assert segunda.retenidas == 0
+
+
+@_skip_sin_pg
+def test_s3_cinco_errores_seguidos_cortan_con_corte_errores():
+    """S.3: 7 live con escritura siempre rechazada: 5 cambios en error y las
+    2 restantes retenidas `corte_errores` (el Mercado se toca 5 veces)."""
+    from app.precio.compuerta import Abierta
+    from app.precio.corrida import _aplicar_pendientes, _medir_compuerta
+
+    with _db() as (conn, _dsn):
+        cfg = _config(conn)
+        hoy = _hoy(conn)
+        for n in range(7):
+            lid, gid = _unidad_s3(conn, f"cor-{n}", mode="live")
+            _decision_s3(conn, lid, mode="live", goal_id=gid)
+        corrida = _corrida_s3(conn, cfg)
+        motor = _motor_de(SETTINGS)
+        veredictos = _medir_compuerta(conn, "amazon_mx", hoy, motor, corrida)
+        assert veredictos["fba"] == Abierta(medidas=7, nuevas=7)  # 7 < minimo 10: pasa
+        mercado = _MercadoErrorSiempre()
+        resultado = _aplicar_pendientes(
+            conn,
+            mercado,
+            veredictos,
+            hoy,
+            owner="tdd",
+            ahora=datetime.now(UTC),
+            corrida_id=corrida,
+            corte=motor.corte_errores_consecutivos,
+        )
+        assert resultado == (5, 0, 2, [])
+        assert mercado.escrituras == 5
+        assert (
+            conn.execute("SELECT count(*) FROM precio_cambio WHERE estado = 'error'").fetchone()[0]
+            == 5
+        )
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM precio_retencion WHERE causa = 'corte_errores'"
+            ).fetchone()[0]
+            == 2
+        )
+
+
+@_skip_sin_pg
+def test_s3_fee_variable_del_escenario_retiene_nombrando_insumo():
+    """S.3 (OJO 2): el partido de fees vive en el escenario
+    (`estimacion_escenario.fee_variable`, via `escenario_id`): +30 % en 12
+    de 12 retiene nombrando `fee_variable`."""
+    from app.precio.corrida import _medir_compuerta
+
+    with _db() as (conn, _dsn):
+        cfg = _config(conn)
+        hoy = _hoy(conn)
+        ayer = hoy - timedelta(days=1)
+        pol = _politica(conn)
+        run_id, validada_en = _run(conn)
+        for n in range(12):
+            tag = f"fee-{n:02d}"
+            prod = _producto(conn, f"ODOO-S3-{tag}")
+            lid = _listing(conn, prod, ext=f"B0S3{tag}", sku=f"SKU-S3-{tag}")
+            gid = _goal(conn, lid, mode="shadow")
+            costo_id = _costo(conn, prod)
+            for dia, variable in ((ayer, "10.00"), (hoy, "13.00")):
+                sello = dia.isoformat()
+                oferta = _oferta_obs(
+                    conn,
+                    lid,
+                    ext=f"B0S3{tag}",
+                    sku=f"SKU-S3-{tag}",
+                    evento=f"oferta-{tag}-{sello}",
+                    huella=f"ctx-{tag}-{sello}",
+                )
+                fee = _fee_obs(
+                    conn,
+                    oferta,
+                    lid,
+                    ext=f"B0S3{tag}",
+                    sku=f"SKU-S3-{tag}",
+                    evento=f"fee-{tag}-{sello}",
+                    huella=f"ctx-{tag}-{sello}",
+                )
+                esc = _escenario(
+                    conn,
+                    lid,
+                    oferta,
+                    fee,
+                    pol,
+                    costo_id,
+                    run_id,
+                    validada_en,
+                    ext=f"B0S3{tag}",
+                    sku=f"SKU-S3-{tag}",
+                    evento=f"esc-{tag}-{sello}",
+                    huella=f"ctx-{tag}-{sello}",
+                    fee_variable=variable,
+                    fee_fijo="3.00",
+                )
+                _decision_s3(
+                    conn,
+                    lid,
+                    resultado="mantener",
+                    motivo="en_tolerancia",
+                    goal_id=gid,
+                    escenario_id=esc,
+                    **({"dia": dia} if dia == ayer else {}),
+                )
+        corrida = _corrida_s3(conn, cfg)
+        veredictos = _medir_compuerta(conn, "amazon_mx", hoy, _motor_de(SETTINGS), corrida)
+        retenida = veredictos["fba"]
+        assert (retenida.causa, retenida.insumo) == ("insumo_sistemico", "fee_variable")
+        assert _medicion_de(conn, corrida) == [("fba", 12, 0, "insumo_sistemico", "fee_variable")]

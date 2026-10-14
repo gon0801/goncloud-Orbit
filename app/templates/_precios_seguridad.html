@@ -1,1 +1,41 @@
-{# REPRICING 02: bloque de seguridad (modos, fusible, retenciones). Lo construye S.3. #}
+{# REPRICING 02 S.3: bloque de seguridad (modos, ultima corrida,
+   retenciones abiertas del dia, boton Soltar). G.3 lo incluye sin cambiarlo;
+   el JS de G.3 cuelga del boton por `data-liberar-corrida` (la ruta
+   POST /api/precios/compuerta/{id}/liberar la cablea G.2). #}
+{% if plataformas is defined and not error %}
+<h2>Seguridad — compuerta del motor de precios</h2>
+<div class="salud-grid">
+{% for plataforma, datos in plataformas.items() %}
+{% set seg = datos.seguridad %}
+<div class="tarjeta">
+  <section id="bloque-seguridad-{{ plataforma }}" aria-label="Seguridad {{ plataforma }}">
+  <h3>{{ plataforma }} — compuerta</h3>
+  {% if seg.modo_global is none %}
+  <p class="mutado">Apagador sin configurar (config sin claves de modo).</p>
+  {% else %}
+  <p>Modo global: {{ seg.modo_global }} ·
+  {% for universo, modo in seg.modo_universo.items() if universo.startswith(plataforma ~ "/") %}{{ universo }}: {{ modo }}{% if not loop.last %}, {% endif %}{% else %}sin universos configurados{% endfor %}</p>
+  {% endif %}
+  {% if seg.ultima_corrida %}
+  {% set cor = seg.ultima_corrida %}
+  <p class="mutado">Última corrida #{{ cor.corrida_id }} ({{ cor.fecha }}, {{ cor.estado }}): {{ cor.decisiones if cor.decisiones is not none else "—" }} decisiones, {{ cor.retenidas if cor.retenidas is not none else "—" }} retenidas, {{ cor.errores if cor.errores is not none else "—" }} errores</p>
+  {% else %}
+  <p class="mutado">Sin corridas.</p>
+  {% endif %}
+  {% if seg.retenciones_abiertas %}
+  <ul>
+    {% for canal, ret in seg.retenciones_abiertas.items() %}
+    <li>{{ canal }}: {{ ret.causa }} ({{ ret.nuevas }} nuevas de {{ ret.medidas }} medidas){% if ret.insumo %} — insumo {{ ret.insumo }}{% endif %}{% if ret.detalle %} · {{ ret.detalle }}{% endif %}</li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="mutado">Sin retenciones abiertas hoy.</p>
+  {% endif %}
+  {% if seg.liberable_corrida_id is not none %}
+  <button type="button" data-liberar-corrida="{{ seg.liberable_corrida_id }}">Soltar</button>
+  {% endif %}
+  </section>
+</div>
+{% endfor %}
+</div>
+{% endif %}

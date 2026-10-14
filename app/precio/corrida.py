@@ -6,14 +6,19 @@ patron copiado de `app/cycle.py`, NO importado: `cycle` trae `app.apply`)
 pasan a `abortada`); huerfanas a `error`; cierre por observacion; decidir
 (persiste una decision por goal vigente sin decision hoy, con su modo
 efectivo; la segunda corrida del dia salta los ya decididos por el
-UNIQUE; con el global en `off` no decide); compuerta (S.1: siempre deja
-pasar); aplicar (relee config y goal antes de cada escritura y retiene
-`apagador`/`goal_cambiado`; `live` con `cambios.aplicar`, orden
-INSERT+COMMIT -> PATCH -> sello; en `shadow` inserta el cambio virtual
+UNIQUE; con el global en `off` no decide); compuerta (fusible por
+universo e insumo sistemico desde lo persistido hoy, con fila
+`precio_compuerta_medicion` por universo); aplicar (retiene lo del
+universo `Retenida` no liberado; relee config y goal antes de cada
+escritura y retiene `apagador`/`goal_cambiado`; corte por errores seguidos
+de escritura `live`; `live` con `cambios.aplicar`, orden INSERT+COMMIT ->
+PATCH -> sello; en `shadow` inserta el cambio virtual
 `confirmado`/`virtual`, sin PATCH);
 cierra la fila; libera el claim al salir. Sin fase "en memoria": lo que
 un paso deja, el siguiente lo lee de la base. Se puede lanzar N veces al
-dia: converge (REPRICING 02 S.1 mato el cupo y la prioridad).
+dia: converge (REPRICING 02 S.1 mato el cupo y la prioridad; S.3 sumo la
+compuerta: fusible por universo, insumo sistemico medido desde lo
+persistido, corte por errores y liberacion del dueno).
 
 La corrida recibe UN `Mercado` duck-typed y no conoce Amazon. Los
 insumos del dia salen de `mercado.insumos` (UNA llamada por lote tras
@@ -52,8 +57,17 @@ from psycopg.types.json import Json
 
 import app.precio.cambios as cambios_mod
 from app.estimacion_venta import DetalleFee
-from app.precio.compuerta import modo_efectivo
-from app.precio.config import ConfigPrecio, leer_config
+from app.precio.compuerta import (
+    Anterior,
+    Cortacircuito,
+    Intencion,
+    Retenida,
+    armar_deriva,
+    es_nueva,
+    evaluar,
+    modo_efectivo,
+)
+from app.precio.config import ConfigPrecio, leer_config, leer_config_motor
 from app.precio.config import _entero as _entero_config
 from app.precio.config import _modo as _modo_config
 from app.precio.config import _modo_universo as _modo_universo_config
@@ -850,16 +864,177 @@ def _decidir_pendientes(
     return decisiones, lineas, errores, saltadas
 
 
-def _medir_compuerta(
-    conn: psycopg.Connection, plataforma: str, hoy: date, config: ConfigPrecio
-) -> dict:
-    """S.1: la compuerta siempre deja pasar (S.3 la implementa: fusible por
-    universo, insumo sistemico, corte por errores y retenciones).
+# La medicion de la compuerta, UNA por corrida y universo (S.3): fusible
+# por `platform/canal`, insumo sistemico desde lo persistido, corte por
+# errores al aplicar. Corre entre decidir y aplicar, sobre filas guardadas:
+# punto de sabotaje de las pruebas (matarla aqui deja lo decidido sin
+# aplicar).
+_SQL_MEDIR_HOY = (
+    "SELECT d.id, d.listing_id, d.canal::text, d.resultado, d.motivo, d.goal_id,"
+    " d.c_valor, d.c_currency::text, d.l_valor, d.l_currency::text,"
+    " d.r_valor, d.r_currency::text, d.escenario_id"
+    " FROM precio_decision d"
+    " WHERE d.platform = %s AND d.decision_date = %s AND d.m_actual IS NOT NULL"
+    " AND d.canal IS NOT NULL"
+    " ORDER BY d.listing_id"
+)
 
-    Corre entre decidir y aplicar, sobre filas guardadas: punto de sabotaje
-    de las pruebas (matarla aqui deja lo decidido sin aplicar).
+_SQL_MEDIR_PREVIA = (
+    "SELECT DISTINCT ON (d.listing_id) NULL, d.listing_id, NULL, d.resultado, d.motivo,"
+    " d.goal_id, d.c_valor, d.c_currency::text, d.l_valor, d.l_currency::text,"
+    " d.r_valor, d.r_currency::text, d.escenario_id"
+    " FROM precio_decision d"
+    " WHERE d.platform = %s AND d.decision_date < %s AND d.listing_id = ANY(%s)"
+    " ORDER BY d.listing_id, d.decision_date DESC, d.id DESC"
+)
+
+_SQL_MEDIR_ESCENARIOS = (
+    "SELECT e.id, e.fx_rate, e.fx_base::text, e.fx_quote::text,"
+    " e.fee_variable, e.fee_fijo, e.moneda::text"
+    " FROM estimacion_escenario e WHERE e.id = ANY(%s)"
+)
+
+_SQL_MEDIR_LIBERADAS = (
+    "SELECT decision_id FROM v_precio_decision_liberada WHERE decision_id = ANY(%s)"
+)
+
+_SQL_MEDIR_INSERT = (
+    "INSERT INTO precio_compuerta_medicion (corrida_id, canal, medidas, nuevas, causa,"
+    " insumo, detalle) VALUES (%s, %s, %s, %s, %s, %s, %s)"
+)
+
+# Insumo vigilado -> posiciones de columna (OJO 2, S.3): `_SQL_MEDIR_HOY`
+# para la decision, `_SQL_MEDIR_ESCENARIOS` para fx y fees.
+# costo/envio/retencion son columnas de la decision (`c_valor`, `l_valor`,
+# `r_valor`); fx y el partido de fees viven en el escenario (`fx_rate`,
+# `fee_variable`, `fee_fijo`) y se alcanzan por `escenario_id`, sin releer
+# fuentes. Cada entrada: `(valor, moneda)` o `(valor, par)`, donde `par`
+# son las posiciones que deben coincidir (moneda, o base/quote de fx) para
+# comparar. Sin columna propia en la decision no se inventa: sin dato no
+# compara.
+_INSUMO_DECISION = {"costo": (6, 7), "envio": (8, 9), "retencion": (10, 11)}
+_INSUMO_ESCENARIO = {"fx": (1, (2, 3)), "fee_fijo": (5, (6,)), "fee_variable": (4, (6,))}
+_INSUMOS_MEDIR = ("costo", "envio", "retencion", "fx", "fee_fijo", "fee_variable")
+
+
+def _par_decision(fila_hoy, fila_previa, valor: int, moneda: int):
+    """Par `(antes, ahora)` de un insumo de la decision, o `(None, None)`
+    si no compara (ausente o distinta moneda)."""
+    ahora, ahora_mon = fila_hoy[valor], fila_hoy[moneda]
+    if fila_previa is None:
+        return (None, ahora)
+    antes, antes_mon = fila_previa[valor], fila_previa[moneda]
+    if antes is None or ahora is None or antes_mon != ahora_mon:
+        return (None, None)
+    return (antes, ahora)
+
+
+def _par_escenario(escenarios, id_hoy, id_previo, valor: int, par: tuple):
+    """Par `(antes, ahora)` de un insumo del escenario, o `(None, None)`
+    si no compara (sin escenario, ausente o distinto par moneda)."""
+    esc_hoy = escenarios.get(id_hoy) if id_hoy is not None else None
+    esc_previa = escenarios.get(id_previo) if id_previo is not None else None
+    if esc_hoy is None or esc_previa is None:
+        return (None, None)
+    if any(esc_hoy[i] is None or esc_previa[i] is None for i in par):
+        return (None, None)
+    if any(esc_hoy[i] != esc_previa[i] for i in par):
+        return (None, None)
+    antes, ahora = esc_previa[valor], esc_hoy[valor]
+    if antes is None or ahora is None:
+        return (None, None)
+    return (antes, ahora)
+
+
+def _medir_compuerta(
+    conn: psycopg.Connection, plataforma: str, hoy: date, motor, corrida_id: int
+) -> dict:
+    """S.3: arma `Intencion` y `Deriva` desde lo PERSISTIDO hoy, evalua UN
+    universo por canal y escribe una fila de `precio_compuerta_medicion`
+    por universo con medidas > 0. Devuelve `{canal: Veredicto}`.
+
+    Mide el dia completo, no solo lo decidido en esta corrida: una segunda
+    corrida con goals sembrados a media tarde ve el mismo numerador. Miden
+    las decisiones de hoy CON cuenta (`m_actual`), shadow y live juntas,
+    con canal conocido (sin canal no hay universo que medir).
     """
-    return {}
+    filas = conn.execute(_SQL_MEDIR_HOY, (plataforma, hoy)).fetchall()
+    if not filas:
+        return {}
+    por_listing = {fila[1]: fila for fila in filas}
+    # La previa trae las columnas en las MISMAS posiciones que la de hoy
+    # (los NULL alinean): `_par_decision` usa un solo par de indices.
+    previas = {
+        fila[1]: fila
+        for fila in conn.execute(_SQL_MEDIR_PREVIA, (plataforma, hoy, list(por_listing))).fetchall()
+    }
+    ids_escenario = {fila[12] for fila in list(por_listing.values()) + list(previas.values())} - {
+        None
+    }
+    escenarios = (
+        {
+            fila[0]: fila
+            for fila in conn.execute(_SQL_MEDIR_ESCENARIOS, (list(ids_escenario),)).fetchall()
+        }
+        if ids_escenario
+        else {}
+    )
+    liberadas = {
+        fila[0]
+        for fila in conn.execute(_SQL_MEDIR_LIBERADAS, ([fila[0] for fila in filas],)).fetchall()
+    }
+    por_canal: dict[str, list] = {}
+    for fila in filas:
+        por_canal.setdefault(fila[2], []).append(fila)
+    veredictos = {}
+    for canal, medidas_filas in por_canal.items():
+        intenciones = []
+        pares: dict[str, list] = {insumo: [] for insumo in _INSUMOS_MEDIR}
+        for fila in medidas_filas:
+            previa = previas.get(fila[1])
+            liberada = fila[0] in liberadas
+            if fila[3] in ("subir", "bajar"):
+                anterior = (
+                    Anterior(resultado=previa[3], motivo=previa[4], goal_id=previa[5])
+                    if previa is not None
+                    else None
+                )
+                intenciones.append(
+                    Intencion(
+                        decision_id=fila[0],
+                        listing_id=fila[1],
+                        canal=canal,
+                        nueva=es_nueva(anterior, goal_id=fila[5]),
+                        liberada=liberada,
+                    )
+                )
+            for insumo, (valor, moneda) in _INSUMO_DECISION.items():
+                antes, ahora = _par_decision(fila, previa, valor, moneda)
+                pares[insumo].append((antes, ahora, liberada))
+            for insumo, (valor, par) in _INSUMO_ESCENARIO.items():
+                antes, ahora = _par_escenario(
+                    escenarios,
+                    fila[12],
+                    previa[12] if previa is not None else None,
+                    valor,
+                    par,
+                )
+                pares[insumo].append((antes, ahora, liberada))
+        derivas = [
+            armar_deriva(canal, insumo, pares[insumo], pct=motor.insumo_salto_pct)
+            for insumo in _INSUMOS_MEDIR
+        ]
+        veredicto = evaluar(intenciones, medidas=len(medidas_filas), derivas=derivas, config=motor)
+        veredictos[canal] = veredicto
+        if isinstance(veredicto, Retenida):
+            causa, insumo, detalle = veredicto.causa, veredicto.insumo, veredicto.detalle
+        else:
+            causa, insumo, detalle = None, None, None
+        conn.execute(
+            _SQL_MEDIR_INSERT,
+            (corrida_id, canal, veredicto.medidas, veredicto.nuevas, causa, insumo, detalle),
+        )
+    return veredictos
 
 
 _SQL_SETTINGS_VIGENTE = "SELECT settings FROM config_version ORDER BY id DESC LIMIT 1"
@@ -867,6 +1042,24 @@ _SQL_SETTINGS_VIGENTE = "SELECT settings FROM config_version ORDER BY id DESC LI
 _SQL_GOAL_POR_ID = "SELECT mode::text, valid_from, valid_to FROM precio_goal WHERE id = %s"
 
 _SQL_RETENER = "INSERT INTO precio_retencion (decision_id, corrida_id, causa) VALUES (%s, %s, %s)"
+
+_SQL_PENDIENTE_LIBERADA = (
+    "SELECT decision_id FROM v_precio_decision_liberada WHERE decision_id = ANY(%s)"
+)
+
+
+def _retener_por_compuerta(conn, corrida_id, veredictos, liberadas, canal, did) -> bool:
+    """Retencion del universo `Retenida` no liberado, con su causa (S.3).
+
+    Devuelve si retuvo (el llamador cuenta y sigue). Sin veredicto para el
+    canal (pendiente sin universo medido) deja pasar: el trigger exige la
+    medicion para estas causas y no hay cual pedir.
+    """
+    veredicto = veredictos.get(canal)
+    if not isinstance(veredicto, Retenida) or did in liberadas:
+        return False
+    conn.execute(_SQL_RETENER, (did, corrida_id, veredicto.causa))
+    return True
 
 
 def _aplicar_pendientes(
@@ -878,26 +1071,29 @@ def _aplicar_pendientes(
     owner: str,
     ahora: datetime,
     corrida_id: int,
+    corte: int,
 ) -> tuple[int, int, int, list[str]]:
     """Aplica lo pendiente de HOY que la compuerta deja pasar (J).
 
     Pendiente = decision de hoy `subir`/`bajar` sin cambio con efecto (ni
     real ni virtual). Nunca una decision de ayer: su escenario ya no vale.
-    En orden de listing_id. S.1: `veredictos` siempre deja pasar. S.2: la
-    config Y el goal de la decision se releen antes de CADA escritura: el
-    modo que ya no alcanza deja retencion `apagador` (config ilegible =
-    fail closed) y el goal ya no vigente, ausente o ya no `live` para una
-    decision `live` deja `goal_cambiado`. Devuelve `(escritas, virtuales,
-    retenidas, errores)`: `escritas` cuenta cambios reales creados (=
-    PATCH intentados); una publicacion no tumba a las demas (B.4);
-    `EscrituraNoDisponible` deja de aplicar `live` el resto de la corrida
-    (fallaria igual en cada una y lo pendiente se reintenta en la
-    siguiente); un error de base aborta.
+    En orden de listing_id. Por decision: su universo `Retenida` y no
+    liberada deja retencion con la causa del veredicto; la config Y el goal
+    se releen antes de CADA escritura (S.2: `apagador`, config ilegible =
+    fail closed; `goal_cambiado` si ya no vigente, ausente o ya no `live`
+    para una decision `live`); con el corte abierto, retencion
+    `corte_errores`; en `shadow`, virtual; en `live`, `cambios.aplicar` y
+    el resultado alimenta el `Cortacircuito` (`limite` = `corte`). Devuelve
+    `(escritas, virtuales, retenidas, errores)`: `escritas` cuenta cambios
+    reales creados (= PATCH intentados); una publicacion no tumba a las
+    demas (B.4); `EscrituraNoDisponible` deja de aplicar `live` el resto de
+    la corrida (fallaria igual en cada una y lo pendiente se reintenta en
+    la siguiente); un error de base aborta.
     """
     platform = mercado.clave
     pendientes = conn.execute(
         "SELECT d.id, d.listing_id, d.mode, d.p_actual, d.p_actual_currency,"
-        " d.p_aplicado, d.p_aplicado_currency, d.goal_id, d.canal"
+        " d.p_aplicado, d.p_aplicado_currency, d.goal_id, d.canal::text"
         " FROM precio_decision d"
         " WHERE d.platform = %s AND d.decision_date = %s"
         " AND d.resultado IN ('subir', 'bajar')"
@@ -905,6 +1101,17 @@ def _aplicar_pendientes(
         " ORDER BY d.listing_id",
         (platform, hoy),
     ).fetchall()
+    liberadas = (
+        {
+            fila[0]
+            for fila in conn.execute(
+                _SQL_PENDIENTE_LIBERADA, ([fila[0] for fila in pendientes],)
+            ).fetchall()
+        }
+        if pendientes
+        else set()
+    )
+    cortacircuito = Cortacircuito(seguidos=0, limite=corte)
     escritas = 0
     virtuales = 0
     retenidas = 0
@@ -926,6 +1133,9 @@ def _aplicar_pendientes(
             msg = scrub(f"listing={lid} {platform} modo_desconocido: {mode!r}")
             logger.error("corrida %s", msg)
             errores.append(msg)
+            continue
+        if _retener_por_compuerta(conn, corrida_id, veredictos, liberadas, canal, did):
+            retenidas += 1
             continue
         try:
             fila_cfg = conn.execute(_SQL_SETTINGS_VIGENTE).fetchone()
@@ -952,6 +1162,10 @@ def _aplicar_pendientes(
         vigente = goal is not None and goal[1] <= hoy and (goal[2] is None or goal[2] > hoy)
         if not vigente or (mode == "live" and goal[0] != "live"):
             conn.execute(_SQL_RETENER, (did, corrida_id, "goal_cambiado"))
+            retenidas += 1
+            continue
+        if cortacircuito.abierto:
+            conn.execute(_SQL_RETENER, (did, corrida_id, "corte_errores"))
             retenidas += 1
             continue
         if mode == "shadow":
@@ -993,6 +1207,7 @@ def _aplicar_pendientes(
             logger.error("corrida %s", msg)
             errores.append(msg)
             continue
+        cortacircuito = cortacircuito.tras(res.estado)
         if res.id_cambio is not None:
             escritas += 1
     return escritas, virtuales, retenidas, errores
@@ -1045,13 +1260,15 @@ def correr(
     """La corrida de una plataforma (conn en autocommit, rol decides).
 
     `platform` sale de `mercado.clave`. Valida config (`leer_config` +
-    modos del apagador + freno; el `ValueError` al arrancar sale
-    `ConfigInvalida`) -> toma el lock -> abre su fila `precio_corrida`
-    (las `abierta` viejas de la plataforma pasan a `abortada`) ->
-    huerfanas -> cierre por observacion -> decidir, SALVO con el global en
-    `off` (la limpieza corre siempre; decidir y sus filas, no) -> compuerta
-    (S.1: siempre deja pasar) -> aplicar (relee config y goal por
-    escritura; `live` con `cambios.aplicar`, `shadow` con virtual) ->
+    `leer_config_motor` + modos del apagador + freno; el `ValueError` al
+    arrancar sale `ConfigInvalida`) -> toma el lock -> abre su fila
+    `precio_corrida` (las `abierta` viejas de la plataforma pasan a
+    `abortada`) -> huerfanas -> cierre por observacion -> decidir, SALVO
+    con el global en `off` (la limpieza corre siempre; decidir y sus filas,
+    no) -> compuerta (fusible e insumo por universo, con medicion) ->
+    aplicar (retiene lo retenido no liberado, relee config y goal por
+    escritura, corte por errores; `live` con `cambios.aplicar`, `shadow`
+    con virtual) ->
     cierra su fila con los conteos -> avisa -> suelta el lock. Con el claim
     perdido levanta `LockOcupado` sin decidir nada. `avisar` (gancho del
     carril B) se llama una vez al terminar con `(conn, platform, hoy,
@@ -1074,6 +1291,7 @@ def correr(
             raise ValueError("config sin precio_catalogo_max_dias_sin_reportar: sin config_version")
         cfg_id, settings = fila_cfg
         config = leer_config(settings)
+        motor = leer_config_motor(settings)
         modo_global = _modo_config(settings, "precio_modo_global")
         modo_universo = _modo_universo_config(settings, "precio_modo_universo")
         freno_dias = validar_freno_dias_error(settings)
@@ -1105,9 +1323,16 @@ def correr(
                 modo_global=modo_global,
                 modo_universo=modo_universo,
             )
-        veredictos = _medir_compuerta(conn, platform, hoy, config)
+        veredictos = _medir_compuerta(conn, platform, hoy, motor, corrida_id)
         escritas, virtuales, retenidas, errores_apl = _aplicar_pendientes(
-            conn, mercado, veredictos, hoy, owner=owner, ahora=ahora, corrida_id=corrida_id
+            conn,
+            mercado,
+            veredictos,
+            hoy,
+            owner=owner,
+            ahora=ahora,
+            corrida_id=corrida_id,
+            corte=motor.corte_errores_consecutivos,
         )
         errores = [*errores, *errores_apl]
         _cerrar_corrida(

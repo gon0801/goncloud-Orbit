@@ -1110,24 +1110,34 @@ def _puros_precio(raiz=None):
 # `app.precio.*`, `app.estimacion_insumos` solo `mapear_canal`, y stdlib;
 # jamas red, reloj, `app.spapi.*` ni escritura: su candado propio esta al
 # final del archivo). Excepcion POR NOMBRE, en paralelo a la de A.1.
-EXCEPCIONES_PURAS_PRECIO = ("goals_write.py", "fuentes.py", "corrida.py", "cambios.py")
+# REPRICING 02 S.3: `liberaciones.py` es el unico escritor de
+# `precio_compuerta_liberacion` (rol `app_admin`; puede `psycopg` y stdlib).
+EXCEPCIONES_PURAS_PRECIO = (
+    "goals_write.py",
+    "fuentes.py",
+    "corrida.py",
+    "cambios.py",
+    "liberaciones.py",
+)
 
 
 def test_precio_excepcion_por_nombre():
-    """A.1 + A.7 + A.5 + S.1: la excepcion de pureza es una tupla por nombre
-    con `goals_write.py`, `fuentes.py`, `corrida.py` y `cambios.py` y nada
-    mas (`cuota.py` murio en S.1); quitar el `rglob` o exceptuar la carpeta
-    la rompe."""
+    """A.1 + A.7 + A.5 + S.1 + S.3: la excepcion de pureza es una tupla por
+    nombre con `goals_write.py`, `fuentes.py`, `corrida.py`, `cambios.py` y
+    `liberaciones.py` y nada mas (`cuota.py` murio en S.1); quitar el
+    `rglob` o exceptuar la carpeta la rompe."""
     assert EXCEPCIONES_PURAS_PRECIO == (
         "goals_write.py",
         "fuentes.py",
         "corrida.py",
         "cambios.py",
+        "liberaciones.py",
     )
     assert (PRECIO / "goals_write.py").is_file()
     assert (PRECIO / "fuentes.py").is_file()
     assert (PRECIO / "corrida.py").is_file()
     assert (PRECIO / "cambios.py").is_file()
+    assert (PRECIO / "liberaciones.py").is_file()
     assert (PRECIO / "tipos.py").is_file()
     assert not (PRECIO / "cuota.py").exists()
 
@@ -2091,17 +2101,21 @@ _PROHIBIDOS_IMPORTS_CORRIDA = tuple(
 )
 
 # Un solo dueno por tabla: `corrida.py` abre y cierra su fila de
-# `precio_corrida` (S.1) y retiene (`precio_retencion`, S.2);
-# `precio_cambio` lo escribe `cambios.py`.
+# `precio_corrida` (S.1), retiene (`precio_retencion`, S.2) y mide la
+# compuerta (`precio_compuerta_medicion`, S.3); `precio_cambio` lo escribe
+# `cambios.py` y la liberacion `liberaciones.py` (S.3).
 _ESCRIBE_CORRIDA = (
     "precio_decision",
     "precio_cotizacion",
     "precio_corrida",
     "precio_retencion",
+    "precio_compuerta_medicion",
     "ads_optimizer_lock",
 )
 
 _ESCRIBE_CAMBIOS = ("precio_cambio",)
+
+_ESCRIBE_LIBERACION = ("precio_compuerta_liberacion",)
 
 _PATRON_TABLA_ESCRITA = re.compile(
     # El `(?!SET\b)` excluye el `DO UPDATE SET` del claim (ahi no hay
@@ -2188,16 +2202,24 @@ def test_corrida_sin_reloj_ni_dinamico():
 
 
 def test_corrida_solo_escribe_sus_tablas():
-    """A.5 + REPRICING 02 0.b + S.1 + S.2: `corrida.py` escribe solo sus
-    tablas (ni Ads ni ingest; `precio_cambio` lo escribe `cambios.py`;
-    `precio_corrida` es su fila por ejecucion y `precio_retencion` sus
-    retenciones del apagador)."""
+    """A.5 + REPRICING 02 0.b + S.1 + S.2 + S.3: `corrida.py` escribe solo
+    sus tablas (ni Ads ni ingest; `precio_cambio` lo escribe `cambios.py`
+    y la liberacion `liberaciones.py`; `precio_corrida` es su fila por
+    ejecucion, `precio_retencion` sus retenciones y
+    `precio_compuerta_medicion` su medicion por universo)."""
     assert _tablas_escritas(PRECIO / "corrida.py") == sorted(_ESCRIBE_CORRIDA)
 
 
 def test_cambios_solo_escribe_precio_cambio():
     """REPRICING 02 0.b: `cambios.py` es el UNICO escritor de `precio_cambio`."""
     assert _tablas_escritas(PRECIO / "cambios.py") == sorted(_ESCRIBE_CAMBIOS)
+
+
+def test_liberaciones_solo_escribe_liberacion():
+    """REPRICING 02 S.3: `liberaciones.py` es el UNICO escritor de
+    `precio_compuerta_liberacion` (dos actores, dos tablas: la corrida
+    solo la lee)."""
+    assert _tablas_escritas(PRECIO / "liberaciones.py") == sorted(_ESCRIBE_LIBERACION)
 
 
 def _corrida_mas(extra: str, tmp_path: Path) -> Path:
