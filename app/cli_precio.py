@@ -87,8 +87,6 @@ def main_precio(args) -> int:
     from app import cli as cli_mod
     from app.precio import corrida as corrida_precios
 
-    # C (r1): el import de avisos vive en la rama que llama a `correr`,
-    # no antes de `--reporte` (el reporte no avisa ni necesita Telegram).
     if args.reporte:
         ventana = _ventana_reporte(args)
         if isinstance(ventana, int):
