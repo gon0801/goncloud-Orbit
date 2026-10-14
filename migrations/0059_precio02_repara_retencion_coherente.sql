@@ -89,10 +89,11 @@ BEGIN
             mode, goal, m_actual, p_actual, p_actual_currency, p_objetivo,
             p_objetivo_currency, p_aplicado, p_aplicado_currency, i_valor,
             i_currency, c_valor, c_currency, f_valor, f_currency, l_valor,
-            l_currency, r_valor, r_currency)
+            l_currency, r_valor, r_currency, l_origen, verificacion)
         VALUES (v_lid, 'amazon_mx', 'subir', NULL, 'live', 0.30, 0.25, 100.00,
             'MXN', 110.00, 'MXN', 110.00, 'MXN', 10.00, 'MXN', 20.00, 'MXN',
-            12.00, 'MXN', 5.00, 'MXN', 8.00, 'MXN') RETURNING id INTO v_did;
+            12.00, 'MXN', 5.00, 'MXN', 8.00, 'MXN', 'politica', 'cotizada')
+        RETURNING id INTO v_did;
         INSERT INTO listing (product_id, platform, external_id, seller_sku)
         VALUES (v_prod, 'amazon_mx', 'zz-ASIN-0059-2', 'zz-SKU-0059-2')
         RETURNING id INTO v_lid2;
@@ -104,10 +105,10 @@ BEGIN
             mode, goal, m_actual, p_actual, p_actual_currency, p_objetivo,
             p_objetivo_currency, p_aplicado, p_aplicado_currency, i_valor,
             i_currency, c_valor, c_currency, f_valor, f_currency, l_valor,
-            l_currency, r_valor, r_currency)
+            l_currency, r_valor, r_currency, l_origen)
         VALUES (v_lid2, 'amazon_mx', 'mantener', 'en_tolerancia', 'live', 0.30,
             0.30, 100.00, 'MXN', 100.00, 'MXN', 100.00, 'MXN', 10.00, 'MXN',
-            20.00, 'MXN', 12.00, 'MXN', 5.00, 'MXN', 8.00, 'MXN')
+            20.00, 'MXN', 12.00, 'MXN', 5.00, 'MXN', 8.00, 'MXN', 'politica')
         RETURNING id INTO v_did_mantener;
         INSERT INTO precio_corrida (platform, owner, config_version_id,
             modo_global) VALUES ('amazon_mx', 'candado', v_cfg, 'shadow')
