@@ -575,6 +575,7 @@ def _fase3_uno(
                 config_version_id=cfg_id,
                 goal_id=goal_id,
                 l_origen="politica",
+                verificacion="cotizada",
             )
             return (
                 decision,

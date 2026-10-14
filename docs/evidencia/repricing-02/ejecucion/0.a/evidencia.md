@@ -79,7 +79,9 @@ Despues: config=30 (una fila mas, modo global `shadow`, conserva todas las
 claves de la previa) y decisiones=114. La 0053 y la 0054 aplican en dos
 corridas de psql separadas. La reversa de la 0054 devuelve el esquema
 identico al previo (diff de `pg_dump --schema-only` con bloques GRANT
-ordenados: 0 diferencias).
+ordenados: 0 diferencias; R02-r3 B2: la reversa no borraba el indice
+`precio_decision_por_dia` y se le agrego `DROP INDEX IF EXISTS`, con lo
+que el 0 diferencias vuelve a cumplirse).
 
 Mutantes: `mutantes.md` (un mutante por prueba nueva, incluidos los cinco
 obligatorios de esta seccion; todos en rojo).

@@ -40,25 +40,40 @@ def registra(sub) -> None:
 
 
 def _abrir_plataforma(cli_mod, platform):
-    """El mercado abierto de `platform`, 2 si no hay mercado, 1 si falla.
+    """El mercado ABIERTO de `platform` (ya dentro del contextmanager).
 
     `None` = la plataforma no tiene mercado (meli hasta M): exit 2.
+    `abrir` solo compone; el `ConfigInvalida` sale al entrar al `with`,
+    donde lo atrapa quien llama.
     """
     try:
         lector, escritor, fees, limitador = cli_mod._clientes_precio(platform)
-        return mercados.abrir(
-            platform,
-            lector=lector,
-            escritor=escritor,
-            fees=fees,
-            limitador=limitador,
-        )
-    except mercados.ConfigInvalida as exc:
-        print(f"precio: {exc}", file=sys.stderr)
-        return None
     except Exception as exc:  # noqa: BLE001 - el CLI solo reporta, sin secretos
         print(f"precio: {scrub(str(exc)) or exc.__class__.__name__}", file=sys.stderr)
         return 1
+    return mercados.abrir(
+        platform,
+        lector=lector,
+        escritor=escritor,
+        fees=fees,
+        limitador=limitador,
+    )
+
+
+def _corre_plataforma(conn, mercado, avisar):
+    """Una corrida; `None` si el lock esta ocupado (ya avisado)."""
+    from app.precio import corrida as _corrida
+
+    try:
+        return _corrida.correr(
+            conn,
+            mercado,
+            owner=f"{socket.gethostname()}:{os.getpid()}",
+            avisar=avisar,
+        )
+    except _corrida.LockOcupado as exc:
+        print(f"precio: {exc}", file=sys.stderr)
+        return None
 
 
 def _ventana_reporte(args):
@@ -138,26 +153,20 @@ def main_precio(args) -> int:
             if isinstance(mercado_ctx, int):
                 rc = mercado_ctx
                 continue
-            with mercado_ctx as mercado:
-                try:
-                    from app.notifica import avisar_precio
+            try:
+                from app.notifica import avisar_precio
 
-                    resumen = corrida_precios.correr(
-                        conn,
-                        mercado,
-                        owner=f"{socket.gethostname()}:{os.getpid()}",
-                        avisar=avisar_precio,
-                    )
-                except corrida_precios.ConfigInvalida as exc:
-                    print(f"precio: {exc}", file=sys.stderr)
-                    return 2
-                except corrida_precios.LockOcupado as exc:
-                    print(f"precio: {exc}", file=sys.stderr)
-                    continue
-                except Exception as exc:  # noqa: BLE001 - el CLI solo reporta, sin secretos
-                    print(f"precio: {scrub(str(exc)) or exc.__class__.__name__}", file=sys.stderr)
-                    rc = 1
-                    continue
+                with mercado_ctx as mercado:
+                    resumen = _corre_plataforma(conn, mercado, avisar_precio)
+            except (mercados.ConfigInvalida, corrida_precios.ConfigInvalida) as exc:
+                print(f"precio: {exc}", file=sys.stderr)
+                return 2
+            except Exception as exc:  # noqa: BLE001 - el CLI solo reporta, sin secretos
+                print(f"precio: {scrub(str(exc)) or exc.__class__.__name__}", file=sys.stderr)
+                rc = 1
+                continue
+            if resumen is None:
+                continue
             for linea in resumen.lineas:
                 print(linea)
             print(f"decisiones={resumen.decisiones} escritas={resumen.escritas}")

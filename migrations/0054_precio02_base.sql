@@ -899,6 +899,7 @@ DECLARE
     v_lid3 BIGINT;
     v_lid4 BIGINT;
     v_lid5 BIGINT;
+    v_lid6 BIGINT;
     v_cfg BIGINT;
     v_run BIGINT;
     v_ofid BIGINT;
@@ -907,7 +908,9 @@ DECLARE
     v_pol BIGINT;
     v_esc BIGINT;
     v_gid BIGINT;
+    v_gid_live5 BIGINT;
     v_gid_cerrado BIGINT;
+    v_gid_shadow2 BIGINT;
     v_gid_reeditado BIGINT;
     v_did BIGINT;
     v_did_sombra BIGINT;
@@ -940,6 +943,9 @@ BEGIN
         INSERT INTO listing (product_id, platform, external_id, seller_sku)
         VALUES (v_prod, 'amazon_mx', 'zz-ASIN-0054-5', 'zz-SKU-0054-5')
         RETURNING id INTO v_lid5;
+        INSERT INTO listing (product_id, platform, external_id, seller_sku)
+        VALUES (v_prod, 'amazon_mx', 'zz-ASIN-0054-6', 'zz-SKU-0054-6')
+        RETURNING id INTO v_lid6;
         INSERT INTO ingest_run (source, finished_at, rows_written, ok)
         VALUES ('accounting_sku_costs', now(), 1, true)
         RETURNING id INTO v_run;
@@ -990,7 +996,8 @@ BEGIN
             'go candado 0054') RETURNING id INTO v_gid;
         INSERT INTO precio_goal (listing_id, platform, margen_goal_pct, mode,
             valid_from, creado_por)
-        VALUES (v_lid2, 'amazon_mx', 0.30, 'shadow', '2026-09-01', 'candado');
+        VALUES (v_lid2, 'amazon_mx', 0.30, 'shadow', '2026-09-01', 'candado')
+        RETURNING id INTO v_gid_shadow2;
         INSERT INTO precio_goal (listing_id, platform, margen_goal_pct, mode,
             valid_from, creado_por, go_literal)
         VALUES (v_lid3, 'amazon_mx', 0.30, 'live', '2026-09-01', 'candado',
@@ -1011,7 +1018,8 @@ BEGIN
             'MXN', 110.00, 'MXN', 110.00, 'MXN', 10.00, 'MXN', 20.00, 'MXN',
             12.00, 'MXN', 5.00, 'MXN', 8.00, 'MXN') RETURNING id INTO v_did;
 
-        -- (positivo): decision shadow bajo goal live ENTRA.
+        -- (positivo): decision shadow bajo goal live ENTRA (sin y con goal_id:
+        -- desde 0.b el codigo siempre trae goal_id, rama NEW.goal_id IS NOT NULL).
         INSERT INTO precio_decision (listing_id, platform, resultado, motivo, mode,
             goal, m_actual, p_actual, p_actual_currency, p_objetivo,
             p_objetivo_currency, p_aplicado, p_aplicado_currency, i_valor,
@@ -1020,6 +1028,20 @@ BEGIN
         VALUES (v_lid3, 'amazon_mx', 'mantener', 'en_tolerancia', 'shadow', 0.30,
             0.30, 100.00, 'MXN', 100.00, 'MXN', 100.00, 'MXN', 10.00, 'MXN',
             20.00, 'MXN', 12.00, 'MXN', 5.00, 'MXN', 8.00, 'MXN')
+        RETURNING id INTO v_did_sombra;
+        INSERT INTO precio_goal (listing_id, platform, margen_goal_pct, mode,
+            valid_from, creado_por, go_literal)
+        VALUES (v_lid6, 'amazon_mx', 0.30, 'live', '2026-09-01', 'candado',
+            'go candado 0054') RETURNING id INTO v_gid_live5;
+        INSERT INTO precio_decision (listing_id, platform, resultado, motivo, mode,
+            goal_id, goal, m_actual, p_actual, p_actual_currency, p_objetivo,
+            p_objetivo_currency, p_aplicado, p_aplicado_currency, i_valor,
+            i_currency, c_valor, c_currency, f_valor, f_currency, l_valor,
+            l_currency, r_valor, r_currency)
+        VALUES (v_lid6, 'amazon_mx', 'mantener', 'en_tolerancia', 'shadow',
+            v_gid_live5, 0.30, 0.30, 100.00, 'MXN', 100.00, 'MXN', 100.00,
+            'MXN', 10.00, 'MXN', 20.00, 'MXN', 12.00, 'MXN', 5.00, 'MXN',
+            8.00, 'MXN')
         RETURNING id INTO v_did_sombra;
 
         -- (positivo): goal reeditado el mismo dia ENTRA (anulada + vigente).
@@ -1073,6 +1095,22 @@ BEGIN
             VALUES (v_lid2, 'amazon_mx', 'mantener', 'en_tolerancia', 'live',
                 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN');
             RAISE EXCEPTION '0054: decision live bajo goal shadow NO fue rechazada';
+        EXCEPTION
+            WHEN raise_exception THEN RAISE;
+            WHEN check_violation THEN NULL;
+        END;
+
+        -- Negativo con goal_id (rama NEW.goal_id IS NOT NULL: la que usa el
+        -- codigo desde 0.b). El goal de v_lid2 es shadow: live se rechaza.
+        BEGIN
+            INSERT INTO precio_decision (listing_id, platform, resultado, motivo,
+                mode, goal_id, p_actual_currency, p_objetivo_currency,
+                p_aplicado_currency, i_currency, c_currency, f_currency,
+                l_currency, r_currency)
+            VALUES (v_lid2, 'amazon_mx', 'mantener', 'en_tolerancia', 'live',
+                v_gid_shadow2,
+                'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN');
+            RAISE EXCEPTION '0054: decision live con goal_id bajo goal shadow NO fue rechazada';
         EXCEPTION
             WHEN raise_exception THEN RAISE;
             WHEN check_violation THEN NULL;
@@ -1223,7 +1261,7 @@ BEGIN
         RAISE EXCEPTION '0054: el candado dejó % goals sembrados', v_n;
     END IF;
     SELECT count(*) INTO v_n FROM precio_decision
-     WHERE listing_id IN (v_lid1, v_lid2, v_lid3, v_lid4, v_lid5);
+     WHERE listing_id IN (v_lid1, v_lid2, v_lid3, v_lid4, v_lid5, v_lid6);
     IF v_n <> 0 THEN
         RAISE EXCEPTION '0054: el candado dejó % decisiones sembradas', v_n;
     END IF;

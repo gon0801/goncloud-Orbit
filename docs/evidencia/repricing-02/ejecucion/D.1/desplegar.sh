@@ -182,7 +182,7 @@ fi
 
 echo "== 5) md5 del codigo desplegado vs SHA aprobado"
 md5_de() { python3 -c "import hashlib, sys; print(hashlib.md5(sys.stdin.buffer.read()).hexdigest())"; }
-ARCHIVOS_D1="app/precio/cambios.py app/spapi/precio_mercado.py app/cli_precio.py app/precio/corrida.py tools/precio_reversa.py"
+ARCHIVOS_D1="app/precio/cambios.py app/spapi/precio_mercado.py app/cli_precio.py app/precio/corrida.py tools/precio_reversa.py tools/precio_cobertura.py"
 if [ "$SIM" = 1 ]; then
   echo "SIMULACION: sin servidor; se verifica el respaldo local contra el SHA"
   for f in $ARCHIVOS_D1; do
@@ -192,7 +192,7 @@ if [ "$SIM" = 1 ]; then
     echo "md5 OK $f"
   done
 else
-  git archive --format=tar "$APROBADO" app Dockerfile .dockerignore pyproject.toml uv.lock tools/precio_reversa.py \
+  git archive --format=tar "$APROBADO" app Dockerfile .dockerignore pyproject.toml uv.lock tools/precio_reversa.py tools/precio_cobertura.py \
     | ssh goncloud "cd $SRV && tar -xf -"
   for f in $ARCHIVOS_D1; do
     a=$(git show "$APROBADO:$f" | md5_de)

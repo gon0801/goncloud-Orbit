@@ -96,20 +96,23 @@ if [ "$BASE_GRANT" != "0" ]; then
   echo "re-otorgado el SELECT previo sobre precio_envio_muestra"
 fi
 volcar c_revertido
-if diff -u "$TMP/a_base.sql" "$TMP/c_revertido.sql"; then
+# Postgres no permite quitar un valor de un enum (ADD VALUE es irreversible):
+# la reversa de la 0053 lo documenta con NOTICE y el valor meli sigue efectivo.
+# Se excluye SOLO ese bloque del diff; todo lo demas debe estar vacio.
+if diff -u "$TMP/a_base.sql" "$TMP/c_revertido.sql" > "$TMP/diff.txt"; then
   echo "OK: las reversas dejan el esquema identico al base"
-elif diff -u "$TMP/a_base.sql" "$TMP/c_revertido.sql" | grep -v -E '^[+-]{3} ' | grep -E '^[+-]' | grep -v -q 'precio_decision_por_dia'; then
-  echo "FALLA: las reversas dejan diferencias fuera del indice huerfano conocido"; exit 1
 else
-  echo "OK con excepcion documentada: la unica diferencia es el indice"
-  echo "huerfano precio_decision_por_dia (la reversa de la 0054 no lo borra;"
-  echo "contrato de 0.a sellado, se declara en Desviaciones del PR)"
+  grep -v -E "^[+-]{3} |^@@ " "$TMP/diff.txt" | grep -E '^[+-]' | grep -v -E "^\+\s+'meli'|^\+\s+'fbm',$|^-\s+'fbm'$" > "$TMP/diff_filtrado.txt" || true
+  if [ ! -s "$TMP/diff_filtrado.txt" ] && grep -q "+    'meli'" "$TMP/diff.txt"; then
+    echo "OK: la unica diferencia es el valor meli del enum (irreversible por Postgres;"
+    echo "la reversa de la 0053 lo documenta y sigue efectivo para reaplicar)"
+  else
+    echo "FALLA: las reversas dejan diferencias fuera del valor meli del enum:"; cat "$TMP/diff.txt"; exit 1
+  fi
 fi
 
 echo "== 4) reaplicar (solo la 0054: el valor meli del enum no se puede"
-echo "quitar ni reagregar —ADD VALUE no es re-ejecutable— y sigue efectivo;"
-echo "el indice huerfano se borra a mano antes, como haria el operador)"
-psql "$DSN_DB" -q -v ON_ERROR_STOP=1 -c "DROP INDEX IF EXISTS precio_decision_por_dia;" >/dev/null
+echo "quitar ni reagregar —ADD VALUE no es re-ejecutable— y sigue efectivo)"
 aplicar "0054_precio02_base.sql"
 volcar d_reaplicado
 if diff -u "$TMP/b_aplicado.sql" "$TMP/d_reaplicado.sql"; then

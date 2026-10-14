@@ -36,7 +36,7 @@ contra el codigo mutado; al terminar, `git checkout -- <archivo>`.
 | test_rechaza_decision_con_goal_id_ya_cerrado | OBLIGATORIO: rama `NEW.goal_id` desactivada (`AND FALSE`) | ROJO |
 | test_rechaza_liberacion_para_corrida_que_no_retuvo | trigger `precio_liberacion_exige_retencion` borrado | ROJO |
 | test_rechaza_update_de_origen_sobre_goal_ya_sembrado | `origen`, `lote` y `m_referencia` fuera del ROW inmutable | ROJO |
-| test_sigue_rechazando_live_bajo_goal_shadow_y_acepta_shadow_bajo_goal_live | OBLIGATORIO: predicado de modo vuelve a `g.mode = NEW.mode` | ROJO |
+| test_sigue_rechazando_live_bajo_goal_shadow_y_acepta_shadow_bajo_goal_live | OBLIGATORIO: predicado de modo vuelve a `g.mode = NEW.mode` | ROJO (R02-r2 B1: tambien mata `OR FALSE` en la rama `NEW.goal_id IS NOT NULL` de la linea 627, que es la que usa el codigo desde 0.b; casos con `goal_id` en la prueba y en el DO de la 0054) |
 | test_acepta_goal_reeditado_el_mismo_dia | indice parcial sin `WHERE valid_to IS DISTINCT FROM valid_from` | ROJO |
 | test_la_0054_siembra_config_con_modo_global_shadow_y_conserva_lo_previo | clave sembrada `precio_modo_zz` en vez de `precio_modo_global` | ROJO |
 | test_atribuye_venta_nueva_y_rellena_la_historia_sin_duplicar | INSERT de atribucion sin `ON CONFLICT DO NOTHING` | ROJO |

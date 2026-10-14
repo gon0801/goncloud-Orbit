@@ -141,6 +141,7 @@ ALTER TABLE precio_envio_muestra
     DROP COLUMN cobrado_mediana_currency;
 
 DROP INDEX precio_goal_unico_por_fecha;
+DROP INDEX IF EXISTS precio_decision_por_dia;
 ALTER TABLE precio_goal
     ADD CONSTRAINT precio_goal_unico_por_fecha
         UNIQUE (listing_id, platform, valid_from);
@@ -248,6 +249,17 @@ BEGIN
         END IF;
     END IF;
 
+    -- «Sin fila vigente no hay decisión» (S3) en la base y no solo en el
+    -- motor (ronda 4 de revisión, punto 3): `app_decide` tiene INSERT
+    -- directo. Vigencia [valid_from, valid_to) con el MISMO mode: un goal
+    -- `shadow` no ampara una decisión `live`. La fecha contra la que se
+    -- compara es `(now() AT TIME ZONE 'UTC')::date` —la misma expresión con
+    -- la que `precio_decision_fecha_utc` fija `decision_date` después—: este
+    -- trigger no lee `NEW.decision_date` (los BEFORE INSERT del mismo evento
+    -- disparan en orden alfabético y `coherente` va antes que `fecha_utc`).
+    -- Y regla 2 (ronda 5, punto 3): `goal` es UN número con UNA fuente —el
+    -- trigger lo asigna desde la fila vigente y el valor del cliente se
+    -- ignora, mismo trato que `decision_date`—.
     SELECT g.margen_goal_pct INTO v_goal
       FROM precio_goal g
      WHERE g.listing_id = NEW.listing_id
@@ -269,6 +281,14 @@ BEGIN
 END;
 $$;
 
+COMMENT ON FUNCTION precio_decision_coherente IS
+  'REPRICING 01 A.0 (r3-3, patrón estimacion_oferta_listing_coherente; r4-3): '
+  'escenario, fee y cotización del mismo (listing_id, platform); la muestra, '
+  'del mismo (product_id, platform); product_id, el del listing; y «sin fila '
+  'vigente no hay decisión» (S3): goal del mismo par y mode vigente en la '
+  'fecha UTC del servidor. Solo INSERT: la decisión es append-only y sus '
+  'columnas nunca cambian.';
+
 CREATE OR REPLACE FUNCTION precio_cambio_sella_transicion() RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = pg_catalog, public
@@ -281,6 +301,9 @@ BEGIN
             USING ERRCODE = 'restrict_violation';
     END IF;
 
+    -- El virtual nace cerrado y así se queda (r3-6): cualquier UPDATE sobre
+    -- él se rechaza, aunque no cambie el estado (si no, un UPDATE sin cambio
+    -- de estado le pondría ack/readback por el sello NULL -> valor).
     IF NOT OLD.aplicado THEN
         RAISE EXCEPTION
             'precio_cambio %: virtual (aplicado = false) inmutable tras nacer: '
@@ -296,7 +319,7 @@ BEGIN
             ('enviado', 'confirmado'),
             ('enviado', 'no_confirmado')
         ) THEN
-            NULL;
+            NULL;  -- avance permitido por la progresión sellada (S6)
         ELSE
             RAISE EXCEPTION
                 'precio_cambio %: estado % -> % fuera de la progresión sellada '
@@ -325,40 +348,48 @@ BEGIN
        AND (OLD.readback_precio IS NOT NULL OR NEW.readback_precio IS NULL) THEN
         RAISE EXCEPTION
             'precio_cambio %: readback_precio ya sellado o se intenta des-sellar.',
-            OLD.id USING ERRCODE = 'restrict_violation';
+            OLD.id
+            USING ERRCODE = 'restrict_violation';
     END IF;
     IF NEW.readback_precio_currency IS DISTINCT FROM OLD.readback_precio_currency
        AND (OLD.readback_precio_currency IS NOT NULL
             OR NEW.readback_precio_currency IS NULL) THEN
         RAISE EXCEPTION
             'precio_cambio %: readback_precio_currency ya sellado o se intenta '
-            'des-sellar.', OLD.id USING ERRCODE = 'restrict_violation';
+            'des-sellar.', OLD.id
+            USING ERRCODE = 'restrict_violation';
     END IF;
     IF NEW.readback_estado IS DISTINCT FROM OLD.readback_estado
        AND (OLD.readback_estado IS NOT NULL OR NEW.readback_estado IS NULL) THEN
         RAISE EXCEPTION
             'precio_cambio %: readback_estado ya sellado o se intenta des-sellar.',
-            OLD.id USING ERRCODE = 'restrict_violation';
+            OLD.id
+            USING ERRCODE = 'restrict_violation';
     END IF;
     IF NEW.readback_at IS DISTINCT FROM OLD.readback_at
        AND (OLD.readback_at IS NOT NULL OR NEW.readback_at IS NULL) THEN
         RAISE EXCEPTION
             'precio_cambio %: readback_at ya sellado o se intenta des-sellar.',
-            OLD.id USING ERRCODE = 'restrict_violation';
+            OLD.id
+            USING ERRCODE = 'restrict_violation';
     END IF;
     IF NEW.confirmado_por IS DISTINCT FROM OLD.confirmado_por
        AND (OLD.confirmado_por IS NOT NULL OR NEW.confirmado_por IS NULL) THEN
         RAISE EXCEPTION
             'precio_cambio %: confirmado_por ya sellado o se intenta des-sellar.',
-            OLD.id USING ERRCODE = 'restrict_violation';
+            OLD.id
+            USING ERRCODE = 'restrict_violation';
     END IF;
     IF NEW.error_code IS DISTINCT FROM OLD.error_code
        AND (OLD.error_code IS NOT NULL OR NEW.error_code IS NULL) THEN
         RAISE EXCEPTION
             'precio_cambio %: error_code ya sellado o se intenta des-sellar.',
-            OLD.id USING ERRCODE = 'restrict_violation';
+            OLD.id
+            USING ERRCODE = 'restrict_violation';
     END IF;
 
+    -- `created_at` también es inmutable (r3-5, como `started_at` en
+    -- `apply_attempt_solo_sella_resultado`): ni con GRANT amplio se reescribe.
     IF ROW(NEW.id, NEW.decision_id, NEW.listing_id, NEW.platform,
            NEW.precio_antes, NEW.precio_antes_currency,
            NEW.precio_observado_antes, NEW.precio_observado_antes_currency,
@@ -380,6 +411,14 @@ BEGIN
 END;
 $$;
 
+COMMENT ON FUNCTION precio_cambio_sella_transicion IS
+  'REPRICING 01 A.0 (S6, patrón apply_attempt_solo_sella_resultado de 0002): '
+  'la progresión pendiente -> enviado | error, enviado -> confirmado | '
+  'no_confirmado, sin saltos (el cierre es por observación D+1) ni '
+  'retrocesos; sello NULL -> valor UNA vez por columna de sello; el virtual '
+  '(aplicado = false) inmutable tras nacer (r3-6); el DELETE jamás; TRUNCATE '
+  'por la capa de sentencia.';
+
 CREATE OR REPLACE FUNCTION precio_goal_solo_cierra_vigencia() RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = pg_catalog, public
@@ -399,6 +438,8 @@ BEGIN
             'período en que ese goal aplicó.', OLD.id
             USING ERRCODE = 'restrict_violation';
     END IF;
+    -- `created_at` también es inmutable (r3-5, como `started_at` en
+    -- `apply_attempt_solo_sella_resultado`): ni con GRANT amplio se reescribe.
     IF ROW(NEW.id, NEW.listing_id, NEW.platform, NEW.margen_goal_pct,
            NEW.mode, NEW.valid_from, NEW.creado_por, NEW.go_literal,
            NEW.created_at)
@@ -415,6 +456,13 @@ BEGIN
     RETURN NEW;
 END;
 $$;
+
+COMMENT ON FUNCTION precio_goal_solo_cierra_vigencia IS
+  'REPRICING 01 A.0 (S3, patrón sku_cost_solo_cierra_vigencia): la única '
+  'mutación legítima es cerrar la vigencia —valid_to y nada más, transición '
+  'NULL -> fecha una vez—; el DELETE jamás, sin depender de qué GRANT tenga '
+  'el rol. El segundo vigente lo rechaza el índice parcial '
+  'precio_goal_un_vigente, no este trigger.';
 
 -- La config sembrada por la 0054 es append-only como toda config_version:
 -- solo se quita si sigue siendo la ultima fila y nadie la edito encima. Si

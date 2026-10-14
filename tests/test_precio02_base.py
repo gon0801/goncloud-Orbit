@@ -315,6 +315,20 @@ def test_sigue_rechazando_live_bajo_goal_shadow_y_acepta_shadow_bajo_goal_live()
         _pid, lid = _producto_listing(conn)
         _goal(conn, lid, mode="live")
         assert _insert_decision_de_hoy(conn, lid, mode="shadow") > 0
+    # R02-r2 B1: desde 0.b toda decision guarda goal_id, asi que el codigo
+    # nuevo pasa por la rama `NEW.goal_id IS NOT NULL` del trigger; los
+    # mismos dos casos CON goal_id matan el mutante de la linea 627.
+    with _db() as conn:
+        _config_vieja(conn)
+        _pid, lid = _producto_listing(conn)
+        gid = _goal(conn, lid, mode="shadow")
+        with pytest.raises(psycopg.errors.CheckViolation):
+            _insert_decision_de_hoy(conn, lid, mode="live", goal_id=gid)
+    with _db() as conn:
+        _config_vieja(conn)
+        _pid, lid = _producto_listing(conn)
+        gid = _goal(conn, lid, mode="live")
+        assert _insert_decision_de_hoy(conn, lid, mode="shadow", goal_id=gid) > 0
 
 
 @_skip_sin_pg

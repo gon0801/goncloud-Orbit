@@ -5,11 +5,12 @@
 # 0 = todo comprobado; 1 = alguna FALLA medida; 4 = no pudo medir (el
 # servidor no contesta o una lectura salio vacia, sin ninguna FALLA
 # medida). Una FALLA medida sale con 1 aunque otra lectura quede vacia.
-# En simulacion (ORBIT_SIMULACION=1) la base es ORBIT_SIM_DSN: no hay ssh.
+# En simulacion (ORBIT_SIMULACION=1) la base es ORBIT_SIM_DSN y el HTTP es
+# ORBIT_SIM_API: no hay ssh.
 # Comprueba: columnas goal_id/l_origen/verificacion en precio_decision;
 # valor meli en el enum canal; precio_modo_global en la config vigente;
-# y la corrida de precios sigue programada (linea precio en el crontab,
-# sin cambiarla).
+# la corrida de precios sigue programada (linea precio en el crontab, sin
+# cambiarla); y GET /precios en 200 (0.a reescribio esa pantalla).
 # Uso: bash docs/evidencia/repricing-02/ejecucion/D.1/checklist.sh <STAMP> > checklist-<sello>.txt 2>&1; echo "exit=$?" >> checklist-<sello>.txt
 set -uo pipefail
 
@@ -17,6 +18,7 @@ SELLO=${1:-sin-sello}
 REPO=$(git rev-parse --show-toplevel)
 SIM=${ORBIT_SIMULACION:-0}
 DSN_SIM=${ORBIT_SIM_DSN:-postgresql://orbit:orbit@localhost:5432/orbit_sim_d1}
+API_SIM=${ORBIT_SIM_API:-http://127.0.0.1:8012}
 FALLAS=0
 NOMEDIDO=0
 cd "$REPO"
@@ -51,6 +53,13 @@ if [ "$SIM" = 1 ]; then
 else
   revisa "linea precio en crontab" 1 \
     "$(ssh goncloud 'crontab -l -u gon 2>/dev/null' | grep -c 'python -m app.cli precio' || true)"
+fi
+
+echo "== 3) GET /precios en 200"
+if [ "$SIM" = 1 ]; then
+  revisa "GET /precios" 200 "$(curl -s -o /dev/null -w '%{http_code}' "$API_SIM/precios" || true)"
+else
+  revisa "GET /precios" 200 "$(ssh goncloud "curl -s -o /dev/null -w %{http_code} 'http://127.0.0.1:8010/precios'" || true)"
 fi
 
 echo "== RESULTADO: $FALLAS falla(s), $NOMEDIDO sin medir"
