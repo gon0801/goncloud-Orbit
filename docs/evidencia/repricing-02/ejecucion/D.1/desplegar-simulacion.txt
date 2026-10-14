@@ -1,0 +1,39 @@
+== MODO SIMULACION: datos reales contra postgresql://orbit:orbit@localhost:5432/orbit_sim_d1, servidor intacto
+reintento con /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-d1-sim/aplicadas-20261014-0343.txt existente: se conserva (append-only)
+== 0) SHA aprobado con la bateria completa verde
+SIMULACION: 0e91abb567dc43e317e2f6ea258aaa956159e99a existe local; sin fetch ni gh (no hay red a prod)
+== 1) Preflight: nadie corre, sin harvest en vuelo, migraciones pendientes
+SIMULACION: sin docker top (no hay contenedor); la guarda de proceso es el conteo de running
+ciclos running=0
+harvest en vuelo=0
+ya aplicada: 0053_precio02_canal_meli.sql
+ya aplicada: 0054_precio02_base.sql
+== 1b) Guardas propias de D.1 (abortan si fallan)
+0053/0054 y modulos del corte presentes en el SHA
+guardas propias OK
+== 1c) Cron: D.1 no instala linea; se imprime la huella antes
+crontab antes: md5 y lineas = a6f9d942a5fef5866979c205ec5b7456 2 (sin tocarlo)
+== 2) Respaldo del codigo actual y SHA (el .env NO se copia a ningun lado)
+SIMULACION: reintento, /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-d1-sim/predeploy-20261014-0343 se conserva (no se pisa)
+== 3) Backup del esquema (staging + verificacion)
+SIMULACION: backup local /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-d1-sim/pred1_schema_20261014-0343.sql
+== 4) Migraciones 0053 y 0054, cada una en su propia corrida de psql
+ninguna pendiente
+== 5) md5 del codigo desplegado vs SHA aprobado
+SIMULACION: sin servidor; se verifica el respaldo local contra el SHA
+md5 OK app/precio/cambios.py
+md5 OK app/spapi/precio_mercado.py
+md5 OK app/cli_precio.py
+md5 OK app/precio/corrida.py
+md5 OK tools/precio_reversa.py
+== 6) Guardas antes de recrear
+SIMULACION: guardas OK en una pasada (sin reintento de 30 min)
+== 7) Build + recrear app (digest antes/despues) + health
+SIMULACION: sin rebuild (no hay servidor que recrear)
+== 8) Cron: la huella no cambio (D.1 no instala linea)
+crontab despues: md5 y lineas = a6f9d942a5fef5866979c205ec5b7456 2
+crontab intacto
+== LISTO. STAMP=20261014-0343
+Siguiente: bash docs/evidencia/repricing-02/ejecucion/D.1/checklist.sh 20261014-0343
+Reversa:   bash docs/evidencia/repricing-02/ejecucion/D.1/rollback.sh 20261014-0343
+exit=0
