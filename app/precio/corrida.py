@@ -646,6 +646,13 @@ def _fase3_uno(
         if decision.resultado in ("subir", "bajar") and decision.mode == "shadow":
             cambios_mod.insertar_virtual(conn, did, lid, platform, decision, ahora)
         return decision, 0, agotado, parche_sin_sellar, None, True
+    except psycopg.errors.CheckViolation as exc:
+        # El goal se reedito a media corrida (`goal_reemplazado` de la
+        # 0054): la publicacion no deja fila (sin motivo en vocabulario
+        # para reedicion) y el error scrubbado va al resumen (B2).
+        if "goal_reemplazado" not in str(exc):
+            raise
+        return decision, 0, agotado, parche_sin_sellar, f"goal_cambiado: {exc}", False
     except psycopg.Error:
         raise
     except EscrituraNoDisponible as exc:

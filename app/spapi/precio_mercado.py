@@ -494,7 +494,9 @@ class MercadoAmazon:
                     pricing_por_asin=pricing_por_asin,
                     racha_por_lid=racha_por_lid,
                 )
-            except ValueError as exc:
+            except psycopg.Error:
+                raise
+            except Exception as exc:  # noqa: BLE001 - B1: una publicacion no tumba al lote
                 lecturas[unidad.listing_id] = Lectura(
                     entrada=None,
                     motivo="escenario_incoherente",

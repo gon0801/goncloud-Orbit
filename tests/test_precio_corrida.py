@@ -2437,6 +2437,67 @@ def test_error_de_base_en_fase3_aborta_y_libera_lock(monkeypatch):
 
 
 @_skip_sin_pg
+def test_goal_reeditado_a_media_corrida_sale_goal_cambiado():
+    """R02-r1 (CodeRabbit): el goal se cierra entre fase 1 y fase 3: la
+    publicacion sale `no_evaluado` con el motivo del trigger y la corrida
+    sigue (no aborta)."""
+    with _db() as (conn, _dsn):
+        datos = _cadena(conn, mode="live")
+        _price_obs(conn)
+        hoy = conn.execute("SELECT (now() AT TIME ZONE 'UTC')::date").fetchone()[0]
+        red = _RedFalsa(skus={datos["evento"]: datos["sku"]})
+        import app.precio.corrida as corrida_mod
+
+        real = corrida_mod.persistir_decision
+
+        def _reedita(*args, **kwargs):
+            conn.execute(
+                "UPDATE precio_goal SET valid_to = %s WHERE listing_id = %s AND valid_to IS NULL",
+                (hoy, datos["listing"]),
+            )
+            return real(*args, **kwargs)
+
+        import unittest.mock as _mock
+
+        with _mock.patch.object(corrida_mod, "persistir_decision", _reedita):
+            res = _corre(conn, red)
+        assert (res.decisiones, res.escritas) == (0, 0)
+        assert _cuenta_decisiones(conn) == 0
+        assert len(res.errores) == 1 and "goal_cambiado" in res.errores[0]
+
+
+@_skip_sin_pg
+def test_fase1_aisla_typeerror_de_publicacion(monkeypatch):
+    """R02-r1 (CodeRabbit): un `TypeError` en insumos tambien aisla la
+    publicacion (B1 cubre toda `Exception` no-psycopg)."""
+    import app.spapi.precio_mercado as mercado_mod
+
+    with _db() as (conn, _dsn):
+        a = _cadena(conn, sku="SKU-R3-T", ext="B0A50000RA", mode="live")
+        b = _cadena(conn, sku="SKU-R3-U", ext="B0A50000RB", mode="live")
+        _price_obs(conn, asin="B0A50000RA")
+        _price_obs(conn, asin="B0A50000RB")
+        real = mercado_mod.evaluar_senal
+        llamadas = []
+
+        def _revienta(insumos, **kw):
+            llamadas.append(1)
+            if len(llamadas) == 1:
+                raise TypeError("venta rota")
+            return real(insumos, **kw)
+
+        monkeypatch.setattr(mercado_mod, "evaluar_senal", _revienta)
+        red = _RedFalsa(skus={a["evento"]: a["sku"], b["evento"]: b["sku"]})
+        res = _corre(conn, red)
+        assert (res.decisiones, res.escritas) == (2, 1)
+        fila_a = conn.execute(
+            "SELECT resultado, motivo FROM precio_decision WHERE listing_id = %s", (a["listing"],)
+        ).fetchone()
+        assert fila_a == ("no_evaluado", "escenario_incoherente")
+        assert len(res.errores) == 1
+
+
+@_skip_sin_pg
 def test_no_confirmado_viejo_mas_confirmado_nuevo_no_frena():
     """R1-noconf-orden: manda el ultimo: viejo sin confirmar + nuevo confirmado."""
     with _db() as (conn, _dsn):

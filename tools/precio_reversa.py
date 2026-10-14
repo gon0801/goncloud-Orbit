@@ -37,9 +37,10 @@ import time
 import httpx
 import psycopg.errors
 
-from app import precio_mercados as mercados
+import app.precio_mercados as mercados
 from app.db import OrbitDbError, connect
 from app.precio import cambios as cambios_mod
+from app.precio.puerto import EscrituraNoDisponible
 from app.spapi import precio_write
 from app.spapi.client import CuboTasa, SpapiClient, SpapiError, SpapiNoPermitida
 from app.spapi.precio_write import FormaParcheSinSellar
@@ -211,7 +212,7 @@ def main(
             with mercados.abrir(f[2], lector=lector, escritor=escritor, limitador=cubo) as mercado:
                 try:
                     res = cambios_mod.revertir(conn, cid, mercado=mercado)
-                except FormaParcheSinSellar as exc:
+                except (FormaParcheSinSellar, EscrituraNoDisponible, ValueError) as exc:
                     raise Abortar(f"forma del parche sin sellar (A.4 la sella): {exc}") from None
                 except (
                     precio_write.CambioNoReversible,

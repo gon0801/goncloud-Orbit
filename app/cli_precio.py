@@ -39,6 +39,49 @@ def registra(sub) -> None:
     p_precio.add_argument("--hasta", default=None, help="YYYY-MM-DD (con --reporte)")
 
 
+def _abrir_plataforma(cli_mod, platform):
+    """El mercado abierto de `platform`, 2 si no hay mercado, 1 si falla.
+
+    `None` = la plataforma no tiene mercado (meli hasta M): exit 2.
+    """
+    try:
+        lector, escritor, fees, limitador = cli_mod._clientes_precio(platform)
+        return mercados.abrir(
+            platform,
+            lector=lector,
+            escritor=escritor,
+            fees=fees,
+            limitador=limitador,
+        )
+    except mercados.ConfigInvalida as exc:
+        print(f"precio: {exc}", file=sys.stderr)
+        return None
+    except Exception as exc:  # noqa: BLE001 - el CLI solo reporta, sin secretos
+        print(f"precio: {scrub(str(exc)) or exc.__class__.__name__}", file=sys.stderr)
+        return 1
+
+
+def _ventana_reporte(args):
+    """`(desde, hasta)` o exit code si el uso esta mal."""
+    if not args.desde or not args.hasta:
+        print("precio --reporte exige --desde y --hasta (YYYY-MM-DD)", file=sys.stderr)
+        return 2
+    try:
+        desde = dt.date.fromisoformat(args.desde)
+        hasta = dt.date.fromisoformat(args.hasta)
+    except ValueError:
+        print("precio --reporte: fechas invalidas (YYYY-MM-DD)", file=sys.stderr)
+        return 2
+    if desde > hasta:
+        print(
+            f"precio --reporte con ventana invertida: --desde ({desde}) posterior a"
+            f" --hasta ({hasta})",
+            file=sys.stderr,
+        )
+        return 2
+    return desde, hasta
+
+
 def main_precio(args) -> int:
     """Corrida diaria del motor de precios o su reporte (REPRICING 01 A.5)."""
     from app import cli as cli_mod
@@ -47,22 +90,10 @@ def main_precio(args) -> int:
     # C (r1): el import de avisos vive en la rama que llama a `correr`,
     # no antes de `--reporte` (el reporte no avisa ni necesita Telegram).
     if args.reporte:
-        if not args.desde or not args.hasta:
-            print("precio --reporte exige --desde y --hasta (YYYY-MM-DD)", file=sys.stderr)
-            return 2
-        try:
-            desde = dt.date.fromisoformat(args.desde)
-            hasta = dt.date.fromisoformat(args.hasta)
-        except ValueError:
-            print("precio --reporte: fechas invalidas (YYYY-MM-DD)", file=sys.stderr)
-            return 2
-        if desde > hasta:
-            print(
-                f"precio --reporte con ventana invertida: --desde ({desde}) posterior a"
-                f" --hasta ({hasta})",
-                file=sys.stderr,
-            )
-            return 2
+        ventana = _ventana_reporte(args)
+        if isinstance(ventana, int):
+            return ventana
+        desde, hasta = ventana
         dsn = os.environ.get("ORBIT_DSN_READ", "")
         if not dsn:
             print("precio --reporte exige ORBIT_DSN_READ", file=sys.stderr)
@@ -103,14 +134,13 @@ def main_precio(args) -> int:
     rc = 0
     try:
         for platform in plataformas:
-            lector, escritor, fees, limitador = cli_mod._clientes_precio(platform)
-            with mercados.abrir(
-                platform,
-                lector=lector,
-                escritor=escritor,
-                fees=fees,
-                limitador=limitador,
-            ) as mercado:
+            mercado_ctx = _abrir_plataforma(cli_mod, platform)
+            if mercado_ctx is None:
+                return 2
+            if isinstance(mercado_ctx, int):
+                rc = mercado_ctx
+                continue
+            with mercado_ctx as mercado:
                 try:
                     from app.notifica import avisar_precio
 

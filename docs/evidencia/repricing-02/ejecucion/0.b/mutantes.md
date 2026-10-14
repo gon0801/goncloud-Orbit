@@ -19,7 +19,7 @@ contra el codigo mutado; al terminar, el archivo se restauro de su respaldo.
 | test_decision_no_evaluada_tambien_guarda_goal_y_origen | `l_origen="herramienta"` en la rama generica | ROJO |
 | test_sin_referral_unico_en_tolerancia_mantiene_y_bajo_el_goal_no_evalua | `_subir` sin el corto `isinstance(fees_escenario, str)` (lazy roto) | ROJO |
 
-Nota: dos mutantes intentados NO enrojecieron y se documentan en vez de
+Nota: tres mutantes intentados NO enrojecieron y se documentan en vez de
 esconderse: `iva_divisor` con `costo` en `leer_cuenta` (el test 4 compara
 `leer_cuenta` contra `insumos`, que usa `leer_cuenta`: tautologico en esos
 campos; su valor es fijar que `insumos` no arma la cuenta a mano), `ref`

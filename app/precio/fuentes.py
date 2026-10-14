@@ -103,7 +103,7 @@ def universos_encendidos(conn: psycopg.Connection) -> dict | None:
     ).fetchall():
         platform, canal = fila[0], fila[1]
         if canal is None:
-            universos[(platform, canal)] = True
+            universos[(platform, canal)] = global_modo != "off"
             continue
         modo = por_universo.get(f"{platform}/{canal}", "off")
         if modo not in MODOS:

@@ -8,8 +8,8 @@
 # En simulacion (ORBIT_SIMULACION=1) la base es ORBIT_SIM_DSN: no hay ssh.
 # Comprueba: columnas goal_id/l_origen/verificacion en precio_decision;
 # valor meli en el enum canal; precio_modo_global en la config vigente;
-# la corrida de precios sigue programada (linea precio en el crontab, sin
-# cambiarla); y la pantalla /precios responde con el recuadro.
+# y la corrida de precios sigue programada (linea precio en el crontab,
+# sin cambiarla).
 # Uso: bash docs/evidencia/repricing-02/ejecucion/D.1/checklist.sh <STAMP> > checklist-<sello>.txt 2>&1; echo "exit=$?" >> checklist-<sello>.txt
 set -uo pipefail
 

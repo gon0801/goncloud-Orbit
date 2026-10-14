@@ -44,7 +44,7 @@ def _mercado_de(plataforma: str):
 
 def vitrina(plataforma: str):
     """Cara de lectura. No abre credenciales ni red: sirve en la pantalla."""
-    return _mercado_de(plataforma)
+    return _mercado_de(plataforma)(plataforma)
 
 
 @contextmanager

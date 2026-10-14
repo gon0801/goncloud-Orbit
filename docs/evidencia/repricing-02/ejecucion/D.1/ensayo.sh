@@ -59,7 +59,7 @@ echo "== esquema de prod (solo lectura)"
 ssh goncloud 'DSN=$(docker exec orbit-app-1 printenv ORBIT_DSN_READ); docker exec -i orbit-db-1 pg_dump "$DSN" --schema-only' \
   > "$TMP/prod.sql"
 grep -q 'CREATE TABLE public.precio_decision ' "$TMP/prod.sql" || { echo "ABORTA: el esquema base no trae precio_decision"; exit 1; }
-if grep -q "meli" "$TMP/prod.sql" | grep -q "canal"; then
+if grep -A 8 'CREATE TYPE public.estimacion_canal' "$TMP/prod.sql" | grep -q "'meli'"; then
   echo "ABORTA: el esquema base ya trae el valor meli (la base no sirve de partida)"
   exit 1
 fi

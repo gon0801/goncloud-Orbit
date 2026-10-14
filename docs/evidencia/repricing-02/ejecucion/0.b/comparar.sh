@@ -89,16 +89,14 @@ corre_lado() {
   wt=$1; db=$2; txt=$3
   ( cd "$wt" && PATH="/opt/homebrew/bin:/usr/bin:/bin" PYTHONPATH=.:tests \
     ORBIT_TEST_DSN="${DSN_LOCAL%/*}/$db" CMP_DB="$db" CMP_TXT="$txt" CMP_DIA="$DIA" \
-    CMP_GOALS="$GOALS" CMP_ROMPER="$ROMPER_B" .venv/bin/python - <<'PY'
+    CMP_GOALS="$GOALS" CMP_ROMPER="$ROMPER_B" CMP_DSN_BASE="$DSN_LOCAL" .venv/bin/python - <<'PY'
 import os
 import psycopg
 from test_precio_corrida import _RedFalsa
 
 db, txt, dia, goals = os.environ["CMP_DB"], os.environ["CMP_TXT"], os.environ["CMP_DIA"], int(os.environ["CMP_GOALS"])
 romper = os.environ["CMP_ROMPER"] == "1"
-conn = psycopg.connect(
-    "postgresql://orbit:orbit@localhost:5432/postgres", dbname=db, autocommit=True
-)
+conn = psycopg.connect(os.environ["CMP_DSN_BASE"], dbname=db, autocommit=True)
 mapa = {
     f[0]: f[1]
     for f in conn.execute(
