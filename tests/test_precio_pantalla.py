@@ -1371,7 +1371,9 @@ def test_r1_a2_huerfana_es_evento_en_corrida_real(tmp_path, monkeypatch):
         lid2 = _listing_corrida(conn, prod2, ext="B0A2000002", sku="SKU-A2-2")
         _goal_corrida(conn, lid2, platform="amazon_mx", mode="live")
         dec2 = _r1_decision_subir_live(conn, lid2, dia=hoy)
-        pen2 = _r1_cambio_pendiente(conn, dec2, lid2, creado_en=_r1_mediodia(ayer))
+        pen2 = _r1_cambio_pendiente(
+            conn, dec2, lid2, creado_en=_r1_mediodia(ayer), enviado_en=_r1_mediodia(ayer)
+        )
         conn.execute(
             "UPDATE precio_cambio SET ack = %s WHERE id = %s",
             (Json({"origen": "seed", "detalle": ERROR_BODY}), pen2),

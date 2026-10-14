@@ -1496,27 +1496,6 @@ def test_cli_precio_lock_ocupado_sale_cero(monkeypatch, capsys):
     assert "en curso" in capsys.readouterr().err
 
 
-@_skip_sin_pg
-def test_huerfana_se_cierra_sin_get_y_sale_en_resumen():
-    """La `pendiente` no-reversa amanece `error/huerfana_sin_patch`, cero red."""
-    with _db() as (conn, _dsn):
-        prod = _producto(conn)
-        lid = _listing(conn, prod)
-        _config(conn)
-        _goal(conn, lid, mode="live")
-        dec = _decision_subir(conn, lid)
-        ayer = datetime.now(UTC) - timedelta(days=1)
-        cid = _cambio_con_estado(conn, dec, lid, estado="pendiente", dia=ayer)
-        red = _RedFalsa()
-        res = _corre(conn, red)
-        assert res.huerfanas == 1
-        fila = conn.execute(
-            "SELECT estado, error_code FROM precio_cambio WHERE id = %s", (cid,)
-        ).fetchone()
-        assert tuple(fila) == ("error", "huerfana_sin_patch")
-        assert red.n_get == 0 and red.n_fees == 0 and red.n_patch == 0
-
-
 # ---------------------------------------------------------------------------
 # r1 (BRIEF-r1): correcciones B, mutantes C y bajas K. Rojo primero en tdd.md.
 # ---------------------------------------------------------------------------
@@ -4293,3 +4272,320 @@ def test_s3_fee_variable_del_escenario_retiene_nombrando_insumo():
         retenida = veredictos["fba"]
         assert (retenida.causa, retenida.insumo) == ("insumo_sistemico", "fee_variable")
         assert _medicion_de(conn, corrida) == [("fba", 12, 0, "insumo_sistemico", "fee_variable")]
+
+
+# ---------------------------------------------------------------------------
+# REPRICING 02 S.4: errores sin efecto, huerfanas por lectura viva, cierre
+# por plataforma. Cada prueba trae su fixture de `readback_precio`.
+# ---------------------------------------------------------------------------
+
+
+def _error_con_readback(conn, dec, lid, *, dia, readback, error="PATCH /x 500"):
+    """`error` sembrado con su readback: `readback = (precio, moneda)`."""
+    cid = _cambio_historia(conn, dec, lid, estado="error", dia=dia, error=error)
+    conn.execute(
+        "UPDATE precio_cambio SET readback_precio = %s, readback_precio_currency = %s,"
+        " readback_estado = 'ok', readback_at = %s WHERE id = %s",
+        (readback[0], readback[1], dia, cid),
+    )
+    return cid
+
+
+class _VivoFijo:
+    """Mercado minimo para `cerrar_huerfanas`: vivo fijo o ilegible."""
+
+    clave = "amazon_mx"
+
+    def __init__(self, vivo):
+        self.vivo = vivo
+        self.lecturas = 0
+
+    def precio_vivo(self, unidad):
+        from app.precio.puerto import PrecioVivoAusente
+        from app.precio.tipos import Importe
+
+        self.lecturas += 1
+        if self.vivo is None:
+            raise PrecioVivoAusente("sin oferta propia")
+        return Importe(Decimal(self.vivo[0]), self.vivo[1])
+
+
+def _pendiente_huerfana(conn):
+    """Listing + `pendiente` no-reversa de ayer (antes=100, despues=110)."""
+    prod = _producto(conn)
+    lid = _listing(conn, prod)
+    _config(conn)
+    _goal(conn, lid, mode="live")
+    dec = _decision_subir(conn, lid)
+    cid = _cambio_con_estado(
+        conn, dec, lid, estado="pendiente", dia=datetime.now(UTC) - timedelta(days=1)
+    )
+    return lid, cid
+
+
+@_skip_sin_pg
+def test_s4_error_sin_efecto_no_consume_cooldown():
+    """S.4 DoD 1: `error` con readback == `precio_antes` no consume
+    cooldown: la corrida reintenta (subir + PATCH) en vez de mantener."""
+    with _db() as (conn, _dsn):
+        datos = _cadena(conn, mode="live")
+        _price_obs(conn)
+        _config(conn)
+        _otro, dec_b = _andamio_hoy(conn, sku="SKU-S4-1", ext="B0A50000S1")
+        _error_con_readback(
+            conn,
+            dec_b,
+            datos["listing"],
+            dia=datetime.now(UTC) - timedelta(days=1),
+            readback=(100, "MXN"),
+        )
+        red = _RedFalsa(
+            skus={datos["evento"]: datos["sku"]},
+            patch=(200, {"submissionId": "s4-1", "status": "ERROR"}),
+        )
+        res = _corre(conn, red)
+        assert (res.decisiones, res.escritas) == (1, 1)
+        fila = conn.execute(
+            "SELECT resultado, motivo FROM precio_decision WHERE listing_id = %s",
+            (datos["listing"],),
+        ).fetchone()
+        assert fila == ("subir", None)
+        assert red.n_patch == 1
+        hoy = _hoy(conn)
+        nuevo = conn.execute(
+            "SELECT estado, readback_precio, readback_precio_currency FROM precio_cambio"
+            " WHERE listing_id = %s AND (enviado_at AT TIME ZONE 'UTC')::date = %s",
+            (datos["listing"], hoy),
+        ).fetchone()
+        assert tuple(nuevo) == ("error", Decimal("116.00"), "MXN")
+
+
+@_skip_sin_pg
+def test_s4_error_con_efecto_si_consume_cooldown():
+    """S.4 DoD 2 (candado): `error` con readback == `precio_despues` SI
+    consume cooldown: `mantener(cooldown)` sin PATCH."""
+    with _db() as (conn, _dsn):
+        datos = _cadena(conn, mode="live")
+        _price_obs(conn)
+        _config(conn)
+        _otro, dec_b = _andamio_hoy(conn, sku="SKU-S4-2", ext="B0A50000S2")
+        _error_con_readback(
+            conn,
+            dec_b,
+            datos["listing"],
+            dia=datetime.now(UTC) - timedelta(days=1),
+            readback=(110, "MXN"),
+        )
+        red = _RedFalsa(skus={datos["evento"]: datos["sku"]})
+        res = _corre(conn, red)
+        assert (res.decisiones, res.escritas) == (1, 0)
+        fila = conn.execute(
+            "SELECT resultado, motivo FROM precio_decision WHERE listing_id = %s",
+            (datos["listing"],),
+        ).fetchone()
+        assert fila == ("mantener", "cooldown")
+        assert red.n_patch == 0
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM precio_cambio WHERE listing_id = %s", (datos["listing"],)
+            ).fetchone()[0]
+            == 1
+        )
+
+
+@_skip_sin_pg
+def test_s4_huerfana_movida_en_corrida_confirma_y_cuenta():
+    """S.4 DoD 3: la corrida resuelve la huerfana movida
+    (`confirmado/lectura_viva`) y la cuenta en el resumen.
+
+    Reemplaza a `test_huerfana_se_cierra_sin_get_y_sale_en_resumen`: S.4
+    SI lee el precio vivo.
+    """
+    with _db() as (conn, _dsn):
+        prod = _producto(conn)
+        lid = _listing(conn, prod)
+        _config(conn)
+        _goal(conn, lid, mode="live")
+        dec = _decision_subir(conn, lid)
+        ayer = datetime.now(UTC) - timedelta(days=1)
+        cid = _cambio_con_estado(conn, dec, lid, estado="pendiente", dia=ayer)
+        red = _RedFalsa(precio_vivo="110.00")
+        res = _corre(conn, red)
+        assert res.huerfanas == 1
+        fila = conn.execute(
+            "SELECT estado, confirmado_por, ack FROM precio_cambio WHERE id = %s", (cid,)
+        ).fetchone()
+        assert tuple(fila) == ("confirmado", "lectura_viva", {"origen": "huerfana_recuperada"})
+
+
+@_skip_sin_pg
+def test_s4_huerfana_quieta_es_error_sin_efecto():
+    """S.4: huerfana con vivo == `precio_antes` sella `error` con
+    `huerfana_sin_efecto`, y `cambios_previos` la lee `sin_efecto`."""
+    from app.precio.cambios import cerrar_huerfanas
+    from app.spapi.precio_mercado import cambios_previos
+
+    with _db() as (conn, _dsn):
+        lid, cid = _pendiente_huerfana(conn)
+        assert cerrar_huerfanas(conn, _VivoFijo(("100", "MXN"))) == 1
+        fila = conn.execute(
+            "SELECT estado, error_code FROM precio_cambio WHERE id = %s", (cid,)
+        ).fetchone()
+        assert tuple(fila) == ("error", "huerfana_sin_efecto")
+        (previo,) = cambios_previos(conn, lid, "amazon_mx")
+        assert previo.sin_efecto is True
+
+
+@_skip_sin_pg
+def test_s4_huerfana_otro_precio_sella_sin_patch():
+    """S.4 (candado): huerfana con vivo distinto de antes y despues sella
+    `error/huerfana_sin_patch` como hoy."""
+    from app.precio.cambios import cerrar_huerfanas
+
+    with _db() as (conn, _dsn):
+        _lid, cid = _pendiente_huerfana(conn)
+        assert cerrar_huerfanas(conn, _VivoFijo(("105.50", "MXN"))) == 1
+        fila = conn.execute(
+            "SELECT estado, error_code FROM precio_cambio WHERE id = %s", (cid,)
+        ).fetchone()
+        assert tuple(fila) == ("error", "huerfana_sin_patch")
+
+
+@_skip_sin_pg
+def test_s4_huerfana_ilegible_sella_sin_patch():
+    """S.4 (candado): huerfana con vivo ilegible sella
+    `error/huerfana_sin_patch`, tras leer el vivo una vez."""
+    from app.precio.cambios import cerrar_huerfanas
+
+    with _db() as (conn, _dsn):
+        _lid, cid = _pendiente_huerfana(conn)
+        mercado = _VivoFijo(None)
+        assert cerrar_huerfanas(conn, mercado) == 1
+        fila = conn.execute(
+            "SELECT estado, error_code FROM precio_cambio WHERE id = %s", (cid,)
+        ).fetchone()
+        assert tuple(fila) == ("error", "huerfana_sin_patch")
+        assert mercado.lecturas == 1
+
+
+@_skip_sin_pg
+def test_s4_corrida_mx_no_cierra_cambios_us():
+    """S.4 DoD 4 (candado): la corrida de `amazon_mx` cierra su `enviado`
+    por observacion y deja intacto el de `amazon_us`."""
+    with _db() as (conn, _dsn):
+        datos = _cadena(conn, mode="live")
+        _config(conn)
+        _otro, dec_b = _andamio_hoy(conn, sku="SKU-S4-4", ext="B0A50000S4")
+        ayer = datetime.now(UTC) - timedelta(days=1)
+        cid_mx = _cambio_historia(conn, dec_b, datos["listing"], estado="enviado", dia=ayer)
+        prod_u = _producto(conn, "SKU-S4-4-U")
+        lid_u = _listing(conn, prod_u, platform="amazon_us", ext="B0A50000S4", sku="SKU-S4-4-U")
+        _goal(conn, lid_u, platform="amazon_us", mode="live")
+        dec_u = _decision_subir(conn, lid_u, platform="amazon_us")
+        cid_u = conn.execute(
+            "INSERT INTO precio_cambio (decision_id, listing_id, platform, precio_antes,"
+            " precio_antes_currency, precio_despues, precio_despues_currency, aplicado,"
+            " estado, enviado_at)"
+            " VALUES (%s, %s, 'amazon_us', 100, 'MXN', 110, 'MXN', true,"
+            " 'pendiente', %s) RETURNING id",
+            (dec_u, lid_u, ayer),
+        ).fetchone()[0]
+        conn.execute(
+            "UPDATE precio_cambio SET estado = 'enviado',"
+            " ack = '{\"http_status\": 202}'::jsonb WHERE id = %s",
+            (cid_u,),
+        )
+        _price_obs(conn, precio="110")
+        # Obs MX del ASIN americano que tambien cerraria: si el cierre no
+        # filtrara por plataforma, el mutante cierra el cambio de `amazon_us`.
+        _price_obs(conn, asin="B0A50000S4", precio="110")
+        red = _RedFalsa(skus={datos["evento"]: datos["sku"]})
+        _corre(conn, red)
+        fila_mx = conn.execute(
+            "SELECT estado, confirmado_por FROM precio_cambio WHERE id = %s", (cid_mx,)
+        ).fetchone()
+        assert tuple(fila_mx) == ("confirmado", "observacion")
+        assert (
+            conn.execute("SELECT estado FROM precio_cambio WHERE id = %s", (cid_u,)).fetchone()[0]
+            == "enviado"
+        )
+
+
+@_skip_sin_pg
+def test_s4_dos_dias_sin_efecto_reintentan_y_arman_racha():
+    """S.4 DoD 5: dos `error` sin efecto seguidos no congelan: hoy se
+    reintenta (subir + PATCH fallido) y manana el freno ve 3 dias."""
+    from app.precio.corrida import freno_por_error
+
+    with _db() as (conn, _dsn):
+        datos = _cadena(conn, mode="live")
+        _price_obs(conn)
+        _config(conn)
+        _otro, dec_b = _andamio_hoy(conn, sku="SKU-S4-5", ext="B0A50000S5")
+        for atraso in (2, 1):
+            _error_con_readback(
+                conn,
+                dec_b,
+                datos["listing"],
+                dia=datetime.now(UTC) - timedelta(days=atraso),
+                readback=(100, "MXN"),
+            )
+        red = _RedFalsa(
+            skus={datos["evento"]: datos["sku"]},
+            patch=(200, {"submissionId": "s4-5", "status": "ERROR"}),
+        )
+        res = _corre(conn, red)
+        assert (res.decisiones, res.escritas) == (1, 1)
+        fila = conn.execute(
+            "SELECT resultado, motivo FROM precio_decision WHERE listing_id = %s",
+            (datos["listing"],),
+        ).fetchone()
+        assert fila == ("subir", None)
+        assert red.n_patch == 1
+        hoy = _hoy(conn)
+        nuevo = conn.execute(
+            "SELECT estado, readback_precio, readback_precio_currency FROM precio_cambio"
+            " WHERE listing_id = %s AND (enviado_at AT TIME ZONE 'UTC')::date = %s",
+            (datos["listing"], hoy),
+        ).fetchone()
+        assert tuple(nuevo) == ("error", Decimal("116.00"), "MXN")
+        assert (
+            freno_por_error(
+                conn,
+                datos["listing"],
+                "amazon_mx",
+                hoy + timedelta(days=1),
+                dias=3,
+                desde=hoy - timedelta(days=30),
+            )
+            is True
+        )
+
+
+@_skip_sin_pg
+def test_s4_racha_sin_efecto_frena_cuarta_corrida():
+    """S.4 DoD 5 (candado): tres `error` sin efecto seguidos frenan la
+    cuarta corrida con `frenado(api_error)` sin PATCH. El freno SI cuenta
+    los sin efecto (solo el cooldown los ignora)."""
+    with _db() as (conn, _dsn):
+        datos = _cadena(conn, mode="live")
+        _price_obs(conn)
+        _config(conn)
+        _otro, dec_b = _andamio_hoy(conn, sku="SKU-S4-5B", ext="B0A50000SB")
+        for atraso in (3, 2, 1):
+            _error_con_readback(
+                conn,
+                dec_b,
+                datos["listing"],
+                dia=datetime.now(UTC) - timedelta(days=atraso),
+                readback=(100, "MXN"),
+            )
+        red = _RedFalsa(skus={datos["evento"]: datos["sku"]})
+        res = _corre(conn, red)
+        assert (res.decisiones, res.escritas) == (1, 0)
+        fila = conn.execute(
+            "SELECT resultado, motivo FROM precio_decision WHERE listing_id = %s",
+            (datos["listing"],),
+        ).fetchone()
+        assert fila == ("frenado", "api_error")
+        assert red.n_patch == 0

@@ -278,7 +278,13 @@ def decidir(
                 )
 
     for cambio in entrada.cambios:
-        if cambio.es_reversa or (entrada.mode == "live" and not cambio.aplicado):
+        # S.4: el error sin efecto (el precio no se movio) no congela; un
+        # mal dia de la plataforma ya no frena 7 dias.
+        if (
+            cambio.es_reversa
+            or cambio.sin_efecto
+            or (entrada.mode == "live" and not cambio.aplicado)
+        ):
             continue
         dias = (hoy - cambio.enviado_en).days
         if dias < config.dias_entre_cambios:

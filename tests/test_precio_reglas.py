@@ -2187,3 +2187,25 @@ def test_r1bis_s2_margen_a_precio_sin_iva_no_usa_divisor():
         Decimal("1.16"),
         False,
     ) == Decimal("0.57")
+
+
+# ------------------------------------------------------- REPRICING 02 S.4
+
+
+def test_s4_cooldown_ignora_cambio_sin_efecto():
+    """S.4: un `error` sin efecto no consume cooldown; con efecto si.
+
+    Espejo de `test_r1_b2_cooldown_virtual_no_frena_en_live_si_en_shadow`:
+    sin cooldown la decision sigue a la maquina (`PideCotizacion`).
+    """
+    from app.precio.tipos import PideCotizacion
+
+    base = dict(costo="53.01")
+    sin_efecto = dict(
+        cambios=(CambioPrevio(HOY - timedelta(days=2), "subir", "error", sin_efecto=True),),
+    )
+    assert isinstance(decide(entrada(**base, **sin_efecto)), PideCotizacion)
+    con_efecto = dict(
+        cambios=(CambioPrevio(HOY - timedelta(days=2), "subir", "error"),),
+    )
+    assert decide(entrada(**base, **con_efecto)).motivo == "cooldown"

@@ -133,7 +133,8 @@ def _sellar(
     with conn.transaction():
         if estado == "enviado":
             conn.execute(
-                "UPDATE precio_cambio SET estado = 'enviado', ack = %s WHERE id = %s",
+                "UPDATE precio_cambio SET estado = 'enviado',"
+                " ack = COALESCE(ack, %s) WHERE id = %s",
                 (Jsonb(ack), cambio_id),
             )
         else:
@@ -508,23 +509,50 @@ def revertir(
 
 
 # La huerfana (d): COMMIT sin escritura detectada al arrancar, con el lock ya
-# tomado. Se cierra a `error` con `error_code = 'huerfana_sin_patch'`
-# (la 0039 exige codigo en `error`; no hay columna «motivo»): un `error`
-# no afirma que el precio no se movio (`revertir` cubre ese caso). Solo
-# no-reversas (la `pendiente` reversa es del dueno) y SIN GET previo.
-_SQL_HUERFANAS = """
-UPDATE precio_cambio SET estado = 'error', error_code = 'huerfana_sin_patch'
- WHERE platform = %s AND estado = 'pendiente' AND NOT es_reversa
-RETURNING id
+# tomado. S.4 la resuelve leyendo el precio vivo: quieto -> `error` con
+# `huerfana_sin_efecto` (no gasta cooldown); movido al destino -> `enviado`
+# (ack `huerfana_recuperada`) y luego `confirmado/lectura_viva`; otro o
+# ilegible -> `error/huerfana_sin_patch` como antes. Solo no-reversas (la
+# `pendiente` reversa es del dueno).
+_SQL_HUERFANAS_ABIERTAS = """
+SELECT c.id, c.listing_id, c.precio_antes, c.precio_antes_currency,
+ c.precio_despues, c.precio_despues_currency, l.seller_sku, l.external_id,
+ l.product_id
+ FROM precio_cambio c JOIN listing l
+ ON l.id = c.listing_id AND l.platform = c.platform
+ WHERE c.platform = %s AND c.estado = 'pendiente' AND NOT c.es_reversa
+ ORDER BY c.id
 """
 
 
 def cerrar_huerfanas(conn: psycopg.Connection, mercado) -> int:
-    """Cierra huerfanas de la plataforma del mercado; devuelve cuantas."""
-    filas = conn.execute(_SQL_HUERFANAS, (mercado.clave,)).fetchall()
-    if filas:
-        logger.info("corrida %s huerfanas=%s", mercado.clave, len(filas))
-    return len(filas)
+    """Resuelve huerfanas de la plataforma del mercado; devuelve cuantas."""
+    huerfanas = conn.execute(_SQL_HUERFANAS_ABIERTAS, (mercado.clave,)).fetchall()
+    for cid, lid, antes, antes_moneda, despues, despues_moneda, sku, asin, pid in huerfanas:
+        unidad = _unidad_de_listing(lid, mercado.clave, pid, sku, asin)
+        try:
+            vivo = mercado.precio_vivo(unidad)
+        except Exception as exc:  # noqa: BLE001 - ilegible se sella sin_patch
+            logger.info("huerfana cambio=%s vivo_ilegible (%s)", cid, type(exc).__name__)
+            vivo = None
+        if vivo is not None and (vivo.valor, vivo.moneda) == (antes, antes_moneda):
+            _sellar(conn, cid, estado="error", error_code="huerfana_sin_efecto")
+            logger.info("huerfana cambio=%s error=huerfana_sin_efecto", cid)
+        elif vivo is not None and (vivo.valor, vivo.moneda) == (despues, despues_moneda):
+            _sellar(conn, cid, estado="enviado", ack={"origen": "huerfana_recuperada"})
+            with conn.transaction():
+                conn.execute(
+                    "UPDATE precio_cambio SET estado = 'confirmado',"
+                    " confirmado_por = 'lectura_viva' WHERE id = %s",
+                    (cid,),
+                )
+            logger.info("huerfana cambio=%s confirmado=lectura_viva", cid)
+        else:
+            _sellar(conn, cid, estado="error", error_code="huerfana_sin_patch")
+            logger.info("huerfana cambio=%s error=huerfana_sin_patch", cid)
+    if huerfanas:
+        logger.info("corrida %s huerfanas=%s", mercado.clave, len(huerfanas))
+    return len(huerfanas)
 
 
 def cerrar_por_observacion(conn: psycopg.Connection, vitrina, hoy) -> dict:
