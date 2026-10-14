@@ -1,0 +1,16 @@
+commit A (0.a): 5c753307245f169d4406b6dce13b545fe75530ed
+lado B: arbol de trabajo (d8e69a9)
+== esquema y datos de prod (orbit_read, solo lectura)
+pg_dump: warning: there are circular foreign-key constraints on this table:
+pg_dump: detail: precio_cambio
+pg_dump: hint: You might not be able to restore the dump without using --disable-triggers or temporarily dropping the constraints.
+pg_dump: hint: Consider using a full dump instead of a --data-only dump to avoid this problem.
+== la base A es prod tal cual (sin 0053 ni 0054); la B suma las dos
+== borra lo que dejo la corrida de hoy en las dos bases
+goals vigentes amazon_mx: 6
+== lado A (commit 0.a) contra orbit_cmp_r02_a
+orbit_cmp_r02_a: decisiones=6 filas=6
+== lado B (arbol de trabajo) contra orbit_cmp_r02_b
+orbit_cmp_r02_b: decisiones=6 filas=6
+== diff
+COMPARAR OK: diff vacio
