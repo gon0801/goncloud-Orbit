@@ -37,7 +37,10 @@ import time
 import httpx
 import psycopg.errors
 
+import app.precio_mercados as mercados
 from app.db import OrbitDbError, connect
+from app.precio import cambios as cambios_mod
+from app.precio.puerto import EscrituraNoDisponible
 from app.spapi import precio_write
 from app.spapi.client import CuboTasa, SpapiClient, SpapiError, SpapiNoPermitida
 from app.spapi.precio_write import FormaParcheSinSellar
@@ -206,28 +209,23 @@ def main(
             escritor = precio_write.construir_escritor(
                 lector, f[2], transport=transport, sleep=sleep
             )
-            try:
-                res = precio_write.revertir(
-                    conn,
-                    cid,
-                    lector=lector,
-                    escritor=escritor,
-                    limitador=cubo,
-                )
-            except FormaParcheSinSellar as exc:
-                raise Abortar(f"forma del parche sin sellar (A.4 la sella): {exc}") from None
-            except (
-                precio_write.CambioNoReversible,
-                SpapiNoPermitida,
-                precio_write.PublicacionSinSku,
-                psycopg.errors.UniqueViolation,
-            ) as exc:
-                print(f"[error] cambio={cid} motivo={exc}")
-                hubo_error = True
-                continue
-            print(f"[hecho] cambio={cid} estado={res.estado} motivo={res.motivo}")
-            if res.estado == "error":
-                hubo_error = True
+            with mercados.abrir(f[2], lector=lector, escritor=escritor, limitador=cubo) as mercado:
+                try:
+                    res = cambios_mod.revertir(conn, cid, mercado=mercado)
+                except (FormaParcheSinSellar, EscrituraNoDisponible, ValueError) as exc:
+                    raise Abortar(f"forma del parche sin sellar (A.4 la sella): {exc}") from None
+                except (
+                    precio_write.CambioNoReversible,
+                    SpapiNoPermitida,
+                    precio_write.PublicacionSinSku,
+                    psycopg.errors.UniqueViolation,
+                ) as exc:
+                    print(f"[error] cambio={cid} motivo={exc}")
+                    hubo_error = True
+                    continue
+                print(f"[hecho] cambio={cid} estado={res.estado} motivo={res.motivo}")
+                if res.estado == "error":
+                    hubo_error = True
         if hubo_error:
             return 1
         return 0

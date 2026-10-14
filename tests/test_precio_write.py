@@ -23,20 +23,23 @@ import psycopg
 import pytest
 from test_schema import _postgres_obligatorio_ausente, _test_dsn
 
-from app.redaction import register_secret
-from app.spapi.client import MERCADOS, VENDEDORES_PROPIOS, SpapiClient
-from app.spapi.precio_write import (
-    FORMA_PARCHE,
+from app.precio.cambios import (
     CambioNoReversible,
     DecisionSinAccion,
     PrecioVivoAusente,
     PublicacionSinSku,
-    cambiar_precio,
+    aplicar,
     cerrar_por_observacion,
+    revertir,
+)
+from app.redaction import register_secret
+from app.spapi.client import MERCADOS, VENDEDORES_PROPIOS, SpapiClient
+from app.spapi.precio_mercado import MercadoAmazon
+from app.spapi.precio_write import (
+    FORMA_PARCHE,
     construir_cuerpo_parche,
     construir_escritor,
     leer_precio_vivo,
-    revertir,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -285,6 +288,16 @@ def _cuerpo_falso(*, platform, sku, precio, moneda):
     return {"falso": True, "sku": sku, "precio": str(precio), "moneda": moneda}
 
 
+def _mercado(red, *, construir_cuerpo=_cuerpo_falso):
+    lector, escritor = _clientes(red)
+    return MercadoAmazon(
+        "amazon_mx", lector=lector, escritor=escritor, construir_cuerpo=construir_cuerpo
+    )
+
+
+VITRINA_MX = MercadoAmazon("amazon_mx")
+
+
 def _cambio_cerrado(
     conn, decision, listing, *, antes="100.00", despues="110.00", aplicado=True
 ) -> int:
@@ -352,14 +365,8 @@ def test_revertir_flujo_enviado_con_readback_ok():
         _, cid = _semilla_reversion(conn)
         lector, escritor = _clientes(red)
         with rol(conn):
-            res = revertir(
-                conn,
-                cid,
-                lector=lector,
-                escritor=escritor,
-                construir_cuerpo=_cuerpo_falso,
-                ahora=AHORA,
-            )
+            mercado = _mercado(red, construir_cuerpo=_cuerpo_falso)
+            res = revertir(conn, cid, mercado=mercado, ahora=AHORA)
         assert res.estado == "enviado" and res.motivo is None
         fila = conn.execute(
             "SELECT es_reversa, reversa_de, decision_id, estado, precio_antes,"
@@ -386,14 +393,8 @@ def test_r1_a4_revertir_original_enviado_salta():
         cid = _cambio_enviado(conn, dec, lid)
         lector, escritor = _clientes(red)
         with rol(conn):
-            res = revertir(
-                conn,
-                cid,
-                lector=lector,
-                escritor=escritor,
-                construir_cuerpo=_cuerpo_falso,
-                ahora=AHORA,
-            )
+            mercado = _mercado(red, construir_cuerpo=_cuerpo_falso)
+            res = revertir(conn, cid, mercado=mercado, ahora=AHORA)
         assert res.estado == "saltado" and res.motivo == "original_abierto"
         assert res.id_reversa is None
         assert conn.execute("SELECT count(*) FROM precio_cambio").fetchone()[0] == 1
@@ -411,14 +412,8 @@ def test_r1_a1_cambiar_patch_lleva_precio_destino_en_el_cable():
         _, dec = _semilla_cambio(conn)
         lector, escritor = _clientes(red)
         with rol(conn):
-            res = cambiar_precio(
-                conn,
-                dec,
-                lector=lector,
-                escritor=escritor,
-                construir_cuerpo=_cuerpo_falso,
-                ahora=AHORA,
-            )
+            mercado = _mercado(red, construir_cuerpo=_cuerpo_falso)
+            res = aplicar(conn, mercado, dec, ahora=AHORA)
         assert res.estado == "enviado"
         cable = json.loads(red.pedidos_patch[0].content)
         fila = conn.execute(
@@ -440,14 +435,8 @@ def test_r1_a1_revertir_patch_lleva_precio_destino_en_el_cable():
         _, cid = _semilla_reversion(conn)
         lector, escritor = _clientes(red)
         with rol(conn):
-            res = revertir(
-                conn,
-                cid,
-                lector=lector,
-                escritor=escritor,
-                construir_cuerpo=_cuerpo_falso,
-                ahora=AHORA,
-            )
+            mercado = _mercado(red, construir_cuerpo=_cuerpo_falso)
+            res = revertir(conn, cid, mercado=mercado, ahora=AHORA)
         assert res.estado == "enviado"
         cable = json.loads(red.pedidos_patch[0].content)
         fila = conn.execute(
@@ -467,14 +456,8 @@ def test_revertir_salta_si_el_vivo_ya_no_coincide():
         antes = conn.execute("SELECT count(*) FROM precio_cambio").fetchone()[0]
         lector, escritor = _clientes(red)
         with rol(conn):
-            res = revertir(
-                conn,
-                cid,
-                lector=lector,
-                escritor=escritor,
-                construir_cuerpo=_cuerpo_falso,
-                ahora=AHORA,
-            )
+            mercado = _mercado(red, construir_cuerpo=_cuerpo_falso)
+            res = revertir(conn, cid, mercado=mercado, ahora=AHORA)
         assert res.estado == "saltado" and "distinto" in (res.motivo or "")
         assert res.id_reversa is None
         assert conn.execute("SELECT count(*) FROM precio_cambio").fetchone()[0] == antes
@@ -487,14 +470,8 @@ def test_revertir_salta_sin_precio_vivo():
         _, cid = _semilla_reversion(conn)
         lector, escritor = _clientes(red)
         with rol(conn):
-            res = revertir(
-                conn,
-                cid,
-                lector=lector,
-                escritor=escritor,
-                construir_cuerpo=_cuerpo_falso,
-                ahora=AHORA,
-            )
+            mercado = _mercado(red, construir_cuerpo=_cuerpo_falso)
+            res = revertir(conn, cid, mercado=mercado, ahora=AHORA)
         assert res.estado == "saltado" and res.id_reversa is None
         assert red.n_patch == 0
 
@@ -537,14 +514,7 @@ def test_revertir_mal_uso_revienta(caso):
                 )
         lector, escritor = _clientes(red)
         with rol(conn), pytest.raises(CambioNoReversible):
-            revertir(
-                conn,
-                cid,
-                lector=lector,
-                escritor=escritor,
-                construir_cuerpo=_cuerpo_falso,
-                ahora=AHORA,
-            )
+            revertir(conn, cid, mercado=_mercado(red), ahora=AHORA)
 
 
 def test_revertir_usa_cuerpo_sellado_aceptado_en_sonda():
@@ -558,7 +528,7 @@ def test_revertir_usa_cuerpo_sellado_aceptado_en_sonda():
         antes = conn.execute("SELECT count(*) FROM precio_cambio").fetchone()[0]
         lector, escritor = _clientes(red)
         with rol(conn):
-            res = revertir(conn, cid, lector=lector, escritor=escritor, ahora=AHORA)
+            res = revertir(conn, cid, mercado=_mercado(red, construir_cuerpo=None), ahora=AHORA)
         assert res.estado == "enviado"
         assert conn.execute("SELECT count(*) FROM precio_cambio").fetchone()[0] == antes + 1
         assert red.n_patch == 1
@@ -577,14 +547,8 @@ def test_revertir_patch_500_sella_error_con_codigo():
         _, cid = _semilla_reversion(conn)
         lector, escritor = _clientes(red)
         with rol(conn):
-            res = revertir(
-                conn,
-                cid,
-                lector=lector,
-                escritor=escritor,
-                construir_cuerpo=_cuerpo_falso,
-                ahora=AHORA,
-            )
+            mercado = _mercado(red, construir_cuerpo=_cuerpo_falso)
+            res = revertir(conn, cid, mercado=mercado, ahora=AHORA)
         assert res.estado == "error"
         fila = conn.execute(
             "SELECT estado, error_code, readback_precio FROM precio_cambio WHERE id = %s",
@@ -611,14 +575,8 @@ def test_revertir_readback_429_agotado_es_fallido_sin_patch_extra():
         _, cid = _semilla_reversion(conn)
         lector, escritor = _clientes(red)
         with rol(conn):
-            res = revertir(
-                conn,
-                cid,
-                lector=lector,
-                escritor=escritor,
-                construir_cuerpo=_cuerpo_falso,
-                ahora=AHORA,
-            )
+            mercado = _mercado(red, construir_cuerpo=_cuerpo_falso)
+            res = revertir(conn, cid, mercado=mercado, ahora=AHORA)
         assert res.estado == "enviado"
         fila = conn.execute(
             "SELECT readback_precio, readback_estado FROM precio_cambio WHERE id = %s",
@@ -654,14 +612,8 @@ def test_revertir_patch_exige_fila_pendiente_primero():
         )
         lector, escritor = _clientes(red)
         with rol(conn):
-            res = revertir(
-                conn,
-                cid,
-                lector=lector,
-                escritor=escritor,
-                construir_cuerpo=_cuerpo_falso,
-                ahora=AHORA,
-            )
+            mercado = _mercado(red, construir_cuerpo=_cuerpo_falso)
+            res = revertir(conn, cid, mercado=mercado, ahora=AHORA)
         assert res.estado == "enviado"
         assert red.n_patch == 1
 
@@ -680,14 +632,8 @@ def test_revertir_nunca_loguea_el_cuerpo_y_sanea_el_ack(monkeypatch, caplog):
         _, cid = _semilla_reversion(conn)
         lector, escritor = _clientes(red)
         with rol(conn), caplog.at_level(logging.INFO, logger="app.spapi.precio_write"):
-            res = revertir(
-                conn,
-                cid,
-                lector=lector,
-                escritor=escritor,
-                construir_cuerpo=_cuerpo_falso,
-                ahora=AHORA,
-            )
+            mercado = _mercado(red, construir_cuerpo=_cuerpo_falso)
+            res = revertir(conn, cid, mercado=mercado, ahora=AHORA)
         assert res.estado == "enviado"
         mandado = red.pedidos_patch[0].content.decode("utf-8")
         assert SECRETO not in caplog.text
@@ -719,14 +665,8 @@ def test_cambiar_ack_aceptado_y_get_viejo_da_enviado():
         _, dec = _semilla_cambio(conn)
         lector, escritor = _clientes(red)
         with rol(conn):
-            res = cambiar_precio(
-                conn,
-                dec,
-                lector=lector,
-                escritor=escritor,
-                construir_cuerpo=_cuerpo_falso,
-                ahora=AHORA,
-            )
+            mercado = _mercado(red, construir_cuerpo=_cuerpo_falso)
+            res = aplicar(conn, mercado, dec, ahora=AHORA)
         assert res.estado == "enviado" and res.motivo is None
         fila = conn.execute(
             "SELECT estado, precio_antes, precio_despues, ack,"
@@ -750,14 +690,8 @@ def test_cambiar_ack_error_y_get_nuevo_da_error():
         _, dec = _semilla_cambio(conn)
         lector, escritor = _clientes(red)
         with rol(conn):
-            res = cambiar_precio(
-                conn,
-                dec,
-                lector=lector,
-                escritor=escritor,
-                construir_cuerpo=_cuerpo_falso,
-                ahora=AHORA,
-            )
+            mercado = _mercado(red, construir_cuerpo=_cuerpo_falso)
+            res = aplicar(conn, mercado, dec, ahora=AHORA)
         assert res.estado == "error"
         fila = conn.execute(
             "SELECT estado, error_code, readback_precio, readback_estado"
@@ -779,14 +713,8 @@ def test_cambiar_ack_ok_y_get_distinto_da_enviado_con_readback_ok():
         _, dec = _semilla_cambio(conn)
         lector, escritor = _clientes(red)
         with rol(conn):
-            res = cambiar_precio(
-                conn,
-                dec,
-                lector=lector,
-                escritor=escritor,
-                construir_cuerpo=_cuerpo_falso,
-                ahora=AHORA,
-            )
+            mercado = _mercado(red, construir_cuerpo=_cuerpo_falso)
+            res = aplicar(conn, mercado, dec, ahora=AHORA)
         assert res.estado == "enviado"
         fila = conn.execute(
             "SELECT readback_precio, readback_estado FROM precio_cambio WHERE id = %s",
@@ -810,14 +738,8 @@ def test_r1_a2_401_y_lwa_400_sella_lwa_sin_huerfanas():
         _, dec = _semilla_cambio(conn)
         lector, escritor = _clientes(red)
         with rol(conn):
-            res = cambiar_precio(
-                conn,
-                dec,
-                lector=lector,
-                escritor=escritor,
-                construir_cuerpo=_cuerpo_falso,
-                ahora=AHORA,
-            )
+            mercado = _mercado(red, construir_cuerpo=_cuerpo_falso)
+            res = aplicar(conn, mercado, dec, ahora=AHORA)
         assert res.estado == "error"
         fila = conn.execute(
             "SELECT estado, error_code FROM precio_cambio WHERE id = %s",
@@ -844,14 +766,8 @@ def test_r1_a2_error_de_red_sella_sin_relanzar():
         _, dec = _semilla_cambio(conn)
         lector, escritor = _clientes(red)
         with rol(conn):
-            res = cambiar_precio(
-                conn,
-                dec,
-                lector=lector,
-                escritor=escritor,
-                construir_cuerpo=_cuerpo_falso,
-                ahora=AHORA,
-            )
+            mercado = _mercado(red, construir_cuerpo=_cuerpo_falso)
+            res = aplicar(conn, mercado, dec, ahora=AHORA)
         assert res.estado == "error"
         fila = conn.execute(
             "SELECT estado, error_code, readback_estado FROM precio_cambio WHERE id = %s",
@@ -873,14 +789,8 @@ def test_r1_a2_excepcion_rara_sella_y_relanza():
         _, dec = _semilla_cambio(conn)
         lector, escritor = _clientes(red)
         with rol(conn), pytest.raises(RuntimeError, match="bug-falso"):
-            cambiar_precio(
-                conn,
-                dec,
-                lector=lector,
-                escritor=escritor,
-                construir_cuerpo=_cuerpo_falso,
-                ahora=AHORA,
-            )
+            _mercado(red)
+            aplicar(conn, _mercado(red), dec, ahora=AHORA)
         fila = conn.execute(
             "SELECT estado, error_code FROM precio_cambio ORDER BY id DESC LIMIT 1"
         ).fetchone()
@@ -900,14 +810,8 @@ def test_r1_a2_sku_nulo_no_inserta_ni_sale_a_red():
         dec = _decision(conn, lid)
         lector, escritor = _clientes(red)
         with rol(conn), pytest.raises(PublicacionSinSku, match="listing_sin_sku"):
-            cambiar_precio(
-                conn,
-                dec,
-                lector=lector,
-                escritor=escritor,
-                construir_cuerpo=_cuerpo_falso,
-                ahora=AHORA,
-            )
+            _mercado(red)
+            aplicar(conn, _mercado(red), dec, ahora=AHORA)
         assert conn.execute("SELECT count(*) FROM precio_cambio").fetchone()[0] == 0
         assert red.n_patch == 0 and red.n_get == 0
 
@@ -923,14 +827,7 @@ def test_r1_a2_sku_vacio_en_revertir_no_inserta_ni_sale_a_red():
         cid = _cambio_cerrado(conn, dec, lid)
         lector, escritor = _clientes(red)
         with rol(conn), pytest.raises(PublicacionSinSku, match="listing_sin_sku"):
-            revertir(
-                conn,
-                cid,
-                lector=lector,
-                escritor=escritor,
-                construir_cuerpo=_cuerpo_falso,
-                ahora=AHORA,
-            )
+            revertir(conn, cid, mercado=_mercado(red), ahora=AHORA)
         assert conn.execute("SELECT count(*) FROM precio_cambio").fetchone()[0] == 1
         assert red.n_patch == 0 and red.n_get == 0
 
@@ -951,14 +848,8 @@ def test_cambiar_200_sin_accepted_es_error(ack):
         _, dec = _semilla_cambio(conn)
         lector, escritor = _clientes(red)
         with rol(conn):
-            res = cambiar_precio(
-                conn,
-                dec,
-                lector=lector,
-                escritor=escritor,
-                construir_cuerpo=_cuerpo_falso,
-                ahora=AHORA,
-            )
+            mercado = _mercado(red, construir_cuerpo=_cuerpo_falso)
+            res = aplicar(conn, mercado, dec, ahora=AHORA)
         assert res.estado == "error"
         fila = conn.execute(
             "SELECT estado, error_code FROM precio_cambio WHERE id = %s",
@@ -982,14 +873,8 @@ def test_r1_a6_readback_con_lwa_caido_es_fallido_sin_tumbar():
         _, dec = _semilla_cambio(conn)
         lector, escritor = _clientes(red)
         with rol(conn):
-            res = cambiar_precio(
-                conn,
-                dec,
-                lector=lector,
-                escritor=escritor,
-                construir_cuerpo=_cuerpo_falso,
-                ahora=AHORA,
-            )
+            mercado = _mercado(red, construir_cuerpo=_cuerpo_falso)
+            res = aplicar(conn, mercado, dec, ahora=AHORA)
         assert res.estado == "enviado"
         fila = conn.execute(
             "SELECT estado, readback_estado FROM precio_cambio WHERE id = %s",
@@ -1012,14 +897,8 @@ def test_cambiar_429_agotado_readback_fallido_sin_escritura_extra():
         _, dec = _semilla_cambio(conn)
         lector, escritor = _clientes(red)
         with rol(conn):
-            res = cambiar_precio(
-                conn,
-                dec,
-                lector=lector,
-                escritor=escritor,
-                construir_cuerpo=_cuerpo_falso,
-                ahora=AHORA,
-            )
+            mercado = _mercado(red, construir_cuerpo=_cuerpo_falso)
+            res = aplicar(conn, mercado, dec, ahora=AHORA)
         assert res.estado == "enviado"
         fila = conn.execute(
             "SELECT readback_precio, readback_estado FROM precio_cambio WHERE id = %s",
@@ -1038,14 +917,8 @@ def test_r1_a3_cambiar_vivo_distinto_de_p_actual_salta():
         _, dec = _semilla_cambio(conn)
         lector, escritor = _clientes(red)
         with rol(conn):
-            res = cambiar_precio(
-                conn,
-                dec,
-                lector=lector,
-                escritor=escritor,
-                construir_cuerpo=_cuerpo_falso,
-                ahora=AHORA,
-            )
+            mercado = _mercado(red, construir_cuerpo=_cuerpo_falso)
+            res = aplicar(conn, mercado, dec, ahora=AHORA)
         assert res.estado == "saltado" and "precio_vivo_distinto" in (res.motivo or "")
         assert res.id_cambio is None
         assert conn.execute("SELECT count(*) FROM precio_cambio").fetchone()[0] == 0
@@ -1062,14 +935,8 @@ def test_r1_a3_cambiar_vivo_otra_moneda_salta():
         _, dec = _semilla_cambio(conn)
         lector, escritor = _clientes(red)
         with rol(conn):
-            res = cambiar_precio(
-                conn,
-                dec,
-                lector=lector,
-                escritor=escritor,
-                construir_cuerpo=_cuerpo_falso,
-                ahora=AHORA,
-            )
+            mercado = _mercado(red, construir_cuerpo=_cuerpo_falso)
+            res = aplicar(conn, mercado, dec, ahora=AHORA)
         assert res.estado == "saltado" and res.id_cambio is None
         assert red.n_patch == 0
 
@@ -1085,14 +952,8 @@ def test_r1_a3_cambiar_vivo_igual_a_p_actual_procede():
         _, dec = _semilla_cambio(conn)
         lector, escritor = _clientes(red)
         with rol(conn):
-            res = cambiar_precio(
-                conn,
-                dec,
-                lector=lector,
-                escritor=escritor,
-                construir_cuerpo=_cuerpo_falso,
-                ahora=AHORA,
-            )
+            mercado = _mercado(red, construir_cuerpo=_cuerpo_falso)
+            res = aplicar(conn, mercado, dec, ahora=AHORA)
         assert res.estado == "enviado" and res.id_cambio is not None
 
 
@@ -1102,14 +963,8 @@ def test_cambiar_sin_vivo_es_error_sin_fila():
         _, dec = _semilla_cambio(conn)
         lector, escritor = _clientes(red)
         with rol(conn):
-            res = cambiar_precio(
-                conn,
-                dec,
-                lector=lector,
-                escritor=escritor,
-                construir_cuerpo=_cuerpo_falso,
-                ahora=AHORA,
-            )
+            mercado = _mercado(red, construir_cuerpo=_cuerpo_falso)
+            res = aplicar(conn, mercado, dec, ahora=AHORA)
         assert res.estado == "error" and res.id_cambio is None
         assert red.n_patch == 0
         assert conn.execute("SELECT count(*) FROM precio_cambio").fetchone()[0] == 0
@@ -1126,14 +981,8 @@ def test_cambiar_decision_que_no_mueve_precio_revienta():
         dec = _decision(conn, lid, resultado="mantener")
         lector, escritor = _clientes(red)
         with rol(conn), pytest.raises(DecisionSinAccion):
-            cambiar_precio(
-                conn,
-                dec,
-                lector=lector,
-                escritor=escritor,
-                construir_cuerpo=_cuerpo_falso,
-                ahora=AHORA,
-            )
+            _mercado(red)
+            aplicar(conn, _mercado(red), dec, ahora=AHORA)
         assert conn.execute("SELECT count(*) FROM precio_cambio").fetchone()[0] == 0
         assert red.n_patch == 0
 
@@ -1148,7 +997,8 @@ def test_cambiar_usa_forma_sellada_aceptada_en_sonda():
         _, dec = _semilla_cambio(conn)
         lector, escritor = _clientes(red)
         with rol(conn):
-            res = cambiar_precio(conn, dec, lector=lector, escritor=escritor, ahora=AHORA)
+            mercado = _mercado(red, construir_cuerpo=None)
+            res = aplicar(conn, mercado, dec, ahora=AHORA)
         assert res.estado == "enviado"
         assert FORMA_PARCHE == "listings_items_purchasable_offer_v1"
         assert red.n_patch == 1
@@ -1215,7 +1065,7 @@ def test_cerrar_observacion_igual_confirma_distinta_no():
         _observacion(conn, asin="B0C2", fecha="2026-09-18", precio="111.00")
         _observacion(conn, asin="B0C3", fecha="2026-09-18", precio="110.00", moneda="USD")
         with rol(conn):
-            cuenta = cerrar_por_observacion(conn, HOY_CIERRE)
+            cuenta = cerrar_por_observacion(conn, VITRINA_MX, HOY_CIERRE)
         assert cuenta == {"confirmado": 1, "no_confirmado": 2, "intactos": 1}
         estados = dict(
             conn.execute(
@@ -1263,7 +1113,7 @@ def test_cerrar_reversa_se_cierra_por_observacion():
             )
         _observacion(conn, asin="B0C6", fecha="2026-09-18", precio="100.00")
         with rol(conn):
-            cuenta = cerrar_por_observacion(conn, HOY_CIERRE)
+            cuenta = cerrar_por_observacion(conn, VITRINA_MX, HOY_CIERRE)
         assert cuenta == {"confirmado": 1, "no_confirmado": 0, "intactos": 0}
         assert (
             conn.execute("SELECT estado FROM precio_cambio WHERE id = %s", (rev,)).fetchone()[0]
@@ -1406,12 +1256,10 @@ def test_r1_a7_ahora_no_utc_se_normaliza():
         _observacion(conn, fecha="2026-09-17", precio="77.00")
         lector, escritor = _clientes(red)
         with rol(conn):
-            res = cambiar_precio(
+            res = aplicar(
                 conn,
+                _mercado(red),
                 dec,
-                lector=lector,
-                escritor=escritor,
-                construir_cuerpo=_cuerpo_falso,
                 ahora=datetime(2026, 9, 18, 1, 0, tzinfo=timezone(timedelta(hours=5))),
             )
         assert res.estado == "enviado"
@@ -1579,9 +1427,9 @@ def test_r1_a8_docstring_ventana_commit_patch():
     visible (todo reintento la ve abierta y salta); el docstring dice
     como detectarla.
     """
-    from app.spapi import precio_write as pw
+    from app.precio import cambios as pw
 
-    for fn in (pw.cambiar_precio, pw.revertir):
+    for fn in (pw.aplicar, pw.revertir):
         doc = (fn.__doc__ or "").lower()
         assert "huerfana" in doc
         assert "commit" in doc and "patch" in doc
@@ -1595,14 +1443,8 @@ def test_r1_m_p5_shadow_no_mueve_precio():
         _, dec = _semilla_cambio(conn, mode="shadow")
         lector, escritor = _clientes(red)
         with rol(conn), pytest.raises(DecisionSinAccion):
-            cambiar_precio(
-                conn,
-                dec,
-                lector=lector,
-                escritor=escritor,
-                construir_cuerpo=_cuerpo_falso,
-                ahora=AHORA,
-            )
+            _mercado(red)
+            aplicar(conn, _mercado(red), dec, ahora=AHORA)
         assert red.n_patch == 0 and red.n_get == 0
         assert conn.execute("SELECT count(*) FROM precio_cambio").fetchone()[0] == 0
 
@@ -1618,14 +1460,8 @@ def test_r1_m_p7_accepted_sin_submission_id_es_error():
         _, dec = _semilla_cambio(conn)
         lector, escritor = _clientes(red)
         with rol(conn):
-            res = cambiar_precio(
-                conn,
-                dec,
-                lector=lector,
-                escritor=escritor,
-                construir_cuerpo=_cuerpo_falso,
-                ahora=AHORA,
-            )
+            mercado = _mercado(red, construir_cuerpo=_cuerpo_falso)
+            res = aplicar(conn, mercado, dec, ahora=AHORA)
         assert res.estado == "error"
         fila = conn.execute(
             "SELECT estado, error_code FROM precio_cambio WHERE id = %s",
@@ -1645,14 +1481,8 @@ def test_r1_m_p8_4xx_con_accepted_es_error():
         _, dec = _semilla_cambio(conn)
         lector, escritor = _clientes(red)
         with rol(conn):
-            res = cambiar_precio(
-                conn,
-                dec,
-                lector=lector,
-                escritor=escritor,
-                construir_cuerpo=_cuerpo_falso,
-                ahora=AHORA,
-            )
+            mercado = _mercado(red, construir_cuerpo=_cuerpo_falso)
+            res = aplicar(conn, mercado, dec, ahora=AHORA)
         assert res.estado == "error"
         fila = conn.execute(
             "SELECT estado, error_code FROM precio_cambio WHERE id = %s",
@@ -1672,14 +1502,8 @@ def test_r1_m_p11_error_code_sin_sku_valor_exacto():
         _, dec = _semilla_cambio(conn)
         lector, escritor = _clientes(red)
         with rol(conn):
-            res = cambiar_precio(
-                conn,
-                dec,
-                lector=lector,
-                escritor=escritor,
-                construir_cuerpo=_cuerpo_falso,
-                ahora=AHORA,
-            )
+            mercado = _mercado(red, construir_cuerpo=_cuerpo_falso)
+            res = aplicar(conn, mercado, dec, ahora=AHORA)
         assert res.estado == "error"
         fila = conn.execute(
             "SELECT error_code FROM precio_cambio WHERE id = %s", (res.id_cambio,)
@@ -1704,14 +1528,7 @@ def test_r1_m_p13_virtual_no_se_revierte():
         ).fetchone()[0]
         lector, escritor = _clientes(red)
         with rol(conn), pytest.raises(CambioNoReversible):
-            revertir(
-                conn,
-                cid,
-                lector=lector,
-                escritor=escritor,
-                construir_cuerpo=_cuerpo_falso,
-                ahora=AHORA,
-            )
+            revertir(conn, cid, mercado=_mercado(red), ahora=AHORA)
         assert red.n_patch == 0 and red.n_get == 0
         assert conn.execute("SELECT count(*) FROM precio_cambio").fetchone()[0] == 1
 
@@ -1727,14 +1544,8 @@ def test_r1_m_p15_otra_moneda_salta():
         _, cid = _semilla_reversion(conn)
         lector, escritor = _clientes(red)
         with rol(conn):
-            res = revertir(
-                conn,
-                cid,
-                lector=lector,
-                escritor=escritor,
-                construir_cuerpo=_cuerpo_falso,
-                ahora=AHORA,
-            )
+            mercado = _mercado(red, construir_cuerpo=_cuerpo_falso)
+            res = revertir(conn, cid, mercado=mercado, ahora=AHORA)
         assert res.estado == "saltado" and res.motivo.startswith("precio_vivo_distinto")
         assert red.n_patch == 0
         assert conn.execute("SELECT count(*) FROM precio_cambio").fetchone()[0] == 1
@@ -1746,7 +1557,7 @@ def test_r1_m_p17_observacion_mismo_dia_no_cierra():
         _, cid = _semilla_cierre(conn, asin="B0TESTC17A", sku="SKU-C17")
         _observacion(conn, asin="B0TESTC17A", fecha="2026-09-17", precio="110.00")
         with rol(conn):
-            cuenta = cerrar_por_observacion(conn, HOY_CIERRE)
+            cuenta = cerrar_por_observacion(conn, VITRINA_MX, HOY_CIERRE)
         assert cuenta == {"confirmado": 0, "no_confirmado": 0, "intactos": 1}
         estado = conn.execute("SELECT estado FROM precio_cambio WHERE id = %s", (cid,)).fetchone()[
             0
@@ -1763,7 +1574,7 @@ def test_r1_m_p19_manda_la_mas_reciente():
         _observacion(conn, asin="B0TESTC19A", fecha="2026-09-18", precio="111.00")
         _observacion(conn, asin="B0TESTC19A", fecha="2026-09-19", precio="110.00")
         with rol(conn):
-            cuenta = cerrar_por_observacion(conn, date(2026, 9, 19))
+            cuenta = cerrar_por_observacion(conn, VITRINA_MX, date(2026, 9, 19))
         assert cuenta == {"confirmado": 1, "no_confirmado": 0, "intactos": 0}
         estado = conn.execute("SELECT estado FROM precio_cambio WHERE id = %s", (cid,)).fetchone()[
             0
@@ -1940,7 +1751,7 @@ def test_r2_b1_go_con_pendiente_durable(monkeypatch, capsys):
 
 
 def test_r2_b1_cambiar_con_pendiente_durable():
-    """r2-B1(b): lo mismo llamando a `cambiar_precio` directo."""
+    """r2-B1(b): lo mismo llamando a `aplicar` directo."""
     with db_39c() as conn:
         _, dec = _semilla_cambio(conn)
         from app.spapi.client import SpapiClient
@@ -1956,14 +1767,13 @@ def test_r2_b1_cambiar_con_pendiente_durable():
             sleep=lambda s: None,
         )
         with rol(conn):
-            res = cambiar_precio(
-                conn,
-                dec,
+            mercado = MercadoAmazon(
+                "amazon_mx",
                 lector=lector,
                 escritor=escritor,
                 construir_cuerpo=_cuerpo_falso,
-                ahora=AHORA,
             )
+            res = aplicar(conn, mercado, dec, ahora=AHORA)
         assert res.estado == "enviado"
         assert visto["n_patch"] == 1 and visto["vistos"] == [1]
 
@@ -1978,14 +1788,7 @@ def test_r2_b1_sin_autocommit_es_mal_uso():
         try:
             assert cruda.autocommit is False
             with pytest.raises(ValueError, match="autocommit"):
-                cambiar_precio(
-                    cruda,
-                    dec,
-                    lector=lector,
-                    escritor=escritor,
-                    construir_cuerpo=_cuerpo_falso,
-                    ahora=AHORA,
-                )
+                aplicar(cruda, _mercado(red), dec, ahora=AHORA)
         finally:
             cruda.close()
         assert conn.execute("SELECT count(*) FROM precio_cambio").fetchone()[0] == 0
@@ -2003,14 +1806,8 @@ def test_r2_b2_p9_invalid_es_error():
         _, dec = _semilla_cambio(conn)
         lector, escritor = _clientes(red)
         with rol(conn):
-            res = cambiar_precio(
-                conn,
-                dec,
-                lector=lector,
-                escritor=escritor,
-                construir_cuerpo=_cuerpo_falso,
-                ahora=AHORA,
-            )
+            mercado = _mercado(red, construir_cuerpo=_cuerpo_falso)
+            res = aplicar(conn, mercado, dec, ahora=AHORA)
         assert res.estado == "error"
         fila = conn.execute(
             "SELECT estado, error_code FROM precio_cambio WHERE id = %s",
@@ -2027,7 +1824,7 @@ def test_r2_b2_p20_confirmado_por_exacta_en_ambos():
         _observacion(conn, asin="B0TESTD20A", fecha="2026-09-18", precio="110.00")
         _observacion(conn, asin="B0TESTD20B", fecha="2026-09-18", precio="111.00")
         with rol(conn):
-            cuenta = cerrar_por_observacion(conn, HOY_CIERRE)
+            cuenta = cerrar_por_observacion(conn, VITRINA_MX, HOY_CIERRE)
         assert cuenta == {"confirmado": 1, "no_confirmado": 1, "intactos": 0}
         filas = dict(
             conn.execute(
@@ -2062,12 +1859,8 @@ def test_r2_b2_p22_cuerpo_real_no_se_loguea(caplog):
         cid = _cambio_cerrado(conn, de2, lid)
         lector, escritor = _clientes(red)
         with rol(conn), caplog.at_level(logging.INFO, logger="app.spapi.precio_write"):
-            cambiar_precio(
-                conn, dec, lector=lector, escritor=escritor, construir_cuerpo=cuerpo, ahora=AHORA
-            )
-            revertir(
-                conn, cid, lector=lector, escritor=escritor, construir_cuerpo=cuerpo, ahora=AHORA
-            )
+            aplicar(conn, _mercado(red, construir_cuerpo=cuerpo), dec, ahora=AHORA)
+            revertir(conn, cid, mercado=_mercado(red, construir_cuerpo=cuerpo), ahora=AHORA)
         mandados = [p.content.decode("utf-8") for p in red.pedidos_patch]
         assert len(mandados) == 2 and all("ZZ9X8" in m for m in mandados)
         assert "ZZ9X8" not in caplog.text
@@ -2085,14 +1878,8 @@ def test_r3_k1_otro_abierto_mismo_listing_salta():
         _cambio_enviado(conn, dec_vieja, lid)
         lector, escritor = _clientes(red)
         with rol(conn):
-            res = revertir(
-                conn,
-                cid,
-                lector=lector,
-                escritor=escritor,
-                construir_cuerpo=_cuerpo_falso,
-                ahora=AHORA,
-            )
+            mercado = _mercado(red, construir_cuerpo=_cuerpo_falso)
+            res = revertir(conn, cid, mercado=mercado, ahora=AHORA)
         assert res.estado == "saltado" and res.motivo == "listing_con_cambio_abierto"
         assert red.n_patch == 0 and red.n_get == 0
         assert conn.execute("SELECT count(*) FROM precio_cambio").fetchone()[0] == 2
@@ -2163,14 +1950,8 @@ def test_r3_k2_lwa_caido_en_prelectura_es_sin_precio_vivo():
         _, cid = _semilla_reversion(conn)
         lector, escritor = _clientes(red)
         with rol(conn):
-            res = revertir(
-                conn,
-                cid,
-                lector=lector,
-                escritor=escritor,
-                construir_cuerpo=_cuerpo_falso,
-                ahora=AHORA,
-            )
+            mercado = _mercado(red, construir_cuerpo=_cuerpo_falso)
+            res = revertir(conn, cid, mercado=mercado, ahora=AHORA)
         assert res.estado == "saltado" and res.motivo == "sin_precio_vivo"
         assert red.n_patch == 0
         assert conn.execute("SELECT count(*) FROM precio_cambio").fetchone()[0] == 1
@@ -2254,14 +2035,7 @@ def test_r3_k8_revertir_sin_autocommit_es_mal_uso():
         try:
             assert cruda.autocommit is False
             with pytest.raises(ValueError, match="autocommit"):
-                revertir(
-                    cruda,
-                    cid,
-                    lector=lector,
-                    escritor=escritor,
-                    construir_cuerpo=_cuerpo_falso,
-                    ahora=AHORA,
-                )
+                revertir(cruda, cid, mercado=_mercado(red), ahora=AHORA)
         finally:
             cruda.close()
         assert conn.execute("SELECT count(*) FROM precio_cambio").fetchone()[0] == 1
@@ -2277,7 +2051,7 @@ def test_r3_k8_cerrar_sin_autocommit_es_mal_uso():
         try:
             assert cruda.autocommit is False
             with pytest.raises(ValueError, match="cada cierre confirma"):
-                cerrar_por_observacion(cruda, HOY_CIERRE)
+                cerrar_por_observacion(cruda, VITRINA_MX, HOY_CIERRE)
         finally:
             cruda.close()
         estado = conn.execute("SELECT estado FROM precio_cambio WHERE id = %s", (cid,)).fetchone()[
@@ -2287,7 +2061,12 @@ def test_r3_k8_cerrar_sin_autocommit_es_mal_uso():
 
 
 def test_r4_g2_cambiar_con_abierto_del_par_salta():
-    """r4-G2: abierto del par -> cambiar salta, sin fila ni PATCH."""
+    """r4-G2: abierto del par -> aplicar salta, sin fila ni PATCH.
+
+    REPRICING 02 0.b: `aplicar` lee el vivo ANTES de mirar abiertos (el
+    `ya_aplicado` de la segunda aplicacion lo exige); con abierto y vivo
+    distinto sale `listing_con_cambio_abierto` con un GET previo.
+    """
     red = _RedFalsa(
         gets_ofertas=[(200, _ofertas_body(100.0))],
         gets_competitivos=[(200, _competitivo_body())],
@@ -2297,16 +2076,10 @@ def test_r4_g2_cambiar_con_abierto_del_par_salta():
         _cambio_enviado(conn, dec, lid)
         lector, escritor = _clientes(red)
         with rol(conn):
-            res = cambiar_precio(
-                conn,
-                dec,
-                lector=lector,
-                escritor=escritor,
-                construir_cuerpo=_cuerpo_falso,
-                ahora=AHORA,
-            )
+            mercado = _mercado(red, construir_cuerpo=_cuerpo_falso)
+            res = aplicar(conn, mercado, dec, ahora=AHORA)
         assert res.estado == "saltado" and res.motivo == "listing_con_cambio_abierto"
-        assert red.n_patch == 0 and red.n_get == 0
+        assert red.n_patch == 0 and red.n_get == 1
         assert conn.execute("SELECT count(*) FROM precio_cambio").fetchone()[0] == 1
 
 
@@ -2478,12 +2251,15 @@ def test_r5_l1_cambiar_escritor_otra_platform_revienta_sin_fila_ni_patch():
         dec = _decision(conn, lid)
         lector = SpapiClient(credentials=dict(CRED), transport=red.transport, sleep=lambda s: None)
         with rol(conn), pytest.raises(ValueError, match="plataforma"):
-            cambiar_precio(
+            aplicar(
                 conn,
+                MercadoAmazon(
+                    "amazon_mx",
+                    lector=lector,
+                    escritor=_escritor_otra_platform(red, lector),
+                    construir_cuerpo=_cuerpo_falso,
+                ),
                 dec,
-                lector=lector,
-                escritor=_escritor_otra_platform(red, lector),
-                construir_cuerpo=_cuerpo_falso,
                 ahora=AHORA,
             )
         assert red.n_patch == 0
@@ -2504,9 +2280,12 @@ def test_r5_l1_revertir_escritor_otra_platform_revienta_sin_fila_ni_patch():
             revertir(
                 conn,
                 cid,
-                lector=lector,
-                escritor=_escritor_otra_platform(red, lector),
-                construir_cuerpo=_cuerpo_falso,
+                mercado=MercadoAmazon(
+                    "amazon_mx",
+                    lector=lector,
+                    escritor=_escritor_otra_platform(red, lector),
+                    construir_cuerpo=_cuerpo_falso,
+                ),
                 ahora=AHORA,
             )
         assert red.n_patch == 0
@@ -2631,14 +2410,8 @@ def test_r5_l4_cambiar_carrera_abierto_entre_chequeo_e_insert_salta(monkeypatch)
         _cero_abiertos(monkeypatch)
         lector, escritor = _clientes(red)
         with rol(conn):
-            res = cambiar_precio(
-                conn,
-                dec,
-                lector=lector,
-                escritor=escritor,
-                construir_cuerpo=_cuerpo_falso,
-                ahora=AHORA,
-            )
+            mercado = _mercado(red, construir_cuerpo=_cuerpo_falso)
+            res = aplicar(conn, mercado, dec, ahora=AHORA)
         assert (res.estado, res.motivo) == ("saltado", "listing_con_cambio_abierto")
         assert res.id_cambio is None
         assert red.n_patch == 0
@@ -2665,14 +2438,8 @@ def test_r5_l4_revertir_carrera_abierto_entre_chequeo_e_insert_salta(monkeypatch
         _cero_abiertos(monkeypatch)
         lector, escritor = _clientes(red)
         with rol(conn):
-            res = revertir(
-                conn,
-                cid,
-                lector=lector,
-                escritor=escritor,
-                construir_cuerpo=_cuerpo_falso,
-                ahora=AHORA,
-            )
+            mercado = _mercado(red, construir_cuerpo=_cuerpo_falso)
+            res = revertir(conn, cid, mercado=mercado, ahora=AHORA)
         assert (res.estado, res.motivo) == ("saltado", "listing_con_cambio_abierto")
         assert res.id_reversa is None
         assert red.n_patch == 0

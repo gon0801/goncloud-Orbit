@@ -315,7 +315,16 @@ def _doce():
 def test_recuadro_cuadra_exacto_con_doce():
     from app.precio.cobertura import armar_recuadro, cuadra_exact
 
-    rec = armar_recuadro(_doce(), platform="amazon_mx", max_dias=3)
+    rec = armar_recuadro(
+        _doce(),
+        platform="amazon_mx",
+        max_dias=3,
+        universos={
+            ("amazon_mx", "fba"): True,
+            ("amazon_mx", "fbm"): False,
+            ("amazon_mx", None): True,
+        },
+    )
     assert rec.activas == 12
     assert rec.evaluadas == 3
     assert dict(rec.no_evaluadas) == {
@@ -325,14 +334,23 @@ def test_recuadro_cuadra_exacto_con_doce():
         "canal_sin_dato": 1,
     }
     assert [s.sku for s in rec.sin_goal] == ["SKU-S1", "SKU-S2"]
-    assert dict(rec.fuera_de_alcance) == {"fase_E_envio_fbm": 3}
+    assert dict(rec.fuera_de_alcance) == {"universo_apagado": 3}
     assert cuadra_exact(rec)
 
 
 def test_sin_goal_aparece_listada_con_precio_y_canal():
     from app.precio.cobertura import armar_recuadro
 
-    rec = armar_recuadro(_doce(), platform="amazon_mx", max_dias=3)
+    rec = armar_recuadro(
+        _doce(),
+        platform="amazon_mx",
+        max_dias=3,
+        universos={
+            ("amazon_mx", "fba"): True,
+            ("amazon_mx", "fbm"): False,
+            ("amazon_mx", None): True,
+        },
+    )
     primera = rec.sin_goal[0]
     assert (primera.sku, primera.precio, primera.moneda, primera.canal) == (
         "SKU-S1",
@@ -349,8 +367,13 @@ def test_fuera_de_alcance_nombra_la_fase():
         FilaPublicacion(1, "SKU-M1", "meli", "fbm", Decimal("100"), "MXN", 0, False, None, None),
         FilaPublicacion(2, "SKU-M2", "meli", None, None, None, 0, False, None, None),
     ]
-    rec = armar_recuadro(filas, platform="meli", max_dias=3)
-    assert dict(rec.fuera_de_alcance) == {"fase_M_meli": 2}
+    rec = armar_recuadro(
+        filas,
+        platform="meli",
+        max_dias=3,
+        universos={("meli", "fbm"): False, ("meli", None): False},
+    )
+    assert dict(rec.fuera_de_alcance) == {"universo_apagado": 2}
     assert rec.evaluadas == 0
 
 
@@ -419,8 +442,10 @@ def test_fuera_estructural_antes_que_stale():
             1, "SKU-F", "amazon_mx", "fbm", Decimal("116"), "MXN", 9, False, None, None
         ),
     ]
-    rec = armar_recuadro(filas, platform="amazon_mx", max_dias=3)
-    assert dict(rec.fuera_de_alcance) == {"fase_E_envio_fbm": 1}
+    rec = armar_recuadro(
+        filas, platform="amazon_mx", max_dias=3, universos={("amazon_mx", "fbm"): False}
+    )
+    assert dict(rec.fuera_de_alcance) == {"universo_apagado": 1}
     assert dict(rec.no_evaluadas) == {}
 
 
@@ -471,9 +496,10 @@ def _normalizar_sql(texto: str) -> str:
 def test_consultas_iguales_a_las_que_ejecuta_fuentes():
     """DoD (g): `consultas/*.sql` son las mismas que el modulo ejecuta."""
     import app.precio.fuentes as fuentes
+    from app.spapi import precio_mercado as pm
 
     pares = (
-        ("01_canonicas.sql", fuentes._SQL_CANO),
+        ("01_canonicas.sql", pm._SQL_CANO),
         ("02_canales.sql", fuentes._SQL_CANAL),
         ("03_goals.sql", fuentes._SQL_GOALS),
         ("04_decisiones.sql", fuentes._SQL_DECISIONES),
@@ -496,10 +522,19 @@ def test_fuentes_doce_publicaciones_cuadran():
         hoy_base,
         leer_publicaciones,
         max_dias_desde_settings,
+        universos_encendidos,
     )
+    from app.spapi.precio_mercado import MercadoAmazon
 
     with _db() as (conn, _dsn):
-        _config(conn)
+        _config(
+            conn,
+            {
+                "precio_catalogo_max_dias_sin_reportar": 3,
+                "precio_modo_global": "live",
+                "precio_modo_universo": {"amazon_mx/fba": "live", "amazon_mx/fbm": "off"},
+            },
+        )
         _pub(conn, sku="SKU-E1", goal=True, resultado="subir")
         _pub(conn, sku="SKU-E2", goal=True, resultado="mantener", motivo="en_tolerancia")
         _pub(conn, sku="SKU-E3", goal=True, resultado="bajar")
@@ -514,8 +549,10 @@ def test_fuentes_doce_publicaciones_cuadran():
         _pub(conn, sku="SKU-F3", canal="fbm")
         hoy = hoy_base(conn)
         max_dias = max_dias_desde_settings(config_vigente_settings(conn))
-        filas = leer_publicaciones(conn, platform="amazon_mx", hoy=hoy)
-        rec = armar_recuadro(filas, platform="amazon_mx", max_dias=max_dias)
+        filas = leer_publicaciones(conn, MercadoAmazon("amazon_mx"), hoy=hoy)
+        rec = armar_recuadro(
+            filas, platform="amazon_mx", max_dias=max_dias, universos=universos_encendidos(conn)
+        )
         assert rec.activas == 12
         assert rec.evaluadas == 3
         assert dict(rec.no_evaluadas) == {
@@ -525,7 +562,7 @@ def test_fuentes_doce_publicaciones_cuadran():
             "canal_sin_dato": 1,
         }
         assert sorted(s.sku for s in rec.sin_goal) == ["SKU-S1", "SKU-S2"]
-        assert dict(rec.fuera_de_alcance) == {"fase_E_envio_fbm": 3}
+        assert dict(rec.fuera_de_alcance) == {"universo_apagado": 3}
         assert cuadra_exact(rec)
 
 
@@ -534,6 +571,7 @@ def test_fuentes_dos_listings_mismo_sku_cuentan_uno():
     """El join con `listing` se abanica si dos ASINs comparten SKU: cuenta uno."""
     from app.precio.cobertura import armar_recuadro, cuadra_exact
     from app.precio.fuentes import hoy_base, leer_publicaciones
+    from app.spapi.precio_mercado import MercadoAmazon
 
     with _db() as (conn, _dsn):
         _config(conn)
@@ -543,7 +581,7 @@ def test_fuentes_dos_listings_mismo_sku_cuentan_uno():
         _listing(conn, prod_b, ext="ASIN-DUP-B", sku="SKU-DUP")
         _estado(conn, sku="SKU-DUP")
         hoy = hoy_base(conn)
-        filas = leer_publicaciones(conn, platform="amazon_mx", hoy=hoy)
+        filas = leer_publicaciones(conn, MercadoAmazon("amazon_mx"), hoy=hoy)
         assert len(filas) == 1
         rec = armar_recuadro(filas, platform="amazon_mx", max_dias=3)
         assert rec.activas == 1
@@ -553,6 +591,7 @@ def test_fuentes_dos_listings_mismo_sku_cuentan_uno():
 @_skip_sin_pg
 def test_fuentes_status_contiene_buyable_y_manda_la_ultima():
     from app.precio.fuentes import hoy_base, leer_publicaciones
+    from app.spapi.precio_mercado import MercadoAmazon
 
     with _db() as (conn, _dsn):
         _config(conn)
@@ -564,7 +603,7 @@ def test_fuentes_status_contiene_buyable_y_manda_la_ultima():
         _listing(conn, prod, ext="ASIN-NULA", sku="SKU-NULA")
         _estado(conn, sku="SKU-NULA", status=None)
         hoy = hoy_base(conn)
-        filas = leer_publicaciones(conn, platform="amazon_mx", hoy=hoy)
+        filas = leer_publicaciones(conn, MercadoAmazon("amazon_mx"), hoy=hoy)
         skus = sorted(f.seller_sku for f in filas)
         assert "SKU-JOIN" in skus  # la BUYABLE vieja sigue contando si es la ultima
         assert "SKU-NULA" not in skus
@@ -573,19 +612,21 @@ def test_fuentes_status_contiene_buyable_y_manda_la_ultima():
 @_skip_sin_pg
 def test_fuentes_cerrada_reciente_apaga():
     from app.precio.fuentes import hoy_base, leer_publicaciones
+    from app.spapi.precio_mercado import MercadoAmazon
 
     with _db() as (conn, _dsn):
         _config(conn)
         _pub(conn, sku="SKU-OFF")
         _estado(conn, sku="SKU-OFF", status="CLOSED")
         hoy = hoy_base(conn)
-        filas = leer_publicaciones(conn, platform="amazon_mx", hoy=hoy)
+        filas = leer_publicaciones(conn, MercadoAmazon("amazon_mx"), hoy=hoy)
         assert [f.seller_sku for f in filas] == []
 
 
 @_skip_sin_pg
 def test_fuentes_stale_y_dias():
     from app.precio.fuentes import hoy_base, leer_publicaciones
+    from app.spapi.precio_mercado import MercadoAmazon
 
     with _db() as (conn, _dsn):
         _config(conn)
@@ -597,7 +638,7 @@ def test_fuentes_stale_y_dias():
             observed=datetime.now(UTC) - timedelta(days=5),
         )
         hoy = hoy_base(conn)
-        filas = leer_publicaciones(conn, platform="amazon_mx", hoy=hoy)
+        filas = leer_publicaciones(conn, MercadoAmazon("amazon_mx"), hoy=hoy)
         assert len(filas) == 1
         assert filas[0].dias_sin_reportar == 5
 
@@ -607,12 +648,13 @@ def test_activa_sin_listing_cuenta_y_cuadra():
     """F3: una SKU vendible sin fila en `listing` no desaparece."""
     from app.precio.cobertura import armar_recuadro, cuadra_exact
     from app.precio.fuentes import hoy_base, leer_publicaciones
+    from app.spapi.precio_mercado import MercadoAmazon
 
     with _db() as (conn, _dsn):
         _config(conn)
         _estado(conn, sku="SKU-HUERFANA")
         hoy = hoy_base(conn)
-        filas = leer_publicaciones(conn, platform="amazon_mx", hoy=hoy)
+        filas = leer_publicaciones(conn, MercadoAmazon("amazon_mx"), hoy=hoy)
         assert len(filas) == 1
         assert filas[0].listing_id is None
         rec = armar_recuadro(filas, platform="amazon_mx", max_dias=3)
@@ -625,6 +667,7 @@ def test_goal_cerrado_no_cuenta_como_goal():
     """B6: `_SQL_GOALS` exige `valid_to IS NULL`."""
     from app.precio.cobertura import armar_recuadro
     from app.precio.fuentes import hoy_base, leer_publicaciones
+    from app.spapi.precio_mercado import MercadoAmazon
 
     with _db() as (conn, _dsn):
         _config(conn)
@@ -640,7 +683,7 @@ def test_goal_cerrado_no_cuenta_como_goal():
             " VALUES (%s, 'amazon_mx', 0.30, 'shadow', %s, %s, 't', NULL)",
             (lid_cer, hoy - timedelta(days=10), hoy - timedelta(days=5)),
         )
-        filas = leer_publicaciones(conn, platform="amazon_mx", hoy=hoy)
+        filas = leer_publicaciones(conn, MercadoAmazon("amazon_mx"), hoy=hoy)
         rec = armar_recuadro(filas, platform="amazon_mx", max_dias=3)
         assert sorted(s.sku for s in rec.sin_goal) == ["SKU-CER"]
 
@@ -650,6 +693,7 @@ def test_goal_futuro_no_cuenta_como_vigente():
     """K1: vigente = `valid_from <= hoy AND (valid_to IS NULL OR valid_to > hoy)`."""
     from app.precio.cobertura import armar_recuadro
     from app.precio.fuentes import hoy_base, leer_publicaciones
+    from app.spapi.precio_mercado import MercadoAmazon
 
     with _db() as (conn, _dsn):
         _config(conn)
@@ -662,7 +706,7 @@ def test_goal_futuro_no_cuenta_como_vigente():
             " VALUES (%s, 'amazon_mx', 0.30, 'shadow', %s, 't', NULL)",
             (lid, hoy + timedelta(days=10)),
         )
-        filas = leer_publicaciones(conn, platform="amazon_mx", hoy=hoy)
+        filas = leer_publicaciones(conn, MercadoAmazon("amazon_mx"), hoy=hoy)
         rec = armar_recuadro(filas, platform="amazon_mx", max_dias=3)
         assert sorted(s.sku for s in rec.sin_goal) == ["SKU-FUT"]
 
@@ -672,12 +716,13 @@ def test_decision_de_ayer_no_es_la_de_hoy():
     """B7: `decision_date = hoy` exacto (el `hoy` se corre un dia)."""
     from app.precio.cobertura import armar_recuadro
     from app.precio.fuentes import hoy_base, leer_publicaciones
+    from app.spapi.precio_mercado import MercadoAmazon
 
     with _db() as (conn, _dsn):
         _config(conn)
         _pub(conn, sku="SKU-AY", goal=True, resultado="subir")
         hoy = hoy_base(conn)
-        filas = leer_publicaciones(conn, platform="amazon_mx", hoy=hoy + timedelta(days=1))
+        filas = leer_publicaciones(conn, MercadoAmazon("amazon_mx"), hoy=hoy + timedelta(days=1))
         rec = armar_recuadro(filas, platform="amazon_mx", max_dias=3)
         assert dict(rec.no_evaluadas) == {"sin_decision": 1}
         assert rec.evaluadas == 0
@@ -688,6 +733,7 @@ def test_canal_manda_la_oferta_mas_reciente():
     """B8: dos ofertas del mismo listing, la reciente `fbm` → fuera de alcance."""
     from app.precio.cobertura import armar_recuadro
     from app.precio.fuentes import hoy_base, leer_publicaciones
+    from app.spapi.precio_mercado import MercadoAmazon
 
     with _db() as (conn, _dsn):
         _config(conn)
@@ -700,10 +746,15 @@ def test_canal_manda_la_oferta_mas_reciente():
         )
         _oferta(conn, lid, ext="ASIN-B8", sku="SKU-B8", canal="fbm", observed=ahora)
         hoy = hoy_base(conn)
-        filas = leer_publicaciones(conn, platform="amazon_mx", hoy=hoy)
+        filas = leer_publicaciones(conn, MercadoAmazon("amazon_mx"), hoy=hoy)
         assert filas[0].canal == "fbm"
-        rec = armar_recuadro(filas, platform="amazon_mx", max_dias=3)
-        assert dict(rec.fuera_de_alcance) == {"fase_E_envio_fbm": 1}
+        rec = armar_recuadro(
+            filas,
+            platform="amazon_mx",
+            max_dias=3,
+            universos={("amazon_mx", "fbm"): False},
+        )
+        assert dict(rec.fuera_de_alcance) == {"universo_apagado": 1}
 
 
 @_skip_sin_pg
@@ -712,6 +763,7 @@ def test_dias_en_utc_con_observed_en_otra_zona():
     from datetime import timezone
 
     from app.precio.fuentes import hoy_base, leer_publicaciones
+    from app.spapi.precio_mercado import MercadoAmazon
 
     with _db() as (conn, _dsn):
         conn.execute("SET TIME ZONE 'Etc/GMT-2'")
@@ -720,7 +772,7 @@ def test_dias_en_utc_con_observed_en_otra_zona():
         mas_dos = timezone(timedelta(hours=2))
         medianoche_mas_dos = datetime(hoy.year, hoy.month, hoy.day, 0, 30, tzinfo=mas_dos)
         _pub(conn, sku="SKU-TZ", observed=medianoche_mas_dos)
-        filas = leer_publicaciones(conn, platform="amazon_mx", hoy=hoy)
+        filas = leer_publicaciones(conn, MercadoAmazon("amazon_mx"), hoy=hoy)
         assert filas[0].dias_sin_reportar == (hoy - medianoche_mas_dos.astimezone(UTC).date()).days
         assert filas[0].dias_sin_reportar >= 1
 
@@ -901,6 +953,7 @@ def test_recuadro_desde_salidas_roundtrip(tmp_path):
         leer_publicaciones,
         max_dias_desde_settings,
     )
+    from app.spapi.precio_mercado import MercadoAmazon
 
     with _db() as (conn, _dsn):
         _config(conn)
@@ -908,7 +961,7 @@ def test_recuadro_desde_salidas_roundtrip(tmp_path):
         _pub(conn, sku="SKU-R2")
         hoy = hoy_base(conn)
         max_dias = max_dias_desde_settings(config_vigente_settings(conn))
-        filas = leer_publicaciones(conn, platform="amazon_mx", hoy=hoy)
+        filas = leer_publicaciones(conn, MercadoAmazon("amazon_mx"), hoy=hoy)
         esperado = armar_recuadro(filas, platform="amazon_mx", max_dias=max_dias)
 
         def _volcar(nombres, valores):

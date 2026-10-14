@@ -32,6 +32,44 @@ ESTADOS_DESACTUALIZADA = frozenset(
     }
 )
 
+# REPRICING 02 0.a: la estimacion es duena de sus motivos. Todo literal que
+# emitan los modulos de estimacion vive aqui; el motor arma su vocabulario de
+# `no_evaluado` con este conjunto mas los suyos. Una prueba recorre los
+# literales con ast y exige el superconjunto: un motivo nuevo ya no puede
+# caer en `estimacion_motivo_desconocido` sin que esa prueba falle.
+MOTIVOS_ESTIMACION: tuple[str, ...] = (
+    "costo_ambiguo",
+    "costo_ausente",
+    "costo_base_fiscal_ausente",
+    "costo_desactualizado",
+    "costo_impuesto_incompatible",
+    "costo_invalido",
+    "costo_no_vigente",
+    "fee_ausente",
+    "fee_incompatible",
+    "fee_invalido",
+    "fee_item_error",
+    "fee_universo_no_soportado",
+    "fx_ausente",
+    "fx_direccion_invalida",
+    "fx_tasa_invalida",
+    "identidad_ambigua",
+    "impuesto_fee_pendiente",
+    "logistica_fbm_pendiente",
+    "oferta_ausente",
+    "oferta_desactualizada",
+    "oferta_futura",
+    "politica_ambigua",
+    "politica_ausente",
+    "politica_invalida",
+    "politica_no_vigente",
+    "precio_ausente",
+    "precio_invalido",
+    "universo_no_soportado",
+    "us_sin_politica_prospectiva",
+    "valoracion_desactualizada",
+)
+
 
 @dataclass(frozen=True)
 class PoliticaCalculo:

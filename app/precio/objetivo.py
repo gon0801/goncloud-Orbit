@@ -8,16 +8,15 @@ hay impuesto al precio), `R = r * I`, `F = ref * P + fijo` y
 
 Denominador <= 0 -> `goal_inalcanzable(margen_imposible)`, sin dividir.
 
-`ref` y `fijo` se derivan de `fee_details` (residual del brief, va al PR):
-`ref = final_fee(ReferralFee) / P_cotizado`,
-`fijo = fee_total - final_fee(ReferralFee)`. Exactamente un `ReferralFee`
-con `final_fee > 0`; si falta, hay mas de uno o `P_cotizado <= 0` ->
-`fee_error:referral_ausente`. Nunca un cero.
+Las cotizaciones son `puerto.Cotizacion` con los fees ya partidos por
+el adaptador: `ref1 = fees.variable / precio` y `fijo1 = fees.fijo`. La
+conciliacion del arbol (`sum(final_fee) == total`) la valida quien construye
+`Fees`; este modulo no vuelve a sumarla.
 
 La maquina `paso` es pura: recibe las cotizaciones que YA existen (cero,
 una o dos) y devuelve o bien `PideCotizacion(precio)` o bien el resultado
-final. Nunca pide una tercera. `TaxAmount != 0` en cualquiera ->
-`no_evaluado(impuesto_fee_pendiente)`; en error o sin conciliar ->
+final. Nunca pide una tercera. `Fees.impuesto_pendiente` ->
+`no_evaluado(impuesto_fee_pendiente)`; error ->
 `no_evaluado(fee_error:<code>)`.
 
 Redondeo (S4 #3 y #4): `P*` hacia arriba (`ROUND_CEILING`); el tope del
@@ -29,9 +28,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
+from typing import TYPE_CHECKING
 
 from app.estimacion_venta import DetalleFee
-from app.precio.tipos import CotizacionVerificada, Importe, PideCotizacion, exigir_decimal
+from app.precio.tipos import Importe, PideCotizacion, exigir_decimal
+
+if TYPE_CHECKING:
+    from app.precio.puerto import Cotizacion
 
 __all__ = [
     "ErrorObjetivo",
@@ -68,18 +71,6 @@ class ResultadoObjetivo:
     def __post_init__(self) -> None:
         if self.resultado not in ("verificado", "no_evaluado", "goal_inalcanzable"):
             raise ValueError(f"resultado objetivo invalido: {self.resultado!r}")
-
-
-def _tiene_tax(detalles: tuple[DetalleFee, ...]) -> bool:
-    return any(
-        (det.tax_amount is not None and det.tax_amount != Decimal(0))
-        or _tiene_tax(det.included_fee_details)
-        for det in detalles
-    )
-
-
-def _suma_top(detalles: tuple[DetalleFee, ...]) -> Decimal:
-    return sum((det.final_fee for det in detalles), Decimal(0))
 
 
 def derivar_ref_fijo(
@@ -163,21 +154,24 @@ def piso_centavo(precio: Decimal) -> Decimal:
     return exigir_decimal(precio, campo="precio").quantize(_CENTAVO, rounding=ROUND_FLOOR)
 
 
-def _revisar_cotizacion(cot: CotizacionVerificada, moneda: str) -> str | None:
+def _revisar_cotizacion(cot: Cotizacion, moneda: str) -> str | None:
     """Motivo exacto si la cotizacion no sirve; `None` si sirve.
 
     La moneda distinta revienta con `ValueError` a proposito: esa
     cotizacion la pide el propio motor, asi que es un invariante interno,
-    no un dato malo de la fuente (r3-K1).
+    no un dato malo de la fuente (r3-K1). El `error_code` ya llega con el
+    prefijo `fee_error:` cuando corresponde (lo pone el adaptador); si no
+    lo trae, se le antepone aqui una sola vez.
     """
     if cot.precio.moneda != moneda:
         raise ValueError(f"cotizacion en {cot.precio.moneda}, se esperaba {moneda}")
-    if cot.estado == "error":
-        return f"fee_error:{cot.error_code or 'desconocido'}"
-    if _tiene_tax(cot.detalles):
+    if cot.error_code is not None:
+        if cot.error_code.startswith("fee_error:"):
+            return cot.error_code
+        return f"fee_error:{cot.error_code}"
+    assert cot.fees is not None
+    if cot.fees.impuesto_pendiente:
         return "impuesto_fee_pendiente"
-    if _suma_top(cot.detalles) != cot.fee_total:
-        return "fee_error:fee_no_concilia"
     return None
 
 
@@ -193,7 +187,7 @@ def paso(
     ref: Decimal,
     moneda: str,
     tolerancia: Decimal,
-    cotizaciones: tuple[CotizacionVerificada, ...],
+    cotizaciones: tuple[Cotizacion, ...],
 ) -> PideCotizacion | ResultadoObjetivo:
     """Un paso de la maquina de cotizaciones (cero, una o dos ya hechas)."""
     exigir_decimal(tolerancia, campo="tolerancia")
@@ -212,10 +206,9 @@ def paso(
             return ResultadoObjetivo("goal_inalcanzable", exc.motivo, None, ref, fijo)
         return PideCotizacion(Importe(techo_centavo(estrella), moneda), 1)
     primera = cotizaciones[0]
-    try:
-        ref1, fijo1 = derivar_ref_fijo(primera.detalles, primera.fee_total, primera.precio.valor)
-    except ErrorObjetivo as exc:
-        return ResultadoObjetivo("no_evaluado", exc.motivo, None, ref, fijo)
+    assert primera.fees is not None
+    ref1 = primera.fees.variable.valor / primera.precio.valor
+    fijo1 = primera.fees.fijo.valor
     m1 = margen_a_precio(
         primera.precio.valor, costo, ref1, fijo1, envio, isr_tasa, iva_divisor, incluye_iva
     )
@@ -230,10 +223,9 @@ def paso(
             return ResultadoObjetivo("goal_inalcanzable", exc.motivo, None, ref1, fijo1)
         return PideCotizacion(Importe(techo_centavo(estrella), moneda), 2)
     segunda = cotizaciones[1]
-    try:
-        ref2, fijo2 = derivar_ref_fijo(segunda.detalles, segunda.fee_total, segunda.precio.valor)
-    except ErrorObjetivo as exc:
-        return ResultadoObjetivo("no_evaluado", exc.motivo, None, ref1, fijo1)
+    assert segunda.fees is not None
+    ref2 = segunda.fees.variable.valor / segunda.precio.valor
+    fijo2 = segunda.fees.fijo.valor
     m2 = margen_a_precio(
         segunda.precio.valor, costo, ref2, fijo2, envio, isr_tasa, iva_divisor, incluye_iva
     )

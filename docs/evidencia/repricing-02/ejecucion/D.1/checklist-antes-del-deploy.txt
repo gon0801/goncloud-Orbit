@@ -1,0 +1,9 @@
+# Checklist antes del deploy D.1 (se verifica tras el merge, antes de desplegar)
+
+- [ ] El PR trae CI `rapido` y `gate` en verde sobre el head.
+- [ ] `comparar.sh` verde (diff vacio) y rojo (lado B roto) corridos y guardados en `0.b/`.
+- [ ] La bateria con base pasa sin saltos (`ORBIT_TEST_DSN=...5432/postgres`).
+- [ ] `ensayo.sh` de D.1 corrido con salida guardada (`ensayo-salida.txt`).
+- [ ] Nadie corre en prod (`docker top orbit-app-1` sin `app.cli`, sin ciclos en `running`, sin harvest en vuelo).
+- [ ] El crontab de gon trae la linea precio (D.1 no la cambia).
+- [ ] Tras `desplegar.sh <sha>`: `checklist.sh <sello>` en 0 fallas.

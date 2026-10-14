@@ -33,6 +33,7 @@ import os
 import sqlite3
 import sys
 from collections import Counter
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
@@ -42,6 +43,8 @@ from typing import Any
 import psycopg
 
 from app.db import connect
+from app.ledger_atribucion import Atribuidor, atribuidor_amazon
+from app.meli.ledger import atribuidor_meli
 from app.redaction import install_scrub_filter, scrub
 
 logger = logging.getLogger(__name__)
@@ -65,6 +68,15 @@ MAPA_KIND: dict[tuple[str, str | None], tuple[str, str | None]] = {
 _PLATAFORMA_ORIGEN = {
     "amazon": "amazon_mx",
     "amazon_us": "amazon_us",
+}
+
+# REPRICING 02 0.a: despacho de la atribucion por plataforma de destino. Los
+# dos atribuidores devuelven None hoy (F.1 y M.2 los llenan); la ingesta ya
+# inserta lo que devuelvan y cuenta `venta_sin_atribuir` cuando no pueden.
+_ATRIBUIDORES: dict[str, Atribuidor] = {
+    "amazon_mx": atribuidor_amazon,
+    "amazon_us": atribuidor_amazon,
+    "meli": atribuidor_meli,
 }
 
 MONEDAS = ("MXN", "USD")
@@ -430,6 +442,12 @@ def plan_eventos(
     return eventos, skips, huecos
 
 
+def _rows_skipped(skips: Counter) -> int:
+    """Solo lo no escrito: `venta_sin_atribuir` va al skip_reason y a un
+    contador aparte, no a rows_skipped (REPRICING 02 0.a)."""
+    return sum(n for motivo, n in skips.items() if motivo != "venta_sin_atribuir")
+
+
 def _formato_skip_reason(skips: Counter) -> str | None:
     if not skips:
         return None
@@ -513,7 +531,100 @@ def _params(ev: EventoLedger, run_id: int) -> tuple:
     )
 
 
-def sync_ledger(conn: psycopg.Connection, ruta_sqlite: Path | str) -> ResultadoSync:
+_SQL_ATRIBUIR = """
+INSERT INTO ledger_event_atribucion
+    (ledger_event_id, platform, listing_id, variante_ext, resuelto_por, ingest_run_id)
+VALUES (%s, %s, %s, %s, %s, %s)
+ON CONFLICT (ledger_event_id) DO NOTHING
+"""
+
+
+def _id_de_evento(conn: psycopg.Connection, ev: EventoLedger) -> int | None:
+    """Id del evento en ledger_event por su llave de dedupe, insertado ahora
+    o en una corrida anterior (None si el indice parcial todavia no lo vio)."""
+    if ev.source_event_id is not None:
+        fila = conn.execute(
+            "SELECT id FROM ledger_event"
+            " WHERE platform = %s AND kind = %s AND source_event_id = %s",
+            (ev.platform, ev.kind, ev.source_event_id),
+        ).fetchone()
+    elif ev.order_id is None:
+        fila = conn.execute(
+            "SELECT id FROM ledger_event"
+            " WHERE platform = %s AND kind = %s AND fee_type IS NOT DISTINCT FROM %s"
+            " AND event_date = %s AND amount = %s AND amount_currency = %s"
+            " AND source_event_id IS NULL AND order_id IS NULL",
+            (ev.platform, ev.kind, ev.fee_type, ev.event_date, ev.amount, ev.amount_currency),
+        ).fetchone()
+    else:
+        fila = conn.execute(
+            "SELECT id FROM ledger_event"
+            " WHERE platform = %s AND kind = %s AND order_id = %s"
+            " AND fee_type IS NOT DISTINCT FROM %s AND event_date = %s"
+            " AND amount = %s AND amount_currency = %s"
+            " AND source_event_id IS NULL",
+            (
+                ev.platform,
+                ev.kind,
+                ev.order_id,
+                ev.fee_type,
+                ev.event_date,
+                ev.amount,
+                ev.amount_currency,
+            ),
+        ).fetchone()
+    return None if fila is None else fila[0]
+
+
+def _atribuir_ventas(
+    conn: psycopg.Connection,
+    ventas: list[EventoLedger],
+    *,
+    run_id: int,
+    atribuidores: Mapping[str, Atribuidor],
+) -> Counter:
+    """Atribuye toda venta del plan, tambien la ya ingerida: la primera
+    corrida con atribuidor llena la historia. Devuelve el contador de las
+    que quedaron sin atribuir (van al skip_reason, no a rows_skipped)."""
+    sin_atribuir: Counter = Counter()
+    for ev in ventas:
+        atribuidor = atribuidores.get(ev.platform)
+        if atribuidor is None:
+            sin_atribuir["venta_sin_atribuir"] += 1
+            continue
+        try:
+            atribucion = atribuidor.atribuir(ev)
+        except Exception as exc:  # noqa: BLE001 - una venta no tumba la ingesta
+            logger.warning("atribucion de platform=%s reviento: %s", ev.platform, scrub(str(exc)))
+            sin_atribuir["venta_sin_atribuir"] += 1
+            continue
+        if atribucion is None:
+            sin_atribuir["venta_sin_atribuir"] += 1
+            continue
+        eid = _id_de_evento(conn, ev)
+        if eid is None:
+            sin_atribuir["venta_sin_atribuir"] += 1
+            continue
+        conn.execute(
+            _SQL_ATRIBUIR,
+            (
+                eid,
+                ev.platform,
+                atribucion.listing_id,
+                atribucion.variante,
+                atribucion.resuelto_por,
+                run_id,
+            ),
+        )
+    return sin_atribuir
+
+
+def sync_ledger(
+    conn: psycopg.Connection,
+    ruta_sqlite: Path | str,
+    *,
+    atribuidores: Mapping[str, Atribuidor] | None = None,
+) -> ResultadoSync:
     """Corre la ingesta completa y sella su ingest_run.
 
     Patron costs/listings: abrir run en txn propia, trabajo en otra, sello
@@ -529,6 +640,7 @@ def sync_ledger(conn: psycopg.Connection, ruta_sqlite: Path | str) -> ResultadoS
     eventos: list[EventoLedger] = []
     skips: Counter = Counter()
     huecos: Counter = Counter()
+    despacho = _ATRIBUIDORES if atribuidores is None else atribuidores
     try:
         with conn.transaction():
             listings = {
@@ -545,6 +657,14 @@ def sync_ledger(conn: psycopg.Connection, ruta_sqlite: Path | str) -> ResultadoS
                     por_kind[ev.kind] += 1
                 else:
                     skips["conflicto dedupe"] += 1
+            skips.update(
+                _atribuir_ventas(
+                    conn,
+                    [ev for ev in eventos if ev.kind == "sale"],
+                    run_id=run_id,
+                    atribuidores=despacho,
+                )
+            )
 
             skip_reason = _formato_skip_reason(skips)
             _sellar_run(
@@ -552,7 +672,7 @@ def sync_ledger(conn: psycopg.Connection, ruta_sqlite: Path | str) -> ResultadoS
                 run_id,
                 ok=True,
                 rows_written=insertadas,
-                rows_skipped=sum(skips.values()),
+                rows_skipped=_rows_skipped(skips),
                 skip_reason=skip_reason,
             )
     except BaseException as exc:
@@ -580,7 +700,7 @@ def sync_ledger(conn: psycopg.Connection, ruta_sqlite: Path | str) -> ResultadoS
         run_id=run_id,
         ok=True,
         rows_written=insertadas,
-        rows_skipped=sum(skips.values()),
+        rows_skipped=_rows_skipped(skips),
         skip_reason=_formato_skip_reason(skips),
         filas_origen=len(origen),
         eventos_finales=len(eventos),

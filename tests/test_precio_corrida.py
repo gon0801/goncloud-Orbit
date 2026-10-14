@@ -18,6 +18,7 @@ import os
 import socket
 import threading
 from contextlib import contextmanager
+from contextlib import nullcontext as _nullcontext
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -42,6 +43,9 @@ ORDEN59 = (
     "0032_spapi_pricing.sql",
     "0035_spapi_listings_inventario.sql",
     "0039_precio.sql",
+    "0047_familias.sql",
+    "0053_precio02_canal_meli.sql",
+    "0054_precio02_base.sql",
 )
 
 _skip_sin_pg = pytest.mark.skipif(
@@ -622,24 +626,33 @@ def _cuerpo_falso(*, platform, sku, precio, moneda):
     return {"falso": True, "sku": sku, "precio": str(precio), "moneda": moneda}
 
 
+def _mercado(red, platform="amazon_mx", *, construir_cuerpo=_cuerpo_falso, cubo=None):
+    """MercadoAmazon con la red falsa (los tests no tocan `correr` sin mercado)."""
+    from app.spapi.precio_mercado import MercadoAmazon
+
+    lector, escritor, fees = _clientes(red, platform)
+    return MercadoAmazon(
+        platform,
+        lector=lector,
+        escritor=escritor,
+        fees=fees,
+        limitador=cubo,
+        construir_cuerpo=construir_cuerpo,
+    )
+
+
 def _corre(conn, red, platform="amazon_mx", **kw):
     """`correr` con red falsa y cubo sin dormir de verdad."""
     clock, sleep, _estado = _reloj_falso()
     fijar_fee = kw.pop("fijar_fee", True)
     if red.fee_time is None and fijar_fee:
         red.fee_time = _fee_time(conn)
-    lector, escritor, fees = _clientes(red, platform)
-    kw.setdefault("construir_cuerpo", _cuerpo_falso)
+    kw.pop("construir_cuerpo", None)
+    cubo = kw.pop("limitador", None)
+    if cubo is None:
+        cubo = CuboTasa(sleep=sleep, clock=clock, capacidad=1, tasa=0.5)
     kw.setdefault("owner", "tdd")
-    kw.setdefault("limitador", CuboTasa(sleep=sleep, clock=clock, capacidad=1, tasa=0.5))
-    return correr(
-        conn,
-        platform,
-        lector=lector,
-        escritor=escritor,
-        fees=fees,
-        **kw,
-    )
+    return correr(conn, _mercado(red, platform, cubo=cubo), **kw)
 
 
 def _decision_unica(conn):
@@ -917,7 +930,7 @@ def test_cambios_previos_incluyen_virtual_para_cooldown_en_sombra():
     hoy y `precio_decision` es append-only): el freno con virtual lo cubren
     las reglas (A.2) y aqui el feed que la corrida les entrega.
     """
-    from app.precio.corrida import cambios_previos
+    from app.spapi.precio_mercado import cambios_previos
 
     with _db() as (conn, _dsn):
         datos = _cadena(conn, mode="shadow")
@@ -1148,8 +1161,8 @@ def test_huerfana_no_toca_reversas():
 @_skip_sin_pg
 def test_cambiar_precio_pasa_limitador_a_sus_lecturas():
     """(a) con `limitador`, el GET previo y el readback consumen cubo."""
+    from app.precio.cambios import aplicar
     from app.spapi.client import CuboTasa
-    from app.spapi.precio_write import cambiar_precio
 
     with _db() as (conn, _dsn):
         prod = _producto(conn)
@@ -1159,7 +1172,6 @@ def test_cambiar_precio_pasa_limitador_a_sus_lecturas():
         dec = _decision_subir(conn, lid)
         clock, sleep, _estado = _reloj_falso()
         red = _RedFalsa(precio_vivo="100.00")
-        lector, escritor, _fees = _clientes(red)
         consumos = []
         cubo = CuboTasa(sleep=sleep, clock=clock, capacidad=100, tasa=1000.0)
         real = cubo.consumir
@@ -1169,14 +1181,7 @@ def test_cambiar_precio_pasa_limitador_a_sus_lecturas():
             return real()
 
         cubo.consumir = _contando
-        res = cambiar_precio(
-            conn,
-            dec,
-            lector=lector,
-            escritor=escritor,
-            construir_cuerpo=_cuerpo_falso,
-            limitador=cubo,
-        )
+        res = aplicar(conn, _mercado(red, cubo=cubo), dec)
         assert res.estado == "enviado"
         # C3-6: conteo exacto (GET previo + readback; el PATCH no consume).
         assert len(consumos) == 2
@@ -1351,9 +1356,17 @@ def test_virtual_de_sombra_dispara_freno_6():
     saltaria este listing: el andamio trae decision de hoy y la base fija
     `decision_date`; el feed de cambios es el mismo que usa el run).
     """
+    from app.estimacion_reader import leer_cuenta
     from app.precio.config import leer_config
-    from app.precio.corrida import armar_entrada
+    from app.precio.objetivo import ErrorObjetivo, derivar_ref_fijo
     from app.precio.reglas import decidir
+    from app.precio.tipos import Escenario
+    from app.spapi.precio_mercado import (
+        _ingreso_60d,
+        _insumos_ventas,
+        cambios_previos,
+        historial_margenes,
+    )
 
     with _db() as (conn, _dsn):
         ajustes = {**SETTINGS, "precio_senal_dias": 1}
@@ -1412,20 +1425,66 @@ def test_virtual_de_sombra_dispara_freno_6():
         hoy = conn.execute("SELECT (now() AT TIME ZONE 'UTC')::date").fetchone()[0]
         ahora = datetime.now(UTC)
         config = leer_config(ajustes)
-        entrada, _ids = armar_entrada(
-            conn,
-            lid,
-            "amazon_mx",
-            hoy=hoy,
-            ahora=ahora,
-            config=config,
+        cuenta = leer_cuenta(conn, lid, as_of=ahora)
+        assert cuenta is not None and not isinstance(cuenta, str)
+        from app.precio.tipos import EntradaDecision, Fees, Importe, ObservacionPricing
+        from app.precio.ventas import evaluar_senal
+
+        pricing = conn.execute(
+            "SELECT own_listing_price, own_listing_currency, observed_at, buy_box_is_own"
+            " FROM spapi_price_observation"
+            " WHERE asin = %s AND platform = %s AND metric_date = %s"
+            " AND own_listing_price IS NOT NULL"
+            " ORDER BY observed_at DESC LIMIT 1",
+            ("B0A50000F6", "amazon_mx", hoy),
+        ).fetchone()
+        insumos = _insumos_ventas(conn, product_id=prod, platform="amazon_mx", sku="SKU-F6")
+        entrada = EntradaDecision(
+            listing_id=lid,
+            platform="amazon_mx",
+            product_id=prod,
+            canal=cuenta.canal,
             mode="shadow",
             goal=Decimal("0.30"),
+            escenario=Escenario(
+                componentes=cuenta.componentes,
+                fee_detalles=cuenta.fee_detalles,
+                precio_cotizado=cuenta.precio_cotizado,
+                iva_divisor=cuenta.iva_divisor,
+                isr_tasa=cuenta.isr_tasa,
+                precio_incluye_iva=cuenta.precio_incluye_iva,
+                oferta_observada_en=cuenta.oferta_observada_en,
+            ),
+            pricing=(
+                ObservacionPricing(precio=Importe(pricing[0], pricing[1]), observada_en=pricing[2])
+                if pricing is not None
+                else None
+            ),
+            senal=evaluar_senal(insumos, hoy=hoy, config=config, racha_previa=0),
+            ingreso_60d=_ingreso_60d(
+                conn, product_id=prod, platform="amazon_mx", hoy=hoy, moneda="MXN"
+            ),
+            cambios=cambios_previos(conn, lid, "amazon_mx"),
+            historial=historial_margenes(conn, lid, "amazon_mx"),
             goal_vigente_desde=hoy - timedelta(days=30),
-            product_id=prod,
+            motivo_estimacion=None,
+            buy_box_is_own=pricing[3] if pricing is not None else None,
         )
-        assert entrada is not None
-        d = decidir(entrada, hoy=hoy, config=config)
+        try:
+            _ref, fijo = derivar_ref_fijo(
+                cuenta.fee_detalles,
+                cuenta.componentes.fees.valor,
+                cuenta.precio_cotizado.valor,
+            )
+            fees_escenario = Fees(
+                total=cuenta.componentes.fees,
+                variable=Importe(cuenta.componentes.fees.valor - fijo, "MXN"),
+                fijo=Importe(fijo, "MXN"),
+                impuesto_pendiente=False,
+            )
+        except ErrorObjetivo as exc:
+            fees_escenario = exc.motivo
+        d = decidir(entrada, hoy=hoy, config=config, fees_escenario=fees_escenario)
         assert (d.resultado, d.motivo) == ("frenado", "perdiendo_tras_subida")
 
 
@@ -1475,8 +1534,8 @@ def test_cli_precio_despacha_corrida_e_imprime_resumen(monkeypatch, capsys):
 
     llamadas = {}
 
-    def _falso_correr(conn, platform, **kw):
-        llamadas["platform"] = platform
+    def _falso_correr(conn, mercado, **kw):
+        llamadas["mercado"] = mercado
         llamadas["kw"] = kw
         print("listing=1 amazon_mx shadow mantener en_tolerancia")
         return Resumen(decisiones=1, escritas=0, cerrados={}, huerfanas=0)
@@ -1485,14 +1544,21 @@ def test_cli_precio_despacha_corrida_e_imprime_resumen(monkeypatch, capsys):
     monkeypatch.setattr(cli_mod, "_conexion_decide", lambda: ("conn-falsa", lambda: None))
     monkeypatch.setattr(cli_mod, "_clientes_precio", lambda platform: ("l", "e", "f", "cubo"))
     monkeypatch.setattr("app.precio.corrida.correr", _falso_correr)
+    monkeypatch.setattr(
+        "app.precio_mercados.abrir",
+        lambda clave, **kw: _nullcontext(
+            (llamadas.setdefault("abrir", (clave, kw)) or "mercado-falso") and "mercado-falso"
+        ),
+    )
     codigo = cli_mod.main(["precio", "--platform", "amazon_mx"])
     assert codigo == 0
-    assert llamadas["platform"] == "amazon_mx"
-    # D14: `correr` recibe los clientes de `_clientes_precio` y el limitador.
-    assert llamadas["kw"]["lector"] == "l"
-    assert llamadas["kw"]["escritor"] == "e"
-    assert llamadas["kw"]["fees"] == "f"
-    assert llamadas["kw"]["limitador"] == "cubo"
+    assert llamadas["mercado"] == "mercado-falso"
+    # D14: el mercado se abre con los clientes de `_clientes_precio` y el limitador.
+    assert llamadas["abrir"][0] == "amazon_mx"
+    assert llamadas["abrir"][1]["lector"] == "l"
+    assert llamadas["abrir"][1]["escritor"] == "e"
+    assert llamadas["abrir"][1]["fees"] == "f"
+    assert llamadas["abrir"][1]["limitador"] == "cubo"
     assert "decisiones=1 escritas=0" in capsys.readouterr().out
 
 
@@ -1507,6 +1573,9 @@ def test_cli_precio_lock_ocupado_sale_cero(monkeypatch, capsys):
     monkeypatch.setattr(cli_mod, "_conexion_decide", lambda: ("conn-falsa", lambda: None))
     monkeypatch.setattr(cli_mod, "_clientes_precio", lambda platform: ("l", "e", "f", "cubo"))
     monkeypatch.setattr("app.precio.corrida.correr", _ocioso)
+    monkeypatch.setattr(
+        "app.precio_mercados.abrir", lambda clave, **kw: _nullcontext("mercado-falso")
+    )
     codigo = cli_mod.main(["precio", "--platform", "amazon_mx"])
     assert codigo == 0
     assert "en curso" in capsys.readouterr().err
@@ -1879,13 +1948,16 @@ def test_cli_precio_imprime_escritas_reales(monkeypatch, capsys):
     """LA-cli-escritas: el CLI imprime el `escritas` real de `correr` (no un fijo)."""
     from app import cli as cli_mod
 
-    def _falso_correr(conn, platform, **kw):
+    def _falso_correr(conn, mercado, **kw):
         return Resumen(decisiones=3, escritas=2, cerrados={}, huerfanas=0)
 
     monkeypatch.setenv("ORBIT_DSN_DECIDE", "postgresql://falso/db")
     monkeypatch.setattr(cli_mod, "_conexion_decide", lambda: ("conn-falsa", lambda: None))
     monkeypatch.setattr(cli_mod, "_clientes_precio", lambda platform: ("l", "e", "f", "cubo"))
     monkeypatch.setattr("app.precio.corrida.correr", _falso_correr)
+    monkeypatch.setattr(
+        "app.precio_mercados.abrir", lambda clave, **kw: _nullcontext("mercado-falso")
+    )
     codigo = cli_mod.main(["precio", "--platform", "amazon_mx"])
     assert codigo == 0
     assert "decisiones=3 escritas=2" in capsys.readouterr().out
@@ -2045,7 +2117,7 @@ def test_cambio_real_de_hoy_no_es_reversa():
 @_skip_sin_pg
 def test_ingreso_60d_ventana_declarada():
     """LA-ingreso60-ventana: `ingreso_60d` suma [hoy-75, hoy-16] (la de `u60`)."""
-    from app.precio.corrida import _ingreso_60d
+    from app.spapi.precio_mercado import _ingreso_60d
 
     with _db() as (conn, _dsn):
         prod = _producto(conn)
@@ -2230,9 +2302,9 @@ def test_parche_sin_sellar_persiste_filas_sin_reintentar(monkeypatch):
     Un solo intento de PATCH en toda la corrida (el segundo goal se decide
     pero no toca la red) y dos `precio_decision` del dia.
     """
-    import app.precio.corrida as corrida_mod
-    from app.spapi.precio_write import FormaParcheSinSellar
-    from app.spapi.precio_write import cambiar_precio as _cambiar_real
+    import app.precio.cambios as cambios_mod
+    from app.precio.cambios import aplicar as _aplicar_real
+    from app.precio.puerto import EscrituraNoDisponible
 
     with _db() as (conn, _dsn):
         a = _cadena(conn, sku="SKU-R2-A", ext="B0A50000RA", mode="live")
@@ -2244,10 +2316,10 @@ def test_parche_sin_sellar_persiste_filas_sin_reintentar(monkeypatch):
         def _una_vez(*args, **kwargs):
             llamadas.append(1)
             if len(llamadas) == 1:
-                raise FormaParcheSinSellar("forma sin sello")
-            return _cambiar_real(*args, **kwargs)
+                raise EscrituraNoDisponible("forma sin sello")
+            return _aplicar_real(*args, **kwargs)
 
-        monkeypatch.setattr(corrida_mod, "cambiar_precio", _una_vez)
+        monkeypatch.setattr(cambios_mod, "aplicar", _una_vez)
         red = _RedFalsa(skus={a["evento"]: a["sku"], b["evento"]: b["sku"]})
         res = _corre(conn, red)
         assert len(llamadas) == 1
@@ -2344,8 +2416,6 @@ def test_error_de_base_en_fase3_aborta_y_libera_lock(monkeypatch):
     """R1-fase3-traga-db: un `psycopg.Error` sale de `correr` y libera el lock."""
     from psycopg.errors import OperationalError
 
-    import app.precio.corrida as corrida_mod
-
     with _db() as (conn, _dsn):
         a = _cadena(conn, sku="SKU-R2-C", ext="B0A50000RC", mode="live")
         b = _cadena(conn, sku="SKU-R2-D", ext="B0A50000RD", mode="live")
@@ -2356,12 +2426,75 @@ def test_error_de_base_en_fase3_aborta_y_libera_lock(monkeypatch):
         def _base_caida(*args, **kwargs):
             raise OperationalError("conexion perdida")
 
-        monkeypatch.setattr(corrida_mod, "cambiar_precio", _base_caida)
+        import app.precio.cambios as cambios_mod
+
+        monkeypatch.setattr(cambios_mod, "aplicar", _base_caida)
         with pytest.raises(OperationalError):
             _corre(conn, red)
         monkeypatch.undo()
         res = _corre(conn, red)
         assert (res.decisiones, res.escritas) == (1, 1)
+
+
+@_skip_sin_pg
+def test_goal_reeditado_a_media_corrida_sale_goal_cambiado():
+    """R02-r1 (CodeRabbit): el goal se cierra entre fase 1 y fase 3: la
+    publicacion sale `no_evaluado` con el motivo del trigger y la corrida
+    sigue (no aborta)."""
+    with _db() as (conn, _dsn):
+        datos = _cadena(conn, mode="live")
+        _price_obs(conn)
+        hoy = conn.execute("SELECT (now() AT TIME ZONE 'UTC')::date").fetchone()[0]
+        red = _RedFalsa(skus={datos["evento"]: datos["sku"]})
+        import app.precio.corrida as corrida_mod
+
+        real = corrida_mod.persistir_decision
+
+        def _reedita(*args, **kwargs):
+            conn.execute(
+                "UPDATE precio_goal SET valid_to = %s WHERE listing_id = %s AND valid_to IS NULL",
+                (hoy, datos["listing"]),
+            )
+            return real(*args, **kwargs)
+
+        import unittest.mock as _mock
+
+        with _mock.patch.object(corrida_mod, "persistir_decision", _reedita):
+            res = _corre(conn, red)
+        assert (res.decisiones, res.escritas) == (0, 0)
+        assert _cuenta_decisiones(conn) == 0
+        assert len(res.errores) == 1 and "goal_cambiado" in res.errores[0]
+
+
+@_skip_sin_pg
+def test_fase1_aisla_typeerror_de_publicacion(monkeypatch):
+    """R02-r1 (CodeRabbit): un `TypeError` en insumos tambien aisla la
+    publicacion (B1 cubre toda `Exception` no-psycopg)."""
+    import app.spapi.precio_mercado as mercado_mod
+
+    with _db() as (conn, _dsn):
+        a = _cadena(conn, sku="SKU-R3-T", ext="B0A50000RA", mode="live")
+        b = _cadena(conn, sku="SKU-R3-U", ext="B0A50000RB", mode="live")
+        _price_obs(conn, asin="B0A50000RA")
+        _price_obs(conn, asin="B0A50000RB")
+        real = mercado_mod.evaluar_senal
+        llamadas = []
+
+        def _revienta(insumos, **kw):
+            llamadas.append(1)
+            if len(llamadas) == 1:
+                raise TypeError("venta rota")
+            return real(insumos, **kw)
+
+        monkeypatch.setattr(mercado_mod, "evaluar_senal", _revienta)
+        red = _RedFalsa(skus={a["evento"]: a["sku"], b["evento"]: b["sku"]})
+        res = _corre(conn, red)
+        assert (res.decisiones, res.escritas) == (2, 1)
+        fila_a = conn.execute(
+            "SELECT resultado, motivo FROM precio_decision WHERE listing_id = %s", (a["listing"],)
+        ).fetchone()
+        assert fila_a == ("no_evaluado", "escenario_incoherente")
+        assert len(res.errores) == 1
 
 
 @_skip_sin_pg
@@ -2391,7 +2524,7 @@ def test_no_confirmado_viejo_mas_confirmado_nuevo_no_frena():
 @_skip_sin_pg
 def test_cobertura_ignora_ledger_de_otra_fuente():
     """R1-cubierto-sin-source: venta de un run `ok` de otra fuente no cubre."""
-    from app.precio.corrida import _insumos_ventas
+    from app.spapi.precio_mercado import _insumos_ventas
 
     with _db() as (conn, _dsn):
         prod = _producto(conn)
@@ -2414,7 +2547,7 @@ def test_cli_precio_imprime_errores_en_stderr(monkeypatch, capsys):
 
     register_secret("s3cr3t-r2")
 
-    def _falso_correr(conn, platform, **kw):
+    def _falso_correr(conn, mercado, **kw):
         return Resumen(
             decisiones=1,
             escritas=0,
@@ -2427,6 +2560,9 @@ def test_cli_precio_imprime_errores_en_stderr(monkeypatch, capsys):
     monkeypatch.setattr(cli_mod, "_conexion_decide", lambda: ("conn-falsa", lambda: None))
     monkeypatch.setattr(cli_mod, "_clientes_precio", lambda platform: ("l", "e", "f", "cubo"))
     monkeypatch.setattr("app.precio.corrida.correr", _falso_correr)
+    monkeypatch.setattr(
+        "app.precio_mercados.abrir", lambda clave, **kw: _nullcontext("mercado-falso")
+    )
     cli_mod.main(["precio", "--platform", "amazon_mx"])
     err = capsys.readouterr().err
     assert "listing=1 amazon_mx" in err and "s3cr3t-r2" not in err
@@ -2436,7 +2572,7 @@ def test_cli_precio_con_errores_sale_distinto_de_cero(monkeypatch, capsys):
     """K1: con `errores` en el resumen el CLI sale distinto de cero."""
     from app import cli as cli_mod
 
-    def _falso_correr(conn, platform, **kw):
+    def _falso_correr(conn, mercado, **kw):
         return Resumen(
             decisiones=1,
             escritas=0,
@@ -2449,6 +2585,9 @@ def test_cli_precio_con_errores_sale_distinto_de_cero(monkeypatch, capsys):
     monkeypatch.setattr(cli_mod, "_conexion_decide", lambda: ("conn-falsa", lambda: None))
     monkeypatch.setattr(cli_mod, "_clientes_precio", lambda platform: ("l", "e", "f", "cubo"))
     monkeypatch.setattr("app.precio.corrida.correr", _falso_correr)
+    monkeypatch.setattr(
+        "app.precio_mercados.abrir", lambda clave, **kw: _nullcontext("mercado-falso")
+    )
     codigo = cli_mod.main(["precio", "--platform", "amazon_mx"])
     assert codigo != 0
     assert "decisiones=1 escritas=0" in capsys.readouterr().out
@@ -2462,14 +2601,14 @@ def test_cli_precio_con_errores_sale_distinto_de_cero(monkeypatch, capsys):
 @_skip_sin_pg
 def test_fase1_aisla_error_de_publicacion(monkeypatch):
     """B1: un `ValueError` en fase 1 deja `no_evaluado` y la corrida sigue."""
-    import app.precio.corrida as corrida_mod
+    import app.spapi.precio_mercado as mercado_mod
 
     with _db() as (conn, _dsn):
         a = _cadena(conn, sku="SKU-R3-A", ext="B0A50000RA", mode="live")
         b = _cadena(conn, sku="SKU-R3-B", ext="B0A50000RB", mode="live")
         _price_obs(conn, asin="B0A50000RA")
         _price_obs(conn, asin="B0A50000RB")
-        real = corrida_mod.evaluar_senal
+        real = mercado_mod.evaluar_senal
         llamadas = []
 
         def _revienta(insumos, **kw):
@@ -2478,7 +2617,7 @@ def test_fase1_aisla_error_de_publicacion(monkeypatch):
                 raise ValueError("venta invalida en 2026-09-01: -1")
             return real(insumos, **kw)
 
-        monkeypatch.setattr(corrida_mod, "evaluar_senal", _revienta)
+        monkeypatch.setattr(mercado_mod, "evaluar_senal", _revienta)
         red = _RedFalsa(skus={a["evento"]: a["sku"], b["evento"]: b["sku"]})
         res = _corre(conn, red)
         assert (res.decisiones, res.escritas) == (2, 1)
@@ -2729,6 +2868,12 @@ def test_fase3_guardas_explicitas_de_modo():
             "perdiendo": None,
             "prioridad": None,
         }
+        g_live = conn.execute(
+            "SELECT id FROM precio_goal WHERE listing_id = %s", (live["listing"],)
+        ).fetchone()[0]
+        g_sombra = conn.execute(
+            "SELECT id FROM precio_goal WHERE listing_id = %s", (sombra["listing"],)
+        ).fetchone()[0]
         comun = {
             "meta": None,
             "canal": None,
@@ -2737,21 +2882,28 @@ def test_fase3_guardas_explicitas_de_modo():
             "cap": 20,
             "agotado": False,
             "parche_sin_sellar": False,
-            "lector": None,
-            "escritor": None,
-            "construir_cuerpo": _cuerpo_falso,
-            "limitador": None,
+            "mercado": _mercado(_RedFalsa()),
             "cfg_id": cfg,
             "ahora": ahora,
         }
         fria = Decision(**base, aplicado=False, mode="live")
         _dec, escritas, _ag, _parche, error, persistida = _fase3_uno(
-            conn, decision=fria, lid=live["listing"], prod_id=live["producto"], **comun
+            conn,
+            decision=fria,
+            lid=live["listing"],
+            prod_id=live["producto"],
+            goal_id=g_live,
+            **comun,
         )
         assert (escritas, error, persistida) == (0, None, True)
         fria_shadow = Decision(**base, aplicado=True, mode="shadow")
         _dec2, escritas2, _ag2, _parche2, error2, persistida2 = _fase3_uno(
-            conn, decision=fria_shadow, lid=sombra["listing"], prod_id=sombra["producto"], **comun
+            conn,
+            decision=fria_shadow,
+            lid=sombra["listing"],
+            prod_id=sombra["producto"],
+            goal_id=g_sombra,
+            **comun,
         )
         assert (escritas2, error2, persistida2) == (0, None, True)
         assert _dec2.motivo == "cuota"
@@ -2824,11 +2976,21 @@ def test_fase1_error_de_base_aborta_y_libera_lock(monkeypatch):
         def _base_caida(*args, **kwargs):
             raise OperationalError("conexion perdida")
 
-        for punto in ("armar_entrada", "cotizar_y_decidir"):
+        for punto in ("cotizar_y_decidir",):
             monkeypatch.setattr(corrida_mod, punto, _base_caida)
             with pytest.raises(OperationalError):
                 _corre(conn, red)
             monkeypatch.undo()
+        import app.spapi.precio_mercado as mercado_mod
+
+        monkeypatch.setattr(
+            mercado_mod.MercadoAmazon,
+            "insumos",
+            lambda *a, **k: (_ for _ in ()).throw(OperationalError("conexion perdida")),
+        )
+        with pytest.raises(OperationalError):
+            _corre(conn, red)
+        monkeypatch.undo()
         res = _corre(conn, red)
         assert (res.decisiones, res.escritas) == (1, 1)
 
@@ -2844,18 +3006,10 @@ def test_sin_autocommit_aborta_antes_del_lock():
         _config(conn)
         cruda = _psycopg.connect(dsn)
         try:
-            # El mensaje nombra a `correr` (el de `cambiar_precio` llega
+            # El mensaje nombra a `correr` (el de `aplicar` llega
             # tarde, en fase 3: con el chequeo quitado el test muere).
             with pytest.raises(ValueError, match="correr exige"):
-                correr(
-                    cruda,
-                    "amazon_mx",
-                    lector=None,
-                    escritor=None,
-                    fees=None,
-                    limitador=None,
-                    owner="tdd",
-                )
+                correr(cruda, _mercado(_RedFalsa()), owner="tdd")
         finally:
             cruda.close()
         red = _RedFalsa()
@@ -2899,7 +3053,7 @@ def test_reporte_con_fallo_sale_1_scrubbeado(monkeypatch, capsys):
 @_skip_sin_pg
 def test_dia_de_estado_es_utc():
     """R3-utc-dia: con la sesion en otra zona, el dia de estado es UTC."""
-    from app.precio.corrida import _insumos_ventas
+    from app.spapi.precio_mercado import _insumos_ventas
 
     with _db() as (conn, _dsn):
         prod = _producto(conn, sku="ODOO-SKU-R4-U")
@@ -3052,6 +3206,10 @@ def test_config_invalida_sale_2(monkeypatch, capsys):
         monkeypatch.setenv("ORBIT_DSN_DECIDE", "postgresql://falso/db")
         monkeypatch.setattr(cli_mod, "_conexion_decide", lambda: (conn, lambda: None))
         monkeypatch.setattr(cli_mod, "_clientes_precio", lambda platform: ("l", "e", "f", "cubo"))
+        monkeypatch.setattr(
+            "app.precio_mercados.abrir",
+            lambda clave, **kw: _nullcontext(_mercado(_RedFalsa())),
+        )
         codigo = cli_mod.main(["precio", "--platform", "amazon_mx"])
         assert codigo == 2
         assert "precio_cap_amazon_mx" in capsys.readouterr().err
@@ -3227,7 +3385,7 @@ def test_r1b2_m9_refund_y_fee_no_inflan_u15():
 def test_r1b2_m9b_primera_venta_sale_solo_de_kind_sale():
     """M9b: ventas de los ultimos 60 dias + `refund` de hace 100: la senal
     sigue `historia_corta` (la primera venta ignora el `refund`)."""
-    from app.precio.corrida import _insumos_ventas
+    from app.spapi.precio_mercado import _insumos_ventas
 
     with _db() as (conn, _dsn):
         datos = _cadena(conn, mode="live")
@@ -3328,7 +3486,7 @@ def test_r1b2_m54_dia_inactivo_no_deja_perdiendo():
 def test_r1b2_m10b_ingreso_60d_suma_solo_su_moneda():
     """M10b: una venta MXN y otra USD en ventana: `_ingreso_60d` en MXN
     suma solo la MXN."""
-    from app.precio.corrida import _ingreso_60d
+    from app.spapi.precio_mercado import _ingreso_60d
 
     with _db() as (conn, _dsn):
         prod = _producto(conn)
@@ -3404,7 +3562,7 @@ def test_r1b2_m60_reversa_de_ayer_no_consume_cupo():
 def test_r1b2_m46_m50_fila_persiste_prioridad_canal_e_ids():
     """M46-M50: la fila del subir live trae prioridad, canal y los tres ids
     exactos (config, cotizacion usada, fee del escenario)."""
-    from app.precio.corrida import _ingreso_60d
+    from app.spapi.precio_mercado import _ingreso_60d
 
     with _db() as (conn, _dsn):
         datos = _cadena(conn, mode="live")

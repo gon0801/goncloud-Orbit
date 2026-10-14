@@ -17,19 +17,18 @@ from dataclasses import replace
 from datetime import date
 from decimal import Decimal
 
+from app.precio import puerto as puerto_mod
 from app.precio.config import ConfigPrecio
 from app.precio.objetivo import (
-    ErrorObjetivo,
     ResultadoObjetivo,
-    derivar_ref_fijo,
     paso,
     piso_centavo,
     techo_centavo,
 )
 from app.precio.tipos import (
-    CotizacionVerificada,
     Decision,
     EntradaDecision,
+    Fees,
     Importe,
     PideCotizacion,
     motivo_permitido,
@@ -145,25 +144,17 @@ def _frena_regla11(entrada: EntradaDecision, m_actual: Decimal, precio: Decimal)
 
 def _freno_entrada(entrada: EntradaDecision, config: ConfigPrecio) -> Decision | None:
     """S2 + coherencia (r1-A1, r2-A2, r3-K1, r4-G4): insumos y coherencia
-    antes de `m_actual` y antes de gastar una cotización. `None` = pasa."""
+    antes de `m_actual` y antes de gastar una cotización. `None` = pasa.
+
+    Sin chequeo de monedas mezcladas: `Cuenta` ya no se construye con
+    monedas mezcladas (la frontera es el adaptador y `leer_cuenta`).
+    """
     if entrada.motivo_estimacion is not None:
         return _no_evaluado(entrada, entrada.motivo_estimacion)
     if entrada.pricing is None:
         return _no_evaluado(entrada, "precio_sin_observar")
 
     comp = entrada.escenario.componentes
-    monedas = {
-        comp.p_actual.moneda,
-        comp.ingreso.moneda,
-        comp.costo.moneda,
-        comp.fees.moneda,
-        comp.envio.moneda,
-        comp.isr.moneda,
-    }
-    if len(monedas) != 1:
-        return _no_evaluado(
-            entrada, "escenario_incoherente", f"monedas divergen: {sorted(monedas)}"
-        )
     moneda = comp.p_actual.moneda
     pricing = entrada.pricing
     if pricing.precio.moneda != moneda:
@@ -222,9 +213,16 @@ def decidir(
     *,
     hoy: date,
     config: ConfigPrecio,
-    cotizaciones: tuple[CotizacionVerificada, ...] = (),
+    cotizaciones: tuple[puerto_mod.Cotizacion, ...] = (),
+    fees_escenario: Fees | str,
 ) -> Decision | PideCotizacion:
-    """Una evaluacion de S4: `Decision` final o `PideCotizacion`."""
+    """Una evaluacion de S4: `Decision` final o `PideCotizacion`.
+
+    `fees_escenario` trae los fees del escenario ya partidos (`Fees`) o el
+    motivo (`str`) cuando partirlos fallo. LAZY: con `str`, una decision
+    dentro de tolerancia sigue saliendo `mantener(en_tolerancia)`; solo
+    `_subir`/`_bajar` convierten el str en `no_evaluado(motivo)`.
+    """
     freno = _freno_entrada(entrada, config)
     if freno is not None:
         return freno
@@ -305,7 +303,13 @@ def decidir(
             )
 
     if m_actual < goal - tol:
-        return _subir(entrada, config=config, m_actual=m_actual, cotizaciones=cotizaciones)
+        return _subir(
+            entrada,
+            config=config,
+            m_actual=m_actual,
+            cotizaciones=cotizaciones,
+            fees_escenario=fees_escenario,
+        )
     if m_actual > goal + tol:
         senal = entrada.senal
         if senal.estado == "sin_dato":
@@ -318,7 +322,13 @@ def decidir(
                 prioridad=_prioridad(m_actual, goal, entrada.ingreso_60d),
             )
         if senal.estado == "perdiendo":
-            return _bajar(entrada, config=config, m_actual=m_actual, cotizaciones=cotizaciones)
+            return _bajar(
+                entrada,
+                config=config,
+                m_actual=m_actual,
+                cotizaciones=cotizaciones,
+                fees_escenario=fees_escenario,
+            )
         base = _base_senal(entrada)
         return replace(
             base,
@@ -342,19 +352,18 @@ def _subir(
     *,
     config: ConfigPrecio,
     m_actual: Decimal,
-    cotizaciones: tuple[CotizacionVerificada, ...],
+    cotizaciones: tuple[puerto_mod.Cotizacion, ...],
+    fees_escenario: Fees | str,
 ) -> Decision | PideCotizacion:
     comp = entrada.escenario.componentes
     moneda = comp.p_actual.moneda
     escenario = entrada.escenario
-    try:
-        ref, fijo = derivar_ref_fijo(
-            escenario.fee_detalles,
-            comp.fees.valor,
-            escenario.precio_cotizado.valor,
-        )
-    except ErrorObjetivo as exc:
-        return _no_evaluado(entrada, exc.motivo)
+    if isinstance(fees_escenario, str):
+        return _no_evaluado(entrada, fees_escenario)
+    # `ref` y `fijo` llegan partidos por el adaptador (`Fees.variable`
+    # sobre el precio cotizado).
+    ref = fees_escenario.variable.valor / escenario.precio_cotizado.valor
+    fijo = fees_escenario.fijo.valor
     # r3-L1: sin estrella cruda ni regla-11-cruda; `margen_imposible` sale
     # de la maquina (rama de cero cotizaciones) y la regla 11 sale del
     # wrapper de abajo: un solo punto de control por camino.
@@ -429,21 +438,18 @@ def _bajar(
     *,
     config: ConfigPrecio,
     m_actual: Decimal,
-    cotizaciones: tuple[CotizacionVerificada, ...],
+    cotizaciones: tuple[puerto_mod.Cotizacion, ...],
+    fees_escenario: Fees | str,
 ) -> Decision | PideCotizacion:
     """r1-A3: la bajada usa la misma maquina (S4 #4 «nunca menor que el goal»
     verificado por cotizacion real, no supuesto por linealidad)."""
     comp = entrada.escenario.componentes
     moneda = comp.p_actual.moneda
     escenario = entrada.escenario
-    try:
-        ref, fijo = derivar_ref_fijo(
-            escenario.fee_detalles,
-            comp.fees.valor,
-            escenario.precio_cotizado.valor,
-        )
-    except ErrorObjetivo as exc:
-        return _no_evaluado(entrada, exc.motivo)
+    if isinstance(fees_escenario, str):
+        return _no_evaluado(entrada, fees_escenario)
+    ref = fees_escenario.variable.valor / escenario.precio_cotizado.valor
+    fijo = fees_escenario.fijo.valor
     # r3b-2, opción (a): sin estrella cruda ni regla-11-cruda tampoco aquí;
     # `margen_imposible` sale de la máquina y la regla 11 del wrapper, igual
     # que en `_subir`: los dos caminos con un solo control, el del pedido.

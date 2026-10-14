@@ -12,11 +12,10 @@ mensaje que dice que el argumento va en por ciento (Reject del plan:
 goal como fraccion, defaults de goal).
 
 La banda se lee de la `config_version` vigente
-(`precio_goal_min_pct`/`precio_goal_max_pct`) con la FORMA de `_fraccion`
-de `app/precio/config.py` (copiada aqui, no importada: `leer_config` no
-conoce esas claves y A.1 no puede editar `config.py`); sin las claves se
-aborta con `config sin precio_goal_min_pct`, nunca con un default. La
-coherencia `0 < min < max < 1` replica el CHECK de la base.
+(`precio_goal_min_pct`/`precio_goal_max_pct`) con los ayudantes de
+`app/precio/config.py` (REPRICING 02 0.a: un solo lector por clave); sin las
+claves se aborta con `config sin precio_goal_min_pct`, nunca con un default.
+La coherencia `0 < min < max < 1` replica el CHECK de la base.
 
 Todo dinero y fracciones en `Decimal`, cero `float` (regla 4).
 """
@@ -29,6 +28,9 @@ from typing import Any
 
 import psycopg
 import psycopg.errors
+
+from app.precio.config import _fraccion as config_fraccion
+from app.precio.config import _numero as config_numero
 
 __all__ = [
     "PrecioGoalInvalido",
@@ -81,27 +83,19 @@ def fraccion_desde_porcentaje(texto: str) -> Decimal:
 
 
 def _numero(settings: Mapping, clave: str) -> Decimal:
-    """Copia de `app/precio/config.py::_numero` (A.1 no edita `config.py`)."""
-    if clave not in settings or settings[clave] is None:
-        raise PrecioGoalInvalido(f"config sin {clave}")
-    valor = settings[clave]
-    if isinstance(valor, bool):
-        raise PrecioGoalInvalido(f"setting {clave}: valor no numerico: {valor!r}")
+    """El ayudante unico de `app/precio/config.py` (REPRICING 02 0.a); el
+    error de esta capa sigue siendo `PrecioGoalInvalido`."""
     try:
-        numero = Decimal(str(valor).strip() if isinstance(valor, str) else str(valor))
-    except (InvalidOperation, ValueError) as exc:
-        raise PrecioGoalInvalido(f"setting {clave}: valor no numerico: {valor!r}") from exc
-    if not numero.is_finite():
-        raise PrecioGoalInvalido(f"setting {clave}: valor no finito: {valor!r}")
-    return numero
+        return config_numero(settings, clave)
+    except ValueError as exc:
+        raise PrecioGoalInvalido(str(exc)) from exc
 
 
 def _fraccion(settings: Mapping, clave: str, *, minima: str, maxima: str) -> Decimal:
-    """Copia de la forma de `app/precio/config.py::_fraccion` (l.57-61)."""
-    numero = _numero(settings, clave)
-    if not Decimal(minima) <= numero <= Decimal(maxima):
-        raise PrecioGoalInvalido(f"setting {clave}: fuera de cota [{minima}, {maxima}]: {numero}")
-    return numero
+    try:
+        return config_fraccion(settings, clave, minima=minima, maxima=maxima)
+    except ValueError as exc:
+        raise PrecioGoalInvalido(str(exc)) from exc
 
 
 def banda_desde_settings(settings: Mapping) -> tuple[Decimal, Decimal]:

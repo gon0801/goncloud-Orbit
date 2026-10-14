@@ -38,6 +38,7 @@ import httpx
 
 from app.ads.config import directorio_secretos
 from app.db import connect, preparar_lectura_contribucion
+from app.precio.config import _entero as _entero_config
 from app.redaction import install_scrub_filter, register_secret, scrub
 
 if TYPE_CHECKING:
@@ -1207,23 +1208,9 @@ def aviso_precio_huerfana(huerfana: HuerfanaPrecio) -> str:
 
 def validar_precio_aviso_dias(settings) -> int:
     """`precio_aviso_dias_sin_evaluar` entero 1-14; `ValueError` nombra la
-    clave si falta o sale de cota (ninguna otra clave se lee aqui)."""
-    clave = CLAVE_PRECIO_AVISO_DIAS
-    if not isinstance(settings, dict) or clave not in settings or settings[clave] is None:
-        raise ValueError(f"config sin {clave}")
-    valor = settings[clave]
-    if isinstance(valor, bool):
-        raise ValueError(f"setting {clave}: valor no numerico: {valor!r}")
-    try:
-        numero = Decimal(str(valor).strip() if isinstance(valor, str) else str(valor))
-    except Exception as exc:
-        raise ValueError(f"setting {clave}: valor no numerico: {valor!r}") from exc
-    if not numero.is_finite() or numero != numero.to_integral_value():
-        raise ValueError(f"setting {clave}: debe ser entero: {valor!r}")
-    entero = int(numero)
-    if not 1 <= entero <= 14:
-        raise ValueError(f"setting {clave}: fuera de cota [1, 14]: {entero}")
-    return entero
+    clave si falta o sale de cota (ninguna otra clave se lee aqui). El
+    ayudante es el unico de `app/precio/config.py` (REPRICING 02 0.a)."""
+    return _entero_config(settings, CLAVE_PRECIO_AVISO_DIAS, minimo=1, maximo=14)
 
 
 def flanco_nuevos(hoy, ayer) -> list:

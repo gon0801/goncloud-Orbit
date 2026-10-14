@@ -1110,18 +1110,25 @@ def _puros_precio(raiz=None):
 # `app.precio.*`, `app.estimacion_insumos` solo `mapear_canal`, y stdlib;
 # jamas red, reloj, `app.spapi.*` ni escritura: su candado propio esta al
 # final del archivo). Excepcion POR NOMBRE, en paralelo a la de A.1.
-EXCEPCIONES_PURAS_PRECIO = ("goals_write.py", "fuentes.py", "corrida.py", "cuota.py")
+EXCEPCIONES_PURAS_PRECIO = ("goals_write.py", "fuentes.py", "corrida.py", "cuota.py", "cambios.py")
 
 
 def test_precio_excepcion_por_nombre():
     """A.1 + A.7 + A.5: la excepcion de pureza es una tupla por nombre con
-    `goals_write.py`, `fuentes.py`, `corrida.py` y `cuota.py` y nada mas;
-    quitar el `rglob` o exceptuar la carpeta la rompe."""
-    assert EXCEPCIONES_PURAS_PRECIO == ("goals_write.py", "fuentes.py", "corrida.py", "cuota.py")
+    `goals_write.py`, `fuentes.py`, `corrida.py`, `cuota.py` y `cambios.py`
+    y nada mas; quitar el `rglob` o exceptuar la carpeta la rompe."""
+    assert EXCEPCIONES_PURAS_PRECIO == (
+        "goals_write.py",
+        "fuentes.py",
+        "corrida.py",
+        "cuota.py",
+        "cambios.py",
+    )
     assert (PRECIO / "goals_write.py").is_file()
     assert (PRECIO / "fuentes.py").is_file()
     assert (PRECIO / "corrida.py").is_file()
     assert (PRECIO / "cuota.py").is_file()
+    assert (PRECIO / "cambios.py").is_file()
     assert (PRECIO / "tipos.py").is_file()
 
 
@@ -1232,6 +1239,44 @@ def test_precio_init_tambien_se_escanea(tmp_path, monkeypatch):
     monkeypatch.setattr("test_architecture.PRECIO", tmp_path)
     with pytest.raises(AssertionError, match="__init__.py"):
         test_precio_puro_sin_io()
+
+
+_ADAPTADORES_PRECIO = ("app.spapi.precio_mercado", "app.meli.precio_mercado")
+
+
+def _importadores_de_adaptadores(raiz: Path) -> dict[str, set[str]]:
+    """Archivos de `app/` (fuera de precio_mercados) que importan un
+    adaptador de plataforma del motor de precios."""
+    fugas: dict[str, set[str]] = {}
+    for ruta in sorted(raiz.rglob("*.py")):
+        posix = ruta.relative_to(raiz).as_posix()
+        if posix == "precio_mercados.py":
+            continue
+        hallados = {
+            adaptador for adaptador in _ADAPTADORES_PRECIO if adaptador in _imports_runtime(ruta)
+        }
+        if hallados:
+            fugas[posix] = hallados
+    return fugas
+
+
+def test_precio_mercados_es_el_unico_importador_de_los_adaptadores():
+    """REPRICING 02 0.a: `app/precio_mercados.py` es la raiz de composicion,
+    el UNICO modulo que conoce a los dos adaptadores de plataforma. Todo lo
+    demas abre su mercado con `precio_mercados.abrir`."""
+    fugas = _importadores_de_adaptadores(APP)
+    assert not fugas, f"modulos que importan adaptadores directamente: {fugas}"
+
+
+def test_candado_precio_mercados_caza_fuga_sembrada(tmp_path):
+    """REPRICING 02 0.a, fuga sembrada: un modulo cualquiera que importe un
+    adaptador aparece nombrado por el candado."""
+    (tmp_path / "fuga_corrida.py").write_text(
+        "from app.meli.precio_mercado import MercadoMeli  # fuga\n",
+        encoding="utf-8",
+    )
+    fugas = _importadores_de_adaptadores(tmp_path)
+    assert fugas == {"fuga_corrida.py": {"app.meli.precio_mercado"}}
 
 
 def test_precio_frontera_caza_reloj_con_alias(tmp_path, monkeypatch):
@@ -1419,6 +1464,10 @@ PERMITIDOS_IMPORTAR_SPAPI_WRITE = {
         "escritor de precios (A.3): el dueno legitimo del PATCH a Listings;"
         " el tool llega por el, nunca directo"
     ),
+    "app/spapi/precio_mercado.py": (
+        "REPRICING 02 0.b: el adaptador valida la ruta del PATCH antes del"
+        " INSERT (r1-A2) y arma el escritor via `precio_write`; nunca PATCH directo"
+    ),
 }
 
 
@@ -1554,6 +1603,20 @@ ALLOWLIST_IMPORTS_PRECIO_REVERSA = frozenset(
         "psycopg",
         "psycopg.errors",
         "psycopg.errors.UniqueViolation",
+        "app.precio",
+        "app.precio.cambios",
+        "app.precio.cambios.CambioNoReversible",
+        "app.precio.cambios.DecisionSinAccion",
+        "app.precio.cambios.PublicacionSinSku",
+        "app.precio.cambios.aplicar",
+        "app.precio.cambios.cerrar_huerfanas",
+        "app.precio.cambios.cerrar_por_observacion",
+        "app.precio.cambios.revertir",
+        "app.precio.puerto",
+        "app.precio.puerto.EscrituraNoDisponible",
+        "app.precio_mercados",
+        "app.precio_mercados.abrir",
+        "app.precio_mercados.mercados",
         "app.spapi.precio_write",
         "app.spapi.precio_write.FormaParcheSinSellar",
         "argparse",
@@ -2012,11 +2075,8 @@ _PERMITIDOS_CORRIDA = (
     "psycopg",
     "app.precio.",
     "app.redaction",  # r2: hoja stdlib, solo `scrub` para errores del log y del gancho
-    "app.spapi.precio_write",
     "app.estimacion_reader",
-    "app.estimacion_fees",
     "app.estimacion_venta",
-    "app.estimacion_insumos",
 )
 
 # `app.spapi` y `app.estimacion_fees` estan vetados para el resto de
@@ -2036,9 +2096,10 @@ _PROHIBIDOS_IMPORTS_CORRIDA = tuple(
 _ESCRIBE_CORRIDA = (
     "precio_decision",
     "precio_cotizacion",
-    "precio_cambio",
     "ads_optimizer_lock",
 )
+
+_ESCRIBE_CAMBIOS = ("precio_cambio",)
 
 _ESCRIBE_CUOTA = ("apply_quota_state",)
 
@@ -2127,8 +2188,14 @@ def test_corrida_sin_reloj_ni_dinamico():
 
 
 def test_corrida_solo_escribe_sus_tablas():
-    """A.5: `corrida.py` escribe solo sus cuatro tablas (ni Ads ni ingest)."""
+    """A.5 + REPRICING 02 0.b: `corrida.py` escribe solo sus tablas (ni Ads
+    ni ingest; `precio_cambio` lo escribe `cambios.py`)."""
     assert _tablas_escritas(PRECIO / "corrida.py") == sorted(_ESCRIBE_CORRIDA)
+
+
+def test_cambios_solo_escribe_precio_cambio():
+    """REPRICING 02 0.b: `cambios.py` es el UNICO escritor de `precio_cambio`."""
+    assert _tablas_escritas(PRECIO / "cambios.py") == sorted(_ESCRIBE_CAMBIOS)
 
 
 def test_cuota_solo_importa_psycopg_y_stdlib():

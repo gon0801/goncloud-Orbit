@@ -486,101 +486,10 @@ def _clientes_precio(platform: str):
 
 
 def _precio(args: argparse.Namespace) -> int:
-    """Corrida diaria del motor de precios o su reporte (REPRICING 01 A.5)."""
-    # D9 (r3): import tardio (un error de import de esta cadena no tumba
-    # `ingest` ni `cycle`).
-    from app.precio import corrida as corrida_precios
+    """Comando `precio` (vive en `app/cli_precio.py` desde REPRICING 02 0.b)."""
+    from app import cli_precio
 
-    if args.reporte:
-        if not args.desde or not args.hasta:
-            print("precio --reporte exige --desde y --hasta (YYYY-MM-DD)", file=sys.stderr)
-            return 2
-        try:
-            desde = dt.date.fromisoformat(args.desde)
-            hasta = dt.date.fromisoformat(args.hasta)
-        except ValueError:
-            print("precio --reporte: fechas invalidas (YYYY-MM-DD)", file=sys.stderr)
-            return 2
-        if desde > hasta:
-            # K8b: ventana invertida = error de uso, exit 2 con mensaje.
-            print(
-                f"precio --reporte con ventana invertida: --desde ({desde}) posterior a"
-                f" --hasta ({hasta})",
-                file=sys.stderr,
-            )
-            return 2
-        dsn = os.environ.get("ORBIT_DSN_READ", "")
-        if not dsn:
-            print("precio --reporte exige ORBIT_DSN_READ", file=sys.stderr)
-            return 2
-        try:
-            conn = connect(dsn, autocommit=True)
-        except Exception as exc:  # noqa: BLE001 - como `_cycle`: scrubbado y != 0
-            print(f"precio: {scrub(str(exc)) or exc.__class__.__name__}", file=sys.stderr)
-            return 1
-        try:
-            for linea in corrida_precios.reporte(
-                conn, desde=desde, hasta=hasta, platform=args.platform
-            ):
-                print(linea)
-        except Exception as exc:  # noqa: BLE001 - D7: como la corrida, scrubbado y != 0
-            print(f"precio: {scrub(str(exc)) or exc.__class__.__name__}", file=sys.stderr)
-            return 1
-        finally:
-            conn.close()
-        return 0
-    if not args.reporte and (args.desde or args.hasta):
-        # B5 (r3): las fechas sin `--reporte` se ignorarian y correria la
-        # corrida real: error de uso antes de conectar.
-        print("precio: --desde/--hasta solo con --reporte", file=sys.stderr)
-        return 2
-    if not args.platform:
-        print("precio exige --platform (amazon_mx|amazon_us|meli)", file=sys.stderr)
-        return 2
-    try:
-        conn, cerrar = _conexion_decide()
-    except _FaltaDsn as exc:
-        print(f"precio exige {exc}", file=sys.stderr)
-        return 2
-    except Exception as exc:  # noqa: BLE001 - K6: como `_cycle`, scrubbado y != 0
-        print(f"precio: {scrub(str(exc)) or exc.__class__.__name__}", file=sys.stderr)
-        return 1
-    try:
-        lector, escritor, fees, limitador = _clientes_precio(args.platform)
-        # C (r1): el import de avisos vive en la rama que llama a `correr`,
-        # no antes de `--reporte` (el reporte no avisa ni necesita Telegram).
-        from app.notifica import avisar_precio
-
-        resumen = corrida_precios.correr(
-            conn,
-            args.platform,
-            lector=lector,
-            escritor=escritor,
-            fees=fees,
-            limitador=limitador,
-            owner=f"{socket.gethostname()}:{os.getpid()}",
-            avisar=avisar_precio,
-        )
-    except corrida_precios.ConfigInvalida as exc:
-        # K8 (r4): config ausente o uso invalido = exit 2 (ver `main`).
-        print(f"precio: {exc}", file=sys.stderr)
-        return 2
-    except corrida_precios.LockOcupado as exc:
-        print(f"precio: {exc}", file=sys.stderr)
-        return 0
-    except Exception as exc:  # noqa: BLE001 - el CLI solo reporta, sin secretos
-        print(f"precio: {scrub(str(exc)) or exc.__class__.__name__}", file=sys.stderr)
-        return 1
-    finally:
-        cerrar()
-    for linea in resumen.lineas:
-        print(linea)
-    print(f"decisiones={resumen.decisiones} escritas={resumen.escritas}")
-    for error in resumen.errores:
-        print(f"precio: {scrub(error)}", file=sys.stderr)
-    if resumen.errores:
-        return 1
-    return 0
+    return cli_precio.main_precio(args)
 
 
 def _construye_parser() -> argparse.ArgumentParser:
@@ -807,19 +716,9 @@ def _construye_parser() -> argparse.ArgumentParser:
         "jev-senales",
         help="sella la senal Jev por busqueda-en-grupo (seco salvo --aplicar)",
     )
-    p_precio = sub.add_parser(
-        "precio",
-        help="corrida diaria del motor de precios (--platform) o resumen (--reporte)",
-    )
-    p_precio.add_argument(
-        "--platform",
-        default=None,
-        choices=("amazon_mx", "amazon_us", "meli"),
-        help="plataforma de la corrida (el cron solo agenda amazon_mx)",
-    )
-    p_precio.add_argument("--reporte", action="store_true", help="resumen de solo lectura")
-    p_precio.add_argument("--desde", default=None, help="YYYY-MM-DD (con --reporte)")
-    p_precio.add_argument("--hasta", default=None, help="YYYY-MM-DD (con --reporte)")
+    from app import cli_precio
+
+    cli_precio.registra(sub)
     cli_bids.registra(sub)
 
     return parser

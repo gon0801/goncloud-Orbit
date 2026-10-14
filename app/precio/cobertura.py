@@ -19,13 +19,13 @@ claves de config.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
 
 __all__ = [
     "RESULTADOS_EVALUADOS",
-    "FASE_FBM",
-    "FASE_MELI",
+    "UNIVERSO_APAGADO",
     "FilaPublicacion",
     "DetalleSinGoal",
     "Recuadro",
@@ -35,8 +35,7 @@ __all__ = [
 ]
 
 RESULTADOS_EVALUADOS = ("subir", "bajar", "mantener", "frenado", "goal_inalcanzable")
-FASE_FBM = "fase_E_envio_fbm"
-FASE_MELI = "fase_M_meli"
+UNIVERSO_APAGADO = "universo_apagado"
 
 
 @dataclass(frozen=True)
@@ -67,6 +66,7 @@ class DetalleSinGoal:
     precio: Decimal | None
     moneda: str | None
     canal: str | None
+    listing_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -83,12 +83,17 @@ class Recuadro:
     avisos: tuple[str, ...]
 
 
-def _fase_fuera_de_alcance(fila: FilaPublicacion) -> str | None:
-    if fila.platform == "meli":
-        return FASE_MELI
-    if fila.canal == "fbm":
-        return FASE_FBM
-    return None
+def _universo_apagado(
+    fila: FilaPublicacion, universos: Mapping[tuple[str, str | None], bool] | None
+) -> str | None:
+    """`universo_apagado` cuando el modo del universo (plataforma/canal)
+    esta apagado. Sin mapa (`None`: config vieja sin `precio_modo_global`)
+    nada esta apagado (fail-open al comportamiento de hoy)."""
+    if universos is None:
+        return None
+    if universos.get((fila.platform, fila.canal), False):
+        return None
+    return UNIVERSO_APAGADO
 
 
 def _motivo_no_evaluada(fila: FilaPublicacion, max_dias: int) -> str | None:
@@ -109,17 +114,28 @@ def _motivo_no_evaluada(fila: FilaPublicacion, max_dias: int) -> str | None:
     return None
 
 
-def armar_recuadro(filas: list[FilaPublicacion], *, platform: str, max_dias: int) -> Recuadro:
-    """Clasifica las activas de `platform` en el recuadro S10."""
+def armar_recuadro(
+    filas: list[FilaPublicacion],
+    *,
+    platform: str,
+    max_dias: int,
+    universos: Mapping[tuple[str, str | None], bool] | None = None,
+) -> Recuadro:
+    """Clasifica las activas de `platform` en el recuadro S10.
+
+    `universos` mapea `(plataforma, canal)` a encendido (`True`); lo arma
+    `fuentes` con `config.leer_config_motor`. `None` = config vieja: todo
+    encendido (comportamiento de hoy).
+    """
     propias = [f for f in filas if f.platform == platform]
     evaluadas = 0
     no_evaluadas: dict[str, int] = {}
     sin_goal: list[DetalleSinGoal] = []
     fuera: dict[str, int] = {}
     for fila in propias:
-        fase = _fase_fuera_de_alcance(fila)
-        if fase is not None:
-            fuera[fase] = fuera.get(fase, 0) + 1
+        apagado = _universo_apagado(fila, universos)
+        if apagado is not None:
+            fuera[apagado] = fuera.get(apagado, 0) + 1
             continue
         motivo = _motivo_no_evaluada(fila, max_dias)
         if motivo == "catalogo_desactualizado":
@@ -132,6 +148,7 @@ def armar_recuadro(filas: list[FilaPublicacion], *, platform: str, max_dias: int
                     precio=fila.precio,
                     moneda=fila.moneda,
                     canal=fila.canal,
+                    listing_id=fila.listing_id,
                 )
             )
             continue

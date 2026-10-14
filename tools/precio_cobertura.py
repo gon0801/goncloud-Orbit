@@ -18,6 +18,7 @@ import sys
 
 import psycopg
 
+from app import precio_mercados as mercados
 from app.db import OrbitDbError, connect
 from app.precio.cobertura import (
     armar_recuadro,
@@ -30,6 +31,7 @@ from app.precio.fuentes import (
     hoy_base,
     leer_publicaciones,
     max_dias_desde_settings,
+    universos_encendidos,
 )
 
 
@@ -69,12 +71,14 @@ def main(argv=None) -> int:
         try:
             hoy = hoy_base(conn)
             max_dias = max_dias_desde_settings(config_vigente_settings(conn))
-            filas = leer_publicaciones(conn, platform=args.platform, hoy=hoy)
+            with mercados.abrir(args.platform) as vitrina:
+                filas = leer_publicaciones(conn, vitrina, hoy=hoy)
+            universos = universos_encendidos(conn)
             identidad = contar_listing_identidad(conn, platform=args.platform)
         except (psycopg.Error, ValueError) as exc:
             print(f"precio_cobertura: {exc}", file=sys.stderr)
             return 2
-        rec = armar_recuadro(filas, platform=args.platform, max_dias=max_dias)
+        rec = armar_recuadro(filas, platform=args.platform, max_dias=max_dias, universos=universos)
         marca = "[CUADRA]" if cuadra_exact(rec) else "[NO-CUADRA]"
         no_ev = " ".join(f"{m}={n}" for m, n in rec.no_evaluadas)
         fuera = " ".join(f"{f}={n}" for f, n in rec.fuera_de_alcance)
