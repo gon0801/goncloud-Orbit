@@ -1,14 +1,17 @@
-"""Corrida diaria del motor de precios (REPRICING 01 A.5 + 02 0.b).
+"""Corrida diaria del motor de precios (REPRICING 01 A.5 + 02 S.1).
 
 Camino por plataforma: claim en `ads_optimizer_lock` (`precio:<platform>`,
 patron copiado de `app/cycle.py`, NO importado: `cycle` trae `app.apply`)
-+ advisory lock de sesion; huerfanas a `error`; cierre por observacion;
-decide todos los goals vigentes (uno por listing: la segunda corrida del
-dia salta los ya decididos por el UNIQUE); ordena por prioridad; reparte
-el cupo (`repartir_cupo`, una llamada por plataforma); aplica `live` con
-`cambios.aplicar` (orden INSERT+COMMIT -> PATCH -> sello) bajo
-`app/precio/cuota.py`; en `shadow` inserta el cambio virtual
-(`confirmado`/`virtual`, sin PATCH); libera el claim al salir.
++ advisory lock de sesion; fila `precio_corrida` (las `abierta` viejas
+pasan a `abortada`); huerfanas a `error`; cierre por observacion; decidir
+(persiste una decision por goal vigente sin decision hoy: la segunda
+corrida del dia salta los ya decididos por el UNIQUE); compuerta (S.1:
+siempre deja pasar); aplicar (lee lo pendiente de hoy de la base y aplica
+`live` con `cambios.aplicar`, orden INSERT+COMMIT -> PATCH -> sello; en
+`shadow` inserta el cambio virtual `confirmado`/`virtual`, sin PATCH);
+cierra la fila; libera el claim al salir. Sin fase "en memoria": lo que
+un paso deja, el siguiente lo lee de la base. Se puede lanzar N veces al
+dia: converge (REPRICING 02 S.1 mato el cupo y la prioridad).
 
 La corrida recibe UN `Mercado` duck-typed y no conoce Amazon. Los
 insumos del dia salen de `mercado.insumos` (UNA llamada por lote tras
@@ -26,13 +29,11 @@ Los frenos de S6 salen `frenado(api_error)` (dias de `error` segun
 config), `frenado(no_confirmado)` (el ultimo cambio real desde el goal
 vigente no lo confirmo la observacion; se reanuda con un goal nuevo) y
 el detalle va al log: `MOTIVOS_FRENADO` vive en `app/precio/tipos.py`.
-`ingreso_60d` es la suma de `sale` del producto en [hoy-75, hoy-16] en la
-moneda del escenario (NULL si no hay). `decisiones` cuenta filas
-`precio_decision` del dia persistidas (B.2: lo que no dejo fila no cuenta
-ni sale en lineas); `escritas` cuenta cambios reales creados (= PATCH
-intentados). Toda decision guarda `goal_id` y `l_origen='politica`;
-`subir`/`bajar` guardan `verificacion='cotizada'` (la maquina siempre
-cotiza en este paso).
+`decisiones` cuenta filas `precio_decision` persistidas por esta corrida
+(B.2: lo que no dejo fila no cuenta ni sale en lineas); `escritas` cuenta
+cambios reales creados por esta corrida (= PATCH intentados). Toda
+decision guarda `goal_id` y `l_origen='politica`; `subir`/`bajar` guardan
+`verificacion='cotizada'` (la maquina siempre cotiza en este paso).
 """
 
 from __future__ import annotations
@@ -41,21 +42,23 @@ import logging
 from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
+from types import SimpleNamespace
 
 import psycopg
 import psycopg.errors
 from psycopg.types.json import Json
 
 import app.precio.cambios as cambios_mod
-import app.precio.cuota as cuota_mod
 from app.estimacion_venta import DetalleFee
 from app.precio.config import ConfigPrecio, leer_config
 from app.precio.config import _entero as _entero_config
+from app.precio.config import _modo as _modo_config
 from app.precio.puerto import EscrituraNoDisponible, Miembro, UnidadPrecio
-from app.precio.reglas import decidir, repartir_cupo
+from app.precio.reglas import decidir
 from app.precio.tipos import (
     Decision,
     EntradaDecision,
+    Importe,
     PideCotizacion,
     motivo_permitido,
 )
@@ -80,7 +83,7 @@ class LockOcupado(Exception):
 
 
 class ConfigInvalida(ValueError):
-    """La config no sirve para correr (cap fuera de cota, clave ausente):
+    """La config no sirve para correr (clave ausente o fuera de cota):
     error de uso/config, no un fallo de la corrida (K8: el CLI sale 2)."""
 
 
@@ -249,7 +252,6 @@ def _no_evaluado(goal: Decimal, mode: str, motivo: str, diagnostico: str = "") -
         n60=None,
         racha=None,
         perdiendo=None,
-        prioridad=None,
         aplicado=False,
         mode=mode,
     )
@@ -273,7 +275,6 @@ def _frenado(goal: Decimal, mode: str, motivo: str, diagnostico: str) -> Decisio
         n60=None,
         racha=None,
         perdiendo=None,
-        prioridad=None,
         aplicado=False,
         mode=mode,
     )
@@ -471,10 +472,10 @@ def persistir_decision(
         " p_aplicado, p_aplicado_currency, i_valor, i_currency, c_valor, c_currency,"
         " f_valor, f_currency, l_valor, l_currency, r_valor, r_currency, escenario_id,"
         " fee_observation_id, cotizacion_id, u15, u60, n15, n60, racha_senal, perdiendo,"
-        " buy_box_is_own, mode, prioridad, config_version_id, goal_id, l_origen, verificacion)"
+        " buy_box_is_own, mode, config_version_id, goal_id, l_origen, verificacion)"
         " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,"
         " %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,"
-        " %s, %s)"
+        " %s)"
         " RETURNING id",
         (
             listing_id,
@@ -512,7 +513,6 @@ def persistir_decision(
             decision.perdiendo,
             decision.buy_box_is_own,
             decision.mode,
-            decision.prioridad,
             config_version_id,
             goal_id,
             l_origen,
@@ -525,108 +525,33 @@ def _linea(lid: int, platform: str, mode: str, decision: Decision) -> str:
     return f"listing={lid} {platform} {mode} {decision.resultado} {decision.motivo or '-'}"
 
 
-def _fase3_uno(
+def _persistir_uno(
     conn: psycopg.Connection,
+    decision: Decision,
     *,
     lid: int,
-    decision: Decision,
-    meta,
+    mode: str,
     prod_id: int,
     canal,
+    meta,
     platform: str,
     goal_id: int,
-    hoy: date,
-    cap: int,
-    agotado: bool,
-    parche_sin_sellar: bool,
-    mercado,
     cfg_id,
-    ahora: datetime,
-):
-    """Un goal de fase 3: reserva, persiste y aplica.
+    lineas: list,
+    errores: list,
+) -> tuple[int, int]:
+    """Persiste UNA decision ya decidida; devuelve `(persistida, saltada)` (0/1).
 
-    Devuelve `(decision_salida, escritas, agotado, parche_sin_sellar, error,
-    persistida)`. B.4: una publicacion no tumba a las demas
-    —`EscrituraNoDisponible` ademas deja de aplicar `live` el resto de la
-    corrida (fallaria igual en cada una y quemaria cupo); un `ValueError`
-    en `persistir` (p. ej. `moneda_contexto` sin moneda observable, K8) no
-    puede persistir; un error de base (`psycopg.Error`) aborta: no es una
-    publicacion, es la infra. Rama de parche sin sellar (B.1): la decision
-    SE persiste (`compite` trae `meta` con cotizacion) pero SIN reservar
-    (no gasta cupo), sin escritura y sin virtual —un virtual afirmaria una
-    aplicacion que no ocurrio; la pantalla lee "decidido sin cambio" mas el
-    error del resumen. `persistida` dice si quedo la fila (B.2: el que
-    llama solo cuenta y alinea lo persistido).
+    B.2: lo que no dejo fila no cuenta ni sale en lineas (la linea la agrega
+    aqui mismo). `goal_reemplazado` (el dueno reedito el goal a media
+    corrida): sin fila, error `goal_cambiado`, `saltada=True`. Cualquier otro
+    fallo que no es de base (p. ej. `moneda_contexto` sin moneda observable,
+    K8): sin fila, error. Un error de base (`psycopg.Error`) aborta: no es
+    una publicacion, es la infra.
     """
-    compite = decision.resultado in ("subir", "bajar") and decision.aplicado
-    persistida = False
+    verificacion = "cotizada" if decision.resultado in ("subir", "bajar") else None
     try:
-        if compite and parche_sin_sellar:
-            persistir_decision(
-                conn,
-                decision,
-                listing_id=lid,
-                platform=platform,
-                product_id=prod_id,
-                canal=canal,
-                escenario_id=meta["escenario_id"],
-                fee_observation_id=meta["fee_observation_id"],
-                cotizacion_id=meta["cotizacion_id"],
-                config_version_id=cfg_id,
-                goal_id=goal_id,
-                l_origen="politica",
-                verificacion="cotizada",
-            )
-            return (
-                decision,
-                0,
-                agotado,
-                True,
-                "parche_sin_sellar: sin escritura el resto de la corrida",
-                True,
-            )
-        # K4: las reversas se cuentan al reservar, no solo al arrancar (el
-        # dueno puede revertir a media corrida). B7: defensa en profundidad
-        # (el invariante lo sostienen `reglas` y el chequeo de
-        # `cambios.aplicar`): la escritura solo en `live`. K1: la reserva
-        # cobra aunque `aplicar` salte sin fila (no se devuelve: `used` es
-        # monotono por la 0002).
-        reservado = (
-            compite
-            and decision.mode == "live"
-            and not agotado
-            and cuota_mod.reservar(
-                conn,
-                platform=platform,
-                cap=cap,
-                extra=cuota_mod.reversas_hoy(conn, platform, hoy),
-            )
-        )
-        if compite and not reservado:
-            agotado = True
-            decision = _cuota_reescrita(decision)
-        if compite and reservado:
-            did = persistir_decision(
-                conn,
-                decision,
-                listing_id=lid,
-                platform=platform,
-                product_id=prod_id,
-                canal=canal,
-                escenario_id=meta["escenario_id"],
-                fee_observation_id=meta["fee_observation_id"],
-                cotizacion_id=meta["cotizacion_id"],
-                config_version_id=cfg_id,
-                goal_id=goal_id,
-                l_origen="politica",
-                verificacion="cotizada",
-            )
-            persistida = True
-            res = cambios_mod.aplicar(conn, mercado, did, ahora=ahora)
-            escritas_1 = 1 if res.id_cambio is not None else 0
-            return decision, escritas_1, agotado, parche_sin_sellar, None, True
-        verificacion = "cotizada" if decision.resultado in ("subir", "bajar") else None
-        did = persistir_decision(
+        persistir_decision(
             conn,
             decision,
             listing_id=lid,
@@ -641,65 +566,28 @@ def _fase3_uno(
             l_origen="politica",
             verificacion=verificacion,
         )
-        persistida = True
-        # B7: el virtual solo en `shadow` (un `live` sin aplicar no afirma
-        # aplicacion; el trigger lo frenaria, pero la guarda va en codigo).
-        if decision.resultado in ("subir", "bajar") and decision.mode == "shadow":
-            cambios_mod.insertar_virtual(conn, did, lid, platform, decision, ahora)
-        return decision, 0, agotado, parche_sin_sellar, None, True
     except psycopg.errors.CheckViolation as exc:
         # El goal se reedito a media corrida (`goal_reemplazado` de la
         # 0054): la publicacion no deja fila (sin motivo en vocabulario
         # para reedicion) y el error scrubbado va al resumen (B2).
         if "goal_reemplazado" not in str(exc):
             raise
-        return decision, 0, agotado, parche_sin_sellar, f"goal_cambiado: {exc}", False
+        msg = scrub(f"listing={lid} {platform} goal_cambiado: {exc}")
+        logger.error("corrida %s", msg)
+        errores.append(msg)
+        return 0, 1
     except psycopg.Error:
         raise
-    except EscrituraNoDisponible as exc:
-        return decision, 0, agotado, True, f"parche_sin_sellar: {exc}", persistida
     except Exception as exc:  # noqa: BLE001 - una publicacion no tumba a las demas
-        return (
-            decision,
-            0,
-            agotado,
-            parche_sin_sellar,
-            f"{exc.__class__.__name__}: {exc}",
-            persistida,
-        )
+        msg = scrub(f"listing={lid} {platform} {exc.__class__.__name__}: {exc}")
+        logger.error("corrida %s", msg)
+        errores.append(msg)
+        return 0, 0
+    lineas.append(_linea(lid, platform, mode, decision))
+    return 1, 0
 
 
-def _aislar_falla_fase1(
-    *,
-    goal_pct,
-    mode: str,
-    lid: int,
-    platform: str,
-    prod_id: int,
-    plan: list,
-    errores: list,
-    exc: Exception,
-) -> None:
-    """B1 (r3): fase 1 aislada como la fase 3.
-
-    La publicacion sale `no_evaluado(escenario_incoherente)` y el error
-    scrubbado va al log y a `errores` (B2: tambien el `diagnostico`, que
-    `_no_evaluado` loguea en INFO).
-    """
-    msg = scrub(f"listing={lid} {platform} fase1: {exc.__class__.__name__}: {exc}")
-    logger.error("corrida %s", msg)
-    errores.append(msg)
-    plan.append(
-        (
-            lid,
-            _no_evaluado(Decimal(goal_pct), mode, "escenario_incoherente", msg),
-            None,
-            prod_id,
-        )
-    )
-
-
-def _fase1_lectura(
+def _decidir_lectura(
     conn: psycopg.Connection,
     *,
     lectura,
@@ -711,17 +599,28 @@ def _fase1_lectura(
     hoy: date,
     config: ConfigPrecio,
     mercado,
-    plan: list,
+    goal_id: int,
+    cfg_id,
+    lineas: list,
     errores: list,
-) -> None:
-    """Un goal de fase 1 sobre su Lectura del lote: maquina, sin persistir.
+) -> tuple[int, int]:
+    """Una unidad de decidir sobre su Lectura del lote: maquina y persistencia.
 
-    Agrega `(lid, decision, meta, prod_id)` a `plan` (`meta` es None cuando
-    no hay ids que persistir). `psycopg.Error` sale (es infra); un
-    `ValueError` del mercado (cotizacion guardada que no coincide, oferta
+    Devuelve `(persistida, saltada)` (0/1). `psycopg.Error` sale (es infra);
+    un `ValueError` del mercado (cotizacion guardada que no coincide, oferta
     ausente) sale `no_evaluado(escenario_incoherente)`; cualquier otra
     excepcion aisla la publicacion (B1).
     """
+    comun = {
+        "lid": lid,
+        "mode": mode,
+        "prod_id": prod_id,
+        "platform": platform,
+        "goal_id": goal_id,
+        "cfg_id": cfg_id,
+        "lineas": lineas,
+        "errores": errores,
+    }
     if lectura.entrada is None:
         motivo = lectura.motivo or "estimacion_motivo_desconocido"
         diagnostico = lectura.diagnostico or f"listing {lid} sin entrada"
@@ -731,19 +630,10 @@ def _fase1_lectura(
             errores.append(msg)
         if not motivo_permitido("no_evaluado", motivo):
             crudo = f"motivo_estimacion={motivo!r} {diagnostico}"
-            plan.append(
-                (
-                    lid,
-                    _no_evaluado(Decimal(goal_pct), mode, "estimacion_motivo_desconocido", crudo),
-                    None,
-                    prod_id,
-                )
-            )
-            return
-        plan.append(
-            (lid, _no_evaluado(Decimal(goal_pct), mode, motivo, diagnostico), None, prod_id)
-        )
-        return
+            decision = _no_evaluado(Decimal(goal_pct), mode, "estimacion_motivo_desconocido", crudo)
+        else:
+            decision = _no_evaluado(Decimal(goal_pct), mode, motivo, diagnostico)
+        return _persistir_uno(conn, decision, canal=None, meta=None, **comun)
     entrada = lectura.entrada
     try:
         decision, cotiz_id = cotizar_y_decidir(
@@ -757,36 +647,310 @@ def _fase1_lectura(
             fees_escenario=lectura.fees_escenario,
         )
     except ValueError as exc:
-        plan.append(
+        return _persistir_uno(
+            conn,
+            _no_evaluado(Decimal(goal_pct), mode, "escenario_incoherente", str(exc)),
+            canal=None,
+            meta=None,
+            **comun,
+        )
+    except psycopg.Error:
+        raise
+    except Exception as exc:  # noqa: BLE001 - decidir aislado por publicacion (B1)
+        msg = scrub(f"listing={lid} {platform} fase1: {exc.__class__.__name__}: {exc}")
+        logger.error("corrida %s", msg)
+        errores.append(msg)
+        return _persistir_uno(
+            conn,
+            _no_evaluado(Decimal(goal_pct), mode, "escenario_incoherente", msg),
+            canal=None,
+            meta=None,
+            **comun,
+        )
+    meta = {**lectura.ids, "cotizacion_id": cotiz_id, "canal": entrada.canal}
+    return _persistir_uno(conn, decision, canal=entrada.canal, meta=meta, **comun)
+
+
+def _decidir_pendientes(
+    conn: psycopg.Connection,
+    mercado,
+    config: ConfigPrecio,
+    hoy: date,
+    ahora: datetime,
+    *,
+    owner: str,
+    freno_dias: int,
+    cfg_id,
+) -> tuple[int, list[str], list[str], int]:
+    """Una decision persistida por goal vigente sin decision hoy (J).
+
+    Frenos por unidad (antes de pedir insumos), UNA llamada
+    `mercado.insumos` por lote para las no frenadas y, por unidad, la
+    maquina de cotizaciones con su `persistir_decision`. Devuelve
+    `(decisiones, lineas, errores, saltadas)`: `saltadas` cuenta las
+    publicaciones sin fila por reedicion del goal a media corrida. Lo que
+    este paso deja, `_aplicar_pendientes` lo lee de la base.
+    """
+    platform = mercado.clave
+    goals = conn.execute(
+        "SELECT g.id, g.listing_id, g.platform, g.mode::text, g.margen_goal_pct,"
+        " g.valid_from, l.product_id, l.external_id, l.seller_sku"
+        " FROM precio_goal g JOIN listing l"
+        " ON l.id = g.listing_id AND l.platform = g.platform"
+        " WHERE g.platform = %s AND g.valid_from <= %s"
+        " AND (g.valid_to IS NULL OR g.valid_to > %s)"
+        " ORDER BY g.listing_id",
+        (platform, hoy, hoy),
+    ).fetchall()
+    decididas = {
+        f[0]
+        for f in conn.execute(
+            "SELECT listing_id FROM precio_decision WHERE platform = %s AND decision_date = %s",
+            (platform, hoy),
+        ).fetchall()
+    }
+    decisiones = 0
+    saltadas = 0
+    lineas: list[str] = []
+    errores: list[str] = []
+    goal_de: dict[int, int] = {}
+    lote: list = []
+    for gid, lid, plat, mode, goal_pct, vigente_desde, prod_id, ext, sku in goals:
+        if lid in decididas:
+            continue
+        goal_de[lid] = gid
+        _latir_claim(conn, platform, owner)
+        if freno_no_confirmado(conn, lid, plat, desde=vigente_desde):
+            persistida, saltada = _persistir_uno(
+                conn,
+                _frenado(
+                    Decimal(goal_pct),
+                    mode,
+                    "no_confirmado",
+                    "ultimo cambio real sin confirmar desde el goal vigente",
+                ),
+                lid=lid,
+                mode=mode,
+                prod_id=prod_id,
+                canal=None,
+                meta=None,
+                platform=platform,
+                goal_id=gid,
+                cfg_id=cfg_id,
+                lineas=lineas,
+                errores=errores,
+            )
+            decisiones += persistida
+            saltadas += saltada
+            continue
+        if freno_por_error(conn, lid, plat, hoy, dias=freno_dias, desde=vigente_desde):
+            persistida, saltada = _persistir_uno(
+                conn,
+                _frenado(
+                    Decimal(goal_pct),
+                    mode,
+                    "api_error",
+                    f"error en los {freno_dias} dias previos",
+                ),
+                lid=lid,
+                mode=mode,
+                prod_id=prod_id,
+                canal=None,
+                meta=None,
+                platform=platform,
+                goal_id=gid,
+                cfg_id=cfg_id,
+                lineas=lineas,
+                errores=errores,
+            )
+            decisiones += persistida
+            saltadas += saltada
+            continue
+        lote.append(
             (
-                lid,
-                _no_evaluado(Decimal(goal_pct), mode, "escenario_incoherente", str(exc)),
-                None,
+                UnidadPrecio(
+                    listing_id=lid,
+                    plataforma=platform,
+                    externo=ext,
+                    canal=None,
+                    producto_ancla=prod_id,
+                    miembros=(Miembro(prod_id, sku, None),),
+                ),
+                mode,
+                goal_pct,
+                vigente_desde,
                 prod_id,
             )
         )
-        return
-    except psycopg.Error:
-        raise
-    except Exception as exc:  # noqa: BLE001 - fase 1 aislada como la fase 3 (B1)
-        _aislar_falla_fase1(
-            goal_pct=goal_pct,
-            mode=mode,
-            lid=lid,
-            platform=platform,
-            prod_id=prod_id,
-            plan=plan,
-            errores=errores,
-            exc=exc,
+
+    if lote:
+        metas = {
+            unidad.listing_id: _MetaGoal(
+                goal=Decimal(goal_pct), mode=mode, goal_vigente_desde=vigente
+            )
+            for (unidad, mode, goal_pct, vigente, _prod) in lote
+        }
+        lecturas = mercado.insumos(
+            conn,
+            tuple(unidad for (unidad, *_resto) in lote),
+            hoy=hoy,
+            ahora=ahora,
+            config=config,
+            metas=metas,
         )
-        return
-    plan.append(
-        (
-            lid,
-            decision,
-            {**lectura.ids, "cotizacion_id": cotiz_id, "canal": entrada.canal},
-            prod_id,
-        )
+        for unidad, mode, goal_pct, _vigente, prod_id in lote:
+            persistida, saltada = _decidir_lectura(
+                conn,
+                lectura=lecturas[unidad.listing_id],
+                lid=unidad.listing_id,
+                mode=mode,
+                goal_pct=goal_pct,
+                prod_id=prod_id,
+                platform=platform,
+                hoy=hoy,
+                config=config,
+                mercado=mercado,
+                goal_id=goal_de[unidad.listing_id],
+                cfg_id=cfg_id,
+                lineas=lineas,
+                errores=errores,
+            )
+            decisiones += persistida
+            saltadas += saltada
+    return decisiones, lineas, errores, saltadas
+
+
+def _medir_compuerta(
+    conn: psycopg.Connection, plataforma: str, hoy: date, config: ConfigPrecio
+) -> dict:
+    """S.1: la compuerta siempre deja pasar (S.3 la implementa: fusible por
+    universo, insumo sistemico, corte por errores y retenciones).
+
+    Corre entre decidir y aplicar, sobre filas guardadas: punto de sabotaje
+    de las pruebas (matarla aqui deja lo decidido sin aplicar).
+    """
+    return {}
+
+
+def _aplicar_pendientes(
+    conn: psycopg.Connection,
+    mercado,
+    veredictos: dict,
+    hoy: date,
+    *,
+    owner: str,
+    ahora: datetime,
+) -> tuple[int, int, list[str]]:
+    """Aplica lo pendiente de HOY que la compuerta deja pasar (J).
+
+    Pendiente = decision de hoy `subir`/`bajar` sin cambio con efecto (ni
+    real ni virtual). Nunca una decision de ayer: su escenario ya no vale.
+    En orden de listing_id. S.1: `veredictos` siempre deja pasar. Devuelve
+    `(escritas, virtuales, errores)`: `escritas` cuenta cambios reales
+    creados (= PATCH intentados); una publicacion no tumba a las demas
+    (B.4); `EscrituraNoDisponible` deja de aplicar `live` el resto de la
+    corrida (fallaria igual en cada una y lo pendiente se reintenta en la
+    siguiente); un error de base aborta.
+    """
+    platform = mercado.clave
+    pendientes = conn.execute(
+        "SELECT d.id, d.listing_id, d.mode, d.p_actual, d.p_actual_currency,"
+        " d.p_aplicado, d.p_aplicado_currency"
+        " FROM precio_decision d"
+        " WHERE d.platform = %s AND d.decision_date = %s"
+        " AND d.resultado IN ('subir', 'bajar')"
+        " AND NOT EXISTS (SELECT 1 FROM precio_cambio c WHERE c.decision_id = d.id)"
+        " ORDER BY d.listing_id",
+        (platform, hoy),
+    ).fetchall()
+    escritas = 0
+    virtuales = 0
+    errores: list[str] = []
+    parche_sin_sellar = False
+    for did, lid, mode, p_actual, p_actual_mon, p_aplicado, p_aplicado_mon in pendientes:
+        _latir_claim(conn, platform, owner)
+        if mode == "shadow":
+            try:
+                cambios_mod.insertar_virtual(
+                    conn,
+                    did,
+                    lid,
+                    platform,
+                    SimpleNamespace(
+                        p_actual=Importe(Decimal(p_actual), p_actual_mon),
+                        p_aplicado=Importe(Decimal(p_aplicado), p_aplicado_mon),
+                    ),
+                    ahora,
+                )
+            except psycopg.Error:
+                raise
+            except Exception as exc:  # noqa: BLE001 - una publicacion no tumba a las demas
+                msg = scrub(f"listing={lid} {platform} {exc.__class__.__name__}: {exc}")
+                logger.error("corrida %s", msg)
+                errores.append(msg)
+                continue
+            virtuales += 1
+            continue
+        if mode != "live":
+            msg = scrub(f"listing={lid} {platform} modo_desconocido: {mode!r}")
+            logger.error("corrida %s", msg)
+            errores.append(msg)
+            continue
+        if parche_sin_sellar:
+            continue
+        try:
+            res = cambios_mod.aplicar(conn, mercado, did, ahora=ahora)
+        except psycopg.Error:
+            raise
+        except EscrituraNoDisponible as exc:
+            msg = scrub(f"listing={lid} {platform} parche_sin_sellar: {exc}")
+            logger.error("corrida %s", msg)
+            errores.append(msg)
+            parche_sin_sellar = True
+            continue
+        except Exception as exc:  # noqa: BLE001 - una publicacion no tumba a las demas
+            msg = scrub(f"listing={lid} {platform} {exc.__class__.__name__}: {exc}")
+            logger.error("corrida %s", msg)
+            errores.append(msg)
+            continue
+        if res.id_cambio is not None:
+            escritas += 1
+    return escritas, virtuales, errores
+
+
+def _abrir_corrida(
+    conn: psycopg.Connection, platform: str, owner: str, cfg_id, modo_global: str, hoy: date
+) -> int:
+    """Fila `abierta` de esta ejecucion; las `abierta` viejas de la
+    plataforma pasan a `abortada` (una corrida que muere queda `abierta`)."""
+    conn.execute(
+        "UPDATE precio_corrida SET estado = 'abortada' WHERE platform = %s AND estado = 'abierta'",
+        (platform,),
+    )
+    return conn.execute(
+        "INSERT INTO precio_corrida (platform, fecha, owner, config_version_id, modo_global)"
+        " VALUES (%s, %s, %s, %s, %s) RETURNING id",
+        (platform, hoy, owner, cfg_id, modo_global),
+    ).fetchone()[0]
+
+
+def _cerrar_corrida(
+    conn: psycopg.Connection,
+    corrida_id: int,
+    *,
+    decisiones: int,
+    movidas: int,
+    virtuales: int,
+    errores: int,
+    saltadas: int,
+) -> None:
+    """Sella la fila `cerrada` con sus conteos, en un solo UPDATE (el trigger
+    solo deja sellar una vez; S.1 no retiene: `retenidas` nace 0)."""
+    conn.execute(
+        "UPDATE precio_corrida SET estado = 'cerrada', cerrada_at = now(),"
+        " decisiones = %s, movidas = %s, virtuales = %s, retenidas = 0,"
+        " errores = %s, saltadas_por_edicion = %s WHERE id = %s",
+        (decisiones, movidas, virtuales, errores, saltadas, corrida_id),
     )
 
 
@@ -797,18 +961,21 @@ def correr(
     owner: str,
     avisar=None,
 ) -> Resumen:
-    """La corrida diaria de una plataforma (conn en autocommit, rol decides).
+    """La corrida de una plataforma (conn en autocommit, rol decides).
 
-    `platform` sale de `mercado.clave`. Valida umbrales (ValueError al
-    arrancar) -> toma el lock -> huerfanas -> cierre por observacion ->
-    decide (frenos por unidad; UNA llamada `mercado.insumos` por lote para
-    las no frenadas; por unidad: maquina de cotizaciones) -> ordena por
-    prioridad -> reparte cupo -> persiste y aplica (`live`) o virtualiza
-    (`shadow`) -> avisa -> suelta el lock. Con el claim perdido levanta
-    `LockOcupado` sin decidir nada. `avisar` (gancho del carril B) se llama
-    una vez al terminar la fase 3 con `(conn, platform, hoy, resumen)`; si
-    levanta, se registra (log scrubbado + entrada en `errores`) y la corrida
-    devuelve su resumen normal.
+    `platform` sale de `mercado.clave`. Valida config (`leer_config` + modo
+    global + freno; el `ValueError` al arrancar sale `ConfigInvalida`) ->
+    toma el lock -> abre su fila `precio_corrida` (las `abierta` viejas de
+    la plataforma pasan a `abortada`) -> huerfanas -> cierre por observacion
+    -> decidir (frenos por unidad; UNA llamada `mercado.insumos` por lote
+    para las no frenadas; por unidad: maquina de cotizaciones +
+    `persistir_decision`) -> compuerta (S.1: siempre deja pasar) -> aplicar
+    (lee lo pendiente de hoy de la base: `live` con `cambios.aplicar`,
+    `shadow` con virtual) -> cierra su fila con los conteos -> avisa ->
+    suelta el lock. Con el claim perdido levanta `LockOcupado` sin decidir
+    nada. `avisar` (gancho del carril B) se llama una vez al terminar con
+    `(conn, platform, hoy, resumen)`; si levanta, se registra (log scrubbado
+    + entrada en `errores`) y la corrida devuelve su resumen normal.
     """
     platform = mercado.clave
     # D3 (r3): como `aplicar`: sin autocommit no hay corrida (el INSERT
@@ -826,7 +993,7 @@ def correr(
             raise ValueError("config sin precio_catalogo_max_dias_sin_reportar: sin config_version")
         cfg_id, settings = fila_cfg
         config = leer_config(settings)
-        cap = cuota_mod.validar_cap(settings, platform)
+        modo_global = _modo_config(settings, "precio_modo_global")
         freno_dias = validar_freno_dias_error(settings)
     except ValueError as exc:
         raise ConfigInvalida(str(exc)) from exc
@@ -838,178 +1005,33 @@ def correr(
         # D2 (r3): el lock se toma DENTRO del `try` (si el advisory falla,
         # el `finally` suelta: el claim no queda tomado una hora).
         _tomar_lock(conn, platform, owner)
+        corrida_id = _abrir_corrida(conn, platform, owner, cfg_id, modo_global, hoy)
         huerfanas = cambios_mod.cerrar_huerfanas(conn, mercado)
         cerrados = cambios_mod.cerrar_por_observacion(conn, mercado, hoy)
-        goals = conn.execute(
-            "SELECT g.id, g.listing_id, g.platform, g.mode::text, g.margen_goal_pct,"
-            " g.valid_from, l.product_id, l.external_id, l.seller_sku"
-            " FROM precio_goal g JOIN listing l"
-            " ON l.id = g.listing_id AND l.platform = g.platform"
-            " WHERE g.platform = %s AND g.valid_from <= %s"
-            " AND (g.valid_to IS NULL OR g.valid_to > %s)"
-            " ORDER BY g.listing_id",
-            (platform, hoy, hoy),
-        ).fetchall()
-        decididas = {
-            f[0]
-            for f in conn.execute(
-                "SELECT listing_id FROM precio_decision WHERE platform = %s AND decision_date = %s",
-                (platform, hoy),
-            ).fetchall()
-        }
-        reversas = cuota_mod.reversas_hoy(conn, platform, hoy)
-        cupo = max(0, cap - reversas)
-        # `errores` nace antes de la fase 1 (B1: la fase 1 tambien registra).
-        errores: list[str] = []
-
-        # Fase 1a: frenos por unidad, ANTES de pedir insumos (igual que
-        # hoy frenaba antes de armar la entrada). Los no frenados juntan
-        # su unidad para el lote.
-        plan: list = []
-        goal_de: dict = {}
-        lote: list = []
-        for gid, lid, plat, mode, goal_pct, vigente_desde, prod_id, ext, sku in goals:
-            if lid in decididas:
-                continue
-            goal_de[lid] = gid
-            _latir_claim(conn, platform, owner)
-            if freno_no_confirmado(conn, lid, plat, desde=vigente_desde):
-                plan.append(
-                    (
-                        lid,
-                        _frenado(
-                            Decimal(goal_pct),
-                            mode,
-                            "no_confirmado",
-                            "ultimo cambio real sin confirmar desde el goal vigente",
-                        ),
-                        None,
-                        prod_id,
-                    )
-                )
-                continue
-            if freno_por_error(conn, lid, plat, hoy, dias=freno_dias, desde=vigente_desde):
-                plan.append(
-                    (
-                        lid,
-                        _frenado(
-                            Decimal(goal_pct),
-                            mode,
-                            "api_error",
-                            f"error en los {freno_dias} dias previos",
-                        ),
-                        None,
-                        prod_id,
-                    )
-                )
-                continue
-            lote.append(
-                (
-                    UnidadPrecio(
-                        listing_id=lid,
-                        plataforma=platform,
-                        externo=ext,
-                        canal=None,
-                        producto_ancla=prod_id,
-                        miembros=(Miembro(prod_id, sku, None),),
-                    ),
-                    mode,
-                    goal_pct,
-                    vigente_desde,
-                    prod_id,
-                )
-            )
-
-        # Fase 1b: UNA llamada de insumos por lote y, por unidad, la
-        # maquina de cotizaciones (sin persistir).
-        if lote:
-            metas = {
-                unidad.listing_id: _MetaGoal(
-                    goal=Decimal(goal_pct), mode=mode, goal_vigente_desde=vigente
-                )
-                for (unidad, mode, goal_pct, vigente, _prod) in lote
-            }
-            lecturas = mercado.insumos(
-                conn,
-                tuple(unidad for (unidad, *_resto) in lote),
-                hoy=hoy,
-                ahora=ahora,
-                config=config,
-                metas=metas,
-            )
-            for unidad, mode, goal_pct, _vigente, prod_id in lote:
-                _fase1_lectura(
-                    conn,
-                    lectura=lecturas[unidad.listing_id],
-                    lid=unidad.listing_id,
-                    mode=mode,
-                    goal_pct=goal_pct,
-                    prod_id=prod_id,
-                    platform=platform,
-                    hoy=hoy,
-                    config=config,
-                    mercado=mercado,
-                    plan=plan,
-                    errores=errores,
-                )
-
-        # Fase 2: prioridad (ausente al fondo, desempate listing) y cupo.
-        orden = sorted(
-            range(len(plan)),
-            key=lambda i: (
-                plan[i][1].prioridad is None,
-                -(plan[i][1].prioridad or Decimal(0)),
-                plan[i][0],
-            ),
+        decisiones, lineas, errores, saltadas = _decidir_pendientes(
+            conn,
+            mercado,
+            config,
+            hoy,
+            ahora,
+            owner=owner,
+            freno_dias=freno_dias,
+            cfg_id=cfg_id,
         )
-        candidatos = tuple((plan[i][0], plan[i][1]) for i in orden)
-        repartidos = dict(repartir_cupo(candidatos, cupo=cupo))
-
-        # Fase 3: persistir y aplicar por orden de prioridad (ver `_fase3_uno`).
-        decisiones = 0
-        escritas = 0
-        lineas: list[str] = []
-        agotado = False
-        parche_sin_sellar = False
-        por_lid = {lid_p: (meta_p, prod_p) for (lid_p, _d, meta_p, prod_p) in plan}
-        modos = {lid_g: mode_g for (_gid, lid_g, _p, mode_g, *_r) in goals}
-        for lid, decision in repartidos.items():
-            _latir_claim(conn, platform, owner)
-            meta, prod_id = por_lid[lid]
-            (
-                decision,
-                escritas_1,
-                agotado,
-                parche_sin_sellar,
-                error,
-                persistida,
-            ) = _fase3_uno(
-                conn,
-                lid=lid,
-                decision=decision,
-                meta=meta,
-                prod_id=prod_id,
-                canal=meta["canal"] if meta else None,
-                platform=platform,
-                goal_id=goal_de[lid],
-                hoy=hoy,
-                cap=cap,
-                agotado=agotado,
-                parche_sin_sellar=parche_sin_sellar,
-                mercado=mercado,
-                cfg_id=cfg_id,
-                ahora=ahora,
-            )
-            escritas += escritas_1
-            if error is not None:
-                # B2 (r3): en `errores` va el texto scrubbado (el gancho es
-                # de Telegram en el carril B).
-                msg = scrub(f"listing={lid} {platform} {error}")
-                logger.error("corrida %s", msg)
-                errores.append(msg)
-            if persistida:
-                decisiones += 1
-                lineas.append(_linea(lid, platform, modos[lid], decision))
+        veredictos = _medir_compuerta(conn, platform, hoy, config)
+        escritas, virtuales, errores_apl = _aplicar_pendientes(
+            conn, mercado, veredictos, hoy, owner=owner, ahora=ahora
+        )
+        errores = [*errores, *errores_apl]
+        _cerrar_corrida(
+            conn,
+            corrida_id,
+            decisiones=decisiones,
+            movidas=escritas,
+            virtuales=virtuales,
+            errores=len(errores),
+            saltadas=saltadas,
+        )
         resumen = Resumen(
             decisiones=decisiones,
             escritas=escritas,
@@ -1045,10 +1067,6 @@ class _MetaGoal:
         self.goal = goal
         self.mode = mode
         self.goal_vigente_desde = goal_vigente_desde
-
-
-def _cuota_reescrita(decision: Decision) -> Decision:
-    return replace(decision, resultado="mantener", motivo="cuota", aplicado=False, p_aplicado=None)
 
 
 def reporte(

@@ -1955,3 +1955,129 @@ def test_listing_gana_unique_id_platform():
             " WHERE conrelid = 'public.listing'::regclass AND conname = 'listing_id_platform_key'"
         ).fetchone()
         assert fila is not None
+
+
+# ---------------------------------------------------------------------------
+# 0058_precio02_decision_exige.sql (REPRICING 02, S.1): la decisión con
+# `l_valor` trae `l_origen`, y `subir`/`bajar` trae `verificacion`.
+# ---------------------------------------------------------------------------
+
+# ORDEN02 de `tests/test_precio02_base.py` (0001 + 0028 + 0039 + 0047 + 0053
+# + 0054: las columnas que la 0058 exige nacen en la 0054) más la 0058.
+ORDEN58 = (
+    "0001_initial.sql",
+    "0028_estimacion_venta.sql",
+    "0039_precio.sql",
+    "0047_familias.sql",
+    "0053_precio02_canal_meli.sql",
+    "0054_precio02_base.sql",
+    "0058_precio02_decision_exige.sql",
+)
+
+
+@contextmanager
+def db_58(prefijo: str):
+    """DB temporal con ORDEN58; yields conn autocommit (patrón `db_39`)."""
+    from psycopg import sql as pgsql
+
+    dsn = _test_dsn()
+    db = f"{prefijo}_{socket.gethostname().lower()}_{os.getpid()}"
+    admin = psycopg.connect(dsn, autocommit=True)
+    conn = None
+    try:
+        admin.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(db)))
+        conn = psycopg.connect(dsn, dbname=db, autocommit=True)
+        conn.execute("SET TIME ZONE 'UTC'")
+        for nombre in ORDEN58:
+            conn.execute((ROOT / "migrations" / nombre).read_text(encoding="utf-8"))
+        yield conn
+    finally:
+        if conn is not None:
+            conn.close()
+        admin.execute(
+            pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
+        )
+        admin.close()
+
+
+def _decision_58(
+    conn,
+    listing: int,
+    *,
+    resultado: str,
+    motivo,
+    l_origen=None,
+    verificacion=None,
+):
+    """Cuenta completa como `_decision_sin_siembra`, con `l_origen` y
+    `verificacion` explícitos (el `goal` lo pisa el trigger)."""
+    col_extra, val_extra, params_extra = "", "", []
+    if l_origen is not None or verificacion is not None:
+        col_extra = ", l_origen, verificacion"
+        val_extra = ", %s, %s"
+        params_extra = [l_origen, verificacion]
+    return conn.execute(
+        "INSERT INTO precio_decision (listing_id, platform, resultado, motivo, mode,"
+        " goal, m_actual, p_actual, p_actual_currency, p_objetivo, p_objetivo_currency,"
+        " p_aplicado, p_aplicado_currency, i_valor, i_currency, c_valor, c_currency,"
+        " f_valor, f_currency, l_valor, l_currency, r_valor, r_currency" + col_extra + ")"
+        " VALUES (%s, 'amazon_mx', %s, %s, 'live', 0.30, 0.25,"
+        " 100.00, 'MXN', 110.00, 'MXN', 110.00, 'MXN',"
+        " 10.00, 'MXN', 20.00, 'MXN', 12.00, 'MXN', 5.00, 'MXN', 8.00, 'MXN'"
+        + val_extra
+        + ") RETURNING id",
+        (listing, resultado, motivo, *params_extra),
+    ).fetchone()[0]
+
+
+@_skip_db
+def test_0058_rechaza_l_valor_sin_origen_y_mover_sin_verificacion():
+    """S.1: `l_valor` sin `l_origen` y `subir` sin `verificacion` revientan
+    con el nombre de su CHECK; la fila completa entra."""
+    with db_58("orbit_p_0058") as conn:
+        prod = _producto(conn)
+        lid_a = _listing(conn, prod, ext="B058A", sku="SKU-058-A")
+        lid_b = _listing(conn, _producto(conn, "SKU-PRECIO-58-B"), ext="B058B", sku="SKU-058-B")
+        lid_c = _listing(conn, _producto(conn, "SKU-PRECIO-58-C"), ext="B058C", sku="SKU-058-C")
+        for lid in (lid_a, lid_b, lid_c):
+            _ensure_goal(conn, lid, mode="live")
+        with pytest.raises(psycopg.errors.CheckViolation, match="precio_decision_l_exige_origen"):
+            _decision_58(conn, lid_a, resultado="mantener", motivo="en_tolerancia")
+        with pytest.raises(
+            psycopg.errors.CheckViolation, match="precio_decision_mover_exige_verificacion"
+        ):
+            _decision_58(conn, lid_b, resultado="subir", motivo="tdd", l_origen="politica")
+        assert _decision_58(
+            conn,
+            lid_c,
+            resultado="subir",
+            motivo="tdd",
+            l_origen="politica",
+            verificacion="cotizada",
+        )
+
+
+@_skip_db
+def test_0058_reversa_quita_los_dos_check():
+    """S.1: la reversa de la 0058 quita los dos CHECK (lo que reventaba entra)."""
+    with db_58("orbit_p_0058r") as conn:
+        conn.execute(
+            (ROOT / "migrations" / "0058_reversa_precio02_decision_exige.sql").read_text(
+                encoding="utf-8"
+            )
+        )
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM pg_constraint WHERE conname IN"
+                " ('precio_decision_l_exige_origen',"
+                " 'precio_decision_mover_exige_verificacion')"
+            ).fetchone()[0]
+            == 0
+        )
+        prod = _producto(conn)
+        lid_a = _listing(conn, prod, ext="B058RA", sku="SKU-058R-A")
+        lid_b = _listing(conn, _producto(conn, "SKU-PRECIO-58R-B"), ext="B058RB", sku="SKU-058R-B")
+        for lid in (lid_a, lid_b):
+            _ensure_goal(conn, lid, mode="live")
+        assert _decision_58(conn, lid_a, resultado="mantener", motivo="en_tolerancia")
+        assert _decision_58(conn, lid_b, resultado="subir", motivo="tdd", l_origen="politica")

@@ -19,7 +19,6 @@ from app.api_common import _dec_str
 from app.notifica import motivo_precio_es, validar_precio_aviso_dias
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.precio import cobertura as cobertura_precio
-from app.precio import cuota as cuota_precio
 from app.precio import fuentes as fuentes_precio
 from app.redaction import scrub
 
@@ -39,9 +38,9 @@ router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 #   (precio_cambio pendiente no-reversa) + las listas S7 (`con_goal`,
 #   `acciones`, `no_evaluados_filas`, `divergentes`).
 # - /salud suma plataformas.<p>.precios ({hoy, cobertura, evaluados,
-#   movidos, sombra, no_evaluados, frenados, goal_inalcanzable, cuota,
-#   huerfanas, decisiones}) SIN cambiar las claves existentes. `cobertura`
-#   es la MISMA serializacion que el `recuadro` de /precios (misma funcion).
+#   movidos, sombra, no_evaluados, frenados, goal_inalcanzable, huerfanas,
+#   decisiones}). `cobertura` es la MISMA serializacion que el `recuadro`
+#   de /precios (misma funcion). El cupo murio en REPRICING 02 S.1.
 # - El reloj es el de la base (fuentes.hoy_base: el dia UTC que fija el
 #   trigger de precio_decision, no el local).
 # - Sin esquema de precios (la 0039 no esta aplicada): /salud deja el
@@ -116,10 +115,6 @@ SELECT d.listing_id, l.seller_sku, d.decision_date, d.resultado, d.motivo,
  WHERE d.platform = %s::platform
    AND d.decision_date BETWEEN %s AND %s
  ORDER BY l.seller_sku, d.decision_date DESC
-"""
-
-_SQL_CUOTA_USED = """
-SELECT used FROM apply_quota_state WHERE motor = %s AND quota_date = %s
 """
 
 # Estados del cambio que prueban PATCH aceptado (B2): `pendiente` aun no
@@ -264,17 +259,6 @@ def _conteo_por_motivo(detalle: list[dict], resultado: str) -> dict[str, int]:
         if fila["resultado"] == resultado and fila["motivo"] is not None:
             conteo[fila["motivo"]] = conteo.get(fila["motivo"], 0) + 1
     return conteo
-
-
-def _cuota_precio(conn: ConexionLectura, plataforma: str, hoy: dt.date, settings) -> dict:
-    """Cupo del dia: `used` de `apply_quota_state` (motor
-    `cuota.motor_cuota(p)`, 0 sin fila) y `cap` de
-    `cuota.validar_cap(settings, p)` (ValueError que nombra la clave)."""
-    fila = conn.execute(_SQL_CUOTA_USED, (cuota_precio.motor_cuota(plataforma), hoy)).fetchone()
-    return {
-        "used": int(fila[0]) if fila is not None else 0,
-        "cap": cuota_precio.validar_cap(settings, plataforma),
-    }
 
 
 def _frase_accion(
@@ -488,7 +472,6 @@ def _bloque_precios(
         "no_evaluados": _conteo_por_motivo(detalle, "no_evaluado"),
         "frenados": _conteo_por_motivo(detalle, "frenado"),
         "goal_inalcanzable": sum(1 for fila in detalle if fila["resultado"] == "goal_inalcanzable"),
-        "cuota": _cuota_precio(conn, plataforma, hoy, settings),
     }
     if con_recuadro:
         bloque["recuadro"] = bloque["cobertura"]
@@ -511,7 +494,6 @@ _CLAVES_PRECIOS_SALUD = (
     "no_evaluados",
     "frenados",
     "goal_inalcanzable",
-    "cuota",
     "huerfanas",
     "decisiones",
 )
@@ -533,8 +515,6 @@ def _precios_de(conn: ConexionLectura, plataforma: str) -> dict | None:
     - `no_evaluados`: decisiones `no_evaluado` de hoy (motivo -> conteo).
     - `frenados`: decisiones `frenado` de hoy (motivo -> conteo).
     - `goal_inalcanzable`: decisiones `goal_inalcanzable` de hoy (conteo).
-    - `cuota`: `used` de `apply_quota_state` (motor `precio:<p>`, 0 sin
-      fila) y `cap` de la config.
     - `hoy`, `huerfanas` (pendientes no-reversa) y `decisiones` (por
       resultado) como en /precios.
 

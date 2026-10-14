@@ -1058,7 +1058,6 @@ MOTIVO_PRECIO_ES = {
     "no_confirmado": "no confirmado por la observacion",
     "buy_box_perdida": "buy box perdida",
     "cooldown": "enfriamiento entre cambios",
-    "cuota": "cupo del dia agotado",
     "en_tolerancia": "dentro de la tolerancia",
     "movimiento_minimo": "movimiento bajo el minimo",
     "sin_decision": "sin decision",

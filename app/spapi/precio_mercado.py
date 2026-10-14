@@ -265,25 +265,6 @@ def _insumos_ventas(
     )
 
 
-def _ingreso_60d(
-    conn: psycopg.Connection, *, product_id: int, platform: str, hoy: date, moneda: str
-) -> Importe | None:
-    """Suma de `sale` en [hoy-75, hoy-16] en la moneda del escenario.
-
-    La prioridad ordena por `|m - goal| * ingreso_60d`: sin ventas en la
-    ventana no hay peso (regla 3: ausente no es cero, va al fondo).
-    """
-    total = conn.execute(
-        "SELECT sum(amount) FROM ledger_event"
-        " WHERE product_id = %s AND platform = %s AND kind = 'sale'"
-        " AND amount_currency = %s AND event_date BETWEEN %s - 75 AND %s - 16",
-        (product_id, platform, moneda, hoy, hoy),
-    ).fetchone()[0]
-    if total is None:
-        return None
-    return Importe(Decimal(total), moneda)
-
-
 def _oferta_para_cotizar(conn: psycopg.Connection, oferta_id: int):
     """Fila de oferta como `OfertaResuelta` (insumo de `cotizar_a_precio`)."""
     fila = conn.execute(
@@ -577,13 +558,6 @@ class MercadoAmazon:
             config=config,
             racha_previa=int(racha_por_lid.get(unidad.listing_id) or 0),
         )
-        ingreso_60d = _ingreso_60d(
-            conn,
-            product_id=unidad.producto_ancla,
-            platform=self.clave,
-            hoy=hoy,
-            moneda=cuenta.componentes.ingreso.moneda,
-        )
         escenario = Escenario(
             componentes=cuenta.componentes,
             fee_detalles=cuenta.fee_detalles,
@@ -604,7 +578,6 @@ class MercadoAmazon:
             escenario=escenario,
             pricing=observacion,
             senal=senal,
-            ingreso_60d=ingreso_60d,
             cambios=cambios_previos(conn, unidad.listing_id, self.clave),
             historial=historial_margenes(conn, unidad.listing_id, self.clave),
             goal_vigente_desde=meta.goal_vigente_desde,

@@ -42,6 +42,7 @@ ORDEN59 = (
     "0047_familias.sql",
     "0053_precio02_canal_meli.sql",
     "0054_precio02_base.sql",
+    "0058_precio02_decision_exige.sql",
 )
 
 _skip_sin_pg = pytest.mark.skipif(
@@ -80,7 +81,12 @@ def _db_nueva(*, omit=()):
     db = f"pp_{uuid.uuid4().hex[:8]}"
     omitidas = set(omit)
     if "0039_precio.sql" in omitidas:
-        omitidas |= {"0047_familias.sql", "0053_precio02_canal_meli.sql", "0054_precio02_base.sql"}
+        omitidas |= {
+            "0047_familias.sql",
+            "0053_precio02_canal_meli.sql",
+            "0054_precio02_base.sql",
+            "0058_precio02_decision_exige.sql",
+        }
     admin = psycopg.connect(dsn, autocommit=True)
     creada = False
     conn = None
@@ -632,9 +638,11 @@ def _decision_subir_pantalla(conn, listing, *, platform="amazon_mx", mode="shado
         "INSERT INTO precio_decision (listing_id, platform, resultado,"
         " goal, m_actual, p_actual, p_actual_currency, p_objetivo, p_objetivo_currency,"
         " p_aplicado, p_aplicado_currency, i_valor, i_currency, c_valor, c_currency,"
-        " f_valor, f_currency, l_valor, l_currency, r_valor, r_currency, mode)"
+        " f_valor, f_currency, l_valor, l_currency, r_valor, r_currency, mode,"
+        " l_origen, verificacion)"
         " VALUES (%s, %s, 'subir', 0.30, 0.24, 116, 'MXN', 116, 'MXN', 116, 'MXN',"
-        " 100, 'MXN', 40, 'MXN', 15, 'MXN', 0, 'MXN', 2.50, 'MXN', %s) RETURNING id",
+        " 100, 'MXN', 40, 'MXN', 15, 'MXN', 0, 'MXN', 2.50, 'MXN', %s,"
+        " 'politica', 'cotizada') RETURNING id",
         (listing, platform, mode),
     ).fetchone()[0]
 
@@ -1231,9 +1239,11 @@ def _r1_decision_subir_live(conn, listing, *, platform="amazon_mx", dia):
         "INSERT INTO precio_decision (listing_id, platform, decision_date, resultado,"
         " goal, m_actual, p_actual, p_actual_currency, p_objetivo, p_objetivo_currency,"
         " p_aplicado, p_aplicado_currency, i_valor, i_currency, c_valor, c_currency,"
-        " f_valor, f_currency, l_valor, l_currency, r_valor, r_currency, mode)"
+        " f_valor, f_currency, l_valor, l_currency, r_valor, r_currency, mode,"
+        " l_origen, verificacion)"
         " VALUES (%s, %s, %s, 'subir', 0.30, 0.24, 116, 'MXN', 116, 'MXN', 116, 'MXN',"
-        " 100, 'MXN', 40, 'MXN', 15, 'MXN', 0, 'MXN', 2.50, 'MXN', 'live') RETURNING id",
+        " 100, 'MXN', 40, 'MXN', 15, 'MXN', 0, 'MXN', 2.50, 'MXN', 'live',"
+        " 'politica', 'cotizada') RETURNING id",
         (listing, platform, dia),
     ).fetchone()[0]
 
@@ -1556,9 +1566,11 @@ def _r1b_subir_shadow(conn, listing, *, platform="amazon_mx", antes="116", despu
         "INSERT INTO precio_decision (listing_id, platform, resultado,"
         " goal, m_actual, p_actual, p_actual_currency, p_objetivo, p_objetivo_currency,"
         " p_aplicado, p_aplicado_currency, i_valor, i_currency, c_valor, c_currency,"
-        " f_valor, f_currency, l_valor, l_currency, r_valor, r_currency, mode)"
+        " f_valor, f_currency, l_valor, l_currency, r_valor, r_currency, mode,"
+        " l_origen, verificacion)"
         " VALUES (%s, %s, 'subir', 0.30, 0.24, %s, 'MXN', %s, 'MXN', %s, 'MXN',"
-        " 100, 'MXN', 40, 'MXN', 15, 'MXN', 0, 'MXN', 2.50, 'MXN', 'shadow')"
+        " 100, 'MXN', 40, 'MXN', 15, 'MXN', 0, 'MXN', 2.50, 'MXN', 'shadow',"
+        " 'politica', 'cotizada')"
         " RETURNING id",
         (listing, platform, antes, despues, despues),
     ).fetchone()[0]
@@ -1570,9 +1582,11 @@ def _r1b_bajar_live(conn, listing, *, platform="amazon_mx", p_actual="127.60"):
         "INSERT INTO precio_decision (listing_id, platform, resultado,"
         " goal, m_actual, p_actual, p_actual_currency, p_objetivo, p_objetivo_currency,"
         " p_aplicado, p_aplicado_currency, i_valor, i_currency, c_valor, c_currency,"
-        " f_valor, f_currency, l_valor, l_currency, r_valor, r_currency, mode)"
+        " f_valor, f_currency, l_valor, l_currency, r_valor, r_currency, mode,"
+        " l_origen, verificacion)"
         " VALUES (%s, %s, 'bajar', 0.30, 0.24, %s, 'MXN', 116, 'MXN', 116, 'MXN',"
-        " 100, 'MXN', 40, 'MXN', 15, 'MXN', 0, 'MXN', 2.50, 'MXN', 'live') RETURNING id",
+        " 100, 'MXN', 40, 'MXN', 15, 'MXN', 0, 'MXN', 2.50, 'MXN', 'live',"
+        " 'politica', 'cotizada') RETURNING id",
         (listing, platform, p_actual),
     ).fetchone()[0]
 
@@ -1611,7 +1625,7 @@ def _r1b_config_sin_caps(conn):
 
 def _r1b_siembra_a3(conn):
     """Fixture A3: cada conteo distinto de cero y entre si (evaluados=8,
-    movidos=3, sombra=2, goal_inalcanzable=1, huerfanas=4, used=5, cap=7)."""
+    movidos=3, sombra=2, goal_inalcanzable=1, huerfanas=4)."""
     from test_precio_corrida import _goal as _goal_corrida
 
     _config_pantalla(conn)
@@ -1663,12 +1677,6 @@ def _r1b_siembra_a3(conn):
             )
     finally:
         conn.execute("ALTER TABLE precio_decision ENABLE TRIGGER precio_decision_fecha_utc")
-    # Cuota del dia: used=5 de cap=7.
-    conn.execute(
-        "INSERT INTO apply_quota_state (motor, quota_date, cap, used)"
-        " VALUES ('precio:amazon_mx', %s, 7, 5)",
-        (hoy,),
-    )
     return hoy
 
 
@@ -1745,15 +1753,7 @@ def test_r1b_a3_salud_precios_clave_por_clave_vs_select():
                 (hoy,),
             ).fetchone()[0]
         )
-        assert salud["cuota"] == {"used": 5, "cap": 7}
-        assert (
-            salud["cuota"]["used"]
-            == conn.execute(
-                "SELECT used FROM apply_quota_state"
-                " WHERE motor = 'precio:amazon_mx' AND quota_date = %s",
-                (hoy,),
-            ).fetchone()[0]
-        )
+        assert "cuota" not in salud
         assert salud["huerfanas"] == 4
         assert salud["huerfanas"] == _select_huerfanas(conn, "amazon_mx")
         assert salud["decisiones"] == _select_decisiones(conn, "amazon_mx", hoy)
@@ -1765,11 +1765,9 @@ def test_r1b_a3_salud_precios_clave_por_clave_vs_select():
                     salud["sombra"],
                     salud["goal_inalcanzable"],
                     salud["huerfanas"],
-                    salud["cuota"]["used"],
-                    salud["cuota"]["cap"],
                 }
             )
-            == 7
+            == 5
         )
 
 
@@ -1866,11 +1864,9 @@ def test_r1b_b1_no_evaluados_filas_del_dia_en_palabras():
 
 
 @_skip_sin_pg
-def test_r1b_b9_errores_pantalla_tres_casos(monkeypatch, caplog):
+def test_r1b_b9_errores_pantalla_tres_casos(monkeypatch):
     """B9: tres mensajes exactos; la plantilla no nombra la migracion en
     ninguno de los tres."""
-    import logging as _logging
-
     # 1. Sin 0039: el mensaje del motor no instalado.
     with _db_sin_0039() as (_conn, dsn):
         cliente = _cliente_pantalla(dsn, monkeypatch)
@@ -1884,19 +1880,17 @@ def test_r1b_b9_errores_pantalla_tres_casos(monkeypatch, caplog):
         salud = cliente.get("/api/dashboard/salud").json()
         for plataforma in ("amazon_us", "amazon_mx"):
             assert salud["plataformas"][plataforma]["precios"] is None
-    # 2. Clave de config ausente: el mensaje nombra la clave (con scrub y
-    # registro); la plantilla tampoco nombra la migracion.
+    # 2. Config sin `precio_cap_*` (S.1: el cupo murio): la pantalla carga
+    # igual y no pinta cupo; la plantilla tampoco nombra la migracion.
     with _db_pantalla("b9-config") as (_conn, dsn):
         _r1b_config_sin_caps(_conn)
         cliente = _cliente_pantalla(dsn, monkeypatch)
-        with caplog.at_level(_logging.WARNING, logger="app.api_dashboard"):
-            resp = cliente.get("/api/dashboard/precios")
-        assert resp.status_code == 503
-        assert "precio_cap_amazon_us" in resp.json()["detail"]
-        assert "precio_cap_amazon_us" in caplog.text
+        resp = cliente.get("/api/dashboard/precios")
+        assert resp.status_code == 200
+        for plataforma in ("amazon_us", "amazon_mx"):
+            assert "decisiones" in resp.json()["plataformas"][plataforma]
         html = cliente.get("/precios").text
-        assert resp.status_code == 503
-        assert "precio_cap_amazon_us" in html
+        assert "cupo" not in html
         assert "migracion 0039" not in html and "migración 0039" not in html
     # 3. Cualquier otro fallo: «precios de <plataforma> ilegibles».
     with _db_pantalla("b9-otro") as (conn, dsn):
@@ -2002,24 +1996,18 @@ def test_r1b_b12_cero_cdn_absoluto_en_precios(monkeypatch):
 
 @_skip_sin_pg
 def test_r1b_b12_salud_html_bloque_precios_con_numeros(monkeypatch):
-    """B12: el bloque de `/salud` HTML trae sus numeros (cuota incluida)."""
+    """B12: el bloque de `/salud` HTML trae sus numeros (S.1: sin cupo)."""
     with _db_pantalla("b12-salud") as (conn, dsn):
         _config_pantalla(conn)
-        hoy = _dias_atras(conn, 0)
         prod = _producto(conn)
         lid = _listing(conn, prod, sku="SKU-B12-H", ext="B0B120009")
         _goal(conn, lid)
         _decision(conn, lid, resultado="frenado", motivo="api_error")
-        conn.execute(
-            "INSERT INTO apply_quota_state (motor, quota_date, cap, used)"
-            " VALUES ('precio:amazon_mx', %s, 7, 2)",
-            (hoy,),
-        )
         resp = _cliente_pantalla(dsn, monkeypatch).get("/salud")
         assert resp.status_code == 200
         seccion = resp.text.split('id="bloque-precios-amazon_mx"')[1].split("</div>")[0]
         assert "frenados 1" in seccion
-        assert "cupo 2 de 7" in seccion
+        assert "cupo" not in seccion
 
 
 @_skip_sin_pg
@@ -2152,9 +2140,11 @@ def _r2_decision_subir_live(conn, listing, *, platform="amazon_mx", dia, p_aplic
         "INSERT INTO precio_decision (listing_id, platform, decision_date, resultado,"
         " goal, m_actual, p_actual, p_actual_currency, p_objetivo, p_objetivo_currency,"
         " p_aplicado, p_aplicado_currency, i_valor, i_currency, c_valor, c_currency,"
-        " f_valor, f_currency, l_valor, l_currency, r_valor, r_currency, mode)"
+        " f_valor, f_currency, l_valor, l_currency, r_valor, r_currency, mode,"
+        " l_origen, verificacion)"
         " VALUES (%s, %s, %s, 'subir', 0.30, 0.24, %s, 'MXN', %s, 'MXN', %s, 'MXN',"
-        " 100, 'MXN', 40, 'MXN', 15, 'MXN', 0, 'MXN', 2.50, 'MXN', 'live') RETURNING id",
+        " 100, 'MXN', 40, 'MXN', 15, 'MXN', 0, 'MXN', 2.50, 'MXN', 'live',"
+        " 'politica', 'cotizada') RETURNING id",
         (listing, platform, dia, p_aplicado, p_aplicado, p_aplicado),
     ).fetchone()[0]
 
@@ -2448,9 +2438,11 @@ def _r2b_bajar_shadow(conn, listing, *, platform="amazon_mx"):
         "INSERT INTO precio_decision (listing_id, platform, resultado,"
         " goal, m_actual, p_actual, p_actual_currency, p_objetivo, p_objetivo_currency,"
         " p_aplicado, p_aplicado_currency, i_valor, i_currency, c_valor, c_currency,"
-        " f_valor, f_currency, l_valor, l_currency, r_valor, r_currency, mode)"
+        " f_valor, f_currency, l_valor, l_currency, r_valor, r_currency, mode,"
+        " l_origen, verificacion)"
         " VALUES (%s, %s, 'bajar', 0.30, 0.24, 127.60, 'MXN', 116, 'MXN', 116, 'MXN',"
-        " 100, 'MXN', 40, 'MXN', 15, 'MXN', 0, 'MXN', 2.50, 'MXN', 'shadow') RETURNING id",
+        " 100, 'MXN', 40, 'MXN', 15, 'MXN', 0, 'MXN', 2.50, 'MXN', 'shadow',"
+        " 'politica', 'cotizada') RETURNING id",
         (listing, platform),
     ).fetchone()[0]
 

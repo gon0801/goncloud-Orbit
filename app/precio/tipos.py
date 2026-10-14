@@ -77,7 +77,6 @@ MOTIVOS_MANTENER = frozenset(
         "sobre_goal_sin_perdida",
         "ventas_sin_dato",
         "movimiento_minimo",
-        "cuota",
         "cooldown",
     }
 )
@@ -574,7 +573,6 @@ class EntradaDecision:
     escenario: Escenario
     pricing: ObservacionPricing | None
     senal: SenalVentas
-    ingreso_60d: Importe | None
     cambios: tuple[CambioPrevio, ...]
     historial: tuple[HistorialMargen, ...]
     goal_vigente_desde: date
@@ -605,7 +603,6 @@ class Decision:
     n60: int | None
     racha: int | None
     perdiendo: bool | None
-    prioridad: Decimal | None
     aplicado: bool
     mode: str
     buy_box_is_own: bool | None = None
