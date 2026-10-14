@@ -2091,11 +2091,13 @@ _PROHIBIDOS_IMPORTS_CORRIDA = tuple(
 )
 
 # Un solo dueno por tabla: `corrida.py` abre y cierra su fila de
-# `precio_corrida` (S.1); `precio_cambio` lo escribe `cambios.py`.
+# `precio_corrida` (S.1) y retiene (`precio_retencion`, S.2);
+# `precio_cambio` lo escribe `cambios.py`.
 _ESCRIBE_CORRIDA = (
     "precio_decision",
     "precio_cotizacion",
     "precio_corrida",
+    "precio_retencion",
     "ads_optimizer_lock",
 )
 
@@ -2186,9 +2188,10 @@ def test_corrida_sin_reloj_ni_dinamico():
 
 
 def test_corrida_solo_escribe_sus_tablas():
-    """A.5 + REPRICING 02 0.b + S.1: `corrida.py` escribe solo sus tablas
-    (ni Ads ni ingest; `precio_cambio` lo escribe `cambios.py`;
-    `precio_corrida` es su fila por ejecucion)."""
+    """A.5 + REPRICING 02 0.b + S.1 + S.2: `corrida.py` escribe solo sus
+    tablas (ni Ads ni ingest; `precio_cambio` lo escribe `cambios.py`;
+    `precio_corrida` es su fila por ejecucion y `precio_retencion` sus
+    retenciones del apagador)."""
     assert _tablas_escritas(PRECIO / "corrida.py") == sorted(_ESCRIBE_CORRIDA)
 
 

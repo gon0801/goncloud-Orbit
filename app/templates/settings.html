@@ -81,6 +81,29 @@
     </fieldset>
 
     <fieldset>
+      <legend>Motor de precios (global)</legend>
+      <label>Modo global
+        <select name="precio_modo_global">
+          <option value="off" {% if datos.precio_modo_global == "off" %}selected{% endif %}>off</option>
+          <option value="shadow" {% if datos.precio_modo_global == "shadow" %}selected{% endif %}>shadow</option>
+          <option value="live" {% if datos.precio_modo_global == "live" %}selected{% endif %}>live</option>
+        </select>
+      </label>
+      <p class="mutado">Vive: {{ datos.precio_modo_global or "ausente" }}.</p>
+      {% for u in datos.precio_universos or [] %}
+      {% set modo_u = (datos.precio_modo_universo or {}).get(u) or "off" %}
+      <label>{{ u }}
+        <select name="precio_modo_universo" data-precio-universo="{{ u }}">
+          <option value="off" {% if modo_u == "off" %}selected{% endif %}>off</option>
+          <option value="shadow" {% if modo_u == "shadow" %}selected{% endif %}>shadow</option>
+          <option value="live" {% if modo_u == "live" %}selected{% endif %}>live</option>
+        </select>
+      </label>
+      {% endfor %}
+      <p class="mutado">Sin entrada = off. Se guarda igual desde cualquier plataforma.</p>
+    </fieldset>
+
+    <fieldset>
       <legend>Caps diarios</legend>
       {% for kind, valor in p.caps.items() %}
       <label>{{ kind }}

@@ -423,3 +423,206 @@ def test_get_settings_motor_bid_corrupto_no_se_muestra(monkeypatch):
         monkeypatch.setenv("ORBIT_DSN_READ", dsn_read)
         resp = TestClient(app, raise_server_exceptions=False).get("/api/dashboard/settings")
         assert resp.status_code == 500
+
+
+# ---------------------------------------------------------------------------
+# Apagador de precios (REPRICING 02 S.2): precio_modo_global y
+# precio_modo_universo desde /settings
+# ---------------------------------------------------------------------------
+
+
+def _base_precio():
+    return {
+        **_base(),
+        "precio_modo_global": "live",
+        "precio_modo_universo": {"amazon_mx/fba": "live", "meli/meli": "shadow"},
+    }
+
+
+@_skip_db
+def test_s2_guardar_precio_modo_global_off_conserva_claves():
+    """S.2: guardar el modo global inserta una config_version que conserva
+    todas las demas claves (Ads y universos intactos)."""
+    with _db_con_rol_admin("orbit_cfg_s2glob") as (conn, _a, _b):
+        vieja = conn.execute(
+            "INSERT INTO config_version (label, settings) VALUES (%s, %s) RETURNING id",
+            ("previa", Json(_base_precio())),
+        ).fetchone()[0]
+        salida = config_write.guarda_config(
+            conn,
+            platform=PLAT,
+            base_config_version_id=vieja,
+            ahora=AHORA,
+            precio_modo_global="off",
+        )
+        fila = conn.execute(
+            "SELECT label, settings FROM config_version WHERE id = %s",
+            (salida["config_version_id"],),
+        ).fetchone()
+        assert "precio modo global live -> off" in fila[0]
+        assert fila[1]["precio_modo_global"] == "off"
+        assert fila[1]["precio_modo_universo"] == {"amazon_mx/fba": "live", "meli/meli": "shadow"}
+        assert fila[1][f"ads_target_fraccion_margen_{PLAT}"] == "0.5"
+        assert fila[1]["ads_optimizer_mode"] == "live"
+
+
+def test_s2_proxima_precio_modo_universo_fusiona_por_universo():
+    """S.2: el objeto universo se fusiona por llave (un POST parcial no
+    borra los demas universos); repetir valor es edicion vacia."""
+    nuevo, cambios = config_write.proxima_config(
+        _base_precio(), PLAT, precio_modo_universo={"meli/meli": "live"}
+    )
+    assert nuevo["precio_modo_universo"] == {"amazon_mx/fba": "live", "meli/meli": "live"}
+    assert cambios == ["precio modo meli/meli shadow -> live"]
+    with pytest.raises(config_write.SettingsInvalido, match="edicion vacia"):
+        config_write.proxima_config(
+            _base_precio(), PLAT, precio_modo_universo={"meli/meli": "shadow"}
+        )
+
+
+def test_s2_proxima_precio_modos_rechaza_vocabulario_y_fuera_de_registro():
+    """S.2: modo fuera de off/shadow/live, universo fuera del registro o
+    objeto que no es objeto = SettingsInvalido (422 en la ruta)."""
+    with pytest.raises(config_write.SettingsInvalido, match="precio_modo_global"):
+        config_write.proxima_config(_base_precio(), PLAT, precio_modo_global="turbo")
+    for malo in ("amazon_mx/nope", "sin-diagonal", "meli/meli/extra", ""):
+        with pytest.raises(config_write.SettingsInvalido, match="universo"):
+            config_write.proxima_config(_base_precio(), PLAT, precio_modo_universo={malo: "live"})
+    with pytest.raises(config_write.SettingsInvalido, match="universo"):
+        config_write.proxima_config(
+            _base_precio(), PLAT, precio_modo_universo={"amazon_mx/fba": "turbo"}
+        )
+    with pytest.raises(config_write.SettingsInvalido, match="precio_modo_universo"):
+        config_write.proxima_config(_base_precio(), PLAT, precio_modo_universo=["live"])
+
+
+def test_s2_proxima_precio_global_corrupto_rechaza_edicion_que_no_lo_toca():
+    """S.2: con un global corrupto en la vigente, una edicion que no lo
+    toca se rechaza (la resultante se valida con el vocabulario del
+    motor, igual que motor_bid con bandas_v1)."""
+    base = dict(_base_precio())
+    base["precio_modo_global"] = "turbo"
+    with pytest.raises(config_write.SettingsInvalido, match="precio_modo_global"):
+        config_write.proxima_config(base, PLAT, caps={"bid": 10})
+
+
+@_skip_db
+def test_s2_endpoint_post_precio_modos_wire_200_422_401(tmp_path, monkeypatch):
+    """S.2: el contrato por el wire (off -> 200 con la fila; modo ajeno y
+    universo fuera del registro -> 422; meli/meli se guarda desde una de
+    las dos rutas; sin token -> 401)."""
+    with _db_con_rol_admin("orbit_cfg_s2wire") as (conn, dsn_admin, _dsn_l):
+        vieja = conn.execute(
+            "INSERT INTO config_version (label, settings) VALUES (%s, %s) RETURNING id",
+            ("previa", Json(_base_precio())),
+        ).fetchone()[0]
+        _secrets_token(tmp_path, monkeypatch)
+        monkeypatch.setenv("ORBIT_DSN_ADMIN", dsn_admin)
+        cliente = TestClient(app)
+        headers = {"x-orbit-token": TOKEN}
+        url = f"/api/ads-optimizer/settings/{PLAT}"
+        ok = cliente.post(
+            url,
+            json={"base_config_version_id": vieja, "precio_modo_global": "off"},
+            headers=headers,
+        )
+        assert ok.status_code == 200, ok.text
+        settings = conn.execute(
+            "SELECT settings FROM config_version WHERE id = %s",
+            (ok.json()["config_version_id"],),
+        ).fetchone()[0]
+        assert settings["precio_modo_global"] == "off"
+        assert settings["precio_modo_universo"]["meli/meli"] == "shadow"
+        # meli/meli se guarda con una de las dos rutas (amazon_us aqui).
+        meli = cliente.post(
+            url,
+            json={
+                "base_config_version_id": ok.json()["config_version_id"],
+                "precio_modo_universo": {"meli/meli": "live"},
+            },
+            headers=headers,
+        )
+        assert meli.status_code == 200, meli.text
+        settings_meli = conn.execute(
+            "SELECT settings FROM config_version WHERE id = %s",
+            (meli.json()["config_version_id"],),
+        ).fetchone()[0]
+        assert settings_meli["precio_modo_universo"]["meli/meli"] == "live"
+        assert settings_meli["precio_modo_universo"]["amazon_mx/fba"] == "live"
+        vigente = meli.json()["config_version_id"]
+        for cuerpo in (
+            {"precio_modo_global": "turbo"},
+            {"precio_modo_universo": {"amazon_mx/nope": "live"}},
+            {"precio_modo_universo": {"amazon_mx/fba": "turbo"}},
+        ):
+            resp = cliente.post(
+                url, json={"base_config_version_id": vigente, **cuerpo}, headers=headers
+            )
+            assert resp.status_code == 422, (cuerpo, resp.text)
+        sin_token = cliente.post(url, json={"base_config_version_id": vigente})
+        assert sin_token.status_code == 401, sin_token.text
+        assert conn.execute("SELECT count(*) FROM config_version").fetchone()[0] == 3
+
+
+def test_s2_literal_precio_modo_global_pineado_contra_vocabulario():
+    """S.2: el Literal del endpoint admite EXACTAMENTE off/shadow/live; si
+    el vocabulario del motor cambia, este test truena."""
+    from typing import get_args
+
+    from app.api_write import CuerpoSettings
+    from app.precio.config import MODOS
+
+    anotacion = CuerpoSettings.model_fields["precio_modo_global"].annotation
+    literales = [a for a in get_args(anotacion) if a is not type(None)]
+    assert len(literales) == 1
+    assert set(get_args(literales[0])) == set(MODOS)
+
+
+@_skip_db
+def test_s2_get_settings_expone_precio_modos(monkeypatch):
+    """S.2: GET /api/dashboard/settings trae el modo global y el objeto por
+    universo de la vigente (ausentes = null y {}: la pagina tolera configs
+    viejas)."""
+    from test_api_dashboard import _config_version, _db_temporal, _goal_db
+
+    with _db_temporal("orbit_cfg_s2get") as (conn, dsn_read):
+        _config_version(
+            conn,
+            {
+                "ads_optimizer_mode": "live",
+                f"ads_target_acos_pct_{PLAT}": "20",
+                "ads_target_acos_pct_amazon_mx": "22",
+                "precio_modo_global": "shadow",
+                "precio_modo_universo": {"amazon_mx/fba": "shadow"},
+            },
+        )
+        _goal_db(conn, scope="platform", platform=PLAT, target=None)
+        _goal_db(conn, scope="platform", platform="amazon_mx", target=None)
+        monkeypatch.setenv("ORBIT_DSN_READ", dsn_read)
+        resp = TestClient(app).get("/api/dashboard/settings")
+        assert resp.status_code == 200, resp.text
+        datos = resp.json()
+        assert datos["precio_modo_global"] == "shadow"
+        assert datos["precio_modo_universo"] == {"amazon_mx/fba": "shadow"}
+        assert datos["precio_universos"] == [
+            "amazon_mx/fba",
+            "amazon_mx/fbm",
+            "amazon_us/fbm",
+            "meli/meli",
+        ]
+    with _db_temporal("orbit_cfg_s2getvieja") as (conn, dsn_read):
+        _config_version(
+            conn,
+            {
+                "ads_optimizer_mode": "live",
+                f"ads_target_acos_pct_{PLAT}": "20",
+                "ads_target_acos_pct_amazon_mx": "22",
+            },
+        )
+        _goal_db(conn, scope="platform", platform=PLAT, target=None)
+        _goal_db(conn, scope="platform", platform="amazon_mx", target=None)
+        monkeypatch.setenv("ORBIT_DSN_READ", dsn_read)
+        resp = TestClient(app).get("/api/dashboard/settings")
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["precio_modo_global"] is None
+        assert resp.json()["precio_modo_universo"] == {}

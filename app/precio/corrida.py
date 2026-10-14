@@ -4,11 +4,13 @@ Camino por plataforma: claim en `ads_optimizer_lock` (`precio:<platform>`,
 patron copiado de `app/cycle.py`, NO importado: `cycle` trae `app.apply`)
 + advisory lock de sesion; fila `precio_corrida` (las `abierta` viejas
 pasan a `abortada`); huerfanas a `error`; cierre por observacion; decidir
-(persiste una decision por goal vigente sin decision hoy: la segunda
-corrida del dia salta los ya decididos por el UNIQUE); compuerta (S.1:
-siempre deja pasar); aplicar (lee lo pendiente de hoy de la base y aplica
-`live` con `cambios.aplicar`, orden INSERT+COMMIT -> PATCH -> sello; en
-`shadow` inserta el cambio virtual `confirmado`/`virtual`, sin PATCH);
+(persiste una decision por goal vigente sin decision hoy, con su modo
+efectivo; la segunda corrida del dia salta los ya decididos por el
+UNIQUE; con el global en `off` no decide); compuerta (S.1: siempre deja
+pasar); aplicar (relee config y goal antes de cada escritura y retiene
+`apagador`/`goal_cambiado`; `live` con `cambios.aplicar`, orden
+INSERT+COMMIT -> PATCH -> sello; en `shadow` inserta el cambio virtual
+`confirmado`/`virtual`, sin PATCH);
 cierra la fila; libera el claim al salir. Sin fase "en memoria": lo que
 un paso deja, el siguiente lo lee de la base. Se puede lanzar N veces al
 dia: converge (REPRICING 02 S.1 mato el cupo y la prioridad).
@@ -50,9 +52,11 @@ from psycopg.types.json import Json
 
 import app.precio.cambios as cambios_mod
 from app.estimacion_venta import DetalleFee
+from app.precio.compuerta import modo_efectivo
 from app.precio.config import ConfigPrecio, leer_config
 from app.precio.config import _entero as _entero_config
 from app.precio.config import _modo as _modo_config
+from app.precio.config import _modo_universo as _modo_universo_config
 from app.precio.puerto import EscrituraNoDisponible, Miembro, UnidadPrecio
 from app.precio.reglas import decidir
 from app.precio.tipos import (
@@ -97,6 +101,7 @@ class Resumen:
     huerfanas: int = 0
     lineas: tuple = ()
     errores: tuple = ()
+    retenidas: int = 0
 
 
 def motor_lock(platform: str) -> str:
@@ -603,17 +608,31 @@ def _decidir_lectura(
     cfg_id,
     lineas: list,
     errores: list,
+    modo_global: str,
+    modo_universo: dict,
 ) -> tuple[int, int]:
     """Una unidad de decidir sobre su Lectura del lote: maquina y persistencia.
 
-    Devuelve `(persistida, saltada)` (0/1). `psycopg.Error` sale (es infra);
-    un `ValueError` del mercado (cotizacion guardada que no coincide, oferta
-    ausente) sale `no_evaluado(escenario_incoherente)`; cualquier otra
-    excepcion aisla la publicacion (B1).
+    S.2: la fila guarda el modo EFECTIVO (`min` de global, universo y goal);
+    con efectivo `off` no hay fila (se vuelve antes de cotizar). Sin canal
+    conocido el universo no restringe (neutro `live`). Devuelve `(persistida,
+    saltada)` (0/1). `psycopg.Error` sale (es infra); un `ValueError` del
+    mercado (cotizacion guardada que no coincide, oferta ausente) sale
+    `no_evaluado(escenario_incoherente)`; cualquier otra excepcion aisla la
+    publicacion (B1).
     """
+    if lectura.entrada is None:
+        modo_fila = modo_efectivo(modo_global, "live", mode)
+        if modo_fila == "off":
+            return 0, 0
+    else:
+        universo = modo_universo.get(f"{platform}/{lectura.entrada.canal}", "off")
+        modo_fila = modo_efectivo(modo_global, universo, mode)
+        if modo_fila == "off":
+            return 0, 0
     comun = {
         "lid": lid,
-        "mode": mode,
+        "mode": modo_fila,
         "prod_id": prod_id,
         "platform": platform,
         "goal_id": goal_id,
@@ -630,11 +649,13 @@ def _decidir_lectura(
             errores.append(msg)
         if not motivo_permitido("no_evaluado", motivo):
             crudo = f"motivo_estimacion={motivo!r} {diagnostico}"
-            decision = _no_evaluado(Decimal(goal_pct), mode, "estimacion_motivo_desconocido", crudo)
+            decision = _no_evaluado(
+                Decimal(goal_pct), modo_fila, "estimacion_motivo_desconocido", crudo
+            )
         else:
-            decision = _no_evaluado(Decimal(goal_pct), mode, motivo, diagnostico)
+            decision = _no_evaluado(Decimal(goal_pct), modo_fila, motivo, diagnostico)
         return _persistir_uno(conn, decision, canal=None, meta=None, **comun)
-    entrada = lectura.entrada
+    entrada = replace(lectura.entrada, mode=modo_fila)
     try:
         decision, cotiz_id = cotizar_y_decidir(
             conn,
@@ -649,7 +670,7 @@ def _decidir_lectura(
     except ValueError as exc:
         return _persistir_uno(
             conn,
-            _no_evaluado(Decimal(goal_pct), mode, "escenario_incoherente", str(exc)),
+            _no_evaluado(Decimal(goal_pct), modo_fila, "escenario_incoherente", str(exc)),
             canal=None,
             meta=None,
             **comun,
@@ -662,7 +683,7 @@ def _decidir_lectura(
         errores.append(msg)
         return _persistir_uno(
             conn,
-            _no_evaluado(Decimal(goal_pct), mode, "escenario_incoherente", msg),
+            _no_evaluado(Decimal(goal_pct), modo_fila, "escenario_incoherente", msg),
             canal=None,
             meta=None,
             **comun,
@@ -681,15 +702,19 @@ def _decidir_pendientes(
     owner: str,
     freno_dias: int,
     cfg_id,
+    modo_global: str,
+    modo_universo: dict,
 ) -> tuple[int, list[str], list[str], int]:
     """Una decision persistida por goal vigente sin decision hoy (J).
 
-    Frenos por unidad (antes de pedir insumos), UNA llamada
-    `mercado.insumos` por lote para las no frenadas y, por unidad, la
-    maquina de cotizaciones con su `persistir_decision`. Devuelve
-    `(decisiones, lineas, errores, saltadas)`: `saltadas` cuenta las
-    publicaciones sin fila por reedicion del goal a media corrida. Lo que
-    este paso deja, `_aplicar_pendientes` lo lee de la base.
+    S.2: cada fila guarda su modo efectivo (los frenos, sin canal
+    conocido, usan `min` de global y goal). Frenos por unidad (antes de
+    pedir insumos), UNA llamada `mercado.insumos` por lote para las no
+    frenadas y, por unidad, la maquina de cotizaciones con su
+    `persistir_decision`. Devuelve `(decisiones, lineas, errores,
+    saltadas)`: `saltadas` cuenta las publicaciones sin fila por reedicion
+    del goal a media corrida. Lo que este paso deja, `_aplicar_pendientes`
+    lo lee de la base.
     """
     platform = mercado.clave
     goals = conn.execute(
@@ -720,17 +745,20 @@ def _decidir_pendientes(
             continue
         goal_de[lid] = gid
         _latir_claim(conn, platform, owner)
+        modo_freno = modo_efectivo(modo_global, "live", mode)
+        if modo_freno == "off":
+            continue
         if freno_no_confirmado(conn, lid, plat, desde=vigente_desde):
             persistida, saltada = _persistir_uno(
                 conn,
                 _frenado(
                     Decimal(goal_pct),
-                    mode,
+                    modo_freno,
                     "no_confirmado",
                     "ultimo cambio real sin confirmar desde el goal vigente",
                 ),
                 lid=lid,
-                mode=mode,
+                mode=modo_freno,
                 prod_id=prod_id,
                 canal=None,
                 meta=None,
@@ -748,12 +776,12 @@ def _decidir_pendientes(
                 conn,
                 _frenado(
                     Decimal(goal_pct),
-                    mode,
+                    modo_freno,
                     "api_error",
                     f"error en los {freno_dias} dias previos",
                 ),
                 lid=lid,
-                mode=mode,
+                mode=modo_freno,
                 prod_id=prod_id,
                 canal=None,
                 meta=None,
@@ -814,6 +842,8 @@ def _decidir_pendientes(
                 cfg_id=cfg_id,
                 lineas=lineas,
                 errores=errores,
+                modo_global=modo_global,
+                modo_universo=modo_universo,
             )
             decisiones += persistida
             saltadas += saltada
@@ -832,6 +862,13 @@ def _medir_compuerta(
     return {}
 
 
+_SQL_SETTINGS_VIGENTE = "SELECT settings FROM config_version ORDER BY id DESC LIMIT 1"
+
+_SQL_GOAL_POR_ID = "SELECT mode::text, valid_from, valid_to FROM precio_goal WHERE id = %s"
+
+_SQL_RETENER = "INSERT INTO precio_retencion (decision_id, corrida_id, causa) VALUES (%s, %s, %s)"
+
+
 def _aplicar_pendientes(
     conn: psycopg.Connection,
     mercado,
@@ -840,22 +877,27 @@ def _aplicar_pendientes(
     *,
     owner: str,
     ahora: datetime,
-) -> tuple[int, int, list[str]]:
+    corrida_id: int,
+) -> tuple[int, int, int, list[str]]:
     """Aplica lo pendiente de HOY que la compuerta deja pasar (J).
 
     Pendiente = decision de hoy `subir`/`bajar` sin cambio con efecto (ni
     real ni virtual). Nunca una decision de ayer: su escenario ya no vale.
-    En orden de listing_id. S.1: `veredictos` siempre deja pasar. Devuelve
-    `(escritas, virtuales, errores)`: `escritas` cuenta cambios reales
-    creados (= PATCH intentados); una publicacion no tumba a las demas
-    (B.4); `EscrituraNoDisponible` deja de aplicar `live` el resto de la
-    corrida (fallaria igual en cada una y lo pendiente se reintenta en la
+    En orden de listing_id. S.1: `veredictos` siempre deja pasar. S.2: la
+    config Y el goal de la decision se releen antes de CADA escritura: el
+    modo que ya no alcanza deja retencion `apagador` (config ilegible =
+    fail closed) y el goal ya no vigente, ausente o ya no `live` para una
+    decision `live` deja `goal_cambiado`. Devuelve `(escritas, virtuales,
+    retenidas, errores)`: `escritas` cuenta cambios reales creados (=
+    PATCH intentados); una publicacion no tumba a las demas (B.4);
+    `EscrituraNoDisponible` deja de aplicar `live` el resto de la corrida
+    (fallaria igual en cada una y lo pendiente se reintenta en la
     siguiente); un error de base aborta.
     """
     platform = mercado.clave
     pendientes = conn.execute(
         "SELECT d.id, d.listing_id, d.mode, d.p_actual, d.p_actual_currency,"
-        " d.p_aplicado, d.p_aplicado_currency"
+        " d.p_aplicado, d.p_aplicado_currency, d.goal_id, d.canal"
         " FROM precio_decision d"
         " WHERE d.platform = %s AND d.decision_date = %s"
         " AND d.resultado IN ('subir', 'bajar')"
@@ -865,10 +907,53 @@ def _aplicar_pendientes(
     ).fetchall()
     escritas = 0
     virtuales = 0
+    retenidas = 0
     errores: list[str] = []
     parche_sin_sellar = False
-    for did, lid, mode, p_actual, p_actual_mon, p_aplicado, p_aplicado_mon in pendientes:
+    for (
+        did,
+        lid,
+        mode,
+        p_actual,
+        p_actual_mon,
+        p_aplicado,
+        p_aplicado_mon,
+        gid,
+        canal,
+    ) in pendientes:
         _latir_claim(conn, platform, owner)
+        if mode not in ("shadow", "live"):
+            msg = scrub(f"listing={lid} {platform} modo_desconocido: {mode!r}")
+            logger.error("corrida %s", msg)
+            errores.append(msg)
+            continue
+        try:
+            fila_cfg = conn.execute(_SQL_SETTINGS_VIGENTE).fetchone()
+            settings = fila_cfg[0] if fila_cfg is not None else None
+            if settings is None:
+                raise ValueError("config sin precio_modo_global: sin config_version")
+            efectivo = modo_efectivo(
+                _modo_config(settings, "precio_modo_global"),
+                _modo_universo_config(settings, "precio_modo_universo").get(
+                    f"{platform}/{canal}", "off"
+                ),
+                mode,
+            )
+        except psycopg.Error:
+            raise
+        except Exception:  # noqa: BLE001 - config ilegible a media corrida: fail closed
+            efectivo = "off"
+        alcanza = efectivo == "live" if mode == "live" else efectivo != "off"
+        if not alcanza:
+            conn.execute(_SQL_RETENER, (did, corrida_id, "apagador"))
+            retenidas += 1
+            continue
+        goal = conn.execute(_SQL_GOAL_POR_ID, (gid,)).fetchone() if gid is not None else None
+        vigente = goal is not None and goal[1] <= hoy and (goal[2] is None or goal[2] > hoy)
+        if not vigente or (mode == "live" and goal[0] != "live"):
+            conn.execute(_SQL_RETENER, (did, corrida_id, "goal_cambiado"))
+            retenidas += 1
+            continue
         if mode == "shadow":
             try:
                 cambios_mod.insertar_virtual(
@@ -891,11 +976,6 @@ def _aplicar_pendientes(
                 continue
             virtuales += 1
             continue
-        if mode != "live":
-            msg = scrub(f"listing={lid} {platform} modo_desconocido: {mode!r}")
-            logger.error("corrida %s", msg)
-            errores.append(msg)
-            continue
         if parche_sin_sellar:
             continue
         try:
@@ -915,7 +995,7 @@ def _aplicar_pendientes(
             continue
         if res.id_cambio is not None:
             escritas += 1
-    return escritas, virtuales, errores
+    return escritas, virtuales, retenidas, errores
 
 
 def _abrir_corrida(
@@ -941,16 +1021,17 @@ def _cerrar_corrida(
     decisiones: int,
     movidas: int,
     virtuales: int,
+    retenidas: int,
     errores: int,
     saltadas: int,
 ) -> None:
     """Sella la fila `cerrada` con sus conteos, en un solo UPDATE (el trigger
-    solo deja sellar una vez; S.1 no retiene: `retenidas` nace 0)."""
+    solo deja sellar una vez)."""
     conn.execute(
         "UPDATE precio_corrida SET estado = 'cerrada', cerrada_at = now(),"
-        " decisiones = %s, movidas = %s, virtuales = %s, retenidas = 0,"
+        " decisiones = %s, movidas = %s, virtuales = %s, retenidas = %s,"
         " errores = %s, saltadas_por_edicion = %s WHERE id = %s",
-        (decisiones, movidas, virtuales, errores, saltadas, corrida_id),
+        (decisiones, movidas, virtuales, retenidas, errores, saltadas, corrida_id),
     )
 
 
@@ -963,19 +1044,19 @@ def correr(
 ) -> Resumen:
     """La corrida de una plataforma (conn en autocommit, rol decides).
 
-    `platform` sale de `mercado.clave`. Valida config (`leer_config` + modo
-    global + freno; el `ValueError` al arrancar sale `ConfigInvalida`) ->
-    toma el lock -> abre su fila `precio_corrida` (las `abierta` viejas de
-    la plataforma pasan a `abortada`) -> huerfanas -> cierre por observacion
-    -> decidir (frenos por unidad; UNA llamada `mercado.insumos` por lote
-    para las no frenadas; por unidad: maquina de cotizaciones +
-    `persistir_decision`) -> compuerta (S.1: siempre deja pasar) -> aplicar
-    (lee lo pendiente de hoy de la base: `live` con `cambios.aplicar`,
-    `shadow` con virtual) -> cierra su fila con los conteos -> avisa ->
-    suelta el lock. Con el claim perdido levanta `LockOcupado` sin decidir
-    nada. `avisar` (gancho del carril B) se llama una vez al terminar con
-    `(conn, platform, hoy, resumen)`; si levanta, se registra (log scrubbado
-    + entrada en `errores`) y la corrida devuelve su resumen normal.
+    `platform` sale de `mercado.clave`. Valida config (`leer_config` +
+    modos del apagador + freno; el `ValueError` al arrancar sale
+    `ConfigInvalida`) -> toma el lock -> abre su fila `precio_corrida`
+    (las `abierta` viejas de la plataforma pasan a `abortada`) ->
+    huerfanas -> cierre por observacion -> decidir, SALVO con el global en
+    `off` (la limpieza corre siempre; decidir y sus filas, no) -> compuerta
+    (S.1: siempre deja pasar) -> aplicar (relee config y goal por
+    escritura; `live` con `cambios.aplicar`, `shadow` con virtual) ->
+    cierra su fila con los conteos -> avisa -> suelta el lock. Con el claim
+    perdido levanta `LockOcupado` sin decidir nada. `avisar` (gancho del
+    carril B) se llama una vez al terminar con `(conn, platform, hoy,
+    resumen)`; si levanta, se registra (log scrubbado + entrada en
+    `errores`) y la corrida devuelve su resumen normal.
     """
     platform = mercado.clave
     # D3 (r3): como `aplicar`: sin autocommit no hay corrida (el INSERT
@@ -994,6 +1075,7 @@ def correr(
         cfg_id, settings = fila_cfg
         config = leer_config(settings)
         modo_global = _modo_config(settings, "precio_modo_global")
+        modo_universo = _modo_universo_config(settings, "precio_modo_universo")
         freno_dias = validar_freno_dias_error(settings)
     except ValueError as exc:
         raise ConfigInvalida(str(exc)) from exc
@@ -1008,19 +1090,24 @@ def correr(
         corrida_id = _abrir_corrida(conn, platform, owner, cfg_id, modo_global, hoy)
         huerfanas = cambios_mod.cerrar_huerfanas(conn, mercado)
         cerrados = cambios_mod.cerrar_por_observacion(conn, mercado, hoy)
-        decisiones, lineas, errores, saltadas = _decidir_pendientes(
-            conn,
-            mercado,
-            config,
-            hoy,
-            ahora,
-            owner=owner,
-            freno_dias=freno_dias,
-            cfg_id=cfg_id,
-        )
+        if modo_global == "off":
+            decisiones, lineas, errores, saltadas = 0, [], [], 0
+        else:
+            decisiones, lineas, errores, saltadas = _decidir_pendientes(
+                conn,
+                mercado,
+                config,
+                hoy,
+                ahora,
+                owner=owner,
+                freno_dias=freno_dias,
+                cfg_id=cfg_id,
+                modo_global=modo_global,
+                modo_universo=modo_universo,
+            )
         veredictos = _medir_compuerta(conn, platform, hoy, config)
-        escritas, virtuales, errores_apl = _aplicar_pendientes(
-            conn, mercado, veredictos, hoy, owner=owner, ahora=ahora
+        escritas, virtuales, retenidas, errores_apl = _aplicar_pendientes(
+            conn, mercado, veredictos, hoy, owner=owner, ahora=ahora, corrida_id=corrida_id
         )
         errores = [*errores, *errores_apl]
         _cerrar_corrida(
@@ -1029,6 +1116,7 @@ def correr(
             decisiones=decisiones,
             movidas=escritas,
             virtuales=virtuales,
+            retenidas=retenidas,
             errores=len(errores),
             saltadas=saltadas,
         )
@@ -1039,6 +1127,7 @@ def correr(
             huerfanas=huerfanas,
             lineas=tuple(lineas),
             errores=tuple(errores),
+            retenidas=retenidas,
         )
         if avisar is not None:
             try:

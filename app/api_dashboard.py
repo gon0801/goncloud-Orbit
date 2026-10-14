@@ -1814,6 +1814,18 @@ def settings(conn: ConexionLectura) -> dict:
         "config_version_id": config_id,
         "modo_global": settings.get(g.CLAVE_SETTING_MODO),
         "advertencia_respaldo": ADVERTENCIA_RESPALDO,
+        # S.2: apagador de precios (tolerante: config vieja sin claves =
+        # null/{} y la pagina se muestra; la corrida es la estricta).
+        "precio_modo_global": settings.get("precio_modo_global"),
+        "precio_modo_universo": settings.get("precio_modo_universo") or {},
+        # Los cuatro universos del registro (app/estimacion_universo.py):
+        # la plantilla los lista aunque no tengan entrada (sin entrada = off).
+        "precio_universos": [
+            "amazon_mx/fba",
+            "amazon_mx/fbm",
+            "amazon_us/fbm",
+            "meli/meli",
+        ],
         "plataformas": plataformas,
         "goals": [
             _goal_editable(
