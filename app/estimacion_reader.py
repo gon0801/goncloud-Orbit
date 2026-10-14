@@ -1,19 +1,32 @@
 """Reader batch de escenarios de estimacion (S5).
 
 Separa lectura + overlay de frescura + JOIN de procedencia del camino de
-persistencia en `estimacion_repository`.
+persistencia en `estimacion_repository`. Desde REPRICING 02 (0.b) tambien
+es el UNICO lugar que conoce la forma del JSON `componentes` del escenario:
+`leer_cuenta` desarma ese JSON y devuelve la cuenta tipada (o su motivo).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 import psycopg
 
 from app.estimacion_insumos import FRESHNESS_LIMIT
+from app.estimacion_venta import DetalleFee
+from app.precio.puerto import RefsAuditoria
+from app.precio.tipos import Componentes, Importe, Tasas
+
+__all__ = [
+    "ProcedenciaRefs",
+    "EscenarioLeido",
+    "CuentaLeida",
+    "leer_escenarios",
+    "leer_cuenta",
+]
 
 
 @dataclass(frozen=True)
@@ -152,3 +165,166 @@ def leer_escenarios(
             )
         )
     return resultado
+
+
+# ---------------------------------------------------------------------------
+# La cuenta del escenario, ya tipada (el unico lugar que conoce la forma
+# del JSON `componentes` del escenario)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class CuentaLeida:
+    """El escenario vigente de un listing desarmado y validado.
+
+    No es `Cuenta` completa: esta cuenta conserva el arbol de fees SIN
+    partir (un escenario sin ReferralFee unico debe seguir siendo evaluable
+    en tolerancia); quien necesita `(ref, fijo)` lo parte con
+    `objetivo.derivar_ref_fijo`.
+    """
+
+    componentes: Componentes
+    fee_detalles: tuple[DetalleFee, ...]
+    precio_cotizado: Importe
+    iva_divisor: Decimal
+    isr_tasa: Decimal
+    precio_incluye_iva: bool
+    oferta_observada_en: datetime
+    tasas: Tasas
+    refs: RefsAuditoria
+    canal: str
+
+
+def _detalle_fee(nodo: dict) -> DetalleFee:
+    """`fee_details` normalizado (forma de `parsear_respuesta_fees`) a arbol."""
+    if not isinstance(nodo, dict):
+        raise ValueError(f"detalle de fee no es objeto: {nodo!r}")
+    try:
+        tasa_raw = nodo.get("tax_amount")
+        hijos_raw = nodo.get("included_fee_details") or ()
+        return DetalleFee(
+            fee_type=nodo["fee_type"],
+            final_fee=Decimal(str(nodo["final_fee"])),
+            tax_amount=None if tasa_raw is None else Decimal(str(tasa_raw)),
+            included_fee_details=tuple(_detalle_fee(hijo) for hijo in hijos_raw),
+        )
+    except (KeyError, InvalidOperation, ValueError, TypeError) as exc:
+        raise ValueError(f"detalle de fee invalido: {nodo!r}") from exc
+
+
+def _importe(valor, moneda: str, *, campo: str) -> Importe:
+    if valor is None or moneda is None:
+        raise ValueError(f"{campo} sin valor o sin moneda")
+    return Importe(Decimal(valor), moneda)
+
+
+def _componentes_por_nombre(componentes: list) -> dict:
+    try:
+        return {c["nombre"]: c for c in componentes}
+    except (KeyError, TypeError) as exc:
+        raise ValueError(f"componentes no son lista de dicts: {componentes!r}") from exc
+
+
+def leer_cuenta(
+    conn: psycopg.Connection, listing_id: int, *, as_of: datetime
+) -> CuentaLeida | str | None:
+    """Escenario vigente ya tipado, su primer motivo o `None` sin escenario.
+
+    `str` = el escenario existe pero no esta `disponible` (B4: sin mas
+    lecturas, el motivo real de S2 viaja tal cual). `ValueError` = el
+    escenario esta `disponible` pero sus piezas no cuadran (el llamador lo
+    vuelve `escenario_incoherente` con este texto de diagnostico).
+    """
+    escenarios = leer_escenarios(conn, [listing_id], as_of=as_of)
+    if not escenarios:
+        return None
+    esc = escenarios[0]
+    if esc.estado != "disponible":
+        return esc.motivos[0] if esc.motivos else "estimacion_motivo_desconocido"
+
+    fila_ids = conn.execute(
+        "SELECT oferta_observation_id, fee_observation_id FROM estimacion_escenario WHERE id = %s",
+        (esc.id,),
+    ).fetchone()
+    if fila_ids is None:
+        raise ValueError(f"escenario {esc.id} desaparecio")
+    oferta_id, fee_id = fila_ids
+    oferta = conn.execute(
+        "SELECT price_amount, price_currency, observed_at"
+        " FROM estimacion_oferta_observation WHERE id = %s",
+        (oferta_id,),
+    ).fetchone()
+    if oferta is None:
+        raise ValueError(f"oferta {oferta_id} del escenario {esc.id} ausente")
+    p_valor, p_moneda, oferta_obs_en = oferta
+    fee = conn.execute(
+        "SELECT total_fees, quoted_price_currency, fee_details FROM estimacion_fee_observation"
+        " WHERE id = %s",
+        (fee_id,),
+    ).fetchone()
+    if fee is None:
+        raise ValueError(f"fee {fee_id} del escenario {esc.id} ausente")
+    fee_total, fee_moneda, fee_detalles_raw = fee
+
+    partes = _componentes_por_nombre(esc.componentes)
+    try:
+        bruto = partes["precio_bruto"]
+        ingreso_c = partes["ingreso_normalizado"]
+        costo_c = partes["costo_normalizado"]
+        envio_c = partes["logistica"]
+        isr_c = partes["isr"]
+        monedas = {
+            p_moneda,
+            ingreso_c.get("moneda_normalizada"),
+            costo_c.get("moneda_normalizada"),
+            fee_moneda,
+            envio_c.get("moneda_normalizada"),
+            isr_c.get("moneda_normalizada"),
+        }
+        if len(monedas) != 1:
+            raise ValueError(
+                f"escenario {esc.id} con monedas divergentes: {sorted(map(str, monedas))}"
+            )
+        comp = Componentes(
+            p_actual=_importe(p_valor, p_moneda, campo="p_actual"),
+            ingreso=_importe(ingreso_c.get("importe_normalizado"), p_moneda, campo="ingreso"),
+            costo=_importe(costo_c.get("importe_normalizado"), p_moneda, campo="costo"),
+            fees=_importe(fee_total, p_moneda, campo="fees"),
+            envio=_importe(envio_c.get("importe_normalizado"), p_moneda, campo="envio"),
+            isr=_importe(isr_c.get("importe_normalizado"), p_moneda, campo="isr"),
+        )
+        if comp.ingreso.valor <= 0:
+            raise ValueError(f"escenario {esc.id} con ingreso no positivo")
+        divisor_iva = Decimal(bruto.get("importe_normalizado")) / comp.ingreso.valor
+        isr_tasa = comp.isr.valor / comp.ingreso.valor
+        try:
+            detalles = tuple(_detalle_fee(nodo) for nodo in (fee_detalles_raw or []))
+        except ValueError as exc:
+            raise ValueError(f"fee_details del escenario {esc.id}: {exc}") from exc
+    except KeyError as exc:
+        raise ValueError(f"escenario {esc.id} sin componente {exc}") from exc
+    except (InvalidOperation, TypeError, AttributeError) as exc:
+        raise ValueError(f"escenario {esc.id} con componentes podridos: {exc}") from exc
+
+    return CuentaLeida(
+        componentes=comp,
+        fee_detalles=detalles,
+        precio_cotizado=_importe(p_valor, p_moneda, campo="precio_cotizado"),
+        iva_divisor=divisor_iva,
+        isr_tasa=isr_tasa,
+        precio_incluye_iva=divisor_iva != 1,
+        oferta_observada_en=oferta_obs_en,
+        tasas=Tasas(
+            iva_divisor=divisor_iva,
+            precio_incluye_iva=divisor_iva != 1,
+            retencion_tasa=isr_tasa,
+        ),
+        refs=RefsAuditoria(
+            escenario_id=esc.id,
+            fee_observation_id=fee_id,
+            oferta_observation_id=oferta_id,
+            envio_muestra_id=None,
+            product_id=None,
+        ),
+        canal=esc.canal,
+    )

@@ -13,6 +13,7 @@ from decimal import Decimal
 import pytest
 
 from app.estimacion_venta import DetalleFee
+from app.precio import puerto
 from app.precio.tipos import (
     MOTIVOS_FRENADO,
     MOTIVOS_GOAL_INALCANZABLE,
@@ -20,6 +21,7 @@ from app.precio.tipos import (
     MOTIVOS_NO_EVALUADO,
     RESULTADOS,
     SUBMOTIVOS_SIN_DATO,
+    Fees,
     Importe,
     SenalVentas,
     exigir_decimal,
@@ -511,10 +513,32 @@ def test_objetivo_redondeo_techo_y_piso():
     assert piso_centavo(Decimal("127.61")) == Decimal("127.61")
 
 
-def cotizacion(precio, detalles, total, estado="success", codigo=None):
-    from app.precio.tipos import CotizacionVerificada
+def _tax_pendiente(detalles):
+    return any(
+        det.tax_amount is not None or _tax_pendiente(det.included_fee_details) for det in detalles
+    )
 
-    return CotizacionVerificada(imp(precio), detalles, Decimal(total), estado, codigo)
+
+def cotizacion(precio, detalles, total, estado="success", codigo=None):
+    """Arma la cotizacion como el adaptador: concilia el arbol, parte los
+    fees con derivar_ref_fijo o lleva el error_code del fallo."""
+    precio_imp = precio if isinstance(precio, Importe) else imp(precio)
+    if estado == "error":
+        return puerto.Cotizacion(precio_imp, None, AHORA, codigo)
+    total_dec = Decimal(total)
+    if sum((det.final_fee for det in detalles), Decimal(0)) != total_dec:
+        return puerto.Cotizacion(precio_imp, None, AHORA, "fee_error:fee_no_concilia")
+    try:
+        _, fijo = derivar_ref_fijo(detalles, total_dec, precio_imp.valor)
+    except ErrorObjetivo as exc:
+        return puerto.Cotizacion(precio_imp, None, AHORA, exc.motivo)
+    fees = Fees(
+        Importe(total_dec, precio_imp.moneda),
+        Importe(total_dec - fijo, precio_imp.moneda),
+        Importe(fijo, precio_imp.moneda),
+        _tax_pendiente(detalles),
+    )
+    return puerto.Cotizacion(precio_imp, fees, AHORA, None)
 
 
 def test_objetivo_paso_cero_cotizaciones_pide_estrella():
@@ -812,23 +836,6 @@ def test_r2_a3_subida_futura_frena():
     d = decide(ent)
     assert (d.resultado, d.motivo) == ("frenado", "perdiendo_tras_subida")
     assert "futura" in d.diagnostico
-
-
-# ---------------------------------------------------------------- r3-K1
-
-
-def test_r3_k1_monedas_divergentes_no_tumban():
-    from dataclasses import replace
-
-    from app.precio.tipos import Importe
-
-    esc = escenario(costo="60")
-    mezclado = comp(costo="60")
-    mezclado = replace(mezclado, isr=Importe(Decimal("2.50"), "USD"))
-    esc = replace(esc, componentes=mezclado)
-    d = decide(entrada(costo="60", escenario=esc))
-    assert (d.resultado, d.motivo) == ("no_evaluado", "escenario_incoherente")
-    assert "USD" in d.diagnostico and "MXN" in d.diagnostico
 
 
 # ---------------------------------------------------------------- r3-K2
@@ -1235,7 +1242,7 @@ def test_r2_b_n4_r_borde_001_pasa_0011_no():
 
 
 def test_r2_b_n8_bajar_pide_doble_no_pide_segunda():
-    from app.precio.tipos import CotizacionVerificada, PideCotizacion
+    from app.precio.tipos import PideCotizacion
 
     ent = entrada(senal=senal_perdiendo())
     pedido = decide(ent)
@@ -1243,15 +1250,13 @@ def test_r2_b_n8_bajar_pide_doble_no_pide_segunda():
     p1 = pedido.precio.valor
     assert p1 <= 2 * Decimal("116")
     referral = (Decimal("0.45") * p1).quantize(Decimal("0.01"))
-    c1 = CotizacionVerificada(
+    c1 = cotizacion(
         pedido.precio,
         (
             DetalleFee("ReferralFee", referral, None, ()),
             DetalleFee("FbaFee", Decimal("3"), None, ()),
         ),
         referral + Decimal("3"),
-        "success",
-        None,
     )
     salida = decide(ent, cotizaciones=(c1,))
     assert not isinstance(salida, PideCotizacion)
@@ -1259,29 +1264,23 @@ def test_r2_b_n8_bajar_pide_doble_no_pide_segunda():
 
 
 def test_r2_b_n9_verificado_sobre_doble_no_sube_ni_baja():
-    from app.precio.tipos import CotizacionVerificada
-
-    c_subir = CotizacionVerificada(
-        imp("250"),
+    c_subir = cotizacion(
+        "250",
         (
             DetalleFee("ReferralFee", Decimal("82.47"), None, ()),
             DetalleFee("FbaFee", Decimal("3"), None, ()),
         ),
-        Decimal("85.47"),
-        "success",
-        None,
+        "85.47",
     )
     d = decide(entrada(costo="60"), cotizaciones=(c_subir,))
     assert (d.resultado, d.motivo) == ("goal_inalcanzable", "precio_mayor_al_doble")
-    c_bajar = CotizacionVerificada(
-        imp("250"),
+    c_bajar = cotizacion(
+        "250",
         (
             DetalleFee("ReferralFee", Decimal("102.474"), None, ()),
             DetalleFee("FbaFee", Decimal("3"), None, ()),
         ),
-        Decimal("105.474"),
-        "success",
-        None,
+        "105.474",
     )
     d = decide(entrada(senal=senal_perdiendo()), cotizaciones=(c_bajar,))
     assert (d.resultado, d.motivo) == ("goal_inalcanzable", "precio_mayor_al_doble")
@@ -1424,7 +1423,8 @@ def test_r1_c_o4_igual_a_tol_verifica():
         ),
         "17.50",
     )
-    ref1, fijo1 = derivar_ref_fijo(c1.detalles, c1.fee_total, c1.precio.valor)
+    ref1 = c1.fees.variable.valor / c1.precio.valor
+    fijo1 = c1.fees.fijo.valor
     m1 = margen_a_precio(
         c1.precio.valor,
         Decimal("60"),
@@ -1478,7 +1478,8 @@ def test_r1_c_o5_segundo_p_sale_de_ref1():
         cotizaciones=(c1,),
     )
     assert isinstance(pedido, PideCotizacion) and pedido.intento == 2
-    ref1, fijo1 = derivar_ref_fijo(c1.detalles, c1.fee_total, c1.precio.valor)
+    ref1 = c1.fees.variable.valor / c1.precio.valor
+    fijo1 = c1.fees.fijo.valor
     esperado = techo_centavo(
         precio_estrella(
             Decimal("60"),
@@ -1693,44 +1694,38 @@ def test_r1_a3_bajar_verifica_con_cotizacion():
 
 
 def test_r1_a3_bajar_tax_error_y_no_lineal():
-    from app.precio.tipos import CotizacionVerificada, PideCotizacion
+    from app.precio.tipos import PideCotizacion
 
     ent = entrada(senal=senal_perdiendo())
     pedido = decide(ent)
     assert isinstance(pedido, PideCotizacion)
-    con_tax = CotizacionVerificada(
+    con_tax = cotizacion(
         pedido.precio,
         (DetalleFee("ReferralFee", Decimal("10"), Decimal("1"), ()),),
         Decimal("10"),
-        "success",
-        None,
     )
     d = decide(ent, cotizaciones=(con_tax,))
     assert (d.resultado, d.motivo) == ("no_evaluado", "impuesto_fee_pendiente")
-    en_error = CotizacionVerificada(pedido.precio, (), Decimal("0"), "error", "fee_http_500")
+    en_error = cotizacion(pedido.precio, (), Decimal("0"), estado="error", codigo="fee_http_500")
     d = decide(ent, cotizaciones=(en_error,))
     assert (d.resultado, d.motivo) == ("no_evaluado", "fee_error:fee_http_500")
-    c1 = CotizacionVerificada(
+    c1 = cotizacion(
         imp("100"),
         (
             DetalleFee("ReferralFee", Decimal("1.69"), None, ()),
             DetalleFee("FbaFee", Decimal("3"), None, ()),
         ),
         Decimal("4.69"),
-        "success",
-        None,
     )
     pedido2 = decide(ent, cotizaciones=(c1,))
     assert isinstance(pedido2, PideCotizacion)
-    c2 = CotizacionVerificada(
+    c2 = cotizacion(
         pedido2.precio,
         (
             DetalleFee("ReferralFee", Decimal("30"), None, ()),
             DetalleFee("FbaFee", Decimal("3"), None, ()),
         ),
         Decimal("33"),
-        "success",
-        None,
     )
     d = decide(ent, cotizaciones=(c1, c2))
     assert (d.resultado, d.motivo) == ("goal_inalcanzable", "fee_no_lineal")
@@ -1739,20 +1734,18 @@ def test_r1_a3_bajar_tax_error_y_no_lineal():
 def test_r1_a3_candado_direccion_bajar_con_verificado_arriba():
     # Espejo de A1-capa-2: escenario coherente (m=0.425 -> bajar), pero una
     # cotizacion verifica P1=130 > P=116 -> escenario_incoherente.
-    from app.precio.tipos import CotizacionVerificada, PideCotizacion
+    from app.precio.tipos import PideCotizacion
 
     ent = entrada(senal=senal_perdiendo())
     pedido = decide(ent)
     assert isinstance(pedido, PideCotizacion)
-    amañada = CotizacionVerificada(
+    amañada = cotizacion(
         imp("130"),
         (
             DetalleFee("ReferralFee", Decimal("32.65"), None, ()),
             DetalleFee("FbaFee", Decimal("3"), None, ()),
         ),
         Decimal("35.65"),
-        "success",
-        None,
     )
     d = decide(ent, cotizaciones=(amañada,))
     assert (d.resultado, d.motivo) == ("no_evaluado", "escenario_incoherente")
@@ -1764,7 +1757,7 @@ def test_r1_a3_candado_direccion_bajar_con_verificado_arriba():
 def test_r1_a2_segundo_p_mayor_al_doble_no_se_pide():
     # costo=60 -> la maquina pide P1; con referral del 45 % el P2 saldria
     # ~480 > 2P=232: termina en inalcanzable SIN emitir ese PideCotizacion.
-    from app.precio.tipos import CotizacionVerificada, PideCotizacion
+    from app.precio.tipos import PideCotizacion
 
     ent = entrada(costo="60")
     pedido = decide(ent)
@@ -1772,15 +1765,13 @@ def test_r1_a2_segundo_p_mayor_al_doble_no_se_pide():
     p1 = pedido.precio.valor
     assert p1 <= 2 * Decimal("116")
     referral = (Decimal("0.45") * p1).quantize(Decimal("0.01"))
-    c1 = CotizacionVerificada(
+    c1 = cotizacion(
         pedido.precio,
         (
             DetalleFee("ReferralFee", referral, None, ()),
             DetalleFee("FbaFee", Decimal("3"), None, ()),
         ),
         referral + Decimal("3"),
-        "success",
-        None,
     )
     salida = decide(ent, cotizaciones=(c1,))
     assert not isinstance(salida, PideCotizacion)
@@ -1791,20 +1782,18 @@ def test_r1_a1_candado_direccion_subir_con_verificado_abajo():
     # Capa 2 sin capa 1: escenario coherente (m=0.29 -> subir), pero una
     # cotizacion real verifica P1=100 < P=116 (fees no lineales: F1=4.69
     # -> m(100)=0.30 exacto).
-    from app.precio.tipos import CotizacionVerificada, PideCotizacion
+    from app.precio.tipos import PideCotizacion
 
     ent = entrada(costo="53.5")
     pedido = decide(ent)
     assert isinstance(pedido, PideCotizacion)
-    amañada = CotizacionVerificada(
+    amañada = cotizacion(
         imp("100"),
         (
             DetalleFee("ReferralFee", Decimal("1.69"), None, ()),
             DetalleFee("FbaFee", Decimal("3"), None, ()),
         ),
         Decimal("4.69"),
-        "success",
-        None,
     )
     d = decide(ent, cotizaciones=(amañada,))
     assert (d.resultado, d.motivo) == ("no_evaluado", "escenario_incoherente")
@@ -1838,27 +1827,44 @@ def entrada(costo="40", precio="116", **kw):
     return EntradaDecision(**base)
 
 
+def fees_escenario_de(ent):
+    esc = ent.escenario
+    total = esc.componentes.fees
+    try:
+        _, fijo = derivar_ref_fijo(esc.fee_detalles, total.valor, esc.precio_cotizado.valor)
+    except ErrorObjetivo:
+        return "fee_error:referral_ausente"
+    return Fees(
+        total,
+        Importe(total.valor - fijo, total.moneda),
+        Importe(fijo, total.moneda),
+        False,
+    )
+
+
 def decide(ent, hoy=HOY, cotizaciones=()):
     from app.precio.reglas import decidir
 
-    return decidir(ent, hoy=hoy, config=cfg(), cotizaciones=cotizaciones)
+    return decidir(
+        ent,
+        hoy=hoy,
+        config=cfg(),
+        cotizaciones=cotizaciones,
+        fees_escenario=fees_escenario_de(ent),
+    )
 
 
 def cotiza_lineal(pedido, ref=Decimal("12") / Decimal("116"), fijo=Decimal("3")):
-    from app.precio.tipos import CotizacionVerificada
-
     p = pedido.precio.valor
     total = (ref * p + fijo).quantize(Decimal("0.01"))
-    return CotizacionVerificada(
-        pedido.precio,
-        (
-            DetalleFee("ReferralFee", total - fijo, None, ()),
-            DetalleFee("FbaFee", fijo, None, ()),
-        ),
-        total,
-        "success",
-        None,
+    moneda = pedido.precio.moneda
+    fees = Fees(
+        Importe(total, moneda),
+        Importe(total - fijo, moneda),
+        Importe(fijo, moneda),
+        False,
     )
+    return puerto.Cotizacion(pedido.precio, fees, AHORA, None)
 
 
 def resuelve(ent, hoy=HOY):

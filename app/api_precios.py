@@ -176,10 +176,18 @@ def _recuadro_precio(conn: ConexionLectura, plataforma: str, hoy: dt.date) -> di
     """Recuadro S10 serializado (la ecuacion cuadra: cobertura.cuadra_exact).
     La clave de dias la lee fuentes.py de la config (este modulo no conoce
     claves); el dinero sale como string (regla 4)."""
+    from app import precio_mercados as mercados
+
     settings = fuentes_precio.config_vigente_settings(conn)
     max_dias = fuentes_precio.max_dias_desde_settings(settings)
-    filas = fuentes_precio.leer_publicaciones(conn, platform=plataforma, hoy=hoy)
-    rec = cobertura_precio.armar_recuadro(filas, platform=plataforma, max_dias=max_dias)
+    with mercados.abrir(plataforma) as vitrina:
+        filas = fuentes_precio.leer_publicaciones(conn, vitrina, hoy=hoy)
+    rec = cobertura_precio.armar_recuadro(
+        filas,
+        platform=plataforma,
+        max_dias=max_dias,
+        universos=fuentes_precio.universos_encendidos(conn),
+    )
     return {
         "activas": rec.activas,
         "evaluadas": rec.evaluadas,

@@ -48,9 +48,14 @@ def vitrina(plataforma: str):
 
 
 @contextmanager
-def abrir(plataforma: str) -> Iterator[object]:
-    """Mercado completo (clientes, cubos de tasa, escritor default-deny)."""
-    mercado = _mercado_de(plataforma)(plataforma)
+def abrir(plataforma: str, **kwargs) -> Iterator[object]:
+    """Mercado completo (clientes, cubos de tasa, escritor default-deny).
+
+    Sin `kwargs` es vitrina sola (sirve en la pantalla); con clientes
+    inyectados (`lector`, `escritor`, `fees`, `limitador`,
+    `construir_cuerpo`) es el mercado de la corrida y las herramientas.
+    """
+    mercado = _mercado_de(plataforma)(plataforma, **kwargs)
     try:
         yield mercado
     finally:

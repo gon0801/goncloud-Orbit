@@ -14,6 +14,7 @@ import logging
 import os
 import uuid
 from contextlib import contextmanager
+from contextlib import nullcontext as _nullcontext
 from datetime import date, timedelta
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
@@ -38,6 +39,9 @@ ORDEN59 = (
     "0032_spapi_pricing.sql",
     "0035_spapi_listings_inventario.sql",
     "0039_precio.sql",
+    "0047_familias.sql",
+    "0053_precio02_canal_meli.sql",
+    "0054_precio02_base.sql",
 )
 
 _skip_sin_pg = pytest.mark.skipif(
@@ -75,6 +79,8 @@ def _db_nueva(*, omit=()):
     dsn = _dsn_base()
     db = f"pp_{uuid.uuid4().hex[:8]}"
     omitidas = set(omit)
+    if "0039_precio.sql" in omitidas:
+        omitidas |= {"0047_familias.sql", "0053_precio02_canal_meli.sql", "0054_precio02_base.sql"}
     admin = psycopg.connect(dsn, autocommit=True)
     creada = False
     conn = None
@@ -583,6 +589,8 @@ def _config_pantalla(conn):
                     "precio_catalogo_max_dias_sin_reportar": 7,
                     "precio_cap_amazon_mx": 7,
                     "precio_cap_amazon_us": 7,
+                    "precio_modo_global": "live",
+                    "precio_modo_universo": {"amazon_mx/fba": "live", "amazon_mx/fbm": "off"},
                 }
             ),
         ),
@@ -708,9 +716,9 @@ def test_precio_pantalla_recuadro_en_vivo_sin_consultas_duplicadas(monkeypatch):
     llamadas: list = []
     real = _fuentes.leer_publicaciones
 
-    def espia(conn, *, platform, hoy):
-        llamadas.append(platform)
-        return real(conn, platform=platform, hoy=hoy)
+    def espia(conn, vitrina, *, hoy):
+        llamadas.append(vitrina.clave)
+        return real(conn, vitrina, hoy=hoy)
 
     monkeypatch.setattr(_fuentes, "leer_publicaciones", espia)
     with _db_pantalla("vivo") as (conn, _dsn):
@@ -1112,8 +1120,8 @@ def test_precio_cierre_cli_pasa_avisar_a_correr(monkeypatch, capsys):
 
     llamadas = {}
 
-    def _falso_correr(conn, platform, **kw):
-        llamadas["platform"] = platform
+    def _falso_correr(conn, mercado, **kw):
+        llamadas["mercado"] = mercado
         llamadas["kw"] = kw
         from types import SimpleNamespace
 
@@ -1123,8 +1131,11 @@ def test_precio_cierre_cli_pasa_avisar_a_correr(monkeypatch, capsys):
     monkeypatch.setattr(cli_mod, "_conexion_decide", lambda: ("conn-falsa", lambda: None))
     monkeypatch.setattr(cli_mod, "_clientes_precio", lambda platform: ("l", "e", "f", "cubo"))
     monkeypatch.setattr("app.precio.corrida.correr", _falso_correr)
+    monkeypatch.setattr(
+        "app.precio_mercados.abrir", lambda clave, **kw: _nullcontext("mercado-falso")
+    )
     assert cli_mod.main(["precio", "--platform", "amazon_mx"]) == 0
-    assert llamadas["platform"] == "amazon_mx"
+    assert llamadas["mercado"] == "mercado-falso"
     assert llamadas["kw"].get("avisar") is notifica.avisar_precio
 
 
@@ -1132,9 +1143,9 @@ def test_precio_cierre_import_tardio_en_precio():
     """C2: el import de avisos vive DENTRO de `_precio` (D9: no tumba otros)."""
     import inspect
 
-    from app import cli as cli_mod
+    from app import cli_precio
 
-    fuente = inspect.getsource(cli_mod._precio)
+    fuente = inspect.getsource(cli_precio.main_precio)
     assert "from app.notifica import avisar_precio" in fuente
     # C (r1): dentro de la rama que llama a `correr`, no antes de `--reporte`.
     assert fuente.index("from app.notifica import avisar_precio") > fuente.index("args.reporte")
@@ -1273,7 +1284,8 @@ def test_r1_a1_no_confirmado_avisa_en_corrida_real(tmp_path, monkeypatch):
     from test_precio_corrida import _cadena, _corre, _price_obs, _RedFalsa
     from test_precio_corrida import _goal as _goal_corrida
 
-    from app.spapi.precio_write import cerrar_por_observacion
+    from app.precio.cambios import cerrar_por_observacion
+    from app.spapi.precio_mercado import MercadoAmazon
 
     with _db_temp() as conn, _canal_falso(tmp_path, monkeypatch) as mensajes:
         datos = _cadena(conn, sku="SKU-A1", ext="B0A1000001", mode="live")
@@ -1296,7 +1308,7 @@ def test_r1_a1_no_confirmado_avisa_en_corrida_real(tmp_path, monkeypatch):
             (Json({"origen": "seed", "detalle": ERROR_BODY}), cam_viejo),
         )
         _price_obs(conn, asin="B0A1000001", precio="100", dia=hace30)
-        cerrados = cerrar_por_observacion(conn, hoy)
+        cerrados = cerrar_por_observacion(conn, MercadoAmazon("amazon_mx"), hoy)
         assert cerrados["no_confirmado"] == 1
         # Cambio de ayer, todavia `enviado`: lo cierra la corrida de hoy.
         dec_ayer = _r1_decision_subir_live(conn, lid, dia=ayer)
@@ -1893,10 +1905,10 @@ def test_r1b_b9_errores_pantalla_tres_casos(monkeypatch, caplog):
 
         real = _fuentes.leer_publicaciones
 
-        def _rota(conn_lectura, *, platform, hoy):
-            if platform == "amazon_mx":
+        def _rota(conn_lectura, vitrina, *, hoy):
+            if vitrina.clave == "amazon_mx":
                 raise RuntimeError("boom puente roto")
-            return real(conn_lectura, platform=platform, hoy=hoy)
+            return real(conn_lectura, vitrina, hoy=hoy)
 
         monkeypatch.setattr(_fuentes, "leer_publicaciones", _rota)
         cliente = _cliente_pantalla(dsn, monkeypatch)
