@@ -2736,3 +2736,320 @@ def test_s3_precios_trae_bloque_seguridad_con_soltar(monkeypatch):
         assert seg["retenciones_abiertas"]["fba"]["causa"] == "movimiento_masivo"
         assert seg["liberable_corrida_id"] == corrida
         assert seg["cohorte"] is None
+
+
+# ---------------------------------------------------------------------------
+# Bloque S.6 (REPRICING 02, S.6): manda los avisos. Resumen diario con sello
+# por plataforma y dia, aviso de compuerta con sello por universo+causa+dia,
+# builders nuevos sin costo/margen/goal, y `corrida_ausente` dentro del
+# bloque precios de /salud. Telegram siempre falso (`_canal_falso`); la base
+# es real. Otros carriles anexan debajo: no borrar ni reordenar.
+# ---------------------------------------------------------------------------
+
+
+def _s6_corrida_cerrada(conn, cfg, *, platform="amazon_mx", owner="tdd-s6"):
+    """Corrida cerrada de hoy (el trigger fija `fecha` al dia UTC)."""
+    corrida = conn.execute(
+        "INSERT INTO precio_corrida (platform, owner, config_version_id, modo_global)"
+        " VALUES (%s, %s, %s, 'live') RETURNING id",
+        (platform, owner, cfg),
+    ).fetchone()[0]
+    conn.execute(
+        "UPDATE precio_corrida SET estado = 'cerrada', cerrada_at = now(),"
+        " decisiones = 0, movidas = 0, virtuales = 0, retenidas = 0,"
+        " errores = 0, saltadas_por_edicion = 0 WHERE id = %s",
+        (corrida,),
+    )
+    return corrida
+
+
+def _s6_medicion(conn, corrida, canal, causa, *, medidas=10, nuevas=6, insumo=None, detalle=""):
+    """Fila de medicion de compuerta (el trigger copia platform/fecha)."""
+    conn.execute(
+        "INSERT INTO precio_compuerta_medicion (corrida_id, canal, medidas, nuevas,"
+        " causa, insumo, detalle) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+        (corrida, canal, medidas, nuevas, causa, insumo, detalle),
+    )
+
+
+def _s6_textos(mensajes, titulo):
+    return [m["text"] for m in mensajes if titulo in m["text"]]
+
+
+@_skip_sin_pg
+def test_s6_resumen_diario_uno_por_plataforma_y_dia_aunque_nada_se_mueva(tmp_path, monkeypatch):
+    """DoD 1: un dia sin movimiento tambien avisa; el sello es por
+    plataforma y dia (MX no calla a US)."""
+    with _db_temp() as conn, _canal_falso(tmp_path, monkeypatch) as mensajes:
+        cfg = _config(conn)
+        prod = _producto(conn, sku="SKU-S6-1")
+        lid1 = _listing(conn, prod, sku="SKU-S6-1", ext="B0S6000001")
+        lid2 = _listing(conn, prod, sku="SKU-S6-2", ext="B0S6000002")
+        _goal(conn, lid1)
+        _goal(conn, lid2)
+        _decision(conn, lid1, resultado="mantener", motivo="en_tolerancia")
+        _decision(conn, lid2, resultado="mantener", motivo="en_tolerancia")
+        hoy = _dias_atras(conn, 0)
+        c1 = _s6_corrida_cerrada(conn, cfg)
+        assert notifica.avisar_precio(conn, "amazon_mx", hoy, _resumen()) == 1
+        assert len(mensajes) == 1
+        assert "[Orbit] precio: resumen diario" in mensajes[0]["text"]
+        assert "hoy no se movio ningun precio" in mensajes[0]["text"]
+        sello = conn.execute(
+            "SELECT resumen_enviado_at FROM precio_corrida WHERE id = %s", (c1,)
+        ).fetchone()[0]
+        assert sello is not None
+        c_us = _s6_corrida_cerrada(conn, cfg, platform="amazon_us")
+        assert notifica.avisar_precio(conn, "amazon_us", hoy, _resumen()) == 1
+        assert len(mensajes) == 2
+        assert "[Orbit] precio: resumen diario" in mensajes[1]["text"]
+        assert "amazon_us" in mensajes[1]["text"]
+        sello_us = conn.execute(
+            "SELECT resumen_enviado_at FROM precio_corrida WHERE id = %s", (c_us,)
+        ).fetchone()[0]
+        assert sello_us is not None
+
+
+@_skip_sin_pg
+def test_s6_dos_corridas_mismo_dia_mandan_un_resumen(tmp_path, monkeypatch):
+    """DoD 2: la segunda corrida (repaso no-op) no reenvia; el sello queda
+    en la primera."""
+    with _db_temp() as conn, _canal_falso(tmp_path, monkeypatch) as mensajes:
+        cfg = _config(conn)
+        hoy = _dias_atras(conn, 0)
+        c1 = _s6_corrida_cerrada(conn, cfg)
+        assert notifica.avisar_precio(conn, "amazon_mx", hoy, _resumen()) == 1
+        assert len(mensajes) == 1
+        c2 = _s6_corrida_cerrada(conn, cfg)
+        assert notifica.avisar_precio(conn, "amazon_mx", hoy, _resumen(decisiones=0)) == 0
+        assert len(mensajes) == 1
+        sellos = {
+            fila[0]: fila[1]
+            for fila in conn.execute(
+                "SELECT id, resumen_enviado_at FROM precio_corrida ORDER BY id"
+            ).fetchall()
+        }
+        assert sellos[c1] is not None
+        assert sellos[c2] is None
+
+
+@_skip_sin_pg
+def test_s6_compuerta_una_vez_por_universo_causa_y_dia_con_repasos(tmp_path, monkeypatch):
+    """DoD 3: el repaso que re-mide la misma causa no reavisa; otra causa u
+    otro universo si avisan."""
+    with _db_temp() as conn, _canal_falso(tmp_path, monkeypatch) as mensajes:
+        cfg = _config(conn)
+        hoy = _dias_atras(conn, 0)
+        c1 = _s6_corrida_cerrada(conn, cfg)
+        _s6_medicion(conn, c1, "fba", "movimiento_masivo", detalle="6 nuevas sobre 10")
+        notifica.avisar_precio(conn, "amazon_mx", hoy, _resumen(decisiones=0))
+        assert len(_s6_textos(mensajes, "[Orbit] precio: compuerta")) == 1
+        c2 = _s6_corrida_cerrada(conn, cfg)
+        _s6_medicion(conn, c2, "fba", "movimiento_masivo", detalle="6 nuevas sobre 10")
+        notifica.avisar_precio(conn, "amazon_mx", hoy, _resumen(decisiones=0))
+        assert len(_s6_textos(mensajes, "[Orbit] precio: compuerta")) == 1
+        c3 = _s6_corrida_cerrada(conn, cfg)
+        _s6_medicion(
+            conn,
+            c3,
+            "fba",
+            "insumo_sistemico",
+            insumo="fx",
+            detalle="fx salto en 6 de 8 comparables",
+        )
+        _s6_medicion(conn, c3, "fbm", "movimiento_masivo", detalle="5 nuevas sobre 9")
+        notifica.avisar_precio(conn, "amazon_mx", hoy, _resumen(decisiones=0))
+        assert len(_s6_textos(mensajes, "[Orbit] precio: compuerta")) == 3
+        sellos = {
+            (fila[0], fila[1]): fila[2]
+            for fila in conn.execute(
+                "SELECT corrida_id, canal, avisada_at FROM precio_compuerta_medicion"
+            ).fetchall()
+        }
+        assert sellos[(c1, "fba")] is not None
+        assert sellos[(c2, "fba")] is None
+        assert sellos[(c3, "fba")] is not None
+        assert sellos[(c3, "fbm")] is not None
+
+
+@_skip_sin_pg
+def test_s6_textos_enviados_sin_costo_margen_ni_goal(tmp_path, monkeypatch):
+    """DoD 4: lo que sale al canal (resumen con muestra y compuerta con el
+    insumo costo) no trae costo, margen ni goal."""
+    with _db_temp() as conn, _canal_falso(tmp_path, monkeypatch) as mensajes:
+        cfg = _config(conn)
+        prod = _producto(conn, sku="SKU-S6-4")
+        lid = _listing(conn, prod, sku="SKU-S6-4", ext="B0S6000004")
+        _goal_live_pantalla(conn, lid)
+        dec = _r1b_bajar_live(conn, lid)
+        _r1b_cambio_real(conn, dec, lid, antes="127.60", despues="116.00")
+        lid2 = _listing(conn, prod, sku="SKU-S6-4B", ext="B0S600004B")
+        _goal(conn, lid2)
+        _decision(conn, lid2, motivo="precio_no_cubre_costo")
+        hoy = _dias_atras(conn, 0)
+        c1 = _s6_corrida_cerrada(conn, cfg)
+        _s6_medicion(
+            conn,
+            c1,
+            "fba",
+            "insumo_sistemico",
+            insumo="costo",
+            detalle="costo salto en 6 de 8 comparables (salto 0.10, frac 0.50)",
+        )
+        notifica.avisar_precio(conn, "amazon_mx", hoy, _resumen())
+        assert len(_s6_textos(mensajes, "[Orbit] precio: resumen diario")) == 1
+        assert len(_s6_textos(mensajes, "[Orbit] precio: compuerta")) == 1
+        for texto in (m["text"] for m in mensajes):
+            bajo = texto.lower()
+            assert "costo" not in bajo
+            assert "margen" not in bajo
+            assert "goal" not in bajo
+        resumen = _s6_textos(mensajes, "[Orbit] precio: resumen diario")[0]
+        assert "SKU-S6-4" in resumen and "127.60" in resumen and "116.00" in resumen
+        compuerta = _s6_textos(mensajes, "[Orbit] precio: compuerta")[0]
+        assert "coste" in compuerta
+
+
+@_skip_sin_pg
+def test_s6_fallo_de_envio_no_tumba_la_corrida_y_el_repaso_reintenta(tmp_path, monkeypatch):
+    """DoD 5 (corrida real): con Telegram caido `correr` devuelve su resumen
+    y no deja sellos; el repaso no-op con el canal sano manda y sella."""
+    from test_precio_corrida import _cadena, _corre, _db, _price_obs, _RedFalsa
+
+    with _db() as (conn, _dsn):
+        datos = _cadena(conn, mode="live")
+        _price_obs(conn)
+        red = _RedFalsa(skus={datos["evento"]: datos["sku"]})
+        with _canal_falso(tmp_path, monkeypatch, tumbar=True):
+            res = _corre(conn, red, avisar=notifica.avisar_precio)
+        assert res.decisiones == 1
+        assert all("avisar" not in e for e in res.errores)
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM precio_corrida WHERE resumen_enviado_at IS NOT NULL"
+            ).fetchone()[0]
+            == 0
+        )
+        with _canal_falso(tmp_path, monkeypatch) as mensajes:
+            res2 = _corre(conn, red, avisar=notifica.avisar_precio)
+        assert res2.decisiones == 0
+        assert len(mensajes) == 1
+        assert "[Orbit] precio: resumen diario" in mensajes[0]["text"]
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM precio_corrida WHERE resumen_enviado_at IS NOT NULL"
+            ).fetchone()[0]
+            == 1
+        )
+
+
+def test_s6_builders_nuevos_sin_costo_margen_ni_goal():
+    """Extra del plan: el texto de cada aviso nuevo no contiene costo,
+    margen ni goal, ni con motivos/estados/insumos adversos."""
+    dia = date(2026, 10, 15)
+    textos = [
+        notifica.aviso_precio_resumen(
+            notifica.ResumenDiarioPrecio(
+                platform="amazon_mx",
+                dia=dia,
+                subieron=2,
+                bajaron=1,
+                en_sombra=1,
+                retenidos=0,
+                errores=0,
+                sin_evaluar=3,
+                con_envio_imputado=1,
+                muestra=(("SKU-1", "100.00", "110.00"), ("SKU-2", "50.00", "48.00")),
+            )
+        ),
+        notifica.aviso_precio_resumen(
+            notifica.ResumenDiarioPrecio(
+                platform="amazon_us",
+                dia=dia,
+                subieron=0,
+                bajaron=0,
+                en_sombra=0,
+                retenidos=0,
+                errores=0,
+                sin_evaluar=0,
+                con_envio_imputado=0,
+                muestra=(),
+            )
+        ),
+        notifica.aviso_precio_compuerta(
+            notifica.CompuertaPrecio(
+                platform="amazon_mx",
+                dia=dia,
+                canal="fbm",
+                causa="insumo_sistemico",
+                medidas=10,
+                nuevas=6,
+                insumo="costo",
+                detalle="costo salto en 6 de 8 comparables",
+            )
+        ),
+        notifica.aviso_precio_compuerta(
+            notifica.CompuertaPrecio(
+                platform="amazon_mx",
+                dia=dia,
+                canal="fba",
+                causa="movimiento_masivo",
+                medidas=10,
+                nuevas=6,
+                insumo=None,
+                detalle="6 nuevas sobre 10",
+            )
+        ),
+        notifica.aviso_precio_cambio_error(
+            notifica.CambioErrorPrecio(
+                platform="amazon_mx",
+                dia=dia,
+                sku="SKU-1",
+                asin="B01",
+                motivo="precio_no_cubre_costo",
+            )
+        ),
+        notifica.aviso_precio_corte_errores(
+            notifica.CorteErroresPrecio(
+                platform="amazon_mx", dia=dia, seguidos=3, limite=3, retenidas=5
+            )
+        ),
+        notifica.aviso_precio_reversa(
+            notifica.ReversaPrecio(platform="amazon_mx", dia=dia, revertidas=4, saltadas=1)
+        ),
+        notifica.aviso_precio_cohorte(
+            notifica.CohortePrecio(
+                platform="amazon_mx", dia=dia, canal="fbm", diferencia="la tratada -12 frente a 40"
+            )
+        ),
+    ]
+    for texto in textos:
+        bajo = texto.lower()
+        assert "costo" not in bajo, texto
+        assert "margen" not in bajo, texto
+        assert "goal" not in bajo, texto
+    assert "hoy no se movio ningun precio" in textos[1]
+    assert "no se aplico nada" in textos[2]
+    assert "SKU-1" in textos[4]
+
+
+@_skip_sin_pg
+def test_s6_salud_corrida_ausente_dentro_del_bloque_precios():
+    """S.6 (Cambios): /salud avisa dentro del bloque `precios` si falta la
+    corrida cerrada del dia; el juego de claves de alto nivel no cambia."""
+    with _db_temp() as conn:
+        cfg = _config_pantalla(conn)
+        assert dash.salud(conn)["plataformas"]["amazon_mx"]["precios"]["corrida_ausente"] is True
+        _s6_corrida_cerrada(conn, cfg)
+        assert dash.salud(conn)["plataformas"]["amazon_mx"]["precios"]["corrida_ausente"] is False
+        conn.execute(
+            "INSERT INTO precio_corrida (platform, owner, config_version_id, modo_global)"
+            " VALUES ('amazon_us', 'tdd-s6', %s, 'live')",
+            (cfg,),
+        )
+        assert dash.salud(conn)["plataformas"]["amazon_us"]["precios"]["corrida_ausente"] is True
+        assert set(dash.salud(conn)["plataformas"]["amazon_mx"]) == {
+            *_CLAVES_SALUD_PREVIAS,
+            "precios",
+            "avisos_campana",
+        }

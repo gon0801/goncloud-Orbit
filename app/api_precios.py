@@ -39,8 +39,9 @@ router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 #   `acciones`, `no_evaluados_filas`, `divergentes`).
 # - /salud suma plataformas.<p>.precios ({hoy, cobertura, evaluados,
 #   movidos, sombra, no_evaluados, frenados, goal_inalcanzable, huerfanas,
-#   decisiones}). `cobertura` es la MISMA serializacion que el `recuadro`
-#   de /precios (misma funcion). El cupo murio en REPRICING 02 S.1.
+#   decisiones, corrida_ausente}). `cobertura` es la MISMA serializacion
+#   que el `recuadro` de /precios (misma funcion). El cupo murio en
+#   REPRICING 02 S.1.
 # - El reloj es el de la base (fuentes.hoy_base: el dia UTC que fija el
 #   trigger de precio_decision, no el local).
 # - Sin esquema de precios (la 0039 no esta aplicada): /salud deja el
@@ -536,6 +537,20 @@ _CLAVES_PRECIOS_SALUD = (
 )
 
 
+_SQL_CORRIDA_CERRADA_HOY = (
+    "SELECT 1 FROM precio_corrida WHERE platform = %s AND fecha = %s AND estado = 'cerrada' LIMIT 1"
+)
+
+
+def _corrida_ausente(conn: ConexionLectura, plataforma: str, hoy: dt.date) -> bool:
+    """S.6: True si hoy no cerro ninguna corrida de la plataforma (el aviso
+    de /salud). Sin tabla de corridas tampoco hay corrida cerrada: True."""
+    try:
+        return conn.execute(_SQL_CORRIDA_CERRADA_HOY, (plataforma, hoy)).fetchone() is None
+    except psycopg.errors.UndefinedTable:
+        return True
+
+
 def _precios_de(conn: ConexionLectura, plataforma: str) -> dict | None:
     """El bloque precios de UNA plataforma para /salud (sin las listas S7,
     que viven solo en /precios). Cada conteo sale de `precio_decision` del
@@ -554,15 +569,19 @@ def _precios_de(conn: ConexionLectura, plataforma: str) -> dict | None:
     - `goal_inalcanzable`: decisiones `goal_inalcanzable` de hoy (conteo).
     - `hoy`, `huerfanas` (pendientes no-reversa) y `decisiones` (por
       resultado) como en /precios.
+    - `corrida_ausente` (S.6): True si hoy no cerro ninguna corrida de la
+      plataforma (el aviso va DENTRO del bloque, no como clave nueva de
+      alto nivel).
 
     Si la 0039 aun no se aplico, o la config no trae la clave, el bloque
     queda en None + warning y la pantalla NO muere entera (patron
     _spapi_de: degradacion visible, nunca 500)."""
     try:
-        bloque = _bloque_precios(
-            conn, plataforma, fuentes_precio.hoy_base(conn), con_recuadro=False
-        )
-        return {clave: bloque[clave] for clave in _CLAVES_PRECIOS_SALUD}
+        hoy = fuentes_precio.hoy_base(conn)
+        bloque = _bloque_precios(conn, plataforma, hoy, con_recuadro=False)
+        salida = {clave: bloque[clave] for clave in _CLAVES_PRECIOS_SALUD}
+        salida["corrida_ausente"] = _corrida_ausente(conn, plataforma, hoy)
+        return salida
     except _SinEsquemaPrecio as exc:
         logger.warning(
             "salud: precios %s ilegible (%s): %s",
