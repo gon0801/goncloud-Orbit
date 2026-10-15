@@ -67,8 +67,13 @@ _MAX_DINERO = Decimal(10) ** 10  # espejo de app.estimacion_fees
 _SQL_LISTING = "SELECT id, platform, external_id, seller_sku FROM listing WHERE id = %s"
 _SQL_PUB = (
     "SELECT id, item_id, metric_date, observed_at, estado, precio, moneda,"
-    " tipo_publicacion, categoria_id FROM meli_publicacion_observation"
+    " tipo_publicacion, categoria_id, variantes FROM meli_publicacion_observation"
     " WHERE item_id = %s ORDER BY observed_at DESC, id DESC LIMIT 1"
+)
+
+_SQL_MIEMBRO_EXTS = (
+    "SELECT variante_ext FROM listing_miembro"
+    " WHERE listing_id = %s AND platform = 'meli' AND activo"
 )
 
 
@@ -189,6 +194,31 @@ def construir_huella_meli(item_id: str, obs_id: int | None, motivo: str) -> str:
     return hashlib.sha256(payload.encode()).hexdigest()[:32]
 
 
+def _variantes_sin_mapear(conn: psycopg.Connection, listing_id: int, variantes_obs: Any) -> bool:
+    """La ultima obs trae variantes fuera de los miembros activos.
+
+    CR-2 (CodeRabbit): el PUT manda solo los miembros y MeLi BORRA las
+    omitidas; una huerfana frena la oferta (sin escenario, sin goal,
+    sin escritura). Obs corrupta (no-lista, nodos rotos) tambien
+    frena: no se puede probar completo. Arreglo vacio = sin info
+    (semillas viejas): nada que comparar, no frena.
+    """
+    if not isinstance(variantes_obs, list):
+        return True
+    exts_obs: set[str] = set()
+    for nodo in variantes_obs:
+        if not isinstance(nodo, dict):
+            return True
+        ext = nodo.get("variante_ext")
+        if not isinstance(ext, str):
+            return True
+        exts_obs.add(ext)
+    if not exts_obs:
+        return False
+    exts_miembros = {ext for (ext,) in conn.execute(_SQL_MIEMBRO_EXTS, (listing_id,)).fetchall()}
+    return bool(exts_obs - exts_miembros)
+
+
 def resolver_oferta_meli(
     conn: psycopg.Connection,
     listing_id: int,
@@ -203,6 +233,8 @@ def resolver_oferta_meli(
     Sin observacion, cerrada, sin precio o sin moneda -> `oferta_ausente`
     (igual que Amazon colapsa precio nulo a ausencia); vieja (> 6 h, lo
     que tambien exige el trigger a todo disponible) -> `oferta_desactualizada`.
+    Obs con variantes fuera de los miembros activos ->
+    `variantes_sin_mapear` (CR-2: el PUT las borraria).
     """
     # Local: universo -> meli.estimacion; arriba seria ciclo.
     from app.estimacion_universo import universo_de
@@ -214,9 +246,11 @@ def resolver_oferta_meli(
     pub = conn.execute(_SQL_PUB, (item_id,)).fetchone()
     if pub is None:
         return ResultadoResolucionOferta(motivo="oferta_ausente", oferta=None)
-    (obs_id, _item, _metric, observado, estado, precio, moneda, tipo, categoria) = pub
+    (obs_id, _item, _metric, observado, estado, precio, moneda, tipo, categoria, variantes) = pub
     if estado != "active" or precio is None:
         return ResultadoResolucionOferta(motivo="oferta_ausente", oferta=None)
+    if _variantes_sin_mapear(conn, listing_id, variantes):
+        return ResultadoResolucionOferta(motivo="variantes_sin_mapear", oferta=None)
     uni = universo_de("meli", "meli")
     if uni is None:
         return ResultadoResolucionOferta(motivo="universo_no_soportado", oferta=None)

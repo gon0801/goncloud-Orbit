@@ -54,3 +54,15 @@
 
 `__import__`/`importlib`, falso positivo en `TYPE_CHECKING`, sonda
 por `**variable`, debilitamiento del guard de `ClienteMeli`.
+
+## Adenda CodeRabbit (CR-2b, cierre seccion 5, PR #456)
+
+`escribir` mandaba solo los miembros sin verificar el vivo: una
+edicion intradia (variacion creada tras el catalogo) se borraria en
+el primer PUT. APLICADO (fondo del motivo `variantes_sin_mapear`
+del resolver): `escribir` lee el item vivo y frena con `ValueError`
+si trae extras (cero PUT; la corrida lo cuenta B1). Pre-chequeo de
+sello por `MeliWriteClient.exigir_sello()` inyectado (cero red sin
+sello; sin importar el modulo por el candado del importador unico;
+sin parametro `sonda` por el candado de reenvio). +2 tests,
+mutantes m39/m40; m2/m3 re-anclados.

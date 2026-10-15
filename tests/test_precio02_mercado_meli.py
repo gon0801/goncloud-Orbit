@@ -862,6 +862,62 @@ def test_escribir_sin_sellar_levanta_sin_red(tmp_path):
 
 
 @_skip_sin_pg
+def test_escribir_bloquea_variaciones_vivas_sin_mapear(tmp_path):
+    """CR-2 (fondo): el vivo manda; si trae extras, cero PUT.
+
+    Cubre ediciones intradia (variacion creada tras el catalogo):
+    el resolver ya freno lo visible en DB; esto frena lo invisible.
+    """
+    m3 = _m3()
+    llamadas = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        llamadas.append(request)
+        if request.method == "GET":
+            return httpx.Response(
+                200,
+                json={"id": "MLM1", "variations": [{"id": "v-SKU-M4-A"}, {"id": 999}]},
+            )
+        return httpx.Response(200, json={})
+
+    with _db() as conn:
+        pa = m3._producto(conn, "SKU-M4-A")
+        lid = m3._publicacion(conn, "MLM1", [("SKU-M4-A", pa)])
+        unidad = _unidad(lid, pa, [Miembro(pa, "SKU-M4-A", "v-SKU-M4-A")])
+        mercado = _mercado_con_red(handler, handler, tmp_path)
+        with pytest.raises(ValueError, match="sin mapear"):
+            mercado.escribir(unidad, Importe(Decimal("979.12"), "MXN"), sonda=True)
+        assert [r.method for r in llamadas] == ["GET"]
+        mercado.cerrar()
+
+
+@_skip_sin_pg
+def test_escribir_acepta_vivo_igual_a_miembros(tmp_path):
+    """Control CR-2: vivo == miembros -> el PUT si sale."""
+    m3 = _m3()
+    llamadas = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        llamadas.append(request)
+        if request.method == "GET":
+            return httpx.Response(
+                200,
+                json={"id": "MLM1", "variations": [{"id": "v-SKU-M4-A"}]},
+            )
+        return httpx.Response(200, json={"id": "MLM1", "price": 979.12})
+
+    with _db() as conn:
+        pa = m3._producto(conn, "SKU-M4-A")
+        lid = m3._publicacion(conn, "MLM1", [("SKU-M4-A", pa)])
+        unidad = _unidad(lid, pa, [Miembro(pa, "SKU-M4-A", "v-SKU-M4-A")])
+        mercado = _mercado_con_red(handler, handler, tmp_path)
+        acuse = mercado.escribir(unidad, Importe(Decimal("979.12"), "MXN"), sonda=True)
+        assert acuse.aceptada is True
+        assert [r.method for r in llamadas] == ["GET", "PUT"]
+        mercado.cerrar()
+
+
+@_skip_sin_pg
 def test_escribir_sonda_pasa_y_valida_destino(tmp_path):
     from app.precio.cambios import PublicacionSinSku
 
@@ -880,8 +936,10 @@ def test_escribir_sonda_pasa_y_valida_destino(tmp_path):
         mercado.validar_destino(unidad)
         acuse = mercado.escribir(unidad, Importe(Decimal("979.12"), "MXN"), sonda=True)
         assert acuse.aceptada is True
-        assert len(llamadas) == 1
-        cuerpo = httpx.Response(200, content=llamadas[0].content).json()
+        # CR-2: GET de verificacion + PUT (el vivo sin variaciones
+        # pasa: nada que borrar).
+        assert [r.method for r in llamadas] == ["GET", "PUT"]
+        cuerpo = httpx.Response(200, content=llamadas[1].content).json()
         assert cuerpo["variations"] == [{"id": "v-SKU-M4-A", "price": 979.12}]
         with pytest.raises(PublicacionSinSku):
             mercado.validar_destino(_unidad(lid, pa, [], externo=""))

@@ -136,6 +136,20 @@ class MeliWriteClient:
         self._sleep = sleep
         self._timeout = timeout
 
+    def exigir_sello(self) -> None:
+        """Levanta `EscrituraNoDisponible` si un PUT saldria sin sello.
+
+        Pre-chequeo para el adaptador (inyectado, sin importar este
+        modulo): cero red sin sello, antes de verificar el vivo. Sin
+        parametro `sonda` a proposito: quien llama ramifica, y el
+        candado `test_sonda_true_solo_en_precio_sonda` no ve reenvios.
+        """
+        if FORMA_ESCRITURA_MELI != _FORMA_SELLADA:
+            raise EscrituraNoDisponible(
+                f"forma de escritura MeLi sin sellar ({FORMA_ESCRITURA_MELI}): "
+                "solo sonda=True la prueba"
+            )
+
     def close(self) -> None:
         """Sin estado que cerrar (el HTTP se abre por llamada)."""
 
@@ -154,11 +168,8 @@ class MeliWriteClient:
         if moneda != "MXN":
             raise ValueError(f"moneda fuera del universo meli/meli: {moneda!r}")
         cuerpo = _cuerpo_put_precio(_texto_precio(precio), variantes)
-        if FORMA_ESCRITURA_MELI != _FORMA_SELLADA and not sonda:
-            raise EscrituraNoDisponible(
-                f"forma de escritura MeLi sin sellar ({FORMA_ESCRITURA_MELI}): "
-                "solo sonda=True la prueba"
-            )
+        if not sonda:
+            self.exigir_sello()
         forzados = 0
         reintentos = 0
         with httpx.Client(

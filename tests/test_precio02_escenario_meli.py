@@ -150,14 +150,15 @@ def _observacion(
     estado: str = "active",
     visitas: int | None = None,
     stock: int | None = 3,
+    variantes: str = "[]",
 ) -> None:
     """Agrega una observacion (append-only: nunca UPDATE)."""
     conn.execute(
         "INSERT INTO meli_publicacion_observation"
         " (item_id, metric_date, observed_at, estado, precio, moneda, stock,"
         " tipo_publicacion, categoria_id, logistica, visitas, variantes)"
-        " VALUES (%s, %s, %s, %s, %s, %s, %s, 'gold_pro', 'MLM1440', NULL, %s, '[]')",
-        (item, observado.date(), observado, estado, precio, moneda, stock, visitas),
+        " VALUES (%s, %s, %s, %s, %s, %s, %s, 'gold_pro', 'MLM1440', NULL, %s, %s)",
+        (item, observado.date(), observado, estado, precio, moneda, stock, visitas, variantes),
     )
 
 
@@ -328,6 +329,62 @@ def test_oferta_sin_observacion_da_oferta_ausente():
         res = resolver_oferta_meli(conn, lid, ahora=NOW)
         assert res.motivo == "oferta_ausente"
         assert res.oferta is None
+
+
+@_skip_sin_pg
+def test_oferta_con_variante_sin_mapear_da_motivo():
+    """CR-2: obs con variante fuera de miembros -> sin oferta.
+
+    El PUT mandaria solo los miembros y MeLi BORRARIA la huerfana;
+    el resolver la frena con motivo visible (sin escenario, sin goal,
+    sin escritura).
+    """
+    import json
+
+    from app.meli.estimacion import resolver_oferta_meli
+
+    with _db() as conn:
+        pid = _producto(conn, "SKU-M3-A")
+        lid = _publicacion(conn, "MLM1", [("SKU-M3-A", pid)])
+        _observacion(
+            conn,
+            "MLM1",
+            observado=FETCH + timedelta(minutes=30),
+            variantes=json.dumps(
+                [
+                    {"variante_ext": "v-SKU-M3-A", "seller_sku": "SKU-M3-A", "stock": 1},
+                    {"variante_ext": "v-huerfana", "seller_sku": None, "stock": 2},
+                ]
+            ),
+        )
+        res = resolver_oferta_meli(conn, lid, ahora=NOW)
+        assert res.motivo == "variantes_sin_mapear"
+        assert res.oferta is None
+
+
+@_skip_sin_pg
+def test_oferta_con_variantes_todas_mapeadas_resuelve():
+    """Control CR-2: obs == miembros -> oferta normal."""
+    import json
+
+    from app.meli.estimacion import resolver_oferta_meli
+
+    with _db() as conn:
+        pid = _producto(conn, "SKU-M3-A")
+        lid = _publicacion(conn, "MLM1", [("SKU-M3-A", pid)])
+        _observacion(
+            conn,
+            "MLM1",
+            observado=FETCH + timedelta(minutes=30),
+            variantes=json.dumps(
+                [
+                    {"variante_ext": "v-SKU-M3-A", "seller_sku": "SKU-M3-A", "stock": 1},
+                ]
+            ),
+        )
+        res = resolver_oferta_meli(conn, lid, ahora=NOW)
+        assert res.motivo is None
+        assert res.oferta is not None
 
 
 @_skip_sin_pg
@@ -903,7 +960,12 @@ def test_ingesta_meli_punta_a_punta(tmp_path):
 
 
 @_skip_sin_pg
-def test_ingesta_meli_sin_cliente_falla_cerrado(tmp_path):
+def test_ingesta_meli_sin_cliente_salta_meli_y_sigue(tmp_path):
+    """CR-1: sin cliente MeLi, meli va a skip visible, no tumba ingesta.
+
+    Jubila `test_ingesta_meli_sin_cliente_falla_cerrado`: un token roto
+    no detiene la estimacion Amazon (el aviso "solo Amazon" lo promete).
+    """
     import sqlite3
 
     from app.estimacion_ingest import ejecutar_ingesta
@@ -920,9 +982,48 @@ def test_ingesta_meli_sin_cliente_falla_cerrado(tmp_path):
         )
         con.commit()
         con.close()
-        with pytest.raises(ValueError, match="meli_client"):
+        res = ejecutar_ingesta(conn, ruta_sqlite=snap, now_utc=NOW)
+        assert res.skip_reason == "1x meli_sin_cliente"
+        assert (res.ofertas_nuevas, res.fees_nuevos, res.escenarios_nuevos) == (0, 0, 0)
+        fila = conn.execute(
+            "SELECT ok, rows_skipped, skip_reason FROM ingest_run"
+            " WHERE source = 'bridge_estimacion_fees'"
+        ).fetchone()
+        assert fila[0] is True
+        assert fila[1] == 1
+        assert fila[2] == "1x meli_sin_cliente"
+
+
+@_skip_sin_pg
+def test_ingesta_meli_sin_cliente_llega_a_amazon(monkeypatch, tmp_path):
+    """CR-1: con listings amazon, el loop los procesa (no muere en meli)."""
+    import sqlite3
+
+    from app.estimacion_ingest import ejecutar_ingesta
+
+    def _amazon_alcanzado(*args, **kwargs):
+        raise RuntimeError("amazon alcanzado")
+
+    monkeypatch.setattr("app.estimacion_ingest.ProductFeesClient", _amazon_alcanzado)
+    with _db() as conn:
+        pid = _producto(conn, "SKU-M3-A")
+        _publicacion(conn, "MLM1", [("SKU-M3-A", pid)])
+        conn.execute(
+            "INSERT INTO listing (product_id, platform, external_id, seller_sku)"
+            " VALUES (%s, 'amazon_mx', 'B0X', 'SKU-M3-A')",
+            (pid,),
+        )
+        snap = tmp_path / "bridge.db"
+        con = sqlite3.connect(snap)
+        con.execute(
+            "CREATE TABLE amazon_listing_prices (seller_sku TEXT, asin TEXT,"
+            " marketplace_id TEXT, marketplace_name TEXT, price REAL,"
+            " fulfillment_channel TEXT, fetched_at TEXT)"
+        )
+        con.commit()
+        con.close()
+        with pytest.raises(RuntimeError, match="amazon alcanzado"):
             ejecutar_ingesta(conn, ruta_sqlite=snap, now_utc=NOW)
-        assert conn.execute("SELECT count(*) FROM ingest_run").fetchone()[0] == 0
 
 
 @_skip_sin_pg

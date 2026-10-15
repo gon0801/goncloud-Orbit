@@ -130,3 +130,18 @@ APROBADA 4/4 tras fixes. La BLOQUEADA de A quedo resuelta en la
 misma ronda (clave real + fail-closed + mocks + m32). DoD1-3 del
 plan (disponible reproducible a mano, motivos por ausente, cuenta
 del que manda) demostrados por tests + 39/39 mutantes.
+
+## Adenda CodeRabbit (cierre seccion 5, PR #456)
+
+- [CR-1 Major] Ingesta sin cliente MeLi tumbaba Amazon (raise
+  global) contra su propio aviso "solo Amazon". APLICADO: listings
+  meli a skip visible `meli_sin_cliente`, Amazon sigue, run con
+  skip_reason. Jubila `test_ingesta_meli_sin_cliente_falla_cerrado`
+  (+2 tests, mutantes m42/m43; retirados m19/m29 del raise viejo).
+- [CR-2a Major] Resolver no frenaba obs con variantes sin mapear
+  (el PUT las borraria). APLICADO: motivo `variantes_sin_mapear`
+  (registrado en `MOTIVOS_ESTIMACION`) -> sin oferta, sin
+  escenario, sin goal, sin escritura (+2 tests, mutantes m40/m41).
+- Tercera afirmacion del risk summary ("multi-variante nunca
+  completa") REFUTADA: sim X.4 listing 11 multi-miembro con
+  escenario `disponible` sembrado (plan-simulacion.json).

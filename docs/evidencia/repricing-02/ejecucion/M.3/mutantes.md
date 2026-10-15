@@ -54,3 +54,15 @@ Resultado: 39/39 muertos (corrida final sin cache).
 Nota: m39-original (`motivos=[]` en costo) salio equivalente —
 `calcular` re-deriva costo/fx (backstop); se redisenó a logistica,
 unica via sin backstop. Ver `panel.md`.
+
+## Adenda CodeRabbit (CR-1 + CR-2a, seccion 5 cierre)
+
+| # | Archivo | Mutacion | Test que lo mata |
+|---|---|---|---|
+| m40 | meli/estimacion.py | `if _variantes_sin_mapear` -> `if False` | test_oferta_con_variante_sin_mapear_da_motivo |
+| m41 | meli/estimacion.py | `if _variantes_sin_mapear` -> `if True` | test_oferta_con_variantes_todas_mapeadas_resuelve |
+| m42 | ingest.py | filtro `!= meli` -> sin filtro | test_ingesta_meli_sin_cliente_salta_meli_y_sigue |
+| m43 | ingest.py | filtro `!= meli` -> `== meli` | test_ingesta_meli_sin_cliente_llega_a_amazon |
+
+Retirados m19, m29: probaban el fail-closed global jubilado por CR-1
+(sustituidos por m42, m43). Resultado: 41/41 muertos, 0 anclas rotas.

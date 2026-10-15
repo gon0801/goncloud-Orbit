@@ -36,6 +36,9 @@
 
 39/39 muertos, detalle en `mutantes.md`.
 
+## Adenda CodeRabbit (cierre): CR-1 + CR-2a (+3 tests netos,
+mutantes 41/41). Ver `panel.md` y `mutantes.md`.
+
 ## Panel
 
 4/4 revisores (Muse A BLOQUEADA->resuelta, Muse B, GLM 5.3,

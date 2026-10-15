@@ -70,6 +70,8 @@ MOTIVOS_ESTIMACION: tuple[str, ...] = (
     "universo_no_soportado",
     "us_sin_politica_prospectiva",
     "valoracion_desactualizada",
+    # CR-2 (CodeRabbit): obs con variantes fuera de miembros (el PUT las borraria).
+    "variantes_sin_mapear",
 )
 
 

@@ -67,6 +67,7 @@ SKIP_FEE_EXCEPCION = "fee_excepcion"
 SKIP_FEE_PERSISTENCIA = "fee_persistencia"
 SKIP_ESCENARIO_EXCEPCION = "escenario_excepcion"
 SKIP_ESCENARIO_PERSISTENCIA = "escenario_persistencia"
+SKIP_MELI_SIN_CLIENTE = "meli_sin_cliente"
 
 MOTIVOS_TRANSICION_NEGATIVA = frozenset(
     {
@@ -371,9 +372,15 @@ def ejecutar_ingesta(
             (list(plataformas_con_cotizador()),),
         ).fetchall()
 
-    # Fail-closed ANTES de abrir el run: sin run huerfano que explicar.
-    if meli_client is None and any(plataforma == "meli" for _, plataforma, _, _ in listings):
-        raise ValueError("ingesta con listings meli sin meli_client (fail-closed)")
+    # CR-1 (CodeRabbit): sin cliente MeLi los listings meli van a skip
+    # visible y Amazon sigue (un token roto no tumba la estimacion
+    # Amazon; el aviso "solo Amazon" de main() lo promete). El run se
+    # abre igual: con su skip_reason se explica solo, no es huerfano.
+    if meli_client is None:
+        n_sin_cliente = sum(1 for _, plataforma, _, _ in listings if plataforma == "meli")
+        if n_sin_cliente:
+            skips[SKIP_MELI_SIN_CLIENTE] += n_sin_cliente
+        listings = [fila for fila in listings if fila[1] != "meli"]
 
     with conn.transaction():
         run_id = conn.execute(_SQL_ABRIR_RUN, (SOURCE, ahora)).fetchone()[0]

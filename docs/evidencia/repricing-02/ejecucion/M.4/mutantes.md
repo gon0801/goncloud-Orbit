@@ -46,3 +46,9 @@ equivalentes durante el diseno, no se renumero.
 | m36 | precio_mercado.py | B1 `Exception` -> `ValueError` | test_insumos_fallo_interno_no_tumba_lote |
 | m37 | fuentes.py | `despues >` -> `>=` | test_direccion_sin_movimiento_es_none |
 | m38 | insumos.py | `asin=fila[3]` -> `fila[2]` | test_oferta_para_cotizar_devuelve_campos |
+| m39 | precio_mercado.py | `if huerfanas` -> `if False` | test_escribir_bloquea_variaciones_vivas_sin_mapear |
+| m40 | precio_mercado.py | `vivas - miembros` -> `vivas` | test_escribir_acepta_vivo_igual_a_miembros |
+
+Adenda CodeRabbit (CR-2b): m2/m3 re-anclados a `exigir_sello`
+(el `if ... and not sonda` se partio en dos). Resultado: 38/38
+muertos, 0 anclas rotas.

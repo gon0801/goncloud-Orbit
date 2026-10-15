@@ -562,14 +562,52 @@ class MercadoMeli:
             raise puerto.PrecioVivoAusente("vivo MeLi ilegible: price/currency_id")
         return Importe(precio, moneda)
 
+    def _variaciones_vivas(self, item_id: str) -> set[str]:
+        """Ids de variacion del item vivo (GET directo, sin cache)."""
+        assert self._lector is not None
+        try:
+            datos, _fetched = self._lector.get(f"/items/{item_id}")
+        except ReputacionError as exc:
+            raise ValueError(f"vivo MeLi ilegible, sin PUT: {exc}") from exc
+        variaciones = datos.get("variations") or []
+        if not isinstance(variaciones, list):
+            raise ValueError(f"vivo MeLi ilegible ({item_id}): variations no es lista")
+        vivas: set[str] = set()
+        for variacion in variaciones:
+            if not isinstance(variacion, dict):
+                raise ValueError(f"vivo MeLi ilegible ({item_id}): variacion rota")
+            vid = variacion.get("id")
+            if isinstance(vid, bool) or not isinstance(vid, (str, int)):
+                raise ValueError(f"vivo MeLi ilegible ({item_id}): variacion sin id")
+            vivas.add(str(vid))
+        return vivas
+
     def escribir(
         self, unidad: puerto.UnidadPrecio, precio: Importe, *, sonda: bool = False
     ) -> puerto.Acuse:
         """PUT del precio via `MeliWriteClient`; devuelve el acuse saneado."""
         self._exigir_clientes()
         self.validar_destino(unidad)
-        self._ruta_error = f"/items/{unidad.externo}"
+        assert self._escritor is not None
+        # Pre-chequeo (cero red sin sello: el DoD M.4 exige
+        # `EscrituraNoDisponible` sin tocar la red, y la verificacion
+        # live de abajo hace un GET). Por el writer inyectado, sin
+        # importar su modulo (candado `test_un_solo_importador_del_escritor`).
+        if not sonda:
+            self._escritor.exigir_sello()
+        # CR-2 (CodeRabbit, fondo): el vivo manda. El PUT manda solo los
+        # miembros y MeLi BORRA las omitidas; si el vivo trae extras
+        # (edicion intradia tras el catalogo), cero PUT. El resolver ya
+        # freno lo visible en DB (`variantes_sin_mapear`); esto frena lo
+        # invisible. La corrida lo cuenta como error de la unidad (B1).
+        vivas = self._variaciones_vivas(unidad.externo)
         variantes = [m.variante for m in unidad.miembros if m.variante]
+        huerfanas = sorted(vivas - set(variantes))
+        if huerfanas:
+            raise ValueError(
+                f"variaciones vivas sin mapear ({unidad.externo}): {','.join(huerfanas)}; sin PUT"
+            )
+        self._ruta_error = f"/items/{unidad.externo}"
         return self._escritor.poner_precio(
             unidad.externo, variantes, precio.valor, precio.moneda, sonda=sonda
         )

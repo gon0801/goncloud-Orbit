@@ -44,5 +44,6 @@ el mercado meli; `DEPLOY.md` documenta el cron D.4.
 - Vecinos: 372 passed (catalogo, ledger, cotizador, escenario,
   0073, mercado, corrida, architecture) + 85 reputacion.
 - Mutantes: 36/36 muertos, 0 anclas rotas (`mutantes.md`).
+- Adenda CodeRabbit (cierre): CR-2b (+2 tests, mutantes 38/38).
 - Panel A+B: APROBADA sin bloqueantes; 3 obs A + 7 falsos negativos
   B triageados y aplicados (`panel.md`).
