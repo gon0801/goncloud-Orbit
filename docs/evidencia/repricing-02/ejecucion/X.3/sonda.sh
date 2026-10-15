@@ -4,7 +4,8 @@
 # live y de vuelta a shadow en la misma corrida (plan + aplicar G.2; la
 # reversa va incluida: al final el conejillo vuelve a shadow). Prueba
 # server-side que el go literal abre y que la reversa cierra, antes de
-# encender FBM de adeveras.
+# encender FBM de adeveras. Entre ida y vuelta el conejillo es live de
+# verdad (segundos): corre fuera de los minutos del cron de precios.
 # Sin --acepto-mutacion-real solo imprime lo que haria (cero POST).
 # Corre DENTRO de orbit-app-1 con la forma de la sonda de M.0 (el python
 # viaja por stdin de `docker exec -i`; el token se lee ahi de

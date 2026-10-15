@@ -2,12 +2,13 @@
 # Checklist post-deploy de D.3 (REPRICING 02 seccion 4): SOLO LECTURA.
 # Corre UNA vez despues de desplegar.sh + politicas.sh y deja su salida
 # en un txt con su linea exit= al final. Patron: ../D.2/checklist.sh.
-# 0 = todo comprobado; 1 = alguna FALLA medida; 4 = no pudo medir (el
-# servidor no contesta o una lectura salio vacia, sin ninguna FALLA
-# medida). Una FALLA medida sale con 1 aunque otra lectura quede vacia.
-# El dia del despliegue sale 3 (sin muestras ni escenarios de hoy hasta
-# la primera corrida del job de muestras y de la estimacion); despues de
-# esas corridas sale 0.
+# 0 = todo comprobado; 1 = alguna FALLA medida fuera de la seccion 6;
+# 3 = las unicas FALLAS medidas son las de la seccion 6 (dia del
+# despliegue: sin muestras ni escenarios de hoy hasta la primera
+# corrida del job de muestras y de la estimacion); 4 = no pudo medir
+# (el servidor no contesta o una lectura salio vacia, sin ninguna
+# FALLA medida). El 1 y el 3 mandan sobre NOMEDIDO (lo no medido va
+# en el txt).
 # En simulacion (ORBIT_SIMULACION=1) la base es ORBIT_SIM_DSN y el HTTP
 # es ORBIT_SIM_API: no hay ssh.
 # Comprueba: /health en 200; los 2 CHECK de la 0055; las 2 politicas FBM
@@ -129,17 +130,24 @@ echo "== 5) TIPOS_PRECIO_SELLADOS trae resumen_diario (S.6)"
 revisa "resumen_diario sellado" true "$(trae_resumen)"
 
 echo "== 6) Muestras y escenarios de hoy (= 3 FALLAS hasta la primera corrida)"
+FALLAS_PRE6=$FALLAS
 revisa "muestras MX calculadas hoy" t \
   "$(echo "SELECT count(*) >= 1 FROM precio_envio_muestra WHERE platform = 'amazon_mx' AND calculada_at::date = CURRENT_DATE;" | lee || true)"
 revisa "muestras US calculadas hoy" t \
   "$(echo "SELECT count(*) >= 1 FROM precio_envio_muestra WHERE platform = 'amazon_us' AND calculada_at::date = CURRENT_DATE;" | lee || true)"
 revisa "plataformas FBM con escenario disponible de hoy" 2 \
   "$(echo "SELECT count(DISTINCT platform) FROM estimacion_escenario WHERE canal = 'fbm' AND estado = 'disponible' AND observed_at::date = CURRENT_DATE;" | lee || true)"
+FALLAS_6=$((FALLAS - FALLAS_PRE6))
 
 echo "== 7) Cobertura de MX y US cuadra"
 revisa "cobertura amazon_mx (exit)" 0 "$(cobertura amazon_mx)"
 revisa "cobertura amazon_us (exit)" 0 "$(cobertura amazon_us)"
 
 echo "== RESULTADO: $FALLAS falla(s), $NOMEDIDO sin medir"
-[ "$FALLAS" -eq 0 ] || exit 1
-[ "$NOMEDIDO" = 0 ] || exit 4
+if [ "$FALLAS" -eq 0 ]; then
+  [ "$NOMEDIDO" = 0 ] || exit 4
+elif [ "$FALLAS" -eq "$FALLAS_6" ]; then
+  exit 3
+else
+  exit 1
+fi

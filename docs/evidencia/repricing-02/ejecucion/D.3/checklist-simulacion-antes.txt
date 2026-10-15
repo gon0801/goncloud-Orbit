@@ -1,4 +1,4 @@
-== Checklist D.3 (solo lectura; sello 20261015-0810)
+== Checklist D.3 (solo lectura; sello 20261015-0914)
 == 1) HTTP: /health
 OK    GET /health = 200
 == 2) Esquema: 2 CHECK de la 0055, 2 politicas FBM y modos en shadow
@@ -25,4 +25,4 @@ FALLA plataformas FBM con escenario disponible de hoy: esperado '2', obtenido '0
 OK    cobertura amazon_mx (exit) = 0
 OK    cobertura amazon_us (exit) = 0
 == RESULTADO: 3 falla(s), 0 sin medir
-exit=1
+exit=3

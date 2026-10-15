@@ -72,8 +72,8 @@ BASE_ID=$(lee_sql "SELECT id FROM config_version ORDER BY id DESC LIMIT 1;") || 
 if [ -n "$IDS" ]; then
   IDS_TODOS="$IDS"
 else
-  # C-W2: solo MX FBA (mismo filtro de canal que encender.sh/apagar.sh).
-  IDS_TODOS=$(lee_sql "SELECT string_agg(l.id::text, ',' ORDER BY l.id) FROM listing l LEFT JOIN v_precio_goal_vigente v ON v.listing_id = l.id AND v.platform = l.platform LEFT JOIN LATERAL (SELECT canal FROM estimacion_escenario e WHERE e.listing_id = l.id AND e.platform = l.platform AND e.estado = 'disponible' ORDER BY e.observed_at DESC LIMIT 1) e ON true WHERE l.platform = 'amazon_mx' AND v.goal_id IS NULL AND (e.canal IS NULL OR e.canal = 'fbm');") || { echo "ABORTA: no se pudo listar sin_goal FBA"; exit 1; }
+  # C-W2: solo MX FBM (mismo filtro de canal que encender.sh/apagar.sh).
+  IDS_TODOS=$(lee_sql "SELECT string_agg(l.id::text, ',' ORDER BY l.id) FROM listing l LEFT JOIN v_precio_goal_vigente v ON v.listing_id = l.id AND v.platform = l.platform LEFT JOIN LATERAL (SELECT canal FROM estimacion_escenario e WHERE e.listing_id = l.id AND e.platform = l.platform AND e.estado = 'disponible' ORDER BY e.observed_at DESC LIMIT 1) e ON true WHERE l.platform = 'amazon_mx' AND v.goal_id IS NULL AND (e.canal IS NULL OR e.canal = 'fbm');") || { echo "ABORTA: no se pudo listar sin_goal FBM"; exit 1; }
 fi
 N_SIN=0
 [ -n "$IDS_TODOS" ] && N_SIN=$(printf '%s' "$IDS_TODOS" | tr ',' '\n' | grep -c .)

@@ -194,8 +194,8 @@ class CuentaLeida:
     tasas: Tasas
     refs: RefsAuditoria
     canal: str
-    # REPRICING 02 F.3: columnas del escenario (crudas; F.4 las prefiere al
-    # arbol). None en filas viejas: el llamador cae a `derivar_ref_fijo`.
+    # REPRICING 02 F.3: columnas del escenario (crudas). None en filas
+    # viejas: cada llamador cae a derivar del arbol con `derivar_ref_fijo`.
     logistica_origen: str | None = None
     envio_muestra: MuestraEnvio | None = None
     fee_variable: Decimal | None = None

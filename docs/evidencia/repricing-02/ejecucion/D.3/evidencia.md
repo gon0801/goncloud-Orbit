@@ -56,8 +56,8 @@ en scripts y salidas (la conexion usa el real).
   conservados, `nada que instalar en 7b`. Idempotencia real.
 - `politicas-simulacion.txt` (exit=0): `politicas.sh` dos veces en
   sim: 2 politicas FBM vigentes, 0 duplicadas.
-- `checklist-simulacion-antes.txt` (exit=1): 3 FALLAS exactas (las de
-  hoy) y 0 sin medir, antes de sembrar corridas.
+- `checklist-simulacion-antes.txt` (exit=3): 3 FALLAS exactas (las de
+  hoy, solo seccion 6) y 0 sin medir, antes de sembrar corridas.
 - `checklist-simulacion.txt` (exit=0): tras sembrar muestras MX+US y
   escenarios FBM MX+US de hoy (con `session_replication_role =
   replica`: la coherencia referencial no es lo que se prueba, los
