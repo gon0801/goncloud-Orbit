@@ -45,6 +45,13 @@ MAX_LINEAS_MODULO = 900
 # path relativo (posix) -> razon escrita. Sacar una entrada exige que el
 # modulo haya bajado del umbral; agregarla exige razon y review.
 ALLOWLIST_TAMANO = {
+    "app/precio/cambios.py": (
+        "REPRICING 02 S.5: el protocolo de `precio_cambio` vive en un solo "
+        "modulo por diseno (seccion I del bosquejo: unitario + lote + "
+        "cierre + claim compartido con la corrida). Partirlo por cuota "
+        "separaria `revertir` de su nucleo `_revertir_fila` — jamas partir "
+        "por partir"
+    ),
     "app/impulso_io.py": (
         "BIDS 02 R09-r4: IO transaccional del impulso (previa + lanza + "
         "vigia + reconciliacion H2/H6): un solo flujo con estados "
@@ -1597,73 +1604,56 @@ def test_imports_spapi_write_frontera_caza_dinamico_relativo(tmp_path):
     assert {p.name for p in dinamicos} == {"otro.py"}
 
 
+# REPRICING 02 S.5: `tools/precio_reversa.py` es un despachador delgado
+# (argparse -> `Seleccion` -> `cambios.planear_reversa` /
+# `cambios.revertir_lote`) que recibe el mercado de
+# `precio_mercados.abrir`: no importa `app.spapi.*` ni `httpx`. Los
+# clientes reales salen de `app.cli._clientes_precio`.
 ALLOWLIST_IMPORTS_PRECIO_REVERSA = frozenset(
     {
         "__future__",
         "__future__.annotations",
+        "app.cli",
+        "app.cli._clientes_precio",
         "app.db",
         "app.db.OrbitDbError",
         "app.db.connect",
-        "app.spapi",
-        "app.spapi.client",
-        "app.spapi.client.CuboTasa",
-        "app.spapi.client.SpapiClient",
-        "app.spapi.client.SpapiError",
-        "app.spapi.client.SpapiNoPermitida",
-        "psycopg",
-        "psycopg.errors",
-        "psycopg.errors.UniqueViolation",
         "app.precio",
         "app.precio.cambios",
-        "app.precio.cambios.CambioNoReversible",
-        "app.precio.cambios.DecisionSinAccion",
-        "app.precio.cambios.PublicacionSinSku",
-        "app.precio.cambios.aplicar",
-        "app.precio.cambios.cerrar_huerfanas",
-        "app.precio.cambios.cerrar_por_observacion",
-        "app.precio.cambios.revertir",
-        "app.precio.puerto",
-        "app.precio.puerto.EscrituraNoDisponible",
         "app.precio_mercados",
-        "app.precio_mercados.abrir",
-        "app.precio_mercados.mercados",
-        "app.spapi.precio_write",
-        "app.spapi.precio_write.FormaParcheSinSellar",
         "argparse",
-        "hashlib",
-        "httpx",
+        "datetime",
+        "datetime.date",
         "os",
+        "socket",
         "sys",
-        "time",
     }
 )
 
 
-def test_tool_precio_reversa_solo_importa_lectura():
-    """`tools/precio_reversa.py` es lectura + `precio_write`: sus imports
-    son subconjunto de la allowlist y nunca el write client directo (el
-    escritor se construye via `precio_write.construir_escritor`)."""
+def test_tool_precio_reversa_solo_importa_despachador():
+    """REPRICING 02 S.5: `tools/precio_reversa.py` es despachador: sus
+    imports son subconjunto de la allowlist y nunca `app.spapi.*` (el
+    mercado llega de `precio_mercados.abrir`)."""
     imp = _imports_runtime(RAIZ / "tools" / "precio_reversa.py")
     extras = imp - ALLOWLIST_IMPORTS_PRECIO_REVERSA
     assert not extras, (
         f"tools/precio_reversa.py importa por fuera de la allowlist: {sorted(extras)} — "
         "ampliar exige editar tests/test_architecture.py a proposito"
     )
-    assert "app.spapi.write_client" not in imp
+    assert not [i for i in imp if i == "app.spapi" or i.startswith("app.spapi.")]
 
 
-def test_tool_precio_reversa_frontera_caza_write_directo(tmp_path):
-    """Fuga sembrada: si el tool importara el write client, la allowlist
+def test_tool_precio_reversa_frontera_caza_spapi(tmp_path):
+    """Fuga sembrada: si el tool importara `app.spapi.*`, la allowlist
     (subconjunto) lo detecta con el import de mas identificado."""
     fuente = (RAIZ / "tools" / "precio_reversa.py").read_text(encoding="utf-8")
     fuga = tmp_path / "precio_reversa_fuga.py"
-    fuga.write_text(
-        fuente + "from app.spapi.write_client import SpapiWriteClient\n", encoding="utf-8"
-    )
+    fuga.write_text(fuente + "from app.spapi.client import SpapiClient\n", encoding="utf-8")
     imp = _imports_runtime(fuga)
-    assert "app.spapi.write_client" in _violaciones(imp, ("app.spapi.write_client",))
+    assert "app.spapi.client" in _violaciones(imp, ("app.spapi.client",))
     extras = imp - ALLOWLIST_IMPORTS_PRECIO_REVERSA
-    assert "app.spapi.write_client" in extras
+    assert "app.spapi.client" in extras
 
 
 # ---------------------------------------------------------- r6-C2 ilegible es fuga
@@ -2113,7 +2103,9 @@ _ESCRIBE_CORRIDA = (
     "ads_optimizer_lock",
 )
 
-_ESCRIBE_CAMBIOS = ("precio_cambio",)
+# REPRICING 02 S.5: `revertir_lote` toma el claim `precio:<platform>` de
+# la corrida (exclusion mutua reversa/corrida).
+_ESCRIBE_CAMBIOS = ("ads_optimizer_lock", "precio_cambio")
 
 _ESCRIBE_LIBERACION = ("precio_compuerta_liberacion",)
 
@@ -2210,8 +2202,10 @@ def test_corrida_solo_escribe_sus_tablas():
     assert _tablas_escritas(PRECIO / "corrida.py") == sorted(_ESCRIBE_CORRIDA)
 
 
-def test_cambios_solo_escribe_precio_cambio():
-    """REPRICING 02 0.b: `cambios.py` es el UNICO escritor de `precio_cambio`."""
+def test_cambios_solo_escribe_cambio_y_claim():
+    """REPRICING 02 0.b + S.5: `cambios.py` es el UNICO escritor de
+    `precio_cambio` y toma el claim `precio:<platform>` en
+    `ads_optimizer_lock` (el mismo que la corrida)."""
     assert _tablas_escritas(PRECIO / "cambios.py") == sorted(_ESCRIBE_CAMBIOS)
 
 
