@@ -1,21 +1,28 @@
 # X.3: evidencia de los scripts (REPRICING 02, seccion 4)
 
 Scripts: `sembrar.sh`, `sonda.sh`, `encender.sh`, `apagar.sh`
-(derivados de X.2 por `sed`: MX -> US, 8013 -> 8014; misma forma
-M.0, mismas banderas). Los cuatro simulan por omision y escriben
-solo con `--acepto-mutacion-real`; corren dentro de `orbit-app-1`
-con la forma de la sonda de M.0 (el python viaja por stdin de
-`docker exec -i`; el token se lee ahi de `$ORBIT_SECRETS_DIR/
-api_write_token` y jamas se imprime ni sale del servidor). En
-simulacion los POST van a `ORBIT_SIM_API` con `ORBIT_SIM_TOKEN`.
+(derivados de X.2 por `sed`: MX -> US, 8013 -> 8014).
+`sembrar.sh`, `encender.sh` y `apagar.sh` corren dentro de
+`orbit-app-1` con la forma de la sonda de M.0 (el python viaja por
+stdin de `docker exec -i`; el token se lee ahi de
+`$ORBIT_SECRETS_DIR/api_write_token` y jamas se imprime ni sale del
+servidor); en simulacion los POST van a `ORBIT_SIM_API` con
+`ORBIT_SIM_TOKEN`. `sonda.sh` corre `tools/precio_sonda.py` dentro
+de `orbit-app-1` (`docker exec`, con `ORBIT_DSN_DECIDE` de ahi); en
+simulacion corre local con mercado de archivo. Los cuatro simulan
+por omision y escriben solo con `--acepto-mutacion-real`.
 
 ## Decisiones con razon
 
-1. `--go` obligatorio en `encender.sh` y en `sonda.sh` (igual que
-   X.2: el literal es del dueno, viaja en base64 de una linea y
-   nunca se imprime; verificado ausente de todas las salidas).
-2. `sonda.sh` voltea un goal shadow de conejillo a live y de vuelta
-   a shadow en la misma corrida (reversa incluida; ver X.2).
+1. El go literal de la fila LO FIJA EL PLAN (`plan repricing-02
+   X.3`, plan:154): `sonda.sh` lo escribe y no lo pide por bandera
+   (igual que X.2); `encender.sh` sigue pidiendo `--go`. El
+   literal de la sonda nunca se imprime (verificado: ausente de
+   `sonda-simulacro.txt` y `sonda-acepto-sim.txt`).
+2. `sonda.sh` mueve al conejillo un centavo y lo revierte, con
+   `tools/precio_sonda.py --acepto-mutacion-real --go` (guia:1042),
+   y guarda el vivo del conejillo antes/despues + control
+   antes/despues (ver X.2).
 3. `encender.sh` sube el global a live SOLO si aun no esta en live.
    `apagar.sh` regresa universo + goals a shadow sin tocar el
    global (ver X.2).
@@ -60,10 +67,13 @@ Semilla (ids falsos, escenario de hoy):
 - `sembrar-acepto-sim.txt` (exit=0) + `plan-simulacion.json`: plan
   de 4 filas guardado byte-igual, `sembrados=2 cerrados=0` + 2
   omitidas (13 y 14). Huella `7a0308a2d28d5c4a`.
-- `sonda-simulacro.txt` (exit=0): ida + vuelta sobre el conejillo
-  11, sin postear.
-- `sonda-acepto-sim.txt` (exit=0): ida a live (el go abre) y
-  vuelta a shadow (la reversa cierra); cola intacta.
+- `sonda-simulacro.txt` (exit=0, base `orbit_sim_X3r3` + mercado
+  sim `orbit-sonda-X3.json`): dry-run del conejillo 11 (`[plan]
+  ... 29.99 -> 30.00 -> 29.99`, cero PATCH) + control 12 (50.00
+  USD). Sin sku ni go literal en la salida.
+- `sonda-acepto-sim.txt` (exit=0, misma base): ida aceptada a
+  30.00 y vuelta aceptada a 29.99; vivo intacto y control 50.00
+  intacto. Sin sku ni go literal.
 - `encender-simulacro.txt` (exit=0): settings + 2 goals, sin
   postear.
 - `encender-acepto-sim.txt` (exit=0): settings `ausente -> live`

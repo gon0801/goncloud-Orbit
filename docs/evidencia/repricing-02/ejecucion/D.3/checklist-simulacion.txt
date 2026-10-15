@@ -1,4 +1,4 @@
-== Checklist D.3 (solo lectura; sello 20261015-0914)
+== Checklist D.3 (solo lectura; sello 20261015-1104)
 == 1) HTTP: /health
 OK    GET /health = 200
 == 2) Esquema: 2 CHECK de la 0055, 2 politicas FBM y modos en shadow

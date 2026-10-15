@@ -1,15 +1,11 @@
-== X.2 sonda de la camara del go (MX FBM, conejillo)
-conejillo: listing=11 (shadow)
-== ida: conejillo a live (con el go del dueno)
-plan live: 1 filas, 0 bloqueadas, huella e4dff05fa71e4339
-aplicado: sembrados=1 cerrados=1 lote=e4dff05fa71e4339
-ida comprobada: conejillo en live
-== vuelta: conejillo de regreso a shadow (reversa incluida)
-plan shadow: 1 filas, 0 bloqueadas, huella ffa9ba9a69e7c877
-aplicado: sembrados=1 cerrados=1 lote=ffa9ba9a69e7c877
-== X.2 sonda OK (el go abre y la reversa cierra)
+== X.2 sonda de escritura (MX FBM, conejillo + control)
+conejillo: listing=11 (shadow); control: listing=12 (shadow)
+SIMULACION: mercado sim en /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-sonda-X2.json (sembro nada nuevo)
+== acepto: control antes, sonda del conejillo, lecturas despues
+antes: vivo listing=11 valor=116.00 moneda=MXN | vivo listing=12 valor=200.00 moneda=MXN
+[plan] amazon_mx listing=11 vivo=116.00 MXN -> 116.01 MXN -> 116.00 MXN
+[sonda] listing=11 aceptada a 116.01 MXN
+[revierte] listing=11 aceptada a 116.00 MXN
+despues: vivo listing=11 valor=116.00 moneda=MXN | vivo listing=12 valor=200.00 moneda=MXN
+== X.2 sonda OK (ida y vuelta aceptadas, vivo intacto, control intacto)
 exit=0
-11|shadow
-12|shadow
-13|sin-goal
-14|sin-goal

@@ -3,8 +3,8 @@
 Fila **F.3** de `plans/repricing-02.md`, seccion 4. Registro de universos
 (`app/estimacion_universo.py`), cotizador (`app/estimacion_amazon.py`),
 partido de fees (`partir_fees`), logistica con origen, FX con techo de 3
-dias para US, migracion 0055 y `politicas.sh` (vive en `D.3/`, se prueba
-ahi).
+dias para US, migracion 0055 y las politicas FBM (paso 4b de
+`desplegar.sh` en `D.3/`, se prueba ahi).
 
 ## Decisiones
 

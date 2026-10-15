@@ -2,29 +2,36 @@
 
 Scripts: `sembrar.sh`, `sonda.sh`, `encender.sh`, `apagar.sh`
 (X.2 SI lleva `sonda.sh`: X.1 no la necesitaba porque el camino de
-escritura ya se probo en A.4; FBM estrena universo y la camara del go
-se prueba aparte). Los cuatro simulan por omision y escriben solo con
-`--acepto-mutacion-real`; corren dentro de `orbit-app-1` con la forma
-de la sonda de M.0 (el python viaja por stdin de `docker exec -i`; el
-token se lee ahi de `$ORBIT_SECRETS_DIR/api_write_token` y jamas se
-imprime ni sale del servidor). En simulacion los POST van a
-`ORBIT_SIM_API` con `ORBIT_SIM_TOKEN`.
+escritura ya se probo en A.4; FBM estrena universo y la escritura de
+un centavo con su reversa se prueba aparte, criterio 3 del plan).
+Los cuatro simulan por omision y escriben solo con
+`--acepto-mutacion-real`. `sembrar.sh`, `encender.sh` y `apagar.sh`
+corren dentro de `orbit-app-1` con la forma de la sonda de M.0 (el
+python viaja por stdin de `docker exec -i`; el token se lee ahi de
+`$ORBIT_SECRETS_DIR/api_write_token` y jamas se imprime ni sale del
+servidor); en simulacion los POST van a `ORBIT_SIM_API` con
+`ORBIT_SIM_TOKEN`. `sonda.sh` corre `tools/precio_sonda.py` dentro
+de `orbit-app-1` (`docker exec`, con `ORBIT_DSN_DECIDE` de ahi); en
+simulacion corre local con mercado de archivo.
 
 ## Decisiones con razon
 
-1. `--go` obligatorio en `encender.sh` y en `sonda.sh`. El plan no
-   fija el texto del go literal de la fila (es "el literal del
-   dueno", como en `tools/precio_goal.py`): los scripts lo exigen por
-   bandera y no traen default. Sin go no hay encendido ni sonda. El
-   literal viaja en base64 de una linea (`-w0`, C-W3) por el ssh y
-   en el cuerpo del POST; nunca se imprime (verificado: el literal
-   usado en la sim esta ausente de todas las salidas).
-2. `sonda.sh` voltea un goal shadow de conejillo a live y de vuelta
-   a shadow en la misma corrida (la reversa va incluida). No existe
-   un "goal de control" como entidad en el dominio: el conejillo es
-   el primer goal shadow del universo. Si la ida falla, el go no
-   abrio; si la vuelta falla, el script avisa que el conejillo quedo
-   en live y como regresarlo.
+1. El go literal de la fila LO FIJA EL PLAN (`plan repricing-02
+   X.2`, plan:154): `sonda.sh` lo escribe y no lo pide por bandera.
+   `encender.sh` sigue pidiendo `--go` (el dueno pasa el mismo
+   literal). El literal de la sonda viaja como argv de
+   `tools/precio_sonda.py` dentro del servidor y nunca se imprime
+   (verificado: ausente de `sonda-simulacro.txt` y
+   `sonda-acepto-sim.txt`); el de `encender.sh` viaja en base64 de
+   una linea (`-w0`, C-W3) por el ssh y en el cuerpo del POST.
+2. `sonda.sh` mueve al conejillo (primer goal shadow MX FBM con
+   seller_sku) un centavo sobre su precio vivo y lo revierte, con
+   `tools/precio_sonda.py --acepto-mutacion-real --go` (guia:1042).
+   Guarda el vivo del conejillo antes y despues (debe quedar igual)
+   y el de una publicacion de control antes y despues (no cambia).
+   FRENA sin 2 goals shadow con sku (sin conejillo o sin control
+   avisa correr `sembrar.sh`). Si la sonda falla, avisa revisar si
+   el precio quedo movido.
 3. `encender.sh` sube el global a live SOLO si aun no esta en live
    (X.1 ya pudo encenderlo: no se pisa sin motivo). El universo va
    a live siempre. `apagar.sh` regresa el universo Y los goals a
@@ -77,13 +84,13 @@ Semilla (ids falsos, escenario de hoy):
   `sembrados=2 cerrados=0` + 1 omitida (13). La FBA 14 sigue
   `sin-goal` (cola de estado real). Huella `962896eb2d31c06f`
   (determinista: dos corridas en bases frescas dan la misma).
-- `sonda-simulacro.txt` (exit=0): por omision no postea nada;
-  muestra la ida (live con go) y la vuelta (shadow sin go) sobre
-  el conejillo 11.
-- `sonda-acepto-sim.txt` (exit=0): la ida volteo al conejillo a
-  live (el go abre) y la vuelta lo regreso a shadow (la reversa
-  cierra); la cola quedo intacta (`11|shadow 12|shadow
-  13|sin-goal 14|sin-goal`).
+- `sonda-simulacro.txt` (exit=0, base `orbit_sim_X2r3` + mercado
+  sim `orbit-sonda-X2.json`): dry-run del conejillo 11 (`[plan]
+  ... 116.00 -> 116.01 -> 116.00`, cero PATCH) + lectura del
+  control 12 (200.00 MXN). Sin sku ni go literal en la salida.
+- `sonda-acepto-sim.txt` (exit=0, misma base): ida aceptada a
+  116.01 y vuelta aceptada a 116.00; vivo antes = vivo despues
+  (116.00) y control 200.00 intacto. Sin sku ni go literal.
 - `encender-simulacro.txt` (exit=0): por omision no postea nada;
   muestra settings (global ausente -> live + universo live) y los
   2 goals que pasarian.

@@ -3,13 +3,15 @@
 # del SHA aprobado (carril F.1-F.4 y S.7), reemplazo de las DOS lineas de
 # cron de D.2 por las DOS de precios MX+US mas las DOS del job de muestras
 # (12:15 MX, 12:20 US). Patron: ../D.2/desplegar.sh (pasos + cron +
-# guardas) + docs/evidencia/bids-02/ejecucion/D.4/desplegar.sh. Tras el
-# deploy, el dueno corre politicas.sh (DSN admin) y luego checklist.sh:
-# el dia del despliegue no hay muestras hasta las 12:15 UTC (checklist 3
-# hasta la primera corrida del job y de la estimacion, 0 despues).
+# guardas) + docs/evidencia/bids-02/ejecucion/D.4/desplegar.sh. El paso
+# 4b inserta las politicas FBM (idempotente por label); tras el deploy
+# solo queda checklist.sh: el dia del despliegue no hay muestras hasta
+# las 12:15 UTC (checklist 3 hasta la primera corrida del job y de la
+# estimacion, 0 despues). Corre lejos de :45 (la estimacion vieja cada
+# 6 h choca con el CHECK 0055 si cae entre la migracion y el recreate).
 # Sus guardas propias: el SHA trae la 0055 (+ reversa), los modulos de
-# F.1-F.4 y S.7, politicas.sh y las CUATRO lineas de cron en
-# docs/DEPLOY.md; si una falla, aborta. CALCULA el crontab en 1c e
+# F.1-F.4 y S.7 y las CUATRO lineas de cron en docs/DEPLOY.md; si una
+# falla, aborta. CALCULA el crontab en 1c e
 # INSTALA en 7b (tras el health del contenedor nuevo y tras correr
 # `precio --reporte` de MX y US en 7v: si alguno no sale 0, aborta sin
 # instalar nada). La guarda solo_previsto permite EXACTAMENTE 2 bajas
@@ -218,12 +220,16 @@ echo "== 1b) Guardas propias de D.3 (abortan si fallan)"
 for N in 0055_precio02_escenario_exige 0055_reversa_precio02_escenario_exige; do
   git cat-file -e "$APROBADO:migrations/$N.sql" || { echo "ABORTA: $APROBADO no trae $N"; exit 1; }
 done
-for F in app/ledger_atribucion.py app/precio/envio.py app/envio_muestras.py app/estimacion_universo.py app/estimacion_amazon.py app/spapi/precio_mercado.py app/precio/ventas.py tools/precio_sonda.py docs/evidencia/repricing-02/ejecucion/D.3/politicas.sh; do
-  git cat-file -e "$APROBADO:$F" || { echo "ABORTA: $APROBADO no trae $F (F.1-F.4, S.7 o politicas)"; exit 1; }
+for F in app/ledger_atribucion.py app/precio/envio.py app/envio_muestras.py app/estimacion_universo.py app/estimacion_amazon.py app/spapi/precio_mercado.py app/precio/ventas.py tools/precio_sonda.py; do
+  git cat-file -e "$APROBADO:$F" || { echo "ABORTA: $APROBADO no trae $F (F.1-F.4 o S.7)"; exit 1; }
 done
 git show "$APROBADO:app/precio/ventas.py" | grep -q 'HistoriaUnidad' || { echo "ABORTA: ventas.py del SHA sin HistoriaUnidad (S.7)"; exit 1; }
 git show "$APROBADO:app/precio/reglas.py" | grep -q 'lineal' || { echo "ABORTA: reglas.py del SHA sin lineal (S.7)"; exit 1; }
-echo "0055 (+ reversa), modulos F.1-F.4 y S.7 y politicas.sh presentes en el SHA"
+echo "0055 (+ reversa) y modulos F.1-F.4 y S.7 presentes en el SHA"
+for T in tools/precio_sonda.py tools/precio_cobertura.py; do
+  git show "$APROBADO:Dockerfile" | grep -q "COPY $T" || { echo "ABORTA: Dockerfile del SHA sin COPY $T (sonda/checklist lo corren dentro)"; exit 1; }
+done
+echo "COPY de sonda y cobertura en el Dockerfile OK"
 LINEA1=$(git show "$APROBADO:docs/DEPLOY.md" | grep -E '^10 13 .*precio-spapi\.lock.*amazon_us')
 LINEA2=$(git show "$APROBADO:docs/DEPLOY.md" | grep -E '^10 15-23/2 .*precio-spapi\.lock.*amazon_us')
 LINEA3=$(git show "$APROBADO:docs/DEPLOY.md" | grep -E '^15 12 .*envio_muestras.*amazon_mx')
@@ -320,6 +326,37 @@ if [ -z "$PENDIENTES" ]; then echo "ninguna pendiente"; else
     echo "aplicada $m (anotada en $APLICADAS)"
   done
 fi
+
+echo "== 4b) Politicas FBM (idempotente por label; fuente: FBA vigente)"
+echo "SELECT id, label, valid_from FROM estimacion_politica_version WHERE universo = 'amazon_mx/fba' AND valid_to IS NULL;" | q
+FUENTE_FBM=$(echo "SELECT count(*) FROM estimacion_politica_version WHERE universo = 'amazon_mx/fba' AND valid_to IS NULL;" | q)
+[ "$FUENTE_FBM" = 1 ] || { echo "ABORTA: 4b ve $FUENTE_FBM FBA vigentes, esperaba 1 (fuente ambigua)"; exit 1; }
+w <<'SQL'
+INSERT INTO estimacion_politica_version
+    (label, universo, formula_version, settings, valid_from)
+SELECT 'repricing02_fbm_mx', 'amazon_mx/fbm', 'S3',
+       settings || '{"logistica_semantica": "L sale de precio_envio_muestra, no de esta constante"}'::jsonb,
+       CURRENT_DATE
+  FROM estimacion_politica_version
+ WHERE universo = 'amazon_mx/fba' AND valid_to IS NULL
+   AND NOT EXISTS (
+           SELECT 1 FROM estimacion_politica_version WHERE label = 'repricing02_fbm_mx'
+       );
+INSERT INTO estimacion_politica_version
+    (label, universo, formula_version, settings, valid_from)
+SELECT 'repricing02_fbm_us', 'amazon_us/fbm', 'S3',
+       settings || '{"iva_divisor": "1", "precio_incluye_iva": false, "isr_tasa": "0.0207",
+                      "logistica_semantica": "L sale de precio_envio_muestra, no de esta constante"}'::jsonb,
+       CURRENT_DATE
+  FROM estimacion_politica_version
+ WHERE universo = 'amazon_mx/fba' AND valid_to IS NULL
+   AND NOT EXISTS (
+           SELECT 1 FROM estimacion_politica_version WHERE label = 'repricing02_fbm_us'
+       );
+SQL
+echo "SELECT id, label, universo, valid_from, valid_to FROM estimacion_politica_version WHERE label LIKE 'repricing02_fbm%' ORDER BY id;" | q
+CUENTA_FBM=$(echo "SELECT count(*) FROM estimacion_politica_version WHERE label LIKE 'repricing02_fbm%' AND valid_to IS NULL;" | q)
+[ "$CUENTA_FBM" = 2 ] || { echo "ABORTA: 4b deja $CUENTA_FBM politicas FBM vigentes, esperaba 2"; exit 1; }
 
 echo "== 5) md5 del codigo desplegado vs SHA aprobado"
 md5_de() { python3 -c "import hashlib, sys; print(hashlib.md5(sys.stdin.buffer.read()).hexdigest())"; }
@@ -446,5 +483,5 @@ else
 fi
 
 echo "== LISTO. STAMP=$STAMP"
-echo "Siguiente: politicas.sh con DSN admin, y despues bash $DIR/checklist.sh $STAMP"
+echo "Siguiente: bash $DIR/checklist.sh $STAMP"
 echo "Reversa:   bash $DIR/rollback.sh $STAMP"

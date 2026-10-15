@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Checklist post-deploy de D.3 (REPRICING 02 seccion 4): SOLO LECTURA.
-# Corre UNA vez despues de desplegar.sh + politicas.sh y deja su salida
+# Corre UNA vez despues de desplegar.sh y deja su salida
 # en un txt con su linea exit= al final. Patron: ../D.2/checklist.sh.
 # 0 = todo comprobado; 1 = alguna FALLA medida fuera de la seccion 6;
 # 3 = las unicas FALLAS medidas son las de la seccion 6 (dia del
@@ -99,7 +99,7 @@ if [ -z "$HTML" ]; then
   echo "NO MEDIDO cuerpo de /precios (lectura vacia)"; NOMEDIDO=$((NOMEDIDO + 1))
 else
   for MARCA in "Modo global:" "bloque-seguridad-amazon_mx" "bloque-goals-amazon_mx"; do
-    if printf '%s' "$HTML" | grep -qF -- "$MARCA"; then
+    if grep -qF -- "$MARCA" <<<"$HTML"; then
       echo "OK    /precios trae $MARCA"
     else
       echo "FALLA /precios sin marca $MARCA"; FALLAS=$((FALLAS + 1))

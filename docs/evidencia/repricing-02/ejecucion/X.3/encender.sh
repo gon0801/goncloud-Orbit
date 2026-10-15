@@ -209,7 +209,7 @@ PYPROG=$PYSET
 IDS_CHUNK=""
 for intento in 1 2; do
   if SALIDA_SET=$(corre_py 2>&1); then break; fi
-  if [ "$intento" = 1 ] && printf '%s' "$SALIDA_SET" | grep -q REINTENTAR_SETTINGS; then
+  if [ "$intento" = 1 ] && grep -q REINTENTAR_SETTINGS <<<"$SALIDA_SET"; then
     echo "409 en settings: otro guardo primero; releo el id y repito una vez"
     BASE_ID=$(lee_sql "SELECT id FROM config_version ORDER BY id DESC LIMIT 1;") || { echo "ABORTA: no se pudo releer base_config_version_id"; exit 1; }
     GLOBAL=$(lee_sql "SELECT settings ->> 'precio_modo_global' FROM config_version ORDER BY id DESC LIMIT 1;")

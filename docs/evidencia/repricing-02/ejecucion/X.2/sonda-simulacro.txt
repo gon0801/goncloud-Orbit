@@ -1,7 +1,8 @@
-== X.2 sonda de la camara del go (MX FBM, conejillo)
-conejillo: listing=11 (shadow)
-== SIMULACRO: sin --acepto-mutacion-real no se postea nada
-ida que se postearia: plan + aplicar {"platform": "amazon_mx", "pedido": {"tipo": "modo", "mode": "live"}, "listing_ids": [11]} + go literal (no se imprime)
-vuelta que se postearia: plan + aplicar {"platform": "amazon_mx", "pedido": {"tipo": "modo", "mode": "shadow"}, "listing_ids": [11]} (sin go)
+== X.2 sonda de escritura (MX FBM, conejillo + control)
+conejillo: listing=11 (shadow); control: listing=12 (shadow)
+SIMULACION: mercado sim en /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-sonda-X2.json (sembro 11,12)
+== SIMULACRO: dry-run del conejillo + lectura del control (cero PATCH)
+[plan] amazon_mx listing=11 vivo=116.00 MXN -> 116.01 MXN -> 116.00 MXN
+vivo listing=12 valor=200.00 moneda=MXN
 SIMULACRO OK (nada escrito)
 exit=0

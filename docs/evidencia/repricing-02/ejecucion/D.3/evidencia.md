@@ -1,9 +1,9 @@
 # D.3: evidencia del paquete (REPRICING 02, seccion 4)
 
-Paquete: `desplegar.sh`, `rollback.sh`, `checklist.sh`, `ensayo.sh` y
-`politicas.sh` (este ultimo se corre tras el deploy, con DSN admin).
-Lleva el carril F.1-F.4, S.7, la 0055, las politicas FBM, el job de
-muestras y US en el cron. Rama `rp02/sec4-fbm-us`.
+Paquete: `desplegar.sh` (con el paso 4b de politicas FBM),
+`rollback.sh`, `checklist.sh` y `ensayo.sh`. Lleva el carril F.1-F.4,
+S.7, la 0055, las politicas FBM, el job de muestras y US en el cron.
+Rama `rp02/sec4-fbm-us`.
 
 ## Estado de produccion leido el dia del paquete (solo lectura)
 
@@ -23,9 +23,11 @@ Ver `checklist-antes-del-deploy.txt`:
 2. El preflight y la reversa cuentan `app.cli` Y `app.envio_muestras`.
 3. `7v` corre `precio --reporte` de MX y US (las dos plataformas del
    cron); si alguno no sale 0, el cron queda sin instalar.
-4. `politicas.sh` va tras el deploy (paso manual con DSN admin, no
-   dentro de `desplegar.sh`); idempotente por label (dos corridas no
-   duplican).
+4. Las politicas FBM van DENTRO de `desplegar.sh` (paso 4b, por su
+   `w()`), no en un script aparte: en goncloud no hay psql en el
+   host ni en orbit-app-1, solo en orbit-db-1 (medido en
+   `politicas-por-que-dentro.txt`). Idempotente por label (dos
+   corridas no duplican).
 5. El checklist sale 3 hasta la primera corrida del job de muestras y
    de la estimacion (muestras MX, muestras US, escenarios FBM MX+US
    de hoy), 0 despues. La cobertura de MX y US se exige con exit 0 de
@@ -45,17 +47,24 @@ shadow) + 1 politica FBA sintetica. App local (`uvicorn`, puerto
 8012). La base se borro al terminar. DSN enmascarado a `orbit:***@`
 en scripts y salidas (la conexion usa el real).
 
+- `politicas-por-que-dentro.txt` (exit=0): sin psql en el host ni
+  en orbit-app-1, con psql en orbit-db-1; FBA vigente = 1.
+- `checklist-pagina-grande.txt` (exit=0): B3, antes (3xFALLA
+  rc=141) y despues (3xOK) del herestring, contra pagina real.
+- `guard-copy-falla-salida.txt` (exit=1): la guarda 1b aborta
+  contra un SHA sin COPY de sonda (la guarda discrimina).
 - `ensayo-salida.txt` (exit=0): `ensayo.sh` contra el esquema de prod
   (SOLO esquema, cero filas): aplica 0055 (senal 2), reversa con
   esquema EXACTO al base sin filtros y reaplicacion identica.
 - `desplegar-simulacion.txt` (exit=0): `desplegar.sh HEAD` en sim:
-  0055 pendiente y aplicada, md5 OK, reporte MX+US 0, cron
-  reemplazado (2 bajas + 4 altas) y verificado por la ruta 7b.
+  guardas 1b (COPY sonda/cobertura OK), 0055 pendiente y aplicada,
+  paso 4b con 2 politicas FBM (fuente FBA = 1), md5 OK, reporte
+  MX+US 0, cron reemplazado (2 bajas + 4 altas) y verificado por
+  la ruta 7b.
 - `desplegar-simulacion-reintento.txt` (exit=0): segunda corrida:
-  `ya aplicada`, `cron ya instalado`, aplicadas/predeploy
-  conservados, `nada que instalar en 7b`. Idempotencia real.
-- `politicas-simulacion.txt` (exit=0): `politicas.sh` dos veces en
-  sim: 2 politicas FBM vigentes, 0 duplicadas.
+  `ya aplicada`, 4b sin duplicar (2 politicas), `cron ya
+  instalado`, aplicadas/predeploy conservados, `nada que instalar
+  en 7b`. Idempotencia real.
 - `checklist-simulacion-antes.txt` (exit=3): 3 FALLAS exactas (las de
   hoy, solo seccion 6) y 0 sin medir, antes de sembrar corridas.
 - `checklist-simulacion.txt` (exit=0): tras sembrar muestras MX+US y

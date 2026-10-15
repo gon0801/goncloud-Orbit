@@ -7,11 +7,11 @@
   `10 15-23/2 * * * /usr/bin/flock -n /tmp/precio-spapi.lock docker exec orbit-app-1 python -m app.cli precio --platform amazon_mx >> /mnt/data/appdata/orbit/logs/precio-corrida.log 2>&1`
 
 - Politicas FBM vigentes: 0 (`repricing02_fbm_mx/us` ausentes).
-- Politica `amazon_mx/fba` vigente: 1 (fuente de la copia de politicas.sh).
+- Politica `amazon_mx/fba` vigente: 1 (fuente de la copia del paso 4b).
 - `precio_modo_global = shadow`; universos `{"amazon_mx/fba": "shadow"}`
   (X.1 sin encender: el primer universo que encienda sube el global).
 - Muestras: 0 filas en `precio_envio_muestra`.
 
-Orden post-merge: `desplegar.sh <sha>` -> `politicas.sh <DSN admin>` ->
-`checklist.sh` (3 hasta la primera corrida del job de muestras y de la
-estimacion, 0 despues) -> X.2/X.3.
+Orden post-merge: `desplegar.sh <sha>` -> `checklist.sh` (3 hasta la
+primera corrida del job de muestras y de la estimacion, 0 despues)
+-> X.2/X.3.

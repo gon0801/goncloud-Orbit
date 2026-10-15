@@ -8,8 +8,8 @@
 # crontab desde entonces; el actual manda y el respaldo queda como
 # evidencia). La reversa de la 0055 solo quita CHECK (las filas nuevas
 # usan columnas de la 0054, que quedan): segura con escenarios ya
-# guardados. Las politicas FBM que metio politicas.sh NO se tocan (son
-# datos, no esquema; el codigo viejo las ignora).
+# guardados. Las politicas FBM que metio desplegar.sh (paso 4b) NO se
+# tocan (son datos, no esquema; el codigo viejo las ignora).
 # En simulacion (ORBIT_SIMULACION=1) la base es ORBIT_SIM_DSN, el
 # respaldo, aplicadas-<sello>.txt y el crontab viven en
 # ${TMPDIR:-/tmp}/orbit-d3-sim y el codigo no se restaura a ningun

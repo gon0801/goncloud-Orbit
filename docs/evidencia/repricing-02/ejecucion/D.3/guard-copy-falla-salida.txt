@@ -1,0 +1,12 @@
+== MODO SIMULACION: datos sinteticos contra postgresql://orbit:***@localhost:5432/orbit_sim_D3r2c, servidor intacto
+== 0) SHA aprobado con la bateria completa verde
+SIMULACION: HEAD existe local; sin fetch ni gh (no hay red a prod)
+== 1) Preflight: nadie corre, sin harvest en vuelo, migraciones pendientes
+SIMULACION: sin docker top (no hay contenedor); la guarda de proceso es el conteo de running
+ciclos running=0
+harvest en vuelo=0
+pendiente: 0055_precio02_escenario_exige.sql
+== 1b) Guardas propias de D.3 (abortan si fallan)
+0055 (+ reversa) y modulos F.1-F.4 y S.7 presentes en el SHA
+ABORTA: Dockerfile del SHA sin COPY tools/precio_sonda.py (sonda/checklist lo corren dentro)
+exit=1

@@ -165,6 +165,147 @@ def test_sonda_plataforma_sin_mercado_aborta_limpio(monkeypatch):
 
 
 @_skip_sin_pg
+def test_sonda_plan_no_muestra_sku(monkeypatch, capsys):
+    mercado = _MercadoSondaFalso()
+    with _db_sonda() as (conn, dsn):
+        lid = _listing(conn)
+        monkeypatch.setenv("ORBIT_DSN_DECIDE", dsn)
+        codigo = main(["--platform", "amazon_mx", "--listing-id", str(lid)], mercado=mercado)
+    assert codigo == 0
+    salida = capsys.readouterr().out
+    assert f"listing={lid}" in salida
+    assert "sku=" not in salida
+    assert "SS-SONDA-1" not in salida
+
+
+@_skip_sin_pg
+def test_sonda_lee_vivo_imprime_y_no_escribe(monkeypatch, capsys):
+    mercado = _MercadoSondaFalso()
+    with _db_sonda() as (conn, dsn):
+        lid = _listing(conn)
+        monkeypatch.setenv("ORBIT_DSN_DECIDE", dsn)
+        codigo = main(
+            ["--platform", "amazon_mx", "--listing-id", str(lid), "--lee-vivo"],
+            mercado=mercado,
+        )
+    assert codigo == 0
+    assert mercado.escrituras == []
+    assert capsys.readouterr().out.strip() == f"vivo listing={lid} valor=116.00 moneda=MXN"
+
+
+@_skip_sin_pg
+def test_sonda_sim_archivo_ida_vuelta_y_control(monkeypatch, tmp_path, capsys):
+    import json
+
+    with _db_sonda() as (conn, dsn):
+        lid = _listing(conn)
+        ctl = _listing(conn, sku="SS-SONDA-CTL", ext="B0SONDA0002")
+        sim = tmp_path / "sonda.json"
+        sim.write_text(
+            json.dumps(
+                {
+                    str(lid): {"valor": "116.00", "moneda": "MXN"},
+                    str(ctl): {"valor": "200.00", "moneda": "MXN"},
+                }
+            ),
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("ORBIT_DSN_DECIDE", dsn)
+        monkeypatch.setenv("ORBIT_SONDA_SIM", str(sim))
+        codigo = main(
+            [
+                "--platform",
+                "amazon_mx",
+                "--listing-id",
+                str(lid),
+                "--acepto-mutacion-real",
+                "--go",
+                "plan repricing-02 X.2",
+                "--mercado-sim",
+            ]
+        )
+        assert codigo == 0
+        final = json.loads(sim.read_text(encoding="utf-8"))
+        assert final[str(lid)]["valor"] == "116.00"
+        assert final[str(ctl)]["valor"] == "200.00"
+        lee = ["--platform", "amazon_mx", "--listing-id", str(ctl), "--lee-vivo", "--mercado-sim"]
+        assert main(lee) == 0
+    assert f"vivo listing={ctl} valor=200.00 moneda=MXN" in capsys.readouterr().out
+
+
+@_skip_sin_pg
+def test_sonda_sim_ilegible_o_sin_precio_aborta(monkeypatch, tmp_path):
+    with _db_sonda() as (conn, dsn):
+        lid = _listing(conn)
+        monkeypatch.setenv("ORBIT_DSN_DECIDE", dsn)
+        monkeypatch.setenv("ORBIT_SONDA_SIM", str(tmp_path / "falta.json"))
+        lee = ["--platform", "amazon_mx", "--listing-id", str(lid), "--lee-vivo", "--mercado-sim"]
+        with pytest.raises(Abortar, match="ilegible"):
+            main(lee)
+        sim = tmp_path / "vacio.json"
+        sim.write_text("{}", encoding="utf-8")
+        monkeypatch.setenv("ORBIT_SONDA_SIM", str(sim))
+        with pytest.raises(Abortar, match="sin precio vivo"):
+            main(lee)
+
+
+@_skip_sin_pg
+def test_sonda_sim_sin_bandera_no_finge_aceptada(monkeypatch, tmp_path):
+    import json
+
+    with _db_sonda() as (conn, dsn):
+        lid = _listing(conn)
+        sim = tmp_path / "sonda.json"
+        sim.write_text(
+            json.dumps({str(lid): {"valor": "116.00", "moneda": "MXN"}}),
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("ORBIT_DSN_DECIDE", dsn)
+        monkeypatch.setenv("ORBIT_SONDA_SIM", str(sim))
+        with pytest.raises(Abortar, match="mercado-sim"):
+            main(
+                [
+                    "--platform",
+                    "amazon_mx",
+                    "--listing-id",
+                    str(lid),
+                    "--acepto-mutacion-real",
+                    "--go",
+                    "x",
+                ]
+            )
+        monkeypatch.delenv("ORBIT_SONDA_SIM")
+        with pytest.raises(Abortar, match="mercado-sim"):
+            main(["--platform", "amazon_mx", "--listing-id", str(lid), "--mercado-sim"])
+
+
+@_skip_sin_pg
+def test_sonda_lee_vivo_rechaza_acepto_y_go(monkeypatch):
+    mercado = _MercadoSondaFalso()
+    with _db_sonda() as (conn, dsn):
+        lid = _listing(conn)
+        monkeypatch.setenv("ORBIT_DSN_DECIDE", dsn)
+        with pytest.raises(Abortar, match="lee-vivo"):
+            main(
+                [
+                    "--platform",
+                    "amazon_mx",
+                    "--listing-id",
+                    str(lid),
+                    "--lee-vivo",
+                    "--acepto-mutacion-real",
+                ],
+                mercado=mercado,
+            )
+        with pytest.raises(Abortar, match="lee-vivo"):
+            main(
+                ["--platform", "amazon_mx", "--listing-id", str(lid), "--lee-vivo", "--go", "x"],
+                mercado=mercado,
+            )
+        assert mercado.escrituras == []
+
+
+@_skip_sin_pg
 def test_sonda_listing_inexistente_o_de_otra_plataforma_aborta(monkeypatch):
     mercado = _MercadoSondaFalso()
     with _db_sonda() as (conn, dsn):

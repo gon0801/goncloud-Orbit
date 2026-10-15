@@ -1,0 +1,10 @@
+pagina real /precios de prod (solo lectura, 226315 bytes, no se guarda por SKUs reales)
+== antes (pipe + pipefail):
+FALLA rc=141 0
+FALLA rc=141 0
+FALLA rc=141 0
+== despues (herestring):
+OK
+OK
+OK
+exit=0

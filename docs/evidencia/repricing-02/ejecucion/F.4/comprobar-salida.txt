@@ -1,9 +1,9 @@
 dia=2026-10-13 unidades=3 disponibilidad=disponible exposiciones=200 clics=9
 dia=2026-10-14 unidades=0 disponibilidad=no_disponible exposiciones=None clics=None
 primera_venta=2026-10-13 sin_atribuir=0
-[plan] amazon_mx listing=1 sku=SS-SONDA-1 vivo=116.00 MXN -> 116.01 MXN -> 116.00 MXN
+[plan] amazon_mx listing=1 vivo=116.00 MXN -> 116.01 MXN -> 116.00 MXN
 dry-run rc=0 escrituras=[]
-[plan] amazon_mx listing=1 sku=SS-SONDA-1 vivo=116.00 MXN -> 116.01 MXN -> 116.00 MXN
+[plan] amazon_mx listing=1 vivo=116.00 MXN -> 116.01 MXN -> 116.00 MXN
 [sonda] listing=1 aceptada a 116.01 MXN
 [revierte] listing=1 aceptada a 116.00 MXN
 go rc=0 escrituras=[('116.01', 'MXN'), ('116.00', 'MXN')]
