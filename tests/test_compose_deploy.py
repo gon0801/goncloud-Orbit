@@ -283,13 +283,21 @@ def test_dockerfile_instala_con_lockfile_congelado():
 
 
 def test_dockerfile_copia_las_cli_que_corren_dentro_del_contenedor():
-    """2.3 (Jev Ads): el smoke de despliegue corre `python -m tools.jev_ads` y
-    `tools.jev_fichas` DENTRO de orbit-app-1. La imagen solo trae los tools
-    que el Dockerfile copia uno por uno; sin la linea, la CLI no existe en
-    prod y el fallo se ve hasta el deploy."""
+    """2.3 (Jev Ads) + REPRICING 02 D.3/X.2/X.3: el smoke de despliegue corre
+    `python -m tools.jev_ads` y `tools.jev_fichas` DENTRO de orbit-app-1, y
+    la sonda y el checklist corren `tools.precio_sonda` y
+    `tools/precio_cobertura.py` ahi. La imagen solo trae los tools que el
+    Dockerfile copia uno por uno; sin la linea, la CLI no existe en prod y
+    el fallo se ve hasta el deploy."""
     copiados = {
         ln.split()[1]
         for ln in DOCKERFILE.read_text(encoding="utf-8").splitlines()
         if ln.startswith("COPY tools/")
     }
-    assert copiados == {"tools/fabrica_campanas.py", "tools/jev_ads.py", "tools/jev_fichas.py"}
+    assert copiados == {
+        "tools/fabrica_campanas.py",
+        "tools/jev_ads.py",
+        "tools/jev_fichas.py",
+        "tools/precio_sonda.py",
+        "tools/precio_cobertura.py",
+    }

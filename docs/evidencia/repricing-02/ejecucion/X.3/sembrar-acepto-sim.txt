@@ -1,0 +1,22 @@
+== X.3 sembrar margen-de-hoy en shadow (US FBM)
+modo amazon_us/fbm: shadow
+unidades US FBM sin goal vigente: 4
+seleccion: listing_ids [11,12,13,14]
+== siembra real (guardas: plan + bloqueos en /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-x3-sim/plan-20261015-083222.json)
+universo ya en shadow: sin settings previo
+-- bloque 1 (4 unidades)
+PLAN_JSON {"huella":"7a0308a2d28d5c4a","filas":[{"listing_id":11,"plataforma":"amazon_us","seller_sku":"SS-X3-A","accion":"sembrar","m_hoy":"0.347325","goal_id":null,"goal_actual":null,"goal_propuesto":"0.3473","p_actual":{"valor":"29.9900","moneda":"USD"},"p_estrella":{"valor":"29.99","moneda":"USD"},"envio_origen":null,"bloqueo":null,"confirmable":false,"motivo":null},{"listing_id":12,"plataforma":"amazon_us","seller_sku":"SS-X3-B","accion":"sembrar","m_hoy":"0.347325","goal_id":null,"goal_actual":null,"goal_propuesto":"0.3473","p_actual":{"valor":"29.9900","moneda":"USD"},"p_estrella":{"valor":"29.99","moneda":"USD"},"envio_origen":null,"bloqueo":null,"confirmable":false,"motivo":null},{"listing_id":13,"plataforma":"amazon_us","seller_sku":"SS-X3-C","accion":"sembrar","m_hoy":null,"goal_id":null,"goal_actual":null,"goal_propuesto":null,"p_actual":null,"p_estrella":null,"envio_origen":null,"bloqueo":"sin_escenario","confirmable":false,"motivo":"sin_escenario"},{"listing_id":14,"plataforma":"amazon_us","seller_sku":"SS-X3-D","accion":"sembrar","m_hoy":null,"goal_id":null,"goal_actual":null,"goal_propuesto":null,"p_actual":null,"p_estrella":null,"envio_origen":null,"bloqueo":"sin_escenario","confirmable":false,"motivo":"sin_escenario"}]}
+plan: 4 filas, 2 bloqueadas, huella 7a0308a2d28d5c4a
+BLOQUEO listing=13 bloqueo=sin_escenario motivo=sin_escenario
+BLOQUEO listing=14 bloqueo=sin_escenario motivo=sin_escenario
+aplicado: sembrados=2 cerrados=0 lote=7a0308a2d28d5c4a
+OMITIDA listing=13 bloqueo=sin_escenario motivo=sin_escenario
+OMITIDA listing=14 bloqueo=sin_escenario motivo=sin_escenario
+plan guardado en /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-x3-sim/plan-20261015-083222.json
+unidades bloqueadas guardadas: 2 (con motivo, en /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-x3-sim/sembrar-20261015-083222.txt)
+unidades omitidas al aplicar: 2 (con motivo, en /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-x3-sim/sembrar-20261015-083222.txt)
+exit=0
+11|shadow
+12|shadow
+13|sin-goal
+14|sin-goal

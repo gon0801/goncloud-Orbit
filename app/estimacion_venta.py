@@ -45,12 +45,14 @@ MOTIVOS_ESTIMACION: tuple[str, ...] = (
     "costo_impuesto_incompatible",
     "costo_invalido",
     "costo_no_vigente",
+    "envio_sin_historia",
     "fee_ausente",
     "fee_incompatible",
     "fee_invalido",
     "fee_item_error",
     "fee_universo_no_soportado",
     "fx_ausente",
+    "fx_desactualizado",
     "fx_direccion_invalida",
     "fx_tasa_invalida",
     "identidad_ambigua",
@@ -121,6 +123,15 @@ class EntradaCalculo:
     fx_source: str | None = None
     moneda_base: str | None = None
     motivos_entrada: tuple[str, ...] = ()
+    # REPRICING 02 F.3: logistica YA resuelta por el universo (el importe en
+    # moneda_base para la formula, mas su sobre para el componente). None solo
+    # con motivo en motivos_entrada; disponible sin logistica es bug.
+    logistica: Decimal | None = None
+    logistica_origen: str | None = None
+    logistica_original: Decimal | None = None
+    logistica_moneda_original: str | None = None
+    logistica_tasa: Decimal | None = None
+    logistica_tasa_fecha: date | None = None
 
 
 @dataclass(frozen=True)
@@ -505,7 +516,8 @@ def calcular_contribucion(
 
     costo_exacto = _normalizar_costo(entrada, moneda_venta or "", motivos, componentes)
 
-    logistica = _decimal_setting(politica.settings, "logistica")
+    # L resuelta por el universo; None con motivo bloquea abajo.
+    logistica = entrada.logistica
     isr_tasa = _decimal_setting(politica.settings, "isr_tasa")
     ret_iva_tasa = _decimal_setting(politica.settings, "retencion_iva_reconciliacion")
 
@@ -516,13 +528,19 @@ def calcular_contribucion(
         isr_exacto = ingreso_exacto * isr_tasa
         isr = _cuantizar_frontera(isr_exacto)
         ret_iva = _cuantizar_frontera(ingreso_exacto * ret_iva_tasa)
-        componentes.append(
-            ComponenteEconomico(
-                nombre="logistica",
-                importe_normalizado=_cuantizar_frontera(logistica),
-                moneda_normalizada=moneda_venta,
+        if logistica is not None:
+            componentes.append(
+                ComponenteEconomico(
+                    nombre="logistica",
+                    importe_original=entrada.logistica_original,
+                    moneda_original=entrada.logistica_moneda_original,
+                    importe_normalizado=_cuantizar_frontera(logistica),
+                    moneda_normalizada=moneda_venta,
+                    tasa=entrada.logistica_tasa,
+                    fecha=entrada.logistica_tasa_fecha,
+                    fuente=entrada.logistica_origen,
+                )
             )
-        )
         componentes.append(
             ComponenteEconomico(
                 nombre="isr",
@@ -549,9 +567,12 @@ def calcular_contribucion(
         "fee_ausente",
         "fee_invalido",
         "fx_ausente",
+        "fx_desactualizado",
+        "envio_sin_historia",
         "fx_direccion_invalida",
         "fx_tasa_invalida",
         "impuesto_fee_pendiente",
+        "universo_no_soportado",
         "politica_no_vigente",
         "politica_invalida",
         "fee_incompatible",
@@ -572,6 +593,9 @@ def calcular_contribucion(
             isr=isr,
         )
 
+    if logistica is None:
+        raise ValueError("entrada.logistica ausente en escenario disponible")
+    logistica = validar_dinero(logistica, campo="logistica", positivo=False, permitir_cero=True)
     assert (
         ingreso_exacto is not None
         and costo_exacto is not None

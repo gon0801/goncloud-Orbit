@@ -5,7 +5,7 @@ Destino: `estimacion_oferta_observation` + `estimacion_fee_observation`.
 Reutiliza resolucion A.2 (`app.estimacion_insumos`) y cotizacion A.3
 (`app.estimacion_fees`). Las llamadas HTTP ocurren SIN transaccion abierta.
 
-Universo: listings `amazon_mx` con oferta FBA fresca. Cada item falla aislado;
+Universo: listings Amazon con oferta fresca del registro. Cada item falla aislado;
 la corrida sella `ingest_run` con filas/errores contados.
 """
 
@@ -43,6 +43,7 @@ from app.estimacion_repository import (
     sembrar_escenario_desde_refs,
     sembrar_escenario_negativo_transicion,
 )
+from app.estimacion_universo import plataformas_con_cotizador
 from app.redaction import install_scrub_filter, scrub
 
 logger = logging.getLogger(__name__)
@@ -276,7 +277,8 @@ def ejecutar_ingesta(
     with conn.transaction():
         listings = conn.execute(
             "SELECT id, platform, external_id, seller_sku"
-            " FROM listing WHERE platform = 'amazon_mx' ORDER BY id"
+            " FROM listing WHERE platform = ANY(%s) ORDER BY id",
+            (list(plataformas_con_cotizador()),),
         ).fetchall()
 
     fees_client = client or ProductFeesClient()

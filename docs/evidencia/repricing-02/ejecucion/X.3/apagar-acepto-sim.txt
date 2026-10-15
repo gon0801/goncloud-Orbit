@@ -1,0 +1,15 @@
+== X.3 apagar US FBM (reversa del encendido)
+precio_modo_global: live (no se toca) | amazon_us/fbm: live | base: 6
+goals live en amazon_us FBM: 2
+== apagado real: universo a shadow (el global no se toca)
+settings: config 7 (settings UI · settings-ui · 2026-10-15 · amazon_us: precio modo amazon_us/fbm live -> shadow)
+== apagado real: goals live a shadow en bloque (2 unidades)
+-- bloque 1 (2 unidades)
+plan shadow: 2 filas, 0 bloqueadas, huella 167f4dbc1bee8cb2
+aplicado: sembrados=2 cerrados=2 lote=167f4dbc1bee8cb2
+APAGADO OK: amazon_us/fbm en shadow
+exit=0
+11|shadow
+12|shadow
+13|sin-goal
+14|sin-goal

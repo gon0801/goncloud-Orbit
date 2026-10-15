@@ -1,0 +1,21 @@
+== esquema de prod (solo lectura)
+esquema base cargado
+== 1) aplicar la 0055
+psql:/Users/dn/dev/wt/rp02-sec4/migrations/0055_precio02_escenario_exige.sql:7: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+aplicada 0055_precio02_escenario_exige.sql
+== 2) senal de la migracion
+0055 (2 CHECK en escenario): 2
+== 3) reversa: esquema identico al base
+psql:/Users/dn/dev/wt/rp02-sec4/migrations/0055_reversa_precio02_escenario_exige.sql:4: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+aplicada 0055_reversa_precio02_escenario_exige.sql
+OK: la reversa deja el esquema identico al base
+== 4) reaplicar la 0055
+psql:/Users/dn/dev/wt/rp02-sec4/migrations/0055_precio02_escenario_exige.sql:7: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+aplicada 0055_precio02_escenario_exige.sql
+OK: reaplicar da el mismo esquema que la primera vez
+0055 (2 CHECK en escenario): 2
+ENSAYO OK
+exit=0

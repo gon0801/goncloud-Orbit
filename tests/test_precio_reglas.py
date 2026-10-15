@@ -105,9 +105,70 @@ def test_tipos_subir_bajar_sin_motivo():
 
 def test_tipos_senal_sin_dato_exige_submotivo_conocido():
     with pytest.raises(ValueError):
-        SenalVentas("sin_dato", "inventado", 0, 0, 0, 0, 0)
+        SenalVentas("sin_dato", "inventado", None, 0, 0, 0, 0, 0)
     with pytest.raises(ValueError):
-        SenalVentas("perdiendo", "racha_incompleta", 1, 1, 1, 1, 3)
+        SenalVentas("perdiendo", "racha_incompleta", "unidades", 1, 1, 1, 1, 3)
+
+
+def test_tipos_senal_evidencia_solo_fuera_de_sin_dato():
+    SenalVentas("perdiendo", None, "unidades", 1, 20, 15, 60, 3)
+    SenalVentas("no_perdiendo", None, "trafico", 1, 20, 15, 60, 0)
+    SenalVentas("sin_dato", "ledger_hueco", None, 0, 0, 0, 0, 0)
+    with pytest.raises(ValueError):
+        SenalVentas("perdiendo", None, None, 1, 20, 15, 60, 3)
+    with pytest.raises(ValueError):
+        SenalVentas("sin_dato", "ledger_hueco", "unidades", 0, 0, 0, 0, 0)
+    with pytest.raises(ValueError):
+        SenalVentas("perdiendo", None, "inventada", 1, 20, 15, 60, 3)
+
+
+def test_tipos_submotivos_de_unidad_reemplazan_los_de_fba():
+    assert len(SUBMOTIVOS_SIN_DATO) == 10
+    for viejo in (
+        "dia_sin_stock",
+        "dia_sin_observacion_inventario",
+        "listing_inactivo",
+        "dia_sin_estado_listing",
+    ):
+        assert viejo not in SUBMOTIVOS_SIN_DATO
+        with pytest.raises(ValueError):
+            SenalVentas("sin_dato", viejo, None, 0, 0, 0, 0, 0)
+    for nuevo in (
+        "dia_no_disponible",
+        "dia_sin_observacion",
+        "venta_sin_publicacion",
+        "evidencia_insuficiente",
+    ):
+        assert nuevo in SUBMOTIVOS_SIN_DATO
+        SenalVentas("sin_dato", nuevo, None, 0, 0, 0, 0, 0)
+
+
+def test_tipos_decision_verificacion_lineal_o_cotizada():
+    from app.precio.tipos import Decision
+
+    base = {
+        "resultado": "subir",
+        "motivo": None,
+        "m_actual": None,
+        "goal": Decimal("0.30"),
+        "p_actual": None,
+        "p_objetivo": None,
+        "p_aplicado": None,
+        "componentes": None,
+        "u15": None,
+        "u60": None,
+        "n15": None,
+        "n60": None,
+        "racha": None,
+        "perdiendo": None,
+        "aplicado": False,
+        "mode": "shadow",
+    }
+    assert Decision(**base).verificacion is None
+    assert Decision(**base, verificacion="lineal").verificacion == "lineal"
+    assert Decision(**base, verificacion="cotizada").verificacion == "cotizada"
+    with pytest.raises(ValueError):
+        Decision(**base, verificacion="inventada")
 
 
 HOY = date(2026, 9, 17)
@@ -238,51 +299,99 @@ def serie_diaria(hoy, desde_hace, hasta_hace, qty):
     return tuple((hoy - timedelta(days=d), qty) for d in range(hasta_hace, desde_hace - 1, -1))
 
 
-def insumos_sanos(hoy, *, qty15=6, qty60=10, primera=None, cubierta=None, **extras):
+def historia_sana(
+    hoy,
+    *,
+    qty15=6,
+    qty60=10,
+    primera=None,
+    sin_atribuir=0,
+    disp=None,
+    trafico=None,
+    **kw,
+):
+    """Historia de unidad sana: ventas por dia, todo disponible, sin trafico.
+
+    `disp`: dia -> disponibilidad para los dias que difieren. `trafico`:
+    dia -> (exposiciones, clics) para los dias con dato. `cubierta=None`
+    es hueco real (no default).
+    """
+    cubierta = kw.pop("cubierta", hoy - timedelta(days=1))
     ventas = dict(serie_diaria(hoy, 1, 15, qty15))
     ventas.update(dict(serie_diaria(hoy, 16, 75, qty60)))
-    dias15 = [hoy - timedelta(days=d) for d in range(1, 16)]
-    base = {
-        "ventas": tuple(sorted(ventas.items())),
-        "inventario": tuple((d, 5) for d in dias15),
-        "listing_activo": tuple((d, True) for d in dias15),
-        "primera_venta": hoy - timedelta(days=200) if primera is None else primera,
-        "dia_cubierto_hasta": (hoy - timedelta(days=1)) if cubierta is None else cubierta,
-    }
-    base.update(extras)
-    from app.precio.tipos import VentasInsumos
+    disp = disp or {}
+    trafico = trafico or {}
+    dias = tuple(
+        puerto.DiaUnidad(
+            dia=hoy - timedelta(days=d),
+            unidades=ventas.get(hoy - timedelta(days=d), 0),
+            disponibilidad=disp.get(hoy - timedelta(days=d), "disponible"),
+            buy_box_propia=None,
+            exposiciones=trafico.get(hoy - timedelta(days=d), (None, None))[0],
+            clics=trafico.get(hoy - timedelta(days=d), (None, None))[1],
+        )
+        for d in range(1, 76)
+    )
+    return puerto.HistoriaUnidad(
+        dias=dias,
+        primera_venta=hoy - timedelta(days=200) if primera is None else primera,
+        ledger_cubierto_hasta=cubierta,
+        sin_atribuir=sin_atribuir,
+    )
 
-    return VentasInsumos(**base)
 
-
-def senal(insumos, hoy=HOY, **kw):
+def senal(historia, hoy=HOY, **kw):
     from app.precio.ventas import evaluar_senal
 
-    return evaluar_senal(insumos, hoy=hoy, config=cfg(), racha_previa=kw.pop("racha_previa", 0))
+    return evaluar_senal(
+        historia,
+        hoy=hoy,
+        config=cfg(),
+        racha_previa=kw.pop("racha_previa", 0),
+        ultima_subida=kw.pop("ultima_subida", None),
+        trafico_min=kw.pop("trafico_min", 100),
+    )
+
+
+def historia_con_ventas(hoy, ventas, **kw):
+    """Historia densa [hoy-75, hoy-1] con estas unidades (todo disponible)."""
+    dias = tuple(
+        puerto.DiaUnidad(
+            dia=hoy - timedelta(days=d),
+            unidades=ventas.get(hoy - timedelta(days=d), 0),
+            disponibilidad="disponible",
+            buy_box_propia=None,
+            exposiciones=None,
+            clics=None,
+        )
+        for d in range(1, 76)
+    )
+    return puerto.HistoriaUnidad(
+        dias=dias,
+        primera_venta=kw.pop("primera", hoy - timedelta(days=200)),
+        ledger_cubierto_hasta=kw.pop("cubierta", hoy - timedelta(days=1)),
+        sin_atribuir=0,
+    )
 
 
 def test_ventas_borde_90_no_dispara_89_si():
     # u60 = 600 (10/dia x 60), esperado = 600/60*15*0.6 = 90.
-    assert senal(insumos_sanos(HOY, qty15=6)).estado == "no_perdiendo"
-    ins = insumos_sanos(HOY, qty15=6, primera=HOY - timedelta(days=200))
-    ventas = dict(ins.ventas)
+    s = senal(historia_sana(HOY, qty15=6))
+    assert (s.estado, s.evidencia) == ("no_perdiendo", "unidades")
+    ventas = dict(serie_diaria(HOY, 1, 15, 6))
+    ventas.update(dict(serie_diaria(HOY, 16, 75, 10)))
     ventas[HOY - timedelta(days=1)] = 5  # u15 = 89
-    from app.precio.tipos import VentasInsumos
-
-    ins = VentasInsumos(
-        ventas=tuple(sorted(ventas.items())),
-        inventario=ins.inventario,
-        listing_activo=ins.listing_activo,
-        primera_venta=ins.primera_venta,
-        dia_cubierto_hasta=ins.dia_cubierto_hasta,
+    s = senal(historia_con_ventas(HOY, ventas), racha_previa=2)
+    assert (s.estado, s.evidencia, s.u15, s.u60, s.racha) == (
+        "perdiendo",
+        "unidades",
+        89,
+        600,
+        3,
     )
-    s = senal(ins, racha_previa=2)
-    assert (s.estado, s.u15, s.u60, s.racha) == ("perdiendo", 89, 600, 3)
 
 
 def test_ventas_ventanas_inclusive_ayer_y_anteayer():
-    from app.precio.tipos import VentasInsumos
-
     ventas = {
         HOY - timedelta(days=1): 1,  # u15
         HOY - timedelta(days=15): 2,  # u15 (borde)
@@ -291,55 +400,24 @@ def test_ventas_ventanas_inclusive_ayer_y_anteayer():
         HOY - timedelta(days=76): 100,  # fuera
         HOY: 100,  # hoy se descarta
     }
-    dias15 = [HOY - timedelta(days=d) for d in range(1, 16)]
-    ins = VentasInsumos(
-        ventas=tuple(sorted(ventas.items())),
-        inventario=tuple((d, 5) for d in dias15),
-        listing_activo=tuple((d, True) for d in dias15),
-        primera_venta=HOY - timedelta(days=200),
-        dia_cubierto_hasta=HOY - timedelta(days=1),
-    )
-    s = senal(ins)
+    s = senal(historia_con_ventas(HOY, ventas))
     assert (s.u15, s.n15, s.u60, s.n60) == (3, 15, 12, 60)
 
 
 def test_ventas_hueco_ledger_sin_cobertura():
-    from app.precio.tipos import VentasInsumos
-
-    ins = insumos_sanos(HOY)
-    sin_cobertura = VentasInsumos(
-        ventas=ins.ventas,
-        inventario=ins.inventario,
-        listing_activo=ins.listing_activo,
-        primera_venta=ins.primera_venta,
-        dia_cubierto_hasta=None,
-    )
-    assert senal(sin_cobertura).submotivo == "ledger_hueco"
-    ins = insumos_sanos(HOY, cubierta=HOY - timedelta(days=5))
-    s = senal(ins)
+    assert senal(historia_sana(HOY, cubierta=None)).submotivo == "ledger_hueco"
+    s = senal(historia_sana(HOY, cubierta=HOY - timedelta(days=5)))
     assert (s.estado, s.submotivo) == ("sin_dato", "ledger_hueco")
 
 
 def test_ventas_u60_bajo_minimo():
-    s = senal(insumos_sanos(HOY, qty60=0, qty15=0))
+    s = senal(historia_sana(HOY, qty60=0, qty15=0))
     assert s.u60 == 0
-    ins = insumos_sanos(HOY, qty60=0, qty15=0)
-    from app.precio.tipos import VentasInsumos
-
-    ventas = dict(ins.ventas)
-    for d in [HOY - timedelta(days=x) for x in range(16, 76)]:
-        ventas[d] = 0
+    ventas = {}
     # 19 unidades repartidas en la ventana de 60
     for d in [HOY - timedelta(days=x) for x in range(16, 35)]:
         ventas[d] = 1
-    ins = VentasInsumos(
-        ventas=tuple(sorted(ventas.items())),
-        inventario=ins.inventario,
-        listing_activo=ins.listing_activo,
-        primera_venta=ins.primera_venta,
-        dia_cubierto_hasta=ins.dia_cubierto_hasta,
-    )
-    s = senal(ins)
+    s = senal(historia_con_ventas(HOY, ventas))
     assert (s.estado, s.submotivo, s.u60) == ("sin_dato", "u60_bajo_minimo", 19)
 
 
@@ -356,41 +434,164 @@ def test_ventas_n15_insuficiente_con_excluidas():
     )
     from app.precio.ventas import evaluar_senal
 
-    s = evaluar_senal(insumos_sanos(HOY), hoy=HOY, config=c, racha_previa=0)
+    s = evaluar_senal(
+        historia_sana(HOY), hoy=HOY, config=c, racha_previa=0, ultima_subida=None, trafico_min=100
+    )
     assert (s.estado, s.submotivo, s.n15) == ("sin_dato", "n15_insuficiente", 9)
 
 
 def test_ventas_historia_corta_74_dias():
-    ins = insumos_sanos(HOY, primera=HOY - timedelta(days=74))
+    ins = historia_sana(HOY, primera=HOY - timedelta(days=74))
     assert senal(ins).submotivo == "historia_corta"
-    ins = insumos_sanos(HOY, primera=HOY - timedelta(days=75))
+    ins = historia_sana(HOY, primera=HOY - timedelta(days=75))
     assert senal(ins).submotivo != "historia_corta"
 
 
-def test_ventas_dia_sin_stock_y_sin_observacion():
-    dias15 = [HOY - timedelta(days=d) for d in range(1, 16)]
-    inv = [(d, 0 if d == HOY - timedelta(days=3) else 5) for d in dias15]
-    ins = insumos_sanos(HOY, inventario=tuple(inv))
-    assert senal(ins).submotivo == "dia_sin_stock"
-    inv = [(d, 5) for d in dias15 if d != HOY - timedelta(days=3)]
-    ins = insumos_sanos(HOY, inventario=tuple(inv))
-    assert senal(ins).submotivo == "dia_sin_observacion_inventario"
-
-
-def test_ventas_listing_inactivo_un_dia():
-    dias15 = [HOY - timedelta(days=d) for d in range(1, 16)]
-    act = [(d, d != HOY - timedelta(days=7)) for d in dias15]
-    assert senal(insumos_sanos(HOY, listing_activo=tuple(act))).submotivo == "listing_inactivo"
+def test_ventas_dia_no_disponible_y_sin_observacion():
+    d3 = HOY - timedelta(days=3)
+    ins = historia_sana(HOY, disp={d3: "no_disponible"})
+    assert senal(ins).submotivo == "dia_no_disponible"
+    ins = historia_sana(HOY, disp={d3: "sin_observacion"})
+    assert senal(ins).submotivo == "dia_sin_observacion"
+    dias = tuple(d for d in historia_sana(HOY).dias if d.dia != d3)
+    ins = puerto.HistoriaUnidad(
+        dias=dias,
+        primera_venta=HOY - timedelta(days=200),
+        ledger_cubierto_hasta=HOY - timedelta(days=1),
+        sin_atribuir=0,
+    )
+    assert senal(ins).submotivo == "dia_sin_observacion"
 
 
 def test_ventas_racha_dos_de_tres_es_sin_dato():
-    s = senal(insumos_sanos(HOY, qty15=0), racha_previa=1)
+    s = senal(historia_sana(HOY, qty15=0), racha_previa=1)
     assert (s.estado, s.submotivo, s.racha) == ("sin_dato", "racha_incompleta", 2)
 
 
 def test_ventas_sin_caida_resetea_racha():
-    s = senal(insumos_sanos(HOY, qty15=6), racha_previa=2)
+    s = senal(historia_sana(HOY, qty15=6), racha_previa=2)
     assert (s.estado, s.racha) == ("no_perdiendo", 0)
+
+
+def test_ventas_sin_atribuir_da_venta_sin_publicacion():
+    s = senal(historia_sana(HOY, sin_atribuir=3))
+    assert (s.estado, s.submotivo) == ("sin_dato", "venta_sin_publicacion")
+
+
+def trafico_ventana(hoy, desde_hace, hasta_hace, exp, clics):
+    return {hoy - timedelta(days=d): (exp, clics) for d in range(hasta_hace, desde_hace - 1, -1)}
+
+
+def historia_sin_unidades(hoy, *, trafico):
+    """Unidades indecidibles (dias contados sin observacion) con este trafico."""
+    disp = {hoy - timedelta(days=d): "sin_observacion" for d in range(1, 16)}
+    return historia_sana(hoy, disp=disp, trafico=trafico)
+
+
+def test_trafico_sin_subida_propia_da_sin_dato():
+    # Trafico rico que decidiria con subida: sin subida no se mira.
+    trafico = trafico_ventana(HOY, 11, 38, 200, 20)
+    trafico.update(trafico_ventana(HOY, 1, 9, 200, 8))
+    s = senal(historia_sin_unidades(HOY, trafico=trafico))
+    assert (s.estado, s.submotivo) == ("sin_dato", "dia_sin_observacion")
+
+
+def test_trafico_caida_con_z_da_perdiendo():
+    trafico = trafico_ventana(HOY, 11, 38, 200, 20)
+    trafico.update(trafico_ventana(HOY, 1, 9, 200, 8))
+    s = senal(
+        historia_sin_unidades(HOY, trafico=trafico),
+        ultima_subida=HOY - timedelta(days=10),
+        racha_previa=1,
+    )
+    assert (s.estado, s.evidencia, s.racha) == ("perdiendo", "trafico", 2)
+
+
+def test_trafico_sin_caida_da_no_perdiendo():
+    trafico = trafico_ventana(HOY, 11, 38, 200, 20)
+    trafico.update(trafico_ventana(HOY, 1, 9, 200, 19))
+    s = senal(
+        historia_sin_unidades(HOY, trafico=trafico),
+        ultima_subida=HOY - timedelta(days=10),
+    )
+    assert (s.estado, s.evidencia) == ("no_perdiendo", "trafico")
+
+
+def test_trafico_corto_da_evidencia_insuficiente():
+    trafico = trafico_ventana(HOY, 11, 38, 2, 0)
+    trafico.update(trafico_ventana(HOY, 1, 9, 2, 0))
+    s = senal(
+        historia_sin_unidades(HOY, trafico=trafico),
+        ultima_subida=HOY - timedelta(days=10),
+    )
+    assert (s.estado, s.submotivo) == ("sin_dato", "evidencia_insuficiente")
+
+
+def test_evidencia_insuficiente_conserva_racha_parcial():
+    trafico = trafico_ventana(HOY, 11, 38, 2, 0)
+    trafico.update(trafico_ventana(HOY, 1, 9, 2, 0))
+    s = senal(
+        historia_sana(HOY, qty15=0, trafico=trafico),
+        ultima_subida=HOY - timedelta(days=10),
+        racha_previa=1,
+    )
+    assert (s.estado, s.submotivo, s.racha) == ("sin_dato", "evidencia_insuficiente", 2)
+
+
+def historia_cohorte(hoy, qty14, qty60):
+    ventas = dict(serie_diaria(hoy, 1, 14, qty14))
+    ventas.update(dict(serie_diaria(hoy, 15, 74, qty60)))
+    dias = tuple(
+        puerto.DiaUnidad(
+            dia=d,
+            unidades=q,
+            disponibilidad="disponible",
+            buy_box_propia=None,
+            exposiciones=None,
+            clics=None,
+        )
+        for d, q in sorted(ventas.items())
+    )
+    return puerto.HistoriaUnidad(
+        dias=dias,
+        primera_venta=hoy - timedelta(days=200),
+        ledger_cubierto_hasta=hoy - timedelta(days=1),
+        sin_atribuir=0,
+    )
+
+
+def test_cohorte_alarma_si_subidos_caen_mas_que_control():
+    from app.precio.ventas import evaluar_cohorte
+
+    subidos = (historia_cohorte(HOY, 1, 10), historia_cohorte(HOY, 1, 10))
+    control = (
+        historia_cohorte(HOY, 10, 10),
+        historia_cohorte(HOY, 10, 10),
+        historia_cohorte(HOY, 10, 10),
+    )
+    lec = evaluar_cohorte(subidos, control, hoy=HOY, min_unidades=20, caida_pct=Decimal("0.25"))
+    assert (lec.subidos, lec.control) == (2, 3)
+    assert lec.caida_relativa is not None and lec.caida_relativa > Decimal("0.25")
+    assert lec.alarma is True
+
+
+def test_cohorte_conjunto_chico_no_alarma():
+    from app.precio.ventas import evaluar_cohorte
+
+    subidos = (historia_cohorte(HOY, 0, 0),)
+    control = (historia_cohorte(HOY, 10, 10),)
+    lec = evaluar_cohorte(subidos, control, hoy=HOY, min_unidades=20, caida_pct=Decimal("0.25"))
+    assert (lec.caida_relativa, lec.alarma) == (None, False)
+
+
+def test_cohorte_estable_no_alarma():
+    from app.precio.ventas import evaluar_cohorte
+
+    subidos = (historia_cohorte(HOY, 10, 10),)
+    control = (historia_cohorte(HOY, 10, 10),)
+    lec = evaluar_cohorte(subidos, control, hoy=HOY, min_unidades=20, caida_pct=Decimal("0.25"))
+    assert lec.caida_relativa == Decimal(0)
+    assert lec.alarma is False
 
 
 # ---------------------------------------------------------------- objetivo (S4 #3 y #11)
@@ -873,34 +1074,20 @@ def test_r3_k2_solo_subir_bajar_traen_p_aplicado():
 
 # ---------------------------------------------------------------- r3-K5
 
-
-_D4 = HOY - timedelta(days=4)
-
-
-def _con_duplicado(hoy, campo, par):
-    dias15 = [hoy - timedelta(days=d) for d in range(1, 16)]
-    base = {d: (5 if campo == "inv" else True) for d in dias15}
-    filas = [(d, base[d]) for d in dias15 if d != hoy - timedelta(days=4)]
-    filas.extend(par)
-    return tuple(filas)
+# S.7: el conservadurismo r3-K5 (todas las observaciones mandan) vive en el
+# adaptador (`historia_unidad`, cubierto por F.4 H1/H2). La senal solo lee
+# `DiaUnidad.disponibilidad`: un dia cuenta si esta `disponible`.
 
 
-@pytest.mark.parametrize("par", [[(_D4, 5), (_D4, 0)], [(_D4, 0), (_D4, 5)]])
-def test_r3_k5_stock_exige_todas_las_observaciones(par):
-    ins = insumos_sanos(HOY, inventario=_con_duplicado(HOY, "inv", par))
-    assert senal(ins).submotivo == "dia_sin_stock"
-
-
-@pytest.mark.parametrize("par", [[(_D4, 5), (_D4, None)], [(_D4, None), (_D4, 5)]])
-def test_r3_k5_nula_exige_sin_observacion(par):
-    ins = insumos_sanos(HOY, inventario=_con_duplicado(HOY, "inv", par))
-    assert senal(ins).submotivo == "dia_sin_observacion_inventario"
-
-
-@pytest.mark.parametrize("par", [[(_D4, True), (_D4, False)], [(_D4, False), (_D4, True)]])
-def test_r3_k5_activo_exige_todas(par):
-    ins = insumos_sanos(HOY, listing_activo=_con_duplicado(HOY, "act", par))
-    assert senal(ins).submotivo == "listing_inactivo"
+def test_r3_k5_senal_solo_mira_disponibilidad():
+    d4 = HOY - timedelta(days=4)
+    assert senal(historia_sana(HOY, disp={d4: "no_disponible"}), hoy=HOY).submotivo == (
+        "dia_no_disponible"
+    )
+    assert (
+        senal(historia_sana(HOY, disp={d4: "sin_observacion"}), hoy=HOY).submotivo
+        == "dia_sin_observacion"
+    )
 
 
 # (r5-J6: `_fantasma` y sus tests borrados; probaban la ayuda, no el motor.)
@@ -1166,22 +1353,10 @@ def test_r2_b_n16_subida_mismo_dia_del_goal_frena():
 
 def test_r1_c_v4_u60_en_el_minimo_si_evalua():
     # u60 = 20 con minimo 20: el borde es inclusivo.
-    ins = insumos_sanos(HOY, qty15=6, qty60=0)
-    from app.precio.tipos import VentasInsumos
-
-    ventas = dict(ins.ventas)
-    for d in [HOY - timedelta(days=x) for x in range(16, 76)]:
-        ventas[d] = 0
+    ventas = dict(serie_diaria(HOY, 1, 15, 6))
     for d in [HOY - timedelta(days=x) for x in range(16, 36)]:
         ventas[d] = 1
-    ins = VentasInsumos(
-        ventas=tuple(sorted(ventas.items())),
-        inventario=ins.inventario,
-        listing_activo=ins.listing_activo,
-        primera_venta=ins.primera_venta,
-        dia_cubierto_hasta=ins.dia_cubierto_hasta,
-    )
-    s = senal(ins)
+    s = senal(historia_con_ventas(HOY, ventas))
     assert (s.estado, s.u60) == ("no_perdiendo", 20)
 
 
@@ -1198,7 +1373,14 @@ def test_r1_c_v9_exclusiones_asimetricas_cambian_veredicto():
             precio_fechas_excluidas=[[d.isoformat(), h.isoformat()] for d, h in excl],
         )
     )
-    s = evaluar_senal(insumos_sanos(HOY, qty15=6, qty60=10), hoy=HOY, config=c, racha_previa=2)
+    s = evaluar_senal(
+        historia_sana(HOY, qty15=6, qty60=10),
+        hoy=HOY,
+        config=c,
+        racha_previa=2,
+        ultima_subida=None,
+        trafico_min=100,
+    )
     assert (s.estado, s.n15, s.u15) == ("no_perdiendo", 10, 60)
 
 
@@ -1407,12 +1589,16 @@ def test_r1_c_o9_sin_iva_no_usa_divisor():
 # ---------------------------------------------------------------- r1-B4
 
 
-def test_r1_b4_dia_sin_estado_listing_tiene_submotivo_propio():
-    dias15 = [HOY - timedelta(days=d) for d in range(1, 16)]
-    act = [(d, True) for d in dias15 if d != HOY - timedelta(days=4)]
-    assert senal(insumos_sanos(HOY, listing_activo=tuple(act))).submotivo == (
-        "dia_sin_estado_listing"
+def test_r1_b4_dia_sin_observacion_tiene_submotivo_propio():
+    d4 = HOY - timedelta(days=4)
+    dias = tuple(d for d in historia_sana(HOY).dias if d.dia != d4)
+    ins = puerto.HistoriaUnidad(
+        dias=dias,
+        primera_venta=HOY - timedelta(days=200),
+        ledger_cubierto_hasta=HOY - timedelta(days=1),
+        sin_atribuir=0,
     )
+    assert senal(ins).submotivo == "dia_sin_observacion"
 
 
 def test_r1_b4_ventana_60_toda_excluida():
@@ -1427,7 +1613,9 @@ def test_r1_b4_ventana_60_toda_excluida():
             ],
         )
     )
-    s = evaluar_senal(insumos_sanos(HOY), hoy=HOY, config=c, racha_previa=0)
+    s = evaluar_senal(
+        historia_sana(HOY), hoy=HOY, config=c, racha_previa=0, ultima_subida=None, trafico_min=100
+    )
     assert (s.estado, s.submotivo, s.n60) == ("sin_dato", "ventana_60_excluida", 0)
 
 
@@ -1523,13 +1711,13 @@ def test_r1_b2_freno10_virtual_no_frena_en_live_si_en_shadow():
 
 def test_r1_b1_cubierto_hace_3_pasa_con_13_dias():
     # Uniforme 6/dia: u15 = 78, n15 = 13; esperado = 600/60*13*0.6 = 78.
-    ins = insumos_sanos(HOY, cubierta=HOY - timedelta(days=3))
+    ins = historia_sana(HOY, cubierta=HOY - timedelta(days=3))
     s = senal(ins)
     assert (s.estado, s.n15, s.u15) == ("no_perdiendo", 13, 78)
 
 
 def test_r1_b1_cubierto_hace_4_es_hueco():
-    ins = insumos_sanos(HOY, cubierta=HOY - timedelta(days=4))
+    ins = historia_sana(HOY, cubierta=HOY - timedelta(days=4))
     assert senal(ins).submotivo == "ledger_hueco"
 
 
@@ -1655,11 +1843,11 @@ def test_r1_a1_candado_direccion_subir_con_verificado_abajo():
 
 
 def senal_perdiendo():
-    return SenalVentas("perdiendo", None, 89, 600, 15, 60, 3)
+    return SenalVentas("perdiendo", None, "unidades", 89, 600, 15, 60, 3)
 
 
 def senal_sana():
-    return SenalVentas("no_perdiendo", None, 90, 600, 15, 60, 0)
+    return SenalVentas("no_perdiendo", None, "unidades", 90, 600, 15, 60, 0)
 
 
 def entrada(costo="40", precio="116", **kw):
@@ -1696,7 +1884,7 @@ def fees_escenario_de(ent):
     )
 
 
-def decide(ent, hoy=HOY, cotizaciones=()):
+def decide(ent, hoy=HOY, cotizaciones=(), **kw):
     from app.precio.reglas import decidir
 
     return decidir(
@@ -1705,7 +1893,20 @@ def decide(ent, hoy=HOY, cotizaciones=()):
         config=cfg(),
         cotizaciones=cotizaciones,
         fees_escenario=fees_escenario_de(ent),
+        **kw,
     )
+
+
+def test_lineal_cierra_con_formula_sin_pedir_cotizacion():
+    from app.precio.tipos import PideCotizacion
+
+    ent = entrada(costo="60")
+    pide = decide(ent)
+    assert isinstance(pide, PideCotizacion)
+    d = decide(ent, lineal=True)
+    assert not isinstance(d, PideCotizacion)
+    assert (d.resultado, d.verificacion) == ("subir", "lineal")
+    assert d.p_objetivo == pide.precio
 
 
 def cotiza_lineal(pedido, ref=Decimal("12") / Decimal("116"), fijo=Decimal("3")):
@@ -1924,7 +2125,7 @@ def test_reglas_bajar_con_senal_y_escalon():
 def test_reglas_sobre_goal_sin_perdida_y_sin_dato():
     d = decide(entrada())
     assert (d.resultado, d.motivo) == ("mantener", "sobre_goal_sin_perdida")
-    senal = SenalVentas("sin_dato", "racha_incompleta", 89, 600, 15, 60, 2)
+    senal = SenalVentas("sin_dato", "racha_incompleta", None, 89, 600, 15, 60, 2)
     d = decide(entrada(senal=senal))
     assert (d.resultado, d.motivo) == ("mantener", "ventas_sin_dato:racha_incompleta")
 
@@ -2116,8 +2317,9 @@ def test_cotizar_a_precio_no_amplia_universo_y_propoaga_error():
     from dataclasses import replace
 
     oferta = oferta_mx()
-    fbm = replace(oferta, canal="fbm")
-    resultado = cotizar_a_precio(ClienteFalso(body=cuerpo_exito), fbm, Decimal("130.00"))
+    # F.3: FBM cotiza; lo que sigue fuera del registro (US FBA) se rechaza.
+    us_fba = replace(oferta, platform="amazon_us", canal="fba")
+    resultado = cotizar_a_precio(ClienteFalso(body=cuerpo_exito), us_fba, Decimal("130.00"))
     assert (resultado.estado, resultado.error_code) == ("error", "fee_universo_no_soportado")
     cliente = ClienteFalso(error=FeesClientError("fee_timeout"))
     resultado = cotizar_a_precio(cliente, oferta, Decimal("130.00"), observed_at=AHORA)
@@ -2170,7 +2372,14 @@ def test_ventas_excluidas_escalan_el_promedio():
             precio_fechas_excluidas=[[d.isoformat(), h.isoformat()] for d, h in excl],
         )
     )
-    s = evaluar_senal(insumos_sanos(HOY, qty15=6, qty60=10), hoy=HOY, config=c, racha_previa=0)
+    s = evaluar_senal(
+        historia_sana(HOY, qty15=6, qty60=10),
+        hoy=HOY,
+        config=c,
+        racha_previa=0,
+        ultima_subida=None,
+        trafico_min=100,
+    )
     assert (s.u60, s.n60, s.n15, s.estado) == (300, 30, 10, "no_perdiendo")
 
 

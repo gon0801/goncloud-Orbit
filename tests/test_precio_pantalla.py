@@ -34,6 +34,7 @@ RAIZ = Path(__file__).resolve().parents[1]
 
 ORDEN59 = (
     "0001_initial.sql",
+    "0020_ads_producto_metrica.sql",
     "0002_apply.sql",
     "0028_estimacion_venta.sql",
     "0032_spapi_pricing.sql",

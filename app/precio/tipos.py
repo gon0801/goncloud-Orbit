@@ -52,7 +52,6 @@ __all__ = [
     "ObservacionPricing",
     "CambioPrevio",
     "HistorialMargen",
-    "VentasInsumos",
     "SenalVentas",
     "CotizacionVerificada",
     "PideCotizacion",
@@ -154,10 +153,10 @@ SUBMOTIVOS_SIN_DATO = frozenset(
         "u60_bajo_minimo",
         "n15_insuficiente",
         "historia_corta",
-        "dia_sin_stock",
-        "dia_sin_observacion_inventario",
-        "listing_inactivo",
-        "dia_sin_estado_listing",
+        "dia_no_disponible",
+        "dia_sin_observacion",
+        "venta_sin_publicacion",
+        "evidencia_insuficiente",
         "ventana_60_excluida",
         "racha_incompleta",
     }
@@ -491,22 +490,15 @@ class HistorialMargen:
 
 
 @dataclass(frozen=True)
-class VentasInsumos:
-    """Filas ya leidas para la senal de ventas (S4 #5), por producto."""
-
-    ventas: tuple[tuple[date, int], ...]
-    inventario: tuple[tuple[date, int | None], ...]
-    listing_activo: tuple[tuple[date, bool], ...]
-    primera_venta: date | None
-    dia_cubierto_hasta: date | None
-
-
-@dataclass(frozen=True)
 class SenalVentas:
-    """Salida de `ventas.py`: `perdiendo` solo con racha completa."""
+    """Salida de `ventas.py`: `perdiendo` solo con racha completa.
+
+    S.7: `evidencia` dice con que se probo (`None` solo en `sin_dato`).
+    """
 
     estado: str
     submotivo: str | None
+    evidencia: str | None
     u15: int
     u60: int
     n15: int
@@ -519,8 +511,13 @@ class SenalVentas:
         if self.estado == "sin_dato":
             if self.submotivo not in SUBMOTIVOS_SIN_DATO:
                 raise ValueError(f"senal.submotivo fuera de vocabulario: {self.submotivo!r}")
-        elif self.submotivo is not None:
-            raise ValueError("senal con submotivo fuera de sin_dato")
+            if self.evidencia is not None:
+                raise ValueError("senal sin_dato con evidencia")
+        else:
+            if self.submotivo is not None:
+                raise ValueError("senal con submotivo fuera de sin_dato")
+            if self.evidencia not in EVIDENCIAS_SENAL:
+                raise ValueError(f"senal.evidencia fuera de vocabulario: {self.evidencia!r}")
         for campo in ("u15", "u60", "n15", "n60", "racha"):
             valor = getattr(self, campo)
             if not isinstance(valor, int) or isinstance(valor, bool) or valor < 0:
@@ -607,6 +604,7 @@ class Decision:
     mode: str
     buy_box_is_own: bool | None = None
     diagnostico: str = ""
+    verificacion: str | None = None
 
     def __post_init__(self) -> None:
         if self.resultado not in RESULTADOS:
@@ -615,6 +613,8 @@ class Decision:
             raise ValueError(f"motivo {self.motivo!r} fuera de vocabulario para {self.resultado}")
         if self.resultado not in ("subir", "bajar") and self.p_aplicado is not None:
             raise ValueError(f"p_aplicado solo en subir/bajar, llego en {self.resultado}")
+        if self.verificacion is not None and self.verificacion not in VERIFICACIONES:
+            raise ValueError(f"decision.verificacion invalida: {self.verificacion!r}")
 
 
 def motivo_permitido(resultado: str, motivo: str | None) -> bool:

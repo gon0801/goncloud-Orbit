@@ -477,6 +477,8 @@ def persistir_decision(
     config_version_id: int | None,
     goal_id: int | None = None,
     l_origen: str | None = None,
+    envio_muestra_id: int | None = None,
+    senal_evidencia: str | None = None,
     verificacion: str | None = None,
 ) -> int:
     """Una fila por (listing, platform, dia): la segunda del dia revienta
@@ -491,10 +493,11 @@ def persistir_decision(
         " p_aplicado, p_aplicado_currency, i_valor, i_currency, c_valor, c_currency,"
         " f_valor, f_currency, l_valor, l_currency, r_valor, r_currency, escenario_id,"
         " fee_observation_id, cotizacion_id, u15, u60, n15, n60, racha_senal, perdiendo,"
-        " buy_box_is_own, mode, config_version_id, goal_id, l_origen, verificacion)"
+        " buy_box_is_own, mode, config_version_id, goal_id, l_origen, envio_muestra_id,"
+        " senal_evidencia, verificacion)"
         " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,"
         " %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,"
-        " %s)"
+        " %s, %s, %s)"
         " RETURNING id",
         (
             listing_id,
@@ -535,6 +538,8 @@ def persistir_decision(
             config_version_id,
             goal_id,
             l_origen,
+            envio_muestra_id,
+            senal_evidencia,
             verificacion,
         ),
     ).fetchone()[0]
@@ -558,6 +563,7 @@ def _persistir_uno(
     cfg_id,
     lineas: list,
     errores: list,
+    senal_evidencia: str | None = None,
 ) -> tuple[int, int]:
     """Persiste UNA decision ya decidida; devuelve `(persistida, saltada)` (0/1).
 
@@ -568,7 +574,9 @@ def _persistir_uno(
     K8): sin fila, error. Un error de base (`psycopg.Error`) aborta: no es
     una publicacion, es la infra.
     """
-    verificacion = "cotizada" if decision.resultado in ("subir", "bajar") else None
+    verificacion = (
+        (decision.verificacion or "cotizada") if decision.resultado in ("subir", "bajar") else None
+    )
     try:
         persistir_decision(
             conn,
@@ -582,7 +590,9 @@ def _persistir_uno(
             cotizacion_id=meta["cotizacion_id"] if meta else None,
             config_version_id=cfg_id,
             goal_id=goal_id,
-            l_origen="politica",
+            l_origen=meta["logistica_origen"] if meta else None,
+            envio_muestra_id=meta["envio_muestra_id"] if meta else None,
+            senal_evidencia=senal_evidencia,
             verificacion=verificacion,
         )
     except psycopg.errors.CheckViolation as exc:
@@ -711,7 +721,14 @@ def _decidir_lectura(
             **comun,
         )
     meta = {**lectura.ids, "cotizacion_id": cotiz_id, "canal": entrada.canal}
-    return _persistir_uno(conn, decision, canal=entrada.canal, meta=meta, **comun)
+    return _persistir_uno(
+        conn,
+        decision,
+        canal=entrada.canal,
+        meta=meta,
+        senal_evidencia=entrada.senal.evidencia,
+        **comun,
+    )
 
 
 def _decidir_pendientes(

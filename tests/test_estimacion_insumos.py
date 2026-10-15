@@ -285,15 +285,10 @@ def test_resolver_identidad_ambigua_sku_unico_no_coincide_listing():
     assert resultado.oferta is None
 
 
-def test_fbm_y_us_quedan_fuera_del_universo():
+def test_fbm_mx_resuelve_oferta():
+    """F.3: FBM de MX entra al universo (antes `logistica_fbm_pendiente`)."""
     fbm = _fila_bridge(channel="DEFAULT", fetched_at=FETCH_FRESH.isoformat())
-    us = _fila_bridge(
-        marketplace_id="ATVPDKIKX0DER",
-        marketplace_name="amazon_us",
-        price=29.99,
-        fetched_at=FETCH_FRESH.isoformat(),
-    )
-    r_fbm = resolver_oferta_para_listing(
+    resultado = resolver_oferta_para_listing(
         (fbm,),
         listing_id=1,
         platform="amazon_mx",
@@ -301,7 +296,21 @@ def test_fbm_y_us_quedan_fuera_del_universo():
         asin="B0EST01",
         now_utc=NOW,
     )
-    r_us = resolver_oferta_para_listing(
+    assert resultado.motivo is None
+    assert resultado.oferta is not None
+    assert (resultado.oferta.canal, resultado.oferta.price_currency) == ("fbm", "MXN")
+
+
+def test_us_fbm_resuelve_oferta():
+    """F.3: US entra al universo (antes `us_sin_politica_prospectiva`)."""
+    us = _fila_bridge(
+        marketplace_id="ATVPDKIKX0DER",
+        marketplace_name="amazon_us",
+        price=29.99,
+        channel="DEFAULT",
+        fetched_at=FETCH_FRESH.isoformat(),
+    )
+    resultado = resolver_oferta_para_listing(
         (us,),
         listing_id=2,
         platform="amazon_us",
@@ -309,9 +318,30 @@ def test_fbm_y_us_quedan_fuera_del_universo():
         asin="B0EST01",
         now_utc=NOW,
     )
-    assert r_fbm.motivo == "logistica_fbm_pendiente"
-    assert r_us.motivo == "us_sin_politica_prospectiva"
-    assert r_fbm.oferta is None and r_us.oferta is None
+    assert resultado.motivo is None
+    assert resultado.oferta is not None
+    assert (resultado.oferta.canal, resultado.oferta.price_currency) == ("fbm", "USD")
+
+
+def test_combinacion_fuera_del_registro_da_universo_no_soportado():
+    """Lo que el registro no trae (US FBA) se rechaza sin tocar red."""
+    us_fba = _fila_bridge(
+        marketplace_id="ATVPDKIKX0DER",
+        marketplace_name="amazon_us",
+        price=29.99,
+        channel="AMAZON_NA",
+        fetched_at=FETCH_FRESH.isoformat(),
+    )
+    resultado = resolver_oferta_para_listing(
+        (us_fba,),
+        listing_id=2,
+        platform="amazon_us",
+        seller_sku="SS-MX-1",
+        asin="B0EST01",
+        now_utc=NOW,
+    )
+    assert resultado.motivo == "universo_no_soportado"
+    assert resultado.oferta is None
 
 
 def test_resolver_oferta_precio_invalido_cuenta_como_ausente():
@@ -874,6 +904,43 @@ def test_resolver_fx_exact_nearest_y_ausente():
         lejos = resolver_fx(conn, fecha=dia + timedelta(days=10), base="USD", quote="MXN")
         assert lejos.motivo == "fx_ausente"
         assert lejos.fx is None
+
+
+@_skip_db
+def test_resolver_fx_tasa_vieja_da_fx_desactualizado():
+    """F.3: tasa de mas de `max_dias` dias caduca (US pide 3)."""
+    with db_insumos() as conn:
+        dia = date(2026, 9, 1)
+        started = datetime(2026, 9, 1, 8, 15, tzinfo=UTC)
+        finished = datetime(2026, 9, 1, 8, 20, tzinfo=UTC)
+        run_id = conn.execute(
+            "INSERT INTO ingest_run"
+            " (source, started_at, finished_at, ok, rows_written, rows_skipped)"
+            " VALUES ('accounting_currency_rates', %s, %s, true, 1, 0) RETURNING id",
+            (started, finished),
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO fx_rate (rate_date, base_currency, quote_currency, rate, ingest_run_id)"
+            " VALUES (%s, 'USD', 'MXN', %s, %s)",
+            (dia, Decimal("16.95000000"), run_id),
+        )
+        conn.commit()
+
+        al_limite = resolver_fx(
+            conn, fecha=dia + timedelta(days=3), base="USD", quote="MXN", max_dias=3
+        )
+        assert al_limite.motivo is None
+        assert al_limite.fx is not None
+
+        vieja = resolver_fx(
+            conn, fecha=dia + timedelta(days=4), base="USD", quote="MXN", max_dias=3
+        )
+        assert vieja.motivo == "fx_desactualizado"
+        assert vieja.fx is None
+
+        sin_tope = resolver_fx(conn, fecha=dia + timedelta(days=4), base="USD", quote="MXN")
+        assert sin_tope.motivo is None
+        assert sin_tope.fx is not None
 
 
 @_skip_db

@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 
 import httpx
@@ -38,7 +38,6 @@ from app.precio.tipos import (
     HistorialMargen,
     Importe,
     ObservacionPricing,
-    VentasInsumos,
 )
 from app.precio.ventas import evaluar_senal
 from app.spapi import precio_write as _precio_write
@@ -91,6 +90,7 @@ class Lectura:
     en `motivo`); `cotizable` es la oferta resuelta para cotizar (token
     opaco que `Mercado.cotizar` entiende); `fees_escenario` trae los fees
     del escenario ya partidos o el motivo cuando partirlos fallo.
+    `historia` la arma F.4 y la consume S.7; `None` sin cuenta disponible.
     """
 
     entrada: EntradaDecision | None
@@ -99,6 +99,7 @@ class Lectura:
     ids: dict | None
     cotizable: object
     fees_escenario: Fees | str
+    historia: puerto.HistoriaUnidad | None = None
 
 
 def _detalle_fee(nodo: dict) -> DetalleFee:
@@ -196,6 +197,25 @@ def cambios_previos(
     return tuple(cambios)
 
 
+def _ultima_subida(cambios: Sequence[CambioPrevio]) -> date | None:
+    """Dia de la ultima subida propia que movio precio (None si no hay).
+
+    Solo cuentan `subir` ejecutadas (`enviado`/`confirmado`); un `error`,
+    un `pendiente` o un `sin_efecto` (el readback probo que el precio no
+    se movio) no abren antes/despues para el trafico. El virtual de
+    shadow (`confirmado` sin `aplicado`) tampoco: cero escrituras.
+    """
+    dias = [
+        c.enviado_en
+        for c in cambios
+        if c.direccion == "subir"
+        and c.estado in ("enviado", "confirmado")
+        and c.aplicado
+        and not c.sin_efecto
+    ]
+    return max(dias) if dias else None
+
+
 def historial_margenes(
     conn: psycopg.Connection, listing_id: int, platform: str
 ) -> tuple[HistorialMargen, ...]:
@@ -225,30 +245,73 @@ def historial_margenes(
     return tuple(puntos)
 
 
-def _insumos_ventas(
-    conn: psycopg.Connection, *, product_id: int, platform: str, sku: str
-) -> VentasInsumos:
-    """Filas ya leidas para S4 #5 (ventas del ledger, inventario y estado).
+def _dia_utc(valor):
+    """`observed_at` a dia UTC (la fila ya puede traer `date`)."""
+    return valor.astimezone(UTC).date() if isinstance(valor, datetime) else valor
 
-    Dia cubierto (S2 «Unidades vendidas»): `event_date` maxima cargada por
-    un `ingest_run` `ok` del ledger DE LA PLATAFORMA —nunca la ultima venta
-    del producto (un producto quieto no significa ledger rezagado). El
-    `source` es el literal de `app/ledger.py::SOURCE` (declarado aqui).
+
+def _disponibilidad(*, canal: str | None, estados: list, stocks: list) -> puerto.Disponibilidad:
+    """Disponibilidad del dia segun el canal (F.4, criterio conservador r3-K5).
+
+    FBM sale solo del estado del listing (BUYABLE); el inventario no
+    cuenta. FBA (y canal sin dato, en estricto) exige probar las dos:
+    todo BUYABLE y todo stock > 0. `no_disponible` pide prueba en contra;
+    sin prueba ni a favor ni en contra es `sin_observacion`.
     """
-    ventas = [
-        (dia, qty)
-        for dia, qty in conn.execute(
-            "SELECT event_date, quantity FROM ledger_event"
-            " WHERE product_id = %s AND platform = %s AND kind = 'sale'"
-            " AND quantity IS NOT NULL",
-            (product_id, platform),
-        ).fetchall()
-    ]
+    buyables = ["BUYABLE" in (estado or "") for estado in estados]
+    if canal == "fbm":
+        if not buyables:
+            return "sin_observacion"
+        return "disponible" if all(buyables) else "no_disponible"
+    if any(s is not None and s <= 0 for s in stocks) or any(not b for b in buyables):
+        return "no_disponible"
+    if buyables and all(buyables) and stocks and all(s is not None and s > 0 for s in stocks):
+        return "disponible"
+    return "sin_observacion"
+
+
+def historia_unidad(
+    conn: psycopg.Connection,
+    *,
+    unidad: puerto.UnidadPrecio,
+    canal: str | None,
+    hoy: date,
+) -> puerto.HistoriaUnidad:
+    """Ventas y disponibilidad de ESTA unidad (F.4).
+
+    Ventas atribuidas de `v_precio_venta_unidad`; lo del producto sin
+    unidad decidible se suma en `sin_atribuir` (enteros, nunca inventados).
+    `dias` trae un `DiaUnidad` por dia observado en `[hoy-75, hoy]`: las
+    ventas sin atribuir no abren dia (no son de esta unidad). Trafico de
+    `ads_product_metric_observation` (la observacion mas reciente del dia;
+    `None` se conserva) y buy box de `spapi_price_observation`.
+    """
+    platform = unidad.plataforma
+    skus = [m.seller_sku for m in unidad.miembros]
+    desde = hoy - timedelta(days=75)
+    unidades: dict = {}
+    for dia, qty in conn.execute(
+        "SELECT event_date, quantity FROM v_precio_venta_unidad"
+        " WHERE listing_id = %s AND platform = %s AND quantity IS NOT NULL",
+        (unidad.listing_id, platform),
+    ).fetchall():
+        if desde <= dia <= hoy:
+            unidades[dia] = unidades.get(dia, 0) + qty
     primera = conn.execute(
-        "SELECT min(event_date) FROM ledger_event"
-        " WHERE product_id = %s AND platform = %s AND kind = 'sale'",
-        (product_id, platform),
+        "SELECT min(event_date) FROM v_precio_venta_unidad"
+        " WHERE listing_id = %s AND platform = %s AND quantity IS NOT NULL",
+        (unidad.listing_id, platform),
     ).fetchone()[0]
+    hasta = hoy - timedelta(days=1)
+    sin_atribuir = sum(
+        fila[0]
+        for fila in conn.execute(
+            "SELECT quantity FROM v_precio_venta_unidad"
+            " WHERE product_id = %s AND platform = %s AND listing_id IS NULL"
+            " AND quantity IS NOT NULL AND event_date BETWEEN %s AND %s",
+            (unidad.producto_ancla, platform, desde, hasta),
+        ).fetchall()
+    )
     cubierto = conn.execute(
         "SELECT max(e.event_date) FROM ledger_event e"
         " JOIN ingest_run r ON r.id = e.ingest_run_id"
@@ -256,36 +319,67 @@ def _insumos_ventas(
         " AND r.source = 'accounting_ledger_events'",
         (platform,),
     ).fetchone()[0]
-    skus = [
-        f[0]
-        for f in conn.execute(
-            "SELECT DISTINCT seller_sku FROM listing WHERE product_id = %s AND platform = %s",
-            (product_id, platform),
-        ).fetchall()
-    ]
-    inventario: list = []
-    activos: list = []
-    for codigo in skus or [sku]:
-        inventario.extend(
-            conn.execute(
-                "SELECT metric_date, total_quantity FROM spapi_inventario_observation"
-                " WHERE seller_sku = %s AND platform = %s",
-                (codigo, platform),
-            ).fetchall()
-        )
+    estados: dict = {}
+    stocks: dict = {}
+    for codigo in skus:
         for estado, obs in conn.execute(
             "SELECT status, observed_at FROM spapi_listing_estado_observation"
             " WHERE seller_sku = %s AND platform = %s",
             (codigo, platform),
         ).fetchall():
-            dia = obs.astimezone(UTC).date() if isinstance(obs, datetime) else obs
-            activos.append((dia, "BUYABLE" in (estado or "")))
-    return VentasInsumos(
-        ventas=tuple(ventas),
-        inventario=tuple(inventario),
-        listing_activo=tuple(activos),
+            dia = _dia_utc(obs)
+            if desde <= dia <= hoy:
+                estados.setdefault(dia, []).append(estado)
+        for dia_obs, qty in conn.execute(
+            "SELECT metric_date, total_quantity FROM spapi_inventario_observation"
+            " WHERE seller_sku = %s AND platform = %s",
+            (codigo, platform),
+        ).fetchall():
+            if desde <= dia_obs <= hoy:
+                stocks.setdefault(dia_obs, []).append(qty)
+    trafico: dict = {}
+    for dia_obs, obs, impresiones, clics in conn.execute(
+        "SELECT metric_date, observed_at, impressions, clicks"
+        " FROM ads_product_metric_observation"
+        " WHERE platform = %s AND advertised_asin = %s AND advertised_sku = ANY(%s)"
+        " ORDER BY metric_date, observed_at",
+        (platform, unidad.externo, skus),
+    ).fetchall():
+        if not (desde <= dia_obs <= hoy):
+            continue
+        previo = trafico.get(dia_obs)
+        if previo is None or (obs is not None and obs > previo[0]):
+            trafico[dia_obs] = (obs, impresiones, clics)
+    buy_box: dict = {}
+    for dia_obs, obs, propia in conn.execute(
+        "SELECT metric_date, observed_at, buy_box_is_own FROM spapi_price_observation"
+        " WHERE asin = %s AND platform = %s"
+        " ORDER BY metric_date, observed_at",
+        (unidad.externo, platform),
+    ).fetchall():
+        if not (desde <= dia_obs <= hoy):
+            continue
+        previo = buy_box.get(dia_obs)
+        if previo is None or (obs is not None and obs > previo[0]):
+            buy_box[dia_obs] = (obs, propia)
+    dias = tuple(
+        puerto.DiaUnidad(
+            dia=dia,
+            unidades=unidades.get(dia, 0),
+            disponibilidad=_disponibilidad(
+                canal=canal, estados=estados.get(dia, []), stocks=stocks.get(dia, [])
+            ),
+            buy_box_propia=buy_box[dia][1] if dia in buy_box else None,
+            exposiciones=trafico[dia][1] if dia in trafico else None,
+            clics=trafico[dia][2] if dia in trafico else None,
+        )
+        for dia in sorted(set(unidades) | set(estados) | set(stocks) | set(trafico) | set(buy_box))
+    )
+    return puerto.HistoriaUnidad(
+        dias=dias,
         primera_venta=primera,
-        dia_cubierto_hasta=cubierto,
+        ledger_cubierto_hasta=cubierto,
+        sin_atribuir=sin_atribuir,
     )
 
 
@@ -447,8 +541,15 @@ class MercadoAmazon:
 
         Nunca levanta por un dato faltante: el fallo viaja en la Lectura
         (`motivo`/`diagnostico`), como hoy viajaban `EscenarioNoDisponible`
-        e `InsumoIncoherente`.
+        e `InsumoIncoherente`. La clave de trafico se lee una vez, fuera
+        del lote: sin ella no hay senal para nadie y se falla fuerte.
         """
+        from app.precio.config import _entero as _config_entero
+        from app.precio.fuentes import config_vigente_settings
+
+        trafico_min = _config_entero(
+            config_vigente_settings(conn), "precio_senal_trafico_min", minimo=20, maximo=5000
+        )
         por_listing = list(dict.fromkeys(u.listing_id for u in unidades))
         pricing_por_asin = {
             fila[0]: fila
@@ -498,6 +599,7 @@ class MercadoAmazon:
                     config=config,
                     pricing_por_asin=pricing_por_asin,
                     racha_por_lid=racha_por_lid,
+                    trafico_min=trafico_min,
                 )
             except psycopg.Error:
                 raise
@@ -524,6 +626,7 @@ class MercadoAmazon:
         config,
         pricing_por_asin,
         racha_por_lid,
+        trafico_min,
     ) -> Lectura:
         """La Lectura de una unidad con cuenta disponible (levanta ValueError)."""
         if cuenta is None:
@@ -570,17 +673,15 @@ class MercadoAmazon:
                 observada_en=fila_pricing[3],
             )
             buy_box = fila_pricing[4]
-        insumos_ventas = _insumos_ventas(
-            conn,
-            product_id=unidad.producto_ancla,
-            platform=self.clave,
-            sku=unidad.miembros[0].seller_sku if unidad.miembros else "",
-        )
+        historia = historia_unidad(conn, unidad=unidad, canal=cuenta.canal, hoy=hoy)
+        cambios = cambios_previos(conn, unidad.listing_id, self.clave)
         senal = evaluar_senal(
-            insumos_ventas,
+            historia,
             hoy=hoy,
             config=config,
             racha_previa=int(racha_por_lid.get(unidad.listing_id) or 0),
+            ultima_subida=_ultima_subida(cambios),
+            trafico_min=trafico_min,
         )
         escenario = Escenario(
             componentes=cuenta.componentes,
@@ -602,7 +703,7 @@ class MercadoAmazon:
             escenario=escenario,
             pricing=observacion,
             senal=senal,
-            cambios=cambios_previos(conn, unidad.listing_id, self.clave),
+            cambios=cambios,
             historial=historial_margenes(conn, unidad.listing_id, self.clave),
             goal_vigente_desde=meta.goal_vigente_desde,
             motivo_estimacion=None,
@@ -616,9 +717,16 @@ class MercadoAmazon:
                 "escenario_id": cuenta.refs.escenario_id,
                 "fee_observation_id": cuenta.refs.fee_observation_id,
                 "oferta_observation_id": cuenta.refs.oferta_observation_id,
+                # FBA vieja (pre-0054, sin columna): su L salio de la
+                # politica por diseno del universo, no es invento.
+                "logistica_origen": cuenta.logistica_origen
+                if cuenta.logistica_origen is not None or cuenta.canal != "fba"
+                else "politica",
+                "envio_muestra_id": cuenta.refs.envio_muestra_id,
             },
             cotizable=cotizable,
             fees_escenario=fees_escenario,
+            historia=historia,
         )
 
     def observado(

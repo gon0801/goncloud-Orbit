@@ -37,6 +37,7 @@ RAIZ = Path(__file__).resolve().parents[1]
 
 ORDEN59 = (
     "0001_initial.sql",
+    "0020_ads_producto_metrica.sql",
     "0002_apply.sql",
     "0028_estimacion_venta.sql",
     "0032_spapi_pricing.sql",
@@ -1226,11 +1227,13 @@ def test_reporte_es_solo_lectura():
         assert _cuenta_cambios(conn) == 1
 
 
-def _ventas_perdiendo(conn, prod, *, sku, run_id, platform="amazon_mx", hoy=None):
+def _ventas_perdiendo(conn, prod, *, sku, run_id, platform="amazon_mx", hoy=None, lid=None):
     """75 dias de ledger + inventario + estado: u15=15, u60=120 (pierde).
 
     Esperado = 120/60*15*(1-0.40) = 18 > 15: con `senal_dias=1` la racha
-    cierra en esta corrida (`perdiendo`, racha 1).
+    cierra en esta corrida (`perdiendo`, racha 1). S.7: con `lid` las
+    ventas se atribuyen a la unidad (sin atribuir, la senal sale
+    `venta_sin_publicacion`).
     """
     hoy = hoy or conn.execute("SELECT (now() AT TIME ZONE 'UTC')::date").fetchone()[0]
     for atraso in range(1, 76):
@@ -1242,6 +1245,13 @@ def _ventas_perdiendo(conn, prod, *, sku, run_id, platform="amazon_mx", hoy=None
             " VALUES (%s, 'sale', %s, %s, %s, %s, %s, 'MXN', %s)",
             (platform, dia, datetime.now(UTC), prod, qty, Decimal("200"), run_id),
         )
+        if lid is not None:
+            conn.execute(
+                "INSERT INTO ledger_event_atribucion (ledger_event_id, platform,"
+                " listing_id, variante_ext, resuelto_por, ingest_run_id)"
+                " VALUES (currval('ledger_event_id_seq'), %s, %s, NULL, 'sku', %s)",
+                (platform, lid, run_id),
+            )
         if atraso <= 15:
             mediodia = datetime(dia.year, dia.month, dia.day, 12, tzinfo=UTC)
             conn.execute(
@@ -1269,11 +1279,13 @@ def test_virtual_de_sombra_dispara_freno_6():
     from app.estimacion_reader import leer_cuenta
     from app.precio.config import leer_config
     from app.precio.objetivo import ErrorObjetivo, derivar_ref_fijo
+    from app.precio.puerto import Miembro, UnidadPrecio
     from app.precio.reglas import decidir
     from app.precio.tipos import Escenario
     from app.spapi.precio_mercado import (
-        _insumos_ventas,
+        _ultima_subida,
         cambios_previos,
+        historia_unidad,
         historial_margenes,
     )
 
@@ -1320,7 +1332,7 @@ def test_virtual_de_sombra_dispara_freno_6():
             huella="ctx-F6",
         )
         run_ledger, _fin_ledger = _run_ledger(conn)
-        _ventas_perdiendo(conn, prod, sku="SKU-F6", run_id=run_ledger)
+        _ventas_perdiendo(conn, prod, sku="SKU-F6", run_id=run_ledger, lid=lid)
         dec = _decision_subir(conn, lid, mode="shadow")
         conn.execute(
             "INSERT INTO precio_cambio (decision_id, listing_id, platform, precio_antes,"
@@ -1347,7 +1359,16 @@ def test_virtual_de_sombra_dispara_freno_6():
             " ORDER BY observed_at DESC LIMIT 1",
             ("B0A50000F6", "amazon_mx", hoy),
         ).fetchone()
-        insumos = _insumos_ventas(conn, product_id=prod, platform="amazon_mx", sku="SKU-F6")
+        unidad = UnidadPrecio(
+            listing_id=lid,
+            plataforma="amazon_mx",
+            externo="B0A50000F6",
+            canal=None,
+            producto_ancla=prod,
+            miembros=(Miembro(prod, "SKU-F6", None),),
+        )
+        historia = historia_unidad(conn, unidad=unidad, canal=cuenta.canal, hoy=hoy)
+        previos = cambios_previos(conn, lid, "amazon_mx")
         entrada = EntradaDecision(
             listing_id=lid,
             platform="amazon_mx",
@@ -1369,8 +1390,15 @@ def test_virtual_de_sombra_dispara_freno_6():
                 if pricing is not None
                 else None
             ),
-            senal=evaluar_senal(insumos, hoy=hoy, config=config, racha_previa=0),
-            cambios=cambios_previos(conn, lid, "amazon_mx"),
+            senal=evaluar_senal(
+                historia,
+                hoy=hoy,
+                config=config,
+                racha_previa=0,
+                ultima_subida=_ultima_subida(previos),
+                trafico_min=ajustes["precio_senal_trafico_min"],
+            ),
+            cambios=previos,
             historial=historial_margenes(conn, lid, "amazon_mx"),
             goal_vigente_desde=hoy - timedelta(days=30),
             motivo_estimacion=None,
@@ -1398,22 +1426,35 @@ def test_virtual_de_sombra_dispara_freno_6():
 # CLI `precio` y cron
 # ---------------------------------------------------------------------------
 
-# Fuente unica de las lineas (docs/DEPLOY.md las copia de aqui). D.2: la
-# diaria de las 13:10 UTC mas los repasos cada 2 h de 15:10 a 23:10 UTC.
+# Fuente unica de las lineas (docs/DEPLOY.md las copia de aqui). D.3: las
+# dos de precios (MX+US en serie) mas el job de muestras (12:15 MX, 12:20
+# US) antes de la estimacion.
 LINEA_CRONTAB_PRECIO = (
     "10 13 * * * /usr/bin/flock -n /tmp/precio-spapi.lock"
     " docker exec orbit-app-1 python -m app.cli precio --platform amazon_mx"
+    " --platform amazon_us"
     " >> /mnt/data/appdata/orbit/logs/precio-corrida.log 2>&1"
 )
 LINEA_CRONTAB_PRECIO_REPASOS = (
     "10 15-23/2 * * * /usr/bin/flock -n /tmp/precio-spapi.lock"
     " docker exec orbit-app-1 python -m app.cli precio --platform amazon_mx"
+    " --platform amazon_us"
     " >> /mnt/data/appdata/orbit/logs/precio-corrida.log 2>&1"
+)
+LINEA_CRONTAB_MUESTRAS_MX = (
+    "15 12 * * * docker exec orbit-app-1 python -m app.envio_muestras"
+    " --platform amazon_mx --canal fbm"
+    " >> /mnt/data/appdata/orbit/logs/precio-muestras.log 2>&1"
+)
+LINEA_CRONTAB_MUESTRAS_US = (
+    "20 12 * * * docker exec orbit-app-1 python -m app.envio_muestras"
+    " --platform amazon_us --canal fbm"
+    " >> /mnt/data/appdata/orbit/logs/precio-muestras.log 2>&1"
 )
 
 
 def test_linea_crontab_en_deploy():
-    """`docs/DEPLOY.md` trae las dos lineas EXACTAS y los previos a instalarlas.
+    """`docs/DEPLOY.md` trae las cuatro lineas EXACTAS y los previos a instalarlas.
 
     D15: se afirma contra el doc, no contra las constantes (y B6: los
     renglones previos a instalar las lineas).
@@ -1421,11 +1462,17 @@ def test_linea_crontab_en_deploy():
     deploy = (RAIZ / "docs" / "DEPLOY.md").read_text(encoding="utf-8")
     assert LINEA_CRONTAB_PRECIO in deploy
     assert LINEA_CRONTAB_PRECIO_REPASOS in deploy
+    assert LINEA_CRONTAB_MUESTRAS_MX in deploy
+    assert LINEA_CRONTAB_MUESTRAS_US in deploy
     assert "10 13 * * *" in deploy
     assert "10 15-23/2 * * *" in deploy
+    assert "15 12 * * *" in deploy
+    assert "20 12 * * *" in deploy
+    assert "--platform amazon_mx --platform amazon_us" in deploy
     assert "precio-spapi.lock" in deploy
     assert "flock" in deploy
     assert "precio-corrida.log" in deploy
+    assert "precio-muestras.log" in deploy
     assert "claves `precio_*" in deploy
     assert "no pasa el entorno del host" in deploy
     assert "13:10 UTC" in deploy
@@ -1475,6 +1522,30 @@ def test_cli_precio_despacha_corrida_e_imprime_resumen(monkeypatch, capsys):
     assert llamadas["abrir"][1]["fees"] == "f"
     assert llamadas["abrir"][1]["limitador"] == "cubo"
     assert "decisiones=1 escritas=0" in capsys.readouterr().out
+
+
+def test_cli_precio_dos_platforms_corren_en_serie(monkeypatch, capsys):
+    """F.4: `--platform mx --platform us` corre las dos, en orden."""
+    from app import cli as cli_mod
+
+    orden = []
+
+    def _falso_correr(conn, mercado, **kw):
+        orden.append(mercado)
+        return Resumen(decisiones=1, escritas=0, cerrados={}, huerfanas=0)
+
+    monkeypatch.setenv("ORBIT_DSN_DECIDE", "postgresql://falso/db")
+    monkeypatch.setattr(cli_mod, "_conexion_decide", lambda: ("conn-falsa", lambda: None))
+    monkeypatch.setattr(cli_mod, "_clientes_precio", lambda platform: ("l", "e", "f", "cubo"))
+    monkeypatch.setattr("app.precio.corrida.correr", _falso_correr)
+    monkeypatch.setattr(
+        "app.precio_mercados.abrir",
+        lambda clave, **kw: _nullcontext(f"mercado-{clave}"),
+    )
+    codigo = cli_mod.main(["precio", "--platform", "amazon_mx", "--platform", "amazon_us"])
+    assert codigo == 0
+    assert orden == ["mercado-amazon_mx", "mercado-amazon_us"]
+    assert capsys.readouterr().out.count("decisiones=1 escritas=0") == 2
 
 
 def test_cli_precio_lock_ocupado_sale_cero(monkeypatch, capsys):
@@ -1994,7 +2065,13 @@ def test_racha_previa_entra_a_la_senal():
         finally:
             conn.execute("ALTER TABLE precio_decision ENABLE TRIGGER precio_decision_fecha_utc")
         run_ledger, _fin = _run_ledger(conn)
-        _ventas_perdiendo(conn, datos["producto"], sku=datos["sku"], run_id=run_ledger)
+        _ventas_perdiendo(
+            conn,
+            datos["producto"],
+            sku=datos["sku"],
+            run_id=run_ledger,
+            lid=datos["listing"],
+        )
         red = _RedFalsa(skus={datos["evento"]: datos["sku"]})
         res = _corre(conn, red)
         assert (res.decisiones, res.escritas) == (1, 1)
@@ -2271,10 +2348,12 @@ def test_no_confirmado_viejo_mas_confirmado_nuevo_no_frena():
 @_skip_sin_pg
 def test_cobertura_ignora_ledger_de_otra_fuente():
     """R1-cubierto-sin-source: venta de un run `ok` de otra fuente no cubre."""
-    from app.spapi.precio_mercado import _insumos_ventas
+    from app.precio.puerto import Miembro, UnidadPrecio
+    from app.spapi.precio_mercado import historia_unidad
 
     with _db() as (conn, _dsn):
         prod = _producto(conn)
+        lid = _listing(conn, prod, ext="B0A50000R2", sku="SKU-R2-X")
         run_costos, _fin = _run(conn)
         hoy = conn.execute("SELECT (now() AT TIME ZONE 'UTC')::date").fetchone()[0]
         conn.execute(
@@ -2283,8 +2362,16 @@ def test_cobertura_ignora_ledger_de_otra_fuente():
             " VALUES ('amazon_mx', 'sale', %s, %s, %s, 1, 200, 'MXN', %s)",
             (hoy - timedelta(days=1), datetime.now(UTC), prod, run_costos),
         )
-        insumos = _insumos_ventas(conn, product_id=prod, platform="amazon_mx", sku="SKU-R2-X")
-        assert insumos.dia_cubierto_hasta is None
+        unidad = UnidadPrecio(
+            listing_id=lid,
+            plataforma="amazon_mx",
+            externo="B0A50000R2",
+            canal=None,
+            producto_ancla=prod,
+            miembros=(Miembro(prod, "SKU-R2-X", None),),
+        )
+        historia = historia_unidad(conn, unidad=unidad, canal="fba", hoy=hoy)
+        assert historia.ledger_cubierto_hasta is None
 
 
 def test_cli_precio_imprime_errores_en_stderr(monkeypatch, capsys):
@@ -2715,11 +2802,12 @@ def test_reporte_con_fallo_sale_1_scrubbeado(monkeypatch, capsys):
 @_skip_sin_pg
 def test_dia_de_estado_es_utc():
     """R3-utc-dia: con la sesion en otra zona, el dia de estado es UTC."""
-    from app.spapi.precio_mercado import _insumos_ventas
+    from app.precio.puerto import Miembro, UnidadPrecio
+    from app.spapi.precio_mercado import historia_unidad
 
     with _db() as (conn, _dsn):
         prod = _producto(conn, sku="ODOO-SKU-R4-U")
-        _listing(conn, prod, ext="B0A50000RU", sku="SKU-R4-U")
+        lid = _listing(conn, prod, ext="B0A50000RU", sku="SKU-R4-U")
         hoy = conn.execute("SELECT (now() AT TIME ZONE 'UTC')::date").fetchone()[0]
         madrugada = datetime(hoy.year, hoy.month, hoy.day, 1, 0, tzinfo=UTC)
         conn.execute("SET TIME ZONE 'America/Mexico_City'")
@@ -2729,8 +2817,16 @@ def test_dia_de_estado_es_utc():
             " VALUES (%s, 'amazon_mx', 'BUYABLE', 'v1', %s)",
             ("SKU-R4-U", madrugada),
         )
-        insumos = _insumos_ventas(conn, product_id=prod, platform="amazon_mx", sku="SKU-R4-U")
-        assert insumos.listing_activo == ((hoy, True),)
+        unidad = UnidadPrecio(
+            listing_id=lid,
+            plataforma="amazon_mx",
+            externo="B0A50000RU",
+            canal=None,
+            producto_ancla=prod,
+            miembros=(Miembro(prod, "SKU-R4-U", None),),
+        )
+        historia = historia_unidad(conn, unidad=unidad, canal="fbm", hoy=hoy)
+        assert [(d.dia, d.disponibilidad) for d in historia.dias] == [(hoy, "disponible")]
 
 
 @_skip_sin_pg
@@ -2982,7 +3078,13 @@ def _r1b2_corrida_perdiendo(conn, *, extras=False):
     datos = _cadena(conn, mode="live")
     _price_obs(conn)
     run_id, _fin = _run_ledger(conn)
-    _ventas_perdiendo(conn, datos["producto"], sku=datos["sku"], run_id=run_id)
+    _ventas_perdiendo(
+        conn,
+        datos["producto"],
+        sku=datos["sku"],
+        run_id=run_id,
+        lid=datos["listing"],
+    )
     if extras:
         hoy = conn.execute("SELECT (now() AT TIME ZONE 'UTC')::date").fetchone()[0]
         for kind, qty, importe, atraso, evento in (
@@ -3027,7 +3129,8 @@ def test_r1b2_m9_refund_y_fee_no_inflan_u15():
 def test_r1b2_m9b_primera_venta_sale_solo_de_kind_sale():
     """M9b: ventas de los ultimos 60 dias + `refund` de hace 100: la senal
     sigue `historia_corta` (la primera venta ignora el `refund`)."""
-    from app.spapi.precio_mercado import _insumos_ventas
+    from app.precio.puerto import Miembro, UnidadPrecio
+    from app.spapi.precio_mercado import historia_unidad
 
     with _db() as (conn, _dsn):
         datos = _cadena(conn, mode="live")
@@ -3043,6 +3146,12 @@ def test_r1b2_m9b_primera_venta_sale_solo_de_kind_sale():
                 " VALUES ('amazon_mx', 'sale', %s, %s, %s, 1, 200, 'MXN', %s)",
                 (hoy - timedelta(days=atraso), datetime.now(UTC), datos["producto"], run_id),
             )
+            conn.execute(
+                "INSERT INTO ledger_event_atribucion (ledger_event_id, platform,"
+                " listing_id, variante_ext, resuelto_por, ingest_run_id)"
+                " VALUES (currval('ledger_event_id_seq'), 'amazon_mx', %s, NULL, 'sku', %s)",
+                (datos["listing"], run_id),
+            )
         conn.execute(
             "INSERT INTO ledger_event (platform, kind, event_date, observed_at,"
             " product_id, quantity, amount, amount_currency, ingest_run_id,"
@@ -3050,10 +3159,16 @@ def test_r1b2_m9b_primera_venta_sale_solo_de_kind_sale():
             " VALUES ('amazon_mx', 'refund', %s, %s, %s, 3, -30, 'MXN', %s, 'refund-m9b-1')",
             (hoy - timedelta(days=100), datetime.now(UTC), datos["producto"], run_id),
         )
-        insumos = _insumos_ventas(
-            conn, product_id=datos["producto"], platform="amazon_mx", sku=datos["sku"]
+        unidad = UnidadPrecio(
+            listing_id=datos["listing"],
+            plataforma="amazon_mx",
+            externo=datos["ext"],
+            canal=None,
+            producto_ancla=datos["producto"],
+            miembros=(Miembro(datos["producto"], datos["sku"], None),),
         )
-        assert insumos.primera_venta == hoy - timedelta(days=60)
+        historia = historia_unidad(conn, unidad=unidad, canal="fba", hoy=hoy)
+        assert historia.primera_venta == hoy - timedelta(days=60)
         red = _RedFalsa(skus={datos["evento"]: datos["sku"]})
         res = _corre(conn, red)
         assert (res.decisiones, res.escritas) == (1, 0)
@@ -3092,7 +3207,13 @@ def test_r1b2_m54_dia_inactivo_no_deja_perdiendo():
         finally:
             conn.execute("ALTER TABLE precio_decision ENABLE TRIGGER precio_decision_fecha_utc")
         run_ledger, _fin = _run_ledger(conn)
-        _ventas_perdiendo(conn, datos["producto"], sku=datos["sku"], run_id=run_ledger)
+        _ventas_perdiendo(
+            conn,
+            datos["producto"],
+            sku=datos["sku"],
+            run_id=run_ledger,
+            lid=datos["listing"],
+        )
         # La tabla es append-only: el dia se apaga INSERTANDO (activo solo
         # si TODAS las filas del dia dicen activo; a las 18:00 para no chocar
         # con la clave unica de la de mediodia).

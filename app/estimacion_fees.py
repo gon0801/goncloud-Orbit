@@ -5,9 +5,9 @@ Endpoint permitido: POST
 LWA: POST exacto `api.amazon.com/auth/o2/token`. Todo otro host/metodo/path
 falla antes de red (default-deny).
 
-Universo v1: amazon_mx / fba / MXN. Persistencia append-only en
-`estimacion_fee_observation` (idempotente por source_event_id derivado de
-request + outcome normalizado).
+Universos: la matriz `_UNIVERSO_SOPORTADO` (MX FBA/FBM, US FBM).
+Persistencia append-only en `estimacion_fee_observation` (idempotente por
+source_event_id derivado de request + outcome normalizado).
 """
 
 from __future__ import annotations
@@ -44,6 +44,12 @@ FEES_PATH_PREFIX = "/products/fees/v0/listings/"
 FEES_PATH_SUFFIX = "/feesEstimate"
 
 MARKETPLACE_MX = "A1AM78C64UM0Y8"
+MARKETPLACE_US = "ATVPDKIKX0DER"
+
+MARKETPLACE_POR_PLATAFORMA = {
+    "amazon_mx": MARKETPLACE_MX,
+    "amazon_us": MARKETPLACE_US,
+}
 
 TOKEN_EXPIRY_MARGIN_SECONDS = 60.0
 MAX_RETRIES = 4
@@ -59,7 +65,16 @@ RATE_MAX_WAITS = 120
 _MAX_DECIMALES = Decimal("0.0001")
 _MAX_DINERO = Decimal(10) ** 10
 
-_UNIVERSO_SOPORTADO = frozenset({("amazon_mx", "fba", "MXN")})
+# Matriz de cable SP-API (marketplace + fulfillment por universo). El registro
+# decide el soporte de negocio; un candado fija que esta matriz iguala a los
+# universos del registro con cotizador (F.3).
+_UNIVERSO_SOPORTADO = frozenset(
+    {
+        ("amazon_mx", "fba", "MXN"),
+        ("amazon_mx", "fbm", "MXN"),
+        ("amazon_us", "fbm", "USD"),
+    }
+)
 
 _ABSOLUTE_URL_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.\-]*://")
 _FEES_PATH_RE = re.compile(r"^/products/fees/v0/listings/[^/]+/feesEstimate$")
@@ -107,12 +122,12 @@ def construir_ruta_fees(seller_sku: str) -> str:
 def construir_fee_canonical_input(oferta: OfertaResuelta) -> dict[str, Any]:
     return {
         "oferta_source_event_id": oferta.source_event_id,
-        "marketplace_id": MARKETPLACE_MX,
+        "marketplace_id": MARKETPLACE_POR_PLATAFORMA[oferta.platform],
         "seller_sku": oferta.seller_sku,
         "asin": oferta.asin,
         "platform": oferta.platform,
         "canal": oferta.canal,
-        "is_amazon_fulfilled": True,
+        "is_amazon_fulfilled": oferta.canal == "fba",
         "price_amount": str(oferta.price_amount),
         "price_currency": oferta.price_currency,
         "fetched_at": oferta.fetched_at.isoformat(),
@@ -169,8 +184,8 @@ def construir_request_body(oferta: OfertaResuelta) -> dict[str, Any]:
     """Vista del cuerpo; Amount permanece como Decimal (no float)."""
     return {
         "FeesEstimateRequest": {
-            "MarketplaceId": MARKETPLACE_MX,
-            "IsAmazonFulfilled": True,
+            "MarketplaceId": MARKETPLACE_POR_PLATAFORMA[oferta.platform],
+            "IsAmazonFulfilled": oferta.canal == "fba",
             "PriceToEstimateFees": {
                 "ListingPrice": {
                     "CurrencyCode": oferta.price_currency,
@@ -187,9 +202,11 @@ def serializar_request_body(oferta: OfertaResuelta) -> bytes:
     amount = _decimal_a_json_number(oferta.price_amount)
     ident = json.dumps(oferta.source_event_id, separators=(",", ":"))
     moneda = json.dumps(oferta.price_currency, separators=(",", ":"))
+    mercado = MARKETPLACE_POR_PLATAFORMA[oferta.platform]
+    cumplido = "true" if oferta.canal == "fba" else "false"
     cuerpo = (
-        '{"FeesEstimateRequest":{"MarketplaceId":"A1AM78C64UM0Y8",'
-        '"IsAmazonFulfilled":true,'
+        f'{{"FeesEstimateRequest":{{"MarketplaceId":"{mercado}",'
+        f'"IsAmazonFulfilled":{cumplido},'
         '"PriceToEstimateFees":{"ListingPrice":{'
         f'"CurrencyCode":{moneda},"Amount":{amount}'
         "}},"
@@ -360,9 +377,9 @@ def parsear_respuesta_fees(
         raise FeesClientError("identificador IdValue incompatible")
     if ident.get("SellerInputIdentifier") != oferta.source_event_id:
         raise FeesClientError("identificador SellerInputIdentifier incompatible")
-    if ident.get("MarketplaceId") != MARKETPLACE_MX:
+    if ident.get("MarketplaceId") != MARKETPLACE_POR_PLATAFORMA.get(oferta.platform):
         raise FeesClientError("identificador MarketplaceId incompatible")
-    if ident.get("IsAmazonFulfilled") is not True:
+    if ident.get("IsAmazonFulfilled") is not (oferta.canal == "fba"):
         raise FeesClientError("identificador IsAmazonFulfilled incompatible")
     pte = ident.get("PriceToEstimateFees")
     if not isinstance(pte, dict):

@@ -1,0 +1,14 @@
+# Por que las politicas FBM van dentro de desplegar.sh (paso 4b), solo lectura, 2026-10-15
+
+== host goncloud: psql?
+SIN-PSQL-EN-HOST
+
+== orbit-app-1: psql?
+SIN-PSQL-EN-APP
+
+== orbit-db-1: psql?
+/usr/bin/psql
+
+== FBA vigente (fuente del paso 4b):
+1
+exit=0

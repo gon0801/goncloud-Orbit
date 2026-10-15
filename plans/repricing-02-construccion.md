@@ -1001,8 +1001,10 @@ precios por estas dos:
 	10 13 * * * /usr/bin/flock -n /tmp/precio-spapi.lock docker exec orbit-app-1 python -m app.cli precio --platform amazon_mx >> /mnt/data/appdata/orbit/logs/precio-corrida.log 2>&1
 	10 15-23/2 * * * /usr/bin/flock -n /tmp/precio-spapi.lock docker exec orbit-app-1 python -m app.cli precio --platform amazon_mx >> /mnt/data/appdata/orbit/logs/precio-corrida.log 2>&1
 
-**D.3** lleva el carril F, S.7 y la 0055. `desplegar.sh` corre `politicas.sh`,
-que vive en `ejecucion/D.3/` y no inserta una política que ya está vigente. Agrega
+**D.3** lleva el carril F, S.7 y la 0055. `desplegar.sh` inserta las
+politicas FBM en su paso 4b (por su `w()` a orbit-db-1: en goncloud
+no hay psql en el host ni en orbit-app-1) y no repite una politica
+vigente. Agrega
 `--platform amazon_us` a las dos líneas de D.2. Agrega el job de muestras antes
 de la estimación de las 12:45 UTC:
 

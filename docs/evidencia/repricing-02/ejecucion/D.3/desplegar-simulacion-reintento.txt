@@ -1,0 +1,55 @@
+== MODO SIMULACION: datos sinteticos contra postgresql://orbit:***@localhost:5432/orbit_sim_D3r2c, servidor intacto
+reintento con /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-d3-sim/aplicadas-20261015-1104.txt existente: se conserva (append-only)
+== 0) SHA aprobado con la bateria completa verde
+SIMULACION: HEAD existe local; sin fetch ni gh (no hay red a prod)
+== 1) Preflight: nadie corre, sin harvest en vuelo, migraciones pendientes
+SIMULACION: sin docker top (no hay contenedor); la guarda de proceso es el conteo de running
+ciclos running=0
+harvest en vuelo=0
+ya aplicada: 0055_precio02_escenario_exige.sql
+== 1b) Guardas propias de D.3 (abortan si fallan)
+0055 (+ reversa) y modulos F.1-F.4 y S.7 presentes en el SHA
+COPY de sonda y cobertura en el Dockerfile OK
+las 4 lineas de cron en el SHA OK
+guardas propias OK
+== 1c) Cron (guarda 5): respaldo, CALCULAR el reemplazo, diff solo previsto (se instala en 7b)
+cron: las 4 nuevas ya estaban instaladas
+cron ya instalado (las 4 nuevas presentes, diff vacio): se sigue sin instalar en 7b
+== 2) Respaldo del codigo actual y SHA (el .env NO se copia a ningun lado)
+SIMULACION: reintento, /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-d3-sim/predeploy-20261015-1104 se conserva (no se pisa)
+== 3) Backup del esquema (staging + verificacion)
+SIMULACION: backup local /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-d3-sim/pred3_schema_20261015-1104.sql
+== 4) Migracion 0055 en su propio psql -1
+ninguna pendiente
+== 4b) Politicas FBM (idempotente por label; fuente: FBA vigente)
+2|fba-mx-d3|2026-01-01
+3|repricing02_fbm_mx|amazon_mx/fbm|2026-10-15|
+4|repricing02_fbm_us|amazon_us/fbm|2026-10-15|
+== 5) md5 del codigo desplegado vs SHA aprobado
+SIMULACION: sin servidor; se verifica el respaldo local contra el SHA
+md5 OK app/ledger_atribucion.py
+md5 OK app/precio/envio.py
+md5 OK app/envio_muestras.py
+md5 OK app/estimacion_universo.py
+md5 OK app/estimacion_amazon.py
+md5 OK app/estimacion_insumos.py
+md5 OK app/estimacion_fees.py
+md5 OK app/estimacion_repository.py
+md5 OK app/spapi/precio_mercado.py
+md5 OK app/precio/ventas.py
+md5 OK app/precio/reglas.py
+md5 OK app/precio/tipos.py
+md5 OK app/precio/corrida.py
+md5 OK tools/precio_sonda.py
+== 6) Guardas antes de recrear
+SIMULACION: guardas OK en una pasada (sin reintento de 30 min)
+== 7) Build + recrear app (digest antes/despues) + health
+SIMULACION: sin rebuild (no hay servidor que recrear)
+== 7v) Corre precio --reporte de MX y US con el codigo nuevo (solo lectura; si alguno no sale 0, el cron queda sin instalar)
+reporte OK: MX y US salieron 0
+== 7b) Cron: RELEER el crontab actual, instalar y VERIFICAR contra el respaldo (restaura+aborta si difiere)
+nada que instalar en 7b (1c no dejo trabajo pendiente)
+== LISTO. STAMP=20261015-1104
+Siguiente: bash docs/evidencia/repricing-02/ejecucion/D.3/checklist.sh 20261015-1104
+Reversa:   bash docs/evidencia/repricing-02/ejecucion/D.3/rollback.sh 20261015-1104
+exit=0

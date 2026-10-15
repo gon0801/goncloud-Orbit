@@ -1,0 +1,9 @@
+== X.3 apagar US FBM (reversa del encendido)
+precio_modo_global: live (no se toca) | amazon_us/fbm: live | base: 6
+goals live en amazon_us FBM: 2
+== SIMULACRO: sin --acepto-mutacion-real no se postea nada
+settings que se postearia: {"base_config_version_id": 6, "precio_modo_universo": {"amazon_us/fbm": "shadow"}}
+goals que se regresarian a shadow en bloque (2): 11,12
+aplicar que se postearia por bloque: pedido {"tipo": "modo", "mode": "shadow"} + actor "X.3 apagar.sh" (sin go)
+SIMULACRO OK (nada escrito)
+exit=0

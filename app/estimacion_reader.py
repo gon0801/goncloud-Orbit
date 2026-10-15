@@ -18,7 +18,7 @@ import psycopg
 from app.estimacion_insumos import FRESHNESS_LIMIT
 from app.estimacion_venta import DetalleFee
 from app.precio.puerto import RefsAuditoria
-from app.precio.tipos import Componentes, Importe, Tasas
+from app.precio.tipos import Componentes, Importe, MuestraEnvio, Tasas
 
 __all__ = [
     "ProcedenciaRefs",
@@ -26,6 +26,7 @@ __all__ = [
     "CuentaLeida",
     "leer_escenarios",
     "leer_cuenta",
+    "ultimo_contexto",
 ]
 
 
@@ -193,6 +194,13 @@ class CuentaLeida:
     tasas: Tasas
     refs: RefsAuditoria
     canal: str
+    # REPRICING 02 F.3: columnas del escenario (crudas). None en filas
+    # viejas: cada llamador cae a derivar del arbol con `derivar_ref_fijo`.
+    logistica_origen: str | None = None
+    envio_muestra: MuestraEnvio | None = None
+    fee_variable: Decimal | None = None
+    fee_fijo: Decimal | None = None
+    fee_cotizable: bool | None = None
 
 
 def _detalle_fee(nodo: dict) -> DetalleFee:
@@ -243,12 +251,50 @@ def leer_cuenta(
         return esc.motivos[0] if esc.motivos else "estimacion_motivo_desconocido"
 
     fila_ids = conn.execute(
-        "SELECT oferta_observation_id, fee_observation_id FROM estimacion_escenario WHERE id = %s",
+        "SELECT oferta_observation_id, fee_observation_id, envio_muestra_id,"
+        " logistica_origen, miembro_product_id, fee_variable, fee_fijo, fee_cotizable"
+        " FROM estimacion_escenario WHERE id = %s",
         (esc.id,),
     ).fetchone()
     if fila_ids is None:
         raise ValueError(f"escenario {esc.id} desaparecio")
-    oferta_id, fee_id = fila_ids
+    oferta_id, fee_id, muestra_id, l_origen, miembro, fee_var, fee_fijo, fee_cot = fila_ids
+    muestra = None
+    if muestra_id is not None:
+        fila_muestra = conn.execute(
+            "SELECT id, product_id, platform, canal, origen, valor, valor_currency,"
+            " envios, donantes, ventana_desde, ventana_hasta, regla_version"
+            " FROM precio_envio_muestra WHERE id = %s",
+            (muestra_id,),
+        ).fetchone()
+        if fila_muestra is None:
+            raise ValueError(f"muestra {muestra_id} del escenario {esc.id} ausente")
+        (
+            m_id,
+            m_pid,
+            m_plat,
+            m_canal,
+            m_origen,
+            m_valor,
+            m_moneda,
+            m_envios,
+            m_donantes,
+            m_desde,
+            m_hasta,
+            m_regla,
+        ) = fila_muestra
+        muestra = MuestraEnvio(
+            id=m_id,
+            product_id=m_pid,
+            plataforma=str(m_plat),
+            canal=str(m_canal),
+            origen=m_origen,
+            valor=Importe(m_valor, str(m_moneda)),
+            envios=m_envios,
+            donantes=m_donantes,
+            ventana=(m_desde, m_hasta),
+            regla_version=m_regla,
+        )
     oferta = conn.execute(
         "SELECT price_amount, price_currency, observed_at"
         " FROM estimacion_oferta_observation WHERE id = %s",
@@ -323,8 +369,41 @@ def leer_cuenta(
             escenario_id=esc.id,
             fee_observation_id=fee_id,
             oferta_observation_id=oferta_id,
-            envio_muestra_id=None,
-            product_id=None,
+            envio_muestra_id=muestra_id,
+            product_id=miembro,
         ),
         canal=esc.canal,
+        logistica_origen=l_origen,
+        envio_muestra=muestra,
+        fee_variable=fee_var,
+        fee_fijo=fee_fijo,
+        fee_cotizable=fee_cot,
     )
+
+
+def ultimo_contexto(
+    conn: psycopg.Connection,
+    listing_id: int,
+    *,
+    as_of: datetime,
+) -> dict[str, Any] | None:
+    """Ultimo escenario disponible del listing hasta as_of; None sin contexto."""
+    fila = conn.execute(
+        "SELECT canal, context_fingerprint, platform, seller_sku, asin, source_event_id"
+        " FROM estimacion_escenario"
+        " WHERE listing_id = %s"
+        " AND estado = 'disponible'"
+        " AND observed_at <= %s"
+        " ORDER BY observed_at DESC LIMIT 1",
+        (listing_id, as_of),
+    ).fetchone()
+    if fila is None:
+        return None
+    return {
+        "canal": fila[0],
+        "context_fingerprint": fila[1],
+        "platform": fila[2],
+        "seller_sku": fila[3],
+        "asin": fila[4],
+        "escenario_base_source_event_id": fila[5],
+    }

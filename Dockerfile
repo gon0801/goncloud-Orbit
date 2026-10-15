@@ -22,6 +22,10 @@ COPY app ./app
 COPY tools/fabrica_campanas.py ./tools/fabrica_campanas.py
 COPY tools/jev_ads.py ./tools/jev_ads.py
 COPY tools/jev_fichas.py ./tools/jev_fichas.py
+# REPRICING 02 D.3/X.2/X.3: corren DENTRO del contenedor (sonda.sh,
+# checklist.sh); sin estos COPY la sonda y la cobertura fallan ahi.
+COPY tools/precio_sonda.py ./tools/precio_sonda.py
+COPY tools/precio_cobertura.py ./tools/precio_cobertura.py
 
 EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

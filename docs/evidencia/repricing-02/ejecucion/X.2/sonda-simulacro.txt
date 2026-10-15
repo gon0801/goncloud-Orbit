@@ -1,0 +1,8 @@
+== X.2 sonda de escritura (MX FBM, conejillo + control)
+conejillo: listing=11 (shadow); control: listing=12 (shadow)
+SIMULACION: mercado sim en /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-sonda-X2.json (sembro 11,12)
+== SIMULACRO: dry-run del conejillo + lectura del control (cero PATCH)
+[plan] amazon_mx listing=11 vivo=116.00 MXN -> 116.01 MXN -> 116.00 MXN
+vivo listing=12 valor=200.00 moneda=MXN
+SIMULACRO OK (nada escrito)
+exit=0

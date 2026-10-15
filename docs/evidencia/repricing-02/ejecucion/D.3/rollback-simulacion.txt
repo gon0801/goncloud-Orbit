@@ -1,0 +1,20 @@
+== MODO SIMULACION: datos sinteticos contra postgresql://orbit:***@localhost:5432/orbit_sim_D3, servidor intacto
+SHA=HEAD
+== 0) Reversas de aplicadas-20261015-0810.txt existen en el SHA, ANTES de tocar nada
+reversas en orden: 0055_reversa_precio02_escenario_exige.sql
+== 0b) Guardas (ciclos en running o proceso en curso abortan)
+guardas OK (sin ciclos en running)
+== 1) Cron: quitar las 4 lineas de D.3 del crontab actual y restaurar las 2 viejas + codigo de predeploy-20261015-0810
+quitadas: 4
+vieja: restaurada
+vieja: restaurada
+SIMULACION: crontab sin lineas de D.3 y con las 2 viejas OK
+SIMULACION: respaldo /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-d3-sim/predeploy-20261015-0810 presente; sin servidor, nada que reconstruir
+== 2) Reversas en orden inverso
+WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+reversa aplicada 0055_reversa_precio02_escenario_exige.sql
+== 3) Verificacion (esperado: sin CHECK de la 0055 si este sello la aplico)
+checks_0055=0
+== REVERSA LISTA. Lineas de D.3 fuera y viejas restauradas, codigo de predeploy-20261015-0810 restaurado y reversas aplicadas; las filas de negocio quedan intactas.
+exit=0
