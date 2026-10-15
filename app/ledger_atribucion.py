@@ -114,7 +114,9 @@ class AtribuidorAmazon:
             return None
         try:
             conn = connect(dsn, autocommit=True)
-            conn.read_only = True
+            # `read_only` no muerde en autocommit (psycopg lo aplica al
+            # BEGIN); la sesion entera se declara de lectura.
+            conn.execute("SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY")
         except Exception as exc:
             logger.error("atribuidor amazon sin base: %s", exc)
             self._sin_base = True

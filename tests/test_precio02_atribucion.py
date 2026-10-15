@@ -297,6 +297,22 @@ def test_listing_sin_sku_no_gana_por_canal(tmp_path):
         assert "venta_sin_atribuir" in (resultado.skip_reason or "")
 
 
+def test_conexion_propia_es_solo_lectura_real(monkeypatch):
+    import psycopg.errors
+
+    from app.ledger_atribucion import AtribuidorAmazon
+
+    monkeypatch.setenv("ORBIT_DSN_INGEST", os.environ["ORBIT_TEST_DSN"])
+    atr = AtribuidorAmazon()
+    try:
+        db = atr._db()
+        with pytest.raises(psycopg.errors.ReadOnlySqlTransaction):
+            db.execute("CREATE TEMPORARY TABLE t_ro_atribuidor (a int)")
+        assert db.execute("SELECT 1").fetchone() == (1,)
+    finally:
+        atr.close()
+
+
 def test_close_no_olvida_conexion_inyectada(monkeypatch):
     from app.ledger_atribucion import AtribuidorAmazon
 
