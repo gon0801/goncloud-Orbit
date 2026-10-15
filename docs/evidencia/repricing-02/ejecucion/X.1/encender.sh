@@ -46,12 +46,12 @@ lee_sql() {  # lee_sql <sql>: solo lectura
 }
 corre_py() {  # corre_py: corre $PYPROG dentro (real) o local (sim)
   if [ "$SIM" = 1 ]; then
-    X_BASE="$API_SIM" X_TOKEN="$ORBIT_SIM_TOKEN" X_GO_B64="$(printf '%s' "$GO" | base64)" \
+    X_BASE="$API_SIM" X_TOKEN="$ORBIT_SIM_TOKEN" X_GO_B64="$(printf '%s' "$GO" | base64 -w0)" \
       X_BASE_ID="$BASE_ID" X_GLOBAL="$GLOBAL" X_UNIV="$UNIV" X_IDS="$IDS_CHUNK" \
       python3 "$PYPROG"
   else
     # shellcheck disable=SC2029
-    ssh goncloud "X_GO_B64='$(printf '%s' "$GO" | base64)' X_BASE_ID='$BASE_ID' X_GLOBAL='$GLOBAL' X_UNIV='$UNIV' X_IDS='$IDS_CHUNK' X_BASE='http://127.0.0.1:8000' docker exec -i orbit-app-1 python -" \
+    ssh goncloud "X_GO_B64='$(printf '%s' "$GO" | base64 -w0)' X_BASE_ID='$BASE_ID' X_GLOBAL='$GLOBAL' X_UNIV='$UNIV' X_IDS='$IDS_CHUNK' X_BASE='http://127.0.0.1:8000' docker exec -i orbit-app-1 python -" \
       < "$PYPROG"
   fi
 }
@@ -73,10 +73,14 @@ BASE_ID=$(lee_sql "SELECT id FROM config_version ORDER BY id DESC LIMIT 1;") || 
 [ -n "$BASE_ID" ] || { echo "ABORTA: config_version sin filas"; exit 1; }
 echo "precio_modo_global: ${GLOBAL:-<ausente>} | amazon_mx/fba: ${UNIV:-<sin entrada>} | base: $BASE_ID"
 [ -n "$UNIV" ] || { echo "FRENADO: amazon_mx/fba sin entrada de modo (corre sembrar.sh primero)"; exit 1; }
-IDS_TODOS=$(lee_sql "SELECT string_agg(listing_id::text, ',' ORDER BY listing_id) FROM v_precio_goal_vigente WHERE platform = 'amazon_mx' AND mode = 'shadow';") || { echo "ABORTA: no se pudo listar goals shadow"; exit 1; }
+# C-W2: solo el universo MX FBA. El canal de la unidad es el del escenario
+# `disponible` mas reciente (la misma fuente del motor y de /precios G.3);
+# sin escenario no se puede probar que NO es FBA y el plan lo bloquea de
+# todos modos, asi que entra (visible como BLOQUEO, nunca volteado).
+IDS_TODOS=$(lee_sql "SELECT string_agg(v.listing_id::text, ',' ORDER BY v.listing_id) FROM v_precio_goal_vigente v LEFT JOIN LATERAL (SELECT canal FROM estimacion_escenario e WHERE e.listing_id = v.listing_id AND e.platform = v.platform AND e.estado = 'disponible' ORDER BY e.observed_at DESC LIMIT 1) e ON true WHERE v.platform = 'amazon_mx' AND v.mode = 'shadow' AND (e.canal IS NULL OR e.canal = 'fba');") || { echo "ABORTA: no se pudo listar goals shadow"; exit 1; }
 N_IDS=0
 [ -n "$IDS_TODOS" ] && N_IDS=$(printf '%s' "$IDS_TODOS" | tr ',' '\n' | grep -c .)
-echo "goals shadow en amazon_mx: $N_IDS"
+echo "goals shadow en amazon_mx FBA: $N_IDS"
 [ "$N_IDS" -gt 0 ] || { echo "FRENADO: sin goals shadow que pasar a live (corre sembrar.sh primero)"; exit 1; }
 
 if [ "$MUTAR" = 0 ]; then
@@ -190,6 +194,8 @@ if st == 409:
 if st != 200:
     sys.exit(f"ABORTA: aplicar respondio {st}: {json.dumps(r)[:500]}")
 print(f"aplicado: sembrados={r.get('sembrados')} cerrados={r.get('cerrados')} lote={r.get('lote')}")
+for o in r.get("omitidas") or []:
+    print(f"OMITIDA listing={o.get('listing_id')} bloqueo={o.get('bloqueo')} motivo={o.get('motivo')}")
 PYEOF
 
 echo "== encendido real: settings (global + universo live)"

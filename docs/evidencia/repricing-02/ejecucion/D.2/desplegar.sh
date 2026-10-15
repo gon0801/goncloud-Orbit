@@ -22,6 +22,8 @@
 # 7b (el bloque JEV solo respaldaba y mostraba diff): tras instalar,
 # RELEE el crontab real, comprueba que el diff contra el respaldo trae
 # SOLO lo previsto y, si trae otra cosa, RESTAURA el respaldo y aborta.
+# C-W4: 7b es UNA ruta sim+real (`cron_leer`/`cron_instalar` cambian; el
+# resto es el mismo codigo, asi que la sim prueba lo que corre en real).
 # En simulacion (ORBIT_SIMULACION=1) todo lo de datos corre de verdad
 # contra ORBIT_SIM_DSN, el crontab es el archivo
 # ${TMPDIR:-/tmp}/orbit-d2-sim/crontab-gon (sembrado con la linea vieja
@@ -41,6 +43,9 @@ STAMP=$(date -u +%Y%m%d-%H%M)
 DIR=docs/evidencia/repricing-02/ejecucion/D.2
 SIM=${ORBIT_SIMULACION:-0}
 DSN_SIM=${ORBIT_SIM_DSN:-postgresql://orbit:orbit@localhost:5432/orbit_sim_D2}
+# C-W6: el DSN solo se muestra enmascarado (`orbit:***@`); psql/pg_dump
+# siguen usando $DSN_SIM real (la conexion no cambia).
+DSN_VER=$(printf '%s' "$DSN_SIM" | sed 's|://[^@]*@|://orbit:***@|')
 TMPD=${TMPDIR:-/tmp}/orbit-d2-sim
 cd "$REPO"
 trap 'echo "FALLO en la linea $LINENO. Si ya se aplico alguna migracion o se toco el crontab: bash $DIR/rollback.sh $STAMP"' ERR
@@ -136,9 +141,25 @@ solo_previsto() {  # solo_previsto <base> <nuevo>: el diff trae EXACTAMENTE 1 ba
     }
   done < "$2.agregadas"
 }
+# C-W4: 7b verifica y restaura por UNA ruta compartida sim+real; solo
+# difieren estas dos primitivas (leer el crontab actual, instalar uno).
+cron_leer() {  # vuelca el crontab ACTUAL a stdout
+  if [ "$SIM" = 1 ]; then
+    cat "$CRON_SIM"
+  else
+    ssh goncloud "crontab -l -u gon 2>/dev/null"
+  fi
+}
+cron_instalar() {  # instala el crontab que llega por stdin
+  if [ "$SIM" = 1 ]; then
+    cat > "$CRON_SIM"
+  else
+    ssh goncloud "crontab -u gon -"
+  fi
+}
 
 if [ "$SIM" = 1 ]; then
-  echo "== MODO SIMULACION: datos reales contra $DSN_SIM, servidor intacto"
+  echo "== MODO SIMULACION: datos sinteticos contra $DSN_VER, servidor intacto"
   mkdir -p "$TMPD"
   APLICADAS="$TMPD/aplicadas-$STAMP.txt"
   CRON_SIM="$TMPD/crontab-gon"
@@ -232,15 +253,26 @@ else
   NUEVO="$NUEVO_LOCAL"
   RESPALDO="$RESPALDO_LOCAL"
 fi
-solo_previsto "$RESPALDO" "$NUEVO"
-echo "diff solo con lo previsto (1 baja + 2 altas):"
-cat "$NUEVO.bajas" "$NUEVO.agregadas"
-# El crontab NO se toca aqui: instalar antes de migrar y recrear dejaria
-# las lineas nuevas invocando codigo que la imagen vieja no trae si un
-# paso posterior aborta. Se instala en 7b, tras el health del contenedor
-# nuevo y tras el reporte de 7v; un abort previo deja el crontab intacto.
-INSTALAR_CRON=1
-echo "crontab calculado en $NUEVO (se instala en 7b; respaldo en $RESPALDO)"
+if diff -q "$RESPALDO" "$NUEVO" >/dev/null 2>&1; then
+  # C-W1 (idempotencia real): diff vacio CON las 2 nuevas presentes = el
+  # cron ya quedo instalado (reintento): se avisa y se sigue con
+  # INSTALAR_CRON=0. `solo_previsto` sigue estricto en lo demas.
+  if grep -qFx -- "$LINEA1" "$NUEVO" && grep -qFx -- "$LINEA2" "$NUEVO"; then
+    echo "cron ya instalado (las 2 nuevas presentes, diff vacio): se sigue sin instalar en 7b"
+  else
+    solo_previsto "$RESPALDO" "$NUEVO"
+  fi
+else
+  solo_previsto "$RESPALDO" "$NUEVO"
+  echo "diff solo con lo previsto (1 baja + 2 altas):"
+  cat "$NUEVO.bajas" "$NUEVO.agregadas"
+  # El crontab NO se toca aqui: instalar antes de migrar y recrear dejaria
+  # las lineas nuevas invocando codigo que la imagen vieja no trae si un
+  # paso posterior aborta. Se instala en 7b, tras el health del contenedor
+  # nuevo y tras el reporte de 7v; un abort previo deja el crontab intacto.
+  INSTALAR_CRON=1
+  echo "crontab calculado en $NUEVO (se instala en 7b; respaldo en $RESPALDO)"
+fi
 
 echo "== 2) Respaldo del codigo actual y SHA (el .env NO se copia a ningun lado)"
 # Si predeploy-<sello> ya existe (reintento en el mismo minuto), se
@@ -362,51 +394,50 @@ if [ "$INSTALAR_CRON" = 1 ]; then
   # revalida el diff antes de instalar. Y tras instalar se RELEE el
   # crontab real y se verifica de nuevo: si el diff contra el respaldo
   # trae otra cosa (un escritor gano la carrera), se RESTAURA el
-  # respaldo y se aborta.
+  # respaldo y se aborta. C-W4: este bloque es UNO solo para sim y real
+  # (lo que la sim prueba es lo que corre en real); lo unico que cambia
+  # de modo son `cron_leer`/`cron_instalar` y donde caen los temporales.
   if [ "$SIM" = 1 ]; then
-    ACTUAL_7B="$CRON_SIM"
+    ACTUAL_7B="$TMPD/actual-7b-$STAMP.txt"
+    RESPALDO_7B="$RESPALDO_CRON"
+    INSTALADO_7B="$TMPD/instalado-7b-$STAMP.txt"
+    FALLA_7B="$TMPD/falla-cron-$STAMP.txt"
   else
-    ssh goncloud "crontab -l -u gon 2>/dev/null" > "$NUEVO_LOCAL.actual" || { echo "ABORTA: no se pudo releer el crontab de gon"; exit 1; }
     ACTUAL_7B="$NUEVO_LOCAL.actual"
+    RESPALDO_7B="$NUEVO_LOCAL.7b-respaldo"
+    INSTALADO_7B="$NUEVO_LOCAL.instalado"
+    FALLA_7B="$TMPD-falla-cron-$STAMP.txt"
   fi
+  cron_leer > "$ACTUAL_7B" || { echo "ABORTA: no se pudo releer el crontab actual"; exit 1; }
   instalar_cron "$ACTUAL_7B" "$NUEVO.7b" "$VIEJA" "$LINEA1" "$LINEA2"
   solo_previsto "$ACTUAL_7B" "$NUEVO.7b"
-  if [ "$SIM" = 1 ]; then
-    cp "$ACTUAL_7B" "$RESPALDO_CRON"
-    mv "$NUEVO.7b" "$CRON_SIM"
-    if [ "${ORBIT_D2_SIM_FALLA_CRON:-0}" = 1 ]; then
-      echo "SIMULACION: falla sembrada (ORBIT_D2_SIM_FALLA_CRON=1): un escritor ajeno mete una linea tras instalar" >&2
-      echo "0 4 * * * /opt/ajeno/carrera.sh  # escritor ajeno sembrado" >> "$CRON_SIM"
-    fi
-    # Subshell: solo_previsto sale con exit y aqui el fallo debe restaurar,
-    # no salir directo.
-    if (solo_previsto "$RESPALDO_CRON" "$CRON_SIM") 2>"$TMPD/falla-cron-$STAMP.txt"; then
-      rm -f "$NUEVO.diff" "$NUEVO.agregadas" "$NUEVO.bajas" "$NUEVO.7b.diff" "$NUEVO.7b.agregadas" "$NUEVO.7b.bajas" "$TMPD/falla-cron-$STAMP.txt"
-      echo "SIMULACION: crontab instalado y verificado en $CRON_SIM (respaldo en $RESPALDO_CRON)"
+  cp "$ACTUAL_7B" "$RESPALDO_7B"
+  if [ "$SIM" != 1 ]; then
+    ssh goncloud "mkdir -p $SRV/backups && cat > $SRV/backups/crontab-gon-pre-d2-$STAMP.txt" < "$ACTUAL_7B"
+  fi
+  cron_instalar < "$NUEVO.7b"
+  if [ "$SIM" = 1 ] && [ "${ORBIT_D2_SIM_FALLA_CRON:-0}" = 1 ]; then
+    echo "SIMULACION: falla sembrada (ORBIT_D2_SIM_FALLA_CRON=1): un escritor ajeno mete una linea tras instalar" >&2
+    echo "0 4 * * * /opt/ajeno/carrera.sh  # escritor ajeno sembrado" >> "$CRON_SIM"
+  fi
+  cron_leer > "$INSTALADO_7B" || { echo "ABORTA: no se pudo releer el crontab tras instalar"; exit 1; }
+  # Subshell: solo_previsto sale con exit y aqui el fallo debe restaurar,
+  # no salir directo.
+  if (solo_previsto "$RESPALDO_7B" "$INSTALADO_7B") 2>"$FALLA_7B"; then
+    rm -f "$NUEVO.diff" "$NUEVO.agregadas" "$NUEVO.bajas" "$NUEVO.7b.diff" "$NUEVO.7b.agregadas" "$NUEVO.7b.bajas" "$FALLA_7B"
+    if [ "$SIM" = 1 ]; then
+      echo "SIMULACION: crontab instalado y verificado en $CRON_SIM (respaldo en $RESPALDO_7B)"
     else
-      cat "$TMPD/falla-cron-$STAMP.txt" >&2
-      cp "$RESPALDO_CRON" "$CRON_SIM"
-      echo "ABORTA: el crontab instalado trae lineas no previstas; RESPALDO RESTAURADO, nada cambio" >&2
-      exit 1
+      echo "crontab instalado y verificado (respaldo en $SRV/backups/crontab-gon-pre-d2-$STAMP.txt)"
     fi
   else
-    ssh goncloud "mkdir -p $SRV/backups && cat > $SRV/backups/crontab-gon-pre-d2-$STAMP.txt" < "$ACTUAL_7B"
-    cat "$NUEVO.7b" | ssh goncloud "crontab -u gon -"
-    ssh goncloud "crontab -l -u gon" > "$NUEVO_LOCAL.instalado" || { echo "ABORTA: no se pudo releer el crontab tras instalar"; exit 1; }
-    # Subshell: solo_previsto sale con exit y aqui el fallo debe restaurar,
-    # no salir directo.
-    if (solo_previsto "$ACTUAL_7B" "$NUEVO_LOCAL.instalado") 2>"$TMPD-falla-cron-$STAMP.txt"; then
-      rm -f "$NUEVO.diff" "$NUEVO.agregadas" "$NUEVO.bajas" "$NUEVO.7b.diff" "$NUEVO.7b.agregadas" "$NUEVO.7b.bajas"
-      echo "crontab instalado y verificado (respaldo en $SRV/backups/crontab-gon-pre-d2-$STAMP.txt)"
-    else
-      cat "$TMPD-falla-cron-$STAMP.txt" >&2
-      cat "$ACTUAL_7B" | ssh goncloud "crontab -u gon -"
-      echo "ABORTA: el crontab instalado trae lineas no previstas; RESPALDO RESTAURADO, nada cambio" >&2
-      exit 1
-    fi
+    cat "$FALLA_7B" >&2
+    cron_instalar < "$RESPALDO_7B"
+    echo "ABORTA: el crontab instalado trae lineas no previstas; RESPALDO RESTAURADO, nada cambio" >&2
+    exit 1
   fi
 else
-  echo "nada que instalar (1c no trajo lineas nuevas)"
+  echo "nada que instalar en 7b (1c no dejo trabajo pendiente)"
 fi
 
 echo "== LISTO. STAMP=$STAMP"

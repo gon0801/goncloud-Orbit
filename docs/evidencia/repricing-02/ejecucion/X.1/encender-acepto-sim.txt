@@ -1,14 +1,18 @@
 == X.1 encender MX FBA (paso 0: interruptor de bids)
 ads_bid_politica_amazon_mx: niveles_v3 (pasa)
-precio_modo_global: shadow | amazon_mx/fba: shadow | base: 32
-goals shadow en amazon_mx: 8
+precio_modo_global: shadow | amazon_mx/fba: shadow | base: 4
+goals shadow en amazon_mx FBA: 2
 == encendido real: settings (global + universo live)
-settings: config 33 (settings UI · settings-ui · 2026-10-15 · amazon_mx: precio modo global shadow -> live, precio modo amazon_mx/fba shadow -> live)
-== encendido real: goals a live en bloque (8 unidades)
--- bloque 1 (8 unidades)
-plan live: 8 filas, 0 bloqueadas, huella a136939d60ffa7b7
-aplicado: sembrados=8 cerrados=8 lote=a136939d60ffa7b7
+settings: config 5 (settings UI · settings-ui · 2026-10-15 · amazon_mx: precio modo global shadow -> live, precio modo amazon_mx/fba shadow -> live)
+== encendido real: goals a live en bloque (2 unidades)
+-- bloque 1 (2 unidades)
+plan live: 2 filas, 0 bloqueadas, huella 0be654e1b1349578
+aplicado: sembrados=2 cerrados=2 lote=0be654e1b1349578
 ENCENDIDO OK: amazon_mx/fba en live
 exit=0
 global=live univ=live
-live|8
+90001|live
+90002|live
+90003|sin-goal
+90004|shadow
+90005|sin-goal

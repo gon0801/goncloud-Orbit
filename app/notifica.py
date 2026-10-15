@@ -997,12 +997,6 @@ def notifica_destino_grupo(
 # de costo/margen/goal/error: la ausencia es estructural, no un filtro.
 # El flanco lo decide `avisar_precio` (gancho `avisar` de la corrida A.5)
 # leyendo hoy y dias previos de `precio_decision`/`precio_cambio`.
-#
-# REPRICING 02 S.6 (bosquejo U): seis tipos mas en el mismo sender. El
-# resumen diario y la compuerta llevan SELLO en base (una vez por
-# plataforma y dia / por universo, causa y dia; el fallo no sella y el
-# repaso reintenta); `cambio_error`, `corte_errores`, `reversa` y `cohorte`
-# solo tienen builder + sender (su disparo no es de S.6).
 
 TIPOS_PRECIO = (
     "no_evaluado",
@@ -1011,7 +1005,6 @@ TIPOS_PRECIO = (
     "no_confirmado",
     "buy_box_perdida",
     "huerfana_sin_patch",
-    # REPRICING 02 S.6 (bosquejo U): los sellados salen una vez.
     "resumen_diario",
     "compuerta",
     "cambio_error",
@@ -1488,7 +1481,7 @@ def flanco_umbral(presentes, hoy, umbral) -> bool:
     return racha == umbral
 
 
-# S.6: el despacho por tabla (antes dos cadenas if/elif) para que el sexto
+# S.6: el despacho por tabla para que el sexto
 # tipo no rompa el tope de complejidad: tipo -> familias aceptadas y
 # familia -> NOMBRE del builder (se resuelve tarde con `globals()` para no
 # romper la costura de `monkeypatch.setattr(notifica, "aviso_...")`). Los

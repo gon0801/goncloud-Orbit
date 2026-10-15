@@ -1,8 +1,9 @@
 == X.1 apagar MX FBA (reversa del encendido)
-precio_modo_global: shadow (no se toca) | amazon_mx/fba: shadow | base: 32
-goals live en amazon_mx: 0
+precio_modo_global: live (no se toca) | amazon_mx/fba: live | base: 5
+goals live en amazon_mx FBA: 2
 == SIMULACRO: sin --acepto-mutacion-real no se postea nada
-settings que se postearia: {"base_config_version_id": 32, "precio_modo_universo": {"amazon_mx/fba": "shadow"}}
-sin goals live que regresar: solo el universo
+settings que se postearia: {"base_config_version_id": 5, "precio_modo_universo": {"amazon_mx/fba": "shadow"}}
+goals que se regresarian a shadow en bloque (2): 90001,90002
+aplicar que se postearia por bloque: pedido {"tipo": "modo", "mode": "shadow"} + actor "X.1 apagar.sh" (sin go)
 SIMULACRO OK (nada escrito)
 exit=0

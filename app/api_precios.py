@@ -40,8 +40,7 @@ router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 # - /salud suma plataformas.<p>.precios ({hoy, cobertura, evaluados,
 #   movidos, sombra, no_evaluados, frenados, goal_inalcanzable, huerfanas,
 #   decisiones, corrida_ausente}). `cobertura` es la MISMA serializacion
-#   que el `recuadro` de /precios (misma funcion). El cupo murio en
-#   REPRICING 02 S.1.
+#   que el `recuadro` de /precios (misma funcion).
 # - El reloj es el de la base (fuentes.hoy_base: el dia UTC que fija el
 #   trigger de precio_decision, no el local).
 # - Sin esquema de precios (la 0039 no esta aplicada): /salud deja el

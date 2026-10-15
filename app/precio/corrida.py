@@ -640,9 +640,17 @@ def _decidir_lectura(
         if modo_fila == "off":
             return 0, 0
     else:
-        universo = modo_universo.get(f"{platform}/{lectura.entrada.canal}", "off")
+        clave = f"{platform}/{lectura.entrada.canal}"
+        universo = modo_universo.get(clave, "off")
         modo_fila = modo_efectivo(modo_global, universo, mode)
         if modo_fila == "off":
+            # A-W1: sin entrada el universo vale off (S.2, sin fila y sin
+            # cotizar), pero si la entrada ausente es lo que apaga (global
+            # y goal vivos) deja error visible en vez de 0,0 en silencio.
+            if clave not in modo_universo and modo_global != "off" and mode != "off":
+                msg = scrub(f"listing={lid} {platform} universo_sin_entrada: {clave}")
+                logger.error("corrida %s", msg)
+                errores.append(msg)
             return 0, 0
     comun = {
         "lid": lid,
@@ -1206,6 +1214,9 @@ def _aplicar_pendientes(
             msg = scrub(f"listing={lid} {platform} {exc.__class__.__name__}: {exc}")
             logger.error("corrida %s", msg)
             errores.append(msg)
+            # A-W2: la excepcion tambien alimenta el corte (igual que un
+            # Acuse con error): cinco seguidas abren el cortacircuito.
+            cortacircuito = cortacircuito.tras("error")
             continue
         cortacircuito = cortacircuito.tras(res.estado)
         if res.id_cambio is not None:

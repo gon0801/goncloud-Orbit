@@ -1,14 +1,14 @@
-== MODO SIMULACION: datos reales contra postgresql://orbit:orbit@localhost:5432/orbit_sim_D2, servidor intacto
+== MODO SIMULACION: datos sinteticos contra postgresql://orbit:***@localhost:5432/orbit_sim_D2_56358, servidor intacto
 SHA=HEAD
-== 0) Reversas de aplicadas-20261015-0200.txt existen en el SHA, ANTES de tocar nada
+== 0) Reversas de aplicadas-20261015-0315.txt existen en el SHA, ANTES de tocar nada
 reversas en orden: 0058_reversa_precio02_decision_exige.sql 0059_reversa_precio02_repara_retencion_coherente.sql
 == 0b) Guardas (ciclos en running abortan)
 guardas OK (sin ciclos en running)
-== 1) Cron: quitar las 2 lineas de D.2 del crontab actual y restaurar la vieja + codigo de predeploy-20261015-0200
+== 1) Cron: quitar las 2 lineas de D.2 del crontab actual y restaurar la vieja + codigo de predeploy-20261015-0315
 quitadas: 2
 vieja: restaurada
 SIMULACION: crontab sin lineas de D.2 y con la vieja OK
-SIMULACION: respaldo /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-d2-sim/predeploy-20261015-0200 presente; sin servidor, nada que reconstruir
+SIMULACION: respaldo /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-d2-sim/predeploy-20261015-0315 presente; sin servidor, nada que reconstruir
 == 2) Reversas en orden inverso
 WARNING:  there is already a transaction in progress
 WARNING:  there is no transaction in progress
@@ -18,5 +18,5 @@ WARNING:  there is no transaction in progress
 reversa aplicada 0059_reversa_precio02_repara_retencion_coherente.sql
 == 3) Verificacion (esperado: sin CHECK de la 0058 y trigger roto si este sello los aplico)
 checks_0058=0 trigger_reparado=f
-== REVERSA LISTA. Lineas de D.2 fuera y vieja restaurada, codigo de predeploy-20261015-0200 restaurado y reversas aplicadas; las filas de negocio quedan intactas.
+== REVERSA LISTA. Lineas de D.2 fuera y vieja restaurada, codigo de predeploy-20261015-0315 restaurado y reversas aplicadas; las filas de negocio quedan intactas.
 exit=0

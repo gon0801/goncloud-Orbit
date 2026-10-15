@@ -253,7 +253,6 @@ def proxima_config(
     if motor_bid is not None:
         _aplica_motor_bid(nuevo, cambios, platform, motor_bid)
 
-    # S.2: apagador de precios, global (None = no tocar).
     _aplica_precio_modos(nuevo, cambios, precio_modo_global, precio_modo_universo)
 
     for kind, cap in (caps or {}).items():

@@ -1,10 +1,10 @@
 == X.1 encender MX FBA (paso 0: interruptor de bids)
 ads_bid_politica_amazon_mx: niveles_v3 (pasa)
-precio_modo_global: shadow | amazon_mx/fba: shadow | base: 32
-goals shadow en amazon_mx: 6
+precio_modo_global: shadow | amazon_mx/fba: shadow | base: 4
+goals shadow en amazon_mx FBA: 2
 == SIMULACRO: sin --acepto-mutacion-real no se postea nada
-settings que se postearia: {"base_config_version_id": 32, "precio_modo_global": "live", "precio_modo_universo": {"amazon_mx/fba": "live"}}
-goals que se pasarian a live en bloque (6): 1213,1256,1260,1265,1284,1295
+settings que se postearia: {"base_config_version_id": 4, "precio_modo_global": "live", "precio_modo_universo": {"amazon_mx/fba": "live"}}
+goals que se pasarian a live en bloque (2): 90001,90002
 aplicar que se postearia por bloque: pedido {"tipo": "modo", "mode": "live"} + go literal (no se imprime) + actor "X.1 encender.sh"
 SIMULACRO OK (nada escrito)
 exit=0

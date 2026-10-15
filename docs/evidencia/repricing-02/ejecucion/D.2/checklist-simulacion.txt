@@ -1,4 +1,4 @@
-== Checklist D.2 (solo lectura; sello 20261015-0200)
+== Checklist D.2 (solo lectura; sello 20261015-0315)
 == 1) HTTP: /health
 OK    GET /health = 200
 == 2) Esquema: CHECK de la 0058, trigger reparado y modos en shadow

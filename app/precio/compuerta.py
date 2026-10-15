@@ -1,7 +1,7 @@
 """Compuerta del motor de precios (REPRICING 02, bosquejo E).
 
-S.2 trajo el apagador (`modo_efectivo`); S.3 suma el fusible por universo,
-el insumo sistemico y el corte por errores. Puro: sin I/O, sin reloj, sin red.
+Apagador (`modo_efectivo`), fusible por universo, insumo sistemico y corte
+por errores. Puro: sin I/O, sin reloj, sin red.
 
 Desviacion declarada del bosquejo: `evaluar` recibe `ConfigMotor`, no
 `ConfigPrecio` (el corte 0.a partio la config y las claves del fusible

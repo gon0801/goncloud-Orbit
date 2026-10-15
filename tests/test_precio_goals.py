@@ -2491,3 +2491,242 @@ def test_g1_aplicar_live_sin_go_no_escribe():
             "SELECT mode, go_literal, origen, lote, m_referencia FROM precio_goal"
         ).fetchone()
         assert fila == ("live", "enciende", "manual", plan.huella, Decimal("0.2400"))
+
+
+@_skip_sin_pg
+def test_g1_aplicar_omite_lista_omitidas_con_bloqueo_y_motivo():
+    """B-C1: lo omitido se lista (no en silencio): `ResultadoPlan.omitidas`
+    trae (listing_id, platform, bloqueo, motivo) por fila no escrita."""
+    from app.precio.goals_write import OmitidaPlan, aplicar_plan
+    from app.precio.siembra import PedidoMargenDeHoy
+
+    with _db() as (conn, _dsn):
+        a = _cadena(conn, sku="SKU-G1-MA", ext="ASIN-G1-MA", m="40.00")
+        prod_b = _producto(conn, sku="SKU-G1-MB")
+        lid_b = _listing(conn, prod_b, ext="ASIN-G1-MB", sku="SKU-G1-MB")
+        plan = _g1_plan(
+            conn,
+            [(a["listing"], "amazon_mx"), (lid_b, "amazon_mx")],
+            PedidoMargenDeHoy(mode="shadow"),
+        )
+        assert [f.bloqueo for f in plan.filas] == [None, "sin_escenario"]
+        res = aplicar_plan(
+            conn,
+            plan,
+            huella=plan.huella,
+            confirmados=frozenset(),
+            go_literal=None,
+            actor="t",
+        )
+        assert (res.sembrados, res.cerrados) == (1, 0)
+        assert res.omitidas == (OmitidaPlan(lid_b, "amazon_mx", "sin_escenario", "sin_escenario"),)
+        assert _cuenta_goals(conn) == 1
+
+
+@pytest.mark.parametrize(
+    "caso,motivo",
+    [
+        ("sin_lectura", "sin_escenario"),
+        ("fee", "fee_no_utilizable"),
+        ("oferta", "oferta_ausente"),
+        ("deriva", "referencia_sin_derivar"),
+    ],
+)
+def test_g1_planear_live_valor_sin_referencia_bloquea_confirmable(caso, motivo):
+    """B-C2: PedidoValor live sin P* de referencia sale con bloqueo
+    confirmable (nunca None silencioso que salte el chequeo 25 %)."""
+    from app.precio.siembra import PedidoValor, planear
+
+    if caso == "sin_lectura":
+        lec = None
+    elif caso == "fee":
+        lec = _g1_lectura(fee_estado="error")
+    elif caso == "oferta":
+        lec = _g1_lectura(p_actual=None, moneda=None)
+    else:
+        comp = [c for c in _g1_componentes() if c["nombre"] != "isr"]
+        lec = _g1_lectura(componentes=comp)
+    plan = planear(
+        (_g1_candidato(lec, listing_id=7),),
+        pedido=PedidoValor(goal=Decimal("0.3000"), mode="live"),
+        banda=BANDA_G1,
+    )
+    (fila,) = plan.filas
+    assert fila.accion == "sembrar"
+    assert fila.p_estrella is None
+    assert fila.motivo == motivo
+    assert fila.bloqueo == "sin_referencia"
+    assert fila.confirmable is True
+
+
+def test_g1_planear_shadow_valor_sin_referencia_sigue_sin_bloqueo():
+    """B-C2: en shadow, Valor sin P* sigue sin bloqueo (aviso, no bloque):
+    el residual declarado solo se retira en live."""
+    from app.precio.siembra import PedidoValor, planear
+
+    plan = planear(
+        (_g1_candidato(None, listing_id=7),),
+        pedido=PedidoValor(goal=Decimal("0.3000"), mode="shadow"),
+        banda=BANDA_G1,
+    )
+    (fila,) = plan.filas
+    assert fila.bloqueo is None
+    assert fila.motivo == "sin_escenario"
+
+
+@_skip_sin_pg
+def test_g1_aplicar_live_valor_sin_lectura_omite_y_confirma():
+    """B-C2: live Valor sin lectura: sin confirmar se omite (y se lista
+    por B-C1); confirmado + go se escribe."""
+    from app.precio.goals_write import OmitidaPlan, aplicar_plan
+    from app.precio.siembra import PedidoValor
+
+    with _db() as (conn, _dsn):
+        prod = _producto(conn, sku="SKU-G1-SR")
+        lid = _listing(conn, prod, ext="ASIN-G1-SR", sku="SKU-G1-SR")
+        _config(conn)
+        plan = _g1_plan(conn, [(lid, "amazon_mx")], PedidoValor(Decimal("0.3000"), "live"))
+        (fila,) = plan.filas
+        assert (fila.bloqueo, fila.confirmable, fila.motivo) == (
+            "sin_referencia",
+            True,
+            "sin_escenario",
+        )
+        res = aplicar_plan(
+            conn,
+            plan,
+            huella=plan.huella,
+            confirmados=frozenset(),
+            go_literal="enciende",
+            actor="t",
+        )
+        assert (res.sembrados, res.cerrados) == (0, 0)
+        assert res.omitidas == (OmitidaPlan(lid, "amazon_mx", "sin_referencia", "sin_escenario"),)
+        res2 = aplicar_plan(
+            conn,
+            plan,
+            huella=plan.huella,
+            confirmados=frozenset({lid}),
+            go_literal="enciende",
+            actor="t",
+        )
+        assert (res2.sembrados, res2.cerrados) == (1, 0)
+        assert res2.omitidas == ()
+        assert _cuenta_goals(conn) == 1
+
+
+@_skip_sin_pg
+def test_g1_aplicar_live_valor_sin_derivar_omite_y_confirma():
+    """B-C2: live Valor con escenario sin derivar (margen real, P*
+    ausente): sin confirmar se omite y se lista; confirmado + go se
+    escribe. (`fee_no_utilizable` no se siembra en base: los triggers
+    exigen fee success en disponible; ese motivo se cubre en puro.)"""
+    from app.precio.goals_write import OmitidaPlan, aplicar_plan
+    from app.precio.siembra import PedidoValor
+
+    with _db() as (conn, _dsn):
+        prod = _producto(conn, sku="SKU-G1-SD")
+        lid = _listing(conn, prod, ext="ASIN-G1-SD", sku="SKU-G1-SD")
+        _config(conn)
+        marca = datetime.now(UTC)
+        oferta = _oferta(
+            conn,
+            lid,
+            ext="ASIN-G1-SD",
+            sku="SKU-G1-SD",
+            evento="oferta-SD",
+            fetched=marca,
+            observed=marca,
+        )
+        fee = _fee(
+            conn,
+            oferta,
+            lid,
+            ext="ASIN-G1-SD",
+            sku="SKU-G1-SD",
+            evento="fee-SD",
+            fetched=marca,
+            observed=marca,
+        )
+        pol = _politica(conn)
+        costo = _costo(conn, prod)
+        run_id, validada_en = _run(conn)
+        _escenario(
+            conn,
+            lid,
+            oferta,
+            fee,
+            pol,
+            costo,
+            run_id,
+            validada_en,
+            ext="ASIN-G1-SD",
+            sku="SKU-G1-SD",
+            m="24.00",
+            evento="esc-SD",
+            sin_componente="isr",
+        )
+        plan = _g1_plan(conn, [(lid, "amazon_mx")], PedidoValor(Decimal("0.3000"), "live"))
+        (fila,) = plan.filas
+        assert fila.m_hoy is not None
+        assert (fila.bloqueo, fila.confirmable, fila.motivo) == (
+            "sin_referencia",
+            True,
+            "referencia_sin_derivar",
+        )
+        res = aplicar_plan(
+            conn,
+            plan,
+            huella=plan.huella,
+            confirmados=frozenset(),
+            go_literal="enciende",
+            actor="t",
+        )
+        assert (res.sembrados, res.cerrados) == (0, 0)
+        assert res.omitidas == (
+            OmitidaPlan(lid, "amazon_mx", "sin_referencia", "referencia_sin_derivar"),
+        )
+        res2 = aplicar_plan(
+            conn,
+            plan,
+            huella=plan.huella,
+            confirmados=frozenset({lid}),
+            go_literal="enciende",
+            actor="t",
+        )
+        assert (res2.sembrados, res2.cerrados) == (1, 0)
+        assert _cuenta_goals(conn) == 1
+
+
+@_skip_sin_pg
+def test_tool_live_valor_sin_referencia_confirma_y_escribe():
+    """B-C2 (tool): live Valor sin lectura aborta pidiendo confirmacion
+    (con el motivo); con --confirmar-salto + go escribe."""
+    with _db() as (conn, dsn):
+        prod = _producto(conn, sku="SKU-G1-TR")
+        listing = _listing(conn, prod, ext="ASIN-G1-TR", sku="SKU-G1-TR")
+        _config(conn)
+        args = ["--listing-id", str(listing), "--platform", "amazon_mx", "--goal-pct", "30.00"]
+        seco = _tool(*args, "--mode", "live", dsn=dsn)
+        assert seco.returncode == 2, seco.stdout
+        assert "sin_escenario" in seco.stderr
+        assert "confirmar-salto" in seco.stderr
+        assert _cuenta_goals(conn) == 0
+        conf = _tool(*args, "--mode", "live", "--confirmar-salto", str(listing), dsn=dsn)
+        assert conf.returncode == 0, conf.stderr
+        huella = conf.stdout.split("huella: ")[1].split()[0]
+        go = _tool(
+            *args,
+            "--mode",
+            "live",
+            "--confirmar-salto",
+            str(listing),
+            "--acepto-mutacion-real",
+            "--huella",
+            huella,
+            "--go",
+            "enciende-tdd",
+            dsn=dsn,
+        )
+        assert go.returncode == 0, go.stderr
+        assert _cuenta_goals(conn) == 1

@@ -349,3 +349,70 @@ def test_g2_liberar_sin_retencion_409(tmp_path, monkeypatch):
         assert resp.status_code == 409
         assert "no retuvo" in resp.json()["detail"]
         assert _cuenta(conn, "precio_compuerta_liberacion") == 0
+
+
+# ---------------------------------------------------------------------------
+# B-C1+W5: omitidas visibles y live todo bloqueado exige go
+# ---------------------------------------------------------------------------
+
+
+@_skip_sin_pg
+def test_g2_aplicar_devuelve_omitidas(tmp_path, monkeypatch):
+    """B-C1: `/goals/aplicar` lista las filas omitidas con su bloqueo y
+    motivo (la omision deja de ser silenciosa)."""
+    _secrets_token(tmp_path, monkeypatch)
+    with _db() as (conn, dsn):
+        datos = _cadena(conn)
+        monkeypatch.setenv("ORBIT_DSN_ADMIN", dsn)
+        cliente = TestClient(app)
+        base = {
+            "platform": "amazon_mx",
+            "pedido": {"tipo": "valor", "mode": "shadow", "goal_pct": "55.00"},
+            "listing_ids": [datos["listing"]],
+        }
+        fresca = cliente.post("/api/precios/goals/plan", json=base, headers=_CABECERA).json()[
+            "huella"
+        ]
+        resp = cliente.post(
+            "/api/precios/goals/aplicar",
+            json={**base, "huella": fresca, "actor": "dueno"},
+            headers=_CABECERA,
+        )
+        assert resp.status_code == 200
+        cuerpo = resp.json()
+        assert (cuerpo["sembrados"], cuerpo["cerrados"]) == (0, 0)
+        assert cuerpo["omitidas"] == [
+            {
+                "listing_id": datos["listing"],
+                "platform": "amazon_mx",
+                "bloqueo": "salto_mayor_25",
+                "motivo": None,
+            }
+        ]
+        assert _cuenta(conn, "precio_goal") == 0
+
+
+@_skip_sin_pg
+def test_g2_aplicar_live_todo_bloqueado_sin_go_422(tmp_path, monkeypatch):
+    """W5: un plan live con filas accionables pero cero escribibles no
+    pinta 0/0 como exito: sin go literal responde 422."""
+    _secrets_token(tmp_path, monkeypatch)
+    with _db() as (conn, dsn):
+        datos = _cadena(conn)
+        monkeypatch.setenv("ORBIT_DSN_ADMIN", dsn)
+        cliente = TestClient(app)
+        base = {
+            "platform": "amazon_mx",
+            "pedido": {"tipo": "valor", "mode": "live", "goal_pct": "55.00"},
+            "listing_ids": [datos["listing"]],
+        }
+        plan = cliente.post("/api/precios/goals/plan", json=base, headers=_CABECERA).json()
+        assert plan["filas"][0]["bloqueo"] == "salto_mayor_25"
+        resp = cliente.post(
+            "/api/precios/goals/aplicar",
+            json={**base, "huella": plan["huella"], "actor": "dueno"},
+            headers=_CABECERA,
+        )
+        assert resp.status_code == 422
+        assert "go" in resp.json()["detail"]
+        assert _cuenta(conn, "precio_goal") == 0

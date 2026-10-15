@@ -24,6 +24,9 @@ SRV=/mnt/data/appdata/orbit
 DIR=docs/evidencia/repricing-02/ejecucion/D.2
 SIM=${ORBIT_SIMULACION:-0}
 DSN_SIM=${ORBIT_SIM_DSN:-postgresql://orbit:orbit@localhost:5432/orbit_sim_D2}
+# C-W6: el DSN solo se muestra enmascarado (`orbit:***@`); psql sigue
+# usando $DSN_SIM real (la conexion no cambia).
+DSN_VER=$(printf '%s' "$DSN_SIM" | sed 's|://[^@]*@|://orbit:***@|')
 TMPD=${TMPDIR:-/tmp}/orbit-d2-sim
 cd "$REPO"
 VIEJA='10 13 * * * /usr/bin/flock -n /tmp/precio-corrida.lock docker exec orbit-app-1 python -m app.cli precio --platform amazon_mx >> /mnt/data/appdata/orbit/logs/precio-corrida.log 2>&1'
@@ -44,7 +47,7 @@ w() {
 }
 
 if [ "$SIM" = 1 ]; then
-  echo "== MODO SIMULACION: datos reales contra $DSN_SIM, servidor intacto"
+  echo "== MODO SIMULACION: datos sinteticos contra $DSN_VER, servidor intacto"
   PRE="$TMPD/predeploy-$STAMP"
   APLICADAS="$TMPD/aplicadas-$STAMP.txt"
   CRON_SIM="$TMPD/crontab-gon"

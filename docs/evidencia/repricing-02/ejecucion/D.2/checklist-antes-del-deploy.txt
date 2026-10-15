@@ -9,6 +9,14 @@
 - [ ] Nadie corre en prod (`docker top orbit-app-1` sin `app.cli`, sin ciclos en `running`, sin harvest en vuelo).
 - [ ] El crontab de gon trae la linea vieja de precios exactamente
       como la trae `VIEJA` en `desplegar.sh` (lock `precio-corrida.lock`).
+- [ ] Drill 7b en real (C-W4, antes de `desplegar.sh`): instalar,
+      verificar y restaurar cron nunca corrio en real (solo en sim, por
+      la misma ruta). Operador, en gon con el crontab respaldado en
+      /tmp/drill-cron.txt: instala una linea centinela (`* * * * * true
+      # drill-d2` via `crontab -u gon -`), relee (`crontab -l -u gon`),
+      verifica que trae la centinela, restaura el respaldo (`crontab -u
+      gon /tmp/drill-cron.txt`), relee y verifica byte-igual (`diff`).
+      Solo entonces corre `desplegar.sh <sha>`.
 - [ ] Tras `desplegar.sh <sha>`: `checklist.sh <sello>` en 0 fallas.
 - [ ] Al dia siguiente: el resumen diario llego (Telegram) y la corrida
       de las 13:10 + repasos escribieron en `precio-corrida.log`.

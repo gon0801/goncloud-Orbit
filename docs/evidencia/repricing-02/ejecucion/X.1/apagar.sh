@@ -51,10 +51,13 @@ UNIV=$(lee_sql "SELECT settings -> 'precio_modo_universo' ->> 'amazon_mx/fba' FR
 BASE_ID=$(lee_sql "SELECT id FROM config_version ORDER BY id DESC LIMIT 1;") || { echo "ABORTA: no se pudo leer base_config_version_id"; exit 1; }
 [ -n "$BASE_ID" ] || { echo "ABORTA: config_version sin filas"; exit 1; }
 echo "precio_modo_global: ${GLOBAL:-<ausente>} (no se toca) | amazon_mx/fba: ${UNIV:-<sin entrada>} | base: $BASE_ID"
-IDS_TODOS=$(lee_sql "SELECT string_agg(listing_id::text, ',' ORDER BY listing_id) FROM v_precio_goal_vigente WHERE platform = 'amazon_mx' AND mode = 'live';") || { echo "ABORTA: no se pudo listar goals live"; exit 1; }
+# C-W2: solo el universo MX FBA (mismo filtro de canal que encender.sh:
+# escenario `disponible` mas reciente; sin escenario entra y el plan lo
+# bloquea, nunca se voltea a ciegas).
+IDS_TODOS=$(lee_sql "SELECT string_agg(v.listing_id::text, ',' ORDER BY v.listing_id) FROM v_precio_goal_vigente v LEFT JOIN LATERAL (SELECT canal FROM estimacion_escenario e WHERE e.listing_id = v.listing_id AND e.platform = v.platform AND e.estado = 'disponible' ORDER BY e.observed_at DESC LIMIT 1) e ON true WHERE v.platform = 'amazon_mx' AND v.mode = 'live' AND (e.canal IS NULL OR e.canal = 'fba');") || { echo "ABORTA: no se pudo listar goals live"; exit 1; }
 N_IDS=0
 [ -n "$IDS_TODOS" ] && N_IDS=$(printf '%s' "$IDS_TODOS" | tr ',' '\n' | grep -c .)
-echo "goals live en amazon_mx: $N_IDS"
+echo "goals live en amazon_mx FBA: $N_IDS"
 
 if [ "$MUTAR" = 0 ]; then
   echo "== SIMULACRO: sin --acepto-mutacion-real no se postea nada"
@@ -168,6 +171,8 @@ if st == 409:
 if st != 200:
     sys.exit(f"ABORTA: aplicar respondio {st}: {json.dumps(r)[:500]}")
 print(f"aplicado: sembrados={r.get('sembrados')} cerrados={r.get('cerrados')} lote={r.get('lote')}")
+for o in r.get("omitidas") or []:
+    print(f"OMITIDA listing={o.get('listing_id')} bloqueo={o.get('bloqueo')} motivo={o.get('motivo')}")
 PYEOF
 
 echo "== apagado real: universo a shadow (el global no se toca)"

@@ -3617,6 +3617,28 @@ def test_s2_universo_sin_entrada_vale_off():
         assert red.n_patch == 0 and red.n_fees == 0
 
 
+@_skip_sin_pg
+def test_s2_universo_sin_entrada_deja_error_visible():
+    """A-W1: el universo sin entrada sigue valiendo off (0 filas, sin
+    cotizar) pero deja un error visible en el resumen con la clave
+    ausente (antes: 0,0 en silencio, sin fila ni linea)."""
+    with _db() as (conn, _dsn):
+        datos = _cadena(conn, mode="live")
+        _config_modos(conn, universos={})
+        _price_obs(conn)
+        red = _RedFalsa(skus={datos["evento"]: datos["sku"]})
+        res = _corre(conn, red)
+        assert (res.decisiones, res.escritas) == (0, 0)
+        assert _cuenta_decisiones(conn) == 0
+        assert conn.execute("SELECT count(*) FROM precio_cotizacion").fetchone()[0] == 0
+        assert any(
+            "universo_sin_entrada" in err
+            and str(datos["listing"]) in err
+            and "amazon_mx/fba" in err
+            for err in res.errores
+        ), res.errores
+
+
 # ---------------------------------------------------------------------------
 # REPRICING 02 S.3: la compuerta (fusible, insumo sistemico, corte, liberacion)
 # ---------------------------------------------------------------------------
@@ -3775,6 +3797,15 @@ class _MercadoErrorSiempre:
 
         self.escrituras += 1
         return Acuse(aceptada=False, codigo="tdd-falla", cuerpo={})
+
+
+class _MercadoExcepcionSiempre(_MercadoErrorSiempre):
+    """Vivo legible, escritura que EXCEDE (no Acuse): el fallo llega al
+    `except` generico de `_aplicar_pendientes` (A-W2)."""
+
+    def escribir(self, unidad, destino):
+        self.escrituras += 1
+        raise RuntimeError("saboteo-tdd: escribir explota")
 
 
 @_skip_sin_pg
@@ -4196,6 +4227,48 @@ def test_s3_cinco_errores_seguidos_cortan_con_corte_errores():
             conn.execute("SELECT count(*) FROM precio_cambio WHERE estado = 'error'").fetchone()[0]
             == 5
         )
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM precio_retencion WHERE causa = 'corte_errores'"
+            ).fetchone()[0]
+            == 2
+        )
+
+
+@_skip_sin_pg
+def test_s3_cinco_excepciones_seguidas_cortan_la_corrida():
+    """A-W2: 7 live con escritura que EXCEDE (no Acuse de error): las 5
+    excepciones alimentan el cortacircuito igual que un Acuse y las 2
+    restantes quedan retenidas `corte_errores` (el Mercado se toca 5
+    veces, no 7)."""
+    from app.precio.compuerta import Abierta
+    from app.precio.corrida import _aplicar_pendientes, _medir_compuerta
+
+    with _db() as (conn, _dsn):
+        cfg = _config(conn)
+        hoy = _hoy(conn)
+        for n in range(7):
+            lid, gid = _unidad_s3(conn, f"w2-{n}", mode="live")
+            _decision_s3(conn, lid, mode="live", goal_id=gid)
+        corrida = _corrida_s3(conn, cfg)
+        motor = _motor_de(SETTINGS)
+        veredictos = _medir_compuerta(conn, "amazon_mx", hoy, motor, corrida)
+        assert veredictos["fba"] == Abierta(medidas=7, nuevas=7)  # 7 < minimo 10: pasa
+        mercado = _MercadoExcepcionSiempre()
+        resultado = _aplicar_pendientes(
+            conn,
+            mercado,
+            veredictos,
+            hoy,
+            owner="tdd",
+            ahora=datetime.now(UTC),
+            corrida_id=corrida,
+            corte=motor.corte_errores_consecutivos,
+        )
+        escritas, virtuales, retenidas, errores = resultado
+        assert (escritas, virtuales, retenidas) == (0, 0, 2)
+        assert len(errores) == 5
+        assert mercado.escrituras == 5
         assert (
             conn.execute(
                 "SELECT count(*) FROM precio_retencion WHERE causa = 'corte_errores'"

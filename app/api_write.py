@@ -244,8 +244,7 @@ class CuerpoSettings(BaseModel):
     # valores sellados: "niveles_v3" enciende, "apagado" quita la clave).
     # Literal pineado contra goals.POLITICA_BID_VIGENTE en tests.
     motor_bid: Literal["niveles_v3", "apagado"] | None = None
-    # S.2: apagador de precios, global (None = no tocar). El Literal pinea
-    # el vocabulario del motor (off/shadow/live); modo ajeno = 422.
+    # S.2: apagador de precios, global (None = no tocar).
     precio_modo_global: Literal["off", "shadow", "live"] | None = None
     # S.2: objeto parcial plataforma/canal -> modo (None = no tocar); se
     # fusiona por llave y el universo se valida contra el registro (422).

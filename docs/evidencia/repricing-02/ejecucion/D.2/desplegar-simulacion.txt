@@ -1,4 +1,4 @@
-== MODO SIMULACION: datos reales contra postgresql://orbit:orbit@localhost:5432/orbit_sim_D2, servidor intacto
+== MODO SIMULACION: datos sinteticos contra postgresql://orbit:***@localhost:5432/orbit_sim_D2_56358, servidor intacto
 == 0) SHA aprobado con la bateria completa verde
 SIMULACION: HEAD existe local; sin fetch ni gh (no hay red a prod)
 == 1) Preflight: nadie corre, sin harvest en vuelo, migraciones pendientes
@@ -19,18 +19,18 @@ diff solo con lo previsto (1 baja + 2 altas):
 10 13 * * * /usr/bin/flock -n /tmp/precio-corrida.lock docker exec orbit-app-1 python -m app.cli precio --platform amazon_mx >> /mnt/data/appdata/orbit/logs/precio-corrida.log 2>&1
 10 13 * * * /usr/bin/flock -n /tmp/precio-spapi.lock docker exec orbit-app-1 python -m app.cli precio --platform amazon_mx >> /mnt/data/appdata/orbit/logs/precio-corrida.log 2>&1
 10 15-23/2 * * * /usr/bin/flock -n /tmp/precio-spapi.lock docker exec orbit-app-1 python -m app.cli precio --platform amazon_mx >> /mnt/data/appdata/orbit/logs/precio-corrida.log 2>&1
-crontab calculado en /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-d2-sim/crontab-gon.nuevo (se instala en 7b; respaldo en /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-d2-sim/crontab-gon-pre-d2-20261015-0200.txt)
+crontab calculado en /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-d2-sim/crontab-gon.nuevo (se instala en 7b; respaldo en /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-d2-sim/crontab-gon-pre-d2-20261015-0315.txt)
 == 2) Respaldo del codigo actual y SHA (el .env NO se copia a ningun lado)
-SIMULACION: respaldo local en /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-d2-sim/predeploy-20261015-0200
+SIMULACION: respaldo local en /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-d2-sim/predeploy-20261015-0315
 == 3) Backup del esquema (staging + verificacion)
-SIMULACION: backup local /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-d2-sim/pred2_schema_20261015-0200.sql
+SIMULACION: backup local /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-d2-sim/pred2_schema_20261015-0315.sql
 == 4) Migraciones 0059 y 0058, cada una en su propio psql -1
 WARNING:  there is already a transaction in progress
 WARNING:  there is no transaction in progress
-aplicada 0059_precio02_repara_retencion_coherente.sql (anotada en /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-d2-sim/aplicadas-20261015-0200.txt)
+aplicada 0059_precio02_repara_retencion_coherente.sql (anotada en /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-d2-sim/aplicadas-20261015-0315.txt)
 WARNING:  there is already a transaction in progress
 WARNING:  there is no transaction in progress
-aplicada 0058_precio02_decision_exige.sql (anotada en /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-d2-sim/aplicadas-20261015-0200.txt)
+aplicada 0058_precio02_decision_exige.sql (anotada en /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-d2-sim/aplicadas-20261015-0315.txt)
 == 5) md5 del codigo desplegado vs SHA aprobado
 SIMULACION: sin servidor; se verifica el respaldo local contra el SHA
 md5 OK app/precio/reglas.py
@@ -52,8 +52,8 @@ SIMULACION: sin rebuild (no hay servidor que recrear)
 reporte OK: salio 0
 == 7b) Cron: RELEER el crontab actual, instalar y VERIFICAR contra el respaldo (restaura+aborta si difiere)
 cron: linea vieja reemplazada por las 2 nuevas
-SIMULACION: crontab instalado y verificado en /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-d2-sim/crontab-gon (respaldo en /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-d2-sim/crontab-gon-pre-d2-20261015-0200.txt)
-== LISTO. STAMP=20261015-0200
-Siguiente: bash docs/evidencia/repricing-02/ejecucion/D.2/checklist.sh 20261015-0200
-Reversa:   bash docs/evidencia/repricing-02/ejecucion/D.2/rollback.sh 20261015-0200
+SIMULACION: crontab instalado y verificado en /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-d2-sim/crontab-gon (respaldo en /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-d2-sim/crontab-gon-pre-d2-20261015-0315.txt)
+== LISTO. STAMP=20261015-0315
+Siguiente: bash docs/evidencia/repricing-02/ejecucion/D.2/checklist.sh 20261015-0315
+Reversa:   bash docs/evidencia/repricing-02/ejecucion/D.2/rollback.sh 20261015-0315
 exit=0

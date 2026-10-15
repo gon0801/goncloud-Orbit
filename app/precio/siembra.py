@@ -1,8 +1,8 @@
 """Plan de goals puro: Pedidos -> Plan (REPRICING 02 G.1, bosquejo G).
 
-Las protecciones que vivian en `tools/precio_goal.py` (`_referencia`,
-`_componente`, `_detalle_fee`, `_guardas_del_plan`, `UMBRAL_SALTO`) viven
-aqui, en un solo lugar y sin base: `planear` recibe candidatos ya leidos
+Las protecciones (`_referencia`, `_componente`, `_detalle_fee`,
+`_guardas_del_plan`, `UMBRAL_SALTO`) viven aqui, en un solo lugar y sin
+base: `planear` recibe candidatos ya leidos
 (`leer_candidatos` de `goals_write`) y devuelve el plan con su huella.
 Quien escribe es `goals_write.aplicar_plan`.
 
@@ -57,7 +57,7 @@ __all__ = [
     "planear",
 ]
 
-# Salto maximo de P* sobre P_actual sin confirmacion (venia del tool).
+# Salto maximo de P* sobre P_actual sin confirmacion.
 UMBRAL_SALTO = Decimal("0.25")
 
 MODOS_SIEMBRA = ("shadow", "live")
@@ -205,6 +205,7 @@ Bloqueo = Literal[
     "sin_escenario",  # no hay margen de hoy que copiar; se lista con su motivo
     "fuera_de_banda",  # margen de hoy fuera de la banda: NO se recorta en silencio
     "salto_mayor_25",  # P* se aleja mas de 25 % del precio actual
+    "sin_referencia",  # B-C2: live a mano sin P* (el 25 % no puede correr)
     "live_sin_escenario",  # no se enciende lo que el motor no puede evaluar
     "sin_cambio",  # ya tiene ese goal y ese modo
 ]
@@ -261,8 +262,7 @@ class PlanGoals:
 
 
 def _detalle_fee(nodo: dict) -> DetalleFee:
-    # Venia de `tools/precio_goal.py` verbatim: JSON normalizado de
-    # `parsear_respuesta_fees` a arbol.
+    # JSON normalizado de `parsear_respuesta_fees` a arbol.
     tasa = nodo.get("tax_amount")
     return DetalleFee(
         fee_type=nodo["fee_type"],
@@ -275,9 +275,9 @@ def _detalle_fee(nodo: dict) -> DetalleFee:
 
 
 def _componente(componentes: list, nombre: str) -> Decimal:
-    # Venia de `tools/precio_goal.py`: mismo mensaje, `ValueError` en vez
-    # de `PrecioGoalInvalido` (este modulo no importa al escritor). La red
-    # de `_referencia` lo vuelve `referencia_sin_derivar`, igual que antes.
+    # Mismo mensaje, `ValueError` en vez de `PrecioGoalInvalido` (este
+    # modulo no importa al escritor). La red de `_referencia` lo vuelve
+    # `referencia_sin_derivar`, igual que antes.
     for item in componentes:
         if item.get("nombre") == nombre:
             return Decimal(str(item["importe_normalizado"]))
@@ -506,6 +506,16 @@ def _fila(
         and abs(estrella.valor - p_actual.valor) > UMBRAL_SALTO * p_actual.valor
     ):
         bloqueo, confirmable = "salto_mayor_25", True
+    elif (
+        isinstance(pedido, (PedidoValor, PedidoValores))
+        and pedido.mode == "live"
+        and estrella is None
+    ):
+        # B-C2: el goal a mano en live sin P* de referencia (motivo en
+        # `motivo`: sin_escenario, oferta_ausente, fee_no_utilizable o
+        # referencia_sin_derivar) no salta el chequeo 25 % en silencio:
+        # se escribe solo confirmado. En shadow sigue aviso sin bloqueo.
+        bloqueo, confirmable = "sin_referencia", True
     elif pedido.mode == "live" and m_hoy is None:
         bloqueo, confirmable = "live_sin_escenario", False
     return FilaPlan(

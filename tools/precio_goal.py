@@ -27,14 +27,16 @@ fuera de `live`; "shadow sin ceremonia" del plan = sin go literal, no
 sin huella). `--go`/`--huella` sin `--acepto-mutacion-real` aborta
 (dry-run enganoso). `--cerrar` jamas lleva `--go` (no enciende nada).
 
-`--mode live` sin escenario `disponible` aborta con `sin_escenario` (un
-goal encendido sobre un producto que el motor no puede evaluar no se
-siembra); `--mode shadow` sigue con aviso. Sin escenario, el dry-run
-imprime `sin_escenario` en `m_actual` y `P*` y el chequeo del 25 % no
-corre. Si hay escenario pero la fee no deriva referencia (`fee_error` o
-`margen_imposible`), se imprime `m_actual` real con `P*=sin_escenario`,
-se avisa y se sigue (residual declarado: el motor si puede evaluar ese
-caso; solo la falta de escenario aborta `live`).
+`--mode live` a mano sin P* de referencia aborta con `sin_referencia`
+y pide `--confirmar-salto` (el chequeo del 25 % no puede correr: solo
+entra confirmado; B-C2 retiro el residual que avisaba y seguia); en
+`--mode shadow` sigue con aviso. Sin escenario, el dry-run imprime
+`sin_escenario` en `m_actual` y `P*` y el chequeo del 25 % no corre. Si
+hay escenario pero la fee no deriva referencia, se imprime `m_actual`
+real con `P*=sin_escenario` y se avisa; en live ademas se exige la
+confirmacion. Pasar a live lo que el motor no puede evaluar (pedido
+`modo` de la API) sigue abortando con `live_sin_escenario`, sin
+confirmacion que lo destrabe.
 
 El go es TODO O NADA via `goals_write.aplicar_plan` (una transaccion):
 un fallo a mitad no deja ninguna fila. Resembrar el mismo dia se permite
@@ -265,7 +267,8 @@ def _planear_tool(conn, entradas, args):
 
 def _exigir_sembrable(plan: PlanGoals, args, textos, banda, lineas) -> None:
     """El tool es estricto: cualquier bloqueo aborta (legado), salvo el
-    salto confirmado por listing (`--confirmar-salto`).
+    salto o la falta de referencia confirmados por listing
+    (`--confirmar-salto`).
 
     G3: `--confirmar-salto <listing_id>` es por listing (repetible): solo
     los listings nombrados se saltan el chequeo; nombrar uno fuera del
@@ -281,7 +284,7 @@ def _exigir_sembrable(plan: PlanGoals, args, textos, banda, lineas) -> None:
     for fila in plan.filas:
         if fila.bloqueo is None:
             continue
-        if fila.bloqueo == "salto_mayor_25" and fila.listing_id in confirmados:
+        if fila.bloqueo in ("salto_mayor_25", "sin_referencia") and fila.listing_id in confirmados:
             continue
         numero = lineas.get((fila.listing_id, fila.plataforma), 0)
         prefijo = f"linea {numero}: " if numero else ""
@@ -300,6 +303,13 @@ def _exigir_sembrable(plan: PlanGoals, args, textos, banda, lineas) -> None:
             raise Abortar(
                 f"{prefijo}goal {texto} % (= {fila.goal_propuesto})"
                 f" fuera de banda [{minimo}, {maximo}]"
+            )
+        if fila.bloqueo == "sin_referencia":
+            raise Abortar(
+                f"{prefijo}sin P* de referencia ({fila.motivo}) para listing"
+                f" {fila.listing_id}: el chequeo del 25 % no puede correr;"
+                " pasa --confirmar-salto <listing_id> para sembrarlo en live"
+                " sin el chequeo"
             )
         if fila.bloqueo == "live_sin_escenario":
             raise Abortar(

@@ -60,6 +60,7 @@ __all__ = [
     "ORIGENES_PRECIO_GOAL",
     "PorIds",
     "HechoPlan",
+    "OmitidaPlan",
     "ResultadoPlan",
     "fraccion_desde_porcentaje",
     "banda_desde_settings",
@@ -307,11 +308,6 @@ def cerrar_goal(conn: psycopg.Connection, *, listing_id: int, platform: str) -> 
     return int(fila[0])
 
 
-# ---------------------------------------------------------------------------
-# G.1 (REPRICING 02): lectura de candidatos + escritura todo o nada
-# ---------------------------------------------------------------------------
-
-
 @dataclass(frozen=True)
 class PorIds:
     """Filtro explicito: los pares `(listing_id, platform)` pedidos."""
@@ -331,14 +327,30 @@ class HechoPlan:
 
 
 @dataclass(frozen=True)
+class OmitidaPlan:
+    """Una fila NO escrita: la omision deja de ser silenciosa (B-C1).
+    `bloqueo`/`motivo` son los del plan fresco (los mismos que se vieron
+    en la vista previa)."""
+
+    listing_id: int
+    platform: str
+    bloqueo: str | None
+    motivo: str | None
+
+
+@dataclass(frozen=True)
 class ResultadoPlan:
     """Lo que `aplicar_plan` escribio. `hechos` extiende el bosquejo K: el
-    tool imprime un `[hecho]` por fila, como `precio_reversa`."""
+    tool imprime un `[hecho]` por fila, como `precio_reversa`. `omitidas`
+    lista TODA fila no escrita (`nada` o bloqueada sin confirmar): cada
+    fila del plan fresco sale en `hechos` o en `omitidas`, nunca en
+    ninguna (B-C1)."""
 
     sembrados: int
     cerrados: int
     lote: str  # = la huella que autorizo el lote; queda en cada fila sembrada
     hechos: tuple[HechoPlan, ...]
+    omitidas: tuple[OmitidaPlan, ...] = ()
 
 
 _SQL_LISTING = (
@@ -466,11 +478,12 @@ def aplicar_plan(
     coincide con `huella` -> `HuellaDistinta` con el plan nuevo (nada
     escrito). Se escribe el recalculo fresco, no el plan viajero.
     Fila con bloqueo no confirmable, o confirmable sin confirmar: se omite
-    y se cuenta; en `estricto` (el tool) aborta con `BloqueoSinConfirmar`
-    en vez de omitir en silencio. `live` exige `go_literal` (CHECK de la
-    0039, sin cambio). Reemplazar = cerrar + sembrar; reeditar el mismo
-    dia deja la anterior ANULADA (`sembrar_goal`/`cerrar_goal` son los
-    pasos internos).
+    y se LISTA en `omitidas` (B-C1); en `estricto` (el tool) aborta con
+    `BloqueoSinConfirmar` en vez de omitir. `live` con filas accionables
+    exige `go_literal` aunque ninguna sea escribible (W5: sin go, un plan
+    live todo bloqueado pintaba 0/0 como exito). Reemplazar = cerrar +
+    sembrar; reeditar el mismo dia deja la anterior ANULADA
+    (`sembrar_goal`/`cerrar_goal` son los pasos internos).
     """
     if not conn.autocommit:
         raise ValueError("aplicar_plan exige conexion en autocommit: el lote confirma al salir")
@@ -485,19 +498,33 @@ def aplicar_plan(
     if nuevo.huella != huella:
         raise HuellaDistinta(nuevo, esperada=huella)
     escribibles = []
+    omitidas: list[OmitidaPlan] = []
     for fila in nuevo.filas:
         if fila.accion == "nada":
+            omitidas.append(
+                OmitidaPlan(fila.listing_id, fila.plataforma, fila.bloqueo, fila.motivo)
+            )
             continue
         if fila.bloqueo is not None and not (fila.confirmable and fila.listing_id in confirmados):
             if estricto:
                 raise BloqueoSinConfirmar(nuevo, confirmados=confirmados)
+            omitidas.append(
+                OmitidaPlan(fila.listing_id, fila.plataforma, fila.bloqueo, fila.motivo)
+            )
             continue
         escribibles.append(fila)
     modo = getattr(plan.pedido, "mode", None)
-    if escribibles and modo == "live" and (go_literal is None or not go_literal.strip()):
-        raise PrecioGoalInvalido(
-            "live sin go: subir a live exige go literal no vacio (CHECK precio_goal_live_exige_go)"
-        )
+    if modo == "live" and (go_literal is None or not go_literal.strip()):
+        if escribibles:
+            raise PrecioGoalInvalido(
+                "live sin go: subir a live exige go literal no vacio"
+                " (CHECK precio_goal_live_exige_go)"
+            )
+        if any(f.accion != "nada" for f in nuevo.filas):
+            raise PrecioGoalInvalido(
+                "live sin go: el plan trae filas accionables pero ninguna escribible"
+                " (todas omitidas por bloqueo); sin go no hay exito que pintar"
+            )
     if go_literal is not None and modo != "live":
         donde = "shadow" if modo == "shadow" else "cerrar"
         raise PrecioGoalInvalido(
@@ -532,4 +559,10 @@ def aplicar_plan(
             )
             sembrados += 1
             hechos.append(HechoPlan(fila.listing_id, fila.plataforma, fila.accion, gid, cerro))
-    return ResultadoPlan(sembrados=sembrados, cerrados=cerrados, lote=huella, hechos=tuple(hechos))
+    return ResultadoPlan(
+        sembrados=sembrados,
+        cerrados=cerrados,
+        lote=huella,
+        hechos=tuple(hechos),
+        omitidas=tuple(omitidas),
+    )
