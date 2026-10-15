@@ -78,3 +78,15 @@ Cambios del lead en revision: restaurada la guarda `modo_desconocido`
       Comparar insumo exacto.
 - [ ] C-N3: COALESCE puede dar NULL y el builder imprime None
       (notifica.py:1844-1887). Sanear display.
+
+## Triage bots PR #454 (2026-10-15)
+
+Corregidos: selector global sin off fantasma + test; X.1 real con
+`docker exec -e` (los 3 scripts); F1 500 global-sin-universo + test.
+Declinados con razon en sus hilos: `AssertionError` residual en
+`precio_goal.py` (pin de invariante inalcanzable).
+
+- [ ] F2 (auto-review Low): `verificar_config.py` importa `cuota`
+      borrado en S.1 (solo carga por el shim de `test_precio_d0.py`).
+      Diseno S.1 declarado y sellado; si se toca, hacer el import
+      condicional y retirar el shim juntos.

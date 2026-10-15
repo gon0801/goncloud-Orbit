@@ -10,8 +10,8 @@
 <div class="tarjeta">
   <section id="bloque-seguridad-{{ plataforma }}" aria-label="Seguridad {{ plataforma }}">
   <h3>{{ plataforma }} — compuerta</h3>
-  {% if seg.modo_global is none %}
-  <p class="mutado">Apagador sin configurar (config sin claves de modo).</p>
+  {% if seg.modo_global is none or seg.modo_universo is none %}
+  <p class="mutado">Apagador sin configurar (faltan claves de modo).</p>
   {% else %}
   <p>Modo global: {{ seg.modo_global }} ·
   {% for universo, modo in seg.modo_universo.items() if universo.startswith(plataforma ~ "/") %}{{ universo }}: {{ modo }}{% if not loop.last %}, {% endif %}{% else %}sin universos configurados{% endfor %}</p>

@@ -2738,6 +2738,32 @@ def test_s3_precios_trae_bloque_seguridad_con_soltar(monkeypatch):
         assert seg["cohorte"] is None
 
 
+@_skip_sin_pg
+def test_s3_precios_global_sin_universo_no_da_500(monkeypatch):
+    """F1 (revision automatica): global configurado pero sin clave de
+    universo -> el bloque pinta "sin configurar" y /precios sigue 200
+    (antes: `None.items()` en la plantilla = HTTP 500)."""
+    with _db_pantalla("s3-seguni") as (conn, dsn):
+        conn.execute(
+            "INSERT INTO config_version (label, settings) VALUES (%s, %s)",
+            (
+                "test-sin-universo",
+                Json(
+                    {
+                        "precio_aviso_dias_sin_evaluar": 3,
+                        "precio_catalogo_max_dias_sin_reportar": 7,
+                        "precio_cap_amazon_mx": 7,
+                        "precio_cap_amazon_us": 7,
+                        "precio_modo_global": "live",
+                    }
+                ),
+            ),
+        )
+        html = _html_precios(conn, dsn, monkeypatch)
+        assert "bloque-seguridad-amazon_mx" in html
+        assert "sin configurar" in html
+
+
 # ---------------------------------------------------------------------------
 # Bloque S.6 (REPRICING 02, S.6): manda los avisos. Resumen diario con sello
 # por plataforma y dia, aviso de compuerta con sello por universo+causa+dia,
