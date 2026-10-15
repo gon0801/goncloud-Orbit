@@ -78,3 +78,18 @@ Semilla (escenarios de hoy):
 - `apagar-acepto-sim.txt` (exit=0): universo `live -> shadow`
   (config 7; global intacto en live) y 2 goals a shadow.
   Round-trip completo.
+
+## R05-r3 B1 (sonda prueba la forma con variantes)
+
+`sonda.sh` elige al conejillo con 2 o mas miembros activos y FRENA
+sin gastar intento si no hay (`FRENADO: sin conejillo con 2 o mas
+variantes...`, verificado en sim, exit=1).
+`tools/precio_sonda.py:_unidad` arma los miembros desde
+`listing_miembro` activos para meli (espejo de
+`MercadoMeli.catalogo`); sin miembros aborta. Re-corrida en sim
+fresca (listings 11/12/13, 11 con 2 miembros, goals shadow):
+simulacro y acepto exit=0 con el mismo flujo que los txt de r2
+(solo cambia la ruta TMPDIR; no se regrabaron). La prueba
+`tests/test_precio02_sonda_meli.py::test_corre_meli_real_manda_put_con_variations`
+corre `_corre` con MercadoMeli real y muestra PUT con variations
+(ida 979.12 y vuelta 979.11).

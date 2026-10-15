@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # X.4: sonda de ESCRITURA de precio (criterio 3 del plan) sobre el
-# conejillo (el primer goal shadow en MeLi con seller_sku)
-# mas una publicacion de control (el segundo goal shadow). Corre
+# conejillo (el primer goal shadow en MeLi con seller_sku y 2 o mas
+# miembros activos: R05-r3 B1, el PUT probado lleva "variations")
+# mas una publicacion de control (otro goal shadow). Corre
 # tools/precio_sonda.py: mueve al conejillo un centavo sobre su
 # precio vivo y lo revierte. Pasa si MeLi acepta ida y vuelta, la
 # lectura posterior muestra el vivo y el control no cambia. El go
@@ -79,10 +80,9 @@ corre_sonda() {  # corre_sonda <listing> <acepta:0|1>
 }
 
 echo "== X.4 sonda de escritura (MeLi, conejillo + control)"
-IDS=$(lee_sql "SELECT v.listing_id FROM v_precio_goal_vigente v JOIN listing l ON l.id = v.listing_id AND l.platform = v.platform WHERE v.platform = 'meli' AND v.mode = 'shadow' AND l.seller_sku IS NOT NULL ORDER BY v.listing_id LIMIT 2;") || { echo "ABORTA: no se pudo leer los goals conejillo"; exit 1; }
-CTL=$(printf '%s' "$IDS" | sed -n '1p')
-TST=$(printf '%s' "$IDS" | sed -n '2p')
-[ -n "$CTL" ] || { echo "FRENADO: sin goal shadow en MeLi (corre sembrar.sh primero)"; exit 1; }
+CTL=$(lee_sql "SELECT v.listing_id FROM v_precio_goal_vigente v JOIN listing l ON l.id = v.listing_id AND l.platform = v.platform WHERE v.platform = 'meli' AND v.mode = 'shadow' AND l.seller_sku IS NOT NULL AND (SELECT count(*) FROM listing_miembro m WHERE m.listing_id = l.id AND m.platform = 'meli' AND m.activo) >= 2 ORDER BY v.listing_id LIMIT 1;") || { echo "ABORTA: no se pudo leer el conejillo"; exit 1; }
+[ -n "$CTL" ] || { echo "FRENADO: sin conejillo con 2 o mas variantes en shadow (la sonda debe probar el PUT con variations; no se gasta intento)"; exit 1; }
+TST=$(lee_sql "SELECT v.listing_id FROM v_precio_goal_vigente v JOIN listing l ON l.id = v.listing_id AND l.platform = v.platform WHERE v.platform = 'meli' AND v.mode = 'shadow' AND l.seller_sku IS NOT NULL AND v.listing_id <> $CTL ORDER BY v.listing_id LIMIT 1;") || { echo "ABORTA: no se pudo leer el control"; exit 1; }
 [ -n "$TST" ] || { echo "FRENADO: sin publicacion de control (se necesitan 2 goals shadow en MeLi)"; exit 1; }
 echo "conejillo: listing=$CTL (shadow); control: listing=$TST (shadow)"
 
