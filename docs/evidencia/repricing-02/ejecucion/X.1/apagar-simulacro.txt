@@ -1,0 +1,8 @@
+== X.1 apagar MX FBA (reversa del encendido)
+precio_modo_global: shadow (no se toca) | amazon_mx/fba: shadow | base: 32
+goals live en amazon_mx: 0
+== SIMULACRO: sin --acepto-mutacion-real no se postea nada
+settings que se postearia: {"base_config_version_id": 32, "precio_modo_universo": {"amazon_mx/fba": "shadow"}}
+sin goals live que regresar: solo el universo
+SIMULACRO OK (nada escrito)
+exit=0

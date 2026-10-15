@@ -1,0 +1,13 @@
+== X.1 apagar MX FBA (reversa del encendido)
+precio_modo_global: live (no se toca) | amazon_mx/fba: live | base: 33
+goals live en amazon_mx: 8
+== apagado real: universo a shadow (el global no se toca)
+settings: config 34 (settings UI · settings-ui · 2026-10-15 · amazon_mx: precio modo amazon_mx/fba live -> shadow)
+== apagado real: goals live a shadow en bloque (8 unidades)
+-- bloque 1 (8 unidades)
+plan shadow: 8 filas, 0 bloqueadas, huella d34678ecc0fdeccc
+aplicado: sembrados=8 cerrados=8 lote=d34678ecc0fdeccc
+APAGADO OK: amazon_mx/fba en shadow
+exit=0
+global=live univ=shadow
+shadow|8

@@ -1,0 +1,14 @@
+# Checklist antes del deploy D.2 (se verifica tras el merge, antes de desplegar)
+
+- [ ] El PR trae CI `rapido` y `gate` en verde sobre el head.
+- [ ] `ensayo.sh` de D.2 corrido con salida guardada (`ensayo-salida.txt`).
+- [ ] Releer en prod (solo lectura) si la 0059 sigue sin aplicar: si ya
+      esta aplicada, `desplegar.sh` la salta sola y aplica solo la 0058
+      (desviacion 1 de `evidencia.md`); si sigue ausente, D.2 la aplica
+      antes de la 0058.
+- [ ] Nadie corre en prod (`docker top orbit-app-1` sin `app.cli`, sin ciclos en `running`, sin harvest en vuelo).
+- [ ] El crontab de gon trae la linea vieja de precios exactamente
+      como la trae `VIEJA` en `desplegar.sh` (lock `precio-corrida.lock`).
+- [ ] Tras `desplegar.sh <sha>`: `checklist.sh <sello>` en 0 fallas.
+- [ ] Al dia siguiente: el resumen diario llego (Telegram) y la corrida
+      de las 13:10 + repasos escribieron en `precio-corrida.log`.
