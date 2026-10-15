@@ -81,3 +81,13 @@ Semilla (ids claramente falsos):
 Sin `mutantes.md`: no se agregaron pruebas nuevas (carril
 `tdd:skip:ops` del plan). Las simulaciones son corridas guardadas,
 no tests commiteados con logica que mutar.
+
+## Fix CodeRabbit post-PR (ruta real, 2026-10-15)
+
+`docker exec` no propaga el entorno del cliente: la ruta real
+(`X_*='...' docker exec ...`) dejaba al python sin variables
+(`KeyError`; la sim no lo detecta porque corre local). Los tres
+scripts ahora hacen `export X_*=...; docker exec -i -e X_* ...`.
+Validado con dobles locales (`/tmp/prueba-x1-docker-e.sh`: patron
+viejo ve 0 vars, nuevo ve las 6) + `bash -n` en los tres. La ruta
+sim no cambio: las salidas de arriba siguen valiendo.

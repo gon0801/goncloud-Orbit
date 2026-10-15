@@ -84,6 +84,7 @@
       <legend>Motor de precios (global)</legend>
       <label>Modo global
         <select name="precio_modo_global">
+          {% if datos.precio_modo_global is none %}<option value="" selected disabled>ausente</option>{% endif %}
           <option value="off" {% if datos.precio_modo_global == "off" %}selected{% endif %}>off</option>
           <option value="shadow" {% if datos.precio_modo_global == "shadow" %}selected{% endif %}>shadow</option>
           <option value="live" {% if datos.precio_modo_global == "live" %}selected{% endif %}>live</option>

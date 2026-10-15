@@ -59,7 +59,7 @@ corre_py() {  # corre_py: corre $PYPROG dentro (real) o local (sim)
       python3 "$PYPROG"
   else
     # shellcheck disable=SC2029
-    ssh goncloud "X_IDS='$IDS_CHUNK' X_BASE_ID='$BASE_ID' X_MODO_UNIV='$MODO_UNIV' X_BASE='http://127.0.0.1:8000' docker exec -i orbit-app-1 python -" \
+    ssh goncloud "export X_IDS='$IDS_CHUNK' X_BASE_ID='$BASE_ID' X_MODO_UNIV='$MODO_UNIV' X_BASE='http://127.0.0.1:8000'; docker exec -i -e X_IDS -e X_BASE_ID -e X_MODO_UNIV -e X_BASE orbit-app-1 python -" \
       < "$PYPROG"
   fi
 }

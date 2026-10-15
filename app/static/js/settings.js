@@ -72,7 +72,7 @@ function guardarConfig(form) {
   if (cambioSelect(motor)) cuerpo.motor_bid = motor.value;
   // S.2: apagador de precios (global + por universo): solo viaja lo cambiado.
   var precioGlobal = form.elements.precio_modo_global;
-  if (cambioSelect(precioGlobal)) cuerpo.precio_modo_global = precioGlobal.value;
+  if (cambioSelect(precioGlobal) && precioGlobal.value) cuerpo.precio_modo_global = precioGlobal.value;
   var modosUniverso = {};
   form.querySelectorAll("select[data-precio-universo]").forEach(function (sel) {
     if (cambioSelect(sel)) modosUniverso[sel.getAttribute("data-precio-universo")] = sel.value;
