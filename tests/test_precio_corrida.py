@@ -1477,6 +1477,30 @@ def test_cli_precio_despacha_corrida_e_imprime_resumen(monkeypatch, capsys):
     assert "decisiones=1 escritas=0" in capsys.readouterr().out
 
 
+def test_cli_precio_dos_platforms_corren_en_serie(monkeypatch, capsys):
+    """F.4: `--platform mx --platform us` corre las dos, en orden."""
+    from app import cli as cli_mod
+
+    orden = []
+
+    def _falso_correr(conn, mercado, **kw):
+        orden.append(mercado)
+        return Resumen(decisiones=1, escritas=0, cerrados={}, huerfanas=0)
+
+    monkeypatch.setenv("ORBIT_DSN_DECIDE", "postgresql://falso/db")
+    monkeypatch.setattr(cli_mod, "_conexion_decide", lambda: ("conn-falsa", lambda: None))
+    monkeypatch.setattr(cli_mod, "_clientes_precio", lambda platform: ("l", "e", "f", "cubo"))
+    monkeypatch.setattr("app.precio.corrida.correr", _falso_correr)
+    monkeypatch.setattr(
+        "app.precio_mercados.abrir",
+        lambda clave, **kw: _nullcontext(f"mercado-{clave}"),
+    )
+    codigo = cli_mod.main(["precio", "--platform", "amazon_mx", "--platform", "amazon_us"])
+    assert codigo == 0
+    assert orden == ["mercado-amazon_mx", "mercado-amazon_us"]
+    assert capsys.readouterr().out.count("decisiones=1 escritas=0") == 2
+
+
 def test_cli_precio_lock_ocupado_sale_cero(monkeypatch, capsys):
     """Claim perdido: mensaje y exit 0 (el trabajo ya esta en curso)."""
     from app import cli as cli_mod
