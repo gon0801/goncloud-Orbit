@@ -615,3 +615,28 @@ def resolver_fx(
             quote=quote,
         ),
     )
+
+
+def oferta_para_cotizar(conn: psycopg.Connection, oferta_id: int) -> OfertaResuelta:
+    """Fila de oferta como `OfertaResuelta` (token opaco de `Mercado.cotizar`)."""
+    fila = conn.execute(
+        "SELECT listing_id, platform, seller_sku, asin, canal, price_amount, price_currency,"
+        " fetched_at, source_event_id, canonical_input, context_fingerprint"
+        " FROM estimacion_oferta_observation WHERE id = %s",
+        (oferta_id,),
+    ).fetchone()
+    if fila is None:
+        raise ValueError(f"oferta {oferta_id} ausente para cotizar")
+    return OfertaResuelta(
+        listing_id=fila[0],
+        platform=fila[1],
+        seller_sku=fila[2],
+        asin=fila[3],
+        canal=fila[4],
+        price_amount=Decimal(fila[5]),
+        price_currency=fila[6],
+        fetched_at=fila[7],
+        canonical_input=dict(fila[9] or {}),
+        context_fingerprint=fila[10],
+        source_event_id=fila[8],
+    )

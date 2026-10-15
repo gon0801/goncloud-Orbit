@@ -132,6 +132,31 @@ class ApifyCredentials:
 # ---------------------------------------------------------------------------
 
 
+def refrescar_tokens_meli(creds: MeliCredentials, cliente: httpx.Client) -> None:
+    """POST /oauth/token + guardado atomico. La unica pieza que toca el secreto.
+
+    `ClienteMeli` (GET-only) y `MeliWriteClient` (PUT) la comparten: el
+    secreto y su reescritura viven aqui, no en los clientes.
+    """
+    resp = cliente.post(
+        "/oauth/token",
+        data={
+            "grant_type": "refresh_token",
+            "client_id": creds.client_id,
+            "client_secret": creds.client_secret,
+            "refresh_token": creds.refresh_token,
+        },
+    )
+    if resp.status_code != 200:
+        raise ReputacionError(f"MeLi refresh -> {resp.status_code}")
+    data = resp.json()
+    access = data.get("access_token")
+    refresh = data.get("refresh_token")
+    if not access or not refresh:
+        raise ReputacionError("MeLi refresh sin tokens en respuesta")
+    creds.guardar_tokens(access, refresh)
+
+
 class ClienteMeli:
     """GET a api.mercadolibre.com. Cualquier otro metodo levanta sin red."""
 
@@ -182,23 +207,7 @@ class ClienteMeli:
         raise ReputacionError(f"MeLi GET {path}: sin respuesta")  # inalcanzable
 
     def _refresh(self) -> None:
-        resp = self._client.post(
-            "/oauth/token",
-            data={
-                "grant_type": "refresh_token",
-                "client_id": self._creds.client_id,
-                "client_secret": self._creds.client_secret,
-                "refresh_token": self._creds.refresh_token,
-            },
-        )
-        if resp.status_code != 200:
-            raise ReputacionError(f"MeLi refresh -> {resp.status_code}")
-        data = resp.json()
-        access = data.get("access_token")
-        refresh = data.get("refresh_token")
-        if not access or not refresh:
-            raise ReputacionError("MeLi refresh sin tokens en respuesta")
-        self._creds.guardar_tokens(access, refresh)
+        refrescar_tokens_meli(self._creds, self._client)
 
     def get(self, path: str, params: dict | None = None) -> tuple[dict, dt.datetime]:
         """GET + instante de la respuesta (fetched_at). A.4 reusa este metodo."""

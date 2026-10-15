@@ -148,14 +148,16 @@ def _observacion(
     precio: str | None = "979.11",
     moneda: str | None = "MXN",
     estado: str = "active",
+    visitas: int | None = None,
+    stock: int | None = 3,
 ) -> None:
     """Agrega una observacion (append-only: nunca UPDATE)."""
     conn.execute(
         "INSERT INTO meli_publicacion_observation"
         " (item_id, metric_date, observed_at, estado, precio, moneda, stock,"
         " tipo_publicacion, categoria_id, logistica, visitas, variantes)"
-        " VALUES (%s, %s, %s, %s, %s, %s, 3, 'gold_pro', 'MLM1440', NULL, NULL, '[]')",
-        (item, observado.date(), observado, estado, precio, moneda),
+        " VALUES (%s, %s, %s, %s, %s, %s, %s, 'gold_pro', 'MLM1440', NULL, %s, '[]')",
+        (item, observado.date(), observado, estado, precio, moneda, stock, visitas),
     )
 
 

@@ -18,7 +18,7 @@ from decimal import Decimal
 from typing import Any, Literal, Protocol, runtime_checkable
 
 from app.precio.objetivo import precio_estrella
-from app.precio.tipos import Cuenta, Fees, Importe, ObservacionPricing
+from app.precio.tipos import Cuenta, EntradaDecision, Fees, Importe, ObservacionPricing
 
 __all__ = [
     "Miembro",
@@ -37,6 +37,8 @@ __all__ = [
     "Vitrina",
     "Mercado",
     "miembro_que_manda",
+    "MetaGoal",
+    "Lectura",
 ]
 
 Plataforma = str
@@ -262,6 +264,36 @@ class Mercado(Vitrina, Protocol):
         ...
 
     def cerrar(self) -> None: ...
+
+
+@dataclass(frozen=True)
+class MetaGoal:
+    """Lo unico que la corrida sabe y el escenario no: el goal del dia."""
+
+    goal: Decimal
+    mode: str
+    goal_vigente_desde: date
+
+
+@dataclass(frozen=True)
+class Lectura:
+    """El dia de una unidad ya resuelto por el adaptador.
+
+    `entrada` es `None` cuando no hay escenario disponible (el motivo viaja
+    en `motivo`); `cotizable` es la oferta resuelta para cotizar (token
+    opaco que `Mercado.cotizar` entiende); `fees_escenario` trae los fees
+    del escenario ya partidos o el motivo cuando partirlos fallo.
+    `historia` la arma el adaptador y la consume S.7; `None` sin cuenta
+    disponible.
+    """
+
+    entrada: EntradaDecision | None
+    motivo: str | None
+    diagnostico: str
+    ids: dict | None
+    cotizable: object
+    fees_escenario: Fees | str
+    historia: HistoriaUnidad | None = None
 
 
 def miembro_que_manda(

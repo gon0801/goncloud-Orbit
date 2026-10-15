@@ -830,7 +830,7 @@ def test_cambios_previos_incluyen_virtual_para_cooldown_en_sombra():
     hoy y `precio_decision` es append-only): el freno con virtual lo cubren
     las reglas (A.2) y aqui el feed que la corrida les entrega.
     """
-    from app.spapi.precio_mercado import cambios_previos
+    from app.precio.fuentes import cambios_previos
 
     with _db() as (conn, _dsn):
         datos = _cadena(conn, mode="shadow")
@@ -1278,16 +1278,12 @@ def test_virtual_de_sombra_dispara_freno_6():
     """
     from app.estimacion_reader import leer_cuenta
     from app.precio.config import leer_config
+    from app.precio.fuentes import cambios_previos, historial_margenes, ultima_subida
     from app.precio.objetivo import ErrorObjetivo, derivar_ref_fijo
     from app.precio.puerto import Miembro, UnidadPrecio
     from app.precio.reglas import decidir
     from app.precio.tipos import Escenario
-    from app.spapi.precio_mercado import (
-        _ultima_subida,
-        cambios_previos,
-        historia_unidad,
-        historial_margenes,
-    )
+    from app.spapi.precio_mercado import historia_unidad
 
     with _db() as (conn, _dsn):
         ajustes = {**SETTINGS, "precio_senal_dias": 1}
@@ -1395,7 +1391,7 @@ def test_virtual_de_sombra_dispara_freno_6():
                 hoy=hoy,
                 config=config,
                 racha_previa=0,
-                ultima_subida=_ultima_subida(previos),
+                ultima_subida=ultima_subida(previos),
                 trafico_min=ajustes["precio_senal_trafico_min"],
             ),
             cambios=previos,
@@ -4617,7 +4613,7 @@ def test_s4_huerfana_quieta_es_error_sin_efecto():
     """S.4: huerfana con vivo == `precio_antes` sella `error` con
     `huerfana_sin_efecto`, y `cambios_previos` la lee `sin_efecto`."""
     from app.precio.cambios import cerrar_huerfanas
-    from app.spapi.precio_mercado import cambios_previos
+    from app.precio.fuentes import cambios_previos
 
     with _db() as (conn, _dsn):
         lid, cid = _pendiente_huerfana(conn)

@@ -14,9 +14,9 @@ Las consultas viven tambien en `docs/evidencia/repricing-01/A.7/consultas/`
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -27,6 +27,7 @@ from app.precio.compuerta import Retenida
 from app.precio.config import _entero as config_entero
 from app.precio.config import _modo_universo as config_modo_universo
 from app.precio.config import _numero as config_numero
+from app.precio.tipos import CambioPrevio, HistorialMargen
 
 __all__ = [
     "max_dias_desde_settings",
@@ -38,6 +39,11 @@ __all__ = [
     "UltimaCorrida",
     "EstadoSeguridad",
     "leer_seguridad",
+    "VentasUnidad",
+    "ventas_unidad",
+    "cambios_previos",
+    "ultima_subida",
+    "historial_margenes",
 ]
 
 _SQL_CANAL = (
@@ -277,3 +283,181 @@ def leer_seguridad(conn: psycopg.Connection, plataforma: str, *, hoy: date) -> E
         liberable_corrida_id=liberable,
         cohorte=None,
     )
+
+
+# ---------------------------------------------------------------------------
+# Lectores de historia de unidad (M.4: mudados de `app/spapi/precio_mercado`;
+# son por plataforma-parametro, los dos adaptadores los usan).
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class VentasUnidad:
+    """Ventas atribuidas de la unidad + cobertura, para armar `HistoriaUnidad`."""
+
+    dias: Mapping[date, int]
+    primera_venta: date | None
+    sin_atribuir: int
+    ledger_cubierto_hasta: date | None
+
+
+def ventas_unidad(
+    conn: psycopg.Connection,
+    *,
+    listing_id: int,
+    producto_ancla: int,
+    platform: str,
+    desde: date,
+    hoy: date,
+) -> VentasUnidad:
+    """Ventas de `v_precio_venta_unidad` + cobertura del ledger (por unidad)."""
+    dias: dict[date, int] = {}
+    for dia, qty in conn.execute(
+        "SELECT event_date, quantity FROM v_precio_venta_unidad"
+        " WHERE listing_id = %s AND platform = %s AND quantity IS NOT NULL",
+        (listing_id, platform),
+    ).fetchall():
+        if desde <= dia <= hoy:
+            dias[dia] = dias.get(dia, 0) + qty
+    primera = conn.execute(
+        "SELECT min(event_date) FROM v_precio_venta_unidad"
+        " WHERE listing_id = %s AND platform = %s AND quantity IS NOT NULL",
+        (listing_id, platform),
+    ).fetchone()[0]
+    hasta = hoy - timedelta(days=1)
+    sin_atribuir = sum(
+        fila[0]
+        for fila in conn.execute(
+            "SELECT quantity FROM v_precio_venta_unidad"
+            " WHERE product_id = %s AND platform = %s AND listing_id IS NULL"
+            " AND quantity IS NOT NULL AND event_date BETWEEN %s AND %s",
+            (producto_ancla, platform, desde, hasta),
+        ).fetchall()
+    )
+    cubierto = conn.execute(
+        "SELECT max(e.event_date) FROM ledger_event e"
+        " JOIN ingest_run r ON r.id = e.ingest_run_id"
+        " WHERE e.platform = %s AND e.kind = 'sale' AND r.ok"
+        " AND r.source = 'accounting_ledger_events'",
+        (platform,),
+    ).fetchone()[0]
+    return VentasUnidad(
+        dias=dias,
+        primera_venta=primera,
+        sin_atribuir=sin_atribuir,
+        ledger_cubierto_hasta=cubierto,
+    )
+
+
+def _direccion(antes: Decimal, despues: Decimal) -> str | None:
+    if despues > antes:
+        return "subir"
+    if despues < antes:
+        return "bajar"
+    return None
+
+
+def cambios_previos(
+    conn: psycopg.Connection, listing_id: int, platform: str
+) -> tuple[CambioPrevio, ...]:
+    """Cambios no-reversa del par para #6, #9 y #10 (reales y virtuales).
+
+    La direccion sale de comparar importes (la fila no la guarda). Un
+    cambio con `antes == despues` no tiene direccion y se salta (no deberia
+    existir: el motor solo mueve precio). `sin_efecto` (REPRICING 02 S.4,
+    `datos.sql` 8) se deriva al leer: `error` con codigo
+    `huerfana_sin_efecto` o con readback igual a `precio_antes` (importe
+    Y moneda); sin readback no hay prueba y cuenta normal.
+    """
+    filas = conn.execute(
+        "SELECT (enviado_at AT TIME ZONE 'UTC')::date, precio_antes, precio_antes_currency,"
+        " precio_despues, estado, es_reversa, aplicado, error_code,"
+        " readback_precio, readback_precio_currency"
+        " FROM precio_cambio"
+        " WHERE listing_id = %s AND platform = %s AND NOT es_reversa"
+        " ORDER BY id",
+        (listing_id, platform),
+    ).fetchall()
+    cambios: list[CambioPrevio] = []
+    for (
+        enviado_en,
+        antes,
+        antes_moneda,
+        despues,
+        estado,
+        _reversa,
+        aplicado,
+        error_code,
+        readback,
+        readback_moneda,
+    ) in filas:
+        direccion = _direccion(antes, despues)
+        if direccion is None or enviado_en is None:
+            continue
+        sin_efecto = estado == "error" and (
+            error_code == "huerfana_sin_efecto"
+            or (
+                readback is not None
+                and readback_moneda is not None
+                and (readback, readback_moneda) == (antes, antes_moneda)
+            )
+        )
+        cambios.append(
+            CambioPrevio(
+                enviado_en=enviado_en,
+                direccion=direccion,
+                estado=estado,
+                es_reversa=False,
+                aplicado=bool(aplicado),
+                sin_efecto=sin_efecto,
+            )
+        )
+    return tuple(cambios)
+
+
+def ultima_subida(cambios: Sequence[CambioPrevio]) -> date | None:
+    """Dia de la ultima subida propia que movio precio (None si no hay).
+
+    Solo cuentan `subir` ejecutadas (`enviado`/`confirmado`); un `error`,
+    un `pendiente` o un `sin_efecto` (el readback probo que el precio no
+    se movio) no abren antes/despues para el trafico. El virtual de
+    shadow (`confirmado` sin `aplicado`) tampoco: cero escrituras.
+    """
+    dias = [
+        c.enviado_en
+        for c in cambios
+        if c.direccion == "subir"
+        and c.estado in ("enviado", "confirmado")
+        and c.aplicado
+        and not c.sin_efecto
+    ]
+    return max(dias) if dias else None
+
+
+def historial_margenes(
+    conn: psycopg.Connection, listing_id: int, platform: str
+) -> tuple[HistorialMargen, ...]:
+    """Distancias `|m - goal|` al decidir cada cambio (#10)."""
+    filas = conn.execute(
+        "SELECT d.m_actual, d.goal, d.decision_date, c.precio_antes, c.precio_despues,"
+        " c.aplicado"
+        " FROM precio_cambio c JOIN precio_decision d ON d.id = c.decision_id"
+        " WHERE c.listing_id = %s AND c.platform = %s AND NOT c.es_reversa"
+        " AND d.m_actual IS NOT NULL AND d.goal IS NOT NULL"
+        " ORDER BY c.id",
+        (listing_id, platform),
+    ).fetchall()
+    puntos: list[HistorialMargen] = []
+    for m_actual, goal, fecha, antes, despues, aplicado in filas:
+        direccion = _direccion(antes, despues)
+        if direccion is None or fecha is None:
+            continue
+        puntos.append(
+            HistorialMargen(
+                direccion=direccion,
+                distancia=abs(Decimal(m_actual) - Decimal(goal)),
+                fecha=fecha,
+                aplicado=bool(aplicado),
+            )
+        )
+    return tuple(puntos)

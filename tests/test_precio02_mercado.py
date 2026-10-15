@@ -322,7 +322,8 @@ def test_catalogo_coincide_con_sql_cano_y_el_orden_importa():
 @_skip_sin_pg
 def test_leer_cuenta_da_los_mismos_importes_que_la_entrada_del_adaptador():
     from app.estimacion_reader import leer_cuenta
-    from app.spapi.precio_mercado import MercadoAmazon, MetaGoal
+    from app.precio.puerto import MetaGoal
+    from app.spapi.precio_mercado import MercadoAmazon
 
     with _db02() as conn:
         datos = _cadena(conn)
@@ -501,8 +502,9 @@ def _cadena_sin_referral(conn):
 @_skip_sin_pg
 def test_sin_referral_unico_en_tolerancia_mantiene_y_bajo_el_goal_no_evalua():
     from app.precio.config import leer_config
+    from app.precio.puerto import MetaGoal
     from app.precio.reglas import decidir
-    from app.spapi.precio_mercado import MercadoAmazon, MetaGoal
+    from app.spapi.precio_mercado import MercadoAmazon
 
     with _db02() as conn:
         datos = _cadena_sin_referral(conn)
@@ -871,8 +873,8 @@ def test_historia_ventana_76_dias_primera_y_cubierto():
 @_skip_sin_pg
 def test_insumos_adjunta_historia_a_la_lectura():
     from app.precio.config import leer_config
-    from app.precio.puerto import HistoriaUnidad
-    from app.spapi.precio_mercado import MercadoAmazon, MetaGoal
+    from app.precio.puerto import HistoriaUnidad, MetaGoal
+    from app.spapi.precio_mercado import MercadoAmazon
 
     with _db02() as conn:
         datos = _cadena(conn)
@@ -918,7 +920,7 @@ def test_insumos_adjunta_historia_a_la_lectura():
 
 
 def _metas_s7(lid, hoy):
-    from app.spapi.precio_mercado import MetaGoal
+    from app.precio.puerto import MetaGoal
 
     return {
         lid: MetaGoal(
@@ -1109,8 +1111,8 @@ def test_senal_sin_clave_de_trafico_falla_fuerte():
 def test_ultima_subida_ignora_lo_que_no_movio_precio():
     from datetime import date
 
+    from app.precio.fuentes import ultima_subida
     from app.precio.tipos import CambioPrevio
-    from app.spapi.precio_mercado import _ultima_subida
 
     d1 = date(2026, 9, 1)
     d2 = date(2026, 9, 5)
@@ -1121,15 +1123,15 @@ def test_ultima_subida_ignora_lo_que_no_movio_precio():
         CambioPrevio(d3, "bajar", "confirmado", aplicado=True, sin_efecto=False),
         CambioPrevio(d2, "subir", "confirmado", aplicado=True, sin_efecto=True),
     )
-    assert _ultima_subida(cambios) == d1
-    assert _ultima_subida(()) is None
+    assert ultima_subida(cambios) == d1
+    assert ultima_subida(()) is None
 
 
 def test_ultima_subida_ignora_virtual_confirmado():
     from datetime import date
 
+    from app.precio.fuentes import ultima_subida
     from app.precio.tipos import CambioPrevio
-    from app.spapi.precio_mercado import _ultima_subida
 
     d1 = date(2026, 9, 1)
     d2 = date(2026, 9, 5)
@@ -1137,8 +1139,8 @@ def test_ultima_subida_ignora_virtual_confirmado():
         CambioPrevio(d1, "subir", "confirmado", aplicado=True, sin_efecto=False),
         CambioPrevio(d2, "subir", "confirmado", aplicado=False, sin_efecto=False),
     )
-    assert _ultima_subida(cambios) == d1
-    assert _ultima_subida(cambios[1:]) is None
+    assert ultima_subida(cambios) == d1
+    assert ultima_subida(cambios[1:]) is None
 
 
 @_skip_sin_pg

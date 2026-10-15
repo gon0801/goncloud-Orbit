@@ -390,6 +390,9 @@ El server está en UTC: estas horas SON UTC.
 | 12:15 | `precio-muestras:amazon_mx` | `python -m app.envio_muestras --platform amazon_mx --canal fbm` (REPRICING 02 D.3: job diario de muestras MX antes de la estimacion) |
 | 12:20 | `precio-muestras:amazon_us` | `python -m app.envio_muestras --platform amazon_us --canal fbm` (REPRICING 02 D.3: job diario de muestras US antes de la estimacion) |
 | 13:10 + repasos 15-23/2 | `precio:amazon_mx,amazon_us` | `python -m app.cli precio --platform amazon_mx --platform amazon_us` (REPRICING 02 D.3: diaria 13:10 + repasos cada 2 h, MX y US en serie; flock + log, lineas exactas abajo) |
+| 12:25 | `precio-muestras:meli` | `python -m app.envio_muestras --platform meli --canal meli` (REPRICING 02 D.4: muestras MeLi antes de la estimacion) |
+| 12:35 | `meli-catalogo` | `python -m app.meli.catalogo` (REPRICING 02 D.4: catalogo MeLi antes de la corrida) |
+| 12:40 + repasos 15-23/2 | `precio:meli` | `python -m app.cli precio --platform meli` (REPRICING 02 D.4: diaria 12:40 + repasos cada 2 h; flock propio + log, lineas exactas abajo) |
 
 Corrida diaria de precios (REPRICING 02 D.3), `amazon_mx` y `amazon_us`
 en serie: la diaria de las 13:10 UTC mas los repasos de las 15:10 a las
@@ -409,6 +412,18 @@ Lineas EXACTAS del crontab de `gon` (la prueba
 10 15-23/2 * * * /usr/bin/flock -n /tmp/precio-spapi.lock docker exec orbit-app-1 python -m app.cli precio --platform amazon_mx --platform amazon_us >> /mnt/data/appdata/orbit/logs/precio-corrida.log 2>&1
 15 12 * * * docker exec orbit-app-1 python -m app.envio_muestras --platform amazon_mx --canal fbm >> /mnt/data/appdata/orbit/logs/precio-muestras.log 2>&1
 20 12 * * * docker exec orbit-app-1 python -m app.envio_muestras --platform amazon_us --canal fbm >> /mnt/data/appdata/orbit/logs/precio-muestras.log 2>&1
+```
+
+MeLi (REPRICING 02 D.4): mismas cuatro patas en serie — muestras
+12:25, catalogo 12:35, corrida 12:40 y repasos 15:40-23:40 cada 2 h
+(`precio-meli.lock` propio: la corrida Amazon usa el suyo). Lineas
+EXACTAS (las pinza el test del paquete D.4):
+
+```cron
+25 12 * * * docker exec orbit-app-1 python -m app.envio_muestras --platform meli --canal meli >> /mnt/data/appdata/orbit/logs/precio-muestras.log 2>&1
+35 12 * * * docker exec orbit-app-1 python -m app.meli.catalogo >> /mnt/data/appdata/orbit/logs/meli-catalogo.log 2>&1
+40 12 * * * /usr/bin/flock -n /tmp/precio-meli.lock docker exec orbit-app-1 python -m app.cli precio --platform meli >> /mnt/data/appdata/orbit/logs/precio-corrida.log 2>&1
+40 15-23/2 * * * /usr/bin/flock -n /tmp/precio-meli.lock docker exec orbit-app-1 python -m app.cli precio --platform meli >> /mnt/data/appdata/orbit/logs/precio-corrida.log 2>&1
 ```
 
 Antes de instalar las líneas: la 0039 aplicada y las claves `precio_*`

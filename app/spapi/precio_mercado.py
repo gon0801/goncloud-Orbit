@@ -1,7 +1,7 @@
 """MercadoAmazon: el adaptador de Amazon del motor de precios.
 
 Aqui aterriza lo que hoy estaba repartido entre `corrida.py` (lecturas de
-`spapi_price_observation` y compania, `_oferta_para_cotizar`, `_verificada`,
+`spapi_price_observation` y compania, `oferta_para_cotizar` (en `fuentes`), `_verificada`,
 `_detalle_fee`, el armado de la entrada) y la mitad Amazon de la escritura.
 La corrida recibe esta clase duck-typed: no implementa todavia el Protocol
 estricto del puerto (eso llega con S/F), pero ya entrega cotizaciones
@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 
@@ -24,18 +23,18 @@ import httpx
 import psycopg
 
 from app.estimacion_fees import ProductFeesClient, cotizar_a_precio
-from app.estimacion_insumos import OfertaResuelta
+from app.estimacion_insumos import oferta_para_cotizar
 from app.estimacion_reader import leer_cuenta
 from app.estimacion_venta import DetalleFee
 from app.precio import puerto
 from app.precio.config import ConfigPrecio
+from app.precio.fuentes import cambios_previos, historial_margenes, ultima_subida, ventas_unidad
 from app.precio.objetivo import ErrorObjetivo, derivar_ref_fijo
+from app.precio.puerto import Lectura, MetaGoal
 from app.precio.tipos import (
-    CambioPrevio,
     EntradaDecision,
     Escenario,
     Fees,
-    HistorialMargen,
     Importe,
     ObservacionPricing,
 )
@@ -53,7 +52,7 @@ from app.spapi.write_client import validar_patch_listings
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["MercadoAmazon", "Mercado", "MetaGoal", "Lectura"]
+__all__ = ["MercadoAmazon", "Mercado"]
 
 # La activa canonica de Amazon (BUYABLE de SP-API): la ultima observacion
 # por (seller_sku, platform) cuyo status contiene BUYABLE, con LEFT JOIN a
@@ -71,35 +70,6 @@ _SQL_CANO = (
     " ORDER BY e.seller_sku, e.platform, e.observed_at DESC, l.id NULLS LAST"
     ") u WHERE u.status LIKE '%%BUYABLE%%'"
 )
-
-
-@dataclass(frozen=True)
-class MetaGoal:
-    """Lo unico que la corrida sabe y el escenario no: el goal del dia."""
-
-    goal: Decimal
-    mode: str
-    goal_vigente_desde: date
-
-
-@dataclass(frozen=True)
-class Lectura:
-    """El dia de una unidad ya resuelto por el adaptador.
-
-    `entrada` es `None` cuando no hay escenario disponible (el motivo viaja
-    en `motivo`); `cotizable` es la oferta resuelta para cotizar (token
-    opaco que `Mercado.cotizar` entiende); `fees_escenario` trae los fees
-    del escenario ya partidos o el motivo cuando partirlos fallo.
-    `historia` la arma F.4 y la consume S.7; `None` sin cuenta disponible.
-    """
-
-    entrada: EntradaDecision | None
-    motivo: str | None
-    diagnostico: str
-    ids: dict | None
-    cotizable: object
-    fees_escenario: Fees | str
-    historia: puerto.HistoriaUnidad | None = None
 
 
 def _detalle_fee(nodo: dict) -> DetalleFee:
@@ -129,120 +99,6 @@ def _tiene_tax(detalles: tuple[DetalleFee, ...]) -> bool:
 
 def _suma_top(detalles: tuple[DetalleFee, ...]) -> Decimal:
     return sum((det.final_fee for det in detalles), Decimal(0))
-
-
-def _direccion(antes: Decimal, despues: Decimal) -> str | None:
-    if despues > antes:
-        return "subir"
-    if despues < antes:
-        return "bajar"
-    return None
-
-
-def cambios_previos(
-    conn: psycopg.Connection, listing_id: int, platform: str
-) -> tuple[CambioPrevio, ...]:
-    """Cambios no-reversa del par para #6, #9 y #10 (reales y virtuales).
-
-    La direccion sale de comparar importes (la fila no la guarda). Un
-    cambio con `antes == despues` no tiene direccion y se salta (no deberia
-    existir: el motor solo mueve precio). `sin_efecto` (REPRICING 02 S.4,
-    `datos.sql` 8) se deriva al leer: `error` con codigo
-    `huerfana_sin_efecto` o con readback igual a `precio_antes` (importe
-    Y moneda); sin readback no hay prueba y cuenta normal.
-    """
-    filas = conn.execute(
-        "SELECT (enviado_at AT TIME ZONE 'UTC')::date, precio_antes, precio_antes_currency,"
-        " precio_despues, estado, es_reversa, aplicado, error_code,"
-        " readback_precio, readback_precio_currency"
-        " FROM precio_cambio"
-        " WHERE listing_id = %s AND platform = %s AND NOT es_reversa"
-        " ORDER BY id",
-        (listing_id, platform),
-    ).fetchall()
-    cambios: list[CambioPrevio] = []
-    for (
-        enviado_en,
-        antes,
-        antes_moneda,
-        despues,
-        estado,
-        _reversa,
-        aplicado,
-        error_code,
-        readback,
-        readback_moneda,
-    ) in filas:
-        direccion = _direccion(antes, despues)
-        if direccion is None or enviado_en is None:
-            continue
-        sin_efecto = estado == "error" and (
-            error_code == "huerfana_sin_efecto"
-            or (
-                readback is not None
-                and readback_moneda is not None
-                and (readback, readback_moneda) == (antes, antes_moneda)
-            )
-        )
-        cambios.append(
-            CambioPrevio(
-                enviado_en=enviado_en,
-                direccion=direccion,
-                estado=estado,
-                es_reversa=False,
-                aplicado=bool(aplicado),
-                sin_efecto=sin_efecto,
-            )
-        )
-    return tuple(cambios)
-
-
-def _ultima_subida(cambios: Sequence[CambioPrevio]) -> date | None:
-    """Dia de la ultima subida propia que movio precio (None si no hay).
-
-    Solo cuentan `subir` ejecutadas (`enviado`/`confirmado`); un `error`,
-    un `pendiente` o un `sin_efecto` (el readback probo que el precio no
-    se movio) no abren antes/despues para el trafico. El virtual de
-    shadow (`confirmado` sin `aplicado`) tampoco: cero escrituras.
-    """
-    dias = [
-        c.enviado_en
-        for c in cambios
-        if c.direccion == "subir"
-        and c.estado in ("enviado", "confirmado")
-        and c.aplicado
-        and not c.sin_efecto
-    ]
-    return max(dias) if dias else None
-
-
-def historial_margenes(
-    conn: psycopg.Connection, listing_id: int, platform: str
-) -> tuple[HistorialMargen, ...]:
-    """Distancias `|m - goal|` al decidir cada cambio (#10)."""
-    filas = conn.execute(
-        "SELECT d.m_actual, d.goal, d.decision_date, c.precio_antes, c.precio_despues,"
-        " c.aplicado"
-        " FROM precio_cambio c JOIN precio_decision d ON d.id = c.decision_id"
-        " WHERE c.listing_id = %s AND c.platform = %s AND NOT c.es_reversa"
-        " AND d.m_actual IS NOT NULL AND d.goal IS NOT NULL"
-        " ORDER BY c.id",
-        (listing_id, platform),
-    ).fetchall()
-    puntos: list[HistorialMargen] = []
-    for m_actual, goal, fecha, antes, despues, aplicado in filas:
-        direccion = _direccion(antes, despues)
-        if direccion is None or fecha is None:
-            continue
-        puntos.append(
-            HistorialMargen(
-                direccion=direccion,
-                distancia=abs(Decimal(m_actual) - Decimal(goal)),
-                fecha=fecha,
-                aplicado=bool(aplicado),
-            )
-        )
-    return tuple(puntos)
 
 
 def _dia_utc(valor):
@@ -289,36 +145,18 @@ def historia_unidad(
     platform = unidad.plataforma
     skus = [m.seller_sku for m in unidad.miembros]
     desde = hoy - timedelta(days=75)
-    unidades: dict = {}
-    for dia, qty in conn.execute(
-        "SELECT event_date, quantity FROM v_precio_venta_unidad"
-        " WHERE listing_id = %s AND platform = %s AND quantity IS NOT NULL",
-        (unidad.listing_id, platform),
-    ).fetchall():
-        if desde <= dia <= hoy:
-            unidades[dia] = unidades.get(dia, 0) + qty
-    primera = conn.execute(
-        "SELECT min(event_date) FROM v_precio_venta_unidad"
-        " WHERE listing_id = %s AND platform = %s AND quantity IS NOT NULL",
-        (unidad.listing_id, platform),
-    ).fetchone()[0]
-    hasta = hoy - timedelta(days=1)
-    sin_atribuir = sum(
-        fila[0]
-        for fila in conn.execute(
-            "SELECT quantity FROM v_precio_venta_unidad"
-            " WHERE product_id = %s AND platform = %s AND listing_id IS NULL"
-            " AND quantity IS NOT NULL AND event_date BETWEEN %s AND %s",
-            (unidad.producto_ancla, platform, desde, hasta),
-        ).fetchall()
+    ventas = ventas_unidad(
+        conn,
+        listing_id=unidad.listing_id,
+        producto_ancla=unidad.producto_ancla,
+        platform=platform,
+        desde=desde,
+        hoy=hoy,
     )
-    cubierto = conn.execute(
-        "SELECT max(e.event_date) FROM ledger_event e"
-        " JOIN ingest_run r ON r.id = e.ingest_run_id"
-        " WHERE e.platform = %s AND e.kind = 'sale' AND r.ok"
-        " AND r.source = 'accounting_ledger_events'",
-        (platform,),
-    ).fetchone()[0]
+    unidades = ventas.dias
+    primera = ventas.primera_venta
+    sin_atribuir = ventas.sin_atribuir
+    cubierto = ventas.ledger_cubierto_hasta
     estados: dict = {}
     stocks: dict = {}
     for codigo in skus:
@@ -380,31 +218,6 @@ def historia_unidad(
         primera_venta=primera,
         ledger_cubierto_hasta=cubierto,
         sin_atribuir=sin_atribuir,
-    )
-
-
-def _oferta_para_cotizar(conn: psycopg.Connection, oferta_id: int):
-    """Fila de oferta como `OfertaResuelta` (insumo de `cotizar_a_precio`)."""
-    fila = conn.execute(
-        "SELECT listing_id, platform, seller_sku, asin, canal, price_amount, price_currency,"
-        " fetched_at, source_event_id, canonical_input, context_fingerprint"
-        " FROM estimacion_oferta_observation WHERE id = %s",
-        (oferta_id,),
-    ).fetchone()
-    if fila is None:
-        raise ValueError(f"oferta {oferta_id} ausente para cotizar")
-    return OfertaResuelta(
-        listing_id=fila[0],
-        platform=fila[1],
-        seller_sku=fila[2],
-        asin=fila[3],
-        canal=fila[4],
-        price_amount=Decimal(fila[5]),
-        price_currency=fila[6],
-        fetched_at=fila[7],
-        canonical_input=dict(fila[9] or {}),
-        context_fingerprint=fila[10],
-        source_event_id=fila[8],
     )
 
 
@@ -680,7 +493,7 @@ class MercadoAmazon:
             hoy=hoy,
             config=config,
             racha_previa=int(racha_por_lid.get(unidad.listing_id) or 0),
-            ultima_subida=_ultima_subida(cambios),
+            ultima_subida=ultima_subida(cambios),
             trafico_min=trafico_min,
         )
         escenario = Escenario(
@@ -692,7 +505,7 @@ class MercadoAmazon:
             precio_incluye_iva=cuenta.precio_incluye_iva,
             oferta_observada_en=cuenta.oferta_observada_en,
         )
-        cotizable = _oferta_para_cotizar(conn, cuenta.refs.oferta_observation_id)
+        cotizable = oferta_para_cotizar(conn, cuenta.refs.oferta_observation_id)
         entrada = EntradaDecision(
             listing_id=unidad.listing_id,
             platform=self.clave,
