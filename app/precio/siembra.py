@@ -336,10 +336,10 @@ def _referencia(
 
 def _huella(pedido: Pedido, filas: tuple[FilaPlan, ...]) -> str:
     # La `_huella` del tool: `sembrar` y `cerrar` conservan su formato al
-    # byte (el contrato congela la huella vieja). `reemplazar` espeja sus
-    # dos escrituras (cerrar el vigente + sembrar el nuevo) y `nada` solo
-    # su identidad: cualquier cambio de dato entre mirar y aceptar mueve
-    # la huella.
+    # byte (el contrato congela la huella vieja). Cubre identidad, accion,
+    # goal propuesto y modo; NO bloqueo, p_actual ni m_hoy: un bloqueo que
+    # se disipa entre mirar y aceptar no mueve la huella (B-W1/F3, fila de
+    # seguimiento; meterlo rompe el formato congelado).
     partes = []
     for fila in filas:
         if fila.accion == "cerrar":
