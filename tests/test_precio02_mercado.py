@@ -1117,7 +1117,7 @@ def test_ultima_subida_ignora_lo_que_no_movio_precio():
     d3 = date(2026, 9, 9)
     cambios = (
         CambioPrevio(d1, "subir", "confirmado", aplicado=True, sin_efecto=False),
-        CambioPrevio(d2, "subir", "error", aplicado=False, sin_efecto=False),
+        CambioPrevio(d2, "subir", "error", aplicado=True, sin_efecto=False),
         CambioPrevio(d3, "bajar", "confirmado", aplicado=True, sin_efecto=False),
         CambioPrevio(d2, "subir", "confirmado", aplicado=True, sin_efecto=True),
     )
