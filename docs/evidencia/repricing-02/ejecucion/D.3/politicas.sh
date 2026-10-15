@@ -9,13 +9,13 @@
 set -euo pipefail
 
 DSN="${1:?Uso: politicas.sh <DSN_ADMIN>}"
-PSQL="psql $DSN -X -q -v ON_ERROR_STOP=1"
+PSQL=(psql "$DSN" -X -q -v ON_ERROR_STOP=1)
 
 echo "== politica vigente de FBA (fuente de la copia)"
-$PSQL -c "SELECT id, label, valid_from FROM estimacion_politica_version WHERE universo = 'amazon_mx/fba' AND valid_to IS NULL;"
+"${PSQL[@]}" -c "SELECT id, label, valid_from FROM estimacion_politica_version WHERE universo = 'amazon_mx/fba' AND valid_to IS NULL;"
 
 echo "== inserta amazon_mx/fbm (si falta)"
-$PSQL <<'SQL'
+"${PSQL[@]}" <<'SQL'
 INSERT INTO estimacion_politica_version
     (label, universo, formula_version, settings, valid_from)
 SELECT 'repricing02_fbm_mx', 'amazon_mx/fbm', 'S3',
@@ -29,7 +29,7 @@ SELECT 'repricing02_fbm_mx', 'amazon_mx/fbm', 'S3',
 SQL
 
 echo "== inserta amazon_us/fbm (si falta)"
-$PSQL <<'SQL'
+"${PSQL[@]}" <<'SQL'
 INSERT INTO estimacion_politica_version
     (label, universo, formula_version, settings, valid_from)
 SELECT 'repricing02_fbm_us', 'amazon_us/fbm', 'S3',
@@ -44,4 +44,4 @@ SELECT 'repricing02_fbm_us', 'amazon_us/fbm', 'S3',
 SQL
 
 echo "== verifica"
-$PSQL -c "SELECT id, label, universo, settings, valid_from, valid_to FROM estimacion_politica_version WHERE label LIKE 'repricing02_fbm%' ORDER BY id;"
+"${PSQL[@]}" -c "SELECT id, label, universo, settings, valid_from, valid_to FROM estimacion_politica_version WHERE label LIKE 'repricing02_fbm%' ORDER BY id;"

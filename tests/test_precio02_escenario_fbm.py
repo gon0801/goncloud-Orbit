@@ -566,6 +566,51 @@ def test_fba_sigue_con_origen_politica_y_partidos():
         persistir_escenario(conn, esc)
 
 
+@_skip_sin_pg
+def test_politica_sin_logistica_da_motivo_no_excepcion():
+    with _db() as conn:
+        pid, lid = _listing(conn, plataforma="amazon_mx", sku="SS-F3-PL", asin="B0F3PL001")
+        _costo(conn, pid)
+        oid = _oferta(
+            conn,
+            lid,
+            plataforma="amazon_mx",
+            canal="fba",
+            sku="SS-F3-PL",
+            asin="B0F3PL001",
+            precio="116.0000",
+            moneda="MXN",
+            evento="evt-oferta-pl",
+        )
+        fid = _fee(
+            conn,
+            oid,
+            lid,
+            plataforma="amazon_mx",
+            canal="fba",
+            sku="SS-F3-PL",
+            asin="B0F3PL001",
+            precio="116.0000",
+            moneda="MXN",
+            total="15.0000",
+            detalles=[{"fee_type": "ReferralFee", "final_fee": "10.0000"}],
+            evento="evt-fee-pl",
+        )
+        rotos = {**POLITICA_FBM_MX, "universo": "amazon_mx/fba"}
+        del rotos["logistica"]
+        _politica(conn, universo="amazon_mx/fba", settings=rotos, label="fba-rota")
+        esc = sembrar_escenario_desde_refs(
+            conn,
+            listing_id=lid,
+            oferta_observation_id=oid,
+            fee_observation_id=fid,
+            valoracion_date=VALORACION,
+            observed_at=NOW,
+        )
+        assert esc.estado == "incompleta"
+        assert "politica_invalida" in esc.motivos
+
+
 def _fila_que_llega_al_check(
     conn, *, lid, pol, oid, fid, costo_id, run_id, sku, asin, evento, columnas, valores
 ):

@@ -297,12 +297,13 @@ def test_listing_sin_sku_no_gana_por_canal(tmp_path):
         assert "venta_sin_atribuir" in (resultado.skip_reason or "")
 
 
+@_skip_sin_pg
 def test_conexion_propia_es_solo_lectura_real(monkeypatch):
     import psycopg.errors
 
     from app.ledger_atribucion import AtribuidorAmazon
 
-    monkeypatch.setenv("ORBIT_DSN_INGEST", os.environ["ORBIT_TEST_DSN"])
+    monkeypatch.setenv("ORBIT_DSN_INGEST", _dsn_base())
     atr = AtribuidorAmazon()
     try:
         db = atr._db()

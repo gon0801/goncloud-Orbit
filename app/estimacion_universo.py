@@ -167,9 +167,12 @@ def logistica_del_universo(
     tasa usable, `fx_ausente`. La ultima muestra no caduca en F.3.
     """
     if universo.envio == "politica":
-        return EnvioIncluido(
-            Importe(Decimal(politica_settings["logistica"]), universo.moneda_venta)
-        )
+        raw = politica_settings.get("logistica")
+        try:
+            valor = Decimal(str(raw))
+        except (ArithmeticError, ValueError):
+            return "politica_invalida"
+        return EnvioIncluido(Importe(valor, universo.moneda_venta))
     fila = conn.execute(_SQL_MUESTRA, (product_id, universo.plataforma, universo.canal)).fetchone()
     if fila is None:
         return "envio_sin_historia"
