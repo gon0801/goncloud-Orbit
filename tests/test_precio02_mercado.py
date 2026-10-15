@@ -414,7 +414,7 @@ def test_decision_no_evaluada_tambien_guarda_goal_y_origen():
         fila = conn.execute(
             "SELECT goal_id, l_origen, verificacion, resultado, motivo FROM precio_decision"
         ).fetchone()
-        assert fila == (goal_id, "politica", None, "no_evaluado", "precio_ausente")
+        assert fila == (goal_id, None, None, "no_evaluado", "precio_ausente")
 
 
 # ---------------------------------------------------------------------------
@@ -1108,6 +1108,69 @@ def test_ultima_subida_ignora_lo_que_no_movio_precio():
 
 
 @_skip_sin_pg
+def test_persistir_uno_guarda_procedencia_real_y_evidencia():
+    import test_precio_reglas as reglas_fx
+
+    from app.precio.corrida import _persistir_uno
+    from app.precio.reglas import decidir
+
+    with _db02() as conn:
+        datos = _cadena(conn)
+        cfg_id = conn.execute("SELECT max(id) FROM config_version").fetchone()[0]
+        goal_id = conn.execute(
+            "SELECT id FROM precio_goal WHERE listing_id = %s", (datos["listing"],)
+        ).fetchone()[0]
+        muestra = conn.execute(
+            "INSERT INTO precio_envio_muestra (product_id, platform, canal,"
+            " ventana_desde, ventana_hasta, envios, percentil, valor,"
+            " valor_currency, mediana, mediana_currency, p90, p90_currency,"
+            " maximo, maximo_currency, origen, regla_version)"
+            " VALUES (%s, 'amazon_mx', 'fbm', '2026-03-12', '2026-09-07', 4,"
+            " 'mediana', 30, 'MXN', 30, 'MXN', 30, 'MXN', 30, 'MXN', 'propio',"
+            " 'f2.1') RETURNING id",
+            (datos["producto"],),
+        ).fetchone()[0]
+        ent = reglas_fx.entrada(costo="60", mode="shadow")
+        decision = decidir(
+            ent,
+            hoy=reglas_fx.HOY,
+            config=reglas_fx.cfg(),
+            cotizaciones=(),
+            fees_escenario=reglas_fx.fees_escenario_de(ent),
+            lineal=True,
+        )
+        _persistir_uno(
+            conn,
+            decision,
+            lid=datos["listing"],
+            mode="shadow",
+            prod_id=datos["producto"],
+            canal="fbm",
+            meta={
+                "escenario_id": None,
+                "fee_observation_id": None,
+                "oferta_observation_id": None,
+                "cotizacion_id": None,
+                "canal": "fbm",
+                "logistica_origen": "propio",
+                "envio_muestra_id": muestra,
+            },
+            platform="amazon_mx",
+            goal_id=goal_id,
+            cfg_id=cfg_id,
+            lineas=[],
+            errores=[],
+            senal_evidencia="trafico",
+        )
+        fila = conn.execute(
+            "SELECT l_origen, envio_muestra_id, senal_evidencia FROM precio_decision"
+            " WHERE listing_id = %s ORDER BY id DESC LIMIT 1",
+            (datos["listing"],),
+        ).fetchone()
+        assert fila == ("propio", muestra, "trafico")
+
+
+@_skip_sin_pg
 def test_persistir_uno_guarda_verificacion_lineal():
     import test_precio_reglas as reglas_fx
 
@@ -1139,7 +1202,15 @@ def test_persistir_uno_guarda_verificacion_lineal():
             mode="shadow",
             prod_id=datos["producto"],
             canal="fba",
-            meta=None,
+            meta={
+                "escenario_id": None,
+                "fee_observation_id": None,
+                "oferta_observation_id": None,
+                "cotizacion_id": None,
+                "canal": "fba",
+                "logistica_origen": "politica",
+                "envio_muestra_id": None,
+            },
             platform="amazon_mx",
             goal_id=goal_id,
             cfg_id=cfg_id,

@@ -713,6 +713,12 @@ class MercadoAmazon:
                 "escenario_id": cuenta.refs.escenario_id,
                 "fee_observation_id": cuenta.refs.fee_observation_id,
                 "oferta_observation_id": cuenta.refs.oferta_observation_id,
+                # FBA vieja (pre-0054, sin columna): su L salio de la
+                # politica por diseno del universo, no es invento.
+                "logistica_origen": cuenta.logistica_origen
+                if cuenta.logistica_origen is not None or cuenta.canal != "fba"
+                else "politica",
+                "envio_muestra_id": cuenta.refs.envio_muestra_id,
             },
             cotizable=cotizable,
             fees_escenario=fees_escenario,
