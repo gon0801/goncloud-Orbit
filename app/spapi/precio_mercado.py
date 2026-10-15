@@ -145,21 +145,44 @@ def cambios_previos(
 
     La direccion sale de comparar importes (la fila no la guarda). Un
     cambio con `antes == despues` no tiene direccion y se salta (no deberia
-    existir: el motor solo mueve precio).
+    existir: el motor solo mueve precio). `sin_efecto` (REPRICING 02 S.4,
+    `datos.sql` 8) se deriva al leer: `error` con codigo
+    `huerfana_sin_efecto` o con readback igual a `precio_antes` (importe
+    Y moneda); sin readback no hay prueba y cuenta normal.
     """
     filas = conn.execute(
-        "SELECT (enviado_at AT TIME ZONE 'UTC')::date, precio_antes, precio_despues,"
-        " estado, es_reversa, aplicado"
+        "SELECT (enviado_at AT TIME ZONE 'UTC')::date, precio_antes, precio_antes_currency,"
+        " precio_despues, estado, es_reversa, aplicado, error_code,"
+        " readback_precio, readback_precio_currency"
         " FROM precio_cambio"
         " WHERE listing_id = %s AND platform = %s AND NOT es_reversa"
         " ORDER BY id",
         (listing_id, platform),
     ).fetchall()
     cambios: list[CambioPrevio] = []
-    for enviado_en, antes, despues, estado, _reversa, aplicado in filas:
+    for (
+        enviado_en,
+        antes,
+        antes_moneda,
+        despues,
+        estado,
+        _reversa,
+        aplicado,
+        error_code,
+        readback,
+        readback_moneda,
+    ) in filas:
         direccion = _direccion(antes, despues)
         if direccion is None or enviado_en is None:
             continue
+        sin_efecto = estado == "error" and (
+            error_code == "huerfana_sin_efecto"
+            or (
+                readback is not None
+                and readback_moneda is not None
+                and (readback, readback_moneda) == (antes, antes_moneda)
+            )
+        )
         cambios.append(
             CambioPrevio(
                 enviado_en=enviado_en,
@@ -167,6 +190,7 @@ def cambios_previos(
                 estado=estado,
                 es_reversa=False,
                 aplicado=bool(aplicado),
+                sin_efecto=sin_efecto,
             )
         )
     return tuple(cambios)
@@ -263,25 +287,6 @@ def _insumos_ventas(
         primera_venta=primera,
         dia_cubierto_hasta=cubierto,
     )
-
-
-def _ingreso_60d(
-    conn: psycopg.Connection, *, product_id: int, platform: str, hoy: date, moneda: str
-) -> Importe | None:
-    """Suma de `sale` en [hoy-75, hoy-16] en la moneda del escenario.
-
-    La prioridad ordena por `|m - goal| * ingreso_60d`: sin ventas en la
-    ventana no hay peso (regla 3: ausente no es cero, va al fondo).
-    """
-    total = conn.execute(
-        "SELECT sum(amount) FROM ledger_event"
-        " WHERE product_id = %s AND platform = %s AND kind = 'sale'"
-        " AND amount_currency = %s AND event_date BETWEEN %s - 75 AND %s - 16",
-        (product_id, platform, moneda, hoy, hoy),
-    ).fetchone()[0]
-    if total is None:
-        return None
-    return Importe(Decimal(total), moneda)
 
 
 def _oferta_para_cotizar(conn: psycopg.Connection, oferta_id: int):
@@ -577,13 +582,6 @@ class MercadoAmazon:
             config=config,
             racha_previa=int(racha_por_lid.get(unidad.listing_id) or 0),
         )
-        ingreso_60d = _ingreso_60d(
-            conn,
-            product_id=unidad.producto_ancla,
-            platform=self.clave,
-            hoy=hoy,
-            moneda=cuenta.componentes.ingreso.moneda,
-        )
         escenario = Escenario(
             componentes=cuenta.componentes,
             fee_detalles=cuenta.fee_detalles,
@@ -604,7 +602,6 @@ class MercadoAmazon:
             escenario=escenario,
             pricing=observacion,
             senal=senal,
-            ingreso_60d=ingreso_60d,
             cambios=cambios_previos(conn, unidad.listing_id, self.clave),
             historial=historial_margenes(conn, unidad.listing_id, self.clave),
             goal_vigente_desde=meta.goal_vigente_desde,

@@ -1,4 +1,5 @@
-"""Reglas de decision (REPRICING 01 A.2, S4 #1, #2, #4, #6-#10, #12, #13).
+"""Reglas de decision (REPRICING 01 A.2, S4 #1, #2, #4, #6-#10, #13; el
+reparto por cupo #12 murio en REPRICING 02 S.1).
 
 Orden de evaluacion sellado (S4 no lo fija; este es el del brief): insumos
 y coherencia (S2) -> `m_actual` -> frenos (#10 `no_converge`, #6
@@ -34,7 +35,7 @@ from app.precio.tipos import (
     motivo_permitido,
 )
 
-__all__ = ["decidir", "repartir_cupo", "motivo_regla11"]
+__all__ = ["decidir", "motivo_regla11"]
 
 _DIAS_FRENO_SUBIDA = 22
 
@@ -75,7 +76,6 @@ def _base_senal(entrada: EntradaDecision) -> Decision:
         n60=senal.n60,
         racha=senal.racha,
         perdiendo=senal.estado == "perdiendo",
-        prioridad=None,
         aplicado=False,
         mode=entrada.mode,
         buy_box_is_own=entrada.buy_box_is_own,
@@ -137,7 +137,6 @@ def _frena_regla11(entrada: EntradaDecision, m_actual: Decimal, precio: Decimal)
         resultado="goal_inalcanzable",
         motivo=motivo,
         m_actual=m_actual,
-        prioridad=_prioridad(m_actual, entrada.goal, entrada.ingreso_60d),
         diagnostico=f"P={precio} vs P_actual={comp.p_actual.valor}",
     )
 
@@ -202,12 +201,6 @@ def _min_abs(config: ConfigPrecio, moneda: str) -> Decimal:
     raise ValueError(f"moneda sin minimo absoluto configurado: {moneda!r}")
 
 
-def _prioridad(m_actual: Decimal, goal: Decimal, ingreso_60d: Importe | None) -> Decimal | None:
-    if ingreso_60d is None:
-        return None
-    return abs(m_actual - goal) * ingreso_60d.valor
-
-
 def decidir(
     entrada: EntradaDecision,
     *,
@@ -257,7 +250,6 @@ def decidir(
                 resultado="frenado",
                 motivo="no_converge",
                 m_actual=m_actual,
-                prioridad=_prioridad(m_actual, goal, entrada.ingreso_60d),
                 diagnostico=f"{len(ultimos)} cambios sin acercarse al goal",
             )
 
@@ -279,7 +271,6 @@ def decidir(
                     resultado="frenado",
                     motivo="perdiendo_tras_subida",
                     m_actual=m_actual,
-                    prioridad=_prioridad(m_actual, goal, entrada.ingreso_60d),
                     diagnostico=(
                         f"subida confirmada hace {dias} dias{futura}, "
                         f"u15={entrada.senal.u15} u60={entrada.senal.u60}"
@@ -287,7 +278,13 @@ def decidir(
                 )
 
     for cambio in entrada.cambios:
-        if cambio.es_reversa or (entrada.mode == "live" and not cambio.aplicado):
+        # S.4: el error sin efecto (el precio no se movio) no congela; un
+        # mal dia de la plataforma ya no frena 7 dias.
+        if (
+            cambio.es_reversa
+            or cambio.sin_efecto
+            or (entrada.mode == "live" and not cambio.aplicado)
+        ):
             continue
         dias = (hoy - cambio.enviado_en).days
         if dias < config.dias_entre_cambios:
@@ -298,7 +295,6 @@ def decidir(
                 resultado="mantener",
                 motivo="cooldown",
                 m_actual=m_actual,
-                prioridad=_prioridad(m_actual, goal, entrada.ingreso_60d),
                 diagnostico=f"ultimo cambio hace {dias} dias{futura}",
             )
 
@@ -319,7 +315,6 @@ def decidir(
                 resultado="mantener",
                 motivo=f"ventas_sin_dato:{senal.submotivo}",
                 m_actual=m_actual,
-                prioridad=_prioridad(m_actual, goal, entrada.ingreso_60d),
             )
         if senal.estado == "perdiendo":
             return _bajar(
@@ -335,7 +330,6 @@ def decidir(
             resultado="mantener",
             motivo="sobre_goal_sin_perdida",
             m_actual=m_actual,
-            prioridad=_prioridad(m_actual, goal, entrada.ingreso_60d),
         )
     base = _base_senal(entrada)
     return replace(
@@ -343,7 +337,6 @@ def decidir(
         resultado="mantener",
         motivo="en_tolerancia",
         m_actual=m_actual,
-        prioridad=_prioridad(m_actual, goal, entrada.ingreso_60d),
     )
 
 
@@ -394,7 +387,6 @@ def _subir(
             resultado="goal_inalcanzable",
             motivo=salida.motivo,
             m_actual=m_actual,
-            prioridad=_prioridad(m_actual, entrada.goal, entrada.ingreso_60d),
         )
     assert salida.precio is not None
     freno = _frena_regla11(entrada, m_actual, salida.precio.valor)
@@ -410,7 +402,6 @@ def _subir(
             motivo="movimiento_minimo",
             m_actual=m_actual,
             p_objetivo=salida.precio,
-            prioridad=_prioridad(m_actual, entrada.goal, entrada.ingreso_60d),
         )
     tope = piso_centavo(comp.p_actual.valor * (Decimal(1) + config.escalon_max_pct))
     p_aplicado = min(p_objetivo, tope)
@@ -428,7 +419,6 @@ def _subir(
         m_actual=m_actual,
         p_objetivo=salida.precio,
         p_aplicado=Importe(p_aplicado, moneda),
-        prioridad=_prioridad(m_actual, entrada.goal, entrada.ingreso_60d),
         aplicado=entrada.mode == "live",
     )
 
@@ -480,7 +470,6 @@ def _bajar(
             resultado="goal_inalcanzable",
             motivo=salida.motivo,
             m_actual=m_actual,
-            prioridad=_prioridad(m_actual, entrada.goal, entrada.ingreso_60d),
         )
     assert salida.precio is not None
     freno = _frena_regla11(entrada, m_actual, salida.precio.valor)
@@ -496,7 +485,6 @@ def _bajar(
             motivo="movimiento_minimo",
             m_actual=m_actual,
             p_objetivo=Importe(p_goal, moneda),
-            prioridad=_prioridad(m_actual, entrada.goal, entrada.ingreso_60d),
         )
     piso = techo_centavo(comp.p_actual.valor * (Decimal(1) - config.escalon_max_pct))
     p_aplicado = max(p_goal, piso)
@@ -514,69 +502,5 @@ def _bajar(
         m_actual=m_actual,
         p_objetivo=Importe(p_goal, moneda),
         p_aplicado=Importe(p_aplicado, moneda),
-        prioridad=_prioridad(m_actual, entrada.goal, entrada.ingreso_60d),
         aplicado=entrada.mode == "live",
     )
-
-
-def repartir_cupo(
-    candidatos: tuple[tuple[int, Decision], ...], *, cupo: int
-) -> tuple[tuple[int, Decision], ...]:
-    """S4 #12 puro: los primeros por prioridad pasan; el resto `mantener(cuota)`.
-
-    Solo compiten y solo consumen cupo las decisiones `subir`/`bajar` con
-    `aplicado=True` (r5-J1: un `frenado` o un `subir` de sombra no se
-    quedan con el lugar). Todo lo demás (`no_evaluado`, `frenado`,
-    `mantener(*)`, `goal_inalcanzable`, sombra) **pasa idéntico** (`is`),
-    sin ocupar lugar y sin tocarse. Entre las que compiten: prioridad
-    descendente, sin prioridad al fondo (regla 3: ausente no es cero,
-    pero tampoco abre la puerta), desempate por `listing_id` ascendente,
-    salida en el orden de entrada (r4-G2: si devolviera sueltas
-    reordenadas, el `zip` con la entrada cruzaría publicaciones). El pase
-    es **por posición** en la entrada, no por identidad de objeto
-    (r4b-H1). Las que compiten con `p_actual` en monedas distintas son
-    error de quien llama: `ValueError` (r5-J2).
-    """
-    if not isinstance(cupo, int) or isinstance(cupo, bool) or cupo < 0:
-        raise ValueError(f"cupo invalido: {cupo!r}")
-    compiten = [
-        pos
-        for pos, (_, decision) in enumerate(candidatos)
-        if decision.resultado in ("subir", "bajar") and decision.aplicado
-    ]
-    monedas = {
-        candidatos[pos][1].p_actual.moneda
-        for pos in compiten
-        if candidatos[pos][1].p_actual is not None
-    }
-    if len(monedas) > 1:
-        raise ValueError(f"repartir_cupo con monedas distintas: {sorted(monedas)}")
-    ordenados = sorted(
-        compiten,
-        key=lambda pos: (
-            candidatos[pos][1].prioridad is None,
-            -(candidatos[pos][1].prioridad or Decimal(0)),
-            candidatos[pos][0],
-        ),
-    )
-    pasan = set(ordenados[:cupo])
-    salida = []
-    for pos, (listing_id, decision) in enumerate(candidatos):
-        if pos in pasan:
-            salida.append((listing_id, decision))
-        elif pos in compiten:
-            salida.append(
-                (
-                    listing_id,
-                    replace(
-                        decision,
-                        resultado="mantener",
-                        motivo="cuota",
-                        aplicado=False,
-                        p_aplicado=None,
-                    ),
-                )
-            )
-        else:
-            salida.append((listing_id, decision))
-    return tuple(salida)

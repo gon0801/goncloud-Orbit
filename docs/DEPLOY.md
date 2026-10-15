@@ -387,20 +387,26 @@ El server está en UTC: estas horas SON UTC.
 | 08:20 | `impulso-vigia` | `python -m app.cli impulso-vigia` (BIDS 02 I.3; despues de la ingesta, antes del ciclo; flock + log, linea exacta abajo) |
 | 08:40 | `ads_optimizer:amazon_us` + `ads_optimizer:amazon_mx` | `python -m app.cli cycle --platform …` (los dos, en serie) |
 | 09:30, 21:30 | `jev-senales` | `python -m app.cli jev-senales --aplicar` (JEV ADS 02 S.4; flock + log, linea exacta abajo) |
-| 13:10 | `precio:amazon_mx` | `python -m app.cli precio --platform amazon_mx` (REPRICING 01 A.5; flock + log, linea exacta abajo) |
+| 13:10 + repasos 15-23/2 | `precio:amazon_mx` | `python -m app.cli precio --platform amazon_mx` (REPRICING 02 D.2: diaria 13:10 + repasos cada 2 h; flock + log, lineas exactas abajo) |
 
-Corrida diaria de precios (REPRICING 01 A.5), solo `amazon_mx`: la fase A
-es Amazon Mexico; `amazon_us` y `meli` NO se agendan hasta sus fases (el
-comando acepta las tres plataformas, el cron solo esta). Linea EXACTA del
-crontab de `gon` (la prueba `test_linea_crontab_en_deploy` la pinza de
-`tests/test_precio_corrida.py::LINEA_CRONTAB_PRECIO`):
+Corrida diaria de precios (REPRICING 02 D.2), solo `amazon_mx`: la diaria
+de las 13:10 UTC mas los repasos de las 15:10 a las 23:10 UTC cada 2 h
+(el repaso aplica lo pendiente y lo soltado por el dueno; sin nada
+pendiente no toca la plataforma). `amazon_us` y `meli` NO se agendan
+hasta sus fases (el comando acepta las tres plataformas, el cron solo
+estas). Lineas EXACTAS del crontab de `gon` (la prueba
+`test_linea_crontab_en_deploy` las pinza de
+`tests/test_precio_corrida.py::LINEA_CRONTAB_PRECIO` y
+`::LINEA_CRONTAB_PRECIO_REPASOS`):
 
 ```cron
-10 13 * * * /usr/bin/flock -n /tmp/precio-corrida.lock docker exec orbit-app-1 python -m app.cli precio --platform amazon_mx >> /mnt/data/appdata/orbit/logs/precio-corrida.log 2>&1
+10 13 * * * /usr/bin/flock -n /tmp/precio-spapi.lock docker exec orbit-app-1 python -m app.cli precio --platform amazon_mx >> /mnt/data/appdata/orbit/logs/precio-corrida.log 2>&1
+10 15-23/2 * * * /usr/bin/flock -n /tmp/precio-spapi.lock docker exec orbit-app-1 python -m app.cli precio --platform amazon_mx >> /mnt/data/appdata/orbit/logs/precio-corrida.log 2>&1
 ```
 
-Antes de instalar la línea: la 0039 aplicada y las claves `precio_*`
-sembradas (D.0); `ORBIT_DSN_DECIDE` presente **dentro** de `orbit-app-1`
+Antes de instalar las líneas: la 0039 aplicada y las claves `precio_*`
+sembradas (D.0) mas las de la 0054 (apagador, fusible y senal);
+`ORBIT_DSN_DECIDE` presente **dentro** de `orbit-app-1`
 (`docker exec` no pasa el entorno del host); el pase diario de Pricing
 (`spapi_price_observation`) corre antes de las 13:10 UTC; la corrida solo
 aplica goals `live` (sin goals o todos en `shadow`, no toca Amazon); y la

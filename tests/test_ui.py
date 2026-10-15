@@ -1843,6 +1843,56 @@ def test_ui_settings_sin_target_dice_sin_target():
     assert "None" not in html
 
 
+def _html_settings_global(modo_global):
+    """Render minimo de settings.html con el apagador S.2 en `modo_global`."""
+    return ui.templates.env.get_template("settings.html").render(
+        pantalla="settings",
+        datos={
+            "config_version_id": 1,
+            "modo_global": "live",
+            "advertencia_respaldo": "respaldo",
+            "plataformas": [
+                {
+                    "plataforma": "amazon_mx",
+                    "moneda": "MXN",
+                    "target_vigente": {"valor": None, "peldano": None},
+                    "target_manual_pct": None,
+                    "margen_habilitado": False,
+                    "fraccion_margen": None,
+                    "confianza_recorte": "0.80",
+                    "confianza_subida": "0.70",
+                    "motor_bid": None,
+                    "motor_bid_vive": False,
+                    "caps": {},
+                    "goal": None,
+                }
+            ],
+            "goals": [],
+            "precio_modo_global": modo_global,
+            "precio_universos": [],
+            "precio_modo_universo": {},
+        },
+    )
+
+
+def test_ui_settings_global_ausente_no_regala_off():
+    """Sin clave global, el select trae "ausente" seleccionado (no off sin
+    selected): el navegador no puede bautizar off como valor inicial y
+    `cambioSelect` no dispara un apagado fantasma al guardar otra cosa."""
+    html = _html_settings_global(None)
+    assert '<option value="" selected disabled>ausente</option>' in html
+    bloque = html.split('name="precio_modo_global"')[1].split("</select>")[0]
+    assert bloque.count("selected") == 1
+
+
+def test_ui_settings_global_shadow_no_trae_ausente():
+    """Con clave global, el select marca ese modo y no trae "ausente"."""
+    html = _html_settings_global("shadow")
+    assert "ausente</option>" not in html
+    bloque = html.split('name="precio_modo_global"')[1].split("</select>")[0]
+    assert '<option value="shadow" selected>shadow</option>' in bloque
+
+
 def test_ui_campanas_sin_target_dice_sin_target(monkeypatch):
     """Una campana sin target congelado dice "sin target" en /campanas."""
     item = _item_campana("Zeta US")

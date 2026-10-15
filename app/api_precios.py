@@ -19,7 +19,6 @@ from app.api_common import _dec_str
 from app.notifica import motivo_precio_es, validar_precio_aviso_dias
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.precio import cobertura as cobertura_precio
-from app.precio import cuota as cuota_precio
 from app.precio import fuentes as fuentes_precio
 from app.redaction import scrub
 
@@ -39,9 +38,9 @@ router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 #   (precio_cambio pendiente no-reversa) + las listas S7 (`con_goal`,
 #   `acciones`, `no_evaluados_filas`, `divergentes`).
 # - /salud suma plataformas.<p>.precios ({hoy, cobertura, evaluados,
-#   movidos, sombra, no_evaluados, frenados, goal_inalcanzable, cuota,
-#   huerfanas, decisiones}) SIN cambiar las claves existentes. `cobertura`
-#   es la MISMA serializacion que el `recuadro` de /precios (misma funcion).
+#   movidos, sombra, no_evaluados, frenados, goal_inalcanzable, huerfanas,
+#   decisiones, corrida_ausente}). `cobertura` es la MISMA serializacion
+#   que el `recuadro` de /precios (misma funcion).
 # - El reloj es el de la base (fuentes.hoy_base: el dia UTC que fija el
 #   trigger de precio_decision, no el local).
 # - Sin esquema de precios (la 0039 no esta aplicada): /salud deja el
@@ -118,10 +117,6 @@ SELECT d.listing_id, l.seller_sku, d.decision_date, d.resultado, d.motivo,
  ORDER BY l.seller_sku, d.decision_date DESC
 """
 
-_SQL_CUOTA_USED = """
-SELECT used FROM apply_quota_state WHERE motor = %s AND quota_date = %s
-"""
-
 # Estados del cambio que prueban PATCH aceptado (B2): `pendiente` aun no
 # sale y `error` no movio el precio, aunque el cambio sea real.
 _ESTADOS_PRECIO_MOVIERON = ("enviado", "confirmado", "no_confirmado")
@@ -170,6 +165,42 @@ def _huerfanas_precio(conn: ConexionLectura, plataforma: str) -> int:
     """Cambios pendientes no-reversa (las huerfanas que la corrida cierra a
     `error`: espejo del WHERE de cerrar_huerfanas en corrida.py)."""
     return int(conn.execute(_SQL_HUERFANAS_PRECIO, (plataforma,)).fetchone()[0])
+
+
+def _seguridad_precio(conn: ConexionLectura, plataforma: str, hoy: dt.date) -> dict:
+    """`EstadoSeguridad` serializado para /precios (JSON + HTML): modos,
+    ultima corrida, retenciones abiertas del dia y corrida liberable."""
+    estado = fuentes_precio.leer_seguridad(conn, plataforma, hoy=hoy)
+    ultima = estado.ultima_corrida
+    return {
+        "modo_global": estado.modo_global,
+        "modo_universo": (dict(estado.modo_universo) if estado.modo_universo is not None else None),
+        "ultima_corrida": (
+            None
+            if ultima is None
+            else {
+                "corrida_id": ultima.corrida_id,
+                "fecha": ultima.fecha.isoformat(),
+                "estado": ultima.estado,
+                "decisiones": ultima.decisiones,
+                "movidas": ultima.movidas,
+                "retenidas": ultima.retenidas,
+                "errores": ultima.errores,
+            }
+        ),
+        "retenciones_abiertas": {
+            canal: {
+                "causa": retenida.causa,
+                "medidas": retenida.medidas,
+                "nuevas": retenida.nuevas,
+                "insumo": retenida.insumo,
+                "detalle": retenida.detalle,
+            }
+            for canal, retenida in estado.retenciones_abiertas.items()
+        },
+        "liberable_corrida_id": estado.liberable_corrida_id,
+        "cohorte": None,
+    }
 
 
 def _recuadro_precio(conn: ConexionLectura, plataforma: str, hoy: dt.date) -> dict:
@@ -264,17 +295,6 @@ def _conteo_por_motivo(detalle: list[dict], resultado: str) -> dict[str, int]:
         if fila["resultado"] == resultado and fila["motivo"] is not None:
             conteo[fila["motivo"]] = conteo.get(fila["motivo"], 0) + 1
     return conteo
-
-
-def _cuota_precio(conn: ConexionLectura, plataforma: str, hoy: dt.date, settings) -> dict:
-    """Cupo del dia: `used` de `apply_quota_state` (motor
-    `cuota.motor_cuota(p)`, 0 sin fila) y `cap` de
-    `cuota.validar_cap(settings, p)` (ValueError que nombra la clave)."""
-    fila = conn.execute(_SQL_CUOTA_USED, (cuota_precio.motor_cuota(plataforma), hoy)).fetchone()
-    return {
-        "used": int(fila[0]) if fila is not None else 0,
-        "cap": cuota_precio.validar_cap(settings, plataforma),
-    }
 
 
 def _frase_accion(
@@ -413,6 +433,69 @@ def _con_goal_precio(
     return con_goal
 
 
+# G.3: una fila por listing de la plataforma, con lo que el dueno mira
+# antes de sembrar (margen de hoy, goal, precio objetivo, origen del
+# envio, TACoS). Granos fijados: el margen sale del escenario
+# `disponible` mas reciente (lo mismo que copia "margen de hoy" en
+# G.2); el objetivo, de la decision de hoy (sin decision no hay
+# objetivo: None, nunca un invento); el origen, del escenario
+# (`logistica_origen` de la 0054); el TACoS, de `v_tacos` del mes del
+# corte maduro (mes de hoy - 15: la unica TACoS del sistema, por
+# plataforma y mes, repetida en cada fila).
+_SQL_UNIDADES_G3 = """
+SELECT l.id, l.seller_sku,
+       v.margen_goal_pct, v.mode::text,
+       e.contribucion_pct, e.logistica_origen, e.canal::text,
+       d.p_objetivo
+  FROM listing l
+  LEFT JOIN v_precio_goal_vigente v
+    ON v.listing_id = l.id AND v.platform = l.platform
+  LEFT JOIN LATERAL (
+      SELECT contribucion_pct, logistica_origen, canal
+        FROM estimacion_escenario
+       WHERE listing_id = l.id AND platform = l.platform AND estado = 'disponible'
+       ORDER BY observed_at DESC LIMIT 1
+  ) e ON true
+  LEFT JOIN precio_decision d
+    ON d.listing_id = l.id AND d.platform = l.platform AND d.decision_date = %s
+ WHERE l.platform = %s::platform
+ ORDER BY l.seller_sku
+"""
+
+_SQL_TACOS_MES_G3 = """
+SELECT tacos_pct FROM v_tacos
+ WHERE platform = %s::platform
+   AND mes = date_trunc('month', (%s::date - 15))::date
+"""
+
+
+def _unidades_precio(conn: ConexionLectura, plataforma: str, hoy: dt.date) -> list[dict]:
+    """Bloque G.3: una fila por unidad con margen de hoy (tanto por uno),
+    goal vigente, precio objetivo de hoy, origen del envio y TACoS del
+    mes del corte. `None` donde no hay dato (regla 3)."""
+    tacos = conn.execute(_SQL_TACOS_MES_G3, (plataforma, hoy)).fetchone()
+    tacos_str = _dec_str(tacos[0]) if tacos is not None else None
+    filas = []
+    for lid, sku, goal, goal_mode, m_pct, origen, canal, p_obj in conn.execute(
+        _SQL_UNIDADES_G3, (hoy, plataforma)
+    ).fetchall():
+        filas.append(
+            {
+                "listing_id": lid,
+                "sku": sku,
+                "canal": canal,
+                "tiene_goal": goal is not None,
+                "margen_hoy": _dec_str(m_pct / 100) if m_pct is not None else None,
+                "goal": _dec_str(goal),
+                "goal_mode": goal_mode,
+                "precio_objetivo": _dec_str(p_obj),
+                "envio_origen": origen,
+                "tacos": tacos_str,
+            }
+        )
+    return filas
+
+
 def _divergentes_precio(
     conn: ConexionLectura, plataforma: str, hoy: dt.date, umbral: int
 ) -> list[dict]:
@@ -488,13 +571,14 @@ def _bloque_precios(
         "no_evaluados": _conteo_por_motivo(detalle, "no_evaluado"),
         "frenados": _conteo_por_motivo(detalle, "frenado"),
         "goal_inalcanzable": sum(1 for fila in detalle if fila["resultado"] == "goal_inalcanzable"),
-        "cuota": _cuota_precio(conn, plataforma, hoy, settings),
     }
     if con_recuadro:
         bloque["recuadro"] = bloque["cobertura"]
+        bloque["seguridad"] = _seguridad_precio(conn, plataforma, hoy)
         bloque["con_goal"] = _con_goal_precio(
             conn, plataforma, hoy, {fila["listing_id"]: fila for fila in detalle}
         )
+        bloque["unidades"] = _unidades_precio(conn, plataforma, hoy)
         bloque["acciones"] = _acciones_precio(detalle, cambios, plataforma)
         bloque["no_evaluados_filas"] = _filas_no_evaluados(detalle)
         bloque["divergentes"] = _divergentes_precio(conn, plataforma, hoy, umbral)
@@ -511,10 +595,23 @@ _CLAVES_PRECIOS_SALUD = (
     "no_evaluados",
     "frenados",
     "goal_inalcanzable",
-    "cuota",
     "huerfanas",
     "decisiones",
 )
+
+
+_SQL_CORRIDA_CERRADA_HOY = (
+    "SELECT 1 FROM precio_corrida WHERE platform = %s AND fecha = %s AND estado = 'cerrada' LIMIT 1"
+)
+
+
+def _corrida_ausente(conn: ConexionLectura, plataforma: str, hoy: dt.date) -> bool:
+    """S.6: True si hoy no cerro ninguna corrida de la plataforma (el aviso
+    de /salud). Sin tabla de corridas tampoco hay corrida cerrada: True."""
+    try:
+        return conn.execute(_SQL_CORRIDA_CERRADA_HOY, (plataforma, hoy)).fetchone() is None
+    except psycopg.errors.UndefinedTable:
+        return True
 
 
 def _precios_de(conn: ConexionLectura, plataforma: str) -> dict | None:
@@ -533,19 +630,21 @@ def _precios_de(conn: ConexionLectura, plataforma: str) -> dict | None:
     - `no_evaluados`: decisiones `no_evaluado` de hoy (motivo -> conteo).
     - `frenados`: decisiones `frenado` de hoy (motivo -> conteo).
     - `goal_inalcanzable`: decisiones `goal_inalcanzable` de hoy (conteo).
-    - `cuota`: `used` de `apply_quota_state` (motor `precio:<p>`, 0 sin
-      fila) y `cap` de la config.
     - `hoy`, `huerfanas` (pendientes no-reversa) y `decisiones` (por
       resultado) como en /precios.
+    - `corrida_ausente` (S.6): True si hoy no cerro ninguna corrida de la
+      plataforma (el aviso va DENTRO del bloque, no como clave nueva de
+      alto nivel).
 
     Si la 0039 aun no se aplico, o la config no trae la clave, el bloque
     queda en None + warning y la pantalla NO muere entera (patron
     _spapi_de: degradacion visible, nunca 500)."""
     try:
-        bloque = _bloque_precios(
-            conn, plataforma, fuentes_precio.hoy_base(conn), con_recuadro=False
-        )
-        return {clave: bloque[clave] for clave in _CLAVES_PRECIOS_SALUD}
+        hoy = fuentes_precio.hoy_base(conn)
+        bloque = _bloque_precios(conn, plataforma, hoy, con_recuadro=False)
+        salida = {clave: bloque[clave] for clave in _CLAVES_PRECIOS_SALUD}
+        salida["corrida_ausente"] = _corrida_ausente(conn, plataforma, hoy)
+        return salida
     except _SinEsquemaPrecio as exc:
         logger.warning(
             "salud: precios %s ilegible (%s): %s",

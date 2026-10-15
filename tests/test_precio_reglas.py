@@ -841,19 +841,6 @@ def test_r2_a3_subida_futura_frena():
 # ---------------------------------------------------------------- r3-K2
 
 
-def test_r3_k2_cuota_limpia_p_aplicado_y_conserva_objetivo():
-    from app.precio.reglas import repartir_cupo
-
-    a = resuelve(entrada(costo="60"))
-    b = resuelve(entrada(costo="55"))
-    salida = repartir_cupo(((2, b), (1, a)), cupo=1)
-    assert salida[1][1].resultado == "subir"
-    assert salida[0][1].motivo == "cuota"
-    assert salida[0][1].p_aplicado is None
-    assert salida[0][1].aplicado is False
-    assert salida[0][1].p_objetivo is not None
-
-
 def test_r3_k2_solo_subir_bajar_traen_p_aplicado():
     from dataclasses import replace
 
@@ -861,7 +848,7 @@ def test_r3_k2_solo_subir_bajar_traen_p_aplicado():
 
     a = resuelve(entrada(costo="60"))
     with pytest.raises(ValueError, match="p_aplicado"):
-        replace(a, resultado="mantener", motivo="cuota")
+        replace(a, resultado="mantener", motivo="en_tolerancia")
     # Construir directo tambien revienta.
     with pytest.raises(ValueError, match="p_aplicado"):
         Decision(
@@ -879,7 +866,6 @@ def test_r3_k2_solo_subir_bajar_traen_p_aplicado():
             n60=None,
             racha=None,
             perdiendo=None,
-            prioridad=None,
             aplicado=False,
             mode="live",
         )
@@ -1046,137 +1032,6 @@ def test_r4_g4_moneda_sin_minimo_no_gasta_cotizacion():
 
 
 # ---------------------------------------------------------------- r4-G2
-
-
-def test_r4_g2_cupo_devuelve_pares_en_orden_de_entrada():
-    from app.precio.reglas import repartir_cupo
-
-    a = resuelve(entrada(costo="60"))
-    b = resuelve(entrada(costo="55"))
-    salida = repartir_cupo(((2, b), (1, a)), cupo=1)
-    assert [lid for lid, _ in salida] == [2, 1]
-    assert salida[0][1].motivo == "cuota"
-    assert salida[0][1].p_aplicado is None
-    assert salida[1] == (1, a)
-    # Desempate vivo: con empate pasa el listing_id menor aunque entre después.
-    from dataclasses import replace
-
-    a2 = replace(a, prioridad=b.prioridad)
-    salida = repartir_cupo(((2, a2), (1, b)), cupo=1)
-    assert [lid for lid, _ in salida] == [2, 1]
-    assert salida[1][1].p_aplicado.valor == b.p_aplicado.valor
-    assert salida[0][1].motivo == "cuota"
-
-
-def test_r4b_h1_mismo_objeto_en_dos_publicaciones_pasa_con_cupo():
-    """r4b-H1: el pase es por posición, no por identidad de objeto."""
-    from app.precio.reglas import repartir_cupo
-
-    d = resuelve(entrada(costo="60"))
-    salida = repartir_cupo(((1, d), (2, d)), cupo=2)
-    assert [(lid, dec.resultado) for lid, dec in salida] == [(1, "subir"), (2, "subir")]
-
-
-def test_r5_j1_frenado_no_consume_cupo_ni_reescribe_no_evaluado():
-    """r5-J1: el frenado no ocupa lugar y el no_evaluado pasa intacto."""
-    from app.precio.reglas import repartir_cupo
-
-    ne = decide(entrada(motivo_estimacion="fee_ausente"))
-    fr = decide(
-        entrada(
-            costo="40",
-            senal=senal_perdiendo(),
-            cambios=(CambioPrevio(HOY + timedelta(days=1), "subir", "confirmado"),),
-        )
-    )
-    su = resuelve(entrada(costo="60"))
-    assert (ne.resultado, fr.resultado, su.resultado) == ("no_evaluado", "frenado", "subir")
-    salida = repartir_cupo(((1, ne), (2, fr), (3, su)), cupo=1)
-    assert [lid for lid, _ in salida] == [1, 2, 3]
-    assert salida[0][1] is ne
-    assert salida[1][1] is fr
-    assert salida[2][1] is su
-
-
-def test_r5_j1_sombra_no_consume_cupo():
-    """r5-J1: el subir de sombra pasa intacto; el live se queda el cupo."""
-    from app.precio.reglas import repartir_cupo
-
-    sombra = resuelve(entrada(costo="60", mode="shadow"))
-    viva = resuelve(entrada(costo="60"))
-    assert (sombra.aplicado, viva.aplicado) == (False, True)
-    salida = repartir_cupo(((1, sombra), (2, viva)), cupo=1)
-    assert salida[0][1] is sombra
-    assert salida[1][1] is viva
-
-
-def test_r5_j2_monedas_distintas_entre_compiten_es_valueerror():
-    """r5-J2: mezclar monedas entre las que compiten es error de quien llama."""
-    from dataclasses import replace
-
-    from app.precio.reglas import repartir_cupo
-
-    a = resuelve(entrada(costo="60"))
-    b = resuelve(entrada(costo="55"))
-    b_usd = replace(b, p_actual=replace(b.p_actual, moneda="USD"))
-    assert a.p_actual.moneda != b_usd.p_actual.moneda
-    with pytest.raises(ValueError, match="monedas distintas"):
-        repartir_cupo(((1, a), (2, b_usd)), cupo=1)
-
-
-def test_r5b_p1_sin_prioridad_va_al_fondo():
-    """r5b-P1: sin prioridad al fondo aunque su listing_id sea menor."""
-    from app.precio.reglas import repartir_cupo
-
-    sin_prio = resuelve(entrada(costo="60", ingreso_60d=None))
-    con_prio = resuelve(entrada(costo="55"))
-    assert (sin_prio.prioridad, sin_prio.aplicado) == (None, True)
-    assert con_prio.prioridad is not None
-    salida = repartir_cupo(((1, sin_prio), (2, con_prio)), cupo=1)
-    assert salida[0][1].motivo == "cuota"
-    assert salida[1][1] is con_prio
-
-
-def test_r5_j1_mantener_con_aplicado_no_compite():
-    """r5-J1: un `mantener(*)` con `aplicado=True` pasa idéntico (el filtro
-    es por resultado, no solo por aplicado)."""
-    from dataclasses import replace
-
-    from app.precio.reglas import repartir_cupo
-
-    su = resuelve(entrada(costo="60"))
-    mant = replace(
-        su,
-        resultado="mantener",
-        motivo="en_tolerancia",
-        p_aplicado=None,
-        prioridad=su.prioridad + 1,
-    )
-    salida = repartir_cupo(((1, mant), (2, su)), cupo=1)
-    assert salida[0][1] is mant
-    assert salida[1][1] is su
-
-
-def test_r5_j1_cupo_cero_solo_accion_live_sale_cuota():
-    """r5-J1 mixto con cupo=0: la acción live sale a cuota, lo demás intacto."""
-    from app.precio.reglas import repartir_cupo
-
-    su = resuelve(entrada(costo="60"))
-    ne = decide(entrada(motivo_estimacion="fee_ausente"))
-    fr = decide(
-        entrada(
-            costo="40",
-            senal=senal_perdiendo(),
-            cambios=(CambioPrevio(HOY + timedelta(days=1), "subir", "confirmado"),),
-        )
-    )
-    salida = repartir_cupo(((1, su), (2, ne), (3, fr)), cupo=0)
-    assert (salida[0][1].resultado, salida[0][1].motivo) == ("mantener", "cuota")
-    assert salida[1][1] is ne
-    assert salida[2][1] is fr
-
-
-# ---------------------------------------------------------------- r2-B
 
 
 def test_r2_b_r2_borde_3050_tolerancia_3051_pide():
@@ -1818,7 +1673,6 @@ def entrada(costo="40", precio="116", **kw):
         escenario=escenario(costo=costo, precio=precio),
         pricing=ObservacionPricing(imp(precio), AHORA),
         senal=senal_sana(),
-        ingreso_60d=imp("15000"),
         cambios=(),
         historial=(),
         goal_vigente_desde=HOY - timedelta(days=100),
@@ -2080,11 +1934,6 @@ def test_reglas_movimiento_minimo_no_consume():
     assert (d.resultado, d.motivo) == ("mantener", "movimiento_minimo")
 
 
-def test_reglas_prioridad_registrada():
-    d = resuelve(entrada(costo="60"))
-    assert d.prioridad == abs(d.m_actual - Decimal("0.30")) * Decimal("15000")
-
-
 def test_reglas_buy_box_solo_se_registra():
     # Perderla no frena ni cambia el resultado; se guarda tal cual (S4 #7).
     d = resuelve(entrada(costo="60", buy_box_is_own=False))
@@ -2103,26 +1952,6 @@ def test_reglas_sombra_igual_con_aplicado_falso():
     assert sombra.resultado == viva.resultado == "subir"
     assert sombra.p_aplicado.valor == viva.p_aplicado.valor
     assert sombra.motivo == viva.motivo
-
-
-def test_reglas_cupo_por_prioridad_con_desempate():
-    from app.precio.reglas import repartir_cupo
-
-    a = resuelve(entrada(costo="60"))
-    b = resuelve(entrada(costo="55"))
-    assert a.prioridad > b.prioridad
-    salida = repartir_cupo(((2, b), (1, a)), cupo=1)
-    assert [lid for lid, _ in salida] == [2, 1]
-    assert salida[0][1].motivo == "cuota" and salida[1][1].resultado == "subir"
-    # Empate de prioridad: listing_id ascendente pasa primero (se distingue
-    # por p_aplicado: cada costo da un P* distinto).
-    from dataclasses import replace
-
-    assert a.p_aplicado.valor != b.p_aplicado.valor
-    a2 = replace(a, prioridad=b.prioridad)
-    salida = repartir_cupo(((2, a2), (1, b)), cupo=1)
-    assert salida[1][1].p_aplicado.valor == b.p_aplicado.valor
-    assert salida[0][1].motivo == "cuota"
 
 
 def test_reglas_goal_float_revienta():
@@ -2358,3 +2187,25 @@ def test_r1bis_s2_margen_a_precio_sin_iva_no_usa_divisor():
         Decimal("1.16"),
         False,
     ) == Decimal("0.57")
+
+
+# ------------------------------------------------------- REPRICING 02 S.4
+
+
+def test_s4_cooldown_ignora_cambio_sin_efecto():
+    """S.4: un `error` sin efecto no consume cooldown; con efecto si.
+
+    Espejo de `test_r1_b2_cooldown_virtual_no_frena_en_live_si_en_shadow`:
+    sin cooldown la decision sigue a la maquina (`PideCotizacion`).
+    """
+    from app.precio.tipos import PideCotizacion
+
+    base = dict(costo="53.01")
+    sin_efecto = dict(
+        cambios=(CambioPrevio(HOY - timedelta(days=2), "subir", "error", sin_efecto=True),),
+    )
+    assert isinstance(decide(entrada(**base, **sin_efecto)), PideCotizacion)
+    con_efecto = dict(
+        cambios=(CambioPrevio(HOY - timedelta(days=2), "subir", "error"),),
+    )
+    assert decide(entrada(**base, **con_efecto)).motivo == "cooldown"

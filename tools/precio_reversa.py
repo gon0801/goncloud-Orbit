@@ -1,53 +1,41 @@
-"""Reversa manual de cambios de precio de Amazon (REPRICING 01, A.3).
+"""Reversa manual de precios en lote (REPRICING 02, S.5).
 
 Nunca automatica: el dueno corre dry-run, revisa el plan y su huella, y
-solo entonces el go con la misma huella. Lee el precio vivo antes de
-escribir y salta lo que ya no coincide (un saltado no aborta el lote).
-Limitacion visible: el cambio del mismo dia sigue abierto y el indice
-unico impide su reversa; el plan lo muestra como saltado
-`original_abierto` hasta que cierre por observacion. Un cambio en
-`error` (nace con `enviado_at` y no pasa por el cierre) si es
-reversible el mismo dia cuando el vivo coincide.
+solo entonces el go con la misma huella. El plan sale solo de la base
+(cero cuota de plataforma); la huella cubre la seleccion y el precio al
+que vuelve cada fila, no el vivo. En el go cada fila se revalida contra
+el vivo: un precio movido entre el plan y el go salta esa fila y el lote
+sigue. Un original `enviado` con el precio ya aplicado se cierra y se
+revierte el mismo dia.
+
+Selectores (uno por corrida): `--cambio-id` (repetible), `--fecha` con
+`--platform`, `--corrida`. Un lote, una plataforma. El go toma el mismo
+candado `precio:<platform>` que la corrida (no corren a la vez) y aborta
+si algun universo del lote esta en `live`: primero se apaga, luego se
+revierte.
 
 Dry-run por omision (imprime plan + huella, cero PATCH). La mutacion
 real exige juntos `--acepto-mutacion-real`, `--huella H` (la del
 dry-run) y `--go` no vacio. Usa `ORBIT_DSN_DECIDE` (jamas DSN admin) y
-el escritor solo via `app.spapi.precio_write.construir_escritor`: este
-tool no importa `app.spapi.write_client` directo. El go devuelve 1 si
-alguna reversa termina en `error` (los saltados no cuentan); 0 si todas
-van a `enviado`.
+recibe el mercado de `precio_mercados.abrir`: este tool no importa
+`app.spapi.*`. El go devuelve 1 si alguna reversa termina en `error`
+(los saltados no cuentan); 0 si ninguna falla.
 
-La ejecucion real se ensaya en A.4 con ids reales del dueno; hasta que
-A.4 selle la forma del parche, el go levanta `FormaParcheSinSellar`
-(sin fila y sin red).
-
-Conexion en autocommit; cada bloque confirma al salir: el tool conecta
-con `autocommit=True` para que la fila `pendiente` ya sea durable
-cuando sale el PATCH (S5).
+Conexion en autocommit; cada bloque confirma al salir: la fila
+`pendiente` ya es durable cuando sale la escritura (S5).
 """
 
 from __future__ import annotations
 
 import argparse
-import hashlib
 import os
+import socket
 import sys
-import time
-
-import httpx
-import psycopg.errors
+from datetime import date
 
 import app.precio_mercados as mercados
 from app.db import OrbitDbError, connect
 from app.precio import cambios as cambios_mod
-from app.precio.puerto import EscrituraNoDisponible
-from app.spapi import precio_write
-from app.spapi.client import CuboTasa, SpapiClient, SpapiError, SpapiNoPermitida
-from app.spapi.precio_write import FormaParcheSinSellar
-
-# Ritmo de Pricing (un solo cubo por corrida, r6-C5): capacidad 1, 0.5/s.
-PRICING_BURST = 1
-PRICING_TASA_SEG = 0.5
 
 
 class Abortar(RuntimeError):
@@ -61,174 +49,144 @@ def _dsn_decide() -> str:
     return dsn
 
 
-def _cambios(conn, ids: list[int]) -> list:
+def _seleccion(args):
+    n = sum([bool(args.cambios), args.fecha is not None, args.corrida is not None])
+    if n != 1:
+        raise Abortar("elige un selector: --cambio-id, --fecha con --platform, o --corrida")
+    if args.fecha is not None:
+        if not args.platform:
+            raise Abortar("--fecha exige --platform")
+        try:
+            dia = date.fromisoformat(args.fecha)
+        except ValueError:
+            raise Abortar(f"--fecha invalida (AAAA-MM-DD): {args.fecha}") from None
+        return cambios_mod.SeleccionPorFecha(args.platform, dia), args.platform
+    if args.platform:
+        raise Abortar("--platform solo vale con --fecha")
+    if args.corrida is not None:
+        return cambios_mod.SeleccionPorCorrida(args.corrida), None
+    return cambios_mod.SeleccionPorCambios(ids=tuple(args.cambios)), None
+
+
+def _platform_de_corrida(conn, corrida_id: int) -> str:
+    fila = conn.execute(
+        "SELECT platform FROM precio_corrida WHERE id = %s", (corrida_id,)
+    ).fetchone()
+    if fila is None:
+        raise Abortar(f"corrida {corrida_id} inexistente")
+    return fila[0]
+
+
+def _platform_de_ids(conn, ids: tuple[int, ...]) -> str:
     filas = conn.execute(
-        "SELECT c.id, c.listing_id, c.platform, c.precio_antes, c.precio_antes_currency,"
-        " c.precio_despues, c.precio_despues_currency, c.aplicado, c.estado,"
-        " c.enviado_at, c.es_reversa, l.seller_sku, l.external_id"
-        " FROM precio_cambio c JOIN listing l"
-        " ON l.id = c.listing_id AND l.platform = c.platform"
-        " WHERE c.id = ANY(%s) ORDER BY c.id",
-        (ids,),
+        "SELECT id, platform FROM precio_cambio WHERE id = ANY(%s)", (list(ids),)
     ).fetchall()
     vistos = {f[0] for f in filas}
     for pedido in ids:
         if pedido not in vistos:
             raise Abortar(f"cambio {pedido} inexistente")
-    return filas
+    plats = sorted({f[1] for f in filas})
+    if len(plats) > 1:
+        raise Abortar(f"lote multi-plataforma: {plats} (corre una vez por plataforma)")
+    return plats[0]
 
 
-def _plan(conn, lector: SpapiClient, filas, *, limitador: CuboTasa | None = None) -> list[tuple]:
-    """Plan fresco: (id, accion, detalle) con accion en
-    {'revertir', 'saltar'}; saltar no aborta, se imprime con su razon.
-    Con `limitador`, las lecturas del vivo consumen del cubo (r6-C5)."""
-    plan = []
-    for f in filas:
-        cid = f[0]
-        if not f[11]:
-            plan.append((cid, "saltar", "sin_sku"))
-            continue
-        if f[10] or not f[7] or f[9] is None:
-            plan.append(
-                (
-                    cid,
-                    "saltar",
-                    "no_reversible: cambio real, no-reversa, con enviado_at",
-                )
-            )
-            continue
-        if f[8] in ("pendiente", "enviado"):
-            plan.append(
-                (
-                    cid,
-                    "saltar",
-                    "original_abierto (cierra con la observación del día siguiente)",
-                )
-            )
-            continue
-        otro_abierto = conn.execute(
-            "SELECT count(*) FROM precio_cambio"
-            " WHERE listing_id = %s AND platform = %s"
-            " AND estado IN ('pendiente', 'enviado')",
-            (f[1], f[2]),
-        ).fetchone()[0]
-        if otro_abierto:
-            plan.append((cid, "saltar", "listing_con_cambio_abierto"))
-            continue
-        try:
-            vivo = precio_write.leer_precio_vivo(
-                lector, platform=f[2], asin=f[12], limitador=limitador
-            )
-        except (precio_write.PrecioVivoAusente, httpx.HTTPError, SpapiError):
-            plan.append((cid, "saltar", "sin_precio_vivo"))
-            continue
-        if (vivo.precio, vivo.moneda) != (f[5], f[6]):
-            plan.append((cid, "saltar", f"precio_vivo_distinto: vivo={vivo.precio}/{vivo.moneda}"))
-            continue
-        plan.append((cid, "revertir", f"{f[3]}/{f[4]} -> {f[5]}/{f[6]}"))
-    return plan
-
-
-def _huella(plan, filas_por_id) -> str:
-    partes = []
-    for cid, accion, detalle in plan:
-        if accion == "revertir":
-            f = filas_por_id[cid]
-            partes.append(f"revertir:{cid}:{f[1]}:{f[2]}:{f[5]}:{f[6]}")
-        else:
-            partes.append(f"saltar:{cid}:{detalle.split(':')[0]}")
-    return hashlib.sha256("|".join(sorted(partes)).encode()).hexdigest()[:16]
-
-
-def _linea(plan_uno, filas_por_id) -> str:
-    cid, accion, detalle = plan_uno
-    f = filas_por_id[cid]
-    if accion == "revertir":
+def _linea_plan(fila, platform: str) -> str:
+    if fila.estado_plan == "revertible":
         return (
-            f"[revertir] cambio={cid} {f[11]} {f[2]}"
-            f" {f[5]:.2f} {f[6]} -> {f[3]:.2f} {f[4]} (vivo coincide)"
+            f"[revertir] cambio={fila.cambio_id} {fila.seller_sku} {platform}"
+            f" {fila.desde.valor:.2f} {fila.desde.moneda}"
+            f" -> {fila.volver_a.valor:.2f} {fila.volver_a.moneda}"
         )
-    return f"[saltar] cambio={cid} {f[11]} {f[2]} motivo={detalle}"
+    return (
+        f"[saltar] cambio={fila.cambio_id} {fila.seller_sku} {platform} motivo={fila.estado_plan}"
+    )
 
 
-def main(
-    argv=None,
-    *,
-    transport: httpx.BaseTransport | None = None,
-    sleep=time.sleep,
-    credentials: dict | None = None,
-) -> int:
+def _linea_go(cid: int, res) -> str:
+    if res.estado == "saltado":
+        return f"[saltar] cambio={cid} motivo={res.motivo}"
+    base = f"[hecho] cambio={cid} estado={res.estado}"
+    return base if res.motivo is None else f"{base} motivo={res.motivo}"
+
+
+def _corre(conn, mercado, platform: str, seleccion, args) -> int:
+    try:
+        plan = cambios_mod.planear_reversa(conn, mercado, seleccion)
+    except ValueError as exc:
+        raise Abortar(str(exc)) from None
+    for fila in plan.filas:
+        print(_linea_plan(fila, platform))
+    print(f"huella: {plan.huella}")
+    if not args.acepto_mutacion_real:
+        if args.go:
+            raise Abortar(
+                "falto --acepto-mutacion-real: --go --huella sin"
+                " --acepto-mutacion-real no muta (dry-run enganoso)"
+            )
+        return 0
+    if not args.go:
+        raise Abortar("falta --go: --acepto-mutacion-real sin --go no muta")
+    if not args.huella:
+        raise Abortar("falta --huella: el go exige la huella del dry-run")
+    if args.huella != plan.huella:
+        raise Abortar(
+            f"--huella {args.huella} != huella del plan {plan.huella}: re-corre el dry-run"
+        )
+    try:
+        resultados = cambios_mod.revertir_lote(
+            conn,
+            mercado,
+            plan,
+            huella=args.huella,
+            go_literal=args.go,
+            owner=f"{socket.gethostname()}:{os.getpid()}",
+        )
+    except (
+        cambios_mod.CorridaEnCurso,
+        cambios_mod.UniversoEnLive,
+        ValueError,
+    ) as exc:
+        raise Abortar(str(exc)) from None
+    for cid, res in resultados:
+        print(_linea_go(cid, res))
+    return 1 if any(res.estado == "error" for _cid, res in resultados) else 0
+
+
+def main(argv=None, *, mercado=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--cambio-id", dest="cambios", type=int, action="append", required=True)
+    ap.add_argument("--cambio-id", dest="cambios", type=int, action="append", default=None)
+    ap.add_argument("--fecha", default=None)
+    ap.add_argument("--platform", default=None, choices=("amazon_mx", "amazon_us", "meli"))
+    ap.add_argument("--corrida", type=int, default=None)
     ap.add_argument("--acepto-mutacion-real", action="store_true")
     ap.add_argument("--huella", default=None)
     ap.add_argument("--go", default=None)
     args = ap.parse_args(argv)
+    seleccion, platform = _seleccion(args)
 
     try:
         conn = connect(_dsn_decide(), autocommit=True)
     except OrbitDbError as exc:
         raise Abortar(str(exc)) from None
     try:
-        filas = _cambios(conn, args.cambios)
-        lector = SpapiClient(credentials=credentials, transport=transport, sleep=sleep)
-        # r6-C5: un solo cubo de Pricing para todo el go (plan + reversas);
-        # reloj y espera salen del sleep inyectado (falsos en tests).
-        cubo = CuboTasa(
-            sleep=sleep,
-            clock=time.monotonic,
-            capacidad=PRICING_BURST,
-            tasa=PRICING_TASA_SEG,
-        )
-        plan = _plan(conn, lector, filas, limitador=cubo)
-        por_id = {f[0]: f for f in filas}
-        huella = _huella(plan, por_id)
-        for uno in plan:
-            print(_linea(uno, por_id))
-        print(f"huella: {huella}")
-        if not args.acepto_mutacion_real:
-            if args.go:
-                raise Abortar(
-                    "falto --acepto-mutacion-real: --go --huella sin"
-                    " --acepto-mutacion-real no muta (dry-run enganoso)"
-                )
-            return 0
-        if not args.go:
-            raise Abortar("falta --go: --acepto-mutacion-real sin --go no muta")
-        if not args.huella:
-            raise Abortar("falta --huella: el go exige la huella del dry-run")
-        if args.huella != huella:
-            raise Abortar(
-                f"--huella {args.huella} != huella del plan {huella}: re-corre el dry-run"
-            )
-        hubo_error = False
-        for cid, accion, _detalle in plan:
-            if accion != "revertir":
-                continue
-            f = por_id[cid]
-            escritor = precio_write.construir_escritor(
-                lector, f[2], transport=transport, sleep=sleep
-            )
-            with mercados.abrir(f[2], lector=lector, escritor=escritor, limitador=cubo) as mercado:
-                try:
-                    res = cambios_mod.revertir(conn, cid, mercado=mercado)
-                except (FormaParcheSinSellar, EscrituraNoDisponible, ValueError) as exc:
-                    raise Abortar(f"forma del parche sin sellar (A.4 la sella): {exc}") from None
-                except (
-                    precio_write.CambioNoReversible,
-                    SpapiNoPermitida,
-                    precio_write.PublicacionSinSku,
-                    psycopg.errors.UniqueViolation,
-                ) as exc:
-                    print(f"[error] cambio={cid} motivo={exc}")
-                    hubo_error = True
-                    continue
-                print(f"[hecho] cambio={cid} estado={res.estado} motivo={res.motivo}")
-                if res.estado == "error":
-                    hubo_error = True
-        if hubo_error:
-            return 1
-        return 0
+        if platform is None:
+            if isinstance(seleccion, cambios_mod.SeleccionPorCorrida):
+                platform = _platform_de_corrida(conn, seleccion.corrida_id)
+            else:
+                platform = _platform_de_ids(conn, seleccion.ids)
+        if mercado is None:
+            from app.cli import _clientes_precio
+
+            try:
+                lector, escritor, _fees, limitador = _clientes_precio(platform)
+            except Exception as exc:  # noqa: BLE001 - sin clientes no hay go real
+                raise Abortar(f"sin clientes para {platform}: {exc}") from None
+            with mercados.abrir(
+                platform, lector=lector, escritor=escritor, limitador=limitador
+            ) as abierto:
+                return _corre(conn, abierto, platform, seleccion, args)
+        return _corre(conn, mercado, platform, seleccion, args)
     finally:
         conn.close()
 

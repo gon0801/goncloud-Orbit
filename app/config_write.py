@@ -45,7 +45,9 @@ import psycopg
 from psycopg.types.json import Json
 
 from app.apply import KINDS_QUOTA
+from app.estimacion_universo import universo_de
 from app.optimizer import goals as g
+from app.precio.config import MODOS as MODOS_PRECIO
 
 ACTOR = "settings-ui"
 
@@ -107,6 +109,74 @@ def _aplica_motor_bid(nuevo: dict, cambios: list[str], platform: str, motor_bid:
     )
 
 
+def _valida_precio_global(valor, *, ausente_ok: bool) -> None:
+    """El global vive en el vocabulario del motor (`off/shadow/live`).
+
+    Ausente solo pasa con `ausente_ok` (config vieja sin la clave: la
+    pagina la tolera, la corrida la rechaza)."""
+    if valor is None:
+        if ausente_ok:
+            return
+        raise SettingsInvalido("config sin precio_modo_global")
+    if valor not in MODOS_PRECIO:
+        raise SettingsInvalido(f"precio_modo_global debe ser off, shadow o live, llego {valor!r}")
+
+
+def _valida_precio_universo(valor, *, ausente_ok: bool) -> None:
+    """El objeto por universo: llaves `plataforma/canal` del registro de
+    universos, valores del vocabulario del motor."""
+    if valor is None:
+        if ausente_ok:
+            return
+        raise SettingsInvalido("config sin precio_modo_universo")
+    if not isinstance(valor, Mapping):
+        raise SettingsInvalido(
+            f"precio_modo_universo debe ser objeto plataforma/canal -> modo: {valor!r}"
+        )
+    for universo, modo in valor.items():
+        partes = universo.split("/") if isinstance(universo, str) else []
+        if len(partes) != 2 or not all(partes) or universo_de(*partes) is None:
+            raise SettingsInvalido(
+                f"precio_modo_universo: universo fuera del registro: {universo!r}"
+            )
+        if modo not in MODOS_PRECIO:
+            raise SettingsInvalido(
+                f"precio_modo_universo: modo invalido para {universo} (off/shadow/live): {modo!r}"
+            )
+
+
+def _aplica_precio_modos(
+    nuevo: dict, cambios: list[str], modo_global: str | None, modo_universo: Mapping | None
+) -> None:
+    """Ramas S.2 de proxima_config (helper: las dos ramas juntas)."""
+    if modo_global is not None:
+        _aplica_precio_global(nuevo, cambios, modo_global)
+    if modo_universo is not None:
+        _aplica_precio_universo(nuevo, cambios, modo_universo)
+
+
+def _aplica_precio_global(nuevo: dict, cambios: list[str], modo: str) -> None:
+    """Rama S.2 de proxima_config: el modo global, igual desde cualquier
+    plataforma (la config es global)."""
+    _valida_precio_global(modo, ausente_ok=False)
+    if nuevo.get("precio_modo_global") != modo:
+        cambios.append(f"precio modo global {_antes(nuevo.get('precio_modo_global'))} -> {modo}")
+        nuevo["precio_modo_global"] = modo
+
+
+def _aplica_precio_universo(nuevo: dict, cambios: list[str], entrante: Mapping) -> None:
+    """Rama S.2 de proxima_config: fusion por llave sobre el objeto vigente
+    (el JS manda solo lo cambiado; un POST parcial no borra los demas)."""
+    _valida_precio_universo(entrante, ausente_ok=False)
+    vigente = nuevo.get("precio_modo_universo")
+    fusionado = dict(vigente) if isinstance(vigente, Mapping) else {}
+    for universo, modo in entrante.items():
+        if fusionado.get(universo) != modo:
+            cambios.append(f"precio modo {universo} {_antes(fusionado.get(universo))} -> {modo}")
+            fusionado[universo] = modo
+    nuevo["precio_modo_universo"] = fusionado
+
+
 def proxima_config(
     actual: Mapping,
     platform: str,
@@ -119,6 +189,8 @@ def proxima_config(
     confianza_recorte: Decimal | None = None,
     confianza_subida: Decimal | None = None,
     motor_bid: str | None = None,
+    precio_modo_global: str | None = None,
+    precio_modo_universo: Mapping[str, str] | None = None,
 ) -> tuple[dict, list[str]]:
     """Config NUEVA a partir de la vigente + la lista legible de cambios.
 
@@ -127,8 +199,11 @@ def proxima_config(
     `ads_optimizer_mode` viajan intactas). El margen se resuelve PRIMERO: la
     exigencia de ack_respaldo se evalua sobre la config RESULTANTE y solo
     cuando el manual CAMBIA (apagar el margen y editar el manual en la misma
-    edicion no pide ack: el manual va a gobernar). Una edicion que no cambia
-    nada es invalida (una fila identica seria un rastro que miente)."""
+    edicion no pide ack: el manual va a gobernar). Los modos de precio son
+    GLOBALES (se guardan igual desde cualquier plataforma) y el objeto por
+    universo se FUSIONA por llave (un POST parcial no borra los demas).
+    Una edicion que no cambia nada es invalida (una fila identica seria un
+    rastro que miente)."""
     nuevo = dict(actual)
     cambios: list[str] = []
 
@@ -178,6 +253,8 @@ def proxima_config(
     if motor_bid is not None:
         _aplica_motor_bid(nuevo, cambios, platform, motor_bid)
 
+    _aplica_precio_modos(nuevo, cambios, precio_modo_global, precio_modo_universo)
+
     for kind, cap in (caps or {}).items():
         if kind not in KINDS_QUOTA:
             raise SettingsInvalido(f"cap desconocido {kind!r}: los kinds son {KINDS_QUOTA}")
@@ -200,6 +277,10 @@ def proxima_config(
         g.politica_bid_desde_settings(nuevo, platform)
     except ValueError as exc:
         raise SettingsInvalido(str(exc)) from None
+    # S.2: la resultante se valida con el vocabulario del motor de precios
+    # (una corrupcion previa tambien rechaza, como motor_bid con bandas_v1).
+    _valida_precio_global(nuevo.get("precio_modo_global"), ausente_ok=True)
+    _valida_precio_universo(nuevo.get("precio_modo_universo"), ausente_ok=True)
     return nuevo, cambios
 
 

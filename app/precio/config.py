@@ -214,7 +214,7 @@ def leer_config(settings: Mapping) -> ConfigPrecio:
         raise ValueError(
             "setting precio_escalon_max_pct por debajo de precio_movimiento_min_pct: "
             f"{escalon} < {minimo} (el escalón aplicado quedaría bajo el mínimo y "
-            "consumiría cooldown y cuota)"
+            "consumiría cooldown)"
         )
     return ConfigPrecio(
         caida_ventas_pct=_fraccion(

@@ -42,6 +42,7 @@ ORDEN59 = (
     "0047_familias.sql",
     "0053_precio02_canal_meli.sql",
     "0054_precio02_base.sql",
+    "0058_precio02_decision_exige.sql",
 )
 
 _skip_sin_pg = pytest.mark.skipif(
@@ -80,7 +81,12 @@ def _db_nueva(*, omit=()):
     db = f"pp_{uuid.uuid4().hex[:8]}"
     omitidas = set(omit)
     if "0039_precio.sql" in omitidas:
-        omitidas |= {"0047_familias.sql", "0053_precio02_canal_meli.sql", "0054_precio02_base.sql"}
+        omitidas |= {
+            "0047_familias.sql",
+            "0053_precio02_canal_meli.sql",
+            "0054_precio02_base.sql",
+            "0058_precio02_decision_exige.sql",
+        }
     admin = psycopg.connect(dsn, autocommit=True)
     creada = False
     conn = None
@@ -632,9 +638,11 @@ def _decision_subir_pantalla(conn, listing, *, platform="amazon_mx", mode="shado
         "INSERT INTO precio_decision (listing_id, platform, resultado,"
         " goal, m_actual, p_actual, p_actual_currency, p_objetivo, p_objetivo_currency,"
         " p_aplicado, p_aplicado_currency, i_valor, i_currency, c_valor, c_currency,"
-        " f_valor, f_currency, l_valor, l_currency, r_valor, r_currency, mode)"
+        " f_valor, f_currency, l_valor, l_currency, r_valor, r_currency, mode,"
+        " l_origen, verificacion)"
         " VALUES (%s, %s, 'subir', 0.30, 0.24, 116, 'MXN', 116, 'MXN', 116, 'MXN',"
-        " 100, 'MXN', 40, 'MXN', 15, 'MXN', 0, 'MXN', 2.50, 'MXN', %s) RETURNING id",
+        " 100, 'MXN', 40, 'MXN', 15, 'MXN', 0, 'MXN', 2.50, 'MXN', %s,"
+        " 'politica', 'cotizada') RETURNING id",
         (listing, platform, mode),
     ).fetchone()[0]
 
@@ -1231,9 +1239,11 @@ def _r1_decision_subir_live(conn, listing, *, platform="amazon_mx", dia):
         "INSERT INTO precio_decision (listing_id, platform, decision_date, resultado,"
         " goal, m_actual, p_actual, p_actual_currency, p_objetivo, p_objetivo_currency,"
         " p_aplicado, p_aplicado_currency, i_valor, i_currency, c_valor, c_currency,"
-        " f_valor, f_currency, l_valor, l_currency, r_valor, r_currency, mode)"
+        " f_valor, f_currency, l_valor, l_currency, r_valor, r_currency, mode,"
+        " l_origen, verificacion)"
         " VALUES (%s, %s, %s, 'subir', 0.30, 0.24, 116, 'MXN', 116, 'MXN', 116, 'MXN',"
-        " 100, 'MXN', 40, 'MXN', 15, 'MXN', 0, 'MXN', 2.50, 'MXN', 'live') RETURNING id",
+        " 100, 'MXN', 40, 'MXN', 15, 'MXN', 0, 'MXN', 2.50, 'MXN', 'live',"
+        " 'politica', 'cotizada') RETURNING id",
         (listing, platform, dia),
     ).fetchone()[0]
 
@@ -1361,7 +1371,9 @@ def test_r1_a2_huerfana_es_evento_en_corrida_real(tmp_path, monkeypatch):
         lid2 = _listing_corrida(conn, prod2, ext="B0A2000002", sku="SKU-A2-2")
         _goal_corrida(conn, lid2, platform="amazon_mx", mode="live")
         dec2 = _r1_decision_subir_live(conn, lid2, dia=hoy)
-        pen2 = _r1_cambio_pendiente(conn, dec2, lid2, creado_en=_r1_mediodia(ayer))
+        pen2 = _r1_cambio_pendiente(
+            conn, dec2, lid2, creado_en=_r1_mediodia(ayer), enviado_en=_r1_mediodia(ayer)
+        )
         conn.execute(
             "UPDATE precio_cambio SET ack = %s WHERE id = %s",
             (Json({"origen": "seed", "detalle": ERROR_BODY}), pen2),
@@ -1556,9 +1568,11 @@ def _r1b_subir_shadow(conn, listing, *, platform="amazon_mx", antes="116", despu
         "INSERT INTO precio_decision (listing_id, platform, resultado,"
         " goal, m_actual, p_actual, p_actual_currency, p_objetivo, p_objetivo_currency,"
         " p_aplicado, p_aplicado_currency, i_valor, i_currency, c_valor, c_currency,"
-        " f_valor, f_currency, l_valor, l_currency, r_valor, r_currency, mode)"
+        " f_valor, f_currency, l_valor, l_currency, r_valor, r_currency, mode,"
+        " l_origen, verificacion)"
         " VALUES (%s, %s, 'subir', 0.30, 0.24, %s, 'MXN', %s, 'MXN', %s, 'MXN',"
-        " 100, 'MXN', 40, 'MXN', 15, 'MXN', 0, 'MXN', 2.50, 'MXN', 'shadow')"
+        " 100, 'MXN', 40, 'MXN', 15, 'MXN', 0, 'MXN', 2.50, 'MXN', 'shadow',"
+        " 'politica', 'cotizada')"
         " RETURNING id",
         (listing, platform, antes, despues, despues),
     ).fetchone()[0]
@@ -1570,9 +1584,11 @@ def _r1b_bajar_live(conn, listing, *, platform="amazon_mx", p_actual="127.60"):
         "INSERT INTO precio_decision (listing_id, platform, resultado,"
         " goal, m_actual, p_actual, p_actual_currency, p_objetivo, p_objetivo_currency,"
         " p_aplicado, p_aplicado_currency, i_valor, i_currency, c_valor, c_currency,"
-        " f_valor, f_currency, l_valor, l_currency, r_valor, r_currency, mode)"
+        " f_valor, f_currency, l_valor, l_currency, r_valor, r_currency, mode,"
+        " l_origen, verificacion)"
         " VALUES (%s, %s, 'bajar', 0.30, 0.24, %s, 'MXN', 116, 'MXN', 116, 'MXN',"
-        " 100, 'MXN', 40, 'MXN', 15, 'MXN', 0, 'MXN', 2.50, 'MXN', 'live') RETURNING id",
+        " 100, 'MXN', 40, 'MXN', 15, 'MXN', 0, 'MXN', 2.50, 'MXN', 'live',"
+        " 'politica', 'cotizada') RETURNING id",
         (listing, platform, p_actual),
     ).fetchone()[0]
 
@@ -1611,7 +1627,7 @@ def _r1b_config_sin_caps(conn):
 
 def _r1b_siembra_a3(conn):
     """Fixture A3: cada conteo distinto de cero y entre si (evaluados=8,
-    movidos=3, sombra=2, goal_inalcanzable=1, huerfanas=4, used=5, cap=7)."""
+    movidos=3, sombra=2, goal_inalcanzable=1, huerfanas=4)."""
     from test_precio_corrida import _goal as _goal_corrida
 
     _config_pantalla(conn)
@@ -1663,12 +1679,6 @@ def _r1b_siembra_a3(conn):
             )
     finally:
         conn.execute("ALTER TABLE precio_decision ENABLE TRIGGER precio_decision_fecha_utc")
-    # Cuota del dia: used=5 de cap=7.
-    conn.execute(
-        "INSERT INTO apply_quota_state (motor, quota_date, cap, used)"
-        " VALUES ('precio:amazon_mx', %s, 7, 5)",
-        (hoy,),
-    )
     return hoy
 
 
@@ -1745,15 +1755,7 @@ def test_r1b_a3_salud_precios_clave_por_clave_vs_select():
                 (hoy,),
             ).fetchone()[0]
         )
-        assert salud["cuota"] == {"used": 5, "cap": 7}
-        assert (
-            salud["cuota"]["used"]
-            == conn.execute(
-                "SELECT used FROM apply_quota_state"
-                " WHERE motor = 'precio:amazon_mx' AND quota_date = %s",
-                (hoy,),
-            ).fetchone()[0]
-        )
+        assert "cuota" not in salud
         assert salud["huerfanas"] == 4
         assert salud["huerfanas"] == _select_huerfanas(conn, "amazon_mx")
         assert salud["decisiones"] == _select_decisiones(conn, "amazon_mx", hoy)
@@ -1765,11 +1767,9 @@ def test_r1b_a3_salud_precios_clave_por_clave_vs_select():
                     salud["sombra"],
                     salud["goal_inalcanzable"],
                     salud["huerfanas"],
-                    salud["cuota"]["used"],
-                    salud["cuota"]["cap"],
                 }
             )
-            == 7
+            == 5
         )
 
 
@@ -1866,11 +1866,9 @@ def test_r1b_b1_no_evaluados_filas_del_dia_en_palabras():
 
 
 @_skip_sin_pg
-def test_r1b_b9_errores_pantalla_tres_casos(monkeypatch, caplog):
+def test_r1b_b9_errores_pantalla_tres_casos(monkeypatch):
     """B9: tres mensajes exactos; la plantilla no nombra la migracion en
     ninguno de los tres."""
-    import logging as _logging
-
     # 1. Sin 0039: el mensaje del motor no instalado.
     with _db_sin_0039() as (_conn, dsn):
         cliente = _cliente_pantalla(dsn, monkeypatch)
@@ -1884,19 +1882,17 @@ def test_r1b_b9_errores_pantalla_tres_casos(monkeypatch, caplog):
         salud = cliente.get("/api/dashboard/salud").json()
         for plataforma in ("amazon_us", "amazon_mx"):
             assert salud["plataformas"][plataforma]["precios"] is None
-    # 2. Clave de config ausente: el mensaje nombra la clave (con scrub y
-    # registro); la plantilla tampoco nombra la migracion.
+    # 2. Config sin `precio_cap_*` (S.1: el cupo murio): la pantalla carga
+    # igual y no pinta cupo; la plantilla tampoco nombra la migracion.
     with _db_pantalla("b9-config") as (_conn, dsn):
         _r1b_config_sin_caps(_conn)
         cliente = _cliente_pantalla(dsn, monkeypatch)
-        with caplog.at_level(_logging.WARNING, logger="app.api_dashboard"):
-            resp = cliente.get("/api/dashboard/precios")
-        assert resp.status_code == 503
-        assert "precio_cap_amazon_us" in resp.json()["detail"]
-        assert "precio_cap_amazon_us" in caplog.text
+        resp = cliente.get("/api/dashboard/precios")
+        assert resp.status_code == 200
+        for plataforma in ("amazon_us", "amazon_mx"):
+            assert "decisiones" in resp.json()["plataformas"][plataforma]
         html = cliente.get("/precios").text
-        assert resp.status_code == 503
-        assert "precio_cap_amazon_us" in html
+        assert "cupo" not in html
         assert "migracion 0039" not in html and "migración 0039" not in html
     # 3. Cualquier otro fallo: «precios de <plataforma> ilegibles».
     with _db_pantalla("b9-otro") as (conn, dsn):
@@ -2002,24 +1998,18 @@ def test_r1b_b12_cero_cdn_absoluto_en_precios(monkeypatch):
 
 @_skip_sin_pg
 def test_r1b_b12_salud_html_bloque_precios_con_numeros(monkeypatch):
-    """B12: el bloque de `/salud` HTML trae sus numeros (cuota incluida)."""
+    """B12: el bloque de `/salud` HTML trae sus numeros (S.1: sin cupo)."""
     with _db_pantalla("b12-salud") as (conn, dsn):
         _config_pantalla(conn)
-        hoy = _dias_atras(conn, 0)
         prod = _producto(conn)
         lid = _listing(conn, prod, sku="SKU-B12-H", ext="B0B120009")
         _goal(conn, lid)
         _decision(conn, lid, resultado="frenado", motivo="api_error")
-        conn.execute(
-            "INSERT INTO apply_quota_state (motor, quota_date, cap, used)"
-            " VALUES ('precio:amazon_mx', %s, 7, 2)",
-            (hoy,),
-        )
         resp = _cliente_pantalla(dsn, monkeypatch).get("/salud")
         assert resp.status_code == 200
         seccion = resp.text.split('id="bloque-precios-amazon_mx"')[1].split("</div>")[0]
         assert "frenados 1" in seccion
-        assert "cupo 2 de 7" in seccion
+        assert "cupo" not in seccion
 
 
 @_skip_sin_pg
@@ -2152,9 +2142,11 @@ def _r2_decision_subir_live(conn, listing, *, platform="amazon_mx", dia, p_aplic
         "INSERT INTO precio_decision (listing_id, platform, decision_date, resultado,"
         " goal, m_actual, p_actual, p_actual_currency, p_objetivo, p_objetivo_currency,"
         " p_aplicado, p_aplicado_currency, i_valor, i_currency, c_valor, c_currency,"
-        " f_valor, f_currency, l_valor, l_currency, r_valor, r_currency, mode)"
+        " f_valor, f_currency, l_valor, l_currency, r_valor, r_currency, mode,"
+        " l_origen, verificacion)"
         " VALUES (%s, %s, %s, 'subir', 0.30, 0.24, %s, 'MXN', %s, 'MXN', %s, 'MXN',"
-        " 100, 'MXN', 40, 'MXN', 15, 'MXN', 0, 'MXN', 2.50, 'MXN', 'live') RETURNING id",
+        " 100, 'MXN', 40, 'MXN', 15, 'MXN', 0, 'MXN', 2.50, 'MXN', 'live',"
+        " 'politica', 'cotizada') RETURNING id",
         (listing, platform, dia, p_aplicado, p_aplicado, p_aplicado),
     ).fetchone()[0]
 
@@ -2448,9 +2440,11 @@ def _r2b_bajar_shadow(conn, listing, *, platform="amazon_mx"):
         "INSERT INTO precio_decision (listing_id, platform, resultado,"
         " goal, m_actual, p_actual, p_actual_currency, p_objetivo, p_objetivo_currency,"
         " p_aplicado, p_aplicado_currency, i_valor, i_currency, c_valor, c_currency,"
-        " f_valor, f_currency, l_valor, l_currency, r_valor, r_currency, mode)"
+        " f_valor, f_currency, l_valor, l_currency, r_valor, r_currency, mode,"
+        " l_origen, verificacion)"
         " VALUES (%s, %s, 'bajar', 0.30, 0.24, 127.60, 'MXN', 116, 'MXN', 116, 'MXN',"
-        " 100, 'MXN', 40, 'MXN', 15, 'MXN', 0, 'MXN', 2.50, 'MXN', 'shadow') RETURNING id",
+        " 100, 'MXN', 40, 'MXN', 15, 'MXN', 0, 'MXN', 2.50, 'MXN', 'shadow',"
+        " 'politica', 'cotizada') RETURNING id",
         (listing, platform),
     ).fetchone()[0]
 
@@ -2704,3 +2698,609 @@ def test_r1b2_m58_goal_anulado_hoy_fuera_de_con_goal():
         )
         filas = dash.precios(conn)["plataformas"]["amazon_mx"]["con_goal"]
         assert [f["sku"] for f in filas] == ["SKU-R1B2-M58K"]
+
+
+# ---------------------------------------------------------------------------
+# REPRICING 02 S.3: bloque de seguridad de /precios (modos, ultima corrida,
+# retenciones del dia, boton Soltar). Otros carriles anexan debajo.
+# ---------------------------------------------------------------------------
+
+
+@_skip_sin_pg
+def test_s3_precios_trae_bloque_seguridad_con_soltar(monkeypatch):
+    """S.3: /precios trae el bloque de seguridad: modos, ultima corrida,
+    retenciones abiertas del dia y el boton Soltar con la corrida liberable;
+    el JSON trae la misma `seguridad`."""
+    with _db_pantalla("s3-seg") as (conn, dsn):
+        cfg = _config_pantalla(conn)
+        corrida = conn.execute(
+            "INSERT INTO precio_corrida (platform, owner, config_version_id, modo_global)"
+            " VALUES ('amazon_mx', 'tdd-s3', %s, 'live') RETURNING id",
+            (cfg,),
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO precio_compuerta_medicion (corrida_id, canal, medidas, nuevas, causa)"
+            " VALUES (%s, 'fba', 158, 80, 'movimiento_masivo')",
+            (corrida,),
+        )
+        html = _html_precios(conn, dsn, monkeypatch)
+        assert "bloque-seguridad-amazon_mx" in html
+        assert "Soltar" in html
+        assert f'data-liberar-corrida="{corrida}"' in html
+        assert "movimiento_masivo" in html
+        data = _cliente_pantalla(dsn, monkeypatch).get("/api/dashboard/precios").json()
+        seg = data["plataformas"]["amazon_mx"]["seguridad"]
+        assert seg["modo_global"] == "live"
+        assert seg["modo_universo"]["amazon_mx/fba"] == "live"
+        assert seg["ultima_corrida"]["corrida_id"] == corrida
+        assert seg["retenciones_abiertas"]["fba"]["causa"] == "movimiento_masivo"
+        assert seg["liberable_corrida_id"] == corrida
+        assert seg["cohorte"] is None
+
+
+@_skip_sin_pg
+def test_s3_precios_global_sin_universo_no_da_500(monkeypatch):
+    """F1 (revision automatica): global configurado pero sin clave de
+    universo -> el bloque pinta "sin configurar" y /precios sigue 200
+    (antes: `None.items()` en la plantilla = HTTP 500)."""
+    with _db_pantalla("s3-seguni") as (conn, dsn):
+        conn.execute(
+            "INSERT INTO config_version (label, settings) VALUES (%s, %s)",
+            (
+                "test-sin-universo",
+                Json(
+                    {
+                        "precio_aviso_dias_sin_evaluar": 3,
+                        "precio_catalogo_max_dias_sin_reportar": 7,
+                        "precio_cap_amazon_mx": 7,
+                        "precio_cap_amazon_us": 7,
+                        "precio_modo_global": "live",
+                    }
+                ),
+            ),
+        )
+        html = _html_precios(conn, dsn, monkeypatch)
+        assert "bloque-seguridad-amazon_mx" in html
+        assert "sin configurar" in html
+
+
+# ---------------------------------------------------------------------------
+# Bloque S.6 (REPRICING 02, S.6): manda los avisos. Resumen diario con sello
+# por plataforma y dia, aviso de compuerta con sello por universo+causa+dia,
+# builders nuevos sin costo/margen/goal, y `corrida_ausente` dentro del
+# bloque precios de /salud. Telegram siempre falso (`_canal_falso`); la base
+# es real. Otros carriles anexan debajo: no borrar ni reordenar.
+# ---------------------------------------------------------------------------
+
+
+def _s6_corrida_cerrada(conn, cfg, *, platform="amazon_mx", owner="tdd-s6"):
+    """Corrida cerrada de hoy (el trigger fija `fecha` al dia UTC)."""
+    corrida = conn.execute(
+        "INSERT INTO precio_corrida (platform, owner, config_version_id, modo_global)"
+        " VALUES (%s, %s, %s, 'live') RETURNING id",
+        (platform, owner, cfg),
+    ).fetchone()[0]
+    conn.execute(
+        "UPDATE precio_corrida SET estado = 'cerrada', cerrada_at = now(),"
+        " decisiones = 0, movidas = 0, virtuales = 0, retenidas = 0,"
+        " errores = 0, saltadas_por_edicion = 0 WHERE id = %s",
+        (corrida,),
+    )
+    return corrida
+
+
+def _s6_medicion(conn, corrida, canal, causa, *, medidas=10, nuevas=6, insumo=None, detalle=""):
+    """Fila de medicion de compuerta (el trigger copia platform/fecha)."""
+    conn.execute(
+        "INSERT INTO precio_compuerta_medicion (corrida_id, canal, medidas, nuevas,"
+        " causa, insumo, detalle) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+        (corrida, canal, medidas, nuevas, causa, insumo, detalle),
+    )
+
+
+def _s6_textos(mensajes, titulo):
+    return [m["text"] for m in mensajes if titulo in m["text"]]
+
+
+@_skip_sin_pg
+def test_s6_resumen_diario_uno_por_plataforma_y_dia_aunque_nada_se_mueva(tmp_path, monkeypatch):
+    """DoD 1: un dia sin movimiento tambien avisa; el sello es por
+    plataforma y dia (MX no calla a US)."""
+    with _db_temp() as conn, _canal_falso(tmp_path, monkeypatch) as mensajes:
+        cfg = _config(conn)
+        prod = _producto(conn, sku="SKU-S6-1")
+        lid1 = _listing(conn, prod, sku="SKU-S6-1", ext="B0S6000001")
+        lid2 = _listing(conn, prod, sku="SKU-S6-2", ext="B0S6000002")
+        _goal(conn, lid1)
+        _goal(conn, lid2)
+        _decision(conn, lid1, resultado="mantener", motivo="en_tolerancia")
+        _decision(conn, lid2, resultado="mantener", motivo="en_tolerancia")
+        hoy = _dias_atras(conn, 0)
+        c1 = _s6_corrida_cerrada(conn, cfg)
+        assert notifica.avisar_precio(conn, "amazon_mx", hoy, _resumen()) == 1
+        assert len(mensajes) == 1
+        assert "[Orbit] precio: resumen diario" in mensajes[0]["text"]
+        assert "hoy no se movio ningun precio" in mensajes[0]["text"]
+        sello = conn.execute(
+            "SELECT resumen_enviado_at FROM precio_corrida WHERE id = %s", (c1,)
+        ).fetchone()[0]
+        assert sello is not None
+        c_us = _s6_corrida_cerrada(conn, cfg, platform="amazon_us")
+        assert notifica.avisar_precio(conn, "amazon_us", hoy, _resumen()) == 1
+        assert len(mensajes) == 2
+        assert "[Orbit] precio: resumen diario" in mensajes[1]["text"]
+        assert "amazon_us" in mensajes[1]["text"]
+        sello_us = conn.execute(
+            "SELECT resumen_enviado_at FROM precio_corrida WHERE id = %s", (c_us,)
+        ).fetchone()[0]
+        assert sello_us is not None
+
+
+@_skip_sin_pg
+def test_s6_dos_corridas_mismo_dia_mandan_un_resumen(tmp_path, monkeypatch):
+    """DoD 2: la segunda corrida (repaso no-op) no reenvia; el sello queda
+    en la primera."""
+    with _db_temp() as conn, _canal_falso(tmp_path, monkeypatch) as mensajes:
+        cfg = _config(conn)
+        hoy = _dias_atras(conn, 0)
+        c1 = _s6_corrida_cerrada(conn, cfg)
+        assert notifica.avisar_precio(conn, "amazon_mx", hoy, _resumen()) == 1
+        assert len(mensajes) == 1
+        c2 = _s6_corrida_cerrada(conn, cfg)
+        assert notifica.avisar_precio(conn, "amazon_mx", hoy, _resumen(decisiones=0)) == 0
+        assert len(mensajes) == 1
+        sellos = {
+            fila[0]: fila[1]
+            for fila in conn.execute(
+                "SELECT id, resumen_enviado_at FROM precio_corrida ORDER BY id"
+            ).fetchall()
+        }
+        assert sellos[c1] is not None
+        assert sellos[c2] is None
+
+
+@_skip_sin_pg
+def test_s6_compuerta_una_vez_por_universo_causa_y_dia_con_repasos(tmp_path, monkeypatch):
+    """DoD 3: el repaso que re-mide la misma causa no reavisa; otra causa u
+    otro universo si avisan."""
+    with _db_temp() as conn, _canal_falso(tmp_path, monkeypatch) as mensajes:
+        cfg = _config(conn)
+        hoy = _dias_atras(conn, 0)
+        c1 = _s6_corrida_cerrada(conn, cfg)
+        _s6_medicion(conn, c1, "fba", "movimiento_masivo", detalle="6 nuevas sobre 10")
+        notifica.avisar_precio(conn, "amazon_mx", hoy, _resumen(decisiones=0))
+        assert len(_s6_textos(mensajes, "[Orbit] precio: compuerta")) == 1
+        c2 = _s6_corrida_cerrada(conn, cfg)
+        _s6_medicion(conn, c2, "fba", "movimiento_masivo", detalle="6 nuevas sobre 10")
+        notifica.avisar_precio(conn, "amazon_mx", hoy, _resumen(decisiones=0))
+        assert len(_s6_textos(mensajes, "[Orbit] precio: compuerta")) == 1
+        c3 = _s6_corrida_cerrada(conn, cfg)
+        _s6_medicion(
+            conn,
+            c3,
+            "fba",
+            "insumo_sistemico",
+            insumo="fx",
+            detalle="fx salto en 6 de 8 comparables",
+        )
+        _s6_medicion(conn, c3, "fbm", "movimiento_masivo", detalle="5 nuevas sobre 9")
+        notifica.avisar_precio(conn, "amazon_mx", hoy, _resumen(decisiones=0))
+        assert len(_s6_textos(mensajes, "[Orbit] precio: compuerta")) == 3
+        sellos = {
+            (fila[0], fila[1]): fila[2]
+            for fila in conn.execute(
+                "SELECT corrida_id, canal, avisada_at FROM precio_compuerta_medicion"
+            ).fetchall()
+        }
+        assert sellos[(c1, "fba")] is not None
+        assert sellos[(c2, "fba")] is None
+        assert sellos[(c3, "fba")] is not None
+        assert sellos[(c3, "fbm")] is not None
+
+
+@_skip_sin_pg
+def test_s6_textos_enviados_sin_costo_margen_ni_goal(tmp_path, monkeypatch):
+    """DoD 4: lo que sale al canal (resumen con muestra y compuerta con el
+    insumo costo) no trae costo, margen ni goal."""
+    with _db_temp() as conn, _canal_falso(tmp_path, monkeypatch) as mensajes:
+        cfg = _config(conn)
+        prod = _producto(conn, sku="SKU-S6-4")
+        lid = _listing(conn, prod, sku="SKU-S6-4", ext="B0S6000004")
+        _goal_live_pantalla(conn, lid)
+        dec = _r1b_bajar_live(conn, lid)
+        _r1b_cambio_real(conn, dec, lid, antes="127.60", despues="116.00")
+        lid2 = _listing(conn, prod, sku="SKU-S6-4B", ext="B0S600004B")
+        _goal(conn, lid2)
+        _decision(conn, lid2, motivo="precio_no_cubre_costo")
+        hoy = _dias_atras(conn, 0)
+        c1 = _s6_corrida_cerrada(conn, cfg)
+        _s6_medicion(
+            conn,
+            c1,
+            "fba",
+            "insumo_sistemico",
+            insumo="costo",
+            detalle="costo salto en 6 de 8 comparables (salto 0.10, frac 0.50)",
+        )
+        notifica.avisar_precio(conn, "amazon_mx", hoy, _resumen())
+        assert len(_s6_textos(mensajes, "[Orbit] precio: resumen diario")) == 1
+        assert len(_s6_textos(mensajes, "[Orbit] precio: compuerta")) == 1
+        for texto in (m["text"] for m in mensajes):
+            bajo = texto.lower()
+            assert "costo" not in bajo
+            assert "margen" not in bajo
+            assert "goal" not in bajo
+        resumen = _s6_textos(mensajes, "[Orbit] precio: resumen diario")[0]
+        assert "SKU-S6-4" in resumen and "127.60" in resumen and "116.00" in resumen
+        compuerta = _s6_textos(mensajes, "[Orbit] precio: compuerta")[0]
+        assert "coste" in compuerta
+
+
+@_skip_sin_pg
+def test_s6_fallo_de_envio_no_tumba_la_corrida_y_el_repaso_reintenta(tmp_path, monkeypatch):
+    """DoD 5 (corrida real): con Telegram caido `correr` devuelve su resumen
+    y no deja sellos; el repaso no-op con el canal sano manda y sella."""
+    from test_precio_corrida import _cadena, _corre, _db, _price_obs, _RedFalsa
+
+    with _db() as (conn, _dsn):
+        datos = _cadena(conn, mode="live")
+        _price_obs(conn)
+        red = _RedFalsa(skus={datos["evento"]: datos["sku"]})
+        with _canal_falso(tmp_path, monkeypatch, tumbar=True):
+            res = _corre(conn, red, avisar=notifica.avisar_precio)
+        assert res.decisiones == 1
+        assert all("avisar" not in e for e in res.errores)
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM precio_corrida WHERE resumen_enviado_at IS NOT NULL"
+            ).fetchone()[0]
+            == 0
+        )
+        with _canal_falso(tmp_path, monkeypatch) as mensajes:
+            res2 = _corre(conn, red, avisar=notifica.avisar_precio)
+        assert res2.decisiones == 0
+        assert len(mensajes) == 1
+        assert "[Orbit] precio: resumen diario" in mensajes[0]["text"]
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM precio_corrida WHERE resumen_enviado_at IS NOT NULL"
+            ).fetchone()[0]
+            == 1
+        )
+
+
+def test_s6_builders_nuevos_sin_costo_margen_ni_goal():
+    """Extra del plan: el texto de cada aviso nuevo no contiene costo,
+    margen ni goal, ni con motivos/estados/insumos adversos."""
+    dia = date(2026, 10, 15)
+    textos = [
+        notifica.aviso_precio_resumen(
+            notifica.ResumenDiarioPrecio(
+                platform="amazon_mx",
+                dia=dia,
+                subieron=2,
+                bajaron=1,
+                en_sombra=1,
+                retenidos=0,
+                errores=0,
+                sin_evaluar=3,
+                con_envio_imputado=1,
+                muestra=(("SKU-1", "100.00", "110.00"), ("SKU-2", "50.00", "48.00")),
+            )
+        ),
+        notifica.aviso_precio_resumen(
+            notifica.ResumenDiarioPrecio(
+                platform="amazon_us",
+                dia=dia,
+                subieron=0,
+                bajaron=0,
+                en_sombra=0,
+                retenidos=0,
+                errores=0,
+                sin_evaluar=0,
+                con_envio_imputado=0,
+                muestra=(),
+            )
+        ),
+        notifica.aviso_precio_compuerta(
+            notifica.CompuertaPrecio(
+                platform="amazon_mx",
+                dia=dia,
+                canal="fbm",
+                causa="insumo_sistemico",
+                medidas=10,
+                nuevas=6,
+                insumo="costo",
+                detalle="costo salto en 6 de 8 comparables",
+            )
+        ),
+        notifica.aviso_precio_compuerta(
+            notifica.CompuertaPrecio(
+                platform="amazon_mx",
+                dia=dia,
+                canal="fba",
+                causa="movimiento_masivo",
+                medidas=10,
+                nuevas=6,
+                insumo=None,
+                detalle="6 nuevas sobre 10",
+            )
+        ),
+        notifica.aviso_precio_cambio_error(
+            notifica.CambioErrorPrecio(
+                platform="amazon_mx",
+                dia=dia,
+                sku="SKU-1",
+                asin="B01",
+                motivo="precio_no_cubre_costo",
+            )
+        ),
+        notifica.aviso_precio_corte_errores(
+            notifica.CorteErroresPrecio(
+                platform="amazon_mx", dia=dia, seguidos=3, limite=3, retenidas=5
+            )
+        ),
+        notifica.aviso_precio_reversa(
+            notifica.ReversaPrecio(platform="amazon_mx", dia=dia, revertidas=4, saltadas=1)
+        ),
+        notifica.aviso_precio_cohorte(
+            notifica.CohortePrecio(
+                platform="amazon_mx", dia=dia, canal="fbm", diferencia="la tratada -12 frente a 40"
+            )
+        ),
+    ]
+    for texto in textos:
+        bajo = texto.lower()
+        assert "costo" not in bajo, texto
+        assert "margen" not in bajo, texto
+        assert "goal" not in bajo, texto
+    assert "hoy no se movio ningun precio" in textos[1]
+    assert "no se aplico nada" in textos[2]
+    assert "SKU-1" in textos[4]
+
+
+@_skip_sin_pg
+def test_s6_salud_corrida_ausente_dentro_del_bloque_precios():
+    """S.6 (Cambios): /salud avisa dentro del bloque `precios` si falta la
+    corrida cerrada del dia; el juego de claves de alto nivel no cambia."""
+    with _db_temp() as conn:
+        cfg = _config_pantalla(conn)
+        assert dash.salud(conn)["plataformas"]["amazon_mx"]["precios"]["corrida_ausente"] is True
+        _s6_corrida_cerrada(conn, cfg)
+        assert dash.salud(conn)["plataformas"]["amazon_mx"]["precios"]["corrida_ausente"] is False
+        conn.execute(
+            "INSERT INTO precio_corrida (platform, owner, config_version_id, modo_global)"
+            " VALUES ('amazon_us', 'tdd-s6', %s, 'live')",
+            (cfg,),
+        )
+        assert dash.salud(conn)["plataformas"]["amazon_us"]["precios"]["corrida_ausente"] is True
+        assert set(dash.salud(conn)["plataformas"]["amazon_mx"]) == {
+            *_CLAVES_SALUD_PREVIAS,
+            "precios",
+            "avisos_campana",
+        }
+
+
+# ---------------------------------------------------------------------------
+# Bloque G.3 (REPRICING 02, G.3): pantalla /precios con edicion. El servidor
+# entrega, por unidad, margen de hoy, goal, precio objetivo, origen del
+# envio y TACoS (lista `unidades` por plataforma); el HTML trae la tabla
+# de goals con su marca de origen y el bloque de seguridad de S.3.
+# Semillas de estimacion reusadas de `test_precio_goals` (patron G.2).
+# Otros carriles anexan debajo: no borrar ni reordenar.
+# ---------------------------------------------------------------------------
+
+
+def _g3_muestra_familia(conn, producto):
+    """Muestra de envio `familia` (origen + donantes coherentes con la 0054)."""
+    fam = conn.execute(
+        "INSERT INTO familia (platform, nombre, slug) VALUES ('amazon_mx', 'Fam G3', 'fam_g3')"
+        " RETURNING id"
+    ).fetchone()[0]
+    return conn.execute(
+        "INSERT INTO precio_envio_muestra (product_id, platform, ventana_desde,"
+        " ventana_hasta, envios, valor, valor_currency, canal, origen, familia_id,"
+        " donantes, regla_version)"
+        " VALUES (%s, 'amazon_mx', ((now() AT TIME ZONE 'UTC')::date - 30),"
+        " ((now() AT TIME ZONE 'UTC')::date - 1), 12, 80, 'MXN', 'fbm', 'familia',"
+        " %s, 4, 'test-g3') RETURNING id",
+        (producto, fam),
+    ).fetchone()[0]
+
+
+def _g3_tacos(conn, run_id):
+    """Gasto 100 / venta 1000 MXN en el dia de corte (hoy - 15, maduro):
+    `v_tacos` del mes del corte da tacos_pct 10.00."""
+    kw = conn.execute(
+        "INSERT INTO ad_entity (platform, kind, external_id, match_type, keyword_text)"
+        " VALUES ('amazon_mx', 'keyword', 'kw-g3', 'EXACT', 'tacos g3') RETURNING id"
+    ).fetchone()[0]
+    conn.execute(
+        "INSERT INTO ads_metric_observation (ad_entity_id, metric_date, observed_at,"
+        " metric_currency, cost, ingest_run_id)"
+        " VALUES (%s, ((now() AT TIME ZONE 'UTC')::date - 15), now(), 'MXN', 100, %s)",
+        (kw, run_id),
+    )
+    conn.execute(
+        "INSERT INTO ledger_event (platform, kind, event_date, amount, amount_currency,"
+        " ingest_run_id)"
+        " VALUES ('amazon_mx', 'sale', ((now() AT TIME ZONE 'UTC')::date - 15),"
+        " 1000, 'MXN', %s)",
+        (run_id,),
+    )
+
+
+def _g3_decision_objetivo(conn, listing, *, p_objetivo="127.60"):
+    """Decision `subir` de hoy con precio objetivo distinto del actual."""
+    return conn.execute(
+        "INSERT INTO precio_decision (listing_id, platform, resultado,"
+        " goal, m_actual, p_actual, p_actual_currency, p_objetivo, p_objetivo_currency,"
+        " p_aplicado, p_aplicado_currency, i_valor, i_currency, c_valor, c_currency,"
+        " f_valor, f_currency, l_valor, l_currency, r_valor, r_currency, mode,"
+        " l_origen, verificacion)"
+        " VALUES (%s, 'amazon_mx', 'subir', 0.30, 0.24, 116, 'MXN', %s, 'MXN', 116, 'MXN',"
+        " 100, 'MXN', 40, 'MXN', 15, 'MXN', 0, 'MXN', 2.50, 'MXN', 'shadow',"
+        " 'politica', 'cotizada') RETURNING id",
+        (listing, p_objetivo),
+    ).fetchone()[0]
+
+
+def _g3_escenario(
+    conn,
+    listing,
+    oferta_id,
+    fee_id,
+    politica_id,
+    costo_id,
+    run_id,
+    validada_en,
+    *,
+    sku,
+    ext,
+    m,
+    logistica_origen,
+    muestra_id=None,
+):
+    """Como `_escenario` de G.1 pero con `logistica_origen` en el INSERT
+    (el escenario es append-only: no se UPDATEa)."""
+    from datetime import UTC, datetime, timedelta
+    from decimal import Decimal
+
+    from test_precio_goals import _componentes
+
+    observed = datetime.now(UTC) + timedelta(seconds=120)
+    valoracion = conn.execute("SELECT (now() AT TIME ZONE 'UTC')::date").fetchone()[0]
+    return conn.execute(
+        "INSERT INTO estimacion_escenario (listing_id, platform, seller_sku, asin, canal,"
+        " valoracion_date, observed_at, politica_version_id, formula_version,"
+        " oferta_observation_id, fee_observation_id, sku_cost_id, costo_validation_run_id,"
+        " costo_validated_at, moneda, contribucion, contribucion_pct, estado, motivos,"
+        " componentes, exclusiones, canonical_input, context_fingerprint, source_event_id,"
+        " logistica_origen, envio_muestra_id)"
+        " VALUES (%s, 'amazon_mx', %s, %s, 'fba', %s, %s, %s, 'vtest', %s, %s, %s, %s,"
+        " %s, 'MXN', %s, %s, 'disponible', %s, %s, %s, %s,"
+        " 'ctx-g3', %s, %s, %s) RETURNING id",
+        (
+            listing,
+            sku,
+            ext,
+            valoracion,
+            observed,
+            politica_id,
+            oferta_id,
+            fee_id,
+            costo_id,
+            run_id,
+            validada_en,
+            Decimal(m).quantize(Decimal("0.01")),
+            Decimal(m),
+            Json([]),
+            Json(_componentes()),
+            Json([]),
+            Json({}),
+            f"esc-{sku}",
+            logistica_origen,
+            muestra_id,
+        ),
+    ).fetchone()[0]
+
+
+def _g3_semilla(conn):
+    """Dos unidades amazon_mx: A sin goal (margen 24 %, envio familia),
+    B con goal 25 % (margen 30 %, envio politica, objetivo 127.60);
+    TACoS 10.00 del mes del corte. Devuelve (sku_a, sku_b)."""
+    from test_precio_goals import _costo, _fee, _oferta, _politica, _run
+
+    _config_pantalla(conn)
+    run_id, validada = _run(conn)
+    politica = _politica(conn)
+    _g3_tacos(conn, run_id)
+    sku_a, sku_b = "SKU-G3-A", "SKU-G3-B"
+    prod_a = _producto(conn, sku=sku_a)
+    lid_a = _listing(conn, prod_a, sku=sku_a, ext="B0G300000A")
+    of_a = _oferta(
+        conn, lid_a, sku=sku_a, ext="B0G300000A", evento=f"oferta-{sku_a}", huella="ctx-g3"
+    )
+    fee_a = _fee(
+        conn, of_a, lid_a, sku=sku_a, ext="B0G300000A", evento=f"fee-{sku_a}", huella="ctx-g3"
+    )
+    _g3_escenario(
+        conn,
+        lid_a,
+        of_a,
+        fee_a,
+        politica,
+        _costo(conn, prod_a),
+        run_id,
+        validada,
+        sku=sku_a,
+        ext="B0G300000A",
+        m="24.00",
+        logistica_origen="familia",
+        muestra_id=_g3_muestra_familia(conn, prod_a),
+    )
+    prod_b = _producto(conn, sku=sku_b)
+    lid_b = _listing(conn, prod_b, sku=sku_b, ext="B0G300000B")
+    _goal(conn, lid_b)
+    of_b = _oferta(
+        conn, lid_b, sku=sku_b, ext="B0G300000B", evento=f"oferta-{sku_b}", huella="ctx-g3"
+    )
+    fee_b = _fee(
+        conn, of_b, lid_b, sku=sku_b, ext="B0G300000B", evento=f"fee-{sku_b}", huella="ctx-g3"
+    )
+    _g3_escenario(
+        conn,
+        lid_b,
+        of_b,
+        fee_b,
+        politica,
+        _costo(conn, prod_b),
+        run_id,
+        validada,
+        sku=sku_b,
+        ext="B0G300000B",
+        m="30.00",
+        logistica_origen="politica",
+    )
+    _g3_decision_objetivo(conn, lid_b)
+    return sku_a, sku_b
+
+
+@_skip_sin_pg
+def test_g3_precios_unidades_traen_margen_goal_objetivo_origen_y_tacos(monkeypatch):
+    """G.3: el JSON trae por unidad margen de hoy, goal, precio objetivo,
+    origen del envio y TACoS del mes del corte (None donde no hay dato)."""
+    with _db_pantalla("g3-json") as (conn, dsn):
+        sku_a, sku_b = _g3_semilla(conn)
+        data = _cliente_pantalla(dsn, monkeypatch).get("/api/dashboard/precios").json()
+        uni = {u["sku"]: u for u in data["plataformas"]["amazon_mx"]["unidades"]}
+        a, b = uni[sku_a], uni[sku_b]
+        assert a["margen_hoy"] == "0.2400"
+        assert a["goal"] is None
+        assert a["precio_objetivo"] is None
+        assert a["envio_origen"] == "familia"
+        assert a["tacos"] == "10.00"
+        assert b["margen_hoy"] == "0.3000"
+        assert b["goal"] == "0.2500"
+        assert b["precio_objetivo"] == "127.6000"
+        assert b["envio_origen"] == "politica"
+        assert b["tacos"] == "10.00"
+
+
+@_skip_sin_pg
+def test_g3_precios_html_tabla_goals_marca_origen_y_seguridad(monkeypatch):
+    """G.3: el HTML trae la tabla de goals por unidad (margen, goal,
+    objetivo, origen con marca distinta en familia, TACoS) y el bloque de
+    seguridad de S.3."""
+    with _db_pantalla("g3-html") as (conn, dsn):
+        sku_a, sku_b = _g3_semilla(conn)
+        html = _html_precios(conn, dsn, monkeypatch)
+        assert "bloque-goals-amazon_mx" in html
+        assert "bloque-seguridad-amazon_mx" in html
+        assert sku_a in html
+        assert sku_b in html
+        assert "24.00 %" in html
+        assert "25.00 %" in html
+        assert "127.60" in html
+        assert "familia" in html
+        assert "10.00 %" in html

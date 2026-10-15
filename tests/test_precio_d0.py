@@ -26,7 +26,10 @@ import re
 import shutil
 import socket
 import subprocess
+import sys
+import types
 from contextlib import contextmanager
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 import psycopg
@@ -58,10 +61,51 @@ _skip_db = pytest.mark.skipif(
 )
 
 
+def _numero_d0(settings, clave: str) -> Decimal:
+    """Ayudante de `_validar_cap_d0`: copia EXACTA del `_numero` de
+    REPRICING 01 (S.1 borro `app/precio/cuota.py`; el guion D.0 es evidencia
+    congelada y lo sigue importando). Solo existe para cargar
+    `verificar_config.py` abajo."""
+    if clave not in settings or settings[clave] is None:
+        raise ValueError(f"config sin {clave}")
+    valor = settings[clave]
+    if isinstance(valor, bool):
+        raise ValueError(f"setting {clave}: valor no numerico: {valor!r}")
+    try:
+        numero = Decimal(str(valor).strip() if isinstance(valor, str) else str(valor))
+    except (InvalidOperation, ValueError) as exc:
+        raise ValueError(f"setting {clave}: valor no numerico: {valor!r}") from exc
+    if not numero.is_finite():
+        raise ValueError(f"setting {clave}: valor no finito: {valor!r}")
+    return numero
+
+
+def _validar_cap_d0(settings, platform: str) -> int:
+    """Copia EXACTA del `validar_cap` de REPRICING 01 (ver `_numero_d0`)."""
+    clave = f"precio_cap_{platform}"
+    numero = _numero_d0(settings, clave)
+    if numero != numero.to_integral_value():
+        raise ValueError(f"setting {clave}: debe ser entero: {numero}")
+    cap = int(numero)
+    if not 0 <= cap <= 20:
+        raise ValueError(f"setting {clave}: fuera de cota [0, 20]: {cap}")
+    return cap
+
+
 def _verificador():
-    spec = importlib.util.spec_from_file_location("verificar_config_d0", D0 / "verificar_config.py")
-    modulo = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(modulo)
+    cuna = types.ModuleType("app.precio.cuota")
+    cuna.validar_cap = _validar_cap_d0
+    sys.modules["app.precio.cuota"] = cuna
+    try:
+        spec = importlib.util.spec_from_file_location(
+            "verificar_config_d0", D0 / "verificar_config.py"
+        )
+        modulo = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(modulo)
+    finally:
+        # Se retira enseguida: el `from` ya quedo ligado en el namespace
+        # del verificador y nada mas debe importar el modulo borrado.
+        del sys.modules["app.precio.cuota"]
     return modulo
 
 
@@ -376,23 +420,6 @@ def test_verificar_config_corre_los_validadores_de_la_fase_11(monkeypatch, nombr
     monkeypatch.setattr(VERIFICADOR, nombre, _revienta)
     errores = VERIFICADOR.fallas(_config_buena())
     assert any(f"{nombre} saboteado" in e for e in errores), errores
-
-
-@pytest.mark.parametrize("plataforma", ["amazon_mx", "amazon_us", "meli"])
-def test_verificar_config_valida_el_cap_de_cada_plataforma(monkeypatch, plataforma):
-    """`/precios` lee el cap de amazon_mx y amazon_us (fail-closed global) y
-    la corrida acepta `--platform` de las tres: el paso 5 valida los tres
-    caps sembrados, no solo el de la corrida de MX."""
-    real = VERIFICADOR.validar_cap
-
-    def _cap(settings, platform):
-        if platform == plataforma:
-            raise ValueError(f"cap {platform} saboteado")
-        return real(settings, platform)
-
-    monkeypatch.setattr(VERIFICADOR, "validar_cap", _cap)
-    errores = VERIFICADOR.fallas(_config_buena())
-    assert any(f"cap {plataforma} saboteado" in e for e in errores), errores
 
 
 # ---------------------------------------------------------------------------

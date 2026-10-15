@@ -1005,10 +1005,20 @@ TIPOS_PRECIO = (
     "no_confirmado",
     "buy_box_perdida",
     "huerfana_sin_patch",
+    "resumen_diario",
+    "compuerta",
+    "cambio_error",
+    "corte_errores",
+    "reversa",
+    "cohorte",
 )
 
 TIPOS_PRECIO_GRUPO = ("no_evaluado", "goal_inalcanzable", "frenado")
 TIPOS_PRECIO_PRODUCTO = ("no_confirmado", "buy_box_perdida")
+# S.6: tipos con sello en base (resumen por plataforma y dia; compuerta por
+# universo, causa y dia). El resto solo tiene builder + sender: su disparo
+# no es de S.6.
+TIPOS_PRECIO_SELLADOS = ("resumen_diario", "compuerta")
 
 # Tope de SKUs por aviso de grupo (S7: conteo + hasta 5 SKUs).
 TOPE_SKUS_PRECIO = 5
@@ -1025,6 +1035,12 @@ FRASEO_TIPO_PRECIO = {
     "no_confirmado": "no confirmado",
     "buy_box_perdida": "buy box perdida",
     "huerfana_sin_patch": "huerfanas sin parche",
+    "resumen_diario": "resumen diario",
+    "compuerta": "compuerta",
+    "cambio_error": "cambio en error",
+    "corte_errores": "corte por errores",
+    "reversa": "reversa",
+    "cohorte": "cohorte",
 }
 
 MOTIVO_PRECIO_ES = {
@@ -1058,7 +1074,6 @@ MOTIVO_PRECIO_ES = {
     "no_confirmado": "no confirmado por la observacion",
     "buy_box_perdida": "buy box perdida",
     "cooldown": "enfriamiento entre cambios",
-    "cuota": "cupo del dia agotado",
     "en_tolerancia": "dentro de la tolerancia",
     "movimiento_minimo": "movimiento bajo el minimo",
     "sin_decision": "sin decision",
@@ -1206,6 +1221,227 @@ def aviso_precio_huerfana(huerfana: HuerfanaPrecio) -> str:
     )
 
 
+@dataclass(frozen=True)
+class ResumenDiarioPrecio:
+    """El dia de UNA plataforma (bosquejo U): conteos + hasta 5 movidos con
+    precio antes -> despues (preformateados). Sin costo, margen, goal ni
+    errores: la ausencia es estructural."""
+
+    platform: str
+    dia: dt.date
+    subieron: int
+    bajaron: int
+    en_sombra: int
+    retenidos: int
+    errores: int
+    sin_evaluar: int
+    con_envio_imputado: int
+    muestra: tuple[tuple[str, str, str], ...]
+    tipo: str = "resumen_diario"
+
+
+def aviso_precio_resumen(resumen: ResumenDiarioPrecio) -> str:
+    """Builder PURO del resumen diario. Un dia sin movimiento tambien avisa."""
+    lineas = [
+        f"[Orbit] precio: {FRASEO_TIPO_PRECIO[resumen.tipo]}",
+        f"plataforma: {resumen.platform}",
+        f"dia: {resumen.dia.isoformat()}",
+    ]
+    if resumen.subieron == 0 and resumen.bajaron == 0:
+        lineas.append("hoy no se movio ningun precio")
+    lineas.extend(
+        [
+            f"subieron: {resumen.subieron} bajaron: {resumen.bajaron}",
+            f"en sombra: {resumen.en_sombra}",
+            f"retenidos: {resumen.retenidos}",
+            f"errores: {resumen.errores}",
+            f"sin evaluar: {resumen.sin_evaluar}",
+            f"con envio imputado: {resumen.con_envio_imputado}",
+        ]
+    )
+    for sku, antes, despues in tuple(resumen.muestra)[:TOPE_SKUS_PRECIO]:
+        lineas.append(f"{sku}: {antes} -> {despues}")
+    return "\n".join(lineas)
+
+
+@dataclass(frozen=True)
+class CompuertaPrecio:
+    """Un universo retenido hoy (bosquejo U): causa, conteos y el detalle de
+    la medicion. Sin costo, margen ni goal."""
+
+    platform: str
+    dia: dt.date
+    canal: str
+    causa: str
+    medidas: int
+    nuevas: int
+    insumo: str | None
+    detalle: str
+    tipo: str = "compuerta"
+
+
+CAUSA_COMPUERTA_ES = {
+    "movimiento_masivo": "movimiento masivo",
+    "insumo_sistemico": "insumo sistemico",
+}
+
+# El nombre del insumo sale en el aviso (bosquejo U); "costo" literal esta
+# vetado en los textos (DoD S.6), asi que viaja como "coste".
+INSUMO_COMPUERTA_ES = {
+    "costo": "coste",
+    "envio": "envio",
+    "retencion": "retencion",
+    "fx": "fx",
+    "fee_fijo": "comision fija",
+    "fee_variable": "comision variable",
+}
+
+
+def causa_compuerta_es(causa: str) -> str:
+    """Causa en palabras; desconocida -> id crudo (la evidencia no se pierde)."""
+    return CAUSA_COMPUERTA_ES.get(causa, causa)
+
+
+def insumo_compuerta_es(insumo: str) -> str:
+    """Insumo en palabras, sin el literal "costo"; desconocido -> crudo."""
+    return INSUMO_COMPUERTA_ES.get(insumo, insumo)
+
+
+def aviso_precio_compuerta(aviso: CompuertaPrecio) -> str:
+    """Builder PURO del aviso de compuerta: N de M quieren moverse hoy, no
+    se aplico nada, y donde soltarlo. Con `insumo_sistemico` nombra el
+    insumo (traducido); el detalle viaja con el mismo reemplazo."""
+    lineas = [
+        f"[Orbit] precio: {FRASEO_TIPO_PRECIO[aviso.tipo]}",
+        f"plataforma: {aviso.platform}",
+        f"dia: {aviso.dia.isoformat()}",
+        f"universo: {aviso.platform}/{aviso.canal}",
+        f"causa: {causa_compuerta_es(aviso.causa)}",
+    ]
+    if aviso.insumo:
+        lineas.append(f"insumo: {insumo_compuerta_es(aviso.insumo)}")
+    lineas.append(
+        f"{aviso.nuevas} de {aviso.medidas} quieren moverse hoy;"
+        " no se aplico nada. Entra a /precios para soltarlo."
+    )
+    if aviso.detalle:
+        detalle = aviso.detalle
+        if aviso.insumo:
+            detalle = detalle.replace(aviso.insumo, insumo_compuerta_es(aviso.insumo), 1)
+        lineas.append(f"detalle: {detalle}")
+    return "\n".join(lineas)
+
+
+@dataclass(frozen=True)
+class CambioErrorPrecio:
+    """Un cambio que quedo en `error`: SKU y motivo en palabras. El cuerpo
+    del error jamas viaja (no hay campo para el)."""
+
+    platform: str
+    dia: dt.date
+    sku: str | None
+    asin: str | None
+    motivo: str | None
+    tipo: str = "cambio_error"
+
+
+def aviso_precio_cambio_error(aviso: CambioErrorPrecio) -> str:
+    """Builder PURO del aviso por cambio en error."""
+    lineas = [
+        f"[Orbit] precio: {FRASEO_TIPO_PRECIO[aviso.tipo]}",
+        f"plataforma: {aviso.platform}",
+        f"dia: {aviso.dia.isoformat()}",
+    ]
+    if aviso.sku:
+        lineas.append(f"sku: {aviso.sku}")
+    if aviso.asin:
+        if _es_plataforma_amazon(aviso.platform):
+            lineas.append(f"asin: {aviso.asin}")
+        else:
+            lineas.append(f"id externo: {aviso.asin}")
+    if aviso.motivo:
+        lineas.append(f"motivo: {motivo_precio_es(aviso.motivo)}")
+    lineas.append("el cambio quedo en error: revisar y reintentar en el repaso")
+    return "\n".join(lineas)
+
+
+@dataclass(frozen=True)
+class CorteErroresPrecio:
+    """El corte por errores seguidos se abrio en una corrida: cuantos y
+    cuantos retuvo. Sin costo, margen ni goal."""
+
+    platform: str
+    dia: dt.date
+    seguidos: int
+    limite: int
+    retenidas: int
+    tipo: str = "corte_errores"
+
+
+def aviso_precio_corte_errores(aviso: CorteErroresPrecio) -> str:
+    """Builder PURO del aviso por corte de errores."""
+    return "\n".join(
+        [
+            f"[Orbit] precio: {FRASEO_TIPO_PRECIO[aviso.tipo]}",
+            f"plataforma: {aviso.platform}",
+            f"dia: {aviso.dia.isoformat()}",
+            f"errores seguidos: {aviso.seguidos} (limite {aviso.limite})",
+            f"retenidas por el corte: {aviso.retenidas}",
+            "no se aplico nada mas en esta corrida",
+        ]
+    )
+
+
+@dataclass(frozen=True)
+class ReversaPrecio:
+    """Una reversa en lote termino: conteo de vueltas y saltadas. Solo
+    conteos (bosquejo I)."""
+
+    platform: str
+    dia: dt.date
+    revertidas: int
+    saltadas: int
+    tipo: str = "reversa"
+
+
+def aviso_precio_reversa(aviso: ReversaPrecio) -> str:
+    """Builder PURO del aviso por reversa en lote."""
+    return "\n".join(
+        [
+            f"[Orbit] precio: {FRASEO_TIPO_PRECIO[aviso.tipo]}",
+            f"plataforma: {aviso.platform}",
+            f"dia: {aviso.dia.isoformat()}",
+            f"revertidas: {aviso.revertidas} saltadas: {aviso.saltadas}",
+        ]
+    )
+
+
+@dataclass(frozen=True)
+class CohortePrecio:
+    """Lectura de cohorte de un universo (S.7 la produce): solo avisa. La
+    diferencia viaja preformateada en palabras y numeros."""
+
+    platform: str
+    dia: dt.date
+    canal: str
+    diferencia: str
+    tipo: str = "cohorte"
+
+
+def aviso_precio_cohorte(aviso: CohortePrecio) -> str:
+    """Builder PURO del aviso por lectura de cohorte."""
+    return "\n".join(
+        [
+            f"[Orbit] precio: {FRASEO_TIPO_PRECIO[aviso.tipo]}",
+            f"plataforma: {aviso.platform}",
+            f"dia: {aviso.dia.isoformat()}",
+            f"universo: {aviso.platform}/{aviso.canal}",
+            f"tratada frente al control: {aviso.diferencia}",
+            "lectura de cohorte: solo avisa, no frena ni baja",
+        ]
+    )
+
+
 def validar_precio_aviso_dias(settings) -> int:
     """`precio_aviso_dias_sin_evaluar` entero 1-14; `ValueError` nombra la
     clave si falta o sale de cota (ninguna otra clave se lee aqui). El
@@ -1245,21 +1481,51 @@ def flanco_umbral(presentes, hoy, umbral) -> bool:
     return racha == umbral
 
 
+# S.6: el despacho por tabla para que el sexto
+# tipo no rompa el tope de complejidad: tipo -> familias aceptadas y
+# familia -> NOMBRE del builder (se resuelve tarde con `globals()` para no
+# romper la costura de `monkeypatch.setattr(notifica, "aviso_...")`). Los
+# tipos por producto aceptan grupo (resto de B3).
+_FAMILIA_POR_TIPO_PRECIO = {
+    "no_evaluado": (GrupoPrecio,),
+    "goal_inalcanzable": (GrupoPrecio,),
+    "frenado": (GrupoPrecio,),
+    "no_confirmado": (ProductoPrecio, GrupoPrecio),
+    "buy_box_perdida": (ProductoPrecio, GrupoPrecio),
+    "huerfana_sin_patch": (HuerfanaPrecio,),
+    "resumen_diario": (ResumenDiarioPrecio,),
+    "compuerta": (CompuertaPrecio,),
+    "cambio_error": (CambioErrorPrecio,),
+    "corte_errores": (CorteErroresPrecio,),
+    "reversa": (ReversaPrecio,),
+    "cohorte": (CohortePrecio,),
+}
+
+_BUILDER_POR_FAMILIA_PRECIO = {
+    GrupoPrecio: "aviso_precio_grupo",
+    ProductoPrecio: "aviso_precio_producto",
+    HuerfanaPrecio: "aviso_precio_huerfana",
+    ResumenDiarioPrecio: "aviso_precio_resumen",
+    CompuertaPrecio: "aviso_precio_compuerta",
+    CambioErrorPrecio: "aviso_precio_cambio_error",
+    CorteErroresPrecio: "aviso_precio_corte_errores",
+    ReversaPrecio: "aviso_precio_reversa",
+    CohortePrecio: "aviso_precio_cohorte",
+}
+
+
 def notifica_precio(tipo: str, payload, *, transport: httpx.BaseTransport | None = None) -> bool:
-    """UNICO sender de avisos de precio (S7). `tipo` elige el builder y el
-    `payload` debe ser de su familia (grupo / producto / huerfana; los tipos
-    por producto tambien aceptan grupo para el resto agrupado de B3); tipo o
-    familia desconocidos -> warning + False. Canal deshabilitado -> True (no
-    es fallo); cualquier excepcion -> warning con scrub + False; jamas levanta.
+    """UNICO sender de avisos de precio (S7; S.6 suma los seis de U). `tipo`
+    elige el builder y el `payload` debe ser de su familia (grupo / producto
+    / huerfana / resumen / compuerta / cambio en error / corte / reversa /
+    cohorte; los tipos por producto tambien aceptan grupo para el resto
+    agrupado de B3); tipo o familia desconocidos -> warning + False. Canal
+    deshabilitado -> True (no es fallo); cualquier excepcion -> warning con
+    scrub + False; jamas levanta.
     """
     try:
-        if tipo in TIPOS_PRECIO_GRUPO:
-            esperados: tuple = (GrupoPrecio,)
-        elif tipo in TIPOS_PRECIO_PRODUCTO:
-            esperados = (ProductoPrecio, GrupoPrecio)
-        elif tipo == "huerfana_sin_patch":
-            esperados = (HuerfanaPrecio,)
-        else:
+        esperados = _FAMILIA_POR_TIPO_PRECIO.get(tipo)
+        if esperados is None:
             logger.warning("telegram: tipo de aviso de precio desconocido: %s", scrub(str(tipo)))
             return False
         if not isinstance(payload, esperados):
@@ -1276,15 +1542,16 @@ def notifica_precio(tipo: str, payload, *, transport: httpx.BaseTransport | None
                 scrub(str(tipo)),
             )
             return False
-        if isinstance(payload, GrupoPrecio):
-            texto = aviso_precio_grupo(payload)
-        elif isinstance(payload, ProductoPrecio):
-            texto = aviso_precio_producto(payload)
-        else:
-            texto = aviso_precio_huerfana(payload)
+        nombre_builder = None
+        for familia, candidato in _BUILDER_POR_FAMILIA_PRECIO.items():
+            if isinstance(payload, familia):
+                nombre_builder = candidato
+                break
+        if nombre_builder is None:  # inalcanzable: `esperados` ya filtro la familia
+            raise AssertionError(f"familia de aviso sin builder: {type(payload).__name__}")
         if not canal_activo():
             return True
-        return _envia_texto(texto, transport=transport)
+        return _envia_texto(globals()[nombre_builder](payload), transport=transport)
     except Exception as exc:  # noqa: BLE001 - fail-silent (docstring del modulo)
         logger.warning("telegram: fallo armando el aviso de precio: %s", scrub(str(exc)))
         return False
@@ -1518,6 +1785,170 @@ def _avisar_huerfana_precio(platform: str, resumen) -> int:
         return 0
 
 
+_SQL_CORRIDA_CERRADA_HOY = """
+SELECT id FROM precio_corrida
+ WHERE platform = %s AND fecha = %s AND estado = 'cerrada'
+ ORDER BY id DESC LIMIT 1
+"""
+
+_SQL_RESUMEN_YA_ENVIADO = """
+SELECT 1 FROM precio_corrida
+ WHERE platform = %s AND fecha = %s AND resumen_enviado_at IS NOT NULL
+ LIMIT 1
+"""
+
+_SQL_SELLAR_RESUMEN = "UPDATE precio_corrida SET resumen_enviado_at = now() WHERE id = %s"
+
+_SQL_RESUMEN_MOVIMIENTOS = """
+SELECT resultado, count(*) FROM precio_decision
+ WHERE platform = %s AND decision_date = %s AND resultado IN ('subir', 'bajar')
+ GROUP BY resultado
+"""
+
+_SQL_RESUMEN_SOMBRA = """
+SELECT count(*) FROM precio_decision
+ WHERE platform = %s AND decision_date = %s AND mode = 'shadow'
+   AND resultado IN ('subir', 'bajar')
+"""
+
+_SQL_RESUMEN_RETENIDOS = """
+SELECT count(DISTINCT r.decision_id)
+  FROM precio_retencion r JOIN precio_corrida c ON c.id = r.corrida_id
+ WHERE c.platform = %s AND c.fecha = %s
+"""
+
+_SQL_RESUMEN_ERRORES = """
+SELECT count(*)
+  FROM precio_cambio c JOIN precio_decision d ON d.id = c.decision_id
+ WHERE c.platform = %s AND d.decision_date = %s AND c.estado = 'error'
+   AND c.aplicado AND NOT c.es_reversa
+"""
+
+_SQL_RESUMEN_SIN_EVALUAR = """
+SELECT count(*) FROM precio_decision
+ WHERE platform = %s AND decision_date = %s AND resultado = 'no_evaluado'
+"""
+
+_SQL_RESUMEN_IMPUTADO = """
+SELECT count(*) FROM precio_decision
+ WHERE platform = %s AND decision_date = %s AND l_origen IN ('familia', 'marketplace')
+"""
+
+_SQL_RESUMEN_MUESTRA = """
+SELECT COALESCE(l.seller_sku, l.external_id), c.precio_antes, c.precio_despues
+  FROM precio_cambio c
+  JOIN precio_decision d ON d.id = c.decision_id
+  JOIN listing l ON l.id = c.listing_id AND l.platform = c.platform
+ WHERE c.platform = %s AND d.decision_date = %s
+   AND c.aplicado AND NOT c.es_reversa
+ ORDER BY 1 LIMIT 5
+"""
+
+_SQL_MEDICIONES_CON_CAUSA = """
+SELECT canal, causa, medidas, nuevas, insumo, detalle
+  FROM precio_compuerta_medicion
+ WHERE corrida_id = %s AND causa IS NOT NULL
+ ORDER BY canal
+"""
+
+_SQL_COMPUERTA_YA_AVISADA = """
+SELECT 1 FROM precio_compuerta_medicion
+ WHERE platform = %s AND fecha = %s AND canal = %s AND causa = %s
+   AND avisada_at IS NOT NULL
+ LIMIT 1
+"""
+
+_SQL_SELLAR_AVISADA = (
+    "UPDATE precio_compuerta_medicion SET avisada_at = now() WHERE corrida_id = %s AND canal = %s"
+)
+
+
+def _corrida_cerrada_hoy(conn, platform: str, hoy):
+    """La corrida cerrada de hoy de la plataforma (la propia: `avisar` corre
+    con el lock tomado, recien cerrada). None si hoy no cerro ninguna."""
+    fila = conn.execute(_SQL_CORRIDA_CERRADA_HOY, (platform, hoy)).fetchone()
+    return fila[0] if fila is not None else None
+
+
+def _leer_resumen_diario(conn, platform: str, hoy) -> ResumenDiarioPrecio:
+    """El dia completo de la plataforma, no solo esta corrida (como
+    `_medir_compuerta`: el repaso ve lo mismo). La muestra trae reales
+    aplicados, no virtuales."""
+    movs = dict(conn.execute(_SQL_RESUMEN_MOVIMIENTOS, (platform, hoy)).fetchall())
+    muestra = tuple(
+        (sku, str(antes), str(despues))
+        for sku, antes, despues in conn.execute(_SQL_RESUMEN_MUESTRA, (platform, hoy)).fetchall()
+    )
+    return ResumenDiarioPrecio(
+        platform=platform,
+        dia=hoy,
+        subieron=int(movs.get("subir", 0)),
+        bajaron=int(movs.get("bajar", 0)),
+        en_sombra=conn.execute(_SQL_RESUMEN_SOMBRA, (platform, hoy)).fetchone()[0],
+        retenidos=conn.execute(_SQL_RESUMEN_RETENIDOS, (platform, hoy)).fetchone()[0],
+        errores=conn.execute(_SQL_RESUMEN_ERRORES, (platform, hoy)).fetchone()[0],
+        sin_evaluar=conn.execute(_SQL_RESUMEN_SIN_EVALUAR, (platform, hoy)).fetchone()[0],
+        con_envio_imputado=conn.execute(_SQL_RESUMEN_IMPUTADO, (platform, hoy)).fetchone()[0],
+        muestra=muestra,
+    )
+
+
+def _avisar_resumen_precio(conn, platform: str, hoy) -> int:
+    """S.6: el resumen diario sale una vez por plataforma y dia (sello
+    `resumen_enviado_at` en la corrida que lo mando), TAMBIEN si nada se
+    movio y aunque esta corrida no decidio nada — sin esa puerta el repaso
+    no-op no reintentaria un envio fallido. Sin la corrida cerrada de hoy no
+    hay que sellar: 0. Si el envio falla no se sella y el repaso lo
+    reintenta. Jamas levanta (B6: `try` propio)."""
+    try:
+        if conn.execute(_SQL_RESUMEN_YA_ENVIADO, (platform, hoy)).fetchone() is not None:
+            return 0
+        corrida = _corrida_cerrada_hoy(conn, platform, hoy)
+        if corrida is None:
+            return 0
+        if notifica_precio("resumen_diario", _leer_resumen_diario(conn, platform, hoy)):
+            conn.execute(_SQL_SELLAR_RESUMEN, (corrida,))
+            return 1
+        return 0
+    except Exception as exc:  # noqa: BLE001 - B6: el resumen no calla
+        logger.warning("telegram: fallo avisando el resumen diario de precio: %s", scrub(str(exc)))
+        return 0
+
+
+def _avisar_compuerta_precio(conn, platform: str, hoy) -> int:
+    """S.6: un aviso por medicion con causa de ESTA corrida, una vez por
+    universo, causa y dia (sello `avisada_at`); lo ya avisado por otra
+    corrida no se reenvia y el fallo no sella (el repaso reintenta). Un `try`
+    por fila (B6). Jamas levanta."""
+    try:
+        corrida = _corrida_cerrada_hoy(conn, platform, hoy)
+        if corrida is None:
+            return 0
+        filas = conn.execute(_SQL_MEDICIONES_CON_CAUSA, (corrida,)).fetchall()
+    except Exception as exc:  # noqa: BLE001 - B6: la compuerta no calla
+        logger.warning("telegram: fallo avisando compuerta de precio: %s", scrub(str(exc)))
+        return 0
+    enviados = 0
+    for canal, causa, medidas, nuevas, insumo, detalle in filas:
+        try:
+            ya = conn.execute(_SQL_COMPUERTA_YA_AVISADA, (platform, hoy, canal, causa)).fetchone()
+            if ya is not None:
+                continue
+            aviso = CompuertaPrecio(
+                platform, hoy, canal, causa, medidas, nuevas, insumo, detalle or ""
+            )
+            if notifica_precio("compuerta", aviso):
+                conn.execute(_SQL_SELLAR_AVISADA, (corrida, canal))
+                enviados += 1
+        except Exception as exc:  # noqa: BLE001 - B6: una fila no calla
+            logger.warning(
+                "telegram: fallo avisando compuerta de precio %s: %s",
+                scrub(f"{canal}/{causa}"),
+                scrub(str(exc)),
+            )
+    return enviados
+
+
 def avisar_precio(conn, platform: str, hoy, resumen) -> int:
     """Gancho `avisar` de la corrida A.5 (`correr(..., avisar=...)` lo llama
     con `(conn, platform, hoy, resumen)` una vez al final, fail-silent).
@@ -1534,6 +1965,10 @@ def avisar_precio(conn, platform: str, hoy, resumen) -> int:
 
     B4: un umbral `precio_aviso_dias_sin_evaluar` invalido o ausente solo
     apaga el aviso `no_evaluado` (warning); los demas tipos salen igual.
+
+    S.6: el resumen diario y la compuerta van FUERA de la guarda B2 (sin
+    decisiones tambien salen: el repaso no-op reintenta lo fallido); el que
+    no repite es el sello (`resumen_enviado_at` / `avisada_at`).
     """
     try:
         fila = conn.execute(_SQL_PRECIO_CONFIG).fetchone()
@@ -1551,6 +1986,8 @@ def avisar_precio(conn, platform: str, hoy, resumen) -> int:
             enviados += _avisar_buybox_precio(conn, platform, hoy, ayer)
             enviados += _avisar_noconf_precio(conn, platform, hoy, ayer)
         enviados += _avisar_huerfana_precio(platform, resumen)
+        enviados += _avisar_resumen_precio(conn, platform, hoy)
+        enviados += _avisar_compuerta_precio(conn, platform, hoy)
         return enviados
     except Exception as exc:  # noqa: BLE001 - fail-silent (docstring del modulo)
         logger.warning("telegram: fallo armando los avisos de precio: %s", scrub(str(exc)))

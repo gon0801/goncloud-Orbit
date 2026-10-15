@@ -1,0 +1,268 @@
+FFFFFFFFF                                                                [100%]
+=================================== FAILURES ===================================
+____________________ test_g2_sin_token_401_sin_abrir_admin _____________________
+
+tmp_path = PosixPath('/private/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/pytest-of-dn/pytest-2051/test_g2_sin_token_401_sin_abri0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10eac7490>
+
+    def test_g2_sin_token_401_sin_abrir_admin(tmp_path, monkeypatch):
+        """Las tres rutas sin header -> 401 y `connect` jamas se llama (espiado)."""
+        import app.api_write as api_write
+
+        _secrets_token(tmp_path, monkeypatch)
+        monkeypatch.delenv("ORBIT_DSN_ADMIN", raising=False)
+        llamadas: list = []
+
+        def _espia(dsn, **kw):
+            llamadas.append(dsn)
+            raise AssertionError("no debe conectar sin token")
+
+        monkeypatch.setattr(api_write, "connect", _espia)
+        cliente = TestClient(app)
+        plan = {
+            "platform": "amazon_mx",
+            "pedido": {"tipo": "valor", "mode": "shadow", "goal_pct": "30.00"},
+            "listing_ids": [1],
+        }
+        rutas = [
+            ("/api/precios/goals/plan", plan),
+            ("/api/precios/goals/aplicar", {**plan, "huella": "0" * 16, "actor": "dueno"}),
+            ("/api/precios/compuerta/1/liberar", {"actor": "dueno", "nota": "suelta"}),
+        ]
+        for ruta, cuerpo in rutas:
+            resp = cliente.post(ruta, json=cuerpo)
+>           assert resp.status_code == 401, f"{ruta} sin token deberia ser 401"
+E           AssertionError: /api/precios/goals/plan sin token deberia ser 401
+E           assert 404 == 401
+E            +  where 404 = <Response [404 Not Found]>.status_code
+
+tests/test_api_precios_write.py:91: AssertionError
+___________________________ test_g2_plan_no_escribe ____________________________
+
+tmp_path = PosixPath('/private/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/pytest-of-dn/pytest-2051/test_g2_plan_no_escribe0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10eac7820>
+
+    @_skip_sin_pg
+    def test_g2_plan_no_escribe(tmp_path, monkeypatch):
+        """El plan devuelve filas + huella y deja `precio_goal` intacto."""
+        _secrets_token(tmp_path, monkeypatch)
+        with _db() as (conn, dsn):
+            datos = _cadena(conn)
+            monkeypatch.setenv("ORBIT_DSN_ADMIN", dsn)
+            resp = TestClient(app).post(
+                "/api/precios/goals/plan",
+                json={
+                    "platform": "amazon_mx",
+                    "pedido": {"tipo": "margen_de_hoy", "mode": "shadow"},
+                    "listing_ids": [datos["listing"]],
+                },
+                headers=_CABECERA,
+            )
+>           assert resp.status_code == 200
+E           assert 404 == 200
+E            +  where 404 = <Response [404 Not Found]>.status_code
+
+tests/test_api_precios_write.py:117: AssertionError
+_______________ test_g2_aplicar_huella_vieja_409_con_plan_nuevo ________________
+
+tmp_path = PosixPath('/private/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/pytest-of-dn/pytest-2051/test_g2_aplicar_huella_vieja_40')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10eb6dd90>
+
+    @_skip_sin_pg
+    def test_g2_aplicar_huella_vieja_409_con_plan_nuevo(tmp_path, monkeypatch):
+        """Huella que no coincide -> 409, el cuerpo trae el plan fresco y nada
+        se escribe (el pedido 30.00/shadow no tiene bloqueos: el 409 sale de
+        la huella, no de un bloqueo)."""
+        _secrets_token(tmp_path, monkeypatch)
+        with _db() as (conn, dsn):
+            datos = _cadena(conn)
+            monkeypatch.setenv("ORBIT_DSN_ADMIN", dsn)
+            cliente = TestClient(app)
+            base = {
+                "platform": "amazon_mx",
+                "pedido": {"tipo": "valor", "mode": "shadow", "goal_pct": "30.00"},
+                "listing_ids": [datos["listing"]],
+            }
+>           fresca = cliente.post("/api/precios/goals/plan", json=base, headers=_CABECERA).json()[
+                "huella"
+            ]
+E           KeyError: 'huella'
+
+tests/test_api_precios_write.py:149: KeyError
+___________________________ test_g2_live_sin_go_422 ____________________________
+
+tmp_path = PosixPath('/private/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/pytest-of-dn/pytest-2051/test_g2_live_sin_go_4220')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10ec98f30>
+
+    @_skip_sin_pg
+    def test_g2_live_sin_go_422(tmp_path, monkeypatch):
+        """Subir a live sin `go_literal` -> 422 y cero escrituras."""
+        _secrets_token(tmp_path, monkeypatch)
+        with _db() as (conn, dsn):
+            datos = _cadena(conn)
+            monkeypatch.setenv("ORBIT_DSN_ADMIN", dsn)
+            cliente = TestClient(app)
+            base = {
+                "platform": "amazon_mx",
+                "pedido": {"tipo": "valor", "mode": "live", "goal_pct": "30.00"},
+                "listing_ids": [datos["listing"]],
+            }
+>           fresca = cliente.post("/api/precios/goals/plan", json=base, headers=_CABECERA).json()[
+                "huella"
+            ]
+E           KeyError: 'huella'
+
+tests/test_api_precios_write.py:183: KeyError
+_____________________ test_g2_liberar_dos_veces_misma_fila _____________________
+
+tmp_path = PosixPath('/private/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/pytest-of-dn/pytest-2051/test_g2_liberar_dos_veces_mism0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10ec99480>
+
+    @_skip_sin_pg
+    def test_g2_liberar_dos_veces_misma_fila(tmp_path, monkeypatch):
+        """Soltar dos veces -> 200 las dos, el mismo cuerpo (mismo
+        `liberada_en`) y una sola fila."""
+        _secrets_token(tmp_path, monkeypatch)
+        with _db() as (conn, dsn):
+            corr = _corrida(conn, _config(conn))
+            _medicion(conn, corr)
+            monkeypatch.setenv("ORBIT_DSN_ADMIN", dsn)
+            cliente = TestClient(app)
+            cuerpo = {"actor": "dueno", "nota": "ya revise el fusible"}
+            primero = cliente.post(
+                f"/api/precios/compuerta/{corr}/liberar", json=cuerpo, headers=_CABECERA
+            )
+>           assert primero.status_code == 200
+E           assert 404 == 200
+E            +  where 404 = <Response [404 Not Found]>.status_code
+
+tests/test_api_precios_write.py:215: AssertionError
+______________________ test_g2_aplicar_ok_escribe_el_lote ______________________
+
+tmp_path = PosixPath('/private/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/pytest-of-dn/pytest-2051/test_g2_aplicar_ok_escribe_el_0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10ecc6b50>
+
+    @_skip_sin_pg
+    def test_g2_aplicar_ok_escribe_el_lote(tmp_path, monkeypatch):
+        """Con la huella fresca, aplicar siembra y deja el rastro (lote =
+        huella, origen manual); sin esta prueba un aplicar que nunca escribe
+        pasaria el DoD."""
+        _secrets_token(tmp_path, monkeypatch)
+        with _db() as (conn, dsn):
+            datos = _cadena(conn)
+            monkeypatch.setenv("ORBIT_DSN_ADMIN", dsn)
+            cliente = TestClient(app)
+            base = {
+                "platform": "amazon_mx",
+                "pedido": {"tipo": "valor", "mode": "shadow", "goal_pct": "30.00"},
+                "listing_ids": [datos["listing"]],
+            }
+>           fresca = cliente.post("/api/precios/goals/plan", json=base, headers=_CABECERA).json()[
+                "huella"
+            ]
+E           KeyError: 'huella'
+
+tests/test_api_precios_write.py:245: KeyError
+________________ test_g2_plan_sin_goal_lista_solo_los_sin_goal _________________
+
+tmp_path = PosixPath('/private/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/pytest-of-dn/pytest-2051/test_g2_plan_sin_goal_lista_so0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10ecc7550>
+
+    @_skip_sin_pg
+    def test_g2_plan_sin_goal_lista_solo_los_sin_goal(tmp_path, monkeypatch):
+        """`sin_goal` planea solo las unidades sin goal vigente de la
+        plataforma (la seleccion que G.3 usa para "margen de hoy")."""
+        from app.precio.goals_write import sembrar_goal
+
+        _secrets_token(tmp_path, monkeypatch)
+        with _db() as (conn, dsn):
+            libre = _cadena(conn, sku="SKU-G2-LIBRE", ext="ASIN-G2-LIBRE")
+            ocupado = _cadena(conn, sku="SKU-G2-OCUP", ext="ASIN-G2-OCUP")
+            sembrar_goal(
+                conn,
+                listing_id=ocupado["listing"],
+                platform="amazon_mx",
+                goal_pct="30.00",
+                mode="shadow",
+                go_literal=None,
+            )
+            monkeypatch.setenv("ORBIT_DSN_ADMIN", dsn)
+            resp = TestClient(app).post(
+                "/api/precios/goals/plan",
+                json={
+                    "platform": "amazon_mx",
+                    "pedido": {"tipo": "margen_de_hoy", "mode": "shadow"},
+                    "sin_goal": True,
+                },
+                headers=_CABECERA,
+            )
+>           assert resp.status_code == 200
+E           assert 404 == 200
+E            +  where 404 = <Response [404 Not Found]>.status_code
+
+tests/test_api_precios_write.py:301: AssertionError
+_____________________ test_g2_plan_mas_de_500_unidades_422 _____________________
+
+tmp_path = PosixPath('/private/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/pytest-of-dn/pytest-2051/test_g2_plan_mas_de_500_unidad0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10ed2b2f0>
+
+    @_skip_sin_pg
+    def test_g2_plan_mas_de_500_unidades_422(tmp_path, monkeypatch):
+        """El tope de 500 unidades por llamada (bosquejo T, tope de
+        `/api/familias/asignar`) tambien frena a `sin_goal`, con 422."""
+        _secrets_token(tmp_path, monkeypatch)
+        with _db() as (conn, dsn):
+            conn.execute(
+                "INSERT INTO product (odoo_sku, name)"
+                " SELECT 'SKU-G2-TOPE-' || g, 'G2 tope' FROM generate_series(1, 501) g"
+            )
+            conn.execute(
+                "INSERT INTO listing (product_id, platform, external_id, seller_sku)"
+                " SELECT id, 'amazon_mx', 'ASIN-' || odoo_sku, odoo_sku FROM product"
+                " WHERE odoo_sku LIKE 'SKU-G2-TOPE-%'"
+            )
+            monkeypatch.setenv("ORBIT_DSN_ADMIN", dsn)
+            resp = TestClient(app).post(
+                "/api/precios/goals/plan",
+                json={
+                    "platform": "amazon_mx",
+                    "pedido": {"tipo": "margen_de_hoy", "mode": "shadow"},
+                    "sin_goal": True,
+                },
+                headers=_CABECERA,
+            )
+>           assert resp.status_code == 422
+E           assert 404 == 422
+E            +  where 404 = <Response [404 Not Found]>.status_code
+
+tests/test_api_precios_write.py:332: AssertionError
+______________________ test_g2_liberar_sin_retencion_409 _______________________
+
+tmp_path = PosixPath('/private/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/pytest-of-dn/pytest-2051/test_g2_liberar_sin_retencion_0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10ed2bf20>
+
+    @_skip_sin_pg
+    def test_g2_liberar_sin_retencion_409(tmp_path, monkeypatch):
+        """Soltar una corrida que no retuvo nada -> 409 (bosquejo T) y cero
+        filas."""
+        _secrets_token(tmp_path, monkeypatch)
+        with _db() as (conn, dsn):
+            corr = _corrida(conn, _config(conn))
+            monkeypatch.setenv("ORBIT_DSN_ADMIN", dsn)
+            resp = TestClient(app).post(
+                f"/api/precios/compuerta/{corr}/liberar",
+                json={"actor": "dueno", "nota": "no hay que soltar"},
+                headers=_CABECERA,
+            )
+>           assert resp.status_code == 409
+E           assert 404 == 409
+E            +  where 404 = <Response [404 Not Found]>.status_code
+
+tests/test_api_precios_write.py:349: AssertionError
+=============================== warnings summary ===============================
+.venv/lib/python3.14/site-packages/fastapi/testclient.py:1
+  /Users/dn/dev/wt/rp02-sec3/.venv/lib/python3.14/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+9 failed, 1 warning in 1.39s

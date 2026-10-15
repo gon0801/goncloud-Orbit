@@ -2,12 +2,65 @@
 {% if error %}
 <p class="alerta" role="alert">Precios ilegibles: {{ error }}</p>
 {% else %}
-<p class="mutado">Dia {{ hoy }} (reloj de la base) · sin javascript · las frases con margen y precio viven solo aqui</p>
+<p class="mutado">Dia {{ hoy }} (reloj de la base) · siembra goals con javascript · las frases con margen y precio viven solo aqui</p>
 <div class="salud-grid">
 {% for plataforma, datos in plataformas.items() %}
 {% set rec = datos.recuadro %}
 <div class="tarjeta">
   <h2>{{ plataforma }} <span class="chip">{{ datos.hoy }}</span></h2>
+
+  <section id="bloque-goals-{{ plataforma }}" aria-label="Goals {{ plataforma }}">
+  <h3>Goals — siembra y cambio</h3>
+  {% if datos.unidades %}
+  <div class="tabla-scroll" role="region" aria-label="Unidades {{ plataforma }}" tabindex="0">
+  <table>
+    <thead><tr><th>Sel</th><th>SKU</th><th>Canal</th><th class="num">Margen hoy</th><th class="num">Goal</th><th>Modo</th><th class="num">Precio objetivo</th><th>Origen envío</th><th class="num">TACoS</th></tr></thead>
+    <tbody>
+      {% for u in datos.unidades %}
+      <tr><td><input type="checkbox" class="precios-check" value="{{ u.listing_id }}" data-sku="{{ u.sku }}" aria-label="Elegir {{ u.sku }}"></td><td class="mono">{{ u.sku }}</td><td>{{ u.canal or "—" }}</td><td class="num">{{ u.margen_hoy | porcentaje_ui or "—" }}</td><td class="num">{{ u.goal | porcentaje_ui or "—" }}</td><td>{{ u.goal_mode or "—" }}</td><td class="num">{{ u.precio_objetivo | dinero_ui or "—" }}</td><td>{% if u.envio_origen in ("familia", "marketplace") %}<span class="chip alerta">{{ u.envio_origen }}</span>{% else %}{{ u.envio_origen or "—" }}{% endif %}</td><td class="num">{% if u.tacos %}{{ u.tacos | dinero_ui }} %{% else %}—{% endif %}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <form data-precios-bar data-platform="{{ plataforma }}">
+    <label>Pedido
+      <select name="pedido">
+        <option value="margen_de_hoy">margen de hoy</option>
+        <option value="valor">valor</option>
+        <option value="modo">modo</option>
+      </select>
+    </label>
+    <label>Goal %
+      <input type="text" name="goal_pct" placeholder="30.00" autocomplete="off">
+    </label>
+    <label>Modo
+      <select name="mode">
+        <option value="shadow">shadow</option>
+        <option value="live">live</option>
+      </select>
+    </label>
+    <label>Go literal
+      <input type="text" name="go_literal" placeholder="solo live" autocomplete="off">
+    </label>
+    <label>Actor
+      <input type="text" name="actor" placeholder="quien aplica" autocomplete="off">
+    </label>
+    <label>Token
+      <input type="password" name="token" autocomplete="off">
+    </label>
+    <label>
+      <input type="checkbox" name="sin_goal" value="true">
+      todos los sin goal
+    </label>
+    <button type="submit" data-plan>Planear</button>
+    <button type="button" data-aplicar disabled>Aplicar</button>
+    <span data-estado class="mutado"></span>
+  </form>
+  <div data-vista aria-live="polite"></div>
+  {% else %}
+  <p class="mutado">Sin unidades en esta plataforma.</p>
+  {% endif %}
+  </section>
 
   <section id="bloque-cobertura-{{ plataforma }}" aria-label="Cobertura">
   <h3>Cobertura</h3>

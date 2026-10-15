@@ -7,10 +7,11 @@ CSV, `--mode live` con ceremonia completa, `--mode shadow` sin go literal,
 `abs(P* - P_actual) > 25 %` salvo `--confirmar-salto`).
 
 Base real (`ORBIT_TEST_DSN`, cero `skipped` con el DSN de VERIFY): cada test
-levanta una DB temporal con ORDEN39 (0001 + 0002 + 0028 + 0039) y la tira al
-salir (patron `db_39` de `test_precio_migracion`, autocontenido aqui para
-exponer el DSN al subprocess del tool). La `config_version` se siembra con
-el patron `_config_version(conn, settings)` de `test_api` l.149.
+levanta una DB temporal con ORDEN54 (0001 + 0002 + 0028 + 0039 + 0047 + 0053
++ 0054) y la tira al salir (patron `db_39` de `test_precio_migracion`,
+autocontenido aqui para exponer el DSN al subprocess del tool). La
+`config_version` se siembra con el patron `_config_version(conn, settings)`
+de `test_api` l.149.
 """
 
 from __future__ import annotations
@@ -39,11 +40,17 @@ from test_architecture import (
 from test_schema import _postgres_obligatorio_ausente
 
 RAIZ = Path(__file__).resolve().parents[1]
-ORDEN39 = (
+# G.1: la lista termina en la 0054 (reedicion el mismo dia por indice
+# parcial + columnas origen/lote/m_referencia). La 0054 necesita la 0047
+# por la FK a `familia` (patron ORDEN02 de `test_precio02_base.py`).
+ORDEN54 = (
     "0001_initial.sql",
     "0002_apply.sql",
     "0028_estimacion_venta.sql",
     "0039_precio.sql",
+    "0047_familias.sql",
+    "0053_precio02_canal_meli.sql",
+    "0054_precio02_base.sql",
 )
 
 _skip_sin_pg = pytest.mark.skipif(
@@ -65,7 +72,7 @@ def _dsn_de_db(dsn_base: str, db: str) -> str:
 
 @contextmanager
 def _db():
-    """DB temporal con ORDEN39; entrega `(conn, dsn)` con conn en autocommit."""
+    """DB temporal con ORDEN54; entrega `(conn, dsn)` con conn en autocommit."""
     from psycopg import sql as pgsql
 
     dsn = _dsn_base()
@@ -76,7 +83,7 @@ def _db():
         admin.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(db)))
         conn = psycopg.connect(_dsn_de_db(dsn, db), autocommit=True)
         conn.execute("SET TIME ZONE 'UTC'")
-        for nombre in ORDEN39:
+        for nombre in ORDEN54:
             conn.execute((RAIZ / "migrations" / nombre).read_text(encoding="utf-8"))
         yield conn, _dsn_de_db(dsn, db)
     finally:
@@ -1443,13 +1450,14 @@ def test_huella_sin_acepto_tambien_aborta():
 
 
 @_skip_sin_pg
-def test_r1_siembra_con_vigente_aborta_antes_de_la_huella():
-    """R1: el dry-run ve el goal vigente y aborta sin huella."""
+def test_r1_siembra_con_vigente_reemplaza():
+    """R1 (G.1, cambio 3/3): un listing con goal vigente no aborta: el plan
+    propone reemplazar y el go cierra el vigente y siembra el nuevo."""
     from app.precio.goals_write import sembrar_goal
 
     with _db() as (conn, dsn):
         datos = _cadena(conn)
-        sembrar_goal(
+        gid_viejo = sembrar_goal(
             conn,
             listing_id=datos["listing"],
             platform="amazon_mx",
@@ -1457,7 +1465,7 @@ def test_r1_siembra_con_vigente_aborta_antes_de_la_huella():
             mode="shadow",
             go_literal=None,
         )
-        res = _tool(
+        args = [
             "--listing-id",
             str(datos["listing"]),
             "--platform",
@@ -1466,18 +1474,35 @@ def test_r1_siembra_con_vigente_aborta_antes_de_la_huella():
             "40.00",
             "--mode",
             "shadow",
-            dsn=dsn,
-        )
-        assert res.returncode == 2
-        assert "ya tiene goal vigente" in res.stderr
-        assert "--cerrar" in res.stderr
-        assert "huella: " not in res.stdout
-        assert _cuenta_goals(conn) == 1
+        ]
+        seco = _tool(*args, dsn=dsn)
+        assert seco.returncode == 0, seco.stderr
+        assert "reemplaza" in seco.stdout
+        assert "goal_actual=30.00%" in seco.stdout
+        assert "goal=40.00%" in seco.stdout
+        huella = seco.stdout.split("huella: ")[1].split()[0]
+        go = _tool(*args, "--acepto-mutacion-real", "--huella", huella, dsn=dsn)
+        assert go.returncode == 0, go.stderr
+        assert _cuenta_goals(conn) == 2
+        vigente = conn.execute(
+            "SELECT id, margen_goal_pct FROM precio_goal"
+            " WHERE listing_id = %s AND platform = 'amazon_mx' AND valid_to IS NULL",
+            (datos["listing"],),
+        ).fetchall()
+        assert len(vigente) == 1
+        assert vigente[0][1] == Decimal("0.4000")
+        assert vigente[0][0] != gid_viejo
+        viejo = conn.execute(
+            "SELECT valid_from, valid_to FROM precio_goal WHERE id = %s", (gid_viejo,)
+        ).fetchone()
+        assert viejo[1] is not None
 
 
 @_skip_sin_pg
-def test_r1_csv_con_vigente_dice_la_linea(tmp_path):
-    """R1 en lote: la fila con vigente aborta con su linea, antes de la huella."""
+def test_r1_csv_con_vigente_reemplaza(tmp_path):
+    """R1 en lote (G.1, cambio 3/3): la fila con vigente se reemplaza: el
+    dry-run sale 0 con `siembra` para la nueva y `reemplaza` para la
+    vigente, y el go escribe las dos."""
     from app.precio.goals_write import sembrar_goal
 
     with _db() as (conn, dsn):
@@ -1498,12 +1523,30 @@ def test_r1_csv_con_vigente_dice_la_linea(tmp_path):
             f"{b['listing']},amazon_mx,40.00\n",
             encoding="utf-8",
         )
-        res = _tool("--csv", str(csv), "--mode", "shadow", dsn=dsn)
-        assert res.returncode == 2
-        assert "ya tiene goal vigente" in res.stderr
-        assert "nea 3" in res.stderr
-        assert "huella: " not in res.stdout
-        assert _cuenta_goals(conn) == 1
+        seco = _tool("--csv", str(csv), "--mode", "shadow", dsn=dsn)
+        assert seco.returncode == 0, seco.stderr
+        assert "[plan] siembra" in seco.stdout
+        assert "[plan] reemplaza" in seco.stdout
+        huella = seco.stdout.split("huella: ")[1].split()[0]
+        go = _tool(
+            "--csv",
+            str(csv),
+            "--mode",
+            "shadow",
+            "--acepto-mutacion-real",
+            "--huella",
+            huella,
+            dsn=dsn,
+        )
+        assert go.returncode == 0, go.stderr
+        assert _cuenta_goals(conn) == 3
+        vigentes = conn.execute(
+            "SELECT listing_id, margen_goal_pct FROM precio_goal WHERE valid_to IS NULL"
+        ).fetchall()
+        assert sorted((v[0], v[1]) for v in vigentes) == [
+            (a["listing"], Decimal("0.3000")),
+            (b["listing"], Decimal("0.4000")),
+        ]
 
 
 @_skip_sin_pg
@@ -1550,13 +1593,14 @@ def test_dry_run_lote_listing_de_otra_platform_aborta_con_linea(tmp_path):
 
 
 @_skip_sin_pg
-def test_r2_mismo_dia_utc_dice_que_espere_manana():
-    """R2: sembrar, cerrar y resembrar el mismo dia UTC no habla de vigente."""
-    from app.precio.goals_write import PrecioGoalInvalido, cerrar_goal, sembrar_goal
+def test_r2_mismo_dia_reedita_deja_vigente_y_anulado():
+    """R2 (G.1, cambio 2/3 + guia §7): sembrar y volver a sembrar el mismo
+    dia deja un goal vigente y uno anulado (`valid_to = valid_from`)."""
+    from app.precio.goals_write import cerrar_goal, sembrar_goal
 
     with _db() as (conn, _dsn):
         datos = _cadena(conn)
-        sembrar_goal(
+        gid_viejo = sembrar_goal(
             conn,
             listing_id=datos["listing"],
             platform="amazon_mx",
@@ -1565,16 +1609,29 @@ def test_r2_mismo_dia_utc_dice_que_espere_manana():
             go_literal=None,
         )
         cerrar_goal(conn, listing_id=datos["listing"], platform="amazon_mx")
-        with pytest.raises(PrecioGoalInvalido, match="dia siguiente"):
-            sembrar_goal(
-                conn,
-                listing_id=datos["listing"],
-                platform="amazon_mx",
-                goal_pct="40.00",
-                mode="shadow",
-                go_literal=None,
-            )
-        assert _cuenta_goals(conn) == 1
+        gid_nuevo = sembrar_goal(
+            conn,
+            listing_id=datos["listing"],
+            platform="amazon_mx",
+            goal_pct="40.00",
+            mode="shadow",
+            go_literal=None,
+        )
+        assert gid_nuevo != gid_viejo
+        assert _cuenta_goals(conn) == 2
+        filas = {
+            gid: (desde, hasta)
+            for gid, desde, hasta in conn.execute(
+                "SELECT id, valid_from, valid_to FROM precio_goal"
+            ).fetchall()
+        }
+        assert filas[gid_viejo][1] is not None
+        assert filas[gid_viejo][0] == filas[gid_viejo][1]
+        assert filas[gid_nuevo][1] is None
+        vigente = conn.execute(
+            "SELECT margen_goal_pct FROM precio_goal WHERE valid_to IS NULL"
+        ).fetchone()[0]
+        assert vigente == Decimal("0.4000")
 
 
 def test_k7_no_positivo_separado_de_fraccion():
@@ -1844,3 +1901,832 @@ def test_s1_sku_excluyente_con_listing_y_csv(tmp_path):
             dsn=dsn,
         )
         assert res2.returncode == 2
+
+
+# ---------------------------------------------------------------------------
+# G.1 (REPRICING 02): plan de goals puro + escritura todo o nada
+# ---------------------------------------------------------------------------
+
+BANDA_G1 = (Decimal("0.10"), Decimal("0.60"))
+
+# Misma cuenta de `_cadena` (C=40, P=116, F=15, ref=12/116, r=0.025,
+# d=1.16): P* al 30 % = 89.88, al 55 % = 163.55, al 10 % = 66.07.
+_FEE_DETALLES_G1 = (
+    {
+        "fee_type": "ReferralFee",
+        "final_fee": "12",
+        "tax_amount": None,
+        "included_fee_details": [],
+    },
+    {
+        "fee_type": "FbaFee",
+        "final_fee": "3",
+        "tax_amount": None,
+        "included_fee_details": [],
+    },
+)
+
+
+def _g1_unidad(listing_id=7, platform="amazon_mx"):
+    from app.precio.puerto import Miembro, UnidadPrecio
+
+    return UnidadPrecio(
+        listing_id=listing_id,
+        plataforma=platform,
+        externo="ASIN-G1",
+        canal="fba",
+        producto_ancla=11,
+        miembros=(Miembro(11, "SKU-G1", None),),
+    )
+
+
+def _g1_componentes(costo="40", ingreso="100", envio="0", isr="2.50", bruto="116"):
+    def _uno(nombre, importe):
+        return {
+            "nombre": nombre,
+            "importe_normalizado": str(importe),
+            "moneda_normalizada": "MXN",
+            "pertenece_a_total": True,
+        }
+
+    return [
+        _uno("precio_bruto", bruto),
+        _uno("ingreso_normalizado", ingreso),
+        _uno("costo_normalizado", costo),
+        _uno("logistica", envio),
+        _uno("isr", isr),
+    ]
+
+
+def _g1_lectura(**cambios):
+    from app.precio.siembra import LecturaHoy
+
+    base = dict(
+        m_pct=Decimal("24.00"),
+        p_actual=Decimal("116"),
+        moneda="MXN",
+        componentes=_g1_componentes(),
+        fee_total=Decimal("15"),
+        fee_quoted=Decimal("116"),
+        fee_detalles=list(_FEE_DETALLES_G1),
+        fee_estado="success",
+    )
+    base.update(cambios)
+    return LecturaHoy(**base)
+
+
+def _g1_vigente(gid=9, goal="0.3000", mode="shadow"):
+    from app.precio.siembra import GoalVigente
+
+    return GoalVigente(id=gid, goal=Decimal(goal), mode=mode)
+
+
+def _g1_candidato(lectura="auto", vigente=None, listing_id=7, platform="amazon_mx"):
+    from app.precio.siembra import Candidato
+
+    if lectura == "auto":
+        lectura = _g1_lectura()
+    return Candidato(
+        unidad=_g1_unidad(listing_id, platform),
+        seller_sku="SKU-G1",
+        goal_vigente=vigente,
+        lectura=lectura,
+    )
+
+
+def _g1_plan(conn, pares, pedido, banda=BANDA_G1):
+    """`leer_candidatos` + `planear`: el plan fresco de `aplicar_plan`."""
+    from app.precio.goals_write import PorIds, leer_candidatos
+    from app.precio.siembra import planear
+
+    return planear(
+        leer_candidatos(conn, filtro=PorIds(pares=tuple(pares))),
+        pedido=pedido,
+        banda=banda,
+    )
+
+
+@_skip_sin_pg
+def test_g1_contrato_siembra_reproduce_el_plan_del_tool():
+    """G.1 (contrato, TDD): con la misma cadena, `siembra.planear` produce
+    el mismo plan con la misma huella que el dry-run del tool."""
+    import hashlib
+
+    from app.precio.goals_write import PorIds, leer_candidatos
+    from app.precio.siembra import PedidoValores, ValorPorUnidad, planear
+
+    with _db() as (conn, dsn):
+        datos = _cadena(conn)
+        lid = datos["listing"]
+        seco = _tool(
+            "--listing-id",
+            str(lid),
+            "--platform",
+            "amazon_mx",
+            "--goal-pct",
+            "30.00",
+            "--mode",
+            "shadow",
+            dsn=dsn,
+        )
+        assert seco.returncode == 0, seco.stderr
+        huella_tool = seco.stdout.split("huella: ")[1].split()[0]
+        plan = planear(
+            leer_candidatos(conn, filtro=PorIds(pares=((lid, "amazon_mx"),))),
+            pedido=PedidoValores(
+                goals=(ValorPorUnidad(lid, "amazon_mx", Decimal("0.3000")),),
+                mode="shadow",
+            ),
+            banda=BANDA_G1,
+        )
+        assert len(plan.filas) == 1
+        fila = plan.filas[0]
+        assert fila.accion == "sembrar"
+        assert fila.goal_propuesto == Decimal("0.3000")
+        assert fila.m_hoy == Decimal("0.24")
+        assert fila.p_estrella is not None and fila.p_estrella.valor == Decimal("89.88")
+        assert fila.p_estrella.moneda == "MXN"
+        assert fila.p_actual is not None and fila.p_actual.valor == Decimal("116")
+        assert fila.p_actual.moneda == "MXN"
+        assert fila.bloqueo is None
+        assert fila.motivo is None
+        assert plan.huella == huella_tool
+        vieja = hashlib.sha256(f"siembra:{lid}:amazon_mx:0.3000:shadow".encode()).hexdigest()[:16]
+        assert plan.huella == vieja
+
+
+def test_g1_planear_margen_de_hoy_propone_margen():
+    """Guia §1: `planear` con `PedidoMargenDeHoy` propone el margen de hoy
+    de cada unidad (el goal se cuantiza a 4 decimales; `m_hoy` no)."""
+    from app.precio.siembra import PedidoMargenDeHoy, planear
+
+    plan = planear(
+        (
+            _g1_candidato(_g1_lectura(m_pct=Decimal("30.00")), listing_id=7),
+            _g1_candidato(_g1_lectura(m_pct=Decimal("36.6379")), listing_id=8),
+        ),
+        pedido=PedidoMargenDeHoy(mode="shadow"),
+        banda=BANDA_G1,
+    )
+    assert [f.accion for f in plan.filas] == ["sembrar", "sembrar"]
+    assert [f.bloqueo for f in plan.filas] == [None, None]
+    assert plan.filas[0].m_hoy == Decimal("0.30")
+    assert plan.filas[0].goal_propuesto == Decimal("0.3000")
+    assert plan.filas[1].m_hoy == Decimal("0.366379")
+    assert plan.filas[1].goal_propuesto == Decimal("0.3664")
+
+
+def test_g1_planear_fuera_de_banda_propone_borde_confirmable():
+    """Guia §2a: margen de hoy fuera de la banda sale con el bloqueo
+    `fuera_de_banda`, confirmable, proponiendo el borde (nunca recorte
+    en silencio: el borde va visible en el plan)."""
+    from app.precio.siembra import PedidoMargenDeHoy, planear
+
+    plan = planear(
+        (
+            _g1_candidato(_g1_lectura(m_pct=Decimal("8.00")), listing_id=7),
+            _g1_candidato(_g1_lectura(m_pct=Decimal("63.00")), listing_id=8),
+        ),
+        pedido=PedidoMargenDeHoy(mode="shadow"),
+        banda=BANDA_G1,
+    )
+    assert [f.bloqueo for f in plan.filas] == ["fuera_de_banda", "fuera_de_banda"]
+    assert [f.confirmable for f in plan.filas] == [True, True]
+    assert plan.filas[0].goal_propuesto == Decimal("0.10")
+    assert plan.filas[1].goal_propuesto == Decimal("0.60")
+
+
+def test_g1_planear_sin_escenario_no_confirmable():
+    """Guia §2b: sin escenario sale `sin_escenario`, no confirmable: no hay
+    margen de hoy que copiar."""
+    from app.precio.siembra import PedidoMargenDeHoy, planear
+
+    plan = planear(
+        (_g1_candidato(None, listing_id=7),),
+        pedido=PedidoMargenDeHoy(mode="shadow"),
+        banda=BANDA_G1,
+    )
+    (fila,) = plan.filas
+    assert fila.accion == "sembrar"
+    assert fila.bloqueo == "sin_escenario"
+    assert fila.confirmable is False
+    assert fila.goal_propuesto is None
+    assert fila.motivo == "sin_escenario"
+
+
+def test_g1_planear_salto_mayor_25():
+    """Guia §3: precio objetivo a mas de 25 % del actual sale
+    `salto_mayor_25` (arriba y abajo); a 22.5 % no sale bloqueo."""
+    from app.precio.siembra import PedidoValores, ValorPorUnidad, planear
+
+    def _bloqueo(lid, goal):
+        plan = planear(
+            (_g1_candidato(listing_id=lid),),
+            pedido=PedidoValores(
+                goals=(ValorPorUnidad(lid, "amazon_mx", Decimal(goal)),), mode="shadow"
+            ),
+            banda=BANDA_G1,
+        )
+        return plan.filas[0]
+
+    arriba = _bloqueo(7, "0.5500")
+    assert arriba.p_estrella is not None and arriba.p_estrella.valor == Decimal("163.55")
+    assert arriba.bloqueo == "salto_mayor_25"
+    assert arriba.confirmable is True
+    abajo = _bloqueo(8, "0.1000")
+    assert abajo.p_estrella is not None and abajo.p_estrella.valor == Decimal("66.07")
+    assert abajo.bloqueo == "salto_mayor_25"
+    dentro = _bloqueo(9, "0.3000")
+    assert dentro.bloqueo is None
+
+
+def test_g1_planear_vigente_reemplaza():
+    """Guia §4: un listing con goal vigente sale con la accion `reemplazar`."""
+    from app.precio.siembra import PedidoValores, ValorPorUnidad, planear
+
+    plan = planear(
+        (_g1_candidato(vigente=_g1_vigente(), listing_id=7),),
+        pedido=PedidoValores(
+            goals=(ValorPorUnidad(7, "amazon_mx", Decimal("0.4000")),), mode="shadow"
+        ),
+        banda=BANDA_G1,
+    )
+    (fila,) = plan.filas
+    assert fila.accion == "reemplazar"
+    assert fila.goal_id == 9
+    assert fila.goal_actual == Decimal("0.3000")
+    assert fila.goal_propuesto == Decimal("0.4000")
+    assert fila.bloqueo is None
+    assert fila.confirmable is False
+
+
+def test_g1_planear_mismo_goal_y_modo_sale_sin_cambio():
+    """Con el mismo goal y el mismo modo no hay nada que escribir: accion
+    `nada` con bloqueo `sin_cambio` (no se bate churn de cierra+siembra)."""
+    from app.precio.siembra import PedidoValores, ValorPorUnidad, planear
+
+    plan = planear(
+        (_g1_candidato(vigente=_g1_vigente(), listing_id=7),),
+        pedido=PedidoValores(
+            goals=(ValorPorUnidad(7, "amazon_mx", Decimal("0.3000")),), mode="shadow"
+        ),
+        banda=BANDA_G1,
+    )
+    (fila,) = plan.filas
+    assert fila.accion == "nada"
+    assert fila.bloqueo == "sin_cambio"
+    assert fila.confirmable is False
+    assert fila.goal_propuesto == Decimal("0.3000")
+
+
+def test_g1_planear_motivos_sin_p_estrella():
+    """Sin P* derivable (oferta ausente, fee inutilizable, componente
+    faltante), la fila avisa con su motivo y el salto no se evalua."""
+    from app.precio.siembra import PedidoValores, ValorPorUnidad, planear
+
+    def _fila(lid, **cambios):
+        plan = planear(
+            (_g1_candidato(_g1_lectura(**cambios), listing_id=lid),),
+            pedido=PedidoValores(
+                goals=(ValorPorUnidad(lid, "amazon_mx", Decimal("0.3000")),),
+                mode="shadow",
+            ),
+            banda=BANDA_G1,
+        )
+        return plan.filas[0]
+
+    sin_oferta = _fila(7, p_actual=None, moneda=None)
+    assert (sin_oferta.p_estrella, sin_oferta.motivo) == (None, "oferta_ausente")
+    assert sin_oferta.m_hoy == Decimal("0.24")
+    assert sin_oferta.bloqueo is None
+    fee_malo = _fila(8, fee_estado="error")
+    assert (fee_malo.p_estrella, fee_malo.motivo) == (None, "fee_no_utilizable")
+    assert fee_malo.bloqueo is None
+    sin_comp = _fila(9, componentes=[c for c in _g1_componentes() if c["nombre"] != "isr"])
+    assert (sin_comp.p_estrella, sin_comp.motivo) == (None, "referencia_sin_derivar")
+    assert sin_comp.bloqueo is None
+
+
+def test_g1_planear_modo_conserva_goal_y_sin_cambio_no_hace_nada():
+    """`PedidoModo` conserva el goal vigente; con el modo ya igual sale
+    `sin_cambio` con accion `nada`."""
+    from app.precio.siembra import PedidoModo, planear
+
+    cambia = planear(
+        (_g1_candidato(vigente=_g1_vigente(), listing_id=7),),
+        pedido=PedidoModo(mode="live"),
+        banda=BANDA_G1,
+    )
+    (fila,) = cambia.filas
+    assert fila.accion == "reemplazar"
+    assert fila.goal_propuesto == Decimal("0.3000")
+    assert fila.bloqueo is None
+    igual = planear(
+        (_g1_candidato(vigente=_g1_vigente(), listing_id=7),),
+        pedido=PedidoModo(mode="shadow"),
+        banda=BANDA_G1,
+    )
+    (nada,) = igual.filas
+    assert nada.accion == "nada"
+    assert nada.bloqueo == "sin_cambio"
+    assert nada.confirmable is False
+
+
+def test_g1_planear_valor_en_bloque_aplica_el_mismo_goal():
+    """`PedidoValor` fija un goal a mano a toda la seleccion; fuera de
+    banda sale `fuera_de_banda` no confirmable (no se puede sembrar)."""
+    from app.precio.siembra import PedidoValor, planear
+
+    plan = planear(
+        (_g1_candidato(listing_id=7), _g1_candidato(listing_id=8)),
+        pedido=PedidoValor(goal=Decimal("0.3500"), mode="shadow"),
+        banda=BANDA_G1,
+    )
+    assert [f.goal_propuesto for f in plan.filas] == [Decimal("0.3500"), Decimal("0.3500")]
+    assert [f.bloqueo for f in plan.filas] == [None, None]
+    fuera = planear(
+        (_g1_candidato(listing_id=7),),
+        pedido=PedidoValor(goal=Decimal("0.0500"), mode="shadow"),
+        banda=BANDA_G1,
+    )
+    (fila,) = fuera.filas
+    assert fila.bloqueo == "fuera_de_banda"
+    assert fila.confirmable is False
+
+
+@_skip_sin_pg
+def test_g1_aplicar_huella_distinta_no_escribe():
+    """Guia §5: `aplicar_plan` con una huella distinta levanta
+    `HuellaDistinta` (con el plan nuevo) y no escribe nada."""
+    from app.precio.goals_write import HuellaDistinta, aplicar_plan, sembrar_goal
+    from app.precio.siembra import PedidoValores, ValorPorUnidad
+
+    with _db() as (conn, _dsn):
+        datos = _cadena(conn)
+        lid = datos["listing"]
+        plan = _g1_plan(
+            conn,
+            [(lid, "amazon_mx")],
+            PedidoValores(
+                goals=(ValorPorUnidad(lid, "amazon_mx", Decimal("0.3000")),), mode="shadow"
+            ),
+        )
+        assert plan.filas[0].accion == "sembrar"
+        sembrar_goal(
+            conn,
+            listing_id=lid,
+            platform="amazon_mx",
+            goal_pct="50.00",
+            mode="shadow",
+            go_literal=None,
+        )
+        with pytest.raises(HuellaDistinta) as exc:
+            aplicar_plan(
+                conn,
+                plan,
+                huella=plan.huella,
+                confirmados=frozenset(),
+                go_literal=None,
+                actor="t",
+            )
+        assert exc.value.plan.filas[0].accion == "reemplazar"
+        assert exc.value.plan.huella != plan.huella
+        assert _cuenta_goals(conn) == 1
+
+
+@_skip_sin_pg
+def test_g1_aplicar_fallo_a_mitad_no_deja_ninguna():
+    """Guia §6 (cambio 1/3, todo o nada): si la tercera fila de cinco
+    falla, no queda ninguna."""
+    from app.precio.goals_write import PrecioGoalInvalido, aplicar_plan
+    from app.precio.siembra import PedidoValores, ValorPorUnidad
+
+    with _db() as (conn, _dsn):
+        lids = []
+        for tag in ("A", "B", "C", "D", "E"):
+            datos = _cadena(conn, sku=f"SKU-G1-{tag}", ext=f"ASIN-G1-{tag}")
+            lids.append(datos["listing"])
+        pedido = PedidoValores(
+            goals=tuple(ValorPorUnidad(lid, "amazon_mx", Decimal("0.3000")) for lid in lids),
+            mode="shadow",
+        )
+        plan = _g1_plan(conn, [(lid, "amazon_mx") for lid in lids], pedido)
+        import app.precio.goals_write as gw
+
+        llamadas = []
+        sembrar_real = gw.sembrar_goal
+
+        def _falla_en_tercera(conn_, **kw):
+            llamadas.append(kw["listing_id"])
+            if len(llamadas) == 3:
+                raise PrecioGoalInvalido("saboteo: la tercera fila falla")
+            return sembrar_real(conn_, **kw)
+
+        gw.sembrar_goal = _falla_en_tercera
+        try:
+            with pytest.raises(PrecioGoalInvalido, match="tercera fila"):
+                aplicar_plan(
+                    conn,
+                    plan,
+                    huella=plan.huella,
+                    confirmados=frozenset(),
+                    go_literal=None,
+                    actor="t",
+                )
+        finally:
+            gw.sembrar_goal = sembrar_real
+        assert len(llamadas) == 3
+        assert _cuenta_goals(conn) == 0
+
+
+@_skip_sin_pg
+def test_g1_aplicar_omite_bloqueo_y_cuenta():
+    """Bosquejo K: la fila con bloqueo no confirmable (o confirmable sin
+    confirmar) se omite y se cuenta: el resto se escribe."""
+    from app.precio.goals_write import HuellaDistinta, aplicar_plan
+    from app.precio.siembra import PedidoValores, ValorPorUnidad
+
+    with _db() as (conn, _dsn):
+        a = _cadena(conn, sku="SKU-G1-OA", ext="ASIN-G1-OA")
+        b = _cadena(conn, sku="SKU-G1-OB", ext="ASIN-G1-OB")
+        plan = _g1_plan(
+            conn,
+            [(a["listing"], "amazon_mx"), (b["listing"], "amazon_mx")],
+            PedidoValores(
+                goals=(
+                    ValorPorUnidad(a["listing"], "amazon_mx", Decimal("0.3000")),
+                    ValorPorUnidad(b["listing"], "amazon_mx", Decimal("0.5500")),
+                ),
+                mode="shadow",
+            ),
+        )
+        assert [f.bloqueo for f in plan.filas] == [None, "salto_mayor_25"]
+        res = aplicar_plan(
+            conn,
+            plan,
+            huella=plan.huella,
+            confirmados=frozenset(),
+            go_literal=None,
+            actor="t",
+        )
+        assert (res.sembrados, res.cerrados, res.lote) == (1, 0, plan.huella)
+        assert _cuenta_goals(conn) == 1
+        vigente = conn.execute(
+            "SELECT listing_id FROM precio_goal WHERE valid_to IS NULL"
+        ).fetchone()[0]
+        assert vigente == a["listing"]
+        with pytest.raises(HuellaDistinta):
+            aplicar_plan(
+                conn,
+                plan,
+                huella=plan.huella,
+                confirmados=frozenset({b["listing"]}),
+                go_literal=None,
+                actor="t",
+            )
+        assert _cuenta_goals(conn) == 1
+        pedido2 = PedidoValores(
+            goals=(
+                ValorPorUnidad(a["listing"], "amazon_mx", Decimal("0.3000")),
+                ValorPorUnidad(b["listing"], "amazon_mx", Decimal("0.5500")),
+            ),
+            mode="shadow",
+        )
+        plan2 = _g1_plan(conn, [(a["listing"], "amazon_mx"), (b["listing"], "amazon_mx")], pedido2)
+        assert [f.accion for f in plan2.filas] == ["nada", "sembrar"]
+        res2 = aplicar_plan(
+            conn,
+            plan2,
+            huella=plan2.huella,
+            confirmados=frozenset({b["listing"]}),
+            go_literal=None,
+            actor="t",
+        )
+        assert (res2.sembrados, res2.cerrados) == (1, 0)
+        assert _cuenta_goals(conn) == 2
+
+
+@_skip_sin_pg
+def test_g1_aplicar_estricto_aborta_con_bloqueo():
+    """El tool (estricto) no omite en silencio: un bloqueado sin confirmar
+    aborta todo con `BloqueoSinConfirmar` y no escribe nada."""
+    import pytest as _pytest
+
+    from app.precio.goals_write import BloqueoSinConfirmar, aplicar_plan
+    from app.precio.siembra import PedidoValores, ValorPorUnidad
+
+    with _db() as (conn, _dsn):
+        datos = _cadena(conn)
+        lid = datos["listing"]
+        plan = _g1_plan(
+            conn,
+            [(lid, "amazon_mx")],
+            PedidoValores(
+                goals=(ValorPorUnidad(lid, "amazon_mx", Decimal("0.5500")),), mode="shadow"
+            ),
+        )
+        assert plan.filas[0].bloqueo == "salto_mayor_25"
+        with _pytest.raises(BloqueoSinConfirmar) as exc:
+            aplicar_plan(
+                conn,
+                plan,
+                huella=plan.huella,
+                confirmados=frozenset(),
+                go_literal=None,
+                actor="t",
+                estricto=True,
+            )
+        assert exc.value.plan.filas[0].bloqueo == "salto_mayor_25"
+        assert _cuenta_goals(conn) == 0
+        res = aplicar_plan(
+            conn,
+            plan,
+            huella=plan.huella,
+            confirmados=frozenset({lid}),
+            go_literal=None,
+            actor="t",
+            estricto=True,
+        )
+        assert (res.sembrados, res.cerrados) == (1, 0)
+        assert _cuenta_goals(conn) == 1
+
+
+@_skip_sin_pg
+def test_g1_aplicar_live_sin_go_no_escribe():
+    """Guia §8: `live` sin go literal no escribe; con go escribe el lote
+    con su rastro (`origen`, `lote`, `m_referencia`)."""
+    from app.precio.goals_write import PrecioGoalInvalido, aplicar_plan
+    from app.precio.siembra import PedidoValores, ValorPorUnidad
+
+    with _db() as (conn, _dsn):
+        datos = _cadena(conn)
+        lid = datos["listing"]
+        plan = _g1_plan(
+            conn,
+            [(lid, "amazon_mx")],
+            PedidoValores(
+                goals=(ValorPorUnidad(lid, "amazon_mx", Decimal("0.3000")),), mode="live"
+            ),
+        )
+        with pytest.raises(PrecioGoalInvalido, match="live sin go"):
+            aplicar_plan(
+                conn,
+                plan,
+                huella=plan.huella,
+                confirmados=frozenset(),
+                go_literal=None,
+                actor="t",
+            )
+        assert _cuenta_goals(conn) == 0
+        res = aplicar_plan(
+            conn,
+            plan,
+            huella=plan.huella,
+            confirmados=frozenset(),
+            go_literal="enciende",
+            actor="t",
+        )
+        assert (res.sembrados, res.cerrados, res.lote) == (1, 0, plan.huella)
+        fila = conn.execute(
+            "SELECT mode, go_literal, origen, lote, m_referencia FROM precio_goal"
+        ).fetchone()
+        assert fila == ("live", "enciende", "manual", plan.huella, Decimal("0.2400"))
+
+
+@_skip_sin_pg
+def test_g1_aplicar_omite_lista_omitidas_con_bloqueo_y_motivo():
+    """B-C1: lo omitido se lista (no en silencio): `ResultadoPlan.omitidas`
+    trae (listing_id, platform, bloqueo, motivo) por fila no escrita."""
+    from app.precio.goals_write import OmitidaPlan, aplicar_plan
+    from app.precio.siembra import PedidoMargenDeHoy
+
+    with _db() as (conn, _dsn):
+        a = _cadena(conn, sku="SKU-G1-MA", ext="ASIN-G1-MA", m="40.00")
+        prod_b = _producto(conn, sku="SKU-G1-MB")
+        lid_b = _listing(conn, prod_b, ext="ASIN-G1-MB", sku="SKU-G1-MB")
+        plan = _g1_plan(
+            conn,
+            [(a["listing"], "amazon_mx"), (lid_b, "amazon_mx")],
+            PedidoMargenDeHoy(mode="shadow"),
+        )
+        assert [f.bloqueo for f in plan.filas] == [None, "sin_escenario"]
+        res = aplicar_plan(
+            conn,
+            plan,
+            huella=plan.huella,
+            confirmados=frozenset(),
+            go_literal=None,
+            actor="t",
+        )
+        assert (res.sembrados, res.cerrados) == (1, 0)
+        assert res.omitidas == (OmitidaPlan(lid_b, "amazon_mx", "sin_escenario", "sin_escenario"),)
+        assert _cuenta_goals(conn) == 1
+
+
+@pytest.mark.parametrize(
+    "caso,motivo",
+    [
+        ("sin_lectura", "sin_escenario"),
+        ("fee", "fee_no_utilizable"),
+        ("oferta", "oferta_ausente"),
+        ("deriva", "referencia_sin_derivar"),
+    ],
+)
+def test_g1_planear_live_valor_sin_referencia_bloquea_confirmable(caso, motivo):
+    """B-C2: PedidoValor live sin P* de referencia sale con bloqueo
+    confirmable (nunca None silencioso que salte el chequeo 25 %)."""
+    from app.precio.siembra import PedidoValor, planear
+
+    if caso == "sin_lectura":
+        lec = None
+    elif caso == "fee":
+        lec = _g1_lectura(fee_estado="error")
+    elif caso == "oferta":
+        lec = _g1_lectura(p_actual=None, moneda=None)
+    else:
+        comp = [c for c in _g1_componentes() if c["nombre"] != "isr"]
+        lec = _g1_lectura(componentes=comp)
+    plan = planear(
+        (_g1_candidato(lec, listing_id=7),),
+        pedido=PedidoValor(goal=Decimal("0.3000"), mode="live"),
+        banda=BANDA_G1,
+    )
+    (fila,) = plan.filas
+    assert fila.accion == "sembrar"
+    assert fila.p_estrella is None
+    assert fila.motivo == motivo
+    assert fila.bloqueo == "sin_referencia"
+    assert fila.confirmable is True
+
+
+def test_g1_planear_shadow_valor_sin_referencia_sigue_sin_bloqueo():
+    """B-C2: en shadow, Valor sin P* sigue sin bloqueo (aviso, no bloque):
+    el residual declarado solo se retira en live."""
+    from app.precio.siembra import PedidoValor, planear
+
+    plan = planear(
+        (_g1_candidato(None, listing_id=7),),
+        pedido=PedidoValor(goal=Decimal("0.3000"), mode="shadow"),
+        banda=BANDA_G1,
+    )
+    (fila,) = plan.filas
+    assert fila.bloqueo is None
+    assert fila.motivo == "sin_escenario"
+
+
+@_skip_sin_pg
+def test_g1_aplicar_live_valor_sin_lectura_omite_y_confirma():
+    """B-C2: live Valor sin lectura: sin confirmar se omite (y se lista
+    por B-C1); confirmado + go se escribe."""
+    from app.precio.goals_write import OmitidaPlan, aplicar_plan
+    from app.precio.siembra import PedidoValor
+
+    with _db() as (conn, _dsn):
+        prod = _producto(conn, sku="SKU-G1-SR")
+        lid = _listing(conn, prod, ext="ASIN-G1-SR", sku="SKU-G1-SR")
+        _config(conn)
+        plan = _g1_plan(conn, [(lid, "amazon_mx")], PedidoValor(Decimal("0.3000"), "live"))
+        (fila,) = plan.filas
+        assert (fila.bloqueo, fila.confirmable, fila.motivo) == (
+            "sin_referencia",
+            True,
+            "sin_escenario",
+        )
+        res = aplicar_plan(
+            conn,
+            plan,
+            huella=plan.huella,
+            confirmados=frozenset(),
+            go_literal="enciende",
+            actor="t",
+        )
+        assert (res.sembrados, res.cerrados) == (0, 0)
+        assert res.omitidas == (OmitidaPlan(lid, "amazon_mx", "sin_referencia", "sin_escenario"),)
+        res2 = aplicar_plan(
+            conn,
+            plan,
+            huella=plan.huella,
+            confirmados=frozenset({lid}),
+            go_literal="enciende",
+            actor="t",
+        )
+        assert (res2.sembrados, res2.cerrados) == (1, 0)
+        assert res2.omitidas == ()
+        assert _cuenta_goals(conn) == 1
+
+
+@_skip_sin_pg
+def test_g1_aplicar_live_valor_sin_derivar_omite_y_confirma():
+    """B-C2: live Valor con escenario sin derivar (margen real, P*
+    ausente): sin confirmar se omite y se lista; confirmado + go se
+    escribe. (`fee_no_utilizable` no se siembra en base: los triggers
+    exigen fee success en disponible; ese motivo se cubre en puro.)"""
+    from app.precio.goals_write import OmitidaPlan, aplicar_plan
+    from app.precio.siembra import PedidoValor
+
+    with _db() as (conn, _dsn):
+        prod = _producto(conn, sku="SKU-G1-SD")
+        lid = _listing(conn, prod, ext="ASIN-G1-SD", sku="SKU-G1-SD")
+        _config(conn)
+        marca = datetime.now(UTC)
+        oferta = _oferta(
+            conn,
+            lid,
+            ext="ASIN-G1-SD",
+            sku="SKU-G1-SD",
+            evento="oferta-SD",
+            fetched=marca,
+            observed=marca,
+        )
+        fee = _fee(
+            conn,
+            oferta,
+            lid,
+            ext="ASIN-G1-SD",
+            sku="SKU-G1-SD",
+            evento="fee-SD",
+            fetched=marca,
+            observed=marca,
+        )
+        pol = _politica(conn)
+        costo = _costo(conn, prod)
+        run_id, validada_en = _run(conn)
+        _escenario(
+            conn,
+            lid,
+            oferta,
+            fee,
+            pol,
+            costo,
+            run_id,
+            validada_en,
+            ext="ASIN-G1-SD",
+            sku="SKU-G1-SD",
+            m="24.00",
+            evento="esc-SD",
+            sin_componente="isr",
+        )
+        plan = _g1_plan(conn, [(lid, "amazon_mx")], PedidoValor(Decimal("0.3000"), "live"))
+        (fila,) = plan.filas
+        assert fila.m_hoy is not None
+        assert (fila.bloqueo, fila.confirmable, fila.motivo) == (
+            "sin_referencia",
+            True,
+            "referencia_sin_derivar",
+        )
+        res = aplicar_plan(
+            conn,
+            plan,
+            huella=plan.huella,
+            confirmados=frozenset(),
+            go_literal="enciende",
+            actor="t",
+        )
+        assert (res.sembrados, res.cerrados) == (0, 0)
+        assert res.omitidas == (
+            OmitidaPlan(lid, "amazon_mx", "sin_referencia", "referencia_sin_derivar"),
+        )
+        res2 = aplicar_plan(
+            conn,
+            plan,
+            huella=plan.huella,
+            confirmados=frozenset({lid}),
+            go_literal="enciende",
+            actor="t",
+        )
+        assert (res2.sembrados, res2.cerrados) == (1, 0)
+        assert _cuenta_goals(conn) == 1
+
+
+@_skip_sin_pg
+def test_tool_live_valor_sin_referencia_confirma_y_escribe():
+    """B-C2 (tool): live Valor sin lectura aborta pidiendo confirmacion
+    (con el motivo); con --confirmar-salto + go escribe."""
+    with _db() as (conn, dsn):
+        prod = _producto(conn, sku="SKU-G1-TR")
+        listing = _listing(conn, prod, ext="ASIN-G1-TR", sku="SKU-G1-TR")
+        _config(conn)
+        args = ["--listing-id", str(listing), "--platform", "amazon_mx", "--goal-pct", "30.00"]
+        seco = _tool(*args, "--mode", "live", dsn=dsn)
+        assert seco.returncode == 2, seco.stdout
+        assert "sin_escenario" in seco.stderr
+        assert "confirmar-salto" in seco.stderr
+        assert _cuenta_goals(conn) == 0
+        conf = _tool(*args, "--mode", "live", "--confirmar-salto", str(listing), dsn=dsn)
+        assert conf.returncode == 0, conf.stderr
+        huella = conf.stdout.split("huella: ")[1].split()[0]
+        go = _tool(
+            *args,
+            "--mode",
+            "live",
+            "--confirmar-salto",
+            str(listing),
+            "--acepto-mutacion-real",
+            "--huella",
+            huella,
+            "--go",
+            "enciende-tdd",
+            dsn=dsn,
+        )
+        assert go.returncode == 0, go.stderr
+        assert _cuenta_goals(conn) == 1

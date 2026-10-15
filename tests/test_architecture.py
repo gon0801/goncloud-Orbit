@@ -45,6 +45,13 @@ MAX_LINEAS_MODULO = 900
 # path relativo (posix) -> razon escrita. Sacar una entrada exige que el
 # modulo haya bajado del umbral; agregarla exige razon y review.
 ALLOWLIST_TAMANO = {
+    "app/precio/cambios.py": (
+        "REPRICING 02 S.5: el protocolo de `precio_cambio` vive en un solo "
+        "modulo por diseno (seccion I del bosquejo: unitario + lote + "
+        "cierre + claim compartido con la corrida). Partirlo por cuota "
+        "separaria `revertir` de su nucleo `_revertir_fila` — jamas partir "
+        "por partir"
+    ),
     "app/impulso_io.py": (
         "BIDS 02 R09-r4: IO transaccional del impulso (previa + lanza + "
         "vigia + reconciliacion H2/H6): un solo flujo con estados "
@@ -121,12 +128,12 @@ ALLOWLIST_TAMANO = {
         "inertes del feed de decisiones; no se parte por partir."
     ),
     "app/precio/corrida.py": (
-        "REPRICING 01 A.5: orquestador sellado de la corrida diaria por "
-        "plataforma (claim, huerfanas, cierre por observacion, decision, "
-        "reparto de cupo, aplicacion live/virtual y frenos en un solo "
+        "REPRICING 01 A.5 + 02 S.1: orquestador sellado de la corrida diaria "
+        "por plataforma (claim, fila corrida, huerfanas, cierre por "
+        "observacion, decidir, compuerta, aplicar y frenos en un solo "
         "camino dueno). Partirlo crearia un segundo dueno del camino; "
-        "las piezas con frontera propia ya viven fuera (cuota, reglas, "
-        "fuentes, precio_write). No se parte por partir."
+        "las piezas con frontera propia ya viven fuera (reglas, fuentes, "
+        "precio_write). No se parte por partir."
     ),
     "app/notifica.py": (
         "REPRICING 01 A.6: senders fail-silent de Telegram de todos los "
@@ -1110,26 +1117,36 @@ def _puros_precio(raiz=None):
 # `app.precio.*`, `app.estimacion_insumos` solo `mapear_canal`, y stdlib;
 # jamas red, reloj, `app.spapi.*` ni escritura: su candado propio esta al
 # final del archivo). Excepcion POR NOMBRE, en paralelo a la de A.1.
-EXCEPCIONES_PURAS_PRECIO = ("goals_write.py", "fuentes.py", "corrida.py", "cuota.py", "cambios.py")
+# REPRICING 02 S.3: `liberaciones.py` es el unico escritor de
+# `precio_compuerta_liberacion` (rol `app_admin`; puede `psycopg` y stdlib).
+EXCEPCIONES_PURAS_PRECIO = (
+    "goals_write.py",
+    "fuentes.py",
+    "corrida.py",
+    "cambios.py",
+    "liberaciones.py",
+)
 
 
 def test_precio_excepcion_por_nombre():
-    """A.1 + A.7 + A.5: la excepcion de pureza es una tupla por nombre con
-    `goals_write.py`, `fuentes.py`, `corrida.py`, `cuota.py` y `cambios.py`
-    y nada mas; quitar el `rglob` o exceptuar la carpeta la rompe."""
+    """A.1 + A.7 + A.5 + S.1 + S.3: la excepcion de pureza es una tupla por
+    nombre con `goals_write.py`, `fuentes.py`, `corrida.py`, `cambios.py` y
+    `liberaciones.py` y nada mas (`cuota.py` murio en S.1); quitar el
+    `rglob` o exceptuar la carpeta la rompe."""
     assert EXCEPCIONES_PURAS_PRECIO == (
         "goals_write.py",
         "fuentes.py",
         "corrida.py",
-        "cuota.py",
         "cambios.py",
+        "liberaciones.py",
     )
     assert (PRECIO / "goals_write.py").is_file()
     assert (PRECIO / "fuentes.py").is_file()
     assert (PRECIO / "corrida.py").is_file()
-    assert (PRECIO / "cuota.py").is_file()
     assert (PRECIO / "cambios.py").is_file()
+    assert (PRECIO / "liberaciones.py").is_file()
     assert (PRECIO / "tipos.py").is_file()
+    assert not (PRECIO / "cuota.py").exists()
 
 
 def test_precio_puro_sin_io():
@@ -1587,73 +1604,56 @@ def test_imports_spapi_write_frontera_caza_dinamico_relativo(tmp_path):
     assert {p.name for p in dinamicos} == {"otro.py"}
 
 
+# REPRICING 02 S.5: `tools/precio_reversa.py` es un despachador delgado
+# (argparse -> `Seleccion` -> `cambios.planear_reversa` /
+# `cambios.revertir_lote`) que recibe el mercado de
+# `precio_mercados.abrir`: no importa `app.spapi.*` ni `httpx`. Los
+# clientes reales salen de `app.cli._clientes_precio`.
 ALLOWLIST_IMPORTS_PRECIO_REVERSA = frozenset(
     {
         "__future__",
         "__future__.annotations",
+        "app.cli",
+        "app.cli._clientes_precio",
         "app.db",
         "app.db.OrbitDbError",
         "app.db.connect",
-        "app.spapi",
-        "app.spapi.client",
-        "app.spapi.client.CuboTasa",
-        "app.spapi.client.SpapiClient",
-        "app.spapi.client.SpapiError",
-        "app.spapi.client.SpapiNoPermitida",
-        "psycopg",
-        "psycopg.errors",
-        "psycopg.errors.UniqueViolation",
         "app.precio",
         "app.precio.cambios",
-        "app.precio.cambios.CambioNoReversible",
-        "app.precio.cambios.DecisionSinAccion",
-        "app.precio.cambios.PublicacionSinSku",
-        "app.precio.cambios.aplicar",
-        "app.precio.cambios.cerrar_huerfanas",
-        "app.precio.cambios.cerrar_por_observacion",
-        "app.precio.cambios.revertir",
-        "app.precio.puerto",
-        "app.precio.puerto.EscrituraNoDisponible",
         "app.precio_mercados",
-        "app.precio_mercados.abrir",
-        "app.precio_mercados.mercados",
-        "app.spapi.precio_write",
-        "app.spapi.precio_write.FormaParcheSinSellar",
         "argparse",
-        "hashlib",
-        "httpx",
+        "datetime",
+        "datetime.date",
         "os",
+        "socket",
         "sys",
-        "time",
     }
 )
 
 
-def test_tool_precio_reversa_solo_importa_lectura():
-    """`tools/precio_reversa.py` es lectura + `precio_write`: sus imports
-    son subconjunto de la allowlist y nunca el write client directo (el
-    escritor se construye via `precio_write.construir_escritor`)."""
+def test_tool_precio_reversa_solo_importa_despachador():
+    """REPRICING 02 S.5: `tools/precio_reversa.py` es despachador: sus
+    imports son subconjunto de la allowlist y nunca `app.spapi.*` (el
+    mercado llega de `precio_mercados.abrir`)."""
     imp = _imports_runtime(RAIZ / "tools" / "precio_reversa.py")
     extras = imp - ALLOWLIST_IMPORTS_PRECIO_REVERSA
     assert not extras, (
         f"tools/precio_reversa.py importa por fuera de la allowlist: {sorted(extras)} — "
         "ampliar exige editar tests/test_architecture.py a proposito"
     )
-    assert "app.spapi.write_client" not in imp
+    assert not [i for i in imp if i == "app.spapi" or i.startswith("app.spapi.")]
 
 
-def test_tool_precio_reversa_frontera_caza_write_directo(tmp_path):
-    """Fuga sembrada: si el tool importara el write client, la allowlist
+def test_tool_precio_reversa_frontera_caza_spapi(tmp_path):
+    """Fuga sembrada: si el tool importara `app.spapi.*`, la allowlist
     (subconjunto) lo detecta con el import de mas identificado."""
     fuente = (RAIZ / "tools" / "precio_reversa.py").read_text(encoding="utf-8")
     fuga = tmp_path / "precio_reversa_fuga.py"
-    fuga.write_text(
-        fuente + "from app.spapi.write_client import SpapiWriteClient\n", encoding="utf-8"
-    )
+    fuga.write_text(fuente + "from app.spapi.client import SpapiClient\n", encoding="utf-8")
     imp = _imports_runtime(fuga)
-    assert "app.spapi.write_client" in _violaciones(imp, ("app.spapi.write_client",))
+    assert "app.spapi.client" in _violaciones(imp, ("app.spapi.client",))
     extras = imp - ALLOWLIST_IMPORTS_PRECIO_REVERSA
-    assert "app.spapi.write_client" in extras
+    assert "app.spapi.client" in extras
 
 
 # ---------------------------------------------------------- r6-C2 ilegible es fuga
@@ -2050,7 +2050,7 @@ def test_candado_escritura_fuentes_ignora_comentario(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# REPRICING 01 A.5: candados propios de `corrida.py` y `cuota.py`.
+# REPRICING 01 A.5 + REPRICING 02 S.1: candados propios de `corrida.py`.
 #
 # `corrida.py` puede `psycopg`, `app.precio.*`, `app.spapi.precio_write`,
 # `app.estimacion_reader`, `app.estimacion_fees` (cotizar),
@@ -2063,9 +2063,9 @@ def test_candado_escritura_fuentes_ignora_comentario(tmp_path):
 # red (`httpx`), reloj (`time`, `datetime.now`), entorno (`os`),
 # `importlib`, import dinamico, `app.db`, `app.ads`, `app.apply`,
 # `app.cycle` ni el resto de `app.spapi.*`/`app.estimacion_*`. Escribe
-# SOLO en `precio_decision`, `precio_cotizacion`, `precio_cambio` y
-# `ads_optimizer_lock` (el cupo lo escribe `cuota.py`).
-# `cuota.py` puede `psycopg` + stdlib y escribe SOLO `apply_quota_state`.
+# SOLO en `precio_decision`, `precio_cotizacion`, `precio_corrida` y
+# `ads_optimizer_lock` (S.1 mato el cupo: `cuota.py` ya no existe y nadie
+# escribe `apply_quota_state` desde el motor de precios).
 # El cubo lo construye quien llama
 # (CLI/tests) y entra inyectado como `limitador`: `corrida.py` no importa
 # `CuboTasa` ni trae literales float (el 0.5/s de Pricing vive en el CLI).
@@ -2090,18 +2090,24 @@ _PROHIBIDOS_IMPORTS_CORRIDA = tuple(
     e for e in PROHIBIDOS_PRECIO if e not in ("psycopg", "app.spapi", "app.estimacion_fees")
 )
 
-# El cupo se reparte con `app.precio.cuota` (su escritura la candadea
-# `_ESCRIBE_CUOTA`): `corrida.py` no trae SQL propio sobre
-# `apply_quota_state`, solo delega. Un solo dueno por tabla.
+# Un solo dueno por tabla: `corrida.py` abre y cierra su fila de
+# `precio_corrida` (S.1), retiene (`precio_retencion`, S.2) y mide la
+# compuerta (`precio_compuerta_medicion`, S.3); `precio_cambio` lo escribe
+# `cambios.py` y la liberacion `liberaciones.py` (S.3).
 _ESCRIBE_CORRIDA = (
     "precio_decision",
     "precio_cotizacion",
+    "precio_corrida",
+    "precio_retencion",
+    "precio_compuerta_medicion",
     "ads_optimizer_lock",
 )
 
-_ESCRIBE_CAMBIOS = ("precio_cambio",)
+# REPRICING 02 S.5: `revertir_lote` toma el claim `precio:<platform>` de
+# la corrida (exclusion mutua reversa/corrida).
+_ESCRIBE_CAMBIOS = ("ads_optimizer_lock", "precio_cambio")
 
-_ESCRIBE_CUOTA = ("apply_quota_state",)
+_ESCRIBE_LIBERACION = ("precio_compuerta_liberacion",)
 
 _PATRON_TABLA_ESCRITA = re.compile(
     # El `(?!SET\b)` excluye el `DO UPDATE SET` del claim (ahi no hay
@@ -2188,24 +2194,26 @@ def test_corrida_sin_reloj_ni_dinamico():
 
 
 def test_corrida_solo_escribe_sus_tablas():
-    """A.5 + REPRICING 02 0.b: `corrida.py` escribe solo sus tablas (ni Ads
-    ni ingest; `precio_cambio` lo escribe `cambios.py`)."""
+    """A.5 + REPRICING 02 0.b + S.1 + S.2 + S.3: `corrida.py` escribe solo
+    sus tablas (ni Ads ni ingest; `precio_cambio` lo escribe `cambios.py`
+    y la liberacion `liberaciones.py`; `precio_corrida` es su fila por
+    ejecucion, `precio_retencion` sus retenciones y
+    `precio_compuerta_medicion` su medicion por universo)."""
     assert _tablas_escritas(PRECIO / "corrida.py") == sorted(_ESCRIBE_CORRIDA)
 
 
-def test_cambios_solo_escribe_precio_cambio():
-    """REPRICING 02 0.b: `cambios.py` es el UNICO escritor de `precio_cambio`."""
+def test_cambios_solo_escribe_cambio_y_claim():
+    """REPRICING 02 0.b + S.5: `cambios.py` es el UNICO escritor de
+    `precio_cambio` y toma el claim `precio:<platform>` en
+    `ads_optimizer_lock` (el mismo que la corrida)."""
     assert _tablas_escritas(PRECIO / "cambios.py") == sorted(_ESCRIBE_CAMBIOS)
 
 
-def test_cuota_solo_importa_psycopg_y_stdlib():
-    """A.5: `cuota.py` no trae red, reloj ni nada fuera de la lista."""
-    assert _fugas_imports_corrida(PRECIO / "cuota.py", permitidos=("psycopg",)) == []
-
-
-def test_cuota_solo_escribe_quota_state():
-    """A.5: `cuota.py` escribe solo `apply_quota_state`."""
-    assert _tablas_escritas(PRECIO / "cuota.py") == ["apply_quota_state"]
+def test_liberaciones_solo_escribe_liberacion():
+    """REPRICING 02 S.3: `liberaciones.py` es el UNICO escritor de
+    `precio_compuerta_liberacion` (dos actores, dos tablas: la corrida
+    solo la lee)."""
+    assert _tablas_escritas(PRECIO / "liberaciones.py") == sorted(_ESCRIBE_LIBERACION)
 
 
 def _corrida_mas(extra: str, tmp_path: Path) -> Path:
@@ -2231,44 +2239,6 @@ def test_candado_tablas_corrida_caza_tabla_ads(tmp_path):
     assert set(_tablas_escritas(copia)) - set(_ESCRIBE_CORRIDA) != set()
 
 
-def _cuota_mas(extra: str, tmp_path: Path) -> Path:
-    destino = tmp_path / "cuota.py"
-    destino.write_text(
-        (PRECIO / "cuota.py").read_text(encoding="utf-8") + "\n" + extra + "\n",
-        encoding="utf-8",
-    )
-    return destino
-
-
-def test_candado_imports_cuota_caza_httpx(tmp_path):
-    """A.5, fuga sembrada: `import httpx` en la cuota sale rojo."""
-    copia = _cuota_mas("import httpx  # fuga\n", tmp_path)
-    assert _fugas_imports_corrida(copia, permitidos=("psycopg",)) != []
-
-
-def test_candado_tablas_cuota_caza_decision(tmp_path):
-    """A.5, fuga sembrada: `INSERT INTO precio_decision` en cuota sale rojo."""
-    copia = _cuota_mas('sql = "INSERT INTO precio_decision (a) VALUES (1)"  # fuga\n', tmp_path)
-    assert set(_tablas_escritas(copia)) - set(_ESCRIBE_CUOTA) != set()
-
-
-def test_cuota_sin_reloj_ni_entorno_ni_dinamico():
-    """D8: `cuota.py` sin reloj, entorno ni import dinamico (como la corrida)."""
-    arbol = ast.parse((PRECIO / "cuota.py").read_text(encoding="utf-8"))
-    assert _usos_reloj(arbol) == []
-    assert _usos_import_dinamico(arbol) == []
-
-
-def test_candado_cuota_caza_reloj_y_entorno(tmp_path):
-    """D8, fuga sembrada: reloj y entorno en la cuota salen rojos."""
-    copia = _cuota_mas("import os  # fuga\nfuga = os.environ.get(__import__('x'))\n", tmp_path)
-    arbol = ast.parse(copia.read_text(encoding="utf-8"))
-    assert _usos_reloj(arbol) != []
-    assert _usos_import_dinamico(arbol) != []
-
-
-# No-Jev que puede importar Jev (grep 2026-10-06: dashboard y fabrica_web;
-# S.4 suma el despacho del job).
 _PERMITIDOS_JEV = frozenset(
     {
         "app/api_dashboard.py",  # bloque jev de /salud (S.4) + asesoria en /cortes

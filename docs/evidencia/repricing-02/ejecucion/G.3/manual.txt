@@ -1,0 +1,20 @@
+  from starlette.testclient import TestClient as TestClient  # noqa
+U1=9 U2=10 U3=11 U4=12 U5=13 corrida=6
+seed ok
+foto: paso0-inicial.png
+verifica paso0: Aplicar deshabilitado antes del plan
+foto: paso1-plan.png
+foto: paso1-aplicado.png
+verifica paso1: U1 con goal vigente 0.3000 shadow origen=manual
+foto: paso1-tabla.png
+foto: paso2-plan.png
+foto: paso2-aplicado.png
+verifica paso2: U2 un vigente 0.3200 y el anterior cerrado (2 filas)
+foto: paso3-plan.png
+verifica paso3: plan con bloqueos + casilla confirmar U4; Aplicar habilitado
+foto: paso4-aplicado.png
+verifica paso4: U3 sembrado 0.4250 margen_de_hoy; U4/U5 sin goal; bloqueos listados
+foto: paso5-soltar-form.png
+foto: paso5-soltar-ok.png
+verifica paso5: corrida 6 liberada (1 fila), boton Soltar ya no esta
+MANUAL OK

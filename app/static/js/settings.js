@@ -70,6 +70,14 @@ function guardarConfig(form) {
   // A6: el motor viaja si el select cambio (bandas_v1 o evidencia_v2).
   var motor = form.elements.motor_bid;
   if (cambioSelect(motor)) cuerpo.motor_bid = motor.value;
+  // S.2: apagador de precios (global + por universo): solo viaja lo cambiado.
+  var precioGlobal = form.elements.precio_modo_global;
+  if (cambioSelect(precioGlobal) && precioGlobal.value) cuerpo.precio_modo_global = precioGlobal.value;
+  var modosUniverso = {};
+  form.querySelectorAll("select[data-precio-universo]").forEach(function (sel) {
+    if (cambioSelect(sel)) modosUniverso[sel.getAttribute("data-precio-universo")] = sel.value;
+  });
+  if (Object.keys(modosUniverso).length) cuerpo.precio_modo_universo = modosUniverso;
   if (cambio(toggle) || (margenOn && cambio(fraccion))) {
     cuerpo.margen = margenOn
       ? { habilitado: true, fraccion: fraccion.value.trim() || null }
@@ -89,7 +97,9 @@ function guardarConfig(form) {
     !cuerpo.caps &&
     !cuerpo.confianza_recorte &&
     !cuerpo.confianza_subida &&
-    !("motor_bid" in cuerpo)
+    !("motor_bid" in cuerpo) &&
+    !("precio_modo_global" in cuerpo) &&
+    !("precio_modo_universo" in cuerpo)
   ) {
     estado.textContent = "Nada que cambiar.";
     return;

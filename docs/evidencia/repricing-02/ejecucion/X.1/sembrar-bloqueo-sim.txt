@@ -1,0 +1,16 @@
+== X.1 sembrar margen-de-hoy en shadow (MX FBA)
+modo amazon_mx/fba: shadow
+ids explicitos (sin filtro de canal): 1
+seleccion: listing_ids [90003]
+== siembra real (guardas: plan + bloqueos en /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-x1-sim/plan-20261015-031400.json)
+universo ya en shadow: sin settings previo
+-- bloque 1 (1 unidades)
+PLAN_JSON {"huella":"833df62e38df193e","filas":[{"listing_id":90003,"plataforma":"amazon_mx","seller_sku":"<sku>","accion":"sembrar","m_hoy":null,"goal_id":null,"goal_actual":null,"goal_propuesto":null,"p_actual":null,"p_estrella":null,"envio_origen":null,"bloqueo":"sin_escenario","confirmable":false,"motivo":"sin_escenario"}]}
+plan: 1 filas, 1 bloqueadas, huella 833df62e38df193e
+BLOQUEO listing=90003 bloqueo=sin_escenario motivo=sin_escenario
+aplicado: sembrados=0 cerrados=0 lote=833df62e38df193e
+OMITIDA listing=90003 bloqueo=sin_escenario motivo=sin_escenario
+plan guardado en /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-x1-sim/plan-20261015-031400.json
+unidades bloqueadas guardadas: 1 (con motivo, en /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-x1-sim/sembrar-20261015-031400.txt)
+unidades omitidas al aplicar: 1 (con motivo, en /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-x1-sim/sembrar-20261015-031400.txt)
+exit=0

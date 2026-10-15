@@ -30,11 +30,12 @@ RAIZ = Path(__file__).resolve().parents[4]
 if str(RAIZ) not in sys.path:
     sys.path.insert(0, str(RAIZ))
 
+from app.precio.cuota import validar_cap  # noqa: E402
+
 from app.notifica import validar_precio_aviso_dias  # noqa: E402
 from app.optimizer.bid import PLATAFORMAS_MONEDA  # noqa: E402
 from app.precio.config import leer_config  # noqa: E402
 from app.precio.corrida import validar_freno_dias_error  # noqa: E402
-from app.precio.cuota import validar_cap  # noqa: E402
 from app.precio.fuentes import max_dias_desde_settings  # noqa: E402
 from app.precio.goals_write import banda_desde_settings  # noqa: E402
 

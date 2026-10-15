@@ -219,10 +219,11 @@ def test_aplicar_dos_veces_escribe_una_vez():
             "INSERT INTO precio_decision (listing_id, platform, resultado, motivo, mode,"
             " goal, m_actual, p_actual, p_actual_currency, p_objetivo, p_objetivo_currency,"
             " p_aplicado, p_aplicado_currency, i_valor, i_currency, c_valor, c_currency,"
-            " f_valor, f_currency, l_valor, l_currency, r_valor, r_currency)"
+            " f_valor, f_currency, l_valor, l_currency, r_valor, r_currency,"
+            " l_origen, verificacion)"
             " VALUES (%s, 'amazon_mx', 'subir', NULL, 'live', 0.30, 0.25,"
             " 100, 'MXN', 110, 'MXN', 110, 'MXN', 10, 'MXN', 20, 'MXN', 12, 'MXN',"
-            " 5, 'MXN', 8, 'MXN') RETURNING id",
+            " 5, 'MXN', 8, 'MXN', 'politica', 'cotizada') RETURNING id",
             (lid,),
         ).fetchone()[0]
         mercado = _MercadoFalso(vivo="100.00")
