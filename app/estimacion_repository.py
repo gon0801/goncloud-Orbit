@@ -34,6 +34,7 @@ from app.estimacion_universo import (
 from app.estimacion_venta import (
     ESTADOS_DESACTUALIZADA,
     EXCLUSIONES_FIJAS,
+    MOTIVOS_ESTIMACION,
     DetalleFee,
     EntradaCalculo,
     PoliticaCalculo,
@@ -41,6 +42,7 @@ from app.estimacion_venta import (
     calcular_contribucion,
     validar_dinero,
 )
+from app.meli.estimacion import partir_fees_meli
 from app.precio.tipos import TasaFx
 
 # Callers historicos importan EscenarioLeido / leer_escenarios desde aqui.
@@ -263,8 +265,9 @@ def _canonical_frozen(
     motivos: tuple[str, ...],
     resultado: ResultadoCalculo,
     entrada_snapshot: dict[str, Any],
+    miembros: tuple[dict[str, Any], ...] | None = None,
 ) -> dict[str, Any]:
-    return {
+    canonica = {
         "oferta_observation_id": oferta_observation_id,
         "fee_observation_id": fee_observation_id,
         "sku_cost_id": sku_cost_id,
@@ -294,6 +297,9 @@ def _canonical_frozen(
             ),
         },
     }
+    if miembros is not None:
+        canonica["miembros"] = list(miembros)
+    return canonica
 
 
 def _cargar_oferta(conn: psycopg.Connection, oferta_id: int) -> dict[str, Any] | None:
@@ -375,7 +381,12 @@ def _validar_fee_compatible(
     if fee["quoted_price_currency"] != oferta["price_currency"]:
         return "fee_incompatible"
     if fee["estado"] != "success":
-        return fee.get("error_code") or "fee_ausente"
+        # Los observados guardan el codigo crudo (auditoria); la fila solo
+        # admite vocabulario cerrado: lo desconocido (`fee_error`,
+        # `fee_contrato_incompatible`, de Amazon y MeLi) colapsa a
+        # `fee_incompatible` en vez de fugar a `estimacion_motivo_desconocido`.
+        codigo = fee.get("error_code") or "fee_ausente"
+        return codigo if codigo in MOTIVOS_ESTIMACION else "fee_incompatible"
     if fee["fees_estimated_at"] is not None and fee["fees_estimated_at"] < oferta["fetched_at"]:
         return "fee_incompatible"
     if oferta["observed_at"] > escenario_observed_at:
@@ -437,6 +448,23 @@ def _resolver_costo_fx_escenario(
     return CostoFxEscenario(**valores)
 
 
+def _tasa_fx_de_costo(costo_fx: CostoFxEscenario) -> TasaFx | None:
+    """Tasa usable para logistica, o None (el llamador ya valido)."""
+    fx = costo_fx
+    if fx.fx_rate and fx.fx_rate_date and fx.fx_base and fx.fx_quote and fx.fx_source:
+        try:
+            return TasaFx(
+                base=fx.fx_base,
+                quote=fx.fx_quote,
+                tasa=fx.fx_rate,
+                fecha=fx.fx_rate_date,
+                fuente=fx.fx_source,
+            )
+        except ValueError:
+            return None
+    return None
+
+
 def _fees_de_observacion(
     fee_raw: dict[str, Any] | None,
 ) -> tuple[
@@ -464,12 +492,484 @@ def _fees_de_observacion(
     variable: Decimal | None = None
     fijo: Decimal | None = None
     if total is not None:
-        partido = partir_fees(detalles, total)
+        if fee_raw is not None and fee_raw.get("platform") == "meli":
+            partido = partir_fees_meli(detalles, total)
+        else:
+            partido = partir_fees(detalles, total)
         if isinstance(partido, str):
             motivos_fee.append(partido)
         else:
             variable, fijo = partido
     return total, estado, detalles, variable, fijo, tuple(motivos_fee)
+
+
+_SQL_MIEMBROS_UNIDAD = (
+    "SELECT seller_sku, product_id FROM v_precio_unidad_miembro"
+    " WHERE listing_id = %s ORDER BY seller_sku"
+)
+
+
+def _carga_de(resultado: ResultadoCalculo) -> Decimal:
+    """C+L que uso la cuenta, en moneda de venta (orden exacto del que manda)."""
+    comp = {c.nombre: c for c in resultado.componentes}
+    costo = comp["costo_normalizado"].importe_normalizado
+    logistica = comp["logistica"].importe_normalizado
+    assert costo is not None and logistica is not None
+    return costo + logistica
+
+
+def _estado_meli_union(motivos: list[str]) -> str:
+    """Precedencia de `calcular_contribucion`: ambigua > desactualizada > resto."""
+    if "identidad_ambigua" in motivos:
+        return "identidad_ambigua"
+    if any(m in ESTADOS_DESACTUALIZADA for m in motivos):
+        return "desactualizada"
+    return "incompleta"
+
+
+def _sembrar_meli(
+    conn: psycopg.Connection,
+    *,
+    listing_id: int,
+    oferta_raw: dict[str, Any],
+    fee_raw: dict[str, Any] | None,
+    fee_observation_id: int | None,
+    universo: str,
+    uni: Any,
+    politica: PoliticaCalculo | None,
+    motivos: list[str],
+    valoracion_date: date,
+    observed_at: datetime,
+) -> EscenarioPersistible:
+    """Escenario `meli/meli`: una cuenta por miembro, la fila del que manda.
+
+    Manda el margen mas bajo (con goal unico equivale al P* mas alto);
+    empate -> `seller_sku` ascendente. Los demas miembros van en
+    `componentes` como `miembro:<sku>` con `pertenece_a_total = false`.
+    Sin politica o con un miembro sin insumos, la fila es no-disponible
+    con la union de motivos (los fallos de insumo traen su SKU a la vista).
+    """
+    (fee_total, fee_estado, fee_detalles, fee_variable, fee_fijo, motivos_fee) = (
+        _fees_de_observacion(fee_raw)
+    )
+    motivos_fila = list(motivos)
+    motivos_fila.extend(motivos_fee)
+    moneda_venta = oferta_raw["price_currency"]
+    miembros = [(str(sku), pid) for sku, pid in conn.execute(_SQL_MIEMBROS_UNIDAD, (listing_id,))]
+    if not miembros:
+        # Cero filas = M.1 sin miembros activos (catalogo pendiente o baja
+        # total): `costo_ausente` honesto, sin SKU porque no hay unidad
+        # que nombrar. Difiere de Amazon a proposito (alla la vista trae
+        # la fila del listing; aca la unidad ES sus miembros).
+        motivos_fila.append("costo_ausente")
+
+    infos: list[dict[str, Any]] = []
+    for sku, pid in miembros:
+        mot_in: list[str] = []
+        costo_fx = CostoFxEscenario()
+        resuelta = LogisticaResuelta(None, None, None, None, None, None, None)
+        if pid is None:
+            mot_in.append("costo_ausente")
+        else:
+            costo_fx = _resolver_costo_fx_escenario(
+                conn,
+                product_id=pid,
+                valoracion_date=valoracion_date,
+                observed_at=observed_at,
+                moneda_venta=moneda_venta,
+                motivos=mot_in,
+                fx_max_dias=uni.fx_max_dias if uni is not None else None,
+            )
+            if uni is not None and politica is not None:
+                res_envio = logistica_del_universo(
+                    conn,
+                    uni,
+                    product_id=pid,
+                    politica_settings=politica.settings,
+                    fx=_tasa_fx_de_costo(costo_fx),
+                )
+                if isinstance(res_envio, str):
+                    mot_in.append(res_envio)
+                else:
+                    resuelta = envio_a_logistica(res_envio)
+        infos.append(
+            {
+                "sku": sku,
+                "product_id": pid,
+                "costo_fx": costo_fx,
+                "resuelta": resuelta,
+                "motivos_in": mot_in,
+                "resultado": None,
+            }
+        )
+
+    if politica is None:
+        for info in infos:
+            for motivo in info["motivos_in"]:
+                if motivo not in motivos_fila:
+                    motivos_fila.append(motivo)
+        return _fila_meli_sin_cuenta(
+            listing_id=listing_id,
+            oferta_raw=oferta_raw,
+            fee_observation_id=fee_observation_id,
+            infos=infos,
+            motivos_fila=motivos_fila,
+            fee_variable=fee_variable,
+            fee_fijo=fee_fijo,
+            con_cotizador=(uni.cotizador is not None) if uni is not None else None,
+            politica_version_id=None,
+            formula_version="S3",
+            valoracion_date=valoracion_date,
+            observed_at=observed_at,
+        )
+
+    for info in infos:
+        costo_fx = info["costo_fx"]
+        resuelta = info["resuelta"]
+        entrada = EntradaCalculo(
+            precio_bruto=oferta_raw["price_amount"],
+            precio_moneda=oferta_raw["price_currency"],
+            costo_original=costo_fx.amount,
+            costo_moneda=costo_fx.currency,
+            fee_total=fee_total,
+            costo_includes_tax=costo_fx.includes_tax,
+            fee_detalles=fee_detalles,
+            fee_estado=fee_estado,
+            fx_rate=costo_fx.fx_rate,
+            fx_rate_date=costo_fx.fx_rate_date,
+            fx_base=costo_fx.fx_base,
+            fx_quote=costo_fx.fx_quote,
+            fx_source=costo_fx.fx_source,
+            moneda_base=moneda_venta,
+            motivos_entrada=tuple(dict.fromkeys([*motivos_fila, *info["motivos_in"]])),
+            logistica=resuelta.logistica,
+            logistica_origen=resuelta.origen,
+            logistica_original=resuelta.original,
+            logistica_moneda_original=resuelta.moneda_original,
+            logistica_tasa=resuelta.tasa,
+            logistica_tasa_fecha=resuelta.tasa_fecha,
+        )
+        info["resultado"] = calcular_contribucion(
+            entrada,
+            politica,
+            valoracion_date=valoracion_date,
+            universo_esperado=universo,
+        )
+
+    disponibles = [i for i in infos if i["resultado"].estado == "disponible"]
+    if infos and len(disponibles) == len(infos):
+        # Manda max (C+L) exactos, no min pct (4dp empataria distinto):
+        # mismo P, fees y retencion => min margen <=> max carga <=> max P*.
+        manda = min(disponibles, key=lambda i: (-_carga_de(i["resultado"]), i["sku"]))
+        return _fila_meli_disponible(
+            listing_id=listing_id,
+            oferta_raw=oferta_raw,
+            fee_observation_id=fee_observation_id,
+            fee_total=fee_total,
+            fee_estado=fee_estado,
+            fee_detalles=fee_detalles,
+            infos=infos,
+            manda=manda,
+            fee_variable=fee_variable,
+            fee_fijo=fee_fijo,
+            con_cotizador=(uni.cotizador is not None) if uni is not None else None,
+            politica=politica,
+            valoracion_date=valoracion_date,
+            observed_at=observed_at,
+        )
+
+    union = list(motivos_fila)
+    for info in infos:
+        for motivo in info["resultado"].motivos:
+            if motivo not in union:
+                union.append(motivo)
+    for info in infos:
+        info["motivos_propios"] = [m for m in info["resultado"].motivos if m not in motivos_fila]
+    return _fila_meli_sin_cuenta(
+        listing_id=listing_id,
+        oferta_raw=oferta_raw,
+        fee_observation_id=fee_observation_id,
+        infos=infos,
+        motivos_fila=union,
+        fee_variable=fee_variable,
+        fee_fijo=fee_fijo,
+        con_cotizador=(uni.cotizador is not None) if uni is not None else None,
+        politica_version_id=politica.politica_version_id,
+        formula_version=politica.formula_version,
+        valoracion_date=valoracion_date,
+        observed_at=observed_at,
+    )
+
+
+def _canonica_miembros(infos: list[dict[str, Any]]) -> tuple[dict[str, Any], ...]:
+    """Entradas por miembro para la identidad (un cambio re-siembra).
+
+    Cubre sku_cost_id, muestra, producto, estado, contribucion y motivos:
+    costos y muestras son append-only (cambio = id nuevo). La tasa FX no
+    viaja por miembro: si mueve la cuenta cambia `contribucion` (el mismo
+    Decimal que va a la fila) y la identidad cambia; si no la mueve, la
+    fila visible es identica y reusar es correcto, no ruido.
+    """
+    salida = []
+    for info in infos:
+        costo_fx = info["costo_fx"]
+        resuelta = info["resuelta"]
+        resultado = info["resultado"]
+        salida.append(
+            {
+                "sku": info["sku"],
+                "product_id": info["product_id"],
+                "sku_cost_id": costo_fx.sku_cost_id,
+                "envio_muestra_id": resuelta.muestra_id,
+                "estado": resultado.estado if resultado is not None else None,
+                "contribucion": (
+                    str(resultado.contribucion)
+                    if resultado is not None and resultado.contribucion is not None
+                    else None
+                ),
+                "motivos": list(info["motivos_in"])
+                + (
+                    [m for m in resultado.motivos if m not in info["motivos_in"]]
+                    if resultado is not None
+                    else []
+                ),
+            }
+        )
+    return tuple(salida)
+
+
+def _fila_meli_disponible(
+    *,
+    listing_id: int,
+    oferta_raw: dict[str, Any],
+    fee_observation_id: int | None,
+    fee_total: Decimal | None,
+    fee_estado: str | None,
+    fee_detalles: tuple[DetalleFee, ...],
+    infos: list[dict[str, Any]],
+    manda: dict[str, Any],
+    fee_variable: Decimal | None,
+    fee_fijo: Decimal | None,
+    con_cotizador: bool | None,
+    politica: PoliticaCalculo,
+    valoracion_date: date,
+    observed_at: datetime,
+) -> EscenarioPersistible:
+    resultado = manda["resultado"]
+    costo_fx = manda["costo_fx"]
+    resuelta = manda["resuelta"]
+    componentes = _componentes_a_json(resultado)
+    for info in infos:
+        if info is manda:
+            continue
+        componentes.append(
+            {
+                "nombre": f"miembro:{info['sku']}",
+                "importe_normalizado": str(info["resultado"].contribucion),
+                "moneda_normalizada": resultado.moneda,
+                "pertenece_a_total": False,
+            }
+        )
+    entrada_snapshot = {
+        "precio_bruto": str(oferta_raw["price_amount"]),
+        "precio_moneda": oferta_raw["price_currency"],
+        "costo_original": str(costo_fx.amount) if costo_fx.amount is not None else None,
+        "costo_moneda": costo_fx.currency,
+        "costo_includes_tax": costo_fx.includes_tax,
+        "costo_validation_run_id": costo_fx.validation_run_id,
+        "costo_validated_at": (
+            costo_fx.validated_at.isoformat() if costo_fx.validated_at is not None else None
+        ),
+        "fee_total": str(fee_total) if fee_total is not None else None,
+        "fee_estado": fee_estado,
+        "fee_detalles": [_detalle_fee_a_json(d) for d in fee_detalles],
+        "fx_rate": str(costo_fx.fx_rate) if costo_fx.fx_rate is not None else None,
+        "fx_rate_date": (
+            costo_fx.fx_rate_date.isoformat() if costo_fx.fx_rate_date is not None else None
+        ),
+        "fx_base": costo_fx.fx_base,
+        "fx_quote": costo_fx.fx_quote,
+        "fx_source": costo_fx.fx_source,
+        "logistica": str(resuelta.logistica) if resuelta.logistica is not None else None,
+        "logistica_origen": resuelta.origen,
+        "logistica_original": (str(resuelta.original) if resuelta.original is not None else None),
+        "logistica_moneda_original": resuelta.moneda_original,
+        "logistica_tasa": str(resuelta.tasa) if resuelta.tasa is not None else None,
+        "logistica_tasa_fecha": (
+            resuelta.tasa_fecha.isoformat() if resuelta.tasa_fecha is not None else None
+        ),
+        "motivos_entrada": [],
+    }
+    id_canonica = _canonical_frozen(
+        oferta_observation_id=oferta_raw["oferta_observation_id"],
+        fee_observation_id=fee_observation_id,
+        sku_cost_id=costo_fx.sku_cost_id,
+        costo_validation_run_id=costo_fx.validation_run_id,
+        costo_validated_at=costo_fx.validated_at,
+        costo_includes_tax=costo_fx.includes_tax,
+        politica_version_id=politica.politica_version_id,
+        valoracion_date=valoracion_date,
+        context_fingerprint=oferta_raw["context_fingerprint"],
+        formula_version=politica.formula_version,
+        fx_rate=costo_fx.fx_rate,
+        fx_rate_date=costo_fx.fx_rate_date,
+        fx_base=costo_fx.fx_base,
+        fx_quote=costo_fx.fx_quote,
+        fx_source=costo_fx.fx_source,
+        motivos=(),
+        resultado=resultado,
+        entrada_snapshot=entrada_snapshot,
+        miembros=_canonica_miembros(infos),
+    )
+    # `seller_sku` es el ancla, no el que manda: el trigger 0028
+    # `estimacion_escenario_referencias_coherentes` exige que case con
+    # `listing.seller_sku` (igual que oferta y fee). El que manda va en
+    # `miembro_product_id` (esa columna si es suya por diseno) y su SKU se
+    # recupera por `product.odoo_sku`. Desvia de la frase de `datos.sql`
+    # ("seller_sku el SKU del miembro que manda"), que pediria migracion;
+    # ver `ejecucion/M.3/diseno-vs-trigger.md`.
+    return EscenarioPersistible(
+        listing_id=listing_id,
+        platform=oferta_raw["platform"],
+        seller_sku=oferta_raw["seller_sku"],
+        asin=oferta_raw["asin"],
+        canal=oferta_raw["canal"],
+        valoracion_date=valoracion_date,
+        observed_at=observed_at,
+        politica_version_id=politica.politica_version_id,
+        formula_version=politica.formula_version,
+        oferta_observation_id=oferta_raw["oferta_observation_id"],
+        fee_observation_id=fee_observation_id,
+        sku_cost_id=costo_fx.sku_cost_id,
+        costo_validation_run_id=costo_fx.validation_run_id,
+        costo_validated_at=costo_fx.validated_at,
+        fx_rate_date=costo_fx.fx_rate_date,
+        fx_base=costo_fx.fx_base,
+        fx_quote=costo_fx.fx_quote,
+        fx_rate=costo_fx.fx_rate,
+        fx_source=costo_fx.fx_source,
+        moneda=resultado.moneda,
+        contribucion=resultado.contribucion,
+        contribucion_pct=resultado.contribucion_pct,
+        estado=resultado.estado,
+        motivos=(),
+        componentes=componentes,
+        exclusiones=resultado.exclusiones,
+        canonical_input={**id_canonica, "observed_at": observed_at.isoformat()},
+        context_fingerprint=oferta_raw["context_fingerprint"],
+        source_event_id=_construir_source_event_id(id_canonica),
+        envio_muestra_id=resuelta.muestra_id,
+        logistica_origen=resuelta.origen,
+        miembro_product_id=manda["product_id"],
+        fee_variable=fee_variable,
+        fee_fijo=fee_fijo,
+        fee_cotizable=con_cotizador,
+    )
+
+
+def _fila_meli_sin_cuenta(
+    *,
+    listing_id: int,
+    oferta_raw: dict[str, Any],
+    fee_observation_id: int | None,
+    infos: list[dict[str, Any]],
+    motivos_fila: list[str],
+    fee_variable: Decimal | None,
+    fee_fijo: Decimal | None,
+    con_cotizador: bool | None,
+    politica_version_id: int | None,
+    formula_version: str,
+    valoracion_date: date,
+    observed_at: datetime,
+) -> EscenarioPersistible:
+    estado = _estado_meli_union(motivos_fila)
+    motivos = tuple(dict.fromkeys(motivos_fila))
+    componentes = []
+    for info in infos:
+        propios = info.get("motivos_propios")
+        if propios is None:
+            propios = [m for m in info["motivos_in"] if m not in motivos_fila]
+            if not propios and info["motivos_in"]:
+                propios = list(info["motivos_in"][:1])
+        if propios:
+            componentes.append(
+                {
+                    "nombre": f"miembro:{info['sku']}",
+                    "fuente": propios[0],
+                    "pertenece_a_total": False,
+                }
+            )
+    resultado = ResultadoCalculo(
+        estado=estado,
+        motivos=motivos,
+        contribucion=None,
+        contribucion_pct=None,
+        moneda=None,
+        componentes=(),
+        exclusiones=EXCLUSIONES_FIJAS,
+    )
+    id_canonica = _canonical_frozen(
+        oferta_observation_id=oferta_raw["oferta_observation_id"],
+        fee_observation_id=fee_observation_id,
+        sku_cost_id=None,
+        costo_validation_run_id=None,
+        costo_validated_at=None,
+        costo_includes_tax=None,
+        politica_version_id=politica_version_id,
+        valoracion_date=valoracion_date,
+        context_fingerprint=oferta_raw["context_fingerprint"],
+        formula_version=formula_version,
+        fx_rate=None,
+        fx_rate_date=None,
+        fx_base=None,
+        fx_quote=None,
+        fx_source=None,
+        motivos=motivos,
+        resultado=resultado,
+        entrada_snapshot={
+            "precio_bruto": str(oferta_raw["price_amount"]),
+            "precio_moneda": oferta_raw["price_currency"],
+            "motivos_entrada": list(motivos),
+        },
+        miembros=_canonica_miembros(infos),
+    )
+    return EscenarioPersistible(
+        listing_id=listing_id,
+        platform=oferta_raw["platform"],
+        seller_sku=oferta_raw["seller_sku"],
+        asin=oferta_raw["asin"],
+        canal=oferta_raw["canal"],
+        valoracion_date=valoracion_date,
+        observed_at=observed_at,
+        politica_version_id=politica_version_id,
+        formula_version=formula_version,
+        oferta_observation_id=oferta_raw["oferta_observation_id"],
+        fee_observation_id=fee_observation_id,
+        sku_cost_id=None,
+        costo_validation_run_id=None,
+        costo_validated_at=None,
+        fx_rate_date=None,
+        fx_base=None,
+        fx_quote=None,
+        fx_rate=None,
+        fx_source=None,
+        moneda=None,
+        contribucion=None,
+        contribucion_pct=None,
+        estado=estado,
+        motivos=motivos,
+        componentes=componentes,
+        exclusiones=EXCLUSIONES_FIJAS,
+        canonical_input={**id_canonica, "observed_at": observed_at.isoformat()},
+        context_fingerprint=oferta_raw["context_fingerprint"],
+        source_event_id=_construir_source_event_id(id_canonica),
+        envio_muestra_id=None,
+        logistica_origen=None,
+        miembro_product_id=None,
+        fee_variable=fee_variable,
+        fee_fijo=fee_fijo,
+        fee_cotizable=con_cotizador,
+    )
 
 
 def sembrar_escenario_desde_refs(
@@ -529,6 +1029,21 @@ def sembrar_escenario_desde_refs(
     else:
         motivos.append("fee_ausente")
 
+    if oferta_raw["platform"] == "meli":
+        return _sembrar_meli(
+            conn,
+            listing_id=listing_id,
+            oferta_raw=oferta_raw,
+            fee_raw=fee_raw,
+            fee_observation_id=fee_observation_id,
+            universo=universo,
+            uni=uni,
+            politica=politica,
+            motivos=motivos,
+            valoracion_date=valoracion_date,
+            observed_at=observed_at,
+        )
+
     costo_fx = _resolver_costo_fx_escenario(
         conn,
         product_id=product_id,
@@ -545,19 +1060,7 @@ def sembrar_escenario_desde_refs(
     )
     motivos.extend(motivos_fee)
 
-    fx = costo_fx
-    tasa: TasaFx | None = None
-    if fx.fx_rate and fx.fx_rate_date and fx.fx_base and fx.fx_quote and fx.fx_source:
-        try:
-            tasa = TasaFx(
-                base=fx.fx_base,
-                quote=fx.fx_quote,
-                tasa=fx.fx_rate,
-                fecha=fx.fx_rate_date,
-                fuente=fx.fx_source,
-            )
-        except ValueError:
-            tasa = None
+    tasa = _tasa_fx_de_costo(costo_fx)
 
     resuelta = LogisticaResuelta(None, None, None, None, None, None, None)
     if uni is not None and politica is not None:

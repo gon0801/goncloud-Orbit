@@ -6,8 +6,8 @@ real. Cuatro entradas; agregar un universo es una linea aqui y una fila en
 `estimacion_politica_version`.
 
 En 0.a el registro existe y el cotizador de todas las entradas es None: F.3
-cablea el de Amazon y M.3 el de MeLi. `logistica_del_universo` tambien llega
-con F.3.
+cablea el de Amazon y M.3 el de MeLi (`CotizadorMeli`, GET a
+`listing_prices`). `logistica_del_universo` tambien llega con F.3.
 
 `cotizador` guarda la CLASE (factoria), no una instancia: construir un
 cotizador pide credenciales y transporte, y el registro se importa sin
@@ -24,6 +24,7 @@ from typing import Any, Literal
 import psycopg
 
 from app.estimacion_amazon import CotizadorAmazon
+from app.meli.estimacion import CotizadorMeli
 from app.precio.tipos import (
     Convertido,
     EnvioImputado,
@@ -128,6 +129,7 @@ _REGISTRO: dict[tuple[str, str], Universo] = {
         moneda_venta="MXN",
         envio="muestra",
         fx_max_dias=None,
+        cotizador=CotizadorMeli,
     ),
 }
 

@@ -354,6 +354,8 @@ _MODULOS_ESTIMACION = (
     "estimacion_repository",
     "estimacion_reader",
     "estimacion_fees",
+    # M.3: el cotizador/resolver MeLi tambien emite motivos persistidos.
+    "meli/estimacion",
 )
 
 # Literales que aparecen en posiciones de motivo pero no son motivos de
@@ -362,6 +364,8 @@ _NO_SON_MOTIVOS = {
     "fresco",
     "futura",
     "desactualizada",
+    # M.3: `_estado_meli_union` devuelve estados, no motivos.
+    "incompleta",
     "asin distinto",
     "canal desconocido",
     "fetched_at invalido",
