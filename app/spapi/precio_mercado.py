@@ -202,12 +202,16 @@ def _ultima_subida(cambios: Sequence[CambioPrevio]) -> date | None:
 
     Solo cuentan `subir` ejecutadas (`enviado`/`confirmado`); un `error`,
     un `pendiente` o un `sin_efecto` (el readback probo que el precio no
-    se movio) no abren antes/despues para el trafico.
+    se movio) no abren antes/despues para el trafico. El virtual de
+    shadow (`confirmado` sin `aplicado`) tampoco: cero escrituras.
     """
     dias = [
         c.enviado_en
         for c in cambios
-        if c.direccion == "subir" and c.estado in ("enviado", "confirmado") and not c.sin_efecto
+        if c.direccion == "subir"
+        and c.estado in ("enviado", "confirmado")
+        and c.aplicado
+        and not c.sin_efecto
     ]
     return max(dias) if dias else None
 

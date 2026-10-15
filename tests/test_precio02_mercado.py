@@ -625,28 +625,38 @@ def _mediodia(dia, hora=12):
     return datetime(dia.year, dia.month, dia.day, hora, tzinfo=UTC)
 
 
-def _decision_s7(conn, lid):
+def _decision_s7(conn, lid, *, mode="shadow"):
     return conn.execute(
         "INSERT INTO precio_decision (listing_id, platform, resultado, motivo, mode,"
         " goal, m_actual, p_actual, p_actual_currency, p_objetivo, p_objetivo_currency,"
         " p_aplicado, p_aplicado_currency, i_valor, i_currency, c_valor, c_currency,"
         " f_valor, f_currency, l_valor, l_currency, r_valor, r_currency,"
         " l_origen, verificacion)"
-        " VALUES (%s, 'amazon_mx', 'subir', NULL, 'shadow', 0.30, 0.25,"
+        " VALUES (%s, 'amazon_mx', 'subir', NULL, %s, 0.30, 0.25,"
         " 100, 'MXN', 110, 'MXN', 110, 'MXN', 10, 'MXN', 20, 'MXN', 12, 'MXN',"
         " 5, 'MXN', 8, 'MXN', 'politica', 'cotizada') RETURNING id",
-        (lid,),
+        (lid, mode),
     ).fetchone()[0]
 
 
 def _cambio_subida(conn, *, lid, did, dia):
-    conn.execute(
+    cid = conn.execute(
         "INSERT INTO precio_cambio (listing_id, platform, decision_id, estado,"
-        " confirmado_por, aplicado, precio_antes, precio_antes_currency,"
+        " aplicado, precio_antes, precio_antes_currency,"
         " precio_despues, precio_despues_currency, enviado_at, es_reversa)"
-        " VALUES (%s, 'amazon_mx', %s, 'confirmado', 'virtual', FALSE,"
-        " 100, 'MXN', 110, 'MXN', %s, FALSE)",
+        " VALUES (%s, 'amazon_mx', %s, 'pendiente', TRUE,"
+        " 100, 'MXN', 110, 'MXN', %s, FALSE) RETURNING id",
         (lid, did, _mediodia(dia)),
+    ).fetchone()[0]
+    conn.execute(
+        "UPDATE precio_cambio SET estado = 'enviado',"
+        " ack = '{\"http_status\": 202}'::jsonb WHERE id = %s",
+        (cid,),
+    )
+    conn.execute(
+        "UPDATE precio_cambio SET estado = 'confirmado',"
+        " confirmado_por = 'observacion' WHERE id = %s",
+        (cid,),
     )
 
 
@@ -980,12 +990,20 @@ def test_senal_usa_ultima_subida_y_trafico():
 
     with _db02() as conn:
         datos = _cadena(conn)
-        _price_obs(conn)
         hoy = _hoy(conn)
+        conn.execute(
+            "UPDATE precio_goal SET valid_to = %s WHERE listing_id = %s AND valid_to IS NULL",
+            (hoy, datos["listing"]),
+        )
+        _goal(conn, datos["listing"], mode="live", desde=hoy)
+        _price_obs(conn)
         ahora = datetime.now(UTC)
         subida = hoy - timedelta(days=10)
         _cambio_subida(
-            conn, lid=datos["listing"], did=_decision_s7(conn, datos["listing"]), dia=subida
+            conn,
+            lid=datos["listing"],
+            did=_decision_s7(conn, datos["listing"], mode="live"),
+            dia=subida,
         )
         run = _run_ledger(conn)
         _atribuir(
@@ -1105,6 +1123,22 @@ def test_ultima_subida_ignora_lo_que_no_movio_precio():
     )
     assert _ultima_subida(cambios) == d1
     assert _ultima_subida(()) is None
+
+
+def test_ultima_subida_ignora_virtual_confirmado():
+    from datetime import date
+
+    from app.precio.tipos import CambioPrevio
+    from app.spapi.precio_mercado import _ultima_subida
+
+    d1 = date(2026, 9, 1)
+    d2 = date(2026, 9, 5)
+    cambios = (
+        CambioPrevio(d1, "subir", "confirmado", aplicado=True, sin_efecto=False),
+        CambioPrevio(d2, "subir", "confirmado", aplicado=False, sin_efecto=False),
+    )
+    assert _ultima_subida(cambios) == d1
+    assert _ultima_subida(cambios[1:]) is None
 
 
 @_skip_sin_pg
