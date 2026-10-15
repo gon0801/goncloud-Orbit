@@ -30,8 +30,8 @@ Detalle en `panel.md`.
 
 ## Medicion
 
-`medicion.md`: ISR MeLi 0.0206 (insumo `isr_tasa` de M.3), contrato
-campo2 `fee` solo-MeLi y forma real del `raw_payload`.
+`medicion.md`: ISR MeLi 0.025 neto (insumo `isr_tasa` de M.3),
+contrato campo2 `fee` solo-MeLi y forma real del `raw_payload`.
 
 ## Repro
 

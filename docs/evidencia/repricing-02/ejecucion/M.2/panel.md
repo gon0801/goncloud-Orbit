@@ -63,8 +63,9 @@ Sin criticos. Disposicion:
 
 1. [warning] Evidencia incompleta: faltaba la retencion medida (DoD M.2)
    y artefactos de los contratos "medido M.2". APLICADO: `medicion.md`
-   con ISR 0.0206 pooled + control Amazon, distribucion campo2 (solo
-   MeLi emite `fee`) y forma real del `raw_payload`.
+   con ISR 0.025 neto (medido por orden; el pooled 0.0206 es bruto) +
+   control Amazon, distribucion campo2 (solo MeLi emite `fee`) y forma
+   real del `raw_payload`.
 2. [warning] `test_main` dejaba el singleton con conexion a DB borrada.
    APLICADO: `try/finally: atribuidor_meli.close()`.
 3. [warning] `_db()`/`close()` duplicados entre atribuidores. DIFERIDO:

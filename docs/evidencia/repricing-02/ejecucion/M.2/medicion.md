@@ -3,21 +3,31 @@
 Fuente: snapshot read-only de `ledger_events` (contabilidad) en
 `goncloud`, consultado 2026-10-15. Solo SELECT; nada se escribio.
 
-## Retencion ISR de Mercado Libre: 0.0206
+## Retencion ISR de Mercado Libre: 0.025 (neto)
 
-Pooled 2026-01-01..2026-10-15, MXN (unica moneda en `meli`):
+MeLi SI manda el ISR con `order_id` (1,064/1,064 filas), asi que la tasa
+se mide por orden, no pooled: `ISR x 1.16 / venta` (la formula S3 aplica
+`isr_tasa` sobre el ingreso NETO, sin IVA).
 
-- `sale_gross`: 655,323.89 (535 filas)
-- `isr_withheld` (abs): 13,497.14 (549 filas)
-- **Tasa: 13,497.14 / 655,323.89 = 0.0206** -> `isr_tasa` de `meli/meli` (M.3).
+Dos regimenes exactos al centavo:
 
-Estabilidad mensual (tasa por mes): 01: 0.0216, 02: 0.0219, 03: 0.0208,
-04: 0.0209, 05: 0.0212, 06: 0.0205, 07: 0.0197, 08: 0.0216, 09: 0.0189,
-10: 0.0205. Rango 0.0189-0.0219: el pooled es representativo.
+- 2025-03..2025-12 (515 ordenes): 0.010001 -> **1.00 % neto**.
+- 2026-01..2026-10 (509 ordenes): 0.024998 -> **2.50 % neto**.
 
-Control Amazon mismo periodo: MX 29,913.22/1,509,163.21 = 0.0198,
-US 27,918.43/1,316,178.79 = 0.0212, pooled 0.0205. Mismo orden de
-magnitud: el metodo mide la politica real (~2 %), no ruido.
+Ejemplos: venta 979.11 e ISR 21.10 (2026-10): 21.10x1.16/979.11 =
+0.024998. Venta 1,248.00 e ISR 10.76 (2025-03): 0.010001.
+
+**`isr_tasa` de `meli/meli` = 0.025** (regimen vigente 2026). Coherente
+con `amazon_mx` (0.025): el negocio esta en 2.5 % en ambas plataformas.
+
+Nota de metodo: el pooled 2026 (13,497.14/655,323.89 = 0.0206) es el
+equivalente BRUTO (0.025/1.16 = 0.0216, menos ordenes parciales); usarlo
+como `isr_tasa` subestimaria R un 14 %. La primera version de esta
+medicion traia ese error; el re-pregunton por orden lo corrigio.
+
+Control Amazon mismo periodo (pooled, Amazon no manda orden):
+MX 0.0198, US 0.0212 de bruto. MX bruto-equivale a 0.023 neto (~0.025
+con mezcla temporal); mismo orden de magnitud, el metodo es sano.
 
 ## Contrato (a): campo2 `fee` solo lo emite MeLi
 
