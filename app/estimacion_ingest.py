@@ -277,8 +277,8 @@ def ejecutar_ingesta(
     with conn.transaction():
         listings = conn.execute(
             "SELECT id, platform, external_id, seller_sku"
-            " FROM listing WHERE platform IN %s ORDER BY id",
-            (plataformas_con_cotizador(),),
+            " FROM listing WHERE platform = ANY(%s) ORDER BY id",
+            (list(plataformas_con_cotizador()),),
         ).fetchall()
 
     fees_client = client or ProductFeesClient()
