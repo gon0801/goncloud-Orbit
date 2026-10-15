@@ -720,6 +720,27 @@ def test_historia_fba_exige_stock_y_buyable():
 
 
 @_skip_sin_pg
+def test_historia_sin_atribuir_solo_ventana():
+    from app.spapi.precio_mercado import historia_unidad
+
+    with _db02() as conn:
+        pid = _producto(conn, sku="ODOO-F4-H3B")
+        lid = _listing(conn, pid, ext="B0F4H30011", sku="SS-F4-H3B")
+        hoy = _hoy(conn)
+        run = _run_ledger(conn)
+        _venta(conn, pid=pid, dia=hoy - timedelta(days=76), qty=9, evento="evt-h3b-vieja", run=run)
+        _venta(conn, pid=pid, dia=hoy - timedelta(days=75), qty=2, evento="evt-h3b-borde", run=run)
+        _venta(conn, pid=pid, dia=hoy, qty=3, evento="evt-h3b-hoy", run=run)
+        historia = historia_unidad(
+            conn,
+            unidad=_unidad_f4(pid, lid, sku="SS-F4-H3B", ext="B0F4H30011"),
+            canal="fbm",
+            hoy=hoy,
+        )
+        assert historia.sin_atribuir == 2
+
+
+@_skip_sin_pg
 def test_historia_ventas_salen_de_la_vista_y_cuenta_sin_atribuir():
     from app.spapi.precio_mercado import historia_unidad
 

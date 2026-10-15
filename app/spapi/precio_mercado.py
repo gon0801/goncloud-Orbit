@@ -298,13 +298,14 @@ def historia_unidad(
         " WHERE listing_id = %s AND platform = %s AND quantity IS NOT NULL",
         (unidad.listing_id, platform),
     ).fetchone()[0]
+    hasta = hoy - timedelta(days=1)
     sin_atribuir = sum(
         fila[0]
         for fila in conn.execute(
             "SELECT quantity FROM v_precio_venta_unidad"
             " WHERE product_id = %s AND platform = %s AND listing_id IS NULL"
-            " AND quantity IS NOT NULL",
-            (unidad.producto_ancla, platform),
+            " AND quantity IS NOT NULL AND event_date BETWEEN %s AND %s",
+            (unidad.producto_ancla, platform, desde, hasta),
         ).fetchall()
     )
     cubierto = conn.execute(
