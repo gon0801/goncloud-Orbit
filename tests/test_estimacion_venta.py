@@ -38,7 +38,15 @@ FETCH = NOW - timedelta(hours=1)
 FEE_TIME = NOW - timedelta(minutes=30)
 VALORACION = date(2026, 9, 8)
 
-ORDEN = ("0001_initial.sql", "0028_estimacion_venta.sql")
+# F.3: persistir_escenario escribe las columnas 0054 (origen y partidos).
+ORDEN = (
+    "0001_initial.sql",
+    "0028_estimacion_venta.sql",
+    "0039_precio.sql",
+    "0047_familias.sql",
+    "0053_precio02_canal_meli.sql",
+    "0054_precio02_base.sql",
+)
 
 _skip_db = pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres")
 
@@ -147,6 +155,8 @@ def _entrada_completa_ac1(**kwargs) -> EntradaCalculo:
         fee_detalles=FEE_DETALLES_15,
         fee_estado="success",
         moneda_base="MXN",
+        # F.3: L resuelta (la de POLITICA_AC1); mismo numero, otra fuente.
+        logistica=Decimal("5"),
     )
     base.update(kwargs)
     return EntradaCalculo(**base)
@@ -291,6 +301,7 @@ def test_ac5_fx_usd_mxn_contribucion_39():
         fee_detalles=FEE_DETALLES_15,
         fee_estado="success",
         moneda_base="USD",
+        logistica=Decimal("5"),
     )
     resultado = m["calcular_contribucion"](entrada, politica, valoracion_date=VALORACION)
     assert resultado.estado == "disponible"
@@ -326,6 +337,7 @@ def test_ac5_sin_fx_null_con_motivo():
         fee_estado="success",
         moneda_base="USD",
         motivos_entrada=("fx_ausente",),
+        logistica=Decimal("5"),
     )
     resultado = m["calcular_contribucion"](entrada, politica, valoracion_date=VALORACION)
     assert resultado.estado == "incompleta"
@@ -549,6 +561,7 @@ def test_sin_redondeo_intermedio_divisor_irracional():
         fee_detalles=(m["DetalleFee"](fee_type="ReferralFee", final_fee=Decimal("10.0000")),),
         fee_estado="success",
         moneda_base="MXN",
+        logistica=Decimal("5"),
     )
     resultado = m["calcular_contribucion"](entrada, politica, valoracion_date=VALORACION)
     assert resultado.estado == "disponible"
@@ -1370,6 +1383,20 @@ def _entrada_desde_canonical(canonical: dict) -> EntradaCalculo:
         fx_source=entrada.get("fx_source"),
         moneda_base=entrada.get("precio_moneda"),
         motivos_entrada=tuple(entrada.get("motivos_entrada") or ()),
+        logistica=Decimal(entrada["logistica"]) if entrada.get("logistica") else None,
+        logistica_origen=entrada.get("logistica_origen"),
+        logistica_original=(
+            Decimal(entrada["logistica_original"]) if entrada.get("logistica_original") else None
+        ),
+        logistica_moneda_original=entrada.get("logistica_moneda_original"),
+        logistica_tasa=(
+            Decimal(entrada["logistica_tasa"]) if entrada.get("logistica_tasa") else None
+        ),
+        logistica_tasa_fecha=(
+            date.fromisoformat(entrada["logistica_tasa_fecha"])
+            if entrada.get("logistica_tasa_fecha")
+            else None
+        ),
     )
 
 

@@ -2116,8 +2116,9 @@ def test_cotizar_a_precio_no_amplia_universo_y_propoaga_error():
     from dataclasses import replace
 
     oferta = oferta_mx()
-    fbm = replace(oferta, canal="fbm")
-    resultado = cotizar_a_precio(ClienteFalso(body=cuerpo_exito), fbm, Decimal("130.00"))
+    # F.3: FBM cotiza; lo que sigue fuera del registro (US FBA) se rechaza.
+    us_fba = replace(oferta, platform="amazon_us", canal="fba")
+    resultado = cotizar_a_precio(ClienteFalso(body=cuerpo_exito), us_fba, Decimal("130.00"))
     assert (resultado.estado, resultado.error_code) == ("error", "fee_universo_no_soportado")
     cliente = ClienteFalso(error=FeesClientError("fee_timeout"))
     resultado = cotizar_a_precio(cliente, oferta, Decimal("130.00"), observed_at=AHORA)

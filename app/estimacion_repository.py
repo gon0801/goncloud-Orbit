@@ -17,8 +17,15 @@ from typing import Any
 import psycopg
 from psycopg.types.json import Json
 
+from app.estimacion_amazon import partir_fees
 from app.estimacion_insumos import FRESHNESS_LIMIT, resolver_costo, resolver_fx
 from app.estimacion_reader import EscenarioLeido, ProcedenciaRefs, leer_escenarios
+from app.estimacion_universo import (
+    LogisticaResuelta,
+    envio_a_logistica,
+    logistica_del_universo,
+    universo_de,
+)
 from app.estimacion_venta import (
     ESTADOS_DESACTUALIZADA,
     EXCLUSIONES_FIJAS,
@@ -29,6 +36,7 @@ from app.estimacion_venta import (
     calcular_contribucion,
     validar_dinero,
 )
+from app.precio.tipos import TasaFx
 
 # Callers historicos importan EscenarioLeido / leer_escenarios desde aqui.
 _ = (EscenarioLeido, ProcedenciaRefs, leer_escenarios)
@@ -86,6 +94,14 @@ class EscenarioPersistible:
     canonical_input: dict[str, Any]
     context_fingerprint: str
     source_event_id: str
+    # REPRICING 02 F.3: envio con origen y fees partidos (0054; la 0055 los
+    # exige a todo disponible). None = incompleta/desactualizada.
+    envio_muestra_id: int | None = None
+    logistica_origen: str | None = None
+    miembro_product_id: int | None = None
+    fee_variable: Decimal | None = None
+    fee_fijo: Decimal | None = None
+    fee_cotizable: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -372,6 +388,7 @@ def _resolver_costo_fx_escenario(
     observed_at: datetime,
     moneda_venta: str | None,
     motivos: list[str],
+    fx_max_dias: int | None = None,
 ) -> CostoFxEscenario:
     costo_res = resolver_costo(
         conn,
@@ -400,6 +417,7 @@ def _resolver_costo_fx_escenario(
             fecha=valoracion_date,
             base=moneda_venta,
             quote=costo.cost_currency,
+            max_dias=fx_max_dias,
         )
         if fx_res.motivo:
             motivos.append(fx_res.motivo)
@@ -412,6 +430,42 @@ def _resolver_costo_fx_escenario(
                 fx_source=fx_res.fx.source,
             )
     return CostoFxEscenario(**valores)
+
+
+def _fees_de_observacion(
+    fee_raw: dict[str, Any] | None,
+) -> tuple[
+    Decimal | None,
+    str | None,
+    tuple[DetalleFee, ...],
+    Decimal | None,
+    Decimal | None,
+    tuple[str, ...],
+]:
+    """Total, estado, detalles y partido de la observacion de fees.
+
+    Devuelve los motivos en orden: primero el de detalles ilegibles, luego
+    el del partido. El partido corre aunque los detalles fallen, igual que
+    antes de extraer el helper.
+    """
+    total = fee_raw["total_fees"] if fee_raw else None
+    estado = fee_raw["estado"] if fee_raw else None
+    detalles: tuple[DetalleFee, ...] = ()
+    motivos_fee: list[str] = []
+    if fee_raw is not None:
+        try:
+            detalles = _detalles_desde_json(fee_raw["fee_details"])
+        except ValueError:
+            motivos_fee.append("fee_incompatible")
+    variable: Decimal | None = None
+    fijo: Decimal | None = None
+    if total is not None:
+        partido = partir_fees(detalles, total)
+        if isinstance(partido, str):
+            motivos_fee.append(partido)
+        else:
+            variable, fijo = partido
+    return total, estado, detalles, variable, fijo, tuple(motivos_fee)
 
 
 def sembrar_escenario_desde_refs(
@@ -445,6 +499,9 @@ def sembrar_escenario_desde_refs(
     product_id = product_id[0]
 
     universo = f"{oferta_raw['platform']}/{oferta_raw['canal']}"
+    uni = universo_de(oferta_raw["platform"], oferta_raw["canal"])
+    if uni is None:
+        motivos.append("universo_no_soportado")
     pol_result = resolver_politica_aplicable(
         conn,
         fecha=valoracion_date,
@@ -475,17 +532,49 @@ def sembrar_escenario_desde_refs(
         observed_at=observed_at,
         moneda_venta=oferta_raw["price_currency"],
         motivos=motivos,
+        fx_max_dias=uni.fx_max_dias if uni is not None else None,
     )
     moneda_venta = oferta_raw["price_currency"]
 
-    fee_total = fee_raw["total_fees"] if fee_raw else None
-    fee_estado = fee_raw["estado"] if fee_raw else None
-    fee_detalles: tuple[DetalleFee, ...] = ()
-    if fee_raw is not None:
+    (fee_total, fee_estado, fee_detalles, fee_variable, fee_fijo, motivos_fee) = (
+        _fees_de_observacion(fee_raw)
+    )
+    motivos.extend(motivos_fee)
+
+    fx = costo_fx
+    tasa: TasaFx | None = None
+    if fx.fx_rate and fx.fx_rate_date and fx.fx_base and fx.fx_quote and fx.fx_source:
         try:
-            fee_detalles = _detalles_desde_json(fee_raw["fee_details"])
+            tasa = TasaFx(
+                base=fx.fx_base,
+                quote=fx.fx_quote,
+                tasa=fx.fx_rate,
+                fecha=fx.fx_rate_date,
+                fuente=fx.fx_source,
+            )
         except ValueError:
-            motivos.append("fee_incompatible")
+            tasa = None
+
+    resuelta = LogisticaResuelta(None, None, None, None, None, None, None)
+    if uni is not None and politica is not None:
+        res_envio = logistica_del_universo(
+            conn,
+            uni,
+            product_id=product_id,
+            politica_settings=politica.settings,
+            fx=tasa,
+        )
+        if isinstance(res_envio, str):
+            motivos.append(res_envio)
+        else:
+            resuelta = envio_a_logistica(res_envio)
+    logistica = resuelta.logistica
+    logistica_origen = resuelta.origen
+    envio_muestra_id = resuelta.muestra_id
+    logistica_original = resuelta.original
+    logistica_moneda_original = resuelta.moneda_original
+    logistica_tasa = resuelta.tasa
+    logistica_tasa_fecha = resuelta.tasa_fecha
 
     entrada = EntradaCalculo(
         precio_bruto=oferta_raw["price_amount"],
@@ -503,6 +592,12 @@ def sembrar_escenario_desde_refs(
         fx_source=costo_fx.fx_source,
         moneda_base=moneda_venta,
         motivos_entrada=tuple(dict.fromkeys(motivos)),
+        logistica=logistica,
+        logistica_origen=logistica_origen,
+        logistica_original=logistica_original,
+        logistica_moneda_original=logistica_moneda_original,
+        logistica_tasa=logistica_tasa,
+        logistica_tasa_fecha=logistica_tasa_fecha,
     )
 
     if politica is None:
@@ -554,6 +649,14 @@ def sembrar_escenario_desde_refs(
         "fx_base": costo_fx.fx_base,
         "fx_quote": costo_fx.fx_quote,
         "fx_source": costo_fx.fx_source,
+        "logistica": str(logistica) if logistica is not None else None,
+        "logistica_origen": logistica_origen,
+        "logistica_original": str(logistica_original) if logistica_original is not None else None,
+        "logistica_moneda_original": logistica_moneda_original,
+        "logistica_tasa": str(logistica_tasa) if logistica_tasa is not None else None,
+        "logistica_tasa_fecha": (
+            logistica_tasa_fecha.isoformat() if logistica_tasa_fecha is not None else None
+        ),
         "motivos_entrada": list(motivos_finales),
     }
     id_canonica = _canonical_frozen(
@@ -611,6 +714,12 @@ def sembrar_escenario_desde_refs(
         canonical_input=canonical,
         context_fingerprint=oferta_raw["context_fingerprint"],
         source_event_id=_construir_source_event_id(id_canonica),
+        envio_muestra_id=envio_muestra_id,
+        logistica_origen=logistica_origen,
+        miembro_product_id=product_id,
+        fee_variable=fee_variable,
+        fee_fijo=fee_fijo,
+        fee_cotizable=(uni.cotizador is not None) if uni is not None else None,
     )
 
 
@@ -627,9 +736,11 @@ def persistir_escenario(
         " sku_cost_id, costo_validation_run_id, costo_validated_at,"
         " fx_rate_date, fx_base, fx_quote, fx_rate, fx_source,"
         " moneda, contribucion, contribucion_pct, estado, motivos, componentes,"
-        " exclusiones, canonical_input, context_fingerprint, source_event_id)"
+        " exclusiones, canonical_input, context_fingerprint, source_event_id,"
+        " envio_muestra_id, logistica_origen, miembro_product_id, fee_variable,"
+        " fee_fijo, fee_cotizable)"
         " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,"
-        " %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+        " %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
         " ON CONFLICT (source_event_id) DO NOTHING"
         " RETURNING id, observed_at",
         (
@@ -662,6 +773,12 @@ def persistir_escenario(
             Json(escenario.canonical_input),
             escenario.context_fingerprint,
             escenario.source_event_id,
+            escenario.envio_muestra_id,
+            escenario.logistica_origen,
+            escenario.miembro_product_id,
+            escenario.fee_variable,
+            escenario.fee_fijo,
+            escenario.fee_cotizable,
         ),
     ).fetchone()
     if fila is not None:
@@ -679,17 +796,17 @@ def persistir_escenario(
     )
 
 
-def _ultimo_contexto_fba_mx(
+def _ultimo_contexto(
     conn: psycopg.Connection,
     listing_id: int,
     *,
     as_of: datetime,
 ) -> dict[str, Any] | None:
-    """Ultimo escenario amazon_mx/fba observado hasta as_of; None si no hubo contexto."""
+    """Ultimo escenario disponible del listing hasta as_of; None sin contexto."""
     fila = conn.execute(
         "SELECT canal, context_fingerprint, platform, seller_sku, asin, source_event_id"
         " FROM estimacion_escenario"
-        " WHERE listing_id = %s AND platform = 'amazon_mx' AND canal = 'fba'"
+        " WHERE listing_id = %s"
         " AND estado = 'disponible'"
         " AND observed_at <= %s"
         " ORDER BY observed_at DESC LIMIT 1",
@@ -718,7 +835,8 @@ def sembrar_escenario_negativo_transicion(
 ) -> EscenarioPersistible | None:
     """Escenario append-only sin oferta/fee/costo/politica cuando cae ausencia/ambiguedad.
 
-    Solo si el listing ya tuvo contexto FBA MX. source_event_id estable por huella de snapshot.
+    Solo si el listing ya tuvo contexto disponible. source_event_id estable
+    por huella de snapshot.
     """
     motivos_admitidos = {
         "oferta_ausente",
@@ -730,7 +848,7 @@ def sembrar_escenario_negativo_transicion(
     if motivo not in motivos_admitidos:
         raise ValueError(f"motivo no soportado para transicion negativa: {motivo}")
 
-    contexto = _ultimo_contexto_fba_mx(conn, listing_id, as_of=observed_at)
+    contexto = _ultimo_contexto(conn, listing_id, as_of=observed_at)
     if contexto is None:
         return None
 

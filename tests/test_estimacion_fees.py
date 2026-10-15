@@ -65,7 +65,16 @@ FAKE_REFRESH_TOKEN = "fake-refresh-ABC"
 FAKE_ACCESS = "fake-access-token-123"
 
 _skip_db = pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres")
-ORDEN = ("0001_initial.sql", "0028_estimacion_venta.sql", "0029_estimacion_politica_vigencia.sql")
+# F.3: la ingesta persiste escenarios con las columnas 0054 (origen y partidos).
+ORDEN = (
+    "0001_initial.sql",
+    "0028_estimacion_venta.sql",
+    "0029_estimacion_politica_vigencia.sql",
+    "0039_precio.sql",
+    "0047_familias.sql",
+    "0053_precio02_canal_meli.sql",
+    "0054_precio02_base.sql",
+)
 
 _DDL_BRIDGE = """
 CREATE TABLE amazon_listing_prices (
@@ -780,29 +789,106 @@ def test_fee_source_event_id_cambia_con_time_of_fees():
     assert c1 != c2
 
 
-def test_universo_us_rechazado_sin_http():
-    oferta = _oferta_resuelta()
-    oferta_us = OfertaResuelta(
-        listing_id=oferta.listing_id,
-        platform="amazon_us",
-        seller_sku=oferta.seller_sku,
-        asin=oferta.asin,
-        canal=oferta.canal,
-        price_amount=oferta.price_amount,
-        price_currency="USD",
-        fetched_at=oferta.fetched_at,
-        canonical_input=oferta.canonical_input,
-        context_fingerprint=oferta.context_fingerprint,
-        source_event_id=oferta.source_event_id,
-    )
+def _respuesta_fbm(oferta: OfertaResuelta, *, detalles: list[tuple[str, str]]) -> dict:
+    """Canned FBM: los detalles que se le pidan, sin FBAFees salvo que se pida."""
+    moneda = oferta.price_currency
+    total = sum(Decimal(monto) for _, monto in detalles)
+    mercado = "ATVPDKIKX0DER" if oferta.platform == "amazon_us" else "A1AM78C64UM0Y8"
+    return {
+        "payload": {
+            "FeesEstimateResult": {
+                "Status": "Success",
+                "FeesEstimateIdentifier": {
+                    "MarketplaceId": mercado,
+                    "IdType": "SellerSKU",
+                    "IdValue": oferta.seller_sku,
+                    "SellerInputIdentifier": oferta.source_event_id,
+                    "IsAmazonFulfilled": False,
+                    "PriceToEstimateFees": {
+                        "ListingPrice": {
+                            "CurrencyCode": moneda,
+                            "Amount": float(oferta.price_amount),
+                        }
+                    },
+                },
+                "FeesEstimate": {
+                    "TimeOfFeesEstimation": FEE_TIME.isoformat(),
+                    "TotalFeesEstimate": {
+                        "CurrencyCode": moneda,
+                        "Amount": float(total),
+                    },
+                    "FeeDetailList": [
+                        {
+                            "FeeType": tipo,
+                            "FeeAmount": {"CurrencyCode": moneda, "Amount": float(monto)},
+                            "FinalFee": {"CurrencyCode": moneda, "Amount": float(monto)},
+                        }
+                        for tipo, monto in detalles
+                    ],
+                },
+            }
+        },
+    }
 
-    def handler(_request: httpx.Request) -> httpx.Response:
-        raise AssertionError("no debe salir red")
+
+def test_universo_us_fbm_cotiza_con_marketplace_us():
+    """F.3: US cotiza (antes `fee_universo_no_soportado`); el pedido lleva el
+    marketplace US y fulfillment de vendedor. Sin red real (MockTransport)."""
+    import json as json_stdlib
+    from dataclasses import replace
+
+    oferta = _oferta_resuelta()
+    oferta_us = replace(oferta, platform="amazon_us", canal="fbm", price_currency="USD")
+    pedidos: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return _token_response()
+        pedidos.append(json_stdlib.loads(request.content.decode("utf-8")))
+        return httpx.Response(
+            200,
+            json=_respuesta_fbm(
+                oferta_us,
+                detalles=[
+                    ("ReferralFee", "4.50"),
+                    ("VariableClosingFee", "0.30"),
+                    ("PerItemFee", "1.80"),
+                ],
+            ),
+        )
 
     client = make_client(handler)
     resultado = cotizar_oferta(client, oferta_us, observed_at=NOW)
-    assert resultado.estado == "error"
-    assert resultado.error_code == "fee_universo_no_soportado"
+    assert resultado.estado == "success"
+    (pedido,) = pedidos
+    fees = pedido["FeesEstimateRequest"]
+    assert fees["MarketplaceId"] == "ATVPDKIKX0DER"
+    assert fees["IsAmazonFulfilled"] is False
+    assert [d["fee_type"] for d in resultado.fee_details] == [
+        "ReferralFee",
+        "VariableClosingFee",
+        "PerItemFee",
+    ]
+
+
+def test_cotizar_fbm_mx_sin_comision_logistica():
+    """F.3: la cotizacion FBM trae solo ReferralFee (F.0 lo midio)."""
+    from dataclasses import replace
+
+    oferta = _oferta_resuelta()
+    oferta_fbm = replace(oferta, canal="fbm")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return _token_response()
+        return httpx.Response(
+            200, json=_respuesta_fbm(oferta_fbm, detalles=[("ReferralFee", "5.00")])
+        )
+
+    client = make_client(handler)
+    resultado = cotizar_oferta(client, oferta_fbm, observed_at=NOW)
+    assert resultado.estado == "success"
+    assert [d["fee_type"] for d in resultado.fee_details] == ["ReferralFee"]
 
 
 # ---------------------------------------------------------------------------

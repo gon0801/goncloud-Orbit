@@ -4,7 +4,7 @@ Fuente oferta: snapshot SQLite READ-ONLY del bridge (`amazon_listing_prices`).
 Destino oferta: `estimacion_oferta_observation` (append-only, dedupe por evento).
 Costo/FX: lectura de `sku_cost` + `ingest_run` y funcion sellada `fx_resolve`.
 
-Universo v1: FBA Amazon MX persistible; FBM/US excluidos con motivo explicito.
+Universo: lo que trae el registro (`universo_de`); fuera del registro, motivo.
 Sin OAuth, HTTP, scheduler, Product Fees ni calculo economico (A.3/A.4).
 """
 
@@ -210,13 +210,12 @@ def evaluar_frescura(fetched_at: datetime, now_utc: datetime) -> str:
 
 
 def _motivo_universo(platform: str, canal: str) -> str | None:
-    if platform == "amazon_us":
-        return "us_sin_politica_prospectiva"
-    if canal == "fbm":
-        return "logistica_fbm_pendiente"
-    if platform == "amazon_mx" and canal == "fba":
-        return None
-    return "universo_no_soportado"
+    # Local: universo -> amazon -> fees -> insumos; arriba seria ciclo.
+    from app.estimacion_universo import universo_de
+
+    if universo_de(platform, canal) is None:
+        return "universo_no_soportado"
+    return None
 
 
 def construir_canonical_input(
@@ -581,8 +580,12 @@ def resolver_fx(
     fecha: date,
     base: str,
     quote: str,
+    max_dias: int | None = None,
 ) -> ResultadoFx:
-    """FX via fx_resolve(fecha, base, quote, 7); misma moneda sin tasa externa."""
+    """FX via fx_resolve(fecha, base, quote, 7); misma moneda sin tasa externa.
+
+    Con `max_dias`, tasa de mas de esos dias: `fx_desactualizado` (F.3: US).
+    """
     if base == quote:
         return ResultadoFx(
             motivo=None,
@@ -600,6 +603,8 @@ def resolver_fx(
     ).fetchone()
     if fila is None:
         return ResultadoFx(motivo="fx_ausente", fx=None)
+    if max_dias is not None and (fecha - fila[1]).days > max_dias:
+        return ResultadoFx(motivo="fx_desactualizado", fx=None)
     return ResultadoFx(
         motivo=None,
         fx=FxResuelto(

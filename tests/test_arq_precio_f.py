@@ -46,3 +46,16 @@ def test_atribuidor_amazon_no_escribe():
 def test_candado_de_escritura_detecta_fuga_sembrada():
     """El candado si agarraria un INSERT sembrado en el atribuidor."""
     assert _fugas_escritura('db.execute("INSERT INTO t VALUES (1)")') != []
+
+
+def test_soportados_fees_igualan_registro_con_cotizador():
+    """F.3: la matriz de cable SP-API y el registro no pueden divergir."""
+    from app.estimacion_fees import _UNIVERSO_SOPORTADO
+    from app.estimacion_universo import _REGISTRO
+
+    con_cotizador = {
+        (u.plataforma, u.canal, u.moneda_venta)
+        for u in _REGISTRO.values()
+        if u.cotizador is not None
+    }
+    assert set(_UNIVERSO_SOPORTADO) == con_cotizador
