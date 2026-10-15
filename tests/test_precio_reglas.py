@@ -527,6 +527,17 @@ def test_trafico_corto_da_evidencia_insuficiente():
     assert (s.estado, s.submotivo) == ("sin_dato", "evidencia_insuficiente")
 
 
+def test_evidencia_insuficiente_conserva_racha_parcial():
+    trafico = trafico_ventana(HOY, 11, 38, 2, 0)
+    trafico.update(trafico_ventana(HOY, 1, 9, 2, 0))
+    s = senal(
+        historia_sana(HOY, qty15=0, trafico=trafico),
+        ultima_subida=HOY - timedelta(days=10),
+        racha_previa=1,
+    )
+    assert (s.estado, s.submotivo, s.racha) == ("sin_dato", "evidencia_insuficiente", 2)
+
+
 def historia_cohorte(hoy, qty14, qty60):
     ventas = dict(serie_diaria(hoy, 1, 14, qty14))
     ventas.update(dict(serie_diaria(hoy, 15, 74, qty60)))

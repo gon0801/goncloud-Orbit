@@ -215,7 +215,7 @@ def evaluar_senal(
         return sin_dato(*fallo)
     trafico = _trafico(historia, subida=ultima_subida, hoy=hoy, minimo=trafico_min)
     if trafico is None:
-        return sin_dato("evidencia_insuficiente")
+        return sin_dato("evidencia_insuficiente", fallo[1])
     x_pre, n_pre, x_post, n_post = trafico
     if _caida_significativa(x_pre, n_pre, x_post, n_post, config.caida_ventas_pct):
         return SenalVentas("perdiendo", None, "trafico", u15, u60, n15, n60, racha_previa + 1)
