@@ -13,7 +13,8 @@ Decisiones selladas (plans/orbit-06.md, "Decisiones de la 0.6"):
 3. Acceso `--sqlite` mode=ro.
 4. Signo TAL CUAL; filas que violan ledger_convencion_signos → NO escritas
    (jamas voltear un fee+).
-5. product_id solo ASIN→listing; cogs_at_sale NO se ingiere.
+5. product_id: ASIN→listing (Amazon), SKU→product.odoo_sku (MeLi);
+   cogs_at_sale NO se ingiere.
 6. source_event_id=dedupe_key; order_id ''→NULL; ISR sin orden ENTRA;
    ON CONFLICT DO NOTHING en los tres indices de dedupe.
 7. event_date timestamp→DATE; no fusionar dedupe_keys distintos.
@@ -112,7 +113,8 @@ class FilaOrigenLedger:
 class EventoLedger:
     """Fila lista para ledger_event (sin ingest_run_id).
 
-    `raw` no se persiste: viaja para el atribuidor (M.2: `item_id` de MeLi).
+    `payload` no se persiste: viaja para el atribuidor (M.2: `item_id`
+    de MeLi). Se llama asi y no `raw` porque ya viene parseado.
     """
 
     platform: str
@@ -129,7 +131,7 @@ class EventoLedger:
     shipping_tax: Decimal | None
     fee_type: str | None
     source_event_id: str | None
-    raw: dict | None = None
+    payload: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -399,7 +401,7 @@ def mapear_destino(
         shipping_tax=_money_from_payload(payload, "ShippingTax", moneda),
         fee_type=fee_type,
         source_event_id=source_event_id,
-        raw=payload,
+        payload=payload,
     )
 
 
@@ -407,7 +409,7 @@ def plan_eventos(
     filas: list[FilaOrigenLedger] | tuple[FilaOrigenLedger, ...],
     *,
     listings: dict[tuple[str, str], int],
-    productos: dict[str, int] | None = None,
+    productos: dict[str, int],
 ) -> tuple[list[EventoLedger], Counter, Counter]:
     """Filas crudas → eventos listos + skips (no escritos) + huecos producto.
 
@@ -435,7 +437,7 @@ def plan_eventos(
             continue
         ev = mapear_destino(fila, listings=listings, productos=productos)
         assert ev is not None
-        payload = ev.raw or {}
+        payload = ev.payload or {}
         huecos["desglose_fiscal_negativo_descartado"] += _desglose_negativo_en_payload(
             payload, ev.amount_currency
         )
@@ -455,7 +457,7 @@ def plan_eventos(
             sku = fila.sku
             if not (isinstance(sku, str) and sku.strip()):
                 huecos["venta meli sin sku"] += 1
-            elif productos is None or productos.get(sku.strip()) is None:
+            elif productos.get(sku.strip()) is None:
                 huecos["venta meli sin producto"] += 1
             elif ev.quantity is None or ev.quantity <= 0:
                 huecos["venta meli sin cantidad"] += 1

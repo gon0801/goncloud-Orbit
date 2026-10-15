@@ -255,9 +255,12 @@ def test_main_imprime_cobertura_meli(monkeypatch, capsys, tmp_path):
         monkeypatch.setenv(
             "ORBIT_DSN_INGEST", urlunsplit((partes.scheme, partes.netloc, "/" + db, "", ""))
         )
-        assert ledger_main(["--sqlite", str(snap)]) == 0
-        out = capsys.readouterr().out
-        assert "meli_sin_sku=0 meli_sin_producto=1 meli_sin_cantidad=0" in out
+        try:
+            assert ledger_main(["--sqlite", str(snap)]) == 0
+            out = capsys.readouterr().out
+            assert "meli_sin_sku=0 meli_sin_producto=1 meli_sin_cantidad=0" in out
+        finally:
+            atribuidor_meli.close()
 
 
 def test_plan_sin_mapa_productos_cuenta_hueco_fuerte():
@@ -277,7 +280,7 @@ def test_plan_sin_mapa_productos_cuenta_hueco_fuerte():
         raw_payload="{}",
         dedupe_key="m|sale_gross|200-m2-13",
     )
-    eventos, _, huecos = plan_eventos([fila], listings={})
+    eventos, _, huecos = plan_eventos([fila], listings={}, productos={})
     assert len(eventos) == 1
     assert huecos["venta meli sin producto"] == 1
 
@@ -473,7 +476,7 @@ def test_refund_meli_mismo_periodo_compensa_venta(tmp_path):
 def test_identidad_fee_es_meli_envio():
     assert clasificar_cargo("m|fee|200|SKU", "shipping_fee", "meli") == "meli_envio"
     assert clasificar_cargo("m|fee|200|SKU", "shipping_fee", "amazon_mx") == "otros"
-    assert clasificar_cargo("m|fee|200|SKU", "shipping_fee") == "otros"
+    assert clasificar_cargo("m|fee|200|SKU", "shipping_fee", None) == "otros"
 
 
 def test_amazon_no_cambia():
@@ -487,12 +490,12 @@ def test_amazon_no_cambia():
     }
     for llave, fuente in casos.items():
         assert clasificar_cargo(llave, "shipping_fee", "amazon_mx") == fuente
-        assert clasificar_cargo(llave, "shipping_fee") == fuente
+        assert clasificar_cargo(llave, "shipping_fee", None) == fuente
 
 
 def test_cargo_desconocido_cae_en_otros():
-    assert clasificar_cargo("m|extrano|200|SKU", "shipping_fee") == "otros"
-    assert clasificar_cargo(None, "shipping_fee") == "otros"
+    assert clasificar_cargo("m|extrano|200|SKU", "shipping_fee", None) == "otros"
+    assert clasificar_cargo(None, "shipping_fee", None) == "otros"
 
 
 def _cargo_meli(monto: str, moneda: str = "MXN") -> CargoEnvio:

@@ -67,7 +67,7 @@ class AtribuidorMeli:
         if getattr(fila, "platform", None) != "meli":
             return None
         item = None
-        crudo = getattr(fila, "raw", None)
+        crudo = getattr(fila, "payload", None)
         if isinstance(crudo, dict):
             renglon = crudo.get("row")
             if isinstance(renglon, dict):

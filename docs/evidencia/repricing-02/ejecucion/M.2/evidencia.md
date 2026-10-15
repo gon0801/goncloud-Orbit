@@ -25,8 +25,13 @@ test_ledger_atribucion, test_precio02_atribucion (86 passed en conjunto).
 
 ## Panel
 
-3/4 revisores (Muse A, GLM 5.3, GLM 5.2) + fixes aplicados; GLM 4.7b
-pendiente. Detalle en `panel.md`.
+4/4 revisores (Muse A, GLM 5.3, GLM 5.2, GLM 4.7b) + fixes aplicados.
+Detalle en `panel.md`.
+
+## Medicion
+
+`medicion.md`: ISR MeLi 0.0206 (insumo `isr_tasa` de M.3), contrato
+campo2 `fee` solo-MeLi y forma real del `raw_payload`.
 
 ## Repro
 

@@ -48,24 +48,31 @@ def _finanzas(subtipo: str) -> str:
 
 
 def test_clasifica_las_seis_identidades_de_f0():
-    assert clasificar_cargo(_finanzas("LabmanLabelPurchase"), "shipping_fee") == "labman_label"
     assert (
-        clasificar_cargo("amazon|shipping_label|702-f2|2026-10-01", "shipping_fee")
+        clasificar_cargo(_finanzas("LabmanLabelPurchase"), "shipping_fee", "amazon_mx")
+        == "labman_label"
+    )
+    assert (
+        clasificar_cargo("amazon|shipping_label|702-f2|2026-10-01", "shipping_fee", "amazon_mx")
         == "shipping_label"
     )
-    assert clasificar_cargo(_finanzas("MFNPostageFee"), "shipping_fee") == "mfn_postage"
-    assert clasificar_cargo(_finanzas("ShippingHB"), "shipping_fee") == "shipping_hb"
-    assert clasificar_cargo(_finanzas("ShippingChargeback"), "shipping_fee") == "otros"
-    assert clasificar_cargo(_finanzas("MFNShippingChargeback"), "shipping_fee") == "otros"
+    assert (
+        clasificar_cargo(_finanzas("MFNPostageFee"), "shipping_fee", "amazon_mx") == "mfn_postage"
+    )
+    assert clasificar_cargo(_finanzas("ShippingHB"), "shipping_fee", "amazon_mx") == "shipping_hb"
+    assert clasificar_cargo(_finanzas("ShippingChargeback"), "shipping_fee", "amazon_mx") == "otros"
+    assert (
+        clasificar_cargo(_finanzas("MFNShippingChargeback"), "shipping_fee", "amazon_mx") == "otros"
+    )
 
 
 def test_clasifica_lo_desconocido_y_lo_malformado_como_otros():
-    assert clasificar_cargo(_finanzas("SubtipoNuevo"), "shipping_fee") == "otros"
-    assert clasificar_cargo(None, "shipping_fee") == "otros"
-    assert clasificar_cargo("", "shipping_fee") == "otros"
-    assert clasificar_cargo("sin-pipes", "shipping_fee") == "otros"
-    assert clasificar_cargo("a|finance", "shipping_fee") == "otros"
-    assert clasificar_cargo(_finanzas("MFNPostageFee"), "referral_fee") == "otros"
+    assert clasificar_cargo(_finanzas("SubtipoNuevo"), "shipping_fee", "amazon_mx") == "otros"
+    assert clasificar_cargo(None, "shipping_fee", "amazon_mx") == "otros"
+    assert clasificar_cargo("", "shipping_fee", "amazon_mx") == "otros"
+    assert clasificar_cargo("sin-pipes", "shipping_fee", "amazon_mx") == "otros"
+    assert clasificar_cargo("a|finance", "shipping_fee", "amazon_mx") == "otros"
+    assert clasificar_cargo(_finanzas("MFNPostageFee"), "referral_fee", "amazon_mx") == "otros"
 
 
 def test_costo_cuenta_la_etiqueta_una_vez_mas_hb():

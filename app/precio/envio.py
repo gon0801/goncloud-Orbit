@@ -97,7 +97,7 @@ class MuestraNueva:
 
 
 def clasificar_cargo(
-    source_event_id: str | None, fee_type: str | None, platform: str | None = None
+    source_event_id: str | None, fee_type: str | None, platform: str | None
 ) -> str:
     """De donde viene el cargo. Lo desconocido es `otros` y se cuenta.
 
@@ -105,7 +105,8 @@ def clasificar_cargo(
     el campo 2 es `finance`, y si no, el campo 2 (F.0 confirma que solo hay
     seis identidades). `fee_type` distinto de `shipping_fee` es `otros`.
     La identidad `fee` es `meli_envio` solo con plataforma `meli` (medido
-    M.2: solo MeLi la emite); sin plataforma o con otra, `otros`.
+    M.2: solo MeLi la emite; ver `ejecucion/M.2/medicion.md`); `platform`
+    es requerido para que cada llamador elija (None = `otros`, a la vista).
     """
     if fee_type is not None and fee_type != "shipping_fee":
         return "otros"

@@ -24,7 +24,7 @@ Comando por mutante: aplica, corre su test, restaura desde /tmp/m2ok/.
 | m17 | precio/envio.py | suma -> `Importe(...)` moneda mezclada | test_meli_envio_moneda_mezclada_falla_fuerte |
 | m18 | ledger.py | `if not sku: hueco` -> `if False` | test_venta_meli_sin_sku_cuenta_hueco |
 | m19 | ledger.py | `elif qty None/<=0: hueco` -> `elif False` | test_venta_meli_mapeada_sin_cantidad |
-| m20 | ledger.py | `elif productos None/get None` -> `elif False` | test_plan_sin_mapa_productos |
+| m20 | ledger.py | `elif productos.get None` -> `elif False` | test_plan_sin_mapa_productos |
 | m21 | ledger.py main | `meli_sin_producto={...}` -> `=0` | test_main_imprime_cobertura_meli |
 
 | m22 | ledger.py | `if event_type == "refund"` -> `if False` | test_refund_meli_mismo_periodo_compensa_venta |

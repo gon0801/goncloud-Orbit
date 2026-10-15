@@ -5,7 +5,8 @@
 - Muse A (workflow panel-m2-ledger): 9 findings.
 - GLM 5.3 (opencode coding-cli): 8 findings.
 - GLM 5.2 (opencode coding-cli): 10 findings.
-- GLM 4.7: reintento corriendo (el primero murio por permiso de directorio externo).
+- GLM 4.7 (reintento repo-scoped; el primero murio por permiso de
+  directorio externo): 7 findings, 0 criticos.
 
 ## Consenso (>=2 revisores) -> aplicado
 
@@ -56,8 +57,28 @@
   kind del evento, no re-lectura; re-SELECT romperia append-only (regla 5)
   -> rechazado.
 
+## GLM 4.7b (llego ultimo, contra el arbol casi final)
+
+Sin criticos. Disposicion:
+
+1. [warning] Evidencia incompleta: faltaba la retencion medida (DoD M.2)
+   y artefactos de los contratos "medido M.2". APLICADO: `medicion.md`
+   con ISR 0.0206 pooled + control Amazon, distribucion campo2 (solo
+   MeLi emite `fee`) y forma real del `raw_payload`.
+2. [warning] `test_main` dejaba el singleton con conexion a DB borrada.
+   APLICADO: `try/finally: atribuidor_meli.close()`.
+3. [warning] `_db()`/`close()` duplicados entre atribuidores. DIFERIDO:
+   subir el helper a `ledger_atribucion.py` toca el camino de Amazon;
+   no es bug de datos. Deuda anotada, no bloquea M.2.
+4. [nit] Docstring punto 5 viejo. APLICADO (una linea).
+5. [nit] `productos` opcional. APLICADO a medias: requerido en
+   `plan_eventos` (seam de produccion); `mapear_destino` conserva el
+   default (seam unitario, igual que `listings`).
+6. [nit] `EventoLedger.raw` enganoso. APLICADO: renombrado a `payload`.
+7. [nit] `platform` opcional en `clasificar_cargo`. APLICADO: requerido
+   (sin default); `None` explicito sigue dando `otros` pineado.
+
 ## Veredicto
 
-Pendiente GLM 4.7b. Con 3/4 revisores: fixes aplicados, 22/22 verde,
-22/22 mutantes muertos. Si 4.7b no trae bloqueante nuevo, M.2 queda
-APROBADA por consenso de 3.
+APROBADA 4/4. 22/22 verde, 22/22 mutantes muertos post-fixes,
+`medicion.md` cierra el DoD ("la evidencia trae la retencion medida").
