@@ -1,0 +1,43 @@
+FFFFFFFFFFFFFFFFF                                                        [100%]
+=================================== FAILURES ===================================
+E   AssertionError: precio_goal: ya tiene goal vigente para listing 9 en amazon_mx: cierralo con --cerrar antes de sembrar otro
+
+    assert 2 == 0
+     +  where 2 = CompletedProcess(args=['/Users/dn/dev/wt/rp02-sec3/.venv/bin/python', 'tools/precio_goal.py', '--listing-id', '9', '--...stderr='precio_goal: ya tiene goal vigente para listing 9 en amazon_mx: cierralo con --cerrar antes de sembrar otro\n').returncode
+/Users/dn/dev/wt/rp02-sec3/tests/test_precio_goals.py:1479: AssertionError: precio_goal: ya tiene goal vigente para listing 9 en amazon_mx: cierralo con --cerrar antes de sembrar otro
+E   AssertionError: precio_goal: linea 3: ya tiene goal vigente para listing 10 en amazon_mx: cierralo con --cerrar antes de sembrar otro
+
+    assert 2 == 0
+     +  where 2 = CompletedProcess(args=['/Users/dn/dev/wt/rp02-sec3/.venv/bin/python', 'tools/precio_goal.py', '--csv', '/private/var/f...ecio_goal: linea 3: ya tiene goal vigente para listing 10 en amazon_mx: cierralo con --cerrar antes de sembrar otro\n').returncode
+/Users/dn/dev/wt/rp02-sec3/tests/test_precio_goals.py:1527: AssertionError: precio_goal: linea 3: ya tiene goal vigente para listing 10 en amazon_mx: cierralo con --cerrar antes de sembrar otro
+E   AssertionError: assert 'f' is False
+/Users/dn/dev/wt/rp02-sec3/tests/test_precio_goals.py:1621: AssertionError: assert 'f' is False
+E   ImportError: cannot import name 'PorIds' from 'app.precio.goals_write' (/Users/dn/dev/wt/rp02-sec3/app/precio/goals_write.py)
+/Users/dn/dev/wt/rp02-sec3/tests/test_precio_goals.py:1994: ImportError: cannot import name 'PorIds' from 'app.precio.goals_write' (/Users/dn/dev/wt/rp02-sec3/app/precio/goals_write.py)
+E   ModuleNotFoundError: No module named 'app.precio.siembra'
+/Users/dn/dev/wt/rp02-sec3/tests/test_precio_goals.py:2042: ModuleNotFoundError: No module named 'app.precio.siembra'
+E   ModuleNotFoundError: No module named 'app.precio.siembra'
+/Users/dn/dev/wt/rp02-sec3/tests/test_precio_goals.py:2064: ModuleNotFoundError: No module named 'app.precio.siembra'
+E   ModuleNotFoundError: No module named 'app.precio.siembra'
+/Users/dn/dev/wt/rp02-sec3/tests/test_precio_goals.py:2083: ModuleNotFoundError: No module named 'app.precio.siembra'
+E   ModuleNotFoundError: No module named 'app.precio.siembra'
+/Users/dn/dev/wt/rp02-sec3/tests/test_precio_goals.py:2101: ModuleNotFoundError: No module named 'app.precio.siembra'
+E   ModuleNotFoundError: No module named 'app.precio.siembra'
+/Users/dn/dev/wt/rp02-sec3/tests/test_precio_goals.py:2126: ModuleNotFoundError: No module named 'app.precio.siembra'
+E   ModuleNotFoundError: No module named 'app.precio.siembra'
+/Users/dn/dev/wt/rp02-sec3/tests/test_precio_goals.py:2146: ModuleNotFoundError: No module named 'app.precio.siembra'
+E   ModuleNotFoundError: No module named 'app.precio.siembra'
+/Users/dn/dev/wt/rp02-sec3/tests/test_precio_goals.py:2165: ModuleNotFoundError: No module named 'app.precio.siembra'
+E   ModuleNotFoundError: No module named 'app.precio.siembra'
+/Users/dn/dev/wt/rp02-sec3/tests/test_precio_goals.py:2190: ModuleNotFoundError: No module named 'app.precio.siembra'
+E   ImportError: cannot import name 'HuellaDistinta' from 'app.precio.goals_write' (/Users/dn/dev/wt/rp02-sec3/app/precio/goals_write.py)
+/Users/dn/dev/wt/rp02-sec3/tests/test_precio_goals.py:2213: ImportError: cannot import name 'HuellaDistinta' from 'app.precio.goals_write' (/Users/dn/dev/wt/rp02-sec3/app/precio/goals_write.py)
+E   ImportError: cannot import name 'aplicar_plan' from 'app.precio.goals_write' (/Users/dn/dev/wt/rp02-sec3/app/precio/goals_write.py)
+/Users/dn/dev/wt/rp02-sec3/tests/test_precio_goals.py:2253: ImportError: cannot import name 'aplicar_plan' from 'app.precio.goals_write' (/Users/dn/dev/wt/rp02-sec3/app/precio/goals_write.py)
+E   ImportError: cannot import name 'HuellaDistinta' from 'app.precio.goals_write' (/Users/dn/dev/wt/rp02-sec3/app/precio/goals_write.py)
+/Users/dn/dev/wt/rp02-sec3/tests/test_precio_goals.py:2300: ImportError: cannot import name 'HuellaDistinta' from 'app.precio.goals_write' (/Users/dn/dev/wt/rp02-sec3/app/precio/goals_write.py)
+E   ImportError: cannot import name 'BloqueoSinConfirmar' from 'app.precio.goals_write' (/Users/dn/dev/wt/rp02-sec3/app/precio/goals_write.py)
+/Users/dn/dev/wt/rp02-sec3/tests/test_precio_goals.py:2371: ImportError: cannot import name 'BloqueoSinConfirmar' from 'app.precio.goals_write' (/Users/dn/dev/wt/rp02-sec3/app/precio/goals_write.py)
+E   ImportError: cannot import name 'aplicar_plan' from 'app.precio.goals_write' (/Users/dn/dev/wt/rp02-sec3/app/precio/goals_write.py)
+/Users/dn/dev/wt/rp02-sec3/tests/test_precio_goals.py:2414: ImportError: cannot import name 'aplicar_plan' from 'app.precio.goals_write' (/Users/dn/dev/wt/rp02-sec3/app/precio/goals_write.py)
+17 failed, 57 deselected in 0.73s

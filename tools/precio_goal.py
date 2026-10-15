@@ -1,18 +1,20 @@
 """Siembra y cierra goals de margen del motor de precios (REPRICING 01, A.1).
 
-Solo Postgres y solo `app_admin` (unico DSN: `ORBIT_DSN_ADMIN`), cero
-Amazon: la referencia del dry-run (`m_actual`, `P*`) sale del escenario
-`disponible` mas reciente del listing y de su `fee_observation`
-(`derivar_ref_fijo` + `precio_estrella` de `app/precio/objetivo.py`), sin
-cotizar. La escritura vive en `app.precio.goals_write` (este tool jamas
-trae SQL de escritura de goals: despacha, no duplica).
+Despachador delgado (REPRICING 02 G.1): argparse/CSV -> `Pedido` ->
+`siembra.planear` / `goals_write.aplicar_plan`. Solo Postgres y solo
+`app_admin` (unico DSN: `ORBIT_DSN_ADMIN`), cero Amazon: la referencia del
+dry-run (`m_actual`, `P*`) sale del escenario `disponible` mas reciente
+del listing y de su `fee_observation`, sin cotizar. La escritura vive en
+`app.precio.goals_write` (este tool jamas trae SQL de escritura de goals:
+despacha, no duplica).
 
 El objetivo es `--listing-id`, `--sku` (se resuelve en dry-run contra
 `seller_sku` + `--platform`: 0 o 2+ publicaciones abortan) o `--csv`;
-los tres excluyentes. El dry-run aborta antes de la huella si el listing
-ya tiene goal vigente (R1). Goal y `m_actual` se imprimen en por ciento
-(`contribucion_pct` esta en por ciento); el salto se confirma por
-listing (`--confirmar-salto <listing_id>`, repetible).
+los tres excluyentes. Si el listing ya tiene goal vigente, el plan
+propone reemplazarlo (G.1: editar es cerrar y sembrar). Goal y `m_actual`
+se imprimen en por ciento (`contribucion_pct` esta en por ciento); el
+salto se confirma por listing (`--confirmar-salto <listing_id>`,
+repetible).
 
 Ceremonia (la de `tools/precio_reversa.py` con UNA diferencia declarada):
 dry-run por omision (imprime el plan y su huella, cero escritura); la
@@ -34,45 +36,44 @@ corre. Si hay escenario pero la fee no deriva referencia (`fee_error` o
 se avisa y se sigue (residual declarado: el motor si puede evaluar ese
 caso; solo la falta de escenario aborta `live`).
 
-El go es POR FILA via `goals_write` (cada llamada confirma: sin
-transaccion global a proposito, igual que `goals_modo_grupo.py`); un
-fallo a mitad aborta con la fila, lo sembrado queda sembrado y re-correr
-con ceremonia nueva termina el resto.
+El go es TODO O NADA via `goals_write.aplicar_plan` (una transaccion):
+un fallo a mitad no deja ninguna fila. Resembrar el mismo dia se permite
+(la fila anterior queda ANULADA).
 
-Conexion en autocommit; cada fila confirma al salir.
+Conexion en autocommit; el lote confirma al salir.
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
-import hashlib
 import os
 import sys
-from dataclasses import dataclass
-from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from app.db import OrbitDbError, connect
-from app.estimacion_venta import DetalleFee
 from app.precio.goals_write import (
     PLATAFORMAS_PRECIO_GOAL,
+    BloqueoSinConfirmar,
+    HuellaDistinta,
+    PorIds,
     PrecioGoalAusente,
     PrecioGoalInvalido,
+    aplicar_plan,
     banda_desde_settings,
-    cerrar_goal,
     config_vigente_settings,
     fraccion_desde_porcentaje,
-    sembrar_goal,
+    leer_candidatos,
 )
-from app.precio.objetivo import (
-    ErrorObjetivo,
-    derivar_ref_fijo,
-    precio_estrella,
-    techo_centavo,
+from app.precio.siembra import (
+    FilaPlan,
+    PedidoCierre,
+    PedidoInvalido,
+    PedidoValores,
+    PlanGoals,
+    ValorPorUnidad,
+    planear,
 )
-
-UMBRAL_SALTO = Decimal("0.25")
 
 
 class Abortar(RuntimeError):
@@ -86,140 +87,38 @@ def _dsn_admin() -> str:
     return dsn
 
 
-_SQL_ESCENARIO = (
-    "SELECT id, contribucion_pct, componentes, fee_observation_id,"
-    " oferta_observation_id, moneda FROM estimacion_escenario"
-    " WHERE listing_id = %s AND platform = %s AND estado = 'disponible'"
-    " ORDER BY observed_at DESC LIMIT 1"
-)
-_SQL_OFERTA = "SELECT price_amount, price_currency FROM estimacion_oferta_observation WHERE id = %s"
-_SQL_FEE = (
-    "SELECT total_fees, fee_details, quoted_price_amount, estado"
-    " FROM estimacion_fee_observation WHERE id = %s"
-)
-_SQL_VIGENTE = (
-    "SELECT id, margen_goal_pct, mode::text FROM precio_goal"
-    " WHERE listing_id = %s AND platform = %s AND valid_to IS NULL"
-)
-_SQL_LISTING_EXISTE = "SELECT 1 FROM listing WHERE id = %s AND platform = %s"
-
-
-def _detalle_fee(nodo: dict) -> DetalleFee:
-    tasa = nodo.get("tax_amount")
-    return DetalleFee(
-        fee_type=nodo["fee_type"],
-        final_fee=Decimal(str(nodo["final_fee"])),
-        tax_amount=None if tasa is None else Decimal(str(tasa)),
-        included_fee_details=tuple(
-            _detalle_fee(hijo) for hijo in nodo.get("included_fee_details") or []
-        ),
-    )
-
-
-def _componente(componentes: list, nombre: str) -> Decimal:
-    for item in componentes:
-        if item.get("nombre") == nombre:
-            return Decimal(str(item["importe_normalizado"]))
-    raise PrecioGoalInvalido(f"escenario sin componente {nombre}")
-
-
-def _referencia(conn, listing_id: int, platform: str, goal: Decimal):
-    """`(m_actual, p_estrella, p_actual, moneda, motivo)`; `None` donde no hay dato.
-
-    `m_actual` sale del escenario; `P*` de `derivar_ref_fijo` sobre su
-    `fee_observation` + `precio_estrella` con el goal a sembrar. `r`, el
-    divisor de IVA y el flag de IVA se reconstruyen de los componentes
-    congelados (`isr/ingreso`, `precio_bruto/ingreso`): sin fuentes nuevas.
-    `motivo` dice por que no se evalua el salto cuando `P*` es `None`.
-    """
-    esc = conn.execute(_SQL_ESCENARIO, (listing_id, platform)).fetchone()
-    if esc is None:
-        return (None, None, None, None, "sin_escenario")
-    m_actual = esc[1]
-    oferta = conn.execute(_SQL_OFERTA, (esc[4],)).fetchone()
-    if oferta is None:
-        return (m_actual, None, None, None, "oferta_ausente")
-    p_actual, moneda = oferta
-    fee = conn.execute(_SQL_FEE, (esc[3],)).fetchone()
-    if fee is None or fee[3] != "success" or fee[0] is None:
-        return (m_actual, None, p_actual, moneda, "fee_no_utilizable")
-    try:
-        detalles = tuple(_detalle_fee(nodo) for nodo in fee[1])
-        ref, fijo = derivar_ref_fijo(detalles, Decimal(str(fee[0])), Decimal(str(fee[2])))
-        componentes = esc[2]
-        costo = _componente(componentes, "costo_normalizado")
-        ingreso = _componente(componentes, "ingreso_normalizado")
-        envio = _componente(componentes, "logistica")
-        isr_importe = _componente(componentes, "isr")
-        precio_bruto = _componente(componentes, "precio_bruto")
-        if ingreso <= 0:
-            raise PrecioGoalInvalido("escenario con ingreso no positivo")
-        tasa_isr = isr_importe / ingreso
-        divisor_iva = precio_bruto / ingreso
-        estrella = precio_estrella(
-            costo, fijo, envio, tasa_isr, goal, divisor_iva, divisor_iva != 1, ref
-        )
-    except (
-        ErrorObjetivo,
-        PrecioGoalInvalido,
-        InvalidOperation,
-        ArithmeticError,
-        KeyError,
-        TypeError,
-        ValueError,
-    ):
-        return (m_actual, None, p_actual, moneda, "referencia_sin_derivar")
-    return (m_actual, techo_centavo(estrella), p_actual, moneda, None)
-
-
-@dataclass
-class FilaPlan:
-    listing_id: int
-    platform: str
-    cerrar: bool
-    goal_texto: str | None
-    fraccion: Decimal | None
-    goal_id: int | None
-    m_actual: Decimal | None
-    p_estrella: Decimal | None
-    p_actual: Decimal | None
-    moneda: str | None
-    linea: int
-    motivo: str | None = None
-
-
-def _dinero(valor: Decimal | None, moneda: str | None) -> str:
-    if valor is None:
+def _dinero(importe) -> str:
+    if importe is None:
         return "sin_escenario"
-    return f"{valor:.2f} {moneda}"
+    return f"{importe.valor:.2f} {importe.moneda}"
 
 
 def _linea(fila: FilaPlan) -> str:
     # G1: `contribucion_pct` esta en POR CIENTO (39.0000 = 39 %): goal y
     # `m_actual` se imprimen en la misma unidad (por ciento, dos decimales).
-    if fila.cerrar:
+    if fila.accion == "cerrar":
         return (
-            f"[plan] cerrar listing={fila.listing_id} platform={fila.platform}"
+            f"[plan] cerrar listing={fila.listing_id} platform={fila.plataforma}"
             f" goal_id={fila.goal_id}"
         )
-    assert fila.fraccion is not None
-    m = "sin_escenario" if fila.m_actual is None else f"{fila.m_actual:.2f}%"
-    return (
-        f"[plan] siembra listing={fila.listing_id} platform={fila.platform}"
-        f" goal={fila.fraccion * 100:.2f}% m_actual={m}"
-        f" P*={_dinero(fila.p_estrella, fila.moneda)}"
-        f" P_actual={_dinero(fila.p_actual, fila.moneda)}"
+    if fila.accion == "nada":
+        return (
+            f"[plan] nada listing={fila.listing_id} platform={fila.plataforma} motivo={fila.motivo}"
+        )
+    assert fila.goal_propuesto is not None
+    m = "sin_escenario" if fila.m_hoy is None else f"{fila.m_hoy * 100:.2f}%"
+    base = (
+        f" goal={fila.goal_propuesto * 100:.2f}% m_actual={m}"
+        f" P*={_dinero(fila.p_estrella)}"
+        f" P_actual={_dinero(fila.p_actual)}"
     )
-
-
-def _huella(plan: list[FilaPlan], mode: str) -> str:
-    partes = []
-    for fila in plan:
-        if fila.cerrar:
-            partes.append(f"cerrar:{fila.listing_id}:{fila.platform}:{fila.goal_id}")
-        else:
-            partes.append(f"siembra:{fila.listing_id}:{fila.platform}:{fila.fraccion}:{mode}")
-    return hashlib.sha256("|".join(sorted(partes)).encode()).hexdigest()[:16]
+    if fila.accion == "reemplazar":
+        assert fila.goal_actual is not None
+        return (
+            f"[plan] reemplaza listing={fila.listing_id} platform={fila.plataforma}"
+            f" goal_actual={fila.goal_actual * 100:.2f}%{base}"
+        )
+    return f"[plan] siembra listing={fila.listing_id} platform={fila.plataforma}{base}"
 
 
 def _filas_csv(ruta: str, *, cerrar: bool) -> list[tuple[int, str, str | None, int]]:
@@ -268,79 +167,6 @@ def _filas_csv(ruta: str, *, cerrar: bool) -> list[tuple[int, str, str | None, i
             )
         vistos[clave] = numero
     return filas
-
-
-def _construir_plan(conn, entradas, *, mode: str, cerrar: bool) -> list[FilaPlan]:
-    settings = config_vigente_settings(conn)
-    minimo, maximo = banda_desde_settings(settings)
-    plan: list[FilaPlan] = []
-    for listing_id, platform, goal_texto, numero in entradas:
-        prefijo = f"linea {numero}: " if numero else ""
-        # AC2: el listing tiene que existir en esa platform ANTES de la
-        # huella (si no, el dry-run sale 0 con `sin_escenario` y el go
-        # revienta por la FK con filas ya sembradas).
-        existe = conn.execute(_SQL_LISTING_EXISTE, (listing_id, platform)).fetchone()
-        if existe is None:
-            raise Abortar(
-                f"{prefijo}listing {listing_id} inexistente en {platform}: sin listing no hay goal"
-            )
-        if cerrar:
-            vigente = conn.execute(_SQL_VIGENTE, (listing_id, platform)).fetchone()
-            if vigente is None:
-                raise Abortar(
-                    f"{prefijo}sin goal vigente para listing {listing_id} en {platform}:"
-                    " nada que cerrar"
-                )
-            plan.append(
-                FilaPlan(
-                    listing_id,
-                    platform,
-                    True,
-                    None,
-                    None,
-                    int(vigente[0]),
-                    None,
-                    None,
-                    None,
-                    None,
-                    numero,
-                )
-            )
-            continue
-        try:
-            fraccion = fraccion_desde_porcentaje(goal_texto or "")
-        except PrecioGoalInvalido as exc:
-            raise Abortar(f"{prefijo}{exc}") from exc
-        if not minimo <= fraccion <= maximo:
-            raise Abortar(
-                f"{prefijo}goal {goal_texto} % (= {fraccion}) fuera de banda [{minimo}, {maximo}]"
-            )
-        # R1: el dry-run ve el goal vigente (si no, el go revienta a mitad
-        # del lote con filas ya escritas).
-        vigente = conn.execute(_SQL_VIGENTE, (listing_id, platform)).fetchone()
-        if vigente is not None:
-            raise Abortar(
-                f"{prefijo}ya tiene goal vigente para listing {listing_id}"
-                f" en {platform}: cierralo con --cerrar antes de sembrar otro"
-            )
-        m, estrella, p_actual, moneda, motivo = _referencia(conn, listing_id, platform, fraccion)
-        plan.append(
-            FilaPlan(
-                listing_id,
-                platform,
-                False,
-                goal_texto,
-                fraccion,
-                None,
-                m,
-                estrella,
-                p_actual,
-                moneda,
-                numero,
-                motivo,
-            )
-        )
-    return plan
 
 
 def _resolver_sku(conn, sku: str, platform: str) -> int:
@@ -394,41 +220,107 @@ def _entradas_desde_args(args) -> list[tuple[int, str, str | None, int]]:
     return [(args.listing_id, args.platform, args.goal_pct, 0)]
 
 
-def _guardas_del_plan(plan: list[FilaPlan], args) -> None:
-    """Salto del 25 % (siembra) y `live` sin escenario: abortan sin huella.
+def _planear_tool(conn, entradas, args):
+    """Despacho delgado: entradas -> `Pedido` -> `leer_candidatos` + `planear`.
+
+    Devuelve `(plan, textos, banda, lineas)`: los textos (`goal_pct` por
+    fila) y la banda formulan los abortos legados; `lineas` mapea cada par
+    a su linea del CSV (0 = una fila).
+    """
+    settings = config_vigente_settings(conn)
+    banda = banda_desde_settings(settings)
+    lineas = {(lid, plat): numero for lid, plat, _goal, numero in entradas}
+    if args.cerrar:
+        pedido: PedidoCierre | PedidoValores = PedidoCierre()
+        textos: dict[tuple[int, str], tuple[str, int]] = {}
+    else:
+        valores = []
+        textos = {}
+        for lid, plat, goal_texto, numero in entradas:
+            prefijo = f"linea {numero}: " if numero else ""
+            try:
+                fraccion = fraccion_desde_porcentaje(goal_texto or "")
+            except PrecioGoalInvalido as exc:
+                raise Abortar(f"{prefijo}{exc}") from exc
+            assert goal_texto is not None
+            textos[(lid, plat)] = (goal_texto, numero)
+            valores.append(ValorPorUnidad(lid, plat, fraccion))
+        pedido = PedidoValores(goals=tuple(valores), mode=args.mode)
+    candidatos = []
+    for lid, plat, _goal, numero in entradas:
+        prefijo = f"linea {numero}: " if numero else ""
+        try:
+            (cand,) = leer_candidatos(conn, filtro=PorIds(pares=((lid, plat),)))
+        except (PrecioGoalAusente, PrecioGoalInvalido) as exc:
+            raise Abortar(f"{prefijo}{exc}") from exc
+        candidatos.append(cand)
+    try:
+        plan = planear(tuple(candidatos), pedido=pedido, banda=banda)
+    except PedidoInvalido as exc:
+        numero = lineas.get((exc.listing_id, exc.platform), 0)
+        prefijo = f"linea {numero}: " if numero else ""
+        raise Abortar(f"{prefijo}{exc}") from exc
+    return (plan, textos, banda, lineas)
+
+
+def _exigir_sembrable(plan: PlanGoals, args, textos, banda, lineas) -> None:
+    """El tool es estricto: cualquier bloqueo aborta (legado), salvo el
+    salto confirmado por listing (`--confirmar-salto`).
 
     G3: `--confirmar-salto <listing_id>` es por listing (repetible): solo
     los listings nombrados se saltan el chequeo; nombrar uno fuera del
     plan aborta.
     """
-    if not args.cerrar:
-        confirmados = set(args.confirmar_salto or [])
-        ajenos = sorted(lid for lid in confirmados if lid not in {f.listing_id for f in plan})
-        if ajenos:
-            raise Abortar(f"--confirmar-salto para listings fuera del plan: {ajenos}")
-        for fila in plan:
-            if (
-                fila.p_estrella is not None
-                and fila.p_actual is not None
-                and fila.p_actual > 0
-                and abs(fila.p_estrella - fila.p_actual) > UMBRAL_SALTO * fila.p_actual
-                and fila.listing_id not in confirmados
-            ):
-                salto = abs(fila.p_estrella - fila.p_actual) / fila.p_actual * 100
-                raise Abortar(
-                    f"salto {salto:.1f} % > 25 % en listing {fila.listing_id}"
-                    f" (P*={fila.p_estrella:.2f} P_actual={fila.p_actual:.2f}):"
-                    " pasa --confirmar-salto <listing_id> para sembrarlo"
-                )
-        if args.mode == "live" and any(fila.m_actual is None for fila in plan):
+    if isinstance(plan.pedido, PedidoCierre):
+        return
+    confirmados = set(args.confirmar_salto or [])
+    ajenos = sorted(lid for lid in confirmados if lid not in {f.listing_id for f in plan.filas})
+    if ajenos:
+        raise Abortar(f"--confirmar-salto para listings fuera del plan: {ajenos}")
+    minimo, maximo = banda
+    for fila in plan.filas:
+        if fila.bloqueo is None:
+            continue
+        if fila.bloqueo == "salto_mayor_25" and fila.listing_id in confirmados:
+            continue
+        numero = lineas.get((fila.listing_id, fila.plataforma), 0)
+        prefijo = f"linea {numero}: " if numero else ""
+        if fila.bloqueo == "salto_mayor_25":
+            assert fila.p_estrella is not None and fila.p_actual is not None
+            estrella = fila.p_estrella.valor
+            p_actual = fila.p_actual.valor
+            salto = abs(estrella - p_actual) / p_actual * 100
             raise Abortar(
-                "sin_escenario: --mode live no siembra goals sobre"
+                f"{prefijo}salto {salto:.1f} % > 25 % en listing {fila.listing_id}"
+                f" (P*={estrella:.2f} P_actual={p_actual:.2f}):"
+                " pasa --confirmar-salto <listing_id> para sembrarlo"
+            )
+        if fila.bloqueo == "fuera_de_banda":
+            texto, _numero = textos[(fila.listing_id, fila.plataforma)]
+            raise Abortar(
+                f"{prefijo}goal {texto} % (= {fila.goal_propuesto})"
+                f" fuera de banda [{minimo}, {maximo}]"
+            )
+        if fila.bloqueo == "live_sin_escenario":
+            raise Abortar(
+                f"{prefijo}sin_escenario: --mode live no siembra goals sobre"
                 " productos que el motor no puede evaluar"
                 " (usa --mode shadow o espera al escenario disponible)"
             )
+        if fila.bloqueo == "sin_escenario":
+            raise Abortar(
+                f"{prefijo}sin_escenario para listing {fila.listing_id}"
+                f" en {fila.plataforma}: sin margen de hoy que copiar (no se puede sembrar)"
+            )
+        if fila.bloqueo == "sin_cambio":
+            raise Abortar(
+                f"{prefijo}sin cambios para listing {fila.listing_id}"
+                f" en {fila.plataforma}: ya tiene ese goal y ese modo"
+            )
+        raise AssertionError(f"bloqueo desconocido: {fila.bloqueo}")
 
 
-def _go_con_ceremonia(conn, plan: list[FilaPlan], args, huella: str) -> int:
+def _go_con_ceremonia(conn, plan: PlanGoals, args, textos, banda, lineas) -> int:
     """Ceremonia y mutacion: shadow/cerrar sin go, live con go literal."""
     if not args.acepto_mutacion_real:
         if args.go is not None or args.huella is not None:
@@ -439,36 +331,58 @@ def _go_con_ceremonia(conn, plan: list[FilaPlan], args, huella: str) -> int:
         return 0
     if not args.huella:
         raise Abortar("falta --huella: el go exige la huella del dry-run")
-    if args.huella != huella:
-        raise Abortar(f"--huella {args.huella} != huella del plan {huella}: re-corre el dry-run")
-    if args.cerrar or args.mode == "shadow":
+    if args.huella != plan.huella:
+        raise Abortar(
+            f"--huella {args.huella} != huella del plan {plan.huella}: re-corre el dry-run"
+        )
+    es_cierre = isinstance(plan.pedido, PedidoCierre)
+    if es_cierre or args.mode == "shadow":
         if args.go is not None:
-            donde = "--cerrar" if args.cerrar else "shadow"
+            donde = "--cerrar" if es_cierre else "shadow"
             raise Abortar(f"{donde} es sin go literal: --go no aplica (el go solo enciende live)")
         go_literal = None
     else:
         if not args.go or not args.go.strip():
             raise Abortar("falta --go: el go en live exige el literal del dueno")
         go_literal = args.go
-    for fila in plan:
-        if fila.cerrar:
-            gid = cerrar_goal(conn, listing_id=fila.listing_id, platform=fila.platform)
-            print(f"[hecho] cerrar goal_id={gid} listing={fila.listing_id}")
+    try:
+        res = aplicar_plan(
+            conn,
+            plan,
+            huella=args.huella,
+            confirmados=frozenset(args.confirmar_salto or ()),
+            go_literal=go_literal,
+            actor="precio_goal",
+            estricto=True,
+        )
+    except HuellaDistinta as exc:
+        raise Abortar(
+            f"--huella {args.huella} != huella del plan {exc.plan.huella}: re-corre el dry-run"
+        ) from exc
+    except BloqueoSinConfirmar as exc:
+        # El dry-run ya exigio; si el recalculado se bloqueo entre mirar y
+        # aceptar, se informa con los mismos textos legados.
+        _exigir_sembrable(exc.plan, args, textos, banda, lineas)
+        raise AssertionError("el plan fresco debio abortar arriba") from exc
+    filas = {(f.listing_id, f.plataforma): f for f in plan.filas}
+    for hecho in res.hechos:
+        if hecho.accion == "cerrar":
+            print(f"[hecho] cerrar goal_id={hecho.goal_id} listing={hecho.listing_id}")
         else:
-            assert fila.goal_texto is not None
-            gid = sembrar_goal(
-                conn,
-                listing_id=fila.listing_id,
-                platform=fila.platform,
-                goal_pct=fila.goal_texto,
-                mode=args.mode,
-                go_literal=go_literal,
-            )
-            print(
-                f"[hecho] siembra goal_id={gid} listing={fila.listing_id}"
-                f" platform={fila.platform} goal={fila.fraccion * 100:.2f}%"
-                f" mode={args.mode}"
-            )
+            fila = filas[(hecho.listing_id, hecho.platform)]
+            assert fila.goal_propuesto is not None
+            pct = f"{fila.goal_propuesto * 100:.2f}%"
+            if hecho.accion == "reemplazar":
+                print(
+                    f"[hecho] reemplaza goal_id={hecho.goal_id} cerro={hecho.cerro_id}"
+                    f" listing={hecho.listing_id} platform={hecho.platform}"
+                    f" goal={pct} mode={args.mode}"
+                )
+            else:
+                print(
+                    f"[hecho] siembra goal_id={hecho.goal_id} listing={hecho.listing_id}"
+                    f" platform={hecho.platform} goal={pct} mode={args.mode}"
+                )
     return 0
 
 
@@ -501,21 +415,20 @@ def main(argv=None) -> int:
                         0,
                     )
                 ]
-            plan = _construir_plan(conn, entradas, mode=args.mode, cerrar=args.cerrar)
-            for fila in plan:
+            plan, textos, banda, lineas = _planear_tool(conn, entradas, args)
+            for fila in plan.filas:
                 print(_linea(fila))
-                if not fila.cerrar and fila.p_estrella is None and fila.motivo:
+                if fila.accion != "cerrar" and fila.p_estrella is None and fila.motivo:
                     print(
                         f"aviso: {fila.motivo} para listing {fila.listing_id}"
-                        f" en {fila.platform}: el salto no se evalua"
+                        f" en {fila.plataforma}: el salto no se evalua"
                     )
-            _guardas_del_plan(plan, args)
-            huella = _huella(plan, args.mode)
-            print(f"huella: {huella}")
-            return _go_con_ceremonia(conn, plan, args, huella)
+            _exigir_sembrable(plan, args, textos, banda, lineas)
+            print(f"huella: {plan.huella}")
+            return _go_con_ceremonia(conn, plan, args, textos, banda, lineas)
         finally:
             conn.close()
-    except (Abortar, PrecioGoalInvalido, PrecioGoalAusente) as exc:
+    except (Abortar, PrecioGoalInvalido, PrecioGoalAusente, PedidoInvalido) as exc:
         print(f"precio_goal: {exc}", file=sys.stderr)
         return 2
     except OrbitDbError as exc:

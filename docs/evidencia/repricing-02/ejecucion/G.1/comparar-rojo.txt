@@ -1,0 +1,16 @@
+Preparing worktree (detached HEAD 24fa082)
+NOTICE:  database "orbit_cmp_g1_a" does not exist, skipping
+NOTICE:  database "orbit_cmp_g1_b" does not exist, skipping
+--- /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/tmp.JCBDoLwGDe/a3.out	2026-10-14 18:08:11
++++ /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/tmp.JCBDoLwGDe/b3.out	2026-10-14 18:08:12
+@@ -1 +1,2 @@
+ [plan] siembra listing=9 platform=amazon_mx goal=55.00% m_actual=24.00% P*=163.55 MXN P_actual=116.00 MXN
++huella: 17dab9d812ed53c7
+DIFIERE: caso 3 stdout (salto 55.00, A vs B)
+--- /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/tmp.JCBDoLwGDe/a3.err	2026-10-14 18:08:11
++++ /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/tmp.JCBDoLwGDe/b3.err	2026-10-14 18:08:12
+@@ -1 +0,0 @@
+-precio_goal: salto 41.0 % > 25 % en listing 9 (P*=163.55 P_actual=116.00): pasa --confirmar-salto <listing_id> para sembrarlo
+DIFIERE: caso 3 stderr (salto 55.00, A vs B)
+DIFIERE: caso 3 exit (A=2 B=0)
+COMPARACION ROJA: 3 diferencia(s)
