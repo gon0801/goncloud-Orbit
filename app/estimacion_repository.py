@@ -19,7 +19,12 @@ from psycopg.types.json import Json
 
 from app.estimacion_amazon import partir_fees
 from app.estimacion_insumos import FRESHNESS_LIMIT, resolver_costo, resolver_fx
-from app.estimacion_reader import EscenarioLeido, ProcedenciaRefs, leer_escenarios
+from app.estimacion_reader import (
+    EscenarioLeido,
+    ProcedenciaRefs,
+    leer_escenarios,
+    ultimo_contexto,
+)
 from app.estimacion_universo import (
     LogisticaResuelta,
     envio_a_logistica,
@@ -795,34 +800,6 @@ def persistir_escenario(
     )
 
 
-def _ultimo_contexto(
-    conn: psycopg.Connection,
-    listing_id: int,
-    *,
-    as_of: datetime,
-) -> dict[str, Any] | None:
-    """Ultimo escenario disponible del listing hasta as_of; None sin contexto."""
-    fila = conn.execute(
-        "SELECT canal, context_fingerprint, platform, seller_sku, asin, source_event_id"
-        " FROM estimacion_escenario"
-        " WHERE listing_id = %s"
-        " AND estado = 'disponible'"
-        " AND observed_at <= %s"
-        " ORDER BY observed_at DESC LIMIT 1",
-        (listing_id, as_of),
-    ).fetchone()
-    if fila is None:
-        return None
-    return {
-        "canal": fila[0],
-        "context_fingerprint": fila[1],
-        "platform": fila[2],
-        "seller_sku": fila[3],
-        "asin": fila[4],
-        "escenario_base_source_event_id": fila[5],
-    }
-
-
 def sembrar_escenario_negativo_transicion(
     conn: psycopg.Connection,
     *,
@@ -847,7 +824,7 @@ def sembrar_escenario_negativo_transicion(
     if motivo not in motivos_admitidos:
         raise ValueError(f"motivo no soportado para transicion negativa: {motivo}")
 
-    contexto = _ultimo_contexto(conn, listing_id, as_of=observed_at)
+    contexto = ultimo_contexto(conn, listing_id, as_of=observed_at)
     if contexto is None:
         return None
 

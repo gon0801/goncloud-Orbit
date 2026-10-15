@@ -26,6 +26,7 @@ __all__ = [
     "CuentaLeida",
     "leer_escenarios",
     "leer_cuenta",
+    "ultimo_contexto",
 ]
 
 
@@ -378,3 +379,31 @@ def leer_cuenta(
         fee_fijo=fee_fijo,
         fee_cotizable=fee_cot,
     )
+
+
+def ultimo_contexto(
+    conn: psycopg.Connection,
+    listing_id: int,
+    *,
+    as_of: datetime,
+) -> dict[str, Any] | None:
+    """Ultimo escenario disponible del listing hasta as_of; None sin contexto."""
+    fila = conn.execute(
+        "SELECT canal, context_fingerprint, platform, seller_sku, asin, source_event_id"
+        " FROM estimacion_escenario"
+        " WHERE listing_id = %s"
+        " AND estado = 'disponible'"
+        " AND observed_at <= %s"
+        " ORDER BY observed_at DESC LIMIT 1",
+        (listing_id, as_of),
+    ).fetchone()
+    if fila is None:
+        return None
+    return {
+        "canal": fila[0],
+        "context_fingerprint": fila[1],
+        "platform": fila[2],
+        "seller_sku": fila[3],
+        "asin": fila[4],
+        "escenario_base_source_event_id": fila[5],
+    }
