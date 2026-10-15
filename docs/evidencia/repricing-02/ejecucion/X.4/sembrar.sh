@@ -33,7 +33,7 @@ while [ $# -gt 0 ]; do
     *) echo "uso: sembrar.sh [--acepto-mutacion-real] [--listing-ids 1,2,3]"; exit 2 ;;
   esac
 done
-case "$IDS" in ''|*[!0-9,]*) [ -z "$IDS" ] || { echo "uso: --listing-ids trae solo digitos y comas"; exit 2; } ;; esac
+case "$IDS" in ''|*[!0-9,]*|,*|*,|*,,*) [ -z "$IDS" ] || { echo "uso: --listing-ids trae ids separados por una coma (sin huecos)"; exit 2; } ;; esac
 REPO=$(git rev-parse --show-toplevel)
 DIR=docs/evidencia/repricing-02/ejecucion/X.4
 SIM=${ORBIT_SIMULACION:-0}
@@ -94,7 +94,9 @@ fi
 [ -n "$IDS_TODOS" ] || { echo "sin unidades MeLi sin goal: nada que sembrar"; exit 0; }
 
 [ "$SIM" = 1 ] && [ -z "${ORBIT_SIM_TOKEN:-}" ] && { echo "ABORTA: ORBIT_SIM_TOKEN vacio (la simulacion real necesita un token local)"; exit 1; }
-GUARDA_DIR=$([ "$SIM" = 1 ] && echo "${TMPDIR:-/tmp}/orbit-x4-sim" || echo "$DIR")
+# GLM-3: en real el plan trae sku/precios/margenes de PROD (repo
+# publico): se guarda FUERA del repo, nunca en $DIR.
+GUARDA_DIR=$([ "$SIM" = 1 ] && echo "${TMPDIR:-/tmp}/orbit-x4-sim" || mktemp -d "${TMPDIR:-/tmp}/orbit-x4-real.XXXXXX")
 mkdir -p "$GUARDA_DIR"
 PLAN_JSON="$GUARDA_DIR/plan-$STAMP.json"
 SALIDA_TXT="$GUARDA_DIR/sembrar-$STAMP.txt"

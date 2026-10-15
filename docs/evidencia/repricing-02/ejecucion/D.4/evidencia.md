@@ -52,7 +52,10 @@ Ver `checklist-antes-del-deploy.txt`:
    la politica meli (datos, no esquema; el codigo viejo la ignora).
 10. Sim: `TMPDIR` varia entre shells; el estado sim vive en
     `${TMPDIR:-/tmp}/orbit-d4-sim` del shell que corre (ver rutas en
-    cada salida).
+    cada salida). Entre las pruebas U1 (commit sellado colgante) y
+    las sims principales se borro ese estado (`rm -rf`): por eso
+    `redespliegue-sellado-simulacion.txt` re-siembra el crontab en
+    el mismo minuto que `desplegar-simulacion.txt` (GLM-7).
 
 ## Salidas guardadas (todas con su linea exit= al final)
 

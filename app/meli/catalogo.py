@@ -386,7 +386,9 @@ def sincronizar(
         for sku, pid in conn.execute(_SQL_PRODUCTOS).fetchall():
             if isinstance(sku, str) and sku.strip():
                 mapa.setdefault(sku.strip(), pid)
-        existentes = {ext: (lid, pid, sku) for ext, lid, pid, sku in conn.execute(_SQL_EXISTENTES)}
+        existentes = {
+            ext: (lid, pid, sku) for ext, lid, pid, sku in conn.execute(_SQL_EXISTENTES).fetchall()
+        }
         for plan in planes:
             try:
                 with conn.transaction():

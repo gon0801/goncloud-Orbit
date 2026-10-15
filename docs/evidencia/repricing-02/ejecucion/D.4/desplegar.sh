@@ -47,7 +47,7 @@ DSN_SIM=${ORBIT_SIM_DSN:-postgresql://orbit:orbit@localhost:5432/orbit_sim_D4}
 DSN_VER=$(printf '%s' "$DSN_SIM" | sed 's|://[^@]*@|://orbit:***@|')
 TMPD=${TMPDIR:-/tmp}/orbit-d4-sim
 cd "$REPO"
-trap 'echo "FALLO en la linea $LINENO. Si ya se aplico alguna migracion o se toco el crontab: bash $DIR/rollback.sh $STAMP"' ERR
+trap 'echo "FALLO en la linea $LINENO. Si ya se aplico alguna migracion, se copio codigo o se toco el crontab: bash $DIR/rollback.sh $STAMP"' ERR
 # Las 4 lineas de D.3 (semilla del crontab sim; en real se leen del
 # crontab de gon). D.4 no las toca: solo agrega las suyas al final.
 D3_1='10 13 * * * /usr/bin/flock -n /tmp/precio-spapi.lock docker exec orbit-app-1 python -m app.cli precio --platform amazon_mx --platform amazon_us >> /mnt/data/appdata/orbit/logs/precio-corrida.log 2>&1'
@@ -446,7 +446,12 @@ if [ "$INSTALAR_CRON" = 1 ]; then
   else
     cat "$FALLA_7B" >&2
     cron_instalar < "$RESPALDO_7B"
-    echo "ABORTA: el crontab instalado trae lineas no previstas; RESPALDO RESTAURADO, nada cambio" >&2
+    # GLM-5: la restauracion se verifica, no se afirma.
+    if cron_leer | diff -q "$RESPALDO_7B" - >/dev/null 2>&1; then
+      echo "ABORTA: el crontab instalado trae lineas no previstas; RESPALDO RESTAURADO (verificado), nada cambio" >&2
+    else
+      echo "ABORTA: el crontab instalado trae lineas no previstas Y EL RESPALDO NO QUEDO (revisa $RESPALDO_7B y restauralo a mano)" >&2
+    fi
     exit 1
   fi
 else

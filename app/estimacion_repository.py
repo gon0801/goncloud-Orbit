@@ -27,6 +27,7 @@ from app.estimacion_reader import (
 )
 from app.estimacion_universo import (
     LogisticaResuelta,
+    Universo,
     envio_a_logistica,
     logistica_del_universo,
     universo_de,
@@ -535,7 +536,7 @@ def _sembrar_meli(
     fee_raw: dict[str, Any] | None,
     fee_observation_id: int | None,
     universo: str,
-    uni: Any,
+    uni: Universo | None,
     politica: PoliticaCalculo | None,
     motivos: list[str],
     valoracion_date: date,

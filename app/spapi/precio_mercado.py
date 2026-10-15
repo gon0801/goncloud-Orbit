@@ -1,7 +1,8 @@
 """MercadoAmazon: el adaptador de Amazon del motor de precios.
 
 Aqui aterriza lo que hoy estaba repartido entre `corrida.py` (lecturas de
-`spapi_price_observation` y compania, `oferta_para_cotizar` (en `fuentes`), `_verificada`,
+`spapi_price_observation` y compania, `oferta_para_cotizar` (en
+`estimacion_insumos`), `_verificada`,
 `_detalle_fee`, el armado de la entrada) y la mitad Amazon de la escritura.
 La corrida recibe esta clase duck-typed: no implementa todavia el Protocol
 estricto del puerto (eso llega con S/F), pero ya entrega cotizaciones

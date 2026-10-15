@@ -212,10 +212,6 @@ class MercadoMeli:
         self._fees = fees
         self._limitador = limitador
         self._ruta_error: str | None = None
-        if lector is not None:
-            lector_user_agent = getattr(lector, "user_agent", None)
-            if callable(lector_user_agent):
-                lector_user_agent("orbit-precio")
 
     def _exigir_clientes(self) -> None:
         if self._lector is None or self._escritor is None or self._fees is None:
@@ -256,7 +252,7 @@ class MercadoMeli:
                     ),
                     seller_sku=str(ancla),
                     precio=None,
-                    dias_sin_reportar=(hoy - observado_en).days if observado_en else None,
+                    dias_sin_reportar=(hoy - observado_en).days,
                 )
             )
         return tuple(activas)
@@ -356,7 +352,7 @@ class MercadoMeli:
                 )
             except psycopg.Error:
                 raise
-            except Exception as exc:  # noqa: BLE001 - B1: una publicacion no tumba al lote
+            except Exception as exc:  # B1: una publicacion no tumba al lote
                 lecturas[unidad.listing_id] = Lectura(
                     entrada=None,
                     motivo="escenario_incoherente",
@@ -585,7 +581,7 @@ class MercadoMeli:
             if callable(cierre):
                 try:
                     cierre()
-                except Exception as exc:  # noqa: BLE001 - best effort
+                except Exception as exc:
                     logger.warning(
                         "cerrar: fallo best-effort (%s): %s",
                         type(cliente).__name__,
