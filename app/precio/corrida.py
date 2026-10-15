@@ -568,7 +568,9 @@ def _persistir_uno(
     K8): sin fila, error. Un error de base (`psycopg.Error`) aborta: no es
     una publicacion, es la infra.
     """
-    verificacion = "cotizada" if decision.resultado in ("subir", "bajar") else None
+    verificacion = (
+        (decision.verificacion or "cotizada") if decision.resultado in ("subir", "bajar") else None
+    )
     try:
         persistir_decision(
             conn,

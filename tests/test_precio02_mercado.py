@@ -35,13 +35,9 @@ from test_precio_corrida import (
 
 RAIZ = Path(__file__).resolve().parents[1]
 
-# ORDEN59 ya trae 0047 + 0053 + 0054 (la corrida de hoy corre sobre la 0054).
-# F.4 agrega la 0020 (metricas de ads para el trafico de la historia).
-ORDEN02B = (
-    "0001_initial.sql",
-    "0020_ads_producto_metrica.sql",
-    *(n for n in ORDEN59 if n != "0001_initial.sql"),
-)
+# ORDEN59 ya trae 0020 + 0047 + 0053 + 0054 (la corrida de hoy corre sobre
+# la 0054; S.7 usa la 0020 para el trafico de la historia).
+ORDEN02B = (*ORDEN59,)
 
 _skip_sin_pg = pytest.mark.skipif(
     __import__("test_schema")._postgres_obligatorio_ausente(),
@@ -629,6 +625,31 @@ def _mediodia(dia, hora=12):
     return datetime(dia.year, dia.month, dia.day, hora, tzinfo=UTC)
 
 
+def _decision_s7(conn, lid):
+    return conn.execute(
+        "INSERT INTO precio_decision (listing_id, platform, resultado, motivo, mode,"
+        " goal, m_actual, p_actual, p_actual_currency, p_objetivo, p_objetivo_currency,"
+        " p_aplicado, p_aplicado_currency, i_valor, i_currency, c_valor, c_currency,"
+        " f_valor, f_currency, l_valor, l_currency, r_valor, r_currency,"
+        " l_origen, verificacion)"
+        " VALUES (%s, 'amazon_mx', 'subir', NULL, 'shadow', 0.30, 0.25,"
+        " 100, 'MXN', 110, 'MXN', 110, 'MXN', 10, 'MXN', 20, 'MXN', 12, 'MXN',"
+        " 5, 'MXN', 8, 'MXN', 'politica', 'cotizada') RETURNING id",
+        (lid,),
+    ).fetchone()[0]
+
+
+def _cambio_subida(conn, *, lid, did, dia):
+    conn.execute(
+        "INSERT INTO precio_cambio (listing_id, platform, decision_id, estado,"
+        " confirmado_por, aplicado, precio_antes, precio_antes_currency,"
+        " precio_despues, precio_despues_currency, enviado_at, es_reversa)"
+        " VALUES (%s, 'amazon_mx', %s, 'confirmado', 'virtual', FALSE,"
+        " 100, 'MXN', 110, 'MXN', %s, FALSE)",
+        (lid, did, _mediodia(dia)),
+    )
+
+
 @_skip_sin_pg
 def test_historia_fbm_disponibilidad_sale_del_estado_e_ignora_inventario():
     from app.spapi.precio_mercado import historia_unidad
@@ -858,3 +879,255 @@ def test_insumos_adjunta_historia_a_la_lectura():
         assert por_dia[dia].disponibilidad == "disponible"
         assert por_dia[dia].unidades == 2
         assert lectura.historia.sin_atribuir == 0
+
+
+# ---------------------------------------------------------------------------
+# 8. S.7: el motor usa la senal por unidad
+# ---------------------------------------------------------------------------
+
+
+def _metas_s7(lid, hoy):
+    from app.spapi.precio_mercado import MetaGoal
+
+    return {
+        lid: MetaGoal(
+            goal=Decimal("0.30"),
+            mode="shadow",
+            goal_vigente_desde=hoy - timedelta(days=30),
+        )
+    }
+
+
+@_skip_sin_pg
+def test_senal_por_unidad_no_ve_las_ventas_de_otra_publicacion():
+    from app.precio.config import leer_config
+    from app.spapi.precio_mercado import MercadoAmazon
+
+    with _db02() as conn:
+        datos = _cadena(conn)
+        _price_obs(conn)
+        hoy = _hoy(conn)
+        ahora = datetime.now(UTC)
+        otro = _listing(conn, datos["producto"], ext="B0F4W10002", sku="SKU-W1-B")
+        run = _run_ledger(conn)
+        _atribuir(
+            conn,
+            evento_id=_venta(
+                conn,
+                pid=datos["producto"],
+                dia=hoy - timedelta(days=200),
+                qty=1,
+                evento="evt-w1-vieja",
+                run=run,
+            ),
+            lid=datos["listing"],
+            run=run,
+        )
+        _atribuir(
+            conn,
+            evento_id=_venta(
+                conn,
+                pid=datos["producto"],
+                dia=hoy - timedelta(days=2),
+                qty=5,
+                evento="evt-w1-otra",
+                run=run,
+            ),
+            lid=otro,
+            run=run,
+        )
+        lectura = MercadoAmazon("amazon_mx").insumos(
+            conn,
+            (_unidad_f4(datos["producto"], datos["listing"], sku=datos["sku"], ext=datos["ext"]),),
+            hoy=hoy,
+            ahora=ahora,
+            config=leer_config(SETTINGS),
+            metas=_metas_s7(datos["listing"], hoy),
+        )[datos["listing"]]
+        senal = lectura.entrada.senal
+        assert (senal.estado, senal.submotivo, senal.u60) == (
+            "sin_dato",
+            "u60_bajo_minimo",
+            0,
+        )
+
+
+@_skip_sin_pg
+def test_senal_usa_ultima_subida_y_trafico():
+    from app.precio.config import leer_config
+    from app.spapi.precio_mercado import MercadoAmazon
+
+    with _db02() as conn:
+        datos = _cadena(conn)
+        _price_obs(conn)
+        hoy = _hoy(conn)
+        ahora = datetime.now(UTC)
+        subida = hoy - timedelta(days=10)
+        _cambio_subida(
+            conn, lid=datos["listing"], did=_decision_s7(conn, datos["listing"]), dia=subida
+        )
+        run = _run_ledger(conn)
+        _atribuir(
+            conn,
+            evento_id=_venta(
+                conn,
+                pid=datos["producto"],
+                dia=hoy - timedelta(days=200),
+                qty=1,
+                evento="evt-w2-vieja",
+                run=run,
+            ),
+            lid=datos["listing"],
+            run=run,
+        )
+        for i in range(20, 40):
+            dia = hoy - timedelta(days=i)
+            _atribuir(
+                conn,
+                evento_id=_venta(
+                    conn,
+                    pid=datos["producto"],
+                    dia=dia,
+                    qty=1,
+                    evento=f"evt-w2-60-{i}",
+                    run=run,
+                ),
+                lid=datos["listing"],
+                run=run,
+            )
+        _atribuir(
+            conn,
+            evento_id=_venta(
+                conn,
+                pid=datos["producto"],
+                dia=hoy - timedelta(days=2),
+                qty=2,
+                evento="evt-w2-15",
+                run=run,
+            ),
+            lid=datos["listing"],
+            run=run,
+        )
+        for d in range(11, 39):
+            _ads(
+                conn,
+                asin=datos["ext"],
+                sku=datos["sku"],
+                dia=hoy - timedelta(days=d),
+                impresiones=200,
+                clics=20,
+            )
+        for d in range(1, 10):
+            _ads(
+                conn,
+                asin=datos["ext"],
+                sku=datos["sku"],
+                dia=hoy - timedelta(days=d),
+                impresiones=200,
+                clics=8,
+            )
+        lectura = MercadoAmazon("amazon_mx").insumos(
+            conn,
+            (_unidad_f4(datos["producto"], datos["listing"], sku=datos["sku"], ext=datos["ext"]),),
+            hoy=hoy,
+            ahora=ahora,
+            config=leer_config(SETTINGS),
+            metas=_metas_s7(datos["listing"], hoy),
+        )[datos["listing"]]
+        senal = lectura.entrada.senal
+        assert (senal.estado, senal.evidencia) == ("perdiendo", "trafico")
+
+
+@_skip_sin_pg
+def test_senal_sin_clave_de_trafico_falla_fuerte():
+    from test_precio_corrida import _config as _config_corrida
+
+    from app.precio.config import leer_config
+    from app.spapi.precio_mercado import MercadoAmazon
+
+    with _db02() as conn:
+        datos = _cadena(conn)
+        _price_obs(conn)
+        hoy = _hoy(conn)
+        ahora = datetime.now(UTC)
+        ajuste = {k: v for k, v in SETTINGS.items() if k != "precio_senal_trafico_min"}
+        _config_corrida(conn, ajuste)
+        with pytest.raises(ValueError, match="precio_senal_trafico_min"):
+            MercadoAmazon("amazon_mx").insumos(
+                conn,
+                (
+                    _unidad_f4(
+                        datos["producto"], datos["listing"], sku=datos["sku"], ext=datos["ext"]
+                    ),
+                ),
+                hoy=hoy,
+                ahora=ahora,
+                config=leer_config(SETTINGS),
+                metas=_metas_s7(datos["listing"], hoy),
+            )
+
+
+def test_ultima_subida_ignora_lo_que_no_movio_precio():
+    from datetime import date
+
+    from app.precio.tipos import CambioPrevio
+    from app.spapi.precio_mercado import _ultima_subida
+
+    d1 = date(2026, 9, 1)
+    d2 = date(2026, 9, 5)
+    d3 = date(2026, 9, 9)
+    cambios = (
+        CambioPrevio(d1, "subir", "confirmado", aplicado=True, sin_efecto=False),
+        CambioPrevio(d2, "subir", "error", aplicado=False, sin_efecto=False),
+        CambioPrevio(d3, "bajar", "confirmado", aplicado=True, sin_efecto=False),
+        CambioPrevio(d2, "subir", "confirmado", aplicado=True, sin_efecto=True),
+    )
+    assert _ultima_subida(cambios) == d1
+    assert _ultima_subida(()) is None
+
+
+@_skip_sin_pg
+def test_persistir_uno_guarda_verificacion_lineal():
+    import test_precio_reglas as reglas_fx
+
+    from app.precio.corrida import _persistir_uno
+    from app.precio.reglas import decidir
+
+    with _db02() as conn:
+        datos = _cadena(conn)
+        cfg_id = conn.execute("SELECT max(id) FROM config_version").fetchone()[0]
+        goal_id = conn.execute(
+            "SELECT id FROM precio_goal WHERE listing_id = %s", (datos["listing"],)
+        ).fetchone()[0]
+        ent = reglas_fx.entrada(costo="60", mode="shadow")
+        decision = decidir(
+            ent,
+            hoy=reglas_fx.HOY,
+            config=reglas_fx.cfg(),
+            cotizaciones=(),
+            fees_escenario=reglas_fx.fees_escenario_de(ent),
+            lineal=True,
+        )
+        assert (decision.resultado, decision.verificacion) == ("subir", "lineal")
+        lineas: list = []
+        errores: list = []
+        _persistir_uno(
+            conn,
+            decision,
+            lid=datos["listing"],
+            mode="shadow",
+            prod_id=datos["producto"],
+            canal="fba",
+            meta=None,
+            platform="amazon_mx",
+            goal_id=goal_id,
+            cfg_id=cfg_id,
+            lineas=lineas,
+            errores=errores,
+        )
+        fila = conn.execute(
+            "SELECT verificacion FROM precio_decision WHERE listing_id = %s"
+            " ORDER BY id DESC LIMIT 1",
+            (datos["listing"],),
+        ).fetchone()[0]
+        assert fila == "lineal"

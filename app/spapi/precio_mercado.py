@@ -38,7 +38,6 @@ from app.precio.tipos import (
     HistorialMargen,
     Importe,
     ObservacionPricing,
-    VentasInsumos,
 )
 from app.precio.ventas import evaluar_senal
 from app.spapi import precio_write as _precio_write
@@ -198,6 +197,21 @@ def cambios_previos(
     return tuple(cambios)
 
 
+def _ultima_subida(cambios: Sequence[CambioPrevio]) -> date | None:
+    """Dia de la ultima subida propia que movio precio (None si no hay).
+
+    Solo cuentan `subir` ejecutadas (`enviado`/`confirmado`); un `error`,
+    un `pendiente` o un `sin_efecto` (el readback probo que el precio no
+    se movio) no abren antes/despues para el trafico.
+    """
+    dias = [
+        c.enviado_en
+        for c in cambios
+        if c.direccion == "subir" and c.estado in ("enviado", "confirmado") and not c.sin_efecto
+    ]
+    return max(dias) if dias else None
+
+
 def historial_margenes(
     conn: psycopg.Connection, listing_id: int, platform: str
 ) -> tuple[HistorialMargen, ...]:
@@ -225,70 +239,6 @@ def historial_margenes(
             )
         )
     return tuple(puntos)
-
-
-def _insumos_ventas(
-    conn: psycopg.Connection, *, product_id: int, platform: str, sku: str
-) -> VentasInsumos:
-    """Filas ya leidas para S4 #5 (ventas del ledger, inventario y estado).
-
-    Dia cubierto (S2 «Unidades vendidas»): `event_date` maxima cargada por
-    un `ingest_run` `ok` del ledger DE LA PLATAFORMA —nunca la ultima venta
-    del producto (un producto quieto no significa ledger rezagado). El
-    `source` es el literal de `app/ledger.py::SOURCE` (declarado aqui).
-    """
-    ventas = [
-        (dia, qty)
-        for dia, qty in conn.execute(
-            "SELECT event_date, quantity FROM ledger_event"
-            " WHERE product_id = %s AND platform = %s AND kind = 'sale'"
-            " AND quantity IS NOT NULL",
-            (product_id, platform),
-        ).fetchall()
-    ]
-    primera = conn.execute(
-        "SELECT min(event_date) FROM ledger_event"
-        " WHERE product_id = %s AND platform = %s AND kind = 'sale'",
-        (product_id, platform),
-    ).fetchone()[0]
-    cubierto = conn.execute(
-        "SELECT max(e.event_date) FROM ledger_event e"
-        " JOIN ingest_run r ON r.id = e.ingest_run_id"
-        " WHERE e.platform = %s AND e.kind = 'sale' AND r.ok"
-        " AND r.source = 'accounting_ledger_events'",
-        (platform,),
-    ).fetchone()[0]
-    skus = [
-        f[0]
-        for f in conn.execute(
-            "SELECT DISTINCT seller_sku FROM listing WHERE product_id = %s AND platform = %s",
-            (product_id, platform),
-        ).fetchall()
-    ]
-    inventario: list = []
-    activos: list = []
-    for codigo in skus or [sku]:
-        inventario.extend(
-            conn.execute(
-                "SELECT metric_date, total_quantity FROM spapi_inventario_observation"
-                " WHERE seller_sku = %s AND platform = %s",
-                (codigo, platform),
-            ).fetchall()
-        )
-        for estado, obs in conn.execute(
-            "SELECT status, observed_at FROM spapi_listing_estado_observation"
-            " WHERE seller_sku = %s AND platform = %s",
-            (codigo, platform),
-        ).fetchall():
-            dia = obs.astimezone(UTC).date() if isinstance(obs, datetime) else obs
-            activos.append((dia, "BUYABLE" in (estado or "")))
-    return VentasInsumos(
-        ventas=tuple(ventas),
-        inventario=tuple(inventario),
-        listing_activo=tuple(activos),
-        primera_venta=primera,
-        dia_cubierto_hasta=cubierto,
-    )
 
 
 def _dia_utc(valor):
@@ -586,8 +536,15 @@ class MercadoAmazon:
 
         Nunca levanta por un dato faltante: el fallo viaja en la Lectura
         (`motivo`/`diagnostico`), como hoy viajaban `EscenarioNoDisponible`
-        e `InsumoIncoherente`.
+        e `InsumoIncoherente`. La clave de trafico se lee una vez, fuera
+        del lote: sin ella no hay senal para nadie y se falla fuerte.
         """
+        from app.precio.config import _entero as _config_entero
+        from app.precio.fuentes import config_vigente_settings
+
+        trafico_min = _config_entero(
+            config_vigente_settings(conn), "precio_senal_trafico_min", minimo=20, maximo=5000
+        )
         por_listing = list(dict.fromkeys(u.listing_id for u in unidades))
         pricing_por_asin = {
             fila[0]: fila
@@ -637,6 +594,7 @@ class MercadoAmazon:
                     config=config,
                     pricing_por_asin=pricing_por_asin,
                     racha_por_lid=racha_por_lid,
+                    trafico_min=trafico_min,
                 )
             except psycopg.Error:
                 raise
@@ -663,6 +621,7 @@ class MercadoAmazon:
         config,
         pricing_por_asin,
         racha_por_lid,
+        trafico_min,
     ) -> Lectura:
         """La Lectura de una unidad con cuenta disponible (levanta ValueError)."""
         if cuenta is None:
@@ -709,17 +668,15 @@ class MercadoAmazon:
                 observada_en=fila_pricing[3],
             )
             buy_box = fila_pricing[4]
-        insumos_ventas = _insumos_ventas(
-            conn,
-            product_id=unidad.producto_ancla,
-            platform=self.clave,
-            sku=unidad.miembros[0].seller_sku if unidad.miembros else "",
-        )
+        historia = historia_unidad(conn, unidad=unidad, canal=cuenta.canal, hoy=hoy)
+        cambios = cambios_previos(conn, unidad.listing_id, self.clave)
         senal = evaluar_senal(
-            insumos_ventas,
+            historia,
             hoy=hoy,
             config=config,
             racha_previa=int(racha_por_lid.get(unidad.listing_id) or 0),
+            ultima_subida=_ultima_subida(cambios),
+            trafico_min=trafico_min,
         )
         escenario = Escenario(
             componentes=cuenta.componentes,
@@ -731,7 +688,6 @@ class MercadoAmazon:
             oferta_observada_en=cuenta.oferta_observada_en,
         )
         cotizable = _oferta_para_cotizar(conn, cuenta.refs.oferta_observation_id)
-        historia = historia_unidad(conn, unidad=unidad, canal=cuenta.canal, hoy=hoy)
         entrada = EntradaDecision(
             listing_id=unidad.listing_id,
             platform=self.clave,
@@ -742,7 +698,7 @@ class MercadoAmazon:
             escenario=escenario,
             pricing=observacion,
             senal=senal,
-            cambios=cambios_previos(conn, unidad.listing_id, self.clave),
+            cambios=cambios,
             historial=historial_margenes(conn, unidad.listing_id, self.clave),
             goal_vigente_desde=meta.goal_vigente_desde,
             motivo_estimacion=None,
