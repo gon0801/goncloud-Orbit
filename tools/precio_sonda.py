@@ -127,10 +127,15 @@ def main(argv=None, *, mercado=None) -> int:
                 lector, escritor, _fees, limitador = _clientes_precio(args.platform)
             except Exception as exc:  # noqa: BLE001 - sin clientes no hay go real
                 raise Abortar(f"sin clientes para {args.platform}: {exc}") from None
-            with mercados.abrir(
-                args.platform, lector=lector, escritor=escritor, limitador=limitador
-            ) as abierto:
-                return _corre(conn, abierto, unidad, args)
+            try:
+                with mercados.abrir(
+                    args.platform, lector=lector, escritor=escritor, limitador=limitador
+                ) as abierto:
+                    return _corre(conn, abierto, unidad, args)
+            except Abortar:
+                raise
+            except mercados.ConfigInvalida as exc:
+                raise Abortar(f"sin mercado para {args.platform}: {exc}") from None
         return _corre(conn, mercado, unidad, args)
     finally:
         conn.close()

@@ -141,6 +141,30 @@ def test_sonda_con_go_mueve_un_centavo_y_revierte(monkeypatch, capsys):
 
 
 @_skip_sin_pg
+def test_sonda_plataforma_sin_mercado_aborta_limpio(monkeypatch):
+    from contextlib import contextmanager
+
+    import app.cli
+    import app.precio_mercados as mercados
+
+    def _sin_clientes(_platform):
+        return (object(), object(), object(), object())
+
+    @contextmanager
+    def _sin_mercado(_platform, **_kwargs):
+        raise mercados.ConfigInvalida("plataforma meli: su adaptador aun no declara Mercado")
+        yield None
+
+    monkeypatch.setattr(app.cli, "_clientes_precio", _sin_clientes)
+    monkeypatch.setattr(mercados, "abrir", _sin_mercado)
+    with _db_sonda() as (conn, dsn):
+        lid = _listing(conn)
+        monkeypatch.setenv("ORBIT_DSN_DECIDE", dsn)
+        with pytest.raises(Abortar, match="sin mercado"):
+            main(["--platform", "amazon_mx", "--listing-id", str(lid)])
+
+
+@_skip_sin_pg
 def test_sonda_listing_inexistente_o_de_otra_plataforma_aborta(monkeypatch):
     mercado = _MercadoSondaFalso()
     with _db_sonda() as (conn, dsn):
