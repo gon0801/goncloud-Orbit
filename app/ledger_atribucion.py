@@ -145,9 +145,9 @@ class AtribuidorAmazon:
             self._canal_orden[clave] = self.canal_de_orden(fila[0] if fila else None)
         return self._canal_orden[clave]
 
-    def _canal_de_listing(self, db: Any, plataforma: str, seller_sku: str | None) -> str:
+    def _canal_de_listing(self, db: Any, plataforma: str, seller_sku: str | None) -> str | None:
         if seller_sku is None:
-            return "fbm"
+            return None
         clave = (plataforma, seller_sku)
         if clave not in self._tiene_inventario:
             self._tiene_inventario[clave] = (

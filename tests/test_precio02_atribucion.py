@@ -281,6 +281,23 @@ def test_dos_listings_del_mismo_canal_no_se_deciden(tmp_path):
 
 
 @_skip_sin_pg
+def test_listing_sin_sku_no_gana_por_canal(tmp_path):
+    with _db() as conn:
+        pid = _producto(conn, sku="SKU-F1-NS")
+        _listing(conn, pid, plataforma="amazon_mx", sku="AMZ-F1-NS1", ext="B0F1NSKU01")
+        _listing(conn, pid, plataforma="amazon_mx", sku=None, ext="B0F1NSKU02")  # type: ignore[arg-type]
+        _inventario(conn, plataforma="amazon_mx", sku="AMZ-F1-NS1")
+        _orden(conn, plataforma="amazon_mx", orden="702-f1-ns", canal="MERCHANT")
+        snap = _snapshot(
+            tmp_path / "led.db",
+            [{"orden": "702-f1-ns", "asin": "B0F1NSKU02", "dedupe": "src-f1-ns"}],
+        )
+        resultado = sync_ledger(conn, snap, atribuidores={"amazon_mx": AtribuidorAmazon(conn)})
+        assert _atribuciones(conn) == []
+        assert "venta_sin_atribuir" in (resultado.skip_reason or "")
+
+
+@_skip_sin_pg
 def test_venta_sin_producto_no_se_atribuye(tmp_path):
     with _db() as conn:
         otro = _producto(conn, sku="SKU-F1-OTRO")
