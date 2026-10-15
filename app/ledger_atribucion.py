@@ -127,8 +127,8 @@ class AtribuidorAmazon:
         """Cierra la conexion propia, si la abrio. La inyectada no se toca."""
         if self._propia and self._conn is not None:
             self._conn.close()
-        self._conn = None
-        self._propia = False
+            self._conn = None
+            self._propia = False
 
     def _candidatos(self, db: Any, plataforma: str, product_id: int) -> tuple:
         clave = (plataforma, product_id)

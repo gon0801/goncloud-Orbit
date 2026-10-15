@@ -297,6 +297,39 @@ def test_listing_sin_sku_no_gana_por_canal(tmp_path):
         assert "venta_sin_atribuir" in (resultado.skip_reason or "")
 
 
+def test_close_no_olvida_conexion_inyectada(monkeypatch):
+    from app.ledger_atribucion import AtribuidorAmazon
+
+    monkeypatch.delenv("ORBIT_DSN_INGEST", raising=False)
+
+    class _Filas:
+        def fetchall(self):
+            return [(7, "SKU-X")]
+
+    class _Db:
+        def __init__(self):
+            self.usos = 0
+
+        def execute(self, *args, **kwargs):
+            self.usos += 1
+            return _Filas()
+
+    class _Fila:
+        kind = "sale"
+        platform = "amazon_mx"
+
+        def __init__(self, product_id):
+            self.product_id = product_id
+
+    db = _Db()
+    atr = AtribuidorAmazon(db)
+    assert atr.atribuir(_Fila(5)).listing_id == 7
+    assert db.usos == 1
+    atr.close()
+    assert atr.atribuir(_Fila(6)).listing_id == 7
+    assert db.usos == 2
+
+
 @_skip_sin_pg
 def test_venta_sin_producto_no_se_atribuye(tmp_path):
     with _db() as conn:
