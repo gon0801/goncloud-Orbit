@@ -434,6 +434,69 @@ def _con_goal_precio(
     return con_goal
 
 
+# G.3: una fila por listing de la plataforma, con lo que el dueno mira
+# antes de sembrar (margen de hoy, goal, precio objetivo, origen del
+# envio, TACoS). Granos fijados: el margen sale del escenario
+# `disponible` mas reciente (lo mismo que copia "margen de hoy" en
+# G.2); el objetivo, de la decision de hoy (sin decision no hay
+# objetivo: None, nunca un invento); el origen, del escenario
+# (`logistica_origen` de la 0054); el TACoS, de `v_tacos` del mes del
+# corte maduro (mes de hoy - 15: la unica TACoS del sistema, por
+# plataforma y mes, repetida en cada fila).
+_SQL_UNIDADES_G3 = """
+SELECT l.id, l.seller_sku,
+       v.margen_goal_pct, v.mode::text,
+       e.contribucion_pct, e.logistica_origen, e.canal::text,
+       d.p_objetivo
+  FROM listing l
+  LEFT JOIN v_precio_goal_vigente v
+    ON v.listing_id = l.id AND v.platform = l.platform
+  LEFT JOIN LATERAL (
+      SELECT contribucion_pct, logistica_origen, canal
+        FROM estimacion_escenario
+       WHERE listing_id = l.id AND platform = l.platform AND estado = 'disponible'
+       ORDER BY observed_at DESC LIMIT 1
+  ) e ON true
+  LEFT JOIN precio_decision d
+    ON d.listing_id = l.id AND d.platform = l.platform AND d.decision_date = %s
+ WHERE l.platform = %s::platform
+ ORDER BY l.seller_sku
+"""
+
+_SQL_TACOS_MES_G3 = """
+SELECT tacos_pct FROM v_tacos
+ WHERE platform = %s::platform
+   AND mes = date_trunc('month', (%s::date - 15))::date
+"""
+
+
+def _unidades_precio(conn: ConexionLectura, plataforma: str, hoy: dt.date) -> list[dict]:
+    """Bloque G.3: una fila por unidad con margen de hoy (tanto por uno),
+    goal vigente, precio objetivo de hoy, origen del envio y TACoS del
+    mes del corte. `None` donde no hay dato (regla 3)."""
+    tacos = conn.execute(_SQL_TACOS_MES_G3, (plataforma, hoy)).fetchone()
+    tacos_str = _dec_str(tacos[0]) if tacos is not None else None
+    filas = []
+    for lid, sku, goal, goal_mode, m_pct, origen, canal, p_obj in conn.execute(
+        _SQL_UNIDADES_G3, (hoy, plataforma)
+    ).fetchall():
+        filas.append(
+            {
+                "listing_id": lid,
+                "sku": sku,
+                "canal": canal,
+                "tiene_goal": goal is not None,
+                "margen_hoy": _dec_str(m_pct / 100) if m_pct is not None else None,
+                "goal": _dec_str(goal),
+                "goal_mode": goal_mode,
+                "precio_objetivo": _dec_str(p_obj),
+                "envio_origen": origen,
+                "tacos": tacos_str,
+            }
+        )
+    return filas
+
+
 def _divergentes_precio(
     conn: ConexionLectura, plataforma: str, hoy: dt.date, umbral: int
 ) -> list[dict]:
@@ -516,6 +579,7 @@ def _bloque_precios(
         bloque["con_goal"] = _con_goal_precio(
             conn, plataforma, hoy, {fila["listing_id"]: fila for fila in detalle}
         )
+        bloque["unidades"] = _unidades_precio(conn, plataforma, hoy)
         bloque["acciones"] = _acciones_precio(detalle, cambios, plataforma)
         bloque["no_evaluados_filas"] = _filas_no_evaluados(detalle)
         bloque["divergentes"] = _divergentes_precio(conn, plataforma, hoy, umbral)

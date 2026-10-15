@@ -1,0 +1,16 @@
+TDD rojo G.3 (antes de implementar):
+
+comando:
+PATH=/opt/homebrew/bin:$PATH ORBIT_TEST_DSN=postgresql://orbit:orbit@localhost:5432/postgres \
+PYTHONPATH=. .venv/bin/python -m pytest -q -rs -p no:cacheprovider \
+tests/test_precio_pantalla.py -k "test_g3_"
+
+test_g3_precios_unidades_traen_margen_goal_objetivo_origen_y_tacos:
+> uni = {u["sku"]: u for u in data["plataformas"]["amazon_mx"]["unidades"]}
+E KeyError: 'unidades'
+
+test_g3_precios_html_tabla_goals_marca_origen_y_seguridad:
+> assert "bloque-goals-amazon_mx" in html
+E AssertionError: assert 'bloque-goals-amazon_mx' in '<!DOCTYPE html>...'
+
+2 failed, 85 deselected

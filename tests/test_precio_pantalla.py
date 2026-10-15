@@ -3053,3 +3053,228 @@ def test_s6_salud_corrida_ausente_dentro_del_bloque_precios():
             "precios",
             "avisos_campana",
         }
+
+
+# ---------------------------------------------------------------------------
+# Bloque G.3 (REPRICING 02, G.3): pantalla /precios con edicion. El servidor
+# entrega, por unidad, margen de hoy, goal, precio objetivo, origen del
+# envio y TACoS (lista `unidades` por plataforma); el HTML trae la tabla
+# de goals con su marca de origen y el bloque de seguridad de S.3.
+# Semillas de estimacion reusadas de `test_precio_goals` (patron G.2).
+# Otros carriles anexan debajo: no borrar ni reordenar.
+# ---------------------------------------------------------------------------
+
+
+def _g3_muestra_familia(conn, producto):
+    """Muestra de envio `familia` (origen + donantes coherentes con la 0054)."""
+    fam = conn.execute(
+        "INSERT INTO familia (platform, nombre, slug) VALUES ('amazon_mx', 'Fam G3', 'fam_g3')"
+        " RETURNING id"
+    ).fetchone()[0]
+    return conn.execute(
+        "INSERT INTO precio_envio_muestra (product_id, platform, ventana_desde,"
+        " ventana_hasta, envios, valor, valor_currency, canal, origen, familia_id,"
+        " donantes, regla_version)"
+        " VALUES (%s, 'amazon_mx', ((now() AT TIME ZONE 'UTC')::date - 30),"
+        " ((now() AT TIME ZONE 'UTC')::date - 1), 12, 80, 'MXN', 'fbm', 'familia',"
+        " %s, 4, 'test-g3') RETURNING id",
+        (producto, fam),
+    ).fetchone()[0]
+
+
+def _g3_tacos(conn, run_id):
+    """Gasto 100 / venta 1000 MXN en el dia de corte (hoy - 15, maduro):
+    `v_tacos` del mes del corte da tacos_pct 10.00."""
+    kw = conn.execute(
+        "INSERT INTO ad_entity (platform, kind, external_id, match_type, keyword_text)"
+        " VALUES ('amazon_mx', 'keyword', 'kw-g3', 'EXACT', 'tacos g3') RETURNING id"
+    ).fetchone()[0]
+    conn.execute(
+        "INSERT INTO ads_metric_observation (ad_entity_id, metric_date, observed_at,"
+        " metric_currency, cost, ingest_run_id)"
+        " VALUES (%s, ((now() AT TIME ZONE 'UTC')::date - 15), now(), 'MXN', 100, %s)",
+        (kw, run_id),
+    )
+    conn.execute(
+        "INSERT INTO ledger_event (platform, kind, event_date, amount, amount_currency,"
+        " ingest_run_id)"
+        " VALUES ('amazon_mx', 'sale', ((now() AT TIME ZONE 'UTC')::date - 15),"
+        " 1000, 'MXN', %s)",
+        (run_id,),
+    )
+
+
+def _g3_decision_objetivo(conn, listing, *, p_objetivo="127.60"):
+    """Decision `subir` de hoy con precio objetivo distinto del actual."""
+    return conn.execute(
+        "INSERT INTO precio_decision (listing_id, platform, resultado,"
+        " goal, m_actual, p_actual, p_actual_currency, p_objetivo, p_objetivo_currency,"
+        " p_aplicado, p_aplicado_currency, i_valor, i_currency, c_valor, c_currency,"
+        " f_valor, f_currency, l_valor, l_currency, r_valor, r_currency, mode,"
+        " l_origen, verificacion)"
+        " VALUES (%s, 'amazon_mx', 'subir', 0.30, 0.24, 116, 'MXN', %s, 'MXN', 116, 'MXN',"
+        " 100, 'MXN', 40, 'MXN', 15, 'MXN', 0, 'MXN', 2.50, 'MXN', 'shadow',"
+        " 'politica', 'cotizada') RETURNING id",
+        (listing, p_objetivo),
+    ).fetchone()[0]
+
+
+def _g3_escenario(
+    conn,
+    listing,
+    oferta_id,
+    fee_id,
+    politica_id,
+    costo_id,
+    run_id,
+    validada_en,
+    *,
+    sku,
+    ext,
+    m,
+    logistica_origen,
+    muestra_id=None,
+):
+    """Como `_escenario` de G.1 pero con `logistica_origen` en el INSERT
+    (el escenario es append-only: no se UPDATEa)."""
+    from datetime import UTC, datetime, timedelta
+    from decimal import Decimal
+
+    from test_precio_goals import _componentes
+
+    observed = datetime.now(UTC) + timedelta(seconds=120)
+    valoracion = conn.execute("SELECT (now() AT TIME ZONE 'UTC')::date").fetchone()[0]
+    return conn.execute(
+        "INSERT INTO estimacion_escenario (listing_id, platform, seller_sku, asin, canal,"
+        " valoracion_date, observed_at, politica_version_id, formula_version,"
+        " oferta_observation_id, fee_observation_id, sku_cost_id, costo_validation_run_id,"
+        " costo_validated_at, moneda, contribucion, contribucion_pct, estado, motivos,"
+        " componentes, exclusiones, canonical_input, context_fingerprint, source_event_id,"
+        " logistica_origen, envio_muestra_id)"
+        " VALUES (%s, 'amazon_mx', %s, %s, 'fba', %s, %s, %s, 'vtest', %s, %s, %s, %s,"
+        " %s, 'MXN', %s, %s, 'disponible', %s, %s, %s, %s,"
+        " 'ctx-g3', %s, %s, %s) RETURNING id",
+        (
+            listing,
+            sku,
+            ext,
+            valoracion,
+            observed,
+            politica_id,
+            oferta_id,
+            fee_id,
+            costo_id,
+            run_id,
+            validada_en,
+            Decimal(m).quantize(Decimal("0.01")),
+            Decimal(m),
+            Json([]),
+            Json(_componentes()),
+            Json([]),
+            Json({}),
+            f"esc-{sku}",
+            logistica_origen,
+            muestra_id,
+        ),
+    ).fetchone()[0]
+
+
+def _g3_semilla(conn):
+    """Dos unidades amazon_mx: A sin goal (margen 24 %, envio familia),
+    B con goal 25 % (margen 30 %, envio politica, objetivo 127.60);
+    TACoS 10.00 del mes del corte. Devuelve (sku_a, sku_b)."""
+    from test_precio_goals import _costo, _fee, _oferta, _politica, _run
+
+    _config_pantalla(conn)
+    run_id, validada = _run(conn)
+    politica = _politica(conn)
+    _g3_tacos(conn, run_id)
+    sku_a, sku_b = "SKU-G3-A", "SKU-G3-B"
+    prod_a = _producto(conn, sku=sku_a)
+    lid_a = _listing(conn, prod_a, sku=sku_a, ext="B0G300000A")
+    of_a = _oferta(
+        conn, lid_a, sku=sku_a, ext="B0G300000A", evento=f"oferta-{sku_a}", huella="ctx-g3"
+    )
+    fee_a = _fee(
+        conn, of_a, lid_a, sku=sku_a, ext="B0G300000A", evento=f"fee-{sku_a}", huella="ctx-g3"
+    )
+    _g3_escenario(
+        conn,
+        lid_a,
+        of_a,
+        fee_a,
+        politica,
+        _costo(conn, prod_a),
+        run_id,
+        validada,
+        sku=sku_a,
+        ext="B0G300000A",
+        m="24.00",
+        logistica_origen="familia",
+        muestra_id=_g3_muestra_familia(conn, prod_a),
+    )
+    prod_b = _producto(conn, sku=sku_b)
+    lid_b = _listing(conn, prod_b, sku=sku_b, ext="B0G300000B")
+    _goal(conn, lid_b)
+    of_b = _oferta(
+        conn, lid_b, sku=sku_b, ext="B0G300000B", evento=f"oferta-{sku_b}", huella="ctx-g3"
+    )
+    fee_b = _fee(
+        conn, of_b, lid_b, sku=sku_b, ext="B0G300000B", evento=f"fee-{sku_b}", huella="ctx-g3"
+    )
+    _g3_escenario(
+        conn,
+        lid_b,
+        of_b,
+        fee_b,
+        politica,
+        _costo(conn, prod_b),
+        run_id,
+        validada,
+        sku=sku_b,
+        ext="B0G300000B",
+        m="30.00",
+        logistica_origen="politica",
+    )
+    _g3_decision_objetivo(conn, lid_b)
+    return sku_a, sku_b
+
+
+@_skip_sin_pg
+def test_g3_precios_unidades_traen_margen_goal_objetivo_origen_y_tacos(monkeypatch):
+    """G.3: el JSON trae por unidad margen de hoy, goal, precio objetivo,
+    origen del envio y TACoS del mes del corte (None donde no hay dato)."""
+    with _db_pantalla("g3-json") as (conn, dsn):
+        sku_a, sku_b = _g3_semilla(conn)
+        data = _cliente_pantalla(dsn, monkeypatch).get("/api/dashboard/precios").json()
+        uni = {u["sku"]: u for u in data["plataformas"]["amazon_mx"]["unidades"]}
+        a, b = uni[sku_a], uni[sku_b]
+        assert a["margen_hoy"] == "0.2400"
+        assert a["goal"] is None
+        assert a["precio_objetivo"] is None
+        assert a["envio_origen"] == "familia"
+        assert a["tacos"] == "10.00"
+        assert b["margen_hoy"] == "0.3000"
+        assert b["goal"] == "0.2500"
+        assert b["precio_objetivo"] == "127.6000"
+        assert b["envio_origen"] == "politica"
+        assert b["tacos"] == "10.00"
+
+
+@_skip_sin_pg
+def test_g3_precios_html_tabla_goals_marca_origen_y_seguridad(monkeypatch):
+    """G.3: el HTML trae la tabla de goals por unidad (margen, goal,
+    objetivo, origen con marca distinta en familia, TACoS) y el bloque de
+    seguridad de S.3."""
+    with _db_pantalla("g3-html") as (conn, dsn):
+        sku_a, sku_b = _g3_semilla(conn)
+        html = _html_precios(conn, dsn, monkeypatch)
+        assert "bloque-goals-amazon_mx" in html
+        assert "bloque-seguridad-amazon_mx" in html
+        assert sku_a in html
+        assert sku_b in html
+        assert "24.00 %" in html
+        assert "25.00 %" in html
+        assert "127.60" in html
+        assert "familia" in html
+        assert "10.00 %" in html
