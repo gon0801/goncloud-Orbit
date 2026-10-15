@@ -390,17 +390,17 @@ El server está en UTC: estas horas SON UTC.
 | 12:15 | `precio-muestras:amazon_mx` | `python -m app.envio_muestras --platform amazon_mx --canal fbm` (REPRICING 02 D.3: job diario de muestras MX antes de la estimacion) |
 | 12:20 | `precio-muestras:amazon_us` | `python -m app.envio_muestras --platform amazon_us --canal fbm` (REPRICING 02 D.3: job diario de muestras US antes de la estimacion) |
 | 13:10 + repasos 15-23/2 | `precio:amazon_mx,amazon_us` | `python -m app.cli precio --platform amazon_mx --platform amazon_us` (REPRICING 02 D.3: diaria 13:10 + repasos cada 2 h, MX y US en serie; flock + log, lineas exactas abajo) |
+| 11:30 | `meli-catalogo` | `python -m app.meli.catalogo` (REPRICING 02 D.4: catalogo MeLi antes de la corrida) |
 | 12:25 | `precio-muestras:meli` | `python -m app.envio_muestras --platform meli --canal meli` (REPRICING 02 D.4: muestras MeLi antes de la estimacion) |
-| 12:35 | `meli-catalogo` | `python -m app.meli.catalogo` (REPRICING 02 D.4: catalogo MeLi antes de la corrida) |
-| 12:40 + repasos 15-23/2 | `precio:meli` | `python -m app.cli precio --platform meli` (REPRICING 02 D.4: diaria 12:40 + repasos cada 2 h; flock propio + log, lineas exactas abajo) |
+| 13:10 + repasos 15-23/2 | `precio:meli` | `python -m app.cli precio --platform meli` (REPRICING 02 D.4: diaria 13:10 + repasos cada 2 h; flock propio + log, lineas exactas abajo) |
 
 Corrida diaria de precios (REPRICING 02 D.3), `amazon_mx` y `amazon_us`
 en serie: la diaria de las 13:10 UTC mas los repasos de las 15:10 a las
 23:10 UTC cada 2 h (el repaso aplica lo pendiente y lo soltado por el
-dueno; sin nada pendiente no toca la plataforma). `meli` NO se agenda
-hasta su fase (el comando acepta las tres plataformas, el cron solo
-estas). El job de muestras corre antes de la estimacion (12:15 MX,
-12:20 US); el dia del despliegue no hay muestras hasta las 12:15 UTC.
+dueno; sin nada pendiente no toca la plataforma). `meli` se agenda en
+su fase (D.4, bloque MeLi abajo). El job de muestras corre antes de
+la estimacion (12:15 MX, 12:20 US); el dia del despliegue no hay
+muestras hasta las 12:15 UTC.
 Lineas EXACTAS del crontab de `gon` (la prueba
 `test_linea_crontab_en_deploy` las pinza de
 `tests/test_precio_corrida.py::LINEA_CRONTAB_PRECIO`,
@@ -414,16 +414,18 @@ Lineas EXACTAS del crontab de `gon` (la prueba
 20 12 * * * docker exec orbit-app-1 python -m app.envio_muestras --platform amazon_us --canal fbm >> /mnt/data/appdata/orbit/logs/precio-muestras.log 2>&1
 ```
 
-MeLi (REPRICING 02 D.4): mismas cuatro patas en serie — muestras
-12:25, catalogo 12:35, corrida 12:40 y repasos 15:40-23:40 cada 2 h
-(`precio-meli.lock` propio: la corrida Amazon usa el suyo). Lineas
-EXACTAS (las pinza el test del paquete D.4):
+MeLi (REPRICING 02 D.4): catalogo 11:30, muestras 12:25, corrida
+13:10 y repasos 15:10-23:10 cada 2 h (`precio-meli.lock` propio: la
+corrida Amazon usa el suyo; a las 13:10 corren las dos, cada una con
+su lock y su log). Lineas EXACTAS (las pinza
+`test_linea_crontab_meli_en_deploy` de
+`tests/test_precio_corrida.py::LINEA_CRONTAB_MELI_*`):
 
 ```cron
+30 11 * * * docker exec orbit-app-1 python -m app.meli.catalogo >> /mnt/data/appdata/orbit/logs/meli-catalogo.log 2>&1
 25 12 * * * docker exec orbit-app-1 python -m app.envio_muestras --platform meli --canal meli >> /mnt/data/appdata/orbit/logs/precio-muestras.log 2>&1
-35 12 * * * docker exec orbit-app-1 python -m app.meli.catalogo >> /mnt/data/appdata/orbit/logs/meli-catalogo.log 2>&1
-40 12 * * * /usr/bin/flock -n /tmp/precio-meli.lock docker exec orbit-app-1 python -m app.cli precio --platform meli >> /mnt/data/appdata/orbit/logs/precio-corrida.log 2>&1
-40 15-23/2 * * * /usr/bin/flock -n /tmp/precio-meli.lock docker exec orbit-app-1 python -m app.cli precio --platform meli >> /mnt/data/appdata/orbit/logs/precio-corrida.log 2>&1
+10 13 * * * /usr/bin/flock -n /tmp/precio-meli.lock docker exec orbit-app-1 python -m app.cli precio --platform meli >> /mnt/data/appdata/orbit/logs/precio-meli.log 2>&1
+10 15-23/2 * * * /usr/bin/flock -n /tmp/precio-meli.lock docker exec orbit-app-1 python -m app.cli precio --platform meli >> /mnt/data/appdata/orbit/logs/precio-meli.log 2>&1
 ```
 
 Antes de instalar las líneas: la 0039 aplicada y las claves `precio_*`

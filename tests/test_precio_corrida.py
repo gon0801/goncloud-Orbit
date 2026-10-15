@@ -1447,6 +1447,27 @@ LINEA_CRONTAB_MUESTRAS_US = (
     " --platform amazon_us --canal fbm"
     " >> /mnt/data/appdata/orbit/logs/precio-muestras.log 2>&1"
 )
+# D.4: catalogo diario + muestras meli + 2 de precios MeLi (lock propio).
+# Palabra por palabra del plan (guia "Despliegues", D.4).
+LINEA_CRONTAB_MELI_CATALOGO = (
+    "30 11 * * * docker exec orbit-app-1 python -m app.meli.catalogo"
+    " >> /mnt/data/appdata/orbit/logs/meli-catalogo.log 2>&1"
+)
+LINEA_CRONTAB_MELI_MUESTRAS = (
+    "25 12 * * * docker exec orbit-app-1 python -m app.envio_muestras"
+    " --platform meli --canal meli"
+    " >> /mnt/data/appdata/orbit/logs/precio-muestras.log 2>&1"
+)
+LINEA_CRONTAB_MELI_PRECIO = (
+    "10 13 * * * /usr/bin/flock -n /tmp/precio-meli.lock"
+    " docker exec orbit-app-1 python -m app.cli precio --platform meli"
+    " >> /mnt/data/appdata/orbit/logs/precio-meli.log 2>&1"
+)
+LINEA_CRONTAB_MELI_PRECIO_REPASOS = (
+    "10 15-23/2 * * * /usr/bin/flock -n /tmp/precio-meli.lock"
+    " docker exec orbit-app-1 python -m app.cli precio --platform meli"
+    " >> /mnt/data/appdata/orbit/logs/precio-meli.log 2>&1"
+)
 
 
 def test_linea_crontab_en_deploy():
@@ -1474,6 +1495,28 @@ def test_linea_crontab_en_deploy():
     assert "13:10 UTC" in deploy
     assert "no toca Amazon" in deploy
     assert "forma del parche sellada (A.4)" in deploy
+
+
+def test_linea_crontab_meli_en_deploy():
+    """`docs/DEPLOY.md` trae las CUATRO lineas MeLi EXACTAS (D.4).
+
+    D15 espejo de `test_linea_crontab_en_deploy`: se afirma contra el
+    doc; las constantes viven arriba, palabra por palabra del plan.
+    """
+    deploy = (RAIZ / "docs" / "DEPLOY.md").read_text(encoding="utf-8")
+    assert LINEA_CRONTAB_MELI_CATALOGO in deploy
+    assert LINEA_CRONTAB_MELI_MUESTRAS in deploy
+    assert LINEA_CRONTAB_MELI_PRECIO in deploy
+    assert LINEA_CRONTAB_MELI_PRECIO_REPASOS in deploy
+    assert "30 11 * * *" in deploy
+    assert "25 12 * * *" in deploy
+    assert "--platform meli" in deploy
+    assert "precio-meli.lock" in deploy
+    assert "meli-catalogo.log" in deploy
+    assert "precio-meli.log" in deploy
+    assert "precio:meli" in deploy
+    assert "11:30" in deploy
+    assert "12:25" in deploy
 
 
 def test_cli_precio_sin_dsn_fail_closed(monkeypatch, capsys):

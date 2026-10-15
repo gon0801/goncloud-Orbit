@@ -1,0 +1,16 @@
+== X.4 sembrar margen-de-hoy en shadow (MeLi)
+modo meli/meli: shadow
+unidades MeLi sin goal vigente: 3
+seleccion: listing_ids [11,12,13]
+== siembra real (guardas: plan + bloqueos en /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-x4-sim/plan-20261015-210403.json)
+universo ya en shadow: sin settings previo
+-- bloque 1 (3 unidades)
+PLAN_JSON {"huella":"cee6808fcb22a07d","filas":[{"listing_id":11,"plataforma":"meli","seller_sku":"SIM-X4-A","accion":"sembrar","m_hoy":"0.239354","goal_id":null,"goal_actual":null,"goal_propuesto":"0.2394","p_actual":{"valor":"979.1100","moneda":"MXN"},"p_estrella":null,"envio_origen":null,"bloqueo":null,"confirmable":false,"motivo":"referencia_sin_derivar"},{"listing_id":12,"plataforma":"meli","seller_sku":"SIM-X4-B","accion":"sembrar","m_hoy":"0.239354","goal_id":null,"goal_actual":null,"goal_propuesto":"0.2394","p_actual":{"valor":"979.1100","moneda":"MXN"},"p_estrella":null,"envio_origen":null,"bloqueo":null,"confirmable":false,"motivo":"referencia_sin_derivar"},{"listing_id":13,"plataforma":"meli","seller_sku":"SIM-X4-C","accion":"sembrar","m_hoy":null,"goal_id":null,"goal_actual":null,"goal_propuesto":null,"p_actual":null,"p_estrella":null,"envio_origen":null,"bloqueo":"sin_escenario","confirmable":false,"motivo":"sin_escenario"}]}
+plan: 3 filas, 1 bloqueadas, huella cee6808fcb22a07d
+BLOQUEO listing=13 bloqueo=sin_escenario motivo=sin_escenario
+aplicado: sembrados=2 cerrados=0 lote=cee6808fcb22a07d
+OMITIDA listing=13 bloqueo=sin_escenario motivo=sin_escenario
+plan guardado en /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-x4-sim/plan-20261015-210403.json
+unidades bloqueadas guardadas: 1 (con motivo, en /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-x4-sim/sembrar-20261015-210403.txt)
+unidades omitidas al aplicar: 1 (con motivo, en /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-x4-sim/sembrar-20261015-210403.txt)
+exit=0

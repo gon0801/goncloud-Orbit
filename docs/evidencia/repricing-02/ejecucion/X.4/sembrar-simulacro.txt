@@ -1,0 +1,10 @@
+== X.4 sembrar margen-de-hoy en shadow (MeLi)
+modo meli/meli: <sin entrada>
+unidades MeLi sin goal vigente: 3
+seleccion: listing_ids [11,12,13]
+== SIMULACRO: sin --acepto-mutacion-real no se postea nada
+settings que se postearia: {"base_config_version_id": 4, "precio_modo_universo": {"meli/meli": "shadow"}}
+plan que se postearia: {"platform": "meli", "pedido": {"tipo": "margen_de_hoy", "mode": "shadow"}, "listing_ids": [11,12,13]}
+aplicar que se postearia por bloque (500): mismo cuerpo + {"huella": "<del plan>", "confirmados": [], "actor": "X.4 sembrar.sh"}
+SIMULACRO OK (nada escrito)
+exit=0

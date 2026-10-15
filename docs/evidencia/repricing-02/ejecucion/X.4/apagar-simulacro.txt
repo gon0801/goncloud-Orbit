@@ -1,0 +1,8 @@
+== X.4 apagar MeLi (reversa del encendido)
+precio_modo_global: live (no se toca) | meli/meli: shadow | base: 7
+goals live en MeLi: 0
+== SIMULACRO: sin --acepto-mutacion-real no se postea nada
+settings que se postearia: {"base_config_version_id": 7, "precio_modo_universo": {"meli/meli": "shadow"}}
+sin goals live que regresar: solo el universo
+SIMULACRO OK (nada escrito)
+exit=0

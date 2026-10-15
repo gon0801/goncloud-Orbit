@@ -1,0 +1,11 @@
+== MODO SIMULACION: datos sinteticos contra postgresql://orbit:***@localhost:5432/orbit_sim_U1a, servidor intacto
+== 0) SHA aprobado con la bateria completa verde
+SIMULACION: eb3ac5369c862fb263dae80dbd690eb6c89ec0ee existe local; sin fetch ni gh (no hay red a prod)
+== 1) Preflight: nadie corre, sin harvest en vuelo, migraciones pendientes
+SIMULACION: sin docker top (no hay contenedor); la guarda de proceso es el conteo de running
+ciclos running=0
+harvest en vuelo=0
+pendiente: 0073_precio02_meli_miembro_costo.sql
+== 1b) Guardas propias de D.4 (abortan si fallan)
+ABORTA: deploy inicial con forma sellada (FORMA_ESCRITURA_MELI = "SELLADA-TEST-U1"): la 0073 pendiente exige pendiente_sonda
+exit=1
