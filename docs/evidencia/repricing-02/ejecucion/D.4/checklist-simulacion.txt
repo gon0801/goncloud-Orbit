@@ -1,4 +1,4 @@
-== Checklist D.4 (solo lectura; sello 20261015-2110)
+== Checklist D.4 (solo lectura; sello r3-despues)
 == 1) HTTP: /health
 OK    GET /health = 200
 == 2) Esquema: senal de la 0073, politica meli y meli/meli sin entrada
@@ -22,9 +22,8 @@ OK    resumen_diario sellado = true
 == 6) Muestras y escenarios meli de hoy (= 2 FALLAS hasta la primera corrida)
 OK    muestras meli calculadas hoy = t
 OK    escenarios disponible meli de hoy = t
-== 7) Cobertura meli (exit 0) y espejo catalogo-obs
-OK    cobertura meli (exit) = 0
-INFO activas: obs=0 catalogo=0 (el dueno las cuadra con la API)
-OK    espejo catalogo-obs meli = 0
+== 7) Cobertura meli (API de hoy vs catalogo; DoD de D.4)
+  cobertura meli 2026-10-15 (corrida 2, ok=True): api_activas=2 catalogo=2 sin_mapear=0 [CUADRA]
+OK    cobertura meli cuadra (API de hoy vs catalogo)
 == RESULTADO: 0 falla(s), 0 sin medir
 exit=0

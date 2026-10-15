@@ -17,9 +17,9 @@
 # el crontab CON las 4 de D.4 (catalogo 11:30, muestras 12:25, precios
 # 13:10 + repasos con lock propio) y con las 4 de D.3 intactas;
 # resumen_diario sellado; muestras meli y escenarios `disponible`
-# meli de hoy; cobertura meli (exit 0) y espejo catalogo-obs.
-# La comparacion contra las activas de la API (DoD de D.4) la hace el
-# dueno en solo lectura con los conteos que imprime la seccion 7.
+# meli de hoy; cobertura meli (la seccion 7 compara las activas del
+# catalogo contra las activas vistas por la corrida meli_catalogo de
+# hoy: DoD de D.4 medido por el checklist, sin pedir nada a nadie).
 # Uso: bash docs/evidencia/repricing-02/ejecucion/D.4/checklist.sh <STAMP> > checklist-<sello>.txt 2>&1; echo "exit=$?" >> checklist-<sello>.txt
 set -uo pipefail
 
@@ -67,15 +67,13 @@ trae_resumen() {  # true si TIPOS_PRECIO_SELLADOS trae resumen_diario
     ssh goncloud 'docker exec orbit-app-1 python -c '\''from app.notifica import TIPOS_PRECIO_SELLADOS; print(str("resumen_diario" in TIPOS_PRECIO_SELLADOS).lower())'\''' || true
   fi
 }
-cobertura() {  # cobertura <platform> -> exit del tool (0 = cuadra)
+cobertura() {  # cobertura <platform> -> imprime la salida; rc 0 cuadra, 1 no cuadra, 2 sin medir
   if [ "$SIM" = 1 ]; then
     PY="$REPO/.venv/bin/python"
     [ -x "$PY" ] || PY=python3
-    PYTHONPATH="$REPO" ORBIT_DSN_READ="$DSN_SIM" "$PY" tools/precio_cobertura.py --platform "$1" >/dev/null 2>&1
-    echo $?
+    PYTHONPATH="$REPO" ORBIT_DSN_READ="$DSN_SIM" "$PY" tools/precio_cobertura.py --platform "$1" 2>&1
   else
-    ssh goncloud "docker exec orbit-app-1 python tools/precio_cobertura.py --platform $1" >/dev/null 2>&1
-    echo $?
+    ssh goncloud "docker exec orbit-app-1 python tools/precio_cobertura.py --platform $1" 2>&1
   fi
 }
 
@@ -150,12 +148,14 @@ revisa "escenarios disponible meli de hoy" t \
   "$(echo "SELECT count(*) >= 1 FROM estimacion_escenario WHERE platform = 'meli' AND estado = 'disponible' AND observed_at::date = CURRENT_DATE;" | lee || true)"
 FALLAS_6=$((FALLAS - FALLAS_PRE6))
 
-echo "== 7) Cobertura meli (exit 0) y espejo catalogo-obs"
-revisa "cobertura meli (exit)" 0 "$(cobertura meli)"
-OBS_ACTIVAS="$(echo "SELECT count(*) FROM (SELECT DISTINCT ON (item_id) item_id, estado FROM meli_publicacion_observation ORDER BY item_id, observed_at DESC, id DESC) s WHERE estado = 'active';" | lee || true)"
-CAT_ACTIVAS="$(echo "SELECT count(*) FROM listing l JOIN (SELECT DISTINCT ON (item_id) item_id, estado FROM meli_publicacion_observation ORDER BY item_id, observed_at DESC, id DESC) o ON o.item_id = l.external_id WHERE l.platform = 'meli' AND o.estado = 'active';" | lee || true)"
-echo "INFO activas: obs=$OBS_ACTIVAS catalogo=$CAT_ACTIVAS (el dueno las cuadra con la API)"
-revisa "espejo catalogo-obs meli" "$OBS_ACTIVAS" "$CAT_ACTIVAS"
+echo "== 7) Cobertura meli (API de hoy vs catalogo; DoD de D.4)"
+COB_TXT="$(cobertura meli)"; COB_RC=$?
+printf '%s\n' "$COB_TXT" | sed 's/^/  /'
+case "$COB_RC" in
+  0) echo "OK    cobertura meli cuadra (API de hoy vs catalogo)" ;;
+  2) echo "NO MEDIDO cobertura meli (sin corrida meli_catalogo de hoy)"; NOMEDIDO=$((NOMEDIDO + 1)) ;;
+  *) echo "FALLA cobertura meli (rc=$COB_RC)"; FALLAS=$((FALLAS + 1)) ;;
+esac
 
 echo "== RESULTADO: $FALLAS falla(s), $NOMEDIDO sin medir"
 if [ "$FALLAS" -eq 0 ]; then

@@ -6,8 +6,12 @@ via `app.precio.fuentes`); cuadra con las activas de la fuente canonica
 de Orbit. Al lado muestra la cuenta de identidad (`listing`: identidad,
 no activas, sin aviso) y, solo con `--puente-activas N`, el contraste
 contra las activas del puente con aviso si difieren mas del 5 %.
-`--platform meli` no tiene fuente canonica en Orbit: imprime
-`activas=unknown` y sale 0 sin recuadro. Cero Amazon, cero escritura.
+`--platform meli` (R05-r3 B2) compara las activas del catalogo (lo
+mismo que `MercadoMeli.catalogo` fluye a decisiones) contra las
+activas vistas por la ultima corrida `meli_catalogo` terminada de
+hoy: 0 si cuadran, 1 si difieren, 2 sin corrida (no medido). Las
+activas sin miembros mapeados se cuentan aparte, no fallan.
+Cero escritura.
 """
 
 from __future__ import annotations
@@ -52,6 +56,58 @@ def _dinero(fila) -> str:
     return f"{fila.precio:.2f} {fila.moneda}"
 
 
+_SQL_CORRIDA_MELI_HOY = (
+    "SELECT id, ok FROM ingest_run WHERE source = 'meli_catalogo'"
+    " AND finished_at IS NOT NULL AND started_at::date = CURRENT_DATE"
+    " ORDER BY id DESC LIMIT 1"
+)
+_SQL_ACTIVAS_CORRIDA = (
+    "SELECT DISTINCT item_id FROM meli_publicacion_observation"
+    " WHERE ingest_run_id = %s AND estado = 'active'"
+)
+_SQL_MAPEADAS = (
+    "SELECT l.external_id FROM listing l WHERE l.platform = 'meli'"
+    " AND EXISTS (SELECT 1 FROM listing_miembro m WHERE m.listing_id = l.id"
+    " AND m.platform = 'meli' AND m.activo AND m.product_id IS NOT NULL)"
+)
+
+
+def _cobertura_meli(conn) -> int:
+    """Activas del catalogo vs activas vistas por la corrida de hoy.
+
+    0 cuadran, 1 difieren, 2 sin corrida terminada de hoy (no medido).
+    """
+    hoy = conn.execute("SELECT CURRENT_DATE").fetchone()[0]
+    corrida = conn.execute(_SQL_CORRIDA_MELI_HOY).fetchone()
+    if corrida is None:
+        print("cobertura meli: sin corrida meli_catalogo terminada de hoy (no medido)")
+        return 2
+    run, ok = corrida
+    api = {r[0] for r in conn.execute(_SQL_ACTIVAS_CORRIDA, (run,)).fetchall()}
+    with mercados.abrir("meli") as vitrina:
+        catalogo = {u.unidad.externo for u in vitrina.catalogo(conn, hoy)}
+    mapeadas = {r[0] for r in conn.execute(_SQL_MAPEADAS).fetchall()}
+    sin_mapear = sorted(api - mapeadas)
+    faltan = sorted(api - catalogo - set(sin_mapear))
+    sobran = sorted(catalogo - api)
+    marca = "[CUADRA]" if not faltan and not sobran else "[NO-CUADRA]"
+    print(
+        f"cobertura meli {hoy.isoformat()} (corrida {run}, ok={ok}):"
+        f" api_activas={len(api)} catalogo={len(catalogo)}"
+        f" sin_mapear={len(sin_mapear)} {marca}"
+    )
+    if sin_mapear:
+        print(
+            f"  sin_mapear: {', '.join(sin_mapear)}"
+            " (activas en la API sin miembros mapeados: no fluyen)"
+        )
+    for item in faltan:
+        print(f"  faltan_en_catalogo: {item} (activa mapeada sin obs activa vigente)")
+    for item in sobran:
+        print(f"  sobran_en_catalogo: {item} (en catalogo, no activa en la corrida de hoy)")
+    return 0 if not faltan and not sobran else 1
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--platform", required=True, choices=("amazon_mx", "amazon_us", "meli"))
@@ -59,9 +115,6 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     if args.puente_activas is not None and args.puente_activas < 0:
         ap.error("--puente-activas debe ser mayor o igual que cero")
-    if args.platform == "meli":
-        print("activas=unknown: sin fuente canonica de MeLi en Orbit (hecho 6; la trae M.3b)")
-        return 0
     try:
         conn = connect(_dsn_read())
     except (OrbitDbError, Abortar) as exc:
@@ -69,6 +122,8 @@ def main(argv=None) -> int:
         return 2
     try:
         try:
+            if args.platform == "meli":
+                return _cobertura_meli(conn)
             hoy = hoy_base(conn)
             max_dias = max_dias_desde_settings(config_vigente_settings(conn))
             with mercados.abrir(args.platform) as vitrina:

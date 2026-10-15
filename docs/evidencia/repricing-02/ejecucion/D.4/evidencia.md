@@ -44,9 +44,12 @@ Ver `checklist-antes-del-deploy.txt`:
    que meli no se agendaba. El test pinza las 4.
 8. El checklist sale 3 hasta la primera corrida del job de muestras
    y de la estimacion (muestras meli + escenarios meli de hoy), 0
-   despues. La seccion 7 exige `cobertura meli` exit 0 + espejo
-   catalogo-obs; los conteos para cuadrar con la API los imprime y
-   los compara el dueno (DoD de D.4, post-merge).
+   despues. La seccion 7 (R05-r3 B2) compara las activas del
+   catalogo contra las activas vistas por la corrida
+   `meli_catalogo` terminada de hoy: 0 si cuadran, FALLA si
+   difieren, NO MEDIDO sin corrida (las sin miembros mapeados se
+   cuentan aparte, no fallan). DoD de D.4 medido por el checklist;
+   nadie le pide nada al dueno.
 9. La reversa NO restaura el respaldo completo del crontab (E7: el
    actual manda), NO restaura viejas (D.4 no quito ninguna) y NO toca
    la politica meli (datos, no esquema; el codigo viejo la ignora).
@@ -80,12 +83,23 @@ preserva); la semilla en `/tmp` ya quedo con la forma completa.
   `ya aplicada`, `politicas.sh` sin duplicar (1 politica), `cron ya
   instalado`, aplicadas/predeploy conservados, `nada que instalar
   en 7b`. Idempotencia real.
-- `checklist-simulacion-antes.txt` (exit=3): 2 FALLAS exactas (las de
-  hoy, solo seccion 6) y 0 sin medir, antes de sembrar corridas.
-- `checklist-simulacion.txt` (exit=0): tras sembrar muestra +
-  escenario disponible meli de hoy (con `session_replication_role =
-  replica`: la coherencia referencial no es lo que se prueba): 0
-  fallas, 0 sin medir.
+- `checklist-simulacion-antes.txt` (exit=3, regrabado r3): 2 FALLAS
+  exactas (las de hoy, solo seccion 6) + cobertura NO MEDIDA (sin
+  corrida de hoy), antes de sembrar corridas.
+- `checklist-simulacion.txt` (exit=0, regrabado r3): tras sembrar
+  muestra + escenario disponible meli de hoy (con
+  `session_replication_role = replica`: la coherencia referencial
+  no es lo que se prueba; el escenario trae fees partidos,
+  `logistica_origen = 'politica'` y refs sinteticas 1) + corrida
+  `meli_catalogo` de hoy con 2 obs activas (MLM1 con 2 miembros,
+  MLM2 raiz): 0 fallas, 0 sin medir, cobertura
+  `api_activas=2 catalogo=2 [CUADRA]` (la corrida es id 2: la 0054
+  consume el 1 en su autonegacion y lo borra).
+- `checklist-simulacion-cobertura-falla.txt` (exit=1, nuevo r3):
+  sobre la base del `despues` + MLM9 rancia (obs `active` de ayer,
+  ausente de la corrida de hoy): 1 FALLA exacta (seccion 7,
+  `sobran_en_catalogo: MLM9`), 0 sin medir. Asi se ve la
+  cobertura cuando no cuadra.
 - `rollback-simulacion.txt` (exit=0): 4 lineas fuera (crontab de
   vuelta a 5), reversa aplicada, `senal_0073=0`, politica intacta.
 - `guard-cron-falla-salida.txt` (exit=1): con
