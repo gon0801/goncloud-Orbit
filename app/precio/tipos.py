@@ -52,7 +52,6 @@ __all__ = [
     "ObservacionPricing",
     "CambioPrevio",
     "HistorialMargen",
-    "VentasInsumos",
     "SenalVentas",
     "CotizacionVerificada",
     "PideCotizacion",
@@ -488,17 +487,6 @@ class HistorialMargen:
         exigir_decimal(self.distancia, campo="historial.distancia")
         if self.distancia < 0:
             raise ValueError("historial.distancia negativa")
-
-
-@dataclass(frozen=True)
-class VentasInsumos:
-    """Filas ya leidas para la senal de ventas (S4 #5), por producto."""
-
-    ventas: tuple[tuple[date, int], ...]
-    inventario: tuple[tuple[date, int | None], ...]
-    listing_activo: tuple[tuple[date, bool], ...]
-    primera_venta: date | None
-    dia_cubierto_hasta: date | None
 
 
 @dataclass(frozen=True)
