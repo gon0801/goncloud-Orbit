@@ -1,0 +1,7 @@
+== X.2 sonda de la camara del go (MX FBM, conejillo)
+conejillo: listing=11 (shadow)
+== SIMULACRO: sin --acepto-mutacion-real no se postea nada
+ida que se postearia: plan + aplicar {"platform": "amazon_mx", "pedido": {"tipo": "modo", "mode": "live"}, "listing_ids": [11]} + go literal (no se imprime)
+vuelta que se postearia: plan + aplicar {"platform": "amazon_mx", "pedido": {"tipo": "modo", "mode": "shadow"}, "listing_ids": [11]} (sin go)
+SIMULACRO OK (nada escrito)
+exit=0

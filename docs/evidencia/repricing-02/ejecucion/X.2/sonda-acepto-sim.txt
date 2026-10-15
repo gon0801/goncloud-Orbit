@@ -1,0 +1,15 @@
+== X.2 sonda de la camara del go (MX FBM, conejillo)
+conejillo: listing=11 (shadow)
+== ida: conejillo a live (con el go del dueno)
+plan live: 1 filas, 0 bloqueadas, huella e4dff05fa71e4339
+aplicado: sembrados=1 cerrados=1 lote=e4dff05fa71e4339
+ida comprobada: conejillo en live
+== vuelta: conejillo de regreso a shadow (reversa incluida)
+plan shadow: 1 filas, 0 bloqueadas, huella ffa9ba9a69e7c877
+aplicado: sembrados=1 cerrados=1 lote=ffa9ba9a69e7c877
+== X.2 sonda OK (el go abre y la reversa cierra)
+exit=0
+11|shadow
+12|shadow
+13|sin-goal
+14|sin-goal

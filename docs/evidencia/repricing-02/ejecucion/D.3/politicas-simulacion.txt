@@ -1,0 +1,31 @@
+== politica vigente de FBA (fuente de la copia)
+ id |  label  | valid_from
+----+---------+------------
+  2 | sim_fba | 2026-10-15
+(1 row)
+
+== inserta amazon_mx/fbm (si falta)
+== inserta amazon_us/fbm (si falta)
+== verifica
+ id |       label        |   universo    |                                                                                               settings                                                                                               | valid_from | valid_to
+----+--------------------+---------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------+----------
+  3 | repricing02_fbm_mx | amazon_mx/fbm | {"logistica": "10.00", "goal_default": "0.30", "logistica_semantica": "L sale de precio_envio_muestra, no de esta constante"}                                                                        | 2026-10-15 |
+  4 | repricing02_fbm_us | amazon_us/fbm | {"isr_tasa": "0.0207", "logistica": "10.00", "iva_divisor": "1", "goal_default": "0.30", "precio_incluye_iva": false, "logistica_semantica": "L sale de precio_envio_muestra, no de esta constante"} | 2026-10-15 |
+(2 rows)
+
+== politica vigente de FBA (fuente de la copia)
+ id |  label  | valid_from
+----+---------+------------
+  2 | sim_fba | 2026-10-15
+(1 row)
+
+== inserta amazon_mx/fbm (si falta)
+== inserta amazon_us/fbm (si falta)
+== verifica
+ id |       label        |   universo    |                                                                                               settings                                                                                               | valid_from | valid_to
+----+--------------------+---------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------+----------
+  3 | repricing02_fbm_mx | amazon_mx/fbm | {"logistica": "10.00", "goal_default": "0.30", "logistica_semantica": "L sale de precio_envio_muestra, no de esta constante"}                                                                        | 2026-10-15 |
+  4 | repricing02_fbm_us | amazon_us/fbm | {"isr_tasa": "0.0207", "logistica": "10.00", "iva_divisor": "1", "goal_default": "0.30", "precio_incluye_iva": false, "logistica_semantica": "L sale de precio_envio_muestra, no de esta constante"} | 2026-10-15 |
+(2 rows)
+
+exit=0

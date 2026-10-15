@@ -1,0 +1,16 @@
+== X.2 sembrar margen-de-hoy en shadow (MX FBM)
+modo amazon_mx/fbm: <sin entrada>
+ids explicitos (sin filtro de canal): 1
+seleccion: listing_ids [13]
+== siembra real (guardas: plan + bloqueos en /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-x2-sim/plan-20261015-082718.json)
+universo puesto en shadow: config 5 (settings UI · settings-ui · 2026-10-15 · amazon_mx: precio modo amazon_mx/fbm ausente -> shadow)
+-- bloque 1 (1 unidades)
+PLAN_JSON {"huella":"895e5d2cd3e7c43f","filas":[{"listing_id":13,"plataforma":"amazon_mx","seller_sku":"SS-X2-C","accion":"sembrar","m_hoy":null,"goal_id":null,"goal_actual":null,"goal_propuesto":null,"p_actual":null,"p_estrella":null,"envio_origen":null,"bloqueo":"sin_escenario","confirmable":false,"motivo":"sin_escenario"}]}
+plan: 1 filas, 1 bloqueadas, huella 895e5d2cd3e7c43f
+BLOQUEO listing=13 bloqueo=sin_escenario motivo=sin_escenario
+aplicado: sembrados=0 cerrados=0 lote=895e5d2cd3e7c43f
+OMITIDA listing=13 bloqueo=sin_escenario motivo=sin_escenario
+plan guardado en /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-x2-sim/plan-20261015-082718.json
+unidades bloqueadas guardadas: 1 (con motivo, en /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-x2-sim/sembrar-20261015-082718.txt)
+unidades omitidas al aplicar: 1 (con motivo, en /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-x2-sim/sembrar-20261015-082718.txt)
+exit=0
