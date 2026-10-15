@@ -89,7 +89,7 @@ def _medidas(
     for order_id, source, fee_type, monto, moneda, dia in conn.execute(
         _SQL_CARGOS, (plataforma, desde, hasta)
     ):
-        fuente = clasificar_cargo(source, fee_type)
+        fuente = clasificar_cargo(source, fee_type, plataforma)
         if fuente == "otros":
             otros += 1
             continue

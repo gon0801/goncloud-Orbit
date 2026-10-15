@@ -96,12 +96,16 @@ class MuestraNueva:
     regla_version: str
 
 
-def clasificar_cargo(source_event_id: str | None, fee_type: str | None) -> str:
+def clasificar_cargo(
+    source_event_id: str | None, fee_type: str | None, platform: str | None = None
+) -> str:
     """De donde viene el cargo. Lo desconocido es `otros` y se cuenta.
 
     La identidad sale de `source_event_id` partido por `|`: el campo 6 si
     el campo 2 es `finance`, y si no, el campo 2 (F.0 confirma que solo hay
     seis identidades). `fee_type` distinto de `shipping_fee` es `otros`.
+    La identidad `fee` es `meli_envio` solo con plataforma `meli` (medido
+    M.2: solo MeLi la emite); sin plataforma o con otra, `otros`.
     """
     if fee_type is not None and fee_type != "shipping_fee":
         return "otros"
@@ -113,6 +117,8 @@ def clasificar_cargo(source_event_id: str | None, fee_type: str | None) -> str:
     identidad = partes[5] if (partes[1] == "finance" and len(partes) >= 6) else partes[1]
     if partes[1] == "finance" and len(partes) < 6:
         return "otros"
+    if identidad == "fee":
+        return "meli_envio" if platform == "meli" else "otros"
     return _IDENTIDAD_A_FUENTE.get(identidad, "otros")
 
 
@@ -121,12 +127,19 @@ def costo_de_orden(cargos: Sequence[CargoEnvio]) -> Importe | None:
 
     Las tres primeras son la etiqueta por tres caminos: se cuenta UNA vez
     (Labman y `shipping_label` son el mismo cobro). `shipping_hb` suma.
-    `otros` no entra. None si la orden no trae etiqueta alguna (ni siquiera
-    con HB solo). Una sola moneda o `MonedasMezcladas`.
+    `otros` no entra. `meli_envio` suma (M.2: MeLi cobra el envio por
+    orden, normalmente una sola fila). None si la orden no trae etiqueta
+    alguna (ni siquiera con HB solo). Una sola moneda o `MonedasMezcladas`.
     """
     etiquetas = [c.importe for c in cargos if c.fuente in _ETIQUETAS]
     if not etiquetas:
-        return None
+        propios = [c.importe for c in cargos if c.fuente == "meli_envio"]
+        if not propios:
+            return None
+        total_meli = propios[0]
+        for extra in propios[1:]:
+            total_meli = total_meli + extra
+        return total_meli
     base = max(etiquetas, key=lambda importe: importe.valor)
     for etiqueta in etiquetas:
         if etiqueta.moneda != base.moneda:

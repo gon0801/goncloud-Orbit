@@ -213,14 +213,15 @@ def test_event_type_desconocido_no_se_escribe():
     assert skips["event_type desconocido"] == 1
 
 
-def test_meli_excluida_y_amazon_renombra_a_mx():
-    """D1: meli fuera contado; amazon → amazon_mx."""
+def test_meli_entra_y_amazon_renombra_a_mx():
+    """D1: amazon → amazon_mx; M.2: meli entra (DoD baja a cero)."""
     ev = mapear_destino(_fila(platform="amazon"))
     assert ev is not None and ev.platform == "amazon_mx"
     ev_us = mapear_destino(_fila(platform="amazon_us", dedupe_key="us1"))
     assert ev_us is not None and ev_us.platform == "amazon_us"
-    _, skips, _ = plan_eventos([_fila(platform="meli", dedupe_key="m1")], listings={})
-    assert skips["plataforma meli excluida"] == 1
+    eventos, skips, _ = plan_eventos([_fila(platform="meli", dedupe_key="m1")], listings={})
+    assert "plataforma meli excluida" not in skips
+    assert [e.platform for e in eventos] == ["meli"]
 
 
 def test_fee_positivo_no_se_voltea_ni_se_inserta():
@@ -599,7 +600,7 @@ def test_sync_ledger_ciclo_completo_y_tres_dedupes(tmp_path):
                     "{}",
                     "src-fee-plus",
                 ),
-                # 5) meli excluida
+                # 5) meli entra (M.2)
                 (
                     "meli",
                     "M-1",
@@ -650,26 +651,27 @@ def test_sync_ledger_ciclo_completo_y_tres_dedupes(tmp_path):
         r1 = sync_ledger(conn, snap)
         assert r1.ok is True
         assert SOURCE == "accounting_ledger_events"
-        # escritas: sale, isr, ads, sin_orden, con_orden = 5; skips: fee+, meli = 2
-        assert r1.rows_written == 5
-        assert r1.rows_skipped == 2
-        assert r1.por_kind == {"sale": 1, "withholding": 1, "fee": 3}
+        # escritas: sale, isr, ads, meli, sin_orden, con_orden = 6; skips: fee+ = 1
+        assert r1.rows_written == 6
+        assert r1.rows_skipped == 1
+        assert r1.por_kind == {"sale": 2, "withholding": 1, "fee": 3}
         assert r1.rango_min is not None and r1.rango_max is not None
         assert r1.rango_min <= r1.rango_max
         assert "viola ledger_convencion_signos" in (r1.skip_reason or "")
-        assert "plataforma meli excluida" in (r1.skip_reason or "")
+        assert "plataforma meli excluida" not in (r1.skip_reason or "")
+        assert (r1.ventas_meli_sin_sku, r1.ventas_meli_sin_producto) == (0, 1)
 
         por_kind = dict(
             conn.execute("SELECT kind::text, count(*) FROM ledger_event GROUP BY 1").fetchall()
         )
-        assert por_kind.get("sale") == 1
+        assert por_kind.get("sale") == 2
         assert por_kind.get("fee") == 3  # ads + storage + fba
         assert por_kind.get("withholding") == 1
 
         sale = conn.execute(
             "SELECT platform::text, product_id, quantity, amount, amount_currency::text,"
             " item_price, source_event_id, order_id"
-            " FROM ledger_event WHERE kind = 'sale'"
+            " FROM ledger_event WHERE kind = 'sale' AND platform = 'amazon_mx'"
         ).fetchone()
         assert sale[0] == "amazon_mx"
         assert sale[1] == pid

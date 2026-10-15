@@ -7,7 +7,7 @@ goals.
 
 Decisiones selladas (plans/orbit-06.md, "Decisiones de la 0.6"):
 
-1. Alcance Amazon; MeLi excluida contada. `amazon`→`amazon_mx`.
+1. Alcance Amazon y MeLi (M.2 abrio `meli`; antes excluida contada). `amazon`→`amazon_mx`.
 2. Kind via MAPA_KIND (tabla): sale_gross→sale; refund→refund;
    fee+tax/isr_withheld→withholding; resto fee→fee (ads conserva etiqueta).
 3. Acceso `--sqlite` mode=ro.
@@ -68,11 +68,12 @@ MAPA_KIND: dict[tuple[str, str | None], tuple[str, str | None]] = {
 _PLATAFORMA_ORIGEN = {
     "amazon": "amazon_mx",
     "amazon_us": "amazon_us",
+    "meli": "meli",
 }
 
-# REPRICING 02 0.a: despacho de la atribucion por plataforma de destino. Los
-# dos atribuidores devuelven None hoy (F.1 y M.2 los llenan); la ingesta ya
-# inserta lo que devuelvan y cuenta `venta_sin_atribuir` cuando no pueden.
+# REPRICING 02: despacho de la atribucion por plataforma de destino (F.1
+# lleno el de Amazon, M.2 el de MeLi). La ingesta inserta lo que devuelvan
+# y cuenta `venta_sin_atribuir` cuando no pueden.
 _ATRIBUIDORES: dict[str, Atribuidor] = {
     "amazon_mx": atribuidor_amazon,
     "amazon_us": atribuidor_amazon,
@@ -109,7 +110,10 @@ class FilaOrigenLedger:
 
 @dataclass(frozen=True)
 class EventoLedger:
-    """Fila lista para ledger_event (sin ingest_run_id)."""
+    """Fila lista para ledger_event (sin ingest_run_id).
+
+    `raw` no se persiste: viaja para el atribuidor (M.2: `item_id` de MeLi).
+    """
 
     platform: str
     kind: str
@@ -125,6 +129,7 @@ class EventoLedger:
     shipping_tax: Decimal | None
     fee_type: str | None
     source_event_id: str | None
+    raw: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -143,6 +148,9 @@ class ResultadoSync:
     sin_listing_para_asin: int = 0
     venta_con_asin_sin_cantidad: int = 0
     desglose_fiscal_negativo_descartado: int = 0
+    ventas_meli_sin_sku: int = 0
+    ventas_meli_sin_producto: int = 0
+    ventas_meli_sin_cantidad: int = 0
     rango_min: date | None = None
     rango_max: date | None = None
 
@@ -300,8 +308,6 @@ def _amount_decimal(amount: float) -> Decimal | None:
 
 def _motivo_skip_basico(fila: FilaOrigenLedger) -> str | None:
     plataforma = (fila.platform or "").strip()
-    if plataforma == "meli":
-        return "plataforma meli excluida"
     if plataforma not in _PLATAFORMA_ORIGEN:
         return f"plataforma fuera de dominio: {fila.platform}"
     if _lookup_kind(fila.event_type, fila.fee_category) is None:
@@ -329,6 +335,7 @@ def _motivo_skip_basico(fila: FilaOrigenLedger) -> str | None:
 def mapear_destino(
     fila: FilaOrigenLedger,
     listings: dict[tuple[str, str], int] | None = None,
+    productos: dict[str, int] | None = None,
 ) -> EventoLedger | None:
     """Fila cruda → EventoLedger. None = skip (motivo via plan_eventos)."""
     if _motivo_skip_basico(fila) is not None:
@@ -368,6 +375,10 @@ def mapear_destino(
         asin = payload.get("ASIN")
         if isinstance(asin, str) and asin.strip():
             product_id = listings.get((plataforma, asin.strip()))
+    if kind == "sale" and product_id is None and plataforma == "meli" and productos is not None:
+        sku = fila.sku
+        if isinstance(sku, str) and sku.strip():
+            product_id = productos.get(sku.strip())
 
     # CHECK ledger_venta_con_cantidad: sale + product_id exige quantity > 0.
     if kind == "sale" and product_id is not None and (quantity is None or quantity <= 0):
@@ -388,6 +399,7 @@ def mapear_destino(
         shipping_tax=_money_from_payload(payload, "ShippingTax", moneda),
         fee_type=fee_type,
         source_event_id=source_event_id,
+        raw=payload,
     )
 
 
@@ -395,6 +407,7 @@ def plan_eventos(
     filas: list[FilaOrigenLedger] | tuple[FilaOrigenLedger, ...],
     *,
     listings: dict[tuple[str, str], int],
+    productos: dict[str, int] | None = None,
 ) -> tuple[list[EventoLedger], Counter, Counter]:
     """Filas crudas → eventos listos + skips (no escritos) + huecos producto.
 
@@ -420,13 +433,13 @@ def plan_eventos(
         if kind in ("fee", "refund", "withholding") and amount > 0:
             skips["viola ledger_convencion_signos"] += 1
             continue
-        ev = mapear_destino(fila, listings=listings)
+        ev = mapear_destino(fila, listings=listings, productos=productos)
         assert ev is not None
-        payload = _parse_payload(fila.raw_payload)
+        payload = ev.raw or {}
         huecos["desglose_fiscal_negativo_descartado"] += _desglose_negativo_en_payload(
             payload, ev.amount_currency
         )
-        if ev.kind == "sale":
+        if ev.kind == "sale" and ev.platform != "meli":
             asin = payload.get("ASIN")
             if not (isinstance(asin, str) and asin.strip()):
                 huecos["venta sin ASIN"] += 1
@@ -438,6 +451,14 @@ def plan_eventos(
                     huecos["sin listing para ASIN"] += 1
                 elif not qty_ok:
                     huecos["venta con ASIN sin cantidad"] += 1
+        if ev.kind == "sale" and ev.platform == "meli":
+            sku = fila.sku
+            if not (isinstance(sku, str) and sku.strip()):
+                huecos["venta meli sin sku"] += 1
+            elif productos is None or productos.get(sku.strip()) is None:
+                huecos["venta meli sin producto"] += 1
+            elif ev.quantity is None or ev.quantity <= 0:
+                huecos["venta meli sin cantidad"] += 1
         eventos.append(ev)
     return eventos, skips, huecos
 
@@ -649,7 +670,14 @@ def sync_ledger(
                     "SELECT platform, external_id, product_id FROM listing"
                 )
             }
-            eventos, skips, huecos = plan_eventos(origen, listings=listings)
+            productos = {
+                sku.strip(): pid
+                for sku, pid in conn.execute(
+                    "SELECT odoo_sku, id FROM product WHERE odoo_sku IS NOT NULL"
+                )
+                if isinstance(sku, str) and sku.strip()
+            }
+            eventos, skips, huecos = plan_eventos(origen, listings=listings, productos=productos)
             for ev in eventos:
                 cur = conn.execute(_sql_insert_para(ev), _params(ev, run_id))
                 if cur.rowcount and cur.rowcount > 0:
@@ -709,6 +737,9 @@ def sync_ledger(
         sin_listing_para_asin=huecos["sin listing para ASIN"],
         venta_con_asin_sin_cantidad=huecos["venta con ASIN sin cantidad"],
         desglose_fiscal_negativo_descartado=huecos["desglose_fiscal_negativo_descartado"],
+        ventas_meli_sin_sku=huecos["venta meli sin sku"],
+        ventas_meli_sin_producto=huecos["venta meli sin producto"],
+        ventas_meli_sin_cantidad=huecos["venta meli sin cantidad"],
         rango_min=min(fechas) if fechas else None,
         rango_max=max(fechas) if fechas else None,
     )
@@ -789,6 +820,9 @@ def main(argv: list[str] | None = None) -> int:
         f"cobertura_producto: venta_sin_ASIN={resultado.ventas_sin_asin}"
         f" sin_listing={resultado.sin_listing_para_asin}"
         f" asin_sin_cantidad={resultado.venta_con_asin_sin_cantidad}"
+        f" meli_sin_sku={resultado.ventas_meli_sin_sku}"
+        f" meli_sin_producto={resultado.ventas_meli_sin_producto}"
+        f" meli_sin_cantidad={resultado.ventas_meli_sin_cantidad}"
     )
     if resultado.desglose_fiscal_negativo_descartado:
         print(
