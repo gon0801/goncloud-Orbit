@@ -450,6 +450,24 @@ def test_us_disponible_convierte_muestra_y_parte_fees():
 
 
 @_skip_sin_pg
+def test_us_conversion_inexacta_cuantiza_a_4():
+    with _db() as conn:
+        _pid, lid, oid, fid, _mid = _sembrar_fbm_us(conn)
+        _fx(conn, dia=VALORACION, tasa="17.50000000")
+        esc = sembrar_escenario_desde_refs(
+            conn,
+            listing_id=lid,
+            oferta_observation_id=oid,
+            fee_observation_id=fid,
+            valoracion_date=VALORACION,
+            observed_at=NOW,
+        )
+        assert esc.estado == "disponible"
+        comp_l = next(c for c in esc.componentes if c["nombre"] == "logistica")
+        assert Decimal(comp_l["importe_normalizado"]) == Decimal("9.7143")
+
+
+@_skip_sin_pg
 def test_sin_referral_unico_da_fee_incompatible():
     with _db() as conn:
         pid, lid = _listing(conn, plataforma="amazon_mx", sku="SS-F3-NR", asin="B0F3NR001")

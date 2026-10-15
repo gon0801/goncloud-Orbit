@@ -190,9 +190,15 @@ def logistica_del_universo(
     if fx.tasa == 0:
         return "fx_tasa_invalida"
     if fx.base == universo.moneda_venta:
-        en = Importe(muestra.valor.valor / fx.tasa, universo.moneda_venta)
+        en = Importe(
+            (muestra.valor.valor / fx.tasa).quantize(Decimal("0.0001")),
+            universo.moneda_venta,
+        )
     else:
-        en = Importe(muestra.valor.valor * fx.tasa, universo.moneda_venta)
+        en = Importe(
+            (muestra.valor.valor * fx.tasa).quantize(Decimal("0.0001")),
+            universo.moneda_venta,
+        )
     conversion = Convertido(muestra.valor, en, fx)
     if origen == "propio":
         return EnvioPropio(en, muestra, conversion)
