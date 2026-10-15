@@ -161,6 +161,12 @@ def _detalles(*pares: tuple[str, str]) -> tuple[DetalleFee, ...]:
     return tuple(DetalleFee(fee_type=tipo, final_fee=Decimal(monto)) for tipo, monto in pares)
 
 
+def test_plataformas_a_ingestar_salen_del_registro():
+    from app.estimacion_universo import plataformas_con_cotizador
+
+    assert plataformas_con_cotizador() == ("amazon_mx", "amazon_us")
+
+
 def test_partir_referral_unico():
     variable, fijo = partir_fees(
         _detalles(("FBAFees", "10.0000"), ("ReferralFee", "5.0000")), Decimal("15.0000")

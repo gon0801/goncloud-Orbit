@@ -40,6 +40,7 @@ __all__ = [
     "Universo",
     "envio_a_logistica",
     "logistica_del_universo",
+    "plataformas_con_cotizador",
     "universo_de",
 ]
 
@@ -134,6 +135,11 @@ _REGISTRO: dict[tuple[str, str], Universo] = {
 def universo_de(plataforma: str, canal: str) -> Universo | None:
     """None = `universo_no_soportado` (motivo, no excepcion)."""
     return _REGISTRO.get((plataforma, canal))
+
+
+def plataformas_con_cotizador() -> tuple[str, ...]:
+    """Plataformas del registro con cotizador (las que ingiere la estimacion)."""
+    return tuple(sorted({u.plataforma for u in _REGISTRO.values() if u.cotizador is not None}))
 
 
 _SQL_MUESTRA = (

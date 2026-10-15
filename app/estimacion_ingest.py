@@ -43,6 +43,7 @@ from app.estimacion_repository import (
     sembrar_escenario_desde_refs,
     sembrar_escenario_negativo_transicion,
 )
+from app.estimacion_universo import plataformas_con_cotizador
 from app.redaction import install_scrub_filter, scrub
 
 logger = logging.getLogger(__name__)
@@ -276,7 +277,8 @@ def ejecutar_ingesta(
     with conn.transaction():
         listings = conn.execute(
             "SELECT id, platform, external_id, seller_sku"
-            " FROM listing WHERE platform IN ('amazon_mx', 'amazon_us') ORDER BY id"
+            " FROM listing WHERE platform IN %s ORDER BY id",
+            (plataformas_con_cotizador(),),
         ).fetchall()
 
     fees_client = client or ProductFeesClient()
