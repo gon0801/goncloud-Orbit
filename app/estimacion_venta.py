@@ -516,8 +516,7 @@ def calcular_contribucion(
 
     costo_exacto = _normalizar_costo(entrada, moneda_venta or "", motivos, componentes)
 
-    # F.3: L llega resuelta por el universo en la entrada; la politica ya no
-    # la aporta. None con motivo (envio_sin_historia, fx_*) bloquea abajo.
+    # L resuelta por el universo; None con motivo bloquea abajo.
     logistica = entrada.logistica
     isr_tasa = _decimal_setting(politica.settings, "isr_tasa")
     ret_iva_tasa = _decimal_setting(politica.settings, "retencion_iva_reconciliacion")

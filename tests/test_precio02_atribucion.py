@@ -1,12 +1,7 @@
 """Atribuidor de Amazon: ventas del ledger a su publicacion (REPRICING 02 F.1).
 
-Una venta con SKU unico (un solo listing para su producto en la plataforma)
-se atribuye por `sku`. Un producto con FBA y FBM se desempata por el canal
-de la orden (`canal_orden`): el canal del listing sale de
-`spapi_inventario_observation` (tabla FBA por definicion: fila presente =
-FBA, ausente = FBM) y el de la orden de `spapi_order_observation`. Lo que
-hoy no se puede decidir devuelve None: no se escribe, se cuenta como
-`venta_sin_atribuir` y la siguiente ingesta lo reintenta.
+El contrato (sku unico, `canal_orden`, None con reintento) vive en
+`app/ledger_atribucion.py`; aqui se verifica contra base real.
 """
 
 from __future__ import annotations

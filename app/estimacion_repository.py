@@ -445,8 +445,7 @@ def _fees_de_observacion(
     """Total, estado, detalles y partido de la observacion de fees.
 
     Devuelve los motivos en orden: primero el de detalles ilegibles, luego
-    el del partido. El partido corre aunque los detalles fallen, igual que
-    antes de extraer el helper.
+    el del partido. El partido corre aunque los detalles fallen.
     """
     total = fee_raw["total_fees"] if fee_raw else None
     estado = fee_raw["estado"] if fee_raw else None

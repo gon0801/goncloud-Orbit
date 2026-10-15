@@ -548,6 +548,30 @@ def test_fba_sigue_con_origen_politica_y_partidos():
         persistir_escenario(conn, esc)
 
 
+def _fila_que_llega_al_check(
+    conn, *, lid, pol, oid, fid, costo_id, run_id, sku, asin, evento, columnas, valores
+):
+    """INSERT `disponible` valido salvo lo que cada test omite.
+
+    La huella es la de oferta/fee para que el trigger de coherencia deje
+    pasar la fila hasta el CHECK de la 0055.
+    """
+    huella = f"fbm:116.0000:MXN:{FETCH.isoformat()}"
+    conn.execute(
+        "INSERT INTO estimacion_escenario (listing_id, platform, asin, seller_sku,"
+        " canal, observed_at, valoracion_date, estado, formula_version,"
+        " componentes, contribucion, contribucion_pct, moneda,"
+        " politica_version_id, oferta_observation_id, fee_observation_id,"
+        " sku_cost_id, costo_validation_run_id, costo_validated_at,"
+        + columnas
+        + " canonical_input, context_fingerprint, source_event_id)"
+        " VALUES (%s, 'amazon_mx', %s, %s, 'fbm', %s, %s,"
+        " 'disponible', 'S3', '[]'::jsonb, 22.5000, 22.5000,"
+        " 'MXN', %s, %s, %s, %s, %s, %s," + valores + " '{}'::jsonb, %s, %s)",
+        (lid, asin, sku, NOW, VALORACION, pol, oid, fid, costo_id, run_id, FETCH, huella, evento),
+    )
+
+
 @_skip_sin_pg
 def test_0055_rechaza_disponible_sin_fees_partidos():
     import psycopg.errors
@@ -584,24 +608,22 @@ def test_0055_rechaza_disponible_sin_fees_partidos():
             evento="evt-fee-56",
         )
         pol = _politica(conn, universo="amazon_mx/fbm", settings=POLITICA_FBM_MX, label="fbm-mx-56")
-        # Con origen pero sin partidos: tambien se rechaza. El origen es
-        # politica (sin muestra) para no violar la coherencia 0054 y aislar
-        # el CHECK de partidos de la 0055. La huella es la de oferta/fee
-        # para que el trigger de coherencia deje pasar la fila hasta el CHECK.
-        huella = f"fbm:116.0000:MXN:{FETCH.isoformat()}"
+        # Origen politica (sin muestra): aisla el CHECK de partidos sin
+        # violar la coherencia 0054.
         with pytest.raises(psycopg.errors.CheckViolation, match="disponible_exige_fees_partidos"):
-            conn.execute(
-                "INSERT INTO estimacion_escenario (listing_id, platform, asin, seller_sku,"
-                " canal, observed_at, valoracion_date, estado, formula_version,"
-                " componentes, contribucion, contribucion_pct, moneda,"
-                " politica_version_id, oferta_observation_id, fee_observation_id,"
-                " sku_cost_id, costo_validation_run_id, costo_validated_at,"
-                " logistica_origen, canonical_input, context_fingerprint, source_event_id)"
-                " VALUES (%s, 'amazon_mx', 'B0F356001', 'SS-F3-56', 'fbm', %s, %s,"
-                " 'disponible', 'S3', '[]'::jsonb, 22.5000, 22.5000,"
-                " 'MXN', %s, %s, %s, %s, %s, %s,"
-                " 'politica', '{}'::jsonb, %s, 'evt-0056-ko')",
-                (lid, NOW, VALORACION, pol, oid, fid, costo_id, run_id, FETCH, huella),
+            _fila_que_llega_al_check(
+                conn,
+                lid=lid,
+                pol=pol,
+                oid=oid,
+                fid=fid,
+                costo_id=costo_id,
+                run_id=run_id,
+                sku="SS-F3-56",
+                asin="B0F356001",
+                evento="evt-0056-ko",
+                columnas=" logistica_origen,",
+                valores=" 'politica',",
             )
 
 
@@ -641,24 +663,21 @@ def test_0055_rechaza_disponible_sin_origen():
             evento="evt-fee-55",
         )
         pol = _politica(conn, universo="amazon_mx/fbm", settings=POLITICA_FBM_MX, label="fbm-mx-55")
-        # Fila por lo demas valida: solo le falta el origen. Los partidos
-        # van puestos para aislar el CHECK de origen de la 0055. La huella
-        # es la de oferta/fee para que el trigger deje pasar la fila.
-        huella = f"fbm:116.0000:MXN:{FETCH.isoformat()}"
+        # Partidos puestos: aisla el CHECK de origen.
         with pytest.raises(psycopg.errors.CheckViolation, match="disponible_exige_origen"):
-            conn.execute(
-                "INSERT INTO estimacion_escenario (listing_id, platform, asin, seller_sku,"
-                " canal, observed_at, valoracion_date, estado, formula_version,"
-                " componentes, contribucion, contribucion_pct, moneda,"
-                " politica_version_id, oferta_observation_id, fee_observation_id,"
-                " sku_cost_id, costo_validation_run_id, costo_validated_at,"
-                " fee_variable, fee_fijo, fee_cotizable,"
-                " canonical_input, context_fingerprint, source_event_id)"
-                " VALUES (%s, 'amazon_mx', 'B0F355001', 'SS-F3-55', 'fbm', %s, %s,"
-                " 'disponible', 'S3', '[]'::jsonb, 22.5000, 22.5000,"
-                " 'MXN', %s, %s, %s, %s, %s, %s, 5.0000, 0.0000, TRUE,"
-                " '{}'::jsonb, %s, 'evt-0055-ko')",
-                (lid, NOW, VALORACION, pol, oid, fid, costo_id, run_id, FETCH, huella),
+            _fila_que_llega_al_check(
+                conn,
+                lid=lid,
+                pol=pol,
+                oid=oid,
+                fid=fid,
+                costo_id=costo_id,
+                run_id=run_id,
+                sku="SS-F3-55",
+                asin="B0F355001",
+                evento="evt-0055-ko",
+                columnas=" fee_variable, fee_fijo, fee_cotizable,",
+                valores=" 5.0000, 0.0000, TRUE,",
             )
         conn.execute(
             "INSERT INTO estimacion_escenario (listing_id, platform, asin, seller_sku,"

@@ -157,10 +157,7 @@ def refrescar_muestras(
     hoy: date,
     ventana_dias: int,
 ) -> Exclusiones:
-    """Escribe una `precio_envio_muestra` por producto activo del universo.
-
-    Devuelve lo que no entro, contado. Todo o nada por corrida.
-    """
+    """Todo o nada por corrida; devuelve lo que no entro, contado."""
     desde = hoy - timedelta(days=ventana_dias)
     hasta = hoy - timedelta(days=1)
     with conn.transaction():

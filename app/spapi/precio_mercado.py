@@ -273,7 +273,7 @@ def historia_unidad(
     canal: str | None,
     hoy: date,
 ) -> puerto.HistoriaUnidad:
-    """Ventas y disponibilidad de ESTA unidad (F.4; la senal la usa en S.7).
+    """Ventas y disponibilidad de ESTA unidad (F.4).
 
     Ventas atribuidas de `v_precio_venta_unidad`; lo del producto sin
     unidad decidible se suma en `sin_atribuir` (enteros, nunca inventados).

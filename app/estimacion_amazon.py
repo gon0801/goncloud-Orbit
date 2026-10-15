@@ -26,11 +26,7 @@ __all__ = ["CotizadorAmazon", "partir_fees"]
 
 
 class CotizadorAmazon:
-    """Fees reales de una oferta a un precio, con el cliente adentro.
-
-    Lo usan la ingesta de estimacion (para armar el escenario) y el
-    `Mercado.cotizar` del mismo universo (F.4).
-    """
+    """Fees reales de una oferta a un precio."""
 
     def __init__(self, client: ProductFeesClient) -> None:
         self._client = client
