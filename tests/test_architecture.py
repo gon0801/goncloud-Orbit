@@ -24,11 +24,12 @@ incoherentes solo para esquivar el numero.
 from __future__ import annotations
 
 import ast
-import os
 import re
 from pathlib import Path
 
 import pytest
+
+from tests.util_fs import hacer_ilegible, hacer_legible
 
 RAIZ = Path(__file__).resolve().parent.parent
 APP = RAIZ / "app"
@@ -1667,30 +1668,44 @@ def test_tool_precio_reversa_frontera_caza_spapi(tmp_path):
 # ---------------------------------------------------------- r6-C2 ilegible es fuga
 
 
-@pytest.mark.skipif(os.name == "nt", reason="chmod 000 no restringe lectura en Windows")
 def test_precio_write_frontera_ilegible_cuenta_como_fuga(tmp_path):
     """r6-C2: un .py ilegible no es cobertura aparente: cuenta como fuga."""
     p = tmp_path / "ilegible.py"
     p.write_text("x = 1\n", encoding="utf-8")
-    p.chmod(0o000)
+    if not hacer_ilegible(p):
+        pytest.skip("el OS no soporta archivos ilegibles")
     try:
         fugas = _fugas_patch_crudos(tmp_path, tmp_path)
     finally:
-        p.chmod(0o644)
+        hacer_legible(p)
     assert any("ilegible.py" in f for f in fugas)
 
 
-@pytest.mark.skipif(os.name == "nt", reason="chmod 000 no restringe lectura en Windows")
 def test_imports_spapi_write_frontera_ilegible_cuenta_como_fuga(tmp_path):
     """r6-C2: un .py ilegible cuenta como fuga tambien en dinamicos."""
     p = tmp_path / "ilegible.py"
     p.write_text("x = 1\n", encoding="utf-8")
-    p.chmod(0o000)
+    if not hacer_ilegible(p):
+        pytest.skip("el OS no soporta archivos ilegibles")
     try:
         dinamicos = _importadores_dinamicos_spapi_write(tmp_path, tmp_path)
     finally:
-        p.chmod(0o644)
+        hacer_legible(p)
     assert {x.name for x in dinamicos} == {"ilegible.py"}
+
+
+def test_sin_chmod_crudo_en_tests():
+    """Todo 0o000 en tests pasa por tests.util_fs (sonda de capacidad).
+
+    `chmod 0o000` no quita lectura en Windows: el que lo use directo
+    mete un fallo atado al OS. La unica excepcion es util_fs.py.
+    """
+    mal = [
+        p.name
+        for p in (RAIZ / "tests").glob("test_*.py")
+        if re.search(r"chmod\([^)]*0o000", p.read_text(encoding="utf-8"))
+    ]
+    assert not mal, f"0o000 directo en tests (usa tests.util_fs): {mal}"
 
 
 # ---------------------------------------------------------- r6-C3 comentarios no ejecutan

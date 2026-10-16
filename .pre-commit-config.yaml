@@ -44,6 +44,12 @@ repos:
 # siga corriendo la bateria entera. JAMAS se usa --no-verify.
   - repo: local
     hooks:
+      - id: push-creds-failfast
+        name: credencial de push con fail-fast (incidente 2026-10-16)
+        entry: python tools/check_push_creds.py
+        language: python
+        pass_filenames: false
+        stages: [pre-push]
       - id: pytest-pre-push
         name: pytest rapido (pre-push; la bateria COMPLETA corre en CI)
         entry: python tools/quality_run_python_tests.py pytest -x -q tests/test_architecture.py tests/test_precommit_hooks.py

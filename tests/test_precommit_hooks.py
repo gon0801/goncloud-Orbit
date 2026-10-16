@@ -194,3 +194,53 @@ def test_pre_push_es_rapido_y_declara_donde_vive_la_bateria():
     assert "quality.yml" in texto and "--no-verify" in texto, (
         "la config debe declarar donde corre la bateria completa y que jamas se usa --no-verify"
     )
+
+
+def test_push_creds_hook_existe_y_es_pre_push():
+    """Sin credencial el push se cuelga (incidente 2026-10-16): el fail-fast
+    va primero en pre-push para frenar antes de pagar la bateria."""
+    hook = _hook("push-creds-failfast")
+    assert hook["stages"] == ["pre-push"]
+    assert hook["language"] == "python"
+    assert "check_push_creds" in hook["entry"]
+
+
+def test_check_push_creds_sin_git_falla_rapido(monkeypatch):
+    """Sin binario de git no hay credential helper: 1 sin colgarse."""
+    import subprocess as sp
+
+    from tools.check_push_creds import main
+
+    def roto(*a, **k):
+        raise FileNotFoundError("sin git")
+
+    monkeypatch.setattr(sp, "run", roto)
+    assert main() == 1
+
+
+def test_check_push_creds_timeout_falla(monkeypatch):
+    """Un credential helper colgado no detiene el push eternamente."""
+    import subprocess as sp
+
+    from tools.check_push_creds import main
+
+    def colgado(*a, **k):
+        raise sp.TimeoutExpired(cmd="git", timeout=15)
+
+    monkeypatch.setattr(sp, "run", colgado)
+    assert main() == 1
+
+
+def test_check_push_creds_con_credencial_pasa(monkeypatch):
+    """Usuario+password del fill = via libre."""
+    import subprocess as sp
+
+    from tools.check_push_creds import main
+
+    def con_cred(*a, **k):
+        return sp.CompletedProcess(
+            args="git", returncode=0, stdout="username=x\npassword=y\n", stderr=""
+        )
+
+    monkeypatch.setattr(sp, "run", con_cred)
+    assert main() == 0
