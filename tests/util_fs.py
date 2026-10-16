@@ -18,10 +18,7 @@ def hacer_ilegible(path: Path) -> bool:
     Si el OS no lo soporta (Windows), restaura y devuelve False para que
     el test se salte con razon en vez de fallar por el entorno.
     """
-    try:
-        path.chmod(0o000)
-    except OSError:
-        return False
+    path.chmod(0o000)
     if os.access(path, os.R_OK):
         hacer_legible(path)
         return False

@@ -1703,7 +1703,7 @@ def test_sin_chmod_crudo_en_tests():
     mal = [
         p.name
         for p in (RAIZ / "tests").glob("test_*.py")
-        if re.search(r"chmod\([^)]*0o000", p.read_text(encoding="utf-8"))
+        if re.search(r"\bchmod\s*\([^)]*0o000", p.read_text(encoding="utf-8"))
     ]
     assert not mal, f"0o000 directo en tests (usa tests.util_fs): {mal}"
 

@@ -8,6 +8,7 @@ pide la credencial con timeout corto: si no hay, frena con el arreglo.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 
@@ -24,6 +25,11 @@ def _hay_credencial() -> bool:
             text=True,
             timeout=TIMEOUT_S,
             check=False,
+            env={
+                **os.environ,
+                "GIT_TERMINAL_PROMPT": "0",
+                "GIT_ASKPASS": "",
+            },
         )
     except (OSError, subprocess.TimeoutExpired):
         return False
