@@ -406,10 +406,17 @@ def ejecutar_ingesta(
                         skip_reason=_formato_skip_reason(skips),
                     )
                 raise
+        # Falla real 2026-10-16 (D.4): el carril meli lee con SELECTs
+        # pelados (`resolver_oferta_meli`, `_huella_meli_actual`) que dejan
+        # la conexion INTRANS; sin este bloque, cada `with
+        # conn.transaction()` de persistir seria SAVEPOINT y todo el carril
+        # (mas el sello del run) se revertia al cerrar. Amazon no lo sufre:
+        # resuelve del snapshot del bridge sin tocar `conn`.
         try:
-            resultado_oferta = _resolver_oferta_item(
-                conn, filas_bridge, listing_id, platform, seller_sku, asin, ahora
-            )
+            with conn.transaction():
+                resultado_oferta = _resolver_oferta_item(
+                    conn, filas_bridge, listing_id, platform, seller_sku, asin, ahora
+                )
         except Exception as exc:
             _log_excepcion_item(SKIP_OFERTA_EXCEPCION, exc)
             skips[SKIP_OFERTA_EXCEPCION] += 1
@@ -417,16 +424,19 @@ def ejecutar_ingesta(
 
         if resultado_oferta.motivo is not None:
             try:
-                huella = _huella_item(conn, filas_bridge, platform, asin, resultado_oferta.motivo)
-                tally.negativos(
-                    *_contar_transicion_negativa_huella(
-                        conn,
-                        listing_id=listing_id,
-                        motivo=resultado_oferta.motivo,
-                        huella=huella,
-                        observed_at=ahora,
+                with conn.transaction():
+                    huella = _huella_item(
+                        conn, filas_bridge, platform, asin, resultado_oferta.motivo
                     )
-                )
+                    tally.negativos(
+                        *_contar_transicion_negativa_huella(
+                            conn,
+                            listing_id=listing_id,
+                            motivo=resultado_oferta.motivo,
+                            huella=huella,
+                            observed_at=ahora,
+                        )
+                    )
             except Exception as exc:
                 _log_excepcion_item(SKIP_OFERTA_EXCEPCION, exc)
                 skips[SKIP_OFERTA_EXCEPCION] += 1
