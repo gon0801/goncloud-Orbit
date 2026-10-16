@@ -7,14 +7,13 @@
 # mantener(en_tolerancia) sobre las efectivas, (c) lista las fuera de
 # tolerancia para su explicacion escrita (el punto (d), la cuenta a
 # mano, la hace el lead).
-# R05d: del denominador salen las unidades sin oferta viva (inventario 0
-# Y sin precio propio observado el dia D, con las fuentes del motor: la
-# puerta S2 es NOT EXISTS spapi_price_observation de metric_date = D con
-# own_listing_price NOT NULL, como app/spapi/precio_mercado.py; el
-# inventario es la ultima spapi_inventario_observation con metric_date <=
-# D; sin fila no es 0, es sin dato y entra (en FBM puro no hay filas:
-# ahi el filtro no muerde). Se listan como EXCLUIDA (solo ids internos:
-# el repo es publico).
+# R05d (r1, regla FBM): del denominador salen las unidades sin precio
+# propio observado el dia D (la puerta S2 es NOT EXISTS
+# spapi_price_observation de metric_date = D con own_listing_price NOT
+# NULL, como app/spapi/precio_mercado.py). En FBM basta eso: el
+# inventario FBA no existe para FBM y NO se pide (la regla "inventario
+# 0 Y sin precio" es de FBA -X.1- y MeLi -X.4-). Se listan como
+# EXCLUIDA (solo ids internos: el repo es publico).
 # Sale 0 al medir (una lectura "no cumple" tambien es una medicion
 # lograda); el veredicto viaja en la linea LECTURA:. En simulacion
 # (ORBIT_SIMULACION=1) lee de ORBIT_SIM_DSN.
@@ -69,7 +68,7 @@ echo "sembradas en universo (canal fbm): $S_UNIV"
 
 EXC_CSV=""
 if [ "$S_UNIV" -gt 0 ]; then
-  EXC_CSV=$(lee_sql "SELECT COALESCE(string_agg(g.listing_id::text, ',' ORDER BY g.listing_id), '') FROM precio_goal g JOIN listing l ON l.id = g.listing_id AND l.platform = g.platform $ESC_LATERAL WHERE g.platform = 'amazon_us' AND g.origen = 'margen_de_hoy' AND g.lote = '$LOTE' AND g.valid_to IS NULL AND $CANAL_SQL AND NOT EXISTS (SELECT 1 FROM spapi_price_observation o WHERE o.asin = l.external_id AND o.platform = 'amazon_us' AND o.metric_date = '$FECHA' AND o.own_listing_price IS NOT NULL) AND COALESCE((SELECT i.total_quantity FROM spapi_inventario_observation i WHERE i.seller_sku = l.seller_sku AND i.platform = 'amazon_us' AND i.metric_date <= '$FECHA' ORDER BY i.observed_at DESC LIMIT 1) = 0, false);") || { echo "ABORTA: no se pudo leer excluidas"; exit 1; }
+  EXC_CSV=$(lee_sql "SELECT COALESCE(string_agg(g.listing_id::text, ',' ORDER BY g.listing_id), '') FROM precio_goal g JOIN listing l ON l.id = g.listing_id AND l.platform = g.platform $ESC_LATERAL WHERE g.platform = 'amazon_us' AND g.origen = 'margen_de_hoy' AND g.lote = '$LOTE' AND g.valid_to IS NULL AND $CANAL_SQL AND NOT EXISTS (SELECT 1 FROM spapi_price_observation o WHERE o.asin = l.external_id AND o.platform = 'amazon_us' AND o.metric_date = '$FECHA' AND o.own_listing_price IS NOT NULL);") || { echo "ABORTA: no se pudo leer excluidas"; exit 1; }
 fi
 N_EXCL=0
 IDS_D="$IDS_S"

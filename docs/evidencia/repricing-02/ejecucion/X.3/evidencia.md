@@ -92,3 +92,12 @@ de inventario y el filtro no muerde; donde hay fila (SKUs con pasado
 FBA) si. Simulacro de siembra de hoy (solo lectura): 176 candidatas,
 56 excluidas, 120 a postear (salida completa fuera del repo).
 `leer.sh`: FRENADO sin lote (universo sin sembrar), exit=1.
+
+## R05d-r1: regla FBM del filtro (2026-10-16)
+
+Mismo cambio que X.2 (VEREDICTO-R05d-r1, AVISO PARA EL OPERADOR): en
+FBM basta SIN PRECIO PROPIO OBSERVADO para `EXCLUIDA` (el inventario
+FBA no existe para FBM y ya no se pide); FBA (X.1) y MeLi (X.4) siguen
+con "inventario 0 Y sin precio". Detalle y prueba discriminante en la
+seccion R05d-r1 de `X.2/evidencia.md` y en
+`tests/test_precio02_escenario_fbm.py`.

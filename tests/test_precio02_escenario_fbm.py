@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import itertools
 import os
+import re
 import socket
 from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
@@ -752,3 +753,258 @@ def test_0055_rechaza_disponible_sin_origen():
             " 'evt-0055-ok')",
             (lid, NOW, VALORACION),
         )
+
+
+# ---------------------------------------------------------------------------
+# R05d-r1: filtro "sin oferta viva" de los scripts X.* (VEREDICTO-R05d-r1,
+# AVISO PARA EL OPERADOR). En FBM (X.2/X.3) basta SIN PRECIO PROPIO
+# OBSERVADO para excluir (el inventario FBA no existe para FBM y no se
+# pide); en FBA (X.1) y MeLi (X.4) la regla sigue siendo "inventario 0 Y
+# sin precio". Las pruebas corren el SQL LITERAL de cada script contra
+# una base temporal: con el SQL anterior a r1 el caso FBM sin fila de
+# inventario NO se excluia (el `total_quantity = 0` era NULL).
+# ---------------------------------------------------------------------------
+
+ORDEN_FILTRO = (
+    "0001_initial.sql",
+    "0028_estimacion_venta.sql",
+    "0032_spapi_pricing.sql",
+    "0035_spapi_listings_inventario.sql",
+    "0039_precio.sql",
+    "0047_familias.sql",
+    "0053_precio02_canal_meli.sql",
+    "0054_precio02_base.sql",
+    "0055_precio02_escenario_exige.sql",
+)
+
+EJEC = RAIZ / "docs" / "evidencia" / "repricing-02" / "ejecucion"
+
+
+@contextmanager
+def _db_filtro():
+    from psycopg import sql as pgsql
+
+    dsn = _dsn_base()
+    db = f"precio02r5_{socket.gethostname().lower()}_{os.getpid()}_{next(_CONTADOR)}"
+    admin = psycopg.connect(dsn, autocommit=True)
+    conn = None
+    try:
+        admin.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(db)))
+        conn = psycopg.connect(_dsn_de_db(dsn, db), autocommit=True)
+        conn.execute("SET TIME ZONE 'UTC'")
+        for nombre in ORDEN_FILTRO:
+            conn.execute((RAIZ / "migrations" / nombre).read_text(encoding="utf-8"))
+        yield conn
+    finally:
+        if conn is not None:
+            conn.close()
+        admin.execute(
+            pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
+        )
+        admin.close()
+
+
+def _sql_filtro(archivo: Path, marca: str) -> str:
+    """El SQL que el script pasa a `lee_sql` en la asignacion de `marca`.
+
+    Sustituye las variables de shell que el script define fuera del SQL
+    (`CANAL_SQL`, `ESC_LATERAL`); `$IDS_TODOS`, `$LOTE` y `$FECHA` las
+    pone cada prueba.
+    """
+    texto = archivo.read_text(encoding="utf-8")
+    hallado = re.search(marca + r'=\$\(lee_sql "([^"]+)"\)', texto)
+    assert hallado, f"{archivo.name}: no se encontro el SQL de {marca}"
+    sql = hallado.group(1)
+    for var in ("CANAL_SQL", "ESC_LATERAL"):
+        definicion = re.search(rf'^{var}="([^"]*)"$', texto, re.MULTILINE)
+        if definicion:
+            sql = sql.replace(f"${var}", definicion.group(1))
+    return sql
+
+
+def _precio_obs(
+    conn, *, asin: str, plataforma: str, propio: Decimal | None, dia: date, hora: int = 10
+) -> None:
+    moneda = None if propio is None else ("USD" if plataforma == "amazon_us" else "MXN")
+    conn.execute(
+        "INSERT INTO spapi_price_observation (asin, platform, metric_date, observed_at,"
+        " own_listing_price, own_listing_currency) VALUES (%s, %s, %s, %s, %s, %s)",
+        (
+            asin,
+            plataforma,
+            dia,
+            datetime(dia.year, dia.month, dia.day, hora, tzinfo=UTC),
+            propio,
+            moneda,
+        ),
+    )
+
+
+def _inventario_obs(conn, *, sku: str, plataforma: str, total: int, dia: date) -> None:
+    conn.execute(
+        "INSERT INTO spapi_inventario_observation (seller_sku, platform, metric_date,"
+        " observed_at, total_quantity, api_version) VALUES (%s, %s, %s, %s, %s, 'v1')",
+        (sku, plataforma, dia, datetime(dia.year, dia.month, dia.day, 10, tzinfo=UTC), total),
+    )
+
+
+def _meli_obs(conn, *, item: str, precio: Decimal | None, stock: int) -> None:
+    conn.execute(
+        "INSERT INTO meli_publicacion_observation (item_id, metric_date, observed_at,"
+        " estado, precio, moneda, stock) VALUES (%s, %s, %s, 'active', %s, %s, %s)",
+        (item, VALORACION, NOW, precio, None if precio is None else "MXN", stock),
+    )
+
+
+def _goal_lote(conn, lid: int, *, plataforma: str, lote: str) -> None:
+    conn.execute(
+        "INSERT INTO precio_goal (listing_id, platform, margen_goal_pct, mode, valid_from,"
+        " creado_por, go_literal, origen, lote) VALUES (%s, %s, 0.3000, 'shadow', %s, 't',"
+        " NULL, 'margen_de_hoy', %s)",
+        (lid, plataforma, VALORACION - timedelta(days=1), lote),
+    )
+
+
+def _excluidas(conn, sql: str) -> set[str]:
+    crudo = conn.execute(sql).fetchone()[0]
+    return set(crudo.split(",")) if crudo else set()
+
+
+@_skip_sin_pg
+def test_r05d_r1_sembrar_fbm_sin_precio_excluye_sin_pedir_inventario():
+    """X.2/X.3 (FBM): sin precio propio observado basta para EXCLUIDA.
+
+    El caso discriminante es A: sin fila en spapi_inventario_observation
+    (en FBM no existen) la regla vieja NO la excluia; la r1 si.
+    """
+    sql_x2 = _sql_filtro(EJEC / "X.2" / "sembrar.sh", "EXCLUIDAS")
+    sql_x3 = _sql_filtro(EJEC / "X.3" / "sembrar.sh", "EXCLUIDAS")
+    with _db_filtro() as conn:
+        _, a = _listing(conn, plataforma="amazon_mx", sku="SS-R5-A", asin="B0R5A00001")
+        _, b = _listing(conn, plataforma="amazon_mx", sku="SS-R5-B", asin="B0R5B00001")
+        _, c = _listing(conn, plataforma="amazon_mx", sku="SS-R5-C", asin="B0R5C00001")
+        _, d = _listing(conn, plataforma="amazon_mx", sku="SS-R5-D", asin="B0R5D00001")
+        _, e = _listing(conn, plataforma="amazon_mx", sku="SS-R5-E", asin="B0R5E00001")
+        # A: sin observacion de precio y SIN fila de inventario -> EXCLUIDA.
+        # B: ultima observacion sin precio propio -> EXCLUIDA.
+        _precio_obs(conn, asin="B0R5B00001", plataforma="amazon_mx", propio=None, dia=VALORACION)
+        # C: con precio propio -> entra.
+        _precio_obs(
+            conn,
+            asin="B0R5C00001",
+            plataforma="amazon_mx",
+            propio=Decimal("116.0000"),
+            dia=VALORACION,
+        )
+        # D: sin precio propio con inventario 7 (pasado FBA): en FBM el
+        # inventario no se consulta -> EXCLUIDA.
+        _precio_obs(conn, asin="B0R5D00001", plataforma="amazon_mx", propio=None, dia=VALORACION)
+        _inventario_obs(conn, sku="SS-R5-D", plataforma="amazon_mx", total=7, dia=VALORACION)
+        # E: manda la ultima observacion (ayer con precio, hoy sin).
+        _precio_obs(
+            conn,
+            asin="B0R5E00001",
+            plataforma="amazon_mx",
+            propio=Decimal("116.0000"),
+            dia=VALORACION,
+            hora=8,
+        )
+        _precio_obs(
+            conn, asin="B0R5E00001", plataforma="amazon_mx", propio=None, dia=VALORACION, hora=9
+        )
+        excl = _excluidas(conn, sql_x2.replace("$IDS_TODOS", f"{a},{b},{c},{d},{e}"))
+        assert excl == {str(a), str(b), str(d), str(e)}
+        # X.3 (US FBM): la misma regla.
+        _, u1 = _listing(conn, plataforma="amazon_us", sku="SS-R5-U1", asin="B0R5U00001")
+        _, u2 = _listing(conn, plataforma="amazon_us", sku="SS-R5-U2", asin="B0R5U00002")
+        _precio_obs(
+            conn,
+            asin="B0R5U00002",
+            plataforma="amazon_us",
+            propio=Decimal("29.9900"),
+            dia=VALORACION,
+        )
+        assert _excluidas(conn, sql_x3.replace("$IDS_TODOS", f"{u1},{u2}")) == {str(u1)}
+
+
+@_skip_sin_pg
+def test_r05d_r1_leer_fbm_excluye_del_denominador_sin_inventario():
+    """leer.sh de X.2/X.3: sin precio propio el dia D basta para salir
+    del denominador; ya no se pide inventario 0."""
+    lote = "a05d11"
+    sql_x2 = _sql_filtro(EJEC / "X.2" / "leer.sh", "EXC_CSV")
+    sql_x3 = _sql_filtro(EJEC / "X.3" / "leer.sh", "EXC_CSV")
+    with _db_filtro() as conn:
+        _, g1 = _listing(conn, plataforma="amazon_mx", sku="SS-R5-G1", asin="B0R5G00001")
+        _, g2 = _listing(conn, plataforma="amazon_mx", sku="SS-R5-G2", asin="B0R5G00002")
+        _, g3 = _listing(conn, plataforma="amazon_mx", sku="SS-R5-G3", asin="B0R5G00003")
+        for lid in (g1, g2, g3):
+            _goal_lote(conn, lid, plataforma="amazon_mx", lote=lote)
+        # G1: sin precio propio el dia D y SIN inventario -> fuera del
+        # denominador (la regla vieja la dejaba dentro).
+        # G2: con precio propio el dia D -> dentro.
+        _precio_obs(
+            conn,
+            asin="B0R5G00002",
+            plataforma="amazon_mx",
+            propio=Decimal("116.0000"),
+            dia=VALORACION,
+        )
+        # G3: sin precio el dia D con inventario 0 -> tambien fuera.
+        _inventario_obs(conn, sku="SS-R5-G3", plataforma="amazon_mx", total=0, dia=VALORACION)
+        sql = sql_x2.replace("'$LOTE'", f"'{lote}'").replace("'$FECHA'", f"'{VALORACION}'")
+        assert _excluidas(conn, sql) == {str(g1), str(g3)}
+        # X.3 (US): igual.
+        _, h1 = _listing(conn, plataforma="amazon_us", sku="SS-R5-H1", asin="B0R5H00001")
+        _, h2 = _listing(conn, plataforma="amazon_us", sku="SS-R5-H2", asin="B0R5H00002")
+        for lid in (h1, h2):
+            _goal_lote(conn, lid, plataforma="amazon_us", lote=lote)
+        _precio_obs(
+            conn,
+            asin="B0R5H00002",
+            plataforma="amazon_us",
+            propio=Decimal("29.9900"),
+            dia=VALORACION,
+        )
+        sql_us = sql_x3.replace("'$LOTE'", f"'{lote}'").replace("'$FECHA'", f"'{VALORACION}'")
+        assert _excluidas(conn, sql_us) == {str(h1)}
+
+
+@_skip_sin_pg
+def test_r05d_r1_fba_y_meli_exigen_inventario_cero_y_sin_precio():
+    """La regla de X.1 (FBA) y X.4 (MeLi) NO cambio: inventario 0 Y sin
+    precio. Sus scripts no se tocaron; aqui se blinda el contraste."""
+    sql_x1 = _sql_filtro(EJEC / "X.1" / "sembrar.sh", "EXCLUIDAS")
+    sql_x4 = _sql_filtro(EJEC / "X.4" / "sembrar.sh", "EXCLUIDAS")
+    with _db_filtro() as conn:
+        _, f1 = _listing(conn, plataforma="amazon_mx", sku="SS-R5-F1", asin="B0R5F00001")
+        _, f2 = _listing(conn, plataforma="amazon_mx", sku="SS-R5-F2", asin="B0R5F00002")
+        _, f3 = _listing(conn, plataforma="amazon_mx", sku="SS-R5-F3", asin="B0R5F00003")
+        _, f4 = _listing(conn, plataforma="amazon_mx", sku="SS-R5-F4", asin="B0R5F00004")
+        # F1: sin precio y SIN fila de inventario -> entra (sin dato no es 0).
+        # F2: sin precio con inventario 0 -> EXCLUIDA.
+        _inventario_obs(conn, sku="SS-R5-F2", plataforma="amazon_mx", total=0, dia=VALORACION)
+        # F3: sin precio con inventario 4 -> entra.
+        _inventario_obs(conn, sku="SS-R5-F3", plataforma="amazon_mx", total=4, dia=VALORACION)
+        # F4: con precio propio e inventario 0 -> entra.
+        _precio_obs(
+            conn,
+            asin="B0R5F00004",
+            plataforma="amazon_mx",
+            propio=Decimal("116.0000"),
+            dia=VALORACION,
+        )
+        _inventario_obs(conn, sku="SS-R5-F4", plataforma="amazon_mx", total=0, dia=VALORACION)
+        excl = _excluidas(conn, sql_x1.replace("$IDS_TODOS", f"{f1},{f2},{f3},{f4}"))
+        assert excl == {str(f2)}
+        # MeLi (X.4): precio NULL y stock 0, las dos cosas.
+        _, m1 = _listing(conn, plataforma="meli", sku="SS-R5-M1", asin="MLMR500001")
+        _, m2 = _listing(conn, plataforma="meli", sku="SS-R5-M2", asin="MLMR500002")
+        _, m3 = _listing(conn, plataforma="meli", sku="SS-R5-M3", asin="MLMR500003")
+        _, m4 = _listing(conn, plataforma="meli", sku="SS-R5-M4", asin="MLMR500004")
+        # M1: sin observacion -> entra.
+        _meli_obs(conn, item="MLMR500002", precio=None, stock=0)
+        _meli_obs(conn, item="MLMR500003", precio=None, stock=5)
+        _meli_obs(conn, item="MLMR500004", precio=Decimal("100.0000"), stock=0)
+        excl_m = _excluidas(conn, sql_x4.replace("$IDS_TODOS", f"{m1},{m2},{m3},{m4}"))
+        assert excl_m == {str(m2)}
