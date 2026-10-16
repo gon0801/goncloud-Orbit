@@ -1,9 +1,13 @@
 """Cliente de escritura MeLi (REPRICING 02 M.4): la unica puerta de PUT.
 
 Espejo de `app/spapi/write_client.py`: NO hereda de `ClienteMeli` (que
-sigue GET-only), compone el refresco publico `refrescar_tokens_meli` y
-hace su propio HTTP. Nunca lee credenciales (vienen inyectadas) ni
-cachea nada: una instancia por operacion.
+sigue GET-only) y hace su propio HTTP. Nunca lee credenciales (vienen
+inyectadas) ni cachea nada: una instancia por operacion.
+
+El token es un pase del bridge (opcion 1): Orbit NUNCA refresca (no hay
+`refresh_token` ni `/oauth/token` en Orbit; lo renueva el cron del
+bridge). Un 401 es acuse no aceptada con el motivo claro `pase del
+bridge vencido`, sin refresh ni reintento.
 
 `modo_confirmado == "live"` exacto o `MutationNotAllowedError` antes de
 construir nada. Un solo metodo publico. La forma del cuerpo (precio en
@@ -14,10 +18,11 @@ la raiz y repetido por variacion) es la CANDIDATA que concluyo M.0
 `tools/precio_sonda.py`). La sonda de +-0.01 la prueba; si pasa, un PR
 cambia solo la constante a `items_price_put_v1`.
 
-Reintentos (nunca un loop): 401 -> un refresh forzado y un reintento;
-429 -> un reintento honrando `Retry-After` (espejo SP-API: default 1s,
-tope 60s); lo demas, tal cual como `Acuse` (nunca levanta por un
-estado HTTP: el llamador sella con el acuse).
+Reintentos (nunca un loop): 401 -> acuse no aceptada `pase del bridge
+vencido` (sin refresh ni reintento: Orbit nunca refresca); 429 -> un
+reintento honrando `Retry-After` (espejo SP-API: default 1s, tope 60s);
+lo demas, tal cual como `Acuse` (nunca levanta por un estado HTTP: el
+llamador sella con el acuse).
 """
 
 from __future__ import annotations
@@ -32,12 +37,7 @@ from decimal import Decimal
 import httpx
 
 from app.precio.puerto import Acuse, EscrituraNoDisponible
-from app.reputacion_clientes import (
-    MELI_BASE,
-    MeliCredentials,
-    ReputacionError,
-    refrescar_tokens_meli,
-)
+from app.reputacion_clientes import MELI_BASE, MeliCredentials, ReputacionError
 
 __all__ = [
     "FORMA_ESCRITURA_MELI",
@@ -118,7 +118,6 @@ class MeliWriteClient:
         *,
         modo_confirmado: str,
         creds: MeliCredentials,
-        refresco: Callable[[MeliCredentials, httpx.Client], None] = refrescar_tokens_meli,
         transport: httpx.BaseTransport | None = None,
         sleep: Callable[[float], None] = time.sleep,
         timeout: float = 30.0,
@@ -131,7 +130,6 @@ class MeliWriteClient:
         logging.getLogger("httpx").setLevel(logging.WARNING)
         logging.getLogger("httpcore").setLevel(logging.WARNING)
         self._creds = creds
-        self._refresco = refresco
         self._transport = transport
         self._sleep = sleep
         self._timeout = timeout
@@ -170,7 +168,6 @@ class MeliWriteClient:
         cuerpo = _cuerpo_put_precio(_texto_precio(precio), variantes)
         if not sonda:
             self.exigir_sello()
-        forzados = 0
         reintentos = 0
         with httpx.Client(
             base_url=MELI_BASE, transport=self._transport, timeout=self._timeout
@@ -188,14 +185,13 @@ class MeliWriteClient:
                 except httpx.HTTPError as exc:
                     logger.info("poner_precio %s red (%s)", ruta, type(exc).__name__)
                     return Acuse(aceptada=False, codigo=f"PUT {ruta} red", cuerpo={})
-                if resp.status_code == 401 and forzados < 1:
-                    forzados += 1
-                    try:
-                        self._refresco(self._creds, client)
-                    except ReputacionError:
-                        logger.info("poner_precio %s auth", ruta)
-                        return Acuse(aceptada=False, codigo=f"PUT {ruta} auth", cuerpo={})
-                    continue
+                if resp.status_code == 401:
+                    logger.info("poner_precio %s auth (pase del bridge vencido)", ruta)
+                    return Acuse(
+                        aceptada=False,
+                        codigo=f"PUT {ruta} 401 pase del bridge vencido",
+                        cuerpo={},
+                    )
                 if resp.status_code == 429 and reintentos < 1:
                     reintentos += 1
                     self._sleep(_espera_retry_after(resp))

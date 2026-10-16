@@ -477,17 +477,11 @@ def _clientes_precio(platform: str):
     if platform == "meli":
         from app.meli.estimacion import CotizadorMeli
         from app.meli.write_client import MeliWriteClient
-        from app.reputacion_clientes import (
-            ClienteMeli,
-            MeliCredentials,
-            refrescar_tokens_meli,
-        )
+        from app.reputacion_clientes import ClienteMeli, MeliCredentials
 
         creds = MeliCredentials.from_secrets_dir()
         lector_meli = ClienteMeli(creds)
-        escritor_meli = MeliWriteClient(
-            modo_confirmado="live", creds=creds, refresco=refrescar_tokens_meli
-        )
+        escritor_meli = MeliWriteClient(modo_confirmado="live", creds=creds)
         return lector_meli, escritor_meli, CotizadorMeli(lector_meli), None
 
     from app.estimacion_fees import ProductFeesClient

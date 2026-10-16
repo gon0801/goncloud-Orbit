@@ -12,7 +12,6 @@ import datetime as dt
 import json
 import os
 import socket
-import stat
 import urllib.parse
 from collections import Counter
 from contextlib import contextmanager
@@ -178,15 +177,10 @@ _JUNGLEE_ITEM = {
 
 
 def _creds_meli(tmp_path: Path) -> MeliCredentials:
+    """El pase tal como lo deja el cron del bridge: access_token + user_id
+    + scope, SIN refresh_token ni client_id/client_secret."""
     (tmp_path / "meli_tokens.json").write_text(
-        json.dumps(
-            {
-                "access_token": "ACCESO",
-                "refresh_token": "REFRESCO",
-                "client_id": "CID",
-                "client_secret": "CSEC",
-            }
-        ),
+        json.dumps({"access_token": "ACCESO", "user_id": 135734858, "scope": "read write"}),
         encoding="utf-8",
     )
     return MeliCredentials.from_secrets_dir(tmp_path)
@@ -323,46 +317,25 @@ def test_cliente_meli_scan_truncado_cuenta(tmp_path):
     cliente.close()
 
 
-def test_cliente_meli_401_refresh_y_reintento_unico(tmp_path):
+def test_cliente_meli_401_pase_vencido_sin_refresh(tmp_path):
+    """Pase del bridge (opcion 1): un 401 aborta con mensaje claro; Orbit
+    NUNCA refresca (cero POST a /oauth/token, cero reintento, el archivo
+    del cron queda intacto)."""
     llamadas: list = []
-    estado = {"n": 0}
 
     def handler(request: httpx.Request) -> httpx.Response:
         llamadas.append((request.method, request.url.path))
-        if request.url.path == "/oauth/token":
-            return httpx.Response(200, json={"access_token": "NUEVO", "refresh_token": "NUEVOR"})
-        estado["n"] += 1
-        if estado["n"] == 1:
-            return httpx.Response(401, json={"error": "expired"})
-        return httpx.Response(200, json=_ME)
-
-    cliente = ClienteMeli(
-        _creds_meli(tmp_path), transport=httpx.MockTransport(handler), backoff_base=0
-    )
-    data, _ = cliente.get("/users/me")
-    assert data["id"] == 135734858
-    # Un refresh, rewrite atomica (sin .tmp colgado) y reintento unico.
-    guardado = json.loads((tmp_path / "meli_tokens.json").read_text(encoding="utf-8"))
-    assert guardado["access_token"] == "NUEVO"
-    assert not (tmp_path / "meli_tokens.tmp").exists()
-    modo = stat.S_IMODE((tmp_path / "meli_tokens.json").stat().st_mode)
-    assert modo == 0o600, f"tokens legibles por otros tras refresh: {oct(modo)}"
-    assert [m for m, _ in llamadas].count("POST") == 1
-    assert estado["n"] == 2
-    cliente.close()
-
-
-def test_cliente_meli_segundo_401_aborta(tmp_path):
-    def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path == "/oauth/token":
-            return httpx.Response(200, json={"access_token": "X", "refresh_token": "Y"})
         return httpx.Response(401, json={"error": "expired"})
 
     cliente = ClienteMeli(
         _creds_meli(tmp_path), transport=httpx.MockTransport(handler), backoff_base=0
     )
-    with pytest.raises(ReputacionError, match="401 tras refresh"):
+    with pytest.raises(ReputacionError, match="pase del bridge vencido"):
         cliente.get("/users/me")
+    assert llamadas == [("GET", "/users/me")]
+    guardado = json.loads((tmp_path / "meli_tokens.json").read_text(encoding="utf-8"))
+    assert guardado["access_token"] == "ACCESO"  # intacto: nadie lo reescribe
+    assert not (tmp_path / "meli_tokens.tmp").exists()
     cliente.close()
 
 
@@ -962,14 +935,14 @@ def test_junglee_token_en_header_no_en_url(tmp_path):
     cliente.close()
 
 
-def test_clientes_posts_solo_oauth_y_junglee():
-    """Exactamente 2 POST en clientes: refresh OAuth MeLi y run-sync de
-    junglee (scraper pagado aprobado en A.2). Ningun otro POST (MeLi
-    resto solo-GET; a Amazon directo, ninguno)."""
+def test_clientes_post_solo_junglee():
+    """Un solo POST en clientes: run-sync de junglee (scraper pagado
+    aprobado en A.2). Con el pase del bridge Orbit NUNCA pega a
+    /oauth/token (no refresca; MeLi resto solo-GET; a Amazon, ninguno)."""
     fuente = Path(__file__).resolve().parents[1] / "app" / "reputacion_clientes.py"
     texto = fuente.read_text(encoding="utf-8")
-    assert texto.count(".post(") == 2
-    assert "/oauth/token" in texto
+    assert texto.count(".post(") == 1
+    assert "/oauth/token" not in texto
     assert "/acts/" in texto
 
 

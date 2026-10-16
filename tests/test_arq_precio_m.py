@@ -116,9 +116,7 @@ def test_candado_importador_caza_fuga_sembrada(tmp_path):
     }
 
 
-_METODOS_CLIENTE_MELI = frozenset(
-    {"__init__", "close", "_request", "_refresh", "get", "items_seller"}
-)
+_METODOS_CLIENTE_MELI = frozenset({"__init__", "close", "_request", "get", "items_seller"})
 
 
 def _metodos_cliente_meli(path: Path) -> tuple[bool, set[str]]:
@@ -136,9 +134,10 @@ def _metodos_cliente_meli(path: Path) -> tuple[bool, set[str]]:
 
 
 def test_cliente_meli_solo_expone_get():
-    """M.4: `ClienteMeli` no gana metodos (el refresh POST vive en
-    `refrescar_tokens_meli`, fuera de la clase; si la clase desaparece,
-    el candado falla en vez de pasar vacuo)."""
+    """M.4/pase del bridge: `ClienteMeli` no gana metodos (el 401 aborta
+    con `pase del bridge vencido`; NO hay `_refresh` ni refresh alguno en
+    Orbit; si la clase desaparece, el candado falla en vez de pasar
+    vacuo)."""
     encontrada, metodos = _metodos_cliente_meli(REPUTACION)
     assert encontrada, "class ClienteMeli no encontrada"
     assert metodos <= _METODOS_CLIENTE_MELI, f"metodos nuevos: {metodos}"
