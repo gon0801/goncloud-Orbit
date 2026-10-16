@@ -1,0 +1,19 @@
+{
+ "casos": [
+  {
+   "id": "fallo",
+   "tipo": "choice",
+   "pregunta": "Este fallo de CI con su contexto, que es?",
+   "opciones": [
+    "real",
+    "quarantine",
+    "unrelated"
+   ],
+   "estado": {
+    "job": "rapido",
+    "error": "timeout en red"
+   },
+   "umbral": 0.85
+  }
+ ]
+}

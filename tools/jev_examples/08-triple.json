@@ -1,0 +1,44 @@
+{
+ "casos": [
+  {
+   "id": "urgencia",
+   "tipo": "score",
+   "pregunta": "Urgencia de 0 (puede esperar) a 2 (hoy).",
+   "niveles": [
+    "puede esperar",
+    "esta semana",
+    "hoy"
+   ],
+   "estado": {
+    "tarea": "renovar dominio que vence en 3 dias"
+   }
+  },
+  {
+   "id": "worker",
+   "tipo": "choice",
+   "pregunta": "Quien lo toma?",
+   "opciones": [
+    "admin",
+    "research",
+    "inbox"
+   ],
+   "estado": {
+    "tarea": "renovar dominio que vence en 3 dias"
+   },
+   "umbral": 0.85
+  },
+  {
+   "id": "permiso",
+   "tipo": "choice",
+   "pregunta": "Requiere permiso previo?",
+   "opciones": [
+    "si",
+    "no"
+   ],
+   "estado": {
+    "accion": "pagar renovacion por 1 ano"
+   },
+   "umbral": 0.85
+  }
+ ]
+}

@@ -1,0 +1,19 @@
+{
+ "casos": [
+  {
+   "id": "pr",
+   "tipo": "choice",
+   "pregunta": "Con este estado de CI y bots, que hago con el PR?",
+   "opciones": [
+    "merge",
+    "request-changes",
+    "wait"
+   ],
+   "estado": {
+    "checks": "verdes",
+    "revisiones": "ninguna"
+   },
+   "umbral": 0.85
+  }
+ ]
+}

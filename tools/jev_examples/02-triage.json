@@ -1,0 +1,19 @@
+{
+ "casos": [
+  {
+   "id": "hilo",
+   "tipo": "choice",
+   "pregunta": "Con esta evidencia, que hago con el hilo?",
+   "opciones": [
+    "answer",
+    "archive",
+    "escalate"
+   ],
+   "estado": {
+    "remitente_dominio": "tienda.example",
+    "categoria": "PROMOTIONS"
+   },
+   "umbral": 0.85
+  }
+ ]
+}

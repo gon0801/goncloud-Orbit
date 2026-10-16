@@ -1,0 +1,20 @@
+{
+ "casos": [
+  {
+   "id": "siguiente",
+   "tipo": "choice",
+   "pregunta": "Dado el objetivo y el trabajo hecho, que sigue?",
+   "opciones": [
+    "investigar",
+    "redactar",
+    "revisar",
+    "terminar"
+   ],
+   "estado": {
+    "objetivo": "brief de competidores",
+    "hecho": "3 fuentes, sin borrador"
+   },
+   "umbral": 0.85
+  }
+ ]
+}

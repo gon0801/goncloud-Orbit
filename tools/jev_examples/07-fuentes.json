@@ -1,0 +1,17 @@
+{
+ "casos": [
+  {
+   "id": "fuente",
+   "tipo": "score",
+   "pregunta": "Puntua la fuente de 0 (inutil) a 2 (publicable con cita).",
+   "niveles": [
+    "inutil o inventada",
+    "util con verificacion",
+    "directa y citable"
+   ],
+   "estado": {
+    "fuente": "blog oficial con fecha y datos"
+   }
+  }
+ ]
+}
