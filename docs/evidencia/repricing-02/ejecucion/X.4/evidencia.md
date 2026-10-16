@@ -93,3 +93,15 @@ simulacro y acepto exit=0 con el mismo flujo que los txt de r2
 `tests/test_precio02_sonda_meli.py::test_corre_meli_real_manda_put_con_variations`
 corre `_corre` con MercadoMeli real y muestra PUT con variations
 (ida 979.12 y vuelta 979.11).
+
+## R05d: filtro sin oferta viva (2026-10-16)
+
+Igual que X.1, con la fuente MeLi del motor
+(`meli_publicacion_observation`: precio NULL y stock 0 en la ultima
+observacion): `sembrar.sh` excluye y lista `EXCLUIDA`, `leer.sh`
+(nuevo) mide el paso 2 con el filtro en el denominador (solo lee,
+sale 0 al medir, veredicto en `LECTURA:`). Hoy hay 0 candidatas (aun
+sin listings MeLi: catalogo pendiente): simulacro exit=0 sin nada que
+postear y `leer.sh` FRENADO sin lote, exit=1. El SQL del filtro se
+valido contra el esquema real (sonda de solo lectura: 0 listings, 0
+observaciones, la consulta corre).

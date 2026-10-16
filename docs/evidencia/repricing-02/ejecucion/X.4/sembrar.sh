@@ -12,6 +12,12 @@
 # MeLi tiene un solo canal: la seleccion es toda la plataforma (sin
 # filtro de canal; sin escenario entra y el plan lo bloquea).
 # `--listing-ids` explicitos se respetan tal cual (el dueno los pidio).
+# R05d: las unidades sin oferta viva NO se siembran ni entran al
+# denominador: inventario 0 Y sin precio propio observado, con la fuente
+# del motor (ultima meli_publicacion_observation con precio NULL y stock
+# 0; stock NULL o sin fila no es 0, es sin dato y entra). Se listan como
+# EXCLUIDA (solo ids). Solo a la seleccion automatica; los explicitos
+# los rescata leer.sh del denominador.
 # SIMULA POR OMISION: sin --acepto-mutacion-real solo imprime lo que
 # haria (cuerpos, seleccion, id base) y sale 0 sin POSTear nada. Con la
 # bandera escribe de verdad: plan, guardar, aplicar con la huella.
@@ -80,6 +86,23 @@ else
   echo "unidades MeLi sin goal vigente: $N_SIN"
 fi
 echo "seleccion: listing_ids [$IDS_TODOS]"
+
+# R05d: fuera del denominador y de los goals (solo seleccion automatica).
+if [ -z "$IDS" ] && [ -n "$IDS_TODOS" ]; then
+  EXCLUIDAS=$(lee_sql "SELECT COALESCE(string_agg(l.id::text, ',' ORDER BY l.id), '') FROM listing l LEFT JOIN LATERAL (SELECT o.precio, o.stock FROM meli_publicacion_observation o WHERE o.item_id = l.external_id ORDER BY o.observed_at DESC, o.id DESC LIMIT 1) o ON true WHERE l.platform = 'meli' AND l.id = ANY(string_to_array('$IDS_TODOS', ',')::bigint[]) AND o.precio IS NULL AND o.stock = 0;") || { echo "ABORTA: no se pudo listar sin_oferta_viva"; exit 1; }
+  N_EXCL=0
+  if [ -n "$EXCLUIDAS" ]; then
+    N_EXCL=$(printf '%s' "$EXCLUIDAS" | tr ',' '\n' | grep -c .)
+    for x in $(printf '%s' "$EXCLUIDAS" | tr ',' ' '); do echo "EXCLUIDA listing=$x motivo=sin_oferta_viva"; done
+    RESTO=""
+    for x in $(printf '%s' "$IDS_TODOS" | tr ',' ' '); do
+      case ",$EXCLUIDAS," in *,"$x",*) ;; *) RESTO="${RESTO:+$RESTO,}$x" ;; esac
+    done
+    IDS_TODOS="$RESTO"
+  fi
+  echo "excluidas sin oferta viva: $N_EXCL"
+  echo "seleccion tras filtro: listing_ids [$IDS_TODOS]"
+fi
 
 if [ "$MUTAR" = 0 ]; then
   echo "== SIMULACRO: sin --acepto-mutacion-real no se postea nada"
