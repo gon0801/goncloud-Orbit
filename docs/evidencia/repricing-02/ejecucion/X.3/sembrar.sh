@@ -14,6 +14,13 @@
 # `listing_ids` en bloques de 500 (el `sin_goal` de la API no filtra
 # canal y sembraria FBA). `--listing-ids` explicitos se respetan tal
 # cual (el dueno los pidio; sin filtro).
+# R05d: las unidades sin oferta viva NO se siembran ni entran al
+# denominador: inventario 0 Y sin precio propio observado, con las
+# fuentes del motor (ultima spapi_price_observation sin precio propio +
+# ultimo spapi_inventario_observation en 0; sin fila de inventario no es
+# 0, es sin dato y entra (en FBM puro no hay filas: ahi el filtro no
+# muerde). Se listan como EXCLUIDA (solo ids). Solo a la seleccion
+# automatica; los explicitos los rescata leer.sh del denominador.
 # SIMULA POR OMISION: sin --acepto-mutacion-real solo imprime lo que
 # haria (cuerpos, seleccion, id base) y sale 0 sin POSTear nada. Con la
 # bandera escribe de verdad: plan, guardar, aplicar con la huella.
@@ -83,6 +90,23 @@ else
   echo "unidades US FBM sin goal vigente: $N_SIN"
 fi
 echo "seleccion: listing_ids [$IDS_TODOS]"
+
+# R05d: fuera del denominador y de los goals (solo seleccion automatica).
+if [ -z "$IDS" ] && [ -n "$IDS_TODOS" ]; then
+  EXCLUIDAS=$(lee_sql "SELECT COALESCE(string_agg(l.id::text, ',' ORDER BY l.id), '') FROM listing l LEFT JOIN LATERAL (SELECT o.own_listing_price FROM spapi_price_observation o WHERE o.asin = l.external_id AND o.platform = l.platform ORDER BY o.observed_at DESC LIMIT 1) p ON true LEFT JOIN LATERAL (SELECT i.total_quantity FROM spapi_inventario_observation i WHERE i.seller_sku = l.seller_sku AND i.platform = l.platform ORDER BY i.observed_at DESC LIMIT 1) s ON true WHERE l.platform = 'amazon_us' AND l.id = ANY(string_to_array('$IDS_TODOS', ',')::bigint[]) AND p.own_listing_price IS NULL AND s.total_quantity = 0;") || { echo "ABORTA: no se pudo listar sin_oferta_viva"; exit 1; }
+  N_EXCL=0
+  if [ -n "$EXCLUIDAS" ]; then
+    N_EXCL=$(printf '%s' "$EXCLUIDAS" | tr ',' '\n' | grep -c .)
+    for x in $(printf '%s' "$EXCLUIDAS" | tr ',' ' '); do echo "EXCLUIDA listing=$x motivo=sin_oferta_viva"; done
+    RESTO=""
+    for x in $(printf '%s' "$IDS_TODOS" | tr ',' ' '); do
+      case ",$EXCLUIDAS," in *,"$x",*) ;; *) RESTO="${RESTO:+$RESTO,}$x" ;; esac
+    done
+    IDS_TODOS="$RESTO"
+  fi
+  echo "excluidas sin oferta viva: $N_EXCL"
+  echo "seleccion tras filtro: listing_ids [$IDS_TODOS]"
+fi
 
 if [ "$MUTAR" = 0 ]; then
   echo "== SIMULACRO: sin --acepto-mutacion-real no se postea nada"

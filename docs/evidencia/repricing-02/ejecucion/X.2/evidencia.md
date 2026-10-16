@@ -104,3 +104,13 @@ Semilla (ids falsos, escenario de hoy):
 - `apagar-acepto-sim.txt` (exit=0): universo `live -> shadow`
   (config 7; global intacto en live) y 2 goals a shadow; estado
   `global=live univ=shadow`, 14 intacta. Round-trip completo.
+
+## R05d: filtro sin oferta viva (2026-10-16)
+
+Igual que X.1: `sembrar.sh` excluye y lista `EXCLUIDA`, `leer.sh`
+(nuevo) mide el paso 2 con el filtro en el denominador (solo lee,
+sale 0 al medir, veredicto en `LECTURA:`). En FBM puro no hay filas
+de inventario y el filtro no muerde; donde hay fila (SKUs con pasado
+FBA) si. Simulacro de siembra de hoy (solo lectura): 121 candidatas,
+24 excluidas, 97 a postear (salida completa fuera del repo).
+`leer.sh`: FRENADO sin lote (universo sin sembrar), exit=1.

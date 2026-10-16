@@ -91,3 +91,20 @@ scripts ahora hacen `export X_*=...; docker exec -i -e X_* ...`.
 Validado con dobles locales (`/tmp/prueba-x1-docker-e.sh`: patron
 viejo ve 0 vars, nuevo ve las 6) + `bash -n` en los tres. La ruta
 sim no cambio: las salidas de arriba siguen valiendo.
+
+## R05d: filtro sin oferta viva (2026-10-16)
+
+`sembrar.sh` excluye de la seleccion automatica las unidades sin
+oferta viva (inventario 0 Y sin precio propio observado, con las
+fuentes del motor) y las lista como `EXCLUIDA` (solo ids). `leer.sh`
+(nuevo) mide el paso 2 de "Criterios de encendido" con el mismo filtro
+en el denominador; solo lee (sin `--acepto`), sale 0 al medir y el
+veredicto va en `LECTURA:`.
+
+Prueba contra produccion, solo lectura (`lectura-filtro.txt`, exit=0):
+lote `cf1ee5b399a1b94a`, fecha 2026-10-15 (los dos por defecto). 158
+sembradas, 36 excluidas —id por id las 36
+`no_evaluado(precio_sin_observar)` del acta X.1b—, TOLERANCIA 122/122
+= 100.0 %, COBERTURA CUADRA (158 + 178 = 336), LECTURA: cumple.
+Simulacro de siembra de hoy (solo lectura): 178 candidatas, 47
+excluidas, 131 a postear (salida completa fuera del repo).
