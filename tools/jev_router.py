@@ -107,6 +107,6 @@ def _anotar(log, pregunta, opciones, estado, opcion, confianza, via, nota):
     try:
         log.parent.mkdir(parents=True, exist_ok=True)
         with open(log, "a", encoding="utf-8") as fh:
-            fh.write(json.dumps(fila, ensure_ascii=False) + "\n")
-    except OSError:
+            fh.write(json.dumps(fila, ensure_ascii=False, default=str) + "\n")
+    except (OSError, TypeError):
         pass
