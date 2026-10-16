@@ -50,6 +50,9 @@ uv run --frozen python -m pytest -q       # suite (CI: PYTHONPATH=. pytest -q); 
 ruff check --fix . && ruff format .       # lint/format (line-length 100)
 pre-commit run --all-files                # candados (pytest corre en pre-push); CI: .github/workflows/quality.yml
 ```
+Windows: el venv es `.venv/Scripts/python.exe`; sin Postgres local, lo PG-backed
+se skipea por diseno (corre en CI). Si un push se cuelga, es credencial:
+`gh auth setup-git` (el hook `push-creds-failfast` lo frena con el arreglo).
 
 ## Reglas de diseño innegociables
 
