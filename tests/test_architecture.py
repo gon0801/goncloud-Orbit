@@ -24,6 +24,7 @@ incoherentes solo para esquivar el numero.
 from __future__ import annotations
 
 import ast
+import os
 import re
 from pathlib import Path
 
@@ -1666,6 +1667,7 @@ def test_tool_precio_reversa_frontera_caza_spapi(tmp_path):
 # ---------------------------------------------------------- r6-C2 ilegible es fuga
 
 
+@pytest.mark.skipif(os.name == "nt", reason="chmod 000 no restringe lectura en Windows")
 def test_precio_write_frontera_ilegible_cuenta_como_fuga(tmp_path):
     """r6-C2: un .py ilegible no es cobertura aparente: cuenta como fuga."""
     p = tmp_path / "ilegible.py"
@@ -1678,6 +1680,7 @@ def test_precio_write_frontera_ilegible_cuenta_como_fuga(tmp_path):
     assert any("ilegible.py" in f for f in fugas)
 
 
+@pytest.mark.skipif(os.name == "nt", reason="chmod 000 no restringe lectura en Windows")
 def test_imports_spapi_write_frontera_ilegible_cuenta_como_fuga(tmp_path):
     """r6-C2: un .py ilegible cuenta como fuga tambien en dinamicos."""
     p = tmp_path / "ilegible.py"
