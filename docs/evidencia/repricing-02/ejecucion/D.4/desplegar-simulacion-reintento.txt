@@ -1,0 +1,56 @@
+== MODO SIMULACION: datos sinteticos contra postgresql://orbit:***@localhost:5432/orbit_sim_D4, servidor intacto
+== 0) SHA aprobado con la bateria completa verde
+SIMULACION: HEAD existe local; sin fetch ni gh (no hay red a prod)
+== 1) Preflight: nadie corre, sin harvest en vuelo, migraciones pendientes
+SIMULACION: sin docker top (no hay contenedor); la guarda de proceso es el conteo de running
+ciclos running=0
+harvest en vuelo=0
+ya aplicada: 0073_precio02_meli_miembro_costo.sql
+== 1b) Guardas propias de D.4 (abortan si fallan)
+forma en el SHA (redespliegue): FORMA_ESCRITURA_MELI = "pendiente_sonda"
+0073 (+ reversa) y modulos del carril M presentes en el SHA
+COPY de sonda y cobertura en el Dockerfile OK
+las 4 lineas de cron en el SHA OK
+guardas propias OK
+== 1c) Cron (guarda 5): respaldo, CALCULAR el agregado, diff solo previsto (se instala en 7b)
+cron: las 4 nuevas ya estaban instaladas
+cron ya instalado (las 4 nuevas presentes, diff vacio): se sigue sin instalar en 7b
+== 2) Respaldo del codigo actual y SHA (el .env NO se copia a ningun lado)
+SIMULACION: respaldo local en /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-d4-sim/predeploy-20261015-2111
+== 3) Backup del esquema (staging + verificacion)
+SIMULACION: backup local /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-d4-sim/pred4_schema_20261015-2111.sql
+== 4) Migracion 0073 en su propio psql -1
+ninguna pendiente
+== 4b) Politica meli/meli (por politicas.sh, idempotente por label)
+== MODO SIMULACION: datos sinteticos contra postgresql://orbit:***@localhost:5432/orbit_sim_D4, servidor intacto
+== 1) Fuente: la FBA vigente (exactamente 1)
+2|sim_fba|2026-10-15
+== 2) Inserta repricing02_meli (idempotente por label)
+3|repricing02_meli|meli/meli|2026-10-15||0.025
+== 3) Verifica: exactamente 1 vigente
+POLITICA OK: repricing02_meli vigente (1)
+== 5) md5 del codigo desplegado vs SHA aprobado
+SIMULACION: sin servidor; se verifica el respaldo local contra el SHA
+md5 OK app/meli/catalogo.py
+md5 OK app/meli/ledger.py
+md5 OK app/meli/estimacion.py
+md5 OK app/meli/precio_mercado.py
+md5 OK app/meli/write_client.py
+md5 OK app/envio_muestras.py
+md5 OK app/estimacion_universo.py
+md5 OK app/estimacion_insumos.py
+md5 OK app/estimacion_repository.py
+md5 OK tools/precio_sonda.py
+md5 OK tools/precio_cobertura.py
+== 6) Guardas antes de recrear
+SIMULACION: guardas OK en una pasada (sin reintento de 30 min)
+== 7) Build + recrear app (digest antes/despues) + health
+SIMULACION: sin rebuild (no hay servidor que recrear)
+== 7v) Corre precio --reporte de meli con el codigo nuevo (solo lectura; si no sale 0, el cron queda sin instalar)
+reporte OK: meli salio 0
+== 7b) Cron: RELEER el crontab actual, instalar y VERIFICAR contra el respaldo (restaura+aborta si difiere)
+nada que instalar en 7b (1c no dejo trabajo pendiente)
+== LISTO. STAMP=20261015-2111
+Siguiente: bash docs/evidencia/repricing-02/ejecucion/D.4/checklist.sh 20261015-2111
+Reversa:   bash docs/evidencia/repricing-02/ejecucion/D.4/rollback.sh 20261015-2111
+exit=0

@@ -92,13 +92,30 @@ def _unidad(conn, *, listing_id: int, platform: str) -> UnidadPrecio:
         raise Abortar(f"listing {listing_id} es de otra plataforma ({plat}, se pidio {platform})")
     if not sku:
         raise Abortar(f"listing {listing_id} sin seller_sku: no hay ruta que escribir")
+    if platform == "meli":
+        # R05-r3 B1: igual que `MercadoMeli.catalogo` (misma consulta,
+        # mismo orden): la unidad lleva las variantes mapeadas para que
+        # el PUT pruebe la forma candidata. Sin miembros no hay ruta.
+        miembros = tuple(
+            Miembro(pid, str(msku), variante)
+            for msku, pid, variante in conn.execute(
+                "SELECT seller_sku, product_id, variante_ext FROM listing_miembro"
+                " WHERE listing_id = %s AND platform = 'meli' AND activo"
+                " ORDER BY seller_sku",
+                (listing_id,),
+            ).fetchall()
+        )
+        if not miembros:
+            raise Abortar(f"listing {listing_id} sin miembros activos: no hay ruta que escribir")
+    else:
+        miembros = (Miembro(producto, sku, None),)
     return UnidadPrecio(
         listing_id=listing_id,
         plataforma=platform,
         externo=externo,
         canal=None,
         producto_ancla=producto,
-        miembros=(Miembro(producto, sku, None),),
+        miembros=miembros,
     )
 
 

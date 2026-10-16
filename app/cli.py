@@ -474,6 +474,22 @@ def _clientes_precio(platform: str):
     """
     import time as _time
 
+    if platform == "meli":
+        from app.meli.estimacion import CotizadorMeli
+        from app.meli.write_client import MeliWriteClient
+        from app.reputacion_clientes import (
+            ClienteMeli,
+            MeliCredentials,
+            refrescar_tokens_meli,
+        )
+
+        creds = MeliCredentials.from_secrets_dir()
+        lector_meli = ClienteMeli(creds)
+        escritor_meli = MeliWriteClient(
+            modo_confirmado="live", creds=creds, refresco=refrescar_tokens_meli
+        )
+        return lector_meli, escritor_meli, CotizadorMeli(lector_meli), None
+
     from app.estimacion_fees import ProductFeesClient
     from app.spapi.client import CuboTasa, SpapiClient
     from app.spapi.precio_write import construir_escritor

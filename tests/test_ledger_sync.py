@@ -202,25 +202,30 @@ def test_refund_positivo_no_se_voltea_ni_se_inserta():
         raw_payload="{}",
     )
     assert mapear_destino(fila) is None
-    eventos, skips, _ = plan_eventos([fila], listings={})
+    eventos, skips, _ = plan_eventos([fila], listings={}, productos={})
     assert eventos == []
     assert skips["viola ledger_convencion_signos"] == 1
 
 
 def test_event_type_desconocido_no_se_escribe():
-    eventos, skips, _ = plan_eventos([_fila(event_type="mystery", dedupe_key="x")], listings={})
+    eventos, skips, _ = plan_eventos(
+        [_fila(event_type="mystery", dedupe_key="x")], listings={}, productos={}
+    )
     assert eventos == []
     assert skips["event_type desconocido"] == 1
 
 
-def test_meli_excluida_y_amazon_renombra_a_mx():
-    """D1: meli fuera contado; amazon → amazon_mx."""
+def test_meli_entra_y_amazon_renombra_a_mx():
+    """D1: amazon → amazon_mx; M.2: meli entra (DoD baja a cero)."""
     ev = mapear_destino(_fila(platform="amazon"))
     assert ev is not None and ev.platform == "amazon_mx"
     ev_us = mapear_destino(_fila(platform="amazon_us", dedupe_key="us1"))
     assert ev_us is not None and ev_us.platform == "amazon_us"
-    _, skips, _ = plan_eventos([_fila(platform="meli", dedupe_key="m1")], listings={})
-    assert skips["plataforma meli excluida"] == 1
+    eventos, skips, _ = plan_eventos(
+        [_fila(platform="meli", dedupe_key="m1")], listings={}, productos={}
+    )
+    assert "plataforma meli excluida" not in skips
+    assert [e.platform for e in eventos] == ["meli"]
 
 
 def test_fee_positivo_no_se_voltea_ni_se_inserta():
@@ -233,7 +238,7 @@ def test_fee_positivo_no_se_voltea_ni_se_inserta():
         raw_payload="{}",
     )
     assert mapear_destino(fila) is None
-    eventos, skips, _ = plan_eventos([fila], listings={})
+    eventos, skips, _ = plan_eventos([fila], listings={}, productos={})
     assert eventos == []
     assert skips["viola ledger_convencion_signos"] == 1
 
@@ -289,7 +294,7 @@ def test_product_id_solo_via_asin_nunca_por_sku():
             ("amazon_mx", sku): 99,
         }
     )
-    con_asin = mapear_destino(_fila(sku=sku), listings=listings)
+    con_asin = mapear_destino(_fila(sku=sku), listings=listings, productos={})
     assert con_asin is not None and con_asin.product_id == 42
     assert all(k[1] != sku for k in listings.claves)
     assert ("amazon_mx", "B0TESTASIN1") in listings.claves
@@ -325,10 +330,10 @@ def test_venta_con_asin_sin_cantidad_no_es_sin_listing():
         raw_payload=json.dumps({"ASIN": "B0TESTASIN1"}),
         dedupe_key="sin-qty",
     )
-    ev = mapear_destino(fila, listings=listings)
+    ev = mapear_destino(fila, listings=listings, productos={})
     assert ev is not None
     assert ev.product_id is None
-    eventos, _, huecos = plan_eventos([fila], listings=listings)
+    eventos, _, huecos = plan_eventos([fila], listings=listings, productos={})
     assert len(eventos) == 1 and eventos[0].product_id is None
     assert huecos["venta con ASIN sin cantidad"] == 1
     assert huecos["sin listing para ASIN"] == 0
@@ -337,7 +342,7 @@ def test_venta_con_asin_sin_cantidad_no_es_sin_listing():
 def test_amount_malformado_se_salta_sin_abortar():
     """Frontera: amount no numerico → skip contado, no TypeError."""
     fila = _fila(amount="no-es-numero", dedupe_key="bad-amt")  # type: ignore[arg-type]
-    eventos, skips, _ = plan_eventos([fila], listings={})
+    eventos, skips, _ = plan_eventos([fila], listings={}, productos={})
     assert eventos == []
     assert skips["amount nulo o no finito"] == 1
 
@@ -394,7 +399,7 @@ def test_desglose_fiscal_nan_infinito_y_negativo():
         ),
         dedupe_key="neg-ip",
     )
-    eventos, _, huecos = plan_eventos([fila], listings={})
+    eventos, _, huecos = plan_eventos([fila], listings={}, productos={})
     assert len(eventos) == 1
     assert eventos[0].item_price is None
     assert eventos[0].item_tax == Decimal("1.0000")
@@ -417,19 +422,23 @@ def test_order_id_y_source_se_guardan_stripped():
 def test_event_type_con_espacios_se_resuelve():
     ev = mapear_destino(_fila(event_type="  sale_gross  "))
     assert ev is not None and ev.kind == "sale"
-    _, skips, _ = plan_eventos([_fila(event_type="  mystery  ", dedupe_key="sp")], listings={})
+    _, skips, _ = plan_eventos(
+        [_fila(event_type="  mystery  ", dedupe_key="sp")], listings={}, productos={}
+    )
     assert skips["event_type desconocido"] == 1
 
 
 def test_currency_y_fecha_tipo_mal_se_saltan():
     _, skips_c, _ = plan_eventos(
         [_fila(currency=123, dedupe_key="c")],
-        listings={},  # type: ignore[arg-type]
+        listings={},
+        productos={},  # type: ignore[arg-type]
     )
     assert skips_c["moneda fuera de dominio (MXN/USD): 123"] == 1
     _, skips_f, _ = plan_eventos(
         [_fila(event_date=20260101, dedupe_key="f")],
-        listings={},  # type: ignore[arg-type]
+        listings={},
+        productos={},  # type: ignore[arg-type]
     )
     assert skips_f["fecha ilegible (event_date)"] == 1
 
@@ -445,6 +454,7 @@ def test_amount_con_mas_de_4_decimales_se_rechaza():
     eventos, skips, _ = plan_eventos(
         [_fila(amount=10.123456, dedupe_key="prec")],
         listings={},
+        productos={},
     )
     assert eventos == []
     assert skips["amount con mas de 4 decimales"] == 1
@@ -599,7 +609,7 @@ def test_sync_ledger_ciclo_completo_y_tres_dedupes(tmp_path):
                     "{}",
                     "src-fee-plus",
                 ),
-                # 5) meli excluida
+                # 5) meli entra (M.2)
                 (
                     "meli",
                     "M-1",
@@ -650,26 +660,27 @@ def test_sync_ledger_ciclo_completo_y_tres_dedupes(tmp_path):
         r1 = sync_ledger(conn, snap)
         assert r1.ok is True
         assert SOURCE == "accounting_ledger_events"
-        # escritas: sale, isr, ads, sin_orden, con_orden = 5; skips: fee+, meli = 2
-        assert r1.rows_written == 5
-        assert r1.rows_skipped == 2
-        assert r1.por_kind == {"sale": 1, "withholding": 1, "fee": 3}
+        # escritas: sale, isr, ads, meli, sin_orden, con_orden = 6; skips: fee+ = 1
+        assert r1.rows_written == 6
+        assert r1.rows_skipped == 1
+        assert r1.por_kind == {"sale": 2, "withholding": 1, "fee": 3}
         assert r1.rango_min is not None and r1.rango_max is not None
         assert r1.rango_min <= r1.rango_max
         assert "viola ledger_convencion_signos" in (r1.skip_reason or "")
-        assert "plataforma meli excluida" in (r1.skip_reason or "")
+        assert "plataforma meli excluida" not in (r1.skip_reason or "")
+        assert (r1.ventas_meli_sin_sku, r1.ventas_meli_sin_producto) == (0, 1)
 
         por_kind = dict(
             conn.execute("SELECT kind::text, count(*) FROM ledger_event GROUP BY 1").fetchall()
         )
-        assert por_kind.get("sale") == 1
+        assert por_kind.get("sale") == 2
         assert por_kind.get("fee") == 3  # ads + storage + fba
         assert por_kind.get("withholding") == 1
 
         sale = conn.execute(
             "SELECT platform::text, product_id, quantity, amount, amount_currency::text,"
             " item_price, source_event_id, order_id"
-            " FROM ledger_event WHERE kind = 'sale'"
+            " FROM ledger_event WHERE kind = 'sale' AND platform = 'amazon_mx'"
         ).fetchone()
         assert sale[0] == "amazon_mx"
         assert sale[1] == pid

@@ -318,9 +318,19 @@ def test_modo_de_da_off_para_universo_sin_entrada():
 # ---------------------------------------------------------------------------
 
 
-def test_abrir_meli_levanta_config_invalida_con_adaptador_vacio():
-    with pytest.raises(precio_mercados.ConfigInvalida, match="meli"), precio_mercados.abrir("meli"):
-        pass
+def test_abrir_meli_da_vitrina_de_solo_lectura():
+    """M.4 jubila el stub 0.b: `abrir("meli")` compone `MercadoMeli`.
+
+    Sin clientes es vitrina (sirve en la pantalla): leer no exige
+    clientes; escribir si (`_exigir_clientes`, sin tocar la red).
+    """
+    from app.meli.precio_mercado import MercadoMeli
+
+    with precio_mercados.abrir("meli") as mercado:
+        assert isinstance(mercado, MercadoMeli)
+        assert mercado.clave == "meli"
+        with pytest.raises(RuntimeError, match="vitrina de solo lectura"):
+            mercado.escribir(None, None)
 
 
 def test_abrir_desconocida_levanta_config_invalida():
@@ -354,6 +364,8 @@ _MODULOS_ESTIMACION = (
     "estimacion_repository",
     "estimacion_reader",
     "estimacion_fees",
+    # M.3: el cotizador/resolver MeLi tambien emite motivos persistidos.
+    "meli/estimacion",
 )
 
 # Literales que aparecen en posiciones de motivo pero no son motivos de
@@ -362,6 +374,8 @@ _NO_SON_MOTIVOS = {
     "fresco",
     "futura",
     "desactualizada",
+    # M.3: `_estado_meli_union` devuelve estados, no motivos.
+    "incompleta",
     "asin distinto",
     "canal desconocido",
     "fetched_at invalido",

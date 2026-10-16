@@ -45,6 +45,13 @@ MAX_LINEAS_MODULO = 900
 # path relativo (posix) -> razon escrita. Sacar una entrada exige que el
 # modulo haya bajado del umbral; agregarla exige razon y review.
 ALLOWLIST_TAMANO = {
+    "app/estimacion_repository.py": (
+        "REPRICING 02 M.3: nucleo de siembra compartido Amazon/MeLi (el "
+        "despacho es por plataforma dentro de `sembrar_escenario_desde_refs` "
+        "y el bloque meli usa sus validaciones). Partirlo por plataforma "
+        "separaria `_sembrar_meli` de su nucleo con import circular — jamas "
+        "partir por partir"
+    ),
     "app/precio/cambios.py": (
         "REPRICING 02 S.5: el protocolo de `precio_cambio` vive en un solo "
         "modulo por diseno (seccion I del bosquejo: unitario + lote + "

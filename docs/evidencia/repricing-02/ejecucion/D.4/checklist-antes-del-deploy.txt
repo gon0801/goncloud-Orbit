@@ -1,0 +1,20 @@
+# D.4: estado de produccion antes del deploy (solo lectura, 2026-10-15)
+
+- 0073: NO aplicada (`count(*) = 0` en la rama meli de la funcion).
+- Cron de gon, lineas 54-57 (las 4 de D.3, caracter por caracter; D.4
+  no las toca, solo agrega las suyas al final):
+
+  `10 13 * * * /usr/bin/flock -n /tmp/precio-spapi.lock docker exec orbit-app-1 python -m app.cli precio --platform amazon_mx --platform amazon_us >> /mnt/data/appdata/orbit/logs/precio-corrida.log 2>&1`
+  `10 15-23/2 * * * /usr/bin/flock -n /tmp/precio-spapi.lock docker exec orbit-app-1 python -m app.cli precio --platform amazon_mx --platform amazon_us >> /mnt/data/appdata/orbit/logs/precio-corrida.log 2>&1`
+  `15 12 * * * docker exec orbit-app-1 python -m app.envio_muestras --platform amazon_mx --canal fbm >> /mnt/data/appdata/orbit/logs/precio-muestras.log 2>&1`
+  `20 12 * * * docker exec orbit-app-1 python -m app.envio_muestras --platform amazon_us --canal fbm >> /mnt/data/appdata/orbit/logs/precio-muestras.log 2>&1`
+
+- Politicas meli vigentes: 0 (`repricing02_meli` ausente).
+- Politica `amazon_mx/fba` vigente: 1 (fuente de la copia de `politicas.sh`).
+- `precio_modo_global = shadow`; universos `{"amazon_mx/fba": "shadow"}`
+  (X.1 sin encender: el primer universo que encienda sube el global).
+- Muestras meli: 0 filas en `precio_envio_muestra`.
+
+Orden post-merge: `desplegar.sh <sha>` -> `checklist.sh` (3 hasta la
+primera corrida del job de muestras y de la estimacion, 0 despues)
+-> X.4.

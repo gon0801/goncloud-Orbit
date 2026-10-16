@@ -830,7 +830,7 @@ def test_cambios_previos_incluyen_virtual_para_cooldown_en_sombra():
     hoy y `precio_decision` es append-only): el freno con virtual lo cubren
     las reglas (A.2) y aqui el feed que la corrida les entrega.
     """
-    from app.spapi.precio_mercado import cambios_previos
+    from app.precio.fuentes import cambios_previos
 
     with _db() as (conn, _dsn):
         datos = _cadena(conn, mode="shadow")
@@ -1278,16 +1278,12 @@ def test_virtual_de_sombra_dispara_freno_6():
     """
     from app.estimacion_reader import leer_cuenta
     from app.precio.config import leer_config
+    from app.precio.fuentes import cambios_previos, historial_margenes, ultima_subida
     from app.precio.objetivo import ErrorObjetivo, derivar_ref_fijo
     from app.precio.puerto import Miembro, UnidadPrecio
     from app.precio.reglas import decidir
     from app.precio.tipos import Escenario
-    from app.spapi.precio_mercado import (
-        _ultima_subida,
-        cambios_previos,
-        historia_unidad,
-        historial_margenes,
-    )
+    from app.spapi.precio_mercado import historia_unidad
 
     with _db() as (conn, _dsn):
         ajustes = {**SETTINGS, "precio_senal_dias": 1}
@@ -1395,7 +1391,7 @@ def test_virtual_de_sombra_dispara_freno_6():
                 hoy=hoy,
                 config=config,
                 racha_previa=0,
-                ultima_subida=_ultima_subida(previos),
+                ultima_subida=ultima_subida(previos),
                 trafico_min=ajustes["precio_senal_trafico_min"],
             ),
             cambios=previos,
@@ -1451,6 +1447,27 @@ LINEA_CRONTAB_MUESTRAS_US = (
     " --platform amazon_us --canal fbm"
     " >> /mnt/data/appdata/orbit/logs/precio-muestras.log 2>&1"
 )
+# D.4: catalogo diario + muestras meli + 2 de precios MeLi (lock propio).
+# Palabra por palabra del plan (guia "Despliegues", D.4).
+LINEA_CRONTAB_MELI_CATALOGO = (
+    "30 11 * * * docker exec orbit-app-1 python -m app.meli.catalogo"
+    " >> /mnt/data/appdata/orbit/logs/meli-catalogo.log 2>&1"
+)
+LINEA_CRONTAB_MELI_MUESTRAS = (
+    "25 12 * * * docker exec orbit-app-1 python -m app.envio_muestras"
+    " --platform meli --canal meli"
+    " >> /mnt/data/appdata/orbit/logs/precio-muestras.log 2>&1"
+)
+LINEA_CRONTAB_MELI_PRECIO = (
+    "10 13 * * * /usr/bin/flock -n /tmp/precio-meli.lock"
+    " docker exec orbit-app-1 python -m app.cli precio --platform meli"
+    " >> /mnt/data/appdata/orbit/logs/precio-meli.log 2>&1"
+)
+LINEA_CRONTAB_MELI_PRECIO_REPASOS = (
+    "10 15-23/2 * * * /usr/bin/flock -n /tmp/precio-meli.lock"
+    " docker exec orbit-app-1 python -m app.cli precio --platform meli"
+    " >> /mnt/data/appdata/orbit/logs/precio-meli.log 2>&1"
+)
 
 
 def test_linea_crontab_en_deploy():
@@ -1478,6 +1495,28 @@ def test_linea_crontab_en_deploy():
     assert "13:10 UTC" in deploy
     assert "no toca Amazon" in deploy
     assert "forma del parche sellada (A.4)" in deploy
+
+
+def test_linea_crontab_meli_en_deploy():
+    """`docs/DEPLOY.md` trae las CUATRO lineas MeLi EXACTAS (D.4).
+
+    D15 espejo de `test_linea_crontab_en_deploy`: se afirma contra el
+    doc; las constantes viven arriba, palabra por palabra del plan.
+    """
+    deploy = (RAIZ / "docs" / "DEPLOY.md").read_text(encoding="utf-8")
+    assert LINEA_CRONTAB_MELI_CATALOGO in deploy
+    assert LINEA_CRONTAB_MELI_MUESTRAS in deploy
+    assert LINEA_CRONTAB_MELI_PRECIO in deploy
+    assert LINEA_CRONTAB_MELI_PRECIO_REPASOS in deploy
+    assert "30 11 * * *" in deploy
+    assert "25 12 * * *" in deploy
+    assert "--platform meli" in deploy
+    assert "precio-meli.lock" in deploy
+    assert "meli-catalogo.log" in deploy
+    assert "precio-meli.log" in deploy
+    assert "precio:meli" in deploy
+    assert "11:30" in deploy
+    assert "12:25" in deploy
 
 
 def test_cli_precio_sin_dsn_fail_closed(monkeypatch, capsys):
@@ -4617,7 +4656,7 @@ def test_s4_huerfana_quieta_es_error_sin_efecto():
     """S.4: huerfana con vivo == `precio_antes` sella `error` con
     `huerfana_sin_efecto`, y `cambios_previos` la lee `sin_efecto`."""
     from app.precio.cambios import cerrar_huerfanas
-    from app.spapi.precio_mercado import cambios_previos
+    from app.precio.fuentes import cambios_previos
 
     with _db() as (conn, _dsn):
         lid, cid = _pendiente_huerfana(conn)

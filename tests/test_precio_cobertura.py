@@ -800,18 +800,6 @@ def test_tool_identidad_al_lado_sin_aviso_y_puente_con_bandera():
 
 
 @_skip_sin_pg
-def test_tool_meli_es_unknown_sin_recuadro():
-    """F5: sin fuente canonica de MeLi, `activas=unknown` y sale 0."""
-    with _db() as (conn, dsn):
-        _config(conn)
-        res = _tool("--platform", "meli", dsn=dsn)
-        assert res.returncode == 0, res.stderr
-        assert "activas=unknown: sin fuente canonica de MeLi en Orbit" in res.stdout
-        assert "M.3b" in res.stdout
-        assert "CUADRA" not in res.stdout
-
-
-@_skip_sin_pg
 def test_tool_error_de_base_es_exit_2_sin_traceback():
     """K4: un `psycopg.Error` en las consultas sale mensaje y exit 2."""
     from psycopg import sql as pgsql

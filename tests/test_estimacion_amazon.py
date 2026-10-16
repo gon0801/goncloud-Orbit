@@ -164,7 +164,9 @@ def _detalles(*pares: tuple[str, str]) -> tuple[DetalleFee, ...]:
 def test_plataformas_a_ingestar_salen_del_registro():
     from app.estimacion_universo import plataformas_con_cotizador
 
-    assert plataformas_con_cotizador() == ("amazon_mx", "amazon_us")
+    # M.3: `meli` se suma al cablear `CotizadorMeli` (la ingesta la atiende
+    # por su rama propia, no por el bridge).
+    assert plataformas_con_cotizador() == ("amazon_mx", "amazon_us", "meli")
 
 
 def test_partir_referral_unico():

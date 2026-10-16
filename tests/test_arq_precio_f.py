@@ -74,13 +74,19 @@ def test_candado_de_sonda_detecta_import_sembrado():
 
 
 def test_soportados_fees_igualan_registro_con_cotizador():
-    """F.3: la matriz de cable SP-API y el registro no pueden divergir."""
+    """F.3: la matriz de cable SP-API y el registro no pueden divergir.
+
+    M.3: la matriz es solo SP-API (Amazon); `meli/meli` cotiza por su
+    propio cable (`CotizadorMeli`, GET a `listing_prices`) y se fija aparte.
+    """
     from app.estimacion_fees import _UNIVERSO_SOPORTADO
     from app.estimacion_universo import _REGISTRO
+    from app.meli.estimacion import CotizadorMeli
 
     con_cotizador = {
         (u.plataforma, u.canal, u.moneda_venta)
         for u in _REGISTRO.values()
-        if u.cotizador is not None
+        if u.cotizador is not None and u.plataforma != "meli"
     }
     assert set(_UNIVERSO_SOPORTADO) == con_cotizador
+    assert _REGISTRO[("meli", "meli")].cotizador is CotizadorMeli
