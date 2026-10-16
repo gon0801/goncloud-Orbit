@@ -114,3 +114,20 @@ de inventario y el filtro no muerde; donde hay fila (SKUs con pasado
 FBA) si. Simulacro de siembra de hoy (solo lectura): 121 candidatas,
 24 excluidas, 97 a postear (salida completa fuera del repo).
 `leer.sh`: FRENADO sin lote (universo sin sembrar), exit=1.
+
+## R05d-r1: regla FBM del filtro (2026-10-16)
+
+VEREDICTO-R05d-r1 (AVISO PARA EL OPERADOR): en FBM la regla
+"inventario 0 Y sin precio" solo mordia a los SKUs con fila en
+`spapi_inventario_observation` (los que conservan inventario de un
+pasado FBA); los FBM puros no tienen fila, el `= 0` da NULL y sus
+unidades sin precio propio entraban a la siembra y al denominador.
+Desde este cambio, en X.2 (MX FBM) y X.3 (US FBM) basta SIN PRECIO
+PROPIO OBSERVADO para `EXCLUIDA`: `sembrar.sh` ya no consulta
+inventario y `leer.sh` excluye del denominador solo con la puerta S2
+(NOT EXISTS precio propio el dia D). En FBA (X.1) y MeLi (X.4) la
+regla sigue siendo "inventario 0 Y sin precio" (sus scripts no se
+tocaron). Prueba discriminante: `tests/test_precio02_escenario_fbm.py`
+corre el SQL literal de los cuatro scripts contra una base temporal
+(la r1 falla contra el SQL anterior: el caso FBM sin fila de
+inventario no se excluia).
