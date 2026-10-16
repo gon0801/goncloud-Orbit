@@ -32,24 +32,30 @@ def _apagado() -> bool:
     return os.environ.get("JEV_ROUTER_ENABLED") != "1"
 
 
-def _llamar_api(key: str, pregunta: str, opciones: list[str], estado: dict) -> tuple:
-    """Una decision Choice contra la API real. Devuelve (opcion, confianza).
+def _preguntar(key: str, estado: dict, preguntas: dict) -> dict:
+    """Una llamada system_one con N preguntas (choice/score) en paralelo.
 
-    Interfaz verificada contra typesafe-sdk 0.7.5 (rueda local, sin key):
-    TypeSafeClient(api_key).system_one(state, {"decision": Choice(...)}).
+    Interfaz verificada contra typesafe-sdk 0.7.5 (rueda local, sin key).
+    Devuelve el mapping de respuestas tal cual.
     """
-    from typesafe_sdk import Choice, TypeSafeClient
+    from typesafe_sdk import TypeSafeClient
 
-    criterios = {op: op for op in opciones}
     cliente = TypeSafeClient(api_key=key)
     try:
-        resp = cliente.system_one(
-            state={"hechos": estado},
-            questions={"decision": Choice(criteria=criterios, instructions=pregunta)},
-        )
-        ans = resp.answers["decision"]
+        resp = cliente.system_one(state={"hechos": estado}, questions=preguntas)
+        return dict(resp.answers)
     finally:
         cliente.close()
+
+
+def _llamar_api(key: str, pregunta: str, opciones: list[str], estado: dict) -> tuple:
+    """Una decision Choice. Devuelve (opcion, confianza)."""
+    from typesafe_sdk import Choice
+
+    criterios = {op: op for op in opciones}
+    ans = _preguntar(key, estado, {"decision": Choice(criteria=criterios, instructions=pregunta)})[
+        "decision"
+    ]
     confianza = float(getattr(ans, "confidence", 0.0) or 0.0)
     opcion = getattr(ans, "choice", None)
     if opcion is None:
@@ -58,6 +64,16 @@ def _llamar_api(key: str, pregunta: str, opciones: list[str], estado: dict) -> t
             opcion = max(probs, key=probs.get)
             confianza = max(confianza, float(probs[opcion]))
     return opcion, confianza
+
+
+def _puntuar_api(key: str, pregunta: str, niveles: list[str], estado: dict) -> tuple:
+    """Un puntaje 0..N. Devuelve (puntaje, confianza)."""
+    from typesafe_sdk import Score
+
+    ans = _preguntar(
+        key, estado, {"puntaje": Score(criteria=list(niveles), instructions=pregunta)}
+    )["puntaje"]
+    return float(getattr(ans, "score", 0.0) or 0.0), float(getattr(ans, "confidence", 0.0) or 0.0)
 
 
 def decidir(
@@ -89,6 +105,102 @@ def decidir(
         opcion = None
     _anotar(log, pregunta, opciones, estado, opcion, confianza, "jev", "")
     return {"opcion": opcion, "confianza": confianza, "via": "jev"}
+
+
+def puntuar(
+    pregunta: str,
+    niveles: list[str],
+    estado: dict,
+    log: Path | None = LOG_DEFAULT,
+) -> dict:
+    """Puntaje 0..N segun `niveles` (rubrica ordenada) dado `estado`.
+
+    Devuelve {"puntaje", "confianza", "via"}. Sin umbral: el llamador
+    decide (ej. publicar exige aprobacion aunque el puntaje sea alto).
+    """
+    if _apagado():
+        return {"puntaje": None, "confianza": 0.0, "via": "off"}
+    key = os.environ.get("TYPESAFE_API_KEY")
+    if not key:
+        _anotar(log, pregunta, niveles, estado, None, 0.0, "dry-run", "")
+        return {"puntaje": None, "confianza": 0.0, "via": "dry-run"}
+    try:
+        puntaje, confianza = _puntuar_api(key, pregunta, niveles, estado)
+    except Exception as exc:  # noqa: BLE001 - red resiliente, no frena
+        _anotar(log, pregunta, niveles, estado, None, 0.0, "error", str(exc)[:200])
+        return {"puntaje": None, "confianza": 0.0, "via": "error"}
+    _anotar(log, pregunta, niveles, estado, puntaje, confianza, "jev", "")
+    return {"puntaje": puntaje, "confianza": confianza, "via": "jev"}
+
+
+def decidir_lote(items: list[dict], log: Path | None = LOG_DEFAULT) -> dict:
+    """N decisiones en UNA llamada (urgencia + worker + permiso juntos).
+
+    Cada item: {id, tipo: "choice"|"score", pregunta, opciones?|niveles?,
+    estado?, umbral?}. Devuelve {id: resultado}. Con kill switch o sin
+    key, todo sale off/dry-run sin llamadas.
+    """
+    if _apagado():
+        return {it["id"]: {"via": "off"} for it in items}
+    key = os.environ.get("TYPESAFE_API_KEY")
+    if not key:
+        for it in items:
+            _anotar(
+                log,
+                it["pregunta"],
+                it.get("opciones") or it.get("niveles", []),
+                it.get("estado", {}),
+                None,
+                0.0,
+                "dry-run",
+                it["id"],
+            )
+        return {it["id"]: {"via": "dry-run"} for it in items}
+    from typesafe_sdk import Choice, Score
+
+    preguntas, metas = {}, {}
+    for it in items:
+        if it["tipo"] == "score":
+            preguntas[it["id"]] = Score(criteria=list(it["niveles"]), instructions=it["pregunta"])
+        else:
+            preguntas[it["id"]] = Choice(
+                criteria={op: op for op in it["opciones"]},
+                instructions=it["pregunta"],
+            )
+        metas[it["id"]] = it
+    try:
+        respuestas = _preguntar(key, items[0].get("estado", {}), preguntas)
+    except Exception as exc:  # noqa: BLE001 - red resiliente, no frena
+        return {it["id"]: {"via": "error", "nota": str(exc)[:200]} for it in items}
+    salida = {}
+    for iid, ans in respuestas.items():
+        it = metas[iid]
+        umbral = it.get("umbral", UMBRAL_DEFAULT)
+        if it["tipo"] == "score":
+            puntaje = float(getattr(ans, "score", 0.0) or 0.0)
+            conf = float(getattr(ans, "confidence", 0.0) or 0.0)
+            salida[iid] = {"puntaje": puntaje, "confianza": conf, "via": "jev"}
+        else:
+            opcion = getattr(ans, "choice", None)
+            conf = float(getattr(ans, "confidence", 0.0) or 0.0)
+            if opcion is None:
+                probs = getattr(ans, "probabilities", {}) or {}
+                if probs:
+                    opcion = max(probs, key=probs.get)
+            if conf < umbral:
+                opcion = None
+            salida[iid] = {"opcion": opcion, "confianza": conf, "via": "jev"}
+        _anotar(
+            log,
+            it["pregunta"],
+            it.get("opciones") or it.get("niveles", []),
+            it.get("estado", {}),
+            salida[iid].get("opcion", salida[iid].get("puntaje")),
+            salida[iid]["confianza"],
+            "jev",
+            iid,
+        )
+    return salida
 
 
 def _anotar(log, pregunta, opciones, estado, opcion, confianza, via, nota):

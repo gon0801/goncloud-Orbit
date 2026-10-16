@@ -1,0 +1,22 @@
+{
+ "casos": [
+  {
+   "id": "clic",
+   "tipo": "choice",
+   "pregunta": "Dado el estado de la pagina, cual es el siguiente control?",
+   "opciones": [
+    "buscar",
+    "login",
+    "stop"
+   ],
+   "estado": {
+    "url": "https://tienda.example/login",
+    "controles": [
+     "buscar",
+     "login"
+    ]
+   },
+   "umbral": 0.85
+  }
+ ]
+}

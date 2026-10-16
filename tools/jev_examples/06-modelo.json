@@ -1,0 +1,31 @@
+{
+ "casos": [
+  {
+   "id": "modelo",
+   "tipo": "choice",
+   "pregunta": "Para esta tarea con esta evidencia, que modelo?",
+   "opciones": [
+    "cheap",
+    "strong"
+   ],
+   "estado": {
+    "tarea": "clasificar 1000 asuntos",
+    "complejidad": "baja"
+   },
+   "umbral": 0.85
+  },
+  {
+   "id": "puntaje-modelo",
+   "tipo": "score",
+   "pregunta": "Puntua la complejidad de 0 (trivial) a 2 (experto).",
+   "niveles": [
+    "trivial y repetitivo",
+    "juicio medio",
+    "experto o irreversible"
+   ],
+   "estado": {
+    "tarea": "clasificar 1000 asuntos"
+   }
+  }
+ ]
+}
