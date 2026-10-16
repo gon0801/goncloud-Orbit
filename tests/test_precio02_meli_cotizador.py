@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
-from pathlib import Path
 
 import httpx
 import pytest
@@ -22,13 +21,7 @@ AHORA = datetime(2026, 9, 8, 12, 0, 0, tzinfo=UTC)
 
 
 def _creds() -> MeliCredentials:
-    return MeliCredentials(
-        access_token="tok",
-        refresh_token="ref",
-        client_id="cid",
-        client_secret="sec",
-        ruta=Path("/tmp/m3-no-existe.json"),
-    )
+    return MeliCredentials(access_token="tok")
 
 
 def _oferta(**kwargs) -> OfertaResuelta:

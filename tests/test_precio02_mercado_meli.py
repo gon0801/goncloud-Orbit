@@ -59,14 +59,8 @@ HOY = date(2026, 9, 8)
 _CONTADOR = itertools.count()
 
 
-def _creds(tmp_path) -> MeliCredentials:
-    return MeliCredentials(
-        access_token="tok-m4",
-        refresh_token="ref-m4",
-        client_id="cid",
-        client_secret="sec",
-        ruta=tmp_path / "tok.json",
-    )
+def _creds() -> MeliCredentials:
+    return MeliCredentials(access_token="tok-m4")
 
 
 # ---------------------------------------------------------------------------
@@ -79,8 +73,8 @@ def test_escritor_exige_modo_live(tmp_path):
 
     for modo in ("shadow", "off", "", "LIVE", "live "):
         with pytest.raises(MutationNotAllowedError, match="modo_confirmado"):
-            MeliWriteClient(modo_confirmado=modo, creds=_creds(tmp_path))
-    cli = MeliWriteClient(modo_confirmado="live", creds=_creds(tmp_path))
+            MeliWriteClient(modo_confirmado=modo, creds=_creds())
+    cli = MeliWriteClient(modo_confirmado="live", creds=_creds())
     cli.close()
 
 
@@ -96,7 +90,7 @@ def test_poner_precio_sin_sellar_no_toca_red(tmp_path):
 
     cli = MeliWriteClient(
         modo_confirmado="live",
-        creds=_creds(tmp_path),
+        creds=_creds(),
         transport=httpx.MockTransport(handler),
     )
     with pytest.raises(EscrituraNoDisponible):
@@ -116,7 +110,7 @@ def test_poner_precio_sonda_llega_a_red_una_vez(tmp_path):
 
     cli = MeliWriteClient(
         modo_confirmado="live",
-        creds=_creds(tmp_path),
+        creds=_creds(),
         transport=httpx.MockTransport(handler),
     )
     acuse = cli.poner_precio("MLM1", ["v-a", "v-b"], Decimal("979.12"), "MXN", sonda=True)
@@ -149,7 +143,7 @@ def test_poner_precio_sin_variaciones_solo_raiz(tmp_path):
 
     cli = MeliWriteClient(
         modo_confirmado="live",
-        creds=_creds(tmp_path),
+        creds=_creds(),
         transport=httpx.MockTransport(handler),
     )
     acuse = cli.poner_precio("MLM1", [], Decimal("100"), "MXN", sonda=True)
@@ -170,7 +164,7 @@ def test_poner_precio_valida_sin_red(tmp_path):
 
     cli = MeliWriteClient(
         modo_confirmado="live",
-        creds=_creds(tmp_path),
+        creds=_creds(),
         transport=httpx.MockTransport(handler),
     )
     with pytest.raises(ValueError, match="item_id"):
@@ -191,38 +185,9 @@ def test_poner_precio_valida_sin_red(tmp_path):
     cli.close()
 
 
-def test_put_401_refresca_y_reintenta_una_vez(tmp_path):
-    from app.meli.write_client import MeliWriteClient
-
-    llamadas = []
-    refrescos = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        llamadas.append(request)
-        if len(llamadas) == 1:
-            return httpx.Response(401, json={"message": "expired"})
-        return httpx.Response(200, json={"id": "MLM1", "price": 10})
-
-    def refresco(creds, http):
-        refrescos.append(creds)
-        creds.access_token = "tok-nuevo"
-        creds.refresh_token = "ref-nuevo"
-
-    cli = MeliWriteClient(
-        modo_confirmado="live",
-        creds=_creds(tmp_path),
-        refresco=refresco,
-        transport=httpx.MockTransport(handler),
-    )
-    acuse = cli.poner_precio("MLM1", [], Decimal("10"), "MXN", sonda=True)
-    assert acuse.aceptada is True
-    assert len(llamadas) == 2
-    assert len(refrescos) == 1
-    assert llamadas[1].headers["Authorization"] == "Bearer tok-nuevo"
-    cli.close()
-
-
-def test_put_401_doble_es_acuse_error_sin_loop(tmp_path):
+def test_put_401_es_acuse_pase_vencido_sin_reintento():
+    """Pase del bridge (opcion 1): un 401 NO refresca ni reintenta; un
+    solo PUT y el acuse dice claro `pase del bridge vencido`."""
     from app.meli.write_client import MeliWriteClient
 
     llamadas = []
@@ -231,19 +196,15 @@ def test_put_401_doble_es_acuse_error_sin_loop(tmp_path):
         llamadas.append(request)
         return httpx.Response(401, json={"message": "expired"})
 
-    def refresco(creds, http):
-        creds.access_token = "tok-nuevo"
-
     cli = MeliWriteClient(
         modo_confirmado="live",
-        creds=_creds(tmp_path),
-        refresco=refresco,
+        creds=_creds(),
         transport=httpx.MockTransport(handler),
     )
     acuse = cli.poner_precio("MLM1", [], Decimal("10"), "MXN", sonda=True)
     assert acuse.aceptada is False
-    assert "401" in (acuse.codigo or "")
-    assert len(llamadas) == 2
+    assert "pase del bridge vencido" in (acuse.codigo or "")
+    assert [r.method for r in llamadas] == ["PUT"]
     cli.close()
 
 
@@ -261,7 +222,7 @@ def test_put_429_reintenta_una_vez_y_5xx_no(tmp_path):
 
     cli = MeliWriteClient(
         modo_confirmado="live",
-        creds=_creds(tmp_path),
+        creds=_creds(),
         transport=httpx.MockTransport(handler),
         sleep=pausas.append,
     )
@@ -279,7 +240,7 @@ def test_put_429_reintenta_una_vez_y_5xx_no(tmp_path):
 
     cli500 = MeliWriteClient(
         modo_confirmado="live",
-        creds=_creds(tmp_path),
+        creds=_creds(),
         transport=httpx.MockTransport(handler500),
     )
     acuse500 = cli500.poner_precio("MLM1", [], Decimal("10"), "MXN", sonda=True)
@@ -288,7 +249,7 @@ def test_put_429_reintenta_una_vez_y_5xx_no(tmp_path):
     cli500.close()
 
 
-def test_cliente_meli_rechaza_put_sin_red(tmp_path):
+def test_cliente_meli_rechaza_put_sin_red():
     import httpx
 
     from app.reputacion_clientes import ReputacionError
@@ -299,47 +260,11 @@ def test_cliente_meli_rechaza_put_sin_red(tmp_path):
         llamadas.append(request)
         return httpx.Response(200, json={})
 
-    cli = ClienteMeli(_creds(tmp_path), transport=httpx.MockTransport(handler), backoff_base=0.0)
+    cli = ClienteMeli(_creds(), transport=httpx.MockTransport(handler), backoff_base=0.0)
     with pytest.raises(ReputacionError, match="solo-GET"):
         cli._request("PUT", "/items/MLM1")
     assert llamadas == []
     cli.close()
-
-
-def test_refresco_publico_renueva_y_guarda(tmp_path):
-    import json
-
-    import httpx
-
-    from app.reputacion_clientes import MeliCredentials, refrescar_tokens_meli
-
-    ruta = tmp_path / "meli_tokens.json"
-    ruta.write_text(
-        json.dumps(
-            {
-                "access_token": "viejo",
-                "refresh_token": "ref-viejo",
-                "client_id": "cid",
-                "client_secret": "sec",
-            }
-        ),
-        encoding="utf-8",
-    )
-    creds = MeliCredentials.from_secrets_dir(tmp_path)
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.method == "POST"
-        assert request.url.path == "/oauth/token"
-        return httpx.Response(200, json={"access_token": "nuevo", "refresh_token": "ref-nuevo"})
-
-    http = httpx.Client(
-        base_url="https://api.mercadolibre.com", transport=httpx.MockTransport(handler)
-    )
-    refrescar_tokens_meli(creds, http)
-    assert creds.access_token == "nuevo"
-    assert json.loads(ruta.read_text(encoding="utf-8"))["access_token"] == "nuevo"
-    assert not (tmp_path / "meli_tokens.tmp").exists()
-    http.close()
 
 
 # ---------------------------------------------------------------------------
@@ -718,19 +643,17 @@ def _mercado_con_red(handler_ofertas, handler_precios, tmp_path):
     from app.meli.precio_mercado import MercadoMeli
     from app.meli.write_client import MeliWriteClient
 
-    lector = ClienteMeli(
-        _creds(tmp_path), transport=httpx.MockTransport(handler_ofertas), backoff_base=0.0
-    )
+    lector = ClienteMeli(_creds(), transport=httpx.MockTransport(handler_ofertas), backoff_base=0.0)
     fees = CotizadorMeli(
         ClienteMeli(
-            _creds(tmp_path),
+            _creds(),
             transport=httpx.MockTransport(handler_precios),
             backoff_base=0.0,
         )
     )
     escritor = MeliWriteClient(
         modo_confirmado="live",
-        creds=_creds(tmp_path),
+        creds=_creds(),
         transport=httpx.MockTransport(handler_precios),
     )
     return MercadoMeli("meli", lector=lector, fees=fees, escritor=escritor)

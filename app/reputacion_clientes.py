@@ -9,7 +9,6 @@ from __future__ import annotations
 import datetime as dt
 import json
 import logging
-import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -63,13 +62,12 @@ def _require(data: dict, key: str, filename: str) -> str:
 
 @dataclass(repr=False)
 class MeliCredentials:
-    """Token MeLi + app para refresh. Un solo refrescador de SU archivo."""
+    """Pase del bridge (opcion 1): SOLO el `access_token` que el cron del
+    bridge deja en `meli_tokens.json` (junto a `user_id` y `scope`, que
+    aqui no se usan). Orbit NUNCA refresca: no hay `refresh_token` ni
+    `client_id`/`client_secret` que pedir, guardar o reescribir."""
 
     access_token: str
-    refresh_token: str
-    client_id: str
-    client_secret: str
-    ruta: Path
 
     def __repr__(self) -> str:
         return "MeliCredentials(***)"
@@ -79,32 +77,10 @@ class MeliCredentials:
     @classmethod
     def from_secrets_dir(cls, secrets_dir: str | Path | None = None) -> MeliCredentials:
         base = Path(secrets_dir) if secrets_dir else directorio_secretos()
-        ruta = base / MELI_TOKENS_FILENAME
-        data = _load_json(ruta)
+        data = _load_json(base / MELI_TOKENS_FILENAME)
         access = _require(data, "access_token", MELI_TOKENS_FILENAME)
-        refresh = _require(data, "refresh_token", MELI_TOKENS_FILENAME)
-        client_id = _require(data, "client_id", MELI_TOKENS_FILENAME)
-        client_secret = _require(data, "client_secret", MELI_TOKENS_FILENAME)
         register_secret(access)
-        register_secret(refresh)
-        register_secret(client_secret)
-        return cls(access, refresh, client_id, client_secret, ruta)
-
-    def guardar_tokens(self, access_token: str, refresh_token: str) -> None:
-        """Reescritura ATOMICA (tmp + rename) tras un refresh."""
-        data = _load_json(self.ruta)
-        data["access_token"] = access_token
-        data["refresh_token"] = refresh_token
-        tmp = self.ruta.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
-        # XR-1.9: el .tmp hereda umask (tip. 644); el rename la preserva.
-        # Tokens solo para el dueño ANTES de mover.
-        os.chmod(tmp, 0o600)
-        tmp.rename(self.ruta)
-        self.access_token = access_token
-        self.refresh_token = refresh_token
-        register_secret(access_token)
-        register_secret(refresh_token)
+        return cls(access)
 
 
 @dataclass(repr=False)
@@ -129,36 +105,19 @@ class ApifyCredentials:
 
 # ---------------------------------------------------------------------------
 # Cliente MeLi: solo GET, default-deny (A.4 lo reutiliza)
+#
+# Pase del bridge (opcion 1): el access_token lo renueva el cron del
+# bridge; Orbit jamas renueva tokens. Un 401 es "pase del bridge
+# vencido" y aborta claro, sin refresh ni reintento.
 # ---------------------------------------------------------------------------
 
 
-def refrescar_tokens_meli(creds: MeliCredentials, cliente: httpx.Client) -> None:
-    """POST /oauth/token + guardado atomico. La unica pieza que toca el secreto.
-
-    `ClienteMeli` (GET-only) y `MeliWriteClient` (PUT) la comparten: el
-    secreto y su reescritura viven aqui, no en los clientes.
-    """
-    resp = cliente.post(
-        "/oauth/token",
-        data={
-            "grant_type": "refresh_token",
-            "client_id": creds.client_id,
-            "client_secret": creds.client_secret,
-            "refresh_token": creds.refresh_token,
-        },
-    )
-    if resp.status_code != 200:
-        raise ReputacionError(f"MeLi refresh -> {resp.status_code}")
-    data = resp.json()
-    access = data.get("access_token")
-    refresh = data.get("refresh_token")
-    if not access or not refresh:
-        raise ReputacionError("MeLi refresh sin tokens en respuesta")
-    creds.guardar_tokens(access, refresh)
-
-
 class ClienteMeli:
-    """GET a api.mercadolibre.com. Cualquier otro metodo levanta sin red."""
+    """GET a api.mercadolibre.com. Cualquier otro metodo levanta sin red.
+
+    Ante 401 levanta `ReputacionError` ("pase del bridge vencido"):
+    el token lo renueva el cron del bridge, Orbit nunca refresca.
+    """
 
     def __init__(
         self,
@@ -180,16 +139,13 @@ class ClienteMeli:
         if metodo != "GET":
             raise ReputacionError(f"cliente MeLi solo-GET: metodo {metodo} bloqueado")
         headers = {"Authorization": "Bearer " + self._creds.access_token}
-        intento_401_hecho = False
         for intento in range(self._max_intentos):
             resp = self._client.request(metodo, path, params=params, headers=headers)
             if resp.status_code == 401:
-                if intento_401_hecho:
-                    raise ReputacionError(f"MeLi GET {path}: 401 tras refresh")
-                intento_401_hecho = True
-                self._refresh()
-                headers = {"Authorization": "Bearer " + self._creds.access_token}
-                continue
+                raise ReputacionError(
+                    f"MeLi GET {path}: 401 (pase del bridge vencido;"
+                    " Orbit nunca refresca: lo renueva el cron del bridge)"
+                )
             if resp.status_code in (429,) or resp.status_code >= 500:
                 if intento + 1 < self._max_intentos:
                     time.sleep(self._backoff_base * (2**intento))
@@ -205,9 +161,6 @@ class ClienteMeli:
                 raise ReputacionError(f"MeLi GET {path}: respuesta no-objeto")
             return data
         raise ReputacionError(f"MeLi GET {path}: sin respuesta")  # inalcanzable
-
-    def _refresh(self) -> None:
-        refrescar_tokens_meli(self._creds, self._client)
 
     def get(self, path: str, params: dict | None = None) -> tuple[dict, dt.datetime]:
         """GET + instante de la respuesta (fetched_at). A.4 reusa este metodo."""

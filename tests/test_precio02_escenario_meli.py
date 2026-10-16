@@ -936,13 +936,7 @@ def test_ingesta_meli_punta_a_punta(tmp_path):
                 },
             )
 
-        creds = MeliCredentials(
-            access_token="t",
-            refresh_token="r",
-            client_id="c",
-            client_secret="s",
-            ruta=tmp_path / "tok.json",
-        )
+        creds = MeliCredentials(access_token="t")
         cliente = ClienteMeli(creds, transport=httpx.MockTransport(handler), backoff_base=0.0)
         res = ejecutar_ingesta(
             conn,
@@ -1101,13 +1095,7 @@ def test_ingesta_meli_no_toca_secretos_amazon(monkeypatch, tmp_path):
                 },
             )
 
-        creds = MeliCredentials(
-            access_token="t",
-            refresh_token="r",
-            client_id="c",
-            client_secret="s",
-            ruta=tmp_path / "tok.json",
-        )
+        creds = MeliCredentials(access_token="t")
         cliente = ClienteMeli(creds, transport=httpx.MockTransport(handler), backoff_base=0.0)
         res = ejecutar_ingesta(
             conn,
