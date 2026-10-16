@@ -118,9 +118,10 @@ FBA) si. Simulacro de siembra de hoy (solo lectura): 121 candidatas,
 ## R05d-r1: regla FBM del filtro (2026-10-16)
 
 VEREDICTO-R05d-r1 (AVISO PARA EL OPERADOR): en FBM la regla
-"inventario 0 Y sin precio" no muerde nunca (para FBM no hay filas en
-`spapi_inventario_observation`, y sin fila el `= 0` es NULL), asi que
-las unidades sin precio propio entraban a la siembra y al denominador.
+"inventario 0 Y sin precio" solo mordia a los SKUs con fila en
+`spapi_inventario_observation` (los que conservan inventario de un
+pasado FBA); los FBM puros no tienen fila, el `= 0` da NULL y sus
+unidades sin precio propio entraban a la siembra y al denominador.
 Desde este cambio, en X.2 (MX FBM) y X.3 (US FBM) basta SIN PRECIO
 PROPIO OBSERVADO para `EXCLUIDA`: `sembrar.sh` ya no consulta
 inventario y `leer.sh` excluye del denominador solo con la puerta S2

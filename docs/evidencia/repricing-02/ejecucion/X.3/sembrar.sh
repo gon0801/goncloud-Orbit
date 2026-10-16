@@ -18,8 +18,9 @@
 # entran al denominador. En FBM basta SIN PRECIO PROPIO OBSERVADO (la
 # ultima spapi_price_observation sin own_listing_price): el inventario
 # FBA no existe para FBM y NO se pide (la regla "inventario 0 Y sin
-# precio" es de FBA -X.1- y MeLi -X.4-; aqui no morderia nunca: en FBM
-# puro no hay filas de inventario). Se listan como EXCLUIDA (solo ids).
+# precio" es de FBA -X.1- y MeLi -X.4-; aqui solo morderia a SKUs con
+# fila de un pasado FBA, nunca a FBM puro). Se listan como EXCLUIDA
+# (solo ids).
 # Solo a la seleccion automatica; los explicitos los rescata leer.sh
 # del denominador.
 # SIMULA POR OMISION: sin --acepto-mutacion-real solo imprime lo que

@@ -97,7 +97,9 @@ FBA) si. Simulacro de siembra de hoy (solo lectura): 176 candidatas,
 
 Mismo cambio que X.2 (VEREDICTO-R05d-r1, AVISO PARA EL OPERADOR): en
 FBM basta SIN PRECIO PROPIO OBSERVADO para `EXCLUIDA` (el inventario
-FBA no existe para FBM y ya no se pide); FBA (X.1) y MeLi (X.4) siguen
+ya no se pide: los FBM puros no tienen fila y solo algunos SKUs
+conservan filas de un pasado FBA, asi que la regla vieja dejaba pasar a
+los primeros); FBA (X.1) y MeLi (X.4) siguen
 con "inventario 0 Y sin precio". Detalle y prueba discriminante en la
 seccion R05d-r1 de `X.2/evidencia.md` y en
 `tests/test_precio02_escenario_fbm.py`.
