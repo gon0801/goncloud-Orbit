@@ -146,6 +146,19 @@ def _mapeada(conn, *, ext: str, sku: str) -> int:
     return lid
 
 
+def _mediodia_servidor(dsn: str) -> datetime:
+    """Mediodia del dia que ve el tool (`CURRENT_DATE`, sesion virgen).
+
+    R05-r4: el tool abre sesion propia con la TZ del servidor
+    (Vancouver en local, UTC en CI); la de este archivo lleva `SET
+    TIME ZONE 'UTC'`. Sembrar con fechas UTC (o `now() - 2h`) rompe
+    cuando el dia UTC y el del servidor difieren (madrugada UTC).
+    El mediodia del servidor menos 2 h nunca cruza el dia.
+    """
+    with psycopg.connect(dsn) as virgen:
+        return virgen.execute("SELECT CURRENT_DATE + interval '12 hours'").fetchone()[0]
+
+
 @_skip_sin_pg
 def test_meli_cuadra_con_sin_mapear_aparte():
     """B2: 2 mapeadas + 1 activa sin listing cuadran; la suelta se nombra."""
@@ -185,7 +198,9 @@ def test_meli_faltan_es_falla():
     """
     with _db() as (conn, dsn):
         _mapeada(conn, ext="MLM1", sku="SKU-1")
-        ahora = datetime.now(UTC)
+        # R05-r4: anclado al mediodia del servidor: `ahora - 2h`
+        # nunca cruza el dia que filtra el tool (ni UTC ni local).
+        ahora = _mediodia_servidor(dsn)
         run = _run(conn, cuando=ahora - timedelta(hours=2))
         _obs(conn, run, item="MLM1", cuando=ahora - timedelta(hours=2))
         incompleto = _run(conn, cuando=ahora - timedelta(hours=1), terminado=False)
