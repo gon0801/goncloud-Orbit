@@ -179,11 +179,11 @@ def test_corre_meli_real_manda_put_con_variations(capsys):
     assert len(puts) == 2
     ida = json.loads(puts[0])
     vuelta = json.loads(puts[1])
-    assert ida["price"] == 979.12
-    assert vuelta["price"] == 979.11
-    for cuerpo in (ida, vuelta):
-        assert [v["id"] for v in cuerpo["variations"]] == ["101", "102"]
-        assert [v["price"] for v in cuerpo["variations"]] == [cuerpo["price"]] * 2
+    # Sin `price` en la raiz (MeLi: 400 not_modifiable) e id numerico.
+    for cuerpo, precio in ((ida, 979.12), (vuelta, 979.11)):
+        assert cuerpo == {
+            "variations": [{"id": 101, "price": precio}, {"id": 102, "price": precio}]
+        }
     assert "sonda" in capsys.readouterr().out
 
 
