@@ -512,6 +512,62 @@ def test_insumos_disponible_trae_cuenta_del_que_manda():
 
 
 @_skip_sin_pg
+def test_decision_meli_guarda_el_miembro_que_manda():
+    # La muestra de la cuenta es del miembro que manda; si la decision guarda
+    # el ancla, el trigger de la 0054 la rechaza y aborta la corrida entera.
+    from test_precio_corrida import _goal
+
+    from app.meli.precio_mercado import MercadoMeli
+    from app.precio import corrida
+
+    m3 = _m3()
+    with _db() as conn:
+        pa = m3._producto(conn, "SKU-M4-A")
+        pb = m3._producto(conn, "SKU-M4-B")
+        lid = m3._publicacion(conn, "MLM1", [("SKU-M4-A", pa), ("SKU-M4-B", pb)])
+        m3._costo(conn, pa)
+        m3._muestra(conn, pa)
+        m3._costo(conn, pb, monto="500.0000")
+        m3._muestra(conn, pb, valor="20.0000")
+        m3._politica(conn)
+        m3._siembra(conn, lid)
+        config = _configuracion(conn)
+        unidad = _unidad(
+            lid,
+            pa,
+            [Miembro(pa, "SKU-M4-A", "v-SKU-M4-A"), Miembro(pb, "SKU-M4-B", "v-SKU-M4-B")],
+        )
+        lectura = MercadoMeli("meli").insumos(
+            conn, (unidad,), hoy=HOY, ahora=NOW, config=config, metas=_metas(lid)
+        )[lid]
+        assert lectura.ids is not None and lectura.ids["product_id"] == pb
+        gid = _goal(conn, lid, platform="meli")
+        errores: list[str] = []
+        persistida, saltada = corrida._persistir_uno(
+            conn,
+            corrida._no_evaluado(Decimal("0.30"), "shadow", "precio_sin_observar"),
+            lid=lid,
+            mode="shadow",
+            prod_id=pa,
+            canal="meli",
+            meta={**lectura.ids, "cotizacion_id": None, "canal": "meli"},
+            platform="meli",
+            goal_id=gid,
+            cfg_id=None,
+            lineas=[],
+            errores=errores,
+        )
+        assert (persistida, saltada, errores) == (1, 0, [])
+        fila = conn.execute(
+            "SELECT d.product_id, m.product_id FROM precio_decision d"
+            " JOIN precio_envio_muestra m ON m.id = d.envio_muestra_id"
+            " WHERE d.listing_id = %s",
+            (lid,),
+        ).fetchone()
+        assert fila == (pb, pb)
+
+
+@_skip_sin_pg
 def test_insumos_sin_miembros_da_costo_ausente():
     from app.meli.precio_mercado import MercadoMeli
 

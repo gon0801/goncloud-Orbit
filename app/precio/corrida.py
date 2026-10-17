@@ -583,7 +583,9 @@ def _persistir_uno(
             decision,
             listing_id=lid,
             platform=platform,
-            product_id=prod_id,
+            # MeLi: la cuenta (costo y muestra) es del miembro que manda, no
+            # del ancla; el trigger de la 0054 exige la muestra de ESE producto.
+            product_id=(meta.get("product_id") if meta else None) or prod_id,
             canal=canal,
             escenario_id=meta["escenario_id"] if meta else None,
             fee_observation_id=meta["fee_observation_id"] if meta else None,

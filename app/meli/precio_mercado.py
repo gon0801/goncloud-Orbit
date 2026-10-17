@@ -461,6 +461,7 @@ class MercadoMeli:
                 "oferta_observation_id": cuenta.refs.oferta_observation_id,
                 "logistica_origen": cuenta.logistica_origen,
                 "envio_muestra_id": cuenta.refs.envio_muestra_id,
+                "product_id": cuenta.refs.product_id,
             },
             cotizable=cotizable,
             fees_escenario=fees_escenario,
