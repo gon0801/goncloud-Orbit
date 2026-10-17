@@ -89,17 +89,22 @@ def _texto_precio(precio: Decimal) -> str:
 
 
 def _cuerpo_put_precio(precio_txt: str, variantes: Sequence[str]) -> bytes:
-    """Cuerpo candidato M.0-3: precio en raiz y repetido por variacion."""
+    """Con variaciones, el precio va SOLO en cada una; sin ellas, en la raiz.
+
+    Sonda X.4 (2026-10-17): con variaciones, `price` en la raiz da 400
+    `item.price.not_modifiable`. El id numerico viaja como numero (forma
+    de la API); otro id viaja como texto.
+    """
     for vid in variantes:
         if not isinstance(vid, str) or not vid:
             raise ValueError(f"variante invalida: {vid!r}")
     if len(set(variantes)) != len(variantes):
         raise ValueError(f"variantes duplicadas: {list(variantes)!r}")
-    partes = [f'"price": {precio_txt}']
-    if variantes:
-        vars_txt = ",".join(f'{{"id": {json.dumps(v)}, "price": {precio_txt}}}' for v in variantes)
-        partes.append(f'"variations": [{vars_txt}]')
-    return ("{" + ",".join(partes) + "}").encode("utf-8")
+    if not variantes:
+        return f'{{"price": {precio_txt}}}'.encode()
+    ids = (v if v.isdigit() else json.dumps(v) for v in variantes)
+    vars_txt = ",".join(f'{{"id": {i}, "price": {precio_txt}}}' for i in ids)
+    return f'{{"variations": [{vars_txt}]}}'.encode()
 
 
 def _espera_retry_after(resp: httpx.Response) -> float:

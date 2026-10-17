@@ -120,11 +120,13 @@ def test_poner_precio_sonda_llega_a_red_una_vez(tmp_path):
     assert pet.url.path == "/items/MLM1"
     assert pet.headers["Authorization"] == "Bearer tok-m4"
     cuerpo = httpx.Response(200, content=pet.content).json()
-    assert cuerpo["price"] == 979.12
-    assert cuerpo["variations"] == [
-        {"id": "v-a", "price": 979.12},
-        {"id": "v-b", "price": 979.12},
-    ]
+    # Con variaciones, MeLi rechaza `price` en la raiz (400 not_modifiable).
+    assert cuerpo == {
+        "variations": [
+            {"id": "v-a", "price": 979.12},
+            {"id": "v-b", "price": 979.12},
+        ]
+    }
     assert b'"price": 979.12' in pet.content
     assert acuse.aceptada is True
     assert acuse.codigo is None
@@ -151,6 +153,16 @@ def test_poner_precio_sin_variaciones_solo_raiz(tmp_path):
     cuerpo = httpx.Response(200, content=llamadas[0].content).json()
     assert cuerpo == {"price": 100}
     cli.close()
+
+
+def test_put_variaciones_con_id_numerico_va_como_numero(tmp_path):
+    from app.meli.write_client import _cuerpo_put_precio
+
+    cuerpo = _cuerpo_put_precio("1989.01", ["178081255025", "194936688135"])
+    assert cuerpo == (
+        b'{"variations": [{"id": 178081255025, "price": 1989.01},'
+        b'{"id": 194936688135, "price": 1989.01}]}'
+    )
 
 
 def test_poner_precio_valida_sin_red(tmp_path):
@@ -919,7 +931,7 @@ def test_escribir_sonda_pasa_y_valida_destino(tmp_path):
         # pasa: nada que borrar).
         assert [r.method for r in llamadas] == ["GET", "PUT"]
         cuerpo = httpx.Response(200, content=llamadas[1].content).json()
-        assert cuerpo["variations"] == [{"id": "v-SKU-M4-A", "price": 979.12}]
+        assert cuerpo == {"variations": [{"id": "v-SKU-M4-A", "price": 979.12}]}
         with pytest.raises(PublicacionSinSku):
             mercado.validar_destino(_unidad(lid, pa, [], externo=""))
         mercado.cerrar()
