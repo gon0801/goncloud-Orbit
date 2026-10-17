@@ -52,4 +52,5 @@ de MX: el acuerdo de MX sube a 90% y las `ajena` confirmadas suben a 46/54
 ## Lo que vale el bloqueo
 
 Gasto en la ventana de cortes de cada señal vigente `ajena` del 2026-10-17: MX, 49
-búsquedas y 976.37 MXN. US, 24 búsquedas y 38.63 USD.
+búsquedas y 976.37 MXN. US, 24 búsquedas y 38.63 USD. Consulta en
+`ajenas-gasto.sql` y salida en `ajenas-gasto.salida.txt`.

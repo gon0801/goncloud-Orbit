@@ -207,14 +207,17 @@ que se sostiene a través del commit de la intención, el LIST, el POST y el
 readback, y se suelta al final, como `_bloqueados` en `app/retiro_anuncios.py`.
 Un candado de transacción no sirve: se soltaría en el commit de la intención y
 un segundo clic trataría esa intención como huérfana. Si el candado está
-tomado, 409. El cliente de Amazon se construye después del commit de la
-intención, así que los pasos 1 a 5 no hacen ningún HTTP, tampoco el de
-`/v2/profiles`.
+tomado, 409. Sin intención huérfana, el cliente de Amazon se construye después
+del commit de la intención, así que los pasos 1, 2, 4 y 5 no hacen ningún HTTP,
+tampoco el de `/v2/profiles`.
 
 1. **Interruptor.** `jev.bloqueo` debe ser exactamente `true` en el
    `config_version.settings` vigente. Si no, 409 y nada se escribe.
 2. **Pausa.** Plataforma en pausa, 409.
-3. **Reconciliar** los `intencion` huérfanos de esa clave (abajo).
+3. **Reconciliar** los `intencion` huérfanos de esa clave (abajo). Es el único
+   paso previo al ledger que puede llamar a Amazon: construye su propio cliente
+   solo si hay un huérfano, y ese huérfano ya tiene su ledger. Sin huérfano no
+   hay HTTP.
 4. **La señal sigue igual.** `senal_id` es la fila vigente de
    `(ad_group_id, termino_sha256)`, con `vigente` y `lectura = 'ajena'`. Si no,
    se escribe `aprobado` + `anulado` con motivo `senal_cambio`, sin HTTP.
@@ -305,7 +308,8 @@ salta. Lo corre el checklist del despliegue.
 1. Interruptor ausente o `"true"` como texto: no hay propuestas, aprobar,
    rechazar y reanudar dan 409 y el transporte HTTP no recibe ninguna llamada.
    Quitar sigue funcionando.
-2. La señal cambió: `anulado` y cero HTTP, tampoco a `/v2/profiles`.
+2. La señal cambió y no hay intención huérfana: `anulado` y cero HTTP, tampoco
+   a `/v2/profiles`.
 3. Ledger antes del HTTP: con un transporte que revienta, la base guarda
    `intencion` y después `fallido`. Con un crash simulado tras `intencion`, la
    reconciliación adopta un negative existente o deja `fallido`.
