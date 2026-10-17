@@ -78,10 +78,37 @@ def test_escritor_exige_modo_live(tmp_path):
     cli.close()
 
 
-def test_poner_precio_sin_sellar_no_toca_red(tmp_path):
-    from app.meli.write_client import FORMA_ESCRITURA_MELI, MeliWriteClient
+def test_forma_sellada_por_la_sonda_x4():
+    from app.meli.write_client import _FORMA_SELLADA, FORMA_ESCRITURA_MELI
 
-    assert FORMA_ESCRITURA_MELI == "pendiente_sonda"
+    assert FORMA_ESCRITURA_MELI == _FORMA_SELLADA == "items_price_put_v1"
+
+
+def test_poner_precio_sellado_escribe_sin_sonda(tmp_path):
+    from app.meli.write_client import MeliWriteClient
+
+    llamadas = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        llamadas.append(request)
+        return httpx.Response(200, json={"id": "MLM1"})
+
+    cli = MeliWriteClient(
+        modo_confirmado="live",
+        creds=_creds(),
+        transport=httpx.MockTransport(handler),
+    )
+    acuse = cli.poner_precio("MLM1", ["101"], Decimal("979.11"), "MXN")
+    assert acuse.aceptada is True
+    assert [r.method for r in llamadas] == ["PUT"]
+    cli.close()
+
+
+def test_poner_precio_sin_sellar_no_toca_red(tmp_path, monkeypatch):
+    import app.meli.write_client as wc
+    from app.meli.write_client import MeliWriteClient
+
+    monkeypatch.setattr(wc, "FORMA_ESCRITURA_MELI", "pendiente_sonda")
     llamadas = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -833,7 +860,10 @@ def test_precio_vivo_ok_y_ausente(tmp_path):
 
 
 @_skip_sin_pg
-def test_escribir_sin_sellar_levanta_sin_red(tmp_path):
+def test_escribir_sin_sellar_levanta_sin_red(tmp_path, monkeypatch):
+    import app.meli.write_client as wc
+
+    monkeypatch.setattr(wc, "FORMA_ESCRITURA_MELI", "pendiente_sonda")
     m3 = _m3()
     llamadas = []
 
