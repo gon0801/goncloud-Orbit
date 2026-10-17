@@ -7,8 +7,9 @@ Rol `app_decide`, unico escritor de `precio_envio_muestra`. Se corre asi:
 Lee los cargos `shipping_fee` de la ventana (`precio_envio_ventana_dias`,
 dias cerrados `[hoy-ventana, hoy-1]`), mapea cada orden a su unico producto
 por las ventas de la misma orden y escribe una muestra por producto con
-publicacion en la plataforma. Solo inserta si la muestra cambio respecto de
-su ultima fila: append-only sin filas repetidas.
+publicacion en la plataforma (en MeLi, tambien por miembro activo). Solo
+inserta si la muestra cambio respecto de su ultima fila: append-only sin
+filas repetidas.
 
 Mapeo de orden estricto: todas las ventas de la orden con el MISMO producto
 no nulo. Una venta sin producto contamina a `sin_producto` (podria ser otro
@@ -58,7 +59,14 @@ _SQL_VENTAS = (
     " WHERE platform = %s AND kind = 'sale' AND event_date BETWEEN %s AND %s"
     " AND order_id IS NOT NULL"
 )
-_SQL_PRODUCTOS = "SELECT DISTINCT product_id FROM listing WHERE platform = %s"
+# MeLi cuenta el escenario por miembro activo (v_precio_unidad_miembro): sin
+# su muestra, la publicacion con variantes sale `envio_sin_historia`.
+_SQL_PRODUCTOS = (
+    "SELECT product_id FROM listing WHERE platform = %s AND product_id IS NOT NULL"
+    " UNION"
+    " SELECT product_id FROM v_precio_unidad_miembro"
+    " WHERE platform = %s AND product_id IS NOT NULL"
+)
 _SQL_FAMILIAS = "SELECT product_id, familia_id FROM producto_familia WHERE platform = %s"
 _SQL_ULTIMA = (
     "SELECT origen, valor, valor_currency, envios, donantes, familia_id,"
@@ -165,7 +173,9 @@ def refrescar_muestras(
         por_producto: dict[int, list[OrdenMedida]] = {}
         for medida in medidas.values():
             por_producto.setdefault(medida.product_id, []).append(medida)
-        productos = [fila[0] for fila in conn.execute(_SQL_PRODUCTOS, (plataforma,)).fetchall()]
+        productos = [
+            fila[0] for fila in conn.execute(_SQL_PRODUCTOS, (plataforma, plataforma)).fetchall()
+        ]
         familias = {pid: fid for pid, fid in conn.execute(_SQL_FAMILIAS, (plataforma,)).fetchall()}
         por_familia: dict[int, list[int]] = {}
         for pid, fid in familias.items():
