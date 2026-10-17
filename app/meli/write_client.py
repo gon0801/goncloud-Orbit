@@ -10,13 +10,12 @@ bridge). Un 401 es acuse no aceptada con el motivo claro `pase del
 bridge vencido`, sin refresh ni reintento.
 
 `modo_confirmado == "live"` exacto o `MutationNotAllowedError` antes de
-construir nada. Un solo metodo publico. La forma del cuerpo (precio en
-la raiz y repetido por variacion) es la CANDIDATA que concluyo M.0
-(conclusion 3: el item replica el precio en cada variacion). Mientras
-`FORMA_ESCRITURA_MELI` no sea la sellada, `poner_precio` levanta
-`EscrituraNoDisponible` sin tocar la red, salvo `sonda=True` (solo
-`tools/precio_sonda.py`). La sonda de +-0.01 la prueba; si pasa, un PR
-cambia solo la constante a `items_price_put_v1`.
+construir nada. Un solo metodo publico. La forma del cuerpo (con
+variaciones, el precio solo en cada una; sin ellas, en la raiz) quedo
+SELLADA por la sonda X.4 del 2026-10-17 (ida y vuelta aceptadas, vivo y
+control intactos). Si `FORMA_ESCRITURA_MELI` no es la sellada,
+`poner_precio` levanta `EscrituraNoDisponible` sin tocar la red, salvo
+`sonda=True` (solo `tools/precio_sonda.py`).
 
 Reintentos (nunca un loop): 401 -> acuse no aceptada `pase del bridge
 vencido` (sin refresh ni reintento: Orbit nunca refresca); 429 -> un
@@ -48,7 +47,7 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-FORMA_ESCRITURA_MELI = "pendiente_sonda"
+FORMA_ESCRITURA_MELI = "items_price_put_v1"
 
 _FORMA_SELLADA = "items_price_put_v1"
 _MODO_LIVE = "live"
