@@ -268,3 +268,53 @@ def test_fuera_de_ventana_no_entra():
 def test_main_sin_dsn_sale_2(monkeypatch):
     monkeypatch.delenv("ORBIT_DSN_DECIDE", raising=False)
     assert main(["--platform", "amazon_mx", "--canal", "fbm"]) == 2
+
+
+@_skip_sin_pg
+def test_meli_cubre_cada_miembro_activo():
+    # El escenario meli se cuenta por miembro activo: el miembro que no es el
+    # producto de la publicacion tambien necesita su muestra.
+    with _db() as conn:
+        principal, variante, inactiva = (
+            conn.execute(
+                "INSERT INTO product (odoo_sku, name) VALUES (%s, 'Producto F.2') RETURNING id",
+                (sku,),
+            ).fetchone()[0]
+            for sku in ("SKU-F2-ML-A", "SKU-F2-ML-B", "SKU-F2-ML-C")
+        )
+        lid = conn.execute(
+            "INSERT INTO listing (product_id, platform, external_id, seller_sku)"
+            " VALUES (%s, 'meli', 'MLM-F2-1', 'SKU-F2-ML-A') RETURNING id",
+            (principal,),
+        ).fetchone()[0]
+        for pid, sku, activo in (
+            (principal, "SKU-F2-ML-A", True),
+            (variante, "SKU-F2-ML-B", True),
+            (inactiva, "SKU-F2-ML-C", False),
+        ):
+            conn.execute(
+                "INSERT INTO listing_miembro"
+                " (listing_id, platform, variante_ext, seller_sku, product_id, activo, visto_at)"
+                " VALUES (%s, 'meli', %s, %s, %s, %s, now())",
+                (lid, f"v-{sku}", sku, pid, activo),
+            )
+        run = _run(conn)
+        conn.execute(
+            "INSERT INTO ledger_event (platform, kind, event_date, order_id, product_id,"
+            " quantity, amount, amount_currency, source_event_id, ingest_run_id)"
+            " VALUES ('meli', 'sale', %s, 'ML-F2-1', %s, 1, 980.0, 'MXN', 'v|ML-F2-1', %s)",
+            (DIA, principal, run),
+        )
+        conn.execute(
+            "INSERT INTO ledger_event (platform, kind, event_date, order_id, amount,"
+            " amount_currency, fee_type, source_event_id, ingest_run_id)"
+            " VALUES ('meli', 'fee', %s, 'ML-F2-1', -120, 'MXN', 'shipping_fee',"
+            " 'meli|fee|ML-F2-1|envio', %s)",
+            (DIA, run),
+        )
+        refrescar_muestras(conn, "meli", "meli", hoy=HOY, ventana_dias=180)
+        por_producto = {f[0]: (f[3], f[4]) for f in _muestras(conn)}
+        assert por_producto == {
+            principal: ("propio", Decimal("120.0000")),
+            variante: ("marketplace", Decimal("120.0000")),
+        }
