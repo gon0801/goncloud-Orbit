@@ -208,12 +208,13 @@ def main(argv=None, *, mercado=None) -> int:
         from app.cli import _clientes_precio
 
         try:
-            lector, escritor, _fees, limitador = _clientes_precio(args.platform)
+            lector, escritor, fees, limitador = _clientes_precio(args.platform)
         except Exception as exc:
             raise Abortar(f"sin clientes para {args.platform}: {exc}") from None
         try:
+            # MeLi exige el cotizador (`fees`) ademas de lector y escritor.
             with mercados.abrir(
-                args.platform, lector=lector, escritor=escritor, limitador=limitador
+                args.platform, lector=lector, escritor=escritor, fees=fees, limitador=limitador
             ) as abierto:
                 if args.lee_vivo:
                     return _lee(conn, abierto, unidad)

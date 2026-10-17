@@ -179,11 +179,12 @@ def main(argv=None, *, mercado=None) -> int:
             from app.cli import _clientes_precio
 
             try:
-                lector, escritor, _fees, limitador = _clientes_precio(platform)
+                lector, escritor, fees, limitador = _clientes_precio(platform)
             except Exception as exc:  # noqa: BLE001 - sin clientes no hay go real
                 raise Abortar(f"sin clientes para {platform}: {exc}") from None
+            # MeLi exige el cotizador (`fees`) ademas de lector y escritor.
             with mercados.abrir(
-                platform, lector=lector, escritor=escritor, limitador=limitador
+                platform, lector=lector, escritor=escritor, fees=fees, limitador=limitador
             ) as abierto:
                 return _corre(conn, abierto, platform, seleccion, args)
         return _corre(conn, mercado, platform, seleccion, args)
