@@ -62,7 +62,10 @@ evidencia de implementación y validación.
   señal en `/cortes` y `/gasto-sin-venta`); tarifa (0.3), orden de opciones
   (0.5) y el bloque S cerrados el 2026-10-12. Avisos escritos, desplegados el
   2026-10-13 y apagados.
-  Efectos sobre Amazon y fábrica no se construyen.
+  [JEV ADS 03](jev-ads-03.md), diseño sellado por el dueño el 2026-10-17
+  tras la revisión a ciegas: el dueño bloquea en `/cortes` las búsquedas que
+  Jev marca como ajenas, en MX y US, con ledger, readback y reversa. Sin
+  construir. La abstención del motor, el ruteo y la fábrica no se construyen.
   Reseñas se tratarán aparte.
 - Motor de bids: [BIDS 02](bids-02.md), plan y diseño del 2026-10-09. Construido, desplegado y encendido (`niveles_v3` en MX y US). Una sola política de
   bid para una cuenta con poca data, cinco pantallas, impulso por producto y ajustes de campaña. Cubre en

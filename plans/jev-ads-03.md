@@ -75,7 +75,7 @@ en un PR solo corre la de arquitectura.
 
 | Task | Contenido | DoD | Depends | Status |
 | --- | --- | --- | --- | --- |
-| C.1 | `[stage:cierre-pr] [lane:fast]` Ledger al día, `docs/CHAT-CONTEXT.md`, `plans/manifest.json`, y E.2 de `plans/jev-ads-02.md` apuntando aquí. | Todas las filas en `cc:DONE` con su evidencia. | D.3 | cc:TODO |
+| C.1 | `[stage:cierre-pr] [lane:fast]` Ledger al día, `docs/CHAT-CONTEXT.md`, `plans/manifest.json`, `plans/ROADMAP.md`, y E.2 de `plans/jev-ads-02.md` apuntando aquí. | Todas las filas en `cc:DONE` con su evidencia. | D.3 | cc:TODO |
 
 ## Criterios medidos
 
