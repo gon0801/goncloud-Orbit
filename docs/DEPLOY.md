@@ -414,6 +414,11 @@ Lineas EXACTAS del crontab de `gon` (la prueba
 20 12 * * * docker exec orbit-app-1 python -m app.envio_muestras --platform amazon_us --canal fbm >> /mnt/data/appdata/orbit/logs/precio-muestras.log 2>&1
 ```
 
+Forma de escritura MeLi SELLADA (`items_price_put_v1`, #467, sonda X.4 del
+2026-10-17): con variaciones el precio va solo en cada variacion (`price` en
+la raiz da 400 `item.price.not_modifiable`). Un redespliegue de D.4 ya no
+exige `pendiente_sonda`, porque la 0073 esta aplicada.
+
 MeLi (REPRICING 02 D.4): catalogo 11:30, muestras 12:25, corrida
 13:10 y repasos 15:10-23:10 cada 2 h (`precio-meli.lock` propio: la
 corrida Amazon usa el suyo; a las 13:10 corren las dos, cada una con
