@@ -23,7 +23,7 @@ from app.api_precios import router as precios_router
 from app.api_precios_write import router as precios_write_router
 from app.api_reputacion import router as reputacion_router
 from app.api_write import router as ads_optimizer_write_router
-from app.api_write import router_familias
+from app.api_write import router_familias, router_jev_bloqueo
 from app.ui import router as dashboard_ui_router
 
 
@@ -55,6 +55,7 @@ app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), na
 app.include_router(ads_optimizer_router)
 app.include_router(ads_optimizer_write_router)
 app.include_router(router_familias)
+app.include_router(router_jev_bloqueo)
 app.include_router(dashboard_router)
 app.include_router(precios_router)
 app.include_router(precios_write_router)

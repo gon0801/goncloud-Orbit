@@ -726,6 +726,10 @@ def _construye_parser() -> argparse.ArgumentParser:
         "jev-senales",
         help="sella la senal Jev por busqueda-en-grupo (seco salvo --aplicar)",
     )
+    sub.add_parser(
+        "bloqueo-reconcilia",
+        help="cierra intenciones huerfanas del bloqueo del dueno (ORBIT_DSN_ADMIN)",
+    )
     from app import cli_precio
 
     cli_precio.registra(sub)
@@ -788,6 +792,10 @@ def main(argv: list[str] | None = None) -> int:
         from app import jev_senales
 
         return jev_senales.main(rest)
+    if args.comando == "bloqueo-reconcilia":
+        from app import bloqueo_dueno_efecto
+
+        return bloqueo_dueno_efecto.main(rest)
     if args.comando == "precio":
         # Escribe decisiones y cambios: tokens extra SIEMPRE error del
         # operador (patron cycle).

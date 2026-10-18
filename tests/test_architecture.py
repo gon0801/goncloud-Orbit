@@ -327,6 +327,12 @@ PERMITIDOS_IMPORTAR_ADS_WRITE = {
         "fuera de esta allowlist a proposito: delega aqui para que el "
         "importador de app.ads.write siga siendo UNO por camino"
     ),
+    "app/bloqueo_dueno_efecto.py": (
+        "accion del dueno, no decision del motor (JEV ADS 03): resuelve el "
+        "modo igual que aplica_ajuste_campana y no consume la quota negative. "
+        "El CLI importa tarde y queda fuera: el importador sigue siendo uno "
+        "por camino"
+    ),
 }
 
 

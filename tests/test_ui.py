@@ -190,6 +190,99 @@ def test_ui_cortes_xss_search_term_escapado():
     assert 'src="/static/js/cortes.js?v=' in html, "el JS del veto vive en /static (CSP 'self')"
 
 
+def _ctx_bloqueos(termino: str = PAYLOAD_XSS, *, interruptor: bool = True, pausada: bool = False):
+    return {
+        "pantalla": "cortes",
+        "items": [],
+        "bloqueos_disponibles": True,
+        "bloqueos_jev": {
+            "interruptor": interruptor,
+            "plataformas": [
+                {
+                    "plataforma": "amazon_mx",
+                    "pausada": False,
+                    "aprobados": 14,
+                    "muestra": 20,
+                    "porcentaje": 70,
+                    "propuestas": [
+                        {
+                            "senal_id": "11111111-1111-4111-8111-111111111111",
+                            "termino": termino,
+                            "grupo": "Grupo MX",
+                            "campana": "Campana MX",
+                            "gasto": "13.6200",
+                            "moneda": "MXN",
+                            "clics": 4,
+                            "frase": "No corresponde a ninguno de los 3 productos.",
+                        }
+                    ],
+                },
+                {
+                    "plataforma": "amazon_us",
+                    "pausada": pausada,
+                    "aprobados": 12,
+                    "muestra": 30,
+                    "porcentaje": 40,
+                    "propuestas": []
+                    if pausada
+                    else [
+                        {
+                            "senal_id": "33333333-3333-4333-8333-333333333333",
+                            "termino": "baño",
+                            "grupo": "Grupo US",
+                            "campana": "Campana US",
+                            "gasto": "2.5000",
+                            "moneda": "USD",
+                            "clics": 1,
+                            "frase": "No corresponde a ninguno de los 2 productos.",
+                        }
+                    ],
+                },
+            ],
+            "bloqueos": [
+                {
+                    "veredicto_id": "22222222-2222-4222-8222-222222222222",
+                    "plataforma": "amazon_mx",
+                    "termino": "baño",
+                    "grupo": "Grupo MX",
+                    "campana": "Campana MX",
+                    "paso": "aplicado",
+                    "motivo": None,
+                    "quitar": True,
+                }
+            ],
+        },
+    }
+
+
+def test_ui_cortes_pinta_bloqueos_y_escapa_termino():
+    html = ui.templates.env.get_template("cortes.html").render(**_ctx_bloqueos())
+    assert "Búsquedas que Jev marca como ajenas" in html
+    assert "Tus bloqueos" in html
+    assert "amazon_mx" in html
+    assert "amazon_us" in html
+    assert "baño" in html
+    assert PAYLOAD_XSS not in html
+    assert "&lt;script&gt;" in html
+    assert 'data-bloqueo="aprobar"' in html
+    assert 'data-bloqueo="rechazar"' in html
+    assert 'data-bloqueo="quitar"' in html
+
+
+def test_ui_cortes_pausa_muestra_reanudar_sin_filas():
+    html = ui.templates.env.get_template("cortes.html").render(**_ctx_bloqueos(pausada=True))
+    assert "Pausado: aprobaste 12 de las últimas 30 (40%)" in html
+    assert 'data-bloqueo="reanudar"' in html
+    assert "33333333-3333-4333-8333-333333333333" not in html
+
+
+def test_ui_cortes_sin_interruptor_solo_tus_bloqueos():
+    html = ui.templates.env.get_template("cortes.html").render(**_ctx_bloqueos(interruptor=False))
+    assert "Búsquedas que Jev marca como ajenas" not in html
+    assert "Tus bloqueos" in html
+    assert "baño" in html
+
+
 def test_ui_cortes_entidad_muestra_nombre_no_external_id():
     html = ui.templates.env.get_template("cortes.html").render(**_ctx_cortes())
     assert "Campana A" in html
@@ -2958,3 +3051,12 @@ def test_r13f_pagina_escapa_la_palabra():
     )
     assert PAYLOAD_XSS not in html
     assert "&lt;script&gt;" in html
+
+
+def test_ui_cortes_consulta_caida_no_pinta_sin_bloqueos():
+    ctx = _ctx_bloqueos()
+    ctx["bloqueos_disponibles"] = False
+    ctx["bloqueos_jev"]["bloqueos"] = []
+    html = ui.templates.env.get_template("cortes.html").render(**ctx)
+    assert "no se pudo leer tus bloqueos" in html
+    assert "sin bloqueos" not in html

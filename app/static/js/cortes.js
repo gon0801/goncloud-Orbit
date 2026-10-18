@@ -76,6 +76,47 @@ function descartar(form) {
     });
 }
 
+function postBloqueo(form) {
+  var estado = form.querySelector("[data-estado]");
+  var boton = form.querySelector("button[type=submit]");
+  if (boton) boton.disabled = true;
+  estado.textContent = "Enviando…";
+  var cuerpo;
+  if (form.dataset.bloqueo === "reanudar") {
+    cuerpo = { plataforma: form.dataset.plataforma };
+  } else if (form.dataset.bloqueo === "quitar") {
+    cuerpo = { veredicto_id: form.dataset.veredicto };
+  } else {
+    cuerpo = { senal_id: form.dataset.senal };
+  }
+  fetch("/api/jev-bloqueo/" + form.dataset.bloqueo, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-orbit-token": form.elements.token.value,
+    },
+    body: JSON.stringify(cuerpo),
+  })
+    .then(function (resp) {
+      return resp.json().then(function (data) {
+        return { ok: resp.ok, data: data };
+      });
+    })
+    .then(function (r) {
+      if (r.ok) {
+        var motivo = r.data.motivo ? " (" + r.data.motivo + ")" : "";
+        estado.textContent = (r.data.paso || "ok") + motivo + ".";
+      } else {
+        estado.textContent = "Error: " + (r.data.detail || r.data) + ".";
+        if (boton) boton.disabled = false;
+      }
+    })
+    .catch(function () {
+      estado.textContent = "Error de red al enviar el bloqueo.";
+      if (boton) boton.disabled = false;
+    });
+}
+
 document.addEventListener("DOMContentLoaded", function () {
   document.querySelectorAll("button[data-vetar]").forEach(function (boton) {
     boton.addEventListener("click", function () {
@@ -99,6 +140,25 @@ document.addEventListener("DOMContentLoaded", function () {
     form.addEventListener("submit", function (evento) {
       evento.preventDefault();
       descartar(form);
+    });
+  });
+  [
+    ["data-bloquear", "bloquear-"],
+    ["data-rechazar", "rechazar-"],
+    ["data-quitar", "quitar-"],
+    ["data-reanudar", "reanudar-"],
+  ].forEach(function (par) {
+    document.querySelectorAll("button[" + par[0] + "]").forEach(function (boton) {
+      boton.addEventListener("click", function () {
+        var fila = document.getElementById(par[1] + boton.getAttribute(par[0]));
+        if (fila) fila.hidden = !fila.hidden;
+      });
+    });
+  });
+  document.querySelectorAll("form[data-bloqueo]").forEach(function (form) {
+    form.addEventListener("submit", function (evento) {
+      evento.preventDefault();
+      postBloqueo(form);
     });
   });
 });

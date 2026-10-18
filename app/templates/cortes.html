@@ -204,4 +204,127 @@
   </div>
 </div>
 {% endif %}
+{% if bloqueos_disponibles is defined and not bloqueos_disponibles %}
+<p class="chip" data-bloqueos-disponibles="false">Bloqueos Jev no disponibles por ahora.</p>
+{% endif %}
+{% if bloqueos_jev is defined and bloqueos_jev.interruptor %}
+{% for plat in bloqueos_jev.plataformas %}
+<div class="tarjeta" data-plataforma="{{ plat.plataforma }}">
+  <h3>Búsquedas que Jev marca como ajenas <span class="chip">{{ plat.plataforma }}</span></h3>
+  {% if plat.pausada %}
+  <p>Pausado: aprobaste {{ plat.aprobados }} de las últimas {{ plat.muestra }} ({{ plat.porcentaje }}%)</p>
+  <button type="button" data-reanudar="{{ plat.plataforma }}">Reanudar</button>
+  <form hidden id="reanudar-{{ plat.plataforma }}" data-bloqueo="reanudar" data-plataforma="{{ plat.plataforma }}">
+    <label>Token <input type="password" name="token" placeholder="x-orbit-token" required></label>
+    <button type="submit">Confirmar reanudacion</button>
+    <span data-estado class="mutado"></span>
+  </form>
+  {% else %}
+  <div class="tabla-scroll" role="region" aria-label="Busquedas ajenas" tabindex="0">
+  <table>
+    <thead>
+      <tr>
+        <th>Término</th>
+        <th>Grupo</th>
+        <th>Campaña</th>
+        <th>Gasto</th>
+        <th>Clics</th>
+        <th>Señal</th>
+        <th>Acción</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for prop in plat.propuestas %}
+      <tr>
+        <td>{{ prop.termino }}</td>
+        <td>{{ prop.grupo }}</td>
+        <td>{{ prop.campana }}</td>
+        <td>{{ prop.gasto if prop.gasto is not none else "—" }} {{ prop.moneda }}</td>
+        <td>{{ prop.clics if prop.clics is not none else "—" }}</td>
+        <td>{{ prop.frase }}</td>
+        <td>
+          <button type="button" data-bloquear="{{ prop.senal_id }}">Bloquear</button>
+          <button type="button" data-rechazar="{{ prop.senal_id }}">Rechazar</button>
+        </td>
+      </tr>
+      <tr hidden id="bloquear-{{ prop.senal_id }}">
+        <td colspan="7">
+          <form data-bloqueo="aprobar" data-senal="{{ prop.senal_id }}">
+            <label>Token <input type="password" name="token" placeholder="x-orbit-token" required></label>
+            <button type="submit">Confirmar bloqueo</button>
+            <span data-estado class="mutado"></span>
+          </form>
+        </td>
+      </tr>
+      <tr hidden id="rechazar-{{ prop.senal_id }}">
+        <td colspan="7">
+          <form data-bloqueo="rechazar" data-senal="{{ prop.senal_id }}">
+            <label>Token <input type="password" name="token" placeholder="x-orbit-token" required></label>
+            <button type="submit">Confirmar rechazo</button>
+            <span data-estado class="mutado"></span>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7">sin propuestas</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% endif %}
+</div>
+{% endfor %}
+{% endif %}
+{% if bloqueos_jev is defined %}
+<div class="tarjeta" data-tus-bloqueos>
+  <h3>Tus bloqueos</h3>
+  {% if bloqueos_disponibles is defined and not bloqueos_disponibles %}
+  <p>no se pudo leer tus bloqueos</p>
+  {% elif bloqueos_jev.bloqueos %}
+  <div class="tabla-scroll" role="region" aria-label="Tus bloqueos" tabindex="0">
+  <table>
+    <thead>
+      <tr>
+        <th>Término</th>
+        <th>Grupo</th>
+        <th>Campaña</th>
+        <th>Paso</th>
+        <th>Plataforma</th>
+        <th>Acción</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for bloqueo in bloqueos_jev.bloqueos %}
+      <tr>
+        <td>{{ bloqueo.termino }}</td>
+        <td>{{ bloqueo.grupo }}</td>
+        <td>{{ bloqueo.campana }}</td>
+        <td>{{ bloqueo.paso }}{% if bloqueo.motivo %} <span class="detalle-celda">{{ bloqueo.motivo }}</span>{% endif %}</td>
+        <td>{{ bloqueo.plataforma }}</td>
+        <td>
+          {% if bloqueo.quitar %}
+          <button type="button" data-quitar="{{ bloqueo.veredicto_id }}">Quitar</button>
+          {% else %}—{% endif %}
+        </td>
+      </tr>
+      {% if bloqueo.quitar %}
+      <tr hidden id="quitar-{{ bloqueo.veredicto_id }}">
+        <td colspan="6">
+          <form data-bloqueo="quitar" data-veredicto="{{ bloqueo.veredicto_id }}">
+            <label>Token <input type="password" name="token" placeholder="x-orbit-token" required></label>
+            <button type="submit">Confirmar quitar</button>
+            <span data-estado class="mutado"></span>
+          </form>
+        </td>
+      </tr>
+      {% endif %}
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p>sin bloqueos</p>
+  {% endif %}
+</div>
+{% endif %}
 {% endblock %}
