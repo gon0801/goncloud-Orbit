@@ -1,0 +1,33 @@
+== 0) El servidor contesta
+OK    orbit-app-1 corriendo = true
+== Checklist D.1 (sello 20261018-1913, SHA 1d43931ae1f93e4a37f11d3bc52451d8686fc57d)
+== 1) md5 server vs SHA desplegado
+OK    md5 docker-compose.yml = 35e95b6bb2677299c7c43dded5a72c1d
+OK    md5 Dockerfile = fbc13cba696fe80bbc0eee4315e6d763
+OK    md5 app/api_dashboard.py = 6a84794919b8d7c3186521d2e2f3b726
+OK    md5 app/api_write.py = 602fc1e1e2607b8b9a53d666cb35f412
+OK    md5 app/bloqueo_dueno.py = 6ec28ae22dc1ea2b0ee8ec31e528c883
+OK    md5 app/bloqueo_dueno_efecto.py = 7638fba76baf1aabfe583c2574346023
+OK    md5 app/cli.py = ed28ff0542901e25f85c90268113c961
+OK    md5 app/main.py = 54d9b25c7b41f2715894072900fb8e1b
+OK    md5 app/static/js/cortes.js = 311193e10bb4e3f3e1783a8502cd30fe
+OK    md5 app/templates/cortes.html = b89d4782782a859a943072495502198d
+OK    md5 app/ui.py = 4647f83f4b752a0fb365c537228fcf4d
+== 2) HTTP: health, /cortes y su API sin propuestas
+OK    GET /health = 200
+OK    GET /cortes = 200
+OK    API cortes: disponibles interruptor propuestas bloqueos = True False 0 0
+== 3) Tablas nuevas vacias (como orbit_read)
+OK    filas en bloqueo_veredicto + bloqueo_efecto = 0
+== 4) bloqueo-reconcilia sale 0
+OK    python -m app.cli bloqueo-reconcilia (exit) = 0
+== 5) Permisos como orbit_read y orbit_decide
+OK    usuario de ORBIT_DSN_READ = orbit_read
+OK    permisos.sql como orbit_read = permisos OK
+OK    usuario de ORBIT_DSN_DECIDE = orbit_decide
+OK    orbit_decide privilegios SELECT veredicto|efecto = f|f
+OK    orbit_decide lee bloqueo_veredicto = denegado
+== 6) Interruptor jev.bloqueo sigue apagado
+OK    jev.bloqueo = true en la config vigente = f
+== RESULTADO: 0 falla(s), 0 sin medir
+exit=0
