@@ -48,6 +48,7 @@ import os
 from decimal import Decimal
 from pathlib import Path
 from typing import Annotated, Literal
+from uuid import UUID
 
 import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -55,7 +56,7 @@ from fastapi import Path as RutaPath
 from psycopg.rows import dict_row
 from pydantic import BaseModel, Field
 
-from app import apply, config_write, familias, goals_write, propuestas_campana
+from app import apply, bloqueo_dueno_efecto, config_write, familias, goals_write, propuestas_campana
 from app.api import ConexionLectura
 from app.db import OrbitDbError, connect
 from app.redaction import install_scrub_filter, register_secret
@@ -753,6 +754,71 @@ def aplicar_ajuste(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
     return hecho.como_dict()
+
+
+router_jev_bloqueo = APIRouter(prefix="/api/jev-bloqueo", tags=["jev-bloqueo"])
+
+
+class CuerpoSenalBloqueo(BaseModel):
+    senal_id: UUID
+
+
+class CuerpoQuitarBloqueo(BaseModel):
+    veredicto_id: UUID
+
+
+class CuerpoReanudarBloqueo(BaseModel):
+    plataforma: Literal["amazon_mx", "amazon_us"]
+
+
+def _publica_efecto(conn, resultado) -> dict:
+    # La conexion de la API no es autocommit. El transaction() del dominio
+    # puede quedar como savepoint; sin este commit el cierre revierte la fila.
+    if resultado.status != 200:
+        conn.rollback()
+        raise HTTPException(status_code=resultado.status, detail=resultado.motivo)
+    conn.commit()
+    return {
+        "veredicto_id": None if resultado.veredicto_id is None else str(resultado.veredicto_id),
+        "paso": resultado.paso,
+        "motivo": resultado.motivo,
+    }
+
+
+@router_jev_bloqueo.post("/aprobar")
+def aprobar_bloqueo(
+    _token: Annotated[str, Depends(exige_token)],
+    conn: ConexionEscritura,
+    cuerpo: CuerpoSenalBloqueo,
+) -> dict:
+    return _publica_efecto(conn, bloqueo_dueno_efecto.aprobar(conn, cuerpo.senal_id))
+
+
+@router_jev_bloqueo.post("/rechazar")
+def rechazar_bloqueo(
+    _token: Annotated[str, Depends(exige_token)],
+    conn: ConexionEscritura,
+    cuerpo: CuerpoSenalBloqueo,
+) -> dict:
+    return _publica_efecto(conn, bloqueo_dueno_efecto.rechazar(conn, cuerpo.senal_id))
+
+
+@router_jev_bloqueo.post("/quitar")
+def quitar_bloqueo(
+    _token: Annotated[str, Depends(exige_token)],
+    conn: ConexionEscritura,
+    cuerpo: CuerpoQuitarBloqueo,
+) -> dict:
+    return _publica_efecto(conn, bloqueo_dueno_efecto.quitar(conn, cuerpo.veredicto_id))
+
+
+@router_jev_bloqueo.post("/reanudar")
+def reanudar_bloqueo(
+    _token: Annotated[str, Depends(exige_token)],
+    conn: ConexionEscritura,
+    cuerpo: CuerpoReanudarBloqueo,
+) -> dict:
+    return _publica_efecto(conn, bloqueo_dueno_efecto.reanudar(conn, cuerpo.plataforma))
 
 
 @router.post("/campana-ajuste/{ajuste_id}/regresar")

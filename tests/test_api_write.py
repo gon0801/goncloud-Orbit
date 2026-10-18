@@ -264,17 +264,28 @@ def test_cuerpo_invalido_con_token_422(tmp_path, monkeypatch):
 
 
 def test_toda_ruta_post_declara_exige_token_antes_de_la_conexion():
-    """Candado de superficie: cada ruta POST del router de escritura declara
-    `exige_token` como dependencia y ANTES que `_conexion_escritura` (guard de
-    auth antes de abrir el DSN; introspeccion de dependant.dependencies)."""
+    """Candado de superficie: cada ruta POST de todos los routers del modulo
+    declara `exige_token` como dependencia y ANTES que `_conexion_escritura`
+    (guard de auth antes de abrir el DSN)."""
+    from fastapi import APIRouter
     from fastapi.routing import APIRoute
 
     import app.api_write as api_write
 
+    routers = [valor for valor in vars(api_write).values() if isinstance(valor, APIRouter)]
     posts = [
-        r for r in api_write.router.routes if isinstance(r, APIRoute) and set(r.methods) == {"POST"}
+        ruta
+        for router in routers
+        for ruta in router.routes
+        if isinstance(ruta, APIRoute) and set(ruta.methods) == {"POST"}
     ]
-    assert posts, "el router de escritura no registro rutas POST"
+    assert posts, "el modulo de escritura no registro rutas POST"
+    assert {
+        "/api/jev-bloqueo/aprobar",
+        "/api/jev-bloqueo/rechazar",
+        "/api/jev-bloqueo/quitar",
+        "/api/jev-bloqueo/reanudar",
+    } <= {ruta.path for ruta in posts}
     for ruta in posts:
         llamadas = [d.call for d in ruta.dependant.dependencies]
         assert api_write.exige_token in llamadas, f"{ruta.path} sin la dependencia exige_token"

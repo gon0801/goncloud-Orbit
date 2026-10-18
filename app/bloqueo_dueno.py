@@ -14,6 +14,8 @@ from decimal import Decimal
 from uuid import UUID
 
 PASOS_VIVOS = ("intencion", "aplicado", "reversa_intencion", "reversa_fallida")
+_PASOS_QUITAR = ("aplicado", "reversa_fallida")
+PLATAFORMAS_BLOQUEO = ("amazon_mx", "amazon_us")
 ESTADOS_QUE_OCULTAN = frozenset({"pending_veto", "released", "applying"})
 MINIMO_PAUSA = 20
 VENTANA_PAUSA = 30
@@ -75,6 +77,40 @@ _SQL_JUICIOS = """
 SELECT id, plataforma::text, tipo, created_at, origen_id
   FROM bloqueo_veredicto
  ORDER BY created_at, id
+"""
+
+_SQL_PANTALLA_SENAL = """
+SELECT s.id, s.miembros, s.motivos_lectura, s.roster_prueba,
+       g.name, g.external_id, c.name, c.external_id
+  FROM jev_senal s
+  JOIN ad_entity g ON g.id = s.ad_group_id
+  LEFT JOIN ad_entity c ON c.id = g.parent_id
+ WHERE s.id = ANY(%s::uuid[])
+"""
+
+_SQL_BLOQUEOS_PANTALLA = """
+SELECT v.id, v.plataforma::text, v.termino, ult.paso, ult.motivo,
+       COALESCE(g.name, g.external_id),
+       COALESCE(c.name, c.external_id)
+  FROM bloqueo_veredicto v
+  JOIN LATERAL (
+        SELECT e.paso, e.motivo, e.created_at
+          FROM bloqueo_efecto e
+         WHERE e.veredicto_id = v.id
+         ORDER BY e.created_at DESC, e.id DESC
+         LIMIT 1
+       ) ult ON true
+  LEFT JOIN ad_entity g ON g.id = v.ad_group_id
+  LEFT JOIN ad_entity c ON c.id = g.parent_id
+ WHERE v.tipo = 'aprobado'
+   AND (
+        ult.paso = ANY(%s)
+        OR (
+            ult.paso IN ('fallido', 'anulado')
+            AND ult.created_at > now() - interval '7 days'
+        )
+   )
+ ORDER BY v.plataforma::text, v.termino
 """
 
 
@@ -262,6 +298,29 @@ def proponer(
     return tuple(salidas)
 
 
+def interruptor_encendido(conn) -> bool:
+    fila = conn.execute("SELECT settings FROM config_version ORDER BY id DESC LIMIT 1").fetchone()
+    if fila is None:
+        return False
+    settings = fila[0]
+    if isinstance(settings, str):
+        settings = json.loads(settings)
+    if not isinstance(settings, dict):
+        return False
+    return settings.get("jev.bloqueo") is True
+
+
+def lee_pantalla(conn) -> dict:
+    from psycopg.rows import tuple_row
+
+    fabrica = conn.row_factory
+    conn.row_factory = tuple_row
+    try:
+        return _arma_pantalla(conn)
+    finally:
+        conn.row_factory = fabrica
+
+
 def lee_pausas(conn) -> dict[str, Pausa]:
     por_plataforma: dict[str, list[JuicioDueno]] = {}
     for vid, plataforma, tipo, creado, origen in conn.execute(_SQL_JUICIOS).fetchall():
@@ -323,6 +382,116 @@ def lee_propuestas(conn, ahora: datetime | None = None) -> tuple[Propuesta, ...]
             )
         )
     return proponer(tuple(candidatas), ahora=ahora, pausadas=pausadas)
+
+
+def _arma_pantalla(conn) -> dict:
+    encendido = interruptor_encendido(conn)
+    pausas = lee_pausas(conn)
+    propuestas = lee_propuestas(conn) if encendido else ()
+    por_plataforma = {plataforma: [] for plataforma in PLATAFORMAS_BLOQUEO}
+    for fila in _enriquece(conn, propuestas):
+        por_plataforma[fila["plataforma"]].append(fila)
+    plataformas = []
+    for plataforma in PLATAFORMAS_BLOQUEO:
+        pausa = pausas.get(plataforma) or Pausa(False, 0, 0)
+        filas = [] if pausa.pausada else por_plataforma[plataforma]
+        plataformas.append(
+            {
+                "plataforma": plataforma,
+                "pausada": pausa.pausada,
+                "aprobados": pausa.aprobados,
+                "muestra": pausa.muestra,
+                "porcentaje": _porcentaje(pausa.aprobados, pausa.muestra),
+                "propuestas": filas,
+            }
+        )
+    return {
+        "interruptor": encendido,
+        "plataformas": plataformas,
+        "bloqueos": _filas_bloqueo(conn),
+    }
+
+
+def _enriquece(conn, propuestas) -> list[dict]:
+    if not propuestas:
+        return []
+    extra = {}
+    for fila in conn.execute(
+        _SQL_PANTALLA_SENAL, ([propuesta.senal_id for propuesta in propuestas],)
+    ).fetchall():
+        extra[fila[0]] = fila
+    salida = []
+    for propuesta in propuestas:
+        fila = extra.get(propuesta.senal_id)
+        miembros, motivos, prueba = 0, [], None
+        grupo, campana = "—", "—"
+        if fila is not None:
+            miembros = fila[1]
+            motivos = list(fila[2] or [])
+            prueba = fila[3]
+            grupo = _nombre(fila[4], fila[5])
+            campana = _nombre(fila[6], fila[7])
+        salida.append(
+            {
+                "senal_id": str(propuesta.senal_id),
+                "plataforma": propuesta.plataforma,
+                "termino": propuesta.termino,
+                "grupo": grupo,
+                "campana": campana,
+                "gasto": None if propuesta.gasto is None else str(propuesta.gasto),
+                "moneda": propuesta.moneda,
+                "clics": propuesta.clics,
+                "miembros": miembros,
+                "motivos": motivos,
+                "listado_de": _listado(prueba),
+            }
+        )
+    return salida
+
+
+def _filas_bloqueo(conn) -> list[dict]:
+    filas = []
+    for vid, plataforma, termino, paso, motivo, grupo, campana in conn.execute(
+        _SQL_BLOQUEOS_PANTALLA, (list(PASOS_VIVOS),)
+    ).fetchall():
+        filas.append(
+            {
+                "veredicto_id": str(vid),
+                "plataforma": plataforma,
+                "termino": termino or "—",
+                "grupo": grupo or "—",
+                "campana": campana or "—",
+                "paso": paso,
+                "motivo": motivo,
+                "quitar": paso in _PASOS_QUITAR,
+            }
+        )
+    return filas
+
+
+def _porcentaje(aprobados: int, muestra: int) -> int:
+    if muestra == 0:
+        return 0
+    return (aprobados * 100) // muestra
+
+
+def _nombre(name, external_id) -> str:
+    if name:
+        return name
+    if external_id:
+        return external_id
+    return "—"
+
+
+def _listado(prueba) -> str | None:
+    if isinstance(prueba, str):
+        prueba = json.loads(prueba)
+    if not isinstance(prueba, dict):
+        return None
+    valor = prueba.get("listado_de")
+    if valor is None:
+        return None
+    return str(valor)
 
 
 def _gasto_desc(gasto: Decimal | None) -> Decimal:

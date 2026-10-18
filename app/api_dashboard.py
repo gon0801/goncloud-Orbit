@@ -1513,12 +1513,36 @@ def cortes(conn: ConexionLectura) -> dict:
     except Exception as exc:  # noqa: BLE001 - degradacion visible, no caida
         logger.warning("cortes: propuestas de campana ilegibles: %s", scrub(str(exc)))
         propuestas = []
+    try:
+        bloqueos_jev, bloqueos_disponibles = _bloqueos_jev(conn)
+    except Exception as exc:  # noqa: BLE001 - degradacion visible, no caida
+        logger.warning("cortes: bloqueos Jev ilegibles: %s", scrub(str(exc)))
+        bloqueos_jev = {"interruptor": False, "plataformas": [], "bloqueos": []}
+        bloqueos_disponibles = False
     return {
         "items": items,
         "propuestas_campana": propuestas,
         "asesoria_disponible": asesoria_disponible,
         "senal_disponible": senal_disponible,
+        "bloqueos_jev": bloqueos_jev,
+        "bloqueos_disponibles": bloqueos_disponibles,
     }
+
+
+def _bloqueos_jev(conn) -> tuple[dict, bool]:
+    from app.bloqueo_dueno import lee_pantalla
+    from app.jev_vista import frase_de_lectura
+
+    pantalla = lee_pantalla(conn)
+    for plataforma in pantalla["plataformas"]:
+        for propuesta in plataforma["propuestas"]:
+            propuesta["frase"] = frase_de_lectura(
+                "ajena",
+                propuesta.pop("motivos") or (),
+                int(propuesta.pop("miembros") or 0),
+                propuesta.pop("listado_de"),
+            )
+    return pantalla, True
 
 
 _ORDEN_LECTURAS = (

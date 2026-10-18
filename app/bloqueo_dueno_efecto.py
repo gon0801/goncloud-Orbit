@@ -26,6 +26,7 @@ from app.bloqueo_dueno import (
     FilaMotor,
     catalogo_de_miembros,
     huella_catalogo,
+    interruptor_encendido,
     lee_pausas,
     motor_oculta,
 )
@@ -102,6 +103,21 @@ def quitar(
         return _quitar_con_candado(conn, origen, transport)
     finally:
         _suelta(conn, origen.ad_group_id, origen.termino_sha256)
+
+
+def reanudar(conn, plataforma: str) -> Efecto:
+    if not _interruptor(conn):
+        return Efecto(409, motivo="interruptor")
+    vid = uuid4()
+    with conn.transaction():
+        conn.execute(
+            """
+            INSERT INTO bloqueo_veredicto (id, plataforma, tipo)
+            VALUES (%s, %s::platform, 'reanudacion')
+            """,
+            (vid, plataforma),
+        )
+    return Efecto(200, veredicto_id=vid, paso="reanudacion")
 
 
 def reconciliar(conn, *, ad_group_id: int, termino_sha256: str, transport=None) -> Efecto:
@@ -323,15 +339,7 @@ def _cliente(plataforma: str, transport):
 
 
 def _interruptor(conn) -> bool:
-    fila = conn.execute("SELECT settings FROM config_version ORDER BY id DESC LIMIT 1").fetchone()
-    if fila is None:
-        return False
-    settings = fila[0]
-    if isinstance(settings, str):
-        settings = json.loads(settings)
-    if not isinstance(settings, dict):
-        return False
-    return settings.get("jev.bloqueo") is True
+    return interruptor_encendido(conn)
 
 
 def _pausada(conn, plataforma: str) -> bool:

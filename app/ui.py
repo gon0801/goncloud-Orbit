@@ -570,6 +570,8 @@ def pagina_cortes(request: Request, conn: ConexionLectura) -> HTMLResponse:
             "asesoria_disponible": datos["asesoria_disponible"],
             # S.5 J5b: la senal viaja con .get (el contrato viejo no la trae).
             "senal_disponible": datos.get("senal_disponible", True),
+            "bloqueos_jev": datos["bloqueos_jev"],
+            "bloqueos_disponibles": datos["bloqueos_disponibles"],
         },
     )
 
