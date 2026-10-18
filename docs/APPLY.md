@@ -649,6 +649,10 @@ PUT de pause/resume.
   candado de imports con la excepción EXPLÍCITA en `test_architecture`
   (r2 codex 5). El smoke corre con `ORBIT_DSN_DECIDE`; sus filas de ledger
   nacen con la identidad del motor, tipo `probe` (sellado 23).
+- **Excepción JEV ADS 03.** `app/bloqueo_dueno_efecto.py` también lo
+  construye. El bloqueo es una acción del dueño, no una decisión del motor.
+  Resuelve el modo igual que `aplica_ajuste_campana` (`perfil_aceptado_de`
+  y `modo_confirmado="live"`) y no consume la quota `negative`.
 - **El read client SIGUE rechazando PUT/PATCH/DELETE, con test** (r2: el
   atajo natural era relajar el guard viejo).
 - 1.3 amplía `LIST_REQUEST_TYPES` con `/sp/negativeKeywords/list` (evidencia
