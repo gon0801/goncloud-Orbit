@@ -74,9 +74,12 @@ SELECT q.platform::text, q.ad_entity_id, q.search_term, q.estado, q.vence_el,
 """
 
 _SQL_JUICIOS = """
-SELECT id, plataforma::text, tipo, created_at, origen_id
-  FROM bloqueo_veredicto
- ORDER BY created_at, id
+SELECT v.id, v.plataforma::text, v.tipo, v.created_at, v.origen_id
+  FROM bloqueo_veredicto v
+ WHERE NOT (v.tipo = 'aprobado' AND EXISTS (
+           SELECT 1 FROM bloqueo_efecto e
+            WHERE e.veredicto_id = v.id AND e.paso IN ('anulado', 'fallido')))
+ ORDER BY v.created_at, v.id
 """
 
 _SQL_PANTALLA_SENAL = """

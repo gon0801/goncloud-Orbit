@@ -204,14 +204,6 @@ def test_pausa_por_proporcion_de_juicios():
     )
     con_quitado = (aprobado,) + serie(13, 6, inicio=2) + (quitado,)
     assert bloqueo.pausa_de(con_quitado) == bloqueo.Pausa(True, 13, 20)
-    con_anulado = catorce + (
-        bloqueo.JuicioDueno(
-            tipo="anulado",
-            creado_en=AHORA + timedelta(minutes=80),
-            id=uuid.UUID("00000051-0000-4000-8000-000000000000"),
-        ),
-    )
-    assert bloqueo.pausa_de(con_anulado) == bloqueo.Pausa(False, 14, 20)
 
 
 def test_motor_oculta_la_propuesta_en_los_estados_del_spec():

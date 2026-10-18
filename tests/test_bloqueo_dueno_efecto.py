@@ -643,3 +643,39 @@ def test_rechazar_dos_veces_es_un_solo_veredicto(monkeypatch):
             ).fetchone()[0]
             == 1
         )
+
+
+@_skip_db
+def test_pausa_no_cuenta_anulados_ni_fallidos_de_amazon():
+    with _db() as conn:
+        senal, grupo, _ge, _c, _t, _roster = _prepara(conn)
+        for n in range(20):
+            vid = uuid.uuid4()
+            conn.execute(
+                "INSERT INTO bloqueo_veredicto (id, plataforma, ad_group_id, termino,"
+                " termino_sha256, senal_id, huella_catalogo, tipo, created_at)"
+                " VALUES (%s, 'amazon_mx', %s, %s, %s, %s, %s, %s, %s)",
+                (
+                    vid,
+                    grupo,
+                    f"t{n}",
+                    f"{n:064x}",
+                    senal,
+                    "h" * 64,
+                    "aprobado" if n < 13 else "rechazado",
+                    datetime(2026, 10, 1, tzinfo=UTC) + timedelta(minutes=n),
+                ),
+            )
+            if n < 3:
+                pasos = [("anulado", "senal_cambio")]
+            elif n < 6:
+                pasos = [("intencion", None), ("fallido", "http_500")]
+            else:
+                pasos = []
+            for paso, motivo in pasos:
+                conn.execute(
+                    "INSERT INTO bloqueo_efecto (id, veredicto_id, paso, motivo)"
+                    " VALUES (%s, %s, %s, %s)",
+                    (uuid.uuid4(), vid, paso, motivo),
+                )
+        assert lectura.lee_pausas(conn)["amazon_mx"] == lectura.Pausa(False, 7, 14)
