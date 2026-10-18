@@ -14,8 +14,6 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from uuid import UUID, uuid4
 
-import psycopg
-
 from app import apply
 from app.ads.client import AdsApiError
 from app.ads.write import AdsApiErrorMutacion
@@ -31,6 +29,7 @@ from app.bloqueo_dueno import (
     lee_pausas,
     motor_oculta,
 )
+from app.db import connect
 from app.redaction import scrub
 
 _PASOS_HUERFANOS = ("intencion", "reversa_intencion")
@@ -166,7 +165,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
     try:
-        with psycopg.connect(dsn) as conn:
+        with connect(dsn) as conn:
             reconcilia_todas(conn)
     except Exception:
         print("bloqueo-reconcilia fallo", file=sys.stderr)
