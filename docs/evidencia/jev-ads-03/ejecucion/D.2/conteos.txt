@@ -7,5 +7,12 @@ transaction_read_only on
 amazon_mx 50
 amazon_us 24
 exit=0
-API /api/dashboard/cortes: interruptor True, amazon_mx 50, amazon_us 24
-POST corridos por el loop: 0
+$ ssh gonserver "docker exec -i orbit-app-1 python -" < cuenta_api.py   # GET /api/dashboard/cortes
+interruptor True
+amazon_mx pausada False propuestas 50
+amazon_us pausada False propuestas 24
+exit=0
+$ ssh gonserver 'docker logs --since 2026-10-18T19:41:43Z orbit-app-1 2>&1 | grep -c "\"POST "'   # POST desde el encendido
+0
+exit=1   (grep sin coincidencias; el mismo log trae 69 lineas "GET ")
+Aviso al dueno por Telegram: lo manda main, no este loop (el brief prohibe escribirle a David).
