@@ -465,6 +465,24 @@ def test_cli_sin_dsn_admin_sale_2(monkeypatch):
     assert cli_main(["bloqueo-reconcilia", "--sobra"]) == 2
 
 
+def test_cli_reconcilia_aplica_orbit_pg_host(monkeypatch):
+    # En el contenedor el DSN del .env apunta a 127.0.0.1; ORBIT_PG_HOST=db
+    # lo reescribe (app.db.connect). Sin eso el comando falla en prod.
+    import app.db as db
+
+    vistos = []
+
+    def falso(dsn, **kw):
+        vistos.append(dsn)
+        raise psycopg.OperationalError("sin red en la prueba")
+
+    monkeypatch.setattr(db.psycopg, "connect", falso)
+    monkeypatch.setenv("ORBIT_PG_HOST", "db")
+    monkeypatch.setenv("ORBIT_DSN_ADMIN", "postgresql://u:p@127.0.0.1:5432/orbit")
+    assert efecto.main([]) == 1
+    assert vistos == ["postgresql://u:p@db:5432/orbit"]
+
+
 @_skip_db
 def test_cli_reconcilia_sin_huerfanos_sale_0(monkeypatch):
     with _db() as conn:
