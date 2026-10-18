@@ -47,6 +47,7 @@ WITH bloqueado AS (
        AND NOT EXISTS (SELECT 1 FROM bloqueo_veredicto q
                         WHERE q.tipo = 'quitado' AND q.origen_id = v.id))
 SELECT plataforma, moneda, count(*) AS bloqueados,
+       count(*) FILTER (WHERE gasto IS NULL) AS sin_gasto,
        sum(gasto) AS gasto_ventana,
        min(ventana_inicio) AS desde, max(ventana_fin) AS hasta,
        round(sum(gasto * 30.0 / nullif(ventana_fin - ventana_inicio + 1, 0)), 2) AS gasto_30d_equivalente
@@ -54,9 +55,10 @@ SELECT plataforma, moneda, count(*) AS bloqueados,
  GROUP BY 1, 2
  ORDER BY 1;
 
-\echo '(5) despues de aplicar: la busqueda bloqueada | el resto del grupo bloqueado'
+\echo '(5) despues de aplicar (UTC): la busqueda bloqueada | el resto del grupo; filas_sin_dato = metrica NULL'
 WITH bloqueado AS (
-    SELECT v.id, v.plataforma, v.ad_group_id, v.termino, a.aplicado_en
+    SELECT v.id, v.plataforma, v.ad_group_id, lower(v.termino) AS termino,
+           (a.aplicado_en AT TIME ZONE 'UTC')::date AS dia
       FROM bloqueo_veredicto v
       JOIN LATERAL (
             SELECT min(created_at) AS aplicado_en FROM bloqueo_efecto f
@@ -64,31 +66,33 @@ WITH bloqueado AS (
      WHERE v.tipo = 'aprobado'
        AND NOT EXISTS (SELECT 1 FROM bloqueo_veredicto q
                         WHERE q.tipo = 'quitado' AND q.origen_id = v.id)),
+grupo AS (
+    SELECT plataforma, ad_group_id, min(dia) AS desde
+      FROM bloqueado GROUP BY 1, 2),
 ultima AS (
     SELECT DISTINCT ON (o.platform, o.ad_entity_id, o.search_term, o.metric_date)
-           o.platform, o.ad_entity_id, o.search_term, o.metric_date,
+           o.ad_entity_id, lower(o.search_term) AS termino, o.metric_date,
            o.cost, o.orders, o.ad_revenue
       FROM search_term_observation o
-     WHERE o.ad_entity_id IN (SELECT ad_group_id FROM bloqueado)
-     ORDER BY o.platform, o.ad_entity_id, o.search_term, o.metric_date, o.observed_at DESC),
-grupo AS (
-    SELECT DISTINCT b.plataforma, b.ad_group_id, min(b.aplicado_en) AS desde
-      FROM bloqueado b GROUP BY 1, 2)
+     WHERE o.ad_entity_id IN (SELECT ad_group_id FROM grupo)
+     ORDER BY o.platform, o.ad_entity_id, o.search_term, o.metric_date,
+              o.observed_at DESC, o.source_report_id DESC NULLS LAST),
+fila AS (
+    SELECT g.plataforma, g.ad_group_id, u.*,
+           EXISTS (SELECT 1 FROM bloqueado b
+                    WHERE b.ad_group_id = u.ad_entity_id AND b.termino = u.termino
+                      AND u.metric_date > b.dia) AS bloqueada
+      FROM grupo g
+      JOIN ultima u ON u.ad_entity_id = g.ad_group_id AND u.metric_date > g.desde)
 SELECT g.plataforma,
        count(DISTINCT g.ad_group_id) AS grupos,
-       coalesce(sum(u.cost) FILTER (WHERE EXISTS (
-           SELECT 1 FROM bloqueado b WHERE b.ad_group_id = g.ad_group_id
-              AND lower(b.termino) = lower(u.search_term)
-              AND u.metric_date > b.aplicado_en::date)), 0) AS gasto_busqueda_bloqueada,
-       coalesce(sum(u.orders) FILTER (WHERE NOT EXISTS (
-           SELECT 1 FROM bloqueado b WHERE b.ad_group_id = g.ad_group_id
-              AND lower(b.termino) = lower(u.search_term))), 0) AS ordenes_grupo,
-       coalesce(sum(u.ad_revenue) FILTER (WHERE NOT EXISTS (
-           SELECT 1 FROM bloqueado b WHERE b.ad_group_id = g.ad_group_id
-              AND lower(b.termino) = lower(u.search_term))), 0) AS ventas_grupo,
-       max(u.metric_date) AS datos_hasta
+       sum(f.cost) FILTER (WHERE f.bloqueada) AS gasto_busqueda_bloqueada,
+       sum(f.orders) FILTER (WHERE NOT f.bloqueada) AS ordenes_grupo,
+       sum(f.ad_revenue) FILTER (WHERE NOT f.bloqueada) AS ventas_grupo,
+       count(f.ad_entity_id) FILTER (WHERE f.cost IS NULL OR f.orders IS NULL OR f.ad_revenue IS NULL) AS filas_sin_dato,
+       max(f.metric_date) AS datos_hasta
   FROM grupo g
-  LEFT JOIN ultima u ON u.ad_entity_id = g.ad_group_id AND u.metric_date > g.desde::date
+  LEFT JOIN fila f ON f.ad_group_id = g.ad_group_id
  GROUP BY 1
  ORDER BY 1;
 
