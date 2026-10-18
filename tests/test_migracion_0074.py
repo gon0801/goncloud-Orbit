@@ -41,7 +41,7 @@ _CONTADOR = itertools.count()
 
 
 @contextmanager
-def db_bloqueo():
+def db_bloqueo(exige_aprobado: bool = False):
     from psycopg import sql as pgsql
 
     dsn = os.environ.get("ORBIT_TEST_DSN", "postgresql://orbit:orbit@localhost:5432/postgres")
@@ -58,6 +58,13 @@ def db_bloqueo():
         conn.execute("SET TIME ZONE 'UTC'")
         for nombre in ORDEN_PERIMETRO:
             conn.execute((MIGRACIONES / nombre).read_text(encoding="utf-8"))
+        if not exige_aprobado:
+            # Las pruebas de CHECK cuelgan pasos de una reanudacion por comodidad.
+            conn.execute("ALTER TABLE bloqueo_efecto DISABLE TRIGGER bloqueo_efecto_exige_aprobado")
+            conn.execute(
+                "ALTER TABLE bloqueo_veredicto"
+                " DISABLE TRIGGER bloqueo_veredicto_quitado_exige_aprobado"
+            )
         yield conn, db, dsn
     finally:
         if conn is not None:
@@ -322,3 +329,18 @@ def test_prueba_9_logins_reales():
             for rol in creados:
                 conn.execute(f"DROP OWNED BY {rol}")
                 conn.execute(f"DROP ROLE IF EXISTS {rol}")
+
+
+@_skip_db
+def test_trigger_efecto_y_quitado_exigen_aprobado():
+    with db_bloqueo(exige_aprobado=True) as (conn, _, _):
+        _reanudacion(conn)
+        with pytest.raises(psycopg.errors.CheckViolation, match="exige un veredicto aprobado"):
+            _efecto(conn, "intencion")
+        with pytest.raises(psycopg.errors.CheckViolation, match="exige un veredicto aprobado"):
+            conn.execute(
+                "INSERT INTO bloqueo_veredicto (id, plataforma, tipo, origen_id)"
+                " VALUES (%s, 'amazon_mx', 'quitado', %s)",
+                (QID, VID),
+            )
+        assert conn.execute("SELECT count(*) FROM bloqueo_efecto").fetchone() == (0,)

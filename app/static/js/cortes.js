@@ -78,6 +78,8 @@ function descartar(form) {
 
 function postBloqueo(form) {
   var estado = form.querySelector("[data-estado]");
+  var boton = form.querySelector("button[type=submit]");
+  if (boton) boton.disabled = true;
   estado.textContent = "Enviando…";
   var cuerpo;
   if (form.dataset.bloqueo === "reanudar") {
@@ -106,10 +108,12 @@ function postBloqueo(form) {
         estado.textContent = (r.data.paso || "ok") + motivo + ".";
       } else {
         estado.textContent = "Error: " + (r.data.detail || r.data) + ".";
+        if (boton) boton.disabled = false;
       }
     })
     .catch(function () {
       estado.textContent = "Error de red al enviar el bloqueo.";
+      if (boton) boton.disabled = false;
     });
 }
 

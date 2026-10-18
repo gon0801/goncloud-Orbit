@@ -3051,3 +3051,12 @@ def test_r13f_pagina_escapa_la_palabra():
     )
     assert PAYLOAD_XSS not in html
     assert "&lt;script&gt;" in html
+
+
+def test_ui_cortes_consulta_caida_no_pinta_sin_bloqueos():
+    ctx = _ctx_bloqueos()
+    ctx["bloqueos_disponibles"] = False
+    ctx["bloqueos_jev"]["bloqueos"] = []
+    html = ui.templates.env.get_template("cortes.html").render(**ctx)
+    assert "no se pudo leer tus bloqueos" in html
+    assert "sin bloqueos" not in html

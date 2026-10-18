@@ -278,7 +278,9 @@
 {% if bloqueos_jev is defined %}
 <div class="tarjeta" data-tus-bloqueos>
   <h3>Tus bloqueos</h3>
-  {% if bloqueos_jev.bloqueos %}
+  {% if bloqueos_disponibles is defined and not bloqueos_disponibles %}
+  <p>no se pudo leer tus bloqueos</p>
+  {% elif bloqueos_jev.bloqueos %}
   <div class="tabla-scroll" role="region" aria-label="Tus bloqueos" tabindex="0">
   <table>
     <thead>

@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from contextlib import contextmanager
 from dataclasses import dataclass
 from uuid import UUID, uuid4
 
@@ -77,11 +78,26 @@ def rechazar(conn, senal_id: UUID) -> Efecto:
         return Efecto(409, motivo="pausa")
     if not _vigente_ajena(conn, senal):
         return Efecto(409, motivo="senal_cambio")
+    if not _toma(conn, senal.ad_group_id, senal.termino_sha256):
+        return Efecto(409, motivo="candado")
+    try:
+        return _rechaza_con_candado(conn, senal)
+    finally:
+        _suelta(conn, senal.ad_group_id, senal.termino_sha256)
+
+
+def _rechaza_con_candado(conn, senal: _Senal) -> Efecto:
+    previo = conn.execute(
+        "SELECT id FROM bloqueo_veredicto WHERE tipo = 'rechazado' AND senal_id = %s",
+        (senal.id,),
+    ).fetchone()
+    if previo is not None:
+        return Efecto(200, veredicto_id=previo[0], paso="rechazado", motivo="ya_rechazado")
     huella = _huella(conn, senal.roster_sha256)
     if huella is None:
         return Efecto(409, motivo="catalogo")
     vid = uuid4()
-    with conn.transaction():
+    with _durable(conn):
         _insert_veredicto(conn, vid, "rechazado", senal, huella)
     return Efecto(200, veredicto_id=vid, paso="rechazado")
 
@@ -109,7 +125,7 @@ def reanudar(conn, plataforma: str) -> Efecto:
     if not _interruptor(conn):
         return Efecto(409, motivo="interruptor")
     vid = uuid4()
-    with conn.transaction():
+    with _durable(conn):
         conn.execute(
             """
             INSERT INTO bloqueo_veredicto (id, plataforma, tipo)
@@ -230,7 +246,7 @@ def _quitar_con_candado(conn, origen: _Senal, transport) -> Efecto:
     if externos is None:
         return Efecto(409, motivo="sin_externos")
     vid = uuid4()
-    with conn.transaction():
+    with _durable(conn):
         _insert_veredicto(conn, vid, "quitado", origen, origen.huella, origen_id=origen.id)
         _insert_efecto(conn, origen.id, "reversa_intencion", negative_keyword_id=kid)
     try:
@@ -302,7 +318,7 @@ def _anula(conn, senal: _Senal, motivo: str) -> Efecto:
     if huella is None:
         return Efecto(409, motivo="catalogo")
     vid = uuid4()
-    with conn.transaction():
+    with _durable(conn):
         _insert_veredicto(conn, vid, "aprobado", senal, huella)
         _insert_efecto(conn, vid, "anulado", motivo=motivo)
     return Efecto(200, veredicto_id=vid, paso="anulado", motivo=motivo)
@@ -310,14 +326,14 @@ def _anula(conn, senal: _Senal, motivo: str) -> Efecto:
 
 def _abre_intencion(conn, senal: _Senal, huella: str) -> UUID:
     vid = uuid4()
-    with conn.transaction():
+    with _durable(conn):
         _insert_veredicto(conn, vid, "aprobado", senal, huella)
         _insert_efecto(conn, vid, "intencion")
     return vid
 
 
 def _sella(conn, vid: UUID, paso: str, **campos) -> None:
-    with conn.transaction():
+    with _durable(conn):
         _insert_efecto(conn, vid, paso, **campos)
 
 
@@ -595,6 +611,16 @@ def _insert_efecto(conn, veredicto_id, paso: str, **campos) -> None:
             campos.get("motivo"),
         ),
     )
+
+
+@contextmanager
+def _durable(conn):
+    # Con conexion sin autocommit, conn.transaction() dentro de una transaccion
+    # abierta es un SAVEPOINT: sin este commit el ledger no es visible antes del HTTP.
+    with conn.transaction():
+        yield
+    if not conn.autocommit:
+        conn.commit()
 
 
 def _llave(ad_group_id: int, termino_sha256: str) -> str:

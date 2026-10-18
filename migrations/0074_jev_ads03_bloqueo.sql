@@ -130,6 +130,34 @@ CREATE TRIGGER bloqueo_efecto_append_only_truncate
     BEFORE TRUNCATE ON bloqueo_efecto
     FOR EACH STATEMENT EXECUTE FUNCTION prohibir_mutacion();
 
+-- Un paso solo cuelga de un aprobado y un quitado solo cita un aprobado.
+CREATE FUNCTION bloqueo_exige_aprobado() RETURNS trigger
+    LANGUAGE plpgsql AS $f$
+DECLARE
+    ref UUID;
+BEGIN
+    IF TG_TABLE_NAME = 'bloqueo_efecto' THEN
+        ref := NEW.veredicto_id;
+    ELSIF NEW.tipo = 'quitado' THEN
+        ref := NEW.origen_id;
+    ELSE
+        RETURN NEW;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM bloqueo_veredicto WHERE id = ref AND tipo = 'aprobado') THEN
+        RAISE EXCEPTION 'bloqueo: % exige un veredicto aprobado (%)', TG_TABLE_NAME, ref
+            USING ERRCODE = 'check_violation';
+    END IF;
+    RETURN NEW;
+END
+$f$;
+
+CREATE TRIGGER bloqueo_efecto_exige_aprobado
+    BEFORE INSERT ON bloqueo_efecto
+    FOR EACH ROW EXECUTE FUNCTION bloqueo_exige_aprobado();
+CREATE TRIGGER bloqueo_veredicto_quitado_exige_aprobado
+    BEFORE INSERT ON bloqueo_veredicto
+    FOR EACH ROW EXECUTE FUNCTION bloqueo_exige_aprobado();
+
 -- ===========================================================================
 -- 4. INDICES (FK no encabezada por la PK)
 -- ===========================================================================

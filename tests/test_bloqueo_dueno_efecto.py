@@ -598,3 +598,48 @@ def test_pausa_de_la_plataforma_responde_409(monkeypatch):
         assert resultado.status == 409
         assert resultado.motivo == "pausa"
         assert vistos == []
+
+
+@_skip_db
+def test_intencion_es_visible_desde_otra_conexion_antes_del_post(monkeypatch):
+    _parche(monkeypatch)
+    with _db() as conn:
+        senal, _g, grupo_ext, _c, termino, _roster = _prepara(conn)
+        lector = psycopg.connect(_dsn_de(conn), autocommit=True)
+        escritora = psycopg.connect(_dsn_de(conn), autocommit=False)
+        vistos = []
+        store = []
+        pasos_en_el_post: list[list[str]] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.method == "POST" and request.url.path == "/sp/negativeKeywords":
+                pasos_en_el_post.append(
+                    [r[0] for r in lector.execute("SELECT paso FROM bloqueo_efecto").fetchall()]
+                )
+            return _responde(request, vistos, store, grupo_ext)
+
+        try:
+            hecho = efecto.aprobar(escritora, senal, transport=httpx.MockTransport(handler))
+        finally:
+            escritora.close()
+            lector.close()
+        assert hecho.paso == "aplicado"
+        assert pasos_en_el_post == [["intencion"]]
+
+
+@_skip_db
+def test_rechazar_dos_veces_es_un_solo_veredicto(monkeypatch):
+    _parche(monkeypatch)
+    with _db() as conn:
+        senal, _g, _ge, _c, _t, _roster = _prepara(conn)
+        uno = efecto.rechazar(conn, senal)
+        dos = efecto.rechazar(conn, senal)
+        assert uno.paso == "rechazado"
+        assert (dos.status, dos.paso, dos.motivo) == (200, "rechazado", "ya_rechazado")
+        assert dos.veredicto_id == uno.veredicto_id
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM bloqueo_veredicto WHERE tipo = 'rechazado'"
+            ).fetchone()[0]
+            == 1
+        )

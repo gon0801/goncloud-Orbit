@@ -25,5 +25,6 @@ $$;
 
 DROP TABLE bloqueo_efecto;
 DROP TABLE bloqueo_veredicto;
+DROP FUNCTION bloqueo_exige_aprobado();
 
 COMMIT;
