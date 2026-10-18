@@ -96,6 +96,14 @@ Las doce del spec. Las que no pueden faltar:
 
 Cada bug encontrado en el camino trae la prueba que lo habría atrapado.
 
+### Residuales
+
+Revisión del lead hecha después del merge (2026-10-18): el brief de R01 no le llegó y #470 se mergeó sin su VEREDICTO. Sin bloqueantes en `app/bloqueo_dueno_efecto.py`, la ruta `/api/jev-bloqueo`, la plantilla y la migración 0074.
+
+| Task | Contenido | DoD | Depends | Status |
+| --- | --- | --- | --- | --- |
+| R.1 | `[stage:implementacion] [lane:gate] [tdd:required]` Un POST de `crear_negative_exacto` que sale por error de transporte (sin respuesta) o con un 5xx, o un readback que todavía no ve el negative sellan `fallido`, que no es vivo, aunque Amazon sí lo haya creado. Si la señal vence antes de que el dueño vuelva a aprobar, el negative queda en Amazon sin fila viva en Orbit y sin botón Quitar, y el reporte de D.3 no lo cuenta. Propuesta: en esos dos casos dejar la `intencion` abierta para que la reconcilie el LIST por identidad (la siguiente acción sobre la clave o `bloqueo-reconcilia`), y sellar `fallido` solo con un 4xx de Amazon; un 5xx tampoco dice si el negative se creó y deja la `intencion` abierta igual. | Pruebas con `MockTransport` para un error de transporte y para un 5xx, con el LIST siguiente trayendo el negative `ENABLED`: en ambos casos el resultado es `aplicado` con su id; con el código viejo las dos quedan en rojo. Un 4xx sigue en `fallido`. | C.1 | cc:TODO |
+
 ## Orden y salida
 
 Orden: 0 → B.1 → B.2 → B.3 → B.4 → D.1 → D.2 → D.3 → C.1. El plan cierra
