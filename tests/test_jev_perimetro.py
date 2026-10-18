@@ -2,9 +2,11 @@
 
 Como `app_jev`, leer `decision`, `apply_queue` y `search_term_observation`
 falla. Como `app_decide` y como `app_ingest`, leer cualquier tabla `jev_*`
-y la vista `jev_senal_vigente` falla. Con login real (CREATE ROLE LOGIN +
-GRANT del grupo), no con SET ROLE: es la unica evidencia del REVOKE de la
-migracion B. No se salta: sin CREATEROLE falla en vez de callar.
+y la vista `jev_senal_vigente` falla. `app_jev`, `app_decide` y `app_ingest`
+tampoco leen `bloqueo_veredicto` ni `bloqueo_efecto`. Con login real
+(CREATE ROLE LOGIN + GRANT del grupo), no con SET ROLE: es la unica
+evidencia del REVOKE de la migracion B. No se salta: sin CREATEROLE falla
+en vez de callar.
 """
 
 from __future__ import annotations
@@ -29,6 +31,7 @@ ORDEN_PERIMETRO = (
     "0049_jev_ads.sql",
     "0050_jev_revision_created_at.sql",
     "0052_jev_senales.sql",
+    "0074_jev_ads03_bloqueo.sql",
 )
 
 VISTA_JEV = "jev_senal_vigente"
@@ -106,6 +109,11 @@ def test_perimetro_jev_con_login_real():
             for dsn in (dsn_decide, dsn_ingest):
                 with psycopg.connect(dsn, autocommit=True) as ciclo:
                     for tabla in (*TABLAS_JEV, VISTA_JEV):
+                        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                            ciclo.execute(f"SELECT count(*) FROM {tabla}")
+            for dsn in (dsn_jev, dsn_decide, dsn_ingest):
+                with psycopg.connect(dsn, autocommit=True) as ciclo:
+                    for tabla in ("bloqueo_veredicto", "bloqueo_efecto"):
                         with pytest.raises(psycopg.errors.InsufficientPrivilege):
                             ciclo.execute(f"SELECT count(*) FROM {tabla}")
         finally:

@@ -20,9 +20,9 @@ imports):
 ```bash
 pg_isready -h 127.0.0.1 -p 5433                  # "accepting connections"
 TABS="$(psql "$ORBIT_TEST_DSN" -tAc "select count(*) from information_schema.tables where table_schema='public' and table_type='BASE TABLE'")"
-test "$TABS" = 85 || { echo "ESQUEMA INCOMPLETO: $TABS/85 tablas BASE" >&2; exit 1; }
+test "$TABS" = 87 || { echo "ESQUEMA INCOMPLETO: $TABS/87 tablas BASE" >&2; exit 1; }
 # Igualdad estricta con corte de flujo: un cluster parcial imprime el numero
-# chico y sale con error en vez de seguir. Sin table_type='BASE TABLE' daria 109
+# chico y sale con error en vez de seguir. Sin table_type='BASE TABLE' daria 111
 # (incluye las 24 vistas v_*). NO usar `\dt | wc -l`: cuenta lineas, no tablas.
 python -c "import app.main"                      # importa sin error
 python -c "from fastapi.testclient import TestClient; import app.main as m; c=TestClient(m.app); print(c.get('/health').status_code)"
