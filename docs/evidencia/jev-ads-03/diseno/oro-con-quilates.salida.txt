@@ -1,0 +1,29 @@
+== 1. por mercado y tipo
+ platform  |            grupo            | busquedas |   desde    |   hasta    | clics |  gasto   | ventas |  ingreso  | conv_pct
+-----------+-----------------------------+-----------+------------+------------+-------+----------+--------+-----------+----------
+ amazon_mx | 1 oro con quilates          |        79 | 2026-06-19 | 2026-10-16 |   355 |   751.27 |      2 |   2359.48 |     0.56
+ amazon_mx | 2 oro o dorado sin quilates |       155 | 2026-06-19 | 2026-10-16 |  1134 |  2821.95 |     21 |  24398.51 |     1.85
+ amazon_mx | 3 resto                     |       955 | 2026-06-19 | 2026-10-16 | 12540 | 43452.32 |    291 | 297978.32 |     2.32
+ amazon_us | 1 oro con quilates          |       132 | 2026-06-19 | 2026-10-16 |   328 |   111.59 |      3 |    329.76 |     0.91
+ amazon_us | 2 oro o dorado sin quilates |       336 | 2026-06-20 | 2026-10-16 |   860 |   301.34 |      8 |    913.36 |     0.93
+ amazon_us | 3 resto                     |      1392 | 2026-06-19 | 2026-10-16 | 11329 |  5911.10 |    104 |  11412.15 |     0.92
+(6 rows)
+
+== 2. oro con quilates: con venta o mas de 20 de gasto
+ platform  |                       search_term                       | clics | gasto  | ventas | ingreso
+-----------+---------------------------------------------------------+-------+--------+--------+---------
+ amazon_us | arras for wedding ceremony 24k                          |     3 |   0.76 |      1 |  111.78
+ amazon_us | arras para boda católicas 18 kilates                    |     2 |   0.64 |      1 |  106.20
+ amazon_mx | arras bañadas en oro blanco                             |     2 |   0.62 |      1 | 1283.62
+ amazon_mx | arras de boda matrimoniales set con baño de oro de 24 k |     1 |   0.33 |      1 | 1075.86
+ amazon_us | 14k gold arras for handmade catholic wedding            |     1 |   0.25 |      1 |  111.78
+ amazon_mx | arras matrimoniales de oro 14 k                         |    65 | 129.80 |      0 |    0.00
+ amazon_mx | arras de oro 14k                                        |    48 | 119.47 |      0 |    0.00
+ amazon_mx | oro 24k                                                 |    16 | 102.75 |      0 |    0.00
+ amazon_mx | arras de oro 14 k                                       |    29 |  44.81 |      0 |    0.00
+ amazon_mx | monedas de oro puro                                     |     5 |  36.38 |      0 |    0.00
+ amazon_mx | oro 24k puro                                            |     3 |  30.05 |      0 |    0.00
+ amazon_mx | arras de boda oro puro                                  |    15 |  24.67 |      0 |    0.00
+ amazon_mx | oro 14k                                                 |     4 |  23.80 |      0 |    0.00
+ amazon_mx | lingote de oro 24k                                      |     3 |  21.27 |      0 |    0.00
+(14 rows)
