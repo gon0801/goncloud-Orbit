@@ -1,0 +1,2 @@
+== 0) SHA aprobado = origin/master con la bateria verde
+ABORTA: el run push de Quality sobre 1323a6ac177940e8820f64c47a0f66c59ca116c9 es '', no success
