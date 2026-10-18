@@ -1,0 +1,24 @@
+$ ssh gonserver 'docker exec -i orbit-db-1 psql -U orbit -d orbit -v ON_ERROR_STOP=1 -A -F " | "' < reporte-30d.sql   # sin enviar
+BEGIN
+(1) veredictos por plataforma y tipo
+plataforma | tipo | count
+(0 rows)
+(2) porcentaje aprobado de lo decidido (aprobado / (aprobado + rechazado))
+plataforma | aprobados | rechazados | pct_aprobado
+(0 rows)
+(3) aprobados por ultimo paso de efecto
+plataforma | ultimo_paso | count
+(0 rows)
+(4) gasto de la ventana de las busquedas bloqueadas (aprobados aplicados, sin quitar)
+plataforma | moneda | bloqueados | sin_gasto | gasto_ventana | desde | hasta | gasto_30d_equivalente
+(0 rows)
+(5) despues de aplicar (UTC): la busqueda bloqueada | el resto del grupo; filas_sin_dato = metrica NULL
+plataforma | grupos | gasto_busqueda_bloqueada | ordenes_grupo | ventas_grupo | filas_sin_dato | datos_hasta
+(0 rows)
+ROLLBACK
+exit=0
+$ ssh gonserver atq
+8	Tue Nov 17 09:00:00 2026 a root
+exit=0
+$ ssh gonserver at -c 8 | tail -2
+/mnt/data/appdata/orbit/recordatorios/jev-ads03-d3.sh

@@ -148,7 +148,7 @@
     {
       "name": "jev-ads-03",
       "path": "plans/jev-ads-03.md",
-      "description": "JEV ADS 03 — el dueño bloquea en /cortes lo que Jev marca como ajeno (E.2 de jev-ads-02), MX y US; ledger antes del HTTP, readback y quitar; rechazo recordado por huella de catálogo; pausa si aprueba menos de 70%. Diseño sellado el 2026-10-17 tras la revisión a ciegas (ajena 85% con el oro corregido). Spec: docs/superpowers/specs/2026-10-17-jev-ads-03-design.md."
+      "description": "JEV ADS 03 — el dueño bloquea en /cortes lo que Jev marca como ajeno (E.2 de jev-ads-02), MX y US; ledger antes del HTTP, readback y quitar; rechazo recordado por huella de catálogo; pausa si aprueba menos de 70%. Diseño sellado el 2026-10-17 tras la revisión a ciegas (ajena 85% con el oro corregido). Spec: docs/superpowers/specs/2026-10-17-jev-ads-03-design.md. Cerrado el 2026-10-18: desplegado y encendido en config_version 42; reporte de 30 días con at para el 2026-11-17."
     },
     {
       "name": "repricing-01",
