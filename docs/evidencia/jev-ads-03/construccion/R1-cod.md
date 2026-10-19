@@ -15,7 +15,7 @@ Sin push. La rama sigue siendo `j03/r1-incierto`.
 
 ## Que cambia para el dueno
 
-Si Amazon acepto el negative y la respuesta se perdio (5xx, corte de red, tiempo agotado, cuerpo ilegible), la fila de Tus bloqueos ya no dice fallido. Queda en `intencion` con motivo `por_confirmar`, o en `aplicado` con el id si el LIST lo ve ENABLED. Un 4xx sigue en `fallido` con `http_<status>`. La pantalla no cambio de forma: la fila ya muestra el paso y el motivo.
+Si Amazon acepto el negative y la respuesta se perdio (5xx, corte de red, tiempo agotado, cuerpo ilegible), la fila de Tus bloqueos ya no dice fallido. Queda en `intencion`, o en `aplicado` con el id si el LIST lo ve ENABLED. Un 4xx sigue en `fallido` con `http_<status>`. La respuesta de ese clic trae `motivo=por_confirmar`. El ledger no gana un paso nuevo: al recargar, la fila muestra el paso `intencion` y el motivo vacio de esa fila.
 
 La reconciliacion que ya existia (`_reconcilia_sin_candado`) cierra esa intencion abierta. No se toco su logica. La siguiente accion sobre la misma clave, o `python -m app.cli bloqueo-reconcilia`, la adopta si el negative ya esta ENABLED, o la sella `fallido` / `sin_resultado` si no esta. Eso ultimo es la conducta vieja de la reconciliacion, no de este POST.
 

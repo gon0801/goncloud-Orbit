@@ -17,7 +17,6 @@ from uuid import UUID, uuid4
 
 from app import apply
 from app.ads.client import AdsApiError
-from app.ads.write import AdsApiErrorMutacion
 from app.apply_cola import _SQL_EXTERNALES_GRUPO
 from app.apply_harvest import _identidad, _lista_filtrada
 from app.bloqueo_dueno import (
@@ -223,13 +222,11 @@ def _ejecuta(conn, senal: _Senal, vid: UUID, transport) -> Efecto:
         return Efecto(200, veredicto_id=vid, paso="aplicado")
     try:
         cliente.crear_negative_exacto(grupo_ext, campana_ext, senal.termino)
-    except AdsApiErrorMutacion as exc:
-        if 400 <= exc.status < 500:
+    except AdsApiError as exc:
+        if exc.status is not None and 400 <= exc.status < 500:
             motivo, status, cuerpo = _fallo_de(exc)
             _sella(conn, vid, "fallido", motivo=motivo, http_status=status, respuesta=cuerpo)
             return Efecto(200, veredicto_id=vid, paso="fallido", motivo=motivo)
-        _anota_incierto(vid, exc)
-    except Exception as exc:
         _anota_incierto(vid, exc)
     return _readback(conn, cliente, senal, vid, grupo_ext)
 
@@ -366,8 +363,10 @@ def _anota_incierto(vid: UUID, exc: Exception) -> None:
 
 
 def _fallo_de(exc: Exception) -> tuple[str, int | None, str]:
-    if isinstance(exc, AdsApiErrorMutacion):
-        return (f"http_{exc.status}", exc.status, exc.cuerpo[:500])
+    status = getattr(exc, "status", None)
+    if isinstance(exc, AdsApiError) and status is not None:
+        cuerpo = getattr(exc, "cuerpo", None) or ""
+        return (f"http_{status}", int(status), str(cuerpo)[:500])
     return ("sin_respuesta", None, scrub(str(exc))[:500])
 
 

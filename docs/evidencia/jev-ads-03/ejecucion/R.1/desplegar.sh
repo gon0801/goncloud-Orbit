@@ -97,7 +97,9 @@ if [ "$SIM" = 1 ]; then
   echo "$APROBADO" > "$SIM_DIR/predeploy-$STAMP/SHA"
   echo "SIMULACION: respaldo local predeploy-$STAMP (sin ssh, sin .env)"
 else
-  ssh "$H" "set -e; cd $SRV; mkdir -p predeploy-$STAMP; \
+  ssh "$H" "set -e; cd $SRV; \
+    if [ -e predeploy-$STAMP ]; then echo ABORTA: predeploy-$STAMP ya existe; exit 1; fi; \
+    mkdir -p predeploy-$STAMP; \
     cp -a app Dockerfile .dockerignore pyproject.toml uv.lock tools docker-compose.yml predeploy-$STAMP/; \
     echo $APROBADO > predeploy-$STAMP/SHA; ls predeploy-$STAMP"
 fi
@@ -121,7 +123,7 @@ while IFS= read -r f; do
   if [ "$SIM" = 1 ]; then
     srv_md5=$(md5_de < "$SIM_DIR/srv/$f")
   else
-    srv_md5=$(ssh "$H" "md5sum $SRV/$f" | cut -d' ' -f1)
+    srv_md5=$(ssh -n "$H" "md5sum $SRV/$f" | cut -d' ' -f1)
   fi
   if [ "$local_md5" != "$srv_md5" ]; then
     echo "ABORTA: md5 distinto en $f"
@@ -161,7 +163,7 @@ else
     echo DIGEST antes=\$(docker inspect -f '{{.Image}}' orbit-app-1); \
     docker compose up -d --no-deps --build app; \
     echo DIGEST despues=\$(docker inspect -f '{{.Image}}' orbit-app-1); \
-    sleep 5; curl -sS http://127.0.0.1:8010/health; echo; \
+    sleep 5; curl -fsS http://127.0.0.1:8010/health; echo; \
     docker ps --filter name=orbit-app-1 --format '{{.Names}} {{.Status}}'"
 fi
 

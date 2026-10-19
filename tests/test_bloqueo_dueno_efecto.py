@@ -34,7 +34,9 @@ from test_bloqueo_dueno import (
 
 import app.bloqueo_dueno as lectura
 import app.bloqueo_dueno_efecto as efecto
+from app.ads.client import AdsAuthError
 from app.ads.config import AdsCredentials
+from app.ads.write import AdsWriteClient
 from app.apply import Aplicador
 from app.apply_cola import _ejecuta_negative, fila_cola
 from app.redaction import REDACTED, register_secret
@@ -834,6 +836,56 @@ def test_r1_c_4xx_sella_fallido_http(monkeypatch):
             ("fallido", "http_400", None),
         ]
         assert len(_posts(vistos)) == 1
+
+
+@_skip_db
+def test_r1_auth_antes_del_post_sella_fallido(monkeypatch):
+    """Un rechazo de token no es un POST incierto: no se envio nada."""
+    _parche(monkeypatch)
+
+    def _nunca_enviado(self, ad_group_id, campaign_id, keyword_text):
+        raise AdsAuthError("refresh de LWA no produjo access_token")
+
+    monkeypatch.setattr(AdsWriteClient, "crear_negative_exacto", _nunca_enviado)
+    with _db() as conn:
+        senal, _grupo, grupo_ext, _campana, termino, _roster = _prepara(conn)
+        transport, vistos, _store = _transporte(grupo_ext, termino, readback="enabled")
+        resultado = efecto.aprobar(conn, senal, transport=transport)
+        assert resultado.paso == "fallido"
+        assert resultado.motivo != "por_confirmar"
+        assert _pasos(conn, resultado.veredicto_id)[-1][0] == "fallido"
+        assert _posts(vistos) == []
+
+
+@_skip_db
+def test_r1_429_agotado_sella_fallido_sin_readback(monkeypatch):
+    """429 agotado es rechazo sin procesar: fallido, aunque el LIST vea ENABLED."""
+    _parche(monkeypatch)
+    original = AdsWriteClient.__init__
+
+    def _init(self, *args, **kwargs):
+        kwargs["sleep"] = lambda _s: None
+        original(self, *args, **kwargs)
+
+    monkeypatch.setattr(AdsWriteClient, "__init__", _init)
+    with _db() as conn:
+        senal, _grupo, grupo_ext, _campana, termino, _roster = _prepara(conn)
+        transport, vistos, _store = _transporte(
+            grupo_ext,
+            termino,
+            post_status=429,
+            readback="enabled",
+            detalle_post="throttled",
+        )
+        resultado = efecto.aprobar(conn, senal, transport=transport)
+        assert resultado == efecto.Efecto(
+            200, veredicto_id=resultado.veredicto_id, paso="fallido", motivo="http_429"
+        )
+        assert _pasos(conn, resultado.veredicto_id) == [
+            ("intencion", None, None),
+            ("fallido", "http_429", None),
+        ]
+        assert len(_posts(vistos)) == 4
 
 
 @_skip_db

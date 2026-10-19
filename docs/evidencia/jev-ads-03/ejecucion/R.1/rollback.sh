@@ -49,12 +49,15 @@ if [ "$SIM" = 1 ]; then
   echo "SIMULACION health=ok"
 else
   ssh "$H" "set -e; cd $SRV; \
+    for pieza in app tools Dockerfile .dockerignore pyproject.toml uv.lock docker-compose.yml; do \
+      [ -e predeploy-$STAMP/\$pieza ] || { echo ABORTA: predeploy-$STAMP sin \$pieza; exit 1; }; \
+    done; \
     rm -rf app tools; cp -a predeploy-$STAMP/app predeploy-$STAMP/tools .; \
     cp -a predeploy-$STAMP/Dockerfile predeploy-$STAMP/.dockerignore predeploy-$STAMP/pyproject.toml predeploy-$STAMP/uv.lock predeploy-$STAMP/docker-compose.yml .; \
     echo DIGEST antes=\$(docker inspect -f '{{.Image}}' orbit-app-1); \
     docker compose up -d --no-deps --build app; \
     echo DIGEST despues=\$(docker inspect -f '{{.Image}}' orbit-app-1); \
-    sleep 5; curl -sS http://127.0.0.1:8010/health; echo"
+    sleep 5; curl -fsS http://127.0.0.1:8010/health; echo"
 fi
 
 echo "== REVERSA LISTA."

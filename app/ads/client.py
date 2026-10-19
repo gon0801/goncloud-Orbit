@@ -116,9 +116,10 @@ class MutationNotAllowedError(AdsClientError):
 
 def _texto_respuesta(resp: httpx.Response) -> str:
     try:
-        return resp.text[:500]
+        texto = resp.text
     except Exception as exc:
-        return str(exc)[:500]
+        texto = str(exc)
+    return scrub(texto)[:500]
 
 
 def _clean_path(path: str) -> str:
@@ -386,7 +387,8 @@ class AdsClient:
                     error = AdsApiError(
                         f"fallo de red sin retry (POST no idempotente): {method} {redact_url(url)}"
                     )
-                    error.cuerpo = "" if network_exc is None else str(network_exc)[:500]
+                    crudo = "" if network_exc is None else str(network_exc)
+                    error.cuerpo = scrub(crudo)[:500]
                     raise error
                 if attempt >= MAX_RETRIES:
                     raise AdsApiError(
@@ -407,10 +409,13 @@ class AdsClient:
                     error.cuerpo = _texto_respuesta(resp)
                     raise error
                 if attempt >= MAX_RETRIES:
-                    raise AdsApiError(
+                    error = AdsApiError(
                         f"status={resp.status_code} tras {attempt} intentos: "
                         f"{method} {redact_url(url)}"
                     )
+                    error.status = resp.status_code
+                    error.cuerpo = _texto_respuesta(resp)
+                    raise error
                 self._sleep(self._retry_delay(resp, attempt))
                 continue
 

@@ -38,7 +38,23 @@ sembrar() {
 
 leer() {
   if [ "$MUTAR" = 1 ]; then
-    ssh "$H" "crontab -l -u gon 2>/dev/null" || true
+    local err rc
+    err=$(mktemp)
+    set +e
+    ssh "$H" "crontab -l -u gon" 2>"$err"
+    rc=$?
+    set -e
+    if [ "$rc" -ne 0 ]; then
+      if grep -q 'no crontab for' "$err"; then
+        rm -f "$err"
+        return 0
+      fi
+      echo "ABORTA: no se pudo leer el crontab de gon" >&2
+      cat "$err" >&2
+      rm -f "$err"
+      exit 1
+    fi
+    rm -f "$err"
   else
     sembrar
     cat "$SIM_DIR/crontab-gon"
@@ -55,10 +71,14 @@ escribir() {
 
 actual=$(leer)
 if [ "$QUITAR" = 1 ]; then
-  nuevo=$(printf '%s\n' "$actual" | grep -v -F 'app.cli bloqueo-reconcilia' || true)
+  nuevo=$(printf '%s\n' "$actual" | awk '
+    /^[[:space:]]*#/ { print; next }
+    index($0, "app.cli bloqueo-reconcilia") { next }
+    { print }
+  ')
   echo "reversa: se quita la linea de bloqueo-reconcilia"
 else
-  if printf '%s\n' "$actual" | grep -q -F 'app.cli bloqueo-reconcilia'; then
+  if printf '%s\n' "$actual" | awk '/^[[:space:]]*#/ { next } { print }' | grep -q -F 'app.cli bloqueo-reconcilia'; then
     nuevo=$actual
     echo "ya estaba: no se duplica"
   else

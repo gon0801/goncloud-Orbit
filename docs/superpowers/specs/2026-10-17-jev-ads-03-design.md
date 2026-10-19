@@ -233,9 +233,13 @@ tampoco el de `/v2/profiles`.
    POST.
 8. **POST.** `AdsWriteClient.crear_negative_exacto` con el perfil de la
    plataforma y `modo_confirmado="live"`, como `aplica_ajuste_campana`. Un
-   error da `fallido` con status y cuerpo redactado.
+   4xx, incluido un 429 agotado, sella `fallido` con `http_<status>` y sin
+   readback: Amazon rechazo y no proceso. Un 5xx o un corte de red no sella
+   `fallido`: se anota el status y el cuerpo ya redactados, y sigue el readback.
+   Un error que ocurre antes de enviar el POST (token, guard) sella `fallido`.
 9. **Readback.** LIST por identidad. Si aparece `ENABLED` con id, `aplicado`.
-   Si no, `fallido` con motivo `readback`.
+   Si no, no hay paso nuevo. La respuesta es 200 con `paso=intencion` y
+   `motivo=por_confirmar`. El ledger sigue en la `intencion` de antes del HTTP.
 
 ### Rechazar
 
@@ -296,7 +300,7 @@ salta. Lo corre el checklist del despliegue.
 | --- | --- |
 | Doble clic en Bloquear | El segundo choca con el candado (409) o encuentra el bloqueo vivo (`anulado`, `ya_bloqueada`). Un solo negative |
 | Llegó una venta entre la vista y el clic | El job ya selló otra señal y la aprobación queda `anulado`, `senal_cambio` |
-| Amazon responde 5xx | `fallido`. El dueño ve el motivo y puede volver a aprobar |
+| Amazon responde 5xx o se corta la red | La `intencion` queda abierta. Si el LIST siguiente ve el negative `ENABLED`, queda `aplicado`; si no, la reconciliacion sella `fallido` / `sin_resultado` |
 | El contenedor muere tras el commit de `intencion` | La siguiente acción sobre esa clave, o el checklist, reconcilia por LIST |
 | El motor propone después la misma búsqueda | Sigue su camino de siempre. Ver "Riesgos" |
 | La lista de Amazon sale truncada o ambigua | `fallido` sin POST, o reconciliación pendiente |
