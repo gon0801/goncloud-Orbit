@@ -336,16 +336,28 @@ def test_reuso_por_arbol_solo_en_push_y_falla_cerrado_a_correr():
     )
 
 
-def test_script_reuso_con_doble_de_gh(tmp_path):
-    """Triple del reuso con un doble de `gh` (sin red): reusa o cae a correr.
+def _env_sin_git() -> dict[str, str]:
+    """Entorno del proceso SIN variables GIT_*.
 
-    - arbol identico + `completa` en success en la cabeza del PR -> reusar=true
-    - arbol distinto (la base avanzo y no se mezclo) -> reusar=false (corre)
-    - gh falla (red, rate limit, sin gh) -> reusar=false (corre)
-    El script jamas termina en error: su unica salida es reusar=true (salta
-    la bateria) o reusar=false (la corre completa).
+    El hook pre-push corre pytest con GIT_DIR, GIT_INDEX_FILE, etc. puestos
+    por git; heredadas en un subprocess, `git init/add/commit` pegarian
+    contra el repo apuntado por el entorno y no contra el repo temporal
+    (incidente 2026-10-18: goncloud-Orbit reinicializado, core.bare=true).
     """
-    doble = tmp_path / "doble"
+    return {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+
+
+def _escenario_reuso(raiz: Path) -> str:
+    """Monta el triple del reuso en `raiz` (repo tmp + doble de gh sin red).
+
+    Devuelve el sha del commit del repo temporal. Los subprocess de git
+    corren con un entorno SIN variables GIT_*: dentro del hook pre-push git
+    exporta GIT_DIR/GIT_INDEX_FILE/etc. y, heredadas, `git init/add/commit`
+    del repo temporal pegan contra el repo REAL (incidente 2026-10-18: el
+    `git init` reinicializo goncloud-Orbit/.git y le puso core.bare=true).
+    """
+    raiz.mkdir(parents=True, exist_ok=True)
+    doble = raiz / "doble"
     doble.mkdir()
     (doble / "gh").write_text(
         textwrap.dedent(
@@ -375,11 +387,13 @@ def test_script_reuso_con_doble_de_gh(tmp_path):
     (doble / "gh").chmod(0o755)
 
     def git(*args: str) -> str:
-        res = subprocess.run(["git", "-C", str(tmp_path), *args], check=True, capture_output=True)
+        res = subprocess.run(
+            ["git", "-C", str(raiz), *args], check=True, capture_output=True, env=_env_sin_git()
+        )
         return res.stdout.decode().strip()
 
-    subprocess.run(["git", "init", "-q", "-b", "master", str(tmp_path)], check=True)
-    (tmp_path / "archivo.txt").write_text("contenido\n")
+    subprocess.run(["git", "init", "-q", "-b", "master", str(raiz)], check=True, env=_env_sin_git())
+    (raiz / "archivo.txt").write_text("contenido\n")
     git("add", ".")
     git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "uno")
     sha = git("rev-parse", "HEAD")
@@ -394,8 +408,8 @@ def test_script_reuso_con_doble_de_gh(tmp_path):
     )
 
     def correr(escena: dict) -> tuple[subprocess.CompletedProcess, str]:
-        salida = tmp_path / f"salida-{len(list(tmp_path.glob('salida-*')))}.txt"
-        env = os.environ | {
+        salida = raiz / f"salida-{len(list(raiz.glob('salida-*')))}.txt"
+        env = _env_sin_git() | {
             "PATH": f"{doble}:{os.environ['PATH']}",
             "ESCENA": json.dumps(escena),
             "GITHUB_OUTPUT": str(salida),
@@ -404,7 +418,7 @@ def test_script_reuso_con_doble_de_gh(tmp_path):
         proc = subprocess.run(
             ["bash", str(RAIZ / ".github" / "scripts" / "reusar_completa.sh")],
             capture_output=True,
-            cwd=str(tmp_path),
+            cwd=str(raiz),
             env=env,
             text=True,
             timeout=60,
@@ -443,3 +457,61 @@ def test_script_reuso_con_doble_de_gh(tmp_path):
     proc, salida = correr({"pulls": "[]", "arbol": cabeza_json, "check-runs": check_success})
     assert proc.returncode == 0, proc.stderr
     assert "reusar=false" in salida, f"sin PR no hay veredicto que reusar: {proc.stderr}"
+    return sha
+
+
+def test_script_reuso_con_doble_de_gh(tmp_path):
+    """Triple del reuso con un doble de `gh` (sin red): reusa o cae a correr.
+
+    - arbol identico + `completa` en success en la cabeza del PR -> reusar=true
+    - arbol distinto (la base avanzo y no se mezclo) -> reusar=false (corre)
+    - gh falla (red, rate limit, sin gh) -> reusar=false (corre)
+    El script jamas termina en error: su unica salida es reusar=true (salta
+    la bateria) o reusar=false (la corre completa).
+    """
+    _escenario_reuso(tmp_path)
+
+
+def test_reuso_con_git_env_del_hook_deja_intacto_el_repo_ajeno(tmp_path, monkeypatch):
+    """Regresion del incidente 2026-10-18: GIT_* del hook no pegan al repo real.
+
+    El hook pre-push corre pytest con GIT_DIR, GIT_INDEX_FILE, etc. en el
+    entorno. Si los subprocess de git del repo temporal heredan esas
+    variables, `git init/add/commit` pegarian contra el repo apuntado
+    (en el incidente: goncloud-Orbit reinicializado y core.bare=true).
+    Centinela: un repo temporal distinto recibe el GIT_DIR/GIT_INDEX_FILE
+    hostil; tras correr TODO el escenario del reuso, el centinela debe
+    quedar exactamente igual (core.bare, HEAD, indice). Si el filtro de
+    GIT_* falta, la mutacion del centinela vuelve la prueba roja.
+    """
+    centinela = tmp_path / "centinela"
+    _escenario_reuso(centinela)  # repo centinela real, con commit
+
+    def leer(*args: str) -> str:
+        res = subprocess.run(
+            ["git", "-C", str(centinela), *args],
+            check=True,
+            capture_output=True,
+            env=_env_sin_git(),
+        )
+        return res.stdout.decode().strip()
+
+    bare_antes = leer("config", "core.bare")
+    head_antes = leer("rev-parse", "HEAD")
+    indice_antes = leer("ls-files", "-s")
+
+    # Entorno hostil del hook, apuntando al CENTINELA (jamás al repo real):
+    # la prueba debe ignorar estas variables por completo.
+    monkeypatch.setenv("GIT_DIR", str(centinela / ".git"))
+    monkeypatch.setenv("GIT_INDEX_FILE", str(centinela / ".git" / "index"))
+    _escenario_reuso(tmp_path / "escenario")
+
+    assert leer("config", "core.bare") == bare_antes, (
+        "el repo centinela cambio core.bare: el GIT_* del hook se colo en los subprocess"
+    )
+    assert leer("rev-parse", "HEAD") == head_antes, (
+        "el repo centinela cambio de HEAD: el GIT_* del hook se colo en los subprocess"
+    )
+    assert leer("ls-files", "-s") == indice_antes, (
+        "el indice del centinela cambio: el GIT_INDEX_FILE del hook se colo en los subprocess"
+    )
