@@ -252,14 +252,16 @@ def test_check_push_creds_con_credencial_pasa(monkeypatch):
     assert main() == 0
 
 
-def test_completa_corre_en_pr_ready_y_no_en_draft():
-    """`completa` entra al PR solo cuando deja de ser draft (una vez por bloque).
+def test_completa_corre_en_pr_ready_con_codigo_y_no_en_draft():
+    """`completa` entra al PR solo cuando deja de ser draft Y toca codigo.
 
-    Flujo del dueno (orden 2026-10-18): PR en draft durante la implementacion
-    y la revision (solo corre `rapido`); tras el APROBADO el PR pasa a ready
-    y `completa` corre UNA vez sobre el SHA final. Sin estos tipos el job
-    ignoraba los PR y cada plan lanzaba la bateria a mano con
-    `gh workflow run` (3+ corridas de ~15 min por bloque).
+    Dos reglas combinadas. La del dueno (orden 2026-10-18, una vez por
+    bloque): PR en draft durante la implementacion y la revision (solo corre
+    `rapido`); tras el APROBADO el PR pasa a ready y `completa` corre UNA vez
+    sobre el SHA final. La de #481: un PR de solo docs no paga bateria --
+    el job `cambios` mira si el diff toca algo fuera de docs/, plans/ y *.md
+    y solo entonces `completa` entra. Sin estas piezas el job ignoraba los
+    PR o cada plan lanzaba la bateria a mano con `gh workflow run`.
     """
     workflow = yaml.safe_load((RAIZ / ".github" / "workflows" / "quality.yml").read_text("utf-8"))
     disparador = workflow.get(True, workflow.get("on"))  # PyYAML parsea `on` como True
@@ -269,6 +271,13 @@ def test_completa_corre_en_pr_ready_y_no_en_draft():
         "pull_request debe dispararse tambien en ready_for_review: es el paso "
         f"donde `completa` corre una sola vez (tipos hallados: {sorted(tipos)})"
     )
+    cambios = workflow["jobs"]["cambios"]
+    assert cambios["if"] == "github.event_name == 'pull_request'", (
+        "el job `cambios` existe para que un PR de solo docs no corra la bateria"
+    )
+    assert "cambios" in workflow["jobs"]["completa"]["needs"], (
+        "completa debe esperar el veredicto de `cambios` (toca codigo o no)"
+    )
     condicion = str(workflow["jobs"]["completa"]["if"])
     assert "github.event_name == 'pull_request'" in condicion, (
         f"completa debe atender pull_request (condicion: {condicion!r})"
@@ -276,15 +285,21 @@ def test_completa_corre_en_pr_ready_y_no_en_draft():
     assert "!github.event.pull_request.draft" in condicion, (
         f"completa debe exigir PR NO draft; en draft solo corre `rapido` (condicion: {condicion!r})"
     )
+    assert "needs.cambios.outputs.codigo == 'true'" in condicion, (
+        f"completa debe exigir que el PR toque codigo (condicion: {condicion!r})"
+    )
 
 
-def test_gate_exige_completa_success_en_pr_no_draft():
-    """El gate cierra el ciclo: en PR no draft, `completa=skipped` ya no vale.
+def test_gate_exige_completa_success_en_pr_no_draft_con_codigo():
+    """El gate cierra el ciclo: en PR no draft que TOCA codigo, `completa=skipped` no vale.
 
     Antes el gate aceptaba `skipped` de `completa` en cualquier PR y uno
     listo podia unirse sin bateria. Ahora: draft -> `completa` skipped sigue
-    siendo valido (no aplica); ready -> la bateria corrio y paso sobre el
-    SHA final o el gate falla. En push y dispatch el veredicto no cambia.
+    siendo valido (no aplica); docs-only -> tambien skipped vale (#481, el
+    job `cambios` dijo que no toca codigo); ready con codigo -> las 6 partes
+    corrieron y pasaron sobre el SHA final o el gate falla. En push y
+    dispatch el veredicto no cambia (alli `CODIGO` no existe y la exigencia
+    extra no aplica).
     """
     workflow = yaml.safe_load((RAIZ / ".github" / "workflows" / "quality.yml").read_text("utf-8"))
     gate = workflow["jobs"]["gate"]
@@ -293,6 +308,10 @@ def test_gate_exige_completa_success_en_pr_no_draft():
     env = paso.get("env", {})
     assert "github.event_name" in env.get("EVENTO", ""), "el gate necesita saber el evento"
     assert "pull_request.draft" in env.get("DRAFT", ""), "el gate necesita saber si el PR es draft"
+    assert "needs.cambios.outputs.codigo" in env.get("CODIGO", ""), (
+        "el gate necesita saber si el PR toca codigo: un PR de solo docs "
+        "puede dejar `completa` en skipped"
+    )
     script = str(paso["run"])
     inicio = script.find('if [ "$EVENTO" = "pull_request" ]')
     assert inicio != -1, "el gate debe tener la exigencia extra de `completa` solo para PRs"
@@ -300,6 +319,9 @@ def test_gate_exige_completa_success_en_pr_no_draft():
     assert fin != -1, "la exigencia extra debe ser un if acotado"
     bloque = script[inicio:fin]
     assert '"$DRAFT" != "true"' in bloque, "la exigencia aplica a PR que NO es draft"
+    assert '"$CODIGO" = "true"' in bloque, (
+        "la exigencia aplica solo si el PR toca codigo (veredicto de `cambios`)"
+    )
     assert '"$R_COMPLETA" != "success"' in bloque, "el gate exige completa=success en PR no draft"
     assert "exit 1" in bloque, "sin completa=success el gate falla con exit 1"
 
@@ -310,16 +332,28 @@ def test_reuso_por_arbol_solo_en_push_y_falla_cerrado_a_correr():
     El reuso compara `git rev-parse HEAD^{tree}` contra el arbol de la
     cabeza del PR asociado (API commits/{sha}/pulls -> head.sha): sirve para
     merge commit y para squash, porque ambos producen un arbol identico al
-    de la cabeza. Fail-closed hacia CORRER, nunca hacia saltar: arbol
-    distinto (la base avanzo y no se mezclo), sin PR o consulta fallida =>
+    de la cabeza. Desde #481 `completa` es una matriz de 6 partes, asi que
+    el paso de reuso vive en el JOB (va en CADA parte de la matriz: las 6
+    saltan juntas si el arbol ya paso) y el script exige success en TODAS
+    las partes de la cabeza ("completa (1, 6)" ... "completa (6, 6)").
+    Fail-closed hacia CORRER, nunca hacia saltar: arbol distinto (la base
+    avanzo y no se mezclo), sin PR, una parte faltante o consulta fallida =>
     se corre la bateria completa.
     """
     workflow = yaml.safe_load((RAIZ / ".github" / "workflows" / "quality.yml").read_text("utf-8"))
     completa = workflow["jobs"]["completa"]
+    matrix = completa["strategy"]["matrix"]
+    total = matrix["total"][0]
+    assert matrix["parte"] == list(range(1, total + 1)), (
+        "la matriz de partes debe ir de 1 a N: el reuso exige success en todas"
+    )
     reuso = next((p for p in completa["steps"] if p.get("id") == "reuso"), None)
     assert reuso is not None, "completa debe tener el paso de reuso por arbol (id: reuso)"
     assert reuso["if"] == "github.event_name == 'push'", (
         f"el reuso SOLO aplica en push a main/master (if: {reuso.get('if')!r})"
+    )
+    assert "matrix" not in str(reuso.get("if", "")), (
+        "el reuso es paso del job, no de una parte: debe correr en CADA parte de la matriz"
     )
     assert "github.token" in str(reuso.get("env", {}).get("GH_TOKEN", "")), (
         "el reuso usa el token del propio workflow, sin tokens nuevos"
@@ -335,6 +369,13 @@ def test_reuso_por_arbol_solo_en_push_y_falla_cerrado_a_correr():
     )
     assert "se corre la bateria completa" in texto, (
         "el texto del fallback (correr, no saltar) debe estar fijado en el script"
+    )
+    assert 'startswith("completa (")' in texto, (
+        "el script debe buscar las partes de la matriz ('completa (i, N)'), "
+        "no un unico check run 'completa'"
+    )
+    assert "TODAS" in texto, (
+        "el script debe exigir success en TODAS las partes de la cabeza, no en una sola"
     )
 
 
@@ -375,7 +416,8 @@ def _escenario_reuso(raiz: Path) -> str:
             escena = json.loads(os.environ["ESCENA"])
             if url.endswith("/pulls"):
                 clave = "pulls"
-            elif url.endswith("/check-runs"):
+            elif "/check-runs" in url:
+                # El script pagina a 100 (?per_page=100): la cola manda.
                 clave = "check-runs"
             else:
                 clave = "arbol"
@@ -401,13 +443,23 @@ def _escenario_reuso(raiz: Path) -> str:
     sha = git("rev-parse", "HEAD")
     arbol = git("rev-parse", "HEAD^{tree}")
     cabeza_json = json.dumps({"commit": {"tree": {"sha": arbol}}})
-    check_success = json.dumps(
-        {
-            "check_runs": [
-                {"name": "completa", "conclusion": "success", "html_url": "https://ci/run/1"}
-            ]
-        }
-    )
+
+    def check_runs_json(partes: dict[int, str], total: int = 6) -> str:
+        """Check runs de la matriz con el nombre que GitHub les da (#481)."""
+        return json.dumps(
+            {
+                "check_runs": [
+                    {
+                        "name": f"completa ({i}, {total})",
+                        "conclusion": conclusion,
+                        "html_url": f"https://ci/run/{i}",
+                    }
+                    for i, conclusion in sorted(partes.items())
+                ]
+            }
+        )
+
+    las_seis = {i: "success" for i in range(1, 7)}
 
     def correr(escena: dict) -> tuple[subprocess.CompletedProcess, str]:
         salida = raiz / f"salida-{len(list(raiz.glob('salida-*')))}.txt"
@@ -427,42 +479,54 @@ def _escenario_reuso(raiz: Path) -> str:
         )
         return proc, salida.read_text()
 
-    # 1) Arbol identico + `completa` en success en la cabeza -> REUSA.
+    # 1) Arbol identico + las SEIS partes en success en la cabeza -> REUSA.
     proc, salida = correr(
         {
             "pulls": json.dumps([{"number": 7, "head": {"sha": sha}}]),
             "arbol": cabeza_json,
-            "check-runs": check_success,
+            "check-runs": check_runs_json(las_seis),
         }
     )
     assert proc.returncode == 0, proc.stderr
     assert "reusar=true" in salida, f"mismo arbol ya validado debe reusarse: {proc.stderr}"
     assert sha in proc.stdout, "debe imprimir la cabeza reusada"
+    assert "https://ci/run/6" in proc.stdout, "debe imprimir las partes reusadas"
 
-    # 1b/1c/1d) Mismo arbol ya validado pero la cabeza del PR tiene `completa`
-    # en failure o cancelled, o NO tiene check run de `completa` (nunca
-    # corrio): JAMAS se reusa -- solo un success del MISMO arbol autoriza.
+    # 1b/1c/1d/1e) Mismo arbol ya validado pero la cabeza NO tiene las seis
+    # partes en success: una parte en failure, una en cancelled, una
+    # FALTANTE (solo 5 corridas) o el nombre viejo sin matriz: JAMAS se
+    # reusa -- solo el success de TODAS las partes del MISMO arbol autoriza
+    # (una parte faltante puede estar todavia corriendo).
     mismo_arbol = {
         "pulls": json.dumps([{"number": 7, "head": {"sha": sha}}]),
         "arbol": cabeza_json,
     }
-    for veredicto in ("failure", "cancelled"):
-        check = json.dumps(
-            {
-                "check_runs": [
-                    {"name": "completa", "conclusion": veredicto, "html_url": "https://ci/run/1"}
-                ]
-            }
-        )
-        proc, salida = correr({**mismo_arbol, "check-runs": check})
+    for mala, escena_partes in (
+        ("failure", {**las_seis, 3: "failure"}),
+        ("cancelled", {**las_seis, 5: "cancelled"}),
+        ("faltante", {i: "success" for i in range(1, 6)}),
+    ):
+        proc, salida = correr({**mismo_arbol, "check-runs": check_runs_json(escena_partes)})
         assert proc.returncode == 0, proc.stderr
         assert "reusar=false" in salida, (
-            f"completa={veredicto} en la cabeza del PR jamas se reusa: {proc.stderr}"
+            f"con una parte {mala} jamas se reusa (partes: {sorted(escena_partes)}): {proc.stderr}"
         )
+    viejo_sin_matriz = json.dumps(
+        {
+            "check_runs": [
+                {"name": "completa", "conclusion": "success", "html_url": "https://ci/run/1"}
+            ]
+        }
+    )
+    proc, salida = correr({**mismo_arbol, "check-runs": viejo_sin_matriz})
+    assert proc.returncode == 0, proc.stderr
+    assert "reusar=false" in salida, (
+        f"un unico check run 'completa' sin matriz ya no es veredicto reutilizable: {proc.stderr}"
+    )
     proc, salida = correr({**mismo_arbol, "check-runs": "[]"})
     assert proc.returncode == 0, proc.stderr
     assert "reusar=false" in salida, (
-        f"sin check run de completa en la cabeza no hay veredicto que reusar: {proc.stderr}"
+        f"sin check runs de completa en la cabeza no hay veredicto que reusar: {proc.stderr}"
     )
 
     # 2) Arbol distinto (la base avanzo) -> CORRE la bateria completa.
@@ -470,7 +534,7 @@ def _escenario_reuso(raiz: Path) -> str:
         {
             "pulls": json.dumps([{"number": 7, "head": {"sha": sha}}]),
             "arbol": json.dumps({"commit": {"tree": {"sha": "0" * 40}}}),
-            "check-runs": check_success,
+            "check-runs": check_runs_json(las_seis),
         }
     )
     assert proc.returncode == 0, proc.stderr
@@ -482,7 +546,13 @@ def _escenario_reuso(raiz: Path) -> str:
     assert "reusar=false" in salida, f"consulta fallida cae a correr, jamas a saltar: {proc.stderr}"
 
     # 4) Sin PR asociado (push directo a master) -> CORRE.
-    proc, salida = correr({"pulls": "[]", "arbol": cabeza_json, "check-runs": check_success})
+    proc, salida = correr(
+        {
+            "pulls": "[]",
+            "arbol": cabeza_json,
+            "check-runs": check_runs_json(las_seis),
+        }
+    )
     assert proc.returncode == 0, proc.stderr
     assert "reusar=false" in salida, f"sin PR no hay veredicto que reusar: {proc.stderr}"
     return sha
@@ -503,7 +573,11 @@ SOLO_CON_BASH_POSIX = pytest.mark.skipif(
 def test_script_reuso_con_doble_de_gh(tmp_path):
     """Triple del reuso con un doble de `gh` (sin red): reusa o cae a correr.
 
-    - arbol identico + `completa` en success en la cabeza del PR -> reusar=true
+    - arbol identico + las 6 partes ("completa (1, 6)" ... "(6, 6)") en
+      success en la cabeza del PR -> reusar=true
+    - arbol identico pero una parte en failure o cancelled -> reusar=false
+    - arbol identico pero una parte FALTANTE (solo 5 corridas) -> reusar=false
+    - arbol identico con el nombre viejo sin matriz -> reusar=false
     - arbol distinto (la base avanzo y no se mezclo) -> reusar=false (corre)
     - gh falla (red, rate limit, sin gh) -> reusar=false (corre)
     El script jamas termina en error: su unica salida es reusar=true (salta

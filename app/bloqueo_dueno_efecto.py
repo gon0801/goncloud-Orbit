@@ -8,6 +8,7 @@ trataria esa intencion como huerfana.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sys
 from contextlib import contextmanager
@@ -15,8 +16,8 @@ from dataclasses import dataclass
 from uuid import UUID, uuid4
 
 from app import apply
-from app.ads.client import AdsApiError
-from app.ads.write import AdsApiErrorMutacion
+from app.ads.client import AdsAuthError
+from app.ads.write import AdsApiError
 from app.apply_cola import _SQL_EXTERNALES_GRUPO
 from app.apply_harvest import _identidad, _lista_filtrada
 from app.bloqueo_dueno import (
@@ -30,7 +31,10 @@ from app.bloqueo_dueno import (
     motor_oculta,
 )
 from app.db import connect
-from app.redaction import scrub
+from app.redaction import install_scrub_filter, scrub
+
+logger = logging.getLogger(__name__)
+install_scrub_filter(logger)
 
 _PASOS_HUERFANOS = ("intencion", "reversa_intencion")
 _PASOS_QUITAR = ("aplicado", "reversa_fallida")
@@ -217,7 +221,14 @@ def _ejecuta(conn, senal: _Senal, vid: UUID, transport) -> Efecto:
         kid = str(vivo["keywordId"])
         _sella(conn, vid, "aplicado", negative_keyword_id=kid)
         return Efecto(200, veredicto_id=vid, paso="aplicado")
-    cliente.crear_negative_exacto(grupo_ext, campana_ext, senal.termino)
+    try:
+        cliente.crear_negative_exacto(grupo_ext, campana_ext, senal.termino)
+    except AdsApiError as exc:
+        if exc.status is not None and 400 <= exc.status < 500:
+            motivo, status, cuerpo = _fallo_de(exc)
+            _sella(conn, vid, "fallido", motivo=motivo, http_status=status, respuesta=cuerpo)
+            return Efecto(200, veredicto_id=vid, paso="fallido", motivo=motivo)
+        _anota_incierto(vid, exc)
     return _readback(conn, cliente, senal, vid, grupo_ext)
 
 
@@ -227,8 +238,7 @@ def _readback(conn, cliente, senal: _Senal, vid: UUID, grupo_ext: str) -> Efecto
     if item is not None and str(item.get("state", "")).upper() == "ENABLED":
         _sella(conn, vid, "aplicado", negative_keyword_id=str(item["keywordId"]))
         return Efecto(200, veredicto_id=vid, paso="aplicado")
-    _sella(conn, vid, "fallido", motivo="readback")
-    return Efecto(200, veredicto_id=vid, paso="fallido", motivo="readback")
+    return Efecto(200, veredicto_id=vid, paso="intencion", motivo="por_confirmar")
 
 
 def _quitar_con_candado(conn, origen: _Senal, transport) -> Efecto:
@@ -336,16 +346,33 @@ def _sella(conn, vid: UUID, paso: str, **campos) -> None:
         _insert_efecto(conn, vid, paso, **campos)
 
 
+def _anota_incierto(vid: UUID, exc: Exception) -> None:
+    status = getattr(exc, "status", None)
+    cuerpo = getattr(exc, "cuerpo", None)
+    if not cuerpo:
+        cuerpo = str(exc)
+    logger.warning(
+        "post negative incierto veredicto=%s status=%s cuerpo=%s",
+        vid,
+        scrub("" if status is None else str(status)),
+        scrub(str(cuerpo))[:500],
+    )
+
+
 def _fallo_de(exc: Exception) -> tuple[str, int | None, str]:
-    if isinstance(exc, AdsApiErrorMutacion):
-        return (f"http_{exc.status}", exc.status, exc.cuerpo[:500])
+    status = getattr(exc, "status", None)
+    if isinstance(exc, AdsApiError) and status is not None:
+        cuerpo = getattr(exc, "cuerpo", None) or ""
+        return (f"http_{status}", int(status), str(cuerpo)[:500])
     return ("sin_respuesta", None, scrub(str(exc))[:500])
 
 
 def _lista_o(cliente, grupo_ext: str) -> tuple[list, str]:
     try:
         return _lista_filtrada(cliente, [grupo_ext])
-    except AdsApiError:
+    except (AdsApiError, AdsAuthError):
+        # AdsAuthError no hereda de AdsApiError. Si el refresh cae en el
+        # LIST de confirmacion, dejarlo subir sella fallido un POST ya enviado.
         return ([], "ambiguo")
 
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ast
 import json
+import logging
 import os
 import threading
 import uuid
@@ -33,9 +34,12 @@ from test_bloqueo_dueno import (
 
 import app.bloqueo_dueno as lectura
 import app.bloqueo_dueno_efecto as efecto
+from app.ads.client import AdsAuthError
 from app.ads.config import AdsCredentials
+from app.ads.write import AdsWriteClient
 from app.apply import Aplicador
 from app.apply_cola import _ejecuta_negative, fila_cola
+from app.redaction import REDACTED, register_secret
 
 RAIZ = Path(__file__).resolve().parents[1]
 FICHA = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
@@ -117,15 +121,40 @@ def _prepara(conn, plataforma="amazon_mx", termino="baño", sha=SHA):
     return senal, grupo, grupo_ext, campana, termino, roster
 
 
-def _transporte(grupo_ext, termino, *, modo="ok", explota=False):
+def _transporte(
+    grupo_ext,
+    termino,
+    *,
+    modo="ok",
+    explota=False,
+    post_status=None,
+    readback=None,
+    detalle_post="transporte",
+    secreto=None,
+):
     store: list[dict] = []
     vistos: list[httpx.Request] = []
     seq = iter(range(1, 100))
     pagina = {"n": 0}
+    listas = {"n": 0}
+    post_visto = {"ok": False}
+
+    def _aparece() -> None:
+        store.append(
+            {
+                "keywordId": "kid-rb",
+                "adGroupId": grupo_ext,
+                "keywordText": termino,
+                "matchType": "NEGATIVE_EXACT",
+                "state": "ENABLED",
+            }
+        )
 
     def handler(request: httpx.Request) -> httpx.Response:
         vistos.append(request)
         if request.url.host == "api.amazon.com":
+            if readback == "auth" and post_visto["ok"]:
+                return httpx.Response(401, json={"error": "invalid_grant"})
             return httpx.Response(200, json={"access_token": "tok", "expires_in": 3600})
         path = request.url.path
         if path == "/v2/profiles":
@@ -138,10 +167,50 @@ def _transporte(grupo_ext, termino, *, modo="ok", explota=False):
                 return httpx.Response(
                     200, json={"negativeKeywords": [], "nextToken": f"t{pagina['n']}"}
                 )
+            n = listas["n"]
+            listas["n"] += 1
+            if readback == "ambiguo" and n >= 1:
+                return httpx.Response(200, json={"negativeKeywords": "no"})
+            if readback == "auth" and n >= 1:
+                return httpx.Response(401, json={"message": "unauthorized"})
+            if readback == "vacio" and n >= 1:
+                return httpx.Response(200, json={"negativeKeywords": []})
+            if readback == "sin_id" and n >= 1:
+                return httpx.Response(
+                    200,
+                    json={
+                        "negativeKeywords": [
+                            {
+                                "adGroupId": grupo_ext,
+                                "keywordText": termino,
+                                "matchType": "NEGATIVE_EXACT",
+                                "state": "ENABLED",
+                            }
+                        ]
+                    },
+                )
             return httpx.Response(200, json={"negativeKeywords": list(store)})
         if path == "/sp/negativeKeywords" and request.method == "POST":
-            if explota:
-                raise httpx.ConnectError("transporte")
+            post_visto["ok"] = True
+            if explota or post_status is not None:
+                if readback == "enabled":
+                    _aparece()
+                if explota:
+                    raise httpx.ConnectError(detalle_post)
+                cuerpo = {"message": detalle_post}
+                if secreto:
+                    cuerpo["eco"] = secreto
+                return httpx.Response(post_status, json=cuerpo)
+            if readback in ("vacio", "ambiguo", "sin_id"):
+                return httpx.Response(
+                    207,
+                    json={
+                        "negativeKeywords": {
+                            "error": [],
+                            "success": [{"negativeKeywordId": "kid-fantasma"}],
+                        }
+                    },
+                )
             body = json.loads(request.content)
             obj = body["negativeKeywords"][0]
             kid = f"kid-{next(seq)}"
@@ -239,9 +308,10 @@ def test_ledger_antes_del_http_y_reconciliacion(monkeypatch):
         senal, grupo, grupo_ext, _campana, termino, _roster = _prepara(conn)
         transport, vistos, _store = _transporte(grupo_ext, termino, explota=True)
         resultado = efecto.aprobar(conn, senal, transport=transport)
-        assert resultado.paso == "fallido"
-        assert resultado.motivo == "sin_respuesta"
-        assert [p[0] for p in _pasos(conn, resultado.veredicto_id)] == ["intencion", "fallido"]
+        assert resultado.status == 200
+        assert resultado.paso == "intencion"
+        assert resultado.motivo == "por_confirmar"
+        assert _pasos(conn, resultado.veredicto_id) == [("intencion", None, None)]
         assert len(_posts(vistos)) == 1
 
         vid = uuid.uuid4()
@@ -697,3 +767,293 @@ def test_pausa_no_cuenta_anulados_ni_fallidos_de_amazon():
                     (uuid.uuid4(), vid, paso, motivo),
                 )
         assert lectura.lee_pausas(conn)["amazon_mx"] == lectura.Pausa(False, 7, 14)
+
+
+SECRETO_R1 = "sekreto-r1-9f3a"
+MARCA_R1 = "marca-cuerpo-r1"
+
+
+def _log_tiene(caplog, texto: str) -> bool:
+    return any(texto in rec.getMessage() for rec in caplog.records)
+
+
+@_skip_db
+def test_r1_a_transporte_y_list_enabled_queda_aplicado(monkeypatch, caplog):
+    _parche(monkeypatch)
+    register_secret(SECRETO_R1)
+    with _db() as conn:
+        senal, _grupo, grupo_ext, _campana, termino, _roster = _prepara(conn)
+        transport, vistos, _store = _transporte(
+            grupo_ext,
+            termino,
+            explota=True,
+            readback="enabled",
+            detalle_post=f"{MARCA_R1} {SECRETO_R1}",
+        )
+        with caplog.at_level(logging.WARNING, logger="app.bloqueo_dueno_efecto"):
+            resultado = efecto.aprobar(conn, senal, transport=transport)
+        assert resultado.status == 200
+        assert resultado.paso == "aplicado"
+        assert resultado.motivo is None
+        assert _pasos(conn, resultado.veredicto_id) == [
+            ("intencion", None, None),
+            ("aplicado", None, "kid-rb"),
+        ]
+        assert len(_posts(vistos)) == 1
+        assert _log_tiene(caplog, MARCA_R1)
+        assert _log_tiene(caplog, str(resultado.veredicto_id))
+        assert not _log_tiene(caplog, SECRETO_R1)
+        assert _log_tiene(caplog, REDACTED)
+
+
+@_skip_db
+def test_r1_b_5xx_y_list_enabled_queda_aplicado(monkeypatch, caplog):
+    _parche(monkeypatch)
+    register_secret(SECRETO_R1)
+    with _db() as conn:
+        senal, _grupo, grupo_ext, _campana, termino, _roster = _prepara(conn)
+        transport, vistos, _store = _transporte(
+            grupo_ext,
+            termino,
+            post_status=503,
+            readback="enabled",
+            detalle_post=MARCA_R1,
+            secreto=SECRETO_R1,
+        )
+        with caplog.at_level(logging.WARNING, logger="app.bloqueo_dueno_efecto"):
+            resultado = efecto.aprobar(conn, senal, transport=transport)
+        assert resultado.status == 200
+        assert resultado.paso == "aplicado"
+        assert _pasos(conn, resultado.veredicto_id) == [
+            ("intencion", None, None),
+            ("aplicado", None, "kid-rb"),
+        ]
+        assert len(_posts(vistos)) == 1
+        assert _log_tiene(caplog, "503")
+        assert _log_tiene(caplog, MARCA_R1)
+        assert not _log_tiene(caplog, SECRETO_R1)
+        assert _log_tiene(caplog, REDACTED)
+
+
+@_skip_db
+def test_r1_c_4xx_sella_fallido_http(monkeypatch):
+    _parche(monkeypatch)
+    with _db() as conn:
+        senal, _grupo, grupo_ext, _campana, termino, _roster = _prepara(conn)
+        transport, vistos, _store = _transporte(
+            grupo_ext,
+            termino,
+            post_status=400,
+            readback="enabled",
+            detalle_post="rechazo-cliente",
+        )
+        resultado = efecto.aprobar(conn, senal, transport=transport)
+        assert resultado == efecto.Efecto(
+            200, veredicto_id=resultado.veredicto_id, paso="fallido", motivo="http_400"
+        )
+        assert _pasos(conn, resultado.veredicto_id) == [
+            ("intencion", None, None),
+            ("fallido", "http_400", None),
+        ]
+        assert len(_posts(vistos)) == 1
+
+
+@_skip_db
+def test_r1_auth_antes_del_post_sella_fallido(monkeypatch):
+    """Un rechazo de token no es un POST incierto: no se envio nada."""
+    _parche(monkeypatch)
+
+    def _nunca_enviado(self, ad_group_id, campaign_id, keyword_text):
+        raise AdsAuthError("refresh de LWA no produjo access_token")
+
+    monkeypatch.setattr(AdsWriteClient, "crear_negative_exacto", _nunca_enviado)
+    with _db() as conn:
+        senal, _grupo, grupo_ext, _campana, termino, _roster = _prepara(conn)
+        transport, vistos, _store = _transporte(grupo_ext, termino, readback="enabled")
+        resultado = efecto.aprobar(conn, senal, transport=transport)
+        assert resultado.paso == "fallido"
+        assert resultado.motivo != "por_confirmar"
+        assert _pasos(conn, resultado.veredicto_id)[-1][0] == "fallido"
+        assert _posts(vistos) == []
+
+
+@_skip_db
+def test_r1_auth_en_readback_deja_la_intencion_abierta(monkeypatch):
+    """Un 401 con el refresh caido, despues del POST, no sella fallido."""
+    _parche(monkeypatch)
+    with _db() as conn:
+        senal, _grupo, grupo_ext, _campana, termino, _roster = _prepara(conn)
+        transport, vistos, _store = _transporte(
+            grupo_ext, termino, post_status=503, readback="auth"
+        )
+        resultado = efecto.aprobar(conn, senal, transport=transport)
+        assert (resultado.status, resultado.paso, resultado.motivo) == (
+            200,
+            "intencion",
+            "por_confirmar",
+        )
+        assert _pasos(conn, resultado.veredicto_id) == [("intencion", None, None)]
+        assert len(_posts(vistos)) == 1
+
+
+@_skip_db
+def test_r1_429_agotado_sella_fallido_sin_readback(monkeypatch):
+    """429 agotado es rechazo sin procesar: fallido, aunque el LIST vea ENABLED."""
+    _parche(monkeypatch)
+    original = AdsWriteClient.__init__
+
+    def _init(self, *args, **kwargs):
+        kwargs["sleep"] = lambda _s: None
+        original(self, *args, **kwargs)
+
+    monkeypatch.setattr(AdsWriteClient, "__init__", _init)
+    with _db() as conn:
+        senal, _grupo, grupo_ext, _campana, termino, _roster = _prepara(conn)
+        transport, vistos, _store = _transporte(
+            grupo_ext,
+            termino,
+            post_status=429,
+            readback="enabled",
+            detalle_post="throttled",
+        )
+        resultado = efecto.aprobar(conn, senal, transport=transport)
+        assert resultado == efecto.Efecto(
+            200, veredicto_id=resultado.veredicto_id, paso="fallido", motivo="http_429"
+        )
+        assert _pasos(conn, resultado.veredicto_id) == [
+            ("intencion", None, None),
+            ("fallido", "http_429", None),
+        ]
+        assert len(_posts(vistos)) == 4
+
+
+@_skip_db
+def test_r1_d_5xx_sin_list_queda_intencion_y_reconcilia(monkeypatch):
+    _parche(monkeypatch)
+    with _db() as conn:
+        senal, grupo, grupo_ext, _campana, termino, _roster = _prepara(conn)
+        transport, _vistos, _store = _transporte(
+            grupo_ext, termino, post_status=500, readback="vacio", detalle_post=MARCA_R1
+        )
+        resultado = efecto.aprobar(conn, senal, transport=transport)
+        assert (resultado.status, resultado.paso, resultado.motivo) == (
+            200,
+            "intencion",
+            "por_confirmar",
+        )
+        assert _pasos(conn, resultado.veredicto_id) == [("intencion", None, None)]
+
+        transport_ok, _v, caja = _transporte(grupo_ext, termino)
+        caja.append(
+            {
+                "keywordId": "kid-luego",
+                "adGroupId": grupo_ext,
+                "keywordText": termino,
+                "matchType": "NEGATIVE_EXACT",
+                "state": "ENABLED",
+            }
+        )
+        cerrado = efecto.reconciliar(
+            conn, ad_group_id=grupo, termino_sha256=SHA, transport=transport_ok
+        )
+        assert cerrado.paso == "aplicado"
+        assert _pasos(conn, resultado.veredicto_id)[-1] == ("aplicado", None, "kid-luego")
+
+
+@_skip_db
+def test_r1_d_lista_no_ok_deja_la_intencion_abierta(monkeypatch):
+    _parche(monkeypatch)
+    with _db() as conn:
+        senal, _grupo, grupo_ext, _campana, termino, _roster = _prepara(conn)
+        transport, _vistos, _store = _transporte(
+            grupo_ext, termino, post_status=502, readback="ambiguo"
+        )
+        resultado = efecto.aprobar(conn, senal, transport=transport)
+        assert (resultado.status, resultado.paso, resultado.motivo) == (
+            200,
+            "intencion",
+            "por_confirmar",
+        )
+        assert _pasos(conn, resultado.veredicto_id) == [("intencion", None, None)]
+
+
+@_skip_db
+def test_r1_e_post_ok_sin_readback_queda_intencion(monkeypatch):
+    _parche(monkeypatch)
+    with _db() as conn:
+        senal, _grupo, grupo_ext, _campana, termino, _roster = _prepara(conn)
+        transport, vistos, _store = _transporte(grupo_ext, termino, readback="vacio")
+        resultado = efecto.aprobar(conn, senal, transport=transport)
+        assert (resultado.status, resultado.paso, resultado.motivo) == (
+            200,
+            "intencion",
+            "por_confirmar",
+        )
+        assert resultado.motivo != "readback"
+        assert _pasos(conn, resultado.veredicto_id) == [("intencion", None, None)]
+        assert len(_posts(vistos)) == 1
+
+
+@_skip_db
+def test_r1_e_post_ok_lista_ambigua_queda_intencion(monkeypatch):
+    _parche(monkeypatch)
+    with _db() as conn:
+        senal, _grupo, grupo_ext, _campana, termino, _roster = _prepara(conn)
+        transport, vistos, _store = _transporte(grupo_ext, termino, readback="ambiguo")
+        resultado = efecto.aprobar(conn, senal, transport=transport)
+        assert (resultado.status, resultado.paso, resultado.motivo) == (
+            200,
+            "intencion",
+            "por_confirmar",
+        )
+        assert _pasos(conn, resultado.veredicto_id) == [("intencion", None, None)]
+        assert len(_posts(vistos)) == 1
+
+
+@_skip_db
+def test_r2_pantalla_dice_por_confirmar_al_recargar(monkeypatch):
+    _parche(monkeypatch)
+    with _db() as conn:
+        senal, _grupo, grupo_ext, _campana, termino, _roster = _prepara(conn)
+        transport, _vistos, _store = _transporte(
+            grupo_ext, termino, post_status=503, readback="vacio"
+        )
+        resultado = efecto.aprobar(conn, senal, transport=transport)
+        assert resultado.paso == "intencion"
+        filas = [
+            f
+            for f in lectura.lee_pantalla(conn)["bloqueos"]
+            if f["veredicto_id"] == str(resultado.veredicto_id)
+        ]
+        assert [(f["paso"], f["motivo"], f["quitar"]) for f in filas] == [
+            ("intencion", "por_confirmar", False)
+        ]
+        from app import ui
+
+        html = ui.templates.env.get_template("cortes.html").render(
+            pantalla="cortes",
+            items=[],
+            bloqueos_disponibles=True,
+            bloqueos_jev=lectura.lee_pantalla(conn),
+        )
+        assert 'intencion <span class="detalle-celda">por_confirmar</span>' in html
+
+
+@_skip_db
+def test_r2_readback_sin_keyword_id_no_sella_aplicado(monkeypatch):
+    """Un ENABLED sin keywordId vuelve la pagina ambigua: la intencion sigue abierta.
+
+    Fija la razon por la que `_readback` no necesita guarda propia de keywordId.
+    """
+    _parche(monkeypatch)
+    with _db() as conn:
+        senal, _grupo, grupo_ext, _campana, termino, _roster = _prepara(conn)
+        transport, vistos, _store = _transporte(grupo_ext, termino, readback="sin_id")
+        resultado = efecto.aprobar(conn, senal, transport=transport)
+        assert (resultado.status, resultado.paso, resultado.motivo) == (
+            200,
+            "intencion",
+            "por_confirmar",
+        )
+        assert _pasos(conn, resultado.veredicto_id) == [("intencion", None, None)]
+        assert len(_posts(vistos)) == 1

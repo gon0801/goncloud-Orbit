@@ -7,26 +7,31 @@
 # Adelgazada 2026-09-23 (patron PR 362 de summonaikit-claude):
 # - `rapido` en cada PR: solo lo rapido que agarra errores (pre-commit +
 #   guardas de arquitectura/config/contexto, ~1-2 min, sin Postgres).
-# - `completa` UNA vez por bloque (orden del dueno 2026-10-18): el PR vive
-#   en draft durante implementacion y revision (solo corre `rapido`); tras
-#   el APROBADO pasa a ready, `ready_for_review` dispara `completa` sobre el
-#   SHA final y el gate exige success. Al unir a master, si el arbol del
-#   commit empujado es identico al de la cabeza del PR y esa cabeza ya paso
-#   `completa`, el veredicto se REUSA sin repetir pytest
-#   (.github/scripts/reusar_completa.sh; pineado en
+# - `completa` en 6 partes en paralelo (#481: matrix parte 1..6, ORBIT_PARTE
+#   y tests/conftest.py; pre-commit solo en la parte 1) y UNA vez por bloque
+#   (orden del dueno 2026-10-18): el PR vive en draft durante implementacion
+#   y revision (solo corre `rapido`); tras el APROBADO pasa a ready,
+#   `ready_for_review` dispara `completa` sobre el SHA final y el gate exige
+#   success. Solo si el PR toca codigo (job `cambios`, #481): un PR de solo
+#   docs no paga bateria. Al unir a master, si el arbol del commit empujado
+#   es identico al de la cabeza del PR y TODAS las partes de esa cabeza ya
+#   pasaron, el veredicto se REUSA sin repetir pytest: el paso `reuso`
+#   (.github/scripts/reusar_completa.sh) va en CADA parte de la matriz y las
+#   6 saltan (o corren) juntas (pineado en
 #   tests/test_precommit_hooks.py::test_reuso_por_arbol_solo_en_push_y_falla_cerrado_a_correr
 #   -- la bateria completa (`pytest -q` sin rutas) sigue corriendo en CI y
 #   no se acota ni se borra: test_bateria_completa_corre_en_ci lo pinea).
 # - `pesada` de noche (cron 04:00 UTC) + manual: el harness real del
 #   dashboard y el drive de superficie (lo pesado, con Postgres).
 # - `gate`: veredicto unico (acepta `skipped` de los jobs que no aplican;
-#   en PR no draft `completa` deja de ser opcional y exige success).
+#   en PR no draft que toca codigo `completa` deja de ser opcional y exige
+#   success).
 # El dispatch manual sigue existiendo para casos raros, pero ya no es el
 # camino normal: no se usa `gh workflow run` en el flujo habitual.
 # Costo real hoy: `rapido` en cada vuelta de PR (~1-2 min); `completa` UNA
-# vez al pasar a ready, sobre el SHA final (medido en #477: 15m45s, con
-# Postgres); al unir a master el veredicto se REUSA por arbol y la bateria
-# no se repite (0 corridas extra si la base no avanzo).
+# vez al pasar a ready, repartida en 6 partes (parte mas grande: 77 s,
+# medido en #481); al unir a master el veredicto se REUSA por arbol y la
+# bateria no se repite (0 corridas extra si la base no avanzo).
 
 name: Quality
 
@@ -99,17 +104,46 @@ jobs:
           pip install fastapi "psycopg[binary]" httpx pytest pglast jinja2
           PYTHONPATH=. pytest -q tests/test_architecture.py tests/test_precommit_hooks.py tests/test_chat_context_guard.py tests/test_arq_bids_*.py tests/test_arq_precio_*.py
 
-  completa:
-    # La bateria COMPLETA, una vez por bloque: entra al PR cuando deja de
-    # ser draft (tras el APROBADO) y en push/dispatch como siempre. No
-    # acotar el pytest a rutas: test_bateria_completa_corre_en_ci lo pinea
-    # y falla si se acota.
-    if: >-
-      github.event_name == 'push' ||
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'pull_request' && !github.event.pull_request.draft)
+  cambios:
+    # Un PR que toca codigo corre la bateria completa solo; uno de docs no.
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 5
+    outputs:
+      codigo: ${{ steps.mira.outputs.codigo }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: mira
+        run: |
+          git fetch -q origin "$GITHUB_BASE_REF"
+          if git diff --name-only "origin/$GITHUB_BASE_REF...HEAD" \
+              | grep -vE '^(docs/|plans/)|\.md$' | grep -q .; then
+            echo codigo=true >> "$GITHUB_OUTPUT"
+          else
+            echo codigo=false >> "$GITHUB_OUTPUT"
+          fi
+
+  completa:
+    # La bateria COMPLETA, repartida en 6 partes en paralelo (ORBIT_PARTE,
+    # tests/conftest.py): la union es la bateria entera y cada parte tarda
+    # ~1/6 (#481). UNA vez por bloque y solo si el PR toca codigo: entra
+    # cuando el PR deja de ser draft (tras el APROBADO) y `cambios` vio
+    # codigo; en push/dispatch como siempre. No acotar el pytest a rutas:
+    # test_bateria_completa_corre_en_ci lo pinea y falla si se acota.
+    needs: [cambios]
+    if: >-
+      always() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+      || (github.event_name == 'pull_request' && !github.event.pull_request.draft
+      && needs.cambios.outputs.codigo == 'true'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        parte: [1, 2, 3, 4, 5, 6]
+        total: [6]
     services:
       # Postgres 16 desechable para test_migracion_rechaza_en_vivo: sin este
       # servicio el test skipea en CI y los rechazos en vivo nunca corren
@@ -133,10 +167,13 @@ jobs:
 
       - name: Reusa el veredicto si el arbol ya paso la bateria (solo push)
         # Al unir a master: si el arbol del commit empujado es identico al de
-        # la cabeza de su PR y esa cabeza ya tiene `completa` en success, no
-        # se repiten ~15 min de pytest. Fail-closed hacia CORRER: arbol
-        # distinto, sin PR o consulta fallida => bateria completa. El script
-        # jamas falla: su salida es reusar=true o reusar=false.
+        # la cabeza de su PR y esa cabeza ya tiene TODAS las partes de
+        # `completa` en success ("completa (1, 6)" ... "completa (6, 6)"),
+        # no se repite pytest: este paso va en CADA parte de la matriz y las
+        # 6 saltan (o corren) juntas. Fail-closed hacia CORRER: arbol
+        # distinto, sin PR, una parte faltante o sin success, o consulta
+        # fallida => esa parte corre su trozo de bateria. El script jamas
+        # falla: su salida es reusar=true o reusar=false.
         id: reuso
         if: github.event_name == 'push'
         env:
@@ -165,15 +202,18 @@ jobs:
         run: npm ci
 
       - name: Run pre-commit (todos los candados locales, sobre todo el repo)
-        if: steps.reuso.outputs.reusar != 'true'
+        # Solo en la parte 1 (#481: las partes 2 a 6 solo corren pytest) y
+        # detras del reuso: si el arbol ya paso, ninguna parte repite nada.
+        if: matrix.parte == 1 && steps.reuso.outputs.reusar != 'true'
         uses: pre-commit/action@v3.0.1
 
       - name: Run Python tests
         if: steps.reuso.outputs.reusar != 'true' && hashFiles('pyproject.toml', 'requirements.txt') != ''
         env:
           ORBIT_TEST_DSN: postgresql://orbit:orbit@localhost:5432/postgres
+          ORBIT_PARTE: ${{ matrix.parte }}/${{ matrix.total }}
         run: |
-          pip install fastapi "psycopg[binary]" pytest httpx pglast jinja2
+          pip install fastapi "psycopg[binary]" pytest httpx pglast jinja2 pyyaml
           PYTHONPATH=. pytest -q
 
       - name: Run Node tests
@@ -240,32 +280,37 @@ jobs:
 
   gate:
     # Veredicto unico: exige verde en lo que CORRIO; acepta `skipped` en lo
-    # que no aplica al evento (rapido en push, completa/pesada en PR draft).
-    # EXCEPCION: en un PR que NO es draft, `completa=skipped` ya no vale --
-    # la bateria entera debio correr y pasar sobre el SHA final.
+    # que no aplica al evento (rapido en push, completa/pesada en PR draft o
+    # de solo docs).
+    # EXCEPCION: en un PR que NO es draft Y toca codigo, `completa=skipped`
+    # ya no vale -- las 6 partes debieron correr y pasar sobre el SHA final.
     runs-on: ubuntu-latest
     if: always()
-    needs: [rapido, completa, pesada]
+    needs: [rapido, cambios, completa, pesada]
     timeout-minutes: 5
     steps:
       - name: Todos los jobs aplicables en verde
         env:
           R_RAPIDO: ${{ needs.rapido.result }}
+          R_CAMBIOS: ${{ needs.cambios.result }}
           R_COMPLETA: ${{ needs.completa.result }}
           R_PESADA: ${{ needs.pesada.result }}
           EVENTO: ${{ github.event_name }}
           DRAFT: ${{ github.event.pull_request.draft }}
+          CODIGO: ${{ needs.cambios.outputs.codigo }}
         run: |
           rc=0
-          for par in "rapido=$R_RAPIDO" "completa=$R_COMPLETA" "pesada=$R_PESADA"; do
+          for par in "rapido=$R_RAPIDO" "cambios=$R_CAMBIOS" "completa=$R_COMPLETA" "pesada=$R_PESADA"; do
             printf '%s\n' "$par"
             case "$par" in *=success|*=skipped) ;; *) rc=1 ;; esac
           done
           [ "$rc" -eq 0 ] || { echo "gate: algun job aplicable NO quedo en success" >&2; exit 1; }
-          # En PR no draft la bateria completa es obligatoria: el PR pasa a
-          # ready solo tras el APROBADO y `completa` corre sobre el SHA final.
-          if [ "$EVENTO" = "pull_request" ] && [ "$DRAFT" != "true" ] && [ "$R_COMPLETA" != "success" ]; then
-            echo "gate: PR no draft exige completa=success (obtuvo $R_COMPLETA)" >&2
+          # En PR no draft que toca codigo la bateria completa es obligatoria:
+          # el PR pasa a ready solo tras el APROBADO y las 6 partes corren
+          # sobre el SHA final. Un PR de solo docs puede dejar `completa` en
+          # skipped: no aplica (no toco codigo).
+          if [ "$EVENTO" = "pull_request" ] && [ "$DRAFT" != "true" ] && [ "$CODIGO" = "true" ] && [ "$R_COMPLETA" != "success" ]; then
+            echo "gate: PR no draft con codigo exige completa=success (obtuvo $R_COMPLETA)" >&2
             exit 1
           fi
           echo "gate: OK -- todo lo aplicable en verde"

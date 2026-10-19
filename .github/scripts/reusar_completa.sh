@@ -3,11 +3,15 @@
 #
 # En push a main/master: si el ARBOL del commit empujado (`git rev-parse
 # HEAD^{tree}`) es identico al arbol de la cabeza del PR que lo produjo y
-# esa cabeza ya tiene el check run `completa` en success, el contenido ya
-# fue validado: mismo arbol = mismo contenido, asi que se reusa el veredicto
-# y el job sale success sin repetir ~15 min de pytest. La cabeza del PR se
-# consulta con la API (commits/{sha}/pulls -> head.sha), por lo que sirve
-# tanto para merge commit como para squash.
+# esa cabeza tiene TODAS las partes de la bateria en success, el contenido
+# ya fue validado: mismo arbol = mismo contenido, asi que se reusa el
+# veredicto y el job sale success sin repetir pytest. Desde #481 la bateria
+# corre repartida en 6 partes en paralelo y sus check runs se llaman
+# "completa (1, 6)" ... "completa (6, 6)" (i = parte, N = total): se exige
+# success en TODAS, de la 1 a la N sin repetir; con alguna parte faltante o
+# sin success (o nombres que ya no cuadran con la matriz) se CORRE. La
+# cabeza del PR se consulta con la API (commits/{sha}/pulls -> head.sha),
+# por lo que sirve tanto para merge commit como para squash.
 #
 # FAIL-CLOSED hacia CORRER, nunca hacia saltar: si el arbol difiere (la base
 # avanzo y no se mezclo), no hay PR asociado (push directo), o cualquier
@@ -55,14 +59,50 @@ if [ "$arbol" != "$arbol_cabeza" ]; then
   terminar "el arbol difiere de la cabeza del PR ($cabeza, arbol $arbol_cabeza)"
 fi
 
-if ! cuerpo="$(gh api "repos/$repo/commits/$cabeza/check-runs" 2>/dev/null)"; then
+if ! cuerpo="$(gh api "repos/$repo/commits/$cabeza/check-runs?per_page=100" 2>/dev/null)"; then
   terminar "la consulta de check runs fallo"
 fi
-veredicto="$(printf '%s' "$cuerpo" | jq -r '([.check_runs[]? | select(.name == "completa")][0].conclusion) // empty' 2>/dev/null)" \
-  || terminar "la respuesta de check runs no se pudo leer"
-[ "$veredicto" = "success" ] || terminar "la cabeza $cabeza no tiene completa en success (veredicto: ${veredicto:-ninguno})"
-run_url="$(printf '%s' "$cuerpo" | jq -r '([.check_runs[]? | select(.name == "completa")][0].html_url) // empty' 2>/dev/null || true)"
+
+# Veredicto por partes: "success" SOLO si los check runs de la matriz
+# ("completa (i, N)") cubren 1..N sin repetir y TODOS estan en success.
+# Cualquier otra cosa (una parte en failure o cancelled, una faltante,
+# totales mezclados, un solo `completa` viejo sin matriz, ninguna parte) cae
+# a CORRER: fail-closed, igual que el resto del script.
+veredicto="$(printf '%s' "$cuerpo" | jq -c '
+  [.check_runs[]?
+    | select(.name | startswith("completa (") and endswith(")"))
+    | .name as $nombre
+    | ($nombre | ltrimstr("completa (") | rtrimstr(")") | split(", ")) as $trozos
+    | select(($trozos | length) == 2)
+    | {
+        parte: ($trozos[0] | tonumber),
+        total: ($trozos[1] | tonumber),
+        ok: (.conclusion == "success"),
+        url: .html_url
+      }
+  ] as $partes
+  | if ($partes | length) == 0 then {v: "ninguna-parte"}
+    elif (($partes | map(.total) | unique) | length) != 1 then {v: "totales-mezclados"}
+    else
+      ($partes[0].total) as $n
+      | (($partes | map(.parte) | unique) | length) as $distintas
+      | if (($partes | map(.ok) | all) | not) then
+          {v: "alguna-sin-success", malas: [$partes[] | select(.ok == false) | .parte]}
+        elif $distintas != $n or (($partes | map(.parte) | min) != 1)
+          or (($partes | map(.parte) | max) != $n) then
+          {v: "partes-faltantes", presente: [$partes[].parte]}
+        else
+          {v: "success", urls: [$partes[].url]}
+        end
+    end
+' 2>/dev/null)" || terminar "la respuesta de check runs no se pudo leer"
+
+caso="$(printf '%s' "$veredicto" | jq -r '.v // empty' 2>/dev/null)" \
+  || terminar "el veredicto de las partes no se pudo leer"
+[ "$caso" = "success" ] || terminar "la cabeza $cabeza no tiene TODAS las partes de completa en success (veredicto: ${veredicto:-vacio})"
 
 reusar=true
-echo "reuso: ARBOL IDENTICO ya validado -- se reusa el veredicto; cabeza del PR: $cabeza"
-echo "reuso: check run reusado: ${run_url:-<sin url>}"
+echo "reuso: ARBOL IDENTICO ya validado (todas las partes de completa en success) -- se reusa el veredicto; cabeza del PR: $cabeza"
+printf '%s' "$veredicto" | jq -r '.urls[]?' 2>/dev/null | while read -r url; do
+  [ -n "$url" ] && echo "reuso: parte reusada: $url"
+done
