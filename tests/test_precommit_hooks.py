@@ -7,8 +7,12 @@ no del codigo -- y la salida facil es `--no-verify`, que este repo prohibe.
 
 from __future__ import annotations
 
+import json
+import os
 import re
 import shlex
+import subprocess
+import textwrap
 from pathlib import Path
 
 import yaml
@@ -244,3 +248,198 @@ def test_check_push_creds_con_credencial_pasa(monkeypatch):
 
     monkeypatch.setattr(sp, "run", con_cred)
     assert main() == 0
+
+
+def test_completa_corre_en_pr_ready_y_no_en_draft():
+    """`completa` entra al PR solo cuando deja de ser draft (una vez por bloque).
+
+    Flujo del dueno (orden 2026-10-18): PR en draft durante la implementacion
+    y la revision (solo corre `rapido`); tras el APROBADO el PR pasa a ready
+    y `completa` corre UNA vez sobre el SHA final. Sin estos tipos el job
+    ignoraba los PR y cada plan lanzaba la bateria a mano con
+    `gh workflow run` (3+ corridas de ~15 min por bloque).
+    """
+    workflow = yaml.safe_load((RAIZ / ".github" / "workflows" / "quality.yml").read_text("utf-8"))
+    disparador = workflow.get(True, workflow.get("on"))  # PyYAML parsea `on` como True
+    assert isinstance(disparador, dict), "el workflow debe declarar sus disparadores"
+    tipos = set(disparador["pull_request"]["types"])
+    assert tipos == {"opened", "synchronize", "reopened", "ready_for_review"}, (
+        "pull_request debe dispararse tambien en ready_for_review: es el paso "
+        f"donde `completa` corre una sola vez (tipos hallados: {sorted(tipos)})"
+    )
+    condicion = str(workflow["jobs"]["completa"]["if"])
+    assert "github.event_name == 'pull_request'" in condicion, (
+        f"completa debe atender pull_request (condicion: {condicion!r})"
+    )
+    assert "!github.event.pull_request.draft" in condicion, (
+        f"completa debe exigir PR NO draft; en draft solo corre `rapido` (condicion: {condicion!r})"
+    )
+
+
+def test_gate_exige_completa_success_en_pr_no_draft():
+    """El gate cierra el ciclo: en PR no draft, `completa=skipped` ya no vale.
+
+    Antes el gate aceptaba `skipped` de `completa` en cualquier PR y uno
+    listo podia unirse sin bateria. Ahora: draft -> `completa` skipped sigue
+    siendo valido (no aplica); ready -> la bateria corrio y paso sobre el
+    SHA final o el gate falla. En push y dispatch el veredicto no cambia.
+    """
+    workflow = yaml.safe_load((RAIZ / ".github" / "workflows" / "quality.yml").read_text("utf-8"))
+    gate = workflow["jobs"]["gate"]
+    assert gate["if"] == "always()", "el gate corre siempre para dar veredicto unico"
+    paso = gate["steps"][0]
+    env = paso.get("env", {})
+    assert "github.event_name" in env.get("EVENTO", ""), "el gate necesita saber el evento"
+    assert "pull_request.draft" in env.get("DRAFT", ""), "el gate necesita saber si el PR es draft"
+    script = str(paso["run"])
+    inicio = script.find('if [ "$EVENTO" = "pull_request" ]')
+    assert inicio != -1, "el gate debe tener la exigencia extra de `completa` solo para PRs"
+    fin = script.find("\nfi", inicio)
+    assert fin != -1, "la exigencia extra debe ser un if acotado"
+    bloque = script[inicio:fin]
+    assert '"$DRAFT" != "true"' in bloque, "la exigencia aplica a PR que NO es draft"
+    assert '"$R_COMPLETA" != "success"' in bloque, "el gate exige completa=success en PR no draft"
+    assert "exit 1" in bloque, "sin completa=success el gate falla con exit 1"
+
+
+def test_reuso_por_arbol_solo_en_push_y_falla_cerrado_a_correr():
+    """Push a master no repite la bateria si el MISMO arbol ya paso en el PR.
+
+    El reuso compara `git rev-parse HEAD^{tree}` contra el arbol de la
+    cabeza del PR asociado (API commits/{sha}/pulls -> head.sha): sirve para
+    merge commit y para squash, porque ambos producen un arbol identico al
+    de la cabeza. Fail-closed hacia CORRER, nunca hacia saltar: arbol
+    distinto (la base avanzo y no se mezclo), sin PR o consulta fallida =>
+    se corre la bateria completa.
+    """
+    workflow = yaml.safe_load((RAIZ / ".github" / "workflows" / "quality.yml").read_text("utf-8"))
+    completa = workflow["jobs"]["completa"]
+    reuso = next((p for p in completa["steps"] if p.get("id") == "reuso"), None)
+    assert reuso is not None, "completa debe tener el paso de reuso por arbol (id: reuso)"
+    assert reuso["if"] == "github.event_name == 'push'", (
+        f"el reuso SOLO aplica en push a main/master (if: {reuso.get('if')!r})"
+    )
+    assert "github.token" in str(reuso.get("env", {}).get("GH_TOKEN", "")), (
+        "el reuso usa el token del propio workflow, sin tokens nuevos"
+    )
+    pytest_paso = next(p for p in completa["steps"] if "pytest -q" in str(p.get("run", "")))
+    assert "steps.reuso.outputs.reusar != 'true'" in str(pytest_paso.get("if", "")), (
+        "el pytest de la bateria debe quedar detras del veredicto del reuso"
+    )
+    script_path = RAIZ / ".github" / "scripts" / "reusar_completa.sh"
+    texto = script_path.read_text(encoding="utf-8")
+    assert "reusar=false" in texto, (
+        "el default del reuso es NO reusar: sin veredicto confirmado se corre la bateria"
+    )
+    assert "se corre la bateria completa" in texto, (
+        "el texto del fallback (correr, no saltar) debe estar fijado en el script"
+    )
+
+
+def test_script_reuso_con_doble_de_gh(tmp_path):
+    """Triple del reuso con un doble de `gh` (sin red): reusa o cae a correr.
+
+    - arbol identico + `completa` en success en la cabeza del PR -> reusar=true
+    - arbol distinto (la base avanzo y no se mezclo) -> reusar=false (corre)
+    - gh falla (red, rate limit, sin gh) -> reusar=false (corre)
+    El script jamas termina en error: su unica salida es reusar=true (salta
+    la bateria) o reusar=false (la corre completa).
+    """
+    doble = tmp_path / "doble"
+    doble.mkdir()
+    (doble / "gh").write_text(
+        textwrap.dedent(
+            """\
+            #!/usr/bin/env python3
+            import json
+            import os
+            import sys
+
+            args = sys.argv[1:]
+            assert args[0] == "api", args
+            url = args[1]
+            escena = json.loads(os.environ["ESCENA"])
+            if url.endswith("/pulls"):
+                clave = "pulls"
+            elif url.endswith("/check-runs"):
+                clave = "check-runs"
+            else:
+                clave = "arbol"
+            accion = escena[clave]
+            if accion == "FALLO":
+                sys.exit(1)
+            sys.stdout.write(accion)
+            """
+        )
+    )
+    (doble / "gh").chmod(0o755)
+
+    def git(*args: str) -> str:
+        res = subprocess.run(["git", "-C", str(tmp_path), *args], check=True, capture_output=True)
+        return res.stdout.decode().strip()
+
+    subprocess.run(["git", "init", "-q", "-b", "master", str(tmp_path)], check=True)
+    (tmp_path / "archivo.txt").write_text("contenido\n")
+    git("add", ".")
+    git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "uno")
+    sha = git("rev-parse", "HEAD")
+    arbol = git("rev-parse", "HEAD^{tree}")
+    cabeza_json = json.dumps({"commit": {"tree": {"sha": arbol}}})
+    check_success = json.dumps(
+        {
+            "check_runs": [
+                {"name": "completa", "conclusion": "success", "html_url": "https://ci/run/1"}
+            ]
+        }
+    )
+
+    def correr(escena: dict) -> tuple[subprocess.CompletedProcess, str]:
+        salida = tmp_path / f"salida-{len(list(tmp_path.glob('salida-*')))}.txt"
+        env = os.environ | {
+            "PATH": f"{doble}:{os.environ['PATH']}",
+            "ESCENA": json.dumps(escena),
+            "GITHUB_OUTPUT": str(salida),
+            "GH_REPO": "dueno/orbit",
+        }
+        proc = subprocess.run(
+            ["bash", str(RAIZ / ".github" / "scripts" / "reusar_completa.sh")],
+            capture_output=True,
+            cwd=str(tmp_path),
+            env=env,
+            text=True,
+            timeout=60,
+        )
+        return proc, salida.read_text()
+
+    # 1) Arbol identico + `completa` en success en la cabeza -> REUSA.
+    proc, salida = correr(
+        {
+            "pulls": json.dumps([{"number": 7, "head": {"sha": sha}}]),
+            "arbol": cabeza_json,
+            "check-runs": check_success,
+        }
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "reusar=true" in salida, f"mismo arbol ya validado debe reusarse: {proc.stderr}"
+    assert sha in proc.stdout, "debe imprimir la cabeza reusada"
+
+    # 2) Arbol distinto (la base avanzo) -> CORRE la bateria completa.
+    proc, salida = correr(
+        {
+            "pulls": json.dumps([{"number": 7, "head": {"sha": sha}}]),
+            "arbol": json.dumps({"commit": {"tree": {"sha": "0" * 40}}}),
+            "check-runs": check_success,
+        }
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "reusar=false" in salida, f"arbol distinto nunca se reusa: {proc.stderr}"
+
+    # 3) gh falla (consulta rota) -> CORRE: fail-closed hacia correr.
+    proc, salida = correr({"pulls": "FALLO", "arbol": "FALLO", "check-runs": "FALLO"})
+    assert proc.returncode == 0, proc.stderr
+    assert "reusar=false" in salida, f"consulta fallida cae a correr, jamas a saltar: {proc.stderr}"
+
+    # 4) Sin PR asociado (push directo a master) -> CORRE.
+    proc, salida = correr({"pulls": "[]", "arbol": cabeza_json, "check-runs": check_success})
+    assert proc.returncode == 0, proc.stderr
+    assert "reusar=false" in salida, f"sin PR no hay veredicto que reusar: {proc.stderr}"
