@@ -77,12 +77,43 @@ jobs:
           pip install fastapi "psycopg[binary]" httpx pytest pglast jinja2
           PYTHONPATH=. pytest -q tests/test_architecture.py tests/test_precommit_hooks.py tests/test_chat_context_guard.py tests/test_arq_bids_*.py tests/test_arq_precio_*.py
 
-  completa:
-    # Al unir a main: la bateria COMPLETA. No acotar el pytest a rutas:
-    # test_bateria_completa_corre_en_ci lo pinea y falla si se acota.
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+  cambios:
+    # Un PR que toca codigo corre la bateria completa solo; uno de docs no.
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 5
+    outputs:
+      codigo: ${{ steps.mira.outputs.codigo }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: mira
+        run: |
+          git fetch -q origin "$GITHUB_BASE_REF"
+          if git diff --name-only "origin/$GITHUB_BASE_REF...HEAD" \
+              | grep -vE '^(docs/|plans/)|\.md$' | grep -q .; then
+            echo codigo=true >> "$GITHUB_OUTPUT"
+          else
+            echo codigo=false >> "$GITHUB_OUTPUT"
+          fi
+
+  completa:
+    # La bateria COMPLETA, repartida en 6 partes en paralelo (ORBIT_PARTE,
+    # tests/conftest.py): la union es la bateria entera y cada parte tarda
+    # ~1/6. Corre al unir a main, a mano, y en cada PR que toca codigo.
+    # No acotar el pytest a rutas: test_bateria_completa_corre_en_ci lo pinea.
+    needs: [cambios]
+    if: >-
+      always() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+      || (github.event_name == 'pull_request' && needs.cambios.outputs.codigo == 'true'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        parte: [1, 2, 3, 4, 5, 6]
+        total: [6]
     services:
       # Postgres 16 desechable para test_migracion_rechaza_en_vivo: sin este
       # servicio el test skipea en CI y los rechazos en vivo nunca corren
@@ -126,14 +157,16 @@ jobs:
         run: npm ci
 
       - name: Run pre-commit (todos los candados locales, sobre todo el repo)
+        if: matrix.parte == 1
         uses: pre-commit/action@v3.0.1
 
       - name: Run Python tests
         if: hashFiles('pyproject.toml', 'requirements.txt') != ''
         env:
           ORBIT_TEST_DSN: postgresql://orbit:orbit@localhost:5432/postgres
+          ORBIT_PARTE: ${{ matrix.parte }}/${{ matrix.total }}
         run: |
-          pip install fastapi "psycopg[binary]" pytest httpx pglast jinja2
+          pip install fastapi "psycopg[binary]" pytest httpx pglast jinja2 pyyaml
           PYTHONPATH=. pytest -q
 
       - name: Run Node tests
@@ -203,17 +236,18 @@ jobs:
     # que no aplica al evento (rapido en push, completa/pesada en PR).
     runs-on: ubuntu-latest
     if: always()
-    needs: [rapido, completa, pesada]
+    needs: [rapido, cambios, completa, pesada]
     timeout-minutes: 5
     steps:
       - name: Todos los jobs aplicables en verde
         env:
           R_RAPIDO: ${{ needs.rapido.result }}
+          R_CAMBIOS: ${{ needs.cambios.result }}
           R_COMPLETA: ${{ needs.completa.result }}
           R_PESADA: ${{ needs.pesada.result }}
         run: |
           rc=0
-          for par in "rapido=$R_RAPIDO" "completa=$R_COMPLETA" "pesada=$R_PESADA"; do
+          for par in "rapido=$R_RAPIDO" "cambios=$R_CAMBIOS" "completa=$R_COMPLETA" "pesada=$R_PESADA"; do
             printf '%s\n' "$par"
             case "$par" in *=success|*=skipped) ;; *) rc=1 ;; esac
           done

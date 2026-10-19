@@ -36,3 +36,25 @@ def _registro_de_secretos_aislado():
     yield
     with redaction._lock:
         redaction._secrets[:] = antes
+
+
+def parte_de(nodeid: str, total: int) -> int:
+    """Parte 1..total de una prueba. Cada prueba cae en una sola parte."""
+    import zlib
+
+    return zlib.crc32(nodeid.encode("utf-8")) % total + 1
+
+
+def pytest_collection_modifyitems(config, items):
+    # ORBIT_PARTE=i/N reparte la bateria entre N jobs de CI en paralelo: la
+    # union de las N partes es la bateria entera (tests/test_partes.py).
+    valor = __import__("os").environ.get("ORBIT_PARTE", "")
+    if not valor:
+        return
+    i, n = (int(x) for x in valor.split("/"))
+    if not 1 <= i <= n:
+        raise pytest.UsageError(f"ORBIT_PARTE fuera de rango: {valor}")
+    fuera = [item for item in items if parte_de(item.nodeid, n) != i]
+    if fuera:
+        config.hook.pytest_deselected(items=fuera)
+        items[:] = [item for item in items if parte_de(item.nodeid, n) == i]
