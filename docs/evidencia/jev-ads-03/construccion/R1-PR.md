@@ -4,11 +4,11 @@ PR 476, ready, contra `master`. https://github.com/gon0801/goncloud-Orbit/pull/4
 
 Mergeable CLEAN. No es draft. Este archivo es el ultimo commit del encargo. El SHA final es el de `git rev-parse HEAD` al leer el commit que lo introduce. No se mergeo.
 
-El codigo que cubre `completa` es `ab5221890035e88675133421a34b8828541423e2`. Este commit solo mueve evidencia y dos frases de spec. `rapido` y `gate` de este SHA los dispara el push de este archivo.
+El codigo que cubre `completa` es `ab5221890035e88675133421a34b8828541423e2`. Este commit solo mueve evidencia y dos frases de spec. `rapido` y `gate` de este SHA los dispara el run del PR al subir este archivo.
 
 ## Que cambia para el dueno
 
-Si el POST del negative ya salio y el LIST de confirmacion pierde el token (401 y el refresh de LWA cae), la fila ya no dice fallido. Queda en `intencion`, con `por_confirmar` en la respuesta de ese clic. Quien recarga ve el paso `intencion` y el motivo vacio de esa fila. La reconciliacion de siempre la cierra despues.
+Si el POST del negative ya salio y el LIST de confirmacion pierde el token (401 y el refresh de LWA cae), la fila ya no dice fallido. Queda en `intencion`, con `por_confirmar` en la respuesta de ese clic. Quien recarga ve el paso `intencion`; desde R.2 (#480) la fila tambien dice `por_confirmar`. La reconciliacion de siempre la cierra despues.
 
 ## Commits
 
@@ -33,7 +33,7 @@ Verde, el mismo archivo, despues del arreglo. Ultima linea: `28 passed in 3.53s`
 
 `completa` sobre `ab5221890035e88675133421a34b8828541423e2`, run 39194966019, conclusion success. Ultima linea de Python: `5393 passed, 1 warning in 903.00s (0:15:03)`. El paso de pre-commit de ese job paso. `pesada` en el mismo run: `20 passed in 0.90s`.
 
-`rapido` y `gate` en ese mismo SHA y run: success. El push de `ab522189` (run 39194944420) tambien cerro success. Ahi `completa` y `pesada` salen skipped a proposito. El `completa` que cuenta es el dispatch.
+`rapido` y `gate` en ese mismo SHA y run: success. El run del PR sobre `ab522189` (run 39194944420) tambien cerro success. Ahi `completa` y `pesada` salen skipped a proposito. El `completa` que cuenta es el dispatch.
 
 La corrida anterior, 39193351005, tambien cerro success, pero sobre `8bfcc5058a776710bdd33de8a06827cdf9d14c60`, antes del arreglo del readback.
 
@@ -76,5 +76,5 @@ CodeRabbit: los 9 hilos del review sobre `6ff49c66` estan resueltos. En `ab52218
 ## Pendiente
 
 - Merge: lo hace el operador. Este encargo no mergea.
-- `rapido` y `gate` de este commit de evidencia quedan en el push. `completa` no se relanza: el unico cambio respecto de `ab522189` es evidencia y dos frases. `completa` verde es el de `ab5221890035e88675133421a34b8828541423e2`.
+- `rapido` y `gate` de este commit de evidencia quedan en el run del PR. `completa` no se relanza: el unico cambio respecto de `ab522189` es evidencia y dos frases. `completa` verde es el de `ab5221890035e88675133421a34b8828541423e2`.
 - La fila R.1 del plan sigue en `cc:TODO`. El cuerpo de la PR lo deja asi a proposito.

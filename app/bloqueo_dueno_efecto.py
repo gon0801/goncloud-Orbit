@@ -235,11 +235,7 @@ def _ejecuta(conn, senal: _Senal, vid: UUID, transport) -> Efecto:
 def _readback(conn, cliente, senal: _Senal, vid: UUID, grupo_ext: str) -> Efecto:
     items, estado = _lista_o(cliente, grupo_ext)
     item = _identidad(items, grupo_ext, senal.termino) if estado == "ok" else None
-    if (
-        item is not None
-        and str(item.get("state", "")).upper() == "ENABLED"
-        and item.get("keywordId")
-    ):
+    if item is not None and str(item.get("state", "")).upper() == "ENABLED":
         _sella(conn, vid, "aplicado", negative_keyword_id=str(item["keywordId"]))
         return Efecto(200, veredicto_id=vid, paso="aplicado")
     return Efecto(200, veredicto_id=vid, paso="intencion", motivo="por_confirmar")
