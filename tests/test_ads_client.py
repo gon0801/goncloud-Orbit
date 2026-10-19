@@ -40,6 +40,7 @@ from app.ads.client import (
     BID_RECOMMENDATION_VENDOR,
     LIST_REQUEST_TYPES,
     MAX_REDIRECTS,
+    MAX_RETRIES,
     AdsApiError,
     AdsAuthError,
     AdsClient,
@@ -48,7 +49,7 @@ from app.ads.client import (
 )
 from app.ads.config import AdsConfigError, AdsCredentials
 from app.db import OrbitDbError, connect
-from app.redaction import redact_dsn
+from app.redaction import REDACTED, redact_dsn, register_secret
 
 FAKE_CLIENT_ID = "fake-client-id-123"
 FAKE_CLIENT_SECRET = "fake-client-secret-XYZ"
@@ -876,6 +877,51 @@ def test_create_report_5xx_no_reintenta():
 
     assert len(api_calls) == 1
     assert sleeps == []
+
+
+def test_create_report_5xx_guarda_cuerpo_redactado():
+    """Un 5xx de POST no idempotente deja el cuerpo en la excepcion, ya scrub."""
+    secreto = "sekreto-cuerpo-5xx"
+    register_secret(secreto)
+    api_calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return _token_response()
+        api_calls.append(request)
+        return httpx.Response(503, text=f"eco {secreto} marca-5xx")
+
+    client = make_client(handler, sleep=lambda _s: None)
+    with pytest.raises(AdsApiError) as excinfo:
+        client.create_report({"reportTypeId": "spCampaigns"}, profile_id=1)
+
+    assert len(api_calls) == 1
+    assert excinfo.value.status == 503
+    assert "marca-5xx" in (excinfo.value.cuerpo or "")
+    assert secreto not in (excinfo.value.cuerpo or "")
+    assert REDACTED in (excinfo.value.cuerpo or "")
+
+
+def test_create_report_429_agotado_lleva_status_y_no_es_incierto():
+    """429 agotado es rechazo sin procesar: la excepcion trae status 429."""
+    secreto = "sekreto-429"
+    register_secret(secreto)
+    api_calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return _token_response()
+        api_calls.append(request)
+        return httpx.Response(429, text=f"throttled {secreto}")
+
+    client = make_client(handler, sleep=lambda _s: None)
+    with pytest.raises(AdsApiError) as excinfo:
+        client.create_report({"reportTypeId": "spCampaigns"}, profile_id=1)
+
+    assert len(api_calls) == MAX_RETRIES
+    assert excinfo.value.status == 429
+    assert secreto not in (excinfo.value.cuerpo or "")
+    assert REDACTED in (excinfo.value.cuerpo or "")
 
 
 def test_create_report_429_si_reintenta():
