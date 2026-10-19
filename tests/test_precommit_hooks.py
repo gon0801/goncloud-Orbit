@@ -7,10 +7,16 @@ no del codigo -- y la salida facil es `--no-verify`, que este repo prohibe.
 
 from __future__ import annotations
 
+import json
+import os
 import re
 import shlex
+import shutil
+import subprocess
+import textwrap
 from pathlib import Path
 
+import pytest
 import yaml
 
 RAIZ = Path(__file__).resolve().parents[1]
@@ -244,3 +250,383 @@ def test_check_push_creds_con_credencial_pasa(monkeypatch):
 
     monkeypatch.setattr(sp, "run", con_cred)
     assert main() == 0
+
+
+def test_completa_corre_en_pr_ready_con_codigo_y_no_en_draft():
+    """`completa` entra al PR solo cuando deja de ser draft Y toca codigo.
+
+    Dos reglas combinadas. La del dueno (orden 2026-10-18, una vez por
+    bloque): PR en draft durante la implementacion y la revision (solo corre
+    `rapido`); tras el APROBADO el PR pasa a ready y `completa` corre UNA vez
+    sobre el SHA final. La de #481: un PR de solo docs no paga bateria --
+    el job `cambios` mira si el diff toca algo fuera de docs/, plans/ y *.md
+    y solo entonces `completa` entra. Sin estas piezas el job ignoraba los
+    PR o cada plan lanzaba la bateria a mano con `gh workflow run`.
+    """
+    workflow = yaml.safe_load((RAIZ / ".github" / "workflows" / "quality.yml").read_text("utf-8"))
+    disparador = workflow.get(True, workflow.get("on"))  # PyYAML parsea `on` como True
+    assert isinstance(disparador, dict), "el workflow debe declarar sus disparadores"
+    tipos = set(disparador["pull_request"]["types"])
+    assert tipos == {"opened", "synchronize", "reopened", "ready_for_review"}, (
+        "pull_request debe dispararse tambien en ready_for_review: es el paso "
+        f"donde `completa` corre una sola vez (tipos hallados: {sorted(tipos)})"
+    )
+    cambios = workflow["jobs"]["cambios"]
+    assert cambios["if"] == "github.event_name == 'pull_request'", (
+        "el job `cambios` existe para que un PR de solo docs no corra la bateria"
+    )
+    assert "cambios" in workflow["jobs"]["completa"]["needs"], (
+        "completa debe esperar el veredicto de `cambios` (toca codigo o no)"
+    )
+    condicion = str(workflow["jobs"]["completa"]["if"])
+    assert "github.event_name == 'pull_request'" in condicion, (
+        f"completa debe atender pull_request (condicion: {condicion!r})"
+    )
+    assert "!github.event.pull_request.draft" in condicion, (
+        f"completa debe exigir PR NO draft; en draft solo corre `rapido` (condicion: {condicion!r})"
+    )
+    assert "needs.cambios.outputs.codigo == 'true'" in condicion, (
+        f"completa debe exigir que el PR toque codigo (condicion: {condicion!r})"
+    )
+
+
+def test_gate_exige_completa_success_en_pr_no_draft_con_codigo():
+    """El gate cierra el ciclo: en PR no draft que TOCA codigo, `completa=skipped` no vale.
+
+    Antes el gate aceptaba `skipped` de `completa` en cualquier PR y uno
+    listo podia unirse sin bateria. Ahora: draft -> `completa` skipped sigue
+    siendo valido (no aplica); docs-only -> tambien skipped vale (#481, el
+    job `cambios` dijo que no toca codigo); ready con codigo -> las 6 partes
+    corrieron y pasaron sobre el SHA final o el gate falla. En push y
+    dispatch el veredicto no cambia (alli `CODIGO` no existe y la exigencia
+    extra no aplica).
+    """
+    workflow = yaml.safe_load((RAIZ / ".github" / "workflows" / "quality.yml").read_text("utf-8"))
+    gate = workflow["jobs"]["gate"]
+    assert gate["if"] == "always()", "el gate corre siempre para dar veredicto unico"
+    paso = gate["steps"][0]
+    env = paso.get("env", {})
+    assert "github.event_name" in env.get("EVENTO", ""), "el gate necesita saber el evento"
+    assert "pull_request.draft" in env.get("DRAFT", ""), "el gate necesita saber si el PR es draft"
+    assert "needs.cambios.outputs.codigo" in env.get("CODIGO", ""), (
+        "el gate necesita saber si el PR toca codigo: un PR de solo docs "
+        "puede dejar `completa` en skipped"
+    )
+    script = str(paso["run"])
+    inicio = script.find('if [ "$EVENTO" = "pull_request" ]')
+    assert inicio != -1, "el gate debe tener la exigencia extra de `completa` solo para PRs"
+    fin = script.find("\nfi", inicio)
+    assert fin != -1, "la exigencia extra debe ser un if acotado"
+    bloque = script[inicio:fin]
+    assert '"$DRAFT" != "true"' in bloque, "la exigencia aplica a PR que NO es draft"
+    assert '"$CODIGO" = "true"' in bloque, (
+        "la exigencia aplica solo si el PR toca codigo (veredicto de `cambios`)"
+    )
+    assert '"$R_COMPLETA" != "success"' in bloque, "el gate exige completa=success en PR no draft"
+    assert "exit 1" in bloque, "sin completa=success el gate falla con exit 1"
+
+
+def test_reuso_por_arbol_solo_en_push_y_falla_cerrado_a_correr():
+    """Push a master no repite la bateria si el MISMO arbol ya paso en el PR.
+
+    El reuso compara `git rev-parse HEAD^{tree}` contra el arbol de la
+    cabeza del PR asociado (API commits/{sha}/pulls -> head.sha): sirve para
+    merge commit y para squash, porque ambos producen un arbol identico al
+    de la cabeza. Desde #481 `completa` es una matriz de 6 partes, asi que
+    el paso de reuso vive en el JOB (va en CADA parte de la matriz: las 6
+    saltan juntas si el arbol ya paso) y el script exige success en TODAS
+    las partes de la cabeza ("completa (1, 6)" ... "completa (6, 6)").
+    Fail-closed hacia CORRER, nunca hacia saltar: arbol distinto (la base
+    avanzo y no se mezclo), sin PR, una parte faltante o consulta fallida =>
+    se corre la bateria completa.
+    """
+    workflow = yaml.safe_load((RAIZ / ".github" / "workflows" / "quality.yml").read_text("utf-8"))
+    completa = workflow["jobs"]["completa"]
+    matrix = completa["strategy"]["matrix"]
+    total = matrix["total"][0]
+    assert matrix["parte"] == list(range(1, total + 1)), (
+        "la matriz de partes debe ir de 1 a N: el reuso exige success en todas"
+    )
+    reuso = next((p for p in completa["steps"] if p.get("id") == "reuso"), None)
+    assert reuso is not None, "completa debe tener el paso de reuso por arbol (id: reuso)"
+    assert reuso["if"] == "github.event_name == 'push'", (
+        f"el reuso SOLO aplica en push a main/master (if: {reuso.get('if')!r})"
+    )
+    assert "matrix" not in str(reuso.get("if", "")), (
+        "el reuso es paso del job, no de una parte: debe correr en CADA parte de la matriz"
+    )
+    assert "github.token" in str(reuso.get("env", {}).get("GH_TOKEN", "")), (
+        "el reuso usa el token del propio workflow, sin tokens nuevos"
+    )
+    pytest_paso = next(p for p in completa["steps"] if "pytest -q" in str(p.get("run", "")))
+    assert "steps.reuso.outputs.reusar != 'true'" in str(pytest_paso.get("if", "")), (
+        "el pytest de la bateria debe quedar detras del veredicto del reuso"
+    )
+    script_path = RAIZ / ".github" / "scripts" / "reusar_completa.sh"
+    texto = script_path.read_text(encoding="utf-8")
+    assert "reusar=false" in texto, (
+        "el default del reuso es NO reusar: sin veredicto confirmado se corre la bateria"
+    )
+    assert "se corre la bateria completa" in texto, (
+        "el texto del fallback (correr, no saltar) debe estar fijado en el script"
+    )
+    assert 'startswith("completa (")' in texto, (
+        "el script debe buscar las partes de la matriz ('completa (i, N)'), "
+        "no un unico check run 'completa'"
+    )
+    assert "TODAS" in texto, (
+        "el script debe exigir success en TODAS las partes de la cabeza, no en una sola"
+    )
+
+
+def _env_sin_git() -> dict[str, str]:
+    """Entorno del proceso SIN variables GIT_*.
+
+    El hook pre-push corre pytest con GIT_DIR, GIT_INDEX_FILE, etc. puestos
+    por git; heredadas en un subprocess, `git init/add/commit` pegarian
+    contra el repo apuntado por el entorno y no contra el repo temporal
+    (incidente 2026-10-18: goncloud-Orbit reinicializado, core.bare=true).
+    """
+    return {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+
+
+def _escenario_reuso(raiz: Path) -> str:
+    """Monta el triple del reuso en `raiz` (repo tmp + doble de gh sin red).
+
+    Devuelve el sha del commit del repo temporal. Los subprocess de git
+    corren con un entorno SIN variables GIT_*: dentro del hook pre-push git
+    exporta GIT_DIR/GIT_INDEX_FILE/etc. y, heredadas, `git init/add/commit`
+    del repo temporal pegan contra el repo REAL (incidente 2026-10-18: el
+    `git init` reinicializo goncloud-Orbit/.git y le puso core.bare=true).
+    """
+    raiz.mkdir(parents=True, exist_ok=True)
+    doble = raiz / "doble"
+    doble.mkdir()
+    (doble / "gh").write_text(
+        textwrap.dedent(
+            """\
+            #!/usr/bin/env python3
+            import json
+            import os
+            import sys
+
+            args = sys.argv[1:]
+            assert args[0] == "api", args
+            url = args[1]
+            escena = json.loads(os.environ["ESCENA"])
+            if url.endswith("/pulls"):
+                clave = "pulls"
+            elif "/check-runs" in url:
+                # El script pagina a 100 (?per_page=100): la cola manda.
+                clave = "check-runs"
+            else:
+                clave = "arbol"
+            accion = escena[clave]
+            if accion == "FALLO":
+                sys.exit(1)
+            sys.stdout.write(accion)
+            """
+        )
+    )
+    (doble / "gh").chmod(0o755)
+
+    def git(*args: str) -> str:
+        res = subprocess.run(
+            ["git", "-C", str(raiz), *args], check=True, capture_output=True, env=_env_sin_git()
+        )
+        return res.stdout.decode().strip()
+
+    subprocess.run(["git", "init", "-q", "-b", "master", str(raiz)], check=True, env=_env_sin_git())
+    (raiz / "archivo.txt").write_text("contenido\n")
+    git("add", ".")
+    git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "uno")
+    sha = git("rev-parse", "HEAD")
+    arbol = git("rev-parse", "HEAD^{tree}")
+    cabeza_json = json.dumps({"commit": {"tree": {"sha": arbol}}})
+
+    def check_runs_json(partes: dict[int, str], total: int = 6) -> str:
+        """Check runs de la matriz con el nombre que GitHub les da (#481)."""
+        return json.dumps(
+            {
+                "check_runs": [
+                    {
+                        "name": f"completa ({i}, {total})",
+                        "conclusion": conclusion,
+                        "html_url": f"https://ci/run/{i}",
+                    }
+                    for i, conclusion in sorted(partes.items())
+                ]
+            }
+        )
+
+    las_seis = {i: "success" for i in range(1, 7)}
+
+    def correr(escena: dict) -> tuple[subprocess.CompletedProcess, str]:
+        salida = raiz / f"salida-{len(list(raiz.glob('salida-*')))}.txt"
+        env = _env_sin_git() | {
+            "PATH": f"{doble}{os.pathsep}{os.environ['PATH']}",
+            "ESCENA": json.dumps(escena),
+            "GITHUB_OUTPUT": str(salida),
+            "GH_REPO": "dueno/orbit",
+        }
+        proc = subprocess.run(
+            ["bash", str(RAIZ / ".github" / "scripts" / "reusar_completa.sh")],
+            capture_output=True,
+            cwd=str(raiz),
+            env=env,
+            text=True,
+            timeout=60,
+        )
+        return proc, salida.read_text()
+
+    # 1) Arbol identico + las SEIS partes en success en la cabeza -> REUSA.
+    proc, salida = correr(
+        {
+            "pulls": json.dumps([{"number": 7, "head": {"sha": sha}}]),
+            "arbol": cabeza_json,
+            "check-runs": check_runs_json(las_seis),
+        }
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "reusar=true" in salida, f"mismo arbol ya validado debe reusarse: {proc.stderr}"
+    assert sha in proc.stdout, "debe imprimir la cabeza reusada"
+    assert "https://ci/run/6" in proc.stdout, "debe imprimir las partes reusadas"
+
+    # 1b/1c/1d/1e) Mismo arbol ya validado pero la cabeza NO tiene las seis
+    # partes en success: una parte en failure, una en cancelled, una
+    # FALTANTE (solo 5 corridas) o el nombre viejo sin matriz: JAMAS se
+    # reusa -- solo el success de TODAS las partes del MISMO arbol autoriza
+    # (una parte faltante puede estar todavia corriendo).
+    mismo_arbol = {
+        "pulls": json.dumps([{"number": 7, "head": {"sha": sha}}]),
+        "arbol": cabeza_json,
+    }
+    for mala, escena_partes in (
+        ("failure", {**las_seis, 3: "failure"}),
+        ("cancelled", {**las_seis, 5: "cancelled"}),
+        ("faltante", {i: "success" for i in range(1, 6)}),
+    ):
+        proc, salida = correr({**mismo_arbol, "check-runs": check_runs_json(escena_partes)})
+        assert proc.returncode == 0, proc.stderr
+        assert "reusar=false" in salida, (
+            f"con una parte {mala} jamas se reusa (partes: {sorted(escena_partes)}): {proc.stderr}"
+        )
+    viejo_sin_matriz = json.dumps(
+        {
+            "check_runs": [
+                {"name": "completa", "conclusion": "success", "html_url": "https://ci/run/1"}
+            ]
+        }
+    )
+    proc, salida = correr({**mismo_arbol, "check-runs": viejo_sin_matriz})
+    assert proc.returncode == 0, proc.stderr
+    assert "reusar=false" in salida, (
+        f"un unico check run 'completa' sin matriz ya no es veredicto reutilizable: {proc.stderr}"
+    )
+    proc, salida = correr({**mismo_arbol, "check-runs": "[]"})
+    assert proc.returncode == 0, proc.stderr
+    assert "reusar=false" in salida, (
+        f"sin check runs de completa en la cabeza no hay veredicto que reusar: {proc.stderr}"
+    )
+
+    # 2) Arbol distinto (la base avanzo) -> CORRE la bateria completa.
+    proc, salida = correr(
+        {
+            "pulls": json.dumps([{"number": 7, "head": {"sha": sha}}]),
+            "arbol": json.dumps({"commit": {"tree": {"sha": "0" * 40}}}),
+            "check-runs": check_runs_json(las_seis),
+        }
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "reusar=false" in salida, f"arbol distinto nunca se reusa: {proc.stderr}"
+
+    # 3) gh falla (consulta rota) -> CORRE: fail-closed hacia correr.
+    proc, salida = correr({"pulls": "FALLO", "arbol": "FALLO", "check-runs": "FALLO"})
+    assert proc.returncode == 0, proc.stderr
+    assert "reusar=false" in salida, f"consulta fallida cae a correr, jamas a saltar: {proc.stderr}"
+
+    # 4) Sin PR asociado (push directo a master) -> CORRE.
+    proc, salida = correr(
+        {
+            "pulls": "[]",
+            "arbol": cabeza_json,
+            "check-runs": check_runs_json(las_seis),
+        }
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "reusar=false" in salida, f"sin PR no hay veredicto que reusar: {proc.stderr}"
+    return sha
+
+
+# El doble de gh (shebang python3), el PATH unido y el `bash` del script
+# son POSIX: en el pre-push de Windows (la maquina del dueno) estas pruebas
+# se saltan con razon clara en vez de dejar todo push en rojo. En la Mac y
+# en CI (ubuntu) siguen corriendo.
+SOLO_CON_BASH_POSIX = pytest.mark.skipif(
+    shutil.which("bash") is None or os.name == "nt",
+    reason="el escenario del reuso usa bash, shebang python3 y PATH POSIX "
+    "(os.pathsep ':'); en Windows el pre-push lo salta",
+)
+
+
+@SOLO_CON_BASH_POSIX
+def test_script_reuso_con_doble_de_gh(tmp_path):
+    """Triple del reuso con un doble de `gh` (sin red): reusa o cae a correr.
+
+    - arbol identico + las 6 partes ("completa (1, 6)" ... "(6, 6)") en
+      success en la cabeza del PR -> reusar=true
+    - arbol identico pero una parte en failure o cancelled -> reusar=false
+    - arbol identico pero una parte FALTANTE (solo 5 corridas) -> reusar=false
+    - arbol identico con el nombre viejo sin matriz -> reusar=false
+    - arbol distinto (la base avanzo y no se mezclo) -> reusar=false (corre)
+    - gh falla (red, rate limit, sin gh) -> reusar=false (corre)
+    El script jamas termina en error: su unica salida es reusar=true (salta
+    la bateria) o reusar=false (la corre completa).
+    """
+    _escenario_reuso(tmp_path)
+
+
+@SOLO_CON_BASH_POSIX
+def test_reuso_con_git_env_del_hook_deja_intacto_el_repo_ajeno(tmp_path, monkeypatch):
+    """Regresion del incidente 2026-10-18: GIT_* del hook no pegan al repo real.
+
+    El hook pre-push corre pytest con GIT_DIR, GIT_INDEX_FILE, etc. en el
+    entorno. Si los subprocess de git del repo temporal heredan esas
+    variables, `git init/add/commit` pegarian contra el repo apuntado
+    (en el incidente: goncloud-Orbit reinicializado y core.bare=true).
+    Centinela: un repo temporal distinto recibe el GIT_DIR/GIT_INDEX_FILE
+    hostil; tras correr TODO el escenario del reuso, el centinela debe
+    quedar exactamente igual (core.bare, HEAD, indice). Si el filtro de
+    GIT_* falta, la mutacion del centinela vuelve la prueba roja.
+    """
+    centinela = tmp_path / "centinela"
+    _escenario_reuso(centinela)  # repo centinela real, con commit
+
+    def leer(*args: str) -> str:
+        res = subprocess.run(
+            ["git", "-C", str(centinela), *args],
+            check=True,
+            capture_output=True,
+            env=_env_sin_git(),
+        )
+        return res.stdout.decode().strip()
+
+    bare_antes = leer("config", "core.bare")
+    head_antes = leer("rev-parse", "HEAD")
+    indice_antes = leer("ls-files", "-s")
+
+    # Entorno hostil del hook, apuntando al CENTINELA (jamás al repo real):
+    # la prueba debe ignorar estas variables por completo.
+    monkeypatch.setenv("GIT_DIR", str(centinela / ".git"))
+    monkeypatch.setenv("GIT_INDEX_FILE", str(centinela / ".git" / "index"))
+    _escenario_reuso(tmp_path / "escenario")
+
+    assert leer("config", "core.bare") == bare_antes, (
+        "el repo centinela cambio core.bare: el GIT_* del hook se colo en los subprocess"
+    )
+    assert leer("rev-parse", "HEAD") == head_antes, (
+        "el repo centinela cambio de HEAD: el GIT_* del hook se colo en los subprocess"
+    )
+    assert leer("ls-files", "-s") == indice_antes, (
+        "el indice del centinela cambio: el GIT_INDEX_FILE del hook se colo en los subprocess"
+    )

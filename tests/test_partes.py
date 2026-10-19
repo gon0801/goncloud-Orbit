@@ -64,3 +64,37 @@ def test_ci_corre_todas_las_partes():
         p.get("env", {}).get("ORBIT_PARTE") == "${{ matrix.parte }}/${{ matrix.total }}"
         for p in pasos
     )
+
+
+def test_precommit_va_solo_en_la_parte_1():
+    """Las partes 2 a 6 solo corren pytest: pre-commit vive en la parte 1 (#481).
+
+    Si el hook de candados rapidos se colara en todas las partes, el ahorro
+    de la matriz se lo comeria pre-commit repetido 6 veces.
+    """
+    workflow = yaml.safe_load((RAIZ / ".github" / "workflows" / "quality.yml").read_text("utf-8"))
+    job = workflow["jobs"]["completa"]
+    con_precommit = [p for p in job["steps"] if str(p.get("uses", "")).startswith("pre-commit/")]
+    assert len(con_precommit) == 1, "solo la parte 1 debe correr pre-commit"
+    condicion = str(con_precommit[0].get("if", ""))
+    assert "matrix.parte == 1" in condicion, (
+        f"pre-commit debe quedar acotado a la parte 1 (condicion: {condicion!r})"
+    )
+
+
+def test_un_pr_de_solo_docs_no_corre_la_bateria():
+    """El job `cambios` (#481) decide: docs-only => `completa` no entra.
+
+    Un PR que solo toca docs/, plans/ y *.md no paga ~6 jobs de bateria:
+    `cambios` mira el diff contra la base y `completa` le pregunta.
+    """
+    workflow = yaml.safe_load((RAIZ / ".github" / "workflows" / "quality.yml").read_text("utf-8"))
+    cambios = workflow["jobs"]["cambios"]
+    assert cambios["if"] == "github.event_name == 'pull_request'"
+    assert cambios["outputs"]["codigo"] == "${{ steps.mira.outputs.codigo }}"
+    mira = next(p for p in cambios["steps"] if p.get("id") == "mira")
+    assert "docs/" in str(mira["run"]), "el diff debe ignorar docs/ al decidir si toca codigo"
+    condicion = str(workflow["jobs"]["completa"]["if"])
+    assert "needs.cambios.outputs.codigo == 'true'" in condicion, (
+        f"completa debe preguntarle a `cambios` (condicion: {condicion!r})"
+    )

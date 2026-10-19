@@ -30,3 +30,7 @@ Flujo de verificacion:
 - Un bloqueante nunca va a una fila del plan ni se mergea abierto: se corrige o decide el operador. Lo no bloqueante que no se corrige va a una fila del plan (Plans.md o el tracker del repo) y se nombra en el PR; una observacion tardia no bloqueante no reabre el ciclo.
 - Despues del deploy, ejecuta una sola vez el checklist del repo y no repitas evidencia valida sin un cambio que pueda invalidarla.
 <!-- >>> QUALITY-KIT CALIDAD SECTION END -->
+
+## Flujo del PR (regla propia del repo, fuera del bloque de quality-kit)
+
+- Manten el PR en draft durante la implementacion y la revision (solo corre `rapido`); tras el APROBADO, marca el PR ready y ahi corre `completa` una vez sobre el SHA final. No uses `gh workflow run` en el flujo normal.
