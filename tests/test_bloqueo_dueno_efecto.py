@@ -175,6 +175,20 @@ def _transporte(
                 return httpx.Response(401, json={"message": "unauthorized"})
             if readback == "vacio" and n >= 1:
                 return httpx.Response(200, json={"negativeKeywords": []})
+            if readback == "sin_id" and n >= 1:
+                return httpx.Response(
+                    200,
+                    json={
+                        "negativeKeywords": [
+                            {
+                                "adGroupId": grupo_ext,
+                                "keywordText": termino,
+                                "matchType": "NEGATIVE_EXACT",
+                                "state": "ENABLED",
+                            }
+                        ]
+                    },
+                )
             return httpx.Response(200, json={"negativeKeywords": list(store)})
         if path == "/sp/negativeKeywords" and request.method == "POST":
             post_visto["ok"] = True
@@ -187,7 +201,7 @@ def _transporte(
                 if secreto:
                     cuerpo["eco"] = secreto
                 return httpx.Response(post_status, json=cuerpo)
-            if readback in ("vacio", "ambiguo"):
+            if readback in ("vacio", "ambiguo", "sin_id"):
                 return httpx.Response(
                     207,
                     json={
@@ -864,7 +878,6 @@ def test_r1_auth_antes_del_post_sella_fallido(monkeypatch):
 
 
 @_skip_db
-@_skip_db
 def test_r1_auth_en_readback_deja_la_intencion_abierta(monkeypatch):
     """Un 401 con el refresh caido, despues del POST, no sella fallido."""
     _parche(monkeypatch)
@@ -987,6 +1000,43 @@ def test_r1_e_post_ok_lista_ambigua_queda_intencion(monkeypatch):
     with _db() as conn:
         senal, _grupo, grupo_ext, _campana, termino, _roster = _prepara(conn)
         transport, vistos, _store = _transporte(grupo_ext, termino, readback="ambiguo")
+        resultado = efecto.aprobar(conn, senal, transport=transport)
+        assert (resultado.status, resultado.paso, resultado.motivo) == (
+            200,
+            "intencion",
+            "por_confirmar",
+        )
+        assert _pasos(conn, resultado.veredicto_id) == [("intencion", None, None)]
+        assert len(_posts(vistos)) == 1
+
+
+@_skip_db
+def test_r2_pantalla_dice_por_confirmar_al_recargar(monkeypatch):
+    _parche(monkeypatch)
+    with _db() as conn:
+        senal, _grupo, grupo_ext, _campana, termino, _roster = _prepara(conn)
+        transport, _vistos, _store = _transporte(
+            grupo_ext, termino, post_status=503, readback="vacio"
+        )
+        resultado = efecto.aprobar(conn, senal, transport=transport)
+        assert resultado.paso == "intencion"
+        filas = [
+            f
+            for f in lectura.lee_pantalla(conn)["bloqueos"]
+            if f["veredicto_id"] == str(resultado.veredicto_id)
+        ]
+        assert [(f["paso"], f["motivo"], f["quitar"]) for f in filas] == [
+            ("intencion", "por_confirmar", False)
+        ]
+
+
+@_skip_db
+def test_r2_readback_sin_keyword_id_no_sella_aplicado(monkeypatch):
+    """Un ENABLED sin keywordId vuelve la pagina ambigua: la intencion sigue abierta."""
+    _parche(monkeypatch)
+    with _db() as conn:
+        senal, _grupo, grupo_ext, _campana, termino, _roster = _prepara(conn)
+        transport, vistos, _store = _transporte(grupo_ext, termino, readback="sin_id")
         resultado = efecto.aprobar(conn, senal, transport=transport)
         assert (resultado.status, resultado.paso, resultado.motivo) == (
             200,
