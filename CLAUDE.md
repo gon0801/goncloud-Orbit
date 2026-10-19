@@ -25,9 +25,12 @@ Flujo de verificacion:
 - Agrupa los hallazgos de revision y corrigelos en una sola ronda por bloque. Solo un hallazgo bloqueante (seguridad, datos, regla innegociable, comportamiento pedido roto o prueba que no discrimina), con el comando que lo reproduce, reabre el ciclo; si el mismo bloqueante vuelve en dos rondas seguidas, decide el operador.
 - Ejecuta Ruff y las pruebas focalizadas despues del ultimo cambio del bloque.
 - Ejecuta la bateria completa una sola vez por bloque, sobre el commit final y preferentemente en CI mediante PR.
-  El como: manten el PR en draft durante la implementacion y la revision (solo corre `rapido`); tras el APROBADO, marca el PR ready y ahi corre `completa` una vez sobre el SHA final. No uses `gh workflow run` en el flujo normal.
 - Si commit, push o CI ya validaron tests, Ruff o pre-commit sobre ese SHA, no los repitas manualmente.
 - No vuelvas a ejecutar CI si el commit verificado no cambio.
 - Un bloqueante nunca va a una fila del plan ni se mergea abierto: se corrige o decide el operador. Lo no bloqueante que no se corrige va a una fila del plan (Plans.md o el tracker del repo) y se nombra en el PR; una observacion tardia no bloqueante no reabre el ciclo.
 - Despues del deploy, ejecuta una sola vez el checklist del repo y no repitas evidencia valida sin un cambio que pueda invalidarla.
 <!-- >>> QUALITY-KIT CALIDAD SECTION END -->
+
+## Flujo del PR (regla propia del repo, fuera del bloque de quality-kit)
+
+- Manten el PR en draft durante la implementacion y la revision (solo corre `rapido`); tras el APROBADO, marca el PR ready y ahi corre `completa` una vez sobre el SHA final. No uses `gh workflow run` en el flujo normal.

@@ -11,10 +11,12 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import textwrap
 from pathlib import Path
 
+import pytest
 import yaml
 
 RAIZ = Path(__file__).resolve().parents[1]
@@ -410,7 +412,7 @@ def _escenario_reuso(raiz: Path) -> str:
     def correr(escena: dict) -> tuple[subprocess.CompletedProcess, str]:
         salida = raiz / f"salida-{len(list(raiz.glob('salida-*')))}.txt"
         env = _env_sin_git() | {
-            "PATH": f"{doble}:{os.environ['PATH']}",
+            "PATH": f"{doble}{os.pathsep}{os.environ['PATH']}",
             "ESCENA": json.dumps(escena),
             "GITHUB_OUTPUT": str(salida),
             "GH_REPO": "dueno/orbit",
@@ -437,6 +439,32 @@ def _escenario_reuso(raiz: Path) -> str:
     assert "reusar=true" in salida, f"mismo arbol ya validado debe reusarse: {proc.stderr}"
     assert sha in proc.stdout, "debe imprimir la cabeza reusada"
 
+    # 1b/1c/1d) Mismo arbol ya validado pero la cabeza del PR tiene `completa`
+    # en failure o cancelled, o NO tiene check run de `completa` (nunca
+    # corrio): JAMAS se reusa -- solo un success del MISMO arbol autoriza.
+    mismo_arbol = {
+        "pulls": json.dumps([{"number": 7, "head": {"sha": sha}}]),
+        "arbol": cabeza_json,
+    }
+    for veredicto in ("failure", "cancelled"):
+        check = json.dumps(
+            {
+                "check_runs": [
+                    {"name": "completa", "conclusion": veredicto, "html_url": "https://ci/run/1"}
+                ]
+            }
+        )
+        proc, salida = correr({**mismo_arbol, "check-runs": check})
+        assert proc.returncode == 0, proc.stderr
+        assert "reusar=false" in salida, (
+            f"completa={veredicto} en la cabeza del PR jamas se reusa: {proc.stderr}"
+        )
+    proc, salida = correr({**mismo_arbol, "check-runs": "[]"})
+    assert proc.returncode == 0, proc.stderr
+    assert "reusar=false" in salida, (
+        f"sin check run de completa en la cabeza no hay veredicto que reusar: {proc.stderr}"
+    )
+
     # 2) Arbol distinto (la base avanzo) -> CORRE la bateria completa.
     proc, salida = correr(
         {
@@ -460,6 +488,18 @@ def _escenario_reuso(raiz: Path) -> str:
     return sha
 
 
+# El doble de gh (shebang python3), el PATH unido y el `bash` del script
+# son POSIX: en el pre-push de Windows (la maquina del dueno) estas pruebas
+# se saltan con razon clara en vez de dejar todo push en rojo. En la Mac y
+# en CI (ubuntu) siguen corriendo.
+SOLO_CON_BASH_POSIX = pytest.mark.skipif(
+    shutil.which("bash") is None or os.name == "nt",
+    reason="el escenario del reuso usa bash, shebang python3 y PATH POSIX "
+    "(os.pathsep ':'); en Windows el pre-push lo salta",
+)
+
+
+@SOLO_CON_BASH_POSIX
 def test_script_reuso_con_doble_de_gh(tmp_path):
     """Triple del reuso con un doble de `gh` (sin red): reusa o cae a correr.
 
@@ -472,6 +512,7 @@ def test_script_reuso_con_doble_de_gh(tmp_path):
     _escenario_reuso(tmp_path)
 
 
+@SOLO_CON_BASH_POSIX
 def test_reuso_con_git_env_del_hook_deja_intacto_el_repo_ajeno(tmp_path, monkeypatch):
     """Regresion del incidente 2026-10-18: GIT_* del hook no pegan al repo real.
 

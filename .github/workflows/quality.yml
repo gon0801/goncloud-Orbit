@@ -23,8 +23,10 @@
 #   en PR no draft `completa` deja de ser opcional y exige success).
 # El dispatch manual sigue existiendo para casos raros, pero ya no es el
 # camino normal: no se usa `gh workflow run` en el flujo habitual.
-# Ahorro medido: cada PR pagaba bateria completa + harness (~varios min con
-# Postgres + ~1.5-2 min de pytest); ahora paga ~1-2 min.
+# Costo real hoy: `rapido` en cada vuelta de PR (~1-2 min); `completa` UNA
+# vez al pasar a ready, sobre el SHA final (medido en #477: 15m45s, con
+# Postgres); al unir a master el veredicto se REUSA por arbol y la bateria
+# no se repite (0 corridas extra si la base no avanzo).
 
 name: Quality
 
