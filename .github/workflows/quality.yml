@@ -166,7 +166,7 @@ jobs:
           ORBIT_TEST_DSN: postgresql://orbit:orbit@localhost:5432/postgres
           ORBIT_PARTE: ${{ matrix.parte }}/${{ matrix.total }}
         run: |
-          pip install fastapi "psycopg[binary]" pytest httpx pglast jinja2
+          pip install fastapi "psycopg[binary]" pytest httpx pglast jinja2 pyyaml
           PYTHONPATH=. pytest -q
 
       - name: Run Node tests
