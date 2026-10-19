@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from uuid import UUID, uuid4
 
 from app import apply
-from app.ads.client import AdsApiError
+from app.ads.write import AdsApiError
 from app.apply_cola import _SQL_EXTERNALES_GRUPO
 from app.apply_harvest import _identidad, _lista_filtrada
 from app.bloqueo_dueno import (
