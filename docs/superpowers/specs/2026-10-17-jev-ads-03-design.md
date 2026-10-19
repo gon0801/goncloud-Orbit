@@ -315,8 +315,9 @@ salta. Lo corre el checklist del despliegue.
 2. La señal cambió y no hay intención huérfana: `anulado` y cero HTTP, tampoco
    a `/v2/profiles`.
 3. Ledger antes del HTTP: con un transporte que revienta, la base guarda
-   `intencion` y después `fallido`. Con un crash simulado tras `intencion`, la
-   reconciliación adopta un negative existente o deja `fallido`.
+   solo `intencion` y la respuesta es `por_confirmar`. Ese clic no sella
+   `fallido`. Con un crash simulado tras `intencion`, la reconciliación
+   adopta un negative existente o sella `fallido` / `sin_resultado`.
 4. Dos aprobaciones concurrentes de la misma clave, con conexiones distintas,
    dejan un solo POST: la segunda recibe 409 mientras la primera sostiene el
    candado, y no marca `fallido` la intención de la primera.

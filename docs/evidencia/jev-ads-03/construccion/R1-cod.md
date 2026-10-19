@@ -2,7 +2,7 @@
 
 SHA del arreglo: `9230f008acb589db808b00478333c906a28d7b75`.
 Padre de esta evidencia: `dd7d8e84dae8c305bca7a0a1bb963e2f2f0665d2`.
-Este archivo es el ultimo commit del encargo. El SHA final es el de `git rev-parse HEAD` al leer el commit que lo introduce.
+Este archivo cubre la construccion hasta el commit que lo introduce (`6ff49c66`). No es el head de la PR. La linea `25 passed` es de esa sesion, no del head. El head y su bateria estan en `R1-PR.md`.
 
 ## Commits
 
