@@ -1,0 +1,10 @@
+== 0) El servidor contesta
+OK    orbit-app-1 corriendo = true
+== Checklist R.1 (sello 20261019-0445, modo 0)
+== 1) HTTP: health y /cortes
+OK    GET /health = 200
+OK    GET /cortes = 200
+== 2) bloqueo-reconcilia sale 0
+OK    bloqueo-reconcilia exit = 0
+== RESULTADO: 0 falla(s), 0 sin medir
+exit=0
