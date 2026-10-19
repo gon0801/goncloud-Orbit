@@ -8,7 +8,7 @@ El codigo que cubre `completa` es `ab5221890035e88675133421a34b8828541423e2`. Es
 
 ## Que cambia para el dueno
 
-Si el POST del negative ya salio y el LIST de confirmacion pierde el token (401 y el refresh de LWA cae), la fila ya no dice fallido. Queda en `intencion`, con `por_confirmar` en la respuesta de ese clic. Quien recarga ve el paso `intencion` y el motivo vacio de esa fila. La reconciliacion de siempre la cierra despues.
+Si el POST del negative ya salio y el LIST de confirmacion pierde el token (401 y el refresh de LWA cae), la fila ya no dice fallido. Queda en `intencion`, con `por_confirmar` en la respuesta de ese clic. Quien recarga ve el paso `intencion`; desde R.2 (#480) la fila tambien dice `por_confirmar`. La reconciliacion de siempre la cierra despues.
 
 ## Commits
 

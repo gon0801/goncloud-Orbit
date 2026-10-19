@@ -1028,11 +1028,23 @@ def test_r2_pantalla_dice_por_confirmar_al_recargar(monkeypatch):
         assert [(f["paso"], f["motivo"], f["quitar"]) for f in filas] == [
             ("intencion", "por_confirmar", False)
         ]
+        from app import ui
+
+        html = ui.templates.env.get_template("cortes.html").render(
+            pantalla="cortes",
+            items=[],
+            bloqueos_disponibles=True,
+            bloqueos_jev=lectura.lee_pantalla(conn),
+        )
+        assert 'intencion <span class="detalle-celda">por_confirmar</span>' in html
 
 
 @_skip_db
 def test_r2_readback_sin_keyword_id_no_sella_aplicado(monkeypatch):
-    """Un ENABLED sin keywordId vuelve la pagina ambigua: la intencion sigue abierta."""
+    """Un ENABLED sin keywordId vuelve la pagina ambigua: la intencion sigue abierta.
+
+    Fija la razon por la que `_readback` no necesita guarda propia de keywordId.
+    """
     _parche(monkeypatch)
     with _db() as conn:
         senal, _grupo, grupo_ext, _campana, termino, _roster = _prepara(conn)
