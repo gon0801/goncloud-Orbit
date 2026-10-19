@@ -137,6 +137,7 @@ def _transporte(
     seq = iter(range(1, 100))
     pagina = {"n": 0}
     listas = {"n": 0}
+    post_visto = {"ok": False}
 
     def _aparece() -> None:
         store.append(
@@ -152,6 +153,8 @@ def _transporte(
     def handler(request: httpx.Request) -> httpx.Response:
         vistos.append(request)
         if request.url.host == "api.amazon.com":
+            if readback == "auth" and post_visto["ok"]:
+                return httpx.Response(401, json={"error": "invalid_grant"})
             return httpx.Response(200, json={"access_token": "tok", "expires_in": 3600})
         path = request.url.path
         if path == "/v2/profiles":
@@ -168,10 +171,13 @@ def _transporte(
             listas["n"] += 1
             if readback == "ambiguo" and n >= 1:
                 return httpx.Response(200, json={"negativeKeywords": "no"})
+            if readback == "auth" and n >= 1:
+                return httpx.Response(401, json={"message": "unauthorized"})
             if readback == "vacio" and n >= 1:
                 return httpx.Response(200, json={"negativeKeywords": []})
             return httpx.Response(200, json={"negativeKeywords": list(store)})
         if path == "/sp/negativeKeywords" and request.method == "POST":
+            post_visto["ok"] = True
             if explota or post_status is not None:
                 if readback == "enabled":
                     _aparece()
@@ -855,6 +861,26 @@ def test_r1_auth_antes_del_post_sella_fallido(monkeypatch):
         assert resultado.motivo != "por_confirmar"
         assert _pasos(conn, resultado.veredicto_id)[-1][0] == "fallido"
         assert _posts(vistos) == []
+
+
+@_skip_db
+@_skip_db
+def test_r1_auth_en_readback_deja_la_intencion_abierta(monkeypatch):
+    """Un 401 con el refresh caido, despues del POST, no sella fallido."""
+    _parche(monkeypatch)
+    with _db() as conn:
+        senal, _grupo, grupo_ext, _campana, termino, _roster = _prepara(conn)
+        transport, vistos, _store = _transporte(
+            grupo_ext, termino, post_status=503, readback="auth"
+        )
+        resultado = efecto.aprobar(conn, senal, transport=transport)
+        assert (resultado.status, resultado.paso, resultado.motivo) == (
+            200,
+            "intencion",
+            "por_confirmar",
+        )
+        assert _pasos(conn, resultado.veredicto_id) == [("intencion", None, None)]
+        assert len(_posts(vistos)) == 1
 
 
 @_skip_db

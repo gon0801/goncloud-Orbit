@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from uuid import UUID, uuid4
 
 from app import apply
+from app.ads.client import AdsAuthError
 from app.ads.write import AdsApiError
 from app.apply_cola import _SQL_EXTERNALES_GRUPO
 from app.apply_harvest import _identidad, _lista_filtrada
@@ -373,7 +374,9 @@ def _fallo_de(exc: Exception) -> tuple[str, int | None, str]:
 def _lista_o(cliente, grupo_ext: str) -> tuple[list, str]:
     try:
         return _lista_filtrada(cliente, [grupo_ext])
-    except AdsApiError:
+    except (AdsApiError, AdsAuthError):
+        # AdsAuthError no hereda de AdsApiError. Si el refresh cae en el
+        # LIST de confirmacion, dejarlo subir sella fallido un POST ya enviado.
         return ([], "ambiguo")
 
 

@@ -47,7 +47,7 @@ test_r1_e_post_ok_lista_ambigua_queda_intencion
 Tres salidas, en `app/bloqueo_dueno_efecto.py`:
 
 1. `AdsApiErrorMutacion` con status 4xx sella `fallido` y `http_<status>`, como antes. No hay readback.
-2. Un 5xx, o cualquier otra excepcion del POST, no sella `fallido`. Se anota en el log y se hace el readback.
+2. Un 5xx o un corte de red no sella `fallido`. Se anota en el log y se hace el readback. Una excepcion antes de enviar el POST (token, guard) si sella `fallido`.
 3. Un POST que salio bien tambien hace el readback.
 
 Si el LIST trae el negative ENABLED con id, `aplicado`. Si no aparece, o la lista no sale `ok`, no hay paso nuevo. La respuesta es 200 con `paso="intencion"` y `motivo="por_confirmar"`.
