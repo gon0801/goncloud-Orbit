@@ -95,7 +95,15 @@ class AdsClientError(Exception):
 
 
 class AdsApiError(AdsClientError):
-    """La API de Amazon Ads (o la descarga de un reporte) fallo tras agotar retries."""
+    """La API de Amazon Ads (o la descarga de un reporte) fallo tras agotar retries.
+
+    En un POST no idempotente el 5xx y el fallo de red no reintentan. El
+    mensaje sigue sin cuerpo. `status` y `cuerpo` conservan lo que el caller
+    tiene que registrar, porque el mensaje no lo lleva.
+    """
+
+    status: int | None = None
+    cuerpo: str | None = None
 
 
 class AdsAuthError(AdsClientError):
@@ -104,6 +112,13 @@ class AdsAuthError(AdsClientError):
 
 class MutationNotAllowedError(AdsClientError):
     """El guard read-only bloqueo un metodo o una ruta no permitidos."""
+
+
+def _texto_respuesta(resp: httpx.Response) -> str:
+    try:
+        return resp.text[:500]
+    except Exception as exc:
+        return str(exc)[:500]
 
 
 def _clean_path(path: str) -> str:
@@ -356,19 +371,23 @@ class AdsClient:
         while True:
             attempt += 1
             network_failed = False
+            network_exc: BaseException | None = None
             resp: httpx.Response | None = None
             try:
                 resp = self._client.request(
                     method, url, headers=headers, params=params, json=json, data=data
                 )
-            except httpx.HTTPError:
+            except httpx.HTTPError as exc:
                 network_failed = True
+                network_exc = exc
 
             if network_failed:
                 if not idempotent:
-                    raise AdsApiError(
+                    error = AdsApiError(
                         f"fallo de red sin retry (POST no idempotente): {method} {redact_url(url)}"
                     )
+                    error.cuerpo = "" if network_exc is None else str(network_exc)[:500]
+                    raise error
                 if attempt >= MAX_RETRIES:
                     raise AdsApiError(
                         f"fallo de red tras {attempt} intentos: {method} {redact_url(url)}"
@@ -380,10 +399,13 @@ class AdsClient:
 
             if resp.status_code in RETRYABLE_STATUSES or resp.status_code >= 500:
                 if resp.status_code >= 500 and not idempotent:
-                    raise AdsApiError(
+                    error = AdsApiError(
                         f"status={resp.status_code} sin retry (POST no idempotente): "
                         f"{method} {redact_url(url)}"
                     )
+                    error.status = resp.status_code
+                    error.cuerpo = _texto_respuesta(resp)
+                    raise error
                 if attempt >= MAX_RETRIES:
                     raise AdsApiError(
                         f"status={resp.status_code} tras {attempt} intentos: "
