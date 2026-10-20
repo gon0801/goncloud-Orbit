@@ -1,0 +1,22 @@
+# Configuracion del motor de arranque para este repo (bloque D, motor-01).
+
+[repo]
+# Rama principal del proyecto.
+principal = "master"
+
+[github]
+# La bateria completa corre en CI particionada en 6 partes (#481): los checks
+# se llaman "completa (1, 6)" ... "completa (6, 6)"; el motor las cuenta via
+# checks_extra.
+checks_extra = ["completa"]
+
+[deploy]
+# Desplegar exige acceso ssh al servidor goncloud (docs/DEPLOY.md).
+# Sin receta de despliegue por omision: cada plan de Orbit trae la suya.
+requiere = ["ssh-goncloud"]
+
+[pruebas.env]
+# La bateria (PYTHONPATH=. pytest -q) necesita un Postgres 16 desechable
+# (docker-compose.yml, credenciales orbit/orbit de test); sin esta variable
+# los tests PG-backed skipean por diseno.
+ORBIT_TEST_DSN = "postgresql://orbit:orbit@localhost:5432/postgres"
