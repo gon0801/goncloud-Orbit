@@ -8,6 +8,8 @@ código viejo; solo se migran credenciales y datos verificados.
 del dominio, qué se migra y qué no, fases. Las fuentes verbatim están en
 `docs/traspaso/` (diseño v2 = fuente de verdad de reglas y umbrales).
 
+Los planes de Orbit se corren con el motor (`autopiloto: motor`).
+
 <!-- >>> QUALITY-KIT CALIDAD SECTION START -- managed by quality-kit's init-repo.ps1. Do not hand-edit between these markers; re-running init-repo.ps1 will refresh this block cleanly. -->
 ## Calidad (quality-kit)
 
