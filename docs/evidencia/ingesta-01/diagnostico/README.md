@@ -38,5 +38,7 @@ placements).
   07:25 placements piden reportes a la misma cuenta a la vez.
 - **Consecuencia:** el ciclo de 08:40 corrió los cinco días sin las métricas
   del día: el 10 la corrida ya había fallado a las 07:50, y el 14, 15, 16 y 19
-  seguía corriendo y falló entre las 09:01 y las 09:28. La única guarda del
-  motor es un watermark de más de 7 días.
+  seguía corriendo y falló entre las 09:01 y las 09:28. Ninguna guarda del
+  motor mira las métricas de ayer: la de frescura de métricas tolera 7 días
+  (`windows.guarda_plataforma` también salta por estructura de más de 48 h o
+  sin datos).
