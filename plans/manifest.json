@@ -178,7 +178,7 @@
     {
       "name": "ingesta-01",
       "path": "plans/ingesta-01.md",
-      "description": "INGESTA 01 — la descarga diaria de Amazon Ads (métricas, productos, placements) no falla: reportes a la vez, plazo de 3 h, repetir el atorado, reintentos 10:15 y 13:15, ciclo/vigía/avisos esperan las métricas del día, avisos por Telegram. Plan del 2026-10-19 tras 5 fallas en 15 días."
+      "description": "INGESTA 01 — la descarga diaria de Amazon Ads (métricas, productos, placements) no falla: reportes a la vez, 2 h 30 min de sondeo y 2 h 45 min por corrida, repetir el atorado, reintentos 10:15 y 13:15 UTC; ciclo, vigía, avisos y Jev esperan las métricas de ayer; avisos por Telegram. Plan del 2026-10-19 tras 5 fallas en 15 días."
     }
   ],
   "active": "fabrica-01"

@@ -19,8 +19,10 @@ Lecturas de solo lectura en goncloud: `ingest_run` y `ads_report_result` como
 | 10-17 / 10-18 | 42 / 48 | sí | |
 | 10-19 | 111 | no | US keywords; 5 de 8 ya descargados se tiraron |
 
-Cinco fallas en quince días (10, 14, 15, 16 y 19 de octubre). Ningún commit
-tocó `app/ads/reports.py` entre el 2026-10-10 (#425) y hoy.
+Cinco fallas en quince días, del 5 al 19 de octubre de 2026 (10, 14, 15, 16 y
+19). El último commit que tocó `app/ads/reports.py` antes del corte del
+2026-10-19 es #425 (BIDS 02 S.3, del 2026-10-10, que agregó la corrida de
+placements).
 
 ## Por qué
 
@@ -34,6 +36,7 @@ tocó `app/ads/reports.py` entre el 2026-10-10 (#425) y hoy.
   corrida y descarta lo descargado; no hay segundo intento en el día.
 - **Competencia propia:** 06:00 contabilidad, 07:10 métricas, 07:20 productos,
   07:25 placements piden reportes a la misma cuenta a la vez.
-- **Consecuencia:** el ciclo de 08:40 corrió los días 14, 15, 16 y 19 sin las
-  métricas del día (la corrida terminó a las 09:01-09:28 y falló); la única
-  guarda del motor es un watermark de más de 7 días.
+- **Consecuencia:** el ciclo de 08:40 corrió los cinco días sin las métricas
+  del día: el 10 la corrida ya había fallado a las 07:50, y el 14, 15, 16 y 19
+  seguía corriendo y falló entre las 09:01 y las 09:28. La única guarda del
+  motor es un watermark de más de 7 días.
