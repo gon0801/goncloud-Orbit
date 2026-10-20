@@ -96,7 +96,7 @@ del APROBADO.
 
 | Task | Contenido | DoD | Depends | Status |
 | --- | --- | --- | --- | --- |
-| C.1 | `[stage:cierre-pr] [lane:fast]` Ledger al día, `docs/CHAT-CONTEXT.md`, `plans/manifest.json`, `plans/ROADMAP.md`. | Todas las filas en `cc:DONE` con evidencia. | D.2 | cc:TODO |
+| C.1 | `[stage:cierre-pr] [lane:fast]` Ledger al día, `docs/CHAT-CONTEXT.md`, `plans/manifest.json`, `plans/ROADMAP.md`. | Todas las filas marcadas como hechas, cada una con su evidencia. | D.2 | cc:TODO |
 
 ## Criterios medidos
 
