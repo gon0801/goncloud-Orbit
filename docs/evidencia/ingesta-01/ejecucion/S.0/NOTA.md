@@ -1,64 +1,58 @@
 # S.0 — Nota de ejecucion de la sonda de latencia
 
-`salida.txt` la produjo el script tal como esta en el commit **071df33**
-(sha256 `512c79ad650a4e0491319ff04549eacb30410049214adebe07c6318a19452128`),
-ejecutado en produccion (goncloud, contenedor `orbit-app-1`, Python 3.12.15)
-con la forma del encargo:
+`salida.txt` es la corrida de **2026-10-21 19:17:36 -> 19:23:43 UTC** (exit 0)
+con el `sonda.py` de este directorio (sha256
+`0da88cb180fa3b6967391c48eb1d7da16e4cd894c3baa8ea257314671df0f402`, el de
+a211438 y de HEAD), en produccion (contenedor `orbit-app-1`) con la forma
+del encargo: `docker exec -i orbit-app-1 python - < sonda.py`.
 
-```
-docker exec -i orbit-app-1 python - < sonda.py
-```
+## Condiciones
 
-## Condiciones de la corrida
+- Hora >= 19:00 UTC (ventana exigida), lejos de las descargas de contabilidad
+  (12:00/18:00) y de la ingesta diaria de Orbit.
+- `/tmp/orbit-ingesta-diaria.lock` libre (sin proceso que lo tuviera abierto).
+- Cola: la corrida de 19:00 (ver Antecedente) habia terminado antes y sus
+  reportes estaban completados; los 12 de (a) de esta corrida arrancaron sobre
+  cola propia vacia, y (b)/(c) corrieron con esos 12 aun en cola.
+- Rango D-31..D-1 = 2026-09-20..2026-10-20. Perfiles: MX `3850003733258937`,
+  US `4387591165211712`.
 
-- Lanzamiento: 2026-10-21 19:00:58 UTC (primer POST 19:00:59), fin 19:09:20
-  UTC, exit 0. Ventana exigida (>= 19:00 UTC) cumplida; la ingesta diaria de
-  Orbit ya habia corrido (07:10/10:40/13:15) y la contabilidad (12:00/18:00)
-  no estaba activa.
-- Lock: `/tmp/orbit-ingesta-diaria.lock` libre. El archivo existia en el host
-  (creado 18:22 por una corrida manual del lead) pero sin ningun proceso
-  teniendolo abierto (fuser vacio; verificado tambien con flock sobre fd de
-  solo lectura). Dentro del contenedor no existe.
-- Rango pedido: 2026-09-20..2026-10-20 (D-31..D-1, mismo rango que el cron de
-  metricas). Perfiles aceptados: MX `3850003733258937`, US `4387591165211712`.
-- La cola de reportes de la cuenta estaba vacia al empezar (todo lo anterior
-  habia completado mucho antes).
+## Resultados (de salida.txt)
 
-## Lectura de salida.txt
+- **(a)** 12/12 POST HTTP 200 (0.2 s c/u), 12/12 COMPLETED, **1.6-2.7 min**:
+  MX campanas 2.4, keywords 2.4, targets 2.7, search_terms 2.0, productos 1.6,
+  placements 2.0; US campanas 2.4, keywords 2.4, targets 2.0, search_terms
+  2.3, productos 2.3, placements 2.7.
+- **(b)** con (a) aun en cola: campanas MX identico -> HTTP **200**; con
+  `name` + `-r1` -> HTTP **200**. Ambos con reportId nuevo (distinto del
+  original `16c8a84c...`; ver el cuerpo en salida.txt). En esta corrida
+  Amazon **no** deduplico contra el original todavia en cola.
+- **(c)** 24 POST en rafaga: **24x HTTP 200, 0x 429**. Ojo: en HEAD cada POST
+  de la rafaga usa un rango distinto (corrido n dias), o sea son reportes
+  distintos y no ejercen el dedup; solo miden el rate-limit (ninguno a 24).
+- **(d)** MX uno tras otro tras (a): campanas **1.0**, keywords **0.7**,
+  targets **0.7**, search_terms **1.0** min (4/4 COMPLETED).
 
-- **(a)** 12 POST, todos HTTP 200, en ~2 s en total. COMPLETED a los
-  **0.8-1.6 min** (10 de 12 sondeados; ver el detalle de targets abajo).
-- **(a) targets, id no extraido**: en los 2 POST de `targets` (uno por perfil)
-  el script corto el cuerpo a 600 chars y el `reportId` de spTargeting cae
-  despues del corte, asi que quedaron fuera del sondeo. Los reportes SI se
-  crearon: sus ids reales quedaron expuestos por los 425 de (c):
-  MX `b3bdeec5-ef1d-4461-8adc-344ccd230512`,
-  US `f0bedaa2-fc84-4b94-bee7-983f4a49bc30`. (a) mide latencia de 10/12.
-- **(b)** campanas MX identico y con `name` + `-r1`: ambos **HTTP 425**
-  `The Request is a duplicate of : f9190bda-...`. Amazon dedupla por
-  CONFIGURACION (startDate/endDate/configuration), **el nombre no importa**,
-  mientras el reporte original no ha completado. El sufijo del repetido NO
-  sirve para bypassear el dedup.
-- **(c)** 24 POST en rafaga (sufijos `-rafaga1`/`-rafaga2`): **24x 425
-  duplicate, 0 x 429**. A esta escala no aparece rate-limit; el mecanismo
-  efectivo es el dedup por configuracion.
-- **(d)** tras COMPLETED el mismo config SI crea reporte nuevo (200):
-  MX secuencial campanas **2.0 min**, keywords **2.0 min**, search_terms
-  **2.7 min**. `targets=NO_CREADO` significa "id no extraido por el corte de
-  600 chars" (el POST fue 200), no un rechazo.
+## Antecedente: corrida de 19:00:58-19:09:20 UTC (salida en 3df0c9e)
 
-## Implicaciones para A.1 (lo que el lead confirma o ajusta)
+Corrida con el script anterior (071df33), antes de arreglar el truncamiento a
+600 chars (el reportId de targets quedo sin extraer) y con la rafaga sobre
+el mismo rango. Resultados distintos: (b) identico y `-r1` dieron HTTP 425
+`duplicate of f9190bda-...`; (c) 24x425, 0x429; (a) 10/12 medidos en
+0.8-1.6 min; (d) 3/4 (targets sin id). **Los dos resultados de dedup no
+coinciden**: a las 19:00 el repetido (con y sin `-r1`) fue 425 contra el
+original en cola; a las 19:17 fue 200 con id nuevo. No hay evidencia para
+explicar la diferencia (la 19:00 repitio el mismo rango/config; la de 19:17
+tambien en (b)); solo se dispone de las dos salidas.
 
-- Latencia medida muy por debajo del tope actual de poll (reportes del
-  21-23/09 tardaban 12-13 min; hoy 0.8-2.7 min: la cola varia por ordenes de
-  magnitud, conviene mantener margen).
-- Re-pedir el mismo config mientras no completo da 425 con el id del
-  original: un reintento puede REUSAR ese id en vez de tratarlo como error.
-- No se observo 429 en 24 POST seguidos.
+## Para A.1 (lo confirma o ajusta el lead)
 
-## Script en HEAD
-
-El `sonda.py` de HEAD (e45cb75) es la version corregida para futuras corridas
-((c) incondicional, resumenes que distinguen COMPLETED de FAILURE, guardas
-que dejan linea de evidencia); la `salida.txt` de este directorio la produjo
-la version 071df33 descrita arriba.
+- Latencia: 0.7-2.7 min en ambas corridas, muy por debajo del tope de poll
+  (en septiembre se vieron 12-13 min: la cola varia por ordenes de magnitud,
+  conviene mantener margen).
+- Dedup del repetido: no concluyente; dos corridas dieron 425 y 200. No dar
+  por hecho ni que el sufijo `-r1` salte el dedup ni que no lo salte; el
+  reintento debe tolerar ambos (425 con id del original -> reusar ese id;
+  200 -> id nuevo).
+- Rate-limit: 0x 429 en 24 POST seguidos (ambas corridas), con la salvedad de
+  que solo la de 19:17 mando 24 reportes distintos.
