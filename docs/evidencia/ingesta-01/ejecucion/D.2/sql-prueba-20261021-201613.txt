@@ -1,0 +1,17 @@
+BEGIN
+(1) por dia y source: corridas, ok, repetidos (ok de mas), intento del primer ok, hora y duracion de ese ok
+ dia | source | corridas | ok | repetidos | intento_primer_ok | hora_primer_ok_utc | duracion_primer_ok
+-----+--------+----------+----+-----------+-------------------+--------------------+--------------------
+(0 rows)
+
+(2) por dia: a que hora corrio cada ciclo del optimizador
+ dia | platform | mode | status | hora_utc
+-----+----------+------+--------+----------
+(0 rows)
+
+(3) dias de la ventana sin ningun ok por source (huecos)
+ dia | source
+-----+--------
+(0 rows)
+
+ROLLBACK

@@ -1,0 +1,26 @@
+# ingesta-01 D.2 intento 21 — 2026-10-21 20:49 UTC
+
+Motivo del intento: el gate de CI quedo rojo (rapido/completa-1) porque 3 evidencias de
+D.2 y 4 de D.1 llevaban espacios al final de linea (salida de psql alineado y de docker
+compose) y el candado trailing-whitespace los arregla => "files were modified" => exit 1
+(run 39672672703). Arreglo: espacios finales quitados (solo eso; diff 30 lineas, mismo
+contenido) y desde ahora cada evidencia nueva se limpia antes de commitear. Nada del
+despliegue ni del trabajo `at` cambia; re-verificado:
+
+$ env -i HOME=$HOME USER=$USER LOGNAME=$USER PATH="/Users/gon/.opencode/bin:/Users/gon/.local/bin:/Users/gon/.grok/bin:/Users/gon/.openclaw/tools/node/bin:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin" bash --noprofile --norc -c "command -v atq; atq; atq | grep -q . && echo ACEPTA_OK"
+/Users/gon/.local/bin/atq
+9	Wed Oct 28 18:42:00 2026 a claw
+ACEPTA_OK
+
+$ ssh gonserver /usr/bin/atq
+9	Wed Oct 28 18:42:00 2026 a claw
+
+$ ssh gonserver md5sum de recordatorios vs repo
+41e43db818d9f9f035aa7c6e4b77ed3d  /mnt/data/appdata/orbit/recordatorios/ingesta01-d2.sh
+ce06a85a28abff2b6e7838e89f1d1dfd  /mnt/data/appdata/orbit/recordatorios/ingesta01-d2.sql
+repo 41e43db818d9f9f035aa7c6e4b77ed3d medicion-7d.sh
+repo ce06a85a28abff2b6e7838e89f1d1dfd medicion-7d.sql
+
+$ ssh gonserver "sudo docker exec -i orbit-db-1 psql ..." < medicion-7d.sql (BEGIN READ ONLY ... ROLLBACK; sin enviar nada) — exit 0, salida en sql-prueba-20261021-204925.txt
+
+D.1 sigue sano (re-checklist 2026-10-21 20:48 UTC: 0 fallas, 0 sin medir, exit 0) — ver checklist-20261021-204845.txt.
