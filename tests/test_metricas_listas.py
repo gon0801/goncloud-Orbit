@@ -28,6 +28,8 @@ from test_schema import SQL, _postgres_obligatorio_ausente, _test_dsn
 from app import metricas_listas
 
 SQL40 = (Path(__file__).resolve().parents[1] / "migrations/0040_ads_report_result.sql").read_text()
+SQL36 = Path(__file__).resolve().parents[1] / "migrations/0036_ingest_run_platform.sql"
+SQL36 = SQL36.read_text()
 SQL62 = (Path(__file__).resolve().parents[1] / "migrations/0062_bids02_placement.sql").read_text()
 
 HOY = dt.date(2026, 10, 21)
@@ -64,8 +66,13 @@ class _ConnGuarda:
             assert params[:3] == ("amazon_ads_reports_v3", HOY, AYER)
             return _R((1,) if params[3] in self._metricas else None)
         if "FROM ads_placement_observation" in sql:
-            assert params[:3] == ("amazon_ads_placements_v3", HOY, AYER)
-            return _R((1,) if params[3] in self._placements else None)
+            # doble existe (0062 no liga run): (ayer, platform, source, hoy)
+            assert (params[0], params[2], params[3]) == (
+                AYER,
+                "amazon_ads_placements_v3",
+                HOY,
+            )
+            return _R((1,) if params[1] in self._placements else None)
         raise AssertionError(f"SQL no esperado: {sql}")
 
 
@@ -107,7 +114,7 @@ def test_motivo_de_salto_con_conn_falso(monkeypatch):
 def test_sql_de_metricas_listas_parsea_como_postgres():
     import pglast
 
-    for nombre in ("_SQL_METRICAS_LISTAS", "_SQL_PLACEMENTS_LISTOS"):
+    for nombre in ("_SQL_METRICAS_LISTAS", "_SQL_PRODUCTOS_LISTOS", "_SQL_PLACEMENTS_LISTOS"):
         sql = getattr(metricas_listas, nombre).replace("%s", "NULL")
         assert pglast.parse_sql(sql), f"{nombre} no parseo"
 
@@ -116,7 +123,7 @@ def test_sql_de_metricas_listas_parsea_como_postgres():
 def conn_pg():
     import psycopg
     from psycopg import sql as pgsql
-    from psycopg.conninfo import make_dsn
+    from psycopg.conninfo import make_conninfo
 
     dsn = _test_dsn()
     db = f"orbit_guarda_{socket.gethostname().lower()}_{os.getpid()}"
@@ -128,8 +135,9 @@ def conn_pg():
         conn.execute("SET TIME ZONE 'UTC'")
         conn.execute(SQL)
         conn.execute(SQL40)
+        conn.execute(SQL36)
         conn.execute(SQL62)
-        yield conn, make_dsn(dsn, dbname=db)
+        yield conn, make_conninfo(dsn, dbname=db)
     finally:
         if conn is not None:
             conn.close()
@@ -331,7 +339,18 @@ def _corre_vigia(conn_pg, monkeypatch, capsys, argv=("impulso-vigia",)):
     monkeypatch.setenv("ORBIT_DSN_ADMIN", dsn)
     monkeypatch.setattr(impulso_io, "_SQL_VIVOS", "SELECT 1 AS id, 'amazon_mx' AS platform")
     llamados: list = []
-    monkeypatch.setattr(impulso_io, "vigila", lambda *a, **k: (llamados.append((a, k)), [])[1])
+    # el stub devuelve una accion atendida: con impulsos vivos atendidos el
+    # vigia sale 0 (R09-F solo avisa cuando NINGUNO se atendio). El namespace
+    # cubre lo que main_impulso_vigia imprime por cada accion.
+    atendida = types.SimpleNamespace(
+        atendido=True,
+        impulso_id=1,
+        veredicto=types.SimpleNamespace(estado="ok"),
+        hecho="stub",
+    )
+    monkeypatch.setattr(
+        impulso_io, "vigila", lambda *a, **k: (llamados.append((a, k)), [atendida])[1]
+    )
     salida = cli.main(list(argv))
     return salida, llamados, capsys.readouterr().out
 

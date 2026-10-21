@@ -766,6 +766,16 @@ def _construye_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _despacha_bids(comando: str, rest: list[str], forzar: bool) -> int:
+    """avisos-campana e impulso-vigia: parse_known_args consumio --forzar
+    del subparser en args.forzar; se reenvia como token para que cli_bids
+    mantenga su contrato despacha(comando, rest) (iglesia de
+    jev-senales.main(rest))."""
+    if forzar:
+        rest = [*rest, "--forzar"]
+    return cli_bids.despacha(comando, rest)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _construye_parser()
     args, rest = parser.parse_known_args(argv)
@@ -832,7 +842,7 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         return _precio(args)
     if args.comando in cli_bids.COMANDOS:
-        return cli_bids.despacha(args.comando, rest)
+        return _despacha_bids(args.comando, rest, getattr(args, "forzar", False))
     return _ingest(args, rest)
 
 
