@@ -645,7 +645,9 @@ def test_seco_por_omision(capsys, monkeypatch):
 
         monkeypatch.setenv("ORBIT_DSN_READ", _dsn_s4())
         monkeypatch.delenv("ORBIT_DSN_JEV", raising=False)
-        assert jev_senales.main([]) == 0
+        # --forzar: esta prueba es del comportamiento R14 (seco), no de la
+        # guarda de metricas de ayer (ingesta-01 A.3)
+        assert jev_senales.main(["--forzar"]) == 0
         assert "seco" in capsys.readouterr().out
         assert _conteos(conn) == antes
 

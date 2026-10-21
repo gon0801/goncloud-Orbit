@@ -23,26 +23,18 @@ import psycopg
 
 from app.ads.reports import (
     _SQL_ENTIDADES,
-    INTENTOS_POLL,
     AdsClient,
     AdsReportsError,
     ResultadoIngesta,
     _decimal_reporte,
     _entero_reporte,
     _registrar_resultado,
-    _run_de_fallo_de_api,
     _validar_rango,
-    descargar_filas,
-    esperar_reporte,
-    solicitar_reporte,
 )
-from app.ads.salud import intentar_procesar_run
 from app.ads.structure import (
-    _SQL_ABRIR_RUN,
     PerfilAds,
     _formato_skip_reason,
     _sellar_run,
-    evaluar_perfiles,
 )
 from app.redaction import scrub
 
@@ -275,89 +267,47 @@ def ingest_placements(
     )
 
 
-def sync_placements(
+def escribir_grupo(
     conn: psycopg.Connection,
-    client: AdsClient,
+    run_id: int,
+    grupo,
+    items: list,
     *,
-    desde: dt.date,
-    hasta: dt.date,
-    sleep=time.sleep,
-) -> int:
-    """Orquestador propio: perfiles aceptados -> reporte por perfil ->
-    ingesta, con `source` propio. Devuelve filas escritas; todo fallo
-    sella su run ok=false antes de re-lanzar (incluido cero perfiles
-    aceptados, que con contrato int solo puede avisar fallando)."""
-    _validar_rango(desde, hasta)
-    with conn.transaction():
-        run_id = conn.execute(_SQL_ABRIR_RUN, (SOURCE_PLACEMENTS,)).fetchone()[0]
+    fecha_ini: dt.date,
+    fecha_fin: dt.date,
+):
+    """Fase DB del grupo placements: la escribe `al_completar` de
+    app.ads.descarga cuando el grupo cierra su fase de API. Una transaccion:
+    ingest_placements por reporte (observed_at lo fija Python por reporte: dos
+    reportes del mismo dia dejan dos observaciones), `written` por reporte y
+    sello ok=true en la misma. En fallo: rollback + sello best-effort ok=false
+    + re-lanzamiento (descarga marca el grupo y sigue con los demas)."""
+    from app.ads.descarga import ResultadoEscritura
 
-    descargados: list[tuple[PerfilAds, str, list[dict]]] = []
-    perfil_actual: PerfilAds | None = None
-    report_id_actual: str | None = None
-    try:
-        todos = evaluar_perfiles(client)
-        perfiles = [perfil for perfil in todos if perfil.aceptado]
-        rechazados = [perfil for perfil in todos if not perfil.aceptado]
-        with conn.transaction():
-            for rechazado in rechazados:
-                _registrar_resultado(
-                    conn,
-                    run_id,
-                    rechazado,
-                    None,
-                    None,
-                    "rejected",
-                    rechazado.motivo or "perfil rechazado sin motivo",
-                )
-            for perfil in perfiles:
-                _registrar_resultado(conn, run_id, perfil, PLACEMENTS_CFG, None, "pending")
-    except BaseException as exc:
-        _run_de_fallo_de_api(conn, run_id, exc, None, None, None)
-        raise
-    if not perfiles:
-        # Fuera del try: sync_metrics RETORNA aqui (no raise) para no sellar
-        # dos veces; con contrato int solo se puede avisar fallando, asi que
-        # el raise va donde el except de fase API ya no lo alcanza.
-        motivo = (
-            "ningun perfil aceptado: /v2/profiles devolvio 0 perfiles"
-            if not rechazados
-            else "ningun perfil aceptado: "
-            + "; ".join(p.motivo or "sin motivo" for p in rechazados)
-        )
-        with conn.transaction():
-            if not rechazados:
-                _registrar_resultado(conn, run_id, None, None, None, "global_failed", motivo)
-            _sellar_run(conn, run_id, ok=False, rows_skipped=0, skip_reason=motivo)
-        intentar_procesar_run(conn, run_id)
-        raise AdsReportsError(motivo)
-    try:
-        for perfil in perfiles:
-            perfil_actual, report_id_actual = perfil, None
-            report_id = solicitar_reporte(client, perfil, PLACEMENTS_CFG, desde, hasta)
-            report_id_actual = report_id
-            url = esperar_reporte(client, perfil, report_id, sleep=sleep, intentos=INTENTOS_POLL)
-            filas = descargar_filas(client, url)
-            descargados.append((perfil, report_id, filas))
-            with conn.transaction():
-                _registrar_resultado(conn, run_id, perfil, PLACEMENTS_CFG, report_id, "downloaded")
-    except BaseException as exc:
-        _run_de_fallo_de_api(conn, run_id, exc, perfil_actual, PLACEMENTS_CFG, report_id_actual)
-        raise
-
+    del grupo
     escritos = 0
     skips: Counter[str] = Counter()
-    perfil_actual, report_id_actual = None, None
+    perfil_actual: PerfilAds | None = None
     try:
         with conn.transaction():
-            for perfil, report_id, filas in descargados:
-                perfil_actual, report_id_actual = perfil, report_id
+            for item in items:
+                perfil = item.perfil
+                perfil_actual = perfil
                 observado = dt.datetime.now(dt.UTC)
                 resultado = ingest_placements(
-                    conn, perfil, report_id, filas, observed_at=observado, desde=desde, hasta=hasta
+                    conn,
+                    perfil,
+                    item.report_id,
+                    item.filas,
+                    observed_at=observado,
+                    desde=fecha_ini,
+                    hasta=fecha_fin,
                 )
                 escritos += resultado.rows_written
                 skips.update(resultado.skips)
-                _registrar_resultado(conn, run_id, perfil, PLACEMENTS_CFG, report_id, "written")
+                _registrar_resultado(
+                    conn, run_id, perfil, PLACEMENTS_CFG, item.report_id, "written"
+                )
             _sellar_run(
                 conn,
                 run_id,
@@ -374,7 +324,7 @@ def sync_placements(
                     run_id,
                     perfil_actual,
                     PLACEMENTS_CFG,
-                    report_id_actual,
+                    None,
                     "failed" if perfil_actual else "global_failed",
                     str(exc) or type(exc).__name__,
                 )
@@ -392,8 +342,46 @@ def sync_placements(
                 run_id,
                 scrub(str(exc)),
             )
-        intentar_procesar_run(conn, run_id)
         raise
 
-    intentar_procesar_run(conn, run_id)
-    return escritos
+    return ResultadoEscritura(
+        rows_written=escritos,
+        rows_skipped=sum(skips.values()),
+        skip_reason=_formato_skip_reason(skips),
+    )
+
+
+def sync_placements(
+    conn: psycopg.Connection,
+    client: AdsClient,
+    *,
+    desde: dt.date,
+    hasta: dt.date,
+    sleep=time.sleep,
+    reloj=time.monotonic,
+) -> int:
+    """Orquestador: su fase de API vive en app.ads.descarga (misma vuelta de
+    sondeo que metricas cuando el caller los agrupa); aqui solo se arma el
+    grupo y la fase de DB (`escribir_grupo`). Devuelve filas escritas; todo
+    fallo se sella ok=false antes de subir (incluido cero perfiles aceptados,
+    que con contrato int solo puede avisar fallando). `source` propio: un
+    fallo aqui no tira a los demas grupos de la vuelta."""
+    from app.ads.descarga import GrupoDescarga, descarga
+
+    _validar_rango(desde, hasta)
+    grupo = GrupoDescarga(clave="placements", source=SOURCE_PLACEMENTS, cfgs=(PLACEMENTS_CFG,))
+    resultados = descarga(
+        conn,
+        client,
+        [grupo],
+        (desde, hasta),
+        reloj=reloj,
+        sleep=sleep,
+        al_completar=escribir_grupo,
+    )
+    res = resultados["placements"]
+    if not res.ok:
+        if res.exc is not None:
+            raise res.exc
+        raise AdsReportsError(res.skip_reason or "la corrida de placements fallo")
+    return res.escritura.rows_written

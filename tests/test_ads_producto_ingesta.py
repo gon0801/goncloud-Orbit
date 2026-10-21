@@ -694,27 +694,20 @@ def test_0023_triggers_append_only_bloquean_mutacion():
         admin.close()
 
 
-def test_poll_de_productos_usa_presupuesto_mayor():
+def test_sondeo_nuevo_cubre_la_latencia_de_productos():
     """Regresion del hallazgo productivo 2026-09-07: el primer reporte
     spAdvertisedProduct real tardo ~25 min en salir de PENDING y la corrida
-    aborto fail-closed con el tope estandar de 120 intentos (10 min). El sync
-    debe pedir INTENTOS_POLL_PRODUCTOS (>= 300) SOLO para spAdvertisedProduct,
-    sin tocar el presupuesto de los 4 reportes estandar."""
-    import re
+    aborto fail-closed con el tope estandar. El sondeo nuevo (ingesta-01)
+    repite a los 40 min y acota el plazo global a 2 h 30 min: un reporte de
+    productos de ~25 min ya no se puede perder por presupuesto."""
+    import app.ads.descarga as descarga
 
-    import app.ads.reports as reports
-
-    assert reports.INTENTOS_POLL_PRODUCTOS >= 300
-    # La rama del sync elige por reportTypeId, no globalmente.
-    fuente = inspect.getsource(reports.sync_metrics)
-    assert 'cfg.get("reportTypeId") == "spAdvertisedProduct"' in fuente
-    assert "INTENTOS_POLL_PRODUCTOS" in fuente
-    assert re.search(r"else\s+INTENTOS_POLL\b", fuente)
-    # esperar_reporte sigue honrando el default estandar.
-    assert (
-        inspect.signature(reports.esperar_reporte).parameters["intentos"].default
-        == reports.INTENTOS_POLL
-    )
+    assert descarga.REINTENTO_TRAS_SEGUNDOS >= 25 * 60
+    assert descarga.PLAZO_SONDEO_SEGUNDOS >= 2 * 60 * 60
+    # La regla de repeticion no distingue por reportTypeId: un solo camino.
+    fuente = inspect.getsource(descarga._sondear_intento)
+    assert "REINTENTO_TRAS_SEGUNDOS" in fuente
+    assert "reportTypeId" not in fuente
 
 
 # ---------------------------------------------------------------------------

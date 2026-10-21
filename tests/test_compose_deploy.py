@@ -172,15 +172,19 @@ def test_compose_ningun_puerto_en_todas_las_interfaces():
         )
 
 
-def test_cron_metricas_escapa_porcentaje_de_date():
-    """Vixie cron convierte % no escapado en newline: el job de metricas
-    quedaria truncado antes de docker exec (alta de cross-review codex)."""
+def test_cron_con_date_escapa_porcentaje_de_date():
+    """Vixie cron convierte % no escapado en newline y trunca el comando
+    (alta de cross-review codex). Desde ingesta-01 A.4 el diario calcula el
+    rango D-31..D-1 por dentro y ninguna linea del bloque lleva %; la regla
+    queda como candado para cualquier linea futura que use `date`."""
+    import re
+
     texto = (RAIZ / "docs" / "DEPLOY.md").read_text(encoding="utf-8")
-    lineas = [ln for ln in texto.splitlines() if ln.startswith("10 7 * * *")]
-    assert lineas, "falta el cron 07:10 de metricas en DEPLOY.md"
-    for ln in lineas:
-        assert r"+\%F" in ln, f"date +%F sin escapar en crontab: {ln}"
-        assert "+%F" not in ln.replace(r"+\%F", "")
+    cron = re.compile(r"^[@0-9*/,.-]+[ \t]")
+    for ln in texto.splitlines():
+        if cron.match(ln) and ("date" in ln or "%" in ln):
+            assert r"+\%F" in ln, f"date +%F sin escapar en crontab: {ln}"
+            assert "+%F" not in ln.replace(r"+\%F", "")
 
 
 SECRETS_MOUNT = "/mnt/data/appdata/orbit/secrets:/mnt/data/appdata/orbit/secrets:rw"

@@ -782,6 +782,11 @@ def main(argv: list[str]) -> int:
         description="Sella la senal Jev por busqueda-en-grupo (seco salvo --aplicar).",
     )
     parser.add_argument("--aplicar", action="store_true", help="escribe senales (sin esto es seco)")
+    parser.add_argument(
+        "--forzar",
+        action="store_true",
+        help="corre sin la guarda de metricas de ayer (uso manual)",
+    )
     args = parser.parse_args(argv)
     dsn_read = os.environ.get("ORBIT_DSN_READ")
     if not dsn_read:
@@ -795,6 +800,14 @@ def main(argv: list[str]) -> int:
     escritor = None
     try:
         lector = connect(dsn_read)
+        # Guarda de ingesta-01 A.3: las senales se sellan sobre
+        # search_term_observation (la escribe la corrida de metricas de hoy):
+        # sin esas filas de D-1 no se abre nada, ni siquiera el candado.
+        from app import metricas_listas
+
+        if not metricas_listas.guarda(lector, ("amazon_us", "amazon_mx"), forzar=args.forzar):
+            print(metricas_listas.TEXTO_ESPERA)
+            return 0
         if args.aplicar:
             escritor = connect(dsn_jev, autocommit=True)
         from app.notifica import envia_aviso
