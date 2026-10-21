@@ -1,0 +1,72 @@
+ingesta-01 D.2 — 2026-10-21 12:40 (intento 9): diagnostico de RAIZ de por que el `atq`
+LOCAL de la Mac mini sale vacio y por que no se puede programar el `at` local
+================================================================================
+
+Maquina: Mac mini, macOS 27.0.1 (Build 26A434), instalada el 2026-09-24, uptime 13 h.
+El trabajo `at` real de la medicion de 7 dias sigue en GONSERVER (job 9,
+28-oct 18:42 UTC; ver atq-gonserver.txt). Esto documenta el bloqueo local.
+
+HALLAZGO: el KERNEL bloquea para SIEMPRE toda la familia "creacion" de syscalls
+dentro de /private/var/at/* (jobs, spool y tabs — los spools de at y cron),
+para CUALQUIER proceso, incluido root via setuid:
+
+    open(O_CREAT)  -> cuelga   (mkdir)  -> cuelga   (symlink) -> cuelga
+    rename(entrante) -> cuelga
+    unlink de inexistente -> ENOENT al instante; readdir/stat -> OK (por eso
+    `atq` corre y no muestra nada; por eso `atrm`/`at -c` de job inexistente
+    terminan al instante; el cuelgue es EXCLUSIVO de la ruta de creacion de
+    `writefile()` en at.c: la apertura del lockfile ocurre antes del alarm(10)
+    del propio binario, asi que `at`/`batch` jamas llegan a ningun timeout).
+
+Prueba syscall-level: proceso python propio (mismo euid, sampleable) bloqueado:
+
+    open (in libsystem_kernel.dylib) -> __open + 8   [colgado >15 s]
+
+Descartes uno a uno (todo medido hoy 2026-10-21):
+- POSIX perms: otros dirs daemon:wheel 755 (p. ej. /private/var/db/factory_installs,
+  /private/var/folders/zz/...) dan EACCES AL INSTANTE; /etc y /usr/local igual.
+- SIP: paths restringidos (/usr/lib, /usr/libexec, /System/Library) dan
+  EPERM AL INSTANTE. /private/var/at NO tiene flag restricted (ls -lO: "-").
+  /usr/lib/cron es symlink restricted a ../../var/at, pero el cuelgue se da
+  tambien por la ruta real /private/var/at/*, sin symlinks de por medio.
+- Sandbox: ningun "deny" en el log unificado para estos intentos.
+- BackgroundTaskManagement SANO: un binario con SMAppService (SDK 27) responde
+  al instante (agent status=3 NotFound, statusForLegacyURL inmediato). La API
+  de BTM no esta wedged.
+- Sin kexts de terceros cargados (kmutil showloaded: solo com.apple.*). La unica
+  system extension es la de red de Tailscale (network-extension, sin fileop).
+- Reiniciar el XProtectPluginService del USUARIO (kill + relanzado por launchd):
+  el cuelgue persiste. XProtect root (36020) y backgroundtaskmanagementd (299)
+  no acumulan NI UN SEGUNDO de CPU durante un bloqueo de 15 s: la peticion
+  queda sin respondedor en el kernel (un listener kauth/EndpointSecurity interno
+  de Apple sin handler vivo, o un handler que nunca contesta).
+- `crontab -` (instalar crontab, escribe /private/var/at/tabs via setuid root)
+  TAMBIEN se cuelga: todo el subsistema at/cron de persistencia esta roto en
+  esta Mac desde la instalacion del SO. No es culpa de `at` ni de su config:
+  /usr/lib/cron/at.deny esta vacio (nadie vetado).
+
+Segundo problema independiente (ya documentado en at-local-macos27.txt): atrun
+viene Disabled=true en com.apple.atrun.plist; cargarlo pide sudo.
+
+CONCLUSION: defecto de macOS 27.0.1 en el hook de creacion de los spools de
+at/cron (capa EndpointSecurity/kauth interna de Apple). No tiene arreglo sin
+una persona con la contrasena de administrador:
+
+1) Probar REINICIO (uptime era 13 h; el comportamiento es deterministico
+   desde el arranque, asi que si persiste tras reiniciar, es bug de 27.0.1).
+2) Con el bloqueo activo (python3 -c "import os; os.open('/private/var/at/jobs/x',
+   os.O_WRONLY|os.O_CREAT)" en segundo plano), correr:
+      sudo spindump <pid-del-colgado>
+      sudo launchctl list | grep -iE "xprotect|backgroundtask|tccd"
+   y reiniciar el daemon respondedor, p. ej.:
+      sudo launchctl kickstart -k system/com.apple.backgroundtaskmanagementd
+      sudo pkill -9 -f XProtectPluginService
+      sudo pkill -9 tccd   (tccd reaparece solo; en el log aparece tccd
+      tocando registros kTCCServiceEndpointSecurityClient)
+3) Reportar a Apple (Feedback Assistant) con el spindump.
+
+Estado del Acepta: `atq | grep -q .` sigue saliendo 1 en esta Mac (cola vacia y
+no se puede meter ningun trabajo); `ssh gonserver 'atq | grep -q .' ` sale 0.
+La medicion de 7 dias no depende de la Mac: el job 9 de gonserver corre el
+.sql de solo lectura y manda el Telegram el 28-oct 18:42 UTC. D.2 es "No
+bloquea el cierre".

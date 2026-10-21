@@ -1,0 +1,60 @@
+ingesta-01 D.2 — 2026-10-21 13:04 PDT (intento 17): re-verificacion fresca, mismo diagnostico
+================================================================================
+
+Contexto: el Acepta de D.2 (`atq | grep -q .`) corre en ESTA Mac. La cola local
+sigue vacia y el subsistema `at` local sigue roto a nivel kernel (diagnostico
+raiz: at-colgue-raiz-20261021.txt; re-diagnosticos: intentos 13-16). La
+medicion real de 7 dias sigue programada y verificada en gonserver (job 9).
+
+Bateria de hoy (13:04 PDT, uptime 13:28 — SIN reinicio desde el diagnostico
+raiz; es la misma sesion de arranque de los intentos 13-16):
+
+1) uptime: `13:04 up 13:28, 1 user` — continuidad directa con el intento 16
+   (12:59, up 13:24): nadie reinicio la Mac entre intentos.
+
+2) `atq` local: corre, exit 0, cola vacia (0 filas) -> `grep -q .` sale 1.
+   /private/var/at/jobs sigue con 0 entradas y mtime 2026-09-24.
+
+3) Envio local fresco CON guarda de 10 s: `echo ... | /usr/bin/at now + 5
+   minutes` ahora aborta SOLO (no hizo falta el watchdog): corta con
+   "at: cannot open lockfile /usr/lib/cron/jobs/.lockfile: Interrupted system
+   call", exit 1. Mismo EINTR del intento 16 (alli colgaba y solo cedia con
+   SIGKILL; hoy aborta rapido): el hook de kernel sobre la creacion de
+   entradas en /private/var/at/jobs sigue activo, ahora devolviendo EINTR.
+
+4) Escalera de admin cerrada (re-verificada hoy):
+   - `sudo -n true` -> "sudo: a password is required" (gon esta en el grupo
+     admin pero NO hay sudo sin contrasena).
+   - `launchctl print system/com.apple.atrun` -> "Could not find service"
+     (no cargado; cargarlo exige sudo). defaults sigue en Disabled=1.
+   - /private/var/at/jobs es drwxr-xr-x daemon:wheel: sin root no se puede
+     escribir a mano, y root via setuid (at) tampoco logra crear el lockfile.
+
+Estado real de D.2 (no depende de la Mac; re-verificado hoy 13:04-13:05 PDT):
+- gonserver: job 9 en `atq` (Wed Oct 28 18:42:00 2026 a claw); `ssh gonserver
+  'atq | grep -q .'` -> exit 0.
+- Archivos en /mnt/data/appdata/orbit/recordatorios/: ingesta01-d2.sh (md5
+  41e43db818d9f9f035aa7c6e4b77ed3d = repo medicion-7d.sh), ingesta01-d2.sql
+  (md5 ce06a85a28abff2b6e7838e89f1d1dfd = repo medicion-7d.sql, BEGIN READ
+  ONLY ... ROLLBACK), .out, .txt y envia_recordatorio.py en su lugar.
+- ingesta01-d2.sql re-probado hoy 20:05 UTC en solo lectura (sudo docker exec
+  -i orbit-db-1 psql ... < ingesta01-d2.sql): exit 0, 3 querys, 0 filas (la
+  ventana de 7 dias empieza el 2026-10-22; ver sql-prueba-20261021-2005.txt).
+- envios.log: sus 5 lineas son del recordatorio jev-ads03 D.3 (mtime
+  Oct 2 20:07); ingesta01 NO envio nada (el envio ocurrira cuando corra el
+  job el 28-oct).
+- checklist D.1 re-corre hoy 20:04 UTC: 0 fallas, 0 sin medir, exit 0 (ver
+  ../D.1/checklist-20261021-200458.txt).
+
+Conclusion (igual que intentos 13-16, hoy con el aborto en EINTR en vez de
+cuelgue): el Acepta local `atq | grep -q .` sigue inalcanzable en esta Mac sin
+una persona con la contrasena de administrador. Desbloqueo (humano):
+1) reiniciar la Mac y re-probar `echo true | at now + 5 min`;
+2) si persiste, con el open colgado: `sudo spindump <pid>`,
+   `sudo pkill -9 tccd` y `sudo launchctl kickstart -k
+   system/com.apple.backgroundtaskmanagementd`;
+3) habilitar la ejecucion: `sudo launchctl load -w
+   /System/Library/LaunchDaemons/com.apple.atrun.plist`.
+Con la cola local viva, reprogramar el trabajo local es un `at -f` de un par
+de lineas; el trabajo REAL (medicion + Telegram) ya esta en gonserver, donde
+viven Docker, la DB y los logs que mide.
