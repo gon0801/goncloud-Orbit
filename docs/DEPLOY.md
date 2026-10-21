@@ -717,11 +717,11 @@ ORBIT_BLOCK=$(cat <<'CRON'
 # job_key=ingest:structure
 45 6 * * * docker exec orbit-app-1 python -m app.cli ingest structure >> /mnt/data/appdata/orbit/logs/ingest-structure.log 2>&1
 # job_key=ingest:diario  A.2: metricas + productos + placements en UNA descarga (rango D-31..D-1 por dentro; sin % en el crontab)
-10 7 * * * docker exec orbit-app-1 python -m app.cli ingest diario >> /mnt/data/appdata/orbit/logs/ingest-diario.log 2>&1
+10 7 * * * docker exec orbit-app-1 python -m app.cli ingest diario --solo-faltantes >> /mnt/data/appdata/orbit/logs/ingest-diario.log 2>&1
 # job_key=ingest:diario  reintento de las 10:40 (--solo-faltantes salta lo ya al dia)
-40 10 * * * docker exec orbit-app-1 python -m app.cli ingest diario >> /mnt/data/appdata/orbit/logs/ingest-diario.log 2>&1
+40 10 * * * docker exec orbit-app-1 python -m app.cli ingest diario --solo-faltantes >> /mnt/data/appdata/orbit/logs/ingest-diario.log 2>&1
 # job_key=ingest:diario  ultimo reintento del dia (13:15)
-15 13 * * * docker exec orbit-app-1 python -m app.cli ingest diario >> /mnt/data/appdata/orbit/logs/ingest-diario.log 2>&1
+15 13 * * * docker exec orbit-app-1 python -m app.cli ingest diario --solo-faltantes >> /mnt/data/appdata/orbit/logs/ingest-diario.log 2>&1
 # job_key=avisos-campana  BIDS 02 V.4 (dentro del bloque desde ingesta-01 A.4)
 5 8 * * * /usr/bin/flock -n /tmp/avisos-campana.lock docker exec orbit-app-1 python -m app.cli avisos-campana >> /mnt/data/appdata/orbit/logs/avisos-campana.log 2>&1
 # job_key=impulso-vigia  BIDS 02 I.3 (dentro del bloque desde ingesta-01 A.4)

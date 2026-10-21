@@ -161,6 +161,16 @@ def test_el_diario_se_agenda_en_los_minutos_de_HORARIOS_INGESTA():
     assert vistos == esperados, "los minutos del crontab deben salir de HORARIOS_INGESTA"
 
 
+def test_los_reintentos_y_el_primer_horario_llevan_solo_faltantes():
+    reinstalado = _reinstala(_deploy(), CRONTAB_DE_HOY)
+    diario = [
+        ln for ln in reinstalado.splitlines() if "app.cli ingest diario" in ln and ln[:1].isdigit()
+    ]
+    assert len(diario) == len(HORARIOS_INGESTA)
+    for ln in diario:
+        assert "--solo-faltantes" in ln, f"sin --solo-faltantes: {ln}"
+
+
 def test_la_tabla_de_horarios_documenta_los_mismos_minutos():
     deploy = _deploy()
     assert f"| {', '.join(HORARIOS_INGESTA)} | `ingest:diario` |" in deploy
