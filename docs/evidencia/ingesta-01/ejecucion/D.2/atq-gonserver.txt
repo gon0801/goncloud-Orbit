@@ -7,3 +7,8 @@
 # $ ssh gonserver 'atq | grep -q .' -> exit 0
 exit=0
 # local: atq | grep -q . -> exit 1 (cola vacía, sin fix sin admin; ver at-colgue-raiz-20261021.txt)
+
+== intento 11, 2026-10-21 12:44:01 (uptime: 13:08, 1 user, load averages: 2.05 1.66 1.44) ==
+local atq (Mac): vacio, sin reinicio desde el diagnostico; crear trabajos sigue colgado (ver at-colgue-raiz-20261021.txt)
+gonserver atq:
+9	Wed Oct 28 18:42:00 2026 a claw
