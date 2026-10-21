@@ -223,6 +223,36 @@ def job_key_de(platform: str) -> str:
     return f"{MOTOR}:{platform}"
 
 
+# Guarda del cron (ingesta-01 A.3): una plataforma con ciclo done/degraded
+# hoy no repite, y un running de hace menos de 3 h se respeta (puede estar
+# vivo); uno failed, skipped o running mas viejo es un huerfano de proceso
+# muerto y SI se reintenta (el rastro lo cierra al ganar el claim nuevo).
+# El reloj es now() de la DB, el mismo del claim: sin skew Python-DB.
+_SQL_ULTIMO_CICLO_HOY = """
+SELECT status, started_at > now() - interval '3 hours'
+  FROM optimizer_cycle
+ WHERE platform = %s
+   AND (started_at AT TIME ZONE 'UTC')::date = (now() AT TIME ZONE 'UTC')::date
+ ORDER BY started_at DESC
+ LIMIT 1
+"""
+
+
+def motivo_de_salto(conn: psycopg.Connection, platform: str) -> str | None:
+    """Razon por la que hoy NO se abre un ciclo nuevo para `platform`, o
+    None si se puede correr. La consulta es deliberadamente la del ultimo
+    ciclo de HOY: un running viejo no bloquea (es huerfano reclamable)."""
+    fila = conn.execute(_SQL_ULTIMO_CICLO_HOY, (platform,)).fetchone()
+    if fila is None:
+        return None
+    status, corriendo_reciente = fila
+    if status in ("done", "degraded"):
+        return f"cycle {platform}: ya hay un ciclo {status} hoy; espera al siguiente horario"
+    if status == "running" and corriendo_reciente:
+        return f"cycle {platform}: ciclo running iniciado hace menos de 3 h"
+    return None
+
+
 # Motivos de skip del ORQUESTADOR (vocabulario cerrado; ademas se importan los
 # MOTIVO_* de bid/hygiene tal cual a los contadores de notes). veto_pendiente
 # viene de apply_cola (2.2 sellado 5): UNA fuente del vocabulario.

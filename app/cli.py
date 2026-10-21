@@ -103,6 +103,20 @@ def _cycle(args) -> int:
         owner = args.owner or f"{socket.gethostname()}:{os.getpid()}"
         conn = connect(dsn)
         try:
+            # Guardas de ingesta-01 A.3: sin metricas de ayer no hay ciclo
+            # (decidir sobre datos viejos es peor que esperar), y una
+            # plataforma con ciclo cerrado hoy no repite. --forzar salta
+            # ambas para la corrida manual.
+            from app import metricas_listas
+
+            if not metricas_listas.guarda(conn, (args.platform,), forzar=args.forzar):
+                print(metricas_listas.TEXTO_ESPERA)
+                return 0
+            if not args.forzar:
+                salto = ciclo.motivo_de_salto(conn, args.platform)
+                if salto is not None:
+                    print(salto)
+                    return 0
             resultado = ciclo.corre_ciclo(
                 conn, platform=args.platform, owner=owner, decided_at=decided_at
             )
@@ -574,6 +588,11 @@ def _construye_parser() -> argparse.ArgumentParser:
         "--decided-at",
         default=None,
         help="ISO 8601 tz-aware para el reloj de las decisiones (default: ahora UTC)",
+    )
+    p_cycle.add_argument(
+        "--forzar",
+        action="store_true",
+        help="corre sin las guardas (metricas de ayer y ciclo ya cerrado hoy); uso manual",
     )
 
     p_goals = sub.add_parser(

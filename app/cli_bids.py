@@ -32,15 +32,26 @@ def _ya_salio(conn, plataforma: str, clase: str, hoy: dt.date) -> bool:
     )
 
 
+def _parsea_forzar(argv: list[str], comando: str) -> tuple[bool, int | None]:
+    """--forzar corre el comando a mano sin las guardas de metricas de ayer;
+    cualquier otro token es error de uso (exit 2)."""
+    if argv == ["--forzar"]:
+        return True, None
+    if argv:
+        print(f"argumentos desconocidos para '{comando}': {argv}", file=sys.stderr)
+        return False, 2
+    return False, None
+
+
 def main_avisos_campana(argv: list[str]) -> int:
     from app import notifica
     from app.avisos_campana import CLASES
     from app.db import connect
     from app.optimizer.bid import PLATAFORMAS_MONEDA
 
-    if argv:
-        print(f"argumentos desconocidos para 'avisos-campana': {argv}", file=sys.stderr)
-        return 2
+    forzar, error = _parsea_forzar(argv, "avisos-campana")
+    if error is not None:
+        return error
     dsn_read = os.environ.get("ORBIT_DSN_READ")
     if not dsn_read:
         print("avisos-campana: falta ORBIT_DSN_READ", file=sys.stderr)
@@ -52,6 +63,16 @@ def main_avisos_campana(argv: list[str]) -> int:
     hoy = dt.datetime.now(dt.UTC).date()
     conn_read = connect(dsn_read)
     try:
+        # Guarda de ingesta-01 A.3: este comando lee ads_placement_observation
+        # (via pantalla_dinero.lee_ubicaciones) y v_metric_latest: sin las
+        # corridas ok de hoy con D-1 no abre nada, no envia nada y no marca.
+        from app import metricas_listas
+
+        if not metricas_listas.guarda(
+            conn_read, PLATAFORMAS_MONEDA, forzar=forzar, exigir_placements=True
+        ):
+            print(metricas_listas.TEXTO_ESPERA)
+            return 0
         pendientes = {
             (plataforma, clase)
             for plataforma in PLATAFORMAS_MONEDA
@@ -82,17 +103,27 @@ def main_impulso_vigia(argv: list[str]) -> int:
     from app import impulso_io
     from app.db import connect
 
-    if argv:
-        print(f"argumentos desconocidos para 'impulso-vigia': {argv}", file=sys.stderr)
-        return 2
+    forzar, error = _parsea_forzar(argv, "impulso-vigia")
+    if error is not None:
+        return error
     dsn_admin = os.environ.get("ORBIT_DSN_ADMIN")
     if not dsn_admin:
         print("impulso-vigia: falta ORBIT_DSN_ADMIN", file=sys.stderr)
         return 2
     conn = connect(dsn_admin)
     try:
-        vivos = len(conn.execute(impulso_io._SQL_VIVOS).fetchall())
+        from app import metricas_listas
+
+        filas_vivos = conn.execute(impulso_io._SQL_VIVOS).fetchall()
+        vivos = len(filas_vivos)
+        plataformas = sorted({fila[1] for fila in filas_vivos})
         conn.commit()
+        # Guarda de ingesta-01 A.3: el vigia decide con v_metric_latest; sin
+        # las metricas de ayer de TODAS las plataformas con impulso vivo no
+        # abre nada (cero impulso_lectura, cero fabrica_lote, cero goals).
+        if not metricas_listas.guarda(conn, plataformas, forzar=forzar):
+            print(metricas_listas.TEXTO_ESPERA)
+            return 0
         hoy = dt.datetime.now(dt.UTC).date()
         acciones = impulso_io.vigila(conn, impulso_io.PausadorFabrica(conn), hoy=hoy)
     finally:
@@ -117,8 +148,16 @@ COMANDOS = {"avisos-campana": main_avisos_campana, "impulso-vigia": main_impulso
 
 def registra(sub) -> None:
     """Agrega los subparsers BIDS al CLI principal."""
-    sub.add_parser("avisos-campana", help="avisos diarios de campana por Telegram (BIDS 02 V.4)")
-    sub.add_parser("impulso-vigia", help="vigia diario del impulso (BIDS 02 I.3)")
+    p_avisos = sub.add_parser(
+        "avisos-campana", help="avisos diarios de campana por Telegram (BIDS 02 V.4)"
+    )
+    p_avisos.add_argument(
+        "--forzar", action="store_true", help="corre sin las guardas de métricas de ayer"
+    )
+    p_vigia = sub.add_parser("impulso-vigia", help="vigia diario del impulso (BIDS 02 I.3)")
+    p_vigia.add_argument(
+        "--forzar", action="store_true", help="corre sin las guardas de métricas de ayer"
+    )
 
 
 def despacha(comando: str, rest: list[str]) -> int:

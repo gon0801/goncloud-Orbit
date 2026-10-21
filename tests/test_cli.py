@@ -29,13 +29,33 @@ from app import cycle as ciclo
 FALSO_RESULTADO = ciclo.ResultadoCiclo(cycle_id=42, status="done", decisions_count=4, notes="{}")
 
 
+class _FakeResultado:
+    def __init__(self, fila=None):
+        self._fila = fila
+
+    def fetchone(self):
+        return self._fila
+
+    def fetchall(self):
+        return [self._fila] if self._fila is not None else []
+
+
 class _FakeConn:
     """Conexion falsa: el test verifica que el CLI la pasa tal cual al
     orquestador (el CLI no debe tocar su contenido). `close` existe porque el
-    CLI SIEMPRE cierra la conexion en un finally."""
+    CLI SIEMPRE cierra la conexion en un finally. `execute` responde solo las
+    guardas de ingesta-01 A.3 (metricas de ayer listas, sin ciclo hoy) para
+    que el CLI llegue al orquestador, que es lo que estos tests miden."""
 
     def close(self) -> None:
         pass
+
+    def execute(self, sql, params=None):
+        if "FROM ads_metric_observation" in sql:
+            return _FakeResultado((1,))
+        if "FROM optimizer_cycle" in sql:
+            return _FakeResultado(None)
+        raise AssertionError(f"SQL no esperado por el fake: {sql}")
 
 
 def _captura(monkeypatch) -> dict:

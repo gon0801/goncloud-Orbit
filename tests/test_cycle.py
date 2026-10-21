@@ -1413,6 +1413,9 @@ _SQL_CYCLE = (
     "_SQL_MARGENES_FAMILIA",
     "_SQL_PAREJAS_CAMPANA_FAMILIA",
     "_SQL_TARGETS_PREVIOS",
+    # ingesta-01 A.3: la guarda del cron (ciclo cerrado hoy / running
+    # reciente) lee el ultimo ciclo del dia.
+    "_SQL_ULTIMO_CICLO_HOY",
 )
 
 
