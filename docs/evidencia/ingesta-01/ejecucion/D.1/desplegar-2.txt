@@ -22,7 +22,7 @@ guardas OK
 == 7) Build + recrear app (digest antes/despues) + health
 DIGEST antes=sha256:6337f0afb2ff5ba9992bc5c6a944cad2e130c4826cd100e5afb253462d477b05
 #1 [internal] load local bake definitions
- Image orbit-app Building 
+ Image orbit-app Building
 #1 reading from stdin 482B done
 #1 DONE 0.0s
 
@@ -99,11 +99,11 @@ DIGEST antes=sha256:6337f0afb2ff5ba9992bc5c6a944cad2e130c4826cd100e5afb253462d47
 
 #20 resolving provenance for metadata file
 #20 DONE 0.0s
- Image orbit-app Built 
- Container orbit-app-1 Recreate 
- Container orbit-app-1 Recreated 
- Container orbit-app-1 Starting 
- Container orbit-app-1 Started 
+ Image orbit-app Built
+ Container orbit-app-1 Recreate
+ Container orbit-app-1 Recreated
+ Container orbit-app-1 Starting
+ Container orbit-app-1 Started
 DIGEST despues=sha256:375b0e6981f898baa3e3fba1de17d16e9a2a7b8970143220eb199446810f4e26
 {"status":"ok"}
 orbit-app-1 Up 5 seconds

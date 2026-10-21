@@ -4,7 +4,7 @@ SHA previo al despliegue: 72c440eb2d918fb48f5fffc47a2189eff55972c9
 guardas OK
 == 2) Restaurar el codigo y la imagen de predeploy-20261021-1814
 DIGEST antes=sha256:6e649ffb179b02af25b0eec76759edf21eae8c19cd03346d0ac4c2c2abd577b2
- Image orbit-app Building 
+ Image orbit-app Building
 #1 [internal] load local bake definitions
 #1 reading from stdin 482B done
 #1 DONE 0.0s
@@ -80,8 +80,8 @@ DIGEST antes=sha256:6e649ffb179b02af25b0eec76759edf21eae8c19cd03346d0ac4c2c2abd5
 
 #20 resolving provenance for metadata file
 #20 DONE 0.0s
- Image orbit-app Built 
- Container orbit-app-1 Running 
+ Image orbit-app Built
+ Container orbit-app-1 Running
 DIGEST despues=sha256:6e649ffb179b02af25b0eec76759edf21eae8c19cd03346d0ac4c2c2abd577b2
 DIGEST predeploy=sha256:e69e5ac2eda733f9bd5c000c7c3dd75330baa4f827510929b1215e923f51bd80
 {"status":"ok"}
