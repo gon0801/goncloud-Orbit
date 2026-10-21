@@ -57,3 +57,20 @@ md5 .sql/.sh = repo):
 gonserver `atq | grep -q .` -> exit 0
 checklist D.1 re-corre hoy 20:04 UTC: 0 fallas, 0 sin medir, exit 0 (ver ../D.1/checklist-20261021-200458.txt)
 sql re-probado hoy en solo lectura: exit 0 con ROLLBACK (sql-prueba-20261021-2005.txt)
+
+== intento 18, 2026-10-21 13:20 PDT (20:20 UTC) ==
+local atq vacío; caracterización nueva a nivel kernel: envío con TODAS las
+señales bloqueadas (pthread_sigmask heredado) sigue cortando con EINTR en el
+lockfile (batch y `at -q g` idénticos); `touch` de usuario normal en
+/private/var/at/jobs da EINTR (no Permission denied) mientras /private/var/db
+da Permission denied normal; `mkdir` en el spool se cuelga indefinidamente;
+`at` es setuid root y aún así recibe EINTR; crontab (setuid) funciona ->
+bloqueo quirúrgico al spool de at = política del SO (macOS 27.0.1, SIP on),
+mediador probable backgroundtaskmanagementd (running; reiniciarlo exige
+sudo). Detalle: bloqueo-local-intento-18-20261021.txt
+gonserver atq (reverificado 13:13 PDT, archivos ingesta01-d2.* en su lugar;
+md5 .sql/.sh = repo):
+9	Wed Oct 28 18:42:00 2026 a claw
+gonserver `atq | grep -q .` -> exit 0
+checklist D.1 re-corre hoy 20:16 UTC: 0 fallas, 0 sin medir, exit 0 (ver ../D.1/checklist-20261021-201613.txt)
+sql re-probado hoy en solo lectura: exit 0 con ROLLBACK (sql-prueba-20261021-201613.txt)
