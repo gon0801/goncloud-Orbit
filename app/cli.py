@@ -175,6 +175,12 @@ def _ingest(args, rest: list[str]) -> int:
         return structure.main()
     if args.pipeline == "metrics":
         return reports.main(rest)
+    if args.pipeline == "diario":
+        # ingesta-01 A.2: metricas + productos + placements en UNA descarga
+        # (tres ingest_run, reintentos del dia con --solo-faltantes).
+        from app.ads.diario import main as diario_main
+
+        return diario_main(rest)
     if args.pipeline == "costs":
         # ORBIT 06 0.1: costos de contabilidad (snapshot SQLite via --sqlite;
         # runbook en docs/DEPLOY.md). Mismo patron que metrics: args al main.
@@ -527,6 +533,7 @@ def _construye_parser() -> argparse.ArgumentParser:
         choices=(
             "structure",
             "metrics",
+            "diario",
             "costs",
             "listings",
             "fx",
@@ -539,6 +546,8 @@ def _construye_parser() -> argparse.ArgumentParser:
         ),
         help=(
             "structure: sync de estructura; metrics: metricas + search terms;"
+            " diario: metricas + productos + placements en UNA descarga"
+            " (reintentos del dia con --solo-faltantes);"
             " costs: productos+costos desde contabilidad (--sqlite);"
             " listings: mapa de listings desde el bridge (--sqlite);"
             " fx: tipos de cambio desde contabilidad (--sqlite);"

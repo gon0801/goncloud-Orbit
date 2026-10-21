@@ -702,3 +702,11 @@ def descarga(
     """
     corrida = _Corrida(conn, list(grupos), rango, al_completar)
     return corrida.run(client, reloj=reloj, sleep=sleep)
+
+
+if __name__ == "__main__":
+    # La corrida diaria vive en app.ads.diario (este modulo queda dedicado a
+    # la descarga paralela; el -m se conserva por el runbook de A.2).
+    from app.ads.diario import main
+
+    raise SystemExit(main())
