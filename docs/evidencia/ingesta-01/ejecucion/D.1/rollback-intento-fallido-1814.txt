@@ -1,0 +1,91 @@
+== 0) Respaldos presentes ANTES de tocar nada
+SHA previo al despliegue: 72c440eb2d918fb48f5fffc47a2189eff55972c9
+== 1) Guardas
+guardas OK
+== 2) Restaurar el codigo y la imagen de predeploy-20261021-1814
+DIGEST antes=sha256:6e649ffb179b02af25b0eec76759edf21eae8c19cd03346d0ac4c2c2abd577b2
+ Image orbit-app Building 
+#1 [internal] load local bake definitions
+#1 reading from stdin 482B done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 1.20kB done
+#2 DONE 0.0s
+
+#3 [internal] load metadata for docker.io/library/python:3.12-slim-bookworm
+#3 ...
+
+#4 [internal] load metadata for ghcr.io/astral-sh/uv:0.11.11
+#4 DONE 0.4s
+
+#3 [internal] load metadata for docker.io/library/python:3.12-slim-bookworm
+#3 DONE 0.6s
+
+#5 [internal] load .dockerignore
+#5 transferring context: 199B done
+#5 DONE 0.0s
+
+#6 [internal] load build context
+#6 transferring context: 8.70kB done
+#6 DONE 0.0s
+
+#7 FROM ghcr.io/astral-sh/uv:0.11.11@sha256:798712e57f879c5393777cbda2bb309b29fcdeb0532129d4b1c3125c5385975a
+#7 resolve ghcr.io/astral-sh/uv:0.11.11@sha256:798712e57f879c5393777cbda2bb309b29fcdeb0532129d4b1c3125c5385975a 0.0s done
+#7 DONE 0.0s
+
+#8 [stage-0  1/11] FROM docker.io/library/python:3.12-slim-bookworm@sha256:6a0e06f5ba0b373d051aabd3fffb9b873f27f9a2a3a14bcbe37dee6f0e3bbc70
+#8 resolve docker.io/library/python:3.12-slim-bookworm@sha256:6a0e06f5ba0b373d051aabd3fffb9b873f27f9a2a3a14bcbe37dee6f0e3bbc70 0.0s done
+#8 DONE 0.0s
+
+#9 [stage-0 10/11] COPY tools/precio_sonda.py ./tools/precio_sonda.py
+#9 CACHED
+
+#10 [stage-0  7/11] COPY tools/fabrica_campanas.py ./tools/fabrica_campanas.py
+#10 CACHED
+
+#11 [stage-0  9/11] COPY tools/jev_fichas.py ./tools/jev_fichas.py
+#11 CACHED
+
+#12 [stage-0  6/11] COPY app ./app
+#12 CACHED
+
+#13 [stage-0  8/11] COPY tools/jev_ads.py ./tools/jev_ads.py
+#13 CACHED
+
+#14 [stage-0  4/11] COPY pyproject.toml uv.lock ./
+#14 CACHED
+
+#15 [stage-0  3/11] WORKDIR /app
+#15 CACHED
+
+#16 [stage-0  2/11] COPY --from=ghcr.io/astral-sh/uv:0.11.11 /uv /uvx /bin/
+#16 CACHED
+
+#17 [stage-0  5/11] RUN uv sync --frozen --no-dev --no-install-project --no-cache
+#17 CACHED
+
+#18 [stage-0 11/11] COPY tools/precio_cobertura.py ./tools/precio_cobertura.py
+#18 CACHED
+
+#19 exporting to image
+#19 exporting layers done
+#19 exporting manifest sha256:99781c05edfc6a564a78aba8fd710f8667e62d3ddec8a3e80029bba14481cf16 done
+#19 exporting config sha256:b481f20bacd36b38e9949ebf1fd5dfdec9016451315f60eb8fb8e5a0d0805481 done
+#19 exporting attestation manifest sha256:e6f40b262f403968b42ddd13749804c6fe51893c20c910a210b6769994c92ba3 done
+#19 exporting manifest list sha256:c312ebe76c1587001a66cac51187a7c1ee12149651577e70133a69717fb21849 done
+#19 naming to docker.io/library/orbit-app:latest done
+#19 unpacking to docker.io/library/orbit-app:latest done
+#19 DONE 0.0s
+
+#20 resolving provenance for metadata file
+#20 DONE 0.0s
+ Image orbit-app Built 
+ Container orbit-app-1 Running 
+DIGEST despues=sha256:6e649ffb179b02af25b0eec76759edf21eae8c19cd03346d0ac4c2c2abd577b2
+DIGEST predeploy=sha256:e69e5ac2eda733f9bd5c000c7c3dd75330baa4f827510929b1215e923f51bd80
+{"status":"ok"}
+== 3) Restaurar el crontab de gon desde crontab-antes.txt (el actual se archiva antes)
+crontab igual a crontab-antes.txt
+== 4) Verificacion: codigo anterior (sin descarga.py) y app sana
+FALLA: descarga.py sigue en el contenedor

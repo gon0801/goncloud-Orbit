@@ -1,0 +1,133 @@
+== 0) Respaldos presentes ANTES de tocar nada
+SHA previo al despliegue: bbeb9a5b2aaeadbb986d9426fff042180a84c28b
+== 1) Guardas
+guardas OK
+== 2) Restaurar el codigo y la imagen de predeploy-20261021-1814
+DIGEST antes=sha256:6e649ffb179b02af25b0eec76759edf21eae8c19cd03346d0ac4c2c2abd577b2
+ Image orbit-app Building 
+#1 [internal] load local bake definitions
+#1 reading from stdin 482B done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 1.20kB done
+#2 DONE 0.0s
+
+#3 [internal] load metadata for ghcr.io/astral-sh/uv:0.11.11
+#3 ...
+
+#4 [internal] load metadata for docker.io/library/python:3.12-slim-bookworm
+#4 DONE 0.4s
+
+#3 [internal] load metadata for ghcr.io/astral-sh/uv:0.11.11
+#3 DONE 0.4s
+
+#5 [internal] load .dockerignore
+#5 transferring context: 199B done
+#5 DONE 0.0s
+
+#6 [stage-0  1/11] FROM docker.io/library/python:3.12-slim-bookworm@sha256:6a0e06f5ba0b373d051aabd3fffb9b873f27f9a2a3a14bcbe37dee6f0e3bbc70
+#6 resolve docker.io/library/python:3.12-slim-bookworm@sha256:6a0e06f5ba0b373d051aabd3fffb9b873f27f9a2a3a14bcbe37dee6f0e3bbc70 0.0s done
+#6 DONE 0.0s
+
+#7 FROM ghcr.io/astral-sh/uv:0.11.11@sha256:798712e57f879c5393777cbda2bb309b29fcdeb0532129d4b1c3125c5385975a
+#7 resolve ghcr.io/astral-sh/uv:0.11.11@sha256:798712e57f879c5393777cbda2bb309b29fcdeb0532129d4b1c3125c5385975a 0.0s done
+#7 DONE 0.0s
+
+#8 [internal] load build context
+#8 transferring context: 3.95MB 0.0s done
+#8 DONE 0.0s
+
+#9 [stage-0  2/11] COPY --from=ghcr.io/astral-sh/uv:0.11.11 /uv /uvx /bin/
+#9 CACHED
+
+#10 [stage-0  3/11] WORKDIR /app
+#10 CACHED
+
+#11 [stage-0  4/11] COPY pyproject.toml uv.lock ./
+#11 DONE 0.0s
+
+#12 [stage-0  5/11] RUN uv sync --frozen --no-dev --no-install-project --no-cache
+#12 0.304 Using CPython 3.12.15 interpreter at: /usr/local/bin/python3
+#12 0.304 Creating virtual environment at: .venv
+#12 0.374 Downloading pydantic-core (2.0MiB)
+#12 0.395 Downloading psycopg-binary (4.9MiB)
+#12 0.396 Downloading uvloop (4.2MiB)
+#12 0.650  Downloaded pydantic-core
+#12 0.695  Downloaded psycopg-binary
+#12 0.699  Downloaded uvloop
+#12 0.699 Prepared 26 packages in 388ms
+#12 0.747 Installed 26 packages in 47ms
+#12 1.054 Bytecode compiled 589 files in 307ms
+#12 1.054  + annotated-doc==0.0.5
+#12 1.054  + annotated-types==0.8.0
+#12 1.054  + anyio==4.14.2
+#12 1.054  + certifi==2026.7.22
+#12 1.054  + click==8.4.2
+#12 1.054  + fastapi==0.141.1
+#12 1.054  + h11==0.16.0
+#12 1.054  + httpcore==1.0.9
+#12 1.054  + httptools==0.8.0
+#12 1.054  + httpx==0.28.1
+#12 1.054  + idna==3.19
+#12 1.054  + jinja2==3.1.6
+#12 1.054  + markupsafe==3.0.3
+#12 1.054  + psycopg==3.3.4
+#12 1.054  + psycopg-binary==3.3.4
+#12 1.054  + pydantic==2.13.4
+#12 1.054  + pydantic-core==2.46.4
+#12 1.054  + python-dotenv==1.2.3
+#12 1.054  + pyyaml==6.0.3
+#12 1.054  + starlette==1.6.0
+#12 1.054  + typing-extensions==4.16.0
+#12 1.054  + typing-inspection==0.4.4
+#12 1.054  + uvicorn==0.52.4
+#12 1.055  + uvloop==0.22.1
+#12 1.055  + watchfiles==1.2.0
+#12 1.055  + websockets==17.0.1
+#12 DONE 1.2s
+
+#13 [stage-0  6/11] COPY app ./app
+#13 DONE 0.1s
+
+#14 [stage-0  7/11] COPY tools/fabrica_campanas.py ./tools/fabrica_campanas.py
+#14 DONE 0.0s
+
+#15 [stage-0  8/11] COPY tools/jev_ads.py ./tools/jev_ads.py
+#15 DONE 0.0s
+
+#16 [stage-0  9/11] COPY tools/jev_fichas.py ./tools/jev_fichas.py
+#16 DONE 0.0s
+
+#17 [stage-0 10/11] COPY tools/precio_sonda.py ./tools/precio_sonda.py
+#17 DONE 0.0s
+
+#18 [stage-0 11/11] COPY tools/precio_cobertura.py ./tools/precio_cobertura.py
+#18 DONE 0.0s
+
+#19 exporting to image
+#19 exporting layers
+#19 exporting layers 2.0s done
+#19 exporting manifest sha256:582540f033101741aaa0984fc23aed4c5eb49cbc8c895ba386076f0a23c8f47f done
+#19 exporting config sha256:cb134cd8754738292a0fc1d3a89cd28519e2a5465db9ddf24498b705f200d0a2 done
+#19 exporting attestation manifest sha256:62bd0082879f280da6b0a0184697d2ef4d623de70030b76f4178699f67a5a1f1 done
+#19 exporting manifest list sha256:6337f0afb2ff5ba9992bc5c6a944cad2e130c4826cd100e5afb253462d477b05 done
+#19 naming to docker.io/library/orbit-app:latest done
+#19 unpacking to docker.io/library/orbit-app:latest
+#19 unpacking to docker.io/library/orbit-app:latest 0.5s done
+#19 DONE 2.5s
+
+#20 resolving provenance for metadata file
+#20 DONE 0.0s
+ Image orbit-app Built 
+ Container orbit-app-1 Recreate 
+ Container orbit-app-1 Recreated 
+ Container orbit-app-1 Starting 
+ Container orbit-app-1 Started 
+DIGEST despues=sha256:6337f0afb2ff5ba9992bc5c6a944cad2e130c4826cd100e5afb253462d477b05
+DIGEST predeploy=sin-dato
+{"status":"ok"}
+== 3) Restaurar el crontab de gon desde crontab-antes.txt (el actual se archiva antes)
+crontab igual a crontab-antes.txt
+== 4) Verificacion: codigo anterior (sin descarga.py) y app sana
+== REVERSA LISTA (imagen y crontab previos; /health 200)
