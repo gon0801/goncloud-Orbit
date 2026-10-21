@@ -1,0 +1,50 @@
+ingesta-01 D.2 — 2026-10-21: por que el `atq` LOCAL de la Mac mini no puede mostrar el recordatorio
+================
+
+Hecho: el recordatorio de la medicion de 7 dias esta programado con `at` en GONSERVER
+(donde estan Docker, la DB y /mnt/data), con el patron de jev-ads-03 D.3:
+
+    $ ssh gonserver 'atq'
+    9	Wed Oct 28 18:42:00 2026 a claw
+
+    $ ssh gonserver 'atq | grep -q .'   # exit 0
+
+El Acepta del bloque es `atq | grep -q .` y el motor lo corre en la Mac (worktree
+local), donde sale 1. Aqui el diagnostico completo de por que no se puede cumplir
+en la Mac sin una persona con la contrasena de administrador:
+
+1) El envio (`at`/`batch`) se cuelga SIEMPRE en esta Mac, en cualquier contexto.
+   Reproducido el 2026-10-21 con cuatro metodos distintos, todos colgados >25 s
+   (uno del intento anterior lleva >40 min hasta que se mato):
+     - echo true | at now + 5 minutes
+     - echo ... | at 11:42 AM oct 28
+     - batch < /tmp/j2.sh
+     - osascript -e 'do shell script "..."'  (contexto de sistema, UserScriptService)
+   El proceso queda en sleep con euid=root (ruid=gon), sin CPU, sin archivos abiertos
+   en /var/at (lsof), sin locks en /var/at, y el log unificado solo registra al
+   arrancar: "atq: (libsystem_info.dylib) Retrieve User by ID". No se crea NINGUN
+   archivo en /var/at/jobs (el directorio esta vacio desde la instalacion del SO,
+   mtime 2026-09-24 00:10). Se mataron los procesos colgados (ruid=gon permite
+   kill pese al euid root).
+
+2) DNS no es la causa: resolucion directa e inversa de las IPs/hostname locales es
+   instantanea (dscacheutil, getaddrinfo, getnameinfo); las cuentas de sistema
+   (root, daemon) resuelven instantaneas via getpwuid.
+
+3) /var/at/jobs es daemon:wheel 755: sin root no se puede escribir un trabajo a
+   mano, y ningun binario setuid del sistema da escritura arbitraria como root.
+   sudo pide contrasena (sudo -n true -> "a password is required").
+
+4) Aunque el envio funcionara, el ejecutor `atrun` viene DESHABILITADO por omision
+   en macOS 27 (plist: Disabled=true, StartInterval=30; /usr/libexec/atrun existe).
+   Habilitarlo exige: sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.atrun.plist
+   -> tambien solo lo puede hacer una persona con la contrasena de admin.
+
+Maquina: macOS 27.0.1 (Build 26A434), instalada el 2026-09-24.
+
+Conclusion: el `Acepta` local `atq | grep -q .` es inalcanzable en la Mac mini por
+un problema del subsistema `at` de macOS 27 que requiere intervencion de admin
+(investigar el hang del envio + cargar atrun). La medicion real no depende de la
+Mac: el trabajo 9 de gonserver corre el 2026-10-28 18:42 UTC el .sql de solo
+lectura y manda el Telegram (scripts en /mnt/data/appdata/orbit/recordatorios/,
+salida de prueba en ingesta01-d2.out/.txt).

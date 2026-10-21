@@ -1,5 +1,7 @@
 9	Wed Oct 28 18:42:00 2026 a claw
-# El trabajo `at` vive en gonserver (donde estan Docker, la DB y /mnt/data), como en jev-ads-03 D.3
-# (`ssh gonserver atq`). El `atq` local de la Mac mini siempre sale vacio: atrun no esta cargado
-# ahi y `sudo` pide contrasena, asi que un `at` local no se puede crear ni correria.
-# Verificacion correcta: ssh gonserver 'atq | grep -q .'
+# 2026-10-21 (reverificacion del intento 6): ssh gonserver 'atq | grep -q .' -> exit 0.
+# El trabajo `at` vive en gonserver (donde estan Docker, la DB y /mnt/data), como en jev-ads-03 D.3.
+# El `atq` LOCAL de la Mac mini sale vacio SIEMPRE: el envio de `at`/`batch` se cuelga en
+# macOS 27.0.1 en cualquier contexto (repro en at-local-macos27.txt) y atrun viene deshabilitado
+# (cargarlo pide contrasena de admin). Diagnostico completo y comando para el admin:
+#   docs/evidencia/ingesta-01/ejecucion/D.2/at-local-macos27.txt
