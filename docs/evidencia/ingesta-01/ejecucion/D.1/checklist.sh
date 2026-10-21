@@ -8,6 +8,11 @@ H=${ORBIT_SSH:-gonserver}
 REPO=$(git rev-parse --show-toplevel)
 SRV=/mnt/data/appdata/orbit
 DIR=docs/evidencia/ingesta-01/ejecucion/D.1
+# ORBIT_DEPLOY_SHA: costura SOLO para tests (tests/test_ingesta01_d1_checklist.py):
+# SHA alternativo que existe en cualquier checkout (el shallow de CI no tiene el
+# objeto del SHA desplegado real). Sin la variable, el camino de produccion es el
+# de siempre: sha-desplegado.txt, y si falta, el predeploy mas reciente del server.
+SHA=${ORBIT_DEPLOY_SHA:-}
 FALLAS=0
 NOMEDIDO=0
 cd "$REPO"
@@ -22,7 +27,7 @@ echo "== 0) El servidor contesta"
 RUNNING=$(ssh "$H" "sudo docker inspect -f '{{.State.Running}}' orbit-app-1" 2>/dev/null || true)
 [ -n "$RUNNING" ] || { echo "NO MEDIDO el servidor no contesta"; exit 4; }
 revisa "orbit-app-1 corriendo" true "$RUNNING"
-SHA=$(cat "$DIR/sha-desplegado.txt" 2>/dev/null || true)
+[ -n "$SHA" ] || SHA=$(cat "$DIR/sha-desplegado.txt" 2>/dev/null || true)
 [ -n "$SHA" ] || SHA=$(ssh "$H" "ls -d $SRV/predeploy-2* | sort | tail -1 | xargs -I{} sudo cat {}/SHA" 2>/dev/null || true)
 echo "== Checklist D.1 ingesta-01 (SHA ${SHA:-sin-dato})"
 

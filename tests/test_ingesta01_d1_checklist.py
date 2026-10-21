@@ -4,6 +4,11 @@ Antes contaba solo lineas '^>' del diff local-vs-servidor: si en el servidor
 faltaba un archivo (md5sum lo manda a stderr, sin linea) o la lectura por ssh
 salia vacia, el paso imprimia "OK ... distintos = 0". Estos tests fallan
 contra esa version y exigen FALLA / NO MEDIDO.
+
+El checklist corre contra ORBIT_DEPLOY_SHA (costura de test) apuntando a HEAD:
+el SHA desplegado real (sha-desplegado.txt) existe solo en clones completos y
+el checkout de CI es shallow, donde `git show <sha-desplegado>:...` muere con
+exit 128 (run 39673772920). HEAD existe en cualquier checkout.
 """
 
 import os
@@ -78,7 +83,16 @@ def _entorno(tmp_path, modo):
     fake = tmp_path / "ssh"
     fake.write_text(FAKE_SSH)
     fake.chmod(0o755)
-    sha = (DIR / "sha-desplegado.txt").read_text(encoding="utf-8").strip()
+    # HEAD existe en cualquier checkout (tambien en el shallow de CI); el SHA
+    # desplegado real no, y estos tests prueban la logica del checklist, no el
+    # deploy en si.
+    sha = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=True,
+        cwd=RAIZ,
+    ).stdout.strip()
     deploy = subprocess.run(
         ["git", "show", f"{sha}:docs/DEPLOY.md"],
         capture_output=True,
@@ -98,6 +112,7 @@ def _entorno(tmp_path, modo):
         {
             "PATH": f"{tmp_path}:{env['PATH']}",
             "ORBIT_SSH": "gonserver",
+            "ORBIT_DEPLOY_SHA": sha,
             "CK_MD5_MODE": modo,
             "CK_SHA": sha,
             "CK_ARCHIVOS": str(DIR / "archivos.txt"),
