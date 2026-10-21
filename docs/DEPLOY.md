@@ -385,6 +385,7 @@ El server está en UTC: estas horas SON UTC.
 | 08:20 | `impulso-vigia` | `python -m app.cli impulso-vigia` (BIDS 02 I.3; después de la ingesta, antes del ciclo; dentro del bloque desde ingesta-01 A.4) |
 | 08:40 | `ads_optimizer:amazon_us` + `ads_optimizer:amazon_mx` | `python -m app.cli cycle --platform …` (los dos, en serie) |
 | 09:30, 21:30 | `jev-senales` | `python -m app.cli jev-senales --aplicar` (JEV ADS 02 S.4; dentro del bloque desde ingesta-01 A.4) |
+| 10:00–12:50, /10 min | `ads-salud` | `python -m app.cli ads-salud` (ads-proteccion-01 A.3: salud de la ingesta principal; el cron dispara cada 10 min y el job reporta el atraso desde las 10:30 UTC con reintentos hasta las 12:50; la linea no cambio en ingesta-01 A.4) |
 | 12:15 | `precio-muestras:amazon_mx` | `python -m app.envio_muestras --platform amazon_mx --canal fbm` (REPRICING 02 D.3: job diario de muestras MX antes de la estimacion) |
 | 12:20 | `precio-muestras:amazon_us` | `python -m app.envio_muestras --platform amazon_us --canal fbm` (REPRICING 02 D.3: job diario de muestras US antes de la estimacion) |
 | 13:10 + repasos 15-23/2 | `precio:amazon_mx,amazon_us` | `python -m app.cli precio --platform amazon_mx --platform amazon_us` (REPRICING 02 D.3: diaria 13:10 + repasos cada 2 h, MX y US en serie; flock + log, lineas exactas abajo) |

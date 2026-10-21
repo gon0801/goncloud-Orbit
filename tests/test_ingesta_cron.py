@@ -166,6 +166,20 @@ def test_la_tabla_de_horarios_documenta_los_mismos_minutos():
     assert f"| {', '.join(HORARIOS_INGESTA)} | `ingest:diario` |" in deploy
 
 
+def test_la_tabla_documenta_ads_salud_que_instala_el_bloque():
+    """La tabla "Crons de Orbit" documenta el mismo conjunto que instala el
+    bloque: ads-salud vive en el bloque (*/10 10-12) y no puede ser el
+    unico cron de Orbit invisible en la tabla."""
+    deploy = _deploy()
+    bloque, _ = _instalador(deploy)
+    lineas = [ln for ln in bloque if "app.cli ads-salud" in ln and not ln.startswith("#")]
+    assert len(lineas) == 1, "el bloque instalador debe traer una sola linea de ads-salud"
+    assert lineas[0].startswith("*/10 10-12 * * *")
+    filas = [ln for ln in deploy.splitlines() if ln.startswith("| ") and "ads-salud" in ln]
+    assert len(filas) == 1, "la tabla de crons debe documentar ads-salud una sola vez"
+    assert "`python -m app.cli ads-salud`" in filas[0]
+
+
 def test_cada_linea_del_bloque_lleva_su_job_key():
     bloque, _ = _instalador(_deploy())
     for i, linea in enumerate(bloque):
