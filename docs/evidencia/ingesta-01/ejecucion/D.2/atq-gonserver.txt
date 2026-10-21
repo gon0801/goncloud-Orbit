@@ -1,0 +1,5 @@
+9	Wed Oct 28 18:42:00 2026 a claw
+# El trabajo `at` vive en gonserver (donde estan Docker, la DB y /mnt/data), como en jev-ads-03 D.3
+# (`ssh gonserver atq`). El `atq` local de la Mac mini siempre sale vacio: atrun no esta cargado
+# ahi y `sudo` pide contrasena, asi que un `at` local no se puede crear ni correria.
+# Verificacion correcta: ssh gonserver 'atq | grep -q .'
