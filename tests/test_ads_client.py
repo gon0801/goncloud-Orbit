@@ -945,6 +945,62 @@ def test_create_report_429_si_reintenta():
     assert len(sleeps) == 1
 
 
+def test_rama_generica_4xx_lleva_status_y_cuerpo_redactado():
+    """La rama generica >= 400 de `_request` (p.ej. un 403 de GET) llena los
+    campos `status` y `cuerpo` de AdsApiError, con el cuerpo scrub: el caller
+    (app.ads.descarga) necesita ambos para decidir (ingesta-01 A.1)."""
+    secreto = "sekreto-generico-403"
+    register_secret(secreto)
+    api_calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return _token_response()
+        api_calls.append(request)
+        return httpx.Response(403, text=f"prohibido {secreto} fin")
+
+    client = make_client(handler, sleep=lambda _s: None)
+    with pytest.raises(AdsApiError) as excinfo:
+        client.get("/v2/profiles")
+
+    assert len(api_calls) == 1
+    assert excinfo.value.status == 403
+    assert "fin" in (excinfo.value.cuerpo or "")
+    assert secreto not in (excinfo.value.cuerpo or "")
+    assert REDACTED in (excinfo.value.cuerpo or "")
+    assert "status=403" in str(excinfo.value)
+
+
+def test_create_report_425_lleva_status_y_cuerpo_con_el_id_duplicado():
+    """425 (reporte duplicado): la forma documentada anuncia el id en el
+    cuerpo ("The Request is a duplicate of : <id>"). La rama generica conserva
+    status y cuerpo para que descarga sondee ese reportId (ingesta-01 A.1)."""
+    secreto = "sekreto-425"
+    register_secret(secreto)
+    api_calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return _token_response()
+        api_calls.append(request)
+        return httpx.Response(
+            425,
+            text=(
+                f'{{"message": "The Request is a duplicate of : rep-777", "trace": "{secreto}"}}'
+            ),
+        )
+
+    client = make_client(handler, sleep=lambda _s: None)
+    with pytest.raises(AdsApiError) as excinfo:
+        client.create_report({"reportTypeId": "spCampaigns"}, profile_id=1)
+
+    assert len(api_calls) == 1, "el 425 no es retryable: sale por la rama generica"
+    assert excinfo.value.status == 425
+    assert "rep-777" in (excinfo.value.cuerpo or "")
+    assert secreto not in (excinfo.value.cuerpo or "")
+    assert REDACTED in (excinfo.value.cuerpo or "")
+
+
 def test_refresh_lwa_reintenta_5xx_transitorio():
     """[media] El refresh LWA es idempotente: un 5xx transitorio NO aborta."""
     token_calls: list[httpx.Request] = []
