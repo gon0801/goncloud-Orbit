@@ -317,7 +317,15 @@ class AdsClient:
             )
 
         if resp.status_code >= 400:
-            raise AdsApiError(f"status={resp.status_code}: {method} {redact_url(url)}")
+            # Rama generica: cualquier >= 400 que no se reintento (4xx no
+            # 429, incluido el 425 de "duplicate") sale con status y cuerpo
+            # en la excepcion: el caller (app.ads.descarga) decide con ellos
+            # (p.ej. el 425 entrega el reportId del duplicado en el cuerpo).
+            # El cuerpo va scrub y acotado, igual que en _send_with_retries.
+            error = AdsApiError(f"status={resp.status_code}: {method} {redact_url(url)}")
+            error.status = resp.status_code
+            error.cuerpo = _texto_respuesta(resp)
+            raise error
         return resp
 
     def _build_headers(

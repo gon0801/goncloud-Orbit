@@ -4,6 +4,10 @@ Lee con ORBIT_DSN_READ, marca lo enviado con ORBIT_DSN_INGEST
 (`ingest_run` source `avisos_campana:<clase>`, sellada el mismo dia
 UTC). Dos corridas el mismo dia envian una vez; lo fallido sale en la
 siguiente corrida.
+
+Corren con --forzar: son del comportamiento de envio/marcado, anterior
+a la guarda de metricas de ayer (ingesta-01 A.3), que tiene sus propias
+pruebas en tests/test_metricas_listas.py.
 """
 
 from __future__ import annotations
@@ -106,7 +110,7 @@ def test_comando_envia_y_marca(monkeypatch, tmp_path):
         _siembra_aviso(conn)
         _dsns(monkeypatch, conn)
         with _canal(tmp_path, monkeypatch) as mensajes:
-            assert cli_bids.main_avisos_campana([]) == 0
+            assert cli_bids.main_avisos_campana(["--forzar"]) == 0
             assert [m["text"] for m in mensajes] == [
                 "Tope: se queda sin presupuesto. Usó 90 % o más en 5 de los últimos 7 días."
             ]
@@ -122,8 +126,8 @@ def test_comando_dos_veces_mismo_dia_envia_una(monkeypatch, tmp_path):
         _siembra_aviso(conn)
         _dsns(monkeypatch, conn)
         with _canal(tmp_path, monkeypatch) as mensajes:
-            assert cli_bids.main_avisos_campana([]) == 0
-            assert cli_bids.main_avisos_campana([]) == 0
+            assert cli_bids.main_avisos_campana(["--forzar"]) == 0
+            assert cli_bids.main_avisos_campana(["--forzar"]) == 0
             assert len(mensajes) == 1
 
 
@@ -175,7 +179,7 @@ def test_comando_error_sql_en_us_no_calla_mx(monkeypatch, tmp_path):
 
         monkeypatch.setattr(pd, "lee_ubicaciones", _lee)
         with _canal(tmp_path, monkeypatch) as mensajes:
-            assert cli_bids.main_avisos_campana([]) == 0
+            assert cli_bids.main_avisos_campana(["--forzar"]) == 0
             assert len(mensajes) == 3
 
 
@@ -185,20 +189,20 @@ def test_comando_fallo_no_marca_y_reintenta(monkeypatch, tmp_path):
         _siembra_aviso(conn)
         _dsns(monkeypatch, conn)
         with _canal(tmp_path, monkeypatch, status=500):
-            assert cli_bids.main_avisos_campana([]) == 0
+            assert cli_bids.main_avisos_campana(["--forzar"]) == 0
         marcas = conn.execute(
             "SELECT count(*) FROM ingest_run WHERE source LIKE 'avisos_campana:%'"
         ).fetchone()[0]
         assert marcas == 0
         with _canal(tmp_path, monkeypatch) as mensajes:
-            assert cli_bids.main_avisos_campana([]) == 0
+            assert cli_bids.main_avisos_campana(["--forzar"]) == 0
             assert len(mensajes) == 1
 
 
 def test_comando_sin_dsn_sale_2(monkeypatch, capsys):
     monkeypatch.delenv("ORBIT_DSN_READ", raising=False)
     monkeypatch.delenv("ORBIT_DSN_INGEST", raising=False)
-    assert cli_bids.main_avisos_campana([]) == 2
+    assert cli_bids.main_avisos_campana(["--forzar"]) == 2
     assert "ORBIT_DSN_READ" in capsys.readouterr().err
 
 
@@ -268,7 +272,7 @@ def test_comando_marca_de_ayer_no_calla_hoy(monkeypatch, tmp_path):
             )
         _dsns(monkeypatch, conn)
         with _canal(tmp_path, monkeypatch) as mensajes:
-            assert cli_bids.main_avisos_campana([]) == 0
+            assert cli_bids.main_avisos_campana(["--forzar"]) == 0
             assert len(mensajes) == 3, [m["text"] for m in mensajes]
 
 
@@ -284,7 +288,7 @@ def test_comando_marca_de_mx_no_calla_us_ni_otra_clase(monkeypatch, tmp_path):
         )
         _dsns(monkeypatch, conn)
         with _canal(tmp_path, monkeypatch) as mensajes:
-            assert cli_bids.main_avisos_campana([]) == 0
+            assert cli_bids.main_avisos_campana(["--forzar"]) == 0
             textos = [m["text"] for m in mensajes]
         assert len(textos) == 5, textos
         assert not any("Tope MX" in t for t in textos)
@@ -324,6 +328,6 @@ def test_comando_umbral_por_plataforma(monkeypatch, tmp_path):
         )
         _dsns(monkeypatch, conn)
         with _canal(tmp_path, monkeypatch) as mensajes:
-            assert cli_bids.main_avisos_campana([]) == 0
+            assert cli_bids.main_avisos_campana(["--forzar"]) == 0
             textos = [m["text"] for m in mensajes]
         assert textos == ["Fuera de Amazon: 36 USD en 30 días, 10 clics, ningún pedido."], textos

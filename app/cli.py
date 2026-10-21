@@ -103,6 +103,20 @@ def _cycle(args) -> int:
         owner = args.owner or f"{socket.gethostname()}:{os.getpid()}"
         conn = connect(dsn)
         try:
+            # Guardas de ingesta-01 A.3: sin metricas de ayer no hay ciclo
+            # (decidir sobre datos viejos es peor que esperar), y una
+            # plataforma con ciclo cerrado hoy no repite. --forzar salta
+            # ambas para la corrida manual.
+            from app import metricas_listas
+
+            if not metricas_listas.guarda(conn, (args.platform,), forzar=args.forzar):
+                print(metricas_listas.TEXTO_ESPERA)
+                return 0
+            if not args.forzar:
+                salto = ciclo.motivo_de_salto(conn, args.platform)
+                if salto is not None:
+                    print(salto)
+                    return 0
             resultado = ciclo.corre_ciclo(
                 conn, platform=args.platform, owner=owner, decided_at=decided_at
             )
@@ -175,6 +189,12 @@ def _ingest(args, rest: list[str]) -> int:
         return structure.main()
     if args.pipeline == "metrics":
         return reports.main(rest)
+    if args.pipeline == "diario":
+        # ingesta-01 A.2: metricas + productos + placements en UNA descarga
+        # (tres ingest_run, reintentos del dia con --solo-faltantes).
+        from app.ads.diario import main as diario_main
+
+        return diario_main(rest)
     if args.pipeline == "costs":
         # ORBIT 06 0.1: costos de contabilidad (snapshot SQLite via --sqlite;
         # runbook en docs/DEPLOY.md). Mismo patron que metrics: args al main.
@@ -527,6 +547,7 @@ def _construye_parser() -> argparse.ArgumentParser:
         choices=(
             "structure",
             "metrics",
+            "diario",
             "costs",
             "listings",
             "fx",
@@ -539,6 +560,8 @@ def _construye_parser() -> argparse.ArgumentParser:
         ),
         help=(
             "structure: sync de estructura; metrics: metricas + search terms;"
+            " diario: metricas + productos + placements en UNA descarga"
+            " (reintentos del dia con --solo-faltantes);"
             " costs: productos+costos desde contabilidad (--sqlite);"
             " listings: mapa de listings desde el bridge (--sqlite);"
             " fx: tipos de cambio desde contabilidad (--sqlite);"
@@ -565,6 +588,11 @@ def _construye_parser() -> argparse.ArgumentParser:
         "--decided-at",
         default=None,
         help="ISO 8601 tz-aware para el reloj de las decisiones (default: ahora UTC)",
+    )
+    p_cycle.add_argument(
+        "--forzar",
+        action="store_true",
+        help="corre sin las guardas (metricas de ayer y ciclo ya cerrado hoy); uso manual",
     )
 
     p_goals = sub.add_parser(
@@ -738,6 +766,16 @@ def _construye_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _despacha_bids(comando: str, rest: list[str], forzar: bool) -> int:
+    """avisos-campana e impulso-vigia: parse_known_args consumio --forzar
+    del subparser en args.forzar; se reenvia como token para que cli_bids
+    mantenga su contrato despacha(comando, rest) (iglesia de
+    jev-senales.main(rest))."""
+    if forzar:
+        rest = [*rest, "--forzar"]
+    return cli_bids.despacha(comando, rest)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _construye_parser()
     args, rest = parser.parse_known_args(argv)
@@ -804,7 +842,7 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         return _precio(args)
     if args.comando in cli_bids.COMANDOS:
-        return cli_bids.despacha(args.comando, rest)
+        return _despacha_bids(args.comando, rest, getattr(args, "forzar", False))
     return _ingest(args, rest)
 
 

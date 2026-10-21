@@ -63,9 +63,13 @@ re-lanzar (toda invocacion deja fila auditable en ingest_run):
 
     evaluar_perfiles(client)    (de structure: unica fuente del gate; los
                                 rechazados quedan como warning + evidencia)
-    solicitar_reporte / esperar_reporte / descargar_filas   (IO de API)
-    ingest_metrics / ingest_search_terms(conn, ...)   (IO de DB, un reporte a la vez)
-    sync_metrics(conn, client, ...)   (orquestador: 4 reportes por perfil aceptado)
+    descarga(...)   (IO de API: app.ads.descarga pide y sondea todos los
+                     reportes de una vez, con repetidos -r1/-r2 y plazo de
+                     2 h 30 min; sync_metrics solo arma su grupo)
+    escribir_grupo(conn, ...)   (IO de DB: una transaccion por grupo, un
+                                 reporte a la vez)
+    sync_metrics(conn, client, ...)   (orquestador del grupo metricas/productos)
+    solicitar_reporte / descargar_filas   (primitivas que consume descarga)
 
 Decisiones selladas de esta task:
 
@@ -239,7 +243,6 @@ from app.ads.structure import (
     PerfilAds,
     _formato_skip_reason,
     _sellar_run,
-    evaluar_perfiles,
 )
 from app.db import connect
 from app.redaction import install_scrub_filter, scrub
@@ -291,18 +294,6 @@ def _registrar_resultado(
 
 # Tope de rango de la API (verificado: spCampaigns max 31 dias).
 MAX_RANGO_DIAS = 31
-
-# Poll por defecto: 300 intentos x 5s = hasta ~25 min por reporte. Los
-# reportes del 21-23/09/2026 completaron en 12-13 min, despues del antiguo
-# tope de 10 min que aborto las tres ingestas. La espera sigue acotada.
-INTENTOS_POLL = 300
-ESPERA_POLL_SEGUNDOS = 5.0
-
-# La corrida de productos anunciados (ORBIT 19 B.1) tiene presupuesto propio:
-# el 2026-09-07 el primer reporte spAdvertisedProduct productivo tardo ~25 min
-# en salir de PENDING (la sonda de 0.3 tardo ~110 s: la latencia de la cola de
-# Amazon varia por orden de magnitud). 300 x 5s = 25 min por reporte.
-INTENTOS_POLL_PRODUCTOS = 300
 
 # Tope de descarga (hallazgo codex): un backfill legitimo de 31 dias son unos
 # pocos MB; 512 MB solo lo alcanza un gzip anormal (bug de la API o payload
@@ -611,11 +602,14 @@ def solicitar_reporte(
     reporte_cfg: dict,
     fecha_ini: dt.date,
     fecha_fin: dt.date,
+    *,
+    sufijo: str = "",
 ) -> str:
     """POST /reporting/reports -> report_id (forma del body verificada en vivo).
 
     `groupBy` ARRAY y `columns` STRINGS (con objetos la API da 400); los
-    filters solo existen para keywords/targets (spTargeting).
+    filters solo existen para keywords/targets (spTargeting). `sufijo` (`-r1`,
+    `-r2`) distingue los repetidos que pide app.ads.descarga (ingesta-01).
     """
     configuration: dict = {
         "adProduct": "SPONSORED_PRODUCTS",
@@ -630,7 +624,7 @@ def solicitar_reporte(
     body = {
         "name": (
             f"orbit-{reporte_cfg['nombre']}-{perfil.profile_id}"
-            f"-{fecha_ini.isoformat()}_{fecha_fin.isoformat()}"
+            f"-{fecha_ini.isoformat()}_{fecha_fin.isoformat()}{sufijo}"
         ),
         "startDate": fecha_ini.isoformat(),
         "endDate": fecha_fin.isoformat(),
@@ -645,57 +639,6 @@ def solicitar_reporte(
     if not isinstance(report_id, str) or not report_id:
         raise AdsReportsError("respuesta de POST /reporting/reports sin reportId")
     return report_id
-
-
-def esperar_reporte(
-    client: AdsClient,
-    perfil: PerfilAds,
-    report_id: str,
-    *,
-    intentos: int = INTENTOS_POLL,
-    espera: float = ESPERA_POLL_SEGUNDOS,
-    sleep=time.sleep,
-) -> str:
-    """Poll de GET /reporting/reports/{id} hasta COMPLETED -> url de descarga.
-
-    FAILED -> AdsReportsError con failureReason (redactado por scrub al
-    construir la excepcion); statuses desconocidos y polls agotados tambien
-    son error claro. fileSize (campo verificado en vivo) mayor a
-    MAX_BYTES_REPORTE -> error ANTES de descargar (hallazgo codex: un gzip
-    anormal no debe entrar a memoria). El sleep se inyecta para los tests.
-    """
-    path = f"/reporting/reports/{report_id}"
-    for intento in range(1, intentos + 1):
-        data = _json_de(client.get_report(report_id, profile_id=perfil.profile_id), "GET", path)
-        status = data.get("status") if isinstance(data, dict) else None
-        if status == "COMPLETED":
-            url = data.get("url")
-            if not isinstance(url, str) or not url:
-                raise AdsReportsError(f"reporte {report_id} COMPLETED sin url de descarga")
-            file_size = data.get("fileSize")
-            if (
-                isinstance(file_size, (int, float))
-                and not isinstance(file_size, bool)
-                and file_size > MAX_BYTES_REPORTE
-            ):
-                # fileSize ausente o no numerico NO se valida (regla 3: sin
-                # dato no se inventa); el tope real lo garantiza descargar.
-                raise AdsReportsError(
-                    f"reporte {report_id} con fileSize {int(file_size)} bytes excede el "
-                    f"tope de {MAX_BYTES_REPORTE} (descarga anormal): la corrida aborta "
-                    "fail-closed"
-                )
-            return url
-        if status == "FAILED":
-            raise AdsReportsError(f"reporte {report_id} FAILED: {data.get('failureReason')!r}")
-        if status not in ("PENDING", "PROCESSING"):
-            raise AdsReportsError(f"reporte {report_id} con status desconocido: {status!r}")
-        if intento < intentos:
-            sleep(espera)
-    raise AdsReportsError(
-        f"reporte {report_id} sin COMPLETED tras {intentos} intentos de poll "
-        f"({espera}s entre intentos): la corrida aborta fail-closed"
-    )
 
 
 def descargar_filas(client: AdsClient, url: str) -> list[dict]:
@@ -1703,176 +1646,48 @@ def _validar_rango(fecha_ini: dt.date, fecha_fin: dt.date) -> None:
         raise ValueError(f"rango de {dias} dias excede el maximo de {MAX_RANGO_DIAS} de la API")
 
 
-def _run_de_fallo_de_api(
+def escribir_grupo(
     conn: psycopg.Connection,
     run_id: int,
-    exc: BaseException,
-    perfil: PerfilAds | None,
-    cfg: dict | None,
-    report_id: str | None,
-) -> None:
-    """Fallo API: registra unidad o fallo global y sella la run (best-effort).
-
-    Toda invocacion deja fila auditable en ingest_run (hallazgo codex): sin
-    esto, una corrida que revienta en perfiles/crear/poll/descarga no dejaba
-    rastro contable. La run ya se abrio antes de consultar perfiles; evento
-    y sello de fallo van en UNA transaccion. Si la conexion tambien esta muerta,
-    se deja el rastro en el log y la excepcion ORIGINAL sube igual.
-    """
-    try:
-        with conn.transaction():
-            _registrar_resultado(
-                conn,
-                run_id,
-                perfil,
-                cfg,
-                report_id,
-                "failed" if perfil and cfg else "global_failed",
-                str(exc) or type(exc).__name__,
-            )
-            _sellar_run(
-                conn,
-                run_id,
-                ok=False,
-                rows_skipped=0,
-                skip_reason=scrub(str(exc)) or type(exc).__name__,
-            )
-    except Exception:
-        logger.warning(
-            "fallo de fase API sin run auditable (sello tambien fallo): %s",
-            scrub(str(exc)),
-        )
-    intentar_procesar_run(conn, run_id)
-
-
-def sync_metrics(
-    conn: psycopg.Connection,
-    client: AdsClient,
+    grupo,
+    items: list,
     *,
     fecha_ini: dt.date,
     fecha_fin: dt.date,
-    sleep=time.sleep,
-    reportes: tuple[dict, ...] = REPORTES_CFG,
-) -> ResultadoSync:
-    """Orquestador: perfiles aceptados -> reportes por perfil -> ingesta.
+):
+    """Fase DB de UN grupo de metricas/productos: la escribe `al_completar` de
+    app.ads.descarga en el momento en que el grupo cierra su fase de API.
 
-    `reportes` despacha la corrida: REPORTES_CFG (default, campanas/keywords/
-    targets/search terms) o (PRODUCTOS_CFG,) para la corrida de productos
-    anunciados de ORBIT 19 B.1 (main --productos): misma disciplina de fases,
-    misma ingest_run por corrida.
-
-    Fase de API COMPLETA antes de la fase de DB (ninguna transaccion queda
-    abierta durante el polling) y ENVUELTA: la run se abre antes de consultar
-    perfiles y todo fallo se sella ok=false antes de re-lanzar. Los eventos
-    pending cubren reportes esperados; downloaded no acredita salud hasta
-    written en la misma transaccion que sella la run ok=true.
-    Cero perfiles aceptados NO es
-    excepcion ni exito: la run se sella ok=false con los motivos de rechazo
-    (hallazgo grok). La fase de DB calcula el "hoy" del guard con now() de
-    la DB (UTC fijado) en su propia transaccion;
-    en fallo, rollback atomico del trabajo + sello best-effort ok=false
-    (patron sync_structure). Un fallo en cualquier reporte aborta la corrida
-    entera (fail-closed): re-correr es seguro por el dedupe de source_report_id.
+    Una sola transaccion: el "hoy" del guard sale del MISMO reloj y transaccion
+    que observed_at (now() de la DB, UTC fijado), el despacho por cfg["tabla"]
+    va a ingest_metrics / ingest_search_terms / ingest_productos, cada reporte
+    queda `written` y el sello ok=true cierra la misma transaccion. En fallo:
+    rollback atomico del trabajo + sello best-effort ok=false (registrando la
+    unidad que fallo, o global si aun no habia empezado) y la excepcion
+    original sube: descarga marca el grupo y sigue con los demas.
+    `intentar_procesar_run` lo llama descarga despues de CADA sello.
     """
-    _validar_rango(fecha_ini, fecha_fin)
-    source = SOURCE_PRODUCTOS if reportes == (PRODUCTOS_CFG,) else SOURCE
-    with conn.transaction():
-        run_id = conn.execute(_SQL_ABRIR_RUN, (source,)).fetchone()[0]
+    from app.ads.descarga import ResultadoEscritura
 
-    descargados: list[tuple[PerfilAds, dict, str, list[dict]]] = []
-    perfiles_rechazados: list[PerfilAds] = []
+    del grupo  # el grupo entero es su source: la fase DB solo despacha por cfg
+    escritos = 0
+    skips: Counter[str] = Counter()
+    resumenes: list[ResumenReporte] = []
     perfil_actual: PerfilAds | None = None
     cfg_actual: dict | None = None
     report_id_actual: str | None = None
     try:
-        # Evidencia de perfiles RECHAZADOS al log (hallazgo reviewer): sin esto,
-        # Amazon moviendo /v2/profiles dejaria corridas ok=true con 0 filas y sin
-        # rastro -- el verde falso que el COMMENT de ingest_run denuncia. La
-        # corrida sigue con los aceptados (fail-closed por perfil, no global).
-        todos = evaluar_perfiles(client)
-        for perfil in todos:
-            if not perfil.aceptado:
-                logger.warning(
-                    "perfil %s rechazado, sin metricas esta corrida: %s",
-                    perfil.profile_id,
-                    perfil.motivo,
-                )
-        perfiles = [perfil for perfil in todos if perfil.aceptado]
-        perfiles_rechazados = [perfil for perfil in todos if not perfil.aceptado]
         with conn.transaction():
-            for rechazado in perfiles_rechazados:
-                _registrar_resultado(
-                    conn,
-                    run_id,
-                    rechazado,
-                    None,
-                    None,
-                    "rejected",
-                    rechazado.motivo or "perfil rechazado sin motivo",
-                )
-            for perfil in perfiles:
-                for cfg in reportes:
-                    _registrar_resultado(conn, run_id, perfil, cfg, None, "pending")
-        if not perfiles:
-            # Verde falso (hallazgo grok): sin perfiles aceptados la corrida se
-            # sella ok=false CON los motivos, jamas ok=true con 0 filas.
-            motivo = (
-                "ningun perfil aceptado: /v2/profiles devolvio 0 perfiles"
-                if not perfiles_rechazados
-                else "ningun perfil aceptado: "
-                + "; ".join(perfil.motivo or "sin motivo" for perfil in perfiles_rechazados)
-            )
-            with conn.transaction():
-                if not perfiles_rechazados:
-                    _registrar_resultado(conn, run_id, None, None, None, "global_failed", motivo)
-                _sellar_run(conn, run_id, ok=False, rows_skipped=0, skip_reason=motivo)
-            intentar_procesar_run(conn, run_id)
-            return ResultadoSync(
-                run_id=run_id,
-                ok=False,
-                rows_written=0,
-                rows_skipped=0,
-                skip_reason=motivo,
-                reportes=[],
-                perfiles_rechazados=perfiles_rechazados,
-            )
-        for perfil in perfiles:
-            for cfg in reportes:
-                perfil_actual, cfg_actual, report_id_actual = perfil, cfg, None
-                report_id = solicitar_reporte(client, perfil, cfg, fecha_ini, fecha_fin)
-                report_id_actual = report_id
-                # Presupuesto por tipo de reporte; ambos cubren las latencias
-                # observadas (ver INTENTOS_POLL e INTENTOS_POLL_PRODUCTOS).
-                intentos = (
-                    INTENTOS_POLL_PRODUCTOS
-                    if cfg.get("reportTypeId") == "spAdvertisedProduct"
-                    else INTENTOS_POLL
-                )
-                url = esperar_reporte(client, perfil, report_id, sleep=sleep, intentos=intentos)
-                filas = descargar_filas(client, url)
-                descargados.append((perfil, cfg, report_id, filas))
-                with conn.transaction():
-                    _registrar_resultado(conn, run_id, perfil, cfg, report_id, "downloaded")
-    except BaseException as exc:
-        _run_de_fallo_de_api(conn, run_id, exc, perfil_actual, cfg_actual, report_id_actual)
-        raise
-
-    escritos = 0
-    skips: Counter[str] = Counter()
-    reportes: list[ResumenReporte] = []
-    perfil_actual, cfg_actual, report_id_actual = None, None, None
-    try:
-        with conn.transaction():
-            # El guard usa el MISMO reloj y transaccion que observed_at. Una
-            # lectura fallida tambien llega al sello de fallo de abajo.
             hoy = conn.execute(_SQL_FECHA_HOY).fetchone()[0]
-            for perfil, cfg, report_id, filas in descargados:
+            for item in items:
+                perfil, cfg = item.perfil, item.cfg
+                report_id = item.report_id
+                filas = item.filas
                 perfil_actual, cfg_actual, report_id_actual = perfil, cfg, report_id
-                # Dispatch por tabla (clave "tabla" solo la lleva el cfg de
-                # search terms): mismo camino, un solo dueno por tabla. Un
-                # valor desconocido es fail-closed, jamas "caer" al camino de
-                # metricas (hallazgo reviewer: un else mudo enrutaria filas a
-                # la tabla equivocada).
+                # Dispatch por tabla (clave "tabla" solo la llevan search
+                # terms y productos): mismo camino, un solo dueno por tabla.
+                # Un valor desconocido es fail-closed, jamas "caer" al camino
+                # de metricas (hallazgo reviewer).
                 tabla = cfg.get("tabla")
                 if tabla is None:
                     resultado = ingest_metrics(
@@ -1916,14 +1731,12 @@ def sync_metrics(
                     )
                 escritos += resultado.rows_written
                 skips.update(resultado.skips)
-                reportes.append(
+                resumenes.append(
                     ResumenReporte(
                         profile_id=perfil.profile_id,
                         platform=perfil.platform,
                         nombre=cfg["nombre"],
                         report_id=report_id,
-                        # solo se resume lo que llego a descargarse: un
-                        # reporte no-COMPLETED aborta la corrida entera.
                         status="COMPLETED",
                         filas=resultado.filas,
                         rows_written=resultado.rows_written,
@@ -1943,9 +1756,8 @@ def sync_metrics(
     except BaseException as exc:
         # El with de arriba ya hizo rollback del trabajo (nada a medias); la
         # run abierta se sella como fallo si la conexion sigue viva
-        # (best-effort). BaseException, no solo Exception: un Ctrl-C en una
-        # corrida de minutos tambien deja la run sellada, no abierta. Si el
-        # sello TAMBIEN falla, se deja rastro en el log (patron sync_structure).
+        # (best-effort). BaseException, no solo Exception: un Ctrl-C tambien
+        # deja la run sellada, no abierta.
         try:
             with conn.transaction():
                 _registrar_resultado(
@@ -1974,19 +1786,81 @@ def sync_metrics(
                 run_id,
                 scrub(str(exc)),
             )
-        intentar_procesar_run(conn, run_id)
         raise
 
-    intentar_procesar_run(conn, run_id)
-    return ResultadoSync(
-        run_id=run_id,
-        ok=True,
+    return ResultadoEscritura(
         rows_written=escritos,
         rows_skipped=sum(skips.values()),
         skip_reason=_formato_skip_reason(skips),
-        reportes=reportes,
-        perfiles_rechazados=perfiles_rechazados,
+        reportes=resumenes,
     )
+
+
+def sync_metrics(
+    conn: psycopg.Connection,
+    client: AdsClient,
+    *,
+    fecha_ini: dt.date,
+    fecha_fin: dt.date,
+    sleep=time.sleep,
+    reloj=time.monotonic,
+    reportes: tuple[dict, ...] = REPORTES_CFG,
+) -> ResultadoSync:
+    """Orquestador: su fase de API vive entera en app.ads.descarga (un solo
+    evaluar_perfiles, todos los reportes pedidos y sondeados en una vuelta,
+    repetidos -r1/-r2 y plazo de 2 h 30 min); esta funcion solo arma su grupo
+    y la fase de DB (`escribir_grupo`, una transaccion por corrida).
+
+    `reportes` despacha la corrida: REPORTES_CFG (default, campanas/keywords/
+    targets/search terms) o (PRODUCTOS_CFG,) para la corrida de productos
+    anunciados de ORBIT 19 B.1 (main --productos): mismo grupo, misma run.
+    Cero perfiles aceptados NO es excepcion ni exito: la run se sella ok=false
+    con los motivos de rechazo y se RETORNA el fallo (hallazgo grok). Cualquier
+    otro fallo (perfiles, creacion, plazo de sondeo, DB) sube como excepcion
+    despues de dejar la run sellada ok=false (fail-closed auditado).
+    """
+    from app.ads.descarga import GrupoDescarga, descarga
+
+    _validar_rango(fecha_ini, fecha_fin)
+    source = SOURCE_PRODUCTOS if reportes == (PRODUCTOS_CFG,) else SOURCE
+    clave = "productos" if source == SOURCE_PRODUCTOS else "metricas"
+    grupo = GrupoDescarga(clave=clave, source=source, cfgs=tuple(reportes))
+    resultados = descarga(
+        conn,
+        client,
+        [grupo],
+        (fecha_ini, fecha_fin),
+        reloj=reloj,
+        sleep=sleep,
+        al_completar=escribir_grupo,
+    )
+    res = resultados[clave]
+    if res.ok:
+        escritura = res.escritura
+        return ResultadoSync(
+            run_id=res.run_id,
+            ok=True,
+            rows_written=escritura.rows_written,
+            rows_skipped=escritura.rows_skipped,
+            skip_reason=escritura.skip_reason,
+            reportes=escritura.reportes,
+            perfiles_rechazados=res.perfiles_rechazados,
+        )
+    if res.motivo == "cero_perfiles":
+        # Verde falso (hallazgo grok): con cero aceptados la corrida se sella
+        # ok=false CON los motivos y se RETORNA (no raise), igual que antes.
+        return ResultadoSync(
+            run_id=res.run_id,
+            ok=False,
+            rows_written=0,
+            rows_skipped=0,
+            skip_reason=res.skip_reason,
+            reportes=[],
+            perfiles_rechazados=res.perfiles_rechazados,
+        )
+    if res.exc is not None:
+        raise res.exc
+    raise AdsReportsError(res.skip_reason or "la corrida de metricas fallo")
 
 
 # ---------------------------------------------------------------------------

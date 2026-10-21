@@ -49,7 +49,6 @@ from app.ads.reports import (
     _rango_desde_args,
     descargar_filas,
     es_asin_like,
-    esperar_reporte,
     main,
     solicitar_reporte,
     sync_metrics,
@@ -159,7 +158,7 @@ def _token(request: httpx.Request) -> httpx.Response:
 
 
 # ---------------------------------------------------------------------------
-# (a) UNITARIOS - ciclo API: solicitar / esperar / descargar
+# (a) UNITARIOS - ciclo API: solicitar / sondear / descargar
 # ---------------------------------------------------------------------------
 
 
@@ -240,7 +239,18 @@ def test_ciclo_completo_crea_poll_descarga():
         {"field": "keywordType", "values": ["BROAD", "PHRASE", "EXACT"]}
     ]
 
-    url = esperar_reporte(client, perfil, "rep-123", sleep=lambda segundos: None)
+    # el sondeo lo orquesta app.ads.descarga; aqui se recorre la secuencia
+    # PENDING -> PROCESSING -> COMPLETED con la primitiva get_report y se
+    # valida la url como hace la descarga (_url_de_completado).
+    from app.ads.descarga import _url_de_completado
+
+    estados_vistos: list[str] = []
+    data: dict = {}
+    while data.get("status") != "COMPLETED":
+        data = client.get_report("rep-123", profile_id=perfil.profile_id).json()
+        estados_vistos.append(data["status"])
+    assert estados_vistos == ["PENDING", "PROCESSING", "COMPLETED"]
+    url = _url_de_completado(data, "rep-123")
     assert url == "https://bucket.example.com/rep-123.gz"
     assert len(polls) == 3  # PENDING -> PROCESSING -> COMPLETED
 
@@ -302,69 +312,6 @@ def test_body_reporte_search_terms():
     assert "filters" not in cfg
 
 
-def test_reporte_failed_da_error_con_failure_reason():
-    def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.host == "api.amazon.com":
-            return _token(request)
-        return httpx.Response(
-            200, json={"reportId": "rep-x", "status": "FAILED", "failureReason": "INTERNAL_ERROR"}
-        )
-
-    client = _cliente(handler)
-    with pytest.raises(AdsReportsError) as excinfo:
-        esperar_reporte(client, _perfil(101, "US"), "rep-x", sleep=lambda segundos: None)
-    assert "FAILED" in str(excinfo.value)
-    assert "INTERNAL_ERROR" in str(excinfo.value)
-
-
-@pytest.mark.parametrize("segundos_hasta_completar", [780, 1490])
-def test_reporte_lento_completa_dentro_del_presupuesto_default(segundos_hasta_completar):
-    """Los reportes reales del 21-23/09 tardaron 12-13 min; no se deben perder."""
-    transcurrido = 0.0
-
-    def dormir(segundos):
-        nonlocal transcurrido
-        transcurrido += segundos
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.host == "api.amazon.com":
-            return _token(request)
-        assert request.url.path == "/reporting/reports/rep-lento"
-        completo = transcurrido >= segundos_hasta_completar
-        return httpx.Response(
-            200,
-            json={
-                "reportId": "rep-lento",
-                "status": "COMPLETED" if completo else "PROCESSING",
-                "url": "https://bucket.example.com/lento.json.gz" if completo else None,
-                "fileSize": 19749 if completo else None,
-            },
-        )
-
-    url = esperar_reporte(_cliente(handler), _perfil(101, "US"), "rep-lento", sleep=dormir)
-
-    assert url == "https://bucket.example.com/lento.json.gz"
-    assert transcurrido == segundos_hasta_completar
-
-
-def test_poll_agotado_da_error_claro():
-    def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.host == "api.amazon.com":
-            return _token(request)
-        return httpx.Response(200, json={"reportId": "rep-9", "status": "PROCESSING"})
-
-    client = _cliente(handler)
-    esperas: list[float] = []
-    with pytest.raises(AdsReportsError) as excinfo:
-        esperar_reporte(
-            client, _perfil(101, "US"), "rep-9", intentos=2, espera=5.0, sleep=esperas.append
-        )
-    assert "2 intentos" in str(excinfo.value)
-    assert "rep-9" in str(excinfo.value)
-    # durmio ENTRE los intentos, no despues del ultimo
-    assert esperas == [5.0]
-
-
 def test_descarga_sin_gzip_tambien_parsea():
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.host == "api.amazon.com":
@@ -390,25 +337,22 @@ def test_descarga_que_no_es_array_da_error_claro():
 
 
 def test_reporte_con_file_size_anormal_da_error_antes_de_descargar():
-    """[hallazgo codex] fileSize del poll (campo verificado en vivo) > tope ->
-    fail-closed ANTES de meter el gzip anormal a memoria."""
+    """[hallazgo codex] fileSize del poll > tope -> fail-closed ANTES de
+    meter el gzip anormal a memoria. La validacion vive ahora en
+    app.ads.descarga._url_de_completado (cubierta en
+    tests/test_ads_descarga.py); aqui se pinza la primitiva que queda
+    expuesta para el pipeline."""
+    from app.ads.descarga import _url_de_completado
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.host == "api.amazon.com":
-            return _token(request)
-        return httpx.Response(
-            200,
-            json={
-                "reportId": "rep-grande",
+    with pytest.raises(AdsReportsError) as excinfo:
+        _url_de_completado(
+            {
                 "status": "COMPLETED",
                 "url": "https://bucket.example.com/rep-grande.gz",
                 "fileSize": MAX_BYTES_REPORTE + 1,
             },
+            "rep-grande",
         )
-
-    client = _cliente(handler)
-    with pytest.raises(AdsReportsError) as excinfo:
-        esperar_reporte(client, _perfil(101, "US"), "rep-grande", sleep=lambda segundos: None)
     assert "fileSize" in str(excinfo.value)
     assert "fail-closed" in str(excinfo.value)
 
@@ -1571,8 +1515,11 @@ def test_pipeline_metricas_en_vivo(monkeypatch):
         assert conn.execute("SELECT count(*) FROM ads_metric_observation").fetchone()[0] == 9
         assert conn.execute("SELECT count(*) FROM ingest_run").fetchone()[0] == 8
 
-        # US descargado y MX fallido: el fallo pertenece a MX; ninguna unidad
-        # acredita escritura porque toda la corrida se aborto antes de DB.
+        # US pedido y MX fallido: el 400 en el create de MX campanas es de
+        # forma (no se repite) y falla el grupo ANTES de sondear: ningun
+        # reporte se llego a descargar y las otras 7 unidades quedan pending
+        # (ingesta-01: los reportes se piden todos a la vez y un 4xx de forma
+        # mata solo a su grupo, sin vueltas de sondeo).
         fallo_create.update(on=True, scope="202")
         with pytest.raises(AdsApiError):
             sync_metrics(conn, client, fecha_ini=ayer, fecha_fin=ayer, sleep=lambda s: None)
@@ -1587,7 +1534,7 @@ def test_pipeline_metricas_en_vivo(monkeypatch):
             "SELECT status, count(*) FROM ads_report_result WHERE ingest_run_id = %s"
             " GROUP BY status ORDER BY status",
             (run_mx,),
-        ).fetchall() == [("downloaded", 4), ("failed", 1), ("pending", 8), ("rejected", 1)]
+        ).fetchall() == [("failed", 1), ("pending", 8), ("rejected", 1)]
 
         # Un profileId malformado se rechaza sin bloquear el perfil valido.
         # No convertir bool a 0/1 ni inventar un ID para el rechazado.

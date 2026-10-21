@@ -380,13 +380,12 @@ El server está en UTC: estas horas SON UTC.
 | UTC   | job_key | comando |
 |-------|---------|---------|
 | 06:45 | `ingest:structure` | `python -m app.cli ingest structure` |
-| 07:10 | `ingest:metrics` | `python -m app.cli ingest metrics --fecha D-31 --fecha-fin D-1` |
-| 07:20 | `ingest:metrics:productos` | `python -m app.cli ingest metrics --fecha D-31 --fecha-fin D-1 --productos` (ORBIT 19 B.1; el reporte `spAdvertisedProduct` puede tardar hasta ~25 min por perfil, presupuesto de poll propio) |
-| 07:25 | `ingest:metrics:placements` | `python -m app.cli ingest metrics --fecha D-31 --fecha-fin D-1 --placements` (BIDS 02 V.2; `spCampaigns` por `campaignPlacement`, corrida propia) |
-| 08:05 | `avisos-campana` | `python -m app.cli avisos-campana` (BIDS 02 V.4; flock + log, linea exacta abajo) |
-| 08:20 | `impulso-vigia` | `python -m app.cli impulso-vigia` (BIDS 02 I.3; despues de la ingesta, antes del ciclo; flock + log, linea exacta abajo) |
+| 07:10, 10:40, 13:15 | `ingest:diario` | `python -m app.cli ingest diario` (ingesta-01 A.2: métricas + productos + placements en UNA descarga, rango D-31..D-1; los tres horarios salen de `HORARIOS_INGESTA` en `app/ads/diario.py` y cada corrida reintenta lo que faltó: `--solo-faltantes` salta los grupos ya al día) |
+| 08:05 | `avisos-campana` | `python -m app.cli avisos-campana` (BIDS 02 V.4; tras la ingesta, antes del ciclo; dentro del bloque instalador desde ingesta-01 A.4) |
+| 08:20 | `impulso-vigia` | `python -m app.cli impulso-vigia` (BIDS 02 I.3; después de la ingesta, antes del ciclo; dentro del bloque desde ingesta-01 A.4) |
 | 08:40 | `ads_optimizer:amazon_us` + `ads_optimizer:amazon_mx` | `python -m app.cli cycle --platform …` (los dos, en serie) |
-| 09:30, 21:30 | `jev-senales` | `python -m app.cli jev-senales --aplicar` (JEV ADS 02 S.4; flock + log, linea exacta abajo) |
+| 09:30, 21:30 | `jev-senales` | `python -m app.cli jev-senales --aplicar` (JEV ADS 02 S.4; dentro del bloque desde ingesta-01 A.4) |
+| 10:00–12:50, /10 min | `ads-salud` | `python -m app.cli ads-salud` (ads-proteccion-01 A.3: salud de la ingesta principal; el cron dispara cada 10 min y el job reporta el atraso desde las 10:30 UTC con reintentos hasta las 12:50; la linea no cambio en ingesta-01 A.4) |
 | 12:15 | `precio-muestras:amazon_mx` | `python -m app.envio_muestras --platform amazon_mx --canal fbm` (REPRICING 02 D.3: job diario de muestras MX antes de la estimacion) |
 | 12:20 | `precio-muestras:amazon_us` | `python -m app.envio_muestras --platform amazon_us --canal fbm` (REPRICING 02 D.3: job diario de muestras US antes de la estimacion) |
 | 13:10 + repasos 15-23/2 | `precio:amazon_mx,amazon_us` | `python -m app.cli precio --platform amazon_mx --platform amazon_us` (REPRICING 02 D.3: diaria 13:10 + repasos cada 2 h, MX y US en serie; flock + log, lineas exactas abajo) |
@@ -455,7 +454,9 @@ la politica vieja.
 la misma fuente que el CLI. Los de ingesta quedan como comentario en el
 crontab y como `ingest_run.source` (`amazon_ads_structure_v2` /
 `amazon_ads_reports_v3` para el pipeline principal /
-`amazon_ads_products_v3` para productos anunciados desde la migracion 0040).
+`amazon_ads_products_v3` para productos anunciados desde la migracion 0040 /
+`amazon_ads_placements_v3` para placements desde la 0062). El diario (A.2)
+los corre juntos en una sola descarga.
 
 Señal Jev por búsqueda-en-grupo (JEV ADS 02): dos corridas al día. En
 producción el job está encendido (`config_version` 30: `jev.senales` true,
@@ -463,9 +464,9 @@ producción el job está encendido (`config_version` 30: `jev.senales` true,
 que no hay Telegram. Apagar las señales es otra fila de config sin
 `jev.senales`. Línea EXACTA del crontab de `gon` (la prueba
 `test_deploy_documenta_la_linea_de_jev_senales` la pinza de
-`tests/test_jev_senales_cron.py::LINEA_JEV_SENALES`), suelta como la de
-precio — fuera del bloque del instalador de ORBIT 03, cuyo filtro no la
-borra:
+`tests/test_jev_senales_cron.py::LINEA_JEV_SENALES`). Desde ingesta-01 A.4
+vive DENTRO del bloque instalador de abajo, con `job_key=jev-senales`: el
+instalador la reinstala (y borra la vieja suelta) en cada reinstalación:
 
 ```cron
 30 9,21 * * * /usr/bin/flock -n /tmp/jev-senales.lock docker exec orbit-app-1 python -m app.cli jev-senales --aplicar >> /mnt/data/appdata/orbit/logs/jev-senales.log 2>&1
@@ -475,9 +476,10 @@ Vigía diario del impulso (BIDS 02 I.3): lee el acumulado de cada
 impulso vivo, guarda la lectura y actúa (pausar o graduar). Línea
 EXACTA del crontab de `gon` (la prueba
 `test_deploy_documenta_la_linea_de_impulso_vigia` la pinza de
-`tests/test_impulso_vigia_cron.py::LINEA_IMPULSO_VIGIA`), suelta como
-la de jev-senales — fuera del bloque del instalador de ORBIT 03, cuyo
-filtro no la borra:
+`tests/test_impulso_vigia_cron.py::LINEA_IMPULSO_VIGIA`). Desde ingesta-01
+A.4 vive DENTRO del bloque instalador de abajo, con
+`job_key=impulso-vigia`: el instalador la reinstala (y borra la vieja
+suelta) en cada reinstalación:
 
 ```cron
 20 8 * * * /usr/bin/flock -n /tmp/impulso-vigia.lock docker exec orbit-app-1 python -m app.cli impulso-vigia >> /mnt/data/appdata/orbit/logs/impulso-vigia.log 2>&1
@@ -492,11 +494,11 @@ solo se agregó esa línea. La **reversa** es borrar la línea del crontab y
 las tablas `jev_*` quedan intactas (el job apagado no escribe).
 
 Avisos diarios de campaña (BIDS 02 V.4): Telegram a las 08:05 UTC, tras la
-ingesta de placements (07:25) y antes del ciclo (08:40). Línea EXACTA del
-crontab de `gon` (la prueba `test_deploy_documenta_la_linea_de_avisos` la
-pinza de `tests/test_avisos_campana_cron.py::LINEA_AVISOS_CAMPANA`), suelta
-como la de precio — fuera del bloque del instalador de ORBIT 03, cuyo
-filtro no la borra:
+ingesta del diario y antes del ciclo (08:40). Línea EXACTA del crontab de
+`gon` (la prueba `test_deploy_documenta_la_linea_de_avisos` la pinza de
+`tests/test_avisos_campana_cron.py::LINEA_AVISOS_CAMPANA`). Desde ingesta-01
+A.4 vive DENTRO del bloque instalador de abajo, con `job_key=avisos-campana`:
+el instalador la reinstala (y borra la vieja suelta) en cada reinstalación:
 
 ```cron
 5 8 * * * /usr/bin/flock -n /tmp/avisos-campana.lock docker exec orbit-app-1 python -m app.cli avisos-campana >> /mnt/data/appdata/orbit/logs/avisos-campana.log 2>&1
@@ -696,7 +698,12 @@ reciente). El lookback de 95d queda como capacidad de **backfill**, no
 como cadencia diaria.
 
 Bloque para el crontab de `gon` (idempotente: el filtro borra SOLO las
-líneas de Orbit, no las de accounting):
+líneas de Orbit, no las de accounting). La tabla de horarios es la del
+apartado de arriba y sus minutos salen de `HORARIOS_INGESTA`
+(`app/ads/diario.py`; la prueba `tests/test_ingesta_cron.py` fija que
+coincidan): el diario reemplaza a los tres crons viejos de 07:10/07:20/07:25
+y las líneas de avisos-campana, impulso-vigia y jev-senales pasan DENTRO del
+bloque, cada una con su `job_key`:
 
 ```bash
 ssh goncloud 'bash -s' <<'SCRIPT'
@@ -706,24 +713,30 @@ crontab -u gon -l > /mnt/data/appdata/orbit/archive/crontab-gon.$STAMP
 mkdir -p /mnt/data/appdata/orbit/logs
 chown gon:gon /mnt/data/appdata/orbit/logs
 ORBIT_BLOCK=$(cat <<'CRON'
-# === Orbit (ORBIT 03 / 4.2) ===
+# === Orbit (ORBIT 03 / 4.2; tabla de horarios ingesta-01 A.4) ===
 # job_key=ingest:structure
 45 6 * * * docker exec orbit-app-1 python -m app.cli ingest structure >> /mnt/data/appdata/orbit/logs/ingest-structure.log 2>&1
-# job_key=ingest:metrics  profundidad D-31..D-1 (sello 4.2; max API 31d cubre atribucion 30d)
-# Vixie cron: % sin escapar se vuelve newline y trunca el comando (hallazgo codex).
-10 7 * * * FECHA=$(date -u -d "31 days ago" +\%F) FECHA_FIN=$(date -u -d "1 day ago" +\%F) && docker exec orbit-app-1 python -m app.cli ingest metrics --fecha "$FECHA" --fecha-fin "$FECHA_FIN" >> /mnt/data/appdata/orbit/logs/ingest-metrics.log 2>&1
-# job_key=ingest:metrics:productos  ORBIT 19 B.1 (spAdvertisedProduct por ASIN/SKU; poll hasta 25 min/reporte)
-20 7 * * * FECHA=$(date -u -d "31 days ago" +\%F) FECHA_FIN=$(date -u -d "1 day ago" +\%F) && docker exec orbit-app-1 python -m app.cli ingest metrics --fecha "$FECHA" --fecha-fin "$FECHA_FIN" --productos >> /mnt/data/appdata/orbit/logs/ingest-productos.log 2>&1
-# job_key=ingest:metrics:placements  BIDS 02 V.2 (spCampaigns por campaignPlacement)
-25 7 * * * FECHA=$(date -u -d "31 days ago" +\%F) FECHA_FIN=$(date -u -d "1 day ago" +\%F) && docker exec orbit-app-1 python -m app.cli ingest metrics --fecha "$FECHA" --fecha-fin "$FECHA_FIN" --placements >> /mnt/data/appdata/orbit/logs/ingest-placements.log 2>&1
+# job_key=ingest:diario  A.2: metricas + productos + placements en UNA descarga (rango D-31..D-1 por dentro; sin % en el crontab)
+10 7 * * * docker exec orbit-app-1 python -m app.cli ingest diario --solo-faltantes >> /mnt/data/appdata/orbit/logs/ingest-diario.log 2>&1
+# job_key=ingest:diario  reintento de las 10:40 (--solo-faltantes salta lo ya al dia)
+40 10 * * * docker exec orbit-app-1 python -m app.cli ingest diario --solo-faltantes >> /mnt/data/appdata/orbit/logs/ingest-diario.log 2>&1
+# job_key=ingest:diario  ultimo reintento del dia (13:15)
+15 13 * * * docker exec orbit-app-1 python -m app.cli ingest diario --solo-faltantes >> /mnt/data/appdata/orbit/logs/ingest-diario.log 2>&1
+# job_key=avisos-campana  BIDS 02 V.4 (dentro del bloque desde ingesta-01 A.4)
+5 8 * * * /usr/bin/flock -n /tmp/avisos-campana.lock docker exec orbit-app-1 python -m app.cli avisos-campana >> /mnt/data/appdata/orbit/logs/avisos-campana.log 2>&1
+# job_key=impulso-vigia  BIDS 02 I.3 (dentro del bloque desde ingesta-01 A.4)
+20 8 * * * /usr/bin/flock -n /tmp/impulso-vigia.lock docker exec orbit-app-1 python -m app.cli impulso-vigia >> /mnt/data/appdata/orbit/logs/impulso-vigia.log 2>&1
+# job_key=ads_optimizer:amazon_us
+40 8 * * * docker exec orbit-app-1 python -m app.cli cycle --platform amazon_us >> /mnt/data/appdata/orbit/logs/optimizer.log 2>&1
+# job_key=ads_optimizer:amazon_mx
+41 8 * * * docker exec orbit-app-1 python -m app.cli cycle --platform amazon_mx >> /mnt/data/appdata/orbit/logs/optimizer.log 2>&1
+# job_key=jev-senales  JEV ADS 02 S.4 (dentro del bloque desde ingesta-01 A.4)
+30 9,21 * * * /usr/bin/flock -n /tmp/jev-senales.lock docker exec orbit-app-1 python -m app.cli jev-senales --aplicar >> /mnt/data/appdata/orbit/logs/jev-senales.log 2>&1
 # job_key=ads-salud  A.3: 10:30 UTC y reintentos hasta 12:50
 */10 10-12 * * * docker exec orbit-app-1 python -m app.cli ads-salud >> /mnt/data/appdata/orbit/logs/ads-salud.log 2>&1
-# job_key=ads_optimizer:amazon_us + ads_optimizer:amazon_mx
-40 8 * * * docker exec orbit-app-1 python -m app.cli cycle --platform amazon_us >> /mnt/data/appdata/orbit/logs/optimizer.log 2>&1
-41 8 * * * docker exec orbit-app-1 python -m app.cli cycle --platform amazon_mx >> /mnt/data/appdata/orbit/logs/optimizer.log 2>&1
 CRON
 )
-{ crontab -u gon -l 2>/dev/null | grep -v "Orbit (ORBIT 03" | grep -v "job_key=ingest:" | grep -v "job_key=ads-salud" | grep -v "job_key=ads_optimizer" | grep -v "app.cli ingest" | grep -v "app.cli ads-salud" | grep -v "app.cli cycle" ; printf "%s\n" "$ORBIT_BLOCK" ; } | crontab -u gon -
+{ crontab -u gon -l 2>/dev/null | grep -v "Orbit (ORBIT 03" | grep -v "job_key=ingest:" | grep -v "job_key=ads-salud" | grep -v "job_key=ads_optimizer" | grep -v "job_key=avisos-campana" | grep -v "job_key=impulso-vigia" | grep -v "job_key=jev-senales" | grep -v "app.cli ingest" | grep -v "app.cli ads-salud" | grep -v "app.cli cycle" | grep -v "app.cli avisos-campana" | grep -v "app.cli impulso-vigia" | grep -v "app.cli jev-senales" ; printf "%s\n" "$ORBIT_BLOCK" ; } | crontab -u gon -
 crontab -u gon -l
 SCRIPT
 ```

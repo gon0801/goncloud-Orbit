@@ -1,7 +1,8 @@
 """Contrato de la linea de cron de `jev-senales` (JEV ADS 02, S.4).
 
-La linea vive suelta en docs/DEPLOY.md (como la de precio, fuera del bloque
-del instalador de ORBIT 03) y el filtro de ese instalador no debe borrarla.
+Desde ingesta-01 A.4 la linea vive DENTRO del bloque instalador de
+docs/DEPLOY.md (con `job_key=jev-senales`): el instalador la reinstala y su
+filtro BORRA la vieja linea suelta, para no duplicarla.
 """
 
 import subprocess
@@ -28,11 +29,13 @@ def test_deploy_documenta_la_linea_de_jev_senales():
     assert LINEA_JEV_SENALES in deploy
 
 
-def test_instalador_no_borra_la_linea_de_jev_senales():
+def test_instalador_reemplaza_la_linea_de_jev_senales():
+    """El filtro borra la vieja linea suelta: la reinstalacion deja la del
+    bloque una sola vez, no dos."""
     deploy = (RAIZ / "docs/DEPLOY.md").read_text()
     assert LINEA_JEV_SENALES in deploy
     filtros = _filtro_instalador(deploy)
-    actual = f"# job_key=jev-senales\n{LINEA_JEV_SENALES}\n"
+    actual = f"{LINEA_JEV_SENALES}\n# accounting\n0 0 * * * accounting\n"
     resultado = subprocess.run(
         ["bash", "-c", f"cat | {filtros}"],
         input=actual,
@@ -40,4 +43,5 @@ def test_instalador_no_borra_la_linea_de_jev_senales():
         capture_output=True,
         check=True,
     )
-    assert LINEA_JEV_SENALES in resultado.stdout
+    assert LINEA_JEV_SENALES not in resultado.stdout
+    assert "# accounting\n0 0 * * * accounting\n" in resultado.stdout
