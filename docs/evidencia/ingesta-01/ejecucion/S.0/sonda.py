@@ -1,4 +1,4 @@
-"""Sonda S.0: cuanto tarda Amazon en la cuenta real (solo lectura de la DB: no la toca).
+"""Sonda S.0: cuanto tarda Amazon en la cuenta real (no escribe en la DB).
 
 Correr (a partir de las 19:00 UTC, sin /tmp/orbit-ingesta-diaria.lock):
     docker exec -i orbit-app-1 python - < sonda.py > salida.txt
@@ -34,11 +34,16 @@ TIMEOUT = httpx.Timeout(connect=10.0, read=30.0, write=10.0, pool=10.0)
 SECRETO = re.compile(r"(Bearer\s+\S+|Atza\|\S+|Atzr\|\S+)", re.IGNORECASE)
 CFG_NOMBRE = {c["nombre"]: c for c in (*REPORTES_CFG, PRODUCTOS_CFG, PLACEMENTS_CFG)}
 METRICAS = ("campanas", "keywords", "targets", "search_terms")
+TODOS = (*METRICAS, "productos", "placements")
 
 
 def log(*partes) -> None:
     linea = " ".join(str(p) for p in partes)
     print(SECRETO.sub("[REDACTADO]", linea), flush=True)
+
+
+def fmt_min(minutos: float | None) -> str:
+    return f"{minutos:.1f}" if minutos is not None else "NO"
 
 
 def cuerpo_de(cfg: dict, pid, ini: dt.date, fin: dt.date, sufijo: str = "") -> dict:
@@ -98,93 +103,93 @@ def rid_de(texto: str):
     return m.group(1) if m else None
 
 
-def main() -> int:
-    if os.path.exists(LOCK):
-        log(f"ABORTA: {LOCK} tomado (ingesta diaria en curso)")
-        return 3
-    ahora = dt.datetime.now(dt.UTC)
-    if ahora.hour < 19 and os.environ.get("SONDA_FORZAR") != "1":
-        log(f"ABORTA: son las {ahora:%H:%M} UTC; la sonda corre desde las 19:00 UTC")
-        return 3
-    hoy = ahora.date()
-    ini, fin = hoy - dt.timedelta(days=31), hoy - dt.timedelta(days=1)
-    s = Sonda(AdsClient(AdsCredentials.from_secrets_dir()))
-    perfiles = [p for p in evaluar_perfiles(s.c) if p.aceptado]
-    log(f"inicio {ahora:%Y-%m-%d %H:%M:%S} UTC; rango {ini}..{fin}; "
-        f"perfiles aceptados: {[(p.profile_id, p.platform) for p in perfiles]}")
-
-    # (a) 12 reportes a la vez
-    pend: dict[str, dict] = {}
-    t_a = time.monotonic()
+def fase_a_post(s: Sonda, perfiles, ini, fin) -> dict:
+    """(a) Los 12 POST (6 por perfil aceptado) y el registro de cada reporte."""
+    pend: dict = {}
     for p in perfiles:
-        for nombre in (*METRICAS, "productos", "placements"):
-            cod, txt, seg = s.post(p.profile_id, cuerpo_de(CFG_NOMBRE[nombre], p.profile_id, ini, fin))
+        for nombre in TODOS:
+            cuerpo = cuerpo_de(CFG_NOMBRE[nombre], p.profile_id, ini, fin)
+            cod, txt, seg = s.post(p.profile_id, cuerpo)
             rid = rid_de(txt) if cod in (200, 202) else None
-            log(f"(a) POST {p.platform}/{nombre}: HTTP {cod} en {seg:.1f}s id={rid} cuerpo={txt[:200]!r}")
+            log(
+                f"(a) POST {p.platform}/{nombre}: HTTP {cod} en {seg:.1f}s "
+                f"id={rid} cuerpo={txt[:200]!r}"
+            )
             if rid:
-                pend[rid] = {"pid": p.profile_id, "etq": f"{p.platform}/{nombre}", "t0": time.monotonic(), "min": None, "st": None}
+                pend[rid] = {
+                    "pid": p.profile_id,
+                    "etq": f"{p.platform}/{nombre}",
+                    "t0": time.monotonic(),
+                    "min": None,
+                    "st": None,
+                }
+    return pend
 
-    mx = next((p for p in perfiles if p.platform == "MX"), None) or (perfiles[0] if perfiles else None)
-    if mx is None:
-        log("ABORTA: sin perfiles aceptados")
-        return 4
-    cfg_mx = CFG_NOMBRE["campanas"]
 
-    def cola_viva() -> bool:
-        return any(v["min"] is None for v in pend.values())
+def sondear_una_vez(s: Sonda, pend: dict) -> None:
+    for rid, v in pend.items():
+        if v["min"] is not None:
+            continue
+        d = s.get(v["pid"], rid)
+        v["st"] = d.get("status") or d.get("_http")
+        if d.get("status") in ("COMPLETED", "FAILURE", "FAILED"):
+            v["min"] = (time.monotonic() - v["t0"]) / 60
+            log(
+                f"(a) {v['etq']} {d.get('status')} a los {v['min']:.1f} min "
+                f"razon={d.get('failureReason')!r}"
+            )
 
-    def sondear_una_vez() -> None:
-        for rid, v in pend.items():
-            if v["min"] is not None:
-                continue
-            d = s.get(v["pid"], rid)
-            v["st"] = d.get("status") or d.get("_http")
-            if d.get("status") in ("COMPLETED", "FAILURE", "FAILED"):
-                v["min"] = (time.monotonic() - v["t0"]) / 60
-                log(f"(a) {v['etq']} {d.get('status')} a los {v['min']:.1f} min "
-                    f"razon={d.get('failureReason')!r}")
 
-    sondear_una_vez()
-    # (b) repetidos con la cola viva
-    if cola_viva():
-        for etq, suf in (("identico", ""), ("name+-r1", "-r1")):
-            cod, txt, seg = s.post(mx.profile_id, cuerpo_de(cfg_mx, mx.profile_id, ini, fin, suf))
-            log(f"(b) campanas MX {etq}: HTTP {cod} en {seg:.1f}s cuerpo={txt!r}")
-        # (c) rafaga de 24 mas (2 vueltas de los 12, name unico por POST)
-        codigos: dict = {}
-        n = 0
-        for vuelta in (1, 2):
-            for p in perfiles:
-                for nombre in (*METRICAS, "productos", "placements"):
-                    n += 1
-                    cod, txt, seg = s.post(
-                        p.profile_id,
-                        cuerpo_de(CFG_NOMBRE[nombre], p.profile_id, ini, fin, f"-rafaga{vuelta}"),
-                    )
-                    codigos[cod] = codigos.get(cod, 0) + 1
-                    log(f"(c) #{n} {p.platform}/{nombre}: HTTP {cod} en {seg:.2f}s cuerpo={txt!r}")
-        log(f"(c) resumen: {n} POST; codigos={codigos}; 429={codigos.get(429, 0)}")
-    else:
+def fase_b_c(s: Sonda, perfiles, mx, ini, fin, pend: dict) -> None:
+    """(b) Repetidos de campanas MX con la cola viva y (c) rafaga de 24."""
+    if not any(v["min"] is None for v in pend.values()):
         log("(b)/(c) omitidos: la cola ya estaba vacia al primer sondeo")
+        return
+    cfg_mx = CFG_NOMBRE["campanas"]
+    for etq, suf in (("identico", ""), ("name+-r1", "-r1")):
+        cuerpo = cuerpo_de(cfg_mx, mx.profile_id, ini, fin, suf)
+        cod, txt, seg = s.post(mx.profile_id, cuerpo)
+        log(f"(b) campanas MX {etq}: HTTP {cod} en {seg:.1f}s cuerpo={txt!r}")
+    codigos: dict = {}
+    n = 0
+    for vuelta in (1, 2):
+        for p in perfiles:
+            for nombre in TODOS:
+                n += 1
+                cuerpo = cuerpo_de(CFG_NOMBRE[nombre], p.profile_id, ini, fin, f"-rafaga{vuelta}")
+                cod, txt, seg = s.post(p.profile_id, cuerpo)
+                codigos[cod] = codigos.get(cod, 0) + 1
+                log(f"(c) #{n} {p.platform}/{nombre}: HTTP {cod} en {seg:.2f}s cuerpo={txt!r}")
+    log(f"(c) resumen: {n} POST; codigos={codigos}; 429={codigos.get(429, 0)}")
 
-    while cola_viva() and time.monotonic() - t_a < TOPE_A_S:
+
+def esperar_cola(s: Sonda, pend: dict, t0: float) -> None:
+    """Sondeo cada 20 s hasta 2 h 30 min desde (a); resumen de minutos."""
+    while any(v["min"] is None for v in pend.values()) and time.monotonic() - t0 < TOPE_A_S:
         time.sleep(POLL_S)
-        sondear_una_vez()
+        sondear_una_vez(s, pend)
     for v in pend.values():
         if v["min"] is None:
-            log(f"(a) {v['etq']} SIN COMPLETED tras {(time.monotonic() - v['t0']) / 60:.1f} min "
-                f"(ultimo status {v['st']})")
-    log("(a) resumen minutos hasta COMPLETED: " + ", ".join(
-        f"{v['etq']}={'%.1f' % v['min'] if v['min'] is not None else 'NO'}" for v in pend.values()))
+            log(
+                f"(a) {v['etq']} SIN COMPLETED tras {(time.monotonic() - v['t0']) / 60:.1f} min "
+                f"(ultimo status {v['st']})"
+            )
+    log(
+        "(a) resumen minutos hasta COMPLETED: "
+        + ", ".join(f"{v['etq']}={fmt_min(v['min'])}" for v in pend.values())
+    )
 
-    # (d) los 4 de metricas MX uno tras otro
-    resumen_d = []
+
+def fase_d(s: Sonda, mx, ini, fin) -> None:
+    """(d) Los 4 de metricas MX uno tras otro, cada uno hasta completar."""
+    resumen: list[str] = []
     for nombre in METRICAS:
-        cod, txt, seg = s.post(mx.profile_id, cuerpo_de(CFG_NOMBRE[nombre], mx.profile_id, ini, fin, "-d"))
+        cuerpo = cuerpo_de(CFG_NOMBRE[nombre], mx.profile_id, ini, fin, "-d")
+        cod, txt, seg = s.post(mx.profile_id, cuerpo)
         rid = rid_de(txt) if cod in (200, 202) else None
         log(f"(d) POST MX/{nombre}: HTTP {cod} en {seg:.1f}s id={rid} cuerpo={txt[:200]!r}")
         if not rid:
-            resumen_d.append(f"{nombre}=NO_CREADO")
+            resumen.append(f"{nombre}=NO_CREADO")
             continue
         t0 = time.monotonic()
         minutos = None
@@ -197,8 +202,39 @@ def main() -> int:
                 break
         if minutos is None:
             log(f"(d) MX/{nombre} SIN COMPLETED tras {TOPE_D_S / 60:.0f} min")
-        resumen_d.append(f"{nombre}={'%.1f' % minutos if minutos is not None else 'NO'}")
-    log("(d) resumen minutos: " + ", ".join(resumen_d))
+        resumen.append(f"{nombre}={fmt_min(minutos)}")
+    log("(d) resumen minutos: " + ", ".join(resumen))
+
+
+def main() -> int:
+    if os.path.exists(LOCK):
+        log(f"ABORTA: {LOCK} tomado (ingesta diaria en curso)")
+        return 3
+    ahora = dt.datetime.now(dt.UTC)
+    if ahora.hour < 19 and os.environ.get("SONDA_FORZAR") != "1":
+        log(f"ABORTA: son las {ahora:%H:%M} UTC; la sonda corre desde las 19:00 UTC")
+        return 3
+    hoy = ahora.date()
+    ini, fin = hoy - dt.timedelta(days=31), hoy - dt.timedelta(days=1)
+    s = Sonda(AdsClient(AdsCredentials.from_secrets_dir()))
+    perfiles = [p for p in evaluar_perfiles(s.c) if p.aceptado]
+    log(
+        f"inicio {ahora:%Y-%m-%d %H:%M:%S} UTC; rango {ini}..{fin}; "
+        f"perfiles aceptados: {[(p.profile_id, p.platform) for p in perfiles]}"
+    )
+    # platform vale "amazon_mx"/"amazon_us" (structure_api): caer al primer
+    # perfil correria (b)/(d) contra US sin que se note.
+    mx = next((p for p in perfiles if p.platform == "amazon_mx"), None)
+    if mx is None:
+        log("ABORTA: sin perfil amazon_mx aceptado")
+        return 4
+
+    t_a = time.monotonic()
+    pend = fase_a_post(s, perfiles, ini, fin)
+    sondear_una_vez(s, pend)
+    fase_b_c(s, perfiles, mx, ini, fin, pend)
+    esperar_cola(s, pend, t_a)
+    fase_d(s, mx, ini, fin)
     log(f"fin {dt.datetime.now(dt.UTC):%Y-%m-%d %H:%M:%S} UTC")
     return 0
 
