@@ -45,3 +45,15 @@ gonserver atq (reverificado 13:00 PDT, archivos ingesta01-d2.* en su lugar):
 gonserver `atq | grep -q .` -> exit 0
 checklist D.1 re-corre hoy 13:00 PDT: 0 fallas, 0 sin medir, exit 0 (ver ../D.1/checklist-20261021-130029.txt)
 sql re-probado hoy en solo lectura: exit 0 con ROLLBACK (sql-prueba-20261021-1300.txt)
+
+== intento 17, 2026-10-21 13:04 PDT (uptime: 13:04 up 13:28; sin reinicio) ==
+local atq vacío; envío local fresco con guarda de 10 s: `at` aborta solo con
+EINTR en el lockfile (ya ni cuelga: "Interrupted system call", exit 1); mismo
+hook de kernel. `sudo -n` pide password; atrun no cargado (launchctl: Could
+not find service). Detalle: bloqueo-local-intento-17-20261021.txt
+gonserver atq (reverificado 13:04 PDT, archivos ingesta01-d2.* en su lugar;
+md5 .sql/.sh = repo):
+9	Wed Oct 28 18:42:00 2026 a claw
+gonserver `atq | grep -q .` -> exit 0
+checklist D.1 re-corre hoy 20:04 UTC: 0 fallas, 0 sin medir, exit 0 (ver ../D.1/checklist-20261021-200458.txt)
+sql re-probado hoy en solo lectura: exit 0 con ROLLBACK (sql-prueba-20261021-2005.txt)
