@@ -1144,7 +1144,7 @@ def test_r09f_vigia_sin_ingesta_avisa_y_marca_no_atendido(capsys):
         ).fetchone() == (0,)
 
 
-def _corre_vigia_cli(conn, monkeypatch):
+def _corre_vigia_cli(conn, monkeypatch, argv=()):
     import psycopg
 
     from app import cli_bids
@@ -1155,7 +1155,13 @@ def _corre_vigia_cli(conn, monkeypatch):
         return psycopg.connect(_dsn_propia(conn), dbname=conn.info.dbname)
 
     monkeypatch.setattr("app.db.connect", conecta)
-    return cli_bids.main_impulso_vigia([])
+    return cli_bids.main_impulso_vigia(list(argv))
+
+
+def _corre_vigia_cli_sin_guarda(conn, monkeypatch):
+    """Los tests R09-F/R14 son del comportamiento del vigia, anteriores a la
+    guarda de metricas de ayer (ingesta-01 A.3): la corren con --forzar."""
+    return _corre_vigia_cli(conn, monkeypatch, ("--forzar",))
 
 
 @_skip_db
@@ -1171,7 +1177,7 @@ def test_r09f_cli_vigia_sin_ingesta_sale_1_y_avisa(monkeypatch, capsys):
     sale distinto de cero."""
     with _db_i3("orbit_i3_r09f3") as conn:
         _impulso_vivo(conn)
-        assert _corre_vigia_cli(conn, monkeypatch) == 1
+        assert _corre_vigia_cli_sin_guarda(conn, monkeypatch) == 1
         assert "sin ingesta" in capsys.readouterr().err
 
 
@@ -1188,7 +1194,7 @@ def test_r09f_cli_vigia_con_todo_fallado_sale_1(monkeypatch, capsys):
             raise RuntimeError("amazon caido")
 
         monkeypatch.setattr(io.PausadorFabrica, "pausa", _truena)
-        assert _corre_vigia_cli(conn, monkeypatch) == 1
+        assert _corre_vigia_cli_sin_guarda(conn, monkeypatch) == 1
         assert "fallo" in capsys.readouterr().err
 
 
@@ -1209,7 +1215,7 @@ def test_r14r2_cli_vigia_mixto_sale_0(monkeypatch, capsys):
             raise RuntimeError("amazon caido")
 
         monkeypatch.setattr(io.PausadorFabrica, "pausa", _truena)
-        assert _corre_vigia_cli(conn, monkeypatch) == 0
+        assert _corre_vigia_cli_sin_guarda(conn, monkeypatch) == 0
         assert "fallo" in capsys.readouterr().err
 
 
