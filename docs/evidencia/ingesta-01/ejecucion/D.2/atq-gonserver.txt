@@ -1,7 +1,9 @@
+# 2026-10-21 12:41 (intento 9, reverificacion): job 9 intacto y .sql/scripts en su lugar.
+# checklist D.1 re-corrió hoy: 0 fallas (ver ../D.1/checklist-20261021*.txt mas reciente).
+# Diagnóstico de raíz nuevo del bloqueo local: at-colgue-raiz-20261021.txt
+#
+# $ ssh gonserver 'atq'
 9	Wed Oct 28 18:42:00 2026 a claw
-# 2026-10-21 (reverificacion del intento 6): ssh gonserver 'atq | grep -q .' -> exit 0.
-# El trabajo `at` vive en gonserver (donde estan Docker, la DB y /mnt/data), como en jev-ads-03 D.3.
-# El `atq` LOCAL de la Mac mini sale vacio SIEMPRE: el envio de `at`/`batch` se cuelga en
-# macOS 27.0.1 en cualquier contexto (repro en at-local-macos27.txt) y atrun viene deshabilitado
-# (cargarlo pide contrasena de admin). Diagnostico completo y comando para el admin:
-#   docs/evidencia/ingesta-01/ejecucion/D.2/at-local-macos27.txt
+# $ ssh gonserver 'atq | grep -q .' -> exit 0
+exit=0
+# local: atq | grep -q . -> exit 1 (cola vacía, sin fix sin admin; ver at-colgue-raiz-20261021.txt)
