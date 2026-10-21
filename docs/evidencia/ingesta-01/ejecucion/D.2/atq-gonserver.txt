@@ -17,3 +17,20 @@ gonserver atq:
 local atq vacio; sin reinicio ni admin no se puede crear el trabajo local (ver at-colgue-raiz-20261021.txt). No se simula la cola con shims.
 gonserver atq:
 9	Wed Oct 28 18:42:00 2026 a claw
+
+== intento 14, 2026-10-21 12:50 PDT (uptime: 12:48  up 13:12; sin reinicio) ==
+Probe fresco de creacion local: `at -f ... now+2min` sigue colgado (lockfile
+/usr/lib/cron/jobs/.lockfile -> /private/var/at/jobs; solo cede con SIGKILL ->
+"Interrupted system call"). /private/var/at/jobs sigue vacio desde el 24-sep
+(instalacion del SO). Segundo bloqueo verificado hoy: atrun Disabled=1
+(defaults read /System/Library/LaunchDaemons/com.apple.atrun.plist) y el
+servicio no esta cargado (launchctl print system/com.apple.atrun: not found);
+cargarlo exige sudo (password, no hay passwordless local).
+Teoria Tailscale descartada sin prueba destructiva: el ssh a gonserver es por
+Tailscale (100.127.167.103) y esta Mac ademas sirve rutas de openclaw; bajarlo
+no descargaria la network-extension (root) que es la unica system-extension, y
+aunque la creacion se desbloqueara, el job local no correria jamas (atrun
+disabled, sudo-only). Doble bloqueo = solo una persona (admin/reinicio).
+gonserver atq (reverificado, archivos ingesta01-d2.* en su lugar):
+9	Wed Oct 28 18:42:00 2026 a claw
+checklist D.1 re-corre hoy: 0 fallas, exit 0 (ver ../D.1/checklist-20261021-1249*.txt)
