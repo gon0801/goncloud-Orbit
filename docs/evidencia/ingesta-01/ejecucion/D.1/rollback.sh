@@ -2,6 +2,11 @@
 # Reversa de D.1: restaura el codigo + docker-compose.yml de predeploy-<STAMP>
 # (reconstruye la imagen anterior) y el crontab de gon desde crontab-antes.txt.
 # Sin migracion que revertir. Aborta si hay un ciclo/ingesta corriendo.
+# ADR (intento 22, incidente 20261021-1814): el paso 4 verificaba "descarga.py
+# NO existe en el contenedor", cierto solo la primera vez que se revierte D.1;
+# al revertir un re-despliegue (el respaldo ya trae descarga.py) restauraba
+# bien y aun asi salia 1. Ahora compara el contenedor contra predeploy-<STAMP>,
+# que es lo que la reversa debe garantizar, en cualquier direccion.
 # Uso: cd <repo> && bash docs/evidencia/ingesta-01/ejecucion/D.1/rollback.sh <STAMP>
 set -euo pipefail
 
@@ -40,8 +45,17 @@ ssh "$H" "sudo crontab -u gon -" < "$DIR/crontab-antes.txt"
 if diff <(ssh "$H" "sudo crontab -u gon -l") "$DIR/crontab-antes.txt" >/dev/null; then echo "crontab igual a crontab-antes.txt";
 else echo "FALLA: el crontab no quedo igual a crontab-antes.txt"; exit 1; fi
 
-echo "== 4) Verificacion: codigo anterior (sin descarga.py) y app sana"
-ssh "$H" "sudo docker exec orbit-app-1 test ! -e /app/app/ads/descarga.py" || { echo "FALLA: descarga.py sigue en el contenedor"; exit 1; }
+echo "== 4) Verificacion: contenedor == predeploy-$STAMP (codigo restaurado) y app sana"
+CNT=$(ssh "$H" "sudo docker exec orbit-app-1 sh -c 'cd /app && find app tools -name \"*.py\" | LC_ALL=C sort | xargs -r md5sum'")
+BAK=$(ssh "$H" "cd $SRV/predeploy-$STAMP && sudo find app tools -name '*.py' | LC_ALL=C sort | xargs -r sudo md5sum")
+[ -n "$CNT" ] || { echo "FALLA: sin lectura del contenedor"; exit 1; }
+[ -n "$BAK" ] || { echo "FALLA: sin lectura de predeploy-$STAMP"; exit 1; }
+if [ "$CNT" != "$BAK" ]; then
+  echo "FALLA: el contenedor difiere de predeploy-$STAMP:"
+  diff <(printf '%s\n' "$CNT") <(printf '%s\n' "$BAK") | sed -n '1,10p' || true
+  exit 1
+fi
+echo "contenedor == predeploy-$STAMP ($(printf '%s\n' "$CNT" | grep -c .) archivos .py)"
 C=$(ssh "$H" 'curl -s -o /dev/null -w %{http_code} http://127.0.0.1:8010/health')
 [ "$C" = "200" ] || { echo "FALLA: /health=$C"; exit 1; }
-echo "== REVERSA LISTA (imagen y crontab previos; /health 200)"
+echo "== REVERSA LISTA (codigo e imagen de predeploy-$STAMP, crontab previo; /health 200)"
