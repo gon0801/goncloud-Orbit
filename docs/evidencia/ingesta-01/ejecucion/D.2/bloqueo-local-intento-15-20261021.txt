@@ -1,0 +1,51 @@
+ingesta-01 D.2 — 2026-10-21 12:56 PDT (intento 15): re-diagnostico fresco del `atq` local
+================================================================================
+
+Contexto: la verificacion del intento 14 fallo solo en D.2 porque el Acepta
+`atq | grep -q .` corre en esta Mac y la cola local esta vacia. El trabajo real
+de la medicion de 7 dias esta programado en GONSERVER (job 9, corre el
+2026-10-28 18:42 UTC `sudo sh /mnt/data/appdata/orbit/recordatorios/ingesta01-d2.sh`;
+`ssh gonserver 'atq | grep -q .'` sale 0).
+
+Re-verificacion de hoy (maquina sin reiniciar desde el diagnostico raiz de las
+12:40, uptime 13 h 19 min a las 12:54):
+
+1) `atq` local: corre, cola vacia, exit 0 sin filas -> `grep -q .` sale 1.
+
+2) Envio local con guarda de 8 s: `echo true | at now + 5 minutes` NO crea
+   ningun trabajo; el binario corta con
+   "at: cannot open lockfile /usr/lib/cron/jobs/.lockfile: Interrupted system call"
+   y /private/var/at/jobs sigue vacio (0 entradas).
+
+3) Prueba syscall-level propia (python, mismo euid, alarm de 6 s):
+   os.open('/private/var/at/jobs/.prueba-ingesta01', O_WRONLY|O_CREAT|O_EXCL)
+   -> COLGADO >6 s (mata la alarma). El hook del kernel sobre creaciones en
+   /private/var/at/* sigue activo. Ver dictamen raiz en
+   at-colgue-raiz-20261021.txt (open(O_CREAT)/mkdir/symlink/rename cuelgan para
+   cualquier proceso, incluido root via setuid; el open del lockfile ocurre
+   antes del alarm(10) del propio binario).
+
+4) Escalera de admin cerrada: `sudo -n true` -> "a password is required".
+   Reiniciar la maquina, hacer spindump o reiniciar tccd/backgroundtaskmanagementd
+   exigen la contrasena de administrador: es una accion que solo una persona
+   puede hacer (login/admin), no del agente.
+
+Estado real de D.2 (no depende de la Mac):
+- gonserver: job 9 en `atq` (Wed Oct 28 18:42:00 2026), corre
+  /mnt/data/appdata/orbit/recordatorios/ingesta01-d2.sh con el patron de
+  jev-ads03 D.3 (mismo directorio que los recordatorios anteriores).
+- ingesta01-d2.sql re-probado hoy en solo lectura (sudo docker exec ... psql
+  < ingesta01-d2.sql): corre limpio con ROLLBACK; 0 filas porque la ventana de
+  7 dias aun no transcurre (despliegue 21-oct, medicion 28-oct). Salida en
+  sql-prueba-20261021-1256.txt.
+- Telegram se enviara solo cuando corra el job (el .sh llama a
+  envia_recordatorio.py); no se envio nada en las pruebas.
+
+Conclusion: el Acepta local `atq | grep -q .` es inalcanzable en esta Mac sin
+una persona con la contrasena de administrador (defecto del subsistema at/cron
+de macOS 27.0.1, kernel bloquea toda creacion en /private/var/at/*). Acciones
+para el admin, en orden: (1) reiniciar y re-probar `echo true | at now + 5 min`;
+(2) si persiste, con el open colgado correr `sudo spindump <pid>` y
+`sudo pkill -9 tccd` / `sudo launchctl kickstart -k system/com.apple.backgroundtaskmanagementd`;
+(3) reportar a Apple. La medicion de 7 dias ya esta programada y verificada en
+gonserver, donde estan Docker, la DB y los logs que mide.
