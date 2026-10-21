@@ -66,9 +66,9 @@ def cuerpo_de(cfg: dict, pid, ini: dt.date, fin: dt.date, sufijo: str = "") -> d
 
 
 class Sonda:
-    def __init__(self, client: AdsClient) -> None:
+    def __init__(self, client: AdsClient, transport: httpx.BaseTransport | None = None) -> None:
         self.c = client
-        self.http = httpx.Client(timeout=TIMEOUT, follow_redirects=False)
+        self.http = httpx.Client(timeout=TIMEOUT, follow_redirects=False, transport=transport)
 
     def headers(self, pid, path, method):
         return self.c._build_headers(self.c._ensure_token(), pid, path=path, method=method)
@@ -79,9 +79,17 @@ class Sonda:
             r = self.http.post(
                 DEFAULT_BASE_URL + PATH, headers=self.headers(pid, PATH, "POST"), json=body
             )
-            return r.status_code, r.text[:600], time.monotonic() - t0
+            # el reportId se saca del cuerpo completo (el eco de targets pasa de
+            # 600 caracteres); solo lo que se imprime se trunca.
+            rid = None
+            if r.status_code in (200, 202):
+                try:
+                    rid = r.json().get("reportId")
+                except (ValueError, AttributeError):
+                    rid = rid_de(r.text)
+            return r.status_code, r.text, time.monotonic() - t0, rid
         except httpx.HTTPError as exc:
-            return None, f"{type(exc).__name__}: {exc}"[:600], time.monotonic() - t0
+            return None, f"{type(exc).__name__}: {exc}"[:600], time.monotonic() - t0, None
 
     def get(self, pid, rid):
         path = f"{PATH}/{rid}"
@@ -109,8 +117,7 @@ def fase_a_post(s: Sonda, perfiles, ini, fin) -> dict:
     for p in perfiles:
         for nombre in TODOS:
             cuerpo = cuerpo_de(CFG_NOMBRE[nombre], p.profile_id, ini, fin)
-            cod, txt, seg = s.post(p.profile_id, cuerpo)
-            rid = rid_de(txt) if cod in (200, 202) else None
+            cod, txt, seg, rid = s.post(p.profile_id, cuerpo)
             log(
                 f"(a) POST {p.platform}/{nombre}: HTTP {cod} en {seg:.1f}s "
                 f"id={rid} cuerpo={txt[:200]!r}"
@@ -148,18 +155,24 @@ def fase_b_c(s: Sonda, perfiles, mx, ini, fin, pend: dict) -> None:
     cfg_mx = CFG_NOMBRE["campanas"]
     for etq, suf in (("identico", ""), ("name+-r1", "-r1")):
         cuerpo = cuerpo_de(cfg_mx, mx.profile_id, ini, fin, suf)
-        cod, txt, seg = s.post(mx.profile_id, cuerpo)
-        log(f"(b) campanas MX {etq}: HTTP {cod} en {seg:.1f}s cuerpo={txt!r}")
+        cod, txt, seg, _ = s.post(mx.profile_id, cuerpo)
+        log(f"(b) campanas MX {etq}: HTTP {cod} en {seg:.1f}s cuerpo={txt[:600]!r}")
     codigos: dict = {}
     n = 0
-    for vuelta in (1, 2):
+    # Amazon deduplica por rango+configuracion (no por name): cada POST corre
+    # el rango n dias atras (D-32..D-2, D-33..D-3, ...) para ser un reporte nuevo.
+    for _vuelta in (1, 2):
         for p in perfiles:
             for nombre in TODOS:
                 n += 1
-                cuerpo = cuerpo_de(CFG_NOMBRE[nombre], p.profile_id, ini, fin, f"-rafaga{vuelta}")
-                cod, txt, seg = s.post(p.profile_id, cuerpo)
+                d = dt.timedelta(days=n)
+                cuerpo = cuerpo_de(CFG_NOMBRE[nombre], p.profile_id, ini - d, fin - d)
+                cod, txt, seg, _ = s.post(p.profile_id, cuerpo)
                 codigos[cod] = codigos.get(cod, 0) + 1
-                log(f"(c) #{n} {p.platform}/{nombre}: HTTP {cod} en {seg:.2f}s cuerpo={txt!r}")
+                log(
+                    f"(c) #{n} {p.platform}/{nombre} {ini - d}..{fin - d}: HTTP {cod} "
+                    f"en {seg:.2f}s cuerpo={txt[:600]!r}"
+                )
     log(f"(c) resumen: {n} POST; codigos={codigos}; 429={codigos.get(429, 0)}")
 
 
@@ -185,8 +198,7 @@ def fase_d(s: Sonda, mx, ini, fin) -> None:
     resumen: list[str] = []
     for nombre in METRICAS:
         cuerpo = cuerpo_de(CFG_NOMBRE[nombre], mx.profile_id, ini, fin, "-d")
-        cod, txt, seg = s.post(mx.profile_id, cuerpo)
-        rid = rid_de(txt) if cod in (200, 202) else None
+        cod, txt, seg, rid = s.post(mx.profile_id, cuerpo)
         log(f"(d) POST MX/{nombre}: HTTP {cod} en {seg:.1f}s id={rid} cuerpo={txt[:200]!r}")
         if not rid:
             resumen.append(f"{nombre}=NO_CREADO")
@@ -239,4 +251,5 @@ def main() -> int:
     return 0
 
 
-sys.exit(main())
+if __name__ == "__main__":
+    sys.exit(main())
