@@ -48,3 +48,11 @@ un problema del subsistema `at` de macOS 27 que requiere intervencion de admin
 Mac: el trabajo 9 de gonserver corre el 2026-10-28 18:42 UTC el .sql de solo
 lectura y manda el Telegram (scripts en /mnt/data/appdata/orbit/recordatorios/,
 salida de prueba en ingesta01-d2.out/.txt).
+
+== Actualizacion intento 16, 2026-10-21 13:02 PDT ==
+Sin reinicio desde el diagnostico (uptime 13:24). Confirmado de nuevo: envio de
+`at` corta con EINTR en el lockfile; caso nuevo probado: os.link() hacia
+/var/at/jobs tambien cuelga >6 s (no es solo open(O_CREAT): el kernel bloquea
+cualquier creacion de entrada en /private/var/at/*); `sudo -n` sigue pidiendo
+password; atrun sigue descargado. Estado verificado en gonserver (job 9 +
+archivos) y checklist D.1 en 0 fallas. Detalle: bloqueo-local-intento-16-20261021.txt

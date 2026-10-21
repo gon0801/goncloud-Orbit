@@ -34,3 +34,14 @@ disabled, sudo-only). Doble bloqueo = solo una persona (admin/reinicio).
 gonserver atq (reverificado, archivos ingesta01-d2.* en su lugar):
 9	Wed Oct 28 18:42:00 2026 a claw
 checklist D.1 re-corre hoy: 0 fallas, exit 0 (ver ../D.1/checklist-20261021-1249*.txt)
+
+== intento 16, 2026-10-21 13:00 PDT (uptime: 12:59 up 13:24; sin reinicio) ==
+local atq vacío; envío local sigue cortando con EINTR en el lockfile; caso nuevo
+probado: os.link() a /var/at/jobs también cuelga >6 s (hook de kernel sobre
+cualquier creación de entrada, no solo O_CREAT). `sudo -n` sigue pidiendo
+password; atrun sigue sin cargar. Detalle: bloqueo-local-intento-16-20261021.txt
+gonserver atq (reverificado 13:00 PDT, archivos ingesta01-d2.* en su lugar):
+9	Wed Oct 28 18:42:00 2026 a claw
+gonserver `atq | grep -q .` -> exit 0
+checklist D.1 re-corre hoy 13:00 PDT: 0 fallas, 0 sin medir, exit 0 (ver ../D.1/checklist-20261021-130029.txt)
+sql re-probado hoy en solo lectura: exit 0 con ROLLBACK (sql-prueba-20261021-1300.txt)
