@@ -360,6 +360,10 @@ def main(
         if args.solo_faltantes:
             # el grupo saltado no abre ingest_run: se filtra ANTES de descargar
             grupos = [grupo for grupo in grupos if not _grupo_al_dia(conn, grupo, hoy=hoy)]
+            # cerrar la transaccion implicita del SELECT: si no, los
+            # `transaction()` de la descarga serian savepoints y el close()
+            # final haria ROLLBACK de todo
+            conn.commit()
         if not grupos:
             return 0
 
@@ -397,7 +401,10 @@ def main(
             if notifica.canal_activo():
                 enviar = notifica.envia_aviso
         if enviar is not None:
-            _envia_mensajes(conn, resultados, hoy=hoy, ahora=ahora, enviar=enviar)
+            try:
+                _envia_mensajes(conn, resultados, hoy=hoy, ahora=ahora, enviar=enviar)
+            finally:
+                conn.commit()  # las lecturas de los mensajes no dejan nada abierto
         if reloj() - t0 > TOPE_PARED_SEGUNDOS:
             logger.warning(
                 "ingest diario excedio su tope de pared de 2 h 45 min (tardo %.0f s)",

@@ -414,6 +414,37 @@ def test_solo_faltantes_salta_el_grupo_listo_y_no_abre_run(conn_pg):
 
 
 @_skip_db
+def test_solo_faltantes_persiste_con_la_conexion_que_abre_main(conn_pg, monkeypatch):
+    # main abre su propia conexion (sin autocommit) por ORBIT_DSN_INGEST: el
+    # SELECT de --solo-faltantes no debe dejar una transaccion implicita que
+    # convierta los `transaction()` de la descarga en savepoints y haga
+    # ROLLBACK al cerrar. Se cuenta desde OTRA conexion (conn_pg).
+    from psycopg.conninfo import make_conninfo
+
+    monkeypatch.setenv("ORBIT_DSN_INGEST", make_conninfo(_test_dsn(), dbname=conn_pg.info.dbname))
+    reloj, duerme = _calendario_falso()
+    teatro = _teatro_diario(reloj)
+
+    salida = main(
+        ["--solo-faltantes"],
+        client=teatro._cliente(),
+        reloj=lambda: reloj["t"],
+        sleep=duerme,
+        enviar=[].append,
+        ahora=dt.datetime(2026, 10, 21, 7, 10, tzinfo=dt.UTC),
+        hoy=HOY,
+    )
+
+    assert salida == 0
+    for source in (
+        "amazon_ads_reports_v3",
+        "amazon_ads_products_v3",
+        "amazon_ads_placements_v3",
+    ):
+        assert _runs(conn_pg, source) == 1, f"{source}: la run debe persistir"
+
+
+@_skip_db
 def test_solo_faltantes_corre_si_falta_una_plataforma(conn_pg):
     run = _siembra_metricas_al_dia(conn_pg, plataformas=("amazon_mx",))
     # US es plataforma del source (evidencia escrita) pero la corrida ok de
