@@ -56,3 +56,11 @@ tambien en (b)); solo se dispone de las dos salidas.
   200 -> id nuevo).
 - Rate-limit: 0x 429 en 24 POST seguidos (ambas corridas), con la salvedad de
   que solo la de 19:17 mando 24 reportes distintos.
+
+## Sobrante
+
+`reposicion.py` quedo SIN correr: se escribio para reponer las medidas que
+la corrida de 19:00 perdio (targets sin id), pero la re-corrida de 19:17 con
+el `sonda.py` arreglado las midio todas y lo volvio innecesario. Queda solo
+como antecedente de la tecnica (ventana corrida un dia por POST para esquivar
+el dedup) y de los reportId que los 425 de la corrida de 19:00 revelaron.
