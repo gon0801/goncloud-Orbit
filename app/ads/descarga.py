@@ -400,10 +400,14 @@ class _Corrida:
         )
 
     def _fallar_todos(self, exc: BaseException) -> None:
-        """evaluar_perfiles fallo: las runs se sellan global_failed y la
-        excepcion original sube (el caller jamas ve resultados)."""
+        """Fallo global (evaluar_perfiles o un error inesperado como la
+        red): las runs AUN ABIERTAS se sellan global_failed y la excepcion
+        original sube (el caller jamas ve resultados). Un grupo ya cerrado
+        ok=true no se toca."""
         motivo = scrub(str(exc)) or type(exc).__name__
         for grupo in self.grupos:
+            if grupo.clave in self.sellado:
+                continue
             try:
                 with self.conn.transaction():
                     _registrar(
@@ -655,30 +659,34 @@ class _Corrida:
         self._abrir_runs()
         try:
             aceptados = self._registrar_perfiles(client)
+            if not aceptados:
+                self._sellar_cero_perfiles()
+                return self.resultados
+            self._pedir_todos(client, aceptados, reloj())
+            while True:
+                self._sondear_una_vuelta(client, reloj)
+                self._completar_grupos()
+                vivos = [
+                    logico
+                    for logico in self.logicos
+                    if logico.ganador is None and logico.grupo.clave not in self.sellado
+                ]
+                if not vivos or reloj() >= self.plazo:
+                    break
+                espera = (
+                    ESPERA_RAPIDA_SEGUNDOS
+                    if reloj() - self.t0 < RAPIDO_HASTA_SEGUNDOS
+                    else ESPERA_LENTA_SEGUNDOS
+                )
+                sleep(espera)
+            self._fallar_por_plazo()
         except BaseException as exc:
+            # Un fallo fuera de lo previsto (transporte, DB, bug): las runs
+            # aun abiertas se sellan global_failed antes de subir -- la
+            # disciplina heredada de reports es que jamas queda una run
+            # abierta; los grupos ya cerrados ok=true no se tocan.
             self._fallar_todos(exc)
             raise
-        if not aceptados:
-            self._sellar_cero_perfiles()
-            return self.resultados
-        self._pedir_todos(client, aceptados, reloj())
-        while True:
-            self._sondear_una_vuelta(client, reloj)
-            self._completar_grupos()
-            vivos = [
-                logico
-                for logico in self.logicos
-                if logico.ganador is None and logico.grupo.clave not in self.sellado
-            ]
-            if not vivos or reloj() >= self.plazo:
-                break
-            espera = (
-                ESPERA_RAPIDA_SEGUNDOS
-                if reloj() - self.t0 < RAPIDO_HASTA_SEGUNDOS
-                else ESPERA_LENTA_SEGUNDOS
-            )
-            sleep(espera)
-        self._fallar_por_plazo()
         return self.resultados
 
 

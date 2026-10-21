@@ -669,32 +669,36 @@ def _create_storm(status: int):
 @_skip_db
 def test_cinco_429_seguidos_al_crear_se_repite_y_sale_ok(conn_pg):
     """(5) el POST del reporte falla con 429 agotado una y otra vez: se
-    repite con -r1 y -r2 hasta que uno entra; la corrida sale ok."""
+    repite con -r1 y -r2 hasta que uno entra; la corrida sale ok. El 429
+    tambien reintenta a nivel HTTP dentro de cada POST (politica sellada
+    del cliente: 429 = rechazado sin procesar), asi que aqui se fija el
+    contrato de descarga: UN POST por sufijo (original + 2 repetidos)."""
     reloj, duerme = _calendario_falso()
     teatro = _Teatro(reloj, fecha_ini=dt.date(2026, 10, 20))
     teatro.crea_siempre((101, "campanas"), _create_storm(429))
     resultado = _sync_con_teatro(conn_pg, teatro, reloj, duerme)
 
     assert resultado.ok is True
-    pedidos = [c for c in teatro.creates if c["scope"] == "101"]
-    nombres = [c["body"]["name"] for c in pedidos]
-    assert len(pedidos) == 3, "original + 2 repetidos"
-    assert any(n.endswith("-r2") for n in nombres)
+    pedidos = [c for c in teatro.creates if "campanas-101-" in c["body"]["name"]]
+    nombres = sorted({c["body"]["name"] for c in pedidos})
+    assert len(nombres) == 3, "original + 2 repetidos (un POST de descarga por sufijo)"
+    assert nombres[1].endswith("-r1") and nombres[2].endswith("-r2")
     ganador = next(r for r in resultado.reportes if r.nombre == "campanas" and r.profile_id == 101)
     assert ganador.report_id == "rep-campanas-101-r2"
 
 
 @_skip_db
 def test_5xx_al_crear_se_repite_y_sale_ok(conn_pg):
-    """(6) un 5xx en el POST (ambiguo, fail-closed en el cliente) tambien se
-    repite a nivel de corrida."""
+    """(6) un 5xx en el POST (ambiguo, fail-closed en el cliente: UN intento
+    HTTP, sin retry) tambien se repite a nivel de corrida: un POST por
+    sufijo hasta que el -r2 entra."""
     reloj, duerme = _calendario_falso()
     teatro = _Teatro(reloj, fecha_ini=dt.date(2026, 10, 20))
     teatro.crea_siempre((202, "targets"), _create_storm(500))
     resultado = _sync_con_teatro(conn_pg, teatro, reloj, duerme)
 
     assert resultado.ok is True
-    pedidos = [c for c in teatro.creates if c["scope"] == "202"]
+    pedidos = [c for c in teatro.creates if "targets-202-" in c["body"]["name"]]
     assert len(pedidos) == 3
     ganador = next(r for r in resultado.reportes if r.nombre == "targets" and r.profile_id == 202)
     assert ganador.report_id == "rep-targets-202-r2"
