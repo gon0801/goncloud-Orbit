@@ -7,15 +7,25 @@
 # al revertir un re-despliegue (el respaldo ya trae descarga.py) restauraba
 # bien y aun asi salia 1. Ahora compara el contenedor contra predeploy-<STAMP>,
 # que es lo que la reversa debe garantizar, en cualquier direccion.
-# Uso: cd <repo> && bash docs/evidencia/ingesta-01/ejecucion/D.1/rollback.sh <STAMP>
+# Uso: cd <repo> && bash docs/evidencia/ingesta-01/ejecucion/D.1/rollback.sh [STAMP]
+# El motor corre `bash rollback.sh` sin STAMP. Si desplegar aborto antes de
+# crear el respaldo, no hay nada que revertir y se sale 0.
 set -euo pipefail
 
-STAMP=${1:?uso: rollback.sh <STAMP impreso por desplegar.sh>}
 H=${ORBIT_SSH:-gonserver}
 REPO=$(git rev-parse --show-toplevel)
 SRV=/mnt/data/appdata/orbit
-DIR=docs/evidencia/ingesta-01/ejecucion/D.1
+DIR=${INGESTA01_D1_DIR:-docs/evidencia/ingesta-01/ejecucion/D.1}
+STAMP_FILE=${INGESTA01_D1_STAMP_FILE:-/tmp/ingesta01-d1.stamp}
 cd "$REPO"
+STAMP=${1:-}
+if [ -z "$STAMP" ]; then
+  STAMP=$(cat "$STAMP_FILE" 2>/dev/null | tr -d '[:space:]' || true)
+fi
+if [ -z "$STAMP" ]; then
+  echo "nada que revertir: desplegar aborto antes de crear el respaldo"
+  exit 0
+fi
 
 echo "== 0) Respaldos presentes ANTES de tocar nada"
 [ -s "$DIR/crontab-antes.txt" ] || { echo "ABORTA: falta $DIR/crontab-antes.txt"; exit 1; }

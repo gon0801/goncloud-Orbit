@@ -119,3 +119,33 @@ def test_contenedor_distinto_del_respaldo_es_falla(tmp_path):
     r = _corre(tmp_path, PY_OTRO, PY_RED)
     assert r.returncode == 1, r.stdout + r.stderr
     assert f"el contenedor difiere de predeploy-{STAMP}" in r.stdout
+
+
+def test_sin_argumento_sin_respaldo_es_noop(tmp_path):
+    # El motor corre `bash rollback.sh` sin STAMP (effects.py). Si desplegar
+    # aborto antes de crear el respaldo, no hay nada que revertir: salir 0.
+    # La version con STAMP=${1:?uso:...} salia 1 al instante (incidentes 22-24).
+    fake = tmp_path / "ssh"
+    fake.write_text("#!/bin/sh\necho ssh-no-deberia-correr >&2; exit 64\n")
+    fake.chmod(0o755)
+    env = os.environ.copy()
+    env.update(
+        {
+            "PATH": f"{tmp_path}:{env['PATH']}",
+            "ORBIT_SSH": "gonserver",
+            "INGESTA01_D1_STAMP_FILE": str(tmp_path / "no-existe"),
+        }
+    )
+    r = subprocess.run(
+        ["bash", str(ROLLBACK)],
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+        cwd=RAIZ,
+        timeout=10,
+    )
+    out = r.stdout + r.stderr
+    assert "uso: rollback.sh" not in out, out
+    assert r.returncode == 0, out
+    assert "nada que revertir" in r.stdout
