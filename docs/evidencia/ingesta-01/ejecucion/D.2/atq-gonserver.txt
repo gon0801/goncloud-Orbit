@@ -12,3 +12,8 @@ exit=0
 local atq (Mac): vacio, sin reinicio desde el diagnostico; crear trabajos sigue colgado (ver at-colgue-raiz-20261021.txt)
 gonserver atq:
 9	Wed Oct 28 18:42:00 2026 a claw
+
+== intento 13, 2026-10-21 12:45:30 (uptime: 12:45  up 13:10) ==
+local atq vacio; sin reinicio ni admin no se puede crear el trabajo local (ver at-colgue-raiz-20261021.txt). No se simula la cola con shims.
+gonserver atq:
+9	Wed Oct 28 18:42:00 2026 a claw
