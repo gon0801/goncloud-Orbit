@@ -11,7 +11,6 @@ DIR=docs/evidencia/ingesta-01/ejecucion/D.1
 FALLAS=0
 NOMEDIDO=0
 cd "$REPO"
-md5l() { python3 -c "import hashlib,sys; print(hashlib.md5(sys.stdin.buffer.read()).hexdigest())"; }
 
 revisa() {  # revisa <nombre> <esperado> <obtenido>
   if [ -z "$3" ]; then echo "NO MEDIDO $1 (lectura vacia)"; NOMEDIDO=$((NOMEDIDO + 1));
@@ -30,17 +29,28 @@ echo "== Checklist D.1 ingesta-01 (SHA ${SHA:-sin-dato})"
 echo "== 1) md5 server vs SHA desplegado"
 if [ -z "$SHA" ]; then echo "NO MEDIDO md5 (sin SHA desplegado)"; NOMEDIDO=$((NOMEDIDO + 1));
 else
-  ssh "$H" "cd $SRV && sudo xargs md5sum" < "$DIR/archivos.txt" | sed 's/  / /' | sort -k2 > /tmp/ck-md5-srv.$$
-  python3 - "$SHA" "$DIR/archivos.txt" <<'PY2' | sort -k2 > /tmp/ck-md5-loc.$$
+  N=$(wc -l < "$DIR/archivos.txt" | tr -d ' ')
+  ssh "$H" "cd $SRV && sudo xargs md5sum" < "$DIR/archivos.txt" 2>/tmp/ck-md5-err.$$ \
+    | sed 's/  / /' | sort -k2 > /tmp/ck-md5-srv.$$ || true
+  NSRV=$(grep -c . /tmp/ck-md5-srv.$$ || true)
+  if [ "${NSRV:-0}" = "0" ]; then
+    echo "NO MEDIDO md5 (lectura del servidor vacia o ssh fallo); stderr:"; NOMEDIDO=$((NOMEDIDO + 1))
+    sed -n '1,2p' /tmp/ck-md5-err.$$
+  elif [ "$NSRV" != "$N" ]; then
+    echo "FALLA md5: el servidor reporto $NSRV de $N archivos (md5sum manda el faltante a stderr, sin linea); stderr:"
+    FALLAS=$((FALLAS + 1)); sed -n '1,3p' /tmp/ck-md5-err.$$
+  else
+    python3 - "$SHA" "$DIR/archivos.txt" <<'PY2' | sort -k2 > /tmp/ck-md5-loc.$$
 import hashlib, subprocess, sys
 for f in open(sys.argv[2]).read().split():
     b = subprocess.run(["git", "show", f"{sys.argv[1]}:{f}"], capture_output=True, check=True).stdout
     print(hashlib.md5(b).hexdigest(), f)
 PY2
-  FALLAN=$(diff /tmp/ck-md5-loc.$$ /tmp/ck-md5-srv.$$ | grep -c '^>' || true)
-  revisa "md5 de $(wc -l < "$DIR/archivos.txt" | tr -d ' ') archivos: distintos" 0 "$FALLAN"
-  diff /tmp/ck-md5-loc.$$ /tmp/ck-md5-srv.$$ | grep '^[<>]' | head -10
-  rm -f /tmp/ck-md5-srv.$$ /tmp/ck-md5-loc.$$
+    FALLAN=$(diff /tmp/ck-md5-loc.$$ /tmp/ck-md5-srv.$$ | grep -c '^[<>]' || true)
+    revisa "md5 de $N archivos: distintos" 0 "$FALLAN"
+    diff /tmp/ck-md5-loc.$$ /tmp/ck-md5-srv.$$ | grep '^[<>]' | sed -n '1,10p'
+  fi
+  rm -f /tmp/ck-md5-srv.$$ /tmp/ck-md5-err.$$ /tmp/ck-md5-loc.$$
 fi
 
 echo "== 2) crontab de gon: lineas Orbit = tabla de DEPLOY.md (una vez cada una); ajenas = crontab-antes.txt"
