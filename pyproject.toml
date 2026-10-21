@@ -49,3 +49,4 @@ max-statements = 80
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
