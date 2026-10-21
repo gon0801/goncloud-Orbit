@@ -38,8 +38,7 @@ def test_instalador_borra_el_cron_viejo_de_placements():
     deploy = (RAIZ / "docs/DEPLOY.md").read_text()
     filtros = _filtro_instalador(deploy)
     actual = (
-        f"# job_key=ingest:metrics:placements\n{LINEA_VIEJA}\n"
-        "# accounting\n0 0 * * * accounting\n"
+        f"# job_key=ingest:metrics:placements\n{LINEA_VIEJA}\n# accounting\n0 0 * * * accounting\n"
     )
     resultado = subprocess.run(
         ["bash", "-c", f"cat | {filtros}"],
