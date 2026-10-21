@@ -33,6 +33,14 @@ import psycopg
 from app.ads.descarga import GrupoDescarga, ResultadoGrupo, _registrar, descarga
 from app.ads.salud import intentar_procesar_run
 from app.ads.structure import _SQL_ABRIR_RUN, _sellar_run
+from app.metricas_listas import (
+    SOURCE_METRICAS,
+    SOURCE_PLACEMENTS,
+    SOURCE_PRODUCTOS,
+    metricas_de_ayer_listas,
+    placements_de_ayer_listos,
+    productos_de_ayer_listos,
+)
 from app.redaction import scrub
 
 logger = logging.getLogger(__name__)
@@ -57,25 +65,25 @@ QUE_POR_CLAVE = {
 }
 PAIS_POR_PLATAFORMA = {"amazon_mx": "MX", "amazon_us": "US"}
 
+# La guarda "al dia" vive en app.metricas_listas (un numero, una fuente):
+# cada source consulta su tabla con la ligazon real que su esquema trae.
+_AL_DIA_POR_SOURCE = {
+    SOURCE_METRICAS: metricas_de_ayer_listas,
+    SOURCE_PRODUCTOS: productos_de_ayer_listos,
+    SOURCE_PLACEMENTS: placements_de_ayer_listos,
+}
+
+# Tablas de observaciones que ligan la run (para los paises rescatados).
+# ads_placement_observation no liga: ver _SQL_PAISES_RESCATADOS_PLACEMENTS.
 _TABLA_POR_SOURCE = {
-    "amazon_ads_reports_v3": "ads_metric_observation",
-    "amazon_ads_products_v3": "ads_product_metric_observation",
-    "amazon_ads_placements_v3": "ads_placement_observation",
+    SOURCE_METRICAS: "ads_metric_observation",
+    SOURCE_PRODUCTOS: "ads_product_metric_observation",
 }
 
 _SQL_PLATAFORMAS_DEL_SOURCE = """
 SELECT DISTINCT platform FROM ads_report_result
  WHERE platform IS NOT NULL
    AND ingest_run_id IN (SELECT id FROM ingest_run WHERE source = %s)
-"""
-
-# {tabla} se sustituye SOLO con las claves de _TABLA_POR_SOURCE (constantes).
-_SQL_GRUPO_AL_DIA = """
-SELECT 1 FROM {tabla} o JOIN ingest_run r ON r.id = o.ingest_run_id
- WHERE r.source = %s AND r.ok = true
-   AND (r.started_at AT TIME ZONE 'UTC')::date = %s
-   AND o.metric_date = %s AND o.platform = %s
- LIMIT 1
 """
 
 _SQL_FALLO_HOY = """
@@ -85,9 +93,18 @@ SELECT 1 FROM ingest_run
  LIMIT 1
 """
 
-# {tabla} igual que arriba: constantes internas, jamas input del operador.
+# {tabla} se sustituye SOLO con las claves de _TABLA_POR_SOURCE (constantes).
+# Las observaciones de metricas/products ligan la run (ingest_run_id) y
+# traen metric_date: el rescate exige D-1 escrito por ESTA run.
 _SQL_PAISES_RESCATADOS = """
 SELECT DISTINCT platform FROM {tabla} WHERE ingest_run_id = %s AND metric_date = %s
+"""
+
+# ads_placement_observation (0062) no liga run: el rescate de placements se
+# acredita con lo que ESTA run dejo written en ads_report_result.
+_SQL_PAISES_RESCATADOS_PLACEMENTS = """
+SELECT DISTINCT platform FROM ads_report_result
+ WHERE ingest_run_id = %s AND status = 'written' AND platform IS NOT NULL
 """
 
 
@@ -161,17 +178,14 @@ def _plataformas_del_source(conn: psycopg.Connection, source: str) -> list[str]:
 def _grupo_al_dia(conn: psycopg.Connection, grupo: GrupoDescarga, *, hoy: dt.date) -> bool:
     """True si hoy ya hay una run ok=true del source que escribio D-1 para
     CADA plataforma del source. Un backfill viejo iniciado hoy no cuenta: el
-    filtro es metric_date = D-1."""
+    filtro es metric_date = D-1. La forma de ligar run y observaciones la
+    fija app.metricas_listas (cada tabla trae lo que trae: ads_metric_observation
+    cruza ad_entity; placements no liga run y es doble existe)."""
     plataformas = _plataformas_del_source(conn, grupo.source)
     if not plataformas:
         return False
-    ayer = hoy - dt.timedelta(days=1)
-    sql = _SQL_GRUPO_AL_DIA.format(tabla=_TABLA_POR_SOURCE[grupo.source])
-    for plataforma in plataformas:
-        fila = conn.execute(sql, (grupo.source, hoy, ayer, plataforma)).fetchone()
-        if fila is None:
-            return False
-    return True
+    al_dia = _AL_DIA_POR_SOURCE[grupo.source]
+    return all(al_dia(conn, plataforma, hoy=hoy) for plataforma in plataformas)
 
 
 def _fallo_anterior_hoy(conn: psycopg.Connection, source: str, *, hoy: dt.date) -> bool:
@@ -179,11 +193,18 @@ def _fallo_anterior_hoy(conn: psycopg.Connection, source: str, *, hoy: dt.date) 
 
 
 def _paises_rescatados(conn: psycopg.Connection, res: ResultadoGrupo, *, hoy: dt.date) -> list[str]:
-    """Plataformas que ESTA run (ok) escribio en D-1: el salvamento es real
-    solo si los datos llegaron."""
+    """Plataformas que ESTA run (ok) rescribio en D-1: el salvamento es real
+    solo si los datos llegaron. placements no liga run en su tabla de
+    observaciones: se acredita con lo que la run dejo written en
+    ads_report_result."""
     ayer = hoy - dt.timedelta(days=1)
-    sql = _SQL_PAISES_RESCATADOS.format(tabla=_TABLA_POR_SOURCE[res.source])
-    filas = conn.execute(sql, (res.run_id, ayer)).fetchall()
+    if res.source == SOURCE_PLACEMENTS:
+        filas = conn.execute(_SQL_PAISES_RESCATADOS_PLACEMENTS, (res.run_id,)).fetchall()
+    else:
+        filas = conn.execute(
+            _SQL_PAISES_RESCATADOS.format(tabla=_TABLA_POR_SOURCE[res.source]),
+            (res.run_id, ayer),
+        ).fetchall()
     return sorted({PAIS_POR_PLATAFORMA[fila[0]] for fila in filas})
 
 

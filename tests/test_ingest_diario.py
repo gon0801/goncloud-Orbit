@@ -98,25 +98,23 @@ def test_fecha_fin_requiere_fecha():
 
 def test_sql_del_diario_parsea_como_postgres():
     """Guarda barata que SIEMPRE corre (patron test_reports_pipeline): la
-    sintaxis SQL del diario es Postgres valida segun el parser real."""
+    sintaxis SQL del diario es Postgres valida segun el parser real. La
+    guarda "al dia" vive en app.metricas_listas (la parsea
+    test_metricas_listas)."""
     import pglast
 
-    from app.ads.diario import (
-        _SQL_FALLO_HOY,
-        _SQL_GRUPO_AL_DIA,
-        _SQL_PAISES_RESCATADOS,
-        _SQL_PLATAFORMAS_DEL_SOURCE,
-        _TABLA_POR_SOURCE,
-    )
+    from app.ads import diario
 
-    for nombre, sql in (
-        ("_SQL_PLATAFORMAS_DEL_SOURCE", _SQL_PLATAFORMAS_DEL_SOURCE),
-        ("_SQL_FALLO_HOY", _SQL_FALLO_HOY),
+    for nombre in (
+        "_SQL_PLATAFORMAS_DEL_SOURCE",
+        "_SQL_FALLO_HOY",
+        "_SQL_PAISES_RESCATADOS_PLACEMENTS",
     ):
+        sql = getattr(diario, nombre)
         assert pglast.parse_sql(sql.replace("%s", "NULL")), f"{nombre} no parseo"
-    for sql in (_SQL_GRUPO_AL_DIA, _SQL_PAISES_RESCATADOS):
-        for tabla in _TABLA_POR_SOURCE.values():
-            assert pglast.parse_sql(sql.format(tabla=tabla).replace("%s", "NULL"))
+    for tabla in diario._TABLA_POR_SOURCE.values():
+        sql = diario._SQL_PAISES_RESCATADOS.format(tabla=tabla)
+        assert pglast.parse_sql(sql.replace("%s", "NULL")), "_SQL_PAISES_RESCATADOS no parseo"
 
 
 class _ResultadoFalso:
@@ -417,7 +415,10 @@ def test_solo_faltantes_salta_el_grupo_listo_y_no_abre_run(conn_pg):
 
 @_skip_db
 def test_solo_faltantes_corre_si_falta_una_plataforma(conn_pg):
-    _siembra_metricas_al_dia(conn_pg, plataformas=("amazon_mx",))
+    run = _siembra_metricas_al_dia(conn_pg, plataformas=("amazon_mx",))
+    # US es plataforma del source (evidencia escrita) pero la corrida ok de
+    # hoy no trajo D-1 de US: el grupo corre
+    _escrito_result(conn_pg, run, "amazon_us", "campanas", "R-US")
     reloj, duerme = _calendario_falso()
     teatro = _teatro_diario(reloj)
 
