@@ -89,7 +89,15 @@ SEARCH_MIN = {
 }
 CFGS_2 = (CAMPANAS_MIN, KEYWORDS_MIN)
 
-_NOMBRES_CFG = ("campanas", "keywords", "targets", "search_terms", "productos", "place")
+_NOMBRES_CFG = (
+    "campanas",
+    "keywords",
+    "targets",
+    "search_terms",
+    "productos",
+    "place",
+    "placements",
+)
 
 
 class _Teatro:
