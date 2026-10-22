@@ -67,6 +67,11 @@ evidencia de implementación y validación.
   Jev marca como ajenas, en MX y US, con ledger, readback y reversa.
   Cerrado el 2026-10-18: desplegado y encendido (`config_version` 42), reporte
   de 30 días programado para el 2026-11-17. La abstención del motor, el ruteo y la fábrica no se construyen.
+  [INGESTA 01](ingesta-01.md), cerrada el 2026-10-22: la descarga diaria de
+  Amazon Ads pide los reportes a la vez, repite el que se atora y reintenta a
+  las 10:15 y 13:15 UTC; el ciclo, el vigía, los avisos y Jev esperan a las
+  métricas de ayer. Desplegada en `72c440e`; la medición de 7 días llega por
+  Telegram el 2026-10-28.
   Reseñas se tratarán aparte.
 - Motor de bids: [BIDS 02](bids-02.md), plan y diseño del 2026-10-09. Construido, desplegado y encendido (`niveles_v3` en MX y US). Una sola política de
   bid para una cuenta con poca data, cinco pantallas, impulso por producto y ajustes de campaña. Cubre en

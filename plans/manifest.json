@@ -174,6 +174,11 @@
       "name": "bids-02-construccion",
       "path": "plans/bids-02-construccion.md",
       "description": "BIDS 02, guia de construccion: donde cae cada pieza del diseno en el codigo, que prueba se escribe primero y como se comprueba cada paso. Escrita el 2026-10-09. Construido, desplegado y encendido."
+    },
+    {
+      "name": "ingesta-01",
+      "path": "plans/ingesta-01.md",
+      "description": "INGESTA 01 — la descarga diaria de Amazon Ads no falla: reportes en paralelo con repetidos, guarda de métricas de ayer para ciclo, vigía, avisos y Jev, y reintentos a las 10:15 y 13:15 UTC. Cerrado el 2026-10-22: desplegado en 72c440e; medición de 7 días con at (job 9, 2026-10-28)."
     }
   ],
   "active": "fabrica-01"
