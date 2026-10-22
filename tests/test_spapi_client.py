@@ -179,38 +179,99 @@ def test_401_persistente_no_reintenta_de_mas():
     assert api["n"] == 2
 
 
-def test_429_un_reintento_y_persistente_no_loop():
-    dormidas: list = []
+def _handler_429(codigos, *, retry_after=None):
+    """429 las veces de `codigos` y luego 200; con `codigos=None`, siempre 429."""
+    cuenta = {"n": 0}
 
-    def handler_ok(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx.Request) -> httpx.Response:
         if request.url.host == "api.amazon.com":
             return _token_ok(request)
-        if not hasattr(handler_ok, "n"):
-            handler_ok.n = 0  # type: ignore[attr-defined]
-        handler_ok.n += 1  # type: ignore[attr-defined]
-        if handler_ok.n == 1:  # type: ignore[attr-defined]
-            return httpx.Response(429, headers={"Retry-After": "0"}, json={})
+        cuenta["n"] += 1
+        if codigos is None or cuenta["n"] <= codigos:
+            cabeceras = {"Retry-After": retry_after} if retry_after else {}
+            return httpx.Response(429, headers=cabeceras, json={})
         return httpx.Response(200, json={"payload": {}})
 
-    cliente = _cliente(handler_ok, dormidas=dormidas)
+    return handler, cuenta
+
+
+def test_429_tres_y_luego_200_espera_2_4_8():
+    dormidas: list = []
+    handler, cuenta = _handler_429(3)
+    cliente = _cliente(handler, dormidas=dormidas)
     assert cliente.get("/sellers/v1/account").status_code == 200
+    assert dormidas == [2.0, 4.0, 8.0]
+    assert cuenta["n"] == 4
 
-    llamadas: list = []
 
-    def handler_429(request: httpx.Request) -> httpx.Response:
+def test_429_retry_after_manda_sobre_espera_fija():
+    dormidas: list = []
+    handler, _ = _handler_429(2, retry_after="30")
+    cliente = _cliente(handler, dormidas=dormidas)
+    assert cliente.get("/sellers/v1/account").status_code == 200
+    assert dormidas == [30.0, 30.0]
+
+
+def test_429_que_nunca_cesa_devuelve_429_tras_6_intentos():
+    dormidas: list = []
+    handler, cuenta = _handler_429(None)
+    cliente = _cliente(handler, dormidas=dormidas)
+    assert cliente.get("/sellers/v1/account").status_code == 429
+    assert cuenta["n"] == 6
+    assert dormidas == [2.0, 4.0, 8.0, 16.0, 32.0]
+    assert sum(dormidas) <= 120
+
+    # Con Retry-After grande el tope de 120 s corta antes de los 6 intentos.
+    dormidas2: list = []
+    handler2, cuenta2 = _handler_429(None, retry_after="50")
+    cliente2 = _cliente(handler2, dormidas=dormidas2)
+    assert cliente2.get("/sellers/v1/account").status_code == 429
+    assert dormidas2 == [50.0, 50.0]
+    assert sum(dormidas2) <= 120
+    assert cuenta2["n"] == 3
+
+
+def test_post_fees_429_reintenta_hasta_5():
+    dormidas: list = []
+    handler, cuenta = _handler_429(None)
+    cliente = _cliente(handler, dormidas=dormidas)
+    assert cliente.post_fees("SKU-1", b"{}").status_code == 429
+    assert cuenta["n"] == 6
+    assert dormidas == [2.0, 4.0, 8.0, 16.0, 32.0]
+
+
+def test_429_deja_linea_en_log_sin_headers_ni_cuerpo(caplog):
+    def handler(request: httpx.Request) -> httpx.Response:
         if request.url.host == "api.amazon.com":
             return _token_ok(request)
-        return httpx.Response(429, headers={"Retry-After": "0"}, json={})
+        return httpx.Response(429, headers={"Retry-After": "7", "x-secreto": "SHH"}, text="CUERPO")
 
-    cliente2 = _cliente(handler_429, llamadas=llamadas)
-    assert cliente2.get("/sellers/v1/account").status_code == 429
-    gets = [r for r in llamadas if r.url.host != "api.amazon.com"]
-    assert len(gets) == 2
+    cliente = _cliente(handler)
+    with caplog.at_level("WARNING", logger="app.spapi.client"):
+        cliente.get("/sellers/v1/account", params={"MarketplaceIds": "PARAMX"})
+    lineas = [r.getMessage() for r in caplog.records if "429" in r.getMessage()]
+    assert len(lineas) == 6
+    assert "/sellers/v1/account" in lineas[0]
+    assert "intento=1" in lineas[0] and "espera=7.0s" in lineas[0]
+    assert "Retry-After=7s" in lineas[0]
+    texto = " ".join(lineas)
+    assert "PARAMX" not in texto and "SHH" not in texto and "CUERPO" not in texto
+    assert "espera=0.0s" in lineas[-1]
+
+
+def test_429_sin_retry_after_lo_dice_en_el_log(caplog):
+    handler, _ = _handler_429(1)
+    cliente = _cliente(handler)
+    with caplog.at_level("WARNING", logger="app.spapi.client"):
+        cliente.get("/sellers/v1/account")
+    lineas = [r.getMessage() for r in caplog.records if "429" in r.getMessage()]
+    assert len(lineas) == 1
+    assert "sin Retry-After" in lineas[0] and "espera=2.0s" in lineas[0]
 
 
 def test_reintento_429_consume_cuota():
     # Revision #5: el reintento interno tambien pasa por el cubo; a 0.5/s
-    # el segundo intento espera 2 s aunque Retry-After pida 0.
+    # el segundo intento espera 2 s del cubo ademas de los 2 s fijos del 429.
     dormidas: list = []
     reloj = _reloj()
     n = {"n": 0}
@@ -231,7 +292,7 @@ def test_reintento_429_consume_cuota():
         clock=reloj,
     )
     assert cliente.get("/sellers/v1/account", limitador=cubo).status_code == 200
-    assert dormidas == [pytest.approx(0.0), pytest.approx(2.0)]
+    assert dormidas == [pytest.approx(2.0), pytest.approx(2.0)]
 
 
 def test_header_ratelimit_ajusta_tasa():
