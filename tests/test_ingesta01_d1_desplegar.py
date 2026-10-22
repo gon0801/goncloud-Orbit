@@ -6,6 +6,12 @@ La version con `APROBADO=${1:?uso:...}` salia 1 al instante. La que usaba
 HEAD y no esperaba Quality abortaba el caso real: justo despues del merge
 Quality sigue in_progress y una conclusion distinta de success no es motivo
 para saltarse el gate. Sin argumento se usa MOTOR_SHA y se espera hasta 15 min.
+
+El job `completa` hace checkout shallow (fetch-depth por defecto): no trae
+origin/master y `git rev-parse origin/master` sale 128 (run 39704242659,
+shards 2/4/5/6; gate falla porque completa no queda en success). Si el ref
+no esta, el SHA del test es HEAD y un git al frente del PATH deja pasar el
+fetch y el ancestro. Con origin/master presente se usa ese SHA y el git real.
 """
 
 from __future__ import annotations
@@ -91,31 +97,72 @@ else:
 """
 
 
-def _sha_master() -> str:
-    return subprocess.run(
-        ["git", "rev-parse", "origin/master"],
+FAKE_GIT = r"""#!/usr/bin/env python3
+import os
+import sys
+
+real = os.environ["CK_REAL_GIT"]
+args = sys.argv[1:]
+# Checkout shallow de completa: origin/master no existe (run 39704242659).
+# fetch no toca la red ni pisa refs; el ancestro del SHA del test se acepta.
+if args[:1] == ["fetch"]:
+    raise SystemExit(0)
+if (
+    args[:2] == ["merge-base", "--is-ancestor"]
+    and len(args) >= 4
+    and args[2] == os.environ.get("CK_SHA", "")
+    and args[3] == "origin/master"
+):
+    raise SystemExit(0)
+os.execv(real, [real, *args])
+"""
+
+
+def _rev_parse(ref: str) -> str | None:
+    r = subprocess.run(
+        ["git", "rev-parse", "--verify", "-q", ref],
         capture_output=True,
         text=True,
-        check=True,
+        check=False,
         cwd=RAIZ,
-    ).stdout.strip()
+    )
+    if r.returncode != 0:
+        return None
+    sha = r.stdout.strip()
+    return sha or None
 
 
-def _entorno(tmp_path: Path, *, sha: str | None = None, seq: str = "completed|success") -> dict:
+def _entorno(
+    tmp_path: Path,
+    *,
+    sha: str | None = None,
+    seq: str = "completed|success",
+    sin_master: bool = False,
+) -> dict:
+    # which() antes de anteponer tmp_path: ahi viven ssh/gh/git falsos.
+    real_git = shutil.which("git") or "/usr/bin/git"
+    real_ssh = shutil.which("ssh")
     fake_ssh = tmp_path / "ssh"
     fake_ssh.write_text(FAKE_SSH)
     fake_ssh.chmod(0o755)
     fake_gh = tmp_path / "gh"
     fake_gh.write_text(FAKE_GH)
     fake_gh.chmod(0o755)
-    sha = sha if sha is not None else _sha_master()
+    master = None if sin_master else _rev_parse("origin/master")
+    if sha is None:
+        sha = master or _rev_parse("HEAD")
+    if not sha:
+        raise RuntimeError("no hay SHA local para el test de desplegar")
+    if master is None:
+        fake_git = tmp_path / "git"
+        fake_git.write_text(FAKE_GIT)
+        fake_git.chmod(0o755)
     d1 = tmp_path / "d1"
     d1.mkdir()
     shutil.copy(ORIG / "archivos.txt", d1 / "archivos.txt")
     shutil.copy(ORIG / "crontab-antes.txt", d1 / "crontab-antes.txt")
     env = os.environ.copy()
     # git fetch habla por el ssh de verdad; el falso solo cubre al servidor.
-    real_ssh = shutil.which("ssh")
     env.update(
         {
             "GIT_SSH_COMMAND": real_ssh or "ssh",
@@ -124,6 +171,7 @@ def _entorno(tmp_path: Path, *, sha: str | None = None, seq: str = "completed|su
             "INGESTA01_D1_DIR": str(d1),
             "INGESTA01_D1_STAMP_FILE": str(tmp_path / "stamp"),
             "CK_SHA": sha,
+            "CK_REAL_GIT": real_git,
             "CK_CRON": str(d1 / "crontab-antes.txt"),
             "CK_GH_SEQ": seq,
             "CK_GH_N": str(tmp_path / "gh-n"),
@@ -196,3 +244,17 @@ def test_quality_no_responde_aborta(tmp_path):
     out = r.stdout + r.stderr
     assert r.returncode == 1, out
     assert "no pude leer Quality" in r.stdout, out
+
+
+def test_checkout_shallow_sin_origin_master_llega_a_listo(tmp_path):
+    # completa no trae origin/master. El script igual tiene que llegar a LISTO
+    # con MOTOR_SHA=HEAD: fetch no aborta y el ancestro de ese SHA pasa.
+    env = _entorno(tmp_path, sin_master=True)
+    r = _corre(tmp_path, env)
+    out = r.stdout + r.stderr
+    assert "uso: desplegar.sh" not in out, out
+    assert "git fetch origin fallo" not in out, out
+    assert "no esta en origin/master" not in out, out
+    assert r.returncode == 0, out
+    assert f"APROBADO={env['MOTOR_SHA']} CI=success" in r.stdout, out
+    assert "== LISTO." in r.stdout, out
