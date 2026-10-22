@@ -179,6 +179,11 @@
       "name": "ingesta-01",
       "path": "plans/ingesta-01.md",
       "description": "INGESTA 01 — la descarga diaria de Amazon Ads no falla: reportes en paralelo con repetidos, guarda de métricas de ayer para ciclo, vigía, avisos y Jev, y reintentos a las 10:15 y 13:15 UTC. Cerrado el 2026-10-22: desplegado en 72c440e; medición de 7 días con at (job 9, 2026-10-28)."
+    },
+    {
+      "name": "sp-api-02",
+      "path": "plans/sp-api-02.md",
+      "description": "SP-API 02 — el cliente SP-API aguanta el 429 (hasta 5 reintentos, espera acotada a 120 s), la corrida nocturna repite una vez lo que falló (antes de las 06:15 UTC) y avisa al recuperarse. Cerrado el 2026-10-22: desplegado en f273213; la primera corrida nocturna con el código nuevo es la del 2026-10-23."
     }
   ],
   "active": "fabrica-01"
