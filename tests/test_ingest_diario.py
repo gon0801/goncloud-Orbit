@@ -46,6 +46,10 @@ SQL62 = (_MIG / "0062_bids02_placement.sql").read_text()
 
 HOY = dt.date(2026, 10, 21)
 AYER = HOY - dt.timedelta(days=1)
+# El calendario del test esta clavado (ahora=2026-10-21). now() dejo de ser ese
+# dia el 2026-10-22 y --solo-faltantes / el aviso de las 10:40 vieron la semilla
+# en otro dia (Quality run 39698400104).
+_STAMP = dt.datetime(2026, 10, 21, 7, 10, tzinfo=dt.UTC)
 
 
 # ---------------------------------------------------------------------------
@@ -330,8 +334,8 @@ def _runs(conn, source):
 def _abre_run_ok(conn, source):
     return conn.execute(
         "INSERT INTO ingest_run (source, ok, started_at, finished_at)"
-        " VALUES (%s, true, now(), now()) RETURNING id",
-        (source,),
+        " VALUES (%s, true, %s, %s) RETURNING id",
+        (source, _STAMP, _STAMP),
     ).fetchone()[0]
 
 
@@ -369,8 +373,8 @@ def _siembra_metricas_al_dia(conn, plataformas=("amazon_us", "amazon_mx"), metri
 def _siembra_productos_fallido(conn):
     return conn.execute(
         "INSERT INTO ingest_run (source, ok, started_at, finished_at)"
-        " VALUES ('amazon_ads_products_v3', false, now(), now()) RETURNING id",
-        (),
+        " VALUES ('amazon_ads_products_v3', false, %s, %s) RETURNING id",
+        (_STAMP, _STAMP),
     ).fetchone()[0]
 
 
