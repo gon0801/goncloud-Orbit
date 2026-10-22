@@ -42,3 +42,8 @@ spapi_pricing amazon_us: run=1008 escritas=176 omitidas=0 asins=176 llamadas=352
 === 2026-10-22T05:37:15Z fin ===
 Thu Oct 22 07:33:34 AM UTC 2026
 ```
+
+**Re-verificación contra el servidor (2026-10-22 07:45 UTC):** cola de
+`/mnt/data/appdata/orbit/logs/spapi-diario.log` sin cambios (última corrida sigue siendo la de las
+05:00 UTC del 2026-10-22) y `md5sum spapi-diario.sh` del servidor sigue dando `b33a79556171c539861b5b143453851b`
+(el mismo del checklist de B). Sigue sin haber corrido código nuevo en la nocturna.

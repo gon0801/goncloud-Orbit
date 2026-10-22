@@ -13,3 +13,5 @@ spapi_pricing amazon_mx: run=1007 escritas=342 omitidas=0 asins=342 llamadas=684
 spapi_pricing amazon_us: run=1008 escritas=176 omitidas=0 asins=176 llamadas=352 segundos=702.6
 === 2026-10-22T05:37:15Z fin ===
 Thu Oct 22 07:33:34 AM UTC 2026
+--- re-verificacion Thu Oct 22 07:45:23 AM UTC 2026: cola sin cambios, md5 guion b33a79556171c539861b5b143453851b ---
+=== 2026-10-22T05:37:15Z fin ===
