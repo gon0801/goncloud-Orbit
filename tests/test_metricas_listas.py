@@ -32,7 +32,10 @@ SQL36 = Path(__file__).resolve().parents[1] / "migrations/0036_ingest_run_platfo
 SQL36 = SQL36.read_text()
 SQL62 = (Path(__file__).resolve().parents[1] / "migrations/0062_bids02_placement.sql").read_text()
 
-HOY = dt.date(2026, 10, 21)
+# La guarda sin `hoy=` usa el UTC de verdad y la semilla escribe started_at=now().
+# Clavar 2026-10-21 dejo Quality en rojo el 2026-10-22 (run 39698400104): la
+# corrida de "hoy" ya no caia en ese dia y la guarda decia "sin metricas de ayer".
+HOY = dt.datetime.now(dt.UTC).date()
 AYER = HOY - dt.timedelta(days=1)
 
 _skip_db = pytest.mark.skipif(
@@ -300,11 +303,19 @@ def test_cycle_respeta_un_running_reciente_y_reintenta_uno_viejo(conn_pg, monkey
     _siembra_metricas(conn)
     for horas, debe_correr in ((1, False), (4, True)):
         conn.execute("DELETE FROM optimizer_cycle")
+        # La guarda mira el ultimo ciclo de HOY (UTC). Entre 00:00 y 03:00,
+        # now()-1h cae ayer y no bloquea: se siembra a 1 min para seguir
+        # siendo reciente y de hoy. now()-4h, aunque sea ayer, no bloquea.
         conn.execute(
             "INSERT INTO optimizer_cycle (motor, mode, platform, started_at, status)"
-            " VALUES ('ads_optimizer', 'live', 'amazon_us', now() - make_interval(hours => %s),"
+            " VALUES ('ads_optimizer', 'live', 'amazon_us',"
+            " CASE WHEN %s < 3 AND"
+            "   ((now() - make_interval(hours => %s)) AT TIME ZONE 'UTC')::date"
+            "     < (now() AT TIME ZONE 'UTC')::date"
+            " THEN now() - interval '1 minute'"
+            " ELSE now() - make_interval(hours => %s) END,"
             " 'running')",
-            (horas,),
+            (horas, horas, horas),
         )
         salida, llamados, out = _corre_cycle(conn_pg, monkeypatch, capsys)
         assert salida == 0

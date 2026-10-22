@@ -8,23 +8,36 @@
 # bien y aun asi salia 1. Ahora compara el contenedor contra predeploy-<STAMP>,
 # que es lo que la reversa debe garantizar, en cualquier direccion.
 # Uso: cd <repo> && bash docs/evidencia/ingesta-01/ejecucion/D.1/rollback.sh [STAMP]
-# El motor corre `bash rollback.sh` sin STAMP. Si desplegar aborto antes de
-# crear el respaldo, no hay nada que revertir y se sale 0.
+# El motor corre `bash rollback.sh` sin STAMP (effects.py, mismo entorno con
+# MOTOR_SHA). Sin argumento se toma el predeploy mas reciente del servidor.
+# Si MOTOR_SHA esta definido y ese respaldo es de otro commit, este despliegue
+# no llego a crear el suyo: no hay nada que revertir y se sale 0.
 set -euo pipefail
 
 H=${ORBIT_SSH:-gonserver}
 REPO=$(git rev-parse --show-toplevel)
 SRV=/mnt/data/appdata/orbit
 DIR=${INGESTA01_D1_DIR:-docs/evidencia/ingesta-01/ejecucion/D.1}
-STAMP_FILE=${INGESTA01_D1_STAMP_FILE:-/tmp/ingesta01-d1.stamp}
 cd "$REPO"
 STAMP=${1:-}
 if [ -z "$STAMP" ]; then
-  STAMP=$(cat "$STAMP_FILE" 2>/dev/null | tr -d '[:space:]' || true)
+  LISTA=$(ssh "$H" "sudo ls -1d $SRV/predeploy-2* 2>/dev/null | sort | tail -1" || true)
+  LISTA=$(printf '%s' "$LISTA" | tr -d '[:space:]')
+  if [ -n "$LISTA" ]; then
+    base=$(basename "$LISTA")
+    STAMP=${base#predeploy-}
+  fi
 fi
 if [ -z "$STAMP" ]; then
-  echo "nada que revertir: desplegar aborto antes de crear el respaldo"
+  echo "nada que revertir: no hay predeploy en el servidor"
   exit 0
+fi
+if [ -z "${1:-}" ] && [ -n "${MOTOR_SHA:-}" ]; then
+  SHA_RESP=$(ssh "$H" "sudo cat $SRV/predeploy-$STAMP/SHA" | tr -d '[:space:]')
+  if [ "$SHA_RESP" != "$MOTOR_SHA" ]; then
+    echo "nada que revertir: el predeploy mas reciente ($STAMP, SHA $SHA_RESP) no es de este despliegue ($MOTOR_SHA)"
+    exit 0
+  fi
 fi
 
 echo "== 0) Respaldos presentes ANTES de tocar nada"

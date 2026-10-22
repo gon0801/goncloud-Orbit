@@ -31,7 +31,10 @@ import os
 import sys
 
 cmd = " ".join(sys.argv[1:])
-if "test ! -e /app/app/ads/descarga.py" in cmd:
+if "ls -1d" in cmd and "predeploy-2" in cmd:
+    print(os.environ.get("CK_PREDEPLOY", ""), end="")
+    sys.exit(0)
+elif "test ! -e /app/app/ads/descarga.py" in cmd:
     # escenario re-despliegue: descarga.py existe en el respaldo restaurado
     sys.exit(1)
 elif "test -d" in cmd and "predeploy" in cmd:
@@ -121,31 +124,63 @@ def test_contenedor_distinto_del_respaldo_es_falla(tmp_path):
     assert f"el contenedor difiere de predeploy-{STAMP}" in r.stdout
 
 
-def test_sin_argumento_sin_respaldo_es_noop(tmp_path):
-    # El motor corre `bash rollback.sh` sin STAMP (effects.py). Si desplegar
-    # aborto antes de crear el respaldo, no hay nada que revertir: salir 0.
-    # La version con STAMP=${1:?uso:...} salia 1 al instante (incidentes 22-24).
-    fake = tmp_path / "ssh"
-    fake.write_text("#!/bin/sh\necho ssh-no-deberia-correr >&2; exit 64\n")
-    fake.chmod(0o755)
-    env = os.environ.copy()
-    env.update(
-        {
-            "PATH": f"{tmp_path}:{env['PATH']}",
-            "ORBIT_SSH": "gonserver",
-            "INGESTA01_D1_STAMP_FILE": str(tmp_path / "no-existe"),
-        }
-    )
-    r = subprocess.run(
+def _sin_argumento(tmp_path, cont, resp, *, predeploy, motor_sha):
+    env = _entorno(tmp_path, cont, resp)
+    env["CK_PREDEPLOY"] = predeploy
+    if motor_sha is not None:
+        env["MOTOR_SHA"] = motor_sha
+    else:
+        env.pop("MOTOR_SHA", None)
+    return subprocess.run(
         ["bash", str(ROLLBACK)],
         env=env,
         text=True,
         capture_output=True,
         check=False,
         cwd=RAIZ,
-        timeout=10,
+        timeout=15,
     )
+
+
+def test_sin_argumento_sin_predeploy_es_noop(tmp_path):
+    # El motor corre `bash rollback.sh` sin STAMP (effects.py). Si no hay
+    # predeploy en el servidor, no hay nada que revertir: salir 0.
+    # La version con STAMP=${1:?uso:...} salia 1 al instante (incidentes 22-24).
+    r = _sin_argumento(tmp_path, PY_RED, PY_RED, predeploy="", motor_sha="sha-de-este-merge")
     out = r.stdout + r.stderr
     assert "uso: rollback.sh" not in out, out
     assert r.returncode == 0, out
-    assert "nada que revertir" in r.stdout
+    assert "no hay predeploy" in r.stdout, out
+
+
+def test_sin_argumento_predeploy_de_otro_sha_es_noop(tmp_path):
+    # Desplegar aborto antes del respaldo: el predeploy mas reciente es de un
+    # despliegue anterior. Revertirlo bajaria produccion. Con MOTOR_SHA distinto
+    # se sale 0.
+    r = _sin_argumento(
+        tmp_path,
+        PY_RED,
+        PY_RED,
+        predeploy="/mnt/data/appdata/orbit/predeploy-20991231-2359",
+        motor_sha="sha-de-este-merge",
+    )
+    out = r.stdout + r.stderr
+    assert r.returncode == 0, out
+    assert "no es de este despliegue" in r.stdout, out
+    assert "REVERSA LISTA" not in r.stdout, out
+
+
+def test_sin_argumento_restaura_el_predeploy_de_este_sha(tmp_path):
+    # Sin STAMP se toma el predeploy mas reciente. Si su SHA es MOTOR_SHA,
+    # este despliegue si creo el respaldo y la reversa corre.
+    r = _sin_argumento(
+        tmp_path,
+        PY_RED,
+        PY_RED,
+        predeploy="/mnt/data/appdata/orbit/predeploy-20991231-2359",
+        motor_sha="sha-anterior-falso",
+    )
+    out = r.stdout + r.stderr
+    assert r.returncode == 0, out
+    assert f"contenedor == predeploy-{STAMP}" in r.stdout, out
+    assert "REVERSA LISTA" in r.stdout, out

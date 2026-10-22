@@ -7,10 +7,11 @@
 # Guarda tecnica: NO se recrea orbit-app-1 si `flock -n /tmp/orbit-ingesta-diaria.lock true`
 # falla (como gon, dueno de los demas locks), si hay un ciclo `running` iniciado hace
 # menos de 3 h o si corre app.cli dentro del contenedor; se reintenta cada 15 min.
-# El motor (release lane) corre `bash desplegar.sh` SIN argumentos sobre la copia
-# desconectada del commit mergeado (tope 900 s). Sin SHA se usa HEAD y no se
-# espera Quality: el motor ya la midio en la rama; el squash de master a menudo
-# sigue in_progress o cancelled. Con SHA: ancestro de origin/master + Quality verde.
+# El motor (effects.py) corre `bash desplegar.sh` SIN argumentos, sobre la copia
+# desconectada del commit mergeado, con MOTOR_SHA=ese commit. Sin argumento se
+# usa MOTOR_SHA. Quality de ese push suele seguir in_progress justo despues del
+# merge: se espera a que termine (hasta 15 min) en vez de abortar. Una conclusion
+# distinta de success aborta al momento.
 # Uso: cd <repo> && bash docs/evidencia/ingesta-01/ejecucion/D.1/desplegar.sh [sha]
 set -euo pipefail
 trap 'echo "FALLO en la linea $LINENO. Si el codigo ya se copio: bash $DIR/rollback.sh $STAMP"' ERR
@@ -26,13 +27,13 @@ md5l() { python3 -c "import hashlib,sys; print(hashlib.md5(sys.stdin.buffer.read
 
 if [ -n "${1:-}" ]; then
   APROBADO=$1
-  MOTOR=0
-  REINTENTOS=${REINTENTOS:-12}   # x 15 min = 3 h (corrida a mano)
+elif [ -n "${MOTOR_SHA:-}" ]; then
+  APROBADO=$MOTOR_SHA
 else
-  APROBADO=$(git rev-parse HEAD)
-  MOTOR=1
-  REINTENTOS=${REINTENTOS:-1}    # el tope del motor es 900 s: no cabe un sleep 900
+  echo "ABORTA: falta el SHA (argumento o MOTOR_SHA)"
+  exit 1
 fi
+REINTENTOS=${REINTENTOS:-12}   # x 15 min = 3 h
 
 guardas() {  # 0 = se puede recrear; imprime el motivo si no
   if ! ssh "$H" "sudo -u gon flock -n /tmp/orbit-ingesta-diaria.lock true"; then echo "flock ocupado"; return 1; fi
@@ -43,16 +44,46 @@ guardas() {  # 0 = se puede recrear; imprime el motivo si no
   [ "$cli" = "0" ] || { echo "hay app.cli corriendo"; return 1; }
 }
 
-echo "== 0) SHA a desplegar"
-if [ "$MOTOR" = "0" ]; then
-  git fetch -q origin
-  git merge-base --is-ancestor "$APROBADO" origin/master || { echo "ABORTA: $APROBADO no esta en origin/master"; exit 1; }
-  CI=$(gh run list --commit "$APROBADO" --event push --workflow Quality --json conclusion --jq '.[0].conclusion')
-  [ "$CI" = "success" ] || { echo "ABORTA: Quality sobre $APROBADO es '$CI'"; exit 1; }
-  echo "APROBADO=$APROBADO CI=$CI"
-else
-  echo "APROBADO=$APROBADO (HEAD; invocacion del motor, Quality ya medida en la rama)"
-fi
+espera_quality() {  # 0 cuando el push de Quality termina en success
+  local tope=${QUALITY_ESPERA_S:-900} pausa=${QUALITY_PAUSA_S:-20}
+  local inicio=$SECONDS raw status conclusion err
+  err=$(mktemp)
+  while true; do
+    if ! raw=$(gh run list --commit "$APROBADO" --event push --workflow Quality \
+        --json status,conclusion --jq \
+        'if .[0] == null then "|" else [.[0].status // "", .[0].conclusion // ""] | join("|") end' \
+        2>"$err"); then
+      echo "ABORTA: no pude leer Quality sobre $APROBADO"
+      sed -n '1,5p' "$err"
+      rm -f "$err"
+      exit 1
+    fi
+    status=${raw%%|*}
+    conclusion=${raw#*|}
+    if [ "$conclusion" = "success" ]; then
+      rm -f "$err"
+      echo "APROBADO=$APROBADO CI=success"
+      return 0
+    fi
+    if [ -n "$conclusion" ]; then
+      echo "ABORTA: Quality sobre $APROBADO es '$conclusion'"
+      rm -f "$err"
+      exit 1
+    fi
+    if [ $((SECONDS - inicio)) -ge "$tope" ]; then
+      echo "ABORTA: Quality sobre $APROBADO no termino en ${tope}s (status=${status:-sin-run})"
+      rm -f "$err"
+      exit 1
+    fi
+    echo "Quality sobre $APROBADO sigue ${status:-sin-run}; espero ${pausa}s ($((SECONDS - inicio))s/${tope}s)"
+    sleep "$pausa"
+  done
+}
+
+echo "== 0) SHA aprobado: ancestro de origin/master; Quality verde (espera hasta 15 min)"
+git fetch -q origin || { echo "ABORTA: git fetch origin fallo"; exit 1; }
+git merge-base --is-ancestor "$APROBADO" origin/master || { echo "ABORTA: $APROBADO no esta en origin/master"; exit 1; }
+espera_quality
 
 echo "== 1) Preflight (contenedor arriba; sin migracion; el codigo nuevo aun no esta)"
 RUNNING=$(ssh "$H" "sudo docker inspect -f '{{.State.Running}}' orbit-app-1")
