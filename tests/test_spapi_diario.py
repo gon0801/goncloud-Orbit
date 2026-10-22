@@ -26,6 +26,14 @@ case ",$FALLAN," in *",${7}:${9},"*) exit 1 ;; esac
 exit 0
 """
 
+# `date -u +%H:%M` -> 06:20 (pasado el limite); sin -u -> 03:00 (hora local falsa).
+# Lo demas se delega al date real.
+DATE_FALSO = """#!/usr/bin/env bash
+if [ "$*" = "-u +%H:%M" ]; then echo 06:20; exit 0; fi
+if [ "$*" = "+%H:%M" ]; then echo 03:00; exit 0; fi
+exec /bin/date "$@"
+"""
+
 
 def corre(tmp_path: Path, fallan: tuple[str, ...] = (), ahora: str | None = "05:00"):
     bin_ = tmp_path / "bin"
@@ -33,6 +41,9 @@ def corre(tmp_path: Path, fallan: tuple[str, ...] = (), ahora: str | None = "05:
     docker = bin_ / "docker"
     docker.write_text(DOCKER_FALSO)
     docker.chmod(0o755)
+    date = bin_ / "date"
+    date.write_text(DATE_FALSO)
+    date.chmod(0o755)
     llamadas = tmp_path / "llamadas.txt"
     llamadas.touch()
     env = {
@@ -90,9 +101,7 @@ def test_a_las_0615_justas_todavia_repite(tmp_path):
     assert len(llamadas) == len(ORDEN) + 1
 
 
-def test_sin_variable_usa_la_hora_de_date(tmp_path):
-    r, _ = corre(tmp_path, fallan=("spapi_orders amazon_mx",), ahora=None)
-    assert (
-        "repito spapi_orders amazon_mx" in r.stdout
-        or "no repito spapi_orders amazon_mx: ya son las" in r.stdout
-    )
+def test_sin_variable_usa_la_hora_de_date_utc(tmp_path):
+    r, llamadas = corre(tmp_path, fallan=("spapi_orders amazon_mx",), ahora=None)
+    assert llamadas == ORDEN
+    assert "no repito spapi_orders amazon_mx: ya son las 06:20 UTC" in r.stdout
