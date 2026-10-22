@@ -541,23 +541,17 @@ ocho líneas independientes de Vixie no son una secuencia.
    calzaban ese patrón: re-aplicar el bloque de Ads las eliminaba del
    crontab **en silencio y sin error**.
 
-**Wrapper** (`/mnt/data/appdata/orbit/spapi-diario.sh`, `chmod +x`), que
-resuelve 1 y 2 — la secuencia es del shell, no del reloj, así que un
-retraso corre el resto en vez de solaparlo:
-
-```bash
-#!/usr/bin/env bash
-# SP-API 01 A.5: las 8 ingestas diarias, EN SERIE y en un solo proceso.
-# Sin `set -e`: una fuente que falla no debe cancelar las siguientes
-# (cada una sella su propio ingest_run y alerta sola, A.5).
-set -uo pipefail
-for fuente in spapi_orders spapi_listings spapi_inventario spapi_pricing; do
-  for mercado in amazon_mx amazon_us; do
-    echo "=== $(date -u +%FT%TZ) $fuente $mercado ==="
-    docker exec orbit-app-1 python -m app.cli ingest "$fuente" --platform "$mercado" || true
-  done
-done
-```
+**Wrapper** (versionado en `scripts/spapi-diario.sh`; el despliegue lo copia
+a `/mnt/data/appdata/orbit/spapi-diario.sh` con `chmod +x`), que resuelve 1 y
+2 — la secuencia es del shell, no del reloj, así que un retraso corre el
+resto en vez de solaparlo. Orden: orders, listings, inventario y pricing, cada
+una en `amazon_mx` y luego `amazon_us`; sin `set -e`, una falla no cancela las
+siguientes. **Repetición:** cada fuente/plataforma cuya ingesta sale distinta
+de 0 se repite una vez, al final y en el mismo orden; si la repetición
+arrancaría después de las 06:15 UTC no corre y el log dice `no repito
+<fuente> <plataforma>: ya son las HH:MM UTC`. Una repetición que vuelve a
+fallar no se repite otra vez. La hora sale de `date -u` (en pruebas,
+`SPAPI_DIARIO_AHORA=HH:MM`). Pruebas: `tests/test_spapi_diario.py`.
 
 Las tres baratas van primero y **pricing al final**: es la larga y la
 menos urgente, así que un sobrepaso suyo no le come la ventana a nadie.
