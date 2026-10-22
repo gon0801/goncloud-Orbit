@@ -56,8 +56,10 @@ command not found` porque se invoco docker en la Mac en vez de en el servidor
 
 ## Sobrante
 
-`reposicion.py` quedo SIN correr: se escribio para reponer las medidas que la
-corrida de 19:00 perdio (targets sin id), pero la re-corrida de 19:17 con el
-`sonda.py` arreglado las midio todas y lo volvio innecesario. Queda solo como
-antecedente de la tecnica (ventana corrida un dia por POST para esquivar el
-dedup) y de los reportId que los 425 de la corrida de 19:00 revelaron.
+`reposicion.py` se escribio para reponer las medidas que la corrida de 19:00
+perdio (targets sin id), pero la re-corrida de 19:17 con el `sonda.py` arreglado
+las midio todas y lo volvio innecesario; nunca se corrio. Las tres revisiones
+(APROBADO) lo senalaron como ruido en la evidencia y se retiro en el intento 16.
+Queda como antecedente solo esta nota: la tecnica era una ventana corrida un
+dia por POST para esquivar el dedup, y los 425 de la corrida de 19:00
+revelaron los reportId originales en cola.
