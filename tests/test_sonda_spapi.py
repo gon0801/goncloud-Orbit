@@ -373,7 +373,7 @@ def test_429_un_reintento_acotado():
 
 
 def test_429_persistente_no_hace_loop():
-    # Un reintento acotado por endpoint: 2 envios por endpoint, nunca loop.
+    # Hasta 5 reintentos por endpoint: 6 envios por endpoint, nunca loop.
     por_endpoint: dict = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -386,8 +386,8 @@ def test_429_persistente_no_hace_loop():
     with redirect_stdout(io.StringIO()):
         resumen = sonda.sondear_sellers(cliente, "amazon_mx")
     assert por_endpoint == {
-        "/sellers/v1/account": 2,
-        "/sellers/v1/marketplaceParticipations": 2,
+        "/sellers/v1/account": 6,
+        "/sellers/v1/marketplaceParticipations": 6,
     }
     assert resumen["veredicto"] == "no_verificada"
 

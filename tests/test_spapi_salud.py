@@ -437,12 +437,13 @@ def test_flanco_una_alerta_por_racha(tmp_path, monkeypatch):
         rok = _sellar(conn, "spapi_orders", "amazon_mx", True, escritas=3)
         conn.commit()
         evaluar_alertas(conn, "spapi_orders", "amazon_mx", rok)
-        assert len(mensajes) == 1
+        # La ok tras la racha avisa "recuperada" (no es alerta de fallo).
+        assert len(mensajes) == 2 and "recuperada" in mensajes[1]
         _sellar(conn, "spapi_orders", "amazon_mx", False, "contrato: boom 4")
         r5 = _sellar(conn, "spapi_orders", "amazon_mx", False, "contrato: boom 5")
         conn.commit()
         evaluar_alertas(conn, "spapi_orders", "amazon_mx", r5)
-        assert len(mensajes) == 2
+        assert len(mensajes) == 3
 
 
 @_skip_db
@@ -521,6 +522,58 @@ def test_cambio_de_clase_dentro_de_racha_re_alerta(tmp_path, monkeypatch):
         conn.commit()
         evaluar_alertas(conn, "spapi_orders", "amazon_mx", r3)
         assert len(mensajes) == 2
+
+
+@_skip_db
+def test_recuperada_fallida_y_luego_ok_avisa_una_vez(tmp_path, monkeypatch):
+    with db_salud() as conn, _canal(tmp_path, monkeypatch) as mensajes:
+        _sellar(conn, "spapi_orders", "amazon_mx", False, "contrato: boom")
+        rok = _sellar(conn, "spapi_orders", "amazon_mx", True, escritas=1)
+        # Otra fuente/plataforma fallida no cuenta como "anterior".
+        _sellar(conn, "spapi_pricing", "amazon_mx", False, "contrato: otra")
+        conn.commit()
+        evaluar_alertas(conn, "spapi_orders", "amazon_mx", rok)
+        assert len(mensajes) == 1
+        assert mensajes[0] == (
+            "[Orbit] SP-API recuperada: spapi_orders / amazon_mx ya corrio bien otra vez."
+        )
+
+
+@_skip_db
+def test_recuperada_ok_y_ok_no_avisa(tmp_path, monkeypatch):
+    with db_salud() as conn, _canal(tmp_path, monkeypatch) as mensajes:
+        _sellar(conn, "spapi_orders", "amazon_mx", True)
+        rok = _sellar(conn, "spapi_orders", "amazon_mx", True)
+        conn.commit()
+        evaluar_alertas(conn, "spapi_orders", "amazon_mx", rok)
+        assert mensajes == []
+
+
+@_skip_db
+def test_recuperada_fallida_fallida_y_ok_avisa_una_vez(tmp_path, monkeypatch):
+    with db_salud() as conn, _canal(tmp_path, monkeypatch) as mensajes:
+        _sellar(conn, "spapi_orders", "amazon_mx", False, "contrato: boom 1")
+        r2 = _sellar(conn, "spapi_orders", "amazon_mx", False, "contrato: boom 2")
+        conn.commit()
+        evaluar_alertas(conn, "spapi_orders", "amazon_mx", r2)
+        assert len(mensajes) == 1
+        rok = _sellar(conn, "spapi_orders", "amazon_mx", True)
+        conn.commit()
+        evaluar_alertas(conn, "spapi_orders", "amazon_mx", rok)
+        assert len(mensajes) == 2 and "recuperada" in mensajes[1]
+        rok2 = _sellar(conn, "spapi_orders", "amazon_mx", True)
+        conn.commit()
+        evaluar_alertas(conn, "spapi_orders", "amazon_mx", rok2)
+        assert len(mensajes) == 2
+
+
+@_skip_db
+def test_recuperada_con_canal_caido_no_rompe(tmp_path, monkeypatch):
+    with db_salud() as conn, _canal(tmp_path, monkeypatch, tumbar=True):
+        _sellar(conn, "spapi_orders", "amazon_mx", False, "contrato: boom")
+        rok = _sellar(conn, "spapi_orders", "amazon_mx", True)
+        conn.commit()
+        evaluar_alertas(conn, "spapi_orders", "amazon_mx", rok)
 
 
 @_skip_db

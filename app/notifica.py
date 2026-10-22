@@ -750,6 +750,28 @@ def notifica_spapi_fallo(
         return False
 
 
+def aviso_spapi_recuperada(fuente: str, platform: str) -> str:
+    """Builder PURO del aviso de recuperacion SP-API: una linea llana."""
+    return f"[Orbit] SP-API recuperada: {fuente} / {platform} ya corrio bien otra vez."
+
+
+def notifica_spapi_recuperada(
+    fuente: str, platform: str, *, transport: httpx.BaseTransport | None = None
+) -> bool:
+    """Aviso de recuperacion SP-API (flanco ok tras fallida). Mismo contrato
+    fail-silent de notifica_spapi_fallo: canal deshabilitado -> True;
+    cualquier excepcion -> warning con scrub + False; JAMAS levanta."""
+    try:
+        if not canal_activo():
+            return True
+        return _envia_texto(aviso_spapi_recuperada(fuente, platform), transport=transport)
+    except Exception as exc:  # noqa: BLE001 - fail-silent (docstring del modulo)
+        logger.warning(
+            "telegram: fallo armando el aviso de recuperacion SP-API: %s", scrub(str(exc))
+        )
+        return False
+
+
 # Total de pares (fuente, plataforma) del cron SP-API: 4 fuentes x 2
 # plataformas del wrapper spapi-diario.sh (app/spapi/vigilante.py). Vive
 # aqui como literal porque notifica.py no puede importar de spapi (salud

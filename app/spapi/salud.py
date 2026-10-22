@@ -22,7 +22,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from app.notifica import notifica_spapi_fallo
+from app.notifica import notifica_spapi_fallo, notifica_spapi_recuperada
 from app.redaction import install_scrub_filter, scrub
 from app.spapi.client import MOTIVO_HTTP_429, MOTIVO_LWA_FALLIDO
 
@@ -127,7 +127,9 @@ def _historial(conn: Any, fuente: str, platform: str, run_id: int) -> list:
 
 
 def evaluar_alertas(conn: Any, fuente: str, platform: str, run_id: int) -> None:
-    """Dispara notifica_spapi_fallo SOLO en flanco; fail-silent siempre.
+    """Dispara notifica_spapi_fallo / notifica_spapi_recuperada SOLO en flanco;
+    fail-silent siempre. Recuperada: la corrida sellada es ok y la sellada
+    anterior de la misma fuente y plataforma fue ok=false (una vez por racha).
 
     UNA alerta por racha, sin esperar dos fallos en las clases
     inmediatas: alerta si y solo si la corrida `run_id` recien sellada
@@ -150,6 +152,12 @@ def evaluar_alertas(conn: Any, fuente: str, platform: str, run_id: int) -> None:
         with conn.transaction():
             ultimas = _historial(conn, fuente, platform, run_id)
         if not ultimas:
+            return
+        if ultimas[0][3] is True:
+            # Flanco "recuperada": ok tras una sellada fallida de la misma
+            # fuente y plataforma (ok-ok no avisa; una racha avisa una vez).
+            if len(ultimas) > 1 and ultimas[1][3] is False:
+                notifica_spapi_recuperada(fuente, platform)
             return
         motivo = ultimas[0][6] or ""
         clase = _clase_inmediata(motivo)

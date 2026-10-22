@@ -12,10 +12,15 @@ Catalog Items 2022-04-01, y un unico POST de lectura implementada como
 POST (`/products/fees/v0/listings/{sku}/feesEstimate`, mismo criterio que
 `recommend_bids` en Ads). Todo lo demas falla ANTES de red, sin HTTP.
 
-Politica de reintentos (sellada A.1): 401 -> un refresh forzado y una
-re-emision; 429 -> una espera acotada (`Retry-After`, tope 60 s) y un
-reintento; 5xx/red -> sin retry (el llamador decide: fees reintenta en su
-capa sin cambiar comportamiento). Nunca loop.
+Politica de reintentos: 401 -> un refresh forzado y una re-emision;
+429 -> hasta 5 reintentos (`get` y `post_fees`), cada uno con espera igual
+a la mayor entre `Retry-After` y la escala fija 2, 4, 8, 16, 32 s; la suma
+de esperas de una misma llamada no pasa de 120 s (si la siguiente espera la
+rebasaria, o ya hubo 5 reintentos, se devuelve el 429 tal cual). Cada 429
+deja una linea `logger.warning` con ruta sin parametros, intento, espera
+aplicada y `Retry-After` (o "sin Retry-After"), jamas headers ni cuerpo.
+5xx/red -> sin retry (el llamador decide: fees reintenta en su capa sin
+cambiar comportamiento). Acotado: nunca loop sin fin.
 
 Limites oficiales (actas 0.1-0.5, se respetan con limitador local en la
 capa de ingesta, sin Redis/colas por decision de stack):
@@ -57,6 +62,8 @@ LWA_TOKEN_URL = "https://api.amazon.com/auth/o2/token"
 TOKEN_MARGEN_SEGUNDOS = 60.0
 ESPERA_429_DEFAULT = 1.0
 ESPERA_429_MAX = 60.0
+ESPERAS_429 = (2.0, 4.0, 8.0, 16.0, 32.0)
+ESPERA_429_TOTAL_MAX = 120.0
 
 MERCADOS = {"amazon_mx": "A1AM78C64UM0Y8", "amazon_us": "ATVPDKIKX0DER"}
 
@@ -377,12 +384,49 @@ def tasa_anunciada(headers: Any) -> float | None:
     return tasa
 
 
+def _retry_after(resp: httpx.Response) -> float | None:
+    """`Retry-After` en segundos, o None si falta o es ilegible."""
+    crudo = resp.headers.get("Retry-After")
+    if crudo is None:
+        return None
+    try:
+        segundos = float(crudo)
+    except ValueError:
+        return None
+    return segundos if math.isfinite(segundos) and segundos >= 0 else None
+
+
 def _espera_retry(resp: httpx.Response) -> float:
+    # Espera simple de un solo reintento; la usan write_client y la sonda.
     try:
         segundos = float(resp.headers.get("Retry-After", str(ESPERA_429_DEFAULT)))
     except ValueError:
         segundos = ESPERA_429_DEFAULT
     return min(max(0.0, segundos), ESPERA_429_MAX)
+
+
+def _espera_429(
+    resp: httpx.Response, metodo: str, ruta: str, reintentos: int, acumulado: float
+) -> float | None:
+    """Espera del siguiente reintento por 429, o None si hay que devolverlo.
+
+    Siempre deja la linea de log (A.2); `ruta` ya viene sin parametros.
+    """
+    pedido = _retry_after(resp)
+    espera = None
+    if reintentos < len(ESPERAS_429):
+        candidata = max(ESPERAS_429[reintentos], pedido or 0.0)
+        if acumulado + candidata <= ESPERA_429_TOTAL_MAX:
+            espera = candidata
+    logger.warning(
+        "spapi 429 %s %s intento=%d espera=%.1fs %s",
+        metodo,
+        ruta,
+        reintentos + 1,
+        espera or 0.0,
+        f"Retry-After={pedido:g}s" if pedido is not None else "sin Retry-After",
+    )
+    return espera
 
 
 class SpapiClient:
@@ -491,11 +535,11 @@ class SpapiClient:
         params: dict | None = None,
         limitador: CuboTasa | None = None,
     ) -> httpx.Response:
-        """GET validado: 401 -> un refresh forzado; 429 -> un reintento; nunca loop.
+        """GET validado: 401 -> un refresh forzado; 429 -> hasta 5 reintentos con espera acotada.
 
         Devuelve la respuesta tal cual (incluso 4xx/5xx): el llamador decide.
         Falla antes de red si el path no esta en la allowlist. Con
-        `limitador`, cada intento consume cuota (el reintento por 429 tambien)
+        `limitador`, cada intento consume cuota (los reintentos por 429 tambien)
         y la tasa se ajusta a `x-amzn-RateLimit-Limit` (contrato del brief).
         Sin `limitador` el comportamiento es el sellado en A.1.
         """
@@ -504,6 +548,7 @@ class SpapiClient:
         token = self._acceso()
         forzados = 0
         reintentos = 0
+        esperado = 0.0
         with httpx.Client(transport=self._transport, timeout=self._timeout) as client:
             while True:
                 if limitador is not None:
@@ -514,9 +559,13 @@ class SpapiClient:
                     forzados += 1
                     token = self._acceso(forzar=True, rechazado=token)
                     continue
-                if resp.status_code == 429 and reintentos < 1:
+                if resp.status_code == 429:
+                    espera = _espera_429(resp, "GET", solo, reintentos, esperado)
+                    if espera is None:
+                        return resp
                     reintentos += 1
-                    self._sleep(_espera_retry(resp))
+                    esperado += espera
+                    self._sleep(espera)
                     continue
                 return resp
 
@@ -529,7 +578,7 @@ class SpapiClient:
         """Unico POST permitido: feesEstimate (lectura implementada como POST).
 
         Valida seller_sku + ruta antes de red. 401 -> un refresh forzado;
-        429 -> un reintento acotado; 5xx/red -> sin retry (el llamador, fees,
+        429 -> hasta 5 reintentos acotados; 5xx/red -> sin retry (el llamador, fees,
         reintenta en su capa). Devuelve la respuesta tal cual. Con
         `limitador`, igual que `get`; sin el, comportamiento A.1 intacto.
         """
@@ -538,6 +587,7 @@ class SpapiClient:
         token = self._acceso()
         forzados = 0
         reintentos = 0
+        esperado = 0.0
         with httpx.Client(transport=self._transport, timeout=self._timeout) as client:
             while True:
                 if limitador is not None:
@@ -555,9 +605,13 @@ class SpapiClient:
                     forzados += 1
                     token = self._acceso(forzar=True, rechazado=token)
                     continue
-                if resp.status_code == 429 and reintentos < 1:
+                if resp.status_code == 429:
+                    espera = _espera_429(resp, "POST", ruta, reintentos, esperado)
+                    if espera is None:
+                        return resp
                     reintentos += 1
-                    self._sleep(_espera_retry(resp))
+                    esperado += espera
+                    self._sleep(espera)
                     continue
                 return resp
 

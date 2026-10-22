@@ -471,7 +471,7 @@ def test_cubo_cubre_reintento_y_header_en_orders():
     crudas, info = orders.recorrer_ordenes(cliente, {"marketplaceIds": "X"}, cubo=cubo)
     assert crudas == []
     assert info["aviso_paginacion"] is None
-    assert dormidas == [pytest.approx(0.0), pytest.approx(2.0)]
+    assert dormidas == [pytest.approx(2.0), pytest.approx(2.0)]
     cubo.consumir()
     assert dormidas[-1] == pytest.approx(0.5)
 
