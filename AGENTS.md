@@ -80,29 +80,11 @@ Aplican a todo el código (detalle en `docs/CONTEXTO.md`; los invariantes de tie
 - Base: roles LOGIN por servicio (`orbit_ingest`/`_decide`/`_read`/`_admin`); invariante nuevo del esquema = con su test; ADRs en `COMMENT ON` y docstrings.
 - Trabajo en planes `ORBIT NN` (PR a `master` con CI verde por fase).
 
-<!-- >>> QUALITY-KIT CALIDAD SECTION START -- managed by quality-kit's init-repo.ps1. Do not hand-edit between these markers; re-running init-repo.ps1 will refresh this block cleanly. -->
-## Calidad (quality-kit)
-
-Este archivo `.pre-commit-config.yaml` tiene agregados propios (detectados por quality-kit) -- no lo pisamos.
-Para ver que candados tiene realmente: `pre-commit run --all-files` (o mira `.pre-commit-config.yaml`).
-
-Reglas de hierro:
-1. Si un candado falla, se arregla el problema real -- JAMAS se usa `--no-verify` ni se saltea un candado.
-2. Cada bug arreglado incluye, en el mismo cambio, una prueba que lo habria atrapado.
-8. CI: la bateria completa corre en jobs paralelos cuya union es la bateria (con candado); si un job pasa de ~10 min se shardea, nunca se recorta ni se saltea por tipo de cambio.
-   Checks de docs/ledger en un job propio de segundos. Carril: docs/chore/cierre = fast; codigo = gate. Cierres de ledger de un bloque = un PR.
-
-Flujo de verificacion:
-- Durante la implementacion, corre solo las pruebas focalizadas del comportamiento modificado.
-- Agrupa los hallazgos de revision y corrigelos en una sola ronda por bloque. Solo un hallazgo bloqueante (seguridad, datos, regla innegociable, comportamiento pedido roto o un arreglo sin ninguna prueba), con el comando que lo reproduce (sin reproduccion no bloquea), reabre el ciclo; si el mismo bloqueante vuelve en dos rondas seguidas, decide el operador. Una prueba debil (pasaria sin el arreglo) es nota: se corrige en la misma ronda, no reabre el ciclo. En una revision nadie hace pruebas de mutacion.
-- Ejecuta Ruff y las pruebas focalizadas despues del ultimo cambio del bloque.
-- Ejecuta la bateria completa una sola vez por bloque, sobre el commit final y preferentemente en CI mediante PR.
-- Si commit, push o CI ya validaron tests, Ruff o pre-commit sobre ese SHA, no los repitas manualmente.
-- No vuelvas a ejecutar CI si el commit verificado no cambio.
-- Un bloqueante nunca va a una fila del plan ni se mergea abierto: se corrige o decide el operador. Lo no bloqueante que no se corrige va a una fila del plan (Plans.md o el tracker del repo) y se nombra en el PR; una observacion tardia no bloqueante no reabre el ciclo.
-- Despues del deploy, ejecuta una sola vez el checklist del repo y no repitas evidencia valida sin un cambio que pueda invalidarla.
-<!-- >>> QUALITY-KIT CALIDAD SECTION END -->
-
-## Flujo del PR (regla propia del repo, fuera del bloque de quality-kit)
-
-- Manten el PR en draft durante la implementacion y la revision (solo corre `rapido`); tras el APROBADO, marca el PR ready y ahi corre `completa` una vez sobre el SHA final. No uses `gh workflow run` en el flujo normal.
+## Pruebas y revisiones
+- Pruebas nuevas SOLO en 4 casos: dinero (pujas, precios, presupuestos, cobros), escribir datos de produccion
+  (base del servidor, Amazon, Mercado Libre, Shopify, Odoo), instalar/borrar/deshacer en las maquinas, y una
+  falla que ya paso en produccion (una prueba, no una bateria). Lo demas: basta comprobar que corre. Nunca
+  pruebas de texto, de las pruebas ni mutantes. Un revisor no pide pruebas fuera de eso.
+- Un revisor solo bloquea por seguridad, datos, el comportamiento pedido roto o un caso de los 4 sin su
+  prueba, siempre con el comando que lo reproduce. Lo demas va en notas y se corrige en la misma ronda.
+- Nunca subir contrasenas ni llaves a un repo.

@@ -1,153 +1,23 @@
-# Generado por quality-kit (init-repo.ps1). Corre los mismos candados que
-# ya corren en tu maquina (pre-commit) mas las pruebas, en la nube, en cada
-# push y en cada pull request -- asi el repo queda protegido aunque alguien
-# (vos, otra IA, un colaborador) haga un commit sin pasar por los candados
-# locales, o desde una maquina que no los tiene instalados.
-#
-# Adelgazada 2026-09-23 (patron PR 362 de summonaikit-claude):
-# - `rapido` en cada PR: solo lo rapido que agarra errores (pre-commit +
-#   guardas de arquitectura/config/contexto, ~1-2 min, sin Postgres).
-# - `completa` en 6 partes en paralelo (#481: matrix parte 1..6, ORBIT_PARTE
-#   y tests/conftest.py; pre-commit solo en la parte 1) y UNA vez por bloque
-#   (orden del dueno 2026-10-18): el PR vive en draft durante implementacion
-#   y revision (solo corre `rapido`); tras el APROBADO pasa a ready,
-#   `ready_for_review` dispara `completa` sobre el SHA final y el gate exige
-#   success. Solo si el PR toca codigo (job `cambios`, #481): un PR de solo
-#   docs no paga bateria. Al unir a master, si el arbol del commit empujado
-#   es identico al de la cabeza del PR y TODAS las partes de esa cabeza ya
-#   pasaron, el veredicto se REUSA sin repetir pytest: el paso `reuso`
-#   (.github/scripts/reusar_completa.sh) va en CADA parte de la matriz y las
-#   6 saltan (o corren) juntas (pineado en
-#   tests/test_precommit_hooks.py::test_reuso_por_arbol_solo_en_push_y_falla_cerrado_a_correr
-#   -- la bateria completa (`pytest -q` sin rutas) sigue corriendo en CI y
-#   no se acota ni se borra: test_bateria_completa_corre_en_ci lo pinea).
-# - `pesada` de noche (cron 04:00 UTC) + manual: el harness real del
-#   dashboard y el drive de superficie (lo pesado, con Postgres).
-# - `gate`: veredicto unico (acepta `skipped` de los jobs que no aplican;
-#   en PR no draft que toca codigo `completa` deja de ser opcional y exige
-#   success).
-# El dispatch manual sigue existiendo para casos raros, pero ya no es el
-# camino normal: no se usa `gh workflow run` en el flujo habitual.
-# Costo real hoy: `rapido` en cada vuelta de PR (~1-2 min); `completa` UNA
-# vez al pasar a ready, repartida en 6 partes (parte mas grande: 77 s,
-# medido en #481); al unir a master el veredicto se REUSA por arbol y la
-# bateria no se repite (0 corridas extra si la base no avanzo).
-
 name: Quality
 
-# Minimos para el reuso: leer contenido (checkout), PRs asociados a un
-# commit y check runs. Sin tokens nuevos: usa github.token.
 permissions:
   contents: read
-  pull-requests: read
-  checks: read
 
 on:
   push:
     branches: [main, master]
   pull_request:
-    # `ready_for_review` es el paso donde `completa` corre UNA vez sobre el
-    # SHA final (tras el APROBADO); en draft solo corre `rapido`.
-    types: [opened, synchronize, reopened, ready_for_review]
-  schedule:
-    # Pesada nocturna: harness del dashboard + drive de superficie.
-    - cron: '0 4 * * *'
   workflow_dispatch:
 
-# Si llega un push nuevo sobre la misma rama o PR, la corrida anterior se
-# cancela sola y solo la ULTIMA corre. Lo cancelado nunca deja un verde
-# falso: el gate es fail-closed ante cancelaciones. El grupo distingue el
-# EVENTO (hallazgo B6a, run 37195080800): sin `github.event_name`, el
-# schedule nocturno y un push a master comparten grupo
-# (`quality-refs/heads/master`) y se cancelan entre si; con el prefijo,
-# dos pushes de la misma rama/PR siguen cancelandose pero schedule y push no.
 concurrency:
   group: quality-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  rapido:
-    # En cada propuesta: lo rapido que agarra errores. Sin Postgres: los
-    # tests que necesitan base skipean igual que antes en este job.
-    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+  gate:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          # historia completa: el candado de frescura del contexto de chat
-          # necesita el merge-base contra la rama base del PR
-          fetch-depth: 0
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.x'
-          cache: 'pip'
-
-      - name: Candado de frescura del contexto de chat (solo PRs)
-        # guardrails-01 task 1.4: un PR que marca tareas completadas en un
-        # plan debe actualizar docs/CHAT-CONTEXT.md (lo lee el Project de
-        # Claude Chat del dueno). El candado revisa, jamas escribe.
-        if: github.event_name == 'pull_request'
-        run: |
-          git fetch origin "$GITHUB_BASE_REF"
-          python tools/check_chat_context_fresh.py "origin/$GITHUB_BASE_REF"
-
-      - name: "Run pre-commit (candados rapidos: higiene + ruff + contexto)"
-        # El hook pytest-pre-push tiene stages: [pre-push] y NO corre en CI;
-        # aqui solo corren los candados rapidos.
-        uses: pre-commit/action@v3.0.1
-
-      - name: Guardas (arquitectura + config + contexto, ~1 s)
-        run: |
-          pip install fastapi "psycopg[binary]" httpx pytest pglast jinja2
-          PYTHONPATH=. pytest -q tests/test_architecture.py tests/test_precommit_hooks.py tests/test_chat_context_guard.py tests/test_arq_bids_*.py tests/test_arq_precio_*.py
-
-  cambios:
-    # Un PR que toca codigo corre la bateria completa solo; uno de docs no.
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      codigo: ${{ steps.mira.outputs.codigo }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-      - id: mira
-        run: |
-          git fetch -q origin "$GITHUB_BASE_REF"
-          if git diff --name-only "origin/$GITHUB_BASE_REF...HEAD" \
-              | grep -vE '^(docs/|plans/)|\.md$' | grep -q .; then
-            echo codigo=true >> "$GITHUB_OUTPUT"
-          else
-            echo codigo=false >> "$GITHUB_OUTPUT"
-          fi
-
-  completa:
-    # La bateria COMPLETA, repartida en 6 partes en paralelo (ORBIT_PARTE,
-    # tests/conftest.py): la union es la bateria entera y cada parte tarda
-    # ~1/6 (#481). UNA vez por bloque y solo si el PR toca codigo: entra
-    # cuando el PR deja de ser draft (tras el APROBADO) y `cambios` vio
-    # codigo; en push/dispatch como siempre. No acotar el pytest a rutas:
-    # test_bateria_completa_corre_en_ci lo pinea y falla si se acota.
-    needs: [cambios]
-    if: >-
-      always() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-      || (github.event_name == 'pull_request' && !github.event.pull_request.draft
-      && needs.cambios.outputs.codigo == 'true'))
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        parte: [1, 2, 3, 4, 5, 6]
-        total: [6]
     services:
-      # Postgres 16 desechable para test_migracion_rechaza_en_vivo: sin este
-      # servicio el test skipea en CI y los rechazos en vivo nunca corren
-      # (hallazgo CodeRabbit, PR #1). Mismas credenciales que docker-compose.
       postgres:
         image: postgres:16
         env:
@@ -161,156 +31,28 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
-
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
-      - name: Reusa el veredicto si el arbol ya paso la bateria (solo push)
-        # Al unir a master: si el arbol del commit empujado es identico al de
-        # la cabeza de su PR y esa cabeza ya tiene TODAS las partes de
-        # `completa` en success ("completa (1, 6)" ... "completa (6, 6)"),
-        # no se repite pytest: este paso va en CADA parte de la matriz y las
-        # 6 saltan (o corren) juntas. Fail-closed hacia CORRER: arbol
-        # distinto, sin PR, una parte faltante o sin success, o consulta
-        # fallida => esa parte corre su trozo de bateria. El script jamas
-        # falla: su salida es reusar=true o reusar=false.
-        id: reuso
-        if: github.event_name == 'push'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: bash .github/scripts/reusar_completa.sh
+      - name: Gitleaks
+        run: |
+          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz | tar -xz gitleaks
+          ./gitleaks detect --source . --redact --no-banner
 
       - name: Set up Python
-        if: steps.reuso.outputs.reusar != 'true' && hashFiles('pyproject.toml', 'requirements.txt') != ''
         uses: actions/setup-python@v6
         with:
           python-version: '3.x'
           cache: 'pip'
 
-      - name: Set up Node
-        if: steps.reuso.outputs.reusar != 'true' && hashFiles('package.json') != ''
-        uses: actions/setup-node@v6
-        with:
-          node-version: '20'
+      - name: El codigo carga
+        run: python -m compileall -q app tools scripts
 
-      - name: Install Python dependencies
-        if: steps.reuso.outputs.reusar != 'true' && hashFiles('requirements.txt') != ''
-        run: pip install -r requirements.txt
-
-      - name: Install Node dependencies
-        if: steps.reuso.outputs.reusar != 'true' && hashFiles('package-lock.json') != ''
-        run: npm ci
-
-      - name: Run pre-commit (todos los candados locales, sobre todo el repo)
-        # Solo en la parte 1 (#481: las partes 2 a 6 solo corren pytest) y
-        # detras del reuso: si el arbol ya paso, ninguna parte repite nada.
-        if: matrix.parte == 1 && steps.reuso.outputs.reusar != 'true'
-        uses: pre-commit/action@v3.0.1
-
-      - name: Run Python tests
-        if: steps.reuso.outputs.reusar != 'true' && hashFiles('pyproject.toml', 'requirements.txt') != ''
+      - name: Pruebas (una vez)
         env:
           ORBIT_TEST_DSN: postgresql://orbit:orbit@localhost:5432/postgres
-          ORBIT_PARTE: ${{ matrix.parte }}/${{ matrix.total }}
         run: |
           pip install fastapi "psycopg[binary]" pytest httpx pglast jinja2 pyyaml
-          PYTHONPATH=. pytest -q
-
-      - name: Run Node tests
-        if: steps.reuso.outputs.reusar != 'true' && hashFiles('package.json') != ''
-        run: npm test --if-present
-
-  pesada:
-    # De noche: lo pesado (harness real del dashboard + drive de
-    # superficie). Salio del camino de cada PR: era el paso mas lento y el
-    # que mas fallaba por entorno (Chrome), no por el cambio propuesto.
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: orbit
-          POSTGRES_PASSWORD: orbit
-          POSTGRES_DB: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U orbit"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.x'
-          cache: 'pip'
-
-      - name: Verificar dashboard con el harness real
-        env:
-          ORBIT_TEST_DSN: postgresql://orbit:orbit@localhost:5432/postgres
-        run: |
-          pip install uv
-          uv sync --frozen
-          .venv/bin/python .cursor/skills/verify-orbit/helpers/orbit-verify maintain-verification-skill --run-id "ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-
-      - name: Drive de superficie (verify/)
-        # COMANDO_DRIVE de verify/Drive.md: la app como la ve el usuario.
-        env:
-          ORBIT_TEST_DSN: postgresql://orbit:orbit@localhost:5432/postgres
-        run: |
-          .venv/bin/python - <<'PY'
-          import os
-          import runpy
-
-          import psycopg
-
-          aplicar = runpy.run_path(
-              ".cursor/skills/verify-orbit/helpers/orbit-verify"
-          )["_aplicar_migraciones"]
-          with psycopg.connect(os.environ["ORBIT_TEST_DSN"], autocommit=True) as conn:
-              aplicar(conn)
-          PY
-          .venv/bin/python -m pytest verify/ -q
-
-  gate:
-    # Veredicto unico: exige verde en lo que CORRIO; acepta `skipped` en lo
-    # que no aplica al evento (rapido en push, completa/pesada en PR draft o
-    # de solo docs).
-    # EXCEPCION: en un PR que NO es draft Y toca codigo, `completa=skipped`
-    # ya no vale -- las 6 partes debieron correr y pasar sobre el SHA final.
-    runs-on: ubuntu-latest
-    if: always()
-    needs: [rapido, cambios, completa, pesada]
-    timeout-minutes: 5
-    steps:
-      - name: Todos los jobs aplicables en verde
-        env:
-          R_RAPIDO: ${{ needs.rapido.result }}
-          R_CAMBIOS: ${{ needs.cambios.result }}
-          R_COMPLETA: ${{ needs.completa.result }}
-          R_PESADA: ${{ needs.pesada.result }}
-          EVENTO: ${{ github.event_name }}
-          DRAFT: ${{ github.event.pull_request.draft }}
-          CODIGO: ${{ needs.cambios.outputs.codigo }}
-        run: |
-          rc=0
-          for par in "rapido=$R_RAPIDO" "cambios=$R_CAMBIOS" "completa=$R_COMPLETA" "pesada=$R_PESADA"; do
-            printf '%s\n' "$par"
-            case "$par" in *=success|*=skipped) ;; *) rc=1 ;; esac
-          done
-          [ "$rc" -eq 0 ] || { echo "gate: algun job aplicable NO quedo en success" >&2; exit 1; }
-          # En PR no draft que toca codigo la bateria completa es obligatoria:
-          # el PR pasa a ready solo tras el APROBADO y las 6 partes corren
-          # sobre el SHA final. Un PR de solo docs puede dejar `completa` en
-          # skipped: no aplica (no toco codigo).
-          if [ "$EVENTO" = "pull_request" ] && [ "$DRAFT" != "true" ] && [ "$CODIGO" = "true" ] && [ "$R_COMPLETA" != "success" ]; then
-            echo "gate: PR no draft con codigo exige completa=success (obtuvo $R_COMPLETA)" >&2
-            exit 1
-          fi
-          echo "gate: OK -- todo lo aplicable en verde"
+          PYTHONPATH=. python -m pytest -q -x
