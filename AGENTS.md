@@ -18,7 +18,7 @@ valer para todos va aquí también.
 - **Responde siempre en español**; directo al grano, sin relleno.
 - **Código limpio y listo para usar**: completo (sin `...`), escrito a archivos con las herramientas.
 - Entiende antes de cambiar; prefiere patrones existentes; cambios mínimos; nunca inventes APIs/credenciales.
-- Verifica con el flujo administrado por Quality Kit; jamás `--no-verify`.
+- Verifica con las pruebas y `pre-commit` (gitleaks); jamás `--no-verify`.
 
 ## Stack
 
@@ -48,11 +48,11 @@ plans/        # manifest.json marca el plan ORBIT NN activo (sigue sus tasks y D
 uv sync                                   # deps (uv; venv en .venv/)
 uv run --frozen python -m pytest -q       # suite (CI: PYTHONPATH=. pytest -q); test en vivo skipea sin ORBIT_TEST_DSN
 ruff check --fix . && ruff format .       # lint/format (line-length 100)
-pre-commit run --all-files                # candados (pytest corre en pre-push); CI: .github/workflows/quality.yml
+pre-commit run --all-files                # gitleaks y conflictos; CI (gate: gitleaks, compileall, pytest): .github/workflows/quality.yml
 ```
 Windows: el venv es `.venv/Scripts/python.exe`; sin Postgres local, lo PG-backed
 se skipea por diseno (corre en CI). Si un push se cuelga, es credencial:
-`gh auth setup-git` (el hook `push-creds-failfast` lo frena con el arreglo).
+`gh auth setup-git`.
 
 ## Reglas de diseño innegociables
 
