@@ -239,5 +239,5 @@ python -m pytest -q tests/test_orbit_bench.py
 python -m pytest -q tests/test_orbit_bench_cases.py
 ```
 
-La bateria completa de Orbit, ruff y pre-commit corren en Quality CI del PR.
+La bateria completa de Orbit corre en el gate de Quality CI del PR.
 La construccion de este benchmark no requiere ejecutar ni contratar modelos.

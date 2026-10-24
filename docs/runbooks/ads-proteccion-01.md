@@ -34,7 +34,7 @@ existir.
   en sus PRs/ramas tras H0. Las ramas locales no se pushean antes de H0b
   (regla 8); C.3/C.4 no se retoman ni mergean antes de C.2b, C.5 antes del
   merge de C.4, A.3-nuevo antes de A.3d.
-- Reviewer: independiente por bloque (Quality Kit regla 4); excluye a todos
+- Reviewer: independiente por bloque; excluye a todos
   los autores efectivos del cambio. Nunca se hardcodea un nombre en `-Excluir`.
 
 ## Arranque
@@ -378,7 +378,7 @@ se nombra en el PR; un bloqueante nunca se mergea abierto.
 | # | Situacion | Accion |
 | --- | --- | --- |
 | 1 | CI rojo en un PR | Se arregla el problema real; jamas `--no-verify`; sin verde no hay go |
-| 2 | Review trae bloqueante | Ronda de correccion por bloque (Quality Kit regla 4); solo bloqueante reabre; mismo bloqueante 2 rondas = decide el dueno |
+| 2 | Review trae bloqueante | Ronda de correccion por bloque; solo bloqueante reabre; mismo bloqueante 2 rondas = decide el dueno |
 | 3 | `origin/master` avanzo sobre `$APROBADO` | No desplegar; revalidar el SHA nuevo (DoD+CI+review) y pedir go nuevo |
 | 4 | B.2a no demuestra aislamiento | Deploy bloqueado; proponer revert `beae9ec` al dueno; sin go, todo release parado |
 | 5 | Fallo real durante observacion A.4 | Registrar aviso+recovery como evidencia; si el aviso falla, A.4 no cierra y se abre correccion como PR nuevo con su go de merge |

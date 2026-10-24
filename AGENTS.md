@@ -46,7 +46,7 @@ plans/        # manifest.json marca el plan ORBIT NN activo (sigue sus tasks y D
 
 ```bash
 uv sync                                   # deps (uv; venv en .venv/)
-uv run --frozen python -m pytest -q       # suite (CI: PYTHONPATH=. pytest -q); test en vivo skipea sin ORBIT_TEST_DSN
+uv run --frozen python -m pytest -q       # suite (CI: python -m pytest -q -x); test en vivo skipea sin ORBIT_TEST_DSN
 ruff check --fix . && ruff format .       # lint/format (line-length 100)
 pre-commit run --all-files                # gitleaks y conflictos; CI (gate: gitleaks, compileall, pytest): .github/workflows/quality.yml
 ```
@@ -71,7 +71,7 @@ Aplican a todo el código (detalle en `docs/CONTEXTO.md`; los invariantes de tie
 
 ## Convenciones de código
 
-- Español en comentarios, docstrings, tests y docs; **sin acentos en el código**. Estilo Ruff (`ruff-format`).
+- Español en comentarios, docstrings, tests y docs; **sin acentos en el código**. Estilo Ruff.
 - Secretos: ninguno en el repo; se cargan vía `ORBIT_SECRETS_DIR`; errores/logs redactados por `app/redaction.py`.
 - Cliente Amazon Ads: guard default-deny (GET siempre; POST solo a
   `/reporting/reports`, rutas literales v3 `/list` de lectura y
