@@ -469,7 +469,7 @@ def persistir_decision(
     *,
     listing_id: int,
     platform: str,
-    product_id: int,
+    product_id: int | None,
     canal: str | None,
     escenario_id: int | None,
     fee_observation_id: int | None,
@@ -578,6 +578,16 @@ def _persistir_uno(
         (decision.verificacion or "cotizada") if decision.resultado in ("subir", "bajar") else None
     )
     try:
+        producto = meta.get("product_id") if meta else None
+        if producto is None:
+            # El ancla historica puede haber dejado de venderse por esta unidad.
+            # Sin miembro vigente, el diagnostico pertenece solo a la publicacion.
+            miembro = conn.execute(
+                "SELECT product_id FROM v_precio_unidad_miembro"
+                " WHERE listing_id = %s AND platform = %s AND product_id = %s LIMIT 1",
+                (lid, platform, prod_id),
+            ).fetchone()
+            producto = miembro[0] if miembro else None
         persistir_decision(
             conn,
             decision,
@@ -585,7 +595,7 @@ def _persistir_uno(
             platform=platform,
             # MeLi: la cuenta (costo y muestra) es del miembro que manda, no
             # del ancla; el trigger de la 0054 exige la muestra de ESE producto.
-            product_id=(meta.get("product_id") if meta else None) or prod_id,
+            product_id=producto,
             canal=canal,
             escenario_id=meta["escenario_id"] if meta else None,
             fee_observation_id=meta["fee_observation_id"] if meta else None,
