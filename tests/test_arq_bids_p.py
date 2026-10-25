@@ -5,7 +5,7 @@ importa `app.ads.write` ni `app.apply` (las pantallas son puro contrato:
 dataclasses + `como_dict()` + lecturas SOLO SELECT). Las demas tareas P
 agregan aqui sus candados; la segunda seccion en mergear une los archivos.
 
-Corre sin Postgres y solo con la biblioteca estandar + pytest (paso de
+Corre sin Postgres y solo con la biblioteca estandar + pytest (parte de
 guardas de `quality.yml`).
 """
 

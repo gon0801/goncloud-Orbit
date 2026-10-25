@@ -21,9 +21,6 @@ dev = [
 [tool.ruff]
 target-version = "py312"
 line-length = 100
-# Instalado y mantenido por quality-kit (install-repo-hygiene.ps1): no
-# tocar su formato, re-correr el instalador lo restauraria.
-extend-exclude = ["tools/check_context_docs.py"]
 
 [tool.ruff.lint]
 # C901/PLR0912/PLR0915: presupuesto de complejidad (plan guardrails-01, task
