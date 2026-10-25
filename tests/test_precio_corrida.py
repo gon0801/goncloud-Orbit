@@ -3932,6 +3932,59 @@ class _MercadoEstricto:
         raise AssertionError(f"el repaso llamo al Mercado: {nombre}")
 
 
+@_skip_sin_pg
+def test_meli_sin_miembros_registra_faltante_y_termina_la_corrida():
+    """La publicacion pausada pierde miembros; su goal no tumba las demas."""
+    from app.precio.puerto import Lectura
+
+    class MercadoSinPrecios:
+        clave = "meli"
+
+        def insumos(self, conn, unidades, **kwargs):
+            return {
+                u.listing_id: Lectura(
+                    entrada=None,
+                    motivo=(
+                        "costo_ausente" if u.listing_id == sin_miembros else "precio_sin_observar"
+                    ),
+                    diagnostico="sin insumos del dia",
+                    ids=None,
+                    cotizable=None,
+                    fees_escenario="costo_ausente",
+                )
+                for u in unidades
+            }
+
+    with _db() as (conn, _dsn):
+        _config(conn)
+        producto = _producto(conn, "SKU-MELI-SIN-MIEMBROS")
+        sin_miembros = _listing(conn, producto, platform="meli", ext="MLM1", sku="SKU-MELI-1")
+        con_miembro = _listing(conn, producto, platform="meli", ext="MLM2", sku="SKU-MELI-2")
+        conn.execute(
+            "INSERT INTO listing_miembro"
+            " (listing_id, platform, variante_ext, seller_sku, product_id, activo, visto_at)"
+            " VALUES (%s, 'meli', '', 'SKU-MELI-1', %s, false, now()),"
+            " (%s, 'meli', '', 'SKU-MELI-2', %s, true, now())",
+            (sin_miembros, producto, con_miembro, producto),
+        )
+        for lid in (sin_miembros, con_miembro):
+            _goal(conn, lid, platform="meli")
+        _oferta_obs(conn, sin_miembros, platform="meli", ext="MLM1", sku="SKU-MELI-1")
+
+        resumen = correr(conn, MercadoSinPrecios(), owner="regresion-meli")
+
+        assert (resumen.decisiones, resumen.escritas, resumen.errores) == (2, 0, ())
+        assert conn.execute(
+            "SELECT listing_id, resultado, motivo, product_id FROM precio_decision"
+            " ORDER BY listing_id"
+        ).fetchall() == [
+            (sin_miembros, "no_evaluado", "costo_ausente", None),
+            (con_miembro, "no_evaluado", "precio_sin_observar", producto),
+        ]
+        assert conn.execute("SELECT estado FROM precio_corrida").fetchone() == ("cerrada",)
+        assert conn.execute("SELECT count(*) FROM precio_cambio").fetchone() == (0,)
+
+
 class _MercadoErrorSiempre:
     """Vivo legible, escritura siempre rechazada (Acuse, no excepcion)."""
 
