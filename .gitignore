@@ -26,3 +26,7 @@ out/
 
 # temporales de sesiones de qwen (cross-reviewer): jamas al repo
 .qwen/
+
+# graphify: el grafo completo se regenera local (graphify . --code-only); no se versiona
+graphify-out/graph.json
+graphify-out/cache/
