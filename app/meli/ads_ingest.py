@@ -274,13 +274,20 @@ def _nombres_vigentes(filas: list[FilaMeliAds]) -> dict[str, str]:
 
     Un renombre a mitad de la ventana deja nombres viejos en las filas viejas;
     el catalogo debe quedarse con el nombre de la fecha mas nueva, no con el
-    de la primera fila que se procesa.
+    de la primera fila que se procesa. Y si ESA fila trae el nombre ausente,
+    la campana no toca el catalogo: un NULL no restaura los nombres viejos del
+    mismo snapshot (mismo contrato que `_entidad`).
     """
-    nombres: dict[str, str] = {}
-    for fila in sorted(filas, key=lambda f: (f.metric_date, f.campaign_external_id)):
-        if fila.campaign_name is not None:
-            nombres[fila.campaign_external_id] = fila.campaign_name
-    return nombres
+    mas_nueva: dict[str, FilaMeliAds] = {}
+    for fila in filas:
+        actual = mas_nueva.get(fila.campaign_external_id)
+        if actual is None or fila.metric_date > actual.metric_date:
+            mas_nueva[fila.campaign_external_id] = fila
+    return {
+        fila.campaign_external_id: fila.campaign_name
+        for fila in mas_nueva.values()
+        if fila.campaign_name is not None
+    }
 
 
 def _huella_snapshot(filas: tuple[FilaMeliAds, ...]) -> str:

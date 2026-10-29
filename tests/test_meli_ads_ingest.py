@@ -355,6 +355,21 @@ def test_nombres_vigentes_usa_el_nombre_mas_reciente(tmp_path):
     assert _nombres_vigentes(filas) == {"C1": "NOMBRE NUEVO"}
 
 
+def test_nombres_vigentes_nombre_ausente_en_la_mas_nueva_no_restaura_el_viejo(tmp_path):
+    """Un NULL en la fecha mas nueva no trae de vuelta el nombre viejo del
+    mismo snapshot: un nombre ausente no modifica el catalogo."""
+    filas = leer_origen(
+        _snapshot(
+            tmp_path / "nombre-null-reciente.db",
+            [
+                (D2.isoformat(), "C1", "NOMBRE VIEJO", 1, 2, 3.0, 4.0),
+                (D1.isoformat(), "C1", None, 1, 2, 3.0, 4.0),
+            ],
+        )
+    ).filas
+    assert _nombres_vigentes(filas) == {}
+
+
 # ---------------------------------------------------------------------------
 # (a) main: fail-closed de configuracion (sin Postgres)
 # ---------------------------------------------------------------------------
@@ -1570,6 +1585,79 @@ def test_texto_utf8_invalido_se_cuenta_como_rechazo(pg, tmp_path):
     ).fetchone()
     assert run[0] is False and run[1] == 0 and run[2] == 1
     assert run[4] is not None
+    assert "ilegible en origen" in run[3]
+
+
+def test_utf8_invalido_en_la_primera_fila_cuenta_todo_el_snapshot(pg, tmp_path):
+    """El total del origen es un count(*) propio: la fila ilegible detiene el
+    cursor, pero el sello de la corrida conserva el total REAL del snapshot."""
+    snap = _snapshot(
+        tmp_path / "utf8-primera-fila.db",
+        [
+            # D2 se lee primero (ORDER BY date): aqui revienta el cursor.
+            (D2.isoformat(), "C1", "ALFA", 1, 2, 5.0, 8.0),
+            (D1.isoformat(), "C2", "BETA", 3, 4, 6.0, 9.0),
+        ],
+        as_of=AS_OF_INICIAL,
+    )
+    con = sqlite3.connect(snap)
+    con.execute(
+        "UPDATE meli_ads_campaigns_daily SET campaign_name = CAST(x'80' AS TEXT) WHERE date = ?",
+        (D2.isoformat(),),
+    )
+    con.commit()
+    con.close()
+    total_origen = (
+        sqlite3.connect(snap).execute("SELECT count(*) FROM meli_ads_campaigns_daily").fetchone()[0]
+    )
+    assert total_origen == 2
+
+    with pytest.raises(MeliAdsError, match="ilegible en origen"):
+        ingest_meli_ads(pg, snap)
+
+    assert _conteos(pg) == (0, 0)
+    run = pg.execute(
+        "SELECT ok, rows_written, rows_skipped, skip_reason"
+        " FROM ingest_run ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    assert run[0] is False and run[1] == 0 and run[2] == total_origen
+    assert "ilegible en origen" in run[3]
+
+
+def test_utf8_invalido_en_medio_cuenta_todo_el_snapshot(pg, tmp_path):
+    """Igual que al inicio, con la fila ilegible en medio: la lectura se corta
+    y el sello sigue reportando el total completo del origen."""
+    D3 = HOY - dt.timedelta(days=3)
+    snap = _snapshot(
+        tmp_path / "utf8-fila-media.db",
+        [
+            (D3.isoformat(), "C1", "ALFA", 1, 2, 5.0, 8.0),
+            (D2.isoformat(), "C2", "BETA", 3, 4, 6.0, 9.0),  # ilegible
+            (D1.isoformat(), "C3", "GAMMA", 5, 6, 7.0, 10.0),
+        ],
+        as_of=AS_OF_INICIAL,
+    )
+    con = sqlite3.connect(snap)
+    con.execute(
+        "UPDATE meli_ads_campaigns_daily SET campaign_name = CAST(x'80' AS TEXT) WHERE date = ?",
+        (D2.isoformat(),),
+    )
+    con.commit()
+    con.close()
+    total_origen = (
+        sqlite3.connect(snap).execute("SELECT count(*) FROM meli_ads_campaigns_daily").fetchone()[0]
+    )
+    assert total_origen == 3
+
+    with pytest.raises(MeliAdsError, match="ilegible en origen"):
+        ingest_meli_ads(pg, snap)
+
+    assert _conteos(pg) == (0, 0)
+    run = pg.execute(
+        "SELECT ok, rows_written, rows_skipped, skip_reason"
+        " FROM ingest_run ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    assert run[0] is False and run[1] == 0 and run[2] == total_origen
     assert "ilegible en origen" in run[3]
 
 

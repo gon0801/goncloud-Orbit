@@ -420,7 +420,9 @@ def leer_origen(ruta: Path | str) -> OrigenMeliAds:
     se aborta completa (fail-closed). `updated_at` es obligatorio en cada
     fila no vacia. El `as_of` es el maximo `updated_at` (UTC) y no puede
     estar mas de `_TOLERANCIA_RELOJ` adelante del reloj de ingesta. Las
-    claves `(campaign_id, metric_date)` deben ser unicas.
+    claves `(campaign_id, metric_date)` deben ser unicas. El `total` es el
+    `count(*)` de la tabla origen: un TEXT con UTF-8 invalido detiene el
+    cursor y el total NO puede depender de hasta donde llego la lectura.
     """
     hoy = dt.datetime.now(dt.UTC).date()
     ahora = dt.datetime.now(dt.UTC)
@@ -428,9 +430,9 @@ def leer_origen(ruta: Path | str) -> OrigenMeliAds:
     filas: list[FilaMeliAds] = []
     vistas: dict[tuple[str, str], FilaMeliAds] = {}
     as_of: dt.datetime | None = None
-    total = 0
     con, columnas = _abre_origen(ruta)
     try:
+        total = int(con.execute(f"SELECT count(*) FROM {TABLA_ORIGEN}").fetchone()[0])
         consulta = (
             f"SELECT date, campaign_id, campaign_name, clicks, impressions,"
             f" spend, ad_sales, updated_at{', currency' if 'currency' in columnas else ''}"
@@ -445,13 +447,12 @@ def leer_origen(ruta: Path | str) -> OrigenMeliAds:
             except sqlite3.Error as exc:
                 # SQLite no decodifica TEXT con UTF-8 invalido al leer. La
                 # fila no se puede validar: se cuenta como rechazo y el
-                # snapshot se aborta completo (cero escrituras).
-                total += 1
+                # snapshot se aborta completo (cero escrituras). El total ya
+                # vino del count(*): la lectura truncada no lo recorta.
                 rechazos[f"fila ilegible en origen: {exc}"] += 1
                 break
             if row is None:
                 break
-            total += 1
             momento = _momento_utc(row["updated_at"])
             if momento is None:
                 rechazos["updated_at ausente o ilegible"] += 1
