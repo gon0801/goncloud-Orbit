@@ -1,0 +1,8 @@
+== HEAD revisado: d1bdbe5f4d69578e6d9951ca144be700cc2d9218 ==
+== Comando 1 ==
+PYTHONPATH=/tmp:tests:. uv run --frozen python -c 'import orbit_review_d1bdbe5 as r; r.case_mark_interleaving(); r.case_clock_collision(); r.case_future_clock()'
+
+MARK_INTERLEAVING {'marca_leida_tras_recopia_12': 'as_of=1793268000', 'stale_11_aceptado_costo_nombre': ('99.0000', 'VIEJO'), 'runs': [(1, True, 4, 0, 'as_of=1793260800'), (2, True, 0, 1, 'as_of=1793275200; 1x snapshot ya ingerido (dedupe source_report_id)'), (3, True, 1, 0, 'as_of=1793268000'), (4, True, 1, 0, 'as_of=1793271600')]}
+CLOCK_COLLISION {'resultado_segunda_correccion': {'run_id': 2, 'filas_origen': 1, 'rows_written': 0, 'rows_skipped': 1, 'duplicados': 1, 'rechazos': 0, 'entidades_nuevas': 0, 'entidades_actualizadas': 0}, 'latest': '5.0000', 'observaciones': (1, 1), 'ultimo_run': (2, True, 0, 1, 'as_of=1793264400; 1x snapshot ya ingerido (dedupe source_report_id)')}
+FUTURE_CLOCK {'latest': '5.0000', 'snapshot_actual_rechazado': 'snapshot atrasado: su as_of no es posterior a la marca aceptada (4070908800); no se escribio nada'}
+rc=0

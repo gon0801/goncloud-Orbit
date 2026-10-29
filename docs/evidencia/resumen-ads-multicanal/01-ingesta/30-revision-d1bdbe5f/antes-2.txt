@@ -1,0 +1,10 @@
+== HEAD revisado: d1bdbe5f4d69578e6d9951ca144be700cc2d9218 ==
+== Comando 2 ==
+PYTHONPATH=tests:. uv run --frozen python /tmp/orbit_review_inputs.py
+
+UPDATED_AT_INVALIDO 2 {} 2026-10-29 08:00:00+00:00
+DINERO 1.2346 10000000000.0000
+DUPLICADOS {'run_id': 1, 'filas_origen': 2, 'rows_written': 1, 'rows_skipped': 1, 'duplicados': 1, 'rechazos': 0, 'entidades_nuevas': 1, 'entidades_actualizadas': 0} ['1.0000']
+CORRIDA_AUSENTE 0
+FALLOS [('updated_at_invalido', 'updated_at ilegible aceptado'), ('dinero_redondeado', 'dinero redondeado y limite fuera de NUMERIC aceptados'), ('duplicados_conflicting', 'falso dedupe'), ('corrida_ausente', 'fallo de adaptador sin ingest_run')]
+rc=1

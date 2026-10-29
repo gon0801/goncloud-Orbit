@@ -34,8 +34,14 @@ import pytest
 from test_schema import SQL, _hay_postgres_local, _test_dsn
 
 from app.meli.ads_ingest import (
+    _MAX_BIGINT,
+    _MAX_INTEGER,
+    _SQL_LOCK_MELI,
     MONEDA_PLATAFORMA,
     MeliAdsError,
+    _dinero,
+    _entero,
+    _marca_corridas,
     _nombres_vigentes,
     ingest_meli_ads,
     leer_origen,
@@ -52,6 +58,7 @@ AS_OF_INICIAL = "2026-10-29 08:00:00"
 AS_OF_CORRECCION = "2026-10-29 12:00:00"
 AS_OF_ATRASADO = "2026-10-29 07:00:00"
 AS_OF_INTERMEDIO = "2026-10-29 11:00:00"
+AS_OF_MEDIO = "2026-10-29 10:00:00"
 
 # Esquema REAL de accounting (PRAGMA table_info del 2026-10-29), con el
 # PRIMARY KEY del origen. `currency` se agrega solo en los tests que prueban
@@ -116,27 +123,91 @@ def _snapshot(
     return ruta
 
 
+def _snapshot_sin_pk(ruta: Path, filas: list[tuple], *, as_of: str) -> Path:
+    """SQLite sin PK: el adaptador debe detectar claves canonicas duplicadas."""
+    con = sqlite3.connect(ruta)
+    con.execute(
+        "CREATE TABLE meli_ads_campaigns_daily"
+        " (date TEXT, campaign_id TEXT, campaign_name TEXT, clicks INTEGER,"
+        " impressions INTEGER, spend REAL, ad_sales REAL, updated_at TEXT)"
+    )
+    con.executemany(
+        "INSERT INTO meli_ads_campaigns_daily VALUES (?,?,?,?,?,?,?,?)",
+        [(*fila, as_of) for fila in filas],
+    )
+    con.commit()
+    con.close()
+    return ruta
+
+
 # ---------------------------------------------------------------------------
 # (a) Adaptador SQLite y forma canonica
 # ---------------------------------------------------------------------------
 
 
-def test_version_canonica_ignora_nombre_y_detecta_metricas(tmp_path):
+def test_version_canonica_ignora_nombre_y_cambia_por_cada_campo(tmp_path):
     """La version cubre campana, fecha, moneda y TODAS las metricas."""
-    base = version_canonica("C1", D1, "MXN", Decimal("12.3400"), Decimal("0.0000"), 100, 10, None)
+    base_args = {
+        "campaign_external_id": "C1",
+        "metric_date": D1,
+        "metric_currency": "MXN",
+        "cost": Decimal("12.3400"),
+        "ad_revenue": Decimal("0.0000"),
+        "impressions": 100,
+        "clicks": 10,
+        "orders": None,
+    }
+    base = version_canonica(**base_args)
     # Mismos hechos con otra representacion decimal: misma version.
-    assert version_canonica("C1", D1, "MXN", Decimal("12.34"), Decimal("0"), 100, 10, None) == base
-    # Un cambio de metrica es otra version.
-    assert version_canonica("C1", D1, "MXN", Decimal("12.35"), Decimal("0"), 100, 10, None) != base
+    assert (
+        version_canonica(**{**base_args, "cost": Decimal("12.34"), "ad_revenue": Decimal("0")})
+        == base
+    )
+    # Cada campo cambia la version de forma independiente.
+    cambios = (
+        {"campaign_external_id": "C2"},
+        {"metric_date": D2},
+        {"metric_currency": "USD"},
+        {"cost": Decimal("12.35")},
+        {"ad_revenue": Decimal("0.0001")},
+        {"impressions": 101},
+        {"clicks": 11},
+        {"orders": 1},
+    )
+    for cambio in cambios:
+        assert version_canonica(**{**base_args, **cambio}) != base, cambio
     # Ausente != cero: el NULL no colisiona con el cero real.
-    assert version_canonica("C1", D1, "MXN", None, Decimal("0"), 100, 10, None) != version_canonica(
-        "C1", D1, "MXN", Decimal("0"), Decimal("0"), 100, 10, None
+    assert version_canonica(**{**base_args, "cost": None}) != version_canonica(
+        **{**base_args, "cost": Decimal("0")}
     )
     # El nombre de campana no entra en la version (renombrar no crea hechos).
     filas = [(D1.isoformat(), "C1", "OTRO NOMBRE", 10, 100, 12.34, 0.0)]
     origen = leer_origen(_snapshot(tmp_path / "n.db", filas))
     assert not origen.rechazos
     assert origen.filas[0].source_version == base
+
+
+def test_dinero_no_redondea_en_silencio_ni_colapsa_versiones():
+    with pytest.raises(MeliAdsError, match="4 decimales"):
+        _dinero("1.23456")
+    with pytest.raises(MeliAdsError, match="NUMERIC"):
+        _dinero("10000000000")
+    with pytest.raises(MeliAdsError, match="cuantiza a cero"):
+        _dinero("0.000001")
+    # Ruido binario acotado del REAL de SQLite: se acepta y se cuantiza.
+    assert _dinero("1.000001") == Decimal("1.0000")
+    assert _dinero("0") == Decimal("0.0000")
+    # Dos importes genuinamente distintos no colapsan en una version.
+    assert _dinero("1.0001") != _dinero("1.0002")
+
+
+def test_enteros_respetan_limites_de_columna():
+    assert _entero(_MAX_BIGINT, _MAX_BIGINT) == _MAX_BIGINT
+    with pytest.raises(MeliAdsError, match="fuera de rango"):
+        _entero(_MAX_BIGINT + 1, _MAX_BIGINT)
+    assert _entero(_MAX_INTEGER, _MAX_INTEGER) == _MAX_INTEGER
+    with pytest.raises(MeliAdsError, match="fuera de rango"):
+        _entero(_MAX_INTEGER + 1, _MAX_INTEGER)
 
 
 def test_leer_filas_usa_revision_del_origen(tmp_path):
@@ -204,6 +275,52 @@ def test_leer_filas_rechaza_fecha_futura(tmp_path):
     )
     assert origen.filas == ()
     assert any("fecha futura" in motivo for motivo in origen.rechazos)
+
+
+def test_updated_at_invalido_rechaza_el_snapshot(tmp_path):
+    snap = _snapshot(tmp_path / "mixto.db", _FILAS, as_of=AS_OF_INICIAL)
+    con = sqlite3.connect(snap)
+    con.execute(
+        "UPDATE meli_ads_campaigns_daily SET updated_at = 'not-a-date'"
+        " WHERE campaign_id = 'C1' AND date = ?",
+        (D1.isoformat(),),
+    )
+    con.commit()
+    con.close()
+    origen = leer_origen(snap)
+    assert origen.rechazos["updated_at ausente o ilegible"] == 1
+    assert origen.total == len(_FILAS)
+
+
+def test_as_of_futuro_es_rechazado(tmp_path):
+    snap = _snapshot(
+        tmp_path / "futuro.db",
+        [(D1.isoformat(), "C1", "ALFA", 1, 2, 3.0, 4.0)],
+        as_of="2099-01-01 00:00:00",
+    )
+    origen = leer_origen(snap)
+    assert origen.rechazos["as_of futuro fuera de la tolerancia de reloj"] == 1
+
+
+def test_revision_o_identidad_con_separador_se_rechazan(tmp_path):
+    snap = _snapshot(
+        tmp_path / "revision.db",
+        [(D1.isoformat(), "C1", "ALFA", 1, 2, 3.0, 4.0)],
+        as_of=AS_OF_INICIAL,
+    )
+    con = sqlite3.connect(snap)
+    con.execute("ALTER TABLE meli_ads_campaigns_daily ADD COLUMN revision TEXT")
+    con.execute("UPDATE meli_ads_campaigns_daily SET revision = 'r|1'")
+    con.commit()
+    con.close()
+    assert any("revision con separador" in motivo for motivo in leer_origen(snap).rechazos)
+
+    separador = _snapshot(
+        tmp_path / "separador.db",
+        [(D1.isoformat(), "C|1", "ALFA", 1, 2, 3.0, 4.0)],
+        as_of=AS_OF_INICIAL,
+    )
+    assert any("campaign_id con separador" in motivo for motivo in leer_origen(separador).rechazos)
 
 
 def test_snapshot_sin_tabla_de_origen(tmp_path):
@@ -331,6 +448,53 @@ def _espera_lock(conn, timeout: float = 10.0) -> None:
     raise AssertionError("la ingesta no quedo esperando el candado de MeLi")
 
 
+class _RelojFijo:
+    """Envuelve una conexion y fija `clock_timestamp()` para forzar colisiones."""
+
+    def __init__(self, inner, instante: dt.datetime):
+        self.inner = inner
+        self.instante = instante
+
+    def execute(self, query, params=None):
+        if query == "SELECT clock_timestamp()":
+
+            class _Resultado:
+                def __init__(self, valor):
+                    self.valor = valor
+
+                def fetchone(self):
+                    return (self.valor,)
+
+            return _Resultado(self.instante)
+        if params is None:
+            return self.inner.execute(query)
+        return self.inner.execute(query, params)
+
+    def __getattr__(self, nombre):
+        return getattr(self.inner, nombre)
+
+
+class _PausaAntesLock:
+    """Pausa una ingesta justo antes del advisory lock (para invertir ids)."""
+
+    def __init__(self, inner, entered: threading.Event, release: threading.Event):
+        self.inner = inner
+        self.entered = entered
+        self.release = release
+
+    def execute(self, query, params=None):
+        if query == _SQL_LOCK_MELI:
+            self.entered.set()
+            if not self.release.wait(10):
+                raise RuntimeError("timeout esperando release del candado")
+        if params is None:
+            return self.inner.execute(query)
+        return self.inner.execute(query, params)
+
+    def __getattr__(self, nombre):
+        return getattr(self.inner, nombre)
+
+
 def _conteos(conn) -> tuple[int, int]:
     return (
         conn.execute("SELECT count(*) FROM ad_entity WHERE platform = 'meli'").fetchone()[0],
@@ -406,7 +570,7 @@ def test_reintento_del_mismo_snapshot_no_duplica(pg, tmp_path):
         (segunda["run_id"],),
     ).fetchone()
     assert run[0] is True and run[1] == 0 and run[2] == 4
-    assert "snapshot ya ingerido (dedupe source_report_id)" in run[3]
+    assert "misma version canonica (recopia o reintento)" in run[3]
     # La clave de dedupe no es la corrida: hay dos ingest_run y una sola fila.
     assert segunda["run_id"] != primera["run_id"]
 
@@ -755,5 +919,202 @@ def test_identidad_invalida_no_deja_escrituras_parciales(pg, tmp_path):
         "SELECT ok, rows_written, rows_skipped, skip_reason"
         " FROM ingest_run ORDER BY id DESC LIMIT 1"
     ).fetchone()
-    assert run[0] is False and run[1] == 0 and run[2] == 1
+    assert run[0] is False and run[1] == 0 and run[2] == 2
     assert "identidad de campana ausente" in run[3]
+
+
+def test_updated_at_invalido_sella_run_fallida(pg, tmp_path):
+    snap = _snapshot(tmp_path / "mixto.db", _FILAS, as_of=AS_OF_INICIAL)
+    con = sqlite3.connect(snap)
+    con.execute(
+        "UPDATE meli_ads_campaigns_daily SET updated_at = 'not-a-date'"
+        " WHERE campaign_id = 'C1' AND date = ?",
+        (D1.isoformat(),),
+    )
+    con.commit()
+    con.close()
+
+    with pytest.raises(MeliAdsError, match="updated_at"):
+        ingest_meli_ads(pg, snap)
+    assert _conteos(pg) == (0, 0)
+    run = pg.execute(
+        "SELECT ok, rows_written, rows_skipped FROM ingest_run ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    assert run == (False, 0, len(_FILAS))
+
+
+def test_as_of_futuro_no_envenena_la_marca(pg, tmp_path):
+    futuro = _snapshot(
+        tmp_path / "futuro.db",
+        [(D1.isoformat(), "C1", "ALFA", 1, 2, 5.0, 8.0)],
+        as_of="2099-01-01 00:00:00",
+    )
+    with pytest.raises(MeliAdsError, match="as_of futuro"):
+        ingest_meli_ads(pg, futuro)
+    assert _marca_corridas(pg) == -1
+    assert _conteos(pg) == (0, 0)
+
+    normal = _snapshot(
+        tmp_path / "normal.db",
+        [(D1.isoformat(), "C1", "ALFA", 1, 2, 6.0, 8.0)],
+        as_of=AS_OF_INICIAL,
+    )
+    ingest_meli_ads(pg, normal)
+    assert _ultima(pg, "C1", D1)[0] == Decimal("6.0000")
+
+
+def test_claves_canonicas_duplicadas_rechazan_snapshot(pg, tmp_path):
+    snap = _snapshot_sin_pk(
+        tmp_path / "sin-pk.db",
+        [
+            (D1.isoformat(), "C1", "ALFA", 1, 2, 1.0, 4.0),
+            (D1.isoformat(), "C1", "ALFA", 1, 2, 2.0, 4.0),
+        ],
+        as_of=AS_OF_INICIAL,
+    )
+    with pytest.raises(MeliAdsError, match="clave canonica duplicada"):
+        ingest_meli_ads(pg, snap)
+    assert _conteos(pg) == (0, 0)
+    run = pg.execute(
+        "SELECT ok, rows_written, rows_skipped FROM ingest_run ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    assert run == (False, 0, 2)
+
+
+def test_error_de_lectura_sella_run_ok_false(pg, tmp_path):
+    vacia = tmp_path / "vacia.db"
+    sqlite3.connect(vacia).close()
+    with pytest.raises(MeliAdsError, match="no trae la tabla"):
+        ingest_meli_ads(pg, vacia)
+    run = pg.execute(
+        "SELECT ok, rows_written, rows_skipped, skip_reason"
+        " FROM ingest_run ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    assert run[0] is False and run[1] == 0 and run[2] == 0
+    assert "no trae la tabla" in run[3]
+
+
+def test_revision_con_separador_sella_run_fallida(pg, tmp_path):
+    snap = _snapshot(
+        tmp_path / "revision.db",
+        [(D1.isoformat(), "C1", "ALFA", 1, 2, 3.0, 4.0)],
+        as_of=AS_OF_INICIAL,
+    )
+    con = sqlite3.connect(snap)
+    con.execute("ALTER TABLE meli_ads_campaigns_daily ADD COLUMN revision TEXT")
+    con.execute("UPDATE meli_ads_campaigns_daily SET revision = 'r|1'")
+    con.commit()
+    con.close()
+
+    with pytest.raises(MeliAdsError, match="revision con separador"):
+        ingest_meli_ads(pg, snap)
+    assert _conteos(pg) == (0, 0)
+    run = pg.execute(
+        "SELECT ok, rows_written, rows_skipped FROM ingest_run ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    assert run == (False, 0, 1)
+
+
+def test_marca_es_el_maximo_entre_corridas_y_no_el_id(pg, tmp_path):
+    """Dos conexiones invierten los ids: la recopia de 12:00 abre primero y
+    termina última; la marca debe ser 12:00, no la de id más alto (10:00)."""
+    psycopg = pytest.importorskip("psycopg")
+    base = _snapshot(tmp_path / "base.db", _FILAS, as_of=AS_OF_INICIAL)
+    recopy = _snapshot(
+        tmp_path / "recopy.db",
+        [(D1.isoformat(), "C1", "ALFA", 10, 100, 12.34, 0.0)],
+        as_of=AS_OF_CORRECCION,
+    )
+    middle = _snapshot(
+        tmp_path / "middle.db",
+        [(D1.isoformat(), "C2", "BETA", 3, 50, 6.5, 20.0)],
+        as_of=AS_OF_MEDIO,
+    )
+    stale = _snapshot(
+        tmp_path / "stale.db",
+        [(D1.isoformat(), "C1", "VIEJO", 10, 100, 99.0, 0.0)],
+        as_of=AS_OF_INTERMEDIO,
+    )
+    ingest_meli_ads(pg, base)
+
+    entered = threading.Event()
+    release = threading.Event()
+    errores: list[BaseException] = []
+
+    def recopia_baja_id():
+        try:
+            with psycopg.connect(_test_dsn(), dbname=pg.info.dbname, autocommit=True) as otra:
+                otra.execute("SET TIME ZONE 'UTC'")
+                ingest_meli_ads(_PausaAntesLock(otra, entered, release), recopy)
+        except BaseException as exc:  # noqa: BLE001 - se re-lanza abajo
+            errores.append(exc)
+
+    hilo = threading.Thread(target=recopia_baja_id)
+    hilo.start()
+    try:
+        if not entered.wait(3):
+            release.set()
+            hilo.join(5)
+            raise AssertionError(f"la recopia no llego al candado: {errores}")
+        # Id mayor y termina primero, con as-of 10:00.
+        resultado_medio = ingest_meli_ads(pg, middle)
+    finally:
+        release.set()
+        hilo.join(20)
+    assert not hilo.is_alive() and not errores, errores
+
+    # La recopia (id menor) terminó después con as-of 12:00.
+    runs = pg.execute("SELECT id, skip_reason FROM ingest_run ORDER BY id").fetchall()
+    assert len(runs) == 3
+    assert resultado_medio["run_id"] > runs[1][0]
+    epoch_12 = int(dt.datetime.fromisoformat(AS_OF_CORRECCION).replace(tzinfo=dt.UTC).timestamp())
+    assert runs[1][1].startswith(f"as_of={epoch_12}")
+
+    with pytest.raises(MeliAdsError, match="snapshot atrasado"):
+        ingest_meli_ads(pg, stale)
+    assert _ultima(pg, "C1", D1)[0] == Decimal("12.3400")
+    assert _ultima(pg, "C2", D1)[0] == Decimal("6.5000")
+    assert _marca_corridas(pg) == epoch_12
+
+
+def test_colision_de_pk_aborta_y_revierte_escrituras(pg, tmp_path):
+    """La primera fila escribe, la segunda choca contra la PK: rollback total."""
+    psycopg = pytest.importorskip("psycopg")
+    fijo = dt.datetime(2026, 10, 29, 13, 0, tzinfo=dt.UTC)
+    pg.execute(
+        "INSERT INTO ad_entity (platform, kind, external_id, name)"
+        " VALUES ('meli', 'campaign', 'C2', 'BETA')"
+    )
+    run0 = pg.execute(
+        "INSERT INTO ingest_run (source, ok, finished_at) VALUES ('seed', true, now()) RETURNING id"
+    ).fetchone()[0]
+    version_5 = version_canonica(
+        "C2", D1, "MXN", Decimal("5.0000"), Decimal("20.0000"), 50, 3, None
+    )
+    epoch_7 = int(dt.datetime.fromisoformat(AS_OF_ATRASADO).replace(tzinfo=dt.UTC).timestamp())
+    pg.execute(
+        "INSERT INTO ads_metric_observation"
+        " (ad_entity_id, metric_date, observed_at, metric_currency, cost, ad_revenue,"
+        "  impressions, clicks, orders, source_report_id, ingest_run_id)"
+        " SELECT id, %s, %s, 'MXN', 5.0, 20.0, 50, 3, NULL, %s, %s"
+        " FROM ad_entity WHERE platform = 'meli' AND external_id = 'C2'",
+        (D1, fijo, f"meli-ads|C2|{D1.isoformat()}|{version_5}|{epoch_7}", run0),
+    )
+    snap = _snapshot(
+        tmp_path / "colision.db",
+        [
+            (D1.isoformat(), "C1", "ALFA", 1, 2, 6.0, 8.0),
+            (D1.isoformat(), "C2", "BETA", 3, 50, 6.5, 20.0),
+        ],
+        as_of=AS_OF_CORRECCION,
+    )
+
+    with pytest.raises(psycopg.errors.UniqueViolation):
+        ingest_meli_ads(_RelojFijo(pg, fijo), snap)
+
+    assert _conteos(pg) == (1, 1)
+    assert pg.execute("SELECT count(*) FROM ad_entity WHERE external_id = 'C1'").fetchone()[0] == 0
+    run = pg.execute(
+        "SELECT ok, rows_written, rows_skipped FROM ingest_run ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    assert run == (False, 0, 0)

@@ -30,4 +30,3 @@ SET
   3 | t  |            1 |          783 | as_of=1793247443; 783x snapshot ya ingerido (dedupe source_report_id)
   4 | t  |            0 |          784 | as_of=1793247443; 784x snapshot ya ingerido (dedupe source_report_id)
 (4 rows)
-

@@ -34,7 +34,7 @@ consultas: `00-puerta-fuente.md`, `01-fuente-esquema.txt`,
 - Ceros reales conservados; NULL conservado; día ausente = hueco.
 - Sin revisión en el origen y `updated_at` se reescribe cada 2 h: la versión
   es el hash canónico (sin nombre). `source_report_id` =
-  `meli-ads:<campaign_id>:<fecha>:<version>`.
+  `meli-ads|<campaign_id>|<fecha>|<version>|<as_of_epoch>`.
 - Corrección in-place comprobada contra un backup de 2026-08-21 (3 filas
   corregidas de 512 comparables).
 - Sin madurez D-8 para MeLi; se ingesta T+0 parcial.
@@ -122,6 +122,51 @@ tampoco cambia el valor vigente. Contra `f55600e7` falla en la marca
 Evidencia: `19-regresion-marca-recpia.txt`. Focales: `87 passed` (24 del
 módulo).
 
+## Cuarta revisión (corrección integral)
+
+Se corrigieron los diez grupos de la revisión de `d1bdbe5f`. Evidencia antes y
+después en `30-revision-d1bdbe5f/`.
+
+- **Marca global bajo concurrencia.** `_SQL_MARCA` ya no usa `ORDER BY id`.
+  Se toma el máximo as-of entre todas las corridas exitosas y las
+  observaciones, bajo el candado. Regresión con dos conexiones e ids
+  invertidos (`test_marca_es_el_maximo_entre_corridas_y_no_el_id`).
+- **Dedupe acotado al índice parcial.** El `ON CONFLICT` apunta a
+  `metric_dedupe_reporte`; una colisión de la PK aborta la corrida. Regresión
+  con reloj fijo y rollback de una escritura previa
+  (`test_colision_de_pk_aborta_y_revierte_escrituras`).
+- **`updated_at` obligatorio y as-of futuro.** Una fila sin fecha o ilegible
+  rechaza el snapshot; un as-of más de 24 h adelante se rechaza y no avanza la
+  marca (`test_updated_at_invalido_sella_run_fallida`,
+  `test_as_of_futuro_no_envenena_la_marca`).
+- **Dinero y límites.** Se tolera solo ruido binario (< 1e-5), se rechaza
+  precisión genuina de más de 4 decimales, se valida el rango después de
+  cuantizar, se rechaza un positivo que cuantiza a cero, y se validan BIGINT
+  e INTEGER (`test_dinero_no_redondea_en_silencio_ni_colapsa_versiones`,
+  `test_enteros_respetan_limites_de_columna`).
+- **Claves canónicas duplicadas.** Un snapshot sin PK que repita
+  `(campaign_id, metric_date)` se rechaza completo, con cero escrituras
+  (`test_claves_canonicas_duplicadas_rechazan_snapshot`).
+- **Rollback del runbook.** Se eliminó la restauración integral como
+  procedimiento rutinario; queda detener la ingesta y conservar historia, con
+  una recuperación excepcional separada, con alcance y pérdida explícitos.
+- **Procedimiento manual.** Sin DSN expandido como argumento, snapshot 0600 en
+  el host, 644 solo dentro del contenedor, `trap` para snapshot y laterales
+  `-wal`/`-shm`.
+- **Activación del cron.** Orden completo documentado: rebuild del CLI,
+  instalación 0755 del script, `bash -n` y checksum, carga inicial,
+  `ingest_run` y conciliación, línea del cron sin cambios.
+- **Secundarios.** La `ingest_run` se abre antes de leer (tabla ausente deja
+  `ok=false`); separadores `|` rechazados; snapshot rechazado registra
+  `rows_skipped=origen.total`; motivos de dedupe separados; hash probado campo
+  por campo; marca global documentada; formato viejo de `source_report_id`
+  corregido; sección de tres pipelines actualizada; `git diff --check` limpio.
+
+Queda un invariante operativo: la marca vive en el `skip_reason` de corridas
+exitosas. Borrar una corrida deduplicada pierde la marca; `ingest_run` es
+append-only y sin purga, y el runbook prohíbe borrar corridas exitosas de
+MeLi. Si se borra, un snapshot anterior puede volver a entrar.
+
 ## Archivos
 
 - `app/meli/ads_ingest.py` (nuevo): adaptador SQLite `mode=ro`, forma
@@ -136,14 +181,13 @@ módulo).
 
 ## Pruebas
 
-- Focales: `87 passed` (`tests/test_meli_ads_ingest.py` + `tests/test_cli.py`;
-  24 casos del módulo). Detalle: `07-pruebas-foco.txt`.
+- Focales: `99 passed` (`tests/test_meli_ads_ingest.py` + `tests/test_cli.py`;
+  36 casos del módulo). Detalle: `30-revision-d1bdbe5f/pruebas.txt`.
 - Regresión contra el padre: la ingesta no colecciona (`ModuleNotFoundError`)
   y el CLI falla por el comando/choice ausente. Detalle:
   `06-pruebas-regresion-parent.txt`.
-- Suite completa: 10 fallos preexistentes idénticos en el SHA padre, ajenos a
-  esta fase (bloqueo_dueño, estimación MeLi, JEV bloqueo). Detalle:
-  `16-suite-completa.txt`.
+- Suite completa con `ORBIT_TEST_DSN`: **5519 passed, 0 failed**. Detalle en
+  `30-revision-d1bdbe5f/suite.txt`.
 
 ## Verificación operativa real
 
@@ -167,6 +211,21 @@ con la migración 0001 aplicada y snapshots reales copiados de accounting con
 `.backup()` en modo read-only. No se escribió en accounting, bridge, MeLi ni
 en la base de producción de Orbit.
 
+### Cuarta ronda (SHA revisado `d1bdbe5f`)
+
+| Verificación | Resultado | Archivo |
+|---|---|---|
+| Carga real 784 filas + reintento | OK | `30-revision-d1bdbe5f/operativo-carga.txt` |
+| Corrección + snapshot atrasado | OK | `30-revision-d1bdbe5f/operativo-correccion-y-atrasado.txt` |
+| Moneda, identidad y tabla ausente | OK | `30-revision-d1bdbe5f/operativo-rechazos.txt` |
+| Sin snapshot, sin DSN y DSN redactado | OK | `30-revision-d1bdbe5f/operativo-sin-snapshot-dsn.txt` |
+| Conciliación 784/784 filas y 196/196 días | OK | `30-revision-d1bdbe5f/conciliacion.txt` |
+| Reinicio (procesos nuevos) estable | OK | `30-revision-d1bdbe5f/reinicio.txt` |
+| 3 ingestas frescas de 100,000 filas | OK, 6.9–7.7 s c/u | `30-revision-d1bdbe5f/perf-100k.txt` |
+| Reproducciones del revisor antes/después | OK | `30-revision-d1bdbe5f/antes-*.txt`, `despues-*.txt` |
+| Gates de calidad | OK | `30-revision-d1bdbe5f/gates.txt` |
+| Pruebas focales 99/36 | OK | `30-revision-d1bdbe5f/pruebas.txt` |
+
 ## Calidad
 
 Ruff limpio y `pre-commit run --all-files` verde (gitleaks incluido), sin
@@ -174,5 +233,17 @@ Ruff limpio y `pre-commit run --all-files` verde (gitleaks incluido), sin
 
 ## Pendiente
 
-Revisión de Limi 3.1 antes de integrar. No se desplegó ni se mergeó. No se
-inició RESUMEN-ADS-02.
+Revisión de Limi 3.1 antes de integrar. No se desplegó, no se hizo push ni
+merge, y no se inició RESUMEN-ADS-02.
+
+Gates del plan **no ejecutados** en este checkout, por infraestructura:
+
+- **Lane 1 Amazon**: regresión de la ingesta Amazon base vs head. Requiere
+  credenciales AWS y la fuente viva; no están disponibles en este checkout.
+- **Perf de `/`**: 30 requests intercalados para mediana y p95. Requiere la
+  app FastAPI con el fixture Amazon y la base completa; no se levantó aquí.
+- **Lanes live del plan** (10 carriles en VM con `grok-4.7-xhigh-fast` y
+  capturas): no hay VM de revisión en este entorno. Los equivalentes CLI se
+  ejecutaron y quedan en `30-revision-d1bdbe5f/`.
+- **Reinicio de la app FastAPI**: se reinició el proceso de ingesta (CLI) y se
+  verificó la base; el reinicio del servicio HTTP no se ejecutó.

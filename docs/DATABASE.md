@@ -191,18 +191,30 @@ métricas, sin el nombre) y
 donde el as-of es `max(updated_at)` del snapshot en UTC. Así el dedupe
 existente hace no-op el mismo snapshot y una corrección entra como
 observación nueva. **El `ingest_run_id` no es clave de dedupe.** Un snapshot
-atrasado (as-of anterior a la marca aceptada, o mismo as-of con contenido
-distinto) se rechaza completo con `ok=false`: no puede reemplazar una
-corrección vigente aunque se ingiera después. La marca es el máximo as-of
-aceptado y vive en `ingest_run.skip_reason` como `as_of=<epoch>`; una recopia
-deduplicada la avanza aunque no inserte observaciones. Un renombre
-actualiza `ad_entity.name` (el de la fecha más reciente) sin crear
-observaciones, y solo desde un snapshot estrictamente posterior al as-of de la
-campaña (con el mismo as-of se conserva el nombre publicado). `observed_at` se toma de `clock_timestamp()` **después** de
-adquirir el advisory lock de MeLi: una corrida que esperó el candado no puede
-quedar con un `observed_at` anterior al de la que terminó mientras esperaba. MeLi **no** hereda la madurez D-8 de Amazon: `v_metric_mature`
-sigue siendo D-15 y el resumen multicanal deberá declarar la madurez de MeLi
-como desconocida en RESUMEN-ADS-02.
+atrasado (as-of anterior a la marca, o mismo as-of con contenido distinto) se
+rechaza completo con `ok=false`: no puede reemplazar una corrección vigente
+aunque se ingiera después. La marca es el **máximo as-of aceptado y es
+global**, no por campaña. Vive en `ingest_run.skip_reason` como
+`as_of=<epoch>` y se toma el máximo entre todas las corridas exitosas y las
+observaciones, bajo el candado; el id de `ingest_run` no ordena porque los
+runs nacen antes del candado. Una recopia deduplicada la avanza aunque no
+inserte observaciones. `updated_at` es obligatorio en cada fila no vacía y un
+as-of más de 24 h adelante del reloj de ingesta se rechaza. Las claves
+`(campaign_id, metric_date)` deben ser únicas; un snapshot sin PK que las
+repita se rechaza. El `ON CONFLICT` apunta solo al índice parcial
+`metric_dedupe_reporte`; una colisión de la PK
+`(ad_entity_id, metric_date, observed_at)` aborta la corrida. Dinero: se
+tolera solo ruido binario (< 1e-5), se rechaza precisión genuina de más de 4
+decimales, el rango se valida después de cuantizar, y un positivo que cuantiza
+a cero se rechaza; `impressions`/`clicks` respetan BIGINT y `orders` INTEGER.
+Un renombre actualiza `ad_entity.name` (el de la fecha más reciente) sin crear
+observaciones, y solo desde un snapshot estrictamente posterior a la marca
+(con el mismo as-of se conserva el nombre publicado). `observed_at` se toma de
+`clock_timestamp()` **después** de adquirir el advisory lock de MeLi: una
+corrida que esperó el candado no puede quedar con un `observed_at` anterior al
+de la que terminó mientras esperaba. MeLi **no** hereda la madurez D-8 de
+Amazon: `v_metric_mature` sigue siendo D-15 y el resumen multicanal deberá
+declarar la madurez de MeLi como desconocida en RESUMEN-ADS-02.
 
 
 **`search_term_observation`** — Append-only igual que la anterior pero para

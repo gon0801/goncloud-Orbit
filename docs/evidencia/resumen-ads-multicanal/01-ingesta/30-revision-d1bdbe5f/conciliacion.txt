@@ -1,0 +1,10 @@
+== Conciliacion Orbit vs accounting ==
+Comando: .venv/bin/python conciliar.py <snapshot> <dsn desechable>
+
+filas origen: 784
+filas Orbit:  784
+faltantes en Orbit: []
+sobrantes en Orbit: []
+campana/dia comparables: 784, diferencias: 0
+dias comparables: 196, diferencias: 0
+fecha de conciliacion: 2026-10-29T05:57:04.466251+00:00

@@ -37,13 +37,31 @@ Contrato comprobado en vivo (docs/evidencia/resumen-ads-multicanal/01-ingesta):
    el origen publica, incluido T+0 parcial. El sync de accounting finaliza
    T+1/T+2 y su correccion llega como observacion nueva.
 8. Orden de snapshots: `updated_at` (UTC, segundo) es el as-of del snapshot.
-   La marca es el maximo as-of ACEPTADO. Se guarda en el `skip_reason` de la
-   corrida exitosa como `as_of=<epoch>` porque el esquema no tiene columna de
-   watermark, y se conserva aunque la recopia no inserte metricas. Un snapshot
-   anterior a la marca se rechaza COMPLETO, aunque sus metricas coincidan: no
-   puede tocar el nombre. Con el mismo as-of solo se admite el reintento
-   exacto. El nombre solo se aplica desde un snapshot estrictamente posterior
-   a la marca. `source_report_id` lleva ademas el as-of de cada observacion.
+   La marca es el maximo as-of ACEPTADO y es GLOBAL, no por campana. Se guarda
+   en el `skip_reason` de cada corrida exitosa como `as_of=<epoch>` porque el
+   esquema no tiene columna de watermark, y se conserva aunque la recopia no
+   inserte metricas. Se toma el maximo entre TODAS las marcas exitosas y las
+   observaciones, bajo el candado; el id de `ingest_run` no ordena porque los
+   runs nacen antes del candado. Un snapshot anterior a la marca se rechaza
+   COMPLETO, aunque sus metricas coincidan: no puede tocar el nombre. Con el
+   mismo as-of solo se admite el reintento exacto. El nombre solo se aplica
+   desde un snapshot estrictamente posterior a la marca.
+9. `updated_at` es obligatorio en cada fila no vacia. Una fila sin el o con
+   fecha ilegible rechaza el snapshot completo. Un as-of mas de 24 h adelante
+   del reloj de ingesta se rechaza (tolerancia de desfase de reloj/zona).
+10. Dedupe: el `ON CONFLICT` apunta SOLO al indice parcial
+    `metric_dedupe_reporte`; una colision de la PK
+    `(ad_entity_id, metric_date, observed_at)` aborta la corrida, no se
+    disfraza de duplicado. Las razones separan "misma version canonica
+    (recopia o reintento)" de "source_report_id ya ingerido".
+11. Dinero con la disciplina de app/costs.py: ruido binario < 1e-5 se
+    cuantiza; precision genuina de mas de 4 decimales se rechaza; el rango se
+    valida despues de cuantizar; un positivo que cuantiza a cero se rechaza.
+    impressions/clicks respetan BIGINT; orders respeta INTEGER.
+12. Las claves `(campaign_id, metric_date)` deben ser unicas. Un snapshot sin
+    PK que las repita se rechaza completo; no se elige una fila y se cuenta la
+    otra como duplicado. Un `campaign_id` o una `revision` con `|` se rechazan
+    para no romper la identidad de `source_report_id`.
 
 Idempotencia: `source_report_id =
 meli-ads|<campaign_id>|<fecha>|<version>|<as_of_epoch>` y
@@ -99,6 +117,10 @@ _COLUMNAS_OBLIGATORIAS = (
     "updated_at",
 )
 _MAX_DINERO = Decimal(10) ** 10  # 10 enteros + 4 decimales = NUMERIC(14,4)
+_RUIDO_FLOAT = Decimal("0.00001")  # ruido binario del REAL de SQLite (costs.py:223)
+_MAX_BIGINT = 2**63 - 1  # impressions/clicks: BIGINT
+_MAX_INTEGER = 2**31 - 1  # orders: INTEGER
+_TOLERANCIA_RELOJ = dt.timedelta(hours=24)  # desfase de reloj/zona del origen
 
 _SQL_ABRIR_RUN = "INSERT INTO ingest_run (source) VALUES (%s) RETURNING id"
 
@@ -148,14 +170,14 @@ SELECT DISTINCT ON (e.external_id, o.metric_date)
 _SQL_LOCK_MELI = "SELECT pg_advisory_xact_lock(%s, %s)"
 _LOCK_MELI = (7071, 1)
 
-# Marca temporal del ultimo snapshot ACEPTADO. Vive en el skip_reason de la
-# corrida exitosa porque el esquema no tiene columna de watermark y esta fase
-# no crea migraciones. Incluye las recopias deduplicadas, que no insertan
-# observaciones pero SI avanzan el as-of aceptado.
+# Marcas temporales de TODOS los snapshots ACEPTADOS. Viven en el skip_reason
+# de cada corrida exitosa porque el esquema no tiene columna de watermark y
+# esta fase no crea migraciones. El id de ingest_run no sirve como orden: los
+# runs se abren antes del candado y pueden terminar en otro orden. Se toma el
+# maximo de las marcas, no la ultima por id.
 _SQL_MARCA = (
     "SELECT skip_reason FROM ingest_run"
     " WHERE source = %s AND ok = true AND skip_reason LIKE 'as_of=%%'"
-    " ORDER BY id DESC LIMIT 1"
 )
 _MARCA_RE = re.compile(r"^as_of=(\d+)(?:;|$)")
 
@@ -164,7 +186,9 @@ INSERT INTO ads_metric_observation
     (ad_entity_id, metric_date, observed_at, metric_currency, cost, ad_revenue,
      impressions, clicks, orders, source_report_id, ingest_run_id)
 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-ON CONFLICT DO NOTHING
+ON CONFLICT (ad_entity_id, metric_date, source_report_id)
+    WHERE source_report_id IS NOT NULL
+DO NOTHING
 """
 
 
@@ -272,6 +296,13 @@ def version_canonica(
 
 
 def _dinero(valor: object) -> Decimal | None:
+    """Dinero exacto con la disciplina de app/costs.py:223 y :247.
+
+    Tolera solo el ruido binario del REAL de SQLite (residuo < 1e-5).
+    Rechaza precision genuina de mas de 4 decimales, en vez de redondearla en
+    silencio. Valida el rango DESPUES de cuantizar y rechaza un positivo que
+    cuantiza a cero (seria un importe perdido).
+    """
     if valor is None:
         return None
     if isinstance(valor, bool) or not isinstance(valor, (int, float, str, Decimal)):
@@ -284,12 +315,20 @@ def _dinero(valor: object) -> Decimal | None:
         raise MeliAdsError(f"importe no finito: {valor!r}")
     if numero < 0:
         raise MeliAdsError(f"importe negativo: {valor!r}")
-    if numero >= _MAX_DINERO:
+    try:
+        cuantizado = numero.quantize(_DECIMALES)
+    except InvalidOperation:
+        raise MeliAdsError(f"importe fuera de NUMERIC(14,4): {valor!r}") from None
+    if abs(numero - cuantizado) >= _RUIDO_FLOAT:
+        raise MeliAdsError(f"importe con mas de 4 decimales: {valor!r}")
+    if cuantizado >= _MAX_DINERO:
         raise MeliAdsError(f"importe fuera de NUMERIC(14,4): {valor!r}")
-    return numero.quantize(_DECIMALES)
+    if numero > 0 and cuantizado == 0:
+        raise MeliAdsError(f"importe positivo que cuantiza a cero: {valor!r}")
+    return cuantizado
 
 
-def _entero(valor: object) -> int | None:
+def _entero(valor: object, maximo: int) -> int | None:
     if valor is None:
         return None
     if isinstance(valor, bool):
@@ -304,6 +343,8 @@ def _entero(valor: object) -> int | None:
         raise MeliAdsError(f"entero ilegible: {valor!r}")
     if numero < 0:
         raise MeliAdsError(f"entero negativo: {valor!r}")
+    if numero > maximo:
+        raise MeliAdsError(f"entero fuera de rango ({maximo}): {valor!r}")
     return numero
 
 
@@ -319,6 +360,8 @@ def _fila(row: sqlite3.Row, columnas: set[str], hoy: dt.date) -> FilaMeliAds:
     campaign_id = str(row["campaign_id"] or "").strip()
     if not campaign_id:
         raise MeliAdsError("campaign_id vacio: identidad de campana ausente")
+    if "|" in campaign_id:
+        raise MeliAdsError("campaign_id con separador '|' no soportado")
 
     fecha_texto = str(row["date"] or "").strip()
     try:
@@ -336,20 +379,23 @@ def _fila(row: sqlite3.Row, columnas: set[str], hoy: dt.date) -> FilaMeliAds:
 
     cost = _dinero(row["spend"])
     ad_revenue = _dinero(row["ad_sales"])
-    impressions = _entero(row["impressions"])
-    clicks = _entero(row["clicks"])
+    impressions = _entero(row["impressions"], _MAX_BIGINT)
+    clicks = _entero(row["clicks"], _MAX_BIGINT)
     # El origen no publica orders: dato ausente = NULL, jamas una constante.
-    orders = _entero(row["orders"]) if "orders" in columnas else None
+    orders = _entero(row["orders"], _MAX_INTEGER) if "orders" in columnas else None
 
     # El origen vivo no tiene revision (comprobado 2026-10-29). Si un snapshot
     # futuro la trae, ES la version: manda sobre el hash de las metricas.
     revision = row["revision"] if "revision" in columnas else None
-    if revision is None or not str(revision).strip():
+    revision_texto = str(revision).strip() if revision is not None else ""
+    if "|" in revision_texto:
+        raise MeliAdsError("revision con separador '|' no soportada")
+    if not revision_texto:
         source_version = version_canonica(
             campaign_id, metric_date, moneda, cost, ad_revenue, impressions, clicks, orders
         )
     else:
-        source_version = f"rev:{str(revision).strip()}"
+        source_version = f"rev:{revision_texto}"
 
     return FilaMeliAds(
         campaign_external_id=campaign_id,
@@ -382,13 +428,18 @@ def leer_origen(ruta: Path | str) -> OrigenMeliAds:
     """Lee y valida TODO el snapshot antes de escribir.
 
     Una fila que no cumple el contrato se cuenta con su motivo y la corrida
-    se aborta completa (fail-closed): nunca hay escrituras parciales. El
-    `as_of` es el maximo `updated_at` del origen (UTC); sin el no se puede
-    ordenar contra lo ya ingerido y el snapshot se rechaza.
+    se aborta completa (fail-closed): nunca hay escrituras parciales.
+    `updated_at` es obligatorio en cada fila no vacia; una sola fila ausente o
+    ilegible rechaza el snapshot completo. El `as_of` es el maximo
+    `updated_at` (UTC) y no puede estar mas de `_TOLERANCIA_RELOJ` adelante del
+    reloj de ingesta. Las claves `(campaign_id, metric_date)` deben ser unicas:
+    un snapshot sin PK que repita una clave se rechaza, no se deduplica.
     """
     hoy = dt.datetime.now(dt.UTC).date()
+    ahora = dt.datetime.now(dt.UTC)
     rechazos: Counter = Counter()
     filas: list[FilaMeliAds] = []
+    vistas: dict[tuple[str, str], FilaMeliAds] = {}
     as_of: dt.datetime | None = None
     total = 0
     con, columnas = _abre_origen(ruta)
@@ -403,14 +454,25 @@ def leer_origen(ruta: Path | str) -> OrigenMeliAds:
         for row in con.execute(consulta):
             total += 1
             momento = _momento_utc(row["updated_at"])
-            if momento is not None and (as_of is None or momento > as_of):
+            if momento is None:
+                rechazos["updated_at ausente o ilegible"] += 1
+            elif as_of is None or momento > as_of:
                 as_of = momento
             try:
-                filas.append(_fila(row, columnas, hoy))
+                fila = _fila(row, columnas, hoy)
             except MeliAdsError as exc:
                 rechazos[str(exc)] += 1
+                continue
+            clave = (fila.campaign_external_id, fila.metric_date.isoformat())
+            if clave in vistas:
+                rechazos["clave canonica duplicada (campaign_id, metric_date)"] += 1
+                continue
+            vistas[clave] = fila
+            filas.append(fila)
     finally:
         con.close()
+    if as_of is not None and as_of > ahora + _TOLERANCIA_RELOJ:
+        rechazos["as_of futuro fuera de la tolerancia de reloj"] += 1
     return OrigenMeliAds(filas=tuple(filas), rechazos=rechazos, as_of=as_of, total=total)
 
 
@@ -497,20 +559,52 @@ def _nombres_vigentes(filas: list[FilaMeliAds]) -> dict[str, str]:
     return nombres
 
 
+def _marca_corridas(conn: psycopg.Connection) -> int:
+    """Maximo as-of de TODAS las corridas exitosas, no la ultima por id."""
+    marcas = [_marca_de_as_of(fila[0]) for fila in conn.execute(_SQL_MARCA, (SOURCE,)).fetchall()]
+    return max((m for m in marcas if m is not None), default=-1)
+
+
+def _valida_orden(
+    filas: tuple[FilaMeliAds, ...],
+    ultimas: dict[tuple[str, dt.date], tuple[str, int]],
+    marca: int,
+    as_of_epoch: int,
+) -> bool:
+    """Valida el snapshot contra la marca y devuelve si puede tocar el nombre.
+
+    Un as-of anterior a la marca rechaza el snapshot completo, aunque las
+    metricas coincidan. Con el mismo as-of solo se admite el reintento exacto.
+    """
+    todas_iguales = True
+    for fila in filas:
+        vigente = ultimas.get((fila.campaign_external_id, fila.metric_date))
+        if vigente is None or vigente[0] != fila.source_version:
+            todas_iguales = False
+            break
+    if filas and (as_of_epoch < marca or (as_of_epoch == marca and not todas_iguales)):
+        raise MeliAdsError(
+            "snapshot atrasado: su as_of no es posterior a la marca"
+            f" aceptada ({marca}); no se escribio nada"
+        )
+    return as_of_epoch > marca
+
+
 def ingest_meli_ads(
     conn: psycopg.Connection,
     sqlite_path: Path | str,
 ) -> dict[str, int]:
     """Ingesta atomica de un snapshot de `meli_ads_campaigns_daily`.
 
-    Lee y valida el snapshot completo, abre la `ingest_run`, y escribe
-    entidades y observaciones en UNA transaccion. Un snapshot atrasado (o una
-    fila invalida) se rechaza completo, sin escrituras parciales, y la corrida
-    queda sellada `ok=false`. En cualquier fallo: rollback y sello best-effort.
+    Abre la `ingest_run` ANTES de leer el snapshot: una tabla ausente, una
+    SQLite corrupta o una fila invalida dejan corrida `ok=false` cuando hay
+    PostgreSQL. Lee y valida el snapshot completo y escribe entidades y
+    observaciones en UNA transaccion. Un snapshot atrasado (o una fila
+    invalida) se rechaza completo, sin escrituras parciales. En cualquier
+    fallo: rollback y sello best-effort.
     """
-    origen = leer_origen(sqlite_path)
-    filas = origen.filas
-    rechazos = origen.rechazos
+    origen: OrigenMeliAds | None = None
+    rechazo_total = False
 
     with conn.transaction():
         run_id = conn.execute(_SQL_ABRIR_RUN, (SOURCE,)).fetchone()[0]
@@ -518,15 +612,20 @@ def ingest_meli_ads(
     entidades_nuevas = 0
     entidades_actualizadas = 0
     insertadas = 0
-    duplicados = 0
-    atrasadas = 0
+    duplicados_version = 0
+    duplicados_id = 0
     try:
+        origen = leer_origen(sqlite_path)
+        filas = origen.filas
+        rechazos = origen.rechazos
         if rechazos:
+            rechazo_total = True
             raise MeliAdsError(
                 "snapshot rechazado (cero escrituras): "
                 + (", ".join(f"{n}x {motivo}" for motivo, n in sorted(rechazos.items())))
             )
         if filas and origen.as_of is None:
+            rechazo_total = True
             raise MeliAdsError(
                 "snapshot rechazado (cero escrituras): sin as_of util"
                 " (updated_at ausente o ilegible)"
@@ -549,46 +648,18 @@ def ingest_meli_ads(
                 ultimas[(external_id, metric_date)] = partes
                 epoch_max_observado = max(epoch_max_observado, partes[1])
 
-            fila_marca = conn.execute(_SQL_MARCA, (SOURCE,)).fetchone()
-            marca_corrida = _marca_de_as_of(fila_marca[0]) if fila_marca else None
-            # La marca incluye la recopia deduplicada: aunque no inserte una
-            # observacion, su as-of fue ACEPTADO y un snapshot anterior ya no
-            # puede volverse vigente.
-            marca = max(
-                [valor for valor in (marca_corrida, epoch_max_observado) if valor is not None],
-                default=-1,
-            )
-
+            # Maximo as-of entre TODAS las corridas exitosas y las
+            # observaciones. El id no ordena: los runs nacen antes del candado
+            # y pueden terminar en otro orden.
+            marca = max(_marca_corridas(conn), epoch_max_observado)
             as_of_epoch = int(origen.as_of.timestamp()) if origen.as_of is not None else -1
-            todas_iguales = True
-            for fila in filas:
-                vigente = ultimas.get((fila.campaign_external_id, fila.metric_date))
-                if vigente is None or vigente[0] != fila.source_version:
-                    todas_iguales = False
-                    break
-            # Regla de snapshot: uno anterior a la marca se rechaza completo,
-            # AUNQUE sus metricas coincidan (no puede tocar el nombre). Con el
-            # mismo as-of solo se admite el reintento exacto (todo igual).
-            atrasadas = 0
-            if filas and (as_of_epoch < marca or (as_of_epoch == marca and not todas_iguales)):
-                atrasadas = (
-                    sum(
-                        1
-                        for fila in filas
-                        if (vigente := ultimas.get((fila.campaign_external_id, fila.metric_date)))
-                        is None
-                        or vigente[0] != fila.source_version
-                    )
-                    or 1
-                )
-                raise MeliAdsError(
-                    "snapshot atrasado: su as_of no es posterior a la marca"
-                    f" aceptada ({marca}); no se escribio nada"
-                )
-            # El nombre solo se aplica desde un snapshot estrictamente
-            # posterior a la marca aceptada. Una recopia o una copia editada
-            # con el mismo as-of no puede restaurar un nombre viejo.
-            permite_nombre = as_of_epoch > marca
+            try:
+                # El nombre solo se aplica desde un snapshot estrictamente
+                # posterior a la marca aceptada.
+                permite_nombre = _valida_orden(filas, ultimas, marca, as_of_epoch)
+            except MeliAdsError:
+                rechazo_total = True
+                raise
 
             cache: dict[str, tuple[int, bool, bool]] = {}
             nombres = _nombres_vigentes(filas)
@@ -605,10 +676,10 @@ def ingest_meli_ads(
                     entidades_actualizadas += int(entidad[2])
                 vigente = ultimas.get((fila.campaign_external_id, fila.metric_date))
                 if vigente is not None and vigente[0] == fila.source_version:
-                    # Mismo hecho re-observado (recopia o reintento con otro
+                    # Mismo hecho canonico (recopia o reintento con otro
                     # as-of): no es una correccion. El catalogo ya se
                     # actualizo arriba; no se agrega otra observacion.
-                    duplicados += 1
+                    duplicados_version += 1
                     continue
                 cursor = conn.execute(
                     _SQL_INSERTAR_OBS,
@@ -629,11 +700,13 @@ def ingest_meli_ads(
                 if cursor.rowcount:
                     insertadas += 1
                 else:
-                    duplicados += 1
+                    duplicados_id += 1
 
             skips: Counter = Counter()
-            if duplicados:
-                skips["snapshot ya ingerido (dedupe source_report_id)"] = duplicados
+            if duplicados_version:
+                skips["misma version canonica (recopia o reintento)"] = duplicados_version
+            if duplicados_id:
+                skips["source_report_id ya ingerido"] = duplicados_id
             # La marca avanza con la recopia aunque no haya observaciones.
             marca_final = max(marca, as_of_epoch)
             partes = [f"as_of={marca_final}"] if marca_final >= 0 else []
@@ -646,7 +719,7 @@ def ingest_meli_ads(
                 run_id,
                 ok=True,
                 rows_written=insertadas,
-                rows_skipped=duplicados,
+                rows_skipped=duplicados_version + duplicados_id,
                 skip_reason=skip_reason,
             )
     except BaseException as exc:
@@ -654,6 +727,7 @@ def ingest_meli_ads(
         # fallo si la conexion sigue viva (best-effort). BaseException: un
         # Ctrl-C tambien deja la corrida sellada, no abierta.
         motivo = scrub(str(exc)) or type(exc).__name__
+        rows_skipped = origen.total if (origen is not None and rechazo_total) else 0
         try:
             with conn.transaction():
                 _sellar_run(
@@ -661,7 +735,7 @@ def ingest_meli_ads(
                     run_id,
                     ok=False,
                     rows_written=0,
-                    rows_skipped=sum(rechazos.values()) or atrasadas or 1,
+                    rows_skipped=rows_skipped,
                     skip_reason=motivo,
                 )
         except Exception:
@@ -673,13 +747,16 @@ def ingest_meli_ads(
             )
         raise
 
+    duplicados = duplicados_version + duplicados_id
     return {
         "run_id": run_id,
-        "filas_origen": origen.total,
+        "filas_origen": origen.total if origen is not None else 0,
         "rows_written": insertadas,
         "rows_skipped": duplicados,
         "duplicados": duplicados,
-        "rechazos": sum(rechazos.values()),
+        "duplicados_version": duplicados_version,
+        "duplicados_id": duplicados_id,
+        "rechazos": sum(origen.rechazos.values()) if origen is not None else 0,
         "entidades_nuevas": entidades_nuevas,
         "entidades_actualizadas": entidades_actualizadas,
     }

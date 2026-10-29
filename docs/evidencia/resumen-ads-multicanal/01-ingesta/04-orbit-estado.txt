@@ -83,4 +83,3 @@ Pager usage is off.
     FROM ads_metric_observation                               +
    ORDER BY ad_entity_id, metric_date, observed_at DESC;
 (1 row)
-

@@ -1,0 +1,23 @@
+== Reinicio: misma base y ultimo snapshot aceptado en procesos nuevos ==
+-- huella (proceso 1) --
+SET
+ obs | entidades |    costo    |   revenue   |            ultima             
+-----+-----------+-------------+-------------+-------------------------------
+ 784 |         4 | 108738.2300 | 382972.7700 | 2026-10-29 05:56:50.311532+00
+(1 row)
+
+-- reingesta del ultimo snapshot aceptado (corregido) en proceso nuevo --
+== Ingesta de MeLi Ads desde contabilidad (accounting_meli_ads_campaigns) ==
+run_id=9 ok=True rows_written=0 rows_skipped=784 filas_origen=784
+entidades: nuevas=0 actualizadas=0 duplicados=784 rechazos=0
+rc=0
+-- huella (proceso 2) --
+SET
+ obs | entidades |    costo    |   revenue   |            ultima             
+-----+-----------+-------------+-------------+-------------------------------
+ 784 |         4 | 108738.2300 | 382972.7700 | 2026-10-29 05:56:50.311532+00
+(1 row)
+
+-- snapshot original (anterior a la correccion) se rechaza --
+ingesta de MeLi Ads fallo (la ingest_run quedo sellada ok=false cuando fue posible): snapshot atrasado: su as_of no es posterior a la marca aceptada (1793253398); no se escribio nada
+rc=1

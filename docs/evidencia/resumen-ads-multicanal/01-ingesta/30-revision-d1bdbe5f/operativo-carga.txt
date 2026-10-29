@@ -1,0 +1,21 @@
+== Carga y reintento sobre el snapshot real ==
+snapshot: 784 filas, as_of 2026-10-29 05:30:49
+
+-- corrida 1 --
+== Ingesta de MeLi Ads desde contabilidad (accounting_meli_ads_campaigns) ==
+run_id=1 ok=True rows_written=784 rows_skipped=0 filas_origen=784
+entidades: nuevas=4 actualizadas=0 duplicados=0 rechazos=0
+rc=0
+
+-- corrida 2 --
+== Ingesta de MeLi Ads desde contabilidad (accounting_meli_ads_campaigns) ==
+run_id=2 ok=True rows_written=0 rows_skipped=784 filas_origen=784
+entidades: nuevas=0 actualizadas=0 duplicados=784 rechazos=0
+rc=0
+
+ id | ok | rows_written | rows_skipped |                             skip_reason                             
+----+----+--------------+--------------+---------------------------------------------------------------------
+  1 | t  |          784 |            0 | as_of=1793251849
+  2 | t  |            0 |          784 | as_of=1793251849; 784x misma version canonica (recopia o reintento)
+(2 rows)
+

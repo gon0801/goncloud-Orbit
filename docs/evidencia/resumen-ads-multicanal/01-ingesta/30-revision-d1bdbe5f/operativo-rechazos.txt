@@ -1,0 +1,21 @@
+== Rechazos: moneda, identidad, tabla ausente ==
+
+-- moneda USD --
+ingesta de MeLi Ads fallo (la ingest_run quedo sellada ok=false cuando fue posible): snapshot rechazado (cero escrituras): 784x moneda fuera de dominio (MXN): USD
+rc=1
+
+-- identidad vacia --
+ingesta de MeLi Ads fallo (la ingest_run quedo sellada ok=false cuando fue posible): snapshot rechazado (cero escrituras): 1x campaign_id vacio: identidad de campana ausente
+rc=1
+
+-- snapshot sin la tabla --
+ingesta de MeLi Ads fallo (la ingest_run quedo sellada ok=false cuando fue posible): el snapshot no trae la tabla meli_ads_campaigns_daily
+rc=1
+
+ id | ok | rows_written | rows_skipped |                                          motivo                                          
+----+----+--------------+--------------+------------------------------------------------------------------------------------------
+  7 | f  |            0 |            0 | el snapshot no trae la tabla meli_ads_campaigns_daily
+  6 | f  |            0 |          784 | snapshot rechazado (cero escrituras): 1x campaign_id vacio: identidad de campana ausente
+  5 | f  |            0 |          784 | snapshot rechazado (cero escrituras): 784x moneda fuera de dominio (MXN): USD
+(3 rows)
+

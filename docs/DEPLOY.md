@@ -381,18 +381,21 @@ el esquema, el índice `metric_dedupe_reporte` y `v_metric_latest`.
 
 ```bash
 ssh goncloud
-# 1) snapshot UNICO por corrida (mktemp: 600 y nombre irrepetible; nunca una
-#    ruta fija, para no pisar una corrida concurrente)
+# 1) snapshot UNICO por corrida. mktemp ya nace 0600 en el host: no se relaja.
 SNAP=$(mktemp /tmp/accounting-snapshot.XXXXXXXX.db)
+limpiar() {
+  rm -f "$SNAP" "$SNAP-wal" "$SNAP-shm" 2>/dev/null || true
+  docker exec -u 0 orbit-app-1 rm -f "$SNAP" "$SNAP-wal" "$SNAP-shm" 2>/dev/null || true
+}
+trap limpiar EXIT
 python3 -c "import sqlite3; src=sqlite3.connect('file:/mnt/data/appdata/accounting/data/accounting.db?mode=ro', uri=True); dst=sqlite3.connect('$SNAP'); src.backup(dst); dst.close(); src.close()"
-chmod 644 "$SNAP"
-# 2) al contenedor y correr
+# 2) al contenedor. El 644 se aplica SOLO dentro, para el UID 10001 de la app.
 docker cp "$SNAP" orbit-app-1:"$SNAP"
-docker exec -e ORBIT_DSN_INGEST="$(docker exec orbit-app-1 printenv ORBIT_DSN_INGEST | sed 's/@127.0.0.1:/@db:/')" \
-  orbit-app-1 python -m app.cli ingest meli-ads --sqlite "$SNAP"
-# 3) limpieza
-rm -f "$SNAP"
-docker exec -u 0 orbit-app-1 rm -f "$SNAP"
+docker exec -u 0 orbit-app-1 chmod 644 "$SNAP"
+# 3) DSN: el del contenedor. app/db.py reescribe @127.0.0.1: -> @db: con
+#    ORBIT_PG_HOST=db. NO se expande el DSN como argumento de docker exec.
+docker exec orbit-app-1 python -m app.cli ingest meli-ads --sqlite "$SNAP"
+# 4) limpieza por trap (host y contenedor), incluidos -wal y -shm.
 ```
 
 ### Contrato comprobado (2026-10-29, solo lectura)
@@ -422,10 +425,13 @@ Evidencia: `docs/evidencia/resumen-ads-multicanal/01-ingesta/`.
   `source_report_id = meli-ads|<campaign_id>|<fecha>|<version>|<as_of_epoch>`:
   el as-of (`max(updated_at)` del snapshot, UTC) viaja en el id para ordenar
   snapshots sin una columna nueva.
-- **Snapshot atrasado**: la marca es el **máximo as-of aceptado**. Se guarda
-  en el `skip_reason` de la corrida exitosa como `as_of=<epoch>`, porque el
-  esquema no tiene columna de watermark. La recopia sin cambios **sí avanza la
-  marca**, aunque no inserte observaciones. Un snapshot anterior a la marca se
+- **Snapshot atrasado**: la marca es el **máximo as-of aceptado y es global**,
+  no por campaña. Se guarda en el `skip_reason` de cada corrida exitosa como
+  `as_of=<epoch>`, porque el esquema no tiene columna de watermark. Se toma el
+  máximo entre **todas** las corridas exitosas y las observaciones, bajo el
+  candado; el id de `ingest_run` no ordena porque los runs nacen antes del
+  candado. La recopia sin cambios **sí avanza la marca**, aunque no inserte
+  observaciones. Un snapshot anterior a la marca se
   rechaza **completo** con `ok=false`, aunque sus métricas coincidan: no
   reemplaza la corrección vigente y no toca el catálogo. Con el mismo as-of
   solo se admite el reintento exacto. Si el operador ve `snapshot atrasado`,
@@ -437,6 +443,17 @@ Evidencia: `docs/evidencia/resumen-ads-multicanal/01-ingesta/`.
   snapshot que declare un `updated_at` más nuevo pero traiga contenido viejo
   es indistinguible de una corrección y se acepta (el origen estaría mintiendo
   sobre su propio orden).
+- **Validación**: el timestamp de origen debe existir en cada fila no
+  vacía (`updated_at`); una fila ilegible rechaza el snapshot completo. Un as-of más de **24 h** adelante del
+  reloj de ingesta se rechaza (tolerancia de desfase de reloj/zona). Las
+  claves `(campaign_id, metric_date)` deben ser únicas; un snapshot sin PK que
+  las repita se rechaza, no se deduplica. Dinero: se tolera solo ruido binario
+  (< 1e-5); más de 4 decimales se rechaza; el rango NUMERIC(14,4) se valida
+  después de cuantizar; un positivo que cuantiza a cero se rechaza;
+  `impressions`/`clicks` respetan BIGINT y `orders` INTEGER. El `ON CONFLICT`
+  apunta solo al índice parcial `metric_dedupe_reporte`; una colisión de PK
+  aborta la corrida. Los motivos separan "misma version canonica (recopia o
+  reintento)" de "source_report_id ya ingerido".
 - **Renombre**: cambia `ad_entity.name` del nombre de la fecha más reciente;
   no crea observaciones. Un nombre ausente en el origen no borra el publicado.
   El nombre solo se aplica desde un snapshot **estrictamente posterior** al
@@ -468,6 +485,22 @@ Por qué 08:15 UTC alcanza (medido, no supuesto):
   UTC y el día anterior ya tuvo al menos una pasada T+1. MeLi puede corregir
   hasta T+2; esa corrección entra como observación nueva, no se pisa.
 - La siguiente corrida de accounting es ~09:29: no hay carrera con la copia.
+
+### Activación (orden completo, sin desplegar desde este runbook)
+
+1. Copiar el código y reconstruir la app con el CLI nuevo. Verificar dentro del
+   contenedor: `docker exec orbit-app-1 python -m app.cli ingest meli-ads --help`.
+2. Instalar el script de host en su ruta canónica, con modo 0755:
+   `install -m 0755 tools/refresh_costos.sh /mnt/data/appdata/orbit/refresh_costos.sh`.
+   El `git archive` de la sección de rebuild no instala este archivo: es un
+   script de host, no parte del contexto de la imagen.
+3. Verificar sintaxis y checksum contra el repo:
+   `bash -n /mnt/data/appdata/orbit/refresh_costos.sh` y
+   `sha256sum -c` contra el SHA256 de `tools/refresh_costos.sh`.
+4. Ejecutar la carga inicial con el procedimiento manual de arriba.
+5. Comprobar `ingest_run` (`ok`, `rows_written`, `skip_reason` con `as_of=`) y
+   la conciliación de la sección siguiente.
+6. Mantener la línea del cron sin cambios.
 
 ### Conciliación
 
@@ -506,12 +539,22 @@ SELECT e.external_id, l.metric_date, l.cost, l.ad_revenue,
 No hay migración que revertir. Para **detener** la ingesta: quitar la línea
 `corre meli-ads meli_ads.log || rc=1` de `refresh_costos.sh` (y su copia en
 `/mnt/data/appdata/orbit/`), o dejar de desplegar el comando. Las filas ya
-ingeridas quedan como historia; **no se borran en caliente**:
+ingeridas quedan como historia y **no se borran en caliente**:
 `ads_metric_observation` es append-only por trigger y `prohibir_mutacion`
-rechaza UPDATE/DELETE. Si hay que eliminar el histórico de MeLi, se restaura
-el backup diario de Postgres (`backup.sh`, 03:30 UTC) previo a la ingesta; no
-se desactiva el trigger. Las entidades `meli` se identifican con
+rechaza UPDATE/DELETE. Las entidades `meli` se identifican con
 `platform='meli' AND kind='campaign'`.
+
+**No se restaura el backup completo de PostgreSQL como rollback rutinario.**
+Ese backup revierte también escrituras ajenas posteriores. Si una recuperación
+excepcional exige eliminar el histórico de MeLi, va en un procedimiento
+separado, con backup verificado, alcance limitado a las filas de MeLi, pérdida
+explícita de todo lo escrito después de ese backup (de cualquier fuente) y
+aprobación del operador. No se ejecuta desde este runbook.
+
+No borres corridas exitosas de MeLi. La marca de as-of vive en su
+`skip_reason`; `ingest_run` es append-only y no tiene purga (D7). Borrar una
+corrida deduplicada pierde la marca y permite que un snapshot anterior vuelva
+a entrar.
 
 ## Crons de Orbit (crontab de `gon`, ADITIVO)
 
@@ -797,16 +840,17 @@ rompe nada, solo degrada; omitir `0035`/`0036` sí rompe.
 
 La línea `15 8 * * * .../refresh_costos.sh` (que ya existía para costos, a
 las 07:30 hasta la review del PR #144)
-corre ahora los tres pipelines del MISMO snapshot, en este orden: `costs`,
-`fx`, `ledger` — cada uno a su log (`costos.log`/`fx.log`/`ledger.log`)
-más una línea resumen a stdout (llega a `costos.log`). Un pipeline caído
+corre ahora los cuatro pipelines del MISMO snapshot, en este orden: `costs`,
+`fx`, `ledger`, `meli-ads` — cada uno a su log
+(`costos.log`/`fx.log`/`ledger.log`/`meli_ads.log`) más una línea resumen a
+stdout (llega a `costos.log`). Un pipeline caído
 NO tumba a los otros (cada uno sella su `ingest_run` ok/false); el exit
 final es != 0 si alguno falló. El script versionado vive en
 `tools/refresh_costos.sh` (la copia del server es la desplegada).
 **Orden de la cadena (corregido por el lead en la review):** 08:15 UTC cae
 después de los DOS syncs de accounting — `sync_ads_to_ledger.py` (:30 cada
 6 h → 06:30) y `sync_fx_rates.py` (08:00) — y 25 min antes de los ciclos
-08:40/08:41 (los tres pipelines tardan segundos). A las 07:30 el snapshot se
+08:40/08:41 (los cuatro pipelines tardan segundos). A las 07:30 el snapshot se
 tomaba 30 min ANTES del sync de FX: el FX de Orbit quedaba estructuralmente
 un día atrasado. Respaldo del crontab previo:
 `archive/crontab-gon.20260904-021331.lead-fx-orden`.

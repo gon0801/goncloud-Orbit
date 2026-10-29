@@ -1,0 +1,19 @@
+== HEAD corregido ==
+== Comando 1 ==
+PYTHONPATH=/tmp:tests:. uv run --frozen python -c 'import orbit_review_d1bdbe5 as r; r.case_mark_interleaving(); r.case_clock_collision(); r.case_future_clock()'
+
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import orbit_review_d1bdbe5 as r; r.case_mark_interleaving(); r.case_clock_collision(); r.case_future_clock()
+                                      ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/tmp/orbit_review_d1bdbe5.py", line 112, in case_mark_interleaving
+    ai.ingest_meli_ads(c, stale)  # debio rechazarse contra la recopia as_of 12
+    ~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "/Users/dn/dev/goncloud-Orbit/app/meli/ads_ingest.py", line 641, in ingest_meli_ads
+    permite_nombre = _valida_orden(filas, ultimas, marca, as_of_epoch)
+  File "/Users/dn/dev/goncloud-Orbit/app/meli/ads_ingest.py", line 568, in _valida_orden
+    raise MeliAdsError(
+    ...<2 lines>...
+    )
+app.meli.ads_ingest.MeliAdsError: snapshot atrasado: su as_of no es posterior a la marca aceptada (1793275200); no se escribio nada
+rc=1
