@@ -23,7 +23,7 @@ import httpx
 import psycopg
 import pytest
 from psycopg.types.json import Json
-from test_schema import _postgres_obligatorio_ausente
+from test_schema import _postgres_obligatorio_ausente, _test_dsn
 
 RAIZ = Path(__file__).resolve().parents[1]
 
@@ -70,7 +70,9 @@ RESPUESTA_FEE = {
 
 
 def _dsn_base() -> str:
-    return os.environ.get("ORBIT_TEST_DSN", "postgresql://orbit:***@localhost:5432/postgres")
+    # Fuente unica del DSN de prueba: la copia local quedo con la contrasena
+    # redactada (`orbit:***@`) y autenticaba mal sin ORBIT_TEST_DSN.
+    return _test_dsn()
 
 
 def _dsn_de_db(dsn_base: str, db: str) -> str:

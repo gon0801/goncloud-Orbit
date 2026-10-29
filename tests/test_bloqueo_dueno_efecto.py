@@ -10,7 +10,6 @@ from __future__ import annotations
 import ast
 import json
 import logging
-import os
 import threading
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -31,6 +30,7 @@ from test_bloqueo_dueno import (
     _senal_ajena,
     _skip_db,
 )
+from test_schema import _test_dsn
 
 import app.bloqueo_dueno as lectura
 import app.bloqueo_dueno_efecto as efecto
@@ -256,7 +256,7 @@ def _pasos(conn, vid):
 
 
 def _dsn_de(conn) -> str:
-    partes = urlsplit(os.environ["ORBIT_TEST_DSN"])
+    partes = urlsplit(_test_dsn())
     return urlunsplit((partes.scheme, partes.netloc, "/" + conn.info.dbname, "", ""))
 
 
