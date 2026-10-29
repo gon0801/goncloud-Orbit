@@ -11,16 +11,15 @@ ingesta de MeLi Ads fallo (la ingest_run quedo sellada ok=false cuando fue posib
 rc=1
 
 SET
- metric_date |  cost   
+ metric_date |  cost
 -------------+---------
  2026-10-27  | 87.6000
 (1 row)
 
- id | ok | rows_written | rows_skipped |                                            skip_reason                                            
+ id | ok | rows_written | rows_skipped |                                            skip_reason
 ----+----+--------------+--------------+---------------------------------------------------------------------------------------------------
   1 | t  |          784 |            0 | as_of=1793251849
   2 | t  |            0 |          784 | as_of=1793251849; 784x misma version canonica (recopia o reintento)
   3 | t  |            1 |          783 | as_of=1793253398; 783x misma version canonica (recopia o reintento)
   4 | f  |            0 |          784 | snapshot atrasado: su as_of no es posterior a la marca aceptada (1793253398); no se escribio nada
 (4 rows)
-

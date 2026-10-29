@@ -1,7 +1,7 @@
 == Reinicio: misma base y ultimo snapshot aceptado en procesos nuevos ==
 -- huella (proceso 1) --
 SET
- obs | entidades |    costo    |   revenue   |            ultima             
+ obs | entidades |    costo    |   revenue   |            ultima
 -----+-----------+-------------+-------------+-------------------------------
  784 |         4 | 108738.2300 | 382972.7700 | 2026-10-29 05:56:50.311532+00
 (1 row)
@@ -13,7 +13,7 @@ entidades: nuevas=0 actualizadas=0 duplicados=784 rechazos=0
 rc=0
 -- huella (proceso 2) --
 SET
- obs | entidades |    costo    |   revenue   |            ultima             
+ obs | entidades |    costo    |   revenue   |            ultima
 -----+-----------+-------------+-------------+-------------------------------
  784 |         4 | 108738.2300 | 382972.7700 | 2026-10-29 05:56:50.311532+00
 (1 row)
