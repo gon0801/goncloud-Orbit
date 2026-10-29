@@ -1,6 +1,11 @@
 # ruff: noqa
-"""30 requests intercalados base/head a /, con p95 nearest-rank."""
+"""30 requests intercalados base/head a /, p95 nearest-rank y payload exacto.
 
+El umbral se evalua con los p95 SIN redondear. Cada respuesta se identifica
+por SHA-256, no por longitud: dos payloads distintos pueden medir lo mismo.
+"""
+
+import hashlib
 import json
 import math
 import statistics
@@ -17,7 +22,7 @@ def mide(url):
     with urllib.request.urlopen(url, timeout=10) as respuesta:
         cuerpo = respuesta.read()
         assert respuesta.status == 200
-    return (time.perf_counter() - inicio) * 1000, len(cuerpo)
+    return (time.perf_counter() - inicio) * 1000, hashlib.sha256(cuerpo).hexdigest(), len(cuerpo)
 
 
 for url in (BASE, HEAD):
@@ -29,33 +34,43 @@ def stats(latencias):
     ordenadas = sorted(latencias)
     p95 = ordenadas[math.ceil(0.95 * len(ordenadas)) - 1]
     return {
-        "median_ms": round(statistics.median(latencias), 2),
-        "p95_ms": round(p95, 2),
+        "median_ms": statistics.median(latencias),
+        "p95_ms": p95,
     }
 
 
 rondas = []
 for _ in range(5):
     latencias_base, latencias_head = [], []
+    hashes_base, hashes_head = [], []
     bytes_base = bytes_head = 0
     for i in range(30):
         if i % 2 == 0:
-            ms, bytes_base = mide(BASE)
+            ms, sha, bytes_base = mide(BASE)
             latencias_base.append(ms)
-            ms, bytes_head = mide(HEAD)
+            hashes_base.append(sha)
+            ms, sha, bytes_head = mide(HEAD)
             latencias_head.append(ms)
+            hashes_head.append(sha)
         else:
-            ms, bytes_head = mide(HEAD)
+            ms, sha, bytes_head = mide(HEAD)
             latencias_head.append(ms)
-            ms, bytes_base = mide(BASE)
+            hashes_head.append(sha)
+            ms, sha, bytes_base = mide(BASE)
             latencias_base.append(ms)
-    ronda = {
-        "base": {**stats(latencias_base), "bytes": bytes_base},
-        "head": {**stats(latencias_head), "bytes": bytes_head},
-    }
-    ronda["head_sobre_base_pct"] = round(
-        (ronda["head"]["p95_ms"] / ronda["base"]["p95_ms"] - 1) * 100, 2
+            hashes_base.append(sha)
+    assert hashes_base == hashes_head, (
+        "el payload de / cambio entre base y head: "
+        f"base={sorted(set(hashes_base))} head={sorted(set(hashes_head))}"
     )
+    base_stats = stats(latencias_base)
+    head_stats = stats(latencias_head)
+    ronda = {
+        "base": {**base_stats, "bytes": bytes_base, "sha256": sorted(set(hashes_base))},
+        "head": {**head_stats, "bytes": bytes_head, "sha256": sorted(set(hashes_head))},
+        "head_sobre_base_pct": round((head_stats["p95_ms"] / base_stats["p95_ms"] - 1) * 100, 2),
+        "muestras_ms": {"base": latencias_base, "head": latencias_head},
+    }
     rondas.append(ronda)
     print(json.dumps(ronda))
 
@@ -63,9 +78,10 @@ base_p95 = statistics.median(r["base"]["p95_ms"] for r in rondas)
 head_p95 = statistics.median(r["head"]["p95_ms"] for r in rondas)
 resumen = {
     "rondas": len(rondas),
-    "base_p95_mediana_ms": round(base_p95, 2),
-    "head_p95_mediana_ms": round(head_p95, 2),
-    "head_sobre_base_pct": round((head_p95 / base_p95 - 1) * 100, 2),
+    "base_p95_mediana_ms": base_p95,
+    "head_p95_mediana_ms": head_p95,
+    "head_sobre_base_pct": (head_p95 / base_p95 - 1) * 100,
+    "regla": "head_p95 <= base_p95 * 1.10 con valores sin redondear",
 }
 print(json.dumps(resumen))
 assert head_p95 <= base_p95 * 1.10

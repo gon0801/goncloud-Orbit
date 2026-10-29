@@ -34,19 +34,21 @@ import pytest
 from test_schema import SQL, _hay_postgres_local, _test_dsn
 
 from app.meli.ads_ingest import (
-    _MAX_BIGINT,
-    _MAX_INTEGER,
     _SQL_LOCK_MELI,
     _SQL_MAX_OBSERVADO,
+    _marcas_corridas,
+    _nombres_vigentes,
+    ingest_meli_ads,
+    main,
+)
+from app.meli.ads_source import (
+    _MAX_BIGINT,
+    _MAX_INTEGER,
     MONEDA_PLATAFORMA,
     MeliAdsError,
     _dinero,
     _entero,
-    _marcas_corridas,
-    _nombres_vigentes,
-    ingest_meli_ads,
     leer_origen,
-    main,
     version_canonica,
 )
 
@@ -969,6 +971,10 @@ def test_updated_at_con_fraccion_o_anio_desbordado_se_rechaza(pg, tmp_path):
         "2026-10-29 08:00:00.0000002",
         "2026-10-29 08:00:00+999999999999",
         "9999-12-31 23:59:59",
+        # Offsets validos de ISO-8601 que desbordan datetime al normalizar a
+        # UTC: antes de 28eea61b el OverflowError escapaba de leer_origen.
+        "0001-01-01T00:00:00+00:01",
+        "9999-12-31T23:59:59-00:01",
     ):
         snap = _snapshot(
             tmp_path / f"{abs(hash(valor))}.db",
@@ -1061,6 +1067,109 @@ def test_futuro_en_cuarentena_no_bloquea_una_correccion_cercana(pg, tmp_path):
     assert _ultima(pg, "C1", D1)[0] == Decimal("7.0000")
 
 
+def test_reintento_futuro_no_se_reclasifica_y_no_bloquea_la_correccion(pg, tmp_path):
+    """Caso A: un as-of aceptado como futuro sigue en cuarentena al avanzar el
+    reloj. Su reintento exacto es no-op y una correccion real posterior entra."""
+    inicio = dt.datetime.now(dt.UTC).replace(microsecond=0)
+    as_of_futuro = inicio + dt.timedelta(minutes=10)
+    as_of_correccion = inicio + dt.timedelta(minutes=6)
+
+    def snap(nombre: str, costo: float, as_of: dt.datetime) -> Path:
+        return _snapshot(
+            tmp_path / nombre,
+            [(D1.isoformat(), "C1", "ALFA", 1, 2, costo, 8.0)],
+            as_of=as_of.isoformat(),
+        )
+
+    futuro = snap("futuro.db", 5.0, as_of_futuro)
+    correccion = snap("correccion.db", 6.0, as_of_correccion)
+    ingest_meli_ads(_RelojFijo(pg, inicio), futuro)
+
+    reintento = ingest_meli_ads(_RelojFijo(pg, inicio + dt.timedelta(minutes=11)), futuro)
+    assert reintento["rows_written"] == 0
+    assert reintento["duplicados"] == 1
+    marca = pg.execute(
+        "SELECT skip_reason FROM ingest_run WHERE id = %s", (reintento["run_id"],)
+    ).fetchone()[0]
+    assert marca.startswith(f"futuro={int(as_of_futuro.timestamp())}")
+    assert "as_of=" not in marca
+    assert _marcas_corridas(pg) == (-1, int(as_of_futuro.timestamp()))
+
+    ingest_meli_ads(_RelojFijo(pg, inicio + dt.timedelta(minutes=11)), correccion)
+    assert _ultima(pg, "C1", D1)[0] == Decimal("6.0000")
+    assert _marcas_corridas(pg) == (
+        int(as_of_correccion.timestamp()),
+        int(as_of_futuro.timestamp()),
+    )
+
+
+def test_reintento_futuro_tras_correccion_real_es_noop(pg, tmp_path):
+    """Caso B: el reintento del futuro original no compara contra la
+    observacion vigente (ya corregida); reconoce la aceptacion anterior."""
+    ahora = dt.datetime.now(dt.UTC).replace(microsecond=0)
+
+    def snap(nombre: str, costo: float, as_of: dt.datetime) -> Path:
+        return _snapshot(
+            tmp_path / nombre,
+            [(D1.isoformat(), "C1", "ALFA", 1, 2, costo, 8.0)],
+            as_of=as_of.isoformat(),
+        )
+
+    futuro = snap("futuro.db", 5.0, ahora + dt.timedelta(hours=1))
+    real = snap("real.db", 6.0, ahora)
+    ingest_meli_ads(_RelojFijo(pg, ahora), futuro)
+    ingest_meli_ads(_RelojFijo(pg, ahora), real)
+    _, observaciones = _conteos(pg)
+
+    reintento = ingest_meli_ads(_RelojFijo(pg, ahora), futuro)
+    assert reintento["rows_written"] == 0
+    assert reintento["duplicados"] == 1
+    assert _conteos(pg)[1] == observaciones
+    assert _ultima(pg, "C1", D1)[0] == Decimal("6.0000")
+    marca = pg.execute(
+        "SELECT skip_reason FROM ingest_run WHERE id = %s", (reintento["run_id"],)
+    ).fetchone()[0]
+    assert marca.startswith("futuro=")
+
+
+def test_mismo_as_of_con_contenido_distinto_tras_futuro_se_rechaza(pg, tmp_path):
+    """Mismo as-of que una aceptacion futura y otra huella: no es reintento."""
+    inicio = dt.datetime.now(dt.UTC).replace(microsecond=0)
+    as_of = inicio + dt.timedelta(minutes=10)
+
+    def snap(nombre: str, costo: float) -> Path:
+        return _snapshot(
+            tmp_path / nombre,
+            [(D1.isoformat(), "C1", "ALFA", 1, 2, costo, 8.0)],
+            as_of=as_of.isoformat(),
+        )
+
+    ingest_meli_ads(_RelojFijo(pg, inicio), snap("futuro.db", 5.0))
+    with pytest.raises(MeliAdsError, match="mismo as_of"):
+        ingest_meli_ads(_RelojFijo(pg, inicio), snap("editado.db", 7.0))
+    assert _ultima(pg, "C1", D1)[0] == Decimal("5.0000")
+    assert _conteos(pg)[1] == 1
+
+
+def test_snapshot_futuro_atrasado_nunca_aceptado_se_rechaza(pg, tmp_path):
+    """Dentro del reloj futuro, un as-of anterior a la marca tampoco entra si
+    nunca fue aceptado: no es un reintento, es un snapshot atrasado."""
+    inicio = dt.datetime.now(dt.UTC).replace(microsecond=0)
+
+    def snap(nombre: str, costo: float, minutos: int) -> Path:
+        return _snapshot(
+            tmp_path / nombre,
+            [(D1.isoformat(), "C1", "ALFA", 1, 2, costo, 8.0)],
+            as_of=(inicio + dt.timedelta(minutes=minutos)).isoformat(),
+        )
+
+    ingest_meli_ads(_RelojFijo(pg, inicio), snap("futuro20.db", 5.0, 20))
+    with pytest.raises(MeliAdsError, match="snapshot atrasado"):
+        ingest_meli_ads(_RelojFijo(pg, inicio), snap("futuro10.db", 6.0, 10))
+    assert _ultima(pg, "C1", D1)[0] == Decimal("5.0000")
+    assert _conteos(pg)[1] == 1
+
+
 def test_correccion_agrega_observacion_y_v_metric_latest_la_expone(pg, tmp_path):
     snap = _snapshot(tmp_path / "snap.db", _FILAS, as_of=AS_OF_INICIAL)
     ingest_meli_ads(pg, snap)
@@ -1131,6 +1240,50 @@ def test_moneda_invalida_aborta_y_sella_ok_false(pg, tmp_path):
     assert run[1] == 0 and run[2] == 4
     assert "moneda fuera de dominio" in run[3]
     assert run[4] is not None
+
+
+def test_moneda_con_nul_sella_la_corrida_y_no_deja_datos(pg, tmp_path):
+    """PostgreSQL rechaza NUL en texto. El motivo se escapa ANTES de escribir
+    el sello: la corrida no queda abierta y no hay escrituras parciales."""
+    snap = _snapshot(
+        tmp_path / "nul.db",
+        _FILAS,
+        con_moneda=True,
+        moneda="MXN\x00USD",
+        as_of=AS_OF_INICIAL,
+    )
+    with pytest.raises(MeliAdsError, match="moneda fuera de dominio"):
+        ingest_meli_ads(pg, snap)
+
+    assert _conteos(pg) == (0, 0)
+    run = pg.execute(
+        "SELECT ok, rows_written, rows_skipped, skip_reason, finished_at"
+        " FROM ingest_run ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    assert run[0] is False and run[1] == 0 and run[2] == len(_FILAS)
+    assert run[4] is not None
+    assert "\\x00" in run[3] and "\x00" not in run[3]
+
+
+def test_campaign_id_con_nul_y_fecha_invalida_sella_la_corrida(pg, tmp_path):
+    """El NUL del campaign_id viaja dentro del motivo de la fecha invalida.
+    El escape es central: no depende de que la validacion limpie el mensaje."""
+    filas = [
+        (D2.isoformat(), "C1", "ALFA", 1, 2, 3.0, 4.0),
+        ("no-es-fecha", "C\x00NUL", "MALA", 1, 2, 3.0, 4.0),
+    ]
+    snap = _snapshot(tmp_path / "nul-id.db", filas, as_of=AS_OF_INICIAL)
+    with pytest.raises(MeliAdsError, match="fecha ilegible"):
+        ingest_meli_ads(pg, snap)
+
+    assert _conteos(pg) == (0, 0)
+    run = pg.execute(
+        "SELECT ok, rows_written, rows_skipped, skip_reason, finished_at"
+        " FROM ingest_run ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    assert run[0] is False and run[1] == 0 and run[2] == len(filas)
+    assert run[4] is not None
+    assert "C\\x00NUL" in run[3] and "\x00" not in run[3]
 
 
 def test_identidad_invalida_no_deja_escrituras_parciales(pg, tmp_path):

@@ -220,8 +220,9 @@ Dos bloqueantes de orden temporal, corregidos con dos relojes separados.
   head -6.92 %. Regla de +10 %: PASS. Payload idéntico de 24,959 bytes.
 - **Lane 10 completo.** Reinicio real de uvicorn en dos procesos, historia y
   latest MeLi estables, y conciliación 788/788 filas y 197/197 días con exit 0.
-- **Conciliación honesta.** `conciliar.py` ya no convierte NULL en cero y sale
-  con código 1 ante cualquier diferencia.
+- **Conciliación.** `conciliar.py` ya no convierte NULL en cero y falla por
+  diferencias de métricas. La séptima revisión corrige lo que faltaba: tampoco
+  fallaba por una campaña/día o un día completo que faltara o sobrara.
 - **Secundarios.** Se rechazan fracciones de segundo (incluidas las menores de
   un microsegundo), offsets que desbordan y enteros textuales gigantes. Se
   corrigió la contradicción de `ingest_run` en `99-cierre.md`.
@@ -231,14 +232,100 @@ bloqueantes), `ui-perf-http.txt` y `lane10-reinicio-conciliacion.txt`.
 Focales: **109 passed** (46 del módulo). Suite completa: **5529 passed**.
 Pendientes: Lane 1 Amazon y los diez lanes live en VM.
 
+## Séptima revisión (corrección integral sobre `1a97cec5`)
+
+SHA revisado: `1a97cec50effe1dffbfd2f8c81fe9a7d4bed099a`.
+SHA de código verificado: `9a52ef44600b9e8cec62efb1af8b550ba83c18d8`
+(batería completa, perf y reinicio). El commit final agrega solo la evidencia
+de esta ronda; el árbol de código es idéntico.
+
+### Modelo temporal por aceptaciones completas
+
+La marca de as-of dejó de ser solo un número: cada corrida exitosa registra una
+**aceptación** con el as-of, la huella `snap=<sha256>` del snapshot completo
+(campaña, fecha y versión de todas las filas) y el reloj al que pertenece
+(`as_of=` real o `futuro=` en cuarentena). El reintento exacto se busca contra
+esa aceptación anterior, no contra `v_metric_latest`, así que sigue siendo
+no-op aunque otra corrida haya cambiado después la observación vigente.
+
+- Un as-of aceptado como futuro queda en cuarentena permanente: al avanzar el
+  reloj no se reclasifica como real.
+- Un snapshot con el mismo as-of y otra huella se rechaza completo.
+- Un snapshot atrasado que nunca fue aceptado se rechaza completo, también
+  dentro del reloj futuro.
+- Una marca futura no bloquea una corrección real válida: los snapshots reales
+  comparan solo contra el reloj real.
+- Una recopia real deduplicada conserva su nuevo as-of, avanza el reloj real y
+  bloquea snapshots intermedios.
+- Cada corrida escribe solo la marca de su reloj; las dos marcas son
+  independientes y pueden estar ausentes. Una primera corrida exclusivamente
+  futura no escribe `as_of=`.
+- `ingest_run_id` sigue sin ser clave de dedupe. No se creó ninguna migración.
+
+Regresiones: `test_reintento_futuro_no_se_reclasifica_y_no_bloquea_la_correccion`
+(Caso A), `test_reintento_futuro_tras_correccion_real_es_noop` (Caso B),
+`test_mismo_as_of_con_contenido_distinto_tras_futuro_se_rechaza` y
+`test_snapshot_futuro_atrasado_nunca_aceptado_se_rechaza`. Las dos primeras
+fallan contra `1a97cec5` con los repros del revisor; evidencia en
+`30-revision-1a97cec5/antes.txt` y `despues.txt`.
+
+### Sellado de motivos con NUL y controles
+
+`_sellar_run` escapa NUL y caracteres de control **antes** de persistir
+`skip_reason`. No depende de que cada validación limpie su mensaje: una moneda
+`MXN\x00USD` o un `campaign_id` con NUL y fecha inválida dejan la corrida
+`ok=false`, con `finished_at`, `rows_skipped` de todas las filas rechazadas,
+cero entidades/observaciones y un motivo seguro. Regresiones:
+`test_moneda_con_nul_sella_la_corrida_y_no_deja_datos` y
+`test_campaign_id_con_nul_y_fecha_invalida_sella_la_corrida`.
+
+### Conciliación que falla ante cualquier diferencia
+
+Los tres `conciliar.py` de la fase son byte-idénticos y salen distinto de cero
+ante: campaña/día que falta o sobra en Orbit, día completo que falta o sobra,
+NULL convertido en cero, métrica con otro valor y moneda distinta de MXN.
+`tests/test_conciliar_meli_ads.py` ejecuta el script real (no una copia del
+algoritmo) con SQLite real y un Postgres simulado, e incluye el caso de Orbit
+vacío: ya no imprime `CONCILIACION OK` ni sale 0. La conciliación positiva
+sigue aceptando datos idénticos.
+
+### Pruebas, rendimiento y documentación
+
+- `tests/test_meli_ads_ingest.py` suma los offsets
+  `0001-01-01T00:00:00+00:01` y `9999-12-31T23:59:59-00:01`, que desbordaban
+  `datetime` al normalizar a UTC antes de `28eea61b`.
+- El adaptador SQLite se separó a `app/meli/ads_source.py` para que
+  `app/meli/ads_ingest.py` quede bajo el presupuesto de 900 líneas del guard de
+  arquitectura. Se retiró la entrada de `ALLOWLIST_TAMANO` que esta fase había
+  agregado a `tests/test_architecture.py`; el guard queda intacto.
+- `ui_perf_testclient.py` importa `math` y guarda muestras crudas y hash.
+- `ui_perf_interleaved.py` evalúa el umbral con los p95 sin redondear, guarda
+  las muestras crudas y compara TODAS las respuestas base/HEAD por SHA-256, no
+  por longitud.
+- `docs/DEPLOY.md` ejecuta la carga manual y la conciliación antes de instalar
+  o habilitar el script que activa MeLi en cron, y documenta las dos marcas
+  independientes y su ausencia posible.
+
+### Evidencia
+
+Ver `30-revision-1a97cec5/`: repros antes/después, regresiones NUL, conciliación
+negativa, pruebas focales, gates, suite, perf HTTP intercalado, tres ingestas
+de 100,000 filas y reinicio con conciliación. Los lanes live en VM y la
+regresión Amazon base/HEAD siguen pendientes por infraestructura.
+
 ## Archivos
 
-- `app/meli/ads_ingest.py` (nuevo): adaptador SQLite `mode=ro`, forma
-  canónica, versión, entidades, observaciones append-only, `ingest_run`.
+- `app/meli/ads_ingest.py` (nuevo): dueño de la persistencia, la política
+  temporal de aceptaciones, las entidades, las observaciones append-only y el
+  sello de `ingest_run`.
+- `app/meli/ads_source.py` (nuevo): adaptador SQLite `mode=ro`, forma canónica,
+  versión y validación del origen. Separado para cumplir el presupuesto de
+  tamaño sin tocar el guard.
 - `app/cli.py`: `ingest meli-ads --sqlite <snapshot>`.
 - `tools/refresh_costos.sh`: corre `meli-ads` al final, aislado, sin cambiar
   los pipelines existentes ni la línea del cron.
-- `tests/test_meli_ads_ingest.py` (nuevo) y `tests/test_cli.py`.
+- `tests/test_meli_ads_ingest.py` (nuevo), `tests/test_conciliar_meli_ads.py`
+  (nuevo) y `tests/test_cli.py`.
 - `docs/DEPLOY.md` y `docs/DATABASE.md`: contrato, programación (08:15 UTC
   después del sync de accounting cada 2 h, ~20 s), conciliación y rollback.
 - `docs/evidencia/resumen-ads-multicanal/01-ingesta/`: esta evidencia.

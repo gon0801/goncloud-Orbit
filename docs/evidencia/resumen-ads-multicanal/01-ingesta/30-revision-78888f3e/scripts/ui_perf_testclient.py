@@ -1,5 +1,7 @@
 # ruff: noqa
+import hashlib
 import json
+import math
 import os
 import statistics
 import sys
@@ -34,6 +36,8 @@ print(
             "median_ms": round(statistics.median(latencias), 2),
             "p95_ms": round(p95, 2),
             "bytes": len(ultima.content),
+            "sha256": hashlib.sha256(ultima.content).hexdigest(),
+            "muestras_ms": latencias,
         }
     )
 )

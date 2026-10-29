@@ -1,8 +1,9 @@
 import datetime as dt
 
 import orbit_review_d1bdbe5 as r
-from app.meli import ads_ingest as ai
 from test_meli_ads_ingest import D1, _snapshot
+
+from app.meli import ads_ingest as ai
 
 name, conn = r.fresh("final_10266_real_recopy")
 try:
@@ -14,9 +15,7 @@ try:
 
     ai.ingest_meli_ads(conn, snap("recopy-base.db", 5.0, ahora - dt.timedelta(hours=3)))
     ai.ingest_meli_ads(conn, snap("recopy-future.db", 6.0, ahora + dt.timedelta(hours=1)))
-    copia = ai.ingest_meli_ads(
-        conn, snap("recopy-real.db", 6.0, ahora - dt.timedelta(hours=2))
-    )
+    copia = ai.ingest_meli_ads(conn, snap("recopy-real.db", 6.0, ahora - dt.timedelta(hours=2)))
     marca = conn.execute(
         "SELECT skip_reason FROM ingest_run WHERE id=%s", (copia["run_id"],)
     ).fetchone()[0]

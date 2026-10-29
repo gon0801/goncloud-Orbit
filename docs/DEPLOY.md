@@ -332,7 +332,8 @@ Cadencia: **DIARIA desde ORBIT 06 2.2 (2026-09-04)** para `costs` + `fx` +
 desde **su activación**, no desde septiembre. Corre los cuatro del MISMO
 snapshot (08:15 UTC), cada uno a su log (`costos.log`/`fx.log`/`ledger.log`/
 `meli_ads.log`), sin tumbarse entre si. Re-correr es no-op por PK (y por
-`source_report_id` en `meli-ads`).
+`source_report_id` en `meli-ads`); en `meli-ads` un reintento exacto se
+reconoce además por el as-of y la huella del snapshot completo.
 
 ## Ingesta del ledger desde contabilidad (ORBIT 06 0.6)
 
@@ -427,31 +428,40 @@ Evidencia: `docs/evidencia/resumen-ads-multicanal/01-ingesta/`.
   `source_report_id = meli-ads|<campaign_id>|<fecha>|<version>|<as_of_epoch>`:
   el as-of (`max(updated_at)` del snapshot, UTC) viaja en el id para ordenar
   snapshots sin una columna nueva.
-- **Snapshot atrasado**: la marca es el **máximo as-of aceptado y es global**,
-  no por campaña. Se guarda en el `skip_reason` de cada corrida exitosa como
-  `as_of=<epoch>`, porque el esquema no tiene columna de watermark. Se toma el
-  máximo entre **todas** las corridas exitosas y las observaciones, bajo el
-  candado; el id de `ingest_run` no ordena porque los runs nacen antes del
-  candado. La recopia sin cambios **sí avanza la marca**, aunque no inserte
-  observaciones. Un as-of hasta 24 h adelante se acepta, pero no envenena una
-  corrección real: un snapshot con as-of hasta 5 min adelante del reloj
-  compara solo contra marcas reales; uno más futuro compara contra todas.
-  `observed_at` es un reloj lógico y nunca queda por detrás del máximo ya
-  publicado, aunque el reloj de pared retroceda. Un snapshot anterior a la marca se
-  rechaza **completo** con `ok=false`, aunque sus métricas coincidan: no
-  reemplaza la corrección vigente y no toca el catálogo. Con el mismo as-of
-  solo se admite el reintento exacto. Si el operador ve `snapshot atrasado`,
-  vuelve a copiar el snapshot después del último sync de accounting y repite;
-  la corrida rechazada no escribió nada. El mismo hecho re-observado con un
-  as-of nuevo (recopia sin cambios) no agrega observaciones: manda la versión
-  (hash). Límite declarado: el orden
-  depende de que `updated_at` sea el reloj de escritura del origen; un
-  snapshot que declare un `updated_at` más nuevo pero traiga contenido viejo
-  es indistinguible de una corrección y se acepta (el origen estaría mintiendo
-  sobre su propio orden).
+- **Snapshot atrasado y reintento exacto**: hay DOS marcas globales
+  independientes en el `skip_reason` de las corridas exitosas, porque el
+  esquema no tiene columna de watermark: `as_of=<epoch>` para los snapshots
+  aceptados como reales y `futuro=<epoch>` para los aceptados como futuros.
+  Cada corrida escribe solo la marca del reloj al que pertenece; la otra sigue
+  viva en su propia corrida. Por eso ambas pueden estar ausentes y una primera
+  corrida exclusivamente futura no escribe `as_of=`. El máximo de cada reloj se
+  toma entre **todas** las corridas exitosas, bajo el candado; el id de
+  `ingest_run` no ordena porque los runs nacen antes del candado. Un as-of
+  aceptado como futuro queda en **cuarentena permanente**: el avance del reloj
+  no lo reclasifica como real y no bloquea una corrección real válida. Un
+  snapshot real se compara solo contra el reloj real; uno futuro, contra el
+  reloj futuro (y contra el real si ya quedó detrás de él).
+  Cada aceptación guarda además `snap=<sha256>`: la huella del snapshot
+  COMPLETO (campaña, fecha y versión de todas las filas). Un reintento exacto
+  se reconoce por as-of + huella contra la aceptación anterior, **no** contra
+  `v_metric_latest`; es un no-op completo aunque otra corrida haya cambiado
+  después la observación vigente (no escribe entidades, no toca nombres y no
+  agrega observaciones). Un snapshot con el mismo as-of pero otra huella se
+  rechaza completo. Un snapshot atrasado que nunca fue aceptado también se
+  rechaza completo, aunque sus métricas coincidan. La recopia real sin cambios
+  **sí avanza el reloj real**, aunque no inserte observaciones, y bloquea
+  snapshots intermedios. Si el operador ve `snapshot atrasado`, vuelve a
+  copiar después del último sync de accounting y repite; la corrida rechazada
+  no escribió nada. El mismo hecho re-observado con un as-of nuevo (recopia
+  sin cambios) no agrega observaciones: manda la versión (hash). Límite
+  declarado: el orden depende de que `updated_at` sea el reloj de escritura
+  del origen; un snapshot que declare un `updated_at` más nuevo pero traiga
+  contenido viejo es indistinguible de una corrección y se acepta (el origen
+  estaría mintiendo sobre su propio orden).
 - **Validación**: el timestamp de origen debe existir en cada fila no
-  vacía (`updated_at`); una fila ilegible, con fracción de segundo o con año
-  fuera de 2000-2100 rechaza el snapshot completo. Un as-of más de **24 h**
+  vacía (`updated_at`); una fila ilegible, con fracción de segundo, con un
+  año fuera de 2000-2100 o con un offset que desborda `datetime` al
+  normalizar a UTC rechaza el snapshot completo. Un as-of más de **24 h**
   adelante del reloj de ingesta se rechaza. Las
   claves `(campaign_id, metric_date)` deben ser únicas; un snapshot sin PK que
   las repita se rechaza, no se deduplica. Dinero: se tolera solo ruido binario
@@ -460,7 +470,10 @@ Evidencia: `docs/evidencia/resumen-ads-multicanal/01-ingesta/`.
   `impressions`/`clicks` respetan BIGINT y `orders` INTEGER. El `ON CONFLICT`
   apunta solo al índice parcial `metric_dedupe_reporte`; una colisión de PK
   aborta la corrida. Los motivos separan "misma version canonica (recopia o
-  reintento)" de "source_report_id ya ingerido".
+  reintento)" de "source_report_id ya ingerido". Todo motivo que se persiste
+  en `ingest_run.skip_reason` escapa NUL y caracteres de control antes de
+  llegar a PostgreSQL: una moneda o un `campaign_id` con NUL deja la corrida
+  `ok=false`, con `finished_at`, sin datos parciales y con un motivo legible.
 - **Renombre**: cambia `ad_entity.name` del nombre de la fecha más reciente;
   no crea observaciones. Un nombre ausente en el origen no borra el publicado.
   El nombre solo se aplica desde un snapshot **estrictamente posterior** al
@@ -499,8 +512,18 @@ Por qué 08:15 UTC alcanza (medido, no supuesto):
    aprobado** en el `git archive` de la sección de rebuild (no `origin/master`,
    que puede no incluir esta fase). Verificar dentro del contenedor:
    `docker exec orbit-app-1 python -m app.cli ingest meli-ads --help`.
-2. Transferir el script de host **desde el SHA aprobado**. El servidor no es un
-   checkout y el `git archive` de la app no copia este archivo.
+2. Ejecutar la **carga inicial manual** con el procedimiento de arriba, antes
+   de instalar o habilitar el script que activa MeLi en cron. Comprobar
+   `ingest_run` (`ok`, `rows_written`, `skip_reason` con `as_of=` o
+   `futuro=`).
+3. Ejecutar la **conciliación** de la sección siguiente contra ese snapshot.
+   Debe salir con código 0 y `CONCILIACION OK`. Si falta o sobra una
+   campaña/día, un día completo, un NULL se convirtió en cero, una métrica
+   difiere o la moneda no es MXN, **detener la activación** y explicar la
+   diferencia antes de seguir. La conciliación no es un smoke opcional.
+4. Solo después de que la carga y la conciliación pasen, transferir el script
+   de host **desde el SHA aprobado**. El servidor no es un checkout y el
+   `git archive` de la app no copia este archivo.
 
    ```bash
    SHA_APROBADO=<sha aprobado>
@@ -511,12 +534,11 @@ Por qué 08:15 UTC alcanza (medido, no supuesto):
    ssh goncloud 'install -m 0755 /tmp/refresh_costos.sh /mnt/data/appdata/orbit/refresh_costos.sh'
    ```
 
-3. Verificar sintaxis en el servidor:
+5. Verificar sintaxis en el servidor:
    `ssh goncloud 'bash -n /mnt/data/appdata/orbit/refresh_costos.sh'`.
-4. Ejecutar la carga inicial con el procedimiento manual de arriba.
-5. Comprobar `ingest_run` (`ok`, `rows_written`, `skip_reason` con `as_of=`) y
-   la conciliación de la sección siguiente.
-6. Mantener la línea del cron sin cambios.
+6. Mantener la línea del cron sin cambios. La primera corrida del cron ya
+   incluye `meli-ads` porque el script instalado en el paso 4 lo ejecuta al
+   final, aislado y con su propio log `meli_ads.log`.
 
 ### Conciliación
 

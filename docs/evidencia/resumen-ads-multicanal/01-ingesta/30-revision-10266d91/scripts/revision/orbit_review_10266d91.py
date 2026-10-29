@@ -1,8 +1,9 @@
 import datetime as dt
 
 import orbit_review_d1bdbe5 as r
-from app.meli import ads_ingest as ai
 from test_meli_ads_ingest import D1, _RelojFijo, _snapshot
+
+from app.meli import ads_ingest as ai
 
 name, conn = r.fresh("final_10266_future_boundary")
 try:
@@ -13,9 +14,7 @@ try:
         filas = [(D1.isoformat(), "C1", "ALFA", 1, 2, costo, 8.0)]
         return _snapshot(r.TMP / nombre, filas, as_of=as_of.isoformat())
 
-    ai.ingest_meli_ads(
-        _RelojFijo(conn, inicio), snap("future-boundary-one.db", 5.0, asof_futuro)
-    )
+    ai.ingest_meli_ads(_RelojFijo(conn, inicio), snap("future-boundary-one.db", 5.0, asof_futuro))
     ai.ingest_meli_ads(_RelojFijo(conn, inicio), snap("future-boundary-two.db", 6.0, inicio))
     despues = asof_futuro - dt.timedelta(minutes=4)
     try:
