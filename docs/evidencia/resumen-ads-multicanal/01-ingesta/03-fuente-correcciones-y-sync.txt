@@ -1,0 +1,52 @@
+== Correccion in-place: backup 2026-08-21 20:40 UTC vs base viva ==
+Query: ATTACH backup AS old; JOIN por (date,campaign_id); comparar metricas.
+comparables  difieren
+-----------  --------
+512          3       
+
+Filas corregidas (spend T+0 parcial -> final):
+date        campaign_id  spend_backup_20260821  spend_hoy  sales_backup  sales_hoy  upd_backup           upd_hoy            
+----------  -----------  ---------------------  ---------  ------------  ---------  -------------------  -------------------
+2026-08-21  356150383    21.42                  130.91     0.0           0.0        2026-08-21 19:19:13  2026-10-29 01:29:06
+2026-08-21  356150418    30.45                  175.47     0.0           0.0        2026-08-21 19:19:13  2026-10-29 01:29:06
+2026-08-21  356150422    2.52                   14.85      0.0           0.0        2026-08-21 19:19:13  2026-10-29 01:29:06
+
+== No existe revision/version en el origen ==
+PRAGMA table_info: columnas = date, campaign_id, campaign_name, clicks, impressions, spend, ad_sales, acos, updated_at. Sin revision.
+updated_at lo reescribe el sync en CADA corrida (ON CONFLICT DO UPDATE ... updated_at=datetime("now")), cambie o no el valor.
+
+== Scheduler real del sync de accounting ==
+No esta en crontab ni en cron.d: lo corre el proceso goncloud-dashboard.service (FastAPI) cada 2 h (INTERVAL_ADS=2*3600), in-process.
+ExecStart={ path=/mnt/data/appdata/accounting/.venv/bin/python ; argv[]=/mnt/data/appdata/accounting/.venv/bin/python /mnt/data/appdata/accounting/app/dashboard.py ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }
+ActiveEnterTimestamp=Fri 2026-10-23 06:13:45 UTC
+
+== Ultima sincronizacion exitosa (sync_failures.json) ==
+{
+  "sync_meli_ads": {
+    "consecutive": 0,
+    "last_success": "2026-10-29T01:29:22Z"
+  }
+}
+
+== Duracion medida del loop por campana (ultima corrida) ==
+inicio               fin                  segundos        
+-------------------  -------------------  ----------------
+2026-10-29 01:29:02  2026-10-29 01:29:22  20.0000122189522
+
+== Semantica T+0/T+1/T+2 declarada por el sync (verbatim) ==
+188:    # Ventana: 90d hasta HOY (incluyendo T+0 con datos parciales).
+189-    # NOTA: MeLi finaliza métricas T+1/T+2. ON CONFLICT DO UPDATE refresca el
+190-    # row en cada cron c/6h, asi que la cifra de hoy fluctua hasta T+2.
+191-    # Trade-off elegido: visibilidad inmediata T+0 vs datos finales (sesion
+192-    # 2026-05-08 dejo esta decision sin cerrar; cambiar a T-2 requeriria
+193-    # decision producto explicita).
+194-    # UTC explícito: server actual UTC, invariante claro.
+195-    date_to = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+196-    date_from = (datetime.now(timezone.utc) - timedelta(days=90)).strftime("%Y-%m-%d")
+
+== Moneda: la tabla no guarda moneda; el ledger de ads es MXN y el site es MLM ==
+currency  filas  desde       hasta     
+--------  -----  ----------  ----------
+MXN       255    2026-02-16  2026-10-28
+18:SITE_ID = os.getenv("MELI_SITE_ID", "MLM")
+29:    f"https://api.mercadolibre.com/advertising/{SITE_ID}/advertisers/"

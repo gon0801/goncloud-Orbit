@@ -178,6 +178,24 @@ ingesta.
 ciclo leen de aquí (frescura: ventana termina en `max(metric_date) − 3d`;
 completitud ≥7 fechas por entidad).
 
+**Mercado Libre Ads reutiliza esta tabla (RESUMEN-ADS-01)** — sin migración y
+sin tabla paralela. Entidades `platform='meli'`, `kind='campaign'`
+(`external_id = campaign_id`), observaciones diarias con
+`metric_currency='MXN'`. Fuente: `meli_ads_campaigns_daily` del snapshot de
+contabilidad (grano campaña/día). `cost = spend`, `ad_revenue = ad_sales`;
+`orders` queda NULL porque el origen no lo publica. Ceros reales se conservan
+en cero y los faltantes en NULL. El origen no tiene revisión: `source_version`
+es el SHA-256 de la fila canónica (campaña, fecha, moneda y todas las
+métricas, sin el nombre) y
+`source_report_id = meli-ads:<campaign_id>:<fecha>:<version>`; así el dedupe
+existente hace no-op el mismo snapshot y una corrección entra como
+observación nueva. **El `ingest_run_id` no es clave de dedupe.** Un renombre
+actualiza `ad_entity.name` (el de la fecha más reciente) sin crear
+observaciones. MeLi **no** hereda la madurez D-8 de Amazon: `v_metric_mature`
+sigue siendo D-15 y el resumen multicanal deberá declarar la madurez de MeLi
+como desconocida en RESUMEN-ADS-02.
+
+
 **`search_term_observation`** — Append-only igual que la anterior pero para
 search terms: PK `(platform, ad_entity_id, search_term, metric_date,
 observed_at)`, dedupe por `source_report_id`, sello de moneda por trigger.

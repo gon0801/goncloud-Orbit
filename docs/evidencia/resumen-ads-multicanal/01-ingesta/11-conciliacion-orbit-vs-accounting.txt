@@ -1,0 +1,11 @@
+== Conciliacion Orbit vs accounting (solo lectura, Postgres desechable orbit_meli_ads_recon) ==
+Comando: .venv/bin/python conciliar.py <snapshot> <dsn-desechable>
+Ventana: las 196 fechas presentes en meli_ads_campaigns_daily (2026-04-16..2026-10-28)
+
+filas origen: 784
+filas Orbit:  784
+faltantes en Orbit: []
+sobrantes en Orbit: []
+campana/dia comparables: 784, diferencias: 0
+dias de meli_ads_metrics_daily comparables: 196, diferencias: 0
+fecha de la conciliacion: 2026-10-29T02:16:18.167493+00:00

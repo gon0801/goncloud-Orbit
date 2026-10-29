@@ -1,0 +1,31 @@
+== Suite completa en el head ==
+Comando: uv run --frozen python -m pytest -q
+
+FAILED tests/test_bloqueo_dueno_efecto.py::test_dos_conexiones_un_solo_post
+FAILED tests/test_bloqueo_dueno_efecto.py::test_cli_reconcilia_sin_huerfanos_sale_0
+FAILED tests/test_bloqueo_dueno_efecto.py::test_intencion_es_visible_desde_otra_conexion_antes_del_post
+FAILED tests/test_estimacion_meli_commit.py::test_carril_meli_persiste_y_sella_run
+FAILED tests/test_estimacion_meli_commit.py::test_carril_meli_cuenta_decision
+FAILED tests/test_jev_bloqueo_api.py::test_interruptor_apagado_niega_sin_http_y_oculta_propuestas[None]
+FAILED tests/test_jev_bloqueo_api.py::test_interruptor_apagado_niega_sin_http_y_oculta_propuestas[true]
+FAILED tests/test_jev_bloqueo_api.py::test_quitar_sigue_con_interruptor_ausente
+FAILED tests/test_jev_bloqueo_api.py::test_reanudar_escribe_fila_y_no_llama_amazon
+FAILED tests/test_jev_bloqueo_api.py::test_cortes_consulta_rota_sigue_200 - K...
+10 failed, 5490 passed, 1 warning in 524.22s (0:08:44)
+rc=1
+
+== Mismos 10 fallos en el commit padre 31ba12a (worktree /tmp/orbit-parent-31ba12a) ==
+Comando: python -m pytest -q tests/test_bloqueo_dueno_efecto.py tests/test_estimacion_meli_commit.py tests/test_jev_bloqueo_api.py
+FAILED tests/test_bloqueo_dueno_efecto.py::test_dos_conexiones_un_solo_post
+FAILED tests/test_bloqueo_dueno_efecto.py::test_cli_reconcilia_sin_huerfanos_sale_0
+FAILED tests/test_bloqueo_dueno_efecto.py::test_intencion_es_visible_desde_otra_conexion_antes_del_post
+FAILED tests/test_estimacion_meli_commit.py::test_carril_meli_persiste_y_sella_run
+FAILED tests/test_estimacion_meli_commit.py::test_carril_meli_cuenta_decision
+FAILED tests/test_jev_bloqueo_api.py::test_interruptor_apagado_niega_sin_http_y_oculta_propuestas[None]
+FAILED tests/test_jev_bloqueo_api.py::test_interruptor_apagado_niega_sin_http_y_oculta_propuestas[true]
+FAILED tests/test_jev_bloqueo_api.py::test_quitar_sigue_con_interruptor_ausente
+FAILED tests/test_jev_bloqueo_api.py::test_reanudar_escribe_fila_y_no_llama_amazon
+FAILED tests/test_jev_bloqueo_api.py::test_cortes_consulta_rota_sigue_200 - K...
+10 failed, 27 passed, 1 warning in 5.88s
+
+Los 10 fallos son identicos en el padre: no los introduce esta fase.

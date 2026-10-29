@@ -1,0 +1,28 @@
+== Lane 10: reinicio (procesos distintos) con la misma base y snapshot ==
+
+-- huella antes (proceso 1) --
+SET
+ obs | entidades |    costo    |   revenue   |            ultima             
+-----+-----------+-------------+-------------+-------------------------------
+ 784 |         4 | 108686.3800 | 382972.7700 | 2026-10-29 02:16:18.011038+00
+(1 row)
+
+-- reingesta en un proceso NUEVO --
+== Ingesta de MeLi Ads desde contabilidad (accounting_meli_ads_campaigns) ==
+run_id=2 ok=True rows_written=0 rows_skipped=784 filas_origen=784
+entidades: nuevas=0 actualizadas=0 duplicados=784 rechazos=0
+rc=0
+
+-- huella despues (proceso 2) --
+SET
+ obs | entidades |    costo    |   revenue   |            ultima             
+-----+-----------+-------------+-------------+-------------------------------
+ 784 |         4 | 108686.3800 | 382972.7700 | 2026-10-29 02:16:18.011038+00
+(1 row)
+
+-- conciliacion de nuevo en un proceso nuevo --
+faltantes en Orbit: []
+sobrantes en Orbit: []
+campana/dia comparables: 784, diferencias: 0
+dias de meli_ads_metrics_daily comparables: 196, diferencias: 0
+fecha de la conciliacion: 2026-10-29T02:16:19.686196+00:00

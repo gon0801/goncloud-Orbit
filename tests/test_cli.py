@@ -336,6 +336,21 @@ def test_cli_ingest_ledger_delega_al_pipeline_con_sus_args(monkeypatch, capsys):
     assert llamadas == [["--sqlite", "/tmp/accounting-snapshot.db"]]
 
 
+def test_cli_ingest_meli_ads_delega_al_pipeline_con_sus_args(monkeypatch):
+    """RESUMEN-ADS-01: `ingest meli-ads --sqlite RUTA` despacha a
+    app.meli.ads_ingest.main con sus args tal cual (mismo patron)."""
+    llamadas: list = []
+
+    def _main_meli_ads(argv=None):
+        llamadas.append(argv)
+        return 8
+
+    monkeypatch.setattr("app.meli.ads_ingest.main", _main_meli_ads)
+    codigo = cli.main(["ingest", "meli-ads", "--sqlite", "/tmp/accounting-snapshot.db"])
+    assert codigo == 8
+    assert llamadas == [["--sqlite", "/tmp/accounting-snapshot.db"]]
+
+
 def test_cli_ingest_pipeline_desconocido_rechazado(capsys):
     with pytest.raises(SystemExit) as exc:
         cli.main(["ingest", "algo"])
@@ -369,6 +384,7 @@ def test_cli_ingest_help_documenta_pipelines(capsys):
     assert exc.value.code == 0
     out = capsys.readouterr().out
     assert "structure" in out and "metrics" in out
+    assert "meli-ads" in out
 
 
 # ---------------------------------------------------------------------------

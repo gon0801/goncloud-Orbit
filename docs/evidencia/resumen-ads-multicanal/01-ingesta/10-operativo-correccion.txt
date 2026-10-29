@@ -1,0 +1,33 @@
+-- Lane 4: correccion de una fila del origen (spend +1.23 en 2026-10-27 / 356150383) --
+== Ingesta de MeLi Ads desde contabilidad (accounting_meli_ads_campaigns) ==
+run_id=3 ok=True rows_written=1 rows_skipped=783 filas_origen=784
+entidades: nuevas=0 actualizadas=0 duplicados=783 rechazos=0
+rc=0
+
+-- reingesta del snapshot corregido (no-op) --
+== Ingesta de MeLi Ads desde contabilidad (accounting_meli_ads_campaigns) ==
+run_id=4 ok=True rows_written=0 rows_skipped=784 filas_origen=784
+entidades: nuevas=0 actualizadas=0 duplicados=784 rechazos=0
+rc=0
+
+-- historia y v_metric_latest de la fila corregida --
+SET
+          observed_at          |  cost   |                                        source_report_id                                        
+-------------------------------+---------+------------------------------------------------------------------------------------------------
+ 2026-10-29 02:16:16.788821+00 | 86.3700 | meli-ads:356150383:2026-10-27:91b173c725b84a6d6cd6faed1654a02bd3e3036ba39bb0c8ebf526b53b16b0a7
+ 2026-10-29 02:16:17.380206+00 | 87.6000 | meli-ads:356150383:2026-10-27:8fb7766c051170eacea410c5136f05bc34e0ca44b0d4747c91eabe60c74aed01
+(2 rows)
+
+ metric_date |  cost   |          observed_at          
+-------------+---------+-------------------------------
+ 2026-10-27  | 87.6000 | 2026-10-29 02:16:17.380206+00
+(1 row)
+
+ id | ok | rows_written | rows_skipped |                     skip_reason                     
+----+----+--------------+--------------+-----------------------------------------------------
+  1 | t  |          784 |            0 | 
+  2 | t  |            0 |          784 | 784x snapshot ya ingerido (dedupe source_report_id)
+  3 | t  |            1 |          783 | 783x snapshot ya ingerido (dedupe source_report_id)
+  4 | t  |            0 |          784 | 784x snapshot ya ingerido (dedupe source_report_id)
+(4 rows)
+

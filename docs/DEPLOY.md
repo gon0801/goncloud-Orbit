@@ -328,9 +328,10 @@ docker exec -u 0 orbit-app-1 rm /tmp/accounting-snapshot.db
 ```
 
 Cadencia: **DIARIA desde ORBIT 06 2.2 (2026-09-04)** — `refresh_costos.sh`
-(08:15 UTC) corre `costs` + `fx` + `ledger` del MISMO snapshot, cada uno a
-su log (`costos.log`/`fx.log`/`ledger.log`), sin tumbarse entre si. Re-correr
-es no-op por PK.
+(08:15 UTC) corre `costs` + `fx` + `ledger` + `meli-ads` del MISMO snapshot,
+cada uno a su log (`costos.log`/`fx.log`/`ledger.log`/`meli_ads.log`), sin
+tumbarse entre si. Re-correr es no-op por PK (y por `source_report_id` en
+`meli-ads`).
 
 ## Ingesta del ledger desde contabilidad (ORBIT 06 0.6)
 
@@ -360,14 +361,137 @@ docker exec -u 0 orbit-app-1 rm /tmp/accounting-snapshot.db
 ```
 
 Cadencia: **DIARIA desde ORBIT 06 2.2 (2026-09-04)** — `refresh_costos.sh`
-(08:15 UTC) corre `costs` + `fx` + `ledger` del MISMO snapshot, cada uno a
-su log (`costos.log`/`fx.log`/`ledger.log`), sin tumbarse entre si.
-Re-correr es no-op por los tres índices de dedupe (`rows_written=0`,
-conflictos contados en `rows_skipped`). En el cron NO se reescribe el DSN:
+(08:15 UTC) corre `costs` + `fx` + `ledger` + `meli-ads` del MISMO snapshot,
+cada uno a su log (`costos.log`/`fx.log`/`ledger.log`/`meli_ads.log`), sin
+tumbarse entre si. Re-correr es no-op por los índices de dedupe
+(`rows_written=0`, conflictos contados en `rows_skipped`). En el cron NO se reescribe el DSN:
 `app/db.py` ya mapea `@127.0.0.1:` → `@db:` con `ORBIT_PG_HOST`; el truco
 `-e ORBIT_DSN_INGEST=...` de arriba queda como alternativa manual.
 Alternativa sin reescribir DSN: correr desde el host contra el puerto publicado
 (`127.0.0.1:5432`) con `ORBIT_DSN_INGEST` del `.env`.
+
+## Ingesta de métricas de Mercado Libre Ads (RESUMEN-ADS-01)
+
+Snapshot **de contabilidad** (mismo patrón `.backup()` que costos/FX/ledger).
+Fuente: `meli_ads_campaigns_daily` (grano campaña/día, PK
+`(date, campaign_id)`), la tabla que escribe `sync_meli_ads.py`. Destino:
+`ad_entity` (`platform='meli'`, `kind='campaign'`) +
+`ads_metric_observation` (append-only). **No hay migración**: se reutilizan
+el esquema, el índice `metric_dedupe_reporte` y `v_metric_latest`.
+
+```bash
+ssh goncloud
+# 1) snapshot de contabilidad (idéntico al de costos; se puede reutilizar
+#    /tmp/accounting-snapshot.db si acaba de generarse)
+python3 -c "import sqlite3; src=sqlite3.connect('file:/mnt/data/appdata/accounting/data/accounting.db?mode=ro', uri=True); dst=sqlite3.connect('/tmp/accounting-snapshot.db'); src.backup(dst); dst.close(); src.close()" \
+  && chmod 644 /tmp/accounting-snapshot.db
+# 2) al contenedor y correr
+docker cp /tmp/accounting-snapshot.db orbit-app-1:/tmp/accounting-snapshot.db
+docker exec -e ORBIT_DSN_INGEST="$(docker exec orbit-app-1 printenv ORBIT_DSN_INGEST | sed 's/@127.0.0.1:/@db:/')" \
+  orbit-app-1 python -m app.cli ingest meli-ads --sqlite /tmp/accounting-snapshot.db
+# 3) limpieza
+rm /tmp/accounting-snapshot.db
+docker exec -u 0 orbit-app-1 rm /tmp/accounting-snapshot.db
+```
+
+### Contrato comprobado (2026-10-29, solo lectura)
+
+Evidencia: `docs/evidencia/resumen-ads-multicanal/01-ingesta/`.
+
+- **Grano**: campaña/día. Cada fila es una campaña en un día; el snapshot
+  real trae 4 filas por día, 784 filas, 4 campañas, 2026-04-16..2026-10-28.
+- **Identidad**: `campaign_id` numérico estable (4 IDs, 196 días contiguos
+  cada uno, un solo `campaign_name` por ID). La entidad de Orbit es
+  `(platform='meli', kind='campaign', external_id=campaign_id)`.
+- **Moneda**: la tabla no guarda moneda. El site es `MLM`, los 255 cargos de
+  ads en `ledger_events` son MXN y el trigger `metric_moneda_de_plataforma`
+  sella `meli→MXN`. El adaptador acepta una columna opcional `currency` y
+  rechaza todo lo que no sea MXN.
+- **Significado**: `spend` = costo de ads (`cost` de la API); `ad_sales` =
+  revenue atribuido (`total_amount`). **No se derivan del ledger ni de ventas
+  totales de Mercado Libre**. `orders` no existe en el origen: se escribe NULL.
+- **Ceros y faltantes**: `spend=0`/`ad_sales=0` son filas reales (257 y 573
+  en el snapshot) y se conservan en cero. Un valor NULL se conserva NULL.
+  Un día sin filas es un hueco, no un cero.
+- **Correcciones**: el sync pisa el valor en el origen
+  (`ON CONFLICT DO UPDATE`) y `updated_at` se reescribe en cada corrida. El
+  origen no tiene revisión. Por eso `source_version` es el SHA-256 de la fila
+  canónica (campaña, fecha, moneda y todas las métricas; **sin** nombre); si
+  un snapshot futuro trae una columna `revision`, esa manda sobre el hash.
+  `source_report_id = meli-ads:<campaign_id>:<fecha>:<version>` y el INSERT
+  usa `ON CONFLICT DO NOTHING`: el mismo snapshot no agrega observaciones; una
+  corrección agrega una fila nueva y `v_metric_latest` la expone.
+- **Renombre**: cambia `ad_entity.name` del nombre de la fecha más reciente;
+  no crea observaciones. Un nombre ausente en el origen no borra el publicado.
+- **Madurez**: MeLi **no** hereda el D-8 de Amazon. Se ingesta lo que el
+  origen publica (T+0 parcial incluido). El sync de accounting finaliza
+  T+1/T+2 y esa corrección llega como observación nueva.
+
+### Programación
+
+`tools/refresh_costos.sh` corre el comando al final, con su propio `corre` y
+su log `meli_ads.log`; un fallo suyo no toca `costs`/`fx`/`ledger` y el exit
+final sigue siendo distinto de 0. La línea del cron **no cambia**:
+
+```cron
+15 8 * * * /mnt/data/appdata/orbit/refresh_costos.sh >> /mnt/data/appdata/orbit/logs/costos.log 2>&1
+```
+
+Por qué 08:15 UTC alcanza (medido, no supuesto):
+
+- `sync_meli_ads.py` no está en crontab: lo corre `goncloud-dashboard.service`
+  cada 2 h (`INTERVAL_ADS = 2*3600`) y al arrancar. La última corrida
+  exitosa fue `2026-10-29T01:29:22Z` y duró ~20 s (loop de 90 días).
+- Con la fase observada (corridas a los :29 cada 2 h), a las 08:15 la última
+  sincronización cae ~07:29 (46 min antes). Si el dashboard se reinicia, la
+  fase cambia y el dato puede tener hasta 2 h: en ambos casos es el mismo día
+  UTC y el día anterior ya tuvo al menos una pasada T+1. MeLi puede corregir
+  hasta T+2; esa corrección entra como observación nueva, no se pisa.
+- La siguiente corrida de accounting es ~09:29: no hay carrera con la copia.
+
+### Conciliación
+
+Ventana 2026-10-01..2026-10-28: suma de campañas contra
+`meli_ads_metrics_daily`, **28/28 días idénticos** (spend 19,648.01 MXN,
+ad_sales 85,950.09 MXN en ambas). La conciliación completa del snapshot
+(196 días) contra Orbit en un Postgres desechable dio **784/784 filas y
+196/196 días sin diferencias**. Consulta de control:
+
+```sql
+-- En el snapshot: la suma de campañas debe igualar el total diario.
+WITH c AS (
+  SELECT date, sum(clicks) clicks, sum(impressions) impressions,
+         round(sum(spend),4) spend, round(sum(ad_sales),4) ad_sales
+    FROM meli_ads_campaigns_daily GROUP BY date
+)
+SELECT m.date, m.spend, c.spend, m.ad_sales, c.ad_sales
+  FROM meli_ads_metrics_daily m JOIN c ON c.date = m.date
+ WHERE m.date BETWEEN '2026-10-01' AND '2026-10-28'
+ ORDER BY m.date;
+-- Ninguna fila debe diferir.
+```
+
+En Orbit, la observación vigente por campaña/día:
+
+```sql
+SELECT e.external_id, l.metric_date, l.cost, l.ad_revenue,
+       l.impressions, l.clicks, l.orders, l.metric_currency
+  FROM v_metric_latest l JOIN ad_entity e ON e.id = l.ad_entity_id
+ WHERE e.platform = 'meli' AND e.kind = 'campaign'
+ ORDER BY l.metric_date DESC, e.external_id;
+```
+
+### Rollback
+
+No hay migración que revertir. Para **detener** la ingesta: quitar la línea
+`corre meli-ads meli_ads.log || rc=1` de `refresh_costos.sh` (y su copia en
+`/mnt/data/appdata/orbit/`), o dejar de desplegar el comando. Las filas ya
+ingeridas quedan como historia; **no se borran en caliente**:
+`ads_metric_observation` es append-only por trigger y `prohibir_mutacion`
+rechaza UPDATE/DELETE. Si hay que eliminar el histórico de MeLi, se restaura
+el backup diario de Postgres (`backup.sh`, 03:30 UTC) previo a la ingesta; no
+se desactiva el trigger. Las entidades `meli` se identifican con
+`platform='meli' AND kind='campaign'`.
 
 ## Crons de Orbit (crontab de `gon`, ADITIVO)
 

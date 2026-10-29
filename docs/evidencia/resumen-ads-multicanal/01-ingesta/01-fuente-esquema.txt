@@ -1,0 +1,58 @@
+== Fecha de la inspeccion (UTC) ==
+Thu Oct 29 01:49:23 AM UTC 2026
+
+== Sentinels de solo lectura ==
+DB=file:/mnt/data/appdata/accounting/data/accounting.db?mode=ro
+
+== PRAGMA table_info(meli_ads_metrics_daily) ==
+0|date|TEXT|0||1
+1|clicks|INTEGER|0|0|0
+2|impressions|INTEGER|0|0|0
+3|spend|REAL|0|0|0
+4|ad_sales|REAL|0|0|0
+5|acos|REAL|0|0|0
+6|updated_at|TEXT|0|datetime('now')|0
+
+== PRAGMA table_info(meli_ads_campaigns_daily) ==
+0|date|TEXT|1||1
+1|campaign_id|TEXT|1||2
+2|campaign_name|TEXT|0|''|0
+3|clicks|INTEGER|0|0|0
+4|impressions|INTEGER|0|0|0
+5|spend|REAL|0|0|0
+6|ad_sales|REAL|0|0|0
+7|acos|REAL|0|0|0
+8|updated_at|TEXT|0|datetime('now')|0
+
+== DDL (sqlite_master) ==
+CREATE TABLE meli_ads_metrics_daily (
+    date TEXT PRIMARY KEY,
+    clicks INTEGER DEFAULT 0,
+    impressions INTEGER DEFAULT 0,
+    spend REAL DEFAULT 0,
+    ad_sales REAL DEFAULT 0,
+    acos REAL DEFAULT 0,
+    updated_at TEXT DEFAULT (datetime('now'))
+)
+CREATE TABLE meli_ads_campaigns_daily (
+            date TEXT NOT NULL,
+            campaign_id TEXT NOT NULL,
+            campaign_name TEXT DEFAULT '',
+            clicks INTEGER DEFAULT 0,
+            impressions INTEGER DEFAULT 0,
+            spend REAL DEFAULT 0,
+            ad_sales REAL DEFAULT 0,
+            acos REAL DEFAULT 0,
+            updated_at TEXT DEFAULT (datetime('now')),
+            PRIMARY KEY (date, campaign_id)
+        )
+
+== Indices ==
+0|sqlite_autoindex_meli_ads_metrics_daily_1|1|pk|0
+0|sqlite_autoindex_meli_ads_campaigns_daily_1|1|pk|0
+
+== Conteos y rangos ==
+tabla            filas  desde       hasta     
+---------------  -----  ----------  ----------
+metrics_daily    320    2025-12-14  2026-10-29
+campaigns_daily  784    2026-04-16  2026-10-28

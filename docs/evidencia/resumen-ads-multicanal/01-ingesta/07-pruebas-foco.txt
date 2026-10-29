@@ -1,0 +1,32 @@
+== Pruebas focales de RESUMEN-ADS-01 (head) ==
+Comando: uv run --frozen python -m pytest -q tests/test_meli_ads_ingest.py tests/test_cli.py
+
+........................................................................ [ 90%]
+........                                                                 [100%]
+80 passed in 1.08s
+
+Comando: uv run --frozen python -m pytest -v tests/test_meli_ads_ingest.py
+rootdir: /Users/dn/dev/goncloud-Orbit
+configfile: pyproject.toml
+plugins: anyio-4.14.2
+collecting ... collected 17 items
+
+tests/test_meli_ads_ingest.py::test_version_canonica_ignora_nombre_y_detecta_metricas PASSED [  5%]
+tests/test_meli_ads_ingest.py::test_leer_filas_usa_revision_del_origen PASSED [ 11%]
+tests/test_meli_ads_ingest.py::test_leer_filas_conserva_cero_real_y_dato_faltante PASSED [ 17%]
+tests/test_meli_ads_ingest.py::test_leer_filas_rechaza_moneda_fuera_de_dominio PASSED [ 23%]
+tests/test_meli_ads_ingest.py::test_leer_filas_rechaza_identidad_ausente PASSED [ 29%]
+tests/test_meli_ads_ingest.py::test_leer_filas_rechaza_fecha_futura PASSED [ 35%]
+tests/test_meli_ads_ingest.py::test_snapshot_sin_tabla_de_origen PASSED  [ 41%]
+tests/test_meli_ads_ingest.py::test_nombres_vigentes_usa_el_nombre_mas_reciente PASSED [ 47%]
+tests/test_meli_ads_ingest.py::test_main_sin_dsn_falla_cerrado PASSED    [ 52%]
+tests/test_meli_ads_ingest.py::test_main_sin_snapshot_falla_cerrado PASSED [ 58%]
+tests/test_meli_ads_ingest.py::test_main_exige_flag_sqlite PASSED        [ 64%]
+tests/test_meli_ads_ingest.py::test_ingesta_escribe_entidades_y_observaciones PASSED [ 70%]
+tests/test_meli_ads_ingest.py::test_reintento_del_mismo_snapshot_no_duplica PASSED [ 76%]
+tests/test_meli_ads_ingest.py::test_correccion_agrega_observacion_y_v_metric_latest_la_expone PASSED [ 82%]
+tests/test_meli_ads_ingest.py::test_renombre_actualiza_catalogo_sin_observacion PASSED [ 88%]
+tests/test_meli_ads_ingest.py::test_moneda_invalida_aborta_y_sella_ok_false PASSED [ 94%]
+tests/test_meli_ads_ingest.py::test_identidad_invalida_no_deja_escrituras_parciales PASSED [100%]
+
+============================== 17 passed in 0.87s ==============================

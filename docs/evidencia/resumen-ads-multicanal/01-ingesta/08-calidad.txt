@@ -1,0 +1,13 @@
+== Calidad (head, sin --no-verify) ==
+
+-- uv run --frozen ruff check . --
+All checks passed!
+
+-- uv run --frozen ruff format --check (solo archivos tocados) --
+4 files already formatted
+
+-- pre-commit run --all-files --
+Detect hardcoded secrets.................................................Passed
+check for merge conflicts................................................Passed
+
+rc=0

@@ -1,0 +1,86 @@
+== Fecha (UTC) ==
+Thu 29 Oct 2026 01:49:51 UTC
+
+== Postgres de Orbit (docker exec orbit-db-1, solo SELECT) ==
+Pager usage is off.
+ entidades_meli 
+----------------
+              0
+(1 row)
+
+ obs_meli 
+----------
+        0
+(1 row)
+
+ entidades_total | observaciones_total 
+-----------------+---------------------
+           18528 |              241435
+(1 row)
+
+ duplicados_dedupe 
+-------------------
+                 0
+(1 row)
+
+                 source                 | corridas |            ultima             
+----------------------------------------+----------+-------------------------------
+ bridge_estimacion_fees                 |      209 | 2026-10-29 00:45:08.794818+00
+ meli_catalogo                          |       15 | 2026-10-28 11:30:22.39617+00
+ reputacion_meli                        |       34 | 2026-10-28 09:30:02.780567+00
+ accounting_ledger_events               |       70 | 2026-10-28 08:15:05.00229+00
+ accounting_currency_rates              |       66 | 2026-10-28 08:15:03.979693+00
+ accounting_sku_costs                   |       76 | 2026-10-28 08:15:02.797912+00
+ avisos_campana:campana_sin_presupuesto |       22 | 2026-10-28 08:05:03.665607+00
+ avisos_campana:presupuesto_expuesto    |       36 | 2026-10-28 08:05:03.665607+00
+ amazon_ads_reports_v3                  |       92 | 2026-10-28 07:10:02.909939+00
+ amazon_ads_placements_v3               |       18 | 2026-10-28 07:10:02.909939+00
+ amazon_ads_products_v3                 |       34 | 2026-10-28 07:10:02.909939+00
+ amazon_ads_structure_v2                |       86 | 2026-10-28 06:45:56.516892+00
+ spapi_pricing                          |      103 | 2026-10-28 05:25:43.966336+00
+ spapi_inventario                       |      100 | 2026-10-28 05:02:30.240979+00
+ spapi_listings                         |       99 | 2026-10-28 05:01:30.613528+00
+ spapi_orders                           |      103 | 2026-10-28 05:00:04.195486+00
+ reputacion_amazon                      |        2 | 2026-09-08 04:37:48.068258+00
+ bridge_disponibilidad                  |        1 | 2026-09-07 17:39:33.915488+00
+ manual_costo_historico_0011            |        1 | 2026-09-02 05:39:39.925405+00
+ bridge_listings                        |        5 | 2026-09-02 04:32:58.803769+00
+(20 rows)
+
+  grantee   |       table_name       |  privilegios  
+------------+------------------------+---------------
+ app_ingest | ad_entity              | INSERT,SELECT
+ app_ingest | ads_metric_observation | INSERT,SELECT
+ app_ingest | ingest_run             | INSERT,SELECT
+(3 rows)
+
+ table_name | column_name  | privilege_type 
+------------+--------------+----------------
+ ad_entity  | listing_id   | UPDATE
+ ad_entity  | name         | UPDATE
+ ingest_run | finished_at  | UPDATE
+ ingest_run | llamadas     | UPDATE
+ ingest_run | ok           | UPDATE
+ ingest_run | rows_skipped | UPDATE
+ ingest_run | rows_written | UPDATE
+ ingest_run | skip_reason  | UPDATE
+(8 rows)
+
+                        pg_get_viewdef                         
+---------------------------------------------------------------
+  SELECT DISTINCT ON (ad_entity_id, metric_date) ad_entity_id,+
+     metric_date,                                             +
+     observed_at,                                             +
+     metric_currency,                                         +
+     cost,                                                    +
+     ad_revenue,                                              +
+     revenue_same_sku,                                        +
+     impressions,                                             +
+     clicks,                                                  +
+     orders,                                                  +
+     source_report_id,                                        +
+     ingest_run_id                                            +
+    FROM ads_metric_observation                               +
+   ORDER BY ad_entity_id, metric_date, observed_at DESC;
+(1 row)
+
