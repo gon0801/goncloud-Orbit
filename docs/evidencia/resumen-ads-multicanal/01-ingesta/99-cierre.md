@@ -3,6 +3,7 @@
 Fecha: 2026-10-29. Rama: `resumen-ads-01-ingesta-meli`.
 Base: `31ba12a16f12b90e2f7ea6e86a0ff102f3b8465f` (master al iniciar).
 Commit de implementación: `79da5251b59051cc340b054ad010c1da10fbeec2`.
+Corrección del bloqueante de revisión: `f11e2434f432f231892dc1bc20d4352640dc901b`.
 
 ## Alcance entregado
 
