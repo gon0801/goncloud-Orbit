@@ -88,14 +88,38 @@ Dos bloqueantes más, ambos corregidos con su regresión:
    6.5000.
 2. **Un snapshot atrasado restauraba el nombre viejo.** Con métricas idénticas
    se omitía la validación temporal y `_entidad` actualizaba el nombre. Ahora
-   un as-of anterior se rechaza **aunque `source_version` coincida**, y con el
-   mismo as-of el nombre solo se aplica si el snapshot es estrictamente
-   posterior; el catálogo se toca después de la validación. Regresiones:
+   un as-of anterior se rechaza **aunque `source_version` coincida**; el
+   nombre solo se aplica desde un snapshot estrictamente posterior al as-of
+   aceptado, y el catálogo se toca después de la validación. Regresiones:
    `test_snapshot_atrasado_no_restaura_nombre` y
    `test_mismo_as_of_no_restaura_nombre` (copia editada con el mismo as-of).
 
 Evidencia: `18-regresion-bloqueantes-revision-2.txt` (los tres casos fallan en
 `f11e2434` y pasan en el head). Focales: `86 passed` (23 del módulo).
+
+## Tercera revisión (Limi 3.1)
+
+Bloqueante: una recopia deduplicada no avanzaba la marca temporal. La marca
+se derivaba solo de las observaciones, así que la recopia de 12:00 salía por
+dedupe y el as-of aceptado seguía en 08:00; un snapshot de 11:00 entraba y
+restauraba el nombre viejo.
+
+Ahora la corrida exitosa sella `skip_reason = "as_of=<epoch>; <duplicados>"`.
+Ese prefijo es el **máximo as-of aceptado** y se conserva aunque la recopia no
+inserte métricas. En cada corrida se lee la última marca exitosa y se combina
+con el máximo as-of de las observaciones. Un snapshot anterior a la marca se
+rechaza completo, aunque sus métricas coincidan; con el mismo as-of solo se
+admite el reintento exacto. El nombre solo se aplica desde un snapshot
+estrictamente posterior a la marca.
+
+Regresión: `test_recopia_deduplicada_avanza_la_marca_y_bloquea_el_snapshot_anterior`
+con la secuencia de tres snapshots. Comprueba la marca persistida, que el
+nombre no vuelve atrás y que un snapshot intermedio con métricas distintas
+tampoco cambia el valor vigente. Contra `f55600e7` falla en la marca
+(`'1x snapshot ya ingerido...'` en vez de `as_of=<epoch>`).
+
+Evidencia: `19-regresion-marca-recpia.txt`. Focales: `87 passed` (24 del
+módulo).
 
 ## Archivos
 
@@ -111,8 +135,8 @@ Evidencia: `18-regresion-bloqueantes-revision-2.txt` (los tres casos fallan en
 
 ## Pruebas
 
-- Focales: `86 passed` (`tests/test_meli_ads_ingest.py` + `tests/test_cli.py`;
-  23 casos del módulo). Detalle: `07-pruebas-foco.txt`.
+- Focales: `87 passed` (`tests/test_meli_ads_ingest.py` + `tests/test_cli.py`;
+  24 casos del módulo). Detalle: `07-pruebas-foco.txt`.
 - Regresión contra el padre: la ingesta no colecciona (`ModuleNotFoundError`)
   y el CLI falla por el comando/choice ausente. Detalle:
   `06-pruebas-regresion-parent.txt`.
@@ -128,9 +152,10 @@ Evidencia: `18-regresion-bloqueantes-revision-2.txt` (los tres casos fallan en
 | 3 Reintento idéntico (0 escrituras, 784 duplicados) | OK | `09-operativo-carga-y-reintento.txt` |
 | 4 Corrección (1 observación nueva, `v_metric_latest` con 87.60) | OK | `10-operativo-correccion.txt` |
 | 5 Moneda e identidad inválidas (falla cerrada, 0 filas) | OK | `12-operativo-rechazos.txt` |
-| Snapshot atrasado sobre datos reales (no pisa la vigente) | OK | `16-operativo-snapshot-atrasado.txt` |
+| Snapshot atrasado sobre datos reales (no pisa la vigente) | OK | `20-operativo-snapshot-atrasado.txt` |
 | Reproducción del bloqueante de Limi | OK | `17-bloqueante-snapshot-atrasado.txt` |
 | Regresión de los dos bloqueantes de la 2a revisión | OK | `18-regresion-bloqueantes-revision-2.txt` |
+| Regresión de la marca de recopia (3 snapshots) | OK | `19-regresion-marca-recpia.txt` |
 | 6/7 Sin snapshot, sin DSN y DSN con password redactado | OK | `13-operativo-sin-snapshot-dsn.txt` |
 | 8 Conciliación 784/784 filas y 196/196 días | OK | `11-conciliacion-orbit-vs-accounting.txt` |
 | 9 Aislamiento de `refresh_costos.sh` (fx falla, meli-ads corre) | OK | `15-operativo-aislamiento.txt` |

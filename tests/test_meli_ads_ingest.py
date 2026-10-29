@@ -51,6 +51,7 @@ D2 = HOY - dt.timedelta(days=2)
 AS_OF_INICIAL = "2026-10-29 08:00:00"
 AS_OF_CORRECCION = "2026-10-29 12:00:00"
 AS_OF_ATRASADO = "2026-10-29 07:00:00"
+AS_OF_INTERMEDIO = "2026-10-29 11:00:00"
 
 # Esquema REAL de accounting (PRAGMA table_info del 2026-10-29), con el
 # PRIMARY KEY del origen. `currency` se agrega solo en los tests que prueban
@@ -385,7 +386,8 @@ def test_ingesta_escribe_entidades_y_observaciones(pg, tmp_path):
     ).fetchone()
     assert run[0] == "accounting_meli_ads_campaigns"
     assert run[1] is True and run[2] == 4 and run[3] == 0
-    assert run[4] is None and run[5] is not None
+    assert run[4] is not None and run[4].startswith("as_of=")
+    assert run[5] is not None
 
 
 def test_reintento_del_mismo_snapshot_no_duplica(pg, tmp_path):
@@ -608,6 +610,61 @@ def test_concurrencia_observed_at_se_toma_bajo_el_candado(pg, tmp_path):
     ).fetchall()
     assert len(observaciones) == 2
     assert observaciones[0][0] < observaciones[1][0]
+
+
+def test_recopia_deduplicada_avanza_la_marca_y_bloquea_el_snapshot_anterior(pg, tmp_path):
+    """Secuencia de tres snapshots: la recopia sin métricas nuevas avanza el
+    as-of aceptado; un snapshot posterior con as-of intermedio no puede
+    restaurar el nombre ni cambiar las métricas."""
+    original = _snapshot(
+        tmp_path / "original.db",
+        [(D1.isoformat(), "C2", "NOMBRE NUEVO", 3, 50, 6.5, 20.0)],
+        as_of=AS_OF_INICIAL,
+    )
+    recopia = _snapshot(
+        tmp_path / "recopia.db",
+        [(D1.isoformat(), "C2", "NOMBRE NUEVO", 3, 50, 6.5, 20.0)],
+        as_of=AS_OF_CORRECCION,
+    )
+    atrasado_nombre = _snapshot(
+        tmp_path / "atrasado-nombre.db",
+        [(D1.isoformat(), "C2", "NOMBRE VIEJO", 3, 50, 6.5, 20.0)],
+        as_of=AS_OF_INTERMEDIO,
+    )
+    atrasado_metricas = _snapshot(
+        tmp_path / "atrasado-metricas.db",
+        [(D1.isoformat(), "C2", "NOMBRE VIEJO", 3, 50, 5.0, 20.0)],
+        as_of=AS_OF_INTERMEDIO,
+    )
+
+    ingest_meli_ads(pg, original)
+    _, observaciones = _conteos(pg)
+
+    # La recopia no agrega observaciones, pero su as-of 12:00 queda aceptado.
+    resultado = ingest_meli_ads(pg, recopia)
+    assert resultado["rows_written"] == 0
+    marca = pg.execute(
+        "SELECT skip_reason FROM ingest_run WHERE id = %s", (resultado["run_id"],)
+    ).fetchone()[0]
+    epoch_12 = int(dt.datetime.fromisoformat(AS_OF_CORRECCION).replace(tzinfo=dt.UTC).timestamp())
+    assert marca.startswith(f"as_of={epoch_12}")
+
+    # 11:00 es anterior a la marca 12:00: no restaura el nombre.
+    with pytest.raises(MeliAdsError, match="snapshot atrasado"):
+        ingest_meli_ads(pg, atrasado_nombre)
+    assert (
+        pg.execute(
+            "SELECT name FROM ad_entity WHERE platform = 'meli' AND external_id = 'C2'"
+        ).fetchone()[0]
+        == "NOMBRE NUEVO"
+    )
+    assert _conteos(pg)[1] == observaciones
+
+    # El mismo hueco con contenido distinto tampoco cambia las métricas.
+    with pytest.raises(MeliAdsError, match="snapshot atrasado"):
+        ingest_meli_ads(pg, atrasado_metricas)
+    assert _ultima(pg, "C2", D1)[0] == Decimal("6.5000")
+    assert _conteos(pg)[1] == observaciones
 
 
 def test_correccion_agrega_observacion_y_v_metric_latest_la_expone(pg, tmp_path):

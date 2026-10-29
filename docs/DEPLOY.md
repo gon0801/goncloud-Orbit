@@ -422,15 +422,17 @@ Evidencia: `docs/evidencia/resumen-ads-multicanal/01-ingesta/`.
   `source_report_id = meli-ads|<campaign_id>|<fecha>|<version>|<as_of_epoch>`:
   el as-of (`max(updated_at)` del snapshot, UTC) viaja en el id para ordenar
   snapshots sin una columna nueva.
-- **Snapshot atrasado**: un snapshot solo puede avanzar una campaña/fecha si
-  su as-of es **estrictamente posterior** al de la observación vigente.
-  Si llega un snapshot viejo (o uno con el mismo as-of y contenido distinto),
-  la corrida se rechaza **completa** con `ok=false`: no reemplaza la
-  corrección vigente aunque se ingiera después, y no toca el catálogo. Si el
-  operador ve `snapshot atrasado`, vuelve a copiar el snapshot después del
-  último sync de accounting y repite; la corrida rechazada no escribió nada.
-  El mismo hecho re-observado con un as-of nuevo (recopia sin cambios) no
-  agrega observaciones: manda la versión (hash). Límite declarado: el orden
+- **Snapshot atrasado**: la marca es el **máximo as-of aceptado**. Se guarda
+  en el `skip_reason` de la corrida exitosa como `as_of=<epoch>`, porque el
+  esquema no tiene columna de watermark. La recopia sin cambios **sí avanza la
+  marca**, aunque no inserte observaciones. Un snapshot anterior a la marca se
+  rechaza **completo** con `ok=false`, aunque sus métricas coincidan: no
+  reemplaza la corrección vigente y no toca el catálogo. Con el mismo as-of
+  solo se admite el reintento exacto. Si el operador ve `snapshot atrasado`,
+  vuelve a copiar el snapshot después del último sync de accounting y repite;
+  la corrida rechazada no escribió nada. El mismo hecho re-observado con un
+  as-of nuevo (recopia sin cambios) no agrega observaciones: manda la versión
+  (hash). Límite declarado: el orden
   depende de que `updated_at` sea el reloj de escritura del origen; un
   snapshot que declare un `updated_at` más nuevo pero traiga contenido viejo
   es indistinguible de una corrección y se acepta (el origen estaría mintiendo

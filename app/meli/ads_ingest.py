@@ -37,18 +37,22 @@ Contrato comprobado en vivo (docs/evidencia/resumen-ads-multicanal/01-ingesta):
    el origen publica, incluido T+0 parcial. El sync de accounting finaliza
    T+1/T+2 y su correccion llega como observacion nueva.
 8. Orden de snapshots: `updated_at` (UTC, segundo) es el as-of del snapshot.
-   Un snapshot solo puede avanzar la ultima observacion si su as-of es
-   ESTRICTAMENTE posterior al as-of de esa observacion. Un snapshot atrasado
-   (o con el mismo as-of y contenido distinto) se rechaza COMPLETO: jamas
-   reemplaza una correccion vigente, aunque se ingiera despues. La regla vive
-   en `source_report_id`, que lleva el as-of ademas de la version.
+   La marca es el maximo as-of ACEPTADO. Se guarda en el `skip_reason` de la
+   corrida exitosa como `as_of=<epoch>` porque el esquema no tiene columna de
+   watermark, y se conserva aunque la recopia no inserte metricas. Un snapshot
+   anterior a la marca se rechaza COMPLETO, aunque sus metricas coincidan: no
+   puede tocar el nombre. Con el mismo as-of solo se admite el reintento
+   exacto. El nombre solo se aplica desde un snapshot estrictamente posterior
+   a la marca. `source_report_id` lleva ademas el as-of de cada observacion.
 
 Idempotencia: `source_report_id =
 meli-ads|<campaign_id>|<fecha>|<version>|<as_of_epoch>` y
 `INSERT ... ON CONFLICT DO NOTHING` contra `metric_dedupe_reporte`. El
 `ingest_run_id` NUNCA es clave de dedupe. Cada snapshot es atomico: una fila
 invalida o un snapshot atrasado aborta la corrida completa sin escrituras
-parciales y sella `ingest_run.ok=false` con el motivo.
+parciales y sella `ingest_run.ok=false` con el motivo. La corrida exitosa
+sella `skip_reason = "as_of=<epoch>; <duplicados>"`; ese prefijo es la marca
+temporal, no una razon de skip.
 
 `python -m app.cli ingest meli-ads --sqlite RUTA`: sin ORBIT_DSN_INGEST o sin
 snapshot -> exit 2 fail-closed; fallo de la corrida -> exit 1; exito -> 0.
@@ -61,6 +65,7 @@ import datetime as dt
 import hashlib
 import logging
 import os
+import re
 import sqlite3
 import sys
 from collections import Counter
@@ -142,6 +147,17 @@ SELECT DISTINCT ON (e.external_id, o.metric_date)
 # con ningun otro pipeline.
 _SQL_LOCK_MELI = "SELECT pg_advisory_xact_lock(%s, %s)"
 _LOCK_MELI = (7071, 1)
+
+# Marca temporal del ultimo snapshot ACEPTADO. Vive en el skip_reason de la
+# corrida exitosa porque el esquema no tiene columna de watermark y esta fase
+# no crea migraciones. Incluye las recopias deduplicadas, que no insertan
+# observaciones pero SI avanzan el as-of aceptado.
+_SQL_MARCA = (
+    "SELECT skip_reason FROM ingest_run"
+    " WHERE source = %s AND ok = true AND skip_reason LIKE 'as_of=%%'"
+    " ORDER BY id DESC LIMIT 1"
+)
+_MARCA_RE = re.compile(r"^as_of=(\d+)(?:;|$)")
 
 _SQL_INSERTAR_OBS = """
 INSERT INTO ads_metric_observation
@@ -412,6 +428,14 @@ def _fuente_report_id(fila: FilaMeliAds, as_of: dt.datetime) -> str:
     )
 
 
+def _marca_de_as_of(skip_reason: str | None) -> int | None:
+    """Lee el epoch del marcador `as_of=<epoch>` de una corrida exitosa."""
+    if not skip_reason:
+        return None
+    coincidencia = _MARCA_RE.match(skip_reason)
+    return int(coincidencia.group(1)) if coincidencia else None
+
+
 def _version_y_as_of(source_report_id: str) -> tuple[str, int] | None:
     """Recupera (version, as_of_epoch) del id de una observacion de MeLi.
 
@@ -514,7 +538,7 @@ def ingest_meli_ads(
             # v_metric_latest elegiria la observacion equivocada.
             observed_at = conn.execute("SELECT clock_timestamp()").fetchone()[0]
             ultimas: dict[tuple[str, dt.date], tuple[str, int]] = {}
-            ultima_por_campana: dict[str, int] = {}
+            epoch_max_observado = -1
             for external_id, metric_date, report_id in conn.execute(_SQL_ULTIMAS):
                 partes = _version_y_as_of(report_id)
                 if partes is None:
@@ -523,39 +547,54 @@ def ingest_meli_ads(
                         f" {external_id} {metric_date.isoformat()}"
                     )
                 ultimas[(external_id, metric_date)] = partes
-                epoch = partes[1]
-                if epoch > ultima_por_campana.get(external_id, -1):
-                    ultima_por_campana[external_id] = epoch
+                epoch_max_observado = max(epoch_max_observado, partes[1])
 
-            as_of_epoch = int(origen.as_of.timestamp()) if origen.as_of is not None else 0
+            fila_marca = conn.execute(_SQL_MARCA, (SOURCE,)).fetchone()
+            marca_corrida = _marca_de_as_of(fila_marca[0]) if fila_marca else None
+            # La marca incluye la recopia deduplicada: aunque no inserte una
+            # observacion, su as-of fue ACEPTADO y un snapshot anterior ya no
+            # puede volverse vigente.
+            marca = max(
+                [valor for valor in (marca_corrida, epoch_max_observado) if valor is not None],
+                default=-1,
+            )
+
+            as_of_epoch = int(origen.as_of.timestamp()) if origen.as_of is not None else -1
+            todas_iguales = True
             for fila in filas:
                 vigente = ultimas.get((fila.campaign_external_id, fila.metric_date))
-                if vigente is None:
-                    continue
-                version, epoch = vigente
-                # Un as-of anterior es atrasado AUNQUE las metricas coincidan:
-                # si no, el catalogo (nombre) retrocederia. Con el mismo
-                # as-of solo se admite el mismo hecho (reintento exacto).
-                if as_of_epoch < epoch or (as_of_epoch == epoch and version != fila.source_version):
-                    atrasadas += 1
-            if atrasadas:
-                raise MeliAdsError(
-                    "snapshot atrasado: su as_of no es posterior a la observacion"
-                    f" vigente en {atrasadas} fila(s); no se escribio nada"
+                if vigente is None or vigente[0] != fila.source_version:
+                    todas_iguales = False
+                    break
+            # Regla de snapshot: uno anterior a la marca se rechaza completo,
+            # AUNQUE sus metricas coincidan (no puede tocar el nombre). Con el
+            # mismo as-of solo se admite el reintento exacto (todo igual).
+            atrasadas = 0
+            if filas and (as_of_epoch < marca or (as_of_epoch == marca and not todas_iguales)):
+                atrasadas = (
+                    sum(
+                        1
+                        for fila in filas
+                        if (vigente := ultimas.get((fila.campaign_external_id, fila.metric_date)))
+                        is None
+                        or vigente[0] != fila.source_version
+                    )
+                    or 1
                 )
+                raise MeliAdsError(
+                    "snapshot atrasado: su as_of no es posterior a la marca"
+                    f" aceptada ({marca}); no se escribio nada"
+                )
+            # El nombre solo se aplica desde un snapshot estrictamente
+            # posterior a la marca aceptada. Una recopia o una copia editada
+            # con el mismo as-of no puede restaurar un nombre viejo.
+            permite_nombre = as_of_epoch > marca
 
             cache: dict[str, tuple[int, bool, bool]] = {}
             nombres = _nombres_vigentes(filas)
             for fila in filas:
                 entidad = cache.get(fila.campaign_external_id)
                 if entidad is None:
-                    # El nombre solo se aplica desde un snapshot ESTRICTAMENTE
-                    # posterior al ultimo as-of de la campana: con el mismo
-                    # as-of se conserva el publicado (una copia editada no
-                    # puede restaurar un nombre viejo).
-                    permite_nombre = as_of_epoch > ultima_por_campana.get(
-                        fila.campaign_external_id, -1
-                    )
                     entidad = _entidad(
                         conn,
                         fila.campaign_external_id,
@@ -595,7 +634,13 @@ def ingest_meli_ads(
             skips: Counter = Counter()
             if duplicados:
                 skips["snapshot ya ingerido (dedupe source_report_id)"] = duplicados
-            skip_reason = _formato_skip_reason(skips)
+            # La marca avanza con la recopia aunque no haya observaciones.
+            marca_final = max(marca, as_of_epoch)
+            partes = [f"as_of={marca_final}"] if marca_final >= 0 else []
+            motivo = _formato_skip_reason(skips)
+            if motivo:
+                partes.append(motivo)
+            skip_reason = "; ".join(partes) or None
             _sellar_run(
                 conn,
                 run_id,

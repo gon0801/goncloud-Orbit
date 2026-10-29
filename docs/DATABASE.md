@@ -191,9 +191,11 @@ métricas, sin el nombre) y
 donde el as-of es `max(updated_at)` del snapshot en UTC. Así el dedupe
 existente hace no-op el mismo snapshot y una corrección entra como
 observación nueva. **El `ingest_run_id` no es clave de dedupe.** Un snapshot
-atrasado (as-of no estrictamente posterior al de la observación vigente, o
-mismo as-of con contenido distinto) se rechaza completo con `ok=false`: no
-puede reemplazar una corrección vigente aunque se ingiera después. Un renombre
+atrasado (as-of anterior a la marca aceptada, o mismo as-of con contenido
+distinto) se rechaza completo con `ok=false`: no puede reemplazar una
+corrección vigente aunque se ingiera después. La marca es el máximo as-of
+aceptado y vive en `ingest_run.skip_reason` como `as_of=<epoch>`; una recopia
+deduplicada la avanza aunque no inserte observaciones. Un renombre
 actualiza `ad_entity.name` (el de la fecha más reciente) sin crear
 observaciones, y solo desde un snapshot estrictamente posterior al as-of de la
 campaña (con el mismo as-of se conserva el nombre publicado). `observed_at` se toma de `clock_timestamp()` **después** de

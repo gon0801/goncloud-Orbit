@@ -1,4 +1,4 @@
-== Suite completa en el head corregido (2a revision) ==
+== Suite completa en el head corregido (3a revision) ==
 Comando: uv run --frozen python -m pytest -q
 
 FAILED tests/test_bloqueo_dueno_efecto.py::test_dos_conexiones_un_solo_post
@@ -11,7 +11,7 @@ FAILED tests/test_jev_bloqueo_api.py::test_interruptor_apagado_niega_sin_http_y_
 FAILED tests/test_jev_bloqueo_api.py::test_quitar_sigue_con_interruptor_ausente
 FAILED tests/test_jev_bloqueo_api.py::test_reanudar_escribe_fila_y_no_llama_amazon
 FAILED tests/test_jev_bloqueo_api.py::test_cortes_consulta_rota_sigue_200 - K...
-10 failed, 5496 passed, 1 warning in 523.05s (0:08:43)
+10 failed, 5497 passed, 1 warning in 552.30s (0:09:12)
 rc=1
 
 == Mismos 10 fallos en el commit padre 31ba12a (worktree /tmp/orbit-parent-31ba12a) ==
@@ -26,6 +26,6 @@ FAILED tests/test_jev_bloqueo_api.py::test_interruptor_apagado_niega_sin_http_y_
 FAILED tests/test_jev_bloqueo_api.py::test_quitar_sigue_con_interruptor_ausente
 FAILED tests/test_jev_bloqueo_api.py::test_reanudar_escribe_fila_y_no_llama_amazon
 FAILED tests/test_jev_bloqueo_api.py::test_cortes_consulta_rota_sigue_200 - K...
-10 failed, 27 passed, 1 warning in 5.54s
+10 failed, 27 passed, 1 warning in 5.84s
 
 Los 10 fallos son identicos en el padre: no los introduce esta fase.

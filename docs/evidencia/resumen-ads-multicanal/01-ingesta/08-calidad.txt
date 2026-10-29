@@ -1,4 +1,4 @@
-== Calidad (head corregido, 2a revision; sin --no-verify) ==
+== Calidad (head corregido, 3a revision; sin --no-verify) ==
 
 -- uv run --frozen ruff check . --
 All checks passed!

@@ -18,13 +18,13 @@ E   ModuleNotFoundError: No module named 'app.meli.ads_ingest'
 =========================== short test summary info ============================
 ERROR tests/test_meli_ads_ingest.py
 !!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
-1 error in 0.35s
+1 error in 0.64s
 
 -- comando 2 (CLI por separado, para ver sus dos fallos) --
 python -m pytest -q tests/test_cli.py
 FAILED tests/test_cli.py::test_cli_ingest_meli_ads_delega_al_pipeline_con_sus_args
 FAILED tests/test_cli.py::test_cli_ingest_help_documenta_pipelines - Assertio...
-2 failed, 61 passed in 0.29s
+2 failed, 61 passed in 0.38s
 
 Cada fallo nombra el comportamiento ausente:
 - test_meli_ads_ingest.py: ModuleNotFoundError app.meli.ads_ingest (no existe la ingesta).
