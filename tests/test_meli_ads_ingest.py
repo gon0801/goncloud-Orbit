@@ -1228,6 +1228,44 @@ def test_futuro_conserva_el_piso_de_una_observacion_legada(pg, tmp_path):
     assert _conteos(pg)[1] == 2
 
 
+def test_mismo_as_of_legado_con_contenido_distinto_se_rechaza(pg, tmp_path):
+    """Una observacion legada con el mismo as-of y otra version impide que un
+    snapshot distinto la pise, aunque no exista una marca real."""
+    run_id = pg.execute(
+        "INSERT INTO ingest_run (source, ok, finished_at)"
+        " VALUES ('legacy', true, now()) RETURNING id"
+    ).fetchone()[0]
+    entidad = pg.execute(
+        "INSERT INTO ad_entity (platform, kind, external_id, name)"
+        " VALUES ('meli', 'campaign', 'C1', 'LEGACY') RETURNING id"
+    ).fetchone()[0]
+    version = version_canonica("C1", D1, "MXN", Decimal("10"), Decimal("8"), 2, 1, None)
+    as_of = dt.datetime.fromisoformat(AS_OF_INICIAL).replace(tzinfo=dt.UTC)
+    pg.execute(
+        "INSERT INTO ads_metric_observation"
+        " (ad_entity_id, metric_date, observed_at, metric_currency, cost,"
+        "  ad_revenue, impressions, clicks, orders, source_report_id, ingest_run_id)"
+        " VALUES (%s, %s, now(), 'MXN', 10, 8, 2, 1, NULL, %s, %s)",
+        (
+            entidad,
+            D1,
+            f"meli-ads|C1|{D1.isoformat()}|{version}|{int(as_of.timestamp())}",
+            run_id,
+        ),
+    )
+    snap = _snapshot(
+        tmp_path / "mismo-asof-legado.db",
+        [(D1.isoformat(), "C1", "OTRO", 1, 2, 99.0, 8.0)],
+        as_of=AS_OF_INICIAL,
+    )
+
+    with pytest.raises(MeliAdsError, match="mismo as_of"):
+        ingest_meli_ads(pg, snap)
+
+    assert _ultima(pg, "C1", D1)[0] == Decimal("10.0000")
+    assert _conteos(pg)[1] == 1
+
+
 def test_huella_incluye_metricas_aunque_exista_revision(pg, tmp_path):
     """La revision no reemplaza las metricas en la huella: mismo as_of con
     costo distinto es contenido distinto, no un reintento."""

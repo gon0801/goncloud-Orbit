@@ -172,6 +172,30 @@ def test_dia_completo_que_sobra_en_orbit_falla(monkeypatch, tmp_path, capsys):
     assert "CONCILIACION OK" not in salida
 
 
+def test_dia_intermedio_con_gasto_y_sin_campanas_falla(monkeypatch, tmp_path, capsys):
+    """Un dia interior con gasto en el control y cero campanas es un hueco de
+    dinero: no se puede limitar el control a las fechas que ya tienen campana."""
+    dia2 = DIA + dt.timedelta(days=1)
+    dia3 = DIA + dt.timedelta(days=2)
+    campanas = [
+        ("C1", DIA.isoformat(), 10.0, 20.0, 3, 4),
+        ("C1", dia3.isoformat(), 10.0, 20.0, 3, 4),
+    ]
+    dias = [
+        (DIA.isoformat(), 4, 3, 10.0, 20.0),
+        (dia2.isoformat(), 9, 8, 500.0, 900.0),
+        (dia3.isoformat(), 4, 3, 10.0, 20.0),
+    ]
+    orbit = [
+        ("C1", DIA, Decimal("10.0000"), Decimal("20.0000"), 3, 4, "MXN"),
+        ("C1", dia3, Decimal("10.0000"), Decimal("20.0000"), 3, 4, "MXN"),
+    ]
+    codigo, salida = _corre(monkeypatch, tmp_path, campanas, dias, orbit, capsys)
+    assert codigo != 0
+    assert f"FALTA el dia {dia2.isoformat()} en Orbit" in salida
+    assert "CONCILIACION OK" not in salida
+
+
 def test_control_diario_incompleto_falla(monkeypatch, tmp_path, capsys):
     """Un dia de campanas sin fila en el control diario no se puede probar."""
     codigo, salida = _corre(monkeypatch, tmp_path, _campana(), [], _orbit(), capsys)

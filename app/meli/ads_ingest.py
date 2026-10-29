@@ -179,6 +179,18 @@ SELECT max(CASE WHEN epoch_texto ~ '^[0-9]+$' THEN epoch_texto::bigint END)
  )
 """
 
+# Observaciones escritas con un as-of concreto. Sirven para distinguir un
+# duplicado concurrente del snapshot entrante de un contenido legado distinto
+# con el mismo as-of: el primero se acepta y se deduplica; el segundo se
+# rechaza completo. No basta mirar la observacion vigente, que puede haber sido
+# tapada por una correccion posterior.
+_SQL_OBSERVACIONES_AS_OF = f"""
+SELECT e.external_id, o.metric_date, o.source_report_id
+  FROM ads_metric_observation o JOIN ad_entity e ON e.id = o.ad_entity_id
+ WHERE e.platform = '{PLATAFORMA}' AND e.kind = '{KIND}'
+   AND split_part(o.source_report_id, '|', 5) = %s
+"""
+
 _SQL_INSERTAR_OBS = """
 INSERT INTO ads_metric_observation
     (ad_entity_id, metric_date, observed_at, metric_currency, cost, ad_revenue,
@@ -349,6 +361,28 @@ def _version_y_as_of(source_report_id: str) -> tuple[str, int] | None:
         return None
 
 
+def _versiones_snapshot(filas: tuple[FilaMeliAds, ...]) -> dict[tuple[str, dt.date], str]:
+    """Version canonica por campana/dia del snapshot entrante."""
+    return {(fila.campaign_external_id, fila.metric_date): fila.source_version for fila in filas}
+
+
+def _observaciones_en_as_of(
+    conn: psycopg.Connection, as_of_epoch: int
+) -> dict[tuple[str, dt.date], str]:
+    """Versiones ya escritas con el mismo as-of del snapshot entrante."""
+    versiones: dict[tuple[str, dt.date], str] = {}
+    for external_id, metric_date, report_id in conn.execute(
+        _SQL_OBSERVACIONES_AS_OF, (str(as_of_epoch),)
+    ):
+        partes = _version_y_as_of(report_id)
+        if partes is None:
+            continue
+        version, epoch = partes
+        if epoch == as_of_epoch:
+            versiones[(external_id, metric_date)] = version
+    return versiones
+
+
 def _lee_marcas(conn: psycopg.Connection) -> _Marcas:
     """Lee UNA vez aceptaciones, relojes y piso de todas las corridas exitosas."""
     aceptaciones: list[_Aceptacion] = []
@@ -447,6 +481,8 @@ def _decision_temporal(
     aceptadas: tuple[_Aceptacion, ...],
     filas: tuple[FilaMeliAds, ...],
     ultimas: dict[tuple[str, dt.date], tuple[str, int]],
+    legado_mismo_as_of: dict[tuple[str, dt.date], str],
+    versiones_snapshot: dict[tuple[str, dt.date], str],
     marca_real: int,
     marca_futura: int,
     as_of_epoch: int,
@@ -461,12 +497,18 @@ def _decision_temporal(
     nunca aceptado que cae detras del reloj que le corresponde se rechaza.
     Una aceptacion vieja sin `snap=` se reconoce solo si el snapshot coincide
     con TODA la observacion vigente; si hubo una correccion intermedia, se
-    rechaza fail-closed.
+    rechaza fail-closed. Una observacion legada con el mismo as-of y otra
+    version tambien rechaza: el contenido distinto no puede pisar el piso.
     """
     mismo_as_of = [aceptada for aceptada in aceptadas if aceptada.as_of == as_of_epoch]
     previa = next((a for a in mismo_as_of if a.huella == huella), None)
     if previa is not None:
         return previa, previa.es_futuro, marca_real, marca_futura
+    if legado_mismo_as_of and legado_mismo_as_of != versiones_snapshot:
+        raise MeliAdsError(
+            "snapshot con el mismo as_of y contenido distinto (snapshot atrasado):"
+            " no se escribio nada"
+        )
     if mismo_as_of:
         if (
             all(a.huella is None for a in mismo_as_of)
@@ -624,11 +666,15 @@ def ingest_meli_ads(
             observed_at, marca_real, marcas, limite_real = _estado_temporal(
                 conn, ultimas, as_of_epoch
             )
+            versiones = _versiones_snapshot(filas)
+            legado_mismo_as_of = _observaciones_en_as_of(conn, as_of_epoch)
             try:
                 previa, es_futuro, real_final, _futuro_final = _decision_temporal(
                     marcas.aceptaciones,
                     filas,
                     ultimas,
+                    legado_mismo_as_of,
+                    versiones,
                     marca_real,
                     marcas.futuro,
                     as_of_epoch,

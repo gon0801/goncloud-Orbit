@@ -225,10 +225,27 @@ def compara(origen: dict, dias: dict, orbit: dict) -> list[str]:
 
     # El control diario se acota a la ventana de campanas: la tabla diaria
     # puede traer historia anterior al primer dia con campanas, y esos dias no
-    # son comparables campana/dia. Un dia de la ventana sin control diario SI
-    # es una diferencia (no se puede probar ese dia).
+    # son comparables campana/dia. Dentro de la ventana SI se incluye un dia
+    # con actividad y sin campanas: es un hueco de dinero que el sync puede
+    # producir si el desglose falla. Un dia interior en cero y sin campanas no
+    # es una diferencia monetaria. Un dia de campanas sin control diario no se
+    # puede probar y tambien falla.
     fechas_campana = {fecha for (_ext, fecha) in origen}
-    dias_control = {fecha: dias[fecha] for fecha in fechas_campana if fecha in dias}
+    if fechas_campana:
+        inicio, fin = min(fechas_campana), max(fechas_campana)
+    else:
+        inicio = fin = None
+
+    def _con_actividad(valores) -> bool:
+        return any(valor is not None and valor != 0 for valor in valores)
+
+    dias_control = {
+        fecha: valores
+        for fecha, valores in dias.items()
+        if inicio is not None
+        and inicio <= fecha <= fin
+        and (fecha in fechas_campana or _con_actividad(valores))
+    }
     control_faltante = sorted(fechas_campana - set(dias))
     for fecha in control_faltante:
         errores.append(f"FALTA el dia {fecha} en el control diario del origen")

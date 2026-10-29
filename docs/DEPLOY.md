@@ -554,6 +554,7 @@ Por qué 08:15 UTC alcanza (medido, no supuesto):
    un archivo vacío que pase los checksums.
 
    ```bash
+   set -euo pipefail
    SHA_APROBADO=<sha aprobado>
    ARCHIVO_LOCAL=$(mktemp /tmp/refresh_costos.XXXXXX.sh)
    git show "$SHA_APROBADO":tools/refresh_costos.sh > "$ARCHIVO_LOCAL"
@@ -568,6 +569,12 @@ Por qué 08:15 UTC alcanza (medido, no supuesto):
    ssh goncloud 'test -s /tmp/refresh_costos.sh && install -m 0755 /tmp/refresh_costos.sh /mnt/data/appdata/orbit/refresh_costos.sh'
    rm -f "$ARCHIVO_LOCAL"
    ```
+
+   El bloque se copia completo. `set -euo pipefail` es obligatorio: si `git
+   show`, `grep`, `bash -n`, `scp`, el checksum o el `install` fallan, el
+   procedimiento se detiene antes de reemplazar el script operativo. Un
+   archivo no vacío de un SHA viejo que no ejecute `meli-ads` tampoco pasa el
+   `grep`.
 
 5. Verificar sintaxis en el servidor:
    `ssh goncloud 'bash -n /mnt/data/appdata/orbit/refresh_costos.sh'`.

@@ -1,0 +1,3 @@
+== Patron nuevo con archivo no vacio pero sin la linea de MeLi ==
+test_s_rc=0
+script_rc=1
