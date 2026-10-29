@@ -110,8 +110,9 @@ UPDATE ingest_run
 # El nombre se actualiza solo cuando el origen trae uno distinto: uno ausente
 # (NULL) no borra el ya publicado. Sin cambio real, el WHERE corta el UPDATE y
 # no hay escritura (reingestar el mismo snapshot es no-op tambien en el
-# catalogo). Un snapshot atrasado se rechaza ANTES de tocar el catalogo, asi
-# que tampoco puede restaurar un nombre viejo.
+# catalogo). Un snapshot atrasado se rechaza ANTES de tocar el catalogo, y con
+# el mismo as-of el nombre no se aplica: una copia editada no puede restaurar
+# un nombre viejo.
 _SQL_UPSERT_ENTIDAD = """
 INSERT INTO ad_entity (platform, kind, external_id, name)
 VALUES ('meli', 'campaign', %s, %s)
@@ -495,7 +496,6 @@ def ingest_meli_ads(
     insertadas = 0
     duplicados = 0
     atrasadas = 0
-    observed_at = dt.datetime.now(dt.UTC)
     try:
         if rechazos:
             raise MeliAdsError(
@@ -509,7 +509,12 @@ def ingest_meli_ads(
             )
         with conn.transaction():
             conn.execute(_SQL_LOCK_MELI, _LOCK_MELI)
+            # DESPUES del candado: el reloj de ingesta no puede quedar antes
+            # que el de una corrida que termino mientras esta esperaba, o
+            # v_metric_latest elegiria la observacion equivocada.
+            observed_at = conn.execute("SELECT clock_timestamp()").fetchone()[0]
             ultimas: dict[tuple[str, dt.date], tuple[str, int]] = {}
+            ultima_por_campana: dict[str, int] = {}
             for external_id, metric_date, report_id in conn.execute(_SQL_ULTIMAS):
                 partes = _version_y_as_of(report_id)
                 if partes is None:
@@ -518,6 +523,9 @@ def ingest_meli_ads(
                         f" {external_id} {metric_date.isoformat()}"
                     )
                 ultimas[(external_id, metric_date)] = partes
+                epoch = partes[1]
+                if epoch > ultima_por_campana.get(external_id, -1):
+                    ultima_por_campana[external_id] = epoch
 
             as_of_epoch = int(origen.as_of.timestamp()) if origen.as_of is not None else 0
             for fila in filas:
@@ -525,9 +533,10 @@ def ingest_meli_ads(
                 if vigente is None:
                     continue
                 version, epoch = vigente
-                if version == fila.source_version:
-                    continue  # mismo hecho: lo absorbe el dedupe mas abajo
-                if as_of_epoch <= epoch:
+                # Un as-of anterior es atrasado AUNQUE las metricas coincidan:
+                # si no, el catalogo (nombre) retrocederia. Con el mismo
+                # as-of solo se admite el mismo hecho (reintento exacto).
+                if as_of_epoch < epoch or (as_of_epoch == epoch and version != fila.source_version):
                     atrasadas += 1
             if atrasadas:
                 raise MeliAdsError(
@@ -540,10 +549,17 @@ def ingest_meli_ads(
             for fila in filas:
                 entidad = cache.get(fila.campaign_external_id)
                 if entidad is None:
+                    # El nombre solo se aplica desde un snapshot ESTRICTAMENTE
+                    # posterior al ultimo as-of de la campana: con el mismo
+                    # as-of se conserva el publicado (una copia editada no
+                    # puede restaurar un nombre viejo).
+                    permite_nombre = as_of_epoch > ultima_por_campana.get(
+                        fila.campaign_external_id, -1
+                    )
                     entidad = _entidad(
                         conn,
                         fila.campaign_external_id,
-                        nombres.get(fila.campaign_external_id),
+                        nombres.get(fila.campaign_external_id) if permite_nombre else None,
                     )
                     cache[fila.campaign_external_id] = entidad
                     entidades_nuevas += int(entidad[1])

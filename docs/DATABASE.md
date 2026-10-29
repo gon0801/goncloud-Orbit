@@ -195,7 +195,10 @@ atrasado (as-of no estrictamente posterior al de la observación vigente, o
 mismo as-of con contenido distinto) se rechaza completo con `ok=false`: no
 puede reemplazar una corrección vigente aunque se ingiera después. Un renombre
 actualiza `ad_entity.name` (el de la fecha más reciente) sin crear
-observaciones. MeLi **no** hereda la madurez D-8 de Amazon: `v_metric_mature`
+observaciones, y solo desde un snapshot estrictamente posterior al as-of de la
+campaña (con el mismo as-of se conserva el nombre publicado). `observed_at` se toma de `clock_timestamp()` **después** de
+adquirir el advisory lock de MeLi: una corrida que esperó el candado no puede
+quedar con un `observed_at` anterior al de la que terminó mientras esperaba. MeLi **no** hereda la madurez D-8 de Amazon: `v_metric_mature`
 sigue siendo D-15 y el resumen multicanal deberá declarar la madurez de MeLi
 como desconocida en RESUMEN-ADS-02.
 

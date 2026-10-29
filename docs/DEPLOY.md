@@ -436,8 +436,11 @@ Evidencia: `docs/evidencia/resumen-ads-multicanal/01-ingesta/`.
   es indistinguible de una corrección y se acepta (el origen estaría mintiendo
   sobre su propio orden).
 - **Renombre**: cambia `ad_entity.name` del nombre de la fecha más reciente;
-  no crea observaciones. Un nombre ausente en el origen no borra el publicado,
-  y un snapshot atrasado no puede restaurar un nombre viejo (se rechaza antes).
+  no crea observaciones. Un nombre ausente en el origen no borra el publicado.
+  El nombre solo se aplica desde un snapshot **estrictamente posterior** al
+  as-of de esa campaña: con el mismo as-of se conserva el publicado, y un
+  snapshot atrasado se rechaza antes de tocar el catálogo. Una copia editada
+  (mismas métricas, nombre viejo) no puede restaurar el nombre anterior.
 - **Madurez**: MeLi **no** hereda el D-8 de Amazon. Se ingesta lo que el
   origen publica (T+0 parcial incluido). El sync de accounting finaliza
   T+1/T+2 y esa corrección llega como observación nueva.

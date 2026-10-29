@@ -25,6 +25,8 @@ import datetime as dt
 import os
 import socket
 import sqlite3
+import threading
+import time
 from decimal import Decimal
 from pathlib import Path
 
@@ -315,6 +317,19 @@ def _corrige(
     con.close()
 
 
+def _espera_lock(conn, timeout: float = 10.0) -> None:
+    """Espera a que otra conexion quede bloqueada en el advisory lock de MeLi."""
+    limite = time.monotonic() + timeout
+    while time.monotonic() < limite:
+        pendientes = conn.execute(
+            "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND NOT granted"
+        ).fetchone()[0]
+        if pendientes:
+            return
+        time.sleep(0.02)
+    raise AssertionError("la ingesta no quedo esperando el candado de MeLi")
+
+
 def _conteos(conn) -> tuple[int, int]:
     return (
         conn.execute("SELECT count(*) FROM ad_entity WHERE platform = 'meli'").fetchone()[0],
@@ -461,6 +476,138 @@ def test_recopia_con_as_of_nuevo_y_mismo_contenido_no_agrega(pg, tmp_path):
     assert resultado["rows_written"] == 0
     assert resultado["duplicados"] == 4
     assert _conteos(pg) == (entidades, observaciones)
+
+
+def test_snapshot_atrasado_no_restaura_nombre(pg, tmp_path):
+    """Aunque las metricas sean identicas, un snapshot atrasado no puede
+    tocar el catalogo: el nombre vigente se queda con el del snapshot nuevo."""
+    nuevo = _snapshot(
+        tmp_path / "nuevo.db",
+        [(D1.isoformat(), "C2", "NOMBRE NUEVO", 3, 50, 6.5, 20.0)],
+        as_of=AS_OF_CORRECCION,
+    )
+    viejo = _snapshot(
+        tmp_path / "viejo.db",
+        [(D1.isoformat(), "C2", "NOMBRE VIEJO", 3, 50, 6.5, 20.0)],
+        as_of=AS_OF_ATRASADO,
+    )
+    ingest_meli_ads(pg, nuevo)
+    _, observaciones = _conteos(pg)
+    assert (
+        pg.execute(
+            "SELECT name FROM ad_entity WHERE platform = 'meli' AND external_id = 'C2'"
+        ).fetchone()[0]
+        == "NOMBRE NUEVO"
+    )
+
+    with pytest.raises(MeliAdsError, match="snapshot atrasado"):
+        ingest_meli_ads(pg, viejo)
+
+    assert (
+        pg.execute(
+            "SELECT name FROM ad_entity WHERE platform = 'meli' AND external_id = 'C2'"
+        ).fetchone()[0]
+        == "NOMBRE NUEVO"
+    )
+    assert _conteos(pg)[1] == observaciones
+
+
+def test_mismo_as_of_no_restaura_nombre(pg, tmp_path):
+    """Con el mismo as-of no se aplica el nombre: una copia editada no puede
+    restaurar el nombre viejo aunque las metricas sean identicas."""
+    nuevo = _snapshot(
+        tmp_path / "nuevo.db",
+        [(D1.isoformat(), "C2", "NOMBRE NUEVO", 3, 50, 6.5, 20.0)],
+        as_of=AS_OF_INICIAL,
+    )
+    viejo = _snapshot(
+        tmp_path / "viejo.db",
+        [(D1.isoformat(), "C2", "NOMBRE VIEJO", 3, 50, 6.5, 20.0)],
+        as_of=AS_OF_INICIAL,
+    )
+    ingest_meli_ads(pg, nuevo)
+    _, observaciones = _conteos(pg)
+
+    resultado = ingest_meli_ads(pg, viejo)
+    assert resultado["rows_written"] == 0
+    assert resultado["duplicados"] == 1
+    assert (
+        pg.execute(
+            "SELECT name FROM ad_entity WHERE platform = 'meli' AND external_id = 'C2'"
+        ).fetchone()[0]
+        == "NOMBRE NUEVO"
+    )
+    assert _conteos(pg)[1] == observaciones
+
+
+def test_concurrencia_observed_at_se_toma_bajo_el_candado(pg, tmp_path):
+    """Dos conexiones: la nueva espera el candado y la vieja termina primero.
+
+    En el codigo viejo el observed_at de la nueva se calculaba ANTES de
+    esperar, quedaba anterior al de la vieja y v_metric_latest mostraba 5.0.
+    Bajo el candado, la nueva calcula su reloj despues y muestra 6.5.
+    """
+    psycopg = pytest.importorskip("psycopg")
+    nuevo = _snapshot(
+        tmp_path / "nuevo.db",
+        [(D1.isoformat(), "C2", "BETA", 3, 50, 6.5, 20.0)],
+        as_of=AS_OF_CORRECCION,
+    )
+    pg.execute(
+        "INSERT INTO ad_entity (platform, kind, external_id, name)"
+        " VALUES ('meli', 'campaign', 'C2', 'BETA') ON CONFLICT DO NOTHING"
+    )
+    run_id = pg.execute(
+        "INSERT INTO ingest_run (source, ok, finished_at)"
+        " VALUES ('test_concurrencia', true, now()) RETURNING id"
+    ).fetchone()[0]
+    version_vieja = version_canonica(
+        "C2", D1, "MXN", Decimal("5.0000"), Decimal("20.0000"), 50, 3, None
+    )
+    epoch_viejo = int(dt.datetime.fromisoformat(AS_OF_ATRASADO).replace(tzinfo=dt.UTC).timestamp())
+
+    resultado: dict[str, object] = {}
+
+    def corre_ingesta() -> None:
+        try:
+            with psycopg.connect(_test_dsn(), dbname=pg.info.dbname, autocommit=True) as conexion:
+                resultado["valor"] = ingest_meli_ads(conexion, nuevo)
+        except BaseException as exc:  # noqa: BLE001 - se re-lanza abajo
+            resultado["error"] = exc
+
+    # La conexion vieja toma el candado y espera; la nueva queda bloqueada.
+    with psycopg.connect(_test_dsn(), dbname=pg.info.dbname, autocommit=False) as vieja:
+        vieja.execute("SELECT pg_advisory_xact_lock(%s, %s)", (7071, 1))
+        hilo = threading.Thread(target=corre_ingesta)
+        hilo.start()
+        try:
+            _espera_lock(pg)
+            # La vieja inserta DESPUES de que la nueva empezo a esperar: su
+            # observed_at es posterior al que la nueva habia calculado antes.
+            vieja.execute(
+                "INSERT INTO ads_metric_observation"
+                " (ad_entity_id, metric_date, observed_at, metric_currency, cost,"
+                "  ad_revenue, impressions, clicks, orders, source_report_id, ingest_run_id)"
+                " SELECT id, %s, clock_timestamp(), 'MXN', 5.0, 20.0, 50, 3, NULL, %s, %s"
+                " FROM ad_entity WHERE platform = 'meli' AND external_id = 'C2'",
+                (D1, f"meli-ads|C2|{D1.isoformat()}|{version_vieja}|{epoch_viejo}", run_id),
+            )
+            vieja.commit()
+        finally:
+            hilo.join(20)
+    assert not hilo.is_alive()
+    if "error" in resultado:
+        raise resultado["error"]
+
+    assert _ultima(pg, "C2", D1)[0] == Decimal("6.5000")
+    observaciones = pg.execute(
+        "SELECT o.observed_at FROM ads_metric_observation o"
+        " JOIN ad_entity e ON e.id = o.ad_entity_id"
+        " WHERE e.external_id = 'C2' AND o.metric_date = %s ORDER BY o.observed_at",
+        (D1,),
+    ).fetchall()
+    assert len(observaciones) == 2
+    assert observaciones[0][0] < observaciones[1][0]
 
 
 def test_correccion_agrega_observacion_y_v_metric_latest_la_expone(pg, tmp_path):

@@ -1,34 +1,38 @@
-== Pruebas focales de RESUMEN-ADS-01 (head corregido) ==
+== Pruebas focales de RESUMEN-ADS-01 (head corregido, 2a revision) ==
 Comando: uv run --frozen python -m pytest -q tests/test_meli_ads_ingest.py tests/test_cli.py
 
-........................................................................ [ 86%]
-...........                                                              [100%]
-83 passed in 1.42s
+........................................................................ [ 83%]
+..............                                                           [100%]
+86 passed in 3.28s
 
 Comando: uv run --frozen python -m pytest -v tests/test_meli_ads_ingest.py
+rootdir: /Users/dn/dev/goncloud-Orbit
 configfile: pyproject.toml
 plugins: anyio-4.14.2
-collecting ... collected 20 items
+collecting ... collected 23 items
 
-tests/test_meli_ads_ingest.py::test_version_canonica_ignora_nombre_y_detecta_metricas PASSED [  5%]
-tests/test_meli_ads_ingest.py::test_leer_filas_usa_revision_del_origen PASSED [ 10%]
-tests/test_meli_ads_ingest.py::test_leer_filas_conserva_cero_real_y_dato_faltante PASSED [ 15%]
-tests/test_meli_ads_ingest.py::test_leer_filas_rechaza_moneda_fuera_de_dominio PASSED [ 20%]
-tests/test_meli_ads_ingest.py::test_leer_filas_rechaza_identidad_ausente PASSED [ 25%]
-tests/test_meli_ads_ingest.py::test_leer_filas_rechaza_fecha_futura PASSED [ 30%]
-tests/test_meli_ads_ingest.py::test_snapshot_sin_tabla_de_origen PASSED  [ 35%]
-tests/test_meli_ads_ingest.py::test_nombres_vigentes_usa_el_nombre_mas_reciente PASSED [ 40%]
-tests/test_meli_ads_ingest.py::test_main_sin_dsn_falla_cerrado PASSED    [ 45%]
-tests/test_meli_ads_ingest.py::test_main_sin_snapshot_falla_cerrado PASSED [ 50%]
-tests/test_meli_ads_ingest.py::test_main_exige_flag_sqlite PASSED        [ 55%]
-tests/test_meli_ads_ingest.py::test_ingesta_escribe_entidades_y_observaciones PASSED [ 60%]
-tests/test_meli_ads_ingest.py::test_reintento_del_mismo_snapshot_no_duplica PASSED [ 65%]
-tests/test_meli_ads_ingest.py::test_snapshot_atrasado_no_reemplaza_la_correccion_vigente PASSED [ 70%]
-tests/test_meli_ads_ingest.py::test_snapshot_con_el_mismo_as_of_no_reemplaza PASSED [ 75%]
-tests/test_meli_ads_ingest.py::test_recopia_con_as_of_nuevo_y_mismo_contenido_no_agrega PASSED [ 80%]
-tests/test_meli_ads_ingest.py::test_correccion_agrega_observacion_y_v_metric_latest_la_expone PASSED [ 85%]
-tests/test_meli_ads_ingest.py::test_renombre_actualiza_catalogo_sin_observacion PASSED [ 90%]
+tests/test_meli_ads_ingest.py::test_version_canonica_ignora_nombre_y_detecta_metricas PASSED [  4%]
+tests/test_meli_ads_ingest.py::test_leer_filas_usa_revision_del_origen PASSED [  8%]
+tests/test_meli_ads_ingest.py::test_leer_filas_conserva_cero_real_y_dato_faltante PASSED [ 13%]
+tests/test_meli_ads_ingest.py::test_leer_filas_rechaza_moneda_fuera_de_dominio PASSED [ 17%]
+tests/test_meli_ads_ingest.py::test_leer_filas_rechaza_identidad_ausente PASSED [ 21%]
+tests/test_meli_ads_ingest.py::test_leer_filas_rechaza_fecha_futura PASSED [ 26%]
+tests/test_meli_ads_ingest.py::test_snapshot_sin_tabla_de_origen PASSED  [ 30%]
+tests/test_meli_ads_ingest.py::test_nombres_vigentes_usa_el_nombre_mas_reciente PASSED [ 34%]
+tests/test_meli_ads_ingest.py::test_main_sin_dsn_falla_cerrado PASSED    [ 39%]
+tests/test_meli_ads_ingest.py::test_main_sin_snapshot_falla_cerrado PASSED [ 43%]
+tests/test_meli_ads_ingest.py::test_main_exige_flag_sqlite PASSED        [ 47%]
+tests/test_meli_ads_ingest.py::test_ingesta_escribe_entidades_y_observaciones PASSED [ 52%]
+tests/test_meli_ads_ingest.py::test_reintento_del_mismo_snapshot_no_duplica PASSED [ 56%]
+tests/test_meli_ads_ingest.py::test_snapshot_atrasado_no_reemplaza_la_correccion_vigente PASSED [ 60%]
+tests/test_meli_ads_ingest.py::test_snapshot_con_el_mismo_as_of_no_reemplaza PASSED [ 65%]
+tests/test_meli_ads_ingest.py::test_recopia_con_as_of_nuevo_y_mismo_contenido_no_agrega PASSED [ 69%]
+tests/test_meli_ads_ingest.py::test_snapshot_atrasado_no_restaura_nombre PASSED [ 73%]
+tests/test_meli_ads_ingest.py::test_mismo_as_of_no_restaura_nombre PASSED [ 78%]
+tests/test_meli_ads_ingest.py::test_concurrencia_observed_at_se_toma_bajo_el_candado PASSED [ 82%]
+tests/test_meli_ads_ingest.py::test_correccion_agrega_observacion_y_v_metric_latest_la_expone PASSED [ 86%]
+tests/test_meli_ads_ingest.py::test_renombre_actualiza_catalogo_sin_observacion PASSED [ 91%]
 tests/test_meli_ads_ingest.py::test_moneda_invalida_aborta_y_sella_ok_false PASSED [ 95%]
 tests/test_meli_ads_ingest.py::test_identidad_invalida_no_deja_escrituras_parciales PASSED [100%]
 
-============================== 20 passed in 1.15s ==============================
+============================== 23 passed in 3.31s ==============================

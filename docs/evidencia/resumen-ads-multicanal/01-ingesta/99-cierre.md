@@ -73,6 +73,29 @@ presentan como invariantes; el orden de lectura/validación/apertura de la
 corrida quedó descrito como es; el runbook usa `mktemp` en vez de una ruta
 fija; y se quitaron los espacios finales de la evidencia.
 
+## Segunda revisión (Limi 3.1)
+
+Dos bloqueantes más, ambos corregidos con su regresión:
+
+1. **Concurrencia y `observed_at`.** El reloj de ingesta se calculaba antes del
+   advisory lock: una corrida que esperaba podía terminar con un
+   `observed_at` anterior al de la que ya había cerrado, y `v_metric_latest`
+   elegía la vieja. Ahora `observed_at` se toma con `clock_timestamp()`
+   **después** del candado. Regresión con dos conexiones
+   (`test_concurrencia_observed_at_se_toma_bajo_el_candado`): la nueva espera
+   el candado, la vieja inserta y cierra primero, y aun así la vigente es
+   6.5000.
+2. **Un snapshot atrasado restauraba el nombre viejo.** Con métricas idénticas
+   se omitía la validación temporal y `_entidad` actualizaba el nombre. Ahora
+   un as-of anterior se rechaza **aunque `source_version` coincida**, y con el
+   mismo as-of el nombre solo se aplica si el snapshot es estrictamente
+   posterior; el catálogo se toca después de la validación. Regresiones:
+   `test_snapshot_atrasado_no_restaura_nombre` y
+   `test_mismo_as_of_no_restaura_nombre` (copia editada con el mismo as-of).
+
+Evidencia: `18-regresion-bloqueantes-revision-2.txt` (los tres casos fallan en
+`f11e2434` y pasan en el head). Focales: `86 passed` (23 del módulo).
+
 ## Archivos
 
 - `app/meli/ads_ingest.py` (nuevo): adaptador SQLite `mode=ro`, forma
@@ -87,8 +110,8 @@ fija; y se quitaron los espacios finales de la evidencia.
 
 ## Pruebas
 
-- Focales: `83 passed` (`tests/test_meli_ads_ingest.py` + `tests/test_cli.py`;
-  20 casos del módulo). Detalle: `07-pruebas-foco.txt`.
+- Focales: `86 passed` (`tests/test_meli_ads_ingest.py` + `tests/test_cli.py`;
+  23 casos del módulo). Detalle: `07-pruebas-foco.txt`.
 - Regresión contra el padre: la ingesta no colecciona (`ModuleNotFoundError`)
   y el CLI falla por el comando/choice ausente. Detalle:
   `06-pruebas-regresion-parent.txt`.
@@ -106,6 +129,7 @@ fija; y se quitaron los espacios finales de la evidencia.
 | 5 Moneda e identidad inválidas (falla cerrada, 0 filas) | OK | `12-operativo-rechazos.txt` |
 | Snapshot atrasado sobre datos reales (no pisa la vigente) | OK | `16-operativo-snapshot-atrasado.txt` |
 | Reproducción del bloqueante de Limi | OK | `17-bloqueante-snapshot-atrasado.txt` |
+| Regresión de los dos bloqueantes de la 2a revisión | OK | `18-regresion-bloqueantes-revision-2.txt` |
 | 6/7 Sin snapshot, sin DSN y DSN con password redactado | OK | `13-operativo-sin-snapshot-dsn.txt` |
 | 8 Conciliación 784/784 filas y 196/196 días | OK | `11-conciliacion-orbit-vs-accounting.txt` |
 | 9 Aislamiento de `refresh_costos.sh` (fx falla, meli-ads corre) | OK | `15-operativo-aislamiento.txt` |
