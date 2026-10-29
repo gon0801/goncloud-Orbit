@@ -1266,6 +1266,48 @@ def test_mismo_as_of_legado_con_contenido_distinto_se_rechaza(pg, tmp_path):
     assert _conteos(pg)[1] == 1
 
 
+def test_dos_versiones_legadas_al_mismo_as_of_fallan_cerrado(pg, tmp_path):
+    """Dos versiones con la misma campana/dia y as-of no colapsan en una:
+    ningun snapshot de una sola version coincide con el conjunto."""
+    ahora = dt.datetime.now(dt.UTC).replace(microsecond=0)
+    run_id = pg.execute(
+        "INSERT INTO ingest_run (source, ok, finished_at)"
+        " VALUES ('legacy', true, now()) RETURNING id"
+    ).fetchone()[0]
+    entidad = pg.execute(
+        "INSERT INTO ad_entity (platform, kind, external_id, name)"
+        " VALUES ('meli', 'campaign', 'C1', 'LEGACY') RETURNING id"
+    ).fetchone()[0]
+    as_of = ahora - dt.timedelta(hours=1)
+    for costo, observed in (
+        (Decimal("10"), ahora),
+        (Decimal("50"), ahora + dt.timedelta(seconds=1)),
+    ):
+        version = version_canonica("C1", D1, "MXN", costo, Decimal("8"), 2, 1, None)
+        pg.execute(
+            "INSERT INTO ads_metric_observation"
+            " (ad_entity_id, metric_date, observed_at, metric_currency, cost,"
+            "  ad_revenue, impressions, clicks, orders, source_report_id, ingest_run_id)"
+            " VALUES (%s, %s, %s, 'MXN', %s, 8, 2, 1, NULL, %s, %s)",
+            (
+                entidad,
+                D1,
+                observed,
+                costo,
+                f"meli-ads|C1|{D1.isoformat()}|{version}|{int(as_of.timestamp())}",
+                run_id,
+            ),
+        )
+    snap = _snapshot(
+        tmp_path / "dos-versiones.db",
+        [(D1.isoformat(), "C1", "OTRO", 1, 2, 10.0, 8.0)],
+        as_of=as_of.isoformat(),
+    )
+    with pytest.raises(MeliAdsError, match="mismo as_of"):
+        ingest_meli_ads(_RelojFijo(pg, ahora), snap)
+    assert _ultima(pg, "C1", D1)[0] == Decimal("50.0000")
+
+
 def test_duplicado_futuro_sin_aceptacion_no_borra_el_piso_legado(pg, tmp_path):
     """Repetir un snapshot futuro que solo coincide con observaciones legadas
     no debe sellar `futuro=` sin piso: el as-of legado sigue siendo el piso."""

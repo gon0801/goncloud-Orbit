@@ -361,16 +361,20 @@ def _version_y_as_of(source_report_id: str) -> tuple[str, int] | None:
         return None
 
 
-def _versiones_snapshot(filas: tuple[FilaMeliAds, ...]) -> dict[tuple[str, dt.date], str]:
-    """Version canonica por campana/dia del snapshot entrante."""
-    return {(fila.campaign_external_id, fila.metric_date): fila.source_version for fila in filas}
+def _versiones_snapshot(filas: tuple[FilaMeliAds, ...]) -> set[tuple[str, dt.date, str]]:
+    """Conjunto de versiones canonicas por campana/dia del snapshot entrante."""
+    return {(fila.campaign_external_id, fila.metric_date, fila.source_version) for fila in filas}
 
 
 def _observaciones_en_as_of(
     conn: psycopg.Connection, as_of_epoch: int
-) -> dict[tuple[str, dt.date], str]:
-    """Versiones ya escritas con el mismo as-of del snapshot entrante."""
-    versiones: dict[tuple[str, dt.date], str] = {}
+) -> set[tuple[str, dt.date, str]]:
+    """Conjunto de (campana, dia, version) ya escritas con ese as-of.
+
+    Es un CONJUNTO, no un dict: dos versiones distintas para la misma
+    campana/dia no pueden colapsar en una y clasificar mal el snapshot.
+    """
+    versiones: set[tuple[str, dt.date, str]] = set()
     for external_id, metric_date, report_id in conn.execute(
         _SQL_OBSERVACIONES_AS_OF, (str(as_of_epoch),)
     ):
@@ -379,7 +383,7 @@ def _observaciones_en_as_of(
             continue
         version, epoch = partes
         if epoch == as_of_epoch:
-            versiones[(external_id, metric_date)] = version
+            versiones.add((external_id, metric_date, version))
     return versiones
 
 
@@ -481,8 +485,8 @@ def _decision_temporal(
     aceptadas: tuple[_Aceptacion, ...],
     filas: tuple[FilaMeliAds, ...],
     ultimas: dict[tuple[str, dt.date], tuple[str, int]],
-    legado_mismo_as_of: dict[tuple[str, dt.date], str],
-    versiones_snapshot: dict[tuple[str, dt.date], str],
+    legado_mismo_as_of: set[tuple[str, dt.date, str]],
+    versiones_snapshot: set[tuple[str, dt.date, str]],
     marca_real: int,
     marca_futura: int,
     as_of_epoch: int,

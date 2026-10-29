@@ -556,7 +556,8 @@ Por qué 08:15 UTC alcanza (medido, no supuesto):
    ```bash
    set -euo pipefail
    SHA_APROBADO=<sha aprobado>
-   ARCHIVO_LOCAL=$(mktemp /tmp/refresh_costos.XXXXXX.sh)
+   ARCHIVO_LOCAL=$(mktemp /tmp/refresh_costos.XXXXXX)
+   trap 'rm -f "$ARCHIVO_LOCAL"' EXIT
    git show "$SHA_APROBADO":tools/refresh_costos.sh > "$ARCHIVO_LOCAL"
    test -s "$ARCHIVO_LOCAL"                    # falla si vino vacio
    grep -q 'corre meli-ads meli_ads.log' "$ARCHIVO_LOCAL"
@@ -567,14 +568,14 @@ Por qué 08:15 UTC alcanza (medido, no supuesto):
    SUM_REMOTO=$(ssh goncloud 'sha256sum /tmp/refresh_costos.sh' | awk '{print $1}')
    test -n "$SUM_REMOTO" && test "$SUM_LOCAL" = "$SUM_REMOTO"
    ssh goncloud 'test -s /tmp/refresh_costos.sh && install -m 0755 /tmp/refresh_costos.sh /mnt/data/appdata/orbit/refresh_costos.sh'
-   rm -f "$ARCHIVO_LOCAL"
    ```
 
    El bloque se copia completo. `set -euo pipefail` es obligatorio: si `git
    show`, `grep`, `bash -n`, `scp`, el checksum o el `install` fallan, el
    procedimiento se detiene antes de reemplazar el script operativo. Un
    archivo no vacío de un SHA viejo que no ejecute `meli-ads` tampoco pasa el
-   `grep`.
+   `grep`. `mktemp` termina en `XXXXXX` y el `trap` borra el temporal aunque
+   el bloque falle a mitad; así el reintento no choca con un archivo fijo.
 
 5. Verificar sintaxis en el servidor:
    `ssh goncloud 'bash -n /mnt/data/appdata/orbit/refresh_costos.sh'`.

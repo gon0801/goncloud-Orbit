@@ -397,15 +397,15 @@ campana/día, como estaba declarado. Evidencia:
 
 ## Pruebas
 
-- Focales: **243 passed** (`tests/test_meli_ads_ingest.py` +
+- Focales: **244 passed** (`tests/test_meli_ads_ingest.py` +
   `tests/test_cli.py` + `tests/test_conciliar_meli_ads.py` +
   `tests/test_architecture.py`). Detalle:
   `30-revision-a305e7c/pruebas.txt`.
 - Regresión contra el padre: la ingesta no colecciona (`ModuleNotFoundError`)
   y el CLI falla por el comando/choice ausente. Detalle:
   `06-pruebas-regresion-parent.txt`.
-- Suite completa con `ORBIT_TEST_DSN`: **5561 passed, 0 failed**. Detalle en
-  `30-revision-a305e7c/suite.txt`.
+- Suite completa con `ORBIT_TEST_DSN`: **5567 passed, 0 failed**. Detalle en
+  `30-revision-0c48417-grok/suite.txt`.
 
 ## Verificación operativa real
 

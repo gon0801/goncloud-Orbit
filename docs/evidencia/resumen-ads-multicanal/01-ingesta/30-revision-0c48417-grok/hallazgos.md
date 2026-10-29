@@ -132,3 +132,26 @@ de la comparación, como estaba declarado.
 - `rojo-2.txt`: las tres pruebas nuevas fallan contra `910e347`.
 - `verde-2.txt`: las tres pasan en el árbol corregido.
 - `recheck-2.txt`: salida de los repros de Grok contra el árbol corregido.
+
+## Tercera pasada Grok sobre `42121208`
+
+### 6. Dos versiones al mismo as-of colapsaban en el dict (media)
+
+Dos observaciones de la misma campaña/día con distinta versión y el mismo
+as-of se pisaban en un dict. El costo no se perdía por el índice único, pero la
+clasificación del snapshot quedaba invertida.
+
+Después del fix, `_observaciones_en_as_of` devuelve un CONJUNTO de
+`(campaña, día, versión)`. Un snapshot de una sola versión no coincide con un
+conjunto de dos, así que ambos se rechazan y no se sella una aceptación de la
+versión que no es la vigente. Regresión:
+`test_dos_versiones_legadas_al_mismo_as_of_fallan_cerrado`.
+
+### 7. `mktemp` con XXXXXX antes de la extensión (media)
+
+En macOS `mktemp /tmp/refresh_costos.XXXXXX.sh` crea el path literal. Si el
+`grep` falla, el `rm` final no se alcanza y el reintento muere en `mktemp`.
+
+Después del fix, el bloque usa `mktemp /tmp/refresh_costos.XXXXXX` (XXXXXX al
+final) y `trap 'rm -f "$ARCHIVO_LOCAL"' EXIT`. `runbook.txt` muestra primera
+corrida `rc=1`, segunda `rc=0` con la línea de MeLi y `restos=0` en zsh y bash.
