@@ -1,0 +1,13 @@
+== Perf de /: 30 requests, mismo fixture Amazon, Postgres 5433 ==
+Comando base (31ba12a): PYTHONPATH=. python /tmp/orbit_ui_perf.py <dsn>
+{"n": 30, "median_ms": 4.02, "p95_ms": 5.26, "bytes": 24959}
+
+Comando head (esta rama): PYTHONPATH=. uv run --frozen python /tmp/orbit_ui_perf.py <dsn>
+{"n": 30, "median_ms": 3.81, "p95_ms": 4.21, "bytes": 24959}
+
+Regla del plan: falla si head p95 > base p95 + 10%. 3.72 ms < 5.26 ms: PASS.
+
+== Reinicio de la instancia FastAPI (TestClient, proceso nuevo) ==
+Comando: otra ejecucion del script head; misma base y fixture.
+{"n": 30, "median_ms": 3.57, "p95_ms": 4.04, "bytes": 24959}
+Mismo tamano de respuesta y p95 del mismo orden: historia y render estables.

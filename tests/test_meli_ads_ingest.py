@@ -37,11 +37,12 @@ from app.meli.ads_ingest import (
     _MAX_BIGINT,
     _MAX_INTEGER,
     _SQL_LOCK_MELI,
+    _SQL_MAX_OBSERVADO,
     MONEDA_PLATAFORMA,
     MeliAdsError,
     _dinero,
     _entero,
-    _marca_corridas,
+    _marcas_corridas,
     _nombres_vigentes,
     ingest_meli_ads,
     leer_origen,
@@ -52,13 +53,14 @@ from app.meli.ads_ingest import (
 HOY = dt.datetime.now(dt.UTC).date()
 D1 = HOY - dt.timedelta(days=1)
 D2 = HOY - dt.timedelta(days=2)
-# As-of del origen (`updated_at`). Fechas fijas a proposito: el orden entre
-# snapshots no depende del reloj de la maquina que corre el test.
-AS_OF_INICIAL = "2026-10-29 08:00:00"
-AS_OF_CORRECCION = "2026-10-29 12:00:00"
-AS_OF_ATRASADO = "2026-10-29 07:00:00"
-AS_OF_INTERMEDIO = "2026-10-29 11:00:00"
-AS_OF_MEDIO = "2026-10-29 10:00:00"
+# As-of del origen (`updated_at`) RELATIVO al reloj del test. Fechas fijas
+# hacian que el mismo fixture cambiara de rama (real/futuro) segun la hora.
+AHORA = dt.datetime.now(dt.UTC).replace(microsecond=0)
+AS_OF_ATRASADO = (AHORA - dt.timedelta(hours=4)).isoformat()
+AS_OF_INICIAL = (AHORA - dt.timedelta(hours=3)).isoformat()
+AS_OF_MEDIO = (AHORA - dt.timedelta(hours=2)).isoformat()
+AS_OF_INTERMEDIO = (AHORA - dt.timedelta(hours=1)).isoformat()
+AS_OF_CORRECCION = (AHORA - dt.timedelta(minutes=30)).isoformat()
 
 # Esquema REAL de accounting (PRAGMA table_info del 2026-10-29), con el
 # PRIMARY KEY del origen. `currency` se agrega solo en los tests que prueban
@@ -474,6 +476,96 @@ class _RelojFijo:
         return getattr(self.inner, nombre)
 
 
+class _ColisionTrasMax:
+    """Inserta una fila en el observed_at que la ingesta va a elegir.
+
+    Simula un escritor concurrente que no toma el advisory lock: el insert de
+    la ingesta choca contra la PK y debe abortar la corrida.
+    """
+
+    def __init__(self, inner, entidad_id: int, fecha, run_id: int, report_id: str):
+        self.inner = inner
+        self.entidad_id = entidad_id
+        self.fecha = fecha
+        self.run_id = run_id
+        self.report_id = report_id
+
+    def execute(self, query, params=None):
+        if query == _SQL_MAX_OBSERVADO:
+            resultado = self.inner.execute(query)
+            maximo = resultado.fetchone()[0]
+            self.inner.execute(
+                "INSERT INTO ads_metric_observation"
+                " (ad_entity_id, metric_date, observed_at, metric_currency, cost,"
+                "  ad_revenue, impressions, clicks, orders, source_report_id, ingest_run_id)"
+                " VALUES (%s, %s, %s, 'MXN', 5.5, 20.0, 50, 3, NULL, %s, %s)",
+                (
+                    self.entidad_id,
+                    self.fecha,
+                    maximo + dt.timedelta(microseconds=1),
+                    self.report_id,
+                    self.run_id,
+                ),
+            )
+
+            class _Resultado:
+                def __init__(self, valor):
+                    self.valor = valor
+
+                def fetchone(self):
+                    return (self.valor,)
+
+            return _Resultado(maximo)
+        if params is None:
+            return self.inner.execute(query)
+        return self.inner.execute(query, params)
+
+    def __getattr__(self, nombre):
+        return getattr(self.inner, nombre)
+
+
+class _DuplicadoId:
+    """Inserta una fila con el source_report_id entrante y otro observed_at.
+
+    Fuerza el camino de conflicto real del indice de dedupe, sin colision de
+    PK, para probar el contador `duplicados_id`.
+    """
+
+    def __init__(self, inner, entidad_id, fecha, run_id, report_id):
+        self.inner = inner
+        self.entidad_id = entidad_id
+        self.fecha = fecha
+        self.run_id = run_id
+        self.report_id = report_id
+
+    def execute(self, query, params=None):
+        if query == _SQL_MAX_OBSERVADO:
+            resultado = self.inner.execute(query)
+            maximo = resultado.fetchone()[0]
+            self.inner.execute(
+                "INSERT INTO ads_metric_observation"
+                " (ad_entity_id, metric_date, observed_at, metric_currency, cost,"
+                "  ad_revenue, impressions, clicks, orders, source_report_id, ingest_run_id)"
+                " VALUES (%s, %s, %s, 'MXN', 6.0, 8.0, 2, 1, NULL, %s, %s)",
+                (self.entidad_id, self.fecha, maximo, self.report_id, self.run_id),
+            )
+
+            class _Resultado:
+                def __init__(self, valor):
+                    self.valor = valor
+
+                def fetchone(self):
+                    return (self.valor,)
+
+            return _Resultado(maximo)
+        if params is None:
+            return self.inner.execute(query)
+        return self.inner.execute(query, params)
+
+    def __getattr__(self, nombre):
+        return getattr(self.inner, nombre)
+
+
 class _PausaAntesLock:
     """Pausa una ingesta justo antes del advisory lock (para invertir ids)."""
 
@@ -831,6 +923,74 @@ def test_recopia_deduplicada_avanza_la_marca_y_bloquea_el_snapshot_anterior(pg, 
     assert _conteos(pg)[1] == observaciones
 
 
+def test_futuro_dentro_de_tolerancia_no_envenena_la_marca(pg, tmp_path):
+    """Un as-of hasta 24 h adelante se acepta, pero no puede dejar atras una
+    correccion real posterior."""
+    ahora = dt.datetime.now(dt.UTC).replace(microsecond=0)
+    futuro = _snapshot(
+        tmp_path / "futuro.db",
+        [(D1.isoformat(), "C1", "ALFA", 1, 2, 5.0, 8.0)],
+        as_of=(ahora + dt.timedelta(hours=1)).isoformat(),
+    )
+    actual = _snapshot(
+        tmp_path / "actual.db",
+        [(D1.isoformat(), "C1", "ALFA", 1, 2, 6.0, 8.0)],
+        as_of=ahora.isoformat(),
+    )
+    ingest_meli_ads(pg, futuro)
+    ingest_meli_ads(pg, actual)
+    assert _ultima(pg, "C1", D1)[0] == Decimal("6.0000")
+
+
+def test_reloj_retrocede_no_deja_vigente_la_anterior(pg, tmp_path):
+    """Dos correcciones con as-of creciente y observed_at que retrocede: la
+    segunda debe quedar vigente."""
+    as_of = dt.datetime.now(dt.UTC).replace(microsecond=0) - dt.timedelta(hours=2)
+    reloj = dt.datetime.now(dt.UTC).replace(microsecond=0)
+    uno = _snapshot(
+        tmp_path / "uno.db",
+        [(D1.isoformat(), "C1", "ALFA", 1, 2, 5.0, 8.0)],
+        as_of=as_of.isoformat(),
+    )
+    dos = _snapshot(
+        tmp_path / "dos.db",
+        [(D1.isoformat(), "C1", "ALFA", 1, 2, 6.5, 8.0)],
+        as_of=(as_of + dt.timedelta(hours=1)).isoformat(),
+    )
+    ingest_meli_ads(_RelojFijo(pg, reloj), uno)
+    ingest_meli_ads(_RelojFijo(pg, reloj - dt.timedelta(seconds=1)), dos)
+    assert _ultima(pg, "C1", D1)[0] == Decimal("6.5000")
+
+
+def test_updated_at_con_fraccion_o_anio_desbordado_se_rechaza(pg, tmp_path):
+    for valor in ("2026-10-29 08:00:00.500", "9999-12-31 23:59:59"):
+        snap = _snapshot(
+            tmp_path / f"{abs(hash(valor))}.db",
+            [(D1.isoformat(), "C1", "ALFA", 1, 2, 3.0, 4.0)],
+            as_of=AS_OF_INICIAL,
+        )
+        con = sqlite3.connect(snap)
+        con.execute("UPDATE meli_ads_campaigns_daily SET updated_at = ?", (valor,))
+        con.commit()
+        con.close()
+        origen = leer_origen(snap)
+        assert origen.rechazos["updated_at ausente o ilegible"] == 1
+        with pytest.raises(MeliAdsError, match="updated_at"):
+            ingest_meli_ads(pg, snap)
+
+
+def test_entero_con_doble_signo_y_cero_negativo(tmp_path):
+    with pytest.raises(MeliAdsError, match="ilegible"):
+        _entero("--1", _MAX_INTEGER)
+    assert _dinero("-0.0") == Decimal("0.0000")
+    assert _dinero("-0.0") == _dinero("0.0")
+
+
+def test_dinero_limite_numeric_exacto_del_revisor():
+    with pytest.raises(MeliAdsError):
+        _dinero("9999999999.99996")
+
+
 def test_correccion_agrega_observacion_y_v_metric_latest_la_expone(pg, tmp_path):
     snap = _snapshot(tmp_path / "snap.db", _FILAS, as_of=AS_OF_INICIAL)
     ingest_meli_ads(pg, snap)
@@ -951,7 +1111,7 @@ def test_as_of_futuro_no_envenena_la_marca(pg, tmp_path):
     )
     with pytest.raises(MeliAdsError, match="as_of futuro"):
         ingest_meli_ads(pg, futuro)
-    assert _marca_corridas(pg) == -1
+    assert max(_marcas_corridas(pg), default=-1) == -1
     assert _conteos(pg) == (0, 0)
 
     normal = _snapshot(
@@ -1074,17 +1234,85 @@ def test_marca_es_el_maximo_entre_corridas_y_no_el_id(pg, tmp_path):
         ingest_meli_ads(pg, stale)
     assert _ultima(pg, "C1", D1)[0] == Decimal("12.3400")
     assert _ultima(pg, "C2", D1)[0] == Decimal("6.5000")
-    assert _marca_corridas(pg) == epoch_12
+    assert max(_marcas_corridas(pg), default=-1) == epoch_12
+
+
+def test_duplicados_id_cuenta_conflicto_real_del_indice(pg, tmp_path):
+    """Un conflicto de source_report_id (sin colision de PK) no es una recopia:
+    se cuenta aparte como `duplicados_id`."""
+    fijo = dt.datetime(2026, 10, 29, 13, 0, tzinfo=dt.UTC)
+    entidad_c2 = pg.execute(
+        "INSERT INTO ad_entity (platform, kind, external_id, name)"
+        " VALUES ('meli', 'campaign', 'C2', 'BETA') RETURNING id"
+    ).fetchone()[0]
+    entidad_c1 = pg.execute(
+        "INSERT INTO ad_entity (platform, kind, external_id, name)"
+        " VALUES ('meli', 'campaign', 'C1', 'ALFA') RETURNING id"
+    ).fetchone()[0]
+    run0 = pg.execute(
+        "INSERT INTO ingest_run (source, ok, finished_at) VALUES ('seed', true, now()) RETURNING id"
+    ).fetchone()[0]
+    pg.execute(
+        "INSERT INTO ads_metric_observation"
+        " (ad_entity_id, metric_date, observed_at, metric_currency, cost, ad_revenue,"
+        "  impressions, clicks, orders, source_report_id, ingest_run_id)"
+        " VALUES (%s, %s, %s, 'MXN', 1.0, 2.0, 10, 1, NULL, %s, %s)",
+        (
+            entidad_c2,
+            D2,
+            fijo,
+            f"meli-ads|C2|{D2.isoformat()}|seed|"
+            f"{int(dt.datetime.fromisoformat(AS_OF_ATRASADO).replace(tzinfo=dt.UTC).timestamp())}",
+            run0,
+        ),
+    )
+    snap = _snapshot(
+        tmp_path / "duplicado-id.db",
+        [(D1.isoformat(), "C1", "ALFA", 1, 2, 6.0, 8.0)],
+        as_of=AS_OF_CORRECCION,
+    )
+    version_6 = version_canonica("C1", D1, "MXN", Decimal("6.0000"), Decimal("8.0000"), 2, 1, None)
+    epoch_12 = int(dt.datetime.fromisoformat(AS_OF_CORRECCION).replace(tzinfo=dt.UTC).timestamp())
+    duplicado = _DuplicadoId(
+        _RelojFijo(pg, fijo),
+        entidad_id=entidad_c1,
+        fecha=D1,
+        run_id=run0,
+        report_id=f"meli-ads|C1|{D1.isoformat()}|{version_6}|{epoch_12}",
+    )
+
+    resultado = ingest_meli_ads(duplicado, snap)
+
+    assert resultado["rows_written"] == 0
+    assert resultado["duplicados_version"] == 0
+    assert resultado["duplicados_id"] == 1
+    run = pg.execute(
+        "SELECT ok, rows_written, rows_skipped, skip_reason"
+        " FROM ingest_run ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    assert run[0] is True and run[1] == 0 and run[2] == 1
+    assert "source_report_id ya ingerido" in run[3]
+
+
+def test_cli_main_exitoso(pg, tmp_path, monkeypatch, capsys):
+    snap = _snapshot(tmp_path / "cli.db", _FILAS, as_of=AS_OF_INICIAL)
+    dsn = _test_dsn().rsplit("/", 1)[0] + "/" + pg.info.dbname
+    monkeypatch.setenv("ORBIT_DSN_INGEST", dsn)
+    assert main(["--sqlite", str(snap)]) == 0
+    salida = capsys.readouterr().out
+    assert "ok=True" in salida
+    assert "rows_written=4" in salida
 
 
 def test_colision_de_pk_aborta_y_revierte_escrituras(pg, tmp_path):
-    """La primera fila escribe, la segunda choca contra la PK: rollback total."""
+    """Un escritor concurrente sin candado choca en la PK. La corrida aborta y
+    revierte la fila que ya habia escrito."""
     psycopg = pytest.importorskip("psycopg")
     fijo = dt.datetime(2026, 10, 29, 13, 0, tzinfo=dt.UTC)
-    pg.execute(
+    entidad = pg.execute(
         "INSERT INTO ad_entity (platform, kind, external_id, name)"
-        " VALUES ('meli', 'campaign', 'C2', 'BETA')"
-    )
+        " VALUES ('meli', 'campaign', 'C2', 'BETA') RETURNING id"
+    ).fetchone()[0]
     run0 = pg.execute(
         "INSERT INTO ingest_run (source, ok, finished_at) VALUES ('seed', true, now()) RETURNING id"
     ).fetchone()[0]
@@ -1096,9 +1324,8 @@ def test_colision_de_pk_aborta_y_revierte_escrituras(pg, tmp_path):
         "INSERT INTO ads_metric_observation"
         " (ad_entity_id, metric_date, observed_at, metric_currency, cost, ad_revenue,"
         "  impressions, clicks, orders, source_report_id, ingest_run_id)"
-        " SELECT id, %s, %s, 'MXN', 5.0, 20.0, 50, 3, NULL, %s, %s"
-        " FROM ad_entity WHERE platform = 'meli' AND external_id = 'C2'",
-        (D1, fijo, f"meli-ads|C2|{D1.isoformat()}|{version_5}|{epoch_7}", run0),
+        " VALUES (%s, %s, %s, 'MXN', 5.0, 20.0, 50, 3, NULL, %s, %s)",
+        (entidad, D1, fijo, f"meli-ads|C2|{D1.isoformat()}|{version_5}|{epoch_7}", run0),
     )
     snap = _snapshot(
         tmp_path / "colision.db",
@@ -1108,9 +1335,16 @@ def test_colision_de_pk_aborta_y_revierte_escrituras(pg, tmp_path):
         ],
         as_of=AS_OF_CORRECCION,
     )
+    colision = _ColisionTrasMax(
+        _RelojFijo(pg, fijo),
+        entidad_id=entidad,
+        fecha=D1,
+        run_id=run0,
+        report_id=f"meli-ads|C2|{D1.isoformat()}|colision|{epoch_7}",
+    )
 
     with pytest.raises(psycopg.errors.UniqueViolation):
-        ingest_meli_ads(_RelojFijo(pg, fijo), snap)
+        ingest_meli_ads(colision, snap)
 
     assert _conteos(pg) == (1, 1)
     assert pg.execute("SELECT count(*) FROM ad_entity WHERE external_id = 'C1'").fetchone()[0] == 0

@@ -45,10 +45,14 @@ Contrato comprobado en vivo (docs/evidencia/resumen-ads-multicanal/01-ingesta):
    runs nacen antes del candado. Un snapshot anterior a la marca se rechaza
    COMPLETO, aunque sus metricas coincidan: no puede tocar el nombre. Con el
    mismo as-of solo se admite el reintento exacto. El nombre solo se aplica
-   desde un snapshot estrictamente posterior a la marca.
-9. `updated_at` es obligatorio en cada fila no vacia. Una fila sin el o con
-   fecha ilegible rechaza el snapshot completo. Un as-of mas de 24 h adelante
-   del reloj de ingesta se rechaza (tolerancia de desfase de reloj/zona).
+   desde un snapshot estrictamente posterior a la marca. Un as-of hasta 24 h
+   adelante se acepta, pero no envenena una correccion real: un snapshot con
+   as-of <= ahora+5 min compara solo contra marcas reales; uno futuro compara
+   contra todas. `observed_at` es un reloj logico: nunca queda por detras del
+   maximo ya publicado, aunque el reloj de pared retroceda.
+9. `updated_at` es obligatorio en cada fila no vacia. Una fila sin el, con
+   fraccion de segundo o con un anio fuera de 2000-2100 rechaza el snapshot
+   completo. Un as-of mas de 24 h adelante del reloj de ingesta se rechaza.
 10. Dedupe: el `ON CONFLICT` apunta SOLO al indice parcial
     `metric_dedupe_reporte`; una colision de la PK
     `(ad_entity_id, metric_date, observed_at)` aborta la corrida, no se
@@ -120,7 +124,8 @@ _MAX_DINERO = Decimal(10) ** 10  # 10 enteros + 4 decimales = NUMERIC(14,4)
 _RUIDO_FLOAT = Decimal("0.00001")  # ruido binario del REAL de SQLite (costs.py:223)
 _MAX_BIGINT = 2**63 - 1  # impressions/clicks: BIGINT
 _MAX_INTEGER = 2**31 - 1  # orders: INTEGER
-_TOLERANCIA_RELOJ = dt.timedelta(hours=24)  # desfase de reloj/zona del origen
+_TOLERANCIA_RELOJ = dt.timedelta(hours=24)  # limite duro de un as-of futuro
+_SKEW_RELOJ = dt.timedelta(minutes=5)  # futuro que aun se considera reloj real
 
 _SQL_ABRIR_RUN = "INSERT INTO ingest_run (source) VALUES (%s) RETURNING id"
 
@@ -169,6 +174,15 @@ SELECT DISTINCT ON (e.external_id, o.metric_date)
 # con ningun otro pipeline.
 _SQL_LOCK_MELI = "SELECT pg_advisory_xact_lock(%s, %s)"
 _LOCK_MELI = (7071, 1)
+
+# Reloj logico de observacion: si el reloj de pared retrocede, el nuevo
+# observed_at debe superar al maximo ya publicado o v_metric_latest elegiria
+# la fila anterior. Solo mira MeLi: no acopla el reloj de Amazon.
+_SQL_MAX_OBSERVADO = """
+SELECT max(o.observed_at)
+  FROM ads_metric_observation o JOIN ad_entity e ON e.id = o.ad_entity_id
+ WHERE e.platform = 'meli' AND e.kind = 'campaign'
+"""
 
 # Marcas temporales de TODOS los snapshots ACEPTADOS. Viven en el skip_reason
 # de cada corrida exitosa porque el esquema no tiene columna de watermark y
@@ -325,6 +339,8 @@ def _dinero(valor: object) -> Decimal | None:
         raise MeliAdsError(f"importe fuera de NUMERIC(14,4): {valor!r}")
     if numero > 0 and cuantizado == 0:
         raise MeliAdsError(f"importe positivo que cuantiza a cero: {valor!r}")
+    if cuantizado == 0:
+        return Decimal("0.0000")  # cero negativo y cero positivo: misma version
     return cuantizado
 
 
@@ -337,7 +353,7 @@ def _entero(valor: object, maximo: int) -> int | None:
         numero = valor
     elif isinstance(valor, float) and valor.is_integer():
         numero = int(valor)
-    elif isinstance(valor, str) and valor.strip().lstrip("-").isdigit():
+    elif isinstance(valor, str) and re.fullmatch(r"-?\d+", valor.strip()):
         numero = int(valor.strip())
     else:
         raise MeliAdsError(f"entero ilegible: {valor!r}")
@@ -421,7 +437,15 @@ def _momento_utc(texto: object) -> dt.datetime | None:
         return None
     if momento.tzinfo is None:
         momento = momento.replace(tzinfo=dt.UTC)
-    return momento.astimezone(dt.UTC)
+    momento = momento.astimezone(dt.UTC)
+    # La fuente viva usa datetime('now') con precision de segundo. Una
+    # fraccion de segundo es un dato distinto que el id no puede ordenar.
+    if momento.microsecond != 0:
+        return None
+    # Un anio fuera de rango es un timestamp desbordado, no una fecha.
+    if not 2000 <= momento.year <= 2100:
+        return None
+    return momento
 
 
 def leer_origen(ruta: Path | str) -> OrigenMeliAds:
@@ -559,10 +583,32 @@ def _nombres_vigentes(filas: list[FilaMeliAds]) -> dict[str, str]:
     return nombres
 
 
-def _marca_corridas(conn: psycopg.Connection) -> int:
-    """Maximo as-of de TODAS las corridas exitosas, no la ultima por id."""
-    marcas = [_marca_de_as_of(fila[0]) for fila in conn.execute(_SQL_MARCA, (SOURCE,)).fetchall()]
-    return max((m for m in marcas if m is not None), default=-1)
+def _marcas_corridas(conn: psycopg.Connection) -> list[int]:
+    """As-of de TODAS las corridas exitosas, no solo la ultima por id."""
+    return [
+        marca
+        for fila in conn.execute(_SQL_MARCA, (SOURCE,)).fetchall()
+        if (marca := _marca_de_as_of(fila[0])) is not None
+    ]
+
+
+def _estado_temporal(
+    conn: psycopg.Connection,
+    ultimas: dict[tuple[str, dt.date], tuple[str, int]],
+) -> tuple[dt.datetime, int, int, int]:
+    """Reloj logico de observacion y marcas real/todas bajo el candado."""
+    ahora_reloj = conn.execute("SELECT clock_timestamp()").fetchone()[0]
+    max_observado = conn.execute(_SQL_MAX_OBSERVADO).fetchone()[0]
+    observed_at = (
+        max(ahora_reloj, max_observado + dt.timedelta(microseconds=1))
+        if max_observado is not None
+        else ahora_reloj
+    )
+    marcas = _marcas_corridas(conn) + [partes[1] for partes in ultimas.values()]
+    marca_todas = max(marcas, default=-1)
+    limite_real = int(ahora_reloj.timestamp()) + int(_SKEW_RELOJ.total_seconds())
+    marca_real = max((m for m in marcas if m <= limite_real), default=-1)
+    return observed_at, marca_todas, marca_real, limite_real
 
 
 def _valida_orden(
@@ -635,9 +681,7 @@ def ingest_meli_ads(
             # DESPUES del candado: el reloj de ingesta no puede quedar antes
             # que el de una corrida que termino mientras esta esperaba, o
             # v_metric_latest elegiria la observacion equivocada.
-            observed_at = conn.execute("SELECT clock_timestamp()").fetchone()[0]
             ultimas: dict[tuple[str, dt.date], tuple[str, int]] = {}
-            epoch_max_observado = -1
             for external_id, metric_date, report_id in conn.execute(_SQL_ULTIMAS):
                 partes = _version_y_as_of(report_id)
                 if partes is None:
@@ -646,17 +690,19 @@ def ingest_meli_ads(
                         f" {external_id} {metric_date.isoformat()}"
                     )
                 ultimas[(external_id, metric_date)] = partes
-                epoch_max_observado = max(epoch_max_observado, partes[1])
 
-            # Maximo as-of entre TODAS las corridas exitosas y las
-            # observaciones. El id no ordena: los runs nacen antes del candado
-            # y pueden terminar en otro orden.
-            marca = max(_marca_corridas(conn), epoch_max_observado)
+            # Reloj logico y marcas bajo el candado. El id de ingest_run no
+            # ordena. Un as-of futuro no puede envenenar una correccion real:
+            # para un snapshot <= ahora+skew solo cuentan las marcas reales;
+            # para uno futuro se compara contra todas.
+            observed_at, marca_todas, marca_real, limite_real = _estado_temporal(conn, ultimas)
             as_of_epoch = int(origen.as_of.timestamp()) if origen.as_of is not None else -1
+            es_futuro = as_of_epoch > limite_real
+            marca_para = marca_todas if es_futuro else marca_real
             try:
                 # El nombre solo se aplica desde un snapshot estrictamente
-                # posterior a la marca aceptada.
-                permite_nombre = _valida_orden(filas, ultimas, marca, as_of_epoch)
+                # posterior a la marca aplicable.
+                permite_nombre = _valida_orden(filas, ultimas, marca_para, as_of_epoch)
             except MeliAdsError:
                 rechazo_total = True
                 raise
@@ -708,7 +754,7 @@ def ingest_meli_ads(
             if duplicados_id:
                 skips["source_report_id ya ingerido"] = duplicados_id
             # La marca avanza con la recopia aunque no haya observaciones.
-            marca_final = max(marca, as_of_epoch)
+            marca_final = max(marca_todas, as_of_epoch)
             partes = [f"as_of={marca_final}"] if marca_final >= 0 else []
             motivo = _formato_skip_reason(skips)
             if motivo:

@@ -327,11 +327,12 @@ rm /tmp/accounting-snapshot.db
 docker exec -u 0 orbit-app-1 rm /tmp/accounting-snapshot.db
 ```
 
-Cadencia: **DIARIA desde ORBIT 06 2.2 (2026-09-04)** — `refresh_costos.sh`
-(08:15 UTC) corre `costs` + `fx` + `ledger` + `meli-ads` del MISMO snapshot,
-cada uno a su log (`costos.log`/`fx.log`/`ledger.log`/`meli_ads.log`), sin
-tumbarse entre si. Re-correr es no-op por PK (y por `source_report_id` en
-`meli-ads`).
+Cadencia: **DIARIA desde ORBIT 06 2.2 (2026-09-04)** para `costs` + `fx` +
+`ledger`. `meli-ads` se suma con RESUMEN-ADS-01 y corre en la misma cadencia
+desde **su activación**, no desde septiembre. Corre los cuatro del MISMO
+snapshot (08:15 UTC), cada uno a su log (`costos.log`/`fx.log`/`ledger.log`/
+`meli_ads.log`), sin tumbarse entre si. Re-correr es no-op por PK (y por
+`source_report_id` en `meli-ads`).
 
 ## Ingesta del ledger desde contabilidad (ORBIT 06 0.6)
 
@@ -360,11 +361,12 @@ rm /tmp/accounting-snapshot.db
 docker exec -u 0 orbit-app-1 rm /tmp/accounting-snapshot.db
 ```
 
-Cadencia: **DIARIA desde ORBIT 06 2.2 (2026-09-04)** — `refresh_costos.sh`
-(08:15 UTC) corre `costs` + `fx` + `ledger` + `meli-ads` del MISMO snapshot,
-cada uno a su log (`costos.log`/`fx.log`/`ledger.log`/`meli_ads.log`), sin
-tumbarse entre si. Re-correr es no-op por los índices de dedupe
-(`rows_written=0`, conflictos contados en `rows_skipped`). En el cron NO se reescribe el DSN:
+Cadencia: **DIARIA desde ORBIT 06 2.2 (2026-09-04)** para `costs` + `fx` +
+`ledger`. `meli-ads` se suma con RESUMEN-ADS-01 y corre en la misma cadencia
+desde **su activación**. Corre los cuatro del MISMO snapshot (08:15 UTC), cada
+uno a su log (`costos.log`/`fx.log`/`ledger.log`/`meli_ads.log`), sin tumbarse
+entre si. Re-correr es no-op por los índices de dedupe (`rows_written=0`,
+conflictos contados en `rows_skipped`). En el cron NO se reescribe el DSN:
 `app/db.py` ya mapea `@127.0.0.1:` → `@db:` con `ORBIT_PG_HOST`; el truco
 `-e ORBIT_DSN_INGEST=...` de arriba queda como alternativa manual.
 Alternativa sin reescribir DSN: correr desde el host contra el puerto publicado
@@ -431,7 +433,11 @@ Evidencia: `docs/evidencia/resumen-ads-multicanal/01-ingesta/`.
   máximo entre **todas** las corridas exitosas y las observaciones, bajo el
   candado; el id de `ingest_run` no ordena porque los runs nacen antes del
   candado. La recopia sin cambios **sí avanza la marca**, aunque no inserte
-  observaciones. Un snapshot anterior a la marca se
+  observaciones. Un as-of hasta 24 h adelante se acepta, pero no envenena una
+  corrección real: un snapshot con as-of hasta 5 min adelante del reloj
+  compara solo contra marcas reales; uno más futuro compara contra todas.
+  `observed_at` es un reloj lógico y nunca queda por detrás del máximo ya
+  publicado, aunque el reloj de pared retroceda. Un snapshot anterior a la marca se
   rechaza **completo** con `ok=false`, aunque sus métricas coincidan: no
   reemplaza la corrección vigente y no toca el catálogo. Con el mismo as-of
   solo se admite el reintento exacto. Si el operador ve `snapshot atrasado`,
@@ -444,8 +450,9 @@ Evidencia: `docs/evidencia/resumen-ads-multicanal/01-ingesta/`.
   es indistinguible de una corrección y se acepta (el origen estaría mintiendo
   sobre su propio orden).
 - **Validación**: el timestamp de origen debe existir en cada fila no
-  vacía (`updated_at`); una fila ilegible rechaza el snapshot completo. Un as-of más de **24 h** adelante del
-  reloj de ingesta se rechaza (tolerancia de desfase de reloj/zona). Las
+  vacía (`updated_at`); una fila ilegible, con fracción de segundo o con año
+  fuera de 2000-2100 rechaza el snapshot completo. Un as-of más de **24 h**
+  adelante del reloj de ingesta se rechaza. Las
   claves `(campaign_id, metric_date)` deben ser únicas; un snapshot sin PK que
   las repita se rechaza, no se deduplica. Dinero: se tolera solo ruido binario
   (< 1e-5); más de 4 decimales se rechaza; el rango NUMERIC(14,4) se valida
@@ -488,15 +495,24 @@ Por qué 08:15 UTC alcanza (medido, no supuesto):
 
 ### Activación (orden completo, sin desplegar desde este runbook)
 
-1. Copiar el código y reconstruir la app con el CLI nuevo. Verificar dentro del
-   contenedor: `docker exec orbit-app-1 python -m app.cli ingest meli-ads --help`.
-2. Instalar el script de host en su ruta canónica, con modo 0755:
-   `install -m 0755 tools/refresh_costos.sh /mnt/data/appdata/orbit/refresh_costos.sh`.
-   El `git archive` de la sección de rebuild no instala este archivo: es un
-   script de host, no parte del contexto de la imagen.
-3. Verificar sintaxis y checksum contra el repo:
-   `bash -n /mnt/data/appdata/orbit/refresh_costos.sh` y
-   `sha256sum -c` contra el SHA256 de `tools/refresh_costos.sh`.
+1. Copiar el código y reconstruir la app con el CLI nuevo, usando el **SHA
+   aprobado** en el `git archive` de la sección de rebuild (no `origin/master`,
+   que puede no incluir esta fase). Verificar dentro del contenedor:
+   `docker exec orbit-app-1 python -m app.cli ingest meli-ads --help`.
+2. Transferir el script de host **desde el SHA aprobado**. El servidor no es un
+   checkout y el `git archive` de la app no copia este archivo.
+
+   ```bash
+   SHA_APROBADO=<sha aprobado>
+   # En la máquina del lead, con el repo:
+   git show "$SHA_APROBADO":tools/refresh_costos.sh | ssh goncloud 'cat > /tmp/refresh_costos.sh'
+   git show "$SHA_APROBADO":tools/refresh_costos.sh | sha256sum
+   ssh goncloud 'sha256sum /tmp/refresh_costos.sh'   # debe coincidir
+   ssh goncloud 'install -m 0755 /tmp/refresh_costos.sh /mnt/data/appdata/orbit/refresh_costos.sh'
+   ```
+
+3. Verificar sintaxis en el servidor:
+   `ssh goncloud 'bash -n /mnt/data/appdata/orbit/refresh_costos.sh'`.
 4. Ejecutar la carga inicial con el procedimiento manual de arriba.
 5. Comprobar `ingest_run` (`ok`, `rows_written`, `skip_reason` con `as_of=`) y
    la conciliación de la sección siguiente.
@@ -552,9 +568,10 @@ explícita de todo lo escrito después de ese backup (de cualquier fuente) y
 aprobación del operador. No se ejecuta desde este runbook.
 
 No borres corridas exitosas de MeLi. La marca de as-of vive en su
-`skip_reason`; `ingest_run` es append-only y no tiene purga (D7). Borrar una
-corrida deduplicada pierde la marca y permite que un snapshot anterior vuelva
-a entrar.
+`skip_reason`. `ingest_run` no tiene purga (D7), pero **no es append-only**:
+nace abierta y se sella con UPDATE por columna. Borrar una corrida
+deduplicada pierde la marca y permite que un snapshot anterior vuelva a
+entrar.
 
 ## Crons de Orbit (crontab de `gon`, ADITIVO)
 
@@ -840,8 +857,8 @@ rompe nada, solo degrada; omitir `0035`/`0036` sí rompe.
 
 La línea `15 8 * * * .../refresh_costos.sh` (que ya existía para costos, a
 las 07:30 hasta la review del PR #144)
-corre ahora los cuatro pipelines del MISMO snapshot, en este orden: `costs`,
-`fx`, `ledger`, `meli-ads` — cada uno a su log
+corre los cuatro pipelines del MISMO snapshot desde la activación de
+RESUMEN-ADS-01, en este orden: `costs`, `fx`, `ledger`, `meli-ads` — cada uno a su log
 (`costos.log`/`fx.log`/`ledger.log`/`meli_ads.log`) más una línea resumen a
 stdout (llega a `costos.log`). Un pipeline caído
 NO tumba a los otros (cada uno sella su `ingest_run` ok/false); el exit

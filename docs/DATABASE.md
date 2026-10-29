@@ -198,8 +198,12 @@ global**, no por campaña. Vive en `ingest_run.skip_reason` como
 `as_of=<epoch>` y se toma el máximo entre todas las corridas exitosas y las
 observaciones, bajo el candado; el id de `ingest_run` no ordena porque los
 runs nacen antes del candado. Una recopia deduplicada la avanza aunque no
-inserte observaciones. `updated_at` es obligatorio en cada fila no vacía y un
-as-of más de 24 h adelante del reloj de ingesta se rechaza. Las claves
+inserte observaciones. Un as-of hasta 24 h adelante se acepta pero no envenena
+una corrección real (los snapshots con as-of hasta 5 min adelante comparan
+solo contra marcas reales). `updated_at` es obligatorio en cada fila no vacía;
+fracciones de segundo y años fuera de 2000-2100 se rechazan; un as-of más de
+24 h adelante se rechaza. `observed_at` es un reloj lógico que nunca queda por
+detrás del máximo publicado. Las claves
 `(campaign_id, metric_date)` deben ser únicas; un snapshot sin PK que las
 repita se rechaza. El `ON CONFLICT` apunta solo al índice parcial
 `metric_dedupe_reporte`; una colisión de la PK

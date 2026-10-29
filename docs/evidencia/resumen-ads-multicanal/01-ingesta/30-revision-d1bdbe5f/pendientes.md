@@ -5,13 +5,12 @@ sustituyen con afirmaciones.
 
 - **Lane 1 Amazon (regresión base vs head).** Requiere credenciales AWS y la
   fuente Amazon viva. No están en este checkout.
-- **Perf de `/` (30 requests intercalados, mediana y p95).** Requiere levantar
-  FastAPI con el fixture Amazon y la base completa. No se levantó aquí.
+- El perf de `/` y el reinicio de FastAPI se completaron en la ronda
+  `78888f3e` (`30-revision-78888f3e/ui-perf-http.txt`).
 - **Lanes live del plan (10 carriles en VM con `grok-4.7-xhigh-fast` y
   capturas).** No hay VM de revisión en este entorno. Los equivalentes CLI sí
   se ejecutaron y están en este directorio.
-- **Reinicio del servicio FastAPI.** Se reinició el proceso de ingesta (CLI) y
-  se verificó la base en procesos nuevos; el servicio HTTP no se reinició.
+
 
 El resto de los gates solicitados se ejecutó: focales, Ruff, formato,
 `bash -n`, `git diff --check`, pre-commit, suite completa con

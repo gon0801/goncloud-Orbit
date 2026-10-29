@@ -168,6 +168,39 @@ exitosas. Borrar una corrida deduplicada pierde la marca; `ingest_run` es
 append-only y sin purga, y el runbook prohíbe borrar corridas exitosas de
 MeLi. Si se borra, un snapshot anterior puede volver a entrar.
 
+## Quinta revisión (veredicto sobre `78888f3e`)
+
+Dos bloqueantes de datos, reproducidos con PostgreSQL real, y la ruta de
+activación.
+
+- **As-of futuro dentro de 24 h.** Se acepta, pero ya no envenena la marca. El
+  cálculo separa `marca_todas` de `marca_real`: un snapshot con as-of hasta
+  5 min adelante del reloj compara solo contra marcas reales; uno más futuro
+  compara contra todas. Una corrección con la hora actual ya queda vigente.
+- **Reloj que retrocede.** `observed_at` es ahora un reloj lógico: se toma
+  `max(clock_timestamp(), max(observed_at de MeLi) + 1 µs)` bajo el candado.
+  Aunque el reloj de pared retroceda, la corrección nueva gana en
+  `v_metric_latest`.
+- **Activación.** Se documenta la transferencia de `tools/refresh_costos.sh`
+  desde el SHA aprobado (`git show <SHA>:tools/refresh_costos.sh | ssh ...`),
+  checksum, `install -m 0755`, `bash -n`, carga inicial y conciliación. El
+  rebuild de la app usa el SHA aprobado, no `origin/master`. El archive no
+  copia el script de host.
+- **Runbook.** MeLi ya no se presenta como desplegado desde septiembre.
+  `ingest_run` ya no se llama append-only: no tiene purga, pero es mutable por
+  diseño y se sella con UPDATE.
+- **Secundarios.** Se rechazan fracciones de segundo y años fuera de
+  2000-2100. `_entero` rechaza `--1`. El cero negativo se normaliza. Hay
+  pruebas de `duplicados_id` y de la salida exitosa del CLI. Se conserva el
+  caso NUMERIC `9999999999.99996`. Los scripts de perf, conciliación y
+  reproducciones quedan versionados en `30-revision-d1bdbe5f/scripts/`.
+
+Evidencia: `30-revision-78888f3e/antes.txt` y `despues.txt` (los dos
+bloqueantes), `ui-perf-http.txt` (p95 real de `/` con uvicorn y reinicio del
+servicio) y `perf-100k.txt` (3 ingestas de 100,000 filas, 6.97–7.74 s cada
+una, snapshot de 10,498,048 bytes). Focales: **106 passed** (43 del módulo).
+Suite completa con `ORBIT_TEST_DSN`: **5526 passed, 0 failed**.
+
 ## Archivos
 
 - `app/meli/ads_ingest.py` (nuevo): adaptador SQLite `mode=ro`, forma
@@ -182,13 +215,13 @@ MeLi. Si se borra, un snapshot anterior puede volver a entrar.
 
 ## Pruebas
 
-- Focales: `99 passed` (`tests/test_meli_ads_ingest.py` + `tests/test_cli.py`;
-  36 casos del módulo). Detalle: `30-revision-d1bdbe5f/pruebas.txt`.
+- Focales: `106 passed` (`tests/test_meli_ads_ingest.py` + `tests/test_cli.py`;
+  43 casos del módulo). Detalle: `30-revision-78888f3e/pruebas.txt`.
 - Regresión contra el padre: la ingesta no colecciona (`ModuleNotFoundError`)
   y el CLI falla por el comando/choice ausente. Detalle:
   `06-pruebas-regresion-parent.txt`.
-- Suite completa con `ORBIT_TEST_DSN`: **5519 passed, 0 failed**. Detalle en
-  `30-revision-d1bdbe5f/suite.txt`.
+- Suite completa con `ORBIT_TEST_DSN`: **5526 passed, 0 failed**. Detalle en
+  `30-revision-78888f3e/suite.txt`.
 
 ## Verificación operativa real
 
@@ -241,10 +274,11 @@ Gates del plan **no ejecutados** en este checkout, por infraestructura:
 
 - **Lane 1 Amazon**: regresión de la ingesta Amazon base vs head. Requiere
   credenciales AWS y la fuente viva; no están disponibles en este checkout.
-- **Perf de `/`**: 30 requests intercalados para mediana y p95. Requiere la
-  app FastAPI con el fixture Amazon y la base completa; no se levantó aquí.
 - **Lanes live del plan** (10 carriles en VM con `grok-4.7-xhigh-fast` y
   capturas): no hay VM de revisión en este entorno. Los equivalentes CLI se
-  ejecutaron y quedan en `30-revision-d1bdbe5f/`.
-- **Reinicio de la app FastAPI**: se reinició el proceso de ingesta (CLI) y se
-  verificó la base; el reinicio del servicio HTTP no se ejecutó.
+  ejecutaron y quedan en `30-revision-d1bdbe5f/` y `30-revision-78888f3e/`.
+
+El perf de `/` y el reinicio del servicio sí se ejecutaron en esta ronda.
+`ui-perf-http.txt` registra uvicorn real, 30 requests, base 31ba12a
+p95=4.86 ms, head p95=4.96 ms, reinicio head p95=4.70 ms, mismo payload de
+24,959 bytes. La regla de +10 % pasa.

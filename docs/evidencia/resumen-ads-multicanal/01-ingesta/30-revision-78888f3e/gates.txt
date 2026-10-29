@@ -1,0 +1,594 @@
+== Gates de calidad (head corregido) ==
+
+-- uv run --frozen ruff check . --
+I001 [*] Import block is un-sorted or un-formatted
+  --> docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-78888f3e/scripts/perf_100k.py:3:1
+   |
+ 1 |   """Perf gate: 3 ingestas frescas de 100,000 filas canonicas y su tamano."""
+ 2 |
+ 3 | / from __future__ import annotations
+ 4 | |
+ 5 | | import datetime as dt
+ 6 | | import os
+ 7 | | import socket
+ 8 | | import sqlite3
+ 9 | | import tempfile
+10 | | import time
+11 | | from pathlib import Path
+12 | |
+13 | | import psycopg
+14 | | from psycopg import sql
+15 | |
+16 | | from app.meli.ads_ingest import ingest_meli_ads
+17 | | from test_schema import SQL, _test_dsn
+   | |______________________________________^
+18 |
+19 |   FILAS = 100_000
+   |
+help: Organize imports
+   |
+14 | from psycopg import sql
+15 + from test_schema import SQL, _test_dsn
+16 |
+17 | from app.meli.ads_ingest import ingest_meli_ads
+   - from test_schema import SQL, _test_dsn
+18 |
+   |
+
+E501 Line too long (128 > 100)
+  --> docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-78888f3e/scripts/ui_perf_http.py:19:101
+   |
+17 | ordenadas = sorted(lat)
+18 | p95 = ordenadas[int(0.95 * len(ordenadas)) - 1]
+19 | print(json.dumps({"n": len(lat), "median_ms": round(statistics.median(lat), 2), "p95_ms": round(p95, 2), "bytes": len(cuerpo)}))
+   |                                                                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+I001 [*] Import block is un-sorted or un-formatted
+  --> docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-78888f3e/scripts/ui_perf_testclient.py:13:1
+   |
+11 |   os.environ["ORBIT_SECRETS_DIR"] = tempfile.mkdtemp(prefix="orbit-secrets-")
+12 |
+13 | / from fastapi.testclient import TestClient  # noqa: E402
+14 | | from app.main import app  # noqa: E402
+   | |________________________^
+15 |
+16 |   with TestClient(app) as cliente:
+   |
+help: Organize imports
+   |
+13 | from fastapi.testclient import TestClient  # noqa: E402
+14 +
+15 | from app.main import app  # noqa: E402
+   |
+
+I001 [*] Import block is un-sorted or un-formatted
+  --> docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-d1bdbe5f/scripts/perf_100k.py:3:1
+   |
+ 1 |   """Perf gate: 3 ingestas frescas de 100,000 filas canonicas y su tamano."""
+ 2 |
+ 3 | / from __future__ import annotations
+ 4 | |
+ 5 | | import datetime as dt
+ 6 | | import os
+ 7 | | import socket
+ 8 | | import sqlite3
+ 9 | | import tempfile
+10 | | import time
+11 | | from pathlib import Path
+12 | |
+13 | | import psycopg
+14 | | from psycopg import sql
+15 | |
+16 | | from app.meli.ads_ingest import ingest_meli_ads
+17 | | from test_schema import SQL, _test_dsn
+   | |______________________________________^
+18 |
+19 |   FILAS = 100_000
+   |
+help: Organize imports
+   |
+14 | from psycopg import sql
+15 + from test_schema import SQL, _test_dsn
+16 |
+17 | from app.meli.ads_ingest import ingest_meli_ads
+   - from test_schema import SQL, _test_dsn
+18 |
+   |
+
+I001 [*] Import block is un-sorted or un-formatted
+ --> docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-d1bdbe5f/scripts/revision/orbit_review_78888f3e_blockers.py:1:1
+  |
+1 | / import datetime as dt
+2 | |
+3 | | import orbit_review_d1bdbe5 as r
+4 | | from app.meli import ads_ingest as ai
+5 | | from test_meli_ads_ingest import D1, _RelojFijo, _snapshot
+  | |__________________________________________________________^
+help: Organize imports
+  |
+3 | import orbit_review_d1bdbe5 as r
+  - from app.meli import ads_ingest as ai
+4 | from test_meli_ads_ingest import D1, _RelojFijo, _snapshot
+5 |
+6 + from app.meli import ads_ingest as ai
+7 +
+8 |
+  |
+
+I001 [*] Import block is un-sorted or un-formatted
+  --> docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-d1bdbe5f/scripts/revision/orbit_review_d1bdbe5.py:1:1
+   |
+ 1 | / from __future__ import annotations
+ 2 | |
+ 3 | | import datetime as dt
+ 4 | | import os
+ 5 | | import socket
+ 6 | | import sqlite3
+ 7 | | import tempfile
+ 8 | | import threading
+ 9 | | from pathlib import Path
+10 | |
+11 | | import psycopg
+12 | | from psycopg import sql
+13 | |
+14 | | from app.meli import ads_ingest as ai
+15 | | from test_meli_ads_ingest import D1, D2, _FILAS, _snapshot
+16 | | from test_schema import SQL, _test_dsn
+   | |______________________________________^
+17 |
+18 |   PID = os.getpid()
+   |
+help: Organize imports
+   |
+12 | from psycopg import sql
+13 + from test_meli_ads_ingest import _FILAS, D1, D2, _snapshot
+14 + from test_schema import SQL, _test_dsn
+15 |
+16 | from app.meli import ads_ingest as ai
+   - from test_meli_ads_ingest import D1, D2, _FILAS, _snapshot
+   - from test_schema import SQL, _test_dsn
+17 |
+   |
+
+F401 [*] `sqlite3` imported but unused
+ --> docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-d1bdbe5f/scripts/revision/orbit_review_d1bdbe5.py:6:8
+  |
+4 | import os
+5 | import socket
+6 | import sqlite3
+  |        ^^^^^^^
+7 | import tempfile
+8 | import threading
+  |
+help: Remove unused import: `sqlite3`
+  |
+5 | import socket
+  - import sqlite3
+6 | import tempfile
+  |
+
+F401 [*] `test_meli_ads_ingest.D2` imported but unused
+  --> docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-d1bdbe5f/scripts/revision/orbit_review_d1bdbe5.py:15:38
+   |
+14 | from app.meli import ads_ingest as ai
+15 | from test_meli_ads_ingest import D1, D2, _FILAS, _snapshot
+   |                                      ^^
+16 | from test_schema import SQL, _test_dsn
+   |
+help: Remove unused import: `test_meli_ads_ingest.D2`
+   |
+14 | from app.meli import ads_ingest as ai
+   - from test_meli_ads_ingest import D1, D2, _FILAS, _snapshot
+15 + from test_meli_ads_ingest import D1, _FILAS, _snapshot
+16 | from test_schema import SQL, _test_dsn
+   |
+
+E701 Multiple statements on one line (colon)
+  --> docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-d1bdbe5f/scripts/revision/orbit_review_d1bdbe5.py:92:44
+   |
+90 |                 if query == ai._SQL_LOCK_MELI:
+91 |                     entered.set()
+92 |                     if not release.wait(10): raise RuntimeError("timeout pausa")
+   |                                            ^
+93 |                 return self.inner.execute(query, params) if params is not None else self.inner.execute(query)
+94 |             def __getattr__(self, attr): return getattr(self.inner, attr)
+   |
+
+E501 Line too long (109 > 100)
+  --> docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-d1bdbe5f/scripts/revision/orbit_review_d1bdbe5.py:93:101
+   |
+91 |                     entered.set()
+92 |                     if not release.wait(10): raise RuntimeError("timeout pausa")
+93 |                 return self.inner.execute(query, params) if params is not None else self.inner.execute(query)
+   |                                                                                                     ^^^^^^^^^
+94 |             def __getattr__(self, attr): return getattr(self.inner, attr)
+   |
+
+E501 Line too long (101 > 100)
+   --> docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-d1bdbe5f/scripts/revision/orbit_review_d1bdbe5.py:132:101
+    |
+130 |                 def fetchone(self): return (self.value,)
+131 |             return Result(self.instante)
+132 |         return self.inner.execute(query, params) if params is not None else self.inner.execute(query)
+    |                                                                                                     ^
+133 |     def __getattr__(self, attr): return getattr(self.inner, attr)
+    |
+
+E501 Line too long (124 > 100)
+   --> docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-d1bdbe5f/scripts/revision/orbit_review_d1bdbe5.py:141:101
+    |
+139 |         fixed = dt.datetime(2026, 10, 29, 13, 0, tzinfo=dt.UTC)
+140 |         w = RelojFijo(c, fixed)
+141 |         one = _snapshot(TMP / "clock-one.db", [(D1.isoformat(), "C1", "ALFA", 1, 2, 5.0, 8.0)], as_of="2026-10-29 08:00:00")
+    |                                                                                                     ^^^^^^^^^^^^^^^^^^^^^^^^
+142 |         two = _snapshot(TMP / "clock-two.db", [(D1.isoformat(), "C1", "ALFA", 1, 2, 6.0, 8.0)], as_of="2026-10-29 09:00:00")
+143 |         ai.ingest_meli_ads(w, one)
+    |
+
+E501 Line too long (124 > 100)
+   --> docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-d1bdbe5f/scripts/revision/orbit_review_d1bdbe5.py:142:101
+    |
+140 |         w = RelojFijo(c, fixed)
+141 |         one = _snapshot(TMP / "clock-one.db", [(D1.isoformat(), "C1", "ALFA", 1, 2, 5.0, 8.0)], as_of="2026-10-29 08:00:00")
+142 |         two = _snapshot(TMP / "clock-two.db", [(D1.isoformat(), "C1", "ALFA", 1, 2, 6.0, 8.0)], as_of="2026-10-29 09:00:00")
+    |                                                                                                     ^^^^^^^^^^^^^^^^^^^^^^^^
+143 |         ai.ingest_meli_ads(w, one)
+144 |         result = ai.ingest_meli_ads(w, two)
+    |
+
+E501 Line too long (110 > 100)
+   --> docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-d1bdbe5f/scripts/revision/orbit_review_d1bdbe5.py:145:101
+    |
+143 |         ai.ingest_meli_ads(w, one)
+144 |         result = ai.ingest_meli_ads(w, two)
+145 |         obs = c.execute("SELECT count(*), count(DISTINCT observed_at) FROM ads_metric_observation").fetchone()
+    |                                                                                                     ^^^^^^^^^^
+146 |         print("CLOCK_COLLISION", {"resultado_segunda_correccion": result, "latest": str(latest(c)[0]), "observaciones": obs, "ultimo_…
+147 |     finally:
+    |
+
+E501 Line too long (152 > 100)
+   --> docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-d1bdbe5f/scripts/revision/orbit_review_d1bdbe5.py:146:101
+    |
+144 | …
+145 | …erved_at) FROM ads_metric_observation").fetchone()
+146 | …ion": result, "latest": str(latest(c)[0]), "observaciones": obs, "ultimo_run": runs(c)[-1]})
+    |                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+147 | …
+148 | …
+    |
+
+E501 Line too long (122 > 100)
+   --> docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-d1bdbe5f/scripts/revision/orbit_review_d1bdbe5.py:154:101
+    |
+152 |     name, c = fresh("retention")
+153 |     try:
+154 |         one = _snapshot(TMP / "ret-one.db", [(D1.isoformat(), "C1", "ALFA", 1, 2, 5.0, 8.0)], as_of="2026-10-29 08:00:00")
+    |                                                                                                     ^^^^^^^^^^^^^^^^^^^^^^
+155 |         recopy = _snapshot(TMP / "ret-copy.db", [(D1.isoformat(), "C1", "ALFA", 1, 2, 5.0, 8.0)], as_of="2026-10-29 12:00:00")
+156 |         stale = _snapshot(TMP / "ret-stale.db", [(D1.isoformat(), "C1", "VIEJO", 1, 2, 7.0, 8.0)], as_of="2026-10-29 11:00:00")
+    |
+
+E501 Line too long (126 > 100)
+   --> docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-d1bdbe5f/scripts/revision/orbit_review_d1bdbe5.py:155:101
+    |
+153 |     try:
+154 |         one = _snapshot(TMP / "ret-one.db", [(D1.isoformat(), "C1", "ALFA", 1, 2, 5.0, 8.0)], as_of="2026-10-29 08:00:00")
+155 |         recopy = _snapshot(TMP / "ret-copy.db", [(D1.isoformat(), "C1", "ALFA", 1, 2, 5.0, 8.0)], as_of="2026-10-29 12:00:00")
+    |                                                                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+156 |         stale = _snapshot(TMP / "ret-stale.db", [(D1.isoformat(), "C1", "VIEJO", 1, 2, 7.0, 8.0)], as_of="2026-10-29 11:00:00")
+157 |         ai.ingest_meli_ads(c, one)
+    |
+
+E501 Line too long (127 > 100)
+   --> docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-d1bdbe5f/scripts/revision/orbit_review_d1bdbe5.py:156:101
+    |
+154 |         one = _snapshot(TMP / "ret-one.db", [(D1.isoformat(), "C1", "ALFA", 1, 2, 5.0, 8.0)], as_of="2026-10-29 08:00:00")
+155 |         recopy = _snapshot(TMP / "ret-copy.db", [(D1.isoformat(), "C1", "ALFA", 1, 2, 5.0, 8.0)], as_of="2026-10-29 12:00:00")
+156 |         stale = _snapshot(TMP / "ret-stale.db", [(D1.isoformat(), "C1", "VIEJO", 1, 2, 7.0, 8.0)], as_of="2026-10-29 11:00:00")
+    |                                                                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+157 |         ai.ingest_meli_ads(c, one)
+158 |         copied = ai.ingest_meli_ads(c, recopy)
+    |
+
+E501 Line too long (126 > 100)
+   --> docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-d1bdbe5f/scripts/revision/orbit_review_d1bdbe5.py:166:101
+    |
+164 |         except Exception as exc:
+165 |             fk_error = type(exc).__name__
+166 |         print("RETENTION", {"stale_11_tras_borrar_recopia_12": tuple(map(str, latest(c))), "delete_run_con_hechos": fk_error})
+    |                                                                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+167 |     finally:
+168 |         drop(name, c)
+    |
+
+E501 Line too long (127 > 100)
+   --> docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-d1bdbe5f/scripts/revision/orbit_review_d1bdbe5.py:174:101
+    |
+172 |     name, c = fresh("legacy")
+173 |     try:
+174 |         run = c.execute("INSERT INTO ingest_run(source,ok,finished_at) VALUES('legacy',true,now()) RETURNING id").fetchone()[0]
+    |                                                                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+175 |         ent = c.execute("INSERT INTO ad_entity(platform,kind,external_id,name) VALUES('meli','campaign','C1','ALFA') RETURNING id").f…
+176 |         c.execute(
+    |
+
+E501 Line too long (145 > 100)
+   --> docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-d1bdbe5f/scripts/revision/orbit_review_d1bdbe5.py:175:101
+    |
+173 | …
+174 | …,finished_at) VALUES('legacy',true,now()) RETURNING id").fetchone()[0]
+175 | …ind,external_id,name) VALUES('meli','campaign','C1','ALFA') RETURNING id").fetchone()[0]
+    |                                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+176 | …
+177 | …_id,metric_date,observed_at,metric_currency,cost,source_report_id,ingest_run_id) "
+    |
+
+E501 Line too long (139 > 100)
+   --> docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-d1bdbe5f/scripts/revision/orbit_review_d1bdbe5.py:177:101
+    |
+175 | …m,kind,external_id,name) VALUES('meli','campaign','C1','ALFA') RETURNING id").fetchone()[0]
+176 | …
+177 | …ity_id,metric_date,observed_at,metric_currency,cost,source_report_id,ingest_run_id) "
+    |                                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+178 | …t, D1, run)
+179 | …
+    |
+
+E501 Line too long (122 > 100)
+   --> docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-d1bdbe5f/scripts/revision/orbit_review_d1bdbe5.py:180:101
+    |
+178 |             "VALUES(%s,%s,now(),'MXN',5,NULL,%s)", (ent, D1, run)
+179 |         )
+180 |         snap = _snapshot(TMP / "legacy.db", [(D1.isoformat(), "C1", "ALFA", 1, 2, 6.0, 8.0)], as_of="2026-10-29 08:00:00")
+    |                                                                                                     ^^^^^^^^^^^^^^^^^^^^^^
+181 |         error = None
+182 |         try:
+    |
+
+E501 Line too long (159 > 100)
+   --> docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-d1bdbe5f/scripts/revision/orbit_review_d1bdbe5.py:186:101
+    |
+184 | …
+185 | …
+186 | …[0]), "observaciones": c.execute("SELECT count(*) FROM ads_metric_observation").fetchone()[0]})
+    |                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+187 | …
+188 | …
+    |
+
+E501 Line too long (124 > 100)
+   --> docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-d1bdbe5f/scripts/revision/orbit_review_d1bdbe5.py:194:101
+    |
+192 |     name, c = fresh("future")
+193 |     try:
+194 |         future = _snapshot(TMP / "future.db", [(D1.isoformat(), "C1", "ALFA", 1, 2, 5.0, 8.0)], as_of="2099-01-01 00:00:00")
+    |                                                                                                     ^^^^^^^^^^^^^^^^^^^^^^^^
+195 |         current = _snapshot(TMP / "current.db", [(D1.isoformat(), "C1", "ALFA", 1, 2, 6.0, 8.0)], as_of="2026-10-29 08:00:00")
+196 |         ai.ingest_meli_ads(c, future)
+    |
+
+E501 Line too long (126 > 100)
+   --> docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-d1bdbe5f/scripts/revision/orbit_review_d1bdbe5.py:195:101
+    |
+193 |     try:
+194 |         future = _snapshot(TMP / "future.db", [(D1.isoformat(), "C1", "ALFA", 1, 2, 5.0, 8.0)], as_of="2099-01-01 00:00:00")
+195 |         current = _snapshot(TMP / "current.db", [(D1.isoformat(), "C1", "ALFA", 1, 2, 6.0, 8.0)], as_of="2026-10-29 08:00:00")
+    |                                                                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+196 |         ai.ingest_meli_ads(c, future)
+197 |         error = None
+    |
+
+E501 Line too long (234 > 100)
+   --> docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-d1bdbe5f/scripts/revision/orbit_review_d1bdbe5.py:219:101
+    |
+217 | …
+218 | …
+219 | …OM ad_entity").fetchone()[0], "observaciones": c.execute("SELECT count(*) FROM ads_metric_observation").fetchone()[0], "run": runs(c)[-1]})
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+220 | …
+221 | …
+    |
+
+F841 Local variable `count0` is assigned to but never used
+   --> docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-d1bdbe5f/scripts/revision/orbit_review_d1bdbe5.py:231:9
+    |
+229 | …     base = _snapshot(TMP / "matrix-base.db", _FILAS, as_of="2026-10-29 08:00:00")
+230 | …     ai.ingest_meli_ads(c, base)
+231 | …     count0 = c.execute("SELECT count(*) FROM ads_metric_observation").fetchone()[0]
+    |       ^^^^^^
+232 | …     retry = ai.ingest_meli_ads(c, base)
+233 | …     subset_same = _snapshot(TMP / "matrix-subset-same.db", [(D1.isoformat(), "C1", "OTRO", 10, 100, 12.34, 0.0)], as_of="2026-10-29…
+    |
+help: Remove assignment to unused variable `count0`
+
+E501 Line too long (146 > 100)
+   --> docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-d1bdbe5f/scripts/revision/orbit_review_d1bdbe5.py:233:101
+    |
+231 | …ic_observation").fetchone()[0]
+232 | …
+233 | ….db", [(D1.isoformat(), "C1", "OTRO", 10, 100, 12.34, 0.0)], as_of="2026-10-29 08:00:00")
+    |                                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+234 | …
+235 | …[(D1.isoformat(), "NEW", "NUEVA", 1, 2, 3.0, 4.0)], as_of="2026-10-29 08:00:00")
+    |
+
+E501 Line too long (137 > 100)
+   --> docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-d1bdbe5f/scripts/revision/orbit_review_d1bdbe5.py:235:101
+    |
+233 | …same.db", [(D1.isoformat(), "C1", "OTRO", 10, 100, 12.34, 0.0)], as_of="2026-10-29 08:00:00")
+234 | …
+235 | …b", [(D1.isoformat(), "NEW", "NUEVA", 1, 2, 3.0, 4.0)], as_of="2026-10-29 08:00:00")
+    |                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+236 | …
+237 | …
+    |
+
+E701 Multiple statements on one line (colon)
+   --> docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-d1bdbe5f/scripts/revision/orbit_review_d1bdbe5.py:237:12
+    |
+235 | …     same_new = _snapshot(TMP / "matrix-same-new.db", [(D1.isoformat(), "NEW", "NUEVA", 1, 2, 3.0, 4.0)], as_of="2026-10-29 08:00:00…
+236 | …     same_new_error = None
+237 | …     try: ai.ingest_meli_ads(c, same_new)
+    |          ^
+238 | …     except Exception as exc: same_new_error = str(exc)
+239 | …     correction_b = _snapshot(TMP / "matrix-b.db", [(D1.isoformat(), "C1", "ALFA B", 10, 100, 20.0, 0.0)], as_of="2026-10-29 09:00:0…
+    |
+
+E701 Multiple statements on one line (colon)
+   --> docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-d1bdbe5f/scripts/revision/orbit_review_d1bdbe5.py:238:32
+    |
+236 | …     same_new_error = None
+237 | …     try: ai.ingest_meli_ads(c, same_new)
+238 | …     except Exception as exc: same_new_error = str(exc)
+    |                              ^
+239 | …     correction_b = _snapshot(TMP / "matrix-b.db", [(D1.isoformat(), "C1", "ALFA B", 10, 100, 20.0, 0.0)], as_of="2026-10-29 09:00:0…
+240 | …     ai.ingest_meli_ads(c, correction_b)
+    |
+
+E501 Line too long (138 > 100)
+   --> docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-d1bdbe5f/scripts/revision/orbit_review_d1bdbe5.py:239:101
+    |
+237 | …
+238 | …(exc)
+239 | … [(D1.isoformat(), "C1", "ALFA B", 10, 100, 20.0, 0.0)], as_of="2026-10-29 09:00:00")
+    |                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+240 | …
+241 | … [(D1.isoformat(), "C1", "ALFA A", 10, 100, 12.34, 0.0)], as_of="2026-10-29 10:00:00")
+    |
+
+E501 Line too long (139 > 100)
+   --> docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-d1bdbe5f/scripts/revision/orbit_review_d1bdbe5.py:241:101
+    |
+239 | …[(D1.isoformat(), "C1", "ALFA B", 10, 100, 20.0, 0.0)], as_of="2026-10-29 09:00:00")
+240 | …
+241 | …[(D1.isoformat(), "C1", "ALFA A", 10, 100, 12.34, 0.0)], as_of="2026-10-29 10:00:00")
+    |                                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+242 | …
+243 | …, [(D1.isoformat(), "NEW", "NUEVA", 1, 2, 3.0, 4.0)], as_of="2026-10-29 11:00:00")
+    |
+
+E501 Line too long (136 > 100)
+   --> docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-d1bdbe5f/scripts/revision/orbit_review_d1bdbe5.py:243:101
+    |
+241 | …, [(D1.isoformat(), "C1", "ALFA A", 10, 100, 12.34, 0.0)], as_of="2026-10-29 10:00:00")
+242 | …
+243 | …b", [(D1.isoformat(), "NEW", "NUEVA", 1, 2, 3.0, 4.0)], as_of="2026-10-29 11:00:00")
+    |                                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+244 | …
+245 | …
+    |
+
+E501 Line too long (115 > 100)
+   --> docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-d1bdbe5f/scripts/revision/orbit_review_d1bdbe5.py:246:101
+    |
+244 |         ai.ingest_meli_ads(c, new_campaign)
+245 |         empty_after = ai.ingest_meli_ads(c, empty)
+246 |         c.execute("INSERT INTO ingest_run(source,ok,skip_reason) VALUES(%s,NULL,'as_of=4102444800')", (ai.SOURCE,))
+    |                                                                                                     ^^^^^^^^^^^^^^^
+247 |         c.execute("INSERT INTO ingest_run(source,ok,finished_at,skip_reason) VALUES(%s,false,now(),'fallo')", (ai.SOURCE,))
+248 |         counts = c.execute("SELECT count(*) FROM ads_metric_observation").fetchone()[0]
+    |
+
+E501 Line too long (123 > 100)
+   --> docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-d1bdbe5f/scripts/revision/orbit_review_d1bdbe5.py:247:101
+    |
+245 |         empty_after = ai.ingest_meli_ads(c, empty)
+246 |         c.execute("INSERT INTO ingest_run(source,ok,skip_reason) VALUES(%s,NULL,'as_of=4102444800')", (ai.SOURCE,))
+247 |         c.execute("INSERT INTO ingest_run(source,ok,finished_at,skip_reason) VALUES(%s,false,now(),'fallo')", (ai.SOURCE,))
+    |                                                                                                     ^^^^^^^^^^^^^^^^^^^^^^^
+248 |         counts = c.execute("SELECT count(*) FROM ads_metric_observation").fetchone()[0]
+249 |         print("MATRIX", {
+    |
+
+E501 Line too long (196 > 100)
+   --> docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-d1bdbe5f/scripts/revision/orbit_review_d1bdbe5.py:257:101
+    |
+255 | …
+256 | …
+257 | …on o JOIN ad_entity e ON e.id=o.ad_entity_id WHERE e.external_id='C1' AND o.metric_date=%s", (D1,)).fetchone()[0],
+    |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+258 | …i.SOURCE,)).fetchone()[0],
+259 | …
+    |
+
+E501 Line too long (108 > 100)
+   --> docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-d1bdbe5f/scripts/revision/orbit_review_d1bdbe5.py:258:101
+    |
+256 |             "vacia_posterior_conserva": (empty_after, counts),
+257 |             "historia_C1_D1": c.execute("SELECT count(*) FROM ads_metric_observation o JOIN ad_entity e ON e.id=o.ad_entity_id WHERE …
+258 |             "runs_abierto_fallido_ignorados_en_marca": c.execute(ai._SQL_MARCA, (ai.SOURCE,)).fetchone()[0],
+    |                                                                                                     ^^^^^^^^
+259 |         })
+260 |     finally:
+    |
+
+I001 [*] Import block is un-sorted or un-formatted
+  --> docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-d1bdbe5f/scripts/revision/orbit_review_inputs.py:1:1
+   |
+ 1 | / import os
+ 2 | | import socket
+ 3 | | import sqlite3
+ 4 | | import tempfile
+ 5 | | from pathlib import Path
+ 6 | |
+ 7 | | import psycopg
+ 8 | | from psycopg import sql as pgsql
+ 9 | |
+10 | | from app.meli.ads_ingest import MeliAdsError, _dinero, ingest_meli_ads, leer_origen
+11 | | from test_meli_ads_ingest import D1, _snapshot
+12 | | from test_schema import SQL, _test_dsn
+   | |______________________________________^
+help: Organize imports
+   |
+8  | from psycopg import sql as pgsql
+9  + from test_meli_ads_ingest import D1, _snapshot
+10 + from test_schema import SQL, _test_dsn
+11 |
+12 | from app.meli.ads_ingest import MeliAdsError, _dinero, ingest_meli_ads, leer_origen
+   - from test_meli_ads_ingest import D1, _snapshot
+   - from test_schema import SQL, _test_dsn
+13 |
+   |
+
+E501 Line too long (104 > 100)
+  --> docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-d1bdbe5f/scripts/revision/orbit_review_inputs.py:57:101
+   |
+55 |         if conn is not None:
+56 |             conn.close()
+57 |         admin.execute(pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db)))
+   |                                                                                                     ^^^^
+58 |         admin.close()
+   |
+
+SIM105 Use `contextlib.suppress(MeliAdsError)` instead of `try`-`except`-`pass`
+  --> docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-d1bdbe5f/scripts/revision/orbit_review_inputs.py:93:13
+   |
+91 |               snap = Path(tmp) / "sin_tabla.db"
+92 |               sqlite3.connect(snap).close()
+93 | /             try:
+94 | |                 ingest_meli_ads(conn, snap)
+95 | |             except MeliAdsError:
+96 | |                 pass
+   | |____________________^
+97 |               corridas = conn.execute("SELECT count(*) FROM ingest_run").fetchone()[0]
+98 |               print("CORRIDA_AUSENTE", corridas)
+   |
+help: Replace `try`-`except`-`pass` with `with contextlib.suppress(MeliAdsError): ...`
+
+Found 42 errors.
+[*] 8 fixable with the `--fix` option (2 hidden fixes can be enabled with the `--unsafe-fixes` option).
+
+-- uv run --frozen ruff format --check ... --
+4 files already formatted
+
+-- bash -n tools/refresh_costos.sh --
+OK
+
+-- git diff --check --
+OK
+
+-- pre-commit run --all-files --
+Detect hardcoded secrets.................................................Passed
+check for merge conflicts................................................Passed
+rc=0
