@@ -1,5 +1,5 @@
 == Muestra acotada (5 filas) meli_ads_campaigns_daily ==
-date        campaign_id  campaign_name      clicks  impressions  spend   ad_sales  acos  updated_at         
+date        campaign_id  campaign_name      clicks  impressions  spend   ad_sales  acos  updated_at
 ----------  -----------  -----------------  ------  -----------  ------  --------  ----  -------------------
 2026-10-28  356150383    SCALE_ML_ARRAS     12      10110        11.17   0.0       0.0   2026-10-29 01:29:22
 2026-10-28  356150418    CORE_PROFIT_ARRAS  41      16465        112.14  0.0       0.0   2026-10-29 01:29:22
@@ -8,7 +8,7 @@ date        campaign_id  campaign_name      clicks  impressions  spend   ad_sale
 2026-10-27  356150383    SCALE_ML_ARRAS     41      17430        86.37   0.0       0.0   2026-10-29 01:29:22
 
 == Muestra acotada (3 filas) meli_ads_metrics_daily ==
-date        clicks  impressions  spend   ad_sales  acos   updated_at         
+date        clicks  impressions  spend   ad_sales  acos   updated_at
 ----------  ------  -----------  ------  --------  -----  -------------------
 2026-10-29  0       0            0.0     0.0       0.0    2026-10-29 01:29:22
 2026-10-28  53      26575        123.31  0.0       0.0    2026-10-29 01:29:22
@@ -17,38 +17,38 @@ date        clicks  impressions  spend   ad_sales  acos   updated_at
 == Identidad de campana: dias cubiertos y nombres distintos ==
 campaign_id  dias  desde       hasta       rango  nombres
 -----------  ----  ----------  ----------  -----  -------
-356150383    196   2026-04-16  2026-10-28  196    1      
-356150418    196   2026-04-16  2026-10-28  196    1      
-356150422    196   2026-04-16  2026-10-28  196    1      
-357537065    196   2026-04-16  2026-10-28  196    1      
+356150383    196   2026-04-16  2026-10-28  196    1
+356150418    196   2026-04-16  2026-10-28  196    1
+356150422    196   2026-04-16  2026-10-28  196    1
+357537065    196   2026-04-16  2026-10-28  196    1
 
 == Nombre por campana ==
-campaign_id  campaign_name    
+campaign_id  campaign_name
 -----------  -----------------
-356150383    SCALE_ML_ARRAS   
+356150383    SCALE_ML_ARRAS
 356150418    CORE_PROFIT_ARRAS
-356150422    NEW_LAUNCH_ARRAS 
-357537065    Hot Sale         
+356150422    NEW_LAUNCH_ARRAS
+357537065    Hot Sale
 
 == Filas por dia (grano) ==
 filas_por_dia  dias
 -------------  ----
-4              196 
+4              196
 
 == Nulos y ceros reales ==
 name_null  clicks_null  imp_null  spend_null  sales_null  clicks_cero  imp_cero  spend_cero  sales_cero  filas
 ---------  -----------  --------  ----------  ----------  -----------  --------  ----------  ----------  -----
-0          0            0         0           0           257          256       257         573         784  
+0          0            0         0           0           257          256       257         573         784
 
 == updated_at (se reescribe en cada sync aunque el valor no cambie) ==
 minimo               maximo               distintos
 -------------------  -------------------  ---------
-2026-07-15 23:43:19  2026-10-29 01:29:22  127      
+2026-07-15 23:43:19  2026-10-29 01:29:22  127
 
 == Ultima corrida: inicio/fin del loop por campana ==
 inicio_loop          fin_loop             filas  dias
 -------------------  -------------------  -----  ----
-2026-10-29 01:29:02  2026-10-29 01:29:22  360    90  
+2026-10-29 01:29:02  2026-10-29 01:29:22  360    90
 filas  campanas  desde       hasta       spend_total  ventas_ads_total
 -----  --------  ----------  ----------  -----------  ----------------
-784    4         2026-04-16  2026-10-28  108686.38    382972.77       
+784    4         2026-04-16  2026-10-28  108686.38    382972.77

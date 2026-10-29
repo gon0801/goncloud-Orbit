@@ -1,10 +1,10 @@
 == Lane 2/3: CLI real sobre snapshot real (Postgres desechable orbit_meli_ads_ops) ==
-Fecha: Thu 29 Oct 2026 02:16:16 UTC
+Fecha: Thu 29 Oct 2026 02:45:13 UTC
 
 -- snapshot --
-filas  campanas  desde       hasta     
------  --------  ----------  ----------
-784    4         2026-04-16  2026-10-28
+filas  campanas  desde       hasta       as_of
+-----  --------  ----------  ----------  -------------------
+784    4         2026-04-16  2026-10-28  2026-10-29 01:29:22
 
 -- corrida 1 --
 == Ingesta de MeLi Ads desde contabilidad (accounting_meli_ads_campaigns) ==

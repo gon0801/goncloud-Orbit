@@ -3,27 +3,27 @@ Thu 29 Oct 2026 01:49:51 UTC
 
 == Postgres de Orbit (docker exec orbit-db-1, solo SELECT) ==
 Pager usage is off.
- entidades_meli 
+ entidades_meli
 ----------------
               0
 (1 row)
 
- obs_meli 
+ obs_meli
 ----------
         0
 (1 row)
 
- entidades_total | observaciones_total 
+ entidades_total | observaciones_total
 -----------------+---------------------
            18528 |              241435
 (1 row)
 
- duplicados_dedupe 
+ duplicados_dedupe
 -------------------
                  0
 (1 row)
 
-                 source                 | corridas |            ultima             
+                 source                 | corridas |            ultima
 ----------------------------------------+----------+-------------------------------
  bridge_estimacion_fees                 |      209 | 2026-10-29 00:45:08.794818+00
  meli_catalogo                          |       15 | 2026-10-28 11:30:22.39617+00
@@ -47,14 +47,14 @@ Pager usage is off.
  bridge_listings                        |        5 | 2026-09-02 04:32:58.803769+00
 (20 rows)
 
-  grantee   |       table_name       |  privilegios  
+  grantee   |       table_name       |  privilegios
 ------------+------------------------+---------------
  app_ingest | ad_entity              | INSERT,SELECT
  app_ingest | ads_metric_observation | INSERT,SELECT
  app_ingest | ingest_run             | INSERT,SELECT
 (3 rows)
 
- table_name | column_name  | privilege_type 
+ table_name | column_name  | privilege_type
 ------------+--------------+----------------
  ad_entity  | listing_id   | UPDATE
  ad_entity  | name         | UPDATE
@@ -66,7 +66,7 @@ Pager usage is off.
  ingest_run | skip_reason  | UPDATE
 (8 rows)
 
-                        pg_get_viewdef                         
+                        pg_get_viewdef
 ---------------------------------------------------------------
   SELECT DISTINCT ON (ad_entity_id, metric_date) ad_entity_id,+
      metric_date,                                             +

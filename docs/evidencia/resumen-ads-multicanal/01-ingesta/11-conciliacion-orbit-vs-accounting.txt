@@ -8,4 +8,4 @@ faltantes en Orbit: []
 sobrantes en Orbit: []
 campana/dia comparables: 784, diferencias: 0
 dias de meli_ads_metrics_daily comparables: 196, diferencias: 0
-fecha de la conciliacion: 2026-10-29T02:16:18.167493+00:00
+fecha de la conciliacion: 2026-10-29T02:45:15.290886+00:00

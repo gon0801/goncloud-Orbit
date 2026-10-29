@@ -36,6 +36,42 @@ consultas: `00-puerta-fuente.md`, `01-fuente-esquema.txt`,
   corregidas de 512 comparables).
 - Sin madurez D-8 para MeLi; se ingesta T+0 parcial.
 
+## Corrección del bloqueante de la revisión (Limi 3.1)
+
+Revisión: un snapshot viejo ingerido después de una corrección recibía un
+`observed_at` posterior y `v_metric_latest` mostraba el valor viejo. Corregido
+con una política de orden por el as-of del origen:
+
+- `as_of` = `max(updated_at)` del snapshot (UTC). `updated_at` no es la
+  versión (cambia en cada sync), pero sí es la marca de cuándo escribió el
+  origen.
+- `source_report_id` =
+  `meli-ads|<campaign_id>|<fecha>|<version>|<as_of_epoch>`.
+- Una observación nueva solo se acepta si su as-of es **estrictamente
+  posterior** al as-of de la observación vigente de esa campaña/fecha. Un
+  snapshot atrasado, o uno con el mismo as-of y contenido distinto, se rechaza
+  completo con `ok=false`: no escribe, no toca el catálogo y no reemplaza la
+  corrección vigente.
+- El mismo hecho re-observado con un as-of nuevo (recopia sin cambios) no
+  agrega observaciones: manda la versión (hash).
+- Un advisory lock por transacción serializa solo las ingestas de MeLi, para
+  que dos corridas concurrentes no lean el mismo "último".
+
+Pruebas nuevas: `test_snapshot_atrasado_no_reemplaza_la_correccion_vigente`
+(reproduce la secuencia del bloqueante), `test_snapshot_con_el_mismo_as_of_no_reemplaza`
+y `test_recopia_con_as_of_nuevo_y_mismo_contenido_no_agrega`. Reproducción
+guardada en `17-bloqueante-snapshot-atrasado.txt`.
+
+Residual declarado: si un snapshot afirma un `updated_at` **más nuevo** que el
+de la observación vigente pero trae contenido viejo, el origen está mintiendo
+sobre su orden y ninguna política puede distinguirlo de una corrección. La
+recuperación operativa es re-copiar después del último sync de accounting.
+
+Observaciones no bloqueantes atendidas: los conteos del docstring ya no se
+presentan como invariantes; el orden de lectura/validación/apertura de la
+corrida quedó descrito como es; el runbook usa `mktemp` en vez de una ruta
+fija; y se quitaron los espacios finales de la evidencia.
+
 ## Archivos
 
 - `app/meli/ads_ingest.py` (nuevo): adaptador SQLite `mode=ro`, forma
@@ -50,8 +86,8 @@ consultas: `00-puerta-fuente.md`, `01-fuente-esquema.txt`,
 
 ## Pruebas
 
-- Focales: `80 passed` (`tests/test_meli_ads_ingest.py` + `tests/test_cli.py`).
-  Detalle: `07-pruebas-foco.txt`.
+- Focales: `83 passed` (`tests/test_meli_ads_ingest.py` + `tests/test_cli.py`;
+  20 casos del módulo). Detalle: `07-pruebas-foco.txt`.
 - Regresión contra el padre: la ingesta no colecciona (`ModuleNotFoundError`)
   y el CLI falla por el comando/choice ausente. Detalle:
   `06-pruebas-regresion-parent.txt`.
@@ -67,6 +103,8 @@ consultas: `00-puerta-fuente.md`, `01-fuente-esquema.txt`,
 | 3 Reintento idéntico (0 escrituras, 784 duplicados) | OK | `09-operativo-carga-y-reintento.txt` |
 | 4 Corrección (1 observación nueva, `v_metric_latest` con 87.60) | OK | `10-operativo-correccion.txt` |
 | 5 Moneda e identidad inválidas (falla cerrada, 0 filas) | OK | `12-operativo-rechazos.txt` |
+| Snapshot atrasado sobre datos reales (no pisa la vigente) | OK | `16-operativo-snapshot-atrasado.txt` |
+| Reproducción del bloqueante de Limi | OK | `17-bloqueante-snapshot-atrasado.txt` |
 | 6/7 Sin snapshot, sin DSN y DSN con password redactado | OK | `13-operativo-sin-snapshot-dsn.txt` |
 | 8 Conciliación 784/784 filas y 196/196 días | OK | `11-conciliacion-orbit-vs-accounting.txt` |
 | 9 Aislamiento de `refresh_costos.sh` (fx falla, meli-ads corre) | OK | `15-operativo-aislamiento.txt` |

@@ -52,7 +52,7 @@ CREATE TABLE meli_ads_campaigns_daily (
 0|sqlite_autoindex_meli_ads_campaigns_daily_1|1|pk|0
 
 == Conteos y rangos ==
-tabla            filas  desde       hasta     
+tabla            filas  desde       hasta
 ---------------  -----  ----------  ----------
 metrics_daily    320    2025-12-14  2026-10-29
 campaigns_daily  784    2026-04-16  2026-10-28

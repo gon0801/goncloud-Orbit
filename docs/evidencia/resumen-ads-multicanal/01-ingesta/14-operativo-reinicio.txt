@@ -2,9 +2,9 @@
 
 -- huella antes (proceso 1) --
 SET
- obs | entidades |    costo    |   revenue   |            ultima             
+ obs | entidades |    costo    |   revenue   |            ultima
 -----+-----------+-------------+-------------+-------------------------------
- 784 |         4 | 108686.3800 | 382972.7700 | 2026-10-29 02:16:18.011038+00
+ 784 |         4 | 108686.3800 | 382972.7700 | 2026-10-29 02:45:15.057796+00
 (1 row)
 
 -- reingesta en un proceso NUEVO --
@@ -15,9 +15,9 @@ rc=0
 
 -- huella despues (proceso 2) --
 SET
- obs | entidades |    costo    |   revenue   |            ultima             
+ obs | entidades |    costo    |   revenue   |            ultima
 -----+-----------+-------------+-------------+-------------------------------
- 784 |         4 | 108686.3800 | 382972.7700 | 2026-10-29 02:16:18.011038+00
+ 784 |         4 | 108686.3800 | 382972.7700 | 2026-10-29 02:45:15.057796+00
 (1 row)
 
 -- conciliacion de nuevo en un proceso nuevo --
@@ -25,4 +25,4 @@ faltantes en Orbit: []
 sobrantes en Orbit: []
 campana/dia comparables: 784, diferencias: 0
 dias de meli_ads_metrics_daily comparables: 196, diferencias: 0
-fecha de la conciliacion: 2026-10-29T02:16:19.686196+00:00
+fecha de la conciliacion: 2026-10-29T02:45:17.166325+00:00

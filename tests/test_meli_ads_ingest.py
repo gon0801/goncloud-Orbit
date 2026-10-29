@@ -36,7 +36,7 @@ from app.meli.ads_ingest import (
     MeliAdsError,
     _nombres_vigentes,
     ingest_meli_ads,
-    leer_filas,
+    leer_origen,
     main,
     version_canonica,
 )
@@ -44,6 +44,11 @@ from app.meli.ads_ingest import (
 HOY = dt.datetime.now(dt.UTC).date()
 D1 = HOY - dt.timedelta(days=1)
 D2 = HOY - dt.timedelta(days=2)
+# As-of del origen (`updated_at`). Fechas fijas a proposito: el orden entre
+# snapshots no depende del reloj de la maquina que corre el test.
+AS_OF_INICIAL = "2026-10-29 08:00:00"
+AS_OF_CORRECCION = "2026-10-29 12:00:00"
+AS_OF_ATRASADO = "2026-10-29 07:00:00"
 
 # Esquema REAL de accounting (PRAGMA table_info del 2026-10-29), con el
 # PRIMARY KEY del origen. `currency` se agrega solo en los tests que prueban
@@ -78,18 +83,30 @@ def _snapshot(
     *,
     con_moneda: bool = False,
     moneda: str = "MXN",
+    as_of: str | None = None,
 ) -> Path:
+    """Crea una SQLite con el esquema real. `as_of` fija `updated_at`."""
     con = sqlite3.connect(ruta)
     con.executescript(_DDL_ORIGEN)
     if con_moneda:
         con.execute("ALTER TABLE meli_ads_campaigns_daily ADD COLUMN currency TEXT")
-        filas = [(*fila, moneda) for fila in filas]
+    columnas = "date, campaign_id, campaign_name, clicks, impressions, spend, ad_sales"
+    if con_moneda:
+        columnas += ", currency"
+    if as_of is not None:
+        columnas += ", updated_at"
+    valores = []
+    for fila in filas:
+        valor = list(fila)
+        if con_moneda:
+            valor.append(moneda)
+        if as_of is not None:
+            valor.append(as_of)
+        valores.append(tuple(valor))
     con.executemany(
-        "INSERT INTO meli_ads_campaigns_daily"
-        " (date, campaign_id, campaign_name, clicks, impressions, spend, ad_sales"
-        f"{', currency' if con_moneda else ''})"
-        f" VALUES ({', '.join(['?'] * (8 if con_moneda else 7))})",
-        filas,
+        f"INSERT INTO meli_ads_campaigns_daily ({columnas})"
+        f" VALUES ({', '.join(['?'] * len(columnas.split(',')))})",
+        valores,
     )
     con.commit()
     con.close()
@@ -114,9 +131,9 @@ def test_version_canonica_ignora_nombre_y_detecta_metricas(tmp_path):
     )
     # El nombre de campana no entra en la version (renombrar no crea hechos).
     filas = [(D1.isoformat(), "C1", "OTRO NOMBRE", 10, 100, 12.34, 0.0)]
-    otra, rechazos = leer_filas(_snapshot(tmp_path / "n.db", filas))
-    assert not rechazos
-    assert otra[0].source_version == base
+    origen = leer_origen(_snapshot(tmp_path / "n.db", filas))
+    assert not origen.rechazos
+    assert origen.filas[0].source_version == base
 
 
 def test_leer_filas_usa_revision_del_origen(tmp_path):
@@ -128,23 +145,22 @@ def test_leer_filas_usa_revision_del_origen(tmp_path):
     con.commit()
     con.close()
 
-    filas, rechazos = leer_filas(snap)
-    assert not rechazos
-    assert {fila.source_version for fila in filas} == {"rev:r1"}
+    origen = leer_origen(snap)
+    assert not origen.rechazos
+    assert {fila.source_version for fila in origen.filas} == {"rev:r1"}
 
     con = sqlite3.connect(snap)
     con.execute("UPDATE meli_ads_campaigns_daily SET revision = 'r2'")
     con.commit()
     con.close()
-    filas, _ = leer_filas(snap)
-    assert {fila.source_version for fila in filas} == {"rev:r2"}
+    assert {fila.source_version for fila in leer_origen(snap).filas} == {"rev:r2"}
 
 
 def test_leer_filas_conserva_cero_real_y_dato_faltante(tmp_path):
-    filas, rechazos = leer_filas(_snapshot(tmp_path / "snap.db", _FILAS))
-    assert not rechazos
-    assert len(filas) == 4
-    por_clave = {(f.campaign_external_id, f.metric_date): f for f in filas}
+    origen = leer_origen(_snapshot(tmp_path / "snap.db", _FILAS))
+    assert not origen.rechazos
+    assert len(origen.filas) == 4
+    por_clave = {(f.campaign_external_id, f.metric_date): f for f in origen.filas}
 
     cero = por_clave[("C1", D2)]
     assert cero.cost == Decimal("0.0000")
@@ -161,39 +177,41 @@ def test_leer_filas_conserva_cero_real_y_dato_faltante(tmp_path):
 
 
 def test_leer_filas_rechaza_moneda_fuera_de_dominio(tmp_path):
-    snap = _snapshot(tmp_path / "usd.db", _FILAS, con_moneda=True, moneda="USD")
-    filas, rechazos = leer_filas(snap)
-    assert filas == []
-    assert sum(rechazos.values()) == 4
-    assert all("moneda fuera de dominio" in motivo for motivo in rechazos)
+    snap = _snapshot(
+        tmp_path / "usd.db", _FILAS, con_moneda=True, moneda="USD", as_of=AS_OF_INICIAL
+    )
+    origen = leer_origen(snap)
+    assert origen.filas == ()
+    assert sum(origen.rechazos.values()) == 4
+    assert all("moneda fuera de dominio" in motivo for motivo in origen.rechazos)
 
 
 def test_leer_filas_rechaza_identidad_ausente(tmp_path):
     filas_origen = [(D1.isoformat(), " ", "SIN ID", 1, 2, 3.0, 4.0)]
-    filas, rechazos = leer_filas(_snapshot(tmp_path / "sin-id.db", filas_origen))
-    assert filas == []
-    assert sum(rechazos.values()) == 1
-    assert any("identidad de campana ausente" in motivo for motivo in rechazos)
+    origen = leer_origen(_snapshot(tmp_path / "sin-id.db", filas_origen))
+    assert origen.filas == ()
+    assert sum(origen.rechazos.values()) == 1
+    assert any("identidad de campana ausente" in motivo for motivo in origen.rechazos)
 
 
 def test_leer_filas_rechaza_fecha_futura(tmp_path):
     futura = (HOY + dt.timedelta(days=1)).isoformat()
-    filas, rechazos = leer_filas(
+    origen = leer_origen(
         _snapshot(tmp_path / "futura.db", [(futura, "C1", "ALFA", 1, 2, 3.0, 4.0)])
     )
-    assert filas == []
-    assert any("fecha futura" in motivo for motivo in rechazos)
+    assert origen.filas == ()
+    assert any("fecha futura" in motivo for motivo in origen.rechazos)
 
 
 def test_snapshot_sin_tabla_de_origen(tmp_path):
     ruta = tmp_path / "vacia.db"
     sqlite3.connect(ruta).close()
     with pytest.raises(MeliAdsError, match="meli_ads_campaigns_daily"):
-        leer_filas(ruta)
+        leer_origen(ruta)
 
 
 def test_nombres_vigentes_usa_el_nombre_mas_reciente(tmp_path):
-    filas, _ = leer_filas(
+    filas = leer_origen(
         _snapshot(
             tmp_path / "renombre.db",
             [
@@ -201,7 +219,7 @@ def test_nombres_vigentes_usa_el_nombre_mas_reciente(tmp_path):
                 (D1.isoformat(), "C1", "NOMBRE NUEVO", 1, 2, 3.0, 4.0),
             ],
         )
-    )
+    ).filas
     assert _nombres_vigentes(filas) == {"C1": "NOMBRE NUEVO"}
 
 
@@ -273,7 +291,9 @@ def _corrige(
     metric_date: str,
     cost: float | None = None,
     campaign_name: str | None = None,
+    as_of: str | None = None,
 ) -> None:
+    """Edita el origen como lo hace el sync: valor nuevo y `updated_at` nuevo."""
     con = sqlite3.connect(ruta)
     if cost is not None:
         con.execute(
@@ -285,6 +305,11 @@ def _corrige(
             "UPDATE meli_ads_campaigns_daily SET campaign_name = ?"
             " WHERE campaign_id = ? AND date = ?",
             (campaign_name, campaign_id, metric_date),
+        )
+    if as_of is not None:
+        con.execute(
+            "UPDATE meli_ads_campaigns_daily SET updated_at = ? WHERE campaign_id = ? AND date = ?",
+            (as_of, campaign_id, metric_date),
         )
     con.commit()
     con.close()
@@ -307,7 +332,7 @@ def _ultima(conn, campaign_id: str, fecha: dt.date):
 
 
 def test_ingesta_escribe_entidades_y_observaciones(pg, tmp_path):
-    snap = _snapshot(tmp_path / "snap.db", _FILAS)
+    snap = _snapshot(tmp_path / "snap.db", _FILAS, as_of=AS_OF_INICIAL)
     resultado = ingest_meli_ads(pg, snap)
 
     assert resultado["rows_written"] == 4
@@ -349,7 +374,7 @@ def test_ingesta_escribe_entidades_y_observaciones(pg, tmp_path):
 
 
 def test_reintento_del_mismo_snapshot_no_duplica(pg, tmp_path):
-    snap = _snapshot(tmp_path / "snap.db", _FILAS)
+    snap = _snapshot(tmp_path / "snap.db", _FILAS, as_of=AS_OF_INICIAL)
     primera = ingest_meli_ads(pg, snap)
     entidades, observaciones = _conteos(pg)
 
@@ -369,12 +394,87 @@ def test_reintento_del_mismo_snapshot_no_duplica(pg, tmp_path):
     assert segunda["run_id"] != primera["run_id"]
 
 
+def test_snapshot_atrasado_no_reemplaza_la_correccion_vigente(pg, tmp_path):
+    """Bloqueante Limi: un snapshot viejo ingerido despues no puede pisar la
+    correccion vigente, aunque su observed_at (hora de ingesta) sea posterior.
+    """
+    nuevo = _snapshot(
+        tmp_path / "nuevo.db",
+        [(D1.isoformat(), "C2", "BETA", 3, 50, 6.5, 20.0)],
+        as_of=AS_OF_CORRECCION,
+    )
+    viejo = _snapshot(
+        tmp_path / "viejo.db",
+        [(D1.isoformat(), "C2", "BETA", 3, 50, 5.0, 20.0)],
+        as_of=AS_OF_ATRASADO,
+    )
+    ingest_meli_ads(pg, nuevo)
+    entidades, observaciones = _conteos(pg)
+    assert _ultima(pg, "C2", D1)[0] == Decimal("6.5000")
+
+    with pytest.raises(MeliAdsError, match="snapshot atrasado"):
+        ingest_meli_ads(pg, viejo)
+
+    assert _conteos(pg) == (entidades, observaciones)
+    assert _ultima(pg, "C2", D1)[0] == Decimal("6.5000")
+    run = pg.execute(
+        "SELECT ok, rows_written, rows_skipped, skip_reason"
+        " FROM ingest_run ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    assert run[0] is False and run[1] == 0 and run[2] == 1
+    assert "snapshot atrasado" in run[3]
+
+
+def test_snapshot_con_el_mismo_as_of_no_reemplaza(pg, tmp_path):
+    """Mismo as-of y contenido distinto es ambiguo: se rechaza (fail-closed)."""
+    snap = _snapshot(
+        tmp_path / "snap.db",
+        [(D1.isoformat(), "C2", "BETA", 3, 50, 6.5, 20.0)],
+        as_of=AS_OF_INICIAL,
+    )
+    ingest_meli_ads(pg, snap)
+    _, observaciones = _conteos(pg)
+
+    # Edicion in-place SIN avanzar updated_at: el origen no prueba que sea
+    # posterior; no puede volverse vigente.
+    _corrige(snap, campaign_id="C2", metric_date=D1.isoformat(), cost=5.0)
+    with pytest.raises(MeliAdsError, match="snapshot atrasado"):
+        ingest_meli_ads(pg, snap)
+
+    assert _conteos(pg)[1] == observaciones
+    assert _ultima(pg, "C2", D1)[0] == Decimal("6.5000")
+
+
+def test_recopia_con_as_of_nuevo_y_mismo_contenido_no_agrega(pg, tmp_path):
+    """Re-copiar el mismo hecho con un `updated_at` mas nuevo no es correccion:
+    la version (hash) manda y el dedupe no agrega observaciones."""
+    snap = _snapshot(tmp_path / "snap.db", _FILAS, as_of=AS_OF_INICIAL)
+    ingest_meli_ads(pg, snap)
+    entidades, observaciones = _conteos(pg)
+
+    con = sqlite3.connect(snap)
+    con.execute("UPDATE meli_ads_campaigns_daily SET updated_at = ?", (AS_OF_CORRECCION,))
+    con.commit()
+    con.close()
+
+    resultado = ingest_meli_ads(pg, snap)
+    assert resultado["rows_written"] == 0
+    assert resultado["duplicados"] == 4
+    assert _conteos(pg) == (entidades, observaciones)
+
+
 def test_correccion_agrega_observacion_y_v_metric_latest_la_expone(pg, tmp_path):
-    snap = _snapshot(tmp_path / "snap.db", _FILAS)
+    snap = _snapshot(tmp_path / "snap.db", _FILAS, as_of=AS_OF_INICIAL)
     ingest_meli_ads(pg, snap)
     _, antes = _conteos(pg)
 
-    _corrige(snap, campaign_id="C2", metric_date=D1.isoformat(), cost=6.5)
+    _corrige(
+        snap,
+        campaign_id="C2",
+        metric_date=D1.isoformat(),
+        cost=6.5,
+        as_of=AS_OF_CORRECCION,
+    )
     resultado = ingest_meli_ads(pg, snap)
 
     assert resultado["rows_written"] == 1
@@ -393,7 +493,7 @@ def test_correccion_agrega_observacion_y_v_metric_latest_la_expone(pg, tmp_path)
 
 
 def test_renombre_actualiza_catalogo_sin_observacion(pg, tmp_path):
-    snap = _snapshot(tmp_path / "snap.db", _FILAS)
+    snap = _snapshot(tmp_path / "snap.db", _FILAS, as_of=AS_OF_INICIAL)
     ingest_meli_ads(pg, snap)
     _, observaciones = _conteos(pg)
 
@@ -404,6 +504,7 @@ def test_renombre_actualiza_catalogo_sin_observacion(pg, tmp_path):
         campaign_id="C1",
         metric_date=D1.isoformat(),
         campaign_name="ALFA RENOMBRADA",
+        as_of=AS_OF_CORRECCION,
     )
     resultado = ingest_meli_ads(pg, snap)
 
@@ -417,7 +518,9 @@ def test_renombre_actualiza_catalogo_sin_observacion(pg, tmp_path):
 
 
 def test_moneda_invalida_aborta_y_sella_ok_false(pg, tmp_path):
-    snap = _snapshot(tmp_path / "usd.db", _FILAS, con_moneda=True, moneda="USD")
+    snap = _snapshot(
+        tmp_path / "usd.db", _FILAS, con_moneda=True, moneda="USD", as_of=AS_OF_INICIAL
+    )
     with pytest.raises(MeliAdsError, match="moneda fuera de dominio"):
         ingest_meli_ads(pg, snap)
 
@@ -437,7 +540,7 @@ def test_identidad_invalida_no_deja_escrituras_parciales(pg, tmp_path):
         (D2.isoformat(), "C1", "ALFA", 1, 2, 3.0, 4.0),  # valida y anterior
         (D1.isoformat(), "", "SIN ID", 1, 2, 3.0, 4.0),  # invalida y posterior
     ]
-    snap = _snapshot(tmp_path / "sin-id.db", filas)
+    snap = _snapshot(tmp_path / "sin-id.db", filas, as_of=AS_OF_INICIAL)
 
     with pytest.raises(MeliAdsError, match="identidad de campana ausente"):
         ingest_meli_ads(pg, snap)

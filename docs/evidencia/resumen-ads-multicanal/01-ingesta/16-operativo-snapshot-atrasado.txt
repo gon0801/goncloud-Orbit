@@ -1,0 +1,20 @@
+== Lane nueva: snapshot atrasado sobre el snapshot real ==
+1) se ingiere el snapshot real (as_of 2026-10-29 01:29:22)
+2) se ingiere una copia editada sin avanzar updated_at (spend +9.99 en 2026-10-27 / 356150383)
+
+ingesta de MeLi Ads fallo (la ingest_run quedo sellada ok=false cuando fue posible): snapshot atrasado: su as_of no es posterior a la observacion vigente en 1 fila(s); no se escribio nada
+rc=1
+
+SET
+ metric_date |  cost   |         observed_at
+-------------+---------+------------------------------
+ 2026-10-27  | 86.3700 | 2026-10-29 02:45:17.53407+00
+(1 row)
+
+ id | ok | rows_written | rows_skipped |                                              skip_reason
+----+----+--------------+--------------+--------------------------------------------------------------------------------------------------------
+  1 | t  |          784 |            0 |
+  2 | f  |            0 |            1 | snapshot atrasado: su as_of no es posterior a la observacion vigente en 1 fila(s); no se escribio nada
+(2 rows)
+
+El costo vigente debe seguir siendo el del snapshot real (86.37), no 96.36.

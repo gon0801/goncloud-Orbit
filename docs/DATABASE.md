@@ -187,9 +187,13 @@ contabilidad (grano campaña/día). `cost = spend`, `ad_revenue = ad_sales`;
 en cero y los faltantes en NULL. El origen no tiene revisión: `source_version`
 es el SHA-256 de la fila canónica (campaña, fecha, moneda y todas las
 métricas, sin el nombre) y
-`source_report_id = meli-ads:<campaign_id>:<fecha>:<version>`; así el dedupe
+`source_report_id = meli-ads|<campaign_id>|<fecha>|<version>|<as_of_epoch>`,
+donde el as-of es `max(updated_at)` del snapshot en UTC. Así el dedupe
 existente hace no-op el mismo snapshot y una corrección entra como
-observación nueva. **El `ingest_run_id` no es clave de dedupe.** Un renombre
+observación nueva. **El `ingest_run_id` no es clave de dedupe.** Un snapshot
+atrasado (as-of no estrictamente posterior al de la observación vigente, o
+mismo as-of con contenido distinto) se rechaza completo con `ok=false`: no
+puede reemplazar una corrección vigente aunque se ingiera después. Un renombre
 actualiza `ad_entity.name` (el de la fecha más reciente) sin crear
 observaciones. MeLi **no** hereda la madurez D-8 de Amazon: `v_metric_mature`
 sigue siendo D-15 y el resumen multicanal deberá declarar la madurez de MeLi

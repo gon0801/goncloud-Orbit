@@ -381,17 +381,18 @@ el esquema, el índice `metric_dedupe_reporte` y `v_metric_latest`.
 
 ```bash
 ssh goncloud
-# 1) snapshot de contabilidad (idéntico al de costos; se puede reutilizar
-#    /tmp/accounting-snapshot.db si acaba de generarse)
-python3 -c "import sqlite3; src=sqlite3.connect('file:/mnt/data/appdata/accounting/data/accounting.db?mode=ro', uri=True); dst=sqlite3.connect('/tmp/accounting-snapshot.db'); src.backup(dst); dst.close(); src.close()" \
-  && chmod 644 /tmp/accounting-snapshot.db
+# 1) snapshot UNICO por corrida (mktemp: 600 y nombre irrepetible; nunca una
+#    ruta fija, para no pisar una corrida concurrente)
+SNAP=$(mktemp /tmp/accounting-snapshot.XXXXXXXX.db)
+python3 -c "import sqlite3; src=sqlite3.connect('file:/mnt/data/appdata/accounting/data/accounting.db?mode=ro', uri=True); dst=sqlite3.connect('$SNAP'); src.backup(dst); dst.close(); src.close()"
+chmod 644 "$SNAP"
 # 2) al contenedor y correr
-docker cp /tmp/accounting-snapshot.db orbit-app-1:/tmp/accounting-snapshot.db
+docker cp "$SNAP" orbit-app-1:"$SNAP"
 docker exec -e ORBIT_DSN_INGEST="$(docker exec orbit-app-1 printenv ORBIT_DSN_INGEST | sed 's/@127.0.0.1:/@db:/')" \
-  orbit-app-1 python -m app.cli ingest meli-ads --sqlite /tmp/accounting-snapshot.db
+  orbit-app-1 python -m app.cli ingest meli-ads --sqlite "$SNAP"
 # 3) limpieza
-rm /tmp/accounting-snapshot.db
-docker exec -u 0 orbit-app-1 rm /tmp/accounting-snapshot.db
+rm -f "$SNAP"
+docker exec -u 0 orbit-app-1 rm -f "$SNAP"
 ```
 
 ### Contrato comprobado (2026-10-29, solo lectura)
@@ -418,11 +419,25 @@ Evidencia: `docs/evidencia/resumen-ads-multicanal/01-ingesta/`.
   origen no tiene revisión. Por eso `source_version` es el SHA-256 de la fila
   canónica (campaña, fecha, moneda y todas las métricas; **sin** nombre); si
   un snapshot futuro trae una columna `revision`, esa manda sobre el hash.
-  `source_report_id = meli-ads:<campaign_id>:<fecha>:<version>` y el INSERT
-  usa `ON CONFLICT DO NOTHING`: el mismo snapshot no agrega observaciones; una
-  corrección agrega una fila nueva y `v_metric_latest` la expone.
+  `source_report_id = meli-ads|<campaign_id>|<fecha>|<version>|<as_of_epoch>`:
+  el as-of (`max(updated_at)` del snapshot, UTC) viaja en el id para ordenar
+  snapshots sin una columna nueva.
+- **Snapshot atrasado**: un snapshot solo puede avanzar una campaña/fecha si
+  su as-of es **estrictamente posterior** al de la observación vigente.
+  Si llega un snapshot viejo (o uno con el mismo as-of y contenido distinto),
+  la corrida se rechaza **completa** con `ok=false`: no reemplaza la
+  corrección vigente aunque se ingiera después, y no toca el catálogo. Si el
+  operador ve `snapshot atrasado`, vuelve a copiar el snapshot después del
+  último sync de accounting y repite; la corrida rechazada no escribió nada.
+  El mismo hecho re-observado con un as-of nuevo (recopia sin cambios) no
+  agrega observaciones: manda la versión (hash). Límite declarado: el orden
+  depende de que `updated_at` sea el reloj de escritura del origen; un
+  snapshot que declare un `updated_at` más nuevo pero traiga contenido viejo
+  es indistinguible de una corrección y se acepta (el origen estaría mintiendo
+  sobre su propio orden).
 - **Renombre**: cambia `ad_entity.name` del nombre de la fecha más reciente;
-  no crea observaciones. Un nombre ausente en el origen no borra el publicado.
+  no crea observaciones. Un nombre ausente en el origen no borra el publicado,
+  y un snapshot atrasado no puede restaurar un nombre viejo (se rechaza antes).
 - **Madurez**: MeLi **no** hereda el D-8 de Amazon. Se ingesta lo que el
   origen publica (T+0 parcial incluido). El sync de accounting finaliza
   T+1/T+2 y esa corrección llega como observación nueva.
