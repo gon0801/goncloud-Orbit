@@ -8,7 +8,8 @@ from pathlib import Path
 import psycopg
 from psycopg import sql as pgsql
 
-from app.meli.ads_ingest import MeliAdsError, _dinero, ingest_meli_ads, leer_origen
+from app.meli.ads_ingest import ingest_meli_ads
+from app.meli.ads_source import MeliAdsError, _dinero, leer_origen
 from test_meli_ads_ingest import D1, _snapshot
 from test_schema import SQL, _test_dsn
 
@@ -36,10 +37,13 @@ def updated_at_invalido():
 
 
 def dinero_redondeado():
-        valor = _dinero("1.23456")
-        limite = _dinero("9999999999.99996")
-        print("DINERO", valor, limite)
-        raise AssertionError("dinero redondeado y limite fuera de NUMERIC aceptados")
+    for valor in ("1.23456", "9999999999.99996"):
+        try:
+            _dinero(valor)
+        except MeliAdsError:
+            continue
+        raise AssertionError(f"dinero invalido aceptado: {valor}")
+    print("DINERO", "rechazado")
 
 
 def base_temporal(nombre, cuerpo):
@@ -55,7 +59,9 @@ def base_temporal(nombre, cuerpo):
     finally:
         if conn is not None:
             conn.close()
-        admin.execute(pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db)))
+        admin.execute(
+            pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
+        )
         admin.close()
 
 
@@ -78,10 +84,14 @@ def duplicados_conflicting():
             )
             con.commit()
             con.close()
-            resultado = ingest_meli_ads(conn, snap)
-            costos = conn.execute("SELECT cost FROM ads_metric_observation").fetchall()
-            print("DUPLICADOS", resultado, [str(row[0]) for row in costos])
-            assert resultado["duplicados"] == 0 and len(costos) == 2, "falso dedupe"
+            try:
+                ingest_meli_ads(conn, snap)
+            except MeliAdsError:
+                costos = conn.execute("SELECT cost FROM ads_metric_observation").fetchall()
+                print("DUPLICADOS", "rechazado", costos)
+                assert costos == [], "escritura parcial de un snapshot duplicado"
+                return
+            raise AssertionError("claves canonicas duplicadas aceptadas")
 
     base_temporal("duplicados", cuerpo)
 

@@ -1,0 +1,64 @@
+== ANTES (a305e7c): orbit_review_a_legacy_future_baseline ==
+LEGACY_FUTURE_BASELINE {'legacy_asof': 1793289319, 'stale_asof': 1793285719, 'stale_result': {'run_id': 3, 'filas_origen': 1, 'rows_written': 1, 'rows_skipped': 0, 'duplicados': 0, 'duplicados_version': 0, 'duplicados_id': 0, 'rechazos': 0, 'entidades_nuevas': 0, 'entidades_actualizadas': 1}, 'error': None, 'latest': ('5.0000', 'STALE'), 'marks': [(True, 'futuro=1793296519; snap=6c40bb9a7b8080bd4baf96e0a8f78e78472458f103718851f3850cf87cfe7003'), (True, 'as_of=1793285719; snap=89cfd8227e471b2fa43a8f01a5080c7a1c9a3c0b7b026184e6cb15656d6a6097')]}
+rc=0
+
+== ANTES (a305e7c): orbit_review_a_revision_hash ==
+REVISION_HASH {'first': {'run_id': 1, 'filas_origen': 1, 'rows_written': 1, 'rows_skipped': 0, 'duplicados': 0, 'duplicados_version': 0, 'duplicados_id': 0, 'rechazos': 0, 'entidades_nuevas': 1, 'entidades_actualizadas': 0}, 'changed_same_asof': {'run_id': 2, 'filas_origen': 1, 'rows_written': 0, 'rows_skipped': 1, 'duplicados': 1, 'duplicados_version': 1, 'duplicados_id': 0, 'rechazos': 0, 'entidades_nuevas': 0, 'entidades_actualizadas': 0}, 'error': None, 'latest': '5.0000'}
+rc=0
+
+== ANTES (a305e7c): orbit_review_a_hash_delimiter ==
+HASH_DELIMITER {'first': {'run_id': 1, 'filas_origen': 1, 'rows_written': 1, 'rows_skipped': 0, 'duplicados': 0, 'duplicados_version': 0, 'duplicados_id': 0, 'rechazos': 0, 'entidades_nuevas': 1, 'entidades_actualizadas': 0}, 'different_snapshot': {'run_id': 2, 'filas_origen': 1, 'rows_written': 0, 'rows_skipped': 1, 'duplicados': 1, 'duplicados_version': 1, 'duplicados_id': 0, 'rechazos': 0, 'entidades_nuevas': 0, 'entidades_actualizadas': 0}, 'error': None, 'entities': [('A',)]}
+rc=0
+
+== ANTES (a305e7c): orbit_review_a_empty_retry ==
+EMPTY_FIRST {'first': None, 'error': 'snapshot atrasado: su as_of no es posterior a la marca aceptada (-1); no se escribio nada', 'runs': [(False, 0, 0, 'snapshot atrasado: su as_of no es posterior a la marca aceptada (-1); no se escribio nada')]}
+rc=0
+
+== ANTES (a305e7c): orbit_review_a305e7c0_nul_fields ==
+NUL_CAMPO campaign_name {'error': "DataError('PostgreSQL text fields cannot contain NUL (0x00) bytes')", 'run': (False, datetime.datetime(2026, 10, 29, 16, 55, 20, 910353, tzinfo=datetime.timezone.utc), 0, 'PostgreSQL text fields cannot contain NUL (0x00) bytes')}
+NUL_CAMPO revision {'error': "DataError('PostgreSQL text fields cannot contain NUL (0x00) bytes')", 'run': (False, datetime.datetime(2026, 10, 29, 16, 55, 21, 18808, tzinfo=datetime.timezone.utc), 0, 'PostgreSQL text fields cannot contain NUL (0x00) bytes')}
+NUL_CAMPO campaign_id {'error': "DataError('PostgreSQL text fields cannot contain NUL (0x00) bytes')", 'run': (False, datetime.datetime(2026, 10, 29, 16, 55, 21, 126376, tzinfo=datetime.timezone.utc), 0, 'PostgreSQL text fields cannot contain NUL (0x00) bytes')}
+rc=0
+
+== ANTES (a305e7c): orbit_review_a_recopy_retry_matrix ==
+RECOPY_RETRY_MATRIX {'retry': {'run_id': 4, 'filas_origen': 1, 'rows_written': 0, 'rows_skipped': 1, 'duplicados': 1, 'duplicados_version': 1, 'duplicados_id': 0, 'rechazos': 0, 'entidades_nuevas': 0, 'entidades_actualizadas': 0}, 'retry_again': {'run_id': 5, 'filas_origen': 1, 'rows_written': 0, 'rows_skipped': 1, 'duplicados': 1, 'duplicados_version': 1, 'duplicados_id': 0, 'rechazos': 0, 'entidades_nuevas': 0, 'entidades_actualizadas': 0}, 'observations_before_after': (2, 2), 'same_asof_name': {'run_id': 6, 'filas_origen': 1, 'rows_written': 0, 'rows_skipped': 1, 'duplicados': 1, 'duplicados_version': 1, 'duplicados_id': 0, 'rechazos': 0, 'entidades_nuevas': 0, 'entidades_actualizadas': 0}, 'latest': ('7.0000', 'ALFA'), 'final_name': 'ALFA'}
+rc=0
+
+== ANTES (a305e7c): reviewer_c_conciliar_holes ==
+filas origen: 1
+filas Orbit:  1
+faltantes en Orbit: []
+sobrantes en Orbit: []
+campana/dia comparables: 1, diferencias: 0
+dias control: 1, dias Orbit: 1, faltantes en el control: 0, faltantes en Orbit: 0, sobrantes en Orbit: 0, diferencias: 0
+fecha de conciliacion: 2026-10-29T16:55:21.531914+00:00
+CONCILIACION OK
+CASE=USD_EN_ORIGEN EXIT=0
+filas origen: 1
+filas Orbit:  1
+faltantes en Orbit: []
+sobrantes en Orbit: []
+campana/dia comparables: 1, diferencias: 0
+dias control: 1, dias Orbit: 1, faltantes en el control: 0, faltantes en Orbit: 0, sobrantes en Orbit: 0, diferencias: 0
+fecha de conciliacion: 2026-10-29T16:55:21.534338+00:00
+CONCILIACION OK
+CASE=PRECISION_ORIGEN_DESCARTADA EXIT=0
+filas origen: 1
+filas Orbit:  1
+faltantes en Orbit: []
+sobrantes en Orbit: []
+campana/dia comparables: 1, diferencias: 0
+dias control: 1, dias Orbit: 1, faltantes en el control: 0, faltantes en Orbit: 0, sobrantes en Orbit: 0, diferencias: 0
+fecha de conciliacion: 2026-10-29T16:55:21.535619+00:00
+CONCILIACION OK
+CASE=CAMPANA_DUPLICADA_OCULTA EXIT=0
+filas origen: 1
+filas Orbit:  1
+faltantes en Orbit: []
+sobrantes en Orbit: []
+campana/dia comparables: 1, diferencias: 0
+dias control: 1, dias Orbit: 1, faltantes en el control: 0, faltantes en Orbit: 0, sobrantes en Orbit: 0, diferencias: 0
+fecha de conciliacion: 2026-10-29T16:55:21.538556+00:00
+CONCILIACION OK
+CASE=CONTROL_DUPLICADO_OCULTO EXIT=0
+rc=0

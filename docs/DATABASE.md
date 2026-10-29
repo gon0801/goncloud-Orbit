@@ -192,29 +192,39 @@ donde el as-of es `max(updated_at)` del snapshot en UTC. Así el dedupe
 existente hace no-op el mismo snapshot y una corrección entra como
 observación nueva. **El `ingest_run_id` no es clave de dedupe.** Cada
 aceptación deja en `ingest_run.skip_reason` la huella `snap=<sha256>` del
-snapshot COMPLETO (campaña, fecha y versión de todas las filas). Un reintento
+snapshot COMPLETO en JSON (campaña, fecha, moneda, todas las métricas y la
+versión/revisión de cada fila). Un reintento
 exacto se reconoce por as-of + huella contra esa aceptación anterior, **no**
 contra `v_metric_latest`: es un no-op completo aunque otra corrida haya
-cambiado después la observación vigente. Un snapshot con el mismo as-of y otra
+cambiado después la observación vigente, y no agrega otra aceptación. Un
+snapshot con el mismo as-of y otra
 huella se rechaza completo con `ok=false`; uno atrasado que nunca fue aceptado
 también, aunque sus métricas coincidan. Hay **dos marcas globales
 independientes**, no por campaña: `as_of=<epoch>` para los snapshots reales y
 `futuro=<epoch>` para los aceptados como futuros. Cada corrida escribe solo la
 marca de su reloj; la otra sigue viva en su propia corrida, así que ambas
 pueden estar ausentes y una primera corrida exclusivamente futura no escribe
-`as_of=`. Un as-of aceptado como futuro queda en cuarentena permanente: el
+`as_of=`. Una aceptación futura guarda `piso=<epoch>` con el piso real
+heredado, para que una base legada sin marca real no lo pierda. Un as-of
+aceptado como futuro queda en cuarentena permanente: el
 avance del reloj no lo reclasifica como real y no bloquea correcciones reales
 válidas (un snapshot real se compara solo contra el reloj real; uno futuro
 contra el futuro, y contra el real si ya quedó detrás). Las marcas se toman
 del máximo entre todas las corridas exitosas, bajo el candado; el id de
 `ingest_run` no ordena porque los runs nacen antes del candado. Una recopia
 real deduplicada **sí avanza el reloj real** aunque no inserte observaciones,
-y bloquea snapshots intermedios. Un as-of hasta 24 h adelante se acepta pero
+y bloquea snapshots intermedios. Un snapshot vacío es un no-op exitoso y no
+crea aceptación temporal. Una aceptación anterior sin `snap=` reconoce su
+primer reintento exacto solo si coincide con toda la observación vigente; si
+hubo una corrección intermedia, se rechaza fail-closed. Un as-of hasta 24 h
+adelante se acepta pero
 no envenena una corrección real (los snapshots con as-of hasta 5 min adelante
 del reloj se clasifican como reales). `updated_at` es obligatorio en cada
 fila no vacía; fracciones de segundo, años fuera de 2000-2100 y offsets que
 desbordan `datetime` al normalizar a UTC se rechazan; un as-of más de 24 h
-adelante se rechaza. `observed_at` es un reloj lógico que nunca queda por
+adelante se rechaza. `campaign_id`, `campaign_name` y `revision` con NUL se
+rechazan en la frontera de `ads_source.py`. `observed_at` es un reloj lógico
+que nunca queda por
 detrás del máximo publicado. Las claves
 `(campaign_id, metric_date)` deben ser únicas; un snapshot sin PK que las
 repita se rechaza. El `ON CONFLICT` apunta solo al índice parcial

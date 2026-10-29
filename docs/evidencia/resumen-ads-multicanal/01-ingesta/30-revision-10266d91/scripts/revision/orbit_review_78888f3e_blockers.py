@@ -19,9 +19,7 @@ def futuro_dentro_de_tolerancia():
             fila(5.0),
             as_of=(ahora + dt.timedelta(hours=1)).isoformat(),
         )
-        actual = _snapshot(
-            r.TMP / "final-current.db", fila(6.0), as_of=ahora.isoformat()
-        )
+        actual = _snapshot(r.TMP / "final-current.db", fila(6.0), as_of=ahora.isoformat())
         ai.ingest_meli_ads(conn, futuro)
         try:
             ai.ingest_meli_ads(conn, actual)

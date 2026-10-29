@@ -14,20 +14,64 @@ from __future__ import annotations
 import datetime as dt
 import sqlite3
 import sys
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 import psycopg
 
 CENTIMOS = Decimal("0.0001")
+RUIDO = Decimal("0.00001")
+MAX_DINERO = Decimal(10) ** 10
 
 
-def _dinero(valor):
-    return None if valor is None else Decimal(str(valor)).quantize(CENTIMOS)
+class DatoInvalido(Exception):
+    """Un importe del origen no cumple la disciplina de dinero."""
+
+
+def _dinero(valor, campo="importe"):
+    """Dinero exacto: no redondea precision genuina ni convierte NULL en cero."""
+    if valor is None:
+        return None
+    try:
+        numero = Decimal(str(valor))
+    except InvalidOperation:
+        raise DatoInvalido(f"{campo} ilegible: {valor!r}") from None
+    if not numero.is_finite():
+        raise DatoInvalido(f"{campo} no finito: {valor!r}")
+    if numero < 0:
+        raise DatoInvalido(f"{campo} negativo: {valor!r}")
+    try:
+        cuantizado = numero.quantize(CENTIMOS)
+    except InvalidOperation:
+        raise DatoInvalido(f"{campo} fuera de NUMERIC(14,4): {valor!r}") from None
+    if abs(numero - cuantizado) >= RUIDO:
+        raise DatoInvalido(f"{campo} con mas de 4 decimales: {valor!r}")
+    if cuantizado >= MAX_DINERO:
+        raise DatoInvalido(f"{campo} fuera de NUMERIC(14,4): {valor!r}")
+    if numero > 0 and cuantizado == 0:
+        raise DatoInvalido(f"{campo} positivo que cuantiza a cero: {valor!r}")
+    return Decimal("0.0000") if cuantizado == 0 else cuantizado
+
+
+def _columnas(con, tabla: str) -> set[str]:
+    return {fila[1] for fila in con.execute(f"PRAGMA table_info({tabla})")}
+
+
+def _moneda_origen(valor, etiqueta: str) -> str | None:
+    if valor is None:
+        return None
+    moneda = str(valor).strip().upper()
+    if moneda != "MXN":
+        return f"moneda fuera de dominio en origen {etiqueta}: {valor!r}"
+    return None
 
 
 def carga_origen(ruta: str) -> tuple[dict, dict, list[str]]:
-    """Lee campana/dia y total diario del snapshot. Nunca escribe."""
+    """Lee campana/dia y total diario del snapshot. Nunca escribe.
+
+    Rechaza moneda distinta de MXN, precision genuina de mas de 4 decimales y
+    claves duplicadas. Una clave repetida NO se sobrescribe: se reporta.
+    """
     errores: list[str] = []
     origen: dict = {}
     dias: dict = {}
@@ -36,25 +80,66 @@ def carga_origen(ruta: str) -> tuple[dict, dict, list[str]]:
         con = sqlite3.connect(uri, uri=True)
         con.row_factory = sqlite3.Row
         try:
-            for row in con.execute(
+            columnas = _columnas(con, "meli_ads_campaigns_daily")
+            consulta = (
                 "SELECT campaign_id, date, spend, ad_sales, impressions, clicks"
                 " FROM meli_ads_campaigns_daily"
-            ):
-                origen[(row["campaign_id"], row["date"])] = (
-                    _dinero(row["spend"]),
-                    _dinero(row["ad_sales"]),
-                    row["impressions"],
-                    row["clicks"],
-                )
-            for row in con.execute(
+            )
+            if "currency" in columnas:
+                consulta = consulta.replace("clicks", "clicks, currency")
+            for row in con.execute(consulta):
+                etiqueta = f"{row['campaign_id']} {row['date']}"
+                if "currency" in columnas:
+                    error_moneda = _moneda_origen(row["currency"], etiqueta)
+                    if error_moneda:
+                        errores.append(error_moneda)
+                try:
+                    valores = (
+                        _dinero(row["spend"], f"spend {etiqueta}"),
+                        _dinero(row["ad_sales"], f"ad_sales {etiqueta}"),
+                        row["impressions"],
+                        row["clicks"],
+                    )
+                except DatoInvalido as exc:
+                    errores.append(str(exc))
+                    continue
+                clave = (row["campaign_id"], row["date"])
+                if clave in origen:
+                    errores.append(
+                        f"duplicado en origen campana/dia {clave}: {origen[clave]} vs {valores}"
+                    )
+                    continue
+                origen[clave] = valores
+
+            columnas_dias = _columnas(con, "meli_ads_metrics_daily")
+            consulta_dias = (
                 "SELECT date, clicks, impressions, spend, ad_sales FROM meli_ads_metrics_daily"
-            ):
-                dias[row["date"]] = (
-                    row["clicks"],
-                    row["impressions"],
-                    _dinero(row["spend"]),
-                    _dinero(row["ad_sales"]),
-                )
+            )
+            if "currency" in columnas_dias:
+                consulta_dias = consulta_dias.replace("ad_sales", "ad_sales, currency")
+            for row in con.execute(consulta_dias):
+                etiqueta = f"control diario {row['date']}"
+                if "currency" in columnas_dias:
+                    error_moneda = _moneda_origen(row["currency"], etiqueta)
+                    if error_moneda:
+                        errores.append(error_moneda)
+                try:
+                    valores = (
+                        row["clicks"],
+                        row["impressions"],
+                        _dinero(row["spend"], f"spend {etiqueta}"),
+                        _dinero(row["ad_sales"], f"ad_sales {etiqueta}"),
+                    )
+                except DatoInvalido as exc:
+                    errores.append(str(exc))
+                    continue
+                clave = row["date"]
+                if clave in dias:
+                    errores.append(
+                        f"duplicado en origen control diario {clave}: {dias[clave]} vs {valores}"
+                    )
+                    continue
+                dias[clave] = valores
         finally:
             con.close()
     except sqlite3.Error as exc:

@@ -14,24 +14,35 @@ Modelo temporal (sin columnas nuevas; el esquema no tiene watermark):
 
 - Cada corrida exitosa se sella como ACEPTACION de un snapshot completo. Su
   `skip_reason` guarda el as-of y la huella SHA-256 de TODAS las filas
-  canonicas (campana, fecha y version), no solo de la observacion vigente.
-  `snap=<huella>` es lo que permite reconocer un reintento exacto aunque otra
-  corrida haya cambiado despues la observacion vigente.
+  canonicas (campana, fecha, moneda y todas las metricas, con codificacion
+  JSON inequivoca), no solo de la observacion vigente. `snap=<huella>` es lo
+  que permite reconocer un reintento exacto aunque otra corrida haya cambiado
+  despues la observacion vigente.
 - Hay DOS relojes independientes: `as_of=<epoch>` (snapshots reales) y
   `futuro=<epoch>` (snapshots aceptados como futuros al momento de aceptarse).
   Un as-of aceptado como futuro queda en CUARENTENA para siempre: el avance
   del reloj no lo reclasifica como real. Cada corrida escribe solo la marca
   del reloj al que pertenece; la otra sigue viva en su propia corrida. Por eso
   una primera corrida exclusivamente futura no escribe `as_of=`.
+- Una aceptacion futura conserva el piso real heredado en `piso=<epoch>`. Una
+  base legada sin marcas no pierde su piso cuando entra un futuro: el piso se
+  calcula con las observaciones cuyo as-of no pertenece a una aceptacion
+  futura.
 - Un reintento exacto (mismo as-of y misma huella) es un NO-OP completo: no
-  escribe entidades, no toca nombres y no agrega observaciones. Se reconoce
-  contra la aceptacion anterior, nunca comparando solo `v_metric_latest`.
+  escribe entidades, no toca nombres y no agrega observaciones ni otra
+  aceptacion. Se reconoce contra la aceptacion anterior, nunca comparando solo
+  `v_metric_latest`. Un snapshot vacio tambien es un no-op exitoso y no crea
+  una aceptacion temporal.
 - Un snapshot con el mismo as-of y contenido distinto se rechaza completo.
 - Un snapshot atrasado que nunca fue aceptado se rechaza completo, aunque sus
   metricas coincidan. Una marca futura NO bloquea una correccion real valida:
   los snapshots reales se comparan solo contra el reloj real.
 - Una recopia real deduplicada conserva su nuevo as-of, avanza el reloj real
   y bloquea snapshots intermedios.
+- Una aceptacion anterior a esta version puede no tener `snap=`. El primer
+  reintento exacto se reconoce contra la observacion vigente completa; si hubo
+  una correccion intermedia, se rechaza fail-closed. Es una compatibilidad
+  declarada, no una clave nueva.
 
 Idempotencia: `source_report_id =
 meli-ads|<campaign_id>|<fecha>|<version>|<as_of_epoch>` y
@@ -50,10 +61,12 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import hashlib
+import json
 import logging
 import os
 import re
 import sys
+import unicodedata
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -131,19 +144,40 @@ SELECT max(o.observed_at)
  WHERE e.platform = '{PLATAFORMA}' AND e.kind = '{KIND}'
 """
 
-# Aceptaciones de TODOS los snapshots exitosos. Viven en el skip_reason porque
-# el esquema no tiene columna de watermark y esta fase no crea migraciones. El
-# id de ingest_run no sirve como orden: los runs se abren antes del candado y
-# pueden terminar en otro orden. Se toma el maximo de cada reloj, no la ultima
-# corrida por id.
+# Aceptaciones y piso real de TODOS los snapshots exitosos. Viven en el
+# skip_reason porque el esquema no tiene columna de watermark y esta fase no
+# crea migraciones. El id de ingest_run no sirve como orden: los runs se abren
+# antes del candado y pueden terminar en otro orden. Se toma el maximo de cada
+# reloj, no la ultima corrida por id. Los reintentos no escriben marcas, asi
+# que no agregan aceptaciones nuevas.
 _SQL_MARCA = (
     "SELECT skip_reason FROM ingest_run"
     " WHERE source = %s AND ok = true"
-    " AND (skip_reason LIKE 'as_of=%%' OR skip_reason LIKE 'futuro=%%')"
+    " AND (skip_reason LIKE 'as_of=%%' OR skip_reason LIKE 'futuro=%%'"
+    " OR skip_reason LIKE 'piso=%%')"
 )
 _MARCA_RE = re.compile(r"^as_of=(\d+)(?:;|$)")
 _FUTURO_RE = re.compile(r"(?:^|; )futuro=(\d+)")
+_PISO_RE = re.compile(r"(?:^|; )piso=(\d+)")
 _HUELLA_RE = re.compile(r"(?:^|; )snap=([0-9a-f]{64})(?:;|$)")
+
+# Piso real de observaciones LEGADAS: as-of maximo de MeLi excluyendo los
+# as-ofs que fueron aceptados como futuros. Se usa solo cuando no hay marca
+# real ni piso explicito; asi una base legada no pierde su orden cuando entra
+# un futuro.
+_SQL_MAX_AS_OF = f"""
+SELECT max(CASE WHEN epoch_texto ~ '^[0-9]+$' THEN epoch_texto::bigint END)
+  FROM (
+        SELECT split_part(o.source_report_id, '|', 5) AS epoch_texto
+          FROM ads_metric_observation o JOIN ad_entity e ON e.id = o.ad_entity_id
+         WHERE e.platform = '{PLATAFORMA}' AND e.kind = '{KIND}'
+           AND o.source_report_id LIKE 'meli-ads|%%'
+       ) s
+ WHERE NOT (
+       CASE WHEN epoch_texto ~ '^[0-9]+$' THEN epoch_texto::bigint END
+       = ANY(%s::bigint[])
+ )
+"""
 
 _SQL_INSERTAR_OBS = """
 INSERT INTO ads_metric_observation
@@ -165,17 +199,28 @@ class _Aceptacion:
     huella: str | None
 
 
+@dataclass(frozen=True)
+class _Marcas:
+    """Estado temporal leido una sola vez bajo el candado."""
+
+    aceptaciones: tuple[_Aceptacion, ...]
+    real: int
+    futuro: int
+    piso: int
+
+
 def _texto_persistible(texto: str | None) -> str | None:
-    """Escapa NUL y controles antes de persistir o registrar un motivo.
+    """Escapa NUL y controles (C0 y C1) antes de persistir un motivo.
 
     PostgreSQL rechaza NUL en columnas de texto; si el sello de la corrida
     falla con el mismo error, la corrida queda abierta. El escape es central:
-    no depende de que cada validacion limpie su propio mensaje.
+    no depende de que cada validacion limpie su propio mensaje. Se usa la
+    categoria Unicode Cc para cubrir tambien los controles C1 (U+0085, etc.).
     """
     if texto is None:
         return None
     return "".join(
-        f"\\x{ord(caracter):02x}" if ord(caracter) < 0x20 or ord(caracter) == 0x7F else caracter
+        f"\\x{ord(caracter):02x}" if unicodedata.category(caracter) == "Cc" else caracter
         for caracter in texto
     )
 
@@ -232,22 +277,31 @@ def _nombres_vigentes(filas: list[FilaMeliAds]) -> dict[str, str]:
 
 
 def _huella_snapshot(filas: tuple[FilaMeliAds, ...]) -> str:
-    """Huella del snapshot COMPLETO: campana, fecha y version de cada fila.
+    """Huella inequivoca del snapshot COMPLETO.
 
-    No incluye el nombre: renombrar no cambia el hecho monetario. Incluye el
-    conteo para que agregar o quitar filas cambie la huella. Dos snapshots con
-    la misma huella y el mismo as-of son el mismo snapshot.
+    Incluye campana, fecha, moneda, TODAS las metricas y la version/revision.
+    Se serializa como JSON: los separadores, comillas y controles dentro de los
+    textos quedan escapados, asi que dos snapshots estructuralmente distintos
+    no pueden producir los mismos bytes. No incluye el nombre: renombrar no
+    cambia el hecho monetario.
     """
-    resumen = hashlib.sha256()
-    resumen.update(f"{len(filas)}\n".encode())
-    for fila in sorted(filas, key=lambda f: (f.metric_date, f.campaign_external_id)):
-        resumen.update(
-            (
-                f"{fila.metric_date.isoformat()}\x1f{fila.campaign_external_id}"
-                f"\x1f{fila.source_version}\n"
-            ).encode()
-        )
-    return resumen.hexdigest()
+    filas_ordenadas = sorted(filas, key=lambda f: (f.metric_date, f.campaign_external_id))
+    payload = [
+        [
+            fila.campaign_external_id,
+            fila.metric_date.isoformat(),
+            fila.metric_currency,
+            None if fila.cost is None else format(fila.cost, "f"),
+            None if fila.ad_revenue is None else format(fila.ad_revenue, "f"),
+            fila.impressions,
+            fila.clicks,
+            fila.orders,
+            fila.source_version,
+        ]
+        for fila in filas_ordenadas
+    ]
+    datos = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(datos.encode("utf-8")).hexdigest()
 
 
 def _marca_de_as_of(skip_reason: str | None) -> int | None:
@@ -263,6 +317,14 @@ def _futuro_de_marca(skip_reason: str | None) -> int | None:
     if not skip_reason:
         return None
     coincidencia = _FUTURO_RE.search(skip_reason)
+    return int(coincidencia.group(1)) if coincidencia else None
+
+
+def _piso_de_marca(skip_reason: str | None) -> int | None:
+    """Lee el epoch del piso real `piso=<epoch>` de una corrida futura."""
+    if not skip_reason:
+        return None
+    coincidencia = _PISO_RE.search(skip_reason)
     return int(coincidencia.group(1)) if coincidencia else None
 
 
@@ -287,16 +349,33 @@ def _version_y_as_of(source_report_id: str) -> tuple[str, int] | None:
         return None
 
 
-def _aceptaciones(conn: psycopg.Connection) -> list[_Aceptacion]:
-    """Todas las aceptaciones registradas, con su huella de snapshot."""
-    aceptadas: list[_Aceptacion] = []
+def _lee_marcas(conn: psycopg.Connection) -> _Marcas:
+    """Lee UNA vez aceptaciones, relojes y piso de todas las corridas exitosas."""
+    aceptaciones: list[_Aceptacion] = []
+    reales: list[int] = []
+    futuras: list[int] = []
+    pisos: list[int] = []
     for (skip_reason,) in conn.execute(_SQL_MARCA, (SOURCE,)).fetchall():
         huella = _huella_de_marca(skip_reason)
         if (real := _marca_de_as_of(skip_reason)) is not None:
-            aceptadas.append(_Aceptacion(real, False, huella))
+            aceptaciones.append(_Aceptacion(real, False, huella))
+            reales.append(real)
         if (futuro := _futuro_de_marca(skip_reason)) is not None:
-            aceptadas.append(_Aceptacion(futuro, True, huella))
-    return aceptadas
+            aceptaciones.append(_Aceptacion(futuro, True, huella))
+            futuras.append(futuro)
+        if (piso := _piso_de_marca(skip_reason)) is not None:
+            pisos.append(piso)
+    return _Marcas(
+        aceptaciones=tuple(aceptaciones),
+        real=max(reales, default=-1),
+        futuro=max(futuras, default=-1),
+        piso=max(pisos, default=-1),
+    )
+
+
+def _aceptaciones(conn: psycopg.Connection) -> list[_Aceptacion]:
+    """Todas las aceptaciones registradas, con su huella de snapshot."""
+    return list(_lee_marcas(conn).aceptaciones)
 
 
 def _marcas_corridas(conn: psycopg.Connection) -> tuple[int, int]:
@@ -305,17 +384,31 @@ def _marcas_corridas(conn: psycopg.Connection) -> tuple[int, int]:
     Son dos relojes separados. Un as-of que fue futuro al aceptarse queda en
     cuarentena y no bloquea correcciones reales aunque el reloj se acerque.
     """
-    aceptadas = _aceptaciones(conn)
-    reales = [a.as_of for a in aceptadas if not a.es_futuro]
-    futuras = [a.as_of for a in aceptadas if a.es_futuro]
-    return max(reales, default=-1), max(futuras, default=-1)
+    marcas = _lee_marcas(conn)
+    return marcas.real, marcas.futuro
+
+
+def _max_as_of_observaciones(conn: psycopg.Connection, futuras: set[int], as_of_epoch: int) -> int:
+    """Piso real de observaciones legadas, sin as-ofs futuros ni el entrante.
+
+    El as-of entrante se excluye porque una observacion con ese mismo as-of es
+    el snapshot que se esta evaluando (o un duplicado concurrente), no un piso
+    anterior. El conflicto de contenido con el mismo as-of lo resuelve la
+    aceptacion registrada, no este piso.
+    """
+    excluidas = sorted(futuras | {as_of_epoch})
+    fila = conn.execute(_SQL_MAX_AS_OF, (excluidas,)).fetchone()
+    if fila is None or fila[0] is None:
+        return -1
+    return int(fila[0])
 
 
 def _estado_temporal(
     conn: psycopg.Connection,
     ultimas: dict[tuple[str, dt.date], tuple[str, int]],
-) -> tuple[dt.datetime, int, int, int]:
-    """Reloj logico de observacion y marcas real/futura bajo el candado."""
+    as_of_epoch: int,
+) -> tuple[dt.datetime, int, _Marcas, int]:
+    """Reloj logico de observacion y marcas real/futura/piso bajo el candado."""
     ahora_reloj = conn.execute("SELECT clock_timestamp()").fetchone()[0]
     max_observado = conn.execute(_SQL_MAX_OBSERVADO).fetchone()[0]
     observed_at = (
@@ -323,17 +416,37 @@ def _estado_temporal(
         if max_observado is not None
         else ahora_reloj
     )
-    marca_real_corrida, marca_futura = _marcas_corridas(conn)
-    obs_max = max((partes[1] for partes in ultimas.values()), default=-1)
-    # Sin marcas (base legada): las observaciones existentes son el unico
-    # orden disponible. Una marca futura NO se convierte en real.
-    marca_real = obs_max if marca_real_corrida < 0 and marca_futura < 0 else marca_real_corrida
+    marcas = _lee_marcas(conn)
+    # El piso real explicito conserva la base legada aunque exista un futuro.
+    # Sin marca real ni piso, las observaciones cuyo as-of NO fue aceptado como
+    # futuro son el unico orden disponible. Una marca futura jamas se vuelve
+    # real, pero tampoco borra el piso heredado.
+    marca_real = max(marcas.real, marcas.piso)
+    if marca_real < 0:
+        futuras = {a.as_of for a in marcas.aceptaciones if a.es_futuro}
+        marca_real = _max_as_of_observaciones(conn, futuras, as_of_epoch)
     limite_real = int(ahora_reloj.timestamp()) + int(_SKEW_RELOJ.total_seconds())
-    return observed_at, marca_real, marca_futura, limite_real
+    return observed_at, marca_real, marcas, limite_real
+
+
+def _coincide_con_ultimas(
+    filas: tuple[FilaMeliAds, ...],
+    ultimas: dict[tuple[str, dt.date], tuple[str, int]],
+) -> bool:
+    """Compatibilidad: un snapshot completo igual a TODA la observacion vigente."""
+    if len(filas) != len(ultimas):
+        return False
+    for fila in filas:
+        vigente = ultimas.get((fila.campaign_external_id, fila.metric_date))
+        if vigente is None or vigente[0] != fila.source_version:
+            return False
+    return True
 
 
 def _decision_temporal(
-    aceptadas: list[_Aceptacion],
+    aceptadas: tuple[_Aceptacion, ...],
+    filas: tuple[FilaMeliAds, ...],
+    ultimas: dict[tuple[str, dt.date], tuple[str, int]],
     marca_real: int,
     marca_futura: int,
     as_of_epoch: int,
@@ -346,12 +459,21 @@ def _decision_temporal(
     completo (as-of + huella), no contra `v_metric_latest`. Si hay aceptacion
     con el mismo as-of pero otra huella, el snapshot se rechaza. Un snapshot
     nunca aceptado que cae detras del reloj que le corresponde se rechaza.
+    Una aceptacion vieja sin `snap=` se reconoce solo si el snapshot coincide
+    con TODA la observacion vigente; si hubo una correccion intermedia, se
+    rechaza fail-closed.
     """
     mismo_as_of = [aceptada for aceptada in aceptadas if aceptada.as_of == as_of_epoch]
     previa = next((a for a in mismo_as_of if a.huella == huella), None)
     if previa is not None:
         return previa, previa.es_futuro, marca_real, marca_futura
     if mismo_as_of:
+        if (
+            all(a.huella is None for a in mismo_as_of)
+            and _coincide_con_ultimas(filas, ultimas)
+            and len({a.es_futuro for a in mismo_as_of}) == 1
+        ):
+            return mismo_as_of[0], mismo_as_of[0].es_futuro, marca_real, marca_futura
         raise MeliAdsError(
             "snapshot con el mismo as_of y contenido distinto (snapshot atrasado):"
             " no se escribio nada"
@@ -381,11 +503,23 @@ def _skip_reason(
     es_futuro: bool,
     as_of_epoch: int,
     huella: str,
+    piso: int,
     skips: Counter,
 ) -> str:
-    """Sella la marca del reloj que corresponde y la huella del snapshot."""
+    """Sella la marca del reloj, la huella y el piso real de un futuro."""
     nombre_marca = "futuro" if es_futuro else "as_of"
     partes = [f"{nombre_marca}={as_of_epoch}", f"snap={huella}"]
+    if es_futuro and piso >= 0:
+        partes.append(f"piso={piso}")
+    motivo = _formato_skip_reason(skips)
+    if motivo:
+        partes.append(motivo)
+    return "; ".join(partes)
+
+
+def _skip_reason_reintento(huella: str, skips: Counter) -> str:
+    """Sella un reintento SIN crear otra aceptacion temporal."""
+    partes = [f"reintento={huella}"]
     motivo = _formato_skip_reason(skips)
     if motivo:
         partes.append(motivo)
@@ -446,6 +580,30 @@ def ingest_meli_ads(
                 "snapshot rechazado (cero escrituras): sin as_of util"
                 " (updated_at ausente o ilegible)"
             )
+        if not filas:
+            # Un snapshot vacio es un no-op exitoso: no crea aceptacion
+            # temporal, no toca el catalogo y no inventa un as-of.
+            with conn.transaction():
+                _sellar_run(
+                    conn,
+                    run_id,
+                    ok=True,
+                    rows_written=0,
+                    rows_skipped=0,
+                    skip_reason="snapshot vacio (no-op)",
+                )
+            return {
+                "run_id": run_id,
+                "filas_origen": 0,
+                "rows_written": 0,
+                "rows_skipped": 0,
+                "duplicados": 0,
+                "duplicados_version": 0,
+                "duplicados_id": 0,
+                "rechazos": 0,
+                "entidades_nuevas": 0,
+                "entidades_actualizadas": 0,
+            }
         huella = _huella_snapshot(filas)
         with conn.transaction():
             conn.execute(_SQL_LOCK_MELI, _LOCK_MELI)
@@ -462,13 +620,17 @@ def ingest_meli_ads(
                     )
                 ultimas[(external_id, metric_date)] = partes
 
-            observed_at, marca_real, marca_futura, limite_real = _estado_temporal(conn, ultimas)
             as_of_epoch = int(origen.as_of.timestamp()) if origen.as_of is not None else -1
+            observed_at, marca_real, marcas, limite_real = _estado_temporal(
+                conn, ultimas, as_of_epoch
+            )
             try:
-                previa, es_futuro, real_final, futuro_final = _decision_temporal(
-                    _aceptaciones(conn),
+                previa, es_futuro, real_final, _futuro_final = _decision_temporal(
+                    marcas.aceptaciones,
+                    filas,
+                    ultimas,
                     marca_real,
-                    marca_futura,
+                    marcas.futuro,
                     as_of_epoch,
                     limite_real,
                     huella,
@@ -478,9 +640,9 @@ def ingest_meli_ads(
                 raise
 
             if previa is not None:
-                # Reintento exacto: no se toca el catalogo ni la historia. La
-                # marca conserva la clasificacion original (un futuro sigue
-                # siendo futuro aunque el reloj ya haya avanzado).
+                # Reintento exacto: no se toca el catalogo ni la historia y no
+                # se agrega otra aceptacion. La clasificacion original sigue
+                # viva en la corrida que acepto el snapshot.
                 duplicados_version = len(filas)
                 skips = Counter(
                     {"misma version canonica (recopia o reintento)": duplicados_version}
@@ -491,7 +653,7 @@ def ingest_meli_ads(
                     ok=True,
                     rows_written=0,
                     rows_skipped=duplicados_version,
-                    skip_reason=_skip_reason(previa.es_futuro, previa.as_of, huella, skips),
+                    skip_reason=_skip_reason_reintento(huella, skips),
                 )
             else:
                 cache: dict[str, tuple[int, bool, bool]] = {}
@@ -539,13 +701,16 @@ def ingest_meli_ads(
                     skips["misma version canonica (recopia o reintento)"] = duplicados_version
                 if duplicados_id:
                     skips["source_report_id ya ingerido"] = duplicados_id
+                # Un futuro conserva el piso real heredado; un real no necesita
+                # piso porque su propia marca `as_of=` es el piso.
+                piso = real_final if es_futuro else -1
                 _sellar_run(
                     conn,
                     run_id,
                     ok=True,
                     rows_written=insertadas,
                     rows_skipped=duplicados_version + duplicados_id,
-                    skip_reason=_skip_reason(es_futuro, as_of_epoch, huella, skips),
+                    skip_reason=_skip_reason(es_futuro, as_of_epoch, huella, piso, skips),
                 )
     except BaseException as exc:
         # El with de arriba ya hizo rollback del trabajo. La run se sella como

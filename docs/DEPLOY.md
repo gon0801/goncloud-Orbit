@@ -434,23 +434,33 @@ Evidencia: `docs/evidencia/resumen-ads-multicanal/01-ingesta/`.
   aceptados como reales y `futuro=<epoch>` para los aceptados como futuros.
   Cada corrida escribe solo la marca del reloj al que pertenece; la otra sigue
   viva en su propia corrida. Por eso ambas pueden estar ausentes y una primera
-  corrida exclusivamente futura no escribe `as_of=`. El máximo de cada reloj se
+  corrida exclusivamente futura no escribe `as_of=`. Una aceptación futura
+  guarda además `piso=<epoch>` con el piso real heredado, para que una base
+  legada sin marca real no pierda su orden. El máximo de cada reloj se
   toma entre **todas** las corridas exitosas, bajo el candado; el id de
   `ingest_run` no ordena porque los runs nacen antes del candado. Un as-of
   aceptado como futuro queda en **cuarentena permanente**: el avance del reloj
   no lo reclasifica como real y no bloquea una corrección real válida. Un
   snapshot real se compara solo contra el reloj real; uno futuro, contra el
-  reloj futuro (y contra el real si ya quedó detrás de él).
+  reloj futuro (y contra el real si ya quedó detrás de él). Sin marca real ni
+  piso, el piso se calcula con las observaciones cuyo as-of no pertenece a una
+  aceptación futura; una observación con el mismo as-of del snapshot entrante
+  no cuenta como piso anterior.
   Cada aceptación guarda además `snap=<sha256>`: la huella del snapshot
-  COMPLETO (campaña, fecha y versión de todas las filas). Un reintento exacto
+  COMPLETO en JSON, con campaña, fecha, moneda, todas las métricas y la
+  versión/revisión de cada fila. Un reintento exacto
   se reconoce por as-of + huella contra la aceptación anterior, **no** contra
   `v_metric_latest`; es un no-op completo aunque otra corrida haya cambiado
-  después la observación vigente (no escribe entidades, no toca nombres y no
-  agrega observaciones). Un snapshot con el mismo as-of pero otra huella se
-  rechaza completo. Un snapshot atrasado que nunca fue aceptado también se
-  rechaza completo, aunque sus métricas coincidan. La recopia real sin cambios
-  **sí avanza el reloj real**, aunque no inserte observaciones, y bloquea
-  snapshots intermedios. Si el operador ve `snapshot atrasado`, vuelve a
+  después la observación vigente (no escribe entidades, no toca nombres, no
+  agrega observaciones y no crea otra aceptación). Un snapshot con el mismo
+  as-of pero otra huella se rechaza completo. Un snapshot atrasado que nunca
+  fue aceptado también se rechaza completo, aunque sus métricas coincidan. La
+  recopia real sin cambios **sí avanza el reloj real**, aunque no inserte
+  observaciones, y bloquea snapshots intermedios. Una aceptación anterior sin
+  `snap=` reconoce su primer reintento exacto solo si el snapshot coincide con
+  TODA la observación vigente; si hubo una corrección intermedia, se rechaza
+  fail-closed. Un snapshot vacío es un no-op exitoso y no crea aceptación
+  temporal. Si el operador ve `snapshot atrasado`, vuelve a
   copiar después del último sync de accounting y repite; la corrida rechazada
   no escribió nada. El mismo hecho re-observado con un as-of nuevo (recopia
   sin cambios) no agrega observaciones: manda la versión (hash). Límite
@@ -470,8 +480,10 @@ Evidencia: `docs/evidencia/resumen-ads-multicanal/01-ingesta/`.
   `impressions`/`clicks` respetan BIGINT y `orders` INTEGER. El `ON CONFLICT`
   apunta solo al índice parcial `metric_dedupe_reporte`; una colisión de PK
   aborta la corrida. Los motivos separan "misma version canonica (recopia o
-  reintento)" de "source_report_id ya ingerido". Todo motivo que se persiste
-  en `ingest_run.skip_reason` escapa NUL y caracteres de control antes de
+  reintento)" de "source_report_id ya ingerido". `campaign_id`,
+  `campaign_name` y `revision` con NUL se rechazan en la frontera de
+  `ads_source.py` antes de tocar PostgreSQL. Todo motivo que se persiste
+  en `ingest_run.skip_reason` escapa NUL y caracteres de control C0/C1 antes de
   llegar a PostgreSQL: una moneda o un `campaign_id` con NUL deja la corrida
   `ok=false`, con `finished_at`, sin datos parciales y con un motivo legible.
 - **Renombre**: cambia `ad_entity.name` del nombre de la fecha más reciente;
@@ -521,17 +533,40 @@ Por qué 08:15 UTC alcanza (medido, no supuesto):
    campaña/día, un día completo, un NULL se convirtió en cero, una métrica
    difiere o la moneda no es MXN, **detener la activación** y explicar la
    diferencia antes de seguir. La conciliación no es un smoke opcional.
+
+   El comando exacto, desde la máquina del lead, con el snapshot local y un
+   DSN de **solo lectura** de Orbit (nunca el de escritura) o un Postgres
+   desechable con la misma ingesta:
+
+   ```bash
+   SNAPSHOT_LOCAL=/ruta/al/snapshot.db
+   CONCILIAR_DSN="$ORBIT_DSN_READ"   # o postgresql://.../orbit_conciliacion
+   uv run --frozen python \
+     docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-10266d91/scripts/conciliar.py \
+     "$SNAPSHOT_LOCAL" "$CONCILIAR_DSN"
+   # Solo continuar si imprime CONCILIACION OK y sale 0.
+   ```
+
 4. Solo después de que la carga y la conciliación pasen, transferir el script
    de host **desde el SHA aprobado**. El servidor no es un checkout y el
-   `git archive` de la app no copia este archivo.
+   `git archive` de la app no copia este archivo. El archivo se materializa y
+   valida LOCALMENTE antes de transferirlo: un SHA inválido no puede producir
+   un archivo vacío que pase los checksums.
 
    ```bash
    SHA_APROBADO=<sha aprobado>
-   # En la máquina del lead, con el repo:
-   git show "$SHA_APROBADO":tools/refresh_costos.sh | ssh goncloud 'cat > /tmp/refresh_costos.sh'
-   git show "$SHA_APROBADO":tools/refresh_costos.sh | sha256sum
-   ssh goncloud 'sha256sum /tmp/refresh_costos.sh'   # debe coincidir
-   ssh goncloud 'install -m 0755 /tmp/refresh_costos.sh /mnt/data/appdata/orbit/refresh_costos.sh'
+   ARCHIVO_LOCAL=$(mktemp /tmp/refresh_costos.XXXXXX.sh)
+   git show "$SHA_APROBADO":tools/refresh_costos.sh > "$ARCHIVO_LOCAL"
+   test -s "$ARCHIVO_LOCAL"                    # falla si vino vacio
+   grep -q 'corre meli-ads meli_ads.log' "$ARCHIVO_LOCAL"
+   bash -n "$ARCHIVO_LOCAL"
+   SUM_LOCAL=$(sha256sum "$ARCHIVO_LOCAL" | awk '{print $1}')
+   test -n "$SUM_LOCAL"
+   scp "$ARCHIVO_LOCAL" goncloud:/tmp/refresh_costos.sh
+   SUM_REMOTO=$(ssh goncloud 'sha256sum /tmp/refresh_costos.sh' | awk '{print $1}')
+   test -n "$SUM_REMOTO" && test "$SUM_LOCAL" = "$SUM_REMOTO"
+   ssh goncloud 'test -s /tmp/refresh_costos.sh && install -m 0755 /tmp/refresh_costos.sh /mnt/data/appdata/orbit/refresh_costos.sh'
+   rm -f "$ARCHIVO_LOCAL"
    ```
 
 5. Verificar sintaxis en el servidor:
@@ -882,7 +917,9 @@ las 07:30 hasta la review del PR #144)
 corre los cuatro pipelines del MISMO snapshot desde la activación de
 RESUMEN-ADS-01, en este orden: `costs`, `fx`, `ledger`, `meli-ads` — cada uno a su log
 (`costos.log`/`fx.log`/`ledger.log`/`meli_ads.log`) más una línea resumen a
-stdout (llega a `costos.log`). Un pipeline caído
+stdout (llega a `costos.log`). Ese orden es el de la CADENA del script, no el
+de la activación: antes de instalar o reemplazar `refresh_costos.sh` se hace
+la carga inicial manual y la conciliación de la sección de MeLi. Un pipeline caído
 NO tumba a los otros (cada uno sella su `ingest_run` ok/false); el exit
 final es != 0 si alguno falló. El script versionado vive en
 `tools/refresh_costos.sh` (la copia del server es la desplegada).

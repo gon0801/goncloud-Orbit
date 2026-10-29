@@ -56,28 +56,44 @@ class _Conexion:
         return _Resultado(self.filas)
 
 
-def _snapshot(tmp_path: Path, campanas, dias) -> Path:
+def _snapshot(
+    tmp_path: Path,
+    campanas,
+    dias,
+    *,
+    con_moneda: bool = False,
+    moneda: str = "MXN",
+) -> Path:
     ruta = tmp_path / "source.db"
     con = sqlite3.connect(ruta)
-    con.execute(
-        "CREATE TABLE meli_ads_campaigns_daily (campaign_id TEXT, date TEXT,"
-        " spend REAL, ad_sales REAL, impressions INTEGER, clicks INTEGER)"
+    columnas = (
+        "campaign_id TEXT, date TEXT, spend REAL, ad_sales REAL,"
+        " impressions INTEGER, clicks INTEGER"
     )
+    if con_moneda:
+        columnas += ", currency TEXT"
+    con.execute(f"CREATE TABLE meli_ads_campaigns_daily ({columnas})")
     con.execute(
         "CREATE TABLE meli_ads_metrics_daily (date TEXT, clicks INTEGER,"
         " impressions INTEGER, spend REAL, ad_sales REAL)"
     )
-    con.executemany("INSERT INTO meli_ads_campaigns_daily VALUES (?,?,?,?,?,?)", campanas)
+    if con_moneda:
+        con.executemany(
+            "INSERT INTO meli_ads_campaigns_daily VALUES (?,?,?,?,?,?,?)",
+            [(*fila, moneda) for fila in campanas],
+        )
+    else:
+        con.executemany("INSERT INTO meli_ads_campaigns_daily VALUES (?,?,?,?,?,?)", campanas)
     con.executemany("INSERT INTO meli_ads_metrics_daily VALUES (?,?,?,?,?)", dias)
     con.commit()
     con.close()
     return ruta
 
 
-def _corre(monkeypatch, tmp_path, campanas, dias, orbit, capsys):
+def _corre(monkeypatch, tmp_path, campanas, dias, orbit, capsys, *, con_moneda=False, moneda="MXN"):
     modulo = _carga_script()
     monkeypatch.setattr(modulo.psycopg, "connect", lambda _dsn: _Conexion(orbit))
-    ruta = _snapshot(tmp_path, campanas, dias)
+    ruta = _snapshot(tmp_path, campanas, dias, con_moneda=con_moneda, moneda=moneda)
     codigo = modulo.main([str(ruta), "postgresql:///desechable"])
     return codigo, capsys.readouterr().out
 
@@ -200,6 +216,55 @@ def test_orbit_vacio_no_imprime_ok_ni_sale_cero(monkeypatch, tmp_path, capsys):
     assert codigo == 1
     assert "CONCILIACION OK" not in salida
     assert "CONCILIACION FALLA" in salida
+
+
+def test_moneda_distinta_en_el_origen_falla(monkeypatch, tmp_path, capsys):
+    """La tabla de origen puede traer currency: USD no puede pasar como MXN."""
+    codigo, salida = _corre(
+        monkeypatch,
+        tmp_path,
+        _campana(),
+        _dia(),
+        _orbit(),
+        capsys,
+        con_moneda=True,
+        moneda="USD",
+    )
+    assert codigo != 0
+    assert "moneda fuera de dominio en origen" in salida
+    assert "CONCILIACION OK" not in salida
+
+
+def test_precision_del_origen_no_se_redondea(monkeypatch, tmp_path, capsys):
+    """1.00001 tiene cinco decimales genuinos: no se redondea a 1.0000."""
+    codigo, salida = _corre(
+        monkeypatch,
+        tmp_path,
+        [("C1", DIA.isoformat(), 1.00001, 2.0, 3, 4)],
+        _dia(),
+        _orbit(),
+        capsys,
+    )
+    assert codigo != 0
+    assert "mas de 4 decimales" in salida
+    assert "CONCILIACION OK" not in salida
+
+
+def test_campana_duplicada_en_origen_falla(monkeypatch, tmp_path, capsys):
+    """Una clave repetida no se sobrescribe: la discrepancia anterior importa."""
+    campanas = _campana() + [("C1", DIA.isoformat(), 9.0, 2.0, 3, 4)]
+    codigo, salida = _corre(monkeypatch, tmp_path, campanas, _dia(), _orbit(), capsys)
+    assert codigo != 0
+    assert "duplicado en origen campana/dia" in salida
+    assert "CONCILIACION OK" not in salida
+
+
+def test_control_diario_duplicado_falla(monkeypatch, tmp_path, capsys):
+    dias = _dia() + [(DIA.isoformat(), 4, 3, 9.0, 2.0)]
+    codigo, salida = _corre(monkeypatch, tmp_path, _campana(), dias, _orbit(), capsys)
+    assert codigo != 0
+    assert "duplicado en origen control diario" in salida
+    assert "CONCILIACION OK" not in salida
 
 
 @pytest.mark.parametrize(

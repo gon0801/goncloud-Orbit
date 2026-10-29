@@ -36,8 +36,10 @@ from test_schema import SQL, _hay_postgres_local, _test_dsn
 from app.meli.ads_ingest import (
     _SQL_LOCK_MELI,
     _SQL_MAX_OBSERVADO,
+    SOURCE,
     _marcas_corridas,
     _nombres_vigentes,
+    _texto_persistible,
     ingest_meli_ads,
     main,
 )
@@ -1091,8 +1093,8 @@ def test_reintento_futuro_no_se_reclasifica_y_no_bloquea_la_correccion(pg, tmp_p
     marca = pg.execute(
         "SELECT skip_reason FROM ingest_run WHERE id = %s", (reintento["run_id"],)
     ).fetchone()[0]
-    assert marca.startswith(f"futuro={int(as_of_futuro.timestamp())}")
-    assert "as_of=" not in marca
+    assert marca.startswith("reintento=")
+    assert "as_of=" not in marca and "futuro=" not in marca
     assert _marcas_corridas(pg) == (-1, int(as_of_futuro.timestamp()))
 
     ingest_meli_ads(_RelojFijo(pg, inicio + dt.timedelta(minutes=11)), correccion)
@@ -1129,7 +1131,8 @@ def test_reintento_futuro_tras_correccion_real_es_noop(pg, tmp_path):
     marca = pg.execute(
         "SELECT skip_reason FROM ingest_run WHERE id = %s", (reintento["run_id"],)
     ).fetchone()[0]
-    assert marca.startswith("futuro=")
+    assert marca.startswith("reintento=")
+    assert _marcas_corridas(pg)[1] == int((ahora + dt.timedelta(hours=1)).timestamp())
 
 
 def test_mismo_as_of_con_contenido_distinto_tras_futuro_se_rechaza(pg, tmp_path):
@@ -1168,6 +1171,173 @@ def test_snapshot_futuro_atrasado_nunca_aceptado_se_rechaza(pg, tmp_path):
         ingest_meli_ads(_RelojFijo(pg, inicio), snap("futuro10.db", 6.0, 10))
     assert _ultima(pg, "C1", D1)[0] == Decimal("5.0000")
     assert _conteos(pg)[1] == 1
+
+
+def test_futuro_conserva_el_piso_de_una_observacion_legada(pg, tmp_path):
+    """Un futuro no borra el piso real de una base legada: el snapshot mas
+    atrasado que ese piso se rechaza aunque no exista marca real."""
+    ahora = dt.datetime.now(dt.UTC).replace(microsecond=0)
+    legacy_asof = ahora - dt.timedelta(hours=1)
+    stale_asof = ahora - dt.timedelta(hours=2)
+    future_asof = ahora + dt.timedelta(hours=1)
+    run_id = pg.execute(
+        "INSERT INTO ingest_run (source, ok, finished_at)"
+        " VALUES ('legacy', true, now()) RETURNING id"
+    ).fetchone()[0]
+    entidad = pg.execute(
+        "INSERT INTO ad_entity (platform, kind, external_id, name)"
+        " VALUES ('meli', 'campaign', 'C1', 'LEGACY') RETURNING id"
+    ).fetchone()[0]
+    version = version_canonica("C1", D1, "MXN", Decimal("10"), Decimal("8"), 2, 1, None)
+    pg.execute(
+        "INSERT INTO ads_metric_observation"
+        " (ad_entity_id, metric_date, observed_at, metric_currency, cost,"
+        "  ad_revenue, impressions, clicks, orders, source_report_id, ingest_run_id)"
+        " VALUES (%s, %s, %s, 'MXN', 10, 8, 2, 1, NULL, %s, %s)",
+        (
+            entidad,
+            D1,
+            ahora,
+            f"meli-ads|C1|{D1.isoformat()}|{version}|{int(legacy_asof.timestamp())}",
+            run_id,
+        ),
+    )
+    futuro = _snapshot(
+        tmp_path / "futuro.db",
+        [(D1.isoformat(), "C1", "FUTURE", 1, 2, 20.0, 8.0)],
+        as_of=future_asof.isoformat(),
+    )
+    atrasado = _snapshot(
+        tmp_path / "atrasado.db",
+        [(D1.isoformat(), "C1", "STALE", 1, 2, 5.0, 8.0)],
+        as_of=stale_asof.isoformat(),
+    )
+
+    ingest_meli_ads(_RelojFijo(pg, ahora), futuro)
+    marca = pg.execute(
+        "SELECT ok, skip_reason FROM ingest_run WHERE source = %s ORDER BY id",
+        (SOURCE,),
+    ).fetchall()
+    assert marca[0][0] is True
+    assert f"piso={int(legacy_asof.timestamp())}" in marca[0][1]
+
+    with pytest.raises(MeliAdsError, match="snapshot atrasado"):
+        ingest_meli_ads(_RelojFijo(pg, ahora), atrasado)
+
+    assert _ultima(pg, "C1", D1)[0] == Decimal("20.0000")
+    assert _conteos(pg)[1] == 2
+
+
+def test_huella_incluye_metricas_aunque_exista_revision(pg, tmp_path):
+    """La revision no reemplaza las metricas en la huella: mismo as_of con
+    costo distinto es contenido distinto, no un reintento."""
+    ahora = dt.datetime.now(dt.UTC).replace(microsecond=0)
+
+    def snap(nombre: str, costo: float) -> Path:
+        ruta = _snapshot(
+            tmp_path / nombre,
+            [(D1.isoformat(), "C1", "ALFA", 1, 2, costo, 8.0)],
+            as_of=ahora.isoformat(),
+        )
+        con = sqlite3.connect(ruta)
+        con.execute("ALTER TABLE meli_ads_campaigns_daily ADD COLUMN revision TEXT")
+        con.execute("UPDATE meli_ads_campaigns_daily SET revision = 'r1'")
+        con.commit()
+        con.close()
+        return ruta
+
+    ingest_meli_ads(_RelojFijo(pg, ahora), snap("revision-5.db", 5.0))
+    with pytest.raises(MeliAdsError, match="mismo as_of"):
+        ingest_meli_ads(_RelojFijo(pg, ahora), snap("revision-9.db", 9.0))
+    assert _ultima(pg, "C1", D1)[0] == Decimal("5.0000")
+    assert _conteos(pg)[1] == 1
+
+
+def test_huella_no_colisiona_con_separadores_de_campo(pg, tmp_path):
+    """La huella JSON escapa separadores: dos snapshots estructuralmente
+    distintos no pueden producir los mismos bytes."""
+    ahora = dt.datetime.now(dt.UTC).replace(microsecond=0)
+
+    def snap(nombre: str, campaign: str, revision: str) -> Path:
+        ruta = _snapshot(
+            tmp_path / nombre,
+            [(D1.isoformat(), campaign, "ALFA", 1, 2, 5.0, 8.0)],
+            as_of=ahora.isoformat(),
+        )
+        con = sqlite3.connect(ruta)
+        con.execute("ALTER TABLE meli_ads_campaigns_daily ADD COLUMN revision TEXT")
+        con.execute("UPDATE meli_ads_campaigns_daily SET revision = ?", (revision,))
+        con.commit()
+        con.close()
+        return ruta
+
+    ingest_meli_ads(_RelojFijo(pg, ahora), snap("delimiter-1.db", "A", "X\x1frev:Y"))
+    with pytest.raises(MeliAdsError, match="mismo as_of"):
+        ingest_meli_ads(_RelojFijo(pg, ahora), snap("delimiter-2.db", "A\x1frev:X", "Y"))
+    entidades = pg.execute(
+        "SELECT external_id FROM ad_entity WHERE platform = 'meli' ORDER BY external_id"
+    ).fetchall()
+    assert entidades == [("A",)]
+    assert _conteos(pg)[1] == 1
+
+
+def test_snapshot_vacio_es_noop_exitoso_sin_aceptacion(pg, tmp_path):
+    """Un snapshot vacio es no-op exitoso; no inventa as-of ni aceptacion."""
+    snap = _snapshot(tmp_path / "vacio.db", [])
+    resultado = ingest_meli_ads(pg, snap)
+    assert resultado["rows_written"] == 0
+    assert resultado["rows_skipped"] == 0
+    run = pg.execute(
+        "SELECT ok, rows_written, rows_skipped, skip_reason"
+        " FROM ingest_run ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    assert run == (True, 0, 0, "snapshot vacio (no-op)")
+    assert _marcas_corridas(pg) == (-1, -1)
+    assert _conteos(pg) == (0, 0)
+
+
+def test_reintento_de_aceptacion_legada_sin_huella_es_noop(pg, tmp_path):
+    """Compatibilidad: una aceptacion anterior sin snap= reconoce el primer
+    reintento exacto contra toda la observacion vigente."""
+    snap = _snapshot(tmp_path / "legacy.db", _FILAS, as_of=AS_OF_INICIAL)
+    primera = ingest_meli_ads(pg, snap)
+    pg.execute(
+        "UPDATE ingest_run SET skip_reason = regexp_replace("
+        " skip_reason, '; snap=[0-9a-f]{64}', '') WHERE id = %s",
+        (primera["run_id"],),
+    )
+    _, observaciones = _conteos(pg)
+
+    segunda = ingest_meli_ads(pg, snap)
+    assert segunda["rows_written"] == 0
+    assert segunda["duplicados"] == len(_FILAS)
+    assert _conteos(pg)[1] == observaciones
+    marca = pg.execute(
+        "SELECT skip_reason FROM ingest_run WHERE id = %s", (segunda["run_id"],)
+    ).fetchone()[0]
+    assert marca.startswith("reintento=")
+
+
+def test_reintento_no_agrega_otra_aceptacion(pg, tmp_path):
+    """Cada reintento sella su corrida pero no duplica la aceptacion temporal."""
+    snap = _snapshot(tmp_path / "retry.db", _FILAS, as_of=AS_OF_INICIAL)
+    ingest_meli_ads(pg, snap)
+    antes = pg.execute(
+        "SELECT count(*) FROM ingest_run WHERE ok = true"
+        " AND (skip_reason LIKE 'as_of=%%' OR skip_reason LIKE 'futuro=%%')"
+    ).fetchone()[0]
+    ingest_meli_ads(pg, snap)
+    despues = pg.execute(
+        "SELECT count(*) FROM ingest_run WHERE ok = true"
+        " AND (skip_reason LIKE 'as_of=%%' OR skip_reason LIKE 'futuro=%%')"
+    ).fetchone()[0]
+    assert antes == 1 and despues == 1
+
+
+def test_texto_persistible_escapa_controles_c0_y_c1():
+    assert _texto_persistible("antes\x00despues") == "antes\\x00despues"
+    assert _texto_persistible("antes\x85despues") == "antes\\x85despues"
+    assert _texto_persistible("a\nb") == "a\\x0ab"
 
 
 def test_correccion_agrega_observacion_y_v_metric_latest_la_expone(pg, tmp_path):
@@ -1266,14 +1436,14 @@ def test_moneda_con_nul_sella_la_corrida_y_no_deja_datos(pg, tmp_path):
 
 
 def test_campaign_id_con_nul_y_fecha_invalida_sella_la_corrida(pg, tmp_path):
-    """El NUL del campaign_id viaja dentro del motivo de la fecha invalida.
-    El escape es central: no depende de que la validacion limpie el mensaje."""
+    """El NUL del campaign_id se rechaza en la frontera del origen. El mensaje
+    se escapa antes de persistir: no hay datos parciales ni corrida abierta."""
     filas = [
         (D2.isoformat(), "C1", "ALFA", 1, 2, 3.0, 4.0),
         ("no-es-fecha", "C\x00NUL", "MALA", 1, 2, 3.0, 4.0),
     ]
     snap = _snapshot(tmp_path / "nul-id.db", filas, as_of=AS_OF_INICIAL)
-    with pytest.raises(MeliAdsError, match="fecha ilegible"):
+    with pytest.raises(MeliAdsError, match="NUL"):
         ingest_meli_ads(pg, snap)
 
     assert _conteos(pg) == (0, 0)
@@ -1283,7 +1453,48 @@ def test_campaign_id_con_nul_y_fecha_invalida_sella_la_corrida(pg, tmp_path):
     ).fetchone()
     assert run[0] is False and run[1] == 0 and run[2] == len(filas)
     assert run[4] is not None
-    assert "C\\x00NUL" in run[3] and "\x00" not in run[3]
+    assert "campaign_id con NUL" in run[3] and "\x00" not in run[3]
+
+
+def test_campaign_name_con_nul_sella_la_corrida(pg, tmp_path):
+    filas = [(D1.isoformat(), "C1", "ALFA\x00NUL", 1, 2, 5.0, 8.0)]
+    snap = _snapshot(tmp_path / "nul-nombre.db", filas, as_of=AS_OF_INICIAL)
+    with pytest.raises(MeliAdsError, match="campaign_name con NUL"):
+        ingest_meli_ads(pg, snap)
+
+    assert _conteos(pg) == (0, 0)
+    run = pg.execute(
+        "SELECT ok, rows_written, rows_skipped, skip_reason, finished_at"
+        " FROM ingest_run ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    assert run[0] is False and run[1] == 0 and run[2] == 1
+    assert run[4] is not None
+    assert "campaign_name con NUL" in run[3] and "\x00" not in run[3]
+
+
+def test_revision_con_nul_sella_la_corrida(pg, tmp_path):
+    snap = _snapshot(
+        tmp_path / "nul-revision.db",
+        [(D1.isoformat(), "C1", "ALFA", 1, 2, 5.0, 8.0)],
+        as_of=AS_OF_INICIAL,
+    )
+    con = sqlite3.connect(snap)
+    con.execute("ALTER TABLE meli_ads_campaigns_daily ADD COLUMN revision TEXT")
+    con.execute("UPDATE meli_ads_campaigns_daily SET revision = ?", ("r\x00NUL",))
+    con.commit()
+    con.close()
+
+    with pytest.raises(MeliAdsError, match="revision con NUL"):
+        ingest_meli_ads(pg, snap)
+
+    assert _conteos(pg) == (0, 0)
+    run = pg.execute(
+        "SELECT ok, rows_written, rows_skipped, skip_reason, finished_at"
+        " FROM ingest_run ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    assert run[0] is False and run[1] == 0 and run[2] == 1
+    assert run[4] is not None
+    assert "revision con NUL" in run[3] and "\x00" not in run[3]
 
 
 def test_identidad_invalida_no_deja_escrituras_parciales(pg, tmp_path):

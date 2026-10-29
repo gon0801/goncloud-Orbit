@@ -1,0 +1,422 @@
+FFFFFFFFFF                                                               [100%]
+=================================== FAILURES ===================================
+____________ test_futuro_conserva_el_piso_de_una_observacion_legada ____________
+
+pg = <psycopg.Connection [IDLE] (host=localhost user=orbit database=orbit_meli_ads_test_mac.lan_83833) at 0x109fd8190>
+tmp_path = PosixPath('/private/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/pytest-of-dn/pytest-3504/test_futuro_conserva_el_piso_d0')
+
+    def test_futuro_conserva_el_piso_de_una_observacion_legada(pg, tmp_path):
+        """Un futuro no borra el piso real de una base legada: el snapshot mas
+        atrasado que ese piso se rechaza aunque no exista marca real."""
+        ahora = dt.datetime.now(dt.UTC).replace(microsecond=0)
+        legacy_asof = ahora - dt.timedelta(hours=1)
+        stale_asof = ahora - dt.timedelta(hours=2)
+        future_asof = ahora + dt.timedelta(hours=1)
+        run_id = pg.execute(
+            "INSERT INTO ingest_run (source, ok, finished_at)"
+            " VALUES ('legacy', true, now()) RETURNING id"
+        ).fetchone()[0]
+        entidad = pg.execute(
+            "INSERT INTO ad_entity (platform, kind, external_id, name)"
+            " VALUES ('meli', 'campaign', 'C1', 'LEGACY') RETURNING id"
+        ).fetchone()[0]
+        version = version_canonica("C1", D1, "MXN", Decimal("10"), Decimal("8"), 2, 1, None)
+        pg.execute(
+            "INSERT INTO ads_metric_observation"
+            " (ad_entity_id, metric_date, observed_at, metric_currency, cost,"
+            "  ad_revenue, impressions, clicks, orders, source_report_id, ingest_run_id)"
+            " VALUES (%s, %s, %s, 'MXN', 10, 8, 2, 1, NULL, %s, %s)",
+            (
+                entidad,
+                D1,
+                ahora,
+                f"meli-ads|C1|{D1.isoformat()}|{version}|{int(legacy_asof.timestamp())}",
+                run_id,
+            ),
+        )
+        futuro = _snapshot(
+            tmp_path / "futuro.db",
+            [(D1.isoformat(), "C1", "FUTURE", 1, 2, 20.0, 8.0)],
+            as_of=future_asof.isoformat(),
+        )
+        atrasado = _snapshot(
+            tmp_path / "atrasado.db",
+            [(D1.isoformat(), "C1", "STALE", 1, 2, 5.0, 8.0)],
+            as_of=stale_asof.isoformat(),
+        )
+
+        ingest_meli_ads(_RelojFijo(pg, ahora), futuro)
+        marca = pg.execute(
+            "SELECT ok, skip_reason FROM ingest_run WHERE source = %s ORDER BY id",
+            (SOURCE,),
+        ).fetchall()
+        assert marca[0][0] is True
+>       assert f"piso={int(legacy_asof.timestamp())}" in marca[0][1]
+E       AssertionError: assert 'piso=1793289329' in 'futuro=1793296529; snap=6c40bb9a7b8080bd4baf96e0a8f78e78472458f103718851f3850cf87cfe7003'
+
+tests/test_meli_ads_ingest.py:1222: AssertionError
+_____________ test_huella_incluye_metricas_aunque_exista_revision ______________
+
+pg = <psycopg.Connection [IDLE] (host=localhost user=orbit database=orbit_meli_ads_test_mac.lan_83833) at 0x10a0a4640>
+tmp_path = PosixPath('/private/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/pytest-of-dn/pytest-3504/test_huella_incluye_metricas_a0')
+
+    def test_huella_incluye_metricas_aunque_exista_revision(pg, tmp_path):
+        """La revision no reemplaza las metricas en la huella: mismo as_of con
+        costo distinto es contenido distinto, no un reintento."""
+        ahora = dt.datetime.now(dt.UTC).replace(microsecond=0)
+
+        def snap(nombre: str, costo: float) -> Path:
+            ruta = _snapshot(
+                tmp_path / nombre,
+                [(D1.isoformat(), "C1", "ALFA", 1, 2, costo, 8.0)],
+                as_of=ahora.isoformat(),
+            )
+            con = sqlite3.connect(ruta)
+            con.execute("ALTER TABLE meli_ads_campaigns_daily ADD COLUMN revision TEXT")
+            con.execute("UPDATE meli_ads_campaigns_daily SET revision = 'r1'")
+            con.commit()
+            con.close()
+            return ruta
+
+        ingest_meli_ads(_RelojFijo(pg, ahora), snap("revision-5.db", 5.0))
+>       with pytest.raises(MeliAdsError, match="mismo as_of"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE MeliAdsError
+
+tests/test_meli_ads_ingest.py:1250: Failed
+______________ test_huella_no_colisiona_con_separadores_de_campo _______________
+
+pg = <psycopg.Connection [IDLE] (host=localhost user=orbit database=orbit_meli_ads_test_mac.lan_83833) at 0x109ba68d0>
+tmp_path = PosixPath('/private/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/pytest-of-dn/pytest-3504/test_huella_no_colisiona_con_s0')
+
+    def test_huella_no_colisiona_con_separadores_de_campo(pg, tmp_path):
+        """La huella JSON escapa separadores: dos snapshots estructuralmente
+        distintos no pueden producir los mismos bytes."""
+        ahora = dt.datetime.now(dt.UTC).replace(microsecond=0)
+
+        def snap(nombre: str, campaign: str, revision: str) -> Path:
+            ruta = _snapshot(
+                tmp_path / nombre,
+                [(D1.isoformat(), campaign, "ALFA", 1, 2, 5.0, 8.0)],
+                as_of=ahora.isoformat(),
+            )
+            con = sqlite3.connect(ruta)
+            con.execute("ALTER TABLE meli_ads_campaigns_daily ADD COLUMN revision TEXT")
+            con.execute("UPDATE meli_ads_campaigns_daily SET revision = ?", (revision,))
+            con.commit()
+            con.close()
+            return ruta
+
+        ingest_meli_ads(_RelojFijo(pg, ahora), snap("delimiter-1.db", "A", "X\x1frev:Y"))
+>       with pytest.raises(MeliAdsError, match="mismo as_of"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE MeliAdsError
+
+tests/test_meli_ads_ingest.py:1275: Failed
+______________ test_snapshot_vacio_es_noop_exitoso_sin_aceptacion ______________
+
+pg = <psycopg.Connection [IDLE] (host=localhost user=orbit database=orbit_meli_ads_test_mac.lan_83833) at 0x10a0348d0>
+tmp_path = PosixPath('/private/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/pytest-of-dn/pytest-3504/test_snapshot_vacio_es_noop_ex0')
+
+    def test_snapshot_vacio_es_noop_exitoso_sin_aceptacion(pg, tmp_path):
+        """Un snapshot vacio es no-op exitoso; no inventa as-of ni aceptacion."""
+        snap = _snapshot(tmp_path / "vacio.db", [])
+>       resultado = ingest_meli_ads(pg, snap)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_meli_ads_ingest.py:1287:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+app/meli/ads_ingest.py:468: in ingest_meli_ads
+    previa, es_futuro, real_final, futuro_final = _decision_temporal(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+aceptadas = [], marca_real = -1, marca_futura = -1, as_of_epoch = -1
+limite_real = 1793293230
+huella = '9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa'
+
+    def _decision_temporal(
+        aceptadas: list[_Aceptacion],
+        marca_real: int,
+        marca_futura: int,
+        as_of_epoch: int,
+        limite_real: int,
+        huella: str,
+    ) -> tuple[_Aceptacion | None, bool, int, int]:
+        """Clasifica el snapshot y devuelve (reintento, es_futuro, real, futuro).
+
+        El reintento exacto se busca contra la aceptacion ANTERIOR del snapshot
+        completo (as-of + huella), no contra `v_metric_latest`. Si hay aceptacion
+        con el mismo as-of pero otra huella, el snapshot se rechaza. Un snapshot
+        nunca aceptado que cae detras del reloj que le corresponde se rechaza.
+        """
+        mismo_as_of = [aceptada for aceptada in aceptadas if aceptada.as_of == as_of_epoch]
+        previa = next((a for a in mismo_as_of if a.huella == huella), None)
+        if previa is not None:
+            return previa, previa.es_futuro, marca_real, marca_futura
+        if mismo_as_of:
+            raise MeliAdsError(
+                "snapshot con el mismo as_of y contenido distinto (snapshot atrasado):"
+                " no se escribio nada"
+            )
+
+        es_futuro = as_of_epoch > limite_real
+        if es_futuro:
+            # La cuarentena ordena solo a otros futuros; el reloj real manda si el
+            # as-of ya quedo detras de una correccion real.
+            if as_of_epoch <= max(marca_real, marca_futura):
+                raise MeliAdsError(
+                    "snapshot atrasado: su as_of no es posterior a la marca aceptada"
+                    f" ({max(marca_real, marca_futura)}); no se escribio nada"
+                )
+            return None, True, marca_real, as_of_epoch
+
+        # Un futuro en cuarentena no bloquea una correccion real valida.
+        if as_of_epoch <= marca_real:
+>           raise MeliAdsError(
+                "snapshot atrasado: su as_of no es posterior a la marca aceptada"
+                f" ({marca_real}); no se escribio nada"
+            )
+E           app.meli.ads_source.MeliAdsError: snapshot atrasado: su as_of no es posterior a la marca aceptada (-1); no se escribio nada
+
+app/meli/ads_ingest.py:373: MeliAdsError
+____________ test_reintento_de_aceptacion_legada_sin_huella_es_noop ____________
+
+pg = <psycopg.Connection [IDLE] (host=localhost user=orbit database=orbit_meli_ads_test_mac.lan_83833) at 0x10a0b0250>
+tmp_path = PosixPath('/private/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/pytest-of-dn/pytest-3504/test_reintento_de_aceptacion_l0')
+
+    def test_reintento_de_aceptacion_legada_sin_huella_es_noop(pg, tmp_path):
+        """Compatibilidad: una aceptacion anterior sin snap= reconoce el primer
+        reintento exacto contra toda la observacion vigente."""
+        snap = _snapshot(tmp_path / "legacy.db", _FILAS, as_of=AS_OF_INICIAL)
+        primera = ingest_meli_ads(pg, snap)
+        pg.execute(
+            "UPDATE ingest_run SET skip_reason = regexp_replace("
+            " skip_reason, '; snap=[0-9a-f]{64}', '') WHERE id = %s",
+            (primera["run_id"],),
+        )
+        _, observaciones = _conteos(pg)
+
+>       segunda = ingest_meli_ads(pg, snap)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_meli_ads_ingest.py:1311:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+app/meli/ads_ingest.py:468: in ingest_meli_ads
+    previa, es_futuro, real_final, futuro_final = _decision_temporal(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+aceptadas = [_Aceptacion(as_of=1793282129, es_futuro=False, huella=None)]
+marca_real = 1793282129, marca_futura = -1, as_of_epoch = 1793282129
+limite_real = 1793293230
+huella = 'd6ed21d3af1aea1102c7e331309eb94c5c81754d303db7f29a628602aac27b2d'
+
+    def _decision_temporal(
+        aceptadas: list[_Aceptacion],
+        marca_real: int,
+        marca_futura: int,
+        as_of_epoch: int,
+        limite_real: int,
+        huella: str,
+    ) -> tuple[_Aceptacion | None, bool, int, int]:
+        """Clasifica el snapshot y devuelve (reintento, es_futuro, real, futuro).
+
+        El reintento exacto se busca contra la aceptacion ANTERIOR del snapshot
+        completo (as-of + huella), no contra `v_metric_latest`. Si hay aceptacion
+        con el mismo as-of pero otra huella, el snapshot se rechaza. Un snapshot
+        nunca aceptado que cae detras del reloj que le corresponde se rechaza.
+        """
+        mismo_as_of = [aceptada for aceptada in aceptadas if aceptada.as_of == as_of_epoch]
+        previa = next((a for a in mismo_as_of if a.huella == huella), None)
+        if previa is not None:
+            return previa, previa.es_futuro, marca_real, marca_futura
+        if mismo_as_of:
+>           raise MeliAdsError(
+                "snapshot con el mismo as_of y contenido distinto (snapshot atrasado):"
+                " no se escribio nada"
+            )
+E           app.meli.ads_source.MeliAdsError: snapshot con el mismo as_of y contenido distinto (snapshot atrasado): no se escribio nada
+
+app/meli/ads_ingest.py:355: MeliAdsError
+___________________ test_reintento_no_agrega_otra_aceptacion ___________________
+
+pg = <psycopg.Connection [IDLE] (host=localhost user=orbit database=orbit_meli_ads_test_mac.lan_83833) at 0x10a084d70>
+tmp_path = PosixPath('/private/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/pytest-of-dn/pytest-3504/test_reintento_no_agrega_otra_0')
+
+    def test_reintento_no_agrega_otra_aceptacion(pg, tmp_path):
+        """Cada reintento sella su corrida pero no duplica la aceptacion temporal."""
+        snap = _snapshot(tmp_path / "retry.db", _FILAS, as_of=AS_OF_INICIAL)
+        ingest_meli_ads(pg, snap)
+        antes = pg.execute(
+            "SELECT count(*) FROM ingest_run WHERE ok = true"
+            " AND (skip_reason LIKE 'as_of=%%' OR skip_reason LIKE 'futuro=%%')"
+        ).fetchone()[0]
+        ingest_meli_ads(pg, snap)
+        despues = pg.execute(
+            "SELECT count(*) FROM ingest_run WHERE ok = true"
+            " AND (skip_reason LIKE 'as_of=%%' OR skip_reason LIKE 'futuro=%%')"
+        ).fetchone()[0]
+>       assert antes == 1 and despues == 1
+E       assert (1 == 1 and 2 == 1)
+
+tests/test_meli_ads_ingest.py:1334: AssertionError
+_______________ test_texto_persistible_escapa_controles_c0_y_c1 ________________
+
+    def test_texto_persistible_escapa_controles_c0_y_c1():
+        assert _texto_persistible("antes\x00despues") == "antes\\x00despues"
+>       assert _texto_persistible("antes\x85despues") == "antes\\x85despues"
+E       AssertionError: assert 'antes\x85despues' == 'antes\\x85despues'
+E
+E         - antes\x85despues
+E         + antes
+E
+E         + despues
+
+tests/test_meli_ads_ingest.py:1339: AssertionError
+__________ test_campaign_id_con_nul_y_fecha_invalida_sella_la_corrida __________
+
+pg = <psycopg.Connection [IDLE] (host=localhost user=orbit database=orbit_meli_ads_test_mac.lan_83833) at 0x109fea8a0>
+tmp_path = PosixPath('/private/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/pytest-of-dn/pytest-3504/test_campaign_id_con_nul_y_fec0')
+
+    def test_campaign_id_con_nul_y_fecha_invalida_sella_la_corrida(pg, tmp_path):
+        """El NUL del campaign_id se rechaza en la frontera del origen. El mensaje
+        se escapa antes de persistir: no hay datos parciales ni corrida abierta."""
+        filas = [
+            (D2.isoformat(), "C1", "ALFA", 1, 2, 3.0, 4.0),
+            ("no-es-fecha", "C\x00NUL", "MALA", 1, 2, 3.0, 4.0),
+        ]
+        snap = _snapshot(tmp_path / "nul-id.db", filas, as_of=AS_OF_INICIAL)
+        with pytest.raises(MeliAdsError, match="NUL"):
+            ingest_meli_ads(pg, snap)
+
+        assert _conteos(pg) == (0, 0)
+        run = pg.execute(
+            "SELECT ok, rows_written, rows_skipped, skip_reason, finished_at"
+            " FROM ingest_run ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        assert run[0] is False and run[1] == 0 and run[2] == len(filas)
+        assert run[4] is not None
+>       assert "campaign_id con NUL" in run[3] and "\x00" not in run[3]
+E       assert ('campaign_id con NUL' in "snapshot rechazado (cero escrituras): 1x fecha ilegible en C\\x00NUL: 'no-es-fecha'")
+
+tests/test_meli_ads_ingest.py:1456: AssertionError
+_________________ test_campaign_name_con_nul_sella_la_corrida __________________
+
+pg = <psycopg.Connection [IDLE] (host=localhost user=orbit database=orbit_meli_ads_test_mac.lan_83833) at 0x109fe9a90>
+tmp_path = PosixPath('/private/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/pytest-of-dn/pytest-3504/test_campaign_name_con_nul_sel0')
+
+    def test_campaign_name_con_nul_sella_la_corrida(pg, tmp_path):
+        filas = [(D1.isoformat(), "C1", "ALFA\x00NUL", 1, 2, 5.0, 8.0)]
+        snap = _snapshot(tmp_path / "nul-nombre.db", filas, as_of=AS_OF_INICIAL)
+        with pytest.raises(MeliAdsError, match="campaign_name con NUL"):
+>           ingest_meli_ads(pg, snap)
+
+tests/test_meli_ads_ingest.py:1463:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+app/meli/ads_ingest.py:502: in ingest_meli_ads
+    entidad = _entidad(
+app/meli/ads_ingest.py:214: in _entidad
+    resultado = conn.execute(_SQL_UPSERT_ENTIDAD, (campaign_external_id, nombre)).fetchone()
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [IDLE] (host=localhost user=orbit database=orbit_meli_ads_test_mac.lan_83833) at 0x109fe9a90>
+query = "\nINSERT INTO ad_entity (platform, kind, external_id, name)\nVALUES ('meli', 'campaign', %s, %s)\nON CONFLICT (platfo...XCLUDED.name IS NOT NULL\n   AND ad_entity.name IS DISTINCT FROM EXCLUDED.name\nRETURNING id, (xmax = 0) AS es_nueva\n"
+params = ('C1', 'ALFA\x00NUL'), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.DataError: PostgreSQL text fields cannot contain NUL (0x00) bytes
+
+/Users/dn/dev/goncloud-Orbit/.venv/lib/python3.14/site-packages/psycopg/connection.py:300: DataError
+____________________ test_revision_con_nul_sella_la_corrida ____________________
+
+pg = <psycopg.Connection [IDLE] (host=localhost user=orbit database=orbit_meli_ads_test_mac.lan_83833) at 0x109fe8500>
+tmp_path = PosixPath('/private/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/pytest-of-dn/pytest-3504/test_revision_con_nul_sella_la0')
+
+    def test_revision_con_nul_sella_la_corrida(pg, tmp_path):
+        snap = _snapshot(
+            tmp_path / "nul-revision.db",
+            [(D1.isoformat(), "C1", "ALFA", 1, 2, 5.0, 8.0)],
+            as_of=AS_OF_INICIAL,
+        )
+        con = sqlite3.connect(snap)
+        con.execute("ALTER TABLE meli_ads_campaigns_daily ADD COLUMN revision TEXT")
+        con.execute("UPDATE meli_ads_campaigns_daily SET revision = ?", ("r\x00NUL",))
+        con.commit()
+        con.close()
+
+        with pytest.raises(MeliAdsError, match="revision con NUL"):
+>           ingest_meli_ads(pg, snap)
+
+tests/test_meli_ads_ingest.py:1488:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+app/meli/ads_ingest.py:516: in ingest_meli_ads
+    cursor = conn.execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [IDLE] (host=localhost user=orbit database=orbit_meli_ads_test_mac.lan_83833) at 0x109fe8500>
+query = '\nINSERT INTO ads_metric_observation\n    (ad_entity_id, metric_date, observed_at, metric_currency, cost, ad_revenue,..., %s)\nON CONFLICT (ad_entity_id, metric_date, source_report_id)\n    WHERE source_report_id IS NOT NULL\nDO NOTHING\n'
+params = (1, datetime.date(2026, 10, 28), datetime.datetime(2026, 10, 29, 16, 55, 30, 783158, tzinfo=datetime.timezone.utc), 'MXN', Decimal('5.0000'), Decimal('8.0000'), ...)
+prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.DataError: PostgreSQL text fields cannot contain NUL (0x00) bytes
+
+/Users/dn/dev/goncloud-Orbit/.venv/lib/python3.14/site-packages/psycopg/connection.py:300: DataError
+=========================== short test summary info ============================
+FAILED tests/test_meli_ads_ingest.py::test_futuro_conserva_el_piso_de_una_observacion_legada
+FAILED tests/test_meli_ads_ingest.py::test_huella_incluye_metricas_aunque_exista_revision
+FAILED tests/test_meli_ads_ingest.py::test_huella_no_colisiona_con_separadores_de_campo
+FAILED tests/test_meli_ads_ingest.py::test_snapshot_vacio_es_noop_exitoso_sin_aceptacion
+FAILED tests/test_meli_ads_ingest.py::test_reintento_de_aceptacion_legada_sin_huella_es_noop
+FAILED tests/test_meli_ads_ingest.py::test_reintento_no_agrega_otra_aceptacion
+FAILED tests/test_meli_ads_ingest.py::test_texto_persistible_escapa_controles_c0_y_c1
+FAILED tests/test_meli_ads_ingest.py::test_campaign_id_con_nul_y_fecha_invalida_sella_la_corrida
+FAILED tests/test_meli_ads_ingest.py::test_campaign_name_con_nul_sella_la_corrida
+FAILED tests/test_meli_ads_ingest.py::test_revision_con_nul_sella_la_corrida
+10 failed, 51 deselected in 1.32s

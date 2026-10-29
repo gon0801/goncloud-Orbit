@@ -18,4 +18,13 @@ for _ in range(30):
     assert r.status == 200
 ordenadas = sorted(lat)
 p95 = ordenadas[math.ceil(0.95 * len(ordenadas)) - 1]
-print(json.dumps({"n": len(lat), "median_ms": round(statistics.median(lat), 2), "p95_ms": round(p95, 2), "bytes": len(cuerpo)}))
+print(
+    json.dumps(
+        {
+            "n": len(lat),
+            "median_ms": round(statistics.median(lat), 2),
+            "p95_ms": round(p95, 2),
+            "bytes": len(cuerpo),
+        }
+    )
+)

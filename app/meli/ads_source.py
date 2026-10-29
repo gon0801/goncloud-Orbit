@@ -233,12 +233,21 @@ def _nombre(valor: object) -> str | None:
     if valor is None:
         return None
     texto = str(valor).strip()
+    if "\x00" in texto:
+        raise MeliAdsError("campaign_name con NUL no soportado")
     return texto or None
+
+
+def _sin_nul(valor: str, campo: str) -> str:
+    """Rechaza NUL en un campo de texto antes de que llegue a PostgreSQL."""
+    if "\x00" in valor:
+        raise MeliAdsError(f"{campo} con NUL no soportado")
+    return valor
 
 
 def _fila(row: sqlite3.Row, columnas: set[str], hoy: dt.date) -> FilaMeliAds:
     """Convierte una fila del origen a la forma canonica y valida el contrato."""
-    campaign_id = str(row["campaign_id"] or "").strip()
+    campaign_id = _sin_nul(str(row["campaign_id"] or "").strip(), "campaign_id")
     if not campaign_id:
         raise MeliAdsError("campaign_id vacio: identidad de campana ausente")
     if "|" in campaign_id:
@@ -269,6 +278,7 @@ def _fila(row: sqlite3.Row, columnas: set[str], hoy: dt.date) -> FilaMeliAds:
     # futuro la trae, ES la version: manda sobre el hash de las metricas.
     revision = row["revision"] if "revision" in columnas else None
     revision_texto = str(revision).strip() if revision is not None else ""
+    revision_texto = _sin_nul(revision_texto, "revision")
     if "|" in revision_texto:
         raise MeliAdsError("revision con separador '|' no soportada")
     if not revision_texto:

@@ -1,0 +1,6 @@
+SHA revisado: a305e7c0918f86ff33235652d1881b3d7bbe41f7
+SHA de código verificado (batería completa, perf y reinicio):
+ef036a4b2f38bfc2703190535250e07102a57b30
+Commit final: el que contiene este archivo; se reporta en la entrega.
+El árbol de código de este commit es idéntico al de ef036a4; solo cambia la
+evidencia de la ronda.

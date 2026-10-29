@@ -229,7 +229,8 @@ Dos bloqueantes de orden temporal, corregidos con dos relojes separados.
 
 Evidencia: `30-revision-10266d91/antes.txt` y `despues.txt` (los dos
 bloqueantes), `ui-perf-http.txt` y `lane10-reinicio-conciliacion.txt`.
-Focales: **109 passed** (46 del módulo). Suite completa: **5529 passed**.
+Focales: **109 passed** (46 del módulo, ronda 10266d91). Suite completa:
+**5529 passed** (ronda 10266d91).
 Pendientes: Lane 1 Amazon y los diez lanes live en VM.
 
 ## Séptima revisión (corrección integral sobre `1a97cec5`)
@@ -313,6 +314,44 @@ negativa, pruebas focales, gates, suite, perf HTTP intercalado, tres ingestas
 de 100,000 filas y reinicio con conciliación. Los lanes live en VM y la
 regresión Amazon base/HEAD siguen pendientes por infraestructura.
 
+## Octava revisión (veredicto sobre `a305e7c`)
+
+SHA revisado: `a305e7c0918f86ff33235652d1881b3d7bbe41f7`.
+SHA de código verificado: `ef036a4b2f38bfc2703190535250e07102a57b30`.
+El commit final agrega solo esta evidencia.
+
+Se corrigieron los siete bloqueantes del veredicto y los secundarios que
+afectaban datos, compatibilidad o auditoría.
+
+- **Piso legado con futuro.** `_estado_temporal` calcula el piso real con
+  `piso=<epoch>` de las aceptaciones futuras y, si no existe, con las
+  observaciones cuyo as-of no fue futuro. Una aceptación futura ya no borra el
+  piso de una base legada. El as-of entrante no cuenta como piso anterior.
+- **Huella completa.** `snap=` es un JSON con campaña, fecha, moneda, todas
+  las métricas y la versión/revisión. La revisión ya no oculta cambios de
+  costo y los separadores internos no pueden colisionar. Una aceptación vieja
+  sin `snap=` reconoce su primer reintento exacto solo si coincide con toda la
+  observación vigente; si hubo corrección intermedia, falla cerrado.
+- **Snapshot vacío.** Es un no-op exitoso, no crea aceptación temporal y no
+  inventa as-of.
+- **NUL en campos.** `campaign_id`, `campaign_name` y `revision` con NUL se
+  rechazan en `ads_source.py`. La corrida queda `ok=false`, con
+  `finished_at`, `rows_skipped` y rollback completo. `_texto_persistible`
+  escapa también controles C1.
+- **Conciliación estricta.** El origen revisa `currency` si existe, no redondea
+  precisión de más de 4 decimales y falla ante claves duplicadas de campaña/día
+  o de control diario, sin que la última fila oculte la anterior.
+- **Runbook.** El script se materializa y valida localmente con `test -s`,
+  `grep`, `bash -n` y checksum no vacío antes de transferirlo. La conciliación
+  tiene comando, ruta y DSN explícitos.
+- **Formato.** Se formatearon los 30 Python del cambio, no solo 14.
+
+Secundarios atendidos: un reintento ya no agrega otra aceptación temporal, las
+reproducciones versionadas importan `_dinero`/`leer_origen` desde
+`ads_source.py`, y la evidencia registra PID, parada y arranque del reinicio.
+Los diez lanes live en VM, las capturas PNG y la regresión Amazon base/HEAD
+siguen pendientes por infraestructura.
+
 ## Archivos
 
 - `app/meli/ads_ingest.py` (nuevo): dueño de la persistencia, la política
@@ -332,13 +371,15 @@ regresión Amazon base/HEAD siguen pendientes por infraestructura.
 
 ## Pruebas
 
-- Focales: `109 passed` (`tests/test_meli_ads_ingest.py` + `tests/test_cli.py`;
-  46 casos del módulo). Detalle: `30-revision-10266d91/pruebas.txt`.
+- Focales: **238 passed** (`tests/test_meli_ads_ingest.py` +
+  `tests/test_cli.py` + `tests/test_conciliar_meli_ads.py` +
+  `tests/test_architecture.py`). Detalle:
+  `30-revision-a305e7c/pruebas.txt`.
 - Regresión contra el padre: la ingesta no colecciona (`ModuleNotFoundError`)
   y el CLI falla por el comando/choice ausente. Detalle:
   `06-pruebas-regresion-parent.txt`.
-- Suite completa con `ORBIT_TEST_DSN`: **5529 passed, 0 failed**. Detalle en
-  `30-revision-10266d91/suite.txt`.
+- Suite completa con `ORBIT_TEST_DSN`: **5561 passed, 0 failed**. Detalle en
+  `30-revision-a305e7c/suite.txt`.
 
 ## Verificación operativa real
 
