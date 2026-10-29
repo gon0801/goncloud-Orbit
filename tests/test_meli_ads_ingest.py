@@ -1520,6 +1520,59 @@ def test_frontera_rechaza_blob_y_texto_oversize(pg, tmp_path, campo, valor):
     assert campo in run[3] and motivo in run[3]
 
 
+def test_identificador_combinado_excede_el_indice(pg, tmp_path):
+    """Dos campos que pasan solos pueden desbordar juntos el btree."""
+    campana = os.urandom(768).hex()  # 1536 caracteres incompresibles
+    revision = os.urandom(768).hex()
+    snap = _snapshot(
+        tmp_path / "identificador-combinado.db",
+        [(D1.isoformat(), campana, "ALFA", 1, 2, 5.0, 8.0)],
+        as_of=AS_OF_INICIAL,
+    )
+    con = sqlite3.connect(snap)
+    con.execute("ALTER TABLE meli_ads_campaigns_daily ADD COLUMN revision TEXT")
+    con.execute("UPDATE meli_ads_campaigns_daily SET revision = ?", (revision,))
+    con.commit()
+    con.close()
+
+    with pytest.raises(MeliAdsError, match="identificador de origen"):
+        ingest_meli_ads(pg, snap)
+
+    assert _conteos(pg) == (0, 0)
+    run = pg.execute(
+        "SELECT ok, rows_written, rows_skipped, skip_reason, finished_at"
+        " FROM ingest_run ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    assert run[0] is False and run[1] == 0 and run[2] == 1
+    assert run[4] is not None
+    assert "identificador de origen" in run[3]
+
+
+def test_texto_utf8_invalido_se_cuenta_como_rechazo(pg, tmp_path):
+    """SQLite no decodifica un TEXT invalido: la fila se rechaza y se cuenta."""
+    snap = _snapshot(
+        tmp_path / "utf8-invalido.db",
+        [(D1.isoformat(), "C1", "ALFA", 1, 2, 5.0, 8.0)],
+        as_of=AS_OF_INICIAL,
+    )
+    con = sqlite3.connect(snap)
+    con.execute("UPDATE meli_ads_campaigns_daily SET campaign_name = CAST(x'80' AS TEXT)")
+    con.commit()
+    con.close()
+
+    with pytest.raises(MeliAdsError, match="ilegible en origen"):
+        ingest_meli_ads(pg, snap)
+
+    assert _conteos(pg) == (0, 0)
+    run = pg.execute(
+        "SELECT ok, rows_written, rows_skipped, skip_reason, finished_at"
+        " FROM ingest_run ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    assert run[0] is False and run[1] == 0 and run[2] == 1
+    assert run[4] is not None
+    assert "ilegible en origen" in run[3]
+
+
 def test_huella_no_colisiona_con_separadores_de_campo(pg, tmp_path):
     """La huella JSON escapa separadores: dos snapshots estructuralmente
     distintos no pueden producir los mismos bytes."""

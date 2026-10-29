@@ -1,10 +1,16 @@
 # ruff: noqa
 """Conciliacion de solo lectura: Orbit (Postgres desechable) vs accounting.
 
-Uso: python conciliar.py <snapshot.db> <dsn_postgres_desechable>
+Uso: CONCILIAR_DSN=postgresql://... python conciliar.py <snapshot.db> \
+       --desde YYYY-MM-DD --hasta YYYY-MM-DD
+
+La ventana [desde, hasta] es explicita: no se deriva de las campanas del
+snapshot, para que un dia perdido no desplace el inicio. La actividad anterior
+a `desde` se excluye y se reporta; la posterior a `hasta` falla. El DSN va por
+entorno (nunca en argv) y los errores de conexion se redactan.
 
 Sale distinto de cero ante CUALQUIER diferencia: una campana/dia que falta o
-sobra en Orbit, un dia completo que falta o sobra, un NULL convertido en cero,
+sobra en Orbit, un dia completo que falta o sobra, un NULL (aunque coincida),
 una metrica con otro valor o una moneda distinta de MXN. No hay una salida
 "parcial" que imprima CONCILIACION OK.
 """
@@ -13,6 +19,7 @@ from __future__ import annotations
 
 import datetime as dt
 import math
+import os
 import re
 import sqlite3
 import sys
@@ -20,6 +27,14 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 import psycopg
+
+try:
+    from app.redaction import redact_dsn, scrub
+except ModuleNotFoundError:
+    # `python ruta/al/script.py` pone en sys.path el directorio del script,
+    # no la raiz del repo. La evidencia vive siempre a esta profundidad.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[6]))
+    from app.redaction import redact_dsn, scrub
 
 CENTIMOS = Decimal("0.0001")
 MAX_DINERO = Decimal(10) ** 10
@@ -75,6 +90,15 @@ def _fecha_origen(valor, etiqueta: str) -> str | None:
     return None
 
 
+def _fecha_ventana(texto: str) -> dt.date | None:
+    if not _FECHA_RE.match(texto):
+        return None
+    try:
+        return dt.date.fromisoformat(texto)
+    except ValueError:
+        return None
+
+
 def _columnas(con, tabla: str) -> set[str]:
     return {fila[1] for fila in con.execute(f"PRAGMA table_info({tabla})")}
 
@@ -110,7 +134,12 @@ def carga_origen(ruta: str) -> tuple[dict, dict, list[str]]:
             if "currency" in columnas:
                 consulta = consulta.replace("clicks", "clicks, currency")
             for row in con.execute(consulta):
-                etiqueta = f"{row['campaign_id']} {row['date']}"
+                campana = row["campaign_id"]
+                if not isinstance(campana, str) or not campana.strip():
+                    errores.append(f"campaign_id ilegible en origen: {campana!r}")
+                    continue
+                campana = campana.strip()
+                etiqueta = f"{campana} {row['date']}"
                 if "currency" in columnas:
                     error_moneda = _moneda_origen(row["currency"], etiqueta)
                     if error_moneda:
@@ -129,7 +158,7 @@ def carga_origen(ruta: str) -> tuple[dict, dict, list[str]]:
                 except DatoInvalido as exc:
                     errores.append(str(exc))
                     continue
-                clave = (row["campaign_id"], row["date"])
+                clave = (campana, row["date"])
                 if clave in origen:
                     errores.append(
                         f"duplicado en origen campana/dia {clave}: {origen[clave]} vs {valores}"
@@ -188,6 +217,13 @@ def carga_orbit(conn) -> tuple[dict, list[str]]:
     ).fetchall()
     orbit: dict = {}
     for ext, fecha, cost, revenue, impressions, clicks, moneda in filas:
+        if not isinstance(ext, str) or not ext.strip():
+            errores.append(f"identidad ilegible en Orbit: {ext!r}")
+            continue
+        ext = ext.strip()
+        if not isinstance(fecha, dt.date):
+            errores.append(f"fecha ilegible en Orbit para {ext}: {fecha!r}")
+            continue
         if moneda != "MXN":
             errores.append(f"moneda fuera de dominio en {ext} {fecha}: {moneda}")
         clave = (ext, fecha.isoformat())
@@ -242,32 +278,16 @@ def _agrega_dias(orbit: dict) -> dict:
     }
 
 
-def compara(origen: dict, dias: dict, orbit: dict) -> list[str]:
-    """Devuelve TODAS las diferencias; lista vacia solo si son identicos."""
+def compara(
+    origen: dict,
+    dias: dict,
+    orbit: dict,
+    desde: dt.date,
+    hasta: dt.date,
+) -> list[str]:
+    """Devuelve TODAS las diferencias de la ventana explicita [desde, hasta]."""
     errores: list[str] = []
-    faltantes = sorted(set(origen) - set(orbit))
-    sobrantes = sorted(set(orbit) - set(origen))
-    for clave in faltantes:
-        errores.append(f"FALTA en Orbit {clave}: origen={origen[clave]}")
-    for clave in sobrantes:
-        errores.append(f"SOBRA en Orbit {clave}: orbit={orbit[clave]}")
-
-    diferencias = 0
-    for clave in sorted(set(origen) & set(orbit)):
-        if origen[clave] != orbit[clave]:
-            diferencias += 1
-            errores.append(f"DIFIERE {clave}: origen={origen[clave]} orbit={orbit[clave]}")
-
-    # El control diario se acota al inicio de la ventana de campanas: la tabla
-    # diaria puede traer historia anterior al primer dia con campanas, y esos
-    # dias no son comparables campana/dia. Desde el primer dia de campanas SI
-    # se incluye cualquier dia con actividad, aunque no tenga filas de campana:
-    # es un hueco de dinero que el sync puede producir si el desglose falla o si
-    # el dia quedo despues de la ultima campana. Un dia en cero y sin campanas
-    # no es una diferencia monetaria. Un dia de campanas sin control diario no
-    # se puede probar y tambien falla. Si no hay campanas, cualquier dia con
-    # actividad del control es un hueco.
-    fechas_campana = {fecha for (_ext, fecha) in origen}
+    desde_txt, hasta_txt = desde.isoformat(), hasta.isoformat()
 
     def _con_actividad(valores) -> bool:
         return any(valor is not None and valor != 0 for valor in valores)
@@ -277,20 +297,67 @@ def compara(origen: dict, dias: dict, orbit: dict) -> list[str]:
         # cero. La fila incompleta entra a la ventana y falla cerrada.
         return _con_actividad(valores) or any(valor is None for valor in valores)
 
+    origen_ventana: dict = {}
+    for clave, valores in origen.items():
+        if desde_txt <= clave[1] <= hasta_txt:
+            origen_ventana[clave] = valores
+        else:
+            errores.append(f"campana/dia fuera de la ventana declarada {clave}: {valores}")
+
+    for fecha, valores in sorted(dias.items()):
+        if fecha > hasta_txt and _comparable(valores):
+            errores.append(f"control diario fuera de la ventana declarada {fecha}: {valores}")
+    historia = sum(
+        1 for fecha, valores in dias.items() if fecha < desde_txt and _comparable(valores)
+    )
+    if historia:
+        print(f"historia anterior a --desde excluida: {historia} dias con actividad o NULL")
+
+    faltantes = sorted(set(origen_ventana) - set(orbit))
+    sobrantes = sorted(set(orbit) - set(origen_ventana))
+    for clave in faltantes:
+        errores.append(f"FALTA en Orbit {clave}: origen={origen_ventana[clave]}")
+    for clave in sobrantes:
+        errores.append(f"SOBRA en Orbit {clave}: orbit={orbit[clave]}")
+
+    diferencias = 0
+    for clave in sorted(set(origen_ventana) & set(orbit)):
+        if origen_ventana[clave] != orbit[clave]:
+            diferencias += 1
+            errores.append(f"DIFIERE {clave}: origen={origen_ventana[clave]} orbit={orbit[clave]}")
+        elif any(valor is None for valor in origen_ventana[clave]) or any(
+            valor is None for valor in orbit[clave]
+        ):
+            errores.append(
+                f"NULL no conciliable en campana/dia {clave}:"
+                f" origen={origen_ventana[clave]} orbit={orbit[clave]}"
+            )
+
+    # Dentro de la ventana, un dia de campanas sin control diario no se puede
+    # probar. Tambien entra cualquier dia con actividad o NULL, aunque no
+    # tenga campanas: es un hueco de dinero o un dato desconocido.
+    dias_ventana = {
+        fecha: valores for fecha, valores in dias.items() if desde_txt <= fecha <= hasta_txt
+    }
+    fechas_campana = {fecha for (_ext, fecha) in origen_ventana}
     if fechas_campana:
-        inicio = min(fechas_campana)
         dias_control = {
             fecha: valores
-            for fecha, valores in dias.items()
-            if fecha >= inicio and (fecha in fechas_campana or _comparable(valores))
+            for fecha, valores in dias_ventana.items()
+            if fecha in fechas_campana or _comparable(valores)
         }
     else:
-        dias_control = {fecha: valores for fecha, valores in dias.items() if _comparable(valores)}
-    control_faltante = sorted(fechas_campana - set(dias))
+        dias_control = {
+            fecha: valores for fecha, valores in dias_ventana.items() if _comparable(valores)
+        }
+    control_faltante = sorted(fechas_campana - set(dias_ventana))
     for fecha in control_faltante:
         errores.append(f"FALTA el dia {fecha} en el control diario del origen")
 
-    orbit_dias = _agrega_dias(orbit)
+    orbit_ventana = {
+        clave: valores for clave, valores in orbit.items() if desde_txt <= clave[1] <= hasta_txt
+    }
+    orbit_dias = _agrega_dias(orbit_ventana)
     dias_faltantes = sorted(set(dias_control) - set(orbit_dias))
     dias_sobrantes = sorted(set(orbit_dias) - set(dias_control))
     for fecha in dias_faltantes:
@@ -305,12 +372,22 @@ def compara(origen: dict, dias: dict, orbit: dict) -> list[str]:
             errores.append(
                 f"DIA DIFIERE {fecha}: origen={dias_control[fecha]} orbit={orbit_dias[fecha]}"
             )
+        elif any(valor is None for valor in dias_control[fecha]) or any(
+            valor is None for valor in orbit_dias[fecha]
+        ):
+            errores.append(
+                f"NULL no conciliable en el dia {fecha}:"
+                f" origen={dias_control[fecha]} orbit={orbit_dias[fecha]}"
+            )
 
     print(f"filas origen: {len(origen)}")
     print(f"filas Orbit:  {len(orbit)}")
     print(f"faltantes en Orbit: {faltantes[:10]}")
     print(f"sobrantes en Orbit: {sobrantes[:10]}")
-    print(f"campana/dia comparables: {len(set(origen) & set(orbit))}, diferencias: {diferencias}")
+    print(
+        f"campana/dia comparables: {len(set(origen_ventana) & set(orbit))},"
+        f" diferencias: {diferencias}"
+    )
     print(
         f"dias control: {len(dias_control)}, dias Orbit: {len(orbit_dias)},"
         f" faltantes en el control: {len(control_faltante)},"
@@ -322,22 +399,37 @@ def compara(origen: dict, dias: dict, orbit: dict) -> list[str]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    argumentos = sys.argv[1:] if argv is None else argv
-    if len(argumentos) != 2:
-        print("uso: conciliar.py <snapshot.db> <dsn_postgres_desechable>", file=sys.stderr)
+    argumentos = list(sys.argv[1:] if argv is None else argv)
+    if len(argumentos) != 5 or argumentos[1] != "--desde" or argumentos[3] != "--hasta":
+        print(
+            "uso: conciliar.py <snapshot.db> --desde YYYY-MM-DD --hasta YYYY-MM-DD"
+            " (DSN en CONCILIAR_DSN)",
+            file=sys.stderr,
+        )
         return 2
-    ruta, dsn = argumentos
+    desde = _fecha_ventana(argumentos[2])
+    hasta = _fecha_ventana(argumentos[4])
+    if desde is None or hasta is None or desde > hasta:
+        print("ventana invalida: --desde <= --hasta, fechas ISO", file=sys.stderr)
+        return 2
+    dsn = os.environ.get("CONCILIAR_DSN", "").strip()
+    if not dsn:
+        print("falta CONCILIAR_DSN en el entorno", file=sys.stderr)
+        return 2
+    redact_dsn(dsn)  # registra la password para que scrub() la borre
+    ruta = argumentos[0]
 
     origen, dias, errores_origen = carga_origen(ruta)
     try:
         with psycopg.connect(dsn) as conn:
             orbit, errores_orbit = carga_orbit(conn)
     except Exception as exc:  # noqa: BLE001 - la conciliacion falla cerrada
-        print(f"no se pudo leer Orbit: {exc}", file=sys.stderr)
+        print(f"no se pudo leer Orbit: {scrub(str(exc))}", file=sys.stderr)
         return 1
 
-    errores = errores_origen + errores_orbit + compara(origen, dias, orbit)
+    errores = errores_origen + errores_orbit + compara(origen, dias, orbit, desde, hasta)
     print(f"fecha de conciliacion: {dt.datetime.now(dt.UTC).isoformat()}")
+    print(f"ventana: {desde.isoformat()}..{hasta.isoformat()}")
     if errores:
         for error in errores:
             print(error)

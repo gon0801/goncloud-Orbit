@@ -71,6 +71,8 @@ _COLUMNAS_OBLIGATORIAS = (
 _MAX_DINERO = Decimal(10) ** 10  # 10 enteros + 4 decimales = NUMERIC(14,4)
 _MAX_BIGINT = 2**63 - 1  # impressions/clicks: BIGINT
 _MAX_INTEGER = 2**31 - 1  # orders: INTEGER
+_MAX_ID_BYTES = 2048  # source_report_id: btree max 2704 menos overhead
+_EPOCH_MAX_ID = 99_999_999_999  # 11 digitos: cubre cualquier epoch real
 _TOLERANCIA_RELOJ = dt.timedelta(hours=24)  # limite duro de un as-of futuro
 
 
@@ -107,6 +109,23 @@ class FilaMeliAds:
     impressions: int | None
     clicks: int | None
     orders: int | None
+
+
+def _id_con_epoch(fila: FilaMeliAds, epoch: int) -> str:
+    return (
+        f"meli-ads|{fila.campaign_external_id}|{fila.metric_date.isoformat()}"
+        f"|{fila.source_version}|{epoch}"
+    )
+
+
+def source_report_id(fila: FilaMeliAds, as_of: dt.datetime) -> str:
+    """Identidad del hecho + version + as-of del snapshot.
+
+    El as-of forma parte del id (y del indice de dedupe) para ordenar
+    snapshots sin columnas nuevas. Dos snapshots con la misma version y el
+    mismo as-of comparten id: reingestar es no-op por schema.
+    """
+    return _id_con_epoch(fila, int(as_of.timestamp()))
 
 
 def _abre_origen(ruta: Path | str) -> tuple[sqlite3.Connection, set[str]]:
@@ -336,7 +355,7 @@ def _fila(row: sqlite3.Row, columnas: set[str], hoy: dt.date) -> FilaMeliAds:
     else:
         source_version = f"rev:{revision_texto}"
 
-    return FilaMeliAds(
+    fila = FilaMeliAds(
         campaign_external_id=campaign_id,
         campaign_name=_nombre(row["campaign_name"]),
         metric_date=metric_date,
@@ -348,6 +367,16 @@ def _fila(row: sqlite3.Row, columnas: set[str], hoy: dt.date) -> FilaMeliAds:
         clicks=clicks,
         orders=orders,
     )
+    # campaign_id y revision se concatenan en source_report_id. Validar cada
+    # campo por separado no basta: dos valores de 2048 bytes desbordan el
+    # indice btree aunque cada uno pase. El epoch maximo reserva el ancho.
+    identificador = _id_con_epoch(fila, _EPOCH_MAX_ID).encode("utf-8")
+    if len(identificador) > _MAX_ID_BYTES:
+        raise MeliAdsError(
+            "campaign_id + revision exceden el identificador de origen"
+            f" ({len(identificador)} bytes > {_MAX_ID_BYTES})"
+        )
+    return fila
 
 
 def _momento_utc(texto: object | bytes | bytearray | memoryview | None) -> dt.datetime | None:
@@ -409,7 +438,19 @@ def leer_origen(ruta: Path | str) -> OrigenMeliAds:
             f"{', revision' if 'revision' in columnas else ''}"
             f" FROM {TABLA_ORIGEN} ORDER BY date, campaign_id"
         )
-        for row in con.execute(consulta):
+        cursor = con.execute(consulta)
+        while True:
+            try:
+                row = cursor.fetchone()
+            except sqlite3.Error as exc:
+                # SQLite no decodifica TEXT con UTF-8 invalido al leer. La
+                # fila no se puede validar: se cuenta como rechazo y el
+                # snapshot se aborta completo (cero escrituras).
+                total += 1
+                rechazos[f"fila ilegible en origen: {exc}"] += 1
+                break
+            if row is None:
+                break
             total += 1
             momento = _momento_utc(row["updated_at"])
             if momento is None:

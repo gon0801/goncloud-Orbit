@@ -396,7 +396,8 @@ corrigieron sin migraciones y sin tocar la granularidad campaña/día.
    de redondearse a `1.0000`.
 4. **Conciliación cerrada.** Una fecha vacía o ilegible falla; un control con
    NULL entra a la ventana y falla (NULL no es inactividad); un duplicado en
-   `v_metric_latest` también falla.
+   `v_metric_latest` también falla. Esta ronda todavía aceptaba un NULL
+   coincidente; la undécima revisión lo cierra.
 
 Evidencia: `30-revision-43b5cd27-correccion/` (`suite.txt`, `focales.txt`,
 `parent.txt`, `operativo.txt`, `perf-100k.txt`, `repros.txt`, `gates.txt`).
@@ -412,6 +413,47 @@ Evidencia: `30-revision-43b5cd27-correccion/` (`suite.txt`, `focales.txt`,
 
 Siguen pendientes los diez lanes live en VM, las capturas PNG y la regresión
 Amazon base/HEAD: no hay VM ni credenciales en este checkout.
+
+## Undécima revisión (corrección de los cinco bloqueantes sobre `4d1fa179`)
+
+El veredicto sobre `4d1fa179` encontró cinco bloqueantes nuevos. Se corrigieron
+sin migraciones y sin cambiar el grano campaña/día.
+
+1. **Identificador completo.** `source_report_id` se construye en un solo
+   lugar (`ads_source.source_report_id`) y la frontera valida el identificador
+   completo (campaña, fecha, revisión y epoch máximo) contra 2048 bytes, con
+   margen bajo el máximo btree de 2704. Dos campos que pasan solos ya no
+   desbordan el índice juntos.
+2. **UTF-8 inválido.** La lectura usa `fetchone()` y captura `sqlite3.Error`:
+   una fila que SQLite no puede decodificar se cuenta como rechazo
+   (`rows_skipped=1`), el snapshot se aborta sin escrituras y `ingest_run`
+   queda `ok=false` con `finished_at`.
+3. **NULL coincidente.** La conciliación falla aunque origen, control y Orbit
+   tengan el mismo NULL. Una identidad NULL en cualquiera de los dos lados
+   también falla: un dato desconocido no prueba una conciliación exacta.
+4. **Ventana explícita.** `--desde` y `--hasta` son obligatorios y no se
+   derivan de las campañas del snapshot. La actividad anterior a `--desde` se
+   excluye y se reporta; una campaña fuera de la ventana, o actividad/NULL del
+   control después de `--hasta`, fallan.
+5. **DSN fuera de argv.** El DSN llega por `CONCILIAR_DSN`; el runbook ya no
+   lo pasa como argumento. Los errores de conexión se redactan con
+   `app.redaction.redact_dsn`/`scrub`.
+
+Evidencia: `30-revision-4d1fa179-correccion/` (`suite.txt`, `focales.txt`,
+`parent.txt`, `operativo.txt`, `perf-100k.txt`, `repros.txt`, `gates.txt`).
+
+- Focales: **264 passed**.
+- Suite completa con `ORBIT_TEST_DSN`: **5587 passed, 1 warning**.
+- Regresiones nuevas contra `4d1fa179`: **7 failed**.
+- Operativo real: **788 filas, 4 entidades**, reintento no-op y conciliación
+  **788/788 filas, 197/197 días**, con **59 días de historia anterior
+  excluidos y reportados**, `CONCILIACION OK`.
+- 100,000 filas: **6.840–6.887 s** en tres corridas.
+- Gates: ruff, formato, `bash -n`, `pre-commit` y `git diff --check` verdes;
+  las tres copias del conciliador son byte-idénticas.
+
+Siguen pendientes los diez lanes live en VM, las capturas PNG, la regresión
+Amazon base/HEAD y el perfil de `/` base/HEAD sobre este commit.
 
 ## Archivos
 

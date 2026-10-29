@@ -73,6 +73,7 @@ from app.meli.ads_source import (
     MeliAdsError,
     OrigenMeliAds,
     leer_origen,
+    source_report_id,
 )
 from app.redaction import install_scrub_filter, scrub
 
@@ -603,20 +604,6 @@ def _sella_reintento(
     return duplicados
 
 
-def _fuente_report_id(fila: FilaMeliAds, as_of: dt.datetime) -> str:
-    """Identidad del hecho + version + as-of del snapshot.
-
-    El as-of forma parte del id (y por tanto del indice de dedupe) para poder
-    ordenar snapshots sin columnas nuevas. Dos snapshots con la misma version
-    y el mismo as-of comparten id: reingestar es no-op por schema.
-    """
-    epoch = int(as_of.timestamp())
-    return (
-        f"meli-ads|{fila.campaign_external_id}|{fila.metric_date.isoformat()}"
-        f"|{fila.source_version}|{epoch}"
-    )
-
-
 def ingest_meli_ads(
     conn: psycopg.Connection,
     sqlite_path: Path | str,
@@ -770,7 +757,7 @@ def ingest_meli_ads(
                             fila.impressions,
                             fila.clicks,
                             fila.orders,
-                            _fuente_report_id(fila, origen.as_of),
+                            source_report_id(fila, origen.as_of),
                             run_id,
                         ),
                     )

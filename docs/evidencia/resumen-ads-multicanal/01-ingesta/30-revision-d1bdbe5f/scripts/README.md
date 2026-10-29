@@ -27,9 +27,12 @@ Genera el snapshot, crea tres bases desechables, mide cada ingesta y las borra.
 ## Conciliación
 
 ```bash
+export CONCILIAR_DSN="postgresql://.../base_desechable"
 PYTHONPATH=. uv run --frozen python \
   docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-d1bdbe5f/scripts/conciliar.py \
-  <snapshot.db> "postgresql://.../base_desechable"
+  <snapshot.db> --desde 2026-04-16 --hasta 2026-10-29
 ```
 
-Compara campaña/día y el total diario contra `meli_ads_metrics_daily`.
+El DSN va por entorno (nunca en `argv`) y la ventana es explícita. Compara
+campaña/día y el total diario contra `meli_ads_metrics_daily`; un NULL no
+concilia aunque coincida.

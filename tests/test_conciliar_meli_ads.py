@@ -65,6 +65,7 @@ def _snapshot(
     moneda: str = "MXN",
 ) -> Path:
     ruta = tmp_path / "source.db"
+    ruta.unlink(missing_ok=True)
     con = sqlite3.connect(ruta)
     columnas = (
         "campaign_id TEXT, date TEXT, spend REAL, ad_sales REAL,"
@@ -90,11 +91,38 @@ def _snapshot(
     return ruta
 
 
-def _corre(monkeypatch, tmp_path, campanas, dias, orbit, capsys, *, con_moneda=False, moneda="MXN"):
+def _corre(
+    monkeypatch,
+    tmp_path,
+    campanas,
+    dias,
+    orbit,
+    capsys,
+    *,
+    con_moneda=False,
+    moneda="MXN",
+    desde=None,
+    hasta=None,
+):
     modulo = _carga_script()
     monkeypatch.setattr(modulo.psycopg, "connect", lambda _dsn: _Conexion(orbit))
     ruta = _snapshot(tmp_path, campanas, dias, con_moneda=con_moneda, moneda=moneda)
-    codigo = modulo.main([str(ruta), "postgresql:///desechable"])
+    fechas = (
+        [fila[1] for fila in campanas]
+        + [fila[0] for fila in dias]
+        + [fila[1].isoformat() for fila in orbit]
+    )
+    validas = []
+    for fecha in fechas:
+        try:
+            dt.date.fromisoformat(fecha)
+        except (TypeError, ValueError):
+            continue
+        validas.append(fecha)
+    desde = desde or (min(validas) if validas else DIA.isoformat())
+    hasta = hasta or (max(validas) if validas else DIA.isoformat())
+    monkeypatch.setenv("CONCILIAR_DSN", "postgresql:///desechable")
+    codigo = modulo.main([str(ruta), "--desde", desde, "--hasta", hasta])
     return codigo, capsys.readouterr().out
 
 
@@ -352,6 +380,116 @@ def test_control_diario_duplicado_falla(monkeypatch, tmp_path, capsys):
     assert codigo != 0
     assert "duplicado en origen control diario" in salida
     assert "CONCILIACION OK" not in salida
+
+
+def test_null_coincidente_no_concilia(monkeypatch, tmp_path, capsys):
+    """NULL en origen, control y Orbit no prueba conciliacion exacta."""
+    codigo, salida = _corre(
+        monkeypatch,
+        tmp_path,
+        _campana(spend=None, ad_sales=None, impressions=None, clicks=None),
+        _dia(spend=None, ad_sales=None, impressions=None, clicks=None),
+        _orbit(spend=None, ad_sales=None, impressions=None, clicks=None),
+        capsys,
+    )
+    assert codigo != 0
+    assert "NULL no conciliable" in salida
+    assert "CONCILIACION OK" not in salida
+
+
+def test_actividad_antes_del_inicio_declarado_falla(monkeypatch, tmp_path, capsys):
+    """El inicio es explicito: si el dia anterior esta en la ventana, un
+    control con actividad y cero campanas es un hueco, aunque la primera
+    campana del snapshot sea posterior."""
+    dia1 = DIA
+    dia2 = DIA + dt.timedelta(days=1)
+    campanas = [("C1", dia2.isoformat(), 1.0, 2.0, 3, 4)]
+    dias = [
+        (dia1.isoformat(), 9, 8, 500.0, 900.0),
+        (dia2.isoformat(), 4, 3, 1.0, 2.0),
+    ]
+    orbit = [("C1", dia2, Decimal("1.0000"), Decimal("2.0000"), 3, 4, "MXN")]
+
+    codigo, salida = _corre(
+        monkeypatch,
+        tmp_path,
+        campanas,
+        dias,
+        orbit,
+        capsys,
+        desde=dia1.isoformat(),
+        hasta=dia2.isoformat(),
+    )
+    assert codigo != 0
+    assert f"FALTA el dia {dia1.isoformat()} en Orbit" in salida
+    assert "CONCILIACION OK" not in salida
+
+    codigo, salida = _corre(
+        monkeypatch,
+        tmp_path,
+        campanas,
+        dias,
+        orbit,
+        capsys,
+        desde=dia2.isoformat(),
+        hasta=dia2.isoformat(),
+    )
+    assert codigo == 0
+    assert "historia anterior a --desde excluida: 1" in salida
+
+
+def test_identidad_null_no_concilia(monkeypatch, tmp_path, capsys):
+    """Una identidad NULL en origen y Orbit tampoco es una coincidencia."""
+    codigo, salida = _corre(
+        monkeypatch,
+        tmp_path,
+        [(None, DIA.isoformat(), 1.0, 2.0, 3, 4)],
+        _dia(),
+        [(None, DIA, Decimal("1.0000"), Decimal("2.0000"), 3, 4, "MXN")],
+        capsys,
+    )
+    assert codigo != 0
+    assert "campaign_id ilegible" in salida
+    assert "identidad ilegible en Orbit" in salida
+
+
+def test_campana_fuera_de_la_ventana_declarada_falla(monkeypatch, tmp_path, capsys):
+    """La ventana no puede descartar campanas en silencio."""
+    siguiente = DIA + dt.timedelta(days=1)
+    codigo, salida = _corre(
+        monkeypatch,
+        tmp_path,
+        _campana(),
+        _dia(),
+        _orbit(),
+        capsys,
+        desde=siguiente.isoformat(),
+        hasta=siguiente.isoformat(),
+    )
+    assert codigo != 0
+    assert "campana/dia fuera de la ventana declarada" in salida
+
+
+def test_dsn_por_entorno_y_redactado(monkeypatch, tmp_path, capsys):
+    """El DSN no se pasa por argv y los errores de conexion se redactan."""
+    modulo = _carga_script()
+    ruta = _snapshot(tmp_path, _campana(), _dia())
+    monkeypatch.delenv("CONCILIAR_DSN", raising=False)
+    codigo = modulo.main([str(ruta), "--desde", DIA.isoformat(), "--hasta", DIA.isoformat()])
+    assert codigo == 2
+    assert "CONCILIAR_DSN" in capsys.readouterr().err
+
+    monkeypatch.setenv("CONCILIAR_DSN", "postgresql://usuario:CLAVE_FALSA@10.255.255.1:5432/orbit")
+
+    def falla(_dsn):
+        raise RuntimeError("no conecta postgresql://usuario:CLAVE_FALSA@10.255.255.1:5432/orbit")
+
+    monkeypatch.setattr(modulo.psycopg, "connect", falla)
+    codigo = modulo.main([str(ruta), "--desde", DIA.isoformat(), "--hasta", DIA.isoformat()])
+    salida = capsys.readouterr()
+    assert codigo == 1
+    assert "CLAVE_FALSA" not in salida.err
+    assert "***REDACTED***" in salida.err
 
 
 @pytest.mark.parametrize(

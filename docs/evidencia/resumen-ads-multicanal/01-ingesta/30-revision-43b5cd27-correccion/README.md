@@ -18,7 +18,9 @@ grano campaña/día y sin tocar pujas, pausas, precios, contabilidad ni bridge.
    se rechaza en vez de convertirse en `1.0000`.
 4. **La conciliación omitía controles inválidos.** Una fecha vacía o ilegible
    falla; un control con NULL entra a la ventana y falla (NULL no es
-   inactividad); un duplicado en `v_metric_latest` también falla.
+   inactividad); un duplicado en `v_metric_latest` también falla. Esta ronda
+   todavía aceptaba un NULL cuando coincidía en origen, control y Orbit; la
+   undécima revisión lo cierra.
 
 ## Evidencia
 

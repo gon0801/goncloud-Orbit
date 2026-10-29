@@ -536,16 +536,28 @@ Por qué 08:15 UTC alcanza (medido, no supuesto):
 
    El comando exacto, desde la máquina del lead, con el snapshot local y un
    DSN de **solo lectura** de Orbit (nunca el de escritura) o un Postgres
-   desechable con la misma ingesta:
+   desechable con la misma ingesta. El DSN va por **entorno**, nunca como
+   argumento: un argumento queda visible en `ps`. La ventana `--desde/--hasta`
+   es explícita y no se deriva del snapshot: así un día perdido no desplaza el
+   inicio. `DESDE` es el primer día declarado al activar (no `min(date)` del
+   snapshot); `HASTA` es el último día conciliable.
 
    ```bash
    SNAPSHOT_LOCAL=/ruta/al/snapshot.db
-   CONCILIAR_DSN="$ORBIT_DSN_READ"   # o postgresql://.../orbit_conciliacion
+   export CONCILIAR_DSN="$ORBIT_DSN_READ"   # o postgresql://.../orbit_conciliacion
+   DESDE=2026-04-16
+   HASTA=$(date -u +%F)
    uv run --frozen python \
      docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-10266d91/scripts/conciliar.py \
-     "$SNAPSHOT_LOCAL" "$CONCILIAR_DSN"
+     "$SNAPSHOT_LOCAL" --desde "$DESDE" --hasta "$HASTA"
    # Solo continuar si imprime CONCILIACION OK y sale 0.
    ```
+
+   La actividad del control anterior a `DESDE` se excluye y se reporta; la
+   posterior a `HASTA`, una campaña fuera de la ventana, un NULL (aunque
+   coincida en origen, control y Orbit) o un error de conexión hacen fallar
+   la conciliación. Los errores de conexión se redactan con
+   `app.redaction.scrub`.
 
 4. Solo después de que la carga y la conciliación pasen, transferir el script
    de host **desde el SHA aprobado**. El servidor no es un checkout y el
