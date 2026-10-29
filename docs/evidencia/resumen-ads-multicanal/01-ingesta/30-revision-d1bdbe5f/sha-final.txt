@@ -1,0 +1,4 @@
+Rama: resumen-ads-01-ingesta-meli
+SHA revisado: d1bdbe5f4d69578e6d9951ca144be700cc2d9218
+SHA de la correccion integral: 3bc16534f9aa57c9e0fe7c27cb946b135ec37dde
+Base de la fase: 31ba12a16f12b90e2f7ea6e86a0ff102f3b8465f

@@ -6,6 +6,7 @@ Commit de implementación: `79da5251b59051cc340b054ad010c1da10fbeec2`.
 Corrección del bloqueante de revisión: `f11e2434f432f231892dc1bc20d4352640dc901b`.
 Segunda revisión (concurrencia y nombre): `f55600e7c49b858b8417bba4f740ee68264d1e60`.
 Tercera revisión (marca de as-of en recopias): `47f83e72a7419dc7e27b6f2a570804330239dce1`.
+Corrección integral de la revisión `d1bdbe5f`: `3bc16534f9aa57c9e0fe7c27cb946b135ec37dde`.
 
 ## Alcance entregado
 
