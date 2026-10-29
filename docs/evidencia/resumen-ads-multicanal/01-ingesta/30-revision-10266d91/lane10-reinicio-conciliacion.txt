@@ -2,7 +2,7 @@
 Base: Postgres 5433 con esquema completo; snapshot real de accounting.
 
 -- historia/latest ANTES del reinicio --
- obs | entidades |    costo    |   revenue   |            ultima             
+ obs | entidades |    costo    |   revenue   |            ultima
 -----+-----------+-------------+-------------+-------------------------------
  788 |         4 | 108751.1200 | 384161.7700 | 2026-10-29 00:35:15.232612-07
 (1 row)
@@ -14,7 +14,7 @@ Base: Postgres 5433 con esquema completo; snapshot real de accounting.
 {"status":"ok"}
 
 -- historia/latest DESPUES del reinicio --
- obs | entidades |    costo    |   revenue   |            ultima             
+ obs | entidades |    costo    |   revenue   |            ultima
 -----+-----------+-------------+-------------+-------------------------------
  788 |         4 | 108751.1200 | 384161.7700 | 2026-10-29 00:35:15.232612-07
 (1 row)
