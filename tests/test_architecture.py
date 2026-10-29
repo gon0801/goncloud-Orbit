@@ -47,6 +47,13 @@ MAX_LINEAS_MODULO = 900
 # path relativo (posix) -> razon escrita. Sacar una entrada exige que el
 # modulo haya bajado del umbral; agregarla exige razon y review.
 ALLOWLIST_TAMANO = {
+    "app/meli/ads_ingest.py": (
+        "RESUMEN-ADS-01: un solo dueno del pipeline MeLi (adaptador SQLite, "
+        "forma canonica, dos relojes de as-of, dedupe y sello de ingest_run). "
+        "El candado temporal y la escritura comparten las mismas marcas; "
+        "partirlo separaria la validacion de orden de su unico escritor — "
+        "jamas partir por partir"
+    ),
     "app/estimacion_repository.py": (
         "REPRICING 02 M.3: nucleo de siembra compartido Amazon/MeLi (el "
         "despacho es por plataforma dentro de `sembrar_escenario_desde_refs` "

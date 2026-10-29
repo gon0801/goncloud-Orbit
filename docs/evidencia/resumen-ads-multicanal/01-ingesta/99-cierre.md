@@ -165,9 +165,10 @@ después en `30-revision-d1bdbe5f/`.
   corregido; sección de tres pipelines actualizada; `git diff --check` limpio.
 
 Queda un invariante operativo: la marca vive en el `skip_reason` de corridas
-exitosas. Borrar una corrida deduplicada pierde la marca; `ingest_run` es
-append-only y sin purga, y el runbook prohíbe borrar corridas exitosas de
-MeLi. Si se borra, un snapshot anterior puede volver a entrar.
+exitosas. Borrar una corrida deduplicada pierde la marca; `ingest_run` no
+tiene purga (D7) pero es mutable por diseño: nace abierta y se sella con
+UPDATE. El runbook prohíbe borrar corridas exitosas de MeLi. Si se borra, un
+snapshot anterior puede volver a entrar.
 
 ## Quinta revisión (veredicto sobre `78888f3e`)
 
@@ -202,6 +203,33 @@ servicio) y `perf-100k.txt` (3 ingestas de 100,000 filas, 6.97–7.74 s cada
 una, snapshot de 10,498,048 bytes). Focales: **106 passed** (43 del módulo).
 Suite completa con `ORBIT_TEST_DSN`: **5526 passed, 0 failed**.
 
+## Sexta revisión (veredicto sobre `10266d91`)
+
+Dos bloqueantes de orden temporal, corregidos con dos relojes separados.
+
+- **Recopia real que perdía su as-of.** La corrida exitosa guarda ahora dos
+  marcas: `as_of=<max real>` y `futuro=<max futuro>`. Una recopia real avanza
+  solo el reloj real, aunque exista una marca futura. El snapshot intermedio
+  se rechaza contra el as-of real.
+- **Marca futura que se reclasificaba como real.** Una marca `futuro=` queda en
+  cuarentena permanente. No se recalcula con el reloj actual ni bloquea
+  correcciones reales cercanas. Solo se usa para ordenar snapshots futuros.
+- **Perf de `/` intercalado.** Cinco rondas de 30 pares base/head con orden
+  alternado y p95 nearest-rank. Mediana de p95: base 6.50 ms, head 6.05 ms,
+  head -6.92 %. Regla de +10 %: PASS. Payload idéntico de 24,959 bytes.
+- **Lane 10 completo.** Reinicio real de uvicorn en dos procesos, historia y
+  latest MeLi estables, y conciliación 788/788 filas y 197/197 días con exit 0.
+- **Conciliación honesta.** `conciliar.py` ya no convierte NULL en cero y sale
+  con código 1 ante cualquier diferencia.
+- **Secundarios.** Se rechazan fracciones de segundo (incluidas las menores de
+  un microsegundo), offsets que desbordan y enteros textuales gigantes. Se
+  corrigió la contradicción de `ingest_run` en `99-cierre.md`.
+
+Evidencia: `30-revision-10266d91/antes.txt` y `despues.txt` (los dos
+bloqueantes), `ui-perf-http.txt` y `lane10-reinicio-conciliacion.txt`.
+Focales: **109 passed** (46 del módulo). Suite completa: **5529 passed**.
+Pendientes: Lane 1 Amazon y los diez lanes live en VM.
+
 ## Archivos
 
 - `app/meli/ads_ingest.py` (nuevo): adaptador SQLite `mode=ro`, forma
@@ -216,13 +244,13 @@ Suite completa con `ORBIT_TEST_DSN`: **5526 passed, 0 failed**.
 
 ## Pruebas
 
-- Focales: `106 passed` (`tests/test_meli_ads_ingest.py` + `tests/test_cli.py`;
-  43 casos del módulo). Detalle: `30-revision-78888f3e/pruebas.txt`.
+- Focales: `109 passed` (`tests/test_meli_ads_ingest.py` + `tests/test_cli.py`;
+  46 casos del módulo). Detalle: `30-revision-10266d91/pruebas.txt`.
 - Regresión contra el padre: la ingesta no colecciona (`ModuleNotFoundError`)
   y el CLI falla por el comando/choice ausente. Detalle:
   `06-pruebas-regresion-parent.txt`.
-- Suite completa con `ORBIT_TEST_DSN`: **5526 passed, 0 failed**. Detalle en
-  `30-revision-78888f3e/suite.txt`.
+- Suite completa con `ORBIT_TEST_DSN`: **5529 passed, 0 failed**. Detalle en
+  `30-revision-10266d91/suite.txt`.
 
 ## Verificación operativa real
 

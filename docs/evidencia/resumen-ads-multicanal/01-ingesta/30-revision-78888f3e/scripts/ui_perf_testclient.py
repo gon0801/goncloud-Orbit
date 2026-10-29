@@ -26,7 +26,7 @@ with TestClient(app) as cliente:
         assert respuesta.status_code == 200, respuesta.text
         ultima = respuesta
 ordenadas = sorted(latencias)
-p95 = ordenadas[int(0.95 * len(ordenadas)) - 1]
+p95 = ordenadas[math.ceil(0.95 * len(ordenadas)) - 1]
 print(
     json.dumps(
         {

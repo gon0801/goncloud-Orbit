@@ -2,3 +2,4 @@ Rama: resumen-ads-01-ingesta-meli
 SHA revisado y rechazado: 78888f3e554c581b17b226ef249823ca1d95c593
 SHA de la correccion: 1875a954737b706d581663834da6544f5873a2e7
 Base de la fase: 31ba12a16f12b90e2f7ea6e86a0ff102f3b8465f
+HEAD de la evidencia de esa ronda: 10266d9123da73152ebb458ef790b4cd364dfdf0

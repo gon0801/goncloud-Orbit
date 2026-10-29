@@ -963,7 +963,13 @@ def test_reloj_retrocede_no_deja_vigente_la_anterior(pg, tmp_path):
 
 
 def test_updated_at_con_fraccion_o_anio_desbordado_se_rechaza(pg, tmp_path):
-    for valor in ("2026-10-29 08:00:00.500", "9999-12-31 23:59:59"):
+    for valor in (
+        "2026-10-29 08:00:00.500",
+        "2026-10-29 08:00:00.0000001",
+        "2026-10-29 08:00:00.0000002",
+        "2026-10-29 08:00:00+999999999999",
+        "9999-12-31 23:59:59",
+    ):
         snap = _snapshot(
             tmp_path / f"{abs(hash(valor))}.db",
             [(D1.isoformat(), "C1", "ALFA", 1, 2, 3.0, 4.0)],
@@ -982,13 +988,77 @@ def test_updated_at_con_fraccion_o_anio_desbordado_se_rechaza(pg, tmp_path):
 def test_entero_con_doble_signo_y_cero_negativo(tmp_path):
     with pytest.raises(MeliAdsError, match="ilegible"):
         _entero("--1", _MAX_INTEGER)
+    with pytest.raises(MeliAdsError, match="fuera de rango"):
+        _entero("1" * 5000, _MAX_BIGINT)
     assert _dinero("-0.0") == Decimal("0.0000")
     assert _dinero("-0.0") == _dinero("0.0")
+
+
+def test_entero_desbordado_se_cuenta_como_rechazo(tmp_path):
+    snap = _snapshot(
+        tmp_path / "entero-largo.db",
+        [(D1.isoformat(), "C1", "ALFA", "1" * 5000, 2, 3.0, 4.0)],
+        as_of=AS_OF_INICIAL,
+    )
+    origen = leer_origen(snap)
+    assert sum(origen.rechazos.values()) == 1
+    assert any("entero" in motivo for motivo in origen.rechazos)
 
 
 def test_dinero_limite_numeric_exacto_del_revisor():
     with pytest.raises(MeliAdsError):
         _dinero("9999999999.99996")
+
+
+def test_recopia_real_conserva_su_as_of_frente_a_una_marca_futura(pg, tmp_path):
+    """Una recopia real deduplicada avanza el reloj real aunque exista una
+    marca futura; el snapshot intermedio se rechaza."""
+    real_5 = _snapshot(
+        tmp_path / "real5.db",
+        [(D1.isoformat(), "C1", "ALFA", 1, 2, 5.0, 8.0)],
+        as_of=(AHORA - dt.timedelta(hours=4)).isoformat(),
+    )
+    futuro_6 = _snapshot(
+        tmp_path / "futuro6.db",
+        [(D1.isoformat(), "C1", "ALFA", 1, 2, 6.0, 8.0)],
+        as_of=(AHORA + dt.timedelta(hours=1)).isoformat(),
+    )
+    recopia_6 = _snapshot(
+        tmp_path / "recopia6.db",
+        [(D1.isoformat(), "C1", "ALFA", 1, 2, 6.0, 8.0)],
+        as_of=(AHORA - dt.timedelta(minutes=30)).isoformat(),
+    )
+    intermedio_7 = _snapshot(
+        tmp_path / "intermedio7.db",
+        [(D1.isoformat(), "C1", "ALFA", 1, 2, 7.0, 8.0)],
+        as_of=(AHORA - dt.timedelta(hours=1)).isoformat(),
+    )
+    ingest_meli_ads(pg, real_5)
+    ingest_meli_ads(pg, futuro_6)
+    recopia = ingest_meli_ads(pg, recopia_6)
+    assert recopia["rows_written"] == 0
+    assert recopia["duplicados_version"] == 1
+    with pytest.raises(MeliAdsError, match="snapshot atrasado"):
+        ingest_meli_ads(pg, intermedio_7)
+    assert _ultima(pg, "C1", D1)[0] == Decimal("6.0000")
+
+
+def test_futuro_en_cuarentena_no_bloquea_una_correccion_cercana(pg, tmp_path):
+    """Cuatro minutos antes del timestamp futuro, una correccion real sigue
+    siendo aceptada: la marca futura no se reclasifica como real."""
+    futuro = _snapshot(
+        tmp_path / "futuro.db",
+        [(D1.isoformat(), "C1", "ALFA", 1, 2, 6.0, 8.0)],
+        as_of=(AHORA + dt.timedelta(minutes=10)).isoformat(),
+    )
+    correccion = _snapshot(
+        tmp_path / "correccion.db",
+        [(D1.isoformat(), "C1", "ALFA", 1, 2, 7.0, 8.0)],
+        as_of=(AHORA + dt.timedelta(minutes=6)).isoformat(),
+    )
+    ingest_meli_ads(_RelojFijo(pg, AHORA), futuro)
+    ingest_meli_ads(_RelojFijo(pg, AHORA + dt.timedelta(minutes=6)), correccion)
+    assert _ultima(pg, "C1", D1)[0] == Decimal("7.0000")
 
 
 def test_correccion_agrega_observacion_y_v_metric_latest_la_expone(pg, tmp_path):
@@ -1111,7 +1181,7 @@ def test_as_of_futuro_no_envenena_la_marca(pg, tmp_path):
     )
     with pytest.raises(MeliAdsError, match="as_of futuro"):
         ingest_meli_ads(pg, futuro)
-    assert max(_marcas_corridas(pg), default=-1) == -1
+    assert _marcas_corridas(pg)[0] == -1
     assert _conteos(pg) == (0, 0)
 
     normal = _snapshot(
@@ -1234,7 +1304,7 @@ def test_marca_es_el_maximo_entre_corridas_y_no_el_id(pg, tmp_path):
         ingest_meli_ads(pg, stale)
     assert _ultima(pg, "C1", D1)[0] == Decimal("12.3400")
     assert _ultima(pg, "C2", D1)[0] == Decimal("6.5000")
-    assert max(_marcas_corridas(pg), default=-1) == epoch_12
+    assert _marcas_corridas(pg)[0] == epoch_12
 
 
 def test_duplicados_id_cuenta_conflicto_real_del_indice(pg, tmp_path):

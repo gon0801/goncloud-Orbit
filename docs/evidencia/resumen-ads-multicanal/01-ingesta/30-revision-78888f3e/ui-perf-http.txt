@@ -1,15 +1,18 @@
-== Perf de / con uvicorn real y reinicio del servicio ==
-Postgres desechable 127.0.0.1:5433, 87 tablas, fixture Amazon de 60 observaciones (30 dias x MX/US).
-Comando: uvicorn app.main:app --host 127.0.0.1 --port 8765/8766; 30 requests a / con urllib, 3 de warmup.
+== Perf de / intercalado base/head y reinicio ==
+Postgres 5433, 87 tablas, fixture Amazon de 60 observaciones (30 dias x MX/US).
+Script: ui_perf_interleaved.py; 5 rondas de 30 pares intercalados, orden alternado.
+p95 nearest-rank: ceil(0.95*n)-1.
 
-base 31ba12a (puerto 8766):
-{"n": 30, "median_ms": 4.01, "p95_ms": 4.86, "bytes": 24959}
+ronda 1: base p95 8.72 / head p95 6.09 (-30.16 %)
+ronda 2: base p95 6.50 / head p95 6.05 (-6.92 %)
+ronda 3: base p95 7.49 / head p95 6.09 (-18.69 %)
+ronda 4: base p95 5.70 / head p95 4.99 (-12.46 %)
+ronda 5: base p95 5.67 / head p95 5.52 (-2.65 %)
 
-head (puerto 8765):
-{"n": 30, "median_ms": 4.37, "p95_ms": 4.96, "bytes": 24959}
+mediana de p95: base 6.50 ms, head 6.05 ms, head -6.92 %.
+Regla +10 %: PASS. Payload identico: 24,959 bytes.
 
-reinicio real del servicio head (proceso uvicorn nuevo, puerto 8765):
-{"n": 30, "median_ms": 4.14, "p95_ms": 4.70, "bytes": 24959}
-
-Regla: head p95 no supera base p95 + 10% (4.96 <= 5.346). PASS.
-Mismo tamano de respuesta (24,959 bytes) antes y despues del reinicio.
+== Reinicio real de FastAPI ==
+Dos procesos uvicorn nuevos; health 200 en ambos.
+Historia y latest MeLi estables y conciliacion 788/788, 197/197, exit 0.
+Detalle: lane10-reinicio-conciliacion.txt.

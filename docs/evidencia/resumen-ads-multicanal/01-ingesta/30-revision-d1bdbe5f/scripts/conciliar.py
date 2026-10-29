@@ -2,6 +2,7 @@
 """Conciliacion de solo lectura: Orbit (Postgres desechable) vs accounting.
 
 Uso: python conciliar.py <snapshot.db> <dsn_postgres_desechable>
+Sale 1 si hay cualquier diferencia o si un NULL se convirtio en cero.
 """
 
 from __future__ import annotations
@@ -15,17 +16,19 @@ import psycopg
 
 RUTA = sys.argv[1]
 DSN = sys.argv[2]
+CENTIMOS = Decimal("0.0001")
+
+
+def _dinero(valor):
+    return None if valor is None else Decimal(str(valor)).quantize(CENTIMOS)
+
 
 con = sqlite3.connect(f"file:{RUTA}?mode=ro", uri=True)
 con.row_factory = sqlite3.Row
 origen = {
     (row["campaign_id"], row["date"]): (
-        Decimal(str(row["spend"] if row["spend"] is not None else "0")).quantize(
-            Decimal("0.0001")
-        ),
-        Decimal(str(row["ad_sales"] if row["ad_sales"] is not None else "0")).quantize(
-            Decimal("0.0001")
-        ),
+        _dinero(row["spend"]),
+        _dinero(row["ad_sales"]),
         row["impressions"],
         row["clicks"],
     )
@@ -35,7 +38,12 @@ origen = {
     )
 }
 dias = {
-    row["date"]: (row["clicks"], row["impressions"], row["spend"], row["ad_sales"])
+    row["date"]: (
+        row["clicks"],
+        row["impressions"],
+        _dinero(row["spend"]),
+        _dinero(row["ad_sales"]),
+    )
     for row in con.execute(
         "SELECT date, clicks, impressions, spend, ad_sales FROM meli_ads_metrics_daily"
     )
@@ -65,29 +73,58 @@ for clave in sorted(set(origen) & set(orbit)):
         print(f"DIFIERE {clave}: origen={origen[clave]} orbit={orbit[clave]}")
 print(f"campana/dia comparables: {len(set(origen) & set(orbit))}, diferencias: {diferencias}")
 
-sumas: dict[str, list] = {}
+sumas: dict[str, dict] = {}
 for (_ext, fecha), (cost, revenue, impressions, clicks) in orbit.items():
-    acc = sumas.setdefault(fecha, [0, 0, Decimal(0), Decimal(0)])
-    acc[0] += clicks or 0
-    acc[1] += impressions or 0
-    acc[2] += cost or Decimal(0)
-    acc[3] += revenue or Decimal(0)
+    dia = sumas.setdefault(
+        fecha,
+        {
+            "clicks": 0,
+            "clicks_null": False,
+            "impressions": 0,
+            "impressions_null": False,
+            "cost": Decimal(0),
+            "cost_null": False,
+            "revenue": Decimal(0),
+            "revenue_null": False,
+        },
+    )
+    if clicks is None:
+        dia["clicks_null"] = True
+    else:
+        dia["clicks"] += clicks
+    if impressions is None:
+        dia["impressions_null"] = True
+    else:
+        dia["impressions"] += impressions
+    if cost is None:
+        dia["cost_null"] = True
+    else:
+        dia["cost"] += cost
+    if revenue is None:
+        dia["revenue_null"] = True
+    else:
+        dia["revenue"] += revenue
 
 dias_diferentes = 0
 for fecha, (clicks, impressions, spend, ad_sales) in sorted(dias.items()):
     if fecha not in sumas:
         continue
-    orbit_dia = sumas[fecha]
-    if (
-        orbit_dia[0] != clicks
-        or orbit_dia[1] != impressions
-        or orbit_dia[2] != Decimal(str(spend)).quantize(Decimal("0.0001"))
-        or orbit_dia[3] != Decimal(str(ad_sales)).quantize(Decimal("0.0001"))
-    ):
+    dia = sumas[fecha]
+    orbit_dia = (
+        None if dia["clicks_null"] else dia["clicks"],
+        None if dia["impressions_null"] else dia["impressions"],
+        None if dia["cost_null"] else dia["cost"],
+        None if dia["revenue_null"] else dia["revenue"],
+    )
+    if (clicks, impressions, spend, ad_sales) != orbit_dia:
         dias_diferentes += 1
         print(
             f"DIA DIFIERE {fecha}: origen={(clicks, impressions, spend, ad_sales)}"
-            f" orbit={tuple(str(v) for v in orbit_dia)}"
+            f" orbit={orbit_dia}"
         )
 print(f"dias comparables: {len(sumas)}, diferencias: {dias_diferentes}")
 print(f"fecha de conciliacion: {dt.datetime.now(dt.UTC).isoformat()}")
+if diferencias or dias_diferentes:
+    print("CONCILIACION FALLA")
+    raise SystemExit(1)
+print("CONCILIACION OK")

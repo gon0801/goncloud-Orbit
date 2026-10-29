@@ -191,9 +191,11 @@ SELECT max(o.observed_at)
 # maximo de las marcas, no la ultima por id.
 _SQL_MARCA = (
     "SELECT skip_reason FROM ingest_run"
-    " WHERE source = %s AND ok = true AND skip_reason LIKE 'as_of=%%'"
+    " WHERE source = %s AND ok = true"
+    " AND (skip_reason LIKE 'as_of=%%' OR skip_reason LIKE 'futuro=%%')"
 )
 _MARCA_RE = re.compile(r"^as_of=(\d+)(?:;|$)")
+_FUTURO_RE = re.compile(r"(?:^|; )futuro=(\d+)")
 
 _SQL_INSERTAR_OBS = """
 INSERT INTO ads_metric_observation
@@ -354,7 +356,10 @@ def _entero(valor: object, maximo: int) -> int | None:
     elif isinstance(valor, float) and valor.is_integer():
         numero = int(valor)
     elif isinstance(valor, str) and re.fullmatch(r"-?\d+", valor.strip()):
-        numero = int(valor.strip())
+        texto = valor.strip()
+        if len(texto.lstrip("-")) > 19:
+            raise MeliAdsError(f"entero fuera de rango (demasiados digitos): {valor!r}")
+        numero = int(texto)
     else:
         raise MeliAdsError(f"entero ilegible: {valor!r}")
     if numero < 0:
@@ -428,16 +433,27 @@ def _fila(row: sqlite3.Row, columnas: set[str], hoy: dt.date) -> FilaMeliAds:
 
 
 def _momento_utc(texto: object) -> dt.datetime | None:
-    """Parsea un `updated_at` de SQLite como UTC (naive = UTC, el sync lo es)."""
+    """Parsea un `updated_at` de SQLite como UTC (naive = UTC, el sync lo es).
+
+    Rechaza cualquier fraccion de segundo: la fuente viva usa
+    `datetime('now')` con precision de segundo y el id no puede ordenar dos
+    correcciones del mismo segundo.
+    """
     if texto is None:
         return None
-    try:
-        momento = dt.datetime.fromisoformat(str(texto).strip())
-    except ValueError:
+    valor = str(texto).strip()
+    if not valor or "." in valor:
         return None
-    if momento.tzinfo is None:
-        momento = momento.replace(tzinfo=dt.UTC)
-    momento = momento.astimezone(dt.UTC)
+    try:
+        momento = dt.datetime.fromisoformat(valor)
+    except (ValueError, OverflowError):
+        return None
+    try:
+        if momento.tzinfo is None:
+            momento = momento.replace(tzinfo=dt.UTC)
+        momento = momento.astimezone(dt.UTC)
+    except (OverflowError, OSError, ValueError):
+        return None
     # La fuente viva usa datetime('now') con precision de segundo. Una
     # fraccion de segundo es un dato distinto que el id no puede ordenar.
     if momento.microsecond != 0:
@@ -522,6 +538,14 @@ def _marca_de_as_of(skip_reason: str | None) -> int | None:
     return int(coincidencia.group(1)) if coincidencia else None
 
 
+def _futuro_de_marca(skip_reason: str | None) -> int | None:
+    """Lee el epoch del marcador `futuro=<epoch>` de una corrida exitosa."""
+    if not skip_reason:
+        return None
+    coincidencia = _FUTURO_RE.search(skip_reason)
+    return int(coincidencia.group(1)) if coincidencia else None
+
+
 def _version_y_as_of(source_report_id: str) -> tuple[str, int] | None:
     """Recupera (version, as_of_epoch) del id de una observacion de MeLi.
 
@@ -583,13 +607,20 @@ def _nombres_vigentes(filas: list[FilaMeliAds]) -> dict[str, str]:
     return nombres
 
 
-def _marcas_corridas(conn: psycopg.Connection) -> list[int]:
-    """As-of de TODAS las corridas exitosas, no solo la ultima por id."""
-    return [
-        marca
-        for fila in conn.execute(_SQL_MARCA, (SOURCE,)).fetchall()
-        if (marca := _marca_de_as_of(fila[0])) is not None
-    ]
+def _marcas_corridas(conn: psycopg.Connection) -> tuple[int, int]:
+    """Maximos as-of REAL y FUTURO de todas las corridas exitosas.
+
+    Son dos relojes separados. Un as-of que fue futuro al aceptarse queda en
+    cuarentena y no bloquea correcciones reales aunque el reloj se acerque.
+    """
+    reales: list[int] = []
+    futuras: list[int] = []
+    for fila in conn.execute(_SQL_MARCA, (SOURCE,)).fetchall():
+        if (real := _marca_de_as_of(fila[0])) is not None:
+            reales.append(real)
+        if (futura := _futuro_de_marca(fila[0])) is not None:
+            futuras.append(futura)
+    return max(reales, default=-1), max(futuras, default=-1)
 
 
 def _estado_temporal(
@@ -604,11 +635,25 @@ def _estado_temporal(
         if max_observado is not None
         else ahora_reloj
     )
-    marcas = _marcas_corridas(conn) + [partes[1] for partes in ultimas.values()]
-    marca_todas = max(marcas, default=-1)
+    marca_real_corrida, marca_futura = _marcas_corridas(conn)
+    obs_max = max((partes[1] for partes in ultimas.values()), default=-1)
+    # Sin marcas (base legada): las observaciones existentes son el unico
+    # orden disponible.
+    marca_real = obs_max if marca_real_corrida < 0 and marca_futura < 0 else marca_real_corrida
     limite_real = int(ahora_reloj.timestamp()) + int(_SKEW_RELOJ.total_seconds())
-    marca_real = max((m for m in marcas if m <= limite_real), default=-1)
-    return observed_at, marca_todas, marca_real, limite_real
+    return observed_at, marca_real, marca_futura, limite_real
+
+
+def _marcadores_finales(
+    marca_real: int,
+    marca_futura: int,
+    as_of_epoch: int,
+    es_futuro: bool,
+) -> tuple[int, int]:
+    """Avanza solo el reloj que corresponde, sin pisar el otro."""
+    if es_futuro:
+        return marca_real, max(marca_futura, as_of_epoch)
+    return max(marca_real, as_of_epoch), marca_futura
 
 
 def _valida_orden(
@@ -695,10 +740,12 @@ def ingest_meli_ads(
             # ordena. Un as-of futuro no puede envenenar una correccion real:
             # para un snapshot <= ahora+skew solo cuentan las marcas reales;
             # para uno futuro se compara contra todas.
-            observed_at, marca_todas, marca_real, limite_real = _estado_temporal(conn, ultimas)
+            observed_at, marca_real, marca_futura, limite_real = _estado_temporal(
+                conn, ultimas
+            )
             as_of_epoch = int(origen.as_of.timestamp()) if origen.as_of is not None else -1
             es_futuro = as_of_epoch > limite_real
-            marca_para = marca_todas if es_futuro else marca_real
+            marca_para = max(marca_real, marca_futura) if es_futuro else marca_real
             try:
                 # El nombre solo se aplica desde un snapshot estrictamente
                 # posterior a la marca aplicable.
@@ -753,9 +800,16 @@ def ingest_meli_ads(
                 skips["misma version canonica (recopia o reintento)"] = duplicados_version
             if duplicados_id:
                 skips["source_report_id ya ingerido"] = duplicados_id
-            # La marca avanza con la recopia aunque no haya observaciones.
-            marca_final = max(marca_todas, as_of_epoch)
-            partes = [f"as_of={marca_final}"] if marca_final >= 0 else []
+            # Cada reloj avanza por separado: una recopia real conserva su
+            # propio as-of aunque exista una marca futura en cuarentena.
+            real_final, futuro_final = _marcadores_finales(
+                marca_real, marca_futura, as_of_epoch, es_futuro
+            )
+            partes = []
+            if real_final >= 0:
+                partes.append(f"as_of={real_final}")
+            if futuro_final >= 0:
+                partes.append(f"futuro={futuro_final}")
             motivo = _formato_skip_reason(skips)
             if motivo:
                 partes.append(motivo)

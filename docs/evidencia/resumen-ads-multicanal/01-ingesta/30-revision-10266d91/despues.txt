@@ -1,0 +1,14 @@
+== HEAD corregido ==
+Comando: PYTHONPATH=/tmp:tests:. uv run --frozen python /tmp/orbit_review_10266d91_recopy.py
+
+RECOPIA_REAL {'run_id': 3, 'filas_origen': 1, 'rows_written': 0, 'rows_skipped': 1, 'duplicados': 1, 'duplicados_version': 1, 'duplicados_id': 0, 'rechazos': 0, 'entidades_nuevas': 0, 'entidades_actualizadas': 0}
+MARCA_RECOPIA as_of=1793252147; futuro=1793262947; 1x misma version canonica (recopia o reintento)
+INTERMEDIO {'error': 'snapshot atrasado: su as_of no es posterior a la marca aceptada (1793252147); no se escribio nada', 'latest': '6.0000', 'expected': '6.0000'}
+BLOQUEANTE_REPRODUCIDO False
+rc=1
+
+Comando: PYTHONPATH=/tmp:tests:. uv run --frozen python /tmp/orbit_review_10266d91.py
+
+FRONTERA_FUTURO {'error': None, 'latest': '7.0000', 'expected': '7.0000'}
+BLOQUEANTE_REPRODUCIDO False
+rc=1
