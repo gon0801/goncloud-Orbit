@@ -25,6 +25,10 @@ SHA final: se agrega en `sha-final.txt` al cerrar la corrección.
   `UniqueViolation`, el futuro se rechaza, el dinero y los duplicados se
   rechazan, y la corrida ausente deja `ingest_run`.
 
+- `regresion-d1bdbe5f.txt`: mapeo de cada regresion a su reproduccion en el
+  SHA rechazado; el modulo nuevo no colecciona en `d1bdbe5f` y la revision con
+  `|` se aceptaba con la version truncada.
+
 ## Gates y evidencia operativa
 
 - `pruebas.txt`: focales 99 passed, 36 del módulo.

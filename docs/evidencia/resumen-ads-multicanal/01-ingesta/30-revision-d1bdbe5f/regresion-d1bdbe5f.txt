@@ -1,0 +1,24 @@
+== Regresiones contra d1bdbe5f ==
+
+-- el modulo nuevo no colecciona en el codigo viejo --
+Worktree: /tmp/orbit-prev-d1bd (d1bdbe5f)
+Comando: python -m pytest -q tests/test_meli_ads_ingest.py
+
+ImportError: cannot import name '_MAX_BIGINT' from 'app.meli.ads_ingest'
+
+-- revision con '|' --
+Comando: PYTHONPATH=. python repro_revision.py
+
+d1bdbe5f (antes): rechazos={} versions=['rev:r|1']
+head (despues): rechazos={"revision con separador '|' no soportada": 1} versions=[]
+
+-- mapeo de las reproducciones del revisor --
+case_mark_interleaving  -> antes-1.txt: marca por id 10:00, stale 11:00 aceptado (99/VIEJO).
+case_clock_collision    -> antes-1.txt: colision de PK absorbida, rows_written=0, latest 5.0.
+case_future_clock       -> antes-1.txt: as-of 2099 aceptado, snapshot actual rechazado.
+updated_at_invalido     -> antes-2.txt: updated_at ilegible aceptado.
+dinero_redondeado       -> antes-2.txt: _dinero('1.23456')=1.2346 y limite 10^10.
+duplicados_conflicting  -> antes-2.txt: una fila elegida y la otra contada como duplicado.
+corrida_ausente         -> antes-2.txt: 0 ingest_run ante tabla ausente.
+
+Cada correccion tiene su regresion en tests/test_meli_ads_ingest.py; la suite focal da 99 passed.
