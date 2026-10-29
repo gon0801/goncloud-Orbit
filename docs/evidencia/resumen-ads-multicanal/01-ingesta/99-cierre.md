@@ -352,6 +352,32 @@ reproducciones versionadas importan `_dinero`/`leer_origen` desde
 Los diez lanes live en VM, las capturas PNG y la regresión Amazon base/HEAD
 siguen pendientes por infraestructura.
 
+## Novena revisión (cross review Grok)
+
+Cross review con Grok 4.7. El proveedor `xai` devolvió `invalid_grant`; la
+revisión corrió con el Grok 4.7 disponible en OpenCode Go. Diversidad
+reducida: una sola familia y un revisor.
+
+Dos pasadas, cinco hallazgos verificados:
+
+1. Un snapshot legado con el mismo as_of y otra versión se aceptaba y pisaba
+   el costo. Ahora `_observaciones_en_as_of` rechaza el contenido distinto; un
+   duplicado concurrente con la misma versión se deduplica.
+2. Un día interior con gasto y cero campañas pasaba la conciliación. El
+   control diario ahora incluye días con actividad desde el primer día de
+   campaña.
+3. El runbook no se detenía si `grep` fallaba con un script no vacío sin la
+   línea de MeLi. El bloque usa `set -euo pipefail`.
+4. Un duplicado futuro sin aceptación sellaba `futuro=` sin `piso=` y borraba
+   el piso legado. Ahora ese duplicado es un no-op sin aceptación temporal.
+5. Un día posterior a la última campaña, o un origen sin campañas, con gasto
+   en el control, pasaba la conciliación. Ahora falla con `FALTA el dia`.
+
+La historia anterior a la primera campaña sigue fuera de la conciliación
+campana/día, como estaba declarado. Evidencia:
+`30-revision-0c48417-grok/hallazgos.md`, `rojo.txt`, `verde.txt`, `rojo-2.txt`,
+`verde-2.txt`, `recheck-2.txt`.
+
 ## Archivos
 
 - `app/meli/ads_ingest.py` (nuevo): dueño de la persistencia, la política
@@ -371,7 +397,7 @@ siguen pendientes por infraestructura.
 
 ## Pruebas
 
-- Focales: **238 passed** (`tests/test_meli_ads_ingest.py` +
+- Focales: **243 passed** (`tests/test_meli_ads_ingest.py` +
   `tests/test_cli.py` + `tests/test_conciliar_meli_ads.py` +
   `tests/test_architecture.py`). Detalle:
   `30-revision-a305e7c/pruebas.txt`.

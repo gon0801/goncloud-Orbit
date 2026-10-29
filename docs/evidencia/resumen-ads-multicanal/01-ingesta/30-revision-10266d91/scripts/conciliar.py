@@ -223,29 +223,31 @@ def compara(origen: dict, dias: dict, orbit: dict) -> list[str]:
             diferencias += 1
             errores.append(f"DIFIERE {clave}: origen={origen[clave]} orbit={orbit[clave]}")
 
-    # El control diario se acota a la ventana de campanas: la tabla diaria
-    # puede traer historia anterior al primer dia con campanas, y esos dias no
-    # son comparables campana/dia. Dentro de la ventana SI se incluye un dia
-    # con actividad y sin campanas: es un hueco de dinero que el sync puede
-    # producir si el desglose falla. Un dia interior en cero y sin campanas no
-    # es una diferencia monetaria. Un dia de campanas sin control diario no se
-    # puede probar y tambien falla.
+    # El control diario se acota al inicio de la ventana de campanas: la tabla
+    # diaria puede traer historia anterior al primer dia con campanas, y esos
+    # dias no son comparables campana/dia. Desde el primer dia de campanas SI
+    # se incluye cualquier dia con actividad, aunque no tenga filas de campana:
+    # es un hueco de dinero que el sync puede producir si el desglose falla o si
+    # el dia quedo despues de la ultima campana. Un dia en cero y sin campanas
+    # no es una diferencia monetaria. Un dia de campanas sin control diario no
+    # se puede probar y tambien falla. Si no hay campanas, cualquier dia con
+    # actividad del control es un hueco.
     fechas_campana = {fecha for (_ext, fecha) in origen}
-    if fechas_campana:
-        inicio, fin = min(fechas_campana), max(fechas_campana)
-    else:
-        inicio = fin = None
 
     def _con_actividad(valores) -> bool:
         return any(valor is not None and valor != 0 for valor in valores)
 
-    dias_control = {
-        fecha: valores
-        for fecha, valores in dias.items()
-        if inicio is not None
-        and inicio <= fecha <= fin
-        and (fecha in fechas_campana or _con_actividad(valores))
-    }
+    if fechas_campana:
+        inicio = min(fechas_campana)
+        dias_control = {
+            fecha: valores
+            for fecha, valores in dias.items()
+            if fecha >= inicio and (fecha in fechas_campana or _con_actividad(valores))
+        }
+    else:
+        dias_control = {
+            fecha: valores for fecha, valores in dias.items() if _con_actividad(valores)
+        }
     control_faltante = sorted(fechas_campana - set(dias))
     for fecha in control_faltante:
         errores.append(f"FALTA el dia {fecha} en el control diario del origen")

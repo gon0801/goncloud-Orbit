@@ -568,6 +568,26 @@ def _skip_reason_reintento(huella: str, skips: Counter) -> str:
     return "; ".join(partes)
 
 
+def _sella_reintento(
+    conn: psycopg.Connection,
+    run_id: int,
+    filas: tuple[FilaMeliAds, ...],
+    huella: str,
+) -> int:
+    """Sella un reintento exacto: cero escrituras y cero aceptaciones nuevas."""
+    duplicados = len(filas)
+    skips = Counter({"misma version canonica (recopia o reintento)": duplicados})
+    _sellar_run(
+        conn,
+        run_id,
+        ok=True,
+        rows_written=0,
+        rows_skipped=duplicados,
+        skip_reason=_skip_reason_reintento(huella, skips),
+    )
+    return duplicados
+
+
 def _fuente_report_id(fila: FilaMeliAds, as_of: dt.datetime) -> str:
     """Identidad del hecho + version + as-of del snapshot.
 
@@ -668,6 +688,17 @@ def ingest_meli_ads(
             )
             versiones = _versiones_snapshot(filas)
             legado_mismo_as_of = _observaciones_en_as_of(conn, as_of_epoch)
+            # Un snapshot futuro que solo repite observaciones legadas ya
+            # escritas con ese as-of es un no-op: si sellara `futuro=` sin
+            # `piso=`, borraria el piso que esas observaciones ya eran. No crea
+            # aceptacion nueva. Un futuro sin observaciones previas sigue el
+            # camino normal y queda en cuarentena.
+            duplicado_futuro = (
+                not any(a.as_of == as_of_epoch for a in marcas.aceptaciones)
+                and as_of_epoch > limite_real
+                and bool(legado_mismo_as_of)
+                and legado_mismo_as_of == versiones
+            )
             try:
                 previa, es_futuro, real_final, _futuro_final = _decision_temporal(
                     marcas.aceptaciones,
@@ -685,22 +716,13 @@ def ingest_meli_ads(
                 rechazo_total = True
                 raise
 
-            if previa is not None:
+            if duplicado_futuro:
+                duplicados_version = _sella_reintento(conn, run_id, filas, huella)
+            elif previa is not None:
                 # Reintento exacto: no se toca el catalogo ni la historia y no
                 # se agrega otra aceptacion. La clasificacion original sigue
                 # viva en la corrida que acepto el snapshot.
-                duplicados_version = len(filas)
-                skips = Counter(
-                    {"misma version canonica (recopia o reintento)": duplicados_version}
-                )
-                _sellar_run(
-                    conn,
-                    run_id,
-                    ok=True,
-                    rows_written=0,
-                    rows_skipped=duplicados_version,
-                    skip_reason=_skip_reason_reintento(huella, skips),
-                )
+                duplicados_version = _sella_reintento(conn, run_id, filas, huella)
             else:
                 cache: dict[str, tuple[int, bool, bool]] = {}
                 nombres = _nombres_vigentes(list(filas))

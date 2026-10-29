@@ -1266,6 +1266,59 @@ def test_mismo_as_of_legado_con_contenido_distinto_se_rechaza(pg, tmp_path):
     assert _conteos(pg)[1] == 1
 
 
+def test_duplicado_futuro_sin_aceptacion_no_borra_el_piso_legado(pg, tmp_path):
+    """Repetir un snapshot futuro que solo coincide con observaciones legadas
+    no debe sellar `futuro=` sin piso: el as-of legado sigue siendo el piso."""
+    ahora = dt.datetime.now(dt.UTC).replace(microsecond=0)
+    futuro_asof = ahora + dt.timedelta(hours=1)
+    run_id = pg.execute(
+        "INSERT INTO ingest_run (source, ok, finished_at)"
+        " VALUES ('legacy', true, now()) RETURNING id"
+    ).fetchone()[0]
+    entidad = pg.execute(
+        "INSERT INTO ad_entity (platform, kind, external_id, name)"
+        " VALUES ('meli', 'campaign', 'C1', 'LEGACY') RETURNING id"
+    ).fetchone()[0]
+    version = version_canonica("C1", D1, "MXN", Decimal("10"), Decimal("8"), 2, 1, None)
+    pg.execute(
+        "INSERT INTO ads_metric_observation"
+        " (ad_entity_id, metric_date, observed_at, metric_currency, cost,"
+        "  ad_revenue, impressions, clicks, orders, source_report_id, ingest_run_id)"
+        " VALUES (%s, %s, %s, 'MXN', 10, 8, 2, 1, NULL, %s, %s)",
+        (
+            entidad,
+            D1,
+            ahora,
+            f"meli-ads|C1|{D1.isoformat()}|{version}|{int(futuro_asof.timestamp())}",
+            run_id,
+        ),
+    )
+    duplicado = _snapshot(
+        tmp_path / "duplicado-futuro.db",
+        [(D1.isoformat(), "C1", "LEGACY", 1, 2, 10.0, 8.0)],
+        as_of=futuro_asof.isoformat(),
+    )
+    atrasado = _snapshot(
+        tmp_path / "atrasado-real.db",
+        [(D1.isoformat(), "C1", "STALE", 1, 2, 99.0, 8.0)],
+        as_of=(ahora - dt.timedelta(hours=2)).isoformat(),
+    )
+
+    resultado = ingest_meli_ads(_RelojFijo(pg, ahora), duplicado)
+    assert resultado["rows_written"] == 0
+    assert _conteos(pg)[1] == 1
+    assert _marcas_corridas(pg) == (-1, -1)
+    marca = pg.execute(
+        "SELECT skip_reason FROM ingest_run WHERE id = %s", (resultado["run_id"],)
+    ).fetchone()[0]
+    assert marca.startswith("reintento=")
+
+    with pytest.raises(MeliAdsError, match="snapshot atrasado"):
+        ingest_meli_ads(_RelojFijo(pg, ahora), atrasado)
+    assert _ultima(pg, "C1", D1)[0] == Decimal("10.0000")
+    assert _conteos(pg)[1] == 1
+
+
 def test_huella_incluye_metricas_aunque_exista_revision(pg, tmp_path):
     """La revision no reemplaza las metricas en la huella: mismo as_of con
     costo distinto es contenido distinto, no un reintento."""
@@ -1713,6 +1766,7 @@ def test_duplicados_id_cuenta_conflicto_real_del_indice(pg, tmp_path):
     """Un conflicto de source_report_id (sin colision de PK) no es una recopia:
     se cuenta aparte como `duplicados_id`."""
     fijo = dt.datetime(2026, 10, 29, 13, 0, tzinfo=dt.UTC)
+    as_of_real = fijo - dt.timedelta(minutes=30)
     entidad_c2 = pg.execute(
         "INSERT INTO ad_entity (platform, kind, external_id, name)"
         " VALUES ('meli', 'campaign', 'C2', 'BETA') RETURNING id"
@@ -1733,18 +1787,17 @@ def test_duplicados_id_cuenta_conflicto_real_del_indice(pg, tmp_path):
             entidad_c2,
             D2,
             fijo,
-            f"meli-ads|C2|{D2.isoformat()}|seed|"
-            f"{int(dt.datetime.fromisoformat(AS_OF_ATRASADO).replace(tzinfo=dt.UTC).timestamp())}",
+            f"meli-ads|C2|{D2.isoformat()}|seed|{int((fijo - dt.timedelta(hours=4)).timestamp())}",
             run0,
         ),
     )
     snap = _snapshot(
         tmp_path / "duplicado-id.db",
         [(D1.isoformat(), "C1", "ALFA", 1, 2, 6.0, 8.0)],
-        as_of=AS_OF_CORRECCION,
+        as_of=as_of_real.isoformat(),
     )
     version_6 = version_canonica("C1", D1, "MXN", Decimal("6.0000"), Decimal("8.0000"), 2, 1, None)
-    epoch_12 = int(dt.datetime.fromisoformat(AS_OF_CORRECCION).replace(tzinfo=dt.UTC).timestamp())
+    epoch_12 = int(as_of_real.timestamp())
     duplicado = _DuplicadoId(
         _RelojFijo(pg, fijo),
         entidad_id=entidad_c1,

@@ -83,3 +83,52 @@ en un día con campañas, revisión con as_of posterior, recopia parcial, nombre
 fuera de la huella, datos futuros visibles en `v_metric_latest`, `campaign_id`
 entero contra texto y `orders`/`acos` fuera de la fuente ingerida. Ninguno
 rompía el contrato con una ejecución real.
+
+## Segunda pasada Grok sobre `910e347`
+
+### 4. Duplicado futuro sin aceptación borraba el piso legado (bloqueante)
+
+Un snapshot futuro que solo repetía una observación legada ya escrita con ese
+as-of sellaba `futuro=` sin `piso=`. El piso legado quedaba excluido y un
+snapshot real más viejo entraba con costo 99.
+
+Antes:
+```text
+CON_DUP_RELOJ_REAL ... 'marcas': [('futuro=...; snap=...')],
+'stale_error': None, 'costo': '99.0000'
+```
+Después:
+```text
+CON_DUP_RELOJ_REAL ... 'marcas': [('reintento=...; 1x misma version...')],
+'stale_error': 'snapshot atrasado ...', 'costo': '10.0000'
+```
+Fix: un futuro que coincide exactamente con observaciones legadas del mismo
+as-of es un no-op. No crea aceptación temporal y conserva el piso. Un futuro
+sin observaciones previas sigue creando su marca y no bloquea correcciones
+reales, como exige el Caso A.
+
+### 5. Día posterior a la última campaña o sin campañas (bloqueante)
+
+El control diario seguía ignorando un día con gasto posterior a la última
+campaña, y un origen sin campañas con gasto en el control.
+
+Antes:
+```text
+CONCILIAR_trailing_gasto_EXIT 0 OK
+CONCILIAR_sin_campanas_con_gasto_EXIT 0 OK
+```
+Después:
+```text
+CONCILIAR_trailing_gasto_EXIT 1 FALLA
+CONCILIAR_sin_campanas_con_gasto_EXIT 1 FALLA
+```
+Fix: desde el primer día de campaña se incluye cualquier día con actividad,
+aunque no tenga filas de campaña. Sin campañas, cualquier día del control con
+actividad es un hueco. La historia anterior a la primera campaña sigue fuera
+de la comparación, como estaba declarado.
+
+### Pruebas de la segunda pasada
+
+- `rojo-2.txt`: las tres pruebas nuevas fallan contra `910e347`.
+- `verde-2.txt`: las tres pasan en el árbol corregido.
+- `recheck-2.txt`: salida de los repros de Grok contra el árbol corregido.
