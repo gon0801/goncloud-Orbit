@@ -8,6 +8,7 @@ Segunda revisión (concurrencia y nombre): `f55600e7c49b858b8417bba4f740ee68264d
 Tercera revisión (marca de as-of en recopias): `47f83e72a7419dc7e27b6f2a570804330239dce1`.
 Corrección integral de la revisión `d1bdbe5f`: `3bc16534f9aa57c9e0fe7c27cb946b135ec37dde`.
 Corrección del veredicto `78888f3e`: `1875a954737b706d581663834da6544f5873a2e7`.
+Corrección del veredicto `10266d91`: `28eea61b54502e7c8428072f78c88ca754189da5`.
 
 ## Alcance entregado
 

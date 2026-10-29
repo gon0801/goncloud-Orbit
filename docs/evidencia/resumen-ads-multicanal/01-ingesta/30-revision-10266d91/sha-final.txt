@@ -1,0 +1,5 @@
+Rama: resumen-ads-01-ingesta-meli
+SHA revisado y rechazado: 10266d9123da73152ebb458ef790b4cd364dfdf0
+SHA de la correccion: 28eea61b54502e7c8428072f78c88ca754189da5
+Base de la fase: 31ba12a16f12b90e2f7ea6e86a0ff102f3b8465f
+HEAD de la evidencia: se reporta en la entrega; un archivo no puede contener su propio SHA.
