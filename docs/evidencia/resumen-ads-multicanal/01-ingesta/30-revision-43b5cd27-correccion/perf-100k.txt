@@ -1,0 +1,4 @@
+snapshot=/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/orbit-perf-mdddlatg/snapshot-100k.db bytes=10498048 filas=100000 as_of=2026-10-29 19:16:34
+corrida=1 segundos=6.457 rows_written=100000 entidades=100
+corrida=2 segundos=6.339 rows_written=100000 entidades=100
+corrida=3 segundos=6.301 rows_written=100000 entidades=100

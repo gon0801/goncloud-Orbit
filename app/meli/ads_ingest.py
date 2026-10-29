@@ -12,37 +12,28 @@ esquema, el dedupe `metric_dedupe_reporte` y `v_metric_latest`.
 
 Modelo temporal (sin columnas nuevas; el esquema no tiene watermark):
 
-- Cada corrida exitosa se sella como ACEPTACION de un snapshot completo. Su
-  `skip_reason` guarda el as-of y la huella SHA-256 de TODAS las filas
-  canonicas (campana, fecha, moneda y todas las metricas, con codificacion
-  JSON inequivoca), no solo de la observacion vigente. `snap=<huella>` es lo
-  que permite reconocer un reintento exacto aunque otra corrida haya cambiado
-  despues la observacion vigente.
-- Hay DOS relojes independientes: `as_of=<epoch>` (snapshots reales) y
-  `futuro=<epoch>` (snapshots aceptados como futuros al momento de aceptarse).
-  Un as-of aceptado como futuro queda en CUARENTENA para siempre: el avance
-  del reloj no lo reclasifica como real. Cada corrida escribe solo la marca
-  del reloj al que pertenece; la otra sigue viva en su propia corrida. Por eso
-  una primera corrida exclusivamente futura no escribe `as_of=`.
+- Cada corrida exitosa sella una ACEPTACION con el as-of y la huella SHA-256
+  de TODAS las filas canonicas (campana, fecha, moneda y metricas, en JSON
+  inequivoco). `snap=<huella>` reconoce un reintento exacto aunque otra
+  corrida haya cambiado despues la observacion vigente.
+- Hay DOS relojes: `as_of=<epoch>` (snapshots reales) y `futuro=<epoch>`
+  (aceptados como futuros). Un futuro queda en CUARENTENA para siempre: el
+  avance del reloj no lo reclasifica. Cada corrida escribe solo la marca de
+  su reloj; una primera corrida futura no escribe `as_of=`.
 - Una aceptacion futura conserva el piso real heredado en `piso=<epoch>`. Una
-  base legada sin marcas no pierde su piso cuando entra un futuro: el piso se
-  calcula con las observaciones cuyo as-of no pertenece a una aceptacion
-  futura.
-- Un reintento exacto (mismo as-of y misma huella) es un NO-OP completo: no
-  escribe entidades, no toca nombres y no agrega observaciones ni otra
-  aceptacion. Se reconoce contra la aceptacion anterior, nunca comparando solo
-  `v_metric_latest`. Un snapshot vacio tambien es un no-op exitoso y no crea
-  una aceptacion temporal.
+  base legada sin marcas no pierde su piso cuando entra un futuro.
+- Un reintento exacto (mismo as-of y huella) es un NO-OP completo: no escribe
+  entidades, no toca nombres y no agrega observaciones ni aceptaciones. Se
+  reconoce contra la aceptacion anterior, nunca solo contra `v_metric_latest`.
+  Un snapshot vacio tambien es un no-op exitoso.
 - Un snapshot con el mismo as-of y contenido distinto se rechaza completo.
-- Un snapshot atrasado que nunca fue aceptado se rechaza completo, aunque sus
-  metricas coincidan. Una marca futura NO bloquea una correccion real valida:
-  los snapshots reales se comparan solo contra el reloj real.
+- Un snapshot atrasado nunca aceptado se rechaza completo, aunque sus metricas
+  coincidan. Una marca futura NO bloquea una correccion real valida.
 - Una recopia real deduplicada conserva su nuevo as-of, avanza el reloj real
   y bloquea snapshots intermedios.
-- Una aceptacion anterior a esta version puede no tener `snap=`. El primer
-  reintento exacto se reconoce contra la observacion vigente completa; si hubo
-  una correccion intermedia, se rechaza fail-closed. Es una compatibilidad
-  declarada, no una clave nueva.
+- Una aceptacion anterior puede no tener `snap=`. El primer reintento exacto
+  se reconoce contra la observacion vigente completa; si hubo una correccion
+  intermedia, se rechaza fail-closed.
 
 Idempotencia: `source_report_id =
 meli-ads|<campaign_id>|<fecha>|<version>|<as_of_epoch>` y
@@ -69,6 +60,7 @@ import sys
 import unicodedata
 from collections import Counter
 from dataclasses import dataclass
+from decimal import Decimal
 from pathlib import Path
 
 import psycopg
@@ -124,7 +116,8 @@ _SQL_ID_ENTIDAD = (
 # source_report_id. La consulta se hace dentro de la transaccion de escritura.
 _SQL_ULTIMAS = f"""
 SELECT DISTINCT ON (e.external_id, o.metric_date)
-       e.external_id, o.metric_date, o.source_report_id
+       e.external_id, o.metric_date, o.source_report_id,
+       o.cost, o.ad_revenue, o.impressions, o.clicks, o.orders, o.metric_currency
   FROM ads_metric_observation o JOIN ad_entity e ON e.id = o.ad_entity_id
  WHERE e.platform = '{PLATAFORMA}' AND e.kind = '{KIND}'
  ORDER BY e.external_id, o.metric_date, o.observed_at DESC
@@ -185,7 +178,8 @@ SELECT max(CASE WHEN epoch_texto ~ '^[0-9]+$' THEN epoch_texto::bigint END)
 # rechaza completo. No basta mirar la observacion vigente, que puede haber sido
 # tapada por una correccion posterior.
 _SQL_OBSERVACIONES_AS_OF = f"""
-SELECT e.external_id, o.metric_date, o.source_report_id
+SELECT e.external_id, o.metric_date, o.source_report_id,
+       o.cost, o.ad_revenue, o.impressions, o.clicks, o.orders, o.metric_currency
   FROM ads_metric_observation o JOIN ad_entity e ON e.id = o.ad_entity_id
  WHERE e.platform = '{PLATAFORMA}' AND e.kind = '{KIND}'
    AND split_part(o.source_report_id, '|', 5) = %s
@@ -361,21 +355,39 @@ def _version_y_as_of(source_report_id: str) -> tuple[str, int] | None:
         return None
 
 
-def _versiones_snapshot(filas: tuple[FilaMeliAds, ...]) -> set[tuple[str, dt.date, str]]:
-    """Conjunto de versiones canonicas por campana/dia del snapshot entrante."""
-    return {(fila.campaign_external_id, fila.metric_date, fila.source_version) for fila in filas}
+def _contenido_desde(
+    cost: Decimal | None,
+    ad_revenue: Decimal | None,
+    impressions: int | None,
+    clicks: int | None,
+    orders: int | None,
+    moneda: str,
+) -> tuple:
+    """Contenido canonico completo de un hecho campana/dia (sin el nombre)."""
+    return (cost, ad_revenue, impressions, clicks, orders, moneda)
+
+
+def _contenido(fila: FilaMeliAds) -> tuple:
+    return _contenido_desde(
+        fila.cost, fila.ad_revenue, fila.impressions, fila.clicks, fila.orders, fila.metric_currency
+    )
+
+
+def _versiones_snapshot(filas: tuple[FilaMeliAds, ...]) -> set[tuple[str, dt.date, tuple]]:
+    """Contenido canonico completo por campana/dia del snapshot entrante."""
+    return {(fila.campaign_external_id, fila.metric_date, _contenido(fila)) for fila in filas}
 
 
 def _observaciones_en_as_of(
     conn: psycopg.Connection, as_of_epoch: int
-) -> set[tuple[str, dt.date, str]]:
-    """Conjunto de (campana, dia, version) ya escritas con ese as-of.
+) -> set[tuple[str, dt.date, tuple]]:
+    """Contenido canonico completo ya escrito con ese as-of.
 
-    Es un CONJUNTO, no un dict: dos versiones distintas para la misma
-    campana/dia no pueden colapsar en una y clasificar mal el snapshot.
+    Son conjuntos porque dos contenidos distintos para la misma campana/dia
+    no pueden colapsar en uno y clasificar mal el snapshot.
     """
-    versiones: set[tuple[str, dt.date, str]] = set()
-    for external_id, metric_date, report_id in conn.execute(
+    versiones: set[tuple[str, dt.date, tuple]] = set()
+    for external_id, metric_date, report_id, *valores in conn.execute(
         _SQL_OBSERVACIONES_AS_OF, (str(as_of_epoch),)
     ):
         partes = _version_y_as_of(report_id)
@@ -383,7 +395,7 @@ def _observaciones_en_as_of(
             continue
         version, epoch = partes
         if epoch == as_of_epoch:
-            versiones.add((external_id, metric_date, version))
+            versiones.add((external_id, metric_date, _contenido_desde(*valores)))
     return versiones
 
 
@@ -469,14 +481,13 @@ def _estado_temporal(
 
 def _coincide_con_ultimas(
     filas: tuple[FilaMeliAds, ...],
-    ultimas: dict[tuple[str, dt.date], tuple[str, int]],
+    ultimas: dict[tuple[str, dt.date], tuple],
 ) -> bool:
-    """Compatibilidad: un snapshot completo igual a TODA la observacion vigente."""
+    """Compatibilidad: snapshot igual, en contenido completo, a la vigente."""
     if len(filas) != len(ultimas):
         return False
     for fila in filas:
-        vigente = ultimas.get((fila.campaign_external_id, fila.metric_date))
-        if vigente is None or vigente[0] != fila.source_version:
+        if ultimas.get((fila.campaign_external_id, fila.metric_date)) != _contenido(fila):
             return False
     return True
 
@@ -484,9 +495,9 @@ def _coincide_con_ultimas(
 def _decision_temporal(
     aceptadas: tuple[_Aceptacion, ...],
     filas: tuple[FilaMeliAds, ...],
-    ultimas: dict[tuple[str, dt.date], tuple[str, int]],
-    legado_mismo_as_of: set[tuple[str, dt.date, str]],
-    versiones_snapshot: set[tuple[str, dt.date, str]],
+    ultimas: dict[tuple[str, dt.date], tuple],
+    legado_mismo_as_of: set[tuple[str, dt.date, tuple]],
+    versiones_snapshot: set[tuple[str, dt.date, tuple]],
     marca_real: int,
     marca_futura: int,
     as_of_epoch: int,
@@ -676,15 +687,15 @@ def ingest_meli_ads(
             # DESPUES del candado: el reloj de ingesta no puede quedar antes
             # que el de una corrida que termino mientras esta esperaba, o
             # v_metric_latest elegiria la observacion equivocada.
-            ultimas: dict[tuple[str, dt.date], tuple[str, int]] = {}
-            for external_id, metric_date, report_id in conn.execute(_SQL_ULTIMAS):
+            ultimas: dict[tuple[str, dt.date], tuple] = {}
+            for external_id, metric_date, report_id, *valores in conn.execute(_SQL_ULTIMAS):
                 partes = _version_y_as_of(report_id)
                 if partes is None:
                     raise MeliAdsError(
                         "observacion vigente sin as_of legible en su source_report_id:"
                         f" {external_id} {metric_date.isoformat()}"
                     )
-                ultimas[(external_id, metric_date)] = partes
+                ultimas[(external_id, metric_date)] = _contenido_desde(*valores)
 
             as_of_epoch = int(origen.as_of.timestamp()) if origen.as_of is not None else -1
             observed_at, marca_real, marcas, limite_real = _estado_temporal(
@@ -742,7 +753,7 @@ def ingest_meli_ads(
                         entidades_nuevas += int(entidad[1])
                         entidades_actualizadas += int(entidad[2])
                     vigente = ultimas.get((fila.campaign_external_id, fila.metric_date))
-                    if vigente is not None and vigente[0] == fila.source_version:
+                    if vigente is not None and vigente == _contenido(fila):
                         # Mismo hecho canonico (recopia con otro as-of): no es
                         # una correccion. El catalogo ya se actualizo arriba.
                         duplicados_version += 1

@@ -12,6 +12,8 @@ una metrica con otro valor o una moneda distinta de MXN. No hay una salida
 from __future__ import annotations
 
 import datetime as dt
+import math
+import re
 import sqlite3
 import sys
 from decimal import Decimal, InvalidOperation
@@ -20,12 +22,19 @@ from pathlib import Path
 import psycopg
 
 CENTIMOS = Decimal("0.0001")
-RUIDO = Decimal("0.00001")
 MAX_DINERO = Decimal(10) ** 10
+_FECHA_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 class DatoInvalido(Exception):
     """Un importe del origen no cumple la disciplina de dinero."""
+
+
+def _tolerancia_binaria(valor) -> Decimal:
+    """Residuo maximo atribuible al REAL de SQLite (hasta 4 ulps)."""
+    if isinstance(valor, float):
+        return Decimal(str(math.ulp(valor))) * 4
+    return Decimal(0)
 
 
 def _dinero(valor, campo="importe"):
@@ -44,13 +53,26 @@ def _dinero(valor, campo="importe"):
         cuantizado = numero.quantize(CENTIMOS)
     except InvalidOperation:
         raise DatoInvalido(f"{campo} fuera de NUMERIC(14,4): {valor!r}") from None
-    if abs(numero - cuantizado) >= RUIDO:
-        raise DatoInvalido(f"{campo} con mas de 4 decimales: {valor!r}")
+    residuo = abs(numero - cuantizado)
+    if residuo:
+        if numero > 0 and cuantizado == 0:
+            raise DatoInvalido(f"{campo} positivo que cuantiza a cero: {valor!r}")
+        if residuo > _tolerancia_binaria(valor):
+            raise DatoInvalido(f"{campo} con mas de 4 decimales: {valor!r}")
     if cuantizado >= MAX_DINERO:
         raise DatoInvalido(f"{campo} fuera de NUMERIC(14,4): {valor!r}")
-    if numero > 0 and cuantizado == 0:
-        raise DatoInvalido(f"{campo} positivo que cuantiza a cero: {valor!r}")
     return Decimal("0.0000") if cuantizado == 0 else cuantizado
+
+
+def _fecha_origen(valor, etiqueta: str) -> str | None:
+    """Valida una fecha ISO antes de usarla como clave o compararla."""
+    if not isinstance(valor, str) or not _FECHA_RE.match(valor):
+        return f"fecha ilegible en origen {etiqueta}: {valor!r}"
+    try:
+        dt.date.fromisoformat(valor)
+    except ValueError:
+        return f"fecha ilegible en origen {etiqueta}: {valor!r}"
+    return None
 
 
 def _columnas(con, tabla: str) -> set[str]:
@@ -93,6 +115,10 @@ def carga_origen(ruta: str) -> tuple[dict, dict, list[str]]:
                     error_moneda = _moneda_origen(row["currency"], etiqueta)
                     if error_moneda:
                         errores.append(error_moneda)
+                error_fecha = _fecha_origen(row["date"], etiqueta)
+                if error_fecha:
+                    errores.append(error_fecha)
+                    continue
                 try:
                     valores = (
                         _dinero(row["spend"], f"spend {etiqueta}"),
@@ -123,6 +149,10 @@ def carga_origen(ruta: str) -> tuple[dict, dict, list[str]]:
                     error_moneda = _moneda_origen(row["currency"], etiqueta)
                     if error_moneda:
                         errores.append(error_moneda)
+                error_fecha = _fecha_origen(row["date"], etiqueta)
+                if error_fecha:
+                    errores.append(error_fecha)
+                    continue
                 try:
                     valores = (
                         row["clicks"],
@@ -160,7 +190,12 @@ def carga_orbit(conn) -> tuple[dict, list[str]]:
     for ext, fecha, cost, revenue, impressions, clicks, moneda in filas:
         if moneda != "MXN":
             errores.append(f"moneda fuera de dominio en {ext} {fecha}: {moneda}")
-        orbit[(ext, fecha.isoformat())] = (cost, revenue, impressions, clicks)
+        clave = (ext, fecha.isoformat())
+        valores = (cost, revenue, impressions, clicks)
+        if clave in orbit:
+            errores.append(f"duplicado en Orbit campana/dia {clave}: {orbit[clave]} vs {valores}")
+            continue
+        orbit[clave] = valores
     return orbit, errores
 
 
@@ -237,17 +272,20 @@ def compara(origen: dict, dias: dict, orbit: dict) -> list[str]:
     def _con_actividad(valores) -> bool:
         return any(valor is not None and valor != 0 for valor in valores)
 
+    def _comparable(valores) -> bool:
+        # Un NULL no es inactividad: no se puede probar que el dia este en
+        # cero. La fila incompleta entra a la ventana y falla cerrada.
+        return _con_actividad(valores) or any(valor is None for valor in valores)
+
     if fechas_campana:
         inicio = min(fechas_campana)
         dias_control = {
             fecha: valores
             for fecha, valores in dias.items()
-            if fecha >= inicio and (fecha in fechas_campana or _con_actividad(valores))
+            if fecha >= inicio and (fecha in fechas_campana or _comparable(valores))
         }
     else:
-        dias_control = {
-            fecha: valores for fecha, valores in dias.items() if _con_actividad(valores)
-        }
+        dias_control = {fecha: valores for fecha, valores in dias.items() if _comparable(valores)}
     control_faltante = sorted(fechas_campana - set(dias))
     for fecha in control_faltante:
         errores.append(f"FALTA el dia {fecha} en el control diario del origen")

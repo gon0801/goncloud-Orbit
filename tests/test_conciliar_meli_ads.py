@@ -294,6 +294,49 @@ def test_precision_del_origen_no_se_redondea(monkeypatch, tmp_path, capsys):
     assert "CONCILIACION OK" not in salida
 
 
+def test_precision_genuina_de_seis_decimales_falla(monkeypatch, tmp_path, capsys):
+    """1.000001 es precision decimal real, no ruido binario del REAL."""
+    codigo, salida = _corre(
+        monkeypatch,
+        tmp_path,
+        [("C1", DIA.isoformat(), 1.000001, 2.0, 3, 4)],
+        _dia(spend=1.000001),
+        _orbit(),
+        capsys,
+    )
+    assert codigo != 0
+    assert "mas de 4 decimales" in salida
+    assert "CONCILIACION OK" not in salida
+
+
+def test_control_con_spend_null_en_dia_sin_campanas_falla(monkeypatch, tmp_path, capsys):
+    """Un NULL no es inactividad: el dia no se puede probar y falla cerrado."""
+    siguiente = DIA + dt.timedelta(days=1)
+    dias = _dia() + [(siguiente.isoformat(), 0, 0, None, 0.0)]
+    codigo, salida = _corre(monkeypatch, tmp_path, _campana(), dias, _orbit(), capsys)
+    assert codigo != 0
+    assert f"FALTA el dia {siguiente.isoformat()} en Orbit" in salida
+    assert "CONCILIACION OK" not in salida
+
+
+def test_control_con_fecha_ilegible_falla(monkeypatch, tmp_path, capsys):
+    """Una fecha vacia con gasto no puede quedar fuera por orden lexicografico."""
+    dias = _dia() + [("", 9, 8, 500.0, 900.0)]
+    codigo, salida = _corre(monkeypatch, tmp_path, _campana(), dias, _orbit(), capsys)
+    assert codigo != 0
+    assert "fecha ilegible" in salida
+    assert "CONCILIACION OK" not in salida
+
+
+def test_orbit_duplicado_en_la_vista_vigente_falla(monkeypatch, tmp_path, capsys):
+    """Dos observaciones vigentes de la misma campana/dia rompen la identidad."""
+    orbit = _orbit() + [("C1", DIA, Decimal("9.0000"), Decimal("2.0000"), 3, 4, "MXN")]
+    codigo, salida = _corre(monkeypatch, tmp_path, _campana(), _dia(), orbit, capsys)
+    assert codigo != 0
+    assert "duplicado en Orbit" in salida
+    assert "CONCILIACION OK" not in salida
+
+
 def test_campana_duplicada_en_origen_falla(monkeypatch, tmp_path, capsys):
     """Una clave repetida no se sobrescribe: la discrepancia anterior importa."""
     campanas = _campana() + [("C1", DIA.isoformat(), 9.0, 2.0, 3, 4)]

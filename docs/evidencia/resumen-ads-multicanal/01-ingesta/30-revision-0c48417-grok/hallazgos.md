@@ -78,11 +78,16 @@ El bloque se detiene en `grep` y no llega al `install`.
 
 ## Hallazgos descartados
 
-Grok descartó 9: dos épocas legadas, fila futura mezclada, suma diaria distinta
-en un día con campañas, revisión con as_of posterior, recopia parcial, nombre
-fuera de la huella, datos futuros visibles en `v_metric_latest`, `campaign_id`
-entero contra texto y `orders`/`acos` fuera de la fuente ingerida. Ninguno
-rompía el contrato con una ejecución real.
+Grok descartó 8: dos épocas legadas, fila futura mezclada, suma diaria distinta
+en un día con campañas, recopia parcial, nombre fuera de la huella, datos
+futuros visibles en `v_metric_latest`, `campaign_id` entero contra texto y
+`orders`/`acos` fuera de la fuente ingerida. Ninguno rompía el contrato con una
+ejecución real.
+
+La revisión con as_of posterior **no** era un falso positivo: los repros de la
+revisión de `43b5cd27` demostraron que el dedupe por `source_version` descartaba
+un costo distinto. Se corrigió comparando moneda y métricas, no solo la
+revisión, en las tres rutas de ingesta; ver `99-cierre.md`, décima revisión.
 
 ## Segunda pasada Grok sobre `910e347`
 

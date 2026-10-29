@@ -32,8 +32,9 @@ Contrato comprobado en vivo (docs/evidencia/resumen-ads-multicanal/01-ingesta):
    completo. Un as-of mas de 24 h adelante del reloj de ingesta se rechaza.
 8. Las claves `(campaign_id, metric_date)` deben ser unicas; un snapshot sin
    PK que las repita se rechaza completo.
-9. Dinero con la disciplina de app/costs.py: ruido binario < 1e-5 se
-   cuantiza; precision genuina de mas de 4 decimales se rechaza; el rango se
+9. Dinero con la disciplina de app/costs.py: solo el ruido binario real del
+   REAL de SQLite (a lo sumo 4 ulps del valor) se cuantiza; cualquier
+   precision decimal genuina de mas de 4 decimales se rechaza; el rango se
    valida despues de cuantizar; un positivo que cuantiza a cero se rechaza.
 10. `campaign_id` o `revision` con `|` se rechazan para no romper la
     identidad de `source_report_id`.
@@ -43,6 +44,7 @@ from __future__ import annotations
 
 import datetime as dt
 import hashlib
+import math
 import re
 import sqlite3
 from collections import Counter
@@ -67,7 +69,6 @@ _COLUMNAS_OBLIGATORIAS = (
     "updated_at",
 )
 _MAX_DINERO = Decimal(10) ** 10  # 10 enteros + 4 decimales = NUMERIC(14,4)
-_RUIDO_FLOAT = Decimal("0.00001")  # ruido binario del REAL de SQLite (costs.py:223)
 _MAX_BIGINT = 2**63 - 1  # impressions/clicks: BIGINT
 _MAX_INTEGER = 2**31 - 1  # orders: INTEGER
 _TOLERANCIA_RELOJ = dt.timedelta(hours=24)  # limite duro de un as-of futuro
@@ -171,12 +172,25 @@ def version_canonica(
     return hashlib.sha256(_SEPARADOR.join(partes).encode("utf-8")).hexdigest()
 
 
+def _tolerancia_binaria(valor: object) -> Decimal:
+    """Residuo maximo atribuible al REAL de SQLite.
+
+    Un REAL solo puede desviarse de su valor decimal por unidades en el
+    ultimo bit. Cuatro ulps cubren el redondeo de una suma corta; un residuo
+    mayor es precision decimal escrita en el origen. TEXT e INTEGER no
+    tienen ruido: cualquier residuo suyo es genuino.
+    """
+    if isinstance(valor, float):
+        return Decimal(str(math.ulp(valor))) * 4
+    return Decimal(0)
+
+
 def _dinero(valor: object) -> Decimal | None:
     """Dinero exacto con la disciplina de app/costs.py:223 y :247.
 
-    Tolera solo el ruido binario del REAL de SQLite (residuo < 1e-5).
-    Rechaza precision genuina de mas de 4 decimales, en vez de redondearla en
-    silencio. Valida el rango DESPUES de cuantizar y rechaza un positivo que
+    Solo se tolera el ruido binario del REAL de SQLite (hasta 4 ulps). Una
+    precision decimal genuina de 1.000001 se rechaza, no se redondea a
+    1.0000. Valida el rango DESPUES de cuantizar y rechaza un positivo que
     cuantiza a cero (seria un importe perdido).
     """
     if valor is None:
@@ -195,12 +209,14 @@ def _dinero(valor: object) -> Decimal | None:
         cuantizado = numero.quantize(_DECIMALES)
     except InvalidOperation:
         raise MeliAdsError(f"importe fuera de NUMERIC(14,4): {valor!r}") from None
-    if abs(numero - cuantizado) >= _RUIDO_FLOAT:
-        raise MeliAdsError(f"importe con mas de 4 decimales: {valor!r}")
+    residuo = abs(numero - cuantizado)
+    if residuo:
+        if numero > 0 and cuantizado == 0:
+            raise MeliAdsError(f"importe positivo que cuantiza a cero: {valor!r}")
+        if residuo > _tolerancia_binaria(valor):
+            raise MeliAdsError(f"importe con mas de 4 decimales: {valor!r}")
     if cuantizado >= _MAX_DINERO:
         raise MeliAdsError(f"importe fuera de NUMERIC(14,4): {valor!r}")
-    if numero > 0 and cuantizado == 0:
-        raise MeliAdsError(f"importe positivo que cuantiza a cero: {valor!r}")
     if cuantizado == 0:
         return Decimal("0.0000")  # cero negativo y cero positivo: misma version
     return cuantizado
@@ -232,10 +248,10 @@ def _entero(valor: object, maximo: int) -> int | None:
 def _nombre(valor: object) -> str | None:
     if valor is None:
         return None
-    texto = str(valor).strip()
+    texto = _texto_origen(valor, "campaign_name").strip()
     if "\x00" in texto:
         raise MeliAdsError("campaign_name con NUL no soportado")
-    return texto or None
+    return _largo_ok(texto, "campaign_name") or None
 
 
 def _sin_nul(valor: str, campo: str) -> str:
@@ -245,9 +261,41 @@ def _sin_nul(valor: str, campo: str) -> str:
     return valor
 
 
+def _texto_origen(valor: object, campo: str) -> str:
+    """Texto del origen: BLOB y tipos no textuales se rechazan.
+
+    SQLite conserva el tipo del valor. Convertir un BLOB con str() crea una
+    pseudo-identidad (`b'C1'`) que PostgreSQL persiste. La frontera del origen
+    exige texto ya decodificado.
+    """
+    if isinstance(valor, (bytes, bytearray, memoryview)):
+        raise MeliAdsError(f"{campo} BLOB no soportado")
+    if valor is not None and not isinstance(valor, str):
+        raise MeliAdsError(f"{campo} no es texto: {type(valor).__name__}")
+    texto = "" if valor is None else str(valor)
+    return texto
+
+
+def _largo_ok(valor: str, campo: str, maximo: int = 2048) -> str:
+    """Rechaza texto demasiado largo para los indices btree de destino.
+
+    `source_report_id` y `ad_entity.external_id` participan en indices btree
+    y en TEXT sin limite. El limite de PostgreSQL es de bytes, no de
+    caracteres: 12800 bytes superan el maximo del motor. La frontera rechaza
+    antes de escribir y la fila se cuenta en `ingest_run`.
+    """
+    largo = len(valor.encode("utf-8"))
+    if largo > maximo:
+        raise MeliAdsError(f"{campo} demasiado largo ({largo} bytes)")
+    return valor
+
+
 def _fila(row: sqlite3.Row, columnas: set[str], hoy: dt.date) -> FilaMeliAds:
     """Convierte una fila del origen a la forma canonica y valida el contrato."""
-    campaign_id = _sin_nul(str(row["campaign_id"] or "").strip(), "campaign_id")
+    campaign_id = _largo_ok(
+        _sin_nul(_texto_origen(row["campaign_id"], "campaign_id").strip(), "campaign_id"),
+        "campaign_id",
+    )
     if not campaign_id:
         raise MeliAdsError("campaign_id vacio: identidad de campana ausente")
     if "|" in campaign_id:
@@ -277,8 +325,8 @@ def _fila(row: sqlite3.Row, columnas: set[str], hoy: dt.date) -> FilaMeliAds:
     # El origen vivo no tiene revision (comprobado 2026-10-29). Si un snapshot
     # futuro la trae, ES la version: manda sobre el hash de las metricas.
     revision = row["revision"] if "revision" in columnas else None
-    revision_texto = str(revision).strip() if revision is not None else ""
-    revision_texto = _sin_nul(revision_texto, "revision")
+    revision_texto = _texto_origen(revision, "revision").strip() if revision is not None else ""
+    revision_texto = _largo_ok(_sin_nul(revision_texto, "revision"), "revision")
     if "|" in revision_texto:
         raise MeliAdsError("revision con separador '|' no soportada")
     if not revision_texto:
@@ -302,7 +350,7 @@ def _fila(row: sqlite3.Row, columnas: set[str], hoy: dt.date) -> FilaMeliAds:
     )
 
 
-def _momento_utc(texto: object) -> dt.datetime | None:
+def _momento_utc(texto: object | bytes | bytearray | memoryview | None) -> dt.datetime | None:
     """Parsea un `updated_at` de SQLite como UTC (naive = UTC, el sync lo es).
 
     Rechaza cualquier fraccion de segundo: la fuente viva usa
@@ -313,7 +361,10 @@ def _momento_utc(texto: object) -> dt.datetime | None:
     """
     if texto is None:
         return None
-    valor = str(texto).strip()
+    try:
+        valor = _texto_origen(texto, "updated_at").strip()
+    except MeliAdsError:
+        return None
     if not valor or "." in valor:
         return None
     try:

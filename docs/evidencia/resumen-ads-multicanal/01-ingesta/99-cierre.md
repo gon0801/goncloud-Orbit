@@ -378,6 +378,41 @@ campana/día, como estaba declarado. Evidencia:
 `30-revision-0c48417-grok/hallazgos.md`, `rojo.txt`, `verde.txt`, `rojo-2.txt`,
 `verde-2.txt`, `recheck-2.txt`.
 
+## Décima revisión (corrección de los cuatro bloqueantes sobre `43b5cd27`)
+
+El veredicto sobre `43b5cd27` dejó cuatro bloqueantes funcionales. Se
+corrigieron sin migraciones y sin tocar la granularidad campaña/día.
+
+1. **Contenido canónico completo.** `_versiones_snapshot`,
+   `_observaciones_en_as_of`, `_coincide_con_ultimas`, `_SQL_ULTIMAS` y el
+   camino de duplicado futuro comparan moneda y todas las métricas, no solo
+   `source_version`. Una revisión constante ya no oculta un costo distinto.
+2. **Frontera del origen.** `ads_source` rechaza BLOB en `campaign_id`,
+   `campaign_name` y `revision`, y textos de más de 2048 bytes (el límite de
+   PostgreSQL es de bytes, no de caracteres). La fila rechazada se cuenta en
+   `ingest_run.rows_skipped` con `ok=false`, `finished_at` y cero escrituras.
+3. **Precisión monetaria.** `_dinero` de la ingesta y del conciliador tolera
+   solo el ruido binario del REAL (hasta 4 ulps); `1.000001` se rechaza en vez
+   de redondearse a `1.0000`.
+4. **Conciliación cerrada.** Una fecha vacía o ilegible falla; un control con
+   NULL entra a la ventana y falla (NULL no es inactividad); un duplicado en
+   `v_metric_latest` también falla.
+
+Evidencia: `30-revision-43b5cd27-correccion/` (`suite.txt`, `focales.txt`,
+`parent.txt`, `operativo.txt`, `perf-100k.txt`, `repros.txt`, `gates.txt`).
+
+- Focales: **257 passed**.
+- Suite completa con `ORBIT_TEST_DSN`: **5580 passed, 1 warning**.
+- Regresiones nuevas contra `43b5cd27`: **14 failed**.
+- Operativo real: **788 filas, 4 entidades**, reintento no-op y conciliación
+  **788/788 filas, 197/197 días**, `CONCILIACION OK`.
+- 100,000 filas: **6.301–6.457 s** en tres corridas.
+- Gates: ruff, formato, `pre-commit` y `git diff --check` verdes; las tres
+  copias del conciliador son byte-idénticas.
+
+Siguen pendientes los diez lanes live en VM, las capturas PNG y la regresión
+Amazon base/HEAD: no hay VM ni credenciales en este checkout.
+
 ## Archivos
 
 - `app/meli/ads_ingest.py` (nuevo): dueño de la persistencia, la política
@@ -399,13 +434,13 @@ campana/día, como estaba declarado. Evidencia:
 
 - Focales: **244 passed** (`tests/test_meli_ads_ingest.py` +
   `tests/test_cli.py` + `tests/test_conciliar_meli_ads.py` +
-  `tests/test_architecture.py`). Detalle:
+  `tests/test_architecture.py`) en la ronda `a305e7c`. Detalle:
   `30-revision-a305e7c/pruebas.txt`.
 - Regresión contra el padre: la ingesta no colecciona (`ModuleNotFoundError`)
   y el CLI falla por el comando/choice ausente. Detalle:
   `06-pruebas-regresion-parent.txt`.
-- Suite completa con `ORBIT_TEST_DSN`: **5567 passed, 0 failed**. Detalle en
-  `30-revision-0c48417-grok/suite.txt`.
+- Suite completa con `ORBIT_TEST_DSN`: **5567 passed, 0 failed** en la ronda
+  `0c48417`. Detalle en `30-revision-0c48417-grok/suite.txt`.
 
 ## Verificación operativa real
 
@@ -462,7 +497,10 @@ Gates del plan **no ejecutados** en este checkout, por infraestructura:
   capturas): no hay VM de revisión en este entorno. Los equivalentes CLI se
   ejecutaron y quedan en `30-revision-d1bdbe5f/` y `30-revision-78888f3e/`.
 
-El perf de `/` y el reinicio del servicio sí se ejecutaron en esta ronda.
-`ui-perf-http.txt` registra uvicorn real, 30 requests, base 31ba12a
-p95=4.86 ms, head p95=4.96 ms, reinicio head p95=4.70 ms, mismo payload de
-24,959 bytes. La regla de +10 % pasa.
+El perf de `/` y el reinicio del servicio sí se ejecutaron en la ronda
+`78888f3e`. `30-revision-78888f3e/ui-perf-http.txt` registra uvicorn real, 30
+requests, base `31ba12a` p95=4.86 ms, head p95=4.96 ms, reinicio head p95=4.70
+ms, mismo payload de 24,959 bytes. La regla de +10 % pasa. Las cifras de
+100,000 filas de la tabla anterior son de `d1bdbe5f`
+(`30-revision-d1bdbe5f/perf-100k.txt`); cada ronda posterior guarda su propio
+`perf-100k.txt`.

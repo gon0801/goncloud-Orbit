@@ -200,8 +200,14 @@ def test_dinero_no_redondea_en_silencio_ni_colapsa_versiones():
         _dinero("10000000000")
     with pytest.raises(MeliAdsError, match="cuantiza a cero"):
         _dinero("0.000001")
-    # Ruido binario acotado del REAL de SQLite: se acepta y se cuantiza.
-    assert _dinero("1.000001") == Decimal("1.0000")
+    # Precision decimal genuina de seis decimales: se rechaza, no se redondea.
+    with pytest.raises(MeliAdsError, match="4 decimales"):
+        _dinero("1.000001")
+    with pytest.raises(MeliAdsError, match="4 decimales"):
+        _dinero(1.000001)
+    # Ruido binario real del REAL de SQLite: se acepta y se cuantiza.
+    assert _dinero(0.1 + 0.2) == Decimal("0.3000")
+    assert _dinero(1.0000000000000002) == Decimal("1.0000")
     assert _dinero("0") == Decimal("0.0000")
     # Dos importes genuinamente distintos no colapsan en una version.
     assert _dinero("1.0001") != _dinero("1.0002")
@@ -1361,6 +1367,54 @@ def test_duplicado_futuro_sin_aceptacion_no_borra_el_piso_legado(pg, tmp_path):
     assert _conteos(pg)[1] == 1
 
 
+def test_duplicado_futuro_con_revision_no_oculta_costo(pg, tmp_path):
+    """El atajo de duplicado futuro no puede igualar solo `rev:`: un costo
+    distinto con la misma revision es contenido distinto y se rechaza."""
+    ahora = dt.datetime.now(dt.UTC).replace(microsecond=0)
+    futuro_asof = ahora + dt.timedelta(hours=1)
+    run_id = pg.execute(
+        "INSERT INTO ingest_run (source, ok, finished_at)"
+        " VALUES ('legacy', true, now()) RETURNING id"
+    ).fetchone()[0]
+    entidad = pg.execute(
+        "INSERT INTO ad_entity (platform, kind, external_id, name)"
+        " VALUES ('meli', 'campaign', 'C1', 'LEGACY') RETURNING id"
+    ).fetchone()[0]
+    pg.execute(
+        "INSERT INTO ads_metric_observation"
+        " (ad_entity_id, metric_date, observed_at, metric_currency, cost,"
+        "  ad_revenue, impressions, clicks, orders, source_report_id, ingest_run_id)"
+        " VALUES (%s, %s, %s, 'MXN', 10, 8, 2, 1, NULL, %s, %s)",
+        (
+            entidad,
+            D1,
+            ahora,
+            f"meli-ads|C1|{D1.isoformat()}|rev:r1|{int(futuro_asof.timestamp())}",
+            run_id,
+        ),
+    )
+
+    def snap(nombre: str, costo: float) -> Path:
+        ruta = _snapshot(
+            tmp_path / nombre,
+            [(D1.isoformat(), "C1", "LEGACY", 1, 2, costo, 8.0)],
+            as_of=futuro_asof.isoformat(),
+        )
+        con = sqlite3.connect(ruta)
+        con.execute("ALTER TABLE meli_ads_campaigns_daily ADD COLUMN revision TEXT")
+        con.execute("UPDATE meli_ads_campaigns_daily SET revision = 'r1'")
+        con.commit()
+        con.close()
+        return ruta
+
+    duplicado = ingest_meli_ads(_RelojFijo(pg, ahora), snap("futuro-rev-10.db", 10.0))
+    assert duplicado["rows_written"] == 0
+    with pytest.raises(MeliAdsError, match="mismo as_of"):
+        ingest_meli_ads(_RelojFijo(pg, ahora), snap("futuro-rev-99.db", 99.0))
+    assert _ultima(pg, "C1", D1)[0] == Decimal("10.0000")
+    assert _conteos(pg)[1] == 1
+
+
 def test_huella_incluye_metricas_aunque_exista_revision(pg, tmp_path):
     """La revision no reemplaza las metricas en la huella: mismo as_of con
     costo distinto es contenido distinto, no un reintento."""
@@ -1384,6 +1438,86 @@ def test_huella_incluye_metricas_aunque_exista_revision(pg, tmp_path):
         ingest_meli_ads(_RelojFijo(pg, ahora), snap("revision-9.db", 9.0))
     assert _ultima(pg, "C1", D1)[0] == Decimal("5.0000")
     assert _conteos(pg)[1] == 1
+
+
+def test_revision_constante_no_oculta_correccion_con_as_of_nuevo(pg, tmp_path):
+    """Misma revision con otro as_of y otro costo es una correccion, no una
+    recopia: la comparacion es el contenido canonico completo, no la version."""
+    ahora = dt.datetime.now(dt.UTC).replace(microsecond=0)
+
+    def snap(nombre: str, costo: float, as_of: dt.datetime) -> Path:
+        ruta = _snapshot(
+            tmp_path / nombre,
+            [(D1.isoformat(), "C1", "ALFA", 1, 2, costo, 8.0)],
+            as_of=as_of.isoformat(),
+        )
+        con = sqlite3.connect(ruta)
+        con.execute("ALTER TABLE meli_ads_campaigns_daily ADD COLUMN revision TEXT")
+        con.execute("UPDATE meli_ads_campaigns_daily SET revision = 'r1'")
+        con.commit()
+        con.close()
+        return ruta
+
+    primero = snap("revision-nueva-5.db", 5.0, ahora - dt.timedelta(hours=2))
+    correccion = snap("revision-nueva-9.db", 9.0, ahora - dt.timedelta(hours=1))
+    ingest_meli_ads(_RelojFijo(pg, ahora), primero)
+    resultado = ingest_meli_ads(_RelojFijo(pg, ahora), correccion)
+
+    assert resultado["rows_written"] == 1
+    assert _ultima(pg, "C1", D1)[0] == Decimal("9.0000")
+    assert _conteos(pg)[1] == 2
+
+
+@pytest.mark.parametrize(
+    ("campo", "valor"),
+    [
+        ("campaign_id", sqlite3.Binary(b"C1")),
+        ("campaign_name", sqlite3.Binary(b"ALFA")),
+        ("revision", sqlite3.Binary(b"r1")),
+        ("campaign_id", "C" * 3000),
+        ("campaign_name", "N" * 3000),
+        ("campaign_name", "\u00f1" * 1100),
+        ("revision", "r" * 3000),
+    ],
+    ids=[
+        "blob-id",
+        "blob-nombre",
+        "blob-revision",
+        "largo-id",
+        "largo-nombre",
+        "largo-nombre-utf8",
+        "largo-revision",
+    ],
+)
+def test_frontera_rechaza_blob_y_texto_oversize(pg, tmp_path, campo, valor):
+    """SQLite conserva el tipo: un BLOB no puede volverse `b'C1'` ni un texto
+    de mas de 2048 bytes llegar al indice btree de PostgreSQL."""
+    campana = valor if campo == "campaign_id" else "C1"
+    nombre = valor if campo == "campaign_name" else "ALFA"
+    snap = _snapshot(
+        tmp_path / f"frontera-{campo}.db",
+        [(D1.isoformat(), campana, nombre, 1, 2, 5.0, 8.0)],
+        as_of=AS_OF_INICIAL,
+    )
+    if campo == "revision":
+        con = sqlite3.connect(snap)
+        con.execute("ALTER TABLE meli_ads_campaigns_daily ADD COLUMN revision TEXT")
+        con.execute("UPDATE meli_ads_campaigns_daily SET revision = ?", (valor,))
+        con.commit()
+        con.close()
+
+    motivo = "BLOB" if isinstance(valor, memoryview) else "demasiado largo"
+    with pytest.raises(MeliAdsError, match=motivo):
+        ingest_meli_ads(pg, snap)
+
+    assert _conteos(pg) == (0, 0)
+    run = pg.execute(
+        "SELECT ok, rows_written, rows_skipped, skip_reason, finished_at"
+        " FROM ingest_run ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    assert run[0] is False and run[1] == 0 and run[2] == 1
+    assert run[4] is not None
+    assert campo in run[3] and motivo in run[3]
 
 
 def test_huella_no_colisiona_con_separadores_de_campo(pg, tmp_path):
