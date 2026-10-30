@@ -18,7 +18,7 @@ valer para todos va aquí también.
 - **Responde siempre en español**; directo al grano, sin relleno.
 - **Código limpio y listo para usar**: completo (sin `...`), escrito a archivos con las herramientas.
 - Entiende antes de cambiar; prefiere patrones existentes; cambios mínimos; nunca inventes APIs/credenciales.
-- Verifica con las pruebas y `pre-commit` (gitleaks); jamás `--no-verify`.
+- Verifica el comportamiento pedido y `pre-commit` (gitleaks); jamás `--no-verify`.
 
 ## Stack
 
@@ -46,12 +46,12 @@ plans/        # manifest.json marca el plan ORBIT NN activo (sigue sus tasks y D
 
 ```bash
 uv sync                                   # deps (uv; venv en .venv/)
-uv run --frozen python -m pytest -q       # suite (CI: python -m pytest -q -x); test en vivo skipea sin ORBIT_TEST_DSN
+uv run --frozen python -m pytest -q       # suite disponible; no es obligatoria por bloque
 ruff check --fix . && ruff format .       # lint/format (line-length 100)
-pre-commit run --all-files                # gitleaks y conflictos; CI (gate: gitleaks, compileall, pytest): .github/workflows/quality.yml
+pre-commit run --all-files                # gitleaks y conflictos
 ```
 Windows: el venv es `.venv/Scripts/python.exe`; sin Postgres local, lo PG-backed
-se skipea por diseno (corre en CI). Si un push se cuelga, es credencial:
+se skipea por diseno. Si un push se cuelga, es credencial:
 `gh auth setup-git`.
 
 ## Reglas de diseño innegociables
@@ -65,8 +65,8 @@ Aplican a todo el código (detalle en `docs/CONTEXTO.md`; los invariantes de tie
 5. Métricas **append-only** `(entidad, metric_date, observed_at)`; corregir = insertar fila nueva.
 6. Cortar/pausar exige dato con ≥10 días de maduración; el día en curso se descarta.
 7. Ninguna acción irreversible sin su reversa implementada antes.
-8. Antes del test de un invariante, correr el `SELECT` que confirma el dato real en producción.
-9. Toda prueba de regresión se demuestra **fallando** contra el código anterior.
+8. Antes de definir un invariante que dependa del dato real, correr el `SELECT` que lo confirma en producción.
+9. Una regresión de dinero, escritura productiva o falla de producción se demuestra **fallando** contra el código anterior.
 10. Conciliar contra la fuente externa, no contra la propia consistencia.
 
 ## Convenciones de código
@@ -78,7 +78,7 @@ Aplican a todo el código (detalle en `docs/CONTEXTO.md`; los invariantes de tie
   `/sp/targets/bid/recommendations` de lectura); API exacta: `get`, `list_objects`,
   `recommend_bids`, `create_report`, `get_report`, `download`.
 - Base: roles LOGIN por servicio (`orbit_ingest`/`_decide`/`_read`/`_admin`); invariante nuevo del esquema = con su test; ADRs en `COMMENT ON` y docstrings.
-- Trabajo en planes `ORBIT NN` (PR a `master` con CI verde por fase).
+- Trabajo en planes `ORBIT NN` (PR a `master` con verificación proporcional al riesgo).
 
 ## Pruebas y revisiones
 - Pruebas nuevas SOLO en 4 casos: dinero (pujas, precios, presupuestos, cobros), escribir datos de produccion
