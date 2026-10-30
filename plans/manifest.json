@@ -184,6 +184,11 @@
       "name": "sp-api-02",
       "path": "plans/sp-api-02.md",
       "description": "SP-API 02 — el cliente SP-API aguanta el 429 (hasta 5 reintentos, espera acotada a 120 s), la corrida nocturna repite una vez lo que falló (antes de las 06:15 UTC) y avisa al recuperarse. Cerrado el 2026-10-22: desplegado en f273213; la primera corrida nocturna con el código nuevo es la del 2026-10-23."
+    },
+    {
+      "name": "resumen-ads-multicanal",
+      "path": "plans/resumen-ads-multicanal.md",
+      "description": "RESUMEN ADS — ingesta MeLi, contrato multicanal y Resumen con periodos, comparación y tendencias para Amazon MX, Amazon US y Mercado Libre."
     }
   ],
   "active": "fabrica-01"

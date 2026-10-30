@@ -385,6 +385,9 @@ def _compara_ventana(
                 f" origen={dias_control[fecha]} orbit={orbit_dias[fecha]}"
             )
 
+    if not origen_ventana and not orbit_ventana and not dias_control:
+        errores.append("ventana sin datos comparables en origen ni Orbit")
+
     print(f"filas origen: {len(origen)}")
     print(f"filas Orbit:  {len(orbit)}")
     print(f"faltantes en Orbit: {faltantes[:10]}")

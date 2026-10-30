@@ -703,6 +703,23 @@ def test_control_t0_en_ceros_tambien_se_reporta(monkeypatch, tmp_path, capsys):
     assert "CONCILIACION OK" in salida
 
 
+def test_ventana_vacia_falla(monkeypatch, tmp_path, capsys):
+    """Una ventana sin datos no demuestra conciliacion."""
+    codigo, salida = _corre(
+        monkeypatch,
+        tmp_path,
+        [],
+        [],
+        [],
+        capsys,
+        desde="2026-10-01",
+        hasta="2026-10-02",
+    )
+    assert codigo != 0
+    assert "ventana sin datos comparables en origen ni Orbit" in salida
+    assert "CONCILIACION OK" not in salida
+
+
 def test_dsn_por_entorno_y_redactado(monkeypatch, tmp_path, capsys):
     """El DSN no se pasa por argv y los errores de conexion se redactan."""
     modulo = _carga_script()
