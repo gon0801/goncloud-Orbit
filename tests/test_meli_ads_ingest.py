@@ -439,14 +439,16 @@ def pg():
 
 
 def test_pg_guard_falla_cerrado_en_ci_sin_postgres(monkeypatch):
-    """CI=true, sin ORBIT_TEST_DSN y sin Postgres utilizable: RuntimeError,
-    no un skip que se lea como cobertura (el guard es el mismo contrato de
-    `_postgres_obligatorio_ausente`)."""
+    """El fixture real no puede convertir un CI mal configurado en skip."""
     monkeypatch.setenv("CI", "true")
     monkeypatch.delenv("ORBIT_TEST_DSN", raising=False)
     monkeypatch.setattr("test_schema._hay_postgres_local", lambda: False)
-    with pytest.raises(RuntimeError, match="CI"):
-        _pg_o_skip()
+    monkeypatch.setattr("test_meli_ads_ingest._hay_postgres_local", lambda: False, raising=False)
+    monkeypatch.setattr("test_meli_ads_ingest._DSN_EXPLICITO", False, raising=False)
+    with pytest.raises(BaseException) as exc:
+        next(pg.__wrapped__())
+    assert type(exc.value) is RuntimeError
+    assert "CI" in str(exc.value)
 
 
 def _corrige(

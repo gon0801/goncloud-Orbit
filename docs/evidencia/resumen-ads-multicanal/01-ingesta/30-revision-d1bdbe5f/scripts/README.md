@@ -1,7 +1,7 @@
 # Scripts de la revisión
 
 Se versionan los scripts que produjeron la evidencia. No llevan credenciales:
-el DSN sale de `_test_dsn()` o se pasa como argumento.
+el DSN sale de `_test_dsn()` o de `CONCILIAR_DSN`, según el script.
 
 ## Reproducciones del revisor
 

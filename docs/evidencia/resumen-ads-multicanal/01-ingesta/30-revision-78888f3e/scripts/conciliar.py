@@ -283,7 +283,7 @@ def _agrega_dias(orbit: dict) -> dict:
     }
 
 
-def compara(
+def _compara_ventana(
     origen: dict,
     dias: dict,
     orbit: dict,
@@ -309,30 +309,9 @@ def compara(
         else:
             errores.append(f"campana/dia fuera de la ventana declarada {clave}: {valores}")
 
-    hoy_txt = dt.datetime.now(dt.UTC).date().isoformat()
-    t0_excluidos = 0
     for fecha, valores in sorted(dias.items()):
-        if fecha <= hasta_txt or not _comparable(valores):
-            # En ventana lo decide el cruce de abajo; un cero redondo fuera
-            # de ventana es inactividad, no un hueco.
-            continue
-        if any(valor is None for valor in valores):
-            # Un NULL no es inactividad ni T+0: el dia no se puede probar y
-            # falla cerrado, aunque sea el dia de hoy.
+        if fecha > hasta_txt and _comparable(valores):
             errores.append(f"control diario fuera de la ventana declarada {fecha}: {valores}")
-        elif fecha == hoy_txt:
-            # T+0: accounting ya publico el total de HOY pero el desglose de
-            # campanas de hoy no existe todavia. Excluible SOLO si la ventana
-            # cerrada termina antes de hoy (llegar aqui ya lo garantiza);
-            # con --hasta incluyendo a HOY el control de hoy queda DENTRO de
-            # la ventana y el FALTA de abajo sigue disparando.
-            t0_excluidos += 1
-        else:
-            errores.append(f"control diario fuera de la ventana declarada {fecha}: {valores}")
-    if t0_excluidos:
-        print(
-            f"control T+0 excluido: {t0_excluidos} dia(s) de HOY sin desglose de campanas todavia"
-        )
     historia = sum(
         1 for fecha, valores in dias.items() if fecha < desde_txt and _comparable(valores)
     )
@@ -422,6 +401,40 @@ def compara(
         f" diferencias: {dias_diferentes}"
     )
     return errores
+
+
+def compara(
+    origen: dict,
+    dias: dict,
+    orbit: dict,
+    desde: dt.date,
+    hasta: dt.date,
+) -> list[str]:
+    """Concilia la ventana cerrada y valida T+0 de forma simetrica."""
+    hoy = dt.datetime.now(dt.UTC).date()
+    if hasta >= hoy:
+        return _compara_ventana(origen, dias, orbit, desde, hasta)
+
+    hoy_txt = hoy.isoformat()
+    origen_t0 = {clave: valores for clave, valores in origen.items() if clave[1] == hoy_txt}
+    orbit_t0 = {clave: valores for clave, valores in orbit.items() if clave[1] == hoy_txt}
+    dias_t0 = {fecha: valores for fecha, valores in dias.items() if fecha == hoy_txt}
+    origen_cerrado = {clave: valores for clave, valores in origen.items() if clave[1] != hoy_txt}
+    orbit_cerrado = {clave: valores for clave, valores in orbit.items() if clave[1] != hoy_txt}
+    dias_cerrados = {fecha: valores for fecha, valores in dias.items() if fecha != hoy_txt}
+    errores = _compara_ventana(origen_cerrado, dias_cerrados, orbit_cerrado, desde, hasta)
+
+    if origen_t0 or orbit_t0:
+        print("T+0 con desglose: conciliando campanas y control de HOY")
+        return errores + _compara_ventana(origen_t0, dias_t0, orbit_t0, hoy, hoy)
+
+    errores_t0: list[str] = []
+    for fecha, valores in sorted(dias_t0.items()):
+        if any(valor is None for valor in valores):
+            errores_t0.append(f"NULL no conciliable en el control T+0 {fecha}: {valores}")
+    if dias_t0 and not errores_t0:
+        print("control T+0 excluido: 1 dia de HOY sin desglose de campanas en origen ni Orbit")
+    return errores + errores_t0
 
 
 def main(argv: list[str] | None = None) -> int:

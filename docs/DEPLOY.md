@@ -398,7 +398,21 @@ docker exec -u 0 orbit-app-1 chmod 644 "$SNAP"
 # 3) DSN: el del contenedor. app/db.py reescribe @127.0.0.1: -> @db: con
 #    ORBIT_PG_HOST=db. NO se expande el DSN como argumento de docker exec.
 docker exec orbit-app-1 python -m app.cli ingest meli-ads --sqlite "$SNAP"
-# 4) limpieza por trap (host y contenedor), incluidos -wal y -shm.
+# 4) conservar la ruta para copiar el MISMO snapshot a la máquina del lead.
+printf 'SNAP_REMOTO=%s\n' "$SNAP"
+# 5) limpieza por trap (host y contenedor), incluidos -wal y -shm.
+```
+
+Antes de cerrar la sesión remota, copiar el snapshot a una terminal de la
+máquina del lead. Usar la ruta impresa por el paso anterior. No crear otro
+snapshot para la conciliación.
+
+```bash
+SNAP_REMOTO=/tmp/accounting-snapshot.REEMPLAZAR.db
+SNAPSHOT_LOCAL=$(mktemp /tmp/accounting-snapshot.XXXXXXXX.db)
+scp "goncloud:$SNAP_REMOTO" "$SNAPSHOT_LOCAL"
+chmod 600 "$SNAPSHOT_LOCAL"
+unset SNAP_REMOTO
 ```
 
 ### Contrato comprobado (2026-10-29, solo lectura)
@@ -543,9 +557,20 @@ Por qué 08:15 UTC alcanza (medido, no supuesto):
    snapshot); `HASTA` es el último día conciliable: la ventana **cierra en
    AYER**, porque el desglose de campañas del día en curso todavía no existe.
 
+   Abrir el túnel en una terminal de la máquina del lead. Ejecutar la carga del
+   DSN y la conciliación en otra. El DSN remoto se captura sin imprimirlo y se
+   reescribe al puerto local del túnel, nunca por `argv`.
+
    ```bash
-   SNAPSHOT_LOCAL=/ruta/al/snapshot.db
-   export CONCILIAR_DSN="$ORBIT_DSN_READ"   # o postgresql://.../orbit_conciliacion
+   # Terminal A: dejar este proceso abierto durante la conciliación.
+   ssh -N -L 5433:127.0.0.1:5432 goncloud
+
+   # Terminal B: el snapshot ya fue copiado por el procedimiento anterior.
+   test -f "$SNAPSHOT_LOCAL"
+   DSN_REMOTO=$(ssh goncloud 'docker exec orbit-app-1 printenv ORBIT_DSN_READ')
+   export CONCILIAR_DSN="$(DSN_REMOTO="$DSN_REMOTO" python3 -c 'import os; from urllib.parse import urlsplit, urlunsplit; p=urlsplit(os.environ["DSN_REMOTO"]); partes=p.netloc.rsplit("@", 1); auth=partes[0]+"@" if len(partes)==2 else ""; print(urlunsplit((p.scheme, auth+"127.0.0.1:5433", p.path, p.query, p.fragment)))')"
+   unset DSN_REMOTO
+   test -n "$CONCILIAR_DSN"
    DESDE=2026-04-16
    # Portable GNU/BSD (precedente: repricing-02 desplegar.sh): el bloque corre
    # en la máquina del lead (macOS), donde `date -d` de GNU no existe.
@@ -554,16 +579,18 @@ Por qué 08:15 UTC alcanza (medido, no supuesto):
      docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-10266d91/scripts/conciliar.py \
      "$SNAPSHOT_LOCAL" --desde "$DESDE" --hasta "$HASTA"
    # Solo continuar si imprime CONCILIACION OK y sale 0.
+   unset CONCILIAR_DSN
    ```
 
-   La actividad del control anterior a `DESDE` se excluye y se reporta; la
-   posterior a `HASTA`, una campaña fuera de la ventana, un NULL (aunque
-   coincida en origen, control y Orbit) o un error de conexión hacen fallar
-   la conciliación. Única excepción: el **control diario de HOY** posterior a
-   `HASTA` se excluye como T+0 (accounting ya publicó el total, el desglose
-   de campañas de hoy aún no existe) y se reporta con cuántos días se
-   excluyeron; un NULL de HOY sigue fallando, y si `HASTA` incluye a HOY el
-   control de hoy no tiene exención. Los errores de conexión se redactan con
+   Al terminar, cerrar el túnel con Ctrl-C y borrar `$SNAPSHOT_LOCAL` con sus
+   posibles archivos `-wal` y `-shm`.
+
+   La actividad del control anterior a `DESDE` se excluye y se reporta. Una
+   campaña histórica o futura fuera de la ventana, un NULL o un error de
+   conexión hacen fallar la conciliación. Si origen y Orbit traen desglose de
+   HOY, ese desglose y su control diario también se concilian. Si ninguno trae
+   campañas de HOY, el control T+0 se excluye y se reporta, incluso cuando
+   está en ceros. Los errores de conexión se redactan con
    `app.redaction.scrub`.
 
 4. Solo después de que la carga y la conciliación pasen, transferir el script

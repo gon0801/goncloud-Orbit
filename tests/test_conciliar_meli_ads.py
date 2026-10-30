@@ -580,22 +580,21 @@ def test_control_t0_con_null_sigue_fallando(monkeypatch, tmp_path, capsys):
         hasta=ayer.isoformat(),
     )
     assert codigo != 0
-    assert f"control diario fuera de la ventana declarada {hoy.isoformat()}" in salida
+    assert f"NULL no conciliable en el control T+0 {hoy.isoformat()}" in salida
     assert "CONCILIACION OK" not in salida
 
 
-def test_campana_de_hoy_fuera_de_la_ventana_sigue_fallando(monkeypatch, tmp_path, capsys):
-    """La exencion T+0 es del CONTROL, nunca de las campanas: una campana de
-    HOY con ventana cerrada en AYER sigue fallando."""
+def test_campana_t0_ausente_en_orbit_falla(monkeypatch, tmp_path, capsys):
+    """Una campana T+0 presente en origen pero ausente en Orbit no se excluye."""
     ayer = dt.datetime.now(dt.UTC).date() - dt.timedelta(days=1)
     hoy = ayer + dt.timedelta(days=1)
     campanas = [
         ("C1", ayer.isoformat(), 1.0, 2.0, 3, 4),
-        ("C2", hoy.isoformat(), 1.0, 2.0, 3, 4),
+        ("C2", hoy.isoformat(), 5.0, 9.0, 8, 9),
     ]
     dias = [
         (ayer.isoformat(), 4, 3, 1.0, 2.0),
-        (hoy.isoformat(), 13, 11, 501.0, 902.0),
+        (hoy.isoformat(), 9, 8, 5.0, 9.0),
     ]
     orbit = [("C1", ayer, Decimal("1.0000"), Decimal("2.0000"), 3, 4, "MXN")]
 
@@ -610,8 +609,98 @@ def test_campana_de_hoy_fuera_de_la_ventana_sigue_fallando(monkeypatch, tmp_path
         hasta=ayer.isoformat(),
     )
     assert codigo != 0
-    assert "campana/dia fuera de la ventana declarada" in salida
+    assert f"FALTA en Orbit ('C2', '{hoy.isoformat()}')" in salida
     assert "CONCILIACION OK" not in salida
+
+
+def test_campana_t0_coincidente_se_concilia(monkeypatch, tmp_path, capsys):
+    """El desglose T+0 parcial se valida igual en origen y Orbit."""
+    ayer = dt.datetime.now(dt.UTC).date() - dt.timedelta(days=1)
+    hoy = ayer + dt.timedelta(days=1)
+    campanas = [
+        ("C1", ayer.isoformat(), 1.0, 2.0, 3, 4),
+        ("C2", hoy.isoformat(), 5.0, 9.0, 8, 9),
+    ]
+    dias = [
+        (ayer.isoformat(), 4, 3, 1.0, 2.0),
+        (hoy.isoformat(), 9, 8, 5.0, 9.0),
+    ]
+    orbit = [
+        ("C1", ayer, Decimal("1.0000"), Decimal("2.0000"), 3, 4, "MXN"),
+        ("C2", hoy, Decimal("5.0000"), Decimal("9.0000"), 8, 9, "MXN"),
+    ]
+
+    codigo, salida = _corre(
+        monkeypatch,
+        tmp_path,
+        campanas,
+        dias,
+        orbit,
+        capsys,
+        desde=ayer.isoformat(),
+        hasta=ayer.isoformat(),
+    )
+    assert codigo == 0
+    assert "T+0 con desglose" in salida
+    assert "CONCILIACION OK" in salida
+
+
+def test_campana_t0_diferente_falla(monkeypatch, tmp_path, capsys):
+    """La exencion cerrada no esconde diferencias dentro de T+0."""
+    ayer = dt.datetime.now(dt.UTC).date() - dt.timedelta(days=1)
+    hoy = ayer + dt.timedelta(days=1)
+    campanas = [
+        ("C1", ayer.isoformat(), 1.0, 2.0, 3, 4),
+        ("C2", hoy.isoformat(), 5.0, 9.0, 8, 9),
+    ]
+    dias = [
+        (ayer.isoformat(), 4, 3, 1.0, 2.0),
+        (hoy.isoformat(), 9, 8, 5.0, 9.0),
+    ]
+    orbit = [
+        ("C1", ayer, Decimal("1.0000"), Decimal("2.0000"), 3, 4, "MXN"),
+        ("C2", hoy, Decimal("6.0000"), Decimal("9.0000"), 8, 9, "MXN"),
+    ]
+
+    codigo, salida = _corre(
+        monkeypatch,
+        tmp_path,
+        campanas,
+        dias,
+        orbit,
+        capsys,
+        desde=ayer.isoformat(),
+        hasta=ayer.isoformat(),
+    )
+    assert codigo != 0
+    assert "DIFIERE" in salida
+    assert "CONCILIACION OK" not in salida
+
+
+def test_control_t0_en_ceros_tambien_se_reporta(monkeypatch, tmp_path, capsys):
+    """Un control T+0 en ceros tambien informa su exclusion."""
+    ayer = dt.datetime.now(dt.UTC).date() - dt.timedelta(days=1)
+    hoy = ayer + dt.timedelta(days=1)
+    campanas = [("C1", ayer.isoformat(), 1.0, 2.0, 3, 4)]
+    dias = [
+        (ayer.isoformat(), 4, 3, 1.0, 2.0),
+        (hoy.isoformat(), 0, 0, 0.0, 0.0),
+    ]
+    orbit = [("C1", ayer, Decimal("1.0000"), Decimal("2.0000"), 3, 4, "MXN")]
+
+    codigo, salida = _corre(
+        monkeypatch,
+        tmp_path,
+        campanas,
+        dias,
+        orbit,
+        capsys,
+        desde=ayer.isoformat(),
+        hasta=ayer.isoformat(),
+    )
+    assert codigo == 0
+    assert "control T+0 excluido" in salida
+    assert "CONCILIACION OK" in salida
 
 
 def test_dsn_por_entorno_y_redactado(monkeypatch, tmp_path, capsys):
