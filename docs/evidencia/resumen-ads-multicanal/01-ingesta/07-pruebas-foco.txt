@@ -1,0 +1,40 @@
+== Pruebas focales de RESUMEN-ADS-01 (head corregido, 3a revision) ==
+Comando: uv run --frozen python -m pytest -q tests/test_meli_ads_ingest.py tests/test_cli.py
+
+........................................................................ [ 82%]
+...............                                                          [100%]
+87 passed in 2.04s
+
+Comando: uv run --frozen python -m pytest -v tests/test_meli_ads_ingest.py
+cachedir: .pytest_cache
+rootdir: /Users/dn/dev/goncloud-Orbit
+configfile: pyproject.toml
+plugins: anyio-4.14.2
+collecting ... collected 24 items
+
+tests/test_meli_ads_ingest.py::test_version_canonica_ignora_nombre_y_detecta_metricas PASSED [  4%]
+tests/test_meli_ads_ingest.py::test_leer_filas_usa_revision_del_origen PASSED [  8%]
+tests/test_meli_ads_ingest.py::test_leer_filas_conserva_cero_real_y_dato_faltante PASSED [ 12%]
+tests/test_meli_ads_ingest.py::test_leer_filas_rechaza_moneda_fuera_de_dominio PASSED [ 16%]
+tests/test_meli_ads_ingest.py::test_leer_filas_rechaza_identidad_ausente PASSED [ 20%]
+tests/test_meli_ads_ingest.py::test_leer_filas_rechaza_fecha_futura PASSED [ 25%]
+tests/test_meli_ads_ingest.py::test_snapshot_sin_tabla_de_origen PASSED  [ 29%]
+tests/test_meli_ads_ingest.py::test_nombres_vigentes_usa_el_nombre_mas_reciente PASSED [ 33%]
+tests/test_meli_ads_ingest.py::test_main_sin_dsn_falla_cerrado PASSED    [ 37%]
+tests/test_meli_ads_ingest.py::test_main_sin_snapshot_falla_cerrado PASSED [ 41%]
+tests/test_meli_ads_ingest.py::test_main_exige_flag_sqlite PASSED        [ 45%]
+tests/test_meli_ads_ingest.py::test_ingesta_escribe_entidades_y_observaciones PASSED [ 50%]
+tests/test_meli_ads_ingest.py::test_reintento_del_mismo_snapshot_no_duplica PASSED [ 54%]
+tests/test_meli_ads_ingest.py::test_snapshot_atrasado_no_reemplaza_la_correccion_vigente PASSED [ 58%]
+tests/test_meli_ads_ingest.py::test_snapshot_con_el_mismo_as_of_no_reemplaza PASSED [ 62%]
+tests/test_meli_ads_ingest.py::test_recopia_con_as_of_nuevo_y_mismo_contenido_no_agrega PASSED [ 66%]
+tests/test_meli_ads_ingest.py::test_snapshot_atrasado_no_restaura_nombre PASSED [ 70%]
+tests/test_meli_ads_ingest.py::test_mismo_as_of_no_restaura_nombre PASSED [ 75%]
+tests/test_meli_ads_ingest.py::test_concurrencia_observed_at_se_toma_bajo_el_candado PASSED [ 79%]
+tests/test_meli_ads_ingest.py::test_recopia_deduplicada_avanza_la_marca_y_bloquea_el_snapshot_anterior PASSED [ 83%]
+tests/test_meli_ads_ingest.py::test_correccion_agrega_observacion_y_v_metric_latest_la_expone PASSED [ 87%]
+tests/test_meli_ads_ingest.py::test_renombre_actualiza_catalogo_sin_observacion PASSED [ 91%]
+tests/test_meli_ads_ingest.py::test_moneda_invalida_aborta_y_sella_ok_false PASSED [ 95%]
+tests/test_meli_ads_ingest.py::test_identidad_invalida_no_deja_escrituras_parciales PASSED [100%]
+
+============================== 24 passed in 1.57s ==============================

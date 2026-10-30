@@ -1,8 +1,10 @@
 #!/bin/bash
-# Refresco diario de costos + FX + ledger (ORBIT 06 0.1 + 2.2).
-# Runbook: docs/DEPLOY.md "Ingesta de costos/FX/ledger desde contabilidad".
+# Refresco diario de costos + FX + ledger + MeLi Ads (ORBIT 06 0.1 + 2.2 +
+# RESUMEN-ADS-01).
+# Runbook: docs/DEPLOY.md "Ingesta de costos/FX/ledger desde contabilidad" y
+# "Ingesta de métricas de Mercado Libre Ads".
 #
-# Los tres pipelines leen el MISMO snapshot SQLite de accounting (spec D4:
+# Los pipelines leen el MISMO snapshot SQLite de accounting (spec D4:
 # un snapshot por corrida, API .backup() consistente con WAL).
 #
 # Review PR #144 (CodeRabbit, 2 Major):
@@ -11,7 +13,7 @@
 #   manual y la del cron se pisaban: el `docker cp` de una reemplazaba el
 #   archivo que la otra estaba leyendo, y su `trap` lo borraba a media
 #   corrida. Dos corridas simultaneas ahora son inocuas: cada una con su
-#   archivo, y los tres pipelines son idempotentes (dedupe por PK/indice:
+#   archivo, y los pipelines son idempotentes (dedupe por PK/indice:
 #   verificado, `rows_written=0` al re-correr).
 # - El archivo del HOST nace 600 (`mktemp`): los datos contables no quedan
 #   legibles para todo el mundo en /tmp. El 644 que necesita el UID 10001 de
@@ -26,7 +28,7 @@
 # `sync_ads_to_ledger.py` (:30 cada 6 h -> 06:30) Y `sync_fx_rates.py`
 # (08:00). A las 07:30 el snapshot se tomaba 30 min ANTES del sync de FX,
 # asi que el FX de Orbit quedaba siempre un dia atrasado. 08:15 deja 25 min
-# antes de los ciclos 08:40/08:41 y los tres pipelines tardan segundos.
+# antes de los ciclos 08:40/08:41 y los pipelines tardan segundos.
 #
 # Un pipeline caido NO tumba a los otros: cada uno sella su propio
 # ingest_run ok/false y el script sigue con el siguiente; el exit final es
@@ -47,14 +49,14 @@ limpiar() {
   docker exec -u 0 orbit-app-1 rm -f "$SNAP" "$SNAP-wal" "$SNAP-shm" 2>/dev/null || true
 }
 trap limpiar EXIT
-# 1) snapshot compartido por los tres pipelines (host, stdlib, no toca la
+# 1) snapshot compartido por los pipelines (host, stdlib, no toca la
 # original; el archivo ya existe vacio por mktemp y .backup() lo llena).
 python3 -c "import sqlite3; src=sqlite3.connect(\"file:/mnt/data/appdata/accounting/data/accounting.db?mode=ro\", uri=True); dst=sqlite3.connect(\"$SNAP\"); src.backup(dst); dst.close(); src.close()"
 docker cp "$SNAP" orbit-app-1:"$SNAP"
 # El 644 va DENTRO del contenedor (lo necesita el UID 10001 de la app);
 # en el host el archivo se queda 600 (mktemp).
 docker exec -u 0 orbit-app-1 chmod 644 "$SNAP"
-# 2) los tres pipelines, aislados entre si. Sin rewrite de DSN:
+# 2) los pipelines, aislados entre si. Sin rewrite de DSN:
 # app/db.py ya reescribe @127.0.0.1: -> @db: con ORBIT_PG_HOST (D-2.2.2).
 corre() {
   local sal
@@ -69,4 +71,8 @@ rc=0
 corre costs costos.log || rc=1
 corre fx fx.log || rc=1
 corre ledger ledger.log || rc=1
+# RESUMEN-ADS-01: campana/dia de MeLi Ads del MISMO snapshot. Va al final y
+# por su propio `corre`: un fallo suyo no toca los tres pipelines de arriba
+# (cada uno sella su ingest_run; el exit final sigue siendo != 0).
+corre meli-ads meli_ads.log || rc=1
 exit $rc

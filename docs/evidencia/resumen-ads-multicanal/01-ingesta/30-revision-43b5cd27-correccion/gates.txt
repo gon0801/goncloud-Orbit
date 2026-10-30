@@ -1,0 +1,16 @@
+== ruff format --check ==
+5 files already formatted
+rc=0
+== ruff check ==
+All checks passed!
+rc=0
+== pre-commit ==
+Detect hardcoded secrets.................................................Passed
+check for merge conflicts................................................Passed
+rc=0
+== git diff --check ==
+rc=0
+== conciliar copies ==
+MD5 (docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-10266d91/scripts/conciliar.py) = 0bb1eec488fb09d361828d16dfbbc6f5
+MD5 (docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-78888f3e/scripts/conciliar.py) = 0bb1eec488fb09d361828d16dfbbc6f5
+MD5 (docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-d1bdbe5f/scripts/conciliar.py) = 0bb1eec488fb09d361828d16dfbbc6f5

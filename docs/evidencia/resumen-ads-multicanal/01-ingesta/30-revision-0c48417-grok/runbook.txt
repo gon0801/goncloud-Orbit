@@ -1,0 +1,15 @@
+== Patron nuevo con archivo no vacio pero sin la linea de MeLi ==
+test_s_rc=0
+script_rc=1
+== Retry del bloque con mktemp terminado en XXXXXX y trap ==
+-- zsh, primera corrida sin la linea --
+primer_rc=1
+-- zsh, segunda corrida con la linea --
+segundo_ok=YES
+segundo_rc=0
+-- bash, primera corrida sin la linea --
+primer_rc=1
+-- bash, segunda corrida con la linea --
+segundo_ok=YES
+segundo_rc=0
+restos=0

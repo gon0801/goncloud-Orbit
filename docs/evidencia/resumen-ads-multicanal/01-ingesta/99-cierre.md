@@ -1,0 +1,548 @@
+# RESUMEN-ADS-01 — Cierre de fase (listo para revisión de Limi 3.1)
+
+Fecha: 2026-10-29. Rama: `resumen-ads-01-ingesta-meli`.
+Base: `31ba12a16f12b90e2f7ea6e86a0ff102f3b8465f` (master al iniciar).
+Commit de implementación: `79da5251b59051cc340b054ad010c1da10fbeec2`.
+Corrección del bloqueante de revisión: `f11e2434f432f231892dc1bc20d4352640dc901b`.
+Segunda revisión (concurrencia y nombre): `f55600e7c49b858b8417bba4f740ee68264d1e60`.
+Tercera revisión (marca de as-of en recopias): `47f83e72a7419dc7e27b6f2a570804330239dce1`.
+Corrección integral de la revisión `d1bdbe5f`: `3bc16534f9aa57c9e0fe7c27cb946b135ec37dde`.
+Corrección del veredicto `78888f3e`: `1875a954737b706d581663834da6544f5873a2e7`.
+Corrección del veredicto `10266d91`: `28eea61b54502e7c8428072f78c88ca754189da5`.
+
+## Alcance entregado
+
+Ingesta de solo lectura de Mercado Libre Ads desde el snapshot de contabilidad
+hacia `ad_entity` (`kind='campaign'`) y `ads_metric_observation`, sin migración
+y sin tocar API, UI, Shopify, bids, pausas, precios, accounting ni bridge.
+No se inició RESUMEN-ADS-02.
+
+## Puerta de fuente (detuvo y se reportó)
+
+`meli_ads_metrics_daily` (la tabla que nombraba el plan) es total del
+advertiser por día (PK `date`): no tiene campaña. La tabla hermana
+`meli_ads_campaigns_daily`, escrita por el mismo `sync_meli_ads.py` en el
+mismo snapshot, sí es campaña/día (PK `(date, campaign_id)`), con 4
+`campaign_id` estables y 196 días contiguos. Se reportó al operador y se
+autorizó explícitamente leer la tabla hermana el 2026-10-29. Evidencia y
+consultas: `00-puerta-fuente.md`, `01-fuente-esquema.txt`,
+`02-fuente-campanas-perfil.txt`, `03-fuente-correcciones-y-sync.txt`.
+
+## Contrato comprobado
+
+- Grano campaña/día; 4 campañas, 784 filas, 2026-04-16..2026-10-28.
+- Moneda MXN (site MLM, cargos de ads MXN, trigger `meli→MXN`).
+- `spend` = costo de ads; `ad_sales` = revenue atribuido. `orders` no existe
+  en el origen: NULL. No se derivan del ledger ni de ventas totales.
+- Ceros reales conservados; NULL conservado; día ausente = hueco.
+- Sin revisión en el origen y `updated_at` se reescribe cada 2 h: la versión
+  es el hash canónico (sin nombre). `source_report_id` =
+  `meli-ads|<campaign_id>|<fecha>|<version>|<as_of_epoch>`.
+- Corrección in-place comprobada contra un backup de 2026-08-21 (3 filas
+  corregidas de 512 comparables).
+- Sin madurez D-8 para MeLi; se ingesta T+0 parcial.
+
+## Corrección del bloqueante de la revisión (Limi 3.1)
+
+Revisión: un snapshot viejo ingerido después de una corrección recibía un
+`observed_at` posterior y `v_metric_latest` mostraba el valor viejo. Corregido
+con una política de orden por el as-of del origen:
+
+- `as_of` = `max(updated_at)` del snapshot (UTC). `updated_at` no es la
+  versión (cambia en cada sync), pero sí es la marca de cuándo escribió el
+  origen.
+- `source_report_id` =
+  `meli-ads|<campaign_id>|<fecha>|<version>|<as_of_epoch>`.
+- Una observación nueva solo se acepta si su as-of es **estrictamente
+  posterior** al as-of de la observación vigente de esa campaña/fecha. Un
+  snapshot atrasado, o uno con el mismo as-of y contenido distinto, se rechaza
+  completo con `ok=false`: no escribe, no toca el catálogo y no reemplaza la
+  corrección vigente.
+- El mismo hecho re-observado con un as-of nuevo (recopia sin cambios) no
+  agrega observaciones: manda la versión (hash).
+- Un advisory lock por transacción serializa solo las ingestas de MeLi, para
+  que dos corridas concurrentes no lean el mismo "último".
+
+Pruebas nuevas: `test_snapshot_atrasado_no_reemplaza_la_correccion_vigente`
+(reproduce la secuencia del bloqueante), `test_snapshot_con_el_mismo_as_of_no_reemplaza`
+y `test_recopia_con_as_of_nuevo_y_mismo_contenido_no_agrega`. Reproducción
+guardada en `17-bloqueante-snapshot-atrasado.txt`.
+
+Residual declarado: si un snapshot afirma un `updated_at` **más nuevo** que el
+de la observación vigente pero trae contenido viejo, el origen está mintiendo
+sobre su orden y ninguna política puede distinguirlo de una corrección. La
+recuperación operativa es re-copiar después del último sync de accounting.
+
+Observaciones no bloqueantes atendidas: los conteos del docstring ya no se
+presentan como invariantes; el orden de lectura/validación/apertura de la
+corrida quedó descrito como es; el runbook usa `mktemp` en vez de una ruta
+fija; y se quitaron los espacios finales de la evidencia.
+
+## Segunda revisión (Limi 3.1)
+
+Dos bloqueantes más, ambos corregidos con su regresión:
+
+1. **Concurrencia y `observed_at`.** El reloj de ingesta se calculaba antes del
+   advisory lock: una corrida que esperaba podía terminar con un
+   `observed_at` anterior al de la que ya había cerrado, y `v_metric_latest`
+   elegía la vieja. Ahora `observed_at` se toma con `clock_timestamp()`
+   **después** del candado. Regresión con dos conexiones
+   (`test_concurrencia_observed_at_se_toma_bajo_el_candado`): la nueva espera
+   el candado, la vieja inserta y cierra primero, y aun así la vigente es
+   6.5000.
+2. **Un snapshot atrasado restauraba el nombre viejo.** Con métricas idénticas
+   se omitía la validación temporal y `_entidad` actualizaba el nombre. Ahora
+   un as-of anterior se rechaza **aunque `source_version` coincida**; el
+   nombre solo se aplica desde un snapshot estrictamente posterior al as-of
+   aceptado, y el catálogo se toca después de la validación. Regresiones:
+   `test_snapshot_atrasado_no_restaura_nombre` y
+   `test_mismo_as_of_no_restaura_nombre` (copia editada con el mismo as-of).
+
+Evidencia: `18-regresion-bloqueantes-revision-2.txt` (los tres casos fallan en
+`f11e2434` y pasan en el head). Focales: `86 passed` (23 del módulo).
+
+## Tercera revisión (Limi 3.1)
+
+Bloqueante: una recopia deduplicada no avanzaba la marca temporal. La marca
+se derivaba solo de las observaciones, así que la recopia de 12:00 salía por
+dedupe y el as-of aceptado seguía en 08:00; un snapshot de 11:00 entraba y
+restauraba el nombre viejo.
+
+Ahora la corrida exitosa sella `skip_reason = "as_of=<epoch>; <duplicados>"`.
+Ese prefijo es el **máximo as-of aceptado** y se conserva aunque la recopia no
+inserte métricas. En cada corrida se lee la última marca exitosa y se combina
+con el máximo as-of de las observaciones. Un snapshot anterior a la marca se
+rechaza completo, aunque sus métricas coincidan; con el mismo as-of solo se
+admite el reintento exacto. El nombre solo se aplica desde un snapshot
+estrictamente posterior a la marca.
+
+Regresión: `test_recopia_deduplicada_avanza_la_marca_y_bloquea_el_snapshot_anterior`
+con la secuencia de tres snapshots. Comprueba la marca persistida, que el
+nombre no vuelve atrás y que un snapshot intermedio con métricas distintas
+tampoco cambia el valor vigente. Contra `f55600e7` falla en la marca
+(`'1x snapshot ya ingerido...'` en vez de `as_of=<epoch>`).
+
+Evidencia: `19-regresion-marca-recpia.txt`. Focales: `87 passed` (24 del
+módulo).
+
+## Cuarta revisión (corrección integral)
+
+Se corrigieron los diez grupos de la revisión de `d1bdbe5f`. Evidencia antes y
+después en `30-revision-d1bdbe5f/`.
+
+- **Marca global bajo concurrencia.** `_SQL_MARCA` ya no usa `ORDER BY id`.
+  Se toma el máximo as-of entre todas las corridas exitosas y las
+  observaciones, bajo el candado. Regresión con dos conexiones e ids
+  invertidos (`test_marca_es_el_maximo_entre_corridas_y_no_el_id`).
+- **Dedupe acotado al índice parcial.** El `ON CONFLICT` apunta a
+  `metric_dedupe_reporte`; una colisión de la PK aborta la corrida. Regresión
+  con reloj fijo y rollback de una escritura previa
+  (`test_colision_de_pk_aborta_y_revierte_escrituras`).
+- **`updated_at` obligatorio y as-of futuro.** Una fila sin fecha o ilegible
+  rechaza el snapshot; un as-of más de 24 h adelante se rechaza y no avanza la
+  marca (`test_updated_at_invalido_sella_run_fallida`,
+  `test_as_of_futuro_no_envenena_la_marca`).
+- **Dinero y límites.** Se tolera solo ruido binario (< 1e-5), se rechaza
+  precisión genuina de más de 4 decimales, se valida el rango después de
+  cuantizar, se rechaza un positivo que cuantiza a cero, y se validan BIGINT
+  e INTEGER (`test_dinero_no_redondea_en_silencio_ni_colapsa_versiones`,
+  `test_enteros_respetan_limites_de_columna`).
+- **Claves canónicas duplicadas.** Un snapshot sin PK que repita
+  `(campaign_id, metric_date)` se rechaza completo, con cero escrituras
+  (`test_claves_canonicas_duplicadas_rechazan_snapshot`).
+- **Rollback del runbook.** Se eliminó la restauración integral como
+  procedimiento rutinario; queda detener la ingesta y conservar historia, con
+  una recuperación excepcional separada, con alcance y pérdida explícitos.
+- **Procedimiento manual.** Sin DSN expandido como argumento, snapshot 0600 en
+  el host, 644 solo dentro del contenedor, `trap` para snapshot y laterales
+  `-wal`/`-shm`.
+- **Activación del cron.** Orden completo documentado: rebuild del CLI,
+  instalación 0755 del script, `bash -n` y checksum, carga inicial,
+  `ingest_run` y conciliación, línea del cron sin cambios.
+- **Secundarios.** La `ingest_run` se abre antes de leer (tabla ausente deja
+  `ok=false`); separadores `|` rechazados; snapshot rechazado registra
+  `rows_skipped=origen.total`; motivos de dedupe separados; hash probado campo
+  por campo; marca global documentada; formato viejo de `source_report_id`
+  corregido; sección de tres pipelines actualizada; `git diff --check` limpio.
+
+Queda un invariante operativo: la marca vive en el `skip_reason` de corridas
+exitosas. Borrar una corrida deduplicada pierde la marca; `ingest_run` no
+tiene purga (D7) pero es mutable por diseño: nace abierta y se sella con
+UPDATE. El runbook prohíbe borrar corridas exitosas de MeLi. Si se borra, un
+snapshot anterior puede volver a entrar.
+
+## Quinta revisión (veredicto sobre `78888f3e`)
+
+Dos bloqueantes de datos, reproducidos con PostgreSQL real, y la ruta de
+activación.
+
+- **As-of futuro dentro de 24 h.** Se acepta, pero ya no envenena la marca. El
+  cálculo separa `marca_todas` de `marca_real`: un snapshot con as-of hasta
+  5 min adelante del reloj compara solo contra marcas reales; uno más futuro
+  compara contra todas. Una corrección con la hora actual ya queda vigente.
+- **Reloj que retrocede.** `observed_at` es ahora un reloj lógico: se toma
+  `max(clock_timestamp(), max(observed_at de MeLi) + 1 µs)` bajo el candado.
+  Aunque el reloj de pared retroceda, la corrección nueva gana en
+  `v_metric_latest`.
+- **Activación.** Se documenta la transferencia de `tools/refresh_costos.sh`
+  desde el SHA aprobado (`git show <SHA>:tools/refresh_costos.sh | ssh ...`),
+  checksum, `install -m 0755`, `bash -n`, carga inicial y conciliación. El
+  rebuild de la app usa el SHA aprobado, no `origin/master`. El archive no
+  copia el script de host.
+- **Runbook.** MeLi ya no se presenta como desplegado desde septiembre.
+  `ingest_run` ya no se llama append-only: no tiene purga, pero es mutable por
+  diseño y se sella con UPDATE.
+- **Secundarios.** Se rechazan fracciones de segundo y años fuera de
+  2000-2100. `_entero` rechaza `--1`. El cero negativo se normaliza. Hay
+  pruebas de `duplicados_id` y de la salida exitosa del CLI. Se conserva el
+  caso NUMERIC `9999999999.99996`. Los scripts de perf, conciliación y
+  reproducciones quedan versionados en `30-revision-d1bdbe5f/scripts/`.
+
+Evidencia: `30-revision-78888f3e/antes.txt` y `despues.txt` (los dos
+bloqueantes), `ui-perf-http.txt` (p95 real de `/` con uvicorn y reinicio del
+servicio) y `perf-100k.txt` (3 ingestas de 100,000 filas, 6.97–7.74 s cada
+una, snapshot de 10,498,048 bytes). Focales: **106 passed** (43 del módulo).
+Suite completa con `ORBIT_TEST_DSN`: **5526 passed, 0 failed**.
+
+## Sexta revisión (veredicto sobre `10266d91`)
+
+Dos bloqueantes de orden temporal, corregidos con dos relojes separados.
+
+- **Recopia real que perdía su as-of.** La corrida exitosa guarda ahora dos
+  marcas: `as_of=<max real>` y `futuro=<max futuro>`. Una recopia real avanza
+  solo el reloj real, aunque exista una marca futura. El snapshot intermedio
+  se rechaza contra el as-of real.
+- **Marca futura que se reclasificaba como real.** Una marca `futuro=` queda en
+  cuarentena permanente. No se recalcula con el reloj actual ni bloquea
+  correcciones reales cercanas. Solo se usa para ordenar snapshots futuros.
+- **Perf de `/` intercalado.** Cinco rondas de 30 pares base/head con orden
+  alternado y p95 nearest-rank. Mediana de p95: base 6.50 ms, head 6.05 ms,
+  head -6.92 %. Regla de +10 %: PASS. Payload idéntico de 24,959 bytes.
+- **Lane 10 completo.** Reinicio real de uvicorn en dos procesos, historia y
+  latest MeLi estables, y conciliación 788/788 filas y 197/197 días con exit 0.
+- **Conciliación.** `conciliar.py` ya no convierte NULL en cero y falla por
+  diferencias de métricas. La séptima revisión corrige lo que faltaba: tampoco
+  fallaba por una campaña/día o un día completo que faltara o sobrara.
+- **Secundarios.** Se rechazan fracciones de segundo (incluidas las menores de
+  un microsegundo), offsets que desbordan y enteros textuales gigantes. Se
+  corrigió la contradicción de `ingest_run` en `99-cierre.md`.
+
+Evidencia: `30-revision-10266d91/antes.txt` y `despues.txt` (los dos
+bloqueantes), `ui-perf-http.txt` y `lane10-reinicio-conciliacion.txt`.
+Focales: **109 passed** (46 del módulo, ronda 10266d91). Suite completa:
+**5529 passed** (ronda 10266d91).
+Pendientes: Lane 1 Amazon y los diez lanes live en VM.
+
+## Séptima revisión (corrección integral sobre `1a97cec5`)
+
+SHA revisado: `1a97cec50effe1dffbfd2f8c81fe9a7d4bed099a`.
+SHA de código verificado: `9a52ef44600b9e8cec62efb1af8b550ba83c18d8`
+(batería completa, perf y reinicio). El commit final agrega solo la evidencia
+de esta ronda; el árbol de código es idéntico.
+
+### Modelo temporal por aceptaciones completas
+
+La marca de as-of dejó de ser solo un número: cada corrida exitosa registra una
+**aceptación** con el as-of, la huella `snap=<sha256>` del snapshot completo
+(campaña, fecha y versión de todas las filas) y el reloj al que pertenece
+(`as_of=` real o `futuro=` en cuarentena). El reintento exacto se busca contra
+esa aceptación anterior, no contra `v_metric_latest`, así que sigue siendo
+no-op aunque otra corrida haya cambiado después la observación vigente.
+
+- Un as-of aceptado como futuro queda en cuarentena permanente: al avanzar el
+  reloj no se reclasifica como real.
+- Un snapshot con el mismo as-of y otra huella se rechaza completo.
+- Un snapshot atrasado que nunca fue aceptado se rechaza completo, también
+  dentro del reloj futuro.
+- Una marca futura no bloquea una corrección real válida: los snapshots reales
+  comparan solo contra el reloj real.
+- Una recopia real deduplicada conserva su nuevo as-of, avanza el reloj real y
+  bloquea snapshots intermedios.
+- Cada corrida escribe solo la marca de su reloj; las dos marcas son
+  independientes y pueden estar ausentes. Una primera corrida exclusivamente
+  futura no escribe `as_of=`.
+- `ingest_run_id` sigue sin ser clave de dedupe. No se creó ninguna migración.
+
+Regresiones: `test_reintento_futuro_no_se_reclasifica_y_no_bloquea_la_correccion`
+(Caso A), `test_reintento_futuro_tras_correccion_real_es_noop` (Caso B),
+`test_mismo_as_of_con_contenido_distinto_tras_futuro_se_rechaza` y
+`test_snapshot_futuro_atrasado_nunca_aceptado_se_rechaza`. Las dos primeras
+fallan contra `1a97cec5` con los repros del revisor; evidencia en
+`30-revision-1a97cec5/antes.txt` y `despues.txt`.
+
+### Sellado de motivos con NUL y controles
+
+`_sellar_run` escapa NUL y caracteres de control **antes** de persistir
+`skip_reason`. No depende de que cada validación limpie su mensaje: una moneda
+`MXN\x00USD` o un `campaign_id` con NUL y fecha inválida dejan la corrida
+`ok=false`, con `finished_at`, `rows_skipped` de todas las filas rechazadas,
+cero entidades/observaciones y un motivo seguro. Regresiones:
+`test_moneda_con_nul_sella_la_corrida_y_no_deja_datos` y
+`test_campaign_id_con_nul_y_fecha_invalida_sella_la_corrida`.
+
+### Conciliación que falla ante cualquier diferencia
+
+Los tres `conciliar.py` de la fase son byte-idénticos y salen distinto de cero
+ante: campaña/día que falta o sobra en Orbit, día completo que falta o sobra,
+NULL convertido en cero, métrica con otro valor y moneda distinta de MXN.
+`tests/test_conciliar_meli_ads.py` ejecuta el script real (no una copia del
+algoritmo) con SQLite real y un Postgres simulado, e incluye el caso de Orbit
+vacío: ya no imprime `CONCILIACION OK` ni sale 0. La conciliación positiva
+sigue aceptando datos idénticos.
+
+### Pruebas, rendimiento y documentación
+
+- `tests/test_meli_ads_ingest.py` suma los offsets
+  `0001-01-01T00:00:00+00:01` y `9999-12-31T23:59:59-00:01`, que desbordaban
+  `datetime` al normalizar a UTC antes de `28eea61b`.
+- El adaptador SQLite se separó a `app/meli/ads_source.py` para que
+  `app/meli/ads_ingest.py` quede bajo el presupuesto de 900 líneas del guard de
+  arquitectura. Se retiró la entrada de `ALLOWLIST_TAMANO` que esta fase había
+  agregado a `tests/test_architecture.py`; el guard queda intacto.
+- `ui_perf_testclient.py` importa `math` y guarda muestras crudas y hash.
+- `ui_perf_interleaved.py` evalúa el umbral con los p95 sin redondear, guarda
+  las muestras crudas y compara TODAS las respuestas base/HEAD por SHA-256, no
+  por longitud.
+- `docs/DEPLOY.md` ejecuta la carga manual y la conciliación antes de instalar
+  o habilitar el script que activa MeLi en cron, y documenta las dos marcas
+  independientes y su ausencia posible.
+
+### Evidencia
+
+Ver `30-revision-1a97cec5/`: repros antes/después, regresiones NUL, conciliación
+negativa, pruebas focales, gates, suite, perf HTTP intercalado, tres ingestas
+de 100,000 filas y reinicio con conciliación. Los lanes live en VM y la
+regresión Amazon base/HEAD siguen pendientes por infraestructura.
+
+## Octava revisión (veredicto sobre `a305e7c`)
+
+SHA revisado: `a305e7c0918f86ff33235652d1881b3d7bbe41f7`.
+SHA de código verificado: `ef036a4b2f38bfc2703190535250e07102a57b30`.
+El commit final agrega solo esta evidencia.
+
+Se corrigieron los siete bloqueantes del veredicto y los secundarios que
+afectaban datos, compatibilidad o auditoría.
+
+- **Piso legado con futuro.** `_estado_temporal` calcula el piso real con
+  `piso=<epoch>` de las aceptaciones futuras y, si no existe, con las
+  observaciones cuyo as-of no fue futuro. Una aceptación futura ya no borra el
+  piso de una base legada. El as-of entrante no cuenta como piso anterior.
+- **Huella completa.** `snap=` es un JSON con campaña, fecha, moneda, todas
+  las métricas y la versión/revisión. La revisión ya no oculta cambios de
+  costo y los separadores internos no pueden colisionar. Una aceptación vieja
+  sin `snap=` reconoce su primer reintento exacto solo si coincide con toda la
+  observación vigente; si hubo corrección intermedia, falla cerrado.
+- **Snapshot vacío.** Es un no-op exitoso, no crea aceptación temporal y no
+  inventa as-of.
+- **NUL en campos.** `campaign_id`, `campaign_name` y `revision` con NUL se
+  rechazan en `ads_source.py`. La corrida queda `ok=false`, con
+  `finished_at`, `rows_skipped` y rollback completo. `_texto_persistible`
+  escapa también controles C1.
+- **Conciliación estricta.** El origen revisa `currency` si existe, no redondea
+  precisión de más de 4 decimales y falla ante claves duplicadas de campaña/día
+  o de control diario, sin que la última fila oculte la anterior.
+- **Runbook.** El script se materializa y valida localmente con `test -s`,
+  `grep`, `bash -n` y checksum no vacío antes de transferirlo. La conciliación
+  tiene comando, ruta y DSN explícitos.
+- **Formato.** Se formatearon los 30 Python del cambio, no solo 14.
+
+Secundarios atendidos: un reintento ya no agrega otra aceptación temporal, las
+reproducciones versionadas importan `_dinero`/`leer_origen` desde
+`ads_source.py`, y la evidencia registra PID, parada y arranque del reinicio.
+Los diez lanes live en VM, las capturas PNG y la regresión Amazon base/HEAD
+siguen pendientes por infraestructura.
+
+## Novena revisión (cross review Grok)
+
+Cross review con Grok 4.7. El proveedor `xai` devolvió `invalid_grant`; la
+revisión corrió con el Grok 4.7 disponible en OpenCode Go. Diversidad
+reducida: una sola familia y un revisor.
+
+Dos pasadas, cinco hallazgos verificados:
+
+1. Un snapshot legado con el mismo as_of y otra versión se aceptaba y pisaba
+   el costo. Ahora `_observaciones_en_as_of` rechaza el contenido distinto; un
+   duplicado concurrente con la misma versión se deduplica.
+2. Un día interior con gasto y cero campañas pasaba la conciliación. El
+   control diario ahora incluye días con actividad desde el primer día de
+   campaña.
+3. El runbook no se detenía si `grep` fallaba con un script no vacío sin la
+   línea de MeLi. El bloque usa `set -euo pipefail`.
+4. Un duplicado futuro sin aceptación sellaba `futuro=` sin `piso=` y borraba
+   el piso legado. Ahora ese duplicado es un no-op sin aceptación temporal.
+5. Un día posterior a la última campaña, o un origen sin campañas, con gasto
+   en el control, pasaba la conciliación. Ahora falla con `FALTA el dia`.
+
+La historia anterior a la primera campaña sigue fuera de la conciliación
+campana/día, como estaba declarado. Evidencia:
+`30-revision-0c48417-grok/hallazgos.md`, `rojo.txt`, `verde.txt`, `rojo-2.txt`,
+`verde-2.txt`, `recheck-2.txt`.
+
+## Décima revisión (corrección de los cuatro bloqueantes sobre `43b5cd27`)
+
+El veredicto sobre `43b5cd27` dejó cuatro bloqueantes funcionales. Se
+corrigieron sin migraciones y sin tocar la granularidad campaña/día.
+
+1. **Contenido canónico completo.** `_versiones_snapshot`,
+   `_observaciones_en_as_of`, `_coincide_con_ultimas`, `_SQL_ULTIMAS` y el
+   camino de duplicado futuro comparan moneda y todas las métricas, no solo
+   `source_version`. Una revisión constante ya no oculta un costo distinto.
+2. **Frontera del origen.** `ads_source` rechaza BLOB en `campaign_id`,
+   `campaign_name` y `revision`, y textos de más de 2048 bytes (el límite de
+   PostgreSQL es de bytes, no de caracteres). La fila rechazada se cuenta en
+   `ingest_run.rows_skipped` con `ok=false`, `finished_at` y cero escrituras.
+3. **Precisión monetaria.** `_dinero` de la ingesta y del conciliador tolera
+   solo el ruido binario del REAL (hasta 4 ulps); `1.000001` se rechaza en vez
+   de redondearse a `1.0000`.
+4. **Conciliación cerrada.** Una fecha vacía o ilegible falla; un control con
+   NULL entra a la ventana y falla (NULL no es inactividad); un duplicado en
+   `v_metric_latest` también falla. Esta ronda todavía aceptaba un NULL
+   coincidente; la undécima revisión lo cierra.
+
+Evidencia: `30-revision-43b5cd27-correccion/` (`suite.txt`, `focales.txt`,
+`parent.txt`, `operativo.txt`, `perf-100k.txt`, `repros.txt`, `gates.txt`).
+
+- Focales: **257 passed**.
+- Suite completa con `ORBIT_TEST_DSN`: **5580 passed, 1 warning**.
+- Regresiones nuevas contra `43b5cd27`: **14 failed**.
+- Operativo real: **788 filas, 4 entidades**, reintento no-op y conciliación
+  **788/788 filas, 197/197 días**, `CONCILIACION OK`.
+- 100,000 filas: **6.301–6.457 s** en tres corridas.
+- Gates: ruff, formato, `pre-commit` y `git diff --check` verdes; las tres
+  copias del conciliador son byte-idénticas.
+
+Siguen pendientes los diez lanes live en VM, las capturas PNG y la regresión
+Amazon base/HEAD: no hay VM ni credenciales en este checkout.
+
+## Undécima revisión (corrección de los cinco bloqueantes sobre `4d1fa179`)
+
+El veredicto sobre `4d1fa179` encontró cinco bloqueantes nuevos. Se corrigieron
+sin migraciones y sin cambiar el grano campaña/día.
+
+1. **Identificador completo.** `source_report_id` se construye en un solo
+   lugar (`ads_source.source_report_id`) y la frontera valida el identificador
+   completo (campaña, fecha, revisión y epoch máximo) contra 2048 bytes, con
+   margen bajo el máximo btree de 2704. Dos campos que pasan solos ya no
+   desbordan el índice juntos.
+2. **UTF-8 inválido.** La lectura usa `fetchone()` y captura `sqlite3.Error`:
+   una fila que SQLite no puede decodificar se cuenta como rechazo
+   (`rows_skipped=1`), el snapshot se aborta sin escrituras y `ingest_run`
+   queda `ok=false` con `finished_at`.
+3. **NULL coincidente.** La conciliación falla aunque origen, control y Orbit
+   tengan el mismo NULL. Una identidad NULL en cualquiera de los dos lados
+   también falla: un dato desconocido no prueba una conciliación exacta.
+4. **Ventana explícita.** `--desde` y `--hasta` son obligatorios y no se
+   derivan de las campañas del snapshot. La actividad anterior a `--desde` se
+   excluye y se reporta; una campaña fuera de la ventana, o actividad/NULL del
+   control después de `--hasta`, fallan.
+5. **DSN fuera de argv.** El DSN llega por `CONCILIAR_DSN`; el runbook ya no
+   lo pasa como argumento. Los errores de conexión se redactan con
+   `app.redaction.redact_dsn`/`scrub`.
+
+Evidencia: `30-revision-4d1fa179-correccion/` (`suite.txt`, `focales.txt`,
+`parent.txt`, `operativo.txt`, `perf-100k.txt`, `repros.txt`, `gates.txt`).
+
+- Focales: **264 passed**.
+- Suite completa con `ORBIT_TEST_DSN`: **5587 passed, 1 warning**.
+- Regresiones nuevas contra `4d1fa179`: **7 failed**.
+- Operativo real: **788 filas, 4 entidades**, reintento no-op y conciliación
+  **788/788 filas, 197/197 días**, con **59 días de historia anterior
+  excluidos y reportados**, `CONCILIACION OK`.
+- 100,000 filas: **6.840–6.887 s** en tres corridas.
+- Gates: ruff, formato, `bash -n`, `pre-commit` y `git diff --check` verdes;
+  las tres copias del conciliador son byte-idénticas.
+
+Siguen pendientes los diez lanes live en VM, las capturas PNG, la regresión
+Amazon base/HEAD y el perfil de `/` base/HEAD sobre este commit.
+
+## Archivos
+
+- `app/meli/ads_ingest.py` (nuevo): dueño de la persistencia, la política
+  temporal de aceptaciones, las entidades, las observaciones append-only y el
+  sello de `ingest_run`.
+- `app/meli/ads_source.py` (nuevo): adaptador SQLite `mode=ro`, forma canónica,
+  versión y validación del origen. Separado para cumplir el presupuesto de
+  tamaño sin tocar el guard.
+- `app/cli.py`: `ingest meli-ads --sqlite <snapshot>`.
+- `tools/refresh_costos.sh`: corre `meli-ads` al final, aislado, sin cambiar
+  los pipelines existentes ni la línea del cron.
+- `tests/test_meli_ads_ingest.py` (nuevo), `tests/test_conciliar_meli_ads.py`
+  (nuevo) y `tests/test_cli.py`.
+- `docs/DEPLOY.md` y `docs/DATABASE.md`: contrato, programación (08:15 UTC
+  después del sync de accounting cada 2 h, ~20 s), conciliación y rollback.
+- `docs/evidencia/resumen-ads-multicanal/01-ingesta/`: esta evidencia.
+
+## Pruebas
+
+- Focales: **244 passed** (`tests/test_meli_ads_ingest.py` +
+  `tests/test_cli.py` + `tests/test_conciliar_meli_ads.py` +
+  `tests/test_architecture.py`) en la ronda `a305e7c`. Detalle:
+  `30-revision-a305e7c/pruebas.txt`.
+- Regresión contra el padre: la ingesta no colecciona (`ModuleNotFoundError`)
+  y el CLI falla por el comando/choice ausente. Detalle:
+  `06-pruebas-regresion-parent.txt`.
+- Suite completa con `ORBIT_TEST_DSN`: **5567 passed, 0 failed** en la ronda
+  `0c48417`. Detalle en `30-revision-0c48417-grok/suite.txt`.
+
+## Verificación operativa real
+
+| Lane | Resultado | Archivo |
+|---|---|---|
+| 2 Carga CLI real (784 filas, 4 entidades) | OK | `09-operativo-carga-y-reintento.txt` |
+| 3 Reintento idéntico (0 escrituras, 784 duplicados) | OK | `09-operativo-carga-y-reintento.txt` |
+| 4 Corrección (1 observación nueva, `v_metric_latest` con 87.60) | OK | `10-operativo-correccion.txt` |
+| 5 Moneda e identidad inválidas (falla cerrada, 0 filas) | OK | `12-operativo-rechazos.txt` |
+| Snapshot atrasado sobre datos reales (no pisa la vigente) | OK | `20-operativo-snapshot-atrasado.txt` |
+| Reproducción del bloqueante de Limi | OK | `17-bloqueante-snapshot-atrasado.txt` |
+| Regresión de los dos bloqueantes de la 2a revisión | OK | `18-regresion-bloqueantes-revision-2.txt` |
+| Regresión de la marca de recopia (3 snapshots) | OK | `19-regresion-marca-recpia.txt` |
+| 6/7 Sin snapshot, sin DSN y DSN con password redactado | OK | `13-operativo-sin-snapshot-dsn.txt` |
+| 8 Conciliación 784/784 filas y 196/196 días | OK | `11-conciliacion-orbit-vs-accounting.txt` |
+| 9 Aislamiento de `refresh_costos.sh` (fx falla, meli-ads corre) | OK | `15-operativo-aislamiento.txt` |
+| 10 Reinicio: misma historia y latest estables | OK | `14-operativo-reinicio.txt` |
+
+Los lanes corrieron contra un Postgres desechable local (`orbit_meli_ads_*`)
+con la migración 0001 aplicada y snapshots reales copiados de accounting con
+`.backup()` en modo read-only. No se escribió en accounting, bridge, MeLi ni
+en la base de producción de Orbit.
+
+### Cuarta ronda (SHA revisado `d1bdbe5f`)
+
+| Verificación | Resultado | Archivo |
+|---|---|---|
+| Carga real 784 filas + reintento | OK | `30-revision-d1bdbe5f/operativo-carga.txt` |
+| Corrección + snapshot atrasado | OK | `30-revision-d1bdbe5f/operativo-correccion-y-atrasado.txt` |
+| Moneda, identidad y tabla ausente | OK | `30-revision-d1bdbe5f/operativo-rechazos.txt` |
+| Sin snapshot, sin DSN y DSN redactado | OK | `30-revision-d1bdbe5f/operativo-sin-snapshot-dsn.txt` |
+| Conciliación 784/784 filas y 196/196 días | OK | `30-revision-d1bdbe5f/conciliacion.txt` |
+| Reinicio (procesos nuevos) estable | OK | `30-revision-d1bdbe5f/reinicio.txt` |
+| 3 ingestas frescas de 100,000 filas | OK, 6.9–7.7 s c/u | `30-revision-d1bdbe5f/perf-100k.txt` |
+| Reproducciones del revisor antes/después | OK | `30-revision-d1bdbe5f/antes-*.txt`, `despues-*.txt` |
+| Gates de calidad | OK | `30-revision-d1bdbe5f/gates.txt` |
+| Pruebas focales 99/36 | OK | `30-revision-d1bdbe5f/pruebas.txt` |
+
+## Calidad
+
+Ruff limpio y `pre-commit run --all-files` verde (gitleaks incluido), sin
+`--no-verify`: `08-calidad.txt`.
+
+## Pendiente
+
+Revisión de Limi 3.1 antes de integrar. No se desplegó, no se hizo push ni
+merge, y no se inició RESUMEN-ADS-02.
+
+Gates del plan **no ejecutados** en este checkout, por infraestructura:
+
+- **Lane 1 Amazon**: regresión de la ingesta Amazon base vs head. Requiere
+  credenciales AWS y la fuente viva; no están disponibles en este checkout.
+- **Lanes live del plan** (10 carriles en VM con `grok-4.7-xhigh-fast` y
+  capturas): no hay VM de revisión en este entorno. Los equivalentes CLI se
+  ejecutaron y quedan en `30-revision-d1bdbe5f/` y `30-revision-78888f3e/`.
+
+El perf de `/` y el reinicio del servicio sí se ejecutaron en la ronda
+`78888f3e`. `30-revision-78888f3e/ui-perf-http.txt` registra uvicorn real, 30
+requests, base `31ba12a` p95=4.86 ms, head p95=4.96 ms, reinicio head p95=4.70
+ms, mismo payload de 24,959 bytes. La regla de +10 % pasa. Las cifras de
+100,000 filas de la tabla anterior son de `d1bdbe5f`
+(`30-revision-d1bdbe5f/perf-100k.txt`); cada ronda posterior guarda su propio
+`perf-100k.txt`.

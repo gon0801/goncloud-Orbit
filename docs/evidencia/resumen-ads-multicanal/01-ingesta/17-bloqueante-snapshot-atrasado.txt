@@ -1,0 +1,58 @@
+== Bloqueante de Limi: reproduccion exacta contra el head corregido ==
+Comando: PYTHONPATH=tests:. uv run --frozen python repro_bloqueante.py
+Base desechable: orbit_meli_ads_blocker (Postgres local, migracion 0001).
+
+-- script --
+import datetime as dt
+import tempfile
+from pathlib import Path
+
+import psycopg
+from app.meli.ads_ingest import MeliAdsError, ingest_meli_ads
+from test_meli_ads_ingest import _snapshot
+from test_schema import SQL
+
+D1 = dt.datetime.now(dt.UTC).date() - dt.timedelta(days=1)
+DSN = "postgresql://orbit:***@localhost:5432/orbit_meli_ads_blocker"
+tmp = Path(tempfile.mkdtemp())
+
+# Los dos snapshots se crean ANTES de ingerir, como en la reproduccion original.
+nuevo = _snapshot(tmp / "nuevo.db", [(D1.isoformat(), "C2", "BETA", 3, 50, 6.5, 20.0)])
+viejo = _snapshot(tmp / "viejo.db", [(D1.isoformat(), "C2", "BETA", 3, 50, 5.0, 20.0)])
+
+with psycopg.connect(DSN) as conn:
+    conn.execute("SET TIME ZONE 'UTC'")
+    conn.execute(SQL)
+    ingest_meli_ads(conn, nuevo)
+    try:
+        ingest_meli_ads(conn, viejo)
+        print("ACEPTADO: el snapshot viejo paso")
+    except MeliAdsError as exc:
+        print(f"RECHAZADO: {exc}")
+    costo = conn.execute(
+        "SELECT l.cost FROM v_metric_latest l JOIN ad_entity e ON e.id = l.ad_entity_id"
+        " WHERE e.external_id = 'C2' AND l.metric_date = %s",
+        (D1,),
+    ).fetchone()[0]
+    print(f"costo vigente tras ingerir snapshot viejo por primera vez={costo}")
+    assert costo == 6.5, "un snapshot viejo piso la correccion vigente"
+    obs = conn.execute("SELECT count(*) FROM ads_metric_observation").fetchone()[0]
+    print(f"observaciones={obs} (el snapshot atrasado no escribio nada)")
+    run = conn.execute(
+        "SELECT ok, rows_written, rows_skipped, skip_reason FROM ingest_run ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    print(f"ingest_run ultima: ok={run[0]} written={run[1]} skipped={run[2]} reason={run[3]}")
+print("OK: el snapshot atrasado no reemplaza la correccion vigente")
+
+-- salida --
+RECHAZADO: snapshot atrasado: su as_of no es posterior a la observacion vigente en 1 fila(s); no se escribio nada
+costo vigente tras ingerir snapshot viejo por primera vez=6.5000
+observaciones=1 (el snapshot atrasado no escribio nada)
+ingest_run ultima: ok=False written=0 skipped=1 reason=snapshot atrasado: su as_of no es posterior a la observacion vigente en 1 fila(s); no se escribio nada
+OK: el snapshot atrasado no reemplaza la correccion vigente
+
+== Secuencia original que fallaba ==
+1) ingerir primero el snapshot NUEVO (6.5000).
+2) ingerir despues el snapshot VIEJO (5.0000), tambien por primera vez.
+3) el snapshot viejo recibe observed_at posterior, pero su as-of de origen es menor (o igual) al vigente.
+4) v_metric_latest sigue mostrando 6.5000; la corrida queda ok=false y no escribe.

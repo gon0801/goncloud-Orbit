@@ -1,0 +1,15 @@
+HEAD=ef036a4b2f38bfc2703190535250e07102a57b30
+== ruff check ==
+All checks passed!
+rc=0
+== ruff format --check (37 Python del cambio) ==
+37 files already formatted
+rc=0
+== bash -n ==
+rc=0
+== git diff --check ==
+rc=0
+== pre-commit ==
+Detect hardcoded secrets.................................................Passed
+check for merge conflicts................................................Passed
+rc=0

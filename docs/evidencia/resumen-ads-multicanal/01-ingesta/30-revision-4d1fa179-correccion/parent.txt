@@ -1,0 +1,255 @@
+FFFFFFF                                                                  [100%]
+=================================== FAILURES ===================================
+________________ test_identificador_combinado_excede_el_indice _________________
+
+pg = <psycopg.Connection [IDLE] (host=localhost user=orbit database=orbit_meli_ads_test_mac.lan_1745) at 0x10aed0690>
+tmp_path = PosixPath('/private/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/pytest-of-dn/pytest-3610/test_identificador_combinado_e0')
+
+    def test_identificador_combinado_excede_el_indice(pg, tmp_path):
+        """Dos campos que pasan solos pueden desbordar juntos el btree."""
+        campana = os.urandom(768).hex()  # 1536 caracteres incompresibles
+        revision = os.urandom(768).hex()
+        snap = _snapshot(
+            tmp_path / "identificador-combinado.db",
+            [(D1.isoformat(), campana, "ALFA", 1, 2, 5.0, 8.0)],
+            as_of=AS_OF_INICIAL,
+        )
+        con = sqlite3.connect(snap)
+        con.execute("ALTER TABLE meli_ads_campaigns_daily ADD COLUMN revision TEXT")
+        con.execute("UPDATE meli_ads_campaigns_daily SET revision = ?", (revision,))
+        con.commit()
+        con.close()
+
+        with pytest.raises(MeliAdsError, match="identificador de origen"):
+>           ingest_meli_ads(pg, snap)
+
+tests/test_meli_ads_ingest.py:1539:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+app/meli/ads_ingest.py:761: in ingest_meli_ads
+    cursor = conn.execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [IDLE] (host=localhost user=orbit database=orbit_meli_ads_test_mac.lan_1745) at 0x10aed0690>
+query = '\nINSERT INTO ads_metric_observation\n    (ad_entity_id, metric_date, observed_at, metric_currency, cost, ad_revenue,..., %s)\nON CONFLICT (ad_entity_id, metric_date, source_report_id)\n    WHERE source_report_id IS NOT NULL\nDO NOTHING\n'
+params = (1, datetime.date(2026, 10, 28), datetime.datetime(2026, 10, 29, 22, 8, 34, 315946, tzinfo=datetime.timezone.utc), 'MXN', Decimal('5.0000'), Decimal('8.0000'), ...)
+prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.ProgramLimitExceeded: index row size 3136 exceeds btree version 4 maximum 2704 for index "metric_dedupe_reporte"
+E           DETAIL:  Index row references tuple (0,1) in relation "ads_metric_observation".
+E           HINT:  Values larger than 1/3 of a buffer page cannot be indexed.
+E           Consider a function index of an MD5 hash of the value, or use full text indexing.
+
+.venv/lib/python3.14/site-packages/psycopg/connection.py:300: ProgramLimitExceeded
+_______________ test_texto_utf8_invalido_se_cuenta_como_rechazo ________________
+
+pg = <psycopg.Connection [IDLE] (host=localhost user=orbit database=orbit_meli_ads_test_mac.lan_1745) at 0x10ab55a70>
+tmp_path = PosixPath('/private/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/pytest-of-dn/pytest-3610/test_texto_utf8_invalido_se_cu0')
+
+    def test_texto_utf8_invalido_se_cuenta_como_rechazo(pg, tmp_path):
+        """SQLite no decodifica un TEXT invalido: la fila se rechaza y se cuenta."""
+        snap = _snapshot(
+            tmp_path / "utf8-invalido.db",
+            [(D1.isoformat(), "C1", "ALFA", 1, 2, 5.0, 8.0)],
+            as_of=AS_OF_INICIAL,
+        )
+        con = sqlite3.connect(snap)
+        con.execute("UPDATE meli_ads_campaigns_daily SET campaign_name = CAST(x'80' AS TEXT)")
+        con.commit()
+        con.close()
+
+        with pytest.raises(MeliAdsError, match="ilegible en origen"):
+>           ingest_meli_ads(pg, snap)
+
+tests/test_meli_ads_ingest.py:1564:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+app/meli/ads_ingest.py:645: in ingest_meli_ads
+    origen = leer_origen(sqlite_path)
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+ruta = PosixPath('/private/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/pytest-of-dn/pytest-3610/test_texto_utf8_invalido_se_cu0/utf8-invalido.db')
+
+    def leer_origen(ruta: Path | str) -> OrigenMeliAds:
+        """Lee y valida TODO el snapshot antes de que el dueno escriba nada.
+
+        Una fila que no cumple el contrato se cuenta con su motivo y la corrida
+        se aborta completa (fail-closed). `updated_at` es obligatorio en cada
+        fila no vacia. El `as_of` es el maximo `updated_at` (UTC) y no puede
+        estar mas de `_TOLERANCIA_RELOJ` adelante del reloj de ingesta. Las
+        claves `(campaign_id, metric_date)` deben ser unicas.
+        """
+        hoy = dt.datetime.now(dt.UTC).date()
+        ahora = dt.datetime.now(dt.UTC)
+        rechazos: Counter = Counter()
+        filas: list[FilaMeliAds] = []
+        vistas: dict[tuple[str, str], FilaMeliAds] = {}
+        as_of: dt.datetime | None = None
+        total = 0
+        con, columnas = _abre_origen(ruta)
+        try:
+            consulta = (
+                f"SELECT date, campaign_id, campaign_name, clicks, impressions,"
+                f" spend, ad_sales, updated_at{', currency' if 'currency' in columnas else ''}"
+                f"{', orders' if 'orders' in columnas else ''}"
+                f"{', revision' if 'revision' in columnas else ''}"
+                f" FROM {TABLA_ORIGEN} ORDER BY date, campaign_id"
+            )
+>           for row in con.execute(consulta):
+                       ^^^^^^^^^^^^^^^^^^^^^
+E           sqlite3.OperationalError: Could not decode to UTF-8 column 'campaign_name' with text '�'
+
+app/meli/ads_source.py:412: OperationalError
+______________________ test_null_coincidente_no_concilia _______________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10adcee70>
+tmp_path = PosixPath('/private/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/pytest-of-dn/pytest-3610/test_null_coincidente_no_conci0')
+capsys = <_pytest.capture.CaptureFixture object at 0x10aed56a0>
+
+    def test_null_coincidente_no_concilia(monkeypatch, tmp_path, capsys):
+        """NULL en origen, control y Orbit no prueba conciliacion exacta."""
+        codigo, salida = _corre(
+            monkeypatch,
+            tmp_path,
+            _campana(spend=None, ad_sales=None, impressions=None, clicks=None),
+            _dia(spend=None, ad_sales=None, impressions=None, clicks=None),
+            _orbit(spend=None, ad_sales=None, impressions=None, clicks=None),
+            capsys,
+        )
+        assert codigo != 0
+>       assert "NULL no conciliable" in salida
+E       AssertionError: assert 'NULL no conciliable' in ''
+
+tests/test_conciliar_meli_ads.py:396: AssertionError
+_______________ test_actividad_antes_del_inicio_declarado_falla ________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10aecd150>
+tmp_path = PosixPath('/private/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/pytest-of-dn/pytest-3610/test_actividad_antes_del_inici0')
+capsys = <_pytest.capture.CaptureFixture object at 0x10aed1450>
+
+    def test_actividad_antes_del_inicio_declarado_falla(monkeypatch, tmp_path, capsys):
+        """El inicio es explicito: si el dia anterior esta en la ventana, un
+        control con actividad y cero campanas es un hueco, aunque la primera
+        campana del snapshot sea posterior."""
+        dia1 = DIA
+        dia2 = DIA + dt.timedelta(days=1)
+        campanas = [("C1", dia2.isoformat(), 1.0, 2.0, 3, 4)]
+        dias = [
+            (dia1.isoformat(), 9, 8, 500.0, 900.0),
+            (dia2.isoformat(), 4, 3, 1.0, 2.0),
+        ]
+        orbit = [("C1", dia2, Decimal("1.0000"), Decimal("2.0000"), 3, 4, "MXN")]
+
+        codigo, salida = _corre(
+            monkeypatch,
+            tmp_path,
+            campanas,
+            dias,
+            orbit,
+            capsys,
+            desde=dia1.isoformat(),
+            hasta=dia2.isoformat(),
+        )
+        assert codigo != 0
+>       assert f"FALTA el dia {dia1.isoformat()} en Orbit" in salida
+E       AssertionError: assert 'FALTA el dia 2026-10-28 en Orbit' in ''
+
+tests/test_conciliar_meli_ads.py:424: AssertionError
+_______________________ test_identidad_null_no_concilia ________________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10aecc7c0>
+tmp_path = PosixPath('/private/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/pytest-of-dn/pytest-3610/test_identidad_null_no_concili0')
+capsys = <_pytest.capture.CaptureFixture object at 0x10aed0190>
+
+    def test_identidad_null_no_concilia(monkeypatch, tmp_path, capsys):
+        """Una identidad NULL en origen y Orbit tampoco es una coincidencia."""
+        codigo, salida = _corre(
+            monkeypatch,
+            tmp_path,
+            [(None, DIA.isoformat(), 1.0, 2.0, 3, 4)],
+            _dia(),
+            [(None, DIA, Decimal("1.0000"), Decimal("2.0000"), 3, 4, "MXN")],
+            capsys,
+        )
+        assert codigo != 0
+>       assert "campaign_id ilegible" in salida
+E       AssertionError: assert 'campaign_id ilegible' in ''
+
+tests/test_conciliar_meli_ads.py:452: AssertionError
+_______________ test_campana_fuera_de_la_ventana_declarada_falla _______________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10ae89950>
+tmp_path = PosixPath('/private/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/pytest-of-dn/pytest-3610/test_campana_fuera_de_la_venta0')
+capsys = <_pytest.capture.CaptureFixture object at 0x10af20c30>
+
+    def test_campana_fuera_de_la_ventana_declarada_falla(monkeypatch, tmp_path, capsys):
+        """La ventana no puede descartar campanas en silencio."""
+        siguiente = DIA + dt.timedelta(days=1)
+        codigo, salida = _corre(
+            monkeypatch,
+            tmp_path,
+            _campana(),
+            _dia(),
+            _orbit(),
+            capsys,
+            desde=siguiente.isoformat(),
+            hasta=siguiente.isoformat(),
+        )
+        assert codigo != 0
+>       assert "campana/dia fuera de la ventana declarada" in salida
+E       AssertionError: assert 'campana/dia fuera de la ventana declarada' in ''
+
+tests/test_conciliar_meli_ads.py:470: AssertionError
+_______________________ test_dsn_por_entorno_y_redactado _______________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10ae8a050>
+tmp_path = PosixPath('/private/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/pytest-of-dn/pytest-3610/test_dsn_por_entorno_y_redacta0')
+capsys = <_pytest.capture.CaptureFixture object at 0x10af20e90>
+
+    def test_dsn_por_entorno_y_redactado(monkeypatch, tmp_path, capsys):
+        """El DSN no se pasa por argv y los errores de conexion se redactan."""
+        modulo = _carga_script()
+        ruta = _snapshot(tmp_path, _campana(), _dia())
+        monkeypatch.delenv("CONCILIAR_DSN", raising=False)
+        codigo = modulo.main([str(ruta), "--desde", DIA.isoformat(), "--hasta", DIA.isoformat()])
+        assert codigo == 2
+>       assert "CONCILIAR_DSN" in capsys.readouterr().err
+E       AssertionError: assert 'CONCILIAR_DSN' in 'uso: conciliar.py <snapshot.db> <dsn_postgres_desechable>\n'
+E        +  where 'uso: conciliar.py <snapshot.db> <dsn_postgres_desechable>\n' = CaptureResult(out='', err='uso: conciliar.py <snapshot.db> <dsn_postgres_desechable>\n').err
+E        +    where CaptureResult(out='', err='uso: conciliar.py <snapshot.db> <dsn_postgres_desechable>\n') = readouterr()
+E        +      where readouterr = <_pytest.capture.CaptureFixture object at 0x10af20e90>.readouterr
+
+tests/test_conciliar_meli_ads.py:480: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_meli_ads_ingest.py::test_identificador_combinado_excede_el_indice
+FAILED tests/test_meli_ads_ingest.py::test_texto_utf8_invalido_se_cuenta_como_rechazo
+FAILED tests/test_conciliar_meli_ads.py::test_null_coincidente_no_concilia - ...
+FAILED tests/test_conciliar_meli_ads.py::test_actividad_antes_del_inicio_declarado_falla
+FAILED tests/test_conciliar_meli_ads.py::test_identidad_null_no_concilia - As...
+FAILED tests/test_conciliar_meli_ads.py::test_campana_fuera_de_la_ventana_declarada_falla
+FAILED tests/test_conciliar_meli_ads.py::test_dsn_por_entorno_y_redactado - A...
+7 failed in 0.40s
+RC=1

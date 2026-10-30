@@ -1,0 +1,19 @@
+== Sin snapshot, sin DSN y DSN con password ==
+
+-- sin --sqlite --
+usage: python -m app.cli ingest meli-ads [-h] --sqlite SQLITE
+python -m app.cli ingest meli-ads: error: the following arguments are required: --sqlite
+rc=2
+
+-- snapshot inexistente --
+el snapshot no existe: /tmp/meli-ads-ops/no-existe.db (runbook: docs/DEPLOY.md, ingesta de MeLi Ads)
+rc=2
+
+-- sin ORBIT_DSN_INGEST --
+ORBIT_DSN_INGEST no esta definido: no se puede ingerir MeLi Ads (fail-closed)
+rc=2
+
+-- DSN inalcanzable con password --
+rc=1
+ingesta de MeLi Ads fallo (la ingest_run quedo sellada ok=false cuando fue posible): no se pudo conectar a la base de datos: postgresql://orbit:***@127.0.0.1:1/orbit
+OK: sin fuga

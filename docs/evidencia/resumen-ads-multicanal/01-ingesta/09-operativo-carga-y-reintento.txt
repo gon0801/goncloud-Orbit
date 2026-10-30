@@ -1,0 +1,26 @@
+== Lane 2/3: CLI real sobre snapshot real (Postgres desechable orbit_meli_ads_ops) ==
+Fecha: Thu 29 Oct 2026 04:17:30 UTC
+
+-- snapshot --
+filas  campanas  desde       hasta       as_of
+-----  --------  ----------  ----------  -------------------
+784    4         2026-04-16  2026-10-28  2026-10-29 03:29:57
+
+-- corrida 1 --
+== Ingesta de MeLi Ads desde contabilidad (accounting_meli_ads_campaigns) ==
+run_id=1 ok=True rows_written=784 rows_skipped=0 filas_origen=784
+entidades: nuevas=4 actualizadas=0 duplicados=0 rechazos=0
+rc=0
+
+-- corrida 2 (mismo snapshot) --
+== Ingesta de MeLi Ads desde contabilidad (accounting_meli_ads_campaigns) ==
+run_id=2 ok=True rows_written=0 rows_skipped=784 filas_origen=784
+entidades: nuevas=0 actualizadas=0 duplicados=784 rechazos=0
+rc=0
+
+-- marcas selladas --
+ id | ok | rows_written | rows_skipped |                              skip_reason
+----+----+--------------+--------------+-----------------------------------------------------------------------
+  1 | t  |          784 |            0 | as_of=1793244597
+  2 | t  |            0 |          784 | as_of=1793244597; 784x snapshot ya ingerido (dedupe source_report_id)
+(2 rows)

@@ -327,10 +327,13 @@ rm /tmp/accounting-snapshot.db
 docker exec -u 0 orbit-app-1 rm /tmp/accounting-snapshot.db
 ```
 
-Cadencia: **DIARIA desde ORBIT 06 2.2 (2026-09-04)** — `refresh_costos.sh`
-(08:15 UTC) corre `costs` + `fx` + `ledger` del MISMO snapshot, cada uno a
-su log (`costos.log`/`fx.log`/`ledger.log`), sin tumbarse entre si. Re-correr
-es no-op por PK.
+Cadencia: **DIARIA desde ORBIT 06 2.2 (2026-09-04)** para `costs` + `fx` +
+`ledger`. `meli-ads` se suma con RESUMEN-ADS-01 y corre en la misma cadencia
+desde **su activación**, no desde septiembre. Corre los cuatro del MISMO
+snapshot (08:15 UTC), cada uno a su log (`costos.log`/`fx.log`/`ledger.log`/
+`meli_ads.log`), sin tumbarse entre si. Re-correr es no-op por PK (y por
+`source_report_id` en `meli-ads`); en `meli-ads` un reintento exacto se
+reconoce además por el as-of y la huella del snapshot completo.
 
 ## Ingesta del ledger desde contabilidad (ORBIT 06 0.6)
 
@@ -359,15 +362,327 @@ rm /tmp/accounting-snapshot.db
 docker exec -u 0 orbit-app-1 rm /tmp/accounting-snapshot.db
 ```
 
-Cadencia: **DIARIA desde ORBIT 06 2.2 (2026-09-04)** — `refresh_costos.sh`
-(08:15 UTC) corre `costs` + `fx` + `ledger` del MISMO snapshot, cada uno a
-su log (`costos.log`/`fx.log`/`ledger.log`), sin tumbarse entre si.
-Re-correr es no-op por los tres índices de dedupe (`rows_written=0`,
+Cadencia: **DIARIA desde ORBIT 06 2.2 (2026-09-04)** para `costs` + `fx` +
+`ledger`. `meli-ads` se suma con RESUMEN-ADS-01 y corre en la misma cadencia
+desde **su activación**. Corre los cuatro del MISMO snapshot (08:15 UTC), cada
+uno a su log (`costos.log`/`fx.log`/`ledger.log`/`meli_ads.log`), sin tumbarse
+entre si. Re-correr es no-op por los índices de dedupe (`rows_written=0`,
 conflictos contados en `rows_skipped`). En el cron NO se reescribe el DSN:
 `app/db.py` ya mapea `@127.0.0.1:` → `@db:` con `ORBIT_PG_HOST`; el truco
 `-e ORBIT_DSN_INGEST=...` de arriba queda como alternativa manual.
 Alternativa sin reescribir DSN: correr desde el host contra el puerto publicado
 (`127.0.0.1:5432`) con `ORBIT_DSN_INGEST` del `.env`.
+
+## Ingesta de métricas de Mercado Libre Ads (RESUMEN-ADS-01)
+
+Snapshot **de contabilidad** (mismo patrón `.backup()` que costos/FX/ledger).
+Fuente: `meli_ads_campaigns_daily` (grano campaña/día, PK
+`(date, campaign_id)`), la tabla que escribe `sync_meli_ads.py`. Destino:
+`ad_entity` (`platform='meli'`, `kind='campaign'`) +
+`ads_metric_observation` (append-only). **No hay migración**: se reutilizan
+el esquema, el índice `metric_dedupe_reporte` y `v_metric_latest`.
+
+```bash
+ssh goncloud
+# 1) snapshot UNICO por corrida. mktemp ya nace 0600 en el host: no se relaja.
+SNAP=$(mktemp /tmp/accounting-snapshot.XXXXXXXX.db)
+limpiar() {
+  rm -f "$SNAP" "$SNAP-wal" "$SNAP-shm" 2>/dev/null || true
+  docker exec -u 0 orbit-app-1 rm -f "$SNAP" "$SNAP-wal" "$SNAP-shm" 2>/dev/null || true
+}
+trap limpiar EXIT
+python3 -c "import sqlite3; src=sqlite3.connect('file:/mnt/data/appdata/accounting/data/accounting.db?mode=ro', uri=True); dst=sqlite3.connect('$SNAP'); src.backup(dst); dst.close(); src.close()"
+# 2) al contenedor. El 644 se aplica SOLO dentro, para el UID 10001 de la app.
+docker cp "$SNAP" orbit-app-1:"$SNAP"
+docker exec -u 0 orbit-app-1 chmod 644 "$SNAP"
+# 3) DSN: el del contenedor. app/db.py reescribe @127.0.0.1: -> @db: con
+#    ORBIT_PG_HOST=db. NO se expande el DSN como argumento de docker exec.
+docker exec orbit-app-1 python -m app.cli ingest meli-ads --sqlite "$SNAP"
+# 4) conservar la ruta para copiar el MISMO snapshot a la máquina del lead.
+printf 'SNAP_REMOTO=%s\n' "$SNAP"
+# 5) limpieza por trap (host y contenedor), incluidos -wal y -shm.
+```
+
+Antes de cerrar la sesión remota, copiar el snapshot a una terminal de la
+máquina del lead. Usar la ruta impresa por el paso anterior. No crear otro
+snapshot para la conciliación.
+
+```bash
+SNAP_REMOTO=/tmp/accounting-snapshot.REEMPLAZAR.db
+SNAPSHOT_LOCAL=$(mktemp /tmp/accounting-snapshot.XXXXXXXX.db)
+scp "goncloud:$SNAP_REMOTO" "$SNAPSHOT_LOCAL"
+chmod 600 "$SNAPSHOT_LOCAL"
+unset SNAP_REMOTO
+```
+
+### Contrato comprobado (2026-10-29, solo lectura)
+
+Evidencia: `docs/evidencia/resumen-ads-multicanal/01-ingesta/`.
+
+- **Grano**: campaña/día. Cada fila es una campaña en un día; el snapshot
+  real trae 4 filas por día, 784 filas, 4 campañas, 2026-04-16..2026-10-28.
+- **Identidad**: `campaign_id` numérico estable (4 IDs, 196 días contiguos
+  cada uno, un solo `campaign_name` por ID). La entidad de Orbit es
+  `(platform='meli', kind='campaign', external_id=campaign_id)`.
+- **Moneda**: la tabla no guarda moneda. El site es `MLM`, los 255 cargos de
+  ads en `ledger_events` son MXN y el trigger `metric_moneda_de_plataforma`
+  sella `meli→MXN`. El adaptador acepta una columna opcional `currency` y
+  rechaza todo lo que no sea MXN.
+- **Significado**: `spend` = costo de ads (`cost` de la API); `ad_sales` =
+  revenue atribuido (`total_amount`). **No se derivan del ledger ni de ventas
+  totales de Mercado Libre**. `orders` no existe en el origen: se escribe NULL.
+- **Ceros y faltantes**: `spend=0`/`ad_sales=0` son filas reales (257 y 573
+  en el snapshot) y se conservan en cero. Un valor NULL se conserva NULL.
+  Un día sin filas es un hueco, no un cero.
+- **Correcciones**: el sync pisa el valor en el origen
+  (`ON CONFLICT DO UPDATE`) y `updated_at` se reescribe en cada corrida. El
+  origen no tiene revisión. Por eso `source_version` es el SHA-256 de la fila
+  canónica (campaña, fecha, moneda y todas las métricas; **sin** nombre); si
+  un snapshot futuro trae una columna `revision`, esa manda sobre el hash.
+  `source_report_id = meli-ads|<campaign_id>|<fecha>|<version>|<as_of_epoch>`:
+  el as-of (`max(updated_at)` del snapshot, UTC) viaja en el id para ordenar
+  snapshots sin una columna nueva.
+- **Snapshot atrasado y reintento exacto**: hay DOS marcas globales
+  independientes en el `skip_reason` de las corridas exitosas, porque el
+  esquema no tiene columna de watermark: `as_of=<epoch>` para los snapshots
+  aceptados como reales y `futuro=<epoch>` para los aceptados como futuros.
+  Cada corrida escribe solo la marca del reloj al que pertenece; la otra sigue
+  viva en su propia corrida. Por eso ambas pueden estar ausentes y una primera
+  corrida exclusivamente futura no escribe `as_of=`. Una aceptación futura
+  guarda además `piso=<epoch>` con el piso real heredado, para que una base
+  legada sin marca real no pierda su orden. El máximo de cada reloj se
+  toma entre **todas** las corridas exitosas, bajo el candado; el id de
+  `ingest_run` no ordena porque los runs nacen antes del candado. Un as-of
+  aceptado como futuro queda en **cuarentena permanente**: el avance del reloj
+  no lo reclasifica como real y no bloquea una corrección real válida. Un
+  snapshot real se compara solo contra el reloj real; uno futuro, contra el
+  reloj futuro (y contra el real si ya quedó detrás de él). Sin marca real ni
+  piso, el piso se calcula con las observaciones cuyo as-of no pertenece a una
+  aceptación futura; una observación con el mismo as-of del snapshot entrante
+  no cuenta como piso anterior.
+  Cada aceptación guarda además `snap=<sha256>`: la huella del snapshot
+  COMPLETO en JSON, con campaña, fecha, moneda, todas las métricas y la
+  versión/revisión de cada fila. Un reintento exacto
+  se reconoce por as-of + huella contra la aceptación anterior, **no** contra
+  `v_metric_latest`; es un no-op completo aunque otra corrida haya cambiado
+  después la observación vigente (no escribe entidades, no toca nombres, no
+  agrega observaciones y no crea otra aceptación). Un snapshot con el mismo
+  as-of pero otra huella se rechaza completo. Un snapshot atrasado que nunca
+  fue aceptado también se rechaza completo, aunque sus métricas coincidan. La
+  recopia real sin cambios **sí avanza el reloj real**, aunque no inserte
+  observaciones, y bloquea snapshots intermedios. Una aceptación anterior sin
+  `snap=` reconoce su primer reintento exacto solo si el snapshot coincide con
+  TODA la observación vigente; si hubo una corrección intermedia, se rechaza
+  fail-closed. Un snapshot vacío es un no-op exitoso y no crea aceptación
+  temporal. Si el operador ve `snapshot atrasado`, vuelve a
+  copiar después del último sync de accounting y repite; la corrida rechazada
+  no escribió nada. El mismo hecho re-observado con un as-of nuevo (recopia
+  sin cambios) no agrega observaciones: manda la versión (hash). Límite
+  declarado: el orden depende de que `updated_at` sea el reloj de escritura
+  del origen; un snapshot que declare un `updated_at` más nuevo pero traiga
+  contenido viejo es indistinguible de una corrección y se acepta (el origen
+  estaría mintiendo sobre su propio orden).
+- **Validación**: el timestamp de origen debe existir en cada fila no
+  vacía (`updated_at`); una fila ilegible, con fracción de segundo, con un
+  año fuera de 2000-2100 o con un offset que desborda `datetime` al
+  normalizar a UTC rechaza el snapshot completo. Un as-of más de **24 h**
+  adelante del reloj de ingesta se rechaza. Las
+  claves `(campaign_id, metric_date)` deben ser únicas; un snapshot sin PK que
+  las repita se rechaza, no se deduplica. Dinero: se tolera solo ruido binario
+  (< 1e-5); más de 4 decimales se rechaza; el rango NUMERIC(14,4) se valida
+  después de cuantizar; un positivo que cuantiza a cero se rechaza;
+  `impressions`/`clicks` respetan BIGINT y `orders` INTEGER. El `ON CONFLICT`
+  apunta solo al índice parcial `metric_dedupe_reporte`; una colisión de PK
+  aborta la corrida. Los motivos separan "misma version canonica (recopia o
+  reintento)" de "source_report_id ya ingerido". `campaign_id`,
+  `campaign_name` y `revision` con NUL se rechazan en la frontera de
+  `ads_source.py` antes de tocar PostgreSQL. Todo motivo que se persiste
+  en `ingest_run.skip_reason` escapa NUL y caracteres de control C0/C1 antes de
+  llegar a PostgreSQL: una moneda o un `campaign_id` con NUL deja la corrida
+  `ok=false`, con `finished_at`, sin datos parciales y con un motivo legible.
+- **Renombre**: cambia `ad_entity.name` del nombre de la fecha más reciente;
+  no crea observaciones. Un nombre ausente en el origen no borra el publicado.
+  El nombre solo se aplica desde un snapshot **estrictamente posterior** al
+  as-of de esa campaña: con el mismo as-of se conserva el publicado, y un
+  snapshot atrasado se rechaza antes de tocar el catálogo. Una copia editada
+  (mismas métricas, nombre viejo) no puede restaurar el nombre anterior.
+- **Madurez**: MeLi **no** hereda el D-8 de Amazon. Se ingesta lo que el
+  origen publica (T+0 parcial incluido). El sync de accounting finaliza
+  T+1/T+2 y esa corrección llega como observación nueva.
+
+### Programación
+
+`tools/refresh_costos.sh` corre el comando al final, con su propio `corre` y
+su log `meli_ads.log`; un fallo suyo no toca `costs`/`fx`/`ledger` y el exit
+final sigue siendo distinto de 0. La línea del cron **no cambia**:
+
+```cron
+15 8 * * * /mnt/data/appdata/orbit/refresh_costos.sh >> /mnt/data/appdata/orbit/logs/costos.log 2>&1
+```
+
+Por qué 08:15 UTC alcanza (medido, no supuesto):
+
+- `sync_meli_ads.py` no está en crontab: lo corre `goncloud-dashboard.service`
+  cada 2 h (`INTERVAL_ADS = 2*3600`) y al arrancar. La última corrida
+  exitosa fue `2026-10-29T01:29:22Z` y duró ~20 s (loop de 90 días).
+- Con la fase observada (corridas a los :29 cada 2 h), a las 08:15 la última
+  sincronización cae ~07:29 (46 min antes). Si el dashboard se reinicia, la
+  fase cambia y el dato puede tener hasta 2 h: en ambos casos es el mismo día
+  UTC y el día anterior ya tuvo al menos una pasada T+1. MeLi puede corregir
+  hasta T+2; esa corrección entra como observación nueva, no se pisa.
+- La siguiente corrida de accounting es ~09:29: no hay carrera con la copia.
+
+### Activación (orden completo, sin desplegar desde este runbook)
+
+1. Copiar el código y reconstruir la app con el CLI nuevo, usando el **SHA
+   aprobado** en el `git archive` de la sección de rebuild (no `origin/master`,
+   que puede no incluir esta fase). Verificar dentro del contenedor:
+   `docker exec orbit-app-1 python -m app.cli ingest meli-ads --help`.
+2. Ejecutar la **carga inicial manual** con el procedimiento de arriba, antes
+   de instalar o habilitar el script que activa MeLi en cron. Comprobar
+   `ingest_run` (`ok`, `rows_written`, `skip_reason` con `as_of=` o
+   `futuro=`).
+3. Ejecutar la **conciliación** de la sección siguiente contra ese snapshot.
+   Debe salir con código 0 y `CONCILIACION OK`. Si falta o sobra una
+   campaña/día, un día completo, un NULL se convirtió en cero, una métrica
+   difiere o la moneda no es MXN, **detener la activación** y explicar la
+   diferencia antes de seguir. La conciliación no es un smoke opcional.
+
+   El comando exacto, desde la máquina del lead, con el snapshot local y un
+   DSN de **solo lectura** de Orbit (nunca el de escritura) o un Postgres
+   desechable con la misma ingesta. El DSN va por **entorno**, nunca como
+   argumento: un argumento queda visible en `ps`. La ventana `--desde/--hasta`
+   es explícita y no se deriva del snapshot: así un día perdido no desplaza el
+   inicio. `DESDE` es el primer día declarado al activar (no `min(date)` del
+   snapshot); `HASTA` es el último día conciliable: la ventana **cierra en
+   AYER**, porque el desglose de campañas del día en curso todavía no existe.
+
+   Abrir el túnel en una terminal de la máquina del lead. Ejecutar la carga del
+   DSN y la conciliación en otra. El DSN remoto se captura sin imprimirlo y se
+   reescribe al puerto local del túnel, nunca por `argv`.
+
+   ```bash
+   # Terminal A: dejar este proceso abierto durante la conciliación.
+   ssh -N -L 5433:127.0.0.1:5432 goncloud
+
+   # Terminal B: el snapshot ya fue copiado por el procedimiento anterior.
+   test -f "$SNAPSHOT_LOCAL"
+   DSN_REMOTO=$(ssh goncloud 'docker exec orbit-app-1 printenv ORBIT_DSN_READ')
+   export CONCILIAR_DSN="$(DSN_REMOTO="$DSN_REMOTO" python3 -c 'import os; from urllib.parse import urlsplit, urlunsplit; p=urlsplit(os.environ["DSN_REMOTO"]); partes=p.netloc.rsplit("@", 1); auth=partes[0]+"@" if len(partes)==2 else ""; print(urlunsplit((p.scheme, auth+"127.0.0.1:5433", p.path, p.query, p.fragment)))')"
+   unset DSN_REMOTO
+   test -n "$CONCILIAR_DSN"
+   DESDE=2026-04-16
+   # Portable GNU/BSD (precedente: repricing-02 desplegar.sh): el bloque corre
+   # en la máquina del lead (macOS), donde `date -d` de GNU no existe.
+   HASTA=$(date -u -d yesterday +%F 2>/dev/null || date -u -v-1d +%F)
+   uv run --frozen python \
+     docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-10266d91/scripts/conciliar.py \
+     "$SNAPSHOT_LOCAL" --desde "$DESDE" --hasta "$HASTA"
+   # Solo continuar si imprime CONCILIACION OK y sale 0.
+   unset CONCILIAR_DSN
+   ```
+
+   Al terminar, cerrar el túnel con Ctrl-C y borrar `$SNAPSHOT_LOCAL` con sus
+   posibles archivos `-wal` y `-shm`.
+
+   La actividad del control anterior a `DESDE` se excluye y se reporta. Una
+   campaña histórica o futura fuera de la ventana, un NULL o un error de
+   conexión hacen fallar la conciliación. Si origen y Orbit traen desglose de
+   HOY, ese desglose y su control diario también se concilian. Si ninguno trae
+   campañas de HOY, el control T+0 se excluye y se reporta, incluso cuando
+   está en ceros. Los errores de conexión se redactan con
+   `app.redaction.scrub`.
+
+4. Solo después de que la carga y la conciliación pasen, transferir el script
+   de host **desde el SHA aprobado**. El servidor no es un checkout y el
+   `git archive` de la app no copia este archivo. El archivo se materializa y
+   valida LOCALMENTE antes de transferirlo: un SHA inválido no puede producir
+   un archivo vacío que pase los checksums.
+
+   ```bash
+   set -euo pipefail
+   SHA_APROBADO=<sha aprobado>
+   ARCHIVO_LOCAL=$(mktemp /tmp/refresh_costos.XXXXXX)
+   trap 'rm -f "$ARCHIVO_LOCAL"' EXIT
+   git show "$SHA_APROBADO":tools/refresh_costos.sh > "$ARCHIVO_LOCAL"
+   test -s "$ARCHIVO_LOCAL"                    # falla si vino vacio
+   grep -q 'corre meli-ads meli_ads.log' "$ARCHIVO_LOCAL"
+   bash -n "$ARCHIVO_LOCAL"
+   SUM_LOCAL=$(sha256sum "$ARCHIVO_LOCAL" | awk '{print $1}')
+   test -n "$SUM_LOCAL"
+   scp "$ARCHIVO_LOCAL" goncloud:/tmp/refresh_costos.sh
+   SUM_REMOTO=$(ssh goncloud 'sha256sum /tmp/refresh_costos.sh' | awk '{print $1}')
+   test -n "$SUM_REMOTO" && test "$SUM_LOCAL" = "$SUM_REMOTO"
+   ssh goncloud 'test -s /tmp/refresh_costos.sh && install -m 0755 /tmp/refresh_costos.sh /mnt/data/appdata/orbit/refresh_costos.sh'
+   ```
+
+   El bloque se copia completo. `set -euo pipefail` es obligatorio: si `git
+   show`, `grep`, `bash -n`, `scp`, el checksum o el `install` fallan, el
+   procedimiento se detiene antes de reemplazar el script operativo. Un
+   archivo no vacío de un SHA viejo que no ejecute `meli-ads` tampoco pasa el
+   `grep`. `mktemp` termina en `XXXXXX` y el `trap` borra el temporal aunque
+   el bloque falle a mitad; así el reintento no choca con un archivo fijo.
+
+5. Verificar sintaxis en el servidor:
+   `ssh goncloud 'bash -n /mnt/data/appdata/orbit/refresh_costos.sh'`.
+6. Mantener la línea del cron sin cambios. La primera corrida del cron ya
+   incluye `meli-ads` porque el script instalado en el paso 4 lo ejecuta al
+   final, aislado y con su propio log `meli_ads.log`.
+
+### Conciliación
+
+Ventana 2026-10-01..2026-10-28: suma de campañas contra
+`meli_ads_metrics_daily`, **28/28 días idénticos** (spend 19,648.01 MXN,
+ad_sales 85,950.09 MXN en ambas). La conciliación completa del snapshot
+(196 días) contra Orbit en un Postgres desechable dio **784/784 filas y
+196/196 días sin diferencias**. Consulta de control:
+
+```sql
+-- En el snapshot: la suma de campañas debe igualar el total diario.
+WITH c AS (
+  SELECT date, sum(clicks) clicks, sum(impressions) impressions,
+         round(sum(spend),4) spend, round(sum(ad_sales),4) ad_sales
+    FROM meli_ads_campaigns_daily GROUP BY date
+)
+SELECT m.date, m.spend, c.spend, m.ad_sales, c.ad_sales
+  FROM meli_ads_metrics_daily m JOIN c ON c.date = m.date
+ WHERE m.date BETWEEN '2026-10-01' AND '2026-10-28'
+ ORDER BY m.date;
+-- Ninguna fila debe diferir.
+```
+
+En Orbit, la observación vigente por campaña/día:
+
+```sql
+SELECT e.external_id, l.metric_date, l.cost, l.ad_revenue,
+       l.impressions, l.clicks, l.orders, l.metric_currency
+  FROM v_metric_latest l JOIN ad_entity e ON e.id = l.ad_entity_id
+ WHERE e.platform = 'meli' AND e.kind = 'campaign'
+ ORDER BY l.metric_date DESC, e.external_id;
+```
+
+### Rollback
+
+No hay migración que revertir. Para **detener** la ingesta: quitar la línea
+`corre meli-ads meli_ads.log || rc=1` de `refresh_costos.sh` (y su copia en
+`/mnt/data/appdata/orbit/`), o dejar de desplegar el comando. Las filas ya
+ingeridas quedan como historia y **no se borran en caliente**:
+`ads_metric_observation` es append-only por trigger y `prohibir_mutacion`
+rechaza UPDATE/DELETE. Las entidades `meli` se identifican con
+`platform='meli' AND kind='campaign'`.
+
+**No se restaura el backup completo de PostgreSQL como rollback rutinario.**
+Ese backup revierte también escrituras ajenas posteriores. Si una recuperación
+excepcional exige eliminar el histórico de MeLi, va en un procedimiento
+separado, con backup verificado, alcance limitado a las filas de MeLi, pérdida
+explícita de todo lo escrito después de ese backup (de cualquier fuente) y
+aprobación del operador. No se ejecuta desde este runbook.
+
+No borres corridas exitosas de MeLi. La marca de as-of vive en su
+`skip_reason`. `ingest_run` no tiene purga (D7), pero **no es append-only**:
+nace abierta y se sella con UPDATE por columna. Borrar una corrida
+deduplicada pierde la marca y permite que un snapshot anterior vuelva a
+entrar.
 
 ## Crons de Orbit (crontab de `gon`, ADITIVO)
 
@@ -653,16 +968,19 @@ rompe nada, solo degrada; omitir `0035`/`0036` sí rompe.
 
 La línea `15 8 * * * .../refresh_costos.sh` (que ya existía para costos, a
 las 07:30 hasta la review del PR #144)
-corre ahora los tres pipelines del MISMO snapshot, en este orden: `costs`,
-`fx`, `ledger` — cada uno a su log (`costos.log`/`fx.log`/`ledger.log`)
-más una línea resumen a stdout (llega a `costos.log`). Un pipeline caído
+corre los cuatro pipelines del MISMO snapshot desde la activación de
+RESUMEN-ADS-01, en este orden: `costs`, `fx`, `ledger`, `meli-ads` — cada uno a su log
+(`costos.log`/`fx.log`/`ledger.log`/`meli_ads.log`) más una línea resumen a
+stdout (llega a `costos.log`). Ese orden es el de la CADENA del script, no el
+de la activación: antes de instalar o reemplazar `refresh_costos.sh` se hace
+la carga inicial manual y la conciliación de la sección de MeLi. Un pipeline caído
 NO tumba a los otros (cada uno sella su `ingest_run` ok/false); el exit
 final es != 0 si alguno falló. El script versionado vive en
 `tools/refresh_costos.sh` (la copia del server es la desplegada).
 **Orden de la cadena (corregido por el lead en la review):** 08:15 UTC cae
 después de los DOS syncs de accounting — `sync_ads_to_ledger.py` (:30 cada
 6 h → 06:30) y `sync_fx_rates.py` (08:00) — y 25 min antes de los ciclos
-08:40/08:41 (los tres pipelines tardan segundos). A las 07:30 el snapshot se
+08:40/08:41 (los cuatro pipelines tardan segundos). A las 07:30 el snapshot se
 tomaba 30 min ANTES del sync de FX: el FX de Orbit quedaba estructuralmente
 un día atrasado. Respaldo del crontab previo:
 `archive/crontab-gon.20260904-021331.lead-fx-orden`.

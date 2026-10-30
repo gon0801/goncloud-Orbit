@@ -211,6 +211,12 @@ def _ingest(args, rest: list[str]) -> int:
         # ORBIT 06 0.6: ledger (ventas+cargos) desde contabilidad (snapshot
         # SQLite via --sqlite; runbook en docs/DEPLOY.md). Mismo patron.
         return ledger.main(rest)
+    if args.pipeline == "meli-ads":
+        # RESUMEN-ADS-01: campana/dia de MeLi Ads desde contabilidad (snapshot
+        # SQLite via --sqlite; runbook en docs/DEPLOY.md). Mismo patron.
+        from app.meli import ads_ingest
+
+        return ads_ingest.main(rest)
     if args.pipeline == "estimacion":
         # MARGEN ESTIMADO A.3: ofertas frescas + Product Fees desde bridge.
         return estimacion_ingest.main(rest)
@@ -552,6 +558,7 @@ def _construye_parser() -> argparse.ArgumentParser:
             "listings",
             "fx",
             "ledger",
+            "meli-ads",
             "estimacion",
             "spapi_orders",
             "spapi_pricing",
@@ -566,6 +573,7 @@ def _construye_parser() -> argparse.ArgumentParser:
             " listings: mapa de listings desde el bridge (--sqlite);"
             " fx: tipos de cambio desde contabilidad (--sqlite);"
             " ledger: ventas+cargos desde contabilidad (--sqlite);"
+            " meli-ads: campana/dia de MeLi Ads desde contabilidad (--sqlite);"
             " estimacion: ofertas+fees desde bridge (--sqlite);"
             " spapi_orders: resumenes Orders SP-API (--platform);"
             " spapi_pricing: pase Pricing SP-API (--platform);"

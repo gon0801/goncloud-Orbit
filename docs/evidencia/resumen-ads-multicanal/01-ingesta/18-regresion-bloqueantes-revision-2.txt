@@ -1,0 +1,35 @@
+== Regresion de los bloqueantes de la segunda revision ==
+
+-- codigo anterior f11e2434: los tres casos fallan --
+Worktree: /tmp/orbit-prev-f11e (f11e2434f432f231892dc1bc20d4352640dc901b)
+Comando: python -m pytest -q tests/test_meli_ads_ingest.py -k 'no_restaura_nombre or concurrencia'
+
+E       Failed: DID NOT RAISE MeliAdsError
+E       AssertionError: assert 'NOMBRE VIEJO' == 'NOMBRE NUEVO'
+E
+E         - NOMBRE NUEVO
+E         ?        ^^ ^
+E         + NOMBRE VIEJO
+E         ?        ^^ ^
+E       AssertionError: assert Decimal('5.0000') == Decimal('6.5000')
+E        +  where Decimal('6.5000') = Decimal('6.5000')
+FAILED tests/test_meli_ads_ingest.py::test_snapshot_atrasado_no_restaura_nombre
+FAILED tests/test_meli_ads_ingest.py::test_mismo_as_of_no_restaura_nombre - A...
+FAILED tests/test_meli_ads_ingest.py::test_concurrencia_observed_at_se_toma_bajo_el_candado
+3 failed, 20 deselected in 0.80s
+
+-- codigo corregido: los tres casos pasan --
+Comando: uv run --frozen python -m pytest -v tests/test_meli_ads_ingest.py -k 'no_restaura_nombre or concurrencia'
+
+configfile: pyproject.toml
+plugins: anyio-4.14.2
+collecting ... collected 23 items / 20 deselected / 3 selected
+
+tests/test_meli_ads_ingest.py::test_snapshot_atrasado_no_restaura_nombre PASSED [ 33%]
+tests/test_meli_ads_ingest.py::test_mismo_as_of_no_restaura_nombre PASSED [ 66%]
+tests/test_meli_ads_ingest.py::test_concurrencia_observed_at_se_toma_bajo_el_candado PASSED [100%]
+
+======================= 3 passed, 20 deselected in 1.21s =======================
+
+Bloqueante 1: observed_at se calcula DESPUES del advisory lock (clock_timestamp()); la corrida que espera queda con el reloj mas nuevo.
+Bloqueante 2: un as-of anterior se rechaza aunque source_version coincida; con el mismo as-of el nombre solo se aplica si el snapshot es estrictamente posterior. El catalogo se toca despues de la validacion temporal.

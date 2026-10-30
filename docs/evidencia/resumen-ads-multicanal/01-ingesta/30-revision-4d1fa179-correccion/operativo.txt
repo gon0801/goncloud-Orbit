@@ -1,0 +1,16 @@
+PRIMERA {'run_id': 1, 'filas_origen': 788, 'rows_written': 788, 'rows_skipped': 0, 'duplicados': 0, 'duplicados_version': 0, 'duplicados_id': 0, 'rechazos': 0, 'entidades_nuevas': 4, 'entidades_actualizadas': 0}
+REINTENTO {'run_id': 2, 'filas_origen': 788, 'rows_written': 0, 'rows_skipped': 788, 'duplicados': 788, 'duplicados_version': 788, 'duplicados_id': 0, 'rechazos': 0, 'entidades_nuevas': 0, 'entidades_actualizadas': 0}
+FILAS (788, 4, datetime.date(2026, 4, 16), datetime.date(2026, 10, 29))
+ENTIDADES (4,)
+RUNS [(1, True, 788, 0, 'as_of=1793302592; snap=958ef20762fda036e049b8db65d3176bb3523946287253bb0b20df2eb01a2db0'), (2, True, 0, 788, 'reintento=958ef20762fda036e049b8db65d3176bb3523946287253bb0b20df2eb01a2db0; 788x misma version canonica (recopia o reintento)')]
+CONCILIAR_RC 0
+historia anterior a --desde excluida: 59 dias con actividad o NULL
+filas origen: 788
+filas Orbit:  788
+faltantes en Orbit: []
+sobrantes en Orbit: []
+campana/dia comparables: 788, diferencias: 0
+dias control: 197, dias Orbit: 197, faltantes en el control: 0, faltantes en Orbit: 0, sobrantes en Orbit: 0, diferencias: 0
+fecha de conciliacion: 2026-10-29T22:08:10.392233+00:00
+ventana: 2026-04-16..2026-10-29
+CONCILIACION OK

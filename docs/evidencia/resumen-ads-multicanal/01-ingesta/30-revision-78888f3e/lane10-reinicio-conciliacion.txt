@@ -1,0 +1,32 @@
+== Lane 10: ingesta MeLi, reinicio real de FastAPI y conciliacion ==
+Base: Postgres 5433 con esquema completo; snapshot real de accounting.
+
+-- historia/latest ANTES del reinicio --
+ obs | entidades |    costo    |   revenue   |            ultima
+-----+-----------+-------------+-------------+-------------------------------
+ 788 |         4 | 108751.1200 | 384161.7700 | 2026-10-29 00:35:15.232612-07
+(1 row)
+
+
+-- arranque 1 de FastAPI --
+{"status":"ok"}
+-- reinicio real (proceso nuevo) --
+{"status":"ok"}
+
+-- historia/latest DESPUES del reinicio --
+ obs | entidades |    costo    |   revenue   |            ultima
+-----+-----------+-------------+-------------+-------------------------------
+ 788 |         4 | 108751.1200 | 384161.7700 | 2026-10-29 00:35:15.232612-07
+(1 row)
+
+
+-- conciliacion despues del reinicio --
+filas origen: 788
+filas Orbit:  788
+faltantes en Orbit: []
+sobrantes en Orbit: []
+campana/dia comparables: 788, diferencias: 0
+dias comparables: 197, diferencias: 0
+fecha de conciliacion: 2026-10-29T07:35:25.503708+00:00
+CONCILIACION OK
+rc=0

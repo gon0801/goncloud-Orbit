@@ -178,6 +178,74 @@ ingesta.
 ciclo leen de aquí (frescura: ventana termina en `max(metric_date) − 3d`;
 completitud ≥7 fechas por entidad).
 
+**Mercado Libre Ads reutiliza esta tabla (RESUMEN-ADS-01)** — sin migración y
+sin tabla paralela. Entidades `platform='meli'`, `kind='campaign'`
+(`external_id = campaign_id`), observaciones diarias con
+`metric_currency='MXN'`. Fuente: `meli_ads_campaigns_daily` del snapshot de
+contabilidad (grano campaña/día). `cost = spend`, `ad_revenue = ad_sales`;
+`orders` queda NULL porque el origen no lo publica. Ceros reales se conservan
+en cero y los faltantes en NULL. El origen no tiene revisión: `source_version`
+es el SHA-256 de la fila canónica (campaña, fecha, moneda y todas las
+métricas, sin el nombre) y
+`source_report_id = meli-ads|<campaign_id>|<fecha>|<version>|<as_of_epoch>`,
+donde el as-of es `max(updated_at)` del snapshot en UTC. Así el dedupe
+existente hace no-op el mismo snapshot y una corrección entra como
+observación nueva. **El `ingest_run_id` no es clave de dedupe.** Cada
+aceptación deja en `ingest_run.skip_reason` la huella `snap=<sha256>` del
+snapshot COMPLETO en JSON (campaña, fecha, moneda, todas las métricas y la
+versión/revisión de cada fila). Un reintento
+exacto se reconoce por as-of + huella contra esa aceptación anterior, **no**
+contra `v_metric_latest`: es un no-op completo aunque otra corrida haya
+cambiado después la observación vigente, y no agrega otra aceptación. Un
+snapshot con el mismo as-of y otra
+huella se rechaza completo con `ok=false`; uno atrasado que nunca fue aceptado
+también, aunque sus métricas coincidan. Hay **dos marcas globales
+independientes**, no por campaña: `as_of=<epoch>` para los snapshots reales y
+`futuro=<epoch>` para los aceptados como futuros. Cada corrida escribe solo la
+marca de su reloj; la otra sigue viva en su propia corrida, así que ambas
+pueden estar ausentes y una primera corrida exclusivamente futura no escribe
+`as_of=`. Una aceptación futura guarda `piso=<epoch>` con el piso real
+heredado, para que una base legada sin marca real no lo pierda. Un as-of
+aceptado como futuro queda en cuarentena permanente: el
+avance del reloj no lo reclasifica como real y no bloquea correcciones reales
+válidas (un snapshot real se compara solo contra el reloj real; uno futuro
+contra el futuro, y contra el real si ya quedó detrás). Las marcas se toman
+del máximo entre todas las corridas exitosas, bajo el candado; el id de
+`ingest_run` no ordena porque los runs nacen antes del candado. Una recopia
+real deduplicada **sí avanza el reloj real** aunque no inserte observaciones,
+y bloquea snapshots intermedios. Un snapshot vacío es un no-op exitoso y no
+crea aceptación temporal. Una aceptación anterior sin `snap=` reconoce su
+primer reintento exacto solo si coincide con toda la observación vigente; si
+hubo una corrección intermedia, se rechaza fail-closed. Un as-of hasta 24 h
+adelante se acepta pero
+no envenena una corrección real (los snapshots con as-of hasta 5 min adelante
+del reloj se clasifican como reales). `updated_at` es obligatorio en cada
+fila no vacía; fracciones de segundo, años fuera de 2000-2100 y offsets que
+desbordan `datetime` al normalizar a UTC se rechazan; un as-of más de 24 h
+adelante se rechaza. `campaign_id`, `campaign_name` y `revision` con NUL se
+rechazan en la frontera de `ads_source.py`. `observed_at` es un reloj lógico
+que nunca queda por
+detrás del máximo publicado. Las claves
+`(campaign_id, metric_date)` deben ser únicas; un snapshot sin PK que las
+repita se rechaza. El `ON CONFLICT` apunta solo al índice parcial
+`metric_dedupe_reporte`; una colisión de la PK
+`(ad_entity_id, metric_date, observed_at)` aborta la corrida. Dinero: se
+tolera solo ruido binario (< 1e-5), se rechaza precisión genuina de más de 4
+decimales, el rango se valida después de cuantizar, y un positivo que cuantiza
+a cero se rechaza; `impressions`/`clicks` respetan BIGINT y `orders` INTEGER.
+Un renombre actualiza `ad_entity.name` (el de la fecha más reciente) sin crear
+observaciones, y solo desde un snapshot estrictamente posterior a la marca
+aplicable; un reintento exacto no toca el catálogo. `observed_at` se toma de
+`clock_timestamp()` **después** de adquirir el advisory lock de MeLi: una
+corrida que esperó el candado no puede quedar con un `observed_at` anterior al
+de la que terminó mientras esperaba. Todo motivo persistido en
+`ingest_run.skip_reason` escapa NUL y caracteres de control antes de llegar a
+PostgreSQL; una entrada con NUL deja `ok=false`, `finished_at` con valor, cero
+entidades/observaciones y un motivo legible. MeLi **no** hereda la madurez D-8
+de Amazon: `v_metric_mature` sigue siendo D-15 y el resumen multicanal deberá
+declarar la madurez de MeLi como desconocida en RESUMEN-ADS-02.
+
+
 **`search_term_observation`** — Append-only igual que la anterior pero para
 search terms: PK `(platform, ad_entity_id, search_term, metric_date,
 observed_at)`, dedupe por `source_report_id`, sello de moneda por trigger.

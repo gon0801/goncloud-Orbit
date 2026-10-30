@@ -1,0 +1,35 @@
+== DESPUES: FUTURO RECLASIFICADO (Caso A) ==
+FUTURO_RECLASIFICADO {'marca_reintento': 'futuro=1793287858; snap=89cfd8227e471b2fa43a8f01a5080c7a1c9a3c0b7b026184e6cb15656d6a6097; 1x misma version canonica (recopia o reintento)', 'correccion_real_error': None, 'latest': '6.0000', 'latest_esperado': '6.0000'}
+rc=0
+
+== DESPUES: REINTENTO FUTURO (Caso B) ==
+REINTENTO_FUTURO_EXACTO {'primero': {'run_id': 1, 'filas_origen': 1, 'rows_written': 1, 'rows_skipped': 0, 'duplicados': 0, 'duplicados_version': 0, 'duplicados_id': 0, 'rechazos': 0, 'entidades_nuevas': 1, 'entidades_actualizadas': 0}, 'reintento': {'run_id': 3, 'filas_origen': 1, 'rows_written': 0, 'rows_skipped': 1, 'duplicados': 1, 'duplicados_version': 1, 'duplicados_id': 0, 'rechazos': 0, 'entidades_nuevas': 0, 'entidades_actualizadas': 0}, 'error': None, 'latest': '6.0000', 'observaciones': 2}
+rc=0
+
+== DESPUES: NUL EN MONEDA ==
+NUL_MONEDA {'error': "MeliAdsError('snapshot rechazado (cero escrituras): 4x moneda fuera de dominio (MXN): MXN\\x00USD')", 'runs': [(False, datetime.datetime(2026, 10, 29, 15, 20, 58, 820267, tzinfo=datetime.timezone.utc), 4, 'snapshot rechazado (cero escrituras): 4x moneda fuera de dominio (MXN): MXN\\x00USD')], 'datos': (0, 0)}
+rc=0
+
+== DESPUES: CONCILIACION CON ORBIT VACIO (repro del revisor) ==
+filas origen: 1
+filas Orbit:  0
+faltantes en Orbit: [('C1', '2026-10-28')]
+sobrantes en Orbit: []
+campana/dia comparables: 0, diferencias: 0
+dias control: 1, dias Orbit: 0, faltantes en el control: 0, faltantes en Orbit: 1, sobrantes en Orbit: 0, diferencias: 0
+fecha de conciliacion: 2026-10-29T15:20:58.908156+00:00
+FALTA en Orbit ('C1', '2026-10-28'): origen=(Decimal('1.0000'), Decimal('2.0000'), 3, 4)
+FALTA el dia 2026-10-28 en Orbit: origen=(4, 3, Decimal('1.0000'), Decimal('2.0000'))
+CONCILIACION FALLA
+rc=1
+
+== DESPUES: CONCILIACION POSITIVA (snapshot real de accounting) ==
+filas origen: 788
+filas Orbit:  788
+faltantes en Orbit: []
+sobrantes en Orbit: []
+campana/dia comparables: 788, diferencias: 0
+dias control: 197, dias Orbit: 197, faltantes en el control: 0, faltantes en Orbit: 0, sobrantes en Orbit: 0, diferencias: 0
+fecha de conciliacion: 2026-10-29T15:20:59.010071+00:00
+CONCILIACION OK
+rc=0
