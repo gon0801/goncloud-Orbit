@@ -31,7 +31,7 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
-from test_schema import SQL, _hay_postgres_local, _test_dsn
+from test_schema import SQL, _postgres_obligatorio_ausente, _test_dsn
 
 from app.meli.ads_ingest import (
     _SQL_LOCK_MELI,
@@ -399,14 +399,21 @@ def test_main_exige_flag_sqlite():
 # (b) Integracion contra la migracion real
 # ---------------------------------------------------------------------------
 
-_DSN_EXPLICITO = bool(os.environ.get("ORBIT_TEST_DSN"))
+
+def _pg_o_skip():
+    """Guard del fixture pg, fail-closed (hallazgo de revision): el criterio
+    lo pone `_postgres_obligatorio_ausente` — en CI un Postgres ausente o un
+    driver faltante son RuntimeError ruidosos desde ahi; fuera de CI queda el
+    skip legitimo. El driver se importa NORMAL despues del guard: un
+    `importorskip` puede ocultar toda la integracion si CI esta mal armada."""
+    if _postgres_obligatorio_ausente():
+        pytest.skip("sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432")
 
 
 @pytest.fixture
 def pg():
-    if not _DSN_EXPLICITO and not _hay_postgres_local():
-        pytest.skip("sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432")
-    psycopg = pytest.importorskip("psycopg")
+    _pg_o_skip()
+    import psycopg
     from psycopg import sql as pgsql
 
     dsn = _test_dsn()
@@ -429,6 +436,17 @@ def pg():
             pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
         )
         admin.close()
+
+
+def test_pg_guard_falla_cerrado_en_ci_sin_postgres(monkeypatch):
+    """CI=true, sin ORBIT_TEST_DSN y sin Postgres utilizable: RuntimeError,
+    no un skip que se lea como cobertura (el guard es el mismo contrato de
+    `_postgres_obligatorio_ausente`)."""
+    monkeypatch.setenv("CI", "true")
+    monkeypatch.delenv("ORBIT_TEST_DSN", raising=False)
+    monkeypatch.setattr("test_schema._hay_postgres_local", lambda: False)
+    with pytest.raises(RuntimeError, match="CI"):
+        _pg_o_skip()
 
 
 def _corrige(

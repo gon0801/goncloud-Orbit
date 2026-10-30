@@ -540,13 +540,14 @@ Por qué 08:15 UTC alcanza (medido, no supuesto):
    argumento: un argumento queda visible en `ps`. La ventana `--desde/--hasta`
    es explícita y no se deriva del snapshot: así un día perdido no desplaza el
    inicio. `DESDE` es el primer día declarado al activar (no `min(date)` del
-   snapshot); `HASTA` es el último día conciliable.
+   snapshot); `HASTA` es el último día conciliable: la ventana **cierra en
+   AYER**, porque el desglose de campañas del día en curso todavía no existe.
 
    ```bash
    SNAPSHOT_LOCAL=/ruta/al/snapshot.db
    export CONCILIAR_DSN="$ORBIT_DSN_READ"   # o postgresql://.../orbit_conciliacion
    DESDE=2026-04-16
-   HASTA=$(date -u +%F)
+   HASTA=$(date -u -d yesterday +%F)
    uv run --frozen python \
      docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-10266d91/scripts/conciliar.py \
      "$SNAPSHOT_LOCAL" --desde "$DESDE" --hasta "$HASTA"
@@ -556,7 +557,11 @@ Por qué 08:15 UTC alcanza (medido, no supuesto):
    La actividad del control anterior a `DESDE` se excluye y se reporta; la
    posterior a `HASTA`, una campaña fuera de la ventana, un NULL (aunque
    coincida en origen, control y Orbit) o un error de conexión hacen fallar
-   la conciliación. Los errores de conexión se redactan con
+   la conciliación. Única excepción: el **control diario de HOY** posterior a
+   `HASTA` se excluye como T+0 (accounting ya publicó el total, el desglose
+   de campañas de hoy aún no existe) y se reporta con cuántos días se
+   excluyeron; un NULL de HOY sigue fallando, y si `HASTA` incluye a HOY el
+   control de hoy no tiene exención. Los errores de conexión se redactan con
    `app.redaction.scrub`.
 
 4. Solo después de que la carga y la conciliación pasen, transferir el script

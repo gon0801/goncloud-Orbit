@@ -6,8 +6,13 @@ Uso: CONCILIAR_DSN=postgresql://... python conciliar.py <snapshot.db> \
 
 La ventana [desde, hasta] es explicita: no se deriva de las campanas del
 snapshot, para que un dia perdido no desplace el inicio. La actividad anterior
-a `desde` se excluye y se reporta; la posterior a `hasta` falla. El DSN va por
-entorno (nunca en argv) y los errores de conexion se redactan.
+a `desde` se excluye y se reporta; la posterior a `hasta` falla, con UNA
+excepcion: el control diario de HOY (T+0: accounting ya publico el total,
+el desglose de campanas de hoy todavia no existe) se excluye y se reporta
+cuando la ventana cerrada termina antes de hoy. Un NULL de HOY sigue
+fallando, y con `hasta` incluyendo a HOY el control de hoy no tiene
+exencion. El DSN va por entorno (nunca en argv) y los errores de conexion
+se redactan.
 
 Sale distinto de cero ante CUALQUIER diferencia: una campana/dia que falta o
 sobra en Orbit, un dia completo que falta o sobra, un NULL (aunque coincida),
@@ -304,9 +309,30 @@ def compara(
         else:
             errores.append(f"campana/dia fuera de la ventana declarada {clave}: {valores}")
 
+    hoy_txt = dt.datetime.now(dt.UTC).date().isoformat()
+    t0_excluidos = 0
     for fecha, valores in sorted(dias.items()):
-        if fecha > hasta_txt and _comparable(valores):
+        if fecha <= hasta_txt or not _comparable(valores):
+            # En ventana lo decide el cruce de abajo; un cero redondo fuera
+            # de ventana es inactividad, no un hueco.
+            continue
+        if any(valor is None for valor in valores):
+            # Un NULL no es inactividad ni T+0: el dia no se puede probar y
+            # falla cerrado, aunque sea el dia de hoy.
             errores.append(f"control diario fuera de la ventana declarada {fecha}: {valores}")
+        elif fecha == hoy_txt:
+            # T+0: accounting ya publico el total de HOY pero el desglose de
+            # campanas de hoy no existe todavia. Excluible SOLO si la ventana
+            # cerrada termina antes de hoy (llegar aqui ya lo garantiza);
+            # con --hasta incluyendo a HOY el control de hoy queda DENTRO de
+            # la ventana y el FALTA de abajo sigue disparando.
+            t0_excluidos += 1
+        else:
+            errores.append(f"control diario fuera de la ventana declarada {fecha}: {valores}")
+    if t0_excluidos:
+        print(
+            f"control T+0 excluido: {t0_excluidos} dia(s) de HOY sin desglose de campanas todavia"
+        )
     historia = sum(
         1 for fecha, valores in dias.items() if fecha < desde_txt and _comparable(valores)
     )

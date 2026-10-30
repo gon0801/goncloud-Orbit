@@ -1,0 +1,57 @@
+F...F                                                                    [100%]
+=================================== FAILURES ===================================
+________ test_control_t0_de_hoy_se_excluye_con_ventana_que_termina_ayer ________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108a85220>
+tmp_path = PosixPath('/private/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/pytest-of-dn/pytest-3639/test_control_t0_de_hoy_se_excl0')
+capsys = <_pytest.capture.CaptureFixture object at 0x108b34440>
+
+    def test_control_t0_de_hoy_se_excluye_con_ventana_que_termina_ayer(
+        monkeypatch, tmp_path, capsys
+    ):
+        """Campanas y Orbit coinciden hasta AYER; el control ya trae el gasto de
+        HOY. Con DESDE=HASTA=ayer la conciliacion es OK e informa el dia T+0."""
+        ayer = dt.datetime.now(dt.UTC).date() - dt.timedelta(days=1)
+        hoy = ayer + dt.timedelta(days=1)
+        campanas = [("C1", ayer.isoformat(), 1.0, 2.0, 3, 4)]
+        dias = [
+            (ayer.isoformat(), 4, 3, 1.0, 2.0),
+            (hoy.isoformat(), 9, 8, 500.0, 900.0),
+        ]
+        orbit = [("C1", ayer, Decimal("1.0000"), Decimal("2.0000"), 3, 4, "MXN")]
+    
+        codigo, salida = _corre(
+            monkeypatch,
+            tmp_path,
+            campanas,
+            dias,
+            orbit,
+            capsys,
+            desde=ayer.isoformat(),
+            hasta=ayer.isoformat(),
+        )
+>       assert codigo == 0
+E       assert 1 == 0
+
+tests/test_conciliar_meli_ads.py:504: AssertionError
+________________ test_pg_guard_falla_cerrado_en_ci_sin_postgres ________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108e31370>
+
+    def test_pg_guard_falla_cerrado_en_ci_sin_postgres(monkeypatch):
+        """CI=true, sin ORBIT_TEST_DSN y sin Postgres utilizable: RuntimeError,
+        no un skip que se lea como cobertura (el guard es el mismo contrato de
+        `_postgres_obligatorio_ausente`)."""
+        monkeypatch.setenv("CI", "true")
+        monkeypatch.delenv("ORBIT_TEST_DSN", raising=False)
+        monkeypatch.setattr("test_schema._hay_postgres_local", lambda: False)
+        with pytest.raises(RuntimeError, match="CI"):
+>           _pg_o_skip()
+            ^^^^^^^^^^
+E           NameError: name '_pg_o_skip' is not defined
+
+tests/test_meli_ads_ingest.py:2207: NameError
+=========================== short test summary info ============================
+FAILED tests/test_conciliar_meli_ads.py::test_control_t0_de_hoy_se_excluye_con_ventana_que_termina_ayer
+FAILED tests/test_meli_ads_ingest.py::test_pg_guard_falla_cerrado_en_ci_sin_postgres
+2 failed, 3 passed in 0.26s

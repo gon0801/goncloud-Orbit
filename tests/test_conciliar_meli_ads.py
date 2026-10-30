@@ -470,6 +470,123 @@ def test_campana_fuera_de_la_ventana_declarada_falla(monkeypatch, tmp_path, caps
     assert "campana/dia fuera de la ventana declarada" in salida
 
 
+# ---------------------------------------------------------------------------
+# T+0: el control diario de HOY existe en accounting antes que el desglose
+# de campanas. La ventana cerrada termina AYER; la exencion es SOLO para
+# HOY, sin NULL, y fuera de la ventana declarada.
+# ---------------------------------------------------------------------------
+
+
+def test_control_t0_de_hoy_se_excluye_con_ventana_que_termina_ayer(monkeypatch, tmp_path, capsys):
+    """Campanas y Orbit coinciden hasta AYER; el control ya trae el gasto de
+    HOY. Con DESDE=HASTA=ayer la conciliacion es OK e informa el dia T+0."""
+    ayer = dt.datetime.now(dt.UTC).date() - dt.timedelta(days=1)
+    hoy = ayer + dt.timedelta(days=1)
+    campanas = [("C1", ayer.isoformat(), 1.0, 2.0, 3, 4)]
+    dias = [
+        (ayer.isoformat(), 4, 3, 1.0, 2.0),
+        (hoy.isoformat(), 9, 8, 500.0, 900.0),
+    ]
+    orbit = [("C1", ayer, Decimal("1.0000"), Decimal("2.0000"), 3, 4, "MXN")]
+
+    codigo, salida = _corre(
+        monkeypatch,
+        tmp_path,
+        campanas,
+        dias,
+        orbit,
+        capsys,
+        desde=ayer.isoformat(),
+        hasta=ayer.isoformat(),
+    )
+    assert codigo == 0
+    assert "CONCILIACION OK" in salida
+    assert "T+0" in salida
+
+
+def test_control_historico_posterior_a_hasta_sigue_fallando(monkeypatch, tmp_path, capsys):
+    """La exencion es SOLO de HOY: un control con actividad de una fecha ya
+    pasada y fuera de la ventana sigue fallando."""
+    hace_dos = dt.datetime.now(dt.UTC).date() - dt.timedelta(days=2)
+    hace_tres = hace_dos - dt.timedelta(days=1)
+    campanas = [("C1", hace_tres.isoformat(), 1.0, 2.0, 3, 4)]
+    dias = [
+        (hace_tres.isoformat(), 4, 3, 1.0, 2.0),
+        (hace_dos.isoformat(), 9, 8, 500.0, 900.0),
+    ]
+    orbit = [("C1", hace_tres, Decimal("1.0000"), Decimal("2.0000"), 3, 4, "MXN")]
+
+    codigo, salida = _corre(
+        monkeypatch,
+        tmp_path,
+        campanas,
+        dias,
+        orbit,
+        capsys,
+        desde=hace_tres.isoformat(),
+        hasta=hace_tres.isoformat(),
+    )
+    assert codigo != 0
+    assert "control diario fuera de la ventana declarada" in salida
+    assert "CONCILIACION OK" not in salida
+
+
+def test_control_t0_con_null_sigue_fallando(monkeypatch, tmp_path, capsys):
+    """Un NULL en el control de HOY no es T+0: el dia no se puede probar."""
+    ayer = dt.datetime.now(dt.UTC).date() - dt.timedelta(days=1)
+    hoy = ayer + dt.timedelta(days=1)
+    campanas = [("C1", ayer.isoformat(), 1.0, 2.0, 3, 4)]
+    dias = [
+        (ayer.isoformat(), 4, 3, 1.0, 2.0),
+        (hoy.isoformat(), 9, 8, None, 900.0),
+    ]
+    orbit = [("C1", ayer, Decimal("1.0000"), Decimal("2.0000"), 3, 4, "MXN")]
+
+    codigo, salida = _corre(
+        monkeypatch,
+        tmp_path,
+        campanas,
+        dias,
+        orbit,
+        capsys,
+        desde=ayer.isoformat(),
+        hasta=ayer.isoformat(),
+    )
+    assert codigo != 0
+    assert f"control diario fuera de la ventana declarada {hoy.isoformat()}" in salida
+    assert "CONCILIACION OK" not in salida
+
+
+def test_campana_de_hoy_fuera_de_la_ventana_sigue_fallando(monkeypatch, tmp_path, capsys):
+    """La exencion T+0 es del CONTROL, nunca de las campanas: una campana de
+    HOY con ventana cerrada en AYER sigue fallando."""
+    ayer = dt.datetime.now(dt.UTC).date() - dt.timedelta(days=1)
+    hoy = ayer + dt.timedelta(days=1)
+    campanas = [
+        ("C1", ayer.isoformat(), 1.0, 2.0, 3, 4),
+        ("C2", hoy.isoformat(), 1.0, 2.0, 3, 4),
+    ]
+    dias = [
+        (ayer.isoformat(), 4, 3, 1.0, 2.0),
+        (hoy.isoformat(), 13, 11, 501.0, 902.0),
+    ]
+    orbit = [("C1", ayer, Decimal("1.0000"), Decimal("2.0000"), 3, 4, "MXN")]
+
+    codigo, salida = _corre(
+        monkeypatch,
+        tmp_path,
+        campanas,
+        dias,
+        orbit,
+        capsys,
+        desde=ayer.isoformat(),
+        hasta=ayer.isoformat(),
+    )
+    assert codigo != 0
+    assert "campana/dia fuera de la ventana declarada" in salida
+    assert "CONCILIACION OK" not in salida
+
+
 def test_dsn_por_entorno_y_redactado(monkeypatch, tmp_path, capsys):
     """El DSN no se pasa por argv y los errores de conexion se redactan."""
     modulo = _carga_script()
