@@ -547,7 +547,9 @@ Por qué 08:15 UTC alcanza (medido, no supuesto):
    SNAPSHOT_LOCAL=/ruta/al/snapshot.db
    export CONCILIAR_DSN="$ORBIT_DSN_READ"   # o postgresql://.../orbit_conciliacion
    DESDE=2026-04-16
-   HASTA=$(date -u -d yesterday +%F)
+   # Portable GNU/BSD (precedente: repricing-02 desplegar.sh): el bloque corre
+   # en la máquina del lead (macOS), donde `date -d` de GNU no existe.
+   HASTA=$(date -u -d yesterday +%F 2>/dev/null || date -u -v-1d +%F)
    uv run --frozen python \
      docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-10266d91/scripts/conciliar.py \
      "$SNAPSHOT_LOCAL" --desde "$DESDE" --hasta "$HASTA"

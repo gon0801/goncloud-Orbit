@@ -21,6 +21,7 @@ Evidencia de la ronda. El veredicto de la revision pidio dos correcciones:
 | `focal.txt` | `uv run --frozen python -m pytest -q tests/test_meli_ads_ingest.py tests/test_conciliar_meli_ads.py tests/test_cli.py tests/test_architecture.py` → 272 passed. |
 | `calidad.txt` | ruff check + ruff format --check sobre los archivos modificados, `bash -n tools/refresh_costos.sh`, `git diff --check`, `pre-commit run --all-files`. |
 | `copias-identicas.txt` | SHA-256 de las tres copias de `conciliar.py`: `726c73a94561bddc26b519cac18ffe728263221bad25c1f0109c5975d6573711` (byte-identicas). |
+| `crossreview-kimi.txt` | Cross review con Kimi (`kimi-code-plan-cn/k3.1-pro`, 3 revisores): A y B aprueban; C rechazo por `date -d` GNU en la maquina del lead -> corregido con la forma portable de repricing-02. Incluye las notas de los otros dos revisores. |
 | `suite-completa.txt` | Bateria completa con `ORBIT_TEST_DSN` resuelto via `test_schema._test_dsn`. |
 
 ## Pendiente (NO ejecutado aqui)

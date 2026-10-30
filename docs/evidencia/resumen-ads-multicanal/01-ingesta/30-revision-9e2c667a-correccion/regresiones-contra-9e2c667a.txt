@@ -19,7 +19,7 @@ capsys = <_pytest.capture.CaptureFixture object at 0x108b34440>
             (hoy.isoformat(), 9, 8, 500.0, 900.0),
         ]
         orbit = [("C1", ayer, Decimal("1.0000"), Decimal("2.0000"), 3, 4, "MXN")]
-    
+
         codigo, salida = _corre(
             monkeypatch,
             tmp_path,

@@ -504,6 +504,33 @@ def test_control_t0_de_hoy_se_excluye_con_ventana_que_termina_ayer(monkeypatch, 
     assert "T+0" in salida
 
 
+def test_control_de_hoy_dentro_de_la_ventana_sigue_fallando(monkeypatch, tmp_path, capsys):
+    """Con --hasta incluyendo a HOY el control de hoy NO tiene exencion T+0:
+    con actividad y sin desglose de campanas, falta el dia en Orbit."""
+    ayer = dt.datetime.now(dt.UTC).date() - dt.timedelta(days=1)
+    hoy = ayer + dt.timedelta(days=1)
+    campanas = [("C1", ayer.isoformat(), 1.0, 2.0, 3, 4)]
+    dias = [
+        (ayer.isoformat(), 4, 3, 1.0, 2.0),
+        (hoy.isoformat(), 9, 8, 500.0, 900.0),
+    ]
+    orbit = [("C1", ayer, Decimal("1.0000"), Decimal("2.0000"), 3, 4, "MXN")]
+
+    codigo, salida = _corre(
+        monkeypatch,
+        tmp_path,
+        campanas,
+        dias,
+        orbit,
+        capsys,
+        desde=ayer.isoformat(),
+        hasta=hoy.isoformat(),
+    )
+    assert codigo != 0
+    assert f"FALTA el dia {hoy.isoformat()} en Orbit" in salida
+    assert "CONCILIACION OK" not in salida
+
+
 def test_control_historico_posterior_a_hasta_sigue_fallando(monkeypatch, tmp_path, capsys):
     """La exencion es SOLO de HOY: un control con actividad de una fecha ya
     pasada y fuera de la ventana sigue fallando."""

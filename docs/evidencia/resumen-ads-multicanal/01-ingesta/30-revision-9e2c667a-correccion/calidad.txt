@@ -1,11 +1,26 @@
-== ruff check (archivos modificados) ==
+== comandos exactos ejecutados (ultima corrida: 2026-10-30T02:42:49Z) ==
+
+$ ruff check tests/test_conciliar_meli_ads.py tests/test_meli_ads_ingest.py docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-{10266d91,78888f3e,d1bdbe5f}/scripts/conciliar.py
 All checks passed!
-== ruff format --check ==
+
+$ ruff format --check tests/test_conciliar_meli_ads.py tests/test_meli_ads_ingest.py
 2 files already formatted
-== bash -n tools/refresh_costos.sh ==
-OK
-== git diff --check ==
-OK
-== pre-commit run --all-files ==
+
+$ bash -n tools/refresh_costos.sh
+(sin salida: OK)
+
+$ git diff --check
+(sin salida: OK)
+
+$ git diff --check 9e2c667a -- docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-9e2c667a-correccion/
+(sin salida: OK)
+
+$ pre-commit run --all-files  (rc=0)
 Detect hardcoded secrets.................................................Passed
 check for merge conflicts................................................Passed
+
+NOTA: pre-commit --all-files fallo de forma intermitente 2 veces
+(gitleaks y check-merge-conflict reportando 'files were modified' con
+'no leaks found' / sin marcadores de conflicto) durante la instalacion
+del entorno de hooks; la re-ejecucion inmediata paso con rc=0 (salida
+adjunta). Sin archivos modificados por los hooks en el arbol.
