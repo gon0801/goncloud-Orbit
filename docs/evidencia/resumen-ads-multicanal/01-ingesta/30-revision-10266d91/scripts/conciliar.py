@@ -5,14 +5,13 @@ Uso: CONCILIAR_DSN=postgresql://... python conciliar.py <snapshot.db> \
        --desde YYYY-MM-DD --hasta YYYY-MM-DD
 
 La ventana [desde, hasta] es explicita: no se deriva de las campanas del
-snapshot, para que un dia perdido no desplace el inicio. La actividad anterior
-a `desde` se excluye y se reporta; la posterior a `hasta` falla, con UNA
-excepcion: el control diario de HOY (T+0: accounting ya publico el total,
-el desglose de campanas de hoy todavia no existe) se excluye y se reporta
-cuando la ventana cerrada termina antes de hoy. Un NULL de HOY sigue
-fallando, y con `hasta` incluyendo a HOY el control de hoy no tiene
-exencion. El DSN va por entorno (nunca en argv) y los errores de conexion
-se redactan.
+snapshot, para que un dia perdido no desplace el inicio. La actividad del
+control anterior a `desde` se excluye y se reporta. Una campana historica o
+futura fuera de la ventana falla. Si origen y Orbit traen desglose de HOY,
+ese desglose y su control diario tambien se concilian; si ninguno trae
+campanas de HOY, el control T+0 se excluye y se reporta. Un NULL de HOY
+sigue fallando. El DSN va por entorno (nunca en argv) y los errores de
+conexion se redactan.
 
 Sale distinto de cero ante CUALQUIER diferencia: una campana/dia que falta o
 sobra en Orbit, un dia completo que falta o sobra, un NULL (aunque coincida),

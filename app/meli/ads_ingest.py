@@ -147,8 +147,7 @@ SELECT max(o.observed_at)
 _SQL_MARCA = (
     "SELECT skip_reason FROM ingest_run"
     " WHERE source = %s AND ok = true"
-    " AND (skip_reason LIKE 'as_of=%%' OR skip_reason LIKE 'futuro=%%'"
-    " OR skip_reason LIKE 'piso=%%')"
+    " AND (skip_reason LIKE 'as_of=%%' OR skip_reason LIKE 'futuro=%%')"
 )
 _MARCA_RE = re.compile(r"^as_of=(\d+)(?:;|$)")
 _FUTURO_RE = re.compile(r"(?:^|; )futuro=(\d+)")
@@ -431,11 +430,6 @@ def _lee_marcas(conn: psycopg.Connection) -> _Marcas:
     )
 
 
-def _aceptaciones(conn: psycopg.Connection) -> list[_Aceptacion]:
-    """Todas las aceptaciones registradas, con su huella de snapshot."""
-    return list(_lee_marcas(conn).aceptaciones)
-
-
 def _marcas_corridas(conn: psycopg.Connection) -> tuple[int, int]:
     """Maximos as-of REAL y FUTURO de todas las corridas exitosas.
 
@@ -463,7 +457,6 @@ def _max_as_of_observaciones(conn: psycopg.Connection, futuras: set[int], as_of_
 
 def _estado_temporal(
     conn: psycopg.Connection,
-    ultimas: dict[tuple[str, dt.date], tuple[str, int]],
     as_of_epoch: int,
 ) -> tuple[dt.datetime, int, _Marcas, int]:
     """Reloj logico de observacion y marcas real/futura/piso bajo el candado."""
@@ -692,9 +685,7 @@ def ingest_meli_ads(
                 ultimas[(external_id, metric_date)] = _contenido_desde(*valores)
 
             as_of_epoch = int(origen.as_of.timestamp()) if origen.as_of is not None else -1
-            observed_at, marca_real, marcas, limite_real = _estado_temporal(
-                conn, ultimas, as_of_epoch
-            )
+            observed_at, marca_real, marcas, limite_real = _estado_temporal(conn, as_of_epoch)
             versiones = _versiones_snapshot(filas)
             legado_mismo_as_of = _observaciones_en_as_of(conn, as_of_epoch)
             # Un snapshot futuro que solo repite observaciones legadas ya
