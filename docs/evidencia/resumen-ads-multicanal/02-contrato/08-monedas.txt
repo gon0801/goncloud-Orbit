@@ -1,0 +1,79 @@
+# RONDA 1 (historico): este archivo se genero con el "hoy" UTC, que servia
+# el dia en curso entre 18:00 y 24:00 CDMX. La correccion (zona local minima)
+# esta en 11-correcciones-ronda-2.txt.
+# Moneda nativa por canal y totales multi-canal agrupados por moneda
+## periodo=30: moneda por canal
+{
+  "amazon_mx": "MXN",
+  "amazon_us": "USD",
+  "meli": "MXN"
+}
+
+## Totales multi-canal: MXN y USD jamas se suman entre si
+[
+  {
+    "moneda": "MXN",
+    "canales": [
+      "amazon_mx",
+      "meli"
+    ],
+    "canales_sin_dato": [],
+    "cost": "42579.8800",
+    "ad_revenue": "254142.4400",
+    "clicks": 13112,
+    "orders": 164,
+    "acos": "16.75",
+    "roas": "5.97",
+    "sin_ventas": false,
+    "completo": true
+  },
+  {
+    "moneda": "USD",
+    "canales": [
+      "amazon_us"
+    ],
+    "canales_sin_dato": [],
+    "cost": "1475.1900",
+    "ad_revenue": "2650.2300",
+    "clicks": 3481,
+    "orders": 24,
+    "acos": "55.66",
+    "roas": "1.80",
+    "sin_ventas": false,
+    "completo": true
+  }
+]
+
+## Comprobacion de la suma por grupo (MXN = amazon_mx + meli; USD = amazon_us)
+{
+  "mxn_grupo": "42579.8800",
+  "mx": "22888.7900",
+  "meli": "19691.0900",
+  "usd_grupo": "1475.1900",
+  "us": "1475.1900"
+}
+
+## Filtro canal=meli: solo ese canal, misma moneda MXN
+{
+  "canales": [
+    "meli"
+  ],
+  "moneda": "MXN",
+  "totales_por_moneda": [
+    {
+      "moneda": "MXN",
+      "canales": [
+        "meli"
+      ],
+      "canales_sin_dato": [],
+      "cost": "2251.1100",
+      "ad_revenue": "8860.1100",
+      "clicks": 838,
+      "orders": null,
+      "acos": "25.41",
+      "roas": "3.94",
+      "sin_ventas": false,
+      "completo": true
+    }
+  ]
+}

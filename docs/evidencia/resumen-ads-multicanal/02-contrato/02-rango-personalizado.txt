@@ -1,0 +1,103 @@
+# RONDA 1 (historico): este archivo se genero con el "hoy" UTC, que servia
+# el dia en curso entre 18:00 y 24:00 CDMX. La correccion (zona local minima)
+# esta en 11-correcciones-ronda-2.txt.
+# Rango personalizado, comparacion de igual longitud y recorte de hoy
+## GET ?desde=2026-10-10&hasta=2026-10-19
+{
+  "desde": "2026-10-10",
+  "hasta": "2026-10-19",
+  "dias": 10,
+  "periodo": "personalizado",
+  "hasta_solicitado": "2026-10-19",
+  "recortado": false,
+  "comparacion_por_canal": {
+    "amazon_mx": {
+      "desde": "2026-09-30",
+      "hasta": "2026-10-09",
+      "dias": 10,
+      "totals": {
+        "cost": "7656.9800",
+        "ad_revenue": "54634.3400",
+        "clicks": 2321,
+        "orders": 55,
+        "acos": "14.01",
+        "roas": "7.14",
+        "sin_ventas": false,
+        "dias_con_dato": 10,
+        "dinero_alineado": true
+      },
+      "variacion": {
+        "cost_pct": "1.73",
+        "ad_revenue_pct": "19.73",
+        "clicks_pct": "-1.25",
+        "acos_pp": "-2.10",
+        "roas_delta": "1.26"
+      },
+      "puntos": 10
+    },
+    "amazon_us": {
+      "desde": "2026-09-30",
+      "hasta": "2026-10-09",
+      "dias": 10,
+      "totals": {
+        "cost": "385.3300",
+        "ad_revenue": "1133.1600",
+        "clicks": 1011,
+        "orders": 10,
+        "acos": "34.00",
+        "roas": "2.94",
+        "sin_ventas": false,
+        "dias_con_dato": 10,
+        "dinero_alineado": true
+      },
+      "variacion": {
+        "cost_pct": "58.72",
+        "ad_revenue_pct": "22.04",
+        "clicks_pct": "38.97",
+        "acos_pp": "10.23",
+        "roas_delta": "-0.68"
+      },
+      "puntos": 10
+    },
+    "meli": {
+      "desde": "2026-09-30",
+      "hasta": "2026-10-09",
+      "dias": 10,
+      "totals": {
+        "cost": "7305.7900",
+        "ad_revenue": "30158.6600",
+        "clicks": 1916,
+        "orders": null,
+        "acos": "24.22",
+        "roas": "4.13",
+        "sin_ventas": false,
+        "dias_con_dato": 10,
+        "dinero_alineado": true
+      },
+      "variacion": {
+        "cost_pct": "11.59",
+        "ad_revenue_pct": "36.58",
+        "clicks_pct": "55.06",
+        "acos_pp": "-4.43",
+        "roas_delta": "0.92"
+      },
+      "puntos": 10
+    }
+  }
+}
+
+## GET ?desde=2026-09-25&hasta=2026-11-05 (hasta >= hoy: recorte declarado)
+{
+  "hoy": "2026-11-01",
+  "desde": "2026-09-25",
+  "hasta": "2026-10-31",
+  "dias": 37,
+  "periodo": "personalizado",
+  "hasta_solicitado": "2026-11-05",
+  "recortado": true,
+  "puntos_por_canal": {
+    "amazon_mx": 37,
+    "amazon_us": 37,
+    "meli": 37
+  }
+}

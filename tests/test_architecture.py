@@ -9,16 +9,10 @@ invariantes ejecutables:
    declarada: `windows.py`, la puerta de datos (puede `psycopg`/`app.db`;
    jamas `httpx`/`app.ads`). Imports bajo `if TYPE_CHECKING:` se permiten:
    son anotaciones, no acoplamiento de runtime.
-2. PRESUPUESTO DE TAMANO: ningun modulo de `app/` pasa de 900 lineas salvo
-   entrada en la allowlist CON razon escrita. Crecer la allowlist exige
-   editar este archivo = decision visible en diff y review, jamas deriva
-   silenciosa. La allowlist es auto-limpiante: si un modulo listado baja del
-   umbral, el test exige sacarlo.
 
-Regla anti-Goodhart (sellada en el plan): cuando un candado dispare, las
-salidas validas son simplificar de verdad o allowlist/noqa con razon escrita
-que pasa por review — PROHIBIDO partir un modulo coherente en pedazos
-incoherentes solo para esquivar el numero.
+El presupuesto de tamano por modulo (900 lineas y su allowlist) se retiro por
+decision explicita del dueno: el tamano de un archivo no es un invariante de
+arquitectura y empujaba a partir modulos coherentes solo para bajar el numero.
 """
 
 from __future__ import annotations
@@ -42,114 +36,6 @@ OPTIMIZER = APP / "optimizer"
 PROHIBIDOS_MOTOR = ("httpx", "psycopg", "app.ads", "app.db", "<import-relativo-nivel-2>")
 # La puerta de datos (windows.py) si lee la base; la API de Amazon jamas.
 PROHIBIDOS_PUERTA = ("httpx", "app.ads", "<import-relativo-nivel-2>")
-
-MAX_LINEAS_MODULO = 900
-# path relativo (posix) -> razon escrita. Sacar una entrada exige que el
-# modulo haya bajado del umbral; agregarla exige razon y review.
-ALLOWLIST_TAMANO = {
-    "app/estimacion_repository.py": (
-        "REPRICING 02 M.3: nucleo de siembra compartido Amazon/MeLi (el "
-        "despacho es por plataforma dentro de `sembrar_escenario_desde_refs` "
-        "y el bloque meli usa sus validaciones). Partirlo por plataforma "
-        "separaria `_sembrar_meli` de su nucleo con import circular — jamas "
-        "partir por partir"
-    ),
-    "app/precio/cambios.py": (
-        "REPRICING 02 S.5: el protocolo de `precio_cambio` vive en un solo "
-        "modulo por diseno (seccion I del bosquejo: unitario + lote + "
-        "cierre + claim compartido con la corrida). Partirlo por cuota "
-        "separaria `revertir` de su nucleo `_revertir_fila` — jamas partir "
-        "por partir"
-    ),
-    "app/impulso_io.py": (
-        "BIDS 02 R09-r4: IO transaccional del impulso (previa + lanza + "
-        "vigia + reconciliacion H2/H6): un solo flujo con estados "
-        "compartidos (pendientes, sellos, pausador propio); partirlo por "
-        "cuota separaria lanza de su reconciliacion — jamas partir por partir"
-    ),
-    "app/ads/reports.py": (
-        "pipeline compartido de reporting v3 (metricas + search terms + "
-        "fusion de grano); candidato DECLARADO a partirse en "
-        "report_pipeline/metrics/terms la proxima vez que se toque en grande"
-    ),
-    "app/cycle.py": (
-        "ORBIT 03 task 3.1: orquestador del ciclo, ubicacion SELLADA por el "
-        "plan (importa psycopg, fuera del motor puro) y API publica sellada "
-        "(corre_ciclo + reexport de reproduce para el spot-check 4.4). "
-        "ORBIT 04 2.4 "
-        "agrego la fase de apply dentro del lock (TX4 + aplicador + guard de "
-        "ownership). Sus piezas (SQL sellada de claim/envelope/rastro, fases "
-        "de transaccion, serializacion congelada de inputs y la fase "
-        "de apply) no tienen frontera coherente para partirse sin romper el "
-        "sellado; partir por partir esta prohibido por la regla "
-        "anti-Goodhart. El replay puro ya vive en app/optimizer/replay.py"
-    ),
-    "app/apply_harvest.py": (
-        "ORBIT 04 2.3 + FABRICA 02 A.3a: maquina de ejecucion del corte harvest "
-        "sellada (cadena de fases del job, bid sugerido, reversas, delegados "
-        "compatibles). La reconciliacion YA fue extraida a "
-        "app/apply_harvest_reconciliacion.py (revalida_harvest, "
-        "reconcilia_harvest y sus barridos/SQL exclusivos, sin duplicar "
-        "compartidos); lo que queda aqui es ejecucion + superficie compatible "
-        "y no tiene frontera coherente para partirse mas (partir por partir "
-        "esta prohibido por la regla anti-Goodhart)"
-    ),
-    "app/fabrica_plan.py": (
-        "A1: nucleo PURO de la fabrica (planes v1/v2, huella, payloads, "
-        "dry-run); cruzo el umbral con target_para_goals + la validacion de "
-        "banda del objetivo manual (920). Candidato DECLARADO a partirse "
-        "(planes/payloads) la proxima vez que se toque en grande; partirlo "
-        "por 20 lineas seria partir por partir (regla anti-Goodhart)"
-    ),
-    "app/optimizer/goals.py": (
-        "A3: lectores de settings por plataforma (target/fraccion/confianzas) "
-        "+ cascadas del peldano; cruzo el umbral con confianza_* (914). Los "
-        "lectores son cohesivos con fraccion_desde_settings (misma validacion "
-        "fail-closed) y config_write los importa como bloque. Candidato "
-        "DECLARADO a extraer lectores a app/optimizer/settings_lectura.py la "
-        "proxima vez que se toque en grande"
-    ),
-    "app/apply.py": (
-        "ORBIT 04 2.1: nucleo del aplicador (quota, ledger, secuencia sellada "
-        "de mutaciones, reversas). La review adversaria de phase 2 le SUMO "
-        "reconcilia_bids (ADV-04: el ledger de bids sin sello no tenia "
-        "caller) y con eso paso el umbral (936). Mismo candidato DECLARADO "
-        "que apply_harvest: partir ejecucion (Aplicador + _ejecuta_mutacion) "
-        "de reconciliacion de ledger (reconcilia_bids) la proxima vez que se "
-        "tome en grande; partir por partir esta prohibido por la regla "
-        "anti-Goodhart"
-    ),
-    "app/apply_cola.py": (
-        "ORBIT 04 2.2: cola de cortes (encolado, re-validacion PRE-claim, "
-        "liberacion FIFO y reversas). La cross-review del dueno (codex+grok"
-        "+qwen, ORBIT 04 P2) le sumo el barrido resiliente (GK3: AdsApiError "
-        "por fila en la re-validacion), el verify honesto del negative "
-        "(CX4/GK6) y el cruce de id del readback de estado (CX6/GK8) y con "
-        "eso paso el umbral (912). Mismo candidato DECLARADO que la familia "
-        "apply: partir la ejecucion sellada por fila (_revalida*/_ejecuta_*) "
-        "de la maquina de encolado/liberacion la proxima vez que se toque en "
-        "grande; partir por partir esta prohibido por la regla anti-Goodhart"
-    ),
-    "app/api_dashboard.py": (
-        "Feed de Decisiones/Cortes/Inertes (SQL + _fila_* + filtros). "
-        "El wiring de Entidad (kind/keyword_text + JOINs de campana) "
-        "lo empujo 25 lineas sobre 900. Candidato a partir cortes/"
-        "inertes del feed de decisiones; no se parte por partir."
-    ),
-    "app/precio/corrida.py": (
-        "REPRICING 01 A.5 + 02 S.1: orquestador sellado de la corrida diaria "
-        "por plataforma (claim, fila corrida, huerfanas, cierre por "
-        "observacion, decidir, compuerta, aplicar y frenos en un solo "
-        "camino dueno). Partirlo crearia un segundo dueno del camino; "
-        "las piezas con frontera propia ya viven fuera (reglas, fuentes, "
-        "precio_write). No se parte por partir."
-    ),
-    "app/notifica.py": (
-        "REPRICING 01 A.6: senders fail-silent de Telegram de todos los "
-        "motores, builders puros + un sender por motor; estaba en 899 "
-        "antes de A.6."
-    ),
-}
 
 
 def _es_bloque_type_checking(nodo: ast.stmt) -> bool:
@@ -308,7 +194,7 @@ def test_structure_plan_sin_io_en_runtime():
 # ESCRITURA de Amazon Ads. Tres importadores reales: apply (aplicador),
 # smoke_apply (probe 2.5) y archivar (limpieza operada). Crecer la
 # allowlist exige editar este archivo = decision visible en diff y review,
-# jamas derivacion silenciosa (mismo trato que ALLOWLIST_TAMANO).
+# jamas derivacion silenciosa.
 PERMITIDOS_IMPORTAR_ADS_WRITE = {
     "app/apply.py": (
         "aplicador del modulo APPLY (fase 2.x): el dueno legitimo del "
@@ -355,35 +241,6 @@ def test_imports_del_cliente_de_escritura_acotados():
     )
     for rel, razon in PERMITIDOS_IMPORTAR_ADS_WRITE.items():
         assert razon.strip(), f"entrada de allowlist sin razon escrita: {rel}"
-
-
-def test_presupuesto_de_tamano_por_modulo():
-    """Ningun .py de app/ pasa de 900 lineas salvo allowlist con razon."""
-    excedidos = {}
-    for p in APP.rglob("*.py"):
-        rel = p.relative_to(RAIZ).as_posix()
-        lineas = len(p.read_text(encoding="utf-8").splitlines())
-        if lineas > MAX_LINEAS_MODULO and rel not in ALLOWLIST_TAMANO:
-            excedidos[rel] = lineas
-    assert not excedidos, (
-        f"modulos sobre el presupuesto de {MAX_LINEAS_MODULO} lineas sin "
-        f"entrada en la allowlist (agregar entrada CON razon o partir el "
-        f"modulo — jamas partir por partir): {excedidos}"
-    )
-
-
-def test_allowlist_de_tamano_auto_limpiante():
-    """Cada entrada de la allowlist debe (a) existir y (b) seguir excedida:
-    si un modulo bajo del umbral, su entrada sobra y hay que sacarla."""
-    for rel, razon in ALLOWLIST_TAMANO.items():
-        p = RAIZ / rel
-        assert p.is_file(), f"allowlist apunta a un modulo inexistente: {rel}"
-        assert razon.strip(), f"entrada de allowlist sin razon escrita: {rel}"
-        lineas = len(p.read_text(encoding="utf-8").splitlines())
-        assert lineas > MAX_LINEAS_MODULO, (
-            f"{rel} tiene {lineas} lineas (<= {MAX_LINEAS_MODULO}): ya no "
-            f"necesita allowlist — sacar la entrada"
-        )
 
 
 # ORBIT 04 decision 26 (sellada): la escritura de goals tiene UN SOLO dueno —
@@ -532,9 +389,9 @@ def test_patrones_sql_goals_resisten_case_y_whitespace():
 # backup pre-cutover es un TOOL del repo con test, no codigo inline. Allowlist
 # POSITIVA de los imports de runtime de tools/snapshot_listas.py: stdlib + el
 # cliente de LECTURA (app.ads.client), credenciales, estructura y redaccion.
-# Ampliarla exige editar este archivo a proposito (mismo trato que
-# ALLOWLIST_TAMANO: decision visible en diff y review, jamas deriva
-# silenciosa). El tool JAMAS entra a PERMITIDOS_IMPORTAR_ADS_WRITE: no tiene
+# Ampliarla exige editar este archivo a proposito (decision visible en diff
+# y review, jamas deriva silenciosa). El tool JAMAS entra a
+# PERMITIDOS_IMPORTAR_ADS_WRITE: no tiene
 # porque importar write y el candado
 # test_imports_del_cliente_de_escritura_acotados ya escanea tools/ entero.
 # Sincronizada con los imports del tool (incluye los "modulo.alias" que
@@ -968,8 +825,7 @@ def test_una_sola_fuente_de_moneda_por_plataforma():
     )
     assert hallazgos, "no se encontro NINGUN mapa de moneda: el detector dejo de morder"
     # La allowlist se limpia sola: una entrada que ya no define un mapa es
-    # permiso muerto que deja pasar una duplicacion futura sin avisar (mismo
-    # criterio que ALLOWLIST_TAMANO).
+    # permiso muerto que deja pasar una duplicacion futura sin avisar.
     obsoletas = DEFINICIONES_MONEDA_DECLARADAS - set(hallazgos)
     assert not obsoletas, (
         f"DEFINICIONES_MONEDA_DECLARADAS tiene entradas que ya no definen un "
