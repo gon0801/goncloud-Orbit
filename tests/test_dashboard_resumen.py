@@ -443,6 +443,38 @@ def test_totales_por_moneda_no_publican_completo_con_dias_faltantes():
     assert mxn["acos"] is None and mxn["roas"] is None
 
 
+def test_totales_por_moneda_exigen_dinero_en_cada_dia_aunque_haya_clics():
+    """Un dia con clics y dinero desconocido no completa el agregado monetario."""
+    amazon = _bloque(
+        "MXN",
+        [
+            _dia(HOY - 2 * UN_DIA, "10.0000", "100.0000", 1, 1),
+            _dia(HOY - UN_DIA, None, None, 1, 1),
+        ],
+        2,
+    )
+    meli = _bloque(
+        "MXN",
+        [
+            _dia(HOY - 2 * UN_DIA, "20.0000", "40.0000", 1),
+            _dia(HOY - UN_DIA, "20.0000", "40.0000", 1),
+        ],
+        2,
+    )
+    for canales, cost, revenue in (
+        ({"amazon_mx": amazon, "meli": meli}, "50.0000", "180.0000"),
+        ({"amazon_mx": amazon}, "10.0000", "100.0000"),
+    ):
+        grupo = resumen.totales_por_moneda(canales)[0]
+        assert grupo["acos"] is None and grupo["roas"] is None
+        assert grupo["cost"] == cost and grupo["ad_revenue"] == revenue
+        assert grupo["cobertura"]["dias"] is True
+        assert grupo["cobertura"]["clicks"] is True
+        assert grupo["cobertura"]["cost"] is False
+        assert grupo["cobertura"]["ad_revenue"] is False
+        assert grupo["completo"] is False
+
+
 def test_variacion_misma_cobertura_parcial_en_fechas_distintas_es_none():
     """3 dias con dato por periodo y gasto en 2, pero en fechas distintas.
 

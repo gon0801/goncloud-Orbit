@@ -623,9 +623,12 @@ cerrada.
 En `totales_por_moneda`, cada métrica se suma **solo si todos los canales del
 grupo la publican**. Si un canal no la tiene (p. ej. `orders` de MeLi siempre
 `NULL`), la métrica del grupo es `null`, nunca una suma parcial disfrazada de
-completa. El bloque declara `cobertura` por métrica y `cobertura.dias`;
-`completo` exige ambas cosas. ACoS/ROAS del grupo solo se publican con dinero
-completo y alineado en todos los canales.
+completa. El bloque declara `cobertura` por métrica: solo es verdadera cuando
+esa métrica cubre **todos los días de todos los canales**. `cobertura.dias`
+solo exige alguna métrica conocida por día; tener clics no completa el gasto
+ni las ventas. `completo` exige ambas cosas. Se conservan las sumas observadas
+con su cobertura parcial explícita; ACoS/ROAS del grupo solo se publican con
+dinero completo y alineado en todos los canales.
 
 ### 9.7 Frescura y madurez
 

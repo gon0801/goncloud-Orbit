@@ -60,8 +60,11 @@ RESUMEN-ADS-02):
     inventa un umbral de frescura: sin corrida -> `last_ingest_at: null`.
 11. TOTALES POR MONEDA: una metrica que algun canal del grupo no tiene (p. ej.
     `orders` de MeLi) NO se suma como si fuera completa: queda `None` y
-    `cobertura` lo declara por metrica. `completo` exige ademas la cobertura
-    por dia de todos los canales del grupo.
+    `cobertura` lo declara por metrica. Si todos los canales aportan la
+    metrica, su suma observada se conserva aunque falten dias. Cada marca de
+    `cobertura` exige ESA metrica en TODOS los dias de TODOS los canales;
+    `completo` exige todas las metricas y la cobertura por dia. ACoS/ROAS
+    requieren gasto y ventas completos y alineados en el grupo.
 12. CIERRE DEL DIA: cada punto declara `cerrado` (la ultima `observed_at` del
     dia es posterior al fin de ese dia en la zona del canal). `false` +
     `motivo_cierre: "observado_antes_del_cierre"` avisa que la foto se tomo
@@ -833,37 +836,46 @@ def _suma_grupo(totales: Sequence[Mapping], metrica: str) -> Decimal | None:
     return _suma_conocidos(valores)
 
 
-def _bloque_con_cobertura_completa(bloque: Mapping) -> bool:
-    """El canal cubre TODOS los dias del rango (`coverage.completo`)."""
-    cobertura = bloque.get("coverage")
-    if cobertura is not None:
-        return bool(cobertura.get("completo"))
-    dias = bloque.get("dias")
-    return dias is not None and bloque["totals"].get("dias_con_dato") == dias
-
-
 def totales_por_moneda(bloques: Mapping[str, Mapping]) -> list[dict]:
     """Totales multi-canal AGRUPADOS por moneda (jamas una moneda mezclada).
 
+    Recibe bloques de `bloque_canal`, con `coverage` y `dias` obligatorios;
+    cobertura ausente o incompleta en la estructura produce `ValueError`.
     Cada metrica se suma solo si TODOS los canales del grupo la tienen; si
     alguno no la publica, la metrica del grupo es `None` (nunca una suma
-    parcial disfrazada). `cobertura` declara, metrica por metrica, si el grupo
-    esta completo, y `dias` si todos los canales cubren todos los dias del
-    rango. `completo` exige ambas cosas. ACoS/ROAS se publican solo con dinero
+    parcial disfrazada). `cobertura` exige, metrica por metrica, dato en TODOS
+    los dias de TODOS los canales; `dias` indica si hubo alguna metrica cada
+    dia. Las sumas observadas se conservan aunque su cobertura sea parcial.
+    `completo` exige ambas cosas. ACoS/ROAS se publican solo con dinero
     completo y alineado en todos los canales; en cualquier otro caso son
     `None` (no se inventa un ratio entre dias distintos). `canales_sin_dato`
     lista los que no aportaron dinero.
     """
     grupos: dict[str, list[tuple[str, Mapping]]] = {}
     for nombre, bloque in bloques.items():
+        cobertura_canal = bloque.get("coverage")
+        if (
+            "dias" not in bloque
+            or not isinstance(cobertura_canal, Mapping)
+            or "completo" not in cobertura_canal
+            or not isinstance(cobertura_canal.get("por_metrica"), Mapping)
+            or not set(_METRICAS_TOTALES).issubset(cobertura_canal["por_metrica"])
+        ):
+            raise ValueError(
+                f"el bloque {nombre} requiere dias y coverage con completo y "
+                "por_metrica para cost, ad_revenue, clicks y orders"
+            )
         grupos.setdefault(bloque["moneda"], []).append((nombre, bloque))
     salida: list[dict] = []
     for moneda in sorted(grupos):
         miembros = grupos[moneda]
         totales = [bloque["totals"] for _nombre, bloque in miembros]
-        dias_completos = all(_bloque_con_cobertura_completa(bloque) for _nombre, bloque in miembros)
+        dias_completos = all(bloque["coverage"]["completo"] for _nombre, bloque in miembros)
         cobertura = {
-            metrica: all(total.get(metrica) is not None for total in totales)
+            metrica: all(
+                bloque["coverage"]["por_metrica"][metrica] == bloque["dias"]
+                for _nombre, bloque in miembros
+            )
             for metrica in _METRICAS_TOTALES
         }
         cobertura["dias"] = dias_completos
