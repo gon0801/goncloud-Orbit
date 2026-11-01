@@ -512,8 +512,13 @@ La respuesta declara siempre el rango servido:
  "hoy_por_canal": {"amazon_mx": "2026-10-31", "amazon_us": "2026-10-31",
                    "meli": "2026-10-31"},
  "desde": "2026-10-01", "hasta": "2026-10-30",
- "dias": 30, "periodo": 30, "hasta_solicitado": "2026-10-31", "recortado": true}
+ "dias": 30, "periodo": "personalizado", "hasta_solicitado": "2026-10-31",
+ "recortado": true}
 ```
+
+Con `periodo=7|30|90` la ventana termina siempre en D-1 y `recortado` es
+`false`: el recorte solo existe en un rango personalizado (`periodo:
+"personalizado"`), como en el ejemplo (`desde=2026-10-01&hasta=2026-10-31`).
 
 A las 05:15 UTC del 1-nov (23:15 del 31-oct en CDMX) `hoy` sigue siendo
 `2026-10-31` y el periodo de 7 días termina en `2026-10-30`: MeLi y Amazon MX
@@ -529,12 +534,17 @@ silencioso: el recorte se declara.
   "desde": "2026-10-01", "hasta": "2026-10-30", "dias": 30,
   "totals": {"cost": "1234.5600", "ad_revenue": "5678.9000", "clicks": 456,
              "orders": 32, "acos": "21.74", "roas": "4.60", "sin_ventas": false,
-             "dias_con_dato": 30, "dinero_alineado": true},
+             "dias_con_dato": 30, "dias_cost": 30, "dias_ad_revenue": 30,
+             "dias_clicks": 30, "dinero_alineado": true},
   "comparison": {"desde": "2026-09-01", "hasta": "2026-09-30", "dias": 30,
                  "totals": {}, "variacion": {"cost_pct": "3.21",
                  "ad_revenue_pct": null, "clicks_pct": "-1.10",
-                 "acos_pp": "0.40", "roas_delta": "-0.15",
-                 "comparable": true, "motivo": null}},
+                 "acos_pp": null, "roas_delta": null,
+                 "comparable": true, "motivo": null,
+                 "motivo_por_metrica": {"cost_pct": null,
+                 "ad_revenue_pct": "cobertura_distinta", "clicks_pct": null,
+                 "acos_pp": "dinero_no_alineado",
+                 "roas_delta": "dinero_no_alineado"}}},
   "series": [{"fecha": "2026-10-01", "cost": "40.1200", "ad_revenue": "180.0000",
               "clicks": 12, "orders": 1, "acos": "22.29", "roas": "4.49",
               "sin_ventas": false, "inmaduro": false,
@@ -572,10 +582,19 @@ keyword/product_target: duplicarían el dinero.
 - Si gasto y venta no cubren exactamente los mismos días,
   `totals.dinero_alineado` es `false` y ACoS/ROAS son `null`: sumar días
   distintos inventaría un ratio.
-- La **variación** contra el periodo anterior solo se publica cuando ambos
-  periodos tienen el mismo `dias_con_dato` (`comparable: true`). Con cobertura
-  distinta todas las variaciones son `null` y `motivo: "cobertura_distinta"`:
-  un día faltante contaría como cero en el porcentaje.
+- La **variación** contra el periodo anterior exige, por métrica, que SU
+  cobertura (`dias_cost`, `dias_ad_revenue`, `dias_clicks` en cada `totals`)
+  sea igual en ambos periodos y completa respecto de los días con dato. No
+  basta con que ambos periodos empaten en `dias_con_dato`: con gasto
+  `10, null` frente a `10, 10` el `cost_pct` es `null` (comparar las sumas
+  incompletas daría un falso `-50.00`). `comparable` conserva su semántica
+  global (mismo `dias_con_dato`); con cobertura global distinta todas las
+  variaciones son `null` y `motivo: "cobertura_distinta"`. Cuando una
+  variación queda `null` por cobertura, `motivo_por_metrica` declara el motivo
+  exacto de esa métrica (`cobertura_distinta`, `cobertura_incompleta`,
+  `cobertura_desconocida` o `dinero_no_alineado`); `null` en ese campo
+  significa que no faltó cobertura. `acos_pp` y `roas_delta` exigen además
+  `dinero_alineado` en ambos periodos con la misma cobertura.
 - Dinero en JSON = **STRING** con la escala del `NUMERIC(14,4)`
   (`"1234.5600"`); `clicks`/`orders` son enteros. El backend no emite floats.
 

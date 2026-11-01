@@ -362,6 +362,43 @@ def test_variacion_es_none_si_la_cobertura_de_los_periodos_difiere():
     assert igual["cost_pct"] == "0.00"
 
 
+def test_variacion_exige_cobertura_por_metrica_no_solo_dias_con_dato():
+    """Mismos dias con dato, gasto `10, null` vs `10, 10`: no se compara.
+
+    Comparar las sumas incompletas publicaria `cost_pct = -50.00`. Cada
+    metrica exige SU cobertura igual y completa; ACoS/ROAS exigen dinero
+    alineado. `comparable` sigue declarando la cobertura global.
+    """
+    actual = resumen.totales_dias(
+        [
+            _dia(HOY - 2 * UN_DIA, "10.0000", "10.0000", 1),
+            _dia(HOY - UN_DIA, None, "10.0000", 1),
+        ],
+        2,
+    )
+    anterior = resumen.totales_dias(
+        [
+            _dia(HOY - 4 * UN_DIA, "10.0000", "10.0000", 1),
+            _dia(HOY - 3 * UN_DIA, "10.0000", "10.0000", 1),
+        ],
+        2,
+    )
+    assert actual["dias_con_dato"] == anterior["dias_con_dato"] == 2
+    assert actual["dias_cost"] == 1 and anterior["dias_cost"] == 2
+
+    var = resumen.variacion(actual, anterior)
+    assert var["comparable"] is True and var["motivo"] is None
+    assert var["cost_pct"] is None
+    assert var["motivo_por_metrica"]["cost_pct"] == "cobertura_distinta"
+    # Las metricas con la MISMA cobertura si se comparan.
+    assert var["ad_revenue_pct"] == "0.00"
+    assert var["clicks_pct"] == "0.00"
+    assert var["motivo_por_metrica"]["ad_revenue_pct"] is None
+    # Dinero no alineado en el periodo actual: ACoS/ROAS no se comparan.
+    assert var["acos_pp"] is None and var["roas_delta"] is None
+    assert var["motivo_por_metrica"]["acos_pp"] == "dinero_no_alineado"
+
+
 def test_totales_por_moneda_separan_mxn_de_usd():
     bloques = {
         "amazon_mx": _bloque("MXN", [_dia(HOY - UN_DIA, "10.0000", "100.0000", 2, 1)], 1),

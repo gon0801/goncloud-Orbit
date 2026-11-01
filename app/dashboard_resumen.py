@@ -28,10 +28,12 @@ RESUMEN-ADS-02):
    incluido el calentamiento del MA7 (`desde - 6`), para que una fecha absurda
    nunca llegue a un `OverflowError` en la consulta.
 3. COMPARACION: el periodo anterior de igual longitud (termina el dia previo
-   a `desde`). Totales con la misma semantica que el periodo visible. La
-   variacion solo se publica si ambos periodos tienen el MISMO numero de dias
-   con dato (`comparable`); con cobertura distinta es `None` y `motivo` lo
-   declara (un dia faltante contaria como cero en el porcentaje).
+   a `desde`). Totales con la misma semantica que el periodo visible. Cada
+   variacion se publica solo si la cobertura de ESA metrica es igual en ambos
+   periodos y completa respecto de sus dias con dato; `comparable` conserva la
+   lectura global (mismo `dias_con_dato`) y `motivo_por_metrica` declara por
+   que una variacion quedo `None` por cobertura. ACoS/ROAS exigen ademas
+   dinero alineado en ambos periodos (un dia faltante contaria como cero).
 4. DINERO: `NUMERIC` -> `Decimal`, jamas float. En JSON viaja como STRING tal
    cual sale de la base (4 decimales, criterio de la serie del dashboard).
 5. NULOS Y CEROS: dia sin dato -> todas sus metricas `None` (brecha visible);
@@ -440,6 +442,12 @@ def totales_dias(dias: Sequence[Dia], dias_rango: int) -> dict:
             and agregado.dias_ad_revenue == dias_rango
         ),
         "dias_con_dato": agregado.dias_con_dato,
+        # Cobertura POR METRICA: la variacion de cada una exige que su
+        # cobertura sea igual en ambos periodos y completa respecto de los
+        # dias con dato (ver `variacion`).
+        "dias_cost": agregado.dias_cost,
+        "dias_ad_revenue": agregado.dias_ad_revenue,
+        "dias_clicks": agregado.dias_clicks,
         "dinero_alineado": alineado,
     }
 
@@ -627,39 +635,94 @@ def _pct(nuevo, anterior) -> str | None:
     return str(variacion)
 
 
+def _cobertura_variacion(actual: Mapping, anterior: Mapping, campo: str) -> tuple[bool, str | None]:
+    """Una metrica se compara solo con cobertura igual y completa en ambos periodos.
+
+    `completa` significa conocida en TODOS los dias con dato del periodo: si no,
+    el hueco contaria como cero en el porcentaje. Cobertura desconocida o
+    distinta -> motivo explicito.
+    """
+    dias_actual = actual.get("dias_con_dato")
+    dias_anterior = anterior.get("dias_con_dato")
+    cob_actual = actual.get(campo)
+    cob_anterior = anterior.get(campo)
+    if dias_actual is None or dias_anterior is None or cob_actual is None or cob_anterior is None:
+        return False, "cobertura_desconocida"
+    if cob_actual != cob_anterior:
+        return False, "cobertura_distinta"
+    if cob_actual != dias_actual or cob_anterior != dias_anterior:
+        return False, "cobertura_incompleta"
+    return True, None
+
+
+def _dinero_variacion(actual: Mapping, anterior: Mapping) -> tuple[bool, str | None]:
+    """ACoS/ROAS exigen ademas dinero alineado y con la MISMA cobertura.
+
+    Gasto y venta deben cubrir los mismos dias dentro de cada periodo
+    (`dinero_alineado`) y esa cobertura debe ser igual y completa en ambos.
+    """
+    if not actual.get("dinero_alineado") or not anterior.get("dinero_alineado"):
+        return False, "dinero_no_alineado"
+    for campo in ("dias_cost", "dias_ad_revenue"):
+        publicado, motivo = _cobertura_variacion(actual, anterior, campo)
+        if not publicado:
+            return False, motivo
+    return True, None
+
+
 def variacion(actual: Mapping, anterior: Mapping) -> dict:
     """Cambio contra el periodo anterior: % en volumen y puntos en ACoS.
 
-    Solo se publica si AMBOS periodos tienen el mismo numero de dias con dato:
-    un dia faltante contaria como cero en el porcentaje. Con cobertura
-    distinta todas las variaciones son `None` y `motivo` lo declara
-    (`comparable: false`). `roas_delta` es la diferencia absoluta del ratio
-    (no porcentaje). Cualquier lado desconocido -> `None`.
+    `comparable` conserva su semantica: AMBOS periodos con el mismo numero de
+    dias con dato; si difiere, todas las variaciones son `None` y `motivo` es
+    `"cobertura_distinta"`. Ademas, cada variacion se publica solo si la
+    cobertura de ESA metrica (`dias_cost`, `dias_ad_revenue`, `dias_clicks`)
+    es igual en ambos periodos y completa respecto de sus `dias_con_dato`: dos
+    periodos pueden empatar en dias con dato y aun asi tener coberturas
+    distintas por metrica (p. ej. gasto `10, null` frente a `10, 10`).
+    `acos_pp` y `roas_delta` exigen ademas `dinero_alineado` en ambos periodos
+    con la misma cobertura. Cuando una variacion es `None` por cobertura,
+    `motivo_por_metrica` declara el motivo exacto de esa metrica; `None`
+    significa que no hubo problema de cobertura (el `None` viene del valor).
+    `roas_delta` es la diferencia absoluta del ratio (no porcentaje).
     """
     dias_actual = actual.get("dias_con_dato")
     dias_anterior = anterior.get("dias_con_dato")
     comparable = dias_actual is not None and dias_actual == dias_anterior
     acos_actual, acos_anterior = _decimal(actual.get("acos")), _decimal(anterior.get("acos"))
     roas_actual, roas_anterior = _decimal(actual.get("roas")), _decimal(anterior.get("roas"))
+    cost_publica, cost_motivo = _cobertura_variacion(actual, anterior, "dias_cost")
+    revenue_publica, revenue_motivo = _cobertura_variacion(actual, anterior, "dias_ad_revenue")
+    clicks_publica, clicks_motivo = _cobertura_variacion(actual, anterior, "dias_clicks")
+    dinero_publica, dinero_motivo = _dinero_variacion(actual, anterior)
     dos_dec = Decimal("0.01")
     return {
-        "cost_pct": _pct(actual.get("cost"), anterior.get("cost")) if comparable else None,
+        "cost_pct": _pct(actual.get("cost"), anterior.get("cost")) if cost_publica else None,
         "ad_revenue_pct": (
-            _pct(actual.get("ad_revenue"), anterior.get("ad_revenue")) if comparable else None
+            _pct(actual.get("ad_revenue"), anterior.get("ad_revenue")) if revenue_publica else None
         ),
-        "clicks_pct": _pct(actual.get("clicks"), anterior.get("clicks")) if comparable else None,
+        "clicks_pct": (
+            _pct(actual.get("clicks"), anterior.get("clicks")) if clicks_publica else None
+        ),
         "acos_pp": (
             None
-            if not comparable or acos_actual is None or acos_anterior is None
+            if not dinero_publica or acos_actual is None or acos_anterior is None
             else str((acos_actual - acos_anterior).quantize(dos_dec, rounding=ROUND_HALF_UP))
         ),
         "roas_delta": (
             None
-            if not comparable or roas_actual is None or roas_anterior is None
+            if not dinero_publica or roas_actual is None or roas_anterior is None
             else str((roas_actual - roas_anterior).quantize(dos_dec, rounding=ROUND_HALF_UP))
         ),
         "comparable": comparable,
         "motivo": None if comparable else "cobertura_distinta",
+        "motivo_por_metrica": {
+            "cost_pct": cost_motivo,
+            "ad_revenue_pct": revenue_motivo,
+            "clicks_pct": clicks_motivo,
+            "acos_pp": dinero_motivo,
+            "roas_delta": dinero_motivo,
+        },
     }
 
 
