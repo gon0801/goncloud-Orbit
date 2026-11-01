@@ -10,10 +10,12 @@ por dia. Un dia con clics, pero gasto y ventas NULL, podia completar el
 grupo y producir ratios que mezclaban distintas coberturas monetarias.
 
 Ahora cada marca de cobertura exige que ESA metrica cubra todos los dias
-de todos los canales. Las sumas observadas se conservan. ACoS/ROAS quedan
-NULL cuando el dinero no esta completo; `completo` no se afirma por tener
-clics. No cambia el contrato de las series anteriores ni los calculos del
-optimizador. No hay migracion ni escrituras productivas.
+de todos los canales. Las sumas observadas del grupo se conservan cuando
+todos los canales aportan esa metrica, aunque su cobertura diaria sea parcial.
+Si algun canal no aporta la metrica, el total del grupo es NULL. ACoS/ROAS
+quedan NULL cuando el dinero no esta completo; `completo` no se afirma por
+tener clics. No cambia el contrato de las series anteriores ni los calculos
+del optimizador. No hay migracion ni escrituras productivas.
 
 ## Regresion monetaria: fallo antes y pase despues
 
