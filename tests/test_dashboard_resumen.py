@@ -394,9 +394,10 @@ def test_variacion_exige_cobertura_por_metrica_no_solo_dias_con_dato():
     assert var["ad_revenue_pct"] == "0.00"
     assert var["clicks_pct"] == "0.00"
     assert var["motivo_por_metrica"]["ad_revenue_pct"] is None
-    # Dinero no alineado en el periodo actual: ACoS/ROAS no se comparan.
+    # ACoS/ROAS no se comparan: la cobertura de gasto difiere entre periodos
+    # (el motivo es el de la cobertura, no el del dinero alineado).
     assert var["acos_pp"] is None and var["roas_delta"] is None
-    assert var["motivo_por_metrica"]["acos_pp"] == "dinero_no_alineado"
+    assert var["motivo_por_metrica"]["acos_pp"] == "cobertura_distinta"
 
 
 def test_totales_por_moneda_separan_mxn_de_usd():
@@ -440,3 +441,62 @@ def test_totales_por_moneda_no_publican_completo_con_dias_faltantes():
     assert mxn["cobertura"]["dias"] is False
     assert mxn["completo"] is False
     assert mxn["acos"] is None and mxn["roas"] is None
+
+
+def test_variacion_misma_cobertura_parcial_en_fechas_distintas_es_none():
+    """3 dias con dato por periodo y gasto en 2, pero en fechas distintas.
+
+    Las dos coberturas de gasto empatan (2 de 3) y ninguna es completa:
+    publicar `20` contra `20` daria un `0.00` falso. El motivo es
+    `cobertura_incompleta`, no `cobertura_distinta`.
+    """
+    actual = resumen.totales_dias(
+        [
+            _dia(HOY - 3 * UN_DIA, None, "100.0000", 1),
+            _dia(HOY - 2 * UN_DIA, "10.0000", "100.0000", 1),
+            _dia(HOY - UN_DIA, "10.0000", "100.0000", 1),
+        ],
+        3,
+    )
+    anterior = resumen.totales_dias(
+        [
+            _dia(HOY - 6 * UN_DIA, None, "100.0000", 1),
+            _dia(HOY - 5 * UN_DIA, "10.0000", "100.0000", 1),
+            _dia(HOY - 4 * UN_DIA, "10.0000", "100.0000", 1),
+        ],
+        3,
+    )
+    assert actual["dias_cost"] == anterior["dias_cost"] == 2
+    assert actual["dias_con_dato"] == anterior["dias_con_dato"] == 3
+
+    var = resumen.variacion(actual, anterior)
+    assert var["comparable"] is True and var["motivo"] is None
+    assert var["cost_pct"] is None
+    assert var["motivo_por_metrica"]["cost_pct"] == "cobertura_incompleta"
+    # Venta y clics cubren los 3 dias: su variacion si se publica.
+    assert var["ad_revenue_pct"] == "0.00" and var["clicks_pct"] == "0.00"
+    assert var["acos_pp"] is None and var["roas_delta"] is None
+    assert var["motivo_por_metrica"]["acos_pp"] == "cobertura_incompleta"
+    assert var["motivo_por_metrica"]["roas_delta"] == "cobertura_incompleta"
+
+
+def test_acos_prioriza_la_cobertura_sobre_el_dinero_alineado():
+    """Un periodo sin datos es `cobertura_distinta`, no `dinero_no_alineado`.
+
+    Con los DOS periodos vacios no hay cobertura que comparar ni sumas que
+    alinear: el `None` viene del valor y el motivo queda `None`.
+    """
+    con_dato = resumen.totales_dias([_dia(HOY - UN_DIA, "10.0000", "100.0000", 1)], 7)
+    vacio = resumen.totales_dias(resumen.arma_dias({}, HOY - 8 * UN_DIA, HOY - 2 * UN_DIA), 7)
+
+    var = resumen.variacion(con_dato, vacio)
+    assert var["comparable"] is False and var["motivo"] == "cobertura_distinta"
+    assert var["acos_pp"] is None and var["roas_delta"] is None
+    assert var["motivo_por_metrica"]["acos_pp"] == "cobertura_distinta"
+    assert var["motivo_por_metrica"]["roas_delta"] == "cobertura_distinta"
+
+    var_vacia = resumen.variacion(vacio, vacio)
+    assert var_vacia["comparable"] is True
+    assert var_vacia["acos_pp"] is None and var_vacia["roas_delta"] is None
+    assert var_vacia["motivo_por_metrica"]["acos_pp"] is None
+    assert var_vacia["motivo_por_metrica"]["roas_delta"] is None

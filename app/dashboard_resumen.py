@@ -656,17 +656,23 @@ def _cobertura_variacion(actual: Mapping, anterior: Mapping, campo: str) -> tupl
 
 
 def _dinero_variacion(actual: Mapping, anterior: Mapping) -> tuple[bool, str | None]:
-    """ACoS/ROAS exigen ademas dinero alineado y con la MISMA cobertura.
+    """ACoS/ROAS exigen la MISMA cobertura de dinero y ademas dinero alineado.
 
     Gasto y venta deben cubrir los mismos dias dentro de cada periodo
     (`dinero_alineado`) y esa cobertura debe ser igual y completa en ambos.
+    La cobertura va PRIMERO para que el motivo sea el real: un periodo sin
+    datos da `cobertura_distinta`, no `dinero_no_alineado`. Sin dinero en
+    NINGUN periodo no hay cobertura que comparar ni sumas que alinear: el
+    `None` viene del valor y el motivo queda `None`.
     """
-    if not actual.get("dinero_alineado") or not anterior.get("dinero_alineado"):
-        return False, "dinero_no_alineado"
     for campo in ("dias_cost", "dias_ad_revenue"):
         publicado, motivo = _cobertura_variacion(actual, anterior, campo)
         if not publicado:
             return False, motivo
+    if not actual.get("dinero_alineado") or not anterior.get("dinero_alineado"):
+        if not actual.get("dias_cost") and not anterior.get("dias_cost"):
+            return False, None
+        return False, "dinero_no_alineado"
     return True, None
 
 

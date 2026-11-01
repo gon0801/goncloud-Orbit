@@ -534,8 +534,8 @@ silencioso: el recorte se declara.
   "desde": "2026-10-01", "hasta": "2026-10-30", "dias": 30,
   "totals": {"cost": "1234.5600", "ad_revenue": "5678.9000", "clicks": 456,
              "orders": 32, "acos": "21.74", "roas": "4.60", "sin_ventas": false,
-             "dias_con_dato": 30, "dias_cost": 30, "dias_ad_revenue": 30,
-             "dias_clicks": 30, "dinero_alineado": true},
+             "dias_con_dato": 28, "dias_cost": 28, "dias_ad_revenue": 28,
+             "dias_clicks": 28, "dinero_alineado": true},
   "comparison": {"desde": "2026-09-01", "hasta": "2026-09-30", "dias": 30,
                  "totals": {}, "variacion": {"cost_pct": "3.21",
                  "ad_revenue_pct": null, "clicks_pct": "-1.10",
@@ -543,8 +543,8 @@ silencioso: el recorte se declara.
                  "comparable": true, "motivo": null,
                  "motivo_por_metrica": {"cost_pct": null,
                  "ad_revenue_pct": "cobertura_distinta", "clicks_pct": null,
-                 "acos_pp": "dinero_no_alineado",
-                 "roas_delta": "dinero_no_alineado"}}},
+                 "acos_pp": "cobertura_distinta",
+                 "roas_delta": "cobertura_distinta"}}},
   "series": [{"fecha": "2026-10-01", "cost": "40.1200", "ad_revenue": "180.0000",
               "clicks": 12, "orders": 1, "acos": "22.29", "roas": "4.49",
               "sin_ventas": false, "inmaduro": false,
@@ -593,8 +593,12 @@ keyword/product_target: duplicarían el dinero.
   variación queda `null` por cobertura, `motivo_por_metrica` declara el motivo
   exacto de esa métrica (`cobertura_distinta`, `cobertura_incompleta`,
   `cobertura_desconocida` o `dinero_no_alineado`); `null` en ese campo
-  significa que no faltó cobertura. `acos_pp` y `roas_delta` exigen además
-  `dinero_alineado` en ambos periodos con la misma cobertura.
+  significa que no faltó cobertura. `acos_pp` y `roas_delta` revisan **primero**
+  la cobertura de gasto y venta (así un periodo sin datos da
+  `cobertura_distinta`, no `dinero_no_alineado`) y solo después exigen
+  `dinero_alineado` en ambos periodos. Sin dinero en ninguno de los dos
+  periodos el motivo es `null`: no hay cobertura que comparar ni sumas que
+  alinear.
 - Dinero en JSON = **STRING** con la escala del `NUMERIC(14,4)`
   (`"1234.5600"`); `clicks`/`orders` son enteros. El backend no emite floats.
 
