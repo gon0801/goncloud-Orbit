@@ -446,3 +446,143 @@ alias `/propuestas`, misma vista) y agrupa por direccion:
 | `app/main.py` | 1.3 | Incluye el router `/api/dashboard`. |
 | `tests/test_optimizer_goals.py` | 1.2 | Tests de los 5 peldaños (se agregan; los de 2.4 no se tocan). |
 | `tests/test_api_dashboard.py` | 1.3 | Tests de series + superficie OpenAPI solo-GET + SQL pglast. |
+
+## 9. Resumen multicanal — `GET /api/dashboard/resumen` (RESUMEN-ADS-02)
+
+Contrato del Resumen de publicidad para **Amazon MX**, **Amazon US** y
+**Mercado Libre**. El cálculo vive completo en `app/dashboard_resumen.py`; la
+ruta solo valida parámetros y delega. `ui_metricas.kpis_serie` reutiliza esa
+misma agregación (sumas, cobertura y ACoS), sin una segunda copia.
+
+### 9.1 Catálogo y moneda
+
+| Canal | Moneda nativa | Madurez publicada |
+|-------|---------------|-------------------|
+| `amazon_mx` | `MXN` | D-8 (Amazon: atribución madura 5–8 d, costo hasta D+15) |
+| `amazon_us` | `USD` | D-8 (la misma de Amazon) |
+| `meli` | `MXN` | **Ninguna**: MeLi no hereda la madurez D-8 de Amazon |
+
+El catálogo es propio del Resumen: **no** amplía `PLATAFORMAS_MONEDA` ni el
+vocabulario del optimizador. La moneda de Amazon coincide con la sellada por
+el motor; MeLi usa `MXN` (site MLM y trigger `meli -> MXN` de ADS-01).
+
+**Nunca se mezclan monedas.** Los bloques por canal llevan su `moneda` y los
+totales multi-canal viajan en `totales_por_moneda`, un elemento por moneda
+(MXN y USD separados). No existe un total global que sume MXN con USD.
+
+### 9.2 Parámetros
+
+| Param | Tipo | Default | Validación |
+|-------|------|---------|------------|
+| `periodo` | `7`, `30` o `90` | `30` | Fuera del vocabulario → 422 |
+| `desde` | `YYYY-MM-DD` | — | Con `hasta`, define rango personalizado |
+| `hasta` | `YYYY-MM-DD` | — | `hasta >= hoy` se **recorta** a D-1 (ver 9.3) |
+| `canal` | `amazon_mx` \| `amazon_us` \| `meli` | los tres | Fuera del catálogo → 422 |
+
+- La ventana visible **termina en D-1 (UTC)**; el día en curso nunca se sirve.
+- `desde` y `hasta` van juntos: uno solo → 422. Con rango personalizado,
+  `periodo` se ignora y la respuesta publica `"periodo": "personalizado"`.
+- Rango invertido (`desde > hasta`) o de **más de 366 días** → 422 con
+  mensaje explícito.
+- `30` días devuelven **30 puntos** en `series`; la comparación mide **lo
+  mismo** y termina el día anterior a `desde`.
+
+### 9.3 Ventana efectiva y recorte
+
+La respuesta declara siempre el rango servido:
+
+```json
+{"hoy": "2026-10-31", "desde": "2026-10-01", "hasta": "2026-10-30",
+ "dias": 30, "periodo": 30, "hasta_solicitado": "2026-10-31", "recortado": true}
+```
+
+Si `hasta >= hoy`, se sirve D-1 y `recortado` queda en `true` con el valor
+pedido en `hasta_solicitado`. No hay error silencioso: el recorte se declara.
+
+### 9.4 Respuesta por canal
+
+```json
+{
+  "plataforma": "amazon_mx", "moneda": "MXN", "granularidad": "campaign",
+  "desde": "2026-10-01", "hasta": "2026-10-30", "dias": 30,
+  "totals": {"cost": "1234.5600", "ad_revenue": "5678.9000", "clicks": 456,
+             "orders": 32, "acos": "21.74", "roas": "4.60", "sin_ventas": false,
+             "dias_con_dato": 30, "dinero_alineado": true},
+  "comparison": {"desde": "2026-09-01", "hasta": "2026-09-30", "dias": 30,
+                 "totals": {}, "variacion": {"cost_pct": "3.21",
+                 "ad_revenue_pct": null, "clicks_pct": "-1.10",
+                 "acos_pp": "0.40", "roas_delta": "-0.15"}},
+  "series": [{"fecha": "2026-10-01", "cost": "40.1200", "ad_revenue": "180.0000",
+              "clicks": 12, "orders": 1, "acos": "22.29", "roas": "4.49",
+              "sin_ventas": false, "inmaduro": false,
+              "ma7": {"cost": "280.8400", "ad_revenue": "1260.0000", "clicks": 84,
+                      "orders": 7, "acos": "22.29", "roas": "4.49", "completo": true}}],
+  "coverage": {"dias_rango": 30, "dias_con_dato": 28, "dias_faltantes": 2,
+               "por_metrica": {"cost": 28, "ad_revenue": 28, "clicks": 28, "orders": 28},
+               "completo": false},
+  "max_metric_date": "2026-10-30", "last_ingest_at": "2026-10-31T07:13:41+00:00",
+  "edad_dias": 1,
+  "maduracion": {"aplica": true, "dias_inmaduros": 8,
+                 "ventana_inmaduros": {"desde": "2026-10-23", "hasta": "2026-10-30"},
+                 "motivo": null}
+}
+```
+
+**Grano.** Todas las cifras salen de `ad_entity.kind = 'campaign'` sobre
+`v_metric_latest` (última observación por entidad y día). Nunca se suman
+keyword/product_target: duplicarían el dinero.
+
+### 9.5 Nulos, ceros y ratios
+
+- Día sin fila → todas sus métricas en `null` (brecha visible). **Nunca 0.**
+- Día con cero conocido → `0` (gasto, venta, clics u órdenes).
+- Si una campaña trae una métrica `NULL` ese día, el agregado de ESA métrica
+  es `null` (`bool_and`), jamás una suma parcial.
+- `acos = cost / ad_revenue * 100` y `roas = ad_revenue / cost`, **calculados
+  desde las sumas del periodo**, nunca promediando ratios diarios.
+- Denominador cero (`ad_revenue = 0` para ACoS, `cost = 0` para ROAS) o un
+  valor necesario desconocido → `null`. `sin_ventas` solo se afirma cuando la
+  venta está cubierta en **todos** los días del rango y suma cero.
+- Si gasto y venta no cubren exactamente los mismos días,
+  `totals.dinero_alineado` es `false` y ACoS/ROAS son `null`: sumar días
+  distintos inventaría un ratio.
+- Dinero en JSON = **STRING** con la escala del `NUMERIC(14,4)`
+  (`"1234.5600"`); `clicks`/`orders` son enteros. El backend no emite floats.
+
+### 9.6 Cobertura
+
+`coverage` separa los hechos: `dias_rango`, `dias_con_dato` (al menos una
+métrica conocida del día), `dias_faltantes`, `por_metrica` (días conocidos de
+cada métrica) y `completo`. Los totales suman solo días observados; la
+cobertura dice cuántos son.
+
+### 9.7 Frescura y madurez
+
+- `max_metric_date`: última fecha con observación de campaña del canal (puede
+  ser D-0 si la fuente ya publicó hoy, como MeLi).
+- `last_ingest_at`: última corrida `ok=true` que escribió observaciones de
+  campaña dentro de la ventana visible más su calentamiento. Si no existe,
+  `null` explícito (no se inventa una frescura).
+- `edad_dias`: días entre hoy y `max_metric_date` (`null` sin dato).
+- No hay umbral de frescura definido en este contrato: se exponen los hechos.
+- `maduracion`: para Amazon, `inmaduro` se marca en `[D-8, D-1]` con
+  `ventana_inmaduros`. Para MeLi, `maduracion.aplica = false`,
+  `inmaduro = null` y un `motivo` explícito: **no hereda** la madurez D-8.
+
+### 9.8 MA7
+
+Cada punto de `series` lleva `ma7`: la suma móvil de 7 días (el día y los 6
+anteriores) de gasto, venta, clics y órdenes. Se consultan 6 días de
+calentamiento antes de `desde` y solo se devuelve el rango pedido.
+
+- Cada métrica se suma por separado. Si **falta cualquier día** de la ventana,
+  esa métrica del MA7 es `null`; jamás se rellena con cero.
+- `ma7.completo` declara si gasto y venta tienen sus 7 días completos.
+- `ma7.acos`/`ma7.roas` salen de las sumas de la ventana, no del promedio de
+  ratios diarios.
+
+### 9.9 Compatibilidad
+
+`/api/dashboard/series/plataforma` conserva **exactamente** sus campos y
+formato (mismo contrato de §3.1). El Resumen multicanal es una ruta nueva; no
+cambia ni elimina campos existentes.

@@ -1,6 +1,13 @@
-"""Agregados de presentacion desde la fuente del dashboard, sin nuevas consultas."""
+"""Agregados de presentacion desde la fuente del dashboard, sin nuevas consultas.
 
-from decimal import ROUND_HALF_UP, Decimal
+RESUMEN-ADS-02: las sumas, la cobertura y el ACoS salen de la MISMA agregacion
+del Resumen (`app.dashboard_resumen`); aqui solo se formatea a la presentacion
+que ya consumian las plantillas (dinero a 2 decimales, clics enteros).
+"""
+
+from decimal import Decimal
+
+from app.dashboard_resumen import acos_texto, agrega_filas
 
 
 def _total(filas: list[dict], campo: str) -> Decimal | None:
@@ -11,25 +18,19 @@ def _total(filas: list[dict], campo: str) -> Decimal | None:
 def kpis_serie(datos: dict) -> dict:
     """Suma solo dias observados de UNA plataforma; los huecos se declaran."""
     filas = datos["series"]
-    cost, revenue = _total(filas, "cost"), _total(filas, "ad_revenue")
-    clicks = _total(filas, "clicks")
-    cobertura = {
-        campo: sum(f.get(campo) is not None for f in filas)
-        for campo in ("cost", "ad_revenue", "clicks")
-    }
-    compatibles = all((f.get("cost") is None) == (f.get("ad_revenue") is None) for f in filas)
-    acos = cost / revenue * 100 if compatibles and cost is not None and revenue else None
-    cobertura["acos"] = sum(
-        f.get("cost") is not None and f.get("ad_revenue") is not None for f in filas
-    )
+    agregado = agrega_filas(filas)
+    acos = acos_texto(agregado.cost, agregado.ad_revenue) if agregado.dinero_alineado else None
     return {
-        "cost": f"{cost:.2f}" if cost is not None else None,
-        "ad_revenue": f"{revenue:.2f}" if revenue is not None else None,
-        "clicks": int(clicks) if clicks is not None else None,
-        "acos": str(acos.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
-        if acos is not None
-        else None,
-        "cobertura": cobertura,
+        "cost": f"{agregado.cost:.2f}" if agregado.cost is not None else None,
+        "ad_revenue": (f"{agregado.ad_revenue:.2f}" if agregado.ad_revenue is not None else None),
+        "clicks": agregado.clicks,
+        "acos": acos,
+        "cobertura": {
+            "cost": agregado.dias_cost,
+            "ad_revenue": agregado.dias_ad_revenue,
+            "clicks": agregado.dias_clicks,
+            "acos": agregado.dias_pares,
+        },
         "dias": len(filas),
     }
 

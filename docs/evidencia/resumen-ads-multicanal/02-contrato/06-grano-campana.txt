@@ -1,0 +1,19 @@
+# Grano campana: el total del API es SOLO campaign (anti-doble-conteo)
+## API: amazon_us 2026-10-02..2026-10-31
+{
+  "cost": "1475.1900",
+  "ad_revenue": "2650.2300",
+  "clicks": 3481,
+  "orders": 24
+}
+
+## SELECT directo SUM solo campaign (misma regla bool_and por dia)
+1475.1900|2650.2300|3481|24|29
+
+## SELECT directo SIN filtro de kind (todas las entidades): el doble conteo que el API evita
+2950.3800|5300.4600|29
+
+## Desglose por kind en la misma ventana (hojas duplican el dinero)
+campaign|1475.1900
+keyword|667.4400
+product_target|807.7500
