@@ -24,7 +24,9 @@ RESUMEN-ADS-02):
    es el dia siguiente pero CDMX no). Un `hasta` >= hoy se RECORTA a D-1 y la
    respuesta declara `hasta_solicitado` y `recortado: true`. Rango invertido,
    fuera del calendario o de mas de 366 dias -> `ValueError` (la API lo
-   publica 422).
+   publica 422). La validacion cubre TODA resta de fechas de la ventana,
+   incluido el calentamiento del MA7 (`desde - 6`), para que una fecha absurda
+   nunca llegue a un `OverflowError` en la consulta.
 3. COMPARACION: el periodo anterior de igual longitud (termina el dia previo
    a `desde`). Totales con la misma semantica que el periodo visible. La
    variacion solo se publica si ambos periodos tienen el MISMO numero de dias
@@ -58,6 +60,11 @@ RESUMEN-ADS-02):
     `orders` de MeLi) NO se suma como si fuera completa: queda `None` y
     `cobertura` lo declara por metrica. `completo` exige ademas la cobertura
     por dia de todos los canales del grupo.
+12. CIERRE DEL DIA: cada punto declara `cerrado` (la ultima `observed_at` del
+    dia es posterior al fin de ese dia en la zona del canal). `false` +
+    `motivo_cierre: "observado_antes_del_cierre"` avisa que la foto se tomo
+    antes del cierre y aun puede moverse; los valores NO se cambian ni se
+    anulan. `coverage.cierre` cuenta y lista esas fechas.
 """
 
 from __future__ import annotations
@@ -133,7 +140,8 @@ SELECT v.metric_date,
        CASE WHEN bool_and(v.cost IS NOT NULL) THEN sum(v.cost) END,
        CASE WHEN bool_and(v.ad_revenue IS NOT NULL) THEN sum(v.ad_revenue) END,
        CASE WHEN bool_and(v.clicks IS NOT NULL) THEN sum(v.clicks)::bigint END,
-       CASE WHEN bool_and(v.orders IS NOT NULL) THEN sum(v.orders)::bigint END
+       CASE WHEN bool_and(v.orders IS NOT NULL) THEN sum(v.orders)::bigint END,
+       max(v.observed_at)
   FROM v_metric_latest v
   JOIN ad_entity e ON e.id = v.ad_entity_id
  WHERE e.kind = 'campaign'
@@ -182,6 +190,7 @@ class Ventana:
     recortado: bool
     anterior_desde: dt.date
     anterior_hasta: dt.date
+    calentamiento_desde: dt.date
 
 
 def hoy_por_canal(canales: Iterable[str], instante: dt.datetime) -> dict[str, dt.date]:
@@ -247,6 +256,10 @@ def ventana_resumen(
     try:
         anterior_hasta = desde - dt.timedelta(days=1)
         anterior_desde = anterior_hasta - dt.timedelta(days=dias - 1)
+        # El calentamiento del MA7 resta fechas fuera del rango visible: se
+        # valida aqui para que una fecha absurda (p. ej. 0001-01-02) sea 422 y
+        # jamas un OverflowError en la consulta.
+        calentamiento_desde = desde - dt.timedelta(days=DIAS_CALENTAMIENTO)
     except OverflowError:
         raise ValueError(
             "rango fuera del calendario soportado: desde es demasiado antiguo"
@@ -260,18 +273,25 @@ def ventana_resumen(
         recortado=recortado,
         anterior_desde=anterior_desde,
         anterior_hasta=anterior_hasta,
+        calentamiento_desde=calentamiento_desde,
     )
 
 
 @dataclass(frozen=True)
 class Dia:
-    """Un dia del spine: `None` = sin dato (brecha), `Decimal(0)` = cero real."""
+    """Un dia del spine: `None` = sin dato (brecha), `Decimal(0)` = cero real.
+
+    `observed_at` es la ULTIMA observacion (maximo) de ese dia y canal; sirve
+    solo para marcar si el dia estaba cerrado cuando se tomo la foto. Jamas
+    cambia los valores.
+    """
 
     fecha: dt.date
     cost: Decimal | None
     ad_revenue: Decimal | None
     clicks: int | None
     orders: int | None
+    observed_at: dt.datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -437,6 +457,7 @@ def arma_dias(por_fecha: Mapping[dt.date, tuple], desde: dt.date, hasta: dt.date
                 ad_revenue=None if fila is None else fila[1],
                 clicks=None if fila is None else fila[2],
                 orders=None if fila is None else fila[3],
+                observed_at=None if fila is None or len(fila) < 5 else fila[4],
             )
         )
         fecha += dt.timedelta(days=1)
@@ -478,11 +499,35 @@ def _inmaduro(fecha: dt.date, hoy: dt.date, canal: Canal) -> bool | None:
     return hoy - dt.timedelta(days=canal.dias_inmaduros) <= fecha <= hoy - dt.timedelta(days=1)
 
 
+def _fin_del_dia(fecha: dt.date, zona: str) -> dt.datetime:
+    """Instante UTC en que cierra `fecha` en la zona del canal (00:00 local)."""
+    siguiente = fecha + dt.timedelta(days=1)
+    return dt.datetime.combine(siguiente, dt.time.min, tzinfo=ZoneInfo(zona)).astimezone(dt.UTC)
+
+
+def _cerrado(dia: Dia, canal: Canal) -> bool | None:
+    """`True` si la ultima observacion del dia es posterior a su cierre.
+
+    Sin observacion -> `None` (no hay foto que juzgar). `False` marca un dia
+    copiado antes de que cerrara en la zona del canal: el valor NO se cambia ni
+    se vuelve `None`, solo se declara que aun puede moverse.
+    """
+    if dia.observed_at is None:
+        return None
+    observado = dia.observed_at
+    if observado.tzinfo is None:
+        observado = observado.replace(tzinfo=dt.UTC)
+    return observado >= _fin_del_dia(dia.fecha, canal.zona)
+
+
 def fila_serie(dia: Dia, ma7: dict | None, canal: Canal, hoy: dt.date) -> dict:
     """Una fila visible: valores del dia, ACoS/ROAS del dia y su MA7.
 
     Dia sin dato -> todas las metricas `None` (brecha). Cero conocido -> `0`.
+    `cerrado: false` no altera ninguna cifra: solo avisa que la ultima
+    observacion del dia se tomo antes de su cierre en la zona del canal.
     """
+    cerrado = _cerrado(dia, canal)
     return {
         "fecha": dia.fecha.isoformat(),
         "cost": _dec_str(dia.cost),
@@ -493,6 +538,8 @@ def fila_serie(dia: Dia, ma7: dict | None, canal: Canal, hoy: dt.date) -> dict:
         "roas": roas_texto(dia.cost, dia.ad_revenue),
         "sin_ventas": dia.ad_revenue is not None and dia.ad_revenue == 0,
         "inmaduro": _inmaduro(dia.fecha, hoy, canal),
+        "cerrado": cerrado,
+        "motivo_cierre": None if cerrado is not False else "observado_antes_del_cierre",
         "ma7": ma7,
     }
 
@@ -518,8 +565,29 @@ def serie_publica(
     return filas
 
 
-def cobertura(dias: Sequence[Dia], dias_rango: int) -> dict:
-    """Dias con dato / dias del rango y dias faltantes, por metrica."""
+def cierre_cobertura(dias: Sequence[Dia], canal: Canal) -> dict:
+    """Declara, en la cobertura del canal, los dias copiados antes del cierre.
+
+    No corrige ni anula valores: solo cuenta y lista las fechas cuya ultima
+    observacion (`observed_at`) es anterior al fin del dia en la zona del
+    canal (`cerrado: false` en la serie).
+    """
+    observados = [dia for dia in dias if dia.observed_at is not None]
+    antes = [dia.fecha for dia in observados if _cerrado(dia, canal) is False]
+    return {
+        "dias_observados": len(observados),
+        "dias_antes_del_cierre": len(antes),
+        "fechas_antes_del_cierre": [fecha.isoformat() for fecha in antes],
+        "todos_cerrados": not antes,
+    }
+
+
+def cobertura(dias: Sequence[Dia], dias_rango: int, canal: Canal | None = None) -> dict:
+    """Dias con dato / dias del rango y dias faltantes, por metrica.
+
+    Con `canal` agrega `cierre`, el resumen de dias observados antes del cierre
+    de su dia local (mismo criterio `cerrado` de la serie).
+    """
     agregado = agrega_filas(
         {
             "cost": dia.cost,
@@ -529,7 +597,7 @@ def cobertura(dias: Sequence[Dia], dias_rango: int) -> dict:
         }
         for dia in dias
     )
-    return {
+    salida = {
         "dias_rango": dias_rango,
         "dias_con_dato": agregado.dias_con_dato,
         "dias_faltantes": dias_rango - agregado.dias_con_dato,
@@ -541,6 +609,9 @@ def cobertura(dias: Sequence[Dia], dias_rango: int) -> dict:
         },
         "completo": agregado.dias_con_dato == dias_rango,
     }
+    if canal is not None:
+        salida["cierre"] = cierre_cobertura(dias, canal)
+    return salida
 
 
 def _pct(nuevo, anterior) -> str | None:
@@ -632,9 +703,9 @@ def bloque_canal(conn, canal: Canal, ventana: Ventana, hoy: dt.date) -> dict:
     periodo anterior (continuo hacia atras); el resto son dos agregados chicos
     (ultima fecha y ultima ingesta).
     """
-    inicio = min(ventana.anterior_desde, ventana.desde - dt.timedelta(days=DIAS_CALENTAMIENTO))
+    inicio = min(ventana.anterior_desde, ventana.calentamiento_desde)
     filas = conn.execute(_SQL_DIAS, (canal.plataforma, inicio, ventana.hasta)).fetchall()
-    por_fecha = {fila[0]: (fila[1], fila[2], fila[3], fila[4]) for fila in filas}
+    por_fecha = {fila[0]: (fila[1], fila[2], fila[3], fila[4], fila[5]) for fila in filas}
     dias_actuales = arma_dias(por_fecha, ventana.desde, ventana.hasta)
     dias_anteriores = arma_dias(por_fecha, ventana.anterior_desde, ventana.anterior_hasta)
     totals = totales_dias(dias_actuales, ventana.dias)
@@ -643,7 +714,7 @@ def bloque_canal(conn, canal: Canal, ventana: Ventana, hoy: dt.date) -> dict:
     ingest = last_ingest_at(
         conn,
         canal.plataforma,
-        ventana.desde - dt.timedelta(days=DIAS_CALENTAMIENTO),
+        ventana.calentamiento_desde,
         ventana.hasta,
     )
     return {
@@ -662,7 +733,7 @@ def bloque_canal(conn, canal: Canal, ventana: Ventana, hoy: dt.date) -> dict:
             "variacion": variacion(totals, anterior),
         },
         "series": serie_publica(por_fecha, ventana.desde, ventana.hasta, canal, hoy),
-        "coverage": cobertura(dias_actuales, ventana.dias),
+        "coverage": cobertura(dias_actuales, ventana.dias, canal),
         "max_metric_date": None if max_fecha is None else max_fecha.isoformat(),
         "last_ingest_at": None if ingest is None else ingest.isoformat(),
         "edad_dias": None if max_fecha is None else (hoy - max_fecha).days,

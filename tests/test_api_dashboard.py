@@ -516,6 +516,44 @@ def test_sin_dsn_de_lectura_fail_closed_503(monkeypatch):
     _postgres_obligatorio_ausente(),
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
 )
+def test_resumen_cablea_el_reloj_inyectado_y_termina_en_d1(monkeypatch):
+    """El endpoint usa `_ahora_utc` (no el reloj del proceso): a las 05:15Z del
+    1-nov, en CDMX aun es 31-oct, asi que periodo 7 termina en 2026-10-30."""
+    with _db_temporal("orbit_dash_resumen_reloj") as (conn, dsn):
+        run = _run(conn)
+        camp = _campana(conn, "amazon_us", "9001")
+        _metrica(
+            conn,
+            run,
+            camp,
+            dt.date(2026, 10, 30),
+            cost="10.0000",
+            ad_revenue="40.0000",
+            clicks=2,
+            moneda="USD",
+            observed_at=dt.datetime(2026, 10, 31, 8, 0, tzinfo=dt.UTC),
+        )
+        monkeypatch.setattr(
+            dash, "_ahora_utc", lambda: dt.datetime(2026, 11, 1, 5, 15, tzinfo=dt.UTC)
+        )
+        resp = _cliente(dsn, monkeypatch).get("/api/dashboard/resumen", params={"periodo": 7})
+        assert resp.status_code == 200
+        cuerpo = resp.json()
+        assert cuerpo["hoy"] == "2026-10-31"
+        assert cuerpo["hoy_instante"] == "2026-11-01T05:15:00+00:00"
+        assert cuerpo["desde"] == "2026-10-24"
+        assert cuerpo["hasta"] == "2026-10-30"
+        for bloque in cuerpo["canales"].values():
+            assert bloque["hasta"] == "2026-10-30"
+            assert bloque["series"][-1]["fecha"] == "2026-10-30"
+        assert cuerpo["canales"]["amazon_us"]["series"][-1]["cost"] == "10.0000"
+        assert cuerpo["canales"]["amazon_us"]["series"][-1]["cerrado"] is True
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
 def test_serie_plataforma_colapso_bitemporal_gana_la_ultima(monkeypatch):
     """Regla 5: dos observaciones de la misma (entidad, fecha) -> la serie usa
     la ULTIMA por observed_at (v_metric_latest), jamas la cruda."""

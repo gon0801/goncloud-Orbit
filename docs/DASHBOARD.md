@@ -493,9 +493,11 @@ totales multi-canal viajan en `totales_por_moneda`, un elemento por moneda
   la fecha local de cada uno (`hoy_por_canal`).
 - `desde` y `hasta` van juntos: uno solo → 422. Con rango personalizado,
   `periodo` se ignora y la respuesta publica `"periodo": "personalizado"`.
-- Rango invertido (`desde > hasta`), **fuera del calendario soportado**
-  (p. ej. `0001-01-01`, que desbordaba el periodo anterior) o de **más de 366
-  días** → 422 con mensaje explícito.
+- Rango invertido (`desde > hasta`), **fuera del calendario soportado** o de
+  **más de 366 días** → 422 con mensaje explícito. La validación cubre toda
+  resta de fechas de la ventana, incluido el **calentamiento del MA7**
+  (`desde - 6`): `0001-01-02..0001-01-02`, `0001-01-06..0001-01-06` y
+  `0001-01-04..0001-01-05` también dan 422, nunca 500.
 - `30` días devuelven **30 puntos** en `series`; la comparación mide **lo
   mismo** y termina el día anterior a `desde`.
 
@@ -536,11 +538,14 @@ silencioso: el recorte se declara.
   "series": [{"fecha": "2026-10-01", "cost": "40.1200", "ad_revenue": "180.0000",
               "clicks": 12, "orders": 1, "acos": "22.29", "roas": "4.49",
               "sin_ventas": false, "inmaduro": false,
+              "cerrado": true, "motivo_cierre": null,
               "ma7": {"cost": "280.8400", "ad_revenue": "1260.0000", "clicks": 84,
                       "orders": 7, "acos": "22.29", "roas": "4.49", "completo": true}}],
   "coverage": {"dias_rango": 30, "dias_con_dato": 28, "dias_faltantes": 2,
                "por_metrica": {"cost": 28, "ad_revenue": 28, "clicks": 28, "orders": 28},
-               "completo": false},
+               "completo": false,
+               "cierre": {"dias_observados": 28, "dias_antes_del_cierre": 0,
+                          "fechas_antes_del_cierre": [], "todos_cerrados": true}},
   "max_metric_date": "2026-10-30", "last_ingest_at": "2026-10-31T07:13:41+00:00",
   "edad_dias": 1,
   "maduracion": {"aplica": true, "dias_inmaduros": 8,
@@ -581,6 +586,17 @@ métrica conocida del día), `dias_faltantes`, `por_metrica` (días conocidos de
 cada métrica) y `completo`. Los totales suman solo días observados; la
 cobertura dice cuántos son.
 
+**Cierre del día.** `coverage.cierre` declara los días cuya **última**
+observación (`max(observed_at)`) se tomó **antes** de que ese día cerrara en
+la zona del canal: `dias_observados`, `dias_antes_del_cierre`,
+`fechas_antes_del_cierre` y `todos_cerrados`. Cada punto de `series` lleva el
+mismo juicio: `cerrado: false` y `motivo_cierre: "observado_antes_del_cierre"`.
+Un día sin observación no se juzga (`cerrado: null`). Esto es típico de MeLi,
+cuyo sync copia el día en curso: su D-1 puede ser una foto tomada antes de la
+medianoche local y aún moverse. La marca **no cambia ni anula** ningún valor
+(gasto, venta, ACoS/ROAS siguen publicados); solo avisa que la cifra no está
+cerrada.
+
 En `totales_por_moneda`, cada métrica se suma **solo si todos los canales del
 grupo la publican**. Si un canal no la tiene (p. ej. `orders` de MeLi siempre
 `NULL`), la métrica del grupo es `null`, nunca una suma parcial disfrazada de
@@ -596,6 +612,9 @@ completo y alineado en todos los canales.
   campaña dentro de la ventana visible más su calentamiento. Si no existe,
   `null` explícito (no se inventa una frescura).
 - `edad_dias`: días entre hoy y `max_metric_date` (`null` sin dato).
+- `coverage.cierre`: días observados antes de su cierre local (ver 9.6). Es la
+  parte de frescura que depende de **cuándo** se copió el día, no solo de qué
+  fecha trae.
 - No hay umbral de frescura definido en este contrato: se exponen los hechos.
 - `maduracion`: para Amazon, `inmaduro` se marca en `[D-8, D-1]` con
   `ventana_inmaduros`. Para MeLi, `maduracion.aplica = false`,

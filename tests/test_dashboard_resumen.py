@@ -116,16 +116,21 @@ def test_ventana_personalizada_recorta_hoy_y_rechaza_rangos_invalidos():
         resumen.ventana_resumen(periodo=14, desde=None, hasta=None, hoy=HOY)
 
 
-def test_ventana_rechaza_fechas_fuera_del_calendario():
-    """`desde=0001-01-01` desbordaba el periodo anterior (OverflowError -> 500);
-    ahora es un error 4xx explicito."""
+@pytest.mark.parametrize(
+    ("desde", "hasta"),
+    [
+        (dt.date(1, 1, 1), dt.date(1, 1, 7)),
+        # Solo el calentamiento del MA7 (desde - 6) desborda: antes daba 500.
+        (dt.date(1, 1, 2), dt.date(1, 1, 2)),
+        (dt.date(1, 1, 6), dt.date(1, 1, 6)),
+        (dt.date(1, 1, 4), dt.date(1, 1, 5)),
+    ],
+)
+def test_ventana_rechaza_fechas_fuera_del_calendario(desde, hasta):
+    """Una fecha absurda es 4xx, jamas un OverflowError (500) en la consulta:
+    la validacion cubre el periodo anterior Y el calentamiento del MA7."""
     with pytest.raises(ValueError):
-        resumen.ventana_resumen(
-            periodo=30,
-            desde=dt.date(1, 1, 1),
-            hasta=dt.date(1, 1, 7),
-            hoy=HOY,
-        )
+        resumen.ventana_resumen(periodo=30, desde=desde, hasta=hasta, hoy=HOY)
 
 
 def test_acos_y_roas_salen_de_sumas_no_del_promedio_de_ratios():
@@ -266,6 +271,62 @@ def test_ma7_con_un_dia_desconocido_es_none_no_cero():
     assert primera["ma7"]["completo"] is False
     # Cuatro dias despues el hueco ya salio de la ventana: MA7 completo.
     assert serie[4]["ma7"]["cost"] == "7.0000"
+
+
+def test_dia_observado_antes_del_cierre_se_marca_sin_cambiar_valores():
+    """MeLi copiado a las 23:02 CDMX del 30-oct: la serie lo marca
+    `cerrado: false` y la cobertura lo lista, pero las cifras siguen iguales."""
+    fecha = dt.date(2026, 10, 30)
+    # 05:02:55Z del 31-oct = 23:02:55 CDMX del 30-oct (antes del cierre).
+    dia = resumen.Dia(
+        fecha=fecha,
+        cost=Decimal("171.5900"),
+        ad_revenue=Decimal("989.0000"),
+        clicks=1,
+        orders=1,
+        observed_at=dt.datetime(2026, 10, 31, 5, 2, 55, tzinfo=dt.UTC),
+    )
+    meli = resumen.CANALES["meli"]
+    fila = resumen.fila_serie(dia, None, meli, HOY)
+    assert fila["cerrado"] is False
+    assert fila["motivo_cierre"] == "observado_antes_del_cierre"
+    assert fila["cost"] == "171.5900" and fila["ad_revenue"] == "989.0000"
+    assert fila["acos"] == "17.35"
+
+    cubierta = resumen.cobertura([dia], 1, meli)
+    assert cubierta["dias_con_dato"] == 1
+    assert cubierta["cierre"]["dias_antes_del_cierre"] == 1
+    assert cubierta["cierre"]["fechas_antes_del_cierre"] == ["2026-10-30"]
+    assert cubierta["cierre"]["todos_cerrados"] is False
+
+    # La misma observacion ya despues del cierre (06:00Z del 31-oct en CDMX).
+    dia_cerrado = resumen.Dia(
+        fecha=fecha,
+        cost=dia.cost,
+        ad_revenue=dia.ad_revenue,
+        clicks=dia.clicks,
+        orders=dia.orders,
+        observed_at=dt.datetime(2026, 10, 31, 6, 0, tzinfo=dt.UTC),
+    )
+    assert resumen.fila_serie(dia_cerrado, None, meli, HOY)["cerrado"] is True
+    assert resumen.fila_serie(dia_cerrado, None, meli, HOY)["motivo_cierre"] is None
+
+    # En Los Angeles el dia cierra una hora mas tarde (07:00Z): 06:30Z aun no.
+    amazon_us = resumen.CANALES["amazon_us"]
+    dia_us = resumen.Dia(
+        fecha=fecha,
+        cost=dia.cost,
+        ad_revenue=dia.ad_revenue,
+        clicks=dia.clicks,
+        orders=dia.orders,
+        observed_at=dt.datetime(2026, 10, 31, 6, 30, tzinfo=dt.UTC),
+    )
+    assert resumen.fila_serie(dia_us, None, amazon_us, HOY)["cerrado"] is False
+    # Un dia sin observacion no se juzga.
+    assert (
+        resumen.fila_serie(resumen.arma_dias({}, fecha, fecha)[0], None, meli, HOY)["cerrado"]
+        is None
+    )
 
 
 def _bloque(moneda: str, dias: list[resumen.Dia], dias_rango: int) -> dict:
