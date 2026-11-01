@@ -1,5 +1,9 @@
 # Correcciones ronda 5 (RESUMEN-ADS-02) — quitar la regla de 900 lineas y notas de la ronda 4
 
+Nota de cierre (2026-11-01): el retiro descrito en la seccion 1 es historico.
+Por nueva instruccion del dueno, PR #509 restaura el candado y registra una
+excepcion justificada para dashboard_resumen.py. Ver 16-cierre-mediums-508.txt.
+
 Base: `67b7b8ab`. Rama: `resumen-ads-02-contrato-multicanal`.
 Base desechable: Postgres en `127.0.0.1:5434` (DSN leido de
 `/tmp/orbit-resumen02-db.ready`; no se copia al repo). Nunca produccion.

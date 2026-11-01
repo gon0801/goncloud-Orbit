@@ -18,7 +18,7 @@ valer para todos va aquí también.
 - **Responde siempre en español**; directo al grano, sin relleno.
 - **Código limpio y listo para usar**: completo (sin `...`), escrito a archivos con las herramientas.
 - Entiende antes de cambiar; prefiere patrones existentes; cambios mínimos; nunca inventes APIs/credenciales.
-- Verifica el comportamiento pedido y `pre-commit` (gitleaks); jamás `--no-verify`.
+- Verifica el comportamiento pedido con pruebas y `pre-commit` (gitleaks); exige CI verde antes de integrar; jamás `--no-verify`.
 
 ## Stack
 
@@ -46,13 +46,21 @@ plans/        # manifest.json marca el plan ORBIT NN activo (sigue sus tasks y D
 
 ```bash
 uv sync                                   # deps (uv; venv en .venv/)
-uv run --frozen python -m pytest -q       # suite disponible; no es obligatoria por bloque
+uv run --frozen python -m pytest -q       # suite; CI ejecuta python -m pytest -q -x con PostgreSQL
 ruff check --fix . && ruff format .       # lint/format (line-length 100)
-pre-commit run --all-files                # gitleaks y conflictos
+pre-commit run --all-files                # gitleaks y conflictos; gate de CI: .github/workflows/quality.yml
 ```
 Windows: el venv es `.venv/Scripts/python.exe`; sin Postgres local, lo PG-backed
-se skipea por diseno. Si un push se cuelga, es credencial:
+se skipea por diseno (corre en CI con `ORBIT_TEST_DSN`). Si un push se cuelga, es credencial:
 `gh auth setup-git`.
+
+El gate de `.github/workflows/quality.yml` corre en cada PR y push a `master`/`main`:
+gitleaks, `python -m compileall -q app tools verify` y la suite completa
+`PYTHONPATH=. python -m pytest -q -x`, con Python 3.12 y PostgreSQL 16.
+Durante el desarrollo usa comprobaciones proporcionales y reutiliza la evidencia
+válida; antes de integrar, el gate del commit final debe estar verde. Si falla un
+candado, corrige la causa o declara una excepción justificada donde el candado la
+admita; no lo borres ni lo saltes para conseguir un pase.
 
 ## Reglas de diseño innegociables
 
@@ -66,7 +74,7 @@ Aplican a todo el código (detalle en `docs/CONTEXTO.md`; los invariantes de tie
 6. Cortar/pausar exige dato con ≥10 días de maduración; el día en curso se descarta.
 7. Ninguna acción irreversible sin su reversa implementada antes.
 8. Antes de definir un invariante que dependa del dato real, correr el `SELECT` que lo confirma en producción.
-9. Una regresión de dinero, escritura productiva o falla de producción se demuestra **fallando** contra el código anterior.
+9. Toda prueba de regresión se demuestra **fallando** contra el código anterior.
 10. Conciliar contra la fuente externa, no contra la propia consistencia.
 
 ## Convenciones de código
@@ -78,13 +86,14 @@ Aplican a todo el código (detalle en `docs/CONTEXTO.md`; los invariantes de tie
   `/sp/targets/bid/recommendations` de lectura); API exacta: `get`, `list_objects`,
   `recommend_bids`, `create_report`, `get_report`, `download`.
 - Base: roles LOGIN por servicio (`orbit_ingest`/`_decide`/`_read`/`_admin`); invariante nuevo del esquema = con su test; ADRs en `COMMENT ON` y docstrings.
-- Trabajo en planes `ORBIT NN` (PR a `master` con verificación proporcional al riesgo).
+- Trabajo en planes `ORBIT NN` (PR a `master` con verificación proporcional durante el desarrollo y CI verde por fase antes de integrar).
 
 ## Pruebas y revisiones
 - Pruebas nuevas SOLO en 4 casos: dinero (pujas, precios, presupuestos, cobros), escribir datos de produccion
   (base del servidor, Amazon, Mercado Libre, Shopify, Odoo), instalar/borrar/deshacer en las maquinas, y una
-  falla que ya paso en produccion (una prueba, no una bateria). Lo demas: basta comprobar que corre. Nunca
-  pruebas de texto, de las pruebas ni mutantes. Un revisor no pide pruebas fuera de eso.
-- Un revisor solo bloquea por seguridad, datos, el comportamiento pedido roto o un caso de los 4 sin su
+  falla que ya paso en produccion (una prueba, no una bateria). Para los demas cambios, elige la
+  comprobacion local proporcional; el gate completo y los candados existentes siguen siendo obligatorios.
+  No agregues pruebas de texto, de las pruebas ni mutantes. Un revisor no pide pruebas nuevas fuera de eso.
+- Un revisor bloquea por CI fallido, seguridad, datos, el comportamiento pedido roto o un caso de los 4 sin su
   prueba, siempre con el comando que lo reproduce. Lo demas va en notas y se corrige en la misma ronda.
 - Nunca subir contrasenas ni llaves a un repo.

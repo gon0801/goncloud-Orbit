@@ -6,7 +6,7 @@
 
 **Arquitectura.** Amazon ya está en Orbit. MeLi Ads ya está en accounting. La fase 1 copia MeLi al esquema existente de Orbit. La fase 2 concentra los cálculos en la API. La fase 3 presenta esos resultados en la página.
 
-**Verificación.** Sigue `AGENTS.md`. Las pruebas nuevas se limitan a dinero, escritura productiva, operaciones en máquinas y fallas reales de producción. No hay baterías, carriles live, cantidad de pruebas ni gates de rendimiento obligatorios. Verifica el comportamiento pedido de forma proporcional al riesgo y no repitas evidencia válida del mismo SHA. La revisión cruzada solo se ejecuta si el operador la pide.
+**Verificación.** Sigue `AGENTS.md`. Las pruebas nuevas se limitan a dinero, escritura productiva, operaciones en máquinas y fallas reales de producción. Durante el desarrollo verifica de forma proporcional al riesgo y no repitas evidencia válida del mismo SHA. Antes de integrar cada fase, el gate de CI del commit final debe estar verde: gitleaks, compileall y suite completa con PostgreSQL. Los candados existentes se conservan; cualquier excepción debe justificarse en su allowlist. No hay carriles live, cantidad de pruebas nuevas ni gates de rendimiento obligatorios. La revisión cruzada solo se ejecuta si el operador la pide.
 
 ## Ingestar Mercado Libre Ads (RESUMEN-ADS-01)
 
@@ -39,7 +39,7 @@
 
 **Verificación proporcional.**
 
-Esta fase escribe datos de producción. Cubre los comportamientos anteriores con pruebas reales de SQLite y PostgreSQL cuando sean necesarias. Ejecuta la carga, el reintento, la corrección y la conciliación contra un snapshot desechable. Compara un smoke de Amazon solo si el cambio toca su camino. No ejecutes la suite completa por obligación.
+Esta fase escribe datos de producción. Cubre los comportamientos anteriores con pruebas reales de SQLite y PostgreSQL cuando sean necesarias. Ejecuta la carga, el reintento, la corrección y la conciliación contra un snapshot desechable. Compara un smoke de Amazon solo si el cambio toca su camino. La selección de pruebas locales no sustituye el gate completo de CI antes de integrar.
 
 ## Exponer el contrato del Resumen (RESUMEN-ADS-02)
 
@@ -49,6 +49,12 @@ publique ratios completos. Regresión demostrada fallando contra el código
 anterior, 124 pruebas focalizadas aprobadas y 12 consultas de periodos/filtros
 comprobadas con API y PostgreSQL desechable. Revisión independiente aprobada.
 Evidencia: `docs/evidencia/resumen-ads-multicanal/02-contrato/15-cierre-cobertura-por-moneda.txt`.
+PR #509 tambien restaura el presupuesto de tamano con una excepcion justificada
+para el contrato, alinea las reglas con el gate real de CI y confirma la
+regresion F1; 126 pruebas de arquitectura y calculos aprobadas. Evidencia:
+`docs/evidencia/resumen-ads-multicanal/02-contrato/16-cierre-mediums-508.txt`.
+Antes de integrar #509, exigir CI verde y ningun High/Medium abierto en la
+revision DeepSeek vigente.
 La fase 03 debe partir del contrato con esta corrección integrada y presentar
 su cobertura, sin volver a calcular métricas.
 
@@ -79,7 +85,7 @@ su cobertura, sin volver a calcular métricas.
 
 **Verificación proporcional.**
 
-Las pruebas monetarias están permitidas. Comprueba mediante la API real los tres canales, los periodos, la comparación, MA7, los ceros, los nulos, la moneda y el grano campaña. No agregues pruebas para cada campo ni ejecutes la suite completa por obligación.
+Las pruebas monetarias están permitidas. Comprueba mediante la API real los tres canales, los periodos, la comparación, MA7, los ceros, los nulos, la moneda y el grano campaña. No agregues pruebas para cada campo. Antes de integrar exige el gate completo de CI sobre el commit final.
 
 ## Rediseñar la interfaz del Resumen (RESUMEN-ADS-03)
 

@@ -1,0 +1,74 @@
+# Cierre de F2/F6 y confirmacion de F1 de PR #508
+
+Fecha: 2026-11-01. Correcciones incluidas en PR #509 por instruccion del dueno.
+Esta decision sustituye el retiro del candado de tamano registrado en la
+ronda 5. No se reescribe aquel resultado historico.
+
+## F6: presupuesto de tamano restaurado
+
+Se restaura tests/test_architecture.py desde el padre de 13eaa273:
+MAX_LINEAS_MODULO=900, las 13 excepciones anteriores con sus razones,
+test_presupuesto_de_tamano_por_modulo y test_allowlist_de_tamano_auto_limpiante.
+
+Antes de declarar la nueva excepcion, se ejecutaron ambos candados:
+
+.venv/bin/python -m pytest -q tests/test_architecture.py::test_presupuesto_de_tamano_por_modulo tests/test_architecture.py::test_allowlist_de_tamano_auto_limpiante
+
+Resultado: 1 failed, 1 passed in 0.29s.
+Exceso detectado: {'app/dashboard_resumen.py': 943}.
+
+Se agrega SOLO ese modulo a la allowlist con razon escrita: ventanas,
+cobertura, comparacion y MA7 comparten Dia y calculos monetarios; la UI de
+fase 03 vive fuera. Si el contrato crece, la frontera a revisar es consultas
+frente a agregacion. Se conserva el limite global y la limpieza automatica
+de excepciones que dejen de excederlo. No se elimina ni se debilita el test.
+
+## F2: reglas alineadas con el gate existente
+
+AGENTS.md exige CI verde sobre el commit final antes de integrar cada fase.
+Documenta .github/workflows/quality.yml tal como existe: gitleaks,
+python -m compileall -q app tools verify y PYTHONPATH=. python -m pytest -q -x,
+con Python 3.12, PostgreSQL 16 y ORBIT_TEST_DSN. El workflow no se modifica.
+
+Las pruebas locales proporcionales y los skips locales sin PostgreSQL no
+sustituyen el gate. Toda regresion debe discriminar contra el codigo previo.
+Si un candado falla, se corrige la causa o se declara una excepcion justificada
+donde el candado la permita; no se borra. El plan multicanal adopta la misma
+distincion entre comprobacion local y gate obligatorio antes de integrar.
+
+## F1: variacion con cobertura por metrica confirmada
+
+F1 ya estaba resuelto en #508 por 67b7b8ab; #509 conserva esa correccion y
+completa la cobertura por metrica de los grupos monetarios. Son dos caminos:
+variacion entre periodos y totales por moneda, ambos comprobados.
+
+Pruebas existentes que cubren F1 (no se agregan duplicados):
+
+.venv/bin/python -m pytest -q tests/test_dashboard_resumen.py -k 'variacion_exige_cobertura_por_metrica or variacion_misma_cobertura_parcial'
+
+Contraste adicional ejecutado cargando el modulo anterior a 67b7b8ab desde
+git show, en memoria, y construyendo Dia/totales_dias con cada implementacion:
+
+- Base a46f6850, gasto [10, NULL] contra [10, 10], venta y clics conocidos
+  todos los dias: cost_pct=-50.00. Codigo actual: cost_pct=NULL y motivo
+  cobertura_distinta.
+- Base a46f6850, gasto [NULL, 10, 10] contra [10, NULL, 10], venta y clics
+  conocidos todos los dias: cost_pct=0.00. Codigo actual: cost_pct=NULL y
+  motivo cobertura_incompleta.
+
+No basta con que ambos periodos tengan el mismo numero de dias con algun
+dato; cada variacion exige cobertura completa de su metrica.
+
+## Verificacion del delta
+
+.venv/bin/python -m pytest -q tests/test_architecture.py tests/test_dashboard_resumen.py tests/test_ui_metricas.py
+126 passed in 2.72s.
+
+La evidencia 15 sigue vigente para las 124 pruebas con PostgreSQL y las
+consultas de API: este delta restaura candados y documentacion, sin cambiar
+el calculo ni las consultas. Ruff, formato, git diff --check y pre-commit
+(secretos y conflictos) pasan. El gate remoto y la revision DeepSeek del
+commit final se consultan en PR #509; esta evidencia no presume su pase.
+
+No integrar #509 mientras la revision DeepSeek vigente tenga High o Medium
+abiertos. La revision de #508 es historica; F2 y F6 se corrigen aqui.
