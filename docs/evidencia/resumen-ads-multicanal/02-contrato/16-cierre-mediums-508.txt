@@ -67,6 +67,12 @@ caller productivo de totales_por_moneda es resumen, que entrega bloques de
 bloque_canal con coverage y dias. El contrato obligatorio queda documentado,
 sin inventar cobertura para un formato que ningun caller productivo usa.
 Los bloques validos conservan los mismos valores.
+Tras la siguiente revision se agrega un guard al entrar: falta de dias,
+coverage, completo o alguna clave de por_metrica produce ValueError con el
+canal y la estructura requerida. Smoke directo: 6/6 bloques con coverage
+ausente, NULL o incompleto devuelven ese error explicito. No se fabrican
+ceros ni se publican ratios de un bloque mal formado. La regla 11 del
+docstring tambien exige cada metrica en todos los dias de todos los canales.
 
 08-monedas.txt se identifica tambien como JSON historico: omitia cobertura
 y sumaba orders de MXN aunque MeLi no publica esa metrica. Apunta al contrato

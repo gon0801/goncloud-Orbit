@@ -60,8 +60,11 @@ RESUMEN-ADS-02):
     inventa un umbral de frescura: sin corrida -> `last_ingest_at: null`.
 11. TOTALES POR MONEDA: una metrica que algun canal del grupo no tiene (p. ej.
     `orders` de MeLi) NO se suma como si fuera completa: queda `None` y
-    `cobertura` lo declara por metrica. `completo` exige ademas la cobertura
-    por dia de todos los canales del grupo.
+    `cobertura` lo declara por metrica. Si todos los canales aportan la
+    metrica, su suma observada se conserva aunque falten dias. Cada marca de
+    `cobertura` exige ESA metrica en TODOS los dias de TODOS los canales;
+    `completo` exige todas las metricas y la cobertura por dia. ACoS/ROAS
+    requieren gasto y ventas completos y alineados en el grupo.
 12. CIERRE DEL DIA: cada punto declara `cerrado` (la ultima `observed_at` del
     dia es posterior al fin de ese dia en la zona del canal). `false` +
     `motivo_cierre: "observado_antes_del_cierre"` avisa que la foto se tomo
@@ -836,7 +839,8 @@ def _suma_grupo(totales: Sequence[Mapping], metrica: str) -> Decimal | None:
 def totales_por_moneda(bloques: Mapping[str, Mapping]) -> list[dict]:
     """Totales multi-canal AGRUPADOS por moneda (jamas una moneda mezclada).
 
-    Recibe bloques de `bloque_canal`, con `coverage` y `dias` obligatorios.
+    Recibe bloques de `bloque_canal`, con `coverage` y `dias` obligatorios;
+    cobertura ausente o incompleta en la estructura produce `ValueError`.
     Cada metrica se suma solo si TODOS los canales del grupo la tienen; si
     alguno no la publica, la metrica del grupo es `None` (nunca una suma
     parcial disfrazada). `cobertura` exige, metrica por metrica, dato en TODOS
@@ -849,6 +853,18 @@ def totales_por_moneda(bloques: Mapping[str, Mapping]) -> list[dict]:
     """
     grupos: dict[str, list[tuple[str, Mapping]]] = {}
     for nombre, bloque in bloques.items():
+        cobertura_canal = bloque.get("coverage")
+        if (
+            "dias" not in bloque
+            or not isinstance(cobertura_canal, Mapping)
+            or "completo" not in cobertura_canal
+            or not isinstance(cobertura_canal.get("por_metrica"), Mapping)
+            or not set(_METRICAS_TOTALES).issubset(cobertura_canal["por_metrica"])
+        ):
+            raise ValueError(
+                f"el bloque {nombre} requiere dias y coverage con completo y "
+                "por_metrica para cost, ad_revenue, clicks y orders"
+            )
         grupos.setdefault(bloque["moneda"], []).append((nombre, bloque))
     salida: list[dict] = []
     for moneda in sorted(grupos):
