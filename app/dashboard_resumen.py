@@ -833,18 +833,10 @@ def _suma_grupo(totales: Sequence[Mapping], metrica: str) -> Decimal | None:
     return _suma_conocidos(valores)
 
 
-def _bloque_con_cobertura_completa(bloque: Mapping) -> bool:
-    """El canal cubre TODOS los dias del rango (`coverage.completo`)."""
-    cobertura = bloque.get("coverage")
-    if cobertura is not None:
-        return bool(cobertura.get("completo"))
-    dias = bloque.get("dias")
-    return dias is not None and bloque["totals"].get("dias_con_dato") == dias
-
-
 def totales_por_moneda(bloques: Mapping[str, Mapping]) -> list[dict]:
     """Totales multi-canal AGRUPADOS por moneda (jamas una moneda mezclada).
 
+    Recibe bloques de `bloque_canal`, con `coverage` y `dias` obligatorios.
     Cada metrica se suma solo si TODOS los canales del grupo la tienen; si
     alguno no la publica, la metrica del grupo es `None` (nunca una suma
     parcial disfrazada). `cobertura` exige, metrica por metrica, dato en TODOS
@@ -862,7 +854,7 @@ def totales_por_moneda(bloques: Mapping[str, Mapping]) -> list[dict]:
     for moneda in sorted(grupos):
         miembros = grupos[moneda]
         totales = [bloque["totals"] for _nombre, bloque in miembros]
-        dias_completos = all(_bloque_con_cobertura_completa(bloque) for _nombre, bloque in miembros)
+        dias_completos = all(bloque["coverage"]["completo"] for _nombre, bloque in miembros)
         cobertura = {
             metrica: all(
                 bloque["coverage"]["por_metrica"][metrica] == bloque["dias"]

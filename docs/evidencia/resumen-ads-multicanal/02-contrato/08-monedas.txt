@@ -1,6 +1,10 @@
 # RONDA 1 (historico): este archivo se genero con el "hoy" UTC, que servia
 # el dia en curso entre 18:00 y 24:00 CDMX. La correccion (zona local minima)
 # esta en 11-correcciones-ronda-2.txt.
+# Nota de cierre (2026-11-01): el JSON tambien es historico y no representa
+# el contrato vigente: omite `cobertura` y suma orders de MXN aunque MeLi no
+# publica esa metrica. Consultar docs/DASHBOARD.md seccion 9 y
+# 15-cierre-cobertura-por-moneda.txt para nulos, cobertura y ratios actuales.
 # Moneda nativa por canal y totales multi-canal agrupados por moneda
 ## periodo=30: moneda por canal
 {

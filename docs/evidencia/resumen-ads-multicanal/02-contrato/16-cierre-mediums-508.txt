@@ -59,6 +59,19 @@ git show, en memoria, y construyendo Dia/totales_dias con cada implementacion:
 No basta con que ambos periodos tengan el mismo numero de dias con algun
 dato; cada variacion exige cobertura completa de su metrica.
 
+## Observaciones Low de #509
+
+Los identificadores de #509 son propios y no corresponden a F1/F2 de #508.
+Se retira _bloque_con_cobertura_completa y su fallback sin coverage: el unico
+caller productivo de totales_por_moneda es resumen, que entrega bloques de
+bloque_canal con coverage y dias. El contrato obligatorio queda documentado,
+sin inventar cobertura para un formato que ningun caller productivo usa.
+Los bloques validos conservan los mismos valores.
+
+08-monedas.txt se identifica tambien como JSON historico: omitia cobertura
+y sumaba orders de MXN aunque MeLi no publica esa metrica. Apunta al contrato
+actual de docs/DASHBOARD.md y a la evidencia 15.
+
 ## Verificacion del delta
 
 .venv/bin/python -m pytest -q tests/test_architecture.py tests/test_dashboard_resumen.py tests/test_ui_metricas.py

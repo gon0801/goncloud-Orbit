@@ -48,8 +48,8 @@ MAX_LINEAS_MODULO = 900
 # modulo haya bajado del umbral; agregarla exige razon y review.
 ALLOWLIST_TAMANO = {
     "app/dashboard_resumen.py": (
-        "RESUMEN ADS 02, cierre #509: contrato de lectura multicanal (943 "
-        "lineas). Ventanas, cobertura por metrica, comparacion y MA7 usan "
+        "RESUMEN ADS 02, cierre #509: contrato de lectura multicanal. "
+        "Ventanas, cobertura por metrica, comparacion y MA7 usan "
         "el mismo modelo Dia y los mismos calculos monetarios; se conserva "
         "ese nucleo cohesivo en esta correccion. La interfaz de fase 03 "
         "vive fuera y consume el contrato. Si el contrato vuelve a crecer, "
