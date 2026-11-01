@@ -456,15 +456,21 @@ misma agregación (sumas, cobertura y ACoS), sin una segunda copia.
 
 ### 9.1 Catálogo y moneda
 
-| Canal | Moneda nativa | Madurez publicada |
-|-------|---------------|-------------------|
-| `amazon_mx` | `MXN` | D-8 (Amazon: atribución madura 5–8 d, costo hasta D+15) |
-| `amazon_us` | `USD` | D-8 (la misma de Amazon) |
-| `meli` | `MXN` | **Ninguna**: MeLi no hereda la madurez D-8 de Amazon |
+| Canal | Moneda nativa | Zona del día de reporte | Madurez publicada |
+|-------|---------------|-------------------------|-------------------|
+| `amazon_mx` | `MXN` | `America/Mexico_City` | D-8 (Amazon: atribución madura 5–8 d, costo hasta D+15) |
+| `amazon_us` | `USD` | `America/Los_Angeles` | D-8 (la misma de Amazon) |
+| `meli` | `MXN` | `America/Mexico_City` | **Ninguna**: MeLi no hereda la madurez D-8 de Amazon |
 
 El catálogo es propio del Resumen: **no** amplía `PLATAFORMAS_MONEDA` ni el
 vocabulario del optimizador. La moneda de Amazon coincide con la sellada por
 el motor; MeLi usa `MXN` (site MLM y trigger `meli -> MXN` de ADS-01).
+
+La **zona del día de reporte** sale del perfil de Amazon (`timezone` del
+perfil v2, documentado en `app/ads/structure.py`) y del site `MLM` de MeLi. El
+sync de MeLi pide fechas con el reloj UTC, pero el día que publica la API es
+el día local: el 21-ago visto a las 19:19 UTC traía solo el 16% de su gasto
+final (evidencia de ADS-01).
 
 **Nunca se mezclan monedas.** Los bloques por canal llevan su `moneda` y los
 totales multi-canal viajan en `totales_por_moneda`, un elemento por moneda
@@ -479,11 +485,17 @@ totales multi-canal viajan en `totales_por_moneda`, un elemento por moneda
 | `hasta` | `YYYY-MM-DD` | — | `hasta >= hoy` se **recorta** a D-1 (ver 9.3) |
 | `canal` | `amazon_mx` \| `amazon_us` \| `meli` | los tres | Fuera del catálogo → 422 |
 
-- La ventana visible **termina en D-1 (UTC)**; el día en curso nunca se sirve.
+- La ventana visible **termina en el D-1 del "hoy" del Resumen**: la fecha
+  local **mínima** entre las zonas de los canales pedidos (así D-1 está
+  cerrado en todos). El día en curso nunca se sirve, ni entre las 18:00 y las
+  24:00 de la Ciudad de México, cuando UTC ya es el día siguiente. La respuesta
+  declara el instante UTC (`hoy_instante`), la zona de cada canal (`zonas`) y
+  la fecha local de cada uno (`hoy_por_canal`).
 - `desde` y `hasta` van juntos: uno solo → 422. Con rango personalizado,
   `periodo` se ignora y la respuesta publica `"periodo": "personalizado"`.
-- Rango invertido (`desde > hasta`) o de **más de 366 días** → 422 con
-  mensaje explícito.
+- Rango invertido (`desde > hasta`), **fuera del calendario soportado**
+  (p. ej. `0001-01-01`, que desbordaba el periodo anterior) o de **más de 366
+  días** → 422 con mensaje explícito.
 - `30` días devuelven **30 puntos** en `series`; la comparación mide **lo
   mismo** y termina el día anterior a `desde`.
 
@@ -492,12 +504,20 @@ totales multi-canal viajan en `totales_por_moneda`, un elemento por moneda
 La respuesta declara siempre el rango servido:
 
 ```json
-{"hoy": "2026-10-31", "desde": "2026-10-01", "hasta": "2026-10-30",
+{"hoy": "2026-10-31", "hoy_instante": "2026-11-01T05:15:00+00:00",
+ "zonas": {"amazon_mx": "America/Mexico_City",
+           "amazon_us": "America/Los_Angeles", "meli": "America/Mexico_City"},
+ "hoy_por_canal": {"amazon_mx": "2026-10-31", "amazon_us": "2026-10-31",
+                   "meli": "2026-10-31"},
+ "desde": "2026-10-01", "hasta": "2026-10-30",
  "dias": 30, "periodo": 30, "hasta_solicitado": "2026-10-31", "recortado": true}
 ```
 
-Si `hasta >= hoy`, se sirve D-1 y `recortado` queda en `true` con el valor
-pedido en `hasta_solicitado`. No hay error silencioso: el recorte se declara.
+A las 05:15 UTC del 1-nov (23:15 del 31-oct en CDMX) `hoy` sigue siendo
+`2026-10-31` y el periodo de 7 días termina en `2026-10-30`: MeLi y Amazon MX
+todavía no cierran el 31-oct. Si `hasta >= hoy`, se sirve D-1 y `recortado`
+queda en `true` con el valor pedido en `hasta_solicitado`. No hay error
+silencioso: el recorte se declara.
 
 ### 9.4 Respuesta por canal
 
@@ -511,7 +531,8 @@ pedido en `hasta_solicitado`. No hay error silencioso: el recorte se declara.
   "comparison": {"desde": "2026-09-01", "hasta": "2026-09-30", "dias": 30,
                  "totals": {}, "variacion": {"cost_pct": "3.21",
                  "ad_revenue_pct": null, "clicks_pct": "-1.10",
-                 "acos_pp": "0.40", "roas_delta": "-0.15"}},
+                 "acos_pp": "0.40", "roas_delta": "-0.15",
+                 "comparable": true, "motivo": null}},
   "series": [{"fecha": "2026-10-01", "cost": "40.1200", "ad_revenue": "180.0000",
               "clicks": 12, "orders": 1, "acos": "22.29", "roas": "4.49",
               "sin_ventas": false, "inmaduro": false,
@@ -546,6 +567,10 @@ keyword/product_target: duplicarían el dinero.
 - Si gasto y venta no cubren exactamente los mismos días,
   `totals.dinero_alineado` es `false` y ACoS/ROAS son `null`: sumar días
   distintos inventaría un ratio.
+- La **variación** contra el periodo anterior solo se publica cuando ambos
+  periodos tienen el mismo `dias_con_dato` (`comparable: true`). Con cobertura
+  distinta todas las variaciones son `null` y `motivo: "cobertura_distinta"`:
+  un día faltante contaría como cero en el porcentaje.
 - Dinero en JSON = **STRING** con la escala del `NUMERIC(14,4)`
   (`"1234.5600"`); `clicks`/`orders` son enteros. El backend no emite floats.
 
@@ -555,6 +580,13 @@ keyword/product_target: duplicarían el dinero.
 métrica conocida del día), `dias_faltantes`, `por_metrica` (días conocidos de
 cada métrica) y `completo`. Los totales suman solo días observados; la
 cobertura dice cuántos son.
+
+En `totales_por_moneda`, cada métrica se suma **solo si todos los canales del
+grupo la publican**. Si un canal no la tiene (p. ej. `orders` de MeLi siempre
+`NULL`), la métrica del grupo es `null`, nunca una suma parcial disfrazada de
+completa. El bloque declara `cobertura` por métrica y `cobertura.dias`;
+`completo` exige ambas cosas. ACoS/ROAS del grupo solo se publican con dinero
+completo y alineado en todos los canales.
 
 ### 9.7 Frescura y madurez
 
@@ -567,7 +599,9 @@ cobertura dice cuántos son.
 - No hay umbral de frescura definido en este contrato: se exponen los hechos.
 - `maduracion`: para Amazon, `inmaduro` se marca en `[D-8, D-1]` con
   `ventana_inmaduros`. Para MeLi, `maduracion.aplica = false`,
-  `inmaduro = null` y un `motivo` explícito: **no hereda** la madurez D-8.
+  `inmaduro = null` y un `motivo` explícito: **no hereda** la madurez D-8 y
+  cierra sus cifras en **T+1/T+2** (`docs/DEPLOY.md`), así que su D-1 todavía
+  puede cambiar.
 
 ### 9.8 MA7
 

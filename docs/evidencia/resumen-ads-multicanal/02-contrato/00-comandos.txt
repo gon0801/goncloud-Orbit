@@ -1,3 +1,6 @@
+# RONDA 1 (historico): este archivo se genero con el "hoy" UTC, que servia
+# el dia en curso entre 18:00 y 24:00 CDMX. La correccion (zona local minima)
+# esta en 11-correcciones-ronda-2.txt.
 # Comandos de verificacion (RESUMEN-ADS-02)
 
 ## Base desechable: Postgres en 127.0.0.1:5434 (DSN leido de /tmp/orbit-resumen02-db.ready; no se copia al repo).
@@ -21,3 +24,10 @@
 ## Lint y formato de los archivos tocados
 All checks passed!
 4 files already formatted
+
+## RONDA 2 (correcciones): ver 11-correcciones-ronda-2.txt
+## - Reloj fijo 2026-11-01T05:15Z => hoy=2026-10-31, periodo 7 => hasta=2026-10-30.
+## - Variacion con cobertura distinta => None + motivo.
+## - Totales por moneda: orders de MeLi NULL => grupo MXN orders NULL, completo=false.
+## - desde=0001-01-01 => 422 (antes 500).
+## - /series/plataforma: 6 consultas identicas byte a byte contra 1bb7059.

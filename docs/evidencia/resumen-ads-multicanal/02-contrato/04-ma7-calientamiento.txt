@@ -1,3 +1,6 @@
+# RONDA 1 (historico): este archivo se genero con el "hoy" UTC, que servia
+# el dia en curso entre 18:00 y 24:00 CDMX. La correccion (zona local minima)
+# esta en 11-correcciones-ronda-2.txt.
 # MA7 con calentamiento (amazon_mx, rango visible 2026-10-10..2026-10-19)
 ## Primer punto visible (2026-10-10): ventana 2026-10-04..2026-10-10 (6 dias antes del rango)
 {

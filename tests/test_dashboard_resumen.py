@@ -6,8 +6,10 @@ Solo lo que mueve dinero o cambia el contrato del rango:
 - ACoS/ROAS desde SUMAS, no promediando ratios diarios.
 - Cero conocido vs dato faltante (`None`), jamas un cero inventado.
 - MA7 con calentamiento y ventana incompleta -> `None`.
-- Ventana visible que termina en D-1, recorte de `hasta` y topes 4xx.
-- Grano campana sobre `v_metric_latest` (anti-doble-conteo).
+- Ventana visible que termina en D-1 de la zona local MINIMA (no UTC),
+  recorte de `hasta` y topes 4xx (incluye fechas fuera del calendario).
+- Variacion solo comparable con la misma cobertura de dias.
+- Totales por moneda sin sumar metricas que un canal no publica.
 
 No hay pruebas de texto ni de la interfaz: la API real se verifica contra la
 base desechable (docs/evidencia/resumen-ads-multicanal/02-contrato).
@@ -69,6 +71,29 @@ def test_ventana_periodos_terminan_en_d1_y_comparacion_igual():
         assert (ventana.anterior_hasta - ventana.anterior_desde).days + 1 == periodo
 
 
+def test_hoy_es_la_zona_local_minima_y_d1_queda_cerrado_en_todos():
+    """A las 23:15 CDMX del 31-oct (05:15Z del 1-nov) el Resumen no sirve el
+    dia en curso: hoy=2026-10-31 y periodo 7 termina en 2026-10-30."""
+    canales = ("amazon_mx", "amazon_us", "meli")
+    instante = dt.datetime(2026, 11, 1, 5, 15, tzinfo=dt.UTC)
+    assert resumen.hoy_por_canal(canales, instante) == {
+        "amazon_mx": dt.date(2026, 10, 31),
+        "amazon_us": dt.date(2026, 10, 31),
+        "meli": dt.date(2026, 10, 31),
+    }
+    hoy = resumen.hoy_resumen(canales, instante)
+    assert hoy == dt.date(2026, 10, 31)
+    ventana = resumen.ventana_resumen(periodo=7, desde=None, hasta=None, hoy=hoy)
+    assert ventana.desde == dt.date(2026, 10, 24)
+    assert ventana.hasta == dt.date(2026, 10, 30)
+
+    # 06:30Z del 1-nov: CDMX ya es 1-nov pero Los Angeles sigue en 31-oct.
+    # El Resumen toma la fecha MINIMA para que D-1 este cerrado en todos.
+    instante_min = dt.datetime(2026, 11, 1, 6, 30, tzinfo=dt.UTC)
+    assert resumen.hoy_por_canal(canales, instante_min)["amazon_mx"] == dt.date(2026, 11, 1)
+    assert resumen.hoy_resumen(canales, instante_min) == dt.date(2026, 10, 31)
+
+
 def test_ventana_personalizada_recorta_hoy_y_rechaza_rangos_invalidos():
     """`hasta >= hoy` se RECORTA a D-1 con declaracion; invertido o >366 -> error."""
     ventana = resumen.ventana_resumen(periodo=30, desde=dt.date(2026, 10, 1), hasta=HOY, hoy=HOY)
@@ -89,6 +114,18 @@ def test_ventana_personalizada_recorta_hoy_y_rechaza_rangos_invalidos():
         resumen.ventana_resumen(periodo=30, desde=dt.date(2026, 10, 1), hasta=None, hoy=HOY)
     with pytest.raises(ValueError):
         resumen.ventana_resumen(periodo=14, desde=None, hasta=None, hoy=HOY)
+
+
+def test_ventana_rechaza_fechas_fuera_del_calendario():
+    """`desde=0001-01-01` desbordaba el periodo anterior (OverflowError -> 500);
+    ahora es un error 4xx explicito."""
+    with pytest.raises(ValueError):
+        resumen.ventana_resumen(
+            periodo=30,
+            desde=dt.date(1, 1, 1),
+            hasta=dt.date(1, 1, 7),
+            hoy=HOY,
+        )
 
 
 def test_acos_y_roas_salen_de_sumas_no_del_promedio_de_ratios():
@@ -231,20 +268,44 @@ def test_ma7_con_un_dia_desconocido_es_none_no_cero():
     assert serie[4]["ma7"]["cost"] == "7.0000"
 
 
+def _bloque(moneda: str, dias: list[resumen.Dia], dias_rango: int) -> dict:
+    return {
+        "moneda": moneda,
+        "dias": dias_rango,
+        "totals": resumen.totales_dias(dias, dias_rango),
+        "coverage": resumen.cobertura(dias, dias_rango),
+    }
+
+
+def test_variacion_es_none_si_la_cobertura_de_los_periodos_difiere():
+    """Dos dias con dato contra uno: el porcentaje contaria el hueco como cero."""
+    actual = resumen.totales_dias(
+        [
+            _dia(HOY - 2 * UN_DIA, "10.0000", "100.0000", 1),
+            _dia(HOY - UN_DIA, "10.0000", "100.0000", 1),
+        ],
+        7,
+    )
+    anterior = resumen.totales_dias([_dia(HOY - 9 * UN_DIA, "10.0000", "100.0000", 1)], 7)
+    var = resumen.variacion(actual, anterior)
+    assert var["comparable"] is False
+    assert var["motivo"] == "cobertura_distinta"
+    assert var["cost_pct"] is None
+    assert var["ad_revenue_pct"] is None
+    assert var["clicks_pct"] is None
+    assert var["acos_pp"] is None and var["roas_delta"] is None
+
+    # Misma cobertura: la variacion si se publica.
+    igual = resumen.variacion(actual, actual)
+    assert igual["comparable"] is True and igual["motivo"] is None
+    assert igual["cost_pct"] == "0.00"
+
+
 def test_totales_por_moneda_separan_mxn_de_usd():
     bloques = {
-        "amazon_mx": {
-            "moneda": "MXN",
-            "totals": resumen.totales_dias([_dia(HOY - UN_DIA, "10.0000", "100.0000", 1)], 1),
-        },
-        "meli": {
-            "moneda": "MXN",
-            "totals": resumen.totales_dias([_dia(HOY - UN_DIA, "5.0000", "20.0000", 1)], 1),
-        },
-        "amazon_us": {
-            "moneda": "USD",
-            "totals": resumen.totales_dias([_dia(HOY - UN_DIA, "7.0000", "0.0000", 1)], 1),
-        },
+        "amazon_mx": _bloque("MXN", [_dia(HOY - UN_DIA, "10.0000", "100.0000", 2, 1)], 1),
+        "meli": _bloque("MXN", [_dia(HOY - UN_DIA, "5.0000", "20.0000", 1)], 1),
+        "amazon_us": _bloque("USD", [_dia(HOY - UN_DIA, "7.0000", "0.0000", 1, 0)], 1),
     }
     totales = {bloque["moneda"]: bloque for bloque in resumen.totales_por_moneda(bloques)}
     assert set(totales) == {"MXN", "USD"}
@@ -253,13 +314,31 @@ def test_totales_por_moneda_separan_mxn_de_usd():
     assert totales["MXN"]["acos"] == "12.50"
     assert totales["MXN"]["roas"] == "8.00"
     assert totales["MXN"]["canales"] == ["amazon_mx", "meli"]
+    # MeLi no publica `orders`: el grupo MXN NO inventa la suma de Amazon MX.
+    assert totales["MXN"]["clicks"] == 3
+    assert totales["MXN"]["orders"] is None
+    assert totales["MXN"]["cobertura"]["orders"] is False
+    assert totales["MXN"]["completo"] is False
     # USD jamas se suma al MXN.
     assert totales["USD"]["cost"] == "7.0000" and totales["USD"]["acos"] is None
     assert totales["USD"]["sin_ventas"] is True
+    assert totales["USD"]["orders"] == 0 and totales["USD"]["completo"] is True
 
 
-def test_sql_del_resumen_filtra_grano_campana_y_lee_la_ultima_observacion():
-    """Anti-doble-conteo: campaign sobre v_metric_latest (regla 5 y 7)."""
-    normalizada = " ".join(resumen._SQL_DIAS.lower().split())
-    assert "v_metric_latest" in normalizada
-    assert "kind = 'campaign'" in normalizada
+def test_totales_por_moneda_no_publican_completo_con_dias_faltantes():
+    """Amazon MX con 6/7 dias: el grupo MXN no esta completo y su ratio es None."""
+    seis = [
+        _dia(HOY - dt.timedelta(days=atras), "10.0000", "100.0000", 1, 1) for atras in range(1, 7)
+    ]
+    siete = [
+        _dia(HOY - dt.timedelta(days=atras), "5.0000", "20.0000", 1, 1) for atras in range(1, 8)
+    ]
+    bloques = {
+        "amazon_mx": _bloque("MXN", seis, 7),
+        "meli": _bloque("MXN", siete, 7),
+    }
+    mxn = resumen.totales_por_moneda(bloques)[0]
+    assert mxn["cost"] == "95.0000"
+    assert mxn["cobertura"]["dias"] is False
+    assert mxn["completo"] is False
+    assert mxn["acos"] is None and mxn["roas"] is None

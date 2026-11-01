@@ -46,7 +46,9 @@ Task 1.4 — campanas + feed de decisiones (brief §3.3/§3.4):
 
 DETERMINISMO: `hoy` sale de `_hoy_utc()` (UTC), inyectable en tests; las
 ventanas se calculan en Python, no en SQL (nada depende de la TimeZone de
-sesion).
+sesion). El Resumen multicanal (RESUMEN-ADS-02) es la excepcion: su "hoy" es
+la fecha local MINIMA de las zonas de los canales pedidos, calculada desde
+`_ahora_utc()` (instante inyectable).
 
 REPRICING 01 A.6 — pantalla de precios: GET `/precios` (recuadro S10 en
 vivo con app.precio.fuentes + app.precio.cobertura, decisiones del dia y
@@ -97,7 +99,13 @@ from app.dashboard_pagina import (
     PageWindow,
 )
 from app.dashboard_resumen import CANALES_POR_DEFECTO as CANALES_RESUMEN_POR_DEFECTO
-from app.dashboard_resumen import DIAS_INMADUROS, DIAS_PERIODO_DEFAULT, acos_texto, ventana_resumen
+from app.dashboard_resumen import (
+    DIAS_INMADUROS,
+    DIAS_PERIODO_DEFAULT,
+    acos_texto,
+    hoy_resumen,
+    ventana_resumen,
+)
 from app.dashboard_resumen import resumen as resumen_multicanal
 from app.etiqueta_entidad import etiqueta_entidad, linea_entidad
 from app.optimizer import bid, eras, hygiene, politica
@@ -368,6 +376,11 @@ def _hoy_utc() -> dt.date:
     return dt.datetime.now(dt.UTC).date()
 
 
+def _ahora_utc() -> dt.datetime:
+    """Instante UTC (reloj del Resumen multicanal; los tests lo inyectan)."""
+    return dt.datetime.now(dt.UTC)
+
+
 def _ventana_efectiva(
     desde: dt.date | None, hasta: dt.date | None, hoy: dt.date
 ) -> tuple[dt.date, dt.date]:
@@ -548,21 +561,25 @@ def resumen_ads(
 
     `periodo` acepta 7/30/90 dias (default 30). Con `desde` y `hasta` el
     rango es personalizado (ambos obligatorios; `periodo` se ignora) de hasta
-    366 dias. La ventana visible termina en D-1 (UTC): un `hasta` >= hoy se
-    RECORTA y la respuesta declara `hasta_solicitado`/`recortado`. Rango
-    invertido o de mas de 366 dias -> 422.
+    366 dias. La ventana visible termina en el D-1 del "hoy" del Resumen: la
+    fecha local MINIMA entre las zonas de los canales pedidos (Amazon MX y
+    MeLi cierran en America/Mexico_City, Amazon US en America/Los_Angeles).
+    Un `hasta` >= hoy se RECORTA y la respuesta declara
+    `hasta_solicitado`/`recortado`. Rango invertido, fuera del calendario o
+    de mas de 366 dias -> 422.
 
     El calculo (catalogo, ventana, agregacion, MA7) vive en
     `app.dashboard_resumen`; este endpoint solo valida parametros y delega.
     La ruta `/series/plataforma` conserva su contrato intacto.
     """
-    hoy = _hoy_utc()
+    canales = (canal,) if canal is not None else CANALES_RESUMEN_POR_DEFECTO
+    instante = _ahora_utc()
+    hoy = hoy_resumen(canales, instante)
     try:
         ventana = ventana_resumen(periodo=periodo, desde=desde, hasta=hasta, hoy=hoy)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
-    canales = (canal,) if canal is not None else CANALES_RESUMEN_POR_DEFECTO
-    return resumen_multicanal(conn, ventana=ventana, canales=canales, hoy=hoy)
+    return resumen_multicanal(conn, ventana=ventana, canales=canales, hoy=hoy, instante=instante)
 
 
 # ---------------------------------------------------------------------------

@@ -1,3 +1,6 @@
+# RONDA 1 (historico): este archivo se genero con el "hoy" UTC, que servia
+# el dia en curso entre 18:00 y 24:00 CDMX. La correccion (zona local minima)
+# esta en 11-correcciones-ronda-2.txt.
 # Moneda nativa por canal y totales multi-canal agrupados por moneda
 ## periodo=30: moneda por canal
 {

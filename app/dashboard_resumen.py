@@ -12,13 +12,24 @@ RESUMEN-ADS-02):
    amplia `PLATAFORMAS_MONEDA` ni el vocabulario del optimizador. Las dos
    entradas de Amazon coinciden con la moneda sellada del motor (lo comprueba
    la prueba monetaria); MeLi trae su moneda del codigo de ADS-01
-   (`app/meli/ads_source.py`: site MLM, trigger `meli -> MXN`).
+   (`app/meli/ads_source.py`: site MLM, trigger `meli -> MXN`). Cada canal
+   declara tambien su ZONA de dia de reporte (`zona`): Amazon MX y MeLi
+   cierran el dia en `America/Mexico_City`, Amazon US en
+   `America/Los_Angeles` (el perfil v2 de Amazon trae `timezone`, ver
+   `app/ads/structure.py`).
 2. VENTANA: periodos de 7, 30 y 90 dias o rango personalizado `desde`/`hasta`.
-   La ventana visible termina en D-1 (UTC); un `hasta` >= hoy se RECORTA a D-1
-   y la respuesta declara `hasta_solicitado` y `recortado: true`. Rango
-   invertido o de mas de 366 dias -> `ValueError` (la API lo publica 422).
+   La ventana visible termina en el D-1 del "hoy" del Resumen: la fecha local
+   MINIMA entre las zonas de los canales pedidos, calculada desde un instante
+   inyectable. Asi D-1 esta cerrado en TODOS (entre 18:00 y 24:00 CDMX, UTC ya
+   es el dia siguiente pero CDMX no). Un `hasta` >= hoy se RECORTA a D-1 y la
+   respuesta declara `hasta_solicitado` y `recortado: true`. Rango invertido,
+   fuera del calendario o de mas de 366 dias -> `ValueError` (la API lo
+   publica 422).
 3. COMPARACION: el periodo anterior de igual longitud (termina el dia previo
-   a `desde`). Totales con la misma semantica que el periodo visible.
+   a `desde`). Totales con la misma semantica que el periodo visible. La
+   variacion solo se publica si ambos periodos tienen el MISMO numero de dias
+   con dato (`comparable`); con cobertura distinta es `None` y `motivo` lo
+   declara (un dia faltante contaria como cero en el porcentaje).
 4. DINERO: `NUMERIC` -> `Decimal`, jamas float. En JSON viaja como STRING tal
    cual sale de la base (4 decimales, criterio de la serie del dashboard).
 5. NULOS Y CEROS: dia sin dato -> todas sus metricas `None` (brecha visible);
@@ -43,6 +54,10 @@ RESUMEN-ADS-02):
     `last_ingest_at` (ultima corrida `ok=true` que escribio observaciones de
     campana dentro de la ventana y su calentamiento) y `edad_dias`. No se
     inventa un umbral de frescura: sin corrida -> `last_ingest_at: null`.
+11. TOTALES POR MONEDA: una metrica que algun canal del grupo no tiene (p. ej.
+    `orders` de MeLi) NO se suma como si fuera completa: queda `None` y
+    `cobertura` lo declara por metrica. `completo` exige ademas la cobertura
+    por dia de todos los canales del grupo.
 """
 
 from __future__ import annotations
@@ -51,6 +66,7 @@ import datetime as dt
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
+from zoneinfo import ZoneInfo
 
 from app.api_common import _dec_str
 
@@ -72,27 +88,40 @@ DIAS_CALENTAMIENTO = 6
 
 @dataclass(frozen=True)
 class Canal:
-    """Un canal del Resumen con su moneda NATIVA y su madurez publicada.
+    """Un canal del Resumen: moneda NATIVA, zona de dia de reporte y madurez.
 
-    `dias_inmaduros=None` significa "la fuente no publica madurez": el
-    contrato lo declara y jamas se rellena con la ventana de Amazon.
+    `zona` es la zona IANA en la que la fuente cierra su dia de reporte. El
+    "hoy" del Resumen es la fecha local MINIMA entre los canales pedidos, para
+    que D-1 este cerrado en todos. `dias_inmaduros=None` significa "la fuente
+    no publica madurez": el contrato lo declara y jamas se rellena con la
+    ventana de Amazon.
     """
 
     plataforma: str
     moneda: str
+    zona: str
     dias_inmaduros: int | None
     motivo_sin_madurez: str | None
 
 
 # Catalogo PROPIO del Resumen (no amplia PLATAFORMAS_MONEDA del optimizador).
 CANALES: dict[str, Canal] = {
-    "amazon_mx": Canal("amazon_mx", "MXN", DIAS_INMADUROS, None),
-    "amazon_us": Canal("amazon_us", "USD", DIAS_INMADUROS, None),
+    # Amazon: el perfil v2 trae `timezone` (app/ads/structure.py:7); el perfil
+    # MX cierra en America/Mexico_City y el US en America/Los_Angeles.
+    "amazon_mx": Canal("amazon_mx", "MXN", "America/Mexico_City", DIAS_INMADUROS, None),
+    "amazon_us": Canal("amazon_us", "USD", "America/Los_Angeles", DIAS_INMADUROS, None),
+    # MeLi: site MLM (app/meli/ads_source.py). El sync pide fechas con el
+    # reloj UTC, pero el dia que publica la API es el dia local: el 2026-08-21
+    # visto a las 19:19 UTC traia 16% del gasto final (evidencia ADS-01).
     "meli": Canal(
         "meli",
         "MXN",
+        "America/Mexico_City",
         None,
-        "meli no publica madurez de atribucion D-8 (no hereda la de Amazon)",
+        (
+            "meli no publica madurez de atribucion D-8 (no hereda la de Amazon); "
+            "cierra sus cifras en T+1/T+2, asi que su D-1 aun puede cambiar"
+        ),
     ),
 }
 
@@ -155,6 +184,29 @@ class Ventana:
     anterior_hasta: dt.date
 
 
+def hoy_por_canal(canales: Iterable[str], instante: dt.datetime) -> dict[str, dt.date]:
+    """Fecha local del dia de reporte de cada canal en `instante`.
+
+    La zona vive en el catalogo del Resumen. `instante` debe ser consciente
+    (tz-aware): un instante sin zona no define un dia local.
+    """
+    if instante.tzinfo is None:
+        raise ValueError("el instante del resumen debe incluir zona horaria")
+    return {
+        nombre: instante.astimezone(ZoneInfo(CANALES[nombre].zona)).date() for nombre in canales
+    }
+
+
+def hoy_resumen(canales: Iterable[str], instante: dt.datetime) -> dt.date:
+    """`hoy` del Resumen: fecha local MINIMA entre los canales pedidos.
+
+    Asi D-1 esta cerrado en TODOS: a las 23:15 CDMX del 31-oct Amazon MX y
+    MeLi siguen en 31-oct aunque UTC ya sea 1-nov. El calculo depende solo del
+    instante inyectado, jamas del reloj del proceso.
+    """
+    return min(hoy_por_canal(canales, instante).values())
+
+
 def ventana_resumen(
     *,
     periodo: int | None,
@@ -167,7 +219,8 @@ def ventana_resumen(
     Personalizado cuando vienen `desde` y `hasta` (ambos; uno solo -> error).
     En ese caso `periodo` se ignora y la respuesta usa "personalizado". Un
     `hasta` >= hoy se RECORTA a D-1 (se declara `recortado`); un rango
-    invertido o de mas de 366 dias es error 4xx (`ValueError`).
+    invertido, fuera del calendario soportado o de mas de 366 dias es error
+    4xx (`ValueError`).
     """
     ultimo = hoy - dt.timedelta(days=1)
     if (desde is None) != (hasta is None):
@@ -191,8 +244,13 @@ def ventana_resumen(
         etiqueta = periodo
     if dias > MAX_DIAS_VENTANA:
         raise ValueError(f"ventana de mas de {MAX_DIAS_VENTANA} dias: acota el rango")
-    anterior_hasta = desde - dt.timedelta(days=1)
-    anterior_desde = anterior_hasta - dt.timedelta(days=dias - 1)
+    try:
+        anterior_hasta = desde - dt.timedelta(days=1)
+        anterior_desde = anterior_hasta - dt.timedelta(days=dias - 1)
+    except OverflowError:
+        raise ValueError(
+            "rango fuera del calendario soportado: desde es demasiado antiguo"
+        ) from None
     return Ventana(
         desde=desde,
         hasta=hasta_ef,
@@ -501,26 +559,36 @@ def _pct(nuevo, anterior) -> str | None:
 def variacion(actual: Mapping, anterior: Mapping) -> dict:
     """Cambio contra el periodo anterior: % en volumen y puntos en ACoS.
 
-    `roas_delta` es la diferencia absoluta del ratio (no porcentaje). Cualquier
-    lado desconocido -> `None`.
+    Solo se publica si AMBOS periodos tienen el mismo numero de dias con dato:
+    un dia faltante contaria como cero en el porcentaje. Con cobertura
+    distinta todas las variaciones son `None` y `motivo` lo declara
+    (`comparable: false`). `roas_delta` es la diferencia absoluta del ratio
+    (no porcentaje). Cualquier lado desconocido -> `None`.
     """
+    dias_actual = actual.get("dias_con_dato")
+    dias_anterior = anterior.get("dias_con_dato")
+    comparable = dias_actual is not None and dias_actual == dias_anterior
     acos_actual, acos_anterior = _decimal(actual.get("acos")), _decimal(anterior.get("acos"))
     roas_actual, roas_anterior = _decimal(actual.get("roas")), _decimal(anterior.get("roas"))
     dos_dec = Decimal("0.01")
     return {
-        "cost_pct": _pct(actual.get("cost"), anterior.get("cost")),
-        "ad_revenue_pct": _pct(actual.get("ad_revenue"), anterior.get("ad_revenue")),
-        "clicks_pct": _pct(actual.get("clicks"), anterior.get("clicks")),
+        "cost_pct": _pct(actual.get("cost"), anterior.get("cost")) if comparable else None,
+        "ad_revenue_pct": (
+            _pct(actual.get("ad_revenue"), anterior.get("ad_revenue")) if comparable else None
+        ),
+        "clicks_pct": _pct(actual.get("clicks"), anterior.get("clicks")) if comparable else None,
         "acos_pp": (
             None
-            if acos_actual is None or acos_anterior is None
+            if not comparable or acos_actual is None or acos_anterior is None
             else str((acos_actual - acos_anterior).quantize(dos_dec, rounding=ROUND_HALF_UP))
         ),
         "roas_delta": (
             None
-            if roas_actual is None or roas_anterior is None
+            if not comparable or roas_actual is None or roas_anterior is None
             else str((roas_actual - roas_anterior).quantize(dos_dec, rounding=ROUND_HALF_UP))
         ),
+        "comparable": comparable,
+        "motivo": None if comparable else "cobertura_distinta",
     }
 
 
@@ -609,13 +677,42 @@ def _suma_conocidos(valores: Sequence) -> Decimal | None:
     return sum(conocidos) if conocidos else None
 
 
+_METRICAS_TOTALES = ("cost", "ad_revenue", "clicks", "orders")
+
+
+def _suma_grupo(totales: Sequence[Mapping], metrica: str) -> Decimal | None:
+    """Suma de una metrica solo si TODOS los canales del grupo la tienen.
+
+    Una metrica que un canal no publica (p. ej. `orders` de MeLi siempre NULL)
+    jamas se suma como si fuera completa: queda `None` y la cobertura por
+    metrica lo declara.
+    """
+    valores = [total.get(metrica) for total in totales]
+    if any(valor is None for valor in valores):
+        return None
+    return _suma_conocidos(valores)
+
+
+def _bloque_con_cobertura_completa(bloque: Mapping) -> bool:
+    """El canal cubre TODOS los dias del rango (`coverage.completo`)."""
+    cobertura = bloque.get("coverage")
+    if cobertura is not None:
+        return bool(cobertura.get("completo"))
+    dias = bloque.get("dias")
+    return dias is not None and bloque["totals"].get("dias_con_dato") == dias
+
+
 def totales_por_moneda(bloques: Mapping[str, Mapping]) -> list[dict]:
     """Totales multi-canal AGRUPADOS por moneda (jamas una moneda mezclada).
 
-    Suma solo canales con total conocido y exige que TODOS los canales del
-    grupo tengan su dinero completo y alineado para publicar ACoS/ROAS; en
-    cualquier otro caso son `None` (no se inventa un ratio entre dias
-    distintos). `canales_sin_dato` lista los que no aportaron dinero.
+    Cada metrica se suma solo si TODOS los canales del grupo la tienen; si
+    alguno no la publica, la metrica del grupo es `None` (nunca una suma
+    parcial disfrazada). `cobertura` declara, metrica por metrica, si el grupo
+    esta completo, y `dias` si todos los canales cubren todos los dias del
+    rango. `completo` exige ambas cosas. ACoS/ROAS se publican solo con dinero
+    completo y alineado en todos los canales; en cualquier otro caso son
+    `None` (no se inventa un ratio entre dias distintos). `canales_sin_dato`
+    lista los que no aportaron dinero.
     """
     grupos: dict[str, list[tuple[str, Mapping]]] = {}
     for nombre, bloque in bloques.items():
@@ -624,15 +721,23 @@ def totales_por_moneda(bloques: Mapping[str, Mapping]) -> list[dict]:
     for moneda in sorted(grupos):
         miembros = grupos[moneda]
         totales = [bloque["totals"] for _nombre, bloque in miembros]
-        completo = all(
-            total.get("cost") is not None and total.get("ad_revenue") is not None
-            for total in totales
+        dias_completos = all(_bloque_con_cobertura_completa(bloque) for _nombre, bloque in miembros)
+        cobertura = {
+            metrica: all(total.get(metrica) is not None for total in totales)
+            for metrica in _METRICAS_TOTALES
+        }
+        cobertura["dias"] = dias_completos
+        completo = all(cobertura.values())
+        alineado = (
+            cobertura["cost"]
+            and cobertura["ad_revenue"]
+            and dias_completos
+            and all(bool(total.get("dinero_alineado")) for total in totales)
         )
-        alineado = completo and all(bool(total.get("dinero_alineado")) for total in totales)
-        cost = _suma_conocidos([total.get("cost") for total in totales])
-        ad_revenue = _suma_conocidos([total.get("ad_revenue") for total in totales])
-        clicks = _suma_conocidos([total.get("clicks") for total in totales])
-        orders = _suma_conocidos([total.get("orders") for total in totales])
+        cost = _suma_grupo(totales, "cost")
+        ad_revenue = _suma_grupo(totales, "ad_revenue")
+        clicks = _suma_grupo(totales, "clicks")
+        orders = _suma_grupo(totales, "orders")
         salida.append(
             {
                 "moneda": moneda,
@@ -655,6 +760,7 @@ def totales_por_moneda(bloques: Mapping[str, Mapping]) -> list[dict]:
                     and ad_revenue == 0
                     and all(bool(total.get("sin_ventas")) for total in totales)
                 ),
+                "cobertura": cobertura,
                 "completo": completo,
             }
         )
@@ -667,11 +773,20 @@ def resumen(
     ventana: Ventana,
     canales: Sequence[str],
     hoy: dt.date,
+    instante: dt.datetime,
 ) -> dict:
-    """Respuesta del Resumen: rango efectivo, bloques por canal y monedas."""
+    """Respuesta del Resumen: rango efectivo, bloques por canal y monedas.
+
+    `hoy` es la fecha local MINIMA de los canales pedidos; la respuesta
+    declara el instante UTC y la zona de cada canal con los que se calculo.
+    """
+    fechas = hoy_por_canal(canales, instante)
     bloques = {nombre: bloque_canal(conn, CANALES[nombre], ventana, hoy) for nombre in canales}
     return {
         "hoy": hoy.isoformat(),
+        "hoy_instante": instante.astimezone(dt.UTC).isoformat(),
+        "zonas": {nombre: CANALES[nombre].zona for nombre in canales},
+        "hoy_por_canal": {nombre: fecha.isoformat() for nombre, fecha in fechas.items()},
         "desde": ventana.desde.isoformat(),
         "hasta": ventana.hasta.isoformat(),
         "dias": ventana.dias,

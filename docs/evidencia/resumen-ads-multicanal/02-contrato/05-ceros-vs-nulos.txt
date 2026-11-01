@@ -1,3 +1,6 @@
+# RONDA 1 (historico): este archivo se genero con el "hoy" UTC, que servia
+# el dia en curso entre 18:00 y 24:00 CDMX. La correccion (zona local minima)
+# esta en 11-correcciones-ronda-2.txt.
 # Ceros conocidos vs dias/metricas sin dato (regla 3)
 
 ## Cero real de venta (amazon_mx 2026-08-20: gasto 323.45, venta 0, clics 112)

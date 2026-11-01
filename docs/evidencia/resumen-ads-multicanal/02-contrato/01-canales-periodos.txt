@@ -1,3 +1,6 @@
+# RONDA 1 (historico): este archivo se genero con el "hoy" UTC, que servia
+# el dia en curso entre 18:00 y 24:00 CDMX. La correccion (zona local minima)
+# esta en 11-correcciones-ronda-2.txt.
 # Canales, periodos y moneda nativa (GET /api/dashboard/resumen)
 # hoy UTC y rango efectivo por periodo; una linea por canal.
 periodo=7 rango=2026-10-25..2026-10-31 canal=amazon_mx moneda=MXN puntos=7 dias_rango=7 dias_con_dato=6 faltantes=1 cost=4999.4600 revenue=26418.6300 acos=18.92 roas=5.28 sin_ventas=false max_metric_date=2026-10-30 last_ingest_at=2026-10-31T07:13:41.804698+00:00 madurez=true inmaduro_dia1=true

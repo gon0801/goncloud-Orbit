@@ -1,3 +1,6 @@
+# RONDA 1 (historico): este archivo se genero con el "hoy" UTC, que servia
+# el dia en curso entre 18:00 y 24:00 CDMX. La correccion (zona local minima)
+# esta en 11-correcciones-ronda-2.txt.
 # Frescura y madurez explicitas por canal (MeLi NO hereda D-8)
 ## periodo=7: maduracion, frescura y marca de inmadurez
 {

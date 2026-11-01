@@ -1,3 +1,6 @@
+# RONDA 1 (historico): este archivo se genero con el "hoy" UTC, que servia
+# el dia en curso entre 18:00 y 24:00 CDMX. La correccion (zona local minima)
+# esta en 11-correcciones-ronda-2.txt.
 # Rechazos 4xx del contrato (codigo HTTP + detail)
 ## GET ?desde=2025-01-01&hasta=2026-10-31
 {"detail":"ventana de mas de 366 dias: acota el rango"}

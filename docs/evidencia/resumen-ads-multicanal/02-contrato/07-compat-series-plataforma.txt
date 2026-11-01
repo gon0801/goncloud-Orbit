@@ -1,3 +1,6 @@
+# RONDA 1 (historico): este archivo se genero con el "hoy" UTC, que servia
+# el dia en curso entre 18:00 y 24:00 CDMX. La correccion (zona local minima)
+# esta en 11-correcciones-ronda-2.txt.
 # Compatibilidad de /api/dashboard/series/plataforma (rama nueva vs 1bb7059)
 ## Query: platform=amazon_us desde=2026-10-02 hasta=2026-10-31
 ## Campos de nivel superior (ambas ramas, medidos en vivo)
