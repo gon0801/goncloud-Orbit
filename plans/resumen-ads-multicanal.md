@@ -43,6 +43,15 @@ Esta fase escribe datos de producción. Cubre los comportamientos anteriores con
 
 ## Exponer el contrato del Resumen (RESUMEN-ADS-02)
 
+**Cierre técnico (2026-11-01).** Contrato implementado en PR #508 y cobertura
+por métrica corregida para que un día con clics pero dinero desconocido no
+publique ratios completos. Regresión demostrada fallando contra el código
+anterior, 124 pruebas focalizadas aprobadas y 12 consultas de periodos/filtros
+comprobadas con API y PostgreSQL desechable. Revisión independiente aprobada.
+Evidencia: `docs/evidencia/resumen-ads-multicanal/02-contrato/15-cierre-cobertura-por-moneda.txt`.
+La fase 03 debe partir del contrato con esta corrección integrada y presentar
+su cobertura, sin volver a calcular métricas.
+
 **Archivos.**
 
 - `app/dashboard_resumen.py` para catálogo, agregación, comparación y medias móviles.

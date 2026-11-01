@@ -847,9 +847,10 @@ def totales_por_moneda(bloques: Mapping[str, Mapping]) -> list[dict]:
 
     Cada metrica se suma solo si TODOS los canales del grupo la tienen; si
     alguno no la publica, la metrica del grupo es `None` (nunca una suma
-    parcial disfrazada). `cobertura` declara, metrica por metrica, si el grupo
-    esta completo, y `dias` si todos los canales cubren todos los dias del
-    rango. `completo` exige ambas cosas. ACoS/ROAS se publican solo con dinero
+    parcial disfrazada). `cobertura` exige, metrica por metrica, dato en TODOS
+    los dias de TODOS los canales; `dias` indica si hubo alguna metrica cada
+    dia. Las sumas observadas se conservan aunque su cobertura sea parcial.
+    `completo` exige ambas cosas. ACoS/ROAS se publican solo con dinero
     completo y alineado en todos los canales; en cualquier otro caso son
     `None` (no se inventa un ratio entre dias distintos). `canales_sin_dato`
     lista los que no aportaron dinero.
@@ -863,7 +864,10 @@ def totales_por_moneda(bloques: Mapping[str, Mapping]) -> list[dict]:
         totales = [bloque["totals"] for _nombre, bloque in miembros]
         dias_completos = all(_bloque_con_cobertura_completa(bloque) for _nombre, bloque in miembros)
         cobertura = {
-            metrica: all(total.get(metrica) is not None for total in totales)
+            metrica: all(
+                bloque["coverage"]["por_metrica"][metrica] == bloque["dias"]
+                for _nombre, bloque in miembros
+            )
             for metrica in _METRICAS_TOTALES
         }
         cobertura["dias"] = dias_completos

@@ -150,6 +150,13 @@ ORBIT_TEST_DSN="$DSN" .venv/bin/python -m pytest -q tests/test_api_dashboard.py
 
 ### API real (reloj fijo 2026-11-01T05:15Z)
 
+Correccion posterior (2026-11-01): las consultas de este registro usan
+`platform=`, que /api/dashboard/resumen ignora; el parametro correcto es
+`canal=`. Por tanto, el bloque siguiente SOLO comprobo periodos para el
+conjunto de tres canales; no demuestra filtros individuales. Se conserva
+la salida historica sin reescribirla. La comprobacion corregida con `canal=`
+esta en 15-cierre-cobertura-por-moneda.txt.
+
 Tres uvicorn contra la misma base desechable: 18192 (rama), 18191
 (`67b7b8ab`), 18193 (`1bb7059`). Comparador de JSON completo
 (`compara.py`), no solo campos elegidos (12 consultas: periodos 7/30/90 en

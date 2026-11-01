@@ -1,6 +1,11 @@
 # RONDA 1 (historico): este archivo se genero con el "hoy" UTC, que servia
 # el dia en curso entre 18:00 y 24:00 CDMX. La correccion (zona local minima)
 # esta en 11-correcciones-ronda-2.txt.
+# Nota de forma (2026-11-01): este registro no es el JSON literal de la API.
+# `comparacion_por_canal` y `puntos` son claves de este resumen de evidencia;
+# la respuesta publica `canales.<canal>.comparison` y `canales.<canal>.series`.
+# No usar este archivo como contrato para la fase 03; ver docs/DASHBOARD.md
+# seccion 9 y la comprobacion actual de 15-cierre-cobertura-por-moneda.txt.
 # Rango personalizado, comparacion de igual longitud y recorte de hoy
 ## GET ?desde=2026-10-10&hasta=2026-10-19
 {
