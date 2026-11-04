@@ -45,11 +45,12 @@ RESUMEN-ADS-02):
    la venta esta cubierta en TODOS los dias del rango. Si gasto y ventas no
    cubren exactamente los mismos dias, ACoS/ROAS son `None` (`dinero_alineado`
    en los totales): sumar dias distintos seria un ratio inventado.
-7. MA7: ventana movil de 7 dias (el dia y los 6 anteriores). Cada metrica se
-   suma en la ventana; si falta CUALQUIER dia de la ventana, su MA7 es `None`
-   (no se rellena con cero). `ma7.completo` declara si las dos metricas de
-   dinero estan completas en la ventana. Para el primer dia visible se
-   consultan 6 dias de calentamiento antes de `desde`.
+7. MA7: media diaria movil de 7 dias (el dia y los 6 anteriores). Cada metrica
+   es la suma de la ventana dividida entre 7, para compartir escala con la
+   serie diaria; si falta CUALQUIER dia de la ventana, su MA7 es `None` (no se
+   rellena con cero). `ma7.completo` declara si las dos metricas de dinero
+   estan completas en la ventana. Para el primer dia visible se consultan 6
+   dias de calentamiento antes de `desde`.
 8. GRANO: solo `ad_entity.kind = 'campaign'` sobre `v_metric_latest` (ultima
    observacion por entidad/dia), para no doble contar keyword/product_target.
 9. MADUREZ: Amazon marca `inmaduro` en [D-8, D-1]. MeLi NO hereda esa
@@ -96,6 +97,11 @@ DIAS_PERIODO_DEFAULT = 30
 
 # MA7: 6 dias previos al primero visible.
 DIAS_CALENTAMIENTO = 6
+
+# MA7 es media diaria: la ventana completa mide 7 dias.
+DIAS_MA7 = 7
+_CUATRO_DEC = Decimal("0.0001")
+_DOS_DEC = Decimal("0.01")
 
 
 @dataclass(frozen=True)
@@ -482,21 +488,30 @@ def _suma_ventana(valores: Sequence) -> Decimal | int | None:
     return sum(valores)
 
 
-def _ma7(ventana: Sequence[Dia]) -> dict:
-    """MA7 del dia: cada metrica suma 7 dias; faltante -> None (no cero).
+def _promedio_ventana(valor, cuantia: Decimal):
+    """Media diaria de una suma ya completa; `None` si falta algun dia."""
+    if valor is None:
+        return None
+    return (Decimal(valor) / DIAS_MA7).quantize(cuantia, rounding=ROUND_HALF_UP)
 
-    `completo` declara si las DOS metricas de dinero tienen sus 7 dias.
-    ACoS/ROAS del MA7 salen de esas sumas, jamas del promedio de ratios.
+
+def _ma7(ventana: Sequence[Dia]) -> dict:
+    """MA7 del dia: media diaria de 7 dias; faltante -> None (no cero).
+
+    La suma de la ventana se divide entre 7 para que la linea MA7 y la diaria
+    compartan escala. `completo` declara si las DOS metricas de dinero tienen
+    sus 7 dias. ACoS/ROAS del MA7 salen de las sumas, jamas del promedio de
+    ratios.
     """
     cost = _suma_ventana([dia.cost for dia in ventana])
     ad_revenue = _suma_ventana([dia.ad_revenue for dia in ventana])
     clicks = _suma_ventana([dia.clicks for dia in ventana])
     orders = _suma_ventana([dia.orders for dia in ventana])
     return {
-        "cost": _dec_str(cost),
-        "ad_revenue": _dec_str(ad_revenue),
-        "clicks": clicks,
-        "orders": orders,
+        "cost": _dec_str(_promedio_ventana(cost, _CUATRO_DEC)),
+        "ad_revenue": _dec_str(_promedio_ventana(ad_revenue, _CUATRO_DEC)),
+        "clicks": _dec_str(_promedio_ventana(clicks, _DOS_DEC)),
+        "orders": _dec_str(_promedio_ventana(orders, _DOS_DEC)),
         "acos": acos_texto(cost, ad_revenue),
         "roas": roas_texto(cost, ad_revenue),
         "completo": all(dia.cost is not None and dia.ad_revenue is not None for dia in ventana),

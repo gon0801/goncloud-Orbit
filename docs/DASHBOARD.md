@@ -53,10 +53,23 @@ JS solo por `|tojson` (decisión 12). Cada pantalla consume UNO de los
 endpoints de la sección 3.
 
 ### 2.1 Resumen
-Series diarias de spend / revenue / ACoS **por plataforma** (amazon_us,
-amazon_mx): moneda NATIVA, grano `kind='campaign'`, rango [D-30, D-1] UTC, día
-en curso excluido, días D-8..D-1 marcados como inmaduros, NULL = hueco visible.
-Fuente: `GET /api/dashboard/series/plataforma` (§3.1).
+El operador abre `/` con todos los canales y 30 días. El formulario (`canal`,
+`periodo` 7/30/90, `desde`, `hasta`) vuelve a pintar esa elección y la deja en
+la URL. Con las dos fechas, el rango manda. La página solo presenta el contrato
+`GET /api/dashboard/resumen` (§9): no recalcula sumas, ratios ni la media de 7
+días.
+
+Por canal, en su moneda: gasto, ventas atribuidas, ACoS, ROAS, clics y órdenes
+cuando el canal las publica. None se ve `—`. El cero se ve `0`. Amazon muestra
+su ventana de cifras inmaduras. Mercado Libre muestra el motivo del contrato y
+no esa ventana. La comparación usa `comparison.variacion` del mismo bloque. La
+tabla por canal tiene una fila por canal y no suma MXN con USD. La gráfica pone
+el día con poco énfasis y `series[].ma7` como tendencia. El hueco del contrato
+sigue en `null`. La tabla de la serie es el equivalente textual. A 390 px solo
+esa tabla se desplaza. El tema claro/oscuro recolorea la gráfica sin animación.
+
+`GET /api/dashboard/series/plataforma` (§3.1) sigue para quien ya la consumía.
+No es la fuente de esta pantalla.
 
 ### 2.2 Campañas
 Tabla 30d por campaña: métricas colapsadas (mismo grano campaign, misma ventana
@@ -549,8 +562,8 @@ silencioso: el recorte se declara.
               "clicks": 12, "orders": 1, "acos": "22.29", "roas": "4.49",
               "sin_ventas": false, "inmaduro": false,
               "cerrado": true, "motivo_cierre": null,
-              "ma7": {"cost": "280.8400", "ad_revenue": "1260.0000", "clicks": 84,
-                      "orders": 7, "acos": "22.29", "roas": "4.49", "completo": true}}],
+              "ma7": {"cost": "40.1200", "ad_revenue": "180.0000", "clicks": "12.00",
+                      "orders": "1.00", "acos": "22.29", "roas": "4.49", "completo": true}}],
   "coverage": {"dias_rango": 30, "dias_con_dato": 28, "dias_faltantes": 2,
                "por_metrica": {"cost": 28, "ad_revenue": 28, "clicks": 28, "orders": 28},
                "completo": false,
@@ -600,7 +613,9 @@ keyword/product_target: duplicarían el dinero.
   periodos el motivo es `null`: no hay cobertura que comparar ni sumas que
   alinear.
 - Dinero en JSON = **STRING** con la escala del `NUMERIC(14,4)`
-  (`"1234.5600"`); `clicks`/`orders` son enteros. El backend no emite floats.
+  (`"1234.5600"`); en los valores diarios y en `totals`, `clicks`/`orders` son
+  enteros. En `ma7` las cuatro métricas viajan como STRING: dinero con 4
+  decimales y conteos con 2 (ver §9.8). El backend no emite floats.
 
 ### 9.6 Cobertura
 
@@ -650,12 +665,14 @@ dinero completo y alineado en todos los canales.
 
 ### 9.8 MA7
 
-Cada punto de `series` lleva `ma7`: la suma móvil de 7 días (el día y los 6
-anteriores) de gasto, venta, clics y órdenes. Se consultan 6 días de
+Cada punto de `series` lleva `ma7`: la media diaria móvil de 7 días (el día y
+los 6 anteriores) de gasto, venta, clics y órdenes. Se consultan 6 días de
 calentamiento antes de `desde` y solo se devuelve el rango pedido.
 
-- Cada métrica se suma por separado. Si **falta cualquier día** de la ventana,
-  esa métrica del MA7 es `null`; jamás se rellena con cero.
+- Cada métrica se suma en la ventana y se divide entre 7, para compartir escala
+  con la serie diaria. Si **falta cualquier día** de la ventana, esa métrica
+  del MA7 es `null`; jamás se rellena con cero.
+- El dinero se publica con 4 decimales y los conteos con 2.
 - `ma7.completo` declara si gasto y venta tienen sus 7 días completos.
 - `ma7.acos`/`ma7.roas` salen de las sumas de la ventana, no del promedio de
   ratios diarios.

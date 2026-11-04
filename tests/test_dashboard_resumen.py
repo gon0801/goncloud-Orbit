@@ -227,7 +227,7 @@ def test_cobertura_cuenta_dias_con_dato_y_faltantes():
 
 
 def test_serie_un_punto_por_dia_y_ma7_con_calentamiento():
-    """30 dias visibles = 30 puntos; el MA7 del primer dia usa los 6 previos."""
+    """30 dias visibles = 30 puntos; el MA7 es la media diaria con los 6 previos."""
     desde = HOY - dt.timedelta(days=30)
     hasta = HOY - UN_DIA
     por_fecha = {}
@@ -244,8 +244,10 @@ def test_serie_un_punto_por_dia_y_ma7_con_calentamiento():
     assert len(serie) == 30
     assert serie[0]["fecha"] == desde.isoformat()
     assert serie[-1]["fecha"] == hasta.isoformat()
-    assert serie[0]["ma7"]["cost"] == "14.0000"  # 7 x 2.0000 (incluye 6 previos)
-    assert serie[0]["ma7"]["ad_revenue"] == "70.0000"
+    assert serie[0]["ma7"]["cost"] == "2.0000"  # media diaria (7 x 2.0000 / 7)
+    assert serie[0]["ma7"]["ad_revenue"] == "10.0000"
+    assert serie[0]["ma7"]["clicks"] == "1.00"
+    assert serie[0]["ma7"]["orders"] == "1.00"
     assert serie[0]["ma7"]["completo"] is True
     assert serie[0]["ma7"]["acos"] == "20.00"
     assert serie[0]["ma7"]["roas"] == "5.00"
@@ -270,7 +272,7 @@ def test_ma7_con_un_dia_desconocido_es_none_no_cero():
     assert primera["ma7"]["acos"] is None and primera["ma7"]["roas"] is None
     assert primera["ma7"]["completo"] is False
     # Cuatro dias despues el hueco ya salio de la ventana: MA7 completo.
-    assert serie[4]["ma7"]["cost"] == "7.0000"
+    assert serie[4]["ma7"]["cost"] == "1.0000"
 
 
 def test_dia_observado_antes_del_cierre_se_marca_sin_cambiar_valores():

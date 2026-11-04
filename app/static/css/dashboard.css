@@ -218,6 +218,22 @@ code { background: var(--o-chip); border-radius: 4px; padding: 2px 4px; }
 .grafica { min-width: 0; background: var(--o-card); border: 1px solid var(--o-borde); border-radius: 12px; padding: 16px 18px; }
 .lienzo { position: relative; width: 100%; height: 240px; }
 .lienzo canvas { display: block; width: 100%; height: 100%; }
+body[data-pantalla="resumen"] .tabla-scroll:focus-visible { outline: 2px solid var(--o-ac); outline-offset: 2px; }
+@media (max-width: 390px) {
+  body[data-pantalla="resumen"] { overflow-x: clip; }
+  body[data-pantalla="resumen"] .filtros,
+  body[data-pantalla="resumen"] .kpis,
+  body[data-pantalla="resumen"] .grafica,
+  body[data-pantalla="resumen"] .lienzo,
+  body[data-pantalla="resumen"] .comparacion {
+    max-width: 100%;
+    overflow-x: clip;
+  }
+  body[data-pantalla="resumen"] .tabla-scroll {
+    overflow-x: auto;
+    max-width: 100%;
+  }
+}
 .grafica > p { font-size: 11px; margin: 12px 0 0; padding-top: 10px; border-top: 1px solid var(--o-borde2); }
 .salud-grid > .tarjeta { min-width: 0; }
 .salud-grid .lienzo { height: 200px; }
