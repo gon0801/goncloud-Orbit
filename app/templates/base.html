@@ -19,7 +19,7 @@
 </head>
 <body data-pantalla="{{ pantalla }}">
   {% set paginas = {
-    'resumen': ('Resumen', 'Series diarias D-30..D-1 · dia en curso excluido'),
+    'resumen': ('Resumen', 'Publicidad por canal · periodo a elegir, dia en curso excluido'),
     'campanas': ('Campañas', 'Metricas 30d y target efectivo con su procedencia'),
     'decisiones': ('Decisiones', 'Solo entidades que decidieron · una fila por decision'),
     'salud': ('Salud', 'Ultimo ciclo, historico 14d, quota y skips'),
@@ -44,7 +44,7 @@
       <span class="marca-icono" aria-hidden="true">O</span>
       <span><strong>ORBIT</strong><small>Ads y marketplaces</small></span>
     </a>
-    <div class="canal-actual">Amazon Ads · MX + US</div>
+    <div class="canal-actual">Ads · Amazon y Mercado Libre</div>
     <nav id="nav-secciones" class="navegacion" aria-label="Secciones">
       {% for grupo, enlaces in [
         ('Panel', [('resumen', '/', 'Resumen'), ('campanas', '/campanas', 'Campañas'),
@@ -90,7 +90,7 @@
       <div><h1>{{ paginas[pantalla][0] }}</h1><p>{{ paginas[pantalla][1] }}</p></div>
       <div class="header-acciones">
         <span id="watermark-resumen" class="chip-watermark">Watermark: sin consultar</span>
-        <span class="alcance">Amazon MX · Amazon US</span>
+        <span class="alcance">{% if pantalla == 'resumen' %}Amazon MX · Amazon US · Mercado Libre{% else %}Amazon MX · Amazon US{% endif %}</span>
         <button type="button" id="btn-tema" aria-pressed="false">Tema: dia</button>
       </div>
     </header>

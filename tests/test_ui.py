@@ -365,32 +365,28 @@ def test_ui_cortes_vacio_muestra_sin_pendientes():
 
 
 def _ctx_resumen_con_payload() -> dict:
-    """Contexto del template de resumen: los datos de grafica llevan el
-    payload XSS dentro de un string del dict que viaja por |tojson (el
-    mecanismo es lo que se prueba: TODO el dict de la serie se neutraliza)."""
+    """Contexto del template de resumen: el contrato lleva el payload XSS
+    dentro de un string del dict que viaja por |tojson (el mecanismo es lo
+    que se prueba: TODO el dict se neutraliza)."""
     return {
         "pantalla": "resumen",
-        "series": {
-            "amazon_us": {
-                "plataforma": "amazon_us",
-                "moneda": "USD",
-                "desde": "2026-07-25",
-                "hasta": "2026-08-23",
-                "ventana_inmaduros": {"desde": "2026-08-16", "hasta": "2026-08-23"},
-                "series": [
-                    {
-                        "fecha": "2026-08-20",
-                        "cost": "1.0000",
-                        "ad_revenue": "3.0000",
-                        "clicks": 1,
-                        "acos": "33.33",
-                        "sin_ventas": False,
-                        "inmaduro": True,
-                    }
-                ],
-                # string dentro de los datos que viajan por tojson
-                "nombre_payload": PAYLOAD_XSS,
-            }
+        "filtro": {
+            "canal": "",
+            "periodo": 30,
+            "desde": "",
+            "hasta": "",
+            "canales": ("amazon_mx", "amazon_us", "meli"),
+        },
+        "contrato": {
+            "desde": "2026-07-25",
+            "hasta": "2026-08-23",
+            "dias": 30,
+            "periodo": 30,
+            "recortado": False,
+            "hasta_solicitado": "2026-08-23",
+            "canales": {},
+            "totales_por_moneda": [],
+            "nombre_payload": PAYLOAD_XSS,
         },
     }
 

@@ -74,6 +74,22 @@ def test_drive_cortes_conduce_la_pantalla_vigente(dashboard):
 )
 def test_drives_conducen_el_dashboard_vigente(dashboard, monkeypatch, pantalla):
     monkeypatch.setattr(dashboard, "_chrome_screenshot", lambda *args, **kwargs: True)
+    # Esta prueba ya no abre el navegador para la captura. El foco y el ancho
+    # 390 tambien lo mide el navegador; el drive real, con Edge o Chrome, no.
+    if pantalla == "resumen":
+        monkeypatch.setattr(
+            dashboard,
+            "_foco_y_ancho",
+            lambda *args, **kwargs: {
+                "foco": {
+                    "ok": True,
+                    "focoVisible": True,
+                    "outlineStyle": "solid",
+                    "outlineWidth": "2px",
+                },
+                "ancho390": {"ancho": 390, "bodyScroll": False, "tablaScroll": True},
+            },
+        )
     getattr(dashboard, "cmd_drive_" + pantalla)(argparse.Namespace(run_id="prueba"))
     prueba = json.loads((dashboard.EVIDENCE_ROOT / f"prueba/{pantalla}/PROOF.json").read_text())
     assert prueba["ok"] is True
