@@ -3,9 +3,11 @@
 # esta en 11-correcciones-ronda-2.txt.
 # Ceros conocidos vs dias/metricas sin dato (regla 3)
 # Actualizacion 2026-11-04: los bloques ma7 se recalcularon como media diaria
-# (suma de la ventana / 7); la fila diaria no cambia.
+# (suma de la ventana / 7); la fila diaria no cambia. La suma de origen queda
+# junto al bloque.
 
 ## Cero real de venta (amazon_mx 2026-08-20: gasto 323.45, venta 0, clics 112)
+# Suma de la ventana (7 dias): 2272.6800 | 7192.4200 | 661 | 8
 {
   "fila": {
     "fecha": "2026-08-20",
