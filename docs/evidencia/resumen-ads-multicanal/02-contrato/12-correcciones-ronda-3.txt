@@ -1,0 +1,66 @@
+RESUMEN-ADS-02 - correcciones ronda 3
+Base: 1bb7059. Rama: resumen-ads-02-contrato-multicanal (sobre 348b1ff6).
+
+1) Fechas absurdas -> 422 (no OverflowError)
+   Reloj inyectado en 2026-11-01T05:15:00+00:00; API real contra
+   postgresql://orbit@127.0.0.1:5434/postgres.
+
+   GET /api/dashboard/resumen?desde=0001-01-02&hasta=0001-01-02 -> 422
+   GET /api/dashboard/resumen?desde=0001-01-06&hasta=0001-01-06 -> 422
+   GET /api/dashboard/resumen?desde=0001-01-04&hasta=0001-01-05 -> 422
+   GET /api/dashboard/resumen?desde=0001-01-01&hasta=0001-01-07 -> 422
+
+   GET /api/dashboard/resumen?periodo=7 (05:15Z) ->
+   {"hoy": "2026-10-31", "hoy_instante": "2026-11-01T05:15:00+00:00",
+    "desde": "2026-10-24", "hasta": "2026-10-30", "dias": 7,
+    "hoy_por_canal": {"amazon_mx": "2026-10-31", "amazon_us": "2026-10-31",
+                      "meli": "2026-10-31"}}
+
+2) D-1 observado antes del cierre: marcado, valores intactos
+   Reloj inyectado en 2026-11-01T06:30:00+00:00.
+   SELECT max(observed_at) ... -> MeLi 2026-10-31 05:02:55Z (23:02 CDMX).
+
+   GET /api/dashboard/resumen?periodo=7&canal=meli ->
+   {"hoy": "2026-11-01", "hoy_instante": "2026-11-01T06:30:00+00:00",
+    "hoy_por_canal": {"meli": "2026-11-01"},
+    "desde": "2026-10-25", "hasta": "2026-10-31"}
+   serie D-1: {"fecha": "2026-10-31", "cost": "171.5900",
+               "ad_revenue": "989.0000", "acos": "17.35", "inmaduro": null,
+               "cerrado": false, "motivo_cierre": "observado_antes_del_cierre"}
+   coverage.cierre: {"dias_observados": 7, "dias_antes_del_cierre": 1,
+                     "fechas_antes_del_cierre": ["2026-10-31"],
+                     "todos_cerrados": false}
+
+   Con el reloj en 05:15Z (ventana 10-24..10-30) los tres canales siguen sin
+   la marca y con los mismos valores de la ronda 2:
+   amazon_mx cost 5765.0900 rev 29681.5600 dias 7 ultimo 2026-10-30 cerrado true
+   amazon_us cost  343.4900 rev   335.9800 dias 7 ultimo 2026-10-30 cerrado true
+   meli      cost 2705.8900 rev 10739.2200 dias 7 ultimo 2026-10-30 cerrado true
+   MXN: cost 8470.9800 rev 40420.7800 clicks 2672 orders null acos 20.96 roas 4.77
+   USD: cost  343.4900 rev   335.9800 clicks  798 orders 3    acos 102.24 roas 0.98
+
+3) /api/dashboard/series/plataforma identica a 1bb7059
+   Dos uvicorn con el mismo DSN (18191 = rama, 18192 = git archive 1bb7059);
+   11 consultas comparando status y cuerpo (incluye errores y 0001-01-01):
+   11/11 IGUAL.
+   md5 de la pagina "/" en ambas: 03802398314b282a5c7f59295384c762.
+
+4) Pruebas
+   ORBIT_TEST_DSN=postgresql://orbit@127.0.0.1:5434/postgres \
+     uv run --frozen python -m pytest -q tests/test_dashboard_resumen.py
+   -> 19 passed
+
+   ORBIT_TEST_DSN=postgresql://orbit@127.0.0.1:5434/postgres \
+     uv run --frozen python -m pytest -q tests/test_api_dashboard.py
+   -> 95 passed, 1 warning (StarletteDeprecationWarning de httpx)
+
+   La prueba nueva de cableado fija dash._ahora_utc en 2026-11-01T05:15Z y
+   espera hasta=2026-10-30 en /api/dashboard/resumen?periodo=7.
+
+5) Lint
+   ruff check app/dashboard_resumen.py tests/test_dashboard_resumen.py \
+     tests/test_api_dashboard.py -> All checks passed!
+   ruff format (mismos archivos) -> sin cambios pendientes.
+
+Nota 3 (zona real del perfil Amazon) sigue pendiente reportado; no se toco.
+Los uvicorn de la verificacion quedaron apagados (18191 y 18192 libres).

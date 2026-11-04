@@ -1,0 +1,433 @@
+# FABRICA 01 — fabrica de campañas Amazon SP con estructura fija por grupo
+
+> Spec histórico, insumo de `plans/fabrica-01.md`. El índice de
+> planes/pendientes se escribe solo en `plans/ROADMAP.md`.
+
+**Estado: REVISADO (2026-09-05).** Decisiones del dueno en §1 (brainstorming
+formal, una pregunta a la vez); revision del lead contra el repo vivo con ok
+del dueno (decisiones 12-14 y correcciones en §2-§10).
+
+**Enmienda ORBIT 19 / 0.2 (2026-09-06, review).** F1 (§1–§10) es el contrato
+de **produccion hasta que A.5 despliegue**. ORBIT 19 es el contrato de la
+fase A, no sustituye F1 hoy. Decisiones 2 y 14 y residual 7 abajo quedan
+como **F1 historico**: en F1 el producto sin margen no entra y no hay
+`--target-acos`. En A: seleccion por listing; ACoS manual si margen NULL,
+0, negativo o clamp > margen conocido; el manual no acredita rentabilidad
+(D2). Decision 1 (solo campanas nuevas) se confirma (D3). Un product ad
+**por listing**, no por producto. Spec:
+`2026-09-06-catalogo-campanas-abierto-design.md`.
+La migracion **0019** la toma ORBIT 19 A.1 (grupo/listing v2). F2 ya no
+reserva 0019: usa el siguiente numero libre al aplicar, posterior a
+0019/0020 (y 0021 si B.3 existe).
+Precedencia: `docs/CONTEXTO.md` (reglas 1-10) > `docs/traspaso/ADS_OPTIMIZER_V2_DESIGN.md` > este spec.
+Modulo 2 del roadmap (`docs/traspaso/MODULOS-AVANZADOS.md` §"Creación de
+Campañas por API"), acotado a Amazon SP con estructura fija; SB/SD y MeLi
+quedan FUERA (MeLi Ads es proposal-only a nivel cuenta, Traspaso 1 §4).
+
+## 1. Decisiones del dueno (2026-09-05, brainstorming)
+
+1. **Solo campañas nuevas.** La fabrica crea grupos desde cero; no adopta
+   campañas existentes a grupos. Las existentes siguen su camino (§8).
+2. **Grupos multi-producto con target por margen.** Se permite mezclar
+   productos, pero el target del grupo se deriva ANTES de crear:
+   `target = fraccion × margen MINIMO del grupo` (conservador: nadie puja por
+   encima de lo que soporta el margen mas bajo). Producto sin margen medible
+   NO entra al grupo (regla 3).
+   **F1 historico.** Fase A: ORBIT 19 D2 (seleccionable; ACoS manual si
+   falta margen fiable, es 0, es negativo o el clamp supera el margen).
+3. **Margen por producto desde el ledger** (misma maquinaria de ORBIT 06
+   Fase 2: ventas con `order_id`, COGS a la fecha, cargos de la venta,
+   ventana madura), no de economics proyectados. Vista nueva
+   `v_margen_producto` (§4).
+4. **Harvest: reemplazo total del destino manual** — con salvedad literal del
+   dueno: «las que ya estan decidir mandarlas como excepcion a alguna exact y
+   que queden asi ya». Las campañas existentes con `harvest_*` configurado se
+   migran una a una a `harvest_excepcion` con go del dueno y quedan
+   congeladas; la config nueva solo nace de grupos (§7).
+5. **Bids y budgets iniciales por argumentos CLI en cada corrida.** Cero
+   defaults escondidos: el dry-run muestra los numeros y el go los sella en
+   el ledger (regla 3: nunca constantes inventadas).
+6. **Semillas desde historial propio**, con biblioteca acumulativa: «si no hay
+   historial, tenemos que planear la forma de llenarlas y sobre todo guardar
+   historial de palabra y negativas para que campañas nuevas con mismo tipo de
+   productos se generen con historial lo mas completo posible» (§6).
+7. **`tipo_producto` = etiqueta del dueno por grupo** (texto, p.ej.
+   `collar_perro`); agrupa la biblioteca de keywords y negativos. Explicito y
+   auditable.
+8. **Las campañas nacen ENABLED.** El go literal ya es la autorizacion de
+   gasto; el motor las necesita ENABLED para optimizarlas (CAMPANA ACTIVA 01).
+9. **Campañas viejas del mismo producto: intactas.** La fabrica solo crea y
+   las REPORTA en el dry-run; pausarlas es otra decision con su propio camino
+   (regla 1).
+10. **Negative cruzado en los 4 roles discovery**: auto, phrase, broad Y
+    product targeting (§7). El origen ya queda negado por la primera fase del
+    harvest, así que cada job tiene como máximo 3 identidades de hermana
+    objetivo; cada identidad admite hasta 3 intentos POST, uno por ciclo y
+    siempre después de un LIST que confirme ausencia.
+11. **Enfoque A**: herramienta CLI `tools/fabrica_campanas.py` (patron sellado
+    de `tools/archiva_inertes.py`) + migracion de tablas de grupo. La creacion
+    NO pasa por `apply_queue` (sellado ORBIT 04: «solo cortes en la cola;
+    nada nuevo se cuelga de ella») ni por la escalera: es operacion de
+    negocio con go humano.
+12. **Terna de harvest completa en F1 (transitoria).** El CHECK
+    `goal_harvest_completo` exige los tres campos juntos o ninguno, y
+    `edita_goal` valida lo mismo. F1 siembra la terna entera apuntando a la
+    exact del grupo (campaign + ad group externos + `--bid-exact`): asi el
+    harvest funciona HOY con el motor sellado sin tocarlo. F2 relaja el
+    candado cuando el ruteo pase a leer `campana_grupo_rol` (§7).
+13. **`--modo shadow|live` explicito por CLI.** El default de `mode` es
+    `off` y el goal de campana PISA al de plataforma entero, modo incluido
+    (`resuelve_goal`): cinco goals en `off` serian cinco campanas que el motor
+    jamas toca. Cero defaults escondidos (decision 5): el modo viaja en el go.
+14. **Productos sin margen maduro quedan FUERA.** La ventana `[D-105, D-15)`
+    con >= 60 dias cubiertos deja fuera a todo producto nuevo (el caso
+    «Nuevo» del roadmap). Consecuencia aceptada de las decisiones 2 y 3; un
+    `--target-acos` manual con go seria otro spec (residual 7).
+    **Enmienda 2026-09-05 (decision escrita del dueno, tarea 1 de
+    `plans/fabrica-01.md`):** el guard por producto es >= **30** dias con
+    venta sobre la ventana **`[2026-02-20, D-15)`** (arranque fijo = primer
+    `valid_from` de `sku_cost`). Evidencia: con `[D-105, D-15)` y 60 dias
+    ningun producto entraba (max 27), y con 365 dias ninguno cubria costo
+    (64-90 % < 0.95). La consecuencia (productos nuevos fuera) se mantiene
+    **en F1**.
+    **F1 historico.** Fase A: residual 7 absorbido por ORBIT 19 D2.
+
+## 2. Alcance y phases
+
+- **F1 — Fabrica proposal-only** (no toca el motor): migracion 0018,
+  `v_margen_producto`, `crea_goal` en `app/goals_write.py`,
+  `tools/fabrica_campanas.py` (dry-run -> go -> creacion con product ads ->
+  readback -> sync de estructura -> ledger), reversa `--desarmar`, biblioteca
+  de semillas (lectura; la escritura por harvest/negative llega con F2).
+  El primer grupo real ES la sonda de los shapes nuevos (§5.5).
+- **F2 — Enrutamiento de harvest por grupo + negative cruzado** (toca el
+  motor, TDD estricto, regla 9 demostrada): migracion **posterior a ORBIT 19
+  0019/0020** (fase nueva de `harvest_job` + candado `goal_harvest_completo`
+  relajado; el numero se fija al aplicar F2, no 0019); resolucion de
+  destino grupo > excepcion > skip; negative-exact cruzado en las hermanas
+  con su reversa; alimentacion de la biblioteca desde harvest/negatives
+  aplicados; migracion de las existentes a `harvest_excepcion` con go.
+
+Fuera de alcance (las dos phases): adopcion de campañas existentes a grupos,
+MeLi, SB/SD, pausa de campañas viejas, budgets en el motor (M4 sigue fuera),
+cualquier escritura que no sea la creacion del grupo y su reversa.
+**F1:** productos sin margen maduro (decision 14). **Fase A:** esos
+productos si entran, con ACoS manual (ORBIT 19 D2).
+
+## 3. Estructura fija del grupo
+
+Cada grupo crea exactamente 5 campañas SP, una por rol:
+
+| Rol | Tipo | Semilla inicial |
+|---|---|---|
+| `auto_discovery` | auto | Negativos de `negative_biblioteca[tipo_producto]` |
+| `category_phrase` | manual keyword phrase | Biblioteca + terminos con ventas del mismo producto (§6) |
+| `product_targeting` | manual product | ASINs con ventas del mismo producto + biblioteca |
+| `category_broad` | manual keyword broad | Misma lista que phrase (Amazon distingue el match) |
+| `category_exact` | manual keyword exact | VACIA (recibe harvest; excepcion §6) |
+
+Nombre en Amazon (la API lo exige; NO es el vinculo — el vinculo es la tabla):
+`<tipo_producto> | <nombre_base> | <rol> | <YYYY-MM-DD>`.
+
+Cada campaña lleva UN ad group. **F1:** un product ad POR PRODUCTO (un
+listing). **Fase A:** un product ad POR LISTING (varios ASIN del mismo
+producto son legales). POST `/sp/productAds` con `sku` =
+`listing.seller_sku` de la plataforma (shape sellado por la sonda
+2026-08-31, solo camino de error). Sin anuncio la campaña no sirve nada:
+listing sin `seller_sku` en esa plataforma no entra (validacion sin HTTP,
+§5.1).
+
+## 4. Target del grupo y `v_margen_producto`
+
+Vista nueva por producto con la MISMA maquinaria sellada de
+`v_target_margen_plataforma` (spec ORBIT 06 Fase 2): ledger, ventana
+`[2026-02-20, D-15)` con guard de 30 dias (enmienda de la decision 14; la
+plataforma sigue con `[D-105, D-15)` y 60), COGS vigente a la fecha de la venta en MISMA
+moneda, cargos con `order_id` de ventas cubiertas, cobertura por monto; sin
+margen medible la fila no existe (regla 3), jamas cero.
+
+```text
+target_grupo = fraccion × min(margen_neto_pct de los productos del grupo)
+```
+
+- `fraccion` = la misma del setting `ads_target_fraccion_margen_<platform>`
+  de ORBIT 06 (hoy 0.5, «la mitad»). Sin setting valido -> aborta (interruptor).
+- Clamp a la banda [10, 45], misma del peldaño margen_plataforma.
+- El valor se CONGELA en `campana_grupo.target_acos_pct` con
+  `target_procedencia` (snapshot auditable al crear; el re-ajuste automatico
+  del target de un grupo ya creado queda FUERA — residual 3).
+- La fabrica escribe goal de scope campaña para cada una de las 5 via
+  `app.goals_write.crea_goal` (camino unico de goals, sellado 26 de ORBIT 04
+  — `docs/APPLY.md` §10.3; hoy solo existe `edita_goal`, que es UPDATE): ese target, `enabled=true`, `mode` =
+  `--modo` (decision 13), floor/techo de `DEFAULTS_POR_MONEDA`, y la terna
+  harvest COMPLETA apuntando a la exact del grupo con `harvest_default_bid =
+  --bid-exact` (decision 12; el monto del harvest no cambia de camino).
+
+## 5. Flujo de creacion (`tools/fabrica_campanas.py`)
+
+Patron sellado de `tools/archiva_inertes.py` (su docstring manda en el
+como): plan desde la base con `ORBIT_DSN_READ`, dry-run por defecto con
+tabla + huella del conjunto (sha256 de los elementos autorizados), mutacion
+solo con `--acepto-mutacion-real --esperado N --huella H --go "<literal>"`.
+
+```bash
+docker exec -i orbit-app-1 python - --plataforma amazon_mx \
+  --tipo-producto collar_perro --nombre-base "Collar reflectante" \
+  --productos <product_id,...> --modo shadow \
+  --budget-auto 150 --budget-phrase 120 --budget-product 120 \
+  --budget-broad 120 --budget-exact 150 \
+  --bid-auto 4.50 --bid-phrase 5.00 --bid-product 5.00 \
+  --bid-broad 4.00 --bid-exact 6.00 \
+  < tools/fabrica_campanas.py
+```
+
+En orden:
+
+1. **Validacion SIN HTTP** (fail-closed temprano): perfil aceptado de
+   `evaluar_perfiles`; cada producto con margen en `v_margen_producto` y con
+   `listing.seller_sku` en la plataforma (sin SKU no hay anuncio); target
+   derivado y clampeado (§4); moneda por plataforma (regla 4); bids > 0 y
+   dentro de piso/techo por moneda (USD 0.10/2.50, MXN 1.00/45.00 — mismos
+   defaults de goal, regla 4); budgets > 0 y >= su bid (el piso/techo es
+   SOLO de bids: `--budget-auto 150` con `--bid-auto 45` en MXN es valido;
+   sin techo de budget, el tope real es el go del dueño); `--productos` no vacio;
+   `--modo` en {shadow, live}; `ORBIT_DSN_INGEST` presente (lo exige el
+   paso 4).
+2. **Dry-run**: las 5 campañas (nombre, rol, budget, bid, targeting, SKUs de
+   los anuncios, conteo de semillas por rol, explícito si es 0, modo del
+   goal) + reporte de campañas existentes de los mismos productos (solo
+   informa, decision 9) + huella.
+3. **Mutacion**: orden fijo `exact -> phrase -> broad -> product -> auto`
+   (la exact primero: si el lote muere a medias, jamas queda discovery sin
+   destino de harvest). Por campaña: fila `planeado` en el ledger con commit
+   (intencion durable ANTES del HTTP, regla 7) -> POST `/sp/campaigns` ->
+   POST `/sp/adGroups` -> POST `/sp/productAds` (uno por producto, `sku`) ->
+   siembra de keywords/targets/negativos -> readback por LIST (campaña, ad
+   group, anuncios y semillas) -> `applied`. Cada POST es un
+   `fabrica_lote_paso` propio. Cualquier rechazo o readback que no cuadra ->
+   `failed` y el lote SE DETIENE declarando que quedo creado.
+4. **Sync de estructura y registro interno**: las filas `ad_entity` de las
+   campañas nuevas (FK de `campana_grupo_rol` y del trigger
+   `goal_scope_campana_real`) las escribe SOLO el sync de estructura
+   (`sync_structure` de `app/ads/structure.py`, rol `app_ingest`);
+   `app_admin` no tiene INSERT en `ad_entity`. La fabrica lo invoca con
+   `ORBIT_DSN_INGEST` tras el readback (mismo escritor, camino unico; llena
+   tambien `ad_entity_state`, que el ciclo filtra por status ENABLED) y
+   recien entonces, con los ids internos resueltos, escribe `campana_grupo`,
+   `campana_grupo_rol`, `campana_grupo_producto` y los 5 goals via
+   `crea_goal` (§4).
+5. **HTTP propio con sello v3**: `httpx` directo, vendor v3 exacto en
+   Content-Type Y Accept, POSTs envueltos en su clave de lista (sellos del
+   probe 2.5 y de `reactiva_campanas`/`archiva_inertes`). **NO importa
+   `app/ads/client.py` para mutar ni `app/ads/write.py`** — un segundo dueno
+   de la mutacion (candado en `tests/test_architecture.py`). El readback usa
+   el cliente de lectura (`list_objects`). Shapes NUNCA ejercitados en vivo:
+   POST `/sp/campaigns`, `/sp/adGroups`, `/sp/targets` (create) y el camino
+   feliz de `/sp/productAds` (solo keywords, negativeKeywords y el PUT de
+   campañas estan sellados). Sonda = el primer grupo real, con UN producto y
+   los budgets minimos por moneda; su log queda en `out/` como evidencia y
+   los vendors confirmados se sellan en el modulo.
+6. **Reversa** (regla 7, mismo PR): `--desarmar <grupo> --go "<literal>"`
+   PAUSA las 5 (PUT `/sp/campaigns` state PAUSED, sellado en
+   `reactiva_campanas`; nunca archiva: pausar es la reversa segura y
+   reversible) y pone `enabled=false` en sus 5 goals via `edita_goal`, para
+   que el motor no siga decidiendo sobre campañas pausadas.
+
+Reconciliacion: `--reconciliar` cruza `planeado`/`failed` contra el LIST real
+y promueve solo lo verificado; aborta si algo queda sin verificar O si el
+objeto vive pero no cuadra con el payload del ledger (fail-closed,
+idempotente).
+
+## 6. Semillas y biblioteca por tipo_producto
+
+- `keyword_biblioteca` / `negative_biblioteca`: por `(tipo_producto, platform,
+  texto)`: origen (que grupo/campaña la aporto), orders/cost/revenue
+  acumulados, `first_seen_at`. Todo dinero con `(valor, moneda)` (regla 4).
+- La siembra de phrase/broad: biblioteca del `tipo_producto` con orders >= 1
+  + terminos con ventas del MISMO producto en campañas existentes
+  (`search_term_observation`, ya ingerido; colapso bitemporal por
+  `observed_at`, regla 5, sin dia en curso). Product targeting: ASINs que
+  convirtieron como search term (`is_asin_like`) + ASINs de biblioteca.
+- `category_exact` nace VACIA. Excepcion: un termino del historial propio
+  que YA cumple el criterio HARVEST sellado (orders >= 2 y ACoS <= min(35%,
+  target)) puede nacer sembrado en exact — mismo criterio del motor, aplicado
+  al sembrar.
+- **Sin historial**: las manuales nacen vacias y el dry-run lo dice explicito
+  («phrase: 0 semillas»). La biblioteca se llena sola: cada harvest y cada
+  negative que el motor APLIQUE en campañas de un grupo escribe en la
+  biblioteca de su `tipo_producto` (F2), asi el siguiente grupo del mismo
+  tipo arranca con historial mas completo (decision 6).
+- Terminos ASIN-like solo alimentan product targeting, jamas keywords
+  (regla sealed own-ASIN). Aplica SOLO a la siembra: el motor ya salta
+  ASIN-like siempre (`MOTIVO_ASIN_LIKE`, ambos kinds) y F2 no toca ese skip.
+
+## 7. Harvest por grupo y negative cruzado (F2)
+
+**Resolucion del destino** (reemplaza la siembra manual de `goal.harvest_*`):
+
+1. Campaña origen en grupo -> ad group de la `category_exact` DE ESE GRUPO
+   (SQL puro via `campana_grupo_rol`; sin convencion de nombres).
+2. Campaña sin grupo -> `harvest_excepcion` (existentes migradas una a una
+   con go del dueno, congeladas — decision 4).
+3. Sin grupo ni excepcion -> skip con motivo `sin destino de harvest`
+   (visible en audit; jamas placeholder).
+
+`goal.harvest_campaign_id / harvest_ad_group_id` dejan de ser camino de
+config nueva; `harvest_default_bid` SIGUE fijando el monto (la fabrica lo
+siembra con `--bid-exact`). Migracion de F2 (numero al aplicar, no 0019): el CHECK
+`goal_harvest_completo` se reemplaza por un trigger que admite
+`harvest_default_bid` solo (campaign/ad_group NULL) unicamente si la campaña
+esta en `campana_grupo_rol`; `edita_goal` valida lo mismo. La terna
+transitoria de F1 (decision 12) se limpia grupo por grupo al migrar, con el
+mismo go.
+
+**Negative cruzado**: la primera fase del harvest ya crea el negative-exact
+en la campaña ORIGEN (sellado ORBIT 04, fases `negative_created ->
+exact_created -> done`). F2 agrega la fase `hermanas_negadas` entre
+`exact_created` y `done` (migracion F2: CHECK de `harvest_job.fase` y
+trigger `harvest_job_sella_fases`): creada y verificada la keyword en la
+exact del grupo, se crea negative-exact del MISMO termino en las hermanas
+(roles discovery menos el origen ya negado; maximo 3, con product targeting —
+decision 10), ids en `external_ids`. Mismo ledger, mismo readback; el harvest
+sigue cobrando 1 operacion logica de quota aunque sean hasta 5 mutaciones de
+ida (unidad sellada en `apply_attempt`). Orden siempre keyword primero,
+negatives despues, y la
+reversa (`reversa_harvest_completo`) borra keyword -> negativos hermanos ->
+negativo de origen (regla 7). Madurez >= 10d sin cambio (trigger
+`decision_madurez_corte`).
+
+Hermana `product_targeting`: Amazon SP acepta negative keywords en ad
+groups auto y de keyword; en los de product targeting el negativo es por
+ASIN/marca (`negativeTargets`), no por texto. La sonda 0.1 del 2026-09-12
+confirmo que el POST por texto es aceptado y visible por LIST. PT participa
+entre los cuatro roles discovery; si es el origen quedan las otras tres y, si
+es hermana, un rechazo queda pendiente con motivo como cualquier otro rechazo.
+Aceptado no demuestra efectividad: ese residual se mide aparte.
+
+**Precisiones de FABRICA 02 (plan v1.0, 2026-09-10; revisadas por cinco
+perspectivas)** — fijan lo que este §7 dejaba abierto y cambian comportamiento:
+
+1. Origen con rol `category_exact` → skip `origen_es_destino` (una campana no
+   se harvestea a si misma; hoy lo absorbia el dedupe sin decirlo).
+2. Transicion: mientras una campana sin grupo no este en `harvest_excepcion`,
+   sigue valiendo como destino **la terna VIGENTE que el motor usa hoy para esa
+   campana**, resuelta por el MISMO camino que `resuelve_goal` (goal de scope
+   `campaign` si existe; si no, el de `platform`), con motivo informativo
+   `migracion_pendiente` visible en `/salud`.
+   **Corregido 2026-09-12 por E/0.2.** La redaccion anterior decia que la terna
+   de PLATAFORMA nunca es destino; el inventario mostro que las 4 campanas que
+   han producido harvests reales no tienen goal propio ni terna ni grupo, y que
+   241 de 246 campanas resuelven solo por el goal de plataforma. Excluirla
+   apagaba el harvest de casi toda la cuenta el dia del deploy.
+   Lo que la terna de plataforma NUNCA hace es CONTRADECIR al grupo:
+   `destino_inconsistente` solo aplica a una terna de scope `campaign`, porque
+   la de plataforma es el default de la cuenta y no una decision sobre esa
+   campana. Resolver y comparar son cosas distintas.
+3. El destino resuelto se congela en la decision (`inputs.goal.harvest` con
+   `resuelto_por = grupo|excepcion|terna`); apply lo re-valida contra la exacta
+   vigente del grupo (si ya no coincide: descarte `destino_desincronizado`,
+   jamas re-rutear) y replay lee el congelado (bitemporal).
+4. La decision se confirma en el readback de la keyword exacta (el evento de
+   valor): `verify_ok`, cola `applied`, cooldown. `hermanas_negadas` es higiene
+   posterior, reintentable por ciclo sin re-cobrar quota; una hermana que falla
+   queda pendiente con motivo y, al tope de ciclos, el job cierra `done` con las
+   pendientes declaradas y alerta. **Jamas se revierte la keyword por una
+   hermana.** Cada POST de hermana lleva su fila `apply_attempt` con `tipo =
+   'hermana'` (fuera del tope de 3 intentos `normal`, que un harvest ya agota).
+5. `negative_biblioteca` recibe SOLO negativos de decisiones `kind = negative`
+   aplicadas. Los negativos que nacen de un harvest (origen y hermanas) son
+   ruteo, no exclusion, y jamas entran: si entraran, el termino ganador naceria
+   negado en la `auto_discovery` del siguiente grupo del mismo tipo de producto.
+6. `harvest_excepcion` solo acepta pares `(campana, ad group)` validados contra
+   `ad_entity` (ad group hijo de esa campana, misma plataforma); texto libre
+   rechazado por la herramienta que la puebla.
+7. Decision del dueno 2026-09-10 sobre la forma de la decision 6:
+   `keyword_biblioteca` guarda SOLO termino, origen y fechas; las columnas
+   `orders/cost/revenue/moneda` quedan NULL en toda fila escrita por el motor.
+   Los numeros se calculan desde `search_term_observation` cuando hagan falta
+   (reglas 2 y 5: ni segunda fuente ni fila mutable con dinero).
+8. Precision A.3 del 2026-09-13, validada por cinco perspectivas: el roster se
+   congela por `grupo_id` antes de la primera mutacion de hermana; hay un
+   barrido LIST paginado previo y, si hubo POST, otro posterior por ciclo,
+   ambos batched y filtrados, nunca un LIST por hermana;
+   `TOPE_CICLOS_HERMANAS = 3` y el paso inicial cuenta como ciclo 1. Un ciclo
+   es una invocacion completa de la fase y `hermanas_ciclos` aumenta una sola
+   vez al persistir su salida, no por barrido; un crash previo no cuenta. El
+   sello de decision/cola/cooldown/fase/roster
+   queda confirmado antes del primer POST. Un crash post-POST se reconcilia
+   contra el intento propio para conservar `creada = true`. La reversa manual
+   es reanudable, borra keyword -> solo hermanas propias -> origen, y confirma
+   cada delete por readback antes de continuar.
+
+## 8. Migracion 0018 (tablas nuevas, con sus COMMENT ON)
+
+- `campana_grupo(id, platform, tipo_producto, nombre_base, target_acos_pct,
+  target_procedencia, go_literal, created_at)`.
+- `campana_grupo_rol(grupo_id, rol, ad_entity_id, ad_group_ad_entity_id)` —
+  `rol` ENUM de los 5 valores; `UNIQUE(grupo_id, rol)`; `UNIQUE(ad_entity_id)`
+  (una campaña pertenece a lo sumo a un grupo). El ad group de la exact va
+  guardado, no resuelto por `parent_id`: el destino del harvest es un SELECT
+  directo y auditable.
+- `campana_grupo_producto(grupo_id, product_id REFERENCES product, margen_pct,
+  seller_sku)` — snapshot al alta; el target del grupo nace del minimo.
+- `keyword_biblioteca` / `negative_biblioteca` (§6).
+- `harvest_excepcion(campaign ad_entity_id, destino campaign+ad_group
+  externos, go_literal, created_at)` — una por campaña, congelada.
+- Ledger de creacion `fabrica_lote` + `fabrica_lote_paso` (patron
+  `keyword_archivo_manual`: intencion durable pre-HTTP, `ack` JSONB,
+  `readback_estado`, estados `planeado/applied/failed`; un paso por POST:
+  campaña, ad group, cada product ad, cada semilla).
+- `v_margen_producto`: grano `ledger_event.product_id`. Los cargos con
+  `order_id` de una orden multi-producto se prorratean por el monto de venta
+  del producto dentro de la orden; los sin `order_id` por cobertura, como en
+  la vista de plataforma. Antes de escribirla, el `SELECT` que mida cuantas
+  ordenes son multi-producto y cuantos cargos traen `product_id` (regla 8;
+  residual 6 si el grano no alcanza).
+- GRANTs en la misma migracion: `app_admin` INSERT/UPDATE en las tablas
+  nuevas; `app_decide` SELECT en `campana_grupo_rol` (el ruteo de F2 corre
+  como motor); `app_read` SELECT en todo.
+
+Invariantes nuevos del esquema = con su test, y antes del test el `SELECT`
+que confirma la forma real del dato en produccion (regla 8).
+
+## 9. Errores y testing
+
+- Fail-closed en todo: lote detenido al primer rechazo/readback que no
+  cuadra; sin perfil aceptado no se muta; sin margen no entra el producto;
+  sin huella/esperado/go no hay mutacion.
+- **Regla 9**: los tests del reruteo (F2) se demuestran FALLANDO contra el
+  codigo actual, que solo conoce `harvest_*`. TDD estricto en F2.
+- F1 nace con tests de plan, huella, validaciones y ledger **contra Postgres
+  real** donde aplique (precedente: el bug `%s::platform`
+  IndeterminateDatatype solo lo vio una base de verdad).
+- Candado en `tests/test_architecture.py`: el escaneo de `app.ads.write`
+  ya cubre `tools/` entero; la fabrica suma una allowlist POSITIVA de imports
+  (patron `ALLOWLIST_IMPORTS_SNAPSHOT_LISTAS`) que incluye `app.goals_write`
+  y `app.ads.structure` y excluye `app.ads.write`.
+- Suite + ruff + pre-commit verdes antes de terminar cada phase; jamas
+  `--no-verify`.
+
+## 10. Residuales declarados
+
+1. **Adopcion de campañas existentes a grupos**: fuera (decision 1). Si un
+   dia se quiere, es su propio spec con verificacion de estructura.
+2. **`tipo_producto` libre**: la disciplina de etiquetado es del dueno; no
+   hay catalogo cerrado ni sugerencia automatica (se rechazo el hibrido por
+   regla 2).
+3. **Re-ajuste del target de un grupo ya creado**: el target se congela al
+   crear; el auto-ajuste (como el peldaño margen_plataforma) queda para una
+   phase posterior con diseno propio.
+4. **Pausa de campañas viejas del mismo producto**: la fabrica solo reporta
+   (decision 9); la transicion es decision humana aparte.
+5. **Semilla de exact desde historial** (excepcion del §6) usa la ventana y
+   madurez del criterio HARVEST ya sellado; no introduce umbrales nuevos.
+6. **`v_margen_producto` por producto**: si el grano real del ledger no
+   soporta margen por producto con cobertura suficiente, F1 se detiene en la
+   vista y se reporta — no se siembra target inventado (regla 3).
+7. **Productos sin margen maduro** (decision 14): fuera. Un `--target-acos`
+   manual con go para productos nuevos contradice la decision 3 y seria un
+   spec propio.
+   **F1 historico.** Absorbido por ORBIT 19 D2 (fase A).
+8. **Negative keyword en la hermana `product_targeting`**: pendiente de la
+   sonda en vivo de §7; hasta entonces la decision 10 se implementa con
+   skip declarado si Amazon rechaza el shape.

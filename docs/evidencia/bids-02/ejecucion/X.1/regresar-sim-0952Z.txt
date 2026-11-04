@@ -1,0 +1,9 @@
+== SIMULACRO: sin --acepto-mutacion-real no se escribe nada
+amazon_mx: N=6
+ssh goncloud 'curl -sS -X POST http://127.0.0.1:8010/api/ads-optimizer/bid/regresar-todas [...]'
+cuerpo seria: {"plataforma": "amazon_mx", "confirmacion": "REGRESAR 6 KEYWORDS", "actor": "plan bids-02 X.1"}
+amazon_us: N=3
+ssh goncloud 'curl -sS -X POST http://127.0.0.1:8010/api/ads-optimizer/bid/regresar-todas [...]'
+cuerpo seria: {"plataforma": "amazon_us", "confirmacion": "REGRESAR 3 KEYWORDS", "actor": "plan bids-02 X.1"}
+(el token no sale del servidor; en sim solo viaja en el header)
+SIMULACRO OK (nada escrito)

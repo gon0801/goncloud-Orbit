@@ -1,0 +1,50 @@
+# B4-r3 comandos (desde /Users/dn/dev/wt/jev-ads-worker, rama docs/jev-ads-b4)
+
+Partida: HEAD cdc45cff5cf77c64bf755a893b25aea26b9fc52f (arbol limpio, ahead 5).
+
+## 1. Rojo (TDD): tests nuevos contra el codigo de cdc45cf
+Se creo un worktree de cdc45cf y se copio el tests/test_api_dashboard.py
+nuevo (los tests solo dependen del app de base y de sus propios helpers):
+
+    git worktree add /var/folders/.../opencode/b4r3-base cdc45cff5cf77c64bf755a893b25aea26b9fc52f
+    cp tests/test_api_dashboard.py /var/folders/.../opencode/b4r3-base/tests/
+    cd /var/folders/.../opencode/b4r3-base
+    uv run --frozen python -m pytest tests/test_api_dashboard.py::test_asesoria_vigencia_usa_el_predicado_de_ficha_vigente -q   # -> rojo_b1.txt
+    uv run --frozen python -m pytest tests/test_api_dashboard.py::test_asesoria_leer_salta_solo_no_activos_como_evaluar -q     # -> rojo_b2.txt
+    git worktree remove --force /var/folders/.../opencode/b4r3-base
+
+Resultado: 1 failed cada uno, por el motivo del hallazgo (ver rojo_b1.txt,
+rojo_b2.txt). La misma corrida en sesion contra el arbol de trabajo pre-arreglo
+dio los mismos fallos.
+
+## 2. Verde focalizado (arreglo aplicado)
+    uv run --frozen python -m pytest tests/test_api_dashboard.py -q -k "asesoria or vigencia or cortes"
+    # -> 11 passed (verde_focalizado.txt; incluye test_jev_ads.py, 22 passed)
+
+## 3. Mutantes (matar la prueba = discriminar)
+Mutante B1: _vigencia_de_miembros vuelve al EXISTS por producto+plataforma
+(created_at > ficha, no revocada) en vez de ficha_vigente:
+
+    uv run --frozen python -m pytest tests/test_api_dashboard.py::test_asesoria_vigencia_usa_el_predicado_de_ficha_vigente -q
+    # -> FAILED (mutante_b1_rojo.txt); revertido el mutante
+
+Mutante B2: quitar `if _solo_no_activo(miembro.estados): continue` de
+composicion_de:
+
+    uv run --frozen python -m pytest tests/test_api_dashboard.py::test_asesoria_leer_salta_solo_no_activos_como_evaluar -q
+    # -> FAILED (mutante_b2_rojo.txt); revertido el mutante
+
+## 4. Lint y candados
+    ruff check app/jev_ads.py tests/test_api_dashboard.py     # All checks passed!
+    ruff format --check app/jev_ads.py tests/test_api_dashboard.py
+    pre-commit run --all-files                                # 9 hooks Passed
+
+## 5. Bateria completa (SHA de codigo 5f6f315a728806ae91952e866dc59a5060cf87cc)
+    uv run --frozen python -m pytest -q
+    # -> 3844 passed, 1 warning in 219.66s (bateria.txt)
+
+## 6. Commit (local, SIN push; el push lo hace Claw tras VEREDICTO: APROBADO)
+    git add app/jev_ads.py tests/test_api_dashboard.py
+    git commit -m "jev-ads B4-r3: ..."
+    # -> 5f6f315a728806ae91952e866dc59a5060cf87cc
+    # (el commit de evidencia docs-only va despues; patron B4-r1/B4-r2)

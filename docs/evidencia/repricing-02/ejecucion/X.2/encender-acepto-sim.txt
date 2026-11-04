@@ -1,0 +1,16 @@
+== X.2 encender MX FBM (paso 0: interruptor de bids)
+ads_bid_politica_amazon_mx: ausente (el ciclo no mueve bids; pasa)
+precio_modo_global: <ausente> | amazon_mx/fbm: shadow | base: 5
+goals shadow en amazon_mx FBM: 2
+== encendido real: settings (universo live + global solo si falta)
+settings: config 6 (settings UI · settings-ui · 2026-10-15 · amazon_mx: precio modo global ausente -> live, precio modo amazon_mx/fbm shadow -> live)
+== encendido real: goals a live en bloque (2 unidades)
+-- bloque 1 (2 unidades)
+plan live: 2 filas, 0 bloqueadas, huella 9d9c7adbe5b6e538
+aplicado: sembrados=2 cerrados=2 lote=9d9c7adbe5b6e538
+ENCENDIDO OK: amazon_mx/fbm en live
+exit=0
+11|live
+12|live
+13|sin-goal
+14|sin-goal

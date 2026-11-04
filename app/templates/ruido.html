@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block contenido %}
+<h2>Ruido</h2>
+<p class="mutado">
+  Cuántas hojas movió el motor por ciclo y por qué, cuánto se encogió cada
+  bid en 90 días y cómo se compara el antes y el después del encendido.
+</p>
+{# Mercado con enlaces GET (guia S.5.5): no existe componente de pestanas. #}
+<p>
+  <a href="/ruido?plataforma=amazon_mx" {% if plataforma == "amazon_mx" %}aria-current="page"{% endif %}>Amazon MX</a>
+  <a href="/ruido?plataforma=amazon_us" {% if plataforma == "amazon_us" %}aria-current="page"{% endif %}>Amazon US</a>
+</p>
+<h3>Por ciclo</h3>
+{% for ciclo in ciclos %}
+<div class="tarjeta">
+  <h4>Ciclo {{ ciclo.cycle_id }} · {{ ciclo.started_at|ts_ui }}</h4>
+  <p>Decisiones por motivo y nivel:</p>
+  <ul>
+    {% for d in ciclo.decisiones %}
+    <li>{{ d.motivo or "—" }} · {{ d.nivel or "—" }}: {{ d.count }}</li>
+    {% endfor %}
+  </ul>
+  {% if ciclo.abstenciones is none %}
+  <p>Sin conteo de abstenciones.</p>
+  {% else %}
+  <p>Abstenciones por motivo:</p>
+  <ul>
+    {% for motivo, veces in ciclo.abstenciones.items() %}
+    <li>{{ motivo }}: {{ veces }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% if ciclo.shadow %}
+  <p>Shadow, no aplicado: {{ ciclo.shadow }}.</p>
+  {% endif %}
+</div>
+{% else %}
+<p>Sin ciclos del motor en este mercado.</p>
+{% endfor %}
+<h3>Encogimiento por hoja</h3>
+{% for hoja in encogimiento %}
+<div class="tarjeta">
+  <h4>Hoja {{ hoja.hoja_id }}</h4>
+  <p>Bid: {{ hoja.bid_base|dinero_ui }} antes, {{ hoja.bid_hoy|dinero_ui }} hoy ({{ hoja.moneda }}). Quedó en {{ hoja.razon|porcentaje_ui }}.</p>
+</div>
+{% else %}
+<p>Sin hojas con cambios de bid en los últimos 90 días.</p>
+{% endfor %}
+<h3>Antes y después del encendido</h3>
+<p>Es una comparación simple de antes y después. No es causal.</p>
+{% if antes_y_despues %}
+<p>Encendido el {{ antes_y_despues.encendido_el }}.</p>
+<h4>Antes del encendido ({{ antes_y_despues.dias_antes }} día{% if antes_y_despues.dias_antes != 1 %}s{% endif %})</h4>
+{% set bloque = antes_y_despues.antes %}
+{% if bloque %}
+<p>Gasto {{ bloque.gasto|dinero_ui or "—" }} {{ antes_y_despues.moneda }}, {{ bloque.pedidos if bloque.pedidos is not none else "—" }} pedidos, venta {{ bloque.venta|dinero_ui or "—" }}, ACoS {{ bloque.acos_pct or "—" }} %.</p>
+{% else %}
+<p>Sin datos.</p>
+{% endif %}
+<h4>Después del encendido ({{ antes_y_despues.dias_despues }} día{% if antes_y_despues.dias_despues != 1 %}s{% endif %})</h4>
+{% set bloque = antes_y_despues.despues %}
+{% if bloque %}
+<p>Gasto {{ bloque.gasto|dinero_ui or "—" }} {{ antes_y_despues.moneda }}, {{ bloque.pedidos if bloque.pedidos is not none else "—" }} pedidos, venta {{ bloque.venta|dinero_ui or "—" }}, ACoS {{ bloque.acos_pct or "—" }} %.</p>
+{% else %}
+<p>Sin datos.</p>
+{% endif %}
+{% else %}
+<p>Sin fecha de encendido: todavía no hay comparación de antes y después.</p>
+{% endif %}
+{% endblock %}

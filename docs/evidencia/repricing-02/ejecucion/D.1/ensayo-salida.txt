@@ -1,0 +1,35 @@
+== esquema de prod (solo lectura)
+esquema base cargado
+== 1) aplicar la 0053 y la 0054 (dos corridas de psql separadas)
+psql:/Users/dn/dev/wt/rp02-sec2/migrations/0053_precio02_canal_meli.sql:6: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+aplicada 0053_precio02_canal_meli.sql
+psql:/Users/dn/dev/wt/rp02-sec2/migrations/0054_precio02_base.sql:11: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+aplicada 0054_precio02_base.sql
+== 2) senales de cada migracion
+0053 (meli en canal): t
+0054 (3 columnas en decision): 3
+0054 (modo global): shadow
+== 3) reversas en orden inverso: esquema identico al base
+psql:/Users/dn/dev/wt/rp02-sec2/migrations/0054_reversa_precio02_base.sql:8: WARNING:  there is already a transaction in progress
+psql:/Users/dn/dev/wt/rp02-sec2/migrations/0054_reversa_precio02_base.sql:488: NOTICE:  reversa 0054: config 2 sembrada por la 0054 retirada
+WARNING:  there is no transaction in progress
+aplicada 0054_reversa_precio02_base.sql
+psql:/Users/dn/dev/wt/rp02-sec2/migrations/0053_reversa_precio02_canal_meli.sql:4: WARNING:  there is already a transaction in progress
+psql:/Users/dn/dev/wt/rp02-sec2/migrations/0053_reversa_precio02_canal_meli.sql:17: NOTICE:  reversa 0053: estimacion_canal conserva el valor meli (Postgres no lo quita)
+WARNING:  there is no transaction in progress
+aplicada 0053_reversa_precio02_canal_meli.sql
+re-otorgado el SELECT previo sobre precio_envio_muestra
+OK: la unica diferencia es el valor meli del enum (irreversible por Postgres;
+la reversa de la 0053 lo documenta y sigue efectivo para reaplicar)
+== 4) reaplicar (solo la 0054: el valor meli del enum no se puede
+quitar ni reagregar —ADD VALUE no es re-ejecutable— y sigue efectivo)
+psql:/Users/dn/dev/wt/rp02-sec2/migrations/0054_precio02_base.sql:11: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+aplicada 0054_precio02_base.sql
+OK: reaplicar da el mismo esquema que la primera vez
+0053 (meli en canal): t
+0054 (3 columnas en decision): 3
+0054 (modo global): shadow
+ENSAYO OK

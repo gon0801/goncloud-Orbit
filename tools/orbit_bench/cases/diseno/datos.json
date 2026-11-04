@@ -1,0 +1,11 @@
+{
+  "as_of": "2026-09-05",
+  "decisions": [
+    {"id": 81, "platform": "amazon_mx", "kind": "pause", "cost": "500.0000", "currency": "MXN", "metric_date": "2026-08-26", "target": "25.00", "target_source": "goal_campana"},
+    {"id": 82, "platform": "amazon_us", "kind": "bid", "cost": null, "currency": "USD", "metric_date": "2026-09-02", "target": "35.00", "target_source": "setting_plataforma"}
+  ],
+  "series": [
+    {"date": "2026-09-02", "cost": null, "revenue": "31.2000", "currency": "USD"},
+    {"date": "2026-09-03", "cost": "4.8000", "revenue": "20.0000", "currency": "USD"}
+  ]
+}

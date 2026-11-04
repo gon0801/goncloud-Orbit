@@ -1,0 +1,8 @@
+BEGIN
+-- INICIO 01-historia-disponible
+shipping_fee|amazon_mx|2025-12-04|2026-09-14|708|287
+shipping_fee|amazon_us|2025-12-04|2026-09-15|1093|287
+venta|amazon_mx|2025-11-14|2026-09-17|1223|307
+venta|amazon_us|2025-11-20|2026-09-17|541|301
+-- FIN 01-historia-disponible
+ROLLBACK

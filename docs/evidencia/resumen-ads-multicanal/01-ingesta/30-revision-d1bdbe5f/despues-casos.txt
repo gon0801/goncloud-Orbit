@@ -1,0 +1,22 @@
+== Reproducciones del revisor, capturadas por caso (HEAD corregido) ==
+Comando: PYTHONPATH=/tmp:tests:. uv run --frozen python /tmp/orbit_review_after.py
+
+case_mark_interleaving: EXC MeliAdsError: snapshot atrasado: su as_of no es posterior a la marca aceptada (1793275200); no se escribio nada
+case_clock_collision: EXC UniqueViolation: duplicate key value violates unique constraint "ads_metric_observation_pkey"
+DETAIL:  Key (ad_entity_id, metric_date, observed_at)=(1, 2026-10-28, 2026-10-29 13:00:00+00) already exists.
+case_future_clock: EXC MeliAdsError: snapshot rechazado (cero escrituras): 1x as_of futuro fuera de la tolerancia de reloj
+MIDWRITE_ATOMICITY {'error': 'MeliAdsError', 'entidades': 0, 'observaciones': 0, 'run': (1, False, 0, 2, 'snapshot rechazado (cero escrituras): 1x entero fuera de rango (9223372036854775807): 9.223372036854776e+18')}
+case_midwrite_atomicity: OK
+MATRIX {'vacia_inicial': {'run_id': 1, 'filas_origen': 0, 'rows_written': 0, 'rows_skipped': 0, 'duplicados': 0, 'duplicados_version': 0, 'duplicados_id': 0, 'rechazos': 0, 'entidades_nuevas': 0, 'entidades_actualizadas': 0}, 'reintento': {'run_id': 3, 'filas_origen': 4, 'rows_written': 0, 'rows_skipped': 4, 'duplicados': 4, 'duplicados_version': 4, 'duplicados_id': 0, 'rechazos': 0, 'entidades_nuevas': 0, 'entidades_actualizadas': 0}, 'mismo_as_of_subset_nombre_conservado': ({'run_id': 4, 'filas_origen': 1, 'rows_written': 0, 'rows_skipped': 1, 'duplicados': 1, 'duplicados_version': 1, 'duplicados_id': 0, 'rechazos': 0, 'entidades_nuevas': 0, 'entidades_actualizadas': 0}, 'ALFA A'), 'mismo_as_of_campana_nueva': 'snapshot atrasado: su as_of no es posterior a la marca aceptada (1793260800); no se escribio nada', 'ABA_latest': '12.3400', 'campana_nueva_posterior': '3.0000', 'vacia_posterior_conserva': ({'run_id': 9, 'filas_origen': 0, 'rows_written': 0, 'rows_skipped': 0, 'duplicados': 0, 'duplicados_version': 0, 'duplicados_id': 0, 'rechazos': 0, 'entidades_nuevas': 0, 'entidades_actualizadas': 0}, 7), 'historia_C1_D1': 3, 'runs_abierto_fallido_ignorados_en_marca': 'as_of=1793260800'}
+case_matrix: OK
+RETENTION {'stale_11_tras_borrar_recopia_12': ('7.0000', 'VIEJO'), 'delete_run_con_hechos': 'ForeignKeyViolation'}
+case_retention: OK
+LEGACY {'error': 'observacion vigente sin as_of legible en su source_report_id: C1 2026-10-28', 'latest': '5.0000', 'observaciones': 1}
+case_legacy: OK
+UPDATED_AT_INVALIDO 2 {'updated_at ausente o ilegible': 1} 2026-10-29 08:00:00+00:00
+updated_at_invalido: OK
+dinero_redondeado: EXC MeliAdsError: importe con mas de 4 decimales: '1.23456'
+duplicados_conflicting: EXC MeliAdsError: snapshot rechazado (cero escrituras): 1x clave canonica duplicada (campaign_id, metric_date)
+CORRIDA_AUSENTE 1
+corrida_ausente: OK
+rc=0

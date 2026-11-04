@@ -1,0 +1,19 @@
+**Veredicto por punto (diff sin commitear en `jev02/s5b-pantallas`):**
+
+1. **OK** — Espejo exacto del bloque de asesoria: `senal_disponible = True` (api_dashboard.py:1396), try con import tardío (1398), `tuple_row`/`dict_row` en `finally` (1400-1404), except con `warning`+`scrub`+dict vacío+`False` (1408-1411); items ganan `"senal"` (1453) y la respuesta `"senal_disponible"`.
+
+2. **OK** — La premisa cierta: `_propuestas` desempaqueta por posición (jev_senales.py:141); el cableado pide `tuple_row` y restaura `dict_row` en `finally` antes de seguir; `gasto_sin_venta` lee `calculado` por nombre si dict (jev_salud.py:277) y `_fila_senal` normaliza dict o tupla (jev_salud.py:202).
+
+3. **OK** — `otros_sin_venta` solo existe en el fixture del test; ninguna plantilla lo referencia (`_senal.html` pinta aqui/otros_que_venden/historial; `gasto_sin_venta.html` ni eso).
+
+4. **OK** — `ORDER BY s.gasto DESC, s.id` (jev_salud.py:262); el desempate hace el orden determinista (nota: el endpoint luego reordena la sección `relevante_sin_venta` por proporción, presentación solamente).
+
+5. **OK** — El diff toca solo api_dashboard, jev_salud, jev_vista, base/cortes.html, ui y tests; `componer`, `_solo_no_activo` y el trigger `jev_par_evento_encadenado` quedan intactos.
+
+6. **OK** — Sin migraciones ni claves jev.* nuevas (los untracked son plantillas y docs de evidencia); cero import `typesafe` en app (los tests lo prueban rompiendo el transporte); plantillas nuevas sin `<script>` ni handlers inline (CSP intacta); la banda se calcula en `_banda_honesta` solo para presentar y ningún efecto la lee.
+
+7. **Dos mutantes de una línea:**
+   - api_dashboard.py:1453 `"senal": senal_por_decision.get(fila["decision_id"])` → `None` rompe `test_cortes_senal_en_items_con_transporte_roto_y_sin_escrituras` (`assert senal is not None`).
+   - jev_salud.py:277 → `ultima[0]` (sin la guarda `isinstance`) rompe `test_gasto_sin_venta_acepta_conexion_con_dict_row` (KeyError `0` con dict_row).
+
+**Veredicto global: 7/7 OK.**

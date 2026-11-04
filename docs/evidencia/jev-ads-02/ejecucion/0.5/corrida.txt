@@ -1,0 +1,15 @@
+contrato_normal=0fe322c8aa063997c65e101a8835e616cf00275dd022f0061e30ef227c7443e6 contrato_invertido=9a155982ddacdb4445fa2f3444a56a3fc6b814e9a23bef520da55753e6b62700 solicitud=952333c1-0cdd-53c4-8a88-aea65124c2d2
+elegibles=2434 si=1419 no=1015
+muestra=100 si=50 no=50 pendientes=100 saltadas=0 abiertas=0 fallos=0
+intenciones_hoy=0 tope=5000
+avance 10/100
+avance 20/100
+avance 30/100
+avance 40/100
+avance 50/100
+avance 60/100
+avance 70/100
+avance 80/100
+avance 90/100
+avance 100/100
+conteo abstencion=1 igual=99

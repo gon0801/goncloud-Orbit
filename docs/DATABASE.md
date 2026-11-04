@@ -1,0 +1,1004 @@
+# Orbit — Diseño de base de datos
+
+> Implementación: `migrations/0001_initial.sql` (PostgreSQL 16, una sola
+> transacción `BEGIN;…COMMIT;`). Este documento explica el diseño tabla por
+> tabla y su justificación; el detalle fino de cada constraint vive en los
+> `COMMENT ON` del propio SQL para que no se desincronicen.
+>
+> Principio rector: **la base rechaza, la aplicación no recuerda**. Cada
+> decisión mata un error concreto del sistema viejo (`goncloud-MCP-2`,
+> cancelado 2026-08-21). Las "Regla N" referencian las reglas de diseño
+> innegociables de `docs/CONTEXTO.md`; los umbrales del optimizador mandan en
+> `docs/traspaso/ADS_OPTIMIZER_V2_DESIGN.md`.
+
+## Convenciones transversales
+
+- **Dinero**: dominio `money_amount` (`NUMERIC(14,4)`) + columna `currency`
+  (ENUM `MXN`/`USD`) en toda tabla que guarde montos (regla 4). Prohibido
+  float. **Excepción de tipo, no de regla**: `decision.old_value`/`new_value`
+  son `NUMERIC` crudo (no `money_amount`) porque su significado depende del
+  `kind`; la moneda se les exige por CHECK para **todo kind que mueve dinero
+  —`bid`, `budget` y `harvest`—** y se prohíbe la moneda suelta en los que no
+  (`decision_moneda_solo_en_kinds_con_dinero`). Ninguna tabla con dinero sin
+  moneda; ningún agregado que mezcle
+  monedas (las vistas agrupan por plataforma —y por moneda donde aplica— y
+  convierten solo vía `fx_resolve`; `v_tacos` agrupa por plataforma y
+  convierte cada lado por fila a la moneda canónica MXN).
+- **Desviación declarada de la regla 4 ("fecha_fx")**: el esquema es más
+  fuerte que la letra de la regla — **nunca persiste el monto convertido**, así
+  que no hay fecha_fx que guardar; `fx_resolve` devuelve `rate_date` + `source`
+  en lectura, y eso ES la fecha_fx. Que nadie lo "corrija" después agregando
+  columnas convertidas.
+- **Append-only**: `ads_metric_observation`, `search_term_observation`,
+  `ledger_event`, `config_version`, `decision`, `fx_rate` y
+  `external_reconciliation` tienen trigger `prohibir_mutacion`
+  (`BEFORE UPDATE OR DELETE`). Corregir = insertar una fila nueva, jamás pisar
+  (regla 5: el UPSERT in-place invalidó todos los backtests del sistema viejo
+  sin dar síntoma).
+- **Excepciones mutables deliberadas** (todas documentadas en su tabla):
+  `ingest_run` y `optimizer_cycle` nacen abiertas y se cierran con UPDATE
+  acotado por columna; `decision_application` se pisa solo por readback;
+  `ad_entity_state` es cache del estado actual en Amazon; `ads_optimizer_goal`
+  es configuración viva; `ads_optimizer_lock`, `harvest_job`, son estado de
+  operación; `apply_quota_state` solo consume (`UPDATE (used)`); `sku_cost`
+  solo cierra vigencias (`UPDATE (valid_to)`); el resto del catálogo
+  (`product`, `listing`, `ad_entity`) admite correcciones controladas.
+  `sku_cost` es la única con **candado propio** en vez de simple ausencia de
+  GRANT: el trigger `sku_cost_solo_cierra_vigencia` permite cambiar `valid_to`
+  y **nada más**, y prohíbe el `DELETE` (borrar una vigencia publicada
+  reescribe el histórico de márgenes hacia atrás). **Cerrar es una transición
+  única `NULL → fecha`**: mover el corte de una vigencia ya cerrada
+  (`DATE → DATE`) o reabrirla (`DATE → NULL`) también reescribe el período en
+  que ese costo aplicó, y el `EXCLUDE` **no lo detecta** — encoger un rango
+  nunca solapa, y extenderlo tampoco si la fila no tiene sucesora. Precio
+  declarado: cerrar en la fecha equivocada se corrige con una migración, no
+  con un UPDATE.
+- **Toda FK tiene índice de apoyo**: PostgreSQL no crea uno por el
+  `REFERENCES`. Sin él, cada verificación de integridad al tocar la tabla
+  padre barre la hija entera y los JOIN que el propio esquema declara
+  (`v_margen_plataforma` cruza `ledger_event.product_id` contra `sku_cost`)
+  salen a secuencial. Los índices **parciales no cuentan** (la verificación de
+  integridad consulta la clave sin el filtro del `WHERE`): por eso
+  `ads_optimizer_goal` y `harvest_job` llevan índice propio además de sus
+  únicos parciales. Lo afirma `test_toda_fk_tiene_indice_de_apoyo` sobre el
+  AST.
+- **Dato faltante = fila ausente o NULL, nunca constante mágica** (regla 3):
+  `fx_resolve` devuelve cero filas si no hay tasa usable; `sku_cost` rechaza
+  costo 0; la config de harvest va completa o no va; `is_asin_like` no tiene
+  default; `margen_contribucion` es NULL si la cobertura de COGS no es 100%.
+- **Idempotencia de ingesta por schema**: índices únicos parciales sobre los
+  ids de fuente (`source_report_id`, `source_event_id`); re-correr un sync es
+  `INSERT … ON CONFLICT DO NOTHING`, no duplicar. Las filas absorbidas por el
+  dedupe **cuentan como `rows_skipped` con motivo en `ingest_run`** — un dedupe
+  que no deja rastro es un dato perdido disfrazado de eficiencia.
+- **CHECKs y zona horaria**: PostgreSQL **acepta** expresiones no inmutables en
+  un CHECK sin quejarse y luego las evalúa **según la TimeZone de cada sesión**
+  (los casts `timestamptz::date` / `date::timestamptz` son STABLE): el mismo
+  CHECK pasaría en una sesión y fallaría en otra. Por eso los invariantes que
+  comparan fecha con timestamp viven en **triggers** con UTC fijado en la
+  expresión (`decision_madurez_corte` usa `decided_at AT TIME ZONE 'UTC'`); la
+  app corre con TZ UTC como segunda capa.
+- **Moneda sellada por plataforma en métricas de ads**: trigger
+  `metric_moneda_de_plataforma` con mapa fijo (amazon_mx→MXN, amazon_us→USD,
+  meli→MXN). `ledger_event` está **exento a propósito**: guarda montos en
+  moneda ORIGINAL, que puede no ser la de la plataforma (ej. cargo en USD en
+  cuenta MX).
+- **Los invariantes sellados tienen test**: `tests/test_schema.py` los afirma
+  sobre el AST de la migración con pglast (corren siempre), más un test de
+  integración que aplica la migración en un Postgres temporal y prueba rechazos
+  reales (skip automático si no hay servidor local).
+
+## Tablas
+
+### Procedencia y catálogo
+
+**`ingest_run`** — Una corrida de ingesta = una fila; toda fila de hechos
+apunta a su corrida. `rows_skipped > 0` exige `skip_reason` (regla 3 y 10: en
+el viejo las filas saltadas por falta de FX solo dejaban un `log.error` y se
+perdían al salir de la ventana de reproceso). El cierre es UPDATE por columna
+(`finished_at`, `rows_written`, `rows_skipped`, `skip_reason`, `ok`), nada más.
+*Cómo se audita*: invariante diario — corridas con `finished_at` NULL viejas
+(corrida colgada) y corridas con `ok = false` o `rows_skipped > 0` sin
+reproceso posterior.
+
+**`product`** — Identidad canónica = `odoo_sku`, NO el `seller_sku` de
+plataforma (confundirlos duplicaba ventas 48% en un JOIN).
+*Cómo se audita*: `odoo_sku` UNIQUE; job de catálogo cruza contra Odoo.
+
+**`listing`** — Un producto tiene 2–4 listings (varios ASIN por SKU).
+Precio con moneda obligatoria por `CHECK` (ambos NULL o ambos presentes).
+*Cómo se audita*: UNIQUE `(platform, external_id)`; conteo de listings por
+producto fuera de rango esperado levanta alerta.
+
+**`sku_cost`** — Costo con vigencia temporal: el costo de una venta es el
+vigente *a su fecha* (en el viejo, cada cambio en Odoo corrompía el histórico
+hacia atrás). `EXCLUDE USING gist` prohíbe rangos solapados por producto
+(por eso `btree_gist`). `includes_tax` es `NOT NULL` **sin default**: obliga a
+contestar si el costo lleva IVA (pregunta sin respuesta un año = 8 puntos de
+margen en MX). Costo 0 rechazado: costo faltante = ausencia de fila (el 49%
+del COGS de MeLi era 0 y pasó tres auditorías como "limpio"). **La ingesta
+solo puede `UPDATE (valid_to)`**: cerrar vigencias sí; reescribir
+`cost_amount`/`valid_from` de una fila publicada, jamás — la corrección es una
+fila nueva con vigencia nueva (el EXCLUDE ya garantiza que no se solape).
+**Y no descansa en el permiso**: el trigger `sku_cost_solo_cierra_vigencia`
+(`BEFORE UPDATE OR DELETE`, más el de sentencia contra `TRUNCATE`) rechaza
+cualquier UPDATE que toque algo distinto de `valid_to`, admite en `valid_to`
+**sólo la transición `NULL → fecha` y una sola vez** (mover el corte o reabrir
+la vigencia reescribe el período en que el costo aplicó, y el `EXCLUDE` no lo
+ve porque encoger no solapa) y prohíbe el DELETE, aunque el rol tenga todos
+los permisos — la misma razón por la que las
+append-only tienen trigger y no sólo GRANT.
+*Cómo se audita*: el `EXCLUDE` garantiza un solo costo vigente por fecha;
+invariante — productos activos sin costo vigente hoy (lista explícita, no
+cero disfrazado).
+
+**`ad_entity`** — Campaña / ad group / keyword / product target / placement,
+con `external_id` de la API. Los search terms NO son entidades: tabla aparte.
+**Convención keywords**: `match_type` y `keyword_text` son columnas propias,
+exigidas NOT NULL solo cuando `kind='keyword'` y NULL en los demás kinds por
+CHECK — el duplicate-check del harvest contra la campaña manual destino las
+necesita sin parsear payloads (el `bid_cache` viejo no tenía `keyword_text`).
+**Identidad inmutable por permisos**: `app_ingest` solo puede
+`UPDATE (name, listing_id)` — `platform`, `kind`, `external_id`, `parent_id`,
+`match_type` y `keyword_text` se fijan en el INSERT (mutarlos tras insertar
+hechos rompería el sello de moneda a posteriori y dejaría goals apuntando a
+kinds que ya no son campaign); corregir una entidad = crear una nueva y
+desactivar la vieja.
+*Cómo se audita*: UNIQUE `(platform, kind, external_id)`; índice sobre
+`parent_id` para recorrer la jerarquía.
+
+### Tipo de cambio
+
+**`fx_rate`** — Append-only, PK `(rate_date, base, quote)` con AMBAS monedas
+(el viejo filtraba solo por quote y tomaba tasas invertidas al revés).
+Tasa > 0, par distinto.
+*Cómo se audita*: **`fx_resolve(fecha, base, quote, max_age=7)`** — devuelve la
+tasa exacta o la anterior más cercana dentro de 7 días (tope medido contra la
+cadencia real), declarando `source` (`exact`/`nearest_prior`). Sin tasa usable
+→ **cero filas, nunca una constante** (el fallback silencioso a 20.5 infló
+revenue +28,549 MXN). `rate_date` + `source` devueltos son la fecha_fx de la
+regla 4, resuelta en lectura. Invariante: huecos de FX > 5 días por par.
+
+### Métricas de ads (el corazón)
+
+**`ads_metric_observation`** — **Append-only bitemporal** (regla 5, la más
+importante): PK `(ad_entity_id, metric_date, observed_at)` — el día del hecho
+Y el día de la observación. Cada re-lectura de Amazon es una fila nueva; el
+clawback (Amazon retira costo hasta D+15) se registra sin pisar la historia,
+y el backtest honesto (`metrics_as_of`) es posible. Moneda obligatoria y
+**sellada por trigger contra la plataforma de la entidad** (amazon_us reporta
+ads en USD y ventas en MXN; cruzarlas era el error de 18.66× siempre a favor
+de "todo es rentabilísimo"). `revenue_same_sku <= ad_revenue` por CHECK (el
+halo es atribución, no causalidad). No-negativos incluye `impressions`.
+Idempotencia: índice único parcial `(ad_entity_id, metric_date,
+source_report_id)`. Nota: el invariante "`observed_at >= metric_date`" no vive
+en un CHECK (cast STABLE evaluado por sesión, ver Convenciones); lo valida la
+ingesta.
+*Cómo se audita*: trigger `prohibir_mutacion` + sello de moneda; guardas del
+ciclo leen de aquí (frescura: ventana termina en `max(metric_date) − 3d`;
+completitud ≥7 fechas por entidad).
+
+**Mercado Libre Ads reutiliza esta tabla (RESUMEN-ADS-01)** — sin migración y
+sin tabla paralela. Entidades `platform='meli'`, `kind='campaign'`
+(`external_id = campaign_id`), observaciones diarias con
+`metric_currency='MXN'`. Fuente: `meli_ads_campaigns_daily` del snapshot de
+contabilidad (grano campaña/día). `cost = spend`, `ad_revenue = ad_sales`;
+`orders` queda NULL porque el origen no lo publica. Ceros reales se conservan
+en cero y los faltantes en NULL. El origen no tiene revisión: `source_version`
+es el SHA-256 de la fila canónica (campaña, fecha, moneda y todas las
+métricas, sin el nombre) y
+`source_report_id = meli-ads|<campaign_id>|<fecha>|<version>|<as_of_epoch>`,
+donde el as-of es `max(updated_at)` del snapshot en UTC. Así el dedupe
+existente hace no-op el mismo snapshot y una corrección entra como
+observación nueva. **El `ingest_run_id` no es clave de dedupe.** Cada
+aceptación deja en `ingest_run.skip_reason` la huella `snap=<sha256>` del
+snapshot COMPLETO en JSON (campaña, fecha, moneda, todas las métricas y la
+versión/revisión de cada fila). Un reintento
+exacto se reconoce por as-of + huella contra esa aceptación anterior, **no**
+contra `v_metric_latest`: es un no-op completo aunque otra corrida haya
+cambiado después la observación vigente, y no agrega otra aceptación. Un
+snapshot con el mismo as-of y otra
+huella se rechaza completo con `ok=false`; uno atrasado que nunca fue aceptado
+también, aunque sus métricas coincidan. Hay **dos marcas globales
+independientes**, no por campaña: `as_of=<epoch>` para los snapshots reales y
+`futuro=<epoch>` para los aceptados como futuros. Cada corrida escribe solo la
+marca de su reloj; la otra sigue viva en su propia corrida, así que ambas
+pueden estar ausentes y una primera corrida exclusivamente futura no escribe
+`as_of=`. Una aceptación futura guarda `piso=<epoch>` con el piso real
+heredado, para que una base legada sin marca real no lo pierda. Un as-of
+aceptado como futuro queda en cuarentena permanente: el
+avance del reloj no lo reclasifica como real y no bloquea correcciones reales
+válidas (un snapshot real se compara solo contra el reloj real; uno futuro
+contra el futuro, y contra el real si ya quedó detrás). Las marcas se toman
+del máximo entre todas las corridas exitosas, bajo el candado; el id de
+`ingest_run` no ordena porque los runs nacen antes del candado. Una recopia
+real deduplicada **sí avanza el reloj real** aunque no inserte observaciones,
+y bloquea snapshots intermedios. Un snapshot vacío es un no-op exitoso y no
+crea aceptación temporal. Una aceptación anterior sin `snap=` reconoce su
+primer reintento exacto solo si coincide con toda la observación vigente; si
+hubo una corrección intermedia, se rechaza fail-closed. Un as-of hasta 24 h
+adelante se acepta pero
+no envenena una corrección real (los snapshots con as-of hasta 5 min adelante
+del reloj se clasifican como reales). `updated_at` es obligatorio en cada
+fila no vacía; fracciones de segundo, años fuera de 2000-2100 y offsets que
+desbordan `datetime` al normalizar a UTC se rechazan; un as-of más de 24 h
+adelante se rechaza. `campaign_id`, `campaign_name` y `revision` con NUL se
+rechazan en la frontera de `ads_source.py`. `observed_at` es un reloj lógico
+que nunca queda por
+detrás del máximo publicado. Las claves
+`(campaign_id, metric_date)` deben ser únicas; un snapshot sin PK que las
+repita se rechaza. El `ON CONFLICT` apunta solo al índice parcial
+`metric_dedupe_reporte`; una colisión de la PK
+`(ad_entity_id, metric_date, observed_at)` aborta la corrida. Dinero: se
+tolera solo ruido binario (< 1e-5), se rechaza precisión genuina de más de 4
+decimales, el rango se valida después de cuantizar, y un positivo que cuantiza
+a cero se rechaza; `impressions`/`clicks` respetan BIGINT y `orders` INTEGER.
+Un renombre actualiza `ad_entity.name` (el de la fecha más reciente) sin crear
+observaciones, y solo desde un snapshot estrictamente posterior a la marca
+aplicable; un reintento exacto no toca el catálogo. `observed_at` se toma de
+`clock_timestamp()` **después** de adquirir el advisory lock de MeLi: una
+corrida que esperó el candado no puede quedar con un `observed_at` anterior al
+de la que terminó mientras esperaba. Todo motivo persistido en
+`ingest_run.skip_reason` escapa NUL y caracteres de control antes de llegar a
+PostgreSQL; una entrada con NUL deja `ok=false`, `finished_at` con valor, cero
+entidades/observaciones y un motivo legible. MeLi **no** hereda la madurez D-8
+de Amazon: `v_metric_mature` sigue siendo D-15 y el resumen multicanal deberá
+declarar la madurez de MeLi como desconocida en RESUMEN-ADS-02.
+
+
+**`search_term_observation`** — Append-only igual que la anterior pero para
+search terms: PK `(platform, ad_entity_id, search_term, metric_date,
+observed_at)`, dedupe por `source_report_id`, sello de moneda por trigger.
+**`is_asin_like` es NOT NULL SIN DEFAULT**: la ingesta está obligada a
+clasificar cada término — un ASIN propio sin clasificar no puede entrar (los
+ASIN-like siempre se saltan en negativos, regla sealed own-ASIN; un default
+`false` convertiría "no lo revisé" en "no es ASIN", el dato faltante
+disfrazado que prohíbe la regla 3). Alimenta NEGATIVE_EXACT y HARVEST.
+*Cómo se audita*: trigger `prohibir_mutacion`; las mismas guardas de
+frescura/completitud del ciclo.
+
+### Ledger
+
+**`ledger_event`** — Ventas, fees, refunds, retenciones. Monto **siempre en
+moneda original** (la conversión es vista; el viejo guardaba todo convertido y
+77 ventas quedaron irreversibles con tasa inventada). `order_id` NULLABLE a
+propósito: el ISR de Amazon nunca lo trae y llega en bultos quincenales (en
+MeLi al revés: 950/950 con order_id) — por eso el ISR se caía de todo margen.
+**`quantity` INTEGER**: una venta con `product_id` exige `quantity > 0` por
+CHECK (sin unidades no hay COGS). **Convención de signos por CHECK**:
+`sale > 0`; `fee`/`refund`/`withholding` `<= 0` — así `SUM(amount)` funciona
+sin filtros y ningún reporte inventa su convención. **Idempotencia**: tres
+únicos parciales que cubren TODO el espacio `(source_event_id, order_id,
+ninguno)`: `ledger_dedupe_source` por `source_event_id`; `ledger_dedupe_sin_orden`
+para cargos sin id de fuente ni orden (el ISR); `ledger_dedupe_con_orden` para
+cargos CON `order_id` pero sin id de fuente (un re-sync de fees con orden) —
+sin él, esa fila no caía en ninguno de los otros dos y se duplicaba en
+silencio. Los dos últimos usan la clave natural `(platform, kind,
+[fee_type | order_id,] event_date, amount, amount_currency)` con
+**`NULLS NOT DISTINCT`** — la moneda va en la clave (sin ella 100 USD y 100
+MXN colisionan y un cargo se pierde) y sin NULLS NOT DISTINCT dos cargos con
+`fee_type` NULL nunca chocarían.
+*Cómo se audita*: trigger `prohibir_mutacion`; conflictos de dedupe contados
+en `ingest_run.rows_skipped`; `v_margen_plataforma` expone el margen con y sin
+cargos no atribuibles; `external_reconciliation` es el chequeo final.
+
+### Configuración y decisiones
+
+**`config_version`** — Snapshot inmutable (JSONB) de la config completa; **la
+config "viva" vigente es la fila más reciente** (segundo peldaño de la cascada
+de target ACoS: `ads_target_acos_pct_<platform>`). Cada decisión apunta a la
+versión que regía. La inserta `app_admin` (config humana, escalera
+off→shadow→live), no los motores. Claves de settings del optimizador (resuelve
+`app/optimizer/goals.py`, task 2.4): `ads_optimizer_mode` (escalera global,
+valores `off|shadow|live`, ausente → `off` fail-closed),
+`ads_target_acos_pct_<platform>` (target por plataforma, ej
+`ads_target_acos_pct_amazon_us`; la siembra humana es 4.3) y
+`ads_confianza_recorte_<platform>` / `ads_confianza_subida_<platform>`
+(A3: lo conservador del motor, en [0.50, 0.99]; ausentes → defaults
+0.80/0.70; fuera de rango = config corrupta, fail-closed) y
+`ads_bid_politica_<platform>` (BIDS 02 M.3: `niveles_v3` = el vivo
+decide con niveles_v3, ausente = el motor no mueve bids (solo PAUSE,
+negative y harvest); cualquier otro valor presente = config corrupta,
+fail-closed; solo-nueva, sin migraciones).
+**`settings` JAMÁS contiene credenciales**: `app_read` tiene SELECT aquí.
+Contrato fail-closed completo: `ads_optimizer_mode` ausente, NULL o inválida → `off`
+(una config corrupta jamás habilita `live`); si el modo efectivo es `live` sin
+módulo apply (PR1) degrada a `shadow` + nota. Cada target ACoS (`goal`, setting,
+cache) debe ser numérico, finito y > 0 — un peldaño presente pero corrupto
+revienta con `ValueError`, jamás cae al default 55 en silencio (regla 3).
+*Cómo se audita*: append-only por trigger; JOIN desde `decision`.
+
+**`optimizer_cycle`** — Envelope de ciclo: una corrida = una fila (`motor`,
+`mode`, `platform`, contadores, `status`, `notes`). Nace en `running`; mutable
+solo para cerrarse, con UPDATE acotado por columna. `status` sellado por
+CHECK: `running` / `done` / `degraded` / `skipped` / `failed`. Un ciclo que no
+decidió nada también es un resultado auditable (las guardas dejan su motivo en
+`notes`). **Orbit NO tiene tabla `system_alerts`** (era del repo viejo): el
+sustituto por ahora es `status='degraded'` + `notes`, y el digest diario de la
+Fase 3.
+*Cómo se audita*: invariante — ciclos sin cerrar viejos; `decisions_count`
+cuadra contra `decision` por `cycle_id`.
+
+**`decision`** — Append-only. Reemplaza al `ads_optimizer_audit` del diseño
+v2 (auditar no es tabla aparte: ES la tabla). `data_observed_at <= decided_at`
+por CHECK (comparación timestamptz↔timestamptz, inmutable: decidir con dato
+posterior es lookahead, imposible por schema). **`window_start`/`window_end`
+(DATE, NOT NULL)**: la ventana de métricas con que se decidió — sin ella la
+regla de madurez no se puede cumplir ni auditar. **`search_term` TEXT**:
+identidad del término para `negative`/`harvest` (NOT NULL por CHECK en esos
+kinds; NULL en `bid`/`budget`/`pause`/`resume`). **Unicidad por ciclo, hecha
+cumplir por la base**: un único parcial por `(cycle_id, ad_entity_id)` para
+kinds de entidad, y otro por `(cycle_id, ad_entity_id, search_term)` para
+kinds de término — la misma entidad puede generar varios negative/harvest en
+un ciclo (uno por término), pero nunca dos sobre el mismo término.
+**Madurez para cortar (regla 6) por trigger, no CHECK**:
+`decision_madurez_corte` (`BEFORE INSERT`) exige para `pause`, `negative` **y
+`harvest`** (su primera fase es crear el negativo en el origen: un corte) que
+`window_end <= decided_at − 10 días`, con **`decided_at AT TIME ZONE 'UTC'`**
+fijado en la expresión (curva medida de falsos cortes: día 0 = 8.7%, día 10 =
+0.00%; pausar es irreversible en la práctica porque la entidad pausada deja de
+generar la señal que la revertiría). No es CHECK porque PostgreSQL acepta
+expresiones STABLE en CHECKs y las evalúa por sesión; el trigger fija UTC en
+la expresión misma (la app con TZ UTC es segunda capa).
+**Moneda por kind (regla 4)**: `old_value`/`new_value` son `NUMERIC` crudo
+(su significado depende del `kind`), así que el candado de moneda es explícito
+— `decision_valor_con_moneda` exige `value_currency` para `bid`, `budget` **y
+`harvest`** (su `new_value` es el bid inicial de la keyword harvesteada,
+`goal.harvest_default_bid`), y `decision_moneda_solo_en_kinds_con_dinero`
+prohíbe la moneda suelta en los kinds que no mueven dinero (moneda sin importe
+= dato inventado, regla 3).
+*Cómo se audita*: trigger append-only + trigger de madurez + únicos parciales;
+índices `(ad_entity_id, decided_at DESC)`, `(cycle_id)` y
+`(config_version_id)` para cooldown, reconstrucción de ciclo e integridad; cooldown 7d solo cuenta applies verificados
+(`decision_application.verify_ok IS TRUE`).
+
+**`decision_application`** — Separación decidir/aplicar (la regla más cara del
+viejo: `applied=1` no significaba que Amazon lo aceptara). Patrón:
+INSERT+COMMIT → HTTP → readback → UPDATE. La **terna
+`confirmed_at` + `platform_ack` + `verify_ok` se escribe junta en el
+readback**, y los CHECKs lo hacen cumplir: confirmado sin ack no existe,
+confirmado sin veredicto tampoco; `error` y `confirmed_at` excluyentes.
+**`verify_ok` BOOLEAN**: NULL = en vuelo, TRUE = la plataforma tiene lo
+pedido, FALSE = divergencia (se reintenta). El cooldown 7d consulta
+`verify_ok` directamente — **nunca parsea el ack**: el ack es evidencia, no
+señal de control. Es la excepción mutable deliberada: el readback pisa el
+intento, nunca la decisión.
+*Cómo se audita*: invariante diario — intentos en vuelo viejos; divergencias
+(`verify_ok = false`) no enfrían el cooldown.
+
+**`external_reconciliation`** — Regla 10: conciliar contra la fuente externa
+(reportes de liquidación de Amazon), no contra la propia consistencia interna.
+Totales externo e interno por período/plataforma/moneda, `difference`
+generada. **Append-only con historia** (trigger `prohibir_mutacion`), sin
+UNIQUE por período a propósito: re-conciliar un período corregido es una fila
+nueva — la verificación anterior es historia que no se pisa, y la diferencia
+que desaparece entre dos corridas es la prueba de que la corrección funcionó.
+La vigente por período/fuente es la de mayor `checked_at` (índice dedicado).
+La escribe `app_ingest` (entra por el pipeline de conciliación).
+*Cómo se audita*: diferencia ≠ 0 fuera de tolerancia es alerta, no se
+"ajusta"; la serie histórica por período muestra si las correcciones convergen.
+
+### Optimizador (spec: ADS_OPTIMIZER_V2_DESIGN.md)
+
+**`ads_optimizer_goal`** — Goal por campaña o por plataforma (`scope`, con
+CHECK de coherencia y únicos parciales: un goal por campaña, uno por
+plataforma). Trigger `goal_scope_campana_real` (`BEFORE INSERT/UPDATE`):
+un goal de campaña tiene que apuntar a una entidad que ES `kind='campaign'`
+(la FK sola no lo garantiza). `target_acos_pct`, `bid_floor`/`bid_ceiling`
+(NOT NULL sin DEFAULT desde 0003; defaults solo en `DEFAULTS_POR_MONEDA`
+de app/optimizer/goals.py, por moneda; `floor <= ceiling`), config de harvest
+(`harvest_campaign_id`, `harvest_ad_group_id`, `harvest_default_bid` — cuya
+moneda es `bid_currency` del mismo goal) **nullable con CHECK de
+completitud**: falta config → la decisión HARVEST se salta con motivo, nunca
+placeholder. `enabled` y `mode` (`off`/`shadow`/`live`, default `off`): la
+elegibilidad dura del ciclo. **Precedencia campaña > plataforma resuelta en la
+app**. Mutable a propósito: lo que una decisión usó queda congelado en
+`decision.inputs` + `config_version`. **La escribe `app_admin`** (el endpoint
+`/goals` corre como `app_admin`), no los motores: la escalera
+off→shadow→live es decisión humana.
+*Cómo se audita*: los cambios de goal se reconstruyen desde
+`config_version`/`decision.inputs`; invariante — goals `live` sin
+floor/ceiling razonables.
+
+**`ads_optimizer_lock`** — Claim de ciclo: `job_key` PK, `owner`,
+`claimed_at`, `heartbeat_at`, `ttl_seconds` (default 1800 = 30 min). Cron y
+`/run` comparten `job_key`; la expiración por TTL la evalúa la app al tomar el
+claim.
+*Cómo se audita*: un lock con heartbeat vencido y ciclo sin cerrar = ciclo
+muerto, reclamable; queda rastro en `optimizer_cycle`.
+
+**`ad_entity_state`** — Cache MUTABLE del estado actual en Amazon (bid,
+moneda, status, targeting_type, `acos_target` publicado, `synced_at`).
+Reemplaza `bid_cache` + `ad_campaigns` del viejo. Excepción deliberada al
+append-only: es estado, no historia (la historia de lo que el sistema creyó
+vive en `decision.inputs`).
+*Cómo se audita*: guarda de frescura del ciclo — plataforma saltada si
+`synced_at > 48h` (ciclo `degraded` + `notes`); bid con moneda obligatoria por
+CHECK.
+
+**`harvest_job`** — Tracking de harvest por fases con orden sellado:
+**`pending` → `negative_created` → `exact_created` → `hermanas_negadas` →
+`done` / `failed`** (F2, migración 0038; `exact_created → done` se conserva
+para jobs viejos y solo pasan por `hermanas_negadas` los harvests de grupo
+—eso lo impone la app en A.3, no la base). La
+fila se registra en `pending` **antes del primer POST** — y **la base lo
+exige**: el trigger `harvest_job_decision_coherente` rechaza todo INSERT que
+no nazca en `pending` (fail-closed ante crash: un crash no deja ventana de
+duplicación porque el único en-vuelo ya la bloquea; las fases posteriores solo
+se alcanzan por UPDATE). **`decision_id` NOT
+NULL** con el mismo trigger: el job debe corresponder
+a una decisión `kind='harvest'` sobre la misma (entidad, término, plataforma
+vía `ad_entity`) — un typo en la app no puede crear un job huérfano que la
+reconciliación perseguiría contra Amazon en vano. **Único parcial
+`(platform, ad_entity_id, search_term) WHERE fase IN ('pending',
+'negative_created','exact_created','hermanas_negadas')` (F2: la 0038 agrega
+la fase nueva)**: un solo job en vuelo por término —
+protege el POST no idempotente; los jobs cerrados no bloquean. La
+**reconciliación la hace la app al inicio del ciclo siguiente** contra
+`/sp/keywords/list` (regla 10).
+*Cómo se audita*: invariante — jobs en fase intermedia viejos (ni done ni
+failed) entran a reconciliación.
+
+**`apply_quota_state`** — Caps diarios por motor: PK `(motor, quota_date)`,
+`used`/`cap`. Live automático CON TOPES; el consumo es atómico en la app
+(`INSERT … ON CONFLICT … DO UPDATE … WHERE used < cap`). El **CHECK
+`quota_no_excedida` (`used <= cap`)** es un backstop que hace cumplir que el
+**orden importe en la app**: consumir SIEMPRE con `WHERE used < cap`, nunca un
+UPDATE ciego. **El motor solo puede `UPDATE (used)`: el cap no se puede subir
+DESPUÉS de creada la fila.** "`used` nunca decrece" NO es enforceable por
+CHECK (compararía contra el valor viejo del UPDATE): queda cubierto por el
+patrón de consumo atómico + la auditoría de `decision` (cada apply tiene su
+fila append-only). La verdad completa, declarada: la fila del día la inserta
+el propio motor copiando el cap desde `config_version` (que escribe
+`app_admin`), y `app_admin` también tiene `INSERT` para fijar caps manualmente
+— la integridad del valor inicial del cap descansa en la config administrada
+por humanos, no en un permiso. **La reserva para PAUSE la maneja la app** (un
+cap lleno nunca deja una hemorragia sin pausar).
+*Cómo se audita*: caps bajos el día 1 del cutover; `used > cap` es imposible
+si la app consume bien, y su sola aparición es señal de bug grave.
+
+### Módulo apply (ORBIT 04 — migración 0002, AÚN NO APLICADA)
+
+> Las tablas y sellos siguientes viven en `migrations/0002_apply.sql`
+> (tarea 1.2 de `plans/orbit-04.md`); **4.1 la aplica en goncloud**. Hasta
+> entonces esta sección es diseño sellado, no estado del schema vivo. El
+> contrato fino (máquinas de estado, matriz de reconciliación, quota,
+> cutover) está en `docs/APPLY.md`.
+
+**`apply_queue`** — Cola de cortes (pause/negative/harvest) del módulo
+apply; los bids NO van a la cola (aplican en su ciclo). Máquina de estados
+sellada por trigger: `pending_veto → vetoed|released`;
+`released → vetoed|applying`; `applying → applied|failed`;
+`pending_veto/released → discarded`; terminales `vetoed/applied/failed/
+discarded` (no existe `applying → discarded`). **Nace `pending_veto` por
+trigger de INSERT** (un INSERT directo en `released` salta la ventana de
+veto y revienta); transiciones por trigger de UPDATE, atómicas en la app
+(`UPDATE … WHERE estado=…`). **Clave de efecto `(platform, ad_entity_id,
+familia, search_term)`** con familia `entity_cut` (pause, término NULL) /
+`term_cut` (negative Y harvest — con `kind` en la clave un veto de negative
+se eludía proponiendo harvest del mismo término; `kind` queda como dato
+auditable). **Único parcial en-vuelo sobre no terminales con
+`NULLS NOT DISTINCT`** (sin él, dos pause de la misma entidad no
+chocarían). **`vetoed` exige admin**: la transición a `vetoed` valida
+`current_user` por trigger — el rol del motor no puede vetar con el UPDATE
+que usa para el claim. Ventana 48h (`vence_el`, el reloj no se detiene por
+infra), veto durable 30d editable al vetar (`vetoed_at`/`vetoed_by`),
+shadow-mark (`modo='shadow'`: una fila shadow jamás se libera — candado del
+trigger de transiciones: su perímetro es `vetoed`|`discarded`),
+`request_payload` con lo que se va a mandar. La encola la APP (necesita el
+modo efectivo por decisión), con invariante testeado: toda decisión de
+corte del ciclo tiene fila en cola o skip registrado.
+*Cómo se audita*: invariante — cortes del ciclo sin fila ni skip; filas no
+terminales con `vence_el` vencido (el liberador las toma FIFO); vetos
+vigentes por clave de efecto (los consulta el skip del ciclo).
+
+**`ads_campaign_proposal`** (0042) — Propuestas para pausa manual de una
+campaña con riesgo económico. El dinero viene solo de `spCampaigns` en
+`ads_metric_observation`, colapsado por fecha con `observed_at <= decided_at`;
+la ventana madura usa los mismos límites de cortes. Guarda costo, venta,
+moneda, target efectivo y procedencia, exceso, ACoS, estado de campaña y
+evidencia congelada. Único parcial `(campaign_id, risk_type)` para `open`;
+una observación posterior sin riesgo cierra el episodio y habilita otro si
+el riesgo reaparece. Un descarte o estado `PAUSED` observado no reaparece hasta
+una ventana sin riesgo. `GET /api/ads-optimizer/campaign-proposals` expone el
+registro. `paused_observed` refleja el cache sincronizado; el cierre C.5
+por readback `PAUSED` (misma campana tras propuesta open) escribe
+`paused_external` con snapshot + fecha en `close_evidence.cierre`, sin autor
+ni causalidad, y refresca `campaign_status`/`status_synced_at` de la fila.
+`profile_id` se resuelve del ultimo `written` del reporte `campanas` por
+plataforma (`ads_report_result`, 0040; NULL sin fuente, nunca inventado).
+El descarte humano es `POST /api/ads-optimizer/propuestas-campana/<id>/descartar`
+(token `x-orbit-token`, DSN admin): 0043 da a `app_admin` UPDATE solo en las
+5 columnas del cierre (`status`, `closed_at`, `last_seen_at`, `close_reason`,
+`close_evidence`), sin INSERT ni columnas de dinero. El aviso Telegram de
+propuesta nueva usa el contrato `aviso_estado` pending/sent
+(`aviso_intentos`, `aviso_enviado_at`): solo se marca sent tras HTTP 2xx y
+el fallo queda pending para reintento sin duplicar. No hay FK ni camino
+de escritura hacia `apply_queue` o Amazon Ads.
+
+**`decision_sin_aplicar`** (0044, ADS D.1; CHECK re-creado en 0045,
+D.1b) — El desenlace "no aplicado" deja de ser invisible: una fila por
+`(decision_id, cycle_id)` con el motivo de un **vocabulario CERRADO**,
+espejo de `app.apply.MOTIVOS_SIN_APLICAR`: `modo_no_live`, `ya_aplicada`
+(en el vocabulario pero **jamás escrita**: su desenlace ya es
+`decision_application`), `bid_incompleto`, `entidad_no_decisora`,
+`tope_intentos`, `fuera_de_cap`, `fallo_http`, `sin_quota`,
+`espera_target`, `sin_respuesta`, `perdida` y `choque_clave` (D.1b: la
+decisión de corte live cuyo INSERT chocó la clave de efecto en vuelo —
+no deja fila en la cola y, sin registro, `v_decision_huerfana` la
+listaría como `huerfana`; el registro usa el modo del **envelope**, fuera
+del savepoint por fila). **Append-only por GRANTs**: nadie de la app
+tiene UPDATE/DELETE; idempotente por PK (un re-run del mismo ciclo
+ejecutor no duplica; `cycle_id` es el ciclo EJECUTOR, no el decisor). El
+CHECK de 0044 nació sin nombre explícito (columna inline) y Postgres lo
+nombró `decision_sin_aplicar_motivo_check` (patrón
+`<tabla>_<columna>_check`); 0045 lo localiza igual en `pg_constraint`
+(aborta si no hay exactamente uno) y lo re-crea con ese nombre y la lista
+ampliada en el mismo orden. `perdida` sigue en el vocabulario y en el CHECK por las filas
+históricas, pero `libera_vencidos` ya no la escribe: el claim perdido
+contra un veto queda como contador del resumen y su desenlace es la fila
+`vetoed` de la cola.
+*Cómo se audita*: `SELECT * FROM decision_sin_aplicar WHERE cycle_id = …`
+(el no-apply del ciclo, motivo a motivo); la tabla alimenta la
+exclusión de `v_decision_huerfana`.
+
+**`v_decision_huerfana`** (0044) — Decisiones aplicables (kinds espejo de
+`app.apply.KINDS_QUOTA`: bid/pause/negative/harvest) de ciclos live **ya
+cerrados** sin NINGÚN desenlace (ni `decision_application`, ni fila en
+`decision_sin_aplicar`, ni fila terminal en la cola). `origen` con TRES
+valores por precedencia: `sin_registro` (ciclo cerrado antes de la
+migración 0044: hueco histórico conocido), `en_cola` (fila live NO
+terminal en `pending_veto`/`released`/`applying`: la decisión sigue en
+vuelo, no es un hueco) y `huerfana` (posterior a 0044: debió quedar
+registrada — auditar una a una). Una decisión con CUALQUIER fila
+`modo='shadow'` en la cola queda fuera de la vista: su desenlace es la
+práctica de veto del dueño (sellado 6), no un apply que debió
+registrarse.
+*Cómo se audita*: `SELECT * FROM v_decision_huerfana WHERE origen =
+'huerfana'` — cada fila es un hueco de auditoría del ciclo live.
+
+**`target_acos_ciclo`** (0046, ADS C.2a) — El target congelado por ciclo:
+una fila por ciclo y hoja con el `target_acos_pct` y la `procedencia`
+EXACTOS que usó la cascada (0046 los captura donde se calcula), incluidas
+las hojas que luego salen por no-op o cooldown; las que no llegaron al
+cálculo —gates, veto, inerte, sin_target— no tienen fila, igual que los
+ad groups (no es veto ni inerte). PK `(cycle_id, ad_entity_id)`;
+`target_acos_pct`
+NUMERIC sin escala (conserva el valor exacto consumido, sin redondeo de
+schema); CHECK nombrado `target_acos_ciclo_procedencia_check`, espejo
+sellado de `app.optimizer.goals.PELDANOS_CASCADA` (mismo orden).
+**Append-only por GRANTs**: INSERT solo `app_decide` (nadie tiene
+UPDATE/DELETE); escrita en TX3 del ciclo, junto a `decision`, con
+`ON CONFLICT DO NOTHING`. El replay económico la lee como fuente PRIMARIA
+(jamás el goal vigente); el respaldo en `decision.inputs` aplica SOLO a
+ciclos sin filas (anteriores a 0046).
+*Cómo se audita*: `SELECT * FROM target_acos_ciclo WHERE cycle_id = …`
+(el target y su procedencia que el ciclo usó, hoja por hoja).
+
+**`familia`** (0047, A2) — Árbol de familias por plataforma en DOS niveles
+como máximo (familia → subfamilia): `padre_id` NULL es primer nivel. El
+tope vive en el trigger `familia_dos_niveles` (un CHECK no ve otras
+filas), con `SELECT … FOR UPDATE` sobre el padre contra la carrera
+T1-hija/T2-reparenta y rechazo a mover `platform` con hijas o etiquetas
+en otra plataforma. `slug` único por plataforma con la forma
+`^[a-z0-9_]+$` de 0018: ES el `tipo_producto` de la fábrica. Escritura
+humana: INSERT/UPDATE solo `app_admin` (vía `app/familias.py`, único
+escritor); lectura `app_read`, `app_decide` (el motor la lee desde A4) y
+`app_admin`.
+*Cómo se audita*: `SELECT * FROM familia WHERE platform = … ORDER BY
+nombre` (el árbol que ve /familias).
+
+**`producto_familia`** (0047, A2) — Etiqueta de familia: UN producto tiene
+UNA familia por plataforma (`UNIQUE (product_id, platform)`), de primer
+nivel o subfamilia, con `asignada_at` y `asignada_por` (hoy siempre
+`dueno`, único escritor vía /familias). Upsert idempotente; el trigger
+`producto_familia_misma_plataforma` exige etiqueta y familia de la misma
+plataforma. Mismos GRANTs que `familia`.
+*Cómo se audita*: `SELECT product_id, familia_id FROM producto_familia
+WHERE platform = …` (una fila por producto etiquetado).
+
+**`apply_attempt`** — Ledger de intentos de TODA mutación (bid, corte,
+reversa, probe): `decision_id` (NULL solo para probes), `seq` (tope de
+reintentos = 3, "no existe 4º intento" es un COUNT), `tipo`
+(normal/reversa/probe), `request_payload` EXACTO (en harvest, el bid
+efectivo a escribir), `quota_cobrada`, `started_at`. **Nace ANTES del
+HTTP** (la intención durable) y el ack/resultado/`finished_at` se sellan
+al volver **UNA vez**: trigger acotado por columnas patrón
+`sku_cost_solo_cierra_vigencia` — solo la transición NULL→valor de esas
+columnas pasa; todo otro UPDATE/DELETE revienta. **Excepción deliberada**
+declarada en los invariantes de `tests/test_schema.py` (mismo trato que
+`decision_application` en 0001).
+*Cómo se audita*: invariante — intentos sin sello viejos entran a
+reconciliación; COUNT por decisión ≤ 3.
+
+**`reactivacion_manual`** — Detección de reactivación manual del dueño:
+`ad_entity_id` PK, `detectada_en`. La escribe el APLICADOR (no el sync): el
+re-check por GET fresco del apply detecta "pause verificado propio + estado
+vivo ENABLED" y marca el instante si no existe (INSERT idempotente por PK).
+**Gracia de 7d desde `detectada_en`**: durante la gracia el motor no vuelve
+a cortar esa entidad. Solo el caso detectable (entidades nunca tocadas por
+el motor quedan invisibles — residual declarado del header). Grants
+INSERT/SELECT solo a `app_decide`. `structure.py` no se toca.
+*Cómo se audita*: invariante — cortes a entidades dentro de su gracia.
+
+**Sellos de `apply_quota_state` (0002)** — La fila del día `(motor,
+quota_date)` **solo nace desde `config_version` vigente** (trigger: copia
+el cap de la clave `ads_apply_cap_<platform>_<kind>` mapeada 1:1 al
+`motor` `ads_optimizer:<platform>:<kind>`, vocabulario cerrado
+bid/pause/negative/harvest); **sin clave no nace fila → cero applies**
+(fail-closed, visible en Salud — no se disfraza de rampa sana). **`used`
+creciente** por trigger (en 0001 no era enforceable). **`quota_date` =
+día UTC de la base** (`(now() AT TIME ZONE 'UTC')::date` en la expresión —
+`CURRENT_DATE` se evalúa por sesión y duplicaba el cap con TZ distinta).
+Unidad = operación lógica (harvest = 1 aunque sean 2 HTTPs); 429 reintenta
+sin recobrar; reversas exentas; cap agotado: cortes FIFO esperan (siguen
+vetables), bids se descartan con conteo en el digest.
+*Cómo se audita*: fila del día sin clave vigente = fail-closed activo
+(alerta, no rampa); `used > cap` imposible por CHECK + trigger.
+
+**`decision_application.applied_cycle_id` (0002)** — Columna nueva al
+RESUMEN por decisión: el ciclo (modo live) que **EJECUTÓ** el apply, sellado
+**AL CONFIRMAR** (jamás pre-HTTP: un crash no cuenta como applied). El
+cooldown de `goals.py` pasa a mirarla (test punta a punta del caso
+decisión-shadow-aplicada-en-live); `applied_count` cuadra por ciclo
+ejecutor. Se agrega al GRANT de columnas de UPDATE de `app_decide`.
+
+**GRANTs nuevos (0002)** — Positivos y completos (sellado 24): USAGE de
+las secuencias IDENTITY nuevas; UPDATE acotado de `ad_entity_state` a
+`app_decide` (current_bid/status/synced_at — el cache se actualiza CON el
+readback, con lo LEÍDO); INSERT/SELECT de `reactivacion_manual` a
+`app_decide`; `applied_cycle_id` en el GRANT de columnas de
+`decision_application`; INSERT/UPDATE acotados de `apply_queue` y
+INSERT + sello de `apply_attempt` a `app_decide`; la transición a `vetoed`
+solo `app_admin` (el trigger valida `current_user`). `tests/test_schema.py`
+amplía su parser a 0002: los invariantes transversales (FK con índice de
+apoyo, sin float para dinero, CHECKs sin TimeZone de sesión) cubren las
+tablas nuevas; los candados propios de 0002 (máquina de estados, perímetro
+shadow, sello del ledger, sellos de quota, GRANTs por columna) tienen sus
+tests dedicados en `tests/test_schema.py` (estáticos) y
+`tests/test_apply_schema.py` (integración).
+
+## Vistas y funciones (lo que la app consume; nadie lee tablas crudas)
+
+Regímenes de lectura, explícitos (reemplazan al "todo lee lo maduro"):
+
+- **Bids** leen **`v_metric_latest`** (última observación por entidad/fecha)
+  con la guarda de frescura del spec: la ventana termina en
+  `max(metric_date) − 3d`.
+- **Cortes** (`pause`/`negative`/`harvest`) exigen madurez **D−10**: la base lo
+  rechaza por trigger si `window_end` es más reciente.
+- **`v_metric_mature`** (D−15, costo cerrado) es para **análisis económico y
+  TACoS**, no para el ciclo: el día en curso tiene ~20% del costo y ~12% del
+  revenue finales, y el costo madura hacia abajo por clawback — un ACoS de
+  día 1 sale ~1.5× peor que el real. El corte usa **UTC fijado en la
+  expresión** (`(now() AT TIME ZONE 'UTC')::date − 15`), no `CURRENT_DATE`
+  (que se evaluaría según la TimeZone de cada sesión — la misma defensa que
+  el trigger `decision_madurez_corte`).
+- **`metrics_as_of(ts)`** — lo que el sistema PODÍA VER en ese instante:
+  backtest honesto (sin esto todo backtest se auto-engaña y sale espectacular).
+- **`v_margen_plataforma`** — **margen de contribución** por **plataforma Y
+  moneda**: `venta`, `cargos_con_orden`, `cargos_sin_orden`, **`cogs_conocido`**
+  (costo vigente a `event_date` × `quantity`, solo ventas con producto y costo
+  vigente, convertido a la moneda de la venta con la tasa de ese día; sin tasa
+  utilizable ese costo NO entra y baja la cobertura), **`cobertura_cogs_pct`**
+  (ventas con costo conocido / ventas totales) y **`margen_contribucion`**,
+  calculado **SOLO con cobertura 100% — NULL en caso contrario, con la
+  cobertura visible al lado**. `venta` es la **VENTA TOTAL**: todas las
+  ventas, con o sin `order_id`, sin supuesto de atribución — la separación
+  atribuible/no atribuible se aplica a los **cargos**
+  (`cargos_con_orden`/`cargos_sin_orden`), no a la venta. La idea: nunca un
+  margen que esconde huecos — el error histórico es el 49% del COGS de MeLi
+  en 0 disfrazado de dato que pasó tres auditorías como "limpio". FULL OUTER
+  JOIN entre los tres agregados: una plataforma/moneda con solo cargos sin
+  orden (o solo ventas) también aparece. **Sin dimensión temporal a
+  propósito**: es historia completa; el análisis por período filtra
+  `event_date` en la query contra `ledger_event`, no contra esta vista.
+  OJO: `cargos_sin_orden = 0` puede significar **"no llegó"** (el ISR no se
+  ingirió), no "no hubo" — sin fuente externa la ausencia es indistinguible
+  del cero; lo atrapa `external_reconciliation`, no esta vista.
+- **`v_tacos`** — **por plataforma** (no por moneda: amazon_us gasta en USD
+  pero vende en MXN, y amazon_mx + meli comparten MXN): gasto desde
+  `ads_metric_observation` vía `ad_entity.platform` **al grano
+  keyword + product_target desde 0005** (las métricas guardan el mismo costo
+  también en la fila `campaign`; sumar ambos granos duplicaba el gasto ~2x —
+  bug confirmado en vivo 2026-08-31), venta desde `ledger_event`
+  por plataforma. **Ventanas simétricas**: ambos lados cortan en **D−15 UTC**
+  (el gasto vía `v_metric_mature`; la venta con la misma expresión
+  `(now() AT TIME ZONE 'UTC')::date − 15`) — antes la venta tomaba todo el
+  mes y el mes en curso salía con TACoS sistemáticamente bajo (optimista:
+  "todo se ve rentable"). **Sin supuesto de moneda única**: cada fila se
+  convierte a la canónica **MXN** con `fx_resolve` y el JOIN es por
+  `(platform, mes)` sobre montos ya en MXN — si un mes tuviera dos monedas de
+  venta, ambas se convierten y se SUMAN (el gasto no se repite por fila).
+  **Fail-loud ante huecos de FX**: la fila sin tasa utilizable NO entra al
+  agregado y se cuenta en `filas_gasto_sin_tasa` / `filas_venta_sin_tasa`;
+  con una sola fila sin convertir (o si falta cualquier lado entero),
+  `tacos_pct` es **NULL — nunca un agregado parcial disfrazado de completo**.
+  **Y lo mismo ante el costo ausente**: `SUM` tampoco suma los NULL, así que
+  una fila de métrica con `cost` NULL dejaba el gasto corto y `tacos_pct`
+  optimista sin dejar señal; ahora se cuenta en `filas_gasto_sin_costo` y
+  anula `tacos_pct` igual. (El lado de la venta no lo necesita:
+  `ledger_event.amount` es NOT NULL.) TACoS por
+  plataforma es la métrica que no necesita suposición de atribución (meta
+  declarada: 8–12%).
+- **`fx_resolve`** — ver sección `fx_rate`.
+- **`v_entidad_inerte`** (BIDS 01, migración `0013`) — **hojas sin tráfico**:
+  `keyword`/`product_target` con estado `ENABLED` propio, del ad group y de
+  la campaña, sin impresiones en los últimos **14 días contados desde el
+  watermark de su plataforma** (`max(metric_date)` en `v_metric_latest`,
+  jamás desde `now()`), con `watermark`, `ultima_impresion`,
+  `dias_sin_impresiones` (NULL si nunca hubo impresión en 90d),
+  `gasto_90d` + `moneda` (única en 90d; con mezcla ambas NULL, fail-loud),
+  `ordenes_90d` y `clasificacion` (`con_ventas_previas` /
+  `gasto_sin_ventas` / `peso_muerto`, sobre 90 días desde el watermark con
+  los crudos). Regla 3: `impressions` NULL es desconocido, no cero — solo
+  es inerte sin filas en 14d o con filas todas conocidas sumando 0.
+  **Fuente única** de «inerte» para el ciclo (guarda `entidad_inerte`), la
+  página `/inertes`, el digest y la herramienta de archivo; ausencia de
+  fila = NO inerte.
+- **`v_target_margen_plataforma`** (ORBIT 06, migración `0015`) — **margen
+  neto %** por plataforma sobre la ventana **[D-105, D-15)** con hoy =
+  `CURRENT_DATE` UTC (15 días de maduración, regla 6; 90 de historia;
+  la evidencia auditada es el freeze de `ventana_desde/hasta`, no la vista).
+  `venta_cubierta` (SUM solo de ventas CON costo: misma moneda, sin FX ni
+  relleno), `cobertura` POR MONTO (cubierta/total), `cargos_con_orden`
+  (fee/withholding/refund no-ads con `order_id` de venta cubierta, sin
+  filtro de fecha propio) y `cargos_sin_orden` (los de plataforma sin
+  `order_id`, **prorrateados por cobertura dentro del margen**),
+  `fees_sin_tipo` (fee con `fee_type` NULL), `dias_con_venta`,
+  `ledger_fresco_at` (máximo de TODA la plataforma — `observed_at` solo
+  avanza con filas nuevas) y `moneda` (única en la ventana, NULL si mezcla
+  — canario). **`margen_neto_pct` = 100 × (cubierta + con_orden +
+  sin_orden × cobertura − cogs) / cubierta, NULL ante cualquier condición
+  §5** (mezcla, `fees_sin_tipo` > 0, cobertura < 95 %, días < 60, cubierta
+  ≤ 0; fail-loud). El ISR retenido va como costo (decisión consciente).
+  La vista SOLO MIDE: fracción, banda [10, 45] (clampea) y paso ±0.5 viven
+  en `goals.resuelve_target_margen`; el ciclo la lee UNA vez por ciclo
+  en TX2.
+- **Migración `0018` (FABRICA 01)** — grupos de campañas creados por
+  `tools/fabrica_campanas.py`: `campana_grupo` (target CONGELADO al crear =
+  clamp(fracción × margen mínimo, [10, 45]) con `target_procedencia`),
+  `campana_grupo_rol` (EL vínculo campaña↔grupo; `UNIQUE(ad_entity_id)`;
+  guarda también el ad group; trigger `campana_grupo_rol_kinds`),
+  `campana_grupo_producto` (snapshot de margen y `seller_sku`),
+  `keyword_biblioteca`/`negative_biblioteca` por `(tipo_producto, platform,
+  texto)` (F1 lee; F2 escribe), `harvest_excepcion` (schema; se puebla en
+  F2), ledger `fabrica_lote`/`fabrica_lote_paso` (patrón
+  `keyword_archivo_manual`: `planeado` antes del HTTP, `applied` exige
+  external+ack+readback). **`v_margen_producto`**: la maquinaria de
+  `v_target_margen_plataforma` con grano `ledger_event.product_id`; cargos
+  con `order_id` prorrateados por el monto del producto dentro de su orden,
+  sin `order_id` por participación en la venta de la plataforma; mismos
+  guards → `margen_neto_pct` NULL (regla 3). La escribe `app_admin`;
+  `app_decide` solo lee (`campana_grupo_rol` es el destino de harvest de F2).
+- **Migración `0064` (BIDS 02 I.1)** — `campana_grupo.tipo`
+  (`'fabrica5'` por defecto, `'impulso'` para grupos de dos; CHECK):
+  trigger `campana_grupo_rol_roles_de_impulso` rechaza en un grupo
+  impulso cualquier rol fuera de `category_exact`/`auto_discovery`.
+  Sin GRANTs nuevos (hereda los de `0018`; bloque DO los verifica).
+  **Reversa** `0064_reversa_bids02_grupo_tipo.sql`: quita trigger,
+  función, CHECK y columna.
+
+### Estimación por venta antes de Ads (MARGEN ESTIMADO 01, migración `0028`)
+
+Medida **informativa** separada del margen observado: contribución estimada
+por una venta al precio y canal documentados. Universo inicial sellado en
+0.3: **FBA Amazon MX**; FBM/US quedan como `incompleta`/`desactualizada` sin
+convertir ausencias en cero. No alimenta motor, targets ni ledger.
+
+**`estimacion_politica_version`** — Política fiscal/normalización versionada
+(append-only, `app_admin` INSERT). `settings` JSONB **sin defaults de negocio**
+en el esquema: expresa, por ejemplo, divisor IVA 1.16, tasa ISR 0.025 y reglas
+de fee con `TaxAmount` para FBA MX. `valid_from`/`valid_to` (DATE) acotan
+vigencia en `0028` (`valid_to > valid_from` cuando no NULL). La política FBA MX
+sellada (`amazon_mx/fba`, fórmula `S3`, label `amazon_mx_pf_rfc_valid_2026_01`,
+vigente desde 2026-01-01, `logistica: "0"` solo porque FBA está incluido en
+fees Amazon, `fee_tax_amount_requiere_politica: true`) se inserta en `0029` con
+`created_at` por DEFAULT (`now()`), no con fecha histórica inventada. Corrección = fila nueva.
+
+**`estimacion_oferta_observation`** — Snapshot append-only de oferta/precio
+desde bridge: `listing_id`, plataforma, `seller_sku`, `asin`, `canal`
+(`estimacion_canal`: fba/fbm), importe+moneda originales, `fetched_at` (fecha
+fuente UTC), `observed_at` (captura Orbit), `canonical_input`, huella
+`context_fingerprint` y `source_event_id` **NOT NULL** (dedupe fuerte: repetir
+el mismo evento no rejuvenece; cambio real = otra fila con otro evento).
+Trigger `estimacion_oferta_listing_coherente` obliga a casar `listing_id` con
+`platform`/`asin`/`seller_sku`; `estimacion_fuente_no_futura` rechaza
+`fetched_at > observed_at`.
+
+**`estimacion_fee_observation`** — Cotización Product Fees append-only ligada
+al snapshot exacto de oferta vía **FK compuesta** (`oferta_observation_id` +
+listing/canal/precio/huella). Conserva total, desglose JSONB,
+`fees_estimated_at`, moneda del precio cotizado, estado `success`/`error`
+(intentos fallidos aparte del último éxito; `total_fees` NULL en error — regla
+3). `source_event_id` NOT NULL como la oferta. Trigger
+`estimacion_fee_temporal_coherente`: en `success`, `fees_estimated_at` no NULL,
+`>= fetched_at` de la oferta y `<= observed_at`; la oferta referenciada no puede
+haberse observado después del fee.
+
+**`estimacion_escenario`** — Escenario calculado append-only con referencias
+congeladas para reproducir **as-of**: ids de oferta/fee/costo/FX usados,
+`costo_validation_run_id` + `costo_validated_at` (corrida
+`accounting_sku_costs` ok del mismo día UTC que `valoracion_date`, sin skips),
+`costo_includes_tax` congelado en `canonical_input`, `politica_version_id`
+(NULL en incompletos; NOT NULL solo en `disponible`), `formula_version`,
+`valoracion_date`, `estado`
+(`disponible`/`incompleta`/`desactualizada`/`identidad_ambigua`), motivos y
+componentes JSONB. `source_event_id` NOT NULL UNIQUE dedupe idempotente (A.4):
+repetir el mismo evento congelado no rejuvenece; corrección real = otra fila. FKs por ID conservan las referencias y el trigger
+`estimacion_escenario_referencias_coherentes` impide mezclar listing/contexto;
+también exige que política/oferta/fee y costos con corrida de procedencia no
+estén observados/creados después del `observed_at` del escenario. En
+`disponible`, el trigger verifica `includes_tax=false`, vigencia del
+`sku_cost` en `valoracion_date` y que la corrida de validación sea
+`accounting_sku_costs` terminada (`finished_at` = `costo_validated_at`, no
+futura). **S5:**
+`disponible` exige `contribucion`,
+`contribucion_pct` y `moneda`; cualquier otro estado exige los tres NULL (no
+cero). `fx_rate` congelado como `NUMERIC(18,8)` (misma precisión que
+`fx_rate.rate`). Consulta as-of: `observed_at <= corte` ORDER BY
+`observed_at` DESC.
+
+**Reversa** — `estimacion_venta_reversa()` revoca INSERT/SEQUENCE a
+`app_ingest`/`app_admin`, verifica que los conteos de hechos no cambiaron y
+registra la operación en `estimacion_reversa_registro`. **No** hace DROP ni
+DELETE de observaciones.
+
+Permisos: `app_ingest` INSERT en las tres tablas de observación/escenario;
+`app_admin` INSERT en política; `app_read`/`app_decide` SELECT. Secuencias
+solo para roles que insertan. Candado append-only: trigger `prohibir_mutacion`
+(row + TRUNCATE) en las cuatro tablas de hechos desde el día 1.
+
+### Motor de precios (REPRICING 01, migración `0039`)
+
+Medida **decisoria** separada de la estimación: cada publicación con goal
+vigente llega a su margen por precio. Una decisión por entidad por día, todo
+registrado, cuota propia. El contrato fino (reglas, sombra fiel, escritura
+asíncrona, reversa) está en
+`docs/superpowers/specs/2026-09-15-repricing-01-design.md` (S4–S6) y el plan
+en `plans/repricing-01.md` (fase A).
+
+**`precio_goal`** — Goal de margen por publicación con vigencia, patrón
+`sku_cost`: `margen_goal_pct` (fracción, banda 0.10–0.60 en CHECK literal —
+claves `precio_goal_min_pct`/`precio_goal_max_pct`, replicada en
+`app/precio/goals_write.py`), `mode` (`precio_mode`: `shadow`/`live`, sin
+default), `valid_from`/`valid_to`, `creado_por`, `go_literal` (`live` lo
+exige por CHECK, también contra `psql`). FK compuesta `(listing_id,
+platform)` — 0039 declara `UNIQUE (id, platform)` en `listing`, lo único que
+toca de una tabla existente. `UNIQUE (listing_id, platform, valid_from)` más
+índice parcial de un vigente (`valid_to IS NULL`): sin fila vigente no hay
+decisión, sin defaults ni herencia. Y UN goal por día garantizado por la base
+con el EXCLUDE `precio_goal_sin_solape` (gist, patrón `sku_cost`): ni el
+parcial (solo abiertas) ni el UNIQUE (solo `valid_from`) impiden dos goals
+vigentes el mismo día con una vigencia ya cerrada. La vigencia es
+`[valid_from, valid_to)`: `valid_to = valid_from` es intervalo vacío y el goal
+queda **anulado, nunca vigente** (apaga el error de dedo el mismo día; aquí
+0039 se aparta del `valid_to > valid_from` de `sku_cost` a propósito). Trigger
+`precio_goal_solo_cierra_vigencia` (de una fila publicada solo se cierra
+`valid_to`, una vez) + capa TRUNCATE. La escribe `app_admin`
+(INSERT + `UPDATE (valid_to)`).
+*Cómo se audita*: publicaciones activas sin goal vigente (`sin_goal`, trabajo
+del dueño, listado en cobertura).
+
+**`precio_decision`** — Una fila por `(listing_id, platform, decision_date)`:
+`resultado` con vocabulario cerrado por CHECK (los seis de S4) y motivo
+obligatorio y no en blanco fuera de `subir`/`bajar` (decisión 11: ningún
+silencio; en append-only no se arregla después). «Sin fila vigente no hay
+decisión» (S3) en la base (r4-3): trigger de coherencia que exige un
+`precio_goal` del mismo par y modo, vigente en el día UTC
+(`[valid_from, valid_to)`). En `subir`/`bajar` la cuenta va completa por
+CHECK (r5-2: `goal`, `m_actual`, `P_actual/objetivo/aplicado`, `I/C/F/L/R`
+NOT NULL; en el resto la matriz la fijan reglas y corrida). Y regla 2 (r5-3):
+`goal` es un número con una fuente —lo asigna el trigger desde la fila
+vigente—. Además (r3-3): escenario, fee y cotización del
+mismo `(listing_id, platform)`; la muestra, del mismo `(product_id, platform)`;
+`product_id`, el del listing.
+Señal de ventas (`u15/u60/n15/n60`, racha, `perdiendo`), cuenta
+completa (componentes `I/C/F/L/R`, `P_actual/objetivo/aplicado` — cada uno
+con su `currency NOT NULL`; importes NULL en `no_evaluado`, la moneda no),
+`escenario_id`/`fee_observation_id`/`cotizacion_id`/`envio_muestra_id` (la
+decisión nace primero y la cotización apunta de vuelta), `canal`
+(`estimacion_canal`, NULL sin canal), `mode`, `prioridad`,
+`config_version_id`. `decision_date` lo fija el trigger al día UTC de la
+base (el del cliente se ignora). Append-only por `prohibir_mutacion`
+(row + TRUNCATE). La escribe `app_decide` (INSERT).
+*Cómo se audita*: segunda corrida del día no decide (UNIQUE); día sin insumos
+produce N `no_evaluado` con motivo y cero escrituras.
+
+**`precio_cotizacion`** — Cotización Product Fees a precio candidato,
+separada de `estimacion_fee_observation` (cotizar ahí apagaría la estimación
+del día siguiente). Con identidad propia (desviación de S5, r3-1):
+`(listing_id, platform)` + `intento` (1 o 2, S4 #3) + `cotizacion_date` por
+trigger UTC, `UNIQUE (listing_id, platform, cotizacion_date, intento)` —la
+base garantiza «≤ 2 cotizaciones reales» por publicación y día—. Nace ANTES
+que la decisión (es su insumo) y la decisión la apunta con `cotizacion_id`;
+el intento no usado queda localizable sin puntero. `estado` reutiliza
+`estimacion_fee_estado` con el candado de 0028 copiado entero: `success`
+trae `total_fees` + `fees_estimated_at`, `error` trae código y nada de fees;
+`source_event_id` UNIQUE. Trigger de coherencia: la oferta es del mismo
+`(listing_id, platform)`. Append-only. La escribe `app_decide` (INSERT).
+*Cómo se audita*: intentos del día por publicación (1, 2, nunca 3).
+
+**`precio_envio_muestra`** — Evidencia de `L` con la forma literal de S5
+(spec v1.3): ventana efectiva, conteo de envíos, valor sellado + moneda y
+dispersión (`mediana/p90/maximo` con paridad CHECK). Nace vacía; la ajusta la
+fila E.3 con su migración. Append-only. La escribe `app_decide` (INSERT).
+
+**`precio_cambio`** — Escritura asíncrona cerrada por observación:
+`pendiente` (nace con el precio GET justo antes) → `enviado`/`error` (ack
+literal) → `confirmado`/`no_confirmado` (observación D+1); el readback es
+informativo (`ok`/`fallido`, nunca decide). Ningún estado avanza sin su
+sello (CHECKs de tabla: `error` exige `error_code`, el cierre exige
+`confirmado_por`, el `enviado` real exige `ack` + `enviado_at`; el virtual
+queda fuera de este último a propósito). Vocabularios cerrados (r4-2):
+`confirmado_por` solo `observacion`/`virtual`, `error_code` solo en `error`.
+El cambio cuelga de una decisión que mueve precio (`subir`/`bajar`, r4-4). Índice único parcial de cambio
+abierto `(listing_id, platform) WHERE estado IN ('pendiente','enviado')`.
+Con decisión, `aplicado = (mode = 'live')` en las dos direcciones (S4 #13:
+cambio real solo bajo decisión `live`, virtual solo bajo `shadow`); sin
+decisión (reversa), `aplicado = true`. Lo real nace `pendiente` y sin sellos
+puestos (si no, el «sello una sola vez» bloquearía el sello legítimo; solo
+`enviado_at` puede nacer puesto, A.4). Sombra fiel: el virtual
+(`aplicado = false`) nace cerrado (`confirmado`/`virtual`, `enviado_at`
+puesto, sin ack ni readback), consume cooldown y freno sin ocupar el índice
+y queda inmutable tras nacer (cualquier `UPDATE` se rechaza).
+Reversa (`es_reversa`, sin decisión propia, de un cambio real no-reversa del
+mismo par, por el mismo camino; nunca automática). `precio_despues` no se
+inventa (r5-4): es el `p_aplicado` de su decisión —o el `precio_antes` del
+revertido—, importe y moneda. Trigger de nacimiento +
+trigger de coherencia (decisión del mismo par; reversa real del mismo par) +
+trigger de transiciones con sello acotado por columnas (patrón
+`apply_attempt_solo_sella_resultado`, `created_at` inmutable como
+`started_at`) + capa TRUNCATE. `app_decide`: INSERT + `UPDATE` por columna
+de sello.
+*Cómo se audita*: cambios abiertos por listing (uno); `no_confirmado` frena y
+avisa; la reversa la corre el dueño con la herramienta.
+
+**Cuota propia (0039)** — `apply_cap_de_config` gana `precio:amazon_mx`,
+`precio:amazon_us` y `precio:meli` (claves `precio_cap_amazon_mx`/`_us`/`_meli`,
+tope 5/día); los ocho mapeos de Ads intactos. Sin clave no nace fila del día
+(fail-closed del trigger de 0002).
+
+Permisos: `app_decide` INSERT en decisión/cotización/muestra/cambio + sello
+por columnas del cambio + secuencias propias; `app_admin` INSERT en goal +
+`UPDATE (valid_to)` + su secuencia; `app_read`/`app_ingest` SELECT.
+`tests/test_precio_migracion.py` (integración con rol real) y
+`tests/test_schema.py` (estáticos de 0039).
+
+## Roles y candados
+
+- **`app_ingest`** — sincronizadores: INSERT en hechos y catálogo (incluye
+  `external_reconciliation` y, desde `0028`, observaciones/escenarios de
+  estimación); UPDATE genérico solo en cache (`ad_entity_state`)
+  y catálogo (`product`, `listing`); `ad_entity` **solo por columnas
+  (`name`, `listing_id`)** — `platform`/`kind`/`external_id`/`parent_id`/
+  `match_type`/`keyword_text` son inmutables por permisos (mutarlos rompería
+  el sello de moneda y los goals); cierres por
+  columna: `ingest_run` (`finished_at`, `rows_written`, `rows_skipped`,
+  `skip_reason`, `ok`) y `sku_cost` (**solo `valid_to`** — cerrar vigencias
+  sí, reescribir importes jamás).
+- **`app_decide`** — motores: INSERT en `decision`, `decision_application`,
+  envelope/quota/harvest y, desde `0039`, en `precio_decision`,
+  `precio_cotizacion`, `precio_envio_muestra` y `precio_cambio` (este último
+  con sello por columnas); UPDATE en `decision_application` (readback) y
+  `harvest_job`; cierre de `optimizer_cycle` **por columna**; en
+  `apply_quota_state` **solo `UPDATE (used)`** — el cap lo fija el INSERT, el
+  motor no puede subirse el tope a sí mismo; DML completo en
+  `ads_optimizer_lock`. **No** escribe goals (ni `ads_optimizer_goal` ni
+  `precio_goal`) ni `config_version` (conserva SELECT).
+- **`app_admin`** (NOLOGIN) — config humana: escribe `ads_optimizer_goal` y,
+  desde `0039`, `precio_goal` (INSERT + cierre de `valid_to`); inserta
+  `config_version`, `estimacion_politica_version` y `apply_quota_state`
+  (fijar caps manualmente es decisión de admin, no del motor) — escalera
+  off→shadow→live. El endpoint `/goals` corre como `app_admin`.
+- **`app_read`** — dashboard/análisis: SELECT.
+- Los permisos solos no bastan (un `GRANT ALL` futuro los derrotaría en
+  silencio): el candado real es el trigger `prohibir_mutacion`, que bloquea
+  UPDATE/DELETE en las siete tablas append-only **aunque el rol tenga
+  permiso** — y `sku_cost_solo_cierra_vigencia`, que hace lo propio con la
+  única mutación acotada del esquema. Lo que sigue descansando sólo en el
+  GRANT por columna, y queda declarado: la identidad inmutable de `ad_entity`,
+  los cierres por columna de `ingest_run`/`optimizer_cycle` y el `cap` de
+  `apply_quota_state`.
+- `REVOKE ALL … FROM PUBLIC` + default privileges de solo lectura: ningún rol
+  futuro hereda escritura por accidente.

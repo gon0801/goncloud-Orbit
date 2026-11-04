@@ -1,0 +1,2 @@
+migrations/0071_bids02_grant_vista_impulso.sql
+migrations/0072_bids02_impulso_grupo_tipo.sql

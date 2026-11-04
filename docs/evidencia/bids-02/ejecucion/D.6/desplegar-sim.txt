@@ -1,0 +1,56 @@
+== MODO SIMULACION: datos reales contra postgresql://orbit:orbit@127.0.0.1:5433/orbit_sim_d6, servidor intacto
+== 0) SHA aprobado con la bateria completa verde
+SIMULACION: 7b606e7 existe local; sin fetch ni gh (no hay red a prod)
+== 1) Preflight: nadie corre, sin harvest en vuelo, migraciones pendientes
+SIMULACION: sin docker top (no hay contenedor); la guarda de proceso es el conteo de running
+ciclos running=0
+harvest en vuelo=0
+ya aplicada: migrations/0060_bids02_base_lectura.sql
+ya aplicada: migrations/0061_bids02_campana_config.sql
+ya aplicada: migrations/0062_bids02_placement.sql
+ya aplicada: migrations/0063_bids02_peldanos_target.sql
+ya aplicada: migrations/0064_bids02_grupo_tipo.sql
+ya aplicada: migrations/0065_bids02_impulso.sql
+ya aplicada: migrations/0066_bids02_retiro_anuncios.sql
+ya aplicada: migrations/0067_bids02_campana_ajuste.sql
+ya aplicada: migrations/0068_bids02_sellos.sql
+ya aplicada: migrations/0069_bids02_retiro_intencion.sql
+ya aplicada: migrations/0070_bids02_permisos_lanza.sql
+pendiente: migrations/0071_bids02_grant_vista_impulso.sql
+pendiente: migrations/0072_bids02_impulso_grupo_tipo.sql
+== 1b) Guardas propias de D.6 (abortan si fallan)
+0071/0072, impulso_io, cli_bids, productos.js y fabrica_campanas presentes en el SHA
+guardas propias OK
+== 1c) Cron: D.6 no instala linea; se imprime la huella antes (R13-E)
+crontab antes: md5 y lineas = 1f971f3802a7bb2736aa9fb1c27c196f 5 (sin tocarlo)
+== 2) Respaldo del codigo actual y SHA (el .env NO se copia a ningun lado)
+SIMULACION: respaldo local en /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-d6-sim/predeploy-20261013-0542
+== 3) Backup del esquema (staging + verificacion)
+SIMULACION: backup local /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-d6-sim/pred6_schema_20261013-0542.sql
+== 4) Migraciones BIDS 02 pendientes, cada una en su propio psql -1
+WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+aplicada migrations/0071_bids02_grant_vista_impulso.sql (anotada en /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-d6-sim/aplicadas-20261013-0542.txt)
+WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+aplicada migrations/0072_bids02_impulso_grupo_tipo.sql (anotada en /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-d6-sim/aplicadas-20261013-0542.txt)
+== 5) md5 del codigo desplegado vs SHA aprobado
+SIMULACION: sin servidor; se verifica el respaldo local contra el SHA
+md5 OK app/impulso_io.py
+md5 OK app/cli_bids.py
+md5 OK app/static/js/productos.js
+md5 OK tools/fabrica_campanas.py
+== 6) Guardas antes de recrear
+SIMULACION: guardas OK en una pasada (sin reintento de 30 min)
+== 7) Build + recrear app (digest antes/despues) + health
+SIMULACION: sin rebuild (no hay servidor que recrear)
+SIMULACION: la app local no contesta (informativo; checklist.sh lo verifica)
+== 7v) Corre el vigia una vez con la imagen nueva (solo si no hay impulsos vivos)
+vigia OK: salio 0 sin impulsos y sin guardar (lecturas antes=0 despues=0)
+== 8) Cron: la huella no cambio (D.6 no instala linea: R13-E)
+crontab despues: md5 y lineas = 1f971f3802a7bb2736aa9fb1c27c196f 5
+crontab intacto
+== LISTO. STAMP=20261013-0542
+Siguiente: bash docs/evidencia/bids-02/ejecucion/D.6/checklist.sh 20261013-0542
+Reversa:   bash docs/evidencia/bids-02/ejecucion/D.6/rollback.sh 20261013-0542
+exit=0

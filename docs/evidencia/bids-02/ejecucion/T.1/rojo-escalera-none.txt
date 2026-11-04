@@ -1,0 +1,57 @@
+FFF                                                                      [100%]
+=================================== FAILURES ===================================
+____________________ test_peldano_cache_estado_ya_no_decide ____________________
+
+    def test_peldano_cache_estado_ya_no_decide():
+        """T.1 (BIDS 02 s2): retirado el peldano cache_estado, un acos_target
+        del estado ya no decide (ni siquiera presente): sin goal, margen ni
+        setting, la escalera devuelve None."""
+        valor, peldano = g.cascada_target_acos_con_procedencia(
+            None, None, {}, Decimal("28"), "amazon_us"
+        )
+>       assert valor is None
+E       AssertionError: assert Decimal('28') is None
+
+tests/test_optimizer_goals.py:736: AssertionError
+____________________ test_peldano_sin_ninguno_devuelve_none ____________________
+
+    def test_peldano_sin_ninguno_devuelve_none():
+        """T.1 (BIDS 02 s2): retirado el default 55 (un target inventado
+        contradice la regla 3), sin goal, margen ni setting la escalera
+        devuelve None y cada llamador trata el hueco."""
+        valor, peldano = g.cascada_target_acos_con_procedencia(None, None, {}, None, "amazon_us")
+>       assert valor is None
+E       AssertionError: assert Decimal('55') is None
+
+tests/test_optimizer_goals.py:745: AssertionError
+_______ test_procedencia_compatible_con_el_motor_campana_con_target_none _______
+
+    def test_procedencia_compatible_con_el_motor_campana_con_target_none():
+        """Compatibilidad con el camino del motor (cero cambio de comportamiento):
+        el motor resuelve con resuelve_goal (la campaña PISA SIEMPRE que existe) y
+        la cascada vieja salta el target None del goal resuelto al SETTING. Un goal
+        de campaña con target None NO puede caer al target del goal de plataforma:
+        el motor jamás lo usaría (resuelto=goal_campana, su target None -> setting).
+        Si el dashboard reportara 'goal_plataforma' ahí, mentiría sobre lo que el
+        motor decidió (regla 2: un número, una fuente)."""
+        campana = _goal(scope="campaign", ad_entity_id=1, platform=None, target_acos_pct=None)
+        plataforma = _goal(target_acos_pct=Decimal("25"))
+        settings = _settings_target(us=30)
+        valor, peldano = g.cascada_target_acos_con_procedencia(
+            campana, plataforma, settings, Decimal("28"), "amazon_us"
+        )
+        assert valor == Decimal("30")  # el 25 de la plataforma NO gana
+        assert peldano == "setting_plataforma"
+        # sin setting: None (T.1 retiro cache y default), tampoco al goal de plataforma
+        valor2, peldano2 = g.cascada_target_acos_con_procedencia(
+            campana, plataforma, {}, Decimal("28"), "amazon_us"
+        )
+>       assert valor2 is None
+E       AssertionError: assert Decimal('28') is None
+
+tests/test_optimizer_goals.py:837: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_optimizer_goals.py::test_peldano_cache_estado_ya_no_decide
+FAILED tests/test_optimizer_goals.py::test_peldano_sin_ninguno_devuelve_none
+FAILED tests/test_optimizer_goals.py::test_procedencia_compatible_con_el_motor_campana_con_target_none
+3 failed, 52 deselected in 0.22s

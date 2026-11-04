@@ -1,0 +1,120 @@
+== 0) SHA aprobado = origin/master con la bateria completa verde
+APROBADO=96daae6b4dfc86e45c1e24b1dfbfda9180a3af09 CI=success
+== 1) Preflight (esperado cli=0 y t|t|t: nadie corre, S.3 aplicado, login listo)
+cli=0 t|t|t
+== 2) Respaldo del codigo actual, compose y SHA (el .env NO se copia a ningun lado)
+app
+docker-compose.yml
+Dockerfile
+pyproject.toml
+SHA
+tools
+uv.lock
+== 3) Copiar el codigo del SHA aprobado (git archive, LF)
+== 4) md5 server vs SHA aprobado
+md5 OK docker-compose.yml
+md5 OK Dockerfile
+md5 OK app/jev_senales.py
+md5 OK app/jev_libro.py
+md5 OK app/jev_lectura.py
+md5 OK app/optimizer/windows.py
+md5 OK app/cli.py
+md5 OK app/api_dashboard.py
+md5 OK app/ui.py
+md5 OK app/templates/salud.html
+md5 OK tools/jev_ads.py
+md5 OK tools/jev_fichas.py
+== 5) Guardas antes de recrear (reintento 30s hasta 30min)
+guardas OK
+== 6) Build + recrear app (digest antes/despues) + health
+DIGEST antes=sha256:7b8d188f4704628d5d43eadcc9bd3b8810e0982461d1369f2ec8e8bf31dd1a4e
+ Image orbit-app Building
+#1 [internal] load local bake definitions
+#1 reading from stdin 482B done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 952B done
+#2 DONE 0.0s
+
+#3 [internal] load metadata for docker.io/library/python:3.12-slim-bookworm
+#3 ...
+
+#4 [internal] load metadata for ghcr.io/astral-sh/uv:0.11.11
+#4 DONE 0.6s
+
+#3 [internal] load metadata for docker.io/library/python:3.12-slim-bookworm
+#3 DONE 0.8s
+
+#5 [internal] load .dockerignore
+#5 transferring context: 199B done
+#5 DONE 0.0s
+
+#6 FROM ghcr.io/astral-sh/uv:0.11.11@sha256:798712e57f879c5393777cbda2bb309b29fcdeb0532129d4b1c3125c5385975a
+#6 resolve ghcr.io/astral-sh/uv:0.11.11@sha256:798712e57f879c5393777cbda2bb309b29fcdeb0532129d4b1c3125c5385975a 0.0s done
+#6 DONE 0.0s
+
+#7 [stage-0 1/9] FROM docker.io/library/python:3.12-slim-bookworm@sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3a1509accc92a4e24a07258
+#7 resolve docker.io/library/python:3.12-slim-bookworm@sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3a1509accc92a4e24a07258 0.0s done
+#7 DONE 0.0s
+
+#8 [internal] load build context
+#8 transferring context: 3.25MB 0.0s done
+#8 DONE 0.0s
+
+#9 [stage-0 3/9] WORKDIR /app
+#9 CACHED
+
+#10 [stage-0 4/9] COPY pyproject.toml uv.lock ./
+#10 CACHED
+
+#11 [stage-0 2/9] COPY --from=ghcr.io/astral-sh/uv:0.11.11 /uv /uvx /bin/
+#11 CACHED
+
+#12 [stage-0 5/9] RUN uv sync --frozen --no-dev --no-install-project --no-cache
+#12 CACHED
+
+#13 [stage-0 6/9] COPY app ./app
+#13 DONE 0.0s
+
+#14 [stage-0 7/9] COPY tools/fabrica_campanas.py ./tools/fabrica_campanas.py
+#14 DONE 0.0s
+
+#15 [stage-0 8/9] COPY tools/jev_ads.py ./tools/jev_ads.py
+#15 DONE 0.0s
+
+#16 [stage-0 9/9] COPY tools/jev_fichas.py ./tools/jev_fichas.py
+#16 DONE 0.0s
+
+#17 exporting to image
+#17 exporting layers 0.1s done
+#17 exporting manifest sha256:15ffc2cc88b46b8ebb8b64adfbde514e87982312feadc5e19de911935ec0ad7a done
+#17 exporting config sha256:00799d36a2a8a2fa033ea6a4a19e88ee46d8c82fb1291329690463c814473ead done
+#17 exporting attestation manifest sha256:e89f79dbd38d955c11503fed3f7e713b9106b183cf63302536ad418fd9a104ef done
+#17 exporting manifest list sha256:62329f821a158c5b4a09584d9fe6308889c4b7b6741d11c58a739cac87d457bc done
+#17 naming to docker.io/library/orbit-app:latest done
+#17 unpacking to docker.io/library/orbit-app:latest 0.1s done
+#17 DONE 0.2s
+
+#18 resolving provenance for metadata file
+#18 DONE 0.0s
+ Image orbit-app Built
+ Container orbit-app-1 Recreate
+ Container orbit-app-1 Recreated
+ Container orbit-app-1 Starting
+ Container orbit-app-1 Started
+DIGEST despues=sha256:62329f821a158c5b4a09584d9fe6308889c4b7b6741d11c58a739cac87d457bc
+{"status":"ok"}
+orbit-app-1 Up 5 seconds
+== 7) Seco del job apagado (esperado exit=0 y 'apagado' en la salida; si no, no se instala nada)
+jev-senales apagado: jev.senales ausente
+== LISTO. STAMP=20261007-0116
+Reversa: bash docs/evidencia/jev-ads-02/ejecucion/S.4/rollback.sh 20261007-0116
+
+== 8) MANUAL DEL DUENO (despues del merge): instalar la linea de cron (DEPLOY.md, pinzada por tests/test_jev_senales_cron.py::LINEA_JEV_SENALES)
+Pega este bloque tal cual: respalda el crontab, agrega SOLO la linea y comprueba que el diff es +1:
+ssh goncloud 'crontab -u gon -l > /tmp/cron-gon-antes-20261007-0116.txt && cat /tmp/cron-gon-antes-20261007-0116.txt; echo ---; (crontab -u gon -l; echo "30 9,21 * * * /usr/bin/flock -n /tmp/jev-senales.lock docker exec orbit-app-1 python -m app.cli jev-senales --aplicar >> /mnt/data/appdata/orbit/logs/jev-senales.log 2>&1") | crontab -u gon - && crontab -u gon -l > /tmp/cron-gon-despues-20261007-0116.txt && diff /tmp/cron-gon-antes-20261007-0116.txt /tmp/cron-gon-despues-20261007-0116.txt; crontab -u gon -l | grep -c jev-senales'
+Esperado: el diff muestra exactamente una linea agregada (> 30 9,21 ...) y el conteo final es 1.
+
+Siguiente: bash docs/evidencia/jev-ads-02/ejecucion/S.4/checklist.sh 20261007-0116 (despues de instalar el cron)
+Cierre:    leer el log de la primera corrida por cron (debe decir apagado): ssh goncloud 'tail -5 /mnt/data/appdata/orbit/logs/jev-senales.log'

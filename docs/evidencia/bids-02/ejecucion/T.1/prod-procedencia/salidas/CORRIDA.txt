@@ -1,0 +1,7 @@
+estado: COMPLETA
+inicio_utc: 2026-10-10T10:05:25Z
+fin_utc: 2026-10-10T10:05:28Z
+commit_del_repo: 2db9e2012b33abdcf0396059bcfdc6b24f9d8591
+consultas_con_cambios_sin_commitear: 1
+salidas:
+  a6eeae35372bcbb7b619c5f04ac24f5d00fb40fbded4b79bd1da776427d7bb96  procedencia.txt

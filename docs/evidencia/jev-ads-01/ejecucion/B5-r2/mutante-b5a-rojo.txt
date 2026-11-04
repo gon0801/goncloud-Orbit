@@ -1,0 +1,15 @@
+# B5-r2 mutante B5a: 'from app import db' anidado en componer() de app/jev_ads.py
+Fecha: 2026-10-04T08:44:02Z
+Comando: uv run --frozen python -m pytest -q tests/test_jev_ads.py::test_modulo_puro_sin_red_ni_db_en_top_level
+Esperado: FAILED nombrando (componer, 'app.db'). Observado:
+
+E                    +  where True = any(<generator object test_modulo_puro_sin_red_ni_db_en_top_level.<locals>.<genexpr> at 0x10cb504f0>)
+
+tests/test_jev_ads.py:412: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_jev_ads.py::test_modulo_puro_sin_red_ni_db_en_top_level - A...
+1 failed in 0.08s
+
+(mutante retirado; verde con el arbol limpio:)
+......................                                                   [100%]
+22 passed in 0.08s

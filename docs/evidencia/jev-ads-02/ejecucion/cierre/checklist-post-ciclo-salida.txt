@@ -1,0 +1,38 @@
+# 2026-10-13 09:33:45 UTC checklist.sh 6c6486d0f02d6bb64b0e04d96c6ed780e9513e8b 20261013-0633
+== 1) El contenedor corre el codigo del SHA
+OK   md5 en el contenedor app/jev_avisos.py: 2594bfc9f31eba46c6cc5bac6fb1a52f
+OK   md5 en el contenedor app/jev_senales.py: b90db7898655027ab9642076cebd5679
+OK   md5 en el contenedor app/jev_juicios.py: 950d5756efe057fafde0be251ea1c5e5
+OK   md5 en el contenedor app/jev_vista.py: 53ddce50eaeeed6e14ea1cf3701a7e71
+OK   md5 en el contenedor app/jev_lectura.py: 75c659eff13b2535d033b6288c97e122
+OK   md5 en el contenedor app/jev_salud.py: dd734b35a2cdd37e8525a4e5d253429a
+OK   md5 en el contenedor app/api_dashboard.py: 86973a40a885d12c095d8484aca596dd
+OK   md5 en el contenedor app/notifica.py: 7863797e4872034480d9c9057fd8a6f8
+OK   md5 en el contenedor app/templates/salud.html: c013ddb380e03610b4ddde21e333f2dc
+== 2) HTTP
+OK   GET /health: 200
+OK   GET /cortes: 200
+OK   GET /salud: 200
+OK   GET /gasto-sin-venta?plataforma=amazon_mx: 200
+OK   GET /gasto-sin-venta?plataforma=amazon_us: 200
+== 3) J6-31: toda senal ajena con roster probado trae listado_de y la frase cita ese dia
+ajenas=25 sin_listado_de=0 frase_con_otra_fecha=0
+== 4) El aviso sigue apagado y no hay filas de aviso
+config_version vigente: 30 (2026-10-13 07:24 UTC) jev.senales=true jev.tope_diario=10000 jev.min_clics=3
+OK   jev.avisos: ausente
+OK   filas en jev_aviso: 0
+== 5) El job corre en seco con el codigo nuevo
+jev-senales seco: unidades=370 propuesta=0 desempate=245 resto=125 pagaria=3939 tope=10000 llamadas_hoy=6061
+OK   seco
+== 6) secrets/ con su modo y puerto en loopback
+OK   bind 8010: 1
+OK   bind publico 8010: 0
+OK   modo de secrets/: 700
+== 7) Primer ciclo del optimizador despues del despliegue
+120 amazon_us done 2026-10-13 08:40:02.719911+00 decisiones=2 aplicadas=2
+121 amazon_mx done 2026-10-13 08:41:02.386835+00 decisiones=1 aplicadas=1
+OK   ciclos posteriores fallidos o colgados: 0
+OK   hay ciclo done de amazon_us desde 2026-10-13T06:33:00Z
+OK   hay ciclo done de amazon_mx desde 2026-10-13T06:33:00Z
+== RESULTADO: 0 mal, ciclo posterior comprobado
+exit=0

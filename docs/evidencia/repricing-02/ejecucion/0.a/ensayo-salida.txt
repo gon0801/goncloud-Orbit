@@ -1,0 +1,17 @@
+== esquema y datos de prod (orbit_read, solo lectura)
+pg_dump: warning: there are circular foreign-key constraints on this table:
+pg_dump: detail: precio_cambio
+pg_dump: hint: You might not be able to restore the dump without using --disable-triggers or temporarily dropping the constraints.
+pg_dump: hint: Consider using a full dump instead of a --data-only dump to avoid this problem.
+== carga de datos con triggers apagados y secuencias ajustadas
+== 0) estado ANTES de aplicar las migraciones
+antes: config=29 decisiones=114 muestras=0
+== 1) aplicar la 0053 (corrida propia: ADD VALUE no se usa en la misma transaccion)
+aplicada 0053
+== 2) aplicar la 0054 (corrida separada)
+aplicada 0054
+== 3) config: una fila mas, modo global shadow, conserva lo previo
+la config nueva conserva todas las claves de la previa
+== 4) precio_decision conserva su conteo
+despues: config=30 decisiones=114 modo=shadow
+ENSAYO OK

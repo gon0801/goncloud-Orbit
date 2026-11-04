@@ -1,0 +1,2652 @@
+"""Tests del nucleo del aplicador (`app/apply`) — ORBIT 04, task 2.1.
+
+DB temporal con el patron de test_apply_schema (0001+0002 aplicadas; corre
+contra el Postgres real del tunel con ORBIT_TEST_DSN, skip fail-closed si no)
++ HTTP 100% mock (`httpx.MockTransport`): a Amazon NO sale ninguna llamada
+real, ni siquiera el token LWA. Los "secretos" son SIEMPRE falsos.
+
+DoD de la tarea, un test por candado (regla 9 en cada uno):
+
+1. Escalera shadow -> CERO HTTP (transport espia cuenta 0 requests, ni el
+   token: sin re-resolucion por decision el cliente se construiria y el
+   espia lo contaria).
+2. Envelope live + goal shadow -> NO aplica: JAMAS filtra por inputs.modo ni
+   cycle.mode (el residual sellado de cycle.py; una implementacion que
+   filtrara por el modo del ciclo aplicaria).
+3. Crash entre ledger y HTTP: la fila del ledger sin sello ES el rastro y la
+   reconciliacion la VE; la decision NO esta aplicada.
+4. No existe 4o intento: 3 filas de ledger -> el aplicador salta sin HTTP.
+5. Bid descartado bajo cap no reaparece: cap 1, dos elegibles -> 1 HTTP, el
+   otro descartado con motivo; re-llamar NO lo reintenta.
+6. Cache actualizado post-readback con LO LEIDO (distinto al enviado): sin
+   esto el ciclo siguiente decide sobre el bid viejo (sellado 16).
+7. Terna parcial revienta: confirmed_at sin platform_ack -> CHECK del esquema.
+8. applied_count por ciclo EJECUTOR: decision nacida en ciclo A shadow,
+   aplicada en ciclo B live -> applied_cycle_id == B y applied_count de B.
+9. Quota: consumo atomico bajo cap; cap agotado -> False; config sin clave ->
+   False y NO nace fila (fail-closed); reversa EXENTA.
+10. Reversa de bid: HTTP con old_value, ledger tipo reversa exento, readback
+    sella, cache con lo leido.
+11. AdsApiErrorMutacion: >=400 lleva el cuerpo (redactado) y el ledger
+    resultado lo conserva; la decision NO se marca aplicada.
+12. get_sellado usa el scope SELLADO de la instancia (header presente).
+13. Orden sellado de bids bajo cap: banda_menos_25 > banda_menos_12 >
+    banda_mas_15, dentro de cada banda por costo de la ventana DESC.
+14. Secuencia sellada completa de un bid ok (ledger pre-HTTP con payload
+    EXACTO, quota, ack, verify, resumen, cache, applied_count).
+
+RE-SELLADO contra el probe 2.5 (corrida autorizada del dueno 2026-08-26,
+ledger apply_attempt ids 1-20, log out/smoke-apply-20260826.log): el
+readback vive por LIST (GET directo retirado, 403), contenedores
+keywords/targetingClauses, bid NUMERO en el wire y ack 207 con success
+anidado. El state del PUT de pause quedo SELLADO el 2026-08-27 (ESTADO_PUT_*
+UPPER — corrida de reactivacion, out/reactiva-campanas-20260827.log).
+"""
+
+from __future__ import annotations
+
+import datetime as dt
+import json
+import os
+import socket
+from contextlib import contextmanager
+from decimal import Decimal
+from pathlib import Path
+
+import httpx
+import psycopg
+import pytest
+from psycopg.types.json import Json
+from test_schema import SQL, SQL2, SQL3, _postgres_obligatorio_ausente, _test_dsn
+
+from app.ads.config import AdsCredentials
+from app.ads.write import AdsApiErrorMutacion, AdsWriteClient
+from app.apply import (
+    MOTIVO_FALLO_HTTP,
+    MOTIVO_FUERA_DE_CAP,
+    MOTIVO_MODO_NO_LIVE,
+    MOTIVO_TOPE_INTENTOS,
+    MOTIVO_YA_APLICADA,
+    Aplicador,
+    ConfirmacionDesactualizada,
+    DecisionBid,
+    RegresoHecho,
+    RegresoNoConfirmado,
+    SinRachaDeRecortes,
+    VigentePorEncima,
+    bids_del_ciclo,
+    consume_quota,
+    intentos_sin_sello,
+    motor_quota,
+    orden_bajo_cupo,
+    prioridad_bajo_cupo,
+    registra_sin_aplicar,
+    regreso_del_dueno,
+    regreso_del_dueno_todas,
+    reversa_bid,
+)
+
+FAKE_CLIENT_ID = "fake-client-id-123"
+FAKE_CLIENT_SECRET = "fake-client-secret-XYZ"
+FAKE_REFRESH_TOKEN = "fake-refresh-token-ABC"
+FAKE_PROFILE_US = 404040
+
+_skip_db = pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+
+# ADS D.1: la cadena del aplicador incluye 0044 (decision_sin_aplicar); los
+# tests del bloque D.1 assertan el registro del desenlace "no aplicado".
+SQL44 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0044_decision_sin_aplicar.sql"
+).read_text(encoding="utf-8")
+
+# (D.1b): CHECK nombrado + choque_clave
+SQL45 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0045_sin_aplicar_choque_clave.sql"
+).read_text(encoding="utf-8")
+
+# BIDS 02 M.5: v_cambio_bid y v_hoja_activa (la racha del regreso sale de la
+# vista, no de otro camino).
+SQL60 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0060_bids02_base_lectura.sql"
+).read_text(encoding="utf-8")
+
+
+def _fake_credentials() -> AdsCredentials:
+    return AdsCredentials(
+        client_id=FAKE_CLIENT_ID,
+        client_secret=FAKE_CLIENT_SECRET,
+        refresh_token=FAKE_REFRESH_TOKEN,
+    )
+
+
+def _token_response(n: int = 1) -> httpx.Response:
+    return httpx.Response(200, json={"access_token": f"fake-access-{n}", "expires_in": 3600})
+
+
+# ---------------------------------------------------------------------------
+# Patron _db_temporal de test_apply_schema (COPIADO; aplica 0001 + 0002)
+# ---------------------------------------------------------------------------
+
+
+@contextmanager
+def _db_temporal(prefijo: str):
+    from psycopg import sql as pgsql
+
+    dsn = _test_dsn()
+    db = f"{prefijo}_{socket.gethostname().lower()}_{os.getpid()}"
+    admin = psycopg.connect(dsn, autocommit=True)
+    conn = None
+    try:
+        admin.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(db)))
+        conn = psycopg.connect(dsn, dbname=db, autocommit=True)
+        conn.execute("SET TIME ZONE 'UTC'")
+        conn.execute(SQL)  # 0001: roles, esquema sellado, grants
+        conn.execute(SQL2)  # 0002: cola de cortes, ledger, sellos de quota
+        conn.execute(SQL3)  # 0003: ads_optimizer_goal sin DEFAULT en piso/techo
+        conn.execute(SQL44)  # 0044 (D.1): decision_sin_aplicar + vista
+        conn.execute(SQL45)  # 0045 (D.1b): CHECK nombrado + choque_clave
+        yield conn
+    finally:
+        if conn is not None:
+            conn.close()
+        admin.execute(
+            pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
+        )
+        admin.close()
+
+
+# ---------------------------------------------------------------------------
+# Semilla: config con caps + ciclos + entidades + goal + decision bid
+# ---------------------------------------------------------------------------
+
+
+def _entidad(conn, kind: str, external: str, parent=None) -> int:
+    # keyword exige match_type/keyword_text coherentes (CHECK del esquema).
+    if kind == "keyword":
+        return conn.execute(
+            "INSERT INTO ad_entity (platform, kind, external_id, parent_id,"
+            " match_type, keyword_text) VALUES ('amazon_us', %s, %s, %s, 'EXACT', %s)"
+            " RETURNING id",
+            (kind, external, parent, f"kw {external}"),
+        ).fetchone()[0]
+    return conn.execute(
+        "INSERT INTO ad_entity (platform, kind, external_id, parent_id)"
+        " VALUES ('amazon_us', %s, %s, %s) RETURNING id",
+        (kind, external, parent),
+    ).fetchone()[0]
+
+
+def _semilla(
+    conn,
+    *,
+    caps: dict | None = None,
+    goal_mode: str = "live",
+    goal_enabled: bool = True,
+    con_goal: bool = True,
+    mode_ciclo_dec: str = "shadow",
+) -> dict:
+    """Config vigente con los caps pedidos (default amplio), el ciclo que
+    DECIDIO (mode_ciclo_dec: el residual shadow->aplicada-en-live), el ciclo
+    EJECUTOR live, campaign->ad_group->dos keywords con state, y el goal de
+    plataforma."""
+    settings = dict(caps) if caps is not None else {"ads_apply_cap_amazon_us_bid": 10}
+    config_id = conn.execute(
+        "INSERT INTO config_version (label, settings) VALUES ('t-apply', %s) RETURNING id",
+        (Json(settings),),
+    ).fetchone()[0]
+    ciclo_dec = conn.execute(
+        "INSERT INTO optimizer_cycle (mode, platform) VALUES (%s, 'amazon_us') RETURNING id",
+        (mode_ciclo_dec,),
+    ).fetchone()[0]
+    ciclo_ejec = conn.execute(
+        "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+    ).fetchone()[0]
+    camp = _entidad(conn, "campaign", "7001")
+    ag = _entidad(conn, "ad_group", "7101", parent=camp)
+    kw = _entidad(conn, "keyword", "7201", parent=ag)
+    kw2 = _entidad(conn, "keyword", "7202", parent=ag)
+    # CAMPANA ACTIVA 01 (1.6): la reconciliacion de bids exige campaña y
+    # grupo ENABLED en el cache antes de cualquier HTTP.
+    for entidad in (camp, ag, kw, kw2):
+        conn.execute(
+            "INSERT INTO ad_entity_state (ad_entity_id, current_bid, bid_currency, status,"
+            " synced_at) VALUES (%s, 1.00, 'USD', 'ENABLED', now())",
+            (entidad,),
+        )
+    if con_goal:
+        # Bounds EXPLICITOS (0003 quito el DEFAULT 0.10/2.50 de la DB; USD).
+        conn.execute(
+            "INSERT INTO ads_optimizer_goal (scope, platform, target_acos_pct, bid_floor,"
+            " bid_ceiling, bid_currency, enabled, mode)"
+            " VALUES ('platform', 'amazon_us', 55, 0.10, 2.50, 'USD', %s, %s)",
+            (goal_enabled, goal_mode),
+        )
+    return {
+        "config": config_id,
+        "ciclo_dec": ciclo_dec,
+        "ciclo_ejec": ciclo_ejec,
+        "camp": camp,
+        "ag": ag,
+        "kw": kw,
+        "kw2": kw2,
+    }
+
+
+def _decision_bid(
+    conn,
+    ciclo: int,
+    config_id: int,
+    entidad: int,
+    *,
+    motivo: str = "banda_menos_25",
+    cost: str = "120.50",
+    old: str = "1.00",
+    new: str = "0.85",
+    modo: str = "live",
+) -> int:
+    """Decision kind='bid' con inputs congelados al shape del ciclo (regla 4:
+    Decimals como string). El aplicador JAMAS lee inputs.modo (residual)."""
+    inputs = {
+        "motor": "bid",
+        "platform": "amazon_us",
+        "ventanas": {
+            "bids": {"cost": cost, "ad_revenue": "40.00", "clicks": 30, "orders": 3},
+            "cortes": {"cost": cost, "ad_revenue": "40.00", "clicks": 30, "orders": 0},
+        },
+        "goal": {
+            "scope": "platform",
+            "target_acos_pct": "55",
+            "bid_floor": "0.10",
+            "bid_ceiling": "2.50",
+            "harvest": None,
+        },
+        "target_acos_pct_usado": "55",
+        "bid_actual": old,
+        "bid_moneda": "USD",
+        "factor": "-0.25",
+        "motivo": motivo,
+        "modo": modo,
+    }
+    return conn.execute(
+        "INSERT INTO decision (cycle_id, ad_entity_id, kind, config_version_id,"
+        " data_observed_at, window_start, window_end, old_value, new_value, value_currency,"
+        " inputs) VALUES (%s, %s, 'bid', %s, now() - interval '40 days', CURRENT_DATE - 60,"
+        " CURRENT_DATE - 30, %s, %s, 'USD', %s) RETURNING id",
+        (ciclo, entidad, config_id, Decimal(old), Decimal(new), Json(inputs)),
+    ).fetchone()[0]
+
+
+# ---------------------------------------------------------------------------
+# Mock de la API de Ads: token + mutacion + readback (transport espia)
+# ---------------------------------------------------------------------------
+
+
+def _handler_api(remoto: dict[str, str], *, desviado: dict[str, str] | None = None):
+    """Handler MockTransport con el shape REAL del probe 2.5 (2026-08-26,
+    ledger ids 1-20, log out/smoke-apply-20260826.log): el PUT viaja como
+    UNICA entrada del contenedor del recurso (keywords/targetingClauses) con
+    bid NUMERO, y el readback es el POST de LISTA (el GET directo responde
+    403 — retirado; apply_attempt 4-5) devolviendo TODAS las filas del
+    `remoto` (el cruce de id es del motor). `desviado` pisa el bid leido de
+    una clave (test de cache con lo LEIDO != enviado)."""
+    vistos: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return _token_response()
+        vistos.append(request)
+        if request.method == "PUT":
+            body = json.loads(request.content)
+            # Contenedor del recurso (probe 2.5, apply_attempt 1 y 18-20).
+            obj = body["keywords"][0] if "keywords" in body else body["targetingClauses"][0]
+            ext = str(obj.get("keywordId") or obj.get("targetId"))
+            remoto[ext] = obj["bid"]  # bid NUMERO en el wire (apply_attempt 3)
+            return httpx.Response(207, json={"ack": obj})
+        if request.method == "POST" and request.url.path.endswith("/list"):
+            contenedor, campo = (
+                ("targetingClauses", "targetId")
+                if request.url.path == "/sp/targets/list"
+                else ("keywords", "keywordId")
+            )
+            filas = []
+            for ext, bid in remoto.items():
+                leido = (desviado or {}).get(ext, bid)
+                filas.append({campo: ext, "bid": leido, "state": "ENABLED"})
+            return httpx.Response(200, json={contenedor: filas, "totalResults": len(filas)})
+        raise AssertionError(f"request inesperado: {request.method} {request.url.path}")
+
+    return handler, vistos
+
+
+def _aplicador(conn, handler, cycle_id: int) -> Aplicador:
+    return Aplicador(
+        conn,
+        platform="amazon_us",
+        profile_id=FAKE_PROFILE_US,
+        credentials=_fake_credentials(),
+        cycle_id_ejecutor=cycle_id,
+        owner="test:apply",
+        job_key="ads_optimizer:amazon_us",
+        transport=httpx.MockTransport(handler),
+        sleep=lambda seconds: None,
+    )
+
+
+def _write_client(handler) -> AdsWriteClient:
+    return AdsWriteClient(
+        _fake_credentials(),
+        platform="amazon_us",
+        profile_id=FAKE_PROFILE_US,
+        modo_confirmado="live",
+        transport=httpx.MockTransport(handler),
+        sleep=lambda seconds: None,
+    )
+
+
+def _puts(vistos: list[httpx.Request]) -> list[httpx.Request]:
+    return [r for r in vistos if r.method == "PUT"]
+
+
+def _lists(vistos: list[httpx.Request]) -> list[httpx.Request]:
+    """Los readbacks por LIST (POST de lectura; probe 2.5: el GET directo de
+    entidad esta retirado — un GET en vistos seria un bug del motor)."""
+    return [r for r in vistos if r.method == "POST" and r.url.path.endswith("/list")]
+
+
+def _obj_de_put(request: httpx.Request) -> dict:
+    """El objeto de mutacion tal como viaja en el wire REAL del probe 2.5:
+    unica entrada de la lista bajo el contenedor del recurso."""
+    body = json.loads(request.content)
+    return body.get("keywords", body.get("targetingClauses"))[0]
+
+
+# ---------------------------------------------------------------------------
+# 1. Escalera shadow -> CERO HTTP (regla 9)
+# ---------------------------------------------------------------------------
+
+
+@_skip_db
+def test_escalera_shadow_cero_http():
+    """La escalera global en shadow: ni token LWA. Regla 9: sin la
+    re-resolucion por decision (p.ej. confiando en inputs.modo='live'), el
+    cliente se construiria y el espia contaria requests."""
+    with _db_temporal("orbit_apply_sh0") as conn:
+        ids = _semilla(conn)
+        _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"], modo="live")
+        handler, vistos = _handler_api({"7201": "0.85"})
+        ap = _aplicador(conn, handler, ids["ciclo_ejec"])
+
+        res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="shadow")
+
+        assert res.skips == [MOTIVO_MODO_NO_LIVE]
+        assert res.aplicadas == 0
+        assert res.descartadas == []
+        assert vistos == [], "escalera shadow: cero requests a la API de Ads"
+        for tabla in ("apply_attempt", "decision_application", "apply_quota_state"):
+            assert conn.execute(f"SELECT count(*) FROM {tabla}").fetchone()[0] == 0, tabla
+        assert conn.execute(
+            "SELECT current_bid FROM ad_entity_state WHERE ad_entity_id = %s", (ids["kw"],)
+        ).fetchone()[0] == Decimal("1.00")
+
+
+# ---------------------------------------------------------------------------
+# 2. Envelope live + goal shadow/off/disabled/sin goal -> NO aplica (regla 9)
+# ---------------------------------------------------------------------------
+
+
+@_skip_db
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"goal_mode": "shadow"},  # el residual sellado de cycle.py
+        {"goal_mode": "off"},
+        {"goal_enabled": False},
+        {"con_goal": False},
+    ],
+    ids=["goal-shadow", "goal-off", "goal-disabled", "sin-goal"],
+)
+def test_envelope_live_con_goal_no_live_no_aplica(kwargs):
+    """La decision nacio con inputs.modo='live' en un ciclo 'live' (todo lo
+    congelado dice live), pero el goal HOY no llega a live: el aplicador
+    re-resuelve y NO aplica. Regla 9: una implementacion que filtrara por
+    inputs.modo o cycle.mode aplicaria."""
+    with _db_temporal("orbit_apply_gl0") as conn:
+        ids = _semilla(conn, mode_ciclo_dec="live", **kwargs)
+        _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"], modo="live")
+        handler, vistos = _handler_api({"7201": "0.85"})
+        ap = _aplicador(conn, handler, ids["ciclo_ejec"])
+
+        res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
+
+        assert res.skips == [MOTIVO_MODO_NO_LIVE]
+        assert vistos == []
+        assert conn.execute("SELECT count(*) FROM apply_attempt").fetchone()[0] == 0
+        assert conn.execute("SELECT count(*) FROM decision_application").fetchone()[0] == 0
+
+
+# ---------------------------------------------------------------------------
+# 3. Crash entre ledger y HTTP: el rastro existe y la decision no esta aplicada
+# ---------------------------------------------------------------------------
+
+
+@_skip_db
+def test_crash_entre_ledger_y_http_deja_rastro_visible():
+    """Se siembra una fila del ledger SIN sello (el crash entre INSERT y
+    HTTP): la reconciliacion la VE (finished_at IS NULL) y la decision NO
+    esta aplicada (sin decision_application)."""
+    with _db_temporal("orbit_apply_crash") as conn:
+        ids = _semilla(conn)
+        dec = _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"])
+        conn.execute(
+            "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload, quota_cobrada)"
+            " VALUES (%s, 1, 'normal', %s, true)",
+            (dec, Json({"keywordId": "7201", "bid": "0.85"})),
+        )
+
+        sin_sello = intentos_sin_sello(conn)
+
+        assert [fila[1] for fila in sin_sello] == [dec], "la fila sin sello ES el rastro"
+        assert sin_sello[0][2] == 1 and sin_sello[0][3] == "normal"
+        aplicada = conn.execute(
+            "SELECT EXISTS (SELECT 1 FROM decision_application WHERE decision_id = %s)", (dec,)
+        ).fetchone()[0]
+        assert aplicada is False
+
+
+# ---------------------------------------------------------------------------
+# 4. No existe 4o intento (COUNT del ledger)
+# ---------------------------------------------------------------------------
+
+
+@_skip_db
+def test_no_existe_cuarto_intento():
+    with _db_temporal("orbit_apply_tope") as conn:
+        ids = _semilla(conn)
+        dec = _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"])
+        for seq in (1, 2, 3):
+            conn.execute(
+                "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload,"
+                " quota_cobrada) VALUES (%s, %s, 'normal', '{}'::jsonb, true)",
+                (dec, seq),
+            )
+        handler, vistos = _handler_api({"7201": "0.85"})
+        ap = _aplicador(conn, handler, ids["ciclo_ejec"])
+
+        res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
+
+        assert res.skips == [MOTIVO_TOPE_INTENTOS]
+        assert vistos == [], "tope de 3 intentos: ni se construye el cliente para ella"
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM apply_attempt WHERE decision_id = %s", (dec,)
+            ).fetchone()[0]
+            == 3
+        ), "no nace 4a fila"
+
+
+# ---------------------------------------------------------------------------
+# 5. Bid descartado bajo cap no reaparece
+# ---------------------------------------------------------------------------
+
+
+@_skip_db
+def test_bid_descartado_bajo_cap_no_reaparece():
+    with _db_temporal("orbit_apply_cap") as conn:
+        ids = _semilla(conn, caps={"ads_apply_cap_amazon_us_bid": 1})
+        dec1 = _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"], cost="120.50")
+        dec2 = _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw2"], cost="80.00")
+        handler, vistos = _handler_api({"7201": "0.85", "7202": "0.85"})
+        ap = _aplicador(conn, handler, ids["ciclo_ejec"])
+
+        res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
+
+        assert res.orden == [dec1, dec2], "hemorragia primero: mismo motivo, cost DESC"
+        assert res.aplicadas == 1
+        assert res.descartadas == [MOTIVO_FUERA_DE_CAP]
+        assert [_obj_de_put(p)["keywordId"] for p in _puts(vistos)] == ["7201"]
+        assert len(_lists(vistos)) == 1
+
+        # Re-llamar: el aplicado salta (ya_aplicada) y el descartado NO se
+        # reintenta (bids fuera de cap = DESCARTADOS, sellado 8).
+        res2 = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
+
+        assert res2.skips == [MOTIVO_YA_APLICADA]
+        assert res2.descartadas == [MOTIVO_FUERA_DE_CAP]
+        assert len(_puts(vistos)) == 1, "el descartado jamas genera HTTP"
+        fila = conn.execute(
+            "SELECT used, cap FROM apply_quota_state WHERE motor = %s",
+            (motor_quota("amazon_us", "bid"),),
+        ).fetchone()
+        assert fila == (1, 1)
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM apply_attempt WHERE decision_id = %s", (dec2,)
+            ).fetchone()[0]
+            == 0
+        ), "el descartado no deja fila de ledger"
+
+
+# ---------------------------------------------------------------------------
+# 6. Cache actualizado post-readback con LO LEIDO
+# ---------------------------------------------------------------------------
+
+
+@_skip_db
+def test_cache_actualizado_post_readback_con_lo_leido():
+    """El readback devuelve 0.90 cuando se pidio 0.85: el cache queda con LO
+    LEIDO (divergencia incluida), jamas lo enviado. Regla 9: sin este UPDATE,
+    el ciclo siguiente calcularia sobre el bid viejo (sellado 16)."""
+    with _db_temporal("orbit_apply_rb") as conn:
+        ids = _semilla(conn)
+        dec = _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"], new="0.85")
+        handler, vistos = _handler_api({"7201": "0.85"}, desviado={"7201": "0.90"})
+        ap = _aplicador(conn, handler, ids["ciclo_ejec"])
+
+        res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
+
+        assert res.aplicadas == 0, "divergencia: verify_ok false, no cuenta como aplicada"
+        cache = conn.execute(
+            "SELECT current_bid FROM ad_entity_state WHERE ad_entity_id = %s", (ids["kw"],)
+        ).fetchone()[0]
+        assert cache == Decimal("0.90"), "el cache lleva LO LEIDO del readback"
+        resumen = conn.execute(
+            "SELECT verify_ok, applied_cycle_id FROM decision_application WHERE decision_id = %s",
+            (dec,),
+        ).fetchone()
+        assert resumen == (False, None)
+        assert (
+            conn.execute(
+                "SELECT applied_count FROM optimizer_cycle WHERE id = %s", (ids["ciclo_ejec"],)
+            ).fetchone()[0]
+            is None
+        )
+        resultado = conn.execute(
+            "SELECT resultado FROM apply_attempt WHERE decision_id = %s", (dec,)
+        ).fetchone()[0]
+        assert resultado == "fallo:divergencia_readback", (
+            "QW1: la divergencia sella SIEMPRE la misma etiqueta (antes 'ok')"
+        )
+
+
+# ---------------------------------------------------------------------------
+# 7. Terna parcial revienta (esquema)
+# ---------------------------------------------------------------------------
+
+
+@_skip_db
+def test_terna_parcial_revienta():
+    with _db_temporal("orbit_apply_terna") as conn:
+        ids = _semilla(conn)
+        dec = _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"])
+        conn.execute("INSERT INTO decision_application (decision_id) VALUES (%s)", (dec,))
+
+        # confirmed_at sin platform_ack: "confien en mi" sin el readback.
+        with pytest.raises(psycopg.errors.CheckViolation):
+            conn.execute(
+                "UPDATE decision_application SET confirmed_at = now() WHERE decision_id = %s",
+                (dec,),
+            )
+        # verify_ok sin confirmed_at: enfriaria sin readback.
+        with pytest.raises(psycopg.errors.CheckViolation):
+            conn.execute(
+                "UPDATE decision_application SET verify_ok = true WHERE decision_id = %s", (dec,)
+            )
+        # La terna COMPLETA si pasa.
+        conn.execute(
+            "UPDATE decision_application SET confirmed_at = now(), platform_ack = '{}'::jsonb,"
+            " verify_ok = true WHERE decision_id = %s",
+            (dec,),
+        )
+
+
+# ---------------------------------------------------------------------------
+# 8. applied_count por ciclo EJECUTOR
+# ---------------------------------------------------------------------------
+
+
+@_skip_db
+def test_applied_count_y_applied_cycle_por_ciclo_ejecutor():
+    """Decision nacida en ciclo A shadow (inputs.modo shadow), aplicada en el
+    ciclo B live: applied_cycle_id == B y applied_count cuadra por ejecutor."""
+    with _db_temporal("orbit_apply_ejec") as conn:
+        ids = _semilla(conn, mode_ciclo_dec="shadow")
+        dec = _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"], modo="shadow")
+        handler, vistos = _handler_api({"7201": "0.85"})
+        ap = _aplicador(conn, handler, ids["ciclo_ejec"])
+
+        res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
+
+        assert res.aplicadas == 1
+        assert len(_puts(vistos)) == 1
+        assert (
+            conn.execute(
+                "SELECT applied_cycle_id FROM decision_application WHERE decision_id = %s", (dec,)
+            ).fetchone()[0]
+            == ids["ciclo_ejec"]
+        )
+        ejec = conn.execute(
+            "SELECT applied_count FROM optimizer_cycle WHERE id = %s", (ids["ciclo_ejec"],)
+        ).fetchone()[0]
+        decide = conn.execute(
+            "SELECT applied_count FROM optimizer_cycle WHERE id = %s", (ids["ciclo_dec"],)
+        ).fetchone()[0]
+        assert (ejec, decide) == (1, None)
+
+
+# ---------------------------------------------------------------------------
+# 9. Quota atomica: bajo cap, agotada, sin clave (fail-closed)
+# ---------------------------------------------------------------------------
+
+
+@_skip_db
+def test_quota_consume_bajo_cap_agotada_y_sin_clave_fail_closed():
+    with _db_temporal("orbit_apply_q") as conn:
+        _semilla(conn, caps={"ads_apply_cap_amazon_us_bid": 2})
+
+        assert motor_quota("amazon_us", "bid") == "ads_optimizer:amazon_us:bid"
+        assert consume_quota(conn, "amazon_us", "bid") is True
+        assert consume_quota(conn, "amazon_us", "bid") is True
+        assert consume_quota(conn, "amazon_us", "bid") is False, "cap agotado"
+
+        fila = conn.execute(
+            "SELECT used, cap, quota_date = (now() AT TIME ZONE 'UTC')::date"
+            " FROM apply_quota_state WHERE motor = %s",
+            (motor_quota("amazon_us", "bid"),),
+        ).fetchone()
+        assert fila == (2, 2, True)
+
+        # Config NUEVA mas reciente SIN claves: fail-closed, no nace fila.
+        conn.execute(
+            "INSERT INTO config_version (label, settings) VALUES ('sin caps', '{}'::jsonb)"
+        )
+        assert consume_quota(conn, "amazon_us", "bid") is False
+        assert consume_quota(conn, "amazon_us", "negative") is False
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM apply_quota_state WHERE motor = %s",
+                (motor_quota("amazon_us", "negative"),),
+            ).fetchone()[0]
+            == 0
+        ), "sin clave NO nace fila del dia"
+
+
+# ---------------------------------------------------------------------------
+# 10. Reversa de bid: old_value, ledger exento, readback, cache
+# ---------------------------------------------------------------------------
+
+
+@_skip_db
+def test_reversa_de_bid_exenta_de_quota():
+    with _db_temporal("orbit_apply_rev") as conn:
+        ids = _semilla(conn, caps={"ads_apply_cap_amazon_us_bid": 1})
+        _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"], old="1.00", new="0.85")
+        handler, vistos = _handler_api({"7201": "1.00"})  # tras la reversa, Amazon vuelve a 1.00
+        ap = _aplicador(conn, handler, ids["ciclo_ejec"])
+        res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
+        assert res.aplicadas == 1
+
+        ok = reversa_bid(conn, _write_client(handler), bids_del_ciclo(conn, ids["ciclo_dec"])[0])
+
+        assert ok is True
+        assert [_obj_de_put(p)["bid"] for p in _puts(vistos)] == [0.85, 1.0], (
+            "bid NUMERO en el wire (probe 2.5, apply_attempt 3: string -> 400)"
+        )
+        filas = conn.execute(
+            "SELECT tipo, quota_cobrada, resultado FROM apply_attempt ORDER BY seq"
+        ).fetchall()
+        assert filas == [("normal", True, "ok"), ("reversa", False, "ok")], "reversa EXENTA"
+        used = conn.execute(
+            "SELECT used FROM apply_quota_state WHERE motor = %s",
+            (motor_quota("amazon_us", "bid"),),
+        ).fetchone()[0]
+        assert used == 1, "la reversa NO consume quota (sellado 12)"
+        cache = conn.execute(
+            "SELECT current_bid FROM ad_entity_state WHERE ad_entity_id = %s", (ids["kw"],)
+        ).fetchone()[0]
+        assert cache == Decimal("1.00"), "cache con lo LEIDO del readback de la reversa"
+
+
+# ---------------------------------------------------------------------------
+# 11. AdsApiErrorMutacion: cuerpo en la excepcion y en el ledger
+# ---------------------------------------------------------------------------
+
+
+def test_write_mutacion_400_levanta_ads_api_error_mutacion_con_cuerpo_redactado():
+    """>=400 hoy pierde el body (AdsApiError solo lleva status+metodo+path);
+    AdsApiErrorMutacion conserva un snippet SANEADO: el access token de LWA
+    esta registrado como secreto y el cuerpo lo ecoa -> scrub lo redacta."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return _token_response()
+        return httpx.Response(400, json={"detail": "INVALID_BID", "eco_token": "fake-access-1"})
+
+    client = _write_client(handler)
+    with pytest.raises(AdsApiErrorMutacion) as ei:
+        client.actualizar_bid_keyword(101, Decimal("0.75"), "USD")
+
+    assert isinstance(ei.value, Exception)
+    assert ei.value.status == 400
+    assert ei.value.method == "PUT"
+    assert ei.value.path == "/sp/keywords"
+    assert "INVALID_BID" in ei.value.cuerpo
+    assert "fake-access-1" not in ei.value.cuerpo, "el cuerpo va redactado (scrub)"
+    assert len(ei.value.cuerpo) <= 500
+
+
+@_skip_db
+def test_aplicador_sella_fallo_http_en_ledger_y_no_marca_aplicada():
+    with _db_temporal("orbit_apply_err") as conn:
+        ids = _semilla(conn)
+        dec = _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"])
+        vistos: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "api.amazon.com":
+                return _token_response()
+            vistos.append(request)
+            assert request.method == "PUT", "sin readback tras un rechazo >=400"
+            return httpx.Response(400, json={"detail": "INVALID_BID"})
+
+        ap = _aplicador(conn, handler, ids["ciclo_ejec"])
+        res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
+
+        assert res.skips == [MOTIVO_FALLO_HTTP]
+        assert res.aplicadas == 0
+        fila = conn.execute(
+            "SELECT resultado, ack, finished_at FROM apply_attempt WHERE decision_id = %s", (dec,)
+        ).fetchone()
+        assert "INVALID_BID" in fila[0], "el ledger conserva el cuerpo del rechazo"
+        assert fila[1] is None and fila[2] is not None
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM decision_application WHERE decision_id = %s", (dec,)
+            ).fetchone()[0]
+            == 0
+        ), "la decision NO se marca aplicada"
+
+
+# ---------------------------------------------------------------------------
+# 12. Puerta de lectura sellada: get_sellado (bidrec PENDIENTE-DE-REGLA-8) y
+# list_sellado (EL readback de entidad desde el probe 2.5)
+# ---------------------------------------------------------------------------
+
+
+def test_get_sellado_usa_el_scope_de_la_instancia():
+    """El re-check del aplicador JAMAS pasa un profile a mano: get_sellado es
+    una puerta de lectura con el scope sellado del constructor. Desde el probe
+    2.5 NO sirve entidad sp (GET retirado, 403): su unico caller es
+    bid_sugerido (PENDIENTE-DE-REGLA-8, log out/regla8-bidrec.log)."""
+    vistos: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        vistos.append(request)
+        if request.url.host == "api.amazon.com":
+            return _token_response()
+        return httpx.Response(200, json={"keywords": []})
+
+    client = _write_client(handler)
+    resp = client.get_sellado("/sp/keywords", params={"keywordId": "7201"})
+
+    assert resp.status_code == 200
+    api = vistos[1]
+    assert api.method == "GET"
+    assert api.url.path == "/sp/keywords"
+    assert api.url.params["keywordId"] == "7201"
+    assert api.headers["Amazon-Advertising-API-Scope"] == str(FAKE_PROFILE_US)
+
+
+# ===========================================================================
+# Probe 2.5 (corrida autorizada 2026-08-26, ledger probe ids 1-20, log
+# out/smoke-apply-20260826.log): el GET directo de entidad sp esta RETIRADO
+# (403, apply_attempt 4-5) — el readback del motor vive por LIST. Tests PUROS
+# (sin DB) del cruce de id y de la puerta sellada (regla 9: rojo demostrado
+# en out/tdd-red-o4-shapes.log contra el motor que leia filas[0] por GET).
+# ===========================================================================
+
+
+def test_list_sellado_es_la_puerta_de_readback_con_get_retirado():
+    """El mock replica a Amazon REAL (probe 2.5, apply_attempt 4-5): GET
+    /sp/keywords → 403, POST /sp/keywords/list → 200. list_sellado es la
+    puerta de readback con el MISMO scope sellado (header presente). Regla 9:
+    contra el write client sin list_sellado, este test reventaba con
+    AttributeError — el motor no tenia puerta de lectura util."""
+    vistos: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return _token_response()
+        vistos.append(request)
+        if request.method == "GET":
+            return httpx.Response(403, json={"message": "sigv4 requerido (GET retirado)"})
+        assert request.method == "POST" and request.url.path == "/sp/keywords/list"
+        return httpx.Response(200, json={"keywords": [{"keywordId": "7201", "bid": 0.85}]})
+
+    client = _write_client(handler)
+    resp = client.list_sellado("/sp/keywords/list", {})
+
+    assert resp.status_code == 200
+    assert resp.json()["keywords"][0]["bid"] == 0.85
+    assert [f"{r.method} {r.url.path}" for r in vistos] == ["POST /sp/keywords/list"], (
+        "el readback de entidad JAMAS sale por GET: retirado (probe 2.5)"
+    )
+    assert vistos[0].headers["Amazon-Advertising-API-Scope"] == str(FAKE_PROFILE_US)
+    # La puerta GET sigue EXISTIENDO pero solo para el PENDIENTE-DE-REGLA-8
+    # (bid_sugerido): contra el mock real responde 403 → AdsApiError.
+    from app.ads.client import AdsApiError
+
+    with pytest.raises(AdsApiError):
+        client.get_sellado("/sp/keywords", params={"keywordId": "7201"})
+
+
+def test_bid_leido_por_list_cruza_id_en_respuesta_multifila():
+    """La respuesta del LIST trae TODAS las keywords de la cuenta: el bid se
+    lee SOLO de la fila cuyo id CRUZA con el pedido (CX6/GK8 extendido al
+    list). Regla 9: el lector viejo (filas[0] del GET de una sola fila)
+    devuelve None con el senuelo primero y este test reventaba."""
+    from app.apply import _bid_leido
+
+    resp = httpx.Response(
+        200,
+        json={
+            "keywords": [
+                {"keywordId": "9999", "bid": 7.77},  # senuelo: OTRA entidad
+                {"keywordId": "7201", "bid": 0.85},  # la pedida, SEGUNDA
+                {"keywordId": "7202", "bid": 1.5},
+            ]
+        },
+    )
+    assert _bid_leido(resp, "keywords", "keywordId", "7201") == Decimal("0.85")
+    # El id que NO esta en la respuesta JAMAS confirma (regla 3).
+    assert _bid_leido(resp, "keywords", "keywordId", "7777") is None
+    # Contenedor del target: targetingClauses (probe 2.5, apply_attempt 18-20).
+    resp_t = httpx.Response(200, json={"targetingClauses": [{"targetId": "7301", "bid": 0.32}]})
+    assert _bid_leido(resp_t, "targetingClauses", "targetId", "7301") == Decimal("0.32")
+
+
+# ---------------------------------------------------------------------------
+# 13. Orden bajo cupo de niveles_v3 (BIDS 02 M.3)
+# ---------------------------------------------------------------------------
+
+
+def _bid_cupo(id_: int, veredicto_kind: str, motivo: str, gasto: str | None) -> DecisionBid:
+    """Decision manual con inputs de niveles_v3: motivo + caso con el gasto
+    crudo de la hoja (reciente + antiguo). gasto None = desconocido."""
+    return DecisionBid(
+        id=id_,
+        ad_entity_id=id_,
+        old_value=Decimal("1.00"),
+        new_value=Decimal("0.88"),
+        value_currency="USD",
+        inputs={
+            "motivo": motivo,
+            "veredicto_kind": veredicto_kind,
+            "caso": {
+                "propia": {
+                    "reciente": {"gasto": gasto},
+                    "antiguo": {"gasto": "0" if gasto is not None else None},
+                }
+            },
+        },
+    )
+
+
+def test_prioridad_bajo_cupo_niveles_por_motivo():
+    """M.3: 0 regresos (R1), 1 recortes con evidencia propia (R3, R9),
+    2 subidas (R6), 3 recortes heredados (R4, R11); ajeno al final."""
+    assert prioridad_bajo_cupo("Regresar", "regreso_por_desplome") == 0
+    for motivo in (
+        "pierde_dinero",
+        "pierde_dinero_fuerte",
+        "gasto_sin_venta",
+        "gasto_sin_venta_doble",
+    ):
+        assert prioridad_bajo_cupo("Mover", motivo) == 1, motivo
+    assert prioridad_bajo_cupo("Mover", "bajo_target") == 2
+    for motivo in ("grupo_sangra_vendedora", "grupo_sangra"):
+        assert prioridad_bajo_cupo("Mover", motivo) == 3, motivo
+    assert prioridad_bajo_cupo("Mover", "banda_menos_25") == 4
+    assert prioridad_bajo_cupo("Mover", "otro_cosa") == 4
+
+
+def test_orden_bajo_cupo_nivel_y_gasto_desc():
+    """M.3: regresos, recortes propios, subidas, heredados; dentro de cada
+    nivel va primero el de mas gasto; gasto None al final de su nivel."""
+    reg = _bid_cupo(1, "Regresar", "regreso_por_desplome", "10")
+    propio_caro = _bid_cupo(2, "Mover", "pierde_dinero", "200")
+    propio_barato = _bid_cupo(3, "Mover", "gasto_sin_venta", "100")
+    propio_none = _bid_cupo(4, "Mover", "pierde_dinero_fuerte", None)
+    subida = _bid_cupo(5, "Mover", "bajo_target", "9999")
+    heredado = _bid_cupo(6, "Mover", "grupo_sangra", "9999")
+    orden = orden_bajo_cupo([heredado, subida, propio_none, propio_barato, propio_caro, reg])
+    assert [d.id for d in orden] == [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+    ]
+
+
+def test_prioridad_bajo_cupo_motivos_existen_en_politica():
+    """M.3: cada motivo literal que prioridad_bajo_cupo compara contra
+    `motivo` existe en app/optimizer/politica.py (un typo caeria al
+    final en silencio)."""
+    import ast
+    from pathlib import Path
+
+    from app.optimizer import politica
+
+    motivos_politica = {v for k, v in vars(politica).items() if k.startswith("MOTIVO_")}
+    assert motivos_politica, "politica.py sin constantes MOTIVO_*"
+    arbol = ast.parse(
+        (Path(__file__).resolve().parents[1] / "app" / "apply.py").read_text(encoding="utf-8")
+    )
+    defs = [n for n in ast.walk(arbol) if isinstance(n, ast.FunctionDef)]
+    (nodo,) = [n for n in defs if n.name == "prioridad_bajo_cupo"]
+    literales: set[str] = set()
+    for n in ast.walk(nodo):
+        if not isinstance(n, ast.Compare):
+            continue
+        if isinstance(n.left, ast.Name) and n.left.id == "motivo":
+            for comp in n.comparators:
+                if isinstance(comp, ast.Constant) and isinstance(comp.value, str):
+                    literales.add(comp.value)
+                elif isinstance(comp, ast.Tuple):
+                    literales.update(
+                        e.value
+                        for e in comp.elts
+                        if isinstance(e, ast.Constant) and isinstance(e.value, str)
+                    )
+    assert literales, "prioridad_bajo_cupo no compara literales contra motivo"
+    assert literales <= motivos_politica, (
+        f"literales ajenos a politica.py: {literales - motivos_politica}"
+    )
+
+
+def _kw_con_state(conn, parent: int, external: str) -> int:
+    kw = _entidad(conn, "keyword", external, parent=parent)
+    conn.execute(
+        "INSERT INTO ad_entity_state (ad_entity_id, current_bid, bid_currency, status,"
+        " synced_at) VALUES (%s, 1.00, 'USD', 'ENABLED', now())",
+        (kw,),
+    )
+    return kw
+
+
+def _decision_cupo(
+    conn, ciclo: int, config_id: int, entidad: int, *, veredicto_kind: str, motivo: str, gasto: str
+) -> int:
+    """Decision kind='bid' con inputs de niveles_v3 (motivo + caso)."""
+    inputs = {
+        "motor": "bid",
+        "platform": "amazon_us",
+        "motivo": motivo,
+        "veredicto_kind": veredicto_kind,
+        "caso": {"propia": {"reciente": {"gasto": gasto}, "antiguo": {"gasto": "0"}}},
+    }
+    return conn.execute(
+        "INSERT INTO decision (cycle_id, ad_entity_id, kind, config_version_id,"
+        " data_observed_at, window_start, window_end, old_value, new_value, value_currency,"
+        " inputs) VALUES (%s, %s, 'bid', %s, now() - interval '40 days', CURRENT_DATE - 60,"
+        " CURRENT_DATE - 30, 1.00, 0.88, 'USD', %s) RETURNING id",
+        (ciclo, entidad, config_id, Json(inputs)),
+    ).fetchone()[0]
+
+
+@_skip_db
+def test_aplica_bids_cupo_dos_aplica_regreso_y_propio_descarta_resto():
+    """M.3: cupo 2 con cuatro decisiones del mismo ciclo, una por nivel:
+    aplica el regreso y el recorte con evidencia propia; descarta la
+    subida y el recorte heredado con fuera_de_cap."""
+    with _db_temporal("orbit_apply_cupo2") as conn:
+        ids = _semilla(conn, caps={"ads_apply_cap_amazon_us_bid": 2})
+        kw3 = _kw_con_state(conn, ids["ag"], "7203")
+        kw4 = _kw_con_state(conn, ids["ag"], "7204")
+        # Siembra en orden INVERSO al esperado: un orden estable (o por
+        # gasto) aplicaria al heredado primero y la prueba fallaria.
+        dec_heredado = _decision_cupo(
+            conn,
+            ids["ciclo_dec"],
+            ids["config"],
+            kw4,
+            veredicto_kind="Mover",
+            motivo="grupo_sangra",
+            gasto="9999",
+        )
+        dec_subida = _decision_cupo(
+            conn,
+            ids["ciclo_dec"],
+            ids["config"],
+            kw3,
+            veredicto_kind="Mover",
+            motivo="bajo_target",
+            gasto="9999",
+        )
+        dec_propio = _decision_cupo(
+            conn,
+            ids["ciclo_dec"],
+            ids["config"],
+            ids["kw2"],
+            veredicto_kind="Mover",
+            motivo="pierde_dinero",
+            gasto="50",
+        )
+        dec_reg = _decision_cupo(
+            conn,
+            ids["ciclo_dec"],
+            ids["config"],
+            ids["kw"],
+            veredicto_kind="Regresar",
+            motivo="regreso_por_desplome",
+            gasto="10",
+        )
+        handler, vistos = _handler_api(
+            {"7201": "0.88", "7202": "0.88", "7203": "0.88", "7204": "0.88"}
+        )
+        ap = _aplicador(conn, handler, ids["ciclo_ejec"])
+
+        res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
+
+        assert res.orden == [dec_reg, dec_propio, dec_subida, dec_heredado]
+        assert res.aplicadas == 2
+        assert res.descartadas == [MOTIVO_FUERA_DE_CAP, MOTIVO_FUERA_DE_CAP]
+        assert [_obj_de_put(p)["keywordId"] for p in _puts(vistos)] == ["7201", "7202"]
+
+
+@_skip_db
+def test_aplica_bids_cupo_uno_regreso_barato_antes_que_recorte_caro():
+    """M.3: cupo 1: un regreso de poco gasto se aplica antes que un
+    recorte de mucho gasto."""
+    with _db_temporal("orbit_apply_cupo1") as conn:
+        ids = _semilla(conn, caps={"ads_apply_cap_amazon_us_bid": 1})
+        # Siembra inversa: el recorte caro entra primero; solo el nivel
+        # del regreso lo pone delante.
+        dec_propio = _decision_cupo(
+            conn,
+            ids["ciclo_dec"],
+            ids["config"],
+            ids["kw2"],
+            veredicto_kind="Mover",
+            motivo="pierde_dinero_fuerte",
+            gasto="9999",
+        )
+        dec_reg = _decision_cupo(
+            conn,
+            ids["ciclo_dec"],
+            ids["config"],
+            ids["kw"],
+            veredicto_kind="Regresar",
+            motivo="regreso_por_desplome",
+            gasto="10",
+        )
+        handler, vistos = _handler_api({"7201": "0.88", "7202": "0.88"})
+        ap = _aplicador(conn, handler, ids["ciclo_ejec"])
+
+        res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
+
+        assert res.orden == [dec_reg, dec_propio]
+        assert res.aplicadas == 1
+        assert res.descartadas == [MOTIVO_FUERA_DE_CAP]
+        assert [_obj_de_put(p)["keywordId"] for p in _puts(vistos)] == ["7201"]
+
+
+@_skip_db
+def test_aplica_bids_cupo_tres_descarta_heredado_aunque_mas_gasto():
+    """M.3: cupo 3: el descartado es el recorte heredado, aunque sea el
+    de mas gasto."""
+    with _db_temporal("orbit_apply_cupo3") as conn:
+        ids = _semilla(conn, caps={"ads_apply_cap_amazon_us_bid": 3})
+        kw3 = _kw_con_state(conn, ids["ag"], "7203")
+        kw4 = _kw_con_state(conn, ids["ag"], "7204")
+        # Siembra inversa: el heredado de mas gasto entra primero; solo
+        # el nivel lo manda al final.
+        dec_heredado = _decision_cupo(
+            conn,
+            ids["ciclo_dec"],
+            ids["config"],
+            kw4,
+            veredicto_kind="Mover",
+            motivo="grupo_sangra_vendedora",
+            gasto="9999",
+        )
+        dec_subida = _decision_cupo(
+            conn,
+            ids["ciclo_dec"],
+            ids["config"],
+            kw3,
+            veredicto_kind="Mover",
+            motivo="bajo_target",
+            gasto="60",
+        )
+        dec_propio = _decision_cupo(
+            conn,
+            ids["ciclo_dec"],
+            ids["config"],
+            ids["kw2"],
+            veredicto_kind="Mover",
+            motivo="pierde_dinero",
+            gasto="50",
+        )
+        dec_reg = _decision_cupo(
+            conn,
+            ids["ciclo_dec"],
+            ids["config"],
+            ids["kw"],
+            veredicto_kind="Regresar",
+            motivo="regreso_por_desplome",
+            gasto="10",
+        )
+        handler, vistos = _handler_api(
+            {"7201": "0.88", "7202": "0.88", "7203": "0.88", "7204": "0.88"}
+        )
+        ap = _aplicador(conn, handler, ids["ciclo_ejec"])
+
+        res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
+
+        assert res.orden == [dec_reg, dec_propio, dec_subida, dec_heredado]
+        assert res.aplicadas == 3
+        assert res.descartadas == [MOTIVO_FUERA_DE_CAP]
+        assert [_obj_de_put(p)["keywordId"] for p in _puts(vistos)] == ["7201", "7202", "7203"]
+
+
+# ---------------------------------------------------------------------------
+# 14. Secuencia sellada completa de un bid ok
+# ---------------------------------------------------------------------------
+
+
+@_skip_db
+def test_secuencia_sellada_bid_ok():
+    with _db_temporal("orbit_apply_ok") as conn:
+        ids = _semilla(conn)
+        dec = _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"])
+        ticks: list[int] = []
+        handler, vistos = _handler_api({"7201": "0.85"})
+        ap = Aplicador(
+            conn,
+            platform="amazon_us",
+            profile_id=FAKE_PROFILE_US,
+            credentials=_fake_credentials(),
+            cycle_id_ejecutor=ids["ciclo_ejec"],
+            owner="test:apply",
+            job_key="ads_optimizer:amazon_us",
+            transport=httpx.MockTransport(handler),
+            sleep=lambda seconds: None,
+            tick=lambda: ticks.append(1),
+        )
+
+        res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
+
+        assert res.aplicadas == 1 and res.skips == [] and res.descartadas == []
+        assert len(ticks) >= 2, "heartbeat DURANTE mutacion y readback"
+        # El ledger nacio PRE-HTTP con el payload EXACTO y quota cobrada.
+        intento = conn.execute(
+            "SELECT seq, tipo, request_payload, quota_cobrada, ack, resultado, finished_at"
+            " FROM apply_attempt WHERE decision_id = %s",
+            (dec,),
+        ).fetchone()
+        assert intento[0] == 1
+        assert intento[1] == "normal"
+        assert intento[2] == {"keywordId": "7201", "bid": "0.85"}, (
+            "el LEDGER congela el bid quantizado string (_bid_payload, una sola fuente)"
+        )
+        assert intento[3] is True
+        assert intento[4] == {"ack": {"keywordId": "7201", "bid": 0.85}}, (
+            "el ack ecoa el WIRE: bid NUMERO (probe 2.5, apply_attempt 3)"
+        )
+        assert intento[5] == "ok"
+        assert intento[6] is not None
+        # HTTP: UNA mutacion (quantizado a 2 dec) + UN readback con el MISMO scope.
+        assert [json.loads(p.content) for p in _puts(vistos)] == [
+            {"keywords": [{"keywordId": "7201", "bid": 0.85}]}
+        ], "contenedor del recurso + bid NUMERO (probe 2.5)"
+        assert len(_lists(vistos)) == 1
+        assert _lists(vistos)[0].headers["Amazon-Advertising-API-Scope"] == str(FAKE_PROFILE_US)
+        # Resumen: la terna junta + applied_cycle_id AL CONFIRMAR.
+        resumen = conn.execute(
+            "SELECT confirmed_at, platform_ack, verify_ok, applied_cycle_id"
+            " FROM decision_application WHERE decision_id = %s",
+            (dec,),
+        ).fetchone()
+        assert resumen[0] is not None
+        assert resumen[1] == {"ack": {"keywordId": "7201", "bid": 0.85}}
+        assert resumen[2] is True
+        assert resumen[3] == ids["ciclo_ejec"]
+        # Cache: lo LEIDO.
+        cache = conn.execute(
+            "SELECT current_bid FROM ad_entity_state WHERE ad_entity_id = %s", (ids["kw"],)
+        ).fetchone()[0]
+        assert cache == Decimal("0.85")
+
+
+# ===========================================================================
+# Review adversaria de phase 2 (ADV-04): reconciliacion del ledger de BIDS
+# sin sello — matriz §6.1 "Ledger sin sello - bid", antes sin caller
+# ===========================================================================
+
+
+@_skip_db
+def test_reconcilia_bids_get_igual_confirma():
+    """Veredicto LIST == pedido: el PUT ambiguo SI proceso → confirmar — sello
+    'ok:reconciliado', resumen con verify_ok + applied_cycle_id del EJECUTOR y
+    cache con lo LEIDO. HTTP: SOLO el LIST de readback (jamas re-mutar).
+    Regla 9: contra el codigo sin caller de intentos_sin_sello, la fila
+    zombie miente para siempre en el ledger y este test reventaria."""
+    from app.apply import reconcilia_bids
+
+    with _db_temporal("orbit_apply_rbid1") as conn:
+        ids = _semilla(conn)
+        dec = _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"], new="0.85")
+        conn.execute(
+            "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload, quota_cobrada)"
+            " VALUES (%s, 1, 'normal', %s, true)",
+            (dec, Json({"keywordId": "7201", "bid": "0.85"})),
+        )
+        handler, vistos = _handler_api({"7201": "0.85"})
+
+        confirmadas, fallidas = reconcilia_bids(
+            conn, _aplicador(conn, handler, ids["ciclo_ejec"]), "amazon_us"
+        )
+
+        assert (confirmadas, fallidas) == (1, 0)
+        fila = conn.execute(
+            "SELECT resultado, finished_at IS NOT NULL FROM apply_attempt WHERE decision_id = %s",
+            (dec,),
+        ).fetchone()
+        assert fila == ("ok:reconciliado", True)
+        resumen = conn.execute(
+            "SELECT verify_ok, applied_cycle_id FROM decision_application WHERE decision_id = %s",
+            (dec,),
+        ).fetchone()
+        assert resumen == (True, ids["ciclo_ejec"])
+        cache = conn.execute(
+            "SELECT current_bid FROM ad_entity_state WHERE ad_entity_id = %s", (ids["kw"],)
+        ).fetchone()[0]
+        assert cache == Decimal("0.85"), "cache con lo LEIDO del LIST fresco (sellado 16)"
+        assert _puts(vistos) == [], "la reconciliacion JAMAS re-muta"
+        assert len(_lists(vistos)) == 1
+
+
+@_skip_db
+def test_reconcilia_bids_divergencia_reintenta_bajo_tope_y_falla():
+    """Veredicto LIST != pedido (divergencia): la fila original se sella
+    'fallo:divergencia_readback', se REINTENTA bajo tope (fila nueva + PUT) y
+    la divergencia persistente sella tambien el reintento — verify_ok FALSE,
+    sin applied_cycle_id, cache con LO LEIDO."""
+    from app.apply import reconcilia_bids
+
+    with _db_temporal("orbit_apply_rbid2") as conn:
+        ids = _semilla(conn)
+        dec = _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"], new="0.85")
+        conn.execute(
+            "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload, quota_cobrada)"
+            " VALUES (%s, 1, 'normal', %s, true)",
+            (dec, Json({"keywordId": "7201", "bid": "0.85"})),
+        )
+        handler, vistos = _handler_api({"7201": "0.85"}, desviado={"7201": "0.90"})
+
+        confirmadas, fallidas = reconcilia_bids(
+            conn, _aplicador(conn, handler, ids["ciclo_ejec"]), "amazon_us"
+        )
+
+        assert (confirmadas, fallidas) == (0, 1)
+        filas = conn.execute(
+            "SELECT seq, resultado, quota_cobrada FROM apply_attempt WHERE decision_id = %s"
+            " ORDER BY seq",
+            (dec,),
+        ).fetchall()
+        assert [f[0] for f in filas] == [1, 2], "el reintento nace como fila nueva del ledger"
+        assert all(f[1] == "fallo:divergencia_readback" for f in filas)
+        assert filas[1][2] is False, "el reintento NO recobra (la unidad ya estaba cobrada)"
+        resumen = conn.execute(
+            "SELECT verify_ok, applied_cycle_id FROM decision_application WHERE decision_id = %s",
+            (dec,),
+        ).fetchone()
+        assert resumen == (False, None), "divergencia: no cuenta como aplicada ni enfria"
+        cache = conn.execute(
+            "SELECT current_bid FROM ad_entity_state WHERE ad_entity_id = %s", (ids["kw"],)
+        ).fetchone()[0]
+        assert cache == Decimal("0.90"), "cache con LO LEIDO (divergencia incluida)"
+        assert len(_puts(vistos)) == 1, "UN reintento del tope (no un bucle)"
+
+
+@_skip_db
+def test_reconcilia_bids_ambiguo_falla_sin_reintento():
+    """Veredicto ambiguo (LIST 5xx agotado): failed SIN reintento (conserva su
+    cobro, matriz §6.1) — la fila se sella con el veredicto y NO nace PUT ni
+    fila nueva; sin resumen, cache intacto."""
+    from app.apply import reconcilia_bids
+
+    with _db_temporal("orbit_apply_rbid3") as conn:
+        ids = _semilla(conn)
+        dec = _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"], new="0.85")
+        conn.execute(
+            "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload, quota_cobrada)"
+            " VALUES (%s, 1, 'normal', %s, true)",
+            (dec, Json({"keywordId": "7201", "bid": "0.85"})),
+        )
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "api.amazon.com":
+                return _token_response()
+            if request.method == "POST" and request.url.path.endswith("/list"):
+                return httpx.Response(503, json={"message": "boom"})
+            raise AssertionError("el ambiguo JAMAS re-muta: no puede haber PUT")
+
+        confirmadas, fallidas = reconcilia_bids(
+            conn, _aplicador(conn, handler, ids["ciclo_ejec"]), "amazon_us"
+        )
+
+        assert (confirmadas, fallidas) == (0, 1)
+        filas = conn.execute(
+            "SELECT count(*), count(finished_at) FROM apply_attempt WHERE decision_id = %s",
+            (dec,),
+        ).fetchone()
+        assert filas == (1, 1), "la fila se cierra; SIN fila nueva de reintento"
+        resultado = conn.execute(
+            "SELECT resultado FROM apply_attempt WHERE decision_id = %s", (dec,)
+        ).fetchone()[0]
+        assert resultado == "fallo:readback_ambiguo"
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM decision_application WHERE decision_id = %s", (dec,)
+            ).fetchone()[0]
+            == 0
+        )
+        cache = conn.execute(
+            "SELECT current_bid FROM ad_entity_state WHERE ad_entity_id = %s", (ids["kw"],)
+        ).fetchone()[0]
+        assert cache == Decimal("1.00"), "sin lectura no hay evidencia: el cache no se toca"
+
+
+@_skip_db
+def test_reconcilia_bids_no_cruza_plataformas():
+    """Bug PR27-1 (ALTA): _SQL_INTENTOS_BID_SIN_SELLO no filtraba por
+    plataforma — el ciclo de amazon_us reconciliaba filas sin sello de
+    amazon_mx con el scope equivocado (podia sellar 'fallo:readback_sin_bid'
+    una mutacion EN VUELO del otro proceso y reventar al dueno legitimo con
+    el trigger sello-una-vez). Los locks del ciclo son POR plataforma
+    (job_key_de), igual que TODOS los demas reconciliadores. Regla 9: contra
+    el codigo viejo la fila mx SI se procesaba (GET al cliente y sello)."""
+    from app.apply import reconcilia_bids
+
+    with _db_temporal("orbit_apply_rbid4") as conn:
+        ids = _semilla(conn)
+        # Ciclo + cadena de entidades + decision bid de amazon_mx, con su fila
+        # del ledger SIN sello (mutacion en vuelo del ciclo de mx).
+        ciclo_mx = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_mx') RETURNING id"
+        ).fetchone()[0]
+        camp_mx = conn.execute(
+            "INSERT INTO ad_entity (platform, kind, external_id)"
+            " VALUES ('amazon_mx', 'campaign', '8001') RETURNING id"
+        ).fetchone()[0]
+        ag_mx = conn.execute(
+            "INSERT INTO ad_entity (platform, kind, external_id, parent_id)"
+            " VALUES ('amazon_mx', 'ad_group', '8101', %s) RETURNING id",
+            (camp_mx,),
+        ).fetchone()[0]
+        kw_mx = conn.execute(
+            "INSERT INTO ad_entity (platform, kind, external_id, parent_id,"
+            " match_type, keyword_text) VALUES ('amazon_mx', 'keyword', '8201', %s,"
+            " 'EXACT', 'kw mx') RETURNING id",
+            (ag_mx,),
+        ).fetchone()[0]
+        dec_mx = _decision_bid(conn, ciclo_mx, ids["config"], kw_mx, new="0.85")
+        conn.execute(
+            "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload, quota_cobrada)"
+            " VALUES (%s, 1, 'normal', %s, true)",
+            (dec_mx, Json({"keywordId": "8201", "bid": "0.85"})),
+        )
+        handler, vistos = _handler_api({"8201": "0.85"})
+
+        # El ciclo de US reconcilia: la fila de mx NO es suya.
+        resultado = reconcilia_bids(conn, _aplicador(conn, handler, ids["ciclo_ejec"]), "amazon_us")
+
+        assert resultado == (0, 0), "sin filas de US: nada que reconciliar"
+        fila = conn.execute(
+            "SELECT resultado, finished_at FROM apply_attempt WHERE decision_id = %s",
+            (dec_mx,),
+        ).fetchone()
+        assert fila == (None, None), "la fila de mx sigue SIN sello: la conduce su propio ciclo"
+        assert vistos == [], "cero GET al cliente: la fila de otra plataforma ni se lee"
+
+
+# ===========================================================================
+# ADV-07: el write client de produccion SI duerme el backoff de los 429
+# ===========================================================================
+
+
+# ===========================================================================
+# Cross-review del dueno (codex+grok+qwen, ORBIT 04 P2): tope-3 solo cuenta
+# 'normal', readback de OTRA entidad, etiqueta unificada de divergencia,
+# tope ANTES del cobro, ack 2xx saneado y divergencia observable
+# ===========================================================================
+
+
+@_skip_db
+def test_tope_3_cuenta_solo_intentos_normal_las_reversas_no_consumen():
+    """CX1/GK1: un harvest completo deja 2 filas 'normal' y su reversa
+    completa otras 2 'reversa'; el reintento normal SIGUE cabiendo (el tope
+    cuenta intentos de aplicacion, las reversas son el mecanismo de seguridad
+    y jamas consumen presupuesto de intentos). F2 (A.3): la secuencia es
+    GLOBAL (max+1 sobre todos los tipos), asi que la 5a fila lleva seq 5
+    aunque el presupuesto normal vaya en 3. Regla 9: con el COUNT sin
+    filtro el 4o paso devolvia None y este test reventaria."""
+    from app import apply as apply_mod
+
+    with _db_temporal("orbit_apply_t3n") as conn:
+        ids = _semilla(conn)
+        dec = _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"])
+        for seq, tipo in ((1, "normal"), (2, "normal"), (3, "reversa"), (4, "reversa")):
+            conn.execute(
+                "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload,"
+                " quota_cobrada) VALUES (%s, %s, %s, '{}'::jsonb, false)",
+                (dec, seq, tipo),
+            )
+
+        id_attempt = apply_mod._ledger(
+            conn, dec, "normal", {"keywordId": "7201", "bid": "0.85"}, quota_cobrada=False
+        )
+
+        assert id_attempt is not None, "2 reversas NO agotan el tope-3 de normales"
+        fila = conn.execute(
+            "SELECT seq, tipo FROM apply_attempt WHERE id = %s", (id_attempt,)
+        ).fetchone()
+        assert fila == (5, "normal"), "el seq es global (max+1), el tope es solo normal"
+
+
+@_skip_db
+def test_readback_que_devuelve_otra_entidad_no_confirma_ni_toca_cache():
+    """CX6/GK8: el LIST del readback responde la fila de OTRA keyword (id
+    distinto): NO es evidencia de esta decision — verify_ok False, cache
+    INTACTO y sin applied. Regla 9: el filas[0] sin cruce de id confirmaria
+    el bid de otra entidad y pisaria el cache con su valor."""
+    with _db_temporal("orbit_apply_otra") as conn:
+        ids = _semilla(conn)
+        dec = _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"], new="0.85")
+        vistos: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "api.amazon.com":
+                return _token_response()
+            vistos.append(request)
+            if request.method == "PUT":
+                return httpx.Response(207, json={"ack": json.loads(request.content)})
+            assert request.method == "POST" and request.url.path.endswith("/list"), (
+                "solo PUT + readback por LIST (probe 2.5: GET retirado)"
+            )
+            # Respuesta de OTRA entidad: el id NO es el pedido.
+            return httpx.Response(200, json={"keywords": [{"keywordId": "9999", "bid": 0.85}]})
+
+        ap = _aplicador(conn, handler, ids["ciclo_ejec"])
+        res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
+
+        assert res.aplicadas == 0
+        assert len(_puts(vistos)) == 1 and len(_lists(vistos)) == 1
+        cache = conn.execute(
+            "SELECT current_bid FROM ad_entity_state WHERE ad_entity_id = %s", (ids["kw"],)
+        ).fetchone()[0]
+        assert cache == Decimal("1.00"), "cache INTACTO: la fila leida era de OTRA entidad"
+        resumen = conn.execute(
+            "SELECT verify_ok FROM decision_application WHERE decision_id = %s", (dec,)
+        ).fetchone()
+        assert resumen == (False,)
+        resultado = conn.execute(
+            "SELECT resultado FROM apply_attempt WHERE decision_id = %s", (dec,)
+        ).fetchone()[0]
+        assert resultado == "fallo:readback_sin_bid", "sin evidencia de ESTA entidad"
+
+
+@_skip_db
+def test_divergencia_readback_sella_la_misma_etiqueta_en_apply_y_reversa():
+    """QW1: la divergencia de readback sella SIEMPRE
+    'fallo:divergencia_readback' — _ejecuta_mutacion y reversa_bid ponian
+    'ok' con verify_ok False (la misma condicion con etiquetas distintas
+    segun el camino). Regla 9: contra el 'ok' viejo ambos asserts revientan."""
+    with _db_temporal("orbit_apply_etq") as conn:
+        ids = _semilla(conn)
+        _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"], old="1.00", new="0.85")
+        handler, _v = _handler_api({"7201": "0.85"}, desviado={"7201": "0.90"})
+        ap = _aplicador(conn, handler, ids["ciclo_ejec"])
+
+        ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
+        ok_reversa = reversa_bid(
+            conn, _write_client(handler), bids_del_ciclo(conn, ids["ciclo_dec"])[0]
+        )
+
+        assert ok_reversa is False, "la reversa tambien diverge (Amazon queda en 0.90)"
+        filas = conn.execute("SELECT tipo, resultado FROM apply_attempt ORDER BY seq").fetchall()
+        assert [f[0] for f in filas] == ["normal", "reversa"]
+        assert all(f[1] == "fallo:divergencia_readback" for f in filas), (
+            "etiqueta UNIFICADA en ambos caminos"
+        )
+
+
+@_skip_db
+def test_tope_se_chequea_antes_del_cobro_quota_intacta():
+    """GK5/QW2: decision ya a tope de 3 normales → skip SIN quemar la unidad
+    de quota (la decision ya a tope no genera HTTP ni fila de quota). Regla
+    9: el orden viejo (consume_quota primero) dejaria used=1 en
+    apply_quota_state sin intento alguno."""
+    with _db_temporal("orbit_apply_tqc") as conn:
+        ids = _semilla(conn, caps={"ads_apply_cap_amazon_us_bid": 10})
+        dec = _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"])
+        for seq in (1, 2, 3):
+            conn.execute(
+                "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload,"
+                " quota_cobrada) VALUES (%s, %s, 'normal', '{}'::jsonb, true)",
+                (dec, seq),
+            )
+        handler, vistos = _handler_api({"7201": "0.85"})
+        ap = _aplicador(conn, handler, ids["ciclo_ejec"])
+
+        res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
+
+        assert res.skips == [MOTIVO_TOPE_INTENTOS]
+        assert vistos == [], "a tope: ni token LWA"
+        quota = conn.execute(
+            "SELECT count(*) FROM apply_quota_state WHERE motor = %s",
+            (motor_quota("amazon_us", "bid"),),
+        ).fetchone()[0]
+        assert quota == 0, "la unidad NO se quema en una decision ya a tope"
+
+
+@_skip_db
+def test_ack_2xx_con_secreto_queda_redactado_en_el_ledger():
+    """GK9: el body del ack SIEMPRE pasa por scrub antes del ledger (solo el
+    camino >=400 redactaba). El mock ecoa el token LWA (registrado como
+    secreto por el cliente) en un 2xx. Regla 9: sin el scrub, el token
+    quedaria en apply_attempt.ack y este test reventaria."""
+    with _db_temporal("orbit_apply_scrub") as conn:
+        ids = _semilla(conn)
+        _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"], new="0.85")
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "api.amazon.com":
+                return _token_response()
+            if request.method == "PUT":
+                return httpx.Response(
+                    200, json={"ack": json.loads(request.content), "eco_token": "fake-access-1"}
+                )
+            assert request.method == "POST" and request.url.path.endswith("/list")
+            return httpx.Response(200, json={"keywords": [{"keywordId": "7201", "bid": 0.85}]})
+
+        ap = _aplicador(conn, handler, ids["ciclo_ejec"])
+        res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
+
+        assert res.aplicadas == 1
+        ack = conn.execute("SELECT ack::text FROM apply_attempt").fetchone()[0]
+        assert "fake-access-1" not in ack, "el ack del ledger va redactado (scrub SIEMPRE)"
+        assert "REDACTED" in ack
+
+
+@_skip_db
+def test_divergencia_de_readback_es_observable_en_el_resultado():
+    """GK10/QW4: la decision con readback divergente (HTTP 200 pero Amazon
+    quedo con OTRO bid) cuenta en el campo propio del ResultadoAplicador —
+    antes desaparecia de aplicadas/skips/descartadas (la mutacion SALIO y no
+    era visible). Regla 9: sin el contador, divergencias == 0 reventaria."""
+    with _db_temporal("orbit_apply_divo") as conn:
+        ids = _semilla(conn)
+        _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"], new="0.85")
+        handler, _v = _handler_api({"7201": "0.85"}, desviado={"7201": "0.90"})
+        ap = _aplicador(conn, handler, ids["ciclo_ejec"])
+
+        res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
+
+        assert res.aplicadas == 0 and res.skips == [] and res.descartadas == []
+        assert res.divergencias == 1, "campo propio: la divergencia es observable"
+
+
+@_skip_db
+def test_write_client_de_produccion_duerme_el_backoff_de_429():
+    """El Aplicador SIN sleep inyectado (como _aplicador_real) le deja al
+    write client su time.sleep REAL: un 429 reintenta CON backoff. Regla 9:
+    contra el lambda no-op de produccion, el sleep del cliente NO es
+    time.sleep y el reintento sale back-to-back (elapsed ~0) — ambos asserts
+    reventarian (hallazgo ADV-07: la rampa del dia 1 quemaria cap con
+    throttling transitorio)."""
+    import time as _time
+
+    with _db_temporal("orbit_apply_slp") as conn:
+        ids = _semilla(conn)
+        _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"], new="0.85")
+        puts = {"n": 0}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "api.amazon.com":
+                return _token_response()
+            if request.method == "PUT":
+                puts["n"] += 1
+                if puts["n"] == 1:
+                    # Sin Retry-After: el backoff exponencial real manda.
+                    return httpx.Response(429, json={"message": "throttled"})
+                return httpx.Response(200, json={"ack": "reintento"})
+            assert request.method == "POST" and request.url.path.endswith("/list")
+            return httpx.Response(200, json={"keywords": [{"keywordId": "7201", "bid": 0.85}]})
+
+        ap = Aplicador(
+            conn,
+            platform="amazon_us",
+            profile_id=FAKE_PROFILE_US,
+            credentials=_fake_credentials(),
+            cycle_id_ejecutor=ids["ciclo_ejec"],
+            owner="test:sleep",
+            job_key="ads_optimizer:amazon_us",
+            transport=httpx.MockTransport(handler),
+            # SIN sleep: exactamente como _aplicador_real en produccion.
+        )
+        cliente = ap._cliente()
+        assert cliente._sleep is _time.sleep, (
+            "produccion: el sleep del write client es el REAL (jamas un no-op)"
+        )
+
+        t0 = _time.monotonic()
+        res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
+        elapsed = _time.monotonic() - t0
+
+        assert res.aplicadas == 1
+        assert puts["n"] == 2, "el 429 se reintento (SIN recobrar quota)"
+        assert elapsed >= 1.0, "el reintento DUERME: backoff del intento 1 = 1.0s + jitter"
+        used = conn.execute(
+            "SELECT used FROM apply_quota_state WHERE motor = %s",
+            (motor_quota("amazon_us", "bid"),),
+        ).fetchone()[0]
+        assert used == 1, "el 429 reintentado es el MISMO intento del ledger (sin recobro)"
+
+
+# ===========================================================================
+# Cross-review del dueno shapes (codex+qwen, out/cross-review-shapes-*.log):
+# el readback por LIST PAGINA hasta hallar la entidad (CX1/QW1 + CX6) — la
+# cuenta real trae 1334 keywords / 549 targets y el body {} solo ve la
+# PRIMERA pagina: una entidad en pagina 2+ era "ausente" (falsa divergencia
+# con quota cobrada). Tests PUROS (sin DB; regla 9: rojo en
+# out/tdd-red-shapes-cr.log contra el readback de UNA pagina).
+# ===========================================================================
+
+
+class _ClienteListPaginado:
+    """Write client de mentira que sirve paginas por nextToken: `paginas` es
+    la lista de bodies (un dict por pagina); registra cada request para
+    asserts de tope. El cruce de id lo hace el motor (como el wire real)."""
+
+    def __init__(self, paginas: list[dict]):
+        self.paginas = paginas
+        self.requests: list[dict] = []
+
+    def list_sellado(self, path: str, body: dict) -> httpx.Response:
+        self.requests.append({"path": path, "body": dict(body)})
+        return httpx.Response(200, json=self.paginas[int(body.get("nextToken", 0))])
+
+
+def _aplicador_sin_db() -> Aplicador:
+    """Aplicador para tests PUROS del readback: __init__ no toca la base (la
+    conn solo se guarda) ni la red (el write client es LAZY) — _readback
+    recibe el cliente por parametro."""
+    return Aplicador(
+        object(),  # conn de mentira: jamas se toca en el camino probado
+        platform="amazon_us",
+        cycle_id_ejecutor=1,
+        owner="test:puro",
+        job_key="ads_optimizer:amazon_us",
+    )
+
+
+def test_readback_de_bid_por_list_pagina_hasta_hallar_la_entidad():
+    """CX1/QW1: la entidad pedida vive en la pagina 2 (detras del nextToken):
+    el readback la HALLA. Regla 9: contra el readback de UNA pagina el bid
+    leido es None ('fallo:readback_sin_bid' con quota cobrada) y este test
+    reventaba."""
+    cliente = _ClienteListPaginado(
+        [
+            {
+                "keywords": [{"keywordId": "9999", "bid": 7.77, "state": "ENABLED"}],
+                "nextToken": "1",
+            },
+            {"keywords": [{"keywordId": "7201", "bid": 0.85, "state": "ENABLED"}]},
+        ]
+    )
+    bid = _aplicador_sin_db()._readback(cliente, ("keyword", "7201"))
+    assert bid == Decimal("0.85"), "la entidad de la pagina 2 NO es ausente"
+    assert [r["body"] for r in cliente.requests] == [{}, {"nextToken": "1"}], (
+        "la primera pagina va con body {} y la siguiente CON nextToken"
+    )
+
+
+def test_estado_de_readback_por_list_pagina_hasta_hallar_la_entidad():
+    """CX1/QW1 lado estado (pausas y sus reconciliaciones): mismo cruce de id
+    paginando. Regla 9: la lectora de UNA pagina devolvia None (estado
+    ilegible) y el corte moria como moot/divergente."""
+    from app.apply import _estado_de_readback
+
+    cliente = _ClienteListPaginado(
+        [
+            {
+                "keywords": [{"keywordId": "9999", "state": "PAUSED"}],
+                "nextToken": "1",
+            },
+            {"keywords": [{"keywordId": "7201", "state": "ENABLED"}]},
+        ]
+    )
+    estado = _estado_de_readback(cliente, "/sp/keywords/list", "keywords", "keywordId", "7201")
+    assert estado == "ENABLED"
+    # El id que NO esta en NINGUNA pagina JAMAS confirma (regla 3).
+    cliente2 = _ClienteListPaginado(
+        [
+            {"keywords": [{"keywordId": "9999", "state": "PAUSED"}], "nextToken": "1"},
+            {"keywords": [{"keywordId": "8888", "state": "ENABLED"}]},
+        ]
+    )
+    assert (
+        _estado_de_readback(cliente2, "/sp/keywords/list", "keywords", "keywordId", "7777") is None
+    )
+
+
+def test_readback_paginado_corta_en_el_tope_de_paginas():
+    """CX1/QW1: un nextToken INFINITO (bug de la API o del codigo) no cuelga
+    el ciclo: corta en apply.TOPE_PAGINAS_READBACK requests. Regla 9: el
+    readback de UNA pagina hace 1 request (el tope jamas se alcanza) y el
+    assert de conteo reventaba."""
+    from app.apply import TOPE_PAGINAS_READBACK
+
+    cliente = _ClienteListPaginado(
+        # nextToken SIEMPRE presente: la lista "nunca termina".
+        [{"keywords": [{"keywordId": "9999", "bid": 7.77}], "nextToken": "0"}]
+    )
+    bid = _aplicador_sin_db()._readback(cliente, ("keyword", "7201"))
+    assert bid is None, "la entidad no esta: corta por tope, jamas la halla"
+    assert len(cliente.requests) == TOPE_PAGINAS_READBACK, (
+        f"corta EXACTO en el tope ({TOPE_PAGINAS_READBACK} paginas), no loopea"
+    )
+
+
+class _ClienteListCrudo:
+    """Write client de mentira que sirve bodies CRUDOS (no-JSON o JSON
+    no-dict) en un 2xx: para probar que el readback malformado es AMBIGUO
+    (AdsApiError SUBE), jamas ausencia."""
+
+    def __init__(self, contenido: bytes):
+        self.contenido = contenido
+
+    def list_sellado(self, path: str, body: dict) -> httpx.Response:
+        return httpx.Response(200, content=self.contenido)
+
+
+def test_readback_malformado_es_ambiguo_no_ausencia():
+    """P1 Greptile (PR #35): un 2xx con JSON roto o no-dict NO es 'entidad
+    ausente' — es un fallo AMBIGUO y SUBE AdsApiError (mismo canal del 5xx:
+    ledger sin sello, reconciliacion resuelve). Tratarlo como ausencia
+    clasificaba una entidad VIVA como entidad_no_viva en la re-validacion de
+    cortes y sellaba fallos de readback definitivos en bids/pausas. Regla 9:
+    el codigo anterior devolvia {} (= ausente) y este test reventaba porque
+    nada subia."""
+    from app.ads.client import AdsApiError
+    from app.apply import _bid_de_readback, _estado_de_readback
+
+    for contenido in (b"no-es-json", b'["una", "lista"]'):
+        cliente = _ClienteListCrudo(contenido)
+        with pytest.raises(AdsApiError):
+            _estado_de_readback(cliente, "/sp/keywords/list", "keywords", "keywordId", "7201")
+        with pytest.raises(AdsApiError):
+            _bid_de_readback(cliente, "/sp/keywords/list", "keywords", "keywordId", "7201")
+
+
+def test_readback_sin_contenedor_es_ambiguo_no_ausencia():
+    """P1 Greptile (PR #35, ronda 2): un 2xx dict SIN el contenedor esperado
+    ('keywords'/'targetingClauses'), o con el contenedor null/no-lista, es
+    TAMBIEN malformado -> AMBIGUO (AdsApiError SUBE), jamas ausencia. El
+    wire real SELLADO por el probe 2.5 siempre trae el contenedor (aunque
+    sea lista vacia): que falte es una respuesta que no entendemos. Regla 9:
+    el codigo anterior caia en `filas or []` = {} y este test reventaba."""
+    from app.ads.client import AdsApiError
+    from app.apply import _bid_de_readback, _estado_de_readback
+
+    for pagina in (
+        {"totalResults": 5},  # sin el contenedor
+        {"keywords": None},  # contenedor null
+        {"keywords": {"7201": {}}},  # contenedor no-lista
+    ):
+        cliente = _ClienteListPaginado([pagina])
+        with pytest.raises(AdsApiError):
+            _estado_de_readback(cliente, "/sp/keywords/list", "keywords", "keywordId", "7201")
+        with pytest.raises(AdsApiError):
+            _bid_de_readback(cliente, "/sp/keywords/list", "keywords", "keywordId", "7201")
+
+
+def test_fila_de_lista_malformada_es_ambigua_no_ilegible():
+    """Mismo P1 en la lectora de UNA pagina (_fila_de_lista, via _estado_leido
+    y _bid_leido — la que usan apply_cola/apply_harvest con la respuesta YA en
+    mano): 2xx no-JSON o no-dict SUBE AdsApiError, no devuelve None/{}
+    (= ilegible/ausente). Regla 9: antes tragaba el ValueError/AttributeError
+    y este test reventaba."""
+    from app.ads.client import AdsApiError
+    from app.apply import _bid_leido, _estado_leido
+
+    for resp in (
+        httpx.Response(200, content=b"roto"),
+        httpx.Response(200, json=[1, 2]),
+        httpx.Response(200, json={"totalResults": 5}),  # sin el contenedor
+        httpx.Response(200, json={"keywords": None}),  # contenedor null
+        httpx.Response(200, json={"keywords": {"7201": {}}}),  # no-lista
+    ):
+        with pytest.raises(AdsApiError):
+            _estado_leido(resp, "keywords", "keywordId", "7201")
+        with pytest.raises(AdsApiError):
+            _bid_leido(resp, "keywords", "keywordId", "7201")
+
+
+@_skip_db
+def test_readback_encuentra_el_bid_en_la_pagina_dos_del_list():
+    """CX1/QW1 end-to-end: el apply de UN bid cuya entidad vive en la pagina
+    2 del LIST confirma por readback. Regla 9: contra el readback de UNA
+    pagina el resultado sellaba 'fallo:readback_sin_bid' con la decision NO
+    aplicada (quota cobrada) y estos asserts reventaban."""
+    with _db_temporal("orbit_apply_p2") as conn:
+        ids = _semilla(conn)
+        dec = _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"])
+        # El senuelo 9999 va PRIMERO en el almacen: la entidad pedida vive en
+        # la pagina 2 del LIST.
+        handler, vistos = _handler_api({"9999": "9.99", "7201": "0.85"})
+
+        def paginado(request: httpx.Request) -> httpx.Response:
+            if request.method == "POST" and request.url.path.endswith("/list"):
+                body = json.loads(request.content) if request.content else {}
+                desde = int(body.get("nextToken", 0))
+                data = handler(request).json()  # todas las filas en UNA pagina
+                filas = data["keywords"][desde : desde + 1]
+                pagina: dict = {"keywords": filas, "totalResults": data["totalResults"]}
+                if desde + 1 < data["totalResults"]:
+                    pagina["nextToken"] = str(desde + 1)
+                return httpx.Response(200, json=pagina)
+            return handler(request)
+
+        ap = Aplicador(
+            conn,
+            platform="amazon_us",
+            profile_id=FAKE_PROFILE_US,
+            credentials=_fake_credentials(),
+            cycle_id_ejecutor=ids["ciclo_ejec"],
+            owner="test:apply",
+            job_key="ads_optimizer:amazon_us",
+            transport=httpx.MockTransport(paginado),
+            sleep=lambda seconds: None,
+        )
+
+        res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
+
+        assert res.aplicadas == 1 and res.divergencias == 0
+        resultado = conn.execute(
+            "SELECT resultado FROM apply_attempt WHERE decision_id = %s", (dec,)
+        ).fetchone()[0]
+        assert resultado == "ok", "la entidad de la pagina 2 se lee: NO es divergencia"
+        lists = [r for r in vistos if r.method == "POST" and r.url.path.endswith("/list")]
+        assert len(lists) == 2, "pagino: pagina 1 (senuelo) + pagina 2 (la pedida)"
+
+
+# ---------------------------------------------------------------------------
+# CAMPANA ACTIVA 01 · 1.6: gate de ancestros en la reconciliacion de bids
+# ---------------------------------------------------------------------------
+
+
+def _handler_cero_api():
+    """Handler ESTRICTO: cualquier request, incluido el token LWA, revienta
+    (con la campana pausada la reconciliacion JAMAS sale por HTTP: el gate
+    corre antes de crear el cliente — revision PR #136)."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError(
+            f"cero HTTP con ancestro no ENABLED: {request.method} {request.url.host}"
+            f"{request.url.path}"
+        )
+
+    return handler
+
+
+@_skip_db
+def test_reconcilia_bids_campana_pausada_gate_ancestros():
+    """CAMPANA ACTIVA 01 · 1.6(a) (regla 9): un intento de bid sin sello cuya
+    CAMPANA esta PAUSED se sella 'fallo:ancestro_no_enabled' SIN ningun HTTP
+    (ni readback ni reintento). Antes del fix la reconciliacion hacia el LIST
+    de readback y, con divergencia, el PUT del reintento dentro de la campaña
+    pausada (hallazgo codex r1 #1)."""
+    from app.apply import reconcilia_bids
+
+    with _db_temporal("orbit_apply_rbid_gate1") as conn:
+        ids = _semilla(conn)
+        conn.execute(
+            "UPDATE ad_entity_state SET status = 'PAUSED' WHERE ad_entity_id = %s",
+            (ids["camp"],),
+        )
+        dec = _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"], new="0.85")
+        conn.execute(
+            "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload, quota_cobrada)"
+            " VALUES (%s, 1, 'normal', %s, true)",
+            (dec, Json({"keywordId": "7201", "bid": "0.85"})),
+        )
+
+        confirmadas, fallidas = reconcilia_bids(
+            conn, _aplicador(conn, _handler_cero_api(), ids["ciclo_ejec"]), "amazon_us"
+        )
+
+        assert (confirmadas, fallidas) == (0, 1)
+        fila = conn.execute(
+            "SELECT resultado, finished_at IS NOT NULL FROM apply_attempt WHERE decision_id = %s",
+            (dec,),
+        ).fetchone()
+        assert fila == ("fallo:ancestro_no_enabled", True)
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM decision_application WHERE decision_id = %s", (dec,)
+            ).fetchone()[0]
+            == 0
+        )
+
+
+@_skip_db
+def test_reconcilia_bids_campana_sin_state_gate_ancestros():
+    """CAMPANA ACTIVA 01 · 1.6(a): campaña SIN fila de state (regla 3:
+    ausencia = fuera) — mismo sello y cero HTTP que la campaña PAUSED."""
+    from app.apply import reconcilia_bids
+
+    with _db_temporal("orbit_apply_rbid_gate2") as conn:
+        ids = _semilla(conn)
+        conn.execute("DELETE FROM ad_entity_state WHERE ad_entity_id = %s", (ids["camp"],))
+        dec = _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"], new="0.85")
+        conn.execute(
+            "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload, quota_cobrada)"
+            " VALUES (%s, 1, 'normal', %s, true)",
+            (dec, Json({"keywordId": "7201", "bid": "0.85"})),
+        )
+
+        confirmadas, fallidas = reconcilia_bids(
+            conn, _aplicador(conn, _handler_cero_api(), ids["ciclo_ejec"]), "amazon_us"
+        )
+
+        assert (confirmadas, fallidas) == (0, 1)
+        resultado = conn.execute(
+            "SELECT resultado FROM apply_attempt WHERE decision_id = %s", (dec,)
+        ).fetchone()[0]
+        assert resultado == "fallo:ancestro_no_enabled"
+
+
+# ---------------------------------------------------------------------------
+# F2 (A.3): secuencia global del ledger y presupuesto normal separado
+# ---------------------------------------------------------------------------
+
+
+def _con_tipo_hermana(conn) -> None:
+    """Amplia `attempt_tipo_valido` con 'hermana' en la DB temporal (lo que
+    la migracion 0038 hace en real; el fixture comun de este archivo aplica
+    0001-0003 y no se toca)."""
+    conn.execute("ALTER TABLE apply_attempt DROP CONSTRAINT attempt_tipo_valido")
+    conn.execute(
+        "ALTER TABLE apply_attempt ADD CONSTRAINT attempt_tipo_valido"
+        " CHECK (tipo IN ('normal', 'reversa', 'probe', 'hermana'))"
+    )
+
+
+@_skip_db
+def test_ledger_seq_global_monotonica_entre_tipos():
+    """seq = max(seq)+1 GLOBAL por decision (normal + hermana + reversa
+    comparten secuencia): 2 normales + 1 hermana + 1 reversa -> seq 1..4
+    sin repetir. Regla 9: con el count de normales, la reversa repetiria
+    seq 3 y dos filas compartirian secuencia."""
+    from app.apply import _ledger
+
+    with _db_temporal("orbit_apply_seqg") as conn:
+        _con_tipo_hermana(conn)
+        ids = _semilla(conn)
+        dec = _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"], new="0.85")
+        s1 = _ledger(conn, dec, "normal", {"a": 1}, quota_cobrada=True)
+        s2 = _ledger(conn, dec, "normal", {"a": 2}, quota_cobrada=False)
+        s3 = _ledger(conn, dec, "hermana", {"adGroupId": "6201"}, quota_cobrada=False)
+        s4 = _ledger(conn, dec, "reversa", {"x": 1}, quota_cobrada=False)
+        seqs = conn.execute(
+            "SELECT seq FROM apply_attempt WHERE decision_id = %s ORDER BY id", (dec,)
+        ).fetchall()
+        assert [s[0] for s in seqs] == [1, 2, 3, 4], "secuencia global sin huecos repetidos"
+        assert (s1, s2, s3, s4) == tuple(
+            r[0]
+            for r in conn.execute(
+                "SELECT id FROM apply_attempt WHERE decision_id = %s ORDER BY id", (dec,)
+            ).fetchall()
+        )
+
+
+@_skip_db
+def test_ledger_tope_normal_no_bloquea_hermanas_ni_reversas():
+    """Tres normales agotan el presupuesto normal (4o normal -> None) pero
+    hermanas y reversas siguen naciendo con seq global (4 y 5). Regla 9: sin
+    separar responsabilidades, el tope contable bloquearia la higiene y la
+    reversa de seguridad."""
+    from app.apply import _ledger
+
+    with _db_temporal("orbit_apply_seqtope") as conn:
+        _con_tipo_hermana(conn)
+        ids = _semilla(conn)
+        dec = _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"], new="0.85")
+        for i in range(3):
+            assert _ledger(conn, dec, "normal", {"a": i}, quota_cobrada=False) is not None
+        assert _ledger(conn, dec, "normal", {"a": 9}, quota_cobrada=False) is None, (
+            "no existe 4o intento normal"
+        )
+        assert _ledger(conn, dec, "hermana", {"adGroupId": "6201"}, quota_cobrada=False) is not None
+        assert _ledger(conn, dec, "reversa", {"x": 1}, quota_cobrada=False) is not None
+        seqs = conn.execute(
+            "SELECT seq, tipo FROM apply_attempt WHERE decision_id = %s ORDER BY id", (dec,)
+        ).fetchall()
+        assert seqs == [
+            (1, "normal"),
+            (2, "normal"),
+            (3, "normal"),
+            (4, "hermana"),
+            (5, "reversa"),
+        ]
+
+
+# ===========================================================================
+# ADS D.1: el desenlace "no aplicado" de aplica_bids queda registrado en
+# decision_sin_aplicar con el ciclo EJECUTOR (no el decisor). Un test por
+# rama; ya_aplicada es la excepcion deliberada (su desenlace YA es
+# decision_application: grabarla la marcaria como no-aplicada).
+# ===========================================================================
+
+
+def test_registra_sin_aplicar_rechaza_motivo_fuera_del_vocabulario():
+    """El vocabulario es CERRADO tambien en la app (la base lo refuerza con el
+    CHECK): un motivo inventado revienta ANTES de tocar la conexion."""
+    with pytest.raises(ValueError, match="capricho"):
+        registra_sin_aplicar(None, 1, 1, "capricho")
+
+
+@_skip_db
+def test_sin_aplicar_fuera_de_cap_registra_el_bid_descartado():
+    """Cap 10 con 11 elegibles: los 10 primeros del orden sellado aplican y el
+    11o queda registrado (fuera_de_cap) con el ciclo EJECUTOR. Regla 9: sin el
+    registro, la fila no existe y el assert revienta; con el ciclo DECISOR en
+    vez del ejecutor, cycle_id seria ciclo_dec."""
+    with _db_temporal("orbit_apply_dsa_cap") as conn:
+        ids = _semilla(conn, caps={"ads_apply_cap_amazon_us_bid": 10})
+        kws = [ids["kw"], ids["kw2"]]
+        for i in range(3, 12):
+            kw = _entidad(conn, "keyword", f"72{i:02d}", parent=ids["ag"])
+            conn.execute(
+                "INSERT INTO ad_entity_state (ad_entity_id, current_bid, bid_currency, status,"
+                " synced_at) VALUES (%s, 1.00, 'USD', 'ENABLED', now())",
+                (kw,),
+            )
+            kws.append(kw)
+        decs = [
+            _decision_bid(conn, ids["ciclo_dec"], ids["config"], kw, cost=f"{200 - 10 * i}.00")
+            for i, kw in enumerate(kws)
+        ]
+        remoto = {f"72{i:02d}": "0.85" for i in range(1, 12)}
+        handler, vistos = _handler_api(remoto)
+        ap = _aplicador(conn, handler, ids["ciclo_ejec"])
+
+        res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
+
+        assert res.aplicadas == 10
+        assert res.descartadas == [MOTIVO_FUERA_DE_CAP]
+        assert len(_puts(vistos)) == 10
+        descartado = decs[10]  # costo de ventana mas bajo: ultimo del orden
+        fila = conn.execute(
+            "SELECT cycle_id, motivo FROM decision_sin_aplicar WHERE decision_id = %s",
+            (descartado,),
+        ).fetchone()
+        assert fila == (ids["ciclo_ejec"], "fuera_de_cap")
+        assert conn.execute("SELECT count(*) FROM decision_sin_aplicar").fetchone()[0] == 1
+        assert (
+            conn.execute(
+                "SELECT used FROM apply_quota_state WHERE motor = %s",
+                (motor_quota("amazon_us", "bid"),),
+            ).fetchone()[0]
+            == 10
+        )
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM decision_application WHERE decision_id = %s",
+                (descartado,),
+            ).fetchone()[0]
+            == 0
+        ), "el descartado no tiene desenlace de aplicada"
+
+        # Re-run del MISMO ciclo ejecutor: ON CONFLICT DO NOTHING, sigue 1.
+        res2 = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
+        assert res2.descartadas == [MOTIVO_FUERA_DE_CAP]
+        assert conn.execute("SELECT count(*) FROM decision_sin_aplicar").fetchone()[0] == 1
+
+
+@_skip_db
+def test_sin_aplicar_modo_no_live_registra_el_skip():
+    """Envelope live + goal shadow: el skip deja rastro (modo_no_live); antes
+    de D.1 la decision quedaba invisible (huérfana)."""
+    with _db_temporal("orbit_apply_dsa_modo") as conn:
+        ids = _semilla(conn, mode_ciclo_dec="live", goal_mode="shadow")
+        dec = _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"], modo="live")
+        handler, vistos = _handler_api({"7201": "0.85"})
+        ap = _aplicador(conn, handler, ids["ciclo_ejec"])
+
+        res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
+
+        assert res.skips == [MOTIVO_MODO_NO_LIVE]
+        assert vistos == []
+        fila = conn.execute(
+            "SELECT cycle_id, motivo FROM decision_sin_aplicar WHERE decision_id = %s",
+            (dec,),
+        ).fetchone()
+        assert fila == (ids["ciclo_ejec"], "modo_no_live")
+
+
+@_skip_db
+def test_sin_aplicar_modo_no_live_no_registra_una_decision_ya_aplicada():
+    """Review IA #345 (M1): una decision que YA tiene decision_application
+    (verify_ok TRUE) y en el re-run cae en modo_no_live (goal pasado a shadow)
+    NO recibe fila en decision_sin_aplicar: su desenlace ya es aplicada y la
+    tabla nueva la contradiria."""
+    with _db_temporal("orbit_apply_dsa_modo_ya") as conn:
+        ids = _semilla(conn, mode_ciclo_dec="live", goal_mode="shadow")
+        dec = _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"], modo="live")
+        conn.execute(
+            "INSERT INTO decision_application (decision_id, confirmed_at, platform_ack,"
+            " verify_ok) VALUES (%s, now(), '{}'::jsonb, true)",
+            (dec,),
+        )
+        handler, vistos = _handler_api({"7201": "0.85"})
+        ap = _aplicador(conn, handler, ids["ciclo_ejec"])
+
+        res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
+
+        assert res.skips == [MOTIVO_MODO_NO_LIVE]
+        assert vistos == []
+        assert conn.execute("SELECT count(*) FROM decision_sin_aplicar").fetchone()[0] == 0
+
+
+@_skip_db
+def test_sin_aplicar_ya_aplicada_no_deja_fila():
+    """ya_aplicada esta en el vocabulario (es un motivo de skip real) pero NO
+    se graba: su desenlace YA es decision_application; una fila en
+    decision_sin_aplicar la contradiria (mutante: grabar ya_aplicada infla la
+    tabla y la vista de auditoria mentiria)."""
+    with _db_temporal("orbit_apply_dsa_ya") as conn:
+        ids = _semilla(conn)
+        _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"])
+        handler, vistos = _handler_api({"7201": "0.85"})
+        ap = _aplicador(conn, handler, ids["ciclo_ejec"])
+
+        res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
+        assert res.aplicadas == 1
+        res2 = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
+
+        assert res2.skips == [MOTIVO_YA_APLICADA]
+        assert len(_puts(vistos)) == 1
+        assert conn.execute("SELECT count(*) FROM decision_sin_aplicar").fetchone()[0] == 0
+
+
+@_skip_db
+def test_sin_aplicar_tope_intentos_registra_el_skip_sin_quemar_quota():
+    """3 intentos normales presembrados -> el aplicador salta (tope_intentos)
+    y lo REGISTRA; la quota queda intacta (sin fila del motor)."""
+    with _db_temporal("orbit_apply_dsa_tope") as conn:
+        ids = _semilla(conn)
+        dec = _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"])
+        for seq in (1, 2, 3):
+            conn.execute(
+                "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload,"
+                " quota_cobrada) VALUES (%s, %s, 'normal', '{}'::jsonb, true)",
+                (dec, seq),
+            )
+        handler, vistos = _handler_api({"7201": "0.85"})
+        ap = _aplicador(conn, handler, ids["ciclo_ejec"])
+
+        res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
+
+        assert res.skips == [MOTIVO_TOPE_INTENTOS]
+        assert vistos == []
+        fila = conn.execute(
+            "SELECT cycle_id, motivo FROM decision_sin_aplicar WHERE decision_id = %s",
+            (dec,),
+        ).fetchone()
+        assert fila == (ids["ciclo_ejec"], "tope_intentos")
+        assert conn.execute("SELECT count(*) FROM apply_quota_state").fetchone()[0] == 0
+
+
+@_skip_db
+def test_sin_aplicar_fallo_http_registra_el_skip():
+    """El rechazo >=400 sella el ledger (esa parte ya existia) Y deja la fila
+    de no-aplicado (fallo_http): sin ella la decision no tenia desenlace
+    visible fuera del ledger."""
+    with _db_temporal("orbit_apply_dsa_http") as conn:
+        ids = _semilla(conn)
+        dec = _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"])
+        vistos: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "api.amazon.com":
+                return _token_response()
+            vistos.append(request)
+            return httpx.Response(400, json={"detail": "INVALID_BID"})
+
+        ap = _aplicador(conn, handler, ids["ciclo_ejec"])
+        res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
+
+        assert res.skips == [MOTIVO_FALLO_HTTP]
+        fila = conn.execute(
+            "SELECT cycle_id, motivo FROM decision_sin_aplicar WHERE decision_id = %s",
+            (dec,),
+        ).fetchone()
+        assert fila == (ids["ciclo_ejec"], "fallo_http")
+
+
+# ---------------------------------------------------------------------------
+# M.5: regreso del dueno (PG + MockTransport, cero HTTP vivo)
+# ---------------------------------------------------------------------------
+
+_PERFIL_M5 = {
+    "profileId": FAKE_PROFILE_US,
+    "countryCode": "US",
+    "currencyCode": "USD",
+    "accountInfo": {"type": "seller", "name": "Test US", "validPaymentMethod": True},
+}
+
+_R1_M5 = dt.datetime(2026, 9, 20, 12, 0, tzinfo=dt.UTC)
+_R2_M5 = dt.datetime(2026, 9, 25, 12, 0, tzinfo=dt.UTC)
+
+
+@contextmanager
+def _db_m5(prefijo: str):
+    """DB temporal del patron de arriba mas la 0060 (v_cambio_bid)."""
+    with _db_temporal(prefijo) as conn:
+        conn.execute(SQL60)
+        yield conn
+
+
+def _handler_regreso(*, falla_put: bool = False):
+    """Amazon mock del camino de regreso: LWA + /v2/profiles + PUT con bid
+    NUMERO + readback por POST /list (shape del probe 2.5)."""
+    vistos: list[httpx.Request] = []
+    remoto: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return _token_response()
+        vistos.append(request)
+        path, metodo = request.url.path, request.method
+        if metodo == "GET" and path == "/v2/profiles":
+            return httpx.Response(200, json=[_PERFIL_M5])
+        if metodo == "PUT":
+            if falla_put:
+                return httpx.Response(400, json={"detail": "INVALID_BID"})
+            body = json.loads(request.content)
+            obj = body["keywords"][0] if "keywords" in body else body["targetingClauses"][0]
+            ext = str(obj.get("keywordId") or obj.get("targetId"))
+            remoto[ext] = obj["bid"]
+            return httpx.Response(207, json={"ack": obj})
+        if metodo == "POST" and path.endswith("/list"):
+            contenedor, campo = (
+                ("targetingClauses", "targetId")
+                if path == "/sp/targets/list"
+                else ("keywords", "keywordId")
+            )
+            filas = [{campo: ext, "bid": bid, "state": "ENABLED"} for ext, bid in remoto.items()]
+            return httpx.Response(200, json={contenedor: filas, "totalResults": len(filas)})
+        raise AssertionError(f"request inesperado: {metodo} {path}")
+
+    return handler, vistos
+
+
+def _creds_m5(monkeypatch) -> None:
+    monkeypatch.setattr(
+        AdsCredentials, "from_secrets_dir", classmethod(lambda cls, *a, **kw: _fake_credentials())
+    )
+
+
+def _ingest_m5(conn) -> int:
+    return conn.execute("INSERT INTO ingest_run (source) VALUES ('m5') RETURNING id").fetchone()[0]
+
+
+def _ciclo_live(conn) -> int:
+    return conn.execute(
+        "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+    ).fetchone()[0]
+
+
+def _aplicada(conn, decision: int, ejecutor: int, confirmado: dt.datetime) -> None:
+    conn.execute(
+        "INSERT INTO decision_application (decision_id, confirmed_at, platform_ack,"
+        " verify_ok, applied_cycle_id) VALUES (%s, %s, %s, true, %s)",
+        (decision, confirmado, Json({"readback": True}), ejecutor),
+    )
+
+
+def _hoja_us(conn, ag: int, external: str, *, bid: str = "6.00") -> int:
+    hoja = _entidad(conn, "keyword", external, parent=ag)
+    conn.execute(
+        "INSERT INTO ad_entity_state (ad_entity_id, current_bid, bid_currency, status,"
+        " synced_at) VALUES (%s, %s, 'USD', 'ENABLED', now())",
+        (hoja, bid),
+    )
+    return hoja
+
+
+def _metrica_m5(conn, ingest: int, hoja: int, fecha: dt.date, *, clics, pedidos, venta) -> None:
+    conn.execute(
+        "INSERT INTO ads_metric_observation (ad_entity_id, metric_date, observed_at,"
+        " metric_currency, cost, ad_revenue, impressions, clicks, orders, ingest_run_id)"
+        " VALUES (%s, %s, %s, 'USD', %s, %s, %s, %s, %s, %s)",
+        (
+            hoja,
+            fecha,
+            dt.datetime(2026, 10, 9, 12, 0, tzinfo=dt.UTC),
+            venta,
+            venta,
+            (clics or 0) * 100 if clics is not None else None,
+            clics,
+            pedidos,
+            ingest,
+        ),
+    )
+
+
+def _danada_m5(conn, ids, hoja: int, ingest: int, *, vieja: str, media: str, nueva: str) -> tuple:
+    """Racha de dos recortes aplicados + metricas de danada (vende 90d
+    previos, clics de hoy < 30 % de los previos). Devuelve (d1, d2)."""
+    ciclo_a = _ciclo_live(conn)
+    ciclo_b = _ciclo_live(conn)
+    d1 = _decision_bid(conn, ciclo_a, ids["config"], hoja, old=vieja, new=media)
+    d2 = _decision_bid(conn, ciclo_b, ids["config"], hoja, old=media, new=nueva)
+    _aplicada(conn, d1, ids["ciclo_ejec"], _R1_M5)
+    _aplicada(conn, d2, ids["ciclo_ejec"], _R2_M5)
+    _metrica_m5(conn, ingest, hoja, dt.date(2026, 9, 10), clics=100, pedidos=0, venta=Decimal("0"))
+    _metrica_m5(
+        conn, ingest, hoja, dt.date(2026, 8, 1), clics=50, pedidos=2, venta=Decimal("90.00")
+    )
+    _metrica_m5(conn, ingest, hoja, dt.date(2026, 10, 1), clics=20, pedidos=0, venta=None)
+    return d1, d2
+
+
+@_skip_db
+def test_regreso_del_dueno_revierte_la_primera_decision_de_la_racha(monkeypatch):
+    """Racha 9.74 -> 5.00 -> 3.73: Amazon recibe 9.74 (el bid anterior a la
+    racha) y v_cambio_bid trae la fila regreso_del_dueno de esa hoja."""
+    with _db_m5("orbit_apply_m5_1") as conn:
+        ids = _semilla(conn)
+        ciclo_a = _ciclo_live(conn)
+        ciclo_b = _ciclo_live(conn)
+        d1 = _decision_bid(conn, ciclo_a, ids["config"], ids["kw"], old="9.74", new="5.00")
+        d2 = _decision_bid(conn, ciclo_b, ids["config"], ids["kw"], old="5.00", new="3.73")
+        _aplicada(conn, d1, ids["ciclo_ejec"], _R1_M5)
+        _aplicada(conn, d2, ids["ciclo_ejec"], _R2_M5)
+        conn.execute(
+            "UPDATE ad_entity_state SET current_bid = 3.73 WHERE ad_entity_id = %s",
+            (ids["kw"],),
+        )
+        handler, vistos = _handler_regreso()
+        _creds_m5(monkeypatch)
+
+        hecho = regreso_del_dueno(
+            conn, hoja_id=ids["kw"], actor="dueno", transport=httpx.MockTransport(handler)
+        )
+
+        puts = _puts(vistos)
+        assert len(puts) == 1
+        body = json.loads(puts[0].content)
+        assert Decimal(str(body["keywords"][0]["bid"])) == Decimal("9.74")
+        assert body["keywords"][0]["keywordId"] == "7201"
+        fila = conn.execute(
+            "SELECT bid_despues, decision_id FROM v_cambio_bid"
+            " WHERE hoja_id = %s AND origen = 'regreso_del_dueno'",
+            (ids["kw"],),
+        ).fetchall()
+        assert fila == [(Decimal("9.74"), d1)]
+        sello = conn.execute(
+            "SELECT finished_at FROM apply_attempt"
+            " WHERE decision_id = %s AND tipo = 'reversa' ORDER BY seq DESC LIMIT 1",
+            (d1,),
+        ).fetchone()[0]
+        assert hecho == RegresoHecho(
+            hoja_id=ids["kw"],
+            bid_antes=Decimal("3.73"),
+            bid_ahora=Decimal("9.74"),
+            moneda="USD",
+            decision_revertida_id=d1,
+            actor="dueno",
+            regreso_confirmado_at=sello.isoformat(),
+        )
+        dict_hecho = hecho.como_dict()
+        assert dict_hecho["bid_ahora"] == "9.74"
+        assert dict_hecho["decision_revertida_id"] == d1
+        json.dumps(dict_hecho)
+
+
+@_skip_db
+def test_regreso_del_dueno_con_vigente_por_encima_no_baja(monkeypatch):
+    """R03-B1: racha 10 -> 8 -> 6 con el vigente en 12 (cambio fuera de
+    Orbit): el regreso NO escribe (bajaria a 10) y levanta
+    VigentePorEncima con cero HTTP."""
+    with _db_m5("orbit_apply_m5_b1") as conn:
+        ids = _semilla(conn)
+        ciclo_a = _ciclo_live(conn)
+        ciclo_b = _ciclo_live(conn)
+        d1 = _decision_bid(conn, ciclo_a, ids["config"], ids["kw"], old="10.00", new="8.00")
+        d2 = _decision_bid(conn, ciclo_b, ids["config"], ids["kw"], old="8.00", new="6.00")
+        _aplicada(conn, d1, ids["ciclo_ejec"], _R1_M5)
+        _aplicada(conn, d2, ids["ciclo_ejec"], _R2_M5)
+        conn.execute(
+            "UPDATE ad_entity_state SET current_bid = 12.00 WHERE ad_entity_id = %s",
+            (ids["kw"],),
+        )
+        handler, vistos = _handler_regreso()
+        _creds_m5(monkeypatch)
+
+        with pytest.raises(VigentePorEncima):
+            regreso_del_dueno(
+                conn, hoja_id=ids["kw"], actor="dueno", transport=httpx.MockTransport(handler)
+            )
+
+        assert vistos == []
+
+
+@_skip_db
+def test_regreso_del_dueno_sin_racha_levanta_sin_tocar_amazon(monkeypatch):
+    """Una subida del motor cierra la racha y una hoja sin cambios no tiene
+    racha: ambas levantan SinRachaDeRecortes con cero HTTP."""
+    with _db_m5("orbit_apply_m5_2") as conn:
+        ids = _semilla(conn)
+        ciclo_a = _ciclo_live(conn)
+        ciclo_b = _ciclo_live(conn)
+        r1 = _decision_bid(conn, ciclo_a, ids["config"], ids["kw"], old="10.00", new="8.00")
+        s1 = _decision_bid(conn, ciclo_b, ids["config"], ids["kw"], old="8.00", new="9.00")
+        _aplicada(conn, r1, ids["ciclo_ejec"], _R1_M5)
+        _aplicada(conn, s1, ids["ciclo_ejec"], _R2_M5)
+        handler, vistos = _handler_regreso()
+        _creds_m5(monkeypatch)
+        transporte = httpx.MockTransport(handler)
+
+        with pytest.raises(SinRachaDeRecortes):
+            regreso_del_dueno(conn, hoja_id=ids["kw"], actor="dueno", transport=transporte)
+        with pytest.raises(SinRachaDeRecortes):
+            regreso_del_dueno(conn, hoja_id=ids["kw2"], actor="dueno", transport=transporte)
+
+        assert vistos == []
+
+
+@_skip_db
+def test_regreso_del_dueno_segundo_regreso_no_reescribe(monkeypatch):
+    """Un segundo regreso sin recortes nuevos levanta SinRachaDeRecortes
+    (la racha de la accion corta en el ultimo regreso: queda vacia) y el
+    transporte falso no recibe otra llamada (un solo PUT). En el endpoint
+    sigue siendo 409, como la ReversaYaHecha de antes."""
+    with _db_m5("orbit_apply_m5_3") as conn:
+        ids = _semilla(conn)
+        ciclo_a = _ciclo_live(conn)
+        d1 = _decision_bid(conn, ciclo_a, ids["config"], ids["kw"], old="9.74", new="5.00")
+        _aplicada(conn, d1, ids["ciclo_ejec"], _R1_M5)
+        handler, vistos = _handler_regreso()
+        _creds_m5(monkeypatch)
+        transporte = httpx.MockTransport(handler)
+
+        regreso_del_dueno(conn, hoja_id=ids["kw"], actor="dueno", transport=transporte)
+        with pytest.raises(SinRachaDeRecortes):
+            regreso_del_dueno(conn, hoja_id=ids["kw"], actor="dueno", transport=transporte)
+
+        assert len(_puts(vistos)) == 1
+
+
+@_skip_db
+def test_regreso_del_dueno_tras_recorte_nuevo_revierte_el_recorte_nuevo(monkeypatch):
+    """R03-F5: regreso -> recorte nuevo -> regreso: el segundo regreso
+    revierte el recorte NUEVO (la racha de la accion corta en el ultimo
+    regreso), no la decision ya revertida (antes: ReversaYaHecha/409
+    permanente con boton visible)."""
+    with _db_m5("orbit_apply_m5_7") as conn:
+        ids = _semilla(conn)
+        ciclo_a = _ciclo_live(conn)
+        d1 = _decision_bid(conn, ciclo_a, ids["config"], ids["kw"], old="9.74", new="5.00")
+        _aplicada(conn, d1, ids["ciclo_ejec"], _R1_M5)
+        handler, vistos = _handler_regreso()
+        _creds_m5(monkeypatch)
+        transporte = httpx.MockTransport(handler)
+
+        primero = regreso_del_dueno(conn, hoja_id=ids["kw"], actor="dueno", transport=transporte)
+        assert primero.decision_revertida_id == d1
+        regreso_el = conn.execute(
+            "SELECT confirmado_el FROM v_cambio_bid"
+            " WHERE hoja_id = %s AND origen = 'regreso_del_dueno'",
+            (ids["kw"],),
+        ).fetchone()[0]
+        ciclo_c = _ciclo_live(conn)
+        d2 = _decision_bid(conn, ciclo_c, ids["config"], ids["kw"], old="9.74", new="7.00")
+        _aplicada(conn, d2, ids["ciclo_ejec"], regreso_el + dt.timedelta(seconds=1))
+        conn.execute(
+            "UPDATE ad_entity_state SET current_bid = 7.00 WHERE ad_entity_id = %s",
+            (ids["kw"],),
+        )
+
+        segundo = regreso_del_dueno(conn, hoja_id=ids["kw"], actor="dueno", transport=transporte)
+
+        assert segundo.decision_revertida_id == d2
+        assert segundo.bid_antes == Decimal("7.00")
+        assert segundo.bid_ahora == Decimal("9.74")
+        puts = _puts(vistos)
+        assert len(puts) == 2
+        assert Decimal(str(json.loads(puts[1].content)["keywords"][0]["bid"])) == Decimal("9.74")
+
+
+@_skip_db
+def test_regreso_del_dueno_sin_confirmar_levanta_con_el_motivo(monkeypatch):
+    """PUT 400: la reversa queda sellada como fallo, no nace fila en la
+    vista y el regreso levanta RegresoNoConfirmado con el motivo."""
+    with _db_m5("orbit_apply_m5_4") as conn:
+        ids = _semilla(conn)
+        ciclo_a = _ciclo_live(conn)
+        d1 = _decision_bid(conn, ciclo_a, ids["config"], ids["kw"], old="9.74", new="5.00")
+        _aplicada(conn, d1, ids["ciclo_ejec"], _R1_M5)
+        handler, _vistos = _handler_regreso(falla_put=True)
+        _creds_m5(monkeypatch)
+
+        with pytest.raises(RegresoNoConfirmado) as exc:
+            regreso_del_dueno(
+                conn, hoja_id=ids["kw"], actor="dueno", transport=httpx.MockTransport(handler)
+            )
+
+        assert "400" in str(exc.value)
+        filas = conn.execute(
+            "SELECT count(*) FROM v_cambio_bid WHERE hoja_id = %s AND origen = 'regreso_del_dueno'",
+            (ids["kw"],),
+        ).fetchone()[0]
+        assert filas == 0
+
+
+@_skip_db
+def test_regreso_del_dueno_todas_con_n_viejo_no_escribe(monkeypatch):
+    """Seis hojas pendientes y confirmacion REGRESAR 5 KEYWORDS: 409
+    (ConfirmacionDesactualizada con el N vigente) y cero HTTP."""
+    with _db_m5("orbit_apply_m5_5") as conn:
+        ids = _semilla(conn)
+        ingest = _ingest_m5(conn)
+        hojas = [ids["kw"], ids["kw2"]] + [
+            _hoja_us(conn, ids["ag"], f"73{i:02d}") for i in range(4)
+        ]
+        for hoja in hojas:
+            _danada_m5(conn, ids, hoja, ingest, vieja="10.00", media="8.00", nueva="6.00")
+        _metrica_m5(conn, ingest, hojas[0], dt.date(2026, 10, 9), clics=0, pedidos=0, venta=None)
+        handler, vistos = _handler_regreso()
+        _creds_m5(monkeypatch)
+
+        with pytest.raises(ConfirmacionDesactualizada) as exc:
+            regreso_del_dueno_todas(
+                conn,
+                plataforma="amazon_us",
+                confirmacion="REGRESAR 5 KEYWORDS",
+                actor="dueno",
+                transport=httpx.MockTransport(handler),
+            )
+
+        assert "REGRESAR 6 KEYWORDS" in str(exc.value)
+        assert vistos == []
+        assert conn.execute("SELECT count(*) FROM apply_attempt").fetchone()[0] == 0
+
+
+@_skip_db
+def test_regreso_del_dueno_todas_una_falla_no_detiene_a_las_demas(monkeypatch):
+    """Dos pendientes: la revertida al instante del ultimo recorte falla
+    sin racha vigente (el regreso empata al recorte: no es posterior) y
+    la otra se regresa (un PUT con su bid)."""
+    with _db_m5("orbit_apply_m5_6") as conn:
+        ids = _semilla(conn)
+        ingest = _ingest_m5(conn)
+        hoja_a = ids["kw"]
+        hoja_b = ids["kw2"]
+        _d1_a, d2_a = _danada_m5(
+            conn, ids, hoja_a, ingest, vieja="10.00", media="8.00", nueva="6.00"
+        )
+        conn.execute(
+            "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload,"
+            " quota_cobrada, resultado, finished_at)"
+            " VALUES (%s, 1, 'reversa', %s, false, 'ok', %s)",
+            (d2_a, Json({"bid": "viejo"}), _R2_M5),
+        )
+        _danada_m5(conn, ids, hoja_b, ingest, vieja="12.00", media="9.00", nueva="7.00")
+        _metrica_m5(conn, ingest, hoja_a, dt.date(2026, 10, 9), clics=0, pedidos=0, venta=None)
+        handler, vistos = _handler_regreso()
+        _creds_m5(monkeypatch)
+
+        resultado = regreso_del_dueno_todas(
+            conn,
+            plataforma="amazon_us",
+            confirmacion="REGRESAR 2 KEYWORDS",
+            actor="dueno",
+            transport=httpx.MockTransport(handler),
+        )
+
+        hechos = [r for r in resultado if isinstance(r, RegresoHecho)]
+        motivos = [r for r in resultado if isinstance(r, str)]
+        assert len(hechos) == 1 and len(motivos) == 1
+        assert hechos[0].hoja_id == hoja_b
+        assert hechos[0].bid_ahora == Decimal("12.00")
+        assert f"hoja {hoja_a}" in motivos[0]
+        assert "no tiene racha vigente de recortes" in motivos[0]
+        puts = _puts(vistos)
+        assert len(puts) == 1
+        body = json.loads(puts[0].content)
+        assert Decimal(str(body["keywords"][0]["bid"])) == Decimal("12.00")
+
+
+def test_clave_orden_cambio_empate_con_null_no_revienta():
+    """Panel: decision_id NULL de ajuste_de_campana empatado con un id
+    ordena (NULL ultimo, como el SQL) en vez de TypeError."""
+    import datetime as dt
+
+    from app.apply import _clave_orden_cambio
+
+    ancla = dt.datetime(2026, 10, 4, 12, 0)
+    motor = (ancla, 1, 2, "MXN", 7)
+    ajuste = (ancla, 2, 2, "MXN", None)
+    assert max([motor, ajuste], key=_clave_orden_cambio) == ajuste
+    assert min([motor, ajuste], key=_clave_orden_cambio) == motor
