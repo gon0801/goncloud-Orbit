@@ -1,0 +1,273 @@
+{
+ "sonda": "fuera_de_amazon",
+ "platform": "amazon_us",
+ "mutacion": true,
+ "envios": [
+  {
+   "nombre": "candidato_minimize_spend",
+   "cuerpo": {
+    "campaigns": [
+     {
+      "campaignId": "138625505369345",
+      "offAmazonSettings": {
+       "offAmazonBudgetControlStrategy": "MINIMIZE_SPEND"
+      }
+     }
+    ]
+   },
+   "status": 207,
+   "respuesta": {
+    "campaigns": {
+     "error": [],
+     "success": [
+      {
+       "campaignId": "138625505369345",
+       "index": 0
+      }
+     ]
+    }
+   },
+   "rechazado": false
+  },
+  {
+   "nombre": "regreso",
+   "cuerpo": {
+    "campaigns": [
+     {
+      "campaignId": "138625505369345",
+      "offAmazonSettings": {}
+     }
+    ]
+   },
+   "status": 207,
+   "respuesta": {
+    "campaigns": {
+     "error": [],
+     "success": [
+      {
+       "campaignId": "138625505369345",
+       "index": 0
+      }
+     ]
+    }
+   },
+   "rechazado": false
+  }
+ ],
+ "lecturas": [
+  {
+   "etapa": "antes",
+   "campana": {
+    "budget": {
+     "budget": 9.52,
+     "budgetType": "DAILY"
+    },
+    "campaignId": "138625505369345",
+    "dynamicBidding": {
+     "placementBidding": [
+      {
+       "percentage": 40,
+       "placement": "PLACEMENT_PRODUCT_PAGE"
+      }
+     ],
+     "strategy": "LEGACY_FOR_SALES"
+    },
+    "marketplaceBudgetAllocation": "MANUAL",
+    "name": "A1U - Auto Discovery - US",
+    "offAmazonSettings": {},
+    "portfolioId": "168079743265695",
+    "startDate": "2026-03-12",
+    "state": "PAUSED",
+    "tags": {},
+    "targetingType": "AUTO"
+   }
+  },
+  {
+   "etapa": "tras_candidato_minimize_spend",
+   "campana": {
+    "budget": {
+     "budget": 9.52,
+     "budgetType": "DAILY"
+    },
+    "campaignId": "138625505369345",
+    "dynamicBidding": {
+     "placementBidding": [
+      {
+       "percentage": 40,
+       "placement": "PLACEMENT_PRODUCT_PAGE"
+      }
+     ],
+     "strategy": "LEGACY_FOR_SALES"
+    },
+    "marketplaceBudgetAllocation": "MANUAL",
+    "name": "A1U - Auto Discovery - US",
+    "offAmazonSettings": {
+     "offAmazonBudgetControlStrategy": "MINIMIZE_SPEND"
+    },
+    "portfolioId": "168079743265695",
+    "startDate": "2026-03-12",
+    "state": "PAUSED",
+    "tags": {},
+    "targetingType": "AUTO"
+   }
+  },
+  {
+   "etapa": "previa_regreso",
+   "campana": {
+    "budget": {
+     "budget": 9.52,
+     "budgetType": "DAILY"
+    },
+    "campaignId": "138625505369345",
+    "dynamicBidding": {
+     "placementBidding": [
+      {
+       "percentage": 40,
+       "placement": "PLACEMENT_PRODUCT_PAGE"
+      }
+     ],
+     "strategy": "LEGACY_FOR_SALES"
+    },
+    "marketplaceBudgetAllocation": "MANUAL",
+    "name": "A1U - Auto Discovery - US",
+    "offAmazonSettings": {
+     "offAmazonBudgetControlStrategy": "MINIMIZE_SPEND"
+    },
+    "portfolioId": "168079743265695",
+    "startDate": "2026-03-12",
+    "state": "PAUSED",
+    "tags": {},
+    "targetingType": "AUTO"
+   }
+  },
+  {
+   "etapa": "tras_regreso",
+   "campana": {
+    "budget": {
+     "budget": 9.52,
+     "budgetType": "DAILY"
+    },
+    "campaignId": "138625505369345",
+    "dynamicBidding": {
+     "placementBidding": [
+      {
+       "percentage": 40,
+       "placement": "PLACEMENT_PRODUCT_PAGE"
+      }
+     ],
+     "strategy": "LEGACY_FOR_SALES"
+    },
+    "marketplaceBudgetAllocation": "MANUAL",
+    "name": "A1U - Auto Discovery - US",
+    "offAmazonSettings": {
+     "offAmazonBudgetControlStrategy": "MINIMIZE_SPEND"
+    },
+    "portfolioId": "168079743265695",
+    "startDate": "2026-03-12",
+    "state": "PAUSED",
+    "tags": {},
+    "targetingType": "AUTO"
+   }
+  },
+  {
+   "etapa": "previa_desviacion",
+   "campana": {
+    "budget": {
+     "budget": 9.52,
+     "budgetType": "DAILY"
+    },
+    "campaignId": "138625505369345",
+    "dynamicBidding": {
+     "placementBidding": [
+      {
+       "percentage": 40,
+       "placement": "PLACEMENT_PRODUCT_PAGE"
+      }
+     ],
+     "strategy": "LEGACY_FOR_SALES"
+    },
+    "marketplaceBudgetAllocation": "MANUAL",
+    "name": "A1U - Auto Discovery - US",
+    "offAmazonSettings": {
+     "offAmazonBudgetControlStrategy": "MINIMIZE_SPEND"
+    },
+    "portfolioId": "168079743265695",
+    "startDate": "2026-03-12",
+    "state": "PAUSED",
+    "tags": {},
+    "targetingType": "AUTO"
+   }
+  }
+ ],
+ "perfil_id": 4387591165211712,
+ "campana": {
+  "campaignId": "138625505369345",
+  "name": "A1U - Auto Discovery - US"
+ },
+ "antes": {
+  "budget": {
+   "budget": 9.52,
+   "budgetType": "DAILY"
+  },
+  "campaignId": "138625505369345",
+  "dynamicBidding": {
+   "placementBidding": [
+    {
+     "percentage": 40,
+     "placement": "PLACEMENT_PRODUCT_PAGE"
+    }
+   ],
+   "strategy": "LEGACY_FOR_SALES"
+  },
+  "marketplaceBudgetAllocation": "MANUAL",
+  "name": "A1U - Auto Discovery - US",
+  "offAmazonSettings": {},
+  "portfolioId": "168079743265695",
+  "startDate": "2026-03-12",
+  "state": "PAUSED",
+  "tags": {},
+  "targetingType": "AUTO"
+ },
+ "off_hoy": {},
+ "cuerpos_planeados": [
+  {
+   "campaigns": [
+    {
+     "campaignId": "138625505369345",
+     "offAmazonSettings": {
+      "offAmazonBudgetControlStrategy": "MINIMIZE_SPEND"
+     }
+    }
+   ]
+  },
+  {
+   "campaigns": [
+    {
+     "campaignId": "138625505369345",
+     "offAmazonSettings": {
+      "offAmazonBudgetControlStrategy": "MAXIMIZE_REACH"
+     }
+    }
+   ]
+  }
+ ],
+ "aceptado": "MINIMIZE_SPEND",
+ "iguales": false,
+ "diferencias": [
+  {
+   "llave": "offAmazonSettings",
+   "antes": {},
+   "final": {
+    "offAmazonBudgetControlStrategy": "MINIMIZE_SPEND"
+   }
+  }
+ ],
+ "desviacion": {
+  "off_antes": {},
+  "off_final": {
+   "offAmazonBudgetControlStrategy": "MINIMIZE_SPEND"
+  },
+  "motivo": "Amazon no dejo regresar a {}; queda el valor que minimiza el gasto"
+ },
+ "resultado": "OK con desviacion: queda MINIMIZE_SPEND porque Amazon no dejo regresar a {}; reportar bajo Desviaciones (la campana esta pausada: no cambia entregas)"
+}

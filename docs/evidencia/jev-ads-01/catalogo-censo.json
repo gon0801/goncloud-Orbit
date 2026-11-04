@@ -1,0 +1,229 @@
+{
+  "observed_at": "2026-10-03 07:00:44.946052+00:00",
+  "read_only": "on",
+  "columnas_catalogo": [
+    {
+      "table_name": "ad_entity",
+      "column_name": "id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "ad_entity",
+      "column_name": "platform",
+      "data_type": "USER-DEFINED"
+    },
+    {
+      "table_name": "ad_entity",
+      "column_name": "kind",
+      "data_type": "USER-DEFINED"
+    },
+    {
+      "table_name": "ad_entity",
+      "column_name": "external_id",
+      "data_type": "text"
+    },
+    {
+      "table_name": "ad_entity",
+      "column_name": "parent_id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "ad_entity",
+      "column_name": "name",
+      "data_type": "text"
+    },
+    {
+      "table_name": "ad_entity",
+      "column_name": "listing_id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "ad_entity",
+      "column_name": "match_type",
+      "data_type": "text"
+    },
+    {
+      "table_name": "ad_entity",
+      "column_name": "keyword_text",
+      "data_type": "text"
+    },
+    {
+      "table_name": "ad_entity",
+      "column_name": "first_seen_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "ad_entity_state",
+      "column_name": "ad_entity_id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "ad_entity_state",
+      "column_name": "current_bid",
+      "data_type": "numeric"
+    },
+    {
+      "table_name": "ad_entity_state",
+      "column_name": "bid_currency",
+      "data_type": "USER-DEFINED"
+    },
+    {
+      "table_name": "ad_entity_state",
+      "column_name": "status",
+      "data_type": "text"
+    },
+    {
+      "table_name": "ad_entity_state",
+      "column_name": "targeting_type",
+      "data_type": "text"
+    },
+    {
+      "table_name": "ad_entity_state",
+      "column_name": "acos_target",
+      "data_type": "numeric"
+    },
+    {
+      "table_name": "ad_entity_state",
+      "column_name": "synced_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "listing",
+      "column_name": "id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "listing",
+      "column_name": "product_id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "listing",
+      "column_name": "platform",
+      "data_type": "USER-DEFINED"
+    },
+    {
+      "table_name": "listing",
+      "column_name": "external_id",
+      "data_type": "text"
+    },
+    {
+      "table_name": "listing",
+      "column_name": "seller_sku",
+      "data_type": "text"
+    },
+    {
+      "table_name": "listing",
+      "column_name": "listing_price",
+      "data_type": "numeric"
+    },
+    {
+      "table_name": "listing",
+      "column_name": "price_currency",
+      "data_type": "USER-DEFINED"
+    },
+    {
+      "table_name": "product",
+      "column_name": "id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "product",
+      "column_name": "odoo_sku",
+      "data_type": "text"
+    },
+    {
+      "table_name": "product",
+      "column_name": "name",
+      "data_type": "text"
+    },
+    {
+      "table_name": "product",
+      "column_name": "active",
+      "data_type": "boolean"
+    },
+    {
+      "table_name": "spapi_listing_estado_observation",
+      "column_name": "id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "spapi_listing_estado_observation",
+      "column_name": "seller_sku",
+      "data_type": "text"
+    },
+    {
+      "table_name": "spapi_listing_estado_observation",
+      "column_name": "asin",
+      "data_type": "text"
+    },
+    {
+      "table_name": "spapi_listing_estado_observation",
+      "column_name": "platform",
+      "data_type": "USER-DEFINED"
+    },
+    {
+      "table_name": "spapi_listing_estado_observation",
+      "column_name": "status",
+      "data_type": "text"
+    },
+    {
+      "table_name": "spapi_listing_estado_observation",
+      "column_name": "product_type",
+      "data_type": "text"
+    },
+    {
+      "table_name": "spapi_listing_estado_observation",
+      "column_name": "last_updated_date",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "spapi_listing_estado_observation",
+      "column_name": "api_version",
+      "data_type": "text"
+    },
+    {
+      "table_name": "spapi_listing_estado_observation",
+      "column_name": "observed_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "spapi_listing_estado_observation",
+      "column_name": "ingest_run_id",
+      "data_type": "bigint"
+    }
+  ],
+  "productos": [
+    {
+      "total": 1089,
+      "activos": 1089,
+      "sin_nombre": 0
+    }
+  ],
+  "publicaciones": [
+    {
+      "platform": "amazon_mx",
+      "total": 342,
+      "sin_producto": 0
+    },
+    {
+      "platform": "amazon_us",
+      "total": 176,
+      "sin_producto": 0
+    }
+  ],
+  "anuncios_producto": [
+    {
+      "platform": "amazon_mx",
+      "total": 7714,
+      "sin_listing": 2660,
+      "grupos": 37
+    },
+    {
+      "platform": "amazon_us",
+      "total": 4818,
+      "sin_listing": 1207,
+      "grupos": 48
+    }
+  ]
+}

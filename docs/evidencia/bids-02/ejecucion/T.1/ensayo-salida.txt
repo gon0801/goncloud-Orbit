@@ -1,0 +1,20 @@
+== esquema de prod (orbit_read, solo lectura)
+esquema de prod cargado: 70 tablas
+== 1) aplicar 0063
+psql:~/dev/wt-bids-02-s2/migrations/0063_bids02_peldanos_target.sql:20: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+aplicada 0063_bids02_peldanos_target.sql
+CHECK tras 0063: CHECK ((procedencia = ANY (ARRAY['goal_campana'::text, 'goal_plataforma'::text, 'margen_familia'::text, 'margen_plataforma'::text, 'setting_plataforma'::text])))
+== 2) reversa de 0063
+psql:~/dev/wt-bids-02-s2/migrations/0063_reversa_bids02_peldanos_target.sql:11: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+aplicada 0063_reversa_bids02_peldanos_target.sql
+OK: la reversa deja el esquema identico al de prod
+== 3) reaplicar 0063
+psql:~/dev/wt-bids-02-s2/migrations/0063_bids02_peldanos_target.sql:20: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+aplicada 0063_bids02_peldanos_target.sql
+OK: reaplicar da el mismo esquema que la primera vez
+== 4) el CHECK vigente lista los cinco peldanos
+'goal_campana' 'goal_plataforma' 'margen_familia' 'margen_plataforma' 'setting_plataforma'
+ENSAYO OK

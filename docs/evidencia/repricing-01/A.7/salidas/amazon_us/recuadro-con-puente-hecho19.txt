@@ -1,0 +1,5 @@
+recuadro amazon_us 2026-09-18 (salidas A.7): activas=100
+  evaluadas=0 no_evaluadas=100 [canal_sin_dato=100] sin_goal=0 fuera_de_alcance=0 [] [CUADRA]
+  listing_identidad=176 (no son activas: Orbit no guarda el estado del bridge)
+  puente bridge=109 vs canonica=100
+  aviso: puente bridge=109 vs canonica=100 (9.0% > 5%)

@@ -1,0 +1,9 @@
+# Normalizar finales de línea: LF en el repo siempre (Windows checkouta CRLF
+# solo si core.autocrlf lo pide). Sin esto, cada diff en Windows mete ruido
+# LF->CRLF en todos los archivos (hallazgo del cross-review claude, ronda 4).
+* text=auto eol=lf
+
+# Binarios explícitos (por si algún día caen al repo)
+*.png binary
+*.jpg binary
+*.pdf binary

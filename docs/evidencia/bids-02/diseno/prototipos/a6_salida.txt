@@ -1,0 +1,16 @@
+(1) Keywords danadas
+   amazon_mx: 6 hojas; venta de 90 dias antes de la racha: 50039
+      hoja 2963  EXACT          5 recortes, bid 9.74 -> 3.73, clics 14 d 133 -> 16, vendia 31 pedidos / 28672
+      hoja 2871  PHRASE         4 recortes, bid 19.55 -> 9.99, clics 14 d 97 -> 2, vendia 10 pedidos / 9997
+      hoja 2880  PHRASE         5 recortes, bid 22.11 -> 7.22, clics 14 d 70 -> 0, vendia 4 pedidos / 6919
+      hoja 3857  product_target 2 recortes, bid 36.99 -> 28.64, clics 14 d 3 -> 0, vendia 1 pedidos / 1972
+      hoja 2917  BROAD          5 recortes, bid 9.53 -> 5.02, clics 14 d 51 -> 14, vendia 1 pedidos / 1455
+      hoja 2969  EXACT          5 recortes, bid 6.70 -> 3.54, clics 14 d 21 -> 6, vendia 1 pedidos / 1024
+   amazon_us: 3 hojas; venta de 90 dias antes de la racha: 2987
+      hoja 5894  product_target 4 recortes, bid 0.39 -> 0.14, clics 14 d 162 -> 18, vendia 10 pedidos / 1134
+      hoja 4919  PHRASE         4 recortes, bid 0.34 -> 0.11, clics 14 d 449 -> 32, vendia 10 pedidos / 1049
+      hoja 4924  PHRASE         5 recortes, bid 0.40 -> 0.11, clics 14 d 296 -> 1, vendia 8 pedidos / 804
+
+(2) CTR, CPC y clics que compra el tope de aprendizaje
+   amazon_mx: CTR 0.88% | CPC 3.61 | el tope de 350 compra ~97 clics, que piden ~10,986 impresiones | 20 clics piden ~2,266 impresiones
+   amazon_us: CTR 1.31% | CPC 0.41 | el tope de 36 compra ~88 clics, que piden ~6,778 impresiones | 20 clics piden ~1,532 impresiones

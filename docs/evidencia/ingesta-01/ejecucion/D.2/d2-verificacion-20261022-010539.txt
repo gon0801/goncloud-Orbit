@@ -1,0 +1,26 @@
+# ingesta-01 D.2 intento 26 — 2026-10-22 01:05 UTC
+
+El candado trailing-whitespace de Quality (run 39701678564, job rapido) fallo
+en sql-prueba-20261022-004326.txt: las cabeceras de psql (lineas 3, 8 y 13)
+terminaban en un espacio. Esas tres lineas quedaron sin espacio final.
+probar-sql.sh genera la salida pasando psql por `sed 's/ *$//'`.
+
+Re-probado ahora con ese script (solo lectura, BEGIN READ ONLY ... ROLLBACK,
+sin enviar nada). Salida: sql-prueba-20261022-010539.txt, exit 0, sin espacios
+finales. 0 rows es lo esperado: la ventana empieza el 2026-10-22 y a las
+01:05 UTC el dia aun no cierra.
+
+$ atq   (PATH del motor, la Mac)
+9	Wed Oct 28 18:42:00 2026 a claw
+
+$ ssh gonserver /usr/bin/atq
+9	Wed Oct 28 18:42:00 2026 a claw
+
+$ at -c 9  (gonserver, solo el comando; el entorno no se copia)
+sudo sh /mnt/data/appdata/orbit/recordatorios/ingesta01-d2.sh
+
+$ md5 servidor = repo
+41e43db818d9f9f035aa7c6e4b77ed3d  ingesta01-d2.sh
+ce06a85a28abff2b6e7838e89f1d1dfd  ingesta01-d2.sql
+
+Acepta de D.2 (`atq | grep -q .`): exit 0.

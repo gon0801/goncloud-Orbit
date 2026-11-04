@@ -1,0 +1,23 @@
+== 0) El servidor contesta
+OK    orbit-app-1 corriendo = true
+== Checklist S.5 (solo lectura; sello 20261007-0432, contenedor desde 2026-10-07T01:17:22.428431834Z, modo --antes)
+== 1) HTTP: health, /cortes, /gasto-sin-venta (dos mercados), /salud
+OK    GET /health = 200
+OK    GET /cortes = 200
+FALLA GET /gasto-sin-venta mx: esperado '200', obtenido '404'
+FALLA GET /gasto-sin-venta us: esperado '200', obtenido '404'
+OK    GET /salud = 200
+== 2) Codigo de S.5 en el contenedor (presencia, SIN ejecutarlo: el seco lo corre desplegar.sh)
+FALLA plantilla gasto-sin-venta en el contenedor: esperado 'presente', obtenido 'ausente'
+== 3) /api/dashboard/cortes: senal_disponible true y senal null en todo (job apagado)
+FALLA cortes senal + items con senal: esperado 'true 0', obtenido 'false 0'
+== 4) La pantalla nueva sale sin filas en las dos plataformas
+FALLA gasto-sin-venta amazon_mx total_filas: esperado '0', obtenido 'ILEGIBLE'
+NO MEDIDO HTML gasto-sin-venta amazon_mx sin filas (lectura vacia)
+FALLA gasto-sin-venta amazon_us total_filas: esperado '0', obtenido 'ILEGIBLE'
+NO MEDIDO HTML gasto-sin-venta amazon_us sin filas (lectura vacia)
+== 5) Bloque jev de /api/dashboard/salud dice apagado
+OK    bloque jev = apagado
+== 6) Primer ciclo del optimizador posterior al arranque
+INCOMPLETO: todavia no corre un ciclo despues de 2026-10-07T01:17:22.428431834Z; vuelve a correr el checklist despues del siguiente ciclo
+== RESULTADO: 6 falla(s), 2 sin medir, ciclo posterior PENDIENTE

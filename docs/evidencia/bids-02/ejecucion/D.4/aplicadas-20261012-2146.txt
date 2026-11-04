@@ -1,0 +1,6 @@
+migrations/0064_bids02_grupo_tipo.sql
+migrations/0065_bids02_impulso.sql
+migrations/0066_bids02_retiro_anuncios.sql
+migrations/0068_bids02_sellos.sql
+migrations/0069_bids02_retiro_intencion.sql
+migrations/0070_bids02_permisos_lanza.sql

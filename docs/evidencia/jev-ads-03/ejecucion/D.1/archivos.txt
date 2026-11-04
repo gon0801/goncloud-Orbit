@@ -1,0 +1,11 @@
+docker-compose.yml
+Dockerfile
+app/api_dashboard.py
+app/api_write.py
+app/bloqueo_dueno.py
+app/bloqueo_dueno_efecto.py
+app/cli.py
+app/main.py
+app/static/js/cortes.js
+app/templates/cortes.html
+app/ui.py

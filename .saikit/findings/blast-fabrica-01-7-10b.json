@@ -1,0 +1,1 @@
+{"hecho":"Las dos regresiones bloqueantes del cross review (2a ronda) fallan antes y pasan despues, y los 28 tests de los dos archivos tocados quedan verdes sin cambios de esquema ni de produccion","comando":"./.venv/bin/python -m pytest tests/test_ui_fabrica.py tests/test_ads_producto_ingesta.py -q","salida":"28 passed","nivel":3}

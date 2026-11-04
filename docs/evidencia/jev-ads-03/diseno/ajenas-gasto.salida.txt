@@ -1,0 +1,14 @@
+-- Corrida del 2026-10-17, salida literal (las mismas cifras que cita el diseño).
+ plataforma |       lectura       |  n  |  gasto  |   desde    |   hasta
+------------+---------------------+-----+---------+------------+------------
+ amazon_mx  | ajena               |  49 |  976.37 | 2026-09-08 | 2026-10-07
+ amazon_mx  | relevante_sin_venta |  88 | 2173.94 | 2026-09-08 | 2026-10-07
+ amazon_mx  | sin_lectura         |   6 |   51.18 | 2026-07-19 | 2026-10-07
+ amazon_mx  | vende_en_otro       |  44 | 1129.29 | 2026-09-08 | 2026-10-07
+ amazon_mx  | vendio_aqui         |  23 | 1358.46 | 2026-09-08 | 2026-10-07
+ amazon_us  | ajena               |  24 |   38.63 | 2026-05-25 | 2026-10-07
+ amazon_us  | relevante_sin_venta | 109 |  268.68 | 2026-05-25 | 2026-10-07
+ amazon_us  | sin_lectura         |   2 |    1.40 | 2026-09-08 | 2026-10-07
+ amazon_us  | vende_en_otro       |  10 |  152.35 | 2026-08-22 | 2026-10-07
+ amazon_us  | vendio_aqui         |  17 |  134.30 | 2026-08-22 | 2026-10-07
+(10 rows)

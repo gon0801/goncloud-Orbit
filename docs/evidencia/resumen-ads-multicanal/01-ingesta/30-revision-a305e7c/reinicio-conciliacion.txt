@@ -1,0 +1,37 @@
+== Reinicio con PID, parada y arranque ==
+fecha=2026-10-29T16:58:23Z
+dsn=postgresql://orbit@127.0.0.1:5433/postgres
+
+-- historia/latest ANTES --
+ obs | entidades |    costo    |   revenue   |            ultima
+-----+-----------+-------------+-------------+-------------------------------
+ 788 |         4 | 108769.6300 | 384161.7700 | 2026-10-29 09:58:14.258641-07
+(1 row)
+
+-- arranque 1 --
+pid1=90715
+health1=200
+-- parada 1 --
+kill1_rc=143
+vivo1=no
+-- arranque 2 --
+pid2=90738
+health2=200
+
+-- historia/latest DESPUES --
+ obs | entidades |    costo    |   revenue   |            ultima
+-----+-----------+-------------+-------------+-------------------------------
+ 788 |         4 | 108769.6300 | 384161.7700 | 2026-10-29 09:58:14.258641-07
+(1 row)
+
+-- conciliacion --
+filas origen: 788
+filas Orbit:  788
+faltantes en Orbit: []
+sobrantes en Orbit: []
+campana/dia comparables: 788, diferencias: 0
+dias control: 197, dias Orbit: 197, faltantes en el control: 0, faltantes en Orbit: 0, sobrantes en Orbit: 0, diferencias: 0
+fecha de conciliacion: 2026-10-29T16:58:25.439025+00:00
+CONCILIACION OK
+conciliar_rc=0
+kill2_rc=143

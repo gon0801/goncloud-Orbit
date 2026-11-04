@@ -1,0 +1,138 @@
+== 0) SHA aprobado con la bateria completa verde
+APROBADO=1798affebd3b87f0d653bec5d5d300fe53c0b975 CI=success
+== 1) Preflight: nadie corre, sin harvest en vuelo, migraciones pendientes
+cli=0
+ciclos running=0
+harvest en vuelo=0
+pendiente: migrations/0060_bids02_base_lectura.sql
+pendiente: migrations/0063_bids02_peldanos_target.sql
+== 1b) Guardas propias de D.1 (las tres abortan si fallan)
+claves de politica mx|us: f|f
+procedencias T.1: margen_plataforma|3380
+goal_campana|230
+fraccion US: 0.8
+guardas propias OK
+== 1c) Cron: D.1 no lo cambia (solo lectura)
+40 8 * * * docker exec orbit-app-1 python -m app.cli cycle --platform amazon_us >> /mnt/data/appdata/orbit/logs/optimizer.log 2>&1
+41 8 * * * docker exec orbit-app-1 python -m app.cli cycle --platform amazon_mx >> /mnt/data/appdata/orbit/logs/optimizer.log 2>&1
+lineas del ciclo presentes; nada que instalar ni quitar
+== 2) Respaldo del codigo actual y SHA (el .env NO se copia a ningun lado)
+app
+docker-compose.yml
+Dockerfile
+pyproject.toml
+SHA
+tools
+uv.lock
+== 3) Backup del esquema (staging + verificacion)
+-rw------- 1 root root 497729 Oct 10 20:22 /mnt/data/appdata/orbit/backups/pred1_schema_20261010-2022.sql
+== 4) Migraciones BIDS 02 pendientes, cada una en su propio psql -1
+BEGIN
+WARNING:  there is already a transaction in progress
+CREATE VIEW
+CREATE VIEW
+COMMENT
+COMMENT
+GRANT
+GRANT
+DO
+COMMIT
+WARNING:  there is no transaction in progress
+aplicada migrations/0060_bids02_base_lectura.sql (anotada en docs/evidencia/bids-02/ejecucion/D.1/aplicadas-20261010-2022.txt)
+BEGIN
+WARNING:  there is already a transaction in progress
+ALTER TABLE
+ALTER TABLE
+COMMIT
+WARNING:  there is no transaction in progress
+aplicada migrations/0063_bids02_peldanos_target.sql (anotada en docs/evidencia/bids-02/ejecucion/D.1/aplicadas-20261010-2022.txt)
+== 5) md5 del codigo desplegado vs SHA aprobado
+md5 OK app/optimizer/goals.py
+md5 OK app/cycle.py
+md5 OK app/lecturas_caso.py
+md5 OK app/pantalla_danadas.py
+md5 OK app/pantalla_ruido.py
+md5 OK tools/rejuega_niveles.py
+== 6) Guardas antes de recrear
+guardas OK
+== 7) Build + recrear app (digest antes/despues) + health
+DIGEST antes=sha256:8733a2ee3963c3ac0d8a2c084b646097cbbdb28e2ccdc0c8c87b67fe1e6c109a
+ Image orbit-app Building
+#1 [internal] load local bake definitions
+#1 reading from stdin 482B done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 30B
+#2 transferring dockerfile: 952B done
+#2 DONE 0.0s
+
+#3 [internal] load metadata for ghcr.io/astral-sh/uv:0.11.11
+#3 DONE 0.5s
+
+#4 [internal] load metadata for docker.io/library/python:3.12-slim-bookworm
+#4 DONE 0.6s
+
+#5 [internal] load .dockerignore
+#5 transferring context: 199B done
+#5 DONE 0.0s
+
+#6 [stage-0 1/9] FROM docker.io/library/python:3.12-slim-bookworm@sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3a1509accc92a4e24a07258
+#6 resolve docker.io/library/python:3.12-slim-bookworm@sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3a1509accc92a4e24a07258 0.0s done
+#6 DONE 0.0s
+
+#7 FROM ghcr.io/astral-sh/uv:0.11.11@sha256:798712e57f879c5393777cbda2bb309b29fcdeb0532129d4b1c3125c5385975a
+#7 resolve ghcr.io/astral-sh/uv:0.11.11@sha256:798712e57f879c5393777cbda2bb309b29fcdeb0532129d4b1c3125c5385975a 0.0s done
+#7 DONE 0.0s
+
+#8 [internal] load build context
+#8 transferring context: 3.35MB 0.0s done
+#8 DONE 0.0s
+
+#9 [stage-0 3/9] WORKDIR /app
+#9 CACHED
+
+#10 [stage-0 2/9] COPY --from=ghcr.io/astral-sh/uv:0.11.11 /uv /uvx /bin/
+#10 CACHED
+
+#11 [stage-0 4/9] COPY pyproject.toml uv.lock ./
+#11 CACHED
+
+#12 [stage-0 5/9] RUN uv sync --frozen --no-dev --no-install-project --no-cache
+#12 CACHED
+
+#13 [stage-0 6/9] COPY app ./app
+#13 DONE 0.1s
+
+#14 [stage-0 7/9] COPY tools/fabrica_campanas.py ./tools/fabrica_campanas.py
+#14 DONE 0.0s
+
+#15 [stage-0 8/9] COPY tools/jev_ads.py ./tools/jev_ads.py
+#15 DONE 0.0s
+
+#16 [stage-0 9/9] COPY tools/jev_fichas.py ./tools/jev_fichas.py
+#16 DONE 0.0s
+
+#17 exporting to image
+#17 exporting layers 0.1s done
+#17 exporting manifest sha256:3a32bf3e7b76bf1363219b10b278a9da2b789e3620abbb405a8a8cf3492925cf done
+#17 exporting config sha256:d9889dc9d3702dba71772ba86b2246ebb060ecc5f27bfb6526bdea4caf5cc973 done
+#17 exporting attestation manifest sha256:67d70d239154038317bc9a7381f6568f1275ac6e3168cc7f1253415bd025317e done
+#17 exporting manifest list sha256:df44529884ff853d59c95f5e1a118eac2006852f026e5eb5d76258a60f3a3435 done
+#17 naming to docker.io/library/orbit-app:latest done
+#17 unpacking to docker.io/library/orbit-app:latest 0.1s done
+#17 DONE 0.2s
+
+#18 resolving provenance for metadata file
+#18 DONE 0.0s
+ Image orbit-app Built
+ Container orbit-app-1 Recreate
+ Container orbit-app-1 Recreated
+ Container orbit-app-1 Starting
+ Container orbit-app-1 Started
+DIGEST despues=sha256:df44529884ff853d59c95f5e1a118eac2006852f026e5eb5d76258a60f3a3435
+{"status":"ok"}
+orbit-app-1 Up 5 seconds
+== LISTO. STAMP=20261010-2022
+Siguiente: bash docs/evidencia/bids-02/ejecucion/D.1/checklist.sh 20261010-2022
+Reversa:   bash docs/evidencia/bids-02/ejecucion/D.1/rollback.sh 20261010-2022

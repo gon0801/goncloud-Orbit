@@ -1,0 +1,18 @@
+== Gates de calidad (head final) ==
+
+-- uv run --frozen ruff check . --
+All checks passed!
+
+-- uv run --frozen ruff format --check ... --
+4 files already formatted
+
+-- bash -n tools/refresh_costos.sh --
+OK
+
+-- git diff --check 31ba12a1...HEAD --
+OK
+
+-- pre-commit run --all-files --
+Detect hardcoded secrets.................................................Passed
+check for merge conflicts................................................Passed
+rc=0

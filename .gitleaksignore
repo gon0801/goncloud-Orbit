@@ -1,0 +1,14 @@
+19745b8d5ae00cc8758609fcf257d5af1f4bf0a6:docs/evidencia/jev-ads-03/ejecucion/D.1/checklist-20261018-1813.txt:generic-api-key:7
+19745b8d5ae00cc8758609fcf257d5af1f4bf0a6:docs/evidencia/jev-ads-03/ejecucion/D.1/checklist-20261018-1813.txt:generic-api-key:8
+19745b8d5ae00cc8758609fcf257d5af1f4bf0a6:docs/evidencia/jev-ads-03/ejecucion/D.1/checklist-20261018-1913.txt:generic-api-key:7
+19745b8d5ae00cc8758609fcf257d5af1f4bf0a6:docs/evidencia/jev-ads-03/ejecucion/D.1/checklist-20261018-1913.txt:generic-api-key:8
+1a272e1e4519161af2822ec0cfb5df2eaaae7ca8:tests/test_bloqueo_dueno_efecto.py:generic-api-key:758
+2ce27ab1d64414066bb3a5cd8ed0dc7ff0174c12:docs/evidencia/jev-ads-02/ejecucion/cierre/checklist-salida.txt:generic-api-key:5
+3faed5bf53feb01bfaae3cd5da44dce5590b9e5f:docs/evidencia/margen-estimado-01/plan-validacion.md:generic-api-key:66
+557b1e47098d14c3fe0d6a41632d4136c7a0183c:docs/evidencia/jev-ads-02/ejecucion/cierre/checklist-post-ciclo-salida.txt:generic-api-key:9
+7b7dc546b2213392a92d643733c7095f54c7749a:tests/test_spapi_salud.py:generic-api-key:116
+b1007583d0608aa03e24ce8c1f06152f30b91f5d:tests/test_spapi_salud.py:generic-api-key:627
+b5c896662aadd4a18db55929bca96005da39442c:tests/test_spapi_orders.py:generic-api-key:26
+cf7a09be5e3c3e7987fa84bb76a228fa619d6595:docs/evidencia/orbit-19/0.3/columnas-api-400.txt:generic-api-key:11
+cf7a09be5e3c3e7987fa84bb76a228fa619d6595:docs/evidencia/orbit-19/0.4/politica-comparacion.md:generic-api-key:35
+d6497a3a33b97004311cb3152a120b4b7b14f86f:tests/test_estimacion_fees.py:generic-api-key:511

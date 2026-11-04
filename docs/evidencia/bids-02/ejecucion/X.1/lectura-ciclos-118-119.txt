@@ -1,0 +1,16 @@
+ platform  | id  | status | bids | con_caso
+-----------+-----+--------+------+----------
+ amazon_us | 118 | done   |    2 |        2
+ amazon_mx | 119 | done   |    1 |        1
+(2 rows)
+
+    procedencia    |        target_acos_pct        | count
+-------------------+-------------------------------+-------
+ margen_plataforma | 24.84878489535033505319003408 |   119
+(1 row)
+
+ platform | motivo | count
+----------+--------+-------
+(0 rows)
+
+exit=0

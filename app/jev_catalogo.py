@@ -1,0 +1,429 @@
+"""Catalogo Jev: censo con huecos explicitos, fichas aprobadas y vigencia.
+
+JEV ADS 01 (1.2). Adaptador de DB para los tipos puros de `app/jev_ads.py`.
+El producto se resuelve por IDs, jamas por parecido entre nombres (diseno
+"Catalogo y reglas de composicion").
+
+- El censo parte de `ad_group -> product_ad` con LEFT JOIN a
+  `ad_entity_state` y `listing` y conserva los faltantes: un anuncio sin
+  listing sigue en el censo (con producto sin resolver), un anuncio sin
+  fila de estado conserva `status`/`synced_at` en None, y NINGUNO se
+  descarta por su estado (la exclusion del ARCHIVED es regla de
+  composicion en `app.jev_ads.componer`, no del censo).
+- El universo de grupos Amazon es `desconocido` en V1: `censo_grupo`
+  entrega `exhaustivo=False` SIEMPRE (E/0.2: el sincronizador no prueba
+  exhaustividad; produccion tiene listings faltantes 1/33 MX y 24/48 US).
+- `ficha_vigente` aplica la regla del diseno: sigue aprobada (sin
+  revocacion), cubre ese listing y no vencio su revision.
+- `registrar_ficha` es idempotente por hash canonico del contenido; cada
+  correccion inserta una version nueva. `revocar_ficha` inserta el evento
+  append-only; una segunda revocacion se rechaza.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass, replace
+from datetime import UTC, datetime
+from uuid import UUID, uuid4
+
+import psycopg
+from psycopg.types.json import Json
+
+from app.jev_ads import (
+    CensoCongelado,
+    DecisionARevisar,
+    EstadoAnuncio,
+    FichaVersion,
+    HechoConFuente,
+    MiembroCenso,
+)
+
+_PLATAFORMAS = ("amazon_mx", "amazon_us")
+
+_FICHA_SELECT = (
+    "SELECT f.id, f.producto_id, f.plataforma, f.listings, f.hechos, f.desconocidos,"
+    " f.aprobador, f.observado_at, f.revisar_antes_de, f.sha256"
+    " FROM jev_ficha_version f"
+)
+
+
+def _utc_iso(valor: datetime) -> str:
+    if valor.tzinfo is None:
+        raise ValueError("las fechas de la ficha deben venir con zona (UTC)")
+    return valor.astimezone(UTC).isoformat()
+
+
+def hash_ficha(
+    *,
+    producto_id: int,
+    plataforma: str,
+    listings: Iterable[int],
+    hechos: Sequence[tuple[str, str]],
+    desconocidos: Iterable[str],
+    aprobador: str,
+    observado_at: datetime,
+    revisar_antes_de: datetime,
+) -> str:
+    """Hash canonico del contenido de la ficha (sha256 hex). Mismo contenido,
+    mismo hash: la idempotencia del registro es la del hash."""
+    contenido = {
+        "aprobador": aprobador,
+        "desconocidos": sorted(desconocidos),
+        "hechos": [{"fuente": fuente, "texto": texto} for texto, fuente in hechos],
+        "listings": sorted(listings),
+        "observado_at": _utc_iso(observado_at),
+        "plataforma": plataforma,
+        "producto_id": producto_id,
+        "revisar_antes_de": _utc_iso(revisar_antes_de),
+    }
+    canonico = json.dumps(contenido, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonico.encode("utf-8")).hexdigest()
+
+
+def _hechos_de_json(valor: object) -> tuple[HechoConFuente, ...]:
+    if not isinstance(valor, list):
+        raise ValueError("hechos de ficha con forma inesperada")
+    hechos: list[HechoConFuente] = []
+    for item in valor:
+        if not isinstance(item, dict) or set(item) != {"texto", "fuente"}:
+            raise ValueError("hecho de ficha sin {texto, fuente}")
+        hechos.append(HechoConFuente(texto=item["texto"], fuente=item["fuente"]))
+    return tuple(hechos)
+
+
+def _ficha_de_fila(
+    fila: tuple[UUID, int, str, list[int], object, list[str], str, datetime, datetime, str],
+) -> FichaVersion:
+    (
+        ficha_id,
+        producto_id,
+        plataforma,
+        listings,
+        hechos,
+        desconocidos,
+        aprobador,
+        observado_at,
+        revisar_antes_de,
+        sha,
+    ) = fila
+    return FichaVersion(
+        id=ficha_id,
+        producto_id=producto_id,
+        plataforma=plataforma,  # type: ignore[arg-type]
+        listings=frozenset(listings),
+        hechos=_hechos_de_json(hechos),
+        desconocidos=frozenset(desconocidos),
+        aprobador=aprobador,
+        observado_at=observado_at,
+        revisar_antes_de=revisar_antes_de,
+        sha256=sha,
+    )
+
+
+@dataclass(frozen=True)
+class RegistroFicha:
+    """Resultado de registrar: la ficha y si ya existia (idempotencia)."""
+
+    ficha: FichaVersion
+    ya_existia: bool
+
+
+def registrar_ficha(
+    conn: psycopg.Connection,
+    *,
+    producto_id: int,
+    plataforma: str,
+    listings: Sequence[int],
+    hechos: Sequence[tuple[str, str]],
+    desconocidos: Iterable[str],
+    aprobador: str,
+    observado_at: datetime,
+    revisar_antes_de: datetime,
+) -> RegistroFicha:
+    """Inserta la version de ficha aprobada; mismo contenido -> misma fila.
+
+    La base muerde con triggers: listing inexistente o ajeno al producto y
+    plataforma, fechas incoherentes o listings duplicados. Con el mismo
+    hash devuelve la fila existente (ya_existia=True); cualquier correccion
+    de contenido inserta version nueva.
+    """
+    if plataforma not in _PLATAFORMAS:
+        raise ValueError(f"plataforma fuera del alcance Jev: {plataforma}")
+    # Materializar UNA vez: hash, INSERT y FichaVersion deben ver el MISMO
+    # contenido aunque el llamador pase iterables de un solo uso (B2-r4 F2).
+    listings = tuple(listings)
+    hechos = tuple(hechos)
+    desconocidos = sorted(desconocidos)
+    sha = hash_ficha(
+        producto_id=producto_id,
+        plataforma=plataforma,
+        listings=listings,
+        hechos=hechos,
+        desconocidos=desconocidos,
+        aprobador=aprobador,
+        observado_at=observado_at,
+        revisar_antes_de=revisar_antes_de,
+    )
+    ficha_id = uuid4()
+    # ON CONFLICT y no SELECT-luego-INSERT: con dos registros concurrentes del
+    # mismo contenido, el segundo espera al primero y devuelve su fila (R7).
+    insertada = conn.execute(
+        "INSERT INTO jev_ficha_version (id, producto_id, plataforma, listings, hechos,"
+        " desconocidos, sha256, aprobador, observado_at, revisar_antes_de)"
+        " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+        " ON CONFLICT (sha256) DO NOTHING RETURNING id",
+        (
+            ficha_id,
+            producto_id,
+            plataforma,
+            list(listings),
+            Json([{"texto": texto, "fuente": fuente} for texto, fuente in hechos]),
+            list(desconocidos),
+            sha,
+            aprobador,
+            observado_at,
+            revisar_antes_de,
+        ),
+    ).fetchone()
+    if insertada is None:
+        fila = conn.execute(f"{_FICHA_SELECT} WHERE f.sha256 = %s", (sha,)).fetchone()
+        return RegistroFicha(ficha=_ficha_de_fila(fila), ya_existia=True)
+    return RegistroFicha(
+        ficha=FichaVersion(
+            id=ficha_id,
+            producto_id=producto_id,
+            plataforma=plataforma,  # type: ignore[arg-type]
+            listings=frozenset(listings),
+            hechos=tuple(HechoConFuente(texto=texto, fuente=fuente) for texto, fuente in hechos),
+            desconocidos=frozenset(desconocidos),
+            aprobador=aprobador,
+            observado_at=observado_at,
+            revisar_antes_de=revisar_antes_de,
+            sha256=sha,
+        ),
+        ya_existia=False,
+    )
+
+
+def revocar_ficha(
+    conn: psycopg.Connection,
+    *,
+    ficha_version_id: UUID,
+    autor: str,
+    motivo: str,
+    fecha: datetime | None = None,
+) -> None:
+    """Inserta el evento de revocacion (append-only). Una ficha ya revocada
+    levanta ValueError SIN abortar la transaccion del llamador (ON CONFLICT,
+    R7); una ficha inexistente, la FK."""
+    insertada = conn.execute(
+        "INSERT INTO jev_ficha_revocacion (ficha_version_id, autor, motivo, fecha)"
+        " VALUES (%s, %s, %s, COALESCE(%s, now()))"
+        " ON CONFLICT (ficha_version_id) DO NOTHING RETURNING id",
+        (ficha_version_id, autor, motivo, fecha),
+    ).fetchone()
+    if insertada is None:
+        raise ValueError(f"ficha {ficha_version_id} ya revocada")
+
+
+def fichas_por_id(conn: psycopg.Connection, ids: Iterable[UUID]) -> dict[UUID, FichaVersion]:
+    """Versiones exactas por ID, revocadas o vencidas incluidas: una revision
+    que se retoma lee las fichas que congelo (R9); cuales siguen vigentes
+    para reutilizar o consultar lo decide quien llama."""
+    ids = sorted(set(ids), key=str)
+    if not ids:
+        return {}
+    filas = conn.execute(f"{_FICHA_SELECT} WHERE f.id = ANY(%s)", (ids,)).fetchall()
+    fichas = {ficha.id: ficha for ficha in map(_ficha_de_fila, filas)}
+    if len(fichas) != len(ids):
+        raise ValueError("revision congelada con fichas que ya no existen")
+    return fichas
+
+
+def ficha_vigente(
+    conn: psycopg.Connection,
+    *,
+    producto_id: int,
+    plataforma: str,
+    listing_id: int,
+    ahora: datetime,
+) -> FichaVersion | None:
+    """La ficha aprobada vigente que cubre el listing: sin revocacion, cubre
+    ese listing y con revisar_antes_de no vencido. Ultima por observado_at."""
+    fila = conn.execute(
+        f"{_FICHA_SELECT}"
+        " LEFT JOIN jev_ficha_revocacion r ON r.ficha_version_id = f.id"
+        " WHERE f.producto_id = %s AND f.plataforma = %s"
+        "   AND r.id IS NULL AND f.revisar_antes_de >= %s"
+        "   AND f.listings @> ARRAY[%s]::bigint[]"
+        " ORDER BY f.observado_at DESC, f.created_at DESC"
+        " LIMIT 1",
+        (producto_id, plataforma, ahora, listing_id),
+    ).fetchone()
+    return _ficha_de_fila(fila) if fila is not None else None
+
+
+def resolver_fichas(
+    conn: psycopg.Connection,
+    censo: CensoCongelado,
+    *,
+    plataforma: str,
+    ahora: datetime,
+) -> tuple[CensoCongelado, dict[UUID, FichaVersion]]:
+    """Ficha vigente por miembro, congelada en el censo. Un producto con
+    varios listings se acredita solo si la MISMA ficha vigente cubre todos
+    (R8); una ficha que cubre una parte deja al miembro sin ficha. Un
+    miembro que no acredita conserva el id que traia; el estado del anuncio
+    no cuenta (un archivado tambien recibe ficha)."""
+    fichas: dict[UUID, FichaVersion] = {}
+    miembros = []
+    for miembro in censo.miembros:
+        ficha = None
+        if miembro.producto_id is not None and miembro.listing_ids:
+            por_listing = [
+                ficha_vigente(
+                    conn,
+                    producto_id=miembro.producto_id,
+                    plataforma=plataforma,
+                    listing_id=listing_id,
+                    ahora=ahora,
+                )
+                for listing_id in sorted(miembro.listing_ids)
+            ]
+            ids = {f.id if f is not None else None for f in por_listing}
+            if len(ids) == 1 and None not in ids:
+                ficha = por_listing[0]
+        if ficha is not None:
+            fichas[ficha.id] = ficha
+            miembro = replace(miembro, ficha_version_id=ficha.id)
+        miembros.append(miembro)
+    return CensoCongelado(miembros=tuple(miembros), exhaustivo=censo.exhaustivo), fichas
+
+
+def censo_grupo(conn: psycopg.Connection, *, plataforma: str, ad_group_id: int) -> CensoCongelado:
+    """Universo congelado del grupo Amazon con huecos explicitos.
+
+    Conserva la identidad de cada anuncio ANTES de deduplicar productos: el
+    anuncio sin listing se conserva como miembro sin producto resuelto y el
+    anuncio sin estado no se descarta (no se consulta estado). El producto
+    sale por IDs (FK de listing), jamas por parecido de nombres.
+    """
+    filas = conn.execute(
+        "SELECT pa.id AS anuncio_id, pa.listing_id, l.product_id, s.status, s.synced_at"
+        "  FROM ad_entity ag"
+        "  JOIN ad_entity pa"
+        "    ON pa.platform = ag.platform AND pa.kind = 'product_ad'"
+        "   AND pa.parent_id = ag.id"
+        "  LEFT JOIN ad_entity_state s ON s.ad_entity_id = pa.id"
+        "  LEFT JOIN listing l ON l.id = pa.listing_id AND l.platform = pa.platform"
+        " WHERE ag.id = %s AND ag.kind = 'ad_group' AND ag.platform = %s"
+        " ORDER BY pa.id",
+        (ad_group_id, plataforma),
+    ).fetchall()
+    anuncios_por_producto: dict[int, list[int]] = {}
+    listings_por_producto: dict[int, set[int]] = {}
+    estados_por_producto: dict[int, list[EstadoAnuncio]] = {}
+    sueltos: list[MiembroCenso] = []
+    for anuncio_id, listing_id, producto_id, status, synced_at in filas:
+        estado = EstadoAnuncio(status=status, synced_at=synced_at)
+        if producto_id is None:
+            sueltos.append(
+                MiembroCenso(
+                    anuncio_ids=(anuncio_id,),
+                    producto_id=None,
+                    listing_ids=frozenset({listing_id} if listing_id else ()),
+                    estados=(estado,),
+                )
+            )
+            continue
+        anuncios_por_producto.setdefault(producto_id, []).append(anuncio_id)
+        if listing_id is not None:
+            listings_por_producto.setdefault(producto_id, set()).add(listing_id)
+        estados_por_producto.setdefault(producto_id, []).append(estado)
+    miembros = [
+        MiembroCenso(
+            anuncio_ids=tuple(anuncios_por_producto[producto_id]),
+            producto_id=producto_id,
+            listing_ids=frozenset(listings_por_producto.get(producto_id, ())),
+            estados=tuple(estados_por_producto[producto_id]),
+        )
+        for producto_id in sorted(anuncios_por_producto)
+    ]
+    return CensoCongelado(miembros=tuple([*miembros, *sueltos]), exhaustivo=False)
+
+
+def decision_a_revisar(conn: psycopg.Connection, decision_id: int) -> DecisionARevisar:
+    """La decision guardada como sujeto del asesor (R2): su termino, su
+    decided_at, el censo de su grupo de origen (`decision.ad_entity_id` es
+    el ad group) y, en harvest, el censo del DESTINO congelado en
+    `inputs.goal.harvest.ad_group_id` (id externo de Amazon). Solo lectura;
+    cualquier hueco es ValueError con el motivo, jamas un sujeto a medias."""
+    fila = conn.execute(
+        "SELECT d.kind::text, d.search_term, d.decided_at, d.ad_entity_id, e.kind::text,"
+        " e.platform::text, d.inputs"
+        " FROM decision d JOIN ad_entity e ON e.id = d.ad_entity_id WHERE d.id = %s",
+        (decision_id,),
+    ).fetchone()
+    if fila is None:
+        raise ValueError(f"decision {decision_id} no existe")
+    kind, termino, decidida, grupo_id, entidad, plataforma, inputs = fila
+    if kind not in ("negative", "harvest"):
+        raise ValueError(f"decision {decision_id} es {kind}: Jev solo revisa negative y harvest")
+    if entidad != "ad_group":
+        raise ValueError(f"decision {decision_id} apunta a un {entidad}, no a un ad group")
+    if plataforma not in _PLATAFORMAS:
+        raise ValueError(f"decision {decision_id} es de {plataforma}, fuera del alcance Jev")
+    destino = None
+    if kind == "harvest":
+        harvest = ((inputs or {}).get("goal") or {}).get("harvest") or {}
+        externo = harvest.get("ad_group_id")
+        if externo is None:
+            raise ValueError(
+                f"harvest {decision_id} sin destino congelado (inputs.goal.harvest.ad_group_id)"
+            )
+        hallado = conn.execute(
+            "SELECT id FROM ad_entity WHERE platform = %s AND kind = 'ad_group'"
+            " AND external_id = %s",
+            (plataforma, str(externo)),
+        ).fetchone()
+        if hallado is None:
+            raise ValueError(f"destino {externo} del harvest {decision_id} no esta en ad_entity")
+        destino = censo_grupo(conn, plataforma=plataforma, ad_group_id=hallado[0])
+    return DecisionARevisar(
+        decision_id=decision_id,
+        termino=termino,
+        censo=censo_grupo(conn, plataforma=plataforma, ad_group_id=grupo_id),
+        plataforma=plataforma,
+        decided_at=decidida,
+        destino_censo=destino,
+    )
+
+
+def censo_de_plan(
+    conn: psycopg.Connection, *, plataforma: str, listing_ids: Iterable[int]
+) -> CensoCongelado:
+    """Universo del NUEVO plan de fabrica (R2, export 2.2): un miembro por
+    producto con los listings del plan, sin anuncios todavia. Es exhaustivo
+    porque el plan enumera sus productos. Un listing ajeno a la plataforma o
+    inexistente es ValueError (el export y la base no cuadran)."""
+    ids = sorted(set(listing_ids))
+    filas = conn.execute(
+        "SELECT id, product_id FROM listing WHERE id = ANY(%s) AND platform = %s",
+        (ids, plataforma),
+    ).fetchall()
+    faltan = sorted(set(ids) - {listing for listing, _ in filas})
+    if faltan:
+        raise ValueError(f"listings {faltan} del plan no estan en {plataforma}")
+    por_producto: dict[int, set[int]] = {}
+    for listing, producto in filas:
+        por_producto.setdefault(producto, set()).add(listing)
+    return CensoCongelado(
+        miembros=tuple(
+            MiembroCenso(anuncio_ids=(), producto_id=producto, listing_ids=frozenset(listings))
+            for producto, listings in sorted(por_producto.items())
+        ),
+        exhaustivo=True,
+    )

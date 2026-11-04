@@ -1,0 +1,35 @@
+# Comandos B5-r4 (en orden; workdir /Users/dn/dev/wt/jev-ads-worker)
+
+# 0) ACK
+date -u +%FT%TZ > /Users/dn/.local/state/jev-ads-01-loop/ACK-B5-r4
+
+# 1) Repro del bloqueante B1 (mutante literal del VEREDICTO-B5-r3):
+#    parte 2 revertida a solo lista negra. Salida: mutante-26passed.txt
+python3 -c "import pathlib;p=pathlib.Path('tests/test_jev_ads.py');s=p.read_text();a='                    if _violacion_import(candidato, _PERMITIDOS_PUROS):\n                        fugas.append((nombre or';assert s.count(a)==1;p.write_text(s.replace(a,'                    if any(candidato == q or candidato.startswith(q + \".\") for q in _PROHIBIDOS_MODULOS_PUROS):\n                        fugas.append((nombre or'))"
+uv run --frozen python -m pytest -q tests/test_jev_ads.py | tail -1
+git checkout tests/test_jev_ads.py
+
+# 2) Prueba nueva en tests/test_jev_ads.py (test_guarda_pureza_caza_anidado_fuera_de_permitidos)
+uv run --frozen python -m pytest -q "tests/test_jev_ads.py::test_guarda_pureza_caza_anidado_fuera_de_permitidos"
+cp tests/test_jev_ads.py /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/opencode/test_jev_ads.con-prueba.py
+
+# 3) ROJO: mismo mutante con la prueba nueva (sin git checkout para no
+#    perderla; se restaura desde la copia). Salida: rojo-mutante.txt
+python3 -c "import pathlib;p=pathlib.Path('tests/test_jev_ads.py');s=p.read_text();a='                    if _violacion_import(candidato, _PERMITIDOS_PUROS):\n                        fugas.append((nombre or';assert s.count(a)==1;p.write_text(s.replace(a,'                    if any(candidato == q or candidato.startswith(q + \".\") for q in _PROHIBIDOS_MODULOS_PUROS):\n                        fugas.append((nombre or'))"
+uv run --frozen python -m pytest -q tests/test_jev_ads.py
+cp /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/opencode/test_jev_ads.con-prueba.py tests/test_jev_ads.py
+git diff --stat
+
+# 4) VERDE: bateria focalizada + lint + candados
+uv run --frozen python -m pytest -q tests/test_jev_ads.py
+uv run ruff check tests/test_jev_ads.py
+pre-commit run --all-files
+
+# 5) Delta de codigo de la ronda y commits locales (SIN push)
+git diff 1deb7d46ac3e7cbba0ffc8440b1680070cae332e -- tests/test_jev_ads.py > \
+  docs/evidencia/jev-ads-01/ejecucion/B5-r4/delta-codigo.diff
+git add tests/test_jev_ads.py && git commit -m "..."
+git add docs/evidencia/jev-ads-01/ejecucion/B5-r4 && git commit -m "..."
+
+# NOTA: sin auto-revision delta esta vuelta por alcance minimo (una prueba);
+# el VEREDICTO final de Claude comprobara prueba + mutante.

@@ -1,0 +1,17 @@
+== 0) El servidor contesta
+OK    orbit-app-1 corriendo = true
+== Checklist D.2 (solo lectura; sello 20261011-0351, contenedor desde 2026-10-11T03:52:46.202586112Z)
+== 1) HTTP: /health
+OK    GET /health = 200
+== 2) Esquema de D.2 (esperado t|t|t)
+OK    vista config vigente y tablas 0061+0062 = t|t|t
+== 3a) Sync de las 06:45 posterior al arranque (sale 3 si todavia no corre)
+INCOMPLETO: el sync de las 06:45 UTC todavia no corre despues de 2026-10-11T03:52:46.202586112Z; vuelve a correr el checklist despues
+== 3c) Reporte por placement de las 07:25 posterior al arranque (sale 3 si todavia no corre)
+INCOMPLETO: el reporte de las 07:25 UTC todavia no corre despues de 2026-10-11T03:52:46.202586112Z; vuelve a correr el checklist despues
+== 4) La pantalla de dinero en los dos mercados
+OK    HTML donde-poner-el-dinero amazon_mx = 200
+INCOMPLETO: por_ubicacion y por_campana de amazon_mx se miden despues del reporte de las 07:25 UTC
+OK    HTML donde-poner-el-dinero amazon_us = 200
+INCOMPLETO: por_ubicacion y por_campana de amazon_us se miden despues del reporte de las 07:25 UTC
+== RESULTADO: 0 falla(s), 0 sin medir, sync/reporte posterior PENDIENTE

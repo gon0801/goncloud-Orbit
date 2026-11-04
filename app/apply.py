@@ -1,0 +1,2519 @@
+"""Nucleo del aplicador de decisiones (ORBIT 04, task 2.1).
+
+El nucleo que EJECUTA mutaciones en Amazon: re-resuelve el modo POR
+DECISION, cobra quota, nace la fila del ledger PRE-HTTP, muta, hace readback
+con el scope sellado y sella ledger + resumen + cache. Vive fuera de
+app/optimizer/ como cycle.py (importa psycopg y el cliente de escritura; el
+motor sigue puro). Los BIDS aplican en su ciclo SIN pasar por la cola (sellado
+1); la cola de CORTES es 2.2 y la integracion en corre_ciclo es 2.4.
+
+Diseno SELLADO (plans/orbit-04.md decisiones 7-12, 14, 16, 21; docs/APPLY.md
+§3-§5, §8-§9; la secuencia §3 adaptada a bids — sin cola):
+
+- RE-RESOLUCION POR DECISION (`Aplicador.modo_efectivo`): JAMAS filtra por
+  inputs.modo ni cycle.mode (el residual sellado de cycle.py: una decision
+  nacida en ciclo shadow puede aplicarse en un ciclo live y viceversa).
+  Re-resuelve escalera global (la del envelope, pasada por parametro) +
+  goal de la entidad FRESCO de la base (goals.resuelve_goal + goal.mode +
+  enabled + existencia de entidad/state). 'live' solo si TODO aplica; si no,
+  'shadow': no aplica, cero HTTP (ni token LWA — el write client se
+  construye LAZY en el primer apply live).
+- QUOTA ATOMICA (`consume_quota`): INSERT ... ON CONFLICT (motor, quota_date)
+  DO UPDATE SET used = used + 1 WHERE used < cap RETURNING used, con
+  quota_date = dia UTC DE LA BASE en la expresion ((now() AT TIME ZONE
+  'UTC')::date — el trigger de 0002 valida contra ese dia, no contra
+  CURRENT_DATE) y cap leido de la config VIGENTE (misma resolucion que el
+  trigger apply_cap_de_config). Sin clave -> False y NO nace fila
+  (fail-closed, sellado 8). Se consume ANTES del HTTP, UNA vez por
+  operacion logica; el 429 reintenta el write client SIN re-cobrar (mismo
+  intento del ledger). Reversas EXENTAS.
+- SELECCION DE BIDS BAJO CAP (sellado 8): prioridad por urgencia de
+  hemorragia banda_menos_25 > banda_menos_12 > banda_mas_15 (inputs.motivo,
+  el vocabulario del motor de bids) y dentro de cada banda por costo de la
+  ventana (inputs.ventanas.cortes.cost como Decimal) DESC — costo None
+  (regla 3: desconocido) queda al final de SU banda. Los que no cupieron
+  vuelven como descarte estructurado (motivo), JAMAS reintentados; la
+  ausencia de fila no se confunde con un bug porque el conteo lo declara.
+- SECUENCIA SELLADA POR MUTACION: re-resolucion -> consume_quota (si no
+  cabe: descartado, JAMAS HTTP) -> fila del ledger PRE-HTTP (seq =
+  count(*)+1 del decision_id; tope 3: COUNT >= 3 -> no existe 4o intento,
+  salta con motivo) + COMMIT (la intencion durable ANTES del HTTP) -> HTTP
+  (write client) -> readback por LIST FRESCO con el MISMO scope sellado
+  (probe 2.5: el GET directo de entidad sp responde 403, retirado) ->
+  sellar ledger (ack/resultado/finished_at una vez) -> UPSERT
+  decision_application (la terna confirmed_at+platform_ack+verify_ok JUNTA
+  al confirmar; applied_cycle_id = ciclo EJECUTOR solo al confirmar) ->
+  UPDATE del cache ad_entity_state con LO LEIDO (jamas lo enviado, sellado
+  16: sin esto el ciclo siguiente calcula sobre el bid viejo) -> applied_count
+  del ciclo ejecutor (sellado 21).
+- FALLOS: >=400 (AdsApiErrorMutacion) se captura y el ledger sella
+  resultado='fallo http <status>: <cuerpo saneado>'; la decision NO se marca
+  aplicada. 5xx/fallo ambiguo (AdsApiError) SUBE sin capturar: el ledger
+  queda SIN sello — la fila ES el rastro del crash (reconciliacion 2.2/2.3)
+  y NO se reintenta.
+- REVERSA DE BID (regla 7, `reversa_bid`): PUT con old_value, misma
+  secuencia (ledger tipo 'reversa', quota_cobrada=false EXENTA), readback,
+  sello. No toca decision_application ni applied_count: el resumen queda
+  como estaba.
+- RECONCILIACION DE LEDGER SIN SELLO (`reconcilia_bids`, ADV-04 de la review
+  adversaria de phase 2; matriz §6.1 "Ledger sin sello - bid"): los bids no
+  viven en apply_queue, asi que su rastro de crash SOLO existe en el ledger.
+  LIST fresco del readback: lectura == pedido → confirmar (sello
+  ok:reconciliado + resumen + ciclo EJECUTOR + cache); divergencia → sello
+  de fallo y UN reintento bajo tope-3 (quota ya cobrada); ambiguo → failed
+  SIN reintento. Filas reversa/probe sin sello: RESIDUAL declarado (APPLY.md
+  §13).
+
+SELLADO por el probe 2.5 (corrida autorizada del dueno 2026-08-26, ledger
+apply_attempt ids 1-20, log out/smoke-apply-20260826.log): el readback de
+entidad vive por LIST (POST /sp/{keywords|targets}/list — el GET directo
+responde 403, retirado; apply_attempt 4-5), contenedores 'keywords'/
+'targetingClauses' y estados del wire UPPER (ESTADO_WIRE_*). El state del
+REQUEST del PUT de pause/resume quedo SELLADO el 2026-08-27: UPPER, igual
+que el wire del readback (write.py ESTADO_PUT_*; re-exportada aqui — QW2,
+una sola fuente).
+
+Ronda de CROSS-REVIEW del dueno (codex+qwen, shapes del probe 2.5,
+out/cross-review-shapes-*.log): el readback por LIST PAGINA por nextToken
+con tope (CX1/QW1 + CX6) — el body {} solo trae la PRIMERA pagina y la
+cuenta real tiene 1334 keywords / 549 targets: una entidad en pagina 2+
+era "ausente" (falsa divergencia con quota cobrada).
+
+`owner`/`job_key` se guardan para el ownership-check pre-HTTP de la
+integracion (2.4, decision 11); el heartbeat `tick` se llama DURANTE la
+mutacion y el readback.
+
+GANCHOS de 2.4 (declarados): (a) `credentials`/`profile_id` OPCIONALES — el
+ciclo construye un Aplicador sin credenciales cuando solo necesita
+`modo_efectivo` (escalera shadow: cero HTTP por construccion) y `_cliente()`
+revienta fail-closed si un camino live lo intenta sin ellas; (b)
+`guard_http` — callback que corre ANTES DE CADA HTTP del write client
+(envolviendo el transport: mutacion, readback, listas y token LWA incluidos).
+Es la unica forma de garantizar el ownership-check pre-HTTP de la decision 11
+SIN tocar write.py (su allowlist de imports esta sellada): todos los HTTP del
+Aplicador pasan por el transport.
+"""
+
+from __future__ import annotations
+
+import datetime
+import hashlib
+import json
+from collections.abc import Callable
+from dataclasses import dataclass
+from decimal import Decimal
+
+import httpx
+import psycopg
+from psycopg.types.json import Json
+
+from app.ads.client import AdsApiError, AdsClient
+from app.ads.config import AdsCredentials
+from app.ads.structure import PerfilAds, evaluar_perfiles
+
+# Re-export QW2 (cross-review del dueno): el state del REQUEST del PUT de
+# pause/resume vive SOLO en write.py (ESTADO_PUT_*); apply — el unico modulo
+# que puede importar write — lo re-exporta para que apply_cola/apply_harvest
+# usen LA constante. Cuando la corrida real del pause fije el enum, se toca
+# UN lugar (write.py) y el payload del ledger lo sigue.
+from app.ads.write import (
+    ESTADO_PUT_ENABLED as ESTADO_PUT_ENABLED,
+)
+from app.ads.write import (
+    ESTADO_PUT_PAUSED as ESTADO_PUT_PAUSED,
+)
+from app.ads.write import (
+    MODO_CONFIRMADO_LIVE,
+    PLATAFORMA_MONEDA,
+    AdsApiErrorMutacion,
+    AdsWriteClient,
+    _bid_payload,
+)
+from app.optimizer import goals as g
+from app.pantalla_danadas import lee_danadas
+from app.redaction import scrub
+
+# Tope de intentos por decision: "no existe 4o intento" es un COUNT verificable
+# contra el ledger (sellado 10 / brief §4.1).
+TOPE_INTENTOS = 3
+
+
+# Excepciones de la REVERSA MANUAL (3.1): el endpoint de app/api_write.py las
+# mapea 1:1 a HTTP (409 precondicion / 409 ya revertida / 404 inexistente /
+# 422 id no resoluble / 503 sin perfil). Van aqui para que el candado de
+# test_architecture (solo app/apply.py construye AdsWriteClient) siga intacto.
+class ReversaNoAplicada(Exception):
+    """La reversa exige un apply confirmado y no lo hay: precondicion (409)."""
+
+
+class ReversaYaHecha(Exception):
+    """Ya existe UNA reversa confirmada (tipo 'reversa' resultado 'ok') para la
+    decision: una reversa es UNA por decision (regla 7; ADV-3 — sin este
+    candado el endpoint despachaba HTTP real ilimitado en loop). 409."""
+
+    def __init__(self, decision_id: int) -> None:
+        super().__init__(
+            f"ya revertida: la decision {decision_id} ya tiene una reversa"
+            " confirmada en el ledger (una reversa es UNA por decision)"
+        )
+
+
+class ReversaInexistente(Exception):
+    """La decision/fila pedida no existe (404)."""
+
+
+class NegativeIdNoResoluble(Exception):
+    """El negative_id no se resolvio del ledger (422; regla 3: el id jamas se
+    inventa — y desde ADV-2 el caller JAMAS lo pasa: una sola fuente)."""
+
+
+class SinPerfilReversa(Exception):
+    """Sin perfil ACEPTADO para la plataforma en /v2/profiles: la reversa
+    aborta fail-closed (503; regla 3: jamas un profile inventado)."""
+
+
+def perfil_aceptado_de(
+    credentials: AdsCredentials, platform: str, *, transport: httpx.BaseTransport | None = None
+) -> PerfilAds | None:
+    """Perfil ACEPTADO de la plataforma desde GET /v2/profiles + evaluar_perfiles.
+
+    UNA fuente de la resolucion (regla 2): la fabrica del ciclo
+    (`cycle._aplicador_real`) y la reversa manual (`reversa_manual`) comparten
+    este camino — el profile_id JAMAS se inventa ni se duplica la resolucion.
+    None = sin perfil aceptado para la plataforma (el caller aborta
+    fail-closed)."""
+    for perfil in evaluar_perfiles(AdsClient(credentials, transport=transport)):
+        if perfil.aceptado and perfil.platform == platform:
+            return perfil
+    return None
+
+
+# Tope de paginaciones del LIST de readback (CX1/QW1 + CX6 de la
+# cross-review del dueno): una cuenta real trae >1000 keywords y el body {}
+# solo trae la PRIMERA pagina, asi que el readback recorre TODAS por
+# nextToken (patron sellado de structure.py MAX_PAGINAS / smoke TOPE_PAGINAS
+# / apply_harvest TOPE_PAGINAS_LIST) con tope: una lista que nunca termina no
+# cuelga el ciclo. RESIDUAL DECLARADO (reviewer): el page size real del list
+# v3 es 1000 (log del probe: 1334 keywords = 2 paginas), asi que 20 paginas
+# cubren ~20k filas (~15x la cuenta actual); si la cuenta algun dia supera
+# el tope, una entidad mas alla se manifiesta como "ausente" (misma falsa
+# divergencia que este fix elimina) — subir el tope ese dia.
+TOPE_PAGINAS_READBACK = 20
+
+# Estados del WIRE en el readback por LIST. SELLADO por el probe 2.5
+# (2026-08-26, ledger probe ids 1-20, log out/smoke-apply-20260826.log): el
+# list trae state UPPER — ENABLED/PAUSED/ARCHIVED (apply_attempt 19-20:
+# targets list con ENABLED y PAUSED vivos). 'userPaused' NO existe en la
+# RESPUESTA: el REQUEST del PUT quedo SELLADO el 2026-08-27 (corrida de
+# reactivacion autorizada por el dueno, evidencia
+# out/reactiva-campanas-20260827.log) con el MISMO enum UPPER del wire
+# (write.py ESTADO_PUT_* = PAUSED/ENABLED). ARCHIVED = operativamente muerto
+# (el "delete" v3 archiva): NO confirma entidad viva ni pause verificado.
+ESTADO_WIRE_ENABLED = "ENABLED"
+ESTADO_WIRE_PAUSED = "PAUSED"
+ESTADO_WIRE_ARCHIVED = "ARCHIVED"
+
+# CAMPANA ACTIVA 01 · 1.6: ancestros no ENABLED (o sin fila de state, regla 3)
+# bloquean reintentos y liberaciones. Definidos AQUI (dueno del write client);
+# apply_cola/cycle los re-exportan como alias: cero cambio de vocabulario.
+MOTIVO_CAMPANA_NO_ENABLED = "campana_no_enabled"
+MOTIVO_GRUPO_NO_ENABLED = "grupo_no_enabled"
+# Sello del ledger cuando el gate corta una reconciliacion (1.6a).
+RESULTADO_ANCESTRO_NO_ENABLED = "fallo:ancestro_no_enabled"
+
+# Vocabulario cerrado de motivos del aplicador (skips y descartes
+# estructurados; el digest de 3.3 los consume tal cual).
+MOTIVO_MODO_NO_LIVE = "modo_no_live"
+MOTIVO_YA_APLICADA = "ya_aplicada"
+MOTIVO_TOPE_INTENTOS = "tope_intentos"
+MOTIVO_FUERA_DE_CAP = "fuera_de_cap"
+MOTIVO_FALLO_HTTP = "fallo_http"
+MOTIVO_BID_INCOMPLETO = "bid_incompleto"
+MOTIVO_ENTIDAD_NO_DECISORA = "entidad_no_decisora"
+
+# ADS D.1: motivos de no-apply que nacen fuera de aplica_bids (la cola de
+# cortes y el hook de harvest los registran desde libera_vencidos). El
+# literal de espera_target vive AQUI (una sola fuente): apply_cola lo aliasa.
+MOTIVO_SIN_QUOTA = "sin_quota"
+MOTIVO_ESPERA_TARGET = "espera_target"
+MOTIVO_SIN_RESPUESTA = "sin_respuesta"
+MOTIVO_PERDIDA = "perdida"
+# D.1b: la decision de corte live cuyo INSERT choco la clave de efecto en
+# vuelo (sin fila en la cola; sin registro, v_decision_huerfana la listaria
+# como huerfana). `perdida` SE QUEDA en el vocabulario (puede haber filas
+# historicas) aunque libera_vencidos ya no la escriba.
+MOTIVO_CHOQUE_CLAVE = "choque_clave"
+
+# ADS D.1: vocabulario CERRADO de decision_sin_aplicar (migracion 0044; el
+# CHECK nombrado vive desde 0045) — UNA fuente en la app; el CHECK de la
+# tabla es su espejo (test estatico y test de la constraint viva en
+# test_apply_schema los mantienen sincronizados, mismo patron que
+# KINDS_QUOTA <-> trigger). `ya_aplicada` esta en la lista pero JAMAS se
+# escribe: su desenlace ya es decision_application (grabarla la marcaria
+# como no-aplicada).
+MOTIVOS_SIN_APLICAR = (
+    MOTIVO_MODO_NO_LIVE,
+    MOTIVO_YA_APLICADA,
+    MOTIVO_BID_INCOMPLETO,
+    MOTIVO_ENTIDAD_NO_DECISORA,
+    MOTIVO_TOPE_INTENTOS,
+    MOTIVO_FUERA_DE_CAP,
+    MOTIVO_FALLO_HTTP,
+    MOTIVO_SIN_QUOTA,
+    MOTIVO_ESPERA_TARGET,
+    MOTIVO_SIN_RESPUESTA,
+    MOTIVO_PERDIDA,
+    MOTIVO_CHOQUE_CLAVE,
+)
+
+_SQL_SIN_APLICAR = """
+INSERT INTO decision_sin_aplicar (decision_id, cycle_id, motivo, detalle)
+VALUES (%s, %s, %s, %s)
+ON CONFLICT (decision_id, cycle_id) DO NOTHING
+"""
+
+
+def registra_sin_aplicar(
+    conn: psycopg.Connection,
+    decision_id: int,
+    cycle_id: int,
+    motivo: str,
+    *,
+    detalle: dict | None = None,
+) -> None:
+    """Registra el desenlace "no aplicado" del ciclo EJECUTOR (0044).
+
+    Idempotente por PK (ON CONFLICT DO NOTHING): un re-run del mismo ciclo
+    no duplica; otro ciclo ejecutor agrega su propia fila. El motivo se
+    valida contra MOTIVOS_SIN_APLICAR ANTES de tocar la base (la tabla lo
+    refuerza con el CHECK espejo)."""
+    if motivo not in MOTIVOS_SIN_APLICAR:
+        raise ValueError(f"motivo fuera del vocabulario cerrado: {motivo}")
+    conn.execute(
+        _SQL_SIN_APLICAR,
+        (decision_id, cycle_id, motivo, Json(detalle) if detalle is not None else None),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Quota: motor, cap desde config, consumo atomico
+# ---------------------------------------------------------------------------
+
+
+# Formas de quota de la rampa (preflight 1.4): ESPEJO del CASE del trigger
+# apply_cap_de_config (0002) — la UNICA lista en app; los lectores
+# (estado_quota y el endpoint de /salud) la recorren. kind nuevo = decision
+# nueva del dueno (sellado 8), aca y en el trigger.
+KINDS_QUOTA = ("bid", "pause", "negative", "harvest")
+
+
+def motor_quota(platform: str, kind: str) -> str:
+    """Clave del motor de quota: `ads_optimizer:<platform>:<kind>`.
+
+    UNA fuente en la app de este vocabulario; su espejo de schema es el
+    mapeo de `apply_cap_de_config` (0002), que resuelve la clave de config
+    `ads_apply_cap_<platform>_<kind>` para ESTE motor. kind en KINDS_QUOTA —
+    kinds nuevos de quota = decision nueva del dueno (sellado 8)."""
+    return f"ads_optimizer:{platform}:{kind}"
+
+
+_SQL_CONFIG_VIGENTE = """
+SELECT settings FROM config_version ORDER BY id DESC LIMIT 1
+"""
+
+
+def _cap_de_config(conn: psycopg.Connection, platform: str, kind: str) -> int | None:
+    """Cap de la config VIGENTE (ultima config_version por id — la misma
+    resolucion que el trigger apply_cap_de_config de 0002). None = sin clave
+    o sin config: fail-closed, no nace fila del dia."""
+    fila = conn.execute(_SQL_CONFIG_VIGENTE).fetchone()
+    if fila is None:
+        return None
+    settings = fila[0] or {}
+    valor = settings.get(f"ads_apply_cap_{platform}_{kind}")
+    if valor is None:
+        return None
+    try:
+        return int(valor)
+    except (TypeError, ValueError):
+        # Clave presente pero corrupta es config ROTA, no dato faltante
+        # (regla 3): ruidoso, jamas disfraz de cap infinito.
+        raise ValueError(
+            f"ads_apply_cap_{platform}_{kind}: valor no numerico en la config vigente: {valor!r}"
+        ) from None
+
+
+def consume_quota_y_sello(conn: psycopg.Connection, platform: str, kind: str) -> tuple[bool, bool]:
+    """Consume UNA unidad de quota del dia y sella la TRANSICION de saturacion
+    (preflight 1.4, D3a). Devuelve (usada, saturada).
+
+    INSERT ... ON CONFLICT DO UPDATE en UNA sentencia (no SELECT-luego-UPSERT:
+    dos sesiones concurrentes no pueden pasarse del cap). La fila NACE con
+    used=1 — el primer consumo tambien cuenta (un INSERT sin used naceria en
+    0 y el primer apply del dia seria gratis). El dia va fijado a UTC EN LA
+    EXPRESION — el trigger de 0002 valida quota_date contra el dia UTC de la
+    base y CURRENT_DATE dependeria de la TimeZone de la sesion (r2 codex).
+    Sin fila devuelta (cap agotado o sin clave) -> (False, False). El cap del
+    INSERT sale de la config VIGENTE: el trigger lo re-valida igual.
+
+    DETECCION POR TRANSICION: `saturada` es True SOLO en el consumo que lleva
+    used EXACTAMENTE al cap de la PROPIA fila (RETURNING used, cap del UPDATE
+    atomico: used == cap de la fila) — por construccion ocurre UNA vez por
+    (motor, dia): el estado es derivable de la PROPIA fila de quota, sin
+    variable en memoria ni tabla nueva. El cap que rige hoy es el de la fila
+    (inmutable, trigger de 0002): el de la config solo importa al NACER la
+    fila, asi que una config cambiada a mitad de dia no adelanta ni cancela
+    la transicion (regresion
+    test_consume_quota_y_sello_satura_contra_el_cap_de_la_fila). Los intentos
+    posteriores rechazados (usada=False por tope) NO disparan nada.
+    RESIDUALES DECLARADOS (cross-review grok 1.4): (1) una fila YA saturada
+    al iniciar el proceso no re-avisa (nadie la consume con exito -> no hay
+    transicion); (2) el cap del COBRO sale SIEMPRE de la config vigente
+    (comportamiento sellado de consume, este camino no lo cambia): quitar la
+    clave, ponerla en 0 o corrupta a mitad de dia NIEGA el cobro fail-closed
+    aunque la fila del dia conserve SU cap — /salud muestra la fila
+    (used/cap) y el ciclo declara el rechazo (fuera_de_cap / apply_error);
+    (3) un cruce de medianoche UTC entre el cobro y la re-lectura del
+    evento (evento_cap_saturado) perderia ESE aviso (fail-silent; la
+    saturacion queda visible en /salud)."""
+    cap = _cap_de_config(conn, platform, kind)
+    if cap is None:
+        return False, False
+    if cap <= 0:
+        # cap 0 = rampa apagada por config (fail-closed): cero applies, sin
+        # nacer fila — la visibilidad del estado es la config misma.
+        return False, False
+    fila = conn.execute(
+        """
+        INSERT INTO apply_quota_state (motor, quota_date, cap, used)
+        VALUES (%s, (now() AT TIME ZONE 'UTC')::date, %s, 1)
+        ON CONFLICT (motor, quota_date) DO UPDATE
+           SET used = apply_quota_state.used + 1
+         WHERE apply_quota_state.used < apply_quota_state.cap
+        RETURNING used, cap
+        """,
+        (motor_quota(platform, kind), cap),
+    ).fetchone()
+    if fila is None:
+        return False, False
+    return True, fila[0] == fila[1]
+
+
+def consume_quota(conn: psycopg.Connection, platform: str, kind: str) -> bool:
+    """Consume UNA unidad de quota del dia, atomicamente (contrato historico:
+    True = cobrada). Wrapper que descarta el sello de transicion — la logica
+    y el SQL atomico viven en `consume_quota_y_sello` (UNA fuente)."""
+    usada, _saturada = consume_quota_y_sello(conn, platform, kind)
+    return usada
+
+
+def estado_quota(conn: psycopg.Connection, platform: str, kind: str) -> dict:
+    """Lectura de quota del dia (preflight 1.4, D1): {used, cap, fuente}.
+
+    UNA fuente: motor_quota para la clave y la MISMA expresion de dia UTC de
+    consume_quota y del trigger de 0002 ((now() AT TIME ZONE 'UTC')::date —
+    jamas CURRENT_DATE ni fecha del cliente). Tres fuentes declaradas:
+    - "fila_del_dia": existe fila (motor, hoy UTC) — used y cap SON los que
+      rigen hoy; el cap de la fila es INMUTABLE (trigger de 0002): subir el
+      tope es config nueva que rige desde la proxima fila.
+    - "config_vigente": sin fila aun hoy — cap resuelto igual que
+      _cap_de_config (la misma resolucion del trigger).
+    - "sin_clave": la config vigente no trae la clave (o no hay config):
+      fail-closed explicito, cap None."""
+    fila = conn.execute(
+        """
+        SELECT used, cap FROM apply_quota_state
+         WHERE motor = %s AND quota_date = (now() AT TIME ZONE 'UTC')::date
+        """,
+        (motor_quota(platform, kind),),
+    ).fetchone()
+    if fila is not None:
+        return {"used": fila[0], "cap": fila[1], "fuente": "fila_del_dia"}
+    cap = _cap_de_config(conn, platform, kind)
+    if cap is not None:
+        return {"used": 0, "cap": cap, "fuente": "config_vigente"}
+    return {"used": 0, "cap": None, "fuente": "sin_clave"}
+
+
+@dataclass(frozen=True)
+class CapSaturado:
+    """Evento de saturacion de quota (preflight 1.4, D3a/D3d): viaja en los
+    resultados de apply/apply_cola/apply_harvest hasta el ciclo, que manda UN
+    aviso fail-silent por evento (y la NOTA notes['telegram']['cap_agotado']
+    si el canal fallo). `used`/`cap` salen de la PROPIA fila del dia
+    (evento_cap_saturado), no de memoria."""
+
+    platform: str
+    kind: str
+    used: int
+    cap: int
+
+
+def evento_cap_saturado(conn: psycopg.Connection, platform: str, kind: str) -> CapSaturado | None:
+    """El CapSaturado del consumo que acabo de saturar (D3a): used/cap de la
+    propia fila del dia. None si la fila del dia no existe — no puede pasar
+    tras un consumo exitoso, pero fail-closed: sin fila no hay evento ni
+    numeros inventados (regla 3)."""
+    estado = estado_quota(conn, platform, kind)
+    if estado["fuente"] != "fila_del_dia":
+        return None
+    return CapSaturado(platform=platform, kind=kind, used=estado["used"], cap=estado["cap"])
+
+
+# ---------------------------------------------------------------------------
+# Decision bid: fila de la base, carga del ciclo, orden sellado bajo cap
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class DecisionBid:
+    """Una decision kind='bid' lista para aplicar (espejo de la fila de
+    `decision`; `inputs` trae el congelado del ciclo — el aplicador SOLO lee
+    de ahi el motivo (banda) y el costo de la ventana para el orden; JAMAS
+    inputs.modo)."""
+
+    id: int
+    ad_entity_id: int
+    old_value: Decimal | None
+    new_value: Decimal | None
+    value_currency: str | None
+    inputs: dict
+
+
+@dataclass(frozen=True)
+class ResultadoAplicador:
+    """Resultado estructurado del lote: el ORDEN sellado (ids), cuantas
+    quedaron confirmadas por readback, los motivos de descarte/skip (uno por
+    decision; el digest de 3.3 los consume tal cual) y el conteo de
+    DIVERGENCIAS de readback (GK10/QW4 de la cross-review: la mutacion SALIO,
+    Amazon quedo con OTRO bid — antes esa decision desaparecia del resumen;
+    vocabulario cerrado de notes['apply'] via cycle)."""
+
+    orden: list[int]
+    aplicadas: int
+    descartadas: list[str]
+    skips: list[str]
+    divergencias: int = 0
+    # Preflight 1.4 (D3d): los caps que ESTE lote llevo a su transicion
+    # (used == cap) — viajan al ciclo para el aviso fail-silent. El consumo
+    # rechazado por tope NO agrega (no es transicion).
+    caps_saturados: tuple[CapSaturado, ...] = ()
+
+
+_SQL_BIDS_CICLO = """
+SELECT id, ad_entity_id, old_value, new_value, value_currency, inputs
+  FROM decision
+ WHERE cycle_id = %s AND kind = 'bid'
+ ORDER BY id
+"""
+
+
+def bids_del_ciclo(conn: psycopg.Connection, cycle_id: int) -> list[DecisionBid]:
+    """Las decisiones kind='bid' de un ciclo (los bids aplican en su ciclo;
+    los cortes van a la cola, sellado 1)."""
+    return [
+        DecisionBid(
+            id=fila[0],
+            ad_entity_id=fila[1],
+            old_value=fila[2],
+            new_value=fila[3],
+            value_currency=fila[4],
+            inputs=fila[5] or {},
+        )
+        for fila in conn.execute(_SQL_BIDS_CICLO, (cycle_id,)).fetchall()
+    ]
+
+
+# Clave de orden para gasto desconocido (regla 3): dentro de SU nivel, al
+# final — es una clave de ORDEN, no un valor de negocio.
+_GASTO_DESCONOCIDO = Decimal(-1)
+
+
+def prioridad_bajo_cupo(veredicto_kind: str, motivo: str) -> int:
+    """Nivel de seleccion bajo cap (BIDS 02 M.3, bosquejo apply.py): 0
+    regresos (R1), 1 recortes con evidencia propia (R3, R9), 2 subidas
+    (R6), 3 recortes heredados del ad group (R4, R11); lo demas al
+    final. Motivos como literales, como hoy (este modulo no importa
+    bid/politica; cada literal se pinea contra politica.py en tests)."""
+    if veredicto_kind == "Regresar" or motivo == "regreso_por_desplome":
+        return 0
+    if motivo in (
+        "pierde_dinero",
+        "pierde_dinero_fuerte",
+        "gasto_sin_venta",
+        "gasto_sin_venta_doble",
+    ):
+        return 1
+    if motivo == "bajo_target":
+        return 2
+    if motivo in ("grupo_sangra_vendedora", "grupo_sangra"):
+        return 3
+    return 4
+
+
+def _gasto_caso(inputs: dict) -> Decimal | None:
+    """Gasto crudo de la hoja (el que R9 compara con el gasto para
+    concluir): reciente.gasto + antiguo.gasto de inputs.caso.propia.
+    None si falta el caso o algun tramo (regla 3)."""
+    try:
+        propia = (inputs.get("caso") or {}).get("propia") or {}
+        reciente = (propia.get("reciente") or {}).get("gasto")
+        antiguo = (propia.get("antiguo") or {}).get("gasto")
+        if reciente is None or antiguo is None:
+            return None
+        return Decimal(str(reciente)) + Decimal(str(antiguo))
+    except ArithmeticError:  # InvalidOperation: gasto corrupto -> como None
+        return None
+
+
+def _clave_cupo(decision: DecisionBid) -> tuple[int, Decimal]:
+    nivel = prioridad_bajo_cupo(
+        decision.inputs.get("veredicto_kind"), decision.inputs.get("motivo")
+    )
+    gasto = _gasto_caso(decision.inputs)
+    return (nivel, -gasto if gasto is not None else -_GASTO_DESCONOCIDO)
+
+
+def orden_bajo_cupo(decisiones: list[DecisionBid]) -> list[DecisionBid]:
+    """Orden sellado de seleccion bajo cap: regresos > recortes con
+    evidencia propia > subidas > recortes heredados y, dentro de cada
+    nivel, gasto crudo de la hoja DESC (el de mas gasto primero; gasto
+    desconocido al final de su nivel)."""
+    return sorted(decisiones, key=_clave_cupo)
+
+
+# ---------------------------------------------------------------------------
+# SQL del ledger, el resumen y el cache
+# ---------------------------------------------------------------------------
+
+_SQL_IDENTIDAD = """
+SELECT kind, external_id FROM ad_entity WHERE id = %s
+"""
+
+# CX1/GK1 (cross-review): el tope cuenta SOLO intentos 'normal' — las REVERSAS
+# son el mecanismo de seguridad (regla 7) y jamas consumen presupuesto de
+# intentos: un harvest completo (2 normal) + su reversa completa (2 reversa)
+# deja el reintento normal vivo.
+_SQL_COUNT_INTENTOS = """
+SELECT count(*) FROM apply_attempt WHERE decision_id = %s AND tipo = 'normal'
+"""
+
+# F2 (A.3): la secuencia es GLOBAL por decision (max+1 sobre TODOS los
+# tipos): el tope de reintentos cuenta aparte y solo 'normal'. Sin esto, la
+# segunda hermana repetiria seq (el count de normales no se mueve con las
+# hermanas) y dos filas compartirian seq.
+_SQL_MAX_SEQ = """
+SELECT coalesce(max(seq), 0) FROM apply_attempt WHERE decision_id = %s
+"""
+
+_SQL_INSERT_LEDGER = """
+INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload, quota_cobrada)
+VALUES (%s, %s, %s, %s, %s)
+RETURNING id
+"""
+
+_SQL_SELLA_LEDGER = """
+UPDATE apply_attempt SET ack = %s, resultado = %s, finished_at = now() WHERE id = %s
+"""
+
+_SQL_YA_APLICADA = """
+SELECT EXISTS (
+    SELECT 1 FROM decision_application WHERE decision_id = %s AND verify_ok IS TRUE
+)
+"""
+
+_SQL_CONFIRMAR_RESUMEN = """
+INSERT INTO decision_application (decision_id, confirmed_at, platform_ack, verify_ok)
+VALUES (%s, now(), %s, %s)
+ON CONFLICT (decision_id) DO UPDATE
+   SET confirmed_at = EXCLUDED.confirmed_at,
+       platform_ack = EXCLUDED.platform_ack,
+       verify_ok = EXCLUDED.verify_ok
+"""
+
+_SQL_SELLA_CICLO_EJECUTOR = """
+UPDATE decision_application SET applied_cycle_id = %s WHERE decision_id = %s
+"""
+
+_SQL_APPLIED_COUNT = """
+UPDATE optimizer_cycle SET applied_count = coalesce(applied_count, 0) + 1 WHERE id = %s
+"""
+
+_SQL_ACTUALIZA_CACHE = """
+UPDATE ad_entity_state SET current_bid = %s, synced_at = now() WHERE ad_entity_id = %s
+"""
+
+# El crash entre ledger y HTTP deja la fila SIN finished_at: eso ES el rastro
+# que la reconciliacion (2.2/2.3) consulta al inicio del ciclo.
+_SQL_INTENTOS_SIN_SELLO = """
+SELECT id, decision_id, seq, tipo, request_payload, started_at
+  FROM apply_attempt
+ WHERE finished_at IS NULL
+ ORDER BY started_at, id
+"""
+
+# CAMPANA ACTIVA 01 · 1.6: status (cache ad_entity_state) del ad group y de la
+# campaña de una entidad (hoja o ad group). Espejo de apply_cola._SQL_ANCESTROS
+# (la funcion compartida vive AQUI: apply_cola y apply_harvest ya importan este
+# modulo). Hoja: el grupo es su padre; ad group: el grupo es la propia entidad.
+# LEFT JOIN: sin fila de state = NULL = fuera (regla 3).
+_SQL_ANCESTROS = """
+SELECT sg.status, sc.status
+  FROM ad_entity e
+  JOIN ad_entity g ON g.id = CASE WHEN e.kind = 'ad_group' THEN e.id ELSE e.parent_id END
+  LEFT JOIN ad_entity_state sg ON sg.ad_entity_id = g.id
+  LEFT JOIN ad_entity_state sc ON sc.ad_entity_id = g.parent_id
+ WHERE e.id = %s
+"""
+
+
+def intentos_sin_sello(conn: psycopg.Connection) -> list[tuple]:
+    """Filas del ledger nacidas PRE-HTTP que nunca se sellaron (crash entre
+    ledger y HTTP, o 5xx ambiguo): la entrada de la reconciliacion."""
+    return conn.execute(_SQL_INTENTOS_SIN_SELLO).fetchall()
+
+
+def gate_ancestros(conn: psycopg.Connection, ad_entity_id: int) -> str | None:
+    """CAMPANA ACTIVA 01 · 1.6: la UNICA fuente del gate de campaña/ad group
+    ENABLED (cache ad_entity_state, sync diario; semantica D1/D3: sin fila de
+    state = fuera, regla 3). Resuelve hoja vs ad group con el mismo CASE que
+    trajo 1.2; la usan la cola (libera) y los TRES reconciliadores (reintentos
+    post-crash, hallazgo codex r1 #1). None = ancestros ENABLED; motivo = el
+    ancestro de afuera hacia adentro manda."""
+    fila_anc = conn.execute(_SQL_ANCESTROS, (ad_entity_id,)).fetchone()
+    status_grupo, status_campana = fila_anc if fila_anc is not None else (None, None)
+    if status_campana != "ENABLED":
+        return MOTIVO_CAMPANA_NO_ENABLED
+    if status_grupo != "ENABLED":
+        return MOTIVO_GRUPO_NO_ENABLED
+    return None
+
+
+# ADV-04 (review adversaria, matriz §6.1 "Ledger sin sello - bid"): los BIDS
+# no viven en apply_queue, asi que su rastro de crash SOLO existe aqui. Solo
+# intentos 'normal' de decisions kind bid — reversa/probe quedan RESIDUALES
+# declarados (APPLY.md §13). Filtro de plataforma via el ciclo de la decision
+# (bug PR27-1: los locks del ciclo son POR plataforma — job_key_de —, asi que
+# el ciclo de una plataforma JAMAS reconcilia filas de la otra, como todos los
+# demas reconciliadores: _SQL_PAUSES_APLICANDO, _SQL_NEGATIVAS_APLICANDO,
+# _SQL_HARVEST_APLICANDO, _SQL_JOBS_EN_VUELO).
+_SQL_INTENTOS_BID_SIN_SELLO = """
+SELECT a.id, a.decision_id, a.request_payload, d.ad_entity_id, d.new_value,
+       d.value_currency
+  FROM apply_attempt a
+  JOIN decision d ON d.id = a.decision_id
+  JOIN optimizer_cycle oc ON oc.id = d.cycle_id
+ WHERE a.finished_at IS NULL AND a.tipo = 'normal' AND d.kind = 'bid'
+   AND oc.platform = %s::platform
+ ORDER BY a.started_at, a.id
+"""
+
+
+def reconcilia_bids(
+    conn: psycopg.Connection, aplicador: Aplicador, platform: str
+) -> tuple[int, int]:
+    """Reconciliacion del ledger de BIDS sin sello (ADV-04; la llaman al
+    inicio de la fase de apply de los ciclos live) de UNA plataforma: el
+    lock del ciclo es por plataforma, asi que la fila sin sello de OTRA
+    plataforma la conduce su propio ciclo (bug PR27-1). Por fila, GET FRESCO
+    del readback con el MISMO scope sellado:
+
+    - GET == pedido (quantizado) → confirmar: sello 'ok:reconciliado' +
+      resumen con verify_ok + applied_cycle_id del EJECUTOR + cache con lo
+      LEIDO (sellado 16);
+    - divergencia → sello 'fallo:divergencia_readback' (resumen verify_ok
+      FALSE, cache con lo leido) y REINTENTO bajo tope-3 (fila nueva del
+      ledger, quota_cobrada=false: la unidad la pago el intento original);
+    - ambiguo (5xx agotado / sin bid legible) → failed SIN reintento
+      (conserva su cobro, matriz §6.1).
+
+    El reintento divergente se resuelve en la MISMA pasada (PUT + readback);
+    un ambiguo del reintento deja la fila nueva SIN sello: ES el rastro del
+    proximo ciclo. Devuelve (confirmadas, fallidas).
+
+    CAMPANA ACTIVA 01 · 1.6: gate de ancestros PRIMERO, antes de cualquier
+    HTTP (readback incluido) — campaña/ad group no ENABLED en el cache sella
+    'fallo:ancestro_no_enabled' y cubre tambien el reintento divergente (la
+    entidad ya fue gateada antes de que nazca su fila de ledger)."""
+    filas = conn.execute(_SQL_INTENTOS_BID_SIN_SELLO, (platform,)).fetchall()
+    if not filas:
+        return (0, 0)
+    # Revision PR #136 (CodeRabbit): el cliente nace LAZY, despues del gate y
+    # solo para la primera fila elegible — sin credenciales/profile, _cliente()
+    # lanza y dejaria sin sellar intentos que el gate ya habia cerrado.
+    cliente = None
+    confirmadas = fallidas = 0
+    for id_attempt, decision_id, payload, ad_entity_id, new_value, moneda in filas:
+        if gate_ancestros(conn, ad_entity_id) is not None:
+            with conn.transaction():
+                _sella_ledger(conn, id_attempt, ack=None, resultado=RESULTADO_ANCESTRO_NO_ENABLED)
+            fallidas += 1
+            continue
+        if cliente is None:
+            cliente = aplicador._cliente()
+        identidad = _identidad(conn, ad_entity_id)
+        if identidad is None or identidad[0] not in _KINDS_DECISORAS or new_value is None:
+            with conn.transaction():
+                _sella_ledger(
+                    conn, id_attempt, ack=None, resultado="fallo:reconciliado_sin_identidad"
+                )
+            fallidas += 1
+            continue
+        kind, external_id = identidad
+        _, path, contenedor, param = _KINDS_DECISORAS[kind]
+        try:
+            # Readback por LIST PAGINADO con el MISMO scope sellado (probe
+            # 2.5: el GET directo retirado; CX1/QW1: el body {} solo trae la
+            # primera pagina y la entidad puede vivir en la 2+).
+            bid_leido = _bid_de_readback(cliente, path, contenedor, param, external_id)
+        except AdsApiError:
+            with conn.transaction():
+                _sella_ledger(conn, id_attempt, ack=None, resultado="fallo:readback_ambiguo")
+            fallidas += 1
+            continue
+        if bid_leido == Decimal(_bid_payload(new_value)):
+            ack = {"fuente": "readback", "bid": str(bid_leido)}
+            with conn.transaction():
+                _sella_ledger(conn, id_attempt, ack=ack, resultado="ok:reconciliado")
+                _confirma_resumen(conn, decision_id, ack, True, aplicador.cycle_id_ejecutor)
+                _actualiza_cache(conn, ad_entity_id, bid_leido)
+            confirmadas += 1
+            continue
+        resultado = (
+            "fallo:divergencia_readback" if bid_leido is not None else "fallo:readback_sin_bid"
+        )
+        ack = {"fuente": "readback", "bid": str(bid_leido)} if bid_leido is not None else None
+        with conn.transaction():
+            _sella_ledger(conn, id_attempt, ack=ack, resultado=resultado)
+            if bid_leido is not None:
+                _actualiza_cache(conn, ad_entity_id, bid_leido)  # sellado 16: lo LEIDO
+            _confirma_resumen(conn, decision_id, ack or {}, False, aplicador.cycle_id_ejecutor)
+        if bid_leido is None:
+            fallidas += 1  # ambiguo: failed SIN reintento (matriz §6.1)
+            continue
+        # Divergencia con tope disponible → UN reintento (quota ya cobrada).
+        count = conn.execute(_SQL_COUNT_INTENTOS, (decision_id,)).fetchone()[0]
+        rescata = False
+        if count < TOPE_INTENTOS:
+            id_retry = _ledger(conn, decision_id, "normal", payload, quota_cobrada=False)
+            if id_retry is not None:
+                conn.commit()  # intencion durable PRE-HTTP
+                rescata = _reintento_divergente(
+                    conn,
+                    cliente,
+                    id_retry,
+                    decision_id,
+                    ad_entity_id,
+                    identidad,
+                    new_value,
+                    moneda,
+                    aplicador,
+                )
+        if rescata:
+            confirmadas += 1
+        else:
+            fallidas += 1
+    return (confirmadas, fallidas)
+
+
+def _reintento_divergente(
+    conn: psycopg.Connection,
+    cliente: AdsWriteClient,
+    id_retry: int,
+    decision_id: int,
+    ad_entity_id: int,
+    identidad: tuple[str, str],
+    new_value: Decimal,
+    moneda: str | None,
+    aplicador: Aplicador,
+) -> bool:
+    """El UNICO reintento de un bid divergente reconciliado (tope-3 del
+    ledger, quota ya cobrada por el intento original). True = el reintento
+    quedo confirmado por readback. Ambiguo del PUT → la fila nueva queda SIN
+    sello: ES el rastro del proximo ciclo (misma semantica que _ejecuta_mutacion)."""
+    kind, external_id = identidad
+    _, path, contenedor, param = _KINDS_DECISORAS[kind]
+    try:
+        _tick(aplicador._tick_fn)
+        if kind == "keyword":
+            resp_http = cliente.actualizar_bid_keyword(external_id, new_value, moneda)
+        else:
+            resp_http = cliente.actualizar_bid_target(external_id, new_value, moneda)
+    except AdsApiErrorMutacion as exc:
+        _sella_ledger(conn, id_retry, ack=None, resultado=f"fallo http {exc.status}: {exc.cuerpo}")
+        conn.commit()
+        return False
+    except AdsApiError:
+        return False  # ambiguo: la fila sin sello ES el rastro
+    ack_http = _json_seguro(resp_http)
+    _tick(aplicador._tick_fn)
+    try:
+        # CX1/QW1: readback paginado (la entidad puede vivir en pagina 2+).
+        bid2 = _bid_de_readback(cliente, path, contenedor, param, external_id)
+    except AdsApiError:
+        _sella_ledger(conn, id_retry, ack=ack_http, resultado="fallo:readback_ambiguo")
+        conn.commit()
+        return False
+    ok = bid2 is not None and bid2 == Decimal(_bid_payload(new_value))
+    resultado2 = (
+        "ok"
+        if ok
+        else ("fallo:divergencia_readback" if bid2 is not None else "fallo:readback_sin_bid")
+    )
+    with conn.transaction():
+        _sella_ledger(conn, id_retry, ack=ack_http, resultado=resultado2)
+        _confirma_resumen(conn, decision_id, ack_http, ok, aplicador.cycle_id_ejecutor)
+        if bid2 is not None:
+            _actualiza_cache(conn, ad_entity_id, bid2)
+    return ok
+
+
+def _ledger(
+    conn: psycopg.Connection,
+    decision_id: int,
+    tipo: str,
+    payload: dict,
+    *,
+    quota_cobrada: bool,
+) -> int | None:
+    """Nace la fila del ledger PRE-HTTP: seq = max(seq)+1 GLOBAL por
+    decision_id (F2, A.3: normal + hermana + reversa comparten la secuencia,
+    monotona sin huecos repetidos). El TOPE 3 (sellado 10) cuenta SOLO
+    intentos 'normal' (CX1/GK1: reversas, probes y hermanas no consumen
+    presupuesto de intentos): tres normales no bloquean hermanas ni
+    reversas, y las hermanas no amplian el presupuesto normal (su tope es
+    por (decision, adGroupId), ver _intentos_hermana). Tope normal
+    alcanzado -> None y no existe 4o intento normal."""
+    if tipo == "normal":
+        count = conn.execute(_SQL_COUNT_INTENTOS, (decision_id,)).fetchone()[0]
+        if count >= TOPE_INTENTOS:
+            return None
+    seq = conn.execute(_SQL_MAX_SEQ, (decision_id,)).fetchone()[0] + 1
+    return conn.execute(
+        _SQL_INSERT_LEDGER,
+        (decision_id, seq, tipo, Json(payload), quota_cobrada),
+    ).fetchone()[0]
+
+
+# F2 (A.3): tope de TRES intentos POST por (decision_id, adGroupId) para las
+# hermanas — independiente del tope normal y de TOPE_CICLOS_HERMANAS (el
+# ciclo admite como maximo un POST por identidad, asi que el cap solo muerde
+# ante reintentos fuera de ciclo o filas huerfanas). Cuenta TODAS las filas
+# 'hermana' (abiertas y selladas): cada intento POST nace su fila.
+_SQL_HERMANA_POR_ADGROUP = """
+SELECT count(*) FROM apply_attempt
+ WHERE decision_id = %s AND tipo = 'hermana' AND request_payload->>'adGroupId' = %s
+"""
+
+
+def _intentos_hermana(conn: psycopg.Connection, decision_id: int, ad_group_id: str) -> int:
+    """Intentos POST de hermana acumulados para (decision, adGroupId)."""
+    return conn.execute(_SQL_HERMANA_POR_ADGROUP, (decision_id, str(ad_group_id))).fetchone()[0]
+
+
+# F2 (A.3): detalle de intentos por hermana para la procedencia por ID
+# (r2): el cruce consume `_intentos_hermana_detalle`; el conteo simple
+# vive en `_intentos_hermana` (tope por identidad).
+_SQL_INTENTOS_HERMANA_DETALLE = """
+SELECT id, ack, finished_at IS NULL AS abierta FROM apply_attempt
+ WHERE decision_id = %s AND tipo = 'hermana' AND request_payload->>'adGroupId' = %s
+ ORDER BY id
+"""
+
+
+def _intentos_hermana_detalle(
+    conn: psycopg.Connection, decision_id: int, ad_group_id: str
+) -> list[tuple[int, dict | None, bool]]:
+    """Filas de hermana de (decision, adGroupId) con su ack y si sigue
+    abierta: la base de la procedencia por ID (F2, A.3 r2). Solo un ack
+    duradero que aparece en el readback prueba propiedad; un intento
+    abierto sin ack (crash) no prueba nada por si solo."""
+    return [
+        (f[0], f[1], bool(f[2]))
+        for f in conn.execute(
+            _SQL_INTENTOS_HERMANA_DETALLE, (decision_id, str(ad_group_id))
+        ).fetchall()
+    ]
+
+
+def _sella_ledger(
+    conn: psycopg.Connection, id_attempt: int, ack: dict | None, resultado: str
+) -> None:
+    """Sella UNA vez (el trigger de 0002 lo hace cumplir): ack=respuesta del
+    HTTP (o None en el rechazo >=400), resultado, finished_at."""
+    conn.execute(_SQL_SELLA_LEDGER, (Json(ack) if ack is not None else None, resultado, id_attempt))
+
+
+_SQL_GUARDA_ACK = """
+UPDATE apply_attempt SET ack = %s WHERE id = %s AND finished_at IS NULL
+"""
+
+_SQL_SELLA_RESULTADO = """
+UPDATE apply_attempt SET resultado = %s, finished_at = now() WHERE id = %s
+"""
+
+
+def _guarda_ack(conn: psycopg.Connection, id_attempt: int, ack: dict) -> None:
+    """Guarda el ack SIN sellar el resultado (F2, A.3 r3): la id del ack
+    queda durable ANTES del readback posterior, con la fila abierta. El
+    trigger lo admite (cada columna pasa NULL -> valor una vez, de a una):
+    el sello final via `_sella_resultado`. Si la fila ya se sello, no toca
+    nada (el caller decide con el conteo)."""
+    conn.execute(_SQL_GUARDA_ACK, (Json(ack), id_attempt))
+
+
+def _sella_resultado(conn: psycopg.Connection, id_attempt: int, resultado: str) -> None:
+    """Sella resultado + finished_at de una fila cuyo ack ya puede estar
+    guardado (F2, A.3 r3): no reescribe el ack (reescribirlo violaria el
+    sello unico). Para el sello completo en un paso sigue `_sella_ledger`."""
+    conn.execute(_SQL_SELLA_RESULTADO, (resultado, id_attempt))
+
+
+def _identidad(conn: psycopg.Connection, ad_entity_id: int) -> tuple[str, str] | None:
+    """(kind, external_id) de la entidad — el id EXTERNO es lo que viaja al
+    payload, jamas la PK interna."""
+    fila = conn.execute(_SQL_IDENTIDAD, (ad_entity_id,)).fetchone()
+    return (fila[0], fila[1]) if fila is not None else None
+
+
+def _payload_bid(kind_entidad: str, external_id: str, bid: Decimal) -> dict:
+    """Payload EXACTO del ledger: MISMO shape y MISMA serializacion que el
+    write client (_bid_payload de app.ads.write — una sola fuente del
+    quantize a 2 decimales, regla 2)."""
+    campo = "keywordId" if kind_entidad == "keyword" else "targetId"
+    return {campo: external_id, "bid": _bid_payload(bid)}
+
+
+def _json_seguro(resp: httpx.Response) -> dict:
+    """El JSON del ack SANEADO (GK9 de la cross-review: el body pasa SIEMPRE
+    por scrub — un 2xx tambien puede ecoar secretos; antes solo el camino
+    >=400 redactaba); si el body no parsea, evidencia minima (el ack crudo
+    JAMAS debe tumbar el sello del ledger)."""
+    try:
+        data = resp.json()
+    except ValueError:
+        return {"status": resp.status_code, "body": scrub(resp.text[:200])}
+    if not isinstance(data, dict):
+        return {"status": resp.status_code, "body": scrub(str(data)[:200])}
+    return json.loads(scrub(json.dumps(data)))
+
+
+def _fila_de_filas(filas, id_campo: str, external_id: str) -> dict:
+    """El cruce de id PURO: la primera fila de `filas` cuyo id CRUZA con el
+    pedido (CX6/GK8 — nunca filas[0]). Vive separado para que el lector de
+    UNA pagina y el paginado compartan el MISMO cruce (una sola fuente)."""
+    for fila in filas or []:
+        if isinstance(fila, dict) and str(fila.get(id_campo)) == str(external_id):
+            return fila
+    return {}
+
+
+def _fila_de_lista(resp: httpx.Response, contenedor: str, id_campo: str, external_id: str) -> dict:
+    """La fila de ESTA entidad en UNA pagina de la respuesta del LIST (cruce
+    de id CX6/GK8): el list trae TODAS las filas de la cuenta, asi que se
+    ESCANEA por el id — nunca filas[0]. None/{} = la entidad pedida no esta
+    en la respuesta (una respuesta de OTRA entidad no es evidencia de esta
+    decision ni toca el cache). Un 2xx MALFORMADO (no-JSON o no-dict) NO es
+    ausencia: SUBE AdsApiError (ambiguo, mismo canal del 5xx — P1 Greptile
+    PR #35: como ausencia, una entidad VIVA se clasificaba entidad_no_viva)."""
+    try:
+        cuerpo = resp.json()
+    except ValueError:
+        raise AdsApiError("readback malformado: 2xx sin JSON en el LIST") from None
+    if not isinstance(cuerpo, dict):
+        raise AdsApiError("readback malformado: el JSON del LIST no es un objeto")
+    filas = cuerpo.get(contenedor)
+    if not isinstance(filas, list):
+        raise AdsApiError(f"readback malformado: el LIST no trae '{contenedor}' como lista")
+    return _fila_de_filas(filas, id_campo, external_id)
+
+
+def _fila_de_readback(
+    cliente: AdsWriteClient, path: str, contenedor: str, id_campo: str, external_id: str
+) -> dict:
+    """La fila de ESTA entidad recorriendo TODAS las paginas del LIST de
+    readback (CX1/QW1 de la cross-review del dueno): el body {} trae SOLO la
+    primera pagina y la cuenta real tiene miles de keywords/targets — una
+    entidad en pagina 2+ seria "ausente" (falsa divergencia con quota
+    cobrada). Corta EN CUANTO la halla; sigue el nextToken con tope
+    (TOPE_PAGINAS_READBACK: una lista que nunca termina no cuelga el ciclo).
+    {} = no esta en ninguna pagina visitada. AdsApiError (5xx/ambiguo) SUBE:
+    quien decide el sello lo captura como antes. Un 2xx MALFORMADO (no-JSON,
+    no-dict, o sin el contenedor como lista — el wire sellado por el probe 2.5
+    SIEMPRE lo trae) TAMBIEN sube AdsApiError (P1 Greptile PR #35): no es
+    ausencia — como ausencia sellaba fallos de readback definitivos y
+    clasificaba entidades VIVAS como entidad_no_viva."""
+    token: str | None = None
+    for _ in range(TOPE_PAGINAS_READBACK):
+        body = {"nextToken": token} if token else {}
+        try:
+            data = cliente.list_sellado(path, body).json()
+        except ValueError:
+            raise AdsApiError(f"readback malformado: 2xx sin JSON en POST {path}") from None
+        if not isinstance(data, dict):
+            raise AdsApiError(f"readback malformado: el JSON de POST {path} no es un objeto")
+        filas = data.get(contenedor)
+        if not isinstance(filas, list):
+            raise AdsApiError(f"readback malformado: POST {path} no trae '{contenedor}' como lista")
+        fila = _fila_de_filas(filas, id_campo, external_id)
+        if fila:
+            return fila
+        token = data.get("nextToken")
+        if not token:
+            return {}
+    return {}
+
+
+def _bid_de_fila(fila: dict) -> Decimal | None:
+    """El bid de la fila del LIST ya cruzada. Shape SELLADO por el probe 2.5
+    (apply_attempt 4-7 y 19-20: campo 'bid' NUMERO en el wire). None = sin
+    bid legible."""
+    bid = fila.get("bid")
+    if bid is None:
+        return None
+    try:
+        return Decimal(str(bid))
+    except ArithmeticError:
+        return None
+
+
+def _estado_de_fila(fila: dict) -> str | None:
+    """El estado de la fila del LIST ya cruzada, vocabulario UPPER del wire
+    (ESTADO_WIRE_*). None = ilegible."""
+    estado = fila.get("state")
+    return estado if isinstance(estado, str) else None
+
+
+def _bid_de_readback(
+    cliente: AdsWriteClient, path: str, contenedor: str, id_campo: str, external_id: str
+) -> Decimal | None:
+    """El bid del READBACK paginado por LIST (espejo paginado de _bid_leido;
+    misma extraccion _bid_de_fila, una sola fuente). None = sin bid legible
+    de ESTA entidad en NINGUNA pagina."""
+    return _bid_de_fila(_fila_de_readback(cliente, path, contenedor, id_campo, external_id))
+
+
+def _estado_de_readback(
+    cliente: AdsWriteClient, path: str, contenedor: str, id_campo: str, external_id: str
+) -> str | None:
+    """El estado del READBACK paginado por LIST (espejo paginado de
+    _estado_leido para cortes y sus reconciliaciones). Vive AQUI (una sola
+    fuente): apply_cola y apply_harvest lo reusan por import."""
+    return _estado_de_fila(_fila_de_readback(cliente, path, contenedor, id_campo, external_id))
+
+
+def _bid_leido(
+    resp: httpx.Response, contenedor: str, id_campo: str, external_id: str
+) -> Decimal | None:
+    """El bid del READBACK por LIST de UNA pagina, SOLO de la fila cuyo id
+    CRUZA con el pedido. Shape SELLADO por el probe 2.5 (2026-08-26,
+    apply_attempt 4-7 y 19-20: contenedor 'keywords'/'targetingClauses',
+    campo 'bid' NUMERO en el wire). None = sin bid legible de ESTA entidad."""
+    return _bid_de_fila(_fila_de_lista(resp, contenedor, id_campo, external_id))
+
+
+def _estado_leido(
+    resp: httpx.Response, contenedor: str, id_campo: str, external_id: str
+) -> str | None:
+    """El estado del READBACK por LIST de UNA pagina, SOLO de la fila cuyo id
+    CRUZA con el pedido (espejo de _bid_leido para cortes). El vocabulario
+    del wire es UPPER — ESTADO_WIRE_* (probe 2.5, apply_attempt 19-20);
+    'userPaused' NO existe en la respuesta. None = ilegible/vacio/de otra
+    entidad. Vive AQUI (una sola fuente): apply_cola y apply_harvest lo
+    reusan por import."""
+    return _estado_de_fila(_fila_de_lista(resp, contenedor, id_campo, external_id))
+
+
+def _ya_aplicada(conn: psycopg.Connection, decision_id: int) -> bool:
+    return conn.execute(_SQL_YA_APLICADA, (decision_id,)).fetchone()[0]
+
+
+def _confirma_resumen(
+    conn: psycopg.Connection,
+    decision_id: int,
+    ack: dict,
+    verify_ok: bool,
+    cycle_id_ejecutor: int,
+) -> None:
+    """UPSERT del resumen: la terna confirmed_at+platform_ack+verify_ok JUNTA
+    (CHECKs de 0001); reintentos = UPDATE del resumen + fila nueva del ledger
+    (sellado 10). applied_cycle_id y applied_count SOLO con verify_ok: un
+    crash o una divergencia NO cuentan como applied (sellado 21)."""
+    conn.execute(_SQL_CONFIRMAR_RESUMEN, (decision_id, Json(ack), verify_ok))
+    if verify_ok:
+        conn.execute(_SQL_SELLA_CICLO_EJECUTOR, (cycle_id_ejecutor, decision_id))
+        conn.execute(_SQL_APPLIED_COUNT, (cycle_id_ejecutor,))
+
+
+def _actualiza_cache(conn: psycopg.Connection, ad_entity_id: int, bid_leido: Decimal) -> None:
+    """El cache queda con LO LEIDO del readback (sellado 16: la fuente es
+    Amazon y el readback ES de Amazon; con lo enviado, el ciclo siguiente
+    calcularia sobre el bid viejo)."""
+    conn.execute(_SQL_ACTUALIZA_CACHE, (bid_leido, ad_entity_id))
+
+
+def _tick(tick: Callable[[], None] | None) -> None:
+    if tick is not None:
+        tick()
+
+
+# ---------------------------------------------------------------------------
+# Aplicador
+# ---------------------------------------------------------------------------
+
+_SQL_ENTIDAD_VIVA = """
+SELECT ag.parent_id AS campaign_id, (s.ad_entity_id IS NOT NULL) AS tiene_state
+  FROM ad_entity k
+  JOIN ad_entity ag ON ag.id = k.parent_id AND ag.kind = 'ad_group'
+  LEFT JOIN ad_entity_state s ON s.ad_entity_id = k.id
+ WHERE k.id = %s
+"""
+
+_SQL_GOALS_ENTIDAD = """
+SELECT scope, ad_entity_id, platform, target_acos_pct, bid_floor, bid_ceiling,
+       bid_currency, harvest_campaign_id, harvest_ad_group_id,
+       harvest_default_bid, enabled, mode
+  FROM ads_optimizer_goal
+ WHERE (scope = 'platform' AND platform = %s)
+    OR (scope = 'campaign' AND ad_entity_id = %s)
+"""
+
+# (kind de la entidad) -> (metodo del write client, path del LIST de
+# readback, contenedor de la respuesta, campo del id para el cruce). Shape
+# SELLADO por el probe 2.5 (2026-08-26, apply_attempt 4-5 y 18-20): el GET
+# directo esta retirado (403) — el contenedor de targets es
+# 'targetingClauses', el MISMO del list.
+_KINDS_DECISORAS = {
+    "keyword": ("bid_keyword", "/sp/keywords/list", "keywords", "keywordId"),
+    "product_target": ("bid_target", "/sp/targets/list", "targetingClauses", "targetId"),
+}
+
+
+class _TransportGuardado(httpx.BaseTransport):
+    """Transport decorado con el guard pre-HTTP (gancho 2.4, decision 11): el
+    callback corre ANTES de despachar CADA request. Asi el ownership-check del
+    ciclo cubre mutacion, readback, listas y hasta el token LWA sin tocar el
+    write client (candado de imports sellado). El guard que lanza aborta la
+    fase de apply sin que el request salga — el transport espia de los tests
+    jamas lo ve."""
+
+    def __init__(self, base: httpx.BaseTransport, guard: Callable[[], None]) -> None:
+        self._base = base
+        self._guard = guard
+
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        self._guard()
+        return self._base.handle_request(request)
+
+
+class Aplicador:
+    """Aplica decisiones de bid de UN ciclo ejecutor sobre UNA plataforma.
+
+    El write client NO se construye en __init__: se construye LAZY en el
+    primer apply que re-resuelva 'live' — AdsWriteClient revienta si el modo
+    no es exactamente 'live' (fail-closed), asi que la re-resolucion POR
+    DECISION es la que decide si existe cliente. En shadow: cero HTTP (ni
+    token LWA). `transport`/`sleep` son la inyeccion de tests (MockTransport),
+    misma puerta que AdsClient.
+
+    2.4: `credentials`/`profile_id` son OPCIONALES — un Aplicador sin ellos
+    sirve para re-resolver modo_efectivo (escalera shadow o fabrica que aborto)
+    y JAMAS construye cliente (fail-closed en _cliente, regla 3: no existe
+    profile inventado). `guard_http` corre antes de CADA HTTP del write client
+    (ownership-check + heartbeat de la decision 11; ver docstring del modulo).
+    """
+
+    def __init__(
+        self,
+        conn: psycopg.Connection,
+        *,
+        platform: str,
+        cycle_id_ejecutor: int,
+        owner: str,
+        job_key: str,
+        tick: Callable[[], None] | None = None,
+        transport: httpx.BaseTransport | None = None,
+        sleep: Callable[[float], None] | None = None,
+        credentials: AdsCredentials | None = None,
+        profile_id: str | int | None = None,
+        guard_http: Callable[[], None] | None = None,
+    ) -> None:
+        if platform not in PLATAFORMA_MONEDA:
+            raise ValueError(
+                f"platform invalida: {platform!r} "
+                f"(vocabulario cerrado: {sorted(PLATAFORMA_MONEDA)})"
+            )
+        self._conn = conn
+        self._platform = platform
+        self._profile_id = profile_id
+        self._credentials = credentials
+        self.cycle_id_ejecutor = cycle_id_ejecutor
+        # Para el ownership-check pre-HTTP de la integracion (2.4, sellado 11):
+        # lease perdido = abortar el apply fail-closed.
+        self.owner = owner
+        self.job_key = job_key
+        self._tick_fn = tick
+        self._transport = transport
+        self._sleep = sleep
+        self._guard_http = guard_http
+        self._write_client: AdsWriteClient | None = None
+
+    # -- modo efectivo por decision (JAMAS inputs.modo ni cycle.mode) ------
+
+    def modo_efectivo(
+        self, conn: psycopg.Connection, decision: DecisionBid, *, escalera_global: str
+    ) -> str:
+        """Re-resuelve el modo PARA ESTA decision, contra la base FRESCA:
+
+        escalera global (la del envelope, pasada por parametro) meet goal de
+        la entidad (precedencia campana > plataforma con goals.resuelve_goal;
+        goal.mode + enabled) y existencia de la entidad/state. 'live' solo si
+        TODO aplica; cualquier otra cosa -> 'shadow' (no aplica, cero HTTP).
+        El residual de cycle.py: la decision nacio con inputs.modo/cycle.mode
+        de OTRO ciclo — aqui no se miran JAMAS."""
+        fila = conn.execute(_SQL_ENTIDAD_VIVA, (decision.ad_entity_id,)).fetchone()
+        if fila is None or not fila[1]:
+            return "shadow"  # entidad inexistente o sin state (regla 3)
+        campaign_id = fila[0]
+        goal_campana: g.Goal | None = None
+        goal_plataforma: g.Goal | None = None
+        for f in conn.execute(_SQL_GOALS_ENTIDAD, (self._platform, campaign_id)).fetchall():
+            goal = g.Goal(
+                scope=f[0],
+                ad_entity_id=f[1],
+                platform=f[2],
+                target_acos_pct=f[3],
+                bid_floor=f[4],
+                bid_ceiling=f[5],
+                bid_currency=f[6],
+                harvest_campaign_id=f[7],
+                harvest_ad_group_id=f[8],
+                harvest_default_bid=f[9],
+                enabled=f[10],
+                mode=f[11],
+            )
+            if goal.scope == "campaign":
+                goal_campana = goal
+            else:
+                goal_plataforma = goal
+        resuelto = g.resuelve_goal(goal_campana, goal_plataforma)
+        if resuelto is None or not resuelto.enabled:
+            return "shadow"
+        # Meet del reticulo off < shadow < live (goals.modo_efectivo, puro).
+        return g.modo_efectivo(escalera_global, resuelto.mode)
+
+    # -- write client lazy ---------------------------------------------------
+
+    def _cliente(self) -> AdsWriteClient:
+        if self._credentials is None or self._profile_id is None:
+            # Aplicador sin credenciales/profile (solo modo_efectivo): un
+            # camino live NO puede construir cliente — fail-closed ruidoso,
+            # jamas un profile inventado (regla 3).
+            raise ValueError(
+                "Aplicador sin credentials/profile_id: el modo live exige la "
+                "fabrica del ciclo (2.4), no un cliente a ciegas"
+            )
+        if self._write_client is None:
+            transport: httpx.BaseTransport | None = self._transport
+            if self._guard_http is not None:
+                # Gancho 2.4 (decision 11): TODOS los HTTP del write client
+                # pasan por el transport — el guard corre ANTES de cada
+                # request (mutacion, readback, listas y token LWA incluidos).
+                base = self._transport if self._transport is not None else httpx.HTTPTransport()
+                transport = _TransportGuardado(base, self._guard_http)
+            # ADV-07 (review adversaria): SIN el lambda no-op — el sleep solo
+            # viaja cuando el test lo inyecta; en produccion el write client
+            # conserva SU time.sleep real (backoff de 429 y refresh LWA).
+            extra: dict = {"sleep": self._sleep} if self._sleep is not None else {}
+            self._write_client = AdsWriteClient(
+                self._credentials,
+                platform=self._platform,
+                profile_id=self._profile_id,
+                modo_confirmado=MODO_CONFIRMADO_LIVE,
+                transport=transport,
+                **extra,
+            )
+        return self._write_client
+
+    # -- apply de bids ---------------------------------------------------------
+
+    def aplica_bids(
+        self, decisiones: list[DecisionBid], *, escalera_global: str
+    ) -> ResultadoAplicador:
+        """Aplica el lote de bids del ciclo en el ORDEN sellado bajo cap.
+
+        Por decision: re-resolucion -> quota (si no cabe: descartado, JAMAS
+        HTTP) -> ledger PRE-HTTP + COMMIT -> HTTP -> readback sellado ->
+        sello de ledger + resumen + cache + applied_count (ver docstring del
+        modulo). >=400 se captura (ledger sellado con el cuerpo); 5xx/fallo
+        ambiguo SUBE (ledger sin sello: la fila ES el rastro)."""
+        ordenadas = orden_bajo_cupo(decisiones)
+        skips: list[str] = []
+        descartadas: list[str] = []
+        aplicadas = 0
+        divergencias = 0
+        caps_saturados: list[CapSaturado] = []
+        for decision in ordenadas:
+            modo = self.modo_efectivo(self._conn, decision, escalera_global=escalera_global)
+            if modo != "live":
+                skips.append(MOTIVO_MODO_NO_LIVE)
+                # Review IA #345 (M1): una decision ya aplicada no se registra
+                # como no-apply aunque el re-run la vea fuera de live.
+                if not _ya_aplicada(self._conn, decision.id):
+                    registra_sin_aplicar(
+                        self._conn, decision.id, self.cycle_id_ejecutor, MOTIVO_MODO_NO_LIVE
+                    )
+                continue
+            if _ya_aplicada(self._conn, decision.id):
+                # Excepcion declarada (D.1): ya_aplicada NO se registra — su
+                # desenlace YA es decision_application.
+                skips.append(MOTIVO_YA_APLICADA)
+                continue
+            if decision.new_value is None or decision.value_currency is None:
+                skips.append(MOTIVO_BID_INCOMPLETO)
+                registra_sin_aplicar(
+                    self._conn, decision.id, self.cycle_id_ejecutor, MOTIVO_BID_INCOMPLETO
+                )
+                continue
+            identidad = _identidad(self._conn, decision.ad_entity_id)
+            if identidad is None or identidad[0] not in _KINDS_DECISORAS:
+                skips.append(MOTIVO_ENTIDAD_NO_DECISORA)
+                registra_sin_aplicar(
+                    self._conn, decision.id, self.cycle_id_ejecutor, MOTIVO_ENTIDAD_NO_DECISORA
+                )
+                continue
+            # GK5/QW2: el tope se chequea ANTES del cobro — la unidad NO se
+            # quema en una decision ya a tope (el _ledger re-chequea igual
+            # como red de seguridad ante carreras).
+            if self._conn.execute(_SQL_COUNT_INTENTOS, (decision.id,)).fetchone()[0] >= (
+                TOPE_INTENTOS
+            ):
+                skips.append(MOTIVO_TOPE_INTENTOS)
+                registra_sin_aplicar(
+                    self._conn, decision.id, self.cycle_id_ejecutor, MOTIVO_TOPE_INTENTOS
+                )
+                continue
+            usada, saturada = consume_quota_y_sello(self._conn, self._platform, "bid")
+            if not usada:
+                # Bids fuera de cap = DESCARTADOS, jamas reintentados (8).
+                descartadas.append(MOTIVO_FUERA_DE_CAP)
+                registra_sin_aplicar(
+                    self._conn, decision.id, self.cycle_id_ejecutor, MOTIVO_FUERA_DE_CAP
+                )
+                continue
+            if saturada:
+                # Preflight 1.4: la unidad que llevo used a cap dispara UN
+                # evento (el rechazo del siguiente bid no pasa por aqui).
+                evento = evento_cap_saturado(self._conn, self._platform, "bid")
+                if evento is not None:
+                    caps_saturados.append(evento)
+            payload = _payload_bid(identidad[0], identidad[1], decision.new_value)
+            id_attempt = _ledger(self._conn, decision.id, "normal", payload, quota_cobrada=True)
+            if id_attempt is None:
+                skips.append(MOTIVO_TOPE_INTENTOS)
+                registra_sin_aplicar(
+                    self._conn, decision.id, self.cycle_id_ejecutor, MOTIVO_TOPE_INTENTOS
+                )
+                continue
+            resultado_bid = self._ejecuta_mutacion(decision, identidad, id_attempt)
+            if resultado_bid is None:
+                skips.append(MOTIVO_FALLO_HTTP)
+                registra_sin_aplicar(
+                    self._conn, decision.id, self.cycle_id_ejecutor, MOTIVO_FALLO_HTTP
+                )
+            elif resultado_bid:
+                aplicadas += 1
+            else:
+                # GK10/QW4: la mutacion SALIO y Amazon quedo con OTRO bid —
+                # observable en el campo propio del resultado.
+                divergencias += 1
+        return ResultadoAplicador(
+            orden=[d.id for d in ordenadas],
+            aplicadas=aplicadas,
+            descartadas=descartadas,
+            skips=skips,
+            divergencias=divergencias,
+            caps_saturados=tuple(caps_saturados),
+        )
+
+    def _ejecuta_mutacion(
+        self, decision: DecisionBid, identidad: tuple[str, str], id_attempt: int
+    ) -> bool | None:
+        """La secuencia sellada de UNA mutacion cuyo ledger ya nacio (quota
+        cobrada, fila PRE-HTTP). True = confirmada por readback; False =
+        sellada con divergencia o sin bid legible; None = rechazo >=400
+        capturado (ledger sellado con el cuerpo saneado)."""
+        self._conn.commit()  # intencion durable PRE-HTTP
+        cliente = self._cliente()
+        try:
+            _tick(self._tick_fn)
+            resp_http = self._muta_bid(
+                cliente, identidad, decision.new_value, decision.value_currency
+            )
+        except AdsApiErrorMutacion as exc:
+            _sella_ledger(
+                self._conn,
+                id_attempt,
+                ack=None,
+                resultado=f"fallo http {exc.status}: {exc.cuerpo}",
+            )
+            self._conn.commit()
+            return None
+        # 5xx/fallo ambiguo (AdsApiError): SUBE — el ledger queda SIN sello,
+        # la fila ES el rastro del crash; NO se reintenta (sellado 8).
+        ack = _json_seguro(resp_http)
+        _tick(self._tick_fn)
+        bid_leido = self._readback(cliente, identidad)
+        verify_ok = bid_leido is not None and bid_leido == Decimal(_bid_payload(decision.new_value))
+        # QW1: la divergencia sella SIEMPRE la misma etiqueta que la
+        # reconciliacion (antes 'ok' con verify_ok False).
+        resultado = (
+            "ok"
+            if verify_ok
+            else (
+                "fallo:divergencia_readback" if bid_leido is not None else "fallo:readback_sin_bid"
+            )
+        )
+        with self._conn.transaction():
+            _sella_ledger(self._conn, id_attempt, ack=ack, resultado=resultado)
+            _confirma_resumen(self._conn, decision.id, ack, verify_ok, self.cycle_id_ejecutor)
+            if bid_leido is not None:
+                _actualiza_cache(self._conn, decision.ad_entity_id, bid_leido)
+        return verify_ok
+
+    def _muta_bid(
+        self,
+        cliente: AdsWriteClient,
+        identidad: tuple[str, str],
+        bid: Decimal,
+        moneda: str,
+    ) -> httpx.Response:
+        kind, external_id = identidad
+        if kind == "keyword":
+            return cliente.actualizar_bid_keyword(external_id, bid, moneda)
+        return cliente.actualizar_bid_target(external_id, bid, moneda)
+
+    def _readback(self, cliente: AdsWriteClient, identidad: tuple[str, str]) -> Decimal | None:
+        """LIST FRESCO PAGINADO con el MISMO scope sellado (list_sellado: el
+        re-check JAMAS pasa un profile a mano — sellado 16; probe 2.5: el GET
+        directo de entidad esta retirado, 403; CX1/QW1: el body {} solo trae
+        la primera pagina de la cuenta)."""
+        kind, external_id = identidad
+        _, path, contenedor, param = _KINDS_DECISORAS[kind]
+        return _bid_de_readback(cliente, path, contenedor, param, external_id)
+
+
+# ---------------------------------------------------------------------------
+# Reversa de bid (regla 7)
+# ---------------------------------------------------------------------------
+
+
+def reversa_bid(
+    conn: psycopg.Connection,
+    cliente: AdsWriteClient,
+    decision: DecisionBid,
+    *,
+    tick: Callable[[], None] | None = None,
+) -> bool:
+    """Reversa del bid: PUT con old_value, misma secuencia sellada (ledger
+    tipo 'reversa', quota_cobrada=false EXENTA de quota), readback y sello.
+    True = la reversa quedo confirmada por readback. No toca
+    decision_application ni applied_count (el resumen de la decision original
+    no se re-escribe; una reversa NO limpia el cooldown — sellado 12)."""
+    if decision.old_value is None or decision.value_currency is None:
+        raise ValueError(
+            f"reversa de bid {decision.id}: exige old_value y value_currency (regla 7)"
+        )
+    identidad = _identidad(conn, decision.ad_entity_id)
+    if identidad is None or identidad[0] not in _KINDS_DECISORAS:
+        return False
+    payload = _payload_bid(identidad[0], identidad[1], decision.old_value)
+    id_attempt = _ledger(conn, decision.id, "reversa", payload, quota_cobrada=False)
+    if id_attempt is None:
+        return False  # tope 3 del ledger: no existe 4o intento
+    conn.commit()  # intencion durable PRE-HTTP
+    try:
+        _tick(tick)
+        if identidad[0] == "keyword":
+            resp_http = cliente.actualizar_bid_keyword(
+                identidad[1], decision.old_value, decision.value_currency
+            )
+        else:
+            resp_http = cliente.actualizar_bid_target(
+                identidad[1], decision.old_value, decision.value_currency
+            )
+    except AdsApiErrorMutacion as exc:
+        _sella_ledger(
+            conn, id_attempt, ack=None, resultado=f"fallo http {exc.status}: {exc.cuerpo}"
+        )
+        conn.commit()
+        return False
+    ack = _json_seguro(resp_http)
+    _tick(tick)
+    _, path, contenedor, param = _KINDS_DECISORAS[identidad[0]]
+    # Readback por LIST PAGINADO (probe 2.5: GET directo retirado; CX1/QW1),
+    # scope sellado.
+    bid_leido = _bid_de_readback(cliente, path, contenedor, param, identidad[1])
+    # QW1: misma etiqueta de divergencia que el apply y la reconciliacion.
+    resultado = (
+        "ok"
+        if bid_leido is not None and bid_leido == Decimal(_bid_payload(decision.old_value))
+        else ("fallo:divergencia_readback" if bid_leido is not None else "fallo:readback_sin_bid")
+    )
+    with conn.transaction():
+        _sella_ledger(conn, id_attempt, ack=ack, resultado=resultado)
+        if bid_leido is not None:
+            _actualiza_cache(conn, decision.ad_entity_id, bid_leido)
+    return bid_leido is not None and bid_leido == Decimal(_bid_payload(decision.old_value))
+
+
+# ---------------------------------------------------------------------------
+# Reversa MANUAL (ORBIT 04, task 3.1): el unico AdsWriteClient fuera del ciclo
+# ---------------------------------------------------------------------------
+
+# La decision de bid POR ID (columnas de DecisionBid + ciclo para plataforma:
+# UNA fuente — la plataforma es la del ciclo que decidio, jamas un parametro
+# del caller).
+_SQL_DECISION_POR_ID = """
+SELECT d.id, d.cycle_id, d.ad_entity_id, d.old_value, d.new_value,
+       d.value_currency, d.inputs, oc.platform::text
+  FROM decision d
+  JOIN optimizer_cycle oc ON oc.id = d.cycle_id
+ WHERE d.id = %s
+"""
+
+# "Confirmada como aplicada" = decision_application.applied_cycle_id sellado
+# AL CONFIRMAR (sellado 10/21): un crash o una divergencia NO cuentan.
+_SQL_RESUMEN_APLICADA = """
+SELECT applied_cycle_id FROM decision_application WHERE decision_id = %s
+"""
+
+_SQL_PLATAFORMA_FILA = """
+SELECT platform::text FROM apply_queue WHERE id = %s
+"""
+
+# El ack del ULTIMO intento normal ok de la decision: de ahi sale SIEMPRE el
+# negative_id del DELETE (ADV-2: una sola fuente — el body no lo acepta).
+_SQL_ACK_OK = """
+SELECT ack FROM apply_attempt
+ WHERE decision_id = %s AND tipo = 'normal' AND resultado = 'ok'
+ ORDER BY seq DESC LIMIT 1
+"""
+
+# ADV-3: una reversa confirmada por decision — sin esto, el endpoint
+# despachaba HTTP real ilimitado en loop (las reversas estan exentas de quota
+# y del tope-3, y la fila de la cola no cambia de estado al revertir).
+_SQL_REVERSA_OK = """
+SELECT EXISTS (
+    SELECT 1 FROM apply_attempt
+     WHERE decision_id = %s AND tipo = 'reversa' AND resultado = 'ok'
+)
+"""
+
+
+def _reversa_ya_hecha(conn: psycopg.Connection, decision_id: int) -> bool:
+    """True si la decision ya tiene UNA reversa confirmada (resultado 'ok'):
+    una reversa es UNA por decision (regla 7; ADV-3). Una reversa FALLIDA no
+    bloquea: el reintento queda vivo."""
+    return conn.execute(_SQL_REVERSA_OK, (decision_id,)).fetchone()[0]
+
+
+def _cliente_reversa(platform: str, *, transport: httpx.BaseTransport | None) -> AdsWriteClient:
+    """El write client de la reversa manual: credenciales del secrets dir +
+    perfil por /v2/profiles (el MISMO camino del ciclo via perfil_aceptado_de,
+    regla 2) y modo confirmado live — la reversa existe para DESHACER un apply
+    ya confirmado; no re-resuelve escalera (quien llama decidio deshacer)."""
+    credentials = AdsCredentials.from_secrets_dir()
+    perfil = perfil_aceptado_de(credentials, platform, transport=transport)
+    if perfil is None:
+        raise SinPerfilReversa(
+            f"sin perfil aceptado para {platform} en /v2/profiles: la reversa"
+            " aborta fail-closed (regla 3: jamas un profile inventado)"
+        )
+    return AdsWriteClient(
+        credentials,
+        platform=platform,
+        profile_id=perfil.profile_id,
+        modo_confirmado=MODO_CONFIRMADO_LIVE,
+        transport=transport,
+    )
+
+
+def _negative_id_del_ledger(conn: psycopg.Connection, decision_id: int) -> str:
+    """Resuelve el negative_id del ack del ultimo intento normal ok del ledger
+    (mismo parseo del camino de apply_cola al ejecutar el negative: el helper
+    _id_de_ack de apply_harvest). No resoluble -> NegativeIdNoResoluble: el id
+    jamas se inventa (regla 3)."""
+    from app import apply_harvest  # import diferido: apply_harvest importa apply
+
+    fila = conn.execute(_SQL_ACK_OK, (decision_id,)).fetchone()
+    if fila is not None and isinstance(fila[0], dict):
+        negative_id = apply_harvest._id_de_ack(fila[0], "negativeKeywordId")
+        if negative_id is not None:
+            return negative_id
+    raise NegativeIdNoResoluble(
+        f"no se resolvio el negative_id de la decision {decision_id} desde el"
+        " ledger (sin intento normal resultado ok con ack legible)"
+    )
+
+
+def reversa_manual(
+    conn: psycopg.Connection,
+    *,
+    tipo: str,
+    decision_id: int | None = None,
+    queue_id: int | None = None,
+    transport: httpx.BaseTransport | None = None,
+) -> dict:
+    """Reversa MANUAL (regla 7, sellado 12): un solo entry point para las tres
+    formas (bid -> PUT old_value; pause -> resume; negative -> DELETE).
+
+    Precondiciones ANTES de construir cliente o HTTP (fail-closed ruidoso):
+    bid exige decision existente + confirmada aplicada
+    (decision_application.applied_cycle_id sellado) + old_value/moneda;
+    pause/negative exigen fila existente en estado 'applied'. Plataforma: la
+    del ciclo de la decision (bid) o la de la fila (pause/negative) — una
+    sola fuente, jamas parametro del caller. Y desde ADV-2/ADV-3: el
+    negative_id del DELETE sale SIEMPRE del ledger (el caller JAMAS lo pasa)
+    y una decision con reversa ya confirmada no se revierte dos veces
+    (ReversaYaHecha — sin ese candado, el loop del endpoint despachaba HTTP
+    real ilimitado).
+
+    Despacha a las funciones ya testeadas (reversa_bid / apply_cola.reversa_
+    pause / apply_cola.reversa_negative: ledger tipo reversa EXENTO de quota,
+    readback, cache con lo leido; una reversa NO limpia el cooldown — sellado
+    12, este wrapper no toca nada de eso). `transport` es la puerta de tests
+    (MockTransport); el endpoint NO lo pasa.
+
+    Devuelve {tipo, identificadores, confirmada: bool} — confirmada false =
+    la reversa quedo sellada como fallo en el ledger (el detalle vive ahi).
+    """
+    from app import apply_cola  # diferidos: importan apply (circular)
+
+    if tipo == "bid":
+        if decision_id is None:
+            raise ValueError("reversa de bid exige decision_id")
+        fila = conn.execute(_SQL_DECISION_POR_ID, (decision_id,)).fetchone()
+        if fila is None:
+            raise ReversaInexistente(f"decision {decision_id} no existe")
+        resumen = conn.execute(_SQL_RESUMEN_APLICADA, (decision_id,)).fetchone()
+        if resumen is None or resumen[0] is None:
+            raise ReversaNoAplicada(
+                f"decision {decision_id} no esta confirmada como aplicada"
+                " (applied_cycle_id): no existe reversa sin apply"
+            )
+        if _reversa_ya_hecha(conn, decision_id):
+            raise ReversaYaHecha(decision_id)
+        decision = DecisionBid(
+            id=fila[0],
+            ad_entity_id=fila[2],
+            old_value=fila[3],
+            new_value=fila[4],
+            value_currency=fila[5],
+            inputs=fila[6] or {},
+        )
+        if decision.old_value is None or decision.value_currency is None:
+            raise ReversaNoAplicada(
+                f"decision {decision_id} sin old_value/moneda: nada que revertir (regla 7)"
+            )
+        confirmada = reversa_bid(conn, _cliente_reversa(fila[7], transport=transport), decision)
+        return {"tipo": "bid", "decision_id": decision_id, "confirmada": confirmada}
+
+    if tipo in ("pause", "negative"):
+        if queue_id is None:
+            raise ValueError(f"reversa de {tipo} exige queue_id")
+        fila = apply_cola.fila_cola(conn, queue_id)
+        if fila is None:
+            raise ReversaInexistente(f"fila {queue_id} de apply_queue no existe")
+        if fila.estado != "applied":
+            raise ReversaNoAplicada(
+                f"fila {queue_id} en estado {fila.estado}: la reversa exige applied"
+            )
+        if _reversa_ya_hecha(conn, fila.decision_id):
+            raise ReversaYaHecha(fila.decision_id)
+        platform = conn.execute(_SQL_PLATAFORMA_FILA, (queue_id,)).fetchone()[0]
+        cliente = _cliente_reversa(platform, transport=transport)
+        if tipo == "pause":
+            confirmada = apply_cola.reversa_pause(conn, cliente, fila)
+            return {"tipo": "pause", "queue_id": queue_id, "confirmada": confirmada}
+        negative_id = _negative_id_del_ledger(conn, fila.decision_id)
+        confirmada = apply_cola.reversa_negative(conn, cliente, fila, negative_id)
+        return {
+            "tipo": "negative",
+            "queue_id": queue_id,
+            "negative_id": str(negative_id),
+            "confirmada": confirmada,
+        }
+
+    raise ValueError(f"tipo de reversa desconocido: {tipo!r} (bid|pause|negative)")
+
+
+# ---------------------------------------------------------------------------
+# Regreso del dueno (BIDS 02, M.5): la hoja vuelve al bid anterior a su racha
+# ---------------------------------------------------------------------------
+
+ORIGEN_REGRESO_DUENO = "regreso_del_dueno"
+
+# La racha sale de v_cambio_bid, no de otro camino (fuente unica de la
+# historia de bids). Sin filtro por motivo: la racha se deriva de los bids.
+_SQL_CAMBIOS_HOJA = """
+SELECT confirmado_el, bid_antes, bid_despues, origen, decision_id, moneda
+  FROM v_cambio_bid
+ WHERE hoja_id = %s
+ ORDER BY confirmado_el, decision_id
+"""
+
+# El sello de la ultima reversa de la decision: de ahi sale el motivo cuando
+# Amazon no confirma (el detalle vive en el ledger, regla 10).
+_SQL_MOTIVO_REVERSA = """
+SELECT resultado FROM apply_attempt
+ WHERE decision_id = %s AND tipo = 'reversa'
+ ORDER BY seq DESC LIMIT 1
+"""
+
+# El bid vigente real (el bid puede cambiar fuera de Orbit: la vista de
+# cambios no lo sabe y su ultimo bid_despues queda rancio).
+_SQL_VIGENTE = """
+SELECT current_bid FROM v_hoja_activa WHERE hoja_id = %s
+"""
+
+_SQL_FIN_REVERSA = """
+SELECT finished_at FROM apply_attempt
+ WHERE decision_id = %s AND tipo = 'reversa'
+ ORDER BY seq DESC LIMIT 1
+"""
+
+
+class SinRachaDeRecortes(Exception):
+    """La hoja no tiene recortes vigentes que regresar (409)."""
+
+
+class ConfirmacionDesactualizada(Exception):
+    """La confirmacion no trae el N vigente de pendientes (409: la lista cambio)."""
+
+
+class RegresoNoConfirmado(Exception):
+    """Amazon no confirmo el regreso (502: el sello vive en el ledger)."""
+
+
+class VigentePorEncima(Exception):
+    """El bid vigente ya esta por encima del destino del regreso (409: no
+    se mueve; un regreso nunca baja el bid)."""
+
+
+@dataclass(frozen=True)
+class RegresoHecho:
+    hoja_id: int
+    bid_antes: Decimal  # el vigente al regresar (de v_hoja_activa; el ultimo cambio rancia)
+    bid_ahora: Decimal  # el restaurado (bid anterior a la racha)
+    moneda: str
+    decision_revertida_id: int
+    actor: str
+    regreso_confirmado_at: str | None = None
+
+    def como_dict(self) -> dict:
+        return {
+            "hoja_id": self.hoja_id,
+            "bid_antes": str(self.bid_antes),
+            "bid_ahora": str(self.bid_ahora),
+            "moneda": self.moneda,
+            "decision_revertida_id": self.decision_revertida_id,
+            "actor": self.actor,
+            "regreso_confirmado_at": self.regreso_confirmado_at,
+        }
+
+
+def _celda_cambio(fila, indice: int, nombre: str):
+    """Tupla o dict_row (la conexion puede venir con dict_row)."""
+    return fila[nombre] if isinstance(fila, dict) else fila[indice]
+
+
+def _clave_orden_cambio(cambio):
+    """Ordena cambios por (confirmado_el, decision_id) sin reventar ante
+    la tercera rama de la vista (panel: `decision_id` NULL de
+    `ajuste_de_campana` empatado con un id rompia min/max con TypeError).
+    El NULL ordena ultimo, como en el SQL."""
+    return (cambio[0], cambio[4] is None, cambio[4] or 0)
+
+
+def _racha_vigente_hoja(cambios: list[tuple]) -> list[tuple]:
+    """Recortes posteriores a la ultima subida y al ultimo regreso del
+    dueno: la racha de la ACCION (esta funcion) corta en el ultimo
+    regreso_del_dueno y su primera es el primer recorte posterior a el.
+    Difiere de la racha de la PANTALLA (pantalla_danadas._racha_vigente,
+    guia P.3a cambio 2, donde el regreso no corta). Sin regreso previo,
+    igual que la pantalla: el regreso no cuenta (su bid_antes es NULL) y
+    una subida del motor si corta, incluido un regreso_por_desplome. Cada
+    cambio es (confirmado_el, bid_antes, bid_despues, origen, decision_id,
+    moneda)."""
+    subidas = [c[0] for c in cambios if c[1] is not None and c[2] is not None and c[2] > c[1]]
+    ultima = max(subidas) if subidas else None
+    regresos = [(c[0], c[4]) for c in cambios if c[3] == ORIGEN_REGRESO_DUENO]
+    ultimo_regreso = max(regresos) if regresos else None
+    return [
+        c
+        for c in cambios
+        if c[3] != ORIGEN_REGRESO_DUENO
+        and c[1] is not None
+        and c[2] is not None
+        and c[2] < c[1]
+        and (ultima is None or c[0] >= ultima)
+        and (ultimo_regreso is None or (c[0], c[4]) > ultimo_regreso)
+    ]
+
+
+def _actor_no_vacio(actor: str) -> None:
+    """El actor es rastro obligatorio: "   " pasa el min_length de pydantic
+    y lo caza aqui (el endpoint lo mapea a 422, como el descarte C.5)."""
+    if not actor or not actor.strip():
+        raise ValueError("el regreso exige actor no vacio")
+
+
+def regreso_del_dueno(
+    conn: psycopg.Connection,
+    *,
+    hoja_id: int,
+    actor: str,
+    transport: httpx.BaseTransport | None = None,
+) -> RegresoHecho:
+    """Regresa el bid de la hoja al que tenia antes de su racha vigente de
+    recortes. Reusa `reversa_manual(tipo="bid")` sobre la PRIMERA decision de
+    la racha (ledger pre-HTTP, readback, exenta de cupo): no hay escritura
+    nueva a Amazon. El motor lo ve en `v_cambio_bid` con origen
+    `regreso_del_dueno`. Idempotente: una racha ya regresada levanta
+    ReversaYaHecha (409), nunca escribe dos veces. Si el vigente ya esta
+    por encima del destino levanta VigentePorEncima (409): un regreso
+    nunca baja el bid. `transport` es la puerta
+    de tests (MockTransport); el endpoint NO lo pasa."""
+    _actor_no_vacio(actor)
+    cambios = [
+        (
+            _celda_cambio(f, 0, "confirmado_el"),
+            _celda_cambio(f, 1, "bid_antes"),
+            _celda_cambio(f, 2, "bid_despues"),
+            _celda_cambio(f, 3, "origen"),
+            _celda_cambio(f, 4, "decision_id"),
+            _celda_cambio(f, 5, "moneda"),
+        )
+        for f in conn.execute(_SQL_CAMBIOS_HOJA, (hoja_id,)).fetchall()
+    ]
+    racha = _racha_vigente_hoja(cambios)
+    if not racha:
+        raise SinRachaDeRecortes(f"la hoja {hoja_id} no tiene racha vigente de recortes")
+    primera = min(racha, key=_clave_orden_cambio)
+    # El vigente se lee ANTES del HTTP: despues nace la fila del regreso.
+    # Si el vigente ya esta por encima del destino, no se mueve: un
+    # regreso nunca baja el bid. Con vigente desconocido (NULL: hereda
+    # del grupo) no hay nada que comparar y se sigue como antes.
+    fila_vigente = conn.execute(_SQL_VIGENTE, (hoja_id,)).fetchone()
+    vigente = _celda_cambio(fila_vigente, 0, "current_bid") if fila_vigente is not None else None
+    if vigente is not None and vigente >= primera[1]:
+        raise VigentePorEncima(
+            f"la hoja {hoja_id} trae vigente {vigente} por encima del destino {primera[1]}"
+        )
+    ultimo = max(cambios, key=_clave_orden_cambio)
+    reversa = reversa_manual(conn, tipo="bid", decision_id=primera[4], transport=transport)
+    if not reversa["confirmada"]:
+        fila = conn.execute(_SQL_MOTIVO_REVERSA, (primera[4],)).fetchone()
+        motivo = fila[0] if fila is not None else "sin sello en el ledger"
+        raise RegresoNoConfirmado(f"regreso de la hoja {hoja_id} sin confirmar: {motivo}")
+    fin = conn.execute(_SQL_FIN_REVERSA, (primera[4],)).fetchone()
+    sello = fin[0].isoformat() if fin is not None and fin[0] is not None else None
+    return RegresoHecho(
+        hoja_id=hoja_id,
+        bid_antes=vigente if vigente is not None else ultimo[2],
+        bid_ahora=primera[1],
+        moneda=primera[5],
+        decision_revertida_id=primera[4],
+        actor=actor,
+        regreso_confirmado_at=sello,
+    )
+
+
+def regreso_del_dueno_todas(
+    conn: psycopg.Connection,
+    *,
+    plataforma: str,
+    confirmacion: str,
+    actor: str,
+    transport: httpx.BaseTransport | None = None,
+) -> tuple[RegresoHecho | str, ...]:
+    """Boton "Regresar todas" (decision D6). Relee la pantalla de danadas,
+    exige la confirmacion literal `REGRESAR <N> KEYWORDS` con el N vigente
+    (numero de hojas con `ya_regresada` en falso; 409 si la lista cambio) y
+    llama a `regreso_del_dueno` hoja por hoja. Una falla no detiene a las
+    demas: en su lugar va el motivo en texto, con su hoja. Idempotente."""
+    _actor_no_vacio(actor)
+    pantalla = lee_danadas(conn, plataforma=plataforma)
+    pendientes = [h for h in pantalla.hojas if not h.ya_regresada]
+    esperada = f"REGRESAR {len(pendientes)} KEYWORDS"
+    if confirmacion != esperada:
+        raise ConfirmacionDesactualizada(
+            f"confirmacion desactualizada: esperaba {esperada!r} (la lista cambio)"
+        )
+    salidas: list[RegresoHecho | str] = []
+    for hoja in pendientes:
+        try:
+            salidas.append(
+                regreso_del_dueno(conn, hoja_id=hoja.hoja_id, actor=actor, transport=transport)
+            )
+        except Exception as exc:
+            salidas.append(f"hoja {hoja.hoja_id}: {exc}")
+    return tuple(salidas)
+
+
+# ---------------------------------------------------------------------------
+# Ajustes de campana del dueno (BIDS 02, V.3): aplica y regresa
+# ---------------------------------------------------------------------------
+
+GO_AJUSTE = "APLICAR AJUSTE"
+GO_REGRESO_AJUSTE = "REGRESAR AJUSTE"
+
+_SQL_PLATAFORMA_CAMPANA = """
+SELECT platform::text, external_id FROM ad_entity WHERE id = %s AND kind = 'campaign'
+"""
+_SQL_AJUSTE_POR_HUELLA = """
+SELECT id, confirmado_el IS NOT NULL, campana_id, clase FROM campana_ajuste WHERE huella = %s
+"""
+_SQL_AJUSTE_POR_ID = """
+SELECT id, campana_id, platform::text, clase, antes_config_id, confirmado_el,
+       (SELECT count(*) FROM campana_ajuste r
+         WHERE r.regresa_a = campana_ajuste.id AND r.confirmado_el IS NOT NULL)
+  FROM campana_ajuste WHERE id = %s
+"""
+_SQL_HIJO_REGRESO = """
+SELECT id, confirmado_el IS NOT NULL FROM campana_ajuste
+ WHERE regresa_a = %s ORDER BY id
+"""
+_SQL_DESPUES_POR_ID = """
+SELECT despues FROM campana_ajuste WHERE id = %s
+"""
+_SQL_CUENTA_HUELLA = """
+SELECT count(*) FROM campana_ajuste WHERE huella = %s OR huella LIKE %s
+"""
+_SQL_INSERTA_AJUSTE = """
+INSERT INTO campana_ajuste (campana_id, platform, clase, antes_config_id, despues,
+    huella, actor, go_literal, regresa_a)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+ON CONFLICT (huella) DO NOTHING
+RETURNING id
+"""
+_SQL_INSERTA_REGRESO = """
+INSERT INTO campana_ajuste (campana_id, platform, clase, antes_config_id, despues,
+    huella, actor, go_literal, regresa_a)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+ON CONFLICT (regresa_a) DO NOTHING
+RETURNING id
+"""
+_SQL_CONFIRMA_AJUSTE = """
+UPDATE campana_ajuste SET confirmado_el = %s WHERE id = %s
+"""
+_SQL_AJUSTES_PENDIENTES_HN = """
+SELECT id, huella, despues FROM campana_ajuste
+ WHERE huella LIKE %s AND confirmado_el IS NULL AND campana_id = %s AND clase = %s
+ ORDER BY id
+"""
+_SQL_AJUSTE_POR_HUELLA_RECONCILIA = """
+SELECT id, confirmado_el IS NOT NULL, campana_id, clase, despues
+  FROM campana_ajuste WHERE huella = %s
+"""
+_SQL_CONFIRMADA_POR_ID = """
+SELECT confirmado_el IS NOT NULL FROM campana_ajuste WHERE id = %s
+"""
+
+
+class ConfirmacionInvalida(Exception):
+    pass
+
+
+class HuellaDesactualizada(Exception):
+    """El vigente cambio desde la vista previa. Lleva el plan fresco para
+    que la ruta lo devuelva en el 409."""
+
+    def __init__(self, mensaje: str, plan_nuevo=None) -> None:
+        super().__init__(mensaje)
+        self.plan_nuevo = plan_nuevo
+
+
+class AjusteNoConfirmado(Exception):
+    """El PUT salio pero el readback no coincide: Amazon no aplico (o aun
+    no refleja) el cambio. La fila queda sin confirmar y el reintento la
+    reusa (o la reconciliacion la sella si el sync ya observo el destino)."""
+
+
+class AjusteEnCurso(Exception):
+    """Otro intento con la misma huella o regreso gano la carrera: su fila
+    sigue pendiente. Reintentar (409)."""
+
+
+class AjusteInexistente(Exception):
+    pass
+
+
+class AjusteYaRegresado(Exception):
+    pass
+
+
+class AjusteSinRegreso(Exception):
+    """La clase no tiene camino de regreso sellado (V.0: fuera_de_amazon —
+    mandar {} no regresa nada) o la configuracion de antes no es
+    expresable como ajuste."""
+
+
+class SinPerfilAjuste(Exception):
+    pass
+
+
+class AjusteHecho:
+    def __init__(self, ajuste_id: int, campana_id: int, clase: str, confirmada: bool) -> None:
+        self.ajuste_id = ajuste_id
+        self.campana_id = campana_id
+        self.clase = clase
+        self.confirmada = confirmada
+
+    def como_dict(self) -> dict:
+        return {
+            "ajuste_id": self.ajuste_id,
+            "campana_id": self.campana_id,
+            "clase": self.clase,
+            "confirmada": self.confirmada,
+        }
+
+
+def _cliente_ajuste(platform: str, *, transport) -> AdsWriteClient:
+    """Write client del ajuste (mismo camino del ciclo)."""
+    credentials = AdsCredentials.from_secrets_dir()
+    perfil = perfil_aceptado_de(credentials, platform, transport=transport)
+    if perfil is None:
+        raise SinPerfilAjuste(
+            f"sin perfil aceptado para {platform} en /v2/profiles: el ajuste"
+            " aborta fail-closed (regla 3: jamas un profile inventado)"
+        )
+    return AdsWriteClient(
+        credentials,
+        platform=platform,
+        profile_id=perfil.profile_id,
+        modo_confirmado=MODO_CONFIRMADO_LIVE,
+        transport=transport,
+    )
+
+
+def _config_leida(cliente: AdsWriteClient, plataforma: str, externa: str):
+    """Readback de la campana por POST /sp/campaigns/list (scope sellado):
+    la config parseada, o None si Amazon no la trae, trae otra (cruce por
+    id, nunca items[0]: la API ignora filtros en silencio) o la trae
+    ilegible (fail-closed, reintentable)."""
+    from app.ads.campana_config import config_de_payload
+    from app.optimizer.bid import PLATAFORMAS_MONEDA
+
+    respuesta = cliente.list_sellado(
+        "/sp/campaigns/list", {"campaignIdFilter": {"include": [externa]}}
+    )
+    try:
+        cuerpo = respuesta.json()
+    except ValueError:
+        return None
+    if not isinstance(cuerpo, dict):
+        return None
+    for item in cuerpo.get("campaigns", []):
+        if isinstance(item, dict) and str(item.get("campaignId")) == str(externa):
+            try:
+                return config_de_payload(item, PLATAFORMAS_MONEDA[plataforma])
+            except ValueError:
+                return None
+    return None
+
+
+def _aplica_y_confirma(
+    conn, cliente, plataforma, clase, destino, ajuste, *, ajuste_id, llave, previa
+) -> None:
+    """PUT del campo + readback + sello, serializado por acto (B9). El
+    PUT lleva SOLO el campo que el ajuste cambia (B11: un placement
+    solo, con la estrategia leida ANTES del PUT; las otras clases
+    llevan su llave, B1); quien llama ya commiteo la intencion; aqui
+    se INTENTA un candado advisory de transaccion por `llave` (try, no
+    espera) y se re-lee la fila: si otro intento ya confirmo, se
+    vuelve sin PUT (un solo PUT por acto); si otro trabaja, 409
+    AjusteEnCurso. El sello final commitea (durable + libera el
+    candado). El readback manda: si lo leido no coincide en el campo,
+    la fila queda sin confirmar (reintentable: el reintento reusa la
+    pendiente). Lo que se guarda es la leida mezclada sobre `previa`
+    (B1: el PUT no mueve campos ajenos)."""
+    from app.ads.campana_config import (
+        PLACEMENT_POR_CAMPO,
+        cuerpo_put_clase,
+        cuerpo_put_ubicacion,
+        guarda_config,
+        mezcla_observacion,
+    )
+    from app.campana_ajustes import CambiarAjusteUbicacion, campo_del_ajuste, coincide_campo
+
+    candado = conn.execute("SELECT pg_try_advisory_xact_lock(hashtext(%s))", (llave,)).fetchone()[0]
+    if not candado:
+        # Otro intento trabaja este acto (try, no espera: un reintento
+        # anidado dentro del PUT del primero se interbloquearia, L).
+        raise AjusteEnCurso(f"ajuste {ajuste_id} en curso: reintenta en un momento")
+    ya = conn.execute(_SQL_CONFIRMADA_POR_ID, (ajuste_id,)).fetchone()
+    if ya is not None and ya[0]:
+        conn.rollback()
+        return
+    if isinstance(ajuste, CambiarAjusteUbicacion):
+        actual = _config_leida(cliente, plataforma, destino.campana_externa)
+        strategy = actual.estrategia_puja if actual is not None else None
+        if strategy is None:
+            # La lectura no trae dynamicBidding (raro: el vigente si
+            # tenia, o planear habria rechazado): fallback al vigente,
+            # no hay actual que respetar. Sin ninguna, fail-closed.
+            strategy = destino.estrategia_puja
+        if strategy is None:
+            raise AjusteNoConfirmado(
+                f"ajuste {ajuste_id}: sin estrategia no se manda el PUT de un placement"
+            )
+        campo = campo_del_ajuste(ajuste)
+        cuerpo = cuerpo_put_ubicacion(
+            PLACEMENT_POR_CAMPO[campo], ajuste.porcentaje, destino, strategy
+        )
+    else:
+        cuerpo = cuerpo_put_clase(clase, destino)
+    cliente.ajustar_campana(
+        destino.campana_externa,
+        {k: v for k, v in cuerpo.items() if k != "campaignId"},
+    )
+    leida = _config_leida(cliente, plataforma, destino.campana_externa)
+    if leida is None or not coincide_campo(ajuste, leida, destino):
+        raise AjusteNoConfirmado(
+            f"ajuste {ajuste_id}: Amazon no confirma la config enviada"
+            " (readback distinto); la fila queda sin confirmar"
+        )
+    ahora = datetime.datetime.now(datetime.UTC)
+    with conn.transaction():
+        conn.execute(_SQL_CONFIRMA_AJUSTE, (ahora, ajuste_id))
+        guarda_config(conn, plataforma, [mezcla_observacion(previa, leida)], ahora)
+    conn.commit()
+
+
+def _pendientes_hn(conn, huella: str, campana_id: int, clase: str) -> list:
+    """Todas las H#N pendientes de la huella, de la mas vieja a la mas
+    nueva. Las dos puertas de R07-09C leen de aqui para no divergir."""
+    return conn.execute(_SQL_AJUSTES_PENDIENTES_HN, (huella + "#%", campana_id, clase)).fetchall()
+
+
+def _sella_pendientes_en_destino(conn, pendientes, ajuste, vigente) -> int | None:
+    """Sella cada pendiente cuyo destino ya es el vigente y devuelve el
+    id de la primera, o None si ninguna llego. Sellar solo la primera
+    dejaria el resto huerfanas con el mismo efecto vivo."""
+    from app.ads.campana_config import ConfigCampana
+    from app.campana_ajustes import coincide_campo
+
+    sellada = None
+    for pid, _huella, despues in pendientes:
+        destino = ConfigCampana.desde_json(despues)
+        if vigente == destino or coincide_campo(ajuste, vigente, destino):
+            _sella_pendiente(conn, pid)
+            if sellada is None:
+                sellada = pid
+    return sellada
+
+
+def _sella_pendiente(conn, ajuste_id: int) -> None:
+    """Sella una fila pendiente sin PUT (reconciliacion: el vigente ya es
+    el destino porque el sync observo lo que el PUT si aplico). El commit
+    es explicito: quien llama (la ruta, sin autocommit) solo cierra, y
+    sin commit el `with transaction` es un savepoint revertido al cerrar
+    (B3: respondia confirmada:true sin sello durable)."""
+    with conn.transaction():
+        conn.execute(_SQL_CONFIRMA_AJUSTE, (datetime.datetime.now(datetime.UTC), ajuste_id))
+    conn.commit()
+
+
+def aplica_ajuste_campana(
+    conn,
+    plan,
+    *,
+    huella: str,
+    confirmacion: str,
+    actor: str,
+    transport=None,
+) -> AjusteHecho:
+    """Aplica el plan que el dueno vio: re-planea con el vigente, exige la
+    huella y el literal, escribe la fila ANTES del HTTP (intencion durable
+    pre-HTTP, como reversa_bid) y confirma con el readback. Idempotente por
+    huella: el mismo plan dos veces hace UN PUT, y solo cuando el vigente
+    sigue en destino (tras un regreso, re-aplicar es un acto nuevo con
+    huella H#N). Una pendiente con el vigente ya en destino se reconcilia
+    sin PUT; una carrera perdida devuelve 409, nunca 500."""
+    from app.ads.campana_config import config_vigente_con_id
+    from app.campana_ajustes import planea_ajuste
+
+    if confirmacion != GO_AJUSTE:
+        raise ConfirmacionInvalida(f"confirmacion invalida: esperaba {GO_AJUSTE!r}")
+    if not actor or not actor.strip():
+        raise ValueError("actor vacio")
+    fila = conn.execute(_SQL_PLATAFORMA_CAMPANA, (plan.campana_id,)).fetchone()
+    if fila is None or fila[0] != plan.plataforma:
+        raise ValueError(f"campana {plan.campana_id} no es de {plan.plataforma}")
+    # Vigente + id en UN select y ANTES de la red: el sync no se cuela.
+    antes_id, vigente = config_vigente_con_id(conn, plan.campana_id)
+    if vigente is None:
+        raise HuellaDesactualizada(
+            f"campana {plan.campana_id} sin configuracion vigente: re-planea", None
+        )
+    existente = conn.execute(_SQL_AJUSTE_POR_HUELLA, (huella,)).fetchone()
+    huella_efectiva = huella
+    ajuste_id = None
+    if existente is not None:
+        _eid, confirmada, ecamp, eclase = existente
+        if ecamp != plan.campana_id or eclase != plan.clase:
+            raise ValueError(f"la huella {huella} es de otra campana o clase")
+        if confirmada:
+            # R07-09C: una H#N pendiente se reusa; abrir la siguiente
+            # la dejaria huerfana para siempre.
+            pendientes = _pendientes_hn(conn, huella, plan.campana_id, plan.clase)
+            if pendientes:
+                if vigente == plan.despues:
+                    sellada = _sella_pendientes_en_destino(conn, pendientes, plan.ajuste, vigente)
+                    return AjusteHecho(sellada, plan.campana_id, plan.clase, True)
+                ajuste_id = pendientes[0][0]
+                huella_efectiva = pendientes[0][1]
+            elif vigente == plan.despues:
+                return AjusteHecho(_eid, plan.campana_id, plan.clase, True)
+            else:
+                n = 1 + conn.execute(_SQL_CUENTA_HUELLA, (huella, huella + "#%")).fetchone()[0]
+                huella_efectiva = f"{huella}#{n}"
+        elif vigente == plan.despues:
+            _sella_pendiente(conn, _eid)
+            return AjusteHecho(_eid, plan.campana_id, plan.clase, True)
+        else:
+            ajuste_id = _eid
+    fresco = planea_ajuste(
+        vigente, plan.ajuste, campana_id=plan.campana_id, plataforma=plan.plataforma
+    )
+    if fresco.huella() != huella or plan.huella() != huella:
+        raise HuellaDesactualizada("el vigente cambio desde la vista previa", fresco)
+    cliente = _cliente_ajuste(plan.plataforma, transport=transport)
+    if ajuste_id is None:
+        metida = conn.execute(
+            _SQL_INSERTA_AJUSTE,
+            (
+                plan.campana_id,
+                plan.plataforma,
+                plan.clase,
+                antes_id,
+                json.dumps(plan.despues.como_json()),
+                huella_efectiva,
+                actor.strip(),
+                confirmacion,
+                None,
+            ),
+        ).fetchone()
+        if metida is None:
+            ganadora = conn.execute(_SQL_AJUSTE_POR_HUELLA, (huella_efectiva,)).fetchone()
+            if ganadora is not None and ganadora[1]:
+                return AjusteHecho(ganadora[0], plan.campana_id, plan.clase, True)
+            raise AjusteEnCurso(f"huella {huella_efectiva} en curso en otro intento: reintenta")
+        ajuste_id = metida[0]
+    conn.commit()
+    _aplica_y_confirma(
+        conn,
+        cliente,
+        plan.plataforma,
+        plan.clase,
+        plan.despues,
+        plan.ajuste,
+        ajuste_id=ajuste_id,
+        llave=f"aplica:{huella_efectiva}",
+        previa=plan.antes,
+    )
+    return AjusteHecho(ajuste_id, plan.campana_id, plan.clase, True)
+
+
+def reconcilia_ajuste_campana(
+    conn, campana_id: int, clase: str, ajuste, *, huella: str, actor: str
+) -> AjusteHecho:
+    """Reconcilia un envio cuyo ajuste ya no cambia nada contra el
+    vigente (B4: la ruta llega aqui cuando planear falla con
+    AjusteSinCambio). El replay identico tras el exito devuelve el
+    mismo hecho y una pendiente con el destino ya observado se sella
+    (commit dentro de _sella_pendiente, B3); sin fila previa con esa
+    huella, ValueError (422, como antes). Si el completo difiere pero
+    el campo del ajuste ya esta en el destino (otro campo cambio por
+    fuera), tambien sella (B12)."""
+    from app.ads.campana_config import ConfigCampana, config_vigente
+    from app.campana_ajustes import AjusteSinCambio, coincide_campo, planea_ajuste
+
+    if not actor or not actor.strip():
+        raise ValueError("actor vacio")
+    fila = conn.execute(_SQL_PLATAFORMA_CAMPANA, (campana_id,)).fetchone()
+    if fila is None:
+        raise ValueError(f"campana {campana_id} no existe o no es campana")
+    vigente = config_vigente(conn, campana_id)
+    if vigente is None:
+        raise ValueError(f"campana {campana_id} sin configuracion vigente")
+    previa = conn.execute(_SQL_AJUSTE_POR_HUELLA_RECONCILIA, (huella,)).fetchone()
+    if previa is None:
+        raise ValueError("el ajuste no cambia nada")
+    _eid, confirmada, ecamp, eclase, despues = previa
+    if ecamp != campana_id or eclase != clase:
+        raise HuellaDesactualizada(f"la huella {huella} es de otra campana o clase", None)
+    # R07-09C: cada H#N pendiente cuyo efecto el sync ya observo se
+    # sella aqui. Devolver la base sellada dejaria las pendientes
+    # huerfanas para siempre con su efecto vivo.
+    sellada = _sella_pendientes_en_destino(
+        conn, _pendientes_hn(conn, huella, campana_id, clase), ajuste, vigente
+    )
+    if sellada is not None:
+        return AjusteHecho(sellada, campana_id, clase, True)
+    if vigente == ConfigCampana.desde_json(despues):
+        if not confirmada:
+            _sella_pendiente(conn, _eid)
+        return AjusteHecho(_eid, campana_id, clase, True)
+    if coincide_campo(ajuste, vigente, ConfigCampana.desde_json(despues)):
+        # B12: Amazon tiene el ajuste; otro campo cambio por fuera y el
+        # completo ya no coincide. Se sella igual: el acto se cumplio.
+        if confirmada:
+            return AjusteHecho(_eid, campana_id, clase, True)
+        _sella_pendiente(conn, _eid)
+        return AjusteHecho(_eid, campana_id, clase, True)
+    try:
+        fresco = planea_ajuste(vigente, ajuste, campana_id=campana_id, plataforma=fila[0])
+    except AjusteSinCambio:
+        fresco = None
+    raise HuellaDesactualizada("el vigente cambio desde la vista previa", fresco)
+
+
+def regresa_ajuste_campana(conn, *, ajuste_id: int, actor: str, transport=None) -> AjusteHecho:
+    """Regreso del ajuste: restaura SOLO los campos de la clase de ese
+    ajuste a su valor de antes (B2: el diseno manda "el mismo camino
+    con el valor anterior"; la config completa pisaria ajustes
+    posteriores de otra clase y podria SUBIR un presupuesto). Un solo
+    regreso por ajuste; fuera_de_amazon no tiene regreso sellado (V.0)
+    y no presenta boton."""
+    from app.ads.campana_config import ConfigCampana, config_por_id, config_vigente_con_id
+    from app.campana_ajustes import PlanAjuste, coincide_clase
+
+    if not actor or not actor.strip():
+        raise ValueError("actor vacio")
+    fila = conn.execute(_SQL_AJUSTE_POR_ID, (ajuste_id,)).fetchone()
+    if fila is None:
+        raise AjusteInexistente(f"ajuste {ajuste_id} no existe")
+    _id, campana_id, plataforma, clase, antes_id, confirmado, regresos = fila
+    if confirmado is None:
+        raise AjusteNoConfirmado(
+            f"ajuste {ajuste_id} sin confirmar: no se regresa lo que Amazon no aplico"
+        )
+    if regresos:
+        raise AjusteYaRegresado(f"ajuste {ajuste_id} ya tiene su regreso")
+    if clase == "fuera_de_amazon":
+        raise AjusteSinRegreso(
+            f"ajuste {ajuste_id}: fuera_de_amazon no tiene regreso sellado (V.0)"
+        )
+    antes = config_por_id(conn, antes_id)
+    vigente_id, vigente = config_vigente_con_id(conn, campana_id)
+    hijo = conn.execute(_SQL_HIJO_REGRESO, (ajuste_id,)).fetchone()
+    if vigente is None or vigente == antes:
+        if hijo is not None and not hijo[1]:
+            _sella_pendiente(conn, hijo[0])
+            return AjusteHecho(hijo[0], campana_id, clase, True)
+        raise AjusteYaRegresado(
+            f"ajuste {ajuste_id}: la campana ya tiene la configuracion de antes"
+        )
+    if vigente != antes and coincide_clase(clase, vigente, antes):
+        # Solo la clase volvio a antes (otro ajuste posterior o cambio
+        # manual + sync). El `!=` blinda el caso completo-igual para la
+        # rama de arriba (M10).
+        hijo_pendiente = hijo is not None and not hijo[1]
+        if hijo_pendiente:
+            _sella_pendiente(conn, hijo[0])
+            return AjusteHecho(hijo[0], campana_id, clase, True)
+        raise AjusteYaRegresado(
+            f"ajuste {ajuste_id}: la campana ya tiene el valor de antes en la clase {clase}"
+        )
+    despues_padre = ConfigCampana.desde_json(
+        conn.execute(_SQL_DESPUES_POR_ID, (ajuste_id,)).fetchone()[0]
+    )
+    ajuste_hijo = _ajuste_hacia(clase, antes, despues_padre)
+    if hijo is not None and not hijo[1]:
+        nuevo_id = hijo[0]
+    else:
+        regreso = PlanAjuste(
+            campana_id=campana_id,
+            plataforma=plataforma,
+            clase=clase,
+            ajuste=ajuste_hijo,
+            antes=vigente,
+            despues=antes,
+            frase=(f"Orbit regresa la campaña {antes.campana_externa} a su configuración de antes"),
+        )
+        metido = conn.execute(
+            _SQL_INSERTA_REGRESO,
+            (
+                campana_id,
+                plataforma,
+                clase,
+                vigente_id,
+                json.dumps(antes.como_json()),
+                _huella_regreso(regreso.huella(), ajuste_id),
+                actor.strip(),
+                GO_REGRESO_AJUSTE,
+                ajuste_id,
+            ),
+        ).fetchone()
+        if metido is None:
+            ganador = conn.execute(_SQL_HIJO_REGRESO, (ajuste_id,)).fetchone()
+            if ganador is not None and ganador[1]:
+                raise AjusteYaRegresado(f"ajuste {ajuste_id} ya tiene su regreso")
+            raise AjusteEnCurso(f"regreso de {ajuste_id} en curso en otro intento: reintenta")
+        nuevo_id = metido[0]
+    cliente = _cliente_ajuste(plataforma, transport=transport)
+    conn.commit()
+    _aplica_y_confirma(
+        conn,
+        cliente,
+        plataforma,
+        clase,
+        antes,
+        ajuste_hijo,
+        ajuste_id=nuevo_id,
+        llave=f"regresa:{nuevo_id}",
+        previa=vigente,
+    )
+    return AjusteHecho(nuevo_id, campana_id, clase, True)
+
+
+def _huella_regreso(base: str, ajuste_id: int) -> str:
+    """Huella del regreso: la del plan mas el padre que regresa (B8).
+    Sin el padre, dos regresos del mismo antes/despues (aplicar,
+    regresar, re-aplicar, regresar) chocan en UNIQUE(huella) con 500;
+    el padre distingue cada acto."""
+    return hashlib.sha256(f"{base}:regresa:{ajuste_id}".encode()).hexdigest()
+
+
+def _ajuste_hacia(clase, antes, despues_padre):
+    """Ajuste representativo del regreso (el destino real es `antes`,
+    del que el PUT solo toma el campo, B11). El presupuesto restaura
+    el monto de antes; la ubicacion restaura el placement que el padre
+    movio (diff entre su antes y su despues, no contra el vigente:
+    otro ajuste posterior no se toca)."""
+    from app.campana_ajustes import CambiarAjusteUbicacion, CambiarPresupuesto
+
+    if clase == "presupuesto":
+        if antes.presupuesto_diario is None:
+            raise AjusteSinRegreso("la configuracion de antes no trae presupuesto")
+        return CambiarPresupuesto(presupuesto_diario=antes.presupuesto_diario)
+    movidos = [
+        (campo, ubicacion)
+        for campo, ubicacion in (
+            ("ajuste_top_pct", "arriba_de_busqueda"),
+            ("ajuste_resto_pct", "resto_de_busqueda"),
+            ("ajuste_producto_pct", "paginas_de_producto"),
+        )
+        if getattr(antes, campo) != getattr(despues_padre, campo)
+    ]
+    if len(movidos) != 1:
+        raise AjusteSinRegreso(
+            "el padre no movio exactamente un placement; el regreso no sabe cual restaurar"
+        )
+    campo, ubicacion = movidos[0]
+    if getattr(antes, campo) is None:
+        raise AjusteSinRegreso("la configuracion de antes no trae ese ajuste")
+    return CambiarAjusteUbicacion(ubicacion=ubicacion, porcentaje=getattr(antes, campo))

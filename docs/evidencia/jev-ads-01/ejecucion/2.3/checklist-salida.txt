@@ -1,0 +1,22 @@
+== Despliegue 20261004-2253 (desde 2026-10-04T22:53:00Z)
+== 1) HTTP: health, /cortes, asesoria inexistente
+OK    GET /health = 200
+OK    GET /cortes = 200
+OK    GET /api/dashboard/cortes = 200
+OK    asesorias no nulas en cortes (sin revisiones aun) = 0
+OK    GET /api/fabrica/asesoria/<64 ceros> = 404
+OK    logs 'asesoria Jev ilegible' desde el deploy = 0
+== 2) CLI dentro del contenedor, sin credenciales
+falta ORBIT_DSN_ADMIN
+OK    tools.jev_ads sin ORBIT_DSN_ADMIN (exit) = 2
+OK    tools.jev_fichas --help (exit) = 0
+OK    clave TypeSafe en el contenedor = ausente
+== 3) Permisos (consulta como orbit_read)
+OK    permisos.sql = permisos OK
+OK    orbit_admin miembro de app_jev (CLI del asesor) = t
+== 4) Jev apagado: ninguna tarea automatica lo importa y no hay filas
+OK    cycle/apply_cola/apply_harvest importan app.jev_* = False
+OK    filas Jev (fichas|revocaciones|revisiones|eventos) = 0|0|0|0
+== 5) Primer ciclo del optimizador despues del deploy
+INCOMPLETO: todavia no corre un ciclo despues de 2026-10-04T22:53:00Z; vuelve a correr el checklist despues del siguiente ciclo
+== RESULTADO: 0 falla(s), ciclo posterior PENDIENTE

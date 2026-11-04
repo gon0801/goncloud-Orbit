@@ -1,0 +1,3058 @@
+"""Tests de la UI server-rendered del dashboard (ORBIT 16 - DASHBOARD 01,
+task 1.6).
+
+Contrato sellado (plan 1.6 + brief §2/§6):
+
+1. CUATRO RUTAS -> 200 con marcador unico por pantalla (data-pantalla en el
+   body); la UI es server-rendered (Jinja2) y consume los endpoints del
+   dashboard (un camino, regla 2).
+2. XSS regla 9 en DOS contextos: (a) HTML — el search_term (texto libre del
+   comprador, el vector real) via {{ }} con AUTOESCAPE VERIFICADO: el test
+   demuestra que con autoescape OFF el payload crudo aparece (el candado
+   discrimina) y con el entorno real queda escapado; (b) tojson — los datos
+   hacia JS de las graficas pasan EXCLUSIVAMENTE por |tojson (decision 12):
+   el payload en los datos queda neutralizado (\\u003c) en el HTML servido.
+3. CERO hosts externos en el HTML servido (lib vendoreada en /static, sin
+   CDN — Reject del plan).
+4. Headers: CSP default-src 'self' y Cache-Control: no-store en las
+   respuestas HTML.
+5. uv.lock COMMITEADO (Jinja2 pinneada en pyproject; el lock viaja en el
+   repo).
+6. El cliente parsea el dinero string con Number() (decision 7): el backend
+   jamas emite floats de dinero (los endpoints ya lo sellan).
+"""
+
+from __future__ import annotations
+
+import datetime as dt
+import re
+from pathlib import Path
+
+import jinja2
+import pytest
+from fastapi.testclient import TestClient
+from test_api_dashboard import (
+    SQL02,
+    SQL13,
+    SQL14,
+    SQL17,
+    SQL42,
+    SQL_JEV,
+    _campana,
+    _ciclo,
+    _config_version,
+    _db_temporal,
+    _decision,
+    _estado_acos,
+    _grupo,
+    _keyword,
+    _metrica,
+    _product_target,
+    _run,
+)
+from test_schema import _postgres_obligatorio_ausente
+
+from app import ui
+from app.api import _conexion_lectura
+from app.api_dashboard import PageWindow
+from app.main import app
+
+PANTALLAS = {
+    "/": "resumen",
+    "/campanas": "campanas",
+    "/decisiones": "decisiones",
+    "/salud": "salud",
+}
+
+PAYLOAD_XSS = "<script>alert('xss')</script>"
+
+
+# ---------------------------------------------------------------------------
+# XSS contexto HTML: search_term con autoescape VERIFICADO (regla 9)
+# ---------------------------------------------------------------------------
+
+
+def _ctx_decisiones() -> dict:
+    """Contexto minimo del template de decisiones (render sin DB): una
+    decision cuyo search_term es el payload XSS (el vector real del dominio)."""
+    return {
+        "pantalla": "decisiones",
+        "items": [
+            {
+                "id": 1,
+                "cycle_id": 1,
+                "ad_entity_id": 1,
+                "nombre": "Campana",
+                "plataforma": "amazon_us",
+                "kind": "negative",
+                "decided_at": "2026-08-20T12:00:00Z",
+                "search_term": PAYLOAD_XSS,
+                "old_value": None,
+                "new_value": None,
+                "value_currency": None,
+                "target_acos_pct_usado": "20.00",
+                "motivo_es": "Negativo: termino sin ventas",
+            }
+        ],
+        "ventana": PageWindow.desde_total(total=1, page=1, page_size=50),
+    }
+
+
+def test_ui_xss_search_term_escapado_en_html_con_autoescape():
+    """Regla 9: el search_term (texto libre del comprador) va por {{ }} y el
+    entorno REAL de Jinja2 lo ESCAPA (autoescape verificado, no asumido). El
+    HTML servido jamas contiene el <script> crudo del comprador."""
+    html = ui.templates.env.get_template("decisiones.html").render(**_ctx_decisiones())
+    assert PAYLOAD_XSS not in html
+    assert "&lt;script&gt;" in html
+
+
+def test_ui_xss_search_term_demostrado_fallando_con_autoescape_off():
+    """Regla 9, demostracion in situ: con autoescape OFF el mismo template
+    SIRVE el payload crudo — si el candado no discriminara, no probaria nada.
+    El entorno de la app NO es este: es el de ui.templates.env (autoescape
+    on, cubierto por el test anterior)."""
+    loader = jinja2.FileSystemLoader(str(ui._TEMPLATES_DIR))
+    sin_escape = jinja2.Environment(loader=loader, autoescape=False)
+    sin_escape.filters["dinero_ui"] = ui.dinero_ui
+    sin_escape.filters["ts_ui"] = ui.ts_ui
+    sin_escape.filters["clase_cambio"] = ui.clase_cambio
+    html = sin_escape.get_template("decisiones.html").render(**_ctx_decisiones())
+    assert PAYLOAD_XSS in html, "con autoescape off el payload DEBE aparecer crudo"
+
+
+def test_ui_decisiones_fallback_v1_marca_abstencion():
+    """A6-r1 F3 (DeepSeek): fila via=decide con fallback pinta la marca
+    '(abstuvo, decidió v1)' junto al motivo v2; sin fallback no la pinta.
+    Render sin DB con el entorno REAL de Jinja2."""
+    ctx_fb = _ctx_decisiones()
+    ctx_fb["items"][0]["evidencia_v2"] = {
+        "motivo": "evidencia_insuficiente",
+        "motivo_es": "Sin evidencia: la posterior no alcanza la confianza para ajustar",
+        "fallback_v1": True,
+    }
+    html_fb = ui.templates.env.get_template("decisiones.html").render(**ctx_fb)
+    assert "(abstuvo, decidió v1)" in html_fb
+    ctx_v2 = _ctx_decisiones()
+    ctx_v2["items"][0]["evidencia_v2"] = {
+        "motivo": "banda_menos_12",
+        "motivo_es": "ACoS sobre 1.15x del target: -12%",
+        "fallback_v1": False,
+    }
+    html_v2 = ui.templates.env.get_template("decisiones.html").render(**ctx_v2)
+    assert "(abstuvo, decidió v1)" not in html_v2
+    assert "v2: ACoS sobre 1.15x del target: -12%" in html_v2
+
+
+# ---------------------------------------------------------------------------
+# Pantalla de cortes (ORBIT 04 3.1): XSS + vacio + cableo CSP
+# ---------------------------------------------------------------------------
+
+
+def _ctx_cortes(search_term: str = PAYLOAD_XSS) -> dict:
+    """Contexto minimo del template de cortes (render sin DB): una fila
+    pendiente de veto cuyo search_term es el payload XSS (el vector real).
+    Con el shape del endpoint (CORTES UI 01): la fila negative es Recorta."""
+    return {
+        "pantalla": "cortes",
+        "items": [
+            {
+                "id": 11,
+                "plataforma": "amazon_us",
+                "familia": "term_cut",
+                "kind": "negative",
+                "ad_entity_id": 3,
+                "external_id": "7101",
+                "nombre": "Campana A",
+                "search_term": search_term,
+                "estado": "pending_veto",
+                "vence_el": "2026-09-25T12:00:00+00:00",
+                "encolado_at": "2026-08-26T12:00:00+00:00",
+                "decision_id": 99,
+                "etiqueta": "Bloquear busqueda",
+                "direccion": "recorta",
+                "efecto_rechazo": "Rechazar: la busqueda NO se bloqueara",
+                "indicador": None,
+            }
+        ],
+    }
+
+
+def test_ui_cortes_xss_search_term_escapado():
+    """Regla 9: el search_term de la cola (texto libre del comprador) va por
+    {{ }} en cortes.html y el entorno REAL lo escapa; el HTML servido jamas
+    contiene el <script> crudo. El nav de base.html enlaza /cortes y el JS de
+    la pantalla vive en /static/js/cortes.js (la CSP prohibe inline)."""
+    html = ui.templates.env.get_template("cortes.html").render(**_ctx_cortes())
+    assert PAYLOAD_XSS not in html
+    assert "&lt;script&gt;" in html
+    assert 'href="/cortes"' in html, "el nav del dashboard enlaza la pantalla de cortes"
+    assert 'src="/static/js/cortes.js?v=' in html, "el JS del veto vive en /static (CSP 'self')"
+
+
+def _ctx_bloqueos(termino: str = PAYLOAD_XSS, *, interruptor: bool = True, pausada: bool = False):
+    return {
+        "pantalla": "cortes",
+        "items": [],
+        "bloqueos_disponibles": True,
+        "bloqueos_jev": {
+            "interruptor": interruptor,
+            "plataformas": [
+                {
+                    "plataforma": "amazon_mx",
+                    "pausada": False,
+                    "aprobados": 14,
+                    "muestra": 20,
+                    "porcentaje": 70,
+                    "propuestas": [
+                        {
+                            "senal_id": "11111111-1111-4111-8111-111111111111",
+                            "termino": termino,
+                            "grupo": "Grupo MX",
+                            "campana": "Campana MX",
+                            "gasto": "13.6200",
+                            "moneda": "MXN",
+                            "clics": 4,
+                            "frase": "No corresponde a ninguno de los 3 productos.",
+                        }
+                    ],
+                },
+                {
+                    "plataforma": "amazon_us",
+                    "pausada": pausada,
+                    "aprobados": 12,
+                    "muestra": 30,
+                    "porcentaje": 40,
+                    "propuestas": []
+                    if pausada
+                    else [
+                        {
+                            "senal_id": "33333333-3333-4333-8333-333333333333",
+                            "termino": "baño",
+                            "grupo": "Grupo US",
+                            "campana": "Campana US",
+                            "gasto": "2.5000",
+                            "moneda": "USD",
+                            "clics": 1,
+                            "frase": "No corresponde a ninguno de los 2 productos.",
+                        }
+                    ],
+                },
+            ],
+            "bloqueos": [
+                {
+                    "veredicto_id": "22222222-2222-4222-8222-222222222222",
+                    "plataforma": "amazon_mx",
+                    "termino": "baño",
+                    "grupo": "Grupo MX",
+                    "campana": "Campana MX",
+                    "paso": "aplicado",
+                    "motivo": None,
+                    "quitar": True,
+                }
+            ],
+        },
+    }
+
+
+def test_ui_cortes_pinta_bloqueos_y_escapa_termino():
+    html = ui.templates.env.get_template("cortes.html").render(**_ctx_bloqueos())
+    assert "Búsquedas que Jev marca como ajenas" in html
+    assert "Tus bloqueos" in html
+    assert "amazon_mx" in html
+    assert "amazon_us" in html
+    assert "baño" in html
+    assert PAYLOAD_XSS not in html
+    assert "&lt;script&gt;" in html
+    assert 'data-bloqueo="aprobar"' in html
+    assert 'data-bloqueo="rechazar"' in html
+    assert 'data-bloqueo="quitar"' in html
+
+
+def test_ui_cortes_pausa_muestra_reanudar_sin_filas():
+    html = ui.templates.env.get_template("cortes.html").render(**_ctx_bloqueos(pausada=True))
+    assert "Pausado: aprobaste 12 de las últimas 30 (40%)" in html
+    assert 'data-bloqueo="reanudar"' in html
+    assert "33333333-3333-4333-8333-333333333333" not in html
+
+
+def test_ui_cortes_sin_interruptor_solo_tus_bloqueos():
+    html = ui.templates.env.get_template("cortes.html").render(**_ctx_bloqueos(interruptor=False))
+    assert "Búsquedas que Jev marca como ajenas" not in html
+    assert "Tus bloqueos" in html
+    assert "baño" in html
+
+
+def test_ui_cortes_entidad_muestra_nombre_no_external_id():
+    html = ui.templates.env.get_template("cortes.html").render(**_ctx_cortes())
+    assert "Campana A" in html
+    assert "7101" not in html
+
+
+def test_ui_cortes_pinta_propuestas_campana_y_escapa_nombre():
+    """C.4 B2: la seccion Campañas muestra costo/ingreso/target/ventana/
+    estado/motivo/aviso; el nombre (texto libre) va escapado."""
+    ctx = _ctx_cortes()
+    ctx["propuestas_campana"] = [
+        {
+            "id": 5,
+            "platform": "amazon_us",
+            "campaign_external_id": "123456",
+            "nombre": PAYLOAD_XSS,
+            "status": "open",
+            "motivo": "exceso_economico",
+            "cost": "642.6500",
+            "sales30d": "477.4000",
+            "currency": "USD",
+            "target_pct": "17.56",
+            "target_source": "goal_campana",
+            "excess": "558.8000",
+            "acos_pct": "134.61",
+            "window_start": "2026-08-16",
+            "window_end": "2026-09-14",
+            "campaign_status": "ENABLED",
+            "aviso_estado": "pending",
+            "riesgo_ignorando_estado": False,
+        },
+        {
+            "id": 6,
+            "platform": "amazon_us",
+            "campaign_external_id": "123457",
+            "nombre": "AU2 Exact",
+            "status": "paused_observed",
+            "motivo": "campana_no_enabled",
+            "cost": "200.0000",
+            "sales30d": "0.0000",
+            "currency": "USD",
+            "target_pct": "20.00",
+            "target_source": "goal_plataforma",
+            "excess": "200.0000",
+            "acos_pct": None,
+            "window_start": "2026-08-16",
+            "window_end": "2026-09-14",
+            "campaign_status": "PAUSED",
+            "aviso_estado": "pending",
+            "riesgo_ignorando_estado": True,
+        },
+    ]
+    html = ui.templates.env.get_template("cortes.html").render(**ctx)
+    assert PAYLOAD_XSS not in html
+    assert "&lt;script&gt;" in html
+    assert "Campañas" in html
+    assert "642.6500 USD" in html
+    assert "477.4000 USD" in html
+    assert "17.56%" in html
+    assert "exceso_economico" in html
+    assert "pending" in html
+    # Obs3r2: la pausada muestra chip de riesgo y "—" en aviso (jamas
+    # "pending": no es accionable y nunca envia).
+    assert "riesgo</span>" in html
+    assert html.count('class="mutado">pending<') == 1
+
+
+def test_ui_cortes_vacio_muestra_sin_pendientes():
+    """Estado vacio de la matriz: cola sin pendientes -> mensaje explicito,
+    jamas una tabla mentirosa. CORTES UI 01 D1: la pantalla se llama
+    Propuestas tambien en el vacio."""
+    html = ui.templates.env.get_template("cortes.html").render(pantalla="cortes", items=[])
+    assert "sin propuestas pendientes" in html
+    assert "sin cortes pendientes" not in html
+
+
+# ---------------------------------------------------------------------------
+# XSS contexto tojson: datos de graficas neutralizados (decision 12)
+# ---------------------------------------------------------------------------
+
+
+def _ctx_resumen_con_payload() -> dict:
+    """Contexto del template de resumen: el contrato lleva el payload XSS
+    dentro de un string del dict que viaja por |tojson (el mecanismo es lo
+    que se prueba: TODO el dict se neutraliza)."""
+    return {
+        "pantalla": "resumen",
+        "filtro": {
+            "canal": "",
+            "periodo": 30,
+            "desde": "",
+            "hasta": "",
+            "canales": ("amazon_mx", "amazon_us", "meli"),
+        },
+        "contrato": {
+            "desde": "2026-07-25",
+            "hasta": "2026-08-23",
+            "dias": 30,
+            "periodo": 30,
+            "recortado": False,
+            "hasta_solicitado": "2026-08-23",
+            "canales": {},
+            "totales_por_moneda": [],
+            "nombre_payload": PAYLOAD_XSS,
+        },
+    }
+
+
+def test_ui_xss_datos_de_grafica_neutralizados_por_tojson():
+    """Regla 9, segundo contexto: los datos hacia JS pasan EXCLUSIVAMENTE por
+    |tojson (decision 12). tojson escapa < y > (\\u003c/\\u003e): el HTML
+    servido no contiene el <script> crudo dentro del bloque de datos."""
+    html = ui.templates.env.get_template("resumen.html").render(**_ctx_resumen_con_payload())
+    assert PAYLOAD_XSS not in html
+    assert "\\u003cscript\\u003e" in html, "tojson debe escapar < y > en los datos"
+
+
+# ---------------------------------------------------------------------------
+# CSP: los templates NO dependen de nada inline (hallazgo mayor de review)
+# ---------------------------------------------------------------------------
+
+
+def test_ui_templates_compatibles_con_csp_self():
+    """Regla 9 (hallazgo MAYOR de la review del bloque 2): la CSP
+    `default-src 'self'` bloquea <script> inline, atributos on*= y <style>
+    inline — las graficas y la paginacion morian EN SILENCIO en el navegador
+    real (TestClient no ejecuta JS: por eso este candado es ESTATICO y
+    discrimina en cualquier maquina). Todo JS/CSS vive en /static; los unicos
+    <script> inline permitidos son los bloques INERTES de datos
+    type="application/json"."""
+    import re
+
+    for archivo in sorted(ui._TEMPLATES_DIR.glob("*.html")):
+        fuente = archivo.read_text(encoding="utf-8")
+        assert "<style" not in fuente, f"{archivo.name}: CSS inline (la CSP lo bloquea)"
+        assert not re.search(r"\son[a-z]+\s*=", fuente), (
+            f"{archivo.name}: handler inline on*= (la CSP lo bloquea)"
+        )
+        for tag in re.findall(r"<script\b[^>]*>", fuente):
+            assert 'type="application/json"' in tag or "src=" in tag, (
+                f"{archivo.name}: <script> inline ejecutable (la CSP lo bloquea): {tag}"
+            )
+
+
+def test_docs_de_fastapi_sin_csp_que_los_rompa():
+    """grok r2: /docs y /redoc cargan swagger/redoc desde CDN; la CSP
+    default-src 'self' los dejaria EN BLANCO. El middleware los excluye de la
+    CSP (superficie dev por tunel, fuera del contrato cero-CDN del dashboard);
+    las pantallas del dashboard SI la llevan (test de headers existente)."""
+    resp = TestClient(app).get("/docs")
+    assert resp.status_code == 200
+    assert "Content-Security-Policy" not in resp.headers
+
+
+def test_vendor_chartjs_intacto_por_hash():
+    """El asset vendoreado es EXACTAMENTE el documentado en el brief §6
+    (hallazgo review: el hash documentado no tenia candado — un reemplazo o
+    edicion a mano del bundle pasaba invisible)."""
+    import hashlib
+    from pathlib import Path
+
+    ruta = Path(ui.__file__).resolve().parent / "static" / "vendor" / "chart.umd.min.js"
+    hash_real = hashlib.sha256(ruta.read_bytes()).hexdigest()
+    assert hash_real == "bce154080959c574be0bb6b1a924ff32f08ebc6ff460c159171f51c53802c844"
+    brief = Path(ui.__file__).resolve().parent.parent / "docs" / "DASHBOARD.md"
+    assert hash_real.upper() in brief.read_text(encoding="utf-8"), "el brief §6 documenta otro hash"
+
+
+# ---------------------------------------------------------------------------
+# uv.lock commiteado
+# ---------------------------------------------------------------------------
+
+
+def test_uv_lock_commiteado_y_jinja2_pinneada():
+    """DoD: uv.lock viaja en el repo (git lo trackea) y pyproject pinnea
+    jinja2 (el lock resuelto la incluye)."""
+    import subprocess
+    from pathlib import Path
+
+    raiz = Path(__file__).resolve().parent.parent
+    assert (raiz / "uv.lock").is_file(), "uv.lock debe existir"
+    rastreo = subprocess.run(
+        ["git", "ls-files", "uv.lock"], capture_output=True, text=True, cwd=raiz
+    )
+    assert rastreo.returncode == 0
+    assert "uv.lock" in rastreo.stdout, "uv.lock debe estar COMMITEADO"
+    pyproject = (raiz / "pyproject.toml").read_text(encoding="utf-8")
+    assert "jinja2" in pyproject
+    lock = (raiz / "uv.lock").read_text(encoding="utf-8")
+    assert "jinja2" in lock
+
+
+# ---------------------------------------------------------------------------
+# INTEGRACION (skipif sin Postgres): rutas 200, headers, cero hosts externos
+# ---------------------------------------------------------------------------
+
+
+def _siembra_ui(conn) -> None:
+    """Seed minimo para que las 4 pantallas tengan datos: campana con
+    metricas, goal de plataforma, config, ciclo con skips y una decision."""
+    run = _run(conn)
+    config_id = _config_version(conn, {"ads_optimizer_mode": "shadow"})
+    camp = _campana(conn, "amazon_us", "9001", name="Campana A")
+    _metrica(
+        conn,
+        run,
+        camp,
+        dt.date(2026, 8, 20),
+        cost="1.0000",
+        ad_revenue="3.0000",
+        clicks=1,
+        moneda="USD",
+    )
+    ciclo = _ciclo(
+        conn,
+        platform="amazon_us",
+        notes='{"skips": {"entidad": {"estado_no_enabled": 3}}, "decisiones": {"bid": 1}}',
+    )
+    _decision(
+        conn,
+        ciclo,
+        camp,
+        kind="bid",
+        config_id=config_id,
+        moneda="USD",
+        inputs={"motor": "bid", "motivo": "banda_menos_12", "target_acos_pct_usado": "25.00"},
+    )
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_ui_4_rutas_200_con_marcador_unico(monkeypatch):
+    """DoD: las 4 rutas -> 200 con el marcador unico de su pantalla
+    (data-pantalla en el body). La UI consume los endpoints del dashboard
+    (un camino, regla 2): sin DB los endpoints responden 503 y la pantalla
+    de la ruta no renderiza."""
+    with _db_temporal("orbit_ui_rutas") as (conn, dsn):
+        _siembra_ui(conn)
+        monkeypatch.setenv("ORBIT_DSN_READ", dsn)
+        cliente = TestClient(app)
+        for ruta, pantalla in PANTALLAS.items():
+            resp = cliente.get(ruta)
+            assert resp.status_code == 200, f"{ruta} -> {resp.status_code}"
+            html = resp.text
+            assert f'data-pantalla="{pantalla}"' in html, (
+                f"{ruta} sin el marcador unico de la pantalla {pantalla}"
+            )
+            assert html.count('data-pantalla="') == 1
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_ui_headers_csp_y_no_store(monkeypatch):
+    """DoD: CSP default-src 'self' y Cache-Control: no-store en las respuestas
+    HTML (middleware consistente, decision 12 del header)."""
+    with _db_temporal("orbit_ui_headers") as (conn, dsn):
+        _siembra_ui(conn)
+        monkeypatch.setenv("ORBIT_DSN_READ", dsn)
+        resp = TestClient(app).get("/")
+        assert resp.status_code == 200
+        assert resp.headers.get("content-security-policy") == "default-src 'self'"
+        assert "no-store" in resp.headers.get("cache-control", "")
+        # la API JSON no necesita los headers de HTML (pero no debe romper)
+        assert TestClient(app).get("/health").status_code == 200
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_ui_cero_hosts_externos_en_el_html(monkeypatch):
+    """DoD + Reject del plan (cero CDN): el HTML servido no referencia ningun
+    host externo (la lib de graficas es VENDOREADA en /static, jamas una URL
+    absoluta http/https)."""
+    with _db_temporal("orbit_ui_hosts") as (conn, dsn):
+        _siembra_ui(conn)
+        monkeypatch.setenv("ORBIT_DSN_READ", dsn)
+        cliente = TestClient(app)
+        for ruta in PANTALLAS:
+            html = cliente.get(ruta).text
+            assert "http://" not in html and "https://" not in html, (
+                f"{ruta}: hosts externos prohibidos (cero CDN, Reject del plan)"
+            )
+        # el asset vendoreado se sirve localmente
+        chart = cliente.get("/static/vendor/chart.umd.min.js")
+        assert chart.status_code == 200
+        assert chart.headers["content-type"].startswith("application/javascript") or (
+            "javascript" in chart.headers["content-type"]
+        )
+
+
+# ---------------------------------------------------------------------------
+# El cliente parsea el dinero string con Number() (decision 7)
+# ---------------------------------------------------------------------------
+
+
+def test_ui_js_parsea_dinero_string_con_number():
+    """Decision 7: el JS del cliente parsea el dinero string de la API con
+    Number() (el backend jamas emite floats de dinero). El patron vive en
+    /static/js/dashboard.js (externalizado por la CSP — hallazgo mayor de
+    review) y este test lo fija ahi."""
+    from pathlib import Path
+
+    js = Path(ui.__file__).resolve().parent / "static" / "js" / "dashboard.js"
+    fuente = js.read_text(encoding="utf-8")
+    assert "Number(" in fuente, "el cliente debe parsear los strings con Number()"
+    assert "JSON.parse" in fuente, "los datos inertes se leen con JSON.parse"
+    assert "maintainAspectRatio: false" in fuente
+    assert "borderColor" in fuente
+    assert "MutationObserver" in fuente
+    assert '"data-tema"' in fuente
+    assert "cargarMas" not in fuente
+    assert "btn-mas" not in fuente
+
+
+def test_ui_decisiones_paginador_es_html_sin_js():
+    """El paginador es un GET. Falla contra a658f2b: el template pinta #btn-mas."""
+    html = ui.templates.env.get_template("decisiones.html").render(
+        pantalla="decisiones",
+        items=[],
+        ventana=PageWindow.desde_total(total=120, page=1, page_size=50),
+    )
+    assert 'rel="next" href="?page=2"' in html
+    assert 'id="btn-mas"' not in html
+    assert "data-cursor" not in html
+    assert "pagina 1 de 3" in html
+
+
+def test_ui_cambio_en_una_celda_con_moneda_y_ausencia_explicita():
+    """Handoff ORBIT 18: old -> new conserva moneda y ausencia en PAUSE."""
+    ctx = _ctx_decisiones()
+    ctx["items"][0].update(old_value="1.0000", new_value="0.8800", value_currency="USD")
+    html = ui.templates.env.get_template("decisiones.html").render(**ctx)
+    assert ">Bid</th>" in html
+    assert 'class="cambio-anterior">1.00</span>' in html
+    assert 'class="alerta">0.88</span>' in html
+    assert "USD</small>" in html
+    html_pause = ui.templates.env.get_template("decisiones.html").render(**_ctx_decisiones())
+    assert 'class="cambio-anterior">—</span>' in html_pause
+    assert 'class="mutado">—</span>' in html_pause
+
+
+def test_ui_canvas_siempre_dentro_de_lienzo():
+    """Cada canvas vive en .lienzo y no declara height. Falla contra a658f2b."""
+    import re
+
+    for nombre in ("resumen.html", "salud.html"):
+        fuente = (ui._TEMPLATES_DIR / nombre).read_text(encoding="utf-8")
+        for tag in re.findall(r"<canvas\b[^>]*>", fuente):
+            assert "height=" not in tag, tag
+        assert fuente.count("<canvas") == fuente.count('<div class="lienzo">') + fuente.count(
+            '<div class="kpi-spark">'
+        )
+
+
+def test_css_lienzo_y_sin_max_width_en_canvas():
+    css = (ui._TEMPLATES_DIR.parent / "static" / "css" / "dashboard.css").read_text(
+        encoding="utf-8"
+    )
+    assert re.search(r"\.lienzo\s*\{[^}]*height:", css)
+    assert re.search(r"\.lienzo\s*\{[^}]*position:\s*relative", css)
+    assert "canvas { max-width" not in css
+    assert ".paginador" in css
+
+
+# ---------------------------------------------------------------------------
+# Bugs reales del bloque 2 (codex altas/medias): cursor de la UI y cero != null
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_ui_decisiones_pagina_2_trae_los_ids_siguientes(monkeypatch):
+    """GET /decisiones?page=2 con page_size=2 siembra 3 ids (DESC): pagina 2
+    trae solo el id mas viejo. ?page=9 clampa a la ultima. Falla contra el
+    feed por cursor: ?page= se ignoraba y salian los 3 ids."""
+    with _db_temporal("orbit_ui_pagina") as (conn, dsn):
+        config_id = _config_version(conn, {"ads_optimizer_mode": "shadow"})
+        camp = _campana(conn, "amazon_us", "9001", name="Campana A")
+        inputs = {"motivo": "banda_menos_12", "target_acos_pct_usado": "20"}
+        ids = [
+            _decision(
+                conn,
+                _ciclo(conn, platform="amazon_us"),
+                camp,
+                kind="bid",
+                config_id=config_id,
+                inputs=inputs,
+                old_value="1.00",
+                new_value="0.88",
+                moneda="USD",
+            )
+            for _ in range(3)
+        ]
+        monkeypatch.setenv("ORBIT_DSN_READ", dsn)
+        monkeypatch.setattr(ui.dash, "LIMITE_FEED_DEFAULT", 2)
+        html = TestClient(app).get("/decisiones", params={"page": 2}).text
+        assert f"decision #{ids[0]}</span>" in html
+        assert f"decision #{ids[1]}</span>" not in html and f"decision #{ids[2]}</span>" not in html
+        assert 'rel="prev" href="?page=1"' in html
+        assert 'rel="next"' not in html
+        assert "pagina 2 de 2" in html
+        html_clamp = TestClient(app).get("/decisiones", params={"page": 9}).text
+        assert "pagina 2 de 2" in html_clamp
+        assert f"decision #{ids[0]}</span>" in html_clamp
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_ui_decisiones_entidad_no_vuelca_json_de_target(monkeypatch):
+    with _db_temporal("orbit_ui_etiqueta") as (conn, dsn):
+        config_id = _config_version(conn, {"ads_optimizer_mode": "shadow"})
+        camp = _campana(conn, "amazon_us", "9001", name="Campana A")
+        ag = _grupo(conn, "amazon_us", "9101", parent=camp)
+        target = _product_target(
+            conn,
+            "amazon_us",
+            "9301",
+            ag,
+            '[{"type":"ASIN_SAME_AS","value":"B086TVLJ43"}]',
+        )
+        _decision(
+            conn,
+            _ciclo(conn, platform="amazon_us"),
+            target,
+            kind="bid",
+            config_id=config_id,
+            inputs={"motivo": "banda_menos_12", "target_acos_pct_usado": "25.00"},
+            old_value="1.00",
+            new_value="0.88",
+            moneda="USD",
+        )
+        monkeypatch.setenv("ORBIT_DSN_READ", dsn)
+        html = TestClient(app).get("/decisiones").text
+        assert "mismo ASIN B086TVLJ43" in html
+        assert "Campana A" in html
+        assert "ASIN_SAME_AS" not in html
+        assert "B086TVLJ43" in html
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_ui_cero_no_se_pinta_como_dato_faltante(monkeypatch):
+    """Regla 3 en la capa de PRESENTACION (hallazgo media de codex): el idiom
+    `or "—"` pintaba clicks=0 y applied_count=0 como dato faltante. CERO es
+    dato (y en shadow applied_count es SIEMPRE 0: se veia "—" en todos los
+    ciclos)."""
+    monkeypatch.setattr("app.api_dashboard._hoy_utc", lambda: dt.date(2026, 8, 21))
+    with _db_temporal("orbit_ui_ceros") as (conn, dsn):
+        run = _run(conn)
+        camp = _campana(conn, "amazon_us", "9001", name="Campana A")
+        _metrica(
+            conn,
+            run,
+            camp,
+            dt.date(2026, 8, 20),
+            cost="1.0000",
+            ad_revenue="3.0000",
+            clicks=0,
+            moneda="USD",
+        )
+        conn.execute(
+            "INSERT INTO optimizer_cycle (motor, mode, platform, status, finished_at,"
+            " decisions_count, applied_count, notes) VALUES"
+            " ('ads_optimizer', 'shadow', 'amazon_us', 'done', now(), 0, 0, NULL)"
+        )
+        monkeypatch.setenv("ORBIT_DSN_READ", dsn)
+        cliente = TestClient(app)
+        campanas_html = cliente.get("/campanas").text
+        assert 'class="num">0<' in campanas_html.replace("</td>", "<"), (
+            "clicks=0 debe renderizarse como 0, jamas como dato faltante"
+        )
+        salud_html = cliente.get("/salud").text
+        assert "applies: 0" in salud_html, (
+            "applied_count=0 (lo normal en shadow) debe verse como 0, no como —"
+        )
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_ui_campanas_target_null_pinta_hueco_visible(monkeypatch):
+    """A7r3 B3 (DeepSeek F2) + T.1: campana sin hojas en el ultimo ciclo
+    trae target_efectivo null; el template debe pintar "sin target" en
+    valor y chip, nunca un "%" suelto ni un chip vacio (DASHBOARD.md
+    decision 4)."""
+    monkeypatch.setattr("app.api_dashboard._hoy_utc", lambda: dt.date(2026, 8, 21))
+    with _db_temporal("orbit_ui_null") as (conn, dsn):
+        run = _run(conn)
+        camp = _campana(conn, "amazon_us", "9001", name="Campana B")
+        _metrica(
+            conn,
+            run,
+            camp,
+            dt.date(2026, 8, 20),
+            cost="1.0000",
+            ad_revenue="3.0000",
+            clicks=5,
+            moneda="USD",
+        )
+        conn.execute(
+            "INSERT INTO ad_entity_state (ad_entity_id, current_bid, bid_currency,"
+            " status, synced_at) VALUES (%s, 1.00, 'USD', 'ENABLED', now())",
+            (camp,),
+        )
+        monkeypatch.setenv("ORBIT_DSN_READ", dsn)
+        html = TestClient(app).get("/campanas").text
+        assert "Campana B" in html
+        assert '<td class="num">%</td>' not in html, "target null pinta % suelto"
+        assert '<span class="chip"></span>' not in html, "target null pinta chip vacio"
+        assert html.count('<span class="mutado">sin target</span>') == 2, (
+            "metricas completas: los unicos huecos son valor y chip del target"
+        )
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_ui_salud_muestra_nota_telegram_del_ciclo(monkeypatch):
+    """ORBIT 04 3.3 (sellado 2): la NOTA notes['telegram'] — la unica
+    visibilidad del fallo del canal — se MUESTRA en la pantalla de Salud del
+    ultimo ciclo; sin la linea, un ciclo done con el canal caido se veria
+    perfecto (regla 9: el rojo de este test se capturo antes del display)."""
+    import json as _json
+
+    with _db_temporal("orbit_ui_salud_tg") as (conn, dsn):
+        notas = _json.dumps(
+            {
+                "skips": {"entidad": {}},
+                "telegram": {"digest": "fallo: digest del ciclo no enviado por Telegram"},
+            }
+        )
+        conn.execute(
+            "INSERT INTO optimizer_cycle (motor, mode, platform, status, finished_at,"
+            " decisions_count, applied_count, notes) VALUES"
+            " ('ads_optimizer', 'shadow', 'amazon_us', 'done', now(), 0, 0, %s)",
+            (notas,),
+        )
+        monkeypatch.setenv("ORBIT_DSN_READ", dsn)
+        salud_html = TestClient(app).get("/salud").text
+        assert "telegram" in salud_html, "la NOTA debe verse en Salud (sellado 2)"
+        assert "digest" in salud_html, "la clave que fallo es la evidencia visible"
+
+
+# ---------------------------------------------------------------------------
+# Quota del dia en Salud (ORBIT 05 preflight 1.5): render de la tabla quota
+# ---------------------------------------------------------------------------
+
+
+_QUOTA_BASE = {
+    "bid": {"used": 3, "cap": 10, "fuente": "fila_del_dia"},
+    "pause": {"used": 0, "cap": 2, "fuente": "config_vigente"},
+    "negative": {"used": 0, "cap": None, "fuente": "sin_clave"},
+    "harvest": {"used": 0, "cap": None, "fuente": "config_rota"},
+}
+
+
+def _plataforma_quota(quota: dict | None = None) -> dict:
+    """Tarjeta de plataforma del payload de dash.salud (preflight 1.4): la
+    forma EXACTA que pagina_salud entrega al template salud.html."""
+    return {
+        "watermark": "2026-08-28",
+        "synced_at": "2026-08-28T09:00:00+00:00",
+        "ultimo_ciclo": None,
+        "historico_14d": [],
+        "skips": {"entidad": {}, "termino": {}},
+        "quota": _QUOTA_BASE if quota is None else quota,
+    }
+
+
+def _salud_html_fakeado(monkeypatch, plataformas: dict) -> str:
+    """Render de /salud por el camino REAL (TestClient -> pagina_salud ->
+    dash.salud(conn) -> template) con el endpoint FAKEADO: la UI consume el
+    endpoint (regla 2) y aqui se prueba SOLO el render, sin DB (la
+    dependencia de lectura se sobreescribe y no se toca)."""
+    monkeypatch.setattr(ui.dash, "salud", lambda conn: {"plataformas": plataformas})
+    app.dependency_overrides[_conexion_lectura] = lambda: None
+    try:
+        return TestClient(app).get("/salud").text
+    finally:
+        app.dependency_overrides.pop(_conexion_lectura, None)
+
+
+def test_ui_salud_ads_ingest_muestra_fecha_y_entrega_pendiente(monkeypatch):
+    plataforma = _plataforma_quota()
+    plataforma["ads_ingest"] = {
+        "fuente": "amazon_ads_reports_v3",
+        "reportes": [
+            {
+                "profile_id": 101,
+                "reporte": "campanas",
+                "ultimo_exito": "2026-09-23T09:14:00+00:00",
+                "metric_date": "2026-09-22",
+                "edad_dias": 2,
+                "ultimo_estado": "failed",
+                "ultima_corrida": 42,
+                "ultimo_evento": "2026-09-24T08:00:00+00:00",
+            }
+        ],
+        "incidentes": [
+            {
+                "profile_id": 101,
+                "platform": "amazon_us",
+                "tipo": "fallo",
+                "estado_entrega": "pending",
+                "recuperado": False,
+                "recuperacion_entregada": False,
+                "intentos": 2,
+                "intentos_recuperacion": 0,
+                "abierto_desde": "2026-09-24T08:00:00+00:00",
+            }
+        ],
+    }
+    html = _salud_html_fakeado(monkeypatch, {"amazon_us": plataforma})
+    assert "Ingesta Ads principal" in html
+    assert "amazon_ads_reports_v3" in html
+    assert "2026-09-22" in html
+    assert "2 dias" in html
+    assert "pendiente" in html
+    assert "campanas" in html
+
+
+def _fila_de(html: str, forma: str) -> str:
+    """La fila <tr> de UNA forma de la tabla de quota (aserciones por fila:
+    el used/cap de una forma no se confunde con el de otra)."""
+    filas = [fila for fila in html.split("<tr>") if fila.startswith(f"<td>{forma}</td>")]
+    assert len(filas) == 1, f"la forma {forma} debe aparecer en exactamente una fila"
+    return filas[0]
+
+
+def _celda(fila: str, indice: int) -> str:
+    """Contenido EXACTO de la celda indice de una fila (orden contractual:
+    forma · used · cap · estado)."""
+    return fila.split("<td")[1 + indice].split(">", 1)[1].split("</td>")[0]
+
+
+def test_ui_salud_quota_muestra_las_cuatro_formas_con_sus_numeros(monkeypatch):
+    """Preflight 1.5: la tarjeta de cada plataforma dibuja UNA tabla con una
+    fila por forma (KINDS_QUOTA) y su used/cap: el dueno responde de un
+    vistazo cuanto lleva hoy y contra que tope."""
+    html = _salud_html_fakeado(monkeypatch, {"amazon_us": _plataforma_quota()})
+    assert "<h3>Quota del dia</h3>" in html
+    for forma in _QUOTA_BASE:
+        assert _celda(_fila_de(html, forma), 0) == forma, "la 1a celda es la forma"
+    fila_bid = _fila_de(html, "bid")
+    assert _celda(fila_bid, 1) == "3", "used de bid"
+    assert _celda(fila_bid, 2) == "10", "cap de bid (fila_del_dia)"
+    assert _celda(_fila_de(html, "pause"), 1) == "0", "pause sin consumo hoy"
+    assert _celda(_fila_de(html, "pause"), 2) == "2", "cap de pause (config_vigente)"
+    # fuente distinguible a simple vista: fila_del_dia (chip ok) vs
+    # config_vigente (chip neutro), con su nombre legible en la fila
+    assert 'class="chip ok"' in _fila_de(html, "bid")
+    assert 'class="chip ok"' not in _fila_de(html, "pause")
+    assert "fila_del_dia" in _celda(_fila_de(html, "bid"), 3)
+    assert "config_vigente" in _celda(_fila_de(html, "pause"), 3)
+
+
+def test_ui_salud_quota_cap_nulo_sin_clave_no_se_pinta_como_cero(monkeypatch):
+    """Regla 3 en presentacion: cap None (sin_clave) es FAIL-CLOSED, no tope
+    cero — la celda muestra '—' CON su etiqueta, jamas 0 ni el literal None."""
+    html = _salud_html_fakeado(monkeypatch, {"amazon_us": _plataforma_quota()})
+    fila = _fila_de(html, "negative")
+    cap = _celda(fila, 2)
+    assert "—" in cap and "sin clave" in cap, "cap nulo: guion + etiqueta"
+    assert "0" not in cap, "cap nulo jamas se pinta como 0 (no es tope cero)"
+    assert "None" not in cap, "cap nulo jamas se pinta como el literal None"
+    assert 'class="chip alerta"' in _celda(fila, 3), "sin_clave se marca como alerta"
+
+
+def test_ui_salud_quota_config_rota_marcada_como_alerta(monkeypatch):
+    """config_rota (clave presente, valor no numerico) es ESTADO DE ALARMA: el
+    cobro de esa forma revienta ruidoso a proposito — la fila se marca con la
+    clase de alerta existente y NO se confunde con sin_clave."""
+    html = _salud_html_fakeado(monkeypatch, {"amazon_us": _plataforma_quota()})
+    fila = _fila_de(html, "harvest")
+    estado = _celda(fila, 3)
+    assert 'class="chip alerta"' in estado, "config_rota se marca como alerta"
+    assert "config_rota" in estado
+    cap = _celda(fila, 2)
+    assert "—" in cap and "config rota" in cap, "cap nulo con SU etiqueta (rota)"
+    assert "0" not in cap and "None" not in cap
+    assert "sin clave" not in estado and "sin_clave" not in estado, (
+        "etiquetas distintas de sin_clave"
+    )
+
+
+def test_ui_salud_quota_used_igual_cap_se_ve_saturada(monkeypatch):
+    """used >= cap con cap NO nulo es el estado que dispara el aviso Telegram
+    de 1.4: la fila se ve SATURADA (chip de alerta) en la misma tabla."""
+    quota = dict(_QUOTA_BASE)
+    quota["bid"] = {"used": 3, "cap": 3, "fuente": "fila_del_dia"}
+    quota["pause"] = {"used": 5, "cap": 2, "fuente": "fila_del_dia"}
+    html = _salud_html_fakeado(monkeypatch, {"amazon_us": _plataforma_quota(quota)})
+    for forma in ("bid", "pause"):
+        estado = _celda(_fila_de(html, forma), 3)
+        assert "saturada" in estado, f"{forma} con used >= cap debe verse saturada"
+        assert 'class="chip alerta"' in estado
+    assert '<span class="chip alerta">saturada</span>' in _celda(_fila_de(html, "bid"), 3), (
+        "el chip de saturacion usa la clase de alerta existente"
+    )
+    estado_negativo = _celda(_fila_de(html, "negative"), 3)
+    assert "saturada" not in estado_negativo, "la fila sana no lleva el chip"
+
+
+def test_ui_salud_sin_bloque_quota_no_rompe_la_pantalla(monkeypatch):
+    """Payload VIEJO (plataforma sin la clave quota, pre-1.4): la tarjeta se
+    renderiza entera SIN tabla de quota y no arrastra a las demas tarjetas."""
+    vieja = _plataforma_quota()
+    del vieja["quota"]
+    html = _salud_html_fakeado(monkeypatch, {"amazon_mx": vieja, "amazon_us": _plataforma_quota()})
+    assert html.count("Quota del dia") == 1, "solo la tarjeta CON quota dibuja la tabla"
+    assert "<h2>amazon_mx" in html, "la tarjeta vieja sigue renderizando"
+    assert "Historico (14d)" in html, "las secciones existentes quedan intactas"
+
+
+# ---------------------------------------------------------------------------
+# Campanas: filtro y sort por columnas que YA estan en la tabla
+# ---------------------------------------------------------------------------
+
+
+def _item_campana(
+    nombre: str,
+    *,
+    status="ENABLED",
+    plataforma="amazon_us",
+    clicks=8,
+    cost="10.0000",
+    revenue="40.0000",
+    acos="25.00",
+    sin_ventas=False,
+    peldano="goal_plataforma",
+    target="25.00",
+) -> dict:
+    """Fila con el shape de `_fila_campana` (api_dashboard). Sin orders ni
+    impressions: esas columnas no existen en campanas.html."""
+    return {
+        "ad_entity_id": abs(hash(nombre)) % 10000,
+        "nombre": nombre,
+        "status": status,
+        "plataforma": plataforma,
+        "moneda": "USD" if plataforma == "amazon_us" else "MXN",
+        "metricas_30d": {
+            "cost": cost,
+            "ad_revenue": revenue,
+            "clicks": clicks,
+            "acos": acos,
+            "sin_ventas": sin_ventas,
+            "inmaduro": True,
+        },
+        "target_efectivo": {"valor": target, "peldano": peldano},
+        "goal": None,
+    }
+
+
+def _lote_campanas() -> list[dict]:
+    """Cuatro filas distintas en las columnas utiles (plataforma, estado,
+    clicks, ACoS, cost, revenue). El orden de insercion NO es el de clicks."""
+    return [
+        _item_campana("Alfa US", clicks=80, cost="9.0000", revenue="40.0000", acos="22.50"),
+        _item_campana("Beta US", status="PAUSED", clicks=8, cost="12.0000", acos="60.00"),
+        _item_campana(
+            "Gama MX",
+            plataforma="amazon_mx",
+            clicks=30,
+            cost="100.0000",
+            revenue="400.0000",
+            acos="25.00",
+            peldano="default",
+        ),
+        _item_campana(
+            "Delta US",
+            clicks=None,
+            cost=None,
+            revenue="0.0000",
+            acos=None,
+            sin_ventas=True,
+        ),
+    ]
+
+
+def _nombres(items: list[dict]) -> list[str]:
+    return [item["nombre"] for item in items]
+
+
+def test_filtra_campanas_plataforma_estado_clicks_acos():
+    """Las cuatro columnas pedidas filtran de verdad. Contra el handler viejo
+    (que ignoraba query params) este test FALLA: devolveria las 4 filas."""
+    lote = _lote_campanas()
+    assert _nombres(ui.filtra_y_ordena_campanas(lote, {"plataforma": "amazon_mx"}, None, None)) == [
+        "Gama MX"
+    ]
+    assert _nombres(ui.filtra_y_ordena_campanas(lote, {"estado": "PAUSED"}, None, None)) == [
+        "Beta US"
+    ]
+    # clicks=8 es igualdad exacta: 80 no cuela (substring mentiria)
+    assert _nombres(ui.filtra_y_ordena_campanas(lote, {"clicks": "8"}, None, None)) == ["Beta US"]
+    assert _nombres(ui.filtra_y_ordena_campanas(lote, {"acos": "60"}, None, None)) == ["Beta US"]
+    assert _nombres(ui.filtra_y_ordena_campanas(lote, {"acos": "sin ventas"}, None, None)) == [
+        "Delta US"
+    ]
+
+
+def test_filtra_campanas_cost_revenue_nombre_procedencia():
+    """Las otras columnas utiles de la tabla tambien filtran (cost=spend,
+    revenue=sales). Orders/impressions no estan en la tabla: no se inventan."""
+    lote = _lote_campanas()
+    assert _nombres(ui.filtra_y_ordena_campanas(lote, {"cost": "9.0000"}, None, None)) == [
+        "Alfa US"
+    ]
+    assert _nombres(ui.filtra_y_ordena_campanas(lote, {"revenue": "400"}, None, None)) == [
+        "Gama MX"
+    ]
+    assert _nombres(ui.filtra_y_ordena_campanas(lote, {"nombre": "gama"}, None, None)) == [
+        "Gama MX"
+    ]
+    assert _nombres(ui.filtra_y_ordena_campanas(lote, {"procedencia": "default"}, None, None)) == [
+        "Gama MX"
+    ]
+
+
+def test_ordena_campanas_clicks_y_acos_numericamente():
+    """Sort numerico, no lexicografico: 80 > 30 > 8; cost 9.0000 < 12.0000.
+    Los huecos (regla 3) van al final, nunca se pintan como 0 para ordenar."""
+    lote = _lote_campanas()
+    por_clicks = ui.filtra_y_ordena_campanas(lote, {}, "clicks", "desc")
+    assert _nombres(por_clicks) == ["Alfa US", "Gama MX", "Beta US", "Delta US"]
+    por_acos = ui.filtra_y_ordena_campanas(lote, {}, "acos", "asc")
+    assert _nombres(por_acos)[:3] == ["Alfa US", "Gama MX", "Beta US"]
+    assert por_acos[-1]["nombre"] == "Delta US"
+    por_cost = ui.filtra_y_ordena_campanas(lote, {}, "cost", "asc")
+    assert _nombres(por_cost)[:3] == ["Alfa US", "Beta US", "Gama MX"]
+
+
+def _html_campanas(monkeypatch, items: list[dict], **params) -> str:
+    """Render del camino REAL (TestClient -> pagina_campanas) con el
+    endpoint fakeado: se prueba la vista, no el SQL."""
+
+    def _campanas(conn, platform=None):
+        if platform is None:
+            return {"items": items}
+        return {"items": [i for i in items if i["plataforma"] == platform]}
+
+    monkeypatch.setattr(ui.dash, "campanas", _campanas)
+    app.dependency_overrides[_conexion_lectura] = lambda: None
+    try:
+        return TestClient(app).get("/campanas", params=params)
+    finally:
+        app.dependency_overrides.pop(_conexion_lectura, None)
+
+
+def test_ui_campanas_formulario_y_headers_ordenables(monkeypatch):
+    """La pantalla tiene el form GET (CSP: cero JS) y headers con href de
+    sort para las columnas utiles. Goal no se ordena: es texto compuesto."""
+    html = _html_campanas(monkeypatch, _lote_campanas()).text
+    assert 'class="filtros"' in html
+    assert 'method="get"' in html
+    assert 'name="plataforma"' in html
+    assert 'name="estado"' in html
+    assert 'name="clicks"' in html
+    assert 'name="acos"' in html
+    assert 'name="cost"' in html
+    assert 'name="revenue"' in html
+    assert 'href="/campanas?ordenar=plataforma&amp;dir=asc"' in html
+    assert 'href="/campanas?ordenar=estado&amp;dir=asc"' in html
+    assert 'href="/campanas?ordenar=clicks&amp;dir=desc"' in html
+    assert 'href="/campanas?ordenar=acos&amp;dir=desc"' in html
+    assert "ordenar=goal" not in html
+    assert "impressions" not in html
+    assert ">orders<" not in html.lower()
+
+
+def test_ui_campanas_query_filtra_y_ordena_en_el_html(monkeypatch):
+    """Regla 9: el GET /campanas?estado=PAUSED ignorado por el handler viejo
+    seguia pintando Alfa US. Aqui solo queda Beta US. Sort por clicks desc
+    pone Alfa (80) antes que Gama (30)."""
+    lote = _lote_campanas()
+    filtrado = _html_campanas(monkeypatch, lote, estado="PAUSED").text
+    assert "Beta US" in filtrado
+    assert "Alfa US" not in filtrado
+    assert "Gama MX" not in filtrado
+    assert "Ninguna campaña coincide" not in filtrado
+    ordenado = _html_campanas(monkeypatch, lote, ordenar="clicks", dir="desc").text
+    assert ordenado.index("Alfa US") < ordenado.index("Gama MX") < ordenado.index("Beta US")
+    assert 'aria-sort="descending"' in ordenado
+    mx = _html_campanas(monkeypatch, lote, plataforma="amazon_mx").text
+    assert "Gama MX" in mx and "Alfa US" not in mx
+    vacio = _html_campanas(monkeypatch, lote, estado="ARCHIVED").text
+    assert "Ninguna campaña coincide con el filtro." in vacio
+
+
+def test_ui_campanas_vocabulario_query_cerrado(monkeypatch):
+    """plataforma/estado/ordenar/dir ajenos -> 422 (Literal del feed)."""
+    lote = _lote_campanas()
+    assert _html_campanas(monkeypatch, lote, plataforma="meli").status_code == 422
+    assert _html_campanas(monkeypatch, lote, estado="ON").status_code == 422
+    assert _html_campanas(monkeypatch, lote, ordenar="impressions").status_code == 422
+    assert _html_campanas(monkeypatch, lote, dir="up").status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Pantalla de inertes (BIDS 01 1.3): resumen + tabla, XSS escapado
+# ---------------------------------------------------------------------------
+
+
+def _ctx_inertes(texto: str = PAYLOAD_XSS) -> dict:
+    """Contexto minimo del template de inertes (render sin DB): una hoja
+    gasto_sin_ventas cuyo texto es el payload XSS (keyword_text es el
+    vector real de esta pantalla). Incluye los campos de 2.6 (puerta de
+    antiguedad + lotes) con el shape real del endpoint."""
+    return {
+        "pantalla": "inertes",
+        "totales": {"amazon_us": {"gasto_sin_ventas": 1}},
+        "items": [
+            {
+                "plataforma": "amazon_us",
+                "kind": "keyword",
+                "texto": texto,
+                "external_id": "8103",
+                "campana": "Campana A",
+                "ad_group": "Grupo A",
+                "clasificacion": "gasto_sin_ventas",
+                "dias_sin_impresiones": 19,
+                "ultima_impresion": "2026-07-28",
+                "gasto_90d": "12.50",
+                "moneda": "USD",
+                "ordenes_90d": 0,
+                "first_seen_at": "2026-09-04",
+                "en_espera": True,
+                "archivable_desde": "2026-10-04",
+            }
+        ],
+        "lotes": [],
+    }
+
+
+def test_ui_inertes_xss_texto_escapado():
+    """Regla 9: el texto de la hoja (keyword_text libre, el vector XSS de
+    esta pantalla) va por {{ }} en inertes.html y el entorno REAL lo
+    escapa; el HTML servido jamas contiene el <script> crudo."""
+    html = ui.templates.env.get_template("inertes.html").render(**_ctx_inertes())
+    assert PAYLOAD_XSS not in html
+    assert "&lt;script&gt;" in html
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_ui_inertes_200_con_clasificacion_y_escape(monkeypatch):
+    """BIDS 01 1.3 por el camino REAL (TestClient -> pagina_inertes ->
+    endpoint -> vista): 200 con la clasificacion y el keyword_text con
+    <script> escapado en el HTML servido."""
+    with _db_temporal("orbit_ui_inertes") as (conn, dsn):
+        conn.execute(SQL13)
+        conn.execute(SQL17)
+        conn.execute(SQL14)
+        run = _run(conn)
+        camp = _campana(conn, "amazon_us", "8201", name="Campana B")
+        ag = _grupo(conn, "amazon_us", "8202", camp)
+        kw = _keyword(conn, "amazon_us", "8203", ag, PAYLOAD_XSS)
+        ancla = _keyword(conn, "amazon_us", "8204", ag, "ancla")
+        for eid in (camp, ag, kw, ancla):
+            _estado_acos(conn, eid, None)
+        _metrica(
+            conn,
+            run,
+            kw,
+            dt.date(2026, 7, 28),
+            cost="5.00",
+            ad_revenue="0.00",
+            clicks=2,
+            orders=0,
+            impressions=20,
+            moneda="USD",
+        )
+        _metrica(
+            conn,
+            run,
+            ancla,
+            dt.date(2026, 8, 16),
+            cost="1.00",
+            ad_revenue="0.00",
+            clicks=1,
+            orders=0,
+            impressions=10,
+            moneda="USD",
+        )
+        monkeypatch.setenv("ORBIT_DSN_READ", dsn)
+        resp = TestClient(app).get("/inertes")
+        assert resp.status_code == 200, resp.text
+        assert "gasto_sin_ventas" in resp.text
+        assert PAYLOAD_XSS not in resp.text
+        assert "&lt;script&gt;" in resp.text
+
+
+# ---------------------------------------------------------------------------
+# CORTES UI 01 1.1: la pantalla de propuestas no miente (D1-D5)
+# ---------------------------------------------------------------------------
+
+
+def _ctx_propuestas() -> dict:
+    """Tres filas con el shape del endpoint: etiqueta, direccion, efecto
+    de rechazo e indicador solo en el harvest."""
+    return {
+        "pantalla": "cortes",
+        "items": [
+            {
+                "id": 11,
+                "plataforma": "amazon_us",
+                "familia": "entity_cut",
+                "kind": "pause",
+                "ad_entity_id": 3,
+                "external_id": "9201",
+                "nombre": "zapato",
+                "search_term": None,
+                "estado": "pending_veto",
+                "vence_el": "2026-09-25T12:00:00+00:00",
+                "encolado_at": "2026-08-26T12:00:00+00:00",
+                "decision_id": 99,
+                "etiqueta": "Apagar palabra",
+                "direccion": "recorta",
+                "efecto_rechazo": "Rechazar: la palabra NO se apagara (seguira gastando)",
+                "indicador": None,
+            },
+            {
+                "id": 12,
+                "plataforma": "amazon_us",
+                "familia": "term_cut",
+                "kind": "negative",
+                "ad_entity_id": 3,
+                "external_id": "9201",
+                "nombre": "zapato",
+                "search_term": "tenis blancos",
+                "estado": "pending_veto",
+                "vence_el": "2026-09-25T12:00:00+00:00",
+                "encolado_at": "2026-08-26T12:00:00+00:00",
+                "decision_id": 100,
+                "etiqueta": "Bloquear busqueda",
+                "direccion": "recorta",
+                "efecto_rechazo": "Rechazar: la busqueda NO se bloqueara",
+                "indicador": None,
+            },
+            {
+                "id": 13,
+                "plataforma": "amazon_us",
+                "familia": "term_cut",
+                "kind": "harvest",
+                "ad_entity_id": 5,
+                "external_id": "9101",
+                "nombre": "Campana A",
+                "search_term": "arras para boda cristiana",
+                "estado": "pending_veto",
+                "vence_el": "2026-09-25T12:00:00+00:00",
+                "encolado_at": "2026-08-26T12:00:00+00:00",
+                "decision_id": 101,
+                "etiqueta": "Capturar termino que vende",
+                "direccion": "crece",
+                "efecto_rechazo": "Rechazar: la palabra NO se creara",
+                "indicador": {
+                    "ordenes": 2,
+                    "ingreso": "203.2000",
+                    "clics": 63,
+                    "moneda": "USD",
+                },
+            },
+        ],
+    }
+
+
+def test_ui_propuestas_etiquetas_exactas_por_kind():
+    """D2: cada fila declara su tipo con la etiqueta exacta (efecto
+    primero); el harvest trae su indicador de ordenes e ingreso. Por
+    KIND: negative y harvest comparten familia term_cut (grok)."""
+    html = ui.templates.env.get_template("cortes.html").render(**_ctx_propuestas())
+    assert "Apagar palabra" in html
+    assert "Bloquear busqueda" in html
+    assert "Capturar termino que vende" in html
+    assert "2 ordenes" in html
+    assert "203.2000 USD" in html
+
+
+def test_ui_propuestas_separa_crecen_de_recortan():
+    """D3: Crecen y Recortan se distinguen por texto, nunca solo color."""
+    html = ui.templates.env.get_template("cortes.html").render(**_ctx_propuestas())
+    assert "Crecen" in html
+    assert "Recortan" in html
+    crecen = html.index("Crecen")
+    recortan = html.index("Recortan")
+    assert crecen < html.index("Capturar termino que vende") < recortan, (
+        "el harvest vive en la seccion Crecen"
+    )
+    assert html.index("Apagar palabra") > recortan, "el pause vive en Recortan"
+    assert html.index("Bloquear busqueda") > recortan, "el negative vive en Recortan"
+    assert "Bloquear busqueda" not in html[crecen:recortan]
+    assert "Crece" in html and "Recorta" in html, "el chip dice la direccion"
+
+
+def test_ui_propuestas_rechazar_con_efecto_e_irreversibilidad():
+    """D4/D5: el boton dice Rechazar (no Vetar); cada fila dice que se
+    aplica sola al vencer; la confirmacion nombra el efecto de ESA fila
+    y declara que no se puede deshacer + hasta cuando bloquea."""
+    html = ui.templates.env.get_template("cortes.html").render(**_ctx_propuestas())
+    assert "Rechazar" in html
+    assert ">Vetar<" not in html
+    assert "Confirmar veto" not in html
+    assert "se aplica solo el 2026-09-25 12:00" in html
+    assert "Rechazar: la palabra NO se creara" in html
+    assert "Rechazar: la palabra NO se apagara (seguira gastando)" in html
+    assert "Rechazar: la busqueda NO se bloqueara" in html
+    assert "NO se puede deshacer" in html
+    assert "hasta el 2026-09-25 12:00" in html
+
+
+def test_ui_propuestas_titulo_y_menu_d1():
+    """D1: titulo y menu dicen Propuestas; la ruta /cortes sigue viva en
+    el href y el JS sigue en /static (CSP)."""
+    html = ui.templates.env.get_template("cortes.html").render(**_ctx_propuestas())
+    assert "Propuestas" in html
+    assert "Cortes pendientes de veto" not in html
+    assert 'href="/cortes"' in html, "el href NO cambia (enlaces vivos)"
+    assert ">Propuestas<span" in html, "el nav de base.html dice Propuestas"
+    assert 'src="/static/js/cortes.js?v=' in html
+
+
+def _ctx_cortes_hermanas() -> dict:
+    """Harvest de grupo con destino por terna (motivo visible) y dos
+    hermanas (shape del endpoint: _destino_harvest + _hermanas_de)."""
+    return {
+        "pantalla": "cortes",
+        "items": [
+            {
+                "id": 13,
+                "plataforma": "amazon_us",
+                "familia": "term_cut",
+                "kind": "harvest",
+                "ad_entity_id": 5,
+                "external_id": "9101",
+                "nombre": "Campana A",
+                "search_term": "arras para boda cristiana",
+                "estado": "pending_veto",
+                "vence_el": "2026-09-25T12:00:00+00:00",
+                "encolado_at": "2026-08-26T12:00:00+00:00",
+                "decision_id": 101,
+                "etiqueta": "Capturar termino que vende",
+                "direccion": "crece",
+                "efecto_rechazo": "Rechazar: la palabra NO se creara",
+                "indicador": None,
+                "destino": {
+                    "campaign_id": "6104",
+                    "ad_group_id": "6204",
+                    "resuelto_por": "terna",
+                    "grupo_id": 1,
+                    "motivo": "migracion_pendiente",
+                    "motivo_es": (
+                        "Destino por terna del goal (migracion a grupo o excepcion pendiente)"
+                    ),
+                },
+                "hermanas": [
+                    {"rol": "auto_discovery", "campaign_id": "6100", "nombre": "Auto"},
+                    {"rol": "category_broad", "campaign_id": "6103", "nombre": "Broad"},
+                ],
+            }
+        ],
+    }
+
+
+def test_ui_cortes_harvest_nombra_hermanas_y_chip_de_motivo():
+    """A.6: la fila harvest nombra las hermanas bajo la etiqueta, el chip
+    trae el motivo traducido y la confirmacion del rechazo las repite."""
+    html = ui.templates.env.get_template("cortes.html").render(**_ctx_cortes_hermanas())
+    assert "se negara tambien en: Auto (auto_discovery), Broad (category_broad)" in html
+    assert "Destino por terna del goal (migracion a grupo o excepcion pendiente)" in html
+    assert "Tampoco se negara en: Auto (auto_discovery), Broad (category_broad)" in html
+
+
+def test_ui_cortes_sin_hermanas_no_nombra_nada():
+    """A.6: sin hermanas ni motivo (el contexto viejo de propuestas), ni
+    la lista ni el chip aparecen."""
+    html = ui.templates.env.get_template("cortes.html").render(**_ctx_propuestas())
+    assert "se negara tambien en:" not in html
+    assert "Tampoco se negara en:" not in html
+
+
+def test_ui_menu_movil_es_tab_bar_no_drawer():
+    """El menu movil es una tab bar de 7 destinos, no el sidebar en overlay.
+
+    Falla contra el drawer con boton Menu/Cerrar menu y secciones PANEL.
+    """
+    html = ui.templates.env.get_template("cortes.html").render(**_ctx_propuestas())
+    css = (ui._TEMPLATES_DIR.parent / "static" / "css" / "dashboard.css").read_text(
+        encoding="utf-8"
+    )
+    js = (ui._TEMPLATES_DIR.parent / "static" / "js" / "shell.js").read_text(encoding="utf-8")
+    assert "Cerrar menu" not in html
+    assert "Cerrar menu" not in js
+    assert 'id="nav-toggle"' not in html
+    assert 'class="tab-bar"' in html
+    assert html.count('class="tab-label"') == 7
+    assert ">Resumen<" in html
+    assert ">Contribucion<" in html
+    assert ">Reputacion<" in html
+    assert ">Decisiones<" in html
+    assert ">Campañas<" in html
+    assert ">Settings<" in html
+    assert ">Inicio<" not in html
+    assert ">P&amp;L<" not in html
+    assert ">SKUs<" not in html
+    assert ">Gastos<" not in html
+    assert ">Saldos<" not in html
+    assert 'href="/"' in html
+    assert 'href="/contribucion"' in html
+    assert 'href="/reputacion"' in html
+    assert 'href="/decisiones"' in html
+    assert 'href="/campanas"' in html
+    assert 'href="/settings"' in html
+    assert 'href="/cortes"' in html
+    assert ">Propuestas<span" in html
+    assert 'class="tab-bar"' in css or ".tab-bar" in css
+    assert "position: fixed" in css
+    assert "#nav-toggle { display: block" not in css
+    assert 'aria-current="page"' in html
+    assert "tab-activo" in html
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_ui_propuestas_alias_mismo_contenido_que_cortes(monkeypatch):
+    """D1: /propuestas es alias de /cortes: 200 ambas y mismo contenido."""
+    with _db_temporal("orbit_ui_propuestas") as (conn, dsn):
+        conn.execute(SQL02)
+        _siembra_ui(conn)
+        ciclo = _ciclo(conn, platform="amazon_us")
+        config = _config_version(conn, {"ads_optimizer_mode": "shadow"})
+        camp = _campana(conn, "amazon_us", "9002", name="Campana B")
+        dec = _decision(
+            conn,
+            ciclo,
+            camp,
+            kind="pause",
+            config_id=config,
+            inputs={"motivo": "x"},
+            window_end=dt.date(2026, 8, 1),
+        )
+        conn.execute(
+            "INSERT INTO apply_queue (platform, ad_entity_id, kind, decision_id,"
+            " modo, estado, vence_el, request_payload)"
+            " VALUES ('amazon_us', %s, 'pause', %s, 'live', 'pending_veto',"
+            " now() + interval '48 hours', '{}'::jsonb)",
+            (camp, dec),
+        )
+        monkeypatch.setenv("ORBIT_DSN_READ", dsn)
+        cliente = TestClient(app)
+        r_cortes = cliente.get("/cortes")
+        r_prop = cliente.get("/propuestas")
+        assert r_cortes.status_code == 200, r_cortes.text
+        assert r_prop.status_code == 200, r_prop.text
+        assert r_prop.text == r_cortes.text
+        assert "Apagar palabra" in r_prop.text, "el alias sirve contenido NO vacio"
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_ui_favicon_local_y_servido(monkeypatch):
+    with _db_temporal("orbit_ui_favicon") as (conn, dsn):
+        _siembra_ui(conn)
+        monkeypatch.setenv("ORBIT_DSN_READ", dsn)
+        cliente = TestClient(app)
+        html = cliente.get("/").text
+        assert 'href="/static/favicon/favicon.ico"' in html
+        assert 'sizes="16x16 32x32 48x48"' in html
+        assert 'href="/static/favicon/favicon-16.png"' in html
+        assert 'href="/static/favicon/favicon-32.png"' in html
+        assert 'href="/static/favicon/favicon-192.png"' in html
+        assert 'href="/static/favicon/favicon-180.png"' in html
+        for ruta in (
+            "/static/favicon/favicon.ico",
+            "/static/favicon/favicon-16.png",
+            "/static/favicon/favicon-32.png",
+            "/static/favicon/favicon-48.png",
+            "/static/favicon/favicon-64.png",
+            "/static/favicon/favicon-180.png",
+            "/static/favicon/favicon-192.png",
+            "/static/favicon/favicon-512.png",
+        ):
+            resp = cliente.get(ruta)
+            assert resp.status_code == 200, ruta
+            assert len(resp.content) > 100, ruta
+
+
+# ---------------------------------------------------------------------------
+# FABRICA 02 (A.6): fase del job en la pantalla de Decisiones
+# ---------------------------------------------------------------------------
+
+
+def _ctx_decisiones_job() -> dict:
+    """Decision harvest con job en hermanas_negadas y una pendiente (shape
+    del endpoint: _fila_decision)."""
+    ctx = _ctx_decisiones()
+    ctx["items"][0]["harvest_job"] = {
+        "id": 7,
+        "fase": "hermanas_negadas",
+        "fase_es": "Negando el termino en las campanas hermanas",
+        "hermanas_pendientes": {"product_targeting": "pt_no_acepta_negative_keyword"},
+    }
+    return ctx
+
+
+def test_ui_decisiones_muestra_fase_y_job_con_pendientes():
+    """A.6: con harvest_job, la celda Kind trae la etiqueta de la fase, el
+    id del job y las hermanas pendientes."""
+    html = ui.templates.env.get_template("decisiones.html").render(**_ctx_decisiones_job())
+    assert "Negando el termino en las campanas hermanas" in html
+    assert "job #7" in html
+    assert "hermanas pendientes: product_targeting: pt_no_acepta_negative_keyword" in html
+
+
+def test_ui_decisiones_sin_job_no_muestra_etiqueta():
+    """A.6: sin harvest_job (o sin la clave), nada de fase ni job — el
+    contexto viejo de _ctx_decisiones sigue renderizando igual."""
+    html = ui.templates.env.get_template("decisiones.html").render(**_ctx_decisiones())
+    assert "job #" not in html
+    assert "hermanas pendientes" not in html
+
+
+# ---------------------------------------------------------------------------
+# FABRICA 02 (A.6): destino de harvest en la pantalla de Salud
+# ---------------------------------------------------------------------------
+
+
+def _plataforma_harvest_destino(*, con_bloque: bool) -> dict:
+    """Tarjeta de plataforma con el bloque harvest_destino del endpoint
+    (A.6): resueltos por procedencia + una campana saltada traducida."""
+    tarjeta = _plataforma_quota()
+    tarjeta["harvest_destino"] = (
+        {
+            "resueltos": {"grupo": 3, "excepcion": 0, "terna": 241},
+            "terna_es": ("Destino por terna del goal (migracion a grupo o excepcion pendiente)"),
+            "saltos_grupo": [
+                {
+                    "campaign_id": 6102,
+                    "motivo": "destino_inconsistente",
+                    "motivo_es": (
+                        "Harvest bloqueado: la terna del goal contradice la exacta del grupo"
+                    ),
+                }
+            ],
+        }
+        if con_bloque
+        else None
+    )
+    return tarjeta
+
+
+def test_ui_salud_muestra_destino_de_harvest_y_saltos(monkeypatch):
+    """A.6: con bloque, la pantalla pinta la linea de resueltos por
+    procedencia y la campana saltada con su motivo traducido."""
+    html = _salud_html_fakeado(
+        monkeypatch, {"amazon_us": _plataforma_harvest_destino(con_bloque=True)}
+    )
+    assert "Destino de harvest" in html
+    assert "por grupo 3" in html
+    assert "por excepcion 0" in html
+    assert "por terna 241" in html
+    assert "Destino por terna del goal (migracion a grupo o excepcion pendiente)" in html
+    assert "Campañas de grupo sin destino" in html
+    assert "#6102" in html
+    assert "Harvest bloqueado: la terna del goal contradice la exacta del grupo" in html
+
+
+def test_ui_salud_sin_bloque_no_muestra_destino_de_harvest(monkeypatch):
+    """A.6: sin bloque (ciclos pre-A.6), ni la linea ni la lista aparecen
+    — y no una linea de guiones (regla 3)."""
+    html = _salud_html_fakeado(
+        monkeypatch, {"amazon_us": _plataforma_harvest_destino(con_bloque=False)}
+    )
+    assert "Destino de harvest" not in html
+    assert "Campañas de grupo sin destino" not in html
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_ui_salud_muestra_avisos_propuesta_pendientes_y_fallo(monkeypatch):
+    """C.4 B1/obs2r2: /salud pinta pendientes de aviso + fallo (JSON y
+    pantalla coinciden; sin tabla no se pinta nada)."""
+    import json as _json
+
+    from test_api_dashboard import _propuesta_campana
+
+    with _db_temporal("orbit_ui_salud_av") as (conn, dsn):
+        conn.execute(SQL42)
+        camp = _campana(conn, "amazon_us", "9001", name="A1U")
+        _propuesta_campana(conn, camp)
+        notas = _json.dumps({"telegram": {"aviso_propuesta": "fallo: canal caido"}})
+        _ciclo(conn, platform="amazon_us", notes=notas)
+        monkeypatch.setenv("ORBIT_DSN_READ", dsn)
+        salud_html = TestClient(app).get("/salud").text
+        assert "Avisos de propuesta: 1 pendientes" in salud_html
+        assert "fallo: canal caido" in salud_html
+
+
+def test_ui_decisiones_muestra_linea_de_sombra_v2():
+    """A4 (pin UI lane 10): la fila con contrafactual pinta el chip
+    v2: <motivo_es>; sin la clave no pinta nada (filas pre-A4)."""
+    ctx = _ctx_decisiones()
+    ctx["items"][0]["evidencia_v2"] = {
+        "kind": None,
+        "motivo": "cpc_post_cambio_insuficiente",
+        "motivo_es": "CPC desconocido tras el cambio: menos de 20 clics al bid vigente",
+        "factor": None,
+        "new_value": None,
+        "mantiene": False,
+    }
+    html = ui.templates.env.get_template("decisiones.html").render(**ctx)
+    assert "v2: CPC desconocido tras el cambio" in html
+    html_vieja = ui.templates.env.get_template("decisiones.html").render(**_ctx_decisiones())
+    assert "v2:" not in html_vieja
+
+
+# ---------------------------------------------------------------------------
+# JEV ADS 02 S.5 J5b: senal en /cortes y pantalla /gasto-sin-venta
+# ---------------------------------------------------------------------------
+
+
+def _cara_senal_ui(termino=PAYLOAD_XSS, **cambios):
+    """Una cara de senal con el shape del endpoint (termino = vector XSS)."""
+    cara = {
+        "senal_id": "00000000-0000-0000-0000-000000000005",
+        "clave": {"plataforma": "amazon_mx", "ad_group_id": 5, "termino": termino},
+        "lectura": "relevante_sin_venta",
+        "titulo": "Corresponde y no vende en ninguno",
+        "frase": "Es del catálogo y no convierte.",
+        "motivos": [],
+        "economia": {
+            "moneda": "MXN",
+            "aqui": {
+                "desde": "2026-08-03",
+                "hasta": "2026-09-01",
+                "clics": 63,
+                "gasto": "28.22",
+                "ordenes": 0,
+            },
+            "otros_que_venden": [],
+            "otros_sin_venta": 0,
+            "otros_sin_dato": 0,
+            "historial": {
+                "desde": "2026-07-01",
+                "hasta": "2026-09-01",
+                "clics": 40,
+                "ordenes_conocidas": 0,
+                "dias_sin_dato": 2,
+            },
+            "datos_hasta": "2026-09-01T00:00:00+00:00",
+        },
+        "relevancia": "corresponde",
+        "satisfacen": 1,
+        "evaluados": 3,
+        "miembros": 5,
+        "productos_ok": [7],
+        "regla_version": 1,
+        "roster_probado": True,
+        "motivos_roster": [],
+        "calculada_el": "2026-09-02T00:00:00+00:00",
+        "valida_hasta": "2026-10-08T00:00:00+00:00",
+        "vigente": True,
+    }
+    cara.update(cambios)
+    return cara
+
+
+def _ctx_gasto_ui(termino=PAYLOAD_XSS):
+    """Contexto minimo de gasto_sin_venta (shape del endpoint)."""
+    fila = _cara_senal_ui(termino)
+    fila["banda"] = "una_parte"
+    return {
+        "pantalla": "gasto-sin-venta",
+        "plataforma": "amazon_mx",
+        "calculado_el": "2026-10-06T12:00:00+00:00",
+        "aviso_desactualizado": False,
+        "secciones": [
+            {
+                "lectura": "relevante_sin_venta",
+                "titulo": "Corresponde y no vende en ninguno",
+                "busquedas": 1,
+                "gasto": "28.22",
+                "moneda": "MXN",
+                "filas": [fila],
+                "bandas": [
+                    {"banda": "una_parte", "titulo": "Una parte", "filas": [fila]},
+                ],
+            }
+        ],
+        "total_filas": 1,
+    }
+
+
+def test_ui_gasto_sin_venta_xss_termino_escapado():
+    """S.5.6 (escape en el HTML, modelo inertes): el termino (texto libre,
+    vector XSS de esta pantalla) va por {{ }} y el entorno REAL lo escapa."""
+    html = ui.templates.env.get_template("gasto_sin_venta.html").render(**_ctx_gasto_ui())
+    assert PAYLOAD_XSS not in html
+    assert "&lt;script&gt;" in html
+
+
+def test_ui_cortes_senal_antes_de_asesoria_y_sin_error():
+    """S.5 (guia Cambios 3): la fila Senal va ANTES que la de asesoria y la
+    palabra "error" no aparece en el HTML renderizado."""
+    from test_api_dashboard import _ctx_cortes_local
+
+    ctx = _ctx_cortes_local()
+    ctx["items"][0]["senal"] = {
+        "origen": _cara_senal_ui("tenis blancos"),
+        "destino": None,
+        "destino_ilegible": False,
+    }
+    ctx["senal_disponible"] = True
+    html = ui.templates.env.get_template("cortes.html").render(**ctx)
+    assert 'class="senal-jev"' in html
+    assert html.index('class="senal-jev"') < html.index('class="asesoria-jev"')
+    assert "Es del catálogo y no convierte." in html
+    assert "Jev: 1 de 3" in html
+    assert "error" not in html.lower()
+
+
+def test_ui_senal_metrica_ausente_pinta_guion_y_cero_se_conserva():
+    """Triage CodeRabbit PR408-1 (valido: `Gasto` admite None por diseno):
+    metrica ausente se pinta "—", nunca "None"; el 0 conocido se conserva.
+    Cubre `_senal.html` (aqui + historial) y la celda de gasto de
+    `gasto_sin_venta.html`, con el entorno REAL."""
+    from test_api_dashboard import _ctx_cortes_local
+
+    cara = _cara_senal_ui("tenis blancos")
+    cara["economia"]["aqui"] = {
+        "desde": "2026-08-03",
+        "hasta": "2026-09-01",
+        "clics": None,
+        "gasto": None,
+        "ordenes": None,
+    }
+    cara["economia"]["historial"]["clics"] = None
+    ctx = _ctx_cortes_local()
+    ctx["items"][0]["senal"] = {
+        "origen": cara,
+        "destino": None,
+        "destino_ilegible": False,
+    }
+    ctx["senal_disponible"] = True
+    html = ui.templates.env.get_template("cortes.html").render(**ctx)
+    assert "None ordenes" not in html
+    assert "None clics" not in html
+    assert "None MXN" not in html
+    assert "— ordenes" in html
+    assert "(— clics)" in html
+    gasto = _ctx_gasto_ui("tenis blancos")
+    gasto["secciones"][0]["filas"][0]["economia"]["aqui"]["gasto"] = None
+    html_gasto = ui.templates.env.get_template("gasto_sin_venta.html").render(**gasto)
+    assert ">None<" not in html_gasto
+    assert "None MXN" not in html_gasto
+    assert ">— MXN<" in html_gasto
+    cara_cero = _cara_senal_ui("tenis blancos")
+    ctx["items"][0]["senal"] = {
+        "origen": cara_cero,
+        "destino": None,
+        "destino_ilegible": False,
+    }
+    html_cero = ui.templates.env.get_template("cortes.html").render(**ctx)
+    assert "0 ordenes" in html_cero
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_ui_gasto_sin_venta_200_con_secciones_y_escape(monkeypatch):
+    """S.5.6 por el camino REAL (TestClient -> pagina -> endpoint -> vista):
+    200 con secciones, totales, mercado activo y el termino con <script>
+    escapado en el HTML servido."""
+    from test_api_dashboard import _campana, _grupo, _lote_s5, _roster_s5, _senal_s5
+
+    with _db_temporal("orbit_ui_gasto") as (conn, dsn):
+        conn.execute(SQL02)
+        conn.execute(SQL_JEV)
+        grupo = _grupo(conn, "amazon_mx", "9501", _campana(conn, "amazon_mx", "9500"))
+        lote = _lote_s5(conn)
+        _senal_s5(conn, "amazon_mx", grupo, PAYLOAD_XSS, lote, _roster_s5(conn, "amazon_mx", grupo))
+        monkeypatch.setenv("ORBIT_DSN_READ", dsn)
+        resp = TestClient(app).get("/gasto-sin-venta", params={"plataforma": "amazon_mx"})
+        assert resp.status_code == 200, resp.text
+        assert "Corresponde y no vende en ninguno" in resp.text
+        assert "12.50" in resp.text
+        assert 'aria-current="page">Amazon MX' in resp.text
+        assert PAYLOAD_XSS not in resp.text
+        assert "&lt;script&gt;" in resp.text
+
+
+# ---------------------------------------------------------------------------
+# T.1 (BIDS 02 s2): las pantallas dicen "sin target" donde el target es null.
+# ---------------------------------------------------------------------------
+
+
+def test_ui_settings_sin_target_dice_sin_target():
+    """Sin target vigente, /settings dice "sin target" (no pinta None ni
+    una procedencia)."""
+    html = ui.templates.env.get_template("settings.html").render(
+        pantalla="settings",
+        datos={
+            "config_version_id": 1,
+            "modo_global": "live",
+            "advertencia_respaldo": "respaldo",
+            "plataformas": [
+                {
+                    "plataforma": "amazon_us",
+                    "moneda": "USD",
+                    "target_vigente": {"valor": None, "peldano": None},
+                    "target_manual_pct": None,
+                    "margen_habilitado": False,
+                    "fraccion_margen": None,
+                    "confianza_recorte": "0.80",
+                    "confianza_subida": "0.70",
+                    "motor_bid": None,
+                    "motor_bid_vive": False,
+                    "caps": {},
+                    "goal": None,
+                }
+            ],
+            "goals": [],
+        },
+    )
+    assert "sin target" in html
+    assert "None" not in html
+
+
+def _html_settings_global(modo_global):
+    """Render minimo de settings.html con el apagador S.2 en `modo_global`."""
+    return ui.templates.env.get_template("settings.html").render(
+        pantalla="settings",
+        datos={
+            "config_version_id": 1,
+            "modo_global": "live",
+            "advertencia_respaldo": "respaldo",
+            "plataformas": [
+                {
+                    "plataforma": "amazon_mx",
+                    "moneda": "MXN",
+                    "target_vigente": {"valor": None, "peldano": None},
+                    "target_manual_pct": None,
+                    "margen_habilitado": False,
+                    "fraccion_margen": None,
+                    "confianza_recorte": "0.80",
+                    "confianza_subida": "0.70",
+                    "motor_bid": None,
+                    "motor_bid_vive": False,
+                    "caps": {},
+                    "goal": None,
+                }
+            ],
+            "goals": [],
+            "precio_modo_global": modo_global,
+            "precio_universos": [],
+            "precio_modo_universo": {},
+        },
+    )
+
+
+def test_ui_settings_global_ausente_no_regala_off():
+    """Sin clave global, el select trae "ausente" seleccionado (no off sin
+    selected): el navegador no puede bautizar off como valor inicial y
+    `cambioSelect` no dispara un apagado fantasma al guardar otra cosa."""
+    html = _html_settings_global(None)
+    assert '<option value="" selected disabled>ausente</option>' in html
+    bloque = html.split('name="precio_modo_global"')[1].split("</select>")[0]
+    assert bloque.count("selected") == 1
+
+
+def test_ui_settings_global_shadow_no_trae_ausente():
+    """Con clave global, el select marca ese modo y no trae "ausente"."""
+    html = _html_settings_global("shadow")
+    assert "ausente</option>" not in html
+    bloque = html.split('name="precio_modo_global"')[1].split("</select>")[0]
+    assert '<option value="shadow" selected>shadow</option>' in bloque
+
+
+def test_ui_campanas_sin_target_dice_sin_target(monkeypatch):
+    """Una campana sin target congelado dice "sin target" en /campanas."""
+    item = _item_campana("Zeta US")
+    item["target_efectivo"] = None
+    html = _html_campanas(monkeypatch, [item]).text
+    assert "sin target" in html
+
+
+def test_ui_cortes_propuesta_sin_target_dice_sin_target():
+    """El texto de una propuesta de campana sin target dice "sin target"
+    (jamas "None%")."""
+    ctx = _ctx_cortes()
+    ctx["propuestas_campana"] = [
+        {
+            "id": 7,
+            "platform": "amazon_us",
+            "campaign_external_id": "123458",
+            "nombre": "Campana Nula",
+            "status": "paused_observed",
+            "motivo": "campana_no_enabled",
+            "cost": "200.0000",
+            "sales30d": "0.0000",
+            "currency": "USD",
+            "target_pct": None,
+            "target_source": None,
+            "excess": "200.0000",
+            "acos_pct": None,
+            "window_start": "2026-08-16",
+            "window_end": "2026-09-14",
+            "campaign_status": "PAUSED",
+            "aviso_estado": "pending",
+            "riesgo_ignorando_estado": True,
+        },
+    ]
+    html = ui.templates.env.get_template("cortes.html").render(**ctx)
+    assert "sin target" in html
+    assert "None%" not in html
+
+
+# ---------------------------------------------------------------------------
+# P.3b (BIDS 02 s2): /keywords-danadas.
+# ---------------------------------------------------------------------------
+
+
+def _html_danadas(monkeypatch, hojas: list[dict], **params):
+    """Render del camino REAL (TestClient -> pagina) con el endpoint
+    fakeado: se prueba la vista, no el SQL (modelo _html_campanas)."""
+
+    def _danadas(conn, plataforma=None):
+        return {
+            "plataforma": plataforma or "amazon_mx",
+            "calculado_el": "2026-10-09T00:00:00+00:00",
+            "hojas": hojas,
+        }
+
+    monkeypatch.setattr(ui.dash, "keywords_danadas", _danadas)
+    app.dependency_overrides[_conexion_lectura] = lambda: None
+    try:
+        return TestClient(app).get("/keywords-danadas", params=params)
+    finally:
+        app.dependency_overrides.pop(_conexion_lectura, None)
+
+
+def test_ui_keywords_danadas_200_con_bloque_headers_y_menu(monkeypatch):
+    """La ruta sirve la pantalla con su marcador, el bloque de "Regresar
+    todas", su script, headers CSP/no-store y su entrada de menu; mercado
+    ajeno es 422."""
+    from test_pantalla_danadas import _hoja_ui
+
+    resp = _html_danadas(monkeypatch, [_hoja_ui()])
+    assert resp.status_code == 200, resp.text
+    assert 'data-pantalla="keywords-danadas"' in resp.text
+    assert "Regresar todas" in resp.text
+    assert 'src="/static/js/danadas.js?v=' in resp.text
+    assert "default-src 'self'" in resp.headers["content-security-policy"]
+    assert resp.headers["cache-control"] == "no-store"
+    assert '<a href="/keywords-danadas" aria-current="page">Keywords dañadas</a>' in resp.text
+    malo = _html_danadas(monkeypatch, [], plataforma="meli")
+    assert malo.status_code == 422
+
+
+def test_ui_danadas_nombre_con_script_escapado():
+    """El nombre (texto libre de la keyword) va por {{ }} y el entorno REAL
+    lo escapa, en la fila y en la lista de "Regresar todas"."""
+    from test_pantalla_danadas import _hoja_ui
+
+    html = ui.templates.env.get_template("keywords_danadas.html").render(
+        pantalla="keywords-danadas",
+        plataforma="amazon_mx",
+        calculado_el=None,
+        hojas=[_hoja_ui(nombre=PAYLOAD_XSS)],
+    )
+    assert PAYLOAD_XSS not in html
+    assert "&lt;script&gt;" in html
+
+
+def test_ui_danadas_js_sin_literal_no_manda_regresar_todas():
+    """Con Node (modelo test_ui_fabrica): sin el literal `REGRESAR <N>
+    KEYWORDS` exacto, la pagina no manda `bid/regresar-todas`; con el
+    literal lo manda con plataforma, confirmacion y actor, y dice cual
+    quedo pendiente."""
+    import os
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    archivo = Path(ui.__file__).resolve().parent / "static" / "js" / "danadas.js"
+    assert archivo.exists(), "Falta el cliente de danadas"
+    node = shutil.which("node")
+    if not node:
+        if "CI" in os.environ:
+            pytest.fail("Node es obligatorio en CI para verificar el flujo JavaScript")
+        pytest.skip("Node no disponible; el navegador se verifica en integracion")
+    guion = r"""
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const vm = require("node:vm");
+const estado = {textContent: ""};
+const form = {
+  dataset: {esperada: "REGRESAR 2 KEYWORDS", plataforma: "amazon_mx"},
+  elements: {
+    confirmacion: {value: "REGRESAR 2 KEYWORD"},
+    actor: {value: "dueno"},
+    token: {value: "t"},
+  },
+  events: {},
+  addEventListener(event, fn) { this.events[event] = fn; },
+  querySelector() { return estado; },
+};
+const docEvents = {};
+global.document = {
+  querySelectorAll(selector) {
+    if (selector === "form[data-regresar-todas]") return [form];
+    return [];
+  },
+  addEventListener: (event, fn) => { docEvents[event] = fn; },
+};
+const calls = [];
+const ok = body => ({ok: true, status: 200, json: async () => body});
+global.fetch = async (url, options = {}) => {
+  calls.push({url, options});
+  return ok({plataforma: "amazon_mx", resultados: [
+    {ok: true, hoja_id: 2963, bid_antes: "3.73", bid_ahora: "9.74",
+     moneda: "MXN", decision_revertida_id: 1, actor: "dueno"},
+    {ok: false, motivo: "hoja 2871: sin racha vigente"},
+  ]});
+};
+vm.runInThisContext(fs.readFileSync(process.argv[1], "utf8"));
+(async () => {
+  assert.ok(docEvents.DOMContentLoaded, "danadas.js cablea en DOMContentLoaded");
+  await docEvents.DOMContentLoaded();
+  const emit = async () => {
+    form.events.submit({preventDefault() {}});
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+  };
+  await emit();
+  assert.equal(calls.length, 0, "sin el literal exacto no se manda regresar-todas");
+  assert.match(estado.textContent, /REGRESAR 2 KEYWORDS/);
+  form.elements.confirmacion.value = "REGRESAR 2 KEYWORDS";
+  await emit();
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, "/api/ads-optimizer/bid/regresar-todas");
+  assert.equal(calls[0].options.method, "POST");
+  assert.equal(calls[0].options.headers["x-orbit-token"], "t");
+  assert.deepEqual(JSON.parse(calls[0].options.body),
+    {plataforma: "amazon_mx", confirmacion: "REGRESAR 2 KEYWORDS", actor: "dueno"});
+  assert.match(estado.textContent, /1 de 2/);
+  assert.match(estado.textContent, /hoja 2871/);
+})().catch(error => { console.error(error); process.exitCode = 1; });
+"""
+    resultado = subprocess.run(
+        [node, "-e", guion, str(archivo)],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=15,
+    )
+    assert resultado.returncode == 0, resultado.stdout + resultado.stderr
+
+
+def test_ui_dinero_js_plan_sin_post_y_aplicar_exige_literal():
+    """Con Node (modelo danadas): tocar el boton de fuera de Amazon pide
+    `campana-ajuste/plan` (GET) y no manda ningun POST; el submit sin el
+    literal `APLICAR AJUSTE` no manda `campana-ajuste/aplicar`; con el
+    literal lo manda con huella, confirmacion y actor; el regreso manda su
+    POST con actor. Todo con el token en `x-orbit-token`."""
+    import os
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    archivo = Path(ui.__file__).resolve().parent / "static" / "js" / "dinero.js"
+    assert archivo.exists(), "Falta el cliente de dinero"
+    node = shutil.which("node")
+    if not node:
+        if "CI" in os.environ:
+            pytest.fail("Node es obligatorio en CI para verificar el flujo JavaScript")
+        pytest.skip("Node no disponible; el navegador se verifica en integracion")
+    guion = r"""
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const vm = require("node:vm");
+function campo(value) { return {value}; }
+function mockForm(dataset, elements) {
+  const form = {
+    dataset: {...dataset}, elements, events: {}, hidden: true,
+    nodos: {"[data-frase]": {textContent: ""}, "[data-estado]": {textContent: ""},
+            "[data-ver-plan]": {events: {}, addEventListener(e, f) { this.events[e] = f; }},
+            'button[type="submit"]': {disabled: true}},
+    addEventListener(e, f) { this.events[e] = f; },
+    querySelector(sel) { return this.nodos[sel]; },
+  };
+  return form;
+}
+const formFuera = mockForm({campanaId: "7", clase: "fuera_de_amazon"},
+  {actor: campo("dueno"), token: campo("t"), confirmacion: campo("")});
+const formPre = mockForm({campanaId: "7", clase: "presupuesto"},
+  {presupuesto: campo("120"), actor: campo("dueno"), token: campo("t"),
+   confirmacion: campo("")});
+const formReg = mockForm({ajusteId: "9"},
+  {actor: campo("dueno"), token: campo("t")});
+function mockBoton(dataset) {
+  return {dataset, events: {}, addEventListener(e, f) { this.events[e] = f; }};
+}
+const botonFuera = mockBoton({campanaId: "7", ajusteClase: "fuera_de_amazon"});
+const botonPre = mockBoton({campanaId: "7", ajusteClase: "presupuesto"});
+const botonReg = mockBoton({regresarAjuste: "9"});
+const docEvents = {};
+global.document = {
+  querySelectorAll(sel) {
+    if (sel === "button[data-ajuste-clase]") return [botonFuera, botonPre];
+    if (sel === "button[data-regresar-ajuste]") return [botonReg];
+    if (sel === "form[data-ajuste-form]") return [formFuera, formPre];
+    if (sel === "form[data-regresar-form]") return [formReg];
+    return [];
+  },
+  getElementById(id) {
+    if (id === "ajuste-7-fuera_de_amazon") return formFuera;
+    if (id === "ajuste-7-presupuesto") return formPre;
+    if (id === "regreso-ajuste-9") return formReg;
+    return null;
+  },
+  addEventListener: (e, f) => { docEvents[e] = f; },
+};
+const calls = [];
+const ok = body => ({ok: true, status: 200, json: async () => body});
+global.fetch = async (url, options = {}) => {
+  calls.push({url, options});
+  if (url.startsWith("/api/ads-optimizer/campana-ajuste/plan")) {
+    return ok({frase: "Orbit cambia el presupuesto", huella: "h1"});
+  }
+  return ok({confirmada: true});
+};
+vm.runInThisContext(fs.readFileSync(process.argv[1], "utf8"));
+(async () => {
+  assert.ok(docEvents.DOMContentLoaded, "dinero.js cablea en DOMContentLoaded");
+  await docEvents.DOMContentLoaded();
+  const tick = async () => {
+    await new Promise(r => setImmediate(r));
+    await new Promise(r => setImmediate(r));
+  };
+  const posts = () => calls.filter(c => (c.options.method || "GET") === "POST");
+  botonFuera.events.click();
+  await tick();
+  assert.equal(calls.length, 1, "tocar el boton pide el plan una vez");
+  assert.ok(calls[0].url.startsWith("/api/ads-optimizer/campana-ajuste/plan?"));
+  assert.ok(calls[0].url.includes("clase=fuera_de_amazon"));
+  assert.equal(posts().length, 0, "el plan no manda POST");
+  assert.equal(formFuera.nodos["[data-frase]"].textContent, "Orbit cambia el presupuesto");
+  assert.equal(formFuera.nodos['button[type="submit"]'].disabled, false);
+  botonPre.events.click();
+  assert.equal(formPre.hidden, false);
+  assert.equal(calls.length, 1, "abrir el form de presupuesto no pide nada");
+  formPre.nodos["[data-ver-plan]"].events.click();
+  await tick();
+  assert.equal(calls.length, 2);
+  assert.ok(calls[1].url.includes("presupuesto=120"));
+  assert.equal(posts().length, 0);
+  formPre.events.submit({preventDefault() {}});
+  await tick();
+  assert.equal(posts().length, 0, "sin el literal no se manda aplicar");
+  formPre.elements.confirmacion.value = "APLICAR AJUSTE";
+  formPre.events.submit({preventDefault() {}});
+  await tick();
+  assert.equal(posts().length, 1);
+  assert.equal(calls[2].url, "/api/ads-optimizer/campana-ajuste/aplicar");
+  assert.equal(calls[2].options.headers["x-orbit-token"], "t");
+  assert.deepEqual(JSON.parse(calls[2].options.body),
+    {campana_id: 7, clase: "presupuesto", presupuesto: 120,
+     huella: "h1", confirmacion: "APLICAR AJUSTE", actor: "dueno"});
+  assert.equal(formPre.nodos['button[type="submit"]'].disabled, true);
+  botonReg.events.click();
+  assert.equal(formReg.hidden, false);
+  formReg.events.submit({preventDefault() {}});
+  await tick();
+  assert.equal(posts().length, 2);
+  assert.equal(calls[3].url, "/api/ads-optimizer/campana-ajuste/9/regresar");
+  assert.equal(calls[3].options.headers["x-orbit-token"], "t");
+  assert.deepEqual(JSON.parse(calls[3].options.body), {actor: "dueno"});
+  assert.equal(formReg.nodos['button[type="submit"]'].disabled, true);
+})().catch(error => { console.error(error); process.exitCode = 1; });
+"""
+    resultado = subprocess.run(
+        [node, "-e", guion, str(archivo)],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=15,
+    )
+    assert resultado.returncode == 0, resultado.stdout + resultado.stderr
+
+
+def test_r07m_dinero_js_error_de_api_se_pinta_como_texto():
+    """R07-M (J5): el error de la API al aplicar se pinta con
+    textContent, nunca con innerHTML (el texto del error es del otro)."""
+    import os
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    archivo = Path(ui.__file__).resolve().parent / "static" / "js" / "dinero.js"
+    node = shutil.which("node")
+    if not node:
+        if "CI" in os.environ:
+            pytest.fail("Node es obligatorio en CI para verificar el flujo JavaScript")
+        pytest.skip("Node no disponible; el navegador se verifica en integracion")
+    guion = r"""
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const vm = require("node:vm");
+function campo(value) { return {value}; }
+const estado = {textContent: ""};
+const form = {
+  dataset: {campanaId: "7", clase: "presupuesto", huella: "h1"}, hidden: false,
+  elements: {presupuesto: campo("120"), actor: campo("dueno"), token: campo("t"),
+             confirmacion: campo("APLICAR AJUSTE")},
+  events: {},
+  nodos: {"[data-frase]": {textContent: ""}, "[data-estado]": estado,
+          "[data-ver-plan]": {events: {}, addEventListener(e, f) { this.events[e] = f; }},
+          'button[type="submit"]': {disabled: false}},
+  addEventListener(e, f) { this.events[e] = f; },
+  querySelector(sel) { return this.nodos[sel]; },
+};
+const docEvents = {};
+global.document = {
+  querySelectorAll(sel) {
+    if (sel === "form[data-ajuste-form]") return [form];
+    return [];
+  },
+  getElementById() { return null; },
+  addEventListener: (e, f) => { docEvents[e] = f; },
+};
+global.fetch = async () => ({
+  ok: false, status: 409,
+  json: async () => ({detail: "<img src=x onerror=alert(1)>"}),
+});
+vm.runInThisContext(fs.readFileSync(process.argv[1], "utf8"));
+(async () => {
+  await docEvents.DOMContentLoaded();
+  form.events.submit({preventDefault() {}});
+  await new Promise(r => setImmediate(r));
+  await new Promise(r => setImmediate(r));
+  assert.ok(estado.textContent.includes("<img src=x onerror=alert(1)>"),
+    "el error se pinta como texto: " + estado.textContent);
+  assert.equal(estado.innerHTML, undefined, "jamas innerHTML con texto ajeno");
+})().catch(error => { console.error(error); process.exitCode = 1; });
+"""
+    resultado = subprocess.run(
+        [node, "-e", guion, str(archivo)],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=15,
+    )
+    assert resultado.returncode == 0, resultado.stdout + resultado.stderr
+
+
+def test_r07m_plantilla_dinero_formularios_ocultos_y_escape(monkeypatch):
+    """R07-M (H2-H7): el formulario de ajuste nace hidden, el token es
+    password, no hay method=get, y nombre, frase y avisos se escapan."""
+    from test_pantalla_dinero import _fila_ui
+
+    fila = _fila_ui(
+        campana_id=7,
+        nombre="<script>alert(1)</script>",
+        ajustes_regresables=[{"ajuste_id": 9, "frase": "<b>volver</b>"}],
+        avisos=["<i>ojo</i>"],
+        presupuesto_diario="100",
+        gasto_medio_diario="10",
+        uso_presupuesto_pct=None,
+        estrategia=None,
+        ajustes_ubicacion=[],
+        gasto_fuera_de_amazon="0",
+    )
+
+    def _dinero(conn, plataforma=None):
+        from app.campana_ajustes import CLASES_SELLADAS, ORDEN_CLASES
+
+        return {
+            "plataforma": "amazon_mx",
+            "moneda": "MXN",
+            "desde": "2026-07-06",
+            "hasta": "2026-10-04",
+            "filas": [],
+            "total": _fila_ui(tipo=""),
+            "hojas_sin_clasificar": 0,
+            "target_acos_pct": "13.3",
+            "por_ubicacion": [],
+            "por_campana": [fila],
+            "clases_ajuste": [c for c in ORDEN_CLASES if c in CLASES_SELLADAS],
+        }
+
+    monkeypatch.setattr(ui.dash, "donde_poner_el_dinero", _dinero)
+    app.dependency_overrides[_conexion_lectura] = lambda: None
+    try:
+        resp = TestClient(app).get("/donde-poner-el-dinero")
+    finally:
+        app.dependency_overrides.pop(_conexion_lectura, None)
+    assert resp.status_code == 200, resp.text
+    html = resp.text
+    assert '<form hidden id="ajuste-7-presupuesto"' in html
+    assert 'name="token" type="password"' in html
+    assert 'name="token" type="text"' not in html
+    assert 'method="get"' not in html
+    assert "<script>alert(1)</script>" not in html
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html
+    assert "<b>volver</b>" not in html
+    assert "&lt;b&gt;volver&lt;/b&gt;" in html
+    assert "<i>ojo</i>" not in html
+    assert "&lt;i&gt;ojo&lt;/i&gt;" in html
+
+
+# P.1 (BIDS 02 s3): /donde-poner-el-dinero.
+# ---------------------------------------------------------------------------
+
+
+def _html_dinero(monkeypatch, filas: list[dict], **params):
+    """Render del camino REAL (TestClient -> pagina) con el endpoint
+    fakeado: se prueba la vista, no el SQL (modelo _html_danadas)."""
+    from test_pantalla_dinero import _fila_ui
+
+    def _dinero(conn, plataforma=None):
+        from app.campana_ajustes import CLASES_SELLADAS, ORDEN_CLASES
+
+        return {
+            "plataforma": plataforma or "amazon_mx",
+            "moneda": "MXN",
+            "desde": "2026-07-06",
+            "hasta": "2026-10-04",
+            "filas": filas,
+            "total": _fila_ui(tipo=""),
+            "hojas_sin_clasificar": 0,
+            "target_acos_pct": "13.3",
+            "por_ubicacion": [],
+            "por_campana": [],
+            "clases_ajuste": [c for c in ORDEN_CLASES if c in CLASES_SELLADAS],
+        }
+
+    monkeypatch.setattr(ui.dash, "donde_poner_el_dinero", _dinero)
+    app.dependency_overrides[_conexion_lectura] = lambda: None
+    try:
+        return TestClient(app).get("/donde-poner-el-dinero", params=params)
+    finally:
+        app.dependency_overrides.pop(_conexion_lectura, None)
+
+
+def test_ui_donde_poner_el_dinero_200_con_marcador_y_menu(monkeypatch):
+    """La ruta sirve la pantalla con su marcador, headers CSP/no-store y su
+    entrada de menu; mercado ajeno es 422."""
+    from test_pantalla_dinero import _fila_ui
+
+    resp = _html_dinero(monkeypatch, [_fila_ui()])
+    assert resp.status_code == 200, resp.text
+    assert 'data-pantalla="donde-poner-el-dinero"' in resp.text
+    assert "default-src 'self'" in resp.headers["content-security-policy"]
+    assert resp.headers["cache-control"] == "no-store"
+    assert (
+        '<a href="/donde-poner-el-dinero" aria-current="page">Dónde poner el dinero</a>'
+        in resp.text
+    )
+    malo = _html_dinero(monkeypatch, [], plataforma="meli")
+    assert malo.status_code == 422
+
+
+def test_ui_donde_poner_el_dinero_pasa_plataforma_us(monkeypatch):
+    """U12: ?plataforma=amazon_us llega al lector (la ruta no lee siempre MX)."""
+    from test_pantalla_dinero import _fila_ui
+
+    pedidas = []
+
+    def _dinero(conn, plataforma=None):
+        from app.campana_ajustes import CLASES_SELLADAS, ORDEN_CLASES
+
+        pedidas.append(plataforma)
+        return {
+            "plataforma": plataforma or "amazon_mx",
+            "moneda": "USD",
+            "desde": "2026-07-06",
+            "hasta": "2026-10-04",
+            "filas": [_fila_ui()],
+            "total": _fila_ui(tipo=""),
+            "hojas_sin_clasificar": 0,
+            "target_acos_pct": "13.3",
+            "por_ubicacion": [],
+            "por_campana": [],
+            "clases_ajuste": [c for c in ORDEN_CLASES if c in CLASES_SELLADAS],
+        }
+
+    monkeypatch.setattr(ui.dash, "donde_poner_el_dinero", _dinero)
+    app.dependency_overrides[_conexion_lectura] = lambda: None
+    try:
+        resp = TestClient(app).get("/donde-poner-el-dinero", params={"plataforma": "amazon_us"})
+    finally:
+        app.dependency_overrides.pop(_conexion_lectura, None)
+    assert resp.status_code == 200, resp.text
+    assert pedidas == ["amazon_us"]
+
+
+def test_ui_donde_poner_el_dinero_carga_dinero_js(monkeypatch):
+    """P.2b: la pagina incluye el cliente de ajustes (CSP self, versionado)."""
+    from test_pantalla_dinero import _fila_ui
+
+    resp = _html_dinero(monkeypatch, [_fila_ui()])
+    assert resp.status_code == 200, resp.text
+    assert "/static/js/dinero.js?v=" in resp.text
+
+
+def test_ui_salud_muestra_avisos_campana_y_sin_bloque_no_rompe(monkeypatch):
+    """V.4: /salud pinta las frases de `avisos_campana`; sin el bloque (pre-
+    V.4) la pantalla no rompe."""
+    base = _plataforma_quota()
+    base["avisos_campana"] = ["Fuera de Amazon: 1,735 MXN en 30 días, 1,127 clics."]
+    html = _salud_html_fakeado(monkeypatch, {"amazon_mx": base})
+    assert "Fuera de Amazon: 1,735 MXN en 30 días, 1,127 clics." in html
+    html2 = _salud_html_fakeado(monkeypatch, {"amazon_mx": _plataforma_quota()})
+    assert "bloque-avisos-campana" not in html2
+
+
+def _guion_dinero_base():
+    """Banco DOM/fetch de guion para dinero.js (patron del test de plan
+    y literal): un form de presupuesto + fetch con cola de respuestas."""
+    return r"""
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const vm = require("node:vm");
+function campo(value) { return {value}; }
+function mockForm(dataset, elements) {
+  return {
+    dataset: {...dataset}, elements, events: {}, hidden: false,
+    nodos: {"[data-frase]": {textContent: ""}, "[data-estado]": {textContent: ""},
+            "[data-ver-plan]": {events: {}, addEventListener(e, f) { this.events[e] = f; }},
+            'button[type="submit"]': {disabled: true}},
+    addEventListener(e, f) { this.events[e] = f; },
+    querySelector(sel) { return this.nodos[sel]; },
+  };
+}
+"""
+
+
+def _corre_guion_dinero(node, archivo, cuerpo):
+    import subprocess
+
+    guion = _guion_dinero_base() + cuerpo
+    resultado = subprocess.run(
+        [node, "-e", guion, str(archivo)],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=15,
+    )
+    assert resultado.returncode == 0, resultado.stdout + resultado.stderr
+
+
+def test_ui_dinero_js_ver_plan_no_rehabilita_con_envio_en_curso():
+    """B9: con el POST de aplicar en vuelo, pedir el plan (200) no
+    rehabilita Aplicar; resolver el envio deja un solo POST."""
+    import shutil
+    from pathlib import Path
+
+    archivo = Path(ui.__file__).resolve().parent / "static" / "js" / "dinero.js"
+    node = shutil.which("node")
+    if not node:
+        import os
+
+        import pytest
+
+        if "CI" in os.environ:
+            pytest.fail("Node es obligatorio en CI para verificar el flujo JavaScript")
+        pytest.skip("Node no disponible; el navegador se verifica en integracion")
+    _corre_guion_dinero(
+        node,
+        archivo,
+        r"""
+const form = mockForm({campanaId: "7", clase: "presupuesto", huella: "h1"},
+  {presupuesto: campo("120"), actor: campo("dueno"), token: campo("t"),
+   confirmacion: campo("APLICAR AJUSTE")});
+const docEvents = {};
+global.document = {
+  querySelectorAll(sel) {
+    if (sel === "form[data-ajuste-form]") return [form];
+    return [];
+  },
+  getElementById(id) { return null; },
+  addEventListener: (e, f) => { docEvents[e] = f; },
+};
+const calls = [];
+let sueltaPost;
+const colaPost = [];
+global.fetch = async (url, options = {}) => {
+  calls.push({url, options});
+  if (url.startsWith("/api/ads-optimizer/campana-ajuste/plan")) {
+    return {ok: true, status: 200, json: async () => ({frase: "f", huella: "h2"})};
+  }
+  return new Promise(res => { colaPost.push(res); });
+};
+vm.runInThisContext(fs.readFileSync(process.argv[1], "utf8"));
+(async () => {
+  await docEvents.DOMContentLoaded();
+  const tick = async () => {
+    await new Promise(r => setImmediate(r));
+    await new Promise(r => setImmediate(r));
+    await new Promise(r => setImmediate(r));
+  };
+  const boton = form.nodos['button[type="submit"]'];
+  const posts = () => calls.filter(c => (c.options.method || "GET") === "POST");
+  form.events.submit({preventDefault() {}});
+  await tick();
+  assert.equal(posts().length, 1, "el envio sale");
+  assert.equal(boton.disabled, true);
+  form.nodos["[data-ver-plan]"].events.click();
+  await tick();
+  assert.equal(boton.disabled, true, "Ver plan con envio en curso no rehabilita");
+  assert.equal(posts().length, 1);
+  colaPost.shift()({ok: true, status: 200, json: async () => ({confirmada: true})});
+  await tick();
+  assert.equal(form.nodos["[data-estado]"].textContent, "Ajuste aplicado.");
+  form.events.submit({preventDefault() {}});
+  form.events.submit({preventDefault() {}});
+  await tick();
+  assert.equal(posts().length, 2, "dos submits seguidos mandan uno (candado propio)");
+})().catch(error => { console.error(error); process.exitCode = 1; });
+""",
+    )
+
+
+def test_ui_dinero_js_plan_sin_token_y_candados():
+    """J1-J4: el GET del plan no lleva token; el literal acepta solo el
+    texto exacto; sin huella no hay POST; un plan rechazado no habilita."""
+    import shutil
+    from pathlib import Path
+
+    archivo = Path(ui.__file__).resolve().parent / "static" / "js" / "dinero.js"
+    node = shutil.which("node")
+    if not node:
+        import os
+
+        import pytest
+
+        if "CI" in os.environ:
+            pytest.fail("Node es obligatorio en CI para verificar el flujo JavaScript")
+        pytest.skip("Node no disponible; el navegador se verifica en integracion")
+    _corre_guion_dinero(
+        node,
+        archivo,
+        r"""
+function banco(confirmacion) {
+  const form = mockForm({campanaId: "7", clase: "presupuesto"},
+    {presupuesto: campo("120"), actor: campo("dueno"), token: campo("SECRETO"),
+     confirmacion: campo(confirmacion)});
+  const docEvents = {};
+  const calls = [];
+  let planResp = {ok: true, status: 200, json: async () => ({frase: "f", huella: "h1"})};
+  const ctxFetch = async (url, options = {}) => {
+    calls.push({url, options});
+    if (url.startsWith("/api/ads-optimizer/campana-ajuste/plan")) return planResp;
+    return {ok: true, status: 200, json: async () => ({confirmada: true})};
+  };
+  return {form, docEvents, calls, ctxFetch, setPlan(r) { planResp = r; }};
+}
+async function cablea(b) {
+  global.document = {
+    querySelectorAll(sel) {
+      if (sel === "form[data-ajuste-form]") return [b.form];
+      return [];
+    },
+    getElementById(id) { return null; },
+    addEventListener: (e, f) => { b.docEvents[e] = f; },
+  };
+  global.fetch = b.ctxFetch;
+  vm.runInThisContext(fs.readFileSync(process.argv[1], "utf8"));
+  await b.docEvents.DOMContentLoaded();
+}
+const tick = async () => {
+  await new Promise(r => setImmediate(r));
+  await new Promise(r => setImmediate(r));
+  await new Promise(r => setImmediate(r));
+};
+(async () => {
+  const posts = b => b.calls.filter(c => (c.options.method || "GET") === "POST");
+  const b1 = banco("");
+  await cablea(b1);
+  b1.form.nodos["[data-ver-plan]"].events.click();
+  await tick();
+  assert.ok(!b1.calls[0].url.includes("token="), "J1: el plan no lleva token en la URL");
+  assert.ok(!b1.calls[0].url.includes("SECRETO"), "J1: el secreto no viaja en la URL");
+  const b2 = banco("otra cosa");
+  await cablea(b2);
+  b2.form.nodos["[data-ver-plan]"].events.click();
+  await tick();
+  b2.form.events.submit({preventDefault() {}});
+  await tick();
+  assert.equal(posts(b2).length, 0, "J2: literal distinto no manda POST");
+  assert.equal(b2.form.nodos["[data-estado]"].textContent,
+    "Escribe APLICAR AJUSTE para confirmar.");
+  const b3 = banco("APLICAR AJUSTE");
+  await cablea(b3);
+  b3.form.events.submit({preventDefault() {}});
+  await tick();
+  assert.equal(posts(b3).length, 0, "J3: sin plan no hay POST");
+  assert.equal(b3.form.nodos["[data-estado]"].textContent, "Pide el plan primero.");
+  const b4 = banco("");
+  await cablea(b4);
+  b4.setPlan({ok: false, status: 422, json: async () => ({detail: "el ajuste no cambia nada"})});
+  b4.form.nodos["[data-ver-plan]"].events.click();
+  await tick();
+  assert.equal(b4.form.nodos['button[type="submit"]'].disabled, true,
+    "J4: plan rechazado no habilita");
+  assert.equal(b4.form.dataset.huella, undefined);
+})().catch(error => { console.error(error); process.exitCode = 1; });
+""",
+    )
+
+
+# ---------------------------------------------------------------------------
+# P.4 (BIDS 02 s5): /productos-sin-clics.
+# ---------------------------------------------------------------------------
+
+
+def _pantalla_p4(**cambios):
+    base = {
+        "plataforma": "amazon_mx",
+        "candidatos": [
+            {
+                "product_id": 1,
+                "sku": "SC-1",
+                "nombre": "Collar",
+                "unidades_90d": 2,
+                "clics_ads_60d": 19,
+                "listing_ids": [11],
+            }
+        ],
+        "impulsos": [
+            {
+                "impulso_id": 7,
+                "product_id": 1,
+                "sku": "SC-1",
+                "nombre": "Collar",
+                "subfamilia": "aros",
+                "lote": "impulso-x",
+                "estado_lote": "applied",
+                "moneda": "MXN",
+                "tope_monto": "350",
+                "dia": 6,
+                "plazo_dias": 14,
+                "impresiones": 1840,
+                "clics": 14,
+                "gasto": "48",
+                "pedidos": 0,
+                "veredicto": "en_curso",
+                "frase": "Día 6 de 14 · sigue aprendiendo",
+                "clics_fuera_de_amazon": 3,
+                "retiro_ids": [5],
+                "frase_fuera_de_amazon": "3 de sus 14 clics vinieron de fuera de Amazon.",
+            }
+        ],
+        "sin_pedido": [{"product_id": 2, "sku": "SO-1", "nombre": "Viejo", "listing_ids": [12]}],
+        "anuncios_sin_producto": 4,
+    }
+    base.update(cambios)
+    return base
+
+
+def _html_productos(monkeypatch, datos, **params):
+    """Render del camino REAL con el endpoint fakeado: se prueba la
+    vista, no el SQL (modelo _html_danadas)."""
+
+    def _productos(conn, plataforma=None):
+        return {**datos, "plataforma": plataforma or "amazon_mx"}
+
+    monkeypatch.setattr(ui.dash, "productos_sin_clics", _productos)
+    app.dependency_overrides[_conexion_lectura] = lambda: None
+    try:
+        return TestClient(app).get("/productos-sin-clics", params=params)
+    finally:
+        app.dependency_overrides.pop(_conexion_lectura, None)
+
+
+def test_ui_productos_sin_clics_200_con_secciones_y_menu(monkeypatch):
+    """La ruta sirve las tres secciones, los botones de flujo, su
+    script y su entrada de menu; mercado ajeno es 422."""
+    resp = _html_productos(monkeypatch, _pantalla_p4())
+    assert resp.status_code == 200, resp.text
+    assert 'data-pantalla="productos-sin-clics"' in resp.text
+    assert "Candidatos a impulsar" in resp.text
+    assert "Ver lanzamiento" in resp.text
+    assert "Impulsar aparte" in resp.text
+    assert "Sacar de las bolsas compartidas" in resp.text
+    assert "Regresarlo a sus grupos de antes" in resp.text
+    assert "Hay 4 anuncios sin producto ligado que no puedo juzgar." in resp.text
+    assert "3 de sus 14 clics vinieron de fuera de Amazon." in resp.text
+    assert 'src="/static/js/productos.js?v=' in resp.text
+    assert "default-src 'self'" in resp.headers["content-security-policy"]
+    assert resp.headers["cache-control"] == "no-store"
+    assert '<a href="/productos-sin-clics" aria-current="page">Productos sin clics</a>' in resp.text
+    malo = _html_productos(monkeypatch, _pantalla_p4(), plataforma="meli")
+    assert malo.status_code == 422
+
+
+def test_ui_productos_nombre_con_script_escapado():
+    """El nombre (texto libre del producto) va por {{ }} y el entorno
+    REAL lo escapa, en candidatos, impulsos y 11 meses."""
+    html = ui.templates.env.get_template("productos_sin_clics.html").render(
+        pantalla="productos-sin-clics",
+        plataforma="amazon_mx",
+        candidatos=[
+            {
+                "product_id": 1,
+                "sku": "S",
+                "nombre": PAYLOAD_XSS,
+                "unidades_90d": 2,
+                "clics_ads_60d": None,
+                "listing_ids": [11],
+            }
+        ],
+        impulsos=[],
+        sin_pedido=[{"product_id": 2, "sku": "S2", "nombre": PAYLOAD_XSS, "listing_ids": [12]}],
+        anuncios_sin_producto=0,
+        asset_version="x",
+    )
+    assert PAYLOAD_XSS not in html
+    assert "&lt;script&gt;" in html
+    assert ">—<" in html, "clics None pinta el guion"
+
+
+def test_ui_productos_casillas_mandan_ids_reales():
+    """R09 B12 (T1/T6): la casilla manda los listings (no el product_id) y
+    regresar manda los retiros (no el impulso_id)."""
+    base = _pantalla_p4()
+    base["candidatos"] = [
+        {
+            "product_id": 1,
+            "sku": "SC-1",
+            "nombre": "Collar",
+            "unidades_90d": 2,
+            "clics_ads_60d": 19,
+            "listing_ids": [11, 12],
+        }
+    ]
+    base["impulsos"][0]["retiro_ids"] = [5, 6]
+    base["sin_pedido"] = [{"product_id": 2, "sku": "SO-1", "nombre": "Viejo", "listing_ids": [13]}]
+    html = ui.templates.env.get_template("productos_sin_clics.html").render(
+        pantalla="productos-sin-clics",
+        asset_version="x",
+        **base,
+    )
+    assert 'data-listings="11,12"' in html
+    assert 'data-listings="1"' not in html
+    assert 'data-retiros="5,6"' in html
+    assert 'data-retiros="7"' not in html
+
+
+def _pantalla_p6(**cambios):
+    """Contexto de busquedas-sin-venta (forma del endpoint)."""
+    datos = {
+        "plataforma": "amazon_mx",
+        "moneda": "MXN",
+        "desde": "2026-07-06",
+        "hasta": "2026-10-04",
+        "referencia": {"visto_pct": "60", "azar_pct": "25"},
+        "asins": [
+            {
+                "asin": "B0AJENO001",
+                "clics": 50,
+                "gasto": "350",
+                "campanas": ["Campana Uno"],
+                "es_propio": False,
+            },
+            {
+                "asin": "B0PROPIO01",
+                "clics": 4,
+                "gasto": "400",
+                "campanas": ["Campana Dos"],
+                "es_propio": True,
+            },
+        ],
+        "palabras": [
+            {
+                "palabra": "gama",
+                "busquedas": 2,
+                "clics": 20,
+                "gasto": "400",
+                "ejemplos": ["gama dos", "gama uno"],
+            }
+        ],
+        "asins_a_medio_camino": 3,
+        "palabras_a_medio_camino": 5,
+    }
+    datos.update(cambios)
+    return datos
+
+
+def _html_busquedas(monkeypatch, datos, **params):
+    """Camino real con el endpoint falso (modelo _html_productos)."""
+
+    def _busquedas(conn, plataforma=None):
+        return {**datos, "plataforma": plataforma or "amazon_mx"}
+
+    monkeypatch.setattr(ui.dash, "busquedas_sin_venta", _busquedas)
+    app.dependency_overrides[_conexion_lectura] = lambda: None
+    try:
+        return TestClient(app).get("/busquedas-sin-venta", params=params)
+    finally:
+        app.dependency_overrides.pop(_conexion_lectura, None)
+
+
+def test_ui_busquedas_sin_venta_200_frase_tablas_y_menu(monkeypatch):
+    """P.6: la ruta sirve la frase con sus dos porcentajes, las dos
+    tablas, los conteos y su entrada de menu; mercado ajeno es 422."""
+    resp = _html_busquedas(monkeypatch, _pantalla_p6())
+    assert resp.status_code == 200, resp.text
+    assert 'data-pantalla="busquedas-sin-venta"' in resp.text
+    assert (
+        "60 % de tu gasto cayó en búsquedas que no vendieron."
+        " Con la conversión de tu cuenta, el azar daría 25 %." in resp.text
+    )
+    assert "Páginas de producto ajenas" in resp.text
+    assert "B0AJENO001" in resp.text and "B0PROPIO01" in resp.text
+    assert resp.text.count("es un producto tuyo") == 1
+    assert "Palabras y frases" in resp.text
+    assert "gama dos" in resp.text
+    assert "A medio camino" in resp.text
+    fuente = (
+        Path(__file__).resolve().parents[1] / "app" / "templates" / "busquedas_sin_venta.html"
+    ).read_text(encoding="utf-8")
+    assert "<button" not in fuente
+    assert "<form" not in fuente
+    assert (
+        '<a href="/busquedas-sin-venta" aria-current="page">Búsquedas que gastan sin vender</a>'
+        in resp.text
+    )
+    assert "default-src 'self'" in resp.headers["content-security-policy"]
+    malo = _html_busquedas(monkeypatch, _pantalla_p6(), plataforma="meli")
+    assert malo.status_code == 422
+
+
+def test_ui_busquedas_sin_referencia_pinta_la_frase_sin_porcentajes():
+    """P.6: sin referencia no hay porcentaje inventado (cambio 28)."""
+    html = ui.templates.env.get_template("busquedas_sin_venta.html").render(
+        pantalla="busquedas-sin-venta",
+        **_pantalla_p6(referencia={"visto_pct": None, "azar_pct": None}),
+    )
+    assert "Sin pedidos o sin clics en estos 90 días: no hay referencia de azar." in html
+    assert "de tu gasto cayó" not in html
+
+
+def test_ui_busquedas_listas_vacias_pintan_su_frase():
+    """P.6: sin candidatos, cada lista pinta su frase (cambio 31)."""
+    html = ui.templates.env.get_template("busquedas_sin_venta.html").render(
+        pantalla="busquedas-sin-venta",
+        **_pantalla_p6(asins=[], palabras=[]),
+    )
+    assert "Ninguna página de producto pasó el mínimo sin vender." in html
+    assert "Ninguna palabra pasó el mínimo sin vender." in html
+
+
+def test_ui_busquedas_ejemplo_con_script_escapado():
+    """P.6: la busqueda de ejemplo (texto libre) va escapada."""
+    datos = _pantalla_p6()
+    datos["palabras"][0]["ejemplos"] = [PAYLOAD_XSS]
+    html = ui.templates.env.get_template("busquedas_sin_venta.html").render(
+        pantalla="busquedas-sin-venta", **datos
+    )
+    assert PAYLOAD_XSS not in html
+    assert "&lt;script&gt;" in html
+
+
+def test_r13k_pagina_busquedas_pinta_el_gasto_en_dos_decimales(monkeypatch):
+    """R13-K: la pagina servida pinta el gasto con dos decimales por el
+    camino real (endpoint que formatea y plantilla que imprime)."""
+    from decimal import Decimal
+
+    from app import pantalla_busquedas as pb
+
+    pantalla = pb.PantallaBusquedas(
+        plataforma="amazon_mx",
+        moneda="MXN",
+        desde=dt.date(2026, 7, 6),
+        hasta=dt.date(2026, 10, 4),
+        referencia=pb.ReferenciaAzar(None, None),
+        asins=(pb.FilaAsinAjeno("B0PAGINA0001", 4, Decimal("400.5000"), ("C1",), False),),
+        palabras=(),
+        asins_a_medio_camino=0,
+        palabras_a_medio_camino=0,
+    )
+    monkeypatch.setattr(pb, "lee_busquedas", lambda conn, **kw: pantalla)
+    app.dependency_overrides[_conexion_lectura] = lambda: None
+    try:
+        resp = TestClient(app).get("/busquedas-sin-venta", params={"plataforma": "amazon_mx"})
+    finally:
+        app.dependency_overrides.pop(_conexion_lectura, None)
+    assert resp.status_code == 200, resp.text
+    assert "400.50 MXN" in resp.text
+    assert "400.5000" not in resp.text
+
+
+def test_r13f_pagina_pinta_los_conteos_de_medio_camino():
+    """R13-F W10: la pagina pinta los dos conteos de medio camino."""
+    html = ui.templates.env.get_template("busquedas_sin_venta.html").render(
+        pantalla="busquedas-sin-venta", **_pantalla_p6()
+    )
+    assert "3 páginas de producto y 5" in html
+
+
+def test_r13f_pagina_pinta_el_gasto_de_la_palabra():
+    """R13-F W11: la fila de palabra trae su gasto con la moneda."""
+    datos = _pantalla_p6()
+    datos["palabras"][0]["gasto"] = "777"
+    html = ui.templates.env.get_template("busquedas_sin_venta.html").render(
+        pantalla="busquedas-sin-venta", **datos
+    )
+    assert "777 MXN" in html
+
+
+def test_r13f_pagina_escapa_el_asin():
+    """R13-F W13: el ASIN de la fila va escapado."""
+    datos = _pantalla_p6()
+    datos["asins"][0]["asin"] = PAYLOAD_XSS
+    html = ui.templates.env.get_template("busquedas_sin_venta.html").render(
+        pantalla="busquedas-sin-venta", **datos
+    )
+    assert PAYLOAD_XSS not in html
+    assert "&lt;script&gt;" in html
+
+
+def test_r13f_pagina_escapa_las_campanas():
+    """R13-F W5: los nombres de campana de la fila van escapados."""
+    datos = _pantalla_p6()
+    datos["asins"][0]["campanas"] = [PAYLOAD_XSS]
+    html = ui.templates.env.get_template("busquedas_sin_venta.html").render(
+        pantalla="busquedas-sin-venta", **datos
+    )
+    assert PAYLOAD_XSS not in html
+    assert "&lt;script&gt;" in html
+
+
+def test_r13f_pagina_escapa_la_palabra():
+    """R13-F W6: la palabra de la fila va escapada."""
+    datos = _pantalla_p6()
+    datos["palabras"][0]["palabra"] = PAYLOAD_XSS
+    html = ui.templates.env.get_template("busquedas_sin_venta.html").render(
+        pantalla="busquedas-sin-venta", **datos
+    )
+    assert PAYLOAD_XSS not in html
+    assert "&lt;script&gt;" in html
+
+
+def test_ui_cortes_consulta_caida_no_pinta_sin_bloqueos():
+    ctx = _ctx_bloqueos()
+    ctx["bloqueos_disponibles"] = False
+    ctx["bloqueos_jev"]["bloqueos"] = []
+    html = ui.templates.env.get_template("cortes.html").render(**ctx)
+    assert "no se pudo leer tus bloqueos" in html
+    assert "sin bloqueos" not in html

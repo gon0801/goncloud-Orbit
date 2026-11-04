@@ -1,0 +1,15 @@
+BEGIN
+-- INICIO 00-sonda-formato
+amazon_mx|fee|finance|LabmanLabelPurchase|6|3
+amazon_mx|fee|finance|MFNPostageFee|6|648
+amazon_mx|fee|finance|MFNShippingChargeback|6|2
+amazon_mx|fee|finance|ShippingChargeback|6|6
+amazon_mx|fee|finance|ShippingHB|6|28
+amazon_mx|fee|shipping_label||4|21
+amazon_us|fee|finance|LabmanLabelPurchase|6|56
+amazon_us|fee|finance|ShippingHB|6|537
+amazon_us|fee|shipping_label||4|500
+0
+1218|170|0
+-- FIN 00-sonda-formato
+ROLLBACK
