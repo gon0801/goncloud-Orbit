@@ -2,7 +2,7 @@
   "feature": "resumen",
   "entry_point": "nav / (Resumen) en el dashboard",
   "base_url": "http://127.0.0.1:18012",
-  "action": "GET / y GET /api/dashboard/series/plataforma (amazon_us, amazon_mx)",
+  "action": "GET /, filtros ?canal=meli&periodo=7, ?periodo=90 y ?desde=2026-10-01&hasta=2026-10-07; GET /api/dashboard/series/plataforma (amazon_us, amazon_mx); CSS /static/css/dashboard.css y capturas y foco en navegador headless",
   "checks": {
     "http_200": true,
     "data-pantalla=resumen": true,
