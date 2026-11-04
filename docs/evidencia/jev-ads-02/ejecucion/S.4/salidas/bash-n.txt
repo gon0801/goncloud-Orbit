@@ -1,3 +1,0 @@
-bash -n OK desplegar.sh
-bash -n OK rollback.sh
-bash -n OK checklist.sh
