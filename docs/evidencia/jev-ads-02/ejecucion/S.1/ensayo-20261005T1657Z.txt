@@ -1,0 +1,21 @@
+== esquema de prod (orbit_read, solo lectura)
+rol app_jev garantizado en el cluster local
+esquema de prod cargado: 63 tablas
+== 1) aplicar 0051
+psql:~/dev/wt/jev02-deploy/migrations/0051_ads_acta_listado.sql:20: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+aplicada 0051_ads_acta_listado.sql
+tablas del acta: 2
+== 2) reversa 0051
+psql:~/dev/wt/jev02-deploy/migrations/0051_reversa_ads_acta_listado.sql:12: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+aplicada 0051_reversa_ads_acta_listado.sql
+OK: la reversa deja el esquema identico al de prod
+== 3) reaplicar 0051
+psql:~/dev/wt/jev02-deploy/migrations/0051_ads_acta_listado.sql:20: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+aplicada 0051_ads_acta_listado.sql
+OK: reaplicar da el mismo esquema que la primera vez
+== 4) permisos esperados (los mismos que verifica checklist.sh en prod)
+permisos OK
+ENSAYO OK

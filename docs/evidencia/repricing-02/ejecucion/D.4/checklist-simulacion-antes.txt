@@ -1,0 +1,29 @@
+== Checklist D.4 (solo lectura; sello r3-antes)
+== 1) HTTP: /health
+OK    GET /health = 200
+== 2) Esquema: senal de la 0073, politica meli y meli/meli sin entrada
+OK    0073 (rama meli en la funcion) = 1
+OK    1 politica meli vigente = 1
+OK    meli/meli sin entrada de modo (D.4 no enciende)
+INFO precio_modo_global: shadow
+== 3) GET /precios en 200 con modos, seguridad y goals
+OK    GET /precios = 200
+OK    /precios trae Modo global:
+OK    /precios trae bloque-seguridad-amazon_mx
+OK    /precios trae bloque-goals-amazon_mx
+== 4) El crontab: con las 4 de D.4 y las 4 de D.3 intactas
+OK    lineas precios meli (precio-meli.lock) = 2
+OK    linea muestras meli = 1
+OK    linea catalogo meli = 1
+OK    lineas precios D.3 intactas (precio-spapi.lock) = 2
+OK    lineas muestras D.3 intactas (amazon) = 2
+== 5) TIPOS_PRECIO_SELLADOS trae resumen_diario (S.6)
+OK    resumen_diario sellado = true
+== 6) Muestras y escenarios meli de hoy (= 2 FALLAS hasta la primera corrida)
+FALLA muestras meli calculadas hoy: esperado 't', obtenido 'f'
+FALLA escenarios disponible meli de hoy: esperado 't', obtenido 'f'
+== 7) Cobertura meli (API de hoy vs catalogo; DoD de D.4)
+  cobertura meli: sin corrida meli_catalogo terminada de hoy (no medido)
+NO MEDIDO cobertura meli (sin corrida meli_catalogo de hoy)
+== RESULTADO: 2 falla(s), 1 sin medir
+exit=3

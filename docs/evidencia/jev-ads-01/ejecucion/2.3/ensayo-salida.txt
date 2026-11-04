@@ -1,0 +1,29 @@
+== esquema de prod (orbit_read, solo lectura)
+esquema de prod cargado: 59 tablas
+== 1) aplicar 0049 y 0050
+psql:~/dev/wt/jev-b8/migrations/0049_jev_ads.sql:49: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+aplicada 0049_jev_ads.sql
+psql:~/dev/wt/jev-b8/migrations/0050_jev_revision_created_at.sql:17: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+aplicada 0050_jev_revision_created_at.sql
+tablas Jev: 4
+== 2) reversas 0050 y 0049
+psql:~/dev/wt/jev-b8/migrations/0050_reversa_jev_revision_created_at.sql:12: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+aplicada 0050_reversa_jev_revision_created_at.sql
+psql:~/dev/wt/jev-b8/migrations/0049_reversa_jev_ads.sql:16: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+aplicada 0049_reversa_jev_ads.sql
+OK: la reversa deja el esquema identico al de prod
+== 3) reaplicar 0049 y 0050
+psql:~/dev/wt/jev-b8/migrations/0049_jev_ads.sql:49: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+aplicada 0049_jev_ads.sql
+psql:~/dev/wt/jev-b8/migrations/0050_jev_revision_created_at.sql:17: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+aplicada 0050_jev_revision_created_at.sql
+OK: reaplicar da el mismo esquema que la primera vez
+== 4) permisos esperados (los mismos que verifica checklist.sh en prod)
+permisos OK
+ENSAYO OK

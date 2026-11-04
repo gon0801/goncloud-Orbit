@@ -1,0 +1,59 @@
+=== quality-kit cross-review.ps1 ===
+Repo: /Users/dn/dev/wt/jev-ads-worker
+CLI: auto
+Cadena auto: claude -> grok -> kimi -> qwen -> codex (excluido: glm, escribio el cambio)
+Alcance: bloque desde afc1f3b68715c5bf05bdf939eefc9a6683adc0cd hasta HEAD
+Archivos (pathspec de la tarea): tools/, tests/test_jev_cli.py
+Tamano del diff: 43454 caracteres
+Tope automatico para este diff (~43 KB): 1590 s. Usa -TimeoutSec para fijarlo a mano.
+
+==> AVISO: el diff es grande (43454 caracteres). Una revision asi cuesta del orden de 100-200k tokens y varios minutos. Si solo te interesa parte del cambio, acotalo con -Archivos <pathspecs> en vez de mandarlo entero.
+
+==> Invocando claude de forma no interactiva (tope: 1590 s)...
+
+=== Respuesta de claude (codigo de salida: 0) ===
+1. BLOQUEANTE - tools/jev_ads.py no tiene el bloque `if __name__ == "__main__": raise SystemExit(main())` (jev_fichas.py si lo tiene), asi que el CLI ejecutado como modulo o script no hace nada y sale 0, incluso con --aplicar y sin DSN. Reproduccion desde la raiz: `env -u ORBIT_DSN_ADMIN python -m tools.jev_ads evaluar --plataforma amazon_mx --grupo-id 1 --termino t --solicitud 00000000-0000-0000-0000-000000000001 --aplicar; echo $?` -> sin salida y exit 0, cuando deberia dar "falta ORBIT_DSN_ADMIN" y exit 2. Los tests no lo atrapan porque importan main directo. VERIFICAR: si pyproject declara un console-script que llame a main, esa via se salva, pero la invocacion del docstring (`tools/jev_ads.py evaluar ...`) sigue siendo un no-op silencioso.
+
+2. BLOQUEANTE - test_los_consumidores_no_importan_al_asesor no discrimina: solo compara nodo.module y alias.name contra nombres completos, asi que `from app import jev_ads` (module="app") y `from .jev_ads import AsesorAds` (module="jev_ads") pasan. Reproduccion: `printf '\nfrom app import jev_ads\n' >> app/cycle.py && pytest tests/test_jev_cli.py::test_los_consumidores_no_importan_al_asesor` -> verde. Ademas, esta guarda estatica se salta sin Postgres por el pytestmark de modulo aunque no usa la base.
+
+3. NO BLOQUEANTE - en jev_ads.main, `imprimir("falta ORBIT_DSN_ADMIN", file=sys.stderr)` revienta con TypeError si se inyecta un imprimir que no acepta file= (por ejemplo salida.append, como en los demas tests). El test de esa ruta usa print por omision y no lo ve.
+
+4. NO BLOQUEANTE - jev_ads.main no tiene try/except (jev_fichas si): el ValueError de "misma solicitud, otro payload" y cualquier psycopg.Error salen como traceback sin scrub. Reordenar los --termino al retomar tambien cambia el plan_sha y cae en ese ValueError. El exit 1 resultante es el mismo codigo que presupuesto_agotado, asi que un wrapper no distingue "retomable" de "crash".
+
+5. NO BLOQUEANTE - en jev_ads.py, `scrub` se importa y solo se reexporta en `__all__` sin usarse, lo que tapa el F401 de Ruff. O se usa en un manejador de errores o se quita.
+
+6. NO BLOQUEANTE - VERIFICAR: los tests del CLI corren con `_dsn_jev()` pero produccion usa ORBIT_DSN_ADMIN, y el docstring dice que quien escribe revisiones es app_jev. Hay que confirmar que app_admin tiene INSERT sobre jev_revision y jev_par_evento y lectura del censo, y que el diseno permite escribir revisiones con la credencial admin; hoy ningun test ejerce el rol real del CLI.
+
+7. NO BLOQUEANTE - VERIFICAR: main llama a `leer_api_key()` real sin punto de inyeccion, antes de conectar y tambien en dry-run. Confirmar (a) que devuelve "" y no lanza cuando falta ORBIT_SECRETS_DIR o typesafe.json, y (b) que AsesorAds no apaga Jev por api_key vacia cuando `pedir` viene inyectado; si lo apaga, test_cli_evaluar_aplica_y_retoma depende de que la maquina tenga clave real.
+
+8. NO BLOQUEANTE - el dry-run de jev_ads puede no coincidir con lo que hara --aplicar: recalcula `ficha_vigente` con now() y solo para miembros de un listing, en vez de usar el ficha_version_id que ya trae el censo. Tampoco descuenta miembros no activos (ARCHIVED no paga HTTP segun el test) ni compara pares estimados contra el presupuesto.
+
+9. NO BLOQUEANTE - `_imprimir_resultado` distingue tipos con hasattr en vez de isinstance: si Indeterminado gana un atributo miembros_totales se imprimira como "NingunoCompatible", etiqueta que invita a negativizar. VERIFICAR que hoy Indeterminado no tiene ese atributo. Esas dos ramas de impresion y el exit 1 por presupuesto agotado no tienen test de CLI.
+
+10. NO BLOQUEANTE - jev_ads no valida entradas: --presupuesto acepta 0 y negativos, y --termino acepta vacios y repetidos. VERIFICAR que AsesorAds o el esquema deduplican terminos; si no, un termino repetido paga doble o choca con la unicidad de eventos.
+
+11. NO BLOQUEANTE - test_producto_sin_ficha_queda_como_ficha_faltante no verifica lo que promete su nombre: solo afirma HayCompatible y miembros_totales == 2. Faltan `miembros_con_juicio == 1`, el estado ficha_faltante del miembro P2 y que hubo una sola llamada.
+
+12. NO BLOQUEANTE - en test_reanudacion_tras_crash_reutiliza_exito, "ordinal_nuevo_t2" se calcula como max(ordinal) de todas las intenciones de la revision, sin filtrar por t2, y con >= 2. VERIFICAR: si el ordinal es secuencial por revision y no por par, el assert ya era cierto antes del reintento; deberia filtrar por el termino_sha256 de t2 y exigir == 2.
+
+13. NO BLOQUEANTE - los tres `pytest.raises(ValueError)` (otro payload, otro termino de decision, otro censo) no llevan match=, asi que pasan con cualquier ValueError, incluido uno de validacion ajena al contexto congelado.
+
+14. NO BLOQUEANTE - test_sin_clave_jev_apagado usa `eventos >= 1` sobre toda la tabla y no afirma que el presupuesto quede intacto ni cuantos eventos se esperan. Ademas, "apagado" se reporta con el motivo fallo_proveedor, indistinguible de una caida real de TypeSafe.
+
+15. NO BLOQUEANTE - en jev_fichas, `_hechos_de_archivo` convierte con str() sin validar tipo ni contenido: `{"texto": null, "fuente": 1}` se registra como hecho "None" con fuente "1", y se aceptan cadenas vacias y la lista vacia. VERIFICAR si registrar_ficha valida esto; si no, entra basura a una ficha que alimenta al clasificador.
+
+16. NO BLOQUEANTE - en jev_fichas.main, un --hechos con ruta inexistente lanza OSError, que no esta en `except (ValueError, psycopg.Error)`, y sale como traceback en vez de mensaje limpio con exit 1.
+
+17. NO BLOQUEANTE - `_fecha` acepta cualquier offset aunque el mensaje dice "(UTC)". VERIFICAR que hash_ficha normaliza a UTC; si no, el mismo instante escrito con otro offset da otro sha y rompe la idempotencia por hash con una version duplicada.
+
+18. NO BLOQUEANTE - VERIFICAR: este diff no trae ningun test del CLI tools/jev_fichas.py (dry-run sin escritura, listings ajenos, revocar repetido con exit 1). Confirmar que existen en otro archivo de tests.
+
+
+=== stderr ===
+Permission allow rule (../../../.claude/settings.json): Write(/Users/dn/.local/state/**) is not matched by file permission checks — only Edit(path) rules are. Use Edit(/Users/dn/.local/state/**) instead (Edit rules cover all file-editing tools).
+Permission allow rule (../../../.claude/settings.json): Write(~/.claude/orchestrate/**) is not matched by file permission checks — only Edit(path) rules are. Use Edit(~/.claude/orchestrate/**) instead (Edit rules cover all file-editing tools).
+Permission allow rule (../../../.claude/settings.json): Write(~/.claude/projects/-Users-dn-dev-goncloud-Orbit/memory/**) is not matched by file permission checks — only Edit(path) rules are. Use Edit(~/.claude/projects/-Users-dn-dev-goncloud-Orbit/memory/**) instead (Edit rules cover all file-editing tools).
+Warning: claude.ai MCP servers blocked by enterprise policy: claude.ai Microsoft 365, claude.ai Notion, claude.ai Shopify, claude.ai Google Drive, claude.ai Gmail
+
+
+=== Revisor efectivo: claude (binario 'claude') ===

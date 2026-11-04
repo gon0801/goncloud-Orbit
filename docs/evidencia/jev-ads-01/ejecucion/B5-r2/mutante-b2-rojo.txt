@@ -1,0 +1,13 @@
+# B5-r2 mutante B2: bloque __main__ eliminado de tools/jev_ads.py
+Fecha: 2026-10-04T08:43:29Z
+Comando: uv run --frozen python -m pytest -q tests/test_jev_cli.py::test_cli_modulo_ejecutable_da_error_config_y_no_es_no_op
+Esperado: FAILED (exit 0 silencioso != 2). Observado:
+
+E        +  where 0 = CompletedProcess(args=['/Users/dn/dev/wt/jev-ads-worker/.venv/bin/python3', '-m', 'tools.jev_ads', 'evaluar', '--plata...termino', 't', '--solicitud', '00000000-0000-0000-0000-000000000001', '--aplicar'], returncode=0, stdout='', stderr='').returncode
+
+tests/test_jev_cli.py:792: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_jev_cli.py::test_cli_modulo_ejecutable_da_error_config_y_no_es_no_op
+1 failed in 0.22s
+
+(bloque __main__ restaurado despues de la corrida)

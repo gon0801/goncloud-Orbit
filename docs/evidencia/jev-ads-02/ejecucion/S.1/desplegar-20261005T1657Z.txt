@@ -1,0 +1,120 @@
+== 0) SHA aprobado = origin/master con la bateria completa verde
+APROBADO=436b8771c987090724247dd237a167a2687f56c8 CI=success
+== 1) Preflight (esperado ok|0|f: sin ciclo corriendo, sin tabla del acta; mas 0 procesos app.cli)
+ok|0|f
+ciclos corriendo=0, procesos app.cli=0
+== 2) Respaldo del codigo actual y del SHA (antes de tocar la base: toda reversa lo encuentra)
+app
+Dockerfile
+pyproject.toml
+SHA
+tools
+uv.lock
+== 3) Backup del esquema (staging + verificacion)
+-rw------- 1 root root 476379 Oct  5 16:57 /mnt/data/appdata/orbit/backups/pre0051_schema_20261005-1657.sql
+== 4) Migracion 0051 (acta de listado por plataforma y ad group)
+BEGIN
+WARNING:  there is already a transaction in progress
+CREATE TABLE
+CREATE TABLE
+CREATE INDEX
+CREATE TRIGGER
+CREATE TRIGGER
+CREATE TRIGGER
+CREATE TRIGGER
+COMMENT
+COMMENT
+GRANT
+GRANT
+DO
+COMMIT
+WARNING:  there is no transaction in progress
+== 5) Permisos y esquema del acta (esperado: permisos OK)
+permisos OK
+== 6) Copiar el codigo del SHA aprobado (git archive, LF)
+== 7) md5 server vs SHA aprobado
+md5 OK app/ads/structure.py
+md5 OK app/ads/structure_api.py
+md5 OK app/ads/structure_plan.py
+== 8) Guardas antes de recrear (reintento cada 30s hasta 30 min)
+ciclos corriendo=0, procesos app.cli=0
+== 9) Build + recrear app (digest antes/despues) + health
+DIGEST antes=sha256:aff285a88d9b09b0918e7f5e8a58fc6fbe1f78d30001c8873cbab0cd433eb088
+ Image orbit-app Building
+#1 [internal] load local bake definitions
+#1 reading from stdin 482B done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 952B done
+#2 DONE 0.0s
+
+#3 [internal] load metadata for ghcr.io/astral-sh/uv:0.11.11
+#3 DONE 0.7s
+
+#4 [internal] load metadata for docker.io/library/python:3.12-slim-bookworm
+#4 DONE 0.7s
+
+#5 [internal] load .dockerignore
+#5 transferring context: 199B done
+#5 DONE 0.0s
+
+#6 FROM ghcr.io/astral-sh/uv:0.11.11@sha256:798712e57f879c5393777cbda2bb309b29fcdeb0532129d4b1c3125c5385975a
+#6 resolve ghcr.io/astral-sh/uv:0.11.11@sha256:798712e57f879c5393777cbda2bb309b29fcdeb0532129d4b1c3125c5385975a 0.0s done
+#6 DONE 0.0s
+
+#7 [stage-0 1/9] FROM docker.io/library/python:3.12-slim-bookworm@sha256:54c85f3c47607a77f32adec749d3c81d1348bf25833671f512b26a9b6d778cb3
+#7 resolve docker.io/library/python:3.12-slim-bookworm@sha256:54c85f3c47607a77f32adec749d3c81d1348bf25833671f512b26a9b6d778cb3 0.0s done
+#7 DONE 0.0s
+
+#8 [internal] load build context
+#8 transferring context: 3.19MB 0.0s done
+#8 DONE 0.0s
+
+#9 [stage-0 4/9] COPY pyproject.toml uv.lock ./
+#9 CACHED
+
+#10 [stage-0 2/9] COPY --from=ghcr.io/astral-sh/uv:0.11.11 /uv /uvx /bin/
+#10 CACHED
+
+#11 [stage-0 3/9] WORKDIR /app
+#11 CACHED
+
+#12 [stage-0 5/9] RUN uv sync --frozen --no-dev --no-install-project --no-cache
+#12 CACHED
+
+#13 [stage-0 6/9] COPY app ./app
+#13 DONE 0.0s
+
+#14 [stage-0 7/9] COPY tools/fabrica_campanas.py ./tools/fabrica_campanas.py
+#14 DONE 0.0s
+
+#15 [stage-0 8/9] COPY tools/jev_ads.py ./tools/jev_ads.py
+#15 DONE 0.0s
+
+#16 [stage-0 9/9] COPY tools/jev_fichas.py ./tools/jev_fichas.py
+#16 DONE 0.0s
+
+#17 exporting to image
+#17 exporting layers 0.1s done
+#17 exporting manifest sha256:4118d817659f7258d9f01c5088c56fdcd2c3b7ce1e4ff658b3c12d9220d31fc9 done
+#17 exporting config sha256:3342429427aad7ac468d6cec26a64b983ee790c02d83dd19eb96cf0461e60bfe done
+#17 exporting attestation manifest sha256:3a5acce88686dcb54071ccba77c4abf7619e026600b99c4855588250567f6367 done
+#17 exporting manifest list sha256:be40e05b16201b40b166570ab715284bdd64654099fafa98aa3d857698098793 done
+#17 naming to docker.io/library/orbit-app:latest done
+#17 unpacking to docker.io/library/orbit-app:latest 0.1s done
+#17 DONE 0.3s
+
+#18 resolving provenance for metadata file
+#18 DONE 0.0s
+ Image orbit-app Built
+ Container orbit-app-1 Recreate
+ Container orbit-app-1 Recreated
+ Container orbit-app-1 Starting
+ Container orbit-app-1 Started
+DIGEST despues=sha256:be40e05b16201b40b166570ab715284bdd64654099fafa98aa3d857698098793
+{"status":"ok"}
+orbit-app-1 Up 5 seconds
+== LISTO. STAMP=20261005-1657
+Siguiente: bash docs/evidencia/jev-ads-02/ejecucion/S.1/checklist.sh 20261005-1657
+Reversa:   bash docs/evidencia/jev-ads-02/ejecucion/S.1/rollback.sh 20261005-1657

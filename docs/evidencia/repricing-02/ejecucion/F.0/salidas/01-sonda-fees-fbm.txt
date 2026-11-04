@@ -1,0 +1,30 @@
+== amazon_mx/fbm (product_id=109) ==
+{
+  "http": 200,
+  "Status": "Success",
+  "identificador_is_amazon_fulfilled": false,
+  "tipos_de_fee": [
+    "ReferralFee"
+  ],
+  "total_fees_estimate": {
+    "Amount": 192.54,
+    "CurrencyCode": "MXN"
+  },
+  "fees_con_impuesto": []
+}
+== amazon_us/fbm (product_id=79) ==
+{
+  "http": 200,
+  "Status": "Success",
+  "identificador_is_amazon_fulfilled": false,
+  "tipos_de_fee": [
+    "ReferralFee",
+    "VariableClosingFee",
+    "PerItemFee"
+  ],
+  "total_fees_estimate": {
+    "Amount": 10.28,
+    "CurrencyCode": "USD"
+  },
+  "fees_con_impuesto": []
+}

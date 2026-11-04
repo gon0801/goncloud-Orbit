@@ -1,0 +1,11 @@
+== X.4 encender MeLi
+precio_modo_global: <ausente> | meli/meli: shadow | base: 5
+goals shadow en MeLi: 2
+== encendido real: settings (universo live + global solo si falta)
+settings: config 6 (settings UI · settings-ui · 2026-10-15 · amazon_mx: precio modo global ausente -> live, precio modo meli/meli shadow -> live)
+== encendido real: goals a live en bloque (2 unidades)
+-- bloque 1 (2 unidades)
+plan live: 2 filas, 0 bloqueadas, huella a8c62f8ebf41ef47
+aplicado: sembrados=2 cerrados=2 lote=a8c62f8ebf41ef47
+ENCENDIDO OK: meli/meli en live
+exit=0

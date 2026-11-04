@@ -1,0 +1,1539 @@
+**2026-10-22 UTC — SP-API 02 cierra: el 429 de Amazon ya no tira la corrida nocturna.** El 22-oct a las 05:02 UTC `spapi_inventario amazon_mx` falló con `status=429` y nadie lo repitió. Regla nueva (`9bda38c`): el cliente SP-API reintenta el 429 hasta 5 veces, esperando lo mayor entre `Retry-After` y 2, 4, 8, 16, 32 s, sin pasar de 120 s de espera por llamada; cada 429 deja una línea `spapi 429 ...` en el log. Repetición nocturna (`f273213`, `scripts/spapi-diario.sh`): lo que sale con error se repite UNA vez al final, en el mismo orden, y no se repite si arrancaría después de las 06:15 UTC (antes del sync de estructura de 06:45). Aviso de recuperación: Telegram dice `[Orbit] SP-API recuperada: <fuente> / <mercado> ya corrio bien otra vez` cuando una fuente que había fallado vuelve a correr bien. Desplegado el 2026-10-22 07:30 UTC, checklist con 0 fallas; la primera corrida nocturna con el código nuevo es la del 2026-10-23 05:00 UTC y se revisa ahí. Evidencia: `docs/evidencia/sp-api-02/`.
+
+**2026-10-22 UTC — INGESTA 01 cierra: la descarga diaria de Amazon Ads se pide en paralelo y se reintenta.** S.0 midió la cuenta real el 2026-10-21 (12 reportes completados en 0.5-1.2 min; el repetido da 425 o 200 según el momento, 24 POST en ráfaga sin un 429). A.1-A.4 (`72c440e`): `app/ads/descarga.py` pide todos los reportes a la vez, repite el atorado (máximo 2) y guarda cada grupo al llegar; `app/metricas_listas.py` hace que el ciclo, el vigía, los avisos y Jev esperen a las métricas de ayer (`--forzar` las salta); `ingest diario --solo-faltantes` reintenta a las 10:15 y 13:15 UTC; el crontab sale de `docs/DEPLOY.md`. D.1 desplegó con sello 20261021-183311 y el checklist salió con 0 fallas y 0 sin medir; el rollback se ensayó. D.2 dejó el `at` job 9 para el 2026-10-28 18:42 UTC con el `.sql` probado en solo lectura. Las 8 filas del plan en `cc:DONE`. Criterio medido (cero días sin las tres `ingest_run` ok con D-1 de MX y US antes de las 16:10 UTC y cero días de ciclo saltado) se juzga con ese reporte. Evidencia: `docs/evidencia/ingesta-01/`.
+
+**2026-10-19 UTC — JEV ADS 03 R.2 cerrada y la batería completa baja a ~4 minutos.** En `/cortes`, "Tus bloqueos" ahora dice `por_confirmar` en un bloqueo que espera la confirmación de Amazon, también al recargar (#480). Se cerraron los detalles de las revisiones de R.1: una guarda inalcanzable, una prueba duplicada y frases de evidencia. Desplegado solo código con sello 20261019-0613, checklist con 0 fallas. La reconciliación de cada hora corrió a las 05:17 y a las 06:17 sin errores. Por orden del dueño, la batería completa corre en 6 partes en paralelo (#481): 239 s en el PR y 255 s en master, contra ~15 min antes. Corre sola en cada PR que toca código; un PR de solo docs no la corre. Evidencia en `docs/evidencia/jev-ads-03/ejecucion/R.2/`.
+
+**2026-10-19 UTC — JEV ADS 03 R.1: un bloqueo con respuesta incierta de Amazon ya no queda como fallido.** Un 5xx, un error de red o un readback que todavía no ve el negative dejan la `intencion` abierta (respuesta `por_confirmar`) en vez de sellar `fallido`; de lo que sí llegó a Amazon, solo un 4xx sella `fallido http_<status>`; un error antes de enviar (token o guarda) o un LIST previo que no sale ok siguen en `fallido` porque no se mandó nada. La intención abierta la cierra la siguiente acción sobre la misma clave o la reconciliación por LIST, que ahora corre cada hora en el minuto 17 (crontab de `gon` en goncloud). #476 (`1a272e1`), desplegado solo código con sello 20261019-0445 y checklist en 0 fallas. Sin migración ni cambio de pantalla. El camino 5xx contra Amazon real se verá con el primer bloqueo del dueño; el ledger sigue vacío. Evidencia en `docs/evidencia/jev-ads-03/ejecucion/R.1/`.
+
+**2026-10-18 UTC — JEV ADS 03 cierra: el bloqueo del dueño está encendido.** Desplegado con la migración 0074 (#471, #472) y encendido en `config_version` 42 (#473): `/cortes` muestra 50 propuestas en MX y 24 en US, el mismo número que la lectura de solo lectura y la API, y ningún POST desde el encendido. Nada escribe a Amazon hasta que el dueño apruebe con su clic. El reporte de 30 días (veredictos, porcentaje aprobado, gasto de las búsquedas bloqueadas y ventas posteriores del grupo) llega por Telegram el 2026-11-17 09:00 UTC (`at` job 8 en goncloud). Si MX ahorra menos de 167 MXN al mes, se propone apagar `jev.bloqueo`. Evidencia en `docs/evidencia/jev-ads-03/ejecucion/`.
+
+**2026-10-18 UTC — JEV ADS 03: el bloqueo del dueño (B.1 a B.4) está construido en el PR #470, sin unir ni desplegar.** Migración 0074 (ledger de veredictos y efectos, solo-agregar), propuestas con huella de catálogo, aprobar, rechazar, quitar y reconciliar con el ledger confirmado antes del HTTP, rutas `/api/jev-bloqueo` y la sección "Tus bloqueos" en `/cortes`. La revisión del PR corrigió cuatro cosas: la intención ahora se confirma antes de llamar a Amazon, rechazar dos veces deja un solo veredicto, el esquema exige que un paso cuelgue de un aprobado, y la pausa ya no cuenta lo que Amazon anuló o falló. Todo apagado y sin escribir a Amazon de verdad; el despliegue es D.1. Evidencia en `docs/evidencia/jev-ads-03/construccion/`.
+
+**2026-10-17 UTC — JEV ADS 03: plan nuevo, el dueño bloqueará lo que Jev marca como ajeno.** La revisión a ciegas que JEV ADS 02 no corrió se hizo hoy: 135 búsquedas reales, contestadas por el dueño sin ver a Jev (`docs/evidencia/jev-ads-03/diseno/`). Acuerdo en "¿sirve?": MX 80% y US 86%; `ajena` confirmadas 41/54; mover a donde vende 6/35. De las 13 `ajena` no confirmadas, 8 piden oro con quilates (5 de MX); en MX esas búsquedas no venden (2 ventas en 355 clics, ambas de baño de oro) y el dueño le dio la razón a Jev: `ajena` sube a 46/54 (85%). El dueño selló bajar la meta de 95% a 70%, que basta un ahorro de 2,000 MXN al año, MX y US desde el inicio y propuestas en `/cortes`. `plans/jev-ads-03.md` construye solo el bloqueo aprobado (E.2): ledger antes del HTTP, readback, quitar, rechazo recordado por huella de catálogo y pausa bajo 70%. El ruteo (E.3) sigue sin construirse. Solo documentos; nada desplegado.
+
+**2026-10-17 UTC — REPRICING 02 C.1: el plan cierra; los cuatro universos en `live`.** `plans/repricing-02.md` deja sus 31 filas en `cc:DONE`. Por orden del dueño no se esperó al cron: spapi diario, costos, catálogo y muestras se corrieron a mano y el motor corrió a las 01:44 UTC. **X.1** (MX FBA, 164 goals) está en `live` desde el 2026-10-16 21:20 UTC; en la corrida de las 01:44, 125 quedaron en tolerancia, 3 subieron (2 PATCH aceptados por Amazon; el listing 1260 se saltó en una guarda de `aplicar` sin dejar fila) y 36 quedaron `no_evaluado` por no tener oferta viva (el filtro de #457/#458 los saca de la lectura; sus goals siguen vigentes). **X.2** (MX FBM, 67): lectura 67/67 el día 1 y 66/67 el día 2 (el 1162 pasó del envío propio 66 al de marketplace 84 al salir su única muestra de la ventana); sonda 988.00→988.01→988.00 aceptada, con el control intacto. **X.3** (US FBM, 99): 93/99 el día 1 (6 `fee_incompatible` por un `InternalError` transitorio de Amazon) y 99/99 el día 2 (D2); sonda aceptada. **D.4** quedó comprobada (checklist 0, cobertura 54/54). Encender **X.4** destapó cuatro defectos que los datos sintéticos (un miembro por publicación) no veían, cada uno con su prueba: #463, las muestras de envío no cubrían las variantes (42/54 publicaciones `envio_sin_historia`; ahora 254/254 miembros con muestra); #464, la decisión guardaba el ancla y no el miembro que manda (el trigger de la 0054 abortaba la corrida); #465, la sonda y la reversa no pasaban el cotizador a `MercadoMeli`; #466, con variaciones MeLi rechaza `price` en la raíz (400 `item.price.not_modifiable`) y el precio va solo por variación. La sonda pasó al tercer intento y #467 selló `FORMA_ESCRITURA_MELI = "items_price_put_v1"`. MeLi está en `live` con 45 goals (12 de un miembro y 33 con variantes); 9 siguen fuera por `costo_ausente` (falta su costo). La cuenta a mano se rehizo desde las fuentes en 3 unidades de MX FBM, 3 de US FBM y 5 de MeLi (dos con variantes): todas exactas. El revisor implementó #463 a #467 por orden del dueño; los revisaron CodeRabbit y la batería completa en la rama. Pendiente, sin bloquear: cargar el costo de esas 9 publicaciones y re-sembrar; la línea "meli/meli sin entrada de modo" del checklist de D.4 ya no aplica con X.4 encendido; la guía nombra a Muse o GLM como ejecutor, cuando estos pasos los corrió el dueño a mano.
+
+**2026-10-13 UTC — BIDS 02 R16: el remate cierra completo, solo documentos.** Las veinte filas que quedaban en `cc:TODO` (R07-09C, R07-D, R07-H, R07-M, R09-A, R09-B, R09-D, R09-E, R09-F, R09-G, R09-H, R09-I, R09-J, R13-E, R13-F, R13-I, R13-J, R13-K, R13-L y R13-M) pasan a `cc:完了`. La evidencia real de D.6 (sello 20261013-0707) y D.7 (sello 20261013-1436) quedo en el repo con su cierre y sus copias aplicadas, igual que las de D.1 a D.4. La tabla de mutantes de busquedas vive en la evidencia de P.6 y la lectura del primer ciclo con la politica encendida quedo en X.1: ciclos 118 de US y 119 de MX en done, 3 bids con su caso, 0 recortes y el target de US en 24.85%. Al cerrar, la configuracion vigente en produccion es la 30, con `niveles_v3` en MX y US y la fraccion de US en 0.8. La reversa vigente es la de D.7. Sin codigo, sin migraciones y sin despliegue en esta ronda.
+
+**2026-10-13 UTC — JEV ADS 02: checklist tras el primer ciclo en 0 mal; la fila D cierra completa.** Los ciclos 120 (`amazon_us`, 08:40 UTC) y 121 (`amazon_mx`, 08:41 UTC) terminaron en `done` con el código de #444 (`6c6486d`). `cierre/checklist.sh` ahora recibe el sello y comprueba el ciclo posterior (sin él, o sin el ciclo de alguna plataforma, sale 3) e imprime la config vigente. A las 09:33 UTC dio 0 mal: md5 de los nueve archivos, cinco rutas en 200, 25 señales ajenas con `listado_de` (19 antes de la corrida de las 09:30 UTC, que seguía en curso), `jev.avisos` ausente y `jev_aviso` en 0 filas. Salida en `docs/evidencia/jev-ads-02/ejecucion/cierre/checklist-post-ciclo-salida.txt`. Corrección: la `config_version` vigente es la 30, no la 29. El comando del cupo se corrió dos veces y la 30 (07:24 UTC) es idéntica a la 29; el tope sigue en 10,000.
+
+**2026-10-13 UTC — JEV ADS 02: el cupo diario sube a 10,000.** Por orden del dueño, la `config_version` 29 cambia solo `jev.tope_diario` de 5000 a 10000. `jev.avisos` sigue ausente. Con 5,000 llamadas ya pagadas el 13, el cron de las 09:30 UTC paga otras 5,000. Costo del tope completo: cerca de 0.52 USD al día.
+
+**2026-10-13 UTC — JEV ADS 02: primera corrida con tope 5,000, remate desplegado y J6-21 decidida.** Por orden del dueño la corrida no esperó al cron: 05:08 a 05:30 UTC, 4,900 llamadas, 370 señales, 0.262 USD. `sin_lectura` bajó de 194 a 153 (125 por cupo), `ajena` subió de 1 a 19 y `relevante_sin_venta` de 61 a 93. Hubo 16 fallos, todos porque las probabilidades redondeadas del proveedor suman 0.99. #444 (`6c6486d`, desplegado 06:33 UTC, sello 20261013-0633, checklist 0 mal) admite ese redondeo y cierra el hueco del aviso: si el paso de avisos levanta, la corrida escribe su `fin` con `avisos_error`, falla con salida 1 y `/salud` lo muestra. `jev.avisos` sigue ausente. J6-21: el dueño decidió dejar `FichaFaltante` en `Indeterminado`. Queda fuera de este cierre el checklist tras el ciclo de las 08:40 UTC.
+
+**2026-10-13 UTC — JEV ADS 02: el cierre ya está en producción; R21 y R22 de JEV ADS 01 cerradas.** El cambio de cierre (#440, `30cc62f`) se había unido a master sin desplegar. Se desplegó a las 03:57 UTC (sello 20261013-0357, solo código, sin migración ni cron) y el checklist salió 0 mal: la señal ajena ya trae `listado_de`, `jev.avisos` sigue ausente y `jev_aviso` tiene 0 filas. Dato que el cierre no decía: las corridas del cron hasta el 2026-10-12 cerraron sin la clave de TypeSafe, con el tope en 0 (`config_version` 23 a 26); el job pagó sus primeras 50 llamadas el 12 a las 23:34 UTC, en una corrida manual con el tope en 50 (27). El tope 5,000 es de la 28. Las 100 llamadas del 13 son de la medición 0.5. La primera corrida con tope 5,000 se adelantó a las 05:08 UTC del 2026-10-13 (entrada de arriba). Hueco abierto: si el paso de avisos levanta una excepción, la corrida queda sin `fin`; se arregla antes de encender `jev.avisos`. R21 (#441, `8af01c9`): el registro de secretos de las pruebas se restaura tras cada prueba. R22 (#441, `8af01c9`): el candado de este archivo reconoce `cc:DONE`.
+
+**2026-10-13 UTC — JEV ADS 02 cierra.** El dueño confirmó cuatro lecturas (baño ajena, arras de plata corresponde y no vende, arras matrimoniales vende en otro y ya vendió aquí) y ordenó terminar el plan con esa prueba, sin prender ni apagar nada. S.6 cierra sin la semana a tope 0: el job ya corre con tope 5,000. S.7 cierra con esa confirmación, no con 50 búsquedas. J6-31: la frase de ajena usa el día del listado. S.8 escribe el aviso de Telegram y lo deja apagado (`jev.avisos` ausente). E.1–E.3 y la fábrica 5.1–5.3 no se construyen. R no se corre. Las notas J6 distintas de J6-31 se aceptan sin arreglo. Evidencia: `docs/evidencia/jev-ads-02/ejecucion/cierre/NOTAS.md`.
+
+**2026-10-13 UTC — BIDS 02 C.1: el plan cierra (solo documentos).** `plans/bids-02.md` deja las 34 filas de las secciones 1 a 7 en `cc:完了` (C.1 y R09-C eran las ultimas), corrige el rango de migraciones a 0060-0070 y registra la deuda no bloqueante abierta como filas R13-E a R13-M con sus motivos. `plans/ROADMAP.md` dice que parte de AUTO-03 a AUTO-06 cubrio BIDS 02 (datos por ubicacion, ajustes del dueno, impulso y retiro) y que parte sigue pendiente (que el motor lo haga por su cuenta). `docs/CONTEXTO.md` describe la politica vigente `niveles_v3` (fraccion US 0.8; el target sube de una vez y baja 0.5 por ciclo; sin los peldanos `cache_estado` y `default`, y sin target la hoja se salta con `sin_target`) y `docs/DEPLOY.md` deja el interruptor de politica junto a la tabla de crons. Comprobado en produccion, solo lectura: `config_version` 27 con fraccion US 0.8 y `niveles_v3` en MX y US (criterios 4 y 5) y las cinco pantallas en 200. Sin codigo, sin migraciones y sin despliegue.
+
+**2026-10-13 UTC — BIDS 02 sección 6 cerrada: el dueño ve qué búsquedas gastan sin vender.** P.6 construyó la pantalla de solo lectura (`app/pantalla_busquedas.py`, sin migración: ASIN y palabras que ya gastaron el gasto para concluir sin un pedido en 90 días, con la referencia de azar y los conteos a medio camino; no escribe nada en Amazon ni en la cola, el dueño niega a mano). D.5 desplegó el SHA `6a154bd` (sello 20261013-0051, ensayo exit 0, sin migraciones ni cron nuevo, crontab intacto) y el checklist salió 0 con 0 fallas y sin diferidas (la página 200 en MX y US con su frase, `search_term_observation` sin escrituras). Filas P.6 y D.5 en `cc:完了`. Evidencia: `docs/evidencia/bids-02/ejecucion/D.5/` (4 salidas + `cierre.md`). Sigue la sección 7 (C.1).
+
+**2026-10-12 UTC — BIDS 02 sección 5 cerrada: el dueño impulsa un producto con su par de campañas.** I.1 declaró los roles del grupo de dos (`campana_grupo.tipo`, 0064, roster de hermanas vacío); I.2 escribió plan, tope y veredicto puros; I.3 puso vista previa, lanzamiento y vigía (0065, comando `impulso-vigia`, goals `shadow` a `live` al graduar); I.4 saca un producto de sus bolsas viejas y lo regresa con intención sellada (0066, `PUT /sp/productAds`); I.5 abrió las rutas del impulso en la fábrica; P.4 construyó la pantalla de productos que venden y casi no reciben clics, con los impulsos en curso; E.1 agregó los dos botones de retiro. D.4 desplegó el SHA `540a5e5` (sello 20261012-2146, ensayo exit 0, aplicadas 0064 a 0070, cron `impulso-vigia` 08:20 UTC instalado con respaldo) y el checklist salió 0 con 0 fallas y sin diferidas (las cinco tablas existen y vacías, vista previa 200 sin escribir, vigía 0 sin impulsos); el primer vigía corre solo por cron. Filas I.1-I.5, P.4, E.1 y D.4 en `cc:完了`. Evidencia: `docs/evidencia/bids-02/ejecucion/D.4/` (3 salidas + `cierre.md`). Sigue la sección 6 (P.6, D.5).
+
+**2026-10-11 UTC — BIDS 02 sección 4 cerrada: el dueño ajusta la campaña desde la pantalla.** V.3 construyó los ajustes del dueño (`campana_ajuste`, 0067, `PUT /sp/campaigns` al allowlist con evidencia V.0, regreso por clase); P.2b puso los botones y avisos en la tabla por campaña; D.3 desplegó el SHA `a6bf7d5` (sello 20261011-1147, ensayo exit 0, solo la 0067, cron intacto) y el checklist salió 0 con 0 fallas y sin diferidas (tabla vacía, vista previa 200 sin escribir, 34 botones por clase en MX y 9 en US). Filas V.3, P.2b y D.3 en `cc:完了`. Evidencia: `docs/evidencia/bids-02/ejecucion/D.3/` (3 salidas + `cierre.md`). Este PR también trae el chequeo posterior de D.2 (`checklist-posterior-1.txt`, exit 0: sync 06:45 y reporte 07:25 comprobados, 3279 placements). Sigue la sección 5 (I.1-I.4, P.4, D.4).
+
+**2026-10-11 UTC — BIDS 02 sección 2 cerrada: el motor encendido en MX y US.** T.1 frenó solo las bajadas del target y retiró los dos peldaños (0063); M.1-M.3 pusieron `niveles_v3` en el ciclo (sin la clave no emite bids, con otra falla cerrado); M.4 rejuega 30 ciclos; M.5 regresa dañadas con confirmación escrita; P.3a/P.3b y P.5 son las pantallas de dañadas y ruido. D.1 desplegó el SHA `1798aff` (sello 20261010-2022, ensayo exit 0, 0060+0063 aplicadas, fracción US 0.9→0.8 en config 24) y el checklist salió 3 con 0 fallas (faltaba el ciclo posterior). X.1 midió al día siguiente: ciclos 116/117 en done con 0 bids y `politica_apagada`, clave f|f, fracción 0.8, rejuegos con cumple:true en ambas, y encendió (configs 25/26, created:true) y regresó 9 keywords (MX 6, US 3) con actor `plan bids-02 X.1` y 0 fallas. Filas T.1, P.3a, M.1-M.5, P.3b, P.5, D.1 y X.1 en `cc:完了`. Evidencia: `docs/evidencia/bids-02/ejecucion/D.1/` (5 salidas + `cierre.md`) y `X.1/` (aviso, 15 salidas, 3 respuestas + `cierre.md`). Pendiente: primer ciclo con política encendida (08:40 UTC del día siguiente) y `lectura.sql`. Sigue la sección 4 (V.3, P.2b, D.3).
+
+**2026-10-11 UTC — BIDS 02 sección 3 cerrada: ver la campaña en producción.** V.1 guarda la configuración de campaña en el sync (0061, solo si algo cambió, payloads ilegibles a skips); V.2 corre el reporte por placement en corrida propia (0062, `--placements`, dominio de cuatro valores, reingesta idempotente); P.1 pinta "Dónde poner el dinero" por tipo de campaña (LATERAL por hoja: 19.87 s a 0.03 s en MX); P.2a agrega las tablas por ubicación y por campaña, sin botones, con guion para el dato ausente; V.4 manda los tres avisos diarios una vez por plataforma, clase y día; D.2 desplegó el SHA `d62544f` (sello 20261011-0351, ensayo exit 0, 0061+0062 aplicadas, 2 líneas de cron con respaldo) y el checklist salió 3 con 0 fallas (falta el primer sync 06:45 y reporte 07:25; chequeo posterior tras las 07:40 UTC). Filas V.1, V.2, P.1, P.2a, V.4 y D.2 en `cc:完了`. Evidencia: `docs/evidencia/bids-02/ejecucion/D.2/` (3 salidas + `cierre.md`). Sigue la sección 4 (V.3, P.2b, D.3).
+
+**2026-10-10 UTC — BIDS 02 sección 1 cerrada: base de lectura y cuatro sondas selladas.** 0.a incorporó diseño, evidencia, plan y guía; 0.b mergeó la migración 0060 (`v_hoja_activa`, `v_cambio_bid`) con ensayo 588|588|0 sobre copia de producción; V.0 corrió sus cuatro sondas en vivo dentro de `orbit-app-1`, todas con exit 0 y entidad restaurada: pausa/reactiva de product ad sellada, presupuesto +1/regreso sellado en US (9.52) y MX (500.0) con mínimo 0.01 rechazado sin número en ambos, placement sellado (lista parcial mezcla, no reemplaza; el 0 % borra) y offAmazon aceptando `MINIMIZE_SPEND` con desviación autorizada (Amazon no deja regresar a `{}`, queda en campaña pausada sin cambiar entregas). Filas 0.a, 0.b y V.0 en `cc:完了`. Evidencia: `docs/evidencia/bids-02/ejecucion/V.0/` (15 salidas + `conclusion.md`). Sigue la sección 2 (motor).
+
+**2026-10-09 UTC — REPRICING 02: las tareas se agrupan en seis secciones de entrega; nada construido.** Por orden del dueno, el plan (`plans/repricing-02.md`) ya no se entrega con un PR por tarea. Sus 31 filas (22 de construccion, 4 despliegues, 4 encendidos y el cierre) van en seis secciones, cada una con una rama, un PR, un commit por tarea y una sola revision: lecturas de produccion (F.0 y M.0), corte 0 (0.a, 0.b y D.1), seguridad y goals (S.1 a S.6, G.1 a G.3, D.2 y X.1), FBM de Mexico y Estados Unidos (F.1 a F.4, S.7, D.3, X.2 y X.3), Mercado Libre (M.1 a M.4, D.4 y X.4) y cierre (C.1). Ninguna tarea ni DoD cambio. La guia cambia tres frases: un PR por seccion, la revision cubre el PR entero, y los scripts de encendido van en el commit del paquete de despliegue. La regla de archivos de contrato sigue igual (un PR aparte) y gana una frase: ese PR se mergea antes de seguir con la seccion. Un lector fresco del loop encontro tres huecos del plan original, y este cambio los cierra, con dos frases nuevas en los criterios de encendido 1 y 4: la siembra de X.2, X.3 y X.4 pone antes el universo en `shadow` (sin entrada vale `off` y la primera corrida no decidia nada) y espera el checklist de su despliegue en 0; el primer universo que de verdad se enciende sube `precio_modo_global`, no solo X.1; y el script de politicas se llama `politicas.sh`, lo corre `desplegar.sh` y no repite una politica vigente. Un cuarto hueco lo encontro la revision automatica: en X.4, despues de sellar la forma de escritura hay que volver a desplegar D.4 antes de encender. Cambio solo de documentos.
+
+**2026-10-09 UTC — BIDS 02: diseno y plan del motor de bids para una cuenta con poca data; nada construido.** Un diagnostico con datos de produccion mostro que el motor recorta sin evidencia: 422 de 428 recortes de 12 % en MX se decidieron sin un pedido, con mediana de 4 clics, y 53 recortes cayeron en keywords que si vendian. El motor nuevo, `evidencia_v2`, no lo arreglaba: casi nunca opinaba y devolvia la decision a la regla vieja. El dueno aprobo una sola politica de bid, `niveles_v3`, que decide cada hoja con sus datos de 90 dias o con los de su ad group, exige 350 MXN o 36 USD sin venta antes de recortar y regresa sola un bid que desplomo el trafico. Tambien aprobo: fraccion del margen de US en 0.8, encendido directo a vivo el mismo dia del despliegue, sin grupo de control, cinco pantallas nuevas, impulso de productos con dos campanas por producto y tres ajustes de campana que Orbit propone y el aprueba. El diseno salio de tres propuestas independientes y un juez (`docs/superpowers/specs/2026-10-09-bids-02-design.md`). El plan (`plans/bids-02.md`) tiene 7 secciones y 34 tareas, con un PR por seccion, y su guia paso a paso esta en `plans/bids-02-construccion.md`. Sustituye lo que quedo abierto de `acos-evidencia`: el encendido de `evidencia_v2` y la espera de 14 ciclos de sombra. La clave `ads_bid_politica_<plataforma>` no existe en produccion; el motor sigue en `bandas_v1`. Cambio solo de documentos.
+
+**2026-10-08 UTC — REPRICING 02: el plan pasa a ser la autorizacion completa del dueno.** Por orden del dueno, el plan (`plans/repricing-02.md`) y su guia ya no le dejan a el ningun paso de produccion. Los cuatro despliegues, las filas de politica, la siembra de goals, las sondas de escritura de un centavo con su reversa y el paso de cada universo a `live` los ejecuta Muse con los scripts del PR aprobado, cuando claw lo encarga, y el lead comprueba el resultado en solo lectura. Al dueno solo se le avisa. Un universo que no cumple sus criterios de encendido no se enciende: su fila queda cerrada con el motivo y los demas siguen. Cambio solo de documentos; nada construido ni desplegado todavia.
+
+**2026-10-08 UTC — REPRICING 02: diseno y plan del motor de precios en todas las plataformas; nada construido.** El dueno cambio el rumbo del motor de precios: sin cupo diario (lo reemplazan un apagador, un fusible y un resumen diario por Telegram), sin mediciones de 30 dias (uno o dos dias de prueba), todos los productos califican (envio propio o, si no hay, promedio de la familia o del marketplace), goals editables en pantalla que arrancan en el margen de hoy, goal por publicacion en Mercado Libre y construccion en paralelo. El diseno salio de tres propuestas independientes y un juez (`docs/superpowers/specs/2026-10-08-repricing-02-design.md`). El plan (`plans/repricing-02.md`) tiene un corte inicial y cuatro carriles: seguridad y avisos, goals en pantalla, FBM de Mexico con Estados Unidos, y Mercado Libre. Sustituye las filas abiertas de REPRICING 01. Hoy el motor sigue igual: 6 goals en sombra en Amazon MX, cero en vivo.
+
+**2026-10-07 UTC — JEV ADS 02 bloque S (S.1–S.5) construido y desplegado apagado; ledger cerrado.** Acta de listado en la ingesta (0051, #403), núcleo puro + Libro (S.2 sale con el deploy de S.3, #404), señales + login orbit_jev + DSN (0052, #405), job jev-senales con cron y bloque en /salud (S.4, #406, cron instalado por pedido aparte), señal en /cortes y pantalla /gasto-sin-venta (contrato #407 + pantallas #408). Todo apagado: seco dice apagado, pantallas vacías, bloque jev apagado. Salidas de despliegue copiadas a `docs/evidencia/jev-ads-02/ejecucion/S.<n>/` salvo `ingest-manual-20261005T2346Z.txt` (excluido por traer identificadores de Amazon; repo público). Siguen S.6–S.8, 0.3, 0.5, R y D, más 45 notas abiertas J6-1–J6-45 en `plans/jev-ads-02.md` (N1 con Depends de S.7: frase `ajena` muestra `datos_hasta` en vez de `listado_de`).
+
+**2026-10-04 UTC — JEV ADS 01 desplegada apagada, piloto corrido y decision: seguir y ampliar.** Jev es un asesor que dice si una busqueda corresponde a un producto, a partir de una ficha aprobada por el dueno; no cambia ninguna accion de Ads y nada automatico la llama. Codigo `25cebe7` en produccion (deploy `20261004-2253`, migraciones 0049 y 0050); la asesoria guardada se ve en `/cortes`. Piloto manual de 648 pares en US y MX: 548 aciertos; primera pasada cerca de 75%, y las busquedas que fallaban salieron bien al re-probarlas despues de escribir en la ficha los datos y reglas del dueno (lotes 4 y 6; el lote 3, solo con mas datos y sin las reglas, dio 28 de 48). Acta 3.2 del dueno: seguir y ampliar. La ampliacion es `plans/jev-ads-02.md` con su diseno en `docs/superpowers/specs/2026-10-04-jev-ads-02-design.md`, sellado por el dueno el 2026-10-04; nada construido aun. Los prototipos cambiaron el enfoque: casi todo lo que gasta sin vender son busquedas del catalogo, asi que la senal combina ventas (ya vendio aqui, vende en otro grupo) con Jev (a cuantos productos del grupo corresponde). Fichas al 100% en MX (249) y US (119). Todo efecto sobre Ads queda condicionado a medicion y sello del dueno. Fila 2.3 de 01 cerrada el 2026-10-05: los ciclos 102 y 103, primeros tras el deploy, terminaron en done. Pendiente de 01: R21 y R22. Evidencia: `docs/evidencia/jev-ads-01/ejecucion/3.1/REPORTE.md` y `3.2/ACTA.md`.
+
+**2026-10-03 UTC — ACOS por evidencia: A1-A6 mergeadas y desplegadas; sin registro en AppFlowy.** PRs #381-#386 en master y en produccion (md5 de `goals.py`/`cycle.py` iguales a master; migraciones 0047 y 0048 aplicadas; goals 8-12 sin target fijo). La politica de bids sigue en `bandas_v1`: el paso de MX a `evidencia_v2` espera 14 ciclos de sombra de A4 (MX 1/14, US 0/14; no antes de ~2026-10-16) y el criterio de menos de un tercio de recortes con replay exacto; US va 7 ciclos live de MX despues. La meta por familia (A5) no actua mientras no haya familias etiquetadas en `/familias` (hoy 0). A7 (residuales de revision de A1-A6) en curso con Muse. Desde hoy el trabajo de Orbit ya no se registra en AppFlowy: el seguimiento vive en `plans/`, `docs/evidencia/` y este archivo (#387).
+
+**2026-10-02 UTC — FABRICA 02 D.4 CERRADA: candado `origen_es_destino` en produccion y job 2 remediado.** #378 (Muse, revision del lead APROBADO en ronda 1) + #379 (master estaba rojo desde #376 por `plans/manifest.json`; bateria completa 3485 passed); deploy `8d4890a` por el dueno con `!`. Remediacion con go «D.4 archivar negativo origen job 2»: el negativo 92333897493675 quedo ARCHIVED (ledger `reversa` 384 sin cuota) y la EXACT 197174507964917 de «arras matrimoniales de oro» sigue ENABLED a 2.50 y ya puede servir. Evidencia: `docs/evidencia/fabrica-02/D.4/remediacion.md`.
+
+**2026-10-01 UTC — ORBIT 05 CERRADA (2.3 y 2.5).** El motor ya aplico solo tres harvests MX hacia la terna del goal 4 (Arras Manual): jobs 2, 3 y 4 (15, 19 y 20-sep), cola `applied`, `verify_ok`, ledger sellado; LIST de Amazon: las EXACT de los jobs 3 y 4 ENABLED con bid 2.50 y sin duplicados. Post-flip: cero shadow no terminal, config 21 `live`, goals 4-12 `live`, caps bid 45 / pause 5 / negative 15 / harvest 2, quota MX bid 45/45 el 30-sep; checklist APPLY §12 marcado con fechas. **Defecto encontrado**: el job 2 cosecho desde el mismo ad group que el destino y su `NEGATIVE_EXACT` (92333897493675, ENABLED) bloquea su propia keyword; el candado `origen_es_destino` solo existe en el camino de grupo. Nueva fila `plans/fabrica-02.md` D.4 (Muse): candado en excepcion y terna con prueba roja + remediacion sellada del job 2 (`reversa_harvest.py --job 2` da 0 pendientes). Evidencia: `docs/evidencia/orbit-05/cierre-2026-10-01.md`.
+
+**2026-10-01 UTC — REPRICING 01 D.2: decision A, sombra FBA y FBM primero.** Con el go de D.2, las lecturas mostraron que los goals 6/7/8 no venden, que lo que vende en MX es FBM (sin escenario hasta E.3) y que ningun FBA llega a `u60 >= 20`: encender `live` subiria precios sin ver perdida de ventas. El dueno eligio sombra: goals `shadow` 9/10/11 (1256, 1260, 1265) sembrados con `!`, cero `live`. Hallazgo para E.3: la senal de ventas va por producto y mezcla FBA con FBM. Evidencia: `docs/evidencia/repricing-01/D.2/README.md`.
+
+**2026-10-01 UTC — FABRICA 02 D.3 sigue esperando.** Cero `harvest_job` del grupo 1 desde el encendido del 23-sep; los goals 8-12 volvieron a `live` el 30-sep con H5.4, asi que el reloj efectivo corre desde ahi.
+
+**2026-09-30 UTC — ADS PROTECCION 01 B.4: H5.4 live activado con go separado.** Despues de 5/5 dias de sombra, el dueno autorizo H5.4 para goals 4-12; una transaccion con guardas cambio exactamente nueve filas de `shadow` a `live` a las 03:04:56 UTC. Readback independiente: 9 `live`, 0 `shadow`, flag B.2a activo, cero applies desde el inicio de sombra, health ok. Evidencia y reversa: `docs/evidencia/ads-proteccion-01/H5/live-h5-4.md`. B.4 sigue WIP hasta observar el primer ciclo live 08:40/08:41 UTC. No hubo candidato natural que ejercitara la PAUSE nueva durante los 5 dias de sombra.
+
+**2026-09-30 UTC — ADS PROTECCION 01 A.4: cron `ads-salud` instalado con go del dueno.** A las 02:04 UTC se respaldo el crontab de `gon` y se agrego solo la linea del chequeo 10:30 UTC y reintentos; checker rojo antes (`total=0 exacta=0`) y verde despues (una linea exacta), cron activo, `/health` ok. Primer disparo programado pendiente (10:00 UTC se abstiene; 10:30 UTC chequeo util). Evidencia y reversa: `docs/evidencia/ads-proteccion-01/H4/cron-instalado.md`. A.4 sigue WIP durante siete dias de observacion desde el 30-sep.
+
+**2026-09-30 UTC — ADS PROTECCION 01 A.4: ingesta 4/7, cron de salud ausente.** Runs principales 460/479/498/516 del 26-29 sep `ok=true`, ocho reportes MX/US `written` por dia; `/salud` sin incidentes abiertos. El arreglo #369 cerro el falso episodio global 1 sin recovery. El crontab real de `gon` no contiene `app.cli ads-salud` (checker rojo `total=0 exacta=0`), asi que el aviso de atraso de las 10:30 y sus reintentos no estan activos. Evidencia: `docs/evidencia/ads-proteccion-01/H4/readback-dias-3-4.md`. A.4 queda WIP hasta instalar el cron con go especifico y observarlo.
+
+**2026-09-30 UTC — ADS PROTECCION 01 B.4: sombra H5 observada 5/5.** Los ciclos 88-91 del 28-29 sep (US/MX) terminaron `done`, con cero decisiones PAUSE y cero mutaciones desde `INICIO_SHADOW=2026-09-25T06:13:41Z`. Evidencia: `docs/evidencia/ads-proteccion-01/H5/ciclo-4.txt` y `ciclo-5.txt`. No hubo candidato natural que ejercitara la PAUSE nueva.
+
+**2026-09-28 UTC — Deploy sin ventana horaria (decision del dueno).** Se elimina la ventana de deploy (09:30-15:00 / despues de 16:00 UTC) de `docs/DEPLOY.md` D.1.0-1 y del runbook `ads-proteccion-01` 0.2: se despliega a cualquier hora. Queda solo la guarda tecnica: no recrear `orbit-app-1` con un ciclo en `running` ni con un harvest en vuelo. Las desviaciones de ventana ya registradas quedan como historia.
+
+**2026-09-28 UTC — ADS PROTECCION 01 Fase D DESPLEGADA: D.2, D.1b y C.2a en produccion.** Deploy conjunto a las 00:31 UTC, por el dueno con `!`: primero las migraciones `0045` y `0046` y despues el codigo `2aa70cc` (`master` ya traia las tres tareas; sin las migraciones el ciclo fallaria en TX3/TX4). Esquema verificado `t|t|t|f|f|t`, md5 OK, imagen recreada (`b8133eca...` -> `0a113111...`), health ok. Reversa: `predeploy-20260928-0031/` + `backups/pre0045_0046_schema_20260928-0031.sql`. Desviacion declarada: fuera de la ventana de deploy y sin el conteo previo de harvest en vuelo (D.1.0-2; conteo posterior pendiente). Evidencia: `docs/evidencia/ads-proteccion-01/fase-d/deploy.md`. Siguiente: verificar el primer ciclo (08:40 UTC del 28-sep) con `fase-d/primer-ciclo.sql`, solo lectura.
+
+**2026-09-27 UTC — ADS PROTECCION 01 C.2a CERRADA: el replay congela el target de cada hoja por ciclo en `target_acos_ciclo` y deja de leer el goal mutable.** PR #362 merge `3903f5e` (head `71ec9b8` por zcode sobre r1 `a10f730`, migracion `0046` + codigo; TDD rojos pre-cambio + prueba nueva del repro del revisor, 12 passed con Postgres real, mutantes en rojo, CI gate+rapido+bateria Quality success, Claude r1/r2 + DeepSeek 3 Low (residuales R-C2a-1..R-C2a-6) + CodeRabbit Low (solo docstrings, sin fila). Deploy pendiente: primero la 0046, despues el codigo. Evidencia: `docs/evidencia/ads-proteccion-01/C.2a/cierre.md`. Fase D completa: D.2 + D.1b + C.2a mergeadas; deploys en orden: D.2 (solo codigo, antes del ~12-oct), D.1b (0045 + codigo), C.2a (0046 + codigo).
+
+**2026-09-27 UTC — ADS PROTECCION 01 D.1b CERRADA: el choque de clave en ciclo live deja su fila `choque_clave` y se cierran residuales de D.1.** PR #360 merge `91c7c5a` (head `2b0a869` por zcode): TDD 7/9 rojos pre-cambio + 2 verdes esperados, 9 + 33 + 7 + 90 + 49 passed con Postgres real, mutantes en rojo, CI gate+rapido+bateria Quality success, DeepSeek 1 Low + CodeRabbit 1 Major hipotetico (residuales R-D1b-1..R-D1b-6). Migracion `0045` + codigo. Deploy pendiente: primero la 0045, despues el codigo. Evidencia: `docs/evidencia/ads-proteccion-01/D.1b/cierre.md`. Siguiente: C.2a (migracion 0046).
+
+**2026-09-27 UTC — ADS PROTECCION 01 D.2 CERRADA: anti-inversion de bids con N=10.** Tras un BID aplicado, la direccion contraria exige 10 dias maduros de evidencia posterior al cambio; si no, se salta con `inversion_sin_evidencia` (sin Telegram, solo contador en `notes.skips`). PR #357 merge `3f773a6` (head `1eba77b` por zcode + cherry-pick `7648195` con la decision literal N=10 del dueno): TDD 10 failed antes, 60 passed despues con Postgres real, 10/10 mutantes en rojo, CI gate+rapido+bateria Quality success, DeepSeek 3 Low + CodeRabbit 2 Minor (residuales R-D2-1..R-D2-4). Sin migracion. Deploy pendiente: solo codigo, antes del ~12-oct (tiene fecha). Evidencia: `docs/evidencia/ads-proteccion-01/D.2/` (decision, replay, cierre). Siguiente: D.1b (migracion 0045) y C.2a (migracion 0046).
+
+# Orbit — contexto para Claude Chat
+
+**2026-09-26 UTC — ADS PROTECCION 01: plan conciliado con evidencia.**
+Filas a `cc:完了`: A.2 (#333), A.3d (literal), A.3 (#340), B.2 (#332),
+B.2a (#339), B.3 (#335), C.0 (cotejo), C.1 (spec), C.2 (#334), C.2b
+("Aceptado"), C.3 (#341), C.4 (#342), C.5 (#344, desplegado). B.4 WIP
+(sombra 1/5); A.4 TODO (falta H4); C.2a TODO. Advertencia: C.6 sigue
+BLOQUEADO hasta cerrar A.4 y B.4 (sombra H5 en curso; exige su propio
+INICIO_SHADOW). Desviaciones declaradas (igual que runbook "Desviaciones
+declaradas"): 0040 fuera de ventana sin dispensa previa; corrida H5 pasos 2-5
+fuera de ventana por orden literal; merges C.3/C.4 previos al literal C.2b;
+deploy C.5 sin go literal registrado.
+
+**2026-09-25 UTC — ADS PROTECCION 01 D.1 CERRADA: todo no-apply deja su motivo.**
+Tabla append-only `decision_sin_aplicar` (migracion 0044) con el motivo de
+cada decision que el ciclo live no aplico (cuota, modo no live, tope,
+espera de target, sin respuesta...) y vista `v_decision_huerfana` para
+auditar huecos (`sin_registro` historico, `en_cola`, `huerfana`). Nace del
+analisis de Kimi del 24-sep (176 bids live del 2-3 sep sin rastro). PR #345
+merge `03faa24`, desplegado el 25-sep 23:53 UTC: 197 `sin_registro`, cero
+`huerfana`. #347 arreglo master rojo desde C.5. Evidencia H5/H6 y la
+aceptacion de C.2b del dueno quedan en master. Pendientes: D.1b (no
+bloqueantes de la revision IA) y D.2 (anti-inversion de bids, el dueno
+decide cuantos dias de evidencia exigir tras un cambio). Goals: 9 shadow,
+0 live.
+
+**2026-09-24 UTC — ADS PROTECCION 01 A.1 CERRADA; spec de politica en revision.**
+PR #329 quedo mergeado y desplegado con `INTENTOS_POLL=300`. La primera
+ingesta principal posterior al deploy, run 426, cerro `ok=true` con 9.731
+filas; MX y US llegan al 23-sep y el costo/venta de los reportes de campana
+coincide exactamente con Amazon. Evidencia:
+`docs/evidencia/ads/2026-09-24-exact-us.md`. El plan #330 esta en master.
+El dueno eligio limite economico conservador para hojas con ventas
+(ACoS >3x target y exceso >=80 USD/1000 MXN), PAUSE automatica de hoja con
+veto/revalidacion, propuesta humana de campana y Telegram al fallo, atraso
+10:30 UTC y recuperacion. El spec `2026-09-24-ads-proteccion-design.md`
+esta en el PR #331. El dueno tambien eligio aplicar el mismo tope a
+`revenue=0` medido, antes del umbral adaptativo de clics, y ejecutar las
+pausas de campana manualmente en Amazon; Orbit solo propone, verifica
+`PAUSED` por campaignId/profile y registra el cierre. B.1 y C.1 quedan
+selladas en el spec; el replay y los gates de live siguen pendientes.
+No se cambiaron goals ni se reactivaron A1U/AU2.
+
+**2026-09-23 UTC — FABRICA 02 D.3 EN CURSO: cinco goals del grupo 1 en live.**
+El dueño dio el go 1 literal `D.3 encender grupo 1 kit_arras`; el tool cambió
+los goals 8–12 a `live` y su readback, más una consulta independiente como
+lector, confirmó `live` efectivo con bid 11.6200 MXN. Cap de harvest 2/2,
+cola no terminal y jobs en curso 0 al cierre del encendido. El primer harvest
+debe venir del cron natural MX de las 08:41 UTC; se verifica hasta `done`
+antes de pedir el go 2 separado para revertir ese mismo job. La reversa ya
+estaba implementada y probada antes de encender. Evidencia:
+`docs/evidencia/fabrica-02/D.3/preflight.md` y `encendido.md`.
+
+> Archivo mantenido por la sesión lead de Claude Code: se actualiza al cierre
+> de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
+> "Sync now" en el Project o pregúntale el estado antes de asumir.
+
+**2026-09-23 UTC — REPRICING 01 D.1 CERRADA: el motor de precios corre en sombra MX.**
+El dueño autorizó el despliegue con `!` el 20-sep: `f301cf4`, respaldo,
+checksums, imagen y cron de `gon` a las 13:10 UTC. Los listings 1213, 1284
+y 1295 tienen goals `shadow`; cero goals vigentes `live`. Las corridas
+automáticas del 21 y 22-sep evaluaron 3/3 goals cada una y decidieron
+`mantener(cooldown)`: los cambios de A.4 tenían 2 y 3 días frente a los
+7 configurados. No hubo cambios de precio nuevos. El recuadro canónico
+cuadró ambos días con 260 activas: 3 evaluadas, 102 sin canal y 155 sin goal.
+La cifra 264 del plan era histórica; 342 son identidades de `listing`, no
+activas del bridge. Evidencia: `docs/evidencia/repricing-01/D.1/LEEME.md`.
+Cinco corridas quedan como seguimiento operativo según el criterio de cierre
+que aprobó el dueño. D.2 exige un go distinto para encender 3–5 productos.
+**2026-09-22 UTC — REPRICING 01 A.4: las tres reversas quedaron confirmadas por Pricing; D.1 ya cerró en sombra.**
+Lectura de producción como `orbit_read`: los cambios 2/3/4 y las reversas
+5/6/7 están `confirmado` por `observacion`. Pricing del 21 y 22-sep devolvió
+los precios originales de los listings 1213, 1284 y 1295; el control 1253
+permaneció en 848.00 MXN. La forma del PATCH está sellada en #319. El GET de
+Listings Items conservó `summaries.lastUpdatedDate` antiguo, así que A.4 usa
+el `observed_at` de la lectura externa de Pricing como evidencia temporal.
+Consulta y resultados: `docs/evidencia/repricing-01/A.4/readback.md`.
+
+D.1 se cerró con las corridas automáticas del 21 y 22-sep. D.3 de
+FABRICA 02 sigue separado; su orden quedó resuelto el 23-sep y espera
+el primer go literal. E.0a espera el export de Seller Central.
+
+**2026-09-19 UTC — REPRICING 01, D.0 APLICADA: la base de producción ya tiene las tablas y la configuración del motor de precios; ningún goal, ninguna decisión, ningún precio movido.**
+El dueño corrió el paquete de D.0 (`#317`, `1bcfc5e`) con `!` a las 15:06 UTC, desde un worktree en `origin/master`: `D0-VERDE`.
+
+- **0039 aplicada** en una transacción sobre PostgreSQL 16.15, con backup previo del esquema. El `EXCLUDE` con enum + `daterange` se creó en producción.
+- **`config_version` 20**, copia de la 19 más las 20 claves `precio_*`. Los caps de Ads, incluido el de harvest en 2/2, quedaron idénticos antes y después.
+- **Readback como lector**: las cinco tablas `precio_*` en cero filas y los caps `precio:*` en 5; la cuota de `precio:amazon_mx` nace con cap 5.
+- **Anomalías, sin efecto en los datos**: el `label` de la config 20 quedó con el marcador de la plantilla (`D.0: <tu go literal>`) y no se corrige, porque la tabla es append-only. El preflight y el readback reportaban `config_id` 9 por un orden de texto; los ids reales son 19 y 20, y el cierre lo corrige con prueba.
+
+Lo que sigue es del dueño: el goal `live` del producto controlado y la sonda A.4; con A.4, D.1 (sombra en producción). D.3 de fabrica-02 va después de un ciclo limpio de Ads, no en la misma ventana que D.0.
+
+**2026-09-19 UTC — REPRICING 01, Fase 11 (AUTO-07) CERRADA: corrida diaria y pantalla con avisos del motor de precios en master, y revisión independiente completa; ningún precio movido.**
+Cuatro PRs mergeados por la ruta del kit:
+
+- **A.5**, corrida diaria (`#309`, `53c6067`). `python -m app.cli precio --platform <p>` toma el lock `precio:<p>` (claim con latido + advisory de sesión), cierra huérfanas a `error`, cierra por observación los `enviado` de días anteriores, decide todos los goals vigentes, reparte la cuota propia por prioridad, aplica solo `live` y escribe el virtual en `shadow`; frenos `no_confirmado` y `api_error`; `--reporte` de solo lectura. El cron `10 13 * * *` queda documentado en `docs/DEPLOY.md` (lo instala D.1).
+- **A.6**, pantalla y avisos (`#312`, `510beda`). `/precios` con los cinco bloques de S7 y la cobertura en vivo arriba; `plataformas.<p>.precios` en `/salud`; un sender `notifica_precio` en flanco por racha, conectado a la corrida por el gancho `avisar`. Sin la 0039: `/salud` en `None` y `/precios` 503, nunca 500.
+- **R.1**, revisión independiente (`#314`, `4ac1f57`; bis `#313`, `de8c54f`). kimi sin altas ni medias en los siete squashes del motor; re-mutación con base real de los seis catálogos: todo mutante que puede morir muere; tres sobrevivientes del lead cerrados con test en el bis.
+- **E.0b** no corrió: E.0a sigue sin veredicto.
+
+Lo que cambia lo que se creía:
+
+- El freno por error de S6 no se alcanza con el cooldown de 7 días de S4 #9: un `error` cuenta para el cooldown y no hay reintento diario. Contradicción del plan que decide el dueño.
+- La cuota del motor es monótona (trigger de la 0002): cada intento reservado consume, aunque `cambiar_precio` salte sin escribir.
+- Los dos precios con sus horas de AC16 no se guardan ni se registran: la 0039 no tiene columna y la corrida no lee el `diagnostico`.
+- `seller_sku` no es único por plataforma: el aviso de buy box, que agrupa por SKU, puede confundir dos publicaciones.
+
+Lo que sigue es del dueño, en orden: E.2 parte 1, D.0 (con `!`), el goal del producto controlado y la sonda A.4; con A.4 y D.0, D.1 (sombra en producción: instalar el cron, goals en `shadow`, cinco corridas leídas con el lead). También el documento de origen de E.0a. Pendientes de código, anotados en las celdas de A.5 y A.6: la redacción de las frases del bloque (c), el aviso de buy box por `listing_id` y el diagnóstico de AC16.
+
+**2026-09-18 UTC — REPRICING 01, Fase 10 (AUTO-07) CERRADA: herramienta de goals y recuadro de cobertura en master, y veredicto del envío parcial por falta del documento de origen; ningún precio movido.**
+Cinco PRs mergeados por la ruta del kit:
+
+- **A.1**, herramienta de goals (`#303`, `662db38`; cierre r1 `#307`, `eeefb72`). `tools/precio_goal.py` siembra y cierra goals solo con `app_admin`: dry-run con `m_actual`, `P*` y huella; `shadow` sin go literal y `live` con go; `--sku`; salto > 25 % confirmado por listing.
+- **A.7**, recuadro de cobertura (`#305`, `0d88cc8`). Readback en producción del 18-sep que cuadra exacto: MX 260 activas = 102 `canal_sin_dato` + 158 `sin_goal`; US 100 = 100 `canal_sin_dato`.
+- **E.0a**, veredicto de las fuentes del envío (`#304`, `7b5d6e9`; cierre `#306`, `b7a0839`). Queda **parcial**: los tres pares sin veredicto hasta que el dueño deje en `/Users/dn/dev/orbit-insumos/E.0/` la vista de transacciones de Seller Central de las 54 órdenes listadas.
+
+Lo que cambia lo que se creía:
+
+- Las «18 órdenes con tres cargos» del hecho 14 son 54 (era rezago de ingesta).
+- `LabmanLabelPurchase` aparece el 2026-08-18 y casa con la etiqueta en 53 de 54 pares.
+- Las activas canónicas hoy son 260 y 100, no 264 y 106.
+- El canal de FBM y de US todavía no existe en Orbit: llega con E.3/0.3.
+- La cuenta de activas del bridge no vive en Orbit.
+- `tools/precio_cobertura.py` y `tools/precio_goal.py` en producción necesitan **D.0**, porque la 0039 no está aplicada.
+
+Lo que sigue es del dueño, en orden: E.2 parte 1, D.0 (con `!`, copiando la `config_version` vigente), el goal del producto controlado con `tools/precio_goal.py --mode live --go <literal>` y la sonda A.4. También el documento de origen de E.0a.
+
+**2026-09-18 UTC — REPRICING 01: plan v1.3 tras revisar la Fase 8 contra el código; corrige lo que la nota de cierre decía mal.**
+La Fase 8 cumple todo su DoD (374 pruebas en verde contra PostgreSQL real), pero la sonda A.4 **no puede correr con lo que hay**:
+`cambiar_precio` lee una decisión `subir` en `live` que exige un goal `live` vigente, y eso necesita las tablas en producción y la
+herramienta de goals. Por eso la v1.3 agrega la fila **D.0** (aplicar la 0039 y sembrar las claves `precio_*`, del dueño con `!`) y
+hace que A.4 dependa de A.1 y D.0. **Corrección**: A.1 es implementación de Muse, no del dueño; lo del dueño es elegir el producto
+y dar el go. E.0 se parte en E.0a (veredicto contra el documento de origen, del lead con insumo del dueño) y E.0b (la regla en la
+ingesta, de Muse). Hechos nuevos 20–22 de E.1 para el acta E.2: el rezago de emisión no existe (el de ingesta es p90 4 días MX y 13 US),
+la palanca es la ventana (7/14/17 productos en MX y 9/17/22 en US a 90/180/365 días) y la histéresis 6/3 casi elimina el parpadeo.
+Lo que sigue: Fase 10 del autopilot con A.1 y A.7 (Muse); del dueño E.2 parte 1 (ventana e histéresis), D.0 (con la config nueva copiando la vigente, para no apagar los topes de Ads), el goal del producto controlado y A.4.
+
+**2026-09-18 UTC — REPRICING 01, Fase 8 (AUTO-07) CERRADA: los cimientos del motor de precios están en master, sin mover ningún precio.**
+Cuatro PRs mergeados por la ruta del kit: A.0 migración 0039 (`#298`, `14accfa`; **no aplicada en producción**, eso es D.1 y lo
+corre el dueño), E.1 costo de envío FBM medido en producción (`#297`, `6127708`; insumo de E.2 y E.0), A.2 reglas puras del motor
+(`#299`, `39cba88`) y A.3 cliente de escritura, escritura y reversa de Amazon (`#300`, `efc0555`; la forma del cuerpo del PATCH
+sigue `pendiente_sonda` hasta la sonda A.4). Hechos medidos que cambian lo que se creía: el rezago de emisión del hecho 15 no se
+reproduce (p50 0, máx 3 días) y el que sí se mide es el de ingesta (MX p90 4.2, US p90 13); «365 días» son 287 de datos; una
+reversa no entra el mismo día del cambio (el índice único de S5 la bloquea mientras el original está abierto). Ninguna clave
+`precio_*` está sembrada en la config. Lo que sigue: A.1 (sembrar goals), la sonda A.4, el acta E.2 y D.1 son del dueño; la
+corrida diaria es A.5.
+
+**2026-09-16 UTC — REPRICING 01: plan y spec sellados; el siguiente módulo es el motor de precios.**
+El dueño decidió el 15-sep cómo funciona: proteger margen; cada producto tiene un goal que él fija; si el margen
+estimado (precio, costo, comisiones, retenciones, sin Ads) no llega al goal, el motor sube el precio aunque rebase
+a la competencia; baja solo si las unidades de 15 días caen contra el promedio de 60, con volumen mínimo, racha de
+tres y stock presente, y nunca abajo del goal; automático dentro de límites con sombra primero; ningún producto
+queda sin evaluar en silencio. Cinco revisores corrigieron el borrador (escritura asíncrona cerrada por la
+observación del día siguiente, sin reversa automática, cotización de fees en tabla propia, motor a las 13:10 UTC).
+
+**Ampliación del 16-sep, decisiones 13–15 del dueño.** El costo del envío FBM sale de lo que Amazon ya cobra por
+las etiquetas y que el ledger recibe como `shipping_fee` (180 días: MX 455 cargos por 38 861 MXN, US 710 por
+192 607; en US el envío supera a la comisión y el cliente paga cero). La atribución al producto es exacta porque
+431 de 439 órdenes con etiqueta en MX y 344 de 347 en US son de un producto y una unidad. Toda publicación activa
+queda contemplada en un recuadro de cobertura que cuadra. Y Mercado Libre entra al alcance. **Hecho que reordenó
+el plan: Estados Unidos no tiene ninguna publicación activa en FBA (0 de 109), así que US depende de la fase de
+FBM, no de la ruta FBA.** MeLi hoy no tiene en Orbit precios frescos (la caché del bridge quedó en el 2026-05-01),
+mapeo SKU→producto ni dinero en el ledger: su fase es traerlo a Orbit, no encenderlo.
+
+Spec `docs/superpowers/specs/2026-09-15-repricing-01-design.md` v1.2, plan `plans/repricing-01.md` v1.1 con 28
+filas en cinco fases (A Amazon MX FBA, E envío medido y FBM, 0 política fiscal US, B Amazon US, M Mercado Libre).
+**Cero código todavía** (al 16-sep; la Fase 8 lo cambió: ver la entrada del 18-sep); arrancó después de D.3 de F2.
+
+**2026-09-16 UTC — FABRICA 02 (F2): D.1 y D.2 CERRADAS — la migración 0038 y el código del harvest por grupo ya están en producción, apagados; sigue D.3 desde el 19-sep.**
+El dueño corrió el runbook F2 con `!` la tarde del 15-sep: cap diario de harvest bajado a 2 por
+plataforma (`config_version` 19), respaldo del schema, 0038 en una transacción y verificada como
+lector (CHECKs, índice, triggers y GRANTs exactos), deploy de `359f1f8` con md5 idéntico y rebuild,
+`/health` y `/cortes` en verde, y un ciclo de apagado que no emitió nada para el grupo 1. Después
+limpió la terna de los cinco goals del grupo 1 (bid-solo, bid intacto) sin migrar ninguna campaña a
+excepción: las 241 siguen por terna a propósito. Un ciclo manual esa misma tarde (cero decisiones)
+mostró en `/salud` a las cuatro hermanas del grupo resueltas a su exacta y sin saltos: D.2 cumple su
+criterio. Evidencia en `docs/evidencia/fabrica-02/D.1/` y `D.2/`. La cola del día quedó mergeada completa (#277 a #284, master `7384152`), incluido el modo de
+goals con ceremonia (#283) que D.3 necesita.
+
+**Dos planes cerrados el mismo día.** `cortes-ui-01` (la pantalla de propuestas): el dueño la abrió y dio su
+visto bueno con sus palabras. `bids-01` (cero ventas −25% y palabras sin tráfico): la fila 1.5 cierra con
+el ensayo del archivo de inertes, que hoy da cero candidatas porque la guarda de 30 días cubre a todas
+las hojas hasta el 4 de octubre; el primer lote queda diferido con fecha en su propia tarea del tracker.
+
+**Producción tiene F2 apagada**: los goals del grupo 1 siguen en `shadow`. Un segundo rebuild la
+misma tarde dejó el código en `7384152`, ya con el modo de goals del #283, y el vigilante del cron
+quedó instalado con su prueba del silencio hecha. **Sigue D.3** desde el 19-sep (regla 6 sobre el
+grupo 1); sus precondiciones ya están cumplidas, incluido el visto bueno a `cortes-ui-01` 1.2.
+
+**2026-09-16 UTC — FABRICA 02 (F2): R.1 CERRADA — la revisión independiente de la Fase A pasó con ejecución real; sigue el despliegue.**
+Muse entregó el catálogo de 29 mutantes (PR #278, en master como `d7c0bf9`): 26 mueren con su rojo
+literal, uno de los obligatorios sobrevivía (el dedupe de revalidación miraba al goal fresco y no al
+destino congelado) y se cerró con un test nuevo, y dos quedan declarados como no discriminables.
+Kimi re-ejecutó los 27 mutantes con base real y dio APPROVE; el lead ejecutó ocho por su cuenta y
+cerró una ronda de tres correcciones menores. Hallazgo de método para cualquier catálogo futuro:
+mutar con `PYTHONDONTWRITEBYTECODE=1`, porque el `.pyc` conserva el bytecode del mutante si el
+revert cae en el mismo segundo. También cerró el vigilante del cron SP-API (PR #280, aprobado por
+grok y el lead, en cola): convierte el silencio del cron en un aviso por Telegram; límite declarado:
+con el contenedor caído no avisa.
+
+**Producción sigue igual**: 0038 sin desplegar. **Sigue D.1** con el runbook F2 de `docs/DEPLOY.md`
+(corregido en el PR #281: gates con estado de fallo, respaldo y hash del mismo conjunto, contadores
+del grupo 1), luego D.2. D.3 espera dos cosas: el 19-sep (regla 6 sobre el grupo 1) y el camino
+sellado para cambiar el `mode` de un goal, que hoy no existe y Muse implementa con el brief del
+PR #279.
+
+**2026-09-15 UTC — FABRICA 02 (F2): FASE A CERRADA — todo el código del harvest por grupo está en master; sigue la revisión independiente.**
+Con el PR #274 (Muse, squash `959e742`) y su residual de test #275 (`7a32ec3`) quedó cerrada A.6,
+la última fila de código de F2: los motivos nuevos de skip se leen traducidos en `/salud` y
+`/cortes`, la fase de hermanas tiene etiqueta en el feed de decisiones, el renglón de veto de un
+harvest de grupo nombra las hermanas donde se negará el término, y un aviso por Telegram sale una
+sola vez por racha cuando una campaña de grupo se queda sin destino de harvest (calla al
+corregirse, vuelve a avisar si reaparece; las campañas sueltas nunca avisan). El dueño mergeó los
+ocho PRs de la fase en orden (#258, #261, #264, #267, #269 `a286ed2`, #272 `18997de`, #274, #275);
+master queda en `7a32ec3` con CI verde en cada uno. En la ronda del lead sobre A.6 murieron 9 de
+10 mutantes y el décimo es equivalente (un filtro SQL redundante con el filtro en Python); el
+único hueco real —un ciclo `skipped` que persistía notas de destino— se cerró rojo-primero en #275.
+
+**Producción sigue igual**: 0038 no está desplegada y nada de F2 corre en vivo. **Sigue R.1**:
+revisión independiente sobre `7a32ec3` por alguien que no implementó (kimi, codex o grok), con el
+catálogo de mutantes del implementador y los residuales declarados en las filas A.3–A.6 como
+insumo; cero sobrevivientes o se cierran con test. Después D.1 (0038 a producción con los caps
+bajados), D.2 (limpiar la terna del grupo 1 con `tools/harvest_excepcion.py`, go del dueño) y D.3
+(primer harvest de grupo en vivo con ensayo de reversa; precondición: visto bueno de
+`cortes-ui-01` 1.2).
+
+**2026-09-15 UTC — FABRICA 02 (F2): A.5 aprobada y en cola de merge; ya existe la herramienta para migrar excepciones y limpiar ternas.**
+La herramienta de A.5 está en el PR #272 (Muse, HEAD `f8f782d`), en cola de merge con #269, #270 y
+#271. Tiene dos modos que no se mezclan: migrar una campaña sin grupo a `harvest_excepcion` con un
+destino que se resuelve contra las entidades reales (campaña y ad group hijo de la misma
+plataforma; texto libre rechazado; una excepción existente nunca se pisa), y limpiar la terna de los
+goals de un grupo solo por el camino único de edición de goals, goal por goal y reanudable si algo
+falla a mitad. Siempre dry-run primero, con la resolución de hoy y la de después y la huella; la
+mutación exige la ceremonia completa con el literal del dueño. Solo Postgres con el rol admin, cero
+Amazon. Treinta y siete pruebas nuevas, una ronda del lead con un hallazgo menor corregido, quince
+mutantes muertos y batería completa verde. Residuales declarados en la fila A.5 del plan.
+
+**Producción sigue igual**: 0038 no está desplegada y nada de F2 corre en vivo hasta D.1; la
+limpieza real de la terna del grupo 1 es D.2, con go del dueño y esta herramienta. **Sigue A.6**,
+visibilidad y aviso.
+
+**2026-09-14 UTC — FABRICA 02 (F2): A.4 aprobada y en cola de merge; la biblioteca del tipo de producto aprende sola.**
+La biblioteca escrita por el motor está aprobada en el PR #269 (Muse, cinco commits, HEAD `a3ddc7f`), en cola de merge: por decisión del dueño los PRs de esta operación se mergean todos al final.
+Cada harvest de grupo confirmado por readback deja su término en la biblioteca de keywords en el
+mismo sello que deja la cola aplicada, así que otra conexión lo ve antes de que se nieguen las
+hermanas; cada negativo aplicado en una campaña de grupo, por la cola o por cualquiera de las dos
+ramas de la reconciliación que confirman, deja el suyo en la biblioteca de negativos. Los negativos
+que nacen de un harvest nunca entran (son ruteo, no exclusión), un término que ya vendió no se
+enseña como exclusión, y solo se guardan palabras: las columnas de dinero quedan vacías. La escritura
+va en un punto de guardado dentro de la transacción: si falla, el harvest o el negativo quedan igual
+de aplicados, con rastro durable y un aviso veraz enviado después de confirmar. Veintiocho pruebas
+nuevas, una ronda del lead (un hallazgo mayor de CodeRabbit, válido, corregido: la rama de reintento
+también aprende) y batería completa verde. Residuales declarados en la fila A.4 del plan.
+
+**Producción sigue igual**: la migración 0038 no está desplegada y nada de F2 corre en vivo hasta
+D.1. **Sigue A.5**, la herramienta de excepciones de harvest.
+
+**2026-09-14 UTC — FABRICA 02 (F2): A.3 en master; el motor ya sabe negar el término en las hermanas.**
+La fase `hermanas_negadas` entró en el PR #267, squash `eee8152` (GLM, cuatro commits). Antes del
+primer POST a una hermana la decisión, la cola, el cooldown, la fase y el roster quedan sellados y
+visibles desde otra conexión; cada ciclo hace hasta dos barridos LIST paginados y filtrados por los
+ad groups de las hermanas, y cualquier LIST truncado, repetido, ambiguo, con filtro no honrado o con
+un enum desconocido bloquea el POST (fail-closed). Una hermana solo cuenta como creada cuando el ack
+coincide con el readback; un fallo en una hermana jamás degrada el harvest ya aplicado: se reintenta
+por ciclo sin cobrar quota y, al tercer ciclo, el job cierra `done` con las pendientes declaradas y
+una alerta veraz. Existe `tools/reversa_harvest.py --job`: plan por id y por clase, readback entre
+borrados, se detiene ante cualquier provisional discordante y se reanuda sin repetir borrados
+confirmados. Setenta y una pruebas nuevas en dos archivos, más casos en notificación y ledger; cuatro rondas del lead, una de Grok y CodeRabbit; la
+batería completa corrió una sola vez en CI y quedó verde. Residuales declarados en la fila A.3 del
+plan (dos observaciones menores tardías de CodeRabbit entran con A.4 o R.1).
+
+**Producción sigue igual**: la migración 0038 no está desplegada y la fase nueva no corre en vivo
+hasta D.1. **Sigue A.4**, la biblioteca escrita por el motor.
+
+**2026-09-13 UTC — FABRICA 02 (F2): brief de A.3 listo y contrato sin contradicciones.**
+El brief ejecutable para GLM está en `plans/brief-fabrica-02-a3-glm.md` (PR #266). Antes de
+implementarlo, cinco perspectivas independientes encontraron cuatro huecos que ya quedaron
+cerrados en el plan, el spec y APPLY: un grupo tiene cuatro roles discovery contando el origen ya
+negado, así que cada job tiene **máximo tres identidades de hermana objetivo**, cada una con hasta
+tres intentos POST; cada ciclo hace hasta dos barridos LIST
+paginados y batched; el tope es tres ciclos; y la reversa preserva la procedencia después de un crash
+y puede reanudarse sin repetir deletes confirmados. La decisión, cola, cooldown, fase y roster deben
+quedar confirmados antes del primer POST de hermana. Un fallo posterior nunca degrada el harvest ya
+aplicado: termina `done` con pendientes explícitas y una alerta veraz.
+
+**Producción sigue igual**: 0038 no está desplegada y A.3 aún no está implementada. Lo siguiente es
+entregar este brief a GLM; la reversa se prueba con `MockTransport` en A.3 y con ids reales, go nuevo
+del dueño y evidencia completa en D.3.
+
+**2026-09-13 UTC — FABRICA 02 (F2): A.3a en master; ejecución y reconciliación ya están separadas.**
+El refactor preparatorio entró en el PR #264, squash `2b136f8`: `app/apply_harvest.py` conserva la
+ejecución y la superficie pública, mientras `app/apply_harvest_reconciliacion.py` concentra la
+revalidación y recuperación de jobs. No cambió la conducta: 48 pruebas de harvest pasaron antes y
+después sin skips; las 19 pruebas de arquitectura, Ruff, pre-commit, la batería completa de CI y
+CodeRabbit quedaron verdes. El brief quedó en el PR #263 y la revisión del lead fue APPROVE.
+
+**Producción sigue igual**: la migración 0038 continúa sin desplegar y la fase
+`hermanas_negadas` todavía no existe en el motor. **Sigue A.3**, que implementa esa fase sobre la
+frontera ya partida.
+
+**2026-09-13 UTC — FABRICA 02 (F2): A.2 en master; la base ya sabe de hermanas, pero producción no.**
+Muse entregó la migración 0038 (PR #261, squash `b76959f`): la fase `hermanas_negadas` entre el
+readback de la keyword y el cierre; el CHECK que obligaba a los goals a tener los tres campos de
+harvest o ninguno se reemplaza por un trigger que además admite «solo bid» cuando la campaña está en
+un grupo, con un trigger simétrico que impide sacarla del grupo mientras esté así; y el motor gana
+permiso de escribir las bibliotecas —insertar en las dos, y mover `updated_at` solo en la de keywords; sin dinero. **No está
+desplegada**: producción sigue sin 0038 hasta D.1, y ningún código de producción escribe todavía la fase nueva (solo los tests de la migración).
+
+Tres rondas de revisión, una cosa importante en cada una. CodeRabbit sobre el brief: el candado del
+`DO $$` probaba solo el primer negativo (una excepción sin manejar abortaba el bloque). El lead: un
+mutante que dejaba mover una campaña de grupo sin que nadie se enterara. CodeRabbit sobre el código:
+**el plan no distinguía un negative adoptado de uno creado**, y la reversa habría borrado negativos
+ajenos — decisión tomada (`creada: true|false`, hecho 17) y ya en el contrato de A.3. Mutación:
+11 de 11 mueren. Residuales declarados: el motor aún no consume la fase (A.3, a propósito) y un
+`RETURNING` del `DO` más ancho que el canon (A.4). Dato de proceso: CodeRabbit quedó en una
+revisión por hora por 77 en siete días — cada push a un PR abierto gasta una.
+
+**Falta**: A.3a (partir `apply_harvest.py` sin cambiar conducta) y A.3, la fase de hermanas.
+
+**2026-09-13 UTC — FABRICA 02 (F2): A.0 y A.1 en master; el resolutor de destino ya existe.**
+Muse entregó el banco de pruebas y el resolutor de destino de harvest (PR #258, squash `a01aed0`):
+el módulo que decide, para cada campaña, a dónde va un search term ganador —primero por grupo,
+luego por excepción, luego por la configuración vigente venga de donde venga (la corrección de la
+sonda 0.2)— y su cableado en los cuatro sitios del ciclo, incluido el que de verdad decide dónde se
+postea. **No cambia nada en producción todavía**: el resolutor resuelve, pero la fase de hermanas
+(A.3) es la que lo va a usar para cubrir los cuatro roles discovery: el origen ya queda negado y se
+crean como máximo tres hermanas nuevas.
+
+La revisión del lead encontró un bloqueante que ni CI ni CodeRabbit vieron: una campaña en grupo
+sin bid de harvest dejaba una decisión congelada con `default_bid: null`, y el replay —lo que
+permite auditar por qué el sistema decidió algo— reventaba al reconstruirla. Salió de mutar el
+código y seguir la cadena hasta el `Decimal`. Corregido en la misma ronda con su prueba, junto con
+tres hallazgos de CodeRabbit y cuatro huecos de test. Mutación: 8 de 12 mutantes mueren en la
+entrega, 5 de 6 en la ronda (el sobreviviente es una variable muerta, no un hueco). Brief de la
+ronda: `plans/brief-fabrica-02-a0-a1-ronda-review.md`.
+
+Residual declarado, va a R.1: el candado de «un solo escritor de goals» es un escaneo de texto, no
+una barrera en Postgres — `app_admin` puede escribir la tabla desde la migración 0001. Es una
+decisión de arquitectura del dueño, no de este PR.
+
+**Falta**: A.2 (la migración) y A.3a/A.3 (la fase de hermanas, el corazón de F2).
+
+**2026-09-12 UTC — FABRICA 02 (F2): las dos sondas cerradas; el inventario tapó un agujero del plan.**
+La sonda 0.2 (un inventario de solo lectura, sin tocar Amazon) encontró que **las cuatro campañas que
+de verdad cosechan palabras no tienen configuración propia**: funcionan porque el sistema cae a una
+configuración general de la cuenta. El plan, tal como estaba escrito, iba a exigir configuración
+propia — y con eso **241 de 246 campañas habrían dejado de cosechar el día que se encienda F2**,
+incluidas esas cuatro. Corregido en el plan y en el spec antes de escribir una línea de código: el
+destino se resuelve con la configuración vigente, venga de donde venga.
+
+De paso, el inventario desmintió algo que yo mismo había afirmado al cerrar 0.1: sí hay campañas con
+más de un grupo de anuncios (hasta ocho), aunque ninguna de ellas está hoy en el camino de la cosecha.
+Y dejó claro que migrar campañas viejas **no** es una tarea masiva: solo el grupo nuevo tiene
+configuración propia, así que no hay 241 autorizaciones que pedir. Evidencia:
+`docs/evidencia/fabrica-02/0.2/`.
+
+**Falta antes del código**: nada de sondas. Lo siguiente es el encargo de las dos primeras tareas de
+implementación (el banco de pruebas y el resolutor de destino) a GLM.
+
+**2026-09-12 UTC — FABRICA 02 (F2): plan cerrado y primera sonda hecha.**
+F2 es la fase que hace que un grupo de campañas **aprenda solo**: cuando una palabra demuestra que
+vende, se muda a la campaña exacta del grupo y se bloquea en las hermanas para que dejen de competir
+por ella. El plan (`plans/fabrica-02.md`, PRs #253 y #254) se escribió con hechos verificados contra
+producción y pasó por cinco revisiones independientes, que encontraron **4 críticos antes de escribir
+una línea de código**: el diseño original habría apagado la cosecha de toda la cuenta viva el día del
+deploy, y habría guardado la palabra ganadora como *negativo*, haciéndola nacer bloqueada en el
+siguiente grupo del mismo tipo de producto.
+
+**Decisiones del dueño**: la biblioteca guarda solo palabras (sin dinero); los topes diarios bajan al
+arrancar, porque un harvest pasa de 2 a hasta 5 mutaciones de ida en Amazon por la misma unidad de cuota; e
+implementa GLM por fase.
+
+**Sonda 0.1 (2026-09-12, con go literal del dueño)**: se probó si Amazon acepta bloquear una palabra
+por texto en la campaña de *product targeting*. **Sí la acepta**, contra lo que suponía el diseño, así
+que la fase nueva incluirá product targeting entre los cuatro roles discovery. Como uno de esos
+roles es el origen ya negado, cada job crea máximo tres hermanas nuevas. La sonda creó una palabra basura, la
+verificó, la archivó y comprobó que no quedó viva: neto cero, con las dos filas de ledger `probe` que
+exige el módulo apply. La ceremonia de autorización se abrió y se cerró en el mismo rato
+(`config_version` 17 → 18), sin dejar el token ni la herramienta en ningún lado. Evidencia:
+`docs/evidencia/fabrica-02/0.1/`.
+
+**Residual declarado**: aceptado no es lo mismo que efectivo — la sonda respondió el contrato de la
+API, no si ese bloqueo suprime algo en una campaña que apunta a ASINs. Probablemente sea inerte; queda
+anotado, y sacarlo sería un cambio de una línea.
+
+**Falta antes del código**: la sonda 0.2 (inventario de las campañas viejas, solo lectura) y el brief
+de las dos primeras tareas de implementación para GLM.
+
+**2026-09-10 UTC — SP-API 01: FASE A CERRADA. Desplegada en producción con cron diario.**
+`aee0221` en producción. `0035`/`0036`/`0037` aplicadas con respaldo previo del esquema, cada una en
+una transacción; verificación como `orbit_read` de triggers, GRANTs por columna e índice. Deploy con
+md5 99/99 y health ok.
+
+**Primeras corridas reales (MX)**: run 154 `spapi_orders` 13 escritas, run 155 `spapi_listings` 342,
+run 156 `spapi_inventario` 1071 — las tres `ok=true`, cero omitidas, con `platform` sellada. Los
+conteos de tabla coinciden exacto con lo que reportó cada run. Las corridas de Ads y del bridge
+siguen con `platform` NULL: agregar la columna no rompió ningún pipeline viejo. El 1071 de inventario
+concilia con la sonda de Fase 0 (1071/1071 contra el bridge).
+
+**Candados probados con datos dentro** (antes las tablas estaban vacías y los triggers, al ser
+row-level, ni disparaban): un `UPDATE` sobre cada tabla nueva revienta con el append-only y hace
+`ROLLBACK`. **Reversa ensayada** punta a punta: apagar la ingesta deja 0 líneas `spapi` en el crontab
+y restaurar vuelve a 2, sin tocar ninguna otra.
+
+**Cron diario instalado**: un wrapper en serie con `flock` y log propio, no las ocho líneas sueltas
+que A.R encontró que se autoborraban. Corre 05:00 UTC.
+
+**Lo que todavía NO se ha ejercitado en producción**: `spapi_pricing` (~23 min), toda la plataforma
+US, el wrapper como tal, y el camino de alertas de A.5 — no ha habido ninguna corrida fallida, así
+que Telegram sigue probado solo por tests. Todo eso lo estrena el cron de mañana.
+
+**2026-09-10 UTC — SP-API 01: A.R cerrada. Solo falta el deploy (A.6).**
+Grok hizo la revisión independiente de toda la Fase A y devolvió **APPROVE sobre `958c00f`**, sin
+hallazgos bloqueantes: cumplen los seis ejes del contrato (guard default-deny, un solo refrescador
+LWA, append-only con GRANTs por columna, dinero con moneda sellada, redacción, sin PII). Corrió 18
+mutantes: 14 mueren, 4 sobreviven y los declaró en vez de esconderlos. Informe en
+`docs/evidencia/sp-api-01/A.R/informe.md`.
+
+Sus dos hallazgos no bloqueantes se corrigieron en el mismo PR de cierre. El valioso es **H1**: la
+propuesta de cron **no era instalable**. Eran ocho líneas de crontab que no encadenaban nada (el
+texto decía "en serie" pero el artefacto no lo era), con un colchón de ~2 min en pricing MX que un
+solo `Retry-After` revienta — y, lo peor, el instalador idempotente de ORBIT 03 filtra
+`grep -v "app.cli ingest"`, así que re-aplicarlo **borraba las ocho líneas SP-API del crontab en
+silencio**. Ahora es un wrapper en serie con `flock`, logs en `logs/` y `job_key` propio que el
+instalador de Ads no toca. **H2**: ningún test afirmaba el verbo del camino de lectura (cambiar
+`client.get` por `client.post` pasaba 57 tests); ya está pineado.
+
+**2026-09-10 UTC — SP-API 01: A.5 cerrada; TODO el código de la Fase A está mergeado.**
+Salud SP-API en `/salud` y alertas por Telegram en flanco. Entró en **dos** PRs y vale la pena saber
+por qué: PR #246 (migración 0036, columna `ingest_run.platform`) se mergeó con 5 bloqueantes vivos que
+había encontrado la review del lead, y el arreglo es PR #247 (merge `542564d`, migración 0037: índice
+de `/salud` + candado del `INSERT`). Los bloqueantes: `evaluar_alertas` dejaba la conexión en
+transacción abierta y degradaba el sello siguiente a savepoint (riesgo de repetir las corridas
+huérfanas 145/147); las alertas "inmediatas" no tenían flanco (8 mensajes diarios con el refresh LWA
+caído); el candado del GRANT probaba el `INSERT` como dueño de la base y no como `app_ingest` (la
+misma clase de bug que 0033→0034); el historial contaba corridas abiertas y no anclaba la corrida
+recién sellada; y el cableado estaba sin probar en 3 de las 4 ingestas. Verificación por mutación:
+29 mutantes sobre la entrega original (21 sobrevivieron) y 13 sobre la ronda de corrección (12
+mueren). Semántica final: **una alerta por racha**; inmediata en `lwa_fallido`/`http_429` sólo si la
+corrida anterior no era fallida de esa misma clase; un cambio de clase dentro de una racha sí
+re-alerta; una corrida ok rompe la racha. **Nada de esto está en producción todavía**: sigue en
+0031-0034. Faltan A.R (revisión independiente, la toma Grok) y el deploy final A.6, que aplica
+`0035`, `0036` y `0037` en ese orden ANTES de reconstruir la app, más el cron diario propuesto.
+
+**2026-09-10 UTC — SP-API 01: A.4 cerrada y mergeada (PR #244, Muse).**
+Ingesta de Listings Items e Inventario FBA: migración 0035 (`spapi_listing_estado_observation` y
+`spapi_inventario_observation`, append-only, trigger de `metric_date` con UTC fijado), universo de
+listings = `seller_sku` de `listing` (5 req/s), inventario con recorrido completo y `pagination`
+hermana de `payload` (2 req/s). D2 cumplida con test que hace snapshot de las 7 columnas de `listing`:
+el bridge sigue siendo la fuente de precio y stock. Review del lead aprobada con 4 observaciones BAJA
+pendientes (conteos de líneas de la evidencia, dos nombres, y un SELECT de cortesía del trigger en el
+checklist del deploy de 0035). Falta el deploy: va en el A.6 final junto con A.5 (salud y alertas),
+que es la última tarea de código de la fase. También se mergeó el menú móvil del dashboard (PR #245).
+
+**2026-09-10 UTC — SP-API 01: deploy parcial A.6 en producción (A.1–A.3 en vivo).**
+Migraciones 0031–0034 aplicadas con backup verificado; app reconstruida desde `origin/master` (md5
+idénticos, `orbit-db-1` intacta). Primeras corridas reales: orders ok (incremental, 15+6 filas sobre las
+224 previas) y pricing con universo completo (342 ASINs MX + 176 US). La primera corrida de pricing
+destapó un bug de esquema: el UPDATE de `ingest_run` está otorgado por columna y `llamadas` (0033) no
+tenía su GRANT — los datos se escribieron completos pero el sello reventó; fix en PR #242 (migración
+0034 + test con `has_column_privilege`, demostrado en rojo), corridas huérfanas selladas a mano con
+conteos conciliados y re-corridas ok=true (684 + 352 llamadas, 2 por ASIN). Dato de negocio: donde hay
+Buy Box, es propia en el 100% (MX 254/342 con box, US 105/176). Evidencia: `docs/evidencia/sp-api-01/A.6/`.
+Sigue A.4 (Listings + Inventario): brief listo en `plans/brief-sp-api-01-a4-muse.md` para Muse.
+
+**2026-09-09 UTC — SP-API 01 Fase A: A.2b y A.3 cerradas y mergeadas (PRs #240 y #241).**
+A.2b: los pedidos ya traen estado y total reales vía las secciones FULFILLMENT + PROCEEDS (sin BUYER ni
+RECIPIENT, cero PII); migración 0031 convierte la clave en bitemporal de 4 columnas (plataforma + orden +
+última actualización + observed_at), agrega `fulfillment_status` separado del ciclo del pedido, la vista
+`v_spapi_order_ultima` y una reversa con guarda doble (aborta si hay re-observaciones o estados de envío
+capturados); backfill manual con `--desde`. A.3: ingesta diaria de precios (PR #241) — migraciones 0032
+(`spapi_price_observation`, append-only, dinero con moneda, trigger que exige `metric_date` = día UTC de
+`observed_at`) y 0033 (`ingest_run.llamadas`); pase por ASIN propio de `listing` en MX y US con ofertas y
+precio competitivo a 0.5 req/s, 0 ofertas = fila con precios NULL, precio sin moneda = fila no escrita.
+Ojo: `register_secret` ya NO ignora valores cortos (quedó sin piso en #241, cambio global declarado; la
+nota de A.2 abajo quedó vieja). Dos rondas del lead + CodeRabbit atendidas en cada PR, CI verde. Siguen
+A.4 (Listings + Inventario) y A.5 (salud); A.6 queda para el dueño: aplicar 0030–0033 en producción,
+desplegar y primeras corridas reales.
+
+**2026-09-09 UTC — SP-API 01 Fase A, tarea A.2 cerrada: ingesta diaria de pedidos.**
+Muse entregó la migración 0030 (`spapi_order_observation`, append-only por trigger, clave por
+plataforma + orden + última actualización, dinero con moneda, permisos mínimos) y
+`app/spapi/orders.py` (PR #239): lee Orders 2026-01-01 sin datos de comprador, ventana con solape
+de un día, paginación con guardas, contrato estricto (sin lista de pedidos la corrida queda en
+rojo), limitador local 20 ráfaga / 0.0056 por segundo, `ingest_run` sellado, CLI `ingest
+spapi_orders --platform`. Ronda única: CI había caído porque un token de prueba de una letra se
+registraba como secreto y redactaba la letra T en todo el proceso; ahora los fixtures son largos y
+`register_secret` ignora valores de menos de 8 caracteres. Verificado por mutación. Falta A.6:
+aplicar 0030 en producción, desplegar A.1+A.2 y la primera corrida real (dueño).
+
+**2026-09-09 UTC — SP-API 01 Fase A, tarea A.1 cerrada: cliente único de SP-API.**
+Muse entregó `app/spapi/client.py` (PR #237): un solo refrescador LWA por proceso compartido
+por fees, fotos y la sonda (antes había dos ad hoc), allowlist default-deny con los GET de las
+cinco fuentes, Catalog Items y el único POST (fees), 401 con un refresh coordinado, 429 acotado,
+errores scrubbados y sin PII. Fees y fotos migrados sin cambio de comportamiento (sus tests
+intactos). Ronda única: kimi (1 media, 5 bajas) + CodeRabbit (invalidar el token compartido en
+401/403 de fees, coordinar el refresh forzado, un assert muerto), todo atendido y verificado
+por mutación. Sin migración; el deploy se junta con A.2. Siguen A.2 (Orders), A.3 (Pricing),
+A.4 (Listings + Inventario) y A.5 (salud).
+
+**2026-09-09 UTC — SP-API 01 Fase 0 cerrada: las cinco fuentes verificadas con sondas reales.**
+Muse escribió `tools/sonda_spapi.py` (solo lectura, allowlist default-deny, sin PII ni
+secretos, 42 tests) y corrió las sondas desde el contenedor (05:41–05:49 UTC, cero
+escrituras); el lead validó las actas `docs/evidencia/sp-api-01/0.1–0.5/` (PR #236).
+Hallazgos: Orders v0 y la sucesora 2026-01-01 responden 200 en tres páginas sin los bugs
+de paginación (v0 exige fechas en Zulu; v0 se retira el 2027-03-27); Pricing MX trae Buy
+Box y competitivos, US 200 con 0 ofertas declarado; Listings 200 por sellerId
+(`accountInfo.id` del perfil Ads, porque getAccount no lo trae); Inventario FBA 22
+páginas, 1071 summaries, universo conciliado 1071/1071 con el bridge (8 SKUs difieren
+por 1 unidad intradía; MX=US del bridge es espejo conocido); Sellers 200. Dos correcciones
+en el camino: Orders dual y sellerId por parámetro (ronda 1), paginación de Inventario
+(`pagination` hermana de `payload`, ronda 2). Filas 0.1–0.5 a `cc:完了`; la Fase A
+(cliente único + ingesta) arranca solo con brief nuevo cuando el dueño la pida.
+
+**2026-09-09 UTC — FABRICA 01 tarea 11: SONDA REAL EJECUTADA; primer grupo creado en Amazon MX.**
+El dueño creó desde la pantalla el grupo `kit_arras | Personalizado` (lote `web-923cb2…`,
+03:35–03:37 UTC): 5 campañas ENABLED con 20 MXN/día, target 21.08 % derivado del margen,
+goals en shadow, 66 keywords, 6 ASIN, 87 pasos `applied`, reconciliación ok, y el sync
+leyó las 5 de vuelta desde Amazon. Los shapes dejan de ser hipótesis (sellados en
+código y plan). Solo la exacta recibió pujas sugeridas (regla todo-o-nada); el dueño
+decidió cambiarla a promedio por rol para las faltantes (brief a GLM). La pantalla
+falló en avisar el resultado y en mostrar semillas: PR #232. Como F2 no existe, el
+dueño puso a mano las 4 exactas como negativo exacto en phrase, broad y auto por el
+camino sellado (12 ids, readback 4/4/4). Falta el paso 4 (ciclo 08:41 UTC) y el Done.
+
+**2026-09-08 UTC — FABRICA 01 tarea 11: bids sugeridos en implementacion.**
+El dry-run inicial de la sonda mostró bids manuales de 1 MXN; el dueño pidió
+usar la recomendación de Amazon. La sonda read-only confirmó el endpoint v4
+para keywords, auto y product targeting (`PAT_ASIN`), con omisiones reales por
+objetivo. La pantalla rellenará únicamente roles cubiertos, guardará
+minimo/sugerido/maximo y fuente en la huella, y dejará manual cualquier rol
+incompleto sin fallback. La creación real sigue pendiente de un nuevo dry-run
+y del literal del dueño; cero campañas creadas.
+
+**2026-09-08 UTC — MARGEN ESTIMADO 01, bloque A implementado; CI/merge en curso.**
+A.1–A.4 incorporan snapshots append-only de oferta y Product Fees, costo/FX y
+política versionada para FBA MX, además del calculador puro de contribución por
+venta antes de Ads. El principal queda NULL ante insumos ausentes, vencidos o
+incompatibles; cero y negativo se conservan. La lectura batch respeta as-of,
+TTL y transiciones a oferta ausente, ambigua, futura o FBM sin rejuvenecer el
+mismo snapshot. Revisión independiente aprobada y pruebas focales verdes. El
+bloque no está desplegado: publicación y smoke corresponden a B.5; campañas,
+motor Ads, Reputación, bridge y accounting no se modificaron.
+
+**2026-09-08 — Backlog consolidado: ROADMAP es la fuente única.**
+`plans/ROADMAP.md` absorbió AUTO-01..10 (placements = AUTO-04);
+`docs/PENDIENTES-AUTOMATIZACION.md` quedó como redirect y la
+evidencia del registro en `docs/evidencia/AUTO-registro-20260906.md`.
+Seguimiento espejado en AppFlowy (EHV Tasks: AUTO-01..10 + plan
+activo). Manifest deduplicado (cortes-ui-01).
+
+**2026-09-08 UTC — MARGEN ESTIMADO 01, bloque 0 cerrado para FBA MX; A/B no implementados.**
+0.1/0.2 verificaron precio/canal fechado en bridge, costos/FX y Product Fees
+para FBM MX/US y FBA MX/US; Finances confirma que el cobro de envío y el costo
+MFN son conceptos distintos. El precio bridge expira a las seis horas; no hay
+kits y el COGS cubre importación, transporte de entrada y embalaje. Una revisión
+detectó que bridge no guarda la base fiscal de `price` ni RFC por API. El dueño confirmó RFC PF válido y 16% IVA para el universo MX; junto con la conciliación, FBA MX queda normalizado. Cadencia diaria COGS/FX verificada. FBM y US no impiden campañas, pero no reciben una cifra inventada.
+No se implementó cálculo ni se tocaron campañas, targets o Reputación.
+
+**2026-09-08 UTC — MARGEN ESTIMADO 01 formalizado, sin implementacion.**
+Plan `plans/margen-estimado-01.md`: 12 tareas en bloques 0/A/B. Propone
+contribucion estimada por venta antes de Ads, separada del margen observado.
+Bloque 0 debe verificar precio fechado, fees/logistica y contrato fiscal
+por mercado antes de liberar implementacion. D1–D4 y motor intactos;
+`plans/manifest.json` registra el plan sin cambiar el activo de Reputacion.
+
+**2026-09-08 — Crear campanas: rediseño del handoff UI (1).**
+Selector en tarjetas con fotos, margen neto antes de Ads, chips y contador de
+seleccion; comparador con cabeceras agrupadas, identidad fija y metadatos.
+Conserva objetivos, seleccion por listing, confirmacion y recuperacion v1/v2.
+Solo presentacion: sin cambios al motor, API, DB ni Reputacion. Evidencia:
+`docs/evidencia/crear-campanas-ui/validacion.md`. Deploy sujeto al CI de su PR.
+
+**2026-09-07 — ORBIT 19 Fase B cerrada y desplegada.** PRs #190 y #191 (CI verde) integrados; SHA productivo 7331740. Migraciones 0020-0022 aplicadas con backup (metricas Ads por producto append-only, economia observada, disponibilidad). Primera ingesta productiva `--productos` exitosa: US cuadra exacto contra el agregado de campana; MX cuadra en ventas con residual solo-actividad declarado (clicks -5, costo -33.08 MXN del 2026-09-06, nunca por encima). Disponibilidad real cargada del bridge (546 filas; Featured Offer sigue Sin verificar, ampliacion abierta). Cron diario 07:20 UTC `ingest:metrics:productos`. Comparador visible en Crear campañas con datos reales de las tres fuentes. Cero campanas reales creadas; sonda de gasto sigue diferida. Nucleo A+B de ORBIT 19 completo.
+
+**2026-09-07 — REPUTACION 01: plan formal v1.2 aprobado.**
+Reputación v1 solo-lectura: snapshots rating/count, reviews con texto (Apify),
+reputación y preguntas MeLi, alertas en el digest Telegram y pantalla
+/reputacion. D1–D5 y D7 cerradas como propuestas; D6 (presupuesto Apify)
+abierta hasta que 0.2 dé costos — A.3 bloqueada. Siguiente: sondas 0.1–0.4
+del lead y acta 0.5. Sin código ni migraciones.
+
+**2026-09-07 — ORBIT 19 Fase B implementada (PR #190).** El bloque B completa la comparacion con evidencia: metricas Ads por producto anunciado (`spAdvertisedProduct`, migracion 0020, corrida propia `--productos`, append-only sin repartir agregados de campana), economia observada por producto (0021, `v_margen_producto` intacta, muestra limitada visible aparte), disponibilidad comercial desde snapshot bridge (0022, FBA/FBM separados, NULL≠0, Featured Offer Sin verificar como ampliacion abierta), evaluacion pura con precedencia 0.4 (Sin datos / Gasto sin ventas / Dentro / Por encima; sin "Por probar"; colapso de re-observaciones tras hallazgo bloqueante de la revision B.R, APPROVE sobre `8b407cc`) y el comparador UI "Comparar publicaciones" (solo lectura, AC6/AC8/AC10 verificados en navegador con capturas). Pendientes declarados: conciliacion viva gzip-tabla y snapshot bridge en produccion, entrada de cron `--productos` en DEPLOY.md, Ads US no sondada (fail-closed). Cero campanas reales creadas.
+
+**2026-09-07 — ORBIT 19 Fase A cerrada y desplegada.** PR #187 se integro en `78fcbd7`; la suite completa de CI finalizo verde en el run 34088493597. El catalogo permite seleccionar publicaciones con ASIN y SKU validos aunque margen e historial esten ausentes: son avisos bajo objetivo manual explicito. El plan v2 conserva huella estable, idempotencia y recuperacion de lotes v1/v2; el ensayo controlado cubre reconciliar, registrar y pausar un lote v2 parcial mientras `fabrica.creacion` permanece v1. Produccion responde salud, mantiene `target_origen` y cero lotes/grupos/publicaciones despues del smoke GET/preview. Se verifico la interfaz con capturas; no hubo `/crear`, campanas reales ni inicio de Fase B.
+
+**2026-09-06 — Backlog de automatizacion registrado para planes futuros.**
+`docs/PENDIENTES-AUTOMATIZACION.md` conserva nueve gaps: harvest real y por
+grupos, decisiones por producto, placements, presupuestos, reactivacion/limpieza,
+repricing, promociones y reputacion. Enlaza pendientes existentes; no amplia
+ORBIT 19 ni inicia implementacion.
+
+**2026-09-06 — ORBIT 19 A.1 cerrada en revisión.** El plan de fábrica ya
+puede serializar v2 por publicación, con margen ausente real y una huella
+estable ante reorden. La migración 0019 admite varios listings por producto,
+mantiene v1 y su reversa solo deshabilita altas v2. Pruebas focales: 31 pasan;
+las pruebas PostgreSQL quedan para la batería única de CI. A.2 es el siguiente
+bloque: normalizador común API/CLI/motor; no se han creado campañas.
+
+**2026-09-06 — ORBIT 19: precision documental tras review del bloque 1.**
+Gasto y clics conciliados; ventas y compras siguen sin conciliar. La
+actualizacion de atribucion es una hipotesis, no una causa demostrada.
+Se retira la diferencia temporal no acreditada de ~3h. Sin cambios de
+codigo ni inicio del bloque 2.
+
+**2026-09-06 — ORBIT 19: gzip conciliado; 0.4 cerrada; B.1 puede arrancar.**
+Ads MX verificada: cost/clicks delta 0, impressions -1. Ausente = Sin datos.
+0.4 no espera B.1. PR #185 se actualiza con esta rama para CI.
+
+**2026-09-06 — ORBIT 19: Ads MX parcial; 0.4 no cierra B.**
+COMPLETED no demuestra cobertura: ASIN ausente = Sin datos, no Por probar.
+Madurez 30d exige observacion con observed_at >= metric_date+30d, no el
+calendario. Superado: gzip conciliado en 0.3; 0.4 cerrada. Fase A no
+espera Ads.
+
+**2026-09-06 — ORBIT 19 review: 0019 es de A.1, no de F2.**
+F2 deja de reservar 0019. FABRICA 01 §1 decisiones 2/14 y residual 7
+quedan F1 historico; el contrato de A es D2. API v2: mismas rutas,
+`listing_ids` vs `productos`. F1 vigente hasta A.5.
+
+**2026-09-06 — ORBIT 19 Fase 0 cerrada (D1–D4 + contrato 0.2/0.4).**
+Confirmado 21:31 UTC. Orden por margen % maduro; ACoS manual si NULL/0/neg
+o clamp > margen; solo campanas nuevas; muestra limitada en UI. Por probar
+exige cobertura; el manual no acredita rentabilidad. API/CLI v2, 0019/0020
+y reversa v2 cerrados en papel. F1 de produccion intacto. A/B no arrancan
+hasta que se pida implementar. PR #185.
+
+**2026-09-06 — ORBIT 19: tres precisiones al contrato, 0.2 sigue abierto.**
+Por probar exige cobertura Ads verificada (si no, Sin datos; no prueba
+«nunca anunciado»). El objetivo manual no acredita rentabilidad; cero,
+negativo o inferior al objetivo se declaran en la revision y siguen
+seleccionables. Confirmar D1–D4 no cierra 0.2: faltan API/CLI v2,
+compatibilidad, migraciones y reversa con recuperacion v2.
+
+**2026-09-06 — ORBIT 19 D1/D2 corregidas, sin cerrar 0.2.**
+El 175 era solo MX (84+91). Por mercado, margen maduro positivo: MX 5 / US 2;
+cero y negativo: 0 y 0; ausente: MX 244 / US 117. D1: porcentaje
+`margen_neto_pct`, ventana `[2026-02-20, D-15)`, muestra visible, NULL no es 0%.
+D2 cubre ausente, cero y negativo (clamp a 10% mentiria). D3/D4 siguen
+propuesta. A/B no arrancan.
+
+**2026-09-06 — ORBIT 19 Fase 0: catalogo y fuentes (0.1/0.3).**
+SELECT 21:00 UTC: MX 249 productos / 3 elegibles, US 119 / 2; 115 multilisting;
+291 listings del bridge sin mapa Odoo (23 Active). `fabrica_lote` vacia.
+`spAdvertisedProduct` verificado en amazon_mx (D-3, 767 filas); `salesSameSku30d`
+no existe. Stock FBA/FBM en bridge, separados. Featured Offer sin verificar.
+D1–D4 siguen pendientes del dueno; A/B no se implementan. PR #185.
+
+**2026-09-06 — ORBIT 19 formalizado con harness-plan.**
+Plan formal y spec incluyen stages, archivos por tarea, evidencia y DoD binarios,
+contrato v2/compatibilidad y rollback, fixtures de comparacion y evaluacion de
+alternativas por tres perspectivas. Negocio pendiente en0.2; formalizar no aprueba
+objetivos ni gasto. PR185 conserva solo documentacion y plan activo sin cambios.
+
+**2026-09-06 — ORBIT 19, borrador de catalogo abierto y evaluacion.**
+El dueno pide seleccionar todos los articulos y comparar su conveniencia para
+campanas. Plan catalogo-campanas-01: seleccion por publicacion, objetivo manual
+propuesto si falta margen, evidencia separada y nueva fuente Ads por producto.
+Solo planificacion; objetivo prioritario, politica de lanzamiento y campanas
+existentes siguen pendientes de respuesta. Produccion y plan activo sin cambios.
+
+**2026-09-06 — Fotos de publicaciones en Crear campanas.**
+El selector muestra la imagen MAIN real de cada ASIN y marketplace mediante
+SP-API Catalog Items y las credenciales existentes. Miniaturas bajo demanda,
+cache acotada, proxy de imagen del mismo origen y Sin foto si falta o falla.
+
+**2026-09-06 — Correccion de cache del rediseno.**
+El navegador del dueno reutilizo CSS/JS viejos con HTML nuevo. Los recursos
+locales ganan URLs versionadas por contenido y revalidacion explicita.
+Verificado en navegador con la hoja de estilos anterior guardada en cache.
+
+**2026-09-06 — ORBIT 18: rediseno visual del dashboard en preparacion de PR.**
+Las nueve pantallas existentes adoptan sidebar, paleta morada, tarjetas compactas
+y temas dia/noche del handoff del dueno. KPIs conservan monedas separadas,
+propuestas y salud del sidebar usan las APIs existentes y el presupuesto de
+creacion suma centavos exactos. Repricing queda marcado como proximo modulo;
+no se habilitan cambios de precio. Detalles: `docs/diseno/orbit-ui.md`.
+
+**2026-09-06 — El selector de campanas muestra el mapeo a Amazon.**
+Cada producto muestra nombre interno, SKU de Odoo y todas sus publicaciones
+vinculadas (ASIN, SKU de Amazon y enlace MX/US), incluso si no es elegible.
+Orbit todavia no importa el titulo de Amazon: el nombre interno esta etiquetado
+como tal. Abrir un enlace no selecciona el producto ni modifica campanas.
+
+**2026-09-06 — FABRICA UI 01 implementada por pedido del dueno.**
+La pantalla **Campañas → Crear campañas** permite seleccionar productos, configurar
+presupuestos y pujas de las cinco campanas, revisar el plan y confirmar con el
+token de escritura. El historial permite consultar fallos, reconciliar, completar
+el registro y pausar lo creado. Reutiliza la fabrica existente; shadow describe
+los ajustes del optimizador, las campanas nuevas nacen activas y pueden gastar.
+La sonda real de Amazon sigue aplazada expresamente; no forma parte de las pruebas
+de esta pantalla. Plan activo: `plans/fabrica-ui-01.md`.
+La previsualizacion no escribe ni llama a Amazon. El mismo plan conserva un lote
+durable y el servidor impide repetir la creacion ante envios duplicados. Se prueban
+la API con PostgreSQL temporal y el flujo de navegador con Amazon simulado.
+
+Los PR #177, #121 y #175 ya quedaron integrados a master; #177 fue desplegado.
+#121 agrega verificacion real del dashboard y #175 Orbit Bench. Las notas anteriores
+de "sin merge" describen el momento de cada revision, no el estado actual.
+
+**2026-09-06 — FABRICA 01 (PR #177 correcciones F1-F4): cuatro candados del
+registro/mutacion ya no dejan pasar lotes incompletos ni IDs perdidos.**
+`--registrar` exige el ledger completo (product ads y semillas, no solo
+campaign/ad_group). Tras un POST exitoso el ID+ACK se graba antes del LIST; un
+JSON malformado sella failed con el id durable. `ORBIT_DSN_INGEST` se valida
+antes de mutar. HTTP 5xx se declara INCERTO (no rechazo). Sin merge ni deploy;
+la sonda (tarea 11) sigue pendiente.
+
+La revisión final amplía esa protección a todos los códigos 500–599, incluidos
+501, 507, 520 y 599: se detiene la creación, conserva la evidencia y advierte
+que no debe repetirse el intento. Las 65 pruebas de la herramienta pasan.
+
+**2026-09-06 — FABRICA 01 (F1) lista para revisión: ya existe la herramienta que crea un grupo de 5 campañas nuevas (auto, phrase, broad, productos, exact) para un tipo de producto, con el target sacado del margen real más bajo del grupo y con anuncios por producto.** No crea nada sola: ensaya, muestra la huella, y solo con tu literal crea, verifica cada pieza contra Amazon y registra el grupo con sus metas. Si algo sale mal, se detiene y dice qué quedó creado; `--desarmar` pausa las 5. Nada se ha creado todavía en producción: el primer grupo real es la sonda que corre el lead con un producto y presupuestos mínimos. Los formatos que Amazon espera siguen siendo hipótesis hasta esa sonda.
+
+**2026-09-06 — FABRICA 01 (revisión de tarea 6): la simulación ya conserva los datos faltantes.** Si falta gasto, ingreso u órdenes en uno de los días, esa métrica queda desconocida y no permite proponer el término para exact con una rentabilidad inventada. El gasto cero sigue siendo válido y una observación completa posterior corrige el dato. Se comprobó el fallo antes del arreglo y se añadieron pruebas del CLI para México y Estados Unidos, incluido el margen del ledger en pesos para campañas con pujas en dólares. Las 61 pruebas del bloque pasan contra Postgres real; la tarea sigue en revisión en el PR #176.
+
+CodeRabbit revisó #176 sin defectos bloqueantes. Se incorporó su mejora de pruebas para comprobar el cierre de conexión también al abortar por configuración o puja inválida; las 20 pruebas de la herramienta pasan, sin omisiones.
+
+**2026-09-05 — FABRICA 01 (tarea 6): ya se puede simular el grupo de cinco campañas sin tocar nada.** Existe la herramienta de línea de comandos que, con solo leer la base de datos, arma la simulación completa del grupo para un tipo de producto: el objetivo de venta derivado del margen real (con su explicación escrita), los cinco presupuestos y pujas, las palabras y códigos con que nacería cada campaña, y las campañas que ya existen para esos mismos productos —informadas, sin apagarlas ni adoptarlas—. Cada simulación termina con su huella, el sello que garantiza que lo que eventualmente se ejecute sea exactamente lo que se autorizó. La herramienta es estrictamente de solo lectura: no hace llamadas a Amazon ni escribe nada, y si falta un dato (un producto sin margen, sin SKU, o con más de un anuncio en la plataforma) se detiene nombrando el producto en vez de adivinar. Lo que sigue (ORBIT 17 en curso): la ejecución real con autorización literal del dueño y su reversa.
+
+**2026-09-05 — FABRICA 01 (tareas 4-5): la fábrica ya sabe dar de alta la meta de una campaña y calcular el plan completo de un grupo, pero todavía no ejecuta nada.** Por un lado, existe el camino único (probado contra base de datos real) para crear la meta de una campaña nueva: el objetivo de venta que perseguirá, sus límites de puja según la moneda del país, y adónde se cosecharán los términos ganadores — todo obligatorio y completo desde el nacimiento, y con la garantía de que jamás hay dos metas para la misma campaña. Por el otro, el corazón de cálculo puro: a partir del margen mínimo del grupo de productos decide el objetivo del grupo de cinco campañas (con recorte al rango seguro 10-45 y explicación escrita de de dónde salió el número), reparte las semillas —palabras, códigos de producto y negativos— usando exactamente los mismos criterios ya sellados del motor, arma los nombres y el contenido de cada creación, y sella todo con una huella para que lo que se ejecute sea exactamente lo autorizado. El dinero viaja como texto, jamás con redondeos flotantes. No se ha tocado Amazon: falta la herramienta de línea de comandos que use este núcleo y la sonda que confirme con la realidad los formatos que Amazon espera.
+
+**2026-09-05 — FABRICA 01 (tareas 2-3): la fábrica ya tiene su base de datos y su forma de medir el margen por producto.** Se creó la migración 0018: las tablas donde vivirá cada grupo de cinco campañas (con su vínculo a las campañas reales de Amazon, nunca por nombre), la bitácora de creación paso por paso que se escribe ANTES de cada llamada a Amazon, la biblioteca de palabras clave y negativos por tipo de producto, y las excepciones de cosecha (vacías por ahora). También la vista que mide el margen neto de cada producto con la decisión del dueño ya aplicada (ventana desde el 20 de febrero, 30 días con venta), que devuelve "sin dato" — jamás cero — ante cualquier duda (monedas mezcladas, costo faltante, pocos días de venta). Todo verificado con 16 pruebas, 15 de ellas contra un Postgres real (las de regresión de moneda, del SKU del anuncio y de la fecha en UTC salieron de la revisión del lead y de CodeRabbit); ningún cambio en Amazon.
+
+**2026-09-05 — FABRICA 01 arrancó (ORBIT 17): la fábrica de campañas por grupo ya tiene plan sellado y su primera tarea cerrada.** El plan (crear, con autorización literal del dueño, un grupo de cinco campañas por tipo de producto con el objetivo derivado del margen mínimo del grupo) pasó tres rondas de revisión cruzada. La primera tarea fue medir contra la base real antes de escribir código, y salió algo que cambió una regla: con la ventana de 90 días ningún producto llega a 60 días con venta, y con un año atrás ninguno tiene costo cargado antes del 20 de febrero. Decisión del dueño: el margen por producto se mide desde el 2026-02-20 y basta con 30 días con venta; hoy califican 7 productos (5 en México, 2 en Estados Unidos). También se confirmó que los términos de búsqueda vienen por grupo de anuncios, no por campaña, y que hay productos con más de un listing (71 en México, 44 en Estados Unidos) que la fábrica no acepta todavía. Nada se ha creado en Amazon; siguen las tareas de código.
+
+**2026-09-04 — ORBIT 16 cerrada completa: ya hay una pantalla de Configuración donde se ajustan los controles del optimizador, y el dueño ya la usó en vivo.** La pantalla (solo alcanzable por la VPN) muestra por país de dónde sale el tope de publicidad vigente — si lo gobierna el margen automático o el valor manual — y avisa antes de guardar cuando el manual no manda porque el margen está encendido. Apagar el margen es un interruptor en la misma pantalla y el sistema vuelve al valor manual. Todo cambio queda registrado como versión nueva con su etiqueta (la primera real: «settings UI · settings-ui · 2026-09-05 · amazon_us: cap bid 40 -> 45», verificada en la base) y toda escritura sigue exigiendo el token. Lo que no se edita ahí: el modo del optimizador (se muestra, pero cambiarlo es operación de runbook) ni los datos de cosecha de cada meta.
+
+**2026-09-04 — ORBIT 06 cerrada: el tope de publicidad por país ya se calcula solo desde el margen real y así está gobernando en vivo.** Fue la última pieza grande: el sistema ya no usa topes puestos a mano, los deriva del margen neto de cada plataforma (ventas con costo conocido, cargos prorrateados, tipo de cambio). Los bids del 04-sep ya salieron con ese cálculo. También quedó casi cerrada ORBIT 05 (el cutover a vivo): el monitoreo de las 48h pasó limpio. Solo le queda un pendiente: todavía no ha salido un cosechado que el motor aplique completamente solo, de punta a punta — el primero se vetó por error y se creó a mano (ya verificado en Amazon, sin duplicados) — y cuando eso pase, se cierra formal.
+
+**2026-09-04 — La pantalla de cortes ahora se llama Propuestas y dice qué es cada cosa.** Después de lo del veto por error, cada fila declara si es algo que crece (capturar un término que vende, con sus órdenes e ingreso a la vista) o algo que recorta (apagar palabra o bloquear búsqueda), separadas en dos grupos. El botón ya no dice Vetar sino Rechazar, y antes de confirmar te dice qué va a pasar con esa fila, que no se puede deshacer y hasta cuándo queda bloqueada. Lo que no toques se aplica solo al vencer. Nada del motor cambió, solo la pantalla.**
+
+**2026-09-04 — La página Inertes ya muestra cuáles palabras están "en espera" y desde cuándo se pueden archivar, más el historial de lotes.** Antes la pantalla no distinguía nada: todas las palabras sin tráfico se veían iguales. Ahora cada una lleva su fecha de "archivable desde" (30 días después de que el sistema la vio por primera vez — las que ya existían arrancaron el reloj el 04-sep, así que las actuales se vuelven archivables el 04-oct) y un chip "en espera" mientras tanto. Abajo hay una tarjeta nueva con los lotes de archivado: cuántas quedaron archivadas, cuántas fallaron y cuántas se repusieron, por lote. Nada se archiva todavía; esto solo hace visible lo que la herramienta ya decide.
+
+**2026-09-04 — BIDS 01 tareas 2.1, 2.3, 2.4 y 2.5 ya integradas y desplegadas en el servidor: todos los candados previos al archivado están en producción.** Las cuatro tareas que abajo aparecen como "listas para revisión" ya quedaron dentro del sistema que corre en vivo. Además se verificó el ciclo del 09-04: la guarda de entidades sin tráfico saltó 168 palabras en US y 176 en MX, tal como se esperaba. Lo único pendiente del plan es el primer lote de archivado, que sigue esperando tu autorización literal — nada se archiva todavía.
+
+**2026-09-04 — BIDS 01 tarea 2.5 lista para revisión: si algo se archiva por error, lo recuperado nace apagado y con el visto bueno del dueño.** Antes, reponer una palabra la encendía gastando desde el primer minuto, sin pedir autorización y sin verificar que fuera la misma (precio y campaña). Ahora se crea pausada, exige el literal de autorización, y solo se da por buena si el precio, la campaña y el resto cuadran con el registro; si algo difiere, se frena. Además la herramienta ya dice la verdad completa: archivar en Amazon no tiene reversa, reponer es crear otra palabra sin historia. Nada se archiva todavía; este era el último candado antes del primer lote.**
+
+**2026-09-04 — BIDS 01 tarea 2.4 lista para revisión: autorizar un archivado ahora amarra cuáles palabras, no solo cuántas.** Antes el visto bueno fijaba el número y si la lista cambiaba entre el ensayo y la ejecución (salen unas, entran otras) nadie se daba cuenta. Ahora el ensayo publica una huella del conjunto y la ejecución la verifica antes de tocar nada: si cambió, se frena y se pide autorización nueva. Nada se archiva todavía; esto tapa el hueco antes del primer lote.**
+
+**2026-09-04 — BIDS 01 tarea 2.3 lista para revisión: si archivar se interrumpe a la mitad, lo ya archivado ya no se pierde del registro.** Antes, si la herramienta se detenía entre el borrado y el sello, esa palabra quedaba archivada en Amazon pero fuera de la lista de recuperables. Ahora hay un comando que cruza los pendientes contra Amazon y recupera lo que sí quedó archivado, y la recuperación corre sola antes de cada intento de reponer. Nada se archiva todavía; esto tapa el hueco antes del primer lote.**
+
+
+**2026-09-04 — BIDS 01 tarea 2.1 lista para revisión: el sistema ya sabe cuántos años tiene cada palabra y no archiva recién nacidas.** Antes era imposible distinguir una palabra creada ayer de una muerta hace meses, y archivar es irreversible en Amazon. Ahora cada palabra trae anotada su primera aparición (las viejas sin registro quedaron marcadas con la fecha del arreglo, como piso y no como verdad), y el plan de archivado solo trae palabras con al menos 30 días de vida; las más jóvenes se muestran aparte como "en espera", no escondidas. Verificado con pruebas contra base de datos real, incluyendo que sincronizar dos veces no rejuvenece a nadie. Nada se archiva todavía; este era el primer candado antes del primer lote.**
+
+**2026-09-05 — BIDS 01 tarea 2.2 lista para revisión: dos seguros para que archivar palabras no cause duplicados.** Primero, quedó por escrito y con prueba que el sistema SÍ ve las palabras archivadas al decidir qué cosechar —si alguien "limpia" esa lista, el cosechador volvería a crear lo archivado—. Segundo, si una palabra se archiva justo cuando el cosechador ya va en camino a crearla, el sistema ya no la crea: cierra el trabajo avisando el motivo en vez de duplicar. Nada se archiva todavía; esto solo tapa los huecos antes del primer lote.
+
+**2026-09-04 — ORBIT 06 tarea 2.3 lista para revisión (segunda vuelta tras la revisión del diseño): el tope de publicidad por país ya se calcula solo desde el margen real —solo sobre ventas con costo conocido, con los cargos de plataforma prorrateados— y si el cálculo se sale del rango [10, 45] se recorta en vez de saltar al valor manual. La pantalla de salud muestra el valor vigente con su fundamento y el aviso diario solo molesta cuando el cambio acumulado llega a un punto entero, cuando el cálculo se sale del rango o cuando no hay dato suficiente —diciendo por qué—. Para el go del dueño queda una herramienta que compara, decisión por decisión, qué cambiaría contra el tope puesto a mano.**
+
+**2026-09-03 — El código que baja campañas, palabras y anuncios de Amazon se partió en tres archivos sin cambiar lo que hace: uno habla con Amazon, otro arma la lista de qué guardar, y el de siempre escribe la base.** Quien ya importaba desde el módulo de siempre no tiene que cambiar nada.
+
+**2026-09-04 — El dueño rechazó por error la primera propuesta de crecimiento, y la culpa es de la pantalla: se llama «Cortes» y su único botón dice «vetar».** La propuesta era capturar un término que con 28 dólares de publicidad generó 203 en dos ventas. Leída en una pantalla llamada «Cortes», pareció un recorte. Sus palabras: «no queria vetarlo, es confuso». El rechazo **no se puede deshacer** —así se diseñó, para que ninguna decisión humana se anule en silencio— y además bloquea esa misma propuesta un mes. Se dijo tal cual en vez de buscar un atajo, y la palabra se creó a mano por el mismo camino seguro que usa el motor, con verificación contra Amazon: quedó activa con puja de 0.68 dólares. La causa se ataca de raíz: la pantalla pasa a llamarse «Propuestas», cada fila dirá si apaga, bloquea o captura, el aviso dirá qué pasa si no haces nada, y el botón de rechazo advertirá que es irreversible.
+
+**2026-09-04 — Primer ciclo con el objetivo calculado por margen: funcionó, y además salió la primera propuesta de corte de la historia.** El motor persiguió 20.0% en México y 19.5% en Estados Unidos, derivados del margen real, y ese número quedó grabado en las 31 decisiones del día para que se puedan reproducir tal cual. Aplicó 30 ajustes de puja sin un solo fallo. Las dos palabras que se había anticipado que recibirían recorte **no** lo recibieron todavía, exactamente como estaba previsto: el freno de medio punto por día las protege hasta el tercer día. Lo nuevo: por primera vez el sistema propone **cosechar un término de búsqueda** — «arras para boda cristiana», que con 28 dólares de publicidad generó 203 en dos ventas. Espera 48 horas en la pantalla de Cortes por si el dueño lo veta; si no, se aplica solo el sábado. Con esto el sistema cumple dos días seguidos sin incidentes. Dato para decidir: los cupos nuevos de 40 pujas ni se rozaron (se usaron 7 y 23), porque el filtro de palabras sin tráfico resultó ser la palanca de verdad, no el cupo.
+
+**2026-09-04 — Una revisión adversaria frenó el archivado de las 160 palabras muertas: la 'reversa' que yo había prometido no existe de verdad.** Amazon no permite des-archivar. Lo que el sistema llamaba reversa en realidad **crea una palabra nueva**, con identidad distinta, sin su historial, y encendida gastando desde el primer minuto. La descripción que le di al dueño era más optimista que la realidad. Hay tres problemas más: no existe forma de distinguir una palabra recién creada de una que lleva años muerta (133 de las 160 nunca tuvieron una sola medición), el cosechador de términos volvería a crear lo recién archivado, y la autorización valida el número de palabras pero no cuáles. Decisión: **no se archiva nada.** El beneficio medido era cero pesos — las 160 palabras muertas no gastan nada; las que sí gastan sin vender son solo ocho. Riesgo real e irreversible contra beneficio nulo. Quedan cinco arreglos anotados antes de volver a proponerlo, y uno de ellos es urgente antes del primer cosechado.
+
+**2026-09-04 — Reactivada la campaña AGM2M de México, y resultó mucho menos arriesgada de lo que parecía.** Vista de lejos gastaba 90 centavos por cada peso que generaba. Al mirar dentro: de sus cuatro segmentos, los dos que queman el dinero ya estaban apagados por separado —uno se llevó 2,022 pesos sin una sola venta en noventa días— y siguen apagados. Lo que realmente vuelve a andar es el segmento que sí vende (gasta 42 centavos por peso) más otro de ocho pesos. El cambio se verificó contra Amazon antes y después. El motor la verá mañana, cuando se refresque su copia de la estructura, y no le tocará las pujas hasta que vuelva a tener tráfico: no se ajusta lo que todavía no se está mostrando.
+
+**2026-09-04 — La herramienta que archiva palabras muertas nunca había funcionado: reventaba en la primera consulta y nadie lo sabía porque sus pruebas usaban una base de datos falsa.** Al preparar el primer ensayo real salió el error. La causa de fondo importa más que el error: las veinte pruebas de esa herramienta simulaban la base en vez de usarla, así que validaban el código pero nunca la consulta. Corregido, y ahora hay una prueba que sí ejecuta las consultas contra una base real; se verificó rompiéndola a propósito. Con la herramienta ya funcionando, el ensayo (que no toca nada) da el inventario: **160 palabras muertas en México y 4 en Estados Unidos** listas para archivar, más 8 que gastaron sin vender nunca. Las muertas no gastan nada; las otras se llevaron 248 pesos y 54 dólares en noventa días. Falta el visto bueno del dueño para archivarlas de verdad.
+
+**2026-09-04 — ENCENDIDO: el objetivo de rentabilidad que persigue el motor ya no es un número puesto a mano, lo calcula tu margen real y se mueve solo.** Con el visto bueno del dueño se activó la fracción de la mitad del margen. Desde el próximo ciclo el motor persigue **20.0% en México** (su margen medido es 40.0%) y **19.5% en Estados Unidos**, bajando medio punto por día hasta 18.0% (margen medido 36.1%). El orden importó: primero se desplegó el código ya corregido por las dos revisiones adversarias, después se encendió — al revés habría quedado vivo el defecto que hacía saltar el objetivo cuando fallan los datos. Antes de activar se verificó que las correcciones estuvieran vivas, que los datos contables fueran de hoy, que ninguna campaña tuviera un objetivo manual que anulara el cambio en silencio, y que el número manual de siempre siguiera guardado como red de seguridad. Efecto esperado, ya medido: dos palabras en Estados Unidos recibirán un recorte de puja del 12% a partir del tercer día; nada más cambia. El número manual (20%) sigue ahí y vuelve a mandar solo si los datos fallan, ahora caminando medio punto por día en vez de saltar.
+
+**2026-09-04 — Dos revisiones adversarias antes de encender el objetivo por margen encontraron cuatro cosas que lo habrían hecho mal, incluida una que corrige mi propia medición.** La más importante: yo había reportado que encender no cambiaría ninguna puja, pero esa cuenta miró solo las palabras que YA se estaban ajustando. Las palabras quietas —justo las que se vuelven recorte cuando el objetivo baja— no estaban en la cuenta. Rehecha sobre las 135 palabras elegibles: **2 recibirían recorte, ambas en Estados Unidos, y no el primer día sino al tercero**. Las otras tres: el mismo precipicio que ya había corregido seguía vivo en otra puerta (si fallaba la carga de datos, el objetivo saltaba de golpe en vez de caminar); la tabla de campañas del panel habría seguido mostrando el número viejo mientras el motor usaba el nuevo, haciendo creer que no encendió; y la protección contra datos rancios no podía dispararse nunca, porque una venta nueva la daba por buena. Cuatro alarmas más resultaron falsas al medirlas contra la base real. Todo corregido y verificado; sigue apagado hasta que el dueño diga.
+
+**2026-09-04 — El objetivo por margen ya está instalado en producción y probado en sombra: encenderlo hoy no cambiaría ni una sola puja.** Se instaló la medición y el código, y se corrió la prueba decisiva: reejecutar las decisiones reales de ayer con el objetivo calculado (18.0 en Estados Unidos, 20.0 en México) en vez del 20 puesto a mano. Resultado: **ninguna de las 93 decisiones cambia**. Ni siquiera cambiarían si el margen de Estados Unidos cayera hasta dar un objetivo de 15; con 12 cambiaría una sola. Eso confirma lo que se esperaba: el valor del cambio no es mover pujas hoy, sino que de aquí en adelante el objetivo lo fije tu margen real y se mueva solo cuando cambien costos, precios o envíos. Falta únicamente el visto bueno del dueño para encenderlo; mientras tanto el sistema sigue usando el número manual de siempre.
+
+**2026-09-04 — El objetivo por margen ya está programado y revisado: en la pantalla de salud el porcentaje de ventas que vienen de anuncios estaba mezclando dólares con pesos.** La implementación llegó completa y las pruebas resultaron sólidas: rompí el código a propósito tres veces y las tres las detectó. La comprobación clave: corrí la fórmula nueva contra las ventas reales y la comparé con un cálculo que hice por separado — coinciden exactamente (margen 40.03% en México, 36.08% en Estados Unidos, o sea objetivos de 20.0 y 18.0). El revisor automático encontró cinco cosas, todas corregidas. La que se veía hoy: un indicador de vigilancia dividía ingresos en dólares entre ventas en pesos, un número dieciocho veces equivocado. Las otras cuatro eran protecciones incompletas: el aviso de Telegram podía perderse si el mensaje fallaba, y dos resguardos no cubrían exactamente lo que debían.
+
+**2026-09-04 — Una revisión adversaria del diseño del target por margen encontró un fallo grave ANTES de programarlo: la protección contra números raros habría hecho saltar las pujas todos los días.** El diseño decía que si el objetivo calculado se salía del rango permitido, el sistema lo ignoraba y volvía al 20% puesto a mano. Eso creaba un abismo: un día el objetivo sería 45, al siguiente 20, y al otro 45 otra vez — subiendo y bajando pujas reales por un detalle de frontera, no por el negocio. Peor aún, si el margen se desplomara de verdad, el sistema se quedaría pujando con el número manual justo cuando más urgía recortar. Corregido: ahora el objetivo se recorta al borde del rango en vez de descartarse, y solo se ignora cuando los datos están mal. La misma revisión encontró otras tres cosas que se arreglaron: las ventas sin costo conocido inflaban el margen (medido: casi medio punto en México), las devoluciones de ventas viejas restaban sin su ingreso (11 de 29 en US), y un error de tecleo en la configuración habría dejado la función apagada en silencio para siempre. Todo quedó corregido en el diseño antes de escribir una línea de código.
+
+**2026-09-03 — ORBIT 06 Fase 2 diseñada y aprobada: el target de ACoS deja de ser un 20% puesto a mano y pasa a derivarse del margen real medido, por país, y a ajustarse solo.** Se midió con dinero real de 90 días: después de comisiones, envíos, impuestos retenidos, devoluciones y costo del producto, queda 40% de margen en México y 36% en US antes de publicidad (US deja más por producto, pero el envío desde México se come el 21% de cada venta y devuelven 1 de cada 13 pedidos). El dueño eligió darle a la publicidad «la mitad» del margen: eso da ≈20% MX / ≈18% US — casi lo que ya se usaba a ojo, pero ahora con fundamento y moviéndose solo cuando cambien costos, precios o envíos (una venta entra a los 15 días y el promedio es de 90, así que los cambios se reflejan gradualmente; y nunca se mueve más de medio punto por día). Hallazgo importante de paso: el ledger y el tipo de cambio no se estaban actualizando solos (última carga el 31 de agosto) — se vuelve la primera tarea de la fase. La idea original de un target distinto por campaña se descartó con datos: el margen es igual en todas.
+
+**2026-09-03 — Cambio de ritmo por decisión del dueño: se acabaron las esperas de días entre cambios; todo lo pendiente se desplegó hoy y los cupos subieron 4x.** El dueño pidió menos conservadurismo («un test es suficiente, no necesitamos días y días para probar») y se reescribió la regla del runbook —no se ignoró—: la subida de cupos pasa de «cada 48 h sanas» a «cuando el dueño lo decida tras un ciclo sin incidentes». Con dos ciclos reales limpios (40 pujas aplicadas, cero fallos), se hizo en el mismo día: (1) un solo deploy con las tres cosas terminadas —las palabras sin tráfico dejan de recibir ajustes y se listan en la pantalla nueva, la bajada de −25% para las que gastan sin vender, el candado del reintento tras un crash y la partición del archivo más grande del sistema—, precedido de las dos migraciones y verificado pieza por pieza; (2) los cupos diarios subieron de 10 a 40 pujas, 2 a 5 pausas, 5 a 15 negativos y 2 a 5 harvest por país, con efecto desde el ciclo de mañana. La cuenta de lo que cambia: hoy 4 de las 20 pujas aplicadas fueron a palabras sin tráfico (cupo desperdiciado); desde mañana esas no compiten y se aplicarán ~13 en US y ~31 en México, todas con tráfico real. Dos cosas quedaron medidas y decididas: el cupo de pujas se queda para siempre como **fusible** (con la guarda nueva el motor solo quiere ~44 pujas al día, así que 40-100 no estorba, pero corta una avalancha si algo se rompe), y los cortes **no se tocan**: en cuatro ciclos en vivo el motor no ha propuesto ni una pausa ni un negativo — no por el cupo sino por el umbral que exige 100 clics sin una sola venta y 40 USD/500 MXN, que hoy cumple una sola palabra en toda la cuenta. Se revisará con una semana de datos de la regla nueva.
+
+**2026-09-03 — Primer ciclo del reloj en vivo con el gate de campañas activas: funcionó tal cual (CAMPAÑA ACTIVA 01 cerrada en producción; día 1 del monitoreo de ORBIT 05 limpio).** A las 08:40 UTC el motor corrió solo por primera vez en modo real. Saltó todo lo que vive en campañas pausadas (1,597 palabras/targets en US y 3,115 en México, más 92 y 100 términos) y ninguna de sus 93 decisiones cayó en una campaña o ad group pausado — ayer habían sido 12. Aplicó 10 pujas por país (el tope del día 1), todas confirmadas por Amazon y leídas de vuelta, ninguna repetida de ayer (el congelamiento de 7 días funciona), 19 bajadas suaves de −12% y una de −25%; cero pausas o negativos todavía (la cola de veto sigue vacía, así que no hay nada que revisar en «Cortes»). Quota exacta al tope, sin fallos ni divergencias. Con esto la tarea 1.4 de CAMPAÑA ACTIVA 01 queda cerrada (la 1.6 ya está también en master, pendiente de deploy) y ORBIT 05 suma su primer día de las 48 h sanas que exige el runbook para duplicar los cupos: si mañana sale igual, el viernes se decide la primera duplicación.
+
+**2026-09-03 — CAMPAÑA ACTIVA 01 · 1.6: cerrado el último hueco del gate de campañas activas — también el reintento automático tras un crash consulta la campaña antes de tocar Amazon.** El motor ya no tocaba campañas pausadas ni al decidir ni al liberar cortes, pero si un ciclo se caía a mitad de una mutación, el reintento del ciclo siguiente no miraba la campaña (camino rarísimo: exige crash + pausa en medio; hoy 0 casos). Ahora ese reintento también exige campaña y ad group activos y, si no, cierra el intento como fallido sin gastar cupo ni llamadas. Además, los contadores de la pantalla de salud dejaron de mentir: una palabra con veto pendiente dentro de una campaña pausada ahora se cuenta como «campaña no habilitada» (antes inflaba el veto).
+
+**2026-09-04 — ORBIT 06 tarea 2.2 lista para revisión: las ventas y los cargos (ledger) y el tipo de cambio ya se refrescan solos cada mañana junto con los costos, antes de que el motor decida; anoche estaban atorados en el 31 y 28 de agosto.**
+
+**2026-09-03 — BIDS 01 tarea 1.3 lista para revisión: las palabras sin tráfico ya se ven en una página nueva con su clasificación (vendió antes / gastó sin vender / peso muerto) y el aviso diario de Telegram dice cuántas se saltó el motor.**
+
+**2026-09-03 — BIDS 01 tarea 1.4 lista para revisión: ya existe la herramienta que archiva por lote las palabras sin tráfico con el go del dueño y con reversa (cada lote queda anotado y se puede reponer). Por defecto solo ensaya; archiva de verdad únicamente cuando el conteo del ensayo coincide con el autorizado.**
+
+**2026-09-03 — BIDS 01 tarea 1.1 lista para revisión: la palabra que gasta sin vender ya puede bajar −25% cuando trae los clics que en su producto cuesta una venta y gasto sobre el piso (antes solo −12%); la pausa manda igual y lo viejo se sigue leyendo igual.**
+
+**2026-09-03 — BIDS 01 tarea 1.2 lista para revisión: las palabras sin impresiones en 14 días ya no reciben ajustes del motor (se saltan con motivo visible en salud) y hay una sola lista que las clasifica (vendió antes / gastó sin vender / peso muerto) para decidir cuáles revivir o archivar.**
+
+**2026-09-03 — El dueño decidió sobre los dos huecos que la revisión adversarial vio en vivo; nace el plan BIDS 01.** (1) Una palabra que gasta y no vende podrá bajar −25% —no solo −12%— pero únicamente cuando haya acumulado los clics que en su producto cuesta una venta (el número adaptativo por grupo que ya calcula el motor; en las arras ~90-120) y un gasto de al menos 40 USD / 500 MXN; el dueño rechazó umbrales absolutos bajos («mis productos necesitan ~120 clics por venta»). Con los datos de ayer habría cambiado 1 de 103 decisiones. (2) Las palabras sin impresiones en 14 días dejan de recibir ajustes (hoy son ~65% de las activas: 172 MX / 167 US, ninguna con ventas en 90 días), se listan en una página nueva clasificadas por causa (gastó sin vender / peso muerto) y una herramienta permitirá archivarlas por lote con el go del dueño y con reversa (se pueden reponer). Revivir con puja más alta sigue siendo decisión humana. La propuesta del 26 de agosto queda aprobada con esos ajustes; implementan GLM (motor, vista, herramienta) y DeepSeek (página y digest); el lead migra, despliega y mide el antes/después. También quedó explicada la rampa de cupos: 10 pujas/día por país y duplicación manual cada 48 h sanas, primera posible el 4 de septiembre.
+
+**2026-09-03 — ORBIT 05 tarea 2.1 CERRADA: tres revisores externos (codex, qwen, grok) recalcularon una por una las 20 primeras pujas reales y las tres coinciden: fieles a las reglas, cero divergencias.** El expediente saneado se generó con la herramienta nueva desde la máquina del lead (solo lectura, sin tocar el contenedor); cada revisor volvió a calcular ACoS, banda, puja esperada, redondeo a centavos, ids de Amazon, lectura de vuelta, madurez de datos y moneda. Ningún error del motor. Lo que sí salió a la luz son dos huecos de diseño que ya estaban documentados como propuesta desde el 26 de agosto y que ahora se vieron en vivo: (1) en México 8 de las 10 bajadas fueron de −12% a palabras que gastan pero no venden nada — la regla actual no puede bajarles más ni pausarlas; (2) dos de esas palabras llevan sin tráfico desde junio, así que bajarles la puja no sirve y gastó 2 de los 10 cupos del día. Ambas cosas quedan como decisión del dueño (aprobar o no las opciones A y C de esa propuesta). El lead cerró además, con la base completa, la duda que los revisores no podían resolver: las 10 pujas aplicadas por país son exactamente las 10 primeras del orden sellado (mayor sangrado primero).
+
+**2026-09-02 — Ya existe la herramienta que arma el expediente saneado de las primeras pujas aplicadas para que tres revisores externos las recalculen.** Junta en un solo paquete (sin credenciales) la decisión, el gasto, la venta, la puja pedida y lo que Amazon confirmó; el lead corre eso contra los ciclos reales y se lo pasa a los tres revisores. La revisión en sí no está hecha: solo el expediente.
+
+**2026-09-02 — ORBIT 05: el dueño firmó las 20 primeras pujas y confirmó los avisos de Telegram; el gate de campañas activas ya está desplegado.** Con un «si y si» el dueño cerró el spot-check (tarea 2.2: las 18 pujas en campañas activas firmadas, cero vetos; las 2 en campañas pausadas ya las había decidido conservar) y confirmó que le llegaron los dos avisos de «tope del día agotado» (US y MX), el único punto de la 1.5 que faltaba. Y con su go «deploy hoy» —enmienda consciente a la regla «un cambio a la vez» del día del flip— el lead desplegó CAMPAÑA ACTIVA 01 al contenedor a las 17:48 UTC (respaldo previo, código idéntico a master por md5, contenedor recreado, verificación dentro del contenedor, base sin cambio). Desde el ciclo del 2026-09-03 08:40 UTC el motor ya no gasta cupos en campañas ni ad groups pausados; la verificación de ese ciclo cierra la tarea 1.4.
+
+**2026-09-02 — CAMPAÑA ACTIVA 01 revisada (CodeRabbit + codex, una ronda) y fusionada; queda el deploy.** El lead adjudicó los 10 comentarios: ninguno afecta el gate principal (el que mañana evita gastar cupos en campañas pausadas). Se corrigieron en este mismo PR los menores (nombre del plan sin Ñ en el código, el orden documentado de quota/claim en APPLY.md, formato del plan). Dos hallazgos de codex pasan a la tarea 1.6 (GLM): (1) la reconciliación que reintenta una mutación tras un crash a mitad de un apply no consulta campaña/ad group — camino rarísimo (exige crash + pausa en medio) pero real; (2) una entidad con veto pendiente dentro de una campaña pausada se cuenta como «veto pendiente» y no como «campaña no habilitada» (solo contadores, no muta nada). Descartados con razón: la carrera entre el sync de estructura y el claim (residual declarado; los crons van con 2 h de separación) y un caso imposible por llave foránea.
+
+**2026-09-02 — CAMPAÑA ACTIVA 01 implementada: el motor ya no toca pujas ni cortes de campañas o ad groups pausados.** El 2026-09-02 el primer ciclo live aplicó 2 de 20 bids dentro de campañas PAUSED — el motor solo miraba el estado de la palabra clave, nunca el de su campaña ni el de su ad group (causa, medición y fix en `plans/campana-activa-01.md`). Gate nuevo en los dos momentos en que el motor toca Amazon: al decidir (el ciclo salta con contadores `campana_no_enabled`/`grupo_no_enabled` visibles en la pantalla de salud) y al liberar los cortes de la cola de 48h (descarte previo a cualquier cobro o llamada). Queda pendiente el deploy del lead y la verificación del ciclo siguiente (≈299 US / 10 MX skips esperados).
+
+**2026-09-02 — ORBIT 05 Phase 1 CERRADA (1.1-1.5) con evidencia en `plans/orbit-05.md`; arranca la Phase 2 (48h live).** El día del flip quedó documentado paso a paso: go/no-go con los siete prerrequisitos por SELECT, backup real verificado por restauración, descarte de la cola shadow en una transacción, flip de config y goals a las 08:53 UTC y el primer ciclo real (corrido a mano por decisión del dueño, mismo comando del cron). Queda abierto en la Phase 2: la verificación adversarial triple de las 20 primeras pujas (el insumo ya existe, con 10 de México), la firma del dueño sobre las 18 pujas en campañas activas (las 2 en campañas pausadas ya las decidió: se conservan), confirmar que le llegaron por Telegram los dos avisos de "tope del día agotado", el primer harvest a mano (no antes del 2026-09-04) y dos días de monitoreo. Nada de esto toca Amazon por sí solo; el siguiente ciclo del reloj es el 2026-09-03 08:40 UTC.
+
+**2026-09-02 — ORBIT 05 EN VIVO: primer ciclo real corrido con el go del dueño; hallazgo: el motor tocaba campañas pausadas → nace CAMPAÑA ACTIVA 01.** El dueño adelantó el flip al 2026-09-02 (renunció a los días restantes de shadow; flip a las 08:53 UTC, después del ciclo shadow de las 08:40) y pidió no esperar al cron del día siguiente: los ciclos 33 (US) y 34 (MX) corrieron a las 16:12/16:14 UTC en modo live por el mismo camino del cron (literal "corre hoy"). Resultado: 20 pujas bajadas (10 por país, el tope del día 1; −25% en US, −12%/−25% en MX), todas confirmadas por Amazon con lectura de vuelta, cero fallos, cero divergencias, cero cortes (la cola de veto quedó vacía; las otras 66 US / 37 MX quedaron fuera por el tope y se retoman en los ciclos siguientes). Hallazgo del lead al revisar la tabla de negocio: **2 de las 20 cayeron en campañas PAUSADAS** (USPerNog Category Phrase en US y AGM2M Auto Discovery en MX — justo la que el dueño dejó fuera del piloto). No gastan dinero (una campaña pausada no sirve), pero queman cupo del día y dejan pujas alteradas si un día se reactivan: el motor solo miraba el estado de la palabra, nunca el de su campaña ni el de su ad group (medido en vivo: 299 palabras en US y 10 en MX activas dentro de campañas pausadas). Decisiones del dueño: **conservar esas 2 pujas tal cual** ("dejalas asi") y **arreglar la causa antes de cerrar el papeleo de ORBIT 05**. Nace `plans/campana-activa-01.md`: GLM implementa que el motor salte todo lo que viva en una campaña o ad group no activo —al decidir y al liberar cortes—, con las etiquetas en la pantalla de salud; el lead revisa, despliega y verifica el ciclo siguiente. Hasta ese deploy, cada cron puede volver a gastar cupos en campañas pausadas.
+
+**2026-09-01 — Higiene del registro de trabajo (sin cambios de producto).** En AppFlowy había seis tareas de ORBIT 06 que seguían «En progreso» aunque su trabajo ya estaba terminado y en producción (0.3, 0.4, 0.5, 0.6, 1.1 y 1.2): eran filas paralelas creadas por las sesiones implementadoras (Cursor/GLM) con su propio nombre. Su contenido útil se fusionó en las filas canónicas (que ya estaban Done) y las duplicadas quedaron en Blocked como evidencia, según la regla del dueño. En el repo, el plan de ORBIT 01 (cerrado desde el 22 de agosto) se movió de la raíz a `plans/orbit-01.md`, con `plans/manifest.json` apuntando ahí: todos los planes viven ahora bajo `plans/`, y el monitor del harness deja de avisar en cada sesión que «el plan lleva 244 horas sin moverse» por un archivo que era histórico. Nada de esto toca datos, motor ni dashboard.
+
+**2026-09-02 — La palanca de mapeo quedó cerrada: las campañas de Arras en México ya muestran lo que dejan.** Faltaba mapear los anuncios de México a productos del catálogo. El dueño archivó el anuncio muerto (`B09QC3X991`, producto sin oferta en México) y decidió los 10 casos: 5 se ligaron a su producto y 5 —variantes que no existen en Odoo y con inventario en cero— se archivaron (35 anuncios en 7 campañas, con su reversa guardada). Al hacerlo apareció un último obstáculo: dos productos «Peseta» sólo tenían costo desde el 18 de agosto, y la regla de la vista exige costo de TODOS los productos del grupo en CADA día de la ventana de 90 días — dos huecos dejaban a los seis grupos de Arras callados. Se sembró su costo histórico (migración 0011, PR #116), tomado de sus hermanos de familia y **sellado por el dueño**, con la misma historia copiada a contabilidad; la prueba de que ambas fuentes cuadran es que la carga de costos siguiente salió **sin un solo cambio**. Resultado: México pasa de 107 a 144 anuncios publicando contribución, y de 64 a 27 entidades bloqueadas por catálogo incompleto. Queda declarado sin trabajar un residuo de 39.46 MXN de gasto en 90 días (tres grupos de ASINs de cola larga). Dato para el dueño: **Arras Productos** es la única campaña negativa en los dos extremos del rango — 33.99 MXN gastados sin una sola venta atribuida.
+
+**Nota de método:** la migración 0011 lleva la primera excepción declarada al candado que impide reescribir costos publicados. Uno de los dos productos tenía el mismo costo antes y después, y dejarlo como dos tramos pegados habría hecho que el sistema rechazara ese producto en cada carga futura —congelándolo para siempre—, así que su historia quedó como un solo tramo, lo que obligó a borrar la fila vieja. Se hizo con el candado apagado y re-encendido dentro de la misma transacción, con su **reversa implementada y probada antes** (regla del repo: nada irreversible sin vuelta atrás), y el candado quedó verificado como armado en producción.
+
+**2026-09-01 — Cross-review de la 1.5 (claude + codex + grok, una sola ronda) cerrada con tres correcciones ya en producción (PR #109, migración 0010).** Nada de lo publicado cambió —verificado en vivo: mismas 108 entidades MX y 273 US, mismas marcas, mismos números—; lo corregido era latente: (1) la marca «precio min multilisting» podía prenderse aunque el precio menor no hubiera participado del cálculo (producto sin ventas en la ventana); ahora solo se prende si de verdad se usó. (2) Los números publicados podían descuadrar en 0.0001 si alguien restaba columnas a mano; ahora cuadran exactos. (3) La guía de rollback de la migración 0008 no mencionaba que los permisos de lectura se pierden en un DROP y hay que re-crearlos; ya está corregida. Se declararon sin corrección: sin el candado de «precio único» ya nada frena un precio basura en el catálogo (regla sellada por el dueño; si se quiere, futura alerta de dispersión), y los dos pares de ASINs duplicados siguen siendo decisión de negocio abierta.
+
+**2026-09-01 — ORBIT 06 tarea 1.5 CERRADA: Estados Unidos ya publica su contribución.** El motivo por el que US salía «sin dato» no era mapeo (todo lo activo está mapeado) sino que dos productos —NH Blanco con broche 19mm Plateado y NH PERS Italia Plateado— se venden en Amazon US bajo dos ASINs con precios distintos. La regla vieja exigía un solo precio por producto y prefería no publicar nada. El dueño selló la salida: **usar el precio menor y marcarlo**. Desde hoy las 15 campañas de US publican su rango, todas con la marca «precio min multilisting» en el dashboard y en el digest de Telegram; México quedó idéntico (verificado fila por fila). De pilón se corrigió que los números calculados salían con colas de ~40 decimales; ahora salen con 4, como todo el dinero del sistema. Decisión de negocio que queda abierta: si esos pares de ASINs duplicados deben seguir coexistiendo o conviene archivar uno.
+
+**2026-09-01 — ORBIT 06 tarea 1.3 EN PR: el digest diario de Telegram ya incluye la contribución por plataforma como rango (nunca un número único), con la etiqueta «contribucion pre-cargos · no decisoria». Si una plataforma no publica filas —Estados Unidos hoy, por diseño—, el mensaje dice «sin dato» y cuenta cuántas entidades faltan y por qué motivo; no inventa cero ni se calla. Si el residual del TACoS del mes es mayor que cero, sale una línea corta (hoy 4.75 MXN en agosto). Lectura solo con ORBIT_DSN_READ; un fallo del canal sigue sin tumbar el ciclo. **CERRADA 2026-09-01 (PR #100, en producción) y el envío real quedó verificado el mismo día: el digest del ciclo #30 llegó al Telegram del dueño.**
+
+**2026-09-01 — ORBIT 06 tarea 1.4: el dashboard ya muestra la contribución por campaña como rango.** Cada fila suma lo que publican sus anuncios hijos (palabra clave / producto): dos números (con y sin ventas de arrastre), la moneda, su propia edad de dato (fechas por campaña, además de la ventana de 90 días maduros) y la etiqueta «contribución pre-cargos · no decisoria». Si no hay dato, se ve un guion con el motivo dominante (serie incompleta, catálogo parcial, sin FX, etc.), jamás un cero; y si el rango es parcial (hay hijas ausentes), la fila lo declara («parcial: motivo») en vez de disfrazarse de completa. Estados Unidos puede quedar vacío o sin números a propósito mientras el catálogo no cubra al 100 %. Solo lectura; cero escritura nueva. **CERRADA 2026-09-01 y ya en producción.** Al probarla en vivo salieron dos bichos que las pruebas no veían: la consulta tardaba más de 100 segundos (se reescribió la vista para agregar por día y producto; ahora ~2.5 s, PR #101) y cada campaña sumaba su contribución una vez **por día** en vez de una sola (~65-90 veces de más; corregido y verificado contra la suma directa, PR #102). Hoy la pantalla responde en ~15 s: México muestra 23 campañas (13 con números) y Estados Unidos 15 sin números, por el catálogo parcial ya declarado.
+
+
+**2026-09-01 — ORBIT 06 tarea 1.2 CERRADA: la contribución por anuncio ya se puede consultar en México.** 108 anuncios publican su rango (con y sin ventas de arrastre) sobre 90 días maduros; ningún número único, ningún dato inventado. Estados Unidos publica cero **a propósito**: la regla exige conocer el costo de TODOS los productos de un grupo, y los grupos de EE.UU. son tan grandes que siempre incluyen productos sin mapear — la palanca es mapear, no aflojar la regla. De pilón, el residuo del arreglo del TACoS quedó visible en la propia vista: 4.75 pesos exactos en agosto.
+
+**2026-08-31 — ORBIT 06 tarea 1.2 EN PR: ya existe la vista que calcula lo que deja cada anuncio (palabra clave o producto). Publica siempre dos números —con y sin ventas de arrastre— nunca uno solo; si falta dato, la fila no sale. En México usa el precio realmente cobrado; en Estados Unidos el de vitrina (aún no decisoria). Incluye también el contador del gasto de campaña sin contraparte, la lista de anuncios excluidos con su motivo, y la comparación del gasto de ads contra el libro. Falta la corrida real del lead tras el deploy (`docs/SELECT-EVIDENCIA-1-2.md`).**
+
+**2026-08-31 — ORBIT 06 tarea 1.1 CERRADA: ya está diseñado cómo medir lo que deja cada anuncio.** El diseño (de Cursor, sellado por el lead con una mejora) publica la contribución de cada anuncio siempre como rango —con y sin ventas de arrastre— y nunca como un número único. La mejora del sello: en México el costo se compara contra el precio realmente cobrado (sin IVA, de las ventas reales), no contra el precio de vitrina — así el número no sale inflado. Sigue la implementación (1.2).
+
+**2026-08-31 — ORBIT 06 tarea 0.7: se encontró y corrigió que el gasto en anuncios se contaba DOS VECES.** Al medir contra los datos reales para aprobar el umbral de cobertura, apareció un patrón sospechoso: el gasto guardado a nivel de campaña era casi idéntico al gasto guardado a nivel de palabra clave/producto — en Estados Unidos, exacto centavo por centavo. Eso significa que el sistema estaba anotando el mismo peso gastado dos veces: una vez como "gasto de la campaña" y otra como "gasto de sus palabras clave/productos". La medida de TACoS (qué tan caro sale vender, comparando gasto de anuncios contra venta) tomaba ambos y sumaba doble, así que salía casi el doble de lo real. Se corrigió para que la medida solo cuente el gasto al nivel de detalle correcto (palabra clave/producto), el mismo nivel que ya usa el motor para decidir — el nivel de campaña queda fuera porque es un duplicado, no gasto adicional. Con el número correcto, la medición real de cobertura para aprobar la fase siguiente fue: México 89.3% y Estados Unidos 100% a nivel de grupo — ambos por arriba del umbral de 85% que aprobó el dueño, así que la fase siguiente queda desbloqueada.
+
+**2026-08-31 — ORBIT 06 tarea 0.6 CERRADA y verificada de punta a punta por el lead (recuento independiente idéntico; deploy formal con corrida de control exacta): el libro de Amazon ya está en Orbit.** Se copiaron **8,041 hechos** (1,650 ventas, 4,221 fees, 2,034 retenciones, 136 refunds) desde contabilidad; ventana **2025-11-14 .. 2026-08-31**; MeLi quedó fuera; el ISR sin orden entró sin prorratear; **106 filas se descartaron** por `ledger_convencion_signos` (fee+/refund+/sale≤0) — **no se voltearon**. Huecos de producto: 229 ventas sin ASIN, 12 sin listing, 0 sin cantidad. Re-correrla (runs 54-55 post-review) no escribe nada. Residual declarado: ~6 ISR fee+ fuente no entran (CHECK D4); `amazon_us` viene 100 % MXN en la fuente (D8) para la 0.7.
+
+**2026-08-31 — ORBIT 06 tarea 0.5 CERRADA: los tipos de cambio ya viven en Orbit.** 210 tasas diarias (oct 2025 → hoy) con las etiquetas corregidas; el convertidor las resuelve bien en vivo (día exacto, día anterior cuando hay hueco, y cero resultados cuando no hay tasa utilizable — jamás un número inventado). Con esto, lo vendido en dólares por fin puede compararse con lo vendido en pesos.
+
+**2026-08-31 — ORBIT 06 tarea 0.4 EN CURSO: el vínculo anuncio→producto ya no vive en el grupo.** El dueño eligió atribuir margen al **anuncio de producto**, no al grupo: en Estados Unidos ningún grupo vende un solo ASIN, así que el modelo viejo dejaba esa cuenta entera sin margen. Se materializan anuncios ENABLED y PAUSED; los archivados no se guardan. El `listing_id` se escribe solo en esas filas nuevas, nunca en el grupo. **CERRADA el 2026-08-31**: el lead aplicó la migración (con respaldo verificado del esquema y chequeo previo), desplegó y corrió la ingesta real contra Amazon.
+
+**Resultado**: se materializaron **12,527 anuncios** (7,709 en México, 4,818 en Estados Unidos) y se descartaron 25,454 archivados. **8,626 quedaron ligados a su producto (69 %)**, y ninguna otra entidad recibió el vínculo — el grupo quedó en nulo como se decidió.
+
+**El dato que importa para la fase siguiente**: de los anuncios que resuelven producto, **el 100 % llega hasta un costo**. La cadena anuncio → producto → costo no pierde nada por el camino, así que el margen ya se puede calcular para ese 69 %. El hueco restante son 3,901 anuncios cuyo producto no está mapeado — el mismo hueco de la tarea anterior, ahora visible a nivel de anuncio.
+
+Antes de aprobar, el lead verificó que meter 12 mil entidades nuevas **no contamina al motor** (todas sus consultas de decisión filtran por tipo) y que la descarga diaria entra con margen. Una objeción suya se disolvió al revisar: temía que la frescura de la estructura se falseara, pero la ingesta quedó integrada al sync existente en vez de correr aparte.
+
+**2026-08-31 — Un hallazgo que cambia la tarea siguiente: casi ningún grupo de anuncios vende un solo producto.** Apenas quedó vivo el permiso de la 0.3, el lead midió lo que el plan tenía como desconocido. El plan proponía que, si un grupo anuncia varios productos, no se le atribuyera margen y se contara aparte — dando por hecho que era el caso raro. **Es al revés**: entre los grupos con anuncios activos, en México sólo 4 de 32 venden un producto único, y **en Estados Unidos ninguno de los 48**. El peor caso llega a 1,259 productos en un solo grupo.
+
+Con esa política, la cuenta de Estados Unidos habría quedado **entera** sin margen atribuible. Queda descartada, y la tarea siguiente ya no arranca programando sino **eligiendo cómo atribuir el margen cuando un grupo vende muchos productos** — una decisión del dueño, porque cambia qué significa el número. Las tres salidas posibles quedan escritas en el plan con su costo.
+
+De la misma medición: filtrar por estado es obligatorio (tres de cada cuatro anuncios en México están archivados) y falta una pieza técnica menor que la tarea anterior no cubría.
+
+**Aparte, deuda de proceso saldada**: se sube al plan la exigencia de cerrar el marcador de la tarea y esta misma línea de contexto. En las tres entregas —dos de GLM, una de Cursor— las terminó cerrando el lead. Tres implementadores distintos fallando lo mismo no es descuido de ellos: era que vivía en un mensaje de chat en vez de en el contrato.
+
+**2026-08-31 — ORBIT 06 tarea 0.3 CERRADA: Orbit ya puede leer qué producto anuncia cada anuncio.** Faltaba un permiso: la lista de anuncios de producto de Amazon no estaba habilitada en el candado de lectura del cliente, así que la llamada se rechazaba. Ahora sí, y con el ritual que el repo exige para tocar ese candado: **primero la prueba en vivo** —la hizo el lead porque pide credenciales que sólo viven en el servidor— y recién después el cambio de código. La prueba respondió correctamente en México y Estados Unidos, con 31,063 y 6,918 anuncios respectivamente.
+
+Implementación de **Cursor**, su primera entrega en este repo: cinco líneas de código y once de prueba, sin tocar nada más. El lead verificó que la prueba **discrimina de verdad** (quitando la línea del permiso, falla exactamente ese test) y que el conteo del candado obliga a actualizarlo a propósito, que es justo lo que impide que crezca por accidente.
+
+**Y la prueba en vivo trajo un hallazgo que simplifica la tarea siguiente**: cada anuncio viene con el ASIN y el código de producto **juntos**, así que el vínculo anuncio→producto es directo. Con el aviso de que esos totales incluyen todos los estados y hay que filtrar.
+
+**2026-08-30 — ORBIT 06 tarea 0.2 CERRADA: el anuncio ya se puede conectar con el producto.** Existe el mapa producto ↔ mercado ↔ ASIN (GLM, PR #67): **513 listings** (337 MX / 176 US) que alcanzan **265 productos con costo**. La trampa que el lead había medido antes de asignar la tarea —los SKU de Amazon son autogenerados y NO son los de Odoo, así que unir por texto da 1 % de cobertura— quedó sellada: la unión va **solo** por la tabla puente. Verificado contra la base viva: 0 ASIN duplicados por plataforma, 0 violaciones del CHECK precio/moneda, monedas exactamente partidas por mercado, y `ad_entity.listing_id` **intacto** (eso es la 0.4). Recálculo independiente del lead desde el origen: idéntico. No-op confirmado tres veces.
+
+GLM cazó un bug propio serio con la doble corrida: los SELECT previos abrían una transacción implícita y al cerrar la conexión **se revertía todo** — la corrida imprimía 513 escritas y la base quedaba vacía. **Cero daño verificado**: esos dos `ingest_run` ni existen. Quedó como regla en el código y un test de regresión.
+
+**Corrección del lead**: la entrega definía su propio mapa de monedas, idéntico al que ya vive en el motor. Hoy coincidían, pero un tercer mercado actualizaría uno y no el otro — y este proyecto ya pagó ese error caro (un reporte que daba pesos por dólares: 18.66× siempre a favor de "todo es rentabilísimo"). Unificado, con **candado nuevo** que caza cualquier mapa de moneda no declarado. Al ponerlo aparecieron otras dos preexistentes y deliberadas —el cliente de escritura y el descubrimiento de perfiles—, las dos declaradas con su razón y sin tocarse.
+
+**Corrección del propio lead (cross-review kimi, 2026-08-30)**: la primera versión de ese candado tenía un punto ciego —sólo veía una de las dos formas de escribir el mapa— y el cierre afirmó "una tercera" cuando eran cuatro los lugares que ataban mercado a moneda. **El comentario original de GLM señalaba justo la que faltaba, y el lead lo descartó por error: GLM tenía razón.** Corregido el detector para que decida por el valor y no por la forma, y corregido también un efecto colateral propio: la prueba del candado escribía un archivo dentro del repo en vez de en un directorio temporal.
+
+**Y una segunda corrección, ésta de qwen**: aquella primera tapó un agujero y abrió otro sin decirlo — al exigir que todas las claves fueran constantes, dejaba escapar mapas escritos de otra forma. Ya está corregido, con la prueba cubriendo también los casos que el candado descarta a propósito. Nota de herramientas: qwen llevaba tres intentos fallidos como revisor por una bandera obsoleta en el kit de calidad; quedó arreglado y verificado como revisor de **solo lectura**, y ésta fue su primera revisión útil.
+
+**2026-08-30 — ORBIT 06 arranca: la tarea 0.1 CERRADA, el margen ya tiene su primera pieza.** La ingesta de productos y costos existe y corrió contra la base viva (GLM, PR #63): **1,087 productos y 1,955 vigencias de costo** desde las 2,708 filas de contabilidad, con 753 rotaciones intradía colapsadas a una vigencia por día. El lead lo verificó **contra la base, no contra la evidencia**: una sola vigencia abierta por producto (1,087 de 1,087), 100 % MXN, cero costos ≤ 0, y un recálculo INDEPENDIENTE del origen que da los mismos 1,955. Re-correrla no escribe nada (**confirmado cuatro veces**). Los candados de solo-histórico sobrevivieron intactos a la remediación de una carga fallida, y el manejo de dinero **rechaza antes de redondear**, así que una precisión genuina nunca se redondea en silencio.
+
+**La duda del IVA quedó resuelta con lectura directa de Odoo**, no con argumentos. El dueño la planteó bien: sus proveedores chinos no cobran IVA y los mexicanos sí, y suponía que Odoo guardaría el costo con el precio completo. **No se cumple**: en 227 de 227 líneas de compra el precio unitario es neto, 213 llevan el impuesto ENCIMA y 14 no (la mezcla existe pero viaja fuera del costo), y de 24 productos comparables **3 coinciden exactos con el precio sin impuesto y CERO con el precio con impuesto**. Importaba más de lo que parecía: no era un sesgo parejo sino **diferencial** —los productos de proveedor mexicano se habrían visto 16 % más caros que los importados y el motor habría movido presupuesto por una razón falsa—. Verificado, ese riesgo no existe.
+
+**Dos residuales declarados antes de la Fase 1**: la fusión de días consecutivos de igual costo **nunca se ejercitó** (hay cero casos reales en el origen: cubierta por test, sin evidencia de producción), y la ingesta es **manual, sin cron** — los costos empiezan a envejecer hoy y la cadencia se decide antes de que la vista de margen lea datos viejos sin avisar.
+
+**2026-08-30 — NADA SE ARRASTRA A ORBIT 05: inventario de cierre.** Decisión del dueño (2026-08-29): antes de empezar la fase siguiente, todo pendiente se cierra o se PARQUEA con dueño, disparador y tarea propia en el tracker — ninguno vive solo en prosa de un plan. Estado: **(a) accionable hoy — HECHO el 2026-08-30 02:12 UTC**: el deploy de master al contenedor. El contenedor corría todavía la imagen de 1.1, así que el código de 1.4 (quota + aviso de cap agotado), 1.5 (pantalla) y los defaults por moneda de 1.2 estaba mergeado pero **NO vivo** — y con esa imagen `tools/snapshot_listas.py` fallaba con `ImportError`, o sea **el backup del día del flip no habría corrido**. Imagen nueva `757c972b` (antes `a5d5d579`), con respaldo del `app/` anterior en `app.bak-predeploy-20260830` y los 28 `.py` verificados idénticos a master por md5 ANTES de construir. Verificado DENTRO del contenedor: CORTES 03 intacto (100/100/40/500), `KINDS_QUOTA`/`estado_quota` presentes, `DEFAULTS_POR_MONEDA` con MXN 1.00/45.00, `listar_todo` público; el endpoint de salud ya devuelve la quota (10/2/5/2, fuente `config_vigente`) y `/salud` la dibuja; **el snapshot vuelve a correr con los conteos exactos de 1.3** (MX 2,645/2,597/861 · US 1,336/1,536/549). Puerto solo en loopback y wg0, `secrets/` 700/600 intactos, cero errores de arranque, y los cuatro crons de Orbit (crontab de `gon`) sin tocar. **Nada se flipeó: la escalera y los cuatro goals siguen en `shadow`.** **(b) Espera por calendario** — 2 semanas de shadow (~2026-09-07) y, atados a eso, el día del flip y la verificación adversarial triple; no son trabajo pendiente sino candados que corren solos. **(c) Parqueado en el tracker con disparador** — revocación del ADMIN OPTION de `orbit_test` (hito, no fecha); **keywords duplicadas dentro de cada mercado** (medido 2026-08-29: 58 pares en MX y 60 en US; solo 13 y 12 tienen ganador claro por datos; el resto no vende en ninguna copia; dinero de la copia perdedora cuando la hermana sí vende = 452.78 MXN + 160.46 USD en 90 días — MX y US **jamás se comparan entre sí**, son mercados distintos; recomendación: decidirlo DESPUÉS del flip, porque el motor live puede cambiar cuál copia gana); **AGM2M (165)** diferida con disparador "48h de live"; **token de cloudflared** (rotación bloqueada hasta inventariar qué rutea el túnel); **partición de `app/ads/structure.py`** (916 líneas, excepción declarada en la allowlist). **(d) Otra fase** — edición de settings del dashboard, en `ORBIT 16`.
+
+**2026-08-29 — ORBIT 05 PREFLIGHT CERRADO (1.1-1.8, todo en master).** Las ocho tareas están Done: CORTES 03 desplegada y verificada en vivo (1.1), defaults de piso/techo por moneda + migración 0003 aplicada en producción (1.2), `tools/snapshot_listas.py` con conciliación real contra el cache (1.3), quota `used/cap/fuente` en el endpoint + aviso Telegram de cap agotado (1.4), la pantalla `/salud` dibujándola (1.5), las cuatro decisiones del dueño registradas (1.6), destino de harvest US reactivado con dedup y terna del goal 5 sembrada (1.6a), y el hito de revocación de `orbit_test` ADMIN OPTION cerrado en DEPLOY.md con su tarea de tracker (1.7).
+
+**Estado de la cola de apply hoy (SELECT en vivo, 2026-08-29): 5 filas, TODAS `shadow`** — 1 `discarded` (la 2, con motivo declarado por el dueño para probar CORTES 03 en vivo), 2 `vetoed` (la 3 por delegación, actor `gon`; la 4 veto PERSONAL del dueño, actor `gon-personal`) y 2 `pending_veto` (la 5, harvest MX; la 6, el primer harvest US nacido del ciclo 24). **Cero escrituras a Amazon**: la escalera sigue en `shadow` y los cuatro goals (4 MX; 5/6/7 US) están en `mode='shadow'` con la config vigente id 10. Base viva: 24 ciclos desde el 2026-08-23 y 1,475 decisiones (1,389 bid / 48 negative / 34 pause / 4 harvest).
+
+**Lo que FALTA para el flip** — nada de esto es código; son candados humanos y de calendario (`docs/APPLY.md` §12 ítems 3-10): (a) **2 semanas de shadow cumplidas, llegan ~2026-09-07** (shadow desde 2026-08-24); es el único sub-ítem abierto del candado 3, porque la firma del spot-check (b) y CORTES 03 desplegada (c) ya están cumplidas; (b) el **backup pre-cutover REAL del mismo día** —el de `backups/precutover_orbit04_2026-08-28/` quedará obsoleto porque la base y las listas cambian a diario— y el discard masivo de las filas shadow; (c) la **verificación adversarial triple de las primeras decisiones APLICADAS en vivo**. **Ya NO falta la firma del dueño sobre `plans/orbit-05.md`: la dio el 2026-08-29** ("2 firmado"), registrada en el header del runbook — aprueba el PROCEDIMIENTO, no dispara el flip (el día del flip exige su propio go). Deudas declaradas abiertas: `orbit_test` conserva ADMIN OPTION sobre el cluster de prod hasta que la DB de test salga de ahí (hito y tarea de tracker en `docs/DEPLOY.md`), y los textos EXACT duplicados fuera del alcance de 1.6a — el GO "3. go" del 2026-08-29 cerró el de 'arras de boda cristiana' (de 6 entre las hermanas quedan 5), y el barrido completo mostró **más duplicados preexistentes en US y MX fuera de esas tres campañas**, declarados y sin tocar.
+
+**2026-08-29 — ORBIT 05 preflight 1.6a CERRADA** (PR #54 → master `38693aa`; GO del dueño "go con la 1"): USPerNog Exact US (3919) **reactivada por API con dedup** — 9 pausas de keywords EXACT ANTES del resume por el camino sellado de PR #37 (cada PUT con readback, reconciliación 9/1 ok; `--solo-campana` + `--esperado-external` anti-typo + guard de ya-ENABLED, 17 tests). La re-derivación colapsada (v_metric_latest) cazó que la tabla del lead sumaba la bitemporalidad SIN colapsar (inflaba 2-4.6x) y volteaba 1 fila ('silver arras for wedding'); el dueño resolvió "A": lista tal cual. Quedan DECLARADOS 6 textos EXACT duplicados fuera del alcance (5 entre 3909↔3926, varios convirtiendo en ambas; + 'arras de boda cristiana' 3919↔3909, copia 3909 sin datos 90d que la tabla listó "—") — para decisión futura, nada se tocó fuera de lo autorizado. **Goal 5 con terna completa** (251723662158466 / 522582072501798 / **0.68 USD** = mediana de las EXACT ENABLED de las 3 hermanas n=21, decisión "A" del dueño; la mediana literal n=3 daba 1.25). **Ciclo shadow 24 US: desaparece `harvest_sin_config` y nace la primera decisión harvest** (1475, 'arras para boda cristiana': 58 cl / $24.76 / 2 órdenes / $203.20) hacia la terna sembrada — con EXTERNALES en inputs, encolada shadow pending_veto, cero escrituras. Evidencia `out/orbit-05-preflight-1-6a-20260829.md`.
+
+**2026-08-29 — ORBIT 05 preflight 1.5: la pantalla /salud muestra la quota del dia** — la tarjeta de cada plataforma dibuja "Quota del dia" con una fila por forma (bid/pause/negative/harvest, recorriendo el dict que llega del endpoint de 1.4): used/cap y estado — `fila_del_dia` (chip ok: el cap INMUTABLE que rige hoy) vs `config_vigente` (chip neutro: sin consumo hoy); cap nulo se ve como "—" CON etiqueta (`sin_clave` = fail-closed, `config_rota` = estado de alarma), jamas como 0; `used >= cap` se ve SATURADA (el estado que dispara el aviso Telegram de 1.4). Server-rendered, sin JS ni CSS nuevo (CSP 'self'), cero escritura.
+
+**2026-08-29 — ORBIT 05 preflight 1.4: la quota ya es visible antes del primer cobro real** — `/api/dashboard/salud` expone por plataforma y forma (bid/pause/negative/harvest) `used/cap` con su `fuente` (`fila_del_dia`: el cap INMUTABLE de la fila de hoy aunque la config cambie / `config_vigente` / `sin_clave` = fail-closed explícito), y el ciclo avisa por Telegram (fail-silent, UNA vez por cap y día, anclado en la transición `used == cap`) cuando una rampa se agota; si el canal falla queda la NOTA en Salud y el ciclo sigue 'done'. Detalle en `docs/APPLY.md` §5.6.
+
+**2026-08-29 — ORBIT 05 preflight 1.3 CERRADA** (PR #48 → master `14ae6c0`): el snapshot de listas de Amazon del backup pre-cutover deja de ser codigo inline y es `tools/snapshot_listas.py` con tests — lee los tres `/sp/*/list` con la paginacion existente (guard de `totalResults` incluido), agrupa por campana, concilia contra `ad_entity` con diferencia CON SIGNO y no puede mutar nada (candado de arquitectura con allowlist positiva). Corrida real: MX 2,645 kw / 2,597 neg / 861 targets; US 1,336 / 1,536 / 549. **Diferencia 0 contra el cache en keywords y targets de ambas plataformas** (verificado por el lead con SELECT propio sobre `ad_entity` incl. ARCHIVED); los negativeKeywords NO tienen espejo en `ad_entity`, así que su conteo va declarado con `cache=None` y queda FUERA de esa conciliación. Escritura endurecida tras 6 hallazgos de bots (temporal exclusivo, dir 700, symlink rechazado, runbook que propaga el rc). Preflight: 1.1, 1.2 y 1.3 Done; siguen 1.4/1.5 (quota visible), 1.6a (destino harvest US), 1.7 y 1.8.
+
+**2026-08-29 — ORBIT 05 preflight 1.2 CERRADA** (PR #46 → master `66d449e`): default de piso/techo de goals **POR MONEDA** (USD 0.10/2.50, MXN 1.00/45.00; otra moneda = error explícito) con `DEFAULTS_POR_MONEDA` como fuente única, y **migración 0003 aplicada en goncloud el 2026-08-29 04:10 UTC** (GO del dueño; chequeo previo: cero goals MXN con techo USD; backup del schema; verificado `column_default = NULL` con `NOT NULL` intacto y los 4 goals sin cambio): la DB ya no tiene DEFAULT, así que **un goal que nazca sin piso/techo revienta** en vez de heredar números pensados en USD. Preflight: 1.1 y 1.2 Done; siguen 1.3-1.8.**
+
+**2026-08-28 — ORBIT 05 preflight 1.3: el snapshot de listas Amazon del backup pre-cutover es ahora el tool `tools/snapshot_listas.py` del repo con test (en 4.4 corrió inline); flags excluyentes `--out`/`--solo-conteos`, escribe `listas_por_plataforma.json` a 600.**
+
+**2026-08-29 — CORTES 03 MERGEADA (#43 → master `5e5b16b`) y DESPLEGADA en
+goncloud (preflight 1.1 de ORBIT 05, GO del dueño; imagen `a5d5d579`,
+constantes 100/100/40/500 leídas dentro del contenedor). Verificación con
+ciclos shadow 19 (US, 109) y 20 (MX, 47) por el mismo camino del cron:
+cero pauses nuevas, 156/156 decisiones congelan `cost_min_usado`; **prueba
+directa** en el ciclo 21 (tras descartar con motivo la fila shadow 2 que
+bloqueaba su clave): la keyword de la 774 (72 clics / $25.21 / 0 ventas)
+salió como bid 0.25 → 0.22 (banda −12 %, `umbral 100`, `cost_min_usado
+40`) — **ya no pausa**. Efecto del techo MX
+45.00: `rango_bloquea_ajuste` MX bajó de 43 (ciclo 18) a 2 (ciclo 20). Las
+47 decisiones MX del ciclo 20 concilian así: 5 que ya decidían en el 18 +
+41 desbloqueadas por el techo (43 → 2) + 1 que salió de
+`pause_cortes_incompleto` (47 → 46); por banda: 37 −12 %, 6 +15 %, 4 −25 %;
+máx old 42.63 → new 37.51, dentro del techo.
+Checklist §12 ítem 3(c) marcado.** Detalle previo (PR #43):
+umbral de PAUSE del dueño → **100 clics / 40 USD / 500 MXN** (origen
+spot-check 4.4 fila 30 / decisión 774: 72 clics / 25.21 USD / 0 ventas
+pausó prematuro); fallback y piso legacy de PAUSE también suben a 100;
+NEGATIVE intacto. Replay hecho **fiel por construcción** (decisión del
+lead 2026-08-28): el motor de bids congela `cost_min_usado` en su freeze y
+las filas históricas sin la clave rejuegan con los históricos REPLAY_*
+(25 clics / 12 USD, solo-replay) — 34/34 pauses medidas fieles.
+
+**Última actualización: 2026-08-28 — ORBIT 04 CERRADA (4.1-4.4, todo en
+`shadow`); el dueño FIRMÓ el spot-check el 2026-08-28 ("spot check
+confirmado", revisado en lenguaje de negocio con el lead) → DoD de 4.4
+cumplido, `ORBIT 04` Done en AppFlowy:**
+
+- **4.1** deploy endurecido (env por servicio, non-root uid 10001, 0002
+  aplicada, wiring admin→ledger).
+- **4.2** seeds: goal 4 (platform MX) con terna harvest → Arras Manual
+  (2.50 MXN, mediana de bids EXACT reales); goals 6/7 scope=campaign (A1U
+  3909, AU2 3926) en shadow; caps día 1 en config id 7 (10/2/5/2 por
+  plataforma); fail-closed de quota probado en vivo en ambos sentidos.
+- **4.3** ensayo E2E: 4/4 formas neto-cero contra Amazon real (ledger probe
+  22-29), SHAPES re-confirmados; veto real por endpoint (fila 3, actor
+  'gon', delegado) + **veto PERSONAL del dueño (fila 4, actor
+  'gon-personal', 06:54 UTC)**; neto-cero RE-VERIFICADO post-sync en 4.4.
+- **4.4** backup pre-cutover VERIFY_OK en
+  `backups/precutover_orbit04_2026-08-28/` (dump 762 KB + globals + CSV de
+  ad_entity_state 5,899 filas + listas Amazon de 2 plataformas; restore real
+  con conteos idénticos 4/29/9/977/5899); spot-check de 33 decisiones shadow
+  recalculadas por el implementador (GLM, autor del motor: NO es una
+  verificación independiente) + 11 re-calculadas por el lead desde
+  `bid.py` (**0 divergencias** en ambas; tabla en AppFlowy "ORBIT 04 4.4 —
+  spot-check" y en `out/orbit-04-4-4-cierre-20260828.md` §3 — **FIRMADA
+  por el dueño 2026-08-28**, la única validación independiente; de su
+  revisión salieron el techo MX y CORTES 03, ver abajo);
+  escalera shadow verificada (config id 10 mode=shadow, attempts solo probe,
+  quota 0 filas, cola 2 pending + 2 vetoed, `/api/ads-optimizer/status`
+  cita shadow); corrección 1e41a1f: la verificación adversarial TRIPLE se
+  movió al checklist §12 (ítem 9, ritual de ORBIT 05). La FIRMA del dueño
+  del spot-check quedó como ítem 3 SIN MARCAR del checklist §12: candado
+  pre-flip.
+
+**Estado de la cola (2026-08-29, tras el preflight 1.1)**: fila 2 pause
+**`discarded`** (descartada por el dueño con motivo declarado para liberar
+la clave de efecto de la keyword de la 774 y probar en vivo CORTES 03),
+fila 3 harvest `vetoed` (gon), fila 4 harvest `vetoed` (gon-personal),
+fila 5 harvest `pending_veto` — cero released/applying. El día del cutover
+queda **una** fila shadow pendiente (la 5, más las que nazcan hasta
+entonces): se descartan en bloque con `app_admin`, en el orden sellado
+**backup real → discard → flip → rampa** (checklist APPLY.md §12 ítems 4-6).
+
+**Prerequisitos de ORBIT 05**: cumplidos — veto del dueño (fila 4, con su
+mano), ensayo E2E (4/4 neto-cero), **runbook del backup pre-cutover
+ensayado y verificado restaurable** (el snapshot del 28 NO es el punto de
+restauración del flip), caps día 1 sembrados, spot-check preparado (33
+decisiones, implementador + 11 del lead) **y FIRMADO por el dueño
+2026-08-28** (AppFlowy "ORBIT 04 4.4 — spot-check shadow", Done).
+**Pendientes** — 2 semanas de shadow (~2026-09-07);
+`tools/snapshot_listas.py` con test; **backup pre-cutover REAL el día del
+flip** (ítem 4); verificación adversarial TRIPLE de las primeras
+decisiones live (ítem 9); resto del preflight (1.2-1.8 de
+`plans/orbit-05-preflight.md`). **CUMPLIDOS post-#40**: techo de bids MX
+1.00/45.00 MXN en el goal 4 (ver abajo) y **CORTES 03 mergeada, desplegada
+y verificada en vivo el 2026-08-29** (preflight 1.1; ítem 3c del checklist
+§12 marcado).
+
+**Decisiones del dueño salidas del spot-check (2026-08-28, post-#40)**:
+(1) **Techo de bids MX**: el default 2.50 del esquema (número pensado en
+USD, `goals.py DEFAULT_CEILING`) estaba aplicado al goal 4 de México en
+MXN — 144/233 keywords y 44/51 targets MX activos tienen bid > 2.50 MXN
+(mediana 2.92 / 8.98, máx 42.63): en live los habría aplastado hacia 2.50.
+Verificado que NO hay mezcla de monedas (`bid.py:89` fija MXN/USD por
+plataforma; cache y decisiones 100% consistentes). El dueño aplicó desde su
+terminal `goals set 4 --floor 1.00 --ceiling 45.00` (verificado por SELECT,
+`updated_at` 18:05 UTC); US queda 0.10/2.50 (máx real 2.00). (2) **Umbrales
+de pausa**: 72 clics / $25 / 0 ventas (fila 30 del spot-check) le pareció
+poco → PAUSE exigirá **≥100 clics y ≥$40 USD** sin ventas (**MX: ≥500
+MXN**, confirmado por el dueño) = tarea **CORTES 03** (CORTES 02 ya es la lista curada de términos producto-diferente; cambio de spec v3: `cortes.py
+F_PAUSE/LEGACY_PAUSE`, `bid.py PAUSE_COST_MIN`, tests, docs/traspaso),
+prerequisito de ORBIT 05, implementa GLM por PR con TDD. La firma del
+spot-check se cumplió el 2026-08-28.
+
+**Decisiones del dueño para ORBIT 05 (2026-08-28, respuesta literal "1. si
+2. no se 3 acotar 4 todos" a las 4 preguntas de `plans/orbit-05-preflight.md`
+1.6)**: (1) **destino harvest US = SÍ**: reactivar USPerNog Exact US
+(ad_entity 3919, external 251723662158466, hoy PAUSED) y sembrar la terna
+del goal 5 (preflight 1.6a; mutación real con autorización en el momento);
+(2) **AGM2M (165) = DIFERIDO** ("no sé"): PAUSED, fuera del piloto, se
+re-pregunta tras 48h live; (3) **halo US = ACOTAR con ambos supuestos**
+(CONTEXTO "la pregunta sin respuesta"): la fase margin-aware reporta y
+decide con el rango con-halo / sin-halo; ORBIT 05 sigue con revenue
+completo; (4) **goals del día 1 = TODOS** (4 MX, 5/6/7 US); la rampa por
+goal queda como mecanismo de rollback parcial. Con esto los planes
+`orbit-05-preflight` y `orbit-05` quedan APROBADOS por el dueño — evidencia
+de la aprobación: su mensaje literal en la sesión del lead (2026-08-28) y
+la nota fechada en la fila `ORBIT 05` de AppFlowy (la PR #44 lleva la
+misma cita; no hay review `APPROVED` de GitHub porque el dueño no revisa
+por GitHub). El cutover no arranca antes de ~2026-09-07 ni sin el preflight
+Done.
+
+Previo (2026-08-28): ORBIT 04 4.3 CERRADA con DoD literal
+(ensayo E2E + veto delegado en la fila 3 + VETO PERSONAL DEL DUEÑO en la
+fila 4, actor `gon-personal`, 06:54 UTC, verificado en `apply_queue`;
+prerequisito de ORBIT 05 cumplido). Review del lead post-cierre: pipefail
+al shell local, token 600 por umask, residual del token en el historial
+append-only de `config_version`, DoD de 4.4 con spot-check ≥20 +
+adversarial triple, y el "neto-cero contra el cache" de la evidencia §6 era
+ANTERIOR a la corrida (re-verificar post-sync en 4.4): re-corrida del smoke 2.5
+contra el deploy real, mismas campañas sacrificables (A: USPerNog Category
+Exact 251723662158466 — hoy PAUSED; B: USPerNog Auto Discovery
+140602818838686), dentro del contenedor (tool a `/tmp` + `PYTHONPATH=/app`:
+post-4.1 la imagen es non-root y sin tools; variante documentada en
+APPLY.md §11d y en el docstring del tool). **4/4 formas ok/neto-cero**:
+bid_keyword 0.51→0.52→0.51, negative crear+archivar, keyword crear+archivar
+(bid 0.51 real leído), bid_target 0.32→0.33→0.32; ledger `apply_attempt`
+probe ids 22-29 (quota_cobrada=false), config 8/9 de humo + **id 10 de
+cierre limpia** (11 claves: mode, targets 20/20, caps 10/2/5/2). SHAPES
+re-confirmados. **VETO REAL por el endpoint** (`POST /api/ads-optimizer/veto`):
+fila 3 (harvest "arras matrimoniales cristianas") → `vetoed`,
+`vetoed_by='gon'`, vence 2026-09-27. **Declarado: ejecutado por el lead por
+delegación expresa del dueño** ("el veto el que consideres mejor"); la fila
+2 (pause de una keyword con 62 clicks/$22.78/0 órdenes en 30d) se dejó
+intacta a propósito — es un corte correcto. **Veto PERSONAL del dueño CUMPLIDO** el
+2026-08-28 06:54 UTC: fila 4 (harvest "arras matrimoniales personalizadas")
+→ `vetoed`, `vetoed_by='gon-personal'`, vence 2026-09-27 — ejecutado por
+él desde su terminal contra el endpoint real, verificado en `apply_queue`.
+La cola queda sana para el cutover: 2 shadow `pending_veto` (filas 2 y 5)
+→ descarte en bloque en el flip; 2 `vetoed` terminales (3 y 4). Resto de la cola de fase: 4.4 cierre
+(backup, CHAT-CONTEXT, PR final). Evidencia
+`out/orbit-04-4-3-ensayo-e2e-20260828.md` + `out/smoke-apply-20260828.log`.
+
+Previo (2026-08-27, noche): ORBIT 04 4.2 CERRADA (seeds de
+configuración en vivo): goal 4 (platform amazon_mx) con terna harvest
+completa → Arras Manual (external `97835222467967`, ad group
+`272585315669297`, ambos ENABLED; `harvest_default_bid` 2.50 MXN = mediana
+2.525 de los bids reales de 18 keywords EXACT ENABLED clampeada al techo
+2.50 del goal), escrita por el camino único (`goals set` →
+`goals_write.edita_goal`). Goals 6 y 7 scope=campaign: A1U Exact US (3909) y
+AU2 Exact US (3926), USD, shadow, target NULL (la cascada da 20 desde
+config). Caps día 1 en `config_version` id 7 (fila NUEVA append-only, la 6
+intacta): `ads_apply_cap_*` = 10 bids / 2 pauses / 5 negatives / 2 harvests
+por día y plataforma (rampa sellada: decisión 7 + APPLY.md §5.5). DoD en
+vivo: `goal_harvest_completo` rechaza la terna a medias (CLI exit 2 y
+`CheckViolation` con ROLLBACK); fail-closed de quota probado en ambos
+sentidos contra el trigger vivo (sin clave no nace fila; con clave nace con
+el cap de config; cap que no coincide también se rechaza). Divergencia con
+la decisión sellada 15 ratificada por el dueño: manda el brief
+(destino MX = Arras Manual; USPerNog 3919 sigue PAUSED — el destino US de
+harvest queda como decisión abierta). `apply_quota_state` sigue en 0 filas
+hasta el primer apply real; sistema en shadow. Evidencia
+`out/orbit-04-4-2-seeds-20260827.md`. Pendiente Phase 4: 4.3 ensayo E2E +
+veto real del dueño, 4.4 cierre.
+
+Previo (2026-08-27, tarde): REACTIVACIÓN POR API EJECUTADA
+(autorizada por el dueño, "hazlo tú"): 25 keywords pausadas (dedup de
+CAMPANAS 01: 4 en Arras Manual 108, 18 broads en AD_READY 157-160, 3 phrases
+en AU2 3920) y 5 campañas reactivadas (108 Arras Manual MX, 3934 Wedding
+Coin ASIN US, 3911 A1U Category Phrase US, 3909 A1U Category Exact US, 3926
+AU2 Category Exact US), cada una con readback verificado y cache sincronizado
+(ingest_run 19, ok). AGM2M (165) quedó FUERA (veredicto reactivar-con-ajuste:
+decisión aparte). Herramienta `tools/reactiva_campanas.py` (operación de
+NEGOCIO por API, no del motor: no pasa por apply_queue; dry-run por defecto,
+`--acepto-mutacion-real` obligatorio, fail-closed contra la base viva).
+Evidencia `out/reactiva-campanas-20260827.log`. **Sellos NUEVOS de la API
+v3 que refutaron hipótesis del repo:** el state del PUT de pause/resume es
+UPPER (`PAUSED`/`ENABLED` — `'paused'` minúscula: 400 con el enum exacto;
+`'userPaused'` de write.py REFUTADO y `ESTADO_PUT_*` corregidas con sus
+tests); el id del body viaja como STRING (con número: 400 `NUMBER_VALUE...`);
+los headers exigen el vendor v3 EXACTO en Content-Type **y** Accept (sin
+Accept: 415; campañas `application/vnd.spcampaign.v3+json` — shape de resume
+de campaña NUEVO, sellado con 3909 primero). Regla 8 atrapó un error del doc
+de dedup: 'arras matrimoniales de oro' BROAD no existe en la 160 (decía
+×4, eran 3) — la herramienta abortó fail-closed y la lista quedó en 25.
+Pendiente Phase 4: 4.2 seeds (las Exact US YA están ENABLED — destrabado),
+4.3 ensayo E2E, 4.4 cierre. CAMPANAS 01 1.1 完了.
+
+Previo (2026-08-27): ORBIT 04 task 4.1 CERRADA (deploy endurecido, EN VIVO): env por servicio (db ya no hereda el .env completo —
+llevaba hasta ORBIT_DSN_ADMIN; solo POSTGRES_* por interpolación), app
+non-root como uid 10001 (secrets/ chown 10001:10001 con 600/700 intactos;
+se retira el residual `user: "0:0"` de ORBIT 03), y wiring admin→ledger
+resuelto (`GRANT app_decide TO orbit_admin` — las reversas ya no revientan
+con InsufficientPrivilege). Backup previo `backups/pre-4.1-20260827.dump`.
+Verificado en vivo: health ok, 8010 solo loopback+wg0, 5432 loopback, db
+env con 0 ORBIT_DSN, datos intactos (apply_attempt=21), veto sin token 401 /
+con token 422 (auth lee el secret como uid 10001), bridge y crons intactos.
+Decisión documentada: la membresía cluster de orbit_test SE QUEDA mientras
+la suite corra por túnel (revocación atada a sacar la base de test de prod).
+0002 ya estaba aplicada (SELECT: apply_queue, apply_attempt, reactivacion_manual).
+Candados re-sellados con rojo demostrado (sello bloque db, db sin DSNs, app
+non-root, runbook con el uid). Rama orbit-04/4-1-deploy-endurecido, PR a
+master. Pendiente Phase 4: 4.2 seeds (el dueño reactiva las Exact US —
+lista de dedup en out/campanas-01-dedup-20260827.md), 4.3 ensayo E2E, 4.4 cierre.
+
+Previo (2026-08-27): ORBIT 04 Phase 3 COMPLETA (3.1-3.3) y
+task 2.5 MERGEADAS a master (squash: #28 3.1, #33 3.2, #34 3.3 y 2.5
+probe-shapes; #29-32 quedaron cerrados por la cascada de bases). 3.3
+(`app/notifica.py`, canal Telegram fail-silent): aviso por cada
+corte NUEVO encolado (con vence_el 48h de la MISMA fuente de la fila),
+digest único por ciclo (live Y shadow: el encabezado declara el modo para
+que un digest de shadow no se confunda con uno live — cierre del hallazgo
+medio de la review del lead) y alerta de harvest failed (en `_falla_job`,
+junto a la reversa). Un fallo del canal JAMÁS tumba el ciclo ni degrada el
+status: warning scrubbeado + NOTA `notes['telegram']` (solo claves de lo
+que falló, regla 3) integrada antes del sello post-apply — estructuralmente
+TX4 corre después del cierre del envelope, ahí estaba la única escritura de
+notes restante — y VISIBLE en Salud (endpoint + pantalla). Canal
+deshabilitado (sin secrets/telegram.json) = no es fallo: True, sin NOTA.
+Avisos también en shadow (el mensaje declara modo — el dueño practica el
+veto con candidatos reales, sellado 6). Ciclos skipped/failed sin digest
+(estructura del ciclo; visibles por su propio status). tests/conftest.py
+aísla el canal por defecto: cero HTTP real en tests es invariante
+determinístico. Review: GO tras fixes (test directo del mapeo
+harvest→NOTA, loop de alertas envuelto, acento). Rojo honesto del DoD
+capturado (KeyError 'telegram' contra la base 3.2). 17 tests nuevos;
+161+ focused en verde con PG16 real por túnel; batería completa en el CI
+del PR.
+
+Previo (2026-08-27): ORBIT 04 Phase 3 EN CURSO: 3.1 y 3.2
+listas (PRs DRAFT #28 y apilado — el lead revisa). 3.2 (goals amigables,
+rama orbit-04/3-2-goals-set): UNA implementación `app/goals_write.edita_goal`
+(UPDATE solo-campos-pasados con `updated_at` EXPLICITO obligatorio — mutante
+demostrado cazado; pre-validación de entrada pura SIN I/O que combina
+nuevo+existente: floor<=ceiling, finitos, ids no vacíos, terna harvest
+all-or-nothing con `harvest_limpia`, edición vacía rechazada) despachada por
+DOS superficies: POST /api/ads-optimizer/goals/{goal_id} (misma auth de 3.1)
+y CLI `python -m app.cli goals set` (ORBIT_DSN_ADMIN fail-closed exit 2,
+allow_abbrev=False — el hueco de `--targe` abreviado cazado por test).
+Candado de camino único en test_architecture (regex IGNORECASE+\s+; tools/
+fuera, declarado) y superficie OpenAPI sellada +ruta. Test de punta a punta:
+editar target 25→20 y correr UN ciclo REAL — la decisión congela
+inputs.target_acos_pct_usado == "20.00" (rastro completo). Declaración
+sellada: NINGÚN campo de goals set vive en config_version — la regla
+config=fila-nueva queda para la pantalla de settings de ORBIT 16 Phase 3.
+Review: GO tras fixes (ids vacíos, edición vacía que re-sellaba updated_at,
+Decimal Infinity/NaN, docstrings stale); 100 tests focused en verde con
+PG16 real por túnel; batería completa en el CI del PR.
+
+Previo (2026-08-27): ORBIT 04 task 2.5 CERRADA: el probe
+real se ejecutó (2026-08-26, autorización del dueño, campaña sacrificable
+amazon_us) con 4/4 formas en neto cero (evidencia out/smoke-apply-20260826.log,
+ledger probe ids 1-20) y los shapes quedaron fijados contra la API VIVA —
+las hipótesis adivinadas estaban mal y se corrigieron (regla 8 cumplida a
+contrapelo): el bid viaja como NÚMERO JSON (no string), los enums son UPPER
+(matchType EXACT/NEGATIVE_EXACT, state ENABLED/PAUSED), los deletes v3 van
+por POST /sp/{recurso}/delete con filtro de ids (DELETE con body da 403),
+el readback es por LIST (el GET directo da 403) y los acks son 207 con
+success/error. Tests de readback de 2.1-2.3 re-sellados contra esos shapes;
+cross-review del dueño (codex+qwen) cerrada (readback paginado, 207
+verificados campo por campo, constantes del pause a una fuente). Residuo
+verificado y limpio: los 4 términos basura zzsmokeprobe* quedaron ARCHIVED
+(en Amazon delete=archivar; ledger probe ids 1-20 — el id 21 es de la
+limpieza del residuo del 2.5 del 2026-08-27, script
+`out/limpia_residuo_probe_2_5.py`, verificado por payload).
+Rama orbit-04/2-5-probe-shapes, PR DRAFT #31 apilado sobre #29 (3.2).
+
+Previo (2026-08-26): ORBIT 04 Phase 3 EN CURSO: 3.1 lista
+(rama orbit-04/3-1-auth-escritura, PR DRAFT — el lead revisa). Auth de
+escritura: token estático SOLO-header (x-orbit-token, compare_digest,
+register_secret, fail-closed 503 sin secret/DSN, query string no
+autentica), ConexionEscritura (ORBIT_DSN_ADMIN), POST /veto (actor,
+vence_el editable default 30d, 409 en applying/terminal, 404 inexistente)
+y POST /reversa/{bid,pause,negative} vía apply.reversa_manual
+(negative_id SIEMPRE del ledger; una reversa por decisión — 409 "ya
+revertida"), pantalla /cortes (pendientes + vencimiento + botón vetar, JS
+estático CSP-self, XSS testeado), candados OpenAPI = lista sellada 3 GET +
+4 POST con auth-dependency introspectada, docstring api.py corregido
+(/run Reject permanente), rotación de token en DEPLOY.md (verifica con
+queue_id inexistente — jamás muta). Ciclo adversario por tocar auth: 6
+hallazgos; ADV-2/3/4 ARREGLADOS con tests en rojo primero; ADV-1
+DECLARADO (orbit_test quedó miembro ADMIN OPTION de app_* en el cluster
+para tests locales por túnel — REVOKE documentado en DEPLOY.md, 4.1
+resuelve); declarado también: reversas necesitan además membresía
+app_decide (GRANT apply_attempt es solo decide, NOTA en DEPLOY.md, wiring
+en 4.1). 65 tests nuevos/focused en verde contra PG16 real por túnel;
+batería completa en el CI del PR. Siguiente: 3.2 goals amigables (CLI +
+endpoint, una implementación), 3.3 app/notifica.py.
+
+Previo (2026-08-26): ORBIT 04 Phase 2: implementación
+COMPLETA (5/5 tareas construidas y mergeables, rama orbit-04/phase-2, PR
+DRAFT sin mergear — el dueño revisa) pero ACEPTACIÓN PENDIENTE: la corrida
+real del probe 2.5 es acto del dueño y los tests de readback se sellan
+contra los shapes reales en esa corrida: el apply integrado. (2.1) app/apply.py: re-resolución por decisión (escalera + goal,
+JAMÁS inputs.modo), quota atómica con cap de config, ledger PRE-HTTP con
+tope-3, readback con GET sellado, cache con LO LEÍDO, reversa de bid.
+(2.2) app/apply_cola.py: encola cortes (invariante corte↔cola), skip
+veto_pendiente por clave de efecto, liberación FIFO con re-validación de
+evidencia FRESCA al reloj de liberación (contrato cross-plan CORTES 01),
+descarte pre-cobro, filas released reintentadas al día siguiente.
+(2.3) app/apply_harvest.py: harvest_job nace AL LIBERAR, reconciliación
+viva por identidad completa (señuelo en otro ad group no engaña), bid
+sugerido clampeado con intención pre-POST (endpoint NO pineado: v2
+retirado, v3 exige SigV4 — fail-open al default sellado; regla 8
+documentada), reversas keyword-primero. (2.4) fase de apply DENTRO del
+lock en corre_ciclo: heartbeat + ownership-check pre-HTTP con aborto
+fail-closed, guard status=running en el cierre, HAY_MODULO_APPLY=True
+(escalera shadow sigue = cero HTTP, testeado tras el flip). (2.5)
+tools/smoke_apply.py CONSTRUIDO y NO ejecutado (doble autorización +
+campaña solo por config; corrida real = dueño). Review de fase con
+adversario: 11 hallazgos (1 crítico: TX4 sin commit invisible por
+autocommit en tests — corregido con test SIN autocommit), 8 fixes
+aplicados y aprobados por el reviewer. Cross-review ordenada por el dueño
+(codex+grok+qwen en paralelo): 6 altas reales (tope-3 contando reversas,
+UniqueViolation al reusar job, reversa rompiendo keyword-primero, fases
+de harvest avanzando sin ids del ack, GET sin capturar abortando el
+barrido, cierre job+cola sin transacción) + medias — 13 fixes aplicados.
+Suite 550 passed con batería DB real (túnel). Previo (2026-08-25): ORBIT 04 Phase 1 CERRADA (3/3 tareas,
+rama orbit-04/phase-1, PR de fase): (1.1) docs/APPLY.md, el contrato fino de
+PR2 — máquina de estados de la cola de cortes con clave de efecto y ventana
+de veto 48h, ledger de intentos, quota sellada con mapeo config↔motor,
+matriz de reconciliación, tabla de reversas y checklist de cutover; spec
+deltas en CONTEXTO.md y DATABASE.md. (1.2) migración 0002_apply.sql: tabla
+apply_queue (nace pending_veto, transiciones exactas por trigger, veto exige
+admin por schema, fila shadow JAMÁS sale de vetoed|discarded, único parcial
+NULLS NOT DISTINCT por clave de efecto), ledger apply_attempt (sello una
+sola vez), reactivacion_manual, sellos de apply_quota_state (fila del día
+solo desde config, used creciente, día UTC de la base), fases de
+harvest_job, applied_cycle_id y GRANTs por columna; test_schema parsea 0002
+y test_apply_schema ejercita el DoD en DB (CI). (1.3) app/ads/write.py:
+cliente de escritura allowlist default-deny (10 mutaciones exactas, scope
+sellado por instancia, moneda verificada pre-HTTP, 429 reintenta sin
+recobro / 5xx no reintenta, constructor fail-closed exige modo live, candado
+de imports) + negativeKeywords/list verificado EN VIVO (regla 8, 200 en US y
+MX). Suite local 359 passed / 78 DB-skips; batería DB completa en el CI del
+PR. Siguiente: Phase 2 (el apply integrado: 2.1 núcleo, 2.2 cola, 2.3
+harvest, 2.4 integración al ciclo, 2.5 probe autorizado). Previo (2026-08-24): Phases 1–3 en master; 4.1 y 4.2 hechas
+en goncloud (servicio `app` en 127.0.0.1:8010 + 3 crons aditivos, profundidad
+diaria D-31..D-1). 4.3 EJECUTADA por el dueño: escalera global en shadow,
+targets ACoS 20 (mx) y 20 (us — presión máxima elegida a sabiendas), TODAS
+las campañas activas vía goals de plataforma; harvest sin bid fijo por
+decisión (el bid sugerido de Amazon llega con el apply de PR2 — regla 3:
+jamás inventar el número). 4.4 VALIDADA por el dueño: primer shadow real corrido (133 decisiones,
+us 124 / mx 9), spot-check completo y verificación adversarial TRIPLE
+(codex, grok y qwen: 133/133 limpias, skips cuadrando al entero).
+ORBIT 03 COMPLETO (17/17 tareas): el optimizador decide EN SOMBRA todos
+los dias (crons 06:45/07:10/08:40-08:41 UTC) sobre todas las campanas
+activas, con cero capacidad de escribir a Amazon. El reloj de las 2
+semanas de shadow para el cutover (ORBIT 05) corre desde el 2026-08-24.
+ORBIT 16 Phase 1 CERRADA (7/7 tareas): dashboard de LECTURA en master
+y desplegado — 4 pantallas (Resumen con gráficas, Campañas con estado
+y procedencia del target, Decisiones por cursor, Salud), acceso por
+túnel ssh al 8010. El dueño validó el smoke 1.7 (gráficas OK bajo CSP
+estricta; pidió y recibió la columna de estado de campaña; se le
+explicó con datos vivos por qué el motor negativiza sus términos
+"arras": 116 clicks / 0 ventas en ventana madura — la decisión
+estratégica listing-vs-negative queda anotada para el apply). La
+review en cadena (lead + reviewer fresco + kimi/codex/grok + bots)
+atrapó y cerró bugs reales del bloque 2. Phase 2 CERRADA: el dashboard
+también se ve por la VPN WireGuard del dueño (cel y compu, validado
+por él) — bind adicional en la IP wg0, allowlist EXACTA de mapeos
+sellada por candado, sign-off del dueño antes de aplicar. Queda solo
+Phase 3 (settings de escritura, bloqueada por ORBIT 04). CORTES 01
+CERRADO (5/5): los cortes NEGATIVE y PAUSE ahora usan umbral de clicks
+ADAPTATIVO por producto (evidencia del ad group 90d: expected_clicks ×
+1.5, piso max con legacy) y NEGATIVE además piso de COSTO adaptativo
+(AOV del producto × 1.0, respaldos 45 USD/600 MXN) — nacido del caso
+arras y calibrado con 57 anotaciones del dueño (regla nueva 21/22 con
+su instinto vs 0/22 de la vieja); contrafactual final: 28 cortes
+legacy → 1 con el paquete. Los términos PRODUCTO-DIFERENTE se cortan
+por la otra vía: lista curada por AI con aprobación del dueño
+(CORTES 02, sembrada). Shadow valida la regla nueva ~2 semanas antes
+del cutover. Siguiente proyecto grande: ORBIT
+04 (PR2: el apply con topes). Este archivo tiene candado de frescura:
+el CI exige actualizarlo en cada PR que cierre tareas.
+
+## Qué es Orbit
+
+Sistema nuevo desde cero que optimiza **Amazon Ads (Sponsored Products)** para
+un negocio que vende en **Amazon MX y US** (y opera también Mercado Libre)
+bajo el régimen mexicano de plataformas tecnológicas. Decide, con reglas
+explícitas y auditables: **cuánto pujar, qué pausar, qué términos negativizar
+y qué harvestear**. Reemplaza a un sistema viejo (`goncloud-MCP-2`, apagado el
+2026-08-22) que murió por monolito: 62 módulos, 206 flags y 147 jobs para 3
+decisiones. Orbit arranca en modo **shadow**: decide y registra todo, pero NO
+escribe nada a Amazon hasta pasar validación humana (el "apply" llega en PR2).
+
+## Estado actual (se actualiza por phase)
+
+- **Hecho y en master**: toda la ingesta (cliente HTTP read-only con redacción
+  de secretos, sync de estructura, pipeline de métricas y search terms,
+  backfill histórico completo: 95 días de métricas, ~65 de terms, us y mx),
+  y todo lo siguiente (mergeado 2026-08-24): la capa de ventanas de datos, el
+  motor de decisión puro (bids, hygiene, goals) con todos los umbrales
+  sellados y testeados, 3.1 el orquestador del ciclo (claim atómico del
+  lock con TTL y heartbeat, envelope que se sella en todos los caminos,
+  skips estructurados en notes, decisiones con inputs congelados y golden
+  replay que las reproduce exactas), 3.2 la API de solo lectura
+  (`/api/ads-optimizer/{status,audit,goals}`, GET como `orbit_read`, con
+  watermarks de la misma fuente del motor y notes de formato mixto
+  tolerado) y 3.3 el CLI `python -m app.cli {ingest,cycle}` (envoltorio
+  delgado: el ciclo usa el mismo claim/job_key del cron y `ingest` delega
+  a los pipelines de `app/ads/`); candados anti-monolito activos
+  (complejidad, fronteras de imports, tamaño de módulos, frescura de este
+  archivo).
+- **Phase 4 (PR #15, en cierre)**: 4.1 servicio `app` vivo en el server
+  (`/health` OK, puerto solo loopback, `secrets/` 0600 intactos), 4.2
+  tres crons diarios (accounting intacto), 4.3 seed del dueño ejecutado
+  (shadow, targets 20/20) y 4.4 primer shadow real VALIDADO (133
+  decisiones, triple verificación adversarial limpia). Falta solo el
+  merge (4.5).
+- **FABRICA 01 (ORBIT 17, en curso, 2026-09-06)**: plan `plans/fabrica-01.md`
+  sellado; tareas 1-10 implementadas (migración 0018, `crea_goal`, núcleo
+  puro, dry-run, mutación/registro/reversa/reconciliación y candados).
+  Pendiente la sonda real (tarea 11) con autorización del dueño. Nada
+  creado en Amazon todavía. Shapes de creación: HIPÓTESIS hasta la sonda.
+- **REPRICING 01, Fase 8 (AUTO-07, cerrada 2026-09-18)**: cimientos del motor
+  de precios por goal de margen, en `master` y **sin mover ningún precio**.
+  A.0 migración 0039 (`precio_goal`, `precio_decision`, `precio_cotizacion`,
+  `precio_envio_muestra`, `precio_cambio` con transiciones por trigger) —
+  **NO aplicada en producción**: eso es la fila D.1 y la corre el dueño. A.2
+  `app/precio/*`: las trece reglas de S4 puras (sin red, base ni reloj), con
+  `bajar` verificado por cotización real y ningún dato malo que tumbe la
+  corrida. A.3 `app/spapi/write_client.py` + `precio_write.py` +
+  `tools/precio_reversa.py`: la única puerta de PATCH (default-deny), escritura
+  por el orden `INSERT + COMMIT → PATCH → sello → cierre por observación` y
+  reversa manual (dry-run, huella, go) — la **forma del cuerpo del PATCH sigue
+  `pendiente_sonda`** hasta la sonda A.4 con ids reales del dueño; una reversa
+  no entra el mismo día del cambio. E.1: el costo de envío FBM **medido en
+  producción** (`docs/evidencia/repricing-01/E.1/`), insumo de E.2 y E.0; el
+  rezago de emisión del hecho 15 no se reproduce (el que se mide es el de
+  ingesta). Ninguna clave `precio_*` está sembrada en la config. Lo que sigue
+  es del dueño: A.1 (sembrar goals, dependencia de A.5), la sonda A.4, el acta E.2 y aplicar la
+  0039 (D.1); la corrida diaria es A.5.
+- **ACOS por evidencia (A1-A6, 2026-10-03)**: mergeado y desplegado. Meta del grupo de
+  fábrica por margen, familias en dos niveles (`/familias`), confianzas por plataforma,
+  pujas por evidencia en sombra y meta por familia; la política de bids sigue en
+  `bandas_v1` hasta 14 ciclos de sombra (MX 1/14; no antes de ~2026-10-16). A7
+  (residuales de revisión) en curso. Sin registro en AppFlowy desde esta fecha.
+- **Datos reales ya en la base viva** (Postgres en el server `goncloud`):
+  5,897 entidades, ~22,000 observaciones de métricas, ~6,900 de search terms.
+
+## Cómo se construye (roles)
+
+- **GLM** (otra sesión de IA) implementa las tareas del plan.
+- **Claude Code (Fable, sesión lead)** revisa cada tarea con un reviewer de
+  contexto fresco, verifica contra la base viva, y mantiene tracker y docs.
+- **Cross-reviews** con otras IAs (Codex, Grok, Kimi, CodeRabbit, Greptile)
+  por tarea; tope duro de 2 rondas.
+- **Gon (el dueño)** decide QUÉ se construye, aprueba planes, y tiene dos
+  checkpoints humanos en Phase 4: elegir campañas piloto (4.3) y el
+  spot-check manual de ≥20 decisiones del primer shadow (4.4).
+- Un PR por phase; nada llega a master sin CI verde y reviews atendidas.
+
+## Arquitectura (mapa de carpetas)
+
+```
+app/
+├── redaction.py   ← ningún secreto sale en logs/errores
+├── db.py          ← conexión a Postgres (DSN redactado)
+├── ads/           ← ESTACIÓN 1: hablar con Amazon (única capa con internet)
+│   ├── client.py     cliente READ-ONLY (sin capacidad física de mutar campañas)
+│   ├── structure.py  catálogo: campañas, ad groups, keywords, targets
+│   └── reports.py    métricas y search terms → base de datos
+└── optimizer/     ← ESTACIÓN 2: pensar (PURO, sin internet ni base — por test)
+    ├── windows.py    única puerta a la base: ventanas de datos colapsadas
+    ├── bid.py        decisiones de puja y pause
+    ├── hygiene.py    negative exact y harvest
+    └── goals.py      metas por campaña/plataforma, modo efectivo, cooldown
+app/cycle.py ← orquestador del ciclo: ventanas → motor → tabla decision (auditoría)
+```
+
+Flujo de una vía: Amazon → `ads/` → Postgres → `windows.py` → motor →
+tabla `decision` (auditoría) → API/CLI de lectura.
+
+## Reglas de diseño selladas (resumen de docs/CONTEXTO.md)
+
+1. Una decisión, un camino, un dueño — no se construye lo que no decide.
+2. Un número, una fuente.
+3. Dato faltante = None y la fila no se escribe; JAMÁS una constante inventada.
+4. Todo dinero lleva (valor, moneda); mezclar monedas es imposible por schema.
+5. Métricas append-only bitemporales; el motor colapsa a la última observación.
+6. Cortes (pause/negative/harvest) exigen datos con ≥10 días de maduración.
+7. Nada irreversible sin su reversa implementada antes.
+8. Verificar la forma real del dato en producción antes de testear invariantes.
+9. Toda prueba de regresión se demuestra fallando contra el código anterior.
+10. Conciliar contra la fuente externa, no contra consistencia interna.
+
+## Umbrales del optimizador (sellados; fuente: diseño v2)
+
+| Decisión | Regla |
+|---|---|
+| PAUSE | orders=0 ∧ clicks ≥ `max(100, ceil(1.5×clicks/órdenes del ad group))` ∧ cost≥ {us: 40 USD, mx: 500 MXN} (piso y fallback 100 = CORTES 03; umbral adaptativo = CORTES 01) |
+| Bajar puja −25% | ACoS > 1.35×target (con orders≥1) |
+| Bajar puja −12% | ACoS > 1.15×target |
+| Subir puja +15% | ACoS < 0.85×target ∧ orders≥3 |
+| NEGATIVE_EXACT | orders=0 ∧ clicks ≥ `max(20, ceil(1.5×clicks/órdenes del ad group))` (fallback 40 si el grupo no califica) ∧ cost ≥ `max({us: 8, mx: 130}, AOV×1.0)` (respaldo 45/600); ASIN-like nunca — CORTES 01 |
+| HARVEST | orders≥2 ∧ ACoS ≤ min(35%, target); exige config completa en el goal |
+
+ACoS = cost / ad_revenue COMPLETO (halo incluido). Clamp por decisión
+[−30%, +20%]; resultado dentro del [floor, ceiling] DEL GOAL (goal 4 MX:
+1.00/45.00 MXN por decisión del dueño; goals US: 0.10/2.50 USD — el default
+del esquema, pensado en USD, deja de aplicarse a ciegas en el preflight 1.2).
+Target ACoS en cascada: goal → config global → cache del estado → default 55.
+Precedencia: PAUSE gana a todo; −25 gana a −12. Modo: off→shadow→live, y en
+PR1 'live' degrada a shadow (fail-closed).
+
+## Trampas del dominio (nunca olvidarlas)
+
+- **Tres relojes**: la venta atribuida madura en 5–8 días, el costo hasta el
+  día 15, los fees a 15–30. Un ACoS de día 1 en MX sale ~1.5× peor que el real.
+- **Halo**: 56–58% del ingreso atribuido es de OTROS SKUs. Es atribución de
+  Amazon, no causalidad. Por eso el ACoS usa el revenue completo.
+- **Monedas**: el sistema viejo mezcló MXN/USD (error de 18.66× a favor de
+  "todo es rentabilísimo"). En Orbit es imposible por schema.
+- **El día en curso** llega incompleto y etiquetado con su fecha: el cron
+  re-tira D-31..D-1 (sello 4.2: tope de un request = 31d, cubre las
+  columnas 30d y el mínimo D-8..D-1 de terms) y la bitemporalidad lo hace
+  seguro.
+- **Amazon ignora en silencio los filtros que no reconoce** (sonda en vivo
+  2026-08-30): pedirle una lista con un filtro mal nombrado no da error —
+  devuelve TODO. En una lectura eso es ruido; en un borrado significa que un
+  nombre equivocado viaja SIN FILTRO, o sea "todos". Por eso el nombre del
+  filtro de cada mutación está clavado con test propio.
+- **La pregunta sin respuesta**: si la cuenta US gana o pierde depende del
+  supuesto de halo (entre +1,671 y −2,238 USD en 91 días). Decisión pendiente
+  antes de la fase margin-aware: acotar, holdout, o TACoS.
+
+## Glosario rápido
+
+- **Shadow**: el motor decide y registra, pero no toca Amazon.
+- **Harvest**: promover un término de búsqueda ganador a keyword exact propia.
+- **ASIN-like**: término que es un código de producto (B0 + 8 caracteres);
+  jamás se negativiza.
+- **Bitemporal**: cada métrica guarda el día del hecho Y el momento en que se
+  observó; permite reconstruir "qué sabía el motor cuándo".
+- **Watermark**: última fecha con datos por plataforma; si está vieja (>7d),
+  el ciclo se salta esa plataforma.
+- **Golden replay**: test que re-alimenta los inputs congelados de una
+  decisión al motor y debe reproducirla idéntica — la garantía de que toda
+  decisión es auditable.
+- **Candados anti-monolito**: tests y linters que hacen imposible que el motor
+  haga IO, que un módulo engorde sin decisión visible, o que la complejidad
+  derive en silencio.
+
+## Dónde vive todo
+
+- **Código**: GitHub `gon0801/goncloud-Orbit` (master = lo aprobado; un PR
+  abierto por phase en curso).
+- **Base de datos viva**: Postgres en el server `goncloud` (Docker, solo
+  localhost; acceso por túnel SSH).
+- **Tracker**: los planes de `plans/` y la evidencia de `docs/evidencia/` (sin espejo en AppFlowy desde 2026-10-03).
+- **Fuentes de verdad**: `docs/CONTEXTO.md` (reglas), `docs/traspaso/
+  ADS_OPTIMIZER_V2_DESIGN.md` (umbrales), `docs/DATABASE.md` (schema),
+  `plans/orbit-03.md` (plan y estado por tarea).
+
+## Instrucciones para el asistente de chat
+
+- Responde SIEMPRE en español (mexicano).
+- Los umbrales y reglas de arriba están SELLADOS: cítalos tal cual, jamás
+  inventes números ni "mejoras" de reglas — cambios de reglas son decisión
+  del dueño y se hacen vía plan en el repo, no en el chat.
+- Si el estado parece desfasado respecto a lo que el dueño cuenta, di que tu
+  copia puede estar vieja y sugiérele hacer "Sync now" en el Project.
+- Este Project es para PENSAR con el dueño (estrategia, dudas del negocio,
+  entender decisiones del motor); la implementación vive en Claude Code.

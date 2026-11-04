@@ -1,0 +1,37 @@
+# H5 Paso 2 — 2026-09-25T06:13-06:15Z (UTC), APROBADO 25bded042cd7600f4161f25b42b2d22d0b6c783b
+# Fuera de ex-ventana por orden literal del operador (ver paso1.txt).
+
+$ STAMP=$(date -u +%Y%m%d-%H%M); echo $STAMP
+STAMP=20260925-0613
+
+$ ssh goncloud "cd /mnt/data/appdata/orbit && mkdir predeploy-$STAMP && cp -a app Dockerfile .dockerignore pyproject.toml uv.lock tools predeploy-$STAMP/ && echo respaldo predeploy-$STAMP"
+respaldo predeploy-20260925-0613
+
+$ DIGEST-ANTES: docker inspect orbit-app-1 --format "{{.Image}}"
+DIGEST-ANTES: sha256:294eb9bc6caa0a98dc8225f5c248b8a84eb816485bed141c88ad890b5c518828
+
+$ git archive --format=tar "$APROBADO" app Dockerfile .dockerignore pyproject.toml uv.lock tools/fabrica_campanas.py tools/harvest_excepcion.py tools/reversa_harvest.py | ssh goncloud 'cd /mnt/data/appdata/orbit && tar -xf -' && echo "copiado $APROBADO"
+copiado 25bded042cd7600f4161f25b42b2d22d0b6c783b
+
+$ [md5 local-vs-server D.1.4 verbatim]
+md5 OK: 123 archivos identicos a 25bded042cd7600f4161f25b42b2d22d0b6c783b
+
+$ ssh goncloud 'cd /mnt/data/appdata/orbit && docker compose up -d --no-deps --build app' && echo "build+recreate OK"
+(... build: COPY app + tools/fabrica_campanas.py; deps CACHED ...)
+ Container orbit-app-1 Recreate
+ Container orbit-app-1 Recreated
+ Container orbit-app-1 Starting
+ Container orbit-app-1 Started
+build+recreate OK
+
+$ ssh goncloud 'curl -fsS http://127.0.0.1:8010/health'
+{"status":"ok"}
+$ ssh goncloud 'docker ps --format "{{.Names}} {{.Status}}" | grep orbit-app'
+orbit-app-1 Up 7 seconds
+health OK
+
+$ DIGEST-DESPUES: docker inspect orbit-app-1 --format "{{.Image}}"
+DIGEST-DESPUES: sha256:f75a677b6c7dfd8c5f2cd4e96faebc9d4aead0786332730cfbf1efbf906efe72
+(digest distinto al de antes: deploy efectivo)
+
+EXIT=0

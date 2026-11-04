@@ -1,0 +1,1 @@
+-rw------- 1 root root 341424 Sep 19 15:06 /mnt/data/appdata/orbit/backups/pre0039_precio_20260919-150636.sql

@@ -1,0 +1,11 @@
+== X.3 sonda de escritura (US FBM, conejillo + control)
+conejillo: listing=11 (shadow); control: listing=12 (shadow)
+SIMULACION: mercado sim en /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-sonda-X3.json (sembro nada nuevo)
+== acepto: control antes, sonda del conejillo, lecturas despues
+antes: vivo listing=11 valor=29.99 moneda=USD | vivo listing=12 valor=50.00 moneda=USD
+[plan] amazon_us listing=11 vivo=29.99 USD -> 30.00 USD -> 29.99 USD
+[sonda] listing=11 aceptada a 30.00 USD
+[revierte] listing=11 aceptada a 29.99 USD
+despues: vivo listing=11 valor=29.99 moneda=USD | vivo listing=12 valor=50.00 moneda=USD
+== X.3 sonda OK (ida y vuelta aceptadas, vivo intacto, control intacto)
+exit=0

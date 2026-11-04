@@ -1,0 +1,164 @@
+"use strict";
+// JS de la pantalla de propuestas (ORBIT 04 3.1; CORTES UI 01: el boton dice
+// Rechazar). Vive en /static por la CSP `default-src 'self'`: los <script>
+// inline y los handlers on*= quedan BLOQUEADOS por esa politica. El boton
+// abre el mini-form de su fila y el submit hace fetch POST
+// /api/ads-optimizer/veto con el token en el header x-orbit-token (la query
+// string JAMAS autentica, sellado 18). El fetch y el payload NO cambian.
+
+function vetar(form) {
+  var estado = form.querySelector("[data-estado]");
+  estado.textContent = "Enviando…";
+  var cuerpo = {
+    queue_id: Number(form.dataset.veto),
+    actor: form.elements.actor.value,
+    dias: Number(form.elements.dias.value),
+  };
+  fetch("/api/ads-optimizer/veto", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-orbit-token": form.elements.token.value,
+    },
+    body: JSON.stringify(cuerpo),
+  })
+    .then(function (resp) {
+      return resp.json().then(function (data) {
+        return { ok: resp.ok, data: data };
+      });
+    })
+    .then(function (r) {
+      if (r.ok) {
+        estado.textContent = "Rechazado hasta " + (r.data.vence_el || "?") + ".";
+      } else {
+        estado.textContent = "Error: " + (r.data.detail || r.data) + ".";
+      }
+    })
+    .catch(function () {
+      estado.textContent = "Error de red al rechazar.";
+    });
+}
+
+// C.5: descarte de propuesta de campana. El boton abre el mini-form de
+// su fila y el submit hace fetch POST
+// /api/ads-optimizer/propuestas-campana/<id>/descartar con el token en el
+// header x-orbit-token (igual que el veto: la query string JAMAS autentica).
+// El descarte NO toca Amazon: cierra el episodio en Orbit y la campana sigue
+// ENABLED hasta la pausa manual.
+function descartar(form) {
+  var estado = form.querySelector("[data-estado]");
+  estado.textContent = "Enviando…";
+  var cuerpo = {
+    actor: form.elements.actor.value,
+  };
+  fetch("/api/ads-optimizer/propuestas-campana/" + form.dataset.descarte + "/descartar", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-orbit-token": form.elements.token.value,
+    },
+    body: JSON.stringify(cuerpo),
+  })
+    .then(function (resp) {
+      return resp.json().then(function (data) {
+        return { ok: resp.ok, data: data };
+      });
+    })
+    .then(function (r) {
+      if (r.ok) {
+        estado.textContent = "Descartada (propuesta " + (r.data.id || "?") + ").";
+      } else {
+        estado.textContent = "Error: " + (r.data.detail || r.data) + ".";
+      }
+    })
+    .catch(function () {
+      estado.textContent = "Error de red al descartar.";
+    });
+}
+
+function postBloqueo(form) {
+  var estado = form.querySelector("[data-estado]");
+  var boton = form.querySelector("button[type=submit]");
+  if (boton) boton.disabled = true;
+  estado.textContent = "Enviando…";
+  var cuerpo;
+  if (form.dataset.bloqueo === "reanudar") {
+    cuerpo = { plataforma: form.dataset.plataforma };
+  } else if (form.dataset.bloqueo === "quitar") {
+    cuerpo = { veredicto_id: form.dataset.veredicto };
+  } else {
+    cuerpo = { senal_id: form.dataset.senal };
+  }
+  fetch("/api/jev-bloqueo/" + form.dataset.bloqueo, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-orbit-token": form.elements.token.value,
+    },
+    body: JSON.stringify(cuerpo),
+  })
+    .then(function (resp) {
+      return resp.json().then(function (data) {
+        return { ok: resp.ok, data: data };
+      });
+    })
+    .then(function (r) {
+      if (r.ok) {
+        var motivo = r.data.motivo ? " (" + r.data.motivo + ")" : "";
+        estado.textContent = (r.data.paso || "ok") + motivo + ".";
+      } else {
+        estado.textContent = "Error: " + (r.data.detail || r.data) + ".";
+        if (boton) boton.disabled = false;
+      }
+    })
+    .catch(function () {
+      estado.textContent = "Error de red al enviar el bloqueo.";
+      if (boton) boton.disabled = false;
+    });
+}
+
+document.addEventListener("DOMContentLoaded", function () {
+  document.querySelectorAll("button[data-vetar]").forEach(function (boton) {
+    boton.addEventListener("click", function () {
+      var fila = document.getElementById("form-" + boton.dataset.vetar);
+      if (fila) fila.hidden = !fila.hidden;
+    });
+  });
+  document.querySelectorAll("form[data-veto]").forEach(function (form) {
+    form.addEventListener("submit", function (evento) {
+      evento.preventDefault();
+      vetar(form);
+    });
+  });
+  document.querySelectorAll("button[data-descartar]").forEach(function (boton) {
+    boton.addEventListener("click", function () {
+      var fila = document.getElementById("descarte-" + boton.dataset.descartar);
+      if (fila) fila.hidden = !fila.hidden;
+    });
+  });
+  document.querySelectorAll("form[data-descarte]").forEach(function (form) {
+    form.addEventListener("submit", function (evento) {
+      evento.preventDefault();
+      descartar(form);
+    });
+  });
+  [
+    ["data-bloquear", "bloquear-"],
+    ["data-rechazar", "rechazar-"],
+    ["data-quitar", "quitar-"],
+    ["data-reanudar", "reanudar-"],
+  ].forEach(function (par) {
+    document.querySelectorAll("button[" + par[0] + "]").forEach(function (boton) {
+      boton.addEventListener("click", function () {
+        var fila = document.getElementById(par[1] + boton.getAttribute(par[0]));
+        if (fila) fila.hidden = !fila.hidden;
+      });
+    });
+  });
+  document.querySelectorAll("form[data-bloqueo]").forEach(function (form) {
+    form.addEventListener("submit", function (evento) {
+      evento.preventDefault();
+      postBloqueo(form);
+    });
+  });
+});

@@ -1,0 +1,40 @@
+== 1. cola historica completa por tipo, modo y estado
+platform | kind | modo | estado | count
+amazon_mx | harvest | live | applied | 5
+amazon_mx | harvest | shadow | discarded | 1
+amazon_mx | harvest | shadow | vetoed | 2
+amazon_us | pause | live | applied | 1
+amazon_us | pause | shadow | discarded | 1
+amazon_us | negative | live | applied | 2
+amazon_us | negative | live | discarded | 2
+amazon_us | harvest | live | applied | 1
+amazon_us | harvest | live | vetoed | 1
+amazon_us | harvest | shadow | discarded | 1
+(10 rows)
+== 2. decisiones negative/harvest historicas: filas y pares grupo-busqueda distintos
+platform | kind | decisiones | pares_distintos | busquedas_distintas
+amazon_mx | negative | 6 | 2 | 2
+amazon_mx | harvest | 8 | 8 | 6
+amazon_us | negative | 46 | 16 | 11
+amazon_us | harvest | 3 | 2 | 2
+(4 rows)
+== 3. anuncios ENABLED: ligados a producto y cubiertos por ficha vigente
+platform | anuncios | sin_producto | productos | productos_cubiertos | grupos | grupos_ligados | grupos_cubiertos | mediana_productos | max_productos
+amazon_mx | 4773 | 1168 | 249 | 11 | 33 | 32 | 5 | 50 | 237
+amazon_us | 4090 | 920 | 119 | 66 | 48 | 24 | 23 | 71 | 91
+(2 rows)
+== 4. pares grupo-busqueda de texto en la ventana de cortes (ultima observacion por dia)
+platform | pares_con_gasto | con_orders_nulo | sin_venta | sin_venta_3_clics | pct_gasto_sin_venta | pct_gasto_sin_venta_3_clics
+amazon_mx | 622 | 0 | 597 | 161 | 44.9 | 33.2
+amazon_us | 774 | 0 | 748 | 143 | 51.0 | 39.7
+(2 rows)
+== 5. llamadas para evaluar las busquedas sin venta con 3 clics o mas contra los productos de su grupo
+platform | busquedas_distintas | pares_sin_reutilizar | pares_reutilizando
+amazon_mx | 92 | 15282 | 12161
+amazon_us | 99 | 3976 | 3239
+(2 rows)
+== 6. bibliotecas de la fabrica
+tabla | count
+keyword_biblioteca | 0
+negative_biblioteca | 0
+(2 rows)

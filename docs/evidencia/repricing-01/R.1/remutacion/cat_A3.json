@@ -1,0 +1,498 @@
+[
+  {
+    "id": "C2a",
+    "archivo": "tests/test_architecture.py",
+    "viejo": "            except OSError:\n                # r6-C2: lo ilegible no es cobertura aparente: cuenta\n                # como fuga con su nombre, nunca se salta en silencio.\n                fugas.append(f\"{rel}:ilegible\")\n                continue",
+    "nuevo": "            except OSError:\n                continue",
+    "tests": [
+      "tests/test_architecture.py::test_precio_write_frontera_ilegible_cuenta_como_fuga"
+    ]
+  },
+  {
+    "id": "C2b",
+    "archivo": "tests/test_architecture.py",
+    "viejo": "            except OSError:\n                # r6-C2: lo ilegible cuenta como fuga (ver arriba).\n                dinamicos.add(p)\n                continue",
+    "nuevo": "            except OSError:\n                continue",
+    "tests": [
+      "tests/test_architecture.py::test_imports_spapi_write_frontera_ilegible_cuenta_como_fuga"
+    ]
+  },
+  {
+    "id": "C3",
+    "archivo": "tests/test_architecture.py",
+    "viejo": "(\"/listings/2021-08-01/items\" in codigo and llamada.search(codigo))",
+    "nuevo": "(\"/listings/2021-08-01/items\" in linea and \"PATCH\" in linea)",
+    "tests": [
+      "tests/test_architecture.py::test_precio_write_frontera_comentario_con_patch_no_es_fuga"
+    ]
+  },
+  {
+    "id": "C4",
+    "archivo": "tests/test_architecture.py",
+    "viejo": "            for nodo in _nodos_runtime(arbol):\n                if not (isinstance(nodo, ast.ImportFrom) and nodo.level == 1):",
+    "nuevo": "            for nodo in ast.walk(arbol):\n                if not (isinstance(nodo, ast.ImportFrom) and nodo.level == 1):",
+    "tests": [
+      "tests/test_architecture.py::test_imports_spapi_write_frontera_type_checking_relativo_no_es_fuga"
+    ]
+  },
+  {
+    "id": "C5",
+    "archivo": "tools/precio_reversa.py",
+    "viejo": "        plan = _plan(conn, lector, filas, limitador=cubo)",
+    "nuevo": "        plan = _plan(conn, lector, filas, limitador=None)",
+    "tests": [
+      "tests/test_precio_write.py::test_r6_c5_go_comparte_un_cubo_de_pricing"
+    ]
+  },
+  {
+    "id": "L1",
+    "archivo": "app/spapi/precio_write.py",
+    "viejo": "    if escritor.platform != platform:",
+    "nuevo": "    if False:",
+    "tests": [
+      "tests/test_precio_write.py::test_r5_l1_cambiar_escritor_otra_platform_revienta_sin_fila_ni_patch",
+      "tests/test_precio_write.py::test_r5_l1_revertir_escritor_otra_platform_revienta_sin_fila_ni_patch"
+    ]
+  },
+  {
+    "id": "L2a",
+    "archivo": "app/spapi/precio_write.py",
+    "viejo": "    if parsed.own_price is not None and parsed.own_currency is not None:\n        return PrecioVivo(precio=parsed.own_price, moneda=parsed.own_currency)\n    comp = lector.get(",
+    "nuevo": "    comp = lector.get(",
+    "tests": [
+      "tests/test_precio_write.py::test_r5_l2_con_propia_un_solo_get"
+    ]
+  },
+  {
+    "id": "L4a",
+    "archivo": "app/spapi/precio_write.py",
+    "viejo": "    except psycopg.errors.UniqueViolation:\n        logger.info(\"cambiar decision=%s saltado=listing_con_cambio_abierto\", decision_id)",
+    "nuevo": "    except KeyError:\n        logger.info(\"cambiar decision=%s saltado=listing_con_cambio_abierto\", decision_id)",
+    "tests": [
+      "tests/test_precio_write.py::test_r5_l4_cambiar_carrera_abierto_entre_chequeo_e_insert_salta"
+    ]
+  },
+  {
+    "id": "L4b",
+    "archivo": "app/spapi/precio_write.py",
+    "viejo": "    except psycopg.errors.UniqueViolation:\n        logger.info(\"revertir cambio=%s saltado=listing_con_cambio_abierto\", cambio_id)",
+    "nuevo": "    except KeyError:\n        logger.info(\"revertir cambio=%s saltado=listing_con_cambio_abierto\", cambio_id)",
+    "tests": [
+      "tests/test_precio_write.py::test_r5_l4_revertir_carrera_abierto_entre_chequeo_e_insert_salta"
+    ]
+  },
+  {
+    "id": "G1",
+    "archivo": "app/spapi/write_client.py",
+    "viejo": "                    url, params=query, json=cuerpo,",
+    "nuevo": "                    url, json=cuerpo,",
+    "tests": [
+      "tests/test_spapi_write_client.py::test_r4_g1_patch_lleva_marketplace_ids_del_platform"
+    ]
+  },
+  {
+    "id": "G2",
+    "archivo": "app/spapi/precio_write.py",
+    "viejo": "    if otro_abierto:\n        logger.info(\"cambiar decision=%s saltado=listing_con_cambio_abierto\", decision_id)",
+    "nuevo": "    if False:\n        logger.info(\"cambiar decision=%s saltado=listing_con_cambio_abierto\", decision_id)",
+    "tests": [
+      "tests/test_precio_write.py::test_r4_g2_cambiar_con_abierto_del_par_salta"
+    ]
+  },
+  {
+    "id": "G3",
+    "archivo": "tools/precio_reversa.py",
+    "viejo": "            except (\n                precio_write.CambioNoReversible,\n                SpapiNoPermitida,",
+    "nuevo": "            except (\n                precio_write.CambioNoReversible,",
+    "tests": [
+      "tests/test_precio_write.py::test_r4_g3_lote_sigue_tras_previsible_y_devuelve_1"
+    ]
+  },
+  {
+    "id": "G5",
+    "archivo": "app/spapi/write_client.py",
+    "viejo": "        _exigir_cuerpo_serializable(cuerpo)\n",
+    "nuevo": "",
+    "tests": [
+      "tests/test_spapi_write_client.py::test_r4_g5_cuerpo_con_numeros_binarios_es_mal_uso"
+    ]
+  },
+  {
+    "id": "P25",
+    "archivo": "tools/precio_reversa.py",
+    "viejo": "            if accion != \"revertir\":\n                continue",
+    "nuevo": "            if accion != \"revertir\":\n                hubo_error = True\n                continue",
+    "tests": [
+      "tests/test_precio_write.py::test_r4_g6_solo_saltados_devuelve_0"
+    ]
+  },
+  {
+    "id": "K1",
+    "archivo": "app/spapi/precio_write.py",
+    "viejo": "    if otro_abierto:\n        logger.info(\"revertir cambio=%s saltado=listing_con_cambio_abierto\", cambio_id)",
+    "nuevo": "    if False:\n        logger.info(\"revertir cambio=%s saltado=listing_con_cambio_abierto\", cambio_id)",
+    "tests": [
+      "tests/test_precio_write.py::test_r3_k1_otro_abierto_mismo_listing_salta"
+    ]
+  },
+  {
+    "id": "K3",
+    "archivo": "app/spapi/precio_write.py",
+    "viejo": "        if self.estado not in (\"enviado\", \"error\", \"saltado\"):",
+    "nuevo": "        if False:",
+    "cuenta": 2,
+    "tests": [
+      "tests/test_precio_write.py::test_r3_k3_estado_fuera_de_vocabulario_es_mal_uso"
+    ]
+  },
+  {
+    "id": "K7",
+    "archivo": "tools/precio_reversa.py",
+    "viejo": "            if res.estado == \"error\":\n                hubo_error = True",
+    "nuevo": "            if False:\n                hubo_error = True",
+    "tests": [
+      "tests/test_precio_write.py::test_r3_k7_reversa_en_error_devuelve_1"
+    ]
+  },
+  {
+    "id": "K8a",
+    "archivo": "app/spapi/precio_write.py",
+    "viejo": "    if not conn.autocommit:\n        raise ValueError(\n            \"revertir exige",
+    "nuevo": "    if False:\n        raise ValueError(\n            \"revertir exige",
+    "tests": [
+      "tests/test_precio_write.py::test_r3_k8_revertir_sin_autocommit_es_mal_uso"
+    ]
+  },
+  {
+    "id": "K8b",
+    "archivo": "app/spapi/precio_write.py",
+    "viejo": "    if not conn.autocommit:\n        raise ValueError(\n            \"cerrar_por_observacion exige",
+    "nuevo": "    if False:\n        raise ValueError(\n            \"cerrar_por_observacion exige",
+    "tests": [
+      "tests/test_precio_write.py::test_r3_k8_cerrar_sin_autocommit_es_mal_uso"
+    ]
+  },
+  {
+    "id": "K13",
+    "archivo": "tests/test_architecture.py",
+    "viejo": "\"__import__(\" in fuente or \"import_module(\" in fuente",
+    "nuevo": "False",
+    "tests": [
+      "tests/test_architecture.py::test_imports_spapi_write_frontera_caza_import_dinamico"
+    ]
+  },
+  {
+    "id": "B1",
+    "archivo": "app/spapi/precio_write.py",
+    "viejo": "    if not conn.autocommit:\n        raise ValueError(\n            \"cambiar_precio exige",
+    "nuevo": "    if False:\n        raise ValueError(\n            \"cambiar_precio exige",
+    "tests": [
+      "tests/test_precio_write.py::test_r2_b1_sin_autocommit_es_mal_uso",
+      "tests/test_precio_write.py::test_r2_b1_cambiar_con_pendiente_durable"
+    ]
+  },
+  {
+    "id": "P9",
+    "archivo": "app/spapi/precio_write.py",
+    "viejo": "        and cuerpo.get(\"status\") == \"ACCEPTED\"",
+    "nuevo": "        and cuerpo.get(\"status\") in (\"ACCEPTED\", \"INVALID\")",
+    "tests": [
+      "tests/test_precio_write.py::test_r2_b2_p9_invalid_es_error"
+    ]
+  },
+  {
+    "id": "P20r2",
+    "archivo": "app/spapi/precio_write.py",
+    "viejo": "                \"UPDATE precio_cambio SET estado = %s, confirmado_por = 'observacion'\"\n                \" WHERE id = %s\",\n                (estado, cid),",
+    "nuevo": "                \"UPDATE precio_cambio SET estado = %s, confirmado_por = %s\"\n                \" WHERE id = %s\",\n                (estado, \"observacion\" if estado == \"confirmado\" else \"virtual\", cid),",
+    "tests": [
+      "tests/test_precio_write.py::test_r2_b2_p20_confirmado_por_exacta_en_ambos"
+    ]
+  },
+  {
+    "id": "P22",
+    "archivo": "app/spapi/precio_write.py",
+    "viejo": "        logger.info(\"%s cambio=%s estado=enviado\", origen, cambio_id)",
+    "nuevo": "        logger.info(\"%s cambio=%s estado=enviado cuerpo=%s\", origen, cambio_id, cuerpo)",
+    "tests": [
+      "tests/test_precio_write.py::test_r2_b2_p22_cuerpo_real_no_se_loguea"
+    ]
+  },
+  {
+    "id": "W1",
+    "archivo": "app/spapi/write_client.py",
+    "viejo": "        if modo_confirmado != MODO_CONFIRMADO_LIVE:",
+    "nuevo": "        if modo_confirmado != MODO_CONFIRMADO_LIVE and False:",
+    "tests": [
+      "tests/test_spapi_write_client.py::test_constructor_sin_live_no_construye"
+    ]
+  },
+  {
+    "id": "W2",
+    "archivo": "app/spapi/write_client.py",
+    "viejo": "                if resp.status_code == 401 and forzados < 1:",
+    "nuevo": "                if resp.status_code == 401 and forzados < 0:",
+    "tests": [
+      "tests/test_spapi_write_client.py::test_401_un_refresh_y_reintento"
+    ]
+  },
+  {
+    "id": "W3",
+    "archivo": "app/spapi/write_client.py",
+    "viejo": "                if resp.status_code == 429 and reintentos < 1:",
+    "nuevo": "                if resp.status_code in (429, 500) and reintentos < 1:",
+    "tests": [
+      "tests/test_spapi_write_client.py::test_5xx_sin_reintento"
+    ]
+  },
+  {
+    "id": "ACK",
+    "archivo": "app/spapi/precio_write.py",
+    "viejo": "        200 <= resp.status_code < 300\n        and cuerpo.get(\"submissionId\") is not None\n        and cuerpo.get(\"status\") == \"ACCEPTED\"",
+    "nuevo": "        200 <= resp.status_code < 300",
+    "tests": [
+      "tests/test_precio_write.py::test_cambiar_200_sin_accepted_es_error"
+    ]
+  },
+  {
+    "id": "SKIP",
+    "archivo": "app/spapi/precio_write.py",
+    "viejo": "    if (vivo.precio, vivo.moneda) != (despues, despues_moneda):",
+    "nuevo": "    if (vivo.precio, vivo.moneda) != (despues, despues_moneda) and False:",
+    "tests": [
+      "tests/test_precio_write.py::test_revertir_salta_si_el_vivo_ya_no_coincide"
+    ]
+  },
+  {
+    "id": "C-IGUAL",
+    "archivo": "app/spapi/precio_write.py",
+    "viejo": "\"confirmado\" if (obs[0], obs[1]) == (despues, despues_moneda) else",
+    "nuevo": "\"confirmado\" if (obs[0], obs[1]) != (despues, despues_moneda) else",
+    "tests": [
+      "tests/test_precio_write.py::test_cerrar_observacion_igual_confirma_distinta_no",
+      "tests/test_precio_write.py::test_cerrar_reversa_se_cierra_por_observacion"
+    ]
+  },
+  {
+    "id": "C-DIA",
+    "archivo": "app/spapi/precio_write.py",
+    "viejo": "(c.enviado_at AT TIME ZONE 'UTC')::date < %s\"",
+    "nuevo": "(c.enviado_at AT TIME ZONE 'UTC')::date <= %s\"",
+    "tests": [
+      "tests/test_precio_write.py"
+    ]
+  },
+  {
+    "id": "C-MONEDA",
+    "archivo": "app/spapi/precio_write.py",
+    "viejo": "\"confirmado\" if (obs[0], obs[1]) == (despues, despues_moneda) else",
+    "nuevo": "\"confirmado\" if obs[0] == despues else",
+    "tests": [
+      "tests/test_precio_write.py"
+    ]
+  },
+  {
+    "id": "HUELLA",
+    "archivo": "tools/precio_reversa.py",
+    "viejo": "        if args.huella != huella:",
+    "nuevo": "        if args.huella != huella and False:",
+    "tests": [
+      "tests/test_precio_write.py::test_tool_go_huella_mala_aborta_sin_tocar"
+    ]
+  },
+  {
+    "id": "DRYRUN",
+    "archivo": "tools/precio_reversa.py",
+    "viejo": "        if not args.acepto_mutacion_real:\n            if args.go:",
+    "nuevo": "        if not args.acepto_mutacion_real:\n            precio_write.construir_escritor(lector, filas[0][2], transport=transport, sleep=sleep) if filas else None\n            if args.go:",
+    "tests": [
+      "tests/test_precio_write.py::test_tool_dry_run_no_construye_escritor"
+    ]
+  },
+  {
+    "id": "LOCK-a",
+    "archivo": "tests/test_architecture.py",
+    "viejo": "                    or (\"/listings/2021-08-01/items\" in codigo and llamada.search(codigo))\n",
+    "nuevo": "",
+    "tests": [
+      "tests/test_architecture.py::test_precio_write_frontera_caza_prefijo_con_llamada_con_espacios",
+      "tests/test_architecture.py::test_precio_write_frontera_caza_llamada_ejecutable_con_prefijo"
+    ]
+  },
+  {
+    "id": "LOCK-b",
+    "archivo": "tests/test_architecture.py",
+    "viejo": "PERMITIDOS_IMPORTAR_SPAPI_WRITE = {\n    \"app/spapi/precio_write.py\": (",
+    "nuevo": "PERMITIDOS_IMPORTAR_SPAPI_WRITE = {\n    \"app/spapi/precio_writeX.py\": (",
+    "tests": [
+      "tests/test_architecture.py::test_imports_del_spapi_write_client_acotados"
+    ]
+  },
+  {
+    "id": "LOCK-c",
+    "archivo": "tests/test_architecture.py",
+    "viejo": "        \"httpx\",\n",
+    "nuevo": "",
+    "cuenta": 3,
+    "ocurrencia": 3,
+    "tests": [
+      "tests/test_architecture.py::test_tool_precio_reversa_solo_importa_lectura"
+    ]
+  },
+  {
+    "id": "P5",
+    "archivo": "app/spapi/precio_write.py",
+    "viejo": "    if resultado not in (\"subir\", \"bajar\") or mode != \"live\":",
+    "nuevo": "    if resultado not in (\"subir\", \"bajar\"):",
+    "tests": [
+      "tests/test_precio_write.py::test_r1_m_p5_shadow_no_mueve_precio"
+    ]
+  },
+  {
+    "id": "P7",
+    "archivo": "app/spapi/precio_write.py",
+    "viejo": "        and cuerpo.get(\"submissionId\") is not None\n",
+    "nuevo": "",
+    "tests": [
+      "tests/test_precio_write.py::test_r1_m_p7_accepted_sin_submission_id_es_error"
+    ]
+  },
+  {
+    "id": "P8",
+    "archivo": "app/spapi/precio_write.py",
+    "viejo": "        200 <= resp.status_code < 300\n        and cuerpo.get(\"submissionId\")",
+    "nuevo": "        True\n        and cuerpo.get(\"submissionId\")",
+    "tests": [
+      "tests/test_precio_write.py::test_r1_m_p8_4xx_con_accepted_es_error"
+    ]
+  },
+  {
+    "id": "P11",
+    "archivo": "app/spapi/precio_write.py",
+    "viejo": "    return f\"/listings/2021-08-01/items/{seller_id}\"",
+    "nuevo": "    return f\"/listings/2021-08-01/items/{seller_id}/SKU\"",
+    "tests": [
+      "tests/test_precio_write.py::test_r1_m_p11_error_code_sin_sku_valor_exacto"
+    ]
+  },
+  {
+    "id": "P13",
+    "archivo": "app/spapi/precio_write.py",
+    "viejo": "    if es_reversa or not aplicado:",
+    "nuevo": "    if es_reversa:",
+    "tests": [
+      "tests/test_precio_write.py::test_r1_m_p13_virtual_no_se_revierte"
+    ]
+  },
+  {
+    "id": "P15",
+    "archivo": "app/spapi/precio_write.py",
+    "viejo": "    if (vivo.precio, vivo.moneda) != (despues, despues_moneda):",
+    "nuevo": "    if vivo.precio != despues:",
+    "tests": [
+      "tests/test_precio_write.py::test_r1_m_p15_otra_moneda_salta"
+    ]
+  },
+  {
+    "id": "P17",
+    "archivo": "app/spapi/precio_write.py",
+    "viejo": " AND metric_date > %s AND metric_date <= %s",
+    "nuevo": " AND metric_date >= %s AND metric_date <= %s",
+    "tests": [
+      "tests/test_precio_write.py::test_r1_m_p17_observacion_mismo_dia_no_cierra"
+    ]
+  },
+  {
+    "id": "P19",
+    "archivo": "app/spapi/precio_write.py",
+    "viejo": " ORDER BY metric_date DESC, observed_at DESC LIMIT 1",
+    "nuevo": " ORDER BY metric_date ASC, observed_at DESC LIMIT 1",
+    "tests": [
+      "tests/test_precio_write.py::test_r1_m_p19_manda_la_mas_reciente"
+    ]
+  },
+  {
+    "id": "P20",
+    "archivo": "app/spapi/precio_write.py",
+    "viejo": "confirmado_por = 'observacion'\"",
+    "nuevo": "confirmado_por = 'virtual'\"",
+    "tests": [
+      "tests/test_precio_write.py::test_cerrar_observacion_igual_confirma_distinta_no"
+    ]
+  },
+  {
+    "id": "W3r1",
+    "archivo": "app/spapi/write_client.py",
+    "viejo": "    if seller_id not in VENDEDORES_PROPIOS.values():",
+    "nuevo": "    if False:",
+    "tests": [
+      "tests/test_spapi_write_client.py::test_r1_m_w3_seller_ajeno_aunque_la_ruta_coincida"
+    ]
+  },
+  {
+    "id": "W10",
+    "archivo": "app/spapi/write_client.py",
+    "viejo": "    if \"..\" in path.split(\"/\"):",
+    "nuevo": "    if False:",
+    "tests": [
+      "tests/test_spapi_write_client.py::test_r1_m_w10_traversal_falla_con_su_mensaje"
+    ]
+  },
+  {
+    "id": "W11",
+    "archivo": "app/spapi/write_client.py",
+    "viejo": "    if \"?\" in path or \"#\" in path:",
+    "nuevo": "    if False:",
+    "tests": [
+      "tests/test_spapi_write_client.py::test_r1_m_w11_query_y_fragment_fallan_con_su_mensaje"
+    ]
+  },
+  {
+    "id": "T1",
+    "archivo": "tools/precio_reversa.py",
+    "viejo": "        if not args.huella:\n            raise Abortar(\"falta --huella: el go exige la huella del dry-run\")\n        if args.huella != huella:",
+    "nuevo": "        if False:\n            raise Abortar(\"falta --huella: el go exige la huella del dry-run\")\n        if False:",
+    "tests": [
+      "tests/test_precio_write.py::test_r1_m_t1_go_sin_huella_aborta"
+    ]
+  },
+  {
+    "id": "T4",
+    "archivo": "tools/precio_reversa.py",
+    "viejo": "            if accion != \"revertir\":\n                continue",
+    "nuevo": "            if accion != \"revertir\":\n                raise Abortar(\"saltado\")",
+    "tests": [
+      "tests/test_precio_write.py::test_r1_m_t4_saltado_no_aborta_el_lote"
+    ]
+  },
+  {
+    "id": "L2b",
+    "extra": "equivalente",
+    "archivo": "app/spapi/precio_write.py",
+    "viejo": "        try:\n            competitivas = comp.json()\n        except ValueError:\n            competitivas = {\"payload\": []}",
+    "nuevo": "        try:\n            competitivas = comp.json()\n        except ValueError:\n            raise PrecioVivoAusente(\"competitivo no JSON\") from None",
+    "tests": [
+      "tests/test_precio_write.py"
+    ]
+  },
+  {
+    "id": "G4",
+    "extra": "equivalente",
+    "archivo": "app/spapi/precio_write.py",
+    "viejo": "    if comp.status_code != 200:\n        # El competitivo es respaldo",
+    "nuevo": "    if comp.status_code != 200:\n        raise PrecioVivoAusente(f\"pricing {asin} status=200/{comp.status_code}\")\n        # El competitivo es respaldo",
+    "tests": [
+      "tests/test_precio_write.py"
+    ]
+  },
+  {
+    "id": "R1-A3-S3",
+    "extra": "sobreviviente",
+    "archivo": "tests/test_architecture.py",
+    "viejo": "                codigo = _sin_comentario(linea)\n",
+    "nuevo": "                codigo = linea\n",
+    "tests": [
+      "tests/test_architecture.py"
+    ]
+  }
+]

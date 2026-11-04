@@ -1,0 +1,62 @@
+
+== amazon_mx | target 20.72 | variante completa | hojas activas con bid 350 | gasto 30d 18426
+   recortar :   11 decisiones en   9 hojas, que llevan  21.3% del gasto de 30 dias
+   subir    :   33 decisiones en  22 hojas, que llevan  68.4% del gasto de 30 dias
+   regresar :    1 decisiones en   1 hojas, que llevan   0.0% del gasto de 30 dias
+   (real, motor viejo: 220 recortes aplicados en 76 de estas hojas, 39.0% del gasto)
+        8907  (inerte, no se decide)
+        1838  mantener:sin_gasto
+         789  mantener:grupo_cumple
+         548  mantener:azar_lo_explica
+         452  mantener:sin_evidencia
+         299  mantener:esperando_efecto
+         207  mantener:sin_clics_nuevos
+          85  mantener:subida_sin_trafico
+          64  mantener:venta_reciente
+          49  mantener:hoja_delgada_sin_dinero_que_mover
+          33  subir:bajo_target
+           5  recortar:grupo_sangra_vendedora
+           5  mantener:piso_aprendido
+           4  mantener:esperando_precio_medido
+           4  mantener:vende_dentro_del_margen
+           4  mantener:recorte_costo_trafico
+           3  recortar:grupo_sangra
+           3  recortar:gasto_sin_venta
+           1  regresar:regreso_por_desplome
+
+== amazon_us | target 28.34 | variante completa | hojas activas con bid 233 | gasto 30d 1034
+   recortar :   18 decisiones en  14 hojas, que llevan  69.6% del gasto de 30 dias
+   subir    :    9 decisiones en   5 hojas, que llevan  23.7% del gasto de 30 dias
+   regresar :    1 decisiones en   1 hojas, que llevan   2.1% del gasto de 30 dias
+   (real, motor viejo: 138 recortes aplicados en 44 de estas hojas, 85.8% del gasto)
+        4919  (inerte, no se decide)
+        2260  mantener:sin_gasto
+         499  mantener:sin_evidencia
+         425  mantener:grupo_cumple
+         320  mantener:azar_lo_explica
+         175  mantener:esperando_efecto
+          63  mantener:sin_clics_nuevos
+          59  mantener:recorte_costo_trafico
+          47  mantener:venta_reciente
+          32  mantener:hoja_delgada_sin_dinero_que_mover
+          14  mantener:sin_precio
+          11  recortar:grupo_sangra_vendedora
+           9  subir:bajo_target
+           6  mantener:piso_aprendido
+           6  mantener:subida_sin_trafico
+           4  recortar:gasto_sin_venta
+           3  recortar:grupo_sangra
+           1  regresar:regreso_por_desplome
+           1  mantener:esperando_precio_medido
+
+-- hoja 2963 (amazon_mx), simulada desde el 2026-09-02: ningun cambio
+
+-- hoja 4924 (amazon_us), simulada desde el 2026-09-02: [(datetime.date(2026, 9, 2), 'recortar', 'grupo_sangra_vendedora', 0.4, 0.352)]
+
+-- hoja 3861 (amazon_mx), simulada desde el 2026-09-02: [(datetime.date(2026, 9, 7), 'recortar', 'grupo_sangra', 13.64, 12.003), (datetime.date(2026, 9, 28), 'recortar', 'grupo_sangra_vendedora', 12.003, 10.563)]
+
+-- hoja 2871 (amazon_mx), simulada desde el 2026-09-02: ningun cambio
+
+-- hoja 5888 (amazon_us), simulada desde el 2026-09-02: ningun cambio
+
+-- hoja 4919 (amazon_us), simulada desde el 2026-09-02: [(datetime.date(2026, 9, 2), 'recortar', 'grupo_sangra_vendedora', 0.34, 0.299), (datetime.date(2026, 9, 7), 'regresar', 'regreso_por_desplome', 0.299, 0.34)]

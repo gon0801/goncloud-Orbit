@@ -1,0 +1,8 @@
+BEGIN
+-- INICIO parpadeo
+amazon_mx|componentes|13|4|9|2|0
+amazon_mx|duplicado_etiqueta|13|4|9|2|0
+amazon_us|componentes|15|5|10|3|0
+amazon_us|duplicado_etiqueta|15|5|10|3|0
+-- FIN parpadeo
+ROLLBACK

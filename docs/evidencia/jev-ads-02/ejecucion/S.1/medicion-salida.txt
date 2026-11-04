@@ -1,0 +1,74 @@
+== M1 ultima corrida ok de estructura y estado del acta
+ corrida |       inicio        |         fin         | edad_horas | acta_plataforma | acta_grupos
+---------+---------------------+---------------------+------------+-----------------+-------------
+     623 | 2026-10-05 06:45:57 | 2026-10-05 06:45:57 |        8.8 |               0 |           0
+(1 row)
+
+           estado_acta
+----------------------------------
+ ACTA: tablas ausentes (pre-0051)
+(1 row)
+
+== M2 por plataforma: declarados contra recibidos, no archivados descartados
+ platform  | ad_groups_declarados | ad_groups_recibidos | grupos_cuadran | product_ads_declarados | product_ads_recibidos | anuncios_cuadran | sin_grupo | descartados_grupo | no_archivados_descartados
+-----------+----------------------+---------------------+----------------+------------------------+-----------------------+------------------+-----------+-------------------+---------------------------
+ amazon_mx |                      |                     |                |                        |                       |                  |           |                 0 |                         0
+ amazon_us |                      |                     |                |                        |                       |                  |           |                 0 |                         0
+(2 rows)
+
+== M3 detalle por grupo con gasto: acta, base y motivos
+ platform  | grupo  | gasto | acta_vivos | vivos_base | acta_descartados | huella_igual |         motivos         | roster_probado
+-----------+--------+-------+------------+------------+------------------+--------------+-------------------------+----------------
+ amazon_mx |    344 |  6150 |            |        211 |                  |              | {plataforma_no_listada} | f
+ amazon_mx |    339 |  1771 |            |        300 |                  |              | {plataforma_no_listada} | f
+ amazon_mx |    297 |   972 |            |        304 |                  |              | {plataforma_no_listada} | f
+ amazon_mx |    354 |   939 |            |         76 |                  |              | {plataforma_no_listada} | f
+ amazon_mx |    342 |   718 |            |        211 |                  |              | {plataforma_no_listada} | f
+ amazon_mx |    355 |   692 |            |        298 |                  |              | {plataforma_no_listada} | f
+ amazon_mx |    340 |   527 |            |        211 |                  |              | {plataforma_no_listada} | f
+ amazon_mx |    341 |   377 |            |        211 |                  |              | {plataforma_no_listada} | f
+ amazon_mx | 415482 |   324 |            |          1 |                  |              | {plataforma_no_listada} | f
+ amazon_mx |    346 |   286 |            |         12 |                  |              | {plataforma_no_listada} | f
+ amazon_mx |    351 |   139 |            |         76 |                  |              | {plataforma_no_listada} | f
+ amazon_mx | 415461 |   124 |            |          1 |                  |              | {plataforma_no_listada} | f
+ amazon_mx |    348 |   101 |            |         12 |                  |              | {plataforma_no_listada} | f
+ amazon_mx | 415464 |    56 |            |          1 |                  |              | {plataforma_no_listada} | f
+ amazon_mx |    353 |    55 |            |         76 |                  |              | {plataforma_no_listada} | f
+ amazon_mx |    277 |    24 |            |        304 |                  |              | {plataforma_no_listada} | f
+ amazon_mx |    329 |    12 |            |        255 |                  |              | {plataforma_no_listada} | f
+ amazon_mx |    349 |    10 |            |         12 |                  |              | {plataforma_no_listada} | f
+ amazon_mx | 415463 |     8 |            |          1 |                  |              | {plataforma_no_listada} | f
+ amazon_mx | 415462 |     7 |            |          1 |                  |              | {plataforma_no_listada} | f
+ amazon_mx |    350 |     4 |            |         76 |                  |              | {plataforma_no_listada} | f
+ amazon_mx |    331 |     0 |            |          1 |                  |              | {plataforma_no_listada} | f
+ amazon_us |   4005 |   755 |            |        109 |                  |              | {plataforma_no_listada} | f
+ amazon_us |   3989 |   426 |            |         23 |                  |              | {plataforma_no_listada} | f
+ amazon_us |   3988 |   204 |            |         23 |                  |              | {plataforma_no_listada} | f
+ amazon_us |   4012 |   195 |            |         19 |                  |              | {plataforma_no_listada} | f
+ amazon_us |   3993 |   192 |            |         22 |                  |              | {plataforma_no_listada} | f
+ amazon_us |   4004 |   127 |            |        109 |                  |              | {plataforma_no_listada} | f
+ amazon_us |   4014 |   103 |            |         23 |                  |              | {plataforma_no_listada} | f
+ amazon_us |   4009 |    86 |            |         19 |                  |              | {plataforma_no_listada} | f
+ amazon_us |   3990 |    21 |            |         23 |                  |              | {plataforma_no_listada} | f
+ amazon_us |   4008 |     1 |            |        109 |                  |              | {plataforma_no_listada} | f
+ amazon_us |   4002 |     1 |            |         43 |                  |              | {plataforma_no_listada} | f
+(33 rows)
+
+== M4 resumen por plataforma: grupos con gasto que cumplen el roster
+ platform  | grupos_con_gasto | gasto_total | roster_probado | limpios_salvo_acta
+-----------+------------------+-------------+----------------+--------------------
+ amazon_mx |               22 |       13296 |              0 |                 22
+ amazon_us |               11 |        2110 |              0 |                 11
+(2 rows)
+
+== M4b motivos por plataforma (un grupo cuenta en cada motivo que tiene)
+ platform  |        motivo         | grupos
+-----------+-----------------------+--------
+ amazon_mx | plataforma_no_listada |     22
+ amazon_us | plataforma_no_listada |     11
+(2 rows)
+
+  medicion
+-------------
+ MEDICION OK
+(1 row)

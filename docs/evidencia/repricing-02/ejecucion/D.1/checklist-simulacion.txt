@@ -1,0 +1,9 @@
+== Checklist D.1 (solo lectura; sello 20261014-0343)
+== 1) Esquema: columnas del corte y enum canal
+OK    columnas goal_id/l_origen/verificacion en precio_decision = 3
+OK    valor meli en enum canal = t
+OK    precio_modo_global en config vigente = shadow
+== 2) El crontab trae la linea precio (sin cambiarla este despliegue)
+OK    linea precio en crontab sim = 1
+== RESULTADO: 0 falla(s), 0 sin medir
+exit=0

@@ -1,0 +1,25 @@
+== 0) El servidor contesta
+OK    orbit-app-1 corriendo = true
+== Checklist D.2 (solo lectura; sello 20261011-0351, contenedor desde 2026-10-11T03:52:46.202586112Z)
+== 1) HTTP: /health
+OK    GET /health = 200
+== 2) Esquema de D.2 (esperado t|t|t)
+OK    vista config vigente y tablas 0061+0062 = t|t|t
+== 3a) Sync de las 06:45 posterior al arranque (sale 3 si todavia no corre)
+OK    syncs ok posteriores al arranque = 1
+      config posterior al arranque = 246 fila(s) (informativo)
+== 3b) Ninguna campana ENABLED sin fila en v_campana_config_vigente (esperado 0)
+OK    ENABLED sin config amazon_mx = 0
+OK    ENABLED sin config amazon_us = 0
+== 3c) Reporte por placement de las 07:25 posterior al arranque (sale 3 si todavia no corre)
+OK    placements posteriores al arranque = 3279 fila(s)
+== 3d) ads_placement_observation tiene filas (esperado > 0)
+OK    placements totales = 3279
+== 4) La pantalla de dinero en los dos mercados
+OK    HTML donde-poner-el-dinero amazon_mx = 200
+OK    por_ubicacion con gasto amazon_mx = 4
+OK    por_campana con filas amazon_mx = 34
+OK    HTML donde-poner-el-dinero amazon_us = 200
+OK    por_ubicacion con gasto amazon_us = 4
+OK    por_campana con filas amazon_us = 9
+== RESULTADO: 0 falla(s), 0 sin medir, sync/reporte posterior comprobado

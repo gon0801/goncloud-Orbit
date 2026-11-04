@@ -1,0 +1,75 @@
+F.F                                                                      [100%]
+=================================== FAILURES ===================================
+__________________ test_cli_decision_id_se_rechaza_hasta_2_1 ___________________
+
+tmp_path = PosixPath('/private/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/pytest-of-dn/pytest-1647/test_cli_decision_id_se_rechaz0')
+
+    def test_cli_decision_id_se_rechaza_hasta_2_1(tmp_path):
+        """Regresion revision automatica B3-r3 (B1): --decision-id se parseaba y
+        se IGNORABA (sujeto semillas silencioso). Hasta que 2.1 lea termino y
+        censo de la decision, la bandera se rechaza con error de configuracion
+        y sin escribir nada."""
+        from tools.jev_ads import main as cli_jev
+
+        with db_jev() as conn:
+            censo, _, _, grupo = _grupo_con_fichas(conn, con_ficha_p2=False)
+            solicitud = str(uuid.uuid4())
+            pedido = _Pedido()
+            salida = []
+            codigo = cli_jev(
+                [
+                    "evaluar",
+                    "--plataforma",
+                    "amazon_mx",
+                    "--grupo-id",
+                    str(grupo),
+                    "--termino",
+                    "soporte mesa",
+                    "--solicitud",
+                    solicitud,
+                    "--presupuesto",
+                    "3",
+                    "--decision-id",
+                    "12",
+                    "--aplicar",
+                ],
+                pedir=pedido,
+                dsn=_dsn_jev(),
+                imprimir=salida.append,
+            )
+>           assert codigo == 2
+E           assert 0 == 2
+
+tests/test_jev_cli.py:529: AssertionError
+_____________ test_leer_api_key_sin_variable_usa_la_ruta_canonica ______________
+
+tmp_path = PosixPath('/private/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/pytest-of-dn/pytest-1647/test_leer_api_key_sin_variable0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10cb7a0f0>
+
+    def test_leer_api_key_sin_variable_usa_la_ruta_canonica(tmp_path, monkeypatch):
+        """Regresion revision automatica B3-r3 (B2): sin ORBIT_SECRETS_DIR la
+        ruta es la canonica del repo (DEFAULT_SECRETS_DIR de app.ads.config),
+        JAMAS el cwd: un typesafe.json plantado en el directorio actual no se
+        lee y la clave canonica si."""
+        canonico = tmp_path / "canonico"
+        canonico.mkdir()
+        (canonico / "typesafe.json").write_text(
+            json.dumps({"api_key": "canonica"}), encoding="utf-8"
+        )
+        (tmp_path / "typesafe.json").write_text(
+            json.dumps({"api_key": "de-cwd"}), encoding="utf-8"
+        )
+        monkeypatch.chdir(tmp_path)  # el cwd trampa: contiene su propio typesafe.json
+        monkeypatch.delenv("ORBIT_SECRETS_DIR", raising=False)
+        monkeypatch.setattr("app.ads.config.DEFAULT_SECRETS_DIR", str(canonico))
+>       assert leer_api_key() == "canonica"
+E       AssertionError: assert 'de-cwd' == 'canonica'
+E
+E         - canonica
+E         + de-cwd
+
+/Users/dn/dev/wt/jev-ads-worker/tests/test_jev_juicios.py:375: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_jev_cli.py::test_cli_decision_id_se_rechaza_hasta_2_1 - ass...
+FAILED tests/test_jev_juicios.py::test_leer_api_key_sin_variable_usa_la_ruta_canonica
+2 failed, 1 passed in 0.47s
