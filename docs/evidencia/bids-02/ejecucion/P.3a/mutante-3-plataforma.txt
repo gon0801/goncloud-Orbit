@@ -1,4 +1,0 @@
-$ mutante: = por <> en el filtro de plataforma (_SQL_CAMBIOS)
-$ pytest -q tests/test_pantalla_danadas.py::test_lee_danadas_punta_a_punta
-FAILED tests/test_pantalla_danadas.py::test_lee_danadas_punta_a_punta - asser...
-1 failed in 0.32s
