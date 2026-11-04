@@ -149,7 +149,89 @@ function observarTema() {
   }).observe(document.documentElement, { attributes: true, attributeFilter: ["data-tema"] });
 }
 
+function reemplazar(canvas, config) {
+  var previo = typeof Chart.getChart === "function" ? Chart.getChart(canvas) : null;
+  if (previo) {
+    graficas = graficas.filter(function (grafica) { return grafica !== previo; });
+    previo.destroy();
+  }
+  var chart = new Chart(canvas, config);
+  vestir(chart, pintura());
+  graficas.push(chart);
+}
+
+function serieCanal(bloque, clave, campo) {
+  return (bloque.series || []).map(function (fila) {
+    var origen = campo === "ma7" ? (fila.ma7 || {}) : fila;
+    return numero(origen[clave]);
+  });
+}
+
+function graficarResumen() {
+  var contrato = datosDe("datos-resumen");
+  if (!contrato || !contrato.canales) return;
+  Object.keys(contrato.canales).forEach(function (nombre) {
+    var bloque = contrato.canales[nombre];
+    var canvas = document.getElementById("tendencia-" + nombre);
+    if (!canvas || !bloque) return;
+    var fechas = [];
+    var inmaduros = [];
+    (bloque.series || []).forEach(function (fila) {
+      fechas.push(fila.fecha);
+      inmaduros.push(fila.inmaduro === true);
+    });
+    var tinta = pintura();
+    var pares = [
+      ["cost", "Gasto del dia", "dia", "--color-mutado"],
+      ["ad_revenue", "Ventas del dia", "dia", "--o-ink3"],
+      ["cost", "Gasto media 7", "ma7", "--color-acento"],
+      ["ad_revenue", "Ventas media 7", "ma7", "--color-ok"]
+    ];
+    reemplazar(canvas, {
+      type: "line",
+      data: {
+        labels: fechas,
+        datasets: pares.map(function (par) {
+          return {
+            label: par[1] + " " + bloque.moneda,
+            data: serieCanal(bloque, par[0], par[2]),
+            borderWidth: par[2] === "ma7" ? 2.5 : 1,
+            pointRadius: 0,
+            spanGaps: false,
+            fill: false,
+            colorToken: par[3],
+            segment: par[2] === "dia" ? {
+              borderDash: function (ctx) {
+                return inmaduros[ctx.p1DataIndex] ? [4, 3] : undefined;
+              }
+            } : undefined
+          };
+        })
+      },
+      options: {
+        animation: false,
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            display: true,
+            position: "top",
+            align: "end",
+            labels: { color: tinta.texto, usePointStyle: true, pointStyle: "line", boxWidth: 18 }
+          },
+          tooltip: { enabled: true }
+        },
+        scales: {
+          x: { ticks: { color: tinta.mutado, maxTicksLimit: 6 }, grid: { color: tinta.borde } },
+          y: { ticks: { color: tinta.mutado }, grid: { color: tinta.borde } }
+        }
+      }
+    });
+  });
+}
+
 document.addEventListener("DOMContentLoaded", function () {
+  graficarResumen();
   document.querySelectorAll("canvas[data-serie]").forEach(function (canvas) {
     graficarSeries(
       canvas.id,

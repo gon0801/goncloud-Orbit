@@ -117,6 +117,10 @@ def _sujeto(censo, terminos=("soporte mesa",), plan_extra=None):
     )
 
 
+# El CLI de jev_ads usa el reloj real. VENCE del catalogo (2026-11-02) ya caduco.
+_VIGENTE = datetime(2099, 1, 1, tzinfo=UTC)
+
+
 def _grupo_con_fichas(conn, con_ficha_p2=True):
     p1 = _producto(conn, "P1")
     l1 = _listing(conn, p1, asin="B0P1LISTA1")
@@ -133,8 +137,8 @@ def _grupo_con_fichas(conn, con_ficha_p2=True):
         " VALUES ((SELECT id FROM ad_entity WHERE external_id = %s), 'ENABLED', now())",
         (f"ad-{grupo}-1",),
     )
-    ficha1 = _ficha(conn, p1, (l1,))
-    ficha2 = _ficha(conn, p2, (l2,)) if con_ficha_p2 else None
+    ficha1 = _ficha(conn, p1, (l1,), vence=_VIGENTE)
+    ficha2 = _ficha(conn, p2, (l2,), vence=_VIGENTE) if con_ficha_p2 else None
     from app.jev_catalogo import censo_grupo
 
     censo = censo_grupo(conn, plataforma="amazon_mx", ad_group_id=grupo)
@@ -823,7 +827,7 @@ def test_cli_seco_cuenta_fichas_con_la_regla_de_evaluar():
         l1 = _listing(conn, producto, asin="B0MULTI101")
         l2 = _listing(conn, producto, asin="B0MULTI102")
         grupo = _grupo(conn, "amazon_mx", (l1, l2))
-        _ficha(conn, producto, (l1, l2))
+        _ficha(conn, producto, (l1, l2), vence=_VIGENTE)
         argv = ["evaluar", "--plataforma", "amazon_mx", "--grupo-id", str(grupo)]
         argv += ["--termino", "t", "--solicitud", str(uuid.uuid4())]
         salida = []

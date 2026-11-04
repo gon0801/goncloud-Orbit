@@ -53,10 +53,23 @@ JS solo por `|tojson` (decisión 12). Cada pantalla consume UNO de los
 endpoints de la sección 3.
 
 ### 2.1 Resumen
-Series diarias de spend / revenue / ACoS **por plataforma** (amazon_us,
-amazon_mx): moneda NATIVA, grano `kind='campaign'`, rango [D-30, D-1] UTC, día
-en curso excluido, días D-8..D-1 marcados como inmaduros, NULL = hueco visible.
-Fuente: `GET /api/dashboard/series/plataforma` (§3.1).
+El operador abre `/` con todos los canales y 30 días. El formulario (`canal`,
+`periodo` 7/30/90, `desde`, `hasta`) vuelve a pintar esa elección y la deja en
+la URL. Con las dos fechas, el rango manda. La página solo presenta el contrato
+`GET /api/dashboard/resumen` (§9): no recalcula sumas, ratios ni la media de 7
+días.
+
+Por canal, en su moneda: gasto, ventas atribuidas, ACoS, ROAS, clics y órdenes
+cuando el canal las publica. None se ve `—`. El cero se ve `0`. Amazon muestra
+su ventana de cifras inmaduras. Mercado Libre muestra el motivo del contrato y
+no esa ventana. La comparación usa `comparison.variacion` del mismo bloque. La
+tabla por canal tiene una fila por canal y no suma MXN con USD. La gráfica pone
+el día con poco énfasis y `series[].ma7` como tendencia. El hueco del contrato
+sigue en `null`. La tabla de la serie es el equivalente textual. A 390 px solo
+esa tabla se desplaza. El tema claro/oscuro recolorea la gráfica sin animación.
+
+`GET /api/dashboard/series/plataforma` (§3.1) sigue para quien ya la consumía.
+No es la fuente de esta pantalla.
 
 ### 2.2 Campañas
 Tabla 30d por campaña: métricas colapsadas (mismo grano campaign, misma ventana

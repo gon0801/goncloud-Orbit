@@ -1,7 +1,7 @@
 """UI server-rendered del dashboard (ORBIT 16 - DASHBOARD 01, task 1.6).
 
-Cuatro pantallas Jinja2 (brief §2): Resumen (series spend/revenue/ACoS por
-plataforma), Campanas (tabla 30d con target efectivo y procedencia),
+Cuatro pantallas Jinja2 (brief §2): Resumen (contrato multicanal de
+publicidad), Campanas (tabla 30d con target efectivo y procedencia),
 Decisiones (feed por cursor) y Salud (snapshot + historico 14d + skips).
 
 Sellos (plan 1.6 + brief §6):
@@ -43,6 +43,8 @@ from app import api_dashboard as dash
 from app import api_reputacion as reput
 from app import familias
 from app.api import ConexionLectura
+from app.dashboard_resumen import CANALES as CANALES_RESUMEN
+from app.dashboard_resumen import CANALES_POR_DEFECTO, PERIODOS
 from app.notifica import estado_precio_es, motivo_precio_es
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.optimizer.goals import PELDANOS_CASCADA
@@ -214,6 +216,31 @@ def _limpia_query(valor: str | None) -> str | None:
     return limpio or None
 
 
+def _fecha_query(valor: str | None, nombre: str) -> dt.date | None:
+    """Fecha YYYY-MM-DD o ausente. El form GET manda ""; un texto raro es 422."""
+    limpio = _limpia_query(valor)
+    if limpio is None:
+        return None
+    try:
+        return dt.date.fromisoformat(limpio)
+    except ValueError:
+        raise HTTPException(
+            status_code=422, detail=f"{nombre} no es una fecha YYYY-MM-DD"
+        ) from None
+
+
+def _periodo_query(valor: str | None, rango: bool) -> int | None:
+    """7, 30 o 90. Con desde y hasta el contrato ignora el preset."""
+    limpio = _limpia_query(valor)
+    if limpio is None:
+        return None
+    if limpio in {str(item) for item in PERIODOS}:
+        return int(limpio)
+    if rango:
+        return None
+    raise HTTPException(status_code=422, detail="periodo fuera de vocabulario")
+
+
 def _vocab_o_422(valor: str | None, permitidos: frozenset[str], nombre: str) -> str | None:
     """Vocabulario cerrado: valor ajeno -> 422 (mismo patron que el feed)."""
     limpio = _limpia_query(valor)
@@ -372,15 +399,40 @@ def vista_tabla_campanas(filtros: dict, ordenar: str | None, direccion: str | No
 
 
 @router.get("/", response_class=HTMLResponse)
-def resumen(request: Request, conn: ConexionLectura) -> HTMLResponse:
-    """Resumen: series diarias spend/revenue/ACoS por plataforma (moneda
-    nativa, grano campaign, D-30..D-1, inmaduros marcados, NULL = hueco)."""
-    series = {
-        plataforma: dash.serie_plataforma(conn=conn, platform=plataforma)
-        for plataforma in PLATAFORMAS_MONEDA
-    }
+def resumen(
+    request: Request,
+    conn: ConexionLectura,
+    canal: Annotated[str | None, Query()] = None,
+    periodo: Annotated[str | None, Query()] = None,
+    desde: Annotated[str | None, Query()] = None,
+    hasta: Annotated[str | None, Query()] = None,
+) -> HTMLResponse:
+    """Resumen multicanal. Presenta `resumen_ads` tal cual: no suma ni promedia."""
+    canal_id = _vocab_o_422(canal, frozenset(CANALES_RESUMEN), "canal")
+    desde_d = _fecha_query(desde, "desde")
+    hasta_d = _fecha_query(hasta, "hasta")
+    periodo_n = _periodo_query(periodo, desde_d is not None and hasta_d is not None)
+    contrato = dash.resumen_ads(
+        conn,
+        periodo=periodo_n if periodo_n is not None else dash.DIAS_PERIODO_DEFAULT,
+        desde=desde_d,
+        hasta=hasta_d,
+        canal=canal_id,
+    )
     return templates.TemplateResponse(
-        request, "resumen.html", {"pantalla": "resumen", "series": series}
+        request,
+        "resumen.html",
+        {
+            "pantalla": "resumen",
+            "contrato": contrato,
+            "filtro": {
+                "canal": canal_id or "",
+                "periodo": periodo_n if periodo_n is not None else dash.DIAS_PERIODO_DEFAULT,
+                "desde": desde_d.isoformat() if desde_d else "",
+                "hasta": hasta_d.isoformat() if hasta_d else "",
+                "canales": CANALES_POR_DEFECTO,
+            },
+        },
     )
 
 

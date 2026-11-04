@@ -26,19 +26,21 @@ def _html_sin_db(monkeypatch, ruta: str, **parches) -> str:
     return resp.text
 
 
-def _serie_vacia(conn, platform):
+def _contrato_vacio(conn, periodo=30, desde=None, hasta=None, canal=None):
     return {
-        "plataforma": platform,
-        "moneda": "USD",
-        "desde": "2026-07-01",
+        "desde": "2026-07-02",
         "hasta": "2026-07-31",
-        "ventana_inmaduros": {"desde": "2026-07-24", "hasta": "2026-07-31"},
-        "series": [],
+        "dias": 30,
+        "periodo": 30,
+        "recortado": False,
+        "hasta_solicitado": "2026-07-31",
+        "canales": {},
+        "totales_por_moneda": [],
     }
 
 
 def test_ui_html_default_dia_y_boton_tema(monkeypatch):
-    html = _html_sin_db(monkeypatch, "/", serie_plataforma=_serie_vacia)
+    html = _html_sin_db(monkeypatch, "/", resumen_ads=_contrato_vacio)
     assert 'data-tema="dia"' in html
     assert 'id="btn-tema"' in html
     assert 'src="/static/js/tema.js?v=' in html
