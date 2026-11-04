@@ -2,15 +2,17 @@
 # el dia en curso entre 18:00 y 24:00 CDMX. La correccion (zona local minima)
 # esta en 11-correcciones-ronda-2.txt.
 # MA7 con calentamiento (amazon_mx, rango visible 2026-10-10..2026-10-19)
+# Actualizacion 2026-11-04: MA7 es media diaria (suma de la ventana / 7). Los
+# bloques ma7 se recalculan del mismo SELECT, que se conserva abajo como suma.
 ## Primer punto visible (2026-10-10): ventana 2026-10-04..2026-10-10 (6 dias antes del rango)
 {
   "fecha": "2026-10-10",
   "cost": "742.3300",
   "ma7": {
-    "cost": "5780.8800",
-    "ad_revenue": "38604.4100",
-    "clicks": 1809,
-    "orders": 38,
+    "cost": "825.8400",
+    "ad_revenue": "5514.9157",
+    "clicks": "258.43",
+    "orders": "5.43",
     "acos": "14.97",
     "roas": "6.68",
     "completo": true
@@ -25,10 +27,10 @@
   "fecha": "2026-10-19",
   "cost": "1066.6900",
   "ma7": {
-    "cost": "5365.7600",
-    "ad_revenue": "48572.3400",
-    "clicks": 1493,
-    "orders": 51,
+    "cost": "766.5371",
+    "ad_revenue": "6938.9057",
+    "clicks": "213.29",
+    "orders": "7.29",
     "acos": "11.05",
     "roas": "9.05",
     "completo": true
@@ -59,9 +61,9 @@
   "ad_revenue": "989.0000",
   "clicks": 60,
   "ma7": {
-    "cost": "2251.1100",
-    "ad_revenue": "8860.1100",
-    "clicks": 838,
+    "cost": "321.5871",
+    "ad_revenue": "1265.7300",
+    "clicks": "119.71",
     "orders": null,
     "acos": "25.41",
     "roas": "3.94",

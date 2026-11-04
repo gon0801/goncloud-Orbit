@@ -613,7 +613,9 @@ keyword/product_target: duplicarían el dinero.
   periodos el motivo es `null`: no hay cobertura que comparar ni sumas que
   alinear.
 - Dinero en JSON = **STRING** con la escala del `NUMERIC(14,4)`
-  (`"1234.5600"`); `clicks`/`orders` son enteros. El backend no emite floats.
+  (`"1234.5600"`); en los valores diarios y en `totals`, `clicks`/`orders` son
+  enteros. En `ma7` las cuatro métricas viajan como STRING: dinero con 4
+  decimales y conteos con 2 (ver §9.8). El backend no emite floats.
 
 ### 9.6 Cobertura
 
