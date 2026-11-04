@@ -1,0 +1,9 @@
+BEGIN
+DO
+ id |                        label
+----+-----------------------------------------------------
+  2 | ensayo D.0 del lead (primera corrida): it's a \test
+(1 row)
+
+INSERT 0 1
+COMMIT

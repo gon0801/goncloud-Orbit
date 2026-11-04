@@ -1,0 +1,17 @@
+estado: COMPLETA
+inicio_utc: 2026-09-18T11:33:35Z
+fin_utc: 2026-09-18T11:33:55Z
+hoy_utc: 2026-09-18
+commit_del_repo: 74d99ab8b3d5b70909da0af77ecf47749cff3b08
+consultas_o_corredor_con_cambios_sin_commitear: 0
+omitidas: 03_goals 04_decisiones
+razon_omision: precio_goal y precio_decision no existen en produccion: la migracion 0039 no esta aplicada (fila D.0 del plan, del dueno); sin tablas no hay goals ni decisiones
+salidas:
+  911736fdba189173b6fc77ac06750660b8141bc28c8297713037824e63458e59  amazon_mx/01_canonicas.txt
+  d3fb0c5bb16227a05f9a7465a04f6bb145feb5733e0f4d55f224ddc0bcab740e  amazon_mx/02_canales.txt
+  8c80c1d95894af1d6b39590e0b2d0d9761caa096210587a8e3e16636297f2a40  amazon_mx/05_listing_identidad.txt
+  1179cba46763b0d4b977c836628eeee9c615547afb103f02e0dedc58269c34f3  amazon_mx/06_hoy.txt
+  466461d29719c7e38e7615ec4c0e9ad7968f5f52716d21e75a262570b57802e2  amazon_us/01_canonicas.txt
+  e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  amazon_us/02_canales.txt
+  53b9b4635b8c55a53ce4bddfb2e54713eead42cd0445e2b94ad3baa8b3facd2b  amazon_us/05_listing_identidad.txt
+  1179cba46763b0d4b977c836628eeee9c615547afb103f02e0dedc58269c34f3  amazon_us/06_hoy.txt

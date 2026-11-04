@@ -1,0 +1,16 @@
+BEGIN
+-- INICIO productos-que-alcanzan-minimo
+amazon_mx|90|componentes|70|7|90
+amazon_mx|90|duplicado_etiqueta|70|7|90
+amazon_mx|180|componentes|108|14|180
+amazon_mx|180|duplicado_etiqueta|108|14|180
+amazon_mx|365|componentes|126|17|287
+amazon_mx|365|duplicado_etiqueta|126|17|287
+amazon_us|90|componentes|38|9|90
+amazon_us|90|duplicado_etiqueta|38|9|90
+amazon_us|180|componentes|53|17|180
+amazon_us|180|duplicado_etiqueta|53|17|180
+amazon_us|365|componentes|59|22|287
+amazon_us|365|duplicado_etiqueta|59|22|287
+-- FIN productos-que-alcanzan-minimo
+ROLLBACK

@@ -1,0 +1,378 @@
+=== quality-kit cross-review.ps1 ===
+Repo: /Users/dn/dev/wt/jev-ads-worker
+CLI: kimi
+Alcance: desde 8372f5aaf9e73b3c791396de8b317c560618a90e (solo los arreglos)
+Tamano del diff: 30489 caracteres
+Tope automatico para este diff (~30 KB): 1200 s. Usa -TimeoutSec para fijarlo a mano.
+
+==> AVISO: el diff es grande (30489 caracteres). Una revision asi cuesta del orden de 100-200k tokens y varios minutos. Si solo te interesa parte del cambio, acotalo con -Archivos <pathspecs> en vez de mandarlo entero.
+
+==> Invocando kimi de forma no interactiva (tope: 1200 s)...
+
+=== Respuesta de kimi (codigo de salida: 0) ===
+• Lei el diff. Ahora verifico en el repo real lo que el diff no muestra (el contexto de `nombre`, los imports reales de `app/jev_ads.py`) y reproduzco los puntos dudosos.
+
+• Confirmado el hallazgo principal. Verifico que el arreglo de una linea (quitar el escape stdlib, innecesario para el archivo real) mantendria todo en verde.
+
+• Revision del delta (solo arreglos desde 8372f5aa). Verifique en el repo lo que el diff no muestra: los imports perezosos reales de `app/jev_ads.py` estan todos dentro de `class AsesorAds` (lineas 413-933), los 25 tests de `tests/test_jev_ads.py` pasan en el working tree, y reproduje el agujero que describo abajo.
+
+  Hallazgos:
+
+  1. BLOQUEANTE — La guarda endurecida deja de discriminar imports de alcance de modulo que la version anterior rechazaba. `_violacion_import` agrega el escape `sys.stdlib_module_names`, asi que `import sqlite3`, `import subprocess` o `import os` en top-level ahora pasan en verde. Eso contradice el docstring de la propia prueba ("en top-level del modulo tampoco hay red, ni DB, ni modulos Jev de IO"; sqlite3 es DB), el comentario interno "solo la biblioteca estandar pura", y la semantica vieja (`assert importados <= permitidos`, whitelist de 10 modulos). Ademas NOTAS.md afirma que "la extraccion al helper fue NEUTRA: mismo criterio y misma lista", lo cual es falso para la parte 1: el criterio cambio de whitelist estricta a denylist O stdlib O permitidos. Verifique ademas que el escape stdlib es innecesario: quitandolo, el archivo real sigue en verde (las unicas violaciones son los imports perezosos dentro de AsesorAds, que la parte 2 salta) y los dos mutantes de la ronda siguen en rojo. Reproduccion:
+
+     uv run --frozen python -c "import sys; sys.path.insert(0,'tests'); from test_jev_ads import _fugas_pureza; assert _fugas_pureza('import sqlite3\nimport subprocess\nimport os\n') != [], 'guarda ciega ante DB/IO stdlib en top-level'"
+
+     Ese assert falla contra el codigo nuevo (la guarda devuelve []) y pasaba con la semantica de 8372f5aa. El arreglo es de una linea: quitar la clausula `sys.stdlib_module_names` de `_violacion_import`.
+
+  2. NO BLOQUEANTE — Un import dentro de un `try:`/`if:` top-level se reporta dos veces con etiquetas distintas: la parte 1 lo anota como ("top-level", x) y la parte 2 lo vuelve a recorrer con `ast.walk` y lo anota como ("<modulo>", x) (o con nombre vacio). Solo ensucia el mensaje de fallo, no cambia el veredicto.
+
+  3. NO BLOQUEANTE — `_candidatos_import` fija el prefijo "app." para cualquier import relativo sin importar el nivel (`from .. import x` resolveria incorrectamente a "app.x"), aunque el docstring promete resolver "contra su paquete" en general. Hoy la guarda solo parsea `app/jev_ads.py`, donde nivel >1 es invalido, asi que no muerde; queda como deuda si el helper se reusa para otro archivo.
+
+  Verificado como correcto: la resolucion de `from . import db` a "app.db", el recorrido del cuerpo de Try como alcance de modulo, el control positivo (c), el test del archivo real en verde, y la evidencia adjunta (25 passed coincide con mi corrida local; salida de pre-commit incluida).
+
+
+
+=== stderr ===
+kimi version 2.1.1
+• The user explicitly says: "NO uses skills ni workflows propios: responde vos directamente en este mismo turno, sin cargar ninguna skill." The system reminder about superpowers says user instructions take precedence over skills. So I should not invoke skills.
+
+  Task: read the diff file, review only the fixes since 8372f5aaf9e73b3c791396de8b317c560618a90e, verify anything that depends on code outside the diff by reading the repo, report findings numbered, BLOQUEANTE or NO BLOQUEANTE, with reproduction commands for blocking. Respond in Spanish, plain text, no accents if possible.
+
+  Let me read the diff file first.The diff modifies `tests/test_jev_ads.py` only (plus evidence docs). The change: redesign of a purity guard test that checks `app/jev_ads.py` has no network/DB imports at module scope.
+
+  Let me analyze the new guard logic carefully:
+
+  1. `_candidatos_import(nodo)`:
+     - For `ast.Import`: returns `{alias.name for alias in nodo.names}` — e.g. `import urllib.request` → `{"urllib.request"}`.
+     - For `ast.ImportFrom`: `base = (("app." if nodo.level else "") + (nodo.module or "")).rstrip(".")`, returns `{base, *(f"{base}.{alias.name}" for alias in nodo.names)}`.
+
+     Note: For `nodo.level > 1` (e.g., `from .. import db`), it would still prefix only "app." — but that's an edge case, the guard assumes the module is `app/jev_ads.py` so level 1 is the package `app`. Level 2 would be beyond the top-level package, which would be an error anyway in a top-level module of the package... Actually `from .. import x` in `app/jev_ads.py` would fail at import time (attempted relative import beyond top-level package). Not a real concern.
+
+     One thing: for `ImportFrom` with `level=0` and `module=None`? `from . import db` has module=None and level=1 → base = "app." + "" → rstrip(".") → "app". Then candidates = {"app", "app.db"}. Good, "app.db" is in prohibidos. Mutant (a) caught.
+
+     But wait — is `from . import db` valid in `app/jev_ads.py`? Yes if it's a package module. The mutant is hypothetical anyway.
+
+     Hmm, one potential issue: for `ImportFrom` with no relative level, e.g. `from decimal import Decimal`: base = "decimal", candidates = {"decimal", "decimal.Decimal"}. Check `_violacion_import("decimal", ...)`: "decimal" not in prohibidos; `nombre.split(".")[0]` = "decimal" in sys.stdlib_module_names → True → not violated. Good.
+
+     `from . import db` inside a function: candidates "app" and "app.db". "app" — is it in prohibidos? No. Is "app" in sys.stdlib_module_names? No. Is it in permitidos? No. → violacion → fuga ("componer", "app"). Also "app.db" → prohibido → fuga. The test asserts any hallazgo == "app.db" → passes.
+
+  2. `_violacion_import(nombre, permitidos)`:
+     - Check denylist: `nombre == p or nombre.startswith(p + ".")`. Fine.
+     - Returns `not (nombre.split(".")[0] in sys.stdlib_module_names or any(nombre == p or nombre.startswith(p.rstrip(".") + ".") for p in permitidos))`.
+     - Note: `sys.stdlib_module_names` — includes "urllib"! And "socket", "ssl". So for `import urllib.request` → "urllib.request" → denylist check: "urllib" is in `_PROHIBIDOS_MODULOS_PUROS` → "urllib.request".startswith("urllib.") → True → violation. Good, denylist checked first, so stdlib escape doesn't matter.
+     - But what about `import urllib` itself? denylist catches.
+     - The permitidos check: `nombre.startswith(p.rstrip(".") + ".")` — p entries like "collections.abc". For nombre "collections.abc.Callable"? startswith "collections.abc." → allowed. For `from collections.abc import Callable` → base "collections.abc", candidates {"collections.abc", "collections.abc.Callable"}. First in permitidos (equal). Second startswith → allowed. Good.
+
+  3. `_fugas_pureza`:
+     - Part 1: iterative traversal of `arbol.body`, descending into children of any node that is not FunctionDef/AsyncFunctionDef/ClassDef. Collects imports with `_violacion_import`.
+     - Wait, there's a subtle issue: part 1 descends into try/if/while/for/with bodies at module scope, but also into... everything not def/class. OK.
+     - Part 2: for each top-level node except Import/ImportFrom, and except AsesorAds, `ast.walk(nodo)` — walk includes the node itself and ALL descendants, including nested defs and classes (except... walk goes into everything). The old code did the same walk. Now with `_violacion_import` applied to nested imports at any depth (excluding AsesorAds class at top level only — but nested classes/functions named AsesorAds elsewhere? The skip is `if nombre == "AsesorAds": continue` where nombre presumably is nodo.name for ClassDef/FunctionDef; need to check what `nombre` is — it's from lines above the diff context: line ~395 `nombre = getattr(nodo, "name", "")`? The diff context shows `if nombre == "AsesorAds": continue` at line 426, and the assignment is outside the diff (line ~400-ish context not shown between line 292 `for nodo in arbol.body:` ... actually the diff shows `@@ -398,18 +426,53 @@` hunk starting with `if nombre == "AsesorAds":` so `nombre` assignment happened in unchanged lines. Fine.
+
+  Now, potential issues to check:
+
+  A. Part 1 descends into top-level `try`/`if` bodies but doesn't descend into `def`/`class` — correct per design (those are lazy). But what about `except ImportError:` handler bodies? `ast.iter_child_nodes(Try)` yields body, handlers (ExceptHandler nodes), orelse, finalbody. Yes, ExceptHandler is a child, and its body statements are children of the ExceptHandler. So `try: import boto3 except ImportError: boto3 = None` — boto3 import caught in body. Good.
+
+  B. Double-reporting: part 1 and part 2 both cover top-level `try:` bodies? Part 2 iterates `for nodo in arbol.body` and skips only Import/ImportFrom nodes at top level. A top-level `Try` node is not an import, so part 2 walks it too — `nombre = getattr(nodo, "name", "")` presumably → Try has no name → nombre = "" → not "AsesorAds" → walk covers the try body imports → `_violacion_import` also appends. So imports in top-level try get reported twice — but `sorted(set(fugas))` dedupes... part 1 appends ("top-level", candidato) and part 2 appends (nombre or "<modulo>", candidato) — for Try, nombre is "" → "<modulo>" — different tuple! So double reporting as ("top-level", "boto3") and ("<modulo>", "boto3"). Not a bug for correctness of the guard (still fails as it should, and empty check unaffected). Minor quality noise only. Not blocking.
+
+  C. The key behavioral question: does the new guard still pass against the real `app/jev_ads.py`? The evidence says 25 passed. The user asks to verify if findings depend on code outside the diff — I should check the real repo state. Also check that `RAIZ` is defined, and that the docstring claim about lazy imports inside AsesorAds (lines 437-461, 531, 749-751) matches — the concern: part 2 now applies `permitidos`/stdlib check to nested imports at ANY depth inside every top-level node except AsesorAds. If `app/jev_ads.py` has a nested import of something not in stdlib/permitidos inside, say, a helper function, the real file test would go red. The evidence says green and bateria-focalizada 25 passed. But I can verify by running the tests myself.
+
+  D. A subtle hole: part 1's traversal — top-level `def`/`class` bodies are excluded from part 1 (treated as lazy) but covered by part 2 (walk). Part 2 skips AsesorAds entirely. So imports inside AsesorAds (lazy imports of psycopg etc.) are not checked. Fine — that's the design intent (lazy imports allowed there).
+
+  E. Hole: nested function/class named "AsesorAds" elsewhere — irrelevant edge.
+
+  F. Real hole candidate: part 2's `ast.walk(nodo)` on a top-level FunctionDef also walks into nested classes/functions... same as before.
+
+  G. Another hole: part 1 comment says "los def/class no, porque sus imports son perezosos y los juzga el punto 2". But point 2 SKIPS AsesorAds. And point 2 also walks into AsesorAds? No — skips. OK.
+
+  H. What about `_violacion_import` with stdlib check: `sys.stdlib_module_names` — this includes non-pure modules like `sqlite3`, `tkinter`, `ctypes`, `_socket`... Wait — `_socket` starts with underscore; "socket" is denied via denylist anyway. But what about `import sqlite3`? stdlib but has IO. The guard's denylist covers network/DB modules relevant here (httpx, psycopg, requests, urllib, socket, ssl, app.*). The stdlib check widens what passes: previously top-level imports had to be in the explicit `permitidos` set (only 10 pure modules). Now ANY stdlib module passes — e.g., `import os`, `import subprocess`, `import sqlite3` would now PASS the guard at top-level. That's a widening: `subprocess` is stdlib — `import subprocess` would pass the new guard but violates the "nucleo puro" spirit (no IO at all in the pure core). Is that a real regression of the guard? The old test: `assert importados <= permitidos` — strict whitelist. New: denylist OR (stdlib OR permitidos) → any stdlib module allowed. So the guard now allows `import subprocess`, `import sqlite3`, `import os`, `import pathlib`, `import open`... pathlib is stdlib. This significantly weakens the purity guard. Is that a blocker? The guard's stated purpose: "red y DB solo entran con AsesorAds". The denylist still blocks the specific network/DB modules. But `sqlite3` is DB! `import sqlite3` at top-level would now pass the guard — the old guard would have rejected it. Hmm, but sqlite3 is not used in this project (PostgreSQL only). Still, the guard no longer enforces "solo la biblioteca estandar pura" (pure stdlib) as documented — the comment still says "solo la biblioteca estandar pura" but the code allows ANY stdlib module including subprocess/socket... wait socket is denylisted. subprocess is not.
+
+  Is this a "prueba que no discrimina" blocking issue? The blocking categories: seguridad, datos, regla innegociable del repo, comportamiento pedido roto, prueba que no discrimina. The guard still discriminates the two mutants that were the subject of the round (a and b). The widening to all-stdlib is a real weakening of the stated contract ("solo la biblioteca estandar pura"). The seeded control test (c) only checks that permitidos nested imports pass; it doesn't test that a non-pure stdlib module like subprocess gets rejected. So the guard's docstring/comment claims "solo la biblioteca estandar pura" but the code allows subprocess/sqlite3/os. This is a mismatch between documented intent and implementation — the guard no longer enforces what its own docstring says.
+
+  Hmm, but is that a bug introduced by THIS diff? Yes — old part 1 was `importados <= permitidos` (strict). New part 1 is denylist OR stdlib OR permitidos. That is a weakening introduced in this diff. Whether it's blocking... The purpose of the guard per the design doc is purity: no IO at module scope of the core. Allowing `import os` / `import subprocess` / `import sqlite3` at top level (and nested!) defeats the purity guard substantially. Also part 2 previously only checked denylist for nested imports (old code: nested imports only checked against prohibidos_modulos; nombres IO checked). New part 2 ALSO applies the same widened rule — for nested that's stricter than before (nested now requires stdlib-or-permitidos). So part 2 got stricter, part 1 got looser.
+
+  Wait, actually let me re-read part 1 old vs new. Old: collect all top-level imports (module-level statements only), assert set ⊆ permitidos (10 pure modules). New: denylist or stdlib or permitidos. So e.g. `import os` at top-level: old → FAIL (not in permitidos). New → PASS (os in stdlib). That's a real weakening of the guard for part 1.
+
+  The docstring of `_fugas_pureza` and the test's docstring still say "solo la biblioteca estandar pura" (only pure stdlib). The implementation now allows impure stdlib (subprocess, os, sqlite3, pathlib, shutil...). The design rule being protected: "El nucleo ... es PURO: red y DB solo entran con AsesorAds". sqlite3 is DB. So the guard now fails to protect the very invariant it documents. This is a genuine finding. Is it blocking? "prueba que no discrimina" — the test no longer discriminates `import sqlite3` / `import subprocess` at module scope, contradicting its own docstring and the design rule it encodes. Reproduction: `_fugas_pureza("import sqlite3\n") == []` → returns [] (passes) though it should flag. Let me verify by running.
+
+  Actually, let me be careful about severity. The blocking definition from quality-kit: "una prueba que no discrimina" is blocking. The guard test's purpose is to enforce purity. The weakening means the test no longer discriminates whole classes of IO (subprocess, sqlite3, os, pathlib...). It still discriminates the specific denylist (network/DB-as-actually-used). Hmm. The old guard's part 1 comment: "solo la biblioteca estandar pura" — i.e., whitelist of 10 pure modules. The new code claims in its comment "solo la biblioteca estandar pura" but implements "cualquier stdlib". The stdlib check was presumably added to avoid false positives when resolving relative imports/aliases... Actually why was stdlib check added? For nested imports like `from decimal import Decimal` → candidates include "decimal.Decimal" — "decimal.Decimal".split(".")[0] = "decimal" in stdlib → OK. Without the stdlib check, "decimal.Decimal" would need the permitidos prefix check: startswith("decimal.") → also OK. And `import uuid` nested → "uuid" in permitidos. So why stdlib? For `from datetime import UTC, datetime` nested → base "datetime" in permitidos, "datetime.UTC" startswith "datetime." → OK. The stdlib check seems added for robustness but it widens part 1 significantly.
+
+  Hmm wait, actually, is that true? Let me re-check part 1's old behavior: it asserted `importados <= permitidos` — the exact whitelist. So the old guard would reject `import os` top-level. New one allows. This IS a regression of the guard's strength. But is it a *blocking* regression per the criteria? The criteria: "el comportamiento pedido roto o una prueba que no discrimina". The test still discriminates what the round was asked to fix (mutants a and b) and the control (c). The widening to all-stdlib is arguably a deliberate design choice ("stdlib puro" — they call it stdlib puro but implement plain stdlib). Given the guard's purpose is purity (no IO), allowing subprocess/sqlite3 is a hole, but the denylist covers the modules that matter for this project (network/DB drivers). The evidence notes don't mention this tradeoff.
+
+  I should verify with a quick run: does `_fugas_pureza("import sqlite3\ndef f():\n    pass\n")` return []? Per code: part 1: Import node → candidates {"sqlite3"} → denylist no → "sqlite3" in sys.stdlib_module_names → True → not violation. So yes, passes. Old code: importados = {"sqlite3"} ⊄ permitidos → AssertionError. So the guard regressed for that class.
+
+  Severity call: I'd mark this as BLOQUEANTE only if it breaks "el comportamiento pedido" — the round's assignment was to fix the guard so it catches (a) and (b) and applies permitidos to nested. The widening wasn't requested, but does it break the guard's stated purpose? The test's own docstring says "en top-level del modulo tampoco hay red, ni DB, ni modulos Jev de IO" — the denylist still covers red (httpx, requests, urllib, socket, ssl) and DB (psycopg, app.db). sqlite3 is DB-ish but not used by the project. Hmm. The docstring claim "solo la biblioteca estandar pura" is in the internal comment, not the test docstring... Let me check: new comment in `_fugas_pureza` part 1: "solo la biblioteca estandar pura." That's the comment. The code allows non-pure stdlib. Comment-code mismatch.
+
+  I'll report it as a finding. Given the repo's rigor culture (TDD with mutants, discriminating tests), and quality-kit rule that a blocking finding needs a repro command I can provide — `uv run --frozen python -c "..."`. Is it blocking? The guard is a test-only guard (no production behavior). It still catches the actual invariant (red/DB modules denylisted). The widening is a latent hole: someone could add `import subprocess` to app/jev_ads.py top-level and the purity guard would stay green — contradicting its docstring and the purity rule it's meant to enforce. I'd call it NO BLOQUEANTE... but hmm, "prueba que no discrimina" — the criterion means the test fails to catch the bug it's supposed to catch. The bug class the test is for: IO imports in the pure core. It no longer catches stdlib IO. That's a discrimination failure for part of the class. With a repro command, per the rules, it qualifies as blocking? "sin reproduccion va como NO BLOQUEANTE" — I have reproduction. But blocking categories are: seguridad, datos, regla innegociable, comportamiento pedido roto, prueba que no discrimina. The prueba no discrimina `import sqlite3`/`subprocess` — which falls within "red y DB" / IO? sqlite3 = DB. The guard's docstring explicitly says DB no entra en el nucleo. So the guard now permits a DB module at top level. I think this legitimately qualifies as BLOQUEANTE: prueba que no discrimina, con repro. But wait — I need to be careful not to over-flag. Let me think about whether `sys.stdlib_module_names` includes sqlite3: yes. subprocess: yes. os: yes.
+
+  Hmm, but consider the intent of the B5-r3 redesign: "aplicar `permitidos` a los anidados" and "resolver relativos". The stdlib escape was probably introduced to keep the real file green after applying the rule to nested imports... but the real file's nested imports are all stdlib-permitidos already (decimal, uuid, etc. per control test c). Let me check the real app/jev_ads.py imports to see if the stdlib escape was needed. Let me grep the real file for imports.
+
+  Actually wait — maybe the real file has nested imports of stdlib modules NOT in permitidos (e.g., `import functools` or `import itertools` inside a function), and the stdlib escape was added to keep those green. If so, the widening was load-bearing (needed for the real file), and the correct fix would have been to extend permitidos, but allowing all stdlib is the lazy widening. Let me check the real file.
+
+  Let me also check:
+  - `RAIZ` is defined in tests/test_jev_ads.py (it was used before, unchanged).
+  - `sys.stdlib_module_names` exists in Python 3.12 — yes (since 3.10).
+  - The `import sys` added — used. Good.
+  - Ruff: the set literal `{base, *(...)}` — starred in set display, fine in 3.5+.
+  - `nombre` variable in part 2 — defined in unchanged context lines (line ~424-425 in the new file?). The hunk `@@ -398,18 +426,53 @@` starts with `if nombre == "AsesorAds":` as context, so `nombre` is assigned in unchanged lines between line 292's `for nodo in arbol.body:` ... wait, actually between the two hunks there's the `for nodo in arbol.body:` / `if isinstance(...): continue` context shown at lines 292-294 of the diff text (the part with `         continue`). Then presumably `nombre = getattr(nodo, "name", "")` or similar. It's unchanged code. Fine.
+
+  Potential bug in part 2 with `nombre or "<modulo>"`: `nombre` might be None? If `nombre = getattr(nodo, "name", "")` then None won't happen. But if it's `getattr(nodo, "name", None)`, then `nombre or "<modulo>"` handles it, but the earlier `if nombre == "AsesorAds"` fine. And `fugas.append((nombre, sub.id))` could append (None, ...) if nombre is None — then `sorted(set(fugas))` with None in tuple → TypeError comparing None and str! `sorted` of tuples containing None vs str → TypeError: '<' not supported between instances of 'NoneType' and 'str'. Wait: part 2 appends `(nombre, sub.id)` for IO names — if nombre is None (e.g., a top-level Try containing `conn = ...` Name usage...). Hmm, for a top-level Try node, `nombre = getattr(Try_node, "name", ???)`. Need to check the actual unchanged code. If default is None and a prohibited name appears under a nameless top-level node, append (None, "conn") then sorted(set([...])) → if fugas has ("top-level", "x") and (None, "conn") → sorting compares first elements: None vs str → TypeError. But this only matters when there are fugas with None nombre AND others — an edge in the failure path. Let me check the unchanged lines to see the default.
+
+  Let me read the actual file in the repo.
+
+  Also potential issue: part 1 now traverses into top-level `If`/`Try` but ALSO into `ast.If` with `orelse`... fine.
+
+  Another check: `ast.iter_child_nodes` on e.g. Assign nodes yields expressions; harmless.
+
+  Infinite recursion? No, it's iterative with a stack; AST is a tree; fine.
+
+  One more: part 1's elif — `elif not isinstance(nodo, (FunctionDef, AsyncFunctionDef, ClassDef)): pendientes.extend(iter_child_nodes(nodo))`. This descends into `ast.If`, `ast.Try`, `ast.With`, `ast.For`, `ast.While`, `ast.Match`, etc. at module level. But also descends into... hmm, what about a top-level `if TYPE_CHECKING:` block? TYPE_CHECKING imports would be judged — fine, they're module-scope-ish.
+
+  What about decorators? A FunctionDef node is skipped entirely (its decorators too) in part 1; part 2 walks it. OK.
+
+  Now, double-check mutant (b) handling in part 2: top-level Try → nombre presumably "" or None → not AsesorAds → walk(Try) finds Import boto3 → violation → appended as ("<modulo>" or None, "boto3"). Also part 1 appends ("top-level", "boto3"). Test asserts any hallazgo == "boto3" → passes.
+
+  Check the real-file test passes — run the test myself.
+
+  Also check: does the repo's pre-commit/pytest pass? Evidence says yes; I can quickly run the 4 tests.
+
+  Also verify `app/jev_ads.py` exists and the lazy imports are inside AsesorAds. And check whether the real file has any nested stdlib import not in permitidos (to understand whether stdlib escape was load-bearing).
+
+  Plan:
+  1. Read the relevant portion of tests/test_jev_ads.py in the repo (the unchanged `nombre = ...` line and surroundings).
+  2. Grep app/jev_ads.py for imports.
+  3. Run the 4 focused tests.
+  4. Run the mutant checks for stdlib IO (sqlite3/subprocess) to confirm the widening repro.
+
+  Let me do that.
+
+    fugas: list[tuple[str, str]] = []
+
+    # 1) imports de ALCANCE DE MODULO (B5-r3: un `try:`/`if:` top-level
+    #    sigue siendo alcance de modulo, asi que se recorre su cuerpo; los
+    #    def/class no, porque sus imports son perezosos y los juzga el
+    #    punto 2): solo la biblioteca estandar pura.
+    pendientes = list(arbol.body)
+    while pendientes:
+        nodo = pendientes.pop()
+        if isinstance(nodo, (ast.Import, ast.ImportFrom)):
+            for candidato in _candidatos_import(nodo):
+                if _violacion_import(candidato, _PERMITIDOS_PUROS):
+                    fugas.append(("top-level", candidato))
+        elif not isinstance(nodo, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            pendientes.extend(ast.iter_child_nodes(nodo))
+
+    # 2) cada nodo top-level EXCEPTO AsesorAds: puro incluso por dentro
+    #    (sin imports vedados ni fuera de permitidos a cualquier
+    #    profundidad, sin nombres IO). Los imports se RESUELVEN antes de
+    #    comparar (B5-r2, B5a): `from app import db` es "app.db" e
+    #    `import urllib.request` cae bajo "urllib"; valen igualdad o prefijo
+    #    con punto.
+    for nodo in arbol.body:
+        if isinstance(nodo, (ast.Import, ast.ImportFrom)):
+            continue
+        nombre = getattr(nodo, "name", None) or getattr(nodo, "id", "")
+        if nombre == "AsesorAds":
+            continue
+        for sub in ast.walk(nodo):
+            if isinstance(sub, (ast.Import, ast.ImportFrom)):
+                for candidato in _candidatos_import(sub):
+                    if _violacion_import(candidato, _PERMITIDOS_PUROS):
+                        fugas.append((nombre or "<modulo>", candidato))
+• The real `app/jev_ads.py` top-level imports are all in permitidos, and the lazy imports (app.jev_juicios, app.jev_catalogo, psycopg.rows) are all inside AsesorAds methods (lines 437-751 — need to confirm they're inside class AsesorAds; the notes say AsesorAds spans lines 413-933). So the stdlib escape hatch was NOT load-bearing for the real file — the real file's imports are all covered by permitidos alone. That means allowing ALL stdlib modules was an unnecessary widening.
+
+  `nombre = getattr(nodo, "name", None) or getattr(nodo, "id", "")` — so nombre is always a str (possibly ""). Then `fugas.append((nombre, sub.id))` — nombre is str. And `sorted(set(fugas))` — first elements are "top-level", "<modulo>" or names — all str. No TypeError issue. Good — but wait, for a top-level Assign like `conn = ...`: nombre = getattr(Assign, "name", None) → None, or getattr(Assign, "id", "") → "" → nombre = "". Then append(("", sub.id))? No wait — part 2 appends `(nombre, sub.id)` — but hold on, let me re-read the diff: `fugas.append((nombre, sub.id))`. And for imports: `(nombre or "<modulo>", candidato)`. For Name hits: `(nombre, sub.id)` — nombre could be "" here. Only matters in failure output; sorted handles "" fine (it's a str). Not a bug, cosmetic.
+
+  Now the key checks:
+  1. Run the 4 focused tests to confirm green on current working tree.
+  2. Confirm the widening: `_fugas_pureza("import sqlite3\n")` returns [] and `_fugas_pureza("import subprocess\n")` returns [] — whereas old guard rejected them. Also nested: `def f(): import subprocess` → passes too (stdlib). The old part-2 only checked denylist for nested, so nested subprocess passed before too — no regression there. The regression is part 1 (top-level): old asserted ⊆ permitidos; new allows any stdlib. So top-level `import subprocess` / `import os` / `import sqlite3` now pass the guard.
+
+  Wait — actually let me double-check the old part 1 more carefully from the diff:
+
+  ```python
+  importados: set[str] = set()
+  for nodo in arbol.body:
+      if isinstance(nodo, ast.Import):
+          importados.update(alias.name for alias in nodo.names)
+      elif isinstance(nodo, ast.ImportFrom):
+          importados.add(nodo.module or "")
+  ...
+  assert importados <= permitidos, importados - permitidos
+  ```
+
+  Yes — strict whitelist of 10 pure modules for top-level imports. New code: denylist OR (stdlib OR permitidos). So `import subprocess` at top-level: denylist no; "subprocess" in sys.stdlib_module_names → yes → no violation → guard green. Old: red. Confirmed regression of the guard's strength, contradicting its own comment "solo la biblioteca estandar pura" and the purity invariant it protects (no IO in the core outside AsesorAds).
+
+  Is this BLOQUEANTE? Category "prueba que no discrimina" — the guard test no longer discriminates top-level IO imports from stdlib (subprocess, sqlite3, os, pathlib, shutil...). The guard exists to enforce the design rule "el nucleo es PURO: red y DB solo entran con AsesorAds". sqlite3 is DB. subprocess is IO. The test's docstring still promises purity. With repro:
+
+  ```
+  uv run --frozen python -c "from tests.test_jev_ads import _fugas_pureza; print(_fugas_pureza('import sqlite3\nimport subprocess\n'))"
+  ```
+  → prints [] (deberia marcarlos).
+
+  Hmm, but is importing from tests.test_jev_ads feasible? tests dir may not be a package. Use `python -c` with sys.path insert or run via pytest with a temp test. Simpler repro: `uv run --frozen python - <<'EOF'` with `import sys; sys.path.insert(0, 'tests')`... Let me check if tests has __init__.py. Actually easier: cd into tests or use importlib. I'll craft: `uv run --frozen python -c "import sys; sys.path.insert(0,'tests'); from test_jev_ads import _fugas_pureza; print(_fugas_pureza('import sqlite3\nimport subprocess\n'))"`.
+
+  Severity debate: quality-kit says blocking = "una prueba que no discrimina". The guard was explicitly the subject of a blocking round about not discriminating; this round fixed two holes but opened the whitelist. However — is it fair to call it blocking? The denylist still covers the actual IO modules relevant to this system (httpx, psycopg, requests, urllib, socket, ssl, app.db, app.ads, app.jev_*). The invariant "red y DB solo entran con AsesorAds" remains enforced for the actual network/DB stack. sqlite3 is hypothetical (project uses Postgres). But "PURO" means no IO at all; os/subprocess/pathlib allow filesystem/subprocess IO at module scope — which the old guard forbade and the new one permits. This is a genuine weakening that the author did not document or justify (NOTAS.md claims "la extraccion al helper fue NEUTRA: mismo criterio y misma lista" — FALSE for part 1: the criterion changed from whitelist-10 to denylist∪stdlib∪whitelist). That "neutrality" claim in the notes is factually wrong: the redesign changed part-1 semantics. The ROJO evidence ("la ROJO solo encendio las semillas nuevas, nunca el archivo real") doesn't prove neutrality for arbitrary inputs.
+
+  Given the round's whole point was a guard that discriminates, and the fix quietly weakened part 1 while claiming neutrality, I lean BLOQUEANTE: prueba que no discrimina (regresion de la parte 1), con repro. Hmm, but let me think about what a careful human reviewer would do. The quality-kit blocking definition requires the test to not discriminate — and here it no longer discriminates a class it previously discriminated (stdlib IO at module scope). The claimed evidence of neutrality is false. I think this qualifies. But there's a counter-argument: "discrimina" in context means the test catches the bug it was written for — the bug of this round (mutants a, b) is caught; the guard's documented contract in the test docstring says "en alcance de modulo ... tampoco hay red, ni DB, ni modulos Jev de IO" — red and DB denylist still enforced; sqlite3 is DB though. The docstring says "red, ni DB" — sqlite3 IS a DB module and now passes. So the test contradicts its own docstring. I'll mark BLOQUEANTE with repro. Actually hold on — let me weigh once more. The risk: over-flagging. But the criterion explicitly lists "una prueba que no discrimina" as blocking, and I have a repro showing it no longer discriminates `import sqlite3` (DB) at module scope, which both the docstring and the design rule forbid. Also the neutrality claim in NOTAS.md is demonstrably false. I'll flag it as BLOQUEANTE but state precisely what fails.
+
+  Hmm, wait. Let me reconsider one more time whether it's truly non-discriminating for "DB": denylist has psycopg and app.db. sqlite3 is not part of this project's stack (PostgreSQL 16). The design doc's purity rule is about the actual IO modules. A reviewer could reasonably decide this is a NO BLOQUEANTE quality-risk finding. The quality-kit rule says a blocking finding must be reproducible AND be one of the categories. "Prueba que no discrimina" — I interpret: the test fails to catch the defect class it guards. The guard guards "purity" = no IO. It now permits stdlib IO. That's a discrimination failure with repro. I'll go BLOQUEANTE, with the precise repro, and note the fix is trivial (drop the stdlib escape or restrict part 1 to whitelist for module scope; keep denylist-first + permitidos+stdlib only for nested where... actually nested previously only used denylist — the new nested rule is stricter and fine).
+
+  Hmm, actually, let me be careful: would removing the stdlib escape break the real file? Real file nested imports: all inside AsesorAds (skipped) — the notes say lines 437-461, 531, 749-751 are within AsesorAds (413-933). Let me verify AsesorAds spans those lines. Also check there are no other top-level defs with imports. From grep: all non-top-level imports are at lines 437+ which appear to be methods. Top-level imports are the 12 lines shown (14-25), all in permitidos. So yes, whitelist-only would keep the real file green.
+
+  But wait — `_candidatos_import` for `from collections.abc import Mapping` gives {"collections.abc", "collections.abc.Mapping"}; with permitidos prefix check: "collections.abc.Mapping".startswith("collections.abc.") → OK. For `from uuid import UUID`: {"uuid", "uuid.UUID"} → uuid in permitidos, "uuid.UUID" startswith "uuid." → OK. For `from __future__ import annotations`: {"__future__", "__future__.annotations"} → OK. So yes, permitidos alone (without stdlib escape) keeps the real file green. The stdlib escape was unnecessary — confirming it's a pure weakening.
+
+  Second finding candidates:
+
+  3. Double traversal: imports inside top-level try/if get checked twice (part 1 and part 2), producing duplicate-ish entries with different "donde" labels ("top-level" vs "<modulo>"). Cosmetic; only affects failure messages. NO BLOQUEANTE, one line.
+
+  4. `from . import db` resolution hardcodes "app." — `_fugas_pureza` is documented as resolving "contra su paquete" but the helper takes raw source with no package context; hardcoding app is fine for this repo's single guarded file but the mutant test uses a def named componer... fine. Also level≥2 resolves wrongly ("app." prefix regardless of level) — edge case, not relevant. Skip or minor.
+
+  5. Part 1 descends into `orelse`/`finalbody` of Try and If bodies — fine.
+
+  6. Part 1 doesn't descend into FunctionDef — by design.
+
+  7. What about `ast.TryStar` (except*) — Python 3.11+; iter_child_nodes handles generically since we don't isinstance-check Try specifically. Fine.
+
+  8. `test_guarda_pureza_deja_pasar_permitido_anidado` — control passes: decimal/uuid nested in a def. Part 2 walks the def `componer`; `import uuid` → "uuid" in permitidos; `from decimal import Decimal` → OK. Part 1 skips def. Real green.
+
+  9. Naming: `_PROHIBIDOS_NOMBRES_PUROS` — "conn" etc. Only applied in part 2 (walk), not part 1. Same as before (old code also only in part 2). OK.
+
+  10. Docstring in `_violacion_import` says "NO es stdlib puro" — code checks stdlib (not "puro"). Same mismatch as finding 1.
+
+  11. Check the evidence files reference `delta-reporte.txt` which is NOT in the diff (NOTAS.md says "Reporte: delta-reporte.txt" but the file isn't included in the diff — maybe pending since cross-review completes later; comandos.txt also mentions generating files). NOTAS says "Revisor: (se completa al correr cross-review)" — the evidence references files (delta-reporte.txt, delta-codigo.diff is included, repro-b5-r3-vieja.py outside repo). delta-reporte.txt missing from diff — but the note says it gets completed when cross-review runs; this diff is being reviewed as part of that process, so its absence is expected. Not a finding worth more than a line? I'd skip — the notes explicitly state it's pending. Actually comandos.txt also references precommit.txt (included), bateria-focalizada.txt (included), repro-guarda-vieja.txt (included), rojo/verde (included). Only delta-reporte.txt pending — consistent with "se completa al correr cross-review". Skip.
+
+  12. bateria-focalizada.txt says "25 passed" + "All checks passed!" — consistent.
+
+  13. One more possible bug: `_fugas_pureza` part 1 marks violations as ("top-level", candidato) even when the import is inside a top-level `try` inside... fine.
+
+  14. `test_guarda_pureza_caza_relativo_anidado` — asserts `any(hallazgo == "app.db" ...)`. `_candidatos_import` for `from . import db` (level=1, module=None): base = "app." + "" → "app.".rstrip(".") → "app"; candidates {"app", "app.db"}. "app.db" denylisted. Also "app" → violation (not stdlib, not permitidos) → fuga ("componer", "app"). Wait — part 2's walk of FunctionDef componer finds the ImportFrom → appends ("componer", "app") and ("componer", "app.db"). Test asserts any == "app.db" → passes. Good.
+
+  Note: "app" itself flagged as violation — correct (importing the app package into the pure core is also IO-adjacent). Fine.
+
+  15. Ruff: line lengths? Check lines like `    if any(nombre == p or nombre.startswith(p + ".") for p in _PROHIBIDOS_MODULOS_PUROS):` — count: ~95 chars? Let me count: 4 + len("if any(nombre == p or nombre.startswith(p + \".\") for p in _PROHIBIDOS_MODULOS_PUROS):") = 4+86=90. Under 100. The elif line: `        elif not isinstance(nodo, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):` = 8+81=89. OK. Evidence says ruff passed.
+
+  16. `import sys` placement: added between `import ast` and `import uuid` — alphabetical. Good.
+
+  Now run the tests to verify green, and run the sqlite3/subprocess repro.
+
+  Also double check `sys.stdlib_module_names` contains "subprocess", "sqlite3", "os" — yes.
+
+  One more check: is there any OTHER top-level def/class in app/jev_ads.py besides AsesorAds that has nested imports? From grep, imports at 437-751 — need AsesorAds class start line. Let me verify class AsesorAds definition line and that lines 437-751 are inside it (no other top-level def with imports between). Grep for `^class |^def ` in app/jev_ads.py.50:def es_asin_like(termino: str) -> bool:
+56:class HechoConFuente:
+64:class FichaVersion:
+80:class ClavePar:
+92:class Juicio:
+104:class FichaFaltante:
+111:class NoAplicaTexto:
+118:class FalloProveedor:
+134:class EstadoAnuncio:
+143:class MiembroCenso:
+156:class CensoCongelado:
+165:class HayCompatible:
+174:class NingunoCompatible:
+181:class Indeterminado:
+191:class Vigente:
+196:class Obsoleta:
+201:class NoComprobable:
+208:def _solo_no_activo(estados: tuple[EstadoAnuncio, ...]) -> bool:
+216:def _con_estado_ausente(miembro: MiembroCenso) -> bool:
+225:def _universo_anunciado(
+240:def _absorber_pares(
+278:def componer(censo: CensoCongelado, pares: tuple[EstadoPar, ...]) -> RelevanciaConjunto:
+334:class DecisionARevisar:
+349:class SemillasARevisar:
+365:class Revision:
+376:def _censo_a_json(censo: CensoCongelado) -> dict:
+397:def _canonico(objeto: object) -> str:
+401:def _juicio_de_respuesta(respuesta: dict, clave: ClavePar, evento_id: UUID) -> Juicio:
+413:class AsesorAds:
+933:class ReferenciaPlan:
+940:class VistaAsesoria:
+989:def _relevancia_a_dict(resultado: RelevanciaConjunto) -> dict:
+1014:def _fila_dict(fila, columnas) -> dict:
+1019:def _evento_del_par(eventos: list[dict], hash_termino: str, ficha_id: UUID) -> dict | None:
+1037:def _censo_de_json(datos: dict) -> CensoCongelado:
+.........................                                                [100%]
+25 passed in 0.13s
+Confirmed: all nested imports in app/jev_ads.py (lines 437-751) are inside `class AsesorAds` (413-933). So the stdlib escape was not needed for the real file — permitidos alone suffices. The 25 tests pass on the current tree.
+
+  Now the repro for the widening: show that the new guard passes top-level `import sqlite3` / `import subprocess` (IO at module scope, contradicting the guard's docstring "solo la biblioteca estandar pura" and the purity invariant), whereas the pre-diff guard asserted `importados <= permitidos` and would have failed.
+
+  Let me run the repro to have the exact command output.nueva guarda: []
+guarda vieja: ROJO {'os', 'subprocess', 'sqlite3'}
+Confirmed. The new guard returns [] (green) for top-level `import sqlite3` / `import subprocess` / `import os`, while the old guard (at 8372f5aa) rejected them. The guard's own docstring still claims "en alcance de modulo ... tampoco hay red, ni DB, ni modulos Jev de IO" and the comment in `_fugas_pureza` says "solo la biblioteca estandar pura" — but `sqlite3` (DB) and `subprocess` (IO) now pass. And NOTAS.md claims "La extraccion al helper fue NEUTRA: mismo criterio y misma lista" — false for part 1: the criterion changed from strict whitelist (⊆ permitidos, 10 pure modules) to denylist ∪ stdlib ∪ permitidos. The stdlib escape wasn't needed (real file's imports are all in permitidos; nested IO imports are all inside AsesorAds which is skipped).
+
+  Is this BLOQUEANTE? Category: "prueba que no discrimina" — the guard no longer discriminates module-scope DB/IO imports from stdlib (sqlite3, subprocess, os, pathlib, shutil...). With repro command. Per the round's own rules, a blocking finding needs the repro command, which I have. The fix is one line (drop the stdlib escape, keep whitelist + denylist, since the real file doesn't need stdlib).
+
+  Counter-consideration: does the guard's actual contract cover sqlite3? Test docstring: "en top-level del modulo tampoco hay red, ni DB, ni modulos Jev de IO" — sqlite3 is DB. Yes. And the old behavior enforced it. This is a regression introduced by the fix, hidden behind a false "neutra" claim. BLOQUEANTE.
+
+  Hmm, one more sanity check on severity: is it plausible the author deliberately chose "stdlib puro" = "any stdlib"? The docstring says "stdlib puro" and the old code was whitelist-only. The widened rule would also allow `import ssl`... no, ssl is denylisted. `import socket` denylisted. `import ctypes`, `import mmap`, `import signal`, `import multiprocessing` — all allowed now. It's a real hole. BLOQUEANTE with repro. Actually, let me reconsider one final time whether to call it blocking or not. The quality-kit blocking criterion: "seguridad, datos, una regla innegociable, el comportamiento pedido roto o una prueba que no discrimina". The test no longer discriminates a class it discriminated before AND that its own docstring says it forbids (DB at module scope). I have the repro. That fits the criterion. I'll mark BLOQUEANTE but explain precisely and note the one-line fix keeps everything green (real file doesn't need the stdlib escape).
+
+  Other findings:
+
+  2. Double check of top-level try/if imports: part 1 tags them "top-level", part 2 tags them "<modulo>" (or "") — duplicated findings with inconsistent labels in failure output. Cosmetic only. NO BLOQUEANTE.
+
+  3. `_candidatos_import` hardcodes "app." for relative imports and ignores level>1 (`from .. import x` resolves to "app.x" — wrong, though it's invalid Python in a top-level package module anyway). Also relative imports inside a hypothetical nested module would resolve wrong, but the guard only ever parses app/jev_ads.py. NO BLOQUEANTE (minor robustness note) — maybe fold into one line.
+
+  4. Relative import inside a top-level def resolves against "app" regardless of where the def lives — same hardcode. Fine for the single guarded file. Part of finding 3.
+
+  5. `nombre = getattr(nodo, "name", None) or getattr(nodo, "id", "")` — unchanged line, not in scope. Skip.
+
+  6. Missing delta-reporte.txt referenced by NOTAS.md — explicitly pending until cross-review runs; this review IS that step. Not a defect. Skip.
+
+  7. Evidence: bateria-focalizada.txt shows "25 passed ... All checks passed!" — matches my local run (25 passed). Good.
+
+  8. Docstring/comment mismatch "stdlib puro" vs any-stdlib — that's finding 1.
+
+  Anything else? `_violacion_import` — `permitidos` prefix check uses `p.rstrip(".")` though entries have no trailing dot — harmless. `nombre.startswith(p.rstrip(".") + ".")` — fine.
+
+  `sorted(set(fugas))` — dedupes exact tuples; ("top-level","boto3") and ("<modulo>","boto3") both appear — finding 2.
+
+  One more: part 1 also descends into `ast.If` test expressions etc. — harmless.
+
+  AsyncFunctionDef handled in both parts — part 1 skips descending, part 2 walks all top-level nodes including async defs. Good.
+
+  Class methods: part 2 walks ClassDef (except AsesorAds) — any other class with imports? ReferenciaPlan/VistaAsesoria at 933/940 — after AsesorAds; do they have imports? Grep showed no imports beyond 751. Fine.
+
+  Edge: `test_guarda_pureza_caza_relativo_anidado` also produces fuga ("componer","app") — the test only asserts app.db present, fine.
+
+  So final: 1 blocking (guard weakened: any stdlib allowed at module scope, no longer discriminates DB/IO imports like sqlite3/subprocess; contradicts docstring and the "neutra" claim in NOTAS.md; repro provided), plus 1-2 non-blocking cosmetic notes.
+
+  Repro command for finding 1 (single line, runnable):
+  uv run --frozen python -c "import sys; sys.path.insert(0,'tests'); from test_jev_ads import _fugas_pureza; assert _fugas_pureza('import sqlite3\nimport subprocess\n') == [], 'la guarda deja pasar DB/IO en top-level'"
+
+  That asserts the wrong behavior to show it. Better to phrase: el comando muestra que la guarda devuelve [] (verde) para imports que la version anterior rechazaba y que su propio docstring prohibe.
+
+  Fix suggestion: quitar el escape `sys.stdlib_module_names` de `_violacion_import` (o aplicarlo solo... no — nested previously used only denylist; new nested denylist∪(stdlib∪permitidos) is stricter than before and passes the real file? Wait — would nested WITHOUT stdlib escape still pass the real file? Nested imports outside AsesorAds: none (all inside AsesorAds, skipped). And permitidos-nested covered by control (c). So removing stdlib entirely: part 1 = denylist ∪ permitidos — same as old whitelist behavior plus denylist redundancy. Real file green. Control (c): decimal/uuid in permitidos → green. Mutants still caught. So one-line fix: drop the stdlib clause. Verified by reasoning; I ran the actual numbers already.
+
+  Actually — should I double check that dropping stdlib keeps everything green, to back the claim? I can run a quick check.
+
+violaciones sin escape stdlib en todo el archivo: ['app.jev_juicios.clave_de', 'app.jev_juicios', 'app.jev_juicios.request_sha256', 'app.jev_catalogo', 'app.jev_catalogo.ficha_vigente', 'psycopg.rows.tuple_row', 'psycopg.rows', 'app.jev_catalogo', 'app.jev_catalogo.ficha_vigente', 'app.jev_juicios.contrato_por_defecto', 'app.jev_juicios', 'app.jev_juicios', 'app.jev_juicios.pedir_juicio', 'app.jev_juicios.transporte_httpx', 'app.jev_juicios']
+mutantes: True True True True
+• Confirmed: without the stdlib escape, the only violations in the whole real file are the lazy imports inside AsesorAds (which part 2 skips by name), so the guard would still be green on the real file, and the mutants (app.db, boto3) plus sqlite3/subprocess are all flagged. The stdlib escape was unnecessary and purely weakened part 1.
+
+  Findings:
+
+  1. BLOQUEANTE — la guarda endurecida deja de discriminar imports de alcance de modulo que antes rechazaba: `_violacion_import` agrega el escape `sys.stdlib_module_names`, asi que `import sqlite3` / `import subprocess` / `import os` en top-level ahora pasan en verde, contradiciendo el docstring de la propia prueba ("en top-level del modulo tampoco hay red, ni DB, ni modulos Jev de IO") y el comentario "solo la biblioteca estandar pura". La version en 8372f5aa los rechazaba (`assert importados <= permitidos`). Ademas NOTAS.md afirma "la extraccion al helper fue NEUTRA: mismo criterio y misma lista", lo cual es falso para la parte 1. Repro:
+
+  uv run --frozen python -c "import sys; sys.path.insert(0,'tests'); from test_jev_ads import _fugas_pureza; assert _fugas_pureza('import sqlite3\nimport subprocess\nimport os\n') != [], 'guarda ciega ante DB/IO stdlib en top-level'"
+
+  That assertion FAILS with the new code (returns []), demonstrating the hole; with the old whitelist semantics it passed (they were flagged). The escape is unnecessary: verified that removing it leaves the real file green (only AsesorAds lazy imports flagged, which are skipped) and still catches both mutants.
+
+  Hmm — is it really BLOQUEANTE per the repo's bar? "una prueba que no discrimina" with repro: yes. The test no longer discriminates module-scope DB imports (sqlite3 is DB; the docstring explicitly says "ni DB"). I have the repro command. I'll mark BLOQUEANTE. The fix: drop the stdlib clause from `_violacion_import` (one line), which keeps the real file green and both mutants red.
+
+  Actually — one caveat: the repro command must demonstrate the failure. My command asserts the CORRECT behavior and fails against current code. That's the right shape (fails now, passes after fix).
+
+  2. NO BLOQUEANTE — imports dentro de un try/if top-level se reportan dos veces con etiquetas distintas ("top-level" en parte 1 y "<modulo>"/"" en parte 2), ruido en el mensaje de fallo; no afecta el veredicto.
+
+  3. NO BLOQUEANTE — `_candidatos_import` fija "app." para cualquier nivel relativo (`from .. import x` resolveria mal a "app.x"); hoy solo se parsea app/jev_ads.py asi que no muerde, pero el docstring promete "se resuelven contra su paquete" en general.
+
+  Anything else worth a line? The evidence claims check out (25 passed locally, precommit output included, AsesorAds span verified). delta-reporte.txt referenced but pending — explicitly noted as completed when cross-review runs, so not a defect. I'll skip it or mention nothing.
+
+  One more consideration on finding 1's blocking-ness: could the reviewer argue sqlite3 isn't the project's DB so it's not "el comportamiento pedido roto"? The round's task was fixing the guard to discriminate; the fix regressed part 1 discrimination while claiming neutrality in the evidence. "Prueba que no discrimina" is explicitly a blocking category and I have repro. I'm confident marking it BLOQUEANTE.
+
+  Write the final answer in Spanish, plain text, no accents, numbered list.
+
+To resume this session: kimi -r session_f70beb23-e37a-4dfc-9158-73f5b4705c02
+
+
+=== Revisor efectivo: kimi (binario 'kimi') ===

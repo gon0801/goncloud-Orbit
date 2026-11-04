@@ -1,0 +1,2 @@
+docs/evidencia/bids-02/ejecucion/D.7/ensayo.sh: line 14: 1: uso: ensayo.sh <sha a desplegar>
+exit=1

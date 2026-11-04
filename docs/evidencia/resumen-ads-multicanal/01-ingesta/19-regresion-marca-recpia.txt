@@ -1,0 +1,32 @@
+== Bloqueante de la tercera revision: la recopia deduplicada no avanzaba la marca ==
+
+-- secuencia: NOMBRE NUEVO (as-of 08:00), recopia (12:00, mismas metricas), NOMBRE VIEJO (11:00) --
+
+== codigo anterior f55600e7 ==
+Worktree: /tmp/orbit-prev-f556
+Comando: PYTHONPATH=tests:. python repro_marca.py
+
+recopia: written=0 duplicados=1
+marca de la recopia: 1x snapshot ya ingerido (dedupe source_report_id)
+tercer snapshot: ACEPTADO
+nombre vigente=NOMBRE VIEJO
+
+== codigo corregido (head) ==
+Comando: PYTHONPATH=tests:. uv run --frozen python repro_marca.py
+
+recopia: written=0 duplicados=1
+marca de la recopia: as_of=1793275200; 1x snapshot ya ingerido (dedupe source_report_id)
+tercer snapshot: RECHAZADO (snapshot atrasado: su as_of no es posterior a la marca aceptada (1793275200); no se escribio nada)
+nombre vigente=NOMBRE NUEVO
+
+== regresion automatizada ==
+Comando: uv run --frozen python -m pytest -v tests/test_meli_ads_ingest.py -k recopia_deduplicada
+
+plugins: anyio-4.14.2
+collecting ... collected 24 items / 23 deselected / 1 selected
+
+tests/test_meli_ads_ingest.py::test_recopia_deduplicada_avanza_la_marca_y_bloquea_el_snapshot_anterior PASSED [100%]
+
+======================= 1 passed, 23 deselected in 0.44s =======================
+
+Contra f55600e7 la prueba falla en la marca persistida ('1x snapshot ya ingerido...' en vez de 'as_of=<epoch>').

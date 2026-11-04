@@ -1,0 +1,16 @@
+# B5-r2 delta: bloqueante de grok REPRODUCIDO (guarda de pureza, dos formas que siguen pasando)
+Fecha: 2026-10-04T09:01:56Z SHA revisado por grok: 3e7529c0b2807a8adbd60b5a199053f5f579496e
+Comando de cada mutante: uv run --frozen python -m pytest -q tests/test_jev_ads.py::test_modulo_puro_sin_red_ni_db_en_top_level
+Esperado si la guarda discriminara: FAILED en ambos. Observado:
+
+== mutante grok-1: try/except ImportError con import boto3 a nivel de modulo ==
+.                                                                        [100%]
+1 passed in 0.11s
+
+== mutante grok-2: 'from . import db' anidado en componer() ==
+.                                                                        [100%]
+1 passed in 0.06s
+
+(mutantes retirados; verde con el arbol limpio:)
+......................                                                   [100%]
+22 passed in 0.38s

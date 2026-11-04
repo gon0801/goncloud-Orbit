@@ -1,0 +1,7 @@
+ventana                        | n  | Spearman | error absoluto medio (puntos de conversion)
+90 dias planos                 | 21 |     0.39 | 1.04
+60 dias planos                 | 21 |     0.59 | 1.01
+dos tramos (1 y 1/2)           | 21 |     0.57 | 0.91
+exponencial, vida media 30 d   | 21 |     0.47 | 0.98
+
+redondeo: de 121 decisiones del mes con pedidos fraccionarios, 4 cambian de accion si se redondea al entero mas cercano

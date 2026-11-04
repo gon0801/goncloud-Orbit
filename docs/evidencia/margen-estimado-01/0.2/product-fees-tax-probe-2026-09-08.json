@@ -1,0 +1,14 @@
+{
+  "marketplace": "amazon_mx",
+  "fulfillment": "FBA",
+  "source_offer": "bridge.amazon_listing_prices",
+  "http_status": 200,
+  "result_status": "Success",
+  "detail_count": 2,
+  "fee_types": ["FBAFees", "ReferralFee"],
+  "tax_amount_present_count": 0,
+  "final_fee_equals_fee_minus_promotion_plus_zero_tax_for_all_details": true,
+  "total_equals_sum_final_fee": true,
+  "identifiers_and_amounts_redacted": true,
+  "contract": "FBA MX is complete only when quote details reconcile. If a future quote has nonzero TaxAmount, contribution is null with impuesto_fee_pendiente until its fiscal recoverability is evidenced in a new policy version."
+}

@@ -1,0 +1,59 @@
+# ingesta-01 D.1 intento 22 — correccion del paso 4 de rollback.sh — 2026-10-21 21:16 UTC
+
+## Que paso (incidente heredado, "rollback: salida 1" del brief)
+
+El 2026-10-21 18:14 UTC rollback.sh salio 1 DESPUES de restaurar bien (imagen y
+crontab previos, /health 200): rollback-intento-fallido-1814.txt termina en
+"FALLA: descarga.py sigue en el contenedor". Causa raiz: el paso 4 verificaba la
+AUSENCIA hardcoded de descarga.py, cierto solo la primera vez que se revierte D.1.
+Ese dia el servidor ya traia el codigo nuevo del despliegue de la manana, el
+respaldo predeploy-20261021-1814 contenia descarga.py, la restauracion fue
+correcta y el chequeo igual dio falso fallo. La salida 1 de desplegar.sh (md5)
+fue transitoria (reintento exitoso, misma evidencia sobreescrita); su paso md5
+ya es estricto y reporta el archivo que difiere.
+
+## Correccion (commit de este intento)
+
+rollback.sh paso 4 ahora compara el contenedor contra predeploy-<STAMP> (lo que
+una reversa debe garantizar, exista o no descarga.py en el respaldo):
+md5 de app/**/*.py + tools/*.py dentro del contenedor vs el respaldo, LC_ALL=C.
+
+## Prueba de regresion (regla 9, demostrada fallando contra lo anterior)
+
+tests/test_ingesta01_d1_rollback.py, con ssh falso:
+
+$ uv run --frozen python -m pytest tests/test_ingesta01_d1_rollback.py -q
+2 passed
+
+Contra la version anterior (43f51cd), 2 failed; el primero reproduce el
+incidente textual: "FALLA: descarga.py sigue en el contenedor", returncode 1:
+$ git show 43f51cd:docs/evidencia/ingesta-01/ejecucion/D.1/rollback.sh > /tmp/rollback-viejo.sh
+$ ORBIT_ROLLBACK_SH=/tmp/rollback-viejo.sh pytest -q tests/test_ingesta01_d1_rollback.py
+FAILED test_reversa_de_redespliegue_termina_ok
+FAILED test_contenedor_distinto_del_respaldo_es_falla
+
+## Dato real del chequeo nuevo (solo lectura, produccion, 21:16 UTC)
+
+Comparacion contenedor vs predeploy-20261021-183311 (respaldo pre-D del deploy
+vigente). Hoy el contenedor corre el codigo desplegado, NO el respaldo, y el
+chequeo lo detecta (si una reversa no restaurara, esto es lo que veria):
+
+$ ssh gonserver "sudo docker exec orbit-app-1 sh -c 'cd /app && find app tools -name \"*.py\" | LC_ALL=C sort | xargs -r md5sum'"
+$ ssh gonserver "cd /mnt/data/appdata/orbit/predeploy-20261021-183311 && sudo find app tools -name '*.py' | LC_ALL=C sort | xargs -r sudo md5sum"
+
+lineas contenedor: 147   (trae app/ads/descarga.py y app/ads/diario.py)
+lineas respaldo:   182   (codigo pre-D, sin descarga.py)
+lineas que difieren: 55
+< 086e89475102ebaa406848c4c66f676a  app/ads/descarga.py
+< 104103ac78948cb5c68e80bf5af30e51  app/ads/diario.py
+< 6276bc5a9e64cb46c267f1561fbf283a  app/ads/reports.py
+> 794e06441b49b60d2c12450317dcfa99  app/ads/reports.py
+< b63444d3336de2ef9b0dc95fdb8cd664  app/cli.py
+> ed28ff0542901e25f85c90268113c961  app/cli.py
+(... 49 mas)
+
+La direccion "restaurado == respaldo" ya se ensayo de verdad en intentos
+anteriores (rollback-20261021-1814.txt: REVERSA LISTA, /health 200) y queda
+cubierta por la regresion con ssh falso. El despliegue vigente NO se toco:
+checklist re-corrido 21:07 UTC (0 fallas, 0 sin medir, exit 0), /health 200,
+digest 375b0e69..., crontab con las 15 marcas job_key.

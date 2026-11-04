@@ -1,0 +1,1 @@
+migrations/0067_bids02_campana_ajuste.sql

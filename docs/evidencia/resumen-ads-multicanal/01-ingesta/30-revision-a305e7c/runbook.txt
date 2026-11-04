@@ -1,0 +1,19 @@
+== Patron anterior: git show | ssh/cat sin pipefail ==
+fatal: path 'tools/refresh_costos.sh' exists on disk, but not in '0000000000000000000000000000000000000000'
+pipeline_rc=0
+bytes=       0
+bash_n_rc=0
+
+== Patron nuevo: materializar, test -s, checksum no vacio ==
+fatal: path 'tools/refresh_costos.sh' exists on disk, but not in '0000000000000000000000000000000000000000'
+git_show_rc=128
+test_s_rc=1
+bytes=       0
+
+== Patron nuevo con un SHA valido (a305e7c) ==
+test_s_rc=0
+bytes=    4105
+bash_n_rc=0
+== Patron nuevo con archivo no vacio pero sin la linea de MeLi ==
+test_s_rc=0
+script_rc=1

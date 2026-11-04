@@ -1,0 +1,72 @@
+== DESPUES: orbit_review_a_legacy_future_baseline ==
+LEGACY_FUTURE_BASELINE {'legacy_asof': 1793289304, 'stale_asof': 1793285704, 'stale_result': None, 'error': 'snapshot atrasado: su as_of no es posterior a la marca aceptada (1793289304); no se escribio nada', 'latest': ('20.0000', 'FUTURE'), 'marks': [(True, 'futuro=1793296504; snap=728903fd8545836024270391a32cc8c7a938a0950a503c43804a8322512120eb; piso=1793289304'), (False, 'snapshot atrasado: su as_of no es posterior a la marca aceptada (1793289304); no se escribio nada')]}
+rc=1
+
+== DESPUES: orbit_review_a_revision_hash ==
+REVISION_HASH {'first': {'run_id': 1, 'filas_origen': 1, 'rows_written': 1, 'rows_skipped': 0, 'duplicados': 0, 'duplicados_version': 0, 'duplicados_id': 0, 'rechazos': 0, 'entidades_nuevas': 1, 'entidades_actualizadas': 0}, 'changed_same_asof': None, 'error': 'snapshot con el mismo as_of y contenido distinto (snapshot atrasado): no se escribio nada', 'latest': '5.0000'}
+rc=1
+
+== DESPUES: orbit_review_a_hash_delimiter ==
+HASH_DELIMITER {'first': {'run_id': 1, 'filas_origen': 1, 'rows_written': 1, 'rows_skipped': 0, 'duplicados': 0, 'duplicados_version': 0, 'duplicados_id': 0, 'rechazos': 0, 'entidades_nuevas': 1, 'entidades_actualizadas': 0}, 'different_snapshot': None, 'error': 'snapshot con el mismo as_of y contenido distinto (snapshot atrasado): no se escribio nada', 'entities': [('A',)]}
+rc=1
+
+== DESPUES: orbit_review_a_empty_retry ==
+EMPTY_FIRST {'first': {'run_id': 1, 'filas_origen': 0, 'rows_written': 0, 'rows_skipped': 0, 'duplicados': 0, 'duplicados_version': 0, 'duplicados_id': 0, 'rechazos': 0, 'entidades_nuevas': 0, 'entidades_actualizadas': 0}, 'error': None, 'runs': [(True, 0, 0, 'snapshot vacio (no-op)')]}
+rc=1
+
+== DESPUES: orbit_review_a305e7c0_nul_fields ==
+NUL_CAMPO campaign_name {'error': "MeliAdsError('snapshot rechazado (cero escrituras): 1x campaign_name con NUL no soportado')", 'run': (False, datetime.datetime(2026, 10, 29, 16, 55, 5, 903874, tzinfo=datetime.timezone.utc), 1, 'snapshot rechazado (cero escrituras): 1x campaign_name con NUL no soportado')}
+NUL_CAMPO revision {'error': "MeliAdsError('snapshot rechazado (cero escrituras): 1x revision con NUL no soportado')", 'run': (False, datetime.datetime(2026, 10, 29, 16, 55, 6, 25918, tzinfo=datetime.timezone.utc), 1, 'snapshot rechazado (cero escrituras): 1x revision con NUL no soportado')}
+NUL_CAMPO campaign_id {'error': "MeliAdsError('snapshot rechazado (cero escrituras): 1x campaign_id con NUL no soportado')", 'run': (False, datetime.datetime(2026, 10, 29, 16, 55, 6, 168499, tzinfo=datetime.timezone.utc), 1, 'snapshot rechazado (cero escrituras): 1x campaign_id con NUL no soportado')}
+rc=0
+
+== DESPUES: orbit_review_a_recopy_retry_matrix ==
+RECOPY_RETRY_MATRIX {'retry': {'run_id': 4, 'filas_origen': 1, 'rows_written': 0, 'rows_skipped': 1, 'duplicados': 1, 'duplicados_version': 1, 'duplicados_id': 0, 'rechazos': 0, 'entidades_nuevas': 0, 'entidades_actualizadas': 0}, 'retry_again': {'run_id': 5, 'filas_origen': 1, 'rows_written': 0, 'rows_skipped': 1, 'duplicados': 1, 'duplicados_version': 1, 'duplicados_id': 0, 'rechazos': 0, 'entidades_nuevas': 0, 'entidades_actualizadas': 0}, 'observations_before_after': (2, 2), 'same_asof_name': {'run_id': 6, 'filas_origen': 1, 'rows_written': 0, 'rows_skipped': 1, 'duplicados': 1, 'duplicados_version': 1, 'duplicados_id': 0, 'rechazos': 0, 'entidades_nuevas': 0, 'entidades_actualizadas': 0}, 'latest': ('7.0000', 'ALFA'), 'final_name': 'ALFA'}
+rc=0
+
+== DESPUES: reviewer_c_conciliar_holes ==
+filas origen: 1
+filas Orbit:  1
+faltantes en Orbit: []
+sobrantes en Orbit: []
+campana/dia comparables: 1, diferencias: 0
+dias control: 1, dias Orbit: 1, faltantes en el control: 0, faltantes en Orbit: 0, sobrantes en Orbit: 0, diferencias: 0
+fecha de conciliacion: 2026-10-29T16:55:06.715897+00:00
+moneda fuera de dominio en origen C1 2026-10-28: 'USD'
+CONCILIACION FALLA
+CASE=USD_EN_ORIGEN EXIT=1
+filas origen: 0
+filas Orbit:  1
+faltantes en Orbit: []
+sobrantes en Orbit: [('C1', '2026-10-28')]
+campana/dia comparables: 0, diferencias: 0
+dias control: 0, dias Orbit: 1, faltantes en el control: 0, faltantes en Orbit: 0, sobrantes en Orbit: 1, diferencias: 0
+fecha de conciliacion: 2026-10-29T16:55:06.719914+00:00
+spend C1 2026-10-28 con mas de 4 decimales: 1.00001
+SOBRA en Orbit ('C1', '2026-10-28'): orbit=(Decimal('1.0000'), Decimal('2.0000'), 3, 4)
+SOBRA el dia 2026-10-28 en Orbit: orbit=(4, 3, Decimal('1.0000'), Decimal('2.0000'))
+CONCILIACION FALLA
+CASE=PRECISION_ORIGEN_DESCARTADA EXIT=1
+filas origen: 1
+filas Orbit:  1
+faltantes en Orbit: []
+sobrantes en Orbit: []
+campana/dia comparables: 1, diferencias: 1
+dias control: 1, dias Orbit: 1, faltantes en el control: 0, faltantes en Orbit: 0, sobrantes en Orbit: 0, diferencias: 0
+fecha de conciliacion: 2026-10-29T16:55:06.721820+00:00
+duplicado en origen campana/dia ('C1', '2026-10-28'): (Decimal('9.0000'), Decimal('2.0000'), 3, 4) vs (Decimal('1.0000'), Decimal('2.0000'), 3, 4)
+DIFIERE ('C1', '2026-10-28'): origen=(Decimal('9.0000'), Decimal('2.0000'), 3, 4) orbit=(Decimal('1.0000'), Decimal('2.0000'), 3, 4)
+CONCILIACION FALLA
+CASE=CAMPANA_DUPLICADA_OCULTA EXIT=1
+filas origen: 1
+filas Orbit:  1
+faltantes en Orbit: []
+sobrantes en Orbit: []
+campana/dia comparables: 1, diferencias: 0
+dias control: 1, dias Orbit: 1, faltantes en el control: 0, faltantes en Orbit: 0, sobrantes en Orbit: 0, diferencias: 1
+fecha de conciliacion: 2026-10-29T16:55:06.726285+00:00
+duplicado en origen control diario 2026-10-28: (4, 3, Decimal('9.0000'), Decimal('2.0000')) vs (4, 3, Decimal('1.0000'), Decimal('2.0000'))
+DIA DIFIERE 2026-10-28: origen=(4, 3, Decimal('9.0000'), Decimal('2.0000')) orbit=(4, 3, Decimal('1.0000'), Decimal('2.0000'))
+CONCILIACION FALLA
+CASE=CONTROL_DUPLICADO_OCULTO EXIT=1
+rc=0

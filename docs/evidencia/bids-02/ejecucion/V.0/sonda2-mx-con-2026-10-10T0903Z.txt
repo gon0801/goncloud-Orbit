@@ -1,0 +1,303 @@
+{
+ "sonda": "presupuesto_campana",
+ "platform": "amazon_mx",
+ "mutacion": true,
+ "envios": [
+  {
+   "nombre": "minimo",
+   "cuerpo": {
+    "campaigns": [
+     {
+      "campaignId": "177498916708097",
+      "budget": {
+       "budget": 0.01,
+       "budgetType": "DAILY"
+      }
+     }
+    ]
+   },
+   "status": 207,
+   "respuesta": {
+    "campaigns": {
+     "error": [
+      {
+       "errors": [
+        {
+         "errorType": "budgetError",
+         "errorValue": {
+          "budgetError": {
+           "cause": {},
+           "message": "daily budget is lower than the minimum lower bound required by the marketplace",
+           "reason": "BUDGET_OUT_OF_MARKET_PLACE_RANGE"
+          }
+         }
+        }
+       ],
+       "index": 0
+      }
+     ],
+     "success": []
+    }
+   },
+   "rechazado": true
+  },
+  {
+   "nombre": "cambio",
+   "cuerpo": {
+    "campaigns": [
+     {
+      "campaignId": "177498916708097",
+      "budget": {
+       "budget": 501.0,
+       "budgetType": "DAILY"
+      }
+     }
+    ]
+   },
+   "status": 207,
+   "respuesta": {
+    "campaigns": {
+     "error": [],
+     "success": [
+      {
+       "campaignId": "177498916708097",
+       "index": 0
+      }
+     ]
+    }
+   },
+   "rechazado": false
+  },
+  {
+   "nombre": "regreso",
+   "cuerpo": {
+    "campaigns": [
+     {
+      "campaignId": "177498916708097",
+      "budget": {
+       "budget": 500.0,
+       "budgetType": "DAILY"
+      }
+     }
+    ]
+   },
+   "status": 207,
+   "respuesta": {
+    "campaigns": {
+     "error": [],
+     "success": [
+      {
+       "campaignId": "177498916708097",
+       "index": 0
+      }
+     ]
+    }
+   },
+   "rechazado": false
+  }
+ ],
+ "lecturas": [
+  {
+   "etapa": "antes",
+   "campana": {
+    "budget": {
+     "budget": 500.0,
+     "budgetType": "DAILY"
+    },
+    "campaignId": "177498916708097",
+    "dynamicBidding": {
+     "placementBidding": [],
+     "strategy": "LEGACY_FOR_SALES"
+    },
+    "marketplaceBudgetAllocation": "MANUAL",
+    "name": "Oct 2020",
+    "offAmazonSettings": {},
+    "portfolioId": "61626745153177",
+    "startDate": "2020-10-15",
+    "state": "PAUSED",
+    "tags": {},
+    "targetingType": "AUTO"
+   }
+  },
+  {
+   "etapa": "tras_minimo",
+   "campana": {
+    "budget": {
+     "budget": 500.0,
+     "budgetType": "DAILY"
+    },
+    "campaignId": "177498916708097",
+    "dynamicBidding": {
+     "placementBidding": [],
+     "strategy": "LEGACY_FOR_SALES"
+    },
+    "marketplaceBudgetAllocation": "MANUAL",
+    "name": "Oct 2020",
+    "offAmazonSettings": {},
+    "portfolioId": "61626745153177",
+    "startDate": "2020-10-15",
+    "state": "PAUSED",
+    "tags": {},
+    "targetingType": "AUTO"
+   }
+  },
+  {
+   "etapa": "tras_cambio",
+   "campana": {
+    "budget": {
+     "budget": 501.0,
+     "budgetType": "DAILY"
+    },
+    "campaignId": "177498916708097",
+    "dynamicBidding": {
+     "placementBidding": [],
+     "strategy": "LEGACY_FOR_SALES"
+    },
+    "marketplaceBudgetAllocation": "MANUAL",
+    "name": "Oct 2020",
+    "offAmazonSettings": {},
+    "portfolioId": "61626745153177",
+    "startDate": "2020-10-15",
+    "state": "PAUSED",
+    "tags": {},
+    "targetingType": "AUTO"
+   }
+  },
+  {
+   "etapa": "previa_regreso",
+   "campana": {
+    "budget": {
+     "budget": 501.0,
+     "budgetType": "DAILY"
+    },
+    "campaignId": "177498916708097",
+    "dynamicBidding": {
+     "placementBidding": [],
+     "strategy": "LEGACY_FOR_SALES"
+    },
+    "marketplaceBudgetAllocation": "MANUAL",
+    "name": "Oct 2020",
+    "offAmazonSettings": {},
+    "portfolioId": "61626745153177",
+    "startDate": "2020-10-15",
+    "state": "PAUSED",
+    "tags": {},
+    "targetingType": "AUTO"
+   }
+  },
+  {
+   "etapa": "final",
+   "campana": {
+    "budget": {
+     "budget": 500.0,
+     "budgetType": "DAILY"
+    },
+    "campaignId": "177498916708097",
+    "dynamicBidding": {
+     "placementBidding": [],
+     "strategy": "LEGACY_FOR_SALES"
+    },
+    "marketplaceBudgetAllocation": "MANUAL",
+    "name": "Oct 2020",
+    "offAmazonSettings": {},
+    "portfolioId": "61626745153177",
+    "startDate": "2020-10-15",
+    "state": "PAUSED",
+    "tags": {},
+    "targetingType": "AUTO"
+   }
+  }
+ ],
+ "perfil_id": 3850003733258937,
+ "campana": {
+  "campaignId": "177498916708097",
+  "name": "Oct 2020"
+ },
+ "campana_elegida_por": "menor campaignId entre PAUSED con DAILY",
+ "antes": {
+  "budget": {
+   "budget": 500.0,
+   "budgetType": "DAILY"
+  },
+  "campaignId": "177498916708097",
+  "dynamicBidding": {
+   "placementBidding": [],
+   "strategy": "LEGACY_FOR_SALES"
+  },
+  "marketplaceBudgetAllocation": "MANUAL",
+  "name": "Oct 2020",
+  "offAmazonSettings": {},
+  "portfolioId": "61626745153177",
+  "startDate": "2020-10-15",
+  "state": "PAUSED",
+  "tags": {},
+  "targetingType": "AUTO"
+ },
+ "cuerpos_planeados": {
+  "minimo": {
+   "campaigns": [
+    {
+     "campaignId": "177498916708097",
+     "budget": {
+      "budget": 0.01,
+      "budgetType": "DAILY"
+     }
+    }
+   ]
+  },
+  "cambio": {
+   "campaigns": [
+    {
+     "campaignId": "177498916708097",
+     "budget": {
+      "budget": 501.0,
+      "budgetType": "DAILY"
+     }
+    }
+   ]
+  },
+  "regreso": {
+   "campaigns": [
+    {
+     "campaignId": "177498916708097",
+     "budget": {
+      "budget": 500.0,
+      "budgetType": "DAILY"
+     }
+    }
+   ]
+  }
+ },
+ "minimo": {
+  "aceptado": false,
+  "rechazo_literal": {
+   "campaigns": {
+    "error": [
+     {
+      "errors": [
+       {
+        "errorType": "budgetError",
+        "errorValue": {
+         "budgetError": {
+          "cause": {},
+          "message": "daily budget is lower than the minimum lower bound required by the marketplace",
+          "reason": "BUDGET_OUT_OF_MARKET_PLACE_RANGE"
+         }
+        }
+       }
+      ],
+      "index": 0
+     }
+    ],
+    "success": []
+   }
+  },
+  "numeros_en_rechazo": [
+   "0"
+  ]
+ },
+ "iguales": true,
+ "diferencias": [],
+ "demas_llaves_iguales": true,
+ "resultado": "OK: subio 1 y regreso; la lectura final es igual a antes"
+}

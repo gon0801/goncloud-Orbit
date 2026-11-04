@@ -1,0 +1,9 @@
+rejuego amazon_mx -> docs/evidencia/bids-02/ejecucion/X.1/rejuego-amazon_mx.txt (exit=0)
+== para el aviso (paso 3): recortes/subidas y vendedoras
+rejuego amazon_mx 2026-09-15..2026-10-11: 31 ciclos live, 15 aportaron, 2028 casos
+por_motivo:
+  bajo_target: 58
+  grupo_sangra_vendedora: 2
+vendedoras_que_recortaria (1):
+  hoja 3861: grupo_sangra_vendedora
+cumple: true

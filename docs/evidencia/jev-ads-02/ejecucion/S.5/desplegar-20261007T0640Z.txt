@@ -1,0 +1,113 @@
+== 0) SHA aprobado = origin/master con la bateria completa verde
+APROBADO=15e4327877fe7a0d56b80daa48b3bb2d3604d7a8 CI=success
+== 1) Preflight (esperado cli=0 y t|t|t: nadie corre, S.3 aplicado, login listo)
+cli=0 t|t|t
+== 2) Respaldo del codigo actual, compose y SHA (el .env NO se copia a ningun lado)
+app
+docker-compose.yml
+Dockerfile
+pyproject.toml
+SHA
+tools
+uv.lock
+== 3) Copiar el codigo del SHA aprobado (git archive, LF)
+== 4) md5 server vs SHA aprobado
+md5 OK docker-compose.yml
+md5 OK Dockerfile
+md5 OK app/api_dashboard.py
+md5 OK app/ui.py
+md5 OK app/jev_vista.py
+md5 OK app/jev_salud.py
+md5 OK app/templates/base.html
+md5 OK app/templates/cortes.html
+md5 OK app/templates/_senal.html
+md5 OK app/templates/gasto_sin_venta.html
+== 5) Guardas antes de recrear (reintento 30s hasta 30min)
+guardas OK
+== 6) Build + recrear app (digest antes/despues) + health
+DIGEST antes=sha256:62329f821a158c5b4a09584d9fe6308889c4b7b6741d11c58a739cac87d457bc
+ Image orbit-app Building
+#1 [internal] load local bake definitions
+#1 reading from stdin 482B done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 952B done
+#2 DONE 0.0s
+
+#3 [internal] load metadata for docker.io/library/python:3.12-slim-bookworm
+#3 ...
+
+#4 [internal] load metadata for ghcr.io/astral-sh/uv:0.11.11
+#4 DONE 0.6s
+
+#3 [internal] load metadata for docker.io/library/python:3.12-slim-bookworm
+#3 DONE 0.7s
+
+#5 [internal] load .dockerignore
+#5 transferring context: 199B done
+#5 DONE 0.0s
+
+#6 FROM ghcr.io/astral-sh/uv:0.11.11@sha256:798712e57f879c5393777cbda2bb309b29fcdeb0532129d4b1c3125c5385975a
+#6 resolve ghcr.io/astral-sh/uv:0.11.11@sha256:798712e57f879c5393777cbda2bb309b29fcdeb0532129d4b1c3125c5385975a 0.0s done
+#6 DONE 0.0s
+
+#7 [stage-0 1/9] FROM docker.io/library/python:3.12-slim-bookworm@sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3a1509accc92a4e24a07258
+#7 resolve docker.io/library/python:3.12-slim-bookworm@sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3a1509accc92a4e24a07258 0.0s done
+#7 DONE 0.0s
+
+#8 [internal] load build context
+#8 transferring context: 3.28MB 0.0s done
+#8 DONE 0.0s
+
+#9 [stage-0 2/9] COPY --from=ghcr.io/astral-sh/uv:0.11.11 /uv /uvx /bin/
+#9 CACHED
+
+#10 [stage-0 3/9] WORKDIR /app
+#10 CACHED
+
+#11 [stage-0 4/9] COPY pyproject.toml uv.lock ./
+#11 CACHED
+
+#12 [stage-0 5/9] RUN uv sync --frozen --no-dev --no-install-project --no-cache
+#12 CACHED
+
+#13 [stage-0 6/9] COPY app ./app
+#13 DONE 0.0s
+
+#14 [stage-0 7/9] COPY tools/fabrica_campanas.py ./tools/fabrica_campanas.py
+#14 DONE 0.0s
+
+#15 [stage-0 8/9] COPY tools/jev_ads.py ./tools/jev_ads.py
+#15 DONE 0.0s
+
+#16 [stage-0 9/9] COPY tools/jev_fichas.py ./tools/jev_fichas.py
+#16 DONE 0.0s
+
+#17 exporting to image
+#17 exporting layers 0.1s done
+#17 exporting manifest sha256:5611b59d2f9acef0611c69ad91466edd674cfd15362703883880abc2e3c5781e done
+#17 exporting config sha256:642eb9b58994f34421be8ea2fff9043e7f4dea9f0a0657d485d4fba00141bef3 done
+#17 exporting attestation manifest sha256:caf70175c8f738c995e08e8e7a7af02e662e7dadaf24840e5e26f8ce88a9ef50 done
+#17 exporting manifest list sha256:8733a2ee3963c3ac0d8a2c084b646097cbbdb28e2ccdc0c8c87b67fe1e6c109a done
+#17 naming to docker.io/library/orbit-app:latest done
+#17 unpacking to docker.io/library/orbit-app:latest 0.1s done
+#17 DONE 0.2s
+
+#18 resolving provenance for metadata file
+#18 DONE 0.0s
+ Image orbit-app Built
+ Container orbit-app-1 Recreate
+ Container orbit-app-1 Recreated
+ Container orbit-app-1 Starting
+ Container orbit-app-1 Started
+DIGEST despues=sha256:8733a2ee3963c3ac0d8a2c084b646097cbbdb28e2ccdc0c8c87b67fe1e6c109a
+{"status":"ok"}
+orbit-app-1 Up 5 seconds
+== 7) Seco del job apagado (esperado exit=0 y 'apagado' en la salida)
+jev-senales apagado: jev.senales ausente
+== LISTO. STAMP=20261007-0640
+Reversa: bash docs/evidencia/jev-ads-02/ejecucion/S.5/rollback.sh 20261007-0640
+
+S.5 no instala cron (la linea de jev-senales ya corre desde S.4).
+Siguiente: bash docs/evidencia/jev-ads-02/ejecucion/S.5/checklist.sh 20261007-0640

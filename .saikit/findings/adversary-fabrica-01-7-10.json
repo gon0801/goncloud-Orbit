@@ -1,0 +1,29 @@
+{
+  "findings": [
+    {
+      "severity": "high",
+      "title": "Timeout o ack sin id se trata como rechazo: la campana ENABLED queda huerfana y un reintento crea otra",
+      "detail": "Si el POST ya creo en Amazon y luego httpx lanza (timeout) o el 207 viene vacio, _ejecuta_paso sella el paso failed con external_id=None y el mensaje dice 'rechazado'. --desarmar solo pausa filas con external_id; --reconciliar no adopta por nombre. _mutar siempre abre un lote nuevo (_lote_nuevo) sin bloquear una huella ya fallida. El operador que re-autoriza crea otro grupo ENABLED: gasto duplicado, y el primero sigue vivo hasta que alguien lo halle en la consola. Repro: TimeoutError en _post -> Abortar 'rechazado (status excepcion)' y sello (None, ack excepcion, None, 99). ack_ok({'status': 207, 'cuerpo': {}}) es True y id_creado es None: misma perdida de id.",
+      "evidence_path": "tools/fabrica_campanas.py:714"
+    },
+    {
+      "severity": "medium",
+      "title": "El readback (y por tanto reconciliar) no exige identidad del padre ni budgetType",
+      "detail": "_readback_cuadra exige state ENABLED, name/sku/texto y montos, pero ignora campaignId/adGroupId del payload (que _ejecuta_paso si guarda en el ledger) y budget.budgetType. Un ad group o keyword LISTeado por id, con mismo nombre/bid pero colgado de otra campana, cuadra. Un budget LIFETIME de 150 cuadra contra un DAILY de 150. Reconciliar promueve esos pasos a applied. Repro: payload campaignId=camp-A/adGroupId=ag-A vs leido camp-OTRA/ag-OTRA -> True; budgetType LIFETIME vs DAILY -> True.",
+      "evidence_path": "tools/fabrica_campanas.py:643"
+    },
+    {
+      "severity": "medium",
+      "title": "--reconciliar con lote y plataforma que no coinciden sale 0 y no dice nada",
+      "detail": "_reconciliar_cmd, si vienen --lote y --plataforma, usa la plataforma del argv y no comprueba que sea la del lote. El SQL (lote AND platform) queda vacio; _reconciliar no aborta cuando pendientes=0. Exit 0, resumen todo en cero: exito silencioso. Los failed/planeado del lote real no se tocan. Repro: _reconciliar(..., lote='L-MX', plataforma='amazon_us') -> {pendientes: 0, recuperadas: 0, sin_verificar: 0, ausentes: 0} sin Abortar.",
+      "evidence_path": "tools/fabrica_campanas.py:1137"
+    },
+    {
+      "severity": "low",
+      "title": "--registrar trata cualquier goal existente como listo, aunque este apagado",
+      "detail": "_SQL_GOAL_EXISTENTE no mira enabled/mode/harvest. Si el lote sigue failed (registro a medias o --desarmar que pauso y apago goals pero no llego a sellar desarmado), --registrar salta esos goals, sella applied y declara exito. No duplica (goal_unico_campana + skip); deja el lote 'applied' con metas apagadas y campanas que pueden seguir ENABLED.",
+      "evidence_path": "tools/fabrica_campanas.py:837"
+    }
+  ],
+  "note": "Atacado: POST incierto/timeout (idempotencia a/b), muerte a mitad de sello, reintento de --acepto-mutacion-real, readback de identidad, --reconciliar lote+plataforma cruzados, --registrar vs goals apagados, frontera de perfil, goals duplicados. Limpio: unique goal_unico_campana + skip evitan duplicar metas; sin perfil aceptado no hay POST; --desarmar no sella desarmado si el LIST no dice PAUSED; no hay app.ads.write. No live Amazon: el timeout-con-creacion-real queda inferido del codigo (confirmed el sello None y el texto 'rechazado')."
+}

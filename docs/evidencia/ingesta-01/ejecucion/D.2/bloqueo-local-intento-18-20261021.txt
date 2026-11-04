@@ -1,0 +1,71 @@
+ingesta-01 D.2 — 2026-10-21 13:13-13:20 PDT (20:13-20:20 UTC, intento 18): el bloqueo
+local es POLITICA DEL SO sobre el spool de at, no un cuelgue transitorio
+================================================================================
+
+Contexto: el Acepta de D.2 (`atq | grep -q .`) corre en ESTA Mac. Cola local
+vacia (atq exit 0, 0 filas) y macOS 27.0.1 (Build 26A434), SIP habilitado,
+sin reinicio desde la instalacion (up 13:38 a las 13:13 PDT; /private/var/at/jobs
+vacio desde el 24-sep). Diagnostico previo: intentos 13-17 (EINTR en el lockfile,
+sudo sin passwordless, atrun Disabled=1 sin cargar).
+
+Bateria NUEVA de este intento (cada prueba con su salida real):
+
+1) Envio con TODAS las senales bloqueadas: hijo de python3 con
+   pthread_sigmask(SIG_BLOCK, senales 1..31 menos KILL/STOP) y de ahi
+   `/usr/bin/at now + 10 minutes` -> rc=1, "at: cannot open lockfile
+   /usr/lib/cron/jobs/.lockfile: Interrupted system call". Si el EINTR
+   viniera de una senal de userspace, el open no habria podido interrumpirse
+   con la mascara heredada: el EINTR lo fabrica el kernel. Identicos rc=1 y
+   mensaje con `/usr/bin/batch` y con `at -q g` (otra cola): todas las rutas
+   de creacion pasan por el mismo lockfile del spool.
+
+2) `touch /private/var/at/jobs/prueba-intento18` como usuario NORMAL ->
+   "Interrupted system call" (NO "Permission denied"): la intercepcion ocurre
+   ANTES del chequeo de permisos, para cualquier proceso, no solo setuid.
+
+3) Contraste quirurgico: `touch /private/var/db/prueba-intento18` ->
+   "Permission denied" (POSIX normal). El bloqueo no es global a /private/var:
+   es especifico del spool de at (/private/var/at/jobs = /usr/lib/cron/jobs).
+
+4) `mkdir /private/var/at/jobs/prueba-dir` -> se cuelga INDEFINIDAMENTE
+   (mato el timeout de 120 s del shell; sin procesos zombis al final). El
+   mediador es inconsistente: open(O_CREAT) lo corta rapido con EINTR, mkdir
+   lo detiene para siempre. Ningun POSIX hace eso: es mediacion activa.
+
+5) `/usr/bin/at` y `/usr/bin/atq` son setuid root (`ls -laO`: -r-sr-xr-x root
+   wheel restricted,compressed): `at` corria con euid root y AUN ASI recibe el
+   EINTR. Escribir el spool desde userland esta bloqueado incluso siendo root
+   efectivo. En cambio `/usr/bin/crontab` (setuid, -rwsr-xr-x) funciona
+   (`crontab -l` -> "no crontab for gon", exit 0): /usr/lib/cron/tabs no esta
+   bloqueado; solo jobs/.
+
+6) Mediador identificado como responsable probable:
+   `launchctl print system/com.apple.backgroundtaskmanagementd` -> state =
+   running (el daemon vive; su camino de mediacion sobre el spool de at es el
+   colgado). Reiniciarlo exige sudo (`launchctl kickstart -k system/...`).
+   systemextensionsctl: solo la network extension de Tailscale (no media
+   archivos). system_profiler no muestra perfiles MDM. SIP habilitado.
+
+Conclusion (endurece la de intentos 13-17): en macOS 27.0.1 toda via de
+creacion de entradas en el spool de at desde userland (setuid at, batch, otra
+cola, escritura directa, mkdir) esta interceptada por el kernel (EINTR
+inmediato o cuelgue indefinido), con o sin senales, incluso con euid root.
+Poblar la cola local requiere una persona con admin: reiniciar la Mac y/o
+`sudo launchctl kickstart -k system/com.apple.backgroundtaskmanagementd`, y
+despues `sudo launchctl load -w
+/System/Library/LaunchDaemons/com.apple.atrun.plist` si ademas se quisiera
+ejecucion local (atrun sigue Disabled=1). Nota: al ser politica y no cuelgue
+transitorio, el reinicio por si solo no esta garantizado; la teoria "reboot
+lo arregla" de intentos anteriores queda degradada a "posible, sin probar".
+
+Estado real de D.2 (no depende de la Mac; re-verificado hoy 20:13-20:16 UTC):
+- gonserver: job 9 en `atq` (Wed Oct 28 18:42:00 2026 a claw);
+  `ssh gonserver 'atq | grep -q .'` -> exit 0.
+- /mnt/data/appdata/orbit/recordatorios/: ingesta01-d2.sh (md5
+  41e43db818d9f9f035aa7c6e4b77ed3d = repo medicion-7d.sh), ingesta01-d2.sql
+  (md5 ce06a85a28abff2b6e7838e89f1d1dfd = repo medicion-7d.sql).
+- ingesta01-d2.sql re-probado hoy 20:16 UTC en solo lectura: exit 0, BEGIN
+  READ ONLY ... ROLLBACK, 3 querys, 0 filas (la ventana de 7 dias empieza el
+  2026-10-22; ver sql-prueba-20261021-201613.txt).
+- checklist D.1 re-corre hoy 20:16 UTC: 0 fallas, 0 sin medir, exit 0 (ver
+  ../D.1/checklist-20261021-201613.txt).

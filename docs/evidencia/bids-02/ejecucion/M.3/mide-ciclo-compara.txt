@@ -1,0 +1,16 @@
+M.3 mide_ciclo.sh, copia fresca orbit_copia_bids02_0b @5432 del 2026-10-10
+(mismo dia del volcado, misma copia para ambas patas; pata master primero
+con MIDE_SIN_CLAVE=1, luego la mia con clave niveles_v3 heredando settings).
+5 corridas shadow por plataforma y pata, todas status done:
+- origin/master (2db9e20): MX 0.8 mediana (1 bid/corrida, bandas_v1),
+  US 0.5 mediana (0 bids; primer corrida 84.9s en frio, resto 0.5).
+- esta rama: MX 0.6 mediana (1 bid/corrida con inputs.politica),
+  US 0.5 mediana (2 bids/corrida con inputs.politica).
+Veredicto: 0.6 <= 0.8*1.3 y 0.5 <= 0.5*1.3. PASA (MX incluso mas rapido).
+El ciclo decide bids en ambas patas: la medicion vale (guia: si no decidiera
+ningun bid, no serviria). US decide 2 con niveles_v3 contra 0 con bandas:
+politicas distintas, esperado; M.4 lo caracteriza en el rejuego.
+Ajustes del lead al script del dueno (medicion, no producto): .venv python,
+decided_at explicito, reparacion de secuencias (*_seq no se vuelca), fila
+shadow en ambas patas heredando settings (sin heredar fraccion/target la rama
+nueva se abstiene sin_fraccion: ver prod-margen/), assert done-only.

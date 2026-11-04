@@ -1,0 +1,16 @@
+{
+  "foco": {
+    "ok": true,
+    "clase": "tabla-scroll",
+    "focoVisible": true,
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineColor": "rgb(108, 92, 231)"
+  },
+  "ancho390": {
+    "ancho": 390,
+    "bodyScroll": false,
+    "tablaScroll": true
+  },
+  "png": true
+}

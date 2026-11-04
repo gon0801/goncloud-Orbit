@@ -1,0 +1,28 @@
+== Checklist D.3 (solo lectura; sello 20261015-1104)
+== 1) HTTP: /health
+OK    GET /health = 200
+== 2) Esquema: 2 CHECK de la 0055, 2 politicas FBM y modos en shadow
+OK    2 CHECK de la 0055 en escenario = 2
+OK    2 politicas FBM vigentes = 2
+OK    precio_modo_global en config vigente = shadow
+OK    amazon_mx/fba en shadow = shadow
+== 3) GET /precios en 200 con modos, seguridad y goals
+OK    GET /precios = 200
+OK    /precios trae Modo global:
+OK    /precios trae bloque-seguridad-amazon_mx
+OK    /precios trae bloque-goals-amazon_mx
+== 4) El crontab: sin las 2 viejas de D.2, con las 4 de D.3
+OK    viejas D.2 (precio MX sin US) = 0
+OK    lineas precios MX+US (precio-spapi.lock) = 2
+OK    lineas muestras (envio_muestras) = 2
+== 5) TIPOS_PRECIO_SELLADOS trae resumen_diario (S.6)
+OK    resumen_diario sellado = true
+== 6) Muestras y escenarios de hoy (= 3 FALLAS hasta la primera corrida)
+FALLA muestras MX calculadas hoy: esperado 't', obtenido 'f'
+FALLA muestras US calculadas hoy: esperado 't', obtenido 'f'
+FALLA plataformas FBM con escenario disponible de hoy: esperado '2', obtenido '0'
+== 7) Cobertura de MX y US cuadra
+OK    cobertura amazon_mx (exit) = 0
+OK    cobertura amazon_us (exit) = 0
+== RESULTADO: 3 falla(s), 0 sin medir
+exit=3

@@ -1,0 +1,13 @@
+Mutante (d-r3, delta codex): perdonar SOLO sqlite3 debe dejar la prueba de
+lista blanca en ROJO (la prueba afirma el hallazgo exacto, no un agregado).
+
+Script de scratch (fuera del repo; hace monkeypatch de _violacion_import para
+perdonar solo sqlite3, corre la prueba, y luego la corre con la guarda real;
+comando: PYTHONPATH=. uv run --frozen python <scratch>/mutante-d-r3.py):
+
+ROJO (discrimina): la prueba falla con el mutante que perdona sqlite3 ->
+VERDE (correcto): con la guarda real la prueba pasa
+
+Con la version anterior de la prueba (assert != [], agregado), el MISMO
+mutante quedaba en verde: codex lo demostro en delta-reporte-r2.txt
+("La prueba pasa aunque sqlite3 sea permitido").

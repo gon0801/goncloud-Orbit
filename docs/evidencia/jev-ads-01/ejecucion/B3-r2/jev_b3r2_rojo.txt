@@ -1,0 +1,90 @@
+........F...F....F........................                               [100%]
+=================================== FAILURES ===================================
+_____________ test_decision_misma_solicitud_otro_termino_rechazado _____________
+
+    def test_decision_misma_solicitud_otro_termino_rechazado():
+        """Regresion VEREDICTO-B3-r1 B1: para DecisionARevisar el rechazo de la
+        misma solicitud con otro payload compara el CONTEXTO congelado completo
+        (termino + censo + plataforma), no solo decision_id."""
+        with db_jev() as conn:
+            censo, _, _, grupo = _grupo_con_fichas(conn, con_ficha_p2=False)
+            decision_id = _decision(conn, grupo)
+            asesor = AsesorAds(conn, pedir=_Pedido(), api_key="k", presupuesto=5, ahora=lambda: AHORA)
+            solicitud = uuid.uuid4()
+            asesor.evaluar(
+                DecisionARevisar(decision_id, "soporte mesa", censo, "amazon_mx", AHORA),
+                solicitud_id=solicitud,
+            )
+>           with pytest.raises(ValueError):
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^
+E           Failed: DID NOT RAISE ValueError
+
+tests/test_jev_cli.py:438: Failed
+___________________ test_miembro_solo_archived_no_paga_http ____________________
+
+    def test_miembro_solo_archived_no_paga_http():
+        """Correccion VEREDICTO-B3-r1: un miembro cuyo unico anuncio esta en
+        estado conocido no activo (ARCHIVED) no recibe intencion ni HTTP, aun
+        con ficha vigente: componer lo excluye como no_anunciado."""
+        with db_jev() as conn:
+            p1 = _producto(conn, "A1")
+            l1 = _listing(conn, p1, asin="B0A1LISTA1")
+            p2 = _producto(conn, "A2")
+            l2 = _listing(conn, p2, asin="B0A2LISTA2")
+            grupo = _grupo(conn, "amazon_mx", (l1, l2))
+            conn.execute(
+                "INSERT INTO ad_entity_state (ad_entity_id, status, synced_at)"
+                " VALUES ((SELECT id FROM ad_entity WHERE external_id = %s), 'ARCHIVED', now())",
+                (f"ad-{grupo}-0",),
+            )
+            conn.execute(
+                "INSERT INTO ad_entity_state (ad_entity_id, status, synced_at)"
+                " VALUES ((SELECT id FROM ad_entity WHERE external_id = %s), 'ENABLED', now())",
+                (f"ad-{grupo}-1",),
+            )
+            _ficha(conn, p1, (l1,))
+            _ficha(conn, p2, (l2,))
+            from app.jev_catalogo import censo_grupo
+
+            censo = censo_grupo(conn, plataforma="amazon_mx", ad_group_id=grupo)
+            pedido = _Pedido(guion={"t": "satisface"})
+            asesor = AsesorAds(conn, pedir=pedido, api_key="k", presupuesto=5, ahora=lambda: AHORA)
+            revision = asesor.evaluar(_sujeto(censo, terminos=("t",)), solicitud_id=uuid.uuid4())
+>           assert pedido.llamados == ["t"]  # solo el ENABLED; el ARCHIVED no paga
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           AssertionError: assert ['t', 't'] == ['t']
+E
+E             Left contains one more item: 't'
+E             Use -v to get more diff
+
+tests/test_jev_cli.py:528: AssertionError
+_____________________ test_wire_lleva_solo_termino_y_ficha _____________________
+
+    def test_wire_lleva_solo_termino_y_ficha():
+        transporte = _Transporte(RESPUESTA_OK)
+        resultado = _pedir(transporte)
+        assert hasattr(resultado, "juicio")
+        url, payload, headers, timeout_s = transporte.ultima
+        assert url == "https://api.typesafe.ai/v1/systemone"
+        assert payload["model"] == MODELO
+        assert set(payload) == {"state", "model", "questions"}
+        assert set(payload["state"]) == {"termino", "ficha"}
+        # Correccion VEREDICTO-B3-r1: SOLO hechos y desconocidos viajan al
+        # proveedor; listings/observado_at/revisar_antes_de son internos de
+        # Orbit (la identidad viaja por la ficha id en la clave y en el hash).
+        ficha_wire = payload["state"]["ficha"]
+>       assert set(ficha_wire) == {"hechos", "desconocidos"}
+E       AssertionError: assert {'desconocido...sar_antes_de'} == {'desconocidos', 'hechos'}
+E
+E         Extra items in the left set:
+E         'listings'
+E         'revisar_antes_de'
+E         'observado_at'
+E         Use -v to get more diff
+
+tests/test_jev_juicios.py:137: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_jev_cli.py::test_decision_misma_solicitud_otro_termino_rechazado
+FAILED tests/test_jev_cli.py::test_miembro_solo_archived_no_paga_http - Asser...
+FAILED tests/test_jev_juicios.py::test_wire_lleva_solo_termino_y_ficha - Asse...
+3 failed, 39 passed in 1.92s

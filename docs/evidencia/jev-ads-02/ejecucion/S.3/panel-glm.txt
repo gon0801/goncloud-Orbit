@@ -1,0 +1,24 @@
+# S.3: panel de revisión (interrogate adaptado)
+
+Sin herramientas de delegación en este contexto no hubo panel Muse
+(registrado en pendientes). Panel GLM por `opencode run` (zai-coding-plan):
+
+- Intento 1 (prompt de 44KB pegado, 3 modelos en secuencia): glm-5.3
+  timeout 200s sin salida; glm-5.2 solo traza de exploración, sin
+  veredicto; bucle cancelado antes de glm-4.7. Lección: punteros, no
+  contexto pegado.
+- Intento 2 (glm-5.2, prompt con punteros): timeout 280s, traza sin veredicto.
+- Intento 3 (glm-5.2-highspeed): `Your current subscription plan does not
+  yet include access to GLM-5.2-Highspeed` (rc=1 inmediato).
+- Intento 4 (glm-5.2, 3 preguntas cerradas, sin shell): rc=0, veredicto:
+
+  1) No: REVOKE ALL sobre las 5 tablas nuevas, la vista y las 4 de 0049,
+     y el DO falla si app_decide/app_ingest conservan SELECT en cualquiera.
+  2) No: app_jev solo recibe SELECT/INSERT en las tablas jev_* y SELECT en
+     la vista; el bloque DO falla si lee decision, apply_queue o
+     search_term_observation.
+  3) Sí: vigente es false si valida_hasta <= now() o si el roster cita una
+     ficha en jev_ficha_revocacion.
+
+Diversidad: solo familia GLM (1 veredicto útil). Todo intento fue de solo
+lectura (únicos comandos observados: ls/grep/git log, de exploración).

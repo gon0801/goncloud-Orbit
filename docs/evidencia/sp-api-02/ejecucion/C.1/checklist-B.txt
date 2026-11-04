@@ -1,0 +1,9 @@
+== Checklist B.3 sp-api-02 (SHA f2732131d2284b5155a79eaa8855b480b70d8503)
+OK    orbit-app-1 corriendo = true
+== 1) client.py del contenedor
+OK    md5 app/spapi/client.py (contenedor) = f722213fe1a6b60cee4c76816a706ac4
+== 2) guion nocturno del servidor
+OK    md5 spapi-diario.sh (servidor) = b33a79556171c539861b5b143453851b
+== 3) crontab de gon conserva job_key=spapi:diario
+OK    job_key=spapi:diario presente
+== Resumen: fallas=0 no-medido=0

@@ -1,0 +1,23 @@
+== MODO SIMULACION: datos reales contra postgresql://orbit:orbit@localhost:5432/orbit_sim_d1, servidor intacto
+SHA=0e91abb567dc43e317e2f6ea258aaa956159e99a
+== 0) Reversas de aplicadas-20261014-0343.txt existen en el SHA, ANTES de tocar nada
+reversas en orden: 0054_reversa_precio02_base.sql 0053_reversa_precio02_canal_meli.sql
+== 0b) Guardas (ciclos en running abortan)
+guardas OK (sin ciclos en running)
+== 1) Restaurar codigo de predeploy-20261014-0343 (el crontab no se toca)
+crontab antes: md5 y lineas = a6f9d942a5fef5866979c205ec5b7456 2 (sin tocarlo)
+SIMULACION: respaldo /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-d1-sim/predeploy-20261014-0343 presente; sin servidor, nada que reconstruir
+== 2) Reversas en orden inverso
+WARNING:  there is already a transaction in progress
+NOTICE:  reversa 0054: config 2 sembrada por la 0054 retirada
+WARNING:  there is no transaction in progress
+reversa aplicada 0054_reversa_precio02_base.sql
+WARNING:  there is already a transaction in progress
+NOTICE:  reversa 0053: estimacion_canal conserva el valor meli (Postgres no lo quita)
+WARNING:  there is no transaction in progress
+reversa aplicada 0053_reversa_precio02_canal_meli.sql
+== 3) Verificacion (esperado: sin columnas del corte)
+columnas del corte en precio_decision: 0
+crontab despues: md5 y lineas = a6f9d942a5fef5866979c205ec5b7456 2
+== REVERSA LISTA. Codigo de predeploy-20261014-0343 restaurado y reversas aplicadas; sin tocar el crontab.
+exit=0

@@ -1,0 +1,6 @@
+unidades: estado=no_perdiendo evidencia=unidades u15=90 u60=600
+trafico: estado=perdiendo evidencia=trafico racha=2
+sin atribuir: estado=sin_dato submotivo=venta_sin_publicacion
+cohorte: subidos=1 control=1 alarma=True
+lineal: resultado=subir verificacion=lineal p=131.68
+OK: senal por unidad, trafico, cohorte y lineal

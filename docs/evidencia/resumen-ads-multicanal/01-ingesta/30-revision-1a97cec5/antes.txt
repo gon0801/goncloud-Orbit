@@ -1,0 +1,23 @@
+== ANTES (1a97cec5): FUTURO RECLASIFICADO (Caso A) ==
+FUTURO_RECLASIFICADO {'marca_reintento': 'as_of=1793287851; futuro=1793287851; 1x misma version canonica (recopia o reintento)', 'correccion_real_error': 'snapshot atrasado: su as_of no es posterior a la marca aceptada (1793287851); no se escribio nada', 'latest': '5.0000', 'latest_esperado': '6.0000'}
+rc=1
+
+== ANTES (1a97cec5): REINTENTO FUTURO (Caso B) ==
+REINTENTO_FUTURO_EXACTO {'primero': {'run_id': 1, 'filas_origen': 1, 'rows_written': 1, 'rows_skipped': 0, 'duplicados': 0, 'duplicados_version': 0, 'duplicados_id': 0, 'rechazos': 0, 'entidades_nuevas': 1, 'entidades_actualizadas': 0}, 'reintento': None, 'error': 'snapshot atrasado: su as_of no es posterior a la marca aceptada (1793290851); no se escribio nada', 'latest': '6.0000', 'observaciones': 2}
+rc=1
+
+== ANTES (1a97cec5): NUL EN MONEDA ==
+ingest_run 1 quedo ABIERTA: fallo tambien su sello de fallo; el error original de la corrida era: snapshot rechazado (cero escrituras): 4x moneda fuera de dominio (MXN): MXN\x00USD
+NUL_MONEDA {'error': "MeliAdsError('snapshot rechazado (cero escrituras): 4x moneda fuera de dominio (MXN): MXN\\x00USD')", 'runs': [(None, None, 0, None)], 'datos': (0, 0)}
+rc=1
+
+== ANTES (1a97cec5): CONCILIACION CON ORBIT VACIO ==
+filas origen: 1
+filas Orbit:  0
+faltantes en Orbit: [('C1', '2026-10-28')]
+sobrantes en Orbit: []
+campana/dia comparables: 0, diferencias: 0
+dias comparables: 0, diferencias: 0
+fecha de conciliacion: 2026-10-29T15:23:36.085537+00:00
+CONCILIACION OK
+rc=0

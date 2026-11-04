@@ -1,0 +1,61 @@
+# Cross review con Kimi sobre 11db72d6
+
+Modelo: `kimi-code-plan-cn/k3.1-pro` (los tres revisores).
+Diversidad reducida: solo kimi k3.1-pro (el runtime del panel no reparte
+modelos; se lanzo con kimi a peticion del operador).
+
+Alcance revisado: diff `9e2c667a..11db72d6` (conciliacion T+0, CI fail
+closed, arnes y evidencia). Solo lectura; ningun revisor edito el repo.
+
+## Veredictos
+
+| Revisor | Foco | Veredicto |
+|---|---|---|
+| A | Conciliacion T+0 | APROBADO |
+| B | Ingesta y CI fail-closed | APROBADO |
+| C | Operacion y contrato | RECHAZO (1 bloqueante, corregido en el commit siguiente) |
+
+## Revisor A — conciliacion T+0 (APROBADO)
+
+- `pytest -q tests/test_conciliar_meli_ads.py` → 33 passed.
+- Las 3 copias byte-identicas (sha `726c73a9…3711`).
+- Arnés adversario propio (`/tmp/revisor_a_t0.py`) con el `main()` REAL del
+  conciliador: 21 casos, `inesperados=0`. Cubrio NULL de HOY en las 4
+  metricas, USD en control y en campanas, dos controles de HOY, control de
+  HOY en ceros, `--hasta=HOY`, campana y control futuros, control de ayer
+  con `--hasta=anteayer`, y T+0 combinado con FALTA/SOBRA/DIFIERE/
+  duplicados/moneda/hueco interior. Todos fallan cerrados; el T+0 valido
+  imprime la exclusion y `CONCILIACION OK`.
+
+## Revisor B — ingesta y CI fail-closed (APROBADO)
+
+- `pytest -q tests/test_meli_ads_ingest.py` → 79 passed, 0 skips (57 con
+  Postgres real).
+- Guard: `test_pg_guard_falla_cerrado_en_ci_sin_postgres` +
+  `test_postgres_obligatorio_{ausente,driver_ausente}_fail_closed` → 3
+  passed (RuntimeError en CI; skip legitimo fuera de CI).
+- Regresiones de 14adac06 (UTF-8 al inicio/en medio, nombre NULL) → 3 passed.
+- Arnés propio: 9 passed (UTF-8 en la ULTIMA fila, varias ilegibles, una
+  fila, `rows_skipped == count(*)`, nombre NULL/vacio/blancos, empate de
+  fecha, clave duplicada rechazada, `CI=""`).
+- Nota: quedan 3 `importorskip("psycopg")` en tests que usan `pg` (no
+  ocultan integracion: el import normal del fixture corre antes) y el
+  patron viejo `_DSN_EXPLICITO/_hay_postgres_local` en
+  `test_ledger_sync.py`/`test_listings_sync.py` (otras integraciones, fuera
+  de alcance de esta ronda).
+
+## Revisor C — operacion y contrato (RECHAZO → corregido)
+
+- BLOQUEANTE: `docs/DEPLOY.md` declara que la conciliacion corre "desde la
+  maquina del lead" (macOS) pero usaba `HASTA=$(date -u -d yesterday +%F)`,
+  exclusivo de GNU date: `date: illegal option -- d` en macOS. Correccion
+  aplicada: forma portable con precedente de repricing-02 (`desplegar.sh`):
+  `HASTA=$(date -u -d yesterday +%F 2>/dev/null || date -u -v-1d +%F)`.
+- Nota 1: whitespace final en `regresiones-contra-9e2c667a.txt` hacia
+  fallar `git diff --check 9e2c667a..11db72d6` → recortado.
+- Nota 2: `calidad.txt` no dejaba constancia del comando exacto de
+  `ruff format` → regenerado con los comandos completos.
+- Nota 3: el caso `--hasta=HOY` sin exencion estaba implementado pero sin
+  prueba dedicada → agregada
+  (`test_control_de_hoy_dentro_de_la_ventana_sigue_fallando`).
+- Verifico que commit y README no declaran gates live ejecutados.

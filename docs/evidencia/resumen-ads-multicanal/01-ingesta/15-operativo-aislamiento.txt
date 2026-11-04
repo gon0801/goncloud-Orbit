@@ -1,0 +1,33 @@
+== Lane 9: aislamiento de fallos de refresh_costos.sh (docker/python3 stubs) ==
+Unica diferencia con tools/refresh_costos.sh: LOGDIR apunta al harness (no a /mnt/data).
+
+-- control: todos los pipelines OK --
+2026-10-29 costs rc=0 (detalle: /tmp/meli-ads-ops/harness/logs/costos.log)
+2026-10-29 fx rc=0 (detalle: /tmp/meli-ads-ops/harness/logs/fx.log)
+2026-10-29 ledger rc=0 (detalle: /tmp/meli-ads-ops/harness/logs/ledger.log)
+2026-10-29 meli-ads rc=0 (detalle: /tmp/meli-ads-ops/harness/logs/meli_ads.log)
+rc=0
+orden:
+ingest costs
+ingest fx
+ingest ledger
+ingest meli-ads
+
+-- fx falla: costs, ledger y meli-ads deben correr igual --
+2026-10-29 costs rc=0 (detalle: /tmp/meli-ads-ops/harness/logs/costos.log)
+2026-10-29 fx rc=5 (detalle: /tmp/meli-ads-ops/harness/logs/fx.log)
+2026-10-29 ledger rc=0 (detalle: /tmp/meli-ads-ops/harness/logs/ledger.log)
+2026-10-29 meli-ads rc=0 (detalle: /tmp/meli-ads-ops/harness/logs/meli_ads.log)
+rc=1
+orden:
+ingest costs
+ingest fx
+ingest ledger
+ingest meli-ads
+
+logs por pipeline:
+total 32
+-rw-r--r--@ 1 dn  wheel  912 Oct 28 19:18 costos.log
+-rw-r--r--@ 1 dn  wheel  458 Oct 28 19:18 fx.log
+-rw-r--r--@ 1 dn  wheel  920 Oct 28 19:18 ledger.log
+-rw-r--r--@ 1 dn  wheel  936 Oct 28 19:18 meli_ads.log

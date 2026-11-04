@@ -1,0 +1,8 @@
+# B5-r2 bateria completa sobre 42d07f5f3b10fbcde638c71c8f4ae0dce936597d
+Fecha: 2026-10-04T08:45:25Z
+Comando: uv run --frozen python -m pytest -q
+
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+3847 passed, 1 warning in 224.49s (0:03:44)

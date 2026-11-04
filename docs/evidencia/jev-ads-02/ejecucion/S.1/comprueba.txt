@@ -1,0 +1,22 @@
+# S.1: Comprueba (J1 r1)
+
+Rama: jev02/s1-acta-listado. Base: c722db95dfaacf1ff1f774a1626f5a8e573eda4b.
+ORBIT_TEST_DSN="postgresql://orbit:***@localhost:5432/postgres" (no definido
+en el entorno; las pruebas usan el fallback local).
+
+Comando (guia S.1, seccion Comprueba):
+
+    uv run pytest tests/test_structure_sync.py tests/test_product_ads_vinculo.py \
+      tests/test_snapshot_listas.py tests/test_schema_docs.py tests/test_architecture.py \
+      tests/test_archiva_inertes.py tests/test_fabrica_campanas.py -q
+
+Resultado: 275 passed in 10.71s. Cero fallos, cero saltadas.
+
+Extras del mismo arbol (no los pide la guia, de propina contra colaterales):
+
+- `uv run ruff check` + `ruff format --check` sobre los 6 .py tocados: limpio.
+- Suite completa `tests/`: 3865 + 40 (test_jev_cli) = 3905 passed, 0 failed.
+- Migracion 0051 y reversa aplicadas a mano en base desechable: aplica ok,
+  los 3 CHECK muerden (CheckViolation), la reversa borra las tablas con filas.
+- TDD: pruebas 1-4 en rojo antes del codigo (la 1 con DID NOT RAISE; 2-4 con
+  ImportError), 5 y 7 en rojo antes del cableado (acta ausente), 6 en vacio.

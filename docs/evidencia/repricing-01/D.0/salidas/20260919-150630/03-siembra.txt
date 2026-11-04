@@ -1,0 +1,9 @@
+BEGIN
+DO
+ id |        label
+----+----------------------
+ 20 | D.0: <tu go literal>
+(1 row)
+
+INSERT 0 1
+COMMIT

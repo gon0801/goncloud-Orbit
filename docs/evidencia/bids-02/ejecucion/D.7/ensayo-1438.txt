@@ -1,0 +1,10 @@
+== MODO SIMULACION: el esquema base sale de postgresql://orbit:orbit@127.0.0.1:5433/orbit_copia_d7, no de prod
+esquema base cargado
+== 1) desplegar.sh en simulacion contra la base del ensayo
+FALLA: desplegar.sh no salio 0 en el ensayo
+ya aplicada: migrations/0068_bids02_sellos.sql
+ya aplicada: migrations/0069_bids02_retiro_intencion.sql
+ya aplicada: migrations/0070_bids02_permisos_lanza.sql
+ABORTA: migrations/0071_bids02_grant_vista_impulso.sql no esta aplicada y D.7 no despliega migraciones (la aplica el D que la trajo)
+FALLO (exit=1). Si ya se copio codigo o se toco el crontab: bash docs/evidencia/bids-02/ejecucion/D.7/rollback.sh 20261013-1435
+exit=1

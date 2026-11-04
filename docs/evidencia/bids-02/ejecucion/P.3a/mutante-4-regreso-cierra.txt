@@ -1,0 +1,6 @@
+$ mutante: regreso_del_dueno cierra la racha (_racha_vigente)
+$ pytest -q tests/test_pantalla_danadas.py -k regreso
+=========================== short test summary info ============================
+FAILED tests/test_pantalla_danadas.py::test_regreso_del_dueno_no_cierra_y_marca_ya_regresada
+FAILED tests/test_pantalla_danadas.py::test_regreso_en_medio_de_recortes_no_marca_ya_regresada
+2 failed, 1 passed, 12 deselected in 0.12s
