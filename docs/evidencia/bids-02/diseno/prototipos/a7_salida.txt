@@ -1,0 +1,3 @@
+amazon_mx: subidas aplicadas con volumen n=18 | razon mediana 1.23 | >=1.10: 12/18 (67%) | holgura mediana antes de subir 0.20
+amazon_us: subidas aplicadas con volumen n=8 | razon mediana 1.29 | >=1.10: 6/8 (75%) | holgura mediana antes de subir 1.00
+agosto sin motor: n=139 | razon mediana 0.91 | >=1.10: 42/139 (30%)

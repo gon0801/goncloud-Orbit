@@ -1,0 +1,7 @@
+se agrega la linea de bloqueo-reconcilia
+== crontab resultante
+# job_key=spapi:vigilante  aviso si el cron spapi:diario no dejo sus 8 corridas
+30 7 * * * /usr/bin/flock -n /tmp/spapi-vigilante.lock docker exec orbit-app-1 python -m app.cli spapi_vigilante >> /mnt/data/appdata/orbit/logs/spapi-vigilante.log 2>&1
+17 * * * * /usr/bin/flock -n /tmp/orbit-bloqueo-reconcilia.lock docker exec orbit-app-1 python -m app.cli bloqueo-reconcilia >> /mnt/data/appdata/orbit/logs/bloqueo-reconcilia.log 2>&1
+SIMULACION: sin --acepto-mutacion-real no se toco el crontab de gon
+exit=0

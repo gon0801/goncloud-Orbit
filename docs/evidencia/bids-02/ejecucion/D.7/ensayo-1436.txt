@@ -1,0 +1,10 @@
+== MODO SIMULACION: el esquema base sale de postgresql://orbit:orbit@127.0.0.1:5433/orbit_copia_d7, no de prod
+esquema base cargado
+== 1) desplegar.sh en simulacion contra la base del ensayo
+desplegar OK (STAMP=20261013-1436)
+OK: tras desplegar, el esquema es identico al base (sin migraciones)
+== 2) rollback.sh en simulacion con el mismo sello
+rollback OK
+OK: tras la reversa, el esquema es identico al base
+ENSAYO OK
+exit=0

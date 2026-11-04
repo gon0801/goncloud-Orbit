@@ -1,0 +1,48 @@
+== Lane 10: ingesta MeLi real, reinicio de FastAPI y conciliacion ==
+
+SHA verificado: 9a52ef44600b9e8cec62efb1af8b550ba83c18d8.
+
+Entorno: PostgreSQL temporal en 127.0.0.1:5433 con las 87 tablas de las
+migraciones (receta launch_pg_5433.sh), fixture Amazon de 30 dias por canal y
+el snapshot real de accounting copiado con .backup() en modo read-only.
+Snapshot: /tmp/orbit-accounting-review-1a97.db (788 filas campana/dia).
+
+Comandos de arranque (dos procesos uvicorn nuevos, mismo DSN):
+
+  export ORBIT_DSN_READ=postgresql://orbit@127.0.0.1:5433/postgres
+  export ORBIT_DSN_ADMIN=$ORBIT_DSN_READ
+  export ORBIT_DSN_DECIDE=$ORBIT_DSN_READ
+  export ORBIT_DSN_INGEST=$ORBIT_DSN_READ
+  .venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8012
+
+-- historia/latest ANTES del reinicio --
+ obs | entidades |    costo    |   revenue   |            ultima
+-----+-----------+-------------+-------------+-------------------------------
+ 788 |         4 | 108758.1300 | 384161.7700 | 2026-10-29 08:10:00.883037-07
+(1 row)
+
+-- arranque 1 de FastAPI --
+{"status":"ok"}
+
+-- reinicio real (proceso nuevo) --
+{"status":"ok"}
+
+-- historia/latest DESPUES del reinicio --
+ obs | entidades |    costo    |   revenue   |            ultima
+-----+-----------+-------------+-------------+-------------------------------
+ 788 |         4 | 108758.1300 | 384161.7700 | 2026-10-29 08:10:00.883037-07
+(1 row)
+
+-- conciliacion despues del reinicio --
+filas origen: 788
+filas Orbit:  788
+faltantes en Orbit: []
+sobrantes en Orbit: []
+campana/dia comparables: 788, diferencias: 0
+dias control: 197, dias Orbit: 197, faltantes en el control: 0, faltantes en Orbit: 0, sobrantes en Orbit: 0, diferencias: 0
+fecha de conciliacion: 2026-10-29T15:34:49.819211+00:00
+CONCILIACION OK
+rc=0
+
+La historia y el latest no cambian entre procesos; la conciliacion real sigue
+pasando. No se escribio en accounting, bridge, MeLi ni en la base de produccion.

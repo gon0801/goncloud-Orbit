@@ -1,0 +1,6 @@
+BEGIN
+-- INICIO procedencia
+margen_plataforma|3380
+goal_campana|230
+-- FIN procedencia
+ROLLBACK

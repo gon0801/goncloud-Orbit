@@ -1,0 +1,15 @@
+== productos con anuncio ENABLED: total y cubiertos por una sola ficha vigente
+platform | productos | cubiertos
+amazon_mx | 249 | 249
+amazon_us | 119 | 119
+(2 rows)
+== grupos con anuncios ENABLED: todos ligados a producto, y ademas todos sus productos cubiertos
+platform | grupos | ligados | ligados_y_cubiertos
+amazon_mx | 33 | 32 | 32
+amazon_us | 48 | 24 | 24
+(2 rows)
+== versiones de ficha vigentes y fecha en que vence la primera
+plataforma | versiones | productos | primera_en_vencer
+amazon_mx | 387 | 249 | 2027-01-03
+amazon_us | 481 | 119 | 2027-01-02
+(2 rows)

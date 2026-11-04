@@ -1,0 +1,6 @@
+== SIMULACRO: sin --acepto-mutacion-real no se escribe nada
+POST http://127.0.0.1:8011/api/ads-optimizer/settings/amazon_us
+header x-orbit-token: <token de ORBIT_SIM_TOKEN, no se imprime>
+base_config_version_id seria: 11
+cuerpo seria: {"base_config_version_id": 11, "margen": {"habilitado": true, "fraccion": 0.8}}
+SIMULACRO OK (nada escrito)

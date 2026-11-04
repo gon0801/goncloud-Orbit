@@ -1,0 +1,588 @@
+"""Tests del paquete de D.0 (REPRICING 01): `docs/evidencia/repricing-01/D.0/`.
+
+D.0 lo corre el dueño contra producción con `correr.sh`; estos tests prueban
+sus piezas contra una base temporal con base real (patrón `db_39` de
+`tests/test_precio_migracion.py`):
+
+- `siembra.sql` copia la `config_version` vigente, agrega exactamente las 20
+  claves de `verificar_config.CLAVES`, deja los caps de Ads como estaban y se
+  niega a sembrar dos veces;
+- `cuota.sql` hace nacer la cuota `precio:amazon_mx` con cap 5 como
+  `app_admin` y no deja filas;
+- `preflight.sql` y `readback.sql` corren como `app_read` en solo lectura;
+- `verificar_config.fallas` discrimina cada falla que promete;
+- el backup del schema reconoce un `pg_dump` real: `pg_dump` escribe
+  `CREATE FUNCTION` y el `grep` de `docs/DEPLOY.md` §0039 buscaba
+  `CREATE OR REPLACE FUNCTION`, así que el backup de D.0 abortaba con
+  «DUMP INVALIDO» (lo cazó el ensayo local del paquete).
+"""
+
+from __future__ import annotations
+
+import importlib.util
+import json
+import os
+import re
+import shutil
+import socket
+import subprocess
+import sys
+import types
+from contextlib import contextmanager
+from decimal import Decimal, InvalidOperation
+from pathlib import Path
+
+import psycopg
+import pytest
+from psycopg import sql as pgsql
+from psycopg.conninfo import make_conninfo
+from psycopg.types.json import Json
+from test_schema import _postgres_obligatorio_ausente, _test_dsn
+
+ROOT = Path(__file__).resolve().parents[1]
+D0 = ROOT / "docs" / "evidencia" / "repricing-01" / "D.0"
+ANTES_DE_0039 = ("0001_initial.sql", "0002_apply.sql", "0028_estimacion_venta.sql")
+
+CAPS_ADS = {
+    f"ads_apply_cap_{plataforma}_{kind}": cap
+    for plataforma in ("amazon_mx", "amazon_us")
+    for kind, cap in (("bid", 20), ("pause", 5), ("negative", 10), ("harvest", 2))
+}
+SETTINGS_VIGENTES = {**CAPS_ADS, "ads_optimizer_mode": "shadow", "isr_tasa": "0.0125"}
+MOTORES_ADS = [
+    f"ads_optimizer:{plataforma}:{kind}"
+    for plataforma in ("amazon_mx", "amazon_us")
+    for kind in ("bid", "pause", "negative", "harvest")
+]
+
+_skip_db = pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+
+
+def _numero_d0(settings, clave: str) -> Decimal:
+    """Ayudante de `_validar_cap_d0`: copia EXACTA del `_numero` de
+    REPRICING 01 (S.1 borro `app/precio/cuota.py`; el guion D.0 es evidencia
+    congelada y lo sigue importando). Solo existe para cargar
+    `verificar_config.py` abajo."""
+    if clave not in settings or settings[clave] is None:
+        raise ValueError(f"config sin {clave}")
+    valor = settings[clave]
+    if isinstance(valor, bool):
+        raise ValueError(f"setting {clave}: valor no numerico: {valor!r}")
+    try:
+        numero = Decimal(str(valor).strip() if isinstance(valor, str) else str(valor))
+    except (InvalidOperation, ValueError) as exc:
+        raise ValueError(f"setting {clave}: valor no numerico: {valor!r}") from exc
+    if not numero.is_finite():
+        raise ValueError(f"setting {clave}: valor no finito: {valor!r}")
+    return numero
+
+
+def _validar_cap_d0(settings, platform: str) -> int:
+    """Copia EXACTA del `validar_cap` de REPRICING 01 (ver `_numero_d0`)."""
+    clave = f"precio_cap_{platform}"
+    numero = _numero_d0(settings, clave)
+    if numero != numero.to_integral_value():
+        raise ValueError(f"setting {clave}: debe ser entero: {numero}")
+    cap = int(numero)
+    if not 0 <= cap <= 20:
+        raise ValueError(f"setting {clave}: fuera de cota [0, 20]: {cap}")
+    return cap
+
+
+def _verificador():
+    cuna = types.ModuleType("app.precio.cuota")
+    cuna.validar_cap = _validar_cap_d0
+    sys.modules["app.precio.cuota"] = cuna
+    try:
+        spec = importlib.util.spec_from_file_location(
+            "verificar_config_d0", D0 / "verificar_config.py"
+        )
+        modulo = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(modulo)
+    finally:
+        # Se retira enseguida: el `from` ya quedo ligado en el namespace
+        # del verificador y nada mas debe importar el modulo borrado.
+        del sys.modules["app.precio.cuota"]
+    return modulo
+
+
+VERIFICADOR = _verificador()
+
+
+@contextmanager
+def _db(prefijo: str, *, con_0039: bool):
+    """Base temporal con 0001/0002/0028 (+ 0039 si se pide) y una config
+    vigente con los ocho caps de Ads; yields `(conn autocommit, conninfo)`."""
+    dsn = _test_dsn()
+    db = f"{prefijo}_{socket.gethostname().lower()}_{os.getpid()}"
+    admin = psycopg.connect(dsn, autocommit=True)
+    conn = None
+    try:
+        admin.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(db)))
+        conn = psycopg.connect(dsn, dbname=db, autocommit=True)
+        conn.execute("SET TIME ZONE 'UTC'")
+        for nombre in ANTES_DE_0039:
+            conn.execute((ROOT / "migrations" / nombre).read_text(encoding="utf-8"))
+        conn.execute(
+            "INSERT INTO config_version (label, settings) VALUES ('vigente', %s)",
+            (Json(SETTINGS_VIGENTES),),
+        )
+        if con_0039:
+            conn.execute((ROOT / "migrations" / "0039_precio.sql").read_text(encoding="utf-8"))
+        yield conn, make_conninfo(dsn, dbname=db)
+    finally:
+        if conn is not None:
+            conn.close()
+        admin.execute(
+            pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
+        )
+        admin.close()
+
+
+def _siembra(conn, go: str) -> None:
+    """`siembra.sql` con la variable de psql `go` resuelta como literal."""
+    texto = (D0 / "siembra.sql").read_text(encoding="utf-8")
+    assert texto.count(":'go'") == 1
+    literal = pgsql.Literal(go).as_string(conn)
+    conn.execute(texto.replace(":'go'", literal))
+
+
+def _vigente(conn) -> tuple[int, str, dict]:
+    return conn.execute(
+        "SELECT id, label, settings FROM config_version ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+
+
+def _pares(conn, texto: str, *, rol: str) -> dict[str, str]:
+    """Corre un archivo `clave|valor` como `rol` en solo lectura; junta los pares."""
+    pares: dict[str, str] = {}
+    with conn.cursor() as cur:
+        cur.execute(f"SET ROLE {rol}")
+        cur.execute("BEGIN READ ONLY")
+        try:
+            cur.execute(texto)
+            while True:
+                if cur.description is not None:
+                    for clave, valor in cur.fetchall():
+                        pares[clave] = valor
+                if not cur.nextset():
+                    break
+        finally:
+            cur.execute("ROLLBACK")
+            cur.execute("RESET ROLE")
+    return pares
+
+
+def _cap(conn, motor: str):
+    return conn.execute("SELECT apply_cap_de_config(%s)", (motor,)).fetchone()[0]
+
+
+def test_plan_escapa_el_operador_sql_en_la_fila_d0():
+    plan = (ROOT / "plans" / "repricing-01.md").read_text(encoding="utf-8")
+    fila = next(linea for linea in plan.splitlines() if linea.startswith("| D.0 |"))
+
+    assert "settings \\|\\| jsonb_build_object" in fila
+
+
+def test_snippet_del_plan_coincide_con_el_manifest():
+    plan = (ROOT / "plans" / "repricing-01.md").read_text(encoding="utf-8")
+    manifest = json.loads((ROOT / "plans" / "manifest.json").read_text(encoding="utf-8"))
+    bloque = re.search(
+        r"## Snippet para `plans/manifest\.json`.*?```json\n(.*?)\n```",
+        plan,
+        flags=re.DOTALL,
+    )
+
+    assert bloque is not None
+    snippet = json.loads(bloque.group(1))
+    registrado = next(item for item in manifest["plans"] if item["name"] == "repricing-01")
+    assert snippet == registrado
+
+
+def test_estado_de_relevo_refleja_a4_y_d1_cerradas_sin_reprogramar_d0():
+    plan = (ROOT / "plans" / "repricing-01.md").read_text(encoding="utf-8")
+    estado = plan.split("## Estado para la siguiente sesión", maxsplit=1)[1]
+    estado_en_una_linea = " ".join(estado.split())
+
+    assert "Migración 0039 **no aplicada**" not in estado
+    assert "D.0 (0039 + claves" not in estado
+    assert "D.0 aplicada" in estado
+    assert "A.4 cerrada el 2026-09-22" in estado_en_una_linea
+    assert "reversas 5/6/7 están `confirmado` por observación" in estado_en_una_linea
+    assert "D.1 cerrada el 2026-09-23" in estado_en_una_linea
+    assert "Sigue D.2" in estado_en_una_linea
+
+
+# ---------------------------------------------------------------------------
+# siembra.sql
+# ---------------------------------------------------------------------------
+
+
+@_skip_db
+def test_siembra_copia_la_vigente_y_agrega_las_20_claves():
+    with _db("orbit_d0_siembra", con_0039=True) as (conn, _):
+        caps_antes = {m: _cap(conn, m) for m in MOTORES_ADS}
+        assert _cap(conn, "precio:amazon_mx") is None
+        _siembra(conn, "D.0 go del dueño: 'literal'")
+        id_nuevo, label, settings = _vigente(conn)
+        assert id_nuevo == 2
+        assert label == "D.0 go del dueño: 'literal'"
+        for clave, valor in SETTINGS_VIGENTES.items():
+            assert settings[clave] == valor, clave
+        precio = {k for k in settings if k.startswith("precio_")}
+        assert precio == set(VERIFICADOR.CLAVES)
+        assert len(precio) == 20
+        assert VERIFICADOR.fallas(settings) == []
+        for motor in ("precio:amazon_mx", "precio:amazon_us", "precio:meli"):
+            assert _cap(conn, motor) == 5
+        assert {m: _cap(conn, m) for m in MOTORES_ADS} == caps_antes
+
+
+@_skip_db
+def test_siembra_no_siembra_dos_veces():
+    with _db("orbit_d0_dos_veces", con_0039=True) as (conn, _):
+        _siembra(conn, "primera")
+        with pytest.raises(psycopg.errors.RaiseException, match="no se siembra dos veces"):
+            _siembra(conn, "segunda")
+        conn.execute("ROLLBACK")
+        assert conn.execute("SELECT count(*) FROM config_version").fetchone()[0] == 2
+        assert _vigente(conn)[1] == "primera"
+
+
+# ---------------------------------------------------------------------------
+# cuota.sql
+# ---------------------------------------------------------------------------
+
+
+@_skip_db
+def test_cuota_nace_con_cap_5_como_app_admin_y_no_deja_filas():
+    with _db("orbit_d0_cuota", con_0039=True) as (conn, _):
+        _siembra(conn, "go")
+        pares: dict[str, str] = {}
+        with conn.cursor() as cur:
+            cur.execute("SET ROLE app_admin")
+            cur.execute((D0 / "cuota.sql").read_text(encoding="utf-8"))
+            while True:
+                if cur.description is not None:
+                    pares.update(dict(cur.fetchall()))
+                if not cur.nextset():
+                    break
+            cur.execute("RESET ROLE")
+        assert pares == {"cuota:precio:amazon_mx": "5", "cuota_filas_despues": "0"}
+
+
+@_skip_db
+def test_cuota_sin_siembra_revienta_fail_closed():
+    """Sin las claves `precio_cap_*` el trigger de 0002 no deja nacer la fila:
+    la comprobación de `cuota.sql` no puede salir verde por accidente."""
+    with _db("orbit_d0_cuota_sin", con_0039=True) as (conn, _):
+        conn.execute("SET ROLE app_admin")
+        with pytest.raises(psycopg.errors.CheckViolation):
+            conn.execute((D0 / "cuota.sql").read_text(encoding="utf-8"))
+
+
+# ---------------------------------------------------------------------------
+# preflight.sql y readback.sql
+# ---------------------------------------------------------------------------
+
+
+@_skip_db
+def test_preflight_como_lector_antes_de_la_0039():
+    with _db("orbit_d0_pre", con_0039=False) as (conn, _):
+        pares = _pares(conn, (D0 / "preflight.sql").read_text(encoding="utf-8"), rol="app_read")
+        assert pares["estado_0039"] == "ausente"
+        assert pares["btree_gist"] == "1"
+        assert pares["claves_precio"] == "0"
+        assert pares["listing_dup_id_platform"] == "0"
+        assert pares["config_label"] == "vigente"
+        assert {k: v for k, v in pares.items() if k.startswith("cap:")} == {
+            f"cap:{m}": str(CAPS_ADS[f"ads_apply_cap_{m.split(':')[1]}_{m.split(':')[2]}"])
+            for m in MOTORES_ADS
+        }
+
+
+@_skip_db
+def test_preflight_distingue_0039_completa_y_a_medias():
+    """CodeRabbit (#317): con solo una parte de la 0039, el guion se saltaba la
+    migracion y sembraba antes de que el readback lo notara."""
+    with _db("orbit_d0_parcial", con_0039=True) as (conn, _):
+        preflight = (D0 / "preflight.sql").read_text(encoding="utf-8")
+        assert _pares(conn, preflight, rol="app_read")["estado_0039"] == "completa"
+        conn.execute("DROP TABLE precio_envio_muestra CASCADE")
+        assert _pares(conn, preflight, rol="app_read")["estado_0039"] == "parcial"
+
+
+@_skip_db
+def test_readback_como_lector_despues_de_migracion_y_siembra():
+    with _db("orbit_d0_rb", con_0039=True) as (conn, _):
+        _siembra(conn, "go del readback")
+        pares = _pares(conn, (D0 / "readback.sql").read_text(encoding="utf-8"), rol="app_read")
+        assert pares["tablas"] == (
+            "precio_cambio,precio_cotizacion,precio_decision,precio_envio_muestra,precio_goal"
+        )
+        for tabla in pares["tablas"].split(","):
+            assert pares[f"filas:{tabla}"] == "0"
+        assert pares["listing_id_platform_key"] == "1"
+        assert pares["exclude:precio_goal_sin_solape"] == "1"
+        assert pares["indices_parciales"] == "2"
+        assert len([k for k in pares if k.startswith("triggers:")]) == 5
+        for motor in ("precio:amazon_mx", "precio:amazon_us", "precio:meli"):
+            assert pares[f"cap:{motor}"] == "5"
+        assert all(pares[f"cap:{m}"] != "NULL" for m in MOTORES_ADS)
+        assert pares["config_label"] == "go del readback"
+        assert {k.removeprefix("clave:") for k in pares if k.startswith("clave:")} == set(
+            VERIFICADOR.CLAVES
+        )
+        # Los conteos son de verdad: con un goal sembrado, el readback lo ve.
+        listing_id = conn.execute(
+            "WITH p AS (INSERT INTO product (odoo_sku, name) VALUES ('D0-RB', 'rb') RETURNING id)"
+            " INSERT INTO listing (product_id, platform, external_id, seller_sku)"
+            " SELECT p.id, 'amazon_mx', 'B0D0RB', 'D0-RB' FROM p RETURNING id"
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO precio_goal (listing_id, platform, margen_goal_pct, mode, valid_from,"
+            " creado_por) VALUES (%s, 'amazon_mx', 0.30, 'shadow',"
+            " (now() AT TIME ZONE 'UTC')::date, 'test')",
+            (listing_id,),
+        )
+        pares = _pares(conn, (D0 / "readback.sql").read_text(encoding="utf-8"), rol="app_read")
+        assert pares["filas:precio_goal"] == "1"
+        assert pares["filas:precio_decision"] == "0"
+
+
+@_skip_db
+def test_config_id_es_el_de_la_vigente_con_ids_de_dos_digitos():
+    """Corrida real de D.0 (2026-09-19): con la vigente en 19 y la nueva en 20,
+    preflight y readback reportaban `config_id` 9, porque `id::text` conserva el
+    nombre `id` y el `ORDER BY id` ordenaba ese texto."""
+    with _db("orbit_d0_id", con_0039=True) as (conn, _):
+        for _ in range(9):
+            conn.execute(
+                "INSERT INTO config_version (label, settings)"
+                " SELECT label, settings FROM config_version WHERE id = 1"
+            )
+        preflight = (D0 / "preflight.sql").read_text(encoding="utf-8")
+        assert _pares(conn, preflight, rol="app_read")["config_id"] == "10"
+        _siembra(conn, "go con id de dos digitos")
+        pares = _pares(conn, (D0 / "readback.sql").read_text(encoding="utf-8"), rol="app_read")
+        assert pares["config_id"] == str(_vigente(conn)[0]) == "11"
+        assert pares["config_label"] == "go con id de dos digitos"
+
+
+# ---------------------------------------------------------------------------
+# verificar_config.py
+# ---------------------------------------------------------------------------
+
+
+def _config_buena() -> dict:
+    return {
+        clave: ([] if isinstance(valor, list) else str(valor))
+        for clave, valor in VERIFICADOR.CLAVES.items()
+    }
+
+
+def test_verificar_config_acepta_la_tabla_del_plan():
+    assert VERIFICADOR.fallas(_config_buena()) == []
+
+
+@pytest.mark.parametrize(
+    ("cambio", "esperado"),
+    [
+        (lambda s: s.pop("precio_cap_meli"), "falta precio_cap_meli"),
+        (lambda s: s.update(precio_cap_amazon_mx="6"), "precio_cap_amazon_mx = '6'"),
+        (lambda s: s.update(precio_envio_ventana_dias=90), "claves de envío sembradas"),
+        (lambda s: s.update(precio_otra=1), "fuera de la tabla del plan"),
+        (lambda s: s.update(precio_goal_min_pct="0.70"), "banda_desde_settings"),
+        (lambda s: s.update(precio_catalogo_max_dias_sin_reportar=True), "precio_catalogo"),
+        (lambda s: s.update(precio_fechas_excluidas="[]"), "precio_fechas_excluidas"),
+        # GLM r1 (#317): un valor no numerico es una linea de falla, no un traceback.
+        (lambda s: s.update(precio_senal_dias="tres"), "precio_senal_dias = 'tres'"),
+    ],
+)
+def test_verificar_config_caza_cada_falla(cambio, esperado):
+    settings = _config_buena()
+    cambio(settings)
+    errores = VERIFICADOR.fallas(settings)
+    assert any(esperado in e for e in errores), errores
+
+
+@pytest.mark.parametrize("nombre", ["validar_freno_dias_error", "validar_precio_aviso_dias"])
+def test_verificar_config_corre_los_validadores_de_la_fase_11(monkeypatch, nombre):
+    """La corrida (A.5) y la pantalla (A.6) validan sus claves al arrancar:
+    el paso 5 corre esos mismos validadores sobre la config sembrada."""
+
+    def _revienta(*_args, **_kwargs):
+        raise ValueError(f"{nombre} saboteado")
+
+    monkeypatch.setattr(VERIFICADOR, nombre, _revienta)
+    errores = VERIFICADOR.fallas(_config_buena())
+    assert any(f"{nombre} saboteado" in e for e in errores), errores
+
+
+# ---------------------------------------------------------------------------
+# correr.sh en produccion: el arbol tiene que SER origin/master (GLM r1, #317)
+#
+# Siembra, readback, verificador y `app/` salen del arbol, no solo la 0039.
+# Cada caso corre `correr.sh` en un repo desechable con un `origin` local
+# (bare: `git fetch` sin red) y un `ssh` falso que deja marca: la guarda
+# tiene que parar ANTES de tocar el server.
+# ---------------------------------------------------------------------------
+
+
+def _git(cwd: Path, *args: str) -> None:
+    subprocess.run(
+        ["git", "-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", *args],
+        cwd=cwd,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+def _repo_d0(tmp_path: Path) -> Path:
+    origen = tmp_path / "origen.git"
+    _git(tmp_path, "init", "-q", "--bare", "-b", "master", str(origen))
+    repo = tmp_path / "repo"
+    _git(tmp_path, "init", "-q", "-b", "master", str(repo))
+    _git(repo, "config", "user.email", "d0@test.invalid")
+    _git(repo, "config", "user.name", "d0")
+    destino = repo / "docs" / "evidencia" / "repricing-01" / "D.0"
+    destino.mkdir(parents=True)
+    for nombre in ("correr.sh", "preflight.sql"):
+        shutil.copy(D0 / nombre, destino / nombre)
+    (destino / "LEEME.md").write_text("paquete\n", encoding="utf-8")
+    (repo / "migrations").mkdir()
+    shutil.copy(ROOT / "migrations" / "0039_precio.sql", repo / "migrations" / "0039_precio.sql")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "base")
+    _git(repo, "remote", "add", "origin", str(origen))
+    _git(repo, "push", "-q", "origin", "master")
+    python = repo / ".venv" / "bin" / "python"
+    python.parent.mkdir(parents=True)
+    python.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    python.chmod(0o755)
+    return repo
+
+
+def _corre_d0(
+    repo: Path, tmp_path: Path, *, respuesta: str | None = None
+) -> tuple[subprocess.CompletedProcess, bool]:
+    """Sin `respuesta`, el `ssh` falso deja marca y falla (99); con ella, la
+    imprime y sale 0 (una linea por llamada queda en la marca)."""
+    falsos = tmp_path / "bin"
+    falsos.mkdir(exist_ok=True)
+    marca = tmp_path / "ssh-llamado"
+    ssh = falsos / "ssh"
+    if respuesta is None:
+        cuerpo = f"#!/bin/sh\ntouch '{marca}'\nexit 99\n"
+    else:
+        canned = tmp_path / "respuesta-ssh.txt"
+        canned.write_text(respuesta, encoding="utf-8")
+        cuerpo = f"#!/bin/sh\ncat > /dev/null\necho llamada >> '{marca}'\ncat '{canned}'\nexit 0\n"
+    ssh.write_text(cuerpo, encoding="utf-8")
+    ssh.chmod(0o755)
+    env = {k: v for k, v in os.environ.items() if k != "DESTINO"}
+    env["PATH"] = f"{falsos}{os.pathsep}{env['PATH']}"
+    salida = subprocess.run(
+        ["bash", "docs/evidencia/repricing-01/D.0/correr.sh", "D.0: go de prueba"],
+        cwd=repo,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    return salida, marca.exists()
+
+
+def test_correr_en_produccion_con_head_fuera_de_origin_master_para_sin_ssh(tmp_path):
+    repo = _repo_d0(tmp_path)
+    (repo / "otro.txt").write_text("commit local sin empujar\n", encoding="utf-8")
+    _git(repo, "add", "otro.txt")
+    _git(repo, "commit", "-q", "-m", "local")
+    salida, ssh_llamado = _corre_d0(repo, tmp_path)
+    assert salida.returncode == 1, salida.stdout + salida.stderr
+    assert "no esta en origin/master" in salida.stdout
+    assert "D0-ROJO" in salida.stdout
+    assert not ssh_llamado
+
+
+def test_correr_en_produccion_con_cambios_sin_commitear_para_sin_ssh(tmp_path):
+    repo = _repo_d0(tmp_path)
+    leeme = repo / "docs" / "evidencia" / "repricing-01" / "D.0" / "LEEME.md"
+    leeme.write_text("paquete editado a mano\n", encoding="utf-8")
+    salida, ssh_llamado = _corre_d0(repo, tmp_path)
+    assert salida.returncode == 1, salida.stdout + salida.stderr
+    assert "cambios sin commitear" in salida.stdout
+    assert not ssh_llamado
+
+
+def test_correr_en_produccion_con_arbol_en_origin_master_pasa_la_guarda(tmp_path):
+    """Control: con el arbol limpio en origin/master la guarda deja pasar y
+    el guion llega al preflight (el `ssh` falso falla y lo corta ahi)."""
+    repo = _repo_d0(tmp_path)
+    salida, ssh_llamado = _corre_d0(repo, tmp_path)
+    assert "VERDE arbol = origin/master, sin cambios" in salida.stdout
+    assert ssh_llamado
+    assert salida.returncode == 1
+
+
+def test_correr_con_0039_a_medias_para_antes_de_migrar_o_sembrar(tmp_path):
+    """CodeRabbit (#317): el preflight dice `parcial` y el guion corta ahi,
+    con una sola llamada al server (la del preflight): ni backup, ni 0039,
+    ni siembra."""
+    repo = _repo_d0(tmp_path)
+    caps = "".join(f"cap:{m}|20\n" for m in MOTORES_ADS)
+    preflight = (
+        "pg_version|16.4\nestado_0039|parcial\nbtree_gist|1\nconfig_id|7\n"
+        "config_label|vigente\nclaves_precio|0\nlisting_dup_id_platform|0\n" + caps
+    )
+    salida, _ = _corre_d0(repo, tmp_path, respuesta=preflight)
+    assert salida.returncode == 1, salida.stdout + salida.stderr
+    assert "0039 a medias" in salida.stdout
+    assert (tmp_path / "ssh-llamado").read_text(encoding="utf-8").count("llamada") == 1
+
+
+# ---------------------------------------------------------------------------
+# backup del schema contra un pg_dump real
+# ---------------------------------------------------------------------------
+
+_PATRON_GREP = re.compile(r'grep -q "([^"]+)" "\$TMP"')
+
+
+def _patrones_del_backup(texto: str) -> list[str]:
+    """Los `grep -q "<patrón>" "$TMP"` del bloque de backup de la 0039."""
+    return [p for p in _PATRON_GREP.findall(texto) if "listing" in p or "apply_cap" in p]
+
+
+def _pg_dump():
+    ruta = shutil.which("pg_dump")
+    if ruta is None:
+        if "CI" in os.environ:
+            raise RuntimeError("CI sin pg_dump: el test del backup de D.0 no puede saltarse")
+        pytest.skip("sin pg_dump en PATH")
+    return ruta
+
+
+@_skip_db
+def test_backup_de_la_0039_reconoce_un_pg_dump_real():
+    pg_dump = _pg_dump()
+    fuentes = {
+        "docs/DEPLOY.md": (ROOT / "docs" / "DEPLOY.md").read_text(encoding="utf-8"),
+        "D.0/correr.sh": (D0 / "correr.sh").read_text(encoding="utf-8"),
+    }
+    with _db("orbit_d0_dump", con_0039=True) as (_conn, conninfo):
+        dump = subprocess.run(
+            [pg_dump, "--schema-only", f"--dbname={conninfo}"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+    assert "PostgreSQL database dump complete" in "\n".join(dump.splitlines()[-5:])
+    for nombre, texto in fuentes.items():
+        patrones = _patrones_del_backup(texto)
+        assert len(patrones) >= 2, (nombre, patrones)
+        for patron in patrones:
+            assert re.search(re.escape(patron), dump), f"{nombre}: {patron!r} no está en el pg_dump"

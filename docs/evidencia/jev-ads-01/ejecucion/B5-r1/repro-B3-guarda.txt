@@ -1,0 +1,11 @@
+# B5-r1 repro B3.2: test_los_consumidores_no_importan_al_asesor no discrimina
+Fecha: 2026-10-04T08:01:05Z HEAD: a47086651ceae2e055d842fc41bc07262b93e46e
+
+Mutante (revertido despues de la corrida): printf '
+from app import jev_ads
+' >> app/cycle.py
+Comando: uv run --frozen python -m pytest tests/test_jev_cli.py::test_los_consumidores_no_importan_al_asesor -q
+Esperado si la guardara discriminara: 1 failed (cycle.py importa app.jev_ads). Observado: 1 passed.
+
+.                                                                        [100%]
+1 passed in 0.44s

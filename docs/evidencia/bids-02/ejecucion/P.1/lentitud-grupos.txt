@@ -1,0 +1,7 @@
+Medicion _SQL_GRUPOS sobre copia prod (solo lectura)
+Fecha: 2026-10-11T01:04:05Z
+HEAD: 3cef3f17a7a2cd3dd14832fff7276e5d9de1bd37
+
+filas en ads_metric_observation: 173850 | ultimo autoanalyze: 2026-10-10 06:24:43.275945-07:00
+amazon_mx:   0.03 s  (5 tipos)   plan: ->  Unique  (cost=945.74..947.30 rows=126 width=23) (actual rows=18 loops=355)
+amazon_us:   0.02 s  (5 tipos)   plan: ->  Unique  (cost=945.74..947.30 rows=126 width=23) (actual rows=14 loops=233)

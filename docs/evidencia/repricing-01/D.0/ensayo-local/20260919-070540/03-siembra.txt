@@ -1,0 +1,9 @@
+BEGIN
+DO
+ id |                      label
+----+--------------------------------------------------
+  2 | D.0: ensayo local del lead tras GLM y CodeRabbit
+(1 row)
+
+INSERT 0 1
+COMMIT

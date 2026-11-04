@@ -1,0 +1,65 @@
+=== quality-kit cross-review.ps1 ===
+Repo: /Users/dn/dev/wt/jev-ads-worker
+CLI: auto
+Cadena auto: claude -> grok -> kimi -> qwen -> codex (excluido: glm, escribio el cambio)
+Alcance: bloque desde afc1f3b68715c5bf05bdf939eefc9a6683adc0cd hasta HEAD
+Archivos (pathspec de la tarea): tests/test_jev_catalogo.py
+Tamano del diff: 39238 caracteres
+Tope automatico para este diff (~39 KB): 1470 s. Usa -TimeoutSec para fijarlo a mano.
+
+==> AVISO: el diff es grande (39238 caracteres). Una revision asi cuesta del orden de 100-200k tokens y varios minutos. Si solo te interesa parte del cambio, acotalo con -Archivos <pathspecs> en vez de mandarlo entero.
+
+==> Invocando claude de forma no interactiva (tope: 1470 s)...
+
+=== Respuesta de claude (codigo de salida: 0) ===
+1. BLOQUEANTE (prueba que no discrimina, guarda de seguridad): en `test_migracion_trae_fks_y_roles` el candado de minimo privilegio busca el substring exacto `ON <tabla> TO app_jev`, asi que no ve un GRANT multi-tabla (la forma que usa la propia migracion), ni `ON TABLE x`, ni `ON ALL TABLES IN SCHEMA`, ni `GRANT <rol> TO app_jev`.
+   - Reproduccion: agregar a `migrations/0049_jev_ads.sql` la linea `GRANT SELECT ON listing, decision TO app_jev;` y correr `pytest tests/test_jev_catalogo.py::test_migracion_trae_fks_y_roles`; sigue en verde.
+   - Alcance: la integracion solo cubre `decision`, `ledger_event` y `ads_optimizer_goal`, y se saltea sin superusuario.
+   - VERIFICAR: si `keyword_biblioteca`, `negative_biblioteca` y `apply_cola` existen con 0001+0004; si existen, el mutante sobrevive a todo el archivo.
+   - Arreglo sugerido: recorrer los `GrantStmt` con pglast (ya importado) y comparar contra una lista permitida de objetos para `app_jev`.
+
+2. NO BLOQUEANTE: en `test_cli_registra_seco_y_aplica` la asercion final `f"id {salida.split('id ')[1].split()[0]}" in salida` es tautologica (saca el token de `salida` y verifica que este en `salida`). No compara contra el id de la base ni contra la salida de la segunda corrida, que se descarta.
+
+3. NO BLOQUEANTE: en `test_par_evento_encadena_intencion_resultado_y_reutilizacion` el bloque `pytest.raises(CheckViolation)` del caso "intencion de OTRA revision" tiene dos sentencias. Si el INSERT de preparacion (ordinal 9) lanza `CheckViolation`, el test pasa sin ejercer el caso; hay que sacar la preparacion del bloque o reusar la intencion de `otra_revision` creada arriba, cuyo retorno se descarta.
+
+4. VERIFICAR: `test_reversa_deja_la_base_como_0001` exige que `app_jev` no exista en `pg_roles`, y los roles son globales al cluster. Confirmar que la reversa no falla por dependencias (`DependentObjectsStillExist`) cuando otra base del mismo cluster tiene grants a `app_jev`: xdist `-n auto`, jobs paralelos, o una base huerfana de una corrida matada. Ademas el nombre promete "como 0001" pero no verifica funciones ni triggers `jev_*` residuales.
+
+5. VERIFICAR: `censo_grupo`, `ficha_vigente` y el INSERT en `jev_par_evento` solo corren como superusuario. Bajo `SET ROLE app_jev` solo se prueba `product`, `listing` y `jev_revision`. Un GRANT faltante sobre `ad_entity`, `ad_entity_state`, `jev_ficha_version` o `jev_ficha_revocacion` romperia al asesor en prod con la bateria verde.
+
+6. NO BLOQUEANTE: `test_roles_de_minimo_privilegio` hace `pytest.skip` si el usuario no es superusuario. Eso da verde falso justo en la prueba de privilegios y contradice el "skip fail-closed" del docstring; deberia fallar cuando Postgres es obligatorio.
+
+7. NO BLOQUEANTE: `test_producto_sin_listing_bloquea_negativo_universal` inyecta a mano `FichaFaltante(producto_id=None)`. No afirma que el censo traiga el miembro sin producto ni `exhaustivo is False`, y arma `MiembroCenso` sin `estados`. El `ficha_ausente` puede venir solo del argumento manual, no del censo leido.
+
+8. VERIFICAR: posible bomba de tiempo. `VENCE` y `--revisar-antes-de` estan fijos en 2026-11-02. Si algun trigger, `registrar_ficha` o el CLI compara `revisar_antes_de` contra el reloj real, la bateria se rompe en 29 dias.
+
+9. NO BLOQUEANTE: `test_captura_dentro_de_la_transaccion_se_acepta_y_futura_se_rechaza` toma `captura` del reloj del cliente y el trigger compara contra `clock_timestamp()` del servidor. Con Postgres en Docker o VM con deriva de reloj (Mac) puede fallar intermitente; conviene tomar la captura con `SELECT clock_timestamp()`.
+
+10. NO BLOQUEANTE: el hash se valida contra `hash_ficha` de la propia implementacion, sin vector dorado literal. Un cambio de canonicalizacion que rompa la idempotencia contra hashes ya guardados pasa en verde; la invariancia de orden solo se prueba para `desconocidos`.
+
+11. NO BLOQUEANTE: `test_append_only_por_motor_en_las_cuatro_tablas` ejerce UPDATE y DELETE pero no TRUNCATE. El test estatico cuenta 8 triggers, pero ninguno de TRUNCATE muerde en integracion.
+
+12. NO BLOQUEANTE: `test_fks_muerden_en_las_cuatro_tablas` no prueba lo que el nombre dice. La FK de `jev_ficha_version.producto_id` nunca se ejerce (muerde el trigger, y con listing 1 inexistente no se sabe por cual causa). Tampoco se ejercen las FK de `jev_par_evento` a `ficha_version_id`, `intencion_id` y `reutiliza_id`.
+
+13. VERIFICAR: el test de `jev_par_evento` fija como valido que una misma intencion tenga dos resultados (exito en ordinal 2 y fallo en ordinal 4) y que la reutilizacion entre revisiones se rechace. Confirmar contra el diseno v2 que ambas cosas son intencionales. Ademas falta el caso negativo de resultado con otra clave (termino, ficha o contrato), porque `_par` las deja fijas.
+
+14. VERIFICAR: el CLI `revocar` escribe sin `--aplicar`, mientras `registrar` es dry-run por defecto. Es una accion irreversible (append-only, una sola revocacion por ficha); confirmar que la asimetria es deliberada. El test solo mira el codigo de retorno, no la fila en `jev_ficha_revocacion`.
+
+15. VERIFICAR: no hay caso de censo vacio (grupo inexistente, de otra plataforma o sin `product_ad`). Confirmar que no sale `exhaustivo=True` con cero miembros, porque eso daria un `NingunoCompatible` vacuo.
+
+16. NO BLOQUEANTE: `_dsn_jev` arma el DSN con `rsplit("/", 1)`. Se rompe si `_test_dsn()` viene en formato clave=valor, sin path o con `?parametros`; `psycopg.conninfo.make_conninfo(dsn, dbname=...)` lo resuelve. Ademas el nombre de la base esta duplicado entre `db_jev` y `_db_jev_nombre`, el parametro `prefijo` no se usa, y hay un `__import__('os')` con `os` ya importado.
+
+17. NO BLOQUEANTE: en `ficha_vigente` faltan los bordes: `ahora == revisar_antes_de`, `ahora < observado_at`, y cual gana cuando hay dos fichas vigentes para el mismo producto y listing (el registro de la corregida no revoca la anterior).
+
+18. NO BLOQUEANTE: los estaticos comparan texto exacto. `"solicitud        UUID NOT NULL UNIQUE"` depende de la alineacion con espacios, y cualquier substring tambien matchea dentro de un comentario SQL.
+
+19. NO BLOQUEANTE: la asercion `creado.utcoffset() == timedelta(0)` solo refleja el `SET TIME ZONE 'UTC'` de la sesion. Distingue `timestamptz` de `timestamp`, pero no prueba que "los tiempos guardados vienen en UTC".
+
+
+=== stderr ===
+Permission allow rule (../../../.claude/settings.json): Write(/Users/dn/.local/state/**) is not matched by file permission checks — only Edit(path) rules are. Use Edit(/Users/dn/.local/state/**) instead (Edit rules cover all file-editing tools).
+Permission allow rule (../../../.claude/settings.json): Write(~/.claude/orchestrate/**) is not matched by file permission checks — only Edit(path) rules are. Use Edit(~/.claude/orchestrate/**) instead (Edit rules cover all file-editing tools).
+Permission allow rule (../../../.claude/settings.json): Write(~/.claude/projects/-Users-dn-dev-goncloud-Orbit/memory/**) is not matched by file permission checks — only Edit(path) rules are. Use Edit(~/.claude/projects/-Users-dn-dev-goncloud-Orbit/memory/**) instead (Edit rules cover all file-editing tools).
+Warning: claude.ai MCP servers blocked by enterprise policy: claude.ai Microsoft 365, claude.ai Notion, claude.ai Shopify, claude.ai Google Drive, claude.ai Gmail
+
+
+=== Revisor efectivo: claude (binario 'claude') ===

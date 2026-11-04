@@ -1,0 +1,21 @@
+== 0) El servidor contesta
+OK    orbit-app-1 corriendo = true
+== Checklist D.1 ingesta-01 (SHA 72c440eb2d918fb48f5fffc47a2189eff55972c9)
+== 1) md5 server vs SHA desplegado
+OK    md5 de 192 archivos: distintos = 0
+== 2) crontab de gon: lineas Orbit = tabla de DEPLOY.md (una vez cada una); ajenas = crontab-antes.txt
+bloque_lineas 10
+orbit_igual_tabla True
+cada_una_una_vez True
+ajenas_iguales True
+OK    crontab: lineas Orbit iguales a la tabla = True
+OK    crontab: cada linea Orbit una sola vez = True
+OK    crontab: ajenas iguales a crontab-antes.txt = True
+== 3) Ayudas de los comandos nuevos (no corre nada)
+OK    descarga --help muestra --solo-faltantes = 1
+OK    cycle --help muestra --forzar = 1
+== 4) metricas_de_ayer_listas (solo lectura, ORBIT_DSN_READ) MX y US
+metricas_de_ayer_listas amazon_mx=False
+metricas_de_ayer_listas amazon_us=False
+OK    metricas_de_ayer_listas imprime MX y US = 2
+== RESULTADO: 0 falla(s), 0 sin medir

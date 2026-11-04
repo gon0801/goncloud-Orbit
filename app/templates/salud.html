@@ -1,0 +1,197 @@
+{% extends "base.html" %}
+{% block contenido %}
+<h2>Salud — ultimo ciclo, historico 14d y skips</h2>
+<div class="salud-grid">
+{% for plataforma, datos in plataformas.items() %}
+<div class="tarjeta">
+  <h2>{{ plataforma }}
+    {% if datos.ultimo_ciclo %}
+      <span class="chip {% if datos.ultimo_ciclo.status == 'done' %}ok{% elif datos.ultimo_ciclo.status in ('degraded', 'failed') %}alerta{% endif %}">{{ datos.ultimo_ciclo.status }}</span>
+      <span class="chip">{{ datos.ultimo_ciclo.mode }}</span>
+    {% endif %}
+  </h2>
+  <p class="mutado">Watermark (v_metric_latest): {{ datos.watermark or "—" }} ·
+     Sync estructura: {{ datos.synced_at or "—" }}</p>
+
+  {% if datos.ads_ingest %}
+  <h3>Ingesta Ads principal</h3>
+  <p class="mutado">Fuente: {{ datos.ads_ingest.fuente }}</p>
+  <div class="tabla-scroll" role="region" aria-label="Reportes Ads" tabindex="0">
+  <table>
+    <thead><tr><th>Perfil</th><th>Reporte</th><th>Ultimo exito</th><th>Fecha metrica</th><th>Edad</th><th>Ultimo estado</th></tr></thead>
+    <tbody>
+      {% for reporte in datos.ads_ingest.reportes %}
+      <tr>
+        <td>{{ reporte.profile_id }}</td>
+        <td>{{ reporte.reporte }}</td>
+        <td>{{ reporte.ultimo_exito or "—" }}</td>
+        <td>{{ reporte.metric_date or "—" }}</td>
+        <td>{% if reporte.edad_dias is not none %}{{ reporte.edad_dias }} dias{% else %}—{% endif %}</td>
+        <td><span class="chip {% if reporte.ultimo_estado in ('failed', 'rejected', 'global_failed') %}alerta{% elif reporte.ultimo_estado == 'written' %}ok{% endif %}">{{ reporte.ultimo_estado or "—" }}</span></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="mutado">Sin reportes principales registrados.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% for incidente in datos.ads_ingest.incidentes %}
+  <p class="alerta">Ingesta Ads {{ incidente.tipo }} · {% if incidente.profile_id is not none %}perfil {{ incidente.profile_id }}{% else %}global{% endif %} · aviso {{ "entregado" if incidente.estado_entrega == "sent" else "pendiente" }} ({{ incidente.intentos }} intentos){% if incidente.recuperado %} · recuperacion {{ "entregada" if incidente.recuperacion_entregada else "pendiente" }}{% endif %} · desde {{ incidente.abierto_desde }}</p>
+  {% endfor %}
+  {% endif %}
+
+  <h3>Skips del ultimo ciclo</h3>
+  <div class="lienzo">
+  <canvas id="skips-{{ plataforma }}"></canvas>
+  </div>
+  <script type="application/json" id="datos-skips-{{ plataforma }}">{{ datos.skips | tojson }}</script>
+
+  {% if datos.ultimo_ciclo %}
+  <h3>Ultimo ciclo</h3>
+  {# regla 3: en shadow applied_count es SIEMPRE 0 y `or "—"` lo escondia
+     como faltante en TODOS los ciclos (hallazgo codex) #}
+  <p>#{{ datos.ultimo_ciclo.id }} · {{ datos.ultimo_ciclo.started_at }} ·
+     decisiones: {{ datos.ultimo_ciclo.decisions_count }} ·
+     applies: {% if datos.ultimo_ciclo.applied_count is none %}<span class="mutado">—</span>{% else %}{{ datos.ultimo_ciclo.applied_count }}{% endif %}</p>
+  {% if datos.ultimo_ciclo.notes and datos.ultimo_ciclo.notes.telegram %}
+  {# ORBIT 04 3.3 (sellado 2): la NOTA telegram es la UNICA visibilidad del
+     fallo del canal — sin esta linea, un ciclo done con el canal caido se
+     veria perfecto (el silencio del canal jamas es invisible) #}
+  <p class="alerta">telegram: fallo del canal ({{ datos.ultimo_ciclo.notes.telegram.keys() | join(", ") }} sin entregar — ver notes)</p>
+  {% endif %}
+  {% endif %}
+
+  {% if datos.avisos_propuesta is defined and datos.avisos_propuesta is not none %}
+  {# ADS PROTECCION C.4 B1: avisos de propuestas de campana pendientes +
+     fallo del ultimo ciclo. Sin tabla (pre-0042) el bloque es None y no
+     se pinta nada (regla 3) #}
+  <p>Avisos de propuesta: {{ datos.avisos_propuesta.pendientes }} pendientes{% if datos.avisos_propuesta.fallo %} · <span class="alerta">{{ datos.avisos_propuesta.fallo }}</span>{% endif %}</p>
+  {% endif %}
+
+  {% if datos.harvest_destino %}
+  {# FABRICA 02 (A.6): destino del ultimo ciclo por procedencia + campanas de
+     grupo sin destino. Sin bloque (ciclos pre-A.6) no se pinta nada (regla 3) #}
+  <p>Destino de harvest: por grupo {{ datos.harvest_destino.resueltos.grupo }} · por excepcion {{ datos.harvest_destino.resueltos.excepcion }} · por terna {{ datos.harvest_destino.resueltos.terna }} ({{ datos.harvest_destino.terna_es }})</p>
+  {% if datos.harvest_destino.saltos_grupo %}
+  <ul>
+    {% for salto in datos.harvest_destino.saltos_grupo %}
+    <li class="alerta">Campañas de grupo sin destino: #{{ salto.campaign_id }} — {{ salto.motivo_es }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% endif %}
+
+  {% if datos.quota %}
+  {# preflight 1.5: la quota que el endpoint de 1.4 ya trae. cap nulo es
+     fail-closed (sin_clave) o config rota (alarma), JAMAS tope cero (regla 3):
+     se muestra como — CON su etiqueta. used >= cap con cap no nulo es el
+     estado que dispara el aviso Telegram de 1.4: se ve SATURADA. #}
+  <h3>Quota del dia</h3>
+  <div class="tabla-scroll" role="region" aria-label="Tabla de datos" tabindex="0">
+  <table>
+    <thead><tr><th>Forma</th><th class="num">Usado</th><th class="num">Cap</th><th>Estado</th></tr></thead>
+    <tbody>
+      {% for forma, q in datos.quota.items() %}
+      <tr><td>{{ forma }}</td>
+        <td class="num">{{ q.used }}</td>
+        <td class="num">{% if q.cap is not none %}{{ q.cap }}{% elif q.fuente == "config_rota" %}<span class="mutado">— (config rota)</span>{% else %}<span class="mutado">— (sin clave)</span>{% endif %}</td>
+        <td>{% if q.fuente == "fila_del_dia" %}<span class="chip ok">fila_del_dia</span>{% elif q.fuente == "config_vigente" %}<span class="chip">config_vigente</span>{% elif q.fuente == "sin_clave" %}<span class="chip alerta">sin_clave · fail-closed</span>{% else %}<span class="chip alerta">config_rota · revisar config</span>{% endif %}
+          {% if q.cap is not none and q.used >= q.cap %}<span class="chip alerta">saturada</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% endif %}
+
+  {% if datos.spapi %}
+  {# SP-API 01 A.5: salud de las 4 ingestas por fuente (ultima corrida,
+     ultimo 429, ultimo fallo LWA). Sin corridas = fila "sin corridas". #}
+  <h3>SP-API</h3>
+  <div class="tabla-scroll" role="region" aria-label="Tabla de datos" tabindex="0">
+  <table>
+    <thead><tr><th>Fuente</th><th>Ultima</th><th class="num">Filas</th><th class="num">Skips</th><th>Motivo</th><th>Ultimo 429</th><th>Ultimo LWA</th></tr></thead>
+    <tbody>
+      {% for fuente, s in datos.spapi.items() %}
+      <tr>
+        <td>{{ fuente }}</td>
+        <td>{% if s.ultima %}<span class="chip {% if s.ultima.ok %}ok{% elif s.ultima.ok is false %}alerta{% endif %}">{% if s.ultima.ok %}ok{% elif s.ultima.ok is false %}fallo{% else %}—{% endif %}</span> <span class="mutado">#{{ s.ultima.id }} · {{ s.ultima.finished_at or s.ultima.started_at or "—" }}</span>{% else %}<span class="mutado">sin corridas</span>{% endif %}</td>
+        <td class="num">{% if s.ultima %}{{ s.ultima.rows_written }}{% else %}—{% endif %}</td>
+        <td class="num">{% if s.ultima %}{{ s.ultima.rows_skipped }}{% else %}—{% endif %}</td>
+        <td>{{ (s.ultima.skip_reason if s.ultima else none) or "—" }}</td>
+        <td>{% if s.ultima_429 %}<span class="mutado">#{{ s.ultima_429.id }} · {{ s.ultima_429.finished_at or s.ultima_429.started_at or "—" }}</span>{% else %}—{% endif %}</td>
+        <td>{% if s.ultimo_lwa %}<span class="mutado">#{{ s.ultimo_lwa.id }} · {{ s.ultimo_lwa.finished_at or s.ultimo_lwa.started_at or "—" }}</span>{% else %}—{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% endif %}
+
+  {% if datos.precios is defined %}
+  {# REPRICING 01 A.6: conteos del dia (misma fuente que /precios: el bloque
+     `precios` de /salud; el recuadro S10 vive en /precios). #}
+  <h3>Precios</h3>
+  <div id="bloque-precios-{{ plataforma }}">
+  {% if datos.precios %}
+  {% set pr = datos.precios %}
+  <p>Hoy {{ pr.hoy }} · evaluados {{ pr.evaluados }} · movidos {{ pr.movidos }} · sombra {{ pr.sombra }} · no evaluados {{ pr.no_evaluados.values() | sum }} · frenados {{ pr.frenados.values() | sum }} · objetivo inalcanzable {{ pr.goal_inalcanzable }} · huerfanas pendientes: {{ pr.huerfanas }}</p>
+  {% else %}
+  <p class="mutado">Sin datos de precios del día.</p>
+  {% endif %}
+  </div>
+  {% endif %}
+
+  {% if datos.avisos_campana is defined %}
+  {# BIDS 02 V.4: frases del dia (mismas que Telegram). #}
+  <h3>Avisos de campaña</h3>
+  <div id="bloque-avisos-campana-{{ plataforma }}">
+  {% if datos.avisos_campana %}
+  <ul>
+    {% for frase in datos.avisos_campana %}
+    <li>{{ frase }}</li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="mutado">Sin avisos de campaña hoy.</p>
+  {% endif %}
+  </div>
+  {% endif %}
+
+  <h3>Historico (14d)</h3>
+  <div class="tabla-scroll" role="region" aria-label="Tabla de datos" tabindex="0">
+  <table>
+    <thead><tr><th>Ciclo</th><th>Fecha</th><th>Status</th><th class="num">Decisiones</th><th>Motivo</th></tr></thead>
+    <tbody>
+      {% for h in datos.historico_14d %}
+      <tr>
+        <td>#{{ h.cycle_id }}</td>
+        <td class="mutado">{{ h.fecha }}</td>
+        <td><span class="chip {% if h.status == 'done' %}ok{% elif h.status in ('degraded', 'failed') %}alerta{% endif %}">{{ h.status }}</span></td>
+        <td class="num">{{ h.decisions_count }}</td>
+        <td>{{ h.motivo or "—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endfor %}
+{% if jev %}
+<div class="tarjeta">
+  <h2>Jev — señal por búsqueda-en-grupo</h2>
+  {% if jev.interruptor.encendido %}
+  <p>Encendido · tope {{ jev.interruptor.tope_diario }} · min clics {{ jev.interruptor.min_clics }} · avisos {{ "sí" if jev.interruptor.avisos else "no" }}</p>
+  {% else %}
+  <p class="mutado">Apagado{% if jev.interruptor.motivo_apagado %} ({{ jev.interruptor.motivo_apagado }}){% endif %}</p>
+  {% endif %}
+  {% if jev.ultima_corrida %}
+  <p>Última corrida: {{ jev.ultima_corrida.motivo }} · {{ jev.ultima_corrida.unidades }} unidades · {{ jev.ultima_corrida.llamadas }} llamadas · {{ jev.ultima_corrida.senales }} señales{% if jev.ultima_corrida.avisos_error %} · <span class="alerta">el aviso falló ({{ jev.ultima_corrida.avisos_error }})</span>{% endif %}{% if jev.ultima_sin_cierre %} · <span class="alerta">inicio sin fin</span>{% endif %}</p>
+  {% elif jev.ultima_inicio %}
+  <p><span class="alerta">Inicio sin fin ({{ jev.ultima_inicio }})</span></p>
+  {% endif %}
+  <p>Llamadas hoy: {{ jev.llamadas_hoy }} · pendientes de Jev: {{ jev.pendientes_de_jev }} · grupos probados: {{ jev.grupos_probados }} de {{ jev.grupos_con_gasto }} · ajena impedida: {{ jev.ajena_impedida_por_abstencion }} · avisos sin entrega: {{ jev.avisos_sin_entrega }} · fichas por vencer: {{ jev.fichas_por_vencer_14d }}</p>
+</div>
+{% endif %}
+</div>
+{% endblock %}

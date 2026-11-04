@@ -1,0 +1,39 @@
+== recheck 910e347 conciliar/interior/trailing ==
+FIX1_DISTINTO {'error': 'MeliAdsError: snapshot con el mismo as_of y contenido distinto (snapshot atrasado): no se escribio nada', 'resultado': None, 'costo': '10.0000', 'obs': 1, 'restaurar_error': None, 'restaurar_written': 0, 'restaurar_skipped': 1, 'costo_tras_restaurar': '10.0000', 'obs_tras_restaurar': 1}
+FIX1_DUPLICADO {'error': None, 'resultado': {'run_id': 2, 'filas_origen': 1, 'rows_written': 0, 'rows_skipped': 1, 'duplicados': 1, 'duplicados_version': 1, 'duplicados_id': 0, 'rechazos': 0, 'entidades_nuevas': 0, 'entidades_actualizadas': 0}, 'costo': '10.0000', 'obs': 1, 'marcas': [(True, 'as_of=1793271600; snap=7a6babfdc5ecf4459bc8183d6119bfb986048e2c39b7751db977a77ec6bc744c; 1x misma version canonica (recopia o reintento)')]}
+COLAPSO_DICT {'guardadas': {('C1', datetime.date(2026, 10, 28)): '99347e11cbc0e1c8f1d9462c406b3aee7e709de01f17a5b2e98f582fef02dbff'}, 'v_vieja': '9c64ff8c114b153497c2d8ba48e4123c53eeed285689fd00701f52f5f64a572b', 'v_nueva': '99347e11cbc0e1c8f1d9462c406b3aee7e709de01f17a5b2e98f582fef02dbff', 'orden_ids': ['9c64ff8c114b', '99347e11cbc0']}
+COLAPSO_INGESTA {'orden_primero_nuevo': True, 'costo_antes': '50.0000', 'costo_dict': '10.0000', 'error': None, 'written': 0, 'skipped': 1, 'costo_despues': '50.0000', 'obs': 2}
+COLAPSO_INGESTA {'orden_primero_nuevo': False, 'costo_antes': '50.0000', 'costo_dict': '50.0000', 'error': None, 'written': 0, 'skipped': 1, 'costo_despues': '50.0000', 'obs': 2}
+FUTURO_DUP_PISO {'dup_error': None, 'dup': {'run_id': 2, 'filas_origen': 1, 'rows_written': 0, 'rows_skipped': 1, 'duplicados': 1, 'duplicados_version': 1, 'duplicados_id': 0, 'rechazos': 0, 'entidades_nuevas': 0, 'entidades_actualizadas': 0}, 'marcas': [(True, 'reintento=7a6babfdc5ecf4459bc8183d6119bfb986048e2c39b7751db977a77ec6bc744c; 1x misma version canonica (recopia o reintento)')], 'stale_error': 'MeliAdsError: snapshot atrasado: su as_of no es posterior a la marca aceptada (1793278800); no se escribio nada', 'stale': None, 'costo': '10.0000', 'obs': 1}
+PASADO_DUP_PISO {'stale_error': 'MeliAdsError: snapshot atrasado: su as_of no es posterior a la marca aceptada (1793271600); no se escribio nada', 'costo': '10.0000', 'obs': 1}
+SUPERSET_SUBSET {'superset_error': 'MeliAdsError: snapshot con el mismo as_of y contenido distinto (snapshot atrasado): no se escribio nada', 'c1': '10.0000', 'c2': '7.0000', 'c3': None, 'subset_error': 'MeliAdsError: snapshot con el mismo as_of y contenido distinto (snapshot atrasado): no se escribio nada', 'obs': 2}
+CONCILIAR_hueco_interior_EXIT 1 FALLA
+  dias control: 3, dias Orbit: 2, faltantes en el control: 0, faltantes en Orbit: 1, sobrantes en Orbit: 0, diferencias: 0
+  FALTA el dia 2026-10-28 en Orbit: origen=(9, 8, Decimal('500.0000'), Decimal('900.0000'))
+  CONCILIACION FALLA
+CONCILIAR_cero_interior_EXIT 0 OK
+  dias control: 2, dias Orbit: 2, faltantes en el control: 0, faltantes en Orbit: 0, sobrantes en Orbit: 0, diferencias: 0
+  CONCILIACION OK
+CONCILIAR_clicks_interior_EXIT 1 FALLA
+  dias control: 3, dias Orbit: 2, faltantes en el control: 0, faltantes en Orbit: 1, sobrantes en Orbit: 0, diferencias: 0
+  FALTA el dia 2026-10-28 en Orbit: origen=(9, 0, Decimal('0.0000'), Decimal('0.0000'))
+  CONCILIACION FALLA
+CONCILIAR_trailing_gasto_EXIT 1 FALLA
+  dias control: 2, dias Orbit: 1, faltantes en el control: 0, faltantes en Orbit: 1, sobrantes en Orbit: 0, diferencias: 0
+  FALTA el dia 2026-10-28 en Orbit: origen=(9, 8, Decimal('500.0000'), Decimal('900.0000'))
+  CONCILIACION FALLA
+CONCILIAR_leading_gasto_EXIT 0 OK
+  dias control: 1, dias Orbit: 1, faltantes en el control: 0, faltantes en Orbit: 0, sobrantes en Orbit: 0, diferencias: 0
+  CONCILIACION OK
+CONCILIAR_sin_campanas_con_gasto_EXIT 1 FALLA
+  dias control: 1, dias Orbit: 0, faltantes en el control: 0, faltantes en Orbit: 1, sobrantes en Orbit: 0, diferencias: 0
+  FALTA el dia 2026-10-28 en Orbit: origen=(9, 8, Decimal('500.0000'), Decimal('900.0000'))
+  CONCILIACION FALLA
+CONCILIAR_trailing_solo_ultimo_dia_de_campana_EXIT 1 FALLA
+  dias control: 3, dias Orbit: 2, faltantes en el control: 0, faltantes en Orbit: 1, sobrantes en Orbit: 0, diferencias: 0
+  FALTA el dia 2026-10-30 en Orbit: origen=(1, 1, Decimal('500.0000'), Decimal('900.0000'))
+  CONCILIACION FALLA
+
+== recheck followup futuro duplicado ==
+CON_DUP_RELOJ_REAL {'ahora': '2026-10-29T18:33:16+00:00', 'futuro': '2026-10-29T19:33:16+00:00', 'stale_asof': '2026-10-29T16:33:16+00:00', 'dup_error': None, 'dup_written': 0, 'marcas': [(True, 'reintento=7a6babfdc5ecf4459bc8183d6119bfb986048e2c39b7751db977a77ec6bc744c; 1x misma version canonica (recopia o reintento)')], 'stale_error': 'MeliAdsError: snapshot atrasado: su as_of no es posterior a la marca aceptada (1793302396); no se escribio nada', 'stale_written': None, 'costo': '10.0000', 'obs': 1}
+SIN_DUP_RELOJ_REAL {'ahora': '2026-10-29T18:33:17+00:00', 'futuro': '2026-10-29T19:33:17+00:00', 'stale_asof': '2026-10-29T16:33:17+00:00', 'dup_error': 'NO_CORRIDO', 'dup_written': None, 'marcas': [], 'stale_error': 'MeliAdsError: snapshot atrasado: su as_of no es posterior a la marca aceptada (1793302397); no se escribio nada', 'stale_written': None, 'costo': '10.0000', 'obs': 1}

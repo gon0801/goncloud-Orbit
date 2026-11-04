@@ -1,0 +1,64 @@
+name: Quality
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: quality-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: orbit
+          POSTGRES_PASSWORD: orbit
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U orbit"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Gitleaks
+        run: |
+          v=8.30.1
+          sha=551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+          t="gitleaks_${v}_linux_x64.tar.gz"
+          base="https://github.com/gitleaks/gitleaks/releases/download/v${v}"
+          curl -sSfL -o "$RUNNER_TEMP/$t" "$base/$t"
+          echo "$sha  $RUNNER_TEMP/$t" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/$t" -C "$RUNNER_TEMP" gitleaks
+          "$RUNNER_TEMP/gitleaks" git --redact --no-banner --log-opts="HEAD" .
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: El codigo carga
+        run: python -m compileall -q app tools verify
+
+      - name: Pruebas (una vez)
+        env:
+          ORBIT_TEST_DSN: postgresql://orbit:orbit@localhost:5432/postgres
+        run: |
+          pip install fastapi "psycopg[binary]" pytest httpx pglast jinja2 pyyaml
+          PYTHONPATH=. python -m pytest -q -x

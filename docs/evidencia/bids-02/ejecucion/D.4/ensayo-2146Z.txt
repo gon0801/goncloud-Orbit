@@ -1,0 +1,84 @@
+== esquema de prod (solo lectura)
+esquema base cargado: 73 tablas
+== lista: _bids02_ del arbol no aplicadas en la base (como desplegar.sh)
+ya aplicada: migrations/0060_bids02_base_lectura.sql
+ya aplicada: migrations/0061_bids02_campana_config.sql
+ya aplicada: migrations/0062_bids02_placement.sql
+ya aplicada: migrations/0063_bids02_peldanos_target.sql
+pendiente: migrations/0064_bids02_grupo_tipo.sql
+pendiente: migrations/0065_bids02_impulso.sql
+pendiente: migrations/0066_bids02_retiro_anuncios.sql
+ya aplicada: migrations/0067_bids02_campana_ajuste.sql
+pendiente: migrations/0068_bids02_sellos.sql
+pendiente: migrations/0069_bids02_retiro_intencion.sql
+pendiente: migrations/0070_bids02_permisos_lanza.sql
+reversas: 0070_reversa_bids02_permisos_lanza.sql 0069_reversa_bids02_retiro_intencion.sql 0068_reversa_bids02_sellos.sql 0066_reversa_bids02_retiro_anuncios.sql 0065_reversa_bids02_impulso.sql 0064_reversa_bids02_grupo_tipo.sql
+== 1) aplicar la lista
+psql:~/dev/wt-bids-02-deploy/migrations/0064_bids02_grupo_tipo.sql:16: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+aplicada 0064_bids02_grupo_tipo.sql
+psql:~/dev/wt-bids-02-deploy/migrations/0065_bids02_impulso.sql:16: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+aplicada 0065_bids02_impulso.sql
+psql:~/dev/wt-bids-02-deploy/migrations/0066_bids02_retiro_anuncios.sql:20: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+aplicada 0066_bids02_retiro_anuncios.sql
+psql:~/dev/wt-bids-02-deploy/migrations/0068_bids02_sellos.sql:17: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+aplicada 0068_bids02_sellos.sql
+psql:~/dev/wt-bids-02-deploy/migrations/0069_bids02_retiro_intencion.sql:19: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+aplicada 0069_bids02_retiro_intencion.sql
+psql:~/dev/wt-bids-02-deploy/migrations/0070_bids02_permisos_lanza.sql:16: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+aplicada 0070_bids02_permisos_lanza.sql
+== 2) reversas en orden inverso
+psql:~/dev/wt-bids-02-deploy/migrations/0070_reversa_bids02_permisos_lanza.sql:5: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+aplicada 0070_reversa_bids02_permisos_lanza.sql
+psql:~/dev/wt-bids-02-deploy/migrations/0069_reversa_bids02_retiro_intencion.sql:6: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+aplicada 0069_reversa_bids02_retiro_intencion.sql
+psql:~/dev/wt-bids-02-deploy/migrations/0068_reversa_bids02_sellos.sql:6: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+aplicada 0068_reversa_bids02_sellos.sql
+psql:~/dev/wt-bids-02-deploy/migrations/0066_reversa_bids02_retiro_anuncios.sql:5: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+aplicada 0066_reversa_bids02_retiro_anuncios.sql
+psql:~/dev/wt-bids-02-deploy/migrations/0065_reversa_bids02_impulso.sql:5: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+aplicada 0065_reversa_bids02_impulso.sql
+psql:~/dev/wt-bids-02-deploy/migrations/0064_reversa_bids02_grupo_tipo.sql:4: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+aplicada 0064_reversa_bids02_grupo_tipo.sql
+OK: las reversas dejan el esquema identico al base
+== 3) reaplicar la lista
+psql:~/dev/wt-bids-02-deploy/migrations/0064_bids02_grupo_tipo.sql:16: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+aplicada 0064_bids02_grupo_tipo.sql
+psql:~/dev/wt-bids-02-deploy/migrations/0065_bids02_impulso.sql:16: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+aplicada 0065_bids02_impulso.sql
+psql:~/dev/wt-bids-02-deploy/migrations/0066_bids02_retiro_anuncios.sql:20: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+aplicada 0066_bids02_retiro_anuncios.sql
+psql:~/dev/wt-bids-02-deploy/migrations/0068_bids02_sellos.sql:17: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+aplicada 0068_bids02_sellos.sql
+psql:~/dev/wt-bids-02-deploy/migrations/0069_bids02_retiro_intencion.sql:19: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+aplicada 0069_bids02_retiro_intencion.sql
+psql:~/dev/wt-bids-02-deploy/migrations/0070_bids02_permisos_lanza.sql:16: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+aplicada 0070_bids02_permisos_lanza.sql
+OK: reaplicar da el mismo esquema que la primera vez
+== 4) huellas de lo aplicado (esperado: todo t)
+huella 0064: t
+huella 0065: t
+huella 0066: t
+huella 0068: t
+huella 0069: t
+huella 0070: t
+== 5) todo grupo existente queda en fabrica5 con la 0064 aplicada
+OK: 0 grupos fuera de fabrica5
+ENSAYO OK

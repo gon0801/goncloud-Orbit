@@ -1,0 +1,51 @@
+== MODO SIMULACION: datos reales contra postgresql://orbit:orbit@127.0.0.1:5433/orbit_sim_d7, servidor intacto
+== 0) SHA aprobado con la bateria completa verde
+SIMULACION: b342707a773540e87aaf17b63303ced402524a01 existe local; sin fetch ni gh (no hay red a prod)
+== 1) Preflight: nadie corre, sin harvest en vuelo, sin migraciones pendientes
+SIMULACION: sin docker top (no hay contenedor); la guarda de proceso es el conteo de running
+ciclos running=0
+harvest en vuelo=0
+ya aplicada: migrations/0060_bids02_base_lectura.sql
+ya aplicada: migrations/0061_bids02_campana_config.sql
+ya aplicada: migrations/0062_bids02_placement.sql
+ya aplicada: migrations/0063_bids02_peldanos_target.sql
+ya aplicada: migrations/0064_bids02_grupo_tipo.sql
+ya aplicada: migrations/0065_bids02_impulso.sql
+ya aplicada: migrations/0066_bids02_retiro_anuncios.sql
+ya aplicada: migrations/0067_bids02_campana_ajuste.sql
+ya aplicada: migrations/0068_bids02_sellos.sql
+ya aplicada: migrations/0069_bids02_retiro_intencion.sql
+ya aplicada: migrations/0070_bids02_permisos_lanza.sql
+ya aplicada: migrations/0071_bids02_grant_vista_impulso.sql
+ya aplicada: migrations/0072_bids02_impulso_grupo_tipo.sql
+sin migraciones pendientes: D.7 solo mueve codigo
+== 1b) Guardas propias de D.7 (abortan si fallan)
+apply, pantalla_dinero, campana_config, api_dashboard y rejuega_niveles presentes en el SHA, con sus senales
+guardas propias OK
+== 1c) Cron: D.7 no instala linea; se imprime la huella antes (R13-E)
+crontab antes: md5 y lineas = 1f971f3802a7bb2736aa9fb1c27c196f 5 (sin tocarlo)
+== 2) Respaldo del codigo actual y SHA (el .env NO se copia a ningun lado)
+SIMULACION: respaldo local en /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-d7-sim/predeploy-20261013-1047
+== 3) Backup del esquema (staging + verificacion)
+SIMULACION: backup local /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-d7-sim/pred7_schema_20261013-1047.sql
+== 4) Migraciones: ninguna (la guarda del paso 1 ya aborto si habia una pendiente)
+aplicadas-20261013-1047.txt queda vacio a proposito: la reversa de D.7 solo restaura codigo
+== 5) md5 del codigo desplegado vs SHA aprobado
+SIMULACION: sin servidor; el md5 solo verifica que la extraccion del respaldo local quedo integra (contra el servidor se compara en la corrida real)
+md5 OK app/apply.py
+md5 OK app/pantalla_dinero.py
+md5 OK app/ads/campana_config.py
+md5 OK app/api_dashboard.py
+md5 OK tools/rejuega_niveles.py
+== 6) Guardas antes de recrear
+SIMULACION: guardas OK en una pasada (sin reintento de 30 min)
+== 7) Build + recrear app (digest antes/despues) + health
+SIMULACION: sin rebuild (no hay servidor que recrear)
+SIMULACION: la app local contesta /health 200 (informativo)
+== 8) Cron: la huella no cambio (D.7 no instala linea: R13-E)
+crontab despues: md5 y lineas = 1f971f3802a7bb2736aa9fb1c27c196f 5
+crontab intacto
+== LISTO. STAMP=20261013-1047
+Siguiente: bash docs/evidencia/bids-02/ejecucion/D.7/checklist.sh 20261013-1047
+Reversa:   bash docs/evidencia/bids-02/ejecucion/D.7/rollback.sh 20261013-1047
+exit=0

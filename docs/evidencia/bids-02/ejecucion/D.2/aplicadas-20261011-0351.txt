@@ -1,0 +1,2 @@
+migrations/0061_bids02_campana_config.sql
+migrations/0062_bids02_placement.sql

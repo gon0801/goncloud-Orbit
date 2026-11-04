@@ -1,0 +1,178 @@
+{
+ "sonda": "pausa_product_ad",
+ "platform": "amazon_us",
+ "mutacion": true,
+ "ad_id": "284583606382521",
+ "envios": [
+  {
+   "nombre": "cambio",
+   "cuerpo": {
+    "productAds": [
+     {
+      "adId": "284583606382521",
+      "state": "PAUSED"
+     }
+    ]
+   },
+   "status": 207,
+   "respuesta": {
+    "productAds": {
+     "error": [],
+     "success": [
+      {
+       "adId": "284583606382521",
+       "index": 0,
+       "productAd": {
+        "adGroupId": "480835187245528",
+        "adId": "284583606382521",
+        "asin": "[redactado]",
+        "campaignId": "138625505369345",
+        "sku": "[redactado]",
+        "state": "PAUSED"
+       }
+      }
+     ]
+    }
+   },
+   "rechazado": false
+  },
+  {
+   "nombre": "regreso",
+   "cuerpo": {
+    "productAds": [
+     {
+      "adId": "284583606382521",
+      "state": "ENABLED"
+     }
+    ]
+   },
+   "status": 207,
+   "respuesta": {
+    "productAds": {
+     "error": [],
+     "success": [
+      {
+       "adId": "284583606382521",
+       "index": 0,
+       "productAd": {
+        "adGroupId": "480835187245528",
+        "adId": "284583606382521",
+        "asin": "[redactado]",
+        "campaignId": "138625505369345",
+        "sku": "[redactado]",
+        "state": "ENABLED"
+       }
+      }
+     ]
+    }
+   },
+   "rechazado": false
+  }
+ ],
+ "lecturas": [
+  {
+   "etapa": "antes",
+   "anuncio": {
+    "adGroupId": "480835187245528",
+    "adId": "284583606382521",
+    "asin": "[redactado]",
+    "campaignId": "138625505369345",
+    "sku": "[redactado]",
+    "state": "ENABLED"
+   }
+  },
+  {
+   "etapa": "tras_cambio",
+   "anuncio": {
+    "adGroupId": "480835187245528",
+    "adId": "284583606382521",
+    "asin": "[redactado]",
+    "campaignId": "138625505369345",
+    "sku": "[redactado]",
+    "state": "PAUSED"
+   }
+  },
+  {
+   "etapa": "previa_regreso",
+   "anuncio": {
+    "adGroupId": "480835187245528",
+    "adId": "284583606382521",
+    "asin": "[redactado]",
+    "campaignId": "138625505369345",
+    "sku": "[redactado]",
+    "state": "PAUSED"
+   }
+  },
+  {
+   "etapa": "final",
+   "anuncio": {
+    "adGroupId": "480835187245528",
+    "adId": "284583606382521",
+    "asin": "[redactado]",
+    "campaignId": "138625505369345",
+    "sku": "[redactado]",
+    "state": "ENABLED"
+   }
+  }
+ ],
+ "perfil_id": 4387591165211712,
+ "campana": {
+  "campaignId": "138625505369345",
+  "name": "A1U - Auto Discovery - US"
+ },
+ "antes": {
+  "anuncio": {
+   "adGroupId": "480835187245528",
+   "adId": "284583606382521",
+   "asin": "[redactado]",
+   "campaignId": "138625505369345",
+   "sku": "[redactado]",
+   "state": "ENABLED"
+  },
+  "campana": {
+   "budget": {
+    "budget": 9.52,
+    "budgetType": "DAILY"
+   },
+   "campaignId": "138625505369345",
+   "dynamicBidding": {
+    "placementBidding": [
+     {
+      "percentage": 40,
+      "placement": "PLACEMENT_PRODUCT_PAGE"
+     }
+    ],
+    "strategy": "LEGACY_FOR_SALES"
+   },
+   "marketplaceBudgetAllocation": "MANUAL",
+   "name": "A1U - Auto Discovery - US",
+   "offAmazonSettings": {},
+   "portfolioId": "168079743265695",
+   "startDate": "2026-03-12",
+   "state": "PAUSED",
+   "tags": {},
+   "targetingType": "AUTO"
+  }
+ },
+ "cuerpos_planeados": {
+  "cambio": {
+   "productAds": [
+    {
+     "adId": "284583606382521",
+     "state": "PAUSED"
+    }
+   ]
+  },
+  "regreso": {
+   "productAds": [
+    {
+     "adId": "284583606382521",
+     "state": "ENABLED"
+    }
+   ]
+  }
+ },
+ "iguales": true,
+ "diferencias": [],
+ "resultado": "OK: pauso y reactivo; la lectura final es igual a antes"
+}

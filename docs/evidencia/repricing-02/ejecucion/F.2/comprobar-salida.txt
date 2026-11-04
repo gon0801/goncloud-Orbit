@@ -1,0 +1,36 @@
+== esquema y datos de prod (orbit_read, solo lectura)
+pg_dump: warning: there are circular foreign-key constraints on this table:
+pg_dump: detail: familia
+pg_dump: hint: You might not be able to restore the dump without using --disable-triggers or temporarily dropping the constraints.
+pg_dump: hint: Consider using a full dump instead of a --data-only dump to avoid this problem.
+== carga la copia local
+== amazon_mx primera corrida
+== Muestras de envio amazon_mx/fbm == multiproducto=1 sin_producto=6 otros=4
+
+real	0m0.226s
+user	0m0.105s
+sys	0m0.034s
+== amazon_mx segunda corrida (no escribe)
+== Muestras de envio amazon_mx/fbm == multiproducto=1 sin_producto=6 otros=4
+filas amazon_mx: 249 (igual)
+== amazon_us primera corrida
+== Muestras de envio amazon_us/fbm == multiproducto=0 sin_producto=2 otros=0
+
+real	0m0.128s
+user	0m0.087s
+sys	0m0.018s
+== amazon_us segunda corrida (no escribe)
+== Muestras de envio amazon_us/fbm == multiproducto=0 sin_producto=2 otros=0
+filas amazon_us: 119 (igual)
+== distribucion por origen (ultima muestra por producto)
+ platform  |   origen    | count
+-----------+-------------+-------
+ amazon_mx | marketplace |   142
+ amazon_mx | propio      |   107
+ amazon_us | marketplace |    72
+ amazon_us | propio      |    47
+(4 rows)
+
+== ventana y productos con publicacion
+amazon_mx|249
+amazon_us|119

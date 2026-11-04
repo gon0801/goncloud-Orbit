@@ -1,0 +1,8 @@
+estado: COMPLETA
+inicio_utc: 2026-10-13T19:41:42Z
+fin_utc: 2026-10-13T19:41:48Z
+commit_del_repo: e972fcccc7051955499a6999f92349f9c4f93209
+consultas_con_cambios_sin_commitear: 1
+salidas:
+  fcff58fff2ac11481dae17f287e6878c6d3a37cccc03a8f901092c0b87efc84e  00-sonda-formato-90d.txt
+  77d8a7dc93b523963b558e0d6211c849867f31fbce0c862f76d085d88c9babb1  03-fbm-sin-stock.txt

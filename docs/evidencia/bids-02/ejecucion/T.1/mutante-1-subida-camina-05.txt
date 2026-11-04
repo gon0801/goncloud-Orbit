@@ -1,0 +1,84 @@
+FFFF                                                                     [100%]
+=================================== FAILURES ===================================
+______________________ test_resolver_banda_antes_que_paso ______________________
+
+    def test_resolver_banda_antes_que_paso():
+        """Rojo (h, A1): con ultimo 30 y derivado 45.2, primero clamp a 45 y
+        luego la subida aplica de una vez (T.1: 45, antes 30.5 con el paso
+        simetrico; el paso no congela el crudo fuera de banda)."""
+        from app.optimizer import goals as g
+
+        res = g.resuelve_target_margen(
+            _medicion(margen=Decimal("90.4")), Decimal("0.5"), dt.date(2026, 9, 4), Decimal("30")
+        )
+        assert res.motivo is None
+        assert res.derivado == Decimal("45.2")
+>       assert res.aplicado == Decimal("45")
+E       AssertionError: assert Decimal('30.5') == Decimal('45')
+E        +  where Decimal('30.5') = ResolucionMargen(aplicado=Decimal('30.5'), derivado=Decimal('45.20'), motivo=None, convergiendo=False).aplicado
+E        +  and   Decimal('45') = Decimal('45')
+
+tests/test_target_margen.py:465: AssertionError
+____________________ test_resolver_paso_maximo_medio_punto _____________________
+
+    def test_resolver_paso_maximo_medio_punto():
+        """Rojo (c) + T.1 asimetrico: la subida aplica de una vez (derivado 20
+        con ultimo 19 -> 20); la bajada camina 0.5 (con ultimo 21 -> 20.5);
+        sin ultimo -> derivado sin recorte."""
+        from app.optimizer import goals as g
+
+        hoy = dt.date(2026, 9, 4)
+        med = _medicion()
+>       assert g.resuelve_target_margen(med, Decimal("0.5"), hoy, Decimal("19")).aplicado == Decimal(
+            "20"
+        )
+E       AssertionError: assert Decimal('19.5') == Decimal('20')
+E        +  where Decimal('19.5') = ResolucionMargen(aplicado=Decimal('19.5'), derivado=Decimal('20.0'), motivo=None, convergiendo=False).aplicado
+E        +    where ResolucionMargen(aplicado=Decimal('19.5'), derivado=Decimal('20.0'), motivo=None, convergiendo=False) = <function resuelve_target_margen at 0x108f8e770>(MedicionMargen(margen_neto_pct=Decimal('40'), cobertura=Decimal('1'), dias_con_venta=70, venta_cubierta=Decimal('7000'...e(2026, 9, 3, 12, 0), moneda='MXN', ventana_desde=datetime.date(2026, 5, 22), ventana_hasta=datetime.date(2026, 8, 20)), Decimal('0.5'), datetime.date(2026, 9, 4), Decimal('19'))
+E        +      where <function resuelve_target_margen at 0x108f8e770> = <module 'app.optimizer.goals' from '~/dev/wt-bids-02-s2/app/optimizer/goals.py'>.resuelve_target_margen
+E        +      and   Decimal('0.5') = Decimal('0.5')
+E        +      and   Decimal('19') = Decimal('19')
+E        +  and   Decimal('20') = Decimal('20')
+
+tests/test_target_margen.py:476: AssertionError
+____________________ test_resolver_subida_aplica_de_una_vez ____________________
+
+    def test_resolver_subida_aplica_de_una_vez():
+        """T.1 (BIDS 02 s2): el paso de 0.5 frena solo las BAJADAS (una subida
+        solo afloja): derivado 20 con ancla 19 aplica 20, no 19.5."""
+        from app.optimizer import goals as g
+
+        res = g.resuelve_target_margen(_medicion(), Decimal("0.5"), dt.date(2026, 9, 4), Decimal("19"))
+        assert res.motivo is None
+        assert res.derivado == Decimal("20")
+>       assert res.aplicado == Decimal("20")
+E       AssertionError: assert Decimal('19.5') == Decimal('20')
+E        +  where Decimal('19.5') = ResolucionMargen(aplicado=Decimal('19.5'), derivado=Decimal('20.0'), motivo=None, convergiendo=False).aplicado
+E        +  and   Decimal('20') = Decimal('20')
+
+tests/test_target_margen.py:494: AssertionError
+___________ test_resolver_subida_recortada_a_banda_aplica_de_una_vez ___________
+
+    def test_resolver_subida_recortada_a_banda_aplica_de_una_vez():
+        """T.1 (BIDS 02 s2): con ancla 30 y derivado 45.2, primero clamp a 45 y
+        luego la subida aplica DE UNA VEZ (45, no 30.5): el paso no congela el
+        crudo fuera de banda y no frena subidas."""
+        from app.optimizer import goals as g
+
+        res = g.resuelve_target_margen(
+            _medicion(margen=Decimal("90.4")), Decimal("0.5"), dt.date(2026, 9, 4), Decimal("30")
+        )
+        assert res.motivo is None
+        assert res.derivado == Decimal("45.2")
+>       assert res.aplicado == Decimal("45")
+E       AssertionError: assert Decimal('30.5') == Decimal('45')
+E        +  where Decimal('30.5') = ResolucionMargen(aplicado=Decimal('30.5'), derivado=Decimal('45.20'), motivo=None, convergiendo=False).aplicado
+E        +  and   Decimal('45') = Decimal('45')
+
+tests/test_target_margen.py:519: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_target_margen.py::test_resolver_banda_antes_que_paso - Asse...
+FAILED tests/test_target_margen.py::test_resolver_paso_maximo_medio_punto - A...
+FAILED tests/test_target_margen.py::test_resolver_subida_aplica_de_una_vez - ...
+FAILED tests/test_target_margen.py::test_resolver_subida_recortada_a_banda_aplica_de_una_vez
+4 failed, 27 deselected in 0.34s
