@@ -1,0 +1,8 @@
+== X.4 sonda de escritura (MeLi, conejillo + control)
+conejillo: listing=11 (shadow); control: listing=12 (shadow)
+SIMULACION: mercado sim en /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-sonda-X4.json (sembro 11,12)
+== SIMULACRO: dry-run del conejillo + lectura del control (cero PUT)
+[plan] meli listing=11 vivo=979.11 MXN -> 979.12 MXN -> 979.11 MXN
+vivo listing=12 valor=500.00 moneda=MXN
+SIMULACRO OK (nada escrito)
+exit=0

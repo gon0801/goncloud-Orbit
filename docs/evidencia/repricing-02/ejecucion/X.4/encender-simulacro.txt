@@ -1,0 +1,9 @@
+== X.4 encender MeLi
+precio_modo_global: <ausente> | meli/meli: shadow | base: 5
+goals shadow en MeLi: 2
+== SIMULACRO: sin --acepto-mutacion-real no se postea nada
+settings que se postearia: {"base_config_version_id": 5, "precio_modo_global": "live", "precio_modo_universo": {"meli/meli": "live"}}
+goals que se pasarian a live en bloque (2): 11,12
+aplicar que se postearia por bloque: pedido {"tipo": "modo", "mode": "live"} + go literal (no se imprime) + actor "X.4 encender.sh"
+SIMULACRO OK (nada escrito)
+exit=0

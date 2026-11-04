@@ -1,0 +1,1 @@
+-rw-r--r--  1 dn  staff  181428 Sep 19 00:05 /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/tmp.S9iwxZs3Wk/pre0039_schema.sql

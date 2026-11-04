@@ -1,0 +1,3 @@
+(a) from . import db anidado en componer(): PASA (guarda no discrimina)
+(b) try: import boto3 a nivel de modulo: PASA (guarda no discrimina)
+(c) control: import permitido anidado: PASA (correcto, control)

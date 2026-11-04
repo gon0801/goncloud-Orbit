@@ -1,0 +1,4 @@
+Preparing worktree (detached HEAD 24fa082)
+NOTICE:  database "orbit_cmp_g1_a" does not exist, skipping
+NOTICE:  database "orbit_cmp_g1_b" does not exist, skipping
+COMPARACION VERDE: A y B planean lo mismo (lids 9,10)

@@ -1,0 +1,3 @@
+== escritura real de la fraccion US 0.8
+intento 1 con id=23 -> HTTP 200
+OK: {"config_version_id":24,"created":true,"label":"settings UI · settings-ui · 2026-10-10 · amazon_us: margen encendido (fraccion 0.9 -> 0.8)"}

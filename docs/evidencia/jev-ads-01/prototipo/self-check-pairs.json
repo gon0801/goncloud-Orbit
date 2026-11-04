@@ -1,0 +1,16 @@
+{
+  "version": "jev-ads-isolated-pair-1",
+  "model": "jev-1.13.0",
+  "self_check": {
+    "status": "passed",
+    "pairs": 4,
+    "http_requests": 0,
+    "checks": [
+      "isolated_state",
+      "single_question",
+      "canonical_request_hash",
+      "term_sheet_order_invalidation",
+      "cross_group_pair_reuse"
+    ]
+  }
+}

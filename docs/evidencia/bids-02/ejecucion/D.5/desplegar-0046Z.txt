@@ -1,0 +1,4 @@
+== 0) SHA aprobado con la bateria completa verde
+APROBADO=6a154bdf4478facc3da9df88e6a5e07fb3e7fa9f CI=success
+== 1) Preflight: nadie corre, sin harvest en vuelo
+ABORTA: hay app.cli corriendo

@@ -1,0 +1,32 @@
+{
+ "V1_DAILY_minimo": {
+  "status": 200,
+  "reportId": "95a5d23b-11c3-4dc6-ae40-cf31eeb6c3d6",
+  "detalle": null
+ },
+ "V2_SUMMARY_minimo": {
+  "status": 200,
+  "reportId": "e3155073-1084-4cab-8084-25765a4238d6",
+  "detalle": null
+ },
+ "V3_DAILY_ventas": {
+  "status": 200,
+  "reportId": "b0902881-5adf-499d-8a80-ec687f7c8da1",
+  "detalle": null
+ },
+ "V4_DAILY_nombre_estado": {
+  "status": 200,
+  "reportId": "7dd53974-4e9d-492b-9f86-e5d7615ad950",
+  "detalle": null
+ },
+ "V5_DAILY_presupuesto": {
+  "status": 200,
+  "reportId": "2a31124d-0a3a-4a38-a438-fe5344336dc2",
+  "detalle": null
+ },
+ "V6_DAILY_tosis": {
+  "status": 400,
+  "reportId": null,
+  "detalle": "configuration columns include invalid value: (topOfSearchImpressionShare). When campaign and adGroup and/or campaignPlacement are included under groupBy, the following column value cannot be included: topOfSearchImpressionShare."
+ }
+}

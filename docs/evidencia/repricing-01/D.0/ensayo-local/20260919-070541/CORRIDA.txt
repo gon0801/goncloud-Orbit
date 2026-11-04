@@ -1,0 +1,33 @@
+D.0 REPRICING 01 — destino=local — inicio_utc=2026-09-19T07:05:41Z
+go_literal: D.0: ensayo local del lead tras GLM y CodeRabbit
+commit_del_repo: a7f49984a306c745b7caa65333b4d3ced34b8449
+VERDE 0039 del arbol = origin/master
+pg_version: 16.15 (Homebrew)
+VERDE btree_gist instalada
+VERDE listing sin (id, platform) duplicado
+VERDE 8 caps de Ads vivos antes
+0039 antes: completa
+config vigente antes: id=2 label=D.0: ensayo local del lead tras GLM y CodeRabbit claves_precio=20
+SALTA 0039 ya aplicada: sin backup ni migracion
+SALTA la vigente ya trae las 20 claves: no se siembra
+VERDE las cinco tablas precio_*
+VERDE precio_goal con cero filas
+VERDE precio_decision con cero filas
+VERDE precio_cotizacion con cero filas
+VERDE precio_envio_muestra con cero filas
+VERDE precio_cambio con cero filas
+VERDE listing_id_platform_key
+VERDE EXCLUDE precio_goal_sin_solape
+VERDE dos indices parciales
+VERDE triggers habilitados en las cinco tablas
+VERDE cap precio:amazon_mx = 5
+VERDE cap precio:amazon_us = 5
+VERDE cap precio:meli = 5
+VERDE caps de Ads identicos antes y despues
+config vigente despues: id=2 label=D.0: ensayo local del lead tras GLM y CodeRabbit
+VERDE 20 claves precio_* en la vigente
+VERDE CONFIG-OK 20 claves precio_*
+VERDE apply_quota_state precio:amazon_mx nace con cap 5
+VERDE ROLLBACK: cero filas de cuota
+fin_utc: 2026-09-19T07:05:43Z
+D0-VERDE salidas=/private/tmp/claude-501/-Users-dn-dev-goncloud-Orbit/b04bd5cf-4225-41c6-a2d7-ade5a2a168f0/scratchpad/ensayo-d0/20260919-070541

@@ -1,0 +1,21 @@
+# H5.4 vivo — verificacion de puertas 2026-09-25T06:56Z (UTC). SOLO lectura.
+
+$ ssh goncloud health -> {"status":"ok"}
+$ goals por modo -> shadow 9, live 0
+$ ultimo optimizer_cycle -> id 81 amazon_mx 2026-09-24 08:41 UTC (pre-shadow)
+$ applied desde INICIO_SHADOW (2026-09-25T06:13:41Z) -> 0
+$ bids (apply_attempt normal) desde INICIO_SHADOW -> 0
+$ config_version flag B.2a -> id 21 true
+
+Puertas:
+[VERDE] health ok
+[VERDE] postura shadow 9/0
+[VERDE] flag B.2a on con readback
+[VERDE] cero applies y cero bids desde inicio shadow
+[ROJA] sombra verde: ciclos shadow observados 0/5. Primer ciclo shadow
+  hoy 08:40/08:41 UTC (a ~1h45 de esta verificacion). Sin comparacion
+  candidatos-vs-replay B.3 no hay sombra verde.
+
+DECISION: NO se prende el vivo H5.4. Falta completar 5 ciclos shadow con
+evidencia por ciclo y comparacion contra replay B.3, mas go de live
+separado. C.2b aceptada (aceptacion.md, gate H6.1) NO sustituye la sombra.

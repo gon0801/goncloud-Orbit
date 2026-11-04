@@ -1,0 +1,140 @@
+== A) duracion real de los ultimos ciclos (segundos)
+ platform  | ciclos | minimo | mediana | maximo
+-----------+--------+--------+---------+--------
+ amazon_mx |     22 |    0.6 |     0.9 |    1.3
+ amazon_us |     22 |    0.7 |     0.9 |    1.4
+(2 rows)
+
+== B) por dia, ultimos 8
+ platform  |    dia     | mode | decisions_count | applied_count | segundos
+-----------+------------+------+-----------------+---------------+----------
+ amazon_us | 2026-10-05 | live |               2 |             1 |      1.3
+ amazon_mx | 2026-10-05 | live |               4 |             4 |      1.2
+ amazon_us | 2026-10-06 | live |               0 |             0 |      1.2
+ amazon_mx | 2026-10-06 | live |               1 |             1 |      1.3
+ amazon_us | 2026-10-06 | live |               0 |             0 |      0.9
+ amazon_mx | 2026-10-06 | live |               0 |             0 |      1.1
+ amazon_us | 2026-10-07 | live |               0 |             1 |      1.2
+ amazon_mx | 2026-10-07 | live |               1 |             1 |      1.2
+ amazon_us | 2026-10-08 | live |              17 |            17 |      1.4
+ amazon_mx | 2026-10-08 | live |              34 |            34 |      1.3
+ amazon_us | 2026-10-09 | live |               9 |             9 |      1.3
+ amazon_mx | 2026-10-09 | live |              11 |            11 |      1.3
+(12 rows)
+
+== C) lectura nueva por plataforma: tramos de 90 dias de TODAS las hojas, su ad group y la cuenta (una consulta)
+                                                                                  QUERY PLAN
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ HashAggregate  (cost=26663.88..26769.02 rows=3235 width=164) (actual rows=309 loops=1)
+   Group Key: e.id, CASE WHEN (ads_metric_observation.metric_date >= (((now() AT TIME ZONE 'UTC'::text))::date - 50)) THEN 1 ELSE 2 END
+   Batches: 1  Memory Usage: 625kB
+   Buffers: shared hit=155789 read=33
+   ->  Hash Join  (cost=894.44..26599.18 rows=3235 width=47) (actual rows=5861 loops=1)
+         Hash Cond: (ads_metric_observation.ad_entity_id = e.id)
+         Buffers: shared hit=155789 read=33
+         ->  Unique  (cost=1.73..25446.54 rows=17385 width=123) (actual rows=11920 loops=1)
+               Buffers: shared hit=155623
+               ->  Incremental Sort  (cost=1.73..24666.85 rows=155938 width=123) (actual rows=155867 loops=1)
+                     Sort Key: ads_metric_observation.ad_entity_id, ads_metric_observation.metric_date, ads_metric_observation.observed_at DESC
+                     Presorted Key: ads_metric_observation.ad_entity_id, ads_metric_observation.metric_date
+                     Full-sort Groups: 4028  Sort Method: quicksort  Average Memory: 27kB  Peak Memory: 27kB
+                     Buffers: shared hit=155623
+                     ->  Index Scan using ads_metric_observation_pkey on ads_metric_observation  (cost=0.44..19902.16 rows=155938 width=123) (actual rows=155867 loops=1)
+                           Index Cond: ((metric_date >= (((now() AT TIME ZONE 'UTC'::text))::date - 90)) AND (metric_date <= (((now() AT TIME ZONE 'UTC'::text))::date - 10)))
+                           Buffers: shared hit=155617
+         ->  Hash  (cost=849.62..849.62 rows=3447 width=16) (actual rows=3587 loops=1)
+               Buckets: 4096  Batches: 1  Memory Usage: 201kB
+               Buffers: shared hit=166 read=33
+               ->  Bitmap Heap Scan on ad_entity e  (cost=167.92..849.62 rows=3447 width=16) (actual rows=3587 loops=1)
+                     Recheck Cond: ((platform = 'amazon_mx'::platform) AND (kind = ANY ('{keyword,product_target}'::ad_entity_kind[])))
+                     Heap Blocks: exact=162
+                     Buffers: shared hit=166 read=33
+                     ->  Bitmap Index Scan on ad_entity_platform_kind_external_id_key  (cost=0.00..167.06 rows=3447 width=0) (actual rows=3587 loops=1)
+                           Index Cond: ((platform = 'amazon_mx'::platform) AND (kind = ANY ('{keyword,product_target}'::ad_entity_kind[])))
+                           Buffers: shared hit=4 read=33
+ Planning:
+   Buffers: shared hit=309
+ Planning Time: 1.241 ms
+ Execution Time: 113.262 ms
+(31 rows)
+
+Time: 118.389 ms
+== D) misma lectura para US
+                                                                                     QUERY PLAN
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate  (cost=1007.54..26752.40 rows=1902 width=164) (actual rows=273 loops=1)
+   Group Key: e.id, (CASE WHEN (ads_metric_observation.metric_date >= (((now() AT TIME ZONE 'UTC'::text))::date - 50)) THEN 1 ELSE 2 END)
+   Buffers: shared hit=155841 read=20
+   ->  Incremental Sort  (cost=1007.54..26652.54 rows=1902 width=47) (actual rows=3486 loops=1)
+         Sort Key: e.id, (CASE WHEN (ads_metric_observation.metric_date >= (((now() AT TIME ZONE 'UTC'::text))::date - 50)) THEN 1 ELSE 2 END)
+         Presorted Key: e.id
+         Full-sort Groups: 67  Sort Method: quicksort  Average Memory: 29kB  Peak Memory: 29kB
+         Pre-sorted Groups: 25  Sort Method: quicksort  Average Memory: 31kB  Peak Memory: 31kB
+         Buffers: shared hit=155841 read=20
+         ->  Merge Join  (cost=878.81..26593.86 rows=1902 width=47) (actual rows=3486 loops=1)
+               Merge Cond: (ads_metric_observation.ad_entity_id = e.id)
+               Buffers: shared hit=155838 read=20
+               ->  Unique  (cost=1.73..25446.54 rows=17385 width=123) (actual rows=11920 loops=1)
+                     Buffers: shared hit=155617
+                     ->  Incremental Sort  (cost=1.73..24666.85 rows=155938 width=123) (actual rows=155867 loops=1)
+                           Sort Key: ads_metric_observation.ad_entity_id, ads_metric_observation.metric_date, ads_metric_observation.observed_at DESC
+                           Presorted Key: ads_metric_observation.ad_entity_id, ads_metric_observation.metric_date
+                           Full-sort Groups: 4028  Sort Method: quicksort  Average Memory: 27kB  Peak Memory: 27kB
+                           Buffers: shared hit=155617
+                           ->  Index Scan using ads_metric_observation_pkey on ads_metric_observation  (cost=0.44..19902.16 rows=155938 width=123) (actual rows=155867 loops=1)
+                                 Index Cond: ((metric_date >= (((now() AT TIME ZONE 'UTC'::text))::date - 90)) AND (metric_date <= (((now() AT TIME ZONE 'UTC'::text))::date - 10)))
+                                 Buffers: shared hit=155617
+               ->  Sort  (cost=877.08..882.15 rows=2027 width=16) (actual rows=1887 loops=1)
+                     Sort Key: e.id
+                     Sort Method: quicksort  Memory: 122kB
+                     Buffers: shared hit=221 read=20
+                     ->  Bitmap Heap Scan on ad_entity e  (cost=105.34..765.75 rows=2027 width=16) (actual rows=1887 loops=1)
+                           Recheck Cond: ((platform = 'amazon_us'::platform) AND (kind = ANY ('{keyword,product_target}'::ad_entity_kind[])))
+                           Heap Blocks: exact=217
+                           Buffers: shared hit=221 read=20
+                           ->  Bitmap Index Scan on ad_entity_platform_kind_external_id_key  (cost=0.00..104.84 rows=2027 width=0) (actual rows=1887 loops=1)
+                                 Index Cond: ((platform = 'amazon_us'::platform) AND (kind = ANY ('{keyword,product_target}'::ad_entity_kind[])))
+                                 Buffers: shared hit=4 read=20
+ Planning:
+   Buffers: shared hit=7
+ Planning Time: 0.351 ms
+ Execution Time: 93.759 ms
+(37 rows)
+
+Time: 94.742 ms
+== E) lectura diaria de 14 dias de todas las hojas (para el efecto del ultimo cambio), MX
+                                                                              QUERY PLAN
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Hash Join  (cost=18221.84..18993.08 rows=3222 width=32) (actual rows=2574 loops=1)
+   Hash Cond: (ads_metric_observation.ad_entity_id = e.id)
+   Buffers: shared hit=2070 read=115, temp read=596 written=597
+   ->  Unique  (cost=17329.13..17881.76 rows=17315 width=152) (actual rows=5571 loops=1)
+         Buffers: shared hit=1871 read=115, temp read=596 written=597
+         ->  Sort  (cost=17329.13..17513.34 rows=73683 width=152) (actual rows=73686 loops=1)
+               Sort Key: ads_metric_observation.ad_entity_id, ads_metric_observation.metric_date, ads_metric_observation.observed_at DESC
+               Sort Method: external merge  Disk: 4768kB
+               Buffers: shared hit=1871 read=115, temp read=596 written=597
+               ->  Bitmap Heap Scan on ads_metric_observation  (cost=1107.35..5828.22 rows=73683 width=152) (actual rows=73686 loops=1)
+                     Recheck Cond: (metric_date >= (((now() AT TIME ZONE 'UTC'::text))::date - 30))
+                     Heap Blocks: exact=1869
+                     Buffers: shared hit=1871 read=115
+                     ->  Bitmap Index Scan on ads_metric_observation_metric_date_ad_entity_id_idx  (cost=0.00..1088.93 rows=73683 width=0) (actual rows=73686 loops=1)
+                           Index Cond: (metric_date >= (((now() AT TIME ZONE 'UTC'::text))::date - 30))
+                           Buffers: shared hit=2 read=115
+   ->  Hash  (cost=849.62..849.62 rows=3447 width=8) (actual rows=3587 loops=1)
+         Buckets: 4096  Batches: 1  Memory Usage: 173kB
+         Buffers: shared hit=199
+         ->  Bitmap Heap Scan on ad_entity e  (cost=167.92..849.62 rows=3447 width=8) (actual rows=3587 loops=1)
+               Recheck Cond: ((platform = 'amazon_mx'::platform) AND (kind = ANY ('{keyword,product_target}'::ad_entity_kind[])))
+               Heap Blocks: exact=162
+               Buffers: shared hit=199
+               ->  Bitmap Index Scan on ad_entity_platform_kind_external_id_key  (cost=0.00..167.06 rows=3447 width=0) (actual rows=3587 loops=1)
+                     Index Cond: ((platform = 'amazon_mx'::platform) AND (kind = ANY ('{keyword,product_target}'::ad_entity_kind[])))
+                     Buffers: shared hit=37
+ Planning:
+   Buffers: shared hit=4
+ Planning Time: 0.288 ms
+ Execution Time: 51.693 ms
+(30 rows)
+
+Time: 52.478 ms

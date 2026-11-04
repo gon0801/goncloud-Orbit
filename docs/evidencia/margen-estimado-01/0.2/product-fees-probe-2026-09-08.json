@@ -1,0 +1,61 @@
+{
+  "token_status": 200,
+  "requests": [
+    {
+      "platform": "amazon_mx",
+      "scenario": "fbm",
+      "http_status": 200,
+      "result_status": "Success",
+      "request_echo_matches": true,
+      "has_total": true,
+      "has_details": true,
+      "all_final_fees_valid": true,
+      "total_matches_final_fee_sum": true,
+      "fee_detail_count": 1,
+      "fee_types": ["ReferralFee"],
+      "result_error_code": null
+    },
+    {
+      "platform": "amazon_mx",
+      "scenario": "fba",
+      "http_status": 200,
+      "result_status": "ClientError",
+      "request_echo_matches": true,
+      "has_total": false,
+      "has_details": false,
+      "all_final_fees_valid": true,
+      "total_matches_final_fee_sum": false,
+      "fee_detail_count": 0,
+      "fee_types": [],
+      "result_error_code": "InvalidParameterValue"
+    },
+    {
+      "platform": "amazon_us",
+      "scenario": "fbm",
+      "http_status": 200,
+      "result_status": "Success",
+      "request_echo_matches": true,
+      "has_total": true,
+      "has_details": true,
+      "all_final_fees_valid": true,
+      "total_matches_final_fee_sum": true,
+      "fee_detail_count": 3,
+      "fee_types": ["PerItemFee", "ReferralFee", "VariableClosingFee"],
+      "result_error_code": null
+    },
+    {
+      "platform": "amazon_us",
+      "scenario": "fba",
+      "http_status": 200,
+      "result_status": "Success",
+      "request_echo_matches": true,
+      "has_total": true,
+      "has_details": true,
+      "all_final_fees_valid": true,
+      "total_matches_final_fee_sum": true,
+      "fee_detail_count": 4,
+      "fee_types": ["FBAFees", "PerItemFee", "ReferralFee", "VariableClosingFee"],
+      "result_error_code": null
+    }
+  ]
+}

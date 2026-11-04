@@ -1,0 +1,29 @@
+# Verificacion cruzada independiente del censo de 0.2 (segundo ejecutor del mismo encargo)
+Canal: psql dentro de orbit-db-1 en goncloud (misma base orbit), transaccion READ ONLY con ROLLBACK.
+Objetivo: reproducir los numeros de censo-readonly.json (corrida via orbit-app-1/ORBIT_DSN_READ) por un camino distinto.
+
+## fixtures.json (conteo y claves reales)
+fixture_version: 1 | synthetic_only: True | expectations_fixed_before_live: True
+casos: 12
+claves por caso: ['expectation_rationale', 'expected_group', 'expected_pairs', 'id', 'state', 'synthetic']
+synthetic por caso: [True]
+campo provenance por caso: [False]
+
+## psql: search_term_observation (esperado = censo-readonly.json)
+BEGIN
+SET
+ platform  | terminos | asin_like | con_orders | con_costo | ultimos_30d |   desde    |   hasta
+-----------+----------+-----------+------------+-----------+-------------+------------+------------
+ amazon_mx |     1360 |       339 |         49 |      1021 |         687 | 2026-06-19 | 2026-10-02
+ amazon_us |     2631 |      1017 |         48 |      1614 |        1092 | 2026-06-19 | 2026-10-02
+(2 rows)
+
+ platform  | kw_totales | kw_ep
+-----------+------------+-------
+ amazon_mx |       2715 |   377
+ amazon_us |       1338 |   412
+(2 rows)
+
+ROLLBACK
+
+RESULTADO: las cifras coinciden exacto con censo-readonly.json por camino distinto (search_terms: 1360/339/49/1021/687 MX y 2631/1017/48/1614/1092 US; keywords_ep: 377 MX y 412 US).

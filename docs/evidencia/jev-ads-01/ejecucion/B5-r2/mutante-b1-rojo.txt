@@ -1,0 +1,12 @@
+# B5-r2 mutante B1: comparacion sin la clausula del contrato (arreglo revertido a mano)
+Fecha: 2026-10-04T08:43:01Z
+Comando: uv run --frozen python -m pytest -q tests/test_jev_cli.py::test_misma_solicitud_otro_contrato_rechazado
+Esperado: FAILED (DID NOT RAISE). Observado:
+
+
+tests/test_jev_cli.py:372: Failed
+=========================== short test summary info ============================
+FAILED tests/test_jev_cli.py::test_misma_solicitud_otro_contrato_rechazado - ...
+1 failed in 0.22s
+
+(restaurado despues de la corrida)

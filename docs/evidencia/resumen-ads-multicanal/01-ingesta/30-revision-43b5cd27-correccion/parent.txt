@@ -1,0 +1,536 @@
+FFFFFFFFFFFFFF                                                           [100%]
+=================================== FAILURES ===================================
+_________ test_revision_constante_no_oculta_correccion_con_as_of_nuevo _________
+
+pg = <psycopg.Connection [IDLE] (host=localhost user=orbit database=orbit_meli_ads_test_mac.lan_60126) at 0x10909c7d0>
+tmp_path = PosixPath('/private/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/pytest-of-dn/pytest-3598/test_revision_constante_no_ocu0')
+
+    def test_revision_constante_no_oculta_correccion_con_as_of_nuevo(pg, tmp_path):
+        """Misma revision con otro as_of y otro costo es una correccion, no una
+        recopia: la comparacion es el contenido canonico completo, no la version."""
+        ahora = dt.datetime.now(dt.UTC).replace(microsecond=0)
+
+        def snap(nombre: str, costo: float, as_of: dt.datetime) -> Path:
+            ruta = _snapshot(
+                tmp_path / nombre,
+                [(D1.isoformat(), "C1", "ALFA", 1, 2, costo, 8.0)],
+                as_of=as_of.isoformat(),
+            )
+            con = sqlite3.connect(ruta)
+            con.execute("ALTER TABLE meli_ads_campaigns_daily ADD COLUMN revision TEXT")
+            con.execute("UPDATE meli_ads_campaigns_daily SET revision = 'r1'")
+            con.commit()
+            con.close()
+            return ruta
+
+        primero = snap("revision-nueva-5.db", 5.0, ahora - dt.timedelta(hours=2))
+        correccion = snap("revision-nueva-9.db", 9.0, ahora - dt.timedelta(hours=1))
+        ingest_meli_ads(_RelojFijo(pg, ahora), primero)
+        resultado = ingest_meli_ads(_RelojFijo(pg, ahora), correccion)
+
+>       assert resultado["rows_written"] == 1
+E       assert 0 == 1
+
+tests/test_meli_ads_ingest.py:1466: AssertionError
+_____________ test_frontera_rechaza_blob_y_texto_oversize[blob-id] _____________
+
+pg = <psycopg.Connection [IDLE] (host=localhost user=orbit database=orbit_meli_ads_test_mac.lan_60126) at 0x108d31810>
+tmp_path = PosixPath('/private/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/pytest-of-dn/pytest-3598/test_frontera_rechaza_blob_y_t0')
+campo = 'campaign_id', valor = <memory at 0x108b8e2c0>
+
+    @pytest.mark.parametrize(
+        ("campo", "valor"),
+        [
+            ("campaign_id", sqlite3.Binary(b"C1")),
+            ("campaign_name", sqlite3.Binary(b"ALFA")),
+            ("revision", sqlite3.Binary(b"r1")),
+            ("campaign_id", "C" * 3000),
+            ("campaign_name", "N" * 3000),
+            ("campaign_name", "\u00f1" * 1100),
+            ("revision", "r" * 3000),
+        ],
+        ids=[
+            "blob-id",
+            "blob-nombre",
+            "blob-revision",
+            "largo-id",
+            "largo-nombre",
+            "largo-nombre-utf8",
+            "largo-revision",
+        ],
+    )
+    def test_frontera_rechaza_blob_y_texto_oversize(pg, tmp_path, campo, valor):
+        """SQLite conserva el tipo: un BLOB no puede volverse `b'C1'` ni un texto
+        de mas de 2048 bytes llegar al indice btree de PostgreSQL."""
+        campana = valor if campo == "campaign_id" else "C1"
+        nombre = valor if campo == "campaign_name" else "ALFA"
+        snap = _snapshot(
+            tmp_path / f"frontera-{campo}.db",
+            [(D1.isoformat(), campana, nombre, 1, 2, 5.0, 8.0)],
+            as_of=AS_OF_INICIAL,
+        )
+        if campo == "revision":
+            con = sqlite3.connect(snap)
+            con.execute("ALTER TABLE meli_ads_campaigns_daily ADD COLUMN revision TEXT")
+            con.execute("UPDATE meli_ads_campaigns_daily SET revision = ?", (valor,))
+            con.commit()
+            con.close()
+
+        motivo = "BLOB" if isinstance(valor, memoryview) else "demasiado largo"
+>       with pytest.raises(MeliAdsError, match=motivo):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE MeliAdsError
+
+tests/test_meli_ads_ingest.py:1510: Failed
+___________ test_frontera_rechaza_blob_y_texto_oversize[blob-nombre] ___________
+
+pg = <psycopg.Connection [IDLE] (host=localhost user=orbit database=orbit_meli_ads_test_mac.lan_60126) at 0x108f8f1d0>
+tmp_path = PosixPath('/private/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/pytest-of-dn/pytest-3598/test_frontera_rechaza_blob_y_t1')
+campo = 'campaign_name', valor = <memory at 0x108b8e500>
+
+    @pytest.mark.parametrize(
+        ("campo", "valor"),
+        [
+            ("campaign_id", sqlite3.Binary(b"C1")),
+            ("campaign_name", sqlite3.Binary(b"ALFA")),
+            ("revision", sqlite3.Binary(b"r1")),
+            ("campaign_id", "C" * 3000),
+            ("campaign_name", "N" * 3000),
+            ("campaign_name", "\u00f1" * 1100),
+            ("revision", "r" * 3000),
+        ],
+        ids=[
+            "blob-id",
+            "blob-nombre",
+            "blob-revision",
+            "largo-id",
+            "largo-nombre",
+            "largo-nombre-utf8",
+            "largo-revision",
+        ],
+    )
+    def test_frontera_rechaza_blob_y_texto_oversize(pg, tmp_path, campo, valor):
+        """SQLite conserva el tipo: un BLOB no puede volverse `b'C1'` ni un texto
+        de mas de 2048 bytes llegar al indice btree de PostgreSQL."""
+        campana = valor if campo == "campaign_id" else "C1"
+        nombre = valor if campo == "campaign_name" else "ALFA"
+        snap = _snapshot(
+            tmp_path / f"frontera-{campo}.db",
+            [(D1.isoformat(), campana, nombre, 1, 2, 5.0, 8.0)],
+            as_of=AS_OF_INICIAL,
+        )
+        if campo == "revision":
+            con = sqlite3.connect(snap)
+            con.execute("ALTER TABLE meli_ads_campaigns_daily ADD COLUMN revision TEXT")
+            con.execute("UPDATE meli_ads_campaigns_daily SET revision = ?", (valor,))
+            con.commit()
+            con.close()
+
+        motivo = "BLOB" if isinstance(valor, memoryview) else "demasiado largo"
+>       with pytest.raises(MeliAdsError, match=motivo):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE MeliAdsError
+
+tests/test_meli_ads_ingest.py:1510: Failed
+__________ test_frontera_rechaza_blob_y_texto_oversize[blob-revision] __________
+
+pg = <psycopg.Connection [IDLE] (host=localhost user=orbit database=orbit_meli_ads_test_mac.lan_60126) at 0x109099590>
+tmp_path = PosixPath('/private/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/pytest-of-dn/pytest-3598/test_frontera_rechaza_blob_y_t2')
+campo = 'revision', valor = <memory at 0x108b8e8c0>
+
+    @pytest.mark.parametrize(
+        ("campo", "valor"),
+        [
+            ("campaign_id", sqlite3.Binary(b"C1")),
+            ("campaign_name", sqlite3.Binary(b"ALFA")),
+            ("revision", sqlite3.Binary(b"r1")),
+            ("campaign_id", "C" * 3000),
+            ("campaign_name", "N" * 3000),
+            ("campaign_name", "\u00f1" * 1100),
+            ("revision", "r" * 3000),
+        ],
+        ids=[
+            "blob-id",
+            "blob-nombre",
+            "blob-revision",
+            "largo-id",
+            "largo-nombre",
+            "largo-nombre-utf8",
+            "largo-revision",
+        ],
+    )
+    def test_frontera_rechaza_blob_y_texto_oversize(pg, tmp_path, campo, valor):
+        """SQLite conserva el tipo: un BLOB no puede volverse `b'C1'` ni un texto
+        de mas de 2048 bytes llegar al indice btree de PostgreSQL."""
+        campana = valor if campo == "campaign_id" else "C1"
+        nombre = valor if campo == "campaign_name" else "ALFA"
+        snap = _snapshot(
+            tmp_path / f"frontera-{campo}.db",
+            [(D1.isoformat(), campana, nombre, 1, 2, 5.0, 8.0)],
+            as_of=AS_OF_INICIAL,
+        )
+        if campo == "revision":
+            con = sqlite3.connect(snap)
+            con.execute("ALTER TABLE meli_ads_campaigns_daily ADD COLUMN revision TEXT")
+            con.execute("UPDATE meli_ads_campaigns_daily SET revision = ?", (valor,))
+            con.commit()
+            con.close()
+
+        motivo = "BLOB" if isinstance(valor, memoryview) else "demasiado largo"
+>       with pytest.raises(MeliAdsError, match=motivo):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE MeliAdsError
+
+tests/test_meli_ads_ingest.py:1510: Failed
+____________ test_frontera_rechaza_blob_y_texto_oversize[largo-id] _____________
+
+pg = <psycopg.Connection [IDLE] (host=localhost user=orbit database=orbit_meli_ads_test_mac.lan_60126) at 0x10904e950>
+tmp_path = PosixPath('/private/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/pytest-of-dn/pytest-3598/test_frontera_rechaza_blob_y_t3')
+campo = 'campaign_id'
+valor = 'CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC...CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC'
+
+    @pytest.mark.parametrize(
+        ("campo", "valor"),
+        [
+            ("campaign_id", sqlite3.Binary(b"C1")),
+            ("campaign_name", sqlite3.Binary(b"ALFA")),
+            ("revision", sqlite3.Binary(b"r1")),
+            ("campaign_id", "C" * 3000),
+            ("campaign_name", "N" * 3000),
+            ("campaign_name", "\u00f1" * 1100),
+            ("revision", "r" * 3000),
+        ],
+        ids=[
+            "blob-id",
+            "blob-nombre",
+            "blob-revision",
+            "largo-id",
+            "largo-nombre",
+            "largo-nombre-utf8",
+            "largo-revision",
+        ],
+    )
+    def test_frontera_rechaza_blob_y_texto_oversize(pg, tmp_path, campo, valor):
+        """SQLite conserva el tipo: un BLOB no puede volverse `b'C1'` ni un texto
+        de mas de 2048 bytes llegar al indice btree de PostgreSQL."""
+        campana = valor if campo == "campaign_id" else "C1"
+        nombre = valor if campo == "campaign_name" else "ALFA"
+        snap = _snapshot(
+            tmp_path / f"frontera-{campo}.db",
+            [(D1.isoformat(), campana, nombre, 1, 2, 5.0, 8.0)],
+            as_of=AS_OF_INICIAL,
+        )
+        if campo == "revision":
+            con = sqlite3.connect(snap)
+            con.execute("ALTER TABLE meli_ads_campaigns_daily ADD COLUMN revision TEXT")
+            con.execute("UPDATE meli_ads_campaigns_daily SET revision = ?", (valor,))
+            con.commit()
+            con.close()
+
+        motivo = "BLOB" if isinstance(valor, memoryview) else "demasiado largo"
+>       with pytest.raises(MeliAdsError, match=motivo):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE MeliAdsError
+
+tests/test_meli_ads_ingest.py:1510: Failed
+__________ test_frontera_rechaza_blob_y_texto_oversize[largo-nombre] ___________
+
+pg = <psycopg.Connection [IDLE] (host=localhost user=orbit database=orbit_meli_ads_test_mac.lan_60126) at 0x1090e16d0>
+tmp_path = PosixPath('/private/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/pytest-of-dn/pytest-3598/test_frontera_rechaza_blob_y_t4')
+campo = 'campaign_name'
+valor = 'NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN...NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN'
+
+    @pytest.mark.parametrize(
+        ("campo", "valor"),
+        [
+            ("campaign_id", sqlite3.Binary(b"C1")),
+            ("campaign_name", sqlite3.Binary(b"ALFA")),
+            ("revision", sqlite3.Binary(b"r1")),
+            ("campaign_id", "C" * 3000),
+            ("campaign_name", "N" * 3000),
+            ("campaign_name", "\u00f1" * 1100),
+            ("revision", "r" * 3000),
+        ],
+        ids=[
+            "blob-id",
+            "blob-nombre",
+            "blob-revision",
+            "largo-id",
+            "largo-nombre",
+            "largo-nombre-utf8",
+            "largo-revision",
+        ],
+    )
+    def test_frontera_rechaza_blob_y_texto_oversize(pg, tmp_path, campo, valor):
+        """SQLite conserva el tipo: un BLOB no puede volverse `b'C1'` ni un texto
+        de mas de 2048 bytes llegar al indice btree de PostgreSQL."""
+        campana = valor if campo == "campaign_id" else "C1"
+        nombre = valor if campo == "campaign_name" else "ALFA"
+        snap = _snapshot(
+            tmp_path / f"frontera-{campo}.db",
+            [(D1.isoformat(), campana, nombre, 1, 2, 5.0, 8.0)],
+            as_of=AS_OF_INICIAL,
+        )
+        if campo == "revision":
+            con = sqlite3.connect(snap)
+            con.execute("ALTER TABLE meli_ads_campaigns_daily ADD COLUMN revision TEXT")
+            con.execute("UPDATE meli_ads_campaigns_daily SET revision = ?", (valor,))
+            con.commit()
+            con.close()
+
+        motivo = "BLOB" if isinstance(valor, memoryview) else "demasiado largo"
+>       with pytest.raises(MeliAdsError, match=motivo):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE MeliAdsError
+
+tests/test_meli_ads_ingest.py:1510: Failed
+________ test_frontera_rechaza_blob_y_texto_oversize[largo-nombre-utf8] ________
+
+pg = <psycopg.Connection [IDLE] (host=localhost user=orbit database=orbit_meli_ads_test_mac.lan_60126) at 0x1090e25d0>
+tmp_path = PosixPath('/private/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/pytest-of-dn/pytest-3598/test_frontera_rechaza_blob_y_t5')
+campo = 'campaign_name'
+valor = 'ñññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññ...ññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññ'
+
+    @pytest.mark.parametrize(
+        ("campo", "valor"),
+        [
+            ("campaign_id", sqlite3.Binary(b"C1")),
+            ("campaign_name", sqlite3.Binary(b"ALFA")),
+            ("revision", sqlite3.Binary(b"r1")),
+            ("campaign_id", "C" * 3000),
+            ("campaign_name", "N" * 3000),
+            ("campaign_name", "\u00f1" * 1100),
+            ("revision", "r" * 3000),
+        ],
+        ids=[
+            "blob-id",
+            "blob-nombre",
+            "blob-revision",
+            "largo-id",
+            "largo-nombre",
+            "largo-nombre-utf8",
+            "largo-revision",
+        ],
+    )
+    def test_frontera_rechaza_blob_y_texto_oversize(pg, tmp_path, campo, valor):
+        """SQLite conserva el tipo: un BLOB no puede volverse `b'C1'` ni un texto
+        de mas de 2048 bytes llegar al indice btree de PostgreSQL."""
+        campana = valor if campo == "campaign_id" else "C1"
+        nombre = valor if campo == "campaign_name" else "ALFA"
+        snap = _snapshot(
+            tmp_path / f"frontera-{campo}.db",
+            [(D1.isoformat(), campana, nombre, 1, 2, 5.0, 8.0)],
+            as_of=AS_OF_INICIAL,
+        )
+        if campo == "revision":
+            con = sqlite3.connect(snap)
+            con.execute("ALTER TABLE meli_ads_campaigns_daily ADD COLUMN revision TEXT")
+            con.execute("UPDATE meli_ads_campaigns_daily SET revision = ?", (valor,))
+            con.commit()
+            con.close()
+
+        motivo = "BLOB" if isinstance(valor, memoryview) else "demasiado largo"
+>       with pytest.raises(MeliAdsError, match=motivo):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE MeliAdsError
+
+tests/test_meli_ads_ingest.py:1510: Failed
+_________ test_frontera_rechaza_blob_y_texto_oversize[largo-revision] __________
+
+pg = <psycopg.Connection [IDLE] (host=localhost user=orbit database=orbit_meli_ads_test_mac.lan_60126) at 0x1090323f0>
+tmp_path = PosixPath('/private/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/pytest-of-dn/pytest-3598/test_frontera_rechaza_blob_y_t6')
+campo = 'revision'
+valor = 'rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr...rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr'
+
+    @pytest.mark.parametrize(
+        ("campo", "valor"),
+        [
+            ("campaign_id", sqlite3.Binary(b"C1")),
+            ("campaign_name", sqlite3.Binary(b"ALFA")),
+            ("revision", sqlite3.Binary(b"r1")),
+            ("campaign_id", "C" * 3000),
+            ("campaign_name", "N" * 3000),
+            ("campaign_name", "\u00f1" * 1100),
+            ("revision", "r" * 3000),
+        ],
+        ids=[
+            "blob-id",
+            "blob-nombre",
+            "blob-revision",
+            "largo-id",
+            "largo-nombre",
+            "largo-nombre-utf8",
+            "largo-revision",
+        ],
+    )
+    def test_frontera_rechaza_blob_y_texto_oversize(pg, tmp_path, campo, valor):
+        """SQLite conserva el tipo: un BLOB no puede volverse `b'C1'` ni un texto
+        de mas de 2048 bytes llegar al indice btree de PostgreSQL."""
+        campana = valor if campo == "campaign_id" else "C1"
+        nombre = valor if campo == "campaign_name" else "ALFA"
+        snap = _snapshot(
+            tmp_path / f"frontera-{campo}.db",
+            [(D1.isoformat(), campana, nombre, 1, 2, 5.0, 8.0)],
+            as_of=AS_OF_INICIAL,
+        )
+        if campo == "revision":
+            con = sqlite3.connect(snap)
+            con.execute("ALTER TABLE meli_ads_campaigns_daily ADD COLUMN revision TEXT")
+            con.execute("UPDATE meli_ads_campaigns_daily SET revision = ?", (valor,))
+            con.commit()
+            con.close()
+
+        motivo = "BLOB" if isinstance(valor, memoryview) else "demasiado largo"
+>       with pytest.raises(MeliAdsError, match=motivo):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE MeliAdsError
+
+tests/test_meli_ads_ingest.py:1510: Failed
+___________ test_dinero_no_redondea_en_silencio_ni_colapsa_versiones ___________
+
+    def test_dinero_no_redondea_en_silencio_ni_colapsa_versiones():
+        with pytest.raises(MeliAdsError, match="4 decimales"):
+            _dinero("1.23456")
+        with pytest.raises(MeliAdsError, match="NUMERIC"):
+            _dinero("10000000000")
+        with pytest.raises(MeliAdsError, match="cuantiza a cero"):
+            _dinero("0.000001")
+        # Precision decimal genuina de seis decimales: se rechaza, no se redondea.
+>       with pytest.raises(MeliAdsError, match="4 decimales"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE MeliAdsError
+
+tests/test_meli_ads_ingest.py:204: Failed
+______________ test_duplicado_futuro_con_revision_no_oculta_costo ______________
+
+pg = <psycopg.Connection [IDLE] (host=localhost user=orbit database=orbit_meli_ads_test_mac.lan_60126) at 0x109031b80>
+tmp_path = PosixPath('/private/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/pytest-of-dn/pytest-3598/test_duplicado_futuro_con_revi0')
+
+    def test_duplicado_futuro_con_revision_no_oculta_costo(pg, tmp_path):
+        """El atajo de duplicado futuro no puede igualar solo `rev:`: un costo
+        distinto con la misma revision es contenido distinto y se rechaza."""
+        ahora = dt.datetime.now(dt.UTC).replace(microsecond=0)
+        futuro_asof = ahora + dt.timedelta(hours=1)
+        run_id = pg.execute(
+            "INSERT INTO ingest_run (source, ok, finished_at)"
+            " VALUES ('legacy', true, now()) RETURNING id"
+        ).fetchone()[0]
+        entidad = pg.execute(
+            "INSERT INTO ad_entity (platform, kind, external_id, name)"
+            " VALUES ('meli', 'campaign', 'C1', 'LEGACY') RETURNING id"
+        ).fetchone()[0]
+        pg.execute(
+            "INSERT INTO ads_metric_observation"
+            " (ad_entity_id, metric_date, observed_at, metric_currency, cost,"
+            "  ad_revenue, impressions, clicks, orders, source_report_id, ingest_run_id)"
+            " VALUES (%s, %s, %s, 'MXN', 10, 8, 2, 1, NULL, %s, %s)",
+            (
+                entidad,
+                D1,
+                ahora,
+                f"meli-ads|C1|{D1.isoformat()}|rev:r1|{int(futuro_asof.timestamp())}",
+                run_id,
+            ),
+        )
+
+        def snap(nombre: str, costo: float) -> Path:
+            ruta = _snapshot(
+                tmp_path / nombre,
+                [(D1.isoformat(), "C1", "LEGACY", 1, 2, costo, 8.0)],
+                as_of=futuro_asof.isoformat(),
+            )
+            con = sqlite3.connect(ruta)
+            con.execute("ALTER TABLE meli_ads_campaigns_daily ADD COLUMN revision TEXT")
+            con.execute("UPDATE meli_ads_campaigns_daily SET revision = 'r1'")
+            con.commit()
+            con.close()
+            return ruta
+
+        duplicado = ingest_meli_ads(_RelojFijo(pg, ahora), snap("futuro-rev-10.db", 10.0))
+        assert duplicado["rows_written"] == 0
+>       with pytest.raises(MeliAdsError, match="mismo as_of"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE MeliAdsError
+
+tests/test_meli_ads_ingest.py:1412: Failed
+________________ test_precision_genuina_de_seis_decimales_falla ________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x109079550>
+tmp_path = PosixPath('/private/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/pytest-of-dn/pytest-3598/test_precision_genuina_de_seis0')
+capsys = <_pytest.capture.CaptureFixture object at 0x109002900>
+
+    def test_precision_genuina_de_seis_decimales_falla(monkeypatch, tmp_path, capsys):
+        """1.000001 es precision decimal real, no ruido binario del REAL."""
+        codigo, salida = _corre(
+            monkeypatch,
+            tmp_path,
+            [("C1", DIA.isoformat(), 1.000001, 2.0, 3, 4)],
+            _dia(spend=1.000001),
+            _orbit(),
+            capsys,
+        )
+>       assert codigo != 0
+E       assert 0 != 0
+
+tests/test_conciliar_meli_ads.py:307: AssertionError
+____________ test_control_con_spend_null_en_dia_sin_campanas_falla _____________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1092d42c0>
+tmp_path = PosixPath('/private/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/pytest-of-dn/pytest-3598/test_control_con_spend_null_en0')
+capsys = <_pytest.capture.CaptureFixture object at 0x10909ce10>
+
+    def test_control_con_spend_null_en_dia_sin_campanas_falla(monkeypatch, tmp_path, capsys):
+        """Un NULL no es inactividad: el dia no se puede probar y falla cerrado."""
+        siguiente = DIA + dt.timedelta(days=1)
+        dias = _dia() + [(siguiente.isoformat(), 0, 0, None, 0.0)]
+        codigo, salida = _corre(monkeypatch, tmp_path, _campana(), dias, _orbit(), capsys)
+>       assert codigo != 0
+E       assert 0 != 0
+
+tests/test_conciliar_meli_ads.py:317: AssertionError
+____________________ test_control_con_fecha_ilegible_falla _____________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108fd2750>
+tmp_path = PosixPath('/private/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/pytest-of-dn/pytest-3598/test_control_con_fecha_ilegibl0')
+capsys = <_pytest.capture.CaptureFixture object at 0x10909c2d0>
+
+    def test_control_con_fecha_ilegible_falla(monkeypatch, tmp_path, capsys):
+        """Una fecha vacia con gasto no puede quedar fuera por orden lexicografico."""
+        dias = _dia() + [("", 9, 8, 500.0, 900.0)]
+        codigo, salida = _corre(monkeypatch, tmp_path, _campana(), dias, _orbit(), capsys)
+>       assert codigo != 0
+E       assert 0 != 0
+
+tests/test_conciliar_meli_ads.py:326: AssertionError
+________________ test_orbit_duplicado_en_la_vista_vigente_falla ________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108fd1310>
+tmp_path = PosixPath('/private/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/pytest-of-dn/pytest-3598/test_orbit_duplicado_en_la_vis0')
+capsys = <_pytest.capture.CaptureFixture object at 0x10913c3e0>
+
+    def test_orbit_duplicado_en_la_vista_vigente_falla(monkeypatch, tmp_path, capsys):
+        """Dos observaciones vigentes de la misma campana/dia rompen la identidad."""
+        orbit = _orbit() + [("C1", DIA, Decimal("9.0000"), Decimal("2.0000"), 3, 4, "MXN")]
+        codigo, salida = _corre(monkeypatch, tmp_path, _campana(), _dia(), orbit, capsys)
+        assert codigo != 0
+>       assert "duplicado en Orbit" in salida
+E       assert 'duplicado en Orbit' in "filas origen: 1\nfilas Orbit:  1\nfaltantes en Orbit: []\nsobrantes en Orbit: []\ncampana/dia comparables: 1, diferen...=(4, 3, Decimal('1.0000'), Decimal('2.0000')) orbit=(4, 3, Decimal('9.0000'), Decimal('2.0000'))\nCONCILIACION FALLA\n"
+
+tests/test_conciliar_meli_ads.py:336: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_meli_ads_ingest.py::test_revision_constante_no_oculta_correccion_con_as_of_nuevo
+FAILED tests/test_meli_ads_ingest.py::test_frontera_rechaza_blob_y_texto_oversize[blob-id]
+FAILED tests/test_meli_ads_ingest.py::test_frontera_rechaza_blob_y_texto_oversize[blob-nombre]
+FAILED tests/test_meli_ads_ingest.py::test_frontera_rechaza_blob_y_texto_oversize[blob-revision]
+FAILED tests/test_meli_ads_ingest.py::test_frontera_rechaza_blob_y_texto_oversize[largo-id]
+FAILED tests/test_meli_ads_ingest.py::test_frontera_rechaza_blob_y_texto_oversize[largo-nombre]
+FAILED tests/test_meli_ads_ingest.py::test_frontera_rechaza_blob_y_texto_oversize[largo-nombre-utf8]
+FAILED tests/test_meli_ads_ingest.py::test_frontera_rechaza_blob_y_texto_oversize[largo-revision]
+FAILED tests/test_meli_ads_ingest.py::test_dinero_no_redondea_en_silencio_ni_colapsa_versiones
+FAILED tests/test_meli_ads_ingest.py::test_duplicado_futuro_con_revision_no_oculta_costo
+FAILED tests/test_conciliar_meli_ads.py::test_precision_genuina_de_seis_decimales_falla
+FAILED tests/test_conciliar_meli_ads.py::test_control_con_spend_null_en_dia_sin_campanas_falla
+FAILED tests/test_conciliar_meli_ads.py::test_control_con_fecha_ilegible_falla
+FAILED tests/test_conciliar_meli_ads.py::test_orbit_duplicado_en_la_vista_vigente_falla
+14 failed in 1.11s
+RC=1

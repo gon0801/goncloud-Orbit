@@ -1,0 +1,48 @@
+
+== amazon_mx | recortes decididos en vivo: 405 | target 20.72 | variante completa
+    136  mantener:grupo_cumple                         gasto 30d de esas decisiones    3763.64
+    104  mantener:sin_evidencia                        gasto 30d de esas decisiones    1702.26
+     63  mantener:azar_lo_explica                      gasto 30d de esas decisiones   16388.24
+     35  mantener:sin_gasto                            gasto 30d de esas decisiones     167.87
+     15  subir:bajo_target                             gasto 30d de esas decisiones     497.63
+     13  mantener:venta_reciente                       gasto 30d de esas decisiones    1137.15
+     12  mantener:hoja_delgada_sin_dinero_que_mover    gasto 30d de esas decisiones      65.88
+      8  mantener:sin_clics_nuevos                     gasto 30d de esas decisiones     853.46
+      7  mantener:esperando_precio_medido              gasto 30d de esas decisiones     109.97
+      6  regresar:regreso_por_desplome                 gasto 30d de esas decisiones    4862.68
+      3  recortar:grupo_sangra                         gasto 30d de esas decisiones     137.47
+      2  recortar:grupo_sangra_vendedora               gasto 30d de esas decisiones    4508.50
+      1  recortar:gasto_sin_venta                      gasto 30d de esas decisiones     288.54
+   => recortes que la politica nueva tambien haria: 6 de 405 (1%), en 4 hojas
+
+== amazon_mx | subidas decididos en vivo: 57 | target 20.72 | variante completa
+     40  subir:bajo_target                             gasto 30d de esas decisiones   37345.40
+      9  mantener:azar_lo_explica                      gasto 30d de esas decisiones    7621.15
+      7  mantener:subida_sin_trafico                   gasto 30d de esas decisiones   17237.58
+      1  mantener:vende_dentro_del_margen              gasto 30d de esas decisiones     736.81
+
+== amazon_us | recortes decididos en vivo: 346 | target 28.34 | variante completa
+    106  mantener:sin_evidencia                        gasto 30d de esas decisiones     552.45
+     57  mantener:sin_gasto                            gasto 30d de esas decisiones      37.50
+     46  mantener:grupo_cumple                         gasto 30d de esas decisiones      91.77
+     44  mantener:azar_lo_explica                      gasto 30d de esas decisiones    3949.13
+     29  mantener:sin_clics_nuevos                     gasto 30d de esas decisiones     693.70
+     14  recortar:grupo_sangra_vendedora               gasto 30d de esas decisiones    2450.92
+     10  mantener:recorte_costo_trafico                gasto 30d de esas decisiones    2258.46
+     10  mantener:esperando_precio_medido              gasto 30d de esas decisiones     723.70
+      5  regresar:regreso_por_desplome                 gasto 30d de esas decisiones     744.53
+      5  mantener:hoja_delgada_sin_dinero_que_mover    gasto 30d de esas decisiones      17.13
+      4  recortar:grupo_sangra                         gasto 30d de esas decisiones      30.70
+      4  mantener:venta_reciente                       gasto 30d de esas decisiones     152.48
+      4  subir:bajo_target                             gasto 30d de esas decisiones     342.14
+      3  recortar:gasto_sin_venta                      gasto 30d de esas decisiones       1.92
+      2  recortar:gasto_sin_venta_doble                gasto 30d de esas decisiones      59.54
+      2  recortar:pierde_dinero_fuerte                 gasto 30d de esas decisiones     497.49
+      1  recortar:pierde_dinero                        gasto 30d de esas decisiones     194.50
+   => recortes que la politica nueva tambien haria: 26 de 346 (8%), en 15 hojas
+
+== amazon_us | subidas decididos en vivo: 12 | target 28.34 | variante completa
+      6  mantener:azar_lo_explica                      gasto 30d de esas decisiones     397.51
+      4  subir:bajo_target                             gasto 30d de esas decisiones     187.88
+      1  regresar:regreso_por_desplome                 gasto 30d de esas decisiones      42.86
+      1  mantener:subida_sin_trafico                   gasto 30d de esas decisiones      25.24

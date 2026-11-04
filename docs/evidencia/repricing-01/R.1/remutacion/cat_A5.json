@@ -1,0 +1,927 @@
+[
+ {
+  "id": "K1-reserva-cobra",
+  "archivo": "app/precio/cuota.py",
+  "viejo": "    if cap - extra <= 0:",
+  "nuevo": "    if True:",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ]
+ },
+ {
+  "id": "K3-frase-a4",
+  "archivo": "docs/DEPLOY.md",
+  "viejo": "; y la\nforma del parche sellada (A.4): antes de A.4 solo goals en `shadow`.",
+  "nuevo": ".",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ]
+ },
+ {
+  "id": "K6-log-crudo",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "%s: %s\", motivo, scrub(diagnostico))",
+  "nuevo": "%s: %s\", motivo, diagnostico)",
+  "cuenta": 2,
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ]
+ },
+ {
+  "id": "K9-solo-primer-goal",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "        for lid, plat, mode, goal_pct, vigente_desde, prod_id in goals:",
+  "nuevo": "        for lid, plat, mode, goal_pct, vigente_desde, prod_id in goals[:1]:",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ]
+ },
+ {
+  "id": "B1-fase1-aisla",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "    except Exception as exc:  # noqa: BLE001 - fase 1 aislada como la fase 3 (B1)",
+  "nuevo": "    except KeyError as exc:  # noqa: BLE001 - fase 1 aislada como la fase 3 (B1)",
+  "cuenta": 2,
+  "ocurrencia": 1,
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ]
+ },
+ {
+  "id": "B2-errores-scrub",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "    msg = scrub(f\"listing={lid} {platform} fase1: {exc.__class__.__name__}: {exc}\")",
+  "nuevo": "    msg = f\"listing={lid} {platform} fase1: {exc.__class__.__name__}: {exc}\"",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ]
+ },
+ {
+  "id": "B4-no-disponible",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "    if esc.estado != \"disponible\":",
+  "nuevo": "    if False:",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ]
+ },
+ {
+  "id": "B6-deploy-previos",
+  "archivo": "docs/DEPLOY.md",
+  "viejo": "Antes de instalar la línea: la 0039 aplicada y las claves `precio_*`\nsembradas (D.0); ",
+  "nuevo": "Antes de instalar la línea: ",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ]
+ },
+ {
+  "id": "B7-virtual-solo-shadow",
+  "archivo": "app/precio/corrida.py",
+  "viejo": " and decision.mode == \"shadow\":",
+  "nuevo": ":",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ]
+ },
+ {
+  "id": "C3-1-doble-claim",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "    fila = conn.execute(_SQL_CLAIM, (motor_lock(platform), owner, _TTL_LOCK_SEGUNDOS)).fetchone()\n    if fila is None:",
+  "nuevo": "    fila = conn.execute(_SQL_CLAIM, (motor_lock(platform), owner, _TTL_LOCK_SEGUNDOS)).fetchone()\n    if False:",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "equivalente"
+ },
+ {
+  "id": "C3-2-ordena-listing",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "                plan[i][1].prioridad is None,\n                -(plan[i][1].prioridad or Decimal(0)),\n",
+  "nuevo": "",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ]
+ },
+ {
+  "id": "C3-3-reversa-cupo",
+  "archivo": "app/precio/cuota.py",
+  "viejo": "    return conn.execute(\n        \"SELECT count(*) FROM precio_cambio\"",
+  "nuevo": "    return 0\n    return conn.execute(\n        \"SELECT count(*) FROM precio_cambio\"",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ]
+ },
+ {
+  "id": "C3-7-otra-plataforma",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "            \" WHERE g.platform = %s AND g.valid_from <= %s\"",
+  "nuevo": "            \" WHERE (g.platform = %s OR true) AND g.valid_from <= %s\"",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ]
+ },
+ {
+  "id": "A5-1",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "def _tomar_lock(conn: psycopg.Connection, platform: str, owner: str) -> None:\n",
+  "nuevo": "def _tomar_lock(conn: psycopg.Connection, platform: str, owner: str) -> None:\n    return\n",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ]
+ },
+ {
+  "id": "A5-2",
+  "archivo": "app/spapi/precio_write.py",
+  "viejo": "\" VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, true, 'pendiente', %s)\"",
+  "nuevo": "\" VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, true, 'enviado', %s)\"",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ]
+ },
+ {
+  "id": "A5-3",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "            and cuota_mod.reservar(\n",
+  "nuevo": "            and True or cuota_mod.reservar(\n",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ]
+ },
+ {
+  "id": "A5-4",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "                -(plan[i][1].prioridad or Decimal(0)),",
+  "nuevo": "                (plan[i][1].prioridad or Decimal(0)),",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ]
+ },
+ {
+  "id": "A5-5",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "        huerfanas = cerrar_huerfanas(conn, platform)",
+  "nuevo": "        huerfanas = 0",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ]
+ },
+ {
+  "id": "A5-8",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "\" 'confirmado', %s, 'virtual') RETURNING id\"",
+  "nuevo": "\" 'pendiente', %s, 'virtual') RETURNING id\"",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ]
+ },
+ {
+  "id": "A5-9",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "                limitador=limitador,",
+  "nuevo": "                limitador=None,",
+  "cuenta": 2,
+  "ocurrencia": 1,
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ]
+ },
+ {
+  "id": "A5-10",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "            if lid in decididas:",
+  "nuevo": "            if False:",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ]
+ },
+ {
+  "id": "A5-11",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "        reversas = cuota_mod.reversas_hoy(conn, platform, hoy)",
+  "nuevo": "        reversas = 0",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ]
+ },
+ {
+  "id": "A5-12",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "import psycopg\n",
+  "nuevo": "import httpx  # mutante\nimport psycopg\n",
+  "tests": [
+   "tests/test_architecture.py"
+  ]
+ },
+ {
+  "id": "A5-13",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "logger = logging.getLogger(__name__)\n",
+  "nuevo": "logger = logging.getLogger(__name__)\n__MUTANTE__ = 0.5\n",
+  "tests": [
+   "tests/test_precio_reglas.py"
+  ]
+ },
+ {
+  "id": "A5-14",
+  "archivo": "docs/DEPLOY.md",
+  "viejo": "10 13 * * * /usr/bin/flock",
+  "nuevo": "11 13 * * * /usr/bin/flock",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ]
+ },
+ {
+  "id": "A5-15",
+  "archivo": "app/precio/cuota.py",
+  "viejo": "    if not 0 <= cap <= 20:",
+  "nuevo": "    if False:",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ]
+ },
+ {
+  "id": "LA-huerf-plataforma",
+  "archivo": "app/precio/corrida.py",
+  "viejo": " WHERE platform = %s AND estado = 'pendiente' AND NOT es_reversa\nRETURNING id",
+  "nuevo": " WHERE (platform = %s OR true) AND estado = 'pendiente' AND NOT es_reversa\nRETURNING id",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "LA-huerf-reversa",
+  "archivo": "app/precio/corrida.py",
+  "viejo": " WHERE platform = %s AND estado = 'pendiente' AND NOT es_reversa\nRETURNING id",
+  "nuevo": " WHERE platform = %s AND estado = 'pendiente'\nRETURNING id",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "LA-freno-estado",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "        \" AND estado = 'error'\"\n",
+  "nuevo": "",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "LA-cuota-le",
+  "archivo": "app/precio/cuota.py",
+  "viejo": "WHERE apply_quota_state.used + %s < apply_quota_state.cap",
+  "nuevo": "WHERE apply_quota_state.used + %s <= apply_quota_state.cap",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "LA-cuota-cap0",
+  "archivo": "app/precio/cuota.py",
+  "viejo": "    if cap - extra <= 0:\n",
+  "nuevo": "    if False:\n",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "LA-reversas-todas",
+  "archivo": "app/precio/cuota.py",
+  "viejo": "        \" WHERE platform = %s AND es_reversa\"",
+  "nuevo": "        \" WHERE platform = %s\"",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "LA-cupo-sin-reversas",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "        cupo = max(0, cap - reversas)",
+  "nuevo": "        cupo = cap",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "LA-ingreso60-ventana",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "event_date BETWEEN %s - 75 AND %s - 16",
+  "nuevo": "event_date BETWEEN %s - 75 AND %s - 1",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "LA-shadow-compite",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "compite = decision.resultado in (\"subir\", \"bajar\") and decision.aplicado",
+  "nuevo": "compite = decision.resultado in (\"subir\", \"bajar\")",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "LA-goal-cerrado-hoy",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "            \" AND (g.valid_to IS NULL OR g.valid_to > %s)\"",
+  "nuevo": "            \" AND (g.valid_to IS NULL OR g.valid_to >= %s)\"",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "LA-goal-futuro",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "            \" WHERE g.platform = %s AND g.valid_from <= %s\"",
+  "nuevo": "            \" WHERE g.platform = %s AND (g.valid_from <= %s OR true)\"",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "LA-previos-reversas",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "        \" WHERE listing_id = %s AND platform = %s AND NOT es_reversa\"\n        \" ORDER BY id\",",
+  "nuevo": "        \" WHERE listing_id = %s AND platform = %s\"\n        \" ORDER BY id\",",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "LA-prioridad-none",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "                plan[i][1].prioridad is None,",
+  "nuevo": "                plan[i][1].prioridad is not None,",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "LA-hoy-local",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "    hoy = ahora.date()",
+  "nuevo": "    hoy = ahora.date() + timedelta(days=1)",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "LA-racha-previa",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "racha_previa=int(racha_previa[0]) if racha_previa and racha_previa[0] is not None else 0,",
+  "nuevo": "racha_previa=0,",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "LA-buybox",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "        buy_box = pricing[3]",
+  "nuevo": "        buy_box = True",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "LA-cierre-antes",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "        cerrados = cerrar_por_observacion(conn, hoy)\n",
+  "nuevo": "        cerrados = {}\n",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "LA-freno-sin-dias-cfg",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "freno_por_error(conn, lid, plat, hoy, dias=freno_dias, desde=vigente_desde)",
+  "nuevo": "freno_por_error(conn, lid, plat, hoy, dias=3, desde=vigente_desde)",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "LA-cli-lock-exit",
+  "archivo": "app/cli.py",
+  "viejo": "        print(f\"precio: {exc}\", file=sys.stderr)\n        return 0",
+  "nuevo": "        print(f\"precio: {exc}\", file=sys.stderr)\n        return 1",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "LA-cli-escritas",
+  "archivo": "app/cli.py",
+  "viejo": "    print(f\"decisiones={resumen.decisiones} escritas={resumen.escritas}\")",
+  "nuevo": "    print(f\"decisiones={resumen.decisiones} escritas=0\")",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "LA-escritas-cuenta",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "            escritas_1 = 1 if res.id_cambio is not None else 0",
+  "nuevo": "            escritas_1 = 1",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "R1-pricing-le",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "\" WHERE asin = %s AND platform = %s AND metric_date = %s\"",
+  "nuevo": "\" WHERE asin = %s AND platform = %s AND metric_date <= %s\"",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "R1-cubierto-producto",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "        \" WHERE e.platform = %s AND e.kind = 'sale' AND r.ok\"\n        \" AND r.source = 'accounting_ledger_events'\",\n        (platform,),",
+  "nuevo": "        \" WHERE e.platform = %s AND e.kind = 'sale' AND r.ok AND e.product_id = %s\"\n        \" AND r.source = 'accounting_ledger_events'\",\n        (platform, product_id),",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "R1-cubierto-sin-ok",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "\" WHERE e.platform = %s AND e.kind = 'sale' AND r.ok\"",
+  "nuevo": "\" WHERE e.platform = %s AND e.kind = 'sale'\"",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "R1-cubierto-sin-source",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "        \" AND r.source = 'accounting_ledger_events'\",\n",
+  "nuevo": "        \"\",\n",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "R1-reuso-off",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "    if fila is None:\n        return None\n    (cid, precio, moneda, total, detalles, estado, codigo, oferta_guardada) = fila",
+  "nuevo": "    if True:\n        return None\n    (cid, precio, moneda, total, detalles, estado, codigo, oferta_guardada) = fila",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "R1-reuso-sin-guarda",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "        oferta_guardada != oferta_id\n        or precio != pedido.precio.valor\n        or moneda != pedido.precio.moneda",
+  "nuevo": "        False",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "R1-reloj-atrasado",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "        return fila.replace(tzinfo=UTC)",
+  "nuevo": "        return (fila - timedelta(seconds=30)).replace(tzinfo=UTC)",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "R1-fase3-traga-db",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "    except psycopg.Error:\n        raise\n    except FormaParcheSinSellar",
+  "nuevo": "    except FormaParcheSinSellar",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "R1-parche-sigue",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "    if compite and parche_sin_sellar:\n",
+  "nuevo": "    if False:\n",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "R1-parche-no-corta",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "        return decision, 0, agotado, True, f\"parche_sin_sellar: {exc}\"",
+  "nuevo": "        return decision, 0, agotado, parche_sin_sellar, f\"parche_sin_sellar: {exc}\"",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "R1-noconf-sin-desde",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "        \" AND (enviado_at AT TIME ZONE 'UTC')::date >= %s\"\n        \" ORDER BY id DESC LIMIT 1\",",
+  "nuevo": "        \" AND (enviado_at AT TIME ZONE 'UTC')::date >= %s - 10000\"\n        \" ORDER BY id DESC LIMIT 1\",",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "R1-noconf-orden",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "        \" ORDER BY id DESC LIMIT 1\",\n        (listing_id, platform, desde),",
+  "nuevo": "        \" ORDER BY id ASC LIMIT 1\",\n        (listing_id, platform, desde),",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "R1-noconf-off",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "    return fila is not None and fila[0] == \"no_confirmado\"",
+  "nuevo": "    return False",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "R1-apierror-motivo",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "                    \"api_error\",",
+  "nuevo": "                    \"no_converge\",",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "R1-cli-errores",
+  "archivo": "app/cli.py",
+  "viejo": "    for error in resumen.errores:\n        print(f\"precio: {scrub(error)}\", file=sys.stderr)\n",
+  "nuevo": "",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "R1-reversas-frescas",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "                extra=cuota_mod.reversas_hoy(conn, platform, hoy),",
+  "nuevo": "                extra=0,",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "R1-errores-no-van",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "                errores.append(msg)",
+  "nuevo": "                pass",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "R1-reporte-invertido",
+  "archivo": "app/cli.py",
+  "viejo": "        if desde > hasta:",
+  "nuevo": "        if False:",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "R1-connect-scrub",
+  "archivo": "app/cli.py",
+  "viejo": "    except Exception as exc:  # noqa: BLE001 - K6: como `_cycle`, scrubbado y != 0\n        print(f\"precio: {scrub(str(exc)) or exc.__class__.__name__}\", file=sys.stderr)\n        return 1\n",
+  "nuevo": "",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "LA-extra-y-cupo",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "        cupo = max(0, cap - reversas)",
+  "nuevo": "        cupo = cap",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "R2-parche-sin-persistir",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "        if compite and parche_sin_sellar:\n            persistir_decision(",
+  "nuevo": "        if compite and parche_sin_sellar:\n            (lambda *a, **k: None)(",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "R2-parche-reserva",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "        if compite and parche_sin_sellar:\n",
+  "nuevo": "        if compite and parche_sin_sellar and False:\n",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "R2-cuenta-todo",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "            if persistida:\n                decisiones += 1",
+  "nuevo": "            if True:\n                decisiones += 1",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "R2-avisar-nunca",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "        if avisar is not None:\n            try:",
+  "nuevo": "        if avisar is not None and False:\n            try:",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "R2-avisar-sin-errores",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "                resumen = replace(resumen, errores=resumen.errores + (msg,))",
+  "nuevo": "                pass",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "R2-avisar-propaga",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "            except Exception as exc:  # noqa: BLE001 - un fallo del sender no tumba `correr`",
+  "nuevo": "            except KeyError as exc:  # noqa: BLE001 - un fallo del sender no tumba `correr`",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "R2-avisar-args",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "                avisar(conn, platform, hoy, resumen)",
+  "nuevo": "                avisar(conn, platform, hoy, None)",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "R2-cli-exit-errores",
+  "archivo": "app/cli.py",
+  "viejo": "    if resumen.errores:\n        return 1\n",
+  "nuevo": "",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "R3-freno-desde",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "        \" AND (enviado_at AT TIME ZONE 'UTC')::date >= %s\"\n        \" AND (enviado_at AT TIME ZONE 'UTC')::date < %s\",\n        (listing_id, platform, desde, hoy),",
+  "nuevo": "        \" AND (enviado_at AT TIME ZONE 'UTC')::date >= %s - 10000\"\n        \" AND (enviado_at AT TIME ZONE 'UTC')::date < %s\",\n        (listing_id, platform, desde, hoy),",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "R3-freno-consecutivo",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "        racha = racha + 1 if previo is not None and dia == previo + timedelta(days=1) else 1",
+  "nuevo": "        racha = racha + 1",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "R3-nodisp-sin-motivo",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "            esc.motivos[0] if esc.motivos else \"estimacion_motivo_desconocido\", esc.id",
+  "nuevo": "            \"estimacion_motivo_desconocido\", esc.id",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "R3-nodisp-vocab",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "            if motivo_permitido(\"no_evaluado\", exc.motivo)",
+  "nuevo": "            if True",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "R3-fase1-traga-db",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "    except psycopg.Error:\n        raise\n    except Exception as exc:  # noqa: BLE001 - fase 1 aislada como la fase 3 (B1)\n        _aislar_falla_fase1(",
+  "nuevo": "    except Exception as exc:  # noqa: BLE001 - fase 1 aislada como la fase 3 (B1)\n        _aislar_falla_fase1(",
+  "cuenta": 2,
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "R3-autocommit",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "    if not conn.autocommit:\n        raise ValueError(\"correr exige",
+  "nuevo": "    if False:\n        raise ValueError(\"correr exige",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "R3-live-guarda",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "            and decision.mode == \"live\"\n",
+  "nuevo": "",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "R3-cli-fechas",
+  "archivo": "app/cli.py",
+  "viejo": "    if not args.reporte and (args.desde or args.hasta):",
+  "nuevo": "    if False:",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "R3-reporte-scrub",
+  "archivo": "app/cli.py",
+  "viejo": "        except Exception as exc:  # noqa: BLE001 - D7: como la corrida, scrubbado y != 0\n            print(f\"precio: {scrub(str(exc)) or exc.__class__.__name__}\", file=sys.stderr)\n            return 1\n",
+  "nuevo": "",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "R3-utc-dia",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "            dia = obs.astimezone(UTC).date() if isinstance(obs, datetime) else obs",
+  "nuevo": "            dia = obs.date() if isinstance(obs, datetime) else obs",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "R4-latido-off",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "        conn.execute(_SQL_LATIDO, (motor_lock(platform), owner))",
+  "nuevo": "        pass",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "R4-latido-fase3",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "            _latir_claim(conn, platform, owner)",
+  "nuevo": "            pass",
+  "cuenta": 2,
+  "ocurrencia": 2,
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "R4-latido-fase1",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "            _latir_claim(conn, platform, owner)",
+  "nuevo": "            pass",
+  "cuenta": 2,
+  "ocurrencia": 1,
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "R4-latido-fail-closed",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "    except psycopg.Error as exc:\n        logger.warning(\"corrida latido fallo",
+  "nuevo": "    except KeyError as exc:\n        logger.warning(\"corrida latido fallo",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "R4-config-sin-envolver",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "        raise ConfigInvalida(str(exc)) from exc",
+  "nuevo": "        raise",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "R4-cli-config-exit",
+  "archivo": "app/cli.py",
+  "viejo": "        print(f\"precio: {exc}\", file=sys.stderr)\n        return 2\n    except corrida_precios.LockOcupado",
+  "nuevo": "        print(f\"precio: {exc}\", file=sys.stderr)\n        return 1\n    except corrida_precios.LockOcupado",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "R4-finally-enmascara",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "        try:\n            _soltar_lock(conn, platform, owner)\n        except Exception as exc:  # noqa: BLE001 - K4: registra, no enmascara la original",
+  "nuevo": "        try:\n            _soltar_lock(conn, platform, owner)\n        except KeyError as exc:  # noqa: BLE001 - K4: registra, no enmascara la original",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "R4-advisory-bloqueante",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "_SQL_ADVISORY_TOMAR = \"SELECT pg_try_advisory_lock(hashtext('precio:' || %s))\"",
+  "nuevo": "_SQL_ADVISORY_TOMAR = \"SELECT pg_advisory_lock(hashtext('precio:' || %s)) IS NULL\"",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ },
+ {
+  "id": "R4-sin-soltar",
+  "archivo": "app/precio/corrida.py",
+  "viejo": "        try:\n            _soltar_lock(conn, platform, owner)\n        except Exception as exc:  # noqa: BLE001 - K4",
+  "nuevo": "        try:\n            pass\n        except Exception as exc:  # noqa: BLE001 - K4",
+  "tests": [
+   "tests/test_precio_corrida.py"
+  ],
+  "extra": "lead"
+ }
+]
