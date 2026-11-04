@@ -1,0 +1,70 @@
+# RONDA 1 (historico): este archivo se genero con el "hoy" UTC, que servia
+# el dia en curso entre 18:00 y 24:00 CDMX. La correccion (zona local minima)
+# esta en 11-correcciones-ronda-2.txt.
+# MA7 con calentamiento (amazon_mx, rango visible 2026-10-10..2026-10-19)
+## Primer punto visible (2026-10-10): ventana 2026-10-04..2026-10-10 (6 dias antes del rango)
+{
+  "fecha": "2026-10-10",
+  "cost": "742.3300",
+  "ma7": {
+    "cost": "5780.8800",
+    "ad_revenue": "38604.4100",
+    "clicks": 1809,
+    "orders": 38,
+    "acos": "14.97",
+    "roas": "6.68",
+    "completo": true
+  }
+}
+
+## SELECT directo de la MISMA ventana (grano campaign, bool_and por dia, suma de los 7 dias)
+7|5780.8800|38604.4100|1809|38
+
+## Ultimo punto visible (2026-10-19): ventana 2026-10-13..2026-10-19
+{
+  "fecha": "2026-10-19",
+  "cost": "1066.6900",
+  "ma7": {
+    "cost": "5365.7600",
+    "ad_revenue": "48572.3400",
+    "clicks": 1493,
+    "orders": 51,
+    "acos": "11.05",
+    "roas": "9.05",
+    "completo": true
+  }
+}
+
+## D-1 sin fila (amazon_mx 2026-10-31): dia null y MA7 null (no se rellena con cero)
+{
+  "fecha": "2026-10-31",
+  "cost": null,
+  "ad_revenue": null,
+  "clicks": null,
+  "ma7": {
+    "cost": null,
+    "ad_revenue": null,
+    "clicks": null,
+    "orders": null,
+    "acos": null,
+    "roas": null,
+    "completo": false
+  }
+}
+
+## La misma fecha en MeLi (si publico 2026-10-31): valor real y MA7 completo
+{
+  "fecha": "2026-10-31",
+  "cost": "171.5900",
+  "ad_revenue": "989.0000",
+  "clicks": 60,
+  "ma7": {
+    "cost": "2251.1100",
+    "ad_revenue": "8860.1100",
+    "clicks": 838,
+    "orders": null,
+    "acos": "25.41",
+    "roas": "3.94",
+    "completo": true
+  }
+}

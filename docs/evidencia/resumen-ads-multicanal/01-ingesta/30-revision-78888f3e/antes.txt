@@ -1,0 +1,7 @@
+== HEAD revisado 78888f3e ==
+Comando: PYTHONPATH=/tmp:tests:. uv run --frozen python /tmp/orbit_review_78888f3e_blockers.py
+
+FUTURO_1H {'correccion_actual_error': 'snapshot atrasado: su as_of no es posterior a la marca aceptada (1793259811); no se escribio nada', 'latest': '5.0000'}
+RELOJ_RETROCEDE {'latest': '5.0000', 'expected': '6.5000'}
+BLOQUEANTES_REPRODUCIDOS [True, True]
+rc=0

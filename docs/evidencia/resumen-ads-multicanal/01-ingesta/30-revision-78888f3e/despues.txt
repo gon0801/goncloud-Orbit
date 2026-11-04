@@ -1,0 +1,7 @@
+== HEAD corregido ==
+Comando: PYTHONPATH=/tmp:tests:. uv run --frozen python /tmp/orbit_review_78888f3e_blockers.py
+
+FUTURO_1H {'correccion_actual_error': None, 'latest': '6.0000'}
+RELOJ_RETROCEDE {'latest': '6.5000', 'expected': '6.5000'}
+BLOQUEANTES_REPRODUCIDOS [False, False]
+rc=1

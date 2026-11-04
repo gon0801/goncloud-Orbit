@@ -1,0 +1,76 @@
+== Gates de calidad (head final) ==
+
+-- ruff --
+I001 [*] Import block is un-sorted or un-formatted
+ --> docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-10266d91/scripts/revision/orbit_review_10266d91.py:1:1
+  |
+1 | / import datetime as dt
+2 | |
+3 | | import orbit_review_d1bdbe5 as r
+4 | | from app.meli import ads_ingest as ai
+5 | | from test_meli_ads_ingest import D1, _RelojFijo, _snapshot
+  | |__________________________________________________________^
+6 |
+7 |   name, conn = r.fresh("final_10266_future_boundary")
+  |
+help: Organize imports
+  |
+3 | import orbit_review_d1bdbe5 as r
+  - from app.meli import ads_ingest as ai
+4 | from test_meli_ads_ingest import D1, _RelojFijo, _snapshot
+5 |
+6 + from app.meli import ads_ingest as ai
+7 +
+8 | name, conn = r.fresh("final_10266_future_boundary")
+  |
+
+I001 [*] Import block is un-sorted or un-formatted
+ --> docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-10266d91/scripts/revision/orbit_review_10266d91_recopy.py:1:1
+  |
+1 | / import datetime as dt
+2 | |
+3 | | import orbit_review_d1bdbe5 as r
+4 | | from app.meli import ads_ingest as ai
+5 | | from test_meli_ads_ingest import D1, _snapshot
+  | |______________________________________________^
+6 |
+7 |   name, conn = r.fresh("final_10266_real_recopy")
+  |
+help: Organize imports
+  |
+3 | import orbit_review_d1bdbe5 as r
+  - from app.meli import ads_ingest as ai
+4 | from test_meli_ads_ingest import D1, _snapshot
+5 |
+6 + from app.meli import ads_ingest as ai
+7 +
+8 | name, conn = r.fresh("final_10266_real_recopy")
+  |
+
+Found 2 errors.
+[*] 2 fixable with the `--fix` option.
+
+-- format --
+unformatted: File would be reformatted
+   --> app/meli/ads_ingest.py:743:83
+    |
+742 |             # para uno futuro se compara contra todas.
+    -             observed_at, marca_real, marca_futura, limite_real = _estado_temporal(
+    -                 conn, ultimas
+    -             )
+743 +             observed_at, marca_real, marca_futura, limite_real = _estado_temporal(conn, ultimas)
+744 |             as_of_epoch = int(origen.as_of.timestamp()) if origen.as_of is not None else -1
+    |
+
+1 file would be reformatted, 3 files already formatted
+
+-- bash -n --
+OK
+
+-- git diff --check --
+OK
+
+-- pre-commit --
+Detect hardcoded secrets.................................................Passed
+check for merge conflicts................................................Passed
+rc=0

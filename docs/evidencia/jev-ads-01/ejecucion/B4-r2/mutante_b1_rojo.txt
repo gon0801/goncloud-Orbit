@@ -1,0 +1,8 @@
+# Mutante B1 (SHA codigo 2d6985836b2a... ver sha_codigo.txt): la vista vuelve a tomar el PRIMER evento del par (regla previa al arreglo)
+$ PYTHONPATH=.:tests uv run --frozen python -m pytest -q tests/test_api_dashboard.py::test_asesoria_muestra_el_exito_de_la_reanudacion
+        from app.jev_ads import AsesorAds, DecisionARevisar, HayCompatible
+>           assert isinstance(vista.resultados[0][1], HayCompatible), vista.resultados[0][1]
+E           AssertionError: Indeterminado(motivos=frozenset({'fallo_proveedor', 'universo_desconocido', 'juicio_ausente'}))
+E            +  where False = isinstance(Indeterminado(motivos=frozenset({'fallo_proveedor', 'universo_desconocido', 'juicio_ausente'})), <class 'app.jev_ads.HayCompatible'>)
+tests/test_api_dashboard.py:3054: AssertionError
+1 failed, 1 warning in 0.87s

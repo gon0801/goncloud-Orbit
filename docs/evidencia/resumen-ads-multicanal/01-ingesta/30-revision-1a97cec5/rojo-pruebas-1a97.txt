@@ -1,0 +1,187 @@
+FFF.FF                                                                   [100%]
+=================================== FAILURES ===================================
+______ test_reintento_futuro_no_se_reclasifica_y_no_bloquea_la_correccion ______
+
+pg = <psycopg.Connection [IDLE] (host=localhost user=orbit database=orbit_meli_ads_test_mac.lan_26767) at 0x10b31fb10>
+tmp_path = PosixPath('/private/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/pytest-of-dn/pytest-3482/test_reintento_futuro_no_se_re0')
+
+    def test_reintento_futuro_no_se_reclasifica_y_no_bloquea_la_correccion(pg, tmp_path):
+        """Caso A: un as-of aceptado como futuro sigue en cuarentena al avanzar el
+        reloj. Su reintento exacto es no-op y una correccion real posterior entra."""
+        inicio = dt.datetime.now(dt.UTC).replace(microsecond=0)
+        as_of_futuro = inicio + dt.timedelta(minutes=10)
+        as_of_correccion = inicio + dt.timedelta(minutes=6)
+
+        def snap(nombre: str, costo: float, as_of: dt.datetime) -> Path:
+            return _snapshot(
+                tmp_path / nombre,
+                [(D1.isoformat(), "C1", "ALFA", 1, 2, costo, 8.0)],
+                as_of=as_of.isoformat(),
+            )
+
+        futuro = snap("futuro.db", 5.0, as_of_futuro)
+        correccion = snap("correccion.db", 6.0, as_of_correccion)
+        ingest_meli_ads(_RelojFijo(pg, inicio), futuro)
+
+        reintento = ingest_meli_ads(_RelojFijo(pg, inicio + dt.timedelta(minutes=11)), futuro)
+        assert reintento["rows_written"] == 0
+        assert reintento["duplicados"] == 1
+        marca = pg.execute(
+            "SELECT skip_reason FROM ingest_run WHERE id = %s", (reintento["run_id"],)
+        ).fetchone()[0]
+>       assert marca.startswith(f"futuro={int(as_of_futuro.timestamp())}")
+E       AssertionError: assert False
+E        +  where False = <built-in method startswith of str object at 0x10b34a5b0>('futuro=1793287891')
+E        +    where <built-in method startswith of str object at 0x10b34a5b0> = 'as_of=1793287891; futuro=1793287891; 1x misma version canonica (recopia o reintento)'.startswith
+
+tests/test_meli_ads_new.py:1094: AssertionError
+______________ test_reintento_futuro_tras_correccion_real_es_noop ______________
+
+pg = <psycopg.Connection [IDLE] (host=localhost user=orbit database=orbit_meli_ads_test_mac.lan_26767) at 0x10b257490>
+tmp_path = PosixPath('/private/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/pytest-of-dn/pytest-3482/test_reintento_futuro_tras_cor0')
+
+    def test_reintento_futuro_tras_correccion_real_es_noop(pg, tmp_path):
+        """Caso B: el reintento del futuro original no compara contra la
+        observacion vigente (ya corregida); reconoce la aceptacion anterior."""
+        ahora = dt.datetime.now(dt.UTC).replace(microsecond=0)
+
+        def snap(nombre: str, costo: float, as_of: dt.datetime) -> Path:
+            return _snapshot(
+                tmp_path / nombre,
+                [(D1.isoformat(), "C1", "ALFA", 1, 2, costo, 8.0)],
+                as_of=as_of.isoformat(),
+            )
+
+        futuro = snap("futuro.db", 5.0, ahora + dt.timedelta(hours=1))
+        real = snap("real.db", 6.0, ahora)
+        ingest_meli_ads(_RelojFijo(pg, ahora), futuro)
+        ingest_meli_ads(_RelojFijo(pg, ahora), real)
+        _, observaciones = _conteos(pg)
+
+>       reintento = ingest_meli_ads(_RelojFijo(pg, ahora), futuro)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_meli_ads_new.py:1124:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+app/meli/ads_ingest.py:752: in ingest_meli_ads
+    permite_nombre = _valida_orden(filas, ultimas, marca_para, as_of_epoch)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+filas = (FilaMeliAds(campaign_external_id='C1', campaign_name='ALFA', metric_date=datetime.date(2026, 10, 28), source_version=...', metric_currency='MXN', cost=Decimal('5.0000'), ad_revenue=Decimal('8.0000'), impressions=2, clicks=1, orders=None),)
+ultimas = {('C1', datetime.date(2026, 10, 28)): ('80602b5c1834ea060af91525307e59f37549f027f7f1e66c72dc092246e5310a', 1793287291)}
+marca = 1793290891, as_of_epoch = 1793290891
+
+    def _valida_orden(
+        filas: tuple[FilaMeliAds, ...],
+        ultimas: dict[tuple[str, dt.date], tuple[str, int]],
+        marca: int,
+        as_of_epoch: int,
+    ) -> bool:
+        """Valida el snapshot contra la marca y devuelve si puede tocar el nombre.
+
+        Un as-of anterior a la marca rechaza el snapshot completo, aunque las
+        metricas coincidan. Con el mismo as-of solo se admite el reintento exacto.
+        """
+        todas_iguales = True
+        for fila in filas:
+            vigente = ultimas.get((fila.campaign_external_id, fila.metric_date))
+            if vigente is None or vigente[0] != fila.source_version:
+                todas_iguales = False
+                break
+        if filas and (as_of_epoch < marca or (as_of_epoch == marca and not todas_iguales)):
+>           raise MeliAdsError(
+                "snapshot atrasado: su as_of no es posterior a la marca"
+                f" aceptada ({marca}); no se escribio nada"
+            )
+E           app.meli.ads_ingest.MeliAdsError: snapshot atrasado: su as_of no es posterior a la marca aceptada (1793290891); no se escribio nada
+
+app/meli/ads_ingest.py:677: MeliAdsError
+________ test_mismo_as_of_con_contenido_distinto_tras_futuro_se_rechaza ________
+
+pg = <psycopg.Connection [IDLE] (host=localhost user=orbit database=orbit_meli_ads_test_mac.lan_26767) at 0x10b27ec30>
+tmp_path = PosixPath('/private/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/pytest-of-dn/pytest-3482/test_mismo_as_of_con_contenido0')
+
+    def test_mismo_as_of_con_contenido_distinto_tras_futuro_se_rechaza(pg, tmp_path):
+        """Mismo as-of que una aceptacion futura y otra huella: no es reintento."""
+        inicio = dt.datetime.now(dt.UTC).replace(microsecond=0)
+        as_of = inicio + dt.timedelta(minutes=10)
+
+        def snap(nombre: str, costo: float) -> Path:
+            return _snapshot(
+                tmp_path / nombre,
+                [(D1.isoformat(), "C1", "ALFA", 1, 2, costo, 8.0)],
+                as_of=as_of.isoformat(),
+            )
+
+        ingest_meli_ads(_RelojFijo(pg, inicio), snap("futuro.db", 5.0))
+>       with pytest.raises(MeliAdsError, match="mismo as_of"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError: Regex pattern did not match.
+E         Expected regex: 'mismo as_of'
+E         Actual message: 'snapshot atrasado: su as_of no es posterior a la marca aceptada (1793287892); no se escribio nada'
+
+tests/test_meli_ads_new.py:1148: AssertionError
+_____________ test_moneda_con_nul_sella_la_corrida_y_no_deja_datos _____________
+
+pg = <psycopg.Connection [IDLE] (host=localhost user=orbit database=orbit_meli_ads_test_mac.lan_26767) at 0x10b2f6950>
+tmp_path = PosixPath('/private/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/pytest-of-dn/pytest-3482/test_moneda_con_nul_sella_la_c0')
+
+    def test_moneda_con_nul_sella_la_corrida_y_no_deja_datos(pg, tmp_path):
+        """PostgreSQL rechaza NUL en texto. El motivo se escapa ANTES de escribir
+        el sello: la corrida no queda abierta y no hay escrituras parciales."""
+        snap = _snapshot(
+            tmp_path / "nul.db",
+            _FILAS,
+            con_moneda=True,
+            moneda="MXN\x00USD",
+            as_of=AS_OF_INICIAL,
+        )
+        with pytest.raises(MeliAdsError, match="moneda fuera de dominio"):
+            ingest_meli_ads(pg, snap)
+
+        assert _conteos(pg) == (0, 0)
+        run = pg.execute(
+            "SELECT ok, rows_written, rows_skipped, skip_reason, finished_at"
+            " FROM ingest_run ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+>       assert run[0] is False and run[1] == 0 and run[2] == len(_FILAS)
+E       assert (None is False)
+
+tests/test_meli_ads_new.py:1263: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  app.meli.ads_ingest:ads_ingest.py:842 ingest_run 1 quedo ABIERTA: fallo tambien su sello de fallo; el error original de la corrida era: snapshot rechazado (cero escrituras): 4x moneda fuera de dominio (MXN): MXN USD
+__________ test_campaign_id_con_nul_y_fecha_invalida_sella_la_corrida __________
+
+pg = <psycopg.Connection [IDLE] (host=localhost user=orbit database=orbit_meli_ads_test_mac.lan_26767) at 0x10b36fe30>
+tmp_path = PosixPath('/private/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/pytest-of-dn/pytest-3482/test_campaign_id_con_nul_y_fec0')
+
+    def test_campaign_id_con_nul_y_fecha_invalida_sella_la_corrida(pg, tmp_path):
+        """El NUL del campaign_id viaja dentro del motivo de la fecha invalida.
+        El escape es central: no depende de que la validacion limpie el mensaje."""
+        filas = [
+            (D2.isoformat(), "C1", "ALFA", 1, 2, 3.0, 4.0),
+            ("no-es-fecha", "C\x00NUL", "MALA", 1, 2, 3.0, 4.0),
+        ]
+        snap = _snapshot(tmp_path / "nul-id.db", filas, as_of=AS_OF_INICIAL)
+        with pytest.raises(MeliAdsError, match="fecha ilegible"):
+            ingest_meli_ads(pg, snap)
+
+        assert _conteos(pg) == (0, 0)
+        run = pg.execute(
+            "SELECT ok, rows_written, rows_skipped, skip_reason, finished_at"
+            " FROM ingest_run ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+>       assert run[0] is False and run[1] == 0 and run[2] == len(filas)
+E       assert (None is False)
+
+tests/test_meli_ads_new.py:1284: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  app.meli.ads_ingest:ads_ingest.py:842 ingest_run 1 quedo ABIERTA: fallo tambien su sello de fallo; el error original de la corrida era: snapshot rechazado (cero escrituras): 1x fecha ilegible en C NUL: 'no-es-fecha'
+=========================== short test summary info ============================
+FAILED tests/test_meli_ads_new.py::test_reintento_futuro_no_se_reclasifica_y_no_bloquea_la_correccion
+FAILED tests/test_meli_ads_new.py::test_reintento_futuro_tras_correccion_real_es_noop
+FAILED tests/test_meli_ads_new.py::test_mismo_as_of_con_contenido_distinto_tras_futuro_se_rechaza
+FAILED tests/test_meli_ads_new.py::test_moneda_con_nul_sella_la_corrida_y_no_deja_datos
+FAILED tests/test_meli_ads_new.py::test_campaign_id_con_nul_y_fecha_invalida_sella_la_corrida
+5 failed, 1 passed, 46 deselected in 0.97s

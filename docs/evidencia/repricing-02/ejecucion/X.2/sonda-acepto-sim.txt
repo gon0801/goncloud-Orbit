@@ -1,0 +1,11 @@
+== X.2 sonda de escritura (MX FBM, conejillo + control)
+conejillo: listing=11 (shadow); control: listing=12 (shadow)
+SIMULACION: mercado sim en /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-sonda-X2.json (sembro nada nuevo)
+== acepto: control antes, sonda del conejillo, lecturas despues
+antes: vivo listing=11 valor=116.00 moneda=MXN | vivo listing=12 valor=200.00 moneda=MXN
+[plan] amazon_mx listing=11 vivo=116.00 MXN -> 116.01 MXN -> 116.00 MXN
+[sonda] listing=11 aceptada a 116.01 MXN
+[revierte] listing=11 aceptada a 116.00 MXN
+despues: vivo listing=11 valor=116.00 moneda=MXN | vivo listing=12 valor=200.00 moneda=MXN
+== X.2 sonda OK (ida y vuelta aceptadas, vivo intacto, control intacto)
+exit=0

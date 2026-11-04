@@ -1,0 +1,8 @@
+estado: COMPLETA
+inicio_utc: 2026-10-13T21:00:09Z
+fin_utc: 2026-10-13T21:00:14Z
+commit_del_repo: desconocido
+consultas_con_cambios_sin_commitear: 0
+salidas:
+  c7ab7af487f2377f7a77195dfa7381f88ce68b3015dbd44f47ee5c6dd977f52e  05-estado-contemporaneo.txt
+  4412d41b6559d1fb33a9fc2ef45533e0d72e7d12586a27b920bd8ce131486bda  07-control-estado-por-cantidad.txt

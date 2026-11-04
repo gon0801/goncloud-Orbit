@@ -1,0 +1,22 @@
+BEGIN
+-- INICIO 00-sonda-formato-90d
+amazon_mx|fee|finance:LabmanLabelPurchase|6|MXN|3|3|0|-379.2700|-126.42
+amazon_mx|fee|finance:MFNPostageFee|6|MXN|180|180|0|-15469.0000|-85.94
+amazon_mx|fee|finance:MFNShippingChargeback|6|MXN|1|1|0|-44.0300|-44.03
+amazon_mx|fee|finance:ShippingChargeback|6|MXN|2|2|0|-88.0000|-44.00
+amazon_mx|fee|finance:ShippingHB|6|MXN|9|9|0|-112.2300|-12.47
+amazon_mx|fee|shipping_label|4|MXN|6|6|0|-682.5300|-113.76
+amazon_us|fee|finance:LabmanLabelPurchase|6|MXN|57|57|0|-25233.8300|-442.70
+amazon_us|fee|finance:ShippingHB|6|MXN|173|173|0|-14743.2600|-85.22
+amazon_us|fee|shipping_label|4|MXN|170|170|0|-78143.6600|-459.67
+amazon_mx|finance:LabmanLabelPurchase|2026-09-07|-212.3400|MXN|amazon|finance|fee|701-2817823-2361800||LabmanLabelPurchase
+amazon_mx|finance:MFNPostageFee|2026-06-20|-91.0000|MXN|amazon|finance|fee|701-4257300-4364269||MFNPostageFee
+amazon_mx|finance:MFNShippingChargeback|2026-08-25|-44.0300|MXN|amazon|finance|fee|702-9891228-8684241||MFNShippingChargeback
+amazon_mx|finance:ShippingChargeback|2026-07-03|-44.0000|MXN|amazon|finance|fee|701-3970925-8755408|AJ-EX0N-9H0U|ShippingChargeback
+amazon_mx|finance:ShippingHB|2026-07-07|-12.5300|MXN|amazon|finance|fee|702-0755266-8150655|PI-5SUZ-85ZP|ShippingHB
+amazon_mx|shipping_label|2026-07-13|-73.1100|MXN|amazon|shipping_label|701-4878182-1526602|2026-07-13
+amazon_us|finance:LabmanLabelPurchase|2026-08-18|-446.4600|MXN|amazon_us|finance|fee|114-5372309-4692239||LabmanLabelPurchase
+amazon_us|finance:ShippingHB|2026-06-20|-90.5000|MXN|amazon_us|finance|fee|111-1950993-1017060|9P-C0NN-HCR9|ShippingHB
+amazon_us|shipping_label|2026-06-22|-467.4200|MXN|amazon_us|shipping_label|111-1950993-1017060|2026-06-22
+-- FIN 00-sonda-formato-90d
+ROLLBACK

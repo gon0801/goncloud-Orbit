@@ -1,0 +1,2 @@
+0001-01-01T00:00:00+00:01 -> OverflowError date value out of range
+9999-12-31T23:59:59-00:01 -> OverflowError date value out of range

@@ -1,0 +1,18 @@
+ROJO ronda 2 (delta kimi): la prueba nueva test_guarda_pureza_permitidos_sigue_siendo_lista_blanca
+contra la primera version del rediseno (con el escape sys.stdlib_module_names).
+
+Comando: uv run --frozen python -m pytest -q \
+  "tests/test_jev_ads.py::test_guarda_pureza_permitidos_sigue_siendo_lista_blanca"
+
+Salida observada (fragmento + resumen):
+
+E        +  where [] = _fugas_pureza('import sqlite3\nimport subprocess\nimport os\n')
+
+tests/test_jev_ads.py:471: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_jev_ads.py::test_guarda_pureza_permitidos_sigue_siendo_lista_blanca
+1 failed in 0.11s
+
+Lectura: la guarda ensanchada devolvia [] para sqlite3/subprocess/os de
+modulo (exactamente el repro de kimi). Tras quitar el escape, la misma
+prueba pasa (verde-sembradas.txt: 5 passed) y el archivo real sigue verde.

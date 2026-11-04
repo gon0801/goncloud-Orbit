@@ -1,0 +1,24 @@
+title = "Orbit"
+
+[extend]
+useDefault = true
+
+# El fingerprint de .gitleaksignore incluye el SHA. El commit sintetico de CI
+# reescribe el arbol y esas huellas no viajan. Solo se apaga generic-api-key
+# en las mismas rutas; el resto de las reglas sigue mirando esos archivos.
+[[allowlists]]
+targetRules = ["generic-api-key"]
+description = "Las mismas rutas de .gitleaksignore, solo para generic-api-key."
+paths = [
+  '''docs/evidencia/jev-ads-03/ejecucion/D\.1/checklist-20261018-1813\.txt''',
+  '''docs/evidencia/jev-ads-03/ejecucion/D\.1/checklist-20261018-1913\.txt''',
+  '''docs/evidencia/jev-ads-02/ejecucion/cierre/checklist-salida\.txt''',
+  '''docs/evidencia/jev-ads-02/ejecucion/cierre/checklist-post-ciclo-salida\.txt''',
+  '''docs/evidencia/margen-estimado-01/plan-validacion\.md''',
+  '''docs/evidencia/orbit-19/0\.3/columnas-api-400\.txt''',
+  '''docs/evidencia/orbit-19/0\.4/politica-comparacion\.md''',
+  '''tests/test_bloqueo_dueno_efecto\.py''',
+  '''tests/test_spapi_salud\.py''',
+  '''tests/test_spapi_orders\.py''',
+  '''tests/test_estimacion_fees\.py''',
+]

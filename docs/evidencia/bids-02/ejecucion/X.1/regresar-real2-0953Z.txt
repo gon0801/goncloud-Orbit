@@ -1,0 +1,6 @@
+== regreso real de danadas (actor: plan bids-02 X.1)
+amazon_mx: intento 1 con N=0 -> HTTP 200
+amazon_mx: HTTP 200, ok=0 motivos=0 -> docs/evidencia/bids-02/ejecucion/X.1/respuesta-regresar-amazon_mx-20261011-095310.txt
+amazon_us: intento 1 con N=3 -> HTTP 200
+amazon_us: HTTP 200, ok=3 motivos=0 -> docs/evidencia/bids-02/ejecucion/X.1/respuesta-regresar-amazon_us-20261011-095310.txt
+OK: respuestas guardadas en docs/evidencia/bids-02/ejecucion/X.1/respuesta-regresar-<plataforma>-20261011-095310.txt

@@ -1,0 +1,141 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+____ test_cli_rechaza_objetivo_manual_con_productos_antes_de_abrir_conexion ____
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x107df5940>
+
+    def test_cli_rechaza_objetivo_manual_con_productos_antes_de_abrir_conexion(monkeypatch):
+        args = [*ARGS_BASE, "--target-acos", "25.00"]
+        _sin_red(monkeypatch)
+        monkeypatch.setenv("ORBIT_DSN_READ", "dsn-read")
+
+        def conexion_prohibida(dsn):
+            raise AssertionError(f"se abrio conexion antes de validar: {dsn}")
+
+        monkeypatch.setattr(fc, "connect", conexion_prohibida)
+        monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", *args])
+        with pytest.raises(fc.Abortar, match="target-acos"):
+>           fc.main()
+
+tests/test_fabrica_campanas.py:646:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tools/fabrica_campanas.py:1563: in main
+    return _crear(args)
+           ^^^^^^^^^^^^
+tools/fabrica_campanas.py:632: in _crear
+    conn_read = connect(_dsn_read())
+                ^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+dsn = 'dsn-read'
+
+    def conexion_prohibida(dsn):
+>       raise AssertionError(f"se abrio conexion antes de validar: {dsn}")
+E       AssertionError: se abrio conexion antes de validar: dsn-read
+
+tests/test_fabrica_campanas.py:641: AssertionError
+___________ test_cli_v2_reintento_reutiliza_lote_y_no_duplica_posts ____________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x107df6780>
+
+    def test_cli_v2_reintento_reutiliza_lote_y_no_duplica_posts(monkeypatch):
+        class _ConnLoteDurable(_ConnFalsa):
+            def __init__(self, **kwargs):
+                super().__init__(**kwargs)
+                self.estados_lote = {}
+
+            def execute(self, sql, params=None):
+                plano = " ".join(str(sql).split())
+                bajo = plano.lower()
+                if bajo.startswith("select estado from fabrica_lote"):
+                    estado = self.estados_lote.get(params[0])
+                    return _Cursor([] if estado is None else [(estado,)])
+                if bajo.startswith("insert into fabrica_lote "):
+                    self.estados_lote[params[0]] = "planeado"
+                elif bajo.startswith("update fabrica_lote "):
+                    self.estados_lote[params[2]] = params[0]
+                return super().execute(sql, params)
+
+        args = ARGS_BASE.copy()
+        indice = args.index("--productos")
+        args[indice : indice + 2] = ["--listing-ids", "11,12"]
+        args.extend(["--target-acos", "25.00"])
+        publicaciones = [
+            (11, 1, "B0AAAAAAAA", "SS-1", None),
+            (12, 1, "B0AAAAAAAB", "SS-2", Decimal("-5")),
+        ]
+        plan = fc._arma_plan(
+            fc._parser().parse_args(args),
+            _ConnFalsa(settings={"fabrica.creacion": "v2"}, publicaciones=publicaciones),
+        )
+        huella = fp.huella_plan_v2(plan)
+        secuencia = []
+        conn_admin = _ConnLoteDurable(secuencia=secuencia)
+        amazon = _Amazon(secuencia=secuencia)
+        _frontera_mutacion(
+            monkeypatch,
+            _ConnFalsa(settings={"fabrica.creacion": "v2"}, publicaciones=publicaciones),
+            conn_admin,
+            amazon,
+        )
+        argv = [
+            "fabrica_campanas.py",
+            *args,
+            "--acepto-mutacion-real",
+            "--esperado",
+            "5",
+            "--huella",
+            huella,
+            "--go",
+            "go simulado",
+        ]
+        monkeypatch.setattr(sys, "argv", argv)
+        assert fc.main() == 0
+>       bloqueo = next(
+            indice
+            for indice, (tipo, valor) in enumerate(secuencia)
+            if tipo == "sql" and "pg_advisory_xact_lock" in valor.lower()
+        )
+E       StopIteration
+
+tests/test_fabrica_campanas.py:702: StopIteration
+----------------------------- Captured stdout call -----------------------------
+category_exact: budget=150 bid=6.00 target=25.00 origen=manual_lanzamiento procedencia=manual_lanzamiento confirmado semillas=0
+category_phrase: budget=120 bid=5.00 target=25.00 origen=manual_lanzamiento procedencia=manual_lanzamiento confirmado semillas=0
+category_broad: budget=120 bid=4.00 target=25.00 origen=manual_lanzamiento procedencia=manual_lanzamiento confirmado semillas=0
+product_targeting: budget=120 bid=5.00 target=25.00 origen=manual_lanzamiento procedencia=manual_lanzamiento confirmado semillas=0
+auto_discovery: budget=150 bid=4.50 target=25.00 origen=manual_lanzamiento procedencia=manual_lanzamiento confirmado semillas=0
+publicacion=11 asin=B0AAAAAAAA seller_sku=SS-1 margen=None
+publicacion=12 asin=B0AAAAAAAB seller_sku=SS-2 margen=-5
+huella del conjunto: bec38e8ef81c6da7f7fceeec438b96012c53fd7f416051e2eb1c1fb84f27e7c1
+{"evento": "perfiles", "perfiles": {"amazon_mx": 101}}
+{"evento": "paso", "lote": "fabrica-amazon_mx-collar_perro-20260907-055114", "rol": "category_exact", "recurso": "campaign", "external": "campaigns-1", "ack": {"campaigns": {"success": [{"index": 0, "campaignId": "campaigns-1"}], "error": []}}, "readback": "ENABLED", "ok": true}
+{"evento": "paso", "lote": "fabrica-amazon_mx-collar_perro-20260907-055114", "rol": "category_exact", "recurso": "ad_group", "external": "adGroups-1", "ack": {"adGroups": {"success": [{"index": 0, "adGroupId": "adGroups-1"}], "error": []}}, "readback": "ENABLED", "ok": true}
+{"evento": "paso", "lote": "fabrica-amazon_mx-collar_perro-20260907-055114", "rol": "category_exact", "recurso": "product_ad", "external": "productAds-1", "ack": {"productAds": {"success": [{"index": 0, "adId": "productAds-1"}], "error": []}}, "readback": "ENABLED", "ok": true}
+{"evento": "paso", "lote": "fabrica-amazon_mx-collar_perro-20260907-055114", "rol": "category_exact", "recurso": "product_ad", "external": "productAds-2", "ack": {"productAds": {"success": [{"index": 0, "adId": "productAds-2"}], "error": []}}, "readback": "ENABLED", "ok": true}
+{"evento": "campana_creada", "lote": "fabrica-amazon_mx-collar_perro-20260907-055114", "rol": "category_exact", "external": "campaigns-1"}
+{"evento": "paso", "lote": "fabrica-amazon_mx-collar_perro-20260907-055114", "rol": "category_phrase", "recurso": "campaign", "external": "campaigns-2", "ack": {"campaigns": {"success": [{"index": 0, "campaignId": "campaigns-2"}], "error": []}}, "readback": "ENABLED", "ok": true}
+{"evento": "paso", "lote": "fabrica-amazon_mx-collar_perro-20260907-055114", "rol": "category_phrase", "recurso": "ad_group", "external": "adGroups-2", "ack": {"adGroups": {"success": [{"index": 0, "adGroupId": "adGroups-2"}], "error": []}}, "readback": "ENABLED", "ok": true}
+{"evento": "paso", "lote": "fabrica-amazon_mx-collar_perro-20260907-055114", "rol": "category_phrase", "recurso": "product_ad", "external": "productAds-3", "ack": {"productAds": {"success": [{"index": 0, "adId": "productAds-3"}], "error": []}}, "readback": "ENABLED", "ok": true}
+{"evento": "paso", "lote": "fabrica-amazon_mx-collar_perro-20260907-055114", "rol": "category_phrase", "recurso": "product_ad", "external": "productAds-4", "ack": {"productAds": {"success": [{"index": 0, "adId": "productAds-4"}], "error": []}}, "readback": "ENABLED", "ok": true}
+{"evento": "campana_creada", "lote": "fabrica-amazon_mx-collar_perro-20260907-055114", "rol": "category_phrase", "external": "campaigns-2"}
+{"evento": "paso", "lote": "fabrica-amazon_mx-collar_perro-20260907-055114", "rol": "category_broad", "recurso": "campaign", "external": "campaigns-3", "ack": {"campaigns": {"success": [{"index": 0, "campaignId": "campaigns-3"}], "error": []}}, "readback": "ENABLED", "ok": true}
+{"evento": "paso", "lote": "fabrica-amazon_mx-collar_perro-20260907-055114", "rol": "category_broad", "recurso": "ad_group", "external": "adGroups-3", "ack": {"adGroups": {"success": [{"index": 0, "adGroupId": "adGroups-3"}], "error": []}}, "readback": "ENABLED", "ok": true}
+{"evento": "paso", "lote": "fabrica-amazon_mx-collar_perro-20260907-055114", "rol": "category_broad", "recurso": "product_ad", "external": "productAds-5", "ack": {"productAds": {"success": [{"index": 0, "adId": "productAds-5"}], "error": []}}, "readback": "ENABLED", "ok": true}
+{"evento": "paso", "lote": "fabrica-amazon_mx-collar_perro-20260907-055114", "rol": "category_broad", "recurso": "product_ad", "external": "productAds-6", "ack": {"productAds": {"success": [{"index": 0, "adId": "productAds-6"}], "error": []}}, "readback": "ENABLED", "ok": true}
+{"evento": "campana_creada", "lote": "fabrica-amazon_mx-collar_perro-20260907-055114", "rol": "category_broad", "external": "campaigns-3"}
+{"evento": "paso", "lote": "fabrica-amazon_mx-collar_perro-20260907-055114", "rol": "product_targeting", "recurso": "campaign", "external": "campaigns-4", "ack": {"campaigns": {"success": [{"index": 0, "campaignId": "campaigns-4"}], "error": []}}, "readback": "ENABLED", "ok": true}
+{"evento": "paso", "lote": "fabrica-amazon_mx-collar_perro-20260907-055114", "rol": "product_targeting", "recurso": "ad_group", "external": "adGroups-4", "ack": {"adGroups": {"success": [{"index": 0, "adGroupId": "adGroups-4"}], "error": []}}, "readback": "ENABLED", "ok": true}
+{"evento": "paso", "lote": "fabrica-amazon_mx-collar_perro-20260907-055114", "rol": "product_targeting", "recurso": "product_ad", "external": "productAds-7", "ack": {"productAds": {"success": [{"index": 0, "adId": "productAds-7"}], "error": []}}, "readback": "ENABLED", "ok": true}
+{"evento": "paso", "lote": "fabrica-amazon_mx-collar_perro-20260907-055114", "rol": "product_targeting", "recurso": "product_ad", "external": "productAds-8", "ack": {"productAds": {"success": [{"index": 0, "adId": "productAds-8"}], "error": []}}, "readback": "ENABLED", "ok": true}
+{"evento": "campana_creada", "lote": "fabrica-amazon_mx-collar_perro-20260907-055114", "rol": "product_targeting", "external": "campaigns-4"}
+{"evento": "paso", "lote": "fabrica-amazon_mx-collar_perro-20260907-055114", "rol": "auto_discovery", "recurso": "campaign", "external": "campaigns-5", "ack": {"campaigns": {"success": [{"index": 0, "campaignId": "campaigns-5"}], "error": []}}, "readback": "ENABLED", "ok": true}
+{"evento": "paso", "lote": "fabrica-amazon_mx-collar_perro-20260907-055114", "rol": "auto_discovery", "recurso": "ad_group", "external": "adGroups-5", "ack": {"adGroups": {"success": [{"index": 0, "adGroupId": "adGroups-5"}], "error": []}}, "readback": "ENABLED", "ok": true}
+{"evento": "paso", "lote": "fabrica-amazon_mx-collar_perro-20260907-055114", "rol": "auto_discovery", "recurso": "product_ad", "external": "productAds-9", "ack": {"productAds": {"success": [{"index": 0, "adId": "productAds-9"}], "error": []}}, "readback": "ENABLED", "ok": true}
+{"evento": "paso", "lote": "fabrica-amazon_mx-collar_perro-20260907-055114", "rol": "auto_discovery", "recurso": "product_ad", "external": "productAds-10", "ack": {"productAds": {"success": [{"index": 0, "adId": "productAds-10"}], "error": []}}, "readback": "ENABLED", "ok": true}
+{"evento": "campana_creada", "lote": "fabrica-amazon_mx-collar_perro-20260907-055114", "rol": "auto_discovery", "external": "campaigns-5"}
+{"evento": "reconciliacion_final", "lote": "fabrica-amazon_mx-collar_perro-20260907-055114", "campanas": ["campaigns-1", "campaigns-2", "campaigns-3", "campaigns-4", "campaigns-5"], "ok": true}
+=========================== short test summary info ============================
+FAILED tests/test_fabrica_campanas.py::test_cli_rechaza_objetivo_manual_con_productos_antes_de_abrir_conexion
+FAILED tests/test_fabrica_campanas.py::test_cli_v2_reintento_reutiliza_lote_y_no_duplica_posts
+2 failed, 78 deselected in 0.29s

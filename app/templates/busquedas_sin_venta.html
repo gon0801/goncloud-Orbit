@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block contenido %}
+<h2>Búsquedas que gastan sin vender</h2>
+<p class="mutado">
+  Solo campañas encendidas, últimos 90 días. Esta pantalla no niega nada en
+  Amazon: los negatives los agregas a mano.
+</p>
+<p>
+  <a href="/busquedas-sin-venta?plataforma=amazon_mx" {% if plataforma == "amazon_mx" %}aria-current="page"{% endif %}>Amazon MX</a>
+  <a href="/busquedas-sin-venta?plataforma=amazon_us" {% if plataforma == "amazon_us" %}aria-current="page"{% endif %}>Amazon US</a>
+</p>
+{% if referencia.visto_pct is not none %}
+<p>{{ referencia.visto_pct }} % de tu gasto cayó en búsquedas que no vendieron. Con la conversión de tu cuenta, el azar daría {{ referencia.azar_pct }} %. La diferencia es lo único que un negative podría recuperar.</p>
+{% else %}
+<p>Sin pedidos o sin clics en estos 90 días: no hay referencia de azar.</p>
+{% endif %}
+<div class="tarjeta">
+  <h3>Páginas de producto ajenas</h3>
+  {% if asins %}
+  <div class="tabla-scroll" role="region" aria-label="Tabla de datos" tabindex="0">
+  <table>
+    <thead>
+      <tr>
+        <th>ASIN</th>
+        <th class="num">Clics</th>
+        <th class="num">Gasto</th>
+        <th>Campañas</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for fila in asins %}
+      <tr>
+        <td>{{ fila.asin }}{% if fila.es_propio %} <span class="chip">es un producto tuyo</span>{% endif %}</td>
+        <td class="num">{{ fila.clics }}</td>
+        <td class="num">{{ fila.gasto }} {{ moneda }}</td>
+        <td>{{ fila.campanas | join(", ") }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p>Ninguna página de producto pasó el mínimo sin vender.</p>
+  {% endif %}
+</div>
+<div class="tarjeta">
+  <h3>Palabras y frases</h3>
+  {% if palabras %}
+  <div class="tabla-scroll" role="region" aria-label="Tabla de datos" tabindex="0">
+  <table>
+    <thead>
+      <tr>
+        <th>Palabra</th>
+        <th class="num">Búsquedas</th>
+        <th class="num">Clics</th>
+        <th class="num">Gasto</th>
+        <th>Ejemplos</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for fila in palabras %}
+      <tr>
+        <td>{{ fila.palabra }}</td>
+        <td class="num">{{ fila.busquedas }}</td>
+        <td class="num">{{ fila.clics }}</td>
+        <td class="num">{{ fila.gasto }} {{ moneda }}</td>
+        <td>{{ fila.ejemplos | join(", ") }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p>Ninguna palabra pasó el mínimo sin vender.</p>
+  {% endif %}
+</div>
+<div class="tarjeta">
+  <h3>A medio camino</h3>
+  <p>
+    {{ asins_a_medio_camino }} páginas de producto y {{ palabras_a_medio_camino }}
+    palabras llevan entre la mitad y el total del gasto para concluir, todavía
+    sin vender.
+  </p>
+</div>
+{% endblock %}

@@ -1,0 +1,30 @@
+# H5 Paso 5 — 2026-09-25T06:1xZ (UTC). INICIO_SHADOW=2026-09-25T06:13:41Z.
+
+$ ssh goncloud 'curl -fsS http://127.0.0.1:8010/health'
+{"status":"ok"}
+
+$ ssh goncloud "$PSQL_READ -c \"SELECT mode, count(*) FROM ads_optimizer_goal GROUP BY mode;\""
+  mode  | count
+--------+-------
+ shadow |     9
+(1 row)
+
+$ ssh goncloud "$PSQL_READ -c \"SELECT count(*) AS applied_nuevos FROM apply_queue WHERE applied_at > '$INICIO_SHADOW';\""
+ applied_nuevos
+----------------
+              0
+(1 row)
+
+$ ssh goncloud "$PSQL_READ -c \"SELECT count(*) AS bids_nuevos FROM apply_attempt WHERE tipo='normal' AND started_at > '$INICIO_SHADOW';\""
+(extra R2 obs-4: los bids no pasan por la cola)
+ bids_nuevos
+-------------
+           0
+(1 row)
+
+$ ssh goncloud 'curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8010/cortes'
+200
+
+Esperado: health ok; 9 shadow / 0 live; applied 0; bids 0; /cortes 200. OK.
+
+EXIT=0

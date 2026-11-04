@@ -1,0 +1,9 @@
+== X.1 sembrar margen-de-hoy en shadow (MX FBA)
+modo amazon_mx/fba: shadow
+unidades MX FBA sin goal vigente: 3
+seleccion: listing_ids [90001,90002,90003]
+== SIMULACRO: sin --acepto-mutacion-real no se postea nada
+plan que se postearia: {"platform": "amazon_mx", "pedido": {"tipo": "margen_de_hoy", "mode": "shadow"}, "listing_ids": [90001,90002,90003]}
+aplicar que se postearia por bloque (500): mismo cuerpo + {"huella": "<del plan>", "confirmados": [], "actor": "X.1 sembrar.sh"}
+SIMULACRO OK (nada escrito)
+exit=0

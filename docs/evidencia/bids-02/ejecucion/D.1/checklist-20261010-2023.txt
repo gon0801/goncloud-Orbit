@@ -1,0 +1,15 @@
+== 0) El servidor contesta
+OK    orbit-app-1 corriendo = true
+== Checklist D.1 (solo lectura; sello 20261010-2022, contenedor desde 2026-10-10T20:23:08.949000771Z)
+== 1) HTTP: /health, /keywords-danadas, /ruido
+OK    GET /health = 200
+OK    GET /keywords-danadas = 200
+OK    GET /ruido = 200
+== 2) Esquema de D.1 (esperado t|t)
+OK    v_hoja_activa y v_cambio_bid creadas = t|t
+== 3) Clave ausente y fraccion US (esperado f|f y 0.8)
+OK    claves de politica mx|us = f|f
+OK    fraccion US = 0.8
+== 4) Primer ciclo posterior vs ciclo anterior, por plataforma
+INCOMPLETO: todavia no corre un ciclo despues de 2026-10-10T20:23:08.949000771Z; vuelve a correr el checklist despues del ciclo de las 08:40 UTC
+== RESULTADO: 0 falla(s), 0 sin medir, ciclo posterior PENDIENTE

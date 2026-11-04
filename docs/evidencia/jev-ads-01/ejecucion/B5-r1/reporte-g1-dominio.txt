@@ -1,0 +1,61 @@
+=== quality-kit cross-review.ps1 ===
+Repo: /Users/dn/dev/wt/jev-ads-worker
+CLI: auto
+Cadena auto: claude -> grok -> kimi -> qwen -> codex (excluido: glm, escribio el cambio)
+Alcance: bloque desde afc1f3b68715c5bf05bdf939eefc9a6683adc0cd hasta HEAD
+Archivos (pathspec de la tarea): app/jev_ads.py, app/jev_juicios.py
+Tamano del diff: 54519 caracteres
+Tope automatico para este diff (~54 KB): 1800 s. Usa -TimeoutSec para fijarlo a mano.
+
+==> AVISO: el diff es grande (54519 caracteres). Una revision asi cuesta del orden de 100-200k tokens y varios minutos. Si solo te interesa parte del cambio, acotalo con -Archivos <pathspecs> en vez de mandarlo entero.
+
+==> Invocando claude de forma no interactiva (tope: 1800 s)...
+
+=== Respuesta de claude (codigo de salida: 0) ===
+1. BLOQUEANTE (datos/auditoria) - `_abrir_revision` no incluye el contrato en la comparacion de coherencia (solo compara sujeto_tipo, decision_id, plan_sha256 y censos), asi que retomar la misma solicitud con otro contrato no lanza ValueError: `jev_revision.contrato` conserva el contrato viejo, los eventos nuevos llevan otro `contrato_sha256`, y `_evento_del_par` (que no filtra por contrato y ordena por un ordinal que reinicia por clave) puede componer la vista con juicios de contratos mezclados. Reproduccion: `AsesorAds(conn, pedir=fake, presupuesto=1).evaluar(sujeto, solicitud_id=S)` con un censo de 2 miembros con ficha; luego `AsesorAds(conn, pedir=fake, contrato=Contrato(version="2")).evaluar(sujeto, solicitud_id=S)`; no hay ValueError, `SELECT contrato->>'sha256' FROM jev_revision WHERE solicitud=S` difiere de `SELECT DISTINCT contrato_sha256 FROM jev_par_evento WHERE revision_id=S`, y `leer` mezcla ambos.
+
+2. NO BLOQUEANTE - En `evaluar` las validaciones estructurales de `componer` (estados no paralelos, misma ficha en dos miembros, ficha sin producto_id) corren despues de confirmar la revision y de pagar el HTTP del termino; un censo invalido queda persistido como la ultima revision de esa decision y despues `leer` lanza ValueError para todo el lote de referencias. Conviene validar justo despues de `_enriquecer`.
+
+3. VERIFICAR: que el constructor del censo nunca emita dos miembros del mismo producto con listings distintos cubiertos por la misma ficha (`FichaVersion.listings` es un conjunto); en ese caso `ficha_vigente` devuelve el mismo id para ambos y `componer` lanza "censo con la misma ficha en dos miembros" despues del HTTP. Si en cambio agrupa por producto con 2 listings, `_enriquecer` nunca resuelve ficha (`len(listing_ids) == 1`) y ese producto queda en ficha_ausente para siempre.
+
+4. NO BLOQUEANTE - `_validar_respuesta` lanza OverflowError sin capturar si el proveedor devuelve un entero JSON enorme en probabilities o confidence (`math.isfinite(10**400)`), lo que rompe "todo fallo produce un estado visible" y deja la intencion sin resultado. Reproduccion: `_validar_respuesta({"model": MODELO, "answers": {"relacion": {"type": "choice", "choice": "satisface", "probabilities": {"satisface": 10**400, "no_satisface": 0, "informacion_insuficiente": 0}, "confidence": 1}}}, Contrato())`.
+
+5. NO BLOQUEANTE - `evaluar` no hace commit cuando ningun par llega a intencion o reutilizacion (todos los terminos ASIN-like, todos los miembros sin ficha, o presupuesto 0): el INSERT de `jev_revision` queda en transaccion abierta. VERIFICAR: que el llamador confirme; si no, la revision se pierde y `leer` devuelve None en vez de mostrar el Indeterminado.
+
+6. NO BLOQUEANTE - Retomar una solicitud despues de que una ficha vencio o fue sustituida lanza "misma solicitud con otro payload", porque el censo enriquecido con la ficha vigente a `ahora` es parte del contexto comparado; el lote queda irretomable con un mensaje que culpa al llamador. Merece un error o motivo distinto.
+
+7. NO BLOQUEANTE - En `pares_de`, `if agotado: continue` va antes de `_exito_previo`: con presupuesto agotado en el origen, un par del destino con la misma clave ya juzgada no se reutiliza y sale como juicio_ausente en `Revision`, mientras `leer` si lo muestra. Mover la reutilizacion antes del corte por presupuesto.
+
+8. NO BLOQUEANTE - Si un par falla en el origen y la misma ficha esta en el destino, el mismo `evaluar` vuelve a pedirlo por HTTP, lo que contradice "V1 no reintenta" y consume presupuesto doble.
+
+9. NO BLOQUEANTE - `request_sha256` no cumple lo que dice el docstring del modulo: el payload no incluye `opciones` ni `version`, y `sort_keys=True` borra el orden de `criteria`, asi que cambiar orden o version no cambia el request hash (solo la clave). Ademas el hash es de una forma canonica y no de los bytes que httpx manda en orden de insercion.
+
+10. NO BLOQUEANTE - `_enriquecer` solo pisa `ficha_version_id` cuando encuentra ficha; si el censo de entrada trae un id y ya no hay ficha vigente, el id viejo queda congelado en `censos` y en `ficha_version_ids`, y la vista lo marcara Obsoleta desde el inicio. Deberia dejarlo en None.
+
+11. VERIFICAR: con que `row_factory` llega la conexion a `evaluar`; `_abrir_revision`, `_siguiente_ordinal`, `_exito_previo` y `_enriquecer` indexan filas por posicion, y el propio diff dice que la conexion del dashboard llega con dict_row (por eso existe `_FilasPosicionales` solo en la ruta de lectura). Con dict_row, `evaluar` revienta con KeyError despues del INSERT.
+
+12. NO BLOQUEANTE - No hay bloqueo por solicitud (advisory lock o SELECT FOR UPDATE): dos `evaluar` concurrentes con la misma solicitud pagan HTTP doble por el mismo par y calculan el mismo `max(ordinal)+1`. VERIFICAR: que exista una restriccion unica sobre (revision_id, clave, tipo, ordinal) para que al menos falle en vez de duplicar.
+
+13. VERIFICAR: contra el spec y la documentacion del proveedor, si `choice` debe ser el argmax de `probabilities` y si hay un umbral de `confidence`; hoy una respuesta con choice=no_satisface y probabilidad 0.0 para esa opcion pasa la validacion y cuenta entera hacia NingunoCompatible, que es el unico negativo de exclusion.
+
+14. NO BLOQUEANTE - Para semillas, la coherencia no compara `plan_canonico` ni `fuentes_semillas`, y nadie verifica que `plan_sha256` sea el hash de `plan_canonico`; la misma solicitud con el mismo sha y otro contenido pasa en silencio y conserva lo primero.
+
+15. NO BLOQUEANTE - El detalle de `respuesta_invalida` guarda en `jev_par_evento.error` el repr de valores controlados por el proveedor (`model`, `choice`) sin limite de longitud ni `scrub`. VERIFICAR: que la UI escape ese texto; conviene truncarlo.
+
+16. NO BLOQUEANTE - `_vigencia_de_miembros` solo mira miembros que tenian ficha: una revision Indeterminado por ficha_ausente sigue "vigente" aunque ya exista ficha para ese miembro, y tampoco considera un cambio de contrato; ademas cuenta miembros ARCHIVED y cachea `seleccionada` solo por listing, sin producto_id.
+
+17. NO BLOQUEANTE - `leer` hace N+1: por referencia, una consulta de revision, una de fichas, una de eventos y una `ficha_vigente` por listing. VERIFICAR: que `jev_revision.created_at` exista con default, porque el INSERT no la llena y el ORDER BY depende de ella.
+
+18. NO BLOQUEANTE - El hash del termino esta duplicado (`hashlib.sha256` en `_vista_de_revision` y `_canonico_termino` en `jev_juicios`): si una regla cambia, la vista pierde todos los eventos en silencio. Aparte, la vista construye `FichaVersion` con hechos, listings y desconocidos vacios, un objeto de dominio falso que no debe llegar a `clave_de` ni a `pedir`.
+
+Las pruebas no vienen en el diff, asi que no pude juzgar si discriminan; el hallazgo 1 necesita una prueba que falle sin el arreglo.
+
+
+=== stderr ===
+Permission allow rule (../../../.claude/settings.json): Write(/Users/dn/.local/state/**) is not matched by file permission checks — only Edit(path) rules are. Use Edit(/Users/dn/.local/state/**) instead (Edit rules cover all file-editing tools).
+Permission allow rule (../../../.claude/settings.json): Write(~/.claude/orchestrate/**) is not matched by file permission checks — only Edit(path) rules are. Use Edit(~/.claude/orchestrate/**) instead (Edit rules cover all file-editing tools).
+Permission allow rule (../../../.claude/settings.json): Write(~/.claude/projects/-Users-dn-dev-goncloud-Orbit/memory/**) is not matched by file permission checks — only Edit(path) rules are. Use Edit(~/.claude/projects/-Users-dn-dev-goncloud-Orbit/memory/**) instead (Edit rules cover all file-editing tools).
+Warning: claude.ai MCP servers blocked by enterprise policy: claude.ai Microsoft 365, claude.ai Notion, claude.ai Shopify, claude.ai Google Drive, claude.ai Gmail
+
+
+=== Revisor efectivo: claude (binario 'claude') ===

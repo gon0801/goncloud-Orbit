@@ -1,0 +1,6 @@
+BEGIN
+-- INICIO 05-estado-contemporaneo
+amazon_mx|DISCOVERABLE|2026-09-10|2.6|22
+amazon_us|DISCOVERABLE|2026-09-11|3.5|12
+-- FIN 05-estado-contemporaneo
+ROLLBACK

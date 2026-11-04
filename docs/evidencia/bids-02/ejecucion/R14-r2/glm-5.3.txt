@@ -1,0 +1,1059 @@
+[0m
+> build · glm-5.3
+[0m
+[0m→ [0mRead docs/superpowers/specs/2026-10-09-bids-02-design.md
+[0m
+[0m$ [0mgit diff 30cc62f3971c6651781b084ec1780d4d5c139856..3430b2dcac68dc857513dedfe9ecd551de2edbc6 -- app/impulso_io.py app/cli_bids.py tools/fabrica_campanas.py migrations/ app/static/js/productos.js
+diff --git a/app/cli_bids.py b/app/cli_bids.py
+index 4ca1858..b7b14be 100644
+--- a/app/cli_bids.py
++++ b/app/cli_bids.py
+@@ -76,7 +76,9 @@ def main_avisos_campana(argv: list[str]) -> int:
+
+ def main_impulso_vigia(argv: list[str]) -> int:
+     """Vigia diario del impulso (BIDS 02 I.3): lee, guarda y actua. Sin
+-    impulsos vivos sale 0 sin tocar la red. 2 sin DSN o con args extra."""
++    impulsos vivos sale 0 sin tocar la red. 2 sin DSN o con args extra.
++    R09-F: con impulsos vivos y ninguno atendido (todos fallaron o sin
++    ingesta) avisa y sale 1, para que el cron no calle un dia perdido."""
+     from app import impulso_io
+     from app.db import connect
+
+@@ -89,6 +91,8 @@ def main_impulso_vigia(argv: list[str]) -> int:
+         return 2
+     conn = connect(dsn_admin)
+     try:
++        vivos = len(conn.execute(impulso_io._SQL_VIVOS).fetchall())
++        conn.commit()
+         hoy = dt.datetime.now(dt.UTC).date()
+         acciones = impulso_io.vigila(conn, impulso_io.PausadorFabrica(conn), hoy=hoy)
+     finally:
+@@ -98,6 +102,13 @@ def main_impulso_vigia(argv: list[str]) -> int:
+             f"impulso {accion.impulso_id}: {accion.veredicto.estado} -> {accion.hecho}",
+             flush=True,
+         )
++    if vivos > 0 and not any(accion.atendido for accion in acciones):
++        print(
++            f"impulso-vigia: {vivos} impulso(s) vivo(s) y ninguno atendido;"
++            " el dia no se proceso (fallos o sin ingesta)",
++            file=sys.stderr,
++        )
++        return 1
+     return 0
+
+
+diff --git a/app/impulso_io.py b/app/impulso_io.py
+index 4a46c6c..3af240c 100644
+--- a/app/impulso_io.py
++++ b/app/impulso_io.py
+@@ -103,6 +103,9 @@ class AccionVigia:
+     lectura: im.LecturaImpulso
+     veredicto: im.VeredictoImpulso
+     hecho: str
++    # R09-F: False cuando no se pudo atender (sin ingesta de su
++    # plataforma: no hay corte y no se guardo lectura).
++    atendido: bool = True
+
+
+ class EjecutorFabrica(Protocol):
+@@ -167,7 +170,29 @@ class PausadorFabrica:
+     def pausa(self, lote: str) -> None:
+         import tools.fabrica_campanas as fc
+
+-        fc.pausar_lote(self._ctx_para(lote), lote, self._actor)
++        try:
++            fc.pausar_lote(self._ctx_para(lote), lote, self._actor)
++        except fc.Abortar as exc:
++            if self._lote_no_pausable(lote):
++                raise ErrorImpulso(409, str(exc)) from None
++            raise
++
++    def _lote_no_pausable(self, lote: str) -> bool:
++        """R09-A: True si el Abortar de la pausa se explica por el
++        estado del lote (ya pausado, desarmado o sin campanas que
++        pausar). Es un conflicto que el dueno resuelve (409), no un
++        rechazo de Amazon a media pausa (502)."""
++        fila = self._conn.execute(_SQL_ESTADO_LOTE, (lote,)).fetchone()
++        self._conn.commit()
++        if fila is None or fila[0] != "applied":
++            return True
++        hay = self._conn.execute(
++            "SELECT 1 FROM fabrica_lote_paso WHERE lote = %s AND recurso = 'campaign'"
++            " AND estado IN ('applied', 'failed') AND external_id IS NOT NULL LIMIT 1",
++            (lote,),
++        ).fetchone()
++        self._conn.commit()
++        return hay is None
+
+     def reanuda(self, lote: str) -> None:
+         import tools.fabrica_campanas as fc
+@@ -324,7 +349,7 @@ def _plan_producto(
+     retiros = retiro_anuncios.planea_retiro(
+         conn, plataforma, listing_ids=(pub.listing_id,), motivo="impulso", conservar_grupo_id=None
+     ).anuncios
+-    return im.PlanImpulso(
++    plan = im.PlanImpulso(
+         plataforma=plataforma,
+         listing_id=pub.listing_id,
+         product_id=pub.product_id,
+@@ -341,6 +366,12 @@ def _plan_producto(
+         bids_acotados=acotados,
+         retiros=retiros,
+     )
++    # R09-B: el mismo PlanGrupoV2 que la fabrica validaria al crear los
++    # pasos se valida aqui: un bid o budget fuera de rango (piso/techo
++    # de la moneda) deja el producto no lanzable en la vista previa, en
++    # vez de morir con 502 al lanzar.
++    fp._valida_plan_v2(im.grupo_v2_de_plan(plan))
++    return plan
+
+
+ def previsualiza(
+@@ -359,26 +390,48 @@ def previsualiza(
+     settings = dict(fila[0]) if fila and fila[0] else {}
+     planes = []
+     no_lanzables = []
++    productos_en_vista: set[int] = set()
+     for lid in sorted(set(solicitud.listing_ids)):
+         subfamilia = solicitud.subfamilia_por_listing.get(lid)
+         if not subfamilia:
+             no_lanzables.append(NoLanzable(lid, "sin subfamilia del dueno"))
+             continue
+         try:
+-            planes.append(
+-                _plan_producto(
+-                    conn,
+-                    solicitud.plataforma,
+-                    lid,
+-                    subfamilia,
+-                    solicitud.tope_monto,
+-                    sugeridor,
+-                    dia,
+-                    settings,
+-                )
++            plan = _plan_producto(
++                conn,
++                solicitud.plataforma,
++                lid,
++                subfamilia,
++                solicitud.tope_monto,
++                sugeridor,
++                dia,
++                settings,
+             )
+         except fp.PlanInvalido as exc:
+             no_lanzables.append(NoLanzable(lid, str(exc)))
++            continue
++        # R09-G: el tope limita por producto, no por listing. Dos
++        # listings del mismo producto no van a la vez, ni en esta misma
++        # vista ni contra un impulso vivo de otro listing.
++        if plan.product_id in productos_en_vista:
++            no_lanzables.append(
++                NoLanzable(lid, "el producto ya va en este lanzamiento (tope por producto)")
++            )
++            continue
++        vivo_otro = conn.execute(
++            _SQL_VIVO_OTRO_LISTING, (solicitud.plataforma, plan.product_id, plan.listing_id)
++        ).fetchone()
++        if vivo_otro is not None:
++            no_lanzables.append(
++                NoLanzable(
++                    lid,
++                    f"el producto ya tiene un impulso vivo en el listing {vivo_otro[0]}"
++                    " (tope por producto)",
++                )
++            )
++            continue
++        productos_en_vista.add(plan.product_id)
++        planes.append(plan)
+     planes_t = tuple(planes)
+     moneda = MONEDA_POR_PLATAFORMA[solicitud.plataforma]
+     n = len(planes_t)
+@@ -393,10 +446,23 @@ def previsualiza(
+     )
+
+
+-_SQL_VIVO = """
+-SELECT i.id, i.lote FROM impulso i
++_SQL_VIVO_OTRO_LISTING = """
++SELECT i.listing_id FROM impulso i
+  LEFT JOIN impulso_lectura l ON l.impulso_id = i.id AND l.es_final
+- WHERE i.platform = %s AND i.listing_id = %s AND l.impulso_id IS NULL
++ WHERE i.platform = %s AND i.product_id = %s AND i.listing_id <> %s
++   AND l.impulso_id IS NULL
++ LIMIT 1
++"""
++
++_SQL_VIVO_PRODUCTO = """
++SELECT i.id, i.lote, i.listing_id FROM impulso i
++ LEFT JOIN impulso_lectura l ON l.impulso_id = i.id AND l.es_final
++ WHERE i.platform = %s AND i.product_id = %s AND l.impulso_id IS NULL
++ LIMIT 1
++"""
++
++_SQL_PRODUCTO_DE_LISTING = """
++SELECT product_id FROM listing WHERE id = %s AND platform = %s
+ """
+
+ _SQL_IMPULSO_DE_LOTE = """
+@@ -623,6 +689,24 @@ def _descarta_huerfano(conn, lote_viejo: str, actor: str) -> str | None:
+     return aviso
+
+
++def _fallos_por_vivo(conn, solicitud: SolicitudImpulso, vista: VistaPreviaImpulso, fallos) -> None:
++    """R09-H: un no lanzable cuyo producto ya tiene un impulso vivo en
++    OTRO listing entra al resultado parcial como fallo de conflicto
++    (ese es su motivo al lanzar). Si el vivo es del mismo listing y el
++    producto quedo fuera por otra causa, el motivo real manda."""
++    for no in vista.no_lanzables:
++        prod = conn.execute(
++            _SQL_PRODUCTO_DE_LISTING, (no.listing_id, solicitud.plataforma)
++        ).fetchone()
++        if prod is None:
++            continue
++        vivo = conn.execute(_SQL_VIVO_PRODUCTO, (solicitud.plataforma, prod[0])).fetchone()
++        if vivo is not None and vivo[2] != no.listing_id:
++            fallos[no.listing_id] = (
++                f"el producto ya tiene un impulso vivo en el listing {vivo[2]} (tope por producto)"
++            )
++
++
+ def lanza(
+     conn,
+     solicitud: SolicitudImpulso,
+@@ -636,8 +720,8 @@ def lanza(
+ ) -> list[ImpulsoLanzado]:
+     """Re-planifica, compara la huella (409 si cambio) y crea un lote por
+     producto con el ejecutor de la fabrica (modo shadow). Candado por
+-    listing: un vivo con otro lote da 409. La fila de impulso se
+-    inserta despues de que su lote queda applied. Un producto que
++    producto: un vivo es un fallo mas del parcial. La fila de impulso
++    se inserta despues de que su lote queda applied. Un producto que
+     falla no detiene a los demas."""
+     if not solicitud.listing_ids:
+         raise ErrorImpulso(422, "impulso sin productos: listing_ids vacio")
+@@ -646,7 +730,9 @@ def lanza(
+     if "\x00" in actor:
+         raise ErrorImpulso(422, "actor con NUL")
+     vista = previsualiza(conn, solicitud, sugeridor=sugeridor, hoy=hoy)
+-    if not vista.planes:
++    fallos: dict[int, str] = {}
++    _fallos_por_vivo(conn, solicitud, vista, fallos)
++    if not vista.planes and not fallos:
+         raise ErrorImpulso(422, "nada lanzable: revisa no_lanzables")
+     if vista.huella != huella:
+         raise ErrorImpulso(409, "el plan cambio desde la vista previa: previsualiza de nuevo")
+@@ -655,13 +741,19 @@ def lanza(
+             422, f"confirmacion distinta: se esperaba {vista.confirmacion_esperada!r}"
+         )
+     lanzados: list[ImpulsoLanzado] = []
+-    fallos: dict[int, str] = {}
+     for plan in vista.planes:
+         lote = lote_de_plan(plan)
+         # Una transaccion por producto: el candado advisory dura la
+         # transaccion (en autocommit, sin esto se libera al instante y
+         # dos lanzar crean dos vivos). Salir commitea; fallar revierte.
++        # Primero por producto (R09-G: dos listings del mismo producto
++        # no crean dos vivos) y despues por listing, siempre en ese
++        # orden.
+         with conn.transaction():
++            conn.execute(
++                "SELECT pg_advisory_xact_lock(hashtext(%s))",
++                (f"impulso-producto:{plan.plataforma}:{plan.product_id}",),
++            )
+             conn.execute(
+                 "SELECT pg_advisory_xact_lock(hashtext(%s))", (f"impulso:{plan.listing_id}",)
+             )
+@@ -697,13 +789,15 @@ def lanza(
+                         f"lote {lote} quedo en {huerfano[0]}: reconcilia a mano"
+                     )
+                     continue
+-            vivo = conn.execute(_SQL_VIVO, (plan.plataforma, plan.listing_id)).fetchone()
++            vivo = conn.execute(_SQL_VIVO_PRODUCTO, (plan.plataforma, plan.product_id)).fetchone()
+             if vivo is not None:
+-                raise ErrorImpulso(
+-                    409,
+-                    f"listing {plan.listing_id} ya tiene un impulso vivo",
+-                    lanzados=lanzados,
++                # R09-H: el conflicto es un fallo del producto, no un
++                # aborto del lote: los demas siguen.
++                fallos[plan.listing_id] = (
++                    f"el producto ya tiene un impulso vivo en el listing {vivo[2]}"
++                    " (tope por producto)"
+                 )
++                continue
+             # Otro lote, mismo listing (otra huella: otro bid u otro dia):
+             # el huerfano applied se reutiliza; un failed/planeado o un
+             # applied sin grupo bloquea hasta reconciliar a mano.
+@@ -838,7 +932,13 @@ def _vigila_uno(conn, pausador, fila, *, hoy, escritor_retiro):
+         lectura = im.LecturaImpulso(hoy, 0, None, None, None, None)
+         conn.commit()
+         return (
+-            AccionVigia(imp, lectura, im.VeredictoImpulso("en_curso", False, "seguir"), "nada"),
++            AccionVigia(
++                imp,
++                lectura,
++                im.VeredictoImpulso("en_curso", False, "seguir"),
++                "nada",
++                atendido=False,
++            ),
+             escritor_retiro,
+         )
+     ayer = hoy - dt.timedelta(days=1)
+@@ -1054,5 +1154,13 @@ def vigila(
+             continue
+         if escritor_retiro is None and usado is not None:
+             escritores[platform] = usado
++        if not accion.atendido:
++            # R09-F: sin ingesta no hay nada que guardar, pero tampoco
++            # se calla: el aviso va al log del cron.
++            print(
++                f"vigila: impulso {accion.impulso_id} sin ingesta de su plataforma"
++                " (corte None): no se guardo lectura",
++                file=sys.stderr,
++            )
+         acciones.append(accion)
+     return acciones
+diff --git a/app/static/js/productos.js b/app/static/js/productos.js
+index f7d379f..73becec 100644
+--- a/app/static/js/productos.js
++++ b/app/static/js/productos.js
+@@ -41,6 +41,29 @@ function marcados(selector) {
+   return { listings: listings, subfamilias: subfamilias, faltan: faltan };
+ }
+
++function mensajeError(data) {
++  var detalle = data && data.detail;
++  if (typeof detalle === "string") return detalle;
++  if (detalle && detalle.mensaje) {
++    var texto = detalle.mensaje;
++    var lanzados = detalle.lanzados || [];
++    if (lanzados.length) texto += " · lanzados: " + lanzados.length;
++    var fallos = detalle.fallos || {};
++    Object.keys(fallos).forEach(function (lid) {
++      texto += " · " + lid + ": " + fallos[lid];
++    });
++    return texto;
++  }
++  if (Array.isArray(detalle)) {
++    return detalle
++      .map(function (e) {
++        return e.msg;
++      })
++      .join("; ");
++  }
++  return "No se pudo completar la solicitud.";
++}
++
+ function parrafo(texto) {
+   var p = document.createElement("p");
+   p.textContent = texto;
+@@ -121,7 +144,7 @@ function verLanzamiento(selectorCasillas) {
+     })
+     .then(function (r) {
+       if (!r.ok) {
+-        zona.replaceChildren(parrafo("Error: " + (r.data.detail || r.data) + "."));
++        zona.replaceChildren(parrafo("Error: " + mensajeError(r.data) + "."));
+         return;
+       }
+       vistaGuardada = { solicitud: solicitud, vista: r.data };
+@@ -178,7 +201,7 @@ function lanzar(form) {
+           estado.textContent = "El plan cambió: revisa la vista nueva y confirma de nuevo.";
+           return;
+         }
+-        estado.textContent = "Error: " + (r.data.detail || r.data) + ".";
++        estado.textContent = "Error: " + mensajeError(r.data) + ".";
+         return;
+       }
+       vistaGuardada = null;
+@@ -226,7 +249,7 @@ function reponer(form) {
+     })
+     .then(function (r) {
+       if (!r.ok) {
+-        estado.textContent = "Error: " + (r.data.detail || r.data) + ".";
++        estado.textContent = "Error: " + mensajeError(r.data) + ".";
+         return;
+       }
+       form.elements.token.value = "";
+@@ -283,7 +306,7 @@ function verRetiro() {
+     })
+     .then(function (r) {
+       if (!r.ok) {
+-        zona.replaceChildren(parrafo("Error: " + (r.data.detail || r.data) + "."));
++        zona.replaceChildren(parrafo("Error: " + mensajeError(r.data) + "."));
+         return;
+       }
+       retiroGuardado = { pedido: pedido, plan: r.data };
+@@ -343,7 +366,7 @@ function ejecutarRetiro(form) {
+     })
+     .then(function (r) {
+       if (!r.ok) {
+-        estado.textContent = "Error: " + (r.data.detail || r.data) + ".";
++        estado.textContent = "Error: " + mensajeError(r.data) + ".";
+         return;
+       }
+       retiroGuardado = null;
+diff --git a/migrations/0071_bids02_grant_vista_impulso.sql b/migrations/0071_bids02_grant_vista_impulso.sql
+new file mode 100644
+index 0000000..6884275
+--- /dev/null
++++ b/migrations/0071_bids02_grant_vista_impulso.sql
+@@ -0,0 +1,31 @@
++-- 0071 (BIDS 02 R09-E): GRANT SELECT explicito sobre v_impulso_estado.
++--
++-- La 0065 creo la vista sin GRANT propio: hoy la leen app_read y
++-- app_admin solo por los default privileges del esquema. El GRANT
++-- queda declarado en una migracion, verificado en su bloque DO, en
++-- vez de depender de ese default. La 0065 ya esta aplicada en
++-- produccion y no se edita.
++--
++-- Regla 7: BEGIN/COMMIT dentro del archivo, NO idempotente, con su
++-- reversa en 0071_reversa_bids02_grant_vista_impulso.sql.
++
++BEGIN;
++
++GRANT SELECT ON v_impulso_estado TO app_read, app_admin;
++
++DO $$
++BEGIN
++    IF NOT has_table_privilege('app_read', 'public.v_impulso_estado', 'SELECT')
++       OR NOT has_table_privilege('app_admin', 'public.v_impulso_estado', 'SELECT')
++       OR has_table_privilege('app_read', 'public.v_impulso_estado', 'INSERT')
++       OR has_table_privilege('app_read', 'public.v_impulso_estado', 'UPDATE')
++       OR has_table_privilege('app_read', 'public.v_impulso_estado', 'DELETE')
++       OR has_table_privilege('app_admin', 'public.v_impulso_estado', 'INSERT')
++       OR has_table_privilege('app_admin', 'public.v_impulso_estado', 'UPDATE')
++       OR has_table_privilege('app_admin', 'public.v_impulso_estado', 'DELETE') THEN
++        RAISE EXCEPTION '0071: privilegios de v_impulso_estado distintos de los declarados';
++    END IF;
++END;
++$$;
++
++COMMIT;
+diff --git a/migrations/0071_reversa_bids02_grant_vista_impulso.sql b/migrations/0071_reversa_bids02_grant_vista_impulso.sql
+new file mode 100644
+index 0000000..17ea851
+--- /dev/null
++++ b/migrations/0071_reversa_bids02_grant_vista_impulso.sql
+@@ -0,0 +1,9 @@
++-- Reversa de 0071 (BIDS 02 R09-E): quita el GRANT SELECT explicito
++-- sobre v_impulso_estado. REVOKE siempre seguro (no borra filas).
++-- No idempotente (regla 7).
++
++BEGIN;
++
++REVOKE SELECT ON v_impulso_estado FROM app_read, app_admin;
++
++COMMIT;
+diff --git a/migrations/0072_bids02_impulso_grupo_tipo.sql b/migrations/0072_bids02_impulso_grupo_tipo.sql
+new file mode 100644
+index 0000000..a0d0c14
+--- /dev/null
++++ b/migrations/0072_bids02_impulso_grupo_tipo.sql
+@@ -0,0 +1,57 @@
++-- 0072 (BIDS 02 R09-J): candado de tipo del grupo del impulso.
++--
++-- Hoy solo lo garantiza la tupla de roles en _registrar: nada en la
++-- base impide que un impulso cuelgue de un grupo fabrica5 si entra
++-- por otro camino. El invariante (un impulso solo vive sobre un
++-- grupo tipo impulso) se hace cumplir en el esquema, como los demas
++-- (impulso_coherente de la 0065), para que valga venga de donde
++-- venga. Una FK no puede cruzar a campana_grupo.tipo; por eso es
++-- trigger, no FK.
++--
++-- Regla 7: BEGIN/COMMIT dentro del archivo, NO idempotente, con su
++-- reversa en 0072_reversa_bids02_impulso_grupo_tipo.sql.
++
++BEGIN;
++
++CREATE OR REPLACE FUNCTION impulso_grupo_es_impulso() RETURNS trigger LANGUAGE plpgsql AS $$
++BEGIN
++    IF (SELECT tipo FROM campana_grupo WHERE id = NEW.grupo_id) IS DISTINCT FROM 'impulso' THEN
++        RAISE EXCEPTION 'impulso %: el grupo % no es de tipo impulso', NEW.id, NEW.grupo_id;
++    END IF;
++    RETURN NEW;
++END;
++$$;
++
++CREATE TRIGGER impulso_grupo_tipo
++    BEFORE INSERT ON impulso
++    FOR EACH ROW
++    EXECUTE FUNCTION impulso_grupo_es_impulso();
++
++CREATE OR REPLACE FUNCTION grupo_con_impulso_no_cambia_tipo() RETURNS trigger LANGUAGE plpgsql AS $$
++BEGIN
++    IF NEW.tipo IS DISTINCT FROM 'impulso'
++       AND EXISTS (SELECT 1 FROM impulso WHERE grupo_id = NEW.id) THEN
++        RAISE EXCEPTION 'el grupo % tiene impulsos y no puede dejar de ser tipo impulso', NEW.id;
++    END IF;
++    RETURN NEW;
++END;
++$$;
++
++CREATE TRIGGER grupo_impulso_tipo_guardia
++    BEFORE UPDATE OF tipo ON campana_grupo
++    FOR EACH ROW
++    EXECUTE FUNCTION grupo_con_impulso_no_cambia_tipo();
++
++DO $$
++BEGIN
++    IF NOT EXISTS (
++        SELECT 1 FROM pg_trigger WHERE tgname = 'impulso_grupo_tipo' AND NOT tgisinternal
++    ) OR NOT EXISTS (
++        SELECT 1 FROM pg_trigger WHERE tgname = 'grupo_impulso_tipo_guardia' AND NOT tgisinternal
++    ) THEN
++        RAISE EXCEPTION '0072: falta un trigger del candado de tipo del impulso';
++    END IF;
++END;
++$$;
++
++COMMIT;
+diff --git a/migrations/0072_reversa_bids02_impulso_grupo_tipo.sql b/migrations/0072_reversa_bids02_impulso_grupo_tipo.sql
+new file mode 100644
+index 0000000..b0e3ddd
+--- /dev/null
++++ b/migrations/0072_reversa_bids02_impulso_grupo_tipo.sql
+@@ -0,0 +1,15 @@
++-- Reversa de 0072 (BIDS 02 R09-J): quita el candado de tipo del
++-- grupo del impulso. Solo quita los triggers y las funciones; no
++-- borra filas. No idempotente (regla 7).
++
++BEGIN;
++
++DROP TRIGGER grupo_impulso_tipo_guardia ON campana_grupo;
++
++DROP TRIGGER impulso_grupo_tipo ON impulso;
++
++DROP FUNCTION grupo_con_impulso_no_cambia_tipo();
++
++DROP FUNCTION impulso_grupo_es_impulso();
++
++COMMIT;
+diff --git a/tools/fabrica_campanas.py b/tools/fabrica_campanas.py
+index ee27123..ff4b4e9 100644
+--- a/tools/fabrica_campanas.py
++++ b/tools/fabrica_campanas.py
+@@ -1618,8 +1618,14 @@ def _put_estado_campana(ctx: _Ctx, external: str, estado: str) -> dict:
+
+
+ def _pausa_una(ctx: _Ctx, rol: str, external: str, goal_id) -> None:
++    # R09-I: como _cambia_estado_lote, la pausa deja fila en el ledger
++    # antes del PUT y el readback la sella. Su unico llamador hoy es
++    # _desarmar, que fija ctx.orden con el maximo del lote.
++    paso = fp.Paso(rol, "campaign", "/sp/campaigns", {}, f"desarmar {rol}")
++    paso_id = _inserta_paso(ctx, paso, {"campaignId": external, "state": _PAUSADA})
+     ack = _put_estado_campana(ctx, external, _PAUSADA)
+     if not fp.ack_ok(ack):
++        _sella_paso(ctx, paso_id, False, external, ack, None)
+         _log("lote_detenido", lote=ctx.lote, motivo=f"PUT PAUSED de {rol} rechazado")
+         raise Abortar(f"PUT PAUSED de {external} ({rol}) rechazado (status {ack.get('status')})")
+     time.sleep(0.3)
+@@ -1635,7 +1641,9 @@ def _pausa_una(ctx: _Ctx, rol: str, external: str, goal_id) -> None:
+         ok=estado == _PAUSADA,
+     )
+     if estado != _PAUSADA:
++        _sella_paso(ctx, paso_id, False, external, ack, estado)
+         raise Abortar(f"readback de {external} ({rol}) != PAUSED ({estado}): se detiene")
++    _sella_paso(ctx, paso_id, True, external, ack, estado)
+     if goal_id is not None:
+         goals_write.edita_goal(
+             ctx.conn_admin,
+@@ -1852,6 +1860,13 @@ def _desarmar(args) -> int:
+             conn_admin,
+             args.desarmar,
+         )
++        # R09-I: el ledger de _pausa_una continua en max(orden), como
++        # _cambia_estado_lote (con _Ctx fresco en 0 chocaria UNIQUE).
++        ctx.orden = conn_admin.execute(
++            "SELECT COALESCE(MAX(orden), 0) FROM fabrica_lote_paso WHERE lote = %s",
++            (args.desarmar,),
++        ).fetchone()[0]
++        conn_admin.commit()
+         pausadas = 0
+         for rol, external, goal_id in filas:
+             _pausa_una(ctx, rol, external, goal_id)
+[0m
+Leo los archivos completos para verificar el diff en contexto.
+[0m→ [0mRead app/cli_bids.py
+[0m→ [0mRead app/impulso_io.py
+Ahora reviso el contexto de `tools/fabrica_campanas.py` (ledger de pasos, `_pausa_una`, `_desarmar`, `pausar_lote`, `_inserta_paso`, `_sella_paso`).
+[0m✱ [0mGrep "def _inserta_paso|def _sella_paso|def pausar_lote|def _cambia_estado_lote|def _desarmar|def _pausa_una|class Abortar|def _put_estado_campana|_SQL_EXTERNALS_CAMPANA_DEL_LOTE|def reanudar_lote|def reactiva_lote"[90m in tools/fabrica_campanas.py · 21 matches[0m
+[0m→ [0mRead tools/fabrica_campanas.py[90m [offset=1040, limit=130][0m
+[0m→ [0mRead tools/fabrica_campanas.py[90m [offset=1590, limit=300][0m
+Reviso las piezas que faltan: `_Ctx.orden`, los SQL de campanas del lote, `grupo_v2_de_plan`/`_valida_plan_v2`, la traducción de `ErrorImpulso` en la API, y el fetch del JS.
+[0m
+[0m$ [0mrg -n "def grupo_v2_de_plan|def _valida_plan_v2|class PlanInvalido|class Paso\b" app/impulso.py app/fabrica_plan.py
+zsh:1: command not found: rg
+[0m
+[0m$ [0mrg -n "ErrorImpulso" app/api_fabrica.py app/*.py --glob '!app/impulso_io.py' | head -20
+zsh:1: command not found: rg
+[0m
+[0m$ [0mrg -n "_SQL_CAMPANAS_DEL_LOTE\b|_SQL_CAMPANAS_DEL_LOTE_PARA_PAUSA|_SQL_CAMPANAS_CON_EXTERNAL|class _Ctx|orden" tools/fabrica_campanas.py | head -40
+zsh:1: command not found: rg
+[0m
+[0m✱ [0mGrep "def grupo_v2_de_plan|def _valida_plan_v2|class PlanInvalido|^class Paso|@dataclass"[90m in app · 6 matches[0m
+[0m✱ [0mGrep "_SQL_CAMPANAS_DEL_LOTE|_SQL_CAMPANAS_DEL_LOTE_PARA_PAUSA|_SQL_CAMPANAS_CON_EXTERNAL|class _Ctx"[90m in tools/fabrica_campanas.py · 7 matches[0m
+[0m✱ [0mGrep "ErrorImpulso"[90m in app · 17 matches[0m
+[0m→ [0mRead app/api_fabrica.py[90m [limit=140, offset=530][0m
+[0m→ [0mRead tools/fabrica_campanas.py[90m [limit=110, offset=235][0m
+[0m→ [0mRead tools/fabrica_campanas.py[90m [limit=60, offset=860][0m
+[0m→ [0mRead app/impulso.py[90m [limit=120, offset=140][0m
+[0m✱ [0mGrep "def _valida_plan_v2|class PlanInvalido|class Paso|def __init__|^@dataclass"[90m in app/fabrica_plan.py · 100 matches[0m
+[0m→ [0mRead app/fabrica_plan.py[90m [limit=45, offset=615][0m
+[0m→ [0mRead app/fabrica_plan.py[90m [limit=70, offset=285][0m
+Sigo con el resto de `_valida_plan_v2` (rangos de bid/budget) y el esquema: migraciones 0062/0065 (impulso, v_impulso_estado), `campana_grupo.tipo`, default privileges y roles.
+[0m→ [0mRead app/fabrica_plan.py[90m [limit=60, offset=659][0m
+[0m
+[0m$ [0mls migrations | grep -E "006[0-9]|007[0-2]"
+0060_bids02_base_lectura.sql
+0060_reversa_bids02_base_lectura.sql
+0061_bids02_campana_config.sql
+0061_reversa_bids02_campana_config.sql
+0062_bids02_placement.sql
+0062_reversa_bids02_placement.sql
+0063_bids02_peldanos_target.sql
+0063_reversa_bids02_peldanos_target.sql
+0064_bids02_grupo_tipo.sql
+0064_reversa_bids02_grupo_tipo.sql
+0065_bids02_impulso.sql
+0065_reversa_bids02_impulso.sql
+0066_bids02_retiro_anuncios.sql
+0066_reversa_bids02_retiro_anuncios.sql
+0067_bids02_campana_ajuste.sql
+0067_reversa_bids02_campana_ajuste.sql
+0068_bids02_sellos.sql
+0068_reversa_bids02_sellos.sql
+0069_bids02_retiro_intencion.sql
+0069_reversa_bids02_retiro_intencion.sql
+0070_bids02_permisos_lanza.sql
+0070_reversa_bids02_permisos_lanza.sql
+0071_bids02_grant_vista_impulso.sql
+0071_reversa_bids02_grant_vista_impulso.sql
+0072_bids02_impulso_grupo_tipo.sql
+0072_reversa_bids02_impulso_grupo_tipo.sql
+[0m
+[0m✱ [0mGrep "DEFAULT PRIVILEGES"[90m in migrations · 2 matches[0m
+[0m→ [0mRead migrations/0065_bids02_impulso.sql
+[0m→ [0mRead migrations/0001_initial.sql[90m [limit=30, offset=1510][0m
+Reviso `valida_parametros` (piso/techo de bids), el helper fetch del JS, `app/db.py` (autocommit) y las pruebas nuevas.
+[0m→ [0mRead app/db.py
+[0m→ [0mRead app/static/js/productos.js[90m [limit=40][0m
+[0m✱ [0mGrep "def valida_parametros"[90m in app/fabrica_plan.py · 1 match[0m
+Verifico `fw._conexion` (autocommit o no) y `valida_parametros`, y busco las pruebas de los R09.
+[0m→ [0mRead app/fabrica_plan.py[90m [limit=60, offset=355][0m
+[0m✱ [0mGrep "def _conexion"[90m in app · 4 matches[0m
+[0m
+[0m$ [0mgit log --oneline 30cc62f..3430b2d | cat; git diff --stat 30cc62f..3430b2d | tail -5
+3430b2d BIDS 02 R14: ajustes de la relectura (candado por producto, guardia de tipo, textos)
+cbf8395 BIDS 02 D.6: scripts del despliegue del remate, probados en simulacion
+4b87c39 BIDS 02 R09-J: migracion 0072 ata el impulso a un grupo tipo impulso
+94b9b24 BIDS 02 R09-I: desarmar continua el ledger desde max(orden)
+624c49b BIDS 02 R09-H: un producto que falla no detiene el lote; parcial con fallos
+7d18377 BIDS 02 R09-G: el tope del impulso limita por producto, no por listing
+a088608 BIDS 02 R09-F: el vigia avisa y sale 1 si ningun impulso vivo se atendio
+2f525df BIDS 02 R09-E: migracion 0071 declara el GRANT SELECT sobre v_impulso_estado
+03a01ca BIDS 02 R09-D: productos.js pinta mensaje y fallos del error, no [object Object]
+35d2bfe BIDS 02 R09-B: la vista previa valida el rango del plan antes de mostrarlo lanzable
+a547cae BIDS 02 R09-A: pausar repetido, desarmado o sin campanas responde 409
+ tests/test_migracion_0071.py                       |  58 ++++
+ tests/test_migracion_0072.py                       |  61 +++++
+ tests/test_ui_productos.py                         | 138 ++++++++++
+ tools/fabrica_campanas.py                          |  15 ++
+ 37 files changed, 2635 insertions(+), 40 deletions(-)
+[0m
+[0m→ [0mRead app/fabrica_web.py[90m [limit=45, offset=630][0m
+[0m→ [0mRead app/static/js/productos.js[90m [limit=130, offset=88][0m
+[0m✱ [0mGrep "def error"[90m in app/fabrica_web.py · 3 matches[0m
+[0m
+[0m$ [0mgit diff --stat 30cc62f..3430b2d | cat
+app/cli_bids.py                                    |  13 +-
+ app/impulso_io.py                                  | 160 +++++++++--
+ app/static/js/productos.js                         |  33 ++-
+ .../bids-02/ejecucion/D.6/checklist-sim.txt        |  40 +++
+ docs/evidencia/bids-02/ejecucion/D.6/checklist.sh  | 205 ++++++++++++++
+ .../bids-02/ejecucion/D.6/desplegar-sim.txt        |  54 ++++
+ docs/evidencia/bids-02/ejecucion/D.6/desplegar.sh  | 297 +++++++++++++++++++++
+ .../evidencia/bids-02/ejecucion/D.6/ensayo-sim.txt |  34 +++
+ docs/evidencia/bids-02/ejecucion/D.6/ensayo.sh     | 118 ++++++++
+ docs/evidencia/bids-02/ejecucion/D.6/evidencia.md  |  54 ++++
+ .../bids-02/ejecucion/D.6/rollback-sim.txt         |  20 ++
+ docs/evidencia/bids-02/ejecucion/D.6/rollback.sh   | 159 +++++++++++
+ .../evidencia/bids-02/ejecucion/R09-A/evidencia.md |  37 +++
+ .../evidencia/bids-02/ejecucion/R09-B/evidencia.md |  33 +++
+ .../evidencia/bids-02/ejecucion/R09-D/evidencia.md |  35 +++
+ docs/evidencia/bids-02/ejecucion/R09-E/ensayo.sh   | 109 ++++++++
+ .../evidencia/bids-02/ejecucion/R09-E/evidencia.md |  51 ++++
+ .../evidencia/bids-02/ejecucion/R09-E/permisos.sql |  32 +++
+ .../evidencia/bids-02/ejecucion/R09-F/evidencia.md |  39 +++
+ .../evidencia/bids-02/ejecucion/R09-G/evidencia.md |  54 ++++
+ .../evidencia/bids-02/ejecucion/R09-H/evidencia.md |  51 ++++
+ .../evidencia/bids-02/ejecucion/R09-I/evidencia.md |  38 +++
+ docs/evidencia/bids-02/ejecucion/R09-J/ensayo.sh   | 108 ++++++++
+ .../evidencia/bids-02/ejecucion/R09-J/evidencia.md |  54 ++++
+ .../evidencia/bids-02/ejecucion/R09-J/permisos.sql |  36 +++
+ .../superpowers/specs/2026-10-09-bids-02-design.md |   9 +
+ migrations/0071_bids02_grant_vista_impulso.sql     |  31 +++
+ .../0071_reversa_bids02_grant_vista_impulso.sql    |   9 +
+ migrations/0072_bids02_impulso_grupo_tipo.sql      |  57 ++++
+ .../0072_reversa_bids02_impulso_grupo_tipo.sql     |  15 ++
+ tests/test_api_fabrica.py                          |  85 ++++++
+ tests/test_fabrica_campanas.py                     |  49 +++-
+ tests/test_impulso_io.py                           | 284 +++++++++++++++++++-
+ tests/test_migracion_0071.py                       |  58 ++++
+ tests/test_migracion_0072.py                       |  61 +++++
+ tests/test_ui_productos.py                         | 138 ++++++++++
+ tools/fabrica_campanas.py                          |  15 ++
+ 37 files changed, 2635 insertions(+), 40 deletions(-)
+[0m
+[0m→ [0mRead app/fabrica_web.py[90m [limit=20, offset=65][0m
+[0m→ [0mRead tests/test_migracion_0071.py
+[0m→ [0mRead tests/test_migracion_0072.py
+El test de 0072 espera que la migración aborte con "ya hay impulsos" si hay dato roto previo; eso no aparece en el diff. Verifico el archivo real en ese SHA.
+[0m
+[0m$ [0mgit show 3430b2d:migrations/0072_bids02_impulso_grupo_tipo.sql | cat
+-- 0072 (BIDS 02 R09-J): candado de tipo del grupo del impulso.
+--
+-- Hoy solo lo garantiza la tupla de roles en _registrar: nada en la
+-- base impide que un impulso cuelgue de un grupo fabrica5 si entra
+-- por otro camino. El invariante (un impulso solo vive sobre un
+-- grupo tipo impulso) se hace cumplir en el esquema, como los demas
+-- (impulso_coherente de la 0065), para que valga venga de donde
+-- venga. Una FK no puede cruzar a campana_grupo.tipo; por eso es
+-- trigger, no FK.
+--
+-- Regla 7: BEGIN/COMMIT dentro del archivo, NO idempotente, con su
+-- reversa en 0072_reversa_bids02_impulso_grupo_tipo.sql.
+
+BEGIN;
+
+CREATE OR REPLACE FUNCTION impulso_grupo_es_impulso() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF (SELECT tipo FROM campana_grupo WHERE id = NEW.grupo_id) IS DISTINCT FROM 'impulso' THEN
+        RAISE EXCEPTION 'impulso %: el grupo % no es de tipo impulso', NEW.id, NEW.grupo_id;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER impulso_grupo_tipo
+    BEFORE INSERT ON impulso
+    FOR EACH ROW
+    EXECUTE FUNCTION impulso_grupo_es_impulso();
+
+CREATE OR REPLACE FUNCTION grupo_con_impulso_no_cambia_tipo() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF NEW.tipo IS DISTINCT FROM 'impulso'
+       AND EXISTS (SELECT 1 FROM impulso WHERE grupo_id = NEW.id) THEN
+        RAISE EXCEPTION 'el grupo % tiene impulsos y no puede dejar de ser tipo impulso', NEW.id;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER grupo_impulso_tipo_guardia
+    BEFORE UPDATE OF tipo ON campana_grupo
+    FOR EACH ROW
+    EXECUTE FUNCTION grupo_con_impulso_no_cambia_tipo();
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger WHERE tgname = 'impulso_grupo_tipo' AND NOT tgisinternal
+    ) OR NOT EXISTS (
+        SELECT 1 FROM pg_trigger WHERE tgname = 'grupo_impulso_tipo_guardia' AND NOT tgisinternal
+    ) THEN
+        RAISE EXCEPTION '0072: falta un trigger del candado de tipo del impulso';
+    END IF;
+END;
+$$;
+
+COMMIT;
+[0m
+[0m$ [0mgit log --oneline -3 -- migrations/0072_bids02_impulso_grupo_tipo.sql tests/test_migracion_0072.py | cat
+74a1a0c BIDS 02 R14-r2: guardia de vivo con nombre propio y comentarios recortados
+e24438a BIDS 02 R14-r2: la 0071 deja marca distinguible y D.6 verifica las dos guardias de la 0072
+3430b2d BIDS 02 R14: ajustes de la relectura (candado por producto, guardia de tipo, textos)
+[0m
+[0m$ [0mgit rev-parse HEAD; git status --short | head; git show 3430b2d:tests/test_migracion_0072.py | sed -n '85,99p'
+74a1a0c33e2f17b3e0f91828071045fff8012a8f
+?? docs/evidencia/bids-02/ejecucion/R14-r2/
+[0m
+HEAD está por delante del SHA que reviso. Verifico si los archivos revisados cambian entre 3430b2d y HEAD, para no atribuirle al diff cosas de commits posteriores.
+[0m$ [0mgit diff --stat 3430b2d..HEAD -- app/impulso_io.py app/cli_bids.py tools/fabrica_campanas.py migrations/ app/static/js/productos.js tests/ | cat; echo ---; git show 3430b2d:tests/test_migracion_0072.py | tail -15
+app/impulso_io.py                                  | 24 ++++---
+ migrations/0071_bids02_grant_vista_impulso.sql     | 11 ++-
+ .../0071_reversa_bids02_grant_vista_impulso.sql    |  9 ++-
+ migrations/0072_bids02_impulso_grupo_tipo.sql      | 19 ++++-
+ tests/test_api_fabrica.py                          | 15 ++++
+ tests/test_fabrica_campanas.py                     | 84 ++++++++++++++++++++++
+ tests/test_impulso_io.py                           | 74 ++++++++++++++++++-
+ tests/test_migracion_0071.py                       | 23 ++++--
+ tests/test_migracion_0072.py                       | 38 ++++++++++
+ tests/test_ui_productos.py                         | 11 +++
+ tools/fabrica_campanas.py                          | 26 ++++---
+ 11 files changed, 302 insertions(+), 32 deletions(-)
+---
+        conn.rollback()
+        imp = _impulso(conn, lote2, grupo_imp, pid, lid)
+        assert conn.execute("SELECT count(*) FROM impulso WHERE id = %s", (imp,)).fetchone() == (1,)
+        # El candado tambien cierra el UPDATE: un grupo con impulsos no
+        # puede dejar de ser tipo impulso despues.
+        with pytest.raises(psycopg.errors.RaiseException, match="no puede dejar de ser"):
+            conn.execute("UPDATE campana_grupo SET tipo = 'fabrica5' WHERE id = %s", (grupo_imp,))
+        conn.rollback()
+        conn.execute(REVERSA72)
+        conn.commit()
+        imp5 = _impulso(conn, lote, grupo5, pid, lid)
+        assert conn.execute("SELECT count(*) FROM impulso WHERE id = %s", (imp5,)).fetchone() == (
+            1,
+        )
+        conn.rollback()
+[0m
+[0m$ [0mgit show 3430b2d:tests/test_migracion_0071.py | sed -n '30,58p'; echo ===; git diff 3430b2d..HEAD -- app/impulso_io.py tools/fabrica_campanas.py | cat
+@_skip_db
+def test_0071_grant_explicito_sobre_la_vista_y_su_reversa():
+    """R09-E: la 0065 crea la vista sin GRANT propio; la 0071 declara
+    el SELECT de app_read y app_admin, y su reversa lo quita."""
+    with db_fabrica("orbit_71_grant") as conn:
+        conn.execute(SQL64)
+        conn.execute(SQL65)
+        # Estado sin el GRANT explicito de la 0071, sin depender de los
+        # default privileges del esquema.
+        conn.execute("REVOKE SELECT ON v_impulso_estado FROM app_read, app_admin")
+        conn.commit()
+        assert _select_vista(conn, "app_read") is False
+        assert _select_vista(conn, "app_admin") is False
+        conn.execute(SQL71)
+        conn.commit()
+        assert _select_vista(conn, "app_read") is True
+        assert _select_vista(conn, "app_admin") is True
+        assert (
+            conn.execute(
+                "SELECT has_table_privilege('app_read', 'public.v_impulso_estado', 'INSERT')"
+            ).fetchone()[0]
+            is False
+        )
+        conn.execute(REVERSA71)
+        conn.commit()
+        assert _select_vista(conn, "app_read") is False
+        assert _select_vista(conn, "app_admin") is False
+zsh:1: == not found
+[0m
+[0m$ [0mgit diff 3430b2d..HEAD -- app/impulso_io.py tools/fabrica_campanas.py | cat
+diff --git a/app/impulso_io.py b/app/impulso_io.py
+index 3af240c..d58630e 100644
+--- a/app/impulso_io.py
++++ b/app/impulso_io.py
+@@ -707,6 +707,19 @@ def _fallos_por_vivo(conn, solicitud: SolicitudImpulso, vista: VistaPreviaImpuls
+             )
+
+
++def _falla_si_hay_vivo(conn, plan, fallos) -> bool:
++    """True si el producto ya tiene un impulso vivo. Sellar cualquier
++    lote (nuevo o huerfano reutilizado) crearia un segundo vivo, asi
++    que esta guardia va antes de reutilizar huerfanos."""
++    vivo = conn.execute(_SQL_VIVO_PRODUCTO, (plan.plataforma, plan.product_id)).fetchone()
++    if vivo is None:
++        return False
++    fallos[plan.listing_id] = (
++        f"el producto ya tiene un impulso vivo en el listing {vivo[2]} (tope por producto)"
++    )
++    return True
++
++
+ def lanza(
+     conn,
+     solicitud: SolicitudImpulso,
+@@ -762,6 +775,8 @@ def lanza(
+                 estado = conn.execute(_SQL_ESTADO_LOTE, (lote,)).fetchone()[0]
+                 lanzados.append(ImpulsoLanzado(existente[0], lote, estado))
+                 continue
++            if _falla_si_hay_vivo(conn, plan, fallos):
++                continue
+             huerfano = conn.execute(_SQL_ESTADO_LOTE, (lote,)).fetchone()
+             if huerfano is not None:
+                 grupo = conn.execute(_SQL_GRUPO_DE_LOTE, (lote,)).fetchone()
+@@ -789,15 +804,6 @@ def lanza(
+                         f"lote {lote} quedo en {huerfano[0]}: reconcilia a mano"
+                     )
+                     continue
+-            vivo = conn.execute(_SQL_VIVO_PRODUCTO, (plan.plataforma, plan.product_id)).fetchone()
+-            if vivo is not None:
+-                # R09-H: el conflicto es un fallo del producto, no un
+-                # aborto del lote: los demas siguen.
+-                fallos[plan.listing_id] = (
+-                    f"el producto ya tiene un impulso vivo en el listing {vivo[2]}"
+-                    " (tope por producto)"
+-                )
+-                continue
+             # Otro lote, mismo listing (otra huella: otro bid u otro dia):
+             # el huerfano applied se reutiliza; un failed/planeado o un
+             # applied sin grupo bloquea hasta reconciliar a mano.
+diff --git a/tools/fabrica_campanas.py b/tools/fabrica_campanas.py
+index ff4b4e9..e37a35c 100644
+--- a/tools/fabrica_campanas.py
++++ b/tools/fabrica_campanas.py
+@@ -315,14 +315,18 @@ SELECT orden, rol::text, recurso, estado, external_id, request_payload, ack, rea
+  ORDER BY orden
+ """
+ _SQL_CAMPANAS_DEL_LOTE = """
+-SELECT p.rol::text, p.external_id, g.id
+-  FROM fabrica_lote_paso p
+-  LEFT JOIN campana_grupo cg ON cg.lote = p.lote
+-  LEFT JOIN campana_grupo_rol r ON r.grupo_id = cg.id AND r.rol = p.rol
+-  LEFT JOIN ads_optimizer_goal g ON g.ad_entity_id = r.ad_entity_id AND g.scope = 'campaign'
+- WHERE p.lote = %s AND p.recurso = 'campaign'
+-   AND p.estado IN ('applied', 'failed') AND p.external_id IS NOT NULL
+- ORDER BY p.orden
++SELECT t.rol, t.external_id, t.goal_id
++  FROM (
++    SELECT DISTINCT ON (p.rol) p.rol::text AS rol, p.external_id, g.id AS goal_id, p.orden
++      FROM fabrica_lote_paso p
++      LEFT JOIN campana_grupo cg ON cg.lote = p.lote
++      LEFT JOIN campana_grupo_rol r ON r.grupo_id = cg.id AND r.rol = p.rol
++      LEFT JOIN ads_optimizer_goal g ON g.ad_entity_id = r.ad_entity_id AND g.scope = 'campaign'
++     WHERE p.lote = %s AND p.recurso = 'campaign'
++       AND p.estado IN ('applied', 'failed') AND p.external_id IS NOT NULL
++     ORDER BY p.rol, p.orden DESC
++  ) t
++ ORDER BY t.orden
+ """
+ _SQL_CAMPANAS_DEL_LOTE_PARA_PAUSA = """
+ SELECT DISTINCT ON (p.rol) p.rol::text, p.external_id, g.id
+@@ -1623,7 +1627,11 @@ def _pausa_una(ctx: _Ctx, rol: str, external: str, goal_id) -> None:
+     # _desarmar, que fija ctx.orden con el maximo del lote.
+     paso = fp.Paso(rol, "campaign", "/sp/campaigns", {}, f"desarmar {rol}")
+     paso_id = _inserta_paso(ctx, paso, {"campaignId": external, "state": _PAUSADA})
+-    ack = _put_estado_campana(ctx, external, _PAUSADA)
++    try:
++        ack = _put_estado_campana(ctx, external, _PAUSADA)
++    except Abortar:
++        _sella_paso(ctx, paso_id, False, external, {}, None)
++        raise
+     if not fp.ack_ok(ack):
+         _sella_paso(ctx, paso_id, False, external, ack, None)
+         _log("lote_detenido", lote=ctx.lote, motivo=f"PUT PAUSED de {rol} rechazado")
+[0m
+Última verificación: quién lee `v_impulso_estado` y con qué rol (para dimensionar el impacto de la reversa 0071), y el contenido exacto de `lanza` en 3430b2d en el tramo del huerfano.
+[0m✱ [0mGrep "v_impulso_estado"[90m in app · 1 match[0m
+[0m
+[0m$ [0mgit show 3430b2d:app/impulso_io.py | sed -n '755,815p'
+(f"impulso-producto:{plan.plataforma}:{plan.product_id}",),
+            )
+            conn.execute(
+                "SELECT pg_advisory_xact_lock(hashtext(%s))", (f"impulso:{plan.listing_id}",)
+            )
+            existente = conn.execute(_SQL_IMPULSO_DE_LOTE, (lote,)).fetchone()
+            if existente is not None:
+                estado = conn.execute(_SQL_ESTADO_LOTE, (lote,)).fetchone()[0]
+                lanzados.append(ImpulsoLanzado(existente[0], lote, estado))
+                continue
+            huerfano = conn.execute(_SQL_ESTADO_LOTE, (lote,)).fetchone()
+            if huerfano is not None:
+                grupo = conn.execute(_SQL_GRUPO_DE_LOTE, (lote,)).fetchone()
+                if huerfano[0] == "applied" and grupo is not None:
+                    # H10: misma huella con las campanas pausadas (falla +
+                    # reversa + REGISTRAR GRUPO): se reactivan antes de
+                    # sellar (un impulso vivo gasta). Si no activan, fallo.
+                    # Sin externals no hay nada que activar (N3): se sella
+                    # directo, sin tocar la fabrica.
+                    try:
+                        if _tiene_externals(conn, lote):
+                            _reactiva_para_sellar(conn, lote)
+                    except Exception as exc:
+                        fallos[plan.listing_id] = f"huerfano {lote} coincide pero no activa ({exc})"
+                        continue
+                    imp = _sella_impulso(conn, plan, grupo[0], lote, actor, confirmacion)
+                    lanzados.append(ImpulsoLanzado(imp, lote, "applied"))
+                    continue
+                if huerfano[0] in ("failed", "planeado") and not _tiene_externals(conn, lote):
+                    # H6: fallo sin nada creado en Amazon: no bloquea; se
+                    # archiva el nombre y el reintento crea el par.
+                    _archiva_lote_vacio(conn, lote)
+                else:
+                    fallos[plan.listing_id] = (
+                        f"lote {lote} quedo en {huerfano[0]}: reconcilia a mano"
+                    )
+                    continue
+            vivo = conn.execute(_SQL_VIVO_PRODUCTO, (plan.plataforma, plan.product_id)).fetchone()
+            if vivo is not None:
+                # R09-H: el conflicto es un fallo del producto, no un
+                # aborto del lote: los demas siguen.
+                fallos[plan.listing_id] = (
+                    f"el producto ya tiene un impulso vivo en el listing {vivo[2]}"
+                    " (tope por producto)"
+                )
+                continue
+            # Otro lote, mismo listing (otra huella: otro bid u otro dia):
+            # el huerfano applied se reutiliza; un failed/planeado o un
+            # applied sin grupo bloquea hasta reconciliar a mano.
+            pendientes = conn.execute(
+                _SQL_PENDIENTES_LISTING, (f"impulso-{plan.listing_id}-%",)
+            ).fetchall()
+            if pendientes:
+                _archiva_vacios(conn, plan.listing_id)
+                pendientes = conn.execute(
+                    _SQL_PENDIENTES_LISTING, (f"impulso-{plan.listing_id}-%",)
+                ).fetchall()
+            if pendientes:
+                malos = [p for p in pendientes if p[1] != "applied" or p[2] is None]
+                if malos:
+                    fallos[plan.listing_id] = (
+[0m
+Obtengo números de línea exactos en 3430b2d para los hallazgos.
+[0m$ [0mgit show 3430b2d:app/impulso_io.py | grep -n "_sella_impulso(conn, plan, grupo\|vivo = conn.execute(_SQL_VIVO_PRODUCTO\|with conn.transaction\|imp = _sella_impulso\|_falla_si_hay_vivo\|continue$" | sed -n '1,20p'
+250:                continue
+294:                continue
+398:            continue
+412:            continue
+420:            continue
+432:            continue
+487:def _sella_impulso(conn, plan, grupo_id, lote, actor, confirmacion):
+656:    imp = _sella_impulso(conn, plan, hecho.grupo_id, lote, actor, confirmacion)
+702:            continue
+703:        vivo = conn.execute(_SQL_VIVO_PRODUCTO, (solicitud.plataforma, prod[0])).fetchone()
+752:        with conn.transaction():
+764:                continue
+779:                        continue
+780:                    imp = _sella_impulso(conn, plan, grupo[0], lote, actor, confirmacion)
+782:                    continue
+791:                    continue
+792:            vivo = conn.execute(_SQL_VIVO_PRODUCTO, (plan.plataforma, plan.product_id)).fetchone()
+800:                continue
+820:                    continue
+832:                        continue
+[0m
+# Revisión del diff 30cc62f..3430b2d
+
+Nota previa: HEAD está 2 commits por delante (e24438a, 74a1a0c) y toca `impulso_io.py`, `fabrica_campanas.py` y las 0071/0072; la revisión es sobre los archivos **en 3430b2d**, y donde el commit posterior ya corrige algo, lo digo.
+
+## Hallazgos
+
+**1. BLOQUEANTE — `app/impulso_io.py:780-792` (en 3430b2d): la rama H10 sella un segundo impulso vivo del mismo producto.**
+El candado por producto (R09-G) quedó *después* del bloque de huérfanos: la rama "huerfano applied del mismo lote" hace `_sella_impulso` (línea 780) y `continue` (782) **antes** de que corra `vivo = conn.execute(_SQL_VIVO_PRODUCTO, ...)` (792). Reproducción: lanzamiento con huella H1 en L1 que muere tras quedar applied (huérfano sin fila impulso) → luego se lanza otro listing L2 del mismo producto (sin vivo visible, pasa) → al reintentar L1/H1, la rama 780 reactiva y sella → dos vivos por producto. Lectura: `git show 3430b2d:app/impulso_io.py | sed -n '752,800p'`. Ya corregido fuera del rango por 74a1a0c (`_falla_si_hay_vivo` antes de reutilizar huérfanos).
+
+**2. BLOQUEANTE — `migrations/0071_reversa_bids02_grant_vista_impulso.sql:7`: la reversa revoca más de lo que la 0071 dio.**
+En producción `app_read`/`app_admin` ya tenían SELECT sobre la vista por el ACL materializado por `ALTER DEFAULT PRIVILEGES ... GRANT SELECT ON TABLES` (`migrations/0001_initial.sql:1521`); el GRANT de la 0071 es un no-op y el REVERSE de la reversa les **quita** ese acceso previo (post-reversa ≠ pre-0071). Ejecutar la reversa rompe la lectura de `v_impulso_estado` (`app/pantalla_productos.py:263`, "Impulsos en curso"). El test lo enmascara: `tests/test_migracion_0071.py:47` hace un REVOKE previo "sin depender de los default privileges", un estado que no es el de producción. La reversa debería limitarse a restaurar el ACL previo (o re-grantear SELECT al revertir).
+
+**3. NO BLOQUEANTE — `tools/fabrica_campanas.py:1629-1631` (en 3430b2d): paso del ledger queda 'planeado' si el PUT falla por red.**
+`_pausa_una` inserta el paso y sella `failed` en rechazo HTTP y en readback, pero no atrapa el `Abortar` de `_put_estado_campana` (timeout/red INCERTO): la fila nueva de R09-I queda sin sello ni ack. Corregido también en 74a1a0c; en el rango es consistente con `_cambia_estado_lote` (1749), que tiene el mismo hueco.
+
+**4. NO BLOQUEANTE — `tools/fabrica_campanas.py:317-330` (en 3430b2d): `_SQL_CAMPANAS_DEL_LOTE` sin DISTINCT ON devuelve duplicados tras un desarme.**
+Los pasos "desarmar {rol}" creados por R09-I quedan `applied` con external: una segunda corrida de `--desarmar` lista cada campaña dos veces (PUT pausado idempotente, ledger engordado). El DISTINCT ON llega en 74a1a0c.
+
+**5. NO BLOQUEANTE — `app/cli_bids.py:94-105`: carrera menor en el conteo de vivos.**
+`vivos` se cuenta antes de `vigila`; si todos mueren/gradúan entre ambos SELECT por otro actor, sale 1 sin haber fallado nada. Solo ruido de cron, sin efecto en datos.
+
+**6. NO BLOQUEANTE — `migrations/0072_bids02_impulso_grupo_tipo.sql`: el invariante no valida filas existentes.**
+El trigger solo cubre INSERT/UPDATE; un impulso previo colgado de grupo no-impulso quedaría fuera del candado en silencio. Hoy no debería existir (los impulso nacen de `_SQL_INSERTA_GRUPO_IMPULSO`), y el check de dato previo llega en R14-r2 (fuera del rango).
+
+## Áreas bien (una línea)
+
+- **R09-A** (`impulso_io.py:170-195`): `_lote_no_pausable` calza con los Abortar de `_cambia_estado_lote`; 409 por estado del lote, 502 si Amazon rechaza a medias. Bien.
+- **R09-B** (`impulso_io.py:369-373`): `fp._valida_plan_v2` sí valida bid en [piso, techo] y budget ≥ bid (`fabrica_plan.py:379-382`) lanzando `PlanInvalido`, que la vista previa convierte en no lanzable. Bien.
+- **R09-D** (`productos.js:44-64`): `mensajeError` calza con `fw.error` (`{mensaje}`) y `_error_impulso` (`{mensaje, lanzados, fallos}`); las claves de `fallos` ya llegan como string desde la API. Bien.
+- **R09-F** (`cli_bids.py` + `vigila`): sin ingesta no guarda lectura falsa, avisa y el cron sale 1. Bien.
+- **R09-G en previsualiza** (`impulso_io.py:413-433`): dedup por producto en la misma vista y contra vivos de otro listing, con el motivo correcto; orden de advisory locks producto→listing sin deadlock (locks por iteración; el llamador de API usa autocommit). Bien.
+- **R09-I orden** (`fabrica_campanas.py:1871-1877`): `ctx.orden = max(orden)` antes de `_pausa_una`; evita el choque UNIQUE(lote, orden). Bien.
+- **0072 forward/reversa**: triggers correctos (FK no puede cruzar a `tipo`), reversa con DROP en orden dependiente. Bien, salvo lo dicho en 6.
+- **Divergencia con el diseño**: R09-G/R09-H (spec líneas 257-264) implementados como está escrito (tope por producto, fallo parcial en vez de 409/aborto, candado bajo advisory por producto y después por listing); el único incumplimiento real del diseño en el rango es el hallazgo 1.

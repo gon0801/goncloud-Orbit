@@ -1,0 +1,102 @@
+== A: revision con as_of posterior (espera rc=1: el script afirma el bug) ==
+REVISION_NEWER {'first': {'run_id': 1, 'filas_origen': 1, 'rows_written': 1, 'rows_skipped': 0, 'duplicados': 0, 'duplicados_version': 0, 'duplicados_id': 0, 'rechazos': 0, 'entidades_nuevas': 1, 'entidades_actualizadas': 0}, 'correction_result': {'run_id': 2, 'filas_origen': 1, 'rows_written': 1, 'rows_skipped': 0, 'duplicados': 0, 'duplicados_version': 0, 'duplicados_id': 0, 'rechazos': 0, 'entidades_nuevas': 0, 'entidades_actualizadas': 0}, 'latest_cost': '9.0000', 'observations': 2, 'runs': [(True, 1, 0, 'as_of=1793301994; snap=bbdbc00c2b11aec7332f95fa34006fdcbf99ea52fca017bc9d41caba032ff520'), (True, 1, 0, 'as_of=1793305594; snap=5c748dd659ea51a4ba7163f05c732eb786f078089f9355581e064f02ae28c453')]}
+rc=1
+
+== A: reintento legado sin snap (espera rc=1) ==
+LEGACY_REVISION_RETRY {'exact_legacy_retry': {'run_id': 2, 'filas_origen': 1, 'rows_written': 0, 'rows_skipped': 1, 'duplicados': 1, 'duplicados_version': 1, 'duplicados_id': 0, 'rechazos': 0, 'entidades_nuevas': 0, 'entidades_actualizadas': 0}, 'changed_same_asof_result': None, 'changed_same_asof_error': 'snapshot con el mismo as_of y contenido distinto (snapshot atrasado): no se escribio nada', 'latest_cost': '5.0000', 'observations': 1, 'runs': [(True, 1, 0, 'as_of=1793309194'), (True, 0, 1, 'reintento=bbdbc00c2b11aec7332f95fa34006fdcbf99ea52fca017bc9d41caba032ff520; 1x misma version canonica (recopia o reintento)'), (False, 0, 1, 'snapshot con el mismo as_of y contenido distinto (snapshot atrasado): no se escribio nada')]}
+rc=1
+
+== A: duplicado futuro legado (espera rc=1) ==
+FUTURE_LEGACY_REVISION_CHANGED {'result': None, 'error': 'snapshot con el mismo as_of y contenido distinto (snapshot atrasado): no se escribio nada', 'latest': '5.0000', 'observations': [('5.0000', 'meli-ads|C1|2026-10-28|rev:r1|1793312794')], 'runs': [(1, True, None, 0, None), (2, False, 0, 1, 'snapshot con el mismo as_of y contenido distinto (snapshot atrasado): no se escribio nada')]}
+rc=1
+
+== C: precision y claves (todos deben salir 1) ==
+filas origen: 2
+filas Orbit:  2
+faltantes en Orbit: []
+sobrantes en Orbit: []
+campana/dia comparables: 2, diferencias: 0
+dias control: 3, dias Orbit: 2, faltantes en el control: 0, faltantes en Orbit: 1, sobrantes en Orbit: 0, diferencias: 0
+fecha de conciliacion: 2026-10-29T21:26:34.770750+00:00
+FALTA el dia 2026-10-28 en Orbit: origen=(4, 3, Decimal('9.0000'), Decimal('18.0000'))
+CONCILIACION FALLA
+CASE=CONTROL_INTERMEDIO_SIN_CAMPANAS EXIT=1
+filas origen: 0
+filas Orbit:  0
+faltantes en Orbit: []
+sobrantes en Orbit: []
+campana/dia comparables: 0, diferencias: 0
+dias control: 1, dias Orbit: 0, faltantes en el control: 0, faltantes en Orbit: 1, sobrantes en Orbit: 0, diferencias: 0
+fecha de conciliacion: 2026-10-29T21:26:34.771920+00:00
+FALTA el dia 2026-10-28 en Orbit: origen=(4, 3, Decimal('9.0000'), Decimal('18.0000'))
+CONCILIACION FALLA
+CASE=CONTROL_SIN_NINGUNA_CAMPANA EXIT=1
+filas origen: 0
+filas Orbit:  1
+faltantes en Orbit: []
+sobrantes en Orbit: [('C1', '2026-10-28')]
+campana/dia comparables: 0, diferencias: 0
+dias control: 1, dias Orbit: 1, faltantes en el control: 0, faltantes en Orbit: 0, sobrantes en Orbit: 0, diferencias: 0
+fecha de conciliacion: 2026-10-29T21:26:34.773121+00:00
+spend C1 2026-10-28 con mas de 4 decimales: 1.000001
+SOBRA en Orbit ('C1', '2026-10-28'): orbit=(Decimal('1.0000'), Decimal('2.0000'), 3, 4)
+CONCILIACION FALLA
+CASE=PRECISION_GENUINA_6_DECIMALES EXIT=1
+filas origen: 0
+filas Orbit:  1
+faltantes en Orbit: []
+sobrantes en Orbit: [('C1', '2026-10-28')]
+campana/dia comparables: 0, diferencias: 0
+dias control: 0, dias Orbit: 1, faltantes en el control: 0, faltantes en Orbit: 0, sobrantes en Orbit: 1, diferencias: 0
+fecha de conciliacion: 2026-10-29T21:26:34.773957+00:00
+spend C1 2026-10-28 con mas de 4 decimales: 1.000001
+spend control diario 2026-10-28 con mas de 4 decimales: 1.000001
+SOBRA en Orbit ('C1', '2026-10-28'): orbit=(Decimal('1.0000'), Decimal('2.0000'), 3, 4)
+SOBRA el dia 2026-10-28 en Orbit: orbit=(4, 3, Decimal('1.0000'), Decimal('2.0000'))
+CONCILIACION FALLA
+CASE=PRECISION_GENUINA_EN_AMBAS_TABLAS EXIT=1
+filas origen: 1
+filas Orbit:  1
+faltantes en Orbit: []
+sobrantes en Orbit: []
+campana/dia comparables: 1, diferencias: 0
+dias control: 1, dias Orbit: 1, faltantes en el control: 0, faltantes en Orbit: 0, sobrantes en Orbit: 0, diferencias: 0
+fecha de conciliacion: 2026-10-29T21:26:34.774688+00:00
+CONCILIACION OK
+CASE=MONEDA_ORIGEN_NULL EXIT=0
+filas origen: 1
+filas Orbit:  1
+faltantes en Orbit: []
+sobrantes en Orbit: []
+campana/dia comparables: 1, diferencias: 1
+dias control: 1, dias Orbit: 1, faltantes en el control: 0, faltantes en Orbit: 0, sobrantes en Orbit: 0, diferencias: 1
+fecha de conciliacion: 2026-10-29T21:26:34.775436+00:00
+duplicado en Orbit campana/dia ('C1', '2026-10-28'): (Decimal('9.0000'), Decimal('2.0000'), 3, 4) vs (Decimal('1.0000'), Decimal('2.0000'), 3, 4)
+DIFIERE ('C1', '2026-10-28'): origen=(Decimal('1.0000'), Decimal('2.0000'), 3, 4) orbit=(Decimal('9.0000'), Decimal('2.0000'), 3, 4)
+DIA DIFIERE 2026-10-28: origen=(4, 3, Decimal('1.0000'), Decimal('2.0000')) orbit=(4, 3, Decimal('9.0000'), Decimal('2.0000'))
+CONCILIACION FALLA
+CASE=ORBIT_DUPLICADO_SINTETICO EXIT=1
+rc=0
+
+== C: control NULL y fecha vacia (ambos deben salir 1) ==
+filas origen: 1
+filas Orbit:  1
+faltantes en Orbit: []
+sobrantes en Orbit: []
+campana/dia comparables: 1, diferencias: 0
+dias control: 2, dias Orbit: 1, faltantes en el control: 0, faltantes en Orbit: 1, sobrantes en Orbit: 0, diferencias: 0
+fecha de conciliacion: 2026-10-29T21:26:34.855831+00:00
+FALTA el dia 2026-10-29 en Orbit: origen=(0, 0, None, Decimal('0.0000'))
+CONCILIACION FALLA
+CASE=CONTROL_NULL_SPEND_SIN_CAMPANAS EXIT=1
+filas origen: 1
+filas Orbit:  1
+faltantes en Orbit: []
+sobrantes en Orbit: []
+campana/dia comparables: 1, diferencias: 0
+dias control: 1, dias Orbit: 1, faltantes en el control: 0, faltantes en Orbit: 0, sobrantes en Orbit: 0, diferencias: 0
+fecha de conciliacion: 2026-10-29T21:26:34.857142+00:00
+fecha ilegible en origen control diario : ''
+CONCILIACION FALLA
+CASE=CONTROL_FECHA_VACIA_CON_GASTO EXIT=1
+rc=0

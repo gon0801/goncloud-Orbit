@@ -1,0 +1,6 @@
+# Comando:
+uv run --frozen python -m pytest tests/test_precommit_hooks.py::test_concurrencia_de_ci_distingue_evento_y_gate_sigue_fail_closed -q
+# Salida (con el arreglo quality-${{ github.event_name }}-...) en .github/workflows/quality.yml:
+.                                                                        [100%]
+1 passed in 0.06s
+exit=0

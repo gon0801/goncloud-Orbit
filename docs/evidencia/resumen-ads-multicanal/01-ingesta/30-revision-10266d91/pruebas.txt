@@ -1,0 +1,60 @@
+== Pruebas focales (head corregido) ==
+Comando: uv run --frozen python -m pytest -q tests/test_meli_ads_ingest.py tests/test_cli.py
+
+........................................................................ [ 66%]
+.....................................                                    [100%]
+109 passed in 5.53s
+
+Comando: uv run --frozen python -m pytest -v tests/test_meli_ads_ingest.py
+configfile: pyproject.toml
+plugins: anyio-4.14.2
+collecting ... collected 46 items
+
+tests/test_meli_ads_ingest.py::test_version_canonica_ignora_nombre_y_cambia_por_cada_campo PASSED [  2%]
+tests/test_meli_ads_ingest.py::test_dinero_no_redondea_en_silencio_ni_colapsa_versiones PASSED [  4%]
+tests/test_meli_ads_ingest.py::test_enteros_respetan_limites_de_columna PASSED [  6%]
+tests/test_meli_ads_ingest.py::test_leer_filas_usa_revision_del_origen PASSED [  8%]
+tests/test_meli_ads_ingest.py::test_leer_filas_conserva_cero_real_y_dato_faltante PASSED [ 10%]
+tests/test_meli_ads_ingest.py::test_leer_filas_rechaza_moneda_fuera_de_dominio PASSED [ 13%]
+tests/test_meli_ads_ingest.py::test_leer_filas_rechaza_identidad_ausente PASSED [ 15%]
+tests/test_meli_ads_ingest.py::test_leer_filas_rechaza_fecha_futura PASSED [ 17%]
+tests/test_meli_ads_ingest.py::test_updated_at_invalido_rechaza_el_snapshot PASSED [ 19%]
+tests/test_meli_ads_ingest.py::test_as_of_futuro_es_rechazado PASSED     [ 21%]
+tests/test_meli_ads_ingest.py::test_revision_o_identidad_con_separador_se_rechazan PASSED [ 23%]
+tests/test_meli_ads_ingest.py::test_snapshot_sin_tabla_de_origen PASSED  [ 26%]
+tests/test_meli_ads_ingest.py::test_nombres_vigentes_usa_el_nombre_mas_reciente PASSED [ 28%]
+tests/test_meli_ads_ingest.py::test_main_sin_dsn_falla_cerrado PASSED    [ 30%]
+tests/test_meli_ads_ingest.py::test_main_sin_snapshot_falla_cerrado PASSED [ 32%]
+tests/test_meli_ads_ingest.py::test_main_exige_flag_sqlite PASSED        [ 34%]
+tests/test_meli_ads_ingest.py::test_ingesta_escribe_entidades_y_observaciones PASSED [ 36%]
+tests/test_meli_ads_ingest.py::test_reintento_del_mismo_snapshot_no_duplica PASSED [ 39%]
+tests/test_meli_ads_ingest.py::test_snapshot_atrasado_no_reemplaza_la_correccion_vigente PASSED [ 41%]
+tests/test_meli_ads_ingest.py::test_snapshot_con_el_mismo_as_of_no_reemplaza PASSED [ 43%]
+tests/test_meli_ads_ingest.py::test_recopia_con_as_of_nuevo_y_mismo_contenido_no_agrega PASSED [ 45%]
+tests/test_meli_ads_ingest.py::test_snapshot_atrasado_no_restaura_nombre PASSED [ 47%]
+tests/test_meli_ads_ingest.py::test_mismo_as_of_no_restaura_nombre PASSED [ 50%]
+tests/test_meli_ads_ingest.py::test_concurrencia_observed_at_se_toma_bajo_el_candado PASSED [ 52%]
+tests/test_meli_ads_ingest.py::test_recopia_deduplicada_avanza_la_marca_y_bloquea_el_snapshot_anterior PASSED [ 54%]
+tests/test_meli_ads_ingest.py::test_futuro_dentro_de_tolerancia_no_envenena_la_marca PASSED [ 56%]
+tests/test_meli_ads_ingest.py::test_reloj_retrocede_no_deja_vigente_la_anterior PASSED [ 58%]
+tests/test_meli_ads_ingest.py::test_updated_at_con_fraccion_o_anio_desbordado_se_rechaza PASSED [ 60%]
+tests/test_meli_ads_ingest.py::test_entero_con_doble_signo_y_cero_negativo PASSED [ 63%]
+tests/test_meli_ads_ingest.py::test_entero_desbordado_se_cuenta_como_rechazo PASSED [ 65%]
+tests/test_meli_ads_ingest.py::test_dinero_limite_numeric_exacto_del_revisor PASSED [ 67%]
+tests/test_meli_ads_ingest.py::test_recopia_real_conserva_su_as_of_frente_a_una_marca_futura PASSED [ 69%]
+tests/test_meli_ads_ingest.py::test_futuro_en_cuarentena_no_bloquea_una_correccion_cercana PASSED [ 71%]
+tests/test_meli_ads_ingest.py::test_correccion_agrega_observacion_y_v_metric_latest_la_expone PASSED [ 73%]
+tests/test_meli_ads_ingest.py::test_renombre_actualiza_catalogo_sin_observacion PASSED [ 76%]
+tests/test_meli_ads_ingest.py::test_moneda_invalida_aborta_y_sella_ok_false PASSED [ 78%]
+tests/test_meli_ads_ingest.py::test_identidad_invalida_no_deja_escrituras_parciales PASSED [ 80%]
+tests/test_meli_ads_ingest.py::test_updated_at_invalido_sella_run_fallida PASSED [ 82%]
+tests/test_meli_ads_ingest.py::test_as_of_futuro_no_envenena_la_marca PASSED [ 84%]
+tests/test_meli_ads_ingest.py::test_claves_canonicas_duplicadas_rechazan_snapshot PASSED [ 86%]
+tests/test_meli_ads_ingest.py::test_error_de_lectura_sella_run_ok_false PASSED [ 89%]
+tests/test_meli_ads_ingest.py::test_revision_con_separador_sella_run_fallida PASSED [ 91%]
+tests/test_meli_ads_ingest.py::test_marca_es_el_maximo_entre_corridas_y_no_el_id PASSED [ 93%]
+tests/test_meli_ads_ingest.py::test_duplicados_id_cuenta_conflicto_real_del_indice PASSED [ 95%]
+tests/test_meli_ads_ingest.py::test_cli_main_exitoso PASSED              [ 97%]
+tests/test_meli_ads_ingest.py::test_colision_de_pk_aborta_y_revierte_escrituras PASSED [100%]
+
+============================== 46 passed in 4.67s ==============================

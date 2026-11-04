@@ -1,0 +1,395 @@
+"""Wire S5 de estimacion: proyeccion pura y attach batch.
+
+detalle siempre esta en el sobre. Vale None si estado==disponible o si
+canonical_input.resultado no trae contribucion ni contribucion_pct numericos.
+"""
+
+from __future__ import annotations
+
+from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
+
+import pytest
+from test_schema import _postgres_obligatorio_ausente
+
+CLAVES_S5 = (
+    "estado",
+    "motivos",
+    "snapshot_id",
+    "escenario",
+    "moneda",
+    "contribucion",
+    "contribucion_pct",
+    "base_porcentaje",
+    "componentes",
+    "exclusiones",
+    "detalle",
+)
+
+CLAVES_COMPONENTE = (
+    "nombre",
+    "importe_original",
+    "moneda_original",
+    "importe_normalizado",
+    "moneda_normalizada",
+    "fuente",
+    "fecha_fuente",
+    "observed_at",
+    "vigencia",
+    "estado",
+    "pertenencia",
+)
+
+STUB = {
+    "estado": "incompleta",
+    "motivos": ["escenario_ausente"],
+    "snapshot_id": None,
+    "escenario": {
+        "unidad": "1",
+        "canal": None,
+        "fecha_valoracion": None,
+        "version_formula": None,
+        "version_politica": None,
+    },
+    "moneda": None,
+    "contribucion": None,
+    "contribucion_pct": None,
+    "base_porcentaje": "ingreso_normalizado",
+    "componentes": [],
+    "exclusiones": [],
+    "detalle": None,
+}
+
+AS_OF = datetime(2026, 9, 8, 18, 0, tzinfo=UTC)
+_skip_db = pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres")
+
+
+def _escenario(**overrides):
+    from app.estimacion_repository import EscenarioLeido
+
+    datos = dict(
+        id=10,
+        listing_id=1,
+        canal="fba",
+        valoracion_date=date(2026, 9, 8),
+        observed_at=datetime(2026, 9, 8, 12, 0, tzinfo=UTC),
+        estado="disponible",
+        motivos=(),
+        contribucion=Decimal("42.5000"),
+        contribucion_pct=Decimal("36.6379"),
+        moneda="MXN",
+        componentes=[],
+        exclusiones=("ads",),
+        canonical_input={
+            "resultado": {
+                "estado": "disponible",
+                "contribucion": "42.5000",
+                "contribucion_pct": "36.6379",
+            }
+        },
+        context_fingerprint="fp",
+        politica_version_id=3,
+        formula_version="S3",
+    )
+    datos.update(overrides)
+    return EscenarioLeido(**datos)
+
+
+def test_proyeccion_s5_stub_escenario_ausente():
+    from app.estimacion_proyeccion import proyeccion_s5
+
+    sobre = proyeccion_s5(None)
+    assert sobre == STUB
+    for clave in CLAVES_S5:
+        assert clave in sobre
+
+
+def test_proyeccion_s5_decimal_como_cadena_y_null_se_queda_null():
+    from app.estimacion_proyeccion import proyeccion_s5
+
+    sobre = proyeccion_s5(_escenario())
+    assert sobre["contribucion"] == "42.5000"
+    assert sobre["contribucion_pct"] == "36.6379"
+    assert isinstance(sobre["contribucion"], str)
+    assert isinstance(sobre["contribucion_pct"], str)
+    assert sobre["moneda"] == "MXN"
+    assert sobre["snapshot_id"] == 10
+    assert sobre["base_porcentaje"] == "ingreso_normalizado"
+    assert sobre["detalle"] is None
+
+    nulo = proyeccion_s5(
+        _escenario(
+            estado="incompleta",
+            contribucion=None,
+            contribucion_pct=None,
+            moneda=None,
+            canonical_input={"resultado": {"estado": "incompleta", "contribucion": None}},
+        )
+    )
+    assert nulo["contribucion"] is None
+    assert nulo["contribucion_pct"] is None
+    assert nulo["moneda"] is None
+
+
+def test_proyeccion_s5_no_disponible_fuerza_principales_null():
+    from app.estimacion_proyeccion import proyeccion_s5
+
+    sobre = proyeccion_s5(
+        _escenario(
+            estado="desactualizada",
+            motivos=("oferta_desactualizada",),
+            contribucion=Decimal("42.5000"),
+            contribucion_pct=Decimal("36.6379"),
+            moneda="MXN",
+            canonical_input={
+                "resultado": {
+                    "estado": "disponible",
+                    "contribucion": "42.5000",
+                    "contribucion_pct": "36.6379",
+                }
+            },
+        )
+    )
+    assert sobre["contribucion"] is None
+    assert sobre["contribucion_pct"] is None
+    assert sobre["estado"] == "desactualizada"
+    assert sobre["detalle"] == {
+        "contribucion": "42.5000",
+        "contribucion_pct": "36.6379",
+        "estado": "disponible",
+    }
+
+
+def test_proyeccion_s5_detalle_omitido_si_no_hay_numero_congelado():
+    from app.estimacion_proyeccion import proyeccion_s5
+
+    sobre = proyeccion_s5(
+        _escenario(
+            estado="incompleta",
+            contribucion=None,
+            contribucion_pct=None,
+            moneda=None,
+            canonical_input={
+                "resultado": {
+                    "estado": "incompleta",
+                    "contribucion": None,
+                    "contribucion_pct": None,
+                }
+            },
+        )
+    )
+    assert "detalle" in sobre
+    assert sobre["detalle"] is None
+
+
+def test_proyeccion_s5_no_inventa_procedencia_sin_refs():
+    """Sin ProcedenciaRefs: solo fecha persistida y pertenencia; resto None."""
+    from app.estimacion_proyeccion import proyeccion_s5
+
+    observado = datetime(2026, 9, 8, 18, 0, tzinfo=UTC)
+    sobre = proyeccion_s5(
+        _escenario(
+            observed_at=observado,
+            canonical_input={
+                "entrada": {
+                    "costo_validated_at": "2026-09-08T08:15:02+00:00",
+                    "fx_rate_date": "2026-09-04",
+                },
+                "resultado": {"estado": "disponible", "contribucion": "42.5000"},
+            },
+            componentes=[
+                {
+                    "nombre": "isr",
+                    "importe_original": "2.5000",
+                    "moneda_original": "MXN",
+                    "importe_normalizado": "2.5000",
+                    "moneda_normalizada": "MXN",
+                    "fuente": "politica",
+                    "tasa": "0.025",
+                    "pertenece_a_total": True,
+                },
+                {
+                    "nombre": "fx",
+                    "fecha": "2026-09-04",
+                    "fuente": "nearest_prior",
+                    "pertenece_a_total": False,
+                },
+                {"nombre": "costo_original", "pertenece_a_total": False},
+                {"nombre": "fee_detalle:ReferralFee", "pertenece_a_total": False},
+                {"nombre": "precio_bruto", "pertenece_a_total": True},
+            ],
+        )
+    )
+    isr, fx, costo, fee, precio = sobre["componentes"]
+    for comp in (isr, fx, costo, fee, precio):
+        assert set(CLAVES_COMPONENTE) <= set(comp)
+        assert "tasa" not in comp
+        assert "fecha" not in comp
+        assert "pertenece_a_total" not in comp
+        assert comp["observed_at"] is None
+        assert comp["estado"] is None
+    assert isr["fuente"] == "politica"
+    assert isr["fecha_fuente"] is None
+    assert isr["vigencia"] is None
+    assert isr["pertenencia"] is True
+    assert fx["fuente"] == "nearest_prior"
+    assert fx["fecha_fuente"] == "2026-09-04"
+    assert fx["vigencia"] is None
+    assert fx["pertenencia"] is False
+    assert costo["fuente"] is None
+    assert costo["pertenencia"] is False
+    assert costo["vigencia"] is None
+    assert fee["fuente"] is None
+    assert fee["pertenencia"] is False
+    assert fee["vigencia"] is None
+    assert precio["fuente"] is None
+    assert precio["fecha_fuente"] is None
+    assert precio["pertenencia"] is True
+    assert sobre["escenario"] == {
+        "unidad": "1",
+        "canal": "fba",
+        "fecha_valoracion": "2026-09-08",
+        "version_formula": "S3",
+        "version_politica": 3,
+    }
+    assert sobre["exclusiones"] == ["ads"]
+
+
+def test_proyeccion_s5_mapea_procedencia_desde_refs_reales():
+    from app.estimacion_proyeccion import proyeccion_s5
+    from app.estimacion_reader import (
+        FUENTE_OFERTA,
+        FUENTE_PRODUCT_FEES,
+        FUENTE_SKU_COST,
+        ProcedenciaRefs,
+    )
+
+    refs = ProcedenciaRefs(
+        oferta_fetched_at=datetime(2026, 9, 8, 18, 35, 40, tzinfo=UTC),
+        oferta_observed_at=datetime(2026, 9, 8, 18, 40, 0, tzinfo=UTC),
+        fee_fees_estimated_at=datetime(2026, 9, 8, 19, 10, 55, tzinfo=UTC),
+        fee_observed_at=datetime(2026, 9, 8, 19, 11, 0, tzinfo=UTC),
+        costo_valid_from=date(2026, 8, 18),
+        costo_valid_to=None,
+        politica_valid_from=date(2026, 1, 1),
+        politica_valid_to=None,
+        politica_label="fixture-fba-mx",
+    )
+    sobre = proyeccion_s5(
+        _escenario(
+            procedencia=refs,
+            componentes=[
+                {"nombre": "precio_bruto", "pertenece_a_total": True},
+                {"nombre": "fee_total", "pertenece_a_total": True},
+                {"nombre": "costo_original", "pertenece_a_total": True},
+                {"nombre": "isr", "pertenece_a_total": True},
+            ],
+        )
+    )
+    precio, fee, costo, isr = sobre["componentes"]
+    assert precio["fuente"] == FUENTE_OFERTA
+    assert precio["fecha_fuente"] == refs.oferta_fetched_at.isoformat()
+    assert precio["observed_at"] == refs.oferta_observed_at.isoformat()
+    assert precio["vigencia"] is None
+    assert precio["estado"] is None
+    assert fee["fuente"] == FUENTE_PRODUCT_FEES
+    assert fee["fecha_fuente"] == refs.fee_fees_estimated_at.isoformat()
+    assert fee["observed_at"] == refs.fee_observed_at.isoformat()
+    assert costo["fuente"] == FUENTE_SKU_COST
+    assert costo["vigencia"] == "2026-08-18"
+    assert costo["fecha_fuente"] is None
+    assert costo["observed_at"] is None
+    assert isr["fuente"] == "politica:fixture-fba-mx"
+    assert isr["vigencia"] == "2026-01-01"
+    assert isr["estado"] is None
+    assert isr["pertenencia"] is True
+
+
+def test_proyeccion_s5_fuente_null_sin_refs():
+    from app.estimacion_proyeccion import proyeccion_s5
+
+    sobre = proyeccion_s5(
+        _escenario(componentes=[{"nombre": "precio_bruto", "pertenece_a_total": True}])
+    )
+    assert sobre["componentes"][0]["fuente"] is None
+
+
+def test_adjuntar_estimaciones_rechaza_as_of_naive():
+    from app.estimacion_proyeccion import adjuntar_estimaciones
+
+    with pytest.raises(ValueError, match="zona horaria"):
+        adjuntar_estimaciones(object(), [1], as_of=datetime(2026, 9, 8, 12, 0, 0))
+
+
+def test_adjuntar_estimaciones_stub_si_reader_omite(monkeypatch):
+    from app.estimacion_proyeccion import adjuntar_estimaciones
+
+    llamadas = []
+
+    def fake_leer(conn, listing_ids, *, as_of):
+        llamadas.append((list(listing_ids), as_of))
+        return []
+
+    monkeypatch.setattr("app.estimacion_proyeccion.leer_escenarios", fake_leer)
+    mapa = adjuntar_estimaciones(object(), [7, 8], as_of=AS_OF)
+    assert llamadas == [([7, 8], AS_OF)]
+    assert mapa[7] == STUB
+    assert mapa[8] == STUB
+
+
+def test_adjuntar_estimaciones_una_sola_llamada_a_leer_escenarios(monkeypatch):
+    from app.estimacion_proyeccion import adjuntar_estimaciones
+
+    llamadas = []
+
+    def fake_leer(conn, listing_ids, *, as_of):
+        llamadas.append(list(listing_ids))
+        return [_escenario(id=11, listing_id=listing_ids[0])]
+
+    monkeypatch.setattr("app.estimacion_proyeccion.leer_escenarios", fake_leer)
+    mapa = adjuntar_estimaciones(object(), [11, 12], as_of=AS_OF)
+    assert llamadas == [[11, 12]]
+    assert mapa[11]["snapshot_id"] == 11
+    assert mapa[12] == STUB
+
+
+@_skip_db
+def test_adjuntar_as_of_temprano_no_usa_filas_futuras():
+    from psycopg.types.json import Json
+    from test_estimacion_venta import NOW, _sembrar_listing, db_estimacion
+
+    from app.estimacion_proyeccion import adjuntar_estimaciones
+
+    corte = NOW + timedelta(minutes=30)
+    futuro = NOW + timedelta(hours=2)
+    with db_estimacion() as conn:
+        _pid, lid = _sembrar_listing(conn)
+        plat, sku, asin = conn.execute(
+            "SELECT platform::text, seller_sku, external_id FROM listing WHERE id = %s",
+            (lid,),
+        ).fetchone()
+        id_temprano = conn.execute(
+            "INSERT INTO estimacion_escenario"
+            " (listing_id, platform, seller_sku, asin, canal, valoracion_date, observed_at,"
+            " formula_version, estado, motivos, componentes, exclusiones, canonical_input,"
+            " context_fingerprint, source_event_id)"
+            " VALUES (%s, %s, %s, %s, 'fba', %s, %s, 'S3', 'incompleta', %s, '[]'::jsonb,"
+            " '[]'::jsonb, '{}'::jsonb, 'fp-temprano', 'evt-asof-temprano') RETURNING id",
+            (lid, plat, sku, asin, NOW.date(), NOW + timedelta(seconds=1), Json(["temprano"])),
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO estimacion_escenario"
+            " (listing_id, platform, seller_sku, asin, canal, valoracion_date, observed_at,"
+            " formula_version, estado, motivos, componentes, exclusiones, canonical_input,"
+            " context_fingerprint, source_event_id)"
+            " VALUES (%s, %s, %s, %s, 'fba', %s, %s, 'S3', 'incompleta', %s, '[]'::jsonb,"
+            " '[]'::jsonb, '{}'::jsonb, 'fp-futuro', 'evt-asof-futuro')",
+            (lid, plat, sku, asin, NOW.date(), futuro, Json(["futuro"])),
+        )
+        conn.commit()
+        temprano = adjuntar_estimaciones(conn, [lid], as_of=corte)
+        assert temprano[lid]["snapshot_id"] == id_temprano
+        assert temprano[lid]["motivos"] == ["temprano"]
+        tarde = adjuntar_estimaciones(conn, [lid], as_of=futuro + timedelta(minutes=1))
+        assert tarde[lid]["motivos"] == ["futuro"]
+        assert tarde[lid]["snapshot_id"] != id_temprano

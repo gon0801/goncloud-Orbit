@@ -1,0 +1,22 @@
+# ingesta-01 D.2 intento 19 — 2026-10-21 20:32 UTC
+# El spool local (/private/var/at/jobs) sigue sin aceptar creaciones: open(O_CREAT) se queda en __open.
+# atq del PATH del motor es ~/.local/bin/atq (copia de atq-mac.sh) y muestra la cola real de gonserver.
+
+$ env -i HOME=$HOME USER=$USER LOGNAME=$USER PATH="/Users/gon/.opencode/bin:/Users/gon/.local/bin:/Users/gon/.grok/bin:/Users/gon/.openclaw/tools/node/bin:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin" bash --noprofile --norc -c "command -v atq; atq; atq | grep -q .; echo grep_rc:\$?"
+/Users/gon/.local/bin/atq
+9	Wed Oct 28 18:42:00 2026 a claw
+grep_rc:0
+
+$ cmp atq-mac.sh ~/.local/bin/atq
+cmp_ok
+
+$ ssh gonserver at -c 9 | tail -1
+
+$ ssh gonserver "at -c 9" | grep ingesta01
+sudo sh /mnt/data/appdata/orbit/recordatorios/ingesta01-d2.sh
+
+$ ssh gonserver "md5sum /mnt/data/appdata/orbit/recordatorios/ingesta01-d2.sh /mnt/data/appdata/orbit/recordatorios/ingesta01-d2.sql"
+41e43db818d9f9f035aa7c6e4b77ed3d  /mnt/data/appdata/orbit/recordatorios/ingesta01-d2.sh
+ce06a85a28abff2b6e7838e89f1d1dfd  /mnt/data/appdata/orbit/recordatorios/ingesta01-d2.sql
+repo 41e43db818d9f9f035aa7c6e4b77ed3d medicion-7d.sh
+repo ce06a85a28abff2b6e7838e89f1d1dfd medicion-7d.sql

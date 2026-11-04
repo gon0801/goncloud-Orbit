@@ -1,0 +1,10 @@
+{
+  "run_id": "ads03-interfaz",
+  "ok": true,
+  "pid": 42046,
+  "port": 18012,
+  "base_url": "http://127.0.0.1:18012",
+  "cmdline": "/Users/dn/dev/goncloud-Orbit-resumen-ads-03/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 18012",
+  "health": "{\"status\":\"ok\"}",
+  "fallos": []
+}

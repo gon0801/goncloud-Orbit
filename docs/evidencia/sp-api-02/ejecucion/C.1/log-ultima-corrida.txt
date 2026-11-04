@@ -1,0 +1,17 @@
+spapi_orders amazon_us: run=1002 escritas=8 omitidas=0 paginas=1 aviso=None
+=== 2026-10-22T05:00:05Z spapi_listings amazon_mx ===
+spapi_listings amazon_mx: run=1003 escritas=342 omitidas=0 skus=342 llamadas=342 segundos=83.2
+=== 2026-10-22T05:01:29Z spapi_listings amazon_us ===
+spapi_listings amazon_us: run=1004 escritas=176 omitidas=0 skus=176 llamadas=176 segundos=43.8
+=== 2026-10-22T05:02:13Z spapi_inventario amazon_mx ===
+ingesta spapi_inventario fallo: inventario status=429
+=== 2026-10-22T05:02:21Z spapi_inventario amazon_us ===
+spapi_inventario amazon_us: run=1006 escritas=1071 omitidas=0 paginas=22 aviso=None llamadas=22 segundos=15.5
+=== 2026-10-22T05:02:38Z spapi_pricing amazon_mx ===
+spapi_pricing amazon_mx: run=1007 escritas=342 omitidas=0 asins=342 llamadas=684 segundos=1372.6
+=== 2026-10-22T05:25:31Z spapi_pricing amazon_us ===
+spapi_pricing amazon_us: run=1008 escritas=176 omitidas=0 asins=176 llamadas=352 segundos=702.6
+=== 2026-10-22T05:37:15Z fin ===
+Thu Oct 22 07:33:34 AM UTC 2026
+--- re-verificacion Thu Oct 22 07:45:23 AM UTC 2026: cola sin cambios, md5 guion b33a79556171c539861b5b143453851b ---
+=== 2026-10-22T05:37:15Z fin ===

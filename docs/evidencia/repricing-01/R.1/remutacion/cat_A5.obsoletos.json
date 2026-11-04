@@ -1,0 +1,6 @@
+{
+ "LA-freno-rango": "la ventana de dias se reescribio como racha (r3); lo cubre R3-freno-consecutivo",
+ "LA-extra-cero": "el extra fijo de fase 3 ya no existe (K4 cuenta reversas al reservar); lo cubre R1-reversas-frescas",
+ "R2-log-sin-scrub": "el log del error de fase 3 se scrubbea antes de guardar (B2); lo cubre B2-errores-scrub",
+ "LA-sin-soltar": "el finally cambio (K4); lo cubre R4-sin-soltar"
+}
