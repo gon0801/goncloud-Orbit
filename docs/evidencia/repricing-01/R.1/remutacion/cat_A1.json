@@ -1,0 +1,283 @@
+[
+  {
+    "id": "M-plan1",
+    "archivo": "tools/precio_goal.py",
+    "viejo": "    if not args.acepto_mutacion_real:\n        if args.go is not None or args.huella is not None:",
+    "nuevo": "    if False:\n        if args.go is not None or args.huella is not None:",
+    "tests": [
+      "tests/test_precio_goals.py::test_dry_run_imprime_referencia_y_no_escribe"
+    ]
+  },
+  {
+    "id": "M-plan2",
+    "archivo": "tools/precio_goal.py",
+    "viejo": "        go_literal = args.go\n    for fila in plan:",
+    "nuevo": "        go_literal = args.go\n    for fila in plan[:-1]:",
+    "tests": [
+      "tests/test_precio_goals.py::test_csv_go_escribe_exactamente_n_filas"
+    ]
+  },
+  {
+    "id": "M-plan3",
+    "archivo": "tools/precio_goal.py",
+    "viejo": "    if args.huella != huella:",
+    "nuevo": "    if False:",
+    "tests": [
+      "tests/test_precio_goals.py::test_huella_distinta_aborta_y_no_escribe"
+    ]
+  },
+  {
+    "id": "M-plan4",
+    "archivo": "tools/precio_goal.py",
+    "viejo": "        if clave in vistos:",
+    "nuevo": "        if False:",
+    "tests": [
+      "tests/test_precio_goals.py::test_csv_repetido_aborta_antes_de_la_huella_con_linea"
+    ]
+  },
+  {
+    "id": "M-plan5",
+    "archivo": "app/precio/goals_write.py",
+    "viejo": "    if valor < 1:",
+    "nuevo": "    if valor < 0:",
+    "tests": [
+      "tests/test_precio_goals.py::test_goal_pct_en_fraccion_rechazado"
+    ]
+  },
+  {
+    "id": "M-plan6",
+    "archivo": "app/precio/goals_write.py",
+    "viejo": "    if not minimo <= fraccion <= maximo:",
+    "nuevo": "    if fraccion is None:",
+    "tests": [
+      "tests/test_precio_goals.py::test_goal_fuera_de_banda_rechazado_en_python_y_en_base"
+    ]
+  },
+  {
+    "id": "M-plan7",
+    "archivo": "app/precio/goals_write.py",
+    "viejo": "        if go_literal is None or not go_literal.strip():",
+    "nuevo": "        if False:",
+    "tests": [
+      "tests/test_precio_goals.py::test_sembrar_live_exige_go_en_python"
+    ]
+  },
+  {
+    "id": "M-plan8",
+    "archivo": "tools/precio_goal.py",
+    "viejo": "UMBRAL_SALTO = Decimal(\"0.25\")",
+    "nuevo": "UMBRAL_SALTO = Decimal(\"0.50\")",
+    "tests": [
+      "tests/test_precio_goals.py::test_salto_mayor_25_aborta_sin_confirmacion_y_pasa_con_ella"
+    ]
+  },
+  {
+    "id": "M-plan8b",
+    "archivo": "tools/precio_goal.py",
+    "viejo": "> UMBRAL_SALTO * fila.p_actual",
+    "nuevo": "> Decimal(\"25\")",
+    "tests": [
+      "tests/test_precio_goals.py::test_dry_run_imprime_referencia_y_no_escribe"
+    ]
+  },
+  {
+    "id": "M-plan9",
+    "archivo": "tools/precio_goal.py",
+    "viejo": "UMBRAL_SALTO = Decimal(\"0.25\")",
+    "nuevo": "UMBRAL_SALTO = Decimal(\"0.25\")\n_FUGA_MUTANTE = \"UPDATE precio_goal SET x = 1\"",
+    "tests": [
+      "tests/test_architecture.py::test_escritura_precio_goal_vive_solo_en_goals_write"
+    ]
+  },
+  {
+    "id": "M-a",
+    "archivo": "tools/precio_goal.py",
+    "viejo": "        if args.go is not None:\n            donde",
+    "nuevo": "        if False:\n            donde",
+    "tests": [
+      "tests/test_precio_goals.py::test_shadow_go_sin_go_literal_y_rechaza_go"
+    ]
+  },
+  {
+    "id": "M-b",
+    "archivo": "app/precio/goals_write.py",
+    "viejo": "    return (valor / 100).quantize(",
+    "nuevo": "    return (valor / 1000).quantize(",
+    "tests": [
+      "tests/test_precio_goals.py::test_porcentaje_a_fraccion_dos_decimales"
+    ]
+  },
+  {
+    "id": "M-c",
+    "archivo": "app/precio/goals_write.py",
+    "viejo": "        raise PrecioGoalInvalido(f\"config sin {clave}\")",
+    "nuevo": "        return Decimal(\"0.10\")",
+    "tests": [
+      "tests/test_precio_goals.py::test_sin_claves_de_config_aborta"
+    ]
+  },
+  {
+    "id": "M-d",
+    "archivo": "tools/precio_goal.py",
+    "viejo": " ORDER BY observed_at DESC LIMIT 1",
+    "nuevo": " ORDER BY observed_at ASC LIMIT 1",
+    "tests": [
+      "tests/test_precio_goals.py::test_escenario_mas_reciente_manda"
+    ]
+  },
+  {
+    "id": "M-e",
+    "archivo": "app/precio/goals_write.py",
+    "viejo": "    if fila is None:\n        raise PrecioGoalAusente(",
+    "nuevo": "    if False:\n        raise PrecioGoalAusente(",
+    "tests": [
+      "tests/test_precio_goals.py::test_cerrar_sin_vigente_aborta"
+    ]
+  },
+  {
+    "id": "M-f",
+    "archivo": "tools/precio_goal.py",
+    "viejo": "        if not args.go or not args.go.strip():",
+    "nuevo": "        if False:",
+    "tests": [
+      "tests/test_precio_goals.py::test_live_go_completo_escribe_go_literal"
+    ]
+  },
+  {
+    "id": "M-g",
+    "archivo": "tools/precio_goal.py",
+    "viejo": "= {clave} en linea {numero}",
+    "nuevo": "= {clave} en linea {numero + 1}",
+    "tests": [
+      "tests/test_precio_goals.py::test_csv_repetido_aborta_antes_de_la_huella_con_linea"
+    ]
+  },
+  {
+    "id": "M-h",
+    "archivo": "app/precio/goals_write.py",
+    "viejo": "    return (valor / 100).quantize(Decimal(\"0.0001\"))",
+    "nuevo": "    return float(valor / 100)",
+    "tests": [
+      "tests/test_precio_goals.py::test_porcentaje_a_fraccion_dos_decimales"
+    ]
+  },
+  {
+    "id": "M-i",
+    "archivo": "tests/test_architecture.py",
+    "viejo": "EXCEPCIONES_PURAS_PRECIO = (\"goals_write.py\", \"fuentes.py\")",
+    "nuevo": "EXCEPCIONES_PURAS_PRECIO = (\"goals_write.py\", \"fuentes.py\", \"reglas.py\")",
+    "tests": [
+      "tests/test_architecture.py::test_precio_excepcion_por_nombre"
+    ]
+  },
+  {
+    "id": "L4",
+    "archivo": "app/precio/goals_write.py",
+    "viejo": "    if not minimo <= fraccion <= maximo:",
+    "nuevo": "    if not minimo < fraccion < maximo:",
+    "tests": [
+      "tests/test_precio_goals.py::test_banda_bordes_inclusivos_se_siembran"
+    ]
+  },
+  {
+    "id": "L4b",
+    "archivo": "tools/precio_goal.py",
+    "viejo": "        if not minimo <= fraccion <= maximo:",
+    "nuevo": "        if not minimo < fraccion < maximo:",
+    "tests": [
+      "tests/test_precio_goals.py::test_banda_bordes_inclusivos_en_el_tool"
+    ]
+  },
+  {
+    "id": "L5",
+    "archivo": "tools/precio_goal.py",
+    "viejo": "{fila.platform}:{fila.fraccion}:{mode}",
+    "nuevo": "{fila.platform}:{fila.fraccion}",
+    "tests": [
+      "tests/test_precio_goals.py::test_huella_ata_el_modo"
+    ]
+  },
+  {
+    "id": "L5b",
+    "archivo": "tools/precio_goal.py",
+    "viejo": "{fila.platform}:{fila.fraccion}:{mode}",
+    "nuevo": "{fila.platform}:{mode}",
+    "tests": [
+      "tests/test_precio_goals.py::test_huella_ata_el_goal"
+    ]
+  },
+  {
+    "id": "L10",
+    "archivo": "tools/precio_goal.py",
+    "viejo": "                and abs(fila.p_estrella - fila.p_actual) > UMBRAL_SALTO",
+    "nuevo": "                and (fila.p_estrella - fila.p_actual) > UMBRAL_SALTO",
+    "tests": [
+      "tests/test_precio_goals.py::test_salto_hacia_abajo_tambien_aborta"
+    ]
+  },
+  {
+    "id": "L11",
+    "archivo": "app/precio/goals_write.py",
+    "viejo": "        \"SELECT id FROM precio_goal WHERE listing_id = %s AND platform = %s AND valid_to IS NULL\",\n        (listing_id, platform),\n    ).fetchone()\n    if fila is None:\n        raise PrecioGoalAusente(",
+    "nuevo": "        \"SELECT id FROM precio_goal WHERE listing_id = %s AND platform = %s ORDER BY id LIMIT 1\",\n        (listing_id, platform),\n    ).fetchone()\n    if fila is None:\n        raise PrecioGoalAusente(",
+    "tests": [
+      "tests/test_precio_goals.py::test_cerrar_elige_el_vigente_entre_cerrados"
+    ]
+  },
+  {
+    "id": "L12",
+    "archivo": "tools/precio_goal.py",
+    "viejo": "        if args.go is not None or args.huella is not None:",
+    "nuevo": "        if args.go is not None:",
+    "tests": [
+      "tests/test_precio_goals.py::test_huella_sin_acepto_tambien_aborta"
+    ]
+  },
+  {
+    "id": "M1c",
+    "archivo": "tests/test_precio_goals.py",
+    "viejo": "_PROHIBIDOS_IMPORTS_GOALS_WRITE = tuple(e for e in PROHIBIDOS_PRECIO if e != \"psycopg\")",
+    "nuevo": "_PROHIBIDOS_IMPORTS_GOALS_WRITE = tuple(e for e in PROHIBIDOS_PRECIO if e not in (\"psycopg\", \"os\"))",
+    "tests": [
+      "tests/test_precio_goals.py::test_candado_imports_goals_write_caza_from_os_getenv"
+    ]
+  },
+  {
+    "id": "M2c",
+    "archivo": "tests/test_architecture.py",
+    "viejo": "    hallados: list[str] = []\n    for nodo in ast.walk(arbol):\n        if isinstance(nodo, ast.Attribute):\n            dueno = nodo.value",
+    "nuevo": "    return []\n    hallados: list[str] = []\n    for nodo in ast.walk(arbol):\n        if isinstance(nodo, ast.Attribute):\n            dueno = nodo.value",
+    "tests": [
+      "tests/test_precio_goals.py::test_candado_reloj_goals_write_caza_os_environ",
+      "tests/test_precio_goals.py::test_candado_reloj_goals_write_caza_datetime_now"
+    ]
+  },
+  {
+    "id": "M3c",
+    "archivo": "tools/precio_goal.py",
+    "viejo": "        if existe is None:\n            raise Abortar(",
+    "nuevo": "        if False:\n            raise Abortar(",
+    "tests": [
+      "tests/test_precio_goals.py::test_dry_run_listing_inexistente_aborta_antes_de_la_huella",
+      "tests/test_precio_goals.py::test_dry_run_lote_listing_de_otra_platform_aborta_con_linea"
+    ]
+  },
+  {
+    "id": "M5c",
+    "archivo": "tools/precio_goal.py",
+    "viejo": "    if args.cerrar and args.confirmar_salto:",
+    "nuevo": "    if False:",
+    "tests": [
+      "tests/test_precio_goals.py::test_cerrar_con_confirmar_salto_aborta"
+    ]
+  },
+  {
+    "id": "M4c",
+    "archivo": "tools/precio_goal.py",
+    "viejo": "    for cruda in lector:\n        numero = lector.line_num\n",
+    "nuevo": "    for numero, cruda in enumerate(lector, start=2):\n",
+    "tests": [
+      "tests/test_precio_goals.py::test_csv_linea_en_blanco_no_corre_el_numero_de_linea"
+    ]
+  }
+]

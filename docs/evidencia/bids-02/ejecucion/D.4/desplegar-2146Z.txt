@@ -1,0 +1,231 @@
+== 0) SHA aprobado con la bateria completa verde
+APROBADO=540a5e53d09387697193d735c6e059d7e789b22a CI=success
+== 1) Preflight: nadie corre, sin harvest en vuelo, migraciones pendientes
+cli=0
+ciclos running=0
+harvest en vuelo=0
+ya aplicada: migrations/0060_bids02_base_lectura.sql
+ya aplicada: migrations/0061_bids02_campana_config.sql
+ya aplicada: migrations/0062_bids02_placement.sql
+ya aplicada: migrations/0063_bids02_peldanos_target.sql
+pendiente: migrations/0064_bids02_grupo_tipo.sql
+pendiente: migrations/0065_bids02_impulso.sql
+pendiente: migrations/0066_bids02_retiro_anuncios.sql
+ya aplicada: migrations/0067_bids02_campana_ajuste.sql
+pendiente: migrations/0068_bids02_sellos.sql
+pendiente: migrations/0069_bids02_retiro_intencion.sql
+pendiente: migrations/0070_bids02_permisos_lanza.sql
+== 1b) Guardas propias de D.4 (abortan si fallan)
+0064/0065/0066/0068/0069/0070, impulso, retiro, productos.js, comando y PUT /sp/productAds presentes en el SHA
+linea de impulso-vigia en el SHA OK
+guardas propias OK
+== 1c) Cron (guarda 5): respaldo, CALCULAR la linea, diff solo previsto (se instala en 7b)
+vigia: instalada suelta al final
+diff solo con la linea prevista:
+20 8 * * * /usr/bin/flock -n /tmp/impulso-vigia.lock docker exec orbit-app-1 python -m app.cli impulso-vigia >> /mnt/data/appdata/orbit/logs/impulso-vigia.log 2>&1
+crontab calculado en /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-d4-sim-nuevo-crontab-20261012-2146.txt (se instala en 7b; respaldo en /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-d4-sim-respaldo-crontab-20261012-2146.txt)
+== 2) Respaldo del codigo actual y SHA (el .env NO se copia a ningun lado)
+app
+docker-compose.yml
+Dockerfile
+pyproject.toml
+SHA
+tools
+uv.lock
+== 3) Backup del esquema (staging + verificacion)
+-rw------- 1 root root 524923 Oct 12 21:47 /mnt/data/appdata/orbit/backups/pred4_schema_20261012-2146.sql
+== 4) Migraciones BIDS 02 pendientes, cada una en su propio psql -1
+BEGIN
+WARNING:  there is already a transaction in progress
+ALTER TABLE
+CREATE FUNCTION
+CREATE TRIGGER
+COMMENT
+DO
+COMMIT
+WARNING:  there is no transaction in progress
+aplicada migrations/0064_bids02_grupo_tipo.sql (anotada en docs/evidencia/bids-02/ejecucion/D.4/aplicadas-20261012-2146.txt)
+BEGIN
+WARNING:  there is already a transaction in progress
+CREATE TABLE
+CREATE TABLE
+CREATE VIEW
+CREATE FUNCTION
+CREATE TRIGGER
+CREATE FUNCTION
+CREATE TRIGGER
+ALTER TABLE
+ALTER TABLE
+COMMENT
+COMMENT
+COMMENT
+CREATE FUNCTION
+CREATE TRIGGER
+CREATE TRIGGER
+GRANT
+GRANT
+REVOKE
+GRANT
+DO
+COMMIT
+WARNING:  there is no transaction in progress
+aplicada migrations/0065_bids02_impulso.sql (anotada en docs/evidencia/bids-02/ejecucion/D.4/aplicadas-20261012-2146.txt)
+BEGIN
+WARNING:  there is already a transaction in progress
+CREATE TABLE
+CREATE TABLE
+CREATE VIEW
+CREATE FUNCTION
+CREATE TRIGGER
+COMMENT
+COMMENT
+CREATE FUNCTION
+CREATE TRIGGER
+CREATE TRIGGER
+GRANT
+GRANT
+REVOKE
+GRANT
+DO
+COMMIT
+WARNING:  there is no transaction in progress
+aplicada migrations/0066_bids02_retiro_anuncios.sql (anotada en docs/evidencia/bids-02/ejecucion/D.4/aplicadas-20261012-2146.txt)
+BEGIN
+ALTER TABLE
+COMMENT
+WARNING:  there is already a transaction in progress
+ALTER TABLE
+ALTER TABLE
+COMMIT
+WARNING:  there is no transaction in progress
+aplicada migrations/0068_bids02_sellos.sql (anotada en docs/evidencia/bids-02/ejecucion/D.4/aplicadas-20261012-2146.txt)
+BEGIN
+WARNING:  there is already a transaction in progress
+CREATE TABLE
+CREATE INDEX
+CREATE FUNCTION
+CREATE TRIGGER
+CREATE TRIGGER
+COMMENT
+COMMENT
+GRANT
+GRANT
+GRANT
+REVOKE
+GRANT
+DO
+COMMIT
+WARNING:  there is no transaction in progress
+aplicada migrations/0069_bids02_retiro_intencion.sql (anotada en docs/evidencia/bids-02/ejecucion/D.4/aplicadas-20261012-2146.txt)
+BEGIN
+GRANT
+DO
+WARNING:  there is already a transaction in progress
+COMMIT
+WARNING:  there is no transaction in progress
+aplicada migrations/0070_bids02_permisos_lanza.sql (anotada en docs/evidencia/bids-02/ejecucion/D.4/aplicadas-20261012-2146.txt)
+== 5) md5 del codigo desplegado vs SHA aprobado
+md5 OK app/impulso.py
+md5 OK app/impulso_io.py
+md5 OK app/retiro_anuncios.py
+md5 OK app/pantalla_productos.py
+md5 OK app/api_fabrica.py
+md5 OK app/api_dashboard.py
+md5 OK app/ui.py
+md5 OK app/cli_bids.py
+md5 OK app/ads/write.py
+md5 OK app/ads/archivar.py
+md5 OK app/templates/productos_sin_clics.html
+md5 OK app/static/js/productos.js
+md5 OK app/static/js/fabrica.js
+md5 OK app/templates/fabrica.html
+== 6) Guardas antes de recrear
+guardas OK
+== 7) Build + recrear app (digest antes/despues) + health
+DIGEST antes=sha256:bb74e7a20e202cda567108a3a887992edbddfb3a8fd7c6502107dd9cef3bbc2d
+ Image orbit-app Building
+#1 [internal] load local bake definitions
+#1 reading from stdin 482B done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 952B done
+#2 DONE 0.0s
+
+#3 [internal] load metadata for docker.io/library/python:3.12-slim-bookworm
+#3 ...
+
+#4 [internal] load metadata for ghcr.io/astral-sh/uv:0.11.11
+#4 DONE 0.5s
+
+#3 [internal] load metadata for docker.io/library/python:3.12-slim-bookworm
+#3 DONE 0.7s
+
+#5 [internal] load .dockerignore
+#5 transferring context: 199B done
+#5 DONE 0.0s
+
+#6 FROM ghcr.io/astral-sh/uv:0.11.11@sha256:798712e57f879c5393777cbda2bb309b29fcdeb0532129d4b1c3125c5385975a
+#6 resolve ghcr.io/astral-sh/uv:0.11.11@sha256:798712e57f879c5393777cbda2bb309b29fcdeb0532129d4b1c3125c5385975a 0.0s done
+#6 DONE 0.0s
+
+#7 [stage-0 1/9] FROM docker.io/library/python:3.12-slim-bookworm@sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3a1509accc92a4e24a07258
+#7 resolve docker.io/library/python:3.12-slim-bookworm@sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3a1509accc92a4e24a07258 0.0s done
+#7 DONE 0.0s
+
+#8 [internal] load build context
+#8 transferring context: 3.63MB 0.0s done
+#8 DONE 0.0s
+
+#9 [stage-0 3/9] WORKDIR /app
+#9 CACHED
+
+#10 [stage-0 4/9] COPY pyproject.toml uv.lock ./
+#10 CACHED
+
+#11 [stage-0 2/9] COPY --from=ghcr.io/astral-sh/uv:0.11.11 /uv /uvx /bin/
+#11 CACHED
+
+#12 [stage-0 5/9] RUN uv sync --frozen --no-dev --no-install-project --no-cache
+#12 CACHED
+
+#13 [stage-0 6/9] COPY app ./app
+#13 DONE 0.0s
+
+#14 [stage-0 7/9] COPY tools/fabrica_campanas.py ./tools/fabrica_campanas.py
+#14 DONE 0.0s
+
+#15 [stage-0 8/9] COPY tools/jev_ads.py ./tools/jev_ads.py
+#15 DONE 0.0s
+
+#16 [stage-0 9/9] COPY tools/jev_fichas.py ./tools/jev_fichas.py
+#16 DONE 0.0s
+
+#17 exporting to image
+#17 exporting layers 0.1s done
+#17 exporting manifest sha256:f46800691530d6d5437ac4bbafd706f1474557f645652219b920f2c98062dbbf done
+#17 exporting config sha256:1084490bfbf1dbfaf50dea665a31d2bfedae2a0d2384ce05e17e597cec240918 done
+#17 exporting attestation manifest sha256:53ce322fcc96debd73ed85a8374ae0062f226af31bf5976f80d718afd6345bbd done
+#17 exporting manifest list sha256:b76e3d39d6854aa5c829a9218fc53cea762021fd5bf9224594dd923496550109 done
+#17 naming to docker.io/library/orbit-app:latest done
+#17 unpacking to docker.io/library/orbit-app:latest 0.1s done
+#17 DONE 0.2s
+
+#18 resolving provenance for metadata file
+#18 DONE 0.0s
+ Image orbit-app Built
+ Container orbit-app-1 Recreate
+ Container orbit-app-1 Recreated
+ Container orbit-app-1 Starting
+ Container orbit-app-1 Started
+DIGEST despues=sha256:b76e3d39d6854aa5c829a9218fc53cea762021fd5bf9224594dd923496550109
+{"status":"ok"}
+orbit-app-1 Up 5 seconds
+== 7v) Corre el vigia una vez con la imagen nueva (sin impulsos sale 0 sin escribir)
+vigia OK: salio 0 sin impulsos y sin guardar
+== 7b) Cron: RELEER el crontab actual e instalar (tras el vigia de 7v)
+vigia: instalada suelta al final
+crontab instalado (respaldo en /mnt/data/appdata/orbit/backups/crontab-gon-pre-d4-20261012-2146.txt)
+== LISTO. STAMP=20261012-2146
+Siguiente: bash docs/evidencia/bids-02/ejecucion/D.4/checklist.sh 20261012-2146
+Reversa:   bash docs/evidencia/bids-02/ejecucion/D.4/rollback.sh 20261012-2146

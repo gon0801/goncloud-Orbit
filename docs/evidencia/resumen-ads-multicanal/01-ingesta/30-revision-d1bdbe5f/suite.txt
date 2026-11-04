@@ -1,0 +1,8 @@
+== Suite completa con ORBIT_TEST_DSN ==
+Comando: ORBIT_TEST_DSN=$(PYTHONPATH=tests uv run --frozen python -c 'from test_schema import _test_dsn; print(_test_dsn())') uv run --frozen python -m pytest -q
+
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+5519 passed, 1 warning in 523.75s (0:08:43)
+rc=0

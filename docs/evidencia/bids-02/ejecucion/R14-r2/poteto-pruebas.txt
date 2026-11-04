@@ -1,0 +1,85 @@
+El hallazgo principal es que la rama que separa el 409 del 502 en R09-A no está discriminada por ninguna prueba. El código en HEAD se ve correcto en esa parte. El problema es que un mutante que convierte todo `Abortar` en 409 pasa la suite nueva.
+
+Principios aplicados en esta relectura. `principle-test-behavior-not-implementation` cambió la clasificación del conteo textual de `productos.js` como pin de implementación y no como comportamiento. `principle-prove-it-works` cambió la verificación a mutantes reales de una línea, corridos y revertidos. `principle-fix-root-causes` mantuvo cada hallazgo en la rama que lo causa y no en el síntoma visible.
+
+## Hallazgos
+
+**1. Alta. La rama 502 de R09-A no tiene prueba que la atrape.**
+
+Archivo principal del hueco: [tests/test_api_fabrica.py](tests/test_api_fabrica.py:2646). Código revisado: [app/impulso_io.py](app/impulso_io.py:195).
+
+La prueba nueva solo genera `Abortar` cuando el lote ya está pausado, desarmado o sin campañas. Nunca genera un `Abortar` con el lote en `applied` y con campañas, que es el caso que debe seguir como 502 por rechazo de Amazon. La prueba vieja G9 tampoco lo cubre porque reemplaza `PausadorFabrica.pausa` completo en [tests/test_api_fabrica.py](tests/test_api_fabrica.py:2545) y salta el wrapper nuevo.
+
+Comando corrido. Apliqué el mutante `return hay is None` por `return True` en `_lote_no_pausable` y corrí las dos pruebas. Salida corta: `2 passed`. El mutante sobrevive y luego lo revertí con `git checkout -- app/impulso_io.py`.
+
+La conversión sí está discriminada en el otro sentido. Si cambio el `raise ErrorImpulso(409, ...)` por un `raise` pelado, la prueba nueva cae con `502` contra `409` esperado. Lo que falta es el caso contrario, `applied` con campañas más `Abortar` debe dar 502.
+
+**2. Media. El CLI del vigía no prueba el caso mixto de R09-F.**
+
+Archivo principal del hueco: [tests/test_impulso_io.py](tests/test_impulso_io.py:1073). Código revisado: [app/cli_bids.py](app/cli_bids.py:105) y [app/impulso_io.py](app/impulso_io.py:1151).
+
+Hay pruebas para cero vivos, un vivo sin ingesta y un vivo que falla. No hay ninguna con dos vivos donde uno se atiende y el otro falla o queda sin ingesta. Como `vigila` no agrega a `acciones` el impulso que lanza excepción, un mutante que sale 1 cuando `len(acciones) < vivos` pasa las pruebas actuales pero cambia el caso mixto.
+
+Comando corrido. Apliqué ese mutante en `main_impulso_vigia` y corrí las cuatro pruebas R09-F de vigía y CLI. Salida corta: `4 passed`. Luego revertí con `git checkout -- app/cli_bids.py`.
+
+El comportamiento pedido es salir 1 solo cuando ninguno fue atendido. El caso mixto debe quedar en 0 y hoy no está fijado.
+
+**3. Media. El sello en fallo de `_pausa_una` al desarmar no está probado.**
+
+Archivo principal del hueco: [tests/test_fabrica_campanas.py](tests/test_fabrica_campanas.py:2912). Código revisado: [tools/fabrica_campanas.py](tools/fabrica_campanas.py:1620).
+
+La prueba nueva de R09-I cubre el camino feliz. Verifica que el desarme continúa el ledger en los órdenes siguientes y que los pasos nuevos quedan `applied`. No cubre que el paso quede sellado `failed` cuando el PUT es rechazado o cuando el readback no confirma `PAUSED`.
+
+Comando corrido. Quité la línea `_sella_paso(ctx, paso_id, False, external, ack, None)` del rechazo de ack y corrí la prueba nueva de R09-I más la prueba de staging tocada. Salida corta: `2 passed`. El paso quedaría en `planeado` sin que ninguna de las dos lo note. Luego revertí con `git checkout -- tools/fabrica_campanas.py`.
+
+El orden del ledger sí está bien atrapado. Con `ctx.orden = 0` en `_desarmar`, la prueba nueva cae con `UniqueViolation` en `(LI1, 1)`.
+
+**4. Baja. La rama de arreglo de `mensajeError` no tiene cobertura de comportamiento.**
+
+Archivo principal del hueco: [tests/test_ui_productos.py](tests/test_ui_productos.py:216). Código revisado: [app/static/js/productos.js](app/static/js/productos.js:57).
+
+La prueba nueva cubre detalle de texto, objeto con `mensaje` y `fallos`, y objeto solo con `mensaje`. No ejecuta un `detail` en arreglo, que es la forma de los errores de validación de FastAPI. Tampoco ejecuta el regreso genérico para un objeto sin `mensaje`.
+
+Comando corrido. Cambié `return e.msg;` por `return "";` en la rama de arreglo y corrí [tests/test_ui_productos.py](tests/test_ui_productos.py) completo. Salida corta: `4 passed`. Luego revertí con `git checkout -- app/static/js/productos.js` y confirmé `node --check` en limpio.
+
+En HEAD la rama se ve correcta. El riesgo es que una regresión deje el error de validación vacío y la suite siga verde.
+
+**5. Baja. Dos de los cinco sitios de error del JS solo están protegidos por conteo de texto.**
+
+Archivo principal del hueco: [tests/test_ui_productos.py](tests/test_ui_productos.py:224). Código revisado: [app/static/js/productos.js](app/static/js/productos.js:216) y [app/static/js/productos.js](app/static/js/productos.js:334).
+
+La prueba nueva exporta y ejerce `verLanzamiento`, `lanzar` y `verRetiro`. Los errores de `reponer` y de `ejecutarRetiro` nunca se ejecutan contra su elemento de estado. Esos dos sitios quedan cubiertos solo por las aserciones de texto que exigen que no aparezca el patrón viejo y que `mensajeError(r.data)` aparezca exactamente cinco veces.
+
+Comando corrido. Leí la prueba completa y corrí el archivo en limpio. Salida corta: `4 passed`. La lectura muestra el pin en la línea 224 y la lista de funciones ejercidas en la línea 316.
+
+Esto no es un falso verde del arreglo principal porque la función compartida sí se prueba en otros tres caminos. Es fragilidad de mantenimiento. Un refactor que conserve el comportamiento pero cambie la forma de llamar puede tumbar la prueba, y un error de pintado específico de reponer o ejecutar retiro no se observaría.
+
+**6. Baja. La 0072 no prueba que un grupo impulso sin impulsos sí puede cambiar de tipo.**
+
+Archivo principal del hueco: [tests/test_migracion_0072.py](tests/test_migracion_0072.py:53). Código revisado: [migrations/0072_bids02_impulso_grupo_tipo.sql](migrations/0072_bids02_impulso_grupo_tipo.sql:30).
+
+La función permite el cambio cuando el grupo no tiene impulsos porque exige el `EXISTS` sobre `impulso`. La prueba solo intenta cambiar el tipo de un grupo que ya tiene un impulso y espera el rechazo. No prueba el caso permitido.
+
+Comando corrido. `grep -n "UPDATE campana_grupo" tests/test_migracion_0072.py` dio una sola línea, la 53, sobre el grupo con impulso. La suite de migraciones y UI en limpio dio `6 passed`.
+
+Si alguien quitara el `EXISTS` y bloqueara todo cambio desde `impulso`, la prueba seguiría verde y se rompería un uso legítimo. No apliqué mutante aquí porque tu alcance solo permitía mutantes sobre `app/` o `tools/`.
+
+**7. Baja. La 0071 verifica fuera de la migración solo una parte de la matriz de privilegios.**
+
+Archivo principal del hueco: [tests/test_migracion_0071.py](tests/test_migracion_0071.py:49). Código revisado: [migrations/0071_bids02_grant_vista_impulso.sql](migrations/0071_bids02_grant_vista_impulso.sql:16).
+
+La prueba verifica `SELECT` para `app_read` y `app_admin`, verifica que la reversa lo quita y verifica `INSERT` falso solo para `app_read`. No verifica desde fuera `UPDATE` ni `DELETE` de ninguno de los dos roles, ni `INSERT` de `app_admin`. Hoy la propia migración lo atrapa con su bloque `DO`, pero la prueba externa no lo fijaría si ese bloque se debilitara junto con el `GRANT`.
+
+Comando corrido. `grep -n "has_table_privilege" tests/test_migracion_0071.py` mostró solo el helper de `SELECT` de la línea 28 y el `INSERT` de `app_read` de la línea 51. La suite de migraciones y UI en limpio dio `6 passed`.
+
+El grant principal y su reversa sí están discriminados. Si el archivo de grant quedara vacío, el `SELECT` seguiría en falso tras el `REVOKE` inicial y la prueba caería.
+
+## Lo que sí discrimina
+
+Varios arreglos centrales quedaron bien atrapados y lo confirmé con mutantes revertidos. Quitar `fp._valida_plan_v2` de `_plan_producto` hace caer R09-B porque el plan de tope 10 vuelve a aparecer lanzable. Cambiar el candado advisory de producto por uno de listing hace caer la carrera de R09-G con dos resultados `ok` y dos impulsos. Apagar `_fallos_por_vivo` hace caer R09-G con 422 contra el 502 esperado. Apagar la salida 1 del CLI hace caer las dos pruebas de CLI que esperan 1. Poner `ctx.orden = 0` al desarmar hace caer R09-I por la unique de `(lote, orden)`. Quitar la conversión a 409 en la pausa hace caer R09-A con 502 contra 409.
+
+No encontré un error real de lógica en [app/static/js/productos.js](app/static/js/productos.js:44) en HEAD. La función nueva maneja texto, objeto con mensaje y arreglo, y los cinco sitios de error del diff llaman a esa función. Los problemas del JS son de cobertura y de pin textual, no de comportamiento roto hoy.
+
+## Verificación corrida
+
+Con `ORBIT_TEST_DSN=postgresql://orbit:orbit@127.0.0.1:5433/postgres` y un `ORBIT_SECRETS_DIR` temporal corrí las suites de la tajada en limpio. [tests/test_impulso_io.py](tests/test_impulso_io.py) dio `106 passed`. [tests/test_api_fabrica.py](tests/test_api_fabrica.py) dio `107 passed`. [tests/test_fabrica_campanas.py](tests/test_fabrica_campanas.py) dio `111 passed`. Migraciones 0071 y 0072 más UI dieron `6 passed`. `ruff check` sobre los archivos Python de la tajada dio `All checks passed!` y `node --check` sobre `productos.js` dio correcto. Al final `git status --porcelain` quedó vacío, así que ningún mutante quedó aplicado.

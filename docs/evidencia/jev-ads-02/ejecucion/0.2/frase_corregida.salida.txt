@@ -1,0 +1,14 @@
+== versiones sin revocar ni vencer: total y las que conservan la frase anterior
+plataforma | versiones | con_frase_anterior
+amazon_mx | 387 | 138
+amazon_us | 481 | 258
+(2 rows)
+== fichas elegidas por el asesor: total y las que conservan la frase anterior
+plataforma | elegidas | con_frase_anterior
+amazon_mx | 249 | 0
+amazon_us | 119 | 0
+(2 rows)
+== revocaciones registradas
+revocaciones
+0
+(1 row)

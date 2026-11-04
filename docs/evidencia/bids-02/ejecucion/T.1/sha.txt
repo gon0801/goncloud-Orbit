@@ -1,0 +1,20 @@
+2db9e2012b33abdcf0396059bcfdc6b24f9d8591
+ M .cursor/skills/verify-orbit/helpers/orbit-verify
+ M app/api_dashboard.py
+ M app/cycle.py
+ M app/optimizer/goals.py
+ M app/templates/campanas.html
+ M app/templates/cortes.html
+ M app/templates/settings.html
+ M docs/DASHBOARD.md
+ M docs/DATABASE.md
+ M tests/test_api_dashboard.py
+ M tests/test_apply_cola.py
+ M tests/test_apply_schema.py
+ M tests/test_cycle_target_ciclo.py
+ M tests/test_optimizer_goals.py
+ M tests/test_target_margen.py
+ M tests/test_ui.py
+?? docs/evidencia/bids-02/ejecucion/T.1/
+?? migrations/0063_bids02_peldanos_target.sql
+?? migrations/0063_reversa_bids02_peldanos_target.sql

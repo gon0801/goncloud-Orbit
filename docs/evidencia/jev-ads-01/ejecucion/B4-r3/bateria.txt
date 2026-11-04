@@ -1,0 +1,21 @@
+# B4-r3 bateria completa sobre el SHA de codigo 5f6f315a728806ae91952e866dc59a5060cf87cc
+$ uv run --frozen python -m pytest -q
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+3844 passed, 1 warning in 219.66s (0:03:39)
+
+$ ruff check app/jev_ads.py tests/test_api_dashboard.py
+All checks passed!
+$ ruff format --check app/jev_ads.py tests/test_api_dashboard.py
+2 files already formatted
+
+$ pre-commit run --all-files
+trim trailing whitespace....................................................Passed
+fix end of files............................................................Passed
+check for merge conflicts...................................................Passed
+check for added large files.................................................Passed
+check json..................................................................Passed
+check yaml..................................................................Passed
+ruff check..................................................................Passed
+ruff format.................................................................Passed
+capa de contexto dentro de presupuesto (repo-hygiene).......................Passed

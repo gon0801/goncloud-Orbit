@@ -1,0 +1,14 @@
+BEGIN
+-- INICIO rezago-emision
+amazon_mx|primer_cargo|682|682|0|236|0|0|2
+amazon_mx|ultimo_cargo|682|682|0|230|0|0|3
+amazon_us|primer_cargo|536|536|0|174|0|0|3
+amazon_us|ultimo_cargo|536|536|0|20|0|2|3
+amazon_mx|682|84|598|37|0|0|1
+amazon_us|536|86|450|0|0|2|3
+amazon_mx|682|21|661|4|-1|0|0|0|0
+amazon_us|536|500|36|82|-3|0|0|0|0
+amazon_mx|682|0|682|0|||
+amazon_us|536|0|536|0|||
+-- FIN rezago-emision
+ROLLBACK

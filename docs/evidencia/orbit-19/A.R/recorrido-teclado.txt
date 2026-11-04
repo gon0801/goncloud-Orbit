@@ -1,0 +1,79 @@
+agent-browser --session orbit19-a4 focus @e105
+✓ Done
+agent-browser --session orbit19-a4 press Space
+✓ Done
+agent-browser --session orbit19-a4 press Space
+✓ Done
+agent-browser --session orbit19-a4 press Tab
+✓ Done
+agent-browser --session orbit19-a4 snapshot -i -c
+- link "Saltar al contenido" [ref=e1]
+- link "Orbit, inicio" [ref=e2]
+- button "Menu" [expanded=false, ref=e3]
+- heading "Crear campañas" [level=1, ref=e4]
+- button "Tema: dia" [ref=e5]
+- link "← Volver a campañas" [ref=e9]
+- heading "Crear campañas" [level=2, ref=e6]
+- combobox "Plataforma" [expanded=false, ref=e20]: Amazon México
+  - option "Amazon México" [selected, ref=e29]
+  - option "Amazon Estados Unidos" [ref=e30]
+- combobox "Tipo de producto Escribe un tipo o elige una sugerencia. Usa minúsculas, números y guion bajo." [required, ref=e21]: collar_perro
+- textbox "Nombre del grupo" [required, ref=e22]: Lanzamiento publicaciones
+- combobox "Modo del optimizador" [expanded=false, ref=e23]: shadow — observar ajustes
+  - option "Selecciona un modo" [ref=e31]
+  - option "shadow — observar ajustes" [selected, ref=e32]
+  - option "live — aplicar ajustes" [ref=e33]
+- combobox "Objetivo ACoS El objetivo manual no acredita rentabilidad. El derivado exige margen positivo y medido en cada publicación." [expanded=false, ref=e24]: Manual de lanzamiento
+  - option "Selecciona el origen del objetivo" [ref=e34]
+  - option "Manual de lanzamiento" [selected, ref=e35]
+  - option "Derivado del margen medido" [ref=e36]
+- textbox "ACoS manual (%) Obligatorio solo para objetivo manual. No se completa automáticamente." [required, ref=e25]: 25.00
+- button "Actualizar productos" [ref=e13]
+- heading "Publicaciones" [level=3, ref=e14]
+- heading "Nombre interno: Collar reflectante" [level=4, ref=e26]
+- checkbox "Seleccionar publicación B0EJEMPLO1" [checked=true, ref=e55]
+- link "Abrir ASIN B0EJEMPLO1 en Amazon" [ref=e37]
+- checkbox "Seleccionar publicación B0EJEMPLO2" [checked=true, ref=e56]
+- link "Abrir ASIN B0EJEMPLO2 en Amazon" [ref=e38]
+- heading "Nombre interno: Correa de paseo" [level=4, ref=e27]
+- checkbox "Seleccionar publicación B0EJEMPLO3" [checked=true, ref=e57]
+- link "Abrir ASIN B0EJEMPLO3 en Amazon" [ref=e39]
+- heading "Presupuesto diario y puja inicial por campaña" [level=3, ref=e15]
+- region "Presupuestos de las cinco campañas" [ref=e16] focusable [tabindex]
+  - columnheader "CAMPAÑA" [ref=e58]
+  - columnheader "PRESUPUESTO DIARIO" [ref=e59]
+  - columnheader "PUJA INICIAL" [ref=e60]
+  - cell "Categoría · exacta" [ref=e40]
+  - cell "120.00" [ref=e41]
+    - textbox "Presupuesto diario Categoría · exacta" [required, ref=e61]: 120.00
+  - cell "4.00" [ref=e42]
+    - textbox "Puja inicial Categoría · exacta" [required, ref=e62]: 4.00
+  - cell "Categoría · frase" [ref=e43]
+  - cell "120.00" [ref=e44]
+    - textbox "Presupuesto diario Categoría · frase" [required, ref=e63]: 120.00
+  - cell "4.00" [ref=e45]
+    - textbox "Puja inicial Categoría · frase" [required, ref=e64]: 4.00
+  - cell "Categoría · amplia" [ref=e46]
+  - cell "120.00" [ref=e47]
+    - textbox "Presupuesto diario Categoría · amplia" [required, ref=e65]: 120.00
+  - cell "4.00" [ref=e48]
+    - textbox "Puja inicial Categoría · amplia" [required, ref=e66]: 4.00
+  - cell "Segmentación por producto" [ref=e49]
+  - cell "120.00" [ref=e50]
+    - textbox "Presupuesto diario Segmentación por producto" [required, ref=e67]: 120.00
+  - cell "4.00" [ref=e51]
+    - textbox "Puja inicial Segmentación por producto" [required, ref=e68]: 4.00
+  - cell "Descubrimiento automático" [ref=e52]
+  - cell "120.00" [ref=e53]
+    - textbox "Presupuesto diario Descubrimiento automático" [required, ref=e69]: 120.00
+  - cell "4.00" [ref=e54]
+    - textbox "Puja inicial Descubrimiento automático" [required, ref=e70]: 4.00
+- button "Revisar plan" [ref=e17]
+- region "3. Confirmar una operación" [ref=e7]
+  - heading "3. Confirmar una operación" [level=3, ref=e10]
+  - textbox "Token de Orbit" [ref=e18]
+  - textbox "Escribe CREAR 5 CAMPAÑAS" [required, ref=e28]
+  - button "Crear las cinco campañas" [disabled, ref=e19]
+- region "Historial de lotes" [ref=e8]
+  - heading "Historial de lotes" [level=3, ref=e11]
+  - button "Actualizar historial" [ref=e12]

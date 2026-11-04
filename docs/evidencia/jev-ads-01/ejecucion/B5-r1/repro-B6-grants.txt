@@ -1,0 +1,18 @@
+# B5-r1 repro B6.1: test_migracion_trae_fks_y_roles no ve un GRANT multi-tabla a app_jev
+Fecha: 2026-10-04T08:02:01Z HEAD: a47086651ceae2e055d842fc41bc07262b93e46e
+
+Mutante (revertido despues de la corrida): linea anadida al final de migrations/0049_jev_ads.sql:
+  GRANT SELECT ON listing, decision TO app_jev;
+(cede lectura de decision, prohibida por el contrato del asesor)
+
+== Comando base: uv run --frozen python -m pytest tests/test_jev_catalogo.py::test_migracion_trae_fks_y_roles -q ==
+
+-- SIN mutante (linea base, se espera verde) --
+.                                                                        [100%]
+1 passed in 0.11s
+
+-- CON mutante (la guardara deberia fallar) --
+.                                                                        [100%]
+1 passed in 0.11s
+
+Resultado: 1 passed con el mutante en el archivo: la guarda de minimo privilegio no ve GRANTs multi-tabla.

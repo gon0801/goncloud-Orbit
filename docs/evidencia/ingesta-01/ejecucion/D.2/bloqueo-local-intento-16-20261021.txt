@@ -1,0 +1,59 @@
+ingesta-01 D.2 — 2026-10-21 13:02 PDT (intento 16): re-diagnóstico fresco del `atq` local
+================================================================================
+
+Contexto: la verificación del intento 15 falló solo en D.2 porque el Acepta
+`atq | grep -q .` corre en esta Mac y la cola local está vacía. El trabajo real
+de la medición de 7 días está programado en GONSERVER (job 9, corre el
+2026-10-28 18:42 UTC `sudo sh /mnt/data/appdata/orbit/recordatorios/ingesta01-d2.sh`;
+`ssh gonserver 'atq | grep -q .'` sale 0; reverificado hoy 13:00 PDT).
+
+Batería de hoy (máquina sin reiniciar desde el diagnóstico raíz del 21-oct 12:40;
+uptime 13 h 24 a las 12:59):
+
+1) uptime: `12:59 up 13:24, 1 user` — sin reinicio entre intentos 15 y 16, así
+   que el estado del subsistema `at` es el mismo que en los diagnósticos 13-15.
+
+2) `atq` local: corre, cola vacía, exit 0 sin filas -> `grep -q .` sale 1.
+
+3) Envío local con guarda de 12 s: `echo true | at now + 5 minutes` NO crea
+   ningún trabajo; el binario corta con
+   "at: cannot open lockfile /usr/lib/cron/jobs/.lockfile: Interrupted system call"
+   y /private/var/at/jobs sigue vacío (0 entradas, mtime 2026-09-24).
+
+4) Prueba syscall-level propia (python, alarm de 6 s):
+   os.link('/etc/hosts', '/var/at/jobs/.prueba-link')
+   -> COLGADO >6 s (mata la alarma). Es un caso NUEVO no probado en intentos
+   anteriores (antes solo open(O_CREAT)/mkdir/symlink/rename): el hard link
+   tampoco puede crearse en /private/var/at/jobs. El hook del kernel sobre
+   cualquier creación de dirección en ese directorio sigue activo.
+
+5) Escalera de admin cerrada: `sudo -n true` -> "a password is required".
+   `launchctl print system/com.apple.atrun` -> servicio no cargado; cargarlo
+   exige sudo (password, sin passwordless). gon está en grupo admin pero eso
+   no da sudo sin contraseña.
+
+Estado real de D.2 (no depende de la Mac):
+- gonserver: job 9 en `atq` (Wed Oct 28 18:42:00 2026 a claw), archivos
+  ingesta01-d2.sh/.sql/.out/.txt y envia_recordatorio.py en su lugar
+  (/mnt/data/appdata/orbit/recordatorios/), mismo directorio y patrón que
+  jev-ads03 D.3.
+- ingesta01-d2.sql re-probado hoy 13:00 PDT en solo lectura (sudo docker exec
+  -i orbit-db-1 psql < medicion-7d.sql): corre limpio con ROLLBACK, exit 0;
+  0 filas porque la ventana de 7 días empieza el 2026-10-22 (ver
+  sql-prueba-20261021-1300.txt).
+- Telegram se enviará solo cuando corra el job (el .sh llama a
+  envia_recordatorio.py); no se envió nada en las pruebas.
+- checklist D.1 re-corre hoy 13:00 PDT: 0 fallas, 0 sin medir (ver
+  ../D.1/checklist-20261021-130029.txt).
+
+Conclusión: el Acepta local `atq | grep -q .` sigue siendo inalcanzable en esta
+Mac sin una persona con la contraseña de administrador (defecto del subsistema
+at/cron de macOS 27.0.1: cualquier creación de entrada en /private/var/at/*
+cuelga a nivel kernel, incl. root vía setuid y hard links; atrun además viene
+Disabled y no cargado). Solo una persona puede destrabarlo: reiniciar la Mac y
+re-probar `echo true | at now + 5 min`; si persiste, con el open colgado correr
+`sudo spindump <pid>` y `sudo pkill -9 tccd` /
+`sudo launchctl kickstart -k system/com.apple.backgroundtaskmanagementd`; habilitar
+atrun con `sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.atrun.plist`.
+La medición de 7 días ya está programada y verificada en gonserver, donde están
+Docker, la DB y los logs que mide.

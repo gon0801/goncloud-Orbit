@@ -1,0 +1,1370 @@
+"""Tests de integración de la migración `migrations/0002_apply.sql` (ORBIT 04, task 1.2).
+
+Patrón `_db_temporal` de test_cycle (COPIADO) con la diferencia de que aplica
+0001 + 0002 + 0003 juntas (la cadena completa de migraciones). Skip fail-closed
+`_postgres_obligatorio_ausente` de test_schema: sin Postgres utilizable se
+skipea; en CI corre contra el Postgres 16 del workflow quality.yml. DoD de la
+tarea, punto por punto:
+
+1. INSERT directo en `released` revienta: la fila nace pending_veto por
+   trigger (sellado 4).
+2. Transición ilegal revienta en las 3 máquinas (apply_queue, harvest_job,
+   apply_attempt); la cadena legal avanza completo.
+3. SET ROLE app_decide NO veta (trigger current_user) pero SÍ avanza
+   released -> applying; el veto corre como app_admin (sellados 4/18).
+4. app_decide no inventa cap (INSERT con cap != config revienta; sin clave
+   en la config VIGENTE revienta: fail-closed, sellado 8), no decrementa
+   `used`, no toca cap/quota_date/motor; quota_date exige el DÍA UTC de la
+   base, no el CURRENT_DATE de la sesión (r2 codex).
+5. Dos cortes en vuelo de la misma CLAVE DE EFECTO chocan: pause con
+   search_term NULL contra pause, y negative vs harvest del MISMO término
+   (misma familia term_cut); el terminal libera la clave.
+6. El ledger se sella UNA vez (por partes o junto); cualquier otro cambio de
+   columna, el DELETE y el TRUNCATE revientan (excepción declarada).
+7. GRANTs positivos probados CON EL ROL REAL (SET ROLE decide / admin /
+   ingest / read — patrón test_cycle).
+8. reactivacion_manual: INSERT idempotente por PK, solo app_decide escribe,
+   y el candado append-only aguanta incluso a superuser.
+"""
+
+from __future__ import annotations
+
+import datetime as dt
+import os
+import re
+import socket
+from contextlib import contextmanager
+from pathlib import Path
+
+import psycopg
+import pytest
+from psycopg.types.json import Json
+from test_schema import SQL, SQL2, SQL3, _postgres_obligatorio_ausente, _test_dsn
+
+_DSN_EXPLICITO = bool(os.environ.get("ORBIT_TEST_DSN"))
+
+_skip_db = pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+
+# Caps del día 1 (brief §5.5): 10 bids / 2 pauses / 5 negatives / 2 harvests
+# por día y plataforma. Sirven de config vigente para el sello de quota.
+CAPS_DIA_1 = {
+    "ads_apply_cap_amazon_us_bid": 10,
+    "ads_apply_cap_amazon_us_pause": 2,
+    "ads_apply_cap_amazon_us_negative": 5,
+    "ads_apply_cap_amazon_us_harvest": 2,
+    "ads_apply_cap_amazon_mx_bid": 10,
+    "ads_apply_cap_amazon_mx_pause": 2,
+    "ads_apply_cap_amazon_mx_negative": 5,
+    "ads_apply_cap_amazon_mx_harvest": 2,
+}
+
+
+# ---------------------------------------------------------------------------
+# Patron _db_temporal de test_cycle (COPIADO; aplica 0001 + 0002)
+# ---------------------------------------------------------------------------
+
+
+@contextmanager
+def _db_temporal(prefijo: str):
+    from psycopg import sql as pgsql
+
+    dsn = _test_dsn()
+    db = f"{prefijo}_{socket.gethostname().lower()}_{os.getpid()}"
+    admin = psycopg.connect(dsn, autocommit=True)
+    conn = None
+    try:
+        admin.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(db)))
+        conn = psycopg.connect(dsn, dbname=db, autocommit=True)
+        conn.execute("SET TIME ZONE 'UTC'")
+        conn.execute(SQL)  # 0001: roles, esquema sellado, grants
+        conn.execute(SQL2)  # 0002: cola de cortes, ledger, sellos de quota
+        conn.execute(SQL3)  # 0003: ads_optimizer_goal sin DEFAULT en piso/techo
+        yield conn
+    finally:
+        if conn is not None:
+            conn.close()
+        admin.execute(
+            pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
+        )
+        admin.close()
+
+
+# ---------------------------------------------------------------------------
+# Seeds minimos: decision exige ciclo/config/entidad (helpers test_cycle)
+# ---------------------------------------------------------------------------
+
+
+def _entidad(conn, kind: str, external: str, parent=None, **extra) -> int:
+    return conn.execute(
+        "INSERT INTO ad_entity (platform, kind, external_id, parent_id, match_type, keyword_text)"
+        " VALUES ('amazon_us', %s, %s, %s, %s, %s) RETURNING id",
+        (kind, external, parent, extra.get("match_type"), extra.get("keyword_text")),
+    ).fetchone()[0]
+
+
+def _decision(
+    conn, ciclo: int, config_id: int, entidad: int, kind: str, *, term=None, valor=None, moneda=None
+) -> int:
+    return conn.execute(
+        "INSERT INTO decision (cycle_id, ad_entity_id, kind, config_version_id,"
+        " data_observed_at, window_start, window_end, search_term, new_value, value_currency,"
+        " inputs) VALUES (%s, %s, %s, %s, now() - interval '40 days', CURRENT_DATE - 60,"
+        " CURRENT_DATE - 30, %s, %s, %s, '{}'::jsonb) RETURNING id",
+        (ciclo, entidad, kind, config_id, term, valor, moneda),
+    ).fetchone()[0]
+
+
+def _semilla(conn) -> dict:
+    """Config con caps del día 1 + dos ciclos + entidad keyword y ad_group con
+    decisiones maduras (window_end D-30): pause x2 (misma kw, ciclos
+    distintos), negative/harvest del MISMO término (ciclos distintos) y una
+    negative + harvest de términos libres para harvest_job."""
+    config_id = conn.execute(
+        "INSERT INTO config_version (label, settings) VALUES ('t-0002', %s) RETURNING id",
+        (Json(CAPS_DIA_1),),
+    ).fetchone()[0]
+    ciclo1 = conn.execute(
+        "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+    ).fetchone()[0]
+    ciclo2 = conn.execute(
+        "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+    ).fetchone()[0]
+    camp = _entidad(conn, "campaign", "7001")
+    ag = _entidad(conn, "ad_group", "7101", parent=camp)
+    kw = _entidad(conn, "keyword", "7201", parent=ag, match_type="EXACT", keyword_text="kw apply")
+    conn.execute(
+        "INSERT INTO ad_entity_state (ad_entity_id, current_bid, bid_currency, status, synced_at)"
+        " VALUES (%s, 1.00, 'USD', 'ENABLED', now())",
+        (kw,),
+    )
+    return {
+        "config_id": config_id,
+        "ciclo1": ciclo1,
+        "ciclo2": ciclo2,
+        "camp": camp,
+        "ag": ag,
+        "kw": kw,
+        "dec_pause": _decision(conn, ciclo1, config_id, kw, "pause"),
+        "dec_pause2": _decision(conn, ciclo2, config_id, kw, "pause"),
+        # negative y harvest del MISMO término: en decision son excluyentes
+        # por término y ciclo, así que viven en ciclos distintos — en la cola
+        # CHOCAN por clave de efecto (misma familia term_cut, sellado 4).
+        "dec_neg": _decision(conn, ciclo1, config_id, ag, "negative", term="zapato blanco"),
+        "dec_harv": _decision(
+            conn, ciclo2, config_id, ag, "harvest", term="zapato blanco", valor=0.75, moneda="USD"
+        ),
+        # términos libres para no chocar con la clave de efecto de arriba
+        "dec_neg2": _decision(conn, ciclo2, config_id, ag, "negative", term="otro termino"),
+        "dec_harv2": _decision(
+            conn, ciclo1, config_id, ag, "harvest", term="buen termino", valor=0.75, moneda="USD"
+        ),
+    }
+
+
+def _encolar(
+    conn,
+    dec_id: int,
+    entidad: int,
+    kind: str,
+    *,
+    term=None,
+    modo="live",
+    estado="pending_veto",
+    vence=None,
+) -> int:
+    return conn.execute(
+        "INSERT INTO apply_queue (platform, ad_entity_id, kind, search_term, decision_id,"
+        " modo, estado, vence_el, request_payload) VALUES ('amazon_us', %s, %s, %s, %s, %s, %s,"
+        " %s, '{}'::jsonb) RETURNING id",
+        (
+            entidad,
+            kind,
+            term,
+            dec_id,
+            modo,
+            estado,
+            vence or dt.datetime.now(dt.UTC) + dt.timedelta(hours=48),
+        ),
+    ).fetchone()[0]
+
+
+def _avanzar(conn, q: int, estado: str) -> None:
+    """UPDATE de transición con el timestamp de la fase destino (como la app)."""
+    sello = {
+        "released": "released_at",
+        "applying": "applying_at",
+        "applied": "applied_at",
+        "failed": "failed_at",
+        "vetoed": "vetoed_at",
+        "discarded": "discarded_at",
+    }[estado]
+    conn.execute(
+        f"UPDATE apply_queue SET estado = %s, {sello} = now() WHERE id = %s",
+        (estado, q),
+    )
+
+
+def _zona_pg_con_otro_dia() -> str | None:
+    """Offset POSIX para `SET TIME ZONE` cuya CURRENT_DATE difiere del día UTC
+    (r2 codex: un DATE sin zona validado contra CURRENT_DATE duplicaría el cap
+    con sesiones en otra TZ). SIGNO VERIFICADO EN VIVO contra el PG16 del
+    server (hallazgo del primer CI real: estaba invertido — en el bare number
+    de SET TIME ZONE, '13' ES UTC+13 y '-11' ES UTC-11): pasado el flanco de
+    las 11:00 UTC hay que irse a UTC+13 (ya pasó de día); antes, a UTC-11
+    (sigue en ayer). El flanco de cambio de ambos es 11:00 UTC: cerca de ese
+    borde el test se declara y skipea en vez de arriesgar flake."""
+    ahora = dt.datetime.now(dt.UTC)
+    minutos = ahora.hour * 60 + ahora.minute
+    if abs(minutos - 11 * 60) < 5:
+        return None
+    if minutos > 11 * 60:
+        return "13"  # UTC+13: ya pasó de día
+    return "-11"  # UTC-11: sigue en ayer
+
+
+# ---------------------------------------------------------------------------
+# 1. Nace pending_veto: INSERT directo en released revienta
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_nace_pending_veto_y_insert_en_released_revienta():
+    with _db_temporal("orbit_apply_nace") as conn:
+        ids = _semilla(conn)
+        with pytest.raises(psycopg.errors.CheckViolation):
+            _encolar(conn, ids["dec_pause"], ids["kw"], "pause", estado="released")
+        q = _encolar(conn, ids["dec_pause"], ids["kw"], "pause")
+        fila = conn.execute(
+            "SELECT estado, familia, search_term, modo FROM apply_queue WHERE id = %s", (q,)
+        ).fetchone()
+        # familia es GENERATED: deriva del kind (pause -> entity_cut) y el
+        # search_term queda NULL por el CHECK de coherencia.
+        assert fila == ("pending_veto", "entity_cut", None, "live")
+
+
+# ---------------------------------------------------------------------------
+# 2. Maquina de estados: ilegal revienta, la cadena legal avanza
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_maquina_de_estados_transiciones_legales_e_ilegales():
+    with _db_temporal("orbit_apply_fsm") as conn:
+        ids = _semilla(conn)
+        q = _encolar(conn, ids["dec_pause"], ids["kw"], "pause")
+
+        # Desde pending_veto SOLO vetoed/released/discarded (brief §1.2).
+        for destino in ("applying", "applied", "failed"):
+            with pytest.raises(psycopg.errors.CheckViolation, match=destino):
+                conn.execute("UPDATE apply_queue SET estado = %s WHERE id = %s", (destino, q))
+
+        # La cadena legal completa hasta terminal.
+        _avanzar(conn, q, "released")
+        _avanzar(conn, q, "applying")
+
+        # NO existe applying -> discarded (la quota no se quema en descartes).
+        with pytest.raises(psycopg.errors.CheckViolation):
+            conn.execute(
+                "UPDATE apply_queue SET estado = 'discarded', discard_motivo = 'x' WHERE id = %s",
+                (q,),
+            )
+        _avanzar(conn, q, "applied")
+
+        # Terminales INMUTABLES.
+        for destino in ("vetoed", "released", "applying", "failed", "discarded"):
+            with pytest.raises(psycopg.errors.CheckViolation):
+                conn.execute("UPDATE apply_queue SET estado = %s WHERE id = %s", (destino, q))
+
+        # Todo UPDATE de la cola ES una transición: nada de updates in-place.
+        with pytest.raises(psycopg.errors.CheckViolation):
+            conn.execute("UPDATE apply_queue SET discard_motivo = 'nota' WHERE id = %s", (q,))
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_fila_shadow_jamas_libera_perimetro_veto_descartar():
+    """Sellado 6 (hallazgo reviewer r1 de 1.2): una fila shadow JAMAS
+    transiciona a released — ni a applying/applied/failed (de una fila shadow
+    no sale HTTP). Candado de SCHEMA (el trigger condiciona por modo): su
+    perímetro es vetoed (práctica del dueño; corre como admin) o discarded
+    (flip de ORBIT 05; corre como admin). Regla 9: sin el guard, el UPDATE a
+    released de una fila shadow pasaría y el test reventaría."""
+    with _db_temporal("orbit_apply_shadow") as conn:
+        ids = _semilla(conn)
+        q = _encolar(conn, ids["dec_pause"], ids["kw"], "pause", modo="shadow")
+
+        for destino in ("released", "applying", "applied", "failed"):
+            with pytest.raises(psycopg.errors.CheckViolation, match="shadow"):
+                conn.execute("UPDATE apply_queue SET estado = %s WHERE id = %s", (destino, q))
+
+        # El perímetro LEGAL de una fila shadow: discard (corre como admin,
+        # como el flip de ORBIT 05) y veto (admin, práctica del dueño).
+        conn.execute("SET ROLE app_admin")
+        conn.execute(
+            "UPDATE apply_queue SET estado = 'discarded', discarded_at = now(),"
+            " discard_motivo = 'flip' WHERE id = %s",
+            (q,),
+        )
+        conn.execute("RESET ROLE")
+        q2 = _encolar(
+            conn, ids["dec_neg"], ids["ag"], "negative", term="zapato blanco", modo="shadow"
+        )
+        conn.execute("SET ROLE app_admin")
+        conn.execute(
+            "UPDATE apply_queue SET estado = 'vetoed', vetoed_at = now(), vetoed_by = 'dueno'"
+            " WHERE id = %s",
+            (q2,),
+        )
+        conn.execute("RESET ROLE")
+        estados = conn.execute(
+            "SELECT estado FROM apply_queue WHERE id IN (%s, %s) ORDER BY id", (q, q2)
+        ).fetchall()
+        assert [e[0] for e in estados] == ["discarded", "vetoed"]
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_discard_de_fila_shadow_exige_admin_pero_el_motor_descarta_live():
+    """Hallazgo post-merge PR #25 (greptile P1): el GRANT del motor incluye
+    estado/discarded_at/discard_motivo, así que sin candado en el trigger el
+    motor podía ejecutar él solo el flip de ORBIT 05 (discard de filas
+    shadow, brief §12 — ceremonia admin): borrar la cola de práctica de veto
+    del dueño y liberar sus claves de efecto. Regla 9: sin el candado, el
+    primer UPDATE pasa y el test revienta. En el MISMO test se asserta la
+    otra dirección (que el candado no sobre-bloquee): el discard del motor
+    sobre filas LIVE (re-validación fallida, brief §1.2) sigue pasando."""
+    with _db_temporal("orbit_apply_shadow_discard") as conn:
+        ids = _semilla(conn)
+        q = _encolar(conn, ids["dec_pause"], ids["kw"], "pause", modo="shadow")
+
+        conn.execute("SET ROLE app_decide")
+        try:
+            # El motor tiene el GRANT de estas TRES columnas: solo el trigger
+            # (rol REAL via current_user) puede pararlo.
+            with pytest.raises(psycopg.errors.RestrictViolation, match="admin"):
+                conn.execute(
+                    "UPDATE apply_queue SET estado = 'discarded',"
+                    " discarded_at = now(), discard_motivo = 'motor' WHERE id = %s",
+                    (q,),
+                )
+        finally:
+            conn.execute("RESET ROLE")
+        fila = conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q,)).fetchone()
+        assert fila[0] == "pending_veto"  # la práctica de veto sigue intacta
+
+        # Dirección discriminante: la fila LIVE sí la descarta el MOTOR
+        # (re-validación fallida) — el candado es por modo, no por estado.
+        q2 = _encolar(conn, ids["dec_neg"], ids["ag"], "negative", term="zapato blanco")
+        conn.execute("SET ROLE app_decide")
+        try:
+            conn.execute(
+                "UPDATE apply_queue SET estado = 'discarded', discarded_at = now(),"
+                " discard_motivo = 're-validacion fallida' WHERE id = %s",
+                (q2,),
+            )
+        finally:
+            conn.execute("RESET ROLE")
+        fila2 = conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q2,)).fetchone()
+        assert fila2[0] == "discarded"
+
+        # Y el flip real (admin) sobre la shadow sí procede.
+        conn.execute("SET ROLE app_admin")
+        try:
+            conn.execute(
+                "UPDATE apply_queue SET estado = 'discarded', discarded_at = now(),"
+                " discard_motivo = 'flip' WHERE id = %s",
+                (q,),
+            )
+        finally:
+            conn.execute("RESET ROLE")
+        fila3 = conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q,)).fetchone()
+        assert fila3[0] == "discarded"
+
+
+# ---------------------------------------------------------------------------
+# 3. Veto exige admin con el ROL REAL; el motor claima
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_veto_exige_admin_y_el_motor_si_avanza():
+    with _db_temporal("orbit_apply_veto") as conn:
+        ids = _semilla(conn)
+        q = _encolar(conn, ids["dec_pause"], ids["kw"], "pause")
+        _avanzar(conn, q, "released")
+
+        conn.execute("SET ROLE app_decide")
+        try:
+            # vence_el es del ADMIN: el motor ni lo toca (r2 grok 7: el mismo
+            # hueco que la ronda 1 cerró para quota).
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                conn.execute("UPDATE apply_queue SET vence_el = now() WHERE id = %s", (q,))
+            # Primera capa: el veto COMPLETO (actor + bloqueo) ni siquiera
+            # pasa los permisos — esas columnas son del admin.
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                conn.execute(
+                    "UPDATE apply_queue SET estado = 'vetoed', vetoed_at = now(),"
+                    " vetoed_by = 'dueno', vence_el = now() + interval '30 days'"
+                    " WHERE id = %s",
+                    (q,),
+                )
+            # Segunda capa, la que no depende de un GRANT: el veto MÍNIMO con
+            # las columnas que el motor SÍ tiene (estado) revienta igual en
+            # el trigger — el rol del motor NO veta ni siquiera con el UPDATE
+            # del claim (sellado 4/18).
+            with pytest.raises(psycopg.errors.RestrictViolation):
+                conn.execute("UPDATE apply_queue SET estado = 'vetoed' WHERE id = %s", (q,))
+            # El claim del motor SÍ pasa: released -> applying.
+            _avanzar(conn, q, "applying")
+            fila = conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q,)).fetchone()
+            assert fila[0] == "applying"
+            # Cerrar q a terminal ANTES de encolar q2 (mismo kw, misma clave
+            # de efecto): un en-vuelo bloquearía el INSERT de q2 con
+            # UniqueViolation — el candado FUNCIONANDO, pero estropearía el
+            # resto del test (hallazgo del primer CI real).
+            _avanzar(conn, q, "applied")
+        finally:
+            conn.execute("SET ROLE NONE")
+
+        # El veto corre como admin (endpoint con DSN admin, sellado 18) y
+        # vence_el queda editable AL VETAR (bloqueo durable 30d, sellado 3).
+        # Se prueba sobre OTRA fila en released: applying es punto de no
+        # retorno y NO es vetable (r2 grok).
+        q2 = _encolar(conn, ids["dec_pause2"], ids["kw"], "pause")
+        _avanzar(conn, q2, "released")
+        with pytest.raises(psycopg.errors.CheckViolation, match="en vuelo|applying"):
+            conn.execute("UPDATE apply_queue SET estado = 'vetoed' WHERE id = %s", (q,))
+        conn.execute("SET ROLE app_admin")
+        try:
+            conn.execute(
+                "UPDATE apply_queue SET estado = 'vetoed', vetoed_at = now(),"
+                " vetoed_by = 'dueno', vence_el = now() + interval '30 days' WHERE id = %s",
+                (q2,),
+            )
+            fila = conn.execute(
+                "SELECT estado, vetoed_by FROM apply_queue WHERE id = %s", (q2,)
+            ).fetchone()
+            assert fila == ("vetoed", "dueno")
+            # vetoed es terminal: ni el admin lo mueve.
+            with pytest.raises(psycopg.errors.CheckViolation):
+                conn.execute("UPDATE apply_queue SET estado = 'released' WHERE id = %s", (q2,))
+        finally:
+            conn.execute("SET ROLE NONE")
+
+
+# ---------------------------------------------------------------------------
+# 4. Quota sellada: cap solo desde config, dia UTC de la base, used creciente
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_quota_fail_closed_cap_desde_config_dia_utc_y_used_creciente():
+    with _db_temporal("orbit_apply_quota") as conn:
+        _semilla(conn)  # config vigente con los caps del día 1
+        motor = "ads_optimizer:amazon_us:pause"
+        hoy_utc = "(now() AT TIME ZONE 'UTC')::date"
+
+        # La fila del día nace SOLO con el cap de la config (2 en día 1).
+        conn.execute(
+            f"INSERT INTO apply_quota_state (motor, quota_date, cap)"
+            f" VALUES ('{motor}', {hoy_utc}, 2)"
+        )
+
+        # El motor no inventa cap: otro valor revienta.
+        with pytest.raises(psycopg.errors.CheckViolation):
+            conn.execute(
+                f"INSERT INTO apply_quota_state (motor, quota_date, cap)"
+                f" VALUES ('ads_optimizer:amazon_us:negative', {hoy_utc}, 99)"
+            )
+
+        # Vocabulario CERRADO: plataforma o kind fuera del mapa revienta.
+        for motor_raro in ("ads_optimizer:meli:pause", "motor_raro", "ads_optimizer:amazon_us"):
+            with pytest.raises(psycopg.errors.CheckViolation):
+                conn.execute(
+                    f"INSERT INTO apply_quota_state (motor, quota_date, cap)"
+                    f" VALUES ('{motor_raro}', {hoy_utc}, 2)"
+                )
+
+        # quota_date = día UTC de la BASE: ayer revienta...
+        with pytest.raises(psycopg.errors.CheckViolation):
+            conn.execute(
+                "INSERT INTO apply_quota_state (motor, quota_date, cap)"
+                " VALUES ('ads_optimizer:amazon_us:negative', CURRENT_DATE - 1, 5)"
+            )
+        # ... y el CURRENT_DATE de una sesión en OTRA zona también (r2 codex:
+        # DATE sin zona + sesiones con TZ distinta duplicaban el cap).
+        zona = _zona_pg_con_otro_dia()
+        if zona is None:
+            pytest.skip("a menos de 5 min del flanco de cambio de día UTC: declarado, sin flake")
+        conn.execute(f"SET TIME ZONE {zona}")
+        try:
+            with pytest.raises(psycopg.errors.CheckViolation):
+                conn.execute(
+                    "INSERT INTO apply_quota_state (motor, quota_date, cap)"
+                    " VALUES ('ads_optimizer:amazon_us:negative', CURRENT_DATE, 5)"
+                )
+        finally:
+            conn.execute("SET TIME ZONE 'UTC'")
+
+        # used jamás decrece; cap/quota_date/motor inmutables por UPDATE
+        # (en 0001 "used nunca decrece" no era enforceable — 0002 lo sella).
+        conn.execute("UPDATE apply_quota_state SET used = 1 WHERE motor = %s", (motor,))
+        with pytest.raises(psycopg.errors.CheckViolation):
+            conn.execute("UPDATE apply_quota_state SET used = 0 WHERE motor = %s", (motor,))
+        for cambio in (
+            "cap = 99",
+            "quota_date = CURRENT_DATE - 1",
+            "motor = 'ads_optimizer:amazon_us:bid'",
+        ):
+            with pytest.raises(psycopg.errors.CheckViolation):
+                conn.execute(
+                    f"UPDATE apply_quota_state SET {cambio} WHERE motor = %s",
+                    (motor,),
+                )
+
+        # FAIL-CLOSED: la config VIGENTE manda, no cualquiera. Una config
+        # nueva (más reciente) SIN las claves apaga TODO: sin clave no nace
+        # fila, ni siquiera con el cap que la config vieja tenía.
+        conn.execute(
+            "INSERT INTO config_version (label, settings) VALUES ('sin caps', '{}'::jsonb)"
+        )
+        with pytest.raises(psycopg.errors.CheckViolation):
+            conn.execute(
+                f"INSERT INTO apply_quota_state (motor, quota_date, cap)"
+                f" VALUES ('ads_optimizer:amazon_mx:harvest', {hoy_utc}, 2)"
+            )
+
+
+# ---------------------------------------------------------------------------
+# 5. Clave de efecto: dos cortes en vuelo chocan; el terminal libera
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_clave_de_efecto_choques_pause_null_y_negative_vs_harvest():
+    with _db_temporal("orbit_apply_clave") as conn:
+        ids = _semilla(conn)
+
+        # Dos pauses de la MISMA entidad (search_term NULL): sin NULLS NOT
+        # DISTINCT no chocarían — el parcial los atrapa (sellado 4).
+        q1 = _encolar(conn, ids["dec_pause"], ids["kw"], "pause")
+        with pytest.raises(psycopg.errors.UniqueViolation):
+            _encolar(conn, ids["dec_pause2"], ids["kw"], "pause")
+
+        # negative vs harvest del MISMO término chocan: misma familia
+        # term_cut aunque el kind sea distinto (con kind en la clave, un veto
+        # de negative se eludía proponiendo harvest del mismo término, r2).
+        _encolar(conn, ids["dec_neg"], ids["ag"], "negative", term="zapato blanco")
+        with pytest.raises(psycopg.errors.UniqueViolation):
+            _encolar(conn, ids["dec_harv"], ids["ag"], "harvest", term="zapato blanco")
+
+        # Clave distinta avanza (el bloqueo es por clave de efecto).
+        _encolar(conn, ids["dec_neg2"], ids["ag"], "negative", term="otro termino")
+
+        # El terminal libera la clave: descartada la primera (con su nota, EN
+        # LA MISMA transición — todo UPDATE de la cola es una transición), un
+        # pause nuevo de la misma entidad vuelve a encolarse.
+        conn.execute(
+            "UPDATE apply_queue SET estado = 'discarded', discarded_at = now(),"
+            " discard_motivo = 're-validacion' WHERE id = %s",
+            (q1,),
+        )
+        _encolar(conn, ids["dec_pause2"], ids["kw"], "pause")
+
+
+# ---------------------------------------------------------------------------
+# 6. Ledger: sello UNA vez; todo lo demas y DELETE/TRUNCATE revientan
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_ledger_sello_una_vez_y_mutaciones_revientan():
+    with _db_temporal("orbit_apply_ledger") as conn:
+        ids = _semilla(conn)
+        a = conn.execute(
+            "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload, quota_cobrada)"
+            " VALUES (%s, 1, 'normal', '{}'::jsonb, true) RETURNING id",
+            (ids["dec_pause"],),
+        ).fetchone()[0]
+        # Los probes nacen SIN decisión (decision_id NULL SOLO si probe).
+        conn.execute(
+            "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload, quota_cobrada)"
+            " VALUES (NULL, 1, 'probe', '{}'::jsonb, false)"
+        )
+        with pytest.raises(psycopg.errors.CheckViolation):
+            conn.execute(
+                "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload,"
+                " quota_cobrada) VALUES (NULL, 1, 'normal', '{}'::jsonb, true)"
+            )
+
+        # El sello: NULL -> valor, UNA vez, por partes o junto.
+        conn.execute("UPDATE apply_attempt SET ack = '{\"ok\": true}'::jsonb WHERE id = %s", (a,))
+        conn.execute(
+            "UPDATE apply_attempt SET resultado = 'ok', finished_at = now() WHERE id = %s", (a,)
+        )
+        # Re-sello o cambio: revienta (excepción deliberada, candado acotado).
+        for cambio in (
+            "ack = '{\"otro\": true}'::jsonb",
+            "resultado = 'reintento'",
+            "finished_at = now()",
+            "request_payload = '{\"x\": 1}'::jsonb",
+            "quota_cobrada = false",
+            "seq = 2",
+        ):
+            with pytest.raises(psycopg.errors.RestrictViolation):
+                conn.execute(f"UPDATE apply_attempt SET {cambio} WHERE id = %s", (a,))
+        with pytest.raises(psycopg.errors.RestrictViolation):
+            conn.execute("DELETE FROM apply_attempt WHERE id = %s", (a,))
+        # Los triggers de fila no se disparan con TRUNCATE: capa de sentencia.
+        with pytest.raises(psycopg.errors.RestrictViolation):
+            conn.execute("TRUNCATE apply_attempt")
+
+
+# ---------------------------------------------------------------------------
+# 7. harvest_job: progresion sellada (sin saltos ni retrocesos)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_harvest_job_progresion_sin_saltos_ni_retrocesos():
+    with _db_temporal("orbit_apply_harvest") as conn:
+        ids = _semilla(conn)
+
+        def _job(dec, term):
+            return conn.execute(
+                "INSERT INTO harvest_job (decision_id, search_term, platform, ad_entity_id,"
+                " fase) VALUES (%s, %s, 'amazon_us', %s, 'pending') RETURNING id",
+                (dec, term, ids["ag"]),
+            ).fetchone()[0]
+
+        j = _job(ids["dec_harv"], "zapato blanco")
+        # Regresión 0001: el job nace pending (INSERT en otra fase revienta).
+        with pytest.raises(psycopg.errors.CheckViolation):
+            conn.execute(
+                "INSERT INTO harvest_job (decision_id, search_term, platform, ad_entity_id,"
+                " fase) VALUES (%s, 'buen termino', 'amazon_us', %s, 'done')",
+                (ids["dec_harv2"], ids["ag"]),
+            )
+
+        # Salto prohibido: pending -> exact_created se salta negative_created.
+        with pytest.raises(psycopg.errors.CheckViolation):
+            conn.execute("UPDATE harvest_job SET fase = 'exact_created' WHERE id = %s", (j,))
+
+        # La cadena completa avanza (external_ids acumula por el camino).
+        conn.execute(
+            "UPDATE harvest_job SET fase = 'negative_created',"
+            ' external_ids = \'{"negative": "n1"}\'::jsonb WHERE id = %s',
+            (j,),
+        )
+        conn.execute(
+            "UPDATE harvest_job SET fase = 'exact_created',"
+            ' external_ids = \'{"negative": "n1", "keyword": "k1"}\'::jsonb WHERE id = %s',
+            (j,),
+        )
+        conn.execute("UPDATE harvest_job SET fase = 'done' WHERE id = %s", (j,))
+
+        # done es terminal: ni retroceso ni re-ejecución.
+        with pytest.raises(psycopg.errors.CheckViolation):
+            conn.execute("UPDATE harvest_job SET fase = 'pending' WHERE id = %s", (j,))
+
+        # failed alcanzable desde fase en vuelo (matriz §6.1: fallo
+        # definitivo -> failed + reversa), y terminal igual.
+        j2 = _job(ids["dec_harv2"], "buen termino")
+        conn.execute("UPDATE harvest_job SET fase = 'negative_created' WHERE id = %s", (j2,))
+        conn.execute("UPDATE harvest_job SET fase = 'failed' WHERE id = %s", (j2,))
+        with pytest.raises(psycopg.errors.CheckViolation):
+            conn.execute("UPDATE harvest_job SET fase = 'exact_created' WHERE id = %s", (j2,))
+
+
+# ---------------------------------------------------------------------------
+# 8. GRANTs con el ROL REAL + reactivacion_manual
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_grants_con_rol_real_y_reactivacion_manual():
+    with _db_temporal("orbit_apply_grants") as conn:
+        ids = _semilla(conn)
+        q = _encolar(conn, ids["dec_pause"], ids["kw"], "pause")
+
+        conn.execute("SET ROLE app_decide")
+        try:
+            # LO QUE SÍ: el motor encola, escribe ledger y detecciones,
+            # actualiza el cache con el readback y sella el resumen.
+            _encolar(conn, ids["dec_neg2"], ids["ag"], "negative", term="otro termino")
+            conn.execute(
+                "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload,"
+                " quota_cobrada) VALUES (%s, 1, 'normal', '{}'::jsonb, true)",
+                (ids["dec_pause"],),
+            )
+            # INSERT idempotente por PK (la escribe el APLICADOR, sellado 17).
+            for _ in range(2):
+                conn.execute(
+                    "INSERT INTO reactivacion_manual (ad_entity_id) VALUES (%s)"
+                    " ON CONFLICT DO NOTHING",
+                    (ids["kw"],),
+                )
+            conn.execute(
+                "UPDATE ad_entity_state SET current_bid = 0.90, status = 'ENABLED',"
+                " synced_at = now() WHERE ad_entity_id = %s",
+                (ids["kw"],),
+            )
+            conn.execute(
+                "INSERT INTO decision_application (decision_id) VALUES (%s)", (ids["dec_pause"],)
+            )
+            conn.execute(
+                "UPDATE decision_application SET applied_cycle_id = %s WHERE decision_id = %s",
+                (ids["ciclo1"], ids["dec_pause"]),
+            )
+            _avanzar(conn, q, "released")
+            # El INSERT de quota ya lo tenía de 0001; el sello del trigger
+            # hace el resto (cap del día copiado de la config vigente).
+            conn.execute(
+                "INSERT INTO apply_quota_state (motor, quota_date, cap)"
+                " VALUES ('ads_optimizer:amazon_us:pause', (now() AT TIME ZONE 'UTC')::date, 2)"
+            )
+        finally:
+            conn.execute("SET ROLE NONE")
+
+        conn.execute("SET ROLE app_ingest")
+        try:
+            # LO QUE NO: la ingesta no escribe la cola ni el ledger ni
+            # detecciones de reactivación. La primera SQL lleva DOS params
+            # (entidad y decisión); el resto uno.
+            for sql, params in (
+                (
+                    "INSERT INTO apply_queue (platform, ad_entity_id, kind, decision_id, modo,"
+                    " estado, vence_el, request_payload) VALUES ('amazon_us', %s, 'pause', %s,"
+                    " 'live', 'pending_veto', now(), '{}'::jsonb)",
+                    (ids["kw"], ids["dec_pause2"]),
+                ),
+                (
+                    "INSERT INTO apply_attempt (seq, tipo, request_payload, quota_cobrada)"
+                    " VALUES (1, 'probe', '{}'::jsonb, false)",
+                    (),
+                ),
+                ("INSERT INTO reactivacion_manual (ad_entity_id) VALUES (%s)", (ids["kw"],)),
+            ):
+                with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                    conn.execute(sql, params)
+        finally:
+            conn.execute("SET ROLE NONE")
+
+        conn.execute("SET ROLE app_read")
+        try:
+            assert conn.execute("SELECT count(*) FROM apply_queue").fetchone()[0] == 2
+            assert conn.execute("SELECT count(*) FROM apply_attempt").fetchone()[0] == 1
+            assert conn.execute("SELECT count(*) FROM reactivacion_manual").fetchone()[0] == 1
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                conn.execute(
+                    "INSERT INTO apply_queue (platform, ad_entity_id, kind, decision_id, modo,"
+                    " estado, vence_el, request_payload) VALUES ('amazon_us', %s, 'pause', %s,"
+                    " 'live', 'pending_veto', now(), '{}'::jsonb)",
+                    (ids["kw"], ids["dec_pause2"]),
+                )
+        finally:
+            conn.execute("SET ROLE NONE")
+
+        # reactivacion_manual es un hecho PURO: el candado append-only aguanta
+        # incluso a superuser (no depende de la ausencia de un GRANT).
+        with pytest.raises(psycopg.errors.RestrictViolation):
+            conn.execute("UPDATE reactivacion_manual SET detectada_en = now() - interval '7 days'")
+        with pytest.raises(psycopg.errors.RestrictViolation):
+            conn.execute("DELETE FROM reactivacion_manual")
+        with pytest.raises(psycopg.errors.RestrictViolation):
+            conn.execute("TRUNCATE reactivacion_manual")
+
+
+# ===========================================================================
+# ADS D.1 (migracion 0044): decision_sin_aplicar — el desenlace "no aplicado"
+# deja de ser invisible; v_decision_huerfana distingue hueco historico
+# (sin_registro) de decision que DEBIO quedar registrada (huerfana)
+# ===========================================================================
+
+SQL44 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0044_decision_sin_aplicar.sql"
+).read_text(encoding="utf-8")
+
+# (D.1b): CHECK nombrado + choque_clave
+SQL45 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0045_sin_aplicar_choque_clave.sql"
+).read_text(encoding="utf-8")
+
+
+def _sql46() -> str:
+    """0046 (C.2a) se lee AL USARSE (misma idea que _ultima_migracion_con):
+    el texto vigente de la migracion, no una copia horneada."""
+    return (
+        Path(__file__).resolve().parents[1] / "migrations" / "0046_target_acos_ciclo.sql"
+    ).read_text(encoding="utf-8")
+
+
+def _sql_mig(nombre: str) -> str:
+    """Cualquier migracion al usarse (A5: la cadena del espejo vivo crece a
+    0001 + 0018 + 0046 + 0047 + 0048; mismo principio, sin copias)."""
+    return (Path(__file__).resolve().parents[1] / "migrations" / nombre).read_text(encoding="utf-8")
+
+
+def _ultima_migracion_con(marcador: str) -> str:
+    """El SQL de la ULTIMA migracion (nombre mayor) cuyo texto contiene
+    `marcador`: los espejos leen la definicion VIGENTE (0045 re-creo el
+    CHECK de 0044; una migracion futura puede re-crear la vista), no una
+    version fija. Las `*_reversa_*` no cuentan: jamas se despliegan."""
+    hallados: list[str] = []
+    for ruta in sorted((Path(__file__).resolve().parents[1] / "migrations").glob("*.sql")):
+        if "_reversa_" in ruta.name:
+            continue
+        texto = ruta.read_text(encoding="utf-8")
+        if marcador in texto:
+            hallados.append(texto)
+    assert hallados, f"ninguna migracion contiene el marcador {marcador!r}"
+    return hallados[-1]
+
+
+@contextmanager
+def _db_temporal_d1(prefijo: str):
+    """_db_temporal + 0044 + 0045 (la DB de prueba ES la de produccion:
+    cadena completa de migraciones que toca la fase de apply)."""
+    from psycopg import sql as pgsql
+
+    dsn = _test_dsn()
+    db = f"{prefijo}_{socket.gethostname().lower()}_{os.getpid()}"
+    admin = psycopg.connect(dsn, autocommit=True)
+    conn = None
+    try:
+        admin.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(db)))
+        conn = psycopg.connect(dsn, dbname=db, autocommit=True)
+        conn.execute("SET TIME ZONE 'UTC'")
+        conn.execute(SQL)  # 0001: roles, esquema sellado, grants
+        conn.execute(SQL2)  # 0002: cola de cortes, ledger, sellos de quota
+        conn.execute(SQL3)  # 0003: ads_optimizer_goal sin DEFAULT en piso/techo
+        conn.execute(SQL44)  # 0044 (D.1): decision_sin_aplicar + vista
+        conn.execute(SQL45)  # 0045 (D.1b): CHECK nombrado + choque_clave
+        yield conn
+    finally:
+        if conn is not None:
+            conn.close()
+        admin.execute(
+            pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
+        )
+        admin.close()
+
+
+@contextmanager
+def _db_temporal_c2a(prefijo: str):
+    """0001 + 0018 + 0046 + 0047 + 0048 + 0063 (C.2a + A5 + T.1): el CHECK
+    vigente vive en 0063 y la vista exige 0018 + 0047; target_acos_ciclo
+    solo referencia tablas de 0001 y los roles tambien nacen ahi."""
+    from psycopg import sql as pgsql
+
+    dsn = _test_dsn()
+    db = f"{prefijo}_{socket.gethostname().lower()}_{os.getpid()}"
+    admin = psycopg.connect(dsn, autocommit=True)
+    conn = None
+    try:
+        admin.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(db)))
+        conn = psycopg.connect(dsn, dbname=db, autocommit=True)
+        conn.execute("SET TIME ZONE 'UTC'")
+        conn.execute(SQL)  # 0001: roles, esquema sellado, grants
+        conn.execute(_sql_mig("0018_fabrica_campanas.sql"))  # 0018: v_margen_producto
+        conn.execute(_sql46())  # 0046 (C.2a): target_acos_ciclo
+        conn.execute(_sql_mig("0047_familias.sql"))  # 0047: familia/producto_familia
+        conn.execute(_sql_mig("0048_margen_familia.sql"))  # 0048 (A5): vista + CHECK
+        conn.execute(_sql_mig("0063_bids02_peldanos_target.sql"))  # 0063 (T.1): CHECK sin retirados
+        yield conn
+    finally:
+        if conn is not None:
+            conn.close()
+        admin.execute(
+            pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
+        )
+        admin.close()
+
+
+def _semilla_d1(conn) -> dict:
+    """Minimo para D.1: config, campana->grupo->keyword con state y UN ciclo
+    live; las decisiones nacen por test."""
+    config_id = conn.execute(
+        "INSERT INTO config_version (label, settings) VALUES ('t-d1', '{}'::jsonb) RETURNING id"
+    ).fetchone()[0]
+    camp = _entidad(conn, "campaign", "7001")
+    ag = _entidad(conn, "ad_group", "7101", parent=camp)
+    kw = _entidad(conn, "keyword", "7201", parent=ag, match_type="EXACT", keyword_text="kw d1")
+    return {"config_id": config_id, "camp": camp, "ag": ag, "kw": kw}
+
+
+def _ciclo(conn, *, mode: str = "live", hace_dias: int | None = None) -> int:
+    """Ciclo (default live). hace_dias=N lo cierra hace N dias (previo a la
+    migracion); None lo deja corriendo; 0 lo cierra ahora."""
+    ciclo = conn.execute(
+        "INSERT INTO optimizer_cycle (mode, platform) VALUES (%s, 'amazon_us') RETURNING id",
+        (mode,),
+    ).fetchone()[0]
+    if hace_dias is not None:
+        conn.execute(
+            "UPDATE optimizer_cycle SET status = 'done',"
+            " started_at = now() - make_interval(days => %s),"
+            " finished_at = now() - make_interval(days => %s) WHERE id = %s",
+            (hace_dias, hace_dias, ciclo),
+        )
+    return ciclo
+
+
+def test_motivos_sin_aplicar_espejo_estatico_del_check():
+    """La constante de la app ESPEJA el CHECK VIGENTE (mismo patron que
+    KINDS_QUOTA <-> trigger): se lee el IN (...) de la ULTIMA migracion que
+    define el CHECK (0045 re-creo con nombre el anonimo de 0044), no una
+    tupla redeclarada — un motivo nuevo sin CHECK (o al reves) deja esto
+    rojo."""
+    from app.apply import MOTIVOS_SIN_APLICAR
+
+    bloque = _ultima_migracion_con("motivo IN (").split("motivo IN (", 1)[1].split("))", 1)[0]
+    lista = tuple(re.findall(r"'([a-z_]+)'", bloque))
+    assert lista, "el CHECK del motivo no se encontro: revisar el parseo"
+    assert lista == MOTIVOS_SIN_APLICAR, (
+        "misma lista y mismo orden: la constante es la unica fuente y el CHECK su espejo"
+    )
+
+
+@_skip_db
+def test_sin_aplicar_motivo_fuera_de_la_lista_revienta():
+    with _db_temporal_d1("orbit_dsa_check") as conn:
+        ids = _semilla_d1(conn)
+        ciclo = _ciclo(conn, hace_dias=0)
+        dec = _decision(conn, ciclo, ids["config_id"], ids["kw"], "bid", valor=0.85, moneda="USD")
+        with pytest.raises(psycopg.errors.CheckViolation):
+            conn.execute(
+                "INSERT INTO decision_sin_aplicar (decision_id, cycle_id, motivo)"
+                " VALUES (%s, %s, 'capricho_cualquiera')",
+                (dec, ciclo),
+            )
+
+
+@_skip_db
+def test_sin_aplicar_espejo_contra_el_check_vivo():
+    """El espejo contra la constraint VIVA (conname + pg_get_constraintdef):
+    el CHECK que Postgres ejecuta lleva el NOMBRE de 0045 (una migracion
+    futura lo encuentra sin adivinar) y su lista ES la de la constante, ni un
+    motivo de mas ni de menos."""
+    from app.apply import MOTIVOS_SIN_APLICAR
+
+    with _db_temporal_d1("orbit_dsa_espejo") as conn:
+        nombre, defin = conn.execute(
+            "SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint"
+            " WHERE conrelid = 'decision_sin_aplicar'::regclass AND contype = 'c'"
+        ).fetchone()
+        assert nombre == "decision_sin_aplicar_motivo_check", (
+            "0045 nombra el CHECK: localizable en pg_constraint sin adivinar"
+        )
+        lista = tuple(re.findall(r"'([a-z_]+)'", defin))
+        assert lista == MOTIVOS_SIN_APLICAR
+
+
+def test_procedencia_target_ciclo_espejo_estatico_del_check():
+    """El CHECK de procedencia de target_acos_ciclo (0046, C.2a) ESPEJA
+    PELDANOS_CASCADA (mismo patron que el motivo de decision_sin_aplicar):
+    agregar un peldano a la cascada sin ampliar el CHECK deja esto rojo — la
+    fila del freeze revendria en la migracion, no en el motor."""
+    from app.optimizer.goals import PELDANOS_CASCADA
+
+    migracion = _ultima_migracion_con("procedencia IN (")
+    bloque = migracion.split("procedencia IN (", 1)[1].split("))", 1)[0]
+    lista = tuple(re.findall(r"'([a-z_]+)'", bloque))
+    assert lista, "el CHECK de procedencia no se encontro: revisar el parseo"
+    assert lista == PELDANOS_CASCADA, (
+        "misma lista y mismo orden: la tupla de la app es la unica fuente y el CHECK su espejo"
+    )
+
+
+@_skip_db
+def test_procedencia_target_ciclo_espejo_contra_el_check_vivo():
+    """El espejo contra la constraint VIVA: el CHECK nace NOMBRADO
+    (localizable en pg_constraint sin adivinar) y su lista ES
+    PELDANOS_CASCADA, ni un peldano de mas ni de menos."""
+    from app.optimizer.goals import PELDANOS_CASCADA
+
+    with _db_temporal_c2a("orbit_tac_espejo") as conn:
+        nombre, defin = conn.execute(
+            "SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint"
+            " WHERE conrelid = 'target_acos_ciclo'::regclass AND contype = 'c'"
+        ).fetchone()
+        assert nombre == "target_acos_ciclo_procedencia_check", (
+            "0046 nombra el CHECK: localizable en pg_constraint sin adivinar"
+        )
+        assert tuple(re.findall(r"'([a-z_]+)'", defin)) == PELDANOS_CASCADA
+
+
+@_skip_db
+def test_check_0063_rechaza_peldanos_retirados():
+    """T.1 (BIDS 02 s2): con la 0063, el CHECK de procedencia rechaza
+    cache_estado y default (retirados de la escalera y de su espejo)."""
+    with _db_temporal_c2a("orbit_tac_0063") as conn:
+        ciclo = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform) VALUES ('shadow', 'amazon_us')"
+            " RETURNING id"
+        ).fetchone()[0]
+        for external, peldano in (("9902", "cache_estado"), ("9903", "default")):
+            entidad = _entidad(conn, "campaign", external)
+            with pytest.raises(psycopg.errors.CheckViolation):
+                conn.execute(
+                    "INSERT INTO target_acos_ciclo (cycle_id, ad_entity_id, decided_at,"
+                    " target_acos_pct, procedencia) VALUES (%s, %s, now(), 25, %s)",
+                    (ciclo, entidad, peldano),
+                )
+
+
+@_skip_db
+def test_target_acos_ciclo_append_only_update_y_delete_rechazados_por_la_app():
+    """Append-only por GRANTs (estilo 0044): app_decide INSERTA (el ciclo
+    escribe el freeze en TX3 junto a decision), NADIE de la app actualiza ni
+    borra; app_read y app_admin leen; app_ingest no escribe."""
+    with _db_temporal_c2a("orbit_tac_grants") as conn:
+        ciclo = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform) VALUES ('shadow', 'amazon_us')"
+            " RETURNING id"
+        ).fetchone()[0]
+        entidad = _entidad(conn, "campaign", "9901")
+        conn.execute(
+            "INSERT INTO target_acos_ciclo (cycle_id, ad_entity_id, decided_at,"
+            " target_acos_pct, procedencia) VALUES (%s, %s, now(), 25, 'goal_plataforma')",
+            (ciclo, entidad),
+        )
+        conn.execute("SET ROLE app_decide")
+        try:
+            conn.execute(
+                "INSERT INTO target_acos_ciclo (cycle_id, ad_entity_id, decided_at,"
+                " target_acos_pct, procedencia)"
+                " VALUES (%s, %s, now(), 25, 'margen_plataforma') ON CONFLICT DO NOTHING",
+                (ciclo, entidad),
+            )
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                conn.execute(
+                    "UPDATE target_acos_ciclo SET target_acos_pct = 99"
+                    " WHERE cycle_id = %s AND ad_entity_id = %s",
+                    (ciclo, entidad),
+                )
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                conn.execute(
+                    "DELETE FROM target_acos_ciclo WHERE cycle_id = %s AND ad_entity_id = %s",
+                    (ciclo, entidad),
+                )
+        finally:
+            conn.execute("SET ROLE NONE")
+        conn.execute("SET ROLE app_admin")
+        try:
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                conn.execute(
+                    "DELETE FROM target_acos_ciclo WHERE cycle_id = %s AND ad_entity_id = %s",
+                    (ciclo, entidad),
+                )
+        finally:
+            conn.execute("SET ROLE NONE")
+        conn.execute("SET ROLE app_ingest")
+        try:
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                conn.execute(
+                    "INSERT INTO target_acos_ciclo (cycle_id, ad_entity_id, decided_at,"
+                    " target_acos_pct, procedencia)"
+                    " VALUES (%s, %s, now(), 25, 'goal_plataforma')",
+                    (ciclo, entidad),
+                )
+        finally:
+            conn.execute("SET ROLE NONE")
+        conn.execute("SET ROLE app_read")
+        try:
+            assert (
+                conn.execute(
+                    "SELECT procedencia FROM target_acos_ciclo"
+                    " WHERE cycle_id = %s AND ad_entity_id = %s",
+                    (ciclo, entidad),
+                ).fetchone()[0]
+                == "goal_plataforma"
+            )
+        finally:
+            conn.execute("SET ROLE NONE")
+
+
+def test_kinds_de_la_vista_huerfana_espejan_kinds_quota():
+    """Los kinds del filtro d.kind IN (...) de v_decision_huerfana ESPEJAN
+    KINDS_QUOTA (mismo patron que el espejo del motivo): agregar un kind
+    aplicable sin tocar la vista deja esto rojo — la decision existiria sin
+    auditoria de huerfanas."""
+    from app.apply import KINDS_QUOTA
+
+    bloque = (
+        _ultima_migracion_con("CREATE VIEW v_decision_huerfana")
+        .split("d.kind IN (", 1)[1]
+        .split(")", 1)[0]
+    )
+    lista = tuple(re.findall(r"'([a-z_]+)'", bloque))
+    assert lista, "el filtro de kinds de la vista no se encontro: revisar el parseo"
+    assert lista == KINDS_QUOTA, "mismos kinds y mismo orden: la vista audita TODO kind aplicable"
+
+
+@_skip_db
+def test_sin_aplicar_append_only_update_y_delete_rechazados_por_la_app():
+    """Append-only por GRANTs (estilo 0002/0041): app_decide INSERTA (es el
+    rol del aplicador), NADIE de la app actualiza ni borra; app_read y
+    app_admin leen."""
+    with _db_temporal_d1("orbit_dsa_grants") as conn:
+        ids = _semilla_d1(conn)
+        ciclo = _ciclo(conn, hace_dias=0)
+        dec = _decision(conn, ciclo, ids["config_id"], ids["kw"], "bid", valor=0.85, moneda="USD")
+        conn.execute("SET ROLE app_decide")
+        try:
+            conn.execute(
+                "INSERT INTO decision_sin_aplicar (decision_id, cycle_id, motivo)"
+                " VALUES (%s, %s, 'fuera_de_cap')",
+                (dec, ciclo),
+            )
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                conn.execute(
+                    "UPDATE decision_sin_aplicar SET motivo = 'sin_quota' WHERE decision_id = %s",
+                    (dec,),
+                )
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                conn.execute("DELETE FROM decision_sin_aplicar WHERE decision_id = %s", (dec,))
+        finally:
+            conn.execute("SET ROLE NONE")
+        conn.execute("SET ROLE app_admin")
+        try:
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                conn.execute("DELETE FROM decision_sin_aplicar WHERE decision_id = %s", (dec,))
+        finally:
+            conn.execute("SET ROLE NONE")
+        conn.execute("SET ROLE app_ingest")
+        try:
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                conn.execute(
+                    "INSERT INTO decision_sin_aplicar (decision_id, cycle_id, motivo)"
+                    " VALUES (%s, %s, 'sin_quota')",
+                    (dec, ciclo),
+                )
+        finally:
+            conn.execute("SET ROLE NONE")
+        conn.execute("SET ROLE app_read")
+        try:
+            assert (
+                conn.execute(
+                    "SELECT motivo FROM decision_sin_aplicar WHERE decision_id = %s", (dec,)
+                ).fetchone()[0]
+                == "fuera_de_cap"
+            )
+        finally:
+            conn.execute("SET ROLE NONE")
+        # La fila sobrevivio intacta a TODOS los intentos de mutacion.
+        assert (
+            conn.execute(
+                "SELECT motivo FROM decision_sin_aplicar WHERE decision_id = %s", (dec,)
+            ).fetchone()[0]
+            == "fuera_de_cap"
+        )
+
+
+@_skip_db
+def test_sin_aplicar_pk_impide_doble_fila_del_mismo_ciclo():
+    """PK (decision_id, cycle_id): un re-run del MISMO ciclo ejecutor no
+    duplica (ON CONFLICT DO NOTHING) y un INSERT crudo revienta."""
+    with _db_temporal_d1("orbit_dsa_pk") as conn:
+        ids = _semilla_d1(conn)
+        ciclo = _ciclo(conn, hace_dias=0)
+        otro = _ciclo(conn, hace_dias=0)
+        dec = _decision(conn, ciclo, ids["config_id"], ids["kw"], "bid", valor=0.85, moneda="USD")
+        conn.execute(
+            "INSERT INTO decision_sin_aplicar (decision_id, cycle_id, motivo)"
+            " VALUES (%s, %s, 'sin_quota')",
+            (dec, ciclo),
+        )
+        with pytest.raises(psycopg.errors.UniqueViolation):
+            conn.execute(
+                "INSERT INTO decision_sin_aplicar (decision_id, cycle_id, motivo)"
+                " VALUES (%s, %s, 'sin_quota')",
+                (dec, ciclo),
+            )
+        conn.execute(
+            "INSERT INTO decision_sin_aplicar (decision_id, cycle_id, motivo)"
+            " VALUES (%s, %s, 'sin_quota') ON CONFLICT DO NOTHING",
+            (dec, ciclo),
+        )
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM decision_sin_aplicar WHERE decision_id = %s", (dec,)
+            ).fetchone()[0]
+            == 1
+        )
+        # Otro CICLO ejecutor SI agrega fila (una por ciclo que lo intento).
+        conn.execute(
+            "INSERT INTO decision_sin_aplicar (decision_id, cycle_id, motivo)"
+            " VALUES (%s, %s, 'sin_quota')",
+            (dec, otro),
+        )
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM decision_sin_aplicar WHERE decision_id = %s", (dec,)
+            ).fetchone()[0]
+            == 2
+        )
+
+
+# ---------------------------------------------------------------------------
+# D.1 bloque 4: v_decision_huerfana
+# ---------------------------------------------------------------------------
+
+
+@_skip_db
+def test_vista_decision_huerfana_origen_y_desenlaces():
+    """Una decision de ciclo live terminado SIN desenlace aparece como
+    'huerfana'; el ciclo previo a la migracion como 'sin_registro'; con
+    CUALQUIERA de los tres desenlaces (decision_application,
+    decision_sin_aplicar, fila terminal en apply_queue) NO aparece; ciclo
+    shadow o aun corriendo tampoco (el ejecutor live no corrio / no cerro).
+    La fila de cola live EN VUELO (pending_veto/released/applying) NO es
+    desenlace NI hueco: origen 'en_cola' (r2-2: sigue visible como en vuelo,
+    no se confunde con una decision que debio quedar registrada). La
+    precedencia importa: el ciclo previo a 0044 con fila en vuelo sigue
+    'sin_registro'."""
+    with _db_temporal_d1("orbit_dsa_vista") as conn:
+        ids = _semilla_d1(conn)
+        cfg = ids["config_id"]
+        kw = ids["kw"]
+        # Cuatro keywords para cuatro filas NO terminales sin chocar la clave
+        # de efecto (pause = entity_cut sobre la entidad).
+        kw2 = _entidad(
+            conn, "keyword", "7202", parent=ids["ag"], match_type="EXACT", keyword_text="kw d1 dos"
+        )
+
+        kw3 = _entidad(
+            conn, "keyword", "7203", parent=ids["ag"], match_type="EXACT", keyword_text="kw d1 tres"
+        )
+        kw4 = _entidad(
+            conn, "keyword", "7204", parent=ids["ag"], match_type="EXACT", keyword_text="kw d1 4"
+        )
+        kw5 = _entidad(
+            conn, "keyword", "7205", parent=ids["ag"], match_type="EXACT", keyword_text="kw d1 5"
+        )
+
+        # Huerfana pura: ciclo live terminado AHORA, decision bid sin nada.
+        ciclo_live = _ciclo(conn, hace_dias=0)
+        dec_huerfana = _decision(conn, ciclo_live, cfg, kw, "bid", valor=0.85, moneda="USD")
+        # Previo a la migracion (termino ayer: nunca existio el registro).
+        ciclo_viejo = _ciclo(conn, hace_dias=1)
+        dec_vieja = _decision(conn, ciclo_viejo, cfg, kw, "bid", valor=0.85, moneda="USD")
+        # Shadow: el ejecutor live NO corrio.
+        ciclo_shadow = _ciclo(conn, mode="shadow", hace_dias=0)
+        _decision(conn, ciclo_shadow, cfg, kw, "bid", valor=0.85, moneda="USD")
+        # Corriendo: sin finished_at no hay veredicto.
+        ciclo_running = _ciclo(conn)
+        _decision(conn, ciclo_running, cfg, kw, "bid", valor=0.85, moneda="USD")
+        # Desenlace 1: decision_application.
+        ciclo_aplicada = _ciclo(conn, hace_dias=0)
+        dec_aplicada = _decision(conn, ciclo_aplicada, cfg, kw, "bid", valor=0.85, moneda="USD")
+        conn.execute(
+            "INSERT INTO decision_application (decision_id, confirmed_at, platform_ack,"
+            " verify_ok) VALUES (%s, now(), '{}'::jsonb, true)",
+            (dec_aplicada,),
+        )
+        # Desenlace 2: decision_sin_aplicar.
+        ciclo_reg = _ciclo(conn, hace_dias=0)
+        dec_reg = _decision(conn, ciclo_reg, cfg, kw, "bid", valor=0.85, moneda="USD")
+        conn.execute(
+            "INSERT INTO decision_sin_aplicar (decision_id, cycle_id, motivo)"
+            " VALUES (%s, %s, 'fuera_de_cap')",
+            (dec_reg, ciclo_reg),
+        )
+        # Desenlace 3: fila TERMINAL en apply_queue (vetoed via app_admin).
+        ciclo_cola = _ciclo(conn, hace_dias=0)
+        dec_cola = _decision(conn, ciclo_cola, cfg, kw, "pause")
+        _encolar(conn, dec_cola, kw, "pause")
+        conn.execute("SET ROLE app_admin")
+        try:
+            conn.execute(
+                "UPDATE apply_queue SET estado = 'vetoed', vetoed_at = now(),"
+                " vetoed_by = 'dueno', vence_el = now() + interval '30 days'"
+                " WHERE decision_id = %s",
+                (dec_cola,),
+            )
+        finally:
+            conn.execute("SET ROLE NONE")
+        # Una fila live NO terminal (pending_veto) NO es desenlace NI hueco:
+        # la decision APARECE como 'en_cola' hasta que la fila termine
+        # (terminal) o el no-apply se registre (r2-2).
+        ciclo_pend = _ciclo(conn, hace_dias=0)
+        dec_pend = _decision(conn, ciclo_pend, cfg, kw2, "pause")
+        _encolar(conn, dec_pend, kw2, "pause")
+        # Igual con la fila RELEASED (esperando quota FIFO): en vuelo, no hueco.
+        ciclo_rel = _ciclo(conn, hace_dias=0)
+        dec_rel = _decision(conn, ciclo_rel, cfg, kw3, "pause")
+        q_rel = _encolar(conn, dec_rel, kw3, "pause")
+        _avanzar(conn, q_rel, "released")
+        # Y con la fila APPLYING (claim ganado y proceso muerto pre-HTTP: la
+        # FSM de 0002 no le da salida sin el claimer): en vuelo, no hueco.
+        ciclo_app = _ciclo(conn, hace_dias=0)
+        dec_app = _decision(conn, ciclo_app, cfg, kw5, "pause")
+        q_app = _encolar(conn, dec_app, kw5, "pause")
+        _avanzar(conn, q_app, "released")
+        _avanzar(conn, q_app, "applying")
+        # Precedencia (r2-2): ciclo PREVIO a 0044 con fila live en vuelo ->
+        # 'sin_registro', NO 'en_cola' (el hueco historico manda sobre la cola).
+        dec_vieja_cola = _decision(conn, ciclo_viejo, cfg, kw4, "pause")
+        _encolar(conn, dec_vieja_cola, kw4, "pause")
+
+        filas = conn.execute(
+            "SELECT decision_id, origen FROM v_decision_huerfana ORDER BY decision_id"
+        ).fetchall()
+        assert filas == [
+            (dec_huerfana, "huerfana"),
+            (dec_vieja, "sin_registro"),
+            (dec_pend, "en_cola"),
+            (dec_rel, "en_cola"),
+            (dec_app, "en_cola"),
+            (dec_vieja_cola, "sin_registro"),
+        ], (
+            "las sin desenlace; las de fila EN VUELO (pending_veto, released "
+            "Y applying) salen 'en_cola' (no hueco) y la del ciclo previo a "
+            "0044 'sin_registro' aunque tenga fila; el veto (terminal), el "
+            "resumen y el registro sacan a la decision de la vista"
+        )
+
+
+@_skip_db
+def test_vista_huerfana_excluye_corte_shadow_de_ciclo_live():
+    """Corte de goal shadow en ciclo live, encolado modo='shadow': su
+    desenlace es la practica de veto (sellado 6), no un apply."""
+    with _db_temporal_d1("orbit_dsa_shadow_live") as conn:
+        ids = _semilla_d1(conn)
+        ciclo = _ciclo(conn, hace_dias=0)
+        dec = _decision(conn, ciclo, ids["config_id"], ids["kw"], "pause")
+        _encolar(conn, dec, ids["kw"], "pause", modo="shadow")
+        filas = conn.execute("SELECT decision_id, origen FROM v_decision_huerfana").fetchall()
+        assert filas == [], filas

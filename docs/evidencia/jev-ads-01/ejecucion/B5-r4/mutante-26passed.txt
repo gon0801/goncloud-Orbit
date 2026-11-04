@@ -1,0 +1,6 @@
+B1 vivo contra el arbol base 1deb7d46: mutante del VEREDICTO (parte 2 solo lista negra).
+Comando: one-liner literal del VEREDICTO-B5-r3 + pytest; luego git checkout.
+
+26 passed in 0.12s
+
+El mutante sobrevive: ninguna prueba lo atrapa (sin la prueba de esta ronda).

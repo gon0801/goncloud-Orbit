@@ -1,0 +1,60 @@
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# === Accounting ===
+# 2026-05-03: comentado (Bug A0). Script perdido en migración 2026-03; redundante con dashboard auto-scheduler (sync_mp_settlement_report c/4h + compute_meli_balance_v2 c/4h). Si aparece falta de claims/feedback/questions reports, recrear y descomentar.
+# 0 */2 * * * cd /mnt/data/appdata/accounting && /mnt/data/appdata/accounting/.venv/bin/python sync_meli_reports.py --reports all --delay 60 >> /mnt/data/appdata/accounting/logs/sync.log 2>&1
+*/15 * * * * set -a; source /etc/goncloud/accounting.env; set +a; /mnt/data/appdata/accounting/.venv/bin/python /mnt/data/appdata/accounting/app/sync_meli_orders.py >> /mnt/data/appdata/accounting/logs/sync.log 2>&1
+*/15 * * * * set -a; source /etc/goncloud/accounting.env; set +a; /mnt/data/appdata/accounting/.venv/bin/python /mnt/data/appdata/accounting/scripts/sync_amazon.py >> /mnt/data/appdata/accounting/logs/amazon_sync.log 2>&1
+0 8 * * * /mnt/data/appdata/accounting/.venv/bin/python /mnt/data/appdata/accounting/scripts/sync_fx_rates.py >> /mnt/data/appdata/accounting/logs/fx.log 2>&1
+0 * * * * set -a; source /mnt/data/appdata/accounting/config/accounting.env; set +a; /mnt/data/appdata/accounting/.venv/bin/python /mnt/data/appdata/accounting/scripts/sync_cogs_odoo.py >> /mnt/data/appdata/accounting/logs/cogs_sync.log 2>&1 && date -Is > /mnt/data/appdata/accounting/data/last_success_cogs.txt
+0 */6 * * * /mnt/data/appdata/accounting/.venv/bin/python /mnt/data/appdata/accounting/scripts/sync_meli_ads.py >> /mnt/data/appdata/accounting/logs/sync_meli_ads.log 2>&1
+# 2026-05-03 (MAdsI-1): comentado. Script huérfano post-migración 2026-03 — la tabla `meli_ads_metrics` (con item_id) fue eliminada cuando dashboard pasó a usar solo `meli_ads_metrics_daily` agregada (escrita por sync_meli_ads.py arriba). El script fallaba cada 6h con `OperationalError: no such table`. Para revivir: recrear schema `meli_ads_metrics_items` + endpoint dashboard que la consuma.
+# 0 */6 * * * /mnt/data/appdata/accounting/.venv/bin/python /mnt/data/appdata/accounting/scripts/sync_meli_ads_items.py >> /mnt/data/appdata/accounting/logs/meli_ads_items.log 2>&1
+*/30 * * * * /mnt/data/appdata/accounting/.venv/bin/python /mnt/data/appdata/accounting/scripts/sync_amazon_finance_v2024.py >> /mnt/data/appdata/accounting/logs/amazon_finance.log 2>&1
+25 * * * * /mnt/data/appdata/accounting/.venv/bin/python /mnt/data/appdata/accounting/scripts/fetch_amazon_balance.py >> /mnt/data/appdata/accounting/logs/amazon_balance.log 2>&1
+0 */6 * * * /mnt/data/appdata/accounting/.venv/bin/python /mnt/data/appdata/accounting/scripts/sync_amazon_ads.py >> /mnt/data/appdata/accounting/logs/amazon_ads_sync.log 2>&1
+0 9 * * * /mnt/data/appdata/accounting/.venv/bin/python /mnt/data/appdata/accounting/scripts/audit_postage.py >> /mnt/data/appdata/accounting/logs/audit_postage.log 2>&1
+30 9 * * * /mnt/data/appdata/accounting/.venv/bin/python /mnt/data/appdata/accounting/scripts/audit_resolve_orders.py >> /mnt/data/appdata/accounting/logs/audit_resolve.log 2>&1
+30 */6 * * * /mnt/data/appdata/accounting/.venv/bin/python /mnt/data/appdata/accounting/scripts/sync_ads_to_ledger.py >> /mnt/data/appdata/accounting/logs/ads_to_ledger.log 2>&1
+
+# === EHV (capital_engine + competitor_tracker) ===
+0 8 * * 1 cd /mnt/data/appdata/ehv && /mnt/data/appdata/ehv/.venv/bin/python3 scripts/run_diagnostics.py >> /var/log/ehv-diagnostics.log 2>&1
+0 6 * * * cd /mnt/data/appdata/ehv && /mnt/data/appdata/ehv/.venv/bin/python3 scripts/competitor_tracker.py >> /var/log/ehv-competitor.log 2>&1
+10 8 * * * /mnt/data/appdata/accounting/.venv/bin/python /mnt/data/appdata/accounting/scripts/sync_mp_release_report.py >> /mnt/data/appdata/accounting/logs/mp_release_report.log 2>&1
+30 3 * * * /mnt/data/appdata/accounting/.venv/bin/python /mnt/data/appdata/accounting/scripts/sync_product_images.py >> /mnt/data/appdata/accounting/logs/product_images.log 2>&1
+0 7 * * * /mnt/data/appdata/accounting/.venv/bin/python /mnt/data/appdata/accounting/scripts/sync_bom_odoo.py >> /mnt/data/appdata/accounting/logs/bom_odoo.log 2>&1
+0 2 * * * /mnt/data/appdata/accounting/.venv/bin/python /mnt/data/appdata/accounting/scripts/sync_amazon_shipping_labels.py >> /mnt/data/appdata/accounting/logs/amazon_shipping.log 2>&1
+0 8 * * * set -a; source /etc/goncloud/accounting.env; set +a; /mnt/data/appdata/accounting/.venv/bin/python /mnt/data/appdata/accounting/scripts/heartbeat.py >> /mnt/data/appdata/accounting/logs/heartbeat.log 2>&1
+
+# === Orbit (ORBIT 03 / 4.2) ===
+# job_key=ingest:structure
+45 6 * * * docker exec orbit-app-1 python -m app.cli ingest structure >> /mnt/data/appdata/orbit/logs/ingest-structure.log 2>&1
+# job_key=ingest:metrics  profundidad D-31..D-1 (sello 4.2; max API 31d cubre atribucion 30d)
+10 7 * * * FECHA=$(date -u -d "31 days ago" +\%F) FECHA_FIN=$(date -u -d "1 day ago" +\%F) && docker exec orbit-app-1 python -m app.cli ingest metrics --fecha "$FECHA" --fecha-fin "$FECHA_FIN" >> /mnt/data/appdata/orbit/logs/ingest-metrics.log 2>&1
+# job_key=ads_optimizer:amazon_us + ads_optimizer:amazon_mx
+40 8 * * * docker exec orbit-app-1 python -m app.cli cycle --platform amazon_us >> /mnt/data/appdata/orbit/logs/optimizer.log 2>&1
+41 8 * * * docker exec orbit-app-1 python -m app.cli cycle --platform amazon_mx >> /mnt/data/appdata/orbit/logs/optimizer.log 2>&1
+# Orbit ORBIT 06 0.1 — refresco diario de costos (cadencia decidida por el dueno 2026-08-30)
+15 8 * * * /mnt/data/appdata/orbit/refresh_costos.sh >> /mnt/data/appdata/orbit/logs/costos.log 2>&1
+20 7 * * * FECHA=$(date -u -d "31 days ago" +\%F) FECHA_FIN=$(date -u -d "1 day ago" +\%F) && docker exec orbit-app-1 python -m app.cli ingest metrics --fecha "$FECHA" --fecha-fin "$FECHA_FIN" --productos >> /mnt/data/appdata/orbit/logs/ingest-productos.log 2>&1
+# === Orbit reputacion (REPUTACION 01 / A.7) ===
+# job_key=reputacion:meli
+30 9 * * * docker exec orbit-app-1 python -m app.cli reputacion snapshot --fuente meli >> /mnt/data/appdata/orbit/logs/reputacion-meli.log 2>&1
+# job_key=reputacion:alertas
+30 10 * * * docker exec orbit-app-1 python -m app.cli reputacion alertas >> /mnt/data/appdata/orbit/logs/reputacion-alertas.log 2>&1
+# job_key=reputacion:amazon PENDIENTE (instalar tras manual sana con credito Apify; A.7 2026-09-08)
+# 0 10 * * 1 docker exec orbit-app-1 python -m app.cli reputacion snapshot --fuente amazon >> /mnt/data/appdata/orbit/logs/reputacion-amazon.log 2>&1
+# job_key=spapi:diario  SP-API 01 A.5 (las 8 ingestas, wrapper en serie)
+00 5 * * * /usr/bin/flock -n /tmp/spapi-diario.lock /mnt/data/appdata/orbit/spapi-diario.sh >> /mnt/data/appdata/orbit/logs/spapi-diario.log 2>&1
+
+# job_key=spapi:vigilante  aviso si el cron spapi:diario no dejó sus 8 corridas
+30 7 * * * /usr/bin/flock -n /tmp/spapi-vigilante.lock docker exec orbit-app-1 python -m app.cli spapi_vigilante >> /mnt/data/appdata/orbit/logs/spapi-vigilante.log 2>&1
+10 13 * * * /usr/bin/flock -n /tmp/precio-corrida.lock docker exec orbit-app-1 python -m app.cli precio --platform amazon_mx >> /mnt/data/appdata/orbit/logs/precio-corrida.log 2>&1
+
+# job_key=ads-salud  A.3: 10:30 UTC y reintentos hasta 12:50
+*/10 10-12 * * * docker exec orbit-app-1 python -m app.cli ads-salud >> /mnt/data/appdata/orbit/logs/ads-salud.log 2>&1
+---
+56a57
+> 30 9,21 * * * /usr/bin/flock -n /tmp/jev-senales.lock docker exec orbit-app-1 python -m app.cli jev-senales --aplicar >> /mnt/data/appdata/orbit/logs/jev-senales.log 2>&1
+1

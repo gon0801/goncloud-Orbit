@@ -1,0 +1,17 @@
+# Salida fechada de select.sql
+
+```
+consulted_at_utc: 2026-09-08 14:44:37.484019 UTC
+role: orbit_read
+isolation: REPEATABLE READ READ ONLY
+```
+
+Corrida:
+
+```
+ssh goncloud 'docker exec -i orbit-db-1 psql -U orbit_read -d orbit -v ON_ERROR_STOP=1 -P pager=off' \
+  < docs/evidencia/margen-estimado-01/B.3/select.sql
+```
+
+La transaccion termino en ROLLBACK. Numeros estructurados en `conteos.json`.
+Seccion B omitida: `estimacion_escenario` ausente.

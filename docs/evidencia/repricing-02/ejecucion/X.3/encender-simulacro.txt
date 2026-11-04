@@ -1,0 +1,10 @@
+== X.3 encender US FBM (paso 0: interruptor de bids)
+ads_bid_politica_amazon_us: ausente (el ciclo no mueve bids; pasa)
+precio_modo_global: <ausente> | amazon_us/fbm: shadow | base: 5
+goals shadow en amazon_us FBM: 2
+== SIMULACRO: sin --acepto-mutacion-real no se postea nada
+settings que se postearia: {"base_config_version_id": 5, "precio_modo_global": "live", "precio_modo_universo": {"amazon_us/fbm": "live"}}
+goals que se pasarian a live en bloque (2): 11,12
+aplicar que se postearia por bloque: pedido {"tipo": "modo", "mode": "live"} + go literal (no se imprime) + actor "X.3 encender.sh"
+SIMULACRO OK (nada escrito)
+exit=0

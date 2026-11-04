@@ -1,0 +1,34 @@
+== esquema de prod (solo lectura)
+esquema base cargado
+== 1) aplicar la 0059 y la 0058 (dos corridas de psql separadas)
+psql:/Users/dn/dev/wt/rp02-sec3/migrations/0059_precio02_repara_retencion_coherente.sql:4: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+aplicada 0059_precio02_repara_retencion_coherente.sql
+psql:/Users/dn/dev/wt/rp02-sec3/migrations/0058_precio02_decision_exige.sql:6: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+aplicada 0058_precio02_decision_exige.sql
+(la 0059 trae candado propio: su INSERT positivo y sus 4 rechazos corrieron adentro)
+== 2) senales de cada migracion
+0058 (2 CHECK en decision): 2
+0059 (trigger reparado): t
+OK: el candado de la 0059 no dejo filas zz
+== 3) reversas en orden inverso: esquema identico al base
+psql:/Users/dn/dev/wt/rp02-sec3/migrations/0058_reversa_precio02_decision_exige.sql:3: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+aplicada 0058_reversa_precio02_decision_exige.sql
+psql:/Users/dn/dev/wt/rp02-sec3/migrations/0059_reversa_precio02_repara_retencion_coherente.sql:2: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+aplicada 0059_reversa_precio02_repara_retencion_coherente.sql
+OK: las reversas dejan el esquema identico al base
+== 4) reaplicar la 0059 y la 0058
+psql:/Users/dn/dev/wt/rp02-sec3/migrations/0059_precio02_repara_retencion_coherente.sql:4: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+aplicada 0059_precio02_repara_retencion_coherente.sql
+psql:/Users/dn/dev/wt/rp02-sec3/migrations/0058_precio02_decision_exige.sql:6: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+aplicada 0058_precio02_decision_exige.sql
+OK: reaplicar da el mismo esquema que la primera vez
+0058 (2 CHECK en decision): 2
+0059 (trigger reparado): t
+ENSAYO OK
+exit=0

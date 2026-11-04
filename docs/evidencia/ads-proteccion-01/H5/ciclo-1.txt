@@ -1,0 +1,15 @@
+# H5 sombra — dia 1/5 (2026-09-25 UTC). INICIO_SHADOW=2026-09-25T06:13:41Z.
+
+$ optimizer_cycle desde INICIO_SHADOW (rol lector):
+ id | platform  | mode | started_at | finished_at | status | decisions | applied
+ 82 | amazon_us | live | 08:40:02Z  | 08:40:03Z   | done   | 2         | 0
+ 83 | amazon_mx | live | 08:41:02Z  | 08:41:03Z   | done   | 9         | 0
+(mode = modo del ciclo/plataforma; los 9 goals siguen en shadow.)
+
+$ applied_nuevos desde INICIO_SHADOW: 0 (antes y despues del deploy C.5).
+$ /salud ultimo_ciclo: done, applied_count 0 (2 decisiones US, 9 MX).
+
+Paradas H5.3 (a)(b)(c): ninguna dispara (ciclos done, candidatos explicados
+por skips shadow — campana_no_enabled/estado_no_enabled dominan —, 0 applied).
+Proximos ciclos: 08:40 UTC del 26, 27, 28 y 29-sep (dias 2-5/5).
+EXIT=0

@@ -1,0 +1,9 @@
+BEGIN
+-- INICIO descartes
+amazon_mx|multi_producto|1|0
+amazon_mx|usable|595|0
+amazon_mx|venta_sin_producto|86|0
+amazon_us|usable|474|1
+amazon_us|venta_sin_producto|62|0
+-- FIN descartes
+ROLLBACK

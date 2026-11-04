@@ -1,0 +1,16 @@
+
+==================================== ERRORS ====================================
+____________________ ERROR collecting tests/test_jev_ads.py ____________________
+ImportError while importing test module '/Users/dn/dev/wt/jev-ads-worker/tests/test_jev_ads.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+../../../.local/share/uv/python/cpython-3.14.7-macos-aarch64-none/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_jev_ads.py:26: in <module>
+    from app.jev_ads import (
+E   ModuleNotFoundError: No module named 'app.jev_ads'
+=========================== short test summary info ============================
+ERROR tests/test_jev_ads.py
+!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+1 error in 0.04s

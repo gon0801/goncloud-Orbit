@@ -1,0 +1,10 @@
+== X.2 sembrar margen-de-hoy en shadow (MX FBM)
+modo amazon_mx/fbm: <sin entrada>
+unidades MX FBM sin goal vigente: 3
+seleccion: listing_ids [11,12,13]
+== SIMULACRO: sin --acepto-mutacion-real no se postea nada
+settings que se postearia: {"base_config_version_id": 4, "precio_modo_universo": {"amazon_mx/fbm": "shadow"}}
+plan que se postearia: {"platform": "amazon_mx", "pedido": {"tipo": "margen_de_hoy", "mode": "shadow"}, "listing_ids": [11,12,13]}
+aplicar que se postearia por bloque (500): mismo cuerpo + {"huella": "<del plan>", "confirmados": [], "actor": "X.2 sembrar.sh"}
+SIMULACRO OK (nada escrito)
+exit=0
