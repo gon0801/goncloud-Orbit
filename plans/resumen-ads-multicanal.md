@@ -80,7 +80,7 @@ su cobertura, sin volver a calcular métricas.
 
 - La respuesta incluye los tres canales con su moneda nativa.
 - Un periodo de 30 días tiene 30 puntos visibles y una comparación de igual longitud.
-- Las tendencias usan sumas de siete días y dejan brechas cuando falta información.
+- Las tendencias usan la media diaria de siete días (la suma de la ventana dividida entre 7) y dejan brechas cuando falta información.
 - La ausencia de frescura o madurez MeLi queda explícita.
 
 **Verificación proporcional.**

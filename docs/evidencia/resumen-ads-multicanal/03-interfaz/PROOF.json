@@ -39,6 +39,7 @@
     "series_mx_moneda": true,
     "mx_all_cost_none": true,
     "meli_sin_ventana_amazon": true,
+    "meli_motivo_sin_madurez": true,
     "amazon_tiene_ventana": true,
     "periodo_7_200": true,
     "periodo_7_meli": true,
