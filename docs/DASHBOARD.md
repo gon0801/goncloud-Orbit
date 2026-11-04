@@ -562,8 +562,8 @@ silencioso: el recorte se declara.
               "clicks": 12, "orders": 1, "acos": "22.29", "roas": "4.49",
               "sin_ventas": false, "inmaduro": false,
               "cerrado": true, "motivo_cierre": null,
-              "ma7": {"cost": "280.8400", "ad_revenue": "1260.0000", "clicks": 84,
-                      "orders": 7, "acos": "22.29", "roas": "4.49", "completo": true}}],
+              "ma7": {"cost": "40.1200", "ad_revenue": "180.0000", "clicks": "12.00",
+                      "orders": "1.00", "acos": "22.29", "roas": "4.49", "completo": true}}],
   "coverage": {"dias_rango": 30, "dias_con_dato": 28, "dias_faltantes": 2,
                "por_metrica": {"cost": 28, "ad_revenue": 28, "clicks": 28, "orders": 28},
                "completo": false,
@@ -663,12 +663,14 @@ dinero completo y alineado en todos los canales.
 
 ### 9.8 MA7
 
-Cada punto de `series` lleva `ma7`: la suma móvil de 7 días (el día y los 6
-anteriores) de gasto, venta, clics y órdenes. Se consultan 6 días de
+Cada punto de `series` lleva `ma7`: la media diaria móvil de 7 días (el día y
+los 6 anteriores) de gasto, venta, clics y órdenes. Se consultan 6 días de
 calentamiento antes de `desde` y solo se devuelve el rango pedido.
 
-- Cada métrica se suma por separado. Si **falta cualquier día** de la ventana,
-  esa métrica del MA7 es `null`; jamás se rellena con cero.
+- Cada métrica se suma en la ventana y se divide entre 7, para compartir escala
+  con la serie diaria. Si **falta cualquier día** de la ventana, esa métrica
+  del MA7 es `null`; jamás se rellena con cero.
+- El dinero se publica con 4 decimales y los conteos con 2.
 - `ma7.completo` declara si gasto y venta tienen sus 7 días completos.
 - `ma7.acos`/`ma7.roas` salen de las sumas de la ventana, no del promedio de
   ratios diarios.

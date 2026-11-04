@@ -413,26 +413,34 @@ def _ws_enviar(sock: socket.socket, texto: str) -> None:
     sock.sendall(bytes(cabecera) + bytes(b ^ mascara[i % 4] for i, b in enumerate(datos)))
 
 
+def _ws_recv(sock: socket.socket) -> bytes:
+    """Un `recv` que corta en EOF en vez de girar para siempre."""
+    datos = sock.recv(4096)
+    if not datos:
+        raise EOFError("websocket cerrado por el navegador")
+    return datos
+
+
 def _ws_leer(sock: socket.socket, pendiente: bytes) -> tuple[int, bytes, bytes]:
     buf = pendiente
     while len(buf) < 2:
-        buf += sock.recv(4096)
+        buf += _ws_recv(sock)
     largo = buf[1] & 0x7F
     i = 2
     if largo == 126:
         while len(buf) < 4:
-            buf += sock.recv(4096)
+            buf += _ws_recv(sock)
         largo = struct.unpack("!H", buf[2:4])[0]
         i = 4
     elif largo == 127:
         while len(buf) < 10:
-            buf += sock.recv(4096)
+            buf += _ws_recv(sock)
         largo = struct.unpack("!Q", buf[2:10])[0]
         i = 10
     if buf[1] & 0x80:
         i += 4
     while len(buf) < i + largo:
-        buf += sock.recv(4096)
+        buf += _ws_recv(sock)
     return buf[0] & 0x0F, buf[i : i + largo], buf[i + largo :]
 
 
@@ -465,8 +473,18 @@ def _foco_y_ancho(url: str, png: Path, detalle: Path) -> dict:
         fin = time.time() + 15
         while not marca.is_file():
             if proc.poll() is not None or time.time() > fin:
-                err = proc.stderr.read() if proc.stderr else ""
-                detalle.write_text(f"devtools no arranco: {err}\n", encoding="utf-8")
+                if proc.poll() is None:
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+                        proc.wait()
+                try:
+                    _, err = proc.communicate(timeout=2)
+                except subprocess.TimeoutExpired:
+                    err = "(stderr no cerro a tiempo)"
+                detalle.write_text(f"devtools no arranco: {err or ''}\n", encoding="utf-8")
                 return {}
             time.sleep(0.1)
         puerto = int(marca.read_text(encoding="utf-8").splitlines()[0])
@@ -486,7 +504,7 @@ def _foco_y_ancho(url: str, png: Path, detalle: Path) -> dict:
         )
         saludo = b""
         while b"\r\n\r\n" not in saludo:
-            saludo += sock.recv(4096)
+            saludo += _ws_recv(sock)
         pendiente = saludo.split(b"\r\n\r\n", 1)[1]
         ident = 0
 
@@ -499,6 +517,8 @@ def _foco_y_ancho(url: str, png: Path, detalle: Path) -> dict:
             _ws_enviar(sock, json.dumps(mensaje))
             while True:
                 opcode, payload, pendiente = _ws_leer(sock, pendiente)
+                if opcode == 8:
+                    raise EOFError("websocket cerrado por el navegador")
                 if opcode != 1:
                     continue
                 data = json.loads(payload.decode())
@@ -1014,6 +1034,32 @@ def _get_html(base_url: str, path: str, timeout_s: float = 5.0) -> tuple[int, by
     return st, body
 
 
+def _tramo(texto: str, inicio: str, fin: str = "<h2>") -> str:
+    """Tramo del HTML entre dos marcas; vacio si falta la marca inicial."""
+    if inicio not in texto:
+        return ""
+    return texto.split(inicio, 1)[1].split(fin, 1)[0]
+
+
+def _bloque_css(css: str, marca: str) -> str:
+    """Bloque CSS completo (llaves incluidas) que empieza en `marca`."""
+    inicio = css.find(marca)
+    if inicio < 0:
+        return ""
+    abre = css.find("{", inicio)
+    if abre < 0:
+        return ""
+    nivel = 0
+    for i in range(abre, len(css)):
+        if css[i] == "{":
+            nivel += 1
+        elif css[i] == "}":
+            nivel -= 1
+            if nivel == 0:
+                return css[abre : i + 1]
+    return ""
+
+
 def cmd_drive_resumen(args: argparse.Namespace) -> None:
     run_id = args.run_id or _latest_run_id()
     state = _load_state(run_id)
@@ -1027,6 +1073,8 @@ def cmd_drive_resumen(args: argparse.Namespace) -> None:
     st_html, html = _get_html(base, "/")
     (evidence / "01-resumen.html").write_bytes(html)
     texto = html.decode("utf-8", errors="replace")
+    tabla_canal = _tramo(texto, "<h2>Tabla por canal</h2>")
+    meli_bloque = _tramo(texto, "<h2>Mercado Libre")
 
     checks: dict[str, bool] = {
         "http_200": st_html == 200,
@@ -1049,9 +1097,12 @@ def cmd_drive_resumen(args: argparse.Namespace) -> None:
         "tendencia_us": 'id="tendencia-amazon_us"' in texto,
         "serie_textual_us": 'id="serie-amazon_us"' in texto,
         "media_7": "media de 7 dias" in texto,
-        "meli": "Mercado Libre" in texto,
-        "alcance_meli": "Amazon MX · Amazon US · Mercado Libre" in texto,
-        "raya": "—" in texto,
+        "meli": bool(meli_bloque) and "MXN" in meli_bloque,
+        "alcance_meli": all(
+            f"<td>{canal}</td>" in tabla_canal
+            for canal in ("Amazon MX", "Amazon US", "Mercado Libre")
+        ),
+        "raya": re.search(r'<td class="num">\s*—\s*</td>', tabla_canal) is not None,
     }
 
     seed_metric_date = state["seed"]["metric_date"]
@@ -1093,10 +1144,10 @@ def cmd_drive_resumen(args: argparse.Namespace) -> None:
         r.get("cost") is None and r.get("ad_revenue") is None for r in series_mx
     )
 
-    meli = ""
-    if "<h2>Mercado Libre" in texto:
-        meli = texto.split("<h2>Mercado Libre", 1)[1].split("<h2>", 1)[0]
-    checks["meli_sin_ventana_amazon"] = "Cifras inmaduras" not in meli
+    checks["meli_sin_ventana_amazon"] = (
+        bool(meli_bloque) and "Cifras inmaduras" not in meli_bloque
+    )
+    checks["meli_motivo_sin_madurez"] = "no publica madurez" in meli_bloque
     checks["amazon_tiene_ventana"] = "Cifras inmaduras" in texto
 
     st7, html7 = _get_html(base, "/?canal=meli&periodo=7")
@@ -1159,7 +1210,11 @@ def cmd_drive_resumen(args: argparse.Namespace) -> None:
     st_css, _, raw_css = _http(f"{base}/static/css/dashboard.css")
     css = raw_css.decode("utf-8", errors="replace")
     checks["css_200"] = st_css == 200
-    checks["css_390"] = "@media (max-width: 390px)" in css and ".tabla-scroll" in css
+    css_390 = _bloque_css(css, "@media (max-width: 390px)")
+    checks["css_390"] = (
+        'body[data-pantalla="resumen"] .tabla-scroll' in css_390
+        and "overflow-x: auto" in css_390
+    )
     checks["css_foco"] = 'tabla-scroll:focus-visible' in css
     checks["tabla_enfocable"] = 'class="tabla-scroll" tabindex="0"' in texto
     foco = _foco_y_ancho(base + "/", evidence / "10-foco-390.png", evidence / "10-foco.json")
@@ -1181,7 +1236,12 @@ def cmd_drive_resumen(args: argparse.Namespace) -> None:
         "feature": "resumen",
         "entry_point": "nav / (Resumen) en el dashboard",
         "base_url": base,
-        "action": "GET / y GET /api/dashboard/series/plataforma (amazon_us, amazon_mx)",
+        "action": (
+            "GET /, filtros ?canal=meli&periodo=7, ?periodo=90 y "
+            "?desde=2026-10-01&hasta=2026-10-07; GET /api/dashboard/series/plataforma "
+            "(amazon_us, amazon_mx); CSS /static/css/dashboard.css y capturas y foco "
+            "en navegador headless"
+        ),
         "checks": checks,
         "ok": all(checks.values()),
         "evidence_dir": str(evidence),
