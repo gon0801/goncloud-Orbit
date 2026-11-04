@@ -1,0 +1,25 @@
+== muestra contra los dos contratos
+ muestra | congelada_si | congelada_no | congelada_difiere_del_primer_exito | ambos_decisivos | iguales | cambiaron | si_a_no | no_a_si | abstencion_invertida | fallo_invertido | sin_normal
+---------+--------------+--------------+------------------------------------+-----------------+---------+-----------+---------+---------+----------------------+-----------------+------------
+     100 |           50 |           50 |                                  0 |              99 |      99 |         0 |       0 |       0 |                    1 |               0 |          0
+(1 row)
+
+== cruce de respuestas
+  congelada   |        invertida         | pares
+--------------+--------------------------+-------
+ no_satisface | informacion_insuficiente |     1
+ no_satisface | no_satisface             |    49
+ satisface    | satisface                |    50
+(3 rows)
+
+== usage y reloj de la medicion
+ intenciones | resultados | con_respuesta | con_error | sin_usage | usage_incompleto | input_tokens | output_tokens |             desde             |             hasta
+-------------+------------+---------------+-----------+-----------+------------------+--------------+---------------+-------------------------------+-------------------------------
+         100 |        100 |           100 |         0 |         0 |                0 |       125826 |          5253 | 2026-10-13 01:37:47.527957+00 | 2026-10-13 01:38:12.930048+00
+(1 row)
+
+== pares decisivos del contrato vigente sobre ficha que gana
+ elegibles |  si  |  no
+-----------+------+------
+      2434 | 1419 | 1015
+(1 row)

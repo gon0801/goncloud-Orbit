@@ -1,0 +1,11 @@
+== X.4 sonda de escritura (MeLi, conejillo + control)
+conejillo: listing=11 (shadow); control: listing=12 (shadow)
+SIMULACION: mercado sim en /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T//orbit-sonda-X4.json (sembro nada nuevo)
+== acepto: control antes, sonda del conejillo, lecturas despues
+antes: vivo listing=11 valor=979.11 moneda=MXN | vivo listing=12 valor=500.00 moneda=MXN
+[plan] meli listing=11 vivo=979.11 MXN -> 979.12 MXN -> 979.11 MXN
+[sonda] listing=11 aceptada a 979.12 MXN
+[revierte] listing=11 aceptada a 979.11 MXN
+despues: vivo listing=11 valor=979.11 moneda=MXN | vivo listing=12 valor=500.00 moneda=MXN
+== X.4 sonda OK (ida y vuelta aceptadas, vivo intacto, control intacto)
+exit=0

@@ -1,0 +1,20 @@
+=== quality-kit cross-review.ps1 ===
+Repo: /Users/dn/dev/wt/jev-ads-worker
+CLI: qwen
+Alcance: desde 6070bbbb5fc12a52a6e9ff6355686b4ea6d6acd1 (solo los arreglos)
+Tamano del diff: 68804 caracteres (truncado a 60000)
+Tope automatico para este diff (~59 KB): 1800 s. Usa -TimeoutSec para fijarlo a mano.
+
+==> AVISO: el diff es grande (60198 caracteres). Una revision asi cuesta del orden de 100-200k tokens y varios minutos. Si solo te interesa parte del cambio, acotalo con -Archivos <pathspecs> en vez de mandarlo entero.
+
+==> Invocando qwen de forma no interactiva (tope: 1800 s)...
+
+=== Respuesta de qwen (codigo de salida: 1) ===
+
+
+=== stderr ===
+Warning: running headless with --yolo / approval-mode=yolo and no sandbox. All tool calls (shell, write, edit) auto-execute at this process's privilege level. Enable a sandbox via --sandbox / QWEN_SANDBOX, or set QWEN_CODE_SUPPRESS_YOLO_WARNING=1 to silence this notice.
+[API Error: 403 Access to model denied. Please make sure you are eligible for using the model.]
+
+
+==> ADVERTENCIA: qwen no entrego una revision utilizable (codigo 1, salida vacia) -- revisa el stderr de arriba. Si es codex, el problema mas comun es tener que abrir 'codex' de forma interactiva una vez para aceptar la confianza del directorio (ver README, seccion Troubleshooting).

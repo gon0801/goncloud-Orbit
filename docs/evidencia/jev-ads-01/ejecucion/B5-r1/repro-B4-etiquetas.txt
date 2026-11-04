@@ -1,0 +1,15 @@
+# B5-r1 repro B4.1: test_cortes_plantilla_asesoria_sin_error_economico_y_veto_visible no discrimina el ambito de cada veredicto
+Fecha: 2026-10-04T08:02:11Z HEAD: a47086651ceae2e055d842fc41bc07262b93e46e
+
+Mutante (revertido despues de la corrida): en app/templates/cortes.html se intercambian las etiquetas del DoD 2.1: veredicto("destino", r) en el bucle de resultados y veredicto("origen", r) en el de destinos
+Comando: uv run --frozen python -m pytest tests/test_api_dashboard.py::test_cortes_plantilla_asesoria_sin_error_economico_y_veto_visible -q
+Esperado si el test discriminara: 1 failed (cada veredicto quedaria etiquetado con el ambito equivocado). Observado:
+
+.                                                                        [100%]
+=============================== warnings summary ===============================
+.venv/lib/python3.14/site-packages/fastapi/testclient.py:1
+  /Users/dn/dev/wt/jev-ads-worker/.venv/lib/python3.14/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1 passed, 1 warning in 0.38s

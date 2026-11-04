@@ -1,0 +1,8 @@
+== Perf: 3 ingestas frescas de 100,000 filas (head corregido) ==
+Comando: PYTHONPATH=tests:. uv run --frozen python docs/evidencia/resumen-ads-multicanal/01-ingesta/30-revision-78888f3e/scripts/perf_100k.py
+
+snapshot=/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/orbit-perf-g00z7x33/snapshot-100k.db bytes=10498048 filas=100000 as_of=2026-10-29 04:54:05
+corrida=1 segundos=7.735 rows_written=100000 entidades=100
+corrida=2 segundos=7.035 rows_written=100000 entidades=100
+corrida=3 segundos=6.968 rows_written=100000 entidades=100
+rc=0

@@ -1,0 +1,28 @@
+ORBIT 19 / 0.2 — signos de margen por mercado
+observed_at_utc: 2026-09-06 21:24:52.129864 UTC
+ventana: [2026-02-20, 2026-08-22)
+conexion: ssh goncloud, docker exec -i orbit-db-1 psql -U orbit_read -d orbit
+mutaciones: ninguna
+
+=== TODOS LOS PRODUCTOS DEL SELECTOR (conteos NO excluyentes) ===
+ platform  | productos | multilisting | margen_positivo | margen_cero | margen_negativo | margen_null | null_sin_ventas | null_menos_30 | multi_sin_margen | multi_margen_pos | uno_margen_pos
+ amazon_mx |       249 |           71 |               5 |           0 |               0 |         244 |             108 |           136 |               69 |                2 |              3
+ amazon_us |       119 |           44 |               2 |           0 |               0 |         117 |              66 |            51 |               44 |                0 |              2
+
+Cuadre MX: 5 pos + 0 cero + 0 neg + 244 null = 249.
+Cuadre US: 2 pos + 0 cero + 0 neg + 117 null = 119.
+5 pos MX = 3 un listing + 2 multilisting. 2 pos US = 2 un listing + 0 multilisting.
+
+=== v_margen_producto (filas con alguna venta en la ventana) ===
+ platform  | filas_vista | pos | cero | neg | min_pct | max_pct
+ amazon_mx |         141 |   5 |    0 |   0 |   33.14 |   43.30
+ amazon_us |          53 |   2 |    0 |   0 |   37.32 |   38.58
+
+Cero filas con margen_neto_pct <= 0. El 0 y el negativo no se observan hoy;
+el contrato D2 los cubre igual (el clamp a 10% los convertiria en rentabilidad falsa).
+
+=== Error corregido ===
+El 175 de la propuesta anterior era MX exclusivo del selector
+(84 sin ventas + 91 <30 fechas entre productos de UN listing).
+No es el total de ambos mercados ni el total de productos sin margen maduro.
+Sin margen maduro (null), incluyendo multilisting: MX 244 / US 117.

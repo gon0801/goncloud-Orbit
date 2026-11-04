@@ -1,0 +1,9 @@
+# B5-r1 repro B5.2: test_wire_lleva_solo_termino_y_ficha no verifica el VALOR del termino
+Fecha: 2026-10-04T08:01:27Z HEAD: a47086651ceae2e055d842fc41bc07262b93e46e
+
+Mutante (revertido despues de la corrida): en app/jev_juicios.py _payload manda 'termino': termino.lower() (altera el termino literal que va por el wire)
+Comando: uv run --frozen python -m pytest tests/test_jev_juicios.py -q
+Esperado si el test discriminara: al menos 1 failed (el wire lleva otro termino). Observado:
+
+..........................                                               [100%]
+26 passed in 0.07s

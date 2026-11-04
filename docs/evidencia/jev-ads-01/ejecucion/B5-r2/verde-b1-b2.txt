@@ -1,0 +1,6 @@
+# B5-r2 B1/B2 VERDE: con los arreglos aplicados (mismo arbol del commit)
+Fecha: 2026-10-04T08:42:50Z
+
+== focalizado: tests/test_jev_cli.py (B1, B2, B3 y vecinos) ==
+....................                                                     [100%]
+20 passed in 1.83s

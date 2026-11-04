@@ -1,0 +1,36 @@
+D.0 REPRICING 01 — destino=produccion — inicio_utc=2026-09-19T15:06:30Z
+go_literal: D.0: <tu go literal>
+commit_del_repo: 1bcfc5ed3bb16972ae9eaefebb7a6940076525db
+VERDE arbol = origin/master, sin cambios
+VERDE 0039 del arbol = origin/master
+pg_version: 16.15 (Debian 16.15-1.pgdg13+2)
+VERDE btree_gist instalada
+VERDE listing sin (id, platform) duplicado
+VERDE 8 caps de Ads vivos antes
+0039 antes: ausente
+config vigente antes: id=9 label=F2 D.1 caps harvest bajados: 2/2 (propuesta del lead autorizada en D.1) claves_precio=0
+VERDE backup del schema: -rw------- 1 root root 341424 Sep 19 15:06 /mnt/data/appdata/orbit/backups/pre0039_precio_20260919-150636.sql
+VERDE 0039 aplicada en una transaccion (el EXCLUDE con enum + daterange se creo)
+VERDE siembra: config_version nueva (20 | D.0: <tu go literal>)
+VERDE las cinco tablas precio_*
+VERDE precio_goal con cero filas
+VERDE precio_decision con cero filas
+VERDE precio_cotizacion con cero filas
+VERDE precio_envio_muestra con cero filas
+VERDE precio_cambio con cero filas
+VERDE listing_id_platform_key
+VERDE EXCLUDE precio_goal_sin_solape
+VERDE dos indices parciales
+VERDE triggers habilitados en las cinco tablas
+VERDE cap precio:amazon_mx = 5
+VERDE cap precio:amazon_us = 5
+VERDE cap precio:meli = 5
+VERDE caps de Ads identicos antes y despues
+config vigente despues: id=9 label=D.0: <tu go literal>
+VERDE label = go literal
+VERDE 20 claves precio_* en la vigente
+VERDE CONFIG-OK 20 claves precio_*
+VERDE apply_quota_state precio:amazon_mx nace con cap 5
+VERDE ROLLBACK: cero filas de cuota
+fin_utc: 2026-09-19T15:06:50Z
+D0-VERDE salidas=/Users/dn/dev/wt-d0-corrida/docs/evidencia/repricing-01/D.0/salidas/20260919-150630

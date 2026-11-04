@@ -1,0 +1,12 @@
+== esquema y datos de prod (orbit_read, solo lectura)
+== carga la copia local
+== atribuye en seco
+ventas=1985
+sku=1028
+canal_orden=82
+sin_atribuir=875
+motivo empate=46
+motivo sin_canal=586
+motivo sin_producto=243
+orden=<redactada> listing=1150 sin_dato=None con_dato=Atribucion(listing_id=1150, variante=None, resuelto_por='canal_orden')
+reintento: OK

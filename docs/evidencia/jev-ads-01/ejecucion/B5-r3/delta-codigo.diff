@@ -1,0 +1,214 @@
+diff --git a/tests/test_jev_ads.py b/tests/test_jev_ads.py
+index 92af989..3f649be 100644
+--- a/tests/test_jev_ads.py
++++ b/tests/test_jev_ads.py
+@@ -343,54 +343,79 @@ def test_relacion_no_reconocida_es_error_estructural():
+         componer(censo, (raro,))
+
+
+-def test_modulo_puro_sin_red_ni_db_en_top_level():
+-    """El nucleo (tipos + componer y sus helpers) es PURO: red y DB solo
+-    entran con AsesorAds (1.4) y por imports PEREZOSOS dentro de sus
+-    metodos. La guarda cubre TODO nodo top-level excepto AsesorAds, con
+-    imports anidados a cualquier profundidad y nombres IO (CodeRabbit
+-    B3-r3); en top-level del modulo tampoco hay red, ni DB, ni modulos
+-    Jev de IO."""
+-    prohibidos_modulos = {
+-        "httpx",
+-        "psycopg",
+-        "requests",
+-        "urllib",
+-        "socket",
+-        "ssl",
+-        "app.db",
+-        "app.ads",
+-        "app.jev_catalogo",
+-        "app.jev_juicios",
+-    }
+-    prohibidos_nombres = {"psycopg", "httpx", "requests", "socket", "ssl", "conn"}
+-    arbol = ast.parse((RAIZ / "app" / "jev_ads.py").read_text(encoding="utf-8"))
+-
+-    # 1) imports TOP-LEVEL del modulo: solo la biblioteca estandar pura.
+-    importados: set[str] = set()
+-    for nodo in arbol.body:
+-        if isinstance(nodo, ast.Import):
+-            importados.update(alias.name for alias in nodo.names)
+-        elif isinstance(nodo, ast.ImportFrom):
+-            importados.add(nodo.module or "")
+-    permitidos = {
+-        "__future__",
+-        "collections.abc",
+-        "dataclasses",
+-        "datetime",
+-        "decimal",
+-        "hashlib",
+-        "json",
+-        "re",
+-        "typing",
+-        "uuid",
+-    }
+-    assert importados <= permitidos, importados - permitidos
++_PROHIBIDOS_MODULOS_PUROS = {
++    "httpx",
++    "psycopg",
++    "requests",
++    "urllib",
++    "socket",
++    "ssl",
++    "app.db",
++    "app.ads",
++    "app.jev_catalogo",
++    "app.jev_juicios",
++}
++_PROHIBIDOS_NOMBRES_PUROS = {"psycopg", "httpx", "requests", "socket", "ssl", "conn"}
++_PERMITIDOS_PUROS = {
++    "__future__",
++    "collections.abc",
++    "dataclasses",
++    "datetime",
++    "decimal",
++    "hashlib",
++    "json",
++    "re",
++    "typing",
++    "uuid",
++}
++
++
++def _candidatos_import(nodo: ast.Import | ast.ImportFrom) -> set[str]:
++    """Nombres ABSOLUTOS que trae un nodo de import (B5-r3): los relativos
++    se resuelven contra su paquete (`from . import db` es "app.db" y
++    `from .x import Y` trae "app.x" y "app.x.y"; misma semantica que la
++    guarda B3 de test_jev_cli.py)."""
++    if isinstance(nodo, ast.Import):
++        return {alias.name for alias in nodo.names}
++    base = (("app." if nodo.level else "") + (nodo.module or "")).rstrip(".")
++    return {base, *(f"{base}.{alias.name}" for alias in nodo.names)}
++
++
++def _violacion_import(nombre: str, permitidos: set[str]) -> bool:
++    """Un nombre esta vedado si cae en la lista negra o si NO esta concedido
++    en `permitidos` (lista blanca estricta, mismo criterio para top-level y
++    anidados, B5-r3; un stdlib de IO como sqlite3 NO pasa por ser stdlib)."""
++    if any(nombre == p or nombre.startswith(p + ".") for p in _PROHIBIDOS_MODULOS_PUROS):
++        return True
++    return not any(nombre == p or nombre.startswith(p.rstrip(".") + ".") for p in permitidos)
++
++
++def _fugas_pureza(codigo: str) -> list[tuple[str, str]]:
++    """Guarda de pureza del nucleo: devuelve (donde, hallazgo) por cada
++    import o nombre IO que la viole. Vacio = puro."""
++    arbol = ast.parse(codigo)
++    fugas: list[tuple[str, str]] = []
++
++    # 1) imports de ALCANCE DE MODULO (B5-r3: un `try:`/`if:` top-level
++    #    sigue siendo alcance de modulo, asi que se recorre su cuerpo; los
++    #    def/class no, porque sus imports son perezosos y los juzga el
++    #    punto 2): solo la biblioteca estandar pura.
++    pendientes = list(arbol.body)
++    while pendientes:
++        nodo = pendientes.pop()
++        if isinstance(nodo, (ast.Import, ast.ImportFrom)):
++            for candidato in _candidatos_import(nodo):
++                if _violacion_import(candidato, _PERMITIDOS_PUROS):
++                    fugas.append(("top-level", candidato))
++        elif not isinstance(nodo, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
++            pendientes.extend(ast.iter_child_nodes(nodo))
+
+     # 2) cada nodo top-level EXCEPTO AsesorAds: puro incluso por dentro
+-    #    (sin imports prohibidos anidados, sin nombres IO). Los imports se
+-    #    RESUELVEN antes de comparar (B5-r2, B5a): `from app import db` es
+-    #    "app.db" y `import urllib.request` cae bajo "urllib"; valen
+-    #    igualdad o prefijo con punto, en cualquier profundidad.
++    #    (sin imports vedados ni fuera de permitidos a cualquier
++    #    profundidad, sin nombres IO). Los imports se RESUELVEN antes de
++    #    comparar (B5-r2, B5a): `from app import db` es "app.db" e
++    #    `import urllib.request` cae bajo "urllib"; valen igualdad o prefijo
++    #    con punto.
+     for nodo in arbol.body:
+         if isinstance(nodo, (ast.Import, ast.ImportFrom)):
+             continue
+@@ -398,18 +423,68 @@ def test_modulo_puro_sin_red_ni_db_en_top_level():
+         if nombre == "AsesorAds":
+             continue
+         for sub in ast.walk(nodo):
+-            candidatos: set[str] = set()
+-            if isinstance(sub, ast.Import):
+-                candidatos = {alias.name for alias in sub.names}
+-            elif isinstance(sub, ast.ImportFrom):
+-                candidatos = {sub.module or ""}
+-                candidatos |= {f"{sub.module or ''}.{alias.name}" for alias in sub.names}
+-            else:
+-                if isinstance(sub, ast.Name) and sub.id in prohibidos_nombres:
+-                    raise AssertionError((nombre, sub.id))
+-                continue
+-            for candidato in candidatos:
+-                assert not any(
+-                    candidato == prohibido or candidato.startswith(prohibido + ".")
+-                    for prohibido in prohibidos_modulos
+-                ), (nombre, candidato)
++            if isinstance(sub, (ast.Import, ast.ImportFrom)):
++                for candidato in _candidatos_import(sub):
++                    if _violacion_import(candidato, _PERMITIDOS_PUROS):
++                        fugas.append((nombre or "<modulo>", candidato))
++            elif isinstance(sub, ast.Name) and sub.id in _PROHIBIDOS_NOMBRES_PUROS:
++                fugas.append((nombre, sub.id))
++    return sorted(set(fugas))
++
++
++def test_modulo_puro_sin_red_ni_db_en_top_level():
++    """El nucleo (tipos + componer y sus helpers) es PURO: red y DB solo
++    entran con AsesorAds (1.4) y por imports PEREZOSOS dentro de sus
++    metodos. La guarda cubre TODO nodo top-level excepto AsesorAds, con
++    imports anidados a cualquier profundidad y nombres IO (CodeRabbit
++    B3-r3); en alcance de modulo (incluido el cuerpo de un try/if
++    top-level, B5-r3) tampoco hay red, ni DB, ni modulos Jev de IO; los
++    relativos se resuelven a absolutos y `permitidos` rige tambien los
++    anidados (B5-r3)."""
++    assert _fugas_pureza((RAIZ / "app" / "jev_ads.py").read_text(encoding="utf-8")) == []
++
++
++def test_guarda_pureza_caza_relativo_anidado():
++    """B5-r3 mutante (a): `from . import db` anidado en una funcion es
++    `app.db` (el relativo se resuelve antes de juzgar) y sale rojo."""
++    codigo = "import json\n\ndef componer():\n    from . import db\n    return db\n"
++    assert any(hallazgo == "app.db" for _, hallazgo in _fugas_pureza(codigo))
++
++
++def test_guarda_pureza_caza_import_en_try_de_modulo():
++    """B5-r3 mutante (b): un `try: import boto3` a nivel de modulo no
++    escapa a la guarda: el cuerpo del Try sigue siendo alcance de modulo y
++    boto3 no esta concedido en permitidos."""
++    codigo = "import json\ntry:\n    import boto3\nexcept ImportError:\n    boto3 = None\n"
++    assert any(hallazgo == "boto3" for _, hallazgo in _fugas_pureza(codigo))
++
++
++def test_guarda_pureza_permitidos_sigue_siendo_lista_blanca():
++    """B5-r3 ronda 2 (delta kimi) y ronda 3 (delta codex): `permitidos`
++    sigue siendo lista blanca estricta en alcance de modulo, MODULO POR
++    MODULO: un stdlib de IO como `sqlite3` o `subprocess` (que la version
++    de 8372f5aa rechazaba) no pasa por el solo hecho de ser stdlib. El
++    hallazgo se afirma exacto: un `!= []` agregado dejaria en verde un
++    mutante que perdone uno solo de los tres."""
++    codigo = "import sqlite3\nimport subprocess\nimport os\n"
++    assert _fugas_pureza(codigo) == [
++        ("top-level", "os"),
++        ("top-level", "sqlite3"),
++        ("top-level", "subprocess"),
++    ]
++
++
++def test_guarda_pureza_deja_pasar_permitido_anidado():
++    """B5-r3 control positivo (c): un import anidado de la lista permitidos
++    sigue pasando en cualquier profundidad (la guarda no se vuelve
++    paranoica)."""
++    codigo = (
++        "import json\n"
++        "\n"
++        "def componer(pares):\n"
++        "    from decimal import Decimal\n"
++        "    import uuid\n"
++        "\n"
++        "    return Decimal(0) + uuid.UUID(int=0) if pares else None\n"
++    )
++    assert _fugas_pureza(codigo) == []

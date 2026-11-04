@@ -1,0 +1,333 @@
+{
+ "sonda": "presupuesto_campana",
+ "platform": "amazon_us",
+ "mutacion": true,
+ "envios": [
+  {
+   "nombre": "minimo",
+   "cuerpo": {
+    "campaigns": [
+     {
+      "campaignId": "138625505369345",
+      "budget": {
+       "budget": 0.01,
+       "budgetType": "DAILY"
+      }
+     }
+    ]
+   },
+   "status": 207,
+   "respuesta": {
+    "campaigns": {
+     "error": [
+      {
+       "errors": [
+        {
+         "errorType": "budgetError",
+         "errorValue": {
+          "budgetError": {
+           "cause": {},
+           "message": "daily budget is lower than the minimum lower bound required by the marketplace",
+           "reason": "BUDGET_OUT_OF_MARKET_PLACE_RANGE"
+          }
+         }
+        }
+       ],
+       "index": 0
+      }
+     ],
+     "success": []
+    }
+   },
+   "rechazado": true
+  },
+  {
+   "nombre": "cambio",
+   "cuerpo": {
+    "campaigns": [
+     {
+      "campaignId": "138625505369345",
+      "budget": {
+       "budget": 10.52,
+       "budgetType": "DAILY"
+      }
+     }
+    ]
+   },
+   "status": 207,
+   "respuesta": {
+    "campaigns": {
+     "error": [],
+     "success": [
+      {
+       "campaignId": "138625505369345",
+       "index": 0
+      }
+     ]
+    }
+   },
+   "rechazado": false
+  },
+  {
+   "nombre": "regreso",
+   "cuerpo": {
+    "campaigns": [
+     {
+      "campaignId": "138625505369345",
+      "budget": {
+       "budget": 9.52,
+       "budgetType": "DAILY"
+      }
+     }
+    ]
+   },
+   "status": 207,
+   "respuesta": {
+    "campaigns": {
+     "error": [],
+     "success": [
+      {
+       "campaignId": "138625505369345",
+       "index": 0
+      }
+     ]
+    }
+   },
+   "rechazado": false
+  }
+ ],
+ "lecturas": [
+  {
+   "etapa": "antes",
+   "campana": {
+    "budget": {
+     "budget": 9.52,
+     "budgetType": "DAILY"
+    },
+    "campaignId": "138625505369345",
+    "dynamicBidding": {
+     "placementBidding": [
+      {
+       "percentage": 40,
+       "placement": "PLACEMENT_PRODUCT_PAGE"
+      }
+     ],
+     "strategy": "LEGACY_FOR_SALES"
+    },
+    "marketplaceBudgetAllocation": "MANUAL",
+    "name": "A1U - Auto Discovery - US",
+    "offAmazonSettings": {},
+    "portfolioId": "168079743265695",
+    "startDate": "2026-03-12",
+    "state": "PAUSED",
+    "tags": {},
+    "targetingType": "AUTO"
+   }
+  },
+  {
+   "etapa": "tras_minimo",
+   "campana": {
+    "budget": {
+     "budget": 9.52,
+     "budgetType": "DAILY"
+    },
+    "campaignId": "138625505369345",
+    "dynamicBidding": {
+     "placementBidding": [
+      {
+       "percentage": 40,
+       "placement": "PLACEMENT_PRODUCT_PAGE"
+      }
+     ],
+     "strategy": "LEGACY_FOR_SALES"
+    },
+    "marketplaceBudgetAllocation": "MANUAL",
+    "name": "A1U - Auto Discovery - US",
+    "offAmazonSettings": {},
+    "portfolioId": "168079743265695",
+    "startDate": "2026-03-12",
+    "state": "PAUSED",
+    "tags": {},
+    "targetingType": "AUTO"
+   }
+  },
+  {
+   "etapa": "tras_cambio",
+   "campana": {
+    "budget": {
+     "budget": 10.52,
+     "budgetType": "DAILY"
+    },
+    "campaignId": "138625505369345",
+    "dynamicBidding": {
+     "placementBidding": [
+      {
+       "percentage": 40,
+       "placement": "PLACEMENT_PRODUCT_PAGE"
+      }
+     ],
+     "strategy": "LEGACY_FOR_SALES"
+    },
+    "marketplaceBudgetAllocation": "MANUAL",
+    "name": "A1U - Auto Discovery - US",
+    "offAmazonSettings": {},
+    "portfolioId": "168079743265695",
+    "startDate": "2026-03-12",
+    "state": "PAUSED",
+    "tags": {},
+    "targetingType": "AUTO"
+   }
+  },
+  {
+   "etapa": "previa_regreso",
+   "campana": {
+    "budget": {
+     "budget": 10.52,
+     "budgetType": "DAILY"
+    },
+    "campaignId": "138625505369345",
+    "dynamicBidding": {
+     "placementBidding": [
+      {
+       "percentage": 40,
+       "placement": "PLACEMENT_PRODUCT_PAGE"
+      }
+     ],
+     "strategy": "LEGACY_FOR_SALES"
+    },
+    "marketplaceBudgetAllocation": "MANUAL",
+    "name": "A1U - Auto Discovery - US",
+    "offAmazonSettings": {},
+    "portfolioId": "168079743265695",
+    "startDate": "2026-03-12",
+    "state": "PAUSED",
+    "tags": {},
+    "targetingType": "AUTO"
+   }
+  },
+  {
+   "etapa": "final",
+   "campana": {
+    "budget": {
+     "budget": 9.52,
+     "budgetType": "DAILY"
+    },
+    "campaignId": "138625505369345",
+    "dynamicBidding": {
+     "placementBidding": [
+      {
+       "percentage": 40,
+       "placement": "PLACEMENT_PRODUCT_PAGE"
+      }
+     ],
+     "strategy": "LEGACY_FOR_SALES"
+    },
+    "marketplaceBudgetAllocation": "MANUAL",
+    "name": "A1U - Auto Discovery - US",
+    "offAmazonSettings": {},
+    "portfolioId": "168079743265695",
+    "startDate": "2026-03-12",
+    "state": "PAUSED",
+    "tags": {},
+    "targetingType": "AUTO"
+   }
+  }
+ ],
+ "perfil_id": 4387591165211712,
+ "campana": {
+  "campaignId": "138625505369345",
+  "name": "A1U - Auto Discovery - US"
+ },
+ "campana_elegida_por": "nombre fijo",
+ "antes": {
+  "budget": {
+   "budget": 9.52,
+   "budgetType": "DAILY"
+  },
+  "campaignId": "138625505369345",
+  "dynamicBidding": {
+   "placementBidding": [
+    {
+     "percentage": 40,
+     "placement": "PLACEMENT_PRODUCT_PAGE"
+    }
+   ],
+   "strategy": "LEGACY_FOR_SALES"
+  },
+  "marketplaceBudgetAllocation": "MANUAL",
+  "name": "A1U - Auto Discovery - US",
+  "offAmazonSettings": {},
+  "portfolioId": "168079743265695",
+  "startDate": "2026-03-12",
+  "state": "PAUSED",
+  "tags": {},
+  "targetingType": "AUTO"
+ },
+ "cuerpos_planeados": {
+  "minimo": {
+   "campaigns": [
+    {
+     "campaignId": "138625505369345",
+     "budget": {
+      "budget": 0.01,
+      "budgetType": "DAILY"
+     }
+    }
+   ]
+  },
+  "cambio": {
+   "campaigns": [
+    {
+     "campaignId": "138625505369345",
+     "budget": {
+      "budget": 10.52,
+      "budgetType": "DAILY"
+     }
+    }
+   ]
+  },
+  "regreso": {
+   "campaigns": [
+    {
+     "campaignId": "138625505369345",
+     "budget": {
+      "budget": 9.52,
+      "budgetType": "DAILY"
+     }
+    }
+   ]
+  }
+ },
+ "minimo": {
+  "aceptado": false,
+  "rechazo_literal": {
+   "campaigns": {
+    "error": [
+     {
+      "errors": [
+       {
+        "errorType": "budgetError",
+        "errorValue": {
+         "budgetError": {
+          "cause": {},
+          "message": "daily budget is lower than the minimum lower bound required by the marketplace",
+          "reason": "BUDGET_OUT_OF_MARKET_PLACE_RANGE"
+         }
+        }
+       }
+      ],
+      "index": 0
+     }
+    ],
+    "success": []
+   }
+  },
+  "numeros_en_rechazo": [
+   "0"
+  ]
+ },
+ "iguales": true,
+ "diferencias": [],
+ "demas_llaves_iguales": true,
+ "resultado": "OK: subio 1 y regreso; la lectura final es igual a antes"
+}

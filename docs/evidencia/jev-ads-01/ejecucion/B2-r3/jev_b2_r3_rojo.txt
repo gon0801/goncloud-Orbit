@@ -1,0 +1,6 @@
+Indeterminado(motivos=frozenset({'missing_state'}))
+Traceback (most recent call last):
+  File "/Users/dn/.local/state/jev-ads-01-loop/repro-B2-r2/repro_plan_sin_anuncios.py", line 29, in <module>
+    assert type(res).__name__ == "NingunoCompatible", f"esperado NingunoCompatible, salio {res}"
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: esperado NingunoCompatible, salio Indeterminado(motivos=frozenset({'missing_state'}))

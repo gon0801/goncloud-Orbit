@@ -1,0 +1,7 @@
+== 8) JSON de la pantalla de busquedas por mercado, con la moneda de su mercado (R13-E)
+FALLA busquedas amazon_mx moneda: esperado 'MXN', obtenido 'USD'
+OK    busquedas amazon_mx plataforma = amazon_mx
+FALLA busquedas amazon_us moneda: esperado 'USD', obtenido 'MXN'
+OK    busquedas amazon_us plataforma = amazon_us
+== RESULTADO: 4 falla(s), 21 sin medir
+exit=1

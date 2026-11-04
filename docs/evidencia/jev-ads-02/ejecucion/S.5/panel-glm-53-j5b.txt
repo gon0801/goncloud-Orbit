@@ -1,0 +1,11 @@
+Veredicto por punto (diff sin commitear de `jev02/s5b-pantallas`, 9 archivos + 2 plantillas nuevas):
+
+1. **OK** — `app/api_dashboard.py:1396-1411` espeja el bloque de asesoria (bandera `True`, try, import tardío, `except` con warning+scrub, dict vacío y `False`); item gana `"senal"` (línea 1453) y la respuesta `"senal_disponible"` (línea 1468).
+2. **OK** — `_propuestas` desempaqueta por posición (`app/jev_senales.py:141`), por eso cortes pide `tuple_row` y restaura `dict_row` en `finally` (api_dashboard.py:1400-1404); `jev_salud.py:277` lee `calculado` por nombre si la fila es dict.
+3. **OK** — `otros_sin_venta` no aparece en ninguna plantilla (solo en fixtures de tests); es dato del contrato, no pintado.
+4. **OK** — `app/jev_salud.py` cambia `ORDER BY s.gasto DESC` → `ORDER BY s.gasto DESC, s.id`; el reorden por proporción en la API es solo dentro de la banda de `relevante_sin_venta`.
+5. **OK** — el diff no toca `componer`, `_solo_no_activo` ni `jev_par_evento_encadenado` (grep en el diff: cero coincidencias; sin migraciones).
+6. **OK** — sin migraciones ni claves/cron jev.* nuevos (los scripts S.5 declaran "no instala cron"); TypeSafe solo aparece en tests (`_transporte_roto` lo prohíbe en el GET); los `<script>` de base.html son preexistentes y sin handlers inline; `banda` se calcula en el endpoint (`_banda_honesta`) y no se persiste (tests afirman conteos jev_* iguales).
+7. **OK** — dos mutantes de una línea: (a) `app/jev_salud.py:277` revertir a `ultima[0]` rompe `test_gasto_sin_venta_acepta_conexion_con_dict_row` (dict no se indexa por 0); (b) en `_banda_honesta` (api_dashboard.py), cambiar `return "sin_dato"` por delegar en `banda_de_proporcion(...)` rompe `test_gasto_sin_venta_nunca_ninguno_sin_roster_probado` (espera banda `sin_dato` y "Ninguno" ausente en HTML). Bonus: `senal_disponible = False` → `True` en el except rompe `test_cortes_senal_ilegible_se_avisa_y_la_pantalla_sigue`.
+
+**Veredicto global: 7/7 OK.** No ejecuté la suite (solo lectura); los veredictos son del código, no de corrida.

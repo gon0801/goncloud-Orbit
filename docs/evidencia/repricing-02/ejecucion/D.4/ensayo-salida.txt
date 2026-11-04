@@ -1,0 +1,21 @@
+== esquema de prod (solo lectura)
+esquema base cargado
+== 1) aplicar la 0073
+psql:/Users/dn/dev/wt/rp02-sec5/migrations/0073_precio02_meli_miembro_costo.sql:9: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+aplicada 0073_precio02_meli_miembro_costo.sql
+== 2) senal de la migracion
+0073 (rama meli en la funcion): 1
+== 3) reversa: esquema identico al base
+psql:/Users/dn/dev/wt/rp02-sec5/migrations/0073_reversa_precio02_meli_miembro_costo.sql:4: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+aplicada 0073_reversa_precio02_meli_miembro_costo.sql
+OK: la reversa deja el esquema identico al base
+== 4) reaplicar la 0073
+psql:/Users/dn/dev/wt/rp02-sec5/migrations/0073_precio02_meli_miembro_costo.sql:9: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+aplicada 0073_precio02_meli_miembro_costo.sql
+OK: reaplicar da el mismo esquema que la primera vez
+0073 (rama meli en la funcion): 1
+ENSAYO OK
+exit=0

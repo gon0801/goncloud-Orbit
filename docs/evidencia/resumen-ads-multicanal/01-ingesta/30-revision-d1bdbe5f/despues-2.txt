@@ -1,0 +1,15 @@
+== HEAD corregido ==
+== Comando 2 ==
+PYTHONPATH=tests:. uv run --frozen python /tmp/orbit_review_inputs.py
+
+UPDATED_AT_INVALIDO 2 {'updated_at ausente o ilegible': 1} 2026-10-29 08:00:00+00:00
+Traceback (most recent call last):
+  File "/tmp/orbit_review_inputs.py", line 108, in <module>
+    caso()
+    ~~~~^^
+  File "/tmp/orbit_review_inputs.py", line 38, in dinero_redondeado
+    valor = _dinero("1.23456")
+  File "/Users/dn/dev/goncloud-Orbit/app/meli/ads_ingest.py", line 323, in _dinero
+    raise MeliAdsError(f"importe con mas de 4 decimales: {valor!r}")
+app.meli.ads_ingest.MeliAdsError: importe con mas de 4 decimales: '1.23456'
+rc=1

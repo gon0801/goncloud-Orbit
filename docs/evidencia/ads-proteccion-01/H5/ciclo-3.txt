@@ -1,0 +1,28 @@
+# H5 sombra — dia 3/5 (2026-09-27 UTC). INICIO_SHADOW=2026-09-25T06:13:41Z.
+# Leido 2026-09-28T02:48Z por el lead, SOLO lectura (BEGIN READ ONLY ... ROLLBACK).
+
+$ optimizer_cycle del dia:
+ id | platform  | mode | status | started             | fin      | decisions | bid | pause | otros
+ 86 | amazon_us | live | done   | 2026-09-27 08:40:02 | 08:40:03 | 14        | 14  | 0     | 0
+ 87 | amazon_mx | live | done   | 2026-09-27 08:41:02 | 08:41:03 | 24        | 24  | 0     | 0
+
+$ skips (notes.skips.entidad):
+ 86 us: campana_no_enabled 1616, entidad_inerte 124, pause_cortes_incompleto 66, estado_no_enabled 36,
+        cooldown_7d 15, sin_banda 15, rango_bloquea_ajuste 1
+ 87 mx: campana_no_enabled 3111, entidad_inerte 223, pause_cortes_incompleto 47, estado_no_enabled 121,
+        cooldown_7d 28, sin_banda 24, bid_actual_ausente 4, rango_bloquea_ajuste 2, bids_incompleto 1
+
+$ mutaciones desde INICIO_SHADOW (condicion R-H5-1):
+ apply_queue.applied_at: 0 | apply_attempt (todos): 0 | apply_attempt normal: 0 | decision_application: 0
+$ goals: shadow 9 (ninguno en otro modo). health: {"status":"ok"}.
+
+Paradas H5.3: (a) 0 PAUSE-nueva; (b) ambos done; (c) cero mutaciones. Ninguna dispara.
+
+Notas para el go de live H5.4 (no son paradas):
+1. En los ciclos 1/5 a 3/5 (82-87) no hubo NINGUNA decision PAUSE: la parada (a) no se
+   ejercita. La sombra prueba cero dano (cero mutaciones, ciclos done), pero no muestra la
+   PAUSE sin cooldown de B.2 funcionando sobre un caso real. pause_cortes_incompleto
+   (47-66 hojas por ciclo) es el motivo que las frena.
+2. Entre el dia 3/5 y el 4/5 se desplego la Fase D (2026-09-28 00:31 UTC: D.2 anti-inversion,
+   D.1b, C.2a; fase-d/deploy.md) y el codigo 649d104 (02:39 UTC, solo /salud). Los dias 4/5 y
+   5/5 corren con ese codigo: D.2 puede frenar bids (skip inversion_sin_evidencia) y no toca PAUSE.

@@ -1,0 +1,86 @@
+FFF                                                                      [100%]
+=================================== FAILURES ===================================
+_______________ test_relacion_no_reconocida_es_error_estructural _______________
+
+    def test_relacion_no_reconocida_es_error_estructural():
+        """Regresion revision automatica B2-r4 (F3): una relacion fuera del
+        contrato no puede contar como juicio y menos producir NingunoCompatible
+        silencioso."""
+        censo = CensoCongelado(miembros=(_miembro(11, F1),), exhaustivo=True)
+        raro = Juicio(
+            intento_id=uuid.uuid4(),
+            clave=ClavePar(
+                termino_literal_sha256="a" * 64,
+                ficha_version_id=F1,
+                contrato_sha256="b" * 64,
+            ),
+            relacion="desconocida",  # type: ignore[arg-type]
+            probabilidades={"desconocida": Decimal("1.00")},
+            confidence=Decimal("0.90"),
+            observado_at=OBS,
+        )
+>       with pytest.raises(ValueError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ValueError
+
+tests/test_jev_ads.py:342: Failed
+___________________ test_listings_vacios_no_registran_ficha ____________________
+
+    @_skip_db
+    def test_listings_vacios_no_registran_ficha():
+        """Regresion revision automatica B2-r4 (F1): array_length('{}',1) es
+        NULL y el CHECK/trigger viejos dejaban pasar una ficha que no cubre
+        nada en tabla append-only."""
+        with db_jev() as conn:
+            producto = _producto(conn)
+>           with pytest.raises(psycopg.errors.CheckViolation):
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           Failed: DID NOT RAISE CheckViolation
+
+tests/test_jev_catalogo.py:375: Failed
+_____________ test_desconocidos_generador_no_corrompe_hash_ni_fila _____________
+
+    @_skip_db
+    def test_desconocidos_generador_no_corrompe_hash_ni_fila():
+        """Regresion revision automatica B2-r4 (F2): desconocidos/hechos/listings
+        se consumen UNA vez; un iterable de un solo uso no puede desalinear el
+        hash guardado con el contenido de la fila."""
+        with db_jev() as conn:
+            producto = _producto(conn)
+            listing = _listing(conn, producto)
+            registro = registrar_ficha(
+                conn,
+                producto_id=producto,
+                plataforma="amazon_mx",
+                listings=iter((listing,)),
+                hechos=iter((("hecho", "fuente"),)),
+                desconocidos=iter(("peso", "material")),
+                aprobador="aprobador",
+                observado_at=AHORA,
+                revisar_antes_de=VENCE,
+            )
+            hash_esperado = hash_ficha(
+                producto_id=producto,
+                plataforma="amazon_mx",
+                listings=(listing,),
+                hechos=(("hecho", "fuente"),),
+                desconocidos=("material", "peso"),
+                aprobador="aprobador",
+                observado_at=AHORA,
+                revisar_antes_de=VENCE,
+            )
+            assert registro.ficha.sha256 == hash_esperado
+>           assert registro.ficha.desconocidos == frozenset({"material", "peso"})
+E           AssertionError: assert frozenset() == frozenset({'m...ial', 'peso'})
+E
+E             Extra items in the right set:
+E             'peso'
+E             'material'
+E             Use -v to get more diff
+
+tests/test_jev_catalogo.py:410: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_jev_ads.py::test_relacion_no_reconocida_es_error_estructural
+FAILED tests/test_jev_catalogo.py::test_listings_vacios_no_registran_ficha - ...
+FAILED tests/test_jev_catalogo.py::test_desconocidos_generador_no_corrompe_hash_ni_fila
+3 failed in 0.71s

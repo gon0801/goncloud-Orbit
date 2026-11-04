@@ -1,0 +1,80 @@
+BEGIN
+SET
+SET
+== 0. Identidad de la sesion
+   rol    | base  | en_recovery
+----------+-------+-------------
+ app_read | orbit | f
+(1 row)
+
+== 1. Roles vigentes (LOGIN orbit_* y grupos app_*)
+    login     | puede_login |   grupo
+--------------+-------------+------------
+ orbit_admin  | t           | app_admin
+ orbit_admin  | t           | app_decide
+ orbit_decide | t           | app_decide
+ orbit_ingest | t           | app_ingest
+ orbit_read   | t           | app_read
+ orbit_test   | t           | app_admin
+ orbit_test   | t           | app_decide
+ orbit_test   | t           | app_ingest
+ orbit_test   | t           | app_read
+(9 rows)
+
+   rolname    | rolcanlogin
+--------------+-------------
+ app_admin    | f
+ app_decide   | f
+ app_ingest   | f
+ app_read     | f
+ orbit        | t
+ orbit_admin  | t
+ orbit_decide | t
+ orbit_ingest | t
+ orbit_read   | t
+ orbit_test   | t
+(10 rows)
+
+== 2. Fichas Jev: tablas esperadas (NULL = no existen aun)
+ jev_ficha_version | jev_ficha_revocacion | jev_revision | jev_par_evento
+-------------------+----------------------+--------------+----------------
+                   |                      |              |
+(1 row)
+
+== 3. Roster de grupos Amazon: exhaustividad declarada
+ platform  | roster_exhaustivo
+-----------+-------------------
+ amazon_mx | desconocido
+ amazon_us | desconocido
+(2 rows)
+
+== 4. Censo de grupos por mercado (agregados; estados ausentes preservados)
+ platform  | grupos_conocidos | grupos_sin_anuncios_observados | grupos_con_ep | grupos_ep_sin_catalogo | grupos_ep_catalogo_incompleto | grupos_con_estado_ausente | anuncios_ep | ep_sin_listing | anuncios_sin_estado
+-----------+------------------+--------------------------------+---------------+------------------------+-------------------------------+---------------------------+-------------+----------------+---------------------
+ amazon_mx |              193 |                            156 |            33 |                      0 |                             1 |                         0 |        6352 |           1597 |                   0
+ amazon_us |               79 |                             31 |            48 |                      0 |                            24 |                         0 |        4554 |            943 |                   0
+(2 rows)
+
+== 5. Casos etiquetables: decisiones negative/harvest por mercado (ultimos 30 dias)
+ platform  |   kind   | decisiones | terminos_distintos | maduras_10d |   desde    |   hasta
+-----------+----------+------------+--------------------+-------------+------------+------------
+ amazon_mx | harvest  |          5 |                  5 |           5 | 2026-09-12 | 2026-10-01
+ amazon_us | negative |          4 |                  2 |           4 | 2026-09-14 | 2026-09-19
+ amazon_us | harvest  |          2 |                  2 |           2 | 2026-09-04 | 2026-09-11
+(3 rows)
+
+== 6. Casos etiquetables: historico completo negative/harvest por mercado
+ platform  |   kind   | decisiones | terminos_distintos |   desde    |   hasta
+-----------+----------+------------+--------------------+------------+------------
+ amazon_mx | negative |          6 |                  2 | 2026-08-24 | 2026-08-24
+ amazon_mx | harvest  |          8 |                  6 | 2026-08-28 | 2026-10-01
+ amazon_us | negative |         46 |                 11 | 2026-08-24 | 2026-09-19
+ amazon_us | harvest  |          3 |                  2 | 2026-08-29 | 2026-09-11
+(4 rows)
+
+== 7. Semillas: bibliotecas por mercado (solo conteos)
+ biblioteca | platform | filas | tipos_producto | desde | alta_mas_reciente
+------------+----------+-------+----------------+-------+-------------------
+(0 rows)
+
+ROLLBACK

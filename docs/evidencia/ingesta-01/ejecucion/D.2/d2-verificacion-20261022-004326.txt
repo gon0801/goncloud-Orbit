@@ -1,0 +1,23 @@
+# ingesta-01 D.2 intento 25 — re-verificacion — 2026-10-22 00:43 UTC
+
+El trabajo `at` de 7 dias (job 9) sigue vigente y el par .sh/.sql del servidor
+sigue siendo el del repo. Nada de D.2 cambia en este intento; re-verificado ahora:
+
+$ atq   (PATH del motor, la Mac)
+9	Wed Oct 28 18:42:00 2026 a claw    # 7 dias: 28-oct 18:42 UTC
+
+$ ssh gonserver atq
+9	Wed Oct 28 18:42:00 2026 a claw
+
+$ ssh gonserver md5sum /mnt/data/appdata/orbit/recordatorios/ingesta01-d2.{sh,sql}
+41e43db818d9f9f035aa7c6e4b77ed3d  ingesta01-d2.sh
+ce06a85a28abff2b6e7838e89f1d1dfd  ingesta01-d2.sql
+
+$ md5 de docs/evidencia/ingesta-01/ejecucion/D.2/medicion-7d.{sh,sql}
+41e43db818d9f9f035aa7c6e4b77ed3d  medicion-7d.sh
+ce06a85a28abff2b6e7838e89f1d1dfd  medicion-7d.sql
+
+El .sql re-probado solo lectura sin enviar nada (evidencia de este intento:
+sql-prueba-20261022-004326.txt, exit 0, BEGIN READ ONLY ... ROLLBACK; 0 rows es
+lo esperado: la ventana de 7 dias empieza el 2026-10-22 y aun no cierra un dia).
+Acepta de D.2 (`atq | grep -q .`) verificado: exit 0.
