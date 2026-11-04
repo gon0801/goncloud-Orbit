@@ -1,1 +1,0 @@
-CONFIG-OK 20 claves precio_*

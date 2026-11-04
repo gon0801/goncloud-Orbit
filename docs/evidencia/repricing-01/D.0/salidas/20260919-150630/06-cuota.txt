@@ -1,2 +1,0 @@
-cuota:precio:amazon_mx|5
-cuota_filas_despues|0
