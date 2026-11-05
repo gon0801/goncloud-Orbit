@@ -50,6 +50,7 @@ def sha_srv(): p = SRV / "sha"; return p.read_text().strip() if p.exists() else 
 
 
 class Corte(Exception): pass
+TERMINALES = ("verificado", "sin_cambios", "abortado_sin_cambios", "revertido")
 CORTE, FALLA_HEALTH, OCUPADO = {}, set(), set()
 
 
@@ -61,7 +62,11 @@ def desplegar(sha):
     """B.1. (0) flock, ultimo.env y SHA_PREVIO; (1) guardas; (2) monotonia; (3) respaldo;
     (5) codigo y sha; (6) claves frente a SHA_PREVIO."""
     L = ult()
-    reanuda = ultimo("MOTOR_SHA", L) == sha and ultimo("ESTADO", L) not in ("ok", "abortado_sin_cambios")
+    cambios = any(l.startswith(("CODIGO=", "MIGRACION=", "CLAVE=")) for l in L)
+    if ultimo("ESTADO", L) == "revirtiendo" or (
+            cambios and ultimo("MOTOR_SHA", L) != sha and ultimo("ESTADO", L) not in TERMINALES):
+        return 1                             # reversa pendiente: no toca nada, el rollback la termina
+    reanuda = ultimo("MOTOR_SHA", L) == sha and ultimo("ESTADO", L) not in TERMINALES
     if sha in OCUPADO:                       # (1) guardas agotadas
         if not reanuda:
             (SRV / "ultimo.env").write_text(f"MOTOR_SHA={sha}\nESTADO=guardas\nSHA_PREVIO={sha_srv()}\n")
@@ -72,7 +77,7 @@ def desplegar(sha):
         (SRV / "ultimo.env").write_text(f"MOTOR_SHA={sha}\nESTADO=guardas\nSHA_PREVIO={sha_srv()}\n")
     L = ult(); prev = primero("SHA_PREVIO", L)          # vale la de la primera corrida
     if prev and contiene(prev, sha):
-        anota("ESTADO=ok"); return 0
+        anota("ESTADO=sin_cambios"); return 0
     if primero("CODIGO", L) is None:                     # (3) una sola vez, completo
         n = len(list(SRV.glob("predeploy-*"))) + 1
         tmp = SRV / f"predeploy-{n}.parcial"; tmp.mkdir()
@@ -89,36 +94,40 @@ def desplegar(sha):
             if k not in ya: anota(f"CLAVE={k}:{cfg().get(k, '')}")   # aunque ya traiga el valor
             set_cfg(k, b.get(k, ""))
             if i == 0: corta(sha, 6)
-    anota("ESTADO=ok"); return 0
+    anota("ESTADO=desplegado"); return 0
 
 
 def checklist(sha):
     """B.2 checklist."""
     L = ult(); prev = primero("SHA_PREVIO", L)
     if not contiene(sha_srv(), sha) or sha in FALLA_HEALTH: return 1
-    if prev and contiene(prev, sha): return 0             # monotonia: no se exigen claves
-    claves = {l.split("=", 1)[1].split(":")[0] for l in L if l.startswith("CLAVE=")}
-    a, b = inter(prev), inter(sha)
-    if any(a.get(k, "") != b.get(k, "") and k not in claves for k in set(a) | set(b)): return 1
-    return 1 if any(cfg().get(k, "") != b.get(k, "") for k in claves) else 0
+    if not (prev and contiene(prev, sha)):                # monotonia: no se exigen claves
+        claves = {l.split("=", 1)[1].split(":")[0] for l in L if l.startswith("CLAVE=")}
+        a, b = inter(prev), inter(sha)
+        if any(a.get(k, "") != b.get(k, "") and k not in claves for k in set(a) | set(b)): return 1
+        if any(cfg().get(k, "") != b.get(k, "") for k in claves): return 1
+    if ultimo("MOTOR_SHA", L) == sha and ultimo("ESTADO", L) != "verificado": anota("ESTADO=verificado")
+    return 0
 
 
 def rollback(sha):
     """B.2 rollback: solo lo anotado por este MOTOR_SHA; primera CODIGO y primera CLAVE por clave."""
     L = ult()
-    if (ultimo("MOTOR_SHA", L) != sha or "ESTADO=abortado_sin_cambios" in L
+    if (ultimo("MOTOR_SHA", L) != sha or ultimo("ESTADO", L) in ("abortado_sin_cambios", "revertido")
             or not any(l.startswith(("CLAVE=", "CODIGO=", "MIGRACION=")) for l in L)):
         return 0
+    if ultimo("ESTADO", L) != "revirtiendo": anota("ESTADO=revirtiendo")
     vistos = set()
     for k, previo in (l.split("=", 1)[1].split(":", 1) for l in L if l.startswith("CLAVE=")):
         if k in vistos: continue
         vistos.add(k)
         if cfg().get(k, "") != previo: set_cfg(k, previo)
+        corta(sha, "rb")                                 # muere a media reversa
     st = primero("CODIGO", L)
     if st: shutil.copy(SRV / st / "app.txt", SRV / "app.txt")
     prev = primero("SHA_PREVIO", L)
     (SRV / "sha").write_text(prev) if prev else (SRV / "sha").unlink(missing_ok=True)
-    return 1
+    anota("ESTADO=revertido"); return 1
 
 
 INICIADOS = set()
@@ -131,7 +140,11 @@ def motor(tag):
     except Corte:
         return "cortado"
     if rc == 0 and checklist(sha) == 0: return "ok"
-    rollback(sha); return f"fallo_{rc}"
+    try:
+        corta(sha, "pre_rb"); rollback(sha)               # el motor puede morir antes o durante
+    except Corte:
+        return "cortado"
+    return f"fallo_{rc}"
 
 
 def reset(config=None):
@@ -185,6 +198,15 @@ def escenarios():
     except (FileNotFoundError, OSError):
         ok = False
     r["corte a media copia del respaldo y rollback: restaura el codigo completo"] = ok
+
+    reset(); inicial = estado(); FALLA_HEALTH.add(rev("Fm")); CORTE[rev("Fm")] = "pre_rb"; motor("Fm")
+    motor("Fm")
+    r["corte entre checklist rojo y rollback: la reanudacion conserva el diario y revierte"] = estado() == inicial
+
+    reset(); inicial = estado(); FALLA_HEALTH.add(rev("Fm")); CORTE[rev("Fm")] = "rb"; motor("Fm")
+    medio = estado(); res = motor("Fm")
+    r["rollback cortado a la mitad: desplegar no toca nada y el rollback termina"] = (
+        medio != inicial and res == "fallo_1" and estado() == inicial)
     return r
 
 

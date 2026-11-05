@@ -74,7 +74,7 @@ Convergencias (señal fuerte, se adoptan sin injerto): kind `pause` sobre `produ
 Un modelo TLA+ de la pausa de un product ad con el plan construido (bloques H e I), revisado con pstack **statechart**, encontró dos reglas rotas en 384 estados. Las dos se confirmaron contra el código y el plan:
 
 1. **Una propuesta de práctica tapa a la real.** Camino: interruptor en práctica, el ciclo propone, se enciende en vivo. Una fila `shadow` jamás se libera, solo `app_admin` puede descartarla (trigger de 0002) y mientras siga abierta bloquea la clave del anuncio (`_SQL_CLAVES_BLOQUEADAS`), así que el ciclo lo salta con `veto_pendiente` para siempre. El plan encendía sin cerrarlas. Corrección: fila **I.7** y supuesto **S18** (encender cierra en bloque las prácticas de product ad, como el cambio a vivo de ORBIT 05).
-2. **Vuelve a pausar lo que el dueño regresó.** Camino de 9 pasos: pausa, el dueño lo regresa, el ciclo lo vuelve a proponer porque la ventana sigue sin ventas, y solo el veto de 48 h lo detiene. Las keywords tienen 7 días de gracia (`docs/APPLY.md` §3.3); los product ads no la tenían. Corrección: fila **H.7** y supuesto **S17** (gracia de 7 días desde `repuesto_el`, o desde `reactivacion_manual.detectada_en` si se reactivó en Amazon).
+2. **Vuelve a pausar lo que el dueño regresó.** Camino de 9 pasos: pausa, el dueño lo regresa, el ciclo lo vuelve a proponer porque la ventana sigue sin ventas, y solo el veto de 48 h lo detiene. Las keywords tienen 7 días de gracia (`docs/APPLY.md` §3.3); los product ads no la tenían. Corrección: fila **H.7** y supuesto **S17** (gracia de 7 días desde `anuncio_reposicion.repuesto_el`; si se reactivó directo en Amazon, el ciclo cierra el retiro con `actor='reactivacion_manual_amazon'` y esa `repuesto_el` abre la gracia).
 
 Con ambas correcciones el modelo corregido cumple las seis reglas en 304 estados: solo en vivo, nunca con venta, nunca con otra mezcla, un solo cobro, la práctica no tapa a la real y no re-pausa en la gracia. La regla 2 quedó acotada a la gracia: pasados los 7 días, Orbit puede volver a proponer y el dueño tiene sus 48 h de veto. Modelos, vistas, diagramas y reportes en `statechart/antes/` y `statechart/despues/`. El modelo deja fuera varios anuncios a la vez, la cuota agotada, los tiempos reales y la meta por producto; un dato desconocido cuenta como venta.
 
@@ -129,6 +129,16 @@ Pasada 2 (`revision-astra-2.md`): los 8 puntos quedaron corregidos; trajo 3 bloq
 1. `SET search_path = public` deja buscar primero tablas temporales; una función `SECURITY DEFINER` podía leer tablas suplantadas. Ahora fija `pg_catalog, public, pg_temp`, cualifica con `public.` y revoca EXECUTE de PUBLIC.
 2. La vista proponía retiros que la función rechazaba (el retiro no actualiza `ad_entity_state`, `app/retiro_anuncios.py:205`), y el rechazo abortaba TX3. La vista usa los mismos predicados y la función devuelve NULL en vez de lanzar.
 3. La función no tomaba el candado `retiro-ad:` de retiro y reposición (`app/retiro_anuncios.py:251`); chocaba con un `repone` concurrente. Ahora lo intenta sin esperar y relee bajo él.
+
+## Revisión cruzada de Kimi (2026-11-05)
+
+David la pidió después de Astra. Kimi (`kimi -p`, en una copia aparte de a5efac2f, sin escribir en ella) revisó el plan completo y pidió cambios: 13 bloqueantes y 2 notas. Comprobé contra el código los de mayor riesgo (1, 2, 9 y 10, además de los nombres que cita el resto) y corregí los 15 en una ronda. Reporte completo en `revision-kimi.md`.
+
+- Despliegue (1, 8, 13). Un corte entre checklist rojo y rollback hacía que el motor (`goncloud-motor/motor/effects.py:695-729`) repitiera `desplegar`, que borraba el diario y dejaba el rollback sin nada que deshacer. El diario distingue ahora `desplegado` de `verificado` y registra `revirtiendo`, `revertido` y `rollback_incompleto`. El modelo suma los dos cortes (13 escenarios, y detecta la falla al reintroducirla). B.5 prueba también `--ensayo` y el `flock`.
+- Datos (2). La ingesta descarta filas inválidas y aun así sella `written` y `ok`; S6 contaba esa fecha como cero. D.7 agrega `cobertura_integra`.
+- Dinero (3, 4, 6, 7, 12). Reactivar en Amazon antes del sync ya no deja mandar otro PUT; la pausa no acepta `live` antes de I.7; una muerte entre intento e intención se cierra en `failed`; una pausa confirmada sella intento y resumen; las firmas de I.3 reciben el `Aplicador`.
+- Permisos (5). El trigger de retiro fija su `search_path`, porque `app_decide` gana INSERT.
+- Evidencia (9, 10, 11, 14). `concilia` ya no escribe en la base y concilia también el tramo maduro del halo de la meta; `meta_live` acepta abstenciones; F.1 e I.2 guardan su salida con `tee`.
 
 ## Next implementation step
 
