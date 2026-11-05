@@ -1,0 +1,581 @@
+{
+  "consultado_utc": "2026-11-05T00:51:56.424074+00:00",
+  "modo": "ORBIT_DSN_READ; BEGIN READ ONLY; statement_timeout=15s",
+  "consultas": {
+    "episodios": {
+      "sql": "SELECT id,profile_id,platform,tipo,opened_at,opened_run_id,alert_sent_at,recovered_at,recovered_run_id,recovery_sent_at,closed_at FROM ads_ingest_incident WHERE opened_at >= '2026-09-30' ORDER BY id",
+      "filas": [
+        {
+          "id": 3,
+          "profile_id": 3850003733258937,
+          "platform": "amazon_mx",
+          "tipo": "fallo",
+          "opened_at": "2026-10-10 07:50:46.512384+00:00",
+          "opened_run_id": 716,
+          "alert_sent_at": "2026-10-10 07:50:46.517292+00:00",
+          "recovered_at": "2026-10-11 07:45:38.531489+00:00",
+          "recovered_run_id": 734,
+          "recovery_sent_at": "2026-10-11 07:45:38.534795+00:00",
+          "closed_at": "2026-10-11 07:45:38.534795+00:00"
+        },
+        {
+          "id": 4,
+          "profile_id": 4387591165211712,
+          "platform": "amazon_us",
+          "tipo": "fallo",
+          "opened_at": "2026-10-10 07:50:46.512384+00:00",
+          "opened_run_id": 716,
+          "alert_sent_at": "2026-10-10 07:50:46.517292+00:00",
+          "recovered_at": "2026-10-11 07:45:38.531489+00:00",
+          "recovered_run_id": 734,
+          "recovery_sent_at": "2026-10-11 07:45:38.534795+00:00",
+          "closed_at": "2026-10-11 07:45:38.534795+00:00"
+        },
+        {
+          "id": 5,
+          "profile_id": 3850003733258937,
+          "platform": "amazon_mx",
+          "tipo": "atraso",
+          "opened_at": "2026-10-10 10:30:02.123890+00:00",
+          "opened_run_id": null,
+          "alert_sent_at": "2026-10-10 10:30:02.131229+00:00",
+          "recovered_at": "2026-10-11 07:45:38.531489+00:00",
+          "recovered_run_id": 734,
+          "recovery_sent_at": "2026-10-11 07:45:38.534795+00:00",
+          "closed_at": "2026-10-11 07:45:38.534795+00:00"
+        },
+        {
+          "id": 6,
+          "profile_id": 4387591165211712,
+          "platform": "amazon_us",
+          "tipo": "atraso",
+          "opened_at": "2026-10-10 10:30:02.123890+00:00",
+          "opened_run_id": null,
+          "alert_sent_at": "2026-10-10 10:30:02.131229+00:00",
+          "recovered_at": "2026-10-11 07:45:38.531489+00:00",
+          "recovered_run_id": 734,
+          "recovery_sent_at": "2026-10-11 07:45:38.534795+00:00",
+          "closed_at": "2026-10-11 07:45:38.534795+00:00"
+        },
+        {
+          "id": 35,
+          "profile_id": 3850003733258937,
+          "platform": "amazon_mx",
+          "tipo": "fallo",
+          "opened_at": "2026-10-14 09:28:10.717952+00:00",
+          "opened_run_id": 797,
+          "alert_sent_at": "2026-10-14 09:28:10.723408+00:00",
+          "recovered_at": "2026-10-17 07:52:18.167007+00:00",
+          "recovered_run_id": 888,
+          "recovery_sent_at": "2026-10-17 07:52:18.169327+00:00",
+          "closed_at": "2026-10-17 07:52:18.169327+00:00"
+        },
+        {
+          "id": 36,
+          "profile_id": 4387591165211712,
+          "platform": "amazon_us",
+          "tipo": "fallo",
+          "opened_at": "2026-10-14 09:28:10.717952+00:00",
+          "opened_run_id": 797,
+          "alert_sent_at": "2026-10-14 09:28:10.723408+00:00",
+          "recovered_at": "2026-10-17 07:52:18.167007+00:00",
+          "recovered_run_id": 888,
+          "recovery_sent_at": "2026-10-17 07:52:18.169327+00:00",
+          "closed_at": "2026-10-17 07:52:18.169327+00:00"
+        },
+        {
+          "id": 37,
+          "profile_id": 3850003733258937,
+          "platform": "amazon_mx",
+          "tipo": "atraso",
+          "opened_at": "2026-10-14 10:30:02.625941+00:00",
+          "opened_run_id": null,
+          "alert_sent_at": "2026-10-14 10:30:02.634774+00:00",
+          "recovered_at": "2026-10-17 07:52:18.167007+00:00",
+          "recovered_run_id": 888,
+          "recovery_sent_at": "2026-10-17 07:52:18.169327+00:00",
+          "closed_at": "2026-10-17 07:52:18.169327+00:00"
+        },
+        {
+          "id": 38,
+          "profile_id": 4387591165211712,
+          "platform": "amazon_us",
+          "tipo": "atraso",
+          "opened_at": "2026-10-14 10:30:02.625941+00:00",
+          "opened_run_id": null,
+          "alert_sent_at": "2026-10-14 10:30:02.634774+00:00",
+          "recovered_at": "2026-10-17 07:52:18.167007+00:00",
+          "recovered_run_id": 888,
+          "recovery_sent_at": "2026-10-17 07:52:18.169327+00:00",
+          "closed_at": "2026-10-17 07:52:18.169327+00:00"
+        },
+        {
+          "id": 131,
+          "profile_id": 3850003733258937,
+          "platform": "amazon_mx",
+          "tipo": "fallo",
+          "opened_at": "2026-10-19 09:01:04.172345+00:00",
+          "opened_run_id": 938,
+          "alert_sent_at": "2026-10-19 09:01:04.177387+00:00",
+          "recovered_at": "2026-10-22 07:19:34.912611+00:00",
+          "recovered_run_id": 1011,
+          "recovery_sent_at": "2026-10-22 07:19:34.915517+00:00",
+          "closed_at": "2026-10-22 07:19:34.915517+00:00"
+        },
+        {
+          "id": 132,
+          "profile_id": 4387591165211712,
+          "platform": "amazon_us",
+          "tipo": "fallo",
+          "opened_at": "2026-10-19 09:01:04.172345+00:00",
+          "opened_run_id": 938,
+          "alert_sent_at": "2026-10-19 09:01:04.177387+00:00",
+          "recovered_at": "2026-10-22 07:19:34.912611+00:00",
+          "recovered_run_id": 1011,
+          "recovery_sent_at": "2026-10-22 07:19:34.915517+00:00",
+          "closed_at": "2026-10-22 07:19:34.915517+00:00"
+        },
+        {
+          "id": 133,
+          "profile_id": 3850003733258937,
+          "platform": "amazon_mx",
+          "tipo": "atraso",
+          "opened_at": "2026-10-19 10:30:02.709899+00:00",
+          "opened_run_id": null,
+          "alert_sent_at": "2026-10-19 10:30:02.721543+00:00",
+          "recovered_at": "2026-10-22 07:19:34.912611+00:00",
+          "recovered_run_id": 1011,
+          "recovery_sent_at": "2026-10-22 07:19:34.915517+00:00",
+          "closed_at": "2026-10-22 07:19:34.915517+00:00"
+        },
+        {
+          "id": 134,
+          "profile_id": 4387591165211712,
+          "platform": "amazon_us",
+          "tipo": "atraso",
+          "opened_at": "2026-10-19 10:30:02.709899+00:00",
+          "opened_run_id": null,
+          "alert_sent_at": "2026-10-19 10:30:02.721543+00:00",
+          "recovered_at": "2026-10-22 07:19:34.912611+00:00",
+          "recovered_run_id": 1011,
+          "recovery_sent_at": "2026-10-22 07:19:34.915517+00:00",
+          "closed_at": "2026-10-22 07:19:34.915517+00:00"
+        }
+      ]
+    },
+    "recovery_sin_soporte": {
+      "sql": "SELECT i.id FROM ads_ingest_incident i LEFT JOIN ingest_run r ON r.id=i.recovered_run_id WHERE i.recovered_at IS NOT NULL AND (r.id IS NULL OR r.ok IS DISTINCT FROM true OR r.source <> 'amazon_ads_reports_v3' OR NOT EXISTS (SELECT 1 FROM ads_report_result a WHERE a.ingest_run_id=r.id AND a.status='written' AND (i.profile_id IS NULL OR a.profile_id=i.profile_id) AND (i.platform IS NULL OR a.platform=i.platform)))",
+      "filas": []
+    },
+    "principal_7d": {
+      "sql": "SELECT (r.finished_at AT TIME ZONE 'UTC')::date AS dia,a.profile_id,a.platform,count(DISTINCT r.id) AS corridas_ok,count(*) AS reportes_written,min(r.finished_at) AS primer_fin_ok,max(r.finished_at) AS ultimo_fin_ok FROM ingest_run r JOIN ads_report_result a ON a.ingest_run_id=r.id WHERE r.source='amazon_ads_reports_v3' AND r.ok=true AND a.status='written' AND r.finished_at >= '2026-10-29 00:00+00' AND r.finished_at < '2026-11-05 00:00+00' GROUP BY 1,2,3 ORDER BY 1,2,3",
+      "filas": [
+        {
+          "dia": "2026-10-29",
+          "profile_id": 3850003733258937,
+          "platform": "amazon_mx",
+          "corridas_ok": 1,
+          "reportes_written": 4,
+          "primer_fin_ok": "2026-10-29 07:21:11.602406+00:00",
+          "ultimo_fin_ok": "2026-10-29 07:21:11.602406+00:00"
+        },
+        {
+          "dia": "2026-10-29",
+          "profile_id": 4387591165211712,
+          "platform": "amazon_us",
+          "corridas_ok": 1,
+          "reportes_written": 4,
+          "primer_fin_ok": "2026-10-29 07:21:11.602406+00:00",
+          "ultimo_fin_ok": "2026-10-29 07:21:11.602406+00:00"
+        },
+        {
+          "dia": "2026-10-30",
+          "profile_id": 3850003733258937,
+          "platform": "amazon_mx",
+          "corridas_ok": 1,
+          "reportes_written": 4,
+          "primer_fin_ok": "2026-10-30 07:14:46.805792+00:00",
+          "ultimo_fin_ok": "2026-10-30 07:14:46.805792+00:00"
+        },
+        {
+          "dia": "2026-10-30",
+          "profile_id": 4387591165211712,
+          "platform": "amazon_us",
+          "corridas_ok": 1,
+          "reportes_written": 4,
+          "primer_fin_ok": "2026-10-30 07:14:46.805792+00:00",
+          "ultimo_fin_ok": "2026-10-30 07:14:46.805792+00:00"
+        },
+        {
+          "dia": "2026-10-31",
+          "profile_id": 3850003733258937,
+          "platform": "amazon_mx",
+          "corridas_ok": 1,
+          "reportes_written": 4,
+          "primer_fin_ok": "2026-10-31 07:13:41.804698+00:00",
+          "ultimo_fin_ok": "2026-10-31 07:13:41.804698+00:00"
+        },
+        {
+          "dia": "2026-10-31",
+          "profile_id": 4387591165211712,
+          "platform": "amazon_us",
+          "corridas_ok": 1,
+          "reportes_written": 4,
+          "primer_fin_ok": "2026-10-31 07:13:41.804698+00:00",
+          "ultimo_fin_ok": "2026-10-31 07:13:41.804698+00:00"
+        },
+        {
+          "dia": "2026-11-01",
+          "profile_id": 3850003733258937,
+          "platform": "amazon_mx",
+          "corridas_ok": 1,
+          "reportes_written": 4,
+          "primer_fin_ok": "2026-11-01 07:14:52.440923+00:00",
+          "ultimo_fin_ok": "2026-11-01 07:14:52.440923+00:00"
+        },
+        {
+          "dia": "2026-11-01",
+          "profile_id": 4387591165211712,
+          "platform": "amazon_us",
+          "corridas_ok": 1,
+          "reportes_written": 4,
+          "primer_fin_ok": "2026-11-01 07:14:52.440923+00:00",
+          "ultimo_fin_ok": "2026-11-01 07:14:52.440923+00:00"
+        },
+        {
+          "dia": "2026-11-02",
+          "profile_id": 3850003733258937,
+          "platform": "amazon_mx",
+          "corridas_ok": 1,
+          "reportes_written": 4,
+          "primer_fin_ok": "2026-11-02 07:27:39.793070+00:00",
+          "ultimo_fin_ok": "2026-11-02 07:27:39.793070+00:00"
+        },
+        {
+          "dia": "2026-11-02",
+          "profile_id": 4387591165211712,
+          "platform": "amazon_us",
+          "corridas_ok": 1,
+          "reportes_written": 4,
+          "primer_fin_ok": "2026-11-02 07:27:39.793070+00:00",
+          "ultimo_fin_ok": "2026-11-02 07:27:39.793070+00:00"
+        },
+        {
+          "dia": "2026-11-03",
+          "profile_id": 3850003733258937,
+          "platform": "amazon_mx",
+          "corridas_ok": 1,
+          "reportes_written": 4,
+          "primer_fin_ok": "2026-11-03 07:20:08.184394+00:00",
+          "ultimo_fin_ok": "2026-11-03 07:20:08.184394+00:00"
+        },
+        {
+          "dia": "2026-11-03",
+          "profile_id": 4387591165211712,
+          "platform": "amazon_us",
+          "corridas_ok": 1,
+          "reportes_written": 4,
+          "primer_fin_ok": "2026-11-03 07:20:08.184394+00:00",
+          "ultimo_fin_ok": "2026-11-03 07:20:08.184394+00:00"
+        },
+        {
+          "dia": "2026-11-04",
+          "profile_id": 3850003733258937,
+          "platform": "amazon_mx",
+          "corridas_ok": 1,
+          "reportes_written": 4,
+          "primer_fin_ok": "2026-11-04 07:26:39.852294+00:00",
+          "ultimo_fin_ok": "2026-11-04 07:26:39.852294+00:00"
+        },
+        {
+          "dia": "2026-11-04",
+          "profile_id": 4387591165211712,
+          "platform": "amazon_us",
+          "corridas_ok": 1,
+          "reportes_written": 4,
+          "primer_fin_ok": "2026-11-04 07:26:39.852294+00:00",
+          "ultimo_fin_ok": "2026-11-04 07:26:39.852294+00:00"
+        }
+      ]
+    },
+    "pausa": {
+      "sql": "SELECT d.id,d.ad_entity_id,d.decided_at,d.window_start,d.window_end,d.inputs,d.config_version_id,e.platform,e.kind,e.external_id,a.attempted_at,a.confirmed_at,a.verify_ok,a.platform_ack FROM decision d JOIN ad_entity e ON e.id=d.ad_entity_id JOIN decision_application a ON a.decision_id=d.id WHERE d.id=2736",
+      "filas": [
+        {
+          "id": 2736,
+          "ad_entity_id": 5892,
+          "decided_at": "2026-10-05 08:40:01.858222+00:00",
+          "window_start": "2026-08-27",
+          "window_end": "2026-09-25",
+          "inputs": {
+            "goal": {
+              "scope": "platform",
+              "harvest": {
+                "moneda": "USD",
+                "ad_group_id": "522582072501798",
+                "campaign_id": "251723662158466",
+                "default_bid": "0.6800"
+              },
+              "bid_floor": "0.1000",
+              "bid_ceiling": "2.5000",
+              "target_acos_pct": null
+            },
+            "modo": "live",
+            "corte": {
+              "elegible": true,
+              "evidencia": {
+                "clicks": 1061,
+                "fechas": 80,
+                "orders": 18,
+                "ventana_desde": "2026-07-07",
+                "ventana_hasta": "2026-09-25",
+                "observed_at_max": "2026-10-05T07:53:43.581406+00:00"
+              },
+              "cost_min_usado": "40",
+              "expected_clicks": "58.94444444444444444444444444",
+              "umbral_clicks_usado": 100,
+              "cero_ventas_expected_usado": "58.94444444444444444444444444"
+            },
+            "motor": "bid",
+            "factor": null,
+            "motivo": "pause_umbral",
+            "platform": "amazon_us",
+            "ventanas": {
+              "bids": {
+                "cost": "116.1600",
+                "clicks": 161,
+                "fechas": 30,
+                "moneda": "USD",
+                "orders": 0,
+                "ad_revenue": "0.0000",
+                "window_end": "2026-10-01",
+                "window_start": "2026-09-02",
+                "observed_at_max": "2026-10-05T07:53:43.581406+00:00",
+                "revenue_same_sku": "0.0000"
+              },
+              "cortes": {
+                "cost": "144.9000",
+                "clicks": 196,
+                "fechas": 30,
+                "moneda": "USD",
+                "orders": 0,
+                "ad_revenue": "0.0000",
+                "window_end": "2026-09-25",
+                "window_start": "2026-08-27",
+                "observed_at_max": "2026-10-05T07:53:43.581406+00:00",
+                "revenue_same_sku": "0.0000"
+              }
+            },
+            "bid_actual": "0.2800",
+            "bid_moneda": "USD",
+            "evidencia_v2": {
+              "via": "pause_intacto",
+              "politica": "evidencia_v2",
+              "veredicto": {
+                "kind": "pause",
+                "factor": null,
+                "motivo": "pause_umbral",
+                "new_value": null
+              },
+              "abstencion_v2": null
+            },
+            "economic_policy": {
+              "cost": "144.9000",
+              "exceso": "144.9000000000000000000000000",
+              "moneda": "USD",
+              "target": "18.28800671318536604262923115",
+              "revenue": "0.0000",
+              "version": null,
+              "window_end": "2026-09-25",
+              "window_start": "2026-08-27",
+              "exceso_minimo": "80",
+              "multiplicador": "3",
+              "target_procedencia": "margen_plataforma"
+            },
+            "target_snapshot": {
+              "moneda": "MXN",
+              "setting": "20",
+              "fraccion": "0.9",
+              "cobertura": "0.98826573115375903825",
+              "procedencia": "margen_plataforma",
+              "venta_total": "450639.0700",
+              "ventana_desde": "2026-06-22",
+              "ventana_hasta": "2026-09-20",
+              "ultimo_avisado": "17.28800671318536604262923115",
+              "margen_neto_pct": "32.2130497411713216857986703",
+              "target_aplicado": "18.28800671318536604262923115",
+              "target_derivado": "28.99174476705418951721880327",
+              "ledger_fresco_at": "2026-10-05T08:15:05.351109+00:00",
+              "motivo_abstencion": null,
+              "ad_revenue_ventana": null,
+              "convergiendo_a_setting": false
+            },
+            "target_procedencia": "margen_plataforma",
+            "politica_bandas_usada": "bandas_v1",
+            "target_acos_pct_usado": "18.28800671318536604262923115",
+            "cooldown_policy_version": "pause_after_bid_v1",
+            "inversion_policy_version": null
+          },
+          "config_version_id": 22,
+          "platform": "amazon_us",
+          "kind": "product_target",
+          "external_id": "555998919865227",
+          "attempted_at": "2026-10-07 08:40:05.417819+00:00",
+          "confirmed_at": "2026-10-07 08:40:05.417819+00:00",
+          "verify_ok": true,
+          "platform_ack": {
+            "targetingClauses": {
+              "error": [],
+              "success": [
+                {
+                  "index": 0,
+                  "targetId": "555998919865227"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "bids_previos": {
+      "sql": "SELECT d.id,d.kind,d.decided_at,d.old_value,d.new_value,a.confirmed_at,a.verify_ok FROM decision d LEFT JOIN decision_application a ON a.decision_id=d.id WHERE d.ad_entity_id=(SELECT ad_entity_id FROM decision WHERE id=2736) AND d.decided_at <= (SELECT decided_at FROM decision WHERE id=2736) ORDER BY d.decided_at DESC LIMIT 15",
+      "filas": [
+        {
+          "id": 2736,
+          "kind": "pause",
+          "decided_at": "2026-10-05 08:40:01.858222+00:00",
+          "old_value": null,
+          "new_value": null,
+          "confirmed_at": "2026-10-07 08:40:05.417819+00:00",
+          "verify_ok": true
+        },
+        {
+          "id": 2654,
+          "kind": "bid",
+          "decided_at": "2026-09-30 08:40:02.123799+00:00",
+          "old_value": "0.3800",
+          "new_value": "0.285000",
+          "confirmed_at": "2026-09-30 08:40:05.488275+00:00",
+          "verify_ok": true
+        },
+        {
+          "id": 2587,
+          "kind": "bid",
+          "decided_at": "2026-09-29 08:40:02.532864+00:00",
+          "old_value": "0.3800",
+          "new_value": "0.285000",
+          "confirmed_at": null,
+          "verify_ok": null
+        },
+        {
+          "id": 2525,
+          "kind": "bid",
+          "decided_at": "2026-09-28 08:40:02.162043+00:00",
+          "old_value": "0.3800",
+          "new_value": "0.285000",
+          "confirmed_at": null,
+          "verify_ok": null
+        },
+        {
+          "id": 2382,
+          "kind": "bid",
+          "decided_at": "2026-09-20 08:40:01.913607+00:00",
+          "old_value": "0.5000",
+          "new_value": "0.375000",
+          "confirmed_at": "2026-09-20 08:40:03.800696+00:00",
+          "verify_ok": true
+        },
+        {
+          "id": 2291,
+          "kind": "bid",
+          "decided_at": "2026-09-12 08:40:02.480508+00:00",
+          "old_value": "0.6600",
+          "new_value": "0.495000",
+          "confirmed_at": "2026-09-12 08:40:04.060066+00:00",
+          "verify_ok": true
+        },
+        {
+          "id": 2204,
+          "kind": "bid",
+          "decided_at": "2026-09-04 08:40:01.962847+00:00",
+          "old_value": "0.5700",
+          "new_value": "0.655500",
+          "confirmed_at": "2026-09-04 08:40:10.327718+00:00",
+          "verify_ok": true
+        },
+        {
+          "id": 2161,
+          "kind": "bid",
+          "decided_at": "2026-09-03 08:40:01.780595+00:00",
+          "old_value": "0.5700",
+          "new_value": "0.655500",
+          "confirmed_at": null,
+          "verify_ok": null
+        },
+        {
+          "id": 2054,
+          "kind": "bid",
+          "decided_at": "2026-09-02 16:12:50.781232+00:00",
+          "old_value": "0.5700",
+          "new_value": "0.655500",
+          "confirmed_at": null,
+          "verify_ok": null
+        },
+        {
+          "id": 1931,
+          "kind": "bid",
+          "decided_at": "2026-09-02 08:40:02.411021+00:00",
+          "old_value": "0.5700",
+          "new_value": "0.655500",
+          "confirmed_at": null,
+          "verify_ok": null
+        },
+        {
+          "id": 1807,
+          "kind": "bid",
+          "decided_at": "2026-09-01 08:40:01.882947+00:00",
+          "old_value": "0.5700",
+          "new_value": "0.655500",
+          "confirmed_at": null,
+          "verify_ok": null
+        },
+        {
+          "id": 1683,
+          "kind": "bid",
+          "decided_at": "2026-08-31 08:40:01.770436+00:00",
+          "old_value": "0.5700",
+          "new_value": "0.655500",
+          "confirmed_at": null,
+          "verify_ok": null
+        },
+        {
+          "id": 1559,
+          "kind": "bid",
+          "decided_at": "2026-08-30 08:40:01.846947+00:00",
+          "old_value": "0.5700",
+          "new_value": "0.655500",
+          "confirmed_at": null,
+          "verify_ok": null
+        },
+        {
+          "id": 1471,
+          "kind": "bid",
+          "decided_at": "2026-08-29 21:57:59.741287+00:00",
+          "old_value": "0.5700",
+          "new_value": "0.655500",
+          "confirmed_at": null,
+          "verify_ok": null
+        },
+        {
+          "id": 1334,
+          "kind": "bid",
+          "decided_at": "2026-08-29 08:40:02.383803+00:00",
+          "old_value": "0.5700",
+          "new_value": "0.655500",
+          "confirmed_at": null,
+          "verify_ok": null
+        }
+      ]
+    }
+  }
+}

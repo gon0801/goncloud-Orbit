@@ -1,5 +1,7 @@
 # BIDS 01 — cero ventas baja −25% (relativo al producto) + entidades sin tráfico fuera del motor, reportadas y archivables
 
+> **Seguimiento 4-nov-2026:** el plan permanece cerrado. El primer lote manual de archivo sigue diferido y el ledger está vacío (ROADMAP P07). La fecha 4-oct no autorizó archivados automáticos.
+
 > **Propósito**: cerrar los dos huecos de diseño que la verificación
 > adversarial triple de ORBIT 05 (tarea 2.1, 2026-09-02) vio EN VIVO: (1) una
 > palabra que gasta y no vende nada solo puede bajar −12% por día; (2) el

@@ -1,5 +1,8 @@
 # Orbit — contexto del proyecto
 
+> Estado de entregas y pendientes: [ROADMAP actualizado](../plans/ROADMAP.md).
+> Este documento conserva reglas y decisiones; las secciones de migración describen su época.
+
 > **Stack (decidido 2026-08-22):** Python + FastAPI + PostgreSQL (en Docker, en
 > el servidor propio junto a `bridge` y `accounting`). Sin Redis/colas hasta
 > que la carga real lo justifique. La sugerencia de Supabase quedó descartada:
@@ -248,7 +251,11 @@ No dependen del código. Resumen mínimo (detalle y números en Traspaso 2 §3):
 - Shopify, Google Ads y Meta **no existen** (esqueleto sin cuenta en el viejo):
   no buscar esas credenciales.
 
-## Estado del servidor viejo (para la migración de credenciales)
+## Estado del servidor viejo al planificar la migración (histórico)
+
+El apagado y la migración se completaron en ORBIT 02. La lista siguiente es
+la foto anterior al apagado del 22-ago-2026, no el estado actual. Solo la
+rotación de cloudflared (3.4) sigue diferida: [ROADMAP P06](../plans/ROADMAP.md#pendientes-de-operación-y-cierre).
 
 - Hay motores en **live** escribiendo a Amazon Ads; el scheduling real son 147
   jobs de APScheduler dentro del contenedor, **no el cron**. Apagado seguro:

@@ -1,0 +1,262 @@
+{
+  "consultado_utc": "2026-11-05T00:34:52.514759+00:00",
+  "modo": "READ ONLY",
+  "consultas": {
+    "pausas": {
+      "sql": "SELECT count(*) AS aplicadas,max(a.confirmed_at) AS ultima FROM decision d JOIN decision_application a ON a.decision_id=d.id WHERE d.kind='pause' AND a.verify_ok AND a.confirmed_at >= '2026-09-30'",
+      "filas": [
+        {
+          "aplicadas": 1,
+          "ultima": "2026-10-07 08:40:05.417819+00:00"
+        }
+      ]
+    },
+    "harvest_grupos": {
+      "sql": "SELECT count(*) AS jobs_grupo FROM harvest_job h JOIN decision d ON d.id=h.decision_id WHERE d.inputs::text LIKE '%\"resuelto_por\": \"grupo\"%'",
+      "filas": [
+        {
+          "jobs_grupo": 0
+        }
+      ]
+    },
+    "precios_meli_dia": {
+      "sql": "SELECT fecha,sum(decisiones) AS decisiones,sum(movidas) AS movidas,sum(errores) AS errores,count(*) AS corridas FROM precio_corrida WHERE platform='meli' AND fecha >= '2026-11-02' GROUP BY fecha ORDER BY fecha",
+      "filas": [
+        {
+          "fecha": "2026-11-02",
+          "decisiones": 45,
+          "movidas": 0,
+          "errores": 0,
+          "corridas": 6
+        },
+        {
+          "fecha": "2026-11-03",
+          "decisiones": 45,
+          "movidas": 0,
+          "errores": 0,
+          "corridas": 6
+        },
+        {
+          "fecha": "2026-11-04",
+          "decisiones": 45,
+          "movidas": 0,
+          "errores": 0,
+          "corridas": 6
+        }
+      ]
+    },
+    "costos_esquema": {
+      "sql": "SELECT column_name FROM information_schema.columns WHERE table_name='estimacion_escenario' ORDER BY ordinal_position",
+      "filas": [
+        {
+          "column_name": "id"
+        },
+        {
+          "column_name": "listing_id"
+        },
+        {
+          "column_name": "platform"
+        },
+        {
+          "column_name": "seller_sku"
+        },
+        {
+          "column_name": "asin"
+        },
+        {
+          "column_name": "canal"
+        },
+        {
+          "column_name": "valoracion_date"
+        },
+        {
+          "column_name": "observed_at"
+        },
+        {
+          "column_name": "politica_version_id"
+        },
+        {
+          "column_name": "formula_version"
+        },
+        {
+          "column_name": "oferta_observation_id"
+        },
+        {
+          "column_name": "fee_observation_id"
+        },
+        {
+          "column_name": "sku_cost_id"
+        },
+        {
+          "column_name": "costo_validation_run_id"
+        },
+        {
+          "column_name": "costo_validated_at"
+        },
+        {
+          "column_name": "fx_rate_date"
+        },
+        {
+          "column_name": "fx_base"
+        },
+        {
+          "column_name": "fx_quote"
+        },
+        {
+          "column_name": "fx_rate"
+        },
+        {
+          "column_name": "fx_source"
+        },
+        {
+          "column_name": "moneda"
+        },
+        {
+          "column_name": "contribucion"
+        },
+        {
+          "column_name": "contribucion_pct"
+        },
+        {
+          "column_name": "estado"
+        },
+        {
+          "column_name": "motivos"
+        },
+        {
+          "column_name": "componentes"
+        },
+        {
+          "column_name": "exclusiones"
+        },
+        {
+          "column_name": "canonical_input"
+        },
+        {
+          "column_name": "context_fingerprint"
+        },
+        {
+          "column_name": "source_event_id"
+        },
+        {
+          "column_name": "envio_muestra_id"
+        },
+        {
+          "column_name": "logistica_origen"
+        },
+        {
+          "column_name": "miembro_product_id"
+        },
+        {
+          "column_name": "fee_variable"
+        },
+        {
+          "column_name": "fee_fijo"
+        },
+        {
+          "column_name": "fee_cotizable"
+        }
+      ]
+    }
+  },
+  "guardas_22_28_oct": [
+    {
+      "dia": "2026-10-22",
+      "platform": "amazon_mx",
+      "metricas": true,
+      "productos": true,
+      "placements": true
+    },
+    {
+      "dia": "2026-10-22",
+      "platform": "amazon_us",
+      "metricas": true,
+      "productos": true,
+      "placements": true
+    },
+    {
+      "dia": "2026-10-23",
+      "platform": "amazon_mx",
+      "metricas": true,
+      "productos": true,
+      "placements": true
+    },
+    {
+      "dia": "2026-10-23",
+      "platform": "amazon_us",
+      "metricas": true,
+      "productos": true,
+      "placements": true
+    },
+    {
+      "dia": "2026-10-24",
+      "platform": "amazon_mx",
+      "metricas": true,
+      "productos": true,
+      "placements": true
+    },
+    {
+      "dia": "2026-10-24",
+      "platform": "amazon_us",
+      "metricas": true,
+      "productos": true,
+      "placements": true
+    },
+    {
+      "dia": "2026-10-25",
+      "platform": "amazon_mx",
+      "metricas": true,
+      "productos": true,
+      "placements": true
+    },
+    {
+      "dia": "2026-10-25",
+      "platform": "amazon_us",
+      "metricas": true,
+      "productos": true,
+      "placements": true
+    },
+    {
+      "dia": "2026-10-26",
+      "platform": "amazon_mx",
+      "metricas": true,
+      "productos": true,
+      "placements": true
+    },
+    {
+      "dia": "2026-10-26",
+      "platform": "amazon_us",
+      "metricas": true,
+      "productos": true,
+      "placements": true
+    },
+    {
+      "dia": "2026-10-27",
+      "platform": "amazon_mx",
+      "metricas": true,
+      "productos": true,
+      "placements": true
+    },
+    {
+      "dia": "2026-10-27",
+      "platform": "amazon_us",
+      "metricas": true,
+      "productos": true,
+      "placements": true
+    },
+    {
+      "dia": "2026-10-28",
+      "platform": "amazon_mx",
+      "metricas": true,
+      "productos": true,
+      "placements": true
+    },
+    {
+      "dia": "2026-10-28",
+      "platform": "amazon_us",
+      "metricas": true,
+      "productos": true,
+      "placements": true
+    }
+  ]
+}

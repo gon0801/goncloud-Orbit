@@ -1,5 +1,7 @@
 # ADS PROTECCION 01 — datos frescos y cortes que frenan gasto anormal
 
+> **Estado al 4-nov-2026: A.4/A.4r/B.4 completados; P03 conserva C.6.** Siete días de vigilancia, 12 recuperaciones y PAUSE causal conciliada con Amazon; checker corregido y verificado, entrega en PR #523. C.6 sigue apagada y tiene [preparación actualizada](#preparacion-vigente-de-c6--4-nov-2026) frente a BIDS 02. [Evidencia](../docs/evidencia/quick-wins-2026-11-04/README.md). Las secciones antiguas conservan su fecha e historia.
+
 > **Proposito.** Cerrar los cuatro huecos observados al pausar A1U/AU2 Exact:
 > ingesta principal tardia, PAUSE bloqueada por cooldown de bids, falta de
 > proteccion economica aunque haya ventas o el umbral adaptativo crezca, y
@@ -78,8 +80,8 @@
 | A.2 | `[Contrato+datos]` `[lane:gate]` `[tdd:required]` Distinguir pipeline principal de productos y resultado por perfil/plataforma/reporte; registrar fallo global si ocurre antes de identificar perfil; usar datos existentes antes de migrar | Test rojo previo: tres fallos principales con productos `ok=true` se leen como fallo principal; perfil/reporte fallido no se presenta como todo sano ni se atribuye a otro; consulta prueba grano y permisos; migracion solo si fuente actual insuficiente | A.1 | cc:完了 #333 merge 8cfe7b0 (CI gate+rapido pass; review bot + H3/pre-merge.md; desplegado: 0040 en prod + codigo en H5 25bded0 (arrastrado a ad79eeb; 25bded0 ancestro verificado); observacion 7d = A.4) |
 | A.3d | `[Decision]` `[lane:gate]` `[tdd:skip:decision-operador]` Resolver el bloqueo repetido de A.3: una recuperacion pendiente puede impedir un fallo o atraso nuevo; Quality Kit exige decision del operador antes de otra correccion | Registrar la decision literal del dueno y el caso reproducible de ambas secuencias; si no se autoriza una nueva correccion, A.3/A.4/C.6 siguen pausadas | A.2 | cc:完了 decision literal 24-sep-2026 "Corregir simetrico (Recomendado)" + caso ambas secuencias (A.3d/caso.md) + definiciones (A.3d/definiciones.md) |
 | A.3 | `[Salud+aviso]` `[lane:gate]` `[tdd:required]` Exponer ultima corrida principal exitosa, fecha metrica y edad por plataforma; Telegram al fallo, a las 10:30 UTC sin exito de hoy y al recuperarse | A.2 produce aviso por incidente aunque `cycle=done`; productos no lo limpia; fallo y atraso nuevos no se pierden tras una recuperacion pending; entrega HTTP fallida queda pending y reintenta sin duplicar; recovery solo tras exito principal y alerta entregada; estados terminal/superseded, cadencia por episodio y ejecucion observable del chequeo 10:30 quedan definidos antes de implementacion; `/salud` muestra fuente, fecha y estado de entrega sin secretos | A.2, A.3d | cc:完了 #340 merge b3b2c8e (CI pass; opus r4 APROBADO CON OBSERVACIONES docs/evidencia/ads-proteccion-01/A.3/review-a3-r4-opus.md + CodeRabbit; bateria completa: dispatch sobre 6aed71b + completa success sobre el merge b3b2c8e en master (run 36102980643); sin dispatch sobre el head revisado 7accc9e (delta posterior docs + 1 assert; arbol distinto por squash); desplegado en ad79eeb; residuales M6 (`episodios_abiertos` scoped sin test) y M3 (cancel global inalcanzable, mutante equivalente documentado)) |
-| A.4 | `[Release]` `[lane:release]` `[tdd:skip:verificacion-operativa]` Preparar release de A.2/A.3 sin activar por arrastre el cambio B.2; comprobar cron y avisos sin tocar otros servicios | Runbook posterior fija metodo seguro y plazo de observacion de alerta/recovery; CI completo, cross-review, SHA/backup y readback de `/salud` e `ingest_run` por perfil/plataforma; aislamiento B.2 comprobado; checklist de deploy una vez por SHA, despues del go de deploy | A.3, B.2a | cc:WIP; codigo A.2/A.3 desplegado. Cron `ads-salud` instalado con go el 30-sep 02:04 UTC, con backup y checker verde (`H4/cron-instalado.md`). Primera corrida util programada 10:30 UTC: dos unidades, cero episodios; reintentos hasta 12:50. Ingesta principal run 534 exitosa, ocho reportes `written`, cero incidentes nuevos (`H4/primer-cron-2026-09-30.md`). Observacion del cron 1/7 (30-sep a 6-oct); sin fallo real aun, recovery pendiente de fallo real. |
-| A.4r | `[Mantenimiento]` `[lane:gate]` `[tdd:required]` Resolver residuales no bloqueantes de la revision de #374: igualar el comentario de `ads-salud` en el instalador con el instalado en `gon`, y hacer que el checker distinga crontab ausente de error operativo con pruebas de cero, una, dos y una linea distinta | Comentario documentado y real coinciden; el checker conserva los errores reales y las pruebas ejecutan el script con un `crontab` simulado | A.4 | cc:WIP; codigo y ocho pruebas focalizadas en #374, candados y CI completo verdes sobre `869bc93`; checker productivo exit 0. Falta integrar el PR. No condiciona los siete dias de A.4. |
+| A.4 | `[Release]` `[lane:release]` `[tdd:skip:verificacion-operativa]` Preparar release de A.2/A.3 sin activar por arrastre el cambio B.2; comprobar cron y avisos sin tocar otros servicios | Runbook posterior fija metodo seguro y plazo de observacion de alerta/recovery; CI completo, cross-review, SHA/backup y readback de `/salud` e `ingest_run` por perfil/plataforma; aislamiento B.2 comprobado; checklist de deploy una vez por SHA, despues del go de deploy | A.3, B.2a | cc:完了; cierre operativo 4-nov (lecturas 5-nov UTC): 29-oct–4-nov, cron 10:30 e ingesta principal 7/7 por perfil y cuatro reportes; 12 avisos/recovery, cero abiertos o recovery sin soporte. /salud actual conciliado; serie histórica en DB/logs, sin inventar capturas HTTP ni historial Telegram. Release previo conservado. Evidencia quick-wins-2026-11-04/alertas-pausa/resultado.md; mantenimiento A.4r separado. |
+| A.4r | `[Mantenimiento]` `[lane:gate]` `[tdd:required]` Resolver residuales no bloqueantes de la revision de #374: igualar el comentario de `ads-salud` en el instalador con el instalado en `gon`, y hacer que el checker distinga crontab ausente de error operativo con pruebas de cero, una, dos y una linea distinta | Comentario documentado y real coinciden; el checker conserva los errores reales y las pruebas ejecutan el script con un `crontab` simulado | A.4 | cc:完了; corrección y validación 4-nov, entrega PR #523. Checker acepta raw y cron-avisa exactos, conserva errores y rechazo de duplicados; regresión roja previa, ocho pruebas verdes y lectura remota exit 0. No se reinstaló cron. Evidencia quick-wins-2026-11-04/cron/README.md. |
 
 ## Fase B — PAUSE no espera al cooldown de bids [lane:gate]
 
@@ -89,7 +91,7 @@
 | B.2 | `[Motor]` `[lane:gate]` `[tdd:required]` Separar PAUSE del cooldown originado por BID, sin dos decisiones por entidad/ciclo ni loop tras reversa | Prueba roja previa: 4925 propone PAUSE el 14-sep y BID queda en cooldown; PAUSE aplicada/revertida conserva sus 7d; falta de madurez, `None`, PAUSED, veto pendiente, inertes y frontera exacta discriminan | B.1 | cc:完了 #332 merge beae9ec (CI pass; review bot; desplegado en sombra H5 25bded0; live pendiente de B.4) |
 | B.2a | `[Contencion]` `[lane:release]` `[tdd:required]` Resolver la exposicion de B.2 en `master` antes de cualquier deploy, incluido A.4 | Registrar SHA productivo y goals/modos efectivos; demostrar mediante test y readback que el deploy no activa la PAUSE nueva sin go, o elegir y verificar revert; runbook incluye rollback. Sin evidencia, bloquear deploy | B.2 | cc:完了 #339 merge f40270d (CI pass; H2/medicion.md: SHA prod + goals/modos; B.2a/flag.md: test + readback + rollback; encendido config 21 en H5) |
 | B.3 | `[Replay]` `[lane:gate]` `[tdd:required]` Congelar procedencia y era para replay, medir propuestas historicas y validar el recorrido cola→48h→revalidacion→apply | Replay de 11–19 sep conserva decisiones antiguas y muestra candidatos nuevos desde el 14; target, config, cache y estado se toman as-of cuando exista historial; lo no reconstruible se marca `unknown` y no cuenta como apply posible; no afirma ahorro ni fecha de apply contrafactual; comparar con readback externo de applies reales | B.2 | cc:完了 #335 merge 93bcdab (CI pass; review bot + H3/pre-merge.md; docs/evidencia/ads/B.3/replay-4925.sql + reporte.md; era pause_after_bid_v1 congelada) |
-| B.4 | `[Release]` `[lane:release]` `[tdd:skip:activacion-operativa]` Validar B.2/B.3 en shadow y preparar posible live | Runbook posterior fija ciclos shadow, criterio de parada y rollback; CI completo, cross-review y evidencia de B.3; go de merge, go de deploy y go de live separados; ninguna activacion por el mero deploy de A.4 | B.2a, B.3 | cc:WIP; sombra H5 observada 5/5 (ciclos 82-91 `done`, cero mutaciones y cero PAUSE nuevas). H5.4 live autorizado y ejecutado el 30-sep 03:04 UTC: IDs 4-12 `live` (9/9). Primeros ciclos live 92/93 `done`: 69 bids con readback `verify_ok=true`, cero PAUSE nuevas, cero applies con origen shadow; cosecha 2707 pendiente de veto hasta 2-oct (`H5/primer-live-2026-09-30.md`). Falta integrar la evidencia del PR #373; la rama PAUSE nueva sigue sin caso natural. Residual F6 cerrado con comando/salida y reversa en `H5/live-h5-4.md`. |
+| B.4 | `[Release]` `[lane:release]` `[tdd:skip:activacion-operativa]` Validar B.2/B.3 en shadow y preparar posible live | Runbook posterior fija ciclos shadow, criterio de parada y rollback; CI completo, cross-review y evidencia de B.3; go de merge, go de deploy y go de live separados; ninguna activacion por el mero deploy de A.4 | B.2a, B.3 | cc:完了; cierre operativo 4-nov con H5 histórico (cinco días shadow y live autorizado) y caso natural causal: BID 2654 confirmado 30-sep; PAUSE 2736 decidida 5-oct, dentro de siete días, confirmada 7-oct con verify_ok. Amazon leído 5-nov 00:52 UTC: target y parentesco coincidentes, PAUSED. Motivo pause_umbral; no cierra C.6. Evidencia quick-wins-2026-11-04/alertas-pausa/resultado.md. |
 
 ## Fase C — proteccion economica con ventas y por campana [lane:gate]
 
@@ -103,7 +105,7 @@
 | C.3 | `[Hoja]` `[lane:gate]` `[tdd:required]` Implementar limite economico de C.1 en keyword/product_target y separar su revalidacion de la antigua regla `orders=0` en `apply_cola` | Tests rojos previos: 2423 compara limite literal, cero ventas segun decision final, 100→231 clics, floor, venta tardia, `None`, moneda invalida e inmadurez; una venta sobre limite recorre decision→cola→48h→revalidacion→apply/readback; si deja de cruzarlo se descarta antes del cobro, tambien tras espera por quota; version congelada para replay y politica/target vigentes al aplicar; reactivacion manual y reversa conservadas; aislamiento off por defecto probado antes de merge. Rama preparada no se mergea antes de C.2b | C.2b, B.3 | cc:完了 #341 merge 024c1f7 (CI pass; opus APROBADO docs/evidencia/ads-proteccion-01/C.3/review-c3-opus.md; desplegado en ad79eeb, flag off fail-closed; merge previo al literal C.2b declarado en C.2b/aceptacion.md) |
 | C.4 | `[Campana]` `[lane:gate]` `[tdd:required]` Medir campana desde una unica fuente de dinero; emitir propuesta trazable con ancestros y limites visibles en registro separado de `apply_queue` | A1U/AU2 muestran costo, `sales30d` atribuido, target, ventana, estado y motivo; sin doble conteo ni propuesta sobre PAUSED manual; identidad de episodio y dedupe ante cron repetido, retry, venta tardia y cambio de target; propuesta visible por una superficie definida en el runbook, con entrega fallida observable. Rama preparada no se mergea antes de C.2b | C.2b | cc:完了 #342 merge 787869a (CI pass; opus APROBADO docs/evidencia/ads-proteccion-01/C.4/review-c4-opus.md + rb2 + rb3; desplegado en ad79eeb; misma desviacion C.2b declarada) |
 | C.5 | `[Cierre humano]` `[lane:gate]` `[tdd:required]` Tras propuesta, el dueno pausa manualmente en Amazon o la descarta; Orbit sincroniza estructura y cierra solo con readback `PAUSED` del mismo campaignId/profile, sin escribir PAUSE/RESUME de campana | Runbook define el canal visible y el descarte autenticado con rol minimo; propuesta revisada con campana ENABLED sigue pendiente; descarte no muta Amazon; PAUSED externo cierra con snapshot/fecha sin inferir autor ni causalidad; cola descendiente no aplica tras el readback; cron repetido no duplica ni reabre hasta nuevo episodio; cero llamadas de mutacion de campana | C.4 | cc:完了 #344 merge ad79eeb (CI pass; CodeRabbit + AI review pass; DoD en C.5/cierre.md; desplegado H6/deploy-c5.md: 0041+0042+0043 + endpoint 200/401; deploy sin go literal registrado, desviacion declarada; master rojo en bateria completa desde ad79eeb hasta #347 (run 36167946686, 1 failed/3432 passed; D.1/deploy.md); #351 absorcion opcion b (merge del PR 345af51; merge interno a256cff, solo-comentario en tests, bateria 3421 passed, 13 skipped, opus APROBADO; C.5/absorcion.md); pausa manual pendiente: open = []) |
-| C.6 | `[Release]` `[lane:release]` `[tdd:skip:despliegue-y-medicion]` Preparar shadow, review cruzada, CI completo, rampa live y seguimiento de resultados maduros; incluir A.3 como senal de datos | Runbook posterior fija ciclos shadow, riesgo aceptado en C.2b, criterio de parada y rollback; comparar candidatos vs applies y resultados por campana/hoja sin lookahead; cero mutaciones sin readback o reversa; deploy y live con go separados y checklist una vez por SHA final | C.3, C.5, A.4, B.4 | cc:TODO; BLOQUEADO hasta cerrar A.4 y B.4 (primer live H5.4 verificado; B.4 espera integrar #373; A.4 observa el cron 1/7; C.6 exige su propio INICIO_SHADOW, runbook H6.4) |
+| C.6 | `[Release]` `[lane:release]` `[tdd:skip:preparacion-documental-y-medicion]` Preparar y ejecutar unidades C6-P1..P5 del apendice vigente: fotografia/replay RO, compatibilidad BIDS 02, expediente de sombra, cinco ciclos propios y live separado | P1/P2 reproducibles sin escrituras; sombra con alcance global, reversa, SHA/CI/review y go H6.4; cinco ciclos sin mutaciones; live con go separado y riesgo C.2b (10d, 0 FP, sin piso propio); seguimiento maduro con readback externo | C.3, C.5, A.4, B.4 | cc:TODO; [preparacion 4-nov](#preparacion-vigente-de-c6--4-nov-2026). Config 42 sin ads_pause_economica; A.4/B.4 cerradas no la activan. PAUSE 2736 no es economica. |
 
 ## Fase D — huecos del analisis Kimi 24-sep [lane:gate]
 
@@ -187,3 +189,68 @@ La revision de este plan no concede ningun go. El merge/deploy del PR #329
 fue autorizado aparte el 24-sep-2026; no autoriza cambiar goals, presupuesto
 ni reactivar campanas. El runbook se redactara despues de aprobar el alcance
 del plan y presentara por separado cada operacion pendiente.
+
+
+## Preparacion vigente de C6 — 4-nov-2026
+
+Actualiza solo C.6; no abre otro plan ni cambia dependencias. Alcance autorizado
+ahora: preparacion, sin modificar config, goals, Amazon ni modos productivos.
+**Spec skip reason:** sin cambio de regla economica, modalidad manual de campana
+ni gates H6; se concilian fuentes y ejecucion con BIDS 02 desplegado.
+Contratos: [proteccion](../docs/superpowers/specs/2026-09-24-ads-proteccion-design.md),
+[BIDS 02](bids-02.md), [H6.4](../docs/runbooks/ads-proteccion-01.md#h6--c2b-c3-c4-c5-y-c6-proteccion-economica)
+y [C.2b](../docs/evidencia/ads-proteccion-01/C.2b/aceptacion.md).
+
+**Compatibilidad.** `niveles_v3` conserva el bloque PAUSE y su revalidacion;
+su encendido directo y rejuego de bids no sustituyen los cinco ciclos propios
+C6. La cascada vigente ya no tiene `cache_estado` ni `default` (T.1/0063):
+la frase historica del spec «si corresponde» no los restaura. Sin target,
+abstencion `sin_target`, nunca 55 ni cero. La PAUSE tradicional conserva
+prioridad sobre la economica. No fijar como vigente un target de septiembre.
+Hoja = keyword/product_target; campana = propuesta manual, nunca mutacion
+automatica PAUSE/RESUME de campana.
+
+| Unidad | Resultado y responsable | Entrada y DoD verificable | Salida / parada |
+| --- | --- | --- | --- |
+| C6-P1 | Agente: fotografia RO vigente | Releer config, SHA productivo, goals/IDs/modos, caps, cola/ledger, salud por perfil y propuestas; READ ONLY, timeout 15s, fecha UTC, sin secretos. Reutilizar primero evidencia existente | Expediente con diferencias contra config 42 y desconocidos. Lecturas sin pedir nueva autorizacion |
+| C6-P2 | Agente: replay economico RO frente a BIDS 02 | Fechas recientes explicitas; cortes >=10d, >=7 fechas, Decimal/moneda, observado <= reloj y target congelado/procedencia; campaign y leaf separados. Casos con/sin ventas y sin target; candidatos por fuente de target y elegibilidad, veto/revalidacion desconocidos | Una senal economica no equivale a decision elegible ni apply posible. FP al horizonte 10d impide live; sin observacion futura es unknown, nunca FP=0 |
+| C6-P3 | Agente: expediente previo a sombra, sin ejecutar | P1/P2 listos; SHA final, CI, review y reversa comprobada. Inventario vigente de escritores/cola en vuelo; coordinacion con BIDS 02/impulsos y FABRICA 02 D.3 si sigue vigente. Presentar IDs, efecto global cero-applies cinco dias, config anterior/nueva y comandos/readbacks de parada/reversa | Go H6.4 antes del cambio productivo. Si se propone reducir alcance global o sustituir cinco ciclos, cambio de alcance y correccion aprobada del runbook antes de ejecutar |
+| C6-P4 | Operador/agente autorizado: sombra H6.4 | Go especifico de deploy/sombra; si codigo ya coincide, justificar equivalencia sin inventar redeploy. Inicio H6 propio e IDs exactos antes live; flag solo bajo aislamiento comprobado | Cinco ciclos Ads en cinco dias, done, candidatos explicados por replay y cero mutaciones desde inicio: apply_queue + apply_attempt + decision_application. Mutacion inesperada, fallo, candidato inexplicable o FP frena live |
+| C6-P5 | Operador/agente autorizado: live y seguimiento | P4 completa; go live separado con C.2b (10d, 0 FP, sin piso propio), IDs/caps explicitos, sin targets/budgets por arrastre | Readback config/modos; candidatos vs vetos/descartes/applies por moneda/grano; veto 48h, revalidacion vigente pre-claim, cuota, ledger, readback Amazon y reversa. Cohortes hasta horizonte 10d. Sin caso natural declarar no observado y mantener C6 abierto; no provocar gasto/pausas para cerrar |
+
+**Siguiente unidad: C6-P1, seguida de P2, ambas lectura autorizada.** Fuentes y
+comandos existentes en el [expediente](../docs/evidencia/quick-wins-2026-11-04/c6-preparacion/README.md).
+No crear `H6/inicio.txt` durante preparacion: certificaria un inicio inexistente.
+
+**Reutilizar / revalidar.** A.4/B.4 y C.2b no se repiten: conservar fechas y
+conciliacion externa. C.3/C.4/C.5, C.2a y sus tests son evidencia historica
+sobre sus SHAs; comprobar compatibilidad sobre SHA final si hay delta.
+Revalidar salud/config/goals/caps/cola/identidades al iniciar cada operacion;
+los nueve IDs y config 21 de H5 no son inventario actual. C.2 historico no
+mide riesgo actual con `niveles_v3`; congelados desconocidos siguen unknown.
+No afirmar ahorro ni causalidad neta por un antes/despues.
+
+**Parada / reversa.** Quitar el flag no basta: una fila economica pendiente
+puede calificar por PAUSE tradicional en la revalidacion. P3 enumera filas
+economicas en vuelo y demuestra su contencion antes de restaurar live.
+Apagar flag no reanuda hojas pausadas: reversa existente con ledger/readback,
+sin borrar cooldown y autorizada sobre IDs concretos. Parar Orbit no detiene
+gasto Amazon. Rollback de codigo por regla 3 del runbook, sin revertir
+BIDS 02 u otros cambios por arrastre. Restaurar modos solo a IDs/valores
+capturados, nunca `WHERE mode='shadow'` sin lista.
+
+**Decisiones humanas.** P1/P2 no necesitan permiso adicional. Compatibilidad
+demostrada deja los gos separados de cambio productivo H6.4 y live; si hace
+falta codigo, merge/deploy conservan los gates existentes. Cambiar regla,
+horizonte/tolerancia/piso, alcance de sombra o modalidad de campana exige
+decision de producto. Dato desconocido exige lectura o unknown, no una
+pregunta de permiso. No hay campana concreta que pausar por esta preparacion.
+
+**Validacion.** Spec/producto y tareas conciliados; memoria reutilizada:
+decisiones C.0/C.2b, H5/H6 y BIDS 02 versionadas, sin presumir acceso a otra
+memoria. Graphify consultado antes de leer codigo: confirma fuentes que se
+cotejaron directamente (PAUSE comun, flag fail-closed, target vigente al
+revalidar). Ruff/pre-commit/CI ya configurados; sin codigo ni tests nuevos de
+texto. Revision independiente Producto/Arquitectura/Seguridad/QA/Skeptic
+coordinada por host (`team_validation_mode: subagent`); dictamen al expediente
+antes de integrar. C.6 conserva cc:TODO.

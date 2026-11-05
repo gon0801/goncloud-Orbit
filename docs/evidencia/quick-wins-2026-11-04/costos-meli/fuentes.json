@@ -1,0 +1,589 @@
+{
+  "fecha_utc": "2026-11-05T01:17:25.121392+00:00",
+  "modo": "SQLite mode=ro, query_only, transacciones de lectura por fuente; no snapshot conjunto",
+  "filas": [
+    {
+      "item_id": "MLM2163407464",
+      "sku": "NH-CAR-BLA-CEN-DOR",
+      "bridge_cache": [],
+      "bridge_mapping": [],
+      "faltante": {
+        "sku": "NH-CAR-BLA-PEZ-DOR",
+        "costos": [],
+        "bom": [],
+        "mapping": []
+      },
+      "accounting_costos": [
+        {
+          "id": 122,
+          "sku": "NH-CAR-BLA-CEN-DOR",
+          "cost": "301.5",
+          "currency": "MXN",
+          "valid_from": null,
+          "valid_to": "2026-08-18 05:00:07",
+          "source": "odoo_sync",
+          "created_at": "2026-02-20 05:00:02"
+        },
+        {
+          "id": 1087,
+          "sku": "NH-CAR-BLA-CEN-DOR",
+          "cost": "277.03",
+          "currency": "MXN",
+          "valid_from": "2026-08-18 05:00:07",
+          "valid_to": "2026-08-18 06:00:07",
+          "source": "odoo_sync",
+          "created_at": "2026-08-18 05:00:07"
+        },
+        {
+          "id": 1813,
+          "sku": "NH-CAR-BLA-CEN-DOR",
+          "cost": "292.03",
+          "currency": "MXN",
+          "valid_from": "2026-08-18 06:00:07",
+          "valid_to": "2026-08-18 07:00:06",
+          "source": "odoo_sync",
+          "created_at": "2026-08-18 06:00:07"
+        },
+        {
+          "id": 2080,
+          "sku": "NH-CAR-BLA-CEN-DOR",
+          "cost": "304.65",
+          "currency": "MXN",
+          "valid_from": "2026-08-18 07:00:06",
+          "valid_to": null,
+          "source": "odoo_sync",
+          "created_at": "2026-08-18 07:00:06"
+        }
+      ],
+      "accounting_bom": [
+        {
+          "id": 958,
+          "odoo_bom_id": 1574,
+          "product_sku": "NH-CAR-BLA-CEN-DOR",
+          "product_name": "NH - Carte Blanco 16mm Dorado",
+          "updated_at": "2026-03-30T23:01:02.146532"
+        }
+      ]
+    },
+    {
+      "item_id": "MLM1890653227",
+      "sku": "NH-CAR-BLA-CEN-PLA",
+      "bridge_cache": [],
+      "bridge_mapping": [],
+      "faltante": {
+        "sku": "NH-CAR-BLA-PEZ-PLA",
+        "costos": [],
+        "bom": [],
+        "mapping": []
+      },
+      "accounting_costos": [
+        {
+          "id": 123,
+          "sku": "NH-CAR-BLA-CEN-PLA",
+          "cost": "301.5",
+          "currency": "MXN",
+          "valid_from": null,
+          "valid_to": "2026-08-18 05:00:07",
+          "source": "odoo_sync",
+          "created_at": "2026-02-20 05:00:02"
+        },
+        {
+          "id": 1088,
+          "sku": "NH-CAR-BLA-CEN-PLA",
+          "cost": "277.03",
+          "currency": "MXN",
+          "valid_from": "2026-08-18 05:00:07",
+          "valid_to": "2026-08-18 06:00:07",
+          "source": "odoo_sync",
+          "created_at": "2026-08-18 05:00:07"
+        },
+        {
+          "id": 1814,
+          "sku": "NH-CAR-BLA-CEN-PLA",
+          "cost": "292.03",
+          "currency": "MXN",
+          "valid_from": "2026-08-18 06:00:07",
+          "valid_to": "2026-08-18 07:00:06",
+          "source": "odoo_sync",
+          "created_at": "2026-08-18 06:00:07"
+        },
+        {
+          "id": 2081,
+          "sku": "NH-CAR-BLA-CEN-PLA",
+          "cost": "304.65",
+          "currency": "MXN",
+          "valid_from": "2026-08-18 07:00:06",
+          "valid_to": null,
+          "source": "odoo_sync",
+          "created_at": "2026-08-18 07:00:06"
+        }
+      ],
+      "accounting_bom": [
+        {
+          "id": 959,
+          "odoo_bom_id": 1575,
+          "product_sku": "NH-CAR-BLA-CEN-PLA",
+          "product_name": "NH - Carte Blanco 16mm Plateado",
+          "updated_at": "2026-03-30T23:01:02.146532"
+        }
+      ]
+    },
+    {
+      "item_id": "MLM4735255462",
+      "sku": "NH-BLA-BRO-CEN-DOR",
+      "bridge_cache": [
+        {
+          "item_id": "MLM4735255462",
+          "variation_id": "190065698602",
+          "sku": "NH-BLA-BRO-CEN-DOR",
+          "qty": 5,
+          "status": "active",
+          "updated_at": "2026-05-01 06:41:52",
+          "detalle_fuente": {
+            "status": null,
+            "sub_status": null,
+            "available_quantity": null,
+            "catalog_listing": null,
+            "catalog_product_id": null,
+            "last_updated": null,
+            "date_created": null
+          }
+        },
+        {
+          "item_id": "MLM4735255462",
+          "variation_id": "190065698604",
+          "sku": "NH-BLA-BRO-COR-DOR",
+          "qty": 5,
+          "status": "active",
+          "updated_at": "2026-05-01 06:41:52",
+          "detalle_fuente": {
+            "status": null,
+            "sub_status": null,
+            "available_quantity": null,
+            "catalog_listing": null,
+            "catalog_product_id": null,
+            "last_updated": null,
+            "date_created": null
+          }
+        },
+        {
+          "item_id": "MLM4735255462",
+          "variation_id": "190065698606",
+          "sku": "",
+          "qty": 5,
+          "status": "active",
+          "updated_at": "2026-05-01 06:41:52",
+          "detalle_fuente": {
+            "status": null,
+            "sub_status": null,
+            "available_quantity": null,
+            "catalog_listing": null,
+            "catalog_product_id": null,
+            "last_updated": null,
+            "date_created": null
+          }
+        },
+        {
+          "item_id": "MLM4735255462",
+          "variation_id": "190065698608",
+          "sku": "NH-BLA-BRO-PEZ-DOR",
+          "qty": 0,
+          "status": "active",
+          "updated_at": "2026-05-01 06:41:52",
+          "detalle_fuente": {
+            "status": null,
+            "sub_status": null,
+            "available_quantity": null,
+            "catalog_listing": null,
+            "catalog_product_id": null,
+            "last_updated": null,
+            "date_created": null
+          }
+        },
+        {
+          "item_id": "MLM4735255462",
+          "variation_id": "190065698610",
+          "sku": "NH-BLA-BRO-VBU-DOR",
+          "qty": 5,
+          "status": "active",
+          "updated_at": "2026-05-01 06:41:52",
+          "detalle_fuente": {
+            "status": null,
+            "sub_status": null,
+            "available_quantity": null,
+            "catalog_listing": null,
+            "catalog_product_id": null,
+            "last_updated": null,
+            "date_created": null
+          }
+        },
+        {
+          "item_id": "MLM4735255462",
+          "variation_id": "190065698612",
+          "sku": "NH-BLA-BRO-VCO-DOR",
+          "qty": 5,
+          "status": "active",
+          "updated_at": "2026-05-01 06:41:52",
+          "detalle_fuente": {
+            "status": null,
+            "sub_status": null,
+            "available_quantity": null,
+            "catalog_listing": null,
+            "catalog_product_id": null,
+            "last_updated": null,
+            "date_created": null
+          }
+        }
+      ],
+      "bridge_mapping": [],
+      "faltante": {
+        "sku": "NH-BLA-BRO-PEZ-DOR",
+        "costos": [],
+        "bom": [],
+        "mapping": []
+      },
+      "accounting_costos": [
+        {
+          "id": 74,
+          "sku": "NH-BLA-BRO-CEN-DOR",
+          "cost": "357.0",
+          "currency": "MXN",
+          "valid_from": null,
+          "valid_to": "2026-08-18 05:00:07",
+          "source": "odoo_sync",
+          "created_at": "2026-02-20 05:00:02"
+        },
+        {
+          "id": 1043,
+          "sku": "NH-BLA-BRO-CEN-DOR",
+          "cost": "353.69",
+          "currency": "MXN",
+          "valid_from": "2026-08-18 05:00:07",
+          "valid_to": null,
+          "source": "odoo_sync",
+          "created_at": "2026-08-18 05:00:07"
+        }
+      ],
+      "accounting_bom": [
+        {
+          "id": 922,
+          "odoo_bom_id": 1538,
+          "product_sku": "NH-BLA-BRO-CEN-DOR",
+          "product_name": "NH - Blanco con broche 19mm Dorado",
+          "updated_at": "2026-03-30T23:01:02.146532"
+        }
+      ]
+    },
+    {
+      "item_id": "MLM2724304859",
+      "sku": "NH-ITA-CEN-PLA",
+      "bridge_cache": [
+        {
+          "item_id": "MLM2724304859",
+          "variation_id": "190063357546",
+          "sku": "NH-ITA-CEN-PLA",
+          "qty": 10,
+          "status": "active",
+          "updated_at": "2026-05-01 06:41:52",
+          "detalle_fuente": {
+            "status": null,
+            "sub_status": null,
+            "available_quantity": null,
+            "catalog_listing": null,
+            "catalog_product_id": null,
+            "last_updated": null,
+            "date_created": null
+          }
+        },
+        {
+          "item_id": "MLM2724304859",
+          "variation_id": "190063357548",
+          "sku": "NH-ITA-COR-PLA",
+          "qty": 10,
+          "status": "active",
+          "updated_at": "2026-05-01 06:41:52",
+          "detalle_fuente": {
+            "status": null,
+            "sub_status": null,
+            "available_quantity": null,
+            "catalog_listing": null,
+            "catalog_product_id": null,
+            "last_updated": null,
+            "date_created": null
+          }
+        },
+        {
+          "item_id": "MLM2724304859",
+          "variation_id": "190063357550",
+          "sku": "NH-ITA-SAN-PLA",
+          "qty": 10,
+          "status": "active",
+          "updated_at": "2026-05-01 06:41:52",
+          "detalle_fuente": {
+            "status": null,
+            "sub_status": null,
+            "available_quantity": null,
+            "catalog_listing": null,
+            "catalog_product_id": null,
+            "last_updated": null,
+            "date_created": null
+          }
+        },
+        {
+          "item_id": "MLM2724304859",
+          "variation_id": "190063357552",
+          "sku": "NH-ITA-PEZ-PLA",
+          "qty": 0,
+          "status": "active",
+          "updated_at": "2026-05-01 06:41:52",
+          "detalle_fuente": {
+            "status": null,
+            "sub_status": null,
+            "available_quantity": null,
+            "catalog_listing": null,
+            "catalog_product_id": null,
+            "last_updated": null,
+            "date_created": null
+          }
+        },
+        {
+          "item_id": "MLM2724304859",
+          "variation_id": "190063357554",
+          "sku": "NH-ITA-VBU-PLA",
+          "qty": 10,
+          "status": "active",
+          "updated_at": "2026-05-01 06:41:52",
+          "detalle_fuente": {
+            "status": null,
+            "sub_status": null,
+            "available_quantity": null,
+            "catalog_listing": null,
+            "catalog_product_id": null,
+            "last_updated": null,
+            "date_created": null
+          }
+        },
+        {
+          "item_id": "MLM2724304859",
+          "variation_id": "190063357556",
+          "sku": "NH-ITA-VCO-PLA",
+          "qty": 10,
+          "status": "active",
+          "updated_at": "2026-05-01 06:41:52",
+          "detalle_fuente": {
+            "status": null,
+            "sub_status": null,
+            "available_quantity": null,
+            "catalog_listing": null,
+            "catalog_product_id": null,
+            "last_updated": null,
+            "date_created": null
+          }
+        }
+      ],
+      "bridge_mapping": [],
+      "faltante": {
+        "sku": "NH-ITA-PEZ-PLA",
+        "costos": [],
+        "bom": [],
+        "mapping": []
+      },
+      "accounting_costos": [
+        {
+          "id": 255,
+          "sku": "NH-ITA-CEN-PLA",
+          "cost": "326.0",
+          "currency": "MXN",
+          "valid_from": null,
+          "valid_to": "2026-08-18 06:00:07",
+          "source": "odoo_sync",
+          "created_at": "2026-02-20 05:00:02"
+        },
+        {
+          "id": 1870,
+          "sku": "NH-ITA-CEN-PLA",
+          "cost": "341.0",
+          "currency": "MXN",
+          "valid_from": "2026-08-18 06:00:07",
+          "valid_to": null,
+          "source": "odoo_sync",
+          "created_at": "2026-08-18 06:00:07"
+        }
+      ],
+      "accounting_bom": [
+        {
+          "id": 1049,
+          "odoo_bom_id": 1665,
+          "product_sku": "NH-ITA-CEN-PLA",
+          "product_name": "NH - Italia 16mm Plateado",
+          "updated_at": "2026-03-30T23:01:02.146532"
+        }
+      ]
+    },
+    {
+      "item_id": "MLM2727437671",
+      "sku": "NH-GAM-AZU-CEN-PLA",
+      "bridge_cache": [],
+      "bridge_mapping": [],
+      "faltante": {
+        "sku": "NH-GAM-AZU-PEZ-PLA",
+        "costos": [],
+        "bom": [],
+        "mapping": []
+      },
+      "accounting_costos": [
+        {
+          "id": 231,
+          "sku": "NH-GAM-AZU-CEN-PLA",
+          "cost": "325.0",
+          "currency": "MXN",
+          "valid_from": null,
+          "valid_to": null,
+          "source": "odoo_sync",
+          "created_at": "2026-02-20 05:00:02"
+        }
+      ],
+      "accounting_bom": [
+        {
+          "id": 1025,
+          "odoo_bom_id": 1641,
+          "product_sku": "NH-GAM-AZU-CEN-PLA",
+          "product_name": "NH - Gamuza Azul 19mm Plateado",
+          "updated_at": "2026-03-30T23:01:02.146532"
+        }
+      ]
+    },
+    {
+      "item_id": "MLM2727363007",
+      "sku": "NH-GAM-NEG-CEN-DOR",
+      "bridge_cache": [],
+      "bridge_mapping": [],
+      "faltante": {
+        "sku": "NH-GAM-NEG-PEZ-DOR",
+        "costos": [],
+        "bom": [],
+        "mapping": []
+      },
+      "accounting_costos": [
+        {
+          "id": 242,
+          "sku": "NH-GAM-NEG-CEN-DOR",
+          "cost": "325.0",
+          "currency": "MXN",
+          "valid_from": null,
+          "valid_to": null,
+          "source": "odoo_sync",
+          "created_at": "2026-02-20 05:00:02"
+        }
+      ],
+      "accounting_bom": [
+        {
+          "id": 1036,
+          "odoo_bom_id": 1652,
+          "product_sku": "NH-GAM-NEG-CEN-DOR",
+          "product_name": "NH - Gamuza Negro 19mm Dorado",
+          "updated_at": "2026-03-30T23:01:02.146532"
+        }
+      ]
+    },
+    {
+      "item_id": "MLM2727328203",
+      "sku": "NH-GAM-AZU-CEN-DOR",
+      "bridge_cache": [],
+      "bridge_mapping": [],
+      "faltante": {
+        "sku": "NH-GAM-AZU-PEZ-DOR",
+        "costos": [],
+        "bom": [],
+        "mapping": []
+      },
+      "accounting_costos": [
+        {
+          "id": 230,
+          "sku": "NH-GAM-AZU-CEN-DOR",
+          "cost": "325.0",
+          "currency": "MXN",
+          "valid_from": null,
+          "valid_to": null,
+          "source": "odoo_sync",
+          "created_at": "2026-02-20 05:00:02"
+        }
+      ],
+      "accounting_bom": [
+        {
+          "id": 1024,
+          "odoo_bom_id": 1640,
+          "product_sku": "NH-GAM-AZU-CEN-DOR",
+          "product_name": "NH - Gamuza Azul 19mm Dorado",
+          "updated_at": "2026-03-30T23:01:02.146532"
+        }
+      ]
+    },
+    {
+      "item_id": "MLM4749600210",
+      "sku": "NH-GAM-NEG-CEN-PLA",
+      "bridge_cache": [],
+      "bridge_mapping": [],
+      "faltante": {
+        "sku": "NH-GAM-NEG-PEZ-PLA",
+        "costos": [],
+        "bom": [],
+        "mapping": []
+      },
+      "accounting_costos": [
+        {
+          "id": 243,
+          "sku": "NH-GAM-NEG-CEN-PLA",
+          "cost": "325.0",
+          "currency": "MXN",
+          "valid_from": null,
+          "valid_to": null,
+          "source": "odoo_sync",
+          "created_at": "2026-02-20 05:00:02"
+        }
+      ],
+      "accounting_bom": [
+        {
+          "id": 1037,
+          "odoo_bom_id": 1653,
+          "product_sku": "NH-GAM-NEG-CEN-PLA",
+          "product_name": "NH - Gamuza Negro 19mm Plateado",
+          "updated_at": "2026-03-30T23:01:02.146532"
+        }
+      ]
+    },
+    {
+      "item_id": "MLM4763716652",
+      "sku": "NH-PLA-CH-CEN-PLA",
+      "bridge_cache": [],
+      "bridge_mapping": [],
+      "faltante": {
+        "sku": "NH-PLA-CH-PEZ-PLA",
+        "costos": [],
+        "bom": [],
+        "mapping": []
+      },
+      "accounting_costos": [
+        {
+          "id": 315,
+          "sku": "NH-PLA-CH-CEN-PLA",
+          "cost": "372.0",
+          "currency": "MXN",
+          "valid_from": null,
+          "valid_to": null,
+          "source": "odoo_sync",
+          "created_at": "2026-02-20 05:00:02"
+        }
+      ],
+      "accounting_bom": [
+        {
+          "id": 1073,
+          "odoo_bom_id": 1689,
+          "product_sku": "NH-PLA-CH-CEN-PLA",
+          "product_name": "NH - Platino CH 19mm Plateado",
+          "updated_at": "2026-03-30T23:01:02.146532"
+        }
+      ]
+    }
+  ]
+}

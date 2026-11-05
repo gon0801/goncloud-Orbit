@@ -1,0 +1,444 @@
+{
+  "consultado_utc": "2026-11-05T00:52:52.923212+00:00",
+  "modo": "ORBIT_DSN_READ; BEGIN READ ONLY; statement_timeout=15s",
+  "consultas": {
+    "parentesco_pausa": {
+      "sql": "SELECT e.id,e.kind,e.external_id,g.id AS grupo_local,g.external_id AS ad_group_id,c.id AS campana_local,c.external_id AS campaign_id FROM ad_entity e JOIN ad_entity g ON g.id=e.parent_id JOIN ad_entity c ON c.id=g.parent_id WHERE e.id=5892",
+      "filas": [
+        {
+          "id": 5892,
+          "kind": "product_target",
+          "external_id": "555998919865227",
+          "grupo_local": 4009,
+          "ad_group_id": "529927551250133",
+          "campana_local": 3915,
+          "campaign_id": "140602818838686"
+        }
+      ]
+    },
+    "principal_7d_por_reporte": {
+      "sql": "SELECT (r.finished_at AT TIME ZONE 'UTC')::date AS dia,a.profile_id,a.platform,a.report_name,count(*) AS escritos FROM ingest_run r JOIN ads_report_result a ON a.ingest_run_id=r.id WHERE r.source='amazon_ads_reports_v3' AND r.ok=true AND a.status='written' AND r.finished_at >= '2026-10-29 00:00+00' AND r.finished_at < '2026-11-05 00:00+00' GROUP BY 1,2,3,4 ORDER BY 1,2,4",
+      "filas": [
+        {
+          "dia": "2026-10-29",
+          "profile_id": 3850003733258937,
+          "platform": "amazon_mx",
+          "report_name": "campanas",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-10-29",
+          "profile_id": 3850003733258937,
+          "platform": "amazon_mx",
+          "report_name": "keywords",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-10-29",
+          "profile_id": 3850003733258937,
+          "platform": "amazon_mx",
+          "report_name": "search_terms",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-10-29",
+          "profile_id": 3850003733258937,
+          "platform": "amazon_mx",
+          "report_name": "targets",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-10-29",
+          "profile_id": 4387591165211712,
+          "platform": "amazon_us",
+          "report_name": "campanas",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-10-29",
+          "profile_id": 4387591165211712,
+          "platform": "amazon_us",
+          "report_name": "keywords",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-10-29",
+          "profile_id": 4387591165211712,
+          "platform": "amazon_us",
+          "report_name": "search_terms",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-10-29",
+          "profile_id": 4387591165211712,
+          "platform": "amazon_us",
+          "report_name": "targets",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-10-30",
+          "profile_id": 3850003733258937,
+          "platform": "amazon_mx",
+          "report_name": "campanas",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-10-30",
+          "profile_id": 3850003733258937,
+          "platform": "amazon_mx",
+          "report_name": "keywords",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-10-30",
+          "profile_id": 3850003733258937,
+          "platform": "amazon_mx",
+          "report_name": "search_terms",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-10-30",
+          "profile_id": 3850003733258937,
+          "platform": "amazon_mx",
+          "report_name": "targets",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-10-30",
+          "profile_id": 4387591165211712,
+          "platform": "amazon_us",
+          "report_name": "campanas",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-10-30",
+          "profile_id": 4387591165211712,
+          "platform": "amazon_us",
+          "report_name": "keywords",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-10-30",
+          "profile_id": 4387591165211712,
+          "platform": "amazon_us",
+          "report_name": "search_terms",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-10-30",
+          "profile_id": 4387591165211712,
+          "platform": "amazon_us",
+          "report_name": "targets",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-10-31",
+          "profile_id": 3850003733258937,
+          "platform": "amazon_mx",
+          "report_name": "campanas",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-10-31",
+          "profile_id": 3850003733258937,
+          "platform": "amazon_mx",
+          "report_name": "keywords",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-10-31",
+          "profile_id": 3850003733258937,
+          "platform": "amazon_mx",
+          "report_name": "search_terms",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-10-31",
+          "profile_id": 3850003733258937,
+          "platform": "amazon_mx",
+          "report_name": "targets",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-10-31",
+          "profile_id": 4387591165211712,
+          "platform": "amazon_us",
+          "report_name": "campanas",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-10-31",
+          "profile_id": 4387591165211712,
+          "platform": "amazon_us",
+          "report_name": "keywords",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-10-31",
+          "profile_id": 4387591165211712,
+          "platform": "amazon_us",
+          "report_name": "search_terms",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-10-31",
+          "profile_id": 4387591165211712,
+          "platform": "amazon_us",
+          "report_name": "targets",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-11-01",
+          "profile_id": 3850003733258937,
+          "platform": "amazon_mx",
+          "report_name": "campanas",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-11-01",
+          "profile_id": 3850003733258937,
+          "platform": "amazon_mx",
+          "report_name": "keywords",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-11-01",
+          "profile_id": 3850003733258937,
+          "platform": "amazon_mx",
+          "report_name": "search_terms",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-11-01",
+          "profile_id": 3850003733258937,
+          "platform": "amazon_mx",
+          "report_name": "targets",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-11-01",
+          "profile_id": 4387591165211712,
+          "platform": "amazon_us",
+          "report_name": "campanas",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-11-01",
+          "profile_id": 4387591165211712,
+          "platform": "amazon_us",
+          "report_name": "keywords",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-11-01",
+          "profile_id": 4387591165211712,
+          "platform": "amazon_us",
+          "report_name": "search_terms",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-11-01",
+          "profile_id": 4387591165211712,
+          "platform": "amazon_us",
+          "report_name": "targets",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-11-02",
+          "profile_id": 3850003733258937,
+          "platform": "amazon_mx",
+          "report_name": "campanas",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-11-02",
+          "profile_id": 3850003733258937,
+          "platform": "amazon_mx",
+          "report_name": "keywords",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-11-02",
+          "profile_id": 3850003733258937,
+          "platform": "amazon_mx",
+          "report_name": "search_terms",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-11-02",
+          "profile_id": 3850003733258937,
+          "platform": "amazon_mx",
+          "report_name": "targets",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-11-02",
+          "profile_id": 4387591165211712,
+          "platform": "amazon_us",
+          "report_name": "campanas",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-11-02",
+          "profile_id": 4387591165211712,
+          "platform": "amazon_us",
+          "report_name": "keywords",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-11-02",
+          "profile_id": 4387591165211712,
+          "platform": "amazon_us",
+          "report_name": "search_terms",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-11-02",
+          "profile_id": 4387591165211712,
+          "platform": "amazon_us",
+          "report_name": "targets",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-11-03",
+          "profile_id": 3850003733258937,
+          "platform": "amazon_mx",
+          "report_name": "campanas",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-11-03",
+          "profile_id": 3850003733258937,
+          "platform": "amazon_mx",
+          "report_name": "keywords",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-11-03",
+          "profile_id": 3850003733258937,
+          "platform": "amazon_mx",
+          "report_name": "search_terms",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-11-03",
+          "profile_id": 3850003733258937,
+          "platform": "amazon_mx",
+          "report_name": "targets",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-11-03",
+          "profile_id": 4387591165211712,
+          "platform": "amazon_us",
+          "report_name": "campanas",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-11-03",
+          "profile_id": 4387591165211712,
+          "platform": "amazon_us",
+          "report_name": "keywords",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-11-03",
+          "profile_id": 4387591165211712,
+          "platform": "amazon_us",
+          "report_name": "search_terms",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-11-03",
+          "profile_id": 4387591165211712,
+          "platform": "amazon_us",
+          "report_name": "targets",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-11-04",
+          "profile_id": 3850003733258937,
+          "platform": "amazon_mx",
+          "report_name": "campanas",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-11-04",
+          "profile_id": 3850003733258937,
+          "platform": "amazon_mx",
+          "report_name": "keywords",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-11-04",
+          "profile_id": 3850003733258937,
+          "platform": "amazon_mx",
+          "report_name": "search_terms",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-11-04",
+          "profile_id": 3850003733258937,
+          "platform": "amazon_mx",
+          "report_name": "targets",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-11-04",
+          "profile_id": 4387591165211712,
+          "platform": "amazon_us",
+          "report_name": "campanas",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-11-04",
+          "profile_id": 4387591165211712,
+          "platform": "amazon_us",
+          "report_name": "keywords",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-11-04",
+          "profile_id": 4387591165211712,
+          "platform": "amazon_us",
+          "report_name": "search_terms",
+          "escritos": 1
+        },
+        {
+          "dia": "2026-11-04",
+          "profile_id": 4387591165211712,
+          "platform": "amazon_us",
+          "report_name": "targets",
+          "escritos": 1
+        }
+      ]
+    },
+    "cronologia_anomala": {
+      "sql": "SELECT i.id FROM ads_ingest_incident i LEFT JOIN ingest_run r ON r.id=i.recovered_run_id WHERE i.opened_at >= '2026-09-30' AND (i.alert_sent_at < i.opened_at OR i.recovered_at < i.alert_sent_at OR i.recovery_sent_at < i.recovered_at OR r.finished_at > i.recovered_at OR i.closed_at IS NULL)",
+      "filas": []
+    },
+    "config_ciclo": {
+      "sql": "SELECT d.id,d.cycle_id,c.mode,c.status,v.id AS config_id,v.settings->'ads_pause_sin_cooldown_bid' AS pause_sin_cooldown_bid,v.settings->'ads_pause_economica' AS pause_economica FROM decision d JOIN optimizer_cycle c ON c.id=d.cycle_id JOIN config_version v ON v.id=d.config_version_id WHERE d.id IN (2654,2736) ORDER BY d.id",
+      "filas": [
+        {
+          "id": 2654,
+          "cycle_id": 92,
+          "mode": "live",
+          "status": "done",
+          "config_id": 21,
+          "pause_sin_cooldown_bid": true,
+          "pause_economica": null
+        },
+        {
+          "id": 2736,
+          "cycle_id": 102,
+          "mode": "live",
+          "status": "done",
+          "config_id": 22,
+          "pause_sin_cooldown_bid": true,
+          "pause_economica": null
+        }
+      ]
+    }
+  }
+}

@@ -1,5 +1,7 @@
 # REPUTACION 02 — v2 pendiente oficial (stub, sin brief)
 
+> **Revisión 4-nov-2026:** sigue siendo un stub, sin plan ejecutable. SP-API 01 ya cerró; la dependencia viva de datos Amazon es [ROADMAP P05](ROADMAP.md#pendientes-de-operación-y-cierre).
+
 Estado: **PENDIENTE**. No iniciar sin brief aprobado por el dueño.
 Antecedente: REPUTACION 01 fase A cerrada 2026-09-08 (solo-lectura).
 

@@ -1,0 +1,103 @@
+<b>[Orbit] ingesta-01 — 7 dias del ingest diario</b>
+<pre>
+BEGIN
+(1) por dia y source: corridas, ok, repetidos (ok de mas), intento del primer ok, hora y duracion de ese ok
+dia | source | corridas | ok | repetidos | intento_primer_ok | hora_primer_ok_utc | duracion_primer_ok
+2026-10-22 | amazon_ads_placements_v3 | 1 | 1 | 0 | 1 | 07:10 | 00:09:36
+2026-10-22 | amazon_ads_products_v3 | 1 | 1 | 0 | 1 | 07:10 | 00:09:33
+2026-10-22 | amazon_ads_reports_v3 | 1 | 1 | 0 | 1 | 07:10 | 00:09:31
+2026-10-23 | amazon_ads_placements_v3 | 1 | 1 | 0 | 1 | 07:10 | 00:14:58
+2026-10-23 | amazon_ads_products_v3 | 1 | 1 | 0 | 1 | 07:10 | 00:14:23
+2026-10-23 | amazon_ads_reports_v3 | 1 | 1 | 0 | 1 | 07:10 | 00:14:57
+2026-10-24 | amazon_ads_placements_v3 | 1 | 1 | 0 | 1 | 07:10 | 00:10:08
+2026-10-24 | amazon_ads_products_v3 | 1 | 1 | 0 | 1 | 07:10 | 00:10:06
+2026-10-24 | amazon_ads_reports_v3 | 1 | 1 | 0 | 1 | 07:10 | 00:09:33
+2026-10-25 | amazon_ads_placements_v3 | 1 | 1 | 0 | 1 | 07:10 | 00:04:14
+2026-10-25 | amazon_ads_products_v3 | 1 | 1 | 0 | 1 | 07:10 | 00:04:12
+2026-10-25 | amazon_ads_reports_v3 | 1 | 1 | 0 | 1 | 07:10 | 00:04:10
+2026-10-26 | amazon_ads_placements_v3 | 1 | 1 | 0 | 1 | 07:10 | 00:16:26
+2026-10-26 | amazon_ads_products_v3 | 1 | 1 | 0 | 1 | 07:10 | 00:15:52
+2026-10-26 | amazon_ads_reports_v3 | 1 | 1 | 0 | 1 | 07:10 | 00:16:57
+2026-10-27 | amazon_ads_placements_v3 | 1 | 1 | 0 | 1 | 07:10 | 00:08:00
+2026-10-27 | amazon_ads_products_v3 | 1 | 1 | 0 | 1 | 07:10 | 00:07:58
+2026-10-27 | amazon_ads_reports_v3 | 1 | 1 | 0 | 1 | 07:10 | 00:07:56
+2026-10-28 | amazon_ads_placements_v3 | 1 | 1 | 0 | 1 | 07:10 | 00:05:15
+2026-10-28 | amazon_ads_products_v3 | 1 | 1 | 0 | 1 | 07:10 | 00:05:50
+2026-10-28 | amazon_ads_reports_v3 | 1 | 1 | 0 | 1 | 07:10 | 00:05:48
+(21 rows)
+(2) por dia: a que hora corrio cada ciclo del optimizador
+dia | platform | mode | status | hora_utc
+2026-10-22 | amazon_us | live | done | 08:40:02
+2026-10-22 | amazon_mx | live | done | 08:41:02
+2026-10-23 | amazon_us | live | done | 08:40:02
+2026-10-23 | amazon_mx | live | done | 08:41:02
+2026-10-24 | amazon_us | live | done | 08:40:02
+2026-10-24 | amazon_mx | live | done | 08:41:02
+2026-10-25 | amazon_us | live | done | 08:40:02
+2026-10-25 | amazon_mx | live | done | 08:41:02
+2026-10-26 | amazon_us | live | done | 08:40:02
+2026-10-26 | amazon_mx | live | done | 08:41:02
+2026-10-27 | amazon_us | live | done | 08:40:02
+2026-10-27 | amazon_mx | live | done | 08:41:02
+2026-10-28 | amazon_us | live | done | 08:40:02
+2026-10-28 | amazon_mx | live | done | 08:41:02
+(14 rows)
+(3) dias de la ventana sin ningun ok por source (huecos)
+dia | source
+(0 rows)
+ROLLBACK
+
+(4) horarios saltados por la guarda (total desde el despliegue)
+avisos-campana.log: 0
+impulso-vigia.log: 0
+jev-senales.log: 1
+optimizer.log: 0
+optimizer.log: 0
+optimizer.log: 0
+</pre>
+BEGIN
+(1) por dia y source: corridas, ok, repetidos (ok de mas), intento del primer ok, hora y duracion de ese ok
+dia | source | corridas | ok | repetidos | intento_primer_ok | hora_primer_ok_utc | duracion_primer_ok
+2026-10-22 | amazon_ads_placements_v3 | 1 | 1 | 0 | 1 | 07:10 | 00:09:36
+2026-10-22 | amazon_ads_products_v3 | 1 | 1 | 0 | 1 | 07:10 | 00:09:33
+2026-10-22 | amazon_ads_reports_v3 | 1 | 1 | 0 | 1 | 07:10 | 00:09:31
+2026-10-23 | amazon_ads_placements_v3 | 1 | 1 | 0 | 1 | 07:10 | 00:14:58
+2026-10-23 | amazon_ads_products_v3 | 1 | 1 | 0 | 1 | 07:10 | 00:14:23
+2026-10-23 | amazon_ads_reports_v3 | 1 | 1 | 0 | 1 | 07:10 | 00:14:57
+2026-10-24 | amazon_ads_placements_v3 | 1 | 1 | 0 | 1 | 07:10 | 00:10:08
+2026-10-24 | amazon_ads_products_v3 | 1 | 1 | 0 | 1 | 07:10 | 00:10:06
+2026-10-24 | amazon_ads_reports_v3 | 1 | 1 | 0 | 1 | 07:10 | 00:09:33
+2026-10-25 | amazon_ads_placements_v3 | 1 | 1 | 0 | 1 | 07:10 | 00:04:14
+2026-10-25 | amazon_ads_products_v3 | 1 | 1 | 0 | 1 | 07:10 | 00:04:12
+2026-10-25 | amazon_ads_reports_v3 | 1 | 1 | 0 | 1 | 07:10 | 00:04:10
+2026-10-26 | amazon_ads_placements_v3 | 1 | 1 | 0 | 1 | 07:10 | 00:16:26
+2026-10-26 | amazon_ads_products_v3 | 1 | 1 | 0 | 1 | 07:10 | 00:15:52
+2026-10-26 | amazon_ads_reports_v3 | 1 | 1 | 0 | 1 | 07:10 | 00:16:57
+2026-10-27 | amazon_ads_placements_v3 | 1 | 1 | 0 | 1 | 07:10 | 00:08:00
+2026-10-27 | amazon_ads_products_v3 | 1 | 1 | 0 | 1 | 07:10 | 00:07:58
+2026-10-27 | amazon_ads_reports_v3 | 1 | 1 | 0 | 1 | 07:10 | 00:07:56
+2026-10-28 | amazon_ads_placements_v3 | 1 | 1 | 0 | 1 | 07:10 | 00:05:15
+2026-10-28 | amazon_ads_products_v3 | 1 | 1 | 0 | 1 | 07:10 | 00:05:50
+2026-10-28 | amazon_ads_reports_v3 | 1 | 1 | 0 | 1 | 07:10 | 00:05:48
+(21 rows)
+(2) por dia: a que hora corrio cada ciclo del optimizador
+dia | platform | mode | status | hora_utc
+2026-10-22 | amazon_us | live | done | 08:40:02
+2026-10-22 | amazon_mx | live | done | 08:41:02
+2026-10-23 | amazon_us | live | done | 08:40:02
+2026-10-23 | amazon_mx | live | done | 08:41:02
+2026-10-24 | amazon_us | live | done | 08:40:02
+2026-10-24 | amazon_mx | live | done | 08:41:02
+2026-10-25 | amazon_us | live | done | 08:40:02
+2026-10-25 | amazon_mx | live | done | 08:41:02
+2026-10-26 | amazon_us | live | done | 08:40:02
+2026-10-26 | amazon_mx | live | done | 08:41:02
+2026-10-27 | amazon_us | live | done | 08:40:02
+2026-10-27 | amazon_mx | live | done | 08:41:02
+2026-10-28 | amazon_us | live | done | 08:40:02
+2026-10-28 | amazon_mx | live | done | 08:41:02
+(14 rows)
+(3) dias de la ventana sin ningun ok por source (huecos)
+dia | source
+(0 rows)
+ROLLBACK

@@ -3,6 +3,8 @@
 set -euo pipefail
 
 esperada='*/10 10-12 * * * docker exec orbit-app-1 python -m app.cli ads-salud >> /mnt/data/appdata/orbit/logs/ads-salud.log 2>&1'
+# Dos formas autorizadas completas; nunca interpretar comandos del crontab.
+envuelta="*/10 10-12 * * * /usr/local/bin/cron-avisa --nombre \"Salud de la publicidad\" --cada 24 --tras 3 -- /bin/bash -c 'docker exec orbit-app-1 python -m app.cli ads-salud' >> /mnt/data/appdata/orbit/logs/ads-salud.log 2>&1"
 if crontab_actual=$(crontab -u gon -l 2>&1); then
     :
 else
@@ -15,7 +17,7 @@ else
     fi
 fi
 cuenta_total=$(printf '%s\n' "$crontab_actual" | awk '/app\.cli ads-salud/ {n++} END {print n+0}')
-cuenta_exacta=$(printf '%s\n' "$crontab_actual" | awk -v esperada="$esperada" '$0 == esperada {n++} END {print n+0}')
+cuenta_exacta=$(printf '%s\n' "$crontab_actual" | awk -v esperada="$esperada" -v envuelta="$envuelta" '$0 == esperada || $0 == envuelta {n++} END {print n+0}')
 
 if [ "$cuenta_total" -ne 1 ] || [ "$cuenta_exacta" -ne 1 ]; then
     printf 'ads-salud cron invalido: total=%s exacta=%s\n' "$cuenta_total" "$cuenta_exacta" >&2

@@ -1,0 +1,47 @@
+{
+  "master": "6bce3589c17f6c9d5d99e2979e5c55b50dd07ec7",
+  "archivos": [
+    {
+      "archivo": "app/dashboard_resumen.py",
+      "sha256_master": "6c3bc0692dba117703de59c9ccc015bf341e2654b7e08931ef02afad16747f17",
+      "sha256_contenedor": "6c3bc0692dba117703de59c9ccc015bf341e2654b7e08931ef02afad16747f17",
+      "coincide": true
+    },
+    {
+      "archivo": "app/ui.py",
+      "sha256_master": "95ae2c3a1fd5f352f4970bfed843f07544d2be9e2537d77b743733167a239a3d",
+      "sha256_contenedor": "95ae2c3a1fd5f352f4970bfed843f07544d2be9e2537d77b743733167a239a3d",
+      "coincide": true
+    },
+    {
+      "archivo": "app/templates/resumen.html",
+      "sha256_master": "aeaa43ccf281df8db0b555d86c26f2d7d311b25c3a22a6bcd332734b776db0f8",
+      "sha256_contenedor": "aeaa43ccf281df8db0b555d86c26f2d7d311b25c3a22a6bcd332734b776db0f8",
+      "coincide": true
+    },
+    {
+      "archivo": "app/static/js/dashboard.js",
+      "sha256_master": "95491f512104d18d4254a134ff2227a07b89ba3de9e41d2afd0eaa2fed24cb32",
+      "sha256_contenedor": "95491f512104d18d4254a134ff2227a07b89ba3de9e41d2afd0eaa2fed24cb32",
+      "coincide": true
+    },
+    {
+      "archivo": "app/static/css/dashboard.css",
+      "sha256_master": "f257cfa027e7dec0338b4f9dd354831359460756ac263f5ddd8fffc65a43bfdb",
+      "sha256_contenedor": "f257cfa027e7dec0338b4f9dd354831359460756ac263f5ddd8fffc65a43bfdb",
+      "coincide": true
+    },
+    {
+      "archivo": "app/meli/ads_ingest.py",
+      "sha256_master": "b9163457830d978366b7ddbbabd346dddcedabb510eb917b5c756d1e04e9ee87",
+      "sha256_contenedor": "b9163457830d978366b7ddbbabd346dddcedabb510eb917b5c756d1e04e9ee87",
+      "coincide": true
+    },
+    {
+      "archivo": "app/precio/corrida.py",
+      "sha256_master": "8f252564a85a9acf065ca40386d4754071f8704cbed566bb499647bae5eeb8e1",
+      "sha256_contenedor": "8f252564a85a9acf065ca40386d4754071f8704cbed566bb499647bae5eeb8e1",
+      "coincide": true
+    }
+  ]
+}

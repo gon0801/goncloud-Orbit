@@ -1,0 +1,2532 @@
+{
+  "extra": {
+    "listing_miembro": [
+      {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1578,
+        "product_id": 109,
+        "seller_sku": "NH-BLA-BRO-CEN-DOR",
+        "variante_ext": "190065698602"
+      },
+      {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1578,
+        "product_id": 111,
+        "seller_sku": "NH-BLA-BRO-COR-DOR",
+        "variante_ext": "190065698604"
+      },
+      {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1578,
+        "product_id": 117,
+        "seller_sku": "NH-BLA-BRO-SAN-DOR",
+        "variante_ext": "190065698606"
+      },
+      {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1578,
+        "product_id": null,
+        "seller_sku": "NH-BLA-BRO-PEZ-DOR",
+        "variante_ext": "190065698608"
+      },
+      {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1578,
+        "product_id": 119,
+        "seller_sku": "NH-BLA-BRO-VBU-DOR",
+        "variante_ext": "190065698610"
+      },
+      {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1578,
+        "product_id": 121,
+        "seller_sku": "NH-BLA-BRO-VCO-DOR",
+        "variante_ext": "190065698612"
+      },
+      {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1579,
+        "product_id": 308,
+        "seller_sku": "NH-ITA-COR-PLA",
+        "variante_ext": "190063357548"
+      },
+      {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1579,
+        "product_id": 314,
+        "seller_sku": "NH-ITA-SAN-PLA",
+        "variante_ext": "190063357550"
+      },
+      {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1579,
+        "product_id": null,
+        "seller_sku": "NH-ITA-PEZ-PLA",
+        "variante_ext": "190063357552"
+      },
+      {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1579,
+        "product_id": 316,
+        "seller_sku": "NH-ITA-VBU-PLA",
+        "variante_ext": "190063357554"
+      },
+      {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1579,
+        "product_id": 318,
+        "seller_sku": "NH-ITA-VCO-PLA",
+        "variante_ext": "190063357556"
+      },
+      {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1562,
+        "product_id": null,
+        "seller_sku": "NH-CAR-BLA-PEZ-DOR",
+        "variante_ext": "194936687129"
+      },
+      {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1563,
+        "product_id": 162,
+        "seller_sku": "NH-CAR-BLA-CEN-PLA",
+        "variante_ext": "178099809133"
+      },
+      {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1563,
+        "product_id": 180,
+        "seller_sku": "NH-CAR-BLA-SAN-PLA",
+        "variante_ext": "178099809135"
+      },
+      {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1563,
+        "product_id": 184,
+        "seller_sku": "NH-CAR-BLA-VCO-PLA",
+        "variante_ext": "178099809137"
+      },
+      {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1563,
+        "product_id": 182,
+        "seller_sku": "NH-CAR-BLA-VBU-PLA",
+        "variante_ext": "178099809139"
+      },
+      {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1563,
+        "product_id": 164,
+        "seller_sku": "NH-CAR-BLA-COR-PLA",
+        "variante_ext": "178099809145"
+      },
+      {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1563,
+        "product_id": null,
+        "seller_sku": "NH-CAR-BLA-PEZ-PLA",
+        "variante_ext": "194936530433"
+      },
+      {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1562,
+        "product_id": 161,
+        "seller_sku": "NH-CAR-BLA-CEN-DOR",
+        "variante_ext": "178100470523"
+      },
+      {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1562,
+        "product_id": 179,
+        "seller_sku": "NH-CAR-BLA-SAN-DOR",
+        "variante_ext": "178100470525"
+      },
+      {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1562,
+        "product_id": 183,
+        "seller_sku": "NH-CAR-BLA-VCO-DOR",
+        "variante_ext": "178100470527"
+      },
+      {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1562,
+        "product_id": 181,
+        "seller_sku": "NH-CAR-BLA-VBU-DOR",
+        "variante_ext": "178100470529"
+      },
+      {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1562,
+        "product_id": 163,
+        "seller_sku": "NH-CAR-BLA-COR-DOR",
+        "variante_ext": "178100470535"
+      },
+      {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1579,
+        "product_id": 306,
+        "seller_sku": "NH-ITA-CEN-PLA",
+        "variante_ext": "190063357546"
+      },
+      {
+        "activo": false,
+        "platform": "meli",
+        "visto_at": "2026-10-30T11:30:02.681472+00:00",
+        "listing_id": 1582,
+        "product_id": null,
+        "seller_sku": "NH-GAM-AZU-PEZ-PLA",
+        "variante_ext": "196650442795"
+      },
+      {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1585,
+        "product_id": 304,
+        "seller_sku": "NH-GAM-NEG-VCO-PLA",
+        "variante_ext": "196764932941"
+      },
+      {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1585,
+        "product_id": null,
+        "seller_sku": "NH-GAM-NEG-PEZ-PLA",
+        "variante_ext": "196764932943"
+      },
+      {
+        "activo": false,
+        "platform": "meli",
+        "visto_at": "2026-10-30T11:30:02.681472+00:00",
+        "listing_id": 1582,
+        "product_id": 278,
+        "seller_sku": "NH-GAM-AZU-CEN-PLA",
+        "variante_ext": "196650442785"
+      },
+      {
+        "activo": false,
+        "platform": "meli",
+        "visto_at": "2026-10-30T11:30:02.681472+00:00",
+        "listing_id": 1582,
+        "product_id": 280,
+        "seller_sku": "NH-GAM-AZU-COR-PLA",
+        "variante_ext": "196650442787"
+      },
+      {
+        "activo": false,
+        "platform": "meli",
+        "visto_at": "2026-10-30T11:30:02.681472+00:00",
+        "listing_id": 1582,
+        "product_id": 286,
+        "seller_sku": "NH-GAM-AZU-SAN-PLA",
+        "variante_ext": "196650442789"
+      },
+      {
+        "activo": false,
+        "platform": "meli",
+        "visto_at": "2026-10-30T11:30:02.681472+00:00",
+        "listing_id": 1582,
+        "product_id": 288,
+        "seller_sku": "NH-GAM-AZU-VBU-PLA",
+        "variante_ext": "196650442791"
+      },
+      {
+        "activo": false,
+        "platform": "meli",
+        "visto_at": "2026-10-30T11:30:02.681472+00:00",
+        "listing_id": 1582,
+        "product_id": 290,
+        "seller_sku": "NH-GAM-AZU-VCO-PLA",
+        "variante_ext": "196650442793"
+      },
+      {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1583,
+        "product_id": 291,
+        "seller_sku": "NH-GAM-NEG-CEN-DOR",
+        "variante_ext": "196650403787"
+      },
+      {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1583,
+        "product_id": 293,
+        "seller_sku": "NH-GAM-NEG-COR-DOR",
+        "variante_ext": "196650403789"
+      },
+      {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1583,
+        "product_id": 299,
+        "seller_sku": "NH-GAM-NEG-SAN-DOR",
+        "variante_ext": "196650403791"
+      },
+      {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1583,
+        "product_id": 301,
+        "seller_sku": "NH-GAM-NEG-VBU-DOR",
+        "variante_ext": "196650403793"
+      },
+      {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1583,
+        "product_id": 303,
+        "seller_sku": "NH-GAM-NEG-VCO-DOR",
+        "variante_ext": "196650403795"
+      },
+      {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1583,
+        "product_id": null,
+        "seller_sku": "NH-GAM-NEG-PEZ-DOR",
+        "variante_ext": "196650403797"
+      },
+      {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1584,
+        "product_id": 277,
+        "seller_sku": "NH-GAM-AZU-CEN-DOR",
+        "variante_ext": "196650403661"
+      },
+      {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1584,
+        "product_id": 279,
+        "seller_sku": "NH-GAM-AZU-COR-DOR",
+        "variante_ext": "196650403663"
+      },
+      {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1584,
+        "product_id": 285,
+        "seller_sku": "NH-GAM-AZU-SAN-DOR",
+        "variante_ext": "196650403665"
+      },
+      {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1584,
+        "product_id": 287,
+        "seller_sku": "NH-GAM-AZU-VBU-DOR",
+        "variante_ext": "196650403667"
+      },
+      {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1584,
+        "product_id": 289,
+        "seller_sku": "NH-GAM-AZU-VCO-DOR",
+        "variante_ext": "196650403669"
+      },
+      {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1584,
+        "product_id": null,
+        "seller_sku": "NH-GAM-AZU-PEZ-DOR",
+        "variante_ext": "196650403671"
+      },
+      {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1585,
+        "product_id": 292,
+        "seller_sku": "NH-GAM-NEG-CEN-PLA",
+        "variante_ext": "196764932933"
+      },
+      {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1585,
+        "product_id": 294,
+        "seller_sku": "NH-GAM-NEG-COR-PLA",
+        "variante_ext": "196764932935"
+      },
+      {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1585,
+        "product_id": 300,
+        "seller_sku": "NH-GAM-NEG-SAN-PLA",
+        "variante_ext": "196764932937"
+      },
+      {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1585,
+        "product_id": 302,
+        "seller_sku": "NH-GAM-NEG-VBU-PLA",
+        "variante_ext": "196764932939"
+      },
+      {
+        "activo": false,
+        "platform": "meli",
+        "visto_at": "2026-10-30T11:30:02.681472+00:00",
+        "listing_id": 1590,
+        "product_id": 376,
+        "seller_sku": "NH-PLA-CH-CEN-PLA",
+        "variante_ext": "190333223912"
+      },
+      {
+        "activo": false,
+        "platform": "meli",
+        "visto_at": "2026-10-30T11:30:02.681472+00:00",
+        "listing_id": 1590,
+        "product_id": 378,
+        "seller_sku": "NH-PLA-CH-COR-PLA",
+        "variante_ext": "190333223914"
+      },
+      {
+        "activo": false,
+        "platform": "meli",
+        "visto_at": "2026-10-30T11:30:02.681472+00:00",
+        "listing_id": 1590,
+        "product_id": 384,
+        "seller_sku": "NH-PLA-CH-SAN-PLA",
+        "variante_ext": "190333223916"
+      },
+      {
+        "activo": false,
+        "platform": "meli",
+        "visto_at": "2026-10-30T11:30:02.681472+00:00",
+        "listing_id": 1590,
+        "product_id": 386,
+        "seller_sku": "NH-PLA-CH-VBU-PLA",
+        "variante_ext": "190333223918"
+      },
+      {
+        "activo": false,
+        "platform": "meli",
+        "visto_at": "2026-10-30T11:30:02.681472+00:00",
+        "listing_id": 1590,
+        "product_id": 388,
+        "seller_sku": "NH-PLA-CH-VCO-PLA",
+        "variante_ext": "190333223920"
+      },
+      {
+        "activo": false,
+        "platform": "meli",
+        "visto_at": "2026-10-30T11:30:02.681472+00:00",
+        "listing_id": 1590,
+        "product_id": null,
+        "seller_sku": "NH-PLA-CH-PEZ-PLA",
+        "variante_ext": "190333223922"
+      }
+    ],
+    "meli_publicacion_observation": [
+      {
+        "id": 1354,
+        "stock": 11,
+        "estado": "active",
+        "moneda": "MXN",
+        "precio": 1189.0,
+        "item_id": "MLM1890653227",
+        "visitas": 0,
+        "logistica": "me2",
+        "variantes": [
+          {
+            "stock": 2,
+            "seller_sku": "NH-CAR-BLA-CEN-PLA",
+            "variante_ext": "178099809133"
+          },
+          {
+            "stock": 0,
+            "seller_sku": "NH-CAR-BLA-SAN-PLA",
+            "variante_ext": "178099809135"
+          },
+          {
+            "stock": 0,
+            "seller_sku": "NH-CAR-BLA-VCO-PLA",
+            "variante_ext": "178099809137"
+          },
+          {
+            "stock": 0,
+            "seller_sku": "NH-CAR-BLA-VBU-PLA",
+            "variante_ext": "178099809139"
+          },
+          {
+            "stock": 9,
+            "seller_sku": "NH-CAR-BLA-COR-PLA",
+            "variante_ext": "178099809145"
+          },
+          {
+            "stock": 0,
+            "seller_sku": "NH-CAR-BLA-PEZ-PLA",
+            "variante_ext": "194936530433"
+          }
+        ],
+        "metric_date": "2026-11-04",
+        "observed_at": "2026-11-04T11:30:02.01216+00:00",
+        "categoria_id": "MLM1440",
+        "ingest_run_id": 1348,
+        "tipo_publicacion": "gold_pro"
+      },
+      {
+        "id": 1353,
+        "stock": 131,
+        "estado": "active",
+        "moneda": "MXN",
+        "precio": 1189.0,
+        "item_id": "MLM2163407464",
+        "visitas": 1,
+        "logistica": "me2",
+        "variantes": [
+          {
+            "stock": 6,
+            "seller_sku": "NH-CAR-BLA-CEN-DOR",
+            "variante_ext": "178100470523"
+          },
+          {
+            "stock": 0,
+            "seller_sku": "NH-CAR-BLA-SAN-DOR",
+            "variante_ext": "178100470525"
+          },
+          {
+            "stock": 0,
+            "seller_sku": "NH-CAR-BLA-VCO-DOR",
+            "variante_ext": "178100470527"
+          },
+          {
+            "stock": 119,
+            "seller_sku": "NH-CAR-BLA-VBU-DOR",
+            "variante_ext": "178100470529"
+          },
+          {
+            "stock": 6,
+            "seller_sku": "NH-CAR-BLA-COR-DOR",
+            "variante_ext": "178100470535"
+          },
+          {
+            "stock": 0,
+            "seller_sku": "NH-CAR-BLA-PEZ-DOR",
+            "variante_ext": "194936687129"
+          }
+        ],
+        "metric_date": "2026-11-04",
+        "observed_at": "2026-11-04T11:30:02.01216+00:00",
+        "categoria_id": "MLM1440",
+        "ingest_run_id": 1348,
+        "tipo_publicacion": "gold_pro"
+      },
+      {
+        "id": 1374,
+        "stock": 18,
+        "estado": "active",
+        "moneda": "MXN",
+        "precio": 989.0,
+        "item_id": "MLM2724304859",
+        "visitas": 0,
+        "logistica": "me2",
+        "variantes": [
+          {
+            "stock": 2,
+            "seller_sku": "NH-ITA-CEN-PLA",
+            "variante_ext": "190063357546"
+          },
+          {
+            "stock": 9,
+            "seller_sku": "NH-ITA-COR-PLA",
+            "variante_ext": "190063357548"
+          },
+          {
+            "stock": 4,
+            "seller_sku": "NH-ITA-SAN-PLA",
+            "variante_ext": "190063357550"
+          },
+          {
+            "stock": 0,
+            "seller_sku": "NH-ITA-PEZ-PLA",
+            "variante_ext": "190063357552"
+          },
+          {
+            "stock": 3,
+            "seller_sku": "NH-ITA-VBU-PLA",
+            "variante_ext": "190063357554"
+          },
+          {
+            "stock": 0,
+            "seller_sku": "NH-ITA-VCO-PLA",
+            "variante_ext": "190063357556"
+          }
+        ],
+        "metric_date": "2026-11-04",
+        "observed_at": "2026-11-04T11:30:02.01216+00:00",
+        "categoria_id": "MLM1440",
+        "ingest_run_id": 1348,
+        "tipo_publicacion": "gold_pro"
+      },
+      {
+        "id": 1380,
+        "stock": 117,
+        "estado": "active",
+        "moneda": "MXN",
+        "precio": 1885.0,
+        "item_id": "MLM2727328203",
+        "visitas": 0,
+        "logistica": "me2",
+        "variantes": [
+          {
+            "stock": 6,
+            "seller_sku": "NH-GAM-AZU-CEN-DOR",
+            "variante_ext": "196650403661"
+          },
+          {
+            "stock": 6,
+            "seller_sku": "NH-GAM-AZU-COR-DOR",
+            "variante_ext": "196650403663"
+          },
+          {
+            "stock": 0,
+            "seller_sku": "NH-GAM-AZU-SAN-DOR",
+            "variante_ext": "196650403665"
+          },
+          {
+            "stock": 105,
+            "seller_sku": "NH-GAM-AZU-VBU-DOR",
+            "variante_ext": "196650403667"
+          },
+          {
+            "stock": 0,
+            "seller_sku": "NH-GAM-AZU-VCO-DOR",
+            "variante_ext": "196650403669"
+          },
+          {
+            "stock": 0,
+            "seller_sku": "NH-GAM-AZU-PEZ-DOR",
+            "variante_ext": "196650403671"
+          }
+        ],
+        "metric_date": "2026-11-04",
+        "observed_at": "2026-11-04T11:30:02.01216+00:00",
+        "categoria_id": "MLM1440",
+        "ingest_run_id": 1348,
+        "tipo_publicacion": "gold_pro"
+      },
+      {
+        "id": 1379,
+        "stock": 94,
+        "estado": "active",
+        "moneda": "MXN",
+        "precio": 1889.0,
+        "item_id": "MLM2727363007",
+        "visitas": 0,
+        "logistica": "me2",
+        "variantes": [
+          {
+            "stock": 6,
+            "seller_sku": "NH-GAM-NEG-CEN-DOR",
+            "variante_ext": "196650403787"
+          },
+          {
+            "stock": 6,
+            "seller_sku": "NH-GAM-NEG-COR-DOR",
+            "variante_ext": "196650403789"
+          },
+          {
+            "stock": 0,
+            "seller_sku": "NH-GAM-NEG-SAN-DOR",
+            "variante_ext": "196650403791"
+          },
+          {
+            "stock": 82,
+            "seller_sku": "NH-GAM-NEG-VBU-DOR",
+            "variante_ext": "196650403793"
+          },
+          {
+            "stock": 0,
+            "seller_sku": "NH-GAM-NEG-VCO-DOR",
+            "variante_ext": "196650403795"
+          },
+          {
+            "stock": 0,
+            "seller_sku": "NH-GAM-NEG-PEZ-DOR",
+            "variante_ext": "196650403797"
+          }
+        ],
+        "metric_date": "2026-11-04",
+        "observed_at": "2026-11-04T11:30:02.01216+00:00",
+        "categoria_id": "MLM1440",
+        "ingest_run_id": 1348,
+        "tipo_publicacion": "gold_pro"
+      },
+      {
+        "id": 1378,
+        "stock": 50,
+        "estado": "under_review",
+        "moneda": "MXN",
+        "precio": 1689.0,
+        "item_id": "MLM2727437671",
+        "visitas": null,
+        "logistica": "me2",
+        "variantes": [
+          {
+            "stock": 50,
+            "seller_sku": "NH-GAM-AZU-COR-PLA",
+            "variante_ext": "196650442787"
+          },
+          {
+            "stock": 0,
+            "seller_sku": "NH-GAM-AZU-CEN-PLA",
+            "variante_ext": "196650442785"
+          },
+          {
+            "stock": 0,
+            "seller_sku": "NH-GAM-AZU-SAN-PLA",
+            "variante_ext": "196650442789"
+          },
+          {
+            "stock": 0,
+            "seller_sku": "NH-GAM-AZU-VBU-PLA",
+            "variante_ext": "196650442791"
+          },
+          {
+            "stock": 0,
+            "seller_sku": "NH-GAM-AZU-VCO-PLA",
+            "variante_ext": "196650442793"
+          },
+          {
+            "stock": 0,
+            "seller_sku": "NH-GAM-AZU-PEZ-PLA",
+            "variante_ext": "196650442795"
+          }
+        ],
+        "metric_date": "2026-11-04",
+        "observed_at": "2026-11-04T11:30:02.01216+00:00",
+        "categoria_id": "MLM1440",
+        "ingest_run_id": 1348,
+        "tipo_publicacion": "gold_pro"
+      },
+      {
+        "id": 1373,
+        "stock": 18,
+        "estado": "active",
+        "moneda": "MXN",
+        "precio": 1489.0,
+        "item_id": "MLM4735255462",
+        "visitas": 1,
+        "logistica": "me2",
+        "variantes": [
+          {
+            "stock": 6,
+            "seller_sku": "NH-BLA-BRO-CEN-DOR",
+            "variante_ext": "190065698602"
+          },
+          {
+            "stock": 6,
+            "seller_sku": "NH-BLA-BRO-COR-DOR",
+            "variante_ext": "190065698604"
+          },
+          {
+            "stock": 0,
+            "seller_sku": "NH-BLA-BRO-SAN-DOR",
+            "variante_ext": "190065698606"
+          },
+          {
+            "stock": 0,
+            "seller_sku": "NH-BLA-BRO-PEZ-DOR",
+            "variante_ext": "190065698608"
+          },
+          {
+            "stock": 6,
+            "seller_sku": "NH-BLA-BRO-VBU-DOR",
+            "variante_ext": "190065698610"
+          },
+          {
+            "stock": 0,
+            "seller_sku": "NH-BLA-BRO-VCO-DOR",
+            "variante_ext": "190065698612"
+          }
+        ],
+        "metric_date": "2026-11-04",
+        "observed_at": "2026-11-04T11:30:02.01216+00:00",
+        "categoria_id": "MLM1440",
+        "ingest_run_id": 1348,
+        "tipo_publicacion": "gold_pro"
+      },
+      {
+        "id": 1381,
+        "stock": 11,
+        "estado": "active",
+        "moneda": "MXN",
+        "precio": 1689.0,
+        "item_id": "MLM4749600210",
+        "visitas": 0,
+        "logistica": "me2",
+        "variantes": [
+          {
+            "stock": 2,
+            "seller_sku": "NH-GAM-NEG-CEN-PLA",
+            "variante_ext": "196764932933"
+          },
+          {
+            "stock": 9,
+            "seller_sku": "NH-GAM-NEG-COR-PLA",
+            "variante_ext": "196764932935"
+          },
+          {
+            "stock": 0,
+            "seller_sku": "NH-GAM-NEG-SAN-PLA",
+            "variante_ext": "196764932937"
+          },
+          {
+            "stock": 0,
+            "seller_sku": "NH-GAM-NEG-VBU-PLA",
+            "variante_ext": "196764932939"
+          },
+          {
+            "stock": 0,
+            "seller_sku": "NH-GAM-NEG-VCO-PLA",
+            "variante_ext": "196764932941"
+          },
+          {
+            "stock": 0,
+            "seller_sku": "NH-GAM-NEG-PEZ-PLA",
+            "variante_ext": "196764932943"
+          }
+        ],
+        "metric_date": "2026-11-04",
+        "observed_at": "2026-11-04T11:30:02.01216+00:00",
+        "categoria_id": "MLM1440",
+        "ingest_run_id": 1348,
+        "tipo_publicacion": "gold_pro"
+      },
+      {
+        "id": 1386,
+        "stock": 0,
+        "estado": "paused",
+        "moneda": "MXN",
+        "precio": 1489.0,
+        "item_id": "MLM4763716652",
+        "visitas": null,
+        "logistica": "me2",
+        "variantes": [
+          {
+            "stock": 0,
+            "seller_sku": "NH-PLA-CH-CEN-PLA",
+            "variante_ext": "190333223912"
+          },
+          {
+            "stock": 0,
+            "seller_sku": "NH-PLA-CH-COR-PLA",
+            "variante_ext": "190333223914"
+          },
+          {
+            "stock": 0,
+            "seller_sku": "NH-PLA-CH-SAN-PLA",
+            "variante_ext": "190333223916"
+          },
+          {
+            "stock": 0,
+            "seller_sku": "NH-PLA-CH-VBU-PLA",
+            "variante_ext": "190333223918"
+          },
+          {
+            "stock": 0,
+            "seller_sku": "NH-PLA-CH-VCO-PLA",
+            "variante_ext": "190333223920"
+          },
+          {
+            "stock": 0,
+            "seller_sku": "NH-PLA-CH-PEZ-PLA",
+            "variante_ext": "190333223922"
+          }
+        ],
+        "metric_date": "2026-11-04",
+        "observed_at": "2026-11-04T11:30:02.01216+00:00",
+        "categoria_id": "MLM1440",
+        "ingest_run_id": 1348,
+        "tipo_publicacion": "gold_pro"
+      }
+    ]
+  },
+  "fecha_utc": "2026-11-05T01:18:32.242465+00:00",
+  "sql": "\nWITH ultimo AS (\n SELECT DISTINCT ON (listing_id) * FROM estimacion_escenario\n WHERE platform='meli'\n ORDER BY listing_id,valoracion_date DESC,observed_at DESC,id DESC\n)\nSELECT to_jsonb(l) AS listing, to_jsonb(p) AS producto,\n       to_jsonb(u) AS escenario,\n       (SELECT jsonb_agg(to_jsonb(c)) FROM sku_cost c WHERE c.product_id=l.product_id) AS costos\nFROM ultimo u JOIN listing l ON l.id=u.listing_id\nJOIN product p ON p.id=l.product_id\nWHERE u.motivos::text LIKE '%costo_ausente%'\nORDER BY l.id\n",
+  "filas": [
+    {
+      "listing": {
+        "id": 1562,
+        "platform": "meli",
+        "product_id": 161,
+        "seller_sku": "NH-CAR-BLA-CEN-DOR",
+        "external_id": "MLM2163407464",
+        "listing_price": null,
+        "price_currency": null
+      },
+      "producto": {
+        "id": 161,
+        "name": "NH - Carte Blanco 16mm Dorado",
+        "active": true,
+        "odoo_sku": "NH-CAR-BLA-CEN-DOR"
+      },
+      "escenario": {
+        "id": 75593,
+        "asin": "MLM2163407464",
+        "canal": "meli",
+        "estado": "incompleta",
+        "moneda": null,
+        "fx_base": null,
+        "fx_rate": null,
+        "motivos": [
+          "costo_ausente"
+        ],
+        "fee_fijo": 0.0,
+        "fx_quote": null,
+        "platform": "meli",
+        "fx_source": null,
+        "listing_id": 1562,
+        "seller_sku": "NH-CAR-BLA-CEN-DOR",
+        "componentes": [
+          {
+            "fuente": "costo_ausente",
+            "nombre": "miembro:NH-CAR-BLA-PEZ-DOR",
+            "pertenece_a_total": false
+          }
+        ],
+        "exclusiones": [
+          "ads",
+          "reembolsos",
+          "almacenamiento",
+          "devoluciones",
+          "costos_periodicos",
+          "gastos_generales"
+        ],
+        "observed_at": "2026-11-04T12:50:01.953528+00:00",
+        "sku_cost_id": null,
+        "contribucion": null,
+        "fee_variable": 231.86,
+        "fx_rate_date": null,
+        "fee_cotizable": true,
+        "canonical_input": {
+          "entrada": {
+            "precio_bruto": "1189.0000",
+            "precio_moneda": "MXN",
+            "motivos_entrada": [
+              "costo_ausente"
+            ]
+          },
+          "fx_base": null,
+          "fx_rate": null,
+          "motivos": [
+            "costo_ausente"
+          ],
+          "fx_quote": null,
+          "miembros": [
+            {
+              "sku": "NH-CAR-BLA-CEN-DOR",
+              "estado": "disponible",
+              "motivos": [],
+              "product_id": 161,
+              "sku_cost_id": 1797,
+              "contribucion": "378.3650",
+              "envio_muestra_id": 12049
+            },
+            {
+              "sku": "NH-CAR-BLA-COR-DOR",
+              "estado": "disponible",
+              "motivos": [],
+              "product_id": 163,
+              "sku_cost_id": 1801,
+              "contribucion": "378.3650",
+              "envio_muestra_id": 12051
+            },
+            {
+              "sku": "NH-CAR-BLA-PEZ-DOR",
+              "estado": "incompleta",
+              "motivos": [
+                "costo_ausente"
+              ],
+              "product_id": null,
+              "sku_cost_id": null,
+              "contribucion": null,
+              "envio_muestra_id": null
+            },
+            {
+              "sku": "NH-CAR-BLA-SAN-DOR",
+              "estado": "disponible",
+              "motivos": [],
+              "product_id": 179,
+              "sku_cost_id": 1837,
+              "contribucion": "440.5450",
+              "envio_muestra_id": 12053
+            },
+            {
+              "sku": "NH-CAR-BLA-VBU-DOR",
+              "estado": "disponible",
+              "motivos": [],
+              "product_id": 181,
+              "sku_cost_id": 1841,
+              "contribucion": "440.5450",
+              "envio_muestra_id": 12055
+            },
+            {
+              "sku": "NH-CAR-BLA-VCO-DOR",
+              "estado": "disponible",
+              "motivos": [],
+              "product_id": 183,
+              "sku_cost_id": 1845,
+              "contribucion": "440.5450",
+              "envio_muestra_id": 12057
+            }
+          ],
+          "fx_source": null,
+          "resultado": {
+            "estado": "incompleta",
+            "contribucion": null,
+            "contribucion_pct": null
+          },
+          "observed_at": "2026-11-04T12:50:01.953528+00:00",
+          "sku_cost_id": null,
+          "fx_rate_date": null,
+          "formula_version": "S3",
+          "valoracion_date": "2026-11-04",
+          "costo_includes_tax": null,
+          "costo_validated_at": null,
+          "fee_observation_id": 71385,
+          "context_fingerprint": "meli:1189.0000:MXN:2026-11-04T11:30:02.012160+00:00",
+          "politica_version_id": 5,
+          "oferta_observation_id": 71388,
+          "costo_validation_run_id": null
+        },
+        "formula_version": "S3",
+        "source_event_id": "escenario:4b8c603728c9d9edad643ef6d7e4efe3",
+        "valoracion_date": "2026-11-04",
+        "contribucion_pct": null,
+        "envio_muestra_id": null,
+        "logistica_origen": null,
+        "costo_validated_at": null,
+        "fee_observation_id": 71385,
+        "miembro_product_id": null,
+        "context_fingerprint": "meli:1189.0000:MXN:2026-11-04T11:30:02.012160+00:00",
+        "politica_version_id": 5,
+        "oferta_observation_id": 71388,
+        "costo_validation_run_id": null
+      },
+      "costos": [
+        {
+          "id": 1796,
+          "valid_to": "2026-08-18",
+          "product_id": 161,
+          "valid_from": "2026-02-20",
+          "cost_amount": 301.5,
+          "includes_tax": false,
+          "cost_currency": "MXN",
+          "ingest_run_id": 28
+        },
+        {
+          "id": 1797,
+          "valid_to": null,
+          "product_id": 161,
+          "valid_from": "2026-08-18",
+          "cost_amount": 304.65,
+          "includes_tax": false,
+          "cost_currency": "MXN",
+          "ingest_run_id": 28
+        }
+      ]
+    },
+    {
+      "listing": {
+        "id": 1563,
+        "platform": "meli",
+        "product_id": 162,
+        "seller_sku": "NH-CAR-BLA-CEN-PLA",
+        "external_id": "MLM1890653227",
+        "listing_price": null,
+        "price_currency": null
+      },
+      "producto": {
+        "id": 162,
+        "name": "NH - Carte Blanco 16mm Plateado",
+        "active": true,
+        "odoo_sku": "NH-CAR-BLA-CEN-PLA"
+      },
+      "escenario": {
+        "id": 75594,
+        "asin": "MLM1890653227",
+        "canal": "meli",
+        "estado": "incompleta",
+        "moneda": null,
+        "fx_base": null,
+        "fx_rate": null,
+        "motivos": [
+          "costo_ausente"
+        ],
+        "fee_fijo": 0.0,
+        "fx_quote": null,
+        "platform": "meli",
+        "fx_source": null,
+        "listing_id": 1563,
+        "seller_sku": "NH-CAR-BLA-CEN-PLA",
+        "componentes": [
+          {
+            "fuente": "costo_ausente",
+            "nombre": "miembro:NH-CAR-BLA-PEZ-PLA",
+            "pertenece_a_total": false
+          }
+        ],
+        "exclusiones": [
+          "ads",
+          "reembolsos",
+          "almacenamiento",
+          "devoluciones",
+          "costos_periodicos",
+          "gastos_generales"
+        ],
+        "observed_at": "2026-11-04T12:50:02.131685+00:00",
+        "sku_cost_id": null,
+        "contribucion": null,
+        "fee_variable": 231.86,
+        "fx_rate_date": null,
+        "fee_cotizable": true,
+        "canonical_input": {
+          "entrada": {
+            "precio_bruto": "1189.0000",
+            "precio_moneda": "MXN",
+            "motivos_entrada": [
+              "costo_ausente"
+            ]
+          },
+          "fx_base": null,
+          "fx_rate": null,
+          "motivos": [
+            "costo_ausente"
+          ],
+          "fx_quote": null,
+          "miembros": [
+            {
+              "sku": "NH-CAR-BLA-CEN-PLA",
+              "estado": "disponible",
+              "motivos": [],
+              "product_id": 162,
+              "sku_cost_id": 1799,
+              "contribucion": "378.3650",
+              "envio_muestra_id": 12050
+            },
+            {
+              "sku": "NH-CAR-BLA-COR-PLA",
+              "estado": "disponible",
+              "motivos": [],
+              "product_id": 164,
+              "sku_cost_id": 1803,
+              "contribucion": "378.3650",
+              "envio_muestra_id": 12052
+            },
+            {
+              "sku": "NH-CAR-BLA-PEZ-PLA",
+              "estado": "incompleta",
+              "motivos": [
+                "costo_ausente"
+              ],
+              "product_id": null,
+              "sku_cost_id": null,
+              "contribucion": null,
+              "envio_muestra_id": null
+            },
+            {
+              "sku": "NH-CAR-BLA-SAN-PLA",
+              "estado": "disponible",
+              "motivos": [],
+              "product_id": 180,
+              "sku_cost_id": 1839,
+              "contribucion": "440.5450",
+              "envio_muestra_id": 12054
+            },
+            {
+              "sku": "NH-CAR-BLA-VBU-PLA",
+              "estado": "disponible",
+              "motivos": [],
+              "product_id": 182,
+              "sku_cost_id": 1843,
+              "contribucion": "440.5450",
+              "envio_muestra_id": 12056
+            },
+            {
+              "sku": "NH-CAR-BLA-VCO-PLA",
+              "estado": "disponible",
+              "motivos": [],
+              "product_id": 184,
+              "sku_cost_id": 1847,
+              "contribucion": "440.5450",
+              "envio_muestra_id": 12058
+            }
+          ],
+          "fx_source": null,
+          "resultado": {
+            "estado": "incompleta",
+            "contribucion": null,
+            "contribucion_pct": null
+          },
+          "observed_at": "2026-11-04T12:50:02.131685+00:00",
+          "sku_cost_id": null,
+          "fx_rate_date": null,
+          "formula_version": "S3",
+          "valoracion_date": "2026-11-04",
+          "costo_includes_tax": null,
+          "costo_validated_at": null,
+          "fee_observation_id": 71386,
+          "context_fingerprint": "meli:1189.0000:MXN:2026-11-04T11:30:02.012160+00:00",
+          "politica_version_id": 5,
+          "oferta_observation_id": 71389,
+          "costo_validation_run_id": null
+        },
+        "formula_version": "S3",
+        "source_event_id": "escenario:a6b1a64a6a95f311a397f70ac36c6dee",
+        "valoracion_date": "2026-11-04",
+        "contribucion_pct": null,
+        "envio_muestra_id": null,
+        "logistica_origen": null,
+        "costo_validated_at": null,
+        "fee_observation_id": 71386,
+        "miembro_product_id": null,
+        "context_fingerprint": "meli:1189.0000:MXN:2026-11-04T11:30:02.012160+00:00",
+        "politica_version_id": 5,
+        "oferta_observation_id": 71389,
+        "costo_validation_run_id": null
+      },
+      "costos": [
+        {
+          "id": 1798,
+          "valid_to": "2026-08-18",
+          "product_id": 162,
+          "valid_from": "2026-02-20",
+          "cost_amount": 301.5,
+          "includes_tax": false,
+          "cost_currency": "MXN",
+          "ingest_run_id": 28
+        },
+        {
+          "id": 1799,
+          "valid_to": null,
+          "product_id": 162,
+          "valid_from": "2026-08-18",
+          "cost_amount": 304.65,
+          "includes_tax": false,
+          "cost_currency": "MXN",
+          "ingest_run_id": 28
+        }
+      ]
+    },
+    {
+      "listing": {
+        "id": 1578,
+        "platform": "meli",
+        "product_id": 109,
+        "seller_sku": "NH-BLA-BRO-CEN-DOR",
+        "external_id": "MLM4735255462",
+        "listing_price": null,
+        "price_currency": null
+      },
+      "producto": {
+        "id": 109,
+        "name": "NH - Blanco con broche 19mm Dorado",
+        "active": true,
+        "odoo_sku": "NH-BLA-BRO-CEN-DOR"
+      },
+      "escenario": {
+        "id": 75609,
+        "asin": "MLM4735255462",
+        "canal": "meli",
+        "estado": "incompleta",
+        "moneda": null,
+        "fx_base": null,
+        "fx_rate": null,
+        "motivos": [
+          "costo_ausente"
+        ],
+        "fee_fijo": 0.0,
+        "fx_quote": null,
+        "platform": "meli",
+        "fx_source": null,
+        "listing_id": 1578,
+        "seller_sku": "NH-BLA-BRO-CEN-DOR",
+        "componentes": [
+          {
+            "fuente": "costo_ausente",
+            "nombre": "miembro:NH-BLA-BRO-PEZ-DOR",
+            "pertenece_a_total": false
+          }
+        ],
+        "exclusiones": [
+          "ads",
+          "reembolsos",
+          "almacenamiento",
+          "devoluciones",
+          "costos_periodicos",
+          "gastos_generales"
+        ],
+        "observed_at": "2026-11-04T12:50:04.684708+00:00",
+        "sku_cost_id": null,
+        "contribucion": null,
+        "fee_variable": 290.36,
+        "fx_rate_date": null,
+        "fee_cotizable": true,
+        "canonical_input": {
+          "entrada": {
+            "precio_bruto": "1489.0000",
+            "precio_moneda": "MXN",
+            "motivos_entrada": [
+              "costo_ausente"
+            ]
+          },
+          "fx_base": null,
+          "fx_rate": null,
+          "motivos": [
+            "costo_ausente"
+          ],
+          "fx_quote": null,
+          "miembros": [
+            {
+              "sku": "NH-BLA-BRO-CEN-DOR",
+              "estado": "disponible",
+              "motivos": [],
+              "product_id": 109,
+              "sku_cost_id": 1702,
+              "contribucion": "522.9802",
+              "envio_muestra_id": 12026
+            },
+            {
+              "sku": "NH-BLA-BRO-COR-DOR",
+              "estado": "disponible",
+              "motivos": [],
+              "product_id": 111,
+              "sku_cost_id": 1706,
+              "contribucion": "522.9802",
+              "envio_muestra_id": 12027
+            },
+            {
+              "sku": "NH-BLA-BRO-PEZ-DOR",
+              "estado": "incompleta",
+              "motivos": [
+                "costo_ausente"
+              ],
+              "product_id": null,
+              "sku_cost_id": null,
+              "contribucion": null,
+              "envio_muestra_id": null
+            },
+            {
+              "sku": "NH-BLA-BRO-SAN-DOR",
+              "estado": "disponible",
+              "motivos": [],
+              "product_id": 117,
+              "sku_cost_id": 1716,
+              "contribucion": "585.1602",
+              "envio_muestra_id": 12028
+            },
+            {
+              "sku": "NH-BLA-BRO-VBU-DOR",
+              "estado": "disponible",
+              "motivos": [],
+              "product_id": 119,
+              "sku_cost_id": 1720,
+              "contribucion": "585.1602",
+              "envio_muestra_id": 12029
+            },
+            {
+              "sku": "NH-BLA-BRO-VCO-DOR",
+              "estado": "disponible",
+              "motivos": [],
+              "product_id": 121,
+              "sku_cost_id": 1724,
+              "contribucion": "585.1602",
+              "envio_muestra_id": 12030
+            }
+          ],
+          "fx_source": null,
+          "resultado": {
+            "estado": "incompleta",
+            "contribucion": null,
+            "contribucion_pct": null
+          },
+          "observed_at": "2026-11-04T12:50:04.684708+00:00",
+          "sku_cost_id": null,
+          "fx_rate_date": null,
+          "formula_version": "S3",
+          "valoracion_date": "2026-11-04",
+          "costo_includes_tax": null,
+          "costo_validated_at": null,
+          "fee_observation_id": 71401,
+          "context_fingerprint": "meli:1489.0000:MXN:2026-11-04T11:30:02.012160+00:00",
+          "politica_version_id": 5,
+          "oferta_observation_id": 71404,
+          "costo_validation_run_id": null
+        },
+        "formula_version": "S3",
+        "source_event_id": "escenario:dfbd839b50705fb0e0013bdb97b7c6e8",
+        "valoracion_date": "2026-11-04",
+        "contribucion_pct": null,
+        "envio_muestra_id": null,
+        "logistica_origen": null,
+        "costo_validated_at": null,
+        "fee_observation_id": 71401,
+        "miembro_product_id": null,
+        "context_fingerprint": "meli:1489.0000:MXN:2026-11-04T11:30:02.012160+00:00",
+        "politica_version_id": 5,
+        "oferta_observation_id": 71404,
+        "costo_validation_run_id": null
+      },
+      "costos": [
+        {
+          "id": 1701,
+          "valid_to": "2026-08-18",
+          "product_id": 109,
+          "valid_from": "2026-02-20",
+          "cost_amount": 357.0,
+          "includes_tax": false,
+          "cost_currency": "MXN",
+          "ingest_run_id": 28
+        },
+        {
+          "id": 1702,
+          "valid_to": null,
+          "product_id": 109,
+          "valid_from": "2026-08-18",
+          "cost_amount": 353.69,
+          "includes_tax": false,
+          "cost_currency": "MXN",
+          "ingest_run_id": 28
+        }
+      ]
+    },
+    {
+      "listing": {
+        "id": 1579,
+        "platform": "meli",
+        "product_id": 306,
+        "seller_sku": "NH-ITA-CEN-PLA",
+        "external_id": "MLM2724304859",
+        "listing_price": null,
+        "price_currency": null
+      },
+      "producto": {
+        "id": 306,
+        "name": "NH - Italia 16mm Plateado",
+        "active": true,
+        "odoo_sku": "NH-ITA-CEN-PLA"
+      },
+      "escenario": {
+        "id": 75610,
+        "asin": "MLM2724304859",
+        "canal": "meli",
+        "estado": "incompleta",
+        "moneda": null,
+        "fx_base": null,
+        "fx_rate": null,
+        "motivos": [
+          "costo_ausente"
+        ],
+        "fee_fijo": 0.0,
+        "fx_quote": null,
+        "platform": "meli",
+        "fx_source": null,
+        "listing_id": 1579,
+        "seller_sku": "NH-ITA-CEN-PLA",
+        "componentes": [
+          {
+            "fuente": "costo_ausente",
+            "nombre": "miembro:NH-ITA-PEZ-PLA",
+            "pertenece_a_total": false
+          }
+        ],
+        "exclusiones": [
+          "ads",
+          "reembolsos",
+          "almacenamiento",
+          "devoluciones",
+          "costos_periodicos",
+          "gastos_generales"
+        ],
+        "observed_at": "2026-11-04T12:50:04.847369+00:00",
+        "sku_cost_id": null,
+        "contribucion": null,
+        "fee_variable": 192.86,
+        "fx_rate_date": null,
+        "fee_cotizable": true,
+        "canonical_input": {
+          "entrada": {
+            "precio_bruto": "989.0000",
+            "precio_moneda": "MXN",
+            "motivos_entrada": [
+              "costo_ausente"
+            ]
+          },
+          "fx_base": null,
+          "fx_rate": null,
+          "motivos": [
+            "costo_ausente"
+          ],
+          "fx_quote": null,
+          "miembros": [
+            {
+              "sku": "NH-ITA-CEN-PLA",
+              "estado": "disponible",
+              "motivos": [],
+              "product_id": 306,
+              "sku_cost_id": 2064,
+              "contribucion": "212.9116",
+              "envio_muestra_id": 12110
+            },
+            {
+              "sku": "NH-ITA-COR-PLA",
+              "estado": "disponible",
+              "motivos": [],
+              "product_id": 308,
+              "sku_cost_id": 2068,
+              "contribucion": "212.9116",
+              "envio_muestra_id": 12112
+            },
+            {
+              "sku": "NH-ITA-PEZ-PLA",
+              "estado": "incompleta",
+              "motivos": [
+                "costo_ausente"
+              ],
+              "product_id": null,
+              "sku_cost_id": null,
+              "contribucion": null,
+              "envio_muestra_id": null
+            },
+            {
+              "sku": "NH-ITA-SAN-PLA",
+              "estado": "disponible",
+              "motivos": [],
+              "product_id": 314,
+              "sku_cost_id": 2078,
+              "contribucion": "212.9116",
+              "envio_muestra_id": 12114
+            },
+            {
+              "sku": "NH-ITA-VBU-PLA",
+              "estado": "disponible",
+              "motivos": [],
+              "product_id": 316,
+              "sku_cost_id": 2082,
+              "contribucion": "212.9116",
+              "envio_muestra_id": 12116
+            },
+            {
+              "sku": "NH-ITA-VCO-PLA",
+              "estado": "disponible",
+              "motivos": [],
+              "product_id": 318,
+              "sku_cost_id": 2086,
+              "contribucion": "212.9116",
+              "envio_muestra_id": 12118
+            }
+          ],
+          "fx_source": null,
+          "resultado": {
+            "estado": "incompleta",
+            "contribucion": null,
+            "contribucion_pct": null
+          },
+          "observed_at": "2026-11-04T12:50:04.847369+00:00",
+          "sku_cost_id": null,
+          "fx_rate_date": null,
+          "formula_version": "S3",
+          "valoracion_date": "2026-11-04",
+          "costo_includes_tax": null,
+          "costo_validated_at": null,
+          "fee_observation_id": 71402,
+          "context_fingerprint": "meli:989.0000:MXN:2026-11-04T11:30:02.012160+00:00",
+          "politica_version_id": 5,
+          "oferta_observation_id": 71405,
+          "costo_validation_run_id": null
+        },
+        "formula_version": "S3",
+        "source_event_id": "escenario:b9e91fbca0270a97ebb1b0e7aece1b1d",
+        "valoracion_date": "2026-11-04",
+        "contribucion_pct": null,
+        "envio_muestra_id": null,
+        "logistica_origen": null,
+        "costo_validated_at": null,
+        "fee_observation_id": 71402,
+        "miembro_product_id": null,
+        "context_fingerprint": "meli:989.0000:MXN:2026-11-04T11:30:02.012160+00:00",
+        "politica_version_id": 5,
+        "oferta_observation_id": 71405,
+        "costo_validation_run_id": null
+      },
+      "costos": [
+        {
+          "id": 2063,
+          "valid_to": "2026-08-18",
+          "product_id": 306,
+          "valid_from": "2026-02-20",
+          "cost_amount": 326.0,
+          "includes_tax": false,
+          "cost_currency": "MXN",
+          "ingest_run_id": 28
+        },
+        {
+          "id": 2064,
+          "valid_to": null,
+          "product_id": 306,
+          "valid_from": "2026-08-18",
+          "cost_amount": 341.0,
+          "includes_tax": false,
+          "cost_currency": "MXN",
+          "ingest_run_id": 28
+        }
+      ]
+    },
+    {
+      "listing": {
+        "id": 1582,
+        "platform": "meli",
+        "product_id": 278,
+        "seller_sku": "NH-GAM-AZU-CEN-PLA",
+        "external_id": "MLM2727437671",
+        "listing_price": null,
+        "price_currency": null
+      },
+      "producto": {
+        "id": 278,
+        "name": "NH - Gamuza Azul 19mm Plateado",
+        "active": true,
+        "odoo_sku": "NH-GAM-AZU-CEN-PLA"
+      },
+      "escenario": {
+        "id": 65616,
+        "asin": "MLM2727437671",
+        "canal": "meli",
+        "estado": "incompleta",
+        "moneda": null,
+        "fx_base": null,
+        "fx_rate": null,
+        "motivos": [
+          "costo_ausente"
+        ],
+        "fee_fijo": 0.0,
+        "fx_quote": null,
+        "platform": "meli",
+        "fx_source": null,
+        "listing_id": 1582,
+        "seller_sku": "NH-GAM-AZU-CEN-PLA",
+        "componentes": [
+          {
+            "fuente": "costo_ausente",
+            "nombre": "miembro:NH-GAM-AZU-PEZ-PLA",
+            "pertenece_a_total": false
+          }
+        ],
+        "exclusiones": [
+          "ads",
+          "reembolsos",
+          "almacenamiento",
+          "devoluciones",
+          "costos_periodicos",
+          "gastos_generales"
+        ],
+        "observed_at": "2026-10-30T12:51:05.858544+00:00",
+        "sku_cost_id": null,
+        "contribucion": null,
+        "fee_variable": 329.36,
+        "fx_rate_date": null,
+        "fee_cotizable": true,
+        "canonical_input": {
+          "entrada": {
+            "precio_bruto": "1689.0000",
+            "precio_moneda": "MXN",
+            "motivos_entrada": [
+              "costo_ausente"
+            ]
+          },
+          "fx_base": null,
+          "fx_rate": null,
+          "motivos": [
+            "costo_ausente"
+          ],
+          "fx_quote": null,
+          "miembros": [
+            {
+              "sku": "NH-GAM-AZU-CEN-PLA",
+              "estado": "disponible",
+              "motivos": [],
+              "product_id": 278,
+              "sku_cost_id": 2022,
+              "contribucion": "680.7736",
+              "envio_muestra_id": 9072
+            },
+            {
+              "sku": "NH-GAM-AZU-COR-PLA",
+              "estado": "disponible",
+              "motivos": [],
+              "product_id": 280,
+              "sku_cost_id": 2024,
+              "contribucion": "680.7736",
+              "envio_muestra_id": 9074
+            },
+            {
+              "sku": "NH-GAM-AZU-PEZ-PLA",
+              "estado": "incompleta",
+              "motivos": [
+                "costo_ausente"
+              ],
+              "product_id": null,
+              "sku_cost_id": null,
+              "contribucion": null,
+              "envio_muestra_id": null
+            },
+            {
+              "sku": "NH-GAM-AZU-SAN-PLA",
+              "estado": "disponible",
+              "motivos": [],
+              "product_id": 286,
+              "sku_cost_id": 2032,
+              "contribucion": "742.9536",
+              "envio_muestra_id": 9076
+            },
+            {
+              "sku": "NH-GAM-AZU-VBU-PLA",
+              "estado": "disponible",
+              "motivos": [],
+              "product_id": 288,
+              "sku_cost_id": 2036,
+              "contribucion": "742.9536",
+              "envio_muestra_id": 9078
+            },
+            {
+              "sku": "NH-GAM-AZU-VCO-PLA",
+              "estado": "disponible",
+              "motivos": [],
+              "product_id": 290,
+              "sku_cost_id": 2040,
+              "contribucion": "742.9536",
+              "envio_muestra_id": 9080
+            }
+          ],
+          "fx_source": null,
+          "resultado": {
+            "estado": "incompleta",
+            "contribucion": null,
+            "contribucion_pct": null
+          },
+          "observed_at": "2026-10-30T12:51:05.858544+00:00",
+          "sku_cost_id": null,
+          "fx_rate_date": null,
+          "formula_version": "S3",
+          "valoracion_date": "2026-10-30",
+          "costo_includes_tax": null,
+          "costo_validated_at": null,
+          "fee_observation_id": 62757,
+          "context_fingerprint": "meli:1689.0000:MXN:2026-10-30T11:30:02.681472+00:00",
+          "politica_version_id": 5,
+          "oferta_observation_id": 62760,
+          "costo_validation_run_id": null
+        },
+        "formula_version": "S3",
+        "source_event_id": "escenario:a198849a80579cbe024cbc4337698d15",
+        "valoracion_date": "2026-10-30",
+        "contribucion_pct": null,
+        "envio_muestra_id": null,
+        "logistica_origen": null,
+        "costo_validated_at": null,
+        "fee_observation_id": 62757,
+        "miembro_product_id": null,
+        "context_fingerprint": "meli:1689.0000:MXN:2026-10-30T11:30:02.681472+00:00",
+        "politica_version_id": 5,
+        "oferta_observation_id": 62760,
+        "costo_validation_run_id": null
+      },
+      "costos": [
+        {
+          "id": 2022,
+          "valid_to": null,
+          "product_id": 278,
+          "valid_from": "2026-02-20",
+          "cost_amount": 325.0,
+          "includes_tax": false,
+          "cost_currency": "MXN",
+          "ingest_run_id": 28
+        }
+      ]
+    },
+    {
+      "listing": {
+        "id": 1583,
+        "platform": "meli",
+        "product_id": 291,
+        "seller_sku": "NH-GAM-NEG-CEN-DOR",
+        "external_id": "MLM2727363007",
+        "listing_price": null,
+        "price_currency": null
+      },
+      "producto": {
+        "id": 291,
+        "name": "NH - Gamuza Negro 19mm Dorado",
+        "active": true,
+        "odoo_sku": "NH-GAM-NEG-CEN-DOR"
+      },
+      "escenario": {
+        "id": 75613,
+        "asin": "MLM2727363007",
+        "canal": "meli",
+        "estado": "incompleta",
+        "moneda": null,
+        "fx_base": null,
+        "fx_rate": null,
+        "motivos": [
+          "costo_ausente"
+        ],
+        "fee_fijo": 0.0,
+        "fx_quote": null,
+        "platform": "meli",
+        "fx_source": null,
+        "listing_id": 1583,
+        "seller_sku": "NH-GAM-NEG-CEN-DOR",
+        "componentes": [
+          {
+            "fuente": "costo_ausente",
+            "nombre": "miembro:NH-GAM-NEG-PEZ-DOR",
+            "pertenece_a_total": false
+          }
+        ],
+        "exclusiones": [
+          "ads",
+          "reembolsos",
+          "almacenamiento",
+          "devoluciones",
+          "costos_periodicos",
+          "gastos_generales"
+        ],
+        "observed_at": "2026-11-04T12:50:05.339089+00:00",
+        "sku_cost_id": null,
+        "contribucion": null,
+        "fee_variable": 368.36,
+        "fx_rate_date": null,
+        "fee_cotizable": true,
+        "canonical_input": {
+          "entrada": {
+            "precio_bruto": "1889.0000",
+            "precio_moneda": "MXN",
+            "motivos_entrada": [
+              "costo_ausente"
+            ]
+          },
+          "fx_base": null,
+          "fx_rate": null,
+          "motivos": [
+            "costo_ausente"
+          ],
+          "fx_quote": null,
+          "miembros": [
+            {
+              "sku": "NH-GAM-NEG-CEN-DOR",
+              "estado": "disponible",
+              "motivos": [],
+              "product_id": 291,
+              "sku_cost_id": 2041,
+              "contribucion": "809.8771",
+              "envio_muestra_id": 12099
+            },
+            {
+              "sku": "NH-GAM-NEG-COR-DOR",
+              "estado": "disponible",
+              "motivos": [],
+              "product_id": 293,
+              "sku_cost_id": 2043,
+              "contribucion": "809.8771",
+              "envio_muestra_id": 12101
+            },
+            {
+              "sku": "NH-GAM-NEG-PEZ-DOR",
+              "estado": "incompleta",
+              "motivos": [
+                "costo_ausente"
+              ],
+              "product_id": null,
+              "sku_cost_id": null,
+              "contribucion": null,
+              "envio_muestra_id": null
+            },
+            {
+              "sku": "NH-GAM-NEG-SAN-DOR",
+              "estado": "disponible",
+              "motivos": [],
+              "product_id": 299,
+              "sku_cost_id": 2050,
+              "contribucion": "872.0571",
+              "envio_muestra_id": 12103
+            },
+            {
+              "sku": "NH-GAM-NEG-VBU-DOR",
+              "estado": "disponible",
+              "motivos": [],
+              "product_id": 301,
+              "sku_cost_id": 2054,
+              "contribucion": "872.0571",
+              "envio_muestra_id": 12105
+            },
+            {
+              "sku": "NH-GAM-NEG-VCO-DOR",
+              "estado": "disponible",
+              "motivos": [],
+              "product_id": 303,
+              "sku_cost_id": 2058,
+              "contribucion": "872.0571",
+              "envio_muestra_id": 12107
+            }
+          ],
+          "fx_source": null,
+          "resultado": {
+            "estado": "incompleta",
+            "contribucion": null,
+            "contribucion_pct": null
+          },
+          "observed_at": "2026-11-04T12:50:05.339089+00:00",
+          "sku_cost_id": null,
+          "fx_rate_date": null,
+          "formula_version": "S3",
+          "valoracion_date": "2026-11-04",
+          "costo_includes_tax": null,
+          "costo_validated_at": null,
+          "fee_observation_id": 71405,
+          "context_fingerprint": "meli:1889.0000:MXN:2026-11-04T11:30:02.012160+00:00",
+          "politica_version_id": 5,
+          "oferta_observation_id": 71408,
+          "costo_validation_run_id": null
+        },
+        "formula_version": "S3",
+        "source_event_id": "escenario:4169fcba591afe2168aec0e6083e9eca",
+        "valoracion_date": "2026-11-04",
+        "contribucion_pct": null,
+        "envio_muestra_id": null,
+        "logistica_origen": null,
+        "costo_validated_at": null,
+        "fee_observation_id": 71405,
+        "miembro_product_id": null,
+        "context_fingerprint": "meli:1889.0000:MXN:2026-11-04T11:30:02.012160+00:00",
+        "politica_version_id": 5,
+        "oferta_observation_id": 71408,
+        "costo_validation_run_id": null
+      },
+      "costos": [
+        {
+          "id": 2041,
+          "valid_to": null,
+          "product_id": 291,
+          "valid_from": "2026-02-20",
+          "cost_amount": 325.0,
+          "includes_tax": false,
+          "cost_currency": "MXN",
+          "ingest_run_id": 28
+        }
+      ]
+    },
+    {
+      "listing": {
+        "id": 1584,
+        "platform": "meli",
+        "product_id": 277,
+        "seller_sku": "NH-GAM-AZU-CEN-DOR",
+        "external_id": "MLM2727328203",
+        "listing_price": null,
+        "price_currency": null
+      },
+      "producto": {
+        "id": 277,
+        "name": "NH - Gamuza Azul 19mm Dorado",
+        "active": true,
+        "odoo_sku": "NH-GAM-AZU-CEN-DOR"
+      },
+      "escenario": {
+        "id": 75614,
+        "asin": "MLM2727328203",
+        "canal": "meli",
+        "estado": "incompleta",
+        "moneda": null,
+        "fx_base": null,
+        "fx_rate": null,
+        "motivos": [
+          "costo_ausente"
+        ],
+        "fee_fijo": 0.0,
+        "fx_quote": null,
+        "platform": "meli",
+        "fx_source": null,
+        "listing_id": 1584,
+        "seller_sku": "NH-GAM-AZU-CEN-DOR",
+        "componentes": [
+          {
+            "fuente": "costo_ausente",
+            "nombre": "miembro:NH-GAM-AZU-PEZ-DOR",
+            "pertenece_a_total": false
+          }
+        ],
+        "exclusiones": [
+          "ads",
+          "reembolsos",
+          "almacenamiento",
+          "devoluciones",
+          "costos_periodicos",
+          "gastos_generales"
+        ],
+        "observed_at": "2026-11-04T12:50:05.514197+00:00",
+        "sku_cost_id": null,
+        "contribucion": null,
+        "fee_variable": 367.58,
+        "fx_rate_date": null,
+        "fee_cotizable": true,
+        "canonical_input": {
+          "entrada": {
+            "precio_bruto": "1885.0000",
+            "precio_moneda": "MXN",
+            "motivos_entrada": [
+              "costo_ausente"
+            ]
+          },
+          "fx_base": null,
+          "fx_rate": null,
+          "motivos": [
+            "costo_ausente"
+          ],
+          "fx_quote": null,
+          "miembros": [
+            {
+              "sku": "NH-GAM-AZU-CEN-DOR",
+              "estado": "disponible",
+              "motivos": [],
+              "product_id": 277,
+              "sku_cost_id": 2021,
+              "contribucion": "807.2950",
+              "envio_muestra_id": 12093
+            },
+            {
+              "sku": "NH-GAM-AZU-COR-DOR",
+              "estado": "disponible",
+              "motivos": [],
+              "product_id": 279,
+              "sku_cost_id": 2023,
+              "contribucion": "807.2950",
+              "envio_muestra_id": 12095
+            },
+            {
+              "sku": "NH-GAM-AZU-PEZ-DOR",
+              "estado": "incompleta",
+              "motivos": [
+                "costo_ausente"
+              ],
+              "product_id": null,
+              "sku_cost_id": null,
+              "contribucion": null,
+              "envio_muestra_id": null
+            },
+            {
+              "sku": "NH-GAM-AZU-SAN-DOR",
+              "estado": "disponible",
+              "motivos": [],
+              "product_id": 285,
+              "sku_cost_id": 2030,
+              "contribucion": "869.4750",
+              "envio_muestra_id": 12096
+            },
+            {
+              "sku": "NH-GAM-AZU-VBU-DOR",
+              "estado": "disponible",
+              "motivos": [],
+              "product_id": 287,
+              "sku_cost_id": 2034,
+              "contribucion": "869.4750",
+              "envio_muestra_id": 12097
+            },
+            {
+              "sku": "NH-GAM-AZU-VCO-DOR",
+              "estado": "disponible",
+              "motivos": [],
+              "product_id": 289,
+              "sku_cost_id": 2038,
+              "contribucion": "869.4750",
+              "envio_muestra_id": 12098
+            }
+          ],
+          "fx_source": null,
+          "resultado": {
+            "estado": "incompleta",
+            "contribucion": null,
+            "contribucion_pct": null
+          },
+          "observed_at": "2026-11-04T12:50:05.514197+00:00",
+          "sku_cost_id": null,
+          "fx_rate_date": null,
+          "formula_version": "S3",
+          "valoracion_date": "2026-11-04",
+          "costo_includes_tax": null,
+          "costo_validated_at": null,
+          "fee_observation_id": 71406,
+          "context_fingerprint": "meli:1885.0000:MXN:2026-11-04T11:30:02.012160+00:00",
+          "politica_version_id": 5,
+          "oferta_observation_id": 71409,
+          "costo_validation_run_id": null
+        },
+        "formula_version": "S3",
+        "source_event_id": "escenario:dc1f692666241ccc8c71307ed296eb6a",
+        "valoracion_date": "2026-11-04",
+        "contribucion_pct": null,
+        "envio_muestra_id": null,
+        "logistica_origen": null,
+        "costo_validated_at": null,
+        "fee_observation_id": 71406,
+        "miembro_product_id": null,
+        "context_fingerprint": "meli:1885.0000:MXN:2026-11-04T11:30:02.012160+00:00",
+        "politica_version_id": 5,
+        "oferta_observation_id": 71409,
+        "costo_validation_run_id": null
+      },
+      "costos": [
+        {
+          "id": 2021,
+          "valid_to": null,
+          "product_id": 277,
+          "valid_from": "2026-02-20",
+          "cost_amount": 325.0,
+          "includes_tax": false,
+          "cost_currency": "MXN",
+          "ingest_run_id": 28
+        }
+      ]
+    },
+    {
+      "listing": {
+        "id": 1585,
+        "platform": "meli",
+        "product_id": 292,
+        "seller_sku": "NH-GAM-NEG-CEN-PLA",
+        "external_id": "MLM4749600210",
+        "listing_price": null,
+        "price_currency": null
+      },
+      "producto": {
+        "id": 292,
+        "name": "NH - Gamuza Negro 19mm Plateado",
+        "active": true,
+        "odoo_sku": "NH-GAM-NEG-CEN-PLA"
+      },
+      "escenario": {
+        "id": 75615,
+        "asin": "MLM4749600210",
+        "canal": "meli",
+        "estado": "incompleta",
+        "moneda": null,
+        "fx_base": null,
+        "fx_rate": null,
+        "motivos": [
+          "costo_ausente"
+        ],
+        "fee_fijo": 0.0,
+        "fx_quote": null,
+        "platform": "meli",
+        "fx_source": null,
+        "listing_id": 1585,
+        "seller_sku": "NH-GAM-NEG-CEN-PLA",
+        "componentes": [
+          {
+            "fuente": "costo_ausente",
+            "nombre": "miembro:NH-GAM-NEG-PEZ-PLA",
+            "pertenece_a_total": false
+          }
+        ],
+        "exclusiones": [
+          "ads",
+          "reembolsos",
+          "almacenamiento",
+          "devoluciones",
+          "costos_periodicos",
+          "gastos_generales"
+        ],
+        "observed_at": "2026-11-04T12:50:05.659839+00:00",
+        "sku_cost_id": null,
+        "contribucion": null,
+        "fee_variable": 329.36,
+        "fx_rate_date": null,
+        "fee_cotizable": true,
+        "canonical_input": {
+          "entrada": {
+            "precio_bruto": "1689.0000",
+            "precio_moneda": "MXN",
+            "motivos_entrada": [
+              "costo_ausente"
+            ]
+          },
+          "fx_base": null,
+          "fx_rate": null,
+          "motivos": [
+            "costo_ausente"
+          ],
+          "fx_quote": null,
+          "miembros": [
+            {
+              "sku": "NH-GAM-NEG-CEN-PLA",
+              "estado": "disponible",
+              "motivos": [],
+              "product_id": 292,
+              "sku_cost_id": 2042,
+              "contribucion": "680.7736",
+              "envio_muestra_id": 12100
+            },
+            {
+              "sku": "NH-GAM-NEG-COR-PLA",
+              "estado": "disponible",
+              "motivos": [],
+              "product_id": 294,
+              "sku_cost_id": 2044,
+              "contribucion": "680.7736",
+              "envio_muestra_id": 12102
+            },
+            {
+              "sku": "NH-GAM-NEG-PEZ-PLA",
+              "estado": "incompleta",
+              "motivos": [
+                "costo_ausente"
+              ],
+              "product_id": null,
+              "sku_cost_id": null,
+              "contribucion": null,
+              "envio_muestra_id": null
+            },
+            {
+              "sku": "NH-GAM-NEG-SAN-PLA",
+              "estado": "disponible",
+              "motivos": [],
+              "product_id": 300,
+              "sku_cost_id": 2052,
+              "contribucion": "742.9536",
+              "envio_muestra_id": 12104
+            },
+            {
+              "sku": "NH-GAM-NEG-VBU-PLA",
+              "estado": "disponible",
+              "motivos": [],
+              "product_id": 302,
+              "sku_cost_id": 2056,
+              "contribucion": "742.9536",
+              "envio_muestra_id": 12106
+            },
+            {
+              "sku": "NH-GAM-NEG-VCO-PLA",
+              "estado": "disponible",
+              "motivos": [],
+              "product_id": 304,
+              "sku_cost_id": 2060,
+              "contribucion": "742.9536",
+              "envio_muestra_id": 12108
+            }
+          ],
+          "fx_source": null,
+          "resultado": {
+            "estado": "incompleta",
+            "contribucion": null,
+            "contribucion_pct": null
+          },
+          "observed_at": "2026-11-04T12:50:05.659839+00:00",
+          "sku_cost_id": null,
+          "fx_rate_date": null,
+          "formula_version": "S3",
+          "valoracion_date": "2026-11-04",
+          "costo_includes_tax": null,
+          "costo_validated_at": null,
+          "fee_observation_id": 71407,
+          "context_fingerprint": "meli:1689.0000:MXN:2026-11-04T11:30:02.012160+00:00",
+          "politica_version_id": 5,
+          "oferta_observation_id": 71410,
+          "costo_validation_run_id": null
+        },
+        "formula_version": "S3",
+        "source_event_id": "escenario:98e8c644426f8057f009e4002943b0b2",
+        "valoracion_date": "2026-11-04",
+        "contribucion_pct": null,
+        "envio_muestra_id": null,
+        "logistica_origen": null,
+        "costo_validated_at": null,
+        "fee_observation_id": 71407,
+        "miembro_product_id": null,
+        "context_fingerprint": "meli:1689.0000:MXN:2026-11-04T11:30:02.012160+00:00",
+        "politica_version_id": 5,
+        "oferta_observation_id": 71410,
+        "costo_validation_run_id": null
+      },
+      "costos": [
+        {
+          "id": 2042,
+          "valid_to": null,
+          "product_id": 292,
+          "valid_from": "2026-02-20",
+          "cost_amount": 325.0,
+          "includes_tax": false,
+          "cost_currency": "MXN",
+          "ingest_run_id": 28
+        }
+      ]
+    },
+    {
+      "listing": {
+        "id": 1590,
+        "platform": "meli",
+        "product_id": 376,
+        "seller_sku": "NH-PLA-CH-CEN-PLA",
+        "external_id": "MLM4763716652",
+        "listing_price": null,
+        "price_currency": null
+      },
+      "producto": {
+        "id": 376,
+        "name": "NH - Platino CH 19mm Plateado",
+        "active": true,
+        "odoo_sku": "NH-PLA-CH-CEN-PLA"
+      },
+      "escenario": {
+        "id": 65624,
+        "asin": "MLM4763716652",
+        "canal": "meli",
+        "estado": "incompleta",
+        "moneda": null,
+        "fx_base": null,
+        "fx_rate": null,
+        "motivos": [
+          "costo_ausente"
+        ],
+        "fee_fijo": 0.0,
+        "fx_quote": null,
+        "platform": "meli",
+        "fx_source": null,
+        "listing_id": 1590,
+        "seller_sku": "NH-PLA-CH-CEN-PLA",
+        "componentes": [
+          {
+            "fuente": "costo_ausente",
+            "nombre": "miembro:NH-PLA-CH-PEZ-PLA",
+            "pertenece_a_total": false
+          }
+        ],
+        "exclusiones": [
+          "ads",
+          "reembolsos",
+          "almacenamiento",
+          "devoluciones",
+          "costos_periodicos",
+          "gastos_generales"
+        ],
+        "observed_at": "2026-10-30T12:51:07.057979+00:00",
+        "sku_cost_id": null,
+        "contribucion": null,
+        "fee_variable": 290.36,
+        "fx_rate_date": null,
+        "fee_cotizable": true,
+        "canonical_input": {
+          "entrada": {
+            "precio_bruto": "1489.0000",
+            "precio_moneda": "MXN",
+            "motivos_entrada": [
+              "costo_ausente"
+            ]
+          },
+          "fx_base": null,
+          "fx_rate": null,
+          "motivos": [
+            "costo_ausente"
+          ],
+          "fx_quote": null,
+          "miembros": [
+            {
+              "sku": "NH-PLA-CH-CEN-PLA",
+              "estado": "disponible",
+              "motivos": [],
+              "product_id": 376,
+              "sku_cost_id": 2195,
+              "contribucion": "504.6702",
+              "envio_muestra_id": 9112
+            },
+            {
+              "sku": "NH-PLA-CH-COR-PLA",
+              "estado": "disponible",
+              "motivos": [],
+              "product_id": 378,
+              "sku_cost_id": 2197,
+              "contribucion": "504.6702",
+              "envio_muestra_id": 9114
+            },
+            {
+              "sku": "NH-PLA-CH-PEZ-PLA",
+              "estado": "incompleta",
+              "motivos": [
+                "costo_ausente"
+              ],
+              "product_id": null,
+              "sku_cost_id": null,
+              "contribucion": null,
+              "envio_muestra_id": null
+            },
+            {
+              "sku": "NH-PLA-CH-SAN-PLA",
+              "estado": "disponible",
+              "motivos": [],
+              "product_id": 384,
+              "sku_cost_id": 2205,
+              "contribucion": "566.8502",
+              "envio_muestra_id": 9116
+            },
+            {
+              "sku": "NH-PLA-CH-VBU-PLA",
+              "estado": "disponible",
+              "motivos": [],
+              "product_id": 386,
+              "sku_cost_id": 2209,
+              "contribucion": "566.8502",
+              "envio_muestra_id": 9118
+            },
+            {
+              "sku": "NH-PLA-CH-VCO-PLA",
+              "estado": "disponible",
+              "motivos": [],
+              "product_id": 388,
+              "sku_cost_id": 2213,
+              "contribucion": "566.8502",
+              "envio_muestra_id": 9120
+            }
+          ],
+          "fx_source": null,
+          "resultado": {
+            "estado": "incompleta",
+            "contribucion": null,
+            "contribucion_pct": null
+          },
+          "observed_at": "2026-10-30T12:51:07.057979+00:00",
+          "sku_cost_id": null,
+          "fx_rate_date": null,
+          "formula_version": "S3",
+          "valoracion_date": "2026-10-30",
+          "costo_includes_tax": null,
+          "costo_validated_at": null,
+          "fee_observation_id": 62765,
+          "context_fingerprint": "meli:1489.0000:MXN:2026-10-30T11:30:02.681472+00:00",
+          "politica_version_id": 5,
+          "oferta_observation_id": 62768,
+          "costo_validation_run_id": null
+        },
+        "formula_version": "S3",
+        "source_event_id": "escenario:a44e4cbd204389e6cd50bc17fd486e57",
+        "valoracion_date": "2026-10-30",
+        "contribucion_pct": null,
+        "envio_muestra_id": null,
+        "logistica_origen": null,
+        "costo_validated_at": null,
+        "fee_observation_id": 62765,
+        "miembro_product_id": null,
+        "context_fingerprint": "meli:1489.0000:MXN:2026-10-30T11:30:02.681472+00:00",
+        "politica_version_id": 5,
+        "oferta_observation_id": 62768,
+        "costo_validation_run_id": null
+      },
+      "costos": [
+        {
+          "id": 2195,
+          "valid_to": null,
+          "product_id": 376,
+          "valid_from": "2026-02-20",
+          "cost_amount": 372.0,
+          "includes_tax": false,
+          "cost_currency": "MXN",
+          "ingest_run_id": 28
+        }
+      ]
+    }
+  ],
+  "runs": [
+    [
+      1344,
+      "2026-11-04 08:15:02.982724+00:00",
+      true,
+      0,
+      null
+    ],
+    [
+      1319,
+      "2026-11-03 08:15:03.156903+00:00",
+      true,
+      0,
+      null
+    ],
+    [
+      1294,
+      "2026-11-02 08:15:02.788528+00:00",
+      true,
+      0,
+      null
+    ]
+  ]
+}

@@ -35,13 +35,6 @@ def test_reinstalar_orbit_conserva_una_sola_linea_de_salud():
     assert "# accounting\n0 0 * * * accounting\n" in reinstalado
 
 
-def test_checker_exige_la_linea_documentada():
-    deploy = (RAIZ / "docs/DEPLOY.md").read_text()
-    linea = next(linea for linea in deploy.splitlines() if "app.cli ads-salud >>" in linea)
-    checker = (RAIZ / "tools/check_ads_salud_cron.sh").read_text()
-    assert f"esperada='{linea}'" in checker
-
-
 def test_comentario_documentado_coincide_con_el_instalado():
     deploy = (RAIZ / "docs/DEPLOY.md").read_text()
     documentado = next(
@@ -113,3 +106,29 @@ def test_checker_propaga_error_operativo(tmp_path):
     assert resultado.returncode == 23
     assert "permission denied" in resultado.stderr
     assert "cron invalido" not in resultado.stderr
+
+
+def test_checker_acepta_wrapper_productivo_sin_relajar_el_contrato(tmp_path):
+    linea = (
+        '*/10 10-12 * * * /usr/local/bin/cron-avisa --nombre "Salud de la publicidad" '
+        "--cada 24 --tras 3 -- /bin/bash -c 'docker exec orbit-app-1 python -m app.cli ads-salud' "
+        ">> /mnt/data/appdata/orbit/logs/ads-salud.log 2>&1"
+    )
+    resultado = _ejecuta_checker(tmp_path, salida=linea + "\n")
+    assert resultado.returncode == 0, resultado.stderr
+    assert "ads-salud cron ok" in resultado.stdout
+
+    for invalida in (
+        linea.replace("*/10 10-12", "*/5 10-12"),
+        linea.replace("orbit-app-1", "otro-app-1"),
+        linea.replace("--tras 3", "--tras 5"),
+        linea + "; touch " + str(tmp_path / "ejecutado"),
+    ):
+        resultado = _ejecuta_checker(tmp_path, salida=invalida + "\n")
+        assert resultado.returncode == 1, invalida
+        assert "total=1 exacta=0" in resultado.stderr
+    assert not (tmp_path / "ejecutado").exists()
+
+    resultado = _ejecuta_checker(tmp_path, salida=linea + "\n" + _linea_documentada() + "\n")
+    assert resultado.returncode == 1
+    assert "total=2 exacta=2" in resultado.stderr

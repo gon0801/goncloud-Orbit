@@ -1,5 +1,7 @@
 # REPUTACION 01 — Plan formal del módulo Reputación
 
+> **Estado vigente: v1 CERRADA 2026-09-08.** Al 4-nov, MeLi sigue entrando; Amazon no tiene ingestas exitosas ni reseñas. REP-FOLLOW-2 sigue abierto (ROADMAP P05); REP-FOLLOW-1/3 son P10/P11. El crédito Apify agotado es el último bloqueo documentado, no un saldo consultado hoy.
+
 Versión: 1.4, 2026-09-07 — plan oficial (harness-plan). Redacción del lead
 (sustituye el brief `plans/brief-reputacion-01-deepseek.md`, conservado como
 antecedente). Atiende cross-review (2 majors + 4 minors) y validación

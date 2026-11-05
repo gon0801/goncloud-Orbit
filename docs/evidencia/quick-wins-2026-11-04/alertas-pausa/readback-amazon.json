@@ -1,0 +1,19 @@
+{
+  "consultado_utc": "2026-11-05T00:52:25.969270+00:00",
+  "metodos": [
+    "GET /v2/profiles",
+    "POST /sp/targets/list (lectura default-deny)"
+  ],
+  "platform": "amazon_us",
+  "profile_id": 4387591165211712,
+  "total_declarado": 549,
+  "filas_recibidas": 549,
+  "target": [
+    {
+      "targetId": "555998919865227",
+      "campaignId": "140602818838686",
+      "adGroupId": "529927551250133",
+      "state": "PAUSED"
+    }
+  ]
+}

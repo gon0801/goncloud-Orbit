@@ -1,0 +1,12 @@
+{
+  "capturado_utc": "2026-11-05T01:21:40.051255+00:00",
+  "job_id": 10,
+  "programado_utc": "2026-11-05T09:00:00Z",
+  "comando": "/usr/bin/python3 /mnt/data/appdata/orbit/seguimientos/p01-20261105/ejecutar.py > /mnt/data/appdata/orbit/seguimientos/p01-20261105/ejecucion.log 2>&1",
+  "mail_suprimido": true,
+  "entorno_minimo": true,
+  "contenido_verificado": true,
+  "jobs_previos_intactos": true,
+  "atq_antes": "8\tTue Nov 17 09:00:00 2026 a root\n",
+  "atq_despues": "10\tThu Nov  5 09:00:00 2026 a root\n8\tTue Nov 17 09:00:00 2026 a root\n"
+}
