@@ -199,6 +199,11 @@
       "name": "pez-02",
       "path": "plans/pez-02.md",
       "description": "PEZ 02 — PARCIAL 8/9. Usuario confirmo 22 mm; ocho descripciones MeLi publicadas y verificadas, costos conciliados sin recosteo. Solo queda MLM2727437671, inhabilitada desde 31-oct UTC por categoria incorrecta; PUT rechazado HTTP 400. Respaldo/reversa conservados; estados y datos comerciales intactos."
+    },
+    {
+      "name": "decisiones-producto-01",
+      "path": "plans/decisiones-producto-01.md",
+      "description": "DECISIONES PRODUCTO 01 (AUTO-03) — meta ACoS por producto en grupos exclusivos y pausa de product ads de productos sin ventas, Amazon MX y US. Plan para el motor (9 bloques, 48 filas) diseñado con pstack architect el 2026-11-04; no entregado ni implementado."
     }
   ],
   "active": "resumen-ads-multicanal"
