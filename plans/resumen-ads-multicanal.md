@@ -1,6 +1,6 @@
 # Plan de Resumen Ads multicanal
 
-> **Estado al 4-nov-2026: fases 01/02/03 integradas y archivos principales desplegados.** Ingesta inicial exitosa y cron/script correctos. Hasta 3-nov: 808/808 filas iguales; 4-nov tiene dos diferencias por fuente posterior (+13.47 MXN). P01 sigue abierto. Comprobación RO **job 10, 5-nov 09:00 UTC**, posterior al cron 08:15, con misma huella/as-of y conciliación. [Seguimiento instalado](../docs/evidencia/quick-wins-2026-11-04/seguimiento-meli/LEEME.md).
+> **Estado al 5-nov-2026: fases 01/02/03/04 integradas y archivos principales desplegados.** Ingesta inicial exitosa y cron/script correctos. Hasta 3-nov: 808/808 filas iguales; 4-nov tiene dos diferencias por fuente posterior (+13.47 MXN). P01 sigue abierto. Comprobación RO **job 10, 5-nov 09:00 UTC**, posterior al cron 08:15, con misma huella/as-of y conciliación. [Seguimiento instalado](../docs/evidencia/quick-wins-2026-11-04/seguimiento-meli/LEEME.md).
 
 **Objetivo.** Convertir `/` en un resumen de publicidad con periodos configurables, comparación y tendencias legibles para Amazon MX, Amazon US y Mercado Libre.
 
@@ -121,6 +121,18 @@ Las pruebas monetarias están permitidas. Comprueba mediante la API real los tre
 **Verificación proporcional.**
 
 Verifica en el navegador los periodos, el rango personalizado, MA7, la comparación, los canales, los nulos, los temas y el ancho de 390 px. Captura las pantallas principales y un video corto del flujo. El operador revisa la interfaz antes de integrarla. No hay lanes en VM ni medición de rendimiento obligatorios.
+
+## Rediseñar el Resumen y ACoS objetivo (RESUMEN-ADS-04)
+
+**Estado.** Integrado en #524 (merge `9934f9ef`, 5-nov 02:01 UTC) y desplegado: los 10 archivos de `app/` que cambió tienen el mismo SHA256 en master `9fb5a63f` y en `orbit-app-1` (5-nov 03:22 UTC). [Hashes](../docs/evidencia/resumen-ads-multicanal/04-despliegue/hashes.json). Falta la revisión visual en producción.
+
+**Alcance.** La vista `/` pasa a siete bloques jerárquicos: filtros por canal y periodo conservados en la URL, tarjetas con métricas y tendencias, alertas priorizadas, totales por moneda y tablas plegables con cobertura. `/settings` agrega un ACoS objetivo opcional por canal; dejar el campo vacío elimina la meta. Las fichas `resumen.md` y `settings.md` de `.cursor/skills/verify-orbit/features/` describen el flujo.
+
+**Archivos.** `app/api_dashboard.py`, `app/api_write.py`, `app/config_write.py`, `app/ui.py`, `app/ui_metricas.py`, `app/templates/resumen.html`, `app/templates/settings.html`, `app/static/js/dashboard.js`, `app/static/js/settings.js` y `app/static/css/dashboard.css`.
+
+**Resultado visible.** El operador ve los siete bloques en `/` con filtros que sobreviven a recargar la página, y puede guardar o borrar el ACoS objetivo de cada canal en `/settings`.
+
+**Verificación proporcional y cierre.** La escritura del ACoS objetivo tiene su prueba (`tests/test_settings_escritura.py`). Falta la revisión visual en producción: recorrer `/` y `/settings` con `.cursor/skills/verify-orbit/helpers/orbit-verify` según sus fichas, a 390 px y en escritorio, y guardar las capturas en `docs/evidencia/resumen-ads-multicanal/04-despliegue/`. La fase cierra cuando esas capturas muestran los siete bloques con datos reales y una meta de ACoS guardada y luego borrada.
 
 ## Decisiones de diseño
 

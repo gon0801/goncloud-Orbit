@@ -1,7 +1,7 @@
 # ROADMAP maestro — Orbit
 
 Actualizado el **2026-11-04, America/Vancouver** (consultas de producción:
-2026-11-05 UTC), contra `master` **6bce3589** y los cierres de cada plan.
+2026-11-05 UTC), contra `master` **6bce3589** y los cierres de cada plan. Actualización incremental: la fila RESUMEN ADS 04 se comprobó contra `master` **9fb5a63f** (5-nov 03:22 UTC).
 Esta es la fuente única de pendientes; `docs/PENDIENTES-AUTOMATIZACION.md`
 redirige aquí. Los planes detallados conservan contratos e historia.
 
@@ -78,7 +78,7 @@ cada módulo. Los residuales siguen arriba, separados del desarrollo.
 | REPRICING 02 / AUTO-07 | Cerrado 17-oct; goals vigentes: MX 231, US 99, MeLi 45 en `live`. P04 cerrado mediante PEZ 01; nueve correspondencias verificadas. Datos PEZ pendientes en P13. Incidente MeLi de octubre corregido y desplegado (#504). |
 | BIDS 02 | Construido, desplegado y encendido; remate cerrado 13-oct. Sus guías no son planes pendientes adicionales. |
 | INGESTA 01 | Cerrada 22-oct. Informe del **28-oct recuperado**: 21/21 corridas exitosas, 14/14 ciclos `done`, cero días sin éxito por fuente. Guardas históricas comprobadas para ambas plataformas. [Evidencia](../docs/evidencia/estado-planes-2026-11-04/README.md). |
-| RESUMEN ADS 01/02/03 | Integrados y archivos principales comprobados en producción el 4-nov. Queda P01; no están por construir. |
+| RESUMEN ADS 01/02/03/04 | Integrados. Archivos principales de 01/02/03 comprobados en producción el 4-nov. ADS 04 (rediseño del Resumen y ACoS objetivo en settings, #524, integrado 5-nov 02:01 UTC): 10/10 archivos de `app/` iguales entre master `9fb5a63f` y `orbit-app-1` (SHA256, 5-nov 03:22 UTC; contenedor iniciado 02:10 UTC; [hashes](../docs/evidencia/resumen-ads-multicanal/04-despliegue/hashes.json)); sin revisión visual en producción. Queda P01; no están por construir. |
 | ADS PROTECCION 01 Fase D | Tareas completadas; el plan padre conserva P03. |
 
 ## Cómo mantener este registro
