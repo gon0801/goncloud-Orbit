@@ -1,0 +1,450 @@
+{
+  "fecha_utc": "2026-11-05T01:17:53.271511+00:00",
+  "filas": [
+    {
+      "id": "MLM2163407464",
+      "status": "active",
+      "sub_status": [],
+      "available_quantity": 131,
+      "catalog_listing": false,
+      "catalog_product_id": null,
+      "last_updated": "2026-11-04T01:12:16.915Z",
+      "currency_id": "MXN",
+      "observado_utc": "2026-11-05T01:17:52.130838+00:00",
+      "variantes": [
+        {
+          "id": 178100470523,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 6
+        },
+        {
+          "id": 178100470525,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 0
+        },
+        {
+          "id": 178100470527,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 0
+        },
+        {
+          "id": 178100470529,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 119
+        },
+        {
+          "id": 178100470535,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 6
+        },
+        {
+          "id": 194936687129,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 0
+        }
+      ]
+    },
+    {
+      "id": "MLM1890653227",
+      "status": "active",
+      "sub_status": [],
+      "available_quantity": 11,
+      "catalog_listing": false,
+      "catalog_product_id": null,
+      "last_updated": "2026-11-03T00:10:57.133Z",
+      "currency_id": "MXN",
+      "observado_utc": "2026-11-05T01:17:52.269999+00:00",
+      "variantes": [
+        {
+          "id": 178099809133,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 2
+        },
+        {
+          "id": 178099809135,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 0
+        },
+        {
+          "id": 178099809137,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 0
+        },
+        {
+          "id": 178099809139,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 0
+        },
+        {
+          "id": 178099809145,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 9
+        },
+        {
+          "id": 194936530433,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 0
+        }
+      ]
+    },
+    {
+      "id": "MLM4735255462",
+      "status": "active",
+      "sub_status": [],
+      "available_quantity": 18,
+      "catalog_listing": false,
+      "catalog_product_id": null,
+      "last_updated": "2026-11-02T23:00:06.089Z",
+      "currency_id": "MXN",
+      "observado_utc": "2026-11-05T01:17:52.416934+00:00",
+      "variantes": [
+        {
+          "id": 190065698602,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 6
+        },
+        {
+          "id": 190065698604,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 6
+        },
+        {
+          "id": 190065698606,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 0
+        },
+        {
+          "id": 190065698608,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 0
+        },
+        {
+          "id": 190065698610,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 6
+        },
+        {
+          "id": 190065698612,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 0
+        }
+      ]
+    },
+    {
+      "id": "MLM2724304859",
+      "status": "active",
+      "sub_status": [],
+      "available_quantity": 18,
+      "catalog_listing": false,
+      "catalog_product_id": null,
+      "last_updated": "2026-11-03T00:11:27.933Z",
+      "currency_id": "MXN",
+      "observado_utc": "2026-11-05T01:17:52.563230+00:00",
+      "variantes": [
+        {
+          "id": 190063357546,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 2
+        },
+        {
+          "id": 190063357548,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 9
+        },
+        {
+          "id": 190063357550,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 4
+        },
+        {
+          "id": 190063357552,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 0
+        },
+        {
+          "id": 190063357554,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 3
+        },
+        {
+          "id": 190063357556,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 0
+        }
+      ]
+    },
+    {
+      "id": "MLM2727437671",
+      "status": "under_review",
+      "sub_status": [
+        "forbidden"
+      ],
+      "available_quantity": 50,
+      "catalog_listing": false,
+      "catalog_product_id": null,
+      "last_updated": "2026-10-31T01:17:31.400Z",
+      "currency_id": "MXN",
+      "observado_utc": "2026-11-05T01:17:52.703637+00:00",
+      "variantes": [
+        {
+          "id": 196650442787,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 50
+        },
+        {
+          "id": 196650442785,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 0
+        },
+        {
+          "id": 196650442789,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 0
+        },
+        {
+          "id": 196650442791,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 0
+        },
+        {
+          "id": 196650442793,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 0
+        },
+        {
+          "id": 196650442795,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 0
+        }
+      ]
+    },
+    {
+      "id": "MLM2727363007",
+      "status": "active",
+      "sub_status": [],
+      "available_quantity": 94,
+      "catalog_listing": false,
+      "catalog_product_id": null,
+      "last_updated": "2026-11-04T01:12:42.949Z",
+      "currency_id": "MXN",
+      "observado_utc": "2026-11-05T01:17:52.848404+00:00",
+      "variantes": [
+        {
+          "id": 196650403787,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 6
+        },
+        {
+          "id": 196650403789,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 6
+        },
+        {
+          "id": 196650403791,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 0
+        },
+        {
+          "id": 196650403793,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 82
+        },
+        {
+          "id": 196650403795,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 0
+        },
+        {
+          "id": 196650403797,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 0
+        }
+      ]
+    },
+    {
+      "id": "MLM2727328203",
+      "status": "active",
+      "sub_status": [],
+      "available_quantity": 117,
+      "catalog_listing": false,
+      "catalog_product_id": null,
+      "last_updated": "2026-11-04T01:12:39.551Z",
+      "currency_id": "MXN",
+      "observado_utc": "2026-11-05T01:17:52.988573+00:00",
+      "variantes": [
+        {
+          "id": 196650403661,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 6
+        },
+        {
+          "id": 196650403663,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 6
+        },
+        {
+          "id": 196650403665,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 0
+        },
+        {
+          "id": 196650403667,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 105
+        },
+        {
+          "id": 196650403669,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 0
+        },
+        {
+          "id": 196650403671,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 0
+        }
+      ]
+    },
+    {
+      "id": "MLM4749600210",
+      "status": "active",
+      "sub_status": [],
+      "available_quantity": 11,
+      "catalog_listing": false,
+      "catalog_product_id": null,
+      "last_updated": "2026-11-03T00:11:23.306Z",
+      "currency_id": "MXN",
+      "observado_utc": "2026-11-05T01:17:53.131327+00:00",
+      "variantes": [
+        {
+          "id": 196764932933,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 2
+        },
+        {
+          "id": 196764932935,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 9
+        },
+        {
+          "id": 196764932937,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 0
+        },
+        {
+          "id": 196764932939,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 0
+        },
+        {
+          "id": 196764932941,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 0
+        },
+        {
+          "id": 196764932943,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 0
+        }
+      ]
+    },
+    {
+      "id": "MLM4763716652",
+      "status": "paused",
+      "sub_status": [
+        "out_of_stock"
+      ],
+      "available_quantity": 0,
+      "catalog_listing": false,
+      "catalog_product_id": null,
+      "last_updated": "2026-10-31T01:12:03.672Z",
+      "currency_id": "MXN",
+      "observado_utc": "2026-11-05T01:17:53.271278+00:00",
+      "variantes": [
+        {
+          "id": 190333223912,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 0
+        },
+        {
+          "id": 190333223914,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 0
+        },
+        {
+          "id": 190333223916,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 0
+        },
+        {
+          "id": 190333223918,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 0
+        },
+        {
+          "id": 190333223920,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 0
+        },
+        {
+          "id": 190333223922,
+          "seller_sku": null,
+          "seller_custom_field": null,
+          "available_quantity": 0
+        }
+      ]
+    }
+  ]
+}

@@ -70,3 +70,22 @@ Cuando el motor abra una (el sync + ciclo las crean solas), sobre ESA propuesta:
    `C.6 deploy GO ...` con efecto cero-applies + acuerdo D.3 y, tras su
    propia sombra, `C.6 live GO ...` citando el riesgo C.2b. El go H5.4
    ejecutado solo cubre B.4, no C.6.
+
+
+## Actualizacion C6 — 4-nov-2026 (lecturas base 5-nov UTC)
+
+La fotografia de septiembre se conserva como historia. A.4/B.4 ya cerraron
+con [evidencia operativa](../../quick-wins-2026-11-04/alertas-pausa/resultado.md);
+no esperan otra recuperacion o PAUSE natural. C.6 sigue **pendiente**.
+Config 42 sin `ads_pause_economica`; `ads_pause_sin_cooldown_bid=true`
+no la enciende. PAUSE 2736 fue `pause_umbral`, no economica.
+
+La [preparacion C6](../../quick-wins-2026-11-04/c6-preparacion/README.md) y el
+[apendice vigente](../../../../plans/ads-proteccion-01.md#preparacion-vigente-de-c6--4-nov-2026)
+actualizan precondiciones: siguiente unidad C6-P1 RO, luego replay economico RO.
+`niveles_v3` esta vivo; H6.4 exige su propia sombra de cinco ciclos, efecto
+global cero-applies declarado/coordinado y live separado. No reutilizar IDs,
+config 21 ni inicio de H5. No se inicio sombra C6 ni se creo inicio H6; no hubo
+deploy, flip, encendido ni mutacion Ads durante esta preparacion.
+La pausa C.5 requiere propuesta concreta: `open=[]` anterior no describe noviembre.
+Los textos historicos de «PASO EXACTO» no autorizan sus UPDATE hoy.

@@ -1,0 +1,49 @@
+{
+  "estado": "FALLA",
+  "capturado_utc": "2026-11-05T01:19:43.441866+00:00",
+  "sesion": [
+    "orbit_read",
+    "on"
+  ],
+  "huella": "18dc8cd7f09b06cf2f3086b9202ac729891f5f58b6513087a73f997d47b6df55",
+  "as_of": "2026-11-05 00:00:29+00:00",
+  "runs": [
+    [
+      1351,
+      "2026-11-04 23:22:25.424029+00:00",
+      "2026-11-04 23:22:25.438683+00:00",
+      true,
+      "as_of=1793834477; snap=8002541838d135dcc8dca609cbb197d45328449dc996ea9fb0764decffbda227",
+      812,
+      0
+    ]
+  ],
+  "diferencias": [
+    "DIFIERE ('356150383', '2026-11-04'): origen=(Decimal('231.6600'), Decimal('0.0000'), 14961, 64) orbit=(Decimal('225.4600'), Decimal('0.0000'), 14261, 60)",
+    "DIFIERE ('356150418', '2026-11-04'): origen=(Decimal('175.3600'), Decimal('0.0000'), 21623, 57) orbit=(Decimal('168.0900'), Decimal('0.0000'), 20633, 50)",
+    "DIA DIFIERE 2026-11-04: origen=(121, 36584, Decimal('407.0200'), Decimal('0.0000')) orbit=(110, 34894, Decimal('393.5500'), Decimal('0.0000'))",
+    "Falta corrida postcron exitosa o existe una fallida/incompleta",
+    "Snapshot actual no coincide en huella Y as-of con aceptacion postcron",
+    "Falta rc=0 postcron en costos.log o meli_ads.log vacio"
+  ],
+  "conciliacion": "historia anterior a --desde excluida: 59 dias con actividad o NULL\nfilas origen: 812\nfilas Orbit:  812\nfaltantes en Orbit: []\nsobrantes en Orbit: []\ncampana/dia comparables: 812, diferencias: 2\ndias control: 203, dias Orbit: 203, faltantes en el control: 0, faltantes en Orbit: 0, sobrantes en Orbit: 0, diferencias: 1\ncontrol T+0 excluido: 1 dia de HOY sin desglose de campanas en origen ni Orbit\n",
+  "logs": {
+    "costos": "colapso: intradia_con_sucesor=753 intradia_en_borde=0 fusiones=0\n2026-10-23 costs rc=0 (detalle: /mnt/data/appdata/orbit/logs/costos.log)\n2026-10-23 fx rc=0 (detalle: /mnt/data/appdata/orbit/logs/fx.log)\n2026-10-23 ledger rc=0 (detalle: /mnt/data/appdata/orbit/logs/ledger.log)\n== Ingesta de costos desde contabilidad (accounting_sku_costs) ==\nrun_id=1069 ok=True rows_written=0 rows_skipped=0\nproductos: nuevos=0 actualizados=0 nombres_derivados=183\nvigencias: insertadas=0 cerradas=0 finales=1971 (filas origen: 2724)\ncolapso: intradia_con_sucesor=753 intradia_en_borde=0 fusiones=0\n2026-10-24 costs rc=0 (detalle: /mnt/data/appdata/orbit/logs/costos.log)\n2026-10-24 fx rc=0 (detalle: /mnt/data/appdata/orbit/logs/fx.log)\n2026-10-24 ledger rc=0 (detalle: /mnt/data/appdata/orbit/logs/ledger.log)\n== Ingesta de costos desde contabilidad (accounting_sku_costs) ==\nrun_id=1094 ok=True rows_written=0 rows_skipped=0\nproductos: nuevos=0 actualizados=0 nombres_derivados=183\nvigencias: insertadas=0 cerradas=0 finales=1971 (filas origen: 2724)\ncolapso: intradia_con_sucesor=753 intradia_en_borde=0 fusiones=0\n2026-10-25 costs rc=0 (detalle: /mnt/data/appdata/orbit/logs/costos.log)\n2026-10-25 fx rc=0 (detalle: /mnt/data/appdata/orbit/logs/fx.log)\n2026-10-25 ledger rc=0 (detalle: /mnt/data/appdata/orbit/logs/ledger.log)\n== Ingesta de costos desde contabilidad (accounting_sku_costs) ==\nrun_id=1119 ok=True rows_written=0 rows_skipped=0\nproductos: nuevos=0 actualizados=0 nombres_derivados=183\nvigencias: insertadas=0 cerradas=0 finales=1971 (filas origen: 2724)\ncolapso: intradia_con_sucesor=753 intradia_en_borde=0 fusiones=0\n2026-10-26 costs rc=0 (detalle: /mnt/data/appdata/orbit/logs/costos.log)\n2026-10-26 fx rc=0 (detalle: /mnt/data/appdata/orbit/logs/fx.log)\n2026-10-26 ledger rc=0 (detalle: /mnt/data/appdata/orbit/logs/ledger.log)\n== Ingesta de costos desde contabilidad (accounting_sku_costs) ==\nrun_id=1144 ok=True rows_written=0 rows_skipped=0\nproductos: nuevos=0 actualizados=0 nombres_derivados=183\nvigencias: insertadas=0 cerradas=0 finales=1971 (filas origen: 2724)\ncolapso: intradia_con_sucesor=753 intradia_en_borde=0 fusiones=0\n2026-10-27 costs rc=0 (detalle: /mnt/data/appdata/orbit/logs/costos.log)\n2026-10-27 fx rc=0 (detalle: /mnt/data/appdata/orbit/logs/fx.log)\n2026-10-27 ledger rc=0 (detalle: /mnt/data/appdata/orbit/logs/ledger.log)\n== Ingesta de costos desde contabilidad (accounting_sku_costs) ==\nrun_id=1169 ok=True rows_written=0 rows_skipped=0\nproductos: nuevos=0 actualizados=0 nombres_derivados=183\nvigencias: insertadas=0 cerradas=0 finales=1971 (filas origen: 2724)\ncolapso: intradia_con_sucesor=753 intradia_en_borde=0 fusiones=0\n2026-10-28 costs rc=0 (detalle: /mnt/data/appdata/orbit/logs/costos.log)\n2026-10-28 fx rc=0 (detalle: /mnt/data/appdata/orbit/logs/fx.log)\n2026-10-28 ledger rc=0 (detalle: /mnt/data/appdata/orbit/logs/ledger.log)\n== Ingesta de costos desde contabilidad (accounting_sku_costs) ==\nrun_id=1194 ok=True rows_written=14 rows_skipped=0\nproductos: nuevos=2 actualizados=0 nombres_derivados=185\nvigencias: insertadas=8 cerradas=6 finales=1979 (filas origen: 2732)\ncolapso: intradia_con_sucesor=753 intradia_en_borde=0 fusiones=0\n2026-10-29 costs rc=0 (detalle: /mnt/data/appdata/orbit/logs/costos.log)\n2026-10-29 fx rc=0 (detalle: /mnt/data/appdata/orbit/logs/fx.log)\n2026-10-29 ledger rc=0 (detalle: /mnt/data/appdata/orbit/logs/ledger.log)\n== Ingesta de costos desde contabilidad (accounting_sku_costs) ==\nrun_id=1219 ok=True rows_written=0 rows_skipped=0\nproductos: nuevos=0 actualizados=0 nombres_derivados=185\nvigencias: insertadas=0 cerradas=0 finales=1979 (filas origen: 2732)\ncolapso: intradia_con_sucesor=753 intradia_en_borde=0 fusiones=0\n2026-10-30 costs rc=0 (detalle: /mnt/data/appdata/orbit/logs/costos.log)\n2026-10-30 fx rc=0 (detalle: /mnt/data/appdata/orbit/logs/fx.log)\n2026-10-30 ledger rc=0 (detalle: /mnt/data/appdata/orbit/logs/ledger.log)\n== Ingesta de costos desde contabilidad (accounting_sku_costs) ==\nrun_id=1244 ok=True rows_written=0 rows_skipped=0\nproductos: nuevos=0 actualizados=0 nombres_derivados=185\nvigencias: insertadas=0 cerradas=0 finales=1979 (filas origen: 2732)\ncolapso: intradia_con_sucesor=753 intradia_en_borde=0 fusiones=0\n2026-10-31 costs rc=0 (detalle: /mnt/data/appdata/orbit/logs/costos.log)\n2026-10-31 fx rc=0 (detalle: /mnt/data/appdata/orbit/logs/fx.log)\n2026-10-31 ledger rc=0 (detalle: /mnt/data/appdata/orbit/logs/ledger.log)\n== Ingesta de costos desde contabilidad (accounting_sku_costs) ==\nrun_id=1269 ok=True rows_written=0 rows_skipped=0\nproductos: nuevos=0 actualizados=0 nombres_derivados=185\nvigencias: insertadas=0 cerradas=0 finales=1979 (filas origen: 2732)\ncolapso: intradia_con_sucesor=753 intradia_en_borde=0 fusiones=0\n2026-11-01 costs rc=0 (detalle: /mnt/data/appdata/orbit/logs/costos.log)\n2026-11-01 fx rc=0 (detalle: /mnt/data/appdata/orbit/logs/fx.log)\n2026-11-01 ledger rc=0 (detalle: /mnt/data/appdata/orbit/logs/ledger.log)\n== Ingesta de costos desde contabilidad (accounting_sku_costs) ==\nrun_id=1294 ok=True rows_written=0 rows_skipped=0\nproductos: nuevos=0 actualizados=0 nombres_derivados=185\nvigencias: insertadas=0 cerradas=0 finales=1979 (filas origen: 2732)\ncolapso: intradia_con_sucesor=753 intradia_en_borde=0 fusiones=0\n2026-11-02 costs rc=0 (detalle: /mnt/data/appdata/orbit/logs/costos.log)\n2026-11-02 fx rc=0 (detalle: /mnt/data/appdata/orbit/logs/fx.log)\n2026-11-02 ledger rc=0 (detalle: /mnt/data/appdata/orbit/logs/ledger.log)\n== Ingesta de costos desde contabilidad (accounting_sku_costs) ==\nrun_id=1319 ok=True rows_written=0 rows_skipped=0\nproductos: nuevos=0 actualizados=0 nombres_derivados=185\nvigencias: insertadas=0 cerradas=0 finales=1979 (filas origen: 2732)\ncolapso: intradia_con_sucesor=753 intradia_en_borde=0 fusiones=0\n2026-11-03 costs rc=0 (detalle: /mnt/data/appdata/orbit/logs/costos.log)\n2026-11-03 fx rc=0 (detalle: /mnt/data/appdata/orbit/logs/fx.log)\n2026-11-03 ledger rc=0 (detalle: /mnt/data/appdata/orbit/logs/ledger.log)\n== Ingesta de costos desde contabilidad (accounting_sku_costs) ==\nrun_id=1344 ok=True rows_written=0 rows_skipped=0\nproductos: nuevos=0 actualizados=0 nombres_derivados=185\nvigencias: insertadas=0 cerradas=0 finales=1979 (filas origen: 2732)\ncolapso: intradia_con_sucesor=753 intradia_en_borde=0 fusiones=0\n2026-11-04 costs rc=0 (detalle: /mnt/data/appdata/orbit/logs/costos.log)\n2026-11-04 fx rc=0 (detalle: /mnt/data/appdata/orbit/logs/fx.log)\n2026-11-04 ledger rc=0 (detalle: /mnt/data/appdata/orbit/logs/ledger.log)",
+    "meli": ""
+  },
+  "smoke": {
+    "worker_exit": 0,
+    "montajes": [
+      {
+        "Type": "bind",
+        "Source": "/mnt/data/appdata/orbit/secrets",
+        "Destination": "/mnt/data/appdata/orbit/secrets",
+        "Mode": "rw",
+        "RW": true,
+        "Propagation": "rprivate"
+      }
+    ],
+    "snapshot_mode": "0o600",
+    "instalado": false
+  }
+}

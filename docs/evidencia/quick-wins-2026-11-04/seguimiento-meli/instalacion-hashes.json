@@ -1,0 +1,14 @@
+{
+  "ejecutar.py": {
+    "sha256": "61cb6d3b7df487d1b17c0865ea10fab22c5b22765a37dc190959ee8a1c7c82af",
+    "mode": "0o600"
+  },
+  "worker.py": {
+    "sha256": "d828a9a11ff72c90b028083449f04af26ece653833bb51626aefbbea98a58443",
+    "mode": "0o600"
+  },
+  "conciliar.py": {
+    "sha256": "c806421e551d6b3787614c0da666780dc0a61960e9daf7e16650d4a8edee96e9",
+    "mode": "0o600"
+  }
+}

@@ -1,0 +1,212 @@
+{
+  "fecha_utc": "2026-11-05T01:17:53.271511+00:00",
+  "publicaciones": [
+    {
+      "publicacion": "MLM2163407464",
+      "listing_id": 1562,
+      "sku_ancla": "NH-CAR-BLA-CEN-DOR",
+      "estado_api": "active",
+      "stock_api": 131,
+      "catalog_listing": false,
+      "observado_api": "2026-11-05T01:17:52.130838+00:00",
+      "escenario_fecha": "2026-11-04",
+      "sku_faltante": "NH-CAR-BLA-PEZ-DOR",
+      "causa": "miembro PEZ sin product_id; sin sku_costs, bom_headers ni mapping externo",
+      "costo_faltante": null,
+      "moneda_faltante": null,
+      "costo_ancla_verificado": {
+        "importe": "304.65",
+        "moneda": "MXN",
+        "desde": "2026-08-18 07:00:06",
+        "hasta": null,
+        "fuente": "accounting.sku_costs",
+        "id": 2080
+      },
+      "accion": "dueno de catalogo/Odoo debe confirmar si variante PEZ existe/vendible y su identidad/costo; no copiar costo ancla"
+    },
+    {
+      "publicacion": "MLM1890653227",
+      "listing_id": 1563,
+      "sku_ancla": "NH-CAR-BLA-CEN-PLA",
+      "estado_api": "active",
+      "stock_api": 11,
+      "catalog_listing": false,
+      "observado_api": "2026-11-05T01:17:52.269999+00:00",
+      "escenario_fecha": "2026-11-04",
+      "sku_faltante": "NH-CAR-BLA-PEZ-PLA",
+      "causa": "miembro PEZ sin product_id; sin sku_costs, bom_headers ni mapping externo",
+      "costo_faltante": null,
+      "moneda_faltante": null,
+      "costo_ancla_verificado": {
+        "importe": "304.65",
+        "moneda": "MXN",
+        "desde": "2026-08-18 07:00:06",
+        "hasta": null,
+        "fuente": "accounting.sku_costs",
+        "id": 2081
+      },
+      "accion": "dueno de catalogo/Odoo debe confirmar si variante PEZ existe/vendible y su identidad/costo; no copiar costo ancla"
+    },
+    {
+      "publicacion": "MLM4735255462",
+      "listing_id": 1578,
+      "sku_ancla": "NH-BLA-BRO-CEN-DOR",
+      "estado_api": "active",
+      "stock_api": 18,
+      "catalog_listing": false,
+      "observado_api": "2026-11-05T01:17:52.416934+00:00",
+      "escenario_fecha": "2026-11-04",
+      "sku_faltante": "NH-BLA-BRO-PEZ-DOR",
+      "causa": "miembro PEZ sin product_id; sin sku_costs, bom_headers ni mapping externo",
+      "costo_faltante": null,
+      "moneda_faltante": null,
+      "costo_ancla_verificado": {
+        "importe": "353.69",
+        "moneda": "MXN",
+        "desde": "2026-08-18 05:00:07",
+        "hasta": null,
+        "fuente": "accounting.sku_costs",
+        "id": 1043
+      },
+      "accion": "dueno de catalogo/Odoo debe confirmar si variante PEZ existe/vendible y su identidad/costo; no copiar costo ancla"
+    },
+    {
+      "publicacion": "MLM2724304859",
+      "listing_id": 1579,
+      "sku_ancla": "NH-ITA-CEN-PLA",
+      "estado_api": "active",
+      "stock_api": 18,
+      "catalog_listing": false,
+      "observado_api": "2026-11-05T01:17:52.563230+00:00",
+      "escenario_fecha": "2026-11-04",
+      "sku_faltante": "NH-ITA-PEZ-PLA",
+      "causa": "miembro PEZ sin product_id; sin sku_costs, bom_headers ni mapping externo",
+      "costo_faltante": null,
+      "moneda_faltante": null,
+      "costo_ancla_verificado": {
+        "importe": "341.0",
+        "moneda": "MXN",
+        "desde": "2026-08-18 06:00:07",
+        "hasta": null,
+        "fuente": "accounting.sku_costs",
+        "id": 1870
+      },
+      "accion": "dueno de catalogo/Odoo debe confirmar si variante PEZ existe/vendible y su identidad/costo; no copiar costo ancla"
+    },
+    {
+      "publicacion": "MLM2727437671",
+      "listing_id": 1582,
+      "sku_ancla": "NH-GAM-AZU-CEN-PLA",
+      "estado_api": "under_review",
+      "stock_api": 50,
+      "catalog_listing": false,
+      "observado_api": "2026-11-05T01:17:52.703637+00:00",
+      "escenario_fecha": "2026-10-30",
+      "sku_faltante": "NH-GAM-AZU-PEZ-PLA",
+      "causa": "miembro PEZ sin product_id; sin sku_costs, bom_headers ni mapping externo",
+      "costo_faltante": null,
+      "moneda_faltante": null,
+      "costo_ancla_verificado": {
+        "importe": "325.0",
+        "moneda": "MXN",
+        "desde": "2026-02-20 05:00:02",
+        "hasta": null,
+        "fuente": "accounting.sku_costs",
+        "id": 231
+      },
+      "accion": "dueno de catalogo/Odoo debe confirmar si variante PEZ existe/vendible y su identidad/costo; no copiar costo ancla"
+    },
+    {
+      "publicacion": "MLM2727363007",
+      "listing_id": 1583,
+      "sku_ancla": "NH-GAM-NEG-CEN-DOR",
+      "estado_api": "active",
+      "stock_api": 94,
+      "catalog_listing": false,
+      "observado_api": "2026-11-05T01:17:52.848404+00:00",
+      "escenario_fecha": "2026-11-04",
+      "sku_faltante": "NH-GAM-NEG-PEZ-DOR",
+      "causa": "miembro PEZ sin product_id; sin sku_costs, bom_headers ni mapping externo",
+      "costo_faltante": null,
+      "moneda_faltante": null,
+      "costo_ancla_verificado": {
+        "importe": "325.0",
+        "moneda": "MXN",
+        "desde": "2026-02-20 05:00:02",
+        "hasta": null,
+        "fuente": "accounting.sku_costs",
+        "id": 242
+      },
+      "accion": "dueno de catalogo/Odoo debe confirmar si variante PEZ existe/vendible y su identidad/costo; no copiar costo ancla"
+    },
+    {
+      "publicacion": "MLM2727328203",
+      "listing_id": 1584,
+      "sku_ancla": "NH-GAM-AZU-CEN-DOR",
+      "estado_api": "active",
+      "stock_api": 117,
+      "catalog_listing": false,
+      "observado_api": "2026-11-05T01:17:52.988573+00:00",
+      "escenario_fecha": "2026-11-04",
+      "sku_faltante": "NH-GAM-AZU-PEZ-DOR",
+      "causa": "miembro PEZ sin product_id; sin sku_costs, bom_headers ni mapping externo",
+      "costo_faltante": null,
+      "moneda_faltante": null,
+      "costo_ancla_verificado": {
+        "importe": "325.0",
+        "moneda": "MXN",
+        "desde": "2026-02-20 05:00:02",
+        "hasta": null,
+        "fuente": "accounting.sku_costs",
+        "id": 230
+      },
+      "accion": "dueno de catalogo/Odoo debe confirmar si variante PEZ existe/vendible y su identidad/costo; no copiar costo ancla"
+    },
+    {
+      "publicacion": "MLM4749600210",
+      "listing_id": 1585,
+      "sku_ancla": "NH-GAM-NEG-CEN-PLA",
+      "estado_api": "active",
+      "stock_api": 11,
+      "catalog_listing": false,
+      "observado_api": "2026-11-05T01:17:53.131327+00:00",
+      "escenario_fecha": "2026-11-04",
+      "sku_faltante": "NH-GAM-NEG-PEZ-PLA",
+      "causa": "miembro PEZ sin product_id; sin sku_costs, bom_headers ni mapping externo",
+      "costo_faltante": null,
+      "moneda_faltante": null,
+      "costo_ancla_verificado": {
+        "importe": "325.0",
+        "moneda": "MXN",
+        "desde": "2026-02-20 05:00:02",
+        "hasta": null,
+        "fuente": "accounting.sku_costs",
+        "id": 243
+      },
+      "accion": "dueno de catalogo/Odoo debe confirmar si variante PEZ existe/vendible y su identidad/costo; no copiar costo ancla"
+    },
+    {
+      "publicacion": "MLM4763716652",
+      "listing_id": 1590,
+      "sku_ancla": "NH-PLA-CH-CEN-PLA",
+      "estado_api": "paused",
+      "stock_api": 0,
+      "catalog_listing": false,
+      "observado_api": "2026-11-05T01:17:53.271278+00:00",
+      "escenario_fecha": "2026-10-30",
+      "sku_faltante": "NH-PLA-CH-PEZ-PLA",
+      "causa": "miembro PEZ sin product_id; sin sku_costs, bom_headers ni mapping externo",
+      "costo_faltante": null,
+      "moneda_faltante": null,
+      "costo_ancla_verificado": {
+        "importe": "372.0",
+        "moneda": "MXN",
+        "desde": "2026-02-20 05:00:02",
+        "hasta": null,
+        "fuente": "accounting.sku_costs",
+        "id": 315
+      },
+      "accion": "dueno de catalogo/Odoo debe confirmar si variante PEZ existe/vendible y su identidad/costo; no copiar costo ancla"
+    }
+  ]
+}

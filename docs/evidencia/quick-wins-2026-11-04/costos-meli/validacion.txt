@@ -1,0 +1,3 @@
+2026-11-04: JSON validos (4). Scripts consulta.py/fuentes.py ejecutados de nuevo tras formato: nueve publicaciones, nueve PEZ sin costos/BOM.
+Ruff check/format: OK. pre-commit --files costos-meli/*: secretos y conflictos PASS.
+No se modifico codigo de app ni datos de produccion. No se agregaron tests.

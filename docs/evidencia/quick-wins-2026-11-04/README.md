@@ -7,7 +7,7 @@ del registro de planes, PR #523).
 
 | Tarea | Resultado | Evidencia / siguiente paso |
 |---|---|---|
-| Corregir comprobador de cron | Implementado y verificado; pendiente de integración. Acepta la línea original y la envoltura productiva completa. Ocho pruebas verdes y lectura remota salida 0. | [Rojo/verde y comprobación](cron/README.md). No requiere reinstalar el cron. |
+| Corregir comprobador de cron | Implementado y verificado; entrega PR #523. Acepta la línea original y la envoltura productiva completa. Ocho pruebas verdes y lectura remota salida 0. | [Rojo/verde y comprobación](cron/README.md). No requiere reinstalar el cron. |
 | Conciliar MeLi Ads | Parcial: 808/808 filas hasta 3-nov coinciden. La comparación completa falla en dos filas del 4-nov: accounting tiene una versión posterior con 13.47 MXN, 11 clics y 1690 impresiones adicionales. Revenue igual. | [Reporte y reproducción](conciliacion/reporte.md). P01 sigue abierto hasta observar el cron del 5-nov 08:15 UTC y conciliar contra la misma versión de fuente. |
 | Completar alertas y PAUSE | A.4/B.4 cerrados con evidencia operativa: siete días, 12 episodios recuperados y caso causal de PAUSE dentro del cooldown BID; Amazon confirma PAUSED. | [Matriz de criterios y límites](alertas-pausa/resultado.md). C.6 económica sigue pendiente y apagada. |
 
@@ -27,3 +27,20 @@ sintaxis Bash, Ruff, compilación de scripts de evidencia y recálculo de cifras
 guardadas. Revisión de secretos mediante pre-commit/gitleaks. La revisión
 independiente no encontró bloqueantes; una nota de limpieza de temporales se
 corrige en esta misma entrega. El estado de CI e integración queda en el PR.
+
+
+## Seguimiento autorizado posterior
+
+- PR #523: comentarios documentales cotejados y corregidos; revisión GPT Sol
+  aprobada. El CI del head 16ef707 pasó; la integración exige el CI del head final.
+- P01: comprobación RO instalada y programada como **job 10, 5-nov 09:00 UTC**.
+  [Instalación, smoke y reversa](seguimiento-meli/LEEME.md). Recoge evidencia en
+  servidor, sin mensajes; no declara éxito antes de ejecutar y conciliar.
+- P04: [diagnóstico y matriz](costos-meli/reporte.md): siete publicaciones activas
+  y dos no activas, nueve variantes PEZ sin producto/costo; los costos ancla
+  coinciden con accounting. Falta resolver catálogo/Odoo, no rellenar importes.
+- C.6: [preparación](c6-preparacion/README.md) revisada en el plan existente;
+  siguiente unidad fotografía/replay RO. La sombra y el encendido siguen pendientes.
+
+[Revisión independiente](revision-sol.md). Se conserva el job 8 de Jev; no se
+alteraron crons, config, goals, anuncios ni datos de accounting/bridge.
