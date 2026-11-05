@@ -420,7 +420,10 @@ def _entorno(banco, *, espera: str = "600", extra: dict | None = None) -> dict:
     env["ORBIT_FAKE_LOG"] = _ruta_bash(banco["log"])
     env["ORBIT_FAKE_DIR"] = _ruta_bash(banco["falsos"])
     env["AUTO03_ESPERA_S"] = espera
-    env["BASH_ENV"] = _ruta_bash(banco["bash_env"])
+    # En forma Windows: msys la resuelve y sourcea el archivo, que antepone
+    # el fakebin ya convertido (el PATH de arranque no basta: msys antepone
+    # sus propios bin y el fake ssh perderia contra el ssh real).
+    env["BASH_ENV"] = str(banco["bash_env"])
     # Antepuesta TAMBIEN en forma POSIX: en Windows el runtime de msys no
     # prioriza una entrada en forma Windows y el bash agarraria el ssh real.
     env["PATH"] = os.pathsep.join(
@@ -450,9 +453,7 @@ def _corre(
     if sha is not None:
         env["MOTOR_SHA"] = sha
     if path_frente is not None:
-        env["PATH"] = os.pathsep.join(
-            [str(path_frente), _ruta_bash(path_frente), env["PATH"]]
-        )
+        env["PATH"] = os.pathsep.join([str(path_frente), _ruta_bash(path_frente), env["PATH"]])
     return subprocess.run(
         ["bash", ruta],
         cwd=str(banco["clon"]),
@@ -1139,6 +1140,21 @@ def test_o_ensayo_simulado_no_escribe_nada(banco):
 # ---------------------------------------------------------------------------
 
 
+def _candado_ocupado(banco, lock_bash: str, env: dict) -> bool:
+    probe = subprocess.run(
+        [
+            "bash",
+            "-c",
+            f'exec 8>>"{lock_bash}"; if flock -n 8; then echo libre; else echo ocupado; fi',
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        env=env,
+    )
+    return probe.stdout.strip() == "ocupado"
+
+
 @skip
 def test_p_candado_ocupado_espera_y_sale_75(banco):
     _limpia_falsos(banco)
@@ -1159,14 +1175,7 @@ def test_p_candado_ocupado_espera_y_sale_75(banco):
         fin = time.monotonic() + 30
         ocupado = False
         while time.monotonic() < fin:
-            probe = subprocess.run(
-                ["bash", "-c", f'exec 8>>"{lock_bash}"; if flock -n 8; then echo libre; else echo ocupado; fi'],
-                capture_output=True,
-                text=True,
-                timeout=30,
-                env=env,
-            )
-            if probe.stdout.strip() == "ocupado":
+            if _candado_ocupado(banco, lock_bash, env):
                 ocupado = True
                 break
             time.sleep(0.5)
@@ -1196,14 +1205,7 @@ def test_p_candado_ocupado_espera_y_sale_75(banco):
         fin = time.monotonic() + 30
         ocupado = False
         while time.monotonic() < fin:
-            probe = subprocess.run(
-                ["bash", "-c", f'exec 8>>"{lock_bash}"; if flock -n 8; then echo libre; else echo ocupado; fi'],
-                capture_output=True,
-                text=True,
-                timeout=30,
-                env=env,
-            )
-            if probe.stdout.strip() == "ocupado":
+            if _candado_ocupado(banco, lock_bash, env):
                 ocupado = True
                 break
             time.sleep(0.5)
