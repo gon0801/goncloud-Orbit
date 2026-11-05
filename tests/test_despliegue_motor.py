@@ -395,9 +395,7 @@ def _ruta_bash(ruta: Path) -> str:
     # (tar de msys rechaza C:\\... y tar la lee como host remoto).
     if os.name != "nt":
         return str(ruta)
-    salida = subprocess.run(
-        ["cygpath", "-u", str(ruta)], capture_output=True, text=True
-    )
+    salida = subprocess.run(["cygpath", "-u", str(ruta)], capture_output=True, text=True)
     if salida.returncode == 0 and salida.stdout.strip():
         return salida.stdout.strip()
     return str(ruta)
