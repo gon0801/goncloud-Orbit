@@ -188,7 +188,7 @@
     {
       "name": "resumen-ads-multicanal",
       "path": "plans/resumen-ads-multicanal.md",
-      "description": "RESUMEN ADS 01-04 — integrado y desplegado (04: #524, hashes de app/ iguales en contenedor 5-nov); P01 parcial: hasta 3-nov concilia, 4-nov +13.47 MXN por fuente posterior. Job 10 programado 5-nov 09:00 UTC: lectura posterior al cron, misma huella/as-of y conciliacion; cierre depende de resultado."
+      "description": "RESUMEN ADS 01-04 — integrado y desplegado (04: #524, 10/10 hashes de app/ iguales entre master 9fb5a63f y contenedor, 5-nov 03:22 UTC, docs/evidencia/resumen-ads-multicanal/04-despliegue/hashes.json); P01 parcial: hasta 3-nov concilia, 4-nov +13.47 MXN por fuente posterior. Job 10 programado 5-nov 09:00 UTC: lectura posterior al cron, misma huella/as-of y conciliacion; cierre depende de resultado."
     }
   ],
   "active": "resumen-ads-multicanal"

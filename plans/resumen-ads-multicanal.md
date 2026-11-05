@@ -1,6 +1,6 @@
 # Plan de Resumen Ads multicanal
 
-> **Estado al 4-nov-2026: fases 01/02/03 integradas y archivos principales desplegados.** Ingesta inicial exitosa y cron/script correctos. Hasta 3-nov: 808/808 filas iguales; 4-nov tiene dos diferencias por fuente posterior (+13.47 MXN). P01 sigue abierto. Comprobación RO **job 10, 5-nov 09:00 UTC**, posterior al cron 08:15, con misma huella/as-of y conciliación. [Seguimiento instalado](../docs/evidencia/quick-wins-2026-11-04/seguimiento-meli/LEEME.md).
+> **Estado al 5-nov-2026: fases 01/02/03/04 integradas y archivos principales desplegados.** Ingesta inicial exitosa y cron/script correctos. Hasta 3-nov: 808/808 filas iguales; 4-nov tiene dos diferencias por fuente posterior (+13.47 MXN). P01 sigue abierto. Comprobación RO **job 10, 5-nov 09:00 UTC**, posterior al cron 08:15, con misma huella/as-of y conciliación. [Seguimiento instalado](../docs/evidencia/quick-wins-2026-11-04/seguimiento-meli/LEEME.md).
 
 **Objetivo.** Convertir `/` en un resumen de publicidad con periodos configurables, comparación y tendencias legibles para Amazon MX, Amazon US y Mercado Libre.
 
@@ -121,6 +121,12 @@ Las pruebas monetarias están permitidas. Comprueba mediante la API real los tre
 **Verificación proporcional.**
 
 Verifica en el navegador los periodos, el rango personalizado, MA7, la comparación, los canales, los nulos, los temas y el ancho de 390 px. Captura las pantallas principales y un video corto del flujo. El operador revisa la interfaz antes de integrarla. No hay lanes en VM ni medición de rendimiento obligatorios.
+
+## Rediseñar el Resumen y ACoS objetivo (RESUMEN-ADS-04)
+
+**Estado.** Integrado en #524 (merge `9934f9ef`, 5-nov 02:01 UTC) y desplegado: los 10 archivos de `app/` que cambió tienen el mismo SHA256 en master `9fb5a63f` y en `orbit-app-1` (5-nov 03:22 UTC). [Hashes](../docs/evidencia/resumen-ads-multicanal/04-despliegue/hashes.json). Falta la revisión visual en producción.
+
+**Alcance.** La vista `/` pasa a siete bloques jerárquicos: filtros por canal y periodo conservados en la URL, tarjetas con métricas y tendencias, alertas priorizadas, totales por moneda y tablas plegables con cobertura. `/settings` agrega un ACoS objetivo opcional por canal; dejar el campo vacío elimina la meta. Las fichas `resumen.md` y `settings.md` de `.cursor/skills/verify-orbit/features/` describen el flujo.
 
 ## Decisiones de diseño
 

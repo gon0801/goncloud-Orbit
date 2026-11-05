@@ -1,0 +1,75 @@
+{
+  "descripcion": "RESUMEN ADS 04 (#524, merge 9934f9ef, integrado 2026-11-05T02:01:30Z): SHA256 de los archivos de app/ que cambio, master vs orbit-app-1",
+  "master": "9fb5a63fd11bfe325af3efef756535b244d5cf87",
+  "pr": 524,
+  "merge_commit": "9934f9ef0640c21bbe8f4355bc0401e75bd416bd",
+  "leido_utc": "2026-11-05T03:22:15Z",
+  "contenedor": "orbit-app-1",
+  "contenedor_iniciado": "2026-11-05T02:10:55.0302693Z",
+  "comando": "ssh goncloud \"docker exec orbit-app-1 sh -c 'cd /app && sha256sum <archivos>'\"; git show <master>:<archivo> | sha256sum",
+  "iguales": 10,
+  "total": 10,
+  "filas": [
+    {
+      "archivo": "app/api_dashboard.py",
+      "sha256_master": "73bdd74d0ee68add2a056aeb5f553f58ac91bedf3e527167904b6f4b62795b15",
+      "sha256_contenedor": "73bdd74d0ee68add2a056aeb5f553f58ac91bedf3e527167904b6f4b62795b15",
+      "igual": true
+    },
+    {
+      "archivo": "app/api_write.py",
+      "sha256_master": "9a3a5a80906c4c7ceb4142dc20a98a79d0ce8ebcf51d06b209e5977e40795e61",
+      "sha256_contenedor": "9a3a5a80906c4c7ceb4142dc20a98a79d0ce8ebcf51d06b209e5977e40795e61",
+      "igual": true
+    },
+    {
+      "archivo": "app/config_write.py",
+      "sha256_master": "0eabf57f81dbab7ec5baea4f48563a7ce38c45e70377627acd8c9272f5f5cf26",
+      "sha256_contenedor": "0eabf57f81dbab7ec5baea4f48563a7ce38c45e70377627acd8c9272f5f5cf26",
+      "igual": true
+    },
+    {
+      "archivo": "app/static/css/dashboard.css",
+      "sha256_master": "5f61f033f5d49ddd90af6fc88717d5c0ff1147323a816339318cda907894c54b",
+      "sha256_contenedor": "5f61f033f5d49ddd90af6fc88717d5c0ff1147323a816339318cda907894c54b",
+      "igual": true
+    },
+    {
+      "archivo": "app/static/js/dashboard.js",
+      "sha256_master": "32fea8e9914ec5fbea86fc7a0fc64614e0cebace1ec3b9cafab17bcb52d1c328",
+      "sha256_contenedor": "32fea8e9914ec5fbea86fc7a0fc64614e0cebace1ec3b9cafab17bcb52d1c328",
+      "igual": true
+    },
+    {
+      "archivo": "app/static/js/settings.js",
+      "sha256_master": "a9a807e218d6030171f17028c683a5e15942c7be0e76a1386079e32fc110a179",
+      "sha256_contenedor": "a9a807e218d6030171f17028c683a5e15942c7be0e76a1386079e32fc110a179",
+      "igual": true
+    },
+    {
+      "archivo": "app/templates/resumen.html",
+      "sha256_master": "af597a3c4b9150c403da77c0101a6c30478042971c06ab9ac7ccef4b97d4111c",
+      "sha256_contenedor": "af597a3c4b9150c403da77c0101a6c30478042971c06ab9ac7ccef4b97d4111c",
+      "igual": true
+    },
+    {
+      "archivo": "app/templates/settings.html",
+      "sha256_master": "2236a98552d251e04d94ed66bee7975d353441f8320809a5086b9718c91e0a86",
+      "sha256_contenedor": "2236a98552d251e04d94ed66bee7975d353441f8320809a5086b9718c91e0a86",
+      "igual": true
+    },
+    {
+      "archivo": "app/ui.py",
+      "sha256_master": "0aea7f2cde5fc8f82df4b5039e64bbeee3466a9c56f09bbfaa9f5f85177c75e0",
+      "sha256_contenedor": "0aea7f2cde5fc8f82df4b5039e64bbeee3466a9c56f09bbfaa9f5f85177c75e0",
+      "igual": true
+    },
+    {
+      "archivo": "app/ui_metricas.py",
+      "sha256_master": "ea6f5d4f7372461341224d571067ef50cc2b829f3bf0a0cf44141564400c7b3d",
+      "sha256_contenedor": "ea6f5d4f7372461341224d571067ef50cc2b829f3bf0a0cf44141564400c7b3d",
+      "igual": true
+    }
+  ],
+  "limites": "Comprueba estos archivos, no la identidad de toda la imagen. Sin revision visual en produccion."
+}
