@@ -69,6 +69,15 @@ Convergencias (señal fuerte, se adoptan sin injerto): kind `pause` sobre `produ
 7. Riesgo: S4 depende de la forma real del JSONB `ad_ids`; A.3 (8) la comprueba y, si no es lista de ids, el alcance pasa a "todos los ENABLED con identidad".
 8. No verificado en producción en esta sesión: fracciones 0.5/0.8 (solo la lectura del 25-oct) y el número 0076 libre.
 
+## Ajuste por el modelo de estados (2026-11-05)
+
+Un modelo TLA+ de la pausa de un product ad con el plan construido (bloques H e I), revisado con pstack **statechart**, encontró dos reglas rotas en 384 estados. Las dos se confirmaron contra el código y el plan:
+
+1. **Una propuesta de práctica tapa a la real.** Camino: interruptor en práctica, el ciclo propone, se enciende en vivo. Una fila `shadow` jamás se libera, solo `app_admin` puede descartarla (trigger de 0002) y mientras siga abierta bloquea la clave del anuncio (`_SQL_CLAVES_BLOQUEADAS`), así que el ciclo lo salta con `veto_pendiente` para siempre. El plan encendía sin cerrarlas. Corrección: fila **I.7** y supuesto **S18** (encender cierra en bloque las prácticas de product ad, como el cambio a vivo de ORBIT 05).
+2. **Vuelve a pausar lo que el dueño regresó.** Camino de 9 pasos: pausa, el dueño lo regresa, el ciclo lo vuelve a proponer porque la ventana sigue sin ventas, y solo el veto de 48 h lo detiene. Las keywords tienen 7 días de gracia (`docs/APPLY.md` §3.3); los product ads no la tenían. Corrección: fila **H.7** y supuesto **S17** (gracia de 7 días desde `repuesto_el`, o desde `reactivacion_manual.detectada_en` si se reactivó en Amazon).
+
+Con ambas correcciones el modelo corregido cumple las seis reglas en 304 estados: solo en vivo, nunca con venta, nunca con otra mezcla, un solo cobro, la práctica no tapa a la real y no re-pausa en la gracia. La regla 2 quedó acotada a la gracia: pasados los 7 días, Orbit puede volver a proponer y el dueño tiene sus 48 h de veto. Modelos, vistas, diagramas y reportes en `statechart/antes/` y `statechart/despues/`. El modelo deja fuera varios anuncios a la vez, la cuota agotada, los tiempos reales y la meta por producto; un dato desconocido cuenta como venta.
+
 ## Next implementation step
 
 Versionar en master la spec, `docs/evidencia/auto-03/**` y `plans/decisiones-producto-01.md` (A.0), y entregar el plan al motor; el primer código es `app/optimizer/productos.py` con `resolver_producto` y el caso de dinero 8% × 0.5 = 4% (C.4, C.5), en paralelo con la medición `elegibilidad.sql` (A.3).

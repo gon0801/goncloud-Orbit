@@ -1,0 +1,80 @@
+---
+title: "Pausa de un anuncio de producto con el plan construido"
+---
+stateDiagram-v2
+  state "Legend" as legend {
+    lg0: Breaks NoRepausaLoQueRegresaste or PracticaNoTapaLaReal
+    lg1: Breaks NoRepausaLoQueRegresaste in some cases
+    lg2: Path to the NoRepausaLoQueRegresaste or PracticaNoTapaLaReal bug
+  }
+  class lg0 breaks
+  class lg1 mayBreak
+  class lg2 bugPath
+  s0: Activo, sin propuesta
+  s1: Propuesta de práctica, nunca se ejecuta
+  s2: Propuesta real, esperando tus 48 h
+  s3: Vetada por ti, 30 días
+  s4: Propuesta de práctica atorada, interruptor ya en vivo
+  s5: Revisando datos frescos
+  s6: Mandando la pausa a Amazon
+  s7: Amazon no contestó
+  s8: Pausado por Orbit
+  s9: Lo regresaste, activo
+  s10: Pausado, Orbit no sabe si fue él
+  s11: Propuesta real otra vez, esperando 48 h
+  s12: Revisando otra vez
+  s13: Mandando la pausa otra vez
+  [*] --> s0
+  s0 --> s0: lo bajas a práctica o lo apagas or enciendes el interruptor
+  s0 --> s1: el ciclo ve gasto sin ventas y propone pausar [interruptor en práctica]
+  s0 --> s2: el ciclo ve gasto sin ventas y propone pausar [interruptor en vivo]
+  s1 --> s3: tú la vetas
+  s1 --> s4: enciendes el interruptor
+  s2 --> s5: pasan 48 h sin veto
+  s2 --> s3: tú la vetas
+  s3 --> s0: pasan los 30 días del veto
+  s4 --> s1: lo bajas a práctica o lo apagas
+  s4 --> s3: tú la vetas
+  s5 --> s3: tú la vetas
+  s5 --> s6: la revisión confirma y cobra la cuota
+  s5 --> s0: la revisión ve una venta, otra mezcla o el interruptor apagado
+  s6 --> s7: Amazon no contesta
+  s6 --> s8: Amazon confirma
+  s7 --> s0: la revisión lo encuentra activo
+  s8 --> s9: lo regresas desde la pantalla
+  s7 --> s10: la revisión lo encuentra pausado
+  s9 --> s11: el ciclo ve gasto sin ventas y propone pausar [interruptor en vivo]
+  s10 --> s9: lo regresas desde la pantalla
+  s9 --> s1: el ciclo ve gasto sin ventas y propone pausar [interruptor en práctica]
+  s11 --> s12: pasan 48 h sin veto
+  s11 --> s3: tú la vetas
+  s12 --> s3: tú la vetas
+  s12 --> s13: la revisión confirma y cobra la cuota
+  s12 --> s0: la revisión ve una venta, otra mezcla o el interruptor apagado
+  s0 --> s11: el ciclo ve gasto sin ventas y propone pausar [interruptor en vivo]
+  s13 --> s7: Amazon no contesta
+  s13 --> s8: Amazon confirma
+  classDef breaks fill:#ffecee,stroke:#e72e3b,stroke-width:2.5px,color:#cd2834
+  classDef mayBreak fill:#fff3e6,stroke:#e8730c,stroke-width:2.5px,color:#b85a06
+  class s0 mayBreak
+  class s0 bugPath
+  class s1 mayBreak
+  class s1 bugPath
+  class s2 bugPath
+  class s3 mayBreak
+  class s4 breaks
+  class s4 bugPath
+  class s5 bugPath
+  class s6 bugPath
+  class s7 mayBreak
+  class s8 mayBreak
+  class s8 bugPath
+  class s9 mayBreak
+  class s9 bugPath
+  class s10 mayBreak
+  class s11 mayBreak
+  class s11 bugPath
+  class s12 mayBreak
+  class s12 bugPath
+  class s13 breaks
+  class s13 bugPath
