@@ -571,9 +571,8 @@ def test_a_despliegue_completo_checklist_verde(banco):
         cwd=str(banco["clon"]),
         check=True,
         capture_output=True,
-        text=True,
     ).stdout
-    assert (banco["srv"] / "app" / "main.py").read_text(encoding="utf-8") == archivo, (
+    assert (banco["srv"] / "app" / "main.py").read_bytes() == archivo, (
         "el codigo desplegado no es el del SHA (md5)"
     )
     checklist = _checklist(banco, banco["c2"])
