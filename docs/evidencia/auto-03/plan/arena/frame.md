@@ -26,7 +26,7 @@ El **diseño** ya está sintetizado en `docs/superpowers/specs/2026-10-24-decisi
 | R2 | Secuencia verificable, riesgo creciente | Cada bloque deja algo comprobable con datos reales antes del siguiente; nada toca dinero ni Amazon sin reversa construida y probada antes (regla 7); escalera off→shadow→live con interruptor propio; la medición de elegibilidad real ocurre ANTES de prometer cobertura. |
 | R3 | Un dueño, un camino | Pausas por `apply_cola` + `retiro_anuncios` sin segundo escritor ni segundo encolador; colapso/madurez de métricas de producto reutiliza `evaluacion_catalogo` o lo sustituye (no lo duplica); una sola fuente de margen; peldaño nuevo con todos sus consumidores migrados en el mismo bloque. |
 | R4 | Pruebas y revisión proporcionales | Pruebas nuevas solo en los 4 casos de AGENTS.md (dinero, escritura productiva, máquinas, falla real), una regresión demostrada fallando; `Acepta` ejecutables que salen 0 en el SHA; `prueba-real` de solo lectura contra producción. |
-| R5 | Válido para el motor y autónomo | `motor valida` pasa; bloques humanos solo `login|2fa|captcha|pago`; ningún "pedir go al dueño"; las decisiones de política abiertas en la spec se fijan como supuestos explícitos y reversibles (interruptor apagado por omisión), no como preguntas. |
+| R5 | Válido para el motor y autónomo | `motor valida` pasa; bloques humanos solo `login\|2fa\|captcha\|pago`; ningún "pedir go al dueño"; las decisiones de política abiertas en la spec se fijan como supuestos explícitos y reversibles (interruptor apagado por omisión), no como preguntas. |
 | R6 | Carga del implementador | Bloques del tamaño de un PR revisable; archivos exactos; respeta `MAX_LINEAS_MODULO=900` y la allowlist; sin narrativa ni diario; ≤ ~250 líneas de plan. |
 
 ## Runners

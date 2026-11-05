@@ -1,6 +1,6 @@
 # Síntesis del plan AUTO-03 (`plans/decisiones-producto-01.md`)
 
-Fecha: 2026-11-04. Skill: pstack **architect** (Ground → Sketch con **arena** → síntesis), sin implementar. Base de lectura: `origin/master` `e6bab315` (el checkout local `resumen-ads-04-diseno` en `5adf1be0` solo difiere en `app/meli/catalogo.py` y `0075_meli_sku_alias.sql`). El plan está validado: `motor valida` → `ok  decisiones-producto-01: 9 bloques A(fast), B(gate), C(gate), D(release), E(release), F(release), G(release), H(release), I(release)`, 53 filas, todas con `Acepta`: 48 de la síntesis, 2 del ajuste por el modelo de estados y 3 de los límites editables con simulación (secciones al final).
+Fecha: 2026-11-04. Skill: pstack **architect** (Ground → Sketch con **arena** → síntesis), sin implementar. Base de lectura: `origin/master` `e6bab315` (el checkout local `resumen-ads-04-diseno` en `5adf1be0` solo difiere en `app/meli/catalogo.py` y `0075_meli_sku_alias.sql`). El plan está validado: `motor valida` → `ok  decisiones-producto-01: 9 bloques A(fast), B(gate), C(gate), D(release), E(release), F(release), G(release), H(release), I(release)`, 54 filas, todas con `Acepta`: 48 de la síntesis, 2 del ajuste por el modelo de estados, 3 de los límites editables con simulación y 1 de la revisión del PR (secciones al final).
 
 ## Problem
 
@@ -8,7 +8,7 @@ El diseño de AUTO-03 ya estaba sintetizado el 24-oct (`docs/superpowers/specs/2
 
 ## Usage (vista del implementador del motor)
 
-Cada bloque es un PR que un agente implementa viendo solo ese bloque: nombra archivos y líneas vigentes, la firma nueva y un `Acepta` que sale 0. El preámbulo del plan fija S1..S16 (los supuestos de política) y A.1 los copia a la spec, así que el implementador aplica un supuesto en vez de decidirlo. Del lado de David: `productos-modo --platform P --meta|--pausa off|shadow|live` (único escritor de las claves, vía `config_write.guarda_config`), la pantalla de productos y `POST /retiro/reponer` con resultado por anuncio.
+Cada bloque es un PR que un agente implementa viendo solo ese bloque: nombra archivos y líneas vigentes, la firma nueva y un `Acepta` que sale 0. El preámbulo del plan fija S1..S18 (los supuestos de política) y A.1 los copia a la spec, así que el implementador aplica un supuesto en vez de decidirlo. Del lado de David: `productos-modo --platform P --meta|--pausa off|shadow|live` (único escritor de las claves, vía `config_write.guarda_config`), la pantalla de productos y `POST /retiro/reponer` con resultado por anuncio.
 
 ## Shape
 
@@ -84,13 +84,28 @@ Una lectura de producción del 5-nov (solo lectura, ventana `[D-60, D-30)`, cont
 
 Por eso S8 deja de ser un número fijo. **C.7** vuelve editables los límites por mercado, con los valores actuales por omisión y un mínimo que no se puede bajar (el piso de los negativos). **H.8** agrega una simulación pura que corre la misma regla con otros límites y muestra, lado a lado, el gasto que se habría evitado (gasto observado, no ahorro prometido) y las ventas que se habrían perdido (ventas atribuidas del mes siguiente a los productos que se habrían pausado el mes anterior), sin ver observaciones posteriores a la fecha simulada (regla 5). **H.9** pone los campos y la simulación en la pantalla de productos y guarda por el escritor único de settings. Todo va antes de encender la pausa en vivo, para que el dueño elija el límite con datos; I.2 deja constancia de los límites con que se enciende. Con datos de productos desde el 2026-08-08, al principio la ventana anterior alcanza para uno o dos meses.
 
+## Correcciones por la revisión del PR #531 (2026-11-05)
+
+Los dos revisores automáticos del PR (DeepSeek por ai-review y CodeRabbit) encontraron fallas reales del plan. Se confirmaron contra el código y se corrigieron en el mismo PR:
+
+- **La cobertura de fechas no se podía saber.** `ads_report_result` (0040) no guarda qué fechas pidió cada reporte y `diario.py` acepta `--fecha`/`--fecha-fin`, así que una corrida manual de un día habría hecho pasar 30 días ausentes por ceros y autorizado pausas (regla 3). Nueva fila **D.7**: la ingesta guarda el rango pedido; un rango desconocido no cubre. Costo aceptado: la pausa puede actuar unos 30 días después de desplegar D.
+- **Escritura en la fase de lectura.** H.7 insertaba en `reactivacion_manual` dentro de TX2, que es de solo lectura, y rompía `evalua` con el rol de lectura. Ahora la lectura excluye en memoria y el INSERT va en TX3.
+- **Doble PUT.** `reconcilia_intenciones` reenvía la pausa cuando lee el anuncio ENABLED. Ahora deja fuera las intenciones con `decision_id` y solo `apply_producto` las resuelve, sin reenviar.
+- **Ventana vieja al liberar.** La revalidación de I.3 corre la regla con la ventana al reloj de liberación, como las pausas de keyword, y además exige cero ventas en la ventana congelada.
+- **Carrera al encender.** Un ciclo podía meter una fila de práctica entre el descarte de I.7 y el cambio de config. Ahora ambos toman el mismo candado de base de datos, exclusivo al encender y compartido al encolar.
+- **Rollback trabado.** Si una reversa abortaba por tener filas, el código no se restauraba. Ahora se restaura primero el código y las reversas van al final.
+- **Evidencia que podía mentir.** Las pruebas previas a encender contaban dos líneas `diferencias: 0` sin distinguir replay de conciliación, y la `prueba-real` de E usaba `;`. Ahora cada línea va etiquetada por herramienta y mercado, y se exige cada una.
+- **Goal en sombra.** H.3 aceptaba goals en `shadow`; ahora exige `mode = 'live'`, como dice S4.
+- Menores: conteos y S1..S18 en síntesis y ROADMAP, barras sin escapar en `frame.md` y un bloque de código partido en `00-explicacion.md`.
+- Hallado por el lead al revisar: el bloque C usaba en su `prueba-real` la sonda que crea B sin depender de B. Ahora depende de A y B.
+
 ## Next implementation step
 
 Versionar en master la spec, `docs/evidencia/auto-03/**` y `plans/decisiones-producto-01.md` (A.0), y entregar el plan al motor; el primer código es `app/optimizer/productos.py` con `resolver_producto` y el caso de dinero 8% × 0.5 = 4% (C.4, C.5), en paralelo con la medición `elegibilidad.sql` (A.3).
 
 ## Verificación del artefacto
 
-- `motor valida` en verde (salida arriba); 9 bloques, 53 filas, 0 filas sin `Acepta`, 6 releases con `despliegue:` completo, dependencias sin ciclo.
+- `motor valida` en verde (salida arriba); 9 bloques, 54 filas, 0 filas sin `Acepta`, 6 releases con `despliegue:` completo, dependencias sin ciclo.
 - Pipes dentro de filas escapados (`Decimal \| None` se parsea como `Decimal | None`).
 - Archivos y símbolos citados existen en master: `docs/evidencia/bids-02/ejecucion/D.1/desplegar.sh`, `tests/test_compose_deploy.py`, `tests/test_evaluacion_catalogo.py`, `tests/test_settings_escritura.py`, `tests/test_retiro_anuncios.py`, `tests/test_impulso_io.py`, `tests/test_api_fabrica.py`, `tests/test_apply_cola.py`, `tests/test_cycle.py`, `tests/test_cycle_target_ciclo.py`, `tests/test_apply_schema.py`, `tests/test_optimizer_goals.py`, `tests/test_architecture.py`; `config_write.proxima_config`/`guarda_config`, `apply_cola._meet_goals`, `goals_write.edita_goal(limpia_target=...)`, `apply_harvest.aplica_harvest`, `apply.ESTADO_PUT_PAUSED` (re-export de `write.py:157`), `archivar.preparar_escritor`/`leer_anuncios`/`reponer_anuncios`.
 - No se ejecutó código de producto, ninguna consulta de producción ni ninguna escritura; los candidatos tampoco (citaron la lectura del 25-oct).

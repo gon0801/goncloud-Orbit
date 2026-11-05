@@ -203,8 +203,8 @@ Ningún camino automático del ciclo pausa un product ad hoy.
   trae filas con actividad: ASIN ausente = sin dato. No hay vista de colapso ni `as_of`; cada lector repite
   `DISTINCT ON (asin, sku, metric_date) ORDER BY observed_at DESC`. La ingesta diaria reobserva D-31..D-1,
   tres veces al día. Datos desde 2026-08-08.
-- **Madurez y suma**: ya existen en `app/evaluacion_catalogo.py`. `_fecha_madura` (`observed_at >= metric_date
-  + 30d`, `:125-131`), suma con veneno (None contagia) y `halo30d = sales30d - same_sku`. `evaluar_ads` cuenta
+- **Madurez y suma**: ya existen en `app/evaluacion_catalogo.py`. `_fecha_madura` (`observed_at >= metric_date + 30d`,
+  `:125-131`), suma con veneno (None contagia) y `halo30d = sales30d - same_sku`. `evaluar_ads` cuenta
   muestra, pero no exige todas las fechas del intervalo.
 - **Margen**: `v_margen_producto` (`0018:283-436`) con ventana `[2026-02-20, now()-15)`, sin ads, NULL si la
   cobertura es menor a 0.95, si hay menos de 30 días con venta o si hay mezcla de monedas o cargos sin tipo.
