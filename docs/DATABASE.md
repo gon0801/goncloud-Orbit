@@ -105,6 +105,21 @@ reproceso posterior.
 plataforma (confundirlos duplicaba ventas 48% en un JOIN).
 *Cómo se audita*: `odoo_sku` UNIQUE; job de catálogo cruza contra Odoo.
 
+**`meli_sku_alias`** — Correspondencia verificada de un SELLER_SKU MeLi al
+`product.id` canonico (migracion 0075, PEZ 01). El SKU es unico y no vacio;
+la evidencia de identidad es obligatoria. El catalogo la resuelve en el mismo
+camino de ingesta que la coincidencia exacta y rechaza contradicciones antes
+de escribir. Los SKU desconocidos conservan `NULL`.
+Solo `app_admin` cambia aliases; para el lote recibe UPDATE de
+`listing_miembro.product_id`, que la ingesta tambien resuelve al sincronizar.
+Los importes siguen bajo los permisos e invariantes de `sku_cost`. La funcion sin argumentos
+`meli_sku_alias_bloquear()` permite al administrador tomar locks fijos para
+comprobar/aplicar un lote atomico sin conceder UPDATE de productos o costos.
+*Como se audita*: evidencia por alias, FK al producto y conciliacion externa;
+`tools/corrige_meli_skus.py` conserva respaldo previo y permite reversa con
+precondiciones. La reversa de 0075 exige revertir primero el lote y restaurar
+el catalogo anterior.
+
 **`listing`** — Un producto tiene 2–4 listings (varios ASIN por SKU).
 Precio con moneda obligatoria por `CHECK` (ambos NULL o ambos presentes).
 *Cómo se audita*: UNIQUE `(platform, external_id)`; conteo de listings por

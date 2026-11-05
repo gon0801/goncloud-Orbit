@@ -1,3 +1,5 @@
+> **Actualizacion 5-nov-2026 UTC:** P04 cerrado mediante [PEZ 01](pez-correccion/README.md) / PR #526. Nueve correspondencias SET aplicadas y verificadas, costos9/9 y alcance conservado. Las menciones de vinculacion pendiente debajo son historia de la investigacion. Valoracion/medidas se siguen en P13.
+
 # Quick wins de Orbit — 4-nov-2026
 
 Trabajo solicitado por el dueño con GPT Sol. Tres tareas ejecutadas por

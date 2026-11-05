@@ -11,7 +11,8 @@ contenedor y recordatorios del servidor. Integración, despliegue y validación
 operativa son estados distintos. Los datos históricos llevan fecha. Esta
 revisión no modificó producción. Los [quick wins](../docs/evidencia/quick-wins-2026-11-04/README.md)
 añaden el arreglo del checker y los cierres operativos A.4/B.4; su integración
-se registra por separado de las lecturas productivas.
+se registra por separado de las lecturas productivas. PEZ 01 / PR #526 agrega
+el cierre productivo P04 el 5-nov-2026 UTC, con evidencia antes/despues.
 
 El registro apunta a `resumen-ads-multicanal`, la última entrega integrada y
 desplegada, con seguimiento P01. No selecciona ni autoriza el siguiente desarrollo.
@@ -20,7 +21,7 @@ verificadas, dependencias, pruebas proporcionales, revisión y despliegue.
 
 ## Pendientes de operación y cierre
 
-Los IDs P01–P12 identifican seguimientos, no planes de implementación.
+Los IDs P01–P13 identifican seguimientos, no planes de implementación.
 «Por comprobar» significa que falta evidencia de cierre, no que el sistema falle.
 
 | ID | Frente | Estado comprobado / impacto | Siguiente paso y criterio de cierre | Responsable |
@@ -28,7 +29,7 @@ Los IDs P01–P12 identifican seguimientos, no planes de implementación.
 | P01 | Resumen Ads multicanal | Ingesta inicial y cron 08:15 UTC verificados. Hasta 3-nov: 808/808 filas iguales; 4-nov difiere +13.47 MXN por una versión posterior de accounting. Comprobación RO instalada y programada: **job 10, 5-nov 09:00 UTC**. | Leer el resultado del job 10 y exigir nueva corrida exitosa, conciliación y misma huella/as-of de fuente. Sigue abierto hasta ese resultado; el snapshot inicial no se conservó. [Seguimiento](../docs/evidencia/quick-wins-2026-11-04/seguimiento-meli/LEEME.md). | Operación |
 | P02 | FABRICA 02 D.3 / cierre ORBIT 17 | 11 harvests `done`, ninguno con hermanas ni resuelto por grupo. La sonda de creación de Fábrica 01 ya se hizo el 9-sep; su tarea 11 conserva pendiente el cierre del paso 4. | Seguir el primer harvest natural de grupo: exacta, hermanas, biblioteca y ledger; ensayar su reversa con el go previsto en D.3. Anexar la evidencia del paso 4 de Fábrica 01, sin repetir la creación. | Operación + dueño para reversa |
 | P03 | ADS PROTECCION 01: C.6 | P1 ejecutado: config 42 económica apagada, nueve goals live, caps de 1M y una PAUSE tradicional pendiente. P2: 48 cruces numéricos en 7 entidades; 62/62 filas externas coinciden, cobertura parcial. Ninguna cohorte acredita revisión completa a +10d; elegibilidad contrafactual incompleta. | Completar evidencia de maduración, estado/goal histórico y ventanas externas antes del gate P3. Preparar captura prospectiva si el histórico no es recuperable. La medición no demuestra FP=0 ni habilita sombra/encendido. [P1](../docs/evidencia/quick-wins-2026-11-04/c6-p1/README.md), [P2](../docs/evidencia/quick-wins-2026-11-04/c6-p2/README.md). | Operación; dueño para sombra/activación |
-| P04 | Producto y costo PEZ en MeLi | **En ejecucion — PEZ 01.** Nueve variantes comprobadas por fotos/atributos contra productos SET activos con cofre, incluido Blanco con Broche. NH-SOLO descartado para este lote. Costos publicados coinciden9/9 entre Odoo, accounting y Orbit; faltan correspondencias persistentes. | Integrar y desplegar la resolucion de aliases; aplicar lote reversible de nueve miembros; comprobar persistencia/costos y alcance. [Plan](pez-01.md), [identidad y costos](../docs/evidencia/quick-wins-2026-11-04/pez-correccion/identidad/README.md). | Operacion |
+| P04 | Producto y costo PEZ en MeLi | **CERRADO, 5-nov-2026 UTC — PEZ 01 / PR #526.** Nueve variantes vinculadas a SET activos con cofre, incluido Blanco. Costos externos coinciden 9/9; siete miembros activos y dos inactivos conservados. | Aliases persistentes desplegados, lote reversible aplicado y lectura posterior sin cambios fuera del alcance. Las diferencias de valoracion/medidas se siguen en P13. [Cierre](../docs/evidencia/quick-wins-2026-11-04/pez-correccion/README.md). | Operacion |
 | P05 | REP-FOLLOW-2: reseñas Amazon | Cero ingestas Amazon exitosas y cero reseñas Amazon; MeLi sí sigue entrando. Último bloqueo documentado: crédito Apify agotado; no se consultó hoy su saldo. | Resolver crédito/ejecución autorizada; comprobar ingesta y cron semanal dentro del presupuesto. Desbloquea Reputación 02. | Dueño + operación |
 | P06 | ORBIT 02, 3.4: cloudflared | Rotación diferida por falta de inventario de rutas en Cloudflare Zero Trust. No se volvió a inspeccionar proceso ni token. | Inventario y ventana acordada; luego rotación y comprobación de dominios según 3.4. | Dueño + operación |
 | P07 | BIDS 01: primer lote de archivo | Ledger `keyword_archivo_manual` vacío. El 4-oct era la primera fecha elegible, no una orden de ejecución. | Repetir ensayo con datos actuales y decidir lote con el go requerido. Archivar pierde identidad/historia; reponer no equivale a desarchivar. | Dueño + operación |
@@ -37,6 +38,7 @@ Los IDs P01–P12 identifican seguimientos, no planes de implementación.
 | P10 | REP-FOLLOW-1: reseñas compartidas | Mejora opcional: atribución multi-item limitada por deduplicación de reseñas compartidas. | Medir impacto; si se prioriza, definir identidad y atribución con fuente real. No bloquea v1. | Datos |
 | P11 | REP-FOLLOW-3: lotes Apify | Condicional: sin medir si las 518 URL del inventario histórico caben en 300 s con crédito. | Medir tras P05; dividir en lotes solo si el volumen vigente y el tiempo lo justifican. | Operación |
 | P12 | Transversales | Deuda declarada: secretos con permisos 600/uid, sin cifrado en reposo, y observabilidad parcial. No se auditó toda la infraestructura. | Delimitar y priorizar revisión específica. Mantener gitleaks y secretos fuera del repositorio. | Dueño + operación |
+| P13 | Datos PEZ: valoracion y medidas | El costo publicado coincide Odoo/accounting/Orbit, pero supera la suma actual de componentes en 4.68 MXN dorado / 4.20 MXN plateado. Descripciones genericas MeLi mencionan medidas distintas de los SET identificados por fotos/atributos. | Conciliar la politica de valoracion y comprobar medidas del producto antes de corregir costos o publicaciones. No recalcular Odoo ni editar MeLi por inferencia. No bloquea la vinculacion P04. [Evidencia](../docs/evidencia/quick-wins-2026-11-04/pez-correccion/identidad/README.md). | Catalogo / contabilidad |
 
 ## Planes por construir
 
@@ -73,7 +75,7 @@ cada módulo. Los residuales siguen arriba, separados del desarrollo.
 | SP-API 01 y 02 | Cerrados 10-sep y 22-oct: lecturas y resistencia a 429 entregadas. |
 | JEV ADS 01, 02 y 03 | Cerrados. JEV 03 encendido, P08 programado. Avisos JEV 02 apagados por decisión; abstención/ruteo/fábrica no se construyen por aquel cierre. |
 | REPRICING 01 | **Sustituido desde el 8-oct** por REPRICING 02 para D.2/D.3/E/0/B/M. Sus 22 filas históricas no son trabajo pendiente. |
-| REPRICING 02 / AUTO-07 | Cerrado 17-oct; goals vigentes: MX 231, US 99, MeLi 45 en `live`. P04 conserva ampliación de cobertura. Incidente MeLi de octubre corregido y desplegado (#504). |
+| REPRICING 02 / AUTO-07 | Cerrado 17-oct; goals vigentes: MX 231, US 99, MeLi 45 en `live`. P04 cerrado mediante PEZ 01; nueve correspondencias verificadas. Datos PEZ pendientes en P13. Incidente MeLi de octubre corregido y desplegado (#504). |
 | BIDS 02 | Construido, desplegado y encendido; remate cerrado 13-oct. Sus guías no son planes pendientes adicionales. |
 | INGESTA 01 | Cerrada 22-oct. Informe del **28-oct recuperado**: 21/21 corridas exitosas, 14/14 ciclos `done`, cero días sin éxito por fuente. Guardas históricas comprobadas para ambas plataformas. [Evidencia](../docs/evidencia/estado-planes-2026-11-04/README.md). |
 | RESUMEN ADS 01/02/03 | Integrados y archivos principales comprobados en producción el 4-nov. Queda P01; no están por construir. |

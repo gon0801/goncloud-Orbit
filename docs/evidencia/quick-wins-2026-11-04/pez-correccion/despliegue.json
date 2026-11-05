@@ -1,0 +1,281 @@
+{
+  "fecha_utc": "2026-11-05T03:33:49.594309+00:00",
+  "commit_integrado": "50594e612f0f9f8e5c3ba5e4d9b255c3dc38c78d",
+  "catalogo_sha256": "22cc82a1b2cbc04f803076d3a69dd9d8c0005cd12e3653619befcd6722090330",
+  "imagen_candidata": "orbit-pez-candidato:20261105-cff03b13",
+  "imagen_respaldo": "orbit-pez-respaldo:20261105",
+  "antes": [
+    {
+      "nombre": "orbit-app-1",
+      "container_id": "e953c72ce64f334a697f99b95f08731737e82302bbf46ce611b5a13b9d4bb410"
+    },
+    {
+      "nombre": "deploy-arras-1",
+      "container_id": "9bcf26a61b07cd8a06fb401729e97678440199df2eb9d1608cc9e5c3da744f18"
+    },
+    {
+      "nombre": "nextcloud-app",
+      "container_id": "115519f4d79d81827402ace401e3785a5df2892b02b5ef77960ced883050ab59"
+    },
+    {
+      "nombre": "appflowy-appflowy_search-1",
+      "container_id": "999fa2ba4baac4dd75b0e2c395f2dcde906ffd48eabee3e23866ca3ae8e2bf65"
+    },
+    {
+      "nombre": "appflowy-appflowy_web-1",
+      "container_id": "23a48c836c4d5e32991084f842d8a85a92c2c71caf3ca4f08d8bd28f404c1ca0"
+    },
+    {
+      "nombre": "appflowy-admin_frontend-1",
+      "container_id": "d31d969fbfd3495eda17d3810b2d2dbedc47f91aa581be3fd97c30e88841968f"
+    },
+    {
+      "nombre": "appflowy-appflowy_worker-1",
+      "container_id": "256dc833069cab1d9a63319c4ae1de0ff7ffc14fa952fe5d7274e7f6fef43b4e"
+    },
+    {
+      "nombre": "appflowy-appflowy_cloud-1",
+      "container_id": "98f6bb4272663600bd91d1ce99cab6f3c09879a10891e216492efb2d603bfc0f"
+    },
+    {
+      "nombre": "appflowy-gotrue-1",
+      "container_id": "1c83e6d255d1770f5bc1ec31f3d0929cd9a6c60a04481bb6e3d8b266e9cdc93c"
+    },
+    {
+      "nombre": "claw-gog-site",
+      "container_id": "2f41efcc809a0105423b8670ecb49b50e8f3d3a518b5f93ed62ba461a82848c8"
+    },
+    {
+      "nombre": "competitive-intel",
+      "container_id": "a47594ce0b0fde0e8a11df05645a9a8f7234dba5341bf83d62873b249f2f256d"
+    },
+    {
+      "nombre": "tablero-fase-tablero-fase-1",
+      "container_id": "89e7281dd1deacc08abf5a4ff67d1bd20ef172ac5e456a2767b8fd8490f472ff"
+    },
+    {
+      "nombre": "bridge-api",
+      "container_id": "9a99fa818f6f1da9afa72634a872b21f3004422fe0358a259e36f408f16dca4f"
+    },
+    {
+      "nombre": "ams-worker",
+      "container_id": "8a4d398f773b5213d51b88f258d1a848ddc764521198d1c04263a3a0e490a9b2"
+    },
+    {
+      "nombre": "orbit-db-1",
+      "container_id": "1af72662ec06baa551fe22ec131ceb7fc59edf53b8977108c039299dd45887b8"
+    },
+    {
+      "nombre": "uptime-kuma",
+      "container_id": "db4e0cb119b43888ab0d87f547491be13de16931ed9ed75c2f6c085beffbc4a9"
+    },
+    {
+      "nombre": "appflowy-nginx",
+      "container_id": "1678d1a400f1fa70d76e9a7e45be4ce82c0a86b0951e24cf427a160af3877bd7"
+    },
+    {
+      "nombre": "appflowy-postgres-1",
+      "container_id": "3cfb577baf2c2561836b151b4817953f3fc03bf1dcac64486843a230f5a70236"
+    },
+    {
+      "nombre": "appflowy-minio-1",
+      "container_id": "7ac07adfbc9962a835dcfeaff514916ce6800f6e92e6cd97c45c3134db9f26b6"
+    },
+    {
+      "nombre": "appflowy-redis-1",
+      "container_id": "c5e6aeb2bdc73365ff09e8d9b179792d550ea90e5e7d633340675df6d14b65f9"
+    },
+    {
+      "nombre": "vaultwarden",
+      "container_id": "dd2adbe4348381ff4f3a9987647a66da80e8c5c95abcf489101ba848d87c8d6e"
+    },
+    {
+      "nombre": "bridge-inbound-worker",
+      "container_id": "aa7a2dfd52824bdfdc48bc2b6ff744eaa4dce275d724489bc4b2abace76d0fbc"
+    },
+    {
+      "nombre": "bridge-worker",
+      "container_id": "fe4d6bccdabe52fe1ed1805220be9eb3cf9ab20be03b1da7a408ea2758f7a365"
+    },
+    {
+      "nombre": "bridge-amazon-inbound-worker",
+      "container_id": "bba91a0bae3044c3d8fc63312627da8e7a236052c73eace1c2fd89191d7d92a8"
+    },
+    {
+      "nombre": "bridge-redis",
+      "container_id": "5444ceebb9d0cf6c7cf40b11db017325e81ddb5a8bf8fe299b37bab2b539fd63"
+    },
+    {
+      "nombre": "nginx-proxy-manager",
+      "container_id": "90a3b7c2f6250bfcf12e175dfb1f115506211bb2b3fd3993956ef0ecee645efe"
+    },
+    {
+      "nombre": "diun",
+      "container_id": "689baa5a98a62e3cc0c7a1dd02a5a3066651e97e831d84bf8d32e486b37845ab"
+    },
+    {
+      "nombre": "nextcloud-db",
+      "container_id": "4fbdacfb9fdbc12a433e2fa819b6534ca94c20cc3802e09520048ecaa7132a69"
+    },
+    {
+      "nombre": "nextcloud-redis",
+      "container_id": "874a4963c14a37737e5b151e37dce6f1f5ca06be04785950db7e286a33471a79"
+    },
+    {
+      "nombre": "docker-server-1",
+      "container_id": "8b3f764b8157023c7555c744bbd7ae5c97e441a5efba8bff797157bdbb90f026"
+    },
+    {
+      "nombre": "docker-db-1",
+      "container_id": "cbbb82a7d2d93552760e4817d6b399c33a000945205c431b05f159e0592b18ba"
+    },
+    {
+      "nombre": "odoo-odoo-1",
+      "container_id": "1522581409e1dc4c46824a56a2e4cf578216143c3844e55560ba554775990e3a"
+    },
+    {
+      "nombre": "odoo-db-1",
+      "container_id": "c23fe7d2b85b3969a0b31631b713e731f561a530cf30f79ba9975b80bf88d924"
+    }
+  ],
+  "despues": [
+    {
+      "nombre": "orbit-app-1",
+      "container_id": "0568ffaef2da0dd30815f879bbe37391ac5e4394475319eaee90b60adbf1bf0f"
+    },
+    {
+      "nombre": "deploy-arras-1",
+      "container_id": "9bcf26a61b07cd8a06fb401729e97678440199df2eb9d1608cc9e5c3da744f18"
+    },
+    {
+      "nombre": "nextcloud-app",
+      "container_id": "115519f4d79d81827402ace401e3785a5df2892b02b5ef77960ced883050ab59"
+    },
+    {
+      "nombre": "appflowy-appflowy_search-1",
+      "container_id": "999fa2ba4baac4dd75b0e2c395f2dcde906ffd48eabee3e23866ca3ae8e2bf65"
+    },
+    {
+      "nombre": "appflowy-appflowy_web-1",
+      "container_id": "23a48c836c4d5e32991084f842d8a85a92c2c71caf3ca4f08d8bd28f404c1ca0"
+    },
+    {
+      "nombre": "appflowy-admin_frontend-1",
+      "container_id": "d31d969fbfd3495eda17d3810b2d2dbedc47f91aa581be3fd97c30e88841968f"
+    },
+    {
+      "nombre": "appflowy-appflowy_worker-1",
+      "container_id": "256dc833069cab1d9a63319c4ae1de0ff7ffc14fa952fe5d7274e7f6fef43b4e"
+    },
+    {
+      "nombre": "appflowy-appflowy_cloud-1",
+      "container_id": "98f6bb4272663600bd91d1ce99cab6f3c09879a10891e216492efb2d603bfc0f"
+    },
+    {
+      "nombre": "appflowy-gotrue-1",
+      "container_id": "1c83e6d255d1770f5bc1ec31f3d0929cd9a6c60a04481bb6e3d8b266e9cdc93c"
+    },
+    {
+      "nombre": "claw-gog-site",
+      "container_id": "2f41efcc809a0105423b8670ecb49b50e8f3d3a518b5f93ed62ba461a82848c8"
+    },
+    {
+      "nombre": "competitive-intel",
+      "container_id": "a47594ce0b0fde0e8a11df05645a9a8f7234dba5341bf83d62873b249f2f256d"
+    },
+    {
+      "nombre": "tablero-fase-tablero-fase-1",
+      "container_id": "89e7281dd1deacc08abf5a4ff67d1bd20ef172ac5e456a2767b8fd8490f472ff"
+    },
+    {
+      "nombre": "bridge-api",
+      "container_id": "9a99fa818f6f1da9afa72634a872b21f3004422fe0358a259e36f408f16dca4f"
+    },
+    {
+      "nombre": "ams-worker",
+      "container_id": "8a4d398f773b5213d51b88f258d1a848ddc764521198d1c04263a3a0e490a9b2"
+    },
+    {
+      "nombre": "orbit-db-1",
+      "container_id": "1af72662ec06baa551fe22ec131ceb7fc59edf53b8977108c039299dd45887b8"
+    },
+    {
+      "nombre": "uptime-kuma",
+      "container_id": "db4e0cb119b43888ab0d87f547491be13de16931ed9ed75c2f6c085beffbc4a9"
+    },
+    {
+      "nombre": "appflowy-nginx",
+      "container_id": "1678d1a400f1fa70d76e9a7e45be4ce82c0a86b0951e24cf427a160af3877bd7"
+    },
+    {
+      "nombre": "appflowy-postgres-1",
+      "container_id": "3cfb577baf2c2561836b151b4817953f3fc03bf1dcac64486843a230f5a70236"
+    },
+    {
+      "nombre": "appflowy-minio-1",
+      "container_id": "7ac07adfbc9962a835dcfeaff514916ce6800f6e92e6cd97c45c3134db9f26b6"
+    },
+    {
+      "nombre": "appflowy-redis-1",
+      "container_id": "c5e6aeb2bdc73365ff09e8d9b179792d550ea90e5e7d633340675df6d14b65f9"
+    },
+    {
+      "nombre": "vaultwarden",
+      "container_id": "dd2adbe4348381ff4f3a9987647a66da80e8c5c95abcf489101ba848d87c8d6e"
+    },
+    {
+      "nombre": "bridge-inbound-worker",
+      "container_id": "aa7a2dfd52824bdfdc48bc2b6ff744eaa4dce275d724489bc4b2abace76d0fbc"
+    },
+    {
+      "nombre": "bridge-worker",
+      "container_id": "fe4d6bccdabe52fe1ed1805220be9eb3cf9ab20be03b1da7a408ea2758f7a365"
+    },
+    {
+      "nombre": "bridge-amazon-inbound-worker",
+      "container_id": "bba91a0bae3044c3d8fc63312627da8e7a236052c73eace1c2fd89191d7d92a8"
+    },
+    {
+      "nombre": "bridge-redis",
+      "container_id": "5444ceebb9d0cf6c7cf40b11db017325e81ddb5a8bf8fe299b37bab2b539fd63"
+    },
+    {
+      "nombre": "nginx-proxy-manager",
+      "container_id": "90a3b7c2f6250bfcf12e175dfb1f115506211bb2b3fd3993956ef0ecee645efe"
+    },
+    {
+      "nombre": "diun",
+      "container_id": "689baa5a98a62e3cc0c7a1dd02a5a3066651e97e831d84bf8d32e486b37845ab"
+    },
+    {
+      "nombre": "nextcloud-db",
+      "container_id": "4fbdacfb9fdbc12a433e2fa819b6534ca94c20cc3802e09520048ecaa7132a69"
+    },
+    {
+      "nombre": "nextcloud-redis",
+      "container_id": "874a4963c14a37737e5b151e37dce6f1f5ca06be04785950db7e286a33471a79"
+    },
+    {
+      "nombre": "docker-server-1",
+      "container_id": "8b3f764b8157023c7555c744bbd7ae5c97e441a5efba8bff797157bdbb90f026"
+    },
+    {
+      "nombre": "docker-db-1",
+      "container_id": "cbbb82a7d2d93552760e4817d6b399c33a000945205c431b05f159e0592b18ba"
+    },
+    {
+      "nombre": "odoo-odoo-1",
+      "container_id": "1522581409e1dc4c46824a56a2e4cf578216143c3844e55560ba554775990e3a"
+    },
+    {
+      "nombre": "odoo-db-1",
+      "container_id": "c23fe7d2b85b3969a0b31631b713e731f561a530cf30f79ba9975b80bf88d924"
+    }
+  ],
+  "otros_contenedores_sin_cambio": true,
+  "health": {
+    "status": "ok"
+  },
+  "compose_stdout": "",
+  "compose_stderr": " Container orbit-app-1 Recreate \n Container orbit-app-1 Recreated \n Container orbit-app-1 Starting \n Container orbit-app-1 Started \n"
+}

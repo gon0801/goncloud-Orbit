@@ -1,0 +1,9 @@
+{
+  "inicio_utc": "2026-11-05T03:23:03.911533+00:00",
+  "fin_utc": "2026-11-05T03:23:05.669601+00:00",
+  "origen": "SQLite mode=ro/query_only, backup consistente con WAL",
+  "comando": "python -m app.cli ingest costs --sqlite SNAPSHOT",
+  "exit_code": 0,
+  "stdout": "== Ingesta de costos desde contabilidad (accounting_sku_costs) ==\nrun_id=1353 ok=True rows_written=0 rows_skipped=0\nproductos: nuevos=0 actualizados=0 nombres_derivados=185\nvigencias: insertadas=0 cerradas=0 finales=1979 (filas origen: 2732)\ncolapso: intradia_con_sucesor=753 intradia_en_borde=0 fusiones=0\n",
+  "stderr": ""
+}
