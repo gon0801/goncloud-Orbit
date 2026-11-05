@@ -1,6 +1,6 @@
 # Síntesis del plan AUTO-03 (`plans/decisiones-producto-01.md`)
 
-Fecha: 2026-11-04. Skill: pstack **architect** (Ground → Sketch con **arena** → síntesis), sin implementar. Base de lectura: `origin/master` `e6bab315` (el checkout local `resumen-ads-04-diseno` en `5adf1be0` solo difiere en `app/meli/catalogo.py` y `0075_meli_sku_alias.sql`). El plan está validado: `motor valida` → `ok  decisiones-producto-01: 9 bloques A(fast), B(gate), C(gate), D(release), E(release), F(release), G(release), H(release), I(release)`, 48 filas, todas con `Acepta`.
+Fecha: 2026-11-04. Skill: pstack **architect** (Ground → Sketch con **arena** → síntesis), sin implementar. Base de lectura: `origin/master` `e6bab315` (el checkout local `resumen-ads-04-diseno` en `5adf1be0` solo difiere en `app/meli/catalogo.py` y `0075_meli_sku_alias.sql`). El plan está validado: `motor valida` → `ok  decisiones-producto-01: 9 bloques A(fast), B(gate), C(gate), D(release), E(release), F(release), G(release), H(release), I(release)`, 53 filas, todas con `Acepta`: 48 de la síntesis, 2 del ajuste por el modelo de estados y 3 de los límites editables con simulación (secciones al final).
 
 ## Problem
 
@@ -61,7 +61,7 @@ Convergencias (señal fuerte, se adoptan sin injerto): kind `pause` sobre `produ
 ## Open questions and risks (para David; el plan fija supuestos reversibles, no espera respuesta)
 
 1. **S1.** ¿Los goals de fábrica e impulso cuentan como "explícitos"? Si A.3/E.4 muestran que casi ningún grupo exclusivo queda sin target, la meta por producto estará construida y encendida pero inerte hasta que se limpien targets.
-2. **S6, S8.** ¿Basta "fecha sin fila = cero si una corrida ok del reporte la cubre y el producto tiene filas en la ventana", con pisos fijos de 100 clics y 500 MXN / 40 USD, para pausar product ads automáticamente? La regla literal de la spec nunca pausaría a nadie.
+2. **S6, S8.** ¿Basta "fecha sin fila = cero si una corrida ok del reporte la cubre y el producto tiene filas en la ventana", para pausar product ads automáticamente? La regla literal de la spec nunca pausaría a nadie. Los límites de gasto y clics ya no se fijan aquí: el dueño los elige con la simulación de H.8 (ver la sección de límites editables).
 3. **S9, S10.** ¿Se acepta ampliar el perímetro escrito de la cola (`docs/APPLY.md`) a pausas de product ad y dar a `app_decide` INSERT/SELECT acotados sobre el ledger de retiro?
 4. **S14.** ¿Está bien que un anuncio confirmado tras una respuesta incierta quede "adoptado" también para fábrica e impulso, y que regresarlo exija marcar `incluye_adoptados`?
 5. Riesgo: si más adelante se enciende `ads_pause_economica` (hoy ausente), una meta baja (4%) dispara antes la pausa económica de hojas; la sombra de D lo deja visible.
@@ -78,13 +78,19 @@ Un modelo TLA+ de la pausa de un product ad con el plan construido (bloques H e 
 
 Con ambas correcciones el modelo corregido cumple las seis reglas en 304 estados: solo en vivo, nunca con venta, nunca con otra mezcla, un solo cobro, la práctica no tapa a la real y no re-pausa en la gracia. La regla 2 quedó acotada a la gracia: pasados los 7 días, Orbit puede volver a proponer y el dueño tiene sus 48 h de veto. Modelos, vistas, diagramas y reportes en `statechart/antes/` y `statechart/despues/`. El modelo deja fuera varios anuncios a la vez, la cuota agotada, los tiempos reales y la meta por producto; un dato desconocido cuenta como venta.
 
+## Límites de la pausa editables con simulación (2026-11-05)
+
+Una lectura de producción del 5-nov (solo lectura, ventana `[D-60, D-30)`, conteo aproximado antes de los demás filtros del plan) mostró que los límites heredados de la pausa de keywords no atrapan casi nada a grano producto. En Amazon MX 143 productos gastaron 6,077.60 MXN sin vender, con mediana de 29 MXN y máximo de 251.73 MXN, y ninguno llega a 500 MXN ni a 100 clics. En Amazon US 56 productos gastaron 603.02 USD sin vender y 3 llegan a 40 USD y 100 clics. La pausa no depende del margen: los productos sin margen medible también entran.
+
+Por eso S8 deja de ser un número fijo. **C.7** vuelve editables los límites por mercado, con los valores actuales por omisión y un mínimo que no se puede bajar (el piso de los negativos). **H.8** agrega una simulación pura que corre la misma regla con otros límites y muestra, lado a lado, el gasto que se habría evitado (gasto observado, no ahorro prometido) y las ventas que se habrían perdido (ventas atribuidas del mes siguiente a los productos que se habrían pausado el mes anterior), sin ver observaciones posteriores a la fecha simulada (regla 5). **H.9** pone los campos y la simulación en la pantalla de productos y guarda por el escritor único de settings. Todo va antes de encender la pausa en vivo, para que el dueño elija el límite con datos; I.2 deja constancia de los límites con que se enciende. Con datos de productos desde el 2026-08-08, al principio la ventana anterior alcanza para uno o dos meses.
+
 ## Next implementation step
 
 Versionar en master la spec, `docs/evidencia/auto-03/**` y `plans/decisiones-producto-01.md` (A.0), y entregar el plan al motor; el primer código es `app/optimizer/productos.py` con `resolver_producto` y el caso de dinero 8% × 0.5 = 4% (C.4, C.5), en paralelo con la medición `elegibilidad.sql` (A.3).
 
 ## Verificación del artefacto
 
-- `motor valida` en verde (salida arriba); 9 bloques, 48 filas, 0 filas sin `Acepta`, 6 releases con `despliegue:` completo, dependencias sin ciclo.
+- `motor valida` en verde (salida arriba); 9 bloques, 53 filas, 0 filas sin `Acepta`, 6 releases con `despliegue:` completo, dependencias sin ciclo.
 - Pipes dentro de filas escapados (`Decimal \| None` se parsea como `Decimal | None`).
 - Archivos y símbolos citados existen en master: `docs/evidencia/bids-02/ejecucion/D.1/desplegar.sh`, `tests/test_compose_deploy.py`, `tests/test_evaluacion_catalogo.py`, `tests/test_settings_escritura.py`, `tests/test_retiro_anuncios.py`, `tests/test_impulso_io.py`, `tests/test_api_fabrica.py`, `tests/test_apply_cola.py`, `tests/test_cycle.py`, `tests/test_cycle_target_ciclo.py`, `tests/test_apply_schema.py`, `tests/test_optimizer_goals.py`, `tests/test_architecture.py`; `config_write.proxima_config`/`guarda_config`, `apply_cola._meet_goals`, `goals_write.edita_goal(limpia_target=...)`, `apply_harvest.aplica_harvest`, `apply.ESTADO_PUT_PAUSED` (re-export de `write.py:157`), `archivar.preparar_escritor`/`leer_anuncios`/`reponer_anuncios`.
 - No se ejecutó código de producto, ninguna consulta de producción ni ninguna escritura; los candidatos tampoco (citaron la lectura del 25-oct).
