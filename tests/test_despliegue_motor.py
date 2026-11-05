@@ -311,12 +311,23 @@ def _montar_banco():
         ruta.chmod(0o755)
     log = base / "falsos.log"
     log.write_text("", encoding="utf-8")
+    # BASH_ENV: en Windows el runtime de msys antepone sus propios bin al PATH
+    # en el arranque del bash, y el fake ssh perderia contra el ssh real. Un
+    # archivo sourced por CADA bash no interactivo vuelve a anteponer el dir
+    # de los falsos dentro del proceso, ya convertida la entrada.
+    bash_env = base / "bash-env.sh"
+    bash_env.write_text(
+        f'export PATH="{_ruta_bash(falsos)}:$PATH"\n',
+        encoding="utf-8",
+        newline="\n",
+    )
 
     datos = {
         "base": base,
         "clon": clon,
         "falsos": falsos,
         "log": log,
+        "bash_env": bash_env,
         "srv": base / "srv",
         "conn": conn,
         "admin": admin,
@@ -409,6 +420,7 @@ def _entorno(banco, *, espera: str = "600", extra: dict | None = None) -> dict:
     env["ORBIT_FAKE_LOG"] = _ruta_bash(banco["log"])
     env["ORBIT_FAKE_DIR"] = _ruta_bash(banco["falsos"])
     env["AUTO03_ESPERA_S"] = espera
+    env["BASH_ENV"] = _ruta_bash(banco["bash_env"])
     # Antepuesta TAMBIEN en forma POSIX: en Windows el runtime de msys no
     # prioriza una entrada en forma Windows y el bash agarraria el ssh real.
     env["PATH"] = os.pathsep.join(
@@ -1129,15 +1141,37 @@ def test_o_ensayo_simulado_no_escribe_nada(banco):
 
 @skip
 def test_p_candado_ocupado_espera_y_sale_75(banco):
-    import fcntl
-
     _limpia_falsos(banco)
     _siembra_srv(banco, banco["base_sha"])
     ruta_lock = banco["srv"] / "despliegue" / ".lock"
     ruta_lock.write_text("", encoding="utf-8")
-    manejador = open(ruta_lock, "a+")  # noqa: SIM115 (el candado vive todo el escenario)
+    lock_bash = _ruta_bash(ruta_lock)
+    # El rival toma el candado con el mismo flock que ven los scripts (en CI
+    # el real; en Windows el shim), asi que comparten semantica de candado.
+    rival = subprocess.Popen(
+        ["bash", "-c", f'exec 9>>"{lock_bash}"; flock -w 600 9; sleep 120'],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    env = _entorno(banco, espera="1")
+    env["MOTOR_SHA"] = banco["c2"]
     try:
-        fcntl.flock(manejador.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        fin = time.monotonic() + 30
+        ocupado = False
+        while time.monotonic() < fin:
+            probe = subprocess.run(
+                ["bash", "-c", f'exec 8>>"{lock_bash}"; if flock -n 8; then echo libre; else echo ocupado; fi'],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                env=env,
+            )
+            if probe.stdout.strip() == "ocupado":
+                ocupado = True
+                break
+            time.sleep(0.5)
+        assert ocupado, "el rival no llego a tomar el candado"
+
         inicio = time.monotonic()
         corrida = _despliega(banco, banco["c2"], espera="1")
         transcurrido = time.monotonic() - inicio
@@ -1147,13 +1181,33 @@ def test_p_candado_ocupado_espera_y_sale_75(banco):
             "con el candado ocupado no debe escribirse ultimo.env"
         )
 
-        fcntl.flock(manejador.fileno(), fcntl.LOCK_UN)
+        rival.kill()
+        rival.wait(timeout=30)
         assert _despliega(banco, banco["c2"]).returncode == 0
         _toque_config(banco, "ads_producto_meta_amazon_mx", "live")
         assert _checklist(banco, banco["c2"]).returncode != 0
         antes = "\n".join(_ultimo(banco))
 
-        fcntl.flock(manejador.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        rival = subprocess.Popen(
+            ["bash", "-c", f'exec 9>>"{lock_bash}"; flock -w 600 9; sleep 120'],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        fin = time.monotonic() + 30
+        ocupado = False
+        while time.monotonic() < fin:
+            probe = subprocess.run(
+                ["bash", "-c", f'exec 8>>"{lock_bash}"; if flock -n 8; then echo libre; else echo ocupado; fi'],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                env=env,
+            )
+            if probe.stdout.strip() == "ocupado":
+                ocupado = True
+                break
+            time.sleep(0.5)
+        assert ocupado, "el rival no llego a tomar el candado"
         inicio = time.monotonic()
         rollback = _rollback(banco, banco["c2"], espera="1")
         transcurrido = time.monotonic() - inicio
@@ -1163,11 +1217,14 @@ def test_p_candado_ocupado_espera_y_sale_75(banco):
             "el rollback no debe leer ni revertir sin el candado"
         )
 
-        fcntl.flock(manejador.fileno(), fcntl.LOCK_UN)
+        rival.kill()
+        rival.wait(timeout=30)
         completa = _rollback(banco, banco["c2"])
         assert _valor_ultimo(banco, "ESTADO") == "revertido"
         assert completa.returncode != 0
         assert _config(banco) == {}
         assert _sha_srv(banco) == banco["base_sha"]
     finally:
-        manejador.close()
+        if rival.poll() is None:
+            rival.kill()
+            rival.wait(timeout=30)
