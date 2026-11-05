@@ -1,0 +1,46 @@
+---
+title: "Pausa de un anuncio de producto con el plan construido"
+---
+stateDiagram-v2
+  s0: Activo, sin propuesta
+  s1: Propuesta de práctica, nunca se ejecuta
+  s2: Propuesta real, esperando tus 48 h
+  s3: Vetada por ti, 30 días
+  s4: Revisando datos frescos
+  s5: Mandando la pausa a Amazon
+  s6: Amazon no contestó
+  s7: Pausado por Orbit
+  s8: Lo regresaste, en gracia de 7 días
+  s9: Pausado, Orbit no sabe si fue él
+  s10: Lo regresaste, activo
+  s11: Propuesta real otra vez, esperando 48 h
+  s12: Revisando otra vez
+  s13: Mandando la pausa otra vez
+  [*] --> s0
+  s0 --> s1: el ciclo ve gasto sin ventas y propone pausar [interruptor en práctica]
+  s0 --> s2: el ciclo ve gasto sin ventas y propone pausar [interruptor en vivo]
+  s1 --> s3: tú la vetas
+  s1 --> s0: enciendes el interruptor y se cierra la práctica
+  s2 --> s4: pasan 48 h sin veto
+  s2 --> s3: tú la vetas
+  s3 --> s0: pasan los 30 días del veto
+  s4 --> s3: tú la vetas
+  s4 --> s5: la revisión confirma y cobra la cuota
+  s4 --> s0: la revisión ve una venta, otra mezcla o el interruptor apagado
+  s5 --> s6: Amazon no contesta
+  s5 --> s7: Amazon confirma
+  s6 --> s0: la revisión lo encuentra activo
+  s7 --> s8: lo regresas desde la pantalla
+  s6 --> s9: la revisión lo encuentra pausado
+  s8 --> s10: pasan los 7 días de gracia
+  s9 --> s8: lo regresas desde la pantalla
+  s10 --> s11: el ciclo ve gasto sin ventas y propone pausar [interruptor en vivo]
+  s10 --> s1: el ciclo ve gasto sin ventas y propone pausar [interruptor en práctica]
+  s11 --> s12: pasan 48 h sin veto
+  s11 --> s3: tú la vetas
+  s12 --> s3: tú la vetas
+  s12 --> s13: la revisión confirma y cobra la cuota
+  s12 --> s0: la revisión ve una venta, otra mezcla o el interruptor apagado
+  s0 --> s11: el ciclo ve gasto sin ventas y propone pausar [interruptor en vivo]
+  s13 --> s6: Amazon no contesta
+  s13 --> s7: Amazon confirma
