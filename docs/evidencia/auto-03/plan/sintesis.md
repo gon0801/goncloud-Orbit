@@ -100,6 +100,10 @@ Los dos revisores automáticos del PR (DeepSeek por ai-review y CodeRabbit) enco
 - Hallado por el lead al revisar: el bloque C usaba en su `prueba-real` la sonda que crea B sin depender de B. Ahora depende de A y B.
 - Segunda ronda de DeepSeek sobre `00efe6e` (resolvió los cuatro anteriores). **I.7 no era atómico ni repetible**: `guarda_config` hace su propio `commit` y rechaza una edición vacía, así que un fallo entre la config y el descarte dejaba la pausa en vivo con prácticas abiertas y el reintento abortaba. Ahora `guarda_config` acepta `confirma=False` y el CLI confirma después del descarte; con la pausa ya en vivo solo descarta. Menores: D.5 agrega `tools/auto03_verifica.py` al conjunto exacto que sella `tests/test_compose_deploy.py` y lo corre en su `Acepta`; la cita del permiso de admin pasa a 0002:251-261.
 
+## Lectores frescos (2026-11-05)
+
+Dos lectores sin contexto ejecutaron el plan. Trajeron 11 bloqueantes distintos; el más grave, encontrado por ambos, era que un despliegue que aborta por un choque pasajero hacía que el rollback deshiciera el despliegue anterior. También había compuertas que daban verde sin el trabajo hecho y una conciliación que pedía más días de los que permite Amazon. Todo se corrigió en una ronda; el detalle, los comandos y lo verificado están en `lectores/sintesis.md`.
+
 ## Next implementation step
 
 Versionar en master la spec, `docs/evidencia/auto-03/**` y `plans/decisiones-producto-01.md` (A.0), y entregar el plan al motor; el primer código es `app/optimizer/productos.py` con `resolver_producto` y el caso de dinero 8% × 0.5 = 4% (C.4, C.5), en paralelo con la medición `elegibilidad.sql` (A.3).
