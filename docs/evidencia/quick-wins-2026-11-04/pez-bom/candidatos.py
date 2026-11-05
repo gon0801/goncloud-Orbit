@@ -18,6 +18,8 @@ for r in viejo["filas"]:
     sku_candidato = ("NH-SOLO-" + r["sku"].removeprefix("NH-")).replace("CAR-BLA-", "CAR-BLC-")
     encontrados = []
     for b in nuevo["boms_activos"]:
+        if not b["product_id"]:
+            continue
         producto = productos[b["product_id"][0]]
         if producto["default_code"] != sku_candidato:
             continue

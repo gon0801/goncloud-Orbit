@@ -39,15 +39,17 @@ for r in old["filas"]:
     referencia = next(
         b for b in r["recetas"] if b["bom_id"] == r["receta_mas_reciente_por_creacion"]
     )
-    objetivo = {
-        linea["componente_id"]: Decimal(linea["cantidad_por_unidad_final"])
-        for linea in referencia["lineas"]
-        if linea["aplica"]
-    }
+    objetivo = defaultdict(Decimal)
+    for linea in referencia["lineas"]:
+        if linea["aplica"]:
+            objetivo[linea["componente_id"]] += Decimal(linea["cantidad_por_unidad_final"])
+    objetivo = dict(objetivo)
     iguales = []
     relacionados = []
     objetivo_ids = set(objetivo)
     for b in active["boms_activos"]:
+        if not b["product_id"]:
+            continue
         partes = composicion(b)
         p = productos[b["product_id"][0]]
         fila = {
