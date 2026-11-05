@@ -78,6 +78,15 @@ function guardarConfig(form) {
     if (cambioSelect(sel)) modosUniverso[sel.getAttribute("data-precio-universo")] = sel.value;
   });
   if (Object.keys(modosUniverso).length) cuerpo.precio_modo_universo = modosUniverso;
+  var metasResumen = {};
+  form.querySelectorAll("input[data-resumen-acos]").forEach(function (inp) {
+    var actual = inp.value.trim();
+    var previo = inp.defaultValue.trim();
+    if (actual !== previo) {
+      metasResumen[inp.getAttribute("data-resumen-acos")] = actual === "" ? null : actual;
+    }
+  });
+  if (Object.keys(metasResumen).length) cuerpo.resumen_acos_objetivo = metasResumen;
   if (cambio(toggle) || (margenOn && cambio(fraccion))) {
     cuerpo.margen = margenOn
       ? { habilitado: true, fraccion: fraccion.value.trim() || null }
@@ -99,7 +108,8 @@ function guardarConfig(form) {
     !cuerpo.confianza_subida &&
     !("motor_bid" in cuerpo) &&
     !("precio_modo_global" in cuerpo) &&
-    !("precio_modo_universo" in cuerpo)
+    !("precio_modo_universo" in cuerpo) &&
+    !("resumen_acos_objetivo" in cuerpo)
   ) {
     estado.textContent = "Nada que cambiar.";
     return;

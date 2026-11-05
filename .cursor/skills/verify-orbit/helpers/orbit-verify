@@ -529,13 +529,22 @@ def _foco_y_ancho(url: str, png: Path, detalle: Path) -> dict:
         llamar("Runtime.enable")
         llamar("Page.navigate", {"url": url})
         time.sleep(1.2)
+        llamar(
+            "Runtime.evaluate",
+            {
+                "expression": """(() => {
+                  document.querySelectorAll('details.detail-box').forEach(d => { d.open = true; });
+                })()""",
+                "returnByValue": True,
+            },
+        )
         tab = {
             "key": "Tab",
             "code": "Tab",
             "windowsVirtualKeyCode": 9,
             "nativeVirtualKeyCode": 9,
         }
-        for _ in range(40):
+        for _ in range(80):
             estado = llamar(
                 "Runtime.evaluate",
                 {
@@ -1093,6 +1102,11 @@ def cmd_drive_resumen(args: argparse.Namespace) -> None:
         "filtro_periodo_30": 'value="30" selected' in texto,
         "datos_resumen": 'id="datos-resumen"' in texto,
         "tabla_canal": "Tabla por canal" in texto,
+        "como_va_cada_canal": "Cómo va cada canal" in texto,
+        "que_revisar": "Qué revisar" in texto,
+        "meta_acos": "Meta ACoS:" in texto,
+        "totales_por_moneda": "Totales por moneda" in texto,
+        "detalle_plegado": 'class="detail-box"' in texto,
         "comparacion": "Periodo anterior" in texto,
         "tendencia_us": 'id="tendencia-amazon_us"' in texto,
         "serie_textual_us": 'id="serie-amazon_us"' in texto,

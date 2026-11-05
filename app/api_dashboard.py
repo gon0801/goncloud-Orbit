@@ -88,7 +88,7 @@ from app.api_precios import (  # noqa: F401 - reexport que usan /salud y pruebas
 )
 from app.apply import KINDS_QUOTA, estado_quota
 from app.apply_harvest import ROLES_DISCOVERY
-from app.config_write import ADVERTENCIA_RESPALDO, clave_cap
+from app.config_write import ADVERTENCIA_RESPALDO, clave_cap, metas_resumen_desde_settings
 from app.dashboard_contribucion import contribucion_campanas as _contribucion_campanas
 from app.dashboard_pagina import (
     _CAMPANA_ANCESTRO,
@@ -579,7 +579,9 @@ def resumen_ads(
         ventana = ventana_resumen(periodo=periodo, desde=desde, hasta=hasta, hoy=hoy)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
-    return resumen_multicanal(conn, ventana=ventana, canales=canales, hoy=hoy, instante=instante)
+    salida = resumen_multicanal(conn, ventana=ventana, canales=canales, hoy=hoy, instante=instante)
+    salida["metas_acos"] = metas_resumen_desde_settings(_config_vigente_con_id(conn)[1])
+    return salida
 
 
 # ---------------------------------------------------------------------------
@@ -1902,6 +1904,8 @@ def settings(conn: ConexionLectura) -> dict:
             "amazon_us/fbm",
             "meli/meli",
         ],
+        "resumen_acos_objetivo": metas_resumen_desde_settings(settings),
+        "resumen_canales": list(CANALES_RESUMEN_POR_DEFECTO),
         "plataformas": plataformas,
         "goals": [
             _goal_editable(

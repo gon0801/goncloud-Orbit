@@ -105,6 +105,17 @@
     </fieldset>
 
     <fieldset>
+      <legend>ACoS objetivo del Resumen (opcional, %)</legend>
+      {% for c in datos.resumen_canales or ['amazon_mx', 'amazon_us', 'meli'] %}
+      {% set meta_c = (datos.resumen_acos_objetivo or {}).get(c) or '' %}
+      <label>{{ c }}
+        <input type="text" name="resumen_acos_{{ c }}" data-resumen-acos="{{ c }}" value="{{ meta_c }}" inputmode="decimal" placeholder="sin configurar">
+      </label>
+      {% endfor %}
+      <p class="mutado">Sin valor por defecto. Define la meta de ACoS de las tarjetas del Resumen (vaciar quita la meta). Se guarda igual desde cualquier plataforma.</p>
+    </fieldset>
+
+    <fieldset>
       <legend>Caps diarios</legend>
       {% for kind, valor in p.caps.items() %}
       <label>{{ kind }}

@@ -51,7 +51,7 @@ from app.optimizer.goals import PELDANOS_CASCADA
 from app.precio import cobertura as cobertura_precio
 from app.precio import fuentes as fuentes_precio
 from app.redaction import scrub
-from app.ui_metricas import clase_cambio, kpis_inertes, kpis_serie
+from app.ui_metricas import clase_cambio, kpis_inertes, kpis_serie, vista_resumen
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +88,16 @@ def dinero_ui(valor: str | None) -> str | None:
         return valor
 
 
+def dinero_miles_ui(valor: str | None) -> str | None:
+    """Presentacion con signo de pesos/dolares, separador de miles y 2 decimales."""
+    if valor is None:
+        return None
+    try:
+        return f"${Decimal(valor):,.2f}"
+    except (InvalidOperation, ValueError):
+        return valor
+
+
 def porcentaje_ui(valor: str | None) -> str | None:
     """Tanto por uno a porcentaje («0.2150» -> «21.50 %»). None queda None;
     si no parsea, se deja igual."""
@@ -111,11 +121,13 @@ def miles_ui(valor) -> str | None:
 
 
 templates.env.filters["dinero_ui"] = dinero_ui
+templates.env.filters["dinero_miles_ui"] = dinero_miles_ui
 templates.env.filters["porcentaje_ui"] = porcentaje_ui
 templates.env.filters["miles_ui"] = miles_ui
 templates.env.filters["kpis_serie"] = kpis_serie
 templates.env.filters["clase_cambio"] = clase_cambio
 templates.env.filters["kpis_inertes"] = kpis_inertes
+templates.env.filters["vista_resumen"] = vista_resumen
 
 
 def ts_ui(valor) -> str:

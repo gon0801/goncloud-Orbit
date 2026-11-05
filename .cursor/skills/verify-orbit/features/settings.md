@@ -6,7 +6,7 @@ Settings muestra la cascada vigente por plataforma (target, procedencia, caps, i
 
 - `settings-nav` abre `/settings` desde el pie del sidebar y marca `aria-current="page"`.
 - `settings-sesion` muestra `config_version_id`, modo global y el campo `#settings-token`.
-- `settings-plataforma` una tarjeta `data-plataforma` por `amazon_us` / `amazon_mx` con target vigente + peldano, target manual, margen y caps.
+- `settings-plataforma` una tarjeta `data-plataforma` por `amazon_us` / `amazon_mx` con target vigente + peldano, target manual, margen, confianzas, motor de bids, motor de precios, `ACoS objetivo del Resumen (opcional, %)` (`input[data-resumen-acos]` para `amazon_mx`, `amazon_us` y `meli`) y caps.
 - `settings-goals` goals de plataforma en su tarjeta; goals de campana en seccion propia. Sin goals de campana muestra `sin goals de campaña`.
 - `settings-api` `GET /api/dashboard/settings` es el mismo snapshot.
 

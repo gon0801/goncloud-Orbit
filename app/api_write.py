@@ -250,6 +250,8 @@ class CuerpoSettings(BaseModel):
     # S.2: objeto parcial plataforma/canal -> modo (None = no tocar); se
     # fusiona por llave y el universo se valida contra el registro (422).
     precio_modo_universo: dict[str, str] | None = None
+    # ACoS objetivo opcional del Resumen por canal (None en valor = quitar meta).
+    resumen_acos_objetivo: dict[str, Decimal | str | None] | None = None
 
 
 # Transicion atomica del veto: el WHERE de estados ES la carrera contra el
@@ -542,6 +544,7 @@ def editar_settings(
             motor_bid=cuerpo.motor_bid,
             precio_modo_global=cuerpo.precio_modo_global,
             precio_modo_universo=cuerpo.precio_modo_universo,
+            resumen_acos_objetivo=cuerpo.resumen_acos_objetivo,
         )
     except tuple(_ERRORES_SETTINGS) as exc:
         raise HTTPException(status_code=_ERRORES_SETTINGS[type(exc)], detail=str(exc)) from None

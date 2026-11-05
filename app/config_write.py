@@ -39,17 +39,19 @@ from __future__ import annotations
 
 import datetime as dt
 from collections.abc import Mapping
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 import psycopg
 from psycopg.types.json import Json
 
 from app.apply import KINDS_QUOTA
+from app.dashboard_resumen import CANALES_POR_DEFECTO as CANALES_RESUMEN_META
 from app.estimacion_universo import universo_de
 from app.optimizer import goals as g
 from app.precio.config import MODOS as MODOS_PRECIO
 
 ACTOR = "settings-ui"
+CLAVE_RESUMEN_ACOS = "resumen_acos_objetivo"
 
 ADVERTENCIA_RESPALDO = (
     "este valor NO gobierna mientras el target por margen este encendido;"
@@ -177,6 +179,85 @@ def _aplica_precio_universo(nuevo: dict, cambios: list[str], entrante: Mapping) 
     nuevo["precio_modo_universo"] = fusionado
 
 
+def _decimal_acos_resumen(canal: str, crudo) -> Decimal | None:
+    """Valida el porcentaje opcional del Resumen (> 0 y <= 1000). None/"" limpia."""
+    if crudo is None or (isinstance(crudo, str) and crudo.strip() == ""):
+        return None
+    if isinstance(crudo, bool):
+        raise SettingsInvalido(f"resumen_acos_objetivo[{canal}] invalido: {crudo!r}")
+    try:
+        valor = Decimal(str(crudo).strip())
+    except (InvalidOperation, ValueError):
+        raise SettingsInvalido(
+            f"resumen_acos_objetivo[{canal}] debe ser numero positivo: {crudo!r}"
+        ) from None
+    if not valor.is_finite() or valor <= 0 or valor > Decimal("1000"):
+        raise SettingsInvalido(f"resumen_acos_objetivo[{canal}] debe estar en (0, 1000]: {crudo!r}")
+    return valor
+
+
+def _valida_resumen_acos_objetivo(valor, *, ausente_ok: bool) -> None:
+    """Objeto canal -> porcentaje opcional del Resumen."""
+    if valor is None:
+        if ausente_ok:
+            return
+        raise SettingsInvalido(f"config sin {CLAVE_RESUMEN_ACOS}")
+    if not isinstance(valor, Mapping):
+        raise SettingsInvalido(
+            f"{CLAVE_RESUMEN_ACOS} debe ser objeto canal -> porcentaje: {valor!r}"
+        )
+    for canal, crudo in valor.items():
+        if canal not in CANALES_RESUMEN_META:
+            raise SettingsInvalido(f"{CLAVE_RESUMEN_ACOS}: canal fuera del catalogo: {canal!r}")
+        _decimal_acos_resumen(canal, crudo)
+
+
+def metas_resumen_desde_settings(settings: Mapping | None) -> dict[str, str | None]:
+    """Metas de ACoS del Resumen por canal (None = sin configurar)."""
+    crudo = settings.get(CLAVE_RESUMEN_ACOS) if isinstance(settings, Mapping) else None
+    mapa = crudo if isinstance(crudo, Mapping) else {}
+    salida: dict[str, str | None] = {}
+    for canal in CANALES_RESUMEN_META:
+        valor = mapa.get(canal)
+        if valor is None or (isinstance(valor, str) and not valor.strip()):
+            salida[canal] = None
+            continue
+        try:
+            dec = _decimal_acos_resumen(canal, valor)
+        except SettingsInvalido:
+            salida[canal] = None
+            continue
+        salida[canal] = None if dec is None else _texto(dec)
+    return salida
+
+
+def _aplica_resumen_acos_objetivo(
+    nuevo: dict, cambios: list[str], entrante: Mapping | None
+) -> None:
+    """Fusiona el ACoS objetivo del Resumen por canal; vacio/null quita la clave."""
+    if entrante is None:
+        return
+    _valida_resumen_acos_objetivo(entrante, ausente_ok=False)
+    vigente = nuevo.get(CLAVE_RESUMEN_ACOS)
+    fusionado = dict(vigente) if isinstance(vigente, Mapping) else {}
+    for canal, crudo in entrante.items():
+        dec = _decimal_acos_resumen(canal, crudo)
+        if dec is None:
+            if canal in fusionado:
+                cambios.append(f"acos objetivo resumen {canal} {fusionado.pop(canal)} -> ausente")
+        else:
+            texto = _texto(dec)
+            if fusionado.get(canal) != texto:
+                cambios.append(
+                    f"acos objetivo resumen {canal} {_antes(fusionado.get(canal))} -> {texto}"
+                )
+                fusionado[canal] = texto
+    if fusionado:
+        nuevo[CLAVE_RESUMEN_ACOS] = fusionado
+    else:
+        nuevo.pop(CLAVE_RESUMEN_ACOS, None)
+
+
 def proxima_config(
     actual: Mapping,
     platform: str,
@@ -191,6 +272,7 @@ def proxima_config(
     motor_bid: str | None = None,
     precio_modo_global: str | None = None,
     precio_modo_universo: Mapping[str, str] | None = None,
+    resumen_acos_objetivo: Mapping[str, Decimal | str | None] | None = None,
 ) -> tuple[dict, list[str]]:
     """Config NUEVA a partir de la vigente + la lista legible de cambios.
 
@@ -254,6 +336,7 @@ def proxima_config(
         _aplica_motor_bid(nuevo, cambios, platform, motor_bid)
 
     _aplica_precio_modos(nuevo, cambios, precio_modo_global, precio_modo_universo)
+    _aplica_resumen_acos_objetivo(nuevo, cambios, resumen_acos_objetivo)
 
     for kind, cap in (caps or {}).items():
         if kind not in KINDS_QUOTA:
@@ -281,6 +364,7 @@ def proxima_config(
     # (una corrupcion previa tambien rechaza, como motor_bid con bandas_v1).
     _valida_precio_global(nuevo.get("precio_modo_global"), ausente_ok=True)
     _valida_precio_universo(nuevo.get("precio_modo_universo"), ausente_ok=True)
+    _valida_resumen_acos_objetivo(nuevo.get(CLAVE_RESUMEN_ACOS), ausente_ok=True)
     return nuevo, cambios
 
 
