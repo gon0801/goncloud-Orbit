@@ -28,6 +28,10 @@ C.1 fixture `_db_temporal_c2a` con la 0076. C.3 etiquetas de `PISA_POR_PELDANO`.
 - I.8: sale 1 con el manifest que dice "no entregado" y 0 con el manifest actualizado.
 - `bash -n` sin errores en C.6, E.2, H.9, I.8, B.2, F.5 y la `prueba-real` de B.
 
+## Pasada 2 (solo el diff)
+
+Un bloqueante, introducido por la corrección anterior: el rollback no devolvía `$SRV/despliegue/sha`, así que tras revertir un despliegue los interruptores no se volvían a aplicar. Corregido con `SHA_PREVIO` anotado en (0) bajo el `flock`, contra el que comparan la monotonía y la convergencia, y que el rollback restaura; B.5 (h) lo prueba. Los nueve no bloqueantes también se corrigieron: monotonía que tampoco toca claves, `productos-modo` idempotente, qué hacer con la salida 75, `--ensayo` sin escrituras, `flock` antes de `ultimo.env` y reanudación de una corrida cortada, respaldo y restauración de todos los archivos desplegados, grupos aptos cuando falla la lectura, `CASCADE` en D.6 y E.4 alineado con S6. Detalle en `pasada-2.md`.
+
 ## Hechos medidos por los lectores (solo lectura, 2026-11-05)
 
 Ningún goal tiene target en producción. En MX hay 5 ad groups exclusivos de productos con margen positivo, con 76 hojas ENABLED. Los ciclos corren 08:40 y 08:41 UTC. Hay 18 a 19 crons con `app.cli` y la ingesta de las 07:10 dura 9 a 17 minutos. `ad_ids` es un arreglo jsonb. El tope de verificación del motor en la Mac es 3600 s y el de despliegue 900 s.
