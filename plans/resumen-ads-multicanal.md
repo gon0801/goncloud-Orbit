@@ -128,6 +128,12 @@ Verifica en el navegador los periodos, el rango personalizado, MA7, la comparaci
 
 **Alcance.** La vista `/` pasa a siete bloques jerárquicos: filtros por canal y periodo conservados en la URL, tarjetas con métricas y tendencias, alertas priorizadas, totales por moneda y tablas plegables con cobertura. `/settings` agrega un ACoS objetivo opcional por canal; dejar el campo vacío elimina la meta. Las fichas `resumen.md` y `settings.md` de `.cursor/skills/verify-orbit/features/` describen el flujo.
 
+**Archivos.** `app/api_dashboard.py`, `app/api_write.py`, `app/config_write.py`, `app/ui.py`, `app/ui_metricas.py`, `app/templates/resumen.html`, `app/templates/settings.html`, `app/static/js/dashboard.js`, `app/static/js/settings.js` y `app/static/css/dashboard.css`.
+
+**Resultado visible.** El operador ve los siete bloques en `/` con filtros que sobreviven a recargar la página, y puede guardar o borrar el ACoS objetivo de cada canal en `/settings`.
+
+**Verificación proporcional y cierre.** La escritura del ACoS objetivo tiene su prueba (`tests/test_settings_escritura.py`). Falta la revisión visual en producción: recorrer `/` y `/settings` con `.cursor/skills/verify-orbit/helpers/orbit-verify` según sus fichas, a 390 px y en escritorio, y guardar las capturas en `docs/evidencia/resumen-ads-multicanal/04-despliegue/`. La fase cierra cuando esas capturas muestran los siete bloques con datos reales y una meta de ACoS guardada y luego borrada.
+
 ## Decisiones de diseño
 
 - Se reutiliza `ads_metric_observation` para tener una sola fuente de hechos campaña/día.

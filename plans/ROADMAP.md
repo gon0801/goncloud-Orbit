@@ -1,7 +1,7 @@
 # ROADMAP maestro — Orbit
 
 Actualizado el **2026-11-04, America/Vancouver** (consultas de producción:
-2026-11-05 UTC), contra `master` **6bce3589** y los cierres de cada plan.
+2026-11-05 UTC), contra `master` **6bce3589** y los cierres de cada plan. Actualización incremental: la fila RESUMEN ADS 04 se comprobó contra `master` **9fb5a63f** (5-nov 03:22 UTC).
 Esta es la fuente única de pendientes; `docs/PENDIENTES-AUTOMATIZACION.md`
 redirige aquí. Los planes detallados conservan contratos e historia.
 

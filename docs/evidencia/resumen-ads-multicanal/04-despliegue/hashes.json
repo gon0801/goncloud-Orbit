@@ -6,7 +6,12 @@
   "leido_utc": "2026-11-05T03:22:15Z",
   "contenedor": "orbit-app-1",
   "contenedor_iniciado": "2026-11-05T02:10:55.0302693Z",
-  "comando": "ssh goncloud \"docker exec orbit-app-1 sh -c 'cd /app && sha256sum <archivos>'\"; git show <master>:<archivo> | sha256sum",
+  "comando": {
+    "contenedor": "ssh goncloud \"docker exec orbit-app-1 sh -c 'cd /app && sha256sum app/api_dashboard.py app/api_write.py app/config_write.py app/static/css/dashboard.css app/static/js/dashboard.js app/static/js/settings.js app/templates/resumen.html app/templates/settings.html app/ui.py app/ui_metricas.py'; docker inspect -f '{{.State.StartedAt}}' orbit-app-1; date -u +%Y-%m-%dT%H:%M:%SZ\"",
+    "master": "for f in app/api_dashboard.py app/api_write.py app/config_write.py app/static/css/dashboard.css app/static/js/dashboard.js app/static/js/settings.js app/templates/resumen.html app/templates/settings.html app/ui.py app/ui_metricas.py; do git show 9fb5a63fd11bfe325af3efef756535b244d5cf87:$f | sha256sum; done",
+    "origen_contenedor_iniciado": "docker inspect -f '{{.State.StartedAt}}' orbit-app-1 (salida 2026-11-05T02:10:55.0302693Z), en la misma llamada ssh",
+    "origen_leido_utc": "date -u en el servidor, en la misma llamada ssh"
+  },
   "iguales": 10,
   "total": 10,
   "filas": [
