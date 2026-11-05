@@ -98,6 +98,7 @@ Los dos revisores automáticos del PR (DeepSeek por ai-review y CodeRabbit) enco
 - **Goal en sombra.** H.3 aceptaba goals en `shadow`; ahora exige `mode = 'live'`, como dice S4.
 - Menores: conteos y S1..S18 en síntesis y ROADMAP, barras sin escapar en `frame.md` y un bloque de código partido en `00-explicacion.md`.
 - Hallado por el lead al revisar: el bloque C usaba en su `prueba-real` la sonda que crea B sin depender de B. Ahora depende de A y B.
+- Segunda ronda de DeepSeek sobre `00efe6e` (resolvió los cuatro anteriores). **I.7 no era atómico ni repetible**: `guarda_config` hace su propio `commit` y rechaza una edición vacía, así que un fallo entre la config y el descarte dejaba la pausa en vivo con prácticas abiertas y el reintento abortaba. Ahora `guarda_config` acepta `confirma=False` y el CLI confirma después del descarte; con la pausa ya en vivo solo descarta. Menores: D.5 agrega `tools/auto03_verifica.py` al conjunto exacto que sella `tests/test_compose_deploy.py` y lo corre en su `Acepta`; la cita del permiso de admin pasa a 0002:251-261.
 
 ## Next implementation step
 
