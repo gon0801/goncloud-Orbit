@@ -1,0 +1,37 @@
+{
+  "filas_origen": {
+    "filas": 812,
+    "dias": 203,
+    "cost_mxn": "111626.7700",
+    "revenue_mxn": "396653.6000",
+    "impressions": 9237508,
+    "clicks": 37377,
+    "nulos_metricas_conciliables": 0,
+    "versiones_distintas_de_orbit": [
+      [
+        "356150383",
+        "2026-11-04"
+      ],
+      [
+        "356150418",
+        "2026-11-04"
+      ]
+    ]
+  },
+  "filas_orbit": {
+    "filas": 812,
+    "dias": 203,
+    "cost_mxn": "111613.3000",
+    "revenue_mxn": "396653.6000",
+    "impressions": 9235818,
+    "clicks": 37366,
+    "nulos_metricas_conciliables": 0,
+    "versiones_distintas_de_orbit": []
+  },
+  "hasta_2026_11_03": {
+    "filas": 808,
+    "diferencias": []
+  },
+  "orders_null_orbit_esperados_por_contrato": 812,
+  "huecos_calendario": []
+}

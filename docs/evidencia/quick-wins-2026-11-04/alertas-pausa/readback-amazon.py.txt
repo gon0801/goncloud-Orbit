@@ -1,0 +1,19 @@
+import datetime as dt
+import json
+from app.ads.client import AdsClient
+from app.ads.config import AdsCredentials
+from app.ads.structure_api import perfiles_aceptados, listar_con_prueba
+
+client = AdsClient(AdsCredentials.from_secrets_dir())
+perfil = next(p for p in perfiles_aceptados(client) if p.platform == 'amazon_us')
+lista = listar_con_prueba(client, '/sp/targets/list', profile_id=perfil.profile_id)
+objetivo = [x for x in lista.items if str(x.get('targetId')) == '555998919865227']
+print(json.dumps({
+    'consultado_utc': dt.datetime.now(dt.UTC).isoformat(),
+    'metodos': ['GET /v2/profiles', 'POST /sp/targets/list (lectura default-deny)'],
+    'platform': perfil.platform,
+    'profile_id': perfil.profile_id,
+    'total_declarado': lista.total_declarado,
+    'filas_recibidas': len(lista.items),
+    'target': [{k: x.get(k) for k in ('targetId','campaignId','adGroupId','state')} for x in objetivo],
+}, indent=2))

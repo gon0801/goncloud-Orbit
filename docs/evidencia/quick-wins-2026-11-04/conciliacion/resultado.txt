@@ -1,0 +1,14 @@
+historia anterior a --desde excluida: 59 dias con actividad o NULL
+filas origen: 812
+filas Orbit:  812
+faltantes en Orbit: []
+sobrantes en Orbit: []
+campana/dia comparables: 812, diferencias: 2
+dias control: 203, dias Orbit: 203, faltantes en el control: 0, faltantes en Orbit: 0, sobrantes en Orbit: 0, diferencias: 1
+control T+0 excluido: 1 dia de HOY sin desglose de campanas en origen ni Orbit
+fecha de conciliacion: 2026-11-05T00:52:11.927635+00:00
+ventana UTC: 2026-04-16..2026-11-04
+DIFIERE ('356150383', '2026-11-04'): origen=(Decimal('231.6600'), Decimal('0.0000'), 14961, 64) orbit=(Decimal('225.4600'), Decimal('0.0000'), 14261, 60)
+DIFIERE ('356150418', '2026-11-04'): origen=(Decimal('175.3600'), Decimal('0.0000'), 21623, 57) orbit=(Decimal('168.0900'), Decimal('0.0000'), 20633, 50)
+DIA DIFIERE 2026-11-04: origen=(121, 36584, Decimal('407.0200'), Decimal('0.0000')) orbit=(110, 34894, Decimal('393.5500'), Decimal('0.0000'))
+CONCILIACION FALLA

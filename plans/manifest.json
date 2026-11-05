@@ -38,7 +38,7 @@
     {
       "name": "ads-proteccion-01",
       "path": "plans/ads-proteccion-01.md",
-      "description": "ADS PROTECCION 01 — codigo desplegado; A.4/A.4r/B.4/C.6 conservan cierre operativo (ROADMAP P03). PR #373/#374 integrados; recuperaciones y PAUSE ya observadas. Proteccion economica apagada en config 42; checker de cron desalineado con cron-avisa (lectura 2026-11-04)."
+      "description": "ADS PROTECCION 01 — A.4/B.4 cerrados con evidencia operativa 2026-11-04: 7 dias cron/ingesta, 12 recuperaciones y PAUSE causal conciliada con Amazon. A.4r corregido/verificado, pendiente integrar; C.6 economica apagada en config 42 (ROADMAP P03)."
     },
     {
       "name": "ads-proteccion-01-fase-d",
@@ -188,7 +188,7 @@
     {
       "name": "resumen-ads-multicanal",
       "path": "plans/resumen-ads-multicanal.md",
-      "description": "RESUMEN ADS — fases 01/02/03 integradas y archivos principales comprobados en produccion 2026-11-04 (master 6bce3589). Ingesta MeLi exitosa. Seguimiento P01: recurrencia del cron y conciliacion productiva con accounting."
+      "description": "RESUMEN ADS — fases 01/02/03 integradas y desplegadas. P01 parcial al 2026-11-04: 808/808 filas hasta 3-nov coinciden; 4-nov difiere +13.47 MXN por fuente posterior. Cron/script correctos; falta primera corrida 5-nov 08:15 UTC y conciliacion de la misma version."
     }
   ],
   "active": "resumen-ads-multicanal"

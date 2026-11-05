@@ -1,0 +1,105 @@
+{
+  "consultado_utc": "2026-11-05 (inmediatamente despues de readback-db.json)",
+  "endpoint": "GET http://127.0.0.1:8010/api/dashboard/salud",
+  "campos": "ads_ingest y watermark por plataforma; resto omitido",
+  "plataformas": {
+    "amazon_us": {
+      "ads_ingest": {
+        "fuente": "amazon_ads_reports_v3",
+        "reportes": [
+          {
+            "profile_id": 4387591165211712,
+            "reporte": "campanas",
+            "ultimo_exito": "2026-11-04T07:26:39.852294+00:00",
+            "metric_date": "2026-11-03",
+            "edad_dias": 2,
+            "ultimo_estado": "written",
+            "ultima_corrida": 1337,
+            "ultimo_evento": "2026-11-04T07:26:39.852294+00:00"
+          },
+          {
+            "profile_id": 4387591165211712,
+            "reporte": "keywords",
+            "ultimo_exito": "2026-11-04T07:26:39.852294+00:00",
+            "metric_date": "2026-11-03",
+            "edad_dias": 2,
+            "ultimo_estado": "written",
+            "ultima_corrida": 1337,
+            "ultimo_evento": "2026-11-04T07:26:39.852294+00:00"
+          },
+          {
+            "profile_id": 4387591165211712,
+            "reporte": "search_terms",
+            "ultimo_exito": "2026-11-04T07:26:39.852294+00:00",
+            "metric_date": "2026-11-03",
+            "edad_dias": 2,
+            "ultimo_estado": "written",
+            "ultima_corrida": 1337,
+            "ultimo_evento": "2026-11-04T07:26:39.852294+00:00"
+          },
+          {
+            "profile_id": 4387591165211712,
+            "reporte": "targets",
+            "ultimo_exito": "2026-11-04T07:26:39.852294+00:00",
+            "metric_date": "2026-11-03",
+            "edad_dias": 2,
+            "ultimo_estado": "written",
+            "ultima_corrida": 1337,
+            "ultimo_evento": "2026-11-04T07:26:39.852294+00:00"
+          }
+        ],
+        "incidentes": []
+      },
+      "watermark": "2026-11-03"
+    },
+    "amazon_mx": {
+      "ads_ingest": {
+        "fuente": "amazon_ads_reports_v3",
+        "reportes": [
+          {
+            "profile_id": 3850003733258937,
+            "reporte": "campanas",
+            "ultimo_exito": "2026-11-04T07:26:39.852294+00:00",
+            "metric_date": "2026-11-03",
+            "edad_dias": 2,
+            "ultimo_estado": "written",
+            "ultima_corrida": 1337,
+            "ultimo_evento": "2026-11-04T07:26:39.852294+00:00"
+          },
+          {
+            "profile_id": 3850003733258937,
+            "reporte": "keywords",
+            "ultimo_exito": "2026-11-04T07:26:39.852294+00:00",
+            "metric_date": "2026-11-03",
+            "edad_dias": 2,
+            "ultimo_estado": "written",
+            "ultima_corrida": 1337,
+            "ultimo_evento": "2026-11-04T07:26:39.852294+00:00"
+          },
+          {
+            "profile_id": 3850003733258937,
+            "reporte": "search_terms",
+            "ultimo_exito": "2026-11-04T07:26:39.852294+00:00",
+            "metric_date": "2026-11-03",
+            "edad_dias": 2,
+            "ultimo_estado": "written",
+            "ultima_corrida": 1337,
+            "ultimo_evento": "2026-11-04T07:26:39.852294+00:00"
+          },
+          {
+            "profile_id": 3850003733258937,
+            "reporte": "targets",
+            "ultimo_exito": "2026-11-04T07:26:39.852294+00:00",
+            "metric_date": "2026-11-03",
+            "edad_dias": 2,
+            "ultimo_estado": "written",
+            "ultima_corrida": 1337,
+            "ultimo_evento": "2026-11-04T07:26:39.852294+00:00"
+          }
+        ],
+        "incidentes": []
+      },
+      "watermark": "2026-11-03"
+    }
+  }
+}

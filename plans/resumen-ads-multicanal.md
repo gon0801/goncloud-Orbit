@@ -1,6 +1,6 @@
 # Plan de Resumen Ads multicanal
 
-> **Estado al 4-nov-2026: fases 01/02/03 integradas y archivos principales desplegados.** PR #507, #508/#509 y #520/#521/#522 en `master` 6bce3589; seis archivos principales coinciden con el contenedor. Ingesta MeLi exitosa a las 23:22 UTC. Falta comprobar recurrencia del cron y conciliación productiva con accounting (ROADMAP P01). Evidencia: [conciliación del 4-nov](../docs/evidencia/estado-planes-2026-11-04/README.md).
+> **Estado al 4-nov-2026: fases 01/02/03 integradas y archivos principales desplegados.** PR #507, #508/#509 y #520/#521/#522 en `master` 6bce3589. Ingesta inicial exitosa y cron/script del host correctos. Conciliación hasta 3-nov: 808/808 filas iguales; 4-nov tiene dos diferencias por fuente posterior (+13.47 MXN de gasto). P01 sigue abierto: observar cron 5-nov 08:15 UTC y conciliar la misma versión. [Evidencia](../docs/evidencia/quick-wins-2026-11-04/conciliacion/reporte.md).
 
 **Objetivo.** Convertir `/` en un resumen de publicidad con periodos configurables, comparación y tendencias legibles para Amazon MX, Amazon US y Mercado Libre.
 

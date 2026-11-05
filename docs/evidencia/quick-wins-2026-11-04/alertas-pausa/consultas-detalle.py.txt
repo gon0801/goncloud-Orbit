@@ -1,0 +1,11 @@
+import os,json,datetime,psycopg
+from psycopg.rows import dict_row
+from app.db import connect
+queries={'parentesco_pausa': 'SELECT e.id,e.kind,e.external_id,g.id AS grupo_local,g.external_id AS ad_group_id,c.id AS campana_local,c.external_id AS campaign_id FROM ad_entity e JOIN ad_entity g ON g.id=e.parent_id JOIN ad_entity c ON c.id=g.parent_id WHERE e.id=5892', 'principal_7d_por_reporte': "SELECT (r.finished_at AT TIME ZONE 'UTC')::date AS dia,a.profile_id,a.platform,a.report_name,count(*) AS escritos FROM ingest_run r JOIN ads_report_result a ON a.ingest_run_id=r.id WHERE r.source='amazon_ads_reports_v3' AND r.ok=true AND a.status='written' AND r.finished_at >= '2026-10-29 00:00+00' AND r.finished_at < '2026-11-05 00:00+00' GROUP BY 1,2,3,4 ORDER BY 1,2,4", 'cronologia_anomala': "SELECT i.id FROM ads_ingest_incident i LEFT JOIN ingest_run r ON r.id=i.recovered_run_id WHERE i.opened_at >= '2026-09-30' AND (i.alert_sent_at < i.opened_at OR i.recovered_at < i.alert_sent_at OR i.recovery_sent_at < i.recovered_at OR r.finished_at > i.recovered_at OR i.closed_at IS NULL)", 'config_ciclo': "SELECT d.id,d.cycle_id,c.mode,c.status,v.id AS config_id,v.settings->'ads_pause_sin_cooldown_bid' AS pause_sin_cooldown_bid,v.settings->'ads_pause_economica' AS pause_economica FROM decision d JOIN optimizer_cycle c ON c.id=d.cycle_id JOIN config_version v ON v.id=d.config_version_id WHERE d.id IN (2654,2736) ORDER BY d.id"}
+out={"consultado_utc":datetime.datetime.now(datetime.UTC).isoformat(),"modo":"ORBIT_DSN_READ; BEGIN READ ONLY; statement_timeout=15s","consultas":{}}
+with connect(os.environ["ORBIT_DSN_READ"],row_factory=dict_row) as c:
+ c.execute("BEGIN READ ONLY")
+ c.execute("SET LOCAL statement_timeout=15000")
+ for nombre,sql in queries.items():
+  out["consultas"][nombre]={"sql":sql,"filas":c.execute(sql).fetchall()}
+print(json.dumps(out,default=str,ensure_ascii=False,indent=2))

@@ -9,7 +9,9 @@ redirige aquí. Los planes detallados conservan contratos e historia.
 GitHub, consultas con `ORBIT_DSN_READ` en transacciones `READ ONLY`, hashes del
 contenedor y recordatorios del servidor. Integración, despliegue y validación
 operativa son estados distintos. Los datos históricos llevan fecha. Esta
-revisión no modificó producción.
+revisión no modificó producción. Los [quick wins](../docs/evidencia/quick-wins-2026-11-04/README.md)
+añaden el arreglo del checker y los cierres operativos A.4/B.4; su integración
+se registra por separado de las lecturas productivas.
 
 El registro apunta a `resumen-ads-multicanal`, la última entrega integrada y
 desplegada, con seguimiento P01. No selecciona ni autoriza el siguiente desarrollo.
@@ -23,9 +25,9 @@ Los IDs P01–P12 identifican seguimientos, no planes de implementación.
 
 | ID | Frente | Estado comprobado / impacto | Siguiente paso y criterio de cierre | Responsable |
 |---|---|---|---|---|
-| P01 | Resumen Ads multicanal | Fases 01/02/03 integradas (#507, #508/#509, #520/#521/#522); seis archivos principales coinciden con producción. Primera ingesta MeLi exitosa el 4-nov 23:22 UTC; cron de costos a las 08:15 UTC. | Comprobar la primera ingesta programada posterior al despliegue y conciliar campaña/día y totales con accounting mediante `docs/DEPLOY.md`. La carga exitosa y los hashes no sustituyen la conciliación. | Operación |
+| P01 | Resumen Ads multicanal | Ingesta inicial correcta; script del host y cron 08:15 UTC verificados. Conciliación: 808/808 filas hasta 3-nov coinciden; 4-nov difieren dos campañas porque la fuente tiene una versión posterior: +13.47 MXN de gasto, +11 clics, +1690 impresiones; revenue igual. | Observar el primer cron posterior, **5-nov 08:15 UTC**, y conciliar contra la misma versión de accounting. La comparación estricta actual falla; el snapshot inicial no se conservó. [Evidencia](../docs/evidencia/quick-wins-2026-11-04/conciliacion/reporte.md). | Operación |
 | P02 | FABRICA 02 D.3 / cierre ORBIT 17 | 11 harvests `done`, ninguno con hermanas ni resuelto por grupo. La sonda de creación de Fábrica 01 ya se hizo el 9-sep; su tarea 11 conserva pendiente el cierre del paso 4. | Seguir el primer harvest natural de grupo: exacta, hermanas, biblioteca y ledger; ensayar su reversa con el go previsto en D.3. Anexar la evidencia del paso 4 de Fábrica 01, sin repetir la creación. | Operación + dueño para reversa |
-| P03 | ADS PROTECCION 01 A.4/A.4r/B.4/C.6 | #373/#374 integrados. Hay 12 episodios con aviso y recuperación, ninguno abierto, y una PAUSE verificada desde el encendido. `ads_pause_economica` sigue ausente en config 42. El checker falla porque espera la línea antigua y producción usa `cron-avisa`. | Conciliar checker y cron; completar el cierre de A.4/B.4 y resolver C.6: sombra económica, validación y decisión de encendido. El checker fallido no demuestra ausencia del cron. | Operación; dueño para activación |
+| P03 | ADS PROTECCION 01: remate A.4r y C.6 | A.4/B.4 cerrados con siete días de cron e ingesta, 12 alertas recuperadas y PAUSE 2736 dentro del cooldown BID, confirmada por Amazon. Checker corregido y validado: ocho pruebas y lectura remota OK; integración pendiente. Protección económica apagada en config 42. | Integrar el arreglo A.4r. Para C.6, validar vigencia frente a BIDS 02, preparar sombra económica y resolver su encendido según H6.4. [Evidencia](../docs/evidencia/quick-wins-2026-11-04/alertas-pausa/resultado.md). | Operación; dueño para activación |
 | P04 | Cobertura de precios MeLi | REPRICING 02 cerrado, 45 goals MeLi `live`. Los últimos escenarios conservan 9 publicaciones sin costo: 7 valoradas el 4-nov y 2 el 30-oct. No equivale a 9 publicaciones activas comprobadas hoy. | Revalidar las publicaciones excluidas, cargar costos verificados y sembrar metas cuando califiquen. Conciliar cobertura; no reabrir REPRICING 01. | Dueño de costos + operación |
 | P05 | REP-FOLLOW-2: reseñas Amazon | Cero ingestas Amazon exitosas y cero reseñas Amazon; MeLi sí sigue entrando. Último bloqueo documentado: crédito Apify agotado; no se consultó hoy su saldo. | Resolver crédito/ejecución autorizada; comprobar ingesta y cron semanal dentro del presupuesto. Desbloquea Reputación 02. | Dueño + operación |
 | P06 | ORBIT 02, 3.4: cloudflared | Rotación diferida por falta de inventario de rutas en Cloudflare Zero Trust. No se volvió a inspeccionar proceso ni token. | Inventario y ventana acordada; luego rotación y comprobación de dominios según 3.4. | Dueño + operación |

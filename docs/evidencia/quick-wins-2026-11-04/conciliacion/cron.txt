@@ -1,0 +1,8 @@
+2026-11-05T00:53:39Z
+fee5bf977129598a459d2fba64cacc76561635c511c8004c1264d8554a7f08bb  /mnt/data/appdata/orbit/refresh_costos.sh
+77:corre meli-ads meli_ads.log || rc=1
+15 8 * * * /usr/local/bin/cron-avisa --nombre "Costos de Orbit" --cada 24 -- /bin/bash -c '/mnt/data/appdata/orbit/refresh_costos.sh' >> /mnt/data/appdata/orbit/logs/costos.log 2>&1
+meli_ads.log: AUSENTE
+2026-11-04 costs rc=0 (detalle: /mnt/data/appdata/orbit/logs/costos.log)
+2026-11-04 fx rc=0 (detalle: /mnt/data/appdata/orbit/logs/fx.log)
+2026-11-04 ledger rc=0 (detalle: /mnt/data/appdata/orbit/logs/ledger.log)
