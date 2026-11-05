@@ -21,6 +21,7 @@ que trae postgresql-client y flock) y en dev con ORBIT_TEST_DSN.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import os
 import shutil
@@ -235,12 +236,10 @@ def _montar_banco():
     )
     admin.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(nombre_db)))
     conn = psycopg.connect(dsn, dbname=nombre_db, autocommit=True)
-    try:
+    # Un Postgres local sin tzdata (pgserver) corre en GMT, el mismo offset
+    # que UTC; los escenarios de despliegue no comparan horas.
+    with contextlib.suppress(psycopg.Error):
         conn.execute("SET TIME ZONE 'UTC'")
-    except psycopg.Error:
-        # Un Postgres local sin tzdata (pgserver) corre en GMT, el mismo
-        # offset que UTC; los escenarios de despliegue no comparan horas.
-        pass
     for ruta in sorted((ROOT / "migrations").glob("*.sql")):
         if "0011_" in ruta.name or "_reversa_" in ruta.name:
             continue
