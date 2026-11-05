@@ -58,7 +58,7 @@ Convergencias (señal fuerte, se adoptan sin injerto): kind `pause` sobre `produ
 - **Ejecutor `app_admin` aparte (como el vigía).** Exige cron nuevo, otro liberador de la misma cola, cambiar `apply_queue_sella_transiciones` y partir un efecto entre dos roles.
 - **Reutilizar `resuelve_target_margen`.** Trae el clamp a [10,45] y rompe el caso 8% × 0.5 → 4%.
 
-## Open questions and risks (para David; el plan fija supuestos reversibles, no espera respuesta)
+## Open questions and risks (las preguntas 2 a 4 quedaron contestadas por David el 2026-11-05; ver "Decisiones de David")
 
 1. **S1.** ¿Los goals de fábrica e impulso cuentan como "explícitos"? Si A.3/E.4 muestran que casi ningún grupo exclusivo queda sin target, la meta por producto estará construida y encendida pero inerte hasta que se limpien targets.
 2. **S6, S8.** ¿Basta "fecha sin fila = cero si una corrida ok del reporte la cubre y el producto tiene filas en la ventana", para pausar product ads automáticamente? La regla literal de la spec nunca pausaría a nadie. Los límites de gasto y clics ya no se fijan aquí: el dueño los elige con la simulación de H.8 (ver la sección de límites editables).
@@ -103,6 +103,14 @@ Los dos revisores automáticos del PR (DeepSeek por ai-review y CodeRabbit) enco
 ## Lectores frescos (2026-11-05)
 
 Dos lectores sin contexto ejecutaron el plan. Trajeron 11 bloqueantes distintos; el más grave, encontrado por ambos, era que un despliegue que aborta por un choque pasajero hacía que el rollback deshiciera el despliegue anterior. También había compuertas que daban verde sin el trabajo hecho y una conciliación que pedía más días de los que permite Amazon. Se corrigió en tres pasadas. La receta de despliegue, que trajo un bloqueante en cada pasada, quedó además como modelo ejecutable de referencia (`modelo-despliegue/modelo.py`). El detalle, los comandos y lo verificado están en `lectores/sintesis.md`.
+
+## Decisiones de David (2026-11-05)
+
+1. **Encendido de la pausa (S8).** La pausa no se enciende sola. Queda en práctica hasta que David guarda sus límites y la enciende con un botón en la pantalla de productos, que antes le muestra la simulación con esos límites (I.8). `proxima_config` rechaza `live` sin las dos claves de límites, así que tampoco el CLI la enciende con los valores por omisión. `interruptores.env` nunca pone la pausa en `live`.
+2. **S9 y S10.** Aprobados: la cola admite `pause` sobre `product_ad` y el ciclo recibe los permisos acotados de la 0080.
+3. **S14.** Aprobado: confirmar tras una respuesta incierta deja el anuncio `adoptada` para cualquier motivo.
+4. **S13.** Aprobado: el literal guardado del vigía cuenta como autorización humana de origen impulso.
+5. **S17.** Aprobado: 7 días de gracia para un product ad regresado.
 
 ## Next implementation step
 
