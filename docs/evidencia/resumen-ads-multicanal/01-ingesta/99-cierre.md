@@ -1,5 +1,7 @@
 # RESUMEN-ADS-01 — Cierre de fase (listo para revisión de Limi 3.1)
 
+> **Historia de la entrega 01.** Los pendientes de integración y fases posteriores de este acta quedaron superados: #507 integrado el 30-oct; 02 y 03 integradas después. El 4-nov se comprobaron archivos en producción y carga MeLi exitosa. Seguimiento vigente: [ROADMAP P01](../../../../plans/ROADMAP.md#pendientes-de-operación-y-cierre); [evidencia](../../estado-planes-2026-11-04/README.md).
+
 Fecha: 2026-10-29. Rama: `resumen-ads-01-ingesta-meli`.
 Base: `31ba12a16f12b90e2f7ea6e86a0ff102f3b8465f` (master al iniciar).
 Commit de implementación: `79da5251b59051cc340b054ad010c1da10fbeec2`.

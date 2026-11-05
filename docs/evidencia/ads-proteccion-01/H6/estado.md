@@ -1,5 +1,7 @@
 # H6/H7 — estado 2026-09-25 ~20:05 UTC, actualizado 2026-09-30 UTC
 
+> **Acta histórica de septiembre.** Estado vigente al 4-nov: [plan actualizado](../../../../plans/ads-proteccion-01.md) y [evidencia](../../estado-planes-2026-11-04/README.md). #373/#374 ya se integraron; recuperación y PAUSE natural observadas. C.6 sigue abierto y la protección económica apagada.
+
 La sombra H5 tiene cinco fechas de ciclo observadas (25-29 sep, ciclos
 82-91, evidencia en `H5/ciclo-1..5.txt`); no son 120 horas completas desde
 el flip del 25-sep. H5.4 se ejecuto con go separado el 30-sep 03:04 UTC:

@@ -1,0 +1,92 @@
+[
+  {
+    "mergeCommit": {
+      "oid": "fe8bdfeee9cb44e74f10f7f59bd088406c7a5a71"
+    },
+    "mergedAt": "2026-10-01T00:38:19Z",
+    "number": 373,
+    "state": "MERGED",
+    "title": "docs(ads-proteccion): evidencia de cinco ciclos H5 en sombra",
+    "url": "https://github.com/gon0801/goncloud-Orbit/pull/373"
+  },
+  {
+    "mergeCommit": {
+      "oid": "3478c93f799fc03fe5116798c0746cdd40118034"
+    },
+    "mergedAt": "2026-10-01T00:44:25Z",
+    "number": 374,
+    "state": "MERGED",
+    "title": "test(ads-salud): detectar cron productivo ausente en A.4",
+    "url": "https://github.com/gon0801/goncloud-Orbit/pull/374"
+  },
+  {
+    "mergeCommit": {
+      "oid": "6a5a39b3dd8650061deca5b20bccd0442d7f829c"
+    },
+    "mergedAt": "2026-10-25T18:36:26Z",
+    "number": 504,
+    "state": "MERGED",
+    "title": "Precios MeLi: continuar cuando una publicación pierde miembros activos",
+    "url": "https://github.com/gon0801/goncloud-Orbit/pull/504"
+  },
+  {
+    "mergeCommit": {
+      "oid": "3b41fa12a36b6adb73cf8138e5366de55ca7efc8"
+    },
+    "mergedAt": "2026-10-30T17:54:17Z",
+    "number": 507,
+    "state": "MERGED",
+    "title": "RESUMEN ADS 01: ingesta MeLi Ads",
+    "url": "https://github.com/gon0801/goncloud-Orbit/pull/507"
+  },
+  {
+    "mergeCommit": {
+      "oid": "207e6c36dff19e6626e46b7e56d8473b9fdfd3c2"
+    },
+    "mergedAt": "2026-11-01T07:20:41Z",
+    "number": 508,
+    "state": "MERGED",
+    "title": "RESUMEN ADS 02: contrato multicanal del resumen de Ads",
+    "url": "https://github.com/gon0801/goncloud-Orbit/pull/508"
+  },
+  {
+    "mergeCommit": {
+      "oid": "913ad54b3fe208425d5027c55da9296314881d48"
+    },
+    "mergedAt": "2026-11-01T09:21:58Z",
+    "number": 509,
+    "state": "MERGED",
+    "title": "RESUMEN ADS 02: corrige cobertura y restaura verificación para fase 03",
+    "url": "https://github.com/gon0801/goncloud-Orbit/pull/509"
+  },
+  {
+    "mergeCommit": {
+      "oid": "6bce3589c17f6c9d5d99e2979e5c55b50dd07ec7"
+    },
+    "mergedAt": "2026-11-04T23:02:44Z",
+    "number": 520,
+    "state": "MERGED",
+    "title": "resumen-ads-03-20261103: # RESUMEN-ADS-03 — Rediseñar la interfaz del Resumen (pedido de David, t",
+    "url": "https://github.com/gon0801/goncloud-Orbit/pull/520"
+  },
+  {
+    "mergeCommit": {
+      "oid": "2ab36fd2c706f6a767fa985684c1b800e847ee36"
+    },
+    "mergedAt": "2026-11-04T21:27:22Z",
+    "number": 521,
+    "state": "MERGED",
+    "title": "RESUMEN ADS 03: corrige los hallazgos de DeepSeek del PR 520",
+    "url": "https://github.com/gon0801/goncloud-Orbit/pull/521"
+  },
+  {
+    "mergeCommit": {
+      "oid": "dd7518e3c8abb6fd9b7d96c530bb9e653e970de9"
+    },
+    "mergedAt": "2026-11-04T22:28:03Z",
+    "number": 522,
+    "state": "MERGED",
+    "title": "RESUMEN ADS 03: alinea MA7 como media en plan y evidencia",
+    "url": "https://github.com/gon0801/goncloud-Orbit/pull/522"
+  }
+]

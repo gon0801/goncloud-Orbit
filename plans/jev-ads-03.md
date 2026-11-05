@@ -1,5 +1,7 @@
 # JEV ADS 03 — el dueño bloquea lo que Jev marca como ajeno
 
+> **Seguimiento 4-nov-2026:** plan cerrado y bloqueo encendido. `atq` confirma job 8 para el **17-nov-2026 09:00 UTC**. Revisión del informe en ROADMAP P08; no adelantarlo ni tratarlo como desarrollo pendiente.
+
 Estado: plan del 2026-10-17. El dueño selló el diseño ese día en el chat con
 el lead. Nace de la fila E.2 de [JEV ADS 02](jev-ads-02.md), cerrada como "no
 se construye" sin medición; la medición ya está en

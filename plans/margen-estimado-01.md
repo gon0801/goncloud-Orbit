@@ -1,6 +1,8 @@
 # MARGEN ESTIMADO 01 — Plan formal
 
-Fecha: 2026-09-08 UTC. Estado: plan redactado; cero implementacion.
+> **Estado vigente: CERRADO 2026-09-08 para su alcance original (PR #222, merge 9382fcb).** Las filas A/B contienen su evidencia; las frases iniciales sobre cero implementación describen la planificación. Las ampliaciones FBM/US/MeLi se entregaron después en REPRICING 02.
+
+Fecha de planificación: 2026-09-08 UTC. Estado vigente: cerrado; ver filas A/B y nota superior.
 Solicitud: formalizar estimacion antes de Ads con precio/costo/comisiones y
 retenciones disponibles, incluso sin ventas, separada del margen observado.
 
@@ -18,7 +20,7 @@ Purpose: ayudar a comparar que anunciar cuando el historial no permite medir
 margen, sin presentar supuestos como ventas o rentabilidad observada.
 
 Tres bloques, **12 tareas**: 0 (3 de investigacion/contrato), A (4 de datos y
-calculo), B (4 de integracion/validacion + 1 de cierre). Todas por ejecutar.
+calculo), B (4 de integracion/validacion + 1 de cierre). Todas completadas; ver estados y evidencia de las filas.
 La peticion actual autoriza la planificacion. Implementar o desplegar la funcion
 requiere la instruccion posterior correspondiente; no se ha concedido gasto.
 

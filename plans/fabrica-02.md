@@ -1,5 +1,7 @@
 # FABRICA 02 — Harvest por grupo (F2): reruteo, negativos cruzados y biblioteca viva
 
+> **Estado al 4-nov-2026: D.3 ABIERTA; D.4 CERRADA y desplegada.** Producción conserva 11 harvests terminados, cero por grupo y ninguno con hermanas. Falta el caso natural y la reversa de D.3. Evidencia: [conciliación del 4-nov](../docs/evidencia/estado-planes-2026-11-04/README.md). Seguimiento: ROADMAP P02.
+
 Version: 1.11, 2026-09-16 UTC. Estado: **FASE A, R.1, D.1 y D.2 CERRADAS — A.0, A.1, A.2,
 A.3a, A.3, A.4, A.5 y A.6 cerradas y en master (PRs #258 `a01aed0`, #261
 `b76959f`, #264 `2b136f8`, #267 `eee8152`, #269 `a286ed2`, #272 `18997de`,

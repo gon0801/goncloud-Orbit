@@ -1,5 +1,7 @@
 # ORBIT 19 — Plan formal de catalogo abierto y evaluacion
 
+> **Revisión 4-nov-2026:** núcleo cerrado; conciliación de 0.3, cobertura y Featured Offer en este consumidor siguen en ROADMAP P09. La sonda de creación diferida en el cierre original se realizó después en FABRICA 01 (9-sep). El estado del registro y la secuencia de planes al pie son históricos.
+
 Version: 1.5, 2026-09-08 UTC. Sincronizacion de cierre tras merge y deploy.
 Estado: **CERRADO (nucleo 0/A/B)**. PR #195 integrado y desplegado en
 `eead84e`; CI del codigo final `46b4c74`: 1583 passed, 1 skipped.

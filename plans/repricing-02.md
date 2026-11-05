@@ -1,5 +1,7 @@
 # REPRICING 02: el motor de precios en todas las plataformas
 
+> **Seguimiento 4-nov-2026:** plan cerrado; goals vigentes `live`: 231 MX, 99 US, 45 MeLi. Cobertura sin costo en ROADMAP P04. Incidente de publicación MeLi sin miembros corregido y desplegado (#504); las corridas del 2–4 nov registran 45 decisiones/día y cero errores. Evidencia: [conciliación del 4-nov](../docs/evidencia/estado-planes-2026-11-04/README.md).
+
 Estado: CERRADO el 2026-10-17 UTC. Los cuatro universos están en `live`
 (X.1 a X.4); el detalle del cierre está en `docs/CHAT-CONTEXT.md`. Plan del
 2026-10-08 UTC; el diseño se terminó el mismo día. Base de planificación: commit `d83bb28`. Dos lectores frescos

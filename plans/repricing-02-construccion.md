@@ -1,5 +1,7 @@
 # Cómo construir REPRICING 02
 
+> **Estado vigente: COMPLETADA con REPRICING 02, cerrado el 17-oct-2026.** Esta guía conserva el procedimiento de construcción; no constituye otro plan abierto. Seguimiento de cobertura: ROADMAP P04.
+
 Esta guía te lleva de `master` al motor de precios encendido en Amazon México,
 Amazon Estados Unidos y Mercado Libre. Cubre cada fila de
 [REPRICING 02](repricing-02.md).

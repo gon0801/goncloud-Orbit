@@ -1,5 +1,7 @@
 # INGESTA 01 — la descarga diaria de Amazon Ads no falla
 
+> **Seguimiento 4-nov-2026:** recuperado el informe generado el 28-oct a las 18:42 UTC: 21 corridas exitosas, 14 ciclos `done`, cero días sin éxito por fuente. Las guardas para D-1 se comprobaron para 22–28 oct y ambas plataformas. El informe ya no está pendiente de aparecer; no se verificó su entrega en Telegram. Evidencia: [conciliación del 4-nov](../docs/evidencia/estado-planes-2026-11-04/README.md).
+
 Estado: CERRADO el 2026-10-22 (S.0, A.1-A.4, D.1, D.2 y C.1 en `cc:DONE`; la medición de 7 días se reporta por Telegram el 2026-10-28). Plan del 2026-10-19. El dueño lo pidió ese día en el chat con el lead:
 "no debería de fallar ni uno". Diagnóstico medido en
 `docs/evidencia/ingesta-01/diagnostico/README.md`. Base de planificación:

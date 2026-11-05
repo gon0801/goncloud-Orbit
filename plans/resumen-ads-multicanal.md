@@ -1,5 +1,7 @@
 # Plan de Resumen Ads multicanal
 
+> **Estado al 4-nov-2026: fases 01/02/03 integradas y archivos principales desplegados.** PR #507, #508/#509 y #520/#521/#522 en `master` 6bce3589; seis archivos principales coinciden con el contenedor. Ingesta MeLi exitosa a las 23:22 UTC. Falta comprobar recurrencia del cron y conciliación productiva con accounting (ROADMAP P01). Evidencia: [conciliación del 4-nov](../docs/evidencia/estado-planes-2026-11-04/README.md).
+
 **Objetivo.** Convertir `/` en un resumen de publicidad con periodos configurables, comparación y tendencias legibles para Amazon MX, Amazon US y Mercado Libre.
 
 **Alcance.** Solo publicidad. No incluye ventas orgánicas, rentabilidad general, Shopify, bids, pausas, precios, accounting ni bridge.
@@ -53,8 +55,7 @@ PR #509 tambien restaura el presupuesto de tamano con una excepcion justificada
 para el contrato, alinea las reglas con el gate real de CI y confirma la
 regresion F1; 126 pruebas de arquitectura y calculos aprobadas. Evidencia:
 `docs/evidencia/resumen-ads-multicanal/02-contrato/16-cierre-mediums-508.txt`.
-Antes de integrar #509, exigir CI verde y ningun High/Medium abierto en la
-revision DeepSeek vigente.
+PR #509 integrado el 1-nov; esta condición de integración pertenece a su cierre histórico.
 La fase 03 debe partir del contrato con esta corrección integrada y presentar
 su cobertura, sin volver a calcular métricas.
 

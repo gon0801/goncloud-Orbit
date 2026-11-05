@@ -1,0 +1,59 @@
+{
+  "escenarios_meli": {
+    "sql": "WITH ultimo AS (SELECT DISTINCT ON (listing_id) listing_id,valoracion_date,estado,motivos FROM estimacion_escenario WHERE platform='meli' ORDER BY listing_id,valoracion_date DESC,observed_at DESC,id DESC) SELECT valoracion_date,estado,motivos::text,count(*) AS publicaciones FROM ultimo GROUP BY 1,2,3 ORDER BY 1 DESC,2,3",
+    "filas": [
+      {
+        "valoracion_date": "2026-11-04",
+        "estado": "incompleta",
+        "motivos": "[\"costo_ausente\"]",
+        "publicaciones": 7
+      },
+      {
+        "valoracion_date": "2026-11-04",
+        "estado": "incompleta",
+        "motivos": "[\"oferta_ausente\"]",
+        "publicaciones": 6
+      },
+      {
+        "valoracion_date": "2026-11-04",
+        "estado": "desactualizada",
+        "motivos": "[\"oferta_desactualizada\"]",
+        "publicaciones": 39
+      },
+      {
+        "valoracion_date": "2026-10-30",
+        "estado": "incompleta",
+        "motivos": "[\"costo_ausente\"]",
+        "publicaciones": 2
+      }
+    ]
+  },
+  "pausa_natural": {
+    "sql": "SELECT d.id,d.decided_at,d.inputs->'motivo' AS motivo,d.inputs->'regla' AS regla,a.verify_ok,a.confirmed_at,d.inputs->'corte' AS corte FROM decision d JOIN decision_application a ON a.decision_id=d.id WHERE d.kind='pause' AND a.verify_ok AND a.confirmed_at >= '2026-09-30'",
+    "filas": [
+      {
+        "id": 2736,
+        "decided_at": "2026-10-05 08:40:01.858222+00:00",
+        "motivo": "pause_umbral",
+        "regla": null,
+        "verify_ok": true,
+        "confirmed_at": "2026-10-07 08:40:05.417819+00:00",
+        "corte": {
+          "elegible": true,
+          "evidencia": {
+            "clicks": 1061,
+            "fechas": 80,
+            "orders": 18,
+            "ventana_desde": "2026-07-07",
+            "ventana_hasta": "2026-09-25",
+            "observed_at_max": "2026-10-05T07:53:43.581406+00:00"
+          },
+          "cost_min_usado": "40",
+          "expected_clicks": "58.94444444444444444444444444",
+          "umbral_clicks_usado": 100,
+          "cero_ventas_expected_usado": "58.94444444444444444444444444"
+        }
+      }
+    ]
+  }
+}

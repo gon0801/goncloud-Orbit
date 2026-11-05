@@ -1,5 +1,7 @@
 # FABRICA 01 — fábrica de campañas Amazon SP por grupo (Phase F1) — Implementation Plan
 
+> **Estado al 4-nov-2026: IMPLEMENTADA, cierre operativo pendiente (ROADMAP P02).** La sonda real de tarea 11 se ejecutó el 9-sep; no repetirla. Queda anexar el cierre del paso 4 y completar FABRICA 02 D.3 para ORBIT 17. F2 ya está construida en [FABRICA 02](fabrica-02.md).
+
 > **v2 tras ronda 1 de cross-review (grok 2026-09-05: 5 ALTA + 9 MEDIA + 6 BAJA — todo
 > incorporado o declarado).** Altas: desarmar desde `fabrica_lote_paso` (cubre lote a
 > medias), multi-listing fail-loud, `--registrar` idempotente, `_registrar` en try con

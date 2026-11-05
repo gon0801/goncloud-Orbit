@@ -1,198 +1,86 @@
-# ROADMAP maestro — Orbit (consolidado, lead 2026-09-08)
+# ROADMAP maestro — Orbit
 
-Fuente ÚNICA de planes y pendientes: este archivo absorbe
-`docs/PENDIENTES-AUTOMATIZACION.md` (AUTO-01..AUTO-10, registrado
-2026-09-06; el archivo viejo es solo un redirect). Base:
-`docs/traspaso/MODULOS-AVANZADOS.md` (5 módulos, verbatim, NO
-editar) cruzado con `plans/manifest.json`, TODOs por plan
-(auditados), y follow-ups de evidencia. Este archivo es el índice
-ejecutable: estado real + secuencia + pendientes. No es plan
-harness (sin tasks propias); los stubs viven en `plans/`.
+Actualizado el **2026-11-04, America/Vancouver** (consultas de producción:
+2026-11-05 UTC), contra `master` **6bce3589** y los cierres de cada plan.
+Esta es la fuente única de pendientes; `docs/PENDIENTES-AUTOMATIZACION.md`
+redirige aquí. Los planes detallados conservan contratos e historia.
 
-Regla: antes de implementar cada función nueva, plan formal con
-alcance, fuente verificada, contrato de decisión, dependencias,
-pruebas, revisión y despliegue. No se marca completo por escribir
-el plan: se enlaza el plan y se conserva el seguimiento hasta
-evidencia de implementación y validación.
+[Evidencia de la conciliación](../docs/evidencia/estado-planes-2026-11-04/README.md):
+GitHub, consultas con `ORBIT_DSN_READ` en transacciones `READ ONLY`, hashes del
+contenedor y recordatorios del servidor. Integración, despliegue y validación
+operativa son estados distintos. Los datos históricos llevan fecha. Esta
+revisión no modificó producción.
 
-## Estado por módulo (criterio del doc vs realidad)
+El registro apunta a `resumen-ads-multicanal`, la última entrega integrada y
+desplegada, con seguimiento P01. No selecciona ni autoriza el siguiente desarrollo.
+Antes de implementar un frente nuevo se necesita un plan con alcance, fuentes
+verificadas, dependencias, pruebas proporcionales, revisión y despliegue.
 
-### M1 Repricing — EN PRODUCCIÓN `plans/repricing-02.md` (cerrado 2026-10-17; AUTO-07)
+## Pendientes de operación y cierre
 
-- REPRICING 02 cerró el 2026-10-17: MX FBA, MX FBM, US FBM y Mercado Libre
-  en `live` (164 + 67 + 99 + 45 goals). Sustituyó las filas abiertas de
-  REPRICING 01; lo de abajo queda como historia.
+Los IDs P01–P12 identifican seguimientos, no planes de implementación.
+«Por comprobar» significa que falta evidencia de cierre, no que el sistema falle.
 
-- Criterio doc: cambia precio en ambas plataformas con historial.
-- Realidad: plan y spec aprobados por el dueño (decisiones 1–12 el 15-sep,
-  13–15 el 16-sep). Fases 8, 10 y 11 cerradas (A.0–A.3, A.5–A.7 y R.1 en
-  `master`) y D.0 aplicada en producción el 2026-09-19 (0039 + 20 claves
-  `precio_*`, `config_version` 20); ningún precio movido. Sigue A.4 (sonda
-  de escritura, del dueño). Motor por goal de margen estimado por
-  producto, sube si falta, baja solo si pierde ventas, sombra primero, cuota
-  propia, y **toda publicación activa contemplada** en un recuadro de
-  cobertura que cuadra.
-- Alcance por fases: A Amazon MX FBA (171 activas); E envío medido y FBM
-  (habilita 113 MX + 109 US, con `shipping_fee` del ledger y percentil
-  sellado); 0 política fiscal US; B Amazon US (109 activas, **todas FBM**);
-  M Mercado Libre (137 publicaciones).
-- Hecho que reordenó el plan: **US no tiene publicaciones activas en FBA**
-  (0 de 109), así que US depende de la fase E, no de la ruta FBA.
-- Gaps: escritura de precio no existe en ninguna plataforma; MeLi hoy no
-  tiene en Orbit precios frescos, mapeo SKU→producto ni dinero en el ledger.
-
-
-### M2 Campañas por API — Amazon IMPLEMENTADO / CIERRE OPERATIVO PENDIENTE
-
-- Criterio doc: Auto + Exact + Product Targeting en Amazon y básica
-  en MeLi.
-- Amazon: `fabrica-01` tareas 1–10 DONE + `fabrica-ui-01` en master verificado
-  (13 passed) + `campanas-01`, `campana-activa-01`, `cortes-01`
-  cerrados. Cumplido: sonda real ejecutada 2026-09-09 (lote `web-923cb2…`,
-  5 campañas ENABLED en MX, shapes sellados en PR #233, pantalla corregida
-  en PR #232); ORBIT 17 espera el paso 4 de la tarea 11 (decisiones en
-  sombra del grupo 1, desde el 2026-09-19) para Done.
-  F2/AUTO-02 queda desbloqueada (ver secuencia, paso 3).
-- Jev en Ads: [JEV ADS 01](jev-ads-01.md) desplegada apagada el 2026-10-04
-  (asesoría visible de negativos, harvest y semillas, sin cambiar acciones);
-  piloto corrido y decisión del dueño: seguir y ampliar. La ampliación es
-  [JEV ADS 02](jev-ads-02.md), con diseño sellado por el dueño el
-  2026-10-04: bloque S (S.1–S.5) construido y desplegado apagado el
-  2026-10-07 (acta de listado, núcleo puro, señales + login, job con cron,
-  señal en `/cortes` y `/gasto-sin-venta`); tarifa (0.3), orden de opciones
-  (0.5) y el bloque S cerrados el 2026-10-12. Avisos escritos, desplegados el
-  2026-10-13 y apagados.
-  [JEV ADS 03](jev-ads-03.md), diseño sellado por el dueño el 2026-10-17
-  tras la revisión a ciegas: el dueño bloquea en `/cortes` las búsquedas que
-  Jev marca como ajenas, en MX y US, con ledger, readback y reversa.
-  Cerrado el 2026-10-18: desplegado y encendido (`config_version` 42), reporte
-  de 30 días programado para el 2026-11-17. La abstención del motor, el ruteo y la fábrica no se construyen.
-  [INGESTA 01](ingesta-01.md), cerrada el 2026-10-22: la descarga diaria de
-  Amazon Ads pide los reportes a la vez, repite el que se atora y reintenta a
-  las 10:15 y 13:15 UTC; el ciclo, el vigía, los avisos y Jev esperan a las
-  métricas de ayer. Desplegada en `72c440e`; la medición de 7 días llega por
-  Telegram el 2026-10-28.
-  [SP-API 02](sp-api-02.md), cerrada el 2026-10-22: el cliente SP-API reintenta el
-  429 hasta 5 veces con espera acotada a 120 s, la corrida nocturna de las 05:00
-  UTC repite una vez lo que falló (si aún no son las 06:15 UTC) y llega un aviso
-  cuando una fuente se recupera. Desplegada en `f273213`; la primera corrida
-  nocturna con el código nuevo es la del 2026-10-23.
-  Reseñas se tratarán aparte.
-- Motor de bids: [BIDS 02](bids-02.md), plan y diseño del 2026-10-09. Construido, desplegado y encendido (`niveles_v3` en MX y US). Una sola política de
-  bid para una cuenta con poca data, cinco pantallas, impulso por producto y ajustes de campaña. Cubre en
-  parte AUTO-03 a AUTO-06.
-- MeLi Ads (proposal-only, bloqueado a nivel cuenta): sin plan ni
-  stub. Gap.
-
-### M3 Reputación — v1 CERRADA / v2 PENDIENTE (AUTO-09)
-
-- Criterio doc (rating + historial + ≥3 alertas): cumplido (5 tipos,
-  pantalla, digest, cron en vivo).
-- `reputacion-01`: CERRADA 2026-09-08 (A.3 como ampliación E/A.3).
-- `reputacion-02` (stub): v2 pendiente — incluye Account Health, Buy
-  Box, fakes, sentimiento y vinculación con acciones (pausar
-  campañas / no promocionar). Requiere SP-API (Buy Box, Account
-  Health) + REP-FOLLOW-2 (datos Amazon).
-
-### M4 Promociones — SIN PLAN (stub pendiente, AUTO-08)
-
-- Criterio doc: crea descuento y simula margen.
-- Realidad: 0%. Depende: Márgenes + Repricing (simulación).
-
-### M5 Envíos — SIN PLAN (stub pendiente)
-
-- Criterio doc: lista ambas plataformas con estado actualizado.
-- Realidad: 0%. Depende: Orders APIs (SP-API + MeLi Orders/Shipments;
-  lado SP-API en `plans/sp-api-01.md`).
-
-### Fase 0 (modelos + auth APIs) — PARCIAL
-
-- Ads API + MeLi OAuth: sí. SP-API: **Fase 0 y Fase A CERRADAS**
-  (`plans/sp-api-01.md` v1.3). Los dos refrescadores LWA ad hoc quedaron
-  consolidados en uno solo (`app/spapi/client.py`, D5); las cuatro ingestas
-  (Orders, Pricing, Listings, Inventario FBA) corren en producción desde
-  `aee0221` con cron diario 05:00 UTC y salud en `/salud`. Revisión
-  independiente con APPROVE (A.R, Grok). **Ya NO bloquea M1, M5 ni
-  reputación v2**: las lecturas están disponibles y sanas.
-- Transversales: tokens 600/uid (NO cifrados at rest — gap
-  declarado); sin colas/Redis por decisión (desviación consciente
-  del doc); observabilidad de integraciones parcial.
-
-## Secuencia propuesta (respeta dependencias)
-
-1. Cierres operativos: sonda real `fabrica-01` tarea 11 (HECHA 2026-09-09) y
-   `orbit-05` 2.3/2.5 cuando exista un harvest natural.
-2. ~~SP-API auth + lecturas~~ **HECHO 2026-09-10** (`plans/sp-api-01.md`
-   v1.3): Fase 0 (PR #236) y Fase A (PRs #237–#250) cerradas, desplegadas
-   en producción con cron diario y revisadas por A.R con APPROVE.
-   Desbloqueó M1 (repricing), M5 (envíos) y reputación v2 — esos tres ya
-   pueden arrancar con su propio plan y brief (Fase B del plan SP-API es
-   justamente eso: consumo, fuera de ese plan).
-3. `fabrica-01` F2 — harvest por grupo (AUTO-02): reruteo del harvest por
-   `campana_grupo_rol`, negativos cruzados `hermanas_negadas`, biblioteca
-   escrita por el motor. Desbloqueada por la sonda del 2026-09-09.
-   **Decisión del dueño 2026-09-09: va después de SP-API.** Mientras, los
-   negativos cruzados del grupo real se pusieron a mano (12, 2026-09-09).
-4. `repricing-01` (stub nuevo) — M1.
-5. `meli-ads-01` proposal-only (stub nuevo) — cierra M2.
-6. `promociones-01` (stub nuevo) — M4 (tras 1+4).
-7. `envios-01` (stub nuevo) — M5 (tras 2).
-8. `reputacion-02` (stub existe) — tras 2 + REP-FOLLOW-2.
-9. Integraciones cruzadas (fase 6 del doc): pausar campañas por
-   rating, no promocionar mala reputación, envíos→reputación.
-
-## Pendientes (dueño de cada uno)
-
-- **Dueño**: subir plan Apify (REP-FOLLOW-2); confirmar pantalla
-  cortes-ui (1.2); briefs v2/repricing/promos/envíos antes de cada
-  stub.
-- **Lead**: colas chicas (orbit-05
-  2.3/2.5, orbit-02 3.4); cierre de ORBIT 17 (paso 4 de la tarea 11:
-  decisiones en sombra del grupo 1 desde el 2026-09-19); causa conciliación ventas/compras
-  (orbit-19/0.3, no demostrada); stubs repricing/meli-ads/
-  promociones/envíos (SP-API ya planeado: `plans/sp-api-01.md`,
-  D1–D7 cerradas 2026-09-09); REP-FOLLOW-1/3 (opcionales).
-- **Higiene**: `cortes-ui-01` deduplicado en manifest 2026-09-08
-  (quedó la entry con 1.2 pendiente de confirmación del dueño).
-
-## Backlog oficial AUTO-01..AUTO-10 (no olvidar)
-
-Registrado a solicitud del dueño 2026-09-06; absorbido aquí
-2026-09-08 (los BK-1/BK-2/BK-3 temporales se pliegan: BK-1 en
-AUTO-04, BK-2 en AUTO-05, BK-3 ya vivía en Fase 0). Evidencia
-histórica del registro:
-`docs/evidencia/AUTO-registro-20260906.md`.
-
-| ID | Pendiente | Alcance del futuro plan | Base y dependencia | Estado |
+| ID | Frente | Estado comprobado / impacto | Siguiente paso y criterio de cierre | Responsable |
 |---|---|---|---|---|
-| AUTO-01 | Verificar harvest automático completo | Seguir una propuesta real que cumpla las reglas: creación exacta, negativo de origen, readbacks, registro y recuperación. No forzar propuesta ni modificar vetos. | ORBIT 05 tareas 2.3/2.5; el mecanismo existe. No crear otro motor. | Pendiente de verificación operativa |
-| AUTO-02 | Harvest por grupo de campañas | Enrutar hacia la hermana exacta, negativos cruzados y actualización de bibliotecas; compatibilidad con campañas existentes y reversa. | FABRICA 01 F2, fuera de F1. Coordinar con publicaciones/lotes v2 de ORBIT 19. | Pendiente de plan formal; sonda cumplida 2026-09-09; **secuencia: después de SP-API (decisión del dueño 2026-09-09)** |
-| AUTO-03 | Decisiones publicitarias por producto | Rendimiento Ads atribuible, margen, muestra, stock y disponibilidad para acciones y límites por producto. Distinguir pausar un product ad de desactivar la publicación. | ORBIT 19 entrega selector/comparación, no este motor. Fuentes por mercado conciliadas. | Pendiente de plan formal. BIDS 02 cubrio la pantalla de productos sin clics, el impulso por producto y el retiro que pausa el product ad (I.2 a I.5, P.4); sigue pendiente el motor de acciones y limites por producto (el target por producto quedo fuera de BIDS 02) |
-| AUTO-04 | Ajustes de placements | Top of Search, Product Pages y otros placements soportados; datos por ubicación, efecto sobre la puja efectiva, límites y reversa. Citado en orbit-03:128 y margen-estimado-01:156; schema listo (`ad_entity_kind`). | No hay motor de placements en Orbit. Confirmar fuente y API vigentes al planificar; no reutilizar el sistema viejo. | Pendiente de plan formal. BIDS 02 cubrio los datos por ubicacion (V.2, migracion 0062), la pantalla «Donde poner el dinero» y el ajuste por ubicacion que aplica el dueno con su reversa (V.3, P.2b); sigue pendiente que el motor ajuste placements por su cuenta |
-| AUTO-05 | Gestión de presupuestos | Redistribución entre campañas/grupos, ritmo de gasto y límites por moneda, con una sola autoridad de escritura y reversa. Incluye budgets intradía + AMS/Stream (orbit-03:128). | Hoy se capturan budgets al crear. Las cuotas de operaciones no son presupuestos de publicidad. | Pendiente de plan formal. BIDS 02 cubrio el ajuste de presupuesto diario que aplica el dueno con su reversa (V.3, P.2b); sigue pendiente la redistribucion automatica, el ritmo de gasto y los budgets intradia con AMS/Stream |
-| AUTO-06 | Reactivación y limpieza del catálogo publicitario | Cuándo reactivar keywords/targets/campañas y si automatizar limpieza. Pausa reversible vs archivado irreversible; reponer crea identidad nueva sin historia. | Ya hay herramientas manuales y BIDS 01. No convertirlas en automatismo por defecto. | Pendiente de evaluación y plan. BIDS 02 cubrio el retiro y la reposicion de product ads (I.4) y el regreso de keywords danadas (M.5, P.3a y P.3b); sigue pendiente decidir si se automatiza la reactivacion y la limpieza |
-| AUTO-07 | Repricing | Plan del motor de precios, con costos, margen, inventario, límites y reversa. Ver M1 arriba. | Módulos avanzados; precondición margen-estimado-01. | `plans/repricing-02.md` cerrado 2026-10-17: los cuatro universos en `live` (MX FBA, MX FBM, US FBM y Mercado Libre) |
-| AUTO-08 | Promociones | Plan de promociones y su efecto económico, con datos y autorizaciones explícitas. Ver M4 arriba. | Módulos avanzados; depende de Márgenes + Repricing. | Pendiente de plan formal |
-| AUTO-09 | Reputación | Seguimiento y acciones de reputación. v1 cerrada (reputacion-01); v2 = reputacion-02 (stub). Ver M3 arriba. | Módulos avanzados; v2 requiere SP-API + REP-FOLLOW-2. | Plan v2 pendiente de brief |
-| AUTO-10 | Estimación por venta antes de Ads | Precio, costo, comisiones, logística y retenciones verificables por publicación; desglose y ausencias explícitas. Comparación informativa. | `margen-estimado-01.md`; FBA MX desplegado. FBM/US quedan como ampliaciones. | Cerrado 2026-09-08 |
+| P01 | Resumen Ads multicanal | Fases 01/02/03 integradas (#507, #508/#509, #520/#521/#522); seis archivos principales coinciden con producción. Primera ingesta MeLi exitosa el 4-nov 23:22 UTC; cron de costos a las 08:15 UTC. | Comprobar la primera ingesta programada posterior al despliegue y conciliar campaña/día y totales con accounting mediante `docs/DEPLOY.md`. La carga exitosa y los hashes no sustituyen la conciliación. | Operación |
+| P02 | FABRICA 02 D.3 / cierre ORBIT 17 | 11 harvests `done`, ninguno con hermanas ni resuelto por grupo. La sonda de creación de Fábrica 01 ya se hizo el 9-sep; su tarea 11 conserva pendiente el cierre del paso 4. | Seguir el primer harvest natural de grupo: exacta, hermanas, biblioteca y ledger; ensayar su reversa con el go previsto en D.3. Anexar la evidencia del paso 4 de Fábrica 01, sin repetir la creación. | Operación + dueño para reversa |
+| P03 | ADS PROTECCION 01 A.4/A.4r/B.4/C.6 | #373/#374 integrados. Hay 12 episodios con aviso y recuperación, ninguno abierto, y una PAUSE verificada desde el encendido. `ads_pause_economica` sigue ausente en config 42. El checker falla porque espera la línea antigua y producción usa `cron-avisa`. | Conciliar checker y cron; completar el cierre de A.4/B.4 y resolver C.6: sombra económica, validación y decisión de encendido. El checker fallido no demuestra ausencia del cron. | Operación; dueño para activación |
+| P04 | Cobertura de precios MeLi | REPRICING 02 cerrado, 45 goals MeLi `live`. Los últimos escenarios conservan 9 publicaciones sin costo: 7 valoradas el 4-nov y 2 el 30-oct. No equivale a 9 publicaciones activas comprobadas hoy. | Revalidar las publicaciones excluidas, cargar costos verificados y sembrar metas cuando califiquen. Conciliar cobertura; no reabrir REPRICING 01. | Dueño de costos + operación |
+| P05 | REP-FOLLOW-2: reseñas Amazon | Cero ingestas Amazon exitosas y cero reseñas Amazon; MeLi sí sigue entrando. Último bloqueo documentado: crédito Apify agotado; no se consultó hoy su saldo. | Resolver crédito/ejecución autorizada; comprobar ingesta y cron semanal dentro del presupuesto. Desbloquea Reputación 02. | Dueño + operación |
+| P06 | ORBIT 02, 3.4: cloudflared | Rotación diferida por falta de inventario de rutas en Cloudflare Zero Trust. No se volvió a inspeccionar proceso ni token. | Inventario y ventana acordada; luego rotación y comprobación de dominios según 3.4. | Dueño + operación |
+| P07 | BIDS 01: primer lote de archivo | Ledger `keyword_archivo_manual` vacío. El 4-oct era la primera fecha elegible, no una orden de ejecución. | Repetir ensayo con datos actuales y decidir lote con el go requerido. Archivar pierde identidad/historia; reponer no equivale a desarchivar. | Dueño + operación |
+| P08 | JEV ADS 03: medición de 30 días | Bloqueo encendido; `atq` conserva job 8 para **17-nov-2026 09:00 UTC**. | Revisar aprobación, ahorro y ventas posteriores; decidir continuidad con el criterio del plan. | Operación + dueño |
+| P09 | ORBIT 19: conciliación y cobertura | Núcleo cerrado. Residuales: causa de ventas/compras de 0.3 no demostrada, cobertura solo-actividad y Featured Offer en catálogo sin cierre específico. Las lecturas SP-API posteriores no prueban ese cierre. | Comparar fuentes externas con misma ventana/vintage; registrar cobertura y verificar Featured Offer en este consumidor. No repartir agregados a productos ni convertir ausencias en cero. | Datos / operación |
+| P10 | REP-FOLLOW-1: reseñas compartidas | Mejora opcional: atribución multi-item limitada por deduplicación de reseñas compartidas. | Medir impacto; si se prioriza, definir identidad y atribución con fuente real. No bloquea v1. | Datos |
+| P11 | REP-FOLLOW-3: lotes Apify | Condicional: sin medir si las 518 URL del inventario histórico caben en 300 s con crédito. | Medir tras P05; dividir en lotes solo si el volumen vigente y el tiempo lo justifican. | Operación |
+| P12 | Transversales | Deuda declarada: secretos con permisos 600/uid, sin cifrado en reposo, y observabilidad parcial. No se auditó toda la infraestructura. | Delimitar y priorizar revisión específica. Mantener gitleaks y secretos fuera del repositorio. | Dueño + operación |
 
-AUTO-01 a AUTO-05 son los gaps principales de la revisión. AUTO-06
-a AUTO-09 conservan los pendientes adicionales mencionados. La
-prioridad final y el orden entre planes se decidirán al planificar;
-no se asignan fechas ni presupuestos aquí.
+## Planes por construir
 
-## Verificación de completitud (2026-09-08, rev 2)
+El orden no fija prioridad ni fecha. BIDS 02 ya cubre partes manuales de
+AUTO-03 a AUTO-06; esta tabla recoge el alcance restante.
 
-- Los 5 módulos + Fase 0 + transversales del doc tienen fila aquí.
-- Los planes del manifest están clasificados (cerrados, con TODO
-  contados, o stubs); `active` declarado.
-- AUTO-01..10 absorbidos con su alcance, base y estado; BK
-  temporales eliminados (plegados, cero pérdida).
-- Todos los TODO/WIP + follow-ups E/A.7 + gaps tienen dueño y
-  secuencia. Auditoría 2026-09-08: cinco filas `cc:TODO/WIP` vivas
-  (`bids-01` 1.5, `cortes-ui-01` 1.2, `orbit-02` 3.4 y `orbit-05`
-  2.3/2.5), más la sonda `fabrica-01` tarea 11; docs/
-  (specs/briefs/evidencia =
-  históricos) y código (0 TODO reales). Faltantes
-  hallados y agregados: sonda fábrica t11 + causa
-  conciliación. Cero huérfanos conocidos.
+| ID / futuro plan | Qué falta construir | Preparación y dependencias |
+|---|---|---|
+| AUTO-03 — decisiones Ads por producto | Metas y acciones según rendimiento atribuible, margen y disponibilidad; distinguir product ad de publicación. | [Diseño propuesto del 24-oct](../docs/superpowers/specs/2026-10-24-decisiones-producto-design.md) y [alternativas](../docs/evidencia/auto-03/diseno/sintesis.md) guardados. No es plan ejecutable ni aprobación. Revalidar fuentes/topología y sellar alcance; la propuesta inicial no cubre todas las pausas económicas en grupos compartidos. |
+| AUTO-04 — placements automáticos | Ajustes autónomos por ubicación, límites y reversa. | BIDS 02 ya tiene datos, pantalla y ajustes del dueño. Falta plan del automatismo y confirmar fuente/API al diseñarlo. |
+| AUTO-05 — presupuestos automáticos | Redistribución entre campañas/grupos, ritmo de gasto e intradía; posible AMS/Stream. | Ajuste manual existente. Falta política, autoridad única de escritura, límites por moneda y reversa. Cuotas de operaciones no son presupuestos publicitarios. |
+| AUTO-06 — reactivación y limpieza | Decidir qué reactivar/limpiar automáticamente. | BIDS 01/02 aportan herramientas manuales, retiro/reposición y regreso de keywords dañadas. Falta evaluación y plan; no automatizar el archivo irreversible por defecto. |
+| meli-ads-01 — campañas MeLi | Propuestas de campañas, sin escritura publicitaria. | Sin plan formal. Restricción de escritura a nivel cuenta como contrato; revalidarla al planificar. La ingesta MeLi del Resumen no implementa gestión de campañas. |
+| AUTO-08 / promociones-01 | Descuentos, simulación de margen y autorizaciones. | Sin plan formal. Márgenes y Repricing disponibles; definir fuentes/APIs y alcance. |
+| envios-01 | Seguimiento de envíos Amazon y MeLi. | Sin plan formal. SP-API Orders disponible; validar MeLi Orders/Shipments y su integración. |
+| AUTO-09 / reputacion-02 | Respuestas asistidas, Account Health, Buy Box, reseñas sospechosas, sentimiento y acciones por reputación. | [Stub](reputacion-02.md), pendiente de brief y P05. Cada acción comercial necesita contrato y reversa. |
+| Integraciones cruzadas | Reputación → campañas/promociones; envíos → reputación. | Sin plan formal; dependen del consumidor y de una fuente demostrada. |
+
+## Entregas cerradas o sustituidas
+
+«Cerrado» remite al cierre documentado; no es una nueva auditoría completa de
+cada módulo. Los residuales siguen arriba, separados del desarrollo.
+
+| Planes | Estado / fuente |
+|---|---|
+| ORBIT 01, 03, 04; GUARDRAILS 01; DASHBOARD 01; CORTES 01; CAMPANAS 01; CAMPANA ACTIVA 01; ESTRUCTURA 01 | Tareas registradas completas en sus planes. ORBIT 02 conserva P06. |
+| ORBIT 05 preflight y ORBIT 05 / AUTO-01 | Cerrados; 2.3/2.5 cerraron el **1-oct**, con harvest automático verificado. [Acta](../docs/evidencia/orbit-05/cierre-2026-10-01.md). |
+| ORBIT 06 | Cerrado 4-sep: consolidación y target por margen en vivo. |
+| BIDS 01; CORTES UI 01 | Cerrados 15-sep. BIDS 01 conserva P07; la confirmación de Cortes UI ya ocurrió. |
+| FABRICA 01 / FABRICA UI 01 / ORBIT 17; FABRICA 02 / AUTO-02 | Implementados/desplegados; cierre operativo P02. AUTO-02 ya tiene plan y código. D.4 corregida y desplegada. |
+| ORBIT UI 01 / ORBIT 18; CATALOGO CAMPANAS 01 / ORBIT 19 | Núcleos entregados; ORBIT 19 cerrado 8-sep, residuales P09. |
+| MARGEN ESTIMADO 01 / AUTO-10 | Cerrado 8-sep para su alcance original. Ampliaciones FBM/US/MeLi entregadas después en REPRICING 02. |
+| REPUTACION 01 | v1 cerrada 8-sep; MeLi operativo. Amazon y mejoras en P05/P10/P11; v2 por construir. |
+| SP-API 01 y 02 | Cerrados 10-sep y 22-oct: lecturas y resistencia a 429 entregadas. |
+| JEV ADS 01, 02 y 03 | Cerrados. JEV 03 encendido, P08 programado. Avisos JEV 02 apagados por decisión; abstención/ruteo/fábrica no se construyen por aquel cierre. |
+| REPRICING 01 | **Sustituido desde el 8-oct** por REPRICING 02 para D.2/D.3/E/0/B/M. Sus 22 filas históricas no son trabajo pendiente. |
+| REPRICING 02 / AUTO-07 | Cerrado 17-oct; goals vigentes: MX 231, US 99, MeLi 45 en `live`. P04 conserva ampliación de cobertura. Incidente MeLi de octubre corregido y desplegado (#504). |
+| BIDS 02 | Construido, desplegado y encendido; remate cerrado 13-oct. Sus guías no son planes pendientes adicionales. |
+| INGESTA 01 | Cerrada 22-oct. Informe del **28-oct recuperado**: 21/21 corridas exitosas, 14/14 ciclos `done`, cero días sin éxito por fuente. Guardas históricas comprobadas para ambas plataformas. [Evidencia](../docs/evidencia/estado-planes-2026-11-04/README.md). |
+| RESUMEN ADS 01/02/03 | Integrados y archivos principales comprobados en producción el 4-nov. Queda P01; no están por construir. |
+| ADS PROTECCION 01 Fase D | Tareas completadas; el plan padre conserva P03. |
+
+## Cómo mantener este registro
+
+Al cerrar un pendiente, actualizar su fila, el plan detallado y la descripción
+de `manifest.json`, con evidencia fechada. Distinguir lo comprobado en producción
+de lo integrado. Conservar historia en Git y actas: una fecha vencida o un PR
+integrado no bastan para cerrar una operación. Enlazar aquí los borradores fuera
+del manifest y declarar su estado.

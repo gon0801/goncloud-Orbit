@@ -1,0 +1,517 @@
+{
+  "consultado_utc": "2026-11-05T00:32:40.636538+00:00",
+  "modo": "READ ONLY, ORBIT_DSN_READ, statement_timeout=15s",
+  "consultas": {
+    "config": {
+      "sql": "SELECT id, settings->'ads_pause_economica' AS pausa_economica, settings->'ads_pause_sin_cooldown_bid' AS pausa_sin_cooldown_bid, settings->'jev.avisos' AS jev_avisos, settings->'jev.bloqueo' AS jev_bloqueo FROM config_version ORDER BY id DESC LIMIT 1",
+      "filas": [
+        {
+          "id": 42,
+          "pausa_economica": null,
+          "pausa_sin_cooldown_bid": true,
+          "jev_avisos": null,
+          "jev_bloqueo": true
+        }
+      ]
+    },
+    "harvest": {
+      "sql": "SELECT fase, external_ids ? 'hermanas' AS tiene_hermanas, count(*) AS jobs, max(updated_at) AS ultimo FROM harvest_job GROUP BY 1,2 ORDER BY 1,2",
+      "filas": [
+        {
+          "fase": "done",
+          "tiene_hermanas": false,
+          "jobs": 11,
+          "ultimo": "2026-10-31 08:41:15.005628+00:00"
+        }
+      ]
+    },
+    "harvest_claves": {
+      "sql": "SELECT DISTINCT jsonb_object_keys(external_ids) AS clave FROM harvest_job ORDER BY 1",
+      "filas": [
+        {
+          "clave": "keyword_creada"
+        },
+        {
+          "clave": "keyword_id"
+        },
+        {
+          "clave": "negative_creada"
+        },
+        {
+          "clave": "negative_id"
+        }
+      ]
+    },
+    "archivo_inertes": {
+      "sql": "SELECT estado,count(*) AS filas,max(intentado_at) AS ultimo FROM keyword_archivo_manual GROUP BY estado",
+      "filas": []
+    },
+    "alertas": {
+      "sql": "SELECT tipo,count(*) AS episodios,count(*) FILTER (WHERE alert_sent_at IS NOT NULL) AS avisados,count(*) FILTER (WHERE recovery_sent_at IS NOT NULL) AS recuperaciones_avisadas,count(*) FILTER (WHERE closed_at IS NULL) AS abiertos,max(opened_at) AS ultimo FROM ads_ingest_incident WHERE opened_at >= '2026-09-30' GROUP BY tipo ORDER BY tipo",
+      "filas": [
+        {
+          "tipo": "atraso",
+          "episodios": 6,
+          "avisados": 6,
+          "recuperaciones_avisadas": 6,
+          "abiertos": 0,
+          "ultimo": "2026-10-19 10:30:02.709899+00:00"
+        },
+        {
+          "tipo": "fallo",
+          "episodios": 6,
+          "avisados": 6,
+          "recuperaciones_avisadas": 6,
+          "abiertos": 0,
+          "ultimo": "2026-10-19 09:01:04.172345+00:00"
+        }
+      ]
+    },
+    "ingesta_7d": {
+      "sql": "SELECT (started_at AT TIME ZONE 'UTC')::date AS dia,source,count(*) AS corridas,count(*) FILTER (WHERE ok) AS exitosas,min(finished_at) FILTER (WHERE ok) AS primer_fin_ok FROM ingest_run WHERE source IN ('amazon_ads_reports_v3','amazon_ads_products_v3','amazon_ads_placements_v3') AND started_at >= '2026-10-22 00:00+00' AND started_at < '2026-10-29 00:00+00' GROUP BY 1,2 ORDER BY 1,2",
+      "filas": [
+        {
+          "dia": "2026-10-22",
+          "source": "amazon_ads_placements_v3",
+          "corridas": 1,
+          "exitosas": 1,
+          "primer_fin_ok": "2026-10-22 07:19:37.973703+00:00"
+        },
+        {
+          "dia": "2026-10-22",
+          "source": "amazon_ads_products_v3",
+          "corridas": 1,
+          "exitosas": 1,
+          "primer_fin_ok": "2026-10-22 07:19:35.945953+00:00"
+        },
+        {
+          "dia": "2026-10-22",
+          "source": "amazon_ads_reports_v3",
+          "corridas": 1,
+          "exitosas": 1,
+          "primer_fin_ok": "2026-10-22 07:19:33.212175+00:00"
+        },
+        {
+          "dia": "2026-10-23",
+          "source": "amazon_ads_placements_v3",
+          "corridas": 1,
+          "exitosas": 1,
+          "primer_fin_ok": "2026-10-23 07:25:01.777991+00:00"
+        },
+        {
+          "dia": "2026-10-23",
+          "source": "amazon_ads_products_v3",
+          "corridas": 1,
+          "exitosas": 1,
+          "primer_fin_ok": "2026-10-23 07:24:26.796872+00:00"
+        },
+        {
+          "dia": "2026-10-23",
+          "source": "amazon_ads_reports_v3",
+          "corridas": 1,
+          "exitosas": 1,
+          "primer_fin_ok": "2026-10-23 07:24:59.849346+00:00"
+        },
+        {
+          "dia": "2026-10-24",
+          "source": "amazon_ads_placements_v3",
+          "corridas": 1,
+          "exitosas": 1,
+          "primer_fin_ok": "2026-10-24 07:20:10.515019+00:00"
+        },
+        {
+          "dia": "2026-10-24",
+          "source": "amazon_ads_products_v3",
+          "corridas": 1,
+          "exitosas": 1,
+          "primer_fin_ok": "2026-10-24 07:20:08.527382+00:00"
+        },
+        {
+          "dia": "2026-10-24",
+          "source": "amazon_ads_reports_v3",
+          "corridas": 1,
+          "exitosas": 1,
+          "primer_fin_ok": "2026-10-24 07:19:35.632619+00:00"
+        },
+        {
+          "dia": "2026-10-25",
+          "source": "amazon_ads_placements_v3",
+          "corridas": 1,
+          "exitosas": 1,
+          "primer_fin_ok": "2026-10-25 07:14:16.737174+00:00"
+        },
+        {
+          "dia": "2026-10-25",
+          "source": "amazon_ads_products_v3",
+          "corridas": 1,
+          "exitosas": 1,
+          "primer_fin_ok": "2026-10-25 07:14:14.928978+00:00"
+        },
+        {
+          "dia": "2026-10-25",
+          "source": "amazon_ads_reports_v3",
+          "corridas": 1,
+          "exitosas": 1,
+          "primer_fin_ok": "2026-10-25 07:14:13.208498+00:00"
+        },
+        {
+          "dia": "2026-10-26",
+          "source": "amazon_ads_placements_v3",
+          "corridas": 1,
+          "exitosas": 1,
+          "primer_fin_ok": "2026-10-26 07:26:28.197662+00:00"
+        },
+        {
+          "dia": "2026-10-26",
+          "source": "amazon_ads_products_v3",
+          "corridas": 1,
+          "exitosas": 1,
+          "primer_fin_ok": "2026-10-26 07:25:54.301321+00:00"
+        },
+        {
+          "dia": "2026-10-26",
+          "source": "amazon_ads_reports_v3",
+          "corridas": 1,
+          "exitosas": 1,
+          "primer_fin_ok": "2026-10-26 07:26:59.318180+00:00"
+        },
+        {
+          "dia": "2026-10-27",
+          "source": "amazon_ads_placements_v3",
+          "corridas": 1,
+          "exitosas": 1,
+          "primer_fin_ok": "2026-10-27 07:18:02.825276+00:00"
+        },
+        {
+          "dia": "2026-10-27",
+          "source": "amazon_ads_products_v3",
+          "corridas": 1,
+          "exitosas": 1,
+          "primer_fin_ok": "2026-10-27 07:18:00.813002+00:00"
+        },
+        {
+          "dia": "2026-10-27",
+          "source": "amazon_ads_reports_v3",
+          "corridas": 1,
+          "exitosas": 1,
+          "primer_fin_ok": "2026-10-27 07:17:59.041341+00:00"
+        },
+        {
+          "dia": "2026-10-28",
+          "source": "amazon_ads_placements_v3",
+          "corridas": 1,
+          "exitosas": 1,
+          "primer_fin_ok": "2026-10-28 07:15:18.390442+00:00"
+        },
+        {
+          "dia": "2026-10-28",
+          "source": "amazon_ads_products_v3",
+          "corridas": 1,
+          "exitosas": 1,
+          "primer_fin_ok": "2026-10-28 07:15:53.371140+00:00"
+        },
+        {
+          "dia": "2026-10-28",
+          "source": "amazon_ads_reports_v3",
+          "corridas": 1,
+          "exitosas": 1,
+          "primer_fin_ok": "2026-10-28 07:15:51.499100+00:00"
+        }
+      ]
+    },
+    "fuentes": {
+      "sql": "SELECT source,platform,count(*) FILTER (WHERE ok) AS exitosas,max(started_at) AS ultima,max(finished_at) FILTER (WHERE ok) AS ultimo_exito FROM ingest_run WHERE source LIKE '%reput%' OR source LIKE '%apify%' OR source LIKE '%meli_ads%' GROUP BY 1,2 ORDER BY 1,2",
+      "filas": [
+        {
+          "source": "accounting_meli_ads_campaigns",
+          "platform": null,
+          "exitosas": 1,
+          "ultima": "2026-11-04 23:22:25.424029+00:00",
+          "ultimo_exito": "2026-11-04 23:22:25.438683+00:00"
+        },
+        {
+          "source": "reputacion_amazon",
+          "platform": null,
+          "exitosas": 0,
+          "ultima": "2026-09-08 04:37:48.068258+00:00",
+          "ultimo_exito": null
+        },
+        {
+          "source": "reputacion_meli",
+          "platform": null,
+          "exitosas": 41,
+          "ultima": "2026-11-04 09:30:02.507535+00:00",
+          "ultimo_exito": "2026-11-04 09:30:34.977027+00:00"
+        }
+      ]
+    },
+    "resenas": {
+      "sql": "SELECT platform,count(*) AS observaciones,max(fetched_at) AS ultima FROM review_event GROUP BY platform ORDER BY platform",
+      "filas": [
+        {
+          "platform": "meli",
+          "observaciones": 5153,
+          "ultima": "2026-11-04 09:30:30.236970+00:00"
+        }
+      ]
+    },
+    "precios_goals": {
+      "sql": "SELECT platform,mode,count(*) AS metas FROM precio_goal WHERE valid_to IS NULL GROUP BY 1,2 ORDER BY 1,2",
+      "filas": [
+        {
+          "platform": "amazon_mx",
+          "mode": "live",
+          "metas": 231
+        },
+        {
+          "platform": "amazon_us",
+          "mode": "live",
+          "metas": 99
+        },
+        {
+          "platform": "meli",
+          "mode": "live",
+          "metas": 45
+        }
+      ]
+    },
+    "precio_meli": {
+      "sql": "SELECT id,fecha,estado,decisiones,movidas,errores,cerrada_at FROM precio_corrida WHERE platform='meli' ORDER BY id DESC LIMIT 3",
+      "filas": [
+        {
+          "id": 380,
+          "fecha": "2026-11-04",
+          "estado": "cerrada",
+          "decisiones": 0,
+          "movidas": 0,
+          "errores": 0,
+          "cerrada_at": "2026-11-04 23:10:02.605467+00:00"
+        },
+        {
+          "id": 377,
+          "fecha": "2026-11-04",
+          "estado": "cerrada",
+          "decisiones": 0,
+          "movidas": 0,
+          "errores": 0,
+          "cerrada_at": "2026-11-04 21:10:02.537761+00:00"
+        },
+        {
+          "id": 374,
+          "fecha": "2026-11-04",
+          "estado": "cerrada",
+          "decisiones": 0,
+          "movidas": 0,
+          "errores": 0,
+          "cerrada_at": "2026-11-04 19:10:01.962493+00:00"
+        }
+      ]
+    },
+    "esquemas": {
+      "sql": "SELECT table_name,column_name FROM information_schema.columns WHERE table_schema='public' AND table_name IN ('listing','ads_product_metric_observation','ads_placement_observation','ads_metric_observation') ORDER BY 1,ordinal_position",
+      "filas": [
+        {
+          "table_name": "ads_metric_observation",
+          "column_name": "ad_entity_id"
+        },
+        {
+          "table_name": "ads_metric_observation",
+          "column_name": "metric_date"
+        },
+        {
+          "table_name": "ads_metric_observation",
+          "column_name": "observed_at"
+        },
+        {
+          "table_name": "ads_metric_observation",
+          "column_name": "metric_currency"
+        },
+        {
+          "table_name": "ads_metric_observation",
+          "column_name": "cost"
+        },
+        {
+          "table_name": "ads_metric_observation",
+          "column_name": "ad_revenue"
+        },
+        {
+          "table_name": "ads_metric_observation",
+          "column_name": "revenue_same_sku"
+        },
+        {
+          "table_name": "ads_metric_observation",
+          "column_name": "impressions"
+        },
+        {
+          "table_name": "ads_metric_observation",
+          "column_name": "clicks"
+        },
+        {
+          "table_name": "ads_metric_observation",
+          "column_name": "orders"
+        },
+        {
+          "table_name": "ads_metric_observation",
+          "column_name": "source_report_id"
+        },
+        {
+          "table_name": "ads_metric_observation",
+          "column_name": "ingest_run_id"
+        },
+        {
+          "table_name": "ads_placement_observation",
+          "column_name": "platform"
+        },
+        {
+          "table_name": "ads_placement_observation",
+          "column_name": "ad_entity_id"
+        },
+        {
+          "table_name": "ads_placement_observation",
+          "column_name": "placement"
+        },
+        {
+          "table_name": "ads_placement_observation",
+          "column_name": "metric_date"
+        },
+        {
+          "table_name": "ads_placement_observation",
+          "column_name": "observed_at"
+        },
+        {
+          "table_name": "ads_placement_observation",
+          "column_name": "metric_currency"
+        },
+        {
+          "table_name": "ads_placement_observation",
+          "column_name": "impressions"
+        },
+        {
+          "table_name": "ads_placement_observation",
+          "column_name": "clicks"
+        },
+        {
+          "table_name": "ads_placement_observation",
+          "column_name": "cost"
+        },
+        {
+          "table_name": "ads_placement_observation",
+          "column_name": "orders"
+        },
+        {
+          "table_name": "ads_placement_observation",
+          "column_name": "ad_revenue"
+        },
+        {
+          "table_name": "ads_placement_observation",
+          "column_name": "source_report_id"
+        },
+        {
+          "table_name": "ads_product_metric_observation",
+          "column_name": "platform"
+        },
+        {
+          "table_name": "ads_product_metric_observation",
+          "column_name": "advertised_asin"
+        },
+        {
+          "table_name": "ads_product_metric_observation",
+          "column_name": "advertised_sku"
+        },
+        {
+          "table_name": "ads_product_metric_observation",
+          "column_name": "metric_date"
+        },
+        {
+          "table_name": "ads_product_metric_observation",
+          "column_name": "observed_at"
+        },
+        {
+          "table_name": "ads_product_metric_observation",
+          "column_name": "metric_currency"
+        },
+        {
+          "table_name": "ads_product_metric_observation",
+          "column_name": "impressions"
+        },
+        {
+          "table_name": "ads_product_metric_observation",
+          "column_name": "clicks"
+        },
+        {
+          "table_name": "ads_product_metric_observation",
+          "column_name": "cost"
+        },
+        {
+          "table_name": "ads_product_metric_observation",
+          "column_name": "purchases30d"
+        },
+        {
+          "table_name": "ads_product_metric_observation",
+          "column_name": "sales30d"
+        },
+        {
+          "table_name": "ads_product_metric_observation",
+          "column_name": "purchases_same_sku30d"
+        },
+        {
+          "table_name": "ads_product_metric_observation",
+          "column_name": "attributed_sales_same_sku_30d"
+        },
+        {
+          "table_name": "ads_product_metric_observation",
+          "column_name": "campaign_ids"
+        },
+        {
+          "table_name": "ads_product_metric_observation",
+          "column_name": "ad_ids"
+        },
+        {
+          "table_name": "ads_product_metric_observation",
+          "column_name": "source_report_id"
+        },
+        {
+          "table_name": "ads_product_metric_observation",
+          "column_name": "ingest_run_id"
+        },
+        {
+          "table_name": "listing",
+          "column_name": "id"
+        },
+        {
+          "table_name": "listing",
+          "column_name": "product_id"
+        },
+        {
+          "table_name": "listing",
+          "column_name": "platform"
+        },
+        {
+          "table_name": "listing",
+          "column_name": "external_id"
+        },
+        {
+          "table_name": "listing",
+          "column_name": "seller_sku"
+        },
+        {
+          "table_name": "listing",
+          "column_name": "listing_price"
+        },
+        {
+          "table_name": "listing",
+          "column_name": "price_currency"
+        }
+      ]
+    }
+  },
+  "sha256_contenedor": {
+    "app/dashboard_resumen.py": "6c3bc0692dba117703de59c9ccc015bf341e2654b7e08931ef02afad16747f17",
+    "app/ui.py": "95ae2c3a1fd5f352f4970bfed843f07544d2be9e2537d77b743733167a239a3d",
+    "app/templates/resumen.html": "aeaa43ccf281df8db0b555d86c26f2d7d311b25c3a22a6bcd332734b776db0f8",
+    "app/static/js/dashboard.js": "95491f512104d18d4254a134ff2227a07b89ba3de9e41d2afd0eaa2fed24cb32",
+    "app/static/css/dashboard.css": "f257cfa027e7dec0338b4f9dd354831359460756ac263f5ddd8fffc65a43bfdb",
+    "app/meli/ads_ingest.py": "b9163457830d978366b7ddbbabd346dddcedabb510eb917b5c756d1e04e9ee87",
+    "app/precio/corrida.py": "8f252564a85a9acf065ca40386d4754071f8704cbed566bb499647bae5eeb8e1"
+  }
+}
