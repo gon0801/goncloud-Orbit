@@ -1,0 +1,89 @@
+{
+  "conexion": {
+    "current_database": "orbit",
+    "current_user": "orbit_read"
+  },
+  "permisos": [
+    {
+      "rol": "orbit_admin",
+      "tabla": "listing",
+      "lectura": true,
+      "insertar": false,
+      "actualizar": false,
+      "borrar": false
+    },
+    {
+      "rol": "orbit_admin",
+      "tabla": "listing_miembro",
+      "lectura": true,
+      "insertar": false,
+      "actualizar": false,
+      "borrar": false
+    },
+    {
+      "rol": "orbit_admin",
+      "tabla": "product",
+      "lectura": true,
+      "insertar": false,
+      "actualizar": false,
+      "borrar": false
+    },
+    {
+      "rol": "orbit_admin",
+      "tabla": "sku_cost",
+      "lectura": true,
+      "insertar": false,
+      "actualizar": false,
+      "borrar": false
+    },
+    {
+      "rol": "orbit_ingest",
+      "tabla": "listing",
+      "lectura": true,
+      "insertar": true,
+      "actualizar": true,
+      "borrar": false
+    },
+    {
+      "rol": "orbit_ingest",
+      "tabla": "listing_miembro",
+      "lectura": true,
+      "insertar": true,
+      "actualizar": true,
+      "borrar": false
+    },
+    {
+      "rol": "orbit_ingest",
+      "tabla": "product",
+      "lectura": true,
+      "insertar": true,
+      "actualizar": true,
+      "borrar": false
+    },
+    {
+      "rol": "orbit_ingest",
+      "tabla": "sku_cost",
+      "lectura": true,
+      "insertar": true,
+      "actualizar": false,
+      "borrar": false
+    }
+  ],
+  "roles": [
+    {
+      "rolname": "orbit_admin",
+      "rolsuper": false,
+      "rolinherit": true
+    },
+    {
+      "rolname": "orbit_ingest",
+      "rolsuper": false,
+      "rolinherit": true
+    },
+    {
+      "rolname": "orbit_read",
+      "rolsuper": false,
+      "rolinherit": true
+    }
+  ]
+}

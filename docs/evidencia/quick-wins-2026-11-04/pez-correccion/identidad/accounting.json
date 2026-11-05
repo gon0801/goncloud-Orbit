@@ -1,0 +1,108 @@
+{
+  "fecha_utc": "2026-11-05T02:48:41.861631+00:00",
+  "modo": "mode=ro, query_only, transaccion de lectura, una consulta de datos",
+  "sql": "SELECT id,sku,cost,currency,valid_from,valid_to,source,created_at\nFROM sku_costs WHERE sku IN (?,?,?,?,?,?,?,?,?)\nAND COALESCE(valid_from,created_at) <= datetime('now')\nAND (valid_to IS NULL OR valid_to > datetime('now'))\nORDER BY sku,COALESCE(valid_from,created_at),id",
+  "skus": [
+    "SET-CAR-BLA-PEZ-DOR",
+    "SET-CAR-BLA-PEZ-PLA",
+    "SET-BLA-BRO-PEZ-DOR",
+    "SET-ITA-PEZ-PLA",
+    "SET-GAM-AZU-PEZ-PLA",
+    "SET-GAM-NEG-PEZ-DOR",
+    "SET-GAM-AZU-PEZ-DOR",
+    "SET-GAM-NEG-PEZ-PLA",
+    "SET-PLA-CH-PEZ-PLA"
+  ],
+  "filas": [
+    {
+      "id": 2331,
+      "sku": "SET-BLA-BRO-PEZ-DOR",
+      "cost": "175.25",
+      "currency": "MXN",
+      "valid_from": "2026-08-18 07:00:06",
+      "valid_to": null,
+      "source": "odoo_sync",
+      "created_at": "2026-08-18 07:00:06"
+    },
+    {
+      "id": 2379,
+      "sku": "SET-CAR-BLA-PEZ-DOR",
+      "cost": "126.21000000000001",
+      "currency": "MXN",
+      "valid_from": "2026-08-18 07:00:06",
+      "valid_to": null,
+      "source": "odoo_sync",
+      "created_at": "2026-08-18 07:00:06"
+    },
+    {
+      "id": 2380,
+      "sku": "SET-CAR-BLA-PEZ-PLA",
+      "cost": "126.21000000000001",
+      "currency": "MXN",
+      "valid_from": "2026-08-18 07:00:06",
+      "valid_to": null,
+      "source": "odoo_sync",
+      "created_at": "2026-08-18 07:00:06"
+    },
+    {
+      "id": 2487,
+      "sku": "SET-GAM-AZU-PEZ-DOR",
+      "cost": "146.56",
+      "currency": "MXN",
+      "valid_from": "2026-08-18 07:00:06",
+      "valid_to": null,
+      "source": "odoo_sync",
+      "created_at": "2026-08-18 07:00:06"
+    },
+    {
+      "id": 2488,
+      "sku": "SET-GAM-AZU-PEZ-PLA",
+      "cost": "146.56",
+      "currency": "MXN",
+      "valid_from": "2026-08-18 07:00:06",
+      "valid_to": null,
+      "source": "odoo_sync",
+      "created_at": "2026-08-18 07:00:06"
+    },
+    {
+      "id": 2499,
+      "sku": "SET-GAM-NEG-PEZ-DOR",
+      "cost": "146.56",
+      "currency": "MXN",
+      "valid_from": "2026-08-18 07:00:06",
+      "valid_to": null,
+      "source": "odoo_sync",
+      "created_at": "2026-08-18 07:00:06"
+    },
+    {
+      "id": 2500,
+      "sku": "SET-GAM-NEG-PEZ-PLA",
+      "cost": "146.56",
+      "currency": "MXN",
+      "valid_from": "2026-08-18 07:00:06",
+      "valid_to": null,
+      "source": "odoo_sync",
+      "created_at": "2026-08-18 07:00:06"
+    },
+    {
+      "id": 2512,
+      "sku": "SET-ITA-PEZ-PLA",
+      "cost": "162.56",
+      "currency": "MXN",
+      "valid_from": "2026-08-18 07:00:06",
+      "valid_to": null,
+      "source": "odoo_sync",
+      "created_at": "2026-08-18 07:00:06"
+    },
+    {
+      "id": 2536,
+      "sku": "SET-PLA-CH-PEZ-PLA",
+      "cost": "193.56",
+      "currency": "MXN",
+      "valid_from": "2026-08-18 07:00:06",
+      "valid_to": null,
+      "source": "odoo_sync",
+      "created_at": "2026-08-18 07:00:06"
+    }
+  ]
+}

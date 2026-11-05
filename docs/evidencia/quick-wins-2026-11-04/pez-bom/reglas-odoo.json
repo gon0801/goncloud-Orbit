@@ -1,0 +1,23 @@
+[
+  {
+    "ruta": "/usr/lib/python3/dist-packages/odoo/addons/uom/models/uom_uom.py",
+    "sha256": "95fd537ecf397feed699bf48d6530168270663e2270144c08c961355b707752f",
+    "metodo": "_compute_quantity",
+    "linea": 211,
+    "reglas_leidas": [
+      "if self == to_unit:",
+      "amount = qty",
+      "amount = qty / self.factor",
+      "amount = amount * to_unit.factor"
+    ]
+  },
+  {
+    "ruta": "/usr/lib/python3/dist-packages/odoo/addons/mrp/models/mrp_bom.py",
+    "sha256": "ef1509981889ec0cf144f125e950b7992b66b2c949135c3d289357c6bd160770",
+    "metodo": "_skip_bom_line",
+    "linea": 568,
+    "reglas_leidas": [
+      "return not product._match_all_variant_values(self.bom_product_template_attribute_value_ids)"
+    ]
+  }
+]

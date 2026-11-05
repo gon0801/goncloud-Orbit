@@ -158,7 +158,7 @@
     {
       "name": "repricing-02",
       "path": "plans/repricing-02.md",
-      "description": "REPRICING 02 / AUTO-07 — CERRADO. P04: usuario confirma PEZ se vende; nueve SKU exactos con 27 registros Odoo archivados/costo 0, sin receta vigente ni equivalencia con Solo Arras. Resolver fuente/mapeo/costo, no retirar PEZ."
+      "description": "REPRICING 02 / AUTO-07 — CERRADO. P04 se ejecuta en PEZ 01: nueve variantes NH de MeLi corresponden a SET activos con cofre, no NH-SOLO. Costos existentes conciliados; correccion persistente y reversible en preparacion."
     },
     {
       "name": "repricing-02-construccion",
@@ -189,6 +189,11 @@
       "name": "resumen-ads-multicanal",
       "path": "plans/resumen-ads-multicanal.md",
       "description": "RESUMEN ADS — integrado y desplegado; P01 parcial: hasta 3-nov concilia, 4-nov +13.47 MXN por fuente posterior. Job 10 programado 5-nov 09:00 UTC: lectura posterior al cron, misma huella/as-of y conciliacion; cierre depende de resultado."
+    },
+    {
+      "name": "pez-01",
+      "path": "plans/pez-01.md",
+      "description": "PEZ 01 — EN CURSO. Nueve variantes MeLi verificadas contra SET activos con cofre, incluido Blanco con Broche. Correspondencias persistentes y lote reversible preparados; pendientes integracion, despliegue y aplicacion. Costos publicados Odoo/accounting/Orbit conciliados9/9."
     }
   ],
   "active": "resumen-ads-multicanal"

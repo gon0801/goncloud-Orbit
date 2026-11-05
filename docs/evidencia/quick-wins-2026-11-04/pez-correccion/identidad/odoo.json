@@ -1,0 +1,6910 @@
+{
+  "fecha_utc": "2026-11-05T02:41:37.269924+00:00",
+  "activos_modelo_sello_cristiano": [
+    {
+      "id": 7070,
+      "default_code": "SET-BLA-BRO-PEZ-DOR",
+      "name": "SET - Blanco con broche 22mm Dorado",
+      "active": true,
+      "standard_price": "175.25",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6270,
+        "SET - Blanco con broche 22mm Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        1109
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 01:00:12",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7076,
+      "default_code": "SET-BLA-BRO-PEZ-PLA",
+      "name": "SET - Blanco con broche 22mm Plateado",
+      "active": true,
+      "standard_price": "175.25",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6271,
+        "SET - Blanco con broche 22mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        1115
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 18:26:56",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7082,
+      "default_code": "SET-CAO-PEZ-DOR",
+      "name": "SET - Caoba 22mm Dorado",
+      "active": true,
+      "standard_price": "486.56",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6272,
+        "SET - Caoba 22mm Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        1121
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 01:00:12",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7088,
+      "default_code": "SET-CAO-PEZ-PLA",
+      "name": "SET - Caoba 22mm Plateado",
+      "active": true,
+      "standard_price": "486.56",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6273,
+        "SET - Caoba 22mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        1127
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 18:26:56",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7094,
+      "default_code": "SET-CAR-AZU-PEZ-DOR",
+      "name": "SET - Carte Azul 22mm Dorado",
+      "active": true,
+      "standard_price": "126.21000000000001",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6274,
+        "SET - Carte Azul 22mm Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        1133
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 01:00:15",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7100,
+      "default_code": "SET-CAR-AZU-PEZ-PLA",
+      "name": "SET - Carte Azul 22mm Plateado",
+      "active": true,
+      "standard_price": "126.21000000000001",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6275,
+        "SET - Carte Azul 22mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        1139
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 01:00:15",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7106,
+      "default_code": "SET-CAR-BLA-PEZ-DOR",
+      "name": "SET - Carte Blanco 22mm Dorado",
+      "active": true,
+      "standard_price": "126.21000000000001",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6276,
+        "SET - Carte Blanco 22mm Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        1145
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 01:00:12",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7112,
+      "default_code": "SET-CAR-BLA-PEZ-PLA",
+      "name": "SET - Carte Blanco 22mm Plateado",
+      "active": true,
+      "standard_price": "126.21000000000001",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6277,
+        "SET - Carte Blanco 22mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        1151
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 18:26:56",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7118,
+      "default_code": "SET-CAR-ROJ-PEZ-DOR",
+      "name": "SET - Carte Rojo 22mm Dorado",
+      "active": true,
+      "standard_price": "126.21000000000001",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6278,
+        "SET - Carte Rojo 22mm Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        1157
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 02:36:50",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7124,
+      "default_code": "SET-CAR-ROJ-PEZ-PLA",
+      "name": "SET - Carte Rojo 22mm Plateado",
+      "active": true,
+      "standard_price": "126.21000000000001",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6279,
+        "SET - Carte Rojo 22mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        1163
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 02:36:50",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7130,
+      "default_code": "SET-DIA-PEZ-DOR",
+      "name": "SET - Diamante 22mm Dorado",
+      "active": true,
+      "standard_price": "419.56",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6280,
+        "SET - Diamante 22mm Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        1169
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 01:00:12",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7136,
+      "default_code": "SET-DIA-PEZ-PLA",
+      "name": "SET - Diamante 22mm Plateado",
+      "active": true,
+      "standard_price": "419.56",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6281,
+        "SET - Diamante 22mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        1175
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 18:26:56",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7142,
+      "default_code": "SET-ECH-PEZ-DOR",
+      "name": "SET - Europa CH Vino 22mm Dorado",
+      "active": true,
+      "standard_price": "157.52",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6282,
+        "SET - Europa CH Vino 22mm Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        1181
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 01:00:12",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7148,
+      "default_code": "SET-ECH-PEZ-PLA",
+      "name": "SET - Europa CH Vino 22mm Plateado",
+      "active": true,
+      "standard_price": "157.52",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6283,
+        "SET - Europa CH Vino 22mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        1187
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 18:26:56",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7154,
+      "default_code": "SET-EUM-BLA-PEZ-DOR",
+      "name": "SET - Europa M Blanco 22mm Dorado",
+      "active": true,
+      "standard_price": "375.74",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6284,
+        "SET - Europa M Blanco 22mm Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        1193
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 01:00:12",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7160,
+      "default_code": "SET-EUM-BLA-PEZ-PLA",
+      "name": "SET - Europa M Blanco 22mm Plateado",
+      "active": true,
+      "standard_price": "375.74",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6285,
+        "SET - Europa M Blanco 22mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        1199
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 18:26:56",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7166,
+      "default_code": "SET-EUM-VIN-PEZ-DOR",
+      "name": "SET - Europa M Vino 22mm Dorado",
+      "active": true,
+      "standard_price": "369.18",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6286,
+        "SET - Europa M Vino 22mm Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        1205
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 01:00:12",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7172,
+      "default_code": "SET-EUM-VIN-PEZ-PLA",
+      "name": "SET - Europa M Vino 22mm Plateado",
+      "active": true,
+      "standard_price": "369.18",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6287,
+        "SET - Europa M Vino 22mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        1211
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 19:50:11",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7178,
+      "default_code": "SET-GAM-AZU-PEZ-DOR",
+      "name": "SET - Gamuza Azul 22mm Dorado",
+      "active": true,
+      "standard_price": "146.56",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6288,
+        "SET - Gamuza Azul 22mm Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        1217
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 01:00:12",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7184,
+      "default_code": "SET-GAM-AZU-PEZ-PLA",
+      "name": "SET - Gamuza Azul 22mm Plateado",
+      "active": true,
+      "standard_price": "146.56",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6289,
+        "SET - Gamuza Azul 22mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        1223
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 18:26:56",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7190,
+      "default_code": "SET-GAM-NEG-PEZ-DOR",
+      "name": "SET - Gamuza Negro 22mm Dorado",
+      "active": true,
+      "standard_price": "146.56",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6290,
+        "SET - Gamuza Negro 22mm Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        1229
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 01:00:12",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7196,
+      "default_code": "SET-GAM-NEG-PEZ-PLA",
+      "name": "SET - Gamuza Negro 22mm Plateado",
+      "active": true,
+      "standard_price": "146.56",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6291,
+        "SET - Gamuza Negro 22mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        1235
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 18:26:56",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7202,
+      "default_code": "SET-ITA-PEZ-DOR",
+      "name": "SET - Italia 22mm Dorado",
+      "active": true,
+      "standard_price": "162.56",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6292,
+        "SET - Italia 22mm Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        1241
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 01:00:12",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7208,
+      "default_code": "SET-ITA-PEZ-PLA",
+      "name": "SET - Italia 22mm Plateado",
+      "active": true,
+      "standard_price": "162.56",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6293,
+        "SET - Italia 22mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        1247
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 18:26:56",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7214,
+      "default_code": "SET-NOG-VEN-PEZ-DOR",
+      "name": "SET - Nogal con ventana 22mm Dorado",
+      "active": true,
+      "standard_price": "280.85",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6294,
+        "SET - Nogal con ventana 22mm Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        1253
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 01:00:12",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7220,
+      "default_code": "SET-NOG-VEN-PEZ-PLA",
+      "name": "SET - Nogal con ventana 22mm Plateado",
+      "active": true,
+      "standard_price": "280.85",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6295,
+        "SET - Nogal con ventana 22mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        1259
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 20:36:26",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7226,
+      "default_code": "SET-PLA-CH-PEZ-DOR",
+      "name": "SET - Platino CH 22mm Dorado",
+      "active": true,
+      "standard_price": "193.56",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6296,
+        "SET - Platino CH 22mm Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        1265
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 02:36:50",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7232,
+      "default_code": "SET-PLA-CH-PEZ-PLA",
+      "name": "SET - Platino CH 22mm Plateado",
+      "active": true,
+      "standard_price": "193.56",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6297,
+        "SET - Platino CH 22mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        1271
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 02:36:50",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7238,
+      "default_code": "SET-PLA-M-PEZ-DOR",
+      "name": "SET - Platino M 22mm Dorado",
+      "active": true,
+      "standard_price": "435.38",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6298,
+        "SET - Platino M 22mm Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        1277
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 01:00:12",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7244,
+      "default_code": "SET-PLA-M-PEZ-PLA",
+      "name": "SET - Platino M 22mm Plateado",
+      "active": true,
+      "standard_price": "435.38",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6299,
+        "SET - Platino M 22mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        1283
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 18:26:56",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7250,
+      "default_code": "SET-CAR-AZU-REP-PEZ-DOR",
+      "name": "SET - Repujado Carte Azul 22mm Dorado",
+      "active": true,
+      "standard_price": "128.71",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6300,
+        "SET - Repujado Carte Azul 22mm Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        1289
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 01:00:15",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7256,
+      "default_code": "SET-CAR-AZU-REP-PEZ-PLA",
+      "name": "SET - Repujado Carte Azul 22mm Plateado",
+      "active": true,
+      "standard_price": "128.71",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6301,
+        "SET - Repujado Carte Azul 22mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        1295
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 01:00:15",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7262,
+      "default_code": "SET-CAR-BLA-REP-PEZ-DOR",
+      "name": "SET - Repujado Carte Blanco 22mm Dorado",
+      "active": true,
+      "standard_price": "128.71",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6302,
+        "SET - Repujado Carte Blanco 22mm Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        1301
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 01:00:12",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7268,
+      "default_code": "SET-CAR-BLA-REP-PEZ-PLA",
+      "name": "SET - Repujado Carte Blanco 22mm Plateado",
+      "active": true,
+      "standard_price": "128.71",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6303,
+        "SET - Repujado Carte Blanco 22mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        1307
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 18:26:56",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7274,
+      "default_code": "SET-CAR-ROJ-REP-PEZ-DOR",
+      "name": "SET - Repujado Carte Rojo 22mm Dorado",
+      "active": true,
+      "standard_price": "128.71",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6304,
+        "SET - Repujado Carte Rojo 22mm Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        1313
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 02:36:50",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7280,
+      "default_code": "SET-CAR-ROJ-REP-PEZ-PLA",
+      "name": "SET - Repujado Carte Rojo 22mm Plateado",
+      "active": true,
+      "standard_price": "128.71",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6305,
+        "SET - Repujado Carte Rojo 22mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        1319
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 02:36:50",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7286,
+      "default_code": "SET-EUR-VIN-M-REP-PEZ-DOR",
+      "name": "SET - Repujado Europa M Vino 22mm Dorado",
+      "active": true,
+      "standard_price": "374.18",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6306,
+        "SET - Repujado Europa M Vino 22mm Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        1325
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 01:00:12",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7292,
+      "default_code": "SET-EUR-VIN-M-REP-PEZ-PLA",
+      "name": "SET - Repujado Europa M Vino 22mm Plateado",
+      "active": true,
+      "standard_price": "374.18",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6307,
+        "SET - Repujado Europa M Vino 22mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        1331
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 19:50:11",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7298,
+      "default_code": "PERS-CAR-AZU-PEZ-DOR",
+      "name": "PERS - Carte Azul 22mm Dorado",
+      "active": true,
+      "standard_price": "126.21000000000001",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6308,
+        "PERS - Carte Azul 22mm Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        1337
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 01:00:15",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7304,
+      "default_code": "PERS-CAR-AZU-PEZ-PLA",
+      "name": "PERS - Carte Azul 22mm Plateado",
+      "active": true,
+      "standard_price": "126.21000000000001",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6309,
+        "PERS - Carte Azul 22mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        1343
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 01:00:15",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7310,
+      "default_code": "PERS-CAR-BLA-PEZ-DOR",
+      "name": "PERS - Carte Blanco 22mm Dorado",
+      "active": true,
+      "standard_price": "86.56",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6310,
+        "PERS - Carte Blanco 22mm Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        1349
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 01:00:12",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7316,
+      "default_code": "PERS-CAR-BLA-PEZ-PLA",
+      "name": "PERS - Carte Blanco 22mm Plateado",
+      "active": true,
+      "standard_price": "86.56",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6311,
+        "PERS - Carte Blanco 22mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        1355
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 18:26:56",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7322,
+      "default_code": "PERS-CAR-ROJ-PEZ-DOR",
+      "name": "PERS - Carte Rojo 22mm Dorado",
+      "active": true,
+      "standard_price": "126.21000000000001",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6312,
+        "PERS - Carte Rojo 22mm Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        1361
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 02:36:50",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7328,
+      "default_code": "PERS-CAR-ROJ-PEZ-PLA",
+      "name": "PERS - Carte Rojo 22mm Plateado",
+      "active": true,
+      "standard_price": "126.21000000000001",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6313,
+        "PERS - Carte Rojo 22mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        1367
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 02:36:50",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7334,
+      "default_code": "PERS-NOG-SIN-PEZ-DOR",
+      "name": "PERS - Nogal Sin Ventana 22mm Dorado",
+      "active": true,
+      "standard_price": "274.11",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6314,
+        "PERS - Nogal Sin Ventana 22mm Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        1373
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 01:00:12",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7340,
+      "default_code": "PERS-NOG-SIN-PEZ-PLA",
+      "name": "PERS - Nogal Sin Ventana 22mm Plateado",
+      "active": true,
+      "standard_price": "274.11",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6315,
+        "PERS - Nogal Sin Ventana 22mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        1379
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 18:26:56",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7387,
+      "default_code": "SET-ARR-22-DOR-PEZ-COF-22-CHA-RED-DOR",
+      "name": "SET - Arras y Cofre con Charola Dorado",
+      "active": true,
+      "standard_price": "117.56",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6322,
+        "SET - Arras y Cofre con Charola Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        1424
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 01:00:12",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7393,
+      "default_code": "SET-ARR-22-PLA-PEZ-COF-22-CHA-RED-PLA",
+      "name": "SET - Arras y Cofre con Charola Plateado",
+      "active": true,
+      "standard_price": "117.56",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6323,
+        "SET - Arras y Cofre con Charola Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        1430
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 18:26:56",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7460,
+      "default_code": "SET-ARR-COF-22-PEZ-DOR",
+      "name": "SET - Arras y Cofre Dorado",
+      "active": true,
+      "standard_price": "86.56",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6335,
+        "SET - Arras y Cofre Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        1496
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 01:00:12",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7470,
+      "default_code": "SET-ARR-COF-22-PEZ-PLA",
+      "name": "SET - Arras y Cofre Plateado",
+      "active": true,
+      "standard_price": "86.56",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6336,
+        "SET - Arras y Cofre Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        1506
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 18:26:56",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 8485,
+      "default_code": "NH-SOLO-CAR-AZU-PEZ-DOR",
+      "name": "NH - Carte Azul Solo Arras Dorado",
+      "active": true,
+      "standard_price": "77.47",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6481,
+        "NH - Carte Azul Solo Arras Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        2521
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 01:00:15",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": true
+    },
+    {
+      "id": 8492,
+      "default_code": "NH-SOLO-CAR-AZU-PEZ-PLA",
+      "name": "NH - Carte Azul Solo Arras Plateado",
+      "active": true,
+      "standard_price": "77.47",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6482,
+        "NH - Carte Azul Solo Arras Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        2528
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 01:00:15",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": true
+    },
+    {
+      "id": 8499,
+      "default_code": "SET-SOLO-CAR-AZU-PEZ-DOR",
+      "name": "SET - Carte Azul Solo Arras Dorado",
+      "active": true,
+      "standard_price": "77.47",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6483,
+        "SET - Carte Azul Solo Arras Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        2535
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 01:00:15",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": true
+    },
+    {
+      "id": 8506,
+      "default_code": "SET-SOLO-CAR-AZU-PEZ-PLA",
+      "name": "SET - Carte Azul Solo Arras Plateado",
+      "active": true,
+      "standard_price": "77.47",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6484,
+        "SET - Carte Azul Solo Arras Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        2542
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 01:00:15",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": true
+    },
+    {
+      "id": 8513,
+      "default_code": "NH-SOLO-CAR-BLC-PEZ-DOR",
+      "name": "NH - Carte Blanco Solo Arras Dorado",
+      "active": true,
+      "standard_price": "77.47",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6485,
+        "NH - Carte Blanco Solo Arras Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        2549
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 17:37:52",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": true
+    },
+    {
+      "id": 8520,
+      "default_code": "NH-SOLO-CAR-BLC-PEZ-PLA",
+      "name": "NH - Carte Blanco Solo Arras Plateado",
+      "active": true,
+      "standard_price": "77.47",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6486,
+        "NH - Carte Blanco Solo Arras Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        2556
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-03 00:00:39",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": true
+    },
+    {
+      "id": 8527,
+      "default_code": "SET-SOLO-CAR-BLC-PEZ-DOR",
+      "name": "SET - Carte Blanco Solo Arras Dorado",
+      "active": true,
+      "standard_price": "77.47",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6487,
+        "SET - Carte Blanco Solo Arras Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        2563
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 17:37:52",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": true
+    },
+    {
+      "id": 8534,
+      "default_code": "SET-SOLO-CAR-BLC-PEZ-PLA",
+      "name": "SET - Carte Blanco Solo Arras Plateado",
+      "active": true,
+      "standard_price": "77.47",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6488,
+        "SET - Carte Blanco Solo Arras Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        2570
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-03 00:00:39",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": true
+    },
+    {
+      "id": 8541,
+      "default_code": "NH-SOLO-CAR-ROJ-PEZ-DOR",
+      "name": "NH - Carte Rojo Solo Arras Dorado",
+      "active": true,
+      "standard_price": "77.47",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6489,
+        "NH - Carte Rojo Solo Arras Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        2577
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 02:36:50",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": true
+    },
+    {
+      "id": 8548,
+      "default_code": "NH-SOLO-CAR-ROJ-PEZ-PLA",
+      "name": "NH - Carte Rojo Solo Arras Plateado",
+      "active": true,
+      "standard_price": "77.47",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6490,
+        "NH - Carte Rojo Solo Arras Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        2584
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 02:36:50",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": true
+    },
+    {
+      "id": 8555,
+      "default_code": "SET-SOLO-CAR-ROJ-PEZ-DOR",
+      "name": "SET - Carte Rojo Solo Arras Dorado",
+      "active": true,
+      "standard_price": "77.47",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6491,
+        "SET - Carte Rojo Solo Arras Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        2591
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 02:36:50",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": true
+    },
+    {
+      "id": 8562,
+      "default_code": "SET-SOLO-CAR-ROJ-PEZ-PLA",
+      "name": "SET - Carte Rojo Solo Arras Plateado",
+      "active": true,
+      "standard_price": "77.47",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6492,
+        "SET - Carte Rojo Solo Arras Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        2598
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 02:36:50",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": true
+    },
+    {
+      "id": 8569,
+      "default_code": "NH-SOLO-ITA-PEZ-DOR",
+      "name": "NH - Italia Solo Arras Dorado",
+      "active": true,
+      "standard_price": "113.82000000000001",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6493,
+        "NH - Italia Solo Arras Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        2605
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 17:37:52",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": true
+    },
+    {
+      "id": 8576,
+      "default_code": "NH-SOLO-ITA-PEZ-PLA",
+      "name": "NH - Italia Solo Arras Plateado",
+      "active": true,
+      "standard_price": "113.82000000000001",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6494,
+        "NH - Italia Solo Arras Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        2612
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 15:35:06",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": true
+    },
+    {
+      "id": 8583,
+      "default_code": "SET-SOLO-ITA-PEZ-DOR",
+      "name": "SET - Italia Solo Arras Dorado",
+      "active": true,
+      "standard_price": "113.82000000000001",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6495,
+        "SET - Italia Solo Arras Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        2619
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 17:37:52",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": true
+    },
+    {
+      "id": 8590,
+      "default_code": "SET-SOLO-ITA-PEZ-PLA",
+      "name": "SET - Italia Solo Arras Plateado",
+      "active": true,
+      "standard_price": "113.82000000000001",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6496,
+        "SET - Italia Solo Arras Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        2626
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 15:35:06",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": true
+    },
+    {
+      "id": 8597,
+      "default_code": "NH-SOLO-NOG-VEN-PEZ-DOR",
+      "name": "NH - Nogal Solo Arras Dorado",
+      "active": true,
+      "standard_price": "232.11",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6497,
+        "NH - Nogal Solo Arras Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        2633
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 20:36:26",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": true
+    },
+    {
+      "id": 8604,
+      "default_code": "NH-SOLO-NOG-VEN-PEZ-PLA",
+      "name": "NH - Nogal Solo Arras Plateado",
+      "active": true,
+      "standard_price": "232.11",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6498,
+        "NH - Nogal Solo Arras Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        2640
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 20:36:26",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": true
+    },
+    {
+      "id": 8611,
+      "default_code": "SET-SOLO-NOG-VEN-PEZ-DOR",
+      "name": "SET - Nogal Solo Arras Dorado",
+      "active": true,
+      "standard_price": "232.11",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6499,
+        "SET - Nogal Solo Arras Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        2647
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 20:36:26",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": true
+    },
+    {
+      "id": 8618,
+      "default_code": "SET-SOLO-NOG-VEN-PEZ-PLA",
+      "name": "SET - Nogal Solo Arras Plateado",
+      "active": true,
+      "standard_price": "232.11",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6500,
+        "SET - Nogal Solo Arras Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        2654
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 20:36:26",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": true
+    },
+    {
+      "id": 8625,
+      "default_code": "NH-SOLO-EUR-M-BLA-PEZ-DOR",
+      "name": "NH - Europa M Blanco Solo Arras Dorado",
+      "active": true,
+      "standard_price": "167.0",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6501,
+        "NH - Europa M Blanco Solo Arras Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        2661
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 17:37:52",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": true
+    },
+    {
+      "id": 8632,
+      "default_code": "NH-SOLO-EUR-M-BLA-PEZ-PLA",
+      "name": "NH - Europa M Blanco Solo Arras Plateado",
+      "active": true,
+      "standard_price": "167.0",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6502,
+        "NH - Europa M Blanco Solo Arras Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        2668
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-02 01:00:21",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": true
+    },
+    {
+      "id": 8639,
+      "default_code": "SET-SOLO-EUR-M-BLA-PEZ-DOR",
+      "name": "SET - Europa M Blanco Solo Arras Dorado",
+      "active": true,
+      "standard_price": "167.0",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6503,
+        "SET - Europa M Blanco Solo Arras Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        2675
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 17:37:52",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": true
+    },
+    {
+      "id": 8646,
+      "default_code": "SET-SOLO-EUR-M-BLA-PEZ-PLA",
+      "name": "SET - Europa M Blanco Solo Arras Plateado",
+      "active": true,
+      "standard_price": "167.0",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6504,
+        "SET - Europa M Blanco Solo Arras Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        2682
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-02 01:00:21",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": true
+    },
+    {
+      "id": 8653,
+      "default_code": "NH-SOLO-EUR-M-VIN-PEZ-DOR",
+      "name": "NH - Europa M Vino Solo Arras Dorado",
+      "active": true,
+      "standard_price": "160.44",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6505,
+        "NH - Europa M Vino Solo Arras Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        2689
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 19:50:11",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": true
+    },
+    {
+      "id": 8660,
+      "default_code": "NH-SOLO-EUR-M-VIN-PEZ-PLA",
+      "name": "NH - Europa M Vino Solo Arras Plateado",
+      "active": true,
+      "standard_price": "160.44",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6506,
+        "NH - Europa M Vino Solo Arras Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        2696
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 19:50:11",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": true
+    },
+    {
+      "id": 8667,
+      "default_code": "SET-SOLO-EUR-CH-VIN-PEZ-DOR",
+      "name": "SET - Europa CH Vino Solo Arras Dorado",
+      "active": true,
+      "standard_price": "108.78",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6507,
+        "SET - Europa CH Vino Solo Arras Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        2703
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 02:36:50",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": true
+    },
+    {
+      "id": 8674,
+      "default_code": "SET-SOLO-EUR-CH-VIN-PEZ-PLA",
+      "name": "SET - Europa CH Vino Solo Arras Plateado",
+      "active": true,
+      "standard_price": "108.78",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6508,
+        "SET - Europa CH Vino Solo Arras Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        2710
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 02:36:50",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": true
+    },
+    {
+      "id": 8681,
+      "default_code": "NH-SOLO-GAM-AZU-PEZ-DOR",
+      "name": "NH - Gamuza Azul Solo Arras Dorado",
+      "active": true,
+      "standard_price": "97.82000000000001",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6509,
+        "NH - Gamuza Azul Solo Arras Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        2717
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 17:37:52",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": true
+    },
+    {
+      "id": 8688,
+      "default_code": "NH-SOLO-GAM-AZU-PEZ-PLA",
+      "name": "NH - Gamuza Azul Solo Arras Plateado",
+      "active": true,
+      "standard_price": "97.82000000000001",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6510,
+        "NH - Gamuza Azul Solo Arras Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        2724
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-01 01:00:03",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 8695,
+      "default_code": "SET-SOLO-GAM-AZU-PEZ-DOR",
+      "name": "SET - Gamuza Azul Solo Arras Dorado",
+      "active": true,
+      "standard_price": "97.82000000000001",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6511,
+        "SET - Gamuza Azul Solo Arras Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        2731
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 17:37:52",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": true
+    },
+    {
+      "id": 8702,
+      "default_code": "SET-SOLO-GAM-AZU-PEZ-PLA",
+      "name": "SET - Gamuza Azul Solo Arras Plateado",
+      "active": true,
+      "standard_price": "97.82000000000001",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6512,
+        "SET - Gamuza Azul Solo Arras Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        2738
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-01 01:00:03",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": true
+    },
+    {
+      "id": 8709,
+      "default_code": "NH-SOLO-GAM-NEG-PEZ-DOR",
+      "name": "NH - Gamuza Negro Solo Arras Dorado",
+      "active": true,
+      "standard_price": "97.82000000000001",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6513,
+        "NH - Gamuza Negro Solo Arras Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        2745
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 17:37:52",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": true
+    },
+    {
+      "id": 8716,
+      "default_code": "NH-SOLO-GAM-NEG-PEZ-PLA",
+      "name": "NH - Gamuza Negro Solo Arras Plateado",
+      "active": true,
+      "standard_price": "97.82000000000001",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6514,
+        "NH - Gamuza Negro Solo Arras Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        2752
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-10-26 01:00:23",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": true
+    },
+    {
+      "id": 8723,
+      "default_code": "SET-SOLO-GAM-NEG-PEZ-DOR",
+      "name": "SET - Gamuza Negro Solo Arras Dorado",
+      "active": true,
+      "standard_price": "97.82000000000001",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6515,
+        "SET - Gamuza Negro Solo Arras Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        2759
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 17:37:52",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": true
+    },
+    {
+      "id": 8730,
+      "default_code": "SET-SOLO-GAM-NEG-PEZ-PLA",
+      "name": "SET - Gamuza Negro Solo Arras Plateado",
+      "active": true,
+      "standard_price": "97.82000000000001",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6516,
+        "SET - Gamuza Negro Solo Arras Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        2766
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-10-26 01:00:23",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": true
+    },
+    {
+      "id": 8737,
+      "default_code": "NH-SOLO-PLA-CH-PEZ-DOR",
+      "name": "NH - Platino CH Solo Arras Dorado",
+      "active": true,
+      "standard_price": "144.82",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6517,
+        "NH - Platino CH Solo Arras Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        2773
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 02:36:50",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": true
+    },
+    {
+      "id": 8744,
+      "default_code": "NH-SOLO-PLA-CH-PEZ-PLA",
+      "name": "NH - Platino CH Solo Arras Plateado",
+      "active": true,
+      "standard_price": "144.82",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6518,
+        "NH - Platino CH Solo Arras Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        2780
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 02:36:50",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": true
+    },
+    {
+      "id": 8751,
+      "default_code": "SET-SOLO-PLA-CH-PEZ-DOR",
+      "name": "SET - Platino CH Solo Arras Dorado",
+      "active": true,
+      "standard_price": "144.82",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6519,
+        "SET - Platino CH Solo Arras Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        2787
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 02:36:50",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": true
+    },
+    {
+      "id": 8758,
+      "default_code": "SET-SOLO-PLA-CH-PEZ-PLA",
+      "name": "SET - Platino CH Solo Arras Plateado",
+      "active": true,
+      "standard_price": "144.82",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6520,
+        "SET - Platino CH Solo Arras Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        2794
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 02:36:50",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": true
+    },
+    {
+      "id": 8765,
+      "default_code": "NH-SOLO-PLA-M-PEZ-DOR",
+      "name": "NH - Platino M Solo Arras Dorado",
+      "active": true,
+      "standard_price": "226.64000000000001",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6521,
+        "NH - Platino M Solo Arras Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        2801
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 17:37:52",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 8772,
+      "default_code": "NH-SOLO-PLA-M-PEZ-PLA",
+      "name": "NH - Platino M Solo Arras Plateado",
+      "active": true,
+      "standard_price": "226.64000000000001",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6522,
+        "NH - Platino M Solo Arras Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        2808
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-10-07 04:17:12",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 8779,
+      "default_code": "SET-SOLO-PLA-M-PEZ-DOR",
+      "name": "SET - Platino M Solo Arras Dorado",
+      "active": true,
+      "standard_price": "226.64000000000001",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6523,
+        "SET - Platino M Solo Arras Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        2815
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 17:37:52",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 8786,
+      "default_code": "SET-SOLO-PLA-M-PEZ-PLA",
+      "name": "SET - Platino M Solo Arras Plateado",
+      "active": true,
+      "standard_price": "226.64000000000001",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6524,
+        "SET - Platino M Solo Arras Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        2822
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-10-07 04:17:12",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 8793,
+      "default_code": "SET-SOLO-EUR-M-VIN-PEZ-DOR",
+      "name": "SET - Europa M Vino Solo Arras Dorado",
+      "active": true,
+      "standard_price": "160.44",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6525,
+        "SET - Europa M Vino Solo Arras Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        2829
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 19:50:11",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": true
+    },
+    {
+      "id": 8800,
+      "default_code": "SET-SOLO-EUR-M-VIN-PEZ-PLA",
+      "name": "SET - Europa M Vino Solo Arras Plateado",
+      "active": true,
+      "standard_price": "160.44",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6526,
+        "SET - Europa M Vino Solo Arras Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        2836
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 19:50:11",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": true
+    },
+    {
+      "id": 8807,
+      "default_code": "NH-SOLO-EUR-CH-VIN-PEZ-DOR",
+      "name": "NH - Europa CH Vino Solo Arras Dorado",
+      "active": true,
+      "standard_price": "108.78",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6527,
+        "NH - Europa CH Vino Solo Arras Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        2843
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 02:36:50",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 8814,
+      "default_code": "NH-SOLO-EUR-CH-VIN-PEZ-PLA",
+      "name": "NH - Europa CH Vino Solo Arras Plateado",
+      "active": true,
+      "standard_price": "108.78",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6528,
+        "NH - Europa CH Vino Solo Arras Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        2850
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 02:36:50",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 8823,
+      "default_code": "NH-ARR-COF-22-PEZ-DOR",
+      "name": "NH - Arras y Cofre Dorado",
+      "active": true,
+      "standard_price": "86.56",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6531,
+        "NH - Arras y Cofre Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        2857
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 01:00:12",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 8830,
+      "default_code": "NH-ARR-COF-22-PEZ-PLA",
+      "name": "NH - Arras y Cofre Plateado",
+      "active": true,
+      "standard_price": "86.56",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6532,
+        "NH - Arras y Cofre Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        2864
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 18:26:56",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 8837,
+      "default_code": "NH-ARR-22-DOR-PEZ-COF-22-CHA-RED-DOR",
+      "name": "NH - Arras y Cofre con Charola Dorado",
+      "active": true,
+      "standard_price": "117.56",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6533,
+        "NH - Arras y Cofre con Charola Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        2871
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 01:00:12",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 8844,
+      "default_code": "NH-ARR-22-PLA-PEZ-COF-22-CHA-RED-PLA",
+      "name": "NH - Arras y Cofre con Charola Plateado",
+      "active": true,
+      "standard_price": "117.56",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6534,
+        "NH - Arras y Cofre con Charola Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        2878
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 18:26:56",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    }
+  ],
+  "activos_blanco_broche": [
+    {
+      "id": 159,
+      "default_code": "4608",
+      "name": "Blanco con Broche",
+      "active": true,
+      "standard_price": "88.69",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        166,
+        "[4608] Blanco con Broche"
+      ],
+      "product_template_attribute_value_ids": [],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-02 22:06:22",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": "2100000000432",
+      "sale_ok": false,
+      "purchase_ok": true
+    },
+    {
+      "id": 5892,
+      "default_code": "NH-BLA-BRO-CEN-DOR",
+      "name": "NH - Blanco con broche 19mm Dorado",
+      "active": true,
+      "standard_price": "353.69",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5911,
+        "NH - Blanco con broche 19mm Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        1
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 21:02:56",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 5893,
+      "default_code": "NH-BLA-BRO-SAN-DOR",
+      "name": "NH - Blanco con broche 19mm Dorado",
+      "active": true,
+      "standard_price": "291.51",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5911,
+        "NH - Blanco con broche 19mm Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        2
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 02:36:50",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 5894,
+      "default_code": "NH-BLA-BRO-VCO-DOR",
+      "name": "NH - Blanco con broche 19mm Dorado",
+      "active": true,
+      "standard_price": "291.51",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5911,
+        "NH - Blanco con broche 19mm Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        3
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 02:36:50",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 5895,
+      "default_code": "NH-BLA-BRO-VBU-DOR",
+      "name": "NH - Blanco con broche 19mm Dorado",
+      "active": true,
+      "standard_price": "291.51",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5911,
+        "NH - Blanco con broche 19mm Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        4
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 01:00:12",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 5896,
+      "default_code": "NH-BLA-BRO-COR-DOR",
+      "name": "NH - Blanco con broche 19mm Dorado",
+      "active": true,
+      "standard_price": "353.69",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5911,
+        "NH - Blanco con broche 19mm Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        5
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 15:56:14",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 5898,
+      "default_code": "NH-BLA-BRO-MAX-DOR",
+      "name": "NH - Blanco con broche 19mm Dorado",
+      "active": true,
+      "standard_price": "353.69",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5911,
+        "NH - Blanco con broche 19mm Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        7
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 15:56:14",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 5899,
+      "default_code": "NH-BLA-BRO-PESETA-DOR",
+      "name": "NH - Blanco con broche 19mm Dorado",
+      "active": true,
+      "standard_price": "353.69",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5911,
+        "NH - Blanco con broche 19mm Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        8
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 15:56:14",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 6027,
+      "default_code": "NH-BLA-BRO-CEN-PLA",
+      "name": "NH - Blanco con broche 19mm Plateado",
+      "active": true,
+      "standard_price": "353.69",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6145,
+        "NH - Blanco con broche 19mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        66
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 04:21:16",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 6028,
+      "default_code": "NH-BLA-BRO-COR-PLA",
+      "name": "NH - Blanco con broche 19mm Plateado",
+      "active": true,
+      "standard_price": "353.69",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6145,
+        "NH - Blanco con broche 19mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        67
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 03:31:41",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 6030,
+      "default_code": "NH-BLA-BRO-MAX-PLA",
+      "name": "NH - Blanco con broche 19mm Plateado",
+      "active": true,
+      "standard_price": "353.69",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6145,
+        "NH - Blanco con broche 19mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        69
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 03:31:41",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 6031,
+      "default_code": "NH-BLA-BRO-PESETA-PLA",
+      "name": "NH - Blanco con broche 19mm Plateado",
+      "active": true,
+      "standard_price": "353.69",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6145,
+        "NH - Blanco con broche 19mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        70
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 03:31:41",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 6033,
+      "default_code": "NH-BLA-BRO-SAN-PLA",
+      "name": "NH - Blanco con broche 19mm Plateado",
+      "active": true,
+      "standard_price": "291.51",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6145,
+        "NH - Blanco con broche 19mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        72
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 02:36:50",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 6034,
+      "default_code": "NH-BLA-BRO-VBU-PLA",
+      "name": "NH - Blanco con broche 19mm Plateado",
+      "active": true,
+      "standard_price": "291.51",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6145,
+        "NH - Blanco con broche 19mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        73
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 02:36:50",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 6035,
+      "default_code": "NH-BLA-BRO-VCO-PLA",
+      "name": "NH - Blanco con broche 19mm Plateado",
+      "active": true,
+      "standard_price": "291.51",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6145,
+        "NH - Blanco con broche 19mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        74
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 02:36:50",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7068,
+      "default_code": "SET-BLA-BRO-CEN-DOR",
+      "name": "SET - Blanco con broche 22mm Dorado",
+      "active": true,
+      "standard_price": "175.25",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6270,
+        "SET - Blanco con broche 22mm Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        1107
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 01:00:12",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7069,
+      "default_code": "SET-BLA-BRO-COR-DOR",
+      "name": "SET - Blanco con broche 22mm Dorado",
+      "active": true,
+      "standard_price": "175.25",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6270,
+        "SET - Blanco con broche 22mm Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        1108
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 01:00:12",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7070,
+      "default_code": "SET-BLA-BRO-PEZ-DOR",
+      "name": "SET - Blanco con broche 22mm Dorado",
+      "active": true,
+      "standard_price": "175.25",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6270,
+        "SET - Blanco con broche 22mm Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        1109
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 01:00:12",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7071,
+      "default_code": "SET-BLA-BRO-SAN-DOR",
+      "name": "SET - Blanco con broche 22mm Dorado",
+      "active": true,
+      "standard_price": "175.25",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6270,
+        "SET - Blanco con broche 22mm Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        1110
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 02:36:50",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7072,
+      "default_code": "SET-BLA-BRO-VCO-DOR",
+      "name": "SET - Blanco con broche 22mm Dorado",
+      "active": true,
+      "standard_price": "175.25",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6270,
+        "SET - Blanco con broche 22mm Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        1111
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 02:36:50",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7073,
+      "default_code": "SET-BLA-BRO-VBU-DOR",
+      "name": "SET - Blanco con broche 22mm Dorado",
+      "active": true,
+      "standard_price": "175.25",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6270,
+        "SET - Blanco con broche 22mm Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        1112
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 01:00:12",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7074,
+      "default_code": "SET-BLA-BRO-CEN-PLA",
+      "name": "SET - Blanco con broche 22mm Plateado",
+      "active": true,
+      "standard_price": "175.25",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6271,
+        "SET - Blanco con broche 22mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        1113
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 18:26:56",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7075,
+      "default_code": "SET-BLA-BRO-COR-PLA",
+      "name": "SET - Blanco con broche 22mm Plateado",
+      "active": true,
+      "standard_price": "175.25",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6271,
+        "SET - Blanco con broche 22mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        1114
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 18:26:56",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7076,
+      "default_code": "SET-BLA-BRO-PEZ-PLA",
+      "name": "SET - Blanco con broche 22mm Plateado",
+      "active": true,
+      "standard_price": "175.25",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6271,
+        "SET - Blanco con broche 22mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        1115
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 18:26:56",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7077,
+      "default_code": "SET-BLA-BRO-SAN-PLA",
+      "name": "SET - Blanco con broche 22mm Plateado",
+      "active": true,
+      "standard_price": "175.25",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6271,
+        "SET - Blanco con broche 22mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        1116
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 02:36:50",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7078,
+      "default_code": "SET-BLA-BRO-VCO-PLA",
+      "name": "SET - Blanco con broche 22mm Plateado",
+      "active": true,
+      "standard_price": "175.25",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6271,
+        "SET - Blanco con broche 22mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        1117
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 02:36:50",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7079,
+      "default_code": "SET-BLA-BRO-VBU-PLA",
+      "name": "SET - Blanco con broche 22mm Plateado",
+      "active": true,
+      "standard_price": "175.25",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6271,
+        "SET - Blanco con broche 22mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        1118
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 02:36:50",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    }
+  ],
+  "productos_candidatos": [
+    {
+      "id": 159,
+      "default_code": "4608",
+      "name": "Blanco con Broche",
+      "active": true,
+      "standard_price": "88.69",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        166,
+        "[4608] Blanco con Broche"
+      ],
+      "product_template_attribute_value_ids": [],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-02 22:06:22",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": "2100000000432",
+      "sale_ok": false,
+      "purchase_ok": true
+    },
+    {
+      "id": 5892,
+      "default_code": "NH-BLA-BRO-CEN-DOR",
+      "name": "NH - Blanco con broche 19mm Dorado",
+      "active": true,
+      "standard_price": "353.69",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5911,
+        "NH - Blanco con broche 19mm Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        1
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 21:02:56",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 5893,
+      "default_code": "NH-BLA-BRO-SAN-DOR",
+      "name": "NH - Blanco con broche 19mm Dorado",
+      "active": true,
+      "standard_price": "291.51",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5911,
+        "NH - Blanco con broche 19mm Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        2
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 02:36:50",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 5894,
+      "default_code": "NH-BLA-BRO-VCO-DOR",
+      "name": "NH - Blanco con broche 19mm Dorado",
+      "active": true,
+      "standard_price": "291.51",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5911,
+        "NH - Blanco con broche 19mm Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        3
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 02:36:50",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 5895,
+      "default_code": "NH-BLA-BRO-VBU-DOR",
+      "name": "NH - Blanco con broche 19mm Dorado",
+      "active": true,
+      "standard_price": "291.51",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5911,
+        "NH - Blanco con broche 19mm Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        4
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 01:00:12",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 5896,
+      "default_code": "NH-BLA-BRO-COR-DOR",
+      "name": "NH - Blanco con broche 19mm Dorado",
+      "active": true,
+      "standard_price": "353.69",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5911,
+        "NH - Blanco con broche 19mm Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        5
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 15:56:14",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 5898,
+      "default_code": "NH-BLA-BRO-MAX-DOR",
+      "name": "NH - Blanco con broche 19mm Dorado",
+      "active": true,
+      "standard_price": "353.69",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5911,
+        "NH - Blanco con broche 19mm Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        7
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 15:56:14",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 5899,
+      "default_code": "NH-BLA-BRO-PESETA-DOR",
+      "name": "NH - Blanco con broche 19mm Dorado",
+      "active": true,
+      "standard_price": "353.69",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5911,
+        "NH - Blanco con broche 19mm Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        8
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 15:56:14",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 6027,
+      "default_code": "NH-BLA-BRO-CEN-PLA",
+      "name": "NH - Blanco con broche 19mm Plateado",
+      "active": true,
+      "standard_price": "353.69",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6145,
+        "NH - Blanco con broche 19mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        66
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 04:21:16",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 6028,
+      "default_code": "NH-BLA-BRO-COR-PLA",
+      "name": "NH - Blanco con broche 19mm Plateado",
+      "active": true,
+      "standard_price": "353.69",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6145,
+        "NH - Blanco con broche 19mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        67
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 03:31:41",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 6030,
+      "default_code": "NH-BLA-BRO-MAX-PLA",
+      "name": "NH - Blanco con broche 19mm Plateado",
+      "active": true,
+      "standard_price": "353.69",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6145,
+        "NH - Blanco con broche 19mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        69
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 03:31:41",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 6031,
+      "default_code": "NH-BLA-BRO-PESETA-PLA",
+      "name": "NH - Blanco con broche 19mm Plateado",
+      "active": true,
+      "standard_price": "353.69",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6145,
+        "NH - Blanco con broche 19mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        70
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 03:31:41",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 6033,
+      "default_code": "NH-BLA-BRO-SAN-PLA",
+      "name": "NH - Blanco con broche 19mm Plateado",
+      "active": true,
+      "standard_price": "291.51",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6145,
+        "NH - Blanco con broche 19mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        72
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 02:36:50",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 6034,
+      "default_code": "NH-BLA-BRO-VBU-PLA",
+      "name": "NH - Blanco con broche 19mm Plateado",
+      "active": true,
+      "standard_price": "291.51",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6145,
+        "NH - Blanco con broche 19mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        73
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 02:36:50",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 6035,
+      "default_code": "NH-BLA-BRO-VCO-PLA",
+      "name": "NH - Blanco con broche 19mm Plateado",
+      "active": true,
+      "standard_price": "291.51",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6145,
+        "NH - Blanco con broche 19mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        74
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 02:36:50",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7068,
+      "default_code": "SET-BLA-BRO-CEN-DOR",
+      "name": "SET - Blanco con broche 22mm Dorado",
+      "active": true,
+      "standard_price": "175.25",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6270,
+        "SET - Blanco con broche 22mm Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        1107
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 01:00:12",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7069,
+      "default_code": "SET-BLA-BRO-COR-DOR",
+      "name": "SET - Blanco con broche 22mm Dorado",
+      "active": true,
+      "standard_price": "175.25",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6270,
+        "SET - Blanco con broche 22mm Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        1108
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 01:00:12",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7070,
+      "default_code": "SET-BLA-BRO-PEZ-DOR",
+      "name": "SET - Blanco con broche 22mm Dorado",
+      "active": true,
+      "standard_price": "175.25",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6270,
+        "SET - Blanco con broche 22mm Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        1109
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 01:00:12",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7071,
+      "default_code": "SET-BLA-BRO-SAN-DOR",
+      "name": "SET - Blanco con broche 22mm Dorado",
+      "active": true,
+      "standard_price": "175.25",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6270,
+        "SET - Blanco con broche 22mm Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        1110
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 02:36:50",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7072,
+      "default_code": "SET-BLA-BRO-VCO-DOR",
+      "name": "SET - Blanco con broche 22mm Dorado",
+      "active": true,
+      "standard_price": "175.25",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6270,
+        "SET - Blanco con broche 22mm Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        1111
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 02:36:50",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7073,
+      "default_code": "SET-BLA-BRO-VBU-DOR",
+      "name": "SET - Blanco con broche 22mm Dorado",
+      "active": true,
+      "standard_price": "175.25",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6270,
+        "SET - Blanco con broche 22mm Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        1112
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 01:00:12",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7074,
+      "default_code": "SET-BLA-BRO-CEN-PLA",
+      "name": "SET - Blanco con broche 22mm Plateado",
+      "active": true,
+      "standard_price": "175.25",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6271,
+        "SET - Blanco con broche 22mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        1113
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 18:26:56",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7075,
+      "default_code": "SET-BLA-BRO-COR-PLA",
+      "name": "SET - Blanco con broche 22mm Plateado",
+      "active": true,
+      "standard_price": "175.25",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6271,
+        "SET - Blanco con broche 22mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        1114
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 18:26:56",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7076,
+      "default_code": "SET-BLA-BRO-PEZ-PLA",
+      "name": "SET - Blanco con broche 22mm Plateado",
+      "active": true,
+      "standard_price": "175.25",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6271,
+        "SET - Blanco con broche 22mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        1115
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 18:26:56",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7077,
+      "default_code": "SET-BLA-BRO-SAN-PLA",
+      "name": "SET - Blanco con broche 22mm Plateado",
+      "active": true,
+      "standard_price": "175.25",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6271,
+        "SET - Blanco con broche 22mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        1116
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 02:36:50",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7078,
+      "default_code": "SET-BLA-BRO-VCO-PLA",
+      "name": "SET - Blanco con broche 22mm Plateado",
+      "active": true,
+      "standard_price": "175.25",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6271,
+        "SET - Blanco con broche 22mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        1117
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 02:36:50",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 7079,
+      "default_code": "SET-BLA-BRO-VBU-PLA",
+      "name": "SET - Blanco con broche 22mm Plateado",
+      "active": true,
+      "standard_price": "175.25",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6271,
+        "SET - Blanco con broche 22mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        1118
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 02:36:50",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 8513,
+      "default_code": "NH-SOLO-CAR-BLC-PEZ-DOR",
+      "name": "NH - Carte Blanco Solo Arras Dorado",
+      "active": true,
+      "standard_price": "77.47",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6485,
+        "NH - Carte Blanco Solo Arras Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        2549
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 17:37:52",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": true
+    },
+    {
+      "id": 8520,
+      "default_code": "NH-SOLO-CAR-BLC-PEZ-PLA",
+      "name": "NH - Carte Blanco Solo Arras Plateado",
+      "active": true,
+      "standard_price": "77.47",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6486,
+        "NH - Carte Blanco Solo Arras Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        2556
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-03 00:00:39",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": true
+    },
+    {
+      "id": 8576,
+      "default_code": "NH-SOLO-ITA-PEZ-PLA",
+      "name": "NH - Italia Solo Arras Plateado",
+      "active": true,
+      "standard_price": "113.82000000000001",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6494,
+        "NH - Italia Solo Arras Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        2612
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 15:35:06",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": true
+    },
+    {
+      "id": 8681,
+      "default_code": "NH-SOLO-GAM-AZU-PEZ-DOR",
+      "name": "NH - Gamuza Azul Solo Arras Dorado",
+      "active": true,
+      "standard_price": "97.82000000000001",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6509,
+        "NH - Gamuza Azul Solo Arras Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        2717
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 17:37:52",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": true
+    },
+    {
+      "id": 8688,
+      "default_code": "NH-SOLO-GAM-AZU-PEZ-PLA",
+      "name": "NH - Gamuza Azul Solo Arras Plateado",
+      "active": true,
+      "standard_price": "97.82000000000001",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6510,
+        "NH - Gamuza Azul Solo Arras Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        2724
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-01 01:00:03",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": false
+    },
+    {
+      "id": 8709,
+      "default_code": "NH-SOLO-GAM-NEG-PEZ-DOR",
+      "name": "NH - Gamuza Negro Solo Arras Dorado",
+      "active": true,
+      "standard_price": "97.82000000000001",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6513,
+        "NH - Gamuza Negro Solo Arras Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        2745
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-04 17:37:52",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": true
+    },
+    {
+      "id": 8716,
+      "default_code": "NH-SOLO-GAM-NEG-PEZ-PLA",
+      "name": "NH - Gamuza Negro Solo Arras Plateado",
+      "active": true,
+      "standard_price": "97.82000000000001",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6514,
+        "NH - Gamuza Negro Solo Arras Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        2752
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-10-26 01:00:23",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": true
+    },
+    {
+      "id": 8744,
+      "default_code": "NH-SOLO-PLA-CH-PEZ-PLA",
+      "name": "NH - Platino CH Solo Arras Plateado",
+      "active": true,
+      "standard_price": "144.82",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6518,
+        "NH - Platino CH Solo Arras Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        2780
+      ],
+      "description": false,
+      "description_sale": false,
+      "write_date": "2026-11-05 02:36:50",
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "barcode": false,
+      "sale_ok": true,
+      "purchase_ok": true
+    }
+  ],
+  "plantillas": [
+    {
+      "id": 166,
+      "name": "Blanco con Broche",
+      "active": true,
+      "description": false,
+      "description_sale": false,
+      "attribute_line_ids": [],
+      "product_variant_ids": [
+        159
+      ],
+      "write_date": "2026-02-22 06:05:03"
+    },
+    {
+      "id": 5911,
+      "name": "NH - Blanco con broche 19mm Dorado",
+      "active": true,
+      "description": false,
+      "description_sale": false,
+      "attribute_line_ids": [
+        7
+      ],
+      "product_variant_ids": [
+        5892,
+        5896,
+        5898,
+        5899,
+        5893,
+        5895,
+        5894
+      ],
+      "write_date": "2026-02-22 06:05:03"
+    },
+    {
+      "id": 6145,
+      "name": "NH - Blanco con broche 19mm Plateado",
+      "active": true,
+      "description": false,
+      "description_sale": false,
+      "attribute_line_ids": [
+        94
+      ],
+      "product_variant_ids": [
+        6027,
+        6028,
+        6030,
+        6031,
+        6033,
+        6034,
+        6035
+      ],
+      "write_date": "2026-02-22 06:05:03"
+    },
+    {
+      "id": 6270,
+      "name": "SET - Blanco con broche 22mm Dorado",
+      "active": true,
+      "description": false,
+      "description_sale": false,
+      "attribute_line_ids": [
+        219
+      ],
+      "product_variant_ids": [
+        7068,
+        7069,
+        7070,
+        7071,
+        7073,
+        7072
+      ],
+      "write_date": "2026-02-22 06:05:03"
+    },
+    {
+      "id": 6271,
+      "name": "SET - Blanco con broche 22mm Plateado",
+      "active": true,
+      "description": false,
+      "description_sale": false,
+      "attribute_line_ids": [
+        220
+      ],
+      "product_variant_ids": [
+        7074,
+        7075,
+        7076,
+        7077,
+        7079,
+        7078
+      ],
+      "write_date": "2026-02-22 06:05:03"
+    },
+    {
+      "id": 6485,
+      "name": "NH - Carte Blanco Solo Arras Dorado",
+      "active": true,
+      "description": false,
+      "description_sale": false,
+      "attribute_line_ids": [
+        433
+      ],
+      "product_variant_ids": [
+        8507,
+        8508,
+        8509,
+        8866,
+        8513,
+        8510,
+        8511,
+        8512
+      ],
+      "write_date": "2026-07-26 00:33:06"
+    },
+    {
+      "id": 6486,
+      "name": "NH - Carte Blanco Solo Arras Plateado",
+      "active": true,
+      "description": false,
+      "description_sale": false,
+      "attribute_line_ids": [
+        434
+      ],
+      "product_variant_ids": [
+        8514,
+        8515,
+        8516,
+        8867,
+        8520,
+        8517,
+        8518,
+        8519
+      ],
+      "write_date": "2026-07-26 00:33:06"
+    },
+    {
+      "id": 6494,
+      "name": "NH - Italia Solo Arras Plateado",
+      "active": true,
+      "description": false,
+      "description_sale": false,
+      "attribute_line_ids": [
+        442
+      ],
+      "product_variant_ids": [
+        8570,
+        8571,
+        8572,
+        8871,
+        8576,
+        8573,
+        8574,
+        8575
+      ],
+      "write_date": "2026-07-26 00:33:08"
+    },
+    {
+      "id": 6509,
+      "name": "NH - Gamuza Azul Solo Arras Dorado",
+      "active": true,
+      "description": false,
+      "description_sale": false,
+      "attribute_line_ids": [
+        457
+      ],
+      "product_variant_ids": [
+        8675,
+        8676,
+        8677,
+        8878,
+        8681,
+        8678,
+        8679,
+        8680
+      ],
+      "write_date": "2026-07-26 00:33:10"
+    },
+    {
+      "id": 6510,
+      "name": "NH - Gamuza Azul Solo Arras Plateado",
+      "active": true,
+      "description": false,
+      "description_sale": false,
+      "attribute_line_ids": [
+        458
+      ],
+      "product_variant_ids": [
+        8682,
+        8683,
+        8684,
+        8879,
+        8688,
+        8685,
+        8686,
+        8687
+      ],
+      "write_date": "2026-07-26 00:33:11"
+    },
+    {
+      "id": 6513,
+      "name": "NH - Gamuza Negro Solo Arras Dorado",
+      "active": true,
+      "description": false,
+      "description_sale": false,
+      "attribute_line_ids": [
+        461
+      ],
+      "product_variant_ids": [
+        8703,
+        8704,
+        8705,
+        8880,
+        8709,
+        8706,
+        8707,
+        8708
+      ],
+      "write_date": "2026-07-26 00:33:11"
+    },
+    {
+      "id": 6514,
+      "name": "NH - Gamuza Negro Solo Arras Plateado",
+      "active": true,
+      "description": false,
+      "description_sale": false,
+      "attribute_line_ids": [
+        462
+      ],
+      "product_variant_ids": [
+        8710,
+        8711,
+        8712,
+        8881,
+        8716,
+        8713,
+        8714,
+        8715
+      ],
+      "write_date": "2026-07-26 00:33:11"
+    },
+    {
+      "id": 6518,
+      "name": "NH - Platino CH Solo Arras Plateado",
+      "active": true,
+      "description": false,
+      "description_sale": false,
+      "attribute_line_ids": [
+        466
+      ],
+      "product_variant_ids": [
+        8738,
+        8739,
+        8740,
+        8883,
+        8744,
+        8741,
+        8742,
+        8743
+      ],
+      "write_date": "2026-07-26 00:33:12"
+    }
+  ],
+  "atributos": [
+    {
+      "id": 1,
+      "name": "Centenario",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        1,
+        "Modelo: Centenario"
+      ],
+      "product_tmpl_id": [
+        5911,
+        "NH - Blanco con broche 19mm Dorado"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "San Benito",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        2,
+        "Modelo: San Benito"
+      ],
+      "product_tmpl_id": [
+        5911,
+        "NH - Blanco con broche 19mm Dorado"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "Virgen Completa",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        3,
+        "Modelo: Virgen Completa"
+      ],
+      "product_tmpl_id": [
+        5911,
+        "NH - Blanco con broche 19mm Dorado"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "Virgen Busto",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        4,
+        "Modelo: Virgen Busto"
+      ],
+      "product_tmpl_id": [
+        5911,
+        "NH - Blanco con broche 19mm Dorado"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "Corazón",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        5,
+        "Modelo: Corazón"
+      ],
+      "product_tmpl_id": [
+        5911,
+        "NH - Blanco con broche 19mm Dorado"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "Maximiliano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        7,
+        "Modelo: Maximiliano"
+      ],
+      "product_tmpl_id": [
+        5911,
+        "NH - Blanco con broche 19mm Dorado"
+      ]
+    },
+    {
+      "id": 8,
+      "name": "Peseta",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        8,
+        "Modelo: Peseta"
+      ],
+      "product_tmpl_id": [
+        5911,
+        "NH - Blanco con broche 19mm Dorado"
+      ]
+    },
+    {
+      "id": 66,
+      "name": "Centenario",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        1,
+        "Modelo: Centenario"
+      ],
+      "product_tmpl_id": [
+        6145,
+        "NH - Blanco con broche 19mm Plateado"
+      ]
+    },
+    {
+      "id": 67,
+      "name": "Corazón",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        5,
+        "Modelo: Corazón"
+      ],
+      "product_tmpl_id": [
+        6145,
+        "NH - Blanco con broche 19mm Plateado"
+      ]
+    },
+    {
+      "id": 69,
+      "name": "Maximiliano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        7,
+        "Modelo: Maximiliano"
+      ],
+      "product_tmpl_id": [
+        6145,
+        "NH - Blanco con broche 19mm Plateado"
+      ]
+    },
+    {
+      "id": 70,
+      "name": "Peseta",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        8,
+        "Modelo: Peseta"
+      ],
+      "product_tmpl_id": [
+        6145,
+        "NH - Blanco con broche 19mm Plateado"
+      ]
+    },
+    {
+      "id": 72,
+      "name": "San Benito",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        2,
+        "Modelo: San Benito"
+      ],
+      "product_tmpl_id": [
+        6145,
+        "NH - Blanco con broche 19mm Plateado"
+      ]
+    },
+    {
+      "id": 73,
+      "name": "Virgen Busto",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        4,
+        "Modelo: Virgen Busto"
+      ],
+      "product_tmpl_id": [
+        6145,
+        "NH - Blanco con broche 19mm Plateado"
+      ]
+    },
+    {
+      "id": 74,
+      "name": "Virgen Completa",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        3,
+        "Modelo: Virgen Completa"
+      ],
+      "product_tmpl_id": [
+        6145,
+        "NH - Blanco con broche 19mm Plateado"
+      ]
+    },
+    {
+      "id": 1107,
+      "name": "Centenario",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        1,
+        "Modelo: Centenario"
+      ],
+      "product_tmpl_id": [
+        6270,
+        "SET - Blanco con broche 22mm Dorado"
+      ]
+    },
+    {
+      "id": 1108,
+      "name": "Corazón",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        5,
+        "Modelo: Corazón"
+      ],
+      "product_tmpl_id": [
+        6270,
+        "SET - Blanco con broche 22mm Dorado"
+      ]
+    },
+    {
+      "id": 1109,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6270,
+        "SET - Blanco con broche 22mm Dorado"
+      ]
+    },
+    {
+      "id": 1110,
+      "name": "San Benito",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        2,
+        "Modelo: San Benito"
+      ],
+      "product_tmpl_id": [
+        6270,
+        "SET - Blanco con broche 22mm Dorado"
+      ]
+    },
+    {
+      "id": 1111,
+      "name": "Virgen Completa",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        3,
+        "Modelo: Virgen Completa"
+      ],
+      "product_tmpl_id": [
+        6270,
+        "SET - Blanco con broche 22mm Dorado"
+      ]
+    },
+    {
+      "id": 1112,
+      "name": "Virgen Busto",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        4,
+        "Modelo: Virgen Busto"
+      ],
+      "product_tmpl_id": [
+        6270,
+        "SET - Blanco con broche 22mm Dorado"
+      ]
+    },
+    {
+      "id": 1113,
+      "name": "Centenario",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        1,
+        "Modelo: Centenario"
+      ],
+      "product_tmpl_id": [
+        6271,
+        "SET - Blanco con broche 22mm Plateado"
+      ]
+    },
+    {
+      "id": 1114,
+      "name": "Corazón",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        5,
+        "Modelo: Corazón"
+      ],
+      "product_tmpl_id": [
+        6271,
+        "SET - Blanco con broche 22mm Plateado"
+      ]
+    },
+    {
+      "id": 1115,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6271,
+        "SET - Blanco con broche 22mm Plateado"
+      ]
+    },
+    {
+      "id": 1116,
+      "name": "San Benito",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        2,
+        "Modelo: San Benito"
+      ],
+      "product_tmpl_id": [
+        6271,
+        "SET - Blanco con broche 22mm Plateado"
+      ]
+    },
+    {
+      "id": 1117,
+      "name": "Virgen Completa",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        3,
+        "Modelo: Virgen Completa"
+      ],
+      "product_tmpl_id": [
+        6271,
+        "SET - Blanco con broche 22mm Plateado"
+      ]
+    },
+    {
+      "id": 1118,
+      "name": "Virgen Busto",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        4,
+        "Modelo: Virgen Busto"
+      ],
+      "product_tmpl_id": [
+        6271,
+        "SET - Blanco con broche 22mm Plateado"
+      ]
+    },
+    {
+      "id": 1121,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6272,
+        "SET - Caoba 22mm Dorado"
+      ]
+    },
+    {
+      "id": 1127,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6273,
+        "SET - Caoba 22mm Plateado"
+      ]
+    },
+    {
+      "id": 1133,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6274,
+        "SET - Carte Azul 22mm Dorado"
+      ]
+    },
+    {
+      "id": 1139,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6275,
+        "SET - Carte Azul 22mm Plateado"
+      ]
+    },
+    {
+      "id": 1145,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6276,
+        "SET - Carte Blanco 22mm Dorado"
+      ]
+    },
+    {
+      "id": 1151,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6277,
+        "SET - Carte Blanco 22mm Plateado"
+      ]
+    },
+    {
+      "id": 1157,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6278,
+        "SET - Carte Rojo 22mm Dorado"
+      ]
+    },
+    {
+      "id": 1163,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6279,
+        "SET - Carte Rojo 22mm Plateado"
+      ]
+    },
+    {
+      "id": 1169,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6280,
+        "SET - Diamante 22mm Dorado"
+      ]
+    },
+    {
+      "id": 1175,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6281,
+        "SET - Diamante 22mm Plateado"
+      ]
+    },
+    {
+      "id": 1181,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6282,
+        "SET - Europa CH Vino 22mm Dorado"
+      ]
+    },
+    {
+      "id": 1187,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6283,
+        "SET - Europa CH Vino 22mm Plateado"
+      ]
+    },
+    {
+      "id": 1193,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6284,
+        "SET - Europa M Blanco 22mm Dorado"
+      ]
+    },
+    {
+      "id": 1199,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6285,
+        "SET - Europa M Blanco 22mm Plateado"
+      ]
+    },
+    {
+      "id": 1205,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6286,
+        "SET - Europa M Vino 22mm Dorado"
+      ]
+    },
+    {
+      "id": 1211,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6287,
+        "SET - Europa M Vino 22mm Plateado"
+      ]
+    },
+    {
+      "id": 1217,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6288,
+        "SET - Gamuza Azul 22mm Dorado"
+      ]
+    },
+    {
+      "id": 1223,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6289,
+        "SET - Gamuza Azul 22mm Plateado"
+      ]
+    },
+    {
+      "id": 1229,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6290,
+        "SET - Gamuza Negro 22mm Dorado"
+      ]
+    },
+    {
+      "id": 1235,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6291,
+        "SET - Gamuza Negro 22mm Plateado"
+      ]
+    },
+    {
+      "id": 1241,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6292,
+        "SET - Italia 22mm Dorado"
+      ]
+    },
+    {
+      "id": 1247,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6293,
+        "SET - Italia 22mm Plateado"
+      ]
+    },
+    {
+      "id": 1253,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6294,
+        "SET - Nogal con ventana 22mm Dorado"
+      ]
+    },
+    {
+      "id": 1259,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6295,
+        "SET - Nogal con ventana 22mm Plateado"
+      ]
+    },
+    {
+      "id": 1265,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6296,
+        "SET - Platino CH 22mm Dorado"
+      ]
+    },
+    {
+      "id": 1271,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6297,
+        "SET - Platino CH 22mm Plateado"
+      ]
+    },
+    {
+      "id": 1277,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6298,
+        "SET - Platino M 22mm Dorado"
+      ]
+    },
+    {
+      "id": 1283,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6299,
+        "SET - Platino M 22mm Plateado"
+      ]
+    },
+    {
+      "id": 1289,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6300,
+        "SET - Repujado Carte Azul 22mm Dorado"
+      ]
+    },
+    {
+      "id": 1295,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6301,
+        "SET - Repujado Carte Azul 22mm Plateado"
+      ]
+    },
+    {
+      "id": 1301,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6302,
+        "SET - Repujado Carte Blanco 22mm Dorado"
+      ]
+    },
+    {
+      "id": 1307,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6303,
+        "SET - Repujado Carte Blanco 22mm Plateado"
+      ]
+    },
+    {
+      "id": 1313,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6304,
+        "SET - Repujado Carte Rojo 22mm Dorado"
+      ]
+    },
+    {
+      "id": 1319,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6305,
+        "SET - Repujado Carte Rojo 22mm Plateado"
+      ]
+    },
+    {
+      "id": 1325,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6306,
+        "SET - Repujado Europa M Vino 22mm Dorado"
+      ]
+    },
+    {
+      "id": 1331,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6307,
+        "SET - Repujado Europa M Vino 22mm Plateado"
+      ]
+    },
+    {
+      "id": 1337,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6308,
+        "PERS - Carte Azul 22mm Dorado"
+      ]
+    },
+    {
+      "id": 1343,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6309,
+        "PERS - Carte Azul 22mm Plateado"
+      ]
+    },
+    {
+      "id": 1349,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6310,
+        "PERS - Carte Blanco 22mm Dorado"
+      ]
+    },
+    {
+      "id": 1355,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6311,
+        "PERS - Carte Blanco 22mm Plateado"
+      ]
+    },
+    {
+      "id": 1361,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6312,
+        "PERS - Carte Rojo 22mm Dorado"
+      ]
+    },
+    {
+      "id": 1367,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6313,
+        "PERS - Carte Rojo 22mm Plateado"
+      ]
+    },
+    {
+      "id": 1373,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6314,
+        "PERS - Nogal Sin Ventana 22mm Dorado"
+      ]
+    },
+    {
+      "id": 1379,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6315,
+        "PERS - Nogal Sin Ventana 22mm Plateado"
+      ]
+    },
+    {
+      "id": 1424,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6322,
+        "SET - Arras y Cofre con Charola Dorado"
+      ]
+    },
+    {
+      "id": 1430,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6323,
+        "SET - Arras y Cofre con Charola Plateado"
+      ]
+    },
+    {
+      "id": 1496,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6335,
+        "SET - Arras y Cofre Dorado"
+      ]
+    },
+    {
+      "id": 1506,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6336,
+        "SET - Arras y Cofre Plateado"
+      ]
+    },
+    {
+      "id": 2521,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6481,
+        "NH - Carte Azul Solo Arras Dorado"
+      ]
+    },
+    {
+      "id": 2528,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6482,
+        "NH - Carte Azul Solo Arras Plateado"
+      ]
+    },
+    {
+      "id": 2535,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6483,
+        "SET - Carte Azul Solo Arras Dorado"
+      ]
+    },
+    {
+      "id": 2542,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6484,
+        "SET - Carte Azul Solo Arras Plateado"
+      ]
+    },
+    {
+      "id": 2549,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6485,
+        "NH - Carte Blanco Solo Arras Dorado"
+      ]
+    },
+    {
+      "id": 2556,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6486,
+        "NH - Carte Blanco Solo Arras Plateado"
+      ]
+    },
+    {
+      "id": 2563,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6487,
+        "SET - Carte Blanco Solo Arras Dorado"
+      ]
+    },
+    {
+      "id": 2570,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6488,
+        "SET - Carte Blanco Solo Arras Plateado"
+      ]
+    },
+    {
+      "id": 2577,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6489,
+        "NH - Carte Rojo Solo Arras Dorado"
+      ]
+    },
+    {
+      "id": 2584,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6490,
+        "NH - Carte Rojo Solo Arras Plateado"
+      ]
+    },
+    {
+      "id": 2591,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6491,
+        "SET - Carte Rojo Solo Arras Dorado"
+      ]
+    },
+    {
+      "id": 2598,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6492,
+        "SET - Carte Rojo Solo Arras Plateado"
+      ]
+    },
+    {
+      "id": 2605,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6493,
+        "NH - Italia Solo Arras Dorado"
+      ]
+    },
+    {
+      "id": 2612,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6494,
+        "NH - Italia Solo Arras Plateado"
+      ]
+    },
+    {
+      "id": 2619,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6495,
+        "SET - Italia Solo Arras Dorado"
+      ]
+    },
+    {
+      "id": 2626,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6496,
+        "SET - Italia Solo Arras Plateado"
+      ]
+    },
+    {
+      "id": 2633,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6497,
+        "NH - Nogal Solo Arras Dorado"
+      ]
+    },
+    {
+      "id": 2640,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6498,
+        "NH - Nogal Solo Arras Plateado"
+      ]
+    },
+    {
+      "id": 2647,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6499,
+        "SET - Nogal Solo Arras Dorado"
+      ]
+    },
+    {
+      "id": 2654,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6500,
+        "SET - Nogal Solo Arras Plateado"
+      ]
+    },
+    {
+      "id": 2661,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6501,
+        "NH - Europa M Blanco Solo Arras Dorado"
+      ]
+    },
+    {
+      "id": 2668,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6502,
+        "NH - Europa M Blanco Solo Arras Plateado"
+      ]
+    },
+    {
+      "id": 2675,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6503,
+        "SET - Europa M Blanco Solo Arras Dorado"
+      ]
+    },
+    {
+      "id": 2682,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6504,
+        "SET - Europa M Blanco Solo Arras Plateado"
+      ]
+    },
+    {
+      "id": 2689,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6505,
+        "NH - Europa M Vino Solo Arras Dorado"
+      ]
+    },
+    {
+      "id": 2696,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6506,
+        "NH - Europa M Vino Solo Arras Plateado"
+      ]
+    },
+    {
+      "id": 2703,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6507,
+        "SET - Europa CH Vino Solo Arras Dorado"
+      ]
+    },
+    {
+      "id": 2710,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6508,
+        "SET - Europa CH Vino Solo Arras Plateado"
+      ]
+    },
+    {
+      "id": 2717,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6509,
+        "NH - Gamuza Azul Solo Arras Dorado"
+      ]
+    },
+    {
+      "id": 2724,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6510,
+        "NH - Gamuza Azul Solo Arras Plateado"
+      ]
+    },
+    {
+      "id": 2731,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6511,
+        "SET - Gamuza Azul Solo Arras Dorado"
+      ]
+    },
+    {
+      "id": 2738,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6512,
+        "SET - Gamuza Azul Solo Arras Plateado"
+      ]
+    },
+    {
+      "id": 2745,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6513,
+        "NH - Gamuza Negro Solo Arras Dorado"
+      ]
+    },
+    {
+      "id": 2752,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6514,
+        "NH - Gamuza Negro Solo Arras Plateado"
+      ]
+    },
+    {
+      "id": 2759,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6515,
+        "SET - Gamuza Negro Solo Arras Dorado"
+      ]
+    },
+    {
+      "id": 2766,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6516,
+        "SET - Gamuza Negro Solo Arras Plateado"
+      ]
+    },
+    {
+      "id": 2773,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6517,
+        "NH - Platino CH Solo Arras Dorado"
+      ]
+    },
+    {
+      "id": 2780,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6518,
+        "NH - Platino CH Solo Arras Plateado"
+      ]
+    },
+    {
+      "id": 2787,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6519,
+        "SET - Platino CH Solo Arras Dorado"
+      ]
+    },
+    {
+      "id": 2794,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6520,
+        "SET - Platino CH Solo Arras Plateado"
+      ]
+    },
+    {
+      "id": 2801,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6521,
+        "NH - Platino M Solo Arras Dorado"
+      ]
+    },
+    {
+      "id": 2808,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6522,
+        "NH - Platino M Solo Arras Plateado"
+      ]
+    },
+    {
+      "id": 2815,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6523,
+        "SET - Platino M Solo Arras Dorado"
+      ]
+    },
+    {
+      "id": 2822,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6524,
+        "SET - Platino M Solo Arras Plateado"
+      ]
+    },
+    {
+      "id": 2829,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6525,
+        "SET - Europa M Vino Solo Arras Dorado"
+      ]
+    },
+    {
+      "id": 2836,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6526,
+        "SET - Europa M Vino Solo Arras Plateado"
+      ]
+    },
+    {
+      "id": 2843,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6527,
+        "NH - Europa CH Vino Solo Arras Dorado"
+      ]
+    },
+    {
+      "id": 2850,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6528,
+        "NH - Europa CH Vino Solo Arras Plateado"
+      ]
+    },
+    {
+      "id": 2857,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6531,
+        "NH - Arras y Cofre Dorado"
+      ]
+    },
+    {
+      "id": 2864,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6532,
+        "NH - Arras y Cofre Plateado"
+      ]
+    },
+    {
+      "id": 2871,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6533,
+        "NH - Arras y Cofre con Charola Dorado"
+      ]
+    },
+    {
+      "id": 2878,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6534,
+        "NH - Arras y Cofre con Charola Plateado"
+      ]
+    }
+  ],
+  "ventas_candidatos": [],
+  "imagenes_disponibles": [
+    {
+      "id": 8513,
+      "image_1920": "780.19 Kb"
+    },
+    {
+      "id": 8520,
+      "image_1920": "750.72 Kb"
+    },
+    {
+      "id": 8681,
+      "image_1920": "1.08 Mb"
+    },
+    {
+      "id": 8688,
+      "image_1920": "1.28 Mb"
+    },
+    {
+      "id": 8709,
+      "image_1920": "1008.81 Kb"
+    },
+    {
+      "id": 8716,
+      "image_1920": "1.08 Mb"
+    },
+    {
+      "id": 8576,
+      "image_1920": "1.26 Mb"
+    },
+    {
+      "id": 8744,
+      "image_1920": "754.76 Kb"
+    }
+  ]
+}

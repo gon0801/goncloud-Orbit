@@ -1,0 +1,642 @@
+{
+  "observado_utc": "2026-11-05T02:30:48.008502+00:00",
+  "universo": "BOM activos que contienen cualquier componente de las recetas PEZ o pertenecen a los 28 productos NH/PEZ activos ya descubiertos; busqueda paginada completa",
+  "boms_activos_examinados": 574,
+  "filas": [
+    {
+      "sku_pez": "NH-BLA-BRO-PEZ-DOR",
+      "bom_referencia": 1284,
+      "composicion_igual_activos": [],
+      "activos_con_misma_base_y_componentes_extra": [
+        {
+          "bom_id": 1538,
+          "producto_id": 5892,
+          "sku": "NH-BLA-BRO-CEN-DOR",
+          "producto_activo": true,
+          "composicion": {
+            "159": "1",
+            "1025": "1",
+            "1068": "1"
+          },
+          "operaciones": [],
+          "subproductos": [],
+          "componentes_adicionales": [
+            {
+              "id": 1068,
+              "sku": "ARR-19-DOR-CEN",
+              "nombre": "19mm Centenario Dorado",
+              "cantidad": "1",
+              "costo_vigente": "100.0",
+              "moneda": "MXN"
+            }
+          ]
+        },
+        {
+          "bom_id": 1540,
+          "producto_id": 5896,
+          "sku": "NH-BLA-BRO-COR-DOR",
+          "producto_activo": true,
+          "composicion": {
+            "159": "1",
+            "1025": "1",
+            "1070": "1"
+          },
+          "operaciones": [],
+          "subproductos": [],
+          "componentes_adicionales": [
+            {
+              "id": 1070,
+              "sku": "ARR-19-DOR-COR",
+              "nombre": "19mm Corazon Dorado",
+              "cantidad": "1",
+              "costo_vigente": "100.0",
+              "moneda": "MXN"
+            }
+          ]
+        },
+        {
+          "bom_id": 1542,
+          "producto_id": 5898,
+          "sku": "NH-BLA-BRO-MAX-DOR",
+          "producto_activo": true,
+          "composicion": {
+            "159": "1",
+            "1025": "1",
+            "1950": "1"
+          },
+          "operaciones": [],
+          "subproductos": [],
+          "componentes_adicionales": [
+            {
+              "id": 1950,
+              "sku": "ARR-19-DOR-MAX",
+              "nombre": "19mm Maximiliano Dorado",
+              "cantidad": "1",
+              "costo_vigente": "100.0",
+              "moneda": "MXN"
+            }
+          ]
+        },
+        {
+          "bom_id": 2785,
+          "producto_id": 5899,
+          "sku": "NH-BLA-BRO-PESETA-DOR",
+          "producto_activo": true,
+          "composicion": {
+            "159": "1",
+            "1025": "1",
+            "8852": "1"
+          },
+          "operaciones": [],
+          "subproductos": [],
+          "componentes_adicionales": [
+            {
+              "id": 8852,
+              "sku": "ARR-19-DOR-PESETA",
+              "nombre": "19mm Peseta Dorado",
+              "cantidad": "1",
+              "costo_vigente": "100.0",
+              "moneda": "MXN"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sku_pez": "NH-CAR-BLA-PEZ-DOR",
+      "bom_referencia": 1326,
+      "composicion_igual_activos": [],
+      "activos_con_misma_base_y_componentes_extra": []
+    },
+    {
+      "sku_pez": "NH-CAR-BLA-PEZ-PLA",
+      "bom_referencia": 1327,
+      "composicion_igual_activos": [],
+      "activos_con_misma_base_y_componentes_extra": []
+    },
+    {
+      "sku_pez": "NH-GAM-AZU-PEZ-DOR",
+      "bom_referencia": 1404,
+      "composicion_igual_activos": [],
+      "activos_con_misma_base_y_componentes_extra": [
+        {
+          "bom_id": 1640,
+          "producto_id": 6637,
+          "sku": "NH-GAM-AZU-CEN-DOR",
+          "producto_activo": true,
+          "composicion": {
+            "168": "1",
+            "1025": "1",
+            "1068": "1"
+          },
+          "operaciones": [],
+          "subproductos": [],
+          "componentes_adicionales": [
+            {
+              "id": 1068,
+              "sku": "ARR-19-DOR-CEN",
+              "nombre": "19mm Centenario Dorado",
+              "cantidad": "1",
+              "costo_vigente": "100.0",
+              "moneda": "MXN"
+            }
+          ]
+        },
+        {
+          "bom_id": 1642,
+          "producto_id": 6638,
+          "sku": "NH-GAM-AZU-COR-DOR",
+          "producto_activo": true,
+          "composicion": {
+            "168": "1",
+            "1025": "1",
+            "1070": "1"
+          },
+          "operaciones": [],
+          "subproductos": [],
+          "componentes_adicionales": [
+            {
+              "id": 1070,
+              "sku": "ARR-19-DOR-COR",
+              "nombre": "19mm Corazon Dorado",
+              "cantidad": "1",
+              "costo_vigente": "100.0",
+              "moneda": "MXN"
+            }
+          ]
+        },
+        {
+          "bom_id": 1644,
+          "producto_id": 6640,
+          "sku": "NH-GAM-AZU-MAX-DOR",
+          "producto_activo": true,
+          "composicion": {
+            "168": "1",
+            "1025": "1",
+            "1950": "1"
+          },
+          "operaciones": [],
+          "subproductos": [],
+          "componentes_adicionales": [
+            {
+              "id": 1950,
+              "sku": "ARR-19-DOR-MAX",
+              "nombre": "19mm Maximiliano Dorado",
+              "cantidad": "1",
+              "costo_vigente": "100.0",
+              "moneda": "MXN"
+            }
+          ]
+        },
+        {
+          "bom_id": 2811,
+          "producto_id": 6641,
+          "sku": "NH-GAM-AZU-PESETA-DOR",
+          "producto_activo": true,
+          "composicion": {
+            "168": "1",
+            "1025": "1",
+            "8852": "1"
+          },
+          "operaciones": [],
+          "subproductos": [],
+          "componentes_adicionales": [
+            {
+              "id": 8852,
+              "sku": "ARR-19-DOR-PESETA",
+              "nombre": "19mm Peseta Dorado",
+              "cantidad": "1",
+              "costo_vigente": "100.0",
+              "moneda": "MXN"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sku_pez": "NH-GAM-AZU-PEZ-PLA",
+      "bom_referencia": 1405,
+      "composicion_igual_activos": [],
+      "activos_con_misma_base_y_componentes_extra": [
+        {
+          "bom_id": 1641,
+          "producto_id": 6647,
+          "sku": "NH-GAM-AZU-CEN-PLA",
+          "producto_activo": true,
+          "composicion": {
+            "168": "1",
+            "1024": "1",
+            "1069": "1"
+          },
+          "operaciones": [],
+          "subproductos": [],
+          "componentes_adicionales": [
+            {
+              "id": 1069,
+              "sku": "ARR-19-PLA-CEN",
+              "nombre": "19mm Centenario Plateado",
+              "cantidad": "1",
+              "costo_vigente": "100.0",
+              "moneda": "MXN"
+            }
+          ]
+        },
+        {
+          "bom_id": 1643,
+          "producto_id": 6648,
+          "sku": "NH-GAM-AZU-COR-PLA",
+          "producto_activo": true,
+          "composicion": {
+            "168": "1",
+            "1024": "1",
+            "1071": "1"
+          },
+          "operaciones": [],
+          "subproductos": [],
+          "componentes_adicionales": [
+            {
+              "id": 1071,
+              "sku": "ARR-19-PLA-COR",
+              "nombre": "19mm Corazon Plateado",
+              "cantidad": "1",
+              "costo_vigente": "100.0",
+              "moneda": "MXN"
+            }
+          ]
+        },
+        {
+          "bom_id": 1645,
+          "producto_id": 6650,
+          "sku": "NH-GAM-AZU-MAX-PLA",
+          "producto_activo": true,
+          "composicion": {
+            "168": "1",
+            "1024": "1",
+            "1951": "1"
+          },
+          "operaciones": [],
+          "subproductos": [],
+          "componentes_adicionales": [
+            {
+              "id": 1951,
+              "sku": "ARR-19-PLA-MAX",
+              "nombre": "19mm Maximiliano Plateado",
+              "cantidad": "1",
+              "costo_vigente": "100.0",
+              "moneda": "MXN"
+            }
+          ]
+        },
+        {
+          "bom_id": 2812,
+          "producto_id": 6651,
+          "sku": "NH-GAM-AZU-PESETA-PLA",
+          "producto_activo": true,
+          "composicion": {
+            "168": "1",
+            "1024": "1",
+            "8850": "1"
+          },
+          "operaciones": [],
+          "subproductos": [],
+          "componentes_adicionales": [
+            {
+              "id": 8850,
+              "sku": "ARR-19-PLA-PESETA",
+              "nombre": "19mm Peseta Plateado",
+              "cantidad": "1",
+              "costo_vigente": "100.0",
+              "moneda": "MXN"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sku_pez": "NH-GAM-NEG-PEZ-DOR",
+      "bom_referencia": 1418,
+      "composicion_igual_activos": [],
+      "activos_con_misma_base_y_componentes_extra": [
+        {
+          "bom_id": 1652,
+          "producto_id": 6657,
+          "sku": "NH-GAM-NEG-CEN-DOR",
+          "producto_activo": true,
+          "composicion": {
+            "169": "1",
+            "1025": "1",
+            "1068": "1"
+          },
+          "operaciones": [],
+          "subproductos": [],
+          "componentes_adicionales": [
+            {
+              "id": 1068,
+              "sku": "ARR-19-DOR-CEN",
+              "nombre": "19mm Centenario Dorado",
+              "cantidad": "1",
+              "costo_vigente": "100.0",
+              "moneda": "MXN"
+            }
+          ]
+        },
+        {
+          "bom_id": 1654,
+          "producto_id": 6658,
+          "sku": "NH-GAM-NEG-COR-DOR",
+          "producto_activo": true,
+          "composicion": {
+            "169": "1",
+            "1025": "1",
+            "1070": "1"
+          },
+          "operaciones": [],
+          "subproductos": [],
+          "componentes_adicionales": [
+            {
+              "id": 1070,
+              "sku": "ARR-19-DOR-COR",
+              "nombre": "19mm Corazon Dorado",
+              "cantidad": "1",
+              "costo_vigente": "100.0",
+              "moneda": "MXN"
+            }
+          ]
+        },
+        {
+          "bom_id": 1656,
+          "producto_id": 6660,
+          "sku": "NH-GAM-NEG-MAX-DOR",
+          "producto_activo": true,
+          "composicion": {
+            "169": "1",
+            "1025": "1",
+            "1950": "1"
+          },
+          "operaciones": [],
+          "subproductos": [],
+          "componentes_adicionales": [
+            {
+              "id": 1950,
+              "sku": "ARR-19-DOR-MAX",
+              "nombre": "19mm Maximiliano Dorado",
+              "cantidad": "1",
+              "costo_vigente": "100.0",
+              "moneda": "MXN"
+            }
+          ]
+        },
+        {
+          "bom_id": 2813,
+          "producto_id": 6661,
+          "sku": "NH-GAM-NEG-PESETA-DOR",
+          "producto_activo": true,
+          "composicion": {
+            "169": "1",
+            "1025": "1",
+            "8852": "1"
+          },
+          "operaciones": [],
+          "subproductos": [],
+          "componentes_adicionales": [
+            {
+              "id": 8852,
+              "sku": "ARR-19-DOR-PESETA",
+              "nombre": "19mm Peseta Dorado",
+              "cantidad": "1",
+              "costo_vigente": "100.0",
+              "moneda": "MXN"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sku_pez": "NH-GAM-NEG-PEZ-PLA",
+      "bom_referencia": 1419,
+      "composicion_igual_activos": [],
+      "activos_con_misma_base_y_componentes_extra": [
+        {
+          "bom_id": 1653,
+          "producto_id": 6667,
+          "sku": "NH-GAM-NEG-CEN-PLA",
+          "producto_activo": true,
+          "composicion": {
+            "169": "1",
+            "1024": "1",
+            "1069": "1"
+          },
+          "operaciones": [],
+          "subproductos": [],
+          "componentes_adicionales": [
+            {
+              "id": 1069,
+              "sku": "ARR-19-PLA-CEN",
+              "nombre": "19mm Centenario Plateado",
+              "cantidad": "1",
+              "costo_vigente": "100.0",
+              "moneda": "MXN"
+            }
+          ]
+        },
+        {
+          "bom_id": 1655,
+          "producto_id": 6668,
+          "sku": "NH-GAM-NEG-COR-PLA",
+          "producto_activo": true,
+          "composicion": {
+            "169": "1",
+            "1024": "1",
+            "1071": "1"
+          },
+          "operaciones": [],
+          "subproductos": [],
+          "componentes_adicionales": [
+            {
+              "id": 1071,
+              "sku": "ARR-19-PLA-COR",
+              "nombre": "19mm Corazon Plateado",
+              "cantidad": "1",
+              "costo_vigente": "100.0",
+              "moneda": "MXN"
+            }
+          ]
+        },
+        {
+          "bom_id": 1657,
+          "producto_id": 6670,
+          "sku": "NH-GAM-NEG-MAX-PLA",
+          "producto_activo": true,
+          "composicion": {
+            "169": "1",
+            "1024": "1",
+            "1951": "1"
+          },
+          "operaciones": [],
+          "subproductos": [],
+          "componentes_adicionales": [
+            {
+              "id": 1951,
+              "sku": "ARR-19-PLA-MAX",
+              "nombre": "19mm Maximiliano Plateado",
+              "cantidad": "1",
+              "costo_vigente": "100.0",
+              "moneda": "MXN"
+            }
+          ]
+        },
+        {
+          "bom_id": 2814,
+          "producto_id": 6671,
+          "sku": "NH-GAM-NEG-PESETA-PLA",
+          "producto_activo": true,
+          "composicion": {
+            "169": "1",
+            "1024": "1",
+            "8850": "1"
+          },
+          "operaciones": [],
+          "subproductos": [],
+          "componentes_adicionales": [
+            {
+              "id": 8850,
+              "sku": "ARR-19-PLA-PESETA",
+              "nombre": "19mm Peseta Plateado",
+              "cantidad": "1",
+              "costo_vigente": "100.0",
+              "moneda": "MXN"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sku_pez": "NH-ITA-PEZ-PLA",
+      "bom_referencia": 1433,
+      "composicion_igual_activos": [],
+      "activos_con_misma_base_y_componentes_extra": []
+    },
+    {
+      "sku_pez": "NH-PLA-CH-PEZ-PLA",
+      "bom_referencia": 1461,
+      "composicion_igual_activos": [],
+      "activos_con_misma_base_y_componentes_extra": [
+        {
+          "bom_id": 1689,
+          "producto_id": 6727,
+          "sku": "NH-PLA-CH-CEN-PLA",
+          "producto_activo": true,
+          "composicion": {
+            "163": "1",
+            "1024": "1",
+            "1069": "1"
+          },
+          "operaciones": [],
+          "subproductos": [],
+          "componentes_adicionales": [
+            {
+              "id": 1069,
+              "sku": "ARR-19-PLA-CEN",
+              "nombre": "19mm Centenario Plateado",
+              "cantidad": "1",
+              "costo_vigente": "100.0",
+              "moneda": "MXN"
+            }
+          ]
+        },
+        {
+          "bom_id": 1691,
+          "producto_id": 6728,
+          "sku": "NH-PLA-CH-COR-PLA",
+          "producto_activo": true,
+          "composicion": {
+            "163": "1",
+            "1024": "1",
+            "1071": "1"
+          },
+          "operaciones": [],
+          "subproductos": [],
+          "componentes_adicionales": [
+            {
+              "id": 1071,
+              "sku": "ARR-19-PLA-COR",
+              "nombre": "19mm Corazon Plateado",
+              "cantidad": "1",
+              "costo_vigente": "100.0",
+              "moneda": "MXN"
+            }
+          ]
+        },
+        {
+          "bom_id": 1693,
+          "producto_id": 6730,
+          "sku": "NH-PLA-CH-MAX-PLA",
+          "producto_activo": true,
+          "composicion": {
+            "163": "1",
+            "1024": "1",
+            "1951": "1"
+          },
+          "operaciones": [],
+          "subproductos": [],
+          "componentes_adicionales": [
+            {
+              "id": 1951,
+              "sku": "ARR-19-PLA-MAX",
+              "nombre": "19mm Maximiliano Plateado",
+              "cantidad": "1",
+              "costo_vigente": "100.0",
+              "moneda": "MXN"
+            }
+          ]
+        },
+        {
+          "bom_id": 2734,
+          "producto_id": 8848,
+          "sku": "NH-PLA-CH-CAMP-PLA",
+          "producto_activo": true,
+          "composicion": {
+            "163": "1",
+            "1024": "1",
+            "1067": "1"
+          },
+          "operaciones": [],
+          "subproductos": [],
+          "componentes_adicionales": [
+            {
+              "id": 1067,
+              "sku": "ARR-19-PLA-CAM",
+              "nombre": "19mm Campanas Plateado",
+              "cantidad": "1",
+              "costo_vigente": "100.0",
+              "moneda": "MXN"
+            }
+          ]
+        },
+        {
+          "bom_id": 2820,
+          "producto_id": 6731,
+          "sku": "NH-PLA-CH-PESETA-PLA",
+          "producto_activo": true,
+          "composicion": {
+            "163": "1",
+            "1024": "1",
+            "8850": "1"
+          },
+          "operaciones": [],
+          "subproductos": [],
+          "componentes_adicionales": [
+            {
+              "id": 8850,
+              "sku": "ARR-19-PLA-PESETA",
+              "nombre": "19mm Peseta Plateado",
+              "cantidad": "1",
+              "costo_vigente": "100.0",
+              "moneda": "MXN"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
