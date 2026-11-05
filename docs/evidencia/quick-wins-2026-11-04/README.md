@@ -44,3 +44,21 @@ corrige en esta misma entrega. El estado de CI e integración queda en el PR.
 
 [Revisión independiente](revision-sol.md). Se conserva el job 8 de Jev; no se
 alteraron crons, config, goals, anuncios ni datos de accounting/bridge.
+
+
+## Continuacion C6-P1/P2 y decision PEZ
+
+Usuario: «ok continua y pez si se vende». [P1](c6-p1/README.md) completa el
+inventario operativo actual. [P2](c6-p2/README.md) ejecuta replay y contraste
+externo parcial: 48 cruces en 7 entidades y 62/62 filas externas iguales; ninguna
+cohorte acredita revision completa a +10d y el contrafactual mantiene unknown.
+El gate economico sigue incompleto; no se inicio sombra ni se activo nada.
+
+[PEZ](pez-fuente/reporte.md) se conserva como producto comercial. Nueve SKU
+exactos en MeLi; tres registros archivados/costo 0 por SKU en Odoo. Se requiere
+referencia/receta/costo vigente o mapeo exacto respaldado. Candidatos Solo Arras
+no equivalen por nombre. No hay lote financiero preparado ni escrituras.
+La fuente faltante se pregunto al dueño; confirmar venta ya esta resuelto.
+
+La [revision independiente GPT-6.1 Sol](revision-c6-pez-sol.md) aprobo la evidencia con esos limites.
+El cero observado en Odoo se conserva; costo utilizable sin respaldo=None.

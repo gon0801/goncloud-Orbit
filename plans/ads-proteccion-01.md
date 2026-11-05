@@ -218,8 +218,10 @@ automatica PAUSE/RESUME de campana.
 | C6-P4 | Operador/agente autorizado: sombra H6.4 | Go especifico de deploy/sombra; si codigo ya coincide, justificar equivalencia sin inventar redeploy. Inicio H6 propio e IDs exactos antes live; flag solo bajo aislamiento comprobado | Cinco ciclos Ads en cinco dias, done, candidatos explicados por replay y cero mutaciones desde inicio: apply_queue + apply_attempt + decision_application. Mutacion inesperada, fallo, candidato inexplicable o FP frena live |
 | C6-P5 | Operador/agente autorizado: live y seguimiento | P4 completa; go live separado con C.2b (10d, 0 FP, sin piso propio), IDs/caps explicitos, sin targets/budgets por arrastre | Readback config/modos; candidatos vs vetos/descartes/applies por moneda/grano; veto 48h, revalidacion vigente pre-claim, cuota, ledger, readback Amazon y reversa. Cohortes hasta horizonte 10d. Sin caso natural declarar no observado y mantener C6 abierto; no provocar gasto/pausas para cerrar |
 
-**Siguiente unidad: C6-P1, seguida de P2, ambas lectura autorizada.** Fuentes y
-comandos existentes en el [expediente](../docs/evidencia/quick-wins-2026-11-04/c6-preparacion/README.md).
+**Estado de ejecucion 5-nov UTC:** C6-P1 completa como inventario; C6-P2
+ejecutada como medicion parcial, con su gate todavia incompleto. La siguiente
+unidad es completar cobertura de P2 antes de habilitar P3. Fuentes y comandos
+existentes en el [expediente](../docs/evidencia/quick-wins-2026-11-04/c6-preparacion/README.md).
 No crear `H6/inicio.txt` durante preparacion: certificaria un inicio inexistente.
 
 **Reutilizar / revalidar.** A.4/B.4 y C.2b no se repiten: conservar fechas y
@@ -254,3 +256,34 @@ revalidar). Ruff/pre-commit/CI ya configurados; sin codigo ni tests nuevos de
 texto. Revision independiente Producto/Arquitectura/Seguridad/QA/Skeptic
 coordinada por host (`team_validation_mode: subagent`); dictamen al expediente
 antes de integrar. C.6 conserva cc:TODO.
+
+
+### Resultado de C6-P1/P2 — 5-nov-2026 UTC
+
+Autorizacion del usuario: «ok continua y pez si se vende», posterior a la
+propuesta de ejecutar P1/P2 en lectura. No comprende sombra ni encendido.
+
+- **P1 completa como inventario:** config 42 economica apagada; goals 4–12
+  enabled/live; ocho caps de 1 millon; cola 25 PAUSE tradicional pendiente hasta el 6-nov.
+  Once archivos pertinentes coinciden con master 1292000c; SHA global y
+  aislamiento de escritores no demostrados. [Fotografia y limites](../docs/evidencia/quick-wins-2026-11-04/c6-p1/README.md).
+- **P2 medicion ejecutada, gate incompleto:** 5234 filas entidad/ciclo,
+  48 cruces en 7 entidades / 5 campanas, 30 ciclos sin reloj y 969 filas sin target.
+  A +10d, 20 cohortes tienen revision parcial, 13 ninguna y 15 horizonte futuro;
+  ninguna tiene todas sus fechas revisadas. No acredita FP=0.
+- La guarda historica economica estaba apagada; eso explica la produccion,
+  no demuestra ausencia de riesgo con ON. Solo 2 cruces conservan evidencia
+  individual de paso por estado/goal/ancestros; 46 siguen unknown. Ventana
+  anclada por entidad es contrato vigente, no un defecto por ser antigua.
+- Fuente externa: reporte Amazon existente, 62/62 filas coincidentes en USD.
+  Una cohorte cubre 22/30 fechas; no equivale a conciliacion de ventana completa.
+  [Replay, cobertura y fuente](../docs/evidencia/quick-wins-2026-11-04/c6-p2/README.md).
+
+Para cerrar P2: recuperar evidencia faltante cuando exista o definir una
+cohorte prospectiva con ventana, target/procedencia, estado/goal, reloj y
+fuente externa congelados, y comprobar la misma ventana al horizonte de 10 dias.
+No reemplazar estado historico por cache actual ni inferir revision completa
+por una sola fecha nueva. La ausencia irrecuperable se registra unknown;
+reducir el criterio C.2b seria una decision de producto, no una correccion de
+este informe. No iniciar P3/sombra por haber terminado el comando del replay.
+La ejecucion no escribio datos productivos ni creo reportes Amazon nuevos.

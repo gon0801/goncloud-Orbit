@@ -1,0 +1,532 @@
+{
+  "observado_odoo_utc": "2026-11-05T01:46:52.949734+00:00",
+  "decision_fuente": "usuario en esta conversacion: \"pez si se vende\"",
+  "filas": [
+    {
+      "item_id": "MLM2163407464",
+      "variante_ext": "194936687129",
+      "sku_meli": "NH-CAR-BLA-PEZ-DOR",
+      "modelo_meli": [
+        {
+          "id": null,
+          "name": "Modelos arras",
+          "value_id": null,
+          "value_name": "Sello cristiano"
+        }
+      ],
+      "estado_meli": "active",
+      "stock_variante": 0,
+      "observado_meli_utc": "2026-11-05T01:47:46.566764+00:00",
+      "odoo_ids_misma_referencia": [
+        1608,
+        5307,
+        6442
+      ],
+      "odoo_variante_con_atributo": 6442,
+      "atributo_odoo": "Sello Cristiano",
+      "odoo_template_id": 6186,
+      "activos_exactos": 0,
+      "standard_price_exactos": "0.0",
+      "moneda_fuente": "MXN",
+      "costo_utilizable": null,
+      "vigencia_costo_utilizable": null,
+      "boms_aplicables": [
+        {
+          "id": 389,
+          "active": false,
+          "write_date": "2026-01-26 06:02:20"
+        },
+        {
+          "id": 1042,
+          "active": false,
+          "write_date": "2026-07-24 20:38:15"
+        },
+        {
+          "id": 1326,
+          "active": false,
+          "write_date": "2026-07-24 20:38:15"
+        }
+      ],
+      "candidatos_sin_equivalencia_probada": [
+        {
+          "id": 8513,
+          "sku": "NH-SOLO-CAR-BLC-PEZ-DOR",
+          "name": "NH - Carte Blanco Solo Arras Dorado",
+          "costo_fuente_texto": "77.47",
+          "moneda": "MXN"
+        }
+      ],
+      "decision_usuario": "PEZ si se vende; conservar variantes",
+      "dato_para_desbloquear": "ID Odoo vigente de esta variante o confirmacion de su reactivacion/receta completa, costo positivo y fecha efectiva",
+      "mutacion_autorizada_por_este_lote": false
+    },
+    {
+      "item_id": "MLM1890653227",
+      "variante_ext": "194936530433",
+      "sku_meli": "NH-CAR-BLA-PEZ-PLA",
+      "modelo_meli": [
+        {
+          "id": null,
+          "name": "Modelo arras",
+          "value_id": null,
+          "value_name": "Sello cristiano"
+        }
+      ],
+      "estado_meli": "active",
+      "stock_variante": 0,
+      "observado_meli_utc": "2026-11-05T01:47:46.711098+00:00",
+      "odoo_ids_misma_referencia": [
+        1609,
+        5308,
+        6452
+      ],
+      "odoo_variante_con_atributo": 6452,
+      "atributo_odoo": "Sello Cristiano",
+      "odoo_template_id": 6187,
+      "activos_exactos": 0,
+      "standard_price_exactos": "0.0",
+      "moneda_fuente": "MXN",
+      "costo_utilizable": null,
+      "vigencia_costo_utilizable": null,
+      "boms_aplicables": [
+        {
+          "id": 390,
+          "active": false,
+          "write_date": "2026-01-26 06:02:20"
+        },
+        {
+          "id": 1043,
+          "active": false,
+          "write_date": "2026-07-24 20:38:15"
+        },
+        {
+          "id": 1327,
+          "active": false,
+          "write_date": "2026-07-24 20:38:15"
+        }
+      ],
+      "candidatos_sin_equivalencia_probada": [
+        {
+          "id": 8520,
+          "sku": "NH-SOLO-CAR-BLC-PEZ-PLA",
+          "name": "NH - Carte Blanco Solo Arras Plateado",
+          "costo_fuente_texto": "77.47",
+          "moneda": "MXN"
+        }
+      ],
+      "decision_usuario": "PEZ si se vende; conservar variantes",
+      "dato_para_desbloquear": "ID Odoo vigente de esta variante o confirmacion de su reactivacion/receta completa, costo positivo y fecha efectiva",
+      "mutacion_autorizada_por_este_lote": false
+    },
+    {
+      "item_id": "MLM4735255462",
+      "variante_ext": "190065698608",
+      "sku_meli": "NH-BLA-BRO-PEZ-DOR",
+      "modelo_meli": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Sello cristiano"
+        }
+      ],
+      "estado_meli": "active",
+      "stock_variante": 0,
+      "observado_meli_utc": "2026-11-05T01:47:46.853981+00:00",
+      "odoo_ids_misma_referencia": [
+        1572,
+        5247,
+        5900
+      ],
+      "odoo_variante_con_atributo": 5900,
+      "atributo_odoo": "Sello Cristiano",
+      "odoo_template_id": 5911,
+      "activos_exactos": 0,
+      "standard_price_exactos": "0.0",
+      "moneda_fuente": "MXN",
+      "costo_utilizable": null,
+      "vigencia_costo_utilizable": null,
+      "boms_aplicables": [
+        {
+          "id": 242,
+          "active": false,
+          "write_date": "2026-01-24 07:42:10"
+        },
+        {
+          "id": 328,
+          "active": false,
+          "write_date": "2026-07-24 20:38:15"
+        },
+        {
+          "id": 985,
+          "active": false,
+          "write_date": "2026-01-26 07:33:02"
+        },
+        {
+          "id": 994,
+          "active": false,
+          "write_date": "2026-07-24 20:38:15"
+        },
+        {
+          "id": 1284,
+          "active": false,
+          "write_date": "2026-07-24 20:38:15"
+        }
+      ],
+      "candidatos_sin_equivalencia_probada": [],
+      "decision_usuario": "PEZ si se vende; conservar variantes",
+      "dato_para_desbloquear": "ID Odoo vigente de esta variante o confirmacion de su reactivacion/receta completa, costo positivo y fecha efectiva",
+      "mutacion_autorizada_por_este_lote": false
+    },
+    {
+      "item_id": "MLM2724304859",
+      "variante_ext": "190063357552",
+      "sku_meli": "NH-ITA-PEZ-PLA",
+      "modelo_meli": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Sello cristiano"
+        }
+      ],
+      "estado_meli": "active",
+      "stock_variante": 0,
+      "observado_meli_utc": "2026-11-05T01:47:46.996717+00:00",
+      "odoo_ids_misma_referencia": [
+        1705,
+        5468,
+        6692
+      ],
+      "odoo_variante_con_atributo": 6692,
+      "atributo_odoo": "Sello Cristiano",
+      "odoo_template_id": 6211,
+      "activos_exactos": 0,
+      "standard_price_exactos": "0.0",
+      "moneda_fuente": "MXN",
+      "costo_utilizable": null,
+      "vigencia_costo_utilizable": null,
+      "boms_aplicables": [
+        {
+          "id": 549,
+          "active": false,
+          "write_date": "2026-01-26 06:02:37"
+        },
+        {
+          "id": 1159,
+          "active": false,
+          "write_date": "2026-07-24 20:38:15"
+        },
+        {
+          "id": 1433,
+          "active": false,
+          "write_date": "2026-07-24 20:38:15"
+        }
+      ],
+      "candidatos_sin_equivalencia_probada": [
+        {
+          "id": 8576,
+          "sku": "NH-SOLO-ITA-PEZ-PLA",
+          "name": "NH - Italia Solo Arras Plateado",
+          "costo_fuente_texto": "113.82000000000001",
+          "moneda": "MXN"
+        }
+      ],
+      "decision_usuario": "PEZ si se vende; conservar variantes",
+      "dato_para_desbloquear": "ID Odoo vigente de esta variante o confirmacion de su reactivacion/receta completa, costo positivo y fecha efectiva",
+      "mutacion_autorizada_por_este_lote": false
+    },
+    {
+      "item_id": "MLM2727437671",
+      "variante_ext": "196650442795",
+      "sku_meli": "NH-GAM-AZU-PEZ-PLA",
+      "modelo_meli": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Sello cristiano"
+        }
+      ],
+      "estado_meli": "under_review",
+      "stock_variante": 0,
+      "observado_meli_utc": "2026-11-05T01:47:47.140589+00:00",
+      "odoo_ids_misma_referencia": [
+        1681,
+        5428,
+        6652
+      ],
+      "odoo_variante_con_atributo": 6652,
+      "atributo_odoo": "Sello Cristiano",
+      "odoo_template_id": 6207,
+      "activos_exactos": 0,
+      "standard_price_exactos": "0.0",
+      "moneda_fuente": "MXN",
+      "costo_utilizable": null,
+      "vigencia_costo_utilizable": null,
+      "boms_aplicables": [
+        {
+          "id": 509,
+          "active": false,
+          "write_date": "2026-01-26 06:02:37"
+        },
+        {
+          "id": 1127,
+          "active": false,
+          "write_date": "2026-07-24 20:38:15"
+        },
+        {
+          "id": 1405,
+          "active": false,
+          "write_date": "2026-07-24 20:38:15"
+        }
+      ],
+      "candidatos_sin_equivalencia_probada": [
+        {
+          "id": 8688,
+          "sku": "NH-SOLO-GAM-AZU-PEZ-PLA",
+          "name": "NH - Gamuza Azul Solo Arras Plateado",
+          "costo_fuente_texto": "97.82000000000001",
+          "moneda": "MXN"
+        }
+      ],
+      "decision_usuario": "PEZ si se vende; conservar variantes",
+      "dato_para_desbloquear": "ID Odoo vigente de esta variante o confirmacion de su reactivacion/receta completa, costo positivo y fecha efectiva",
+      "mutacion_autorizada_por_este_lote": false
+    },
+    {
+      "item_id": "MLM2727363007",
+      "variante_ext": "196650403797",
+      "sku_meli": "NH-GAM-NEG-PEZ-DOR",
+      "modelo_meli": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Sello cristiano"
+        }
+      ],
+      "estado_meli": "active",
+      "stock_variante": 0,
+      "observado_meli_utc": "2026-11-05T01:47:47.282259+00:00",
+      "odoo_ids_misma_referencia": [
+        1692,
+        5447,
+        6662
+      ],
+      "odoo_variante_con_atributo": 6662,
+      "atributo_odoo": "Sello Cristiano",
+      "odoo_template_id": 6208,
+      "activos_exactos": 0,
+      "standard_price_exactos": "0.0",
+      "moneda_fuente": "MXN",
+      "costo_utilizable": null,
+      "vigencia_costo_utilizable": null,
+      "boms_aplicables": [
+        {
+          "id": 528,
+          "active": false,
+          "write_date": "2026-01-26 06:02:37"
+        },
+        {
+          "id": 1142,
+          "active": false,
+          "write_date": "2026-07-24 20:38:15"
+        },
+        {
+          "id": 1418,
+          "active": false,
+          "write_date": "2026-07-24 20:38:15"
+        }
+      ],
+      "candidatos_sin_equivalencia_probada": [
+        {
+          "id": 8709,
+          "sku": "NH-SOLO-GAM-NEG-PEZ-DOR",
+          "name": "NH - Gamuza Negro Solo Arras Dorado",
+          "costo_fuente_texto": "97.82000000000001",
+          "moneda": "MXN"
+        }
+      ],
+      "decision_usuario": "PEZ si se vende; conservar variantes",
+      "dato_para_desbloquear": "ID Odoo vigente de esta variante o confirmacion de su reactivacion/receta completa, costo positivo y fecha efectiva",
+      "mutacion_autorizada_por_este_lote": false
+    },
+    {
+      "item_id": "MLM2727328203",
+      "variante_ext": "196650403671",
+      "sku_meli": "NH-GAM-AZU-PEZ-DOR",
+      "modelo_meli": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Sello cristiano"
+        }
+      ],
+      "estado_meli": "active",
+      "stock_variante": 0,
+      "observado_meli_utc": "2026-11-05T01:47:47.432957+00:00",
+      "odoo_ids_misma_referencia": [
+        1680,
+        5427,
+        6642
+      ],
+      "odoo_variante_con_atributo": 6642,
+      "atributo_odoo": "Sello Cristiano",
+      "odoo_template_id": 6206,
+      "activos_exactos": 0,
+      "standard_price_exactos": "0.0",
+      "moneda_fuente": "MXN",
+      "costo_utilizable": null,
+      "vigencia_costo_utilizable": null,
+      "boms_aplicables": [
+        {
+          "id": 508,
+          "active": false,
+          "write_date": "2026-01-26 06:02:37"
+        },
+        {
+          "id": 1126,
+          "active": false,
+          "write_date": "2026-07-24 20:38:15"
+        },
+        {
+          "id": 1404,
+          "active": false,
+          "write_date": "2026-07-24 20:38:15"
+        }
+      ],
+      "candidatos_sin_equivalencia_probada": [
+        {
+          "id": 8681,
+          "sku": "NH-SOLO-GAM-AZU-PEZ-DOR",
+          "name": "NH - Gamuza Azul Solo Arras Dorado",
+          "costo_fuente_texto": "97.82000000000001",
+          "moneda": "MXN"
+        }
+      ],
+      "decision_usuario": "PEZ si se vende; conservar variantes",
+      "dato_para_desbloquear": "ID Odoo vigente de esta variante o confirmacion de su reactivacion/receta completa, costo positivo y fecha efectiva",
+      "mutacion_autorizada_por_este_lote": false
+    },
+    {
+      "item_id": "MLM4749600210",
+      "variante_ext": "196764932943",
+      "sku_meli": "NH-GAM-NEG-PEZ-PLA",
+      "modelo_meli": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Sello cristiano"
+        }
+      ],
+      "estado_meli": "active",
+      "stock_variante": 0,
+      "observado_meli_utc": "2026-11-05T01:47:47.569845+00:00",
+      "odoo_ids_misma_referencia": [
+        1693,
+        5448,
+        6672
+      ],
+      "odoo_variante_con_atributo": 6672,
+      "atributo_odoo": "Sello Cristiano",
+      "odoo_template_id": 6209,
+      "activos_exactos": 0,
+      "standard_price_exactos": "0.0",
+      "moneda_fuente": "MXN",
+      "costo_utilizable": null,
+      "vigencia_costo_utilizable": null,
+      "boms_aplicables": [
+        {
+          "id": 529,
+          "active": false,
+          "write_date": "2026-01-26 06:02:37"
+        },
+        {
+          "id": 1143,
+          "active": false,
+          "write_date": "2026-07-24 20:38:15"
+        },
+        {
+          "id": 1419,
+          "active": false,
+          "write_date": "2026-07-24 20:38:15"
+        }
+      ],
+      "candidatos_sin_equivalencia_probada": [
+        {
+          "id": 8716,
+          "sku": "NH-SOLO-GAM-NEG-PEZ-PLA",
+          "name": "NH - Gamuza Negro Solo Arras Plateado",
+          "costo_fuente_texto": "97.82000000000001",
+          "moneda": "MXN"
+        }
+      ],
+      "decision_usuario": "PEZ si se vende; conservar variantes",
+      "dato_para_desbloquear": "ID Odoo vigente de esta variante o confirmacion de su reactivacion/receta completa, costo positivo y fecha efectiva",
+      "mutacion_autorizada_por_este_lote": false
+    },
+    {
+      "item_id": "MLM4763716652",
+      "variante_ext": "190333223922",
+      "sku_meli": "NH-PLA-CH-PEZ-PLA",
+      "modelo_meli": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Sello cristiano"
+        }
+      ],
+      "estado_meli": "paused",
+      "stock_variante": 0,
+      "observado_meli_utc": "2026-11-05T01:47:47.710229+00:00",
+      "odoo_ids_misma_referencia": [
+        1729,
+        5508,
+        6732
+      ],
+      "odoo_variante_con_atributo": 6732,
+      "atributo_odoo": "Sello Cristiano",
+      "odoo_template_id": 6215,
+      "activos_exactos": 0,
+      "standard_price_exactos": "0.0",
+      "moneda_fuente": "MXN",
+      "costo_utilizable": null,
+      "vigencia_costo_utilizable": null,
+      "boms_aplicables": [
+        {
+          "id": 589,
+          "active": false,
+          "write_date": "2026-01-26 06:02:45"
+        },
+        {
+          "id": 1191,
+          "active": false,
+          "write_date": "2026-07-24 20:38:15"
+        },
+        {
+          "id": 1461,
+          "active": false,
+          "write_date": "2026-07-24 20:38:15"
+        }
+      ],
+      "candidatos_sin_equivalencia_probada": [
+        {
+          "id": 8744,
+          "sku": "NH-SOLO-PLA-CH-PEZ-PLA",
+          "name": "NH - Platino CH Solo Arras Plateado",
+          "costo_fuente_texto": "144.82",
+          "moneda": "MXN"
+        }
+      ],
+      "decision_usuario": "PEZ si se vende; conservar variantes",
+      "dato_para_desbloquear": "ID Odoo vigente de esta variante o confirmacion de su reactivacion/receta completa, costo positivo y fecha efectiva",
+      "mutacion_autorizada_por_este_lote": false
+    }
+  ],
+  "operaciones_preparadas": [],
+  "motivo_sin_lote": "Identidad comercial confirmada; faltan producto vigente y costo positivo respaldados. No hay escritura ni reversa financiera segura que preparar con estos datos."
+}

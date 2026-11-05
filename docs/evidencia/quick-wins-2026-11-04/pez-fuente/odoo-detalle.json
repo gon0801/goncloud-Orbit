@@ -1,0 +1,5923 @@
+{
+  "fecha_utc": "2026-11-05T01:46:52.949734+00:00",
+  "productos_exactos": [
+    {
+      "id": 5900,
+      "default_code": "NH-BLA-BRO-PEZ-DOR",
+      "name": "NH - Blanco con broche 19mm Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5911,
+        "NH - Blanco con broche 19mm Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        9
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-11-04 15:56:14"
+    },
+    {
+      "id": 1572,
+      "default_code": "NH-BLA-BRO-PEZ-DOR",
+      "name": "NH - Blanco con broche Pez Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        1581,
+        "[NH-BLA-BRO-PEZ-DOR] NH - Blanco con broche Pez Dorado"
+      ],
+      "product_template_attribute_value_ids": [],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-01-28 08:32:51"
+    },
+    {
+      "id": 5247,
+      "default_code": "NH-BLA-BRO-PEZ-DOR",
+      "name": "NH - Blanco con broche Pez Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5267,
+        "[NH-BLA-BRO-PEZ-DOR] NH - Blanco con broche Pez Dorado"
+      ],
+      "product_template_attribute_value_ids": [],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-01-28 08:32:51"
+    },
+    {
+      "id": 6442,
+      "default_code": "NH-CAR-BLA-PEZ-DOR",
+      "name": "NH - Carte Blanco 16mm Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6186,
+        "NH - Carte Blanco 16mm Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        481
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-11-03 00:00:39"
+    },
+    {
+      "id": 1608,
+      "default_code": "NH-CAR-BLA-PEZ-DOR",
+      "name": "NH - Carte Blanco Pez Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        1617,
+        "[NH-CAR-BLA-PEZ-DOR] NH - Carte Blanco Pez Dorado"
+      ],
+      "product_template_attribute_value_ids": [],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-01-28 08:32:51"
+    },
+    {
+      "id": 5307,
+      "default_code": "NH-CAR-BLA-PEZ-DOR",
+      "name": "NH - Carte Blanco Pez Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5327,
+        "[NH-CAR-BLA-PEZ-DOR] NH - Carte Blanco Pez Dorado"
+      ],
+      "product_template_attribute_value_ids": [],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-01-28 08:32:51"
+    },
+    {
+      "id": 6452,
+      "default_code": "NH-CAR-BLA-PEZ-PLA",
+      "name": "NH - Carte Blanco 16mm Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6187,
+        "NH - Carte Blanco 16mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        491
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-11-03 00:00:39"
+    },
+    {
+      "id": 1609,
+      "default_code": "NH-CAR-BLA-PEZ-PLA",
+      "name": "NH - Carte Blanco Pez Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        1618,
+        "[NH-CAR-BLA-PEZ-PLA] NH - Carte Blanco Pez Plateado"
+      ],
+      "product_template_attribute_value_ids": [],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-01-28 08:32:51"
+    },
+    {
+      "id": 5308,
+      "default_code": "NH-CAR-BLA-PEZ-PLA",
+      "name": "NH - Carte Blanco Pez Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5328,
+        "[NH-CAR-BLA-PEZ-PLA] NH - Carte Blanco Pez Plateado"
+      ],
+      "product_template_attribute_value_ids": [],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-01-28 08:32:51"
+    },
+    {
+      "id": 6642,
+      "default_code": "NH-GAM-AZU-PEZ-DOR",
+      "name": "NH - Gamuza Azul 19mm Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6206,
+        "NH - Gamuza Azul 19mm Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        681
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-11-04 15:56:14"
+    },
+    {
+      "id": 1680,
+      "default_code": "NH-GAM-AZU-PEZ-DOR",
+      "name": "NH - Gamuza Azul Pez Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        1689,
+        "[NH-GAM-AZU-PEZ-DOR] NH - Gamuza Azul Pez Dorado"
+      ],
+      "product_template_attribute_value_ids": [],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-01-28 08:32:51"
+    },
+    {
+      "id": 5427,
+      "default_code": "NH-GAM-AZU-PEZ-DOR",
+      "name": "NH - Gamuza Azul Pez Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5447,
+        "[NH-GAM-AZU-PEZ-DOR] NH - Gamuza Azul Pez Dorado"
+      ],
+      "product_template_attribute_value_ids": [],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-01-28 08:32:51"
+    },
+    {
+      "id": 6652,
+      "default_code": "NH-GAM-AZU-PEZ-PLA",
+      "name": "NH - Gamuza Azul 19mm Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6207,
+        "NH - Gamuza Azul 19mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        691
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-11-04 03:31:41"
+    },
+    {
+      "id": 1681,
+      "default_code": "NH-GAM-AZU-PEZ-PLA",
+      "name": "NH - Gamuza Azul Pez Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        1690,
+        "[NH-GAM-AZU-PEZ-PLA] NH - Gamuza Azul Pez Plateado"
+      ],
+      "product_template_attribute_value_ids": [],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-01-28 08:32:51"
+    },
+    {
+      "id": 5428,
+      "default_code": "NH-GAM-AZU-PEZ-PLA",
+      "name": "NH - Gamuza Azul Pez Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5448,
+        "[NH-GAM-AZU-PEZ-PLA] NH - Gamuza Azul Pez Plateado"
+      ],
+      "product_template_attribute_value_ids": [],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-01-28 08:32:51"
+    },
+    {
+      "id": 6662,
+      "default_code": "NH-GAM-NEG-PEZ-DOR",
+      "name": "NH - Gamuza Negro 19mm Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6208,
+        "NH - Gamuza Negro 19mm Dorado"
+      ],
+      "product_template_attribute_value_ids": [
+        701
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-11-04 15:56:14"
+    },
+    {
+      "id": 1692,
+      "default_code": "NH-GAM-NEG-PEZ-DOR",
+      "name": "NH - Gamuza Negro Pez Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        1701,
+        "[NH-GAM-NEG-PEZ-DOR] NH - Gamuza Negro Pez Dorado"
+      ],
+      "product_template_attribute_value_ids": [],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-01-28 08:32:51"
+    },
+    {
+      "id": 5447,
+      "default_code": "NH-GAM-NEG-PEZ-DOR",
+      "name": "NH - Gamuza Negro Pez Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5467,
+        "[NH-GAM-NEG-PEZ-DOR] NH - Gamuza Negro Pez Dorado"
+      ],
+      "product_template_attribute_value_ids": [],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-01-28 08:32:51"
+    },
+    {
+      "id": 6672,
+      "default_code": "NH-GAM-NEG-PEZ-PLA",
+      "name": "NH - Gamuza Negro 19mm Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6209,
+        "NH - Gamuza Negro 19mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        711
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-11-04 03:31:41"
+    },
+    {
+      "id": 1693,
+      "default_code": "NH-GAM-NEG-PEZ-PLA",
+      "name": "NH - Gamuza Negro Pez Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        1702,
+        "[NH-GAM-NEG-PEZ-PLA] NH - Gamuza Negro Pez Plateado"
+      ],
+      "product_template_attribute_value_ids": [],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-01-28 08:32:51"
+    },
+    {
+      "id": 5448,
+      "default_code": "NH-GAM-NEG-PEZ-PLA",
+      "name": "NH - Gamuza Negro Pez Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5468,
+        "[NH-GAM-NEG-PEZ-PLA] NH - Gamuza Negro Pez Plateado"
+      ],
+      "product_template_attribute_value_ids": [],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-01-28 08:32:51"
+    },
+    {
+      "id": 6692,
+      "default_code": "NH-ITA-PEZ-PLA",
+      "name": "NH - Italia 16mm Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6211,
+        "NH - Italia 16mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        731
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-11-04 15:35:06"
+    },
+    {
+      "id": 1705,
+      "default_code": "NH-ITA-PEZ-PLA",
+      "name": "NH - Italia Pez Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        1714,
+        "[NH-ITA-PEZ-PLA] NH - Italia Pez Plateado"
+      ],
+      "product_template_attribute_value_ids": [],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-01-28 08:32:51"
+    },
+    {
+      "id": 5468,
+      "default_code": "NH-ITA-PEZ-PLA",
+      "name": "NH - Italia Pez Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5488,
+        "[NH-ITA-PEZ-PLA] NH - Italia Pez Plateado"
+      ],
+      "product_template_attribute_value_ids": [],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-01-28 08:32:51"
+    },
+    {
+      "id": 6732,
+      "default_code": "NH-PLA-CH-PEZ-PLA",
+      "name": "NH - Platino CH 19mm Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6215,
+        "NH - Platino CH 19mm Plateado"
+      ],
+      "product_template_attribute_value_ids": [
+        771
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-11-04 18:26:56"
+    },
+    {
+      "id": 1729,
+      "default_code": "NH-PLA-CH-PEZ-PLA",
+      "name": "NH - Platino CH Pez Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        1738,
+        "[NH-PLA-CH-PEZ-PLA] NH - Platino CH Pez Plateado"
+      ],
+      "product_template_attribute_value_ids": [],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-01-28 08:32:51"
+    },
+    {
+      "id": 5508,
+      "default_code": "NH-PLA-CH-PEZ-PLA",
+      "name": "NH - Platino CH Pez Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5528,
+        "[NH-PLA-CH-PEZ-PLA] NH - Platino CH Pez Plateado"
+      ],
+      "product_template_attribute_value_ids": [],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-01-28 08:32:51"
+    }
+  ],
+  "ventas_confirmadas_ultimas50": [],
+  "plantillas_actuales": [
+    {
+      "id": 1581,
+      "name": "NH - Blanco con broche Pez Dorado",
+      "active": false,
+      "product_variant_ids": [
+        1572
+      ],
+      "write_date": "2026-01-28 08:32:43"
+    },
+    {
+      "id": 1617,
+      "name": "NH - Carte Blanco Pez Dorado",
+      "active": false,
+      "product_variant_ids": [
+        1608
+      ],
+      "write_date": "2026-01-28 08:32:43"
+    },
+    {
+      "id": 1618,
+      "name": "NH - Carte Blanco Pez Plateado",
+      "active": false,
+      "product_variant_ids": [
+        1609
+      ],
+      "write_date": "2026-01-28 08:32:43"
+    },
+    {
+      "id": 1689,
+      "name": "NH - Gamuza Azul Pez Dorado",
+      "active": false,
+      "product_variant_ids": [
+        1680
+      ],
+      "write_date": "2026-01-28 08:32:43"
+    },
+    {
+      "id": 1690,
+      "name": "NH - Gamuza Azul Pez Plateado",
+      "active": false,
+      "product_variant_ids": [
+        1681
+      ],
+      "write_date": "2026-01-28 08:32:43"
+    },
+    {
+      "id": 1701,
+      "name": "NH - Gamuza Negro Pez Dorado",
+      "active": false,
+      "product_variant_ids": [
+        1692
+      ],
+      "write_date": "2026-01-28 08:32:43"
+    },
+    {
+      "id": 1702,
+      "name": "NH - Gamuza Negro Pez Plateado",
+      "active": false,
+      "product_variant_ids": [
+        1693
+      ],
+      "write_date": "2026-01-28 08:32:43"
+    },
+    {
+      "id": 1714,
+      "name": "NH - Italia Pez Plateado",
+      "active": false,
+      "product_variant_ids": [
+        1705
+      ],
+      "write_date": "2026-01-28 08:32:43"
+    },
+    {
+      "id": 1738,
+      "name": "NH - Platino CH Pez Plateado",
+      "active": false,
+      "product_variant_ids": [
+        1729
+      ],
+      "write_date": "2026-01-28 08:32:43"
+    },
+    {
+      "id": 5267,
+      "name": "NH - Blanco con broche Pez Dorado",
+      "active": false,
+      "product_variant_ids": [
+        5247
+      ],
+      "write_date": "2026-01-28 08:32:43"
+    },
+    {
+      "id": 5327,
+      "name": "NH - Carte Blanco Pez Dorado",
+      "active": false,
+      "product_variant_ids": [
+        5307
+      ],
+      "write_date": "2026-01-28 08:32:43"
+    },
+    {
+      "id": 5328,
+      "name": "NH - Carte Blanco Pez Plateado",
+      "active": false,
+      "product_variant_ids": [
+        5308
+      ],
+      "write_date": "2026-01-28 08:32:43"
+    },
+    {
+      "id": 5447,
+      "name": "NH - Gamuza Azul Pez Dorado",
+      "active": false,
+      "product_variant_ids": [
+        5427
+      ],
+      "write_date": "2026-01-28 08:32:43"
+    },
+    {
+      "id": 5448,
+      "name": "NH - Gamuza Azul Pez Plateado",
+      "active": false,
+      "product_variant_ids": [
+        5428
+      ],
+      "write_date": "2026-01-28 08:32:43"
+    },
+    {
+      "id": 5467,
+      "name": "NH - Gamuza Negro Pez Dorado",
+      "active": false,
+      "product_variant_ids": [
+        5447
+      ],
+      "write_date": "2026-01-28 08:32:43"
+    },
+    {
+      "id": 5468,
+      "name": "NH - Gamuza Negro Pez Plateado",
+      "active": false,
+      "product_variant_ids": [
+        5448
+      ],
+      "write_date": "2026-01-28 08:32:43"
+    },
+    {
+      "id": 5488,
+      "name": "NH - Italia Pez Plateado",
+      "active": false,
+      "product_variant_ids": [
+        5468
+      ],
+      "write_date": "2026-01-28 08:32:43"
+    },
+    {
+      "id": 5528,
+      "name": "NH - Platino CH Pez Plateado",
+      "active": false,
+      "product_variant_ids": [
+        5508
+      ],
+      "write_date": "2026-01-28 08:32:43"
+    },
+    {
+      "id": 5911,
+      "name": "NH - Blanco con broche 19mm Dorado",
+      "active": true,
+      "product_variant_ids": [
+        5897,
+        5892,
+        5896,
+        5901,
+        5898,
+        5899,
+        5900,
+        5893,
+        5895,
+        5894
+      ],
+      "write_date": "2026-02-22 06:05:03"
+    },
+    {
+      "id": 6186,
+      "name": "NH - Carte Blanco 16mm Dorado",
+      "active": true,
+      "product_variant_ids": [
+        6436,
+        6437,
+        6438,
+        6439,
+        6440,
+        6441,
+        6442,
+        6443,
+        6444,
+        6445
+      ],
+      "write_date": "2026-02-22 06:05:03"
+    },
+    {
+      "id": 6187,
+      "name": "NH - Carte Blanco 16mm Plateado",
+      "active": true,
+      "product_variant_ids": [
+        6446,
+        6447,
+        6448,
+        6449,
+        6450,
+        6451,
+        6452,
+        6453,
+        6454,
+        6455
+      ],
+      "write_date": "2026-02-22 06:05:03"
+    },
+    {
+      "id": 6206,
+      "name": "NH - Gamuza Azul 19mm Dorado",
+      "active": true,
+      "product_variant_ids": [
+        6636,
+        6637,
+        6638,
+        6639,
+        6640,
+        6641,
+        6642,
+        6643,
+        6644,
+        6645
+      ],
+      "write_date": "2026-02-22 06:05:03"
+    },
+    {
+      "id": 6207,
+      "name": "NH - Gamuza Azul 19mm Plateado",
+      "active": true,
+      "product_variant_ids": [
+        6646,
+        6647,
+        6648,
+        6649,
+        6650,
+        6651,
+        6652,
+        6653,
+        6654,
+        6655
+      ],
+      "write_date": "2026-02-22 06:05:03"
+    },
+    {
+      "id": 6208,
+      "name": "NH - Gamuza Negro 19mm Dorado",
+      "active": true,
+      "product_variant_ids": [
+        6656,
+        6657,
+        6658,
+        6659,
+        6660,
+        6661,
+        6662,
+        6663,
+        6664,
+        6665
+      ],
+      "write_date": "2026-02-22 06:05:03"
+    },
+    {
+      "id": 6209,
+      "name": "NH - Gamuza Negro 19mm Plateado",
+      "active": true,
+      "product_variant_ids": [
+        6666,
+        6667,
+        6668,
+        6669,
+        6670,
+        6671,
+        6672,
+        6673,
+        6674,
+        6675
+      ],
+      "write_date": "2026-02-22 06:05:03"
+    },
+    {
+      "id": 6211,
+      "name": "NH - Italia 16mm Plateado",
+      "active": true,
+      "product_variant_ids": [
+        6686,
+        6687,
+        6688,
+        6689,
+        6690,
+        6691,
+        6692,
+        6693,
+        6694,
+        6695
+      ],
+      "write_date": "2026-02-22 06:05:03"
+    },
+    {
+      "id": 6215,
+      "name": "NH - Platino CH 19mm Plateado",
+      "active": true,
+      "product_variant_ids": [
+        6726,
+        8848,
+        6727,
+        6728,
+        6729,
+        6730,
+        6731,
+        6732,
+        6733,
+        6734,
+        6735
+      ],
+      "write_date": "2026-02-22 08:08:07"
+    }
+  ],
+  "variantes_activas_mismas_plantillas": [
+    {
+      "id": 5892,
+      "default_code": "NH-BLA-BRO-CEN-DOR",
+      "name": "NH - Blanco con broche 19mm Dorado",
+      "active": true,
+      "standard_price": 353.69,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        1
+      ]
+    },
+    {
+      "id": 5893,
+      "default_code": "NH-BLA-BRO-SAN-DOR",
+      "name": "NH - Blanco con broche 19mm Dorado",
+      "active": true,
+      "standard_price": 291.51,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        2
+      ]
+    },
+    {
+      "id": 5894,
+      "default_code": "NH-BLA-BRO-VCO-DOR",
+      "name": "NH - Blanco con broche 19mm Dorado",
+      "active": true,
+      "standard_price": 291.51,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        3
+      ]
+    },
+    {
+      "id": 5895,
+      "default_code": "NH-BLA-BRO-VBU-DOR",
+      "name": "NH - Blanco con broche 19mm Dorado",
+      "active": true,
+      "standard_price": 291.51,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        4
+      ]
+    },
+    {
+      "id": 5896,
+      "default_code": "NH-BLA-BRO-COR-DOR",
+      "name": "NH - Blanco con broche 19mm Dorado",
+      "active": true,
+      "standard_price": 353.69,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        5
+      ]
+    },
+    {
+      "id": 5898,
+      "default_code": "NH-BLA-BRO-MAX-DOR",
+      "name": "NH - Blanco con broche 19mm Dorado",
+      "active": true,
+      "standard_price": 353.69,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        7
+      ]
+    },
+    {
+      "id": 5899,
+      "default_code": "NH-BLA-BRO-PESETA-DOR",
+      "name": "NH - Blanco con broche 19mm Dorado",
+      "active": true,
+      "standard_price": 353.69,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        8
+      ]
+    },
+    {
+      "id": 6437,
+      "default_code": "NH-CAR-BLA-CEN-DOR",
+      "name": "NH - Carte Blanco 16mm Dorado",
+      "active": true,
+      "standard_price": 304.65000000000003,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        476
+      ]
+    },
+    {
+      "id": 6438,
+      "default_code": "NH-CAR-BLA-COR-DOR",
+      "name": "NH - Carte Blanco 16mm Dorado",
+      "active": true,
+      "standard_price": 304.65000000000003,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        477
+      ]
+    },
+    {
+      "id": 6440,
+      "default_code": "NH-CAR-BLA-MAX-DOR",
+      "name": "NH - Carte Blanco 16mm Dorado",
+      "active": true,
+      "standard_price": 304.65000000000003,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        479
+      ]
+    },
+    {
+      "id": 6441,
+      "default_code": "NH-CAR-BLA-PESETA-DOR",
+      "name": "NH - Carte Blanco 16mm Dorado",
+      "active": true,
+      "standard_price": 304.65000000000003,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        480
+      ]
+    },
+    {
+      "id": 6443,
+      "default_code": "NH-CAR-BLA-SAN-DOR",
+      "name": "NH - Carte Blanco 16mm Dorado",
+      "active": true,
+      "standard_price": 242.47,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        482
+      ]
+    },
+    {
+      "id": 6444,
+      "default_code": "NH-CAR-BLA-VBU-DOR",
+      "name": "NH - Carte Blanco 16mm Dorado",
+      "active": true,
+      "standard_price": 242.47,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        483
+      ]
+    },
+    {
+      "id": 6445,
+      "default_code": "NH-CAR-BLA-VCO-DOR",
+      "name": "NH - Carte Blanco 16mm Dorado",
+      "active": true,
+      "standard_price": 242.47,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        484
+      ]
+    },
+    {
+      "id": 6447,
+      "default_code": "NH-CAR-BLA-CEN-PLA",
+      "name": "NH - Carte Blanco 16mm Plateado",
+      "active": true,
+      "standard_price": 304.65000000000003,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        486
+      ]
+    },
+    {
+      "id": 6448,
+      "default_code": "NH-CAR-BLA-COR-PLA",
+      "name": "NH - Carte Blanco 16mm Plateado",
+      "active": true,
+      "standard_price": 304.65000000000003,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        487
+      ]
+    },
+    {
+      "id": 6450,
+      "default_code": "NH-CAR-BLA-MAX-PLA",
+      "name": "NH - Carte Blanco 16mm Plateado",
+      "active": true,
+      "standard_price": 304.65000000000003,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        489
+      ]
+    },
+    {
+      "id": 6451,
+      "default_code": "NH-CAR-BLA-PESETA-PLA",
+      "name": "NH - Carte Blanco 16mm Plateado",
+      "active": true,
+      "standard_price": 304.65000000000003,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        490
+      ]
+    },
+    {
+      "id": 6453,
+      "default_code": "NH-CAR-BLA-SAN-PLA",
+      "name": "NH - Carte Blanco 16mm Plateado",
+      "active": true,
+      "standard_price": 242.47,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        492
+      ]
+    },
+    {
+      "id": 6454,
+      "default_code": "NH-CAR-BLA-VBU-PLA",
+      "name": "NH - Carte Blanco 16mm Plateado",
+      "active": true,
+      "standard_price": 242.47,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        493
+      ]
+    },
+    {
+      "id": 6455,
+      "default_code": "NH-CAR-BLA-VCO-PLA",
+      "name": "NH - Carte Blanco 16mm Plateado",
+      "active": true,
+      "standard_price": 242.47,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        494
+      ]
+    },
+    {
+      "id": 6637,
+      "default_code": "NH-GAM-AZU-CEN-DOR",
+      "name": "NH - Gamuza Azul 19mm Dorado",
+      "active": true,
+      "standard_price": 325.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        676
+      ]
+    },
+    {
+      "id": 6638,
+      "default_code": "NH-GAM-AZU-COR-DOR",
+      "name": "NH - Gamuza Azul 19mm Dorado",
+      "active": true,
+      "standard_price": 325.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        677
+      ]
+    },
+    {
+      "id": 6640,
+      "default_code": "NH-GAM-AZU-MAX-DOR",
+      "name": "NH - Gamuza Azul 19mm Dorado",
+      "active": true,
+      "standard_price": 325.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        679
+      ]
+    },
+    {
+      "id": 6641,
+      "default_code": "NH-GAM-AZU-PESETA-DOR",
+      "name": "NH - Gamuza Azul 19mm Dorado",
+      "active": true,
+      "standard_price": 325.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        680
+      ]
+    },
+    {
+      "id": 6643,
+      "default_code": "NH-GAM-AZU-SAN-DOR",
+      "name": "NH - Gamuza Azul 19mm Dorado",
+      "active": true,
+      "standard_price": 262.82,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        682
+      ]
+    },
+    {
+      "id": 6644,
+      "default_code": "NH-GAM-AZU-VBU-DOR",
+      "name": "NH - Gamuza Azul 19mm Dorado",
+      "active": true,
+      "standard_price": 262.82,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        683
+      ]
+    },
+    {
+      "id": 6645,
+      "default_code": "NH-GAM-AZU-VCO-DOR",
+      "name": "NH - Gamuza Azul 19mm Dorado",
+      "active": true,
+      "standard_price": 262.82,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        684
+      ]
+    },
+    {
+      "id": 6647,
+      "default_code": "NH-GAM-AZU-CEN-PLA",
+      "name": "NH - Gamuza Azul 19mm Plateado",
+      "active": true,
+      "standard_price": 325.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        686
+      ]
+    },
+    {
+      "id": 6648,
+      "default_code": "NH-GAM-AZU-COR-PLA",
+      "name": "NH - Gamuza Azul 19mm Plateado",
+      "active": true,
+      "standard_price": 325.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        687
+      ]
+    },
+    {
+      "id": 6650,
+      "default_code": "NH-GAM-AZU-MAX-PLA",
+      "name": "NH - Gamuza Azul 19mm Plateado",
+      "active": true,
+      "standard_price": 325.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        689
+      ]
+    },
+    {
+      "id": 6651,
+      "default_code": "NH-GAM-AZU-PESETA-PLA",
+      "name": "NH - Gamuza Azul 19mm Plateado",
+      "active": true,
+      "standard_price": 325.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        690
+      ]
+    },
+    {
+      "id": 6653,
+      "default_code": "NH-GAM-AZU-SAN-PLA",
+      "name": "NH - Gamuza Azul 19mm Plateado",
+      "active": true,
+      "standard_price": 262.82,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        692
+      ]
+    },
+    {
+      "id": 6654,
+      "default_code": "NH-GAM-AZU-VBU-PLA",
+      "name": "NH - Gamuza Azul 19mm Plateado",
+      "active": true,
+      "standard_price": 262.82,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        693
+      ]
+    },
+    {
+      "id": 6655,
+      "default_code": "NH-GAM-AZU-VCO-PLA",
+      "name": "NH - Gamuza Azul 19mm Plateado",
+      "active": true,
+      "standard_price": 262.82,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        694
+      ]
+    },
+    {
+      "id": 6657,
+      "default_code": "NH-GAM-NEG-CEN-DOR",
+      "name": "NH - Gamuza Negro 19mm Dorado",
+      "active": true,
+      "standard_price": 325.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        696
+      ]
+    },
+    {
+      "id": 6658,
+      "default_code": "NH-GAM-NEG-COR-DOR",
+      "name": "NH - Gamuza Negro 19mm Dorado",
+      "active": true,
+      "standard_price": 325.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        697
+      ]
+    },
+    {
+      "id": 6660,
+      "default_code": "NH-GAM-NEG-MAX-DOR",
+      "name": "NH - Gamuza Negro 19mm Dorado",
+      "active": true,
+      "standard_price": 325.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        699
+      ]
+    },
+    {
+      "id": 6661,
+      "default_code": "NH-GAM-NEG-PESETA-DOR",
+      "name": "NH - Gamuza Negro 19mm Dorado",
+      "active": true,
+      "standard_price": 325.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        700
+      ]
+    },
+    {
+      "id": 6663,
+      "default_code": "NH-GAM-NEG-SAN-DOR",
+      "name": "NH - Gamuza Negro 19mm Dorado",
+      "active": true,
+      "standard_price": 262.82,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        702
+      ]
+    },
+    {
+      "id": 6664,
+      "default_code": "NH-GAM-NEG-VBU-DOR",
+      "name": "NH - Gamuza Negro 19mm Dorado",
+      "active": true,
+      "standard_price": 262.82,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        703
+      ]
+    },
+    {
+      "id": 6665,
+      "default_code": "NH-GAM-NEG-VCO-DOR",
+      "name": "NH - Gamuza Negro 19mm Dorado",
+      "active": true,
+      "standard_price": 262.82,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        704
+      ]
+    },
+    {
+      "id": 6667,
+      "default_code": "NH-GAM-NEG-CEN-PLA",
+      "name": "NH - Gamuza Negro 19mm Plateado",
+      "active": true,
+      "standard_price": 325.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        706
+      ]
+    },
+    {
+      "id": 6668,
+      "default_code": "NH-GAM-NEG-COR-PLA",
+      "name": "NH - Gamuza Negro 19mm Plateado",
+      "active": true,
+      "standard_price": 325.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        707
+      ]
+    },
+    {
+      "id": 6670,
+      "default_code": "NH-GAM-NEG-MAX-PLA",
+      "name": "NH - Gamuza Negro 19mm Plateado",
+      "active": true,
+      "standard_price": 325.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        709
+      ]
+    },
+    {
+      "id": 6671,
+      "default_code": "NH-GAM-NEG-PESETA-PLA",
+      "name": "NH - Gamuza Negro 19mm Plateado",
+      "active": true,
+      "standard_price": 325.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        710
+      ]
+    },
+    {
+      "id": 6673,
+      "default_code": "NH-GAM-NEG-SAN-PLA",
+      "name": "NH - Gamuza Negro 19mm Plateado",
+      "active": true,
+      "standard_price": 262.82,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        712
+      ]
+    },
+    {
+      "id": 6674,
+      "default_code": "NH-GAM-NEG-VBU-PLA",
+      "name": "NH - Gamuza Negro 19mm Plateado",
+      "active": true,
+      "standard_price": 262.82,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        713
+      ]
+    },
+    {
+      "id": 6675,
+      "default_code": "NH-GAM-NEG-VCO-PLA",
+      "name": "NH - Gamuza Negro 19mm Plateado",
+      "active": true,
+      "standard_price": 262.82,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        714
+      ]
+    },
+    {
+      "id": 6687,
+      "default_code": "NH-ITA-CEN-PLA",
+      "name": "NH - Italia 16mm Plateado",
+      "active": true,
+      "standard_price": 341.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        726
+      ]
+    },
+    {
+      "id": 6688,
+      "default_code": "NH-ITA-COR-PLA",
+      "name": "NH - Italia 16mm Plateado",
+      "active": true,
+      "standard_price": 341.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        727
+      ]
+    },
+    {
+      "id": 6690,
+      "default_code": "NH-ITA-MAX-PLA",
+      "name": "NH - Italia 16mm Plateado",
+      "active": true,
+      "standard_price": 341.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        729
+      ]
+    },
+    {
+      "id": 6691,
+      "default_code": "NH-ITA-PESETA-PLA",
+      "name": "NH - Italia 16mm Plateado",
+      "active": true,
+      "standard_price": 341.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        730
+      ]
+    },
+    {
+      "id": 6693,
+      "default_code": "NH-ITA-SAN-PLA",
+      "name": "NH - Italia 16mm Plateado",
+      "active": true,
+      "standard_price": 341.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        732
+      ]
+    },
+    {
+      "id": 6694,
+      "default_code": "NH-ITA-VBU-PLA",
+      "name": "NH - Italia 16mm Plateado",
+      "active": true,
+      "standard_price": 341.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        733
+      ]
+    },
+    {
+      "id": 6695,
+      "default_code": "NH-ITA-VCO-PLA",
+      "name": "NH - Italia 16mm Plateado",
+      "active": true,
+      "standard_price": 341.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        734
+      ]
+    },
+    {
+      "id": 6727,
+      "default_code": "NH-PLA-CH-CEN-PLA",
+      "name": "NH - Platino CH 19mm Plateado",
+      "active": true,
+      "standard_price": 372.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        766
+      ]
+    },
+    {
+      "id": 6728,
+      "default_code": "NH-PLA-CH-COR-PLA",
+      "name": "NH - Platino CH 19mm Plateado",
+      "active": true,
+      "standard_price": 372.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        767
+      ]
+    },
+    {
+      "id": 6730,
+      "default_code": "NH-PLA-CH-MAX-PLA",
+      "name": "NH - Platino CH 19mm Plateado",
+      "active": true,
+      "standard_price": 372.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        769
+      ]
+    },
+    {
+      "id": 6731,
+      "default_code": "NH-PLA-CH-PESETA-PLA",
+      "name": "NH - Platino CH 19mm Plateado",
+      "active": true,
+      "standard_price": 372.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        770
+      ]
+    },
+    {
+      "id": 6733,
+      "default_code": "NH-PLA-CH-SAN-PLA",
+      "name": "NH - Platino CH 19mm Plateado",
+      "active": true,
+      "standard_price": 309.82,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        772
+      ]
+    },
+    {
+      "id": 6734,
+      "default_code": "NH-PLA-CH-VBU-PLA",
+      "name": "NH - Platino CH 19mm Plateado",
+      "active": true,
+      "standard_price": 309.82,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        773
+      ]
+    },
+    {
+      "id": 6735,
+      "default_code": "NH-PLA-CH-VCO-PLA",
+      "name": "NH - Platino CH 19mm Plateado",
+      "active": true,
+      "standard_price": 309.82,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        774
+      ]
+    },
+    {
+      "id": 8848,
+      "default_code": "NH-PLA-CH-CAMP-PLA",
+      "name": "NH - Platino CH 19mm Plateado",
+      "active": true,
+      "standard_price": 372.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_template_attribute_value_ids": [
+        2880
+      ]
+    }
+  ],
+  "boms_consultados": 219,
+  "atributos": [
+    {
+      "id": 9,
+      "name": "Sello Cristiano",
+      "product_tmpl_id": [
+        5911,
+        "NH - Blanco con broche 19mm Dorado"
+      ],
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "ptav_active": true
+    },
+    {
+      "id": 481,
+      "name": "Sello Cristiano",
+      "product_tmpl_id": [
+        6186,
+        "NH - Carte Blanco 16mm Dorado"
+      ],
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "ptav_active": true
+    },
+    {
+      "id": 491,
+      "name": "Sello Cristiano",
+      "product_tmpl_id": [
+        6187,
+        "NH - Carte Blanco 16mm Plateado"
+      ],
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "ptav_active": true
+    },
+    {
+      "id": 681,
+      "name": "Sello Cristiano",
+      "product_tmpl_id": [
+        6206,
+        "NH - Gamuza Azul 19mm Dorado"
+      ],
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "ptav_active": true
+    },
+    {
+      "id": 691,
+      "name": "Sello Cristiano",
+      "product_tmpl_id": [
+        6207,
+        "NH - Gamuza Azul 19mm Plateado"
+      ],
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "ptav_active": true
+    },
+    {
+      "id": 701,
+      "name": "Sello Cristiano",
+      "product_tmpl_id": [
+        6208,
+        "NH - Gamuza Negro 19mm Dorado"
+      ],
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "ptav_active": true
+    },
+    {
+      "id": 711,
+      "name": "Sello Cristiano",
+      "product_tmpl_id": [
+        6209,
+        "NH - Gamuza Negro 19mm Plateado"
+      ],
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "ptav_active": true
+    },
+    {
+      "id": 731,
+      "name": "Sello Cristiano",
+      "product_tmpl_id": [
+        6211,
+        "NH - Italia 16mm Plateado"
+      ],
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "ptav_active": true
+    },
+    {
+      "id": 771,
+      "name": "Sello Cristiano",
+      "product_tmpl_id": [
+        6215,
+        "NH - Platino CH 19mm Plateado"
+      ],
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "ptav_active": true
+    }
+  ],
+  "boms": [
+    {
+      "id": 242,
+      "code": false,
+      "active": false,
+      "type": "phantom",
+      "product_tmpl_id": [
+        1581,
+        "[NH-BLA-BRO-PEZ-DOR] NH - Blanco con broche Pez Dorado"
+      ],
+      "product_id": false,
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_line_ids": [
+        25
+      ],
+      "write_date": "2026-01-24 07:42:10",
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ]
+    },
+    {
+      "id": 328,
+      "code": "NH - Blanco con broche 19mm Dorado (new) 6",
+      "active": false,
+      "type": "phantom",
+      "product_tmpl_id": [
+        5911,
+        "NH - Blanco con broche 19mm Dorado"
+      ],
+      "product_id": [
+        5900,
+        "[NH-BLA-BRO-PEZ-DOR] NH - Blanco con broche 19mm Dorado (Sello Cristiano)"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_line_ids": [
+        249
+      ],
+      "write_date": "2026-07-24 20:38:15",
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ]
+    },
+    {
+      "id": 389,
+      "code": false,
+      "active": false,
+      "type": "phantom",
+      "product_tmpl_id": [
+        5327,
+        "[NH-CAR-BLA-PEZ-DOR] NH - Carte Blanco Pez Dorado"
+      ],
+      "product_id": false,
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_line_ids": [
+        312
+      ],
+      "write_date": "2026-01-26 06:02:20",
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ]
+    },
+    {
+      "id": 390,
+      "code": false,
+      "active": false,
+      "type": "phantom",
+      "product_tmpl_id": [
+        5328,
+        "[NH-CAR-BLA-PEZ-PLA] NH - Carte Blanco Pez Plateado"
+      ],
+      "product_id": false,
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_line_ids": [
+        313
+      ],
+      "write_date": "2026-01-26 06:02:20",
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ]
+    },
+    {
+      "id": 508,
+      "code": "bom33",
+      "active": false,
+      "type": "phantom",
+      "product_tmpl_id": [
+        5447,
+        "[NH-GAM-AZU-PEZ-DOR] NH - Gamuza Azul Pez Dorado"
+      ],
+      "product_id": false,
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_line_ids": [
+        432
+      ],
+      "write_date": "2026-01-26 06:02:37",
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ]
+    },
+    {
+      "id": 509,
+      "code": "bom34",
+      "active": false,
+      "type": "phantom",
+      "product_tmpl_id": [
+        5448,
+        "[NH-GAM-AZU-PEZ-PLA] NH - Gamuza Azul Pez Plateado"
+      ],
+      "product_id": false,
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_line_ids": [
+        433
+      ],
+      "write_date": "2026-01-26 06:02:37",
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ]
+    },
+    {
+      "id": 528,
+      "code": "bom53",
+      "active": false,
+      "type": "phantom",
+      "product_tmpl_id": [
+        5467,
+        "[NH-GAM-NEG-PEZ-DOR] NH - Gamuza Negro Pez Dorado"
+      ],
+      "product_id": false,
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_line_ids": [
+        452
+      ],
+      "write_date": "2026-01-26 06:02:37",
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ]
+    },
+    {
+      "id": 529,
+      "code": "bom54",
+      "active": false,
+      "type": "phantom",
+      "product_tmpl_id": [
+        5468,
+        "[NH-GAM-NEG-PEZ-PLA] NH - Gamuza Negro Pez Plateado"
+      ],
+      "product_id": false,
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_line_ids": [
+        453
+      ],
+      "write_date": "2026-01-26 06:02:37",
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ]
+    },
+    {
+      "id": 549,
+      "code": "bom74",
+      "active": false,
+      "type": "phantom",
+      "product_tmpl_id": [
+        5488,
+        "[NH-ITA-PEZ-PLA] NH - Italia Pez Plateado"
+      ],
+      "product_id": false,
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_line_ids": [
+        473
+      ],
+      "write_date": "2026-01-26 06:02:37",
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ]
+    },
+    {
+      "id": 589,
+      "code": "bom114",
+      "active": false,
+      "type": "phantom",
+      "product_tmpl_id": [
+        5528,
+        "[NH-PLA-CH-PEZ-PLA] NH - Platino CH Pez Plateado"
+      ],
+      "product_id": false,
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_line_ids": [
+        513
+      ],
+      "write_date": "2026-01-26 06:02:45",
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ]
+    },
+    {
+      "id": 985,
+      "code": false,
+      "active": false,
+      "type": "normal",
+      "product_tmpl_id": [
+        5911,
+        "NH - Blanco con broche 19mm Dorado"
+      ],
+      "product_id": false,
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_line_ids": [],
+      "write_date": "2026-01-26 07:33:02",
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ]
+    },
+    {
+      "id": 994,
+      "code": "bom0009",
+      "active": false,
+      "type": "phantom",
+      "product_tmpl_id": [
+        5911,
+        "NH - Blanco con broche 19mm Dorado"
+      ],
+      "product_id": [
+        5900,
+        "[NH-BLA-BRO-PEZ-DOR] NH - Blanco con broche 19mm Dorado (Sello Cristiano)"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_line_ids": [
+        1609,
+        1610
+      ],
+      "write_date": "2026-07-24 20:38:15",
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ]
+    },
+    {
+      "id": 1042,
+      "code": "bom0057",
+      "active": false,
+      "type": "phantom",
+      "product_tmpl_id": [
+        6186,
+        "NH - Carte Blanco 16mm Dorado"
+      ],
+      "product_id": [
+        6442,
+        "[NH-CAR-BLA-PEZ-DOR] NH - Carte Blanco 16mm Dorado (Sello Cristiano)"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_line_ids": [
+        1757,
+        1758
+      ],
+      "write_date": "2026-07-24 20:38:15",
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ]
+    },
+    {
+      "id": 1043,
+      "code": "bom0058",
+      "active": false,
+      "type": "phantom",
+      "product_tmpl_id": [
+        6187,
+        "NH - Carte Blanco 16mm Plateado"
+      ],
+      "product_id": [
+        6452,
+        "[NH-CAR-BLA-PEZ-PLA] NH - Carte Blanco 16mm Plateado (Sello Cristiano)"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_line_ids": [
+        1759,
+        1760
+      ],
+      "write_date": "2026-07-24 20:38:15",
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ]
+    },
+    {
+      "id": 1126,
+      "code": "bom0153",
+      "active": false,
+      "type": "phantom",
+      "product_tmpl_id": [
+        6206,
+        "NH - Gamuza Azul 19mm Dorado"
+      ],
+      "product_id": [
+        6642,
+        "[NH-GAM-AZU-PEZ-DOR] NH - Gamuza Azul 19mm Dorado (Sello Cristiano)"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_line_ids": [
+        2057,
+        2058
+      ],
+      "write_date": "2026-07-24 20:38:15",
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ]
+    },
+    {
+      "id": 1127,
+      "code": "bom0154",
+      "active": false,
+      "type": "phantom",
+      "product_tmpl_id": [
+        6207,
+        "NH - Gamuza Azul 19mm Plateado"
+      ],
+      "product_id": [
+        6652,
+        "[NH-GAM-AZU-PEZ-PLA] NH - Gamuza Azul 19mm Plateado (Sello Cristiano)"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_line_ids": [
+        2059,
+        2060
+      ],
+      "write_date": "2026-07-24 20:38:15",
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ]
+    },
+    {
+      "id": 1142,
+      "code": "bom0169",
+      "active": false,
+      "type": "phantom",
+      "product_tmpl_id": [
+        6208,
+        "NH - Gamuza Negro 19mm Dorado"
+      ],
+      "product_id": [
+        6662,
+        "[NH-GAM-NEG-PEZ-DOR] NH - Gamuza Negro 19mm Dorado (Sello Cristiano)"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_line_ids": [
+        2101,
+        2102
+      ],
+      "write_date": "2026-07-24 20:38:15",
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ]
+    },
+    {
+      "id": 1143,
+      "code": "bom0170",
+      "active": false,
+      "type": "phantom",
+      "product_tmpl_id": [
+        6209,
+        "NH - Gamuza Negro 19mm Plateado"
+      ],
+      "product_id": [
+        6672,
+        "[NH-GAM-NEG-PEZ-PLA] NH - Gamuza Negro 19mm Plateado (Sello Cristiano)"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_line_ids": [
+        2103,
+        2104
+      ],
+      "write_date": "2026-07-24 20:38:15",
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ]
+    },
+    {
+      "id": 1159,
+      "code": "bom0186",
+      "active": false,
+      "type": "phantom",
+      "product_tmpl_id": [
+        6211,
+        "NH - Italia 16mm Plateado"
+      ],
+      "product_id": [
+        6692,
+        "[NH-ITA-PEZ-PLA] NH - Italia 16mm Plateado (Sello Cristiano)"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_line_ids": [
+        2147,
+        2148
+      ],
+      "write_date": "2026-07-24 20:38:15",
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ]
+    },
+    {
+      "id": 1191,
+      "code": "bom0218",
+      "active": false,
+      "type": "phantom",
+      "product_tmpl_id": [
+        6215,
+        "NH - Platino CH 19mm Plateado"
+      ],
+      "product_id": [
+        6732,
+        "[NH-PLA-CH-PEZ-PLA] NH - Platino CH 19mm Plateado (Sello Cristiano)"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_line_ids": [
+        2235,
+        2236
+      ],
+      "write_date": "2026-07-24 20:38:15",
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ]
+    },
+    {
+      "id": 1284,
+      "code": "bom0007",
+      "active": false,
+      "type": "phantom",
+      "product_tmpl_id": [
+        5911,
+        "NH - Blanco con broche 19mm Dorado"
+      ],
+      "product_id": [
+        5900,
+        "[NH-BLA-BRO-PEZ-DOR] NH - Blanco con broche 19mm Dorado (Sello Cristiano)"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_line_ids": [
+        2525,
+        2526
+      ],
+      "write_date": "2026-07-24 20:38:15",
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ]
+    },
+    {
+      "id": 1326,
+      "code": "bom0049",
+      "active": false,
+      "type": "phantom",
+      "product_tmpl_id": [
+        6186,
+        "NH - Carte Blanco 16mm Dorado"
+      ],
+      "product_id": [
+        6442,
+        "[NH-CAR-BLA-PEZ-DOR] NH - Carte Blanco 16mm Dorado (Sello Cristiano)"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_line_ids": [
+        2659,
+        2660
+      ],
+      "write_date": "2026-07-24 20:38:15",
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ]
+    },
+    {
+      "id": 1327,
+      "code": "bom0050",
+      "active": false,
+      "type": "phantom",
+      "product_tmpl_id": [
+        6187,
+        "NH - Carte Blanco 16mm Plateado"
+      ],
+      "product_id": [
+        6452,
+        "[NH-CAR-BLA-PEZ-PLA] NH - Carte Blanco 16mm Plateado (Sello Cristiano)"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_line_ids": [
+        2661,
+        2662
+      ],
+      "write_date": "2026-07-24 20:38:15",
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ]
+    },
+    {
+      "id": 1404,
+      "code": "bom0133",
+      "active": false,
+      "type": "phantom",
+      "product_tmpl_id": [
+        6206,
+        "NH - Gamuza Azul 19mm Dorado"
+      ],
+      "product_id": [
+        6642,
+        "[NH-GAM-AZU-PEZ-DOR] NH - Gamuza Azul 19mm Dorado (Sello Cristiano)"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_line_ids": [
+        2935,
+        2936
+      ],
+      "write_date": "2026-07-24 20:38:15",
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ]
+    },
+    {
+      "id": 1405,
+      "code": "bom0134",
+      "active": false,
+      "type": "phantom",
+      "product_tmpl_id": [
+        6207,
+        "NH - Gamuza Azul 19mm Plateado"
+      ],
+      "product_id": [
+        6652,
+        "[NH-GAM-AZU-PEZ-PLA] NH - Gamuza Azul 19mm Plateado (Sello Cristiano)"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_line_ids": [
+        2937,
+        2938
+      ],
+      "write_date": "2026-07-24 20:38:15",
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ]
+    },
+    {
+      "id": 1418,
+      "code": "bom0147",
+      "active": false,
+      "type": "phantom",
+      "product_tmpl_id": [
+        6208,
+        "NH - Gamuza Negro 19mm Dorado"
+      ],
+      "product_id": [
+        6662,
+        "[NH-GAM-NEG-PEZ-DOR] NH - Gamuza Negro 19mm Dorado (Sello Cristiano)"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_line_ids": [
+        2975,
+        2976
+      ],
+      "write_date": "2026-07-24 20:38:15",
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ]
+    },
+    {
+      "id": 1419,
+      "code": "bom0148",
+      "active": false,
+      "type": "phantom",
+      "product_tmpl_id": [
+        6209,
+        "NH - Gamuza Negro 19mm Plateado"
+      ],
+      "product_id": [
+        6672,
+        "[NH-GAM-NEG-PEZ-PLA] NH - Gamuza Negro 19mm Plateado (Sello Cristiano)"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_line_ids": [
+        2977,
+        2978
+      ],
+      "write_date": "2026-07-24 20:38:15",
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ]
+    },
+    {
+      "id": 1433,
+      "code": "bom0162",
+      "active": false,
+      "type": "phantom",
+      "product_tmpl_id": [
+        6211,
+        "NH - Italia 16mm Plateado"
+      ],
+      "product_id": [
+        6692,
+        "[NH-ITA-PEZ-PLA] NH - Italia 16mm Plateado (Sello Cristiano)"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_line_ids": [
+        3017,
+        3018
+      ],
+      "write_date": "2026-07-24 20:38:15",
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ]
+    },
+    {
+      "id": 1461,
+      "code": "bom0190",
+      "active": false,
+      "type": "phantom",
+      "product_tmpl_id": [
+        6215,
+        "NH - Platino CH 19mm Plateado"
+      ],
+      "product_id": [
+        6732,
+        "[NH-PLA-CH-PEZ-PLA] NH - Platino CH 19mm Plateado (Sello Cristiano)"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_line_ids": [
+        3097,
+        3098
+      ],
+      "write_date": "2026-07-24 20:38:15",
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ]
+    }
+  ],
+  "lineas": [
+    {
+      "id": 25,
+      "bom_id": [
+        242,
+        "[NH-BLA-BRO-PEZ-DOR] NH - Blanco con broche Pez Dorado"
+      ],
+      "product_id": [
+        159,
+        "[4608] Blanco con Broche"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "write_date": "2026-01-24 01:13:20"
+    },
+    {
+      "id": 249,
+      "bom_id": [
+        328,
+        "NH - Blanco con broche 19mm Dorado (new) 6: NH - Blanco con broche 19mm Dorado"
+      ],
+      "product_id": [
+        159,
+        "[4608] Blanco con Broche"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "write_date": "2026-01-25 19:25:39"
+    },
+    {
+      "id": 312,
+      "bom_id": [
+        389,
+        "[NH-CAR-BLA-PEZ-DOR] NH - Carte Blanco Pez Dorado"
+      ],
+      "product_id": [
+        5,
+        "[EST-CAR-BLC] Carte Blanco"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "write_date": "2026-01-24 22:10:49"
+    },
+    {
+      "id": 313,
+      "bom_id": [
+        390,
+        "[NH-CAR-BLA-PEZ-PLA] NH - Carte Blanco Pez Plateado"
+      ],
+      "product_id": [
+        5,
+        "[EST-CAR-BLC] Carte Blanco"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "write_date": "2026-01-24 22:10:49"
+    },
+    {
+      "id": 432,
+      "bom_id": [
+        508,
+        "bom33: [NH-GAM-AZU-PEZ-DOR] NH - Gamuza Azul Pez Dorado"
+      ],
+      "product_id": [
+        168,
+        "[EST-GAM-AZU] Gamuza Azul"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "write_date": "2026-01-25 00:05:30"
+    },
+    {
+      "id": 433,
+      "bom_id": [
+        509,
+        "bom34: [NH-GAM-AZU-PEZ-PLA] NH - Gamuza Azul Pez Plateado"
+      ],
+      "product_id": [
+        168,
+        "[EST-GAM-AZU] Gamuza Azul"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "write_date": "2026-01-25 00:05:30"
+    },
+    {
+      "id": 452,
+      "bom_id": [
+        528,
+        "bom53: [NH-GAM-NEG-PEZ-DOR] NH - Gamuza Negro Pez Dorado"
+      ],
+      "product_id": [
+        169,
+        "[EST-GAM-NEG] Gamuza Negro"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "write_date": "2026-01-25 00:05:30"
+    },
+    {
+      "id": 453,
+      "bom_id": [
+        529,
+        "bom54: [NH-GAM-NEG-PEZ-PLA] NH - Gamuza Negro Pez Plateado"
+      ],
+      "product_id": [
+        169,
+        "[EST-GAM-NEG] Gamuza Negro"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "write_date": "2026-01-25 00:05:30"
+    },
+    {
+      "id": 473,
+      "bom_id": [
+        549,
+        "bom74: [NH-ITA-PEZ-PLA] NH - Italia Pez Plateado"
+      ],
+      "product_id": [
+        158,
+        "[4405-BG] Italia"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "write_date": "2026-01-25 00:05:30"
+    },
+    {
+      "id": 513,
+      "bom_id": [
+        589,
+        "bom114: [NH-PLA-CH-PEZ-PLA] NH - Platino CH Pez Plateado"
+      ],
+      "product_id": [
+        163,
+        "[4587-BK] Platino CH"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "write_date": "2026-01-25 00:05:30"
+    },
+    {
+      "id": 1609,
+      "bom_id": [
+        994,
+        "bom0009: NH - Blanco con broche 19mm Dorado"
+      ],
+      "product_id": [
+        159,
+        "[4608] Blanco con Broche"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "write_date": "2026-01-26 07:31:27"
+    },
+    {
+      "id": 1610,
+      "bom_id": [
+        994,
+        "bom0009: NH - Blanco con broche 19mm Dorado"
+      ],
+      "product_id": [
+        1025,
+        "[COF-19-DOR] Cofre 19 - Dorado"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "write_date": "2026-01-26 07:31:27"
+    },
+    {
+      "id": 1757,
+      "bom_id": [
+        1042,
+        "bom0057: NH - Carte Blanco 16mm Dorado"
+      ],
+      "product_id": [
+        5,
+        "[EST-CAR-BLC] Carte Blanco"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "write_date": "2026-01-26 07:31:27"
+    },
+    {
+      "id": 1758,
+      "bom_id": [
+        1042,
+        "bom0057: NH - Carte Blanco 16mm Dorado"
+      ],
+      "product_id": [
+        1022,
+        "[COF-16-DOR] Cofre 16 - Dorado"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "write_date": "2026-01-26 07:31:27"
+    },
+    {
+      "id": 1759,
+      "bom_id": [
+        1043,
+        "bom0058: NH - Carte Blanco 16mm Plateado"
+      ],
+      "product_id": [
+        5,
+        "[EST-CAR-BLC] Carte Blanco"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "write_date": "2026-01-26 07:31:27"
+    },
+    {
+      "id": 1760,
+      "bom_id": [
+        1043,
+        "bom0058: NH - Carte Blanco 16mm Plateado"
+      ],
+      "product_id": [
+        1023,
+        "[COF-16-PLA] Cofre 16 - Plateado"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "write_date": "2026-01-26 07:31:27"
+    },
+    {
+      "id": 2057,
+      "bom_id": [
+        1126,
+        "bom0153: NH - Gamuza Azul 19mm Dorado"
+      ],
+      "product_id": [
+        168,
+        "[EST-GAM-AZU] Gamuza Azul"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "write_date": "2026-01-26 07:31:27"
+    },
+    {
+      "id": 2058,
+      "bom_id": [
+        1126,
+        "bom0153: NH - Gamuza Azul 19mm Dorado"
+      ],
+      "product_id": [
+        1025,
+        "[COF-19-DOR] Cofre 19 - Dorado"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "write_date": "2026-01-26 07:31:27"
+    },
+    {
+      "id": 2059,
+      "bom_id": [
+        1127,
+        "bom0154: NH - Gamuza Azul 19mm Plateado"
+      ],
+      "product_id": [
+        168,
+        "[EST-GAM-AZU] Gamuza Azul"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "write_date": "2026-01-26 07:31:27"
+    },
+    {
+      "id": 2060,
+      "bom_id": [
+        1127,
+        "bom0154: NH - Gamuza Azul 19mm Plateado"
+      ],
+      "product_id": [
+        1024,
+        "[COF-19-PLA] Cofre 19 - Plateado"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "write_date": "2026-01-26 07:31:27"
+    },
+    {
+      "id": 2101,
+      "bom_id": [
+        1142,
+        "bom0169: NH - Gamuza Negro 19mm Dorado"
+      ],
+      "product_id": [
+        169,
+        "[EST-GAM-NEG] Gamuza Negro"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "write_date": "2026-01-26 07:31:27"
+    },
+    {
+      "id": 2102,
+      "bom_id": [
+        1142,
+        "bom0169: NH - Gamuza Negro 19mm Dorado"
+      ],
+      "product_id": [
+        1025,
+        "[COF-19-DOR] Cofre 19 - Dorado"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "write_date": "2026-01-26 07:31:27"
+    },
+    {
+      "id": 2103,
+      "bom_id": [
+        1143,
+        "bom0170: NH - Gamuza Negro 19mm Plateado"
+      ],
+      "product_id": [
+        169,
+        "[EST-GAM-NEG] Gamuza Negro"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "write_date": "2026-01-26 07:31:27"
+    },
+    {
+      "id": 2104,
+      "bom_id": [
+        1143,
+        "bom0170: NH - Gamuza Negro 19mm Plateado"
+      ],
+      "product_id": [
+        1024,
+        "[COF-19-PLA] Cofre 19 - Plateado"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "write_date": "2026-01-26 07:31:27"
+    },
+    {
+      "id": 2147,
+      "bom_id": [
+        1159,
+        "bom0186: NH - Italia 16mm Plateado"
+      ],
+      "product_id": [
+        158,
+        "[4405-BG] Italia"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "write_date": "2026-01-26 07:31:27"
+    },
+    {
+      "id": 2148,
+      "bom_id": [
+        1159,
+        "bom0186: NH - Italia 16mm Plateado"
+      ],
+      "product_id": [
+        1023,
+        "[COF-16-PLA] Cofre 16 - Plateado"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "write_date": "2026-01-26 07:31:27"
+    },
+    {
+      "id": 2235,
+      "bom_id": [
+        1191,
+        "bom0218: NH - Platino CH 19mm Plateado"
+      ],
+      "product_id": [
+        163,
+        "[4587-BK] Platino CH"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "write_date": "2026-01-26 07:31:27"
+    },
+    {
+      "id": 2236,
+      "bom_id": [
+        1191,
+        "bom0218: NH - Platino CH 19mm Plateado"
+      ],
+      "product_id": [
+        1024,
+        "[COF-19-PLA] Cofre 19 - Plateado"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "write_date": "2026-01-26 07:31:27"
+    },
+    {
+      "id": 2525,
+      "bom_id": [
+        1284,
+        "bom0007: NH - Blanco con broche 19mm Dorado"
+      ],
+      "product_id": [
+        159,
+        "[4608] Blanco con Broche"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "write_date": "2026-01-26 07:37:56"
+    },
+    {
+      "id": 2526,
+      "bom_id": [
+        1284,
+        "bom0007: NH - Blanco con broche 19mm Dorado"
+      ],
+      "product_id": [
+        1025,
+        "[COF-19-DOR] Cofre 19 - Dorado"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "write_date": "2026-01-26 07:37:56"
+    },
+    {
+      "id": 2659,
+      "bom_id": [
+        1326,
+        "bom0049: NH - Carte Blanco 16mm Dorado"
+      ],
+      "product_id": [
+        5,
+        "[EST-CAR-BLC] Carte Blanco"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "write_date": "2026-01-26 07:37:56"
+    },
+    {
+      "id": 2660,
+      "bom_id": [
+        1326,
+        "bom0049: NH - Carte Blanco 16mm Dorado"
+      ],
+      "product_id": [
+        1022,
+        "[COF-16-DOR] Cofre 16 - Dorado"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "write_date": "2026-01-26 07:37:56"
+    },
+    {
+      "id": 2661,
+      "bom_id": [
+        1327,
+        "bom0050: NH - Carte Blanco 16mm Plateado"
+      ],
+      "product_id": [
+        5,
+        "[EST-CAR-BLC] Carte Blanco"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "write_date": "2026-01-26 07:37:56"
+    },
+    {
+      "id": 2662,
+      "bom_id": [
+        1327,
+        "bom0050: NH - Carte Blanco 16mm Plateado"
+      ],
+      "product_id": [
+        1023,
+        "[COF-16-PLA] Cofre 16 - Plateado"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "write_date": "2026-01-26 07:37:56"
+    },
+    {
+      "id": 2935,
+      "bom_id": [
+        1404,
+        "bom0133: NH - Gamuza Azul 19mm Dorado"
+      ],
+      "product_id": [
+        168,
+        "[EST-GAM-AZU] Gamuza Azul"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "write_date": "2026-01-26 07:37:56"
+    },
+    {
+      "id": 2936,
+      "bom_id": [
+        1404,
+        "bom0133: NH - Gamuza Azul 19mm Dorado"
+      ],
+      "product_id": [
+        1025,
+        "[COF-19-DOR] Cofre 19 - Dorado"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "write_date": "2026-01-26 07:37:56"
+    },
+    {
+      "id": 2937,
+      "bom_id": [
+        1405,
+        "bom0134: NH - Gamuza Azul 19mm Plateado"
+      ],
+      "product_id": [
+        168,
+        "[EST-GAM-AZU] Gamuza Azul"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "write_date": "2026-01-26 07:37:56"
+    },
+    {
+      "id": 2938,
+      "bom_id": [
+        1405,
+        "bom0134: NH - Gamuza Azul 19mm Plateado"
+      ],
+      "product_id": [
+        1024,
+        "[COF-19-PLA] Cofre 19 - Plateado"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "write_date": "2026-01-26 07:37:56"
+    },
+    {
+      "id": 2975,
+      "bom_id": [
+        1418,
+        "bom0147: NH - Gamuza Negro 19mm Dorado"
+      ],
+      "product_id": [
+        169,
+        "[EST-GAM-NEG] Gamuza Negro"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "write_date": "2026-01-26 07:37:56"
+    },
+    {
+      "id": 2976,
+      "bom_id": [
+        1418,
+        "bom0147: NH - Gamuza Negro 19mm Dorado"
+      ],
+      "product_id": [
+        1025,
+        "[COF-19-DOR] Cofre 19 - Dorado"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "write_date": "2026-01-26 07:37:56"
+    },
+    {
+      "id": 2977,
+      "bom_id": [
+        1419,
+        "bom0148: NH - Gamuza Negro 19mm Plateado"
+      ],
+      "product_id": [
+        169,
+        "[EST-GAM-NEG] Gamuza Negro"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "write_date": "2026-01-26 07:37:56"
+    },
+    {
+      "id": 2978,
+      "bom_id": [
+        1419,
+        "bom0148: NH - Gamuza Negro 19mm Plateado"
+      ],
+      "product_id": [
+        1024,
+        "[COF-19-PLA] Cofre 19 - Plateado"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "write_date": "2026-01-26 07:37:56"
+    },
+    {
+      "id": 3017,
+      "bom_id": [
+        1433,
+        "bom0162: NH - Italia 16mm Plateado"
+      ],
+      "product_id": [
+        158,
+        "[4405-BG] Italia"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "write_date": "2026-01-26 07:37:56"
+    },
+    {
+      "id": 3018,
+      "bom_id": [
+        1433,
+        "bom0162: NH - Italia 16mm Plateado"
+      ],
+      "product_id": [
+        1023,
+        "[COF-16-PLA] Cofre 16 - Plateado"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "write_date": "2026-01-26 07:37:56"
+    },
+    {
+      "id": 3097,
+      "bom_id": [
+        1461,
+        "bom0190: NH - Platino CH 19mm Plateado"
+      ],
+      "product_id": [
+        163,
+        "[4587-BK] Platino CH"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "write_date": "2026-01-26 07:37:56"
+    },
+    {
+      "id": 3098,
+      "bom_id": [
+        1461,
+        "bom0190: NH - Platino CH 19mm Plateado"
+      ],
+      "product_id": [
+        1024,
+        "[COF-19-PLA] Cofre 19 - Plateado"
+      ],
+      "product_qty": 1.0,
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "write_date": "2026-01-26 07:37:56"
+    }
+  ],
+  "componentes": [
+    {
+      "id": 5,
+      "default_code": "EST-CAR-BLC",
+      "name": "Carte Blanco",
+      "active": true,
+      "standard_price": 39.65,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-11-03 00:00:39"
+    },
+    {
+      "id": 158,
+      "default_code": "4405-BG",
+      "name": "Italia",
+      "active": true,
+      "standard_price": 76.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-11-04 15:35:06"
+    },
+    {
+      "id": 159,
+      "default_code": "4608",
+      "name": "Blanco con Broche",
+      "active": true,
+      "standard_price": 88.69,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-11-02 22:06:22"
+    },
+    {
+      "id": 163,
+      "default_code": "4587-BK",
+      "name": "Platino CH",
+      "active": true,
+      "standard_price": 107.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-11-04 18:26:56"
+    },
+    {
+      "id": 168,
+      "default_code": "EST-GAM-AZU",
+      "name": "Gamuza Azul",
+      "active": true,
+      "standard_price": 60.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-11-01 01:00:03"
+    },
+    {
+      "id": 169,
+      "default_code": "EST-GAM-NEG",
+      "name": "Gamuza Negro",
+      "active": true,
+      "standard_price": 60.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-10-26 01:00:23"
+    },
+    {
+      "id": 1022,
+      "default_code": "COF-16-DOR",
+      "name": "Cofre 16 - Dorado",
+      "active": true,
+      "standard_price": 155.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-11-02 22:57:36"
+    },
+    {
+      "id": 1023,
+      "default_code": "COF-16-PLA",
+      "name": "Cofre 16 - Plateado",
+      "active": true,
+      "standard_price": 155.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-11-02 22:57:46"
+    },
+    {
+      "id": 1024,
+      "default_code": "COF-19-PLA",
+      "name": "Cofre 19 - Plateado",
+      "active": true,
+      "standard_price": 165.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-11-04 03:31:41"
+    },
+    {
+      "id": 1025,
+      "default_code": "COF-19-DOR",
+      "name": "Cofre 19 - Dorado",
+      "active": true,
+      "standard_price": 165.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-11-04 15:56:14"
+    }
+  ],
+  "aliases_nh_pez": [
+    {
+      "id": 1572,
+      "default_code": "NH-BLA-BRO-PEZ-DOR",
+      "name": "NH - Blanco con broche Pez Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        1581,
+        "[NH-BLA-BRO-PEZ-DOR] NH - Blanco con broche Pez Dorado"
+      ]
+    },
+    {
+      "id": 1573,
+      "default_code": "NH-BLA-BRO-PEZ-PLA",
+      "name": "NH - Blanco con broche Pez Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        1582,
+        "[NH-BLA-BRO-PEZ-PLA] NH - Blanco con broche Pez Plateado"
+      ]
+    },
+    {
+      "id": 1584,
+      "default_code": "NH-CAO-PEZ-DOR",
+      "name": "NH - Caoba Pez Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        1593,
+        "[NH-CAO-PEZ-DOR] NH - Caoba Pez Dorado"
+      ]
+    },
+    {
+      "id": 1585,
+      "default_code": "NH-CAO-PEZ-PLA",
+      "name": "NH - Caoba Pez Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        1594,
+        "[NH-CAO-PEZ-PLA] NH - Caoba Pez Plateado"
+      ]
+    },
+    {
+      "id": 1596,
+      "default_code": "NH-CAR-AZU-PEZ-DOR",
+      "name": "NH - Carte Azul Pez Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        1605,
+        "[NH-CAR-AZU-PEZ-DOR] NH - Carte Azul Pez Dorado"
+      ]
+    },
+    {
+      "id": 1597,
+      "default_code": "NH-CAR-AZU-PEZ-PLA",
+      "name": "NH - Carte Azul Pez Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        1606,
+        "[NH-CAR-AZU-PEZ-PLA] NH - Carte Azul Pez Plateado"
+      ]
+    },
+    {
+      "id": 1608,
+      "default_code": "NH-CAR-BLA-PEZ-DOR",
+      "name": "NH - Carte Blanco Pez Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        1617,
+        "[NH-CAR-BLA-PEZ-DOR] NH - Carte Blanco Pez Dorado"
+      ]
+    },
+    {
+      "id": 1609,
+      "default_code": "NH-CAR-BLA-PEZ-PLA",
+      "name": "NH - Carte Blanco Pez Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        1618,
+        "[NH-CAR-BLA-PEZ-PLA] NH - Carte Blanco Pez Plateado"
+      ]
+    },
+    {
+      "id": 1620,
+      "default_code": "NH-CAR-ROJ-PEZ-DOR",
+      "name": "NH - Carte Rojo Pez Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        1629,
+        "[NH-CAR-ROJ-PEZ-DOR] NH - Carte Rojo Pez Dorado"
+      ]
+    },
+    {
+      "id": 1621,
+      "default_code": "NH-CAR-ROJ-PEZ-PLA",
+      "name": "NH - Carte Rojo Pez arras Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        1630,
+        "[NH-CAR-ROJ-PEZ-PLA] NH - Carte Rojo Pez arras Plateado"
+      ]
+    },
+    {
+      "id": 1632,
+      "default_code": "NH-DIA-PEZ-DOR",
+      "name": "NH - Diamante Pez Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        1641,
+        "[NH-DIA-PEZ-DOR] NH - Diamante Pez Dorado"
+      ]
+    },
+    {
+      "id": 1633,
+      "default_code": "NH-DIA-PEZ-PLA",
+      "name": "NH - Diamante Pez Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        1642,
+        "[NH-DIA-PEZ-PLA] NH - Diamante Pez Plateado"
+      ]
+    },
+    {
+      "id": 1644,
+      "default_code": "NH-ECH-PEZ-DOR",
+      "name": "NH - Europa CH Vino Pez Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        1653,
+        "[NH-ECH-PEZ-DOR] NH - Europa CH Vino Pez Dorado"
+      ]
+    },
+    {
+      "id": 1645,
+      "default_code": "NH-ECH-PEZ-PLA",
+      "name": "NH - Europa CH Vino Pez Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        1654,
+        "[NH-ECH-PEZ-PLA] NH - Europa CH Vino Pez Plateado"
+      ]
+    },
+    {
+      "id": 1656,
+      "default_code": "NH-EUM-BLA-PEZ-DOR",
+      "name": "NH - Europa M Blanco Pez Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        1665,
+        "[NH-EUM-BLA-PEZ-DOR] NH - Europa M Blanco Pez Dorado"
+      ]
+    },
+    {
+      "id": 1657,
+      "default_code": "NH-EUM-BLA-PEZ-PLA",
+      "name": "NH - Europa M Blanco Pez Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        1666,
+        "[NH-EUM-BLA-PEZ-PLA] NH - Europa M Blanco Pez Plateado"
+      ]
+    },
+    {
+      "id": 1668,
+      "default_code": "NH-EUM-VIN-PEZ-DOR",
+      "name": "NH - Europa M Vino Pez Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        1677,
+        "[NH-EUM-VIN-PEZ-DOR] NH - Europa M Vino Pez Dorado"
+      ]
+    },
+    {
+      "id": 1669,
+      "default_code": "NH-EUM-VIN-PEZ-PLA",
+      "name": "NH - Europa M Vino Pez Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        1678,
+        "[NH-EUM-VIN-PEZ-PLA] NH - Europa M Vino Pez Plateado"
+      ]
+    },
+    {
+      "id": 1680,
+      "default_code": "NH-GAM-AZU-PEZ-DOR",
+      "name": "NH - Gamuza Azul Pez Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        1689,
+        "[NH-GAM-AZU-PEZ-DOR] NH - Gamuza Azul Pez Dorado"
+      ]
+    },
+    {
+      "id": 1681,
+      "default_code": "NH-GAM-AZU-PEZ-PLA",
+      "name": "NH - Gamuza Azul Pez Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        1690,
+        "[NH-GAM-AZU-PEZ-PLA] NH - Gamuza Azul Pez Plateado"
+      ]
+    },
+    {
+      "id": 1692,
+      "default_code": "NH-GAM-NEG-PEZ-DOR",
+      "name": "NH - Gamuza Negro Pez Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        1701,
+        "[NH-GAM-NEG-PEZ-DOR] NH - Gamuza Negro Pez Dorado"
+      ]
+    },
+    {
+      "id": 1693,
+      "default_code": "NH-GAM-NEG-PEZ-PLA",
+      "name": "NH - Gamuza Negro Pez Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        1702,
+        "[NH-GAM-NEG-PEZ-PLA] NH - Gamuza Negro Pez Plateado"
+      ]
+    },
+    {
+      "id": 1704,
+      "default_code": "NH-ITA-PEZ-DOR",
+      "name": "NH - Italia Pez Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        1713,
+        "[NH-ITA-PEZ-DOR] NH - Italia Pez Dorado"
+      ]
+    },
+    {
+      "id": 1705,
+      "default_code": "NH-ITA-PEZ-PLA",
+      "name": "NH - Italia Pez Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        1714,
+        "[NH-ITA-PEZ-PLA] NH - Italia Pez Plateado"
+      ]
+    },
+    {
+      "id": 1716,
+      "default_code": "NH-NOG-VEN-PEZ-DOR",
+      "name": "NH - Nogal con ventana Pez Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        1725,
+        "[NH-NOG-VEN-PEZ-DOR] NH - Nogal con ventana Pez Dorado"
+      ]
+    },
+    {
+      "id": 1717,
+      "default_code": "NH-NOG-VEN-PEZ-PLA",
+      "name": "NH - Nogal con ventana Pez Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        1726,
+        "[NH-NOG-VEN-PEZ-PLA] NH - Nogal con ventana Pez Plateado"
+      ]
+    },
+    {
+      "id": 1728,
+      "default_code": "NH-PLA-CH-PEZ-DOR",
+      "name": "NH - Platino CH Pez Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        1737,
+        "[NH-PLA-CH-PEZ-DOR] NH - Platino CH Pez Dorado"
+      ]
+    },
+    {
+      "id": 1729,
+      "default_code": "NH-PLA-CH-PEZ-PLA",
+      "name": "NH - Platino CH Pez Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        1738,
+        "[NH-PLA-CH-PEZ-PLA] NH - Platino CH Pez Plateado"
+      ]
+    },
+    {
+      "id": 1740,
+      "default_code": "NH-PLA-M-PEZ-DOR",
+      "name": "NH - Platino M Pez Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        1749,
+        "[NH-PLA-M-PEZ-DOR] NH - Platino M Pez Dorado"
+      ]
+    },
+    {
+      "id": 1741,
+      "default_code": "NH-PLA-M-PEZ-PLA",
+      "name": "NH - Platino M Pez Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        1750,
+        "[NH-PLA-M-PEZ-PLA] NH - Platino M Pez Plateado"
+      ]
+    },
+    {
+      "id": 1752,
+      "default_code": "NH-CAR-AZU-REP-PEZ-DOR",
+      "name": "NH - Repujado Carte Azul Pez  Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        1761,
+        "[NH-CAR-AZU-REP-PEZ-DOR] NH - Repujado Carte Azul Pez  Dorado"
+      ]
+    },
+    {
+      "id": 1753,
+      "default_code": "NH-CAR-AZU-REP-PEZ-PLA",
+      "name": "NH - Repujado Carte Azul Pez  Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        1762,
+        "[NH-CAR-AZU-REP-PEZ-PLA] NH - Repujado Carte Azul Pez  Plateado"
+      ]
+    },
+    {
+      "id": 1764,
+      "default_code": "NH-CAR-BLA-REP-PEZ-DOR",
+      "name": "NH - Repujado Carte Blanco Pez  Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        1773,
+        "[NH-CAR-BLA-REP-PEZ-DOR] NH - Repujado Carte Blanco Pez  Dorado"
+      ]
+    },
+    {
+      "id": 1765,
+      "default_code": "NH-CAR-BLA-REP-PEZ-PLA",
+      "name": "NH - Repujado Carte Blanco Pez  Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        1774,
+        "[NH-CAR-BLA-REP-PEZ-PLA] NH - Repujado Carte Blanco Pez  Plateado"
+      ]
+    },
+    {
+      "id": 1776,
+      "default_code": "NH-CAR-ROJ-REP-PEZ-DOR",
+      "name": "NH - Repujado Carte Rojo Pez  Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        1785,
+        "[NH-CAR-ROJ-REP-PEZ-DOR] NH - Repujado Carte Rojo Pez  Dorado"
+      ]
+    },
+    {
+      "id": 1777,
+      "default_code": "NH-CAR-ROJ-REP-PEZ-PLA",
+      "name": "NH - Repujado Carte Rojo Pez  Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        1786,
+        "[NH-CAR-ROJ-REP-PEZ-PLA] NH - Repujado Carte Rojo Pez  Plateado"
+      ]
+    },
+    {
+      "id": 1788,
+      "default_code": "NH-EUR-VIN-M-REP-PEZ-DOR",
+      "name": "NH - Repujado Europa Vino M Pez  Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        1797,
+        "[NH-EUR-VIN-M-REP-PEZ-DOR] NH - Repujado Europa Vino M Pez  Dorado"
+      ]
+    },
+    {
+      "id": 1789,
+      "default_code": "NH-EUR-VIN-M-REP-PEZ-PLA",
+      "name": "NH - Repujado Europa Vino M Pez  Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        1798,
+        "[NH-EUR-VIN-M-REP-PEZ-PLA] NH - Repujado Europa Vino M Pez  Plateado"
+      ]
+    },
+    {
+      "id": 5247,
+      "default_code": "NH-BLA-BRO-PEZ-DOR",
+      "name": "NH - Blanco con broche Pez Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5267,
+        "[NH-BLA-BRO-PEZ-DOR] NH - Blanco con broche Pez Dorado"
+      ]
+    },
+    {
+      "id": 5248,
+      "default_code": "NH-BLA-BRO-PEZ-PLA",
+      "name": "NH - Blanco con broche Pez Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5268,
+        "[NH-BLA-BRO-PEZ-PLA] NH - Blanco con broche Pez Plateado"
+      ]
+    },
+    {
+      "id": 5267,
+      "default_code": "NH-CAO-PEZ-DOR",
+      "name": "NH - Caoba Pez Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5287,
+        "[NH-CAO-PEZ-DOR] NH - Caoba Pez Dorado"
+      ]
+    },
+    {
+      "id": 5268,
+      "default_code": "NH-CAO-PEZ-PLA",
+      "name": "NH - Caoba Pez Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5288,
+        "[NH-CAO-PEZ-PLA] NH - Caoba Pez Plateado"
+      ]
+    },
+    {
+      "id": 5287,
+      "default_code": "NH-CAR-AZU-PEZ-DOR",
+      "name": "NH - Carte Azul Pez Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5307,
+        "[NH-CAR-AZU-PEZ-DOR] NH - Carte Azul Pez Dorado"
+      ]
+    },
+    {
+      "id": 5288,
+      "default_code": "NH-CAR-AZU-PEZ-PLA",
+      "name": "NH - Carte Azul Pez Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5308,
+        "[NH-CAR-AZU-PEZ-PLA] NH - Carte Azul Pez Plateado"
+      ]
+    },
+    {
+      "id": 5307,
+      "default_code": "NH-CAR-BLA-PEZ-DOR",
+      "name": "NH - Carte Blanco Pez Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5327,
+        "[NH-CAR-BLA-PEZ-DOR] NH - Carte Blanco Pez Dorado"
+      ]
+    },
+    {
+      "id": 5308,
+      "default_code": "NH-CAR-BLA-PEZ-PLA",
+      "name": "NH - Carte Blanco Pez Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5328,
+        "[NH-CAR-BLA-PEZ-PLA] NH - Carte Blanco Pez Plateado"
+      ]
+    },
+    {
+      "id": 5327,
+      "default_code": "NH-CAR-ROJ-PEZ-DOR",
+      "name": "NH - Carte Rojo Pez Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5347,
+        "[NH-CAR-ROJ-PEZ-DOR] NH - Carte Rojo Pez Dorado"
+      ]
+    },
+    {
+      "id": 5328,
+      "default_code": "NH-CAR-ROJ-PEZ-PLA",
+      "name": "NH - Carte Rojo Pez arras Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5348,
+        "[NH-CAR-ROJ-PEZ-PLA] NH - Carte Rojo Pez arras Plateado"
+      ]
+    },
+    {
+      "id": 5347,
+      "default_code": "NH-DIA-PEZ-DOR",
+      "name": "NH - Diamante Pez Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5367,
+        "[NH-DIA-PEZ-DOR] NH - Diamante Pez Dorado"
+      ]
+    },
+    {
+      "id": 5348,
+      "default_code": "NH-DIA-PEZ-PLA",
+      "name": "NH - Diamante Pez Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5368,
+        "[NH-DIA-PEZ-PLA] NH - Diamante Pez Plateado"
+      ]
+    },
+    {
+      "id": 5367,
+      "default_code": "NH-ECH-PEZ-DOR",
+      "name": "NH - Europa CH Vino Pez Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5387,
+        "[NH-ECH-PEZ-DOR] NH - Europa CH Vino Pez Dorado"
+      ]
+    },
+    {
+      "id": 5368,
+      "default_code": "NH-ECH-PEZ-PLA",
+      "name": "NH - Europa CH Vino Pez Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5388,
+        "[NH-ECH-PEZ-PLA] NH - Europa CH Vino Pez Plateado"
+      ]
+    },
+    {
+      "id": 5387,
+      "default_code": "NH-EUM-BLA-PEZ-DOR",
+      "name": "NH - Europa M Blanco Pez Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5407,
+        "[NH-EUM-BLA-PEZ-DOR] NH - Europa M Blanco Pez Dorado"
+      ]
+    },
+    {
+      "id": 5388,
+      "default_code": "NH-EUM-BLA-PEZ-PLA",
+      "name": "NH - Europa M Blanco Pez Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5408,
+        "[NH-EUM-BLA-PEZ-PLA] NH - Europa M Blanco Pez Plateado"
+      ]
+    },
+    {
+      "id": 5407,
+      "default_code": "NH-EUM-VIN-PEZ-DOR",
+      "name": "NH - Europa M Vino Pez Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5427,
+        "[NH-EUM-VIN-PEZ-DOR] NH - Europa M Vino Pez Dorado"
+      ]
+    },
+    {
+      "id": 5408,
+      "default_code": "NH-EUM-VIN-PEZ-PLA",
+      "name": "NH - Europa M Vino Pez Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5428,
+        "[NH-EUM-VIN-PEZ-PLA] NH - Europa M Vino Pez Plateado"
+      ]
+    },
+    {
+      "id": 5427,
+      "default_code": "NH-GAM-AZU-PEZ-DOR",
+      "name": "NH - Gamuza Azul Pez Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5447,
+        "[NH-GAM-AZU-PEZ-DOR] NH - Gamuza Azul Pez Dorado"
+      ]
+    },
+    {
+      "id": 5428,
+      "default_code": "NH-GAM-AZU-PEZ-PLA",
+      "name": "NH - Gamuza Azul Pez Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5448,
+        "[NH-GAM-AZU-PEZ-PLA] NH - Gamuza Azul Pez Plateado"
+      ]
+    },
+    {
+      "id": 5447,
+      "default_code": "NH-GAM-NEG-PEZ-DOR",
+      "name": "NH - Gamuza Negro Pez Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5467,
+        "[NH-GAM-NEG-PEZ-DOR] NH - Gamuza Negro Pez Dorado"
+      ]
+    },
+    {
+      "id": 5448,
+      "default_code": "NH-GAM-NEG-PEZ-PLA",
+      "name": "NH - Gamuza Negro Pez Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5468,
+        "[NH-GAM-NEG-PEZ-PLA] NH - Gamuza Negro Pez Plateado"
+      ]
+    },
+    {
+      "id": 5467,
+      "default_code": "NH-ITA-PEZ-DOR",
+      "name": "NH - Italia Pez Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5487,
+        "[NH-ITA-PEZ-DOR] NH - Italia Pez Dorado"
+      ]
+    },
+    {
+      "id": 5468,
+      "default_code": "NH-ITA-PEZ-PLA",
+      "name": "NH - Italia Pez Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5488,
+        "[NH-ITA-PEZ-PLA] NH - Italia Pez Plateado"
+      ]
+    },
+    {
+      "id": 5487,
+      "default_code": "NH-NOG-VEN-PEZ-DOR",
+      "name": "NH - Nogal con ventana Pez Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5507,
+        "[NH-NOG-VEN-PEZ-DOR] NH - Nogal con ventana Pez Dorado"
+      ]
+    },
+    {
+      "id": 5488,
+      "default_code": "NH-NOG-VEN-PEZ-PLA",
+      "name": "NH - Nogal con ventana Pez Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5508,
+        "[NH-NOG-VEN-PEZ-PLA] NH - Nogal con ventana Pez Plateado"
+      ]
+    },
+    {
+      "id": 5507,
+      "default_code": "NH-PLA-CH-PEZ-DOR",
+      "name": "NH - Platino CH Pez Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5527,
+        "[NH-PLA-CH-PEZ-DOR] NH - Platino CH Pez Dorado"
+      ]
+    },
+    {
+      "id": 5508,
+      "default_code": "NH-PLA-CH-PEZ-PLA",
+      "name": "NH - Platino CH Pez Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5528,
+        "[NH-PLA-CH-PEZ-PLA] NH - Platino CH Pez Plateado"
+      ]
+    },
+    {
+      "id": 5527,
+      "default_code": "NH-PLA-M-PEZ-DOR",
+      "name": "NH - Platino M Pez Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5547,
+        "[NH-PLA-M-PEZ-DOR] NH - Platino M Pez Dorado"
+      ]
+    },
+    {
+      "id": 5528,
+      "default_code": "NH-PLA-M-PEZ-PLA",
+      "name": "NH - Platino M Pez Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5548,
+        "[NH-PLA-M-PEZ-PLA] NH - Platino M Pez Plateado"
+      ]
+    },
+    {
+      "id": 5547,
+      "default_code": "NH-CAR-AZU-REP-PEZ-DOR",
+      "name": "NH - Repujado Carte Azul Pez  Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5567,
+        "[NH-CAR-AZU-REP-PEZ-DOR] NH - Repujado Carte Azul Pez  Dorado"
+      ]
+    },
+    {
+      "id": 5548,
+      "default_code": "NH-CAR-AZU-REP-PEZ-PLA",
+      "name": "NH - Repujado Carte Azul Pez  Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5568,
+        "[NH-CAR-AZU-REP-PEZ-PLA] NH - Repujado Carte Azul Pez  Plateado"
+      ]
+    },
+    {
+      "id": 5567,
+      "default_code": "NH-CAR-BLA-REP-PEZ-DOR",
+      "name": "NH - Repujado Carte Blanco Pez  Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5587,
+        "[NH-CAR-BLA-REP-PEZ-DOR] NH - Repujado Carte Blanco Pez  Dorado"
+      ]
+    },
+    {
+      "id": 5568,
+      "default_code": "NH-CAR-BLA-REP-PEZ-PLA",
+      "name": "NH - Repujado Carte Blanco Pez  Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5588,
+        "[NH-CAR-BLA-REP-PEZ-PLA] NH - Repujado Carte Blanco Pez  Plateado"
+      ]
+    },
+    {
+      "id": 5587,
+      "default_code": "NH-CAR-ROJ-REP-PEZ-DOR",
+      "name": "NH - Repujado Carte Rojo Pez  Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5607,
+        "[NH-CAR-ROJ-REP-PEZ-DOR] NH - Repujado Carte Rojo Pez  Dorado"
+      ]
+    },
+    {
+      "id": 5588,
+      "default_code": "NH-CAR-ROJ-REP-PEZ-PLA",
+      "name": "NH - Repujado Carte Rojo Pez  Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5608,
+        "[NH-CAR-ROJ-REP-PEZ-PLA] NH - Repujado Carte Rojo Pez  Plateado"
+      ]
+    },
+    {
+      "id": 5607,
+      "default_code": "NH-EUR-VIN-M-REP-PEZ-DOR",
+      "name": "NH - Repujado Europa Vino M Pez  Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5627,
+        "[NH-EUR-VIN-M-REP-PEZ-DOR] NH - Repujado Europa Vino M Pez  Dorado"
+      ]
+    },
+    {
+      "id": 5608,
+      "default_code": "NH-EUR-VIN-M-REP-PEZ-PLA",
+      "name": "NH - Repujado Europa Vino M Pez  Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5628,
+        "[NH-EUR-VIN-M-REP-PEZ-PLA] NH - Repujado Europa Vino M Pez  Plateado"
+      ]
+    },
+    {
+      "id": 5900,
+      "default_code": "NH-BLA-BRO-PEZ-DOR",
+      "name": "NH - Blanco con broche 19mm Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5911,
+        "NH - Blanco con broche 19mm Dorado"
+      ]
+    },
+    {
+      "id": 5931,
+      "default_code": "NH-BLA-BRO-PEZ-PLA",
+      "name": "NH - Blanco con broche 19mm Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5947,
+        "[NH-BLA-BRO-PEZ-PLA] NH - Blanco con broche 19mm Plateado"
+      ]
+    },
+    {
+      "id": 5951,
+      "default_code": "NH-BLA-BRO-PEZ-PLA",
+      "name": "NH - Blanco con broche 19mm Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5967,
+        "[NH-BLA-BRO-PEZ-PLA] NH - Blanco con broche 19mm Plateado"
+      ]
+    },
+    {
+      "id": 5972,
+      "default_code": "NH-BLA-BRO-PEZ-PLA",
+      "name": "NH - Blanco con broche 19mm Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5988,
+        "[NH-BLA-BRO-PEZ-PLA] NH - Blanco con broche 19mm Plateado"
+      ]
+    },
+    {
+      "id": 6032,
+      "default_code": "NH-BLA-BRO-PEZ-PLA",
+      "name": "NH - Blanco con broche 19mm Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6145,
+        "NH - Blanco con broche 19mm Plateado"
+      ]
+    },
+    {
+      "id": 6402,
+      "default_code": "NH-CAO-PEZ-DOR",
+      "name": "NH - Caoba 19mm Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6182,
+        "NH - Caoba 19mm Dorado"
+      ]
+    },
+    {
+      "id": 6412,
+      "default_code": "NH-CAO-PEZ-PLA",
+      "name": "NH - Caoba 19mm Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6183,
+        "NH - Caoba 19mm Plateado"
+      ]
+    },
+    {
+      "id": 6422,
+      "default_code": "NH-CAR-AZU-PEZ-DOR",
+      "name": "NH - Carte Azul 16mm Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6184,
+        "NH - Carte Azul 16mm Dorado"
+      ]
+    },
+    {
+      "id": 6432,
+      "default_code": "NH-CAR-AZU-PEZ-PLA",
+      "name": "NH - Carte Azul 16mm Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6185,
+        "NH - Carte Azul 16mm Plateado"
+      ]
+    },
+    {
+      "id": 6442,
+      "default_code": "NH-CAR-BLA-PEZ-DOR",
+      "name": "NH - Carte Blanco 16mm Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6186,
+        "NH - Carte Blanco 16mm Dorado"
+      ]
+    },
+    {
+      "id": 6452,
+      "default_code": "NH-CAR-BLA-PEZ-PLA",
+      "name": "NH - Carte Blanco 16mm Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6187,
+        "NH - Carte Blanco 16mm Plateado"
+      ]
+    },
+    {
+      "id": 6462,
+      "default_code": "NH-CAR-ROJ-PEZ-DOR",
+      "name": "NH - Carte Rojo 16mm Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6188,
+        "NH - Carte Rojo 16mm Dorado"
+      ]
+    },
+    {
+      "id": 6472,
+      "default_code": "NH-CAR-ROJ-PEZ-PLA",
+      "name": "NH - Carte Rojo 16mm Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6189,
+        "NH - Carte Rojo 16mm Plateado"
+      ]
+    },
+    {
+      "id": 6482,
+      "default_code": "NH-CAR-AZU-REP-PEZ-DOR",
+      "name": "NH - Repujado Carte Azul 16mm Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6190,
+        "NH - Repujado Carte Azul 16mm Dorado"
+      ]
+    },
+    {
+      "id": 6492,
+      "default_code": "NH-CAR-AZU-REP-PEZ-PLA",
+      "name": "NH - Repujado Carte Azul 16mm Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6191,
+        "NH - Repujado Carte Azul 16mm Plateado"
+      ]
+    },
+    {
+      "id": 6502,
+      "default_code": "NH-CAR-BLA-REP-PEZ-DOR",
+      "name": "NH - Repujado Carte Blanco 16mm Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6192,
+        "NH - Repujado Carte Blanco 16mm Dorado"
+      ]
+    },
+    {
+      "id": 6512,
+      "default_code": "NH-CAR-BLA-REP-PEZ-PLA",
+      "name": "NH - Repujado Carte Blanco 16mm Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6193,
+        "NH - Repujado Carte Blanco 16mm Plateado"
+      ]
+    },
+    {
+      "id": 6522,
+      "default_code": "NH-CAR-ROJ-REP-PEZ-DOR",
+      "name": "NH - Repujado Carte Rojo 16mm Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6194,
+        "NH - Repujado Carte Rojo 16mm Dorado"
+      ]
+    },
+    {
+      "id": 6532,
+      "default_code": "NH-CAR-ROJ-REP-PEZ-PLA",
+      "name": "NH - Repujado Carte Rojo 16mm Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6195,
+        "NH - Repujado Carte Rojo 16mm Plateado"
+      ]
+    },
+    {
+      "id": 6542,
+      "default_code": "NH-DIA-PEZ-DOR",
+      "name": "NH - Diamante 19mm Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6196,
+        "NH - Diamante 19mm Dorado"
+      ]
+    },
+    {
+      "id": 6552,
+      "default_code": "NH-DIA-PEZ-PLA",
+      "name": "NH - Diamante 19mm Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6197,
+        "NH - Diamante 19mm Plateado"
+      ]
+    },
+    {
+      "id": 6562,
+      "default_code": "NH-ECH-PEZ-DOR",
+      "name": "NH - Europa CH Vino 19mm Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6198,
+        "NH - Europa CH Vino 19mm Dorado"
+      ]
+    },
+    {
+      "id": 6572,
+      "default_code": "NH-ECH-PEZ-PLA",
+      "name": "NH - Europa CH Vino 19mm Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6199,
+        "NH - Europa CH Vino 19mm Plateado"
+      ]
+    },
+    {
+      "id": 6582,
+      "default_code": "NH-EUM-VIN-PEZ-DOR",
+      "name": "NH - Europa M Vino 19mm Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6200,
+        "NH - Europa M Vino 19mm Dorado"
+      ]
+    },
+    {
+      "id": 6592,
+      "default_code": "NH-EUM-VIN-PEZ-PLA",
+      "name": "NH - Europa M Vino 19mm Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6201,
+        "NH - Europa M Vino 19mm Plateado"
+      ]
+    },
+    {
+      "id": 6602,
+      "default_code": "NH-EUM-BLA-PEZ-DOR",
+      "name": "NH - Europa M Blanco 19mm Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6202,
+        "NH - Europa M Blanco 19mm Dorado"
+      ]
+    },
+    {
+      "id": 6612,
+      "default_code": "NH-EUM-BLA-PEZ-PLA",
+      "name": "NH - Europa M Blanco 19mm Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6203,
+        "NH - Europa M Blanco 19mm Plateado"
+      ]
+    },
+    {
+      "id": 6622,
+      "default_code": "NH-EUR-VIN-M-REP-PEZ-DOR",
+      "name": "NH - Repujado Europa M Vino 19mm Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6204,
+        "NH - Repujado Europa M Vino 19mm Dorado"
+      ]
+    },
+    {
+      "id": 6632,
+      "default_code": "NH-EUR-VIN-M-REP-PEZ-PLA",
+      "name": "NH - Repujado Europa M Vino 19mm Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6205,
+        "NH - Repujado Europa M Vino 19mm Plateado"
+      ]
+    },
+    {
+      "id": 6642,
+      "default_code": "NH-GAM-AZU-PEZ-DOR",
+      "name": "NH - Gamuza Azul 19mm Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6206,
+        "NH - Gamuza Azul 19mm Dorado"
+      ]
+    },
+    {
+      "id": 6652,
+      "default_code": "NH-GAM-AZU-PEZ-PLA",
+      "name": "NH - Gamuza Azul 19mm Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6207,
+        "NH - Gamuza Azul 19mm Plateado"
+      ]
+    },
+    {
+      "id": 6662,
+      "default_code": "NH-GAM-NEG-PEZ-DOR",
+      "name": "NH - Gamuza Negro 19mm Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6208,
+        "NH - Gamuza Negro 19mm Dorado"
+      ]
+    },
+    {
+      "id": 6672,
+      "default_code": "NH-GAM-NEG-PEZ-PLA",
+      "name": "NH - Gamuza Negro 19mm Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6209,
+        "NH - Gamuza Negro 19mm Plateado"
+      ]
+    },
+    {
+      "id": 6682,
+      "default_code": "NH-ITA-PEZ-DOR",
+      "name": "NH - Italia 16mm Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6210,
+        "NH - Italia 16mm Dorado"
+      ]
+    },
+    {
+      "id": 6692,
+      "default_code": "NH-ITA-PEZ-PLA",
+      "name": "NH - Italia 16mm Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6211,
+        "NH - Italia 16mm Plateado"
+      ]
+    },
+    {
+      "id": 6702,
+      "default_code": "NH-NOG-VEN-PEZ-DOR",
+      "name": "NH - Nogal con ventana 19mm Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6212,
+        "NH - Nogal con ventana 19mm Dorado"
+      ]
+    },
+    {
+      "id": 6712,
+      "default_code": "NH-NOG-VEN-PEZ-PLA",
+      "name": "NH - Nogal con ventana 19mm Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6213,
+        "NH - Nogal con ventana 19mm Plateado"
+      ]
+    },
+    {
+      "id": 6722,
+      "default_code": "NH-PLA-CH-PEZ-DOR",
+      "name": "NH - Platino CH 19mm Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6214,
+        "NH - Platino CH 19mm Dorado"
+      ]
+    },
+    {
+      "id": 6732,
+      "default_code": "NH-PLA-CH-PEZ-PLA",
+      "name": "NH - Platino CH 19mm Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6215,
+        "NH - Platino CH 19mm Plateado"
+      ]
+    },
+    {
+      "id": 6742,
+      "default_code": "NH-PLA-M-PEZ-DOR",
+      "name": "NH - Platino M 19mm Dorado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6216,
+        "NH - Platino M 19mm Dorado"
+      ]
+    },
+    {
+      "id": 6752,
+      "default_code": "NH-PLA-M-PEZ-PLA",
+      "name": "NH - Platino M 19mm Plateado",
+      "active": false,
+      "standard_price": 0.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6217,
+        "NH - Platino M 19mm Plateado"
+      ]
+    },
+    {
+      "id": 8485,
+      "default_code": "NH-SOLO-CAR-AZU-PEZ-DOR",
+      "name": "NH - Carte Azul Solo Arras Dorado",
+      "active": true,
+      "standard_price": 77.47,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6481,
+        "NH - Carte Azul Solo Arras Dorado"
+      ]
+    },
+    {
+      "id": 8492,
+      "default_code": "NH-SOLO-CAR-AZU-PEZ-PLA",
+      "name": "NH - Carte Azul Solo Arras Plateado",
+      "active": true,
+      "standard_price": 77.47,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6482,
+        "NH - Carte Azul Solo Arras Plateado"
+      ]
+    },
+    {
+      "id": 8513,
+      "default_code": "NH-SOLO-CAR-BLC-PEZ-DOR",
+      "name": "NH - Carte Blanco Solo Arras Dorado",
+      "active": true,
+      "standard_price": 77.47,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6485,
+        "NH - Carte Blanco Solo Arras Dorado"
+      ]
+    },
+    {
+      "id": 8520,
+      "default_code": "NH-SOLO-CAR-BLC-PEZ-PLA",
+      "name": "NH - Carte Blanco Solo Arras Plateado",
+      "active": true,
+      "standard_price": 77.47,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6486,
+        "NH - Carte Blanco Solo Arras Plateado"
+      ]
+    },
+    {
+      "id": 8541,
+      "default_code": "NH-SOLO-CAR-ROJ-PEZ-DOR",
+      "name": "NH - Carte Rojo Solo Arras Dorado",
+      "active": true,
+      "standard_price": 77.47,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6489,
+        "NH - Carte Rojo Solo Arras Dorado"
+      ]
+    },
+    {
+      "id": 8548,
+      "default_code": "NH-SOLO-CAR-ROJ-PEZ-PLA",
+      "name": "NH - Carte Rojo Solo Arras Plateado",
+      "active": true,
+      "standard_price": 77.47,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6490,
+        "NH - Carte Rojo Solo Arras Plateado"
+      ]
+    },
+    {
+      "id": 8569,
+      "default_code": "NH-SOLO-ITA-PEZ-DOR",
+      "name": "NH - Italia Solo Arras Dorado",
+      "active": true,
+      "standard_price": 113.82000000000001,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6493,
+        "NH - Italia Solo Arras Dorado"
+      ]
+    },
+    {
+      "id": 8576,
+      "default_code": "NH-SOLO-ITA-PEZ-PLA",
+      "name": "NH - Italia Solo Arras Plateado",
+      "active": true,
+      "standard_price": 113.82000000000001,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6494,
+        "NH - Italia Solo Arras Plateado"
+      ]
+    },
+    {
+      "id": 8597,
+      "default_code": "NH-SOLO-NOG-VEN-PEZ-DOR",
+      "name": "NH - Nogal Solo Arras Dorado",
+      "active": true,
+      "standard_price": 232.11,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6497,
+        "NH - Nogal Solo Arras Dorado"
+      ]
+    },
+    {
+      "id": 8604,
+      "default_code": "NH-SOLO-NOG-VEN-PEZ-PLA",
+      "name": "NH - Nogal Solo Arras Plateado",
+      "active": true,
+      "standard_price": 232.11,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6498,
+        "NH - Nogal Solo Arras Plateado"
+      ]
+    },
+    {
+      "id": 8625,
+      "default_code": "NH-SOLO-EUR-M-BLA-PEZ-DOR",
+      "name": "NH - Europa M Blanco Solo Arras Dorado",
+      "active": true,
+      "standard_price": 167.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6501,
+        "NH - Europa M Blanco Solo Arras Dorado"
+      ]
+    },
+    {
+      "id": 8632,
+      "default_code": "NH-SOLO-EUR-M-BLA-PEZ-PLA",
+      "name": "NH - Europa M Blanco Solo Arras Plateado",
+      "active": true,
+      "standard_price": 167.0,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6502,
+        "NH - Europa M Blanco Solo Arras Plateado"
+      ]
+    },
+    {
+      "id": 8653,
+      "default_code": "NH-SOLO-EUR-M-VIN-PEZ-DOR",
+      "name": "NH - Europa M Vino Solo Arras Dorado",
+      "active": true,
+      "standard_price": 160.44,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6505,
+        "NH - Europa M Vino Solo Arras Dorado"
+      ]
+    },
+    {
+      "id": 8660,
+      "default_code": "NH-SOLO-EUR-M-VIN-PEZ-PLA",
+      "name": "NH - Europa M Vino Solo Arras Plateado",
+      "active": true,
+      "standard_price": 160.44,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6506,
+        "NH - Europa M Vino Solo Arras Plateado"
+      ]
+    },
+    {
+      "id": 8681,
+      "default_code": "NH-SOLO-GAM-AZU-PEZ-DOR",
+      "name": "NH - Gamuza Azul Solo Arras Dorado",
+      "active": true,
+      "standard_price": 97.82000000000001,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6509,
+        "NH - Gamuza Azul Solo Arras Dorado"
+      ]
+    },
+    {
+      "id": 8688,
+      "default_code": "NH-SOLO-GAM-AZU-PEZ-PLA",
+      "name": "NH - Gamuza Azul Solo Arras Plateado",
+      "active": true,
+      "standard_price": 97.82000000000001,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6510,
+        "NH - Gamuza Azul Solo Arras Plateado"
+      ]
+    },
+    {
+      "id": 8709,
+      "default_code": "NH-SOLO-GAM-NEG-PEZ-DOR",
+      "name": "NH - Gamuza Negro Solo Arras Dorado",
+      "active": true,
+      "standard_price": 97.82000000000001,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6513,
+        "NH - Gamuza Negro Solo Arras Dorado"
+      ]
+    },
+    {
+      "id": 8716,
+      "default_code": "NH-SOLO-GAM-NEG-PEZ-PLA",
+      "name": "NH - Gamuza Negro Solo Arras Plateado",
+      "active": true,
+      "standard_price": 97.82000000000001,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6514,
+        "NH - Gamuza Negro Solo Arras Plateado"
+      ]
+    },
+    {
+      "id": 8737,
+      "default_code": "NH-SOLO-PLA-CH-PEZ-DOR",
+      "name": "NH - Platino CH Solo Arras Dorado",
+      "active": true,
+      "standard_price": 144.82,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6517,
+        "NH - Platino CH Solo Arras Dorado"
+      ]
+    },
+    {
+      "id": 8744,
+      "default_code": "NH-SOLO-PLA-CH-PEZ-PLA",
+      "name": "NH - Platino CH Solo Arras Plateado",
+      "active": true,
+      "standard_price": 144.82,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6518,
+        "NH - Platino CH Solo Arras Plateado"
+      ]
+    },
+    {
+      "id": 8765,
+      "default_code": "NH-SOLO-PLA-M-PEZ-DOR",
+      "name": "NH - Platino M Solo Arras Dorado",
+      "active": true,
+      "standard_price": 226.64000000000001,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6521,
+        "NH - Platino M Solo Arras Dorado"
+      ]
+    },
+    {
+      "id": 8772,
+      "default_code": "NH-SOLO-PLA-M-PEZ-PLA",
+      "name": "NH - Platino M Solo Arras Plateado",
+      "active": true,
+      "standard_price": 226.64000000000001,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6522,
+        "NH - Platino M Solo Arras Plateado"
+      ]
+    },
+    {
+      "id": 8807,
+      "default_code": "NH-SOLO-EUR-CH-VIN-PEZ-DOR",
+      "name": "NH - Europa CH Vino Solo Arras Dorado",
+      "active": true,
+      "standard_price": 108.78,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6527,
+        "NH - Europa CH Vino Solo Arras Dorado"
+      ]
+    },
+    {
+      "id": 8814,
+      "default_code": "NH-SOLO-EUR-CH-VIN-PEZ-PLA",
+      "name": "NH - Europa CH Vino Solo Arras Plateado",
+      "active": true,
+      "standard_price": 108.78,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6528,
+        "NH - Europa CH Vino Solo Arras Plateado"
+      ]
+    },
+    {
+      "id": 8823,
+      "default_code": "NH-ARR-COF-22-PEZ-DOR",
+      "name": "NH - Arras y Cofre Dorado",
+      "active": true,
+      "standard_price": 86.56,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6531,
+        "NH - Arras y Cofre Dorado"
+      ]
+    },
+    {
+      "id": 8830,
+      "default_code": "NH-ARR-COF-22-PEZ-PLA",
+      "name": "NH - Arras y Cofre Plateado",
+      "active": true,
+      "standard_price": 86.56,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6532,
+        "NH - Arras y Cofre Plateado"
+      ]
+    },
+    {
+      "id": 8837,
+      "default_code": "NH-ARR-22-DOR-PEZ-COF-22-CHA-RED-DOR",
+      "name": "NH - Arras y Cofre con Charola Dorado",
+      "active": true,
+      "standard_price": 117.56,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6533,
+        "NH - Arras y Cofre con Charola Dorado"
+      ]
+    },
+    {
+      "id": 8844,
+      "default_code": "NH-ARR-22-PLA-PEZ-COF-22-CHA-RED-PLA",
+      "name": "NH - Arras y Cofre con Charola Plateado",
+      "active": true,
+      "standard_price": 117.56,
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6534,
+        "NH - Arras y Cofre con Charola Plateado"
+      ]
+    }
+  ],
+  "metodos": [
+    "authenticate",
+    "fields_get",
+    "read",
+    "search_read"
+  ],
+  "limites": {
+    "exactos": 100,
+    "boms_completo": true,
+    "alias_completo": true
+  }
+}

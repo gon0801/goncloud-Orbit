@@ -1,0 +1,1421 @@
+{
+  "consultado_utc": "2026-11-05T01:44:49.181436+00:00",
+  "modo": "ORBIT_DSN_READ; BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY; timeout 15s",
+  "consultas": {
+    "reloj": {
+      "sql": "SELECT now() AS reloj_snapshot,current_user, current_setting('transaction_read_only') AS read_only,current_setting('statement_timeout') AS timeout",
+      "filas": [
+        {
+          "reloj_snapshot": "2026-11-05 01:44:49.197155+00:00",
+          "current_user": "orbit_read",
+          "read_only": "on",
+          "timeout": "15s"
+        }
+      ]
+    },
+    "config": {
+      "sql": "SELECT id,created_at,label,settings ? 'ads_pause_economica' AS tiene_economica,settings->'ads_pause_economica' AS economica,settings->'ads_pause_sin_cooldown_bid' AS pause_sin_cooldown,settings->'ads_bid_politica_amazon_mx' AS politica_mx,settings->'ads_bid_politica_amazon_us' AS politica_us,settings->'ads_target_fraccion_margen_amazon_mx' AS fraccion_mx,settings->'ads_target_fraccion_margen_amazon_us' AS fraccion_us FROM config_version ORDER BY id DESC LIMIT 1",
+      "filas": [
+        {
+          "id": 42,
+          "created_at": "2026-10-18 19:40:17.556156+00:00",
+          "label": "jev-ads-03 D.2: enciende jev.bloqueo",
+          "tiene_economica": false,
+          "economica": null,
+          "pause_sin_cooldown": true,
+          "politica_mx": "niveles_v3",
+          "politica_us": "niveles_v3",
+          "fraccion_mx": "0.5",
+          "fraccion_us": "0.8"
+        }
+      ]
+    },
+    "limites": {
+      "sql": "SELECT c.id,k.key,k.value FROM config_version c CROSS JOIN LATERAL jsonb_each(c.settings) k WHERE c.id=(SELECT max(id) FROM config_version) AND (k.key LIKE 'ads_apply_cap_%' OR k.key LIKE 'ads_apply_pause_reserved_%' OR k.key LIKE 'ads_target_acos_pct_%' OR k.key LIKE 'ads_gasto_para_concluir_%' OR k.key LIKE 'ads_optimizer_%') ORDER BY k.key",
+      "filas": [
+        {
+          "id": 42,
+          "key": "ads_apply_cap_amazon_mx_bid",
+          "value": 1000000
+        },
+        {
+          "id": 42,
+          "key": "ads_apply_cap_amazon_mx_harvest",
+          "value": 1000000
+        },
+        {
+          "id": 42,
+          "key": "ads_apply_cap_amazon_mx_negative",
+          "value": 1000000
+        },
+        {
+          "id": 42,
+          "key": "ads_apply_cap_amazon_mx_pause",
+          "value": 1000000
+        },
+        {
+          "id": 42,
+          "key": "ads_apply_cap_amazon_us_bid",
+          "value": 1000000
+        },
+        {
+          "id": 42,
+          "key": "ads_apply_cap_amazon_us_harvest",
+          "value": 1000000
+        },
+        {
+          "id": 42,
+          "key": "ads_apply_cap_amazon_us_negative",
+          "value": 1000000
+        },
+        {
+          "id": 42,
+          "key": "ads_apply_cap_amazon_us_pause",
+          "value": 1000000
+        },
+        {
+          "id": 42,
+          "key": "ads_optimizer_mode",
+          "value": "live"
+        },
+        {
+          "id": 42,
+          "key": "ads_target_acos_pct_amazon_mx",
+          "value": 20
+        },
+        {
+          "id": 42,
+          "key": "ads_target_acos_pct_amazon_us",
+          "value": 20
+        }
+      ]
+    },
+    "goals": {
+      "sql": "SELECT id,scope,ad_entity_id,platform,enabled,mode,target_acos_pct,bid_floor,bid_ceiling,bid_currency,harvest_campaign_id,harvest_ad_group_id,harvest_default_bid,created_at,updated_at FROM ads_optimizer_goal ORDER BY id",
+      "filas": [
+        {
+          "id": 4,
+          "scope": "platform",
+          "ad_entity_id": null,
+          "platform": "amazon_mx",
+          "enabled": true,
+          "mode": "live",
+          "target_acos_pct": null,
+          "bid_floor": "1.0000",
+          "bid_ceiling": "45.0000",
+          "bid_currency": "MXN",
+          "harvest_campaign_id": "97835222467967",
+          "harvest_ad_group_id": "272585315669297",
+          "harvest_default_bid": "2.5000",
+          "created_at": "2026-08-24 00:34:50.894180+00:00",
+          "updated_at": "2026-09-30 03:04:56.041978+00:00"
+        },
+        {
+          "id": 5,
+          "scope": "platform",
+          "ad_entity_id": null,
+          "platform": "amazon_us",
+          "enabled": true,
+          "mode": "live",
+          "target_acos_pct": null,
+          "bid_floor": "0.1000",
+          "bid_ceiling": "2.5000",
+          "bid_currency": "USD",
+          "harvest_campaign_id": "251723662158466",
+          "harvest_ad_group_id": "522582072501798",
+          "harvest_default_bid": "0.6800",
+          "created_at": "2026-08-24 00:34:50.894180+00:00",
+          "updated_at": "2026-09-30 03:04:56.041978+00:00"
+        },
+        {
+          "id": 6,
+          "scope": "campaign",
+          "ad_entity_id": 3909,
+          "platform": null,
+          "enabled": true,
+          "mode": "live",
+          "target_acos_pct": null,
+          "bid_floor": "0.1000",
+          "bid_ceiling": "2.5000",
+          "bid_currency": "USD",
+          "harvest_campaign_id": null,
+          "harvest_ad_group_id": null,
+          "harvest_default_bid": null,
+          "created_at": "2026-08-27 23:27:54.419162+00:00",
+          "updated_at": "2026-09-30 03:04:56.041978+00:00"
+        },
+        {
+          "id": 7,
+          "scope": "campaign",
+          "ad_entity_id": 3926,
+          "platform": null,
+          "enabled": true,
+          "mode": "live",
+          "target_acos_pct": null,
+          "bid_floor": "0.1000",
+          "bid_ceiling": "2.5000",
+          "bid_currency": "USD",
+          "harvest_campaign_id": null,
+          "harvest_ad_group_id": null,
+          "harvest_default_bid": null,
+          "created_at": "2026-08-27 23:27:54.419162+00:00",
+          "updated_at": "2026-09-30 03:04:56.041978+00:00"
+        },
+        {
+          "id": 8,
+          "scope": "campaign",
+          "ad_entity_id": 415287,
+          "platform": null,
+          "enabled": true,
+          "mode": "live",
+          "target_acos_pct": null,
+          "bid_floor": "1.0000",
+          "bid_ceiling": "45.0000",
+          "bid_currency": "MXN",
+          "harvest_campaign_id": null,
+          "harvest_ad_group_id": null,
+          "harvest_default_bid": "11.6200",
+          "created_at": "2026-09-09 03:37:27.756732+00:00",
+          "updated_at": "2026-10-02 19:55:42.895721+00:00"
+        },
+        {
+          "id": 9,
+          "scope": "campaign",
+          "ad_entity_id": 415285,
+          "platform": null,
+          "enabled": true,
+          "mode": "live",
+          "target_acos_pct": null,
+          "bid_floor": "1.0000",
+          "bid_ceiling": "45.0000",
+          "bid_currency": "MXN",
+          "harvest_campaign_id": null,
+          "harvest_ad_group_id": null,
+          "harvest_default_bid": "11.6200",
+          "created_at": "2026-09-09 03:37:27.756732+00:00",
+          "updated_at": "2026-10-02 19:55:45.845583+00:00"
+        },
+        {
+          "id": 10,
+          "scope": "campaign",
+          "ad_entity_id": 415286,
+          "platform": null,
+          "enabled": true,
+          "mode": "live",
+          "target_acos_pct": null,
+          "bid_floor": "1.0000",
+          "bid_ceiling": "45.0000",
+          "bid_currency": "MXN",
+          "harvest_campaign_id": null,
+          "harvest_ad_group_id": null,
+          "harvest_default_bid": "11.6200",
+          "created_at": "2026-09-09 03:37:27.756732+00:00",
+          "updated_at": "2026-10-02 19:55:48.830967+00:00"
+        },
+        {
+          "id": 11,
+          "scope": "campaign",
+          "ad_entity_id": 415284,
+          "platform": null,
+          "enabled": true,
+          "mode": "live",
+          "target_acos_pct": null,
+          "bid_floor": "1.0000",
+          "bid_ceiling": "45.0000",
+          "bid_currency": "MXN",
+          "harvest_campaign_id": null,
+          "harvest_ad_group_id": null,
+          "harvest_default_bid": "11.6200",
+          "created_at": "2026-09-09 03:37:27.756732+00:00",
+          "updated_at": "2026-10-02 19:55:51.819320+00:00"
+        },
+        {
+          "id": 12,
+          "scope": "campaign",
+          "ad_entity_id": 415288,
+          "platform": null,
+          "enabled": true,
+          "mode": "live",
+          "target_acos_pct": null,
+          "bid_floor": "1.0000",
+          "bid_ceiling": "45.0000",
+          "bid_currency": "MXN",
+          "harvest_campaign_id": null,
+          "harvest_ad_group_id": null,
+          "harvest_default_bid": "11.6200",
+          "created_at": "2026-09-09 03:37:27.756732+00:00",
+          "updated_at": "2026-10-02 19:55:54.795621+00:00"
+        }
+      ]
+    },
+    "quotas": {
+      "sql": "SELECT motor,quota_date,used,cap FROM apply_quota_state WHERE quota_date >= (now() AT TIME ZONE 'UTC')::date-7 ORDER BY quota_date,motor",
+      "filas": [
+        {
+          "motor": "ads_optimizer:amazon_mx:bid",
+          "quota_date": "2026-10-29",
+          "used": 1,
+          "cap": 1000000
+        },
+        {
+          "motor": "ads_optimizer:amazon_us:bid",
+          "quota_date": "2026-10-30",
+          "used": 4,
+          "cap": 1000000
+        },
+        {
+          "motor": "ads_optimizer:amazon_mx:bid",
+          "quota_date": "2026-10-31",
+          "used": 2,
+          "cap": 1000000
+        },
+        {
+          "motor": "ads_optimizer:amazon_mx:harvest",
+          "quota_date": "2026-10-31",
+          "used": 1,
+          "cap": 1000000
+        },
+        {
+          "motor": "ads_optimizer:amazon_mx:bid",
+          "quota_date": "2026-11-02",
+          "used": 1,
+          "cap": 1000000
+        },
+        {
+          "motor": "ads_optimizer:amazon_us:bid",
+          "quota_date": "2026-11-02",
+          "used": 1,
+          "cap": 1000000
+        },
+        {
+          "motor": "ads_optimizer:amazon_mx:bid",
+          "quota_date": "2026-11-03",
+          "used": 2,
+          "cap": 1000000
+        },
+        {
+          "motor": "ads_optimizer:amazon_us:bid",
+          "quota_date": "2026-11-03",
+          "used": 1,
+          "cap": 1000000
+        },
+        {
+          "motor": "ads_optimizer:amazon_us:bid",
+          "quota_date": "2026-11-04",
+          "used": 1,
+          "cap": 1000000
+        }
+      ]
+    },
+    "cola_resumen": {
+      "sql": "SELECT platform,modo,kind,estado,count(*) AS filas,min(encolado_at) AS primera,max(encolado_at) AS ultima,max(applied_at) AS ultimo_apply FROM apply_queue GROUP BY 1,2,3,4 ORDER BY 1,2,3,4",
+      "filas": [
+        {
+          "platform": "amazon_mx",
+          "modo": "live",
+          "kind": "harvest",
+          "estado": "applied",
+          "filas": 8,
+          "primera": "2026-09-12 08:41:04.140983+00:00",
+          "ultima": "2026-10-29 08:41:04.650192+00:00",
+          "ultimo_apply": "2026-10-31 08:41:15.005628+00:00"
+        },
+        {
+          "platform": "amazon_mx",
+          "modo": "shadow",
+          "kind": "harvest",
+          "estado": "discarded",
+          "filas": 1,
+          "primera": "2026-08-28 03:14:32.838054+00:00",
+          "ultima": "2026-08-28 03:14:32.838054+00:00",
+          "ultimo_apply": null
+        },
+        {
+          "platform": "amazon_mx",
+          "modo": "shadow",
+          "kind": "harvest",
+          "estado": "vetoed",
+          "filas": 2,
+          "primera": "2026-08-28 03:14:32.838054+00:00",
+          "ultima": "2026-08-28 03:14:32.838054+00:00",
+          "ultimo_apply": null
+        },
+        {
+          "platform": "amazon_us",
+          "modo": "live",
+          "kind": "pause",
+          "estado": "applied",
+          "filas": 2,
+          "primera": "2026-09-19 08:40:03.561819+00:00",
+          "ultima": "2026-10-05 08:40:04.094476+00:00",
+          "ultimo_apply": "2026-10-07 08:40:05.417819+00:00"
+        },
+        {
+          "platform": "amazon_us",
+          "modo": "live",
+          "kind": "pause",
+          "estado": "pending_veto",
+          "filas": 1,
+          "primera": "2026-11-04 08:40:05.321808+00:00",
+          "ultima": "2026-11-04 08:40:05.321808+00:00",
+          "ultimo_apply": null
+        },
+        {
+          "platform": "amazon_us",
+          "modo": "live",
+          "kind": "negative",
+          "estado": "applied",
+          "filas": 2,
+          "primera": "2026-09-14 08:40:03.786256+00:00",
+          "ultima": "2026-09-14 08:40:03.786256+00:00",
+          "ultimo_apply": "2026-09-16 08:40:06.190488+00:00"
+        },
+        {
+          "platform": "amazon_us",
+          "modo": "live",
+          "kind": "negative",
+          "estado": "discarded",
+          "filas": 2,
+          "primera": "2026-09-14 08:40:03.786256+00:00",
+          "ultima": "2026-09-19 08:40:03.561819+00:00",
+          "ultimo_apply": null
+        },
+        {
+          "platform": "amazon_us",
+          "modo": "live",
+          "kind": "harvest",
+          "estado": "applied",
+          "filas": 3,
+          "primera": "2026-09-11 08:40:03.666412+00:00",
+          "ultima": "2026-10-15 08:40:05.030609+00:00",
+          "ultimo_apply": "2026-10-15 16:11:12.081964+00:00"
+        },
+        {
+          "platform": "amazon_us",
+          "modo": "live",
+          "kind": "harvest",
+          "estado": "vetoed",
+          "filas": 1,
+          "primera": "2026-09-04 08:40:03.682263+00:00",
+          "ultima": "2026-09-04 08:40:03.682263+00:00",
+          "ultimo_apply": null
+        },
+        {
+          "platform": "amazon_us",
+          "modo": "shadow",
+          "kind": "pause",
+          "estado": "discarded",
+          "filas": 1,
+          "primera": "2026-08-28 03:14:31.347314+00:00",
+          "ultima": "2026-08-28 03:14:31.347314+00:00",
+          "ultimo_apply": null
+        },
+        {
+          "platform": "amazon_us",
+          "modo": "shadow",
+          "kind": "harvest",
+          "estado": "discarded",
+          "filas": 1,
+          "primera": "2026-08-29 21:58:00.105816+00:00",
+          "ultima": "2026-08-29 21:58:00.105816+00:00",
+          "ultimo_apply": null
+        }
+      ]
+    },
+    "cola_no_terminal": {
+      "sql": "SELECT q.id,q.platform,q.kind,q.modo,q.estado,q.decision_id,q.ad_entity_id,q.vence_el,q.encolado_at,q.released_at,q.applying_at,d.inputs->>'motivo' AS motivo,d.inputs->'economic_policy' AS economic_policy FROM apply_queue q JOIN decision d ON d.id=q.decision_id WHERE q.estado NOT IN ('applied','failed','discarded','vetoed') ORDER BY q.id",
+      "filas": [
+        {
+          "id": 25,
+          "platform": "amazon_us",
+          "kind": "pause",
+          "modo": "live",
+          "estado": "pending_veto",
+          "decision_id": 2861,
+          "ad_entity_id": 4919,
+          "vence_el": "2026-11-06 08:40:02.663833+00:00",
+          "encolado_at": "2026-11-04 08:40:05.321808+00:00",
+          "released_at": null,
+          "applying_at": null,
+          "motivo": "pause_umbral",
+          "economic_policy": null
+        }
+      ]
+    },
+    "cola_economica": {
+      "sql": "SELECT q.id,q.platform,q.estado,q.modo,q.decision_id,q.ad_entity_id,d.inputs->>'motivo' AS motivo,d.inputs->'economic_policy' AS economic_policy FROM apply_queue q JOIN decision d ON d.id=q.decision_id WHERE d.inputs::text LIKE '%pause_economica%' ORDER BY q.id",
+      "filas": []
+    },
+    "attempt_resumen": {
+      "sql": "SELECT a.tipo,a.resultado,e.platform,count(*) AS filas,max(a.started_at) AS ultimo_intento,max(a.finished_at) AS ultimo_fin,count(*) FILTER (WHERE a.finished_at IS NULL) AS sin_fin FROM apply_attempt a JOIN decision d ON d.id=a.decision_id JOIN ad_entity e ON e.id=d.ad_entity_id GROUP BY 1,2,3 ORDER BY 1,2,3",
+      "filas": [
+        {
+          "tipo": "normal",
+          "resultado": "ok",
+          "platform": "amazon_mx",
+          "filas": 283,
+          "ultimo_intento": "2026-11-03 08:41:04.935939+00:00",
+          "ultimo_fin": "2026-11-03 08:41:06.497522+00:00",
+          "sin_fin": 0
+        },
+        {
+          "tipo": "normal",
+          "resultado": "ok",
+          "platform": "amazon_us",
+          "filas": 215,
+          "ultimo_intento": "2026-11-04 08:40:05.330795+00:00",
+          "ultimo_fin": "2026-11-04 08:40:05.355846+00:00",
+          "sin_fin": 0
+        },
+        {
+          "tipo": "reversa",
+          "resultado": "ok",
+          "platform": "amazon_mx",
+          "filas": 7,
+          "ultimo_intento": "2026-10-11 09:52:50.940183+00:00",
+          "ultimo_fin": "2026-10-11 09:52:54.248588+00:00",
+          "sin_fin": 0
+        },
+        {
+          "tipo": "reversa",
+          "resultado": "ok",
+          "platform": "amazon_us",
+          "filas": 3,
+          "ultimo_intento": "2026-10-11 09:53:26.059196+00:00",
+          "ultimo_fin": "2026-10-11 09:53:27.864648+00:00",
+          "sin_fin": 0
+        }
+      ]
+    },
+    "application_resumen": {
+      "sql": "SELECT e.platform,d.kind,a.verify_ok,count(*) AS filas,max(a.attempted_at) AS ultimo_intento,max(a.confirmed_at) AS ultima_confirmacion FROM decision_application a JOIN decision d ON d.id=a.decision_id JOIN ad_entity e ON e.id=d.ad_entity_id GROUP BY 1,2,3 ORDER BY 1,2,3",
+      "filas": [
+        {
+          "platform": "amazon_mx",
+          "kind": "bid",
+          "verify_ok": true,
+          "filas": 267,
+          "ultimo_intento": "2026-11-03 08:41:06.497522+00:00",
+          "ultima_confirmacion": "2026-11-03 08:41:06.497522+00:00"
+        },
+        {
+          "platform": "amazon_mx",
+          "kind": "harvest",
+          "verify_ok": true,
+          "filas": 8,
+          "ultimo_intento": "2026-10-31 08:41:15.005628+00:00",
+          "ultima_confirmacion": "2026-10-31 08:41:15.005628+00:00"
+        },
+        {
+          "platform": "amazon_us",
+          "kind": "bid",
+          "verify_ok": true,
+          "filas": 205,
+          "ultimo_intento": "2026-11-04 08:40:05.355846+00:00",
+          "ultima_confirmacion": "2026-11-04 08:40:05.355846+00:00"
+        },
+        {
+          "platform": "amazon_us",
+          "kind": "pause",
+          "verify_ok": true,
+          "filas": 2,
+          "ultimo_intento": "2026-10-07 08:40:05.417819+00:00",
+          "ultima_confirmacion": "2026-10-07 08:40:05.417819+00:00"
+        },
+        {
+          "platform": "amazon_us",
+          "kind": "negative",
+          "verify_ok": true,
+          "filas": 2,
+          "ultimo_intento": "2026-09-16 08:40:06.190488+00:00",
+          "ultima_confirmacion": "2026-09-16 08:40:06.190488+00:00"
+        },
+        {
+          "platform": "amazon_us",
+          "kind": "harvest",
+          "verify_ok": true,
+          "filas": 3,
+          "ultimo_intento": "2026-10-15 16:11:12.081964+00:00",
+          "ultima_confirmacion": "2026-10-15 16:11:12.081964+00:00"
+        }
+      ]
+    },
+    "mutaciones_7d": {
+      "sql": "SELECT a.id,a.decision_id,a.tipo,a.resultado,a.started_at,a.finished_at,e.platform,d.kind FROM apply_attempt a JOIN decision d ON d.id=a.decision_id JOIN ad_entity e ON e.id=d.ad_entity_id WHERE a.started_at >= now()-interval '7 days' ORDER BY a.id",
+      "filas": [
+        {
+          "id": 525,
+          "decision_id": 2848,
+          "tipo": "normal",
+          "resultado": "ok",
+          "started_at": "2026-10-29 08:41:04.657602+00:00",
+          "finished_at": "2026-10-29 08:41:04.681852+00:00",
+          "platform": "amazon_mx",
+          "kind": "bid"
+        },
+        {
+          "id": 526,
+          "decision_id": 2852,
+          "tipo": "normal",
+          "resultado": "ok",
+          "started_at": "2026-10-30 08:40:04.820012+00:00",
+          "finished_at": "2026-10-30 08:40:04.846377+00:00",
+          "platform": "amazon_us",
+          "kind": "bid"
+        },
+        {
+          "id": 527,
+          "decision_id": 2850,
+          "tipo": "normal",
+          "resultado": "ok",
+          "started_at": "2026-10-30 08:40:04.846377+00:00",
+          "finished_at": "2026-10-30 08:40:06.338529+00:00",
+          "platform": "amazon_us",
+          "kind": "bid"
+        },
+        {
+          "id": 528,
+          "decision_id": 2851,
+          "tipo": "normal",
+          "resultado": "ok",
+          "started_at": "2026-10-30 08:40:06.338529+00:00",
+          "finished_at": "2026-10-30 08:40:07.497427+00:00",
+          "platform": "amazon_us",
+          "kind": "bid"
+        },
+        {
+          "id": 529,
+          "decision_id": 2853,
+          "tipo": "normal",
+          "resultado": "ok",
+          "started_at": "2026-10-30 08:40:07.497427+00:00",
+          "finished_at": "2026-10-30 08:40:08.434908+00:00",
+          "platform": "amazon_us",
+          "kind": "bid"
+        },
+        {
+          "id": 530,
+          "decision_id": 2855,
+          "tipo": "normal",
+          "resultado": "ok",
+          "started_at": "2026-10-31 08:41:04.976940+00:00",
+          "finished_at": "2026-10-31 08:41:05.001563+00:00",
+          "platform": "amazon_mx",
+          "kind": "bid"
+        },
+        {
+          "id": 531,
+          "decision_id": 2854,
+          "tipo": "normal",
+          "resultado": "ok",
+          "started_at": "2026-10-31 08:41:05.001563+00:00",
+          "finished_at": "2026-10-31 08:41:07.832214+00:00",
+          "platform": "amazon_mx",
+          "kind": "bid"
+        },
+        {
+          "id": 532,
+          "decision_id": 2849,
+          "tipo": "normal",
+          "resultado": "ok",
+          "started_at": "2026-10-31 08:41:07.832214+00:00",
+          "finished_at": "2026-10-31 08:41:12.590147+00:00",
+          "platform": "amazon_mx",
+          "kind": "harvest"
+        },
+        {
+          "id": 533,
+          "decision_id": 2849,
+          "tipo": "normal",
+          "resultado": "ok",
+          "started_at": "2026-10-31 08:41:12.590147+00:00",
+          "finished_at": "2026-10-31 08:41:15.005628+00:00",
+          "platform": "amazon_mx",
+          "kind": "harvest"
+        },
+        {
+          "id": 534,
+          "decision_id": 2856,
+          "tipo": "normal",
+          "resultado": "ok",
+          "started_at": "2026-11-02 08:40:05.511098+00:00",
+          "finished_at": "2026-11-02 08:40:05.537110+00:00",
+          "platform": "amazon_us",
+          "kind": "bid"
+        },
+        {
+          "id": 535,
+          "decision_id": 2857,
+          "tipo": "normal",
+          "resultado": "ok",
+          "started_at": "2026-11-02 08:41:04.762362+00:00",
+          "finished_at": "2026-11-02 08:41:04.784780+00:00",
+          "platform": "amazon_mx",
+          "kind": "bid"
+        },
+        {
+          "id": 536,
+          "decision_id": 2858,
+          "tipo": "normal",
+          "resultado": "ok",
+          "started_at": "2026-11-03 08:40:04.958241+00:00",
+          "finished_at": "2026-11-03 08:40:04.983861+00:00",
+          "platform": "amazon_us",
+          "kind": "bid"
+        },
+        {
+          "id": 537,
+          "decision_id": 2860,
+          "tipo": "normal",
+          "resultado": "ok",
+          "started_at": "2026-11-03 08:41:04.910440+00:00",
+          "finished_at": "2026-11-03 08:41:04.935939+00:00",
+          "platform": "amazon_mx",
+          "kind": "bid"
+        },
+        {
+          "id": 538,
+          "decision_id": 2859,
+          "tipo": "normal",
+          "resultado": "ok",
+          "started_at": "2026-11-03 08:41:04.935939+00:00",
+          "finished_at": "2026-11-03 08:41:06.497522+00:00",
+          "platform": "amazon_mx",
+          "kind": "bid"
+        },
+        {
+          "id": 539,
+          "decision_id": 2862,
+          "tipo": "normal",
+          "resultado": "ok",
+          "started_at": "2026-11-04 08:40:05.330795+00:00",
+          "finished_at": "2026-11-04 08:40:05.355846+00:00",
+          "platform": "amazon_us",
+          "kind": "bid"
+        }
+      ]
+    },
+    "propuestas_resumen": {
+      "sql": "SELECT platform,risk_type,status,aviso_estado,count(*) AS filas,max(last_seen_at) AS ultima FROM ads_campaign_proposal GROUP BY 1,2,3,4 ORDER BY 1,2,3,4",
+      "filas": []
+    },
+    "propuestas_abiertas": {
+      "sql": "SELECT id,campaign_id,platform,campaign_external_id,profile_id,risk_type,status,first_seen_at,last_seen_at,window_start,window_end,observed_at,cost,revenue,currency,target_pct,target_source,excess,campaign_status,status_synced_at,aviso_estado FROM ads_campaign_proposal WHERE status='open' ORDER BY id",
+      "filas": []
+    },
+    "ciclos": {
+      "sql": "SELECT id,motor,mode,platform,started_at,finished_at,status,decisions_count,applied_count FROM optimizer_cycle ORDER BY started_at DESC LIMIT 20",
+      "filas": [
+        {
+          "id": 167,
+          "motor": "ads_optimizer",
+          "mode": "live",
+          "platform": "amazon_mx",
+          "started_at": "2026-11-04 08:41:02.399817+00:00",
+          "finished_at": "2026-11-04 08:41:04.096445+00:00",
+          "status": "done",
+          "decisions_count": 0,
+          "applied_count": 0
+        },
+        {
+          "id": 166,
+          "motor": "ads_optimizer",
+          "mode": "live",
+          "platform": "amazon_us",
+          "started_at": "2026-11-04 08:40:02.688812+00:00",
+          "finished_at": "2026-11-04 08:40:04.481587+00:00",
+          "status": "done",
+          "decisions_count": 2,
+          "applied_count": 1
+        },
+        {
+          "id": 165,
+          "motor": "ads_optimizer",
+          "mode": "live",
+          "platform": "amazon_mx",
+          "started_at": "2026-11-03 08:41:02.549021+00:00",
+          "finished_at": "2026-11-03 08:41:04.294347+00:00",
+          "status": "done",
+          "decisions_count": 2,
+          "applied_count": 2
+        },
+        {
+          "id": 164,
+          "motor": "ads_optimizer",
+          "mode": "live",
+          "platform": "amazon_us",
+          "started_at": "2026-11-03 08:40:02.214583+00:00",
+          "finished_at": "2026-11-03 08:40:04.119488+00:00",
+          "status": "done",
+          "decisions_count": 1,
+          "applied_count": 1
+        },
+        {
+          "id": 163,
+          "motor": "ads_optimizer",
+          "mode": "live",
+          "platform": "amazon_mx",
+          "started_at": "2026-11-02 08:41:02.406834+00:00",
+          "finished_at": "2026-11-02 08:41:04.152882+00:00",
+          "status": "done",
+          "decisions_count": 1,
+          "applied_count": 1
+        },
+        {
+          "id": 162,
+          "motor": "ads_optimizer",
+          "mode": "live",
+          "platform": "amazon_us",
+          "started_at": "2026-11-02 08:40:02.779416+00:00",
+          "finished_at": "2026-11-02 08:40:04.647231+00:00",
+          "status": "done",
+          "decisions_count": 1,
+          "applied_count": 1
+        },
+        {
+          "id": 161,
+          "motor": "ads_optimizer",
+          "mode": "live",
+          "platform": "amazon_mx",
+          "started_at": "2026-11-01 08:41:02.554803+00:00",
+          "finished_at": "2026-11-01 08:41:04.230890+00:00",
+          "status": "done",
+          "decisions_count": 0,
+          "applied_count": 0
+        },
+        {
+          "id": 160,
+          "motor": "ads_optimizer",
+          "mode": "live",
+          "platform": "amazon_us",
+          "started_at": "2026-11-01 08:40:02.530805+00:00",
+          "finished_at": "2026-11-01 08:40:04.057581+00:00",
+          "status": "done",
+          "decisions_count": 0,
+          "applied_count": 0
+        },
+        {
+          "id": 159,
+          "motor": "ads_optimizer",
+          "mode": "live",
+          "platform": "amazon_mx",
+          "started_at": "2026-10-31 08:41:02.516388+00:00",
+          "finished_at": "2026-10-31 08:41:04.364471+00:00",
+          "status": "done",
+          "decisions_count": 2,
+          "applied_count": 3
+        },
+        {
+          "id": 158,
+          "motor": "ads_optimizer",
+          "mode": "live",
+          "platform": "amazon_us",
+          "started_at": "2026-10-31 08:40:02.889104+00:00",
+          "finished_at": "2026-10-31 08:40:04.660976+00:00",
+          "status": "done",
+          "decisions_count": 0,
+          "applied_count": 0
+        },
+        {
+          "id": 157,
+          "motor": "ads_optimizer",
+          "mode": "live",
+          "platform": "amazon_mx",
+          "started_at": "2026-10-30 08:41:02.141212+00:00",
+          "finished_at": "2026-10-30 08:41:03.840846+00:00",
+          "status": "done",
+          "decisions_count": 0,
+          "applied_count": 0
+        },
+        {
+          "id": 156,
+          "motor": "ads_optimizer",
+          "mode": "live",
+          "platform": "amazon_us",
+          "started_at": "2026-10-30 08:40:02.252450+00:00",
+          "finished_at": "2026-10-30 08:40:03.970749+00:00",
+          "status": "done",
+          "decisions_count": 4,
+          "applied_count": 4
+        },
+        {
+          "id": 155,
+          "motor": "ads_optimizer",
+          "mode": "live",
+          "platform": "amazon_mx",
+          "started_at": "2026-10-29 08:41:02.434435+00:00",
+          "finished_at": "2026-10-29 08:41:04.061374+00:00",
+          "status": "done",
+          "decisions_count": 2,
+          "applied_count": 1
+        },
+        {
+          "id": 154,
+          "motor": "ads_optimizer",
+          "mode": "live",
+          "platform": "amazon_us",
+          "started_at": "2026-10-29 08:40:02.073153+00:00",
+          "finished_at": "2026-10-29 08:40:03.743166+00:00",
+          "status": "done",
+          "decisions_count": 0,
+          "applied_count": 0
+        },
+        {
+          "id": 153,
+          "motor": "ads_optimizer",
+          "mode": "live",
+          "platform": "amazon_mx",
+          "started_at": "2026-10-28 08:41:02.356448+00:00",
+          "finished_at": "2026-10-28 08:41:03.946499+00:00",
+          "status": "done",
+          "decisions_count": 0,
+          "applied_count": 0
+        },
+        {
+          "id": 152,
+          "motor": "ads_optimizer",
+          "mode": "live",
+          "platform": "amazon_us",
+          "started_at": "2026-10-28 08:40:02.572558+00:00",
+          "finished_at": "2026-10-28 08:40:04.125538+00:00",
+          "status": "done",
+          "decisions_count": 2,
+          "applied_count": 2
+        },
+        {
+          "id": 151,
+          "motor": "ads_optimizer",
+          "mode": "live",
+          "platform": "amazon_mx",
+          "started_at": "2026-10-27 08:41:02.490206+00:00",
+          "finished_at": "2026-10-27 08:41:03.944963+00:00",
+          "status": "done",
+          "decisions_count": 0,
+          "applied_count": 1
+        },
+        {
+          "id": 150,
+          "motor": "ads_optimizer",
+          "mode": "live",
+          "platform": "amazon_us",
+          "started_at": "2026-10-27 08:40:02.733677+00:00",
+          "finished_at": "2026-10-27 08:40:04.279472+00:00",
+          "status": "done",
+          "decisions_count": 0,
+          "applied_count": 0
+        },
+        {
+          "id": 149,
+          "motor": "ads_optimizer",
+          "mode": "live",
+          "platform": "amazon_mx",
+          "started_at": "2026-10-26 08:41:02.547373+00:00",
+          "finished_at": "2026-10-26 08:41:04.104787+00:00",
+          "status": "done",
+          "decisions_count": 0,
+          "applied_count": 0
+        },
+        {
+          "id": 148,
+          "motor": "ads_optimizer",
+          "mode": "live",
+          "platform": "amazon_us",
+          "started_at": "2026-10-26 08:40:02.873767+00:00",
+          "finished_at": "2026-10-26 08:40:04.548614+00:00",
+          "status": "done",
+          "decisions_count": 1,
+          "applied_count": 1
+        }
+      ]
+    },
+    "ingesta_actual": {
+      "sql": "SELECT a.profile_id,a.platform,a.report_type,a.status,max(r.finished_at) AS ultimo_fin FROM ingest_run r JOIN ads_report_result a ON a.ingest_run_id=r.id WHERE r.source='amazon_ads_reports_v3' AND r.started_at >= now()-interval '3 days' GROUP BY 1,2,3,4 ORDER BY 1,2,3,4",
+      "error": "UndefinedColumn: column a.report_type does not exist\nLINE 1: SELECT a.profile_id,a.platform,a.report_type,a.status,max(r....\n                                       ^\nHINT:  Perhaps you meant to reference the column \"a.report_name\"."
+    },
+    "alertas_abiertas": {
+      "sql": "SELECT id,profile_id,platform,tipo,opened_at,alert_sent_at,recovery_sent_at,closed_at FROM ads_ingest_incident WHERE closed_at IS NULL ORDER BY id",
+      "filas": []
+    },
+    "tablas_escritura": {
+      "sql": "SELECT table_name,column_name FROM information_schema.columns WHERE table_schema='public' AND (table_name ILIKE '%anuncio%' OR table_name ILIKE '%reversa%' OR table_name ILIKE '%regreso%') ORDER BY table_name,ordinal_position",
+      "filas": [
+        {
+          "table_name": "anuncio_reposicion",
+          "column_name": "retiro_id"
+        },
+        {
+          "table_name": "anuncio_reposicion",
+          "column_name": "ad_id_nuevo"
+        },
+        {
+          "table_name": "anuncio_reposicion",
+          "column_name": "estado_nuevo"
+        },
+        {
+          "table_name": "anuncio_reposicion",
+          "column_name": "repuesto_el"
+        },
+        {
+          "table_name": "anuncio_reposicion",
+          "column_name": "actor"
+        },
+        {
+          "table_name": "anuncio_retiro",
+          "column_name": "id"
+        },
+        {
+          "table_name": "anuncio_retiro",
+          "column_name": "platform"
+        },
+        {
+          "table_name": "anuncio_retiro",
+          "column_name": "motivo"
+        },
+        {
+          "table_name": "anuncio_retiro",
+          "column_name": "modo"
+        },
+        {
+          "table_name": "anuncio_retiro",
+          "column_name": "lote_retiro"
+        },
+        {
+          "table_name": "anuncio_retiro",
+          "column_name": "impulso_id"
+        },
+        {
+          "table_name": "anuncio_retiro",
+          "column_name": "ad_entity_id"
+        },
+        {
+          "table_name": "anuncio_retiro",
+          "column_name": "ad_id_externo"
+        },
+        {
+          "table_name": "anuncio_retiro",
+          "column_name": "ad_group_externo"
+        },
+        {
+          "table_name": "anuncio_retiro",
+          "column_name": "campana_externa"
+        },
+        {
+          "table_name": "anuncio_retiro",
+          "column_name": "sku"
+        },
+        {
+          "table_name": "anuncio_retiro",
+          "column_name": "asin"
+        },
+        {
+          "table_name": "anuncio_retiro",
+          "column_name": "reversa"
+        },
+        {
+          "table_name": "anuncio_retiro",
+          "column_name": "retirado_el"
+        },
+        {
+          "table_name": "anuncio_retiro",
+          "column_name": "actor"
+        },
+        {
+          "table_name": "anuncio_retiro_intencion",
+          "column_name": "id"
+        },
+        {
+          "table_name": "anuncio_retiro_intencion",
+          "column_name": "platform"
+        },
+        {
+          "table_name": "anuncio_retiro_intencion",
+          "column_name": "motivo"
+        },
+        {
+          "table_name": "anuncio_retiro_intencion",
+          "column_name": "modo"
+        },
+        {
+          "table_name": "anuncio_retiro_intencion",
+          "column_name": "lote_retiro"
+        },
+        {
+          "table_name": "anuncio_retiro_intencion",
+          "column_name": "impulso_id"
+        },
+        {
+          "table_name": "anuncio_retiro_intencion",
+          "column_name": "ad_entity_id"
+        },
+        {
+          "table_name": "anuncio_retiro_intencion",
+          "column_name": "ad_id_externo"
+        },
+        {
+          "table_name": "anuncio_retiro_intencion",
+          "column_name": "ad_group_externo"
+        },
+        {
+          "table_name": "anuncio_retiro_intencion",
+          "column_name": "campana_externa"
+        },
+        {
+          "table_name": "anuncio_retiro_intencion",
+          "column_name": "sku"
+        },
+        {
+          "table_name": "anuncio_retiro_intencion",
+          "column_name": "asin"
+        },
+        {
+          "table_name": "anuncio_retiro_intencion",
+          "column_name": "reversa"
+        },
+        {
+          "table_name": "anuncio_retiro_intencion",
+          "column_name": "actor"
+        },
+        {
+          "table_name": "anuncio_retiro_intencion",
+          "column_name": "creada_el"
+        },
+        {
+          "table_name": "anuncio_retiro_intencion",
+          "column_name": "cerrada_el"
+        },
+        {
+          "table_name": "anuncio_retiro_intencion",
+          "column_name": "detalle"
+        },
+        {
+          "table_name": "anuncio_retiro_intencion",
+          "column_name": "retiro_id"
+        },
+        {
+          "table_name": "estimacion_reversa_registro",
+          "column_name": "id"
+        },
+        {
+          "table_name": "estimacion_reversa_registro",
+          "column_name": "aplicada_at"
+        },
+        {
+          "table_name": "estimacion_reversa_registro",
+          "column_name": "filas_politica"
+        },
+        {
+          "table_name": "estimacion_reversa_registro",
+          "column_name": "filas_oferta"
+        },
+        {
+          "table_name": "estimacion_reversa_registro",
+          "column_name": "filas_fee"
+        },
+        {
+          "table_name": "estimacion_reversa_registro",
+          "column_name": "filas_escenario"
+        },
+        {
+          "table_name": "v_anuncio_retirado",
+          "column_name": "id"
+        },
+        {
+          "table_name": "v_anuncio_retirado",
+          "column_name": "platform"
+        },
+        {
+          "table_name": "v_anuncio_retirado",
+          "column_name": "motivo"
+        },
+        {
+          "table_name": "v_anuncio_retirado",
+          "column_name": "modo"
+        },
+        {
+          "table_name": "v_anuncio_retirado",
+          "column_name": "lote_retiro"
+        },
+        {
+          "table_name": "v_anuncio_retirado",
+          "column_name": "impulso_id"
+        },
+        {
+          "table_name": "v_anuncio_retirado",
+          "column_name": "ad_entity_id"
+        },
+        {
+          "table_name": "v_anuncio_retirado",
+          "column_name": "ad_id_externo"
+        },
+        {
+          "table_name": "v_anuncio_retirado",
+          "column_name": "ad_group_externo"
+        },
+        {
+          "table_name": "v_anuncio_retirado",
+          "column_name": "campana_externa"
+        },
+        {
+          "table_name": "v_anuncio_retirado",
+          "column_name": "sku"
+        },
+        {
+          "table_name": "v_anuncio_retirado",
+          "column_name": "asin"
+        },
+        {
+          "table_name": "v_anuncio_retirado",
+          "column_name": "reversa"
+        },
+        {
+          "table_name": "v_anuncio_retirado",
+          "column_name": "retirado_el"
+        },
+        {
+          "table_name": "v_anuncio_retirado",
+          "column_name": "actor"
+        },
+        {
+          "table_name": "v_anuncio_retirado",
+          "column_name": "repuesto"
+        }
+      ]
+    },
+    "impulsos": {
+      "sql": "SELECT i.id,i.platform,i.listing_id,i.product_id,i.grupo_id,i.lote,i.tope_monto,i.tope_moneda,i.presupuesto_diario,i.plazo_dias,i.lanzado_el,f.estado,f.modo_goal,f.pausado_por FROM impulso i LEFT JOIN fabrica_lote f ON f.lote=i.lote ORDER BY i.id",
+      "filas": []
+    },
+    "impulso_lecturas": {
+      "sql": "SELECT DISTINCT ON (impulso_id) impulso_id,corte,leido_el,dias_observados,gasto,gasto_moneda,pedidos,veredicto,es_final,hecho FROM impulso_lectura ORDER BY impulso_id,corte DESC",
+      "filas": []
+    },
+    "fabrica": {
+      "sql": "SELECT lote,platform,modo_goal,estado,created_at,finished_at,pausado_por FROM fabrica_lote ORDER BY created_at DESC",
+      "filas": [
+        {
+          "lote": "web-923cb24207db81ebbb6c0a1b251c8562cac501b9f4fac4a7b9dd151a250716bd",
+          "platform": "amazon_mx",
+          "modo_goal": "shadow",
+          "estado": "applied",
+          "created_at": "2026-09-09 03:35:11.153954+00:00",
+          "finished_at": "2026-09-09 03:37:27.763007+00:00",
+          "pausado_por": null
+        }
+      ]
+    },
+    "fabrica_pasos": {
+      "sql": "SELECT recurso,estado,readback_estado,count(*) AS filas,max(intentado_at) AS ultimo FROM fabrica_lote_paso GROUP BY 1,2,3 ORDER BY 1,2,3",
+      "filas": [
+        {
+          "recurso": "ad_group",
+          "estado": "applied",
+          "readback_estado": "ENABLED",
+          "filas": 5,
+          "ultimo": "2026-09-09 03:36:29.134077+00:00"
+        },
+        {
+          "recurso": "campaign",
+          "estado": "applied",
+          "readback_estado": "ENABLED",
+          "filas": 5,
+          "ultimo": "2026-09-09 03:36:28.201910+00:00"
+        },
+        {
+          "recurso": "keyword",
+          "estado": "applied",
+          "readback_estado": "ENABLED",
+          "filas": 66,
+          "ultimo": "2026-09-09 03:36:19.190564+00:00"
+        },
+        {
+          "recurso": "product_ad",
+          "estado": "applied",
+          "readback_estado": "ENABLED",
+          "filas": 5,
+          "ultimo": "2026-09-09 03:36:30.428205+00:00"
+        },
+        {
+          "recurso": "target",
+          "estado": "applied",
+          "readback_estado": "ENABLED",
+          "filas": 6,
+          "ultimo": "2026-09-09 03:36:27.326910+00:00"
+        }
+      ]
+    },
+    "fabrica_pendientes": {
+      "sql": "SELECT id,lote,orden,rol,recurso,external_id,readback_estado,estado,intentado_at FROM fabrica_lote_paso WHERE estado NOT IN ('applied','done') ORDER BY id",
+      "filas": []
+    },
+    "harvest": {
+      "sql": "SELECT id,decision_id,platform,ad_entity_id,fase,external_ids,created_at,updated_at FROM harvest_job ORDER BY id",
+      "filas": [
+        {
+          "id": 1,
+          "decision_id": 2276,
+          "platform": "amazon_us",
+          "ad_entity_id": 4009,
+          "fase": "done",
+          "external_ids": {
+            "keyword_id": "80609745423434",
+            "negative_id": "28453854032882"
+          },
+          "created_at": "2026-09-14 08:40:03.827739+00:00",
+          "updated_at": "2026-09-14 08:40:09.041988+00:00"
+        },
+        {
+          "id": 2,
+          "decision_id": 2311,
+          "platform": "amazon_mx",
+          "ad_entity_id": 297,
+          "fase": "done",
+          "external_ids": {
+            "keyword_id": "197174507964917",
+            "negative_id": "92333897493675"
+          },
+          "created_at": "2026-09-15 08:41:14.254593+00:00",
+          "updated_at": "2026-09-15 08:41:21.495244+00:00"
+        },
+        {
+          "id": 3,
+          "decision_id": 2340,
+          "platform": "amazon_mx",
+          "ad_entity_id": 346,
+          "fase": "done",
+          "external_ids": {
+            "keyword_id": "173682599413296",
+            "negative_id": "238992858651508"
+          },
+          "created_at": "2026-09-19 08:41:19.057187+00:00",
+          "updated_at": "2026-09-19 08:41:24.754781+00:00"
+        },
+        {
+          "id": 4,
+          "decision_id": 2360,
+          "platform": "amazon_mx",
+          "ad_entity_id": 339,
+          "fase": "done",
+          "external_ids": {
+            "keyword_id": "103183625886360",
+            "negative_id": "123271341601901"
+          },
+          "created_at": "2026-09-20 08:41:38.329052+00:00",
+          "updated_at": "2026-09-20 08:41:45.352450+00:00"
+        },
+        {
+          "id": 5,
+          "decision_id": 2707,
+          "platform": "amazon_mx",
+          "ad_entity_id": 339,
+          "fase": "done",
+          "external_ids": {
+            "keyword_id": "82127626706120",
+            "negative_id": "204344713816335",
+            "keyword_creada": true,
+            "negative_creada": true
+          },
+          "created_at": "2026-10-02 08:41:12.909478+00:00",
+          "updated_at": "2026-10-02 08:41:19.833420+00:00"
+        },
+        {
+          "id": 6,
+          "decision_id": 2724,
+          "platform": "amazon_mx",
+          "ad_entity_id": 339,
+          "fase": "done",
+          "external_ids": {
+            "keyword_id": "254969591132064",
+            "negative_id": "269411437992341",
+            "keyword_creada": true,
+            "negative_creada": true
+          },
+          "created_at": "2026-10-04 08:41:03.376849+00:00",
+          "updated_at": "2026-10-04 08:41:10.688153+00:00"
+        },
+        {
+          "id": 7,
+          "decision_id": 2829,
+          "platform": "amazon_us",
+          "ad_entity_id": 3993,
+          "fase": "done",
+          "external_ids": {
+            "keyword_id": "144423218118336",
+            "negative_id": "279461472082776",
+            "keyword_creada": true,
+            "negative_creada": true
+          },
+          "created_at": "2026-10-15 16:11:04.251326+00:00",
+          "updated_at": "2026-10-15 16:11:07.419431+00:00"
+        },
+        {
+          "id": 8,
+          "decision_id": 2830,
+          "platform": "amazon_us",
+          "ad_entity_id": 3993,
+          "fase": "done",
+          "external_ids": {
+            "keyword_id": "7516190422814",
+            "negative_id": "248472610252880",
+            "keyword_creada": true,
+            "negative_creada": true
+          },
+          "created_at": "2026-10-15 16:11:07.419431+00:00",
+          "updated_at": "2026-10-15 16:11:12.081964+00:00"
+        },
+        {
+          "id": 9,
+          "decision_id": 2831,
+          "platform": "amazon_mx",
+          "ad_entity_id": 354,
+          "fase": "done",
+          "external_ids": {
+            "keyword_id": "275040441904463",
+            "negative_id": "106349743844358",
+            "keyword_creada": true,
+            "negative_creada": true
+          },
+          "created_at": "2026-10-15 16:11:38.243449+00:00",
+          "updated_at": "2026-10-15 16:11:42.984485+00:00"
+        },
+        {
+          "id": 10,
+          "decision_id": 2844,
+          "platform": "amazon_mx",
+          "ad_entity_id": 339,
+          "fase": "done",
+          "external_ids": {
+            "keyword_id": "200057608396725",
+            "negative_id": "140848267009272",
+            "keyword_creada": true,
+            "negative_creada": true
+          },
+          "created_at": "2026-10-27 08:41:04.880097+00:00",
+          "updated_at": "2026-10-27 08:41:11.090598+00:00"
+        },
+        {
+          "id": 11,
+          "decision_id": 2849,
+          "platform": "amazon_mx",
+          "ad_entity_id": 342,
+          "fase": "done",
+          "external_ids": {
+            "keyword_id": "172957751948875",
+            "negative_id": "226215075989554",
+            "keyword_creada": true,
+            "negative_creada": true
+          },
+          "created_at": "2026-10-31 08:41:07.832214+00:00",
+          "updated_at": "2026-10-31 08:41:15.005628+00:00"
+        }
+      ]
+    },
+    "ajustes": {
+      "sql": "SELECT id,campana_id,platform,clase,regresa_a,creado_el,confirmado_el FROM campana_ajuste ORDER BY id",
+      "filas": []
+    },
+    "archivo_manual": {
+      "sql": "SELECT id,ad_entity_id,platform,estado,intentado_at,repuesto_at FROM keyword_archivo_manual ORDER BY id",
+      "filas": []
+    }
+  }
+}

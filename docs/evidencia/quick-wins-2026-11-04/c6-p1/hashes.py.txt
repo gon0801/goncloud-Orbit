@@ -1,0 +1,3 @@
+import hashlib,json,datetime,pathlib
+files=('app/cycle.py','app/optimizer/bid.py','app/optimizer/goals.py','app/optimizer/politica.py','app/apply_cola.py','app/apply.py','app/impulso_io.py','app/apply_harvest.py','app/campana_ajustes.py','app/ads/write.py','app/retiro_anuncios.py','tools/replay_ads_economico.py')
+print(json.dumps({'utc':datetime.datetime.now(datetime.UTC).isoformat(),'hashes':{f:hashlib.sha256(pathlib.Path(f).read_bytes()).hexdigest() if pathlib.Path(f).exists() else None for f in files}},indent=2))

@@ -1,0 +1,5 @@
+Capturas primarias Odoo y MeLi ejecutadas solo en lectura; horas UTC en JSON.
+Tres JSON parseados; tres scripts con AST valido; resumir.py ejecutado despues del formato.
+Matriz: nueve SKU distintos, 27 IDs exactos, costo utilizable/vigencia null; cero operaciones preparadas.
+Ruff check y format: PASS. pre-commit focal (secretos y conflictos): PASS.
+Sin cambios de codigo productivo ni nuevas pruebas; validacion proporcional de evidencia.

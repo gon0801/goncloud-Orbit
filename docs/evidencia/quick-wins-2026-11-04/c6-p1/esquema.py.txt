@@ -1,0 +1,17 @@
+import os,json,datetime,hashlib,pathlib
+from psycopg.rows import dict_row
+from app.db import connect
+from app.redaction import register_secret,redact_dsn,scrub
+
+dsn=os.environ['ORBIT_DSN_READ']; register_secret(dsn); redact_dsn(dsn)
+q="SELECT table_name,column_name,data_type FROM information_schema.columns WHERE table_schema='public' AND (table_name IN ('config_version','ads_optimizer_goal','apply_queue','apply_attempt','decision_application','ads_campaign_proposal','harvest_job','impulso','impulso_lectura','fabrica_lote','fabrica_lote_paso','campana_ajuste','keyword_archivo_manual','decision','optimizer_cycle','apply_quota_state') OR table_name ILIKE '%revers%' OR table_name ILIKE '%attempt%') ORDER BY table_name,ordinal_position"
+try:
+ with connect(dsn,row_factory=dict_row) as c:
+  c.execute('BEGIN READ ONLY'); c.execute('SET LOCAL statement_timeout=15000')
+  out={'utc':datetime.datetime.now(datetime.UTC).isoformat(),'sql':q,'columnas':c.execute(q).fetchall()}
+ out['hashes']={}
+ for f in ('app/cycle.py','app/optimizer/bid.py','app/optimizer/goals.py','app/optimizer/politica.py','app/apply_cola.py','app/apply.py','app/impulso_io.py','app/apply_harvest.py','app/campana_ajuste.py','tools/replay_ads_economico.py'):
+  p=pathlib.Path(f); out['hashes'][f]=hashlib.sha256(p.read_bytes()).hexdigest() if p.exists() else None
+ print(scrub(json.dumps(out,default=str,indent=2)))
+except Exception as e:
+ print(scrub(type(e).__name__+': '+str(e)));raise SystemExit(1)

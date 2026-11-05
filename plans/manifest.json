@@ -38,7 +38,7 @@
     {
       "name": "ads-proteccion-01",
       "path": "plans/ads-proteccion-01.md",
-      "description": "ADS PROTECCION 01 — A.4/A.4r/B.4 completados con evidencia y arreglo entregado PR #523. C.6 apagada; preparacion C6-P1..P5 revisada frente BIDS 02, iniciar fotografia/replay RO (ROADMAP P03)."
+      "description": "ADS PROTECCION 01 — A.4/A.4r/B.4 cerrados (#523). C6-P1 inventariado; P2 ejecutado con 48 cruces, cobertura/maduracion/elegibilidad incompletas, gate no satisfecho. Economica apagada; completar evidencia P2 antes de P3 (ROADMAP P03)."
     },
     {
       "name": "ads-proteccion-01-fase-d",
@@ -158,7 +158,7 @@
     {
       "name": "repricing-02",
       "path": "plans/repricing-02.md",
-      "description": "REPRICING 02 / AUTO-07 — CERRADO 2026-10-17; live MX/US/MeLi. P04 diagnosticado: 9 variantes PEZ sin producto/costo (7 publicaciones activas, 2 no activas); anclas con costo verificado. Resolver catalogo/Odoo, no copiar costos. Incidente MeLi corregido #504."
+      "description": "REPRICING 02 / AUTO-07 — CERRADO. P04: usuario confirma PEZ se vende; nueve SKU exactos con 27 registros Odoo archivados/costo 0, sin receta vigente ni equivalencia con Solo Arras. Resolver fuente/mapeo/costo, no retirar PEZ."
     },
     {
       "name": "repricing-02-construccion",

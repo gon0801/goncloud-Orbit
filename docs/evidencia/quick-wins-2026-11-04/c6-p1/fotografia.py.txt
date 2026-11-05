@@ -1,0 +1,47 @@
+import os,json,datetime,hashlib,pathlib
+from psycopg.rows import dict_row
+from psycopg import sql
+from app.db import connect
+from app.redaction import register_secret,redact_dsn,scrub
+
+dsn=os.environ['ORBIT_DSN_READ'];register_secret(dsn);redact_dsn(dsn)
+queries={
+ 'reloj':"SELECT now() AS reloj_snapshot,current_user, current_setting('transaction_read_only') AS read_only,current_setting('statement_timeout') AS timeout",
+ 'config':"SELECT id,created_at,label,settings ? 'ads_pause_economica' AS tiene_economica,settings->'ads_pause_economica' AS economica,settings->'ads_pause_sin_cooldown_bid' AS pause_sin_cooldown,settings->'ads_bid_politica_amazon_mx' AS politica_mx,settings->'ads_bid_politica_amazon_us' AS politica_us,settings->'ads_target_fraccion_margen_amazon_mx' AS fraccion_mx,settings->'ads_target_fraccion_margen_amazon_us' AS fraccion_us FROM config_version ORDER BY id DESC LIMIT 1",
+ 'limites':"SELECT c.id,k.key,k.value FROM config_version c CROSS JOIN LATERAL jsonb_each(c.settings) k WHERE c.id=(SELECT max(id) FROM config_version) AND (k.key LIKE 'ads_apply_cap_%' OR k.key LIKE 'ads_apply_pause_reserved_%' OR k.key LIKE 'ads_target_acos_pct_%' OR k.key LIKE 'ads_gasto_para_concluir_%' OR k.key LIKE 'ads_optimizer_%') ORDER BY k.key",
+ 'goals':"SELECT id,scope,ad_entity_id,platform,enabled,mode,target_acos_pct,bid_floor,bid_ceiling,bid_currency,harvest_campaign_id,harvest_ad_group_id,harvest_default_bid,created_at,updated_at FROM ads_optimizer_goal ORDER BY id",
+ 'quotas':"SELECT motor,quota_date,used,cap FROM apply_quota_state WHERE quota_date >= (now() AT TIME ZONE 'UTC')::date-7 ORDER BY quota_date,motor",
+ 'cola_resumen':"SELECT platform,modo,kind,estado,count(*) AS filas,min(encolado_at) AS primera,max(encolado_at) AS ultima,max(applied_at) AS ultimo_apply FROM apply_queue GROUP BY 1,2,3,4 ORDER BY 1,2,3,4",
+ 'cola_no_terminal':"SELECT q.id,q.platform,q.kind,q.modo,q.estado,q.decision_id,q.ad_entity_id,q.vence_el,q.encolado_at,q.released_at,q.applying_at,d.inputs->>'motivo' AS motivo,d.inputs->'economic_policy' AS economic_policy FROM apply_queue q JOIN decision d ON d.id=q.decision_id WHERE q.estado NOT IN ('applied','failed','discarded','vetoed') ORDER BY q.id",
+ 'cola_economica':"SELECT q.id,q.platform,q.estado,q.modo,q.decision_id,q.ad_entity_id,d.inputs->>'motivo' AS motivo,d.inputs->'economic_policy' AS economic_policy FROM apply_queue q JOIN decision d ON d.id=q.decision_id WHERE d.inputs::text LIKE '%pause_economica%' ORDER BY q.id",
+ 'attempt_resumen':"SELECT a.tipo,a.resultado,e.platform,count(*) AS filas,max(a.started_at) AS ultimo_intento,max(a.finished_at) AS ultimo_fin,count(*) FILTER (WHERE a.finished_at IS NULL) AS sin_fin FROM apply_attempt a JOIN decision d ON d.id=a.decision_id JOIN ad_entity e ON e.id=d.ad_entity_id GROUP BY 1,2,3 ORDER BY 1,2,3",
+ 'application_resumen':"SELECT e.platform,d.kind,a.verify_ok,count(*) AS filas,max(a.attempted_at) AS ultimo_intento,max(a.confirmed_at) AS ultima_confirmacion FROM decision_application a JOIN decision d ON d.id=a.decision_id JOIN ad_entity e ON e.id=d.ad_entity_id GROUP BY 1,2,3 ORDER BY 1,2,3",
+ 'mutaciones_7d':"SELECT a.id,a.decision_id,a.tipo,a.resultado,a.started_at,a.finished_at,e.platform,d.kind FROM apply_attempt a JOIN decision d ON d.id=a.decision_id JOIN ad_entity e ON e.id=d.ad_entity_id WHERE a.started_at >= now()-interval '7 days' ORDER BY a.id",
+ 'propuestas_resumen':"SELECT platform,risk_type,status,aviso_estado,count(*) AS filas,max(last_seen_at) AS ultima FROM ads_campaign_proposal GROUP BY 1,2,3,4 ORDER BY 1,2,3,4",
+ 'propuestas_abiertas':"SELECT id,campaign_id,platform,campaign_external_id,profile_id,risk_type,status,first_seen_at,last_seen_at,window_start,window_end,observed_at,cost,revenue,currency,target_pct,target_source,excess,campaign_status,status_synced_at,aviso_estado FROM ads_campaign_proposal WHERE status='open' ORDER BY id",
+ 'ciclos':"SELECT id,motor,mode,platform,started_at,finished_at,status,decisions_count,applied_count FROM optimizer_cycle ORDER BY started_at DESC LIMIT 20",
+ 'ingesta_actual':"SELECT a.profile_id,a.platform,a.report_type,a.status,max(r.finished_at) AS ultimo_fin FROM ingest_run r JOIN ads_report_result a ON a.ingest_run_id=r.id WHERE r.source='amazon_ads_reports_v3' AND r.started_at >= now()-interval '3 days' GROUP BY 1,2,3,4 ORDER BY 1,2,3,4",
+ 'alertas_abiertas':"SELECT id,profile_id,platform,tipo,opened_at,alert_sent_at,recovery_sent_at,closed_at FROM ads_ingest_incident WHERE closed_at IS NULL ORDER BY id",
+ 'tablas_escritura':"SELECT table_name,column_name FROM information_schema.columns WHERE table_schema='public' AND (table_name ILIKE '%anuncio%' OR table_name ILIKE '%reversa%' OR table_name ILIKE '%regreso%') ORDER BY table_name,ordinal_position",
+ 'impulsos':"SELECT i.id,i.platform,i.listing_id,i.product_id,i.grupo_id,i.lote,i.tope_monto,i.tope_moneda,i.presupuesto_diario,i.plazo_dias,i.lanzado_el,f.estado,f.modo_goal,f.pausado_por FROM impulso i LEFT JOIN fabrica_lote f ON f.lote=i.lote ORDER BY i.id",
+ 'impulso_lecturas':"SELECT DISTINCT ON (impulso_id) impulso_id,corte,leido_el,dias_observados,gasto,gasto_moneda,pedidos,veredicto,es_final,hecho FROM impulso_lectura ORDER BY impulso_id,corte DESC",
+ 'fabrica':"SELECT lote,platform,modo_goal,estado,created_at,finished_at,pausado_por FROM fabrica_lote ORDER BY created_at DESC",
+ 'fabrica_pasos':"SELECT recurso,estado,readback_estado,count(*) AS filas,max(intentado_at) AS ultimo FROM fabrica_lote_paso GROUP BY 1,2,3 ORDER BY 1,2,3",
+ 'fabrica_pendientes':"SELECT id,lote,orden,rol,recurso,external_id,readback_estado,estado,intentado_at FROM fabrica_lote_paso WHERE estado NOT IN ('applied','done') ORDER BY id",
+ 'harvest':"SELECT id,decision_id,platform,ad_entity_id,fase,external_ids,created_at,updated_at FROM harvest_job ORDER BY id",
+ 'ajustes':"SELECT id,campana_id,platform,clase,regresa_a,creado_el,confirmado_el FROM campana_ajuste ORDER BY id",
+ 'archivo_manual':"SELECT id,ad_entity_id,platform,estado,intentado_at,repuesto_at FROM keyword_archivo_manual ORDER BY id",
+}
+out={'consultado_utc':datetime.datetime.now(datetime.UTC).isoformat(),'modo':'ORBIT_DSN_READ; BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY; timeout 15s','consultas':{}}
+try:
+ with connect(dsn,row_factory=dict_row) as c:
+  c.execute('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');c.execute('SET LOCAL statement_timeout=15000')
+  for n,q in queries.items():
+   c.execute('SAVEPOINT lectura')
+   try: out['consultas'][n]={'sql':q,'filas':c.execute(q).fetchall()}
+   except Exception as e:
+    c.execute('ROLLBACK TO SAVEPOINT lectura');out['consultas'][n]={'sql':q,'error':scrub(type(e).__name__+': '+str(e))}
+   c.execute('RELEASE SAVEPOINT lectura')
+ print(scrub(json.dumps(out,default=str,ensure_ascii=False,indent=2)))
+except Exception as e:
+ print(scrub(type(e).__name__+': '+str(e)));raise SystemExit(1)

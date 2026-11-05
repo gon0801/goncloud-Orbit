@@ -1,0 +1,79 @@
+{
+  "utc_productivo": "2026-11-05T01:46:24.157676+00:00",
+  "referencia_local": "1292000c867e72f179cf390fb814c587d147db8b",
+  "hashes": [
+    {
+      "archivo": "app/cycle.py",
+      "sha256_productivo": "a648b325d5b995b2914cb025a0850e15a6543e0e78acafdea0021707baf9e89e",
+      "sha256_referencia": "a648b325d5b995b2914cb025a0850e15a6543e0e78acafdea0021707baf9e89e",
+      "coincide": true
+    },
+    {
+      "archivo": "app/optimizer/bid.py",
+      "sha256_productivo": "fe0f9a34b9a55f6ab75d8fba346ece478135aa194401bd1f4c3ab10460e5c64c",
+      "sha256_referencia": "fe0f9a34b9a55f6ab75d8fba346ece478135aa194401bd1f4c3ab10460e5c64c",
+      "coincide": true
+    },
+    {
+      "archivo": "app/optimizer/goals.py",
+      "sha256_productivo": "1675cf8641f4ee0c70c1380934af634db82c73f1d1c79e94c2b1007fb111170b",
+      "sha256_referencia": "1675cf8641f4ee0c70c1380934af634db82c73f1d1c79e94c2b1007fb111170b",
+      "coincide": true
+    },
+    {
+      "archivo": "app/optimizer/politica.py",
+      "sha256_productivo": "93d4ac20e41fa46a90cc8ba96fb8e40084d310b827191921ff33210e5ec1c845",
+      "sha256_referencia": "93d4ac20e41fa46a90cc8ba96fb8e40084d310b827191921ff33210e5ec1c845",
+      "coincide": true
+    },
+    {
+      "archivo": "app/apply_cola.py",
+      "sha256_productivo": "c432b608983c7816c3df6c987aae3c1ce7c2729c686b7d6faa9813b870fa64e4",
+      "sha256_referencia": "c432b608983c7816c3df6c987aae3c1ce7c2729c686b7d6faa9813b870fa64e4",
+      "coincide": true
+    },
+    {
+      "archivo": "app/apply.py",
+      "sha256_productivo": "dec03993ff4c57f750d0715795bea1be889a0d0bd89a16b0a1f87d68b21c8ef3",
+      "sha256_referencia": "dec03993ff4c57f750d0715795bea1be889a0d0bd89a16b0a1f87d68b21c8ef3",
+      "coincide": true
+    },
+    {
+      "archivo": "app/impulso_io.py",
+      "sha256_productivo": "cc1481e220745f55c3e4899d1e947ac71b9bf4079a15b98a14bcae4a3bc0adbc",
+      "sha256_referencia": "cc1481e220745f55c3e4899d1e947ac71b9bf4079a15b98a14bcae4a3bc0adbc",
+      "coincide": true
+    },
+    {
+      "archivo": "app/apply_harvest.py",
+      "sha256_productivo": "38d3bebeee4b612cf793acc58551b517fa246a12739b6c992bef2108e151c701",
+      "sha256_referencia": "38d3bebeee4b612cf793acc58551b517fa246a12739b6c992bef2108e151c701",
+      "coincide": true
+    },
+    {
+      "archivo": "app/campana_ajustes.py",
+      "sha256_productivo": "c4e41b0c074dd84ad4d4db8e0ab3c01e60123ceabc5e50d15a8f801f6c44084d",
+      "sha256_referencia": "c4e41b0c074dd84ad4d4db8e0ab3c01e60123ceabc5e50d15a8f801f6c44084d",
+      "coincide": true
+    },
+    {
+      "archivo": "app/ads/write.py",
+      "sha256_productivo": "aa82eab47cc6aabe239817b24dbf875976e5505bc8b7d012a44f0973c0bb8fc0",
+      "sha256_referencia": "aa82eab47cc6aabe239817b24dbf875976e5505bc8b7d012a44f0973c0bb8fc0",
+      "coincide": true
+    },
+    {
+      "archivo": "app/retiro_anuncios.py",
+      "sha256_productivo": "2d7f71b7e08aa9d055bcb750a0a87b984661d28475a19657ba7a92476dfa2dc0",
+      "sha256_referencia": "2d7f71b7e08aa9d055bcb750a0a87b984661d28475a19657ba7a92476dfa2dc0",
+      "coincide": true
+    },
+    {
+      "archivo": "tools/replay_ads_economico.py",
+      "sha256_productivo": null,
+      "sha256_referencia": "f461035f7f52c54e11b701535e9b0dc61e8b33c8b9ba138fa3dbcfc49982be3a",
+      "coincide": null
+    }
+  ],
+  "sha_productivo_global": "unknown"
+}

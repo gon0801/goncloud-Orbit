@@ -1,6 +1,6 @@
 # REPRICING 02: el motor de precios en todas las plataformas
 
-> **Seguimiento 4-nov-2026:** plan cerrado; P04 ya diagnosticado: nueve variantes PEZ sin producto/costo externo registrado, en siete publicaciones activas y dos no activas. Los SKU ancla sí tienen costo verificado. Se requiere resolver catálogo/Odoo; no copiar sus importes a PEZ. [Matriz y fuentes](../docs/evidencia/quick-wins-2026-11-04/costos-meli/reporte.md). Incidente MeLi #504 corregido y desplegado.
+> **Seguimiento 4-nov-2026:** plan cerrado. El dueño confirma que PEZ sí se vende. P04 conserva nueve SKU exactos con tres registros Odoo archivados y costo 0 por SKU; referencias activas Solo Arras no tienen equivalencia comprobada. Falta referencia/receta/costo vigente, no retirar variantes ni copiar importes. [Fuente primaria y matriz](../docs/evidencia/quick-wins-2026-11-04/pez-fuente/reporte.md).
 
 Estado: CERRADO el 2026-10-17 UTC. Los cuatro universos están en `live`
 (X.1 a X.4); el detalle del cierre está en `docs/CHAT-CONTEXT.md`. Plan del

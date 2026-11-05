@@ -1,0 +1,30 @@
+import os,json,datetime,hashlib,pathlib
+from psycopg.rows import dict_row
+from psycopg import sql
+from app.db import connect
+from app.redaction import register_secret,redact_dsn,scrub
+
+dsn=os.environ['ORBIT_DSN_READ'];register_secret(dsn);redact_dsn(dsn)
+queries={
+ 'ingesta_actual':"SELECT a.profile_id,a.platform,a.report_name,a.status,max(r.finished_at) AS ultimo_fin FROM ingest_run r JOIN ads_report_result a ON a.ingest_run_id=r.id WHERE r.source='amazon_ads_reports_v3' AND r.started_at >= now()-interval '3 days' GROUP BY 1,2,3,4 ORDER BY 1,2,3,4",
+ 'retiros':"SELECT platform,modo,motivo,count(*) AS filas,max(retirado_el) AS ultimo FROM anuncio_retiro GROUP BY 1,2,3",
+ 'retiro_intenciones':"SELECT id,platform,modo,motivo,creada_el,cerrada_el,retiro_id FROM anuncio_retiro_intencion ORDER BY id",
+ 'reposiciones':"SELECT retiro_id,ad_id_nuevo,estado_nuevo,repuesto_el FROM anuncio_reposicion ORDER BY retiro_id",
+ 'intentos_recientes_no_confirmados':"SELECT a.id,a.tipo,(a.resultado='ok') AS resultado_ok,a.started_at,a.finished_at FROM apply_attempt a WHERE a.finished_at IS NULL OR a.resultado <> 'ok' ORDER BY a.id",
+ 'attempt_global':"SELECT tipo,(resultado='ok') AS resultado_ok,count(*) AS filas,count(*) FILTER(WHERE finished_at IS NULL) AS sin_fin,min(started_at) AS primero,max(started_at) AS ultimo FROM apply_attempt GROUP BY 1,2 ORDER BY 1,2",
+ 'motivos_recientes':"SELECT c.platform,d.kind,d.inputs->>'motivo' AS motivo,count(*) AS filas FROM decision d JOIN optimizer_cycle c ON c.id=d.cycle_id WHERE d.decided_at >= now()-interval '7 days' GROUP BY 1,2,3 ORDER BY 1,2,3",
+ 'claves_config_operacion':"SELECT k.key,k.value FROM config_version c CROSS JOIN LATERAL jsonb_each(c.settings) k WHERE c.id=(SELECT max(id) FROM config_version) AND (k.key LIKE 'jev.%' OR k.key LIKE 'ads_%quota%' OR k.key LIKE 'ads_%reserve%' OR k.key LIKE 'ads_%reserva%' OR k.key LIKE 'ads_%gasto%' OR k.key LIKE 'ads_%cap%') ORDER BY k.key",
+}
+out={'consultado_utc':datetime.datetime.now(datetime.UTC).isoformat(),'modo':'ORBIT_DSN_READ; BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY; timeout 15s','consultas':{}}
+try:
+ with connect(dsn,row_factory=dict_row) as c:
+  c.execute('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');c.execute('SET LOCAL statement_timeout=15000')
+  for n,q in queries.items():
+   c.execute('SAVEPOINT lectura')
+   try: out['consultas'][n]={'sql':q,'filas':c.execute(q).fetchall()}
+   except Exception as e:
+    c.execute('ROLLBACK TO SAVEPOINT lectura');out['consultas'][n]={'sql':q,'error':scrub(type(e).__name__+': '+str(e))}
+   c.execute('RELEASE SAVEPOINT lectura')
+ print(scrub(json.dumps(out,default=str,ensure_ascii=False,indent=2)))
+except Exception as e:
+ print(scrub(type(e).__name__+': '+str(e)));raise SystemExit(1)
