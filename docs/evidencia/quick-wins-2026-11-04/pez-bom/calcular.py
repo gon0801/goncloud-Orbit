@@ -93,7 +93,9 @@ def calcular(bom, producto):
         "salida_por_lote": bom["product_qty"],
         "salida_uom_id": bom["product_uom_id"][0],
         "salida_en_unidad_producto": str(salida_en_ud_producto),
-        "costo_material_por_unidad": str(total) if any(l["aplica"] for l in desglose) else None,
+        "costo_material_por_unidad": str(total)
+        if any(linea["aplica"] for linea in desglose)
+        else None,
         "moneda": "MXN",
         "lineas": desglose,
     }

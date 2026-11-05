@@ -1,0 +1,24 @@
+{
+  "observado_utc": "2026-11-05T03:10:05.362657+00:00",
+  "directorio": "/mnt/data/appdata/orbit/backups/pez-20261105",
+  "modo": "700",
+  "uid": 10001,
+  "imagen_de_contenedor_anterior": "sha256:26ae64431dbb9ce1fedcb37da85c73d46085b8ce3074a15e77d01f10a9dde0ad",
+  "imagen_respaldo": "sha256:304dc32225c3a997ed699101eedc7192da5ad9a8d564e1c49f3b850415fec4ea",
+  "metodo": "Imagen disponible con 197 archivos app/tools/pyproject/lock iguales al contenedor actual; imagen original no etiquetable",
+  "tag_respaldo": "orbit-pez-respaldo:20261105",
+  "referencia_imagen": "orbit-app",
+  "app_id": "e953c72ce64f334a697f99b95f08731737e82302bbf46ce611b5a13b9d4bb410",
+  "db_id": "1af72662ec06baa551fe22ec131ceb7fc59edf53b8977108c039299dd45887b8",
+  "redes": [
+    "orbit_default"
+  ],
+  "archivos_sha256": {
+    "corrige_meli_skus.py": "c3b781fb3d2dedadf7df7e662775ca0f88f48458199016973e03a576f698ef18",
+    "lote.json": "128232806028cb2968750f8f145cb2af35a364fbd0ece311b61fe0cefe3c7dec",
+    "verificar.py": "4c85a68ffdc55d1a4197d0e0dde6deca8488821c27de40f7954129219eb9107d",
+    "0075_meli_sku_alias.sql": "33edae3b1d05fc9ab59e1be9722244d2ae7770e77cfdd23f9f0f12c5cc8de3d7",
+    "0075_reversa_meli_sku_alias.sql": "8bf76c4a7bad5fbf51b918fb1cba6c2b9d55f8a1c4b72e8bb5316246cf5e9794",
+    "catalogo_anterior.py": "034b368ffa358fbe5fefbc47edd0b96d836c074935a507ba2141b8077668f10d"
+  }
+}
