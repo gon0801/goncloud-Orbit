@@ -13,6 +13,7 @@ revisión no modificó producción. Los [quick wins](../docs/evidencia/quick-win
 añaden el arreglo del checker y los cierres operativos A.4/B.4; su integración
 se registra por separado de las lecturas productivas. PEZ 01 / PR #526 agrega
 el cierre productivo P04 el 5-nov-2026 UTC, con evidencia antes/despues.
+PEZ 02 agrega ocho descripciones corregidas; P13 conserva una baja por categoria.
 
 El registro apunta a `resumen-ads-multicanal`, la última entrega integrada y
 desplegada, con seguimiento P01. No selecciona ni autoriza el siguiente desarrollo.
@@ -38,7 +39,7 @@ Los IDs P01–P13 identifican seguimientos, no planes de implementación.
 | P10 | REP-FOLLOW-1: reseñas compartidas | Mejora opcional: atribución multi-item limitada por deduplicación de reseñas compartidas. | Medir impacto; si se prioriza, definir identidad y atribución con fuente real. No bloquea v1. | Datos |
 | P11 | REP-FOLLOW-3: lotes Apify | Condicional: sin medir si las 518 URL del inventario histórico caben en 300 s con crédito. | Medir tras P05; dividir en lotes solo si el volumen vigente y el tiempo lo justifican. | Operación |
 | P12 | Transversales | Deuda declarada: secretos con permisos 600/uid, sin cifrado en reposo, y observabilidad parcial. No se auditó toda la infraestructura. | Delimitar y priorizar revisión específica. Mantener gitleaks y secretos fuera del repositorio. | Dueño + operación |
-| P13 | Datos PEZ: medidas | **Costos: revision resuelta**, 5-nov UTC; diferencias 4.68/4.20 MXN conciliadas 9/9 con bajada AVCO de cofres del 24-ago y valor SET retenido del 18-ago. Sin error de ingesta demostrado; no se recalcularon importes. **Medidas:** PEZ nominal22 en Odoo frente a descripcion comun16/19 en MeLi; borradores listos, sin publicar. | Confirmar diametro fisico de PEZ (pregunta al usuario pendiente); ajustar solo texto sustentado. Nueve descripciones afectan 54 variantes: no sustituir globalmente por22; Italia incluye familia19/22. [Revision PEZ 02](pez-02.md), [evidencia y borradores](../docs/evidencia/quick-wins-2026-11-04/pez-p13/README.md). | Catalogo / dueño para dato fisico |
+| P13 | Datos PEZ: medidas | **PARCIAL 8/9**, 5-nov UTC. Usuario confirmo 22 mm; ocho descripciones publicadas y verificadas. Precios, existencias, SKU y estados conservados. Costos ya conciliados 9/9, sin recosteo. | Solo queda MLM2727437671 / NH-GAM-AZU-PEZ-PLA: MeLi la inhabilito el 31-oct UTC por categoria incorrecta; rechazo la edicion HTTP 400, sin REMEDY. Resolver ese bloqueo con alcance propio; texto corregido y respaldo guardados. No falta confirmar medidas. [PEZ 02](pez-02.md), [publicacion y evidencia](../docs/evidencia/quick-wins-2026-11-04/pez-p13/publicacion/README.md). | Catalogo / dueño |
 
 ## Planes por construir
 

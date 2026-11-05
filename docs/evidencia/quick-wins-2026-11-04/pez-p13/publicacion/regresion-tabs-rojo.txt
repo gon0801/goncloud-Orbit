@@ -1,0 +1,42 @@
+Version anterior SHA256: d649ff1e24765594d2a71357dcd7996b28c8dc66cf0e2678984aa1d64c7748b5
+F                                                                        [100%]
+=================================== FAILURES ===================================
+___________ test_regresion_meli_normaliza_tabs_sin_ocultar_ediciones ___________
+
+escenario = (<tools.corrige_descripciones_pez.ClienteDescripciones object at 0x10c52a900>, {'version': 1, 'confirmacion22mm': True...', 'put_count': 8, 'desc_gets': {'MLM1890653227': 3, 'MLM2163407464': 3, 'MLM2724304859': 3, 'MLM2727328203': 3, ...}})
+tmp_path = PosixPath('/private/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/pytest-of-dn/pytest-3950/test_regresion_meli_normaliza_0')
+
+    def test_regresion_meli_normaliza_tabs_sin_ocultar_ediciones(escenario, tmp_path):
+        """MLM4749600210 devolvio PUT200 con cada TAB convertido en un espacio."""
+        cliente, lote, textos, items, llamadas, control = escenario
+        item = "MLM4749600210"
+        fila = next(f for f in lote["filas"] if f["item_id"] == item)
+        fila["antes"] += "\tDetalle\tfinal"
+        fila["despues"] += "\tDetalle\tfinal"
+        textos[item] = fila["antes"]
+        control.update(modo="normaliza_tabs", item=item)
+        respaldo = tmp_path / "r.json"
+>       assert herramienta.aplicar(cliente, lote, respaldo=respaldo, apply=True)["cambiados"] == 9
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_corrige_descripciones_pez.py:270:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/orbit-pez-tabs-tted_3ux/previo.py:304: in aplicar
+    return _cambiar(cliente, elegidas, respaldo)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/orbit-pez-tabs-tted_3ux/previo.py:274: in _cambiar
+    _exige(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+condicion = False
+mensaje = 'MLM4749600210: resultado no confirmado (aceptado); detener y revisar respaldo'
+
+    def _exige(condicion, mensaje):
+        if not condicion:
+>           raise ErrorDescripcion(mensaje)
+E           tools.corrige_descripciones_pez.ErrorDescripcion: MLM4749600210: resultado no confirmado (aceptado); detener y revisar respaldo
+
+/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/orbit-pez-tabs-tted_3ux/previo.py:48: ErrorDescripcion
+=========================== short test summary info ============================
+FAILED tests/test_corrige_descripciones_pez.py::test_regresion_meli_normaliza_tabs_sin_ocultar_ediciones
+1 failed, 16 deselected in 0.09s

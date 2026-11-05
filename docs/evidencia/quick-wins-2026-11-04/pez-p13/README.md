@@ -1,10 +1,12 @@
+> **Actualizacion 5-nov-2026 UTC:** usuario confirmo «22mm». Ocho descripciones MeLi publicadas y verificadas; solo queda MLM2727437671, inhabilitada por categoria incorrecta desde el 31-oct UTC (edicion rechazada HTTP 400). [Resultado, evidencia y reversa](publicacion/README.md). La investigacion historica de abajo precede a esa confirmacion y publicacion.
+
 # P13: revision de costos y medidas de PEZ
 
 Revision del 5-nov-2026 UTC autorizada por el usuario («ok hazlo»), con GPT Sol.
 [Plan PEZ 02](../../../../plans/pez-02.md). PEZ 01 y sus nueve correspondencias
 siguen cerrados; esta revision no cambio datos productivos.
 
-## Resultado
+## Resultado de la investigacion anterior
 
 | Frente | Resultado comprobado | Estado y siguiente paso |
 |---|---|---|
@@ -34,7 +36,7 @@ proyeccion seria una decision de fuente, no arreglar una sincronizacion rota.
   [conciliacion Decimal](accounting/conciliacion.json) y
   [script reproducible](accounting/conciliar.py).
 
-## Medidas: propuesta concreta y dato faltante
+## Medidas: propuesta y dato faltante al corte anterior
 
 Las nueve descripciones se comparten entre 54 variantes comerciales. Se
 preparo un borrador minimo por item que retira sus tres afirmaciones de
@@ -47,7 +49,7 @@ transfiere a los demas modelos, al cofre ni al estuche. Si no esta confirmada,
 el borrador neutro queda sin asignar una cifra fisica a PEZ.
 
 Se solicito al usuario confirmar 22 mm / 16 o 19 mm / no confirmado. La
-pregunta sigue sin respuesta al corte de esta revision. La falta de respuesta
+pregunta seguia sin respuesta al corte de esta revision. La falta de respuesta
 no confirma una medida ni autoriza publicar una descripcion.
 
 - [Informe de medidas](medidas/README.md), [matriz](medidas/matriz.md) y

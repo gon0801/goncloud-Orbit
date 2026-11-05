@@ -1,0 +1,23 @@
+{
+  "ruta": "/moderations/last_moderation/MLM2727437671-ITM",
+  "observado_utc": "2026-11-05T04:47:20.344356+00:00",
+  "respuesta": [
+    {
+      "name": "DOMAIN_WRONG_CATEG_V2",
+      "id": "11276478009",
+      "date_created": "2026-10-30T21:17:31.000-0400",
+      "wordings": [
+        {
+          "type": "REASON",
+          "value": "Estaba en una categoría incorrecta."
+        }
+      ],
+      "evidence": [
+        {
+          "text_matched": "Revisar posibles categorías <a href='http://api.mercadolibre.com/tagging/wrong-domain/prustomer/MLM2727437671' target='_blank'>Aquí</a>",
+          "section_name": "CATEGORY"
+        }
+      ]
+    }
+  ]
+}

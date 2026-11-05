@@ -1,0 +1,28 @@
+{
+  "observado_utc": "2026-11-05T04:49:11.468777+00:00",
+  "archivos": [
+    {
+      "ruta": "/mnt/data/appdata/orbit/backups/pez-medidas-20261105/respaldo.json",
+      "sha256": "83754ccfdd659ad3ef7ed86351534efde17bc62f509e8d1844cd92059a511441",
+      "modo": "0o600",
+      "uid": 10001,
+      "gid": 10001
+    },
+    {
+      "ruta": "/mnt/data/appdata/orbit/backups/pez-medidas-20261105/lote.json",
+      "sha256": "dfad4601352dcbdc1ffd8bdc49e326440b699df3398f17596a4513510e73aa85",
+      "modo": "0o400",
+      "uid": 10001,
+      "gid": 10001
+    },
+    {
+      "ruta": "/mnt/data/appdata/orbit/backups/pez-medidas-20261105/corrige_descripciones_pez.py",
+      "sha256": "d649ff1e24765594d2a71357dcd7996b28c8dc66cf0e2678984aa1d64c7748b5",
+      "modo": "0o400",
+      "uid": 10001,
+      "gid": 10001
+    }
+  ],
+  "imagen": "orbit-pez-descripciones-base:20261105",
+  "imagen_id": "sha256:a5f740f4d07a8c2b8c2304279416f934a790a6faa5a10c6b510c1a6d0ffadb10"
+}

@@ -1,0 +1,94 @@
+{
+  "antes_utc": "2026-11-05T04:36:23.502545+00:00",
+  "despues_utc": "2026-11-05T04:45:05.984690+00:00",
+  "descripciones_aplicadas": 1,
+  "descripciones_originales": 8,
+  "precios_existencias_estados_skus_variantes_intactos": true,
+  "filas": [
+    {
+      "item_id": "MLM2163407464",
+      "texto": "aplicado",
+      "status": "active",
+      "sub_status": [],
+      "variantes_intactas": 6,
+      "cambios_item": {
+        "expiration_time": {
+          "antes": "2027-01-23T01:12:16.838Z",
+          "despues": "2027-01-24T04:44:51.837Z"
+        },
+        "last_updated": {
+          "antes": "2026-11-04T01:12:16.915Z",
+          "despues": "2026-11-05T04:44:51.838Z"
+        }
+      }
+    },
+    {
+      "item_id": "MLM1890653227",
+      "texto": "original",
+      "status": "active",
+      "sub_status": [],
+      "variantes_intactas": 6,
+      "cambios_item": {}
+    },
+    {
+      "item_id": "MLM4735255462",
+      "texto": "original",
+      "status": "active",
+      "sub_status": [],
+      "variantes_intactas": 6,
+      "cambios_item": {}
+    },
+    {
+      "item_id": "MLM2724304859",
+      "texto": "original",
+      "status": "active",
+      "sub_status": [],
+      "variantes_intactas": 6,
+      "cambios_item": {}
+    },
+    {
+      "item_id": "MLM2727437671",
+      "texto": "original",
+      "status": "under_review",
+      "sub_status": [
+        "forbidden"
+      ],
+      "variantes_intactas": 6,
+      "cambios_item": {}
+    },
+    {
+      "item_id": "MLM2727363007",
+      "texto": "original",
+      "status": "active",
+      "sub_status": [],
+      "variantes_intactas": 6,
+      "cambios_item": {}
+    },
+    {
+      "item_id": "MLM2727328203",
+      "texto": "original",
+      "status": "active",
+      "sub_status": [],
+      "variantes_intactas": 6,
+      "cambios_item": {}
+    },
+    {
+      "item_id": "MLM4749600210",
+      "texto": "original",
+      "status": "active",
+      "sub_status": [],
+      "variantes_intactas": 6,
+      "cambios_item": {}
+    },
+    {
+      "item_id": "MLM4763716652",
+      "texto": "original",
+      "status": "paused",
+      "sub_status": [
+        "out_of_stock"
+      ],
+      "variantes_intactas": 6,
+      "cambios_item": {}
+    }
+  ]
+}
