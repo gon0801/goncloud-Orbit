@@ -47,7 +47,7 @@ Convergencias (señal fuerte, se adoptan sin injerto): kind `pause` sobre `produ
 - Aceptamos construir una receta genérica de despliegue (B) antes de la primera línea de AUTO-03 a cambio de que seis releases compartan una receta probada en simulación y cada migración se derive por cabecera `-- sonda-aplicada:` sin lista a mano.
 - Aceptamos que la meta pueda quedar casi inerte mientras S1 mande (fábrica e impulso nacen con target) a cambio de respetar la autoridad vigente del dueño; A.3 y E.4 miden cuánto queda fuera y la palanca es `limpia_target`.
 - Aceptamos ampliar grants de `app_decide` sobre el ledger de retiro (0080) a cambio de un solo liberador, una sola conexión y un solo protocolo intento-intención-cierre.
-- Aceptamos que F e I enciendan `live` aunque la cobertura medida sea cero: sin grupos aptos no hay efecto y se activa solo cuando la historia alcance la ventana de 90 días; la pantalla y `notes.productos` lo muestran cada ciclo.
+- F enciende la meta por producto; I entrega la pausa en práctica, lista para que David guarde sus límites, revise la simulación y la encienda desde la pantalla (decisión del 2026-11-05). Aceptamos que F encienda `live` aunque la cobertura medida sea cero: sin grupos aptos no hay efecto y se activa solo cuando la historia alcance la ventana de 90 días; la pantalla y `notes.productos` lo muestran cada ciclo.
 - Aceptamos que `cycle.py`, `apply_cola.py` y `goals.py` crezcan unas líneas de despacho (están en la allowlist); la lógica nueva va a `productos.py`, `productos_io.py`, `apply_producto.py` y `pantalla_decisiones_producto.py`.
 - Aceptamos nueve bloques y seis releases a cambio de que cada escalón sea comprobable con datos reales y reversible por interruptor o por reversa de migración antes del siguiente.
 
@@ -58,7 +58,7 @@ Convergencias (señal fuerte, se adoptan sin injerto): kind `pause` sobre `produ
 - **Ejecutor `app_admin` aparte (como el vigía).** Exige cron nuevo, otro liberador de la misma cola, cambiar `apply_queue_sella_transiciones` y partir un efecto entre dos roles.
 - **Reutilizar `resuelve_target_margen`.** Trae el clamp a [10,45] y rompe el caso 8% × 0.5 → 4%.
 
-## Open questions and risks (para David; el plan fija supuestos reversibles, no espera respuesta)
+## Open questions and risks (las preguntas 2 a 4 quedaron contestadas por David el 2026-11-05; ver "Decisiones de David")
 
 1. **S1.** ¿Los goals de fábrica e impulso cuentan como "explícitos"? Si A.3/E.4 muestran que casi ningún grupo exclusivo queda sin target, la meta por producto estará construida y encendida pero inerte hasta que se limpien targets.
 2. **S6, S8.** ¿Basta "fecha sin fila = cero si una corrida ok del reporte la cubre y el producto tiene filas en la ventana", para pausar product ads automáticamente? La regla literal de la spec nunca pausaría a nadie. Los límites de gasto y clics ya no se fijan aquí: el dueño los elige con la simulación de H.8 (ver la sección de límites editables).
@@ -74,7 +74,7 @@ Convergencias (señal fuerte, se adoptan sin injerto): kind `pause` sobre `produ
 Un modelo TLA+ de la pausa de un product ad con el plan construido (bloques H e I), revisado con pstack **statechart**, encontró dos reglas rotas en 384 estados. Las dos se confirmaron contra el código y el plan:
 
 1. **Una propuesta de práctica tapa a la real.** Camino: interruptor en práctica, el ciclo propone, se enciende en vivo. Una fila `shadow` jamás se libera, solo `app_admin` puede descartarla (trigger de 0002) y mientras siga abierta bloquea la clave del anuncio (`_SQL_CLAVES_BLOQUEADAS`), así que el ciclo lo salta con `veto_pendiente` para siempre. El plan encendía sin cerrarlas. Corrección: fila **I.7** y supuesto **S18** (encender cierra en bloque las prácticas de product ad, como el cambio a vivo de ORBIT 05).
-2. **Vuelve a pausar lo que el dueño regresó.** Camino de 9 pasos: pausa, el dueño lo regresa, el ciclo lo vuelve a proponer porque la ventana sigue sin ventas, y solo el veto de 48 h lo detiene. Las keywords tienen 7 días de gracia (`docs/APPLY.md` §3.3); los product ads no la tenían. Corrección: fila **H.7** y supuesto **S17** (gracia de 7 días desde `repuesto_el`, o desde `reactivacion_manual.detectada_en` si se reactivó en Amazon).
+2. **Vuelve a pausar lo que el dueño regresó.** Camino de 9 pasos: pausa, el dueño lo regresa, el ciclo lo vuelve a proponer porque la ventana sigue sin ventas, y solo el veto de 48 h lo detiene. Las keywords tienen 7 días de gracia (`docs/APPLY.md` §3.3); los product ads no la tenían. Corrección: fila **H.7** y supuesto **S17** (gracia de 7 días desde `anuncio_reposicion.repuesto_el`; si se reactivó directo en Amazon, el ciclo cierra el retiro con `actor='reactivacion_manual_amazon'` y esa `repuesto_el` abre la gracia).
 
 Con ambas correcciones el modelo corregido cumple las seis reglas en 304 estados: solo en vivo, nunca con venta, nunca con otra mezcla, un solo cobro, la práctica no tapa a la real y no re-pausa en la gracia. La regla 2 quedó acotada a la gracia: pasados los 7 días, Orbit puede volver a proponer y el dueño tiene sus 48 h de veto. Modelos, vistas, diagramas y reportes en `statechart/antes/` y `statechart/despues/`. El modelo deja fuera varios anuncios a la vez, la cuota agotada, los tiempos reales y la meta por producto; un dato desconocido cuenta como venta.
 
@@ -99,6 +99,46 @@ Los dos revisores automáticos del PR (DeepSeek por ai-review y CodeRabbit) enco
 - Menores: conteos y S1..S18 en síntesis y ROADMAP, barras sin escapar en `frame.md` y un bloque de código partido en `00-explicacion.md`.
 - Hallado por el lead al revisar: el bloque C usaba en su `prueba-real` la sonda que crea B sin depender de B. Ahora depende de A y B.
 - Segunda ronda de DeepSeek sobre `00efe6e` (resolvió los cuatro anteriores). **I.7 no era atómico ni repetible**: `guarda_config` hace su propio `commit` y rechaza una edición vacía, así que un fallo entre la config y el descarte dejaba la pausa en vivo con prácticas abiertas y el reintento abortaba. Ahora `guarda_config` acepta `confirma=False` y el CLI confirma después del descarte; con la pausa ya en vivo solo descarta. Menores: D.5 agrega `tools/auto03_verifica.py` al conjunto exacto que sella `tests/test_compose_deploy.py` y lo corre en su `Acepta`; la cita del permiso de admin pasa a 0002:251-261.
+
+## Lectores frescos (2026-11-05)
+
+Dos lectores sin contexto ejecutaron el plan. Trajeron 11 bloqueantes distintos; el más grave, encontrado por ambos, era que un despliegue que aborta por un choque pasajero hacía que el rollback deshiciera el despliegue anterior. También había compuertas que daban verde sin el trabajo hecho y una conciliación que pedía más días de los que permite Amazon. Se corrigió en tres pasadas. La receta de despliegue, que trajo un bloqueante en cada pasada, quedó además como modelo ejecutable de referencia (`modelo-despliegue/modelo.py`). El detalle, los comandos y lo verificado están en `lectores/sintesis.md`.
+
+## Decisiones de David (2026-11-05)
+
+1. **Encendido de la pausa (S8).** La pausa no se enciende sola. Queda en práctica hasta que David guarda sus límites y la enciende con un botón en la pantalla de productos, que antes le muestra la simulación con esos límites (I.8). `proxima_config` rechaza `live` sin las dos claves de límites, así que tampoco el CLI la enciende con los valores por omisión. `interruptores.env` nunca pone la pausa en `live`.
+2. **S9 y S10.** Aprobados: la cola admite `pause` sobre `product_ad` y el ciclo recibe los permisos acotados de la 0080.
+3. **S14.** Aprobado: confirmar tras una respuesta incierta deja el anuncio `adoptada` para cualquier motivo.
+4. **S13.** Aprobado: el literal guardado del vigía cuenta como autorización humana de origen impulso.
+5. **S17.** Aprobado: 7 días de gracia para un product ad regresado.
+
+## Revisión cruzada de Astra (2026-11-05)
+
+David la pidió. Astra (`gpt-6-astra` vía Codex, solo lectura) revisó 6c886e53 y pidió cambios: 6 bloqueantes y 2 notas, todos comprobados contra el código antes de corregir. Reporte completo en `revision-astra.md`.
+
+1. Una reanudación con la guarda ocupada marcaba `abortado_sin_cambios` aunque ya hubiera cambios, y el rollback no hacía nada. Reproducido con el modelo (`75 0 ESTADO=abortado_sin_cambios`). Ahora sale `guardas_con_cambios` y el rollback deshace.
+2. I.3 usaba el escritor de `archivar.preparar_escritor`, sin la comprobación de dueño del ciclo (`app/ads/archivar.py:129` frente a `app/apply.py:1318`). Ahora usa `aplicador._cliente()`, como harvest.
+3. `_SQL_YA_RETIRADO` y el trigger de 0066 leen `anuncio_reposicion`, que `app_decide` no puede leer. La 0080 concede `SELECT (retiro_id)`.
+4. Las filas de práctica abiertas bloquean su anuncio (`_SQL_CLAVES_BLOQUEADAS`, `app/apply_cola.py:140`), así que la simulación ocultaba justo lo que se pausaría al encender. La simulación ya no cuenta esos bloqueos.
+5. `CODIGO=` se anotaba antes del respaldo; un corte a media copia dejaba un respaldo incompleto acreditado. Ahora se anota después de completarlo y comprobarlo. El modelo suma este escenario y el del punto 1, y detecta las dos fallas al reintroducirlas.
+6. Una reactivación manual dejaba el retiro abierto: a los 8 días la pausa se habría dado por hecha sin PUT. Ahora el ciclo que detecta la reactivación cierra el retiro con una función acotada de la 0079.
+7 y 8. `cambia_pausa` describe sus tres modos y la síntesis ya no dice que I enciende sola.
+
+Pasada 2 (`revision-astra-2.md`): los 8 puntos quedaron corregidos; trajo 3 bloqueantes nuevos, todos en `cierra_retiro_reactivado` y comprobados en el código:
+
+1. `SET search_path = public` deja buscar primero tablas temporales; una función `SECURITY DEFINER` podía leer tablas suplantadas. Ahora fija `pg_catalog, public, pg_temp`, cualifica con `public.` y revoca EXECUTE de PUBLIC.
+2. La vista proponía retiros que la función rechazaba (el retiro no actualiza `ad_entity_state`, `app/retiro_anuncios.py:205`), y el rechazo abortaba TX3. La vista usa los mismos predicados y la función devuelve NULL en vez de lanzar.
+3. La función no tomaba el candado `retiro-ad:` de retiro y reposición (`app/retiro_anuncios.py:251`); chocaba con un `repone` concurrente. Ahora lo intenta sin esperar y relee bajo él.
+
+## Revisión cruzada de Kimi (2026-11-05)
+
+David la pidió después de Astra. Kimi (`kimi -p`, en una copia aparte de a5efac2f, sin escribir en ella) revisó el plan completo y pidió cambios: 13 bloqueantes y 2 notas. Comprobé contra el código los de mayor riesgo (1, 2, 9 y 10, además de los nombres que cita el resto) y corregí los 15 en una ronda. Reporte completo en `revision-kimi.md`.
+
+- Despliegue (1, 8, 13). Un corte entre checklist rojo y rollback hacía que el motor (`goncloud-motor/motor/effects.py:695-729`) repitiera `desplegar`, que borraba el diario y dejaba el rollback sin nada que deshacer. El diario distingue ahora `desplegado` de `verificado` y registra `revirtiendo`, `revertido` y `rollback_incompleto`. El modelo suma los dos cortes (13 escenarios, y detecta la falla al reintroducirla). B.5 prueba también `--ensayo` y el `flock`.
+- Datos (2). La ingesta descarta filas inválidas y aun así sella `written` y `ok`; S6 contaba esa fecha como cero. D.7 agrega `cobertura_integra`.
+- Dinero (3, 4, 6, 7, 12). Reactivar en Amazon antes del sync ya no deja mandar otro PUT; la pausa no acepta `live` antes de I.7; una muerte entre intento e intención se cierra en `failed`; una pausa confirmada sella intento y resumen; las firmas de I.3 reciben el `Aplicador`.
+- Permisos (5). El trigger de retiro fija su `search_path`, porque `app_decide` gana INSERT.
+- Evidencia (9, 10, 11, 14). `concilia` ya no escribe en la base y concilia también el tramo maduro del halo de la meta; `meta_live` acepta abstenciones; F.1 e I.2 guardan su salida con `tee`.
 
 ## Next implementation step
 
