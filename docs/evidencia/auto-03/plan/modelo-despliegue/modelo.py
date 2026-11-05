@@ -62,19 +62,23 @@ def desplegar(sha):
     (5) codigo y sha; (6) claves frente a SHA_PREVIO."""
     L = ult()
     reanuda = ultimo("MOTOR_SHA", L) == sha and ultimo("ESTADO", L) not in ("ok", "abortado_sin_cambios")
-    if sha in OCUPADO:                       # (1) guardas agotadas: nada cambia
+    if sha in OCUPADO:                       # (1) guardas agotadas
         if not reanuda:
             (SRV / "ultimo.env").write_text(f"MOTOR_SHA={sha}\nESTADO=guardas\nSHA_PREVIO={sha_srv()}\n")
+        if any(l.startswith(("CODIGO=", "MIGRACION=", "CLAVE=")) for l in ult()):
+            anota("ESTADO=guardas_con_cambios"); return 75   # el rollback deshace lo anotado
         anota("ESTADO=abortado_sin_cambios"); return 75
     if not reanuda:
         (SRV / "ultimo.env").write_text(f"MOTOR_SHA={sha}\nESTADO=guardas\nSHA_PREVIO={sha_srv()}\n")
     L = ult(); prev = primero("SHA_PREVIO", L)          # vale la de la primera corrida
     if prev and contiene(prev, sha):
         anota("ESTADO=ok"); return 0
-    if primero("CODIGO", L) is None:                     # (3) una sola vez
+    if primero("CODIGO", L) is None:                     # (3) una sola vez, completo
         n = len(list(SRV.glob("predeploy-*"))) + 1
-        anota(f"CODIGO=predeploy-{n}"); (SRV / f"predeploy-{n}").mkdir()
-        shutil.copy(SRV / "app.txt", SRV / f"predeploy-{n}" / "app.txt")
+        tmp = SRV / f"predeploy-{n}.parcial"; tmp.mkdir()
+        corta(sha, "3a")                                 # muere a media copia
+        shutil.copy(SRV / "app.txt", tmp / "app.txt")
+        tmp.rename(SRV / f"predeploy-{n}"); anota(f"CODIGO=predeploy-{n}")
     corta(sha, 3)
     (SRV / "app.txt").write_text(git("show", f"{sha}:app.txt").stdout); (SRV / "sha").write_text(sha)
     corta(sha, 5)
@@ -170,6 +174,17 @@ def escenarios():
 
     reset(); inicial = estado(); OCUPADO.add(rev("Fm")); res = motor("Fm")
     r["guarda ocupada: sale 75 y no cambia nada"] = res == "fallo_75" and estado() == inicial
+
+    reset(); inicial = estado(); CORTE[rev("Fm")] = 6; motor("Fm"); OCUPADO.add(rev("Fm")); res = motor("Fm")
+    r["corte tras la primera clave, reanudacion con guarda ocupada: rollback restaura todo"] = (
+        res == "fallo_75" and estado() == inicial)
+
+    reset(); inicial = estado(); CORTE[rev("Fm")] = "3a"; motor("Fm"); FALLA_HEALTH.add(rev("Fm"))
+    try:
+        motor("Fm"); ok = estado() == inicial
+    except (FileNotFoundError, OSError):
+        ok = False
+    r["corte a media copia del respaldo y rollback: restaura el codigo completo"] = ok
     return r
 
 

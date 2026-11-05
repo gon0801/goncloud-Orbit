@@ -47,7 +47,7 @@ Convergencias (señal fuerte, se adoptan sin injerto): kind `pause` sobre `produ
 - Aceptamos construir una receta genérica de despliegue (B) antes de la primera línea de AUTO-03 a cambio de que seis releases compartan una receta probada en simulación y cada migración se derive por cabecera `-- sonda-aplicada:` sin lista a mano.
 - Aceptamos que la meta pueda quedar casi inerte mientras S1 mande (fábrica e impulso nacen con target) a cambio de respetar la autoridad vigente del dueño; A.3 y E.4 miden cuánto queda fuera y la palanca es `limpia_target`.
 - Aceptamos ampliar grants de `app_decide` sobre el ledger de retiro (0080) a cambio de un solo liberador, una sola conexión y un solo protocolo intento-intención-cierre.
-- Aceptamos que F e I enciendan `live` aunque la cobertura medida sea cero: sin grupos aptos no hay efecto y se activa solo cuando la historia alcance la ventana de 90 días; la pantalla y `notes.productos` lo muestran cada ciclo.
+- F enciende la meta por producto; I entrega la pausa en práctica, lista para que David guarde sus límites, revise la simulación y la encienda desde la pantalla (decisión del 2026-11-05). Aceptamos que F encienda `live` aunque la cobertura medida sea cero: sin grupos aptos no hay efecto y se activa solo cuando la historia alcance la ventana de 90 días; la pantalla y `notes.productos` lo muestran cada ciclo.
 - Aceptamos que `cycle.py`, `apply_cola.py` y `goals.py` crezcan unas líneas de despacho (están en la allowlist); la lógica nueva va a `productos.py`, `productos_io.py`, `apply_producto.py` y `pantalla_decisiones_producto.py`.
 - Aceptamos nueve bloques y seis releases a cambio de que cada escalón sea comprobable con datos reales y reversible por interruptor o por reversa de migración antes del siguiente.
 
@@ -111,6 +111,18 @@ Dos lectores sin contexto ejecutaron el plan. Trajeron 11 bloqueantes distintos;
 3. **S14.** Aprobado: confirmar tras una respuesta incierta deja el anuncio `adoptada` para cualquier motivo.
 4. **S13.** Aprobado: el literal guardado del vigía cuenta como autorización humana de origen impulso.
 5. **S17.** Aprobado: 7 días de gracia para un product ad regresado.
+
+## Revisión cruzada de Astra (2026-11-05)
+
+David la pidió. Astra (`gpt-6-astra` vía Codex, solo lectura) revisó 6c886e53 y pidió cambios: 6 bloqueantes y 2 notas, todos comprobados contra el código antes de corregir. Reporte completo en `revision-astra.md`.
+
+1. Una reanudación con la guarda ocupada marcaba `abortado_sin_cambios` aunque ya hubiera cambios, y el rollback no hacía nada. Reproducido con el modelo (`75 0 ESTADO=abortado_sin_cambios`). Ahora sale `guardas_con_cambios` y el rollback deshace.
+2. I.3 usaba el escritor de `archivar.preparar_escritor`, sin la comprobación de dueño del ciclo (`app/ads/archivar.py:129` frente a `app/apply.py:1318`). Ahora usa `aplicador._cliente()`, como harvest.
+3. `_SQL_YA_RETIRADO` y el trigger de 0066 leen `anuncio_reposicion`, que `app_decide` no puede leer. La 0080 concede `SELECT (retiro_id)`.
+4. Las filas de práctica abiertas bloquean su anuncio (`_SQL_CLAVES_BLOQUEADAS`, `app/apply_cola.py:140`), así que la simulación ocultaba justo lo que se pausaría al encender. La simulación ya no cuenta esos bloqueos.
+5. `CODIGO=` se anotaba antes del respaldo; un corte a media copia dejaba un respaldo incompleto acreditado. Ahora se anota después de completarlo y comprobarlo. El modelo suma este escenario y el del punto 1, y detecta las dos fallas al reintroducirlas.
+6. Una reactivación manual dejaba el retiro abierto: a los 8 días la pausa se habría dado por hecha sin PUT. Ahora el ciclo que detecta la reactivación cierra el retiro con una función acotada de la 0079.
+7 y 8. `cambia_pausa` describe sus tres modos y la síntesis ya no dice que I enciende sola.
 
 ## Next implementation step
 
