@@ -1,6 +1,6 @@
 # PEZ 01: correspondencias MeLi con productos vigentes de Odoo
 
-Estado: EN CURSO. Autorizacion: el usuario acepto «ok hazlo» al cierre operativo
+Estado: CERRADO, aplicado y verificado el 5-nov-2026 UTC. Autorizacion: el usuario acepto «ok hazlo» al cierre operativo
 de las nueve variantes PEZ: verificar identidad, corregir correspondencias,
 sincronizar costos y comprobar el resultado en Orbit.
 
@@ -45,8 +45,8 @@ sincronizar costos y comprobar el resultado en Orbit.
 | P1. Identidad y estado previo | DONE | — | Nueve pares MeLi/SET comprobados con fotos, atributos y BOM; costos Odoo/accounting/Orbit conciliados; alcance actual medido. |
 | P2. Resolucion persistente | DONE | P1 | Migracion 0075 y reversa; catalogo conserva alias al reingerir; prueba falla con resolver anterior y pasa con correccion; conflicto y permisos comprobados. |
 | P3. Lote y reversa | DONE | P1, P2 | Herramienta operativa acotada con ensayo, precondiciones, respaldo y reversa; pruebas PG de aplicacion, deriva y restauracion. |
-| P4. Integracion y aplicacion | WIP | P2, P3 | Revision independiente, gitleaks y CI verdes; migracion/app desplegadas; nueve miembros corregidos con costos externos coincidentes y cero cambios fuera del lote. |
-| P5. Cierre | TODO | P4 | Persistencia de ingesta comprobada, conteos antes/despues, costo fresco y documentacion actualizada. |
+| P4. Integracion y aplicacion | DONE | P2, P3 | Revision independiente, gitleaks y CI verdes; migracion/app desplegadas; nueve miembros corregidos con costos externos coincidentes y cero cambios fuera del lote. |
+| P5. Cierre | DONE | P4 | Persistencia de ingesta comprobada, conteos antes/despues, costo fresco y documentacion actualizada. |
 
 ## Evidencia previa
 
@@ -59,3 +59,21 @@ sincronizar costos y comprobar el resultado en Orbit.
 - `app/meli/catalogo.py`: la resolucion anterior usa coincidencia exacta de
   SKU y sobreescribe el producto de miembros en cada ingesta. Un UPDATE aislado
   no es una reparacion duradera.
+
+## Cierre operativo
+
+PR #526 integrada y catalogo desplegado con migracion 0075. Se crearon nueve
+aliases y se vincularon nueve miembros en una transaccion con respaldo previo.
+Readback con `orbit_read` confirma identidad, costo y moneda 9/9, siete activos
+y dos inactivos conservados, y cero cambios fuera de los nueve `product_id`.
+Productos, costos, listings y goals conservaron sus firmas.
+
+El refresco habitual de costos desde snapshot RO termino en run1353: ok,
+0 escrituras, 0 rechazos, 0 productos actualizados. Los costos ya existian;
+la correccion recupera su uso mediante la identidad canonica. La persistencia
+al reingerir esta probada contra PostgreSQL (regresion roja/verde); el codigo
+productivo coincide por SHA256. No se forzo una ingesta completa de catalogo.
+
+[Acta y evidencia](../docs/evidencia/quick-wins-2026-11-04/pez-correccion/README.md).
+P13 del ROADMAP conserva las diferencias de valoracion/medidas como revision
+de datos independiente. No bloquean la correspondencia verificada.

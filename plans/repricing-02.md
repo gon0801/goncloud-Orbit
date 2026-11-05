@@ -1,6 +1,6 @@
 # REPRICING 02: el motor de precios en todas las plataformas
 
-> **Seguimiento 5-nov-2026 UTC:** plan cerrado. P04 se ejecuta en [PEZ 01](pez-01.md). Las nueve variantes PEZ de MeLi corresponden a SET activos con cofre; los candidatos NH-SOLO se descartan por composicion. Blanco con Broche resuelto. Costos publicados conciliados en Odoo/accounting/Orbit; aliases persistentes y lote reversible preparados, aun sin aplicar. [Identidad y costos](../docs/evidencia/quick-wins-2026-11-04/pez-correccion/identidad/README.md).
+> **Seguimiento 5-nov-2026 UTC:** plan cerrado. P04 cerrado mediante [PEZ 01](pez-01.md) / PR #526: nueve variantes MeLi vinculadas a SET con cofre, incluido Blanco con Broche. Costos publicados conciliados9/9, aliases persistentes desplegados y lote reversible aplicado. Estados7activos/2inactivos conservados, sin cambios fuera del lote. Valoracion/medidas pendientes en P13 del ROADMAP. [Cierre](../docs/evidencia/quick-wins-2026-11-04/pez-correccion/README.md).
 
 Estado: CERRADO el 2026-10-17 UTC. Los cuatro universos están en `live`
 (X.1 a X.4); el detalle del cierre está en `docs/CHAT-CONTEXT.md`. Plan del

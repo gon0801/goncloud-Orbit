@@ -1,0 +1,6 @@
+{
+  "fecha_utc": "2026-11-05T03:33:46.315116+00:00",
+  "archivo": "0075_meli_sku_alias.sql",
+  "sha256": "33edae3b1d05fc9ab59e1be9722244d2ae7770e77cfdd23f9f0f12c5cc8de3d7",
+  "salida": "BEGIN\nCREATE TABLE\nCREATE INDEX\nCOMMENT\nREVOKE\nGRANT\nGRANT\nGRANT\nCREATE FUNCTION\nCOMMENT\nREVOKE\nGRANT\nCOMMIT\n"
+}

@@ -158,7 +158,7 @@
     {
       "name": "repricing-02",
       "path": "plans/repricing-02.md",
-      "description": "REPRICING 02 / AUTO-07 — CERRADO. P04 se ejecuta en PEZ 01: nueve variantes NH de MeLi corresponden a SET activos con cofre, no NH-SOLO. Costos existentes conciliados; correccion persistente y reversible en preparacion."
+      "description": "REPRICING 02 / AUTO-07 — CERRADO. Cobertura P04 cerrada mediante PEZ 01 / PR #526: nueve variantes MeLi vinculadas a SET con costo canonico. Seguimiento de valoracion/medidas PEZ en P13."
     },
     {
       "name": "repricing-02-construccion",
@@ -193,7 +193,7 @@
     {
       "name": "pez-01",
       "path": "plans/pez-01.md",
-      "description": "PEZ 01 — EN CURSO. Nueve variantes MeLi verificadas contra SET activos con cofre, incluido Blanco con Broche. Correspondencias persistentes y lote reversible preparados; pendientes integracion, despliegue y aplicacion. Costos publicados Odoo/accounting/Orbit conciliados9/9."
+      "description": "PEZ 01 — CERRADO. PR #526 integrada y desplegada: nueve variantes MeLi vinculadas a SET con cofre; costos conciliados9/9, estados7activos/2inactivos conservados y cero cambios fuera del lote. Reversa disponible. Datos de valoracion/medidas en P13."
     }
   ],
   "active": "resumen-ads-multicanal"

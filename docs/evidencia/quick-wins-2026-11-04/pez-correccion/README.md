@@ -1,10 +1,10 @@
 # PEZ 01: cierre operativo de nueve correspondencias
 
-Estado: implementacion y lote preparados, pendientes de CI, despliegue y
-aplicacion. Autorizacion del usuario: «ok hazlo» a corregir las nueve variantes
+Estado: CERRADO. PR #526 integrada; migracion, catalogo y lote aplicados y
+verificados en produccion el 5-nov-2026 UTC. Autorizacion del usuario: «ok hazlo» a corregir las nueve variantes
 y verificar producto/costo en Orbit. [Plan](../../../../plans/pez-01.md).
 
-## Resultado comprobado antes de aplicar
+## Estado previo comprobado
 
 - Las nueve variantes MeLi corresponden a SET con cofre de Odoo, incluido
   Blanco con Broche. Los NH-SOLO de la investigacion anterior tienen otra
@@ -60,3 +60,28 @@ sin afirmar una medicion fisica. La diferencia entre costo final y suma actual
 de componentes (4.68 MXN dorado / 4.20 MXN plateado) queda como seguimiento
 separado de valoracion. Ninguna de esas diferencias se corrige silenciosamente
 durante esta vinculacion.
+
+## Resultado en produccion
+
+- Nueve aliases y nueve miembros vinculados a los SET correctos. Costos MXN
+  coincidentes 9/9 con la fuente; siete activos y dos inactivos conservados.
+- [Ensayo](ensayo.json), [aplicacion](aplicacion.json),
+  [estado anterior](estado-antes.json) y [estado posterior](estado-despues.json):
+  identidades/costos/vigencias comprobados y firmas sin cambios fuera del lote.
+- [Refresco de costos](refresco-costos.json): run1353 ok, 0 escrituras y 0 rechazos;
+  los productos y costos canonicos ya estaban sincronizados.
+- [Despliegue](despliegue.json) y [migracion](migracion.json): health ok,
+  catalogo SHA256 igual al revisado; los demas contenedores conservaron su ID.
+- [Validacion](validacion-final.md): CI y revision GPT Sol; reingesta persistente
+  comprobada por regresion PostgreSQL. No se ejecuto el motor de precios ni se
+  crearon goals. Las nueve publicaciones no tenian goals en la consulta previa.
+
+Respaldo operativo privado en goncloud:
+`/mnt/data/appdata/orbit/backups/pez-20261105/antes.json` (0600). El hash queda
+en `aplicacion.json`. Reversa del lote con el mismo runner:
+`python3 /mnt/data/appdata/orbit/backups/pez-20261105/operar.py revertir`.
+Exige que el estado siga igual al aplicado; ante deriva se inspecciona antes
+de actuar. Para retirar 0075: primero reversa del lote, despues restaurar el
+catalogo y la imagen `orbit-pez-respaldo:20261105`, y al final ejecutar la
+migracion reversa. Se conserva la imagen con el mismo codigo/dependencias de
+la app previa; no se afirma identidad binaria de la imagen original.
