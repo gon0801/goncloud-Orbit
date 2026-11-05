@@ -477,3 +477,35 @@ def test_endpoint_post_settings_sin_ack_con_margen_422(tmp_path, monkeypatch):
         # No se inserto fila nueva
         n = conn.execute("SELECT count(*) FROM config_version").fetchone()[0]
         assert n == 1
+
+
+def test_proxima_config_guarda_y_limpia_resumen_acos_objetivo():
+    """ACoS objetivo opcional del Resumen por canal: fusiona entradas,
+    limpia con None/vacio sin dejar NULL, y rechaza canal ajeno o <= 0."""
+    import app.config_write as config_write
+
+    actual = {CLAVE_TARGET: "20", "ads_optimizer_mode": "shadow"}
+    nuevo, cambios = config_write.proxima_config(
+        actual,
+        PLAT,
+        resumen_acos_objetivo={"amazon_mx": Decimal("18.5"), "meli": "15"},
+    )
+    assert nuevo["resumen_acos_objetivo"] == {"amazon_mx": "18.5", "meli": "15"}
+    assert config_write.metas_resumen_desde_settings(nuevo) == {
+        "amazon_mx": "18.5",
+        "amazon_us": None,
+        "meli": "15",
+    }
+    assert any("acos objetivo resumen amazon_mx" in c for c in cambios)
+
+    limpio, _ = config_write.proxima_config(
+        nuevo,
+        PLAT,
+        resumen_acos_objetivo={"amazon_mx": None, "meli": ""},
+    )
+    assert "resumen_acos_objetivo" not in limpio
+
+    with pytest.raises(config_write.SettingsInvalido):
+        config_write.proxima_config(actual, PLAT, resumen_acos_objetivo={"shopify": "20"})
+    with pytest.raises(config_write.SettingsInvalido):
+        config_write.proxima_config(actual, PLAT, resumen_acos_objetivo={"meli": "0"})

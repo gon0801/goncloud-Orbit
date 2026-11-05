@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block contenido %}
+{% set vista = contrato | vista_resumen %}
 {% set etiquetas = {
   'amazon_mx': 'Amazon MX',
   'amazon_us': 'Amazon US',
@@ -13,13 +14,6 @@
   ('clicks', 'Clics', 'entero'),
   ('orders', 'Ordenes atribuidas', 'entero')
 ] %}
-{% set variaciones = [
-  ('cost', 'Gasto', 'dinero', 'cost_pct', '%'),
-  ('ad_revenue', 'Ventas atribuidas', 'dinero', 'ad_revenue_pct', '%'),
-  ('clicks', 'Clics', 'entero', 'clicks_pct', '%'),
-  ('acos', 'ACoS', 'acos', 'acos_pp', ' pp'),
-  ('roas', 'ROAS', 'roas', 'roas_delta', '')
-] %}
 {% set motivos = {
   'cobertura_desconocida': 'cobertura desconocida en alguno de los periodos',
   'cobertura_distinta': 'cobertura distinta entre periodos',
@@ -27,6 +21,9 @@
   'dinero_no_alineado': 'gasto y ventas no cubren los mismos dias'
 } %}
 {% macro cifra(valor, tipo) -%}
+{%- if valor is none -%}—{%- elif tipo == 'dinero' -%}{{ valor | dinero_miles_ui }}{%- elif tipo == 'acos' -%}{{ valor }}%{%- elif tipo == 'roas' -%}{{ valor }}×{%- elif tipo == 'entero' -%}{{ valor | miles_ui }}{%- else -%}{{ valor }}{%- endif -%}
+{%- endmacro %}
+{% macro cifra_tabla(valor, tipo) -%}
 {%- if valor is none -%}—{%- elif tipo == 'dinero' -%}{{ valor | dinero_ui }}{%- elif tipo == 'acos' -%}{{ valor }}%{%- else -%}{{ valor }}{%- endif -%}
 {%- endmacro %}
 {% macro motivo_texto(motivo) -%}
@@ -35,175 +32,447 @@
 {% macro canales_texto(nombres) -%}
 {%- for nombre in nombres -%}{{ etiquetas[nombre] }}{% if not loop.last %}, {% endif %}{%- endfor -%}
 {%- endmacro %}
+{% macro url_filtro(canal_val, periodo_val) -%}
+/?{% if canal_val %}canal={{ canal_val }}&{% endif %}periodo={{ periodo_val }}
+{%- endmacro %}
+
 <h2>Resumen de publicidad</h2>
-<p class="mutado">
-  Ventana {{ contrato.desde }} .. {{ contrato.hasta }}
-  · {{ contrato.dias }} dias
-  {% if contrato.periodo == 'personalizado' %}· rango personalizado{% endif %}
-  · el dia en curso queda fuera
-  {% if contrato.recortado %}· el hasta pedido ({{ contrato.hasta_solicitado }}) se recorto al ultimo dia cerrado{% endif %}
-</p>
-<form class="filtros" method="get" action="/">
-  <label>Canal
-    <select name="canal">
-      <option value=""{% if not filtro.canal %} selected{% endif %}>todos</option>
-      {% for canal in filtro.canales %}
-      <option value="{{ canal }}"{% if filtro.canal == canal %} selected{% endif %}>{{ etiquetas[canal] }}</option>
+
+<div class="resumen-filter-bar" role="region" aria-label="Filtros del resumen">
+  <div class="filter-group">
+    <span class="filter-label">Canal</span>
+    <div class="seg" role="group" aria-label="Selector de canal">
+      <a class="seg-btn{% if not filtro.canal %} active{% endif %}" href="{{ url_filtro('', filtro.periodo) }}">Todos</a>
+      {% for c in filtro.canales %}
+      <a class="seg-btn{% if filtro.canal == c %} active{% endif %}" href="{{ url_filtro(c, filtro.periodo) }}">{{ etiquetas[c] }}</a>
       {% endfor %}
-    </select>
-  </label>
-  <label>Periodo
-    <select name="periodo">
+    </div>
+  </div>
+
+  <div class="filter-group">
+    <span class="filter-label">Periodo</span>
+    <div class="seg" role="group" aria-label="Selector de periodo">
       {% for dias in (7, 30, 90) %}
-      <option value="{{ dias }}"{% if filtro.periodo == dias %} selected{% endif %}>{{ dias }} dias</option>
+      <a class="seg-btn{% if contrato.periodo != 'personalizado' and filtro.periodo == dias %} active{% endif %}" href="{{ url_filtro(filtro.canal, dias) }}">{{ dias }} dias</a>
       {% endfor %}
-    </select>
-  </label>
-  <label>Desde
-    <input type="date" name="desde" value="{{ filtro.desde }}">
-  </label>
-  <label>Hasta
-    <input type="date" name="hasta" value="{{ filtro.hasta }}">
-  </label>
-  <button type="submit">Filtrar</button>
-  {% if filtro.canal or filtro.desde or filtro.hasta or filtro.periodo != 30 %}
-  <a href="/">Limpiar</a>
-  {% endif %}
-</form>
-<p class="mutado">Con desde y hasta, el rango manda y el periodo de arriba se ignora. Hacen falta las dos fechas.</p>
-<h2>Tabla por canal</h2>
-<div class="tabla-scroll" tabindex="0" role="region" aria-label="Tabla por canal">
-<table>
-  <caption>Totales del contrato, una fila por canal. Cada fila conserva su moneda.</caption>
-  <thead>
-    <tr>
-      <th>Canal</th>
-      <th>Moneda</th>
-      {% for clave, etiqueta, tipo in metricas %}
-      <th class="num">{{ etiqueta }}</th>
-      {% endfor %}
-    </tr>
-  </thead>
-  <tbody>
+    </div>
+  </div>
+
+  <div class="window-meta">
+    Ventana <strong>{{ contrato.desde }} .. {{ contrato.hasta }}</strong>
+    · {{ contrato.dias }} dias
+    {% if contrato.periodo == 'personalizado' %}· rango personalizado{% endif %}
+    · el dia en curso queda fuera
+    {% if contrato.recortado %}· el hasta pedido ({{ contrato.hasta_solicitado }}) se recorto al ultimo dia cerrado{% endif %}
+  </div>
+
+  <details class="custom-range"{% if filtro.desde or filtro.hasta %} open{% endif %}>
+    <summary>Rango personalizado</summary>
+    <div class="range-pop">
+      <form class="filtros" method="get" action="/">
+        <label>Canal
+          <select name="canal">
+            <option value=""{% if not filtro.canal %} selected{% endif %}>todos</option>
+            {% for canal in filtro.canales %}
+            <option value="{{ canal }}"{% if filtro.canal == canal %} selected{% endif %}>{{ etiquetas[canal] }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Periodo
+          <select name="periodo">
+            {% for dias in (7, 30, 90) %}
+            <option value="{{ dias }}"{% if filtro.periodo == dias %} selected{% endif %}>{{ dias }} dias</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Desde
+          <input type="date" name="desde" value="{{ filtro.desde }}">
+        </label>
+        <label>Hasta
+          <input type="date" name="hasta" value="{{ filtro.hasta }}">
+        </label>
+        <button type="submit">Filtrar</button>
+        {% if filtro.canal or filtro.desde or filtro.hasta or filtro.periodo != 30 %}
+        <a class="btn-limpiar" href="/">Limpiar</a>
+        {% endif %}
+      </form>
+      <p class="range-hint">Con desde y hasta, el rango manda y el periodo de arriba se ignora. Hacen falta las dos fechas.</p>
+    </div>
+  </details>
+</div>
+
+<section class="resumen-seccion" aria-labelledby="sec-canales">
+  <div class="sec-head">
+    <span class="sec-num">1</span>
+    <h3 id="sec-canales" class="sec-title">Cómo va cada canal</h3>
+    <span class="sec-sub">Moneda nativa por canal · comparado contra los {{ contrato.dias }} dias previos</span>
+  </div>
+
+  <div class="channel-grid">
     {% for nombre, bloque in contrato.canales.items() %}
-    <tr>
-      <td>{{ etiquetas[nombre] }}</td>
-      <td>{{ bloque.moneda }}</td>
-      {% for clave, etiqueta, tipo in metricas %}
-      <td class="num">
-        {% if clave == 'orders' and nombre == 'meli' and bloque.totals.orders is none and not bloque.coverage.por_metrica.orders %}—{% else %}{{ cifra(bloque.totals[clave], tipo) }}{% endif %}
-      </td>
-      {% endfor %}
-    </tr>
-    {% else %}
-    <tr><td colspan="8">El contrato no trae canales.</td></tr>
-    {% endfor %}
-  </tbody>
-</table>
-</div>
-{% for nombre, bloque in contrato.canales.items() %}
-{% set muestra_ordenes = nombre != 'meli' or bloque.totals.orders is not none or bloque.coverage.por_metrica.orders %}
-<h2>{{ etiquetas[nombre] }} <span class="mutado">· {{ bloque.moneda }}</span></h2>
-{% if bloque.maduracion.aplica %}
-<p class="mutado">Cifras inmaduras del {{ bloque.maduracion.ventana_inmaduros.desde }} al {{ bloque.maduracion.ventana_inmaduros.hasta }}.</p>
-{% elif bloque.maduracion.motivo %}
-<p class="mutado">{{ bloque.maduracion.motivo }}</p>
-{% endif %}
-<div class="kpis">
-  {% for clave, etiqueta, tipo in metricas %}
-  {% if clave != 'orders' or muestra_ordenes %}
-  <section class="kpi" aria-label="{{ etiqueta }} {{ etiquetas[nombre] }}">
-    <p class="kpi-etiqueta">{{ etiqueta }}</p>
-    <div class="kpi-valor">{{ cifra(bloque.totals[clave], tipo) }}</div>
-    <div class="kpi-contexto">{% if tipo == 'dinero' %}{{ bloque.moneda }} · {% endif %}{% if clave in bloque.coverage.por_metrica %}{{ bloque.coverage.por_metrica[clave] }}/{{ bloque.dias }} dias{% endif %}</div>
-  </section>
-  {% endif %}
-  {% endfor %}
-</div>
-<section class="comparacion" aria-label="Comparacion {{ etiquetas[nombre] }}">
-  <h3>Periodo anterior</h3>
-  <p class="mutado">{{ bloque.comparison.desde }} .. {{ bloque.comparison.hasta }} · {{ bloque.comparison.dias }} dias</p>
-  {% if bloque.comparison.variacion.comparable is defined and not bloque.comparison.variacion.comparable %}
-  <p class="mutado">{{ motivo_texto(bloque.comparison.variacion.motivo) }}</p>
-  {% endif %}
-  <div class="kpis">
-    {% for clave, etiqueta, tipo, campo, sufijo in variaciones %}
-    {% set delta = bloque.comparison.variacion[campo] %}
-    {% set motivo = bloque.comparison.variacion.motivo_por_metrica[campo] %}
-    <section class="kpi" aria-label="Variacion {{ etiqueta }} {{ etiquetas[nombre] }}">
-      <p class="kpi-etiqueta">{{ etiqueta }}</p>
-      <div class="kpi-valor">{% if delta is none %}—{% else %}{{ delta }}{{ sufijo }}{% endif %}</div>
-      <p class="kpi-contexto">antes {{ cifra(bloque.comparison.totals[clave], tipo) }}{% if motivo %} · {{ motivo_texto(motivo) }}{% endif %}</p>
-    </section>
-    {% endfor %}
-  </div>
-</section>
-<section class="grafica" aria-labelledby="tendencia-titulo-{{ nombre }}">
-  <h3 id="tendencia-titulo-{{ nombre }}">Tendencia</h3>
-  <p class="mutado">La linea fina es el dia. La linea gruesa es la media de 7 dias que ya trae el contrato. Un hueco es un dato desconocido. El cero se queda en cero.</p>
-  <div class="lienzo">
-    <canvas id="tendencia-{{ nombre }}" data-canal="{{ nombre }}" role="img" aria-describedby="serie-{{ nombre }}" aria-label="Gasto y ventas de {{ etiquetas[nombre] }} en {{ bloque.moneda }}"></canvas>
-  </div>
-</section>
-<div class="tabla-scroll" tabindex="0" role="region" aria-label="Serie de {{ etiquetas[nombre] }}">
-<table id="serie-{{ nombre }}">
-  <caption>Equivalente textual de la serie de {{ etiquetas[nombre] }} ({{ bloque.moneda }}). El dia y la media de 7 dias salen del contrato.</caption>
-  <thead>
-    <tr>
-      <th>Fecha</th>
-      <th class="num">Gasto</th>
-      <th class="num">Gasto media 7</th>
-      <th class="num">Ventas</th>
-      <th class="num">Ventas media 7</th>
-      <th class="num">Clics</th>
-      <th class="num">Clics media 7</th>
-      {% if muestra_ordenes %}
-      <th class="num">Ordenes atribuidas</th>
-      <th class="num">Ordenes media 7</th>
+    {% set t = vista.tarjetas[nombre] %}
+    {% set muestra_ordenes = nombre != 'meli' or bloque.totals.orders is not none or bloque.coverage.por_metrica.orders %}
+    <article class="ch-card" data-canal-card="{{ nombre }}">
+      <div class="ch-top">
+        <div class="ch-title">
+          <h2>{{ etiquetas[nombre] }} <span class="mutado">· {{ bloque.moneda }}</span></h2>
+        </div>
+        <span class="status-pill {{ t.estado_clase }}"><span class="dot"></span>{{ t.estado_texto }}</span>
+      </div>
+
+      <div class="ch-hero">
+        <div>
+          <div class="ch-hero-label">ACoS (gasto ÷ ventas)</div>
+          <div class="ch-hero-val">{{ cifra(bloque.totals.acos, 'acos') }}</div>
+          <div class="ch-hero-delta">
+            <span class="delta-pill {{ t.acos_delta_clase }}">{{ t.acos_delta_texto }}</span>
+            <span>vs periodo anterior · antes {{ cifra(bloque.comparison.totals.acos, 'acos') }}</span>
+          </div>
+        </div>
+        <div class="target-inline">
+          Meta ACoS: <strong>{% if t.meta_acos %}{{ t.meta_acos }}%{% else %}sin configurar{% endif %}</strong><br>
+          <a href="/settings">Configurar</a>
+        </div>
+      </div>
+
+      <div class="spark-wrap">
+        <div class="spark-label">
+          <span>Ventas atribuidas · media 7 dias</span>
+          <span>{{ contrato.desde[5:] }} → {{ contrato.hasta[5:] }}</span>
+        </div>
+        <svg class="spark-svg" viewBox="0 0 280 34" preserveAspectRatio="none" role="img" aria-label="Media de 7 dias de ventas atribuidas de {{ etiquetas[nombre] }}">
+          {% if t.spark_area %}
+          <path class="spark-area" d="{{ t.spark_area }}" fill="{{ t.color_spark }}" fill-opacity="0.14"/>
+          {% endif %}
+          {% if t.spark_linea %}
+          <path class="spark-line" d="{{ t.spark_linea }}" stroke="{{ t.color_spark }}"/>
+          {% endif %}
+        </svg>
+      </div>
+
+      <div class="ch-kpis">
+        <div class="ch-kpi" aria-label="Ventas atribuidas {{ etiquetas[nombre] }}">
+          <div class="ch-kpi-label">Ventas</div>
+          <div class="ch-kpi-val">{{ cifra(bloque.totals.ad_revenue, 'dinero') }}</div>
+          <div class="ch-kpi-delta {{ t.ventas_delta_clase }}">{{ t.ventas_delta_texto }}</div>
+        </div>
+        <div class="ch-kpi" aria-label="Gasto {{ etiquetas[nombre] }}">
+          <div class="ch-kpi-label">Gasto</div>
+          <div class="ch-kpi-val">{{ cifra(bloque.totals.cost, 'dinero') }}</div>
+          <div class="ch-kpi-delta flat">{{ t.gasto_delta_texto }}</div>
+        </div>
+        <div class="ch-kpi" aria-label="ROAS {{ etiquetas[nombre] }}">
+          <div class="ch-kpi-label">ROAS</div>
+          <div class="ch-kpi-val">{{ cifra(bloque.totals.roas, 'roas') }}</div>
+          <div class="ch-kpi-delta {{ t.roas_delta_clase }}">{{ t.roas_delta_texto }}</div>
+        </div>
+      </div>
+
+      <p class="ch-takeaway">{{ t.frase }}</p>
+      {% if bloque.maduracion.aplica %}
+      <p class="ch-madurez mutado">Cifras inmaduras del {{ bloque.maduracion.ventana_inmaduros.desde }} al {{ bloque.maduracion.ventana_inmaduros.hasta }} ({{ bloque.coverage.dias_con_dato }}/{{ bloque.dias }} dias con dato · {{ cifra(bloque.totals.clicks, 'entero') }} clics{% if muestra_ordenes %} · {{ cifra(bloque.totals.orders, 'entero') }} ordenes{% endif %}).</p>
+      {% elif bloque.maduracion.motivo %}
+      <p class="ch-madurez mutado">{{ bloque.maduracion.motivo }} ({{ bloque.coverage.dias_con_dato }}/{{ bloque.dias }} dias con dato · {{ cifra(bloque.totals.clicks, 'entero') }} clics).</p>
       {% endif %}
-    </tr>
-  </thead>
-  <tbody>
-    {% for fila in bloque.series %}
-    <tr>
-      <td>{{ fila.fecha }}</td>
-      <td class="num">{{ cifra(fila.cost, 'dinero') }}</td>
-      <td class="num">{{ cifra(fila.ma7.cost, 'dinero') }}</td>
-      <td class="num">{{ cifra(fila.ad_revenue, 'dinero') }}</td>
-      <td class="num">{{ cifra(fila.ma7.ad_revenue, 'dinero') }}</td>
-      <td class="num">{{ cifra(fila.clicks, 'entero') }}</td>
-      <td class="num">{{ cifra(fila.ma7.clicks, 'entero') }}</td>
-      {% if muestra_ordenes %}
-      <td class="num">{{ cifra(fila.orders, 'entero') }}</td>
-      <td class="num">{{ cifra(fila.ma7.orders, 'entero') }}</td>
-      {% endif %}
-    </tr>
+    </article>
     {% else %}
-    <tr><td colspan="9">El contrato no trae serie.</td></tr>
-    {% endfor %}
-  </tbody>
-</table>
-</div>
-{% endfor %}
-<h2>Totales por moneda</h2>
-{% for grupo in contrato.totales_por_moneda %}
-<section class="kpi" aria-label="Totales {{ grupo.moneda }}">
-  <p class="kpi-etiqueta">{{ grupo.moneda }}</p>
-  <p class="kpi-contexto">{{ canales_texto(grupo.canales) }}</p>
-  {% if grupo.canales_sin_dato %}<p class="mutado">Sin dato de dinero: {{ canales_texto(grupo.canales_sin_dato) }}</p>{% endif %}
-  {% if grupo.completo is defined and not grupo.completo %}<p class="mutado">cobertura incompleta</p>{% endif %}
-  <div class="kpis">
-    {% for clave, etiqueta, tipo in metricas %}
-    <section class="kpi" aria-label="{{ etiqueta }} {{ grupo.moneda }}">
-      <p class="kpi-etiqueta">{{ etiqueta }}</p>
-      <div class="kpi-valor">{{ cifra(grupo[clave], tipo) }}</div>
-      {% if grupo.cobertura is defined and clave in grupo.cobertura and not grupo.cobertura[clave] %}<p class="kpi-contexto">cobertura incompleta</p>{% endif %}
-    </section>
+    <p class="mutado">El contrato no trae canales.</p>
     {% endfor %}
   </div>
 </section>
-{% else %}
-<p class="mutado">El contrato no trae totales por moneda.</p>
-{% endfor %}
+
+<section class="resumen-seccion" aria-labelledby="sec-revisar">
+  <div class="sec-head">
+    <span class="sec-num">2</span>
+    <h3 id="sec-revisar" class="sec-title">Qué revisar</h3>
+    <span class="sec-sub">Ordenado por impacto con las cifras del periodo elegido ({{ contrato.desde }} .. {{ contrato.hasta }})</span>
+  </div>
+
+  {% if vista.que_revisar %}
+  <div class="actions-card">
+    {% for item in vista.que_revisar %}
+    <div class="action-row">
+      <span class="action-rank">{{ loop.index }}</span>
+      <div class="action-body">
+        <div class="action-title">{{ item.titulo }}</div>
+        <div class="action-desc">{{ item.evidencia }}</div>
+        {% if item.caveat %}
+        <div class="action-caveat">{{ item.caveat }}</div>
+        {% endif %}
+      </div>
+      <div class="action-links">
+        {% for texto_link, href_link in item.enlaces %}
+        <a class="action-link" href="{{ href_link }}">{{ texto_link }}</a>
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="actions-card">
+    <div class="action-row">
+      <span class="action-rank">—</span>
+      <div class="action-body">
+        <div class="action-title">Sin alertas en la ventana seleccionada</div>
+        <div class="action-desc">No se detectaron dias con gasto sin venta, caidas de media movil ni variaciones semanales con los datos disponibles.</div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</section>
+
+<section class="resumen-seccion" aria-labelledby="sec-tendencia">
+  <div class="sec-head">
+    <span class="sec-num">3</span>
+    <h3 id="sec-tendencia" class="sec-title">Tendencia · ventas vs gasto</h3>
+    <span class="sec-sub">La linea fina es el dia. La linea gruesa es la media de 7 dias que ya trae el contrato. Un hueco es un dato desconocido. El cero se queda en cero.</span>
+  </div>
+
+  <div class="chart-card">
+    <div class="chart-toolbar">
+      <div class="chart-tabs" role="tablist" aria-label="Canal de la grafica de tendencia">
+        {% for nombre, bloque in contrato.canales.items() %}
+        <button type="button" class="chart-tab{% if loop.first %} active{% endif %}" role="tab" aria-selected="{{ 'true' if loop.first else 'false' }}" data-tab-canal="{{ nombre }}">
+          {{ etiquetas[nombre] }} <span class="curr-tag">· {{ bloque.moneda }}</span>
+        </button>
+        {% endfor %}
+      </div>
+      <div class="chart-legend" aria-hidden="true">
+        <span class="leg-item"><span class="leg-swatch ventas-ma7"></span>Ventas media 7d</span>
+        <span class="leg-item"><span class="leg-swatch ventas-dia"></span>Ventas dia</span>
+        <span class="leg-item"><span class="leg-swatch gasto-ma7"></span>Gasto media 7d</span>
+        <span class="leg-item"><span class="leg-swatch gasto-dia"></span>Gasto dia</span>
+      </div>
+    </div>
+
+    {% for nombre, bloque in contrato.canales.items() %}
+    <div class="chart-panel" data-panel-canal="{{ nombre }}"{% if not loop.first %} hidden{% endif %}>
+      <div class="lienzo">
+        <canvas id="tendencia-{{ nombre }}" data-canal="{{ nombre }}" role="img" aria-describedby="serie-{{ nombre }}" aria-label="Gasto y ventas de {{ etiquetas[nombre] }} en {{ bloque.moneda }}"></canvas>
+      </div>
+      <div class="chart-note">
+        {% if bloque.maduracion.aplica %}
+        <span><strong>Maduracion {{ etiquetas[nombre] }}:</strong> cifras inmaduras del {{ bloque.maduracion.ventana_inmaduros.desde }} al {{ bloque.maduracion.ventana_inmaduros.hasta }}. La atribucion de ventas y el cierre de gasto siguen ajustandose en esa ventana.</span>
+        {% elif bloque.maduracion.motivo %}
+        <span><strong>Maduracion {{ etiquetas[nombre] }}:</strong> {{ bloque.maduracion.motivo }}</span>
+        {% endif %}
+        <span>Moneda: <strong>{{ bloque.moneda }}</strong> · Cobertura: <strong>{{ bloque.coverage.dias_con_dato }}/{{ bloque.dias }} dias</strong></span>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="resumen-seccion" aria-labelledby="sec-monedas">
+  <div class="sec-head">
+    <span class="sec-num">4</span>
+    <h3 id="sec-monedas" class="sec-title">Totales por moneda</h3>
+    <span class="sec-sub">Sin mezclar divisas · las metricas que un canal no publica quedan con raya</span>
+  </div>
+
+  <div class="currency-grid">
+    {% for grupo in contrato.totales_por_moneda %}
+    <section class="curr-card" aria-label="Totales {{ grupo.moneda }}">
+      <div class="curr-top">
+        <div>
+          <span class="curr-code">Totales {{ grupo.moneda }}</span>
+          <span class="curr-channels">· {{ canales_texto(grupo.canales) }}</span>
+        </div>
+        {% if grupo.completo is defined and not grupo.completo %}
+        <span class="curr-badge">cobertura incompleta</span>
+        {% else %}
+        <span class="curr-badge ok">cobertura completa</span>
+        {% endif %}
+      </div>
+      {% if grupo.canales_sin_dato %}
+      <p class="curr-note">Sin dato de dinero: {{ canales_texto(grupo.canales_sin_dato) }}</p>
+      {% endif %}
+      <div class="curr-grid">
+        {% for clave, etiqueta, tipo in metricas %}
+        <div class="curr-item" aria-label="{{ etiqueta }} {{ grupo.moneda }}">
+          <div class="curr-item-label">{{ etiqueta }}</div>
+          <div class="curr-item-val">{{ cifra(grupo[clave], tipo) }}</div>
+          <div class="curr-item-sub">
+            {% if clave == 'orders' and 'meli' in grupo.canales and grupo.orders is none %}
+            MeLi no publica ordenes
+            {% elif grupo.cobertura is defined and clave in grupo.cobertura and not grupo.cobertura[clave] %}
+            cobertura incompleta
+            {% elif tipo == 'dinero' %}
+            {{ grupo.moneda }}
+            {% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </section>
+    {% else %}
+    <p class="mutado">El contrato no trae totales por moneda.</p>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="resumen-seccion" aria-labelledby="sec-detalle">
+  <div class="sec-head">
+    <span class="sec-num">5</span>
+    <h3 id="sec-detalle" class="sec-title">Tablas detalladas y series diarias</h3>
+    <span class="sec-sub">Plegadas por defecto · clic para abrir</span>
+  </div>
+
+  <div class="details-stack">
+    <details class="detail-box">
+      <summary>
+        <span>Tabla por canal · totales del periodo ({{ contrato.dias }} dias)</span>
+        <span class="sum-meta">1 fila por canal en su moneda nativa</span>
+      </summary>
+      <div class="detail-body">
+        <h2>Tabla por canal</h2>
+        <div class="tabla-scroll" tabindex="0" role="region" aria-label="Tabla por canal">
+          <table>
+            <caption>Totales del contrato, una fila por canal. Cada fila conserva su moneda.</caption>
+            <thead>
+              <tr>
+                <th>Canal</th>
+                <th>Moneda</th>
+                {% for clave, etiqueta, tipo in metricas %}
+                <th class="num">{{ etiqueta }}</th>
+                {% endfor %}
+                <th class="num">Cobertura</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for nombre, bloque in contrato.canales.items() %}
+              <tr>
+                <td>{{ etiquetas[nombre] }}</td>
+                <td>{{ bloque.moneda }}</td>
+                {% for clave, etiqueta, tipo in metricas %}
+                <td class="num">
+                  {% if clave == 'orders' and nombre == 'meli' and bloque.totals.orders is none and not bloque.coverage.por_metrica.orders %}—{% else %}{{ cifra_tabla(bloque.totals[clave], tipo) }}{% endif %}
+                </td>
+                {% endfor %}
+                <td class="num">{{ bloque.coverage.dias_con_dato }}/{{ bloque.dias }} dias</td>
+              </tr>
+              {% else %}
+              <tr><td colspan="9">El contrato no trae canales.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </details>
+
+    <details class="detail-box">
+      <summary>
+        <span>Periodo anterior por canal ({% if vista.comparison_ventana %}{{ vista.comparison_ventana.desde }} .. {{ vista.comparison_ventana.hasta }} · {{ vista.comparison_ventana.dias }} dias{% else %}{{ contrato.dias }} dias previos{% endif %})</span>
+        <span class="sum-meta">Valores previos y variaciones</span>
+      </summary>
+      <div class="detail-body">
+        <h3>Periodo anterior</h3>
+        <div class="tabla-scroll" tabindex="0" role="region" aria-label="Periodo anterior por canal">
+          <table>
+            <caption>Comparacion contra el periodo anterior de igual longitud por canal.</caption>
+            <thead>
+              <tr>
+                <th>Canal</th>
+                <th class="num">Gasto anterior</th>
+                <th class="num">Δ Gasto</th>
+                <th class="num">Ventas anteriores</th>
+                <th class="num">Δ Ventas</th>
+                <th class="num">ACoS anterior</th>
+                <th class="num">Δ ACoS</th>
+                <th class="num">ROAS anterior</th>
+                <th class="num">Δ ROAS</th>
+                <th class="num">Clics anteriores</th>
+                <th class="num">Δ Clics</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for nombre, bloque in contrato.canales.items() %}
+              {% set prev = bloque.comparison.totals %}
+              {% set var = bloque.comparison.variacion %}
+              <tr>
+                <td>{{ etiquetas[nombre] }} ({{ bloque.moneda }})</td>
+                <td class="num">{{ cifra_tabla(prev.cost, 'dinero') }}</td>
+                <td class="num">{% if var.cost_pct is none %}{{ motivo_texto(var.motivo_por_metrica.cost_pct) or '—' }}{% else %}{{ var.cost_pct }}%{% endif %}</td>
+                <td class="num">{{ cifra_tabla(prev.ad_revenue, 'dinero') }}</td>
+                <td class="num">{% if var.ad_revenue_pct is none %}{{ motivo_texto(var.motivo_por_metrica.ad_revenue_pct) or '—' }}{% else %}{{ var.ad_revenue_pct }}%{% endif %}</td>
+                <td class="num">{{ cifra_tabla(prev.acos, 'acos') }}</td>
+                <td class="num">{% if var.acos_pp is none %}{{ motivo_texto(var.motivo_por_metrica.acos_pp) or '—' }}{% else %}{{ var.acos_pp }} pp{% endif %}</td>
+                <td class="num">{{ cifra_tabla(prev.roas, 'roas') }}</td>
+                <td class="num">{% if var.roas_delta is none %}{{ motivo_texto(var.motivo_por_metrica.roas_delta) or '—' }}{% else %}{{ var.roas_delta }}{% endif %}</td>
+                <td class="num">{{ cifra_tabla(prev.clicks, 'entero') }}</td>
+                <td class="num">{% if var.clicks_pct is none %}{{ motivo_texto(var.motivo_por_metrica.clicks_pct) or '—' }}{% else %}{{ var.clicks_pct }}%{% endif %}</td>
+              </tr>
+              {% else %}
+              <tr><td colspan="11">El contrato no trae canales.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </details>
+
+    {% for nombre, bloque in contrato.canales.items() %}
+    {% set muestra_ordenes = nombre != 'meli' or bloque.totals.orders is not none or bloque.coverage.por_metrica.orders %}
+    <details class="detail-box">
+      <summary>
+        <span>Datos diarios · {{ etiquetas[nombre] }} ({{ bloque.moneda }})</span>
+        <span class="sum-meta">{{ bloque.series | length }} filas · dia y media de 7 dias del contrato</span>
+      </summary>
+      <div class="detail-body">
+        <div class="tabla-scroll" tabindex="0" role="region" aria-label="Serie de {{ etiquetas[nombre] }}">
+          <table id="serie-{{ nombre }}">
+            <caption>Equivalente textual de la serie de {{ etiquetas[nombre] }} ({{ bloque.moneda }}). El dia y la media de 7 dias salen del contrato.</caption>
+            <thead>
+              <tr>
+                <th>Fecha</th>
+                <th class="num">Gasto</th>
+                <th class="num">Gasto media 7</th>
+                <th class="num">Ventas</th>
+                <th class="num">Ventas media 7</th>
+                <th class="num">Clics</th>
+                <th class="num">Clics media 7</th>
+                {% if muestra_ordenes %}
+                <th class="num">Ordenes atribuidas</th>
+                <th class="num">Ordenes media 7</th>
+                {% endif %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for fila in bloque.series %}
+              <tr>
+                <td>{{ fila.fecha }}{% if fila.inmaduro %} *{% endif %}</td>
+                <td class="num">{{ cifra_tabla(fila.cost, 'dinero') }}</td>
+                <td class="num">{{ cifra_tabla(fila.ma7.cost, 'dinero') }}</td>
+                <td class="num">{{ cifra_tabla(fila.ad_revenue, 'dinero') }}</td>
+                <td class="num">{{ cifra_tabla(fila.ma7.ad_revenue, 'dinero') }}</td>
+                <td class="num">{{ cifra_tabla(fila.clicks, 'entero') }}</td>
+                <td class="num">{{ cifra_tabla(fila.ma7.clicks, 'entero') }}</td>
+                {% if muestra_ordenes %}
+                <td class="num">{{ cifra_tabla(fila.orders, 'entero') }}</td>
+                <td class="num">{{ cifra_tabla(fila.ma7.orders, 'entero') }}</td>
+                {% endif %}
+              </tr>
+              {% else %}
+              <tr><td colspan="9">El contrato no trae serie.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </details>
+    {% endfor %}
+  </div>
+</section>
+
+<footer class="footer-links" aria-label="Accesos rapidos">
+  <a href="/">Resumen</a>
+  <a href="/contribucion">Contribucion</a>
+  <a href="/reputacion">Reputacion</a>
+  <a href="/decisiones">Decisiones</a>
+  <a href="/campanas">Campañas</a>
+  <a href="/settings">Settings</a>
+  <a href="/cortes">Propuestas</a>
+</footer>
+
 <script type="application/json" id="datos-resumen">{{ contrato | tojson }}</script>
 {% endblock %}

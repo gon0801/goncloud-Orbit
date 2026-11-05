@@ -97,3 +97,8 @@ Aplican a todo el código (detalle en `docs/CONTEXTO.md`; los invariantes de tie
 - Un revisor bloquea por CI fallido, seguridad, datos, el comportamiento pedido roto o un caso de los 4 sin su
   prueba, siempre con el comando que lo reproduce. Lo demas va en notas y se corrige en la misma ronda.
 - Nunca subir contrasenas ni llaves a un repo.
+
+## Graphify y Feature Map (navegacion y verificacion UI)
+
+- **Graphify (`graphify-out/graph.json`):** cuando exista `graphify-out/graph.json`, corre `graphify query "<pregunta>"` antes de tu primer `grep`, busqueda o lectura de archivos para dudas del codigo, e incluye esta regla en todo prompt de subagente que explore codigo. Usa `graphify path "<A>" "<B>"` para relaciones y `graphify explain "<concepto>"` para conceptos puntuales. Despues de modificar codigo, corre `graphify update .` (solo AST, sin costo de API) para mantener el grafo al dia.
+- **Feature Map (`.cursor/skills/verify-orbit/`):** antes de tocar o verificar pantallas del dashboard, lee `.cursor/skills/verify-orbit/SKILL.md` y la ficha de la pantalla en `.cursor/skills/verify-orbit/features/<pantalla>.md`. Si cambias selectores, filtros o flujos visibles, actualiza su ficha en `features/` y comprueba la pantalla con `.cursor/skills/verify-orbit/helpers/orbit-verify` (`launch`, `doctor`, `drive-*`, `cleanup`).

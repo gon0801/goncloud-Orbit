@@ -36,7 +36,8 @@ function datosDe(id) {
 
 function vestir(chart, tinta) {
   (chart.data.datasets || []).forEach(function (ds, i) {
-    var color = ds.colorToken ? colorCss(ds.colorToken, tinta.series[0]) : tinta.series[i % tinta.series.length];
+    var respaldo = ds.colorRespaldo || tinta.series[i % tinta.series.length];
+    var color = ds.colorToken ? colorCss(ds.colorToken, respaldo) : respaldo;
     ds.borderColor = color;
     ds.backgroundColor = color;
   });
@@ -182,10 +183,10 @@ function graficarResumen() {
     });
     var tinta = pintura();
     var pares = [
-      ["cost", "Gasto del dia", "dia", "--color-mutado"],
-      ["ad_revenue", "Ventas del dia", "dia", "--o-ink3"],
-      ["cost", "Gasto media 7", "ma7", "--color-acento"],
-      ["ad_revenue", "Ventas media 7", "ma7", "--color-ok"]
+      ["ad_revenue", "Ventas media 7", "ma7", "--resumen-ventas-ma7", "#1D4ED8"],
+      ["ad_revenue", "Ventas del dia", "dia", "--resumen-ventas-dia", "#93C5FD"],
+      ["cost", "Gasto media 7", "ma7", "--resumen-gasto-ma7", "#C2410C"],
+      ["cost", "Gasto del dia", "dia", "--resumen-gasto-dia", "#FDBA74"]
     ];
     reemplazar(canvas, {
       type: "line",
@@ -195,26 +196,47 @@ function graficarResumen() {
           return {
             label: par[1] + " " + bloque.moneda,
             data: serieCanal(bloque, par[0], par[2]),
-            borderWidth: par[2] === "ma7" ? 2.5 : 1,
-            pointRadius: 0,
+            borderWidth: par[2] === "ma7" ? 2.5 : 1.2,
+            pointRadius: par[2] === "ma7" ? 1.5 : 0,
             spanGaps: false,
             fill: false,
             colorToken: par[3],
+            colorRespaldo: par[4],
             segment: par[2] === "dia" ? {
               borderDash: function (ctx) {
-                return inmaduros[ctx.p1DataIndex] ? [4, 3] : undefined;
+                return inmaduros[ctx.p1DataIndex] ? [4, 3] : [3, 2];
               }
             } : undefined
           };
         })
       },
+      plugins: [{
+        id: "franjaInmaduraResumen",
+        beforeDraw: function (grafica) {
+          var inicio = inmaduros.indexOf(true);
+          if (inicio < 0 || !grafica.chartArea) return;
+          var x = grafica.scales.x.getPixelForValue(inicio);
+          var area = grafica.chartArea;
+          var ctx = grafica.ctx;
+          ctx.save();
+          ctx.fillStyle = colorCss("--o-ink3", "#64748B");
+          ctx.globalAlpha = 0.09;
+          ctx.fillRect(x, area.top, area.right - x, area.bottom - area.top);
+          ctx.globalAlpha = 0.75;
+          ctx.fillStyle = colorCss("--color-mutado", "#64748B");
+          ctx.font = "600 10px -apple-system, BlinkMacSystemFont, sans-serif";
+          ctx.textAlign = "right";
+          ctx.fillText("cifras inmaduras", area.right - 6, area.top + 14);
+          ctx.restore();
+        }
+      }],
       options: {
         animation: false,
         responsive: true,
         maintainAspectRatio: false,
         plugins: {
           legend: {
-            display: true,
+            display: false,
             position: "top",
             align: "end",
             labels: { color: tinta.texto, usePointStyle: true, pointStyle: "line", boxWidth: 18 }
@@ -222,16 +244,41 @@ function graficarResumen() {
           tooltip: { enabled: true }
         },
         scales: {
-          x: { ticks: { color: tinta.mutado, maxTicksLimit: 6 }, grid: { color: tinta.borde } },
-          y: { ticks: { color: tinta.mutado }, grid: { color: tinta.borde } }
+          x: { ticks: { color: tinta.mutado, maxTicksLimit: 8 }, grid: { color: tinta.borde } },
+          y: { beginAtZero: true, ticks: { color: tinta.mutado }, grid: { color: tinta.borde } }
         }
       }
     });
   });
 }
 
+function activarPestanasResumen() {
+  var botones = document.querySelectorAll("button[data-tab-canal]");
+  if (!botones.length) return;
+  botones.forEach(function (boton) {
+    boton.addEventListener("click", function () {
+      var elegido = boton.getAttribute("data-tab-canal");
+      botones.forEach(function (b) {
+        var activo = b.getAttribute("data-tab-canal") === elegido;
+        b.classList.toggle("active", activo);
+        b.setAttribute("aria-selected", activo ? "true" : "false");
+      });
+      document.querySelectorAll("[data-panel-canal]").forEach(function (panel) {
+        var mostrar = panel.getAttribute("data-panel-canal") === elegido;
+        panel.hidden = !mostrar;
+        if (mostrar && typeof Chart !== "undefined" && typeof Chart.getChart === "function") {
+          var canvas = panel.querySelector("canvas");
+          var grafica = canvas ? Chart.getChart(canvas) : null;
+          if (grafica) grafica.resize();
+        }
+      });
+    });
+  });
+}
+
 document.addEventListener("DOMContentLoaded", function () {
   graficarResumen();
+  activarPestanasResumen();
   document.querySelectorAll("canvas[data-serie]").forEach(function (canvas) {
     graficarSeries(
       canvas.id,

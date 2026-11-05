@@ -8,12 +8,13 @@ curso. Cada canal conserva su moneda. None se ve como raya. El cero se ve como
 ## Sub-features
 
 - `resumen-nav` abre `/` desde el sidebar (`aside.sidebar`) y deja `aria-current="page"` en Resumen.
-- `resumen-filtros` es `form.filtros`. Canal `todos`, periodo `30`, y el par `desde`/`hasta`. Al enviar, la elección queda en la URL y en los controles.
-- `resumen-kpis` pinta gasto, ventas atribuidas, ACoS, ROAS, clics y órdenes cuando el canal las publica. La cobertura sale del contrato.
-- `resumen-comparacion` lee `comparison` y `comparison.variacion` del bloque. No calcula el porcentaje.
-- `resumen-tabla` es la tabla por canal, una fila y una moneda por canal.
-- `resumen-tendencia` declara `canvas#tendencia-<canal>` dentro de `.lienzo`. Lee `script#datos-resumen`. El día va fino y `ma7` es la línea gruesa. `null` es hueco. La tabla `#serie-<canal>` es el equivalente textual.
-- `resumen-api` el JSON `GET /api/dashboard/series/plataforma?platform=amazon_us` sigue describiendo la serie antigua. El Resumen nuevo no la usa para pintar.
+- `resumen-filtros` muestra píldoras de canal (`Todos`, `Amazon MX`, `Amazon US`, `Mercado Libre`), píldoras de periodo (`7 dias`, `30 dias`, `90 dias`), y `<details class="custom-range">` plegado con `form.filtros` (`desde`/`hasta`). Al enviar, la elección queda en la URL y en los controles.
+- `resumen-tarjetas` (sección `1. Cómo va cada canal`) muestra 1 tarjeta por canal visible con etiqueta `Bien` / `Atención` / `Sin dato`, ACoS grande con variación y valor previo, `Meta ACoS` con enlace `Configurar` a `/settings`, mini-sparkline SVG de `ma7.ad_revenue`, 3 mini-KPIs (`Ventas`, `Gasto`, `ROAS`) y frase resumen.
+- `resumen-que-revisar` (sección `2. Qué revisar`) lista diagnósticos priorizados calculados desde las cifras del periodo elegido con enlaces a `/gasto-sin-venta`, `/busquedas-sin-venta`, `/campanas` y `/decisiones`.
+- `resumen-tendencia` (sección `3. Tendencia · ventas vs gasto`) presenta una tarjeta de gráfica con pestañas por canal (`button[data-tab-canal]`) y `canvas#tendencia-<canal>` dentro de `.lienzo`. Lee `script#datos-resumen`. El día va fino y `ma7` es la línea gruesa. `null` es hueco.
+- `resumen-monedas` (sección `4. Totales por moneda`) muestra tarjetas oscuras `.curr-card` para `MXN` y `USD` sin mezclar divisas.
+- `resumen-detalle` (sección `5. Tablas detalladas y series diarias`) pliega con `<details class="detail-box">` la `Tabla por canal`, `Periodo anterior por canal` y las tablas `#serie-<canal>` (`Datos diarios · <canal>`).
+- `resumen-api` el JSON `GET /api/dashboard/series/plataforma?platform=amazon_us` sigue describiendo la serie antigua. El Resumen nuevo consume `dash.resumen_ads` (`/api/dashboard/resumen`).
 
 ## How to get to it (user POV)
 
