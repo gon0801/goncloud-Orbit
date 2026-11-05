@@ -409,7 +409,15 @@ def _entorno(banco, *, espera: str = "600", extra: dict | None = None) -> dict:
     env["ORBIT_FAKE_LOG"] = _ruta_bash(banco["log"])
     env["ORBIT_FAKE_DIR"] = _ruta_bash(banco["falsos"])
     env["AUTO03_ESPERA_S"] = espera
-    env["PATH"] = f"{banco['falsos']}{os.pathsep}{env['PATH']}"
+    # Antepuesta TAMBIEN en forma POSIX: en Windows el runtime de msys no
+    # prioriza una entrada en forma Windows y el bash agarraria el ssh real.
+    env["PATH"] = os.pathsep.join(
+        [
+            str(banco["falsos"]),
+            _ruta_bash(banco["falsos"]),
+            env["PATH"],
+        ]
+    )
     env.pop("MOTOR_SHA", None)
     if extra:
         env.update(extra)
@@ -430,7 +438,9 @@ def _corre(
     if sha is not None:
         env["MOTOR_SHA"] = sha
     if path_frente is not None:
-        env["PATH"] = f"{path_frente}{os.pathsep}{env['PATH']}"
+        env["PATH"] = os.pathsep.join(
+            [str(path_frente), _ruta_bash(path_frente), env["PATH"]]
+        )
     return subprocess.run(
         ["bash", ruta],
         cwd=str(banco["clon"]),
