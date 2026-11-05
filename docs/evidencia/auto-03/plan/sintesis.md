@@ -124,6 +124,12 @@ David la pidió. Astra (`gpt-6-astra` vía Codex, solo lectura) revisó 6c886e53
 6. Una reactivación manual dejaba el retiro abierto: a los 8 días la pausa se habría dado por hecha sin PUT. Ahora el ciclo que detecta la reactivación cierra el retiro con una función acotada de la 0079.
 7 y 8. `cambia_pausa` describe sus tres modos y la síntesis ya no dice que I enciende sola.
 
+Pasada 2 (`revision-astra-2.md`): los 8 puntos quedaron corregidos; trajo 3 bloqueantes nuevos, todos en `cierra_retiro_reactivado` y comprobados en el código:
+
+1. `SET search_path = public` deja buscar primero tablas temporales; una función `SECURITY DEFINER` podía leer tablas suplantadas. Ahora fija `pg_catalog, public, pg_temp`, cualifica con `public.` y revoca EXECUTE de PUBLIC.
+2. La vista proponía retiros que la función rechazaba (el retiro no actualiza `ad_entity_state`, `app/retiro_anuncios.py:205`), y el rechazo abortaba TX3. La vista usa los mismos predicados y la función devuelve NULL en vez de lanzar.
+3. La función no tomaba el candado `retiro-ad:` de retiro y reposición (`app/retiro_anuncios.py:251`); chocaba con un `repone` concurrente. Ahora lo intenta sin esperar y relee bajo él.
+
 ## Next implementation step
 
 Versionar en master la spec, `docs/evidencia/auto-03/**` y `plans/decisiones-producto-01.md` (A.0), y entregar el plan al motor; el primer código es `app/optimizer/productos.py` con `resolver_producto` y el caso de dinero 8% × 0.5 = 4% (C.4, C.5), en paralelo con la medición `elegibilidad.sql` (A.3).
