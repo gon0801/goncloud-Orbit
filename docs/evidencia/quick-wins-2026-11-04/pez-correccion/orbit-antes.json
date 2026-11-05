@@ -1,0 +1,5421 @@
+{
+  "observado_utc": "2026-11-05T02:43:42.062617+00:00",
+  "columnas": [
+    {
+      "table_name": "listing",
+      "column_name": "id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "listing",
+      "column_name": "product_id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "listing",
+      "column_name": "platform",
+      "data_type": "USER-DEFINED"
+    },
+    {
+      "table_name": "listing",
+      "column_name": "external_id",
+      "data_type": "text"
+    },
+    {
+      "table_name": "listing",
+      "column_name": "seller_sku",
+      "data_type": "text"
+    },
+    {
+      "table_name": "listing",
+      "column_name": "listing_price",
+      "data_type": "numeric"
+    },
+    {
+      "table_name": "listing",
+      "column_name": "price_currency",
+      "data_type": "USER-DEFINED"
+    },
+    {
+      "table_name": "listing_miembro",
+      "column_name": "listing_id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "listing_miembro",
+      "column_name": "platform",
+      "data_type": "USER-DEFINED"
+    },
+    {
+      "table_name": "listing_miembro",
+      "column_name": "variante_ext",
+      "data_type": "text"
+    },
+    {
+      "table_name": "listing_miembro",
+      "column_name": "seller_sku",
+      "data_type": "text"
+    },
+    {
+      "table_name": "listing_miembro",
+      "column_name": "product_id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "listing_miembro",
+      "column_name": "activo",
+      "data_type": "boolean"
+    },
+    {
+      "table_name": "listing_miembro",
+      "column_name": "visto_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "precio_cambio",
+      "column_name": "id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "precio_cambio",
+      "column_name": "decision_id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "precio_cambio",
+      "column_name": "listing_id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "precio_cambio",
+      "column_name": "platform",
+      "data_type": "USER-DEFINED"
+    },
+    {
+      "table_name": "precio_cambio",
+      "column_name": "precio_antes",
+      "data_type": "numeric"
+    },
+    {
+      "table_name": "precio_cambio",
+      "column_name": "precio_antes_currency",
+      "data_type": "USER-DEFINED"
+    },
+    {
+      "table_name": "precio_cambio",
+      "column_name": "precio_observado_antes",
+      "data_type": "numeric"
+    },
+    {
+      "table_name": "precio_cambio",
+      "column_name": "precio_observado_antes_currency",
+      "data_type": "USER-DEFINED"
+    },
+    {
+      "table_name": "precio_cambio",
+      "column_name": "precio_despues",
+      "data_type": "numeric"
+    },
+    {
+      "table_name": "precio_cambio",
+      "column_name": "precio_despues_currency",
+      "data_type": "USER-DEFINED"
+    },
+    {
+      "table_name": "precio_cambio",
+      "column_name": "aplicado",
+      "data_type": "boolean"
+    },
+    {
+      "table_name": "precio_cambio",
+      "column_name": "estado",
+      "data_type": "text"
+    },
+    {
+      "table_name": "precio_cambio",
+      "column_name": "enviado_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "precio_cambio",
+      "column_name": "ack",
+      "data_type": "jsonb"
+    },
+    {
+      "table_name": "precio_cambio",
+      "column_name": "readback_precio",
+      "data_type": "numeric"
+    },
+    {
+      "table_name": "precio_cambio",
+      "column_name": "readback_precio_currency",
+      "data_type": "USER-DEFINED"
+    },
+    {
+      "table_name": "precio_cambio",
+      "column_name": "readback_estado",
+      "data_type": "text"
+    },
+    {
+      "table_name": "precio_cambio",
+      "column_name": "readback_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "precio_cambio",
+      "column_name": "confirmado_por",
+      "data_type": "text"
+    },
+    {
+      "table_name": "precio_cambio",
+      "column_name": "error_code",
+      "data_type": "text"
+    },
+    {
+      "table_name": "precio_cambio",
+      "column_name": "es_reversa",
+      "data_type": "boolean"
+    },
+    {
+      "table_name": "precio_cambio",
+      "column_name": "reversa_de",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "precio_cambio",
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "precio_cambio",
+      "column_name": "corrida_id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "precio_cambio",
+      "column_name": "lote_reversa",
+      "data_type": "text"
+    },
+    {
+      "table_name": "precio_corrida",
+      "column_name": "id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "precio_corrida",
+      "column_name": "platform",
+      "data_type": "USER-DEFINED"
+    },
+    {
+      "table_name": "precio_corrida",
+      "column_name": "fecha",
+      "data_type": "date"
+    },
+    {
+      "table_name": "precio_corrida",
+      "column_name": "owner",
+      "data_type": "text"
+    },
+    {
+      "table_name": "precio_corrida",
+      "column_name": "estado",
+      "data_type": "text"
+    },
+    {
+      "table_name": "precio_corrida",
+      "column_name": "iniciada_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "precio_corrida",
+      "column_name": "cerrada_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "precio_corrida",
+      "column_name": "config_version_id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "precio_corrida",
+      "column_name": "modo_global",
+      "data_type": "text"
+    },
+    {
+      "table_name": "precio_corrida",
+      "column_name": "decisiones",
+      "data_type": "integer"
+    },
+    {
+      "table_name": "precio_corrida",
+      "column_name": "movidas",
+      "data_type": "integer"
+    },
+    {
+      "table_name": "precio_corrida",
+      "column_name": "virtuales",
+      "data_type": "integer"
+    },
+    {
+      "table_name": "precio_corrida",
+      "column_name": "retenidas",
+      "data_type": "integer"
+    },
+    {
+      "table_name": "precio_corrida",
+      "column_name": "errores",
+      "data_type": "integer"
+    },
+    {
+      "table_name": "precio_corrida",
+      "column_name": "saltadas_por_edicion",
+      "data_type": "integer"
+    },
+    {
+      "table_name": "precio_corrida",
+      "column_name": "resumen_enviado_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "precio_goal",
+      "column_name": "id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "precio_goal",
+      "column_name": "listing_id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "precio_goal",
+      "column_name": "platform",
+      "data_type": "USER-DEFINED"
+    },
+    {
+      "table_name": "precio_goal",
+      "column_name": "margen_goal_pct",
+      "data_type": "numeric"
+    },
+    {
+      "table_name": "precio_goal",
+      "column_name": "mode",
+      "data_type": "USER-DEFINED"
+    },
+    {
+      "table_name": "precio_goal",
+      "column_name": "valid_from",
+      "data_type": "date"
+    },
+    {
+      "table_name": "precio_goal",
+      "column_name": "valid_to",
+      "data_type": "date"
+    },
+    {
+      "table_name": "precio_goal",
+      "column_name": "creado_por",
+      "data_type": "text"
+    },
+    {
+      "table_name": "precio_goal",
+      "column_name": "go_literal",
+      "data_type": "text"
+    },
+    {
+      "table_name": "precio_goal",
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "precio_goal",
+      "column_name": "origen",
+      "data_type": "text"
+    },
+    {
+      "table_name": "precio_goal",
+      "column_name": "lote",
+      "data_type": "text"
+    },
+    {
+      "table_name": "precio_goal",
+      "column_name": "m_referencia",
+      "data_type": "numeric"
+    },
+    {
+      "table_name": "product",
+      "column_name": "id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "product",
+      "column_name": "odoo_sku",
+      "data_type": "text"
+    },
+    {
+      "table_name": "product",
+      "column_name": "name",
+      "data_type": "text"
+    },
+    {
+      "table_name": "product",
+      "column_name": "active",
+      "data_type": "boolean"
+    },
+    {
+      "table_name": "sku_cost",
+      "column_name": "id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "sku_cost",
+      "column_name": "product_id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "sku_cost",
+      "column_name": "cost_amount",
+      "data_type": "numeric"
+    },
+    {
+      "table_name": "sku_cost",
+      "column_name": "cost_currency",
+      "data_type": "USER-DEFINED"
+    },
+    {
+      "table_name": "sku_cost",
+      "column_name": "includes_tax",
+      "data_type": "boolean"
+    },
+    {
+      "table_name": "sku_cost",
+      "column_name": "valid_from",
+      "data_type": "date"
+    },
+    {
+      "table_name": "sku_cost",
+      "column_name": "valid_to",
+      "data_type": "date"
+    },
+    {
+      "table_name": "sku_cost",
+      "column_name": "ingest_run_id",
+      "data_type": "bigint"
+    }
+  ],
+  "productos": [
+    {
+      "id": 48,
+      "odoo_sku": "ARR-22-DOR-PEZ",
+      "name": "[sin nombre en Odoo] ARR-22-DOR-PEZ",
+      "active": true
+    },
+    {
+      "id": 56,
+      "odoo_sku": "ARR-22-PLA-PEZ",
+      "name": "[sin nombre en Odoo] ARR-22-PLA-PEZ",
+      "active": true
+    },
+    {
+      "id": 81,
+      "odoo_sku": "NH-ARR-22-DOR-PEZ-COF-22-CHA-RED-DOR",
+      "name": "NH - Arras y Cofre con Charola Dorado",
+      "active": true
+    },
+    {
+      "id": 89,
+      "odoo_sku": "NH-ARR-22-PLA-PEZ-COF-22-CHA-RED-PLA",
+      "name": "NH - Arras y Cofre con Charola Plateado",
+      "active": true
+    },
+    {
+      "id": 101,
+      "odoo_sku": "NH-ARR-COF-22-PEZ-DOR",
+      "name": "NH - Arras y Cofre Dorado",
+      "active": true
+    },
+    {
+      "id": 102,
+      "odoo_sku": "NH-ARR-COF-22-PEZ-PLA",
+      "name": "NH - Arras y Cofre Plateado",
+      "active": true
+    },
+    {
+      "id": 411,
+      "odoo_sku": "NH-SOLO-CAR-AZU-PEZ-DOR",
+      "name": "[sin nombre en Odoo] NH-SOLO-CAR-AZU-PEZ-DOR",
+      "active": true
+    },
+    {
+      "id": 412,
+      "odoo_sku": "NH-SOLO-CAR-AZU-PEZ-PLA",
+      "name": "[sin nombre en Odoo] NH-SOLO-CAR-AZU-PEZ-PLA",
+      "active": true
+    },
+    {
+      "id": 427,
+      "odoo_sku": "NH-SOLO-CAR-BLC-PEZ-DOR",
+      "name": "[sin nombre en Odoo] NH-SOLO-CAR-BLC-PEZ-DOR",
+      "active": true
+    },
+    {
+      "id": 428,
+      "odoo_sku": "NH-SOLO-CAR-BLC-PEZ-PLA",
+      "name": "[sin nombre en Odoo] NH-SOLO-CAR-BLC-PEZ-PLA",
+      "active": true
+    },
+    {
+      "id": 443,
+      "odoo_sku": "NH-SOLO-CAR-ROJ-PEZ-DOR",
+      "name": "[sin nombre en Odoo] NH-SOLO-CAR-ROJ-PEZ-DOR",
+      "active": true
+    },
+    {
+      "id": 444,
+      "odoo_sku": "NH-SOLO-CAR-ROJ-PEZ-PLA",
+      "name": "[sin nombre en Odoo] NH-SOLO-CAR-ROJ-PEZ-PLA",
+      "active": true
+    },
+    {
+      "id": 459,
+      "odoo_sku": "NH-SOLO-EUR-CH-VIN-PEZ-DOR",
+      "name": "[sin nombre en Odoo] NH-SOLO-EUR-CH-VIN-PEZ-DOR",
+      "active": true
+    },
+    {
+      "id": 460,
+      "odoo_sku": "NH-SOLO-EUR-CH-VIN-PEZ-PLA",
+      "name": "[sin nombre en Odoo] NH-SOLO-EUR-CH-VIN-PEZ-PLA",
+      "active": true
+    },
+    {
+      "id": 475,
+      "odoo_sku": "NH-SOLO-EUR-M-BLA-PEZ-DOR",
+      "name": "[sin nombre en Odoo] NH-SOLO-EUR-M-BLA-PEZ-DOR",
+      "active": true
+    },
+    {
+      "id": 476,
+      "odoo_sku": "NH-SOLO-EUR-M-BLA-PEZ-PLA",
+      "name": "[sin nombre en Odoo] NH-SOLO-EUR-M-BLA-PEZ-PLA",
+      "active": true
+    },
+    {
+      "id": 491,
+      "odoo_sku": "NH-SOLO-EUR-M-VIN-PEZ-DOR",
+      "name": "[sin nombre en Odoo] NH-SOLO-EUR-M-VIN-PEZ-DOR",
+      "active": true
+    },
+    {
+      "id": 492,
+      "odoo_sku": "NH-SOLO-EUR-M-VIN-PEZ-PLA",
+      "name": "[sin nombre en Odoo] NH-SOLO-EUR-M-VIN-PEZ-PLA",
+      "active": true
+    },
+    {
+      "id": 549,
+      "odoo_sku": "NH-SOLO-NOG-VEN-PEZ-DOR",
+      "name": "[sin nombre en Odoo] NH-SOLO-NOG-VEN-PEZ-DOR",
+      "active": true
+    },
+    {
+      "id": 550,
+      "odoo_sku": "NH-SOLO-NOG-VEN-PEZ-PLA",
+      "name": "[sin nombre en Odoo] NH-SOLO-NOG-VEN-PEZ-PLA",
+      "active": true
+    },
+    {
+      "id": 565,
+      "odoo_sku": "NH-SOLO-PLA-CH-PEZ-DOR",
+      "name": "[sin nombre en Odoo] NH-SOLO-PLA-CH-PEZ-DOR",
+      "active": true
+    },
+    {
+      "id": 566,
+      "odoo_sku": "NH-SOLO-PLA-CH-PEZ-PLA",
+      "name": "[sin nombre en Odoo] NH-SOLO-PLA-CH-PEZ-PLA",
+      "active": true
+    },
+    {
+      "id": 592,
+      "odoo_sku": "PERS-CAR-BLA-PEZ-DOR",
+      "name": "PERS - Carte Blanco 22mm Dorado",
+      "active": true
+    },
+    {
+      "id": 593,
+      "odoo_sku": "PERS-CAR-BLA-PEZ-PLA",
+      "name": "PERS - Carte Blanco 22mm Plateado",
+      "active": true
+    },
+    {
+      "id": 604,
+      "odoo_sku": "PERS-NOG-SIN-PEZ-DOR",
+      "name": "PERS - Nogal Sin Ventana 22mm Dorado",
+      "active": true
+    },
+    {
+      "id": 605,
+      "odoo_sku": "PERS-NOG-SIN-PEZ-PLA",
+      "name": "PERS - Nogal Sin Ventana 22mm Plateado",
+      "active": true
+    },
+    {
+      "id": 618,
+      "odoo_sku": "SET-ARR-22-DOR-PEZ-COF-22-CHA-RED-DOR",
+      "name": "SET - Arras y Cofre con Charola Dorado",
+      "active": true
+    },
+    {
+      "id": 626,
+      "odoo_sku": "SET-ARR-22-PLA-PEZ-COF-22-CHA-RED-PLA",
+      "name": "SET - Arras y Cofre con Charola Plateado",
+      "active": true
+    },
+    {
+      "id": 638,
+      "odoo_sku": "SET-ARR-COF-22-PEZ-DOR",
+      "name": "SET - Arras y Cofre Dorado",
+      "active": true
+    },
+    {
+      "id": 639,
+      "odoo_sku": "SET-ARR-COF-22-PEZ-PLA",
+      "name": "SET - Arras y Cofre Plateado",
+      "active": true
+    },
+    {
+      "id": 650,
+      "odoo_sku": "SET-BLA-BRO-PEZ-DOR",
+      "name": "SET - Blanco con broche 22mm Dorado",
+      "active": true
+    },
+    {
+      "id": 651,
+      "odoo_sku": "SET-BLA-BRO-PEZ-PLA",
+      "name": "SET - Blanco con broche 22mm Plateado",
+      "active": true
+    },
+    {
+      "id": 662,
+      "odoo_sku": "SET-CAO-PEZ-DOR",
+      "name": "SET - Caoba 22mm Dorado",
+      "active": true
+    },
+    {
+      "id": 663,
+      "odoo_sku": "SET-CAO-PEZ-PLA",
+      "name": "SET - Caoba 22mm Plateado",
+      "active": true
+    },
+    {
+      "id": 674,
+      "odoo_sku": "SET-CAR-AZU-REP-PEZ-DOR",
+      "name": "SET - Repujado Carte Azul 22mm Dorado",
+      "active": true
+    },
+    {
+      "id": 675,
+      "odoo_sku": "SET-CAR-AZU-REP-PEZ-PLA",
+      "name": "SET - Repujado Carte Azul 22mm Plateado",
+      "active": true
+    },
+    {
+      "id": 686,
+      "odoo_sku": "SET-CAR-BLA-REP-PEZ-DOR",
+      "name": "SET - Repujado Carte Blanco 22mm Dorado",
+      "active": true
+    },
+    {
+      "id": 687,
+      "odoo_sku": "SET-CAR-BLA-REP-PEZ-PLA",
+      "name": "SET - Repujado Carte Blanco 22mm Plateado",
+      "active": true
+    },
+    {
+      "id": 698,
+      "odoo_sku": "SET-CAR-ROJ-REP-PEZ-DOR",
+      "name": "SET - Repujado Carte Rojo 22mm Dorado",
+      "active": true
+    },
+    {
+      "id": 699,
+      "odoo_sku": "SET-CAR-ROJ-REP-PEZ-PLA",
+      "name": "SET - Repujado Carte Rojo 22mm Plateado",
+      "active": true
+    },
+    {
+      "id": 710,
+      "odoo_sku": "SET-DIA-PEZ-DOR",
+      "name": "SET - Diamante 22mm Dorado",
+      "active": true
+    },
+    {
+      "id": 711,
+      "odoo_sku": "SET-DIA-PEZ-PLA",
+      "name": "SET - Diamante 22mm Plateado",
+      "active": true
+    },
+    {
+      "id": 722,
+      "odoo_sku": "SET-ECH-PEZ-DOR",
+      "name": "SET - Europa CH Vino 22mm Dorado",
+      "active": true
+    },
+    {
+      "id": 723,
+      "odoo_sku": "SET-ECH-PEZ-PLA",
+      "name": "SET - Europa CH Vino 22mm Plateado",
+      "active": true
+    },
+    {
+      "id": 734,
+      "odoo_sku": "SET-EUM-BLA-PEZ-DOR",
+      "name": "SET - Europa M Blanco 22mm Dorado",
+      "active": true
+    },
+    {
+      "id": 735,
+      "odoo_sku": "SET-EUM-BLA-PEZ-PLA",
+      "name": "SET - Europa M Blanco 22mm Plateado",
+      "active": true
+    },
+    {
+      "id": 746,
+      "odoo_sku": "SET-EUM-VIN-PEZ-DOR",
+      "name": "SET - Europa M Vino 22mm Dorado",
+      "active": true
+    },
+    {
+      "id": 747,
+      "odoo_sku": "SET-EUM-VIN-PEZ-PLA",
+      "name": "SET - Europa M Vino 22mm Plateado",
+      "active": true
+    },
+    {
+      "id": 758,
+      "odoo_sku": "SET-EUR-VIN-M-REP-PEZ-DOR",
+      "name": "SET - Repujado Europa M Vino 22mm Dorado",
+      "active": true
+    },
+    {
+      "id": 759,
+      "odoo_sku": "SET-EUR-VIN-M-REP-PEZ-PLA",
+      "name": "SET - Repujado Europa M Vino 22mm Plateado",
+      "active": true
+    },
+    {
+      "id": 770,
+      "odoo_sku": "SET-GAM-AZU-PEZ-DOR",
+      "name": "SET - Gamuza Azul 22mm Dorado",
+      "active": true
+    },
+    {
+      "id": 771,
+      "odoo_sku": "SET-GAM-AZU-PEZ-PLA",
+      "name": "SET - Gamuza Azul 22mm Plateado",
+      "active": true
+    },
+    {
+      "id": 782,
+      "odoo_sku": "SET-GAM-NEG-PEZ-DOR",
+      "name": "SET - Gamuza Negro 22mm Dorado",
+      "active": true
+    },
+    {
+      "id": 783,
+      "odoo_sku": "SET-GAM-NEG-PEZ-PLA",
+      "name": "SET - Gamuza Negro 22mm Plateado",
+      "active": true
+    },
+    {
+      "id": 794,
+      "odoo_sku": "SET-ITA-PEZ-DOR",
+      "name": "SET - Italia 22mm Dorado",
+      "active": true
+    },
+    {
+      "id": 795,
+      "odoo_sku": "SET-ITA-PEZ-PLA",
+      "name": "SET - Italia 22mm Plateado",
+      "active": true
+    },
+    {
+      "id": 806,
+      "odoo_sku": "SET-NOG-VEN-PEZ-DOR",
+      "name": "SET - Nogal con ventana 22mm Dorado",
+      "active": true
+    },
+    {
+      "id": 807,
+      "odoo_sku": "SET-NOG-VEN-PEZ-PLA",
+      "name": "SET - Nogal con ventana 22mm Plateado",
+      "active": true
+    },
+    {
+      "id": 818,
+      "odoo_sku": "SET-PLA-CH-PEZ-DOR",
+      "name": "SET - Platino CH 22mm Dorado",
+      "active": true
+    },
+    {
+      "id": 819,
+      "odoo_sku": "SET-PLA-CH-PEZ-PLA",
+      "name": "SET - Platino CH 22mm Plateado",
+      "active": true
+    },
+    {
+      "id": 830,
+      "odoo_sku": "SET-PLA-M-PEZ-DOR",
+      "name": "SET - Platino M 22mm Dorado",
+      "active": true
+    },
+    {
+      "id": 831,
+      "odoo_sku": "SET-PLA-M-PEZ-PLA",
+      "name": "SET - Platino M 22mm Plateado",
+      "active": true
+    },
+    {
+      "id": 844,
+      "odoo_sku": "SET-SOLO-CAR-AZU-PEZ-DOR",
+      "name": "SET - Carte Azul Solo Arras Dorado",
+      "active": true
+    },
+    {
+      "id": 845,
+      "odoo_sku": "SET-SOLO-CAR-AZU-PEZ-PLA",
+      "name": "SET - Carte Azul Solo Arras Plateado",
+      "active": true
+    },
+    {
+      "id": 858,
+      "odoo_sku": "SET-SOLO-CAR-BLC-PEZ-DOR",
+      "name": "SET - Carte Blanco Solo Arras Dorado",
+      "active": true
+    },
+    {
+      "id": 859,
+      "odoo_sku": "SET-SOLO-CAR-BLC-PEZ-PLA",
+      "name": "SET - Carte Blanco Solo Arras Plateado",
+      "active": true
+    },
+    {
+      "id": 872,
+      "odoo_sku": "SET-SOLO-CAR-ROJ-PEZ-DOR",
+      "name": "SET - Carte Rojo Solo Arras Dorado",
+      "active": true
+    },
+    {
+      "id": 873,
+      "odoo_sku": "SET-SOLO-CAR-ROJ-PEZ-PLA",
+      "name": "SET - Carte Rojo Solo Arras Plateado",
+      "active": true
+    },
+    {
+      "id": 884,
+      "odoo_sku": "SET-SOLO-EUR-CH-VIN-PEZ-DOR",
+      "name": "SET - Europa CH Vino Solo Arras Dorado",
+      "active": true
+    },
+    {
+      "id": 885,
+      "odoo_sku": "SET-SOLO-EUR-CH-VIN-PEZ-PLA",
+      "name": "SET - Europa CH Vino Solo Arras Plateado",
+      "active": true
+    },
+    {
+      "id": 898,
+      "odoo_sku": "SET-SOLO-EUR-M-BLA-PEZ-DOR",
+      "name": "SET - Europa M Blanco Solo Arras Dorado",
+      "active": true
+    },
+    {
+      "id": 899,
+      "odoo_sku": "SET-SOLO-EUR-M-BLA-PEZ-PLA",
+      "name": "SET - Europa M Blanco Solo Arras Plateado",
+      "active": true
+    },
+    {
+      "id": 912,
+      "odoo_sku": "SET-SOLO-EUR-M-VIN-PEZ-DOR",
+      "name": "SET - Europa M Vino Solo Arras Dorado",
+      "active": true
+    },
+    {
+      "id": 913,
+      "odoo_sku": "SET-SOLO-EUR-M-VIN-PEZ-PLA",
+      "name": "SET - Europa M Vino Solo Arras Plateado",
+      "active": true
+    },
+    {
+      "id": 926,
+      "odoo_sku": "SET-SOLO-GAM-AZU-PEZ-DOR",
+      "name": "SET - Gamuza Azul Solo Arras Dorado",
+      "active": true
+    },
+    {
+      "id": 927,
+      "odoo_sku": "SET-SOLO-GAM-AZU-PEZ-PLA",
+      "name": "SET - Gamuza Azul Solo Arras Plateado",
+      "active": true
+    },
+    {
+      "id": 940,
+      "odoo_sku": "SET-SOLO-GAM-NEG-PEZ-DOR",
+      "name": "SET - Gamuza Negro Solo Arras Dorado",
+      "active": true
+    },
+    {
+      "id": 941,
+      "odoo_sku": "SET-SOLO-GAM-NEG-PEZ-PLA",
+      "name": "SET - Gamuza Negro Solo Arras Plateado",
+      "active": true
+    },
+    {
+      "id": 954,
+      "odoo_sku": "SET-SOLO-ITA-PEZ-DOR",
+      "name": "SET - Italia Solo Arras Dorado",
+      "active": true
+    },
+    {
+      "id": 955,
+      "odoo_sku": "SET-SOLO-ITA-PEZ-PLA",
+      "name": "SET - Italia Solo Arras Plateado",
+      "active": true
+    },
+    {
+      "id": 968,
+      "odoo_sku": "SET-SOLO-NOG-VEN-PEZ-DOR",
+      "name": "SET - Nogal Solo Arras Dorado",
+      "active": true
+    },
+    {
+      "id": 969,
+      "odoo_sku": "SET-SOLO-NOG-VEN-PEZ-PLA",
+      "name": "SET - Nogal Solo Arras Plateado",
+      "active": true
+    },
+    {
+      "id": 982,
+      "odoo_sku": "SET-SOLO-PLA-CH-PEZ-DOR",
+      "name": "SET - Platino CH Solo Arras Dorado",
+      "active": true
+    },
+    {
+      "id": 983,
+      "odoo_sku": "SET-SOLO-PLA-CH-PEZ-PLA",
+      "name": "SET - Platino CH Solo Arras Plateado",
+      "active": true
+    },
+    {
+      "id": 996,
+      "odoo_sku": "SET-SOLO-PLA-M-PEZ-DOR",
+      "name": "SET - Platino M Solo Arras Dorado",
+      "active": true
+    },
+    {
+      "id": 997,
+      "odoo_sku": "SET-SOLO-PLA-M-PEZ-PLA",
+      "name": "SET - Platino M Solo Arras Plateado",
+      "active": true
+    },
+    {
+      "id": 1527,
+      "odoo_sku": "NH-SOLO-GAM-AZU-PEZ-DOR",
+      "name": "[sin nombre en Odoo] NH-SOLO-GAM-AZU-PEZ-DOR",
+      "active": true
+    },
+    {
+      "id": 1528,
+      "odoo_sku": "NH-SOLO-GAM-AZU-PEZ-PLA",
+      "name": "[sin nombre en Odoo] NH-SOLO-GAM-AZU-PEZ-PLA",
+      "active": true
+    },
+    {
+      "id": 1543,
+      "odoo_sku": "NH-SOLO-GAM-NEG-PEZ-DOR",
+      "name": "[sin nombre en Odoo] NH-SOLO-GAM-NEG-PEZ-DOR",
+      "active": true
+    },
+    {
+      "id": 1544,
+      "odoo_sku": "NH-SOLO-GAM-NEG-PEZ-PLA",
+      "name": "[sin nombre en Odoo] NH-SOLO-GAM-NEG-PEZ-PLA",
+      "active": true
+    },
+    {
+      "id": 1559,
+      "odoo_sku": "NH-SOLO-ITA-PEZ-DOR",
+      "name": "[sin nombre en Odoo] NH-SOLO-ITA-PEZ-DOR",
+      "active": true
+    },
+    {
+      "id": 1560,
+      "odoo_sku": "NH-SOLO-ITA-PEZ-PLA",
+      "name": "[sin nombre en Odoo] NH-SOLO-ITA-PEZ-PLA",
+      "active": true
+    },
+    {
+      "id": 1607,
+      "odoo_sku": "NH-SOLO-PLA-M-PEZ-DOR",
+      "name": "[sin nombre en Odoo] NH-SOLO-PLA-M-PEZ-DOR",
+      "active": true
+    },
+    {
+      "id": 1608,
+      "odoo_sku": "NH-SOLO-PLA-M-PEZ-PLA",
+      "name": "[sin nombre en Odoo] NH-SOLO-PLA-M-PEZ-PLA",
+      "active": true
+    },
+    {
+      "id": 1619,
+      "odoo_sku": "PERS-CAR-AZU-PEZ-DOR",
+      "name": "PERS - Carte Azul 22mm Dorado",
+      "active": true
+    },
+    {
+      "id": 1620,
+      "odoo_sku": "PERS-CAR-AZU-PEZ-PLA",
+      "name": "PERS - Carte Azul 22mm Plateado",
+      "active": true
+    },
+    {
+      "id": 1643,
+      "odoo_sku": "PERS-CAR-ROJ-PEZ-DOR",
+      "name": "PERS - Carte Rojo 22mm Dorado",
+      "active": true
+    },
+    {
+      "id": 1644,
+      "odoo_sku": "PERS-CAR-ROJ-PEZ-PLA",
+      "name": "PERS - Carte Rojo 22mm Plateado",
+      "active": true
+    },
+    {
+      "id": 1725,
+      "odoo_sku": "SET-CAR-AZU-PEZ-DOR",
+      "name": "SET - Carte Azul 22mm Dorado",
+      "active": true
+    },
+    {
+      "id": 1726,
+      "odoo_sku": "SET-CAR-AZU-PEZ-PLA",
+      "name": "SET - Carte Azul 22mm Plateado",
+      "active": true
+    },
+    {
+      "id": 1749,
+      "odoo_sku": "SET-CAR-BLA-PEZ-DOR",
+      "name": "SET - Carte Blanco 22mm Dorado",
+      "active": true
+    },
+    {
+      "id": 1750,
+      "odoo_sku": "SET-CAR-BLA-PEZ-PLA",
+      "name": "SET - Carte Blanco 22mm Plateado",
+      "active": true
+    },
+    {
+      "id": 1773,
+      "odoo_sku": "SET-CAR-ROJ-PEZ-DOR",
+      "name": "SET - Carte Rojo 22mm Dorado",
+      "active": true
+    },
+    {
+      "id": 1774,
+      "odoo_sku": "SET-CAR-ROJ-PEZ-PLA",
+      "name": "SET - Carte Rojo 22mm Plateado",
+      "active": true
+    }
+  ],
+  "costos": [
+    {
+      "id": 1603,
+      "product_id": 48,
+      "cost_amount": "137.3000",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 1604,
+      "product_id": 48,
+      "cost_amount": "37.8200",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 1617,
+      "product_id": 56,
+      "cost_amount": "137.3000",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 1618,
+      "product_id": 56,
+      "cost_amount": "37.8200",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 1657,
+      "product_id": 81,
+      "cost_amount": "240.0300",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-23",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 1658,
+      "product_id": 81,
+      "cost_amount": "117.5600",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 1669,
+      "product_id": 89,
+      "cost_amount": "240.0300",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-23",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 1670,
+      "product_id": 89,
+      "cost_amount": "117.5600",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 1685,
+      "product_id": 101,
+      "cost_amount": "209.0300",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-23",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 1686,
+      "product_id": 101,
+      "cost_amount": "86.5600",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 1687,
+      "product_id": 102,
+      "cost_amount": "209.0300",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-23",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 1688,
+      "product_id": 102,
+      "cost_amount": "86.5600",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2254,
+      "product_id": 411,
+      "cost_amount": "77.4700",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2255,
+      "product_id": 412,
+      "cost_amount": "77.4700",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2282,
+      "product_id": 427,
+      "cost_amount": "77.4700",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2283,
+      "product_id": 428,
+      "cost_amount": "77.4700",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2310,
+      "product_id": 443,
+      "cost_amount": "77.4700",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2311,
+      "product_id": 444,
+      "cost_amount": "77.4700",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2338,
+      "product_id": 459,
+      "cost_amount": "108.7800",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2339,
+      "product_id": 460,
+      "cost_amount": "108.7800",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2366,
+      "product_id": 475,
+      "cost_amount": "167.0000",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2367,
+      "product_id": 476,
+      "cost_amount": "167.0000",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2394,
+      "product_id": 491,
+      "cost_amount": "160.4400",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2395,
+      "product_id": 492,
+      "cost_amount": "160.4400",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2485,
+      "product_id": 549,
+      "cost_amount": "232.1100",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2486,
+      "product_id": 550,
+      "cost_amount": "232.1100",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2507,
+      "product_id": 565,
+      "cost_amount": "144.8200",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2508,
+      "product_id": 566,
+      "cost_amount": "144.8200",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2580,
+      "product_id": 592,
+      "cost_amount": "209.0300",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2581,
+      "product_id": 592,
+      "cost_amount": "86.5600",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2582,
+      "product_id": 593,
+      "cost_amount": "209.0300",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2583,
+      "product_id": 593,
+      "cost_amount": "86.5600",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2628,
+      "product_id": 604,
+      "cost_amount": "394.0300",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2629,
+      "product_id": 604,
+      "cost_amount": "274.1100",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2630,
+      "product_id": 605,
+      "cost_amount": "394.0300",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2631,
+      "product_id": 605,
+      "cost_amount": "274.1100",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2650,
+      "product_id": 618,
+      "cost_amount": "240.0300",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2651,
+      "product_id": 618,
+      "cost_amount": "117.5600",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2661,
+      "product_id": 626,
+      "cost_amount": "240.0300",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2662,
+      "product_id": 626,
+      "cost_amount": "117.5600",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2676,
+      "product_id": 638,
+      "cost_amount": "209.0300",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2677,
+      "product_id": 638,
+      "cost_amount": "86.5600",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2678,
+      "product_id": 639,
+      "cost_amount": "209.0300",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2679,
+      "product_id": 639,
+      "cost_amount": "86.5600",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2698,
+      "product_id": 650,
+      "cost_amount": "301.0300",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2699,
+      "product_id": 650,
+      "cost_amount": "175.2500",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2700,
+      "product_id": 651,
+      "cost_amount": "301.0300",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2701,
+      "product_id": 651,
+      "cost_amount": "175.2500",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2722,
+      "product_id": 662,
+      "cost_amount": "609.0300",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2723,
+      "product_id": 662,
+      "cost_amount": "486.5600",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2724,
+      "product_id": 663,
+      "cost_amount": "609.0300",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2725,
+      "product_id": 663,
+      "cost_amount": "486.5600",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2758,
+      "product_id": 674,
+      "cost_amount": "420.5300",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2759,
+      "product_id": 674,
+      "cost_amount": "128.7100",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2760,
+      "product_id": 675,
+      "cost_amount": "420.5300",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2761,
+      "product_id": 675,
+      "cost_amount": "128.7100",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2806,
+      "product_id": 686,
+      "cost_amount": "420.5300",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2807,
+      "product_id": 686,
+      "cost_amount": "128.7100",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2808,
+      "product_id": 687,
+      "cost_amount": "420.5300",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2809,
+      "product_id": 687,
+      "cost_amount": "128.7100",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2854,
+      "product_id": 698,
+      "cost_amount": "420.5300",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2855,
+      "product_id": 698,
+      "cost_amount": "128.7100",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2856,
+      "product_id": 699,
+      "cost_amount": "420.5300",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2857,
+      "product_id": 699,
+      "cost_amount": "128.7100",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2890,
+      "product_id": 710,
+      "cost_amount": "542.0300",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2891,
+      "product_id": 710,
+      "cost_amount": "419.5600",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2892,
+      "product_id": 711,
+      "cost_amount": "542.0300",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2893,
+      "product_id": 711,
+      "cost_amount": "419.5600",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2914,
+      "product_id": 722,
+      "cost_amount": "290.2300",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2915,
+      "product_id": 722,
+      "cost_amount": "157.5200",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2916,
+      "product_id": 723,
+      "cost_amount": "290.2300",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2917,
+      "product_id": 723,
+      "cost_amount": "157.5200",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2938,
+      "product_id": 734,
+      "cost_amount": "510.5500",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2939,
+      "product_id": 734,
+      "cost_amount": "375.7400",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2940,
+      "product_id": 735,
+      "cost_amount": "510.5500",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2941,
+      "product_id": 735,
+      "cost_amount": "375.7400",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2962,
+      "product_id": 746,
+      "cost_amount": "491.0300",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2963,
+      "product_id": 746,
+      "cost_amount": "369.1800",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2964,
+      "product_id": 747,
+      "cost_amount": "491.0300",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2965,
+      "product_id": 747,
+      "cost_amount": "369.1800",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2986,
+      "product_id": 758,
+      "cost_amount": "491.0300",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2987,
+      "product_id": 758,
+      "cost_amount": "374.1800",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2988,
+      "product_id": 759,
+      "cost_amount": "491.0300",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2989,
+      "product_id": 759,
+      "cost_amount": "374.1800",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3010,
+      "product_id": 770,
+      "cost_amount": "269.0300",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3011,
+      "product_id": 770,
+      "cost_amount": "146.5600",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3012,
+      "product_id": 771,
+      "cost_amount": "269.0300",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3013,
+      "product_id": 771,
+      "cost_amount": "146.5600",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3034,
+      "product_id": 782,
+      "cost_amount": "269.0300",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3035,
+      "product_id": 782,
+      "cost_amount": "146.5600",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3036,
+      "product_id": 783,
+      "cost_amount": "269.0300",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3037,
+      "product_id": 783,
+      "cost_amount": "146.5600",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3058,
+      "product_id": 794,
+      "cost_amount": "285.0300",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3059,
+      "product_id": 794,
+      "cost_amount": "162.5600",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3060,
+      "product_id": 795,
+      "cost_amount": "285.0300",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3061,
+      "product_id": 795,
+      "cost_amount": "162.5600",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3082,
+      "product_id": 806,
+      "cost_amount": "402.0300",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3083,
+      "product_id": 806,
+      "cost_amount": "280.8500",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3084,
+      "product_id": 807,
+      "cost_amount": "402.0300",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3085,
+      "product_id": 807,
+      "cost_amount": "280.8500",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3106,
+      "product_id": 818,
+      "cost_amount": "316.0300",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3107,
+      "product_id": 818,
+      "cost_amount": "193.5600",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3108,
+      "product_id": 819,
+      "cost_amount": "316.0300",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3109,
+      "product_id": 819,
+      "cost_amount": "193.5600",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3130,
+      "product_id": 830,
+      "cost_amount": "542.0300",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3131,
+      "product_id": 830,
+      "cost_amount": "435.3800",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3132,
+      "product_id": 831,
+      "cost_amount": "542.0300",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3133,
+      "product_id": 831,
+      "cost_amount": "435.3800",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3158,
+      "product_id": 844,
+      "cost_amount": "188.8000",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3159,
+      "product_id": 844,
+      "cost_amount": "77.4700",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3160,
+      "product_id": 845,
+      "cost_amount": "188.8000",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3161,
+      "product_id": 845,
+      "cost_amount": "77.4700",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3186,
+      "product_id": 858,
+      "cost_amount": "188.8000",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3187,
+      "product_id": 858,
+      "cost_amount": "77.4700",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3188,
+      "product_id": 859,
+      "cost_amount": "188.8000",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3189,
+      "product_id": 859,
+      "cost_amount": "77.4700",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3214,
+      "product_id": 872,
+      "cost_amount": "188.8000",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3215,
+      "product_id": 872,
+      "cost_amount": "77.4700",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3216,
+      "product_id": 873,
+      "cost_amount": "1836.4000",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-05-14",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3217,
+      "product_id": 873,
+      "cost_amount": "188.8000",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-05-14",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3218,
+      "product_id": 873,
+      "cost_amount": "77.4700",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3239,
+      "product_id": 884,
+      "cost_amount": "218.5000",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3240,
+      "product_id": 884,
+      "cost_amount": "108.7800",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3241,
+      "product_id": 885,
+      "cost_amount": "218.5000",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3242,
+      "product_id": 885,
+      "cost_amount": "108.7800",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3267,
+      "product_id": 898,
+      "cost_amount": "278.8200",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3268,
+      "product_id": 898,
+      "cost_amount": "167.0000",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3269,
+      "product_id": 899,
+      "cost_amount": "278.8200",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3270,
+      "product_id": 899,
+      "cost_amount": "167.0000",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3295,
+      "product_id": 912,
+      "cost_amount": "259.3000",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3296,
+      "product_id": 912,
+      "cost_amount": "160.4400",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3297,
+      "product_id": 913,
+      "cost_amount": "259.3000",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3298,
+      "product_id": 913,
+      "cost_amount": "160.4400",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3323,
+      "product_id": 926,
+      "cost_amount": "197.3000",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3324,
+      "product_id": 926,
+      "cost_amount": "97.8200",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3325,
+      "product_id": 927,
+      "cost_amount": "197.3000",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3326,
+      "product_id": 927,
+      "cost_amount": "97.8200",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3351,
+      "product_id": 940,
+      "cost_amount": "197.3000",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3352,
+      "product_id": 940,
+      "cost_amount": "97.8200",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3353,
+      "product_id": 941,
+      "cost_amount": "197.3000",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3354,
+      "product_id": 941,
+      "cost_amount": "97.8200",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3379,
+      "product_id": 954,
+      "cost_amount": "213.3000",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3380,
+      "product_id": 954,
+      "cost_amount": "113.8200",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3381,
+      "product_id": 955,
+      "cost_amount": "213.3000",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3382,
+      "product_id": 955,
+      "cost_amount": "113.8200",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3407,
+      "product_id": 968,
+      "cost_amount": "330.3000",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3408,
+      "product_id": 968,
+      "cost_amount": "232.1100",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3409,
+      "product_id": 969,
+      "cost_amount": "330.3000",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3410,
+      "product_id": 969,
+      "cost_amount": "232.1100",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3433,
+      "product_id": 982,
+      "cost_amount": "244.3000",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3434,
+      "product_id": 982,
+      "cost_amount": "144.8200",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3435,
+      "product_id": 983,
+      "cost_amount": "244.3000",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3436,
+      "product_id": 983,
+      "cost_amount": "144.8200",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3461,
+      "product_id": 996,
+      "cost_amount": "310.3000",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3462,
+      "product_id": 996,
+      "cost_amount": "226.6400",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3463,
+      "product_id": 997,
+      "cost_amount": "310.3000",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 3464,
+      "product_id": 997,
+      "cost_amount": "226.6400",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2416,
+      "product_id": 1527,
+      "cost_amount": "97.8200",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2417,
+      "product_id": 1528,
+      "cost_amount": "97.8200",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2433,
+      "product_id": 1543,
+      "cost_amount": "97.8200",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2434,
+      "product_id": 1544,
+      "cost_amount": "97.8200",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2457,
+      "product_id": 1559,
+      "cost_amount": "113.8200",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2458,
+      "product_id": 1560,
+      "cost_amount": "113.8200",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2534,
+      "product_id": 1607,
+      "cost_amount": "226.6400",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2535,
+      "product_id": 1608,
+      "cost_amount": "226.6400",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2556,
+      "product_id": 1619,
+      "cost_amount": "260.5300",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2557,
+      "product_id": 1619,
+      "cost_amount": "126.2100",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2558,
+      "product_id": 1620,
+      "cost_amount": "260.5300",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2559,
+      "product_id": 1620,
+      "cost_amount": "126.2100",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2604,
+      "product_id": 1643,
+      "cost_amount": "260.5300",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2605,
+      "product_id": 1643,
+      "cost_amount": "126.2100",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2606,
+      "product_id": 1644,
+      "cost_amount": "260.5300",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2607,
+      "product_id": 1644,
+      "cost_amount": "126.2100",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2746,
+      "product_id": 1725,
+      "cost_amount": "260.5300",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2747,
+      "product_id": 1725,
+      "cost_amount": "126.2100",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2748,
+      "product_id": 1726,
+      "cost_amount": "260.5300",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2749,
+      "product_id": 1726,
+      "cost_amount": "126.2100",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2794,
+      "product_id": 1749,
+      "cost_amount": "260.5300",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2795,
+      "product_id": 1749,
+      "cost_amount": "126.2100",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2796,
+      "product_id": 1750,
+      "cost_amount": "260.5300",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2797,
+      "product_id": 1750,
+      "cost_amount": "126.2100",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2842,
+      "product_id": 1773,
+      "cost_amount": "260.5300",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2843,
+      "product_id": 1773,
+      "cost_amount": "126.2100",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2844,
+      "product_id": 1774,
+      "cost_amount": "260.5300",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-02-20",
+      "valid_to": "2026-08-18",
+      "ingest_run_id": 28
+    },
+    {
+      "id": 2845,
+      "product_id": 1774,
+      "cost_amount": "126.2100",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null,
+      "ingest_run_id": 28
+    }
+  ],
+  "miembros": [
+    {
+      "listing": {
+        "id": 1555,
+        "platform": "meli",
+        "product_id": 390,
+        "seller_sku": "NH-PLA-M-CEN-PLA",
+        "external_id": "MLM2158744542",
+        "listing_price": null,
+        "price_currency": null
+      },
+      "miembro": {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1555,
+        "product_id": 831,
+        "seller_sku": "SET-PLA-M-PEZ-PLA",
+        "variante_ext": "194936688135"
+      }
+    },
+    {
+      "listing": {
+        "id": 1557,
+        "platform": "meli",
+        "product_id": 1725,
+        "seller_sku": "SET-CAR-AZU-PEZ-DOR",
+        "external_id": "MLM5164542994",
+        "listing_price": null,
+        "price_currency": null
+      },
+      "miembro": {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1557,
+        "product_id": 1725,
+        "seller_sku": "SET-CAR-AZU-PEZ-DOR",
+        "variante_ext": ""
+      }
+    },
+    {
+      "listing": {
+        "id": 1562,
+        "platform": "meli",
+        "product_id": 161,
+        "seller_sku": "NH-CAR-BLA-CEN-DOR",
+        "external_id": "MLM2163407464",
+        "listing_price": null,
+        "price_currency": null
+      },
+      "miembro": {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1562,
+        "product_id": null,
+        "seller_sku": "NH-CAR-BLA-PEZ-DOR",
+        "variante_ext": "194936687129"
+      }
+    },
+    {
+      "listing": {
+        "id": 1563,
+        "platform": "meli",
+        "product_id": 162,
+        "seller_sku": "NH-CAR-BLA-CEN-PLA",
+        "external_id": "MLM1890653227",
+        "listing_price": null,
+        "price_currency": null
+      },
+      "miembro": {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1563,
+        "product_id": null,
+        "seller_sku": "NH-CAR-BLA-PEZ-PLA",
+        "variante_ext": "194936530433"
+      }
+    },
+    {
+      "listing": {
+        "id": 1564,
+        "platform": "meli",
+        "product_id": 138,
+        "seller_sku": "NH-CAR-AZU-CEN-PLA",
+        "external_id": "MLM1890605671",
+        "listing_price": null,
+        "price_currency": null
+      },
+      "miembro": {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1564,
+        "product_id": 1726,
+        "seller_sku": "SET-CAR-AZU-PEZ-PLA",
+        "variante_ext": "195062806985"
+      }
+    },
+    {
+      "listing": {
+        "id": 1565,
+        "platform": "meli",
+        "product_id": 320,
+        "seller_sku": "NH-NOG-VEN-CEN-PLA",
+        "external_id": "MLM1890562805",
+        "listing_price": null,
+        "price_currency": null
+      },
+      "miembro": {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1565,
+        "product_id": 807,
+        "seller_sku": "SET-NOG-VEN-PEZ-PLA",
+        "variante_ext": "200463228425"
+      }
+    },
+    {
+      "listing": {
+        "id": 1566,
+        "platform": "meli",
+        "product_id": 319,
+        "seller_sku": "NH-NOG-VEN-CEN-DOR",
+        "external_id": "MLM1890540229",
+        "listing_price": null,
+        "price_currency": null
+      },
+      "miembro": {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1566,
+        "product_id": 806,
+        "seller_sku": "SET-NOG-VEN-PEZ-DOR",
+        "variante_ext": "190065697194"
+      }
+    },
+    {
+      "listing": {
+        "id": 1567,
+        "platform": "meli",
+        "product_id": 123,
+        "seller_sku": "NH-CAO-CEN-DOR",
+        "external_id": "MLM1890527451",
+        "listing_price": null,
+        "price_currency": null
+      },
+      "miembro": {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1567,
+        "product_id": 662,
+        "seller_sku": "SET-CAO-PEZ-DOR",
+        "variante_ext": "194936480269"
+      }
+    },
+    {
+      "listing": {
+        "id": 1568,
+        "platform": "meli",
+        "product_id": 235,
+        "seller_sku": "NH-EUM-BLA-CEN-DOR",
+        "external_id": "MLM1890080447",
+        "listing_price": null,
+        "price_currency": null
+      },
+      "miembro": {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1568,
+        "product_id": 734,
+        "seller_sku": "SET-EUM-BLA-PEZ-DOR",
+        "variante_ext": "194936584057"
+      }
+    },
+    {
+      "listing": {
+        "id": 1569,
+        "platform": "meli",
+        "product_id": 500,
+        "seller_sku": "NH-SOLO-GAM-AZU-CEN-PLA",
+        "external_id": "MLM2028581351",
+        "listing_price": null,
+        "price_currency": null
+      },
+      "miembro": {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1569,
+        "product_id": 927,
+        "seller_sku": "SET-SOLO-GAM-AZU-PEZ-PLA",
+        "variante_ext": "190505269662"
+      }
+    },
+    {
+      "listing": {
+        "id": 1570,
+        "platform": "meli",
+        "product_id": 403,
+        "seller_sku": "NH-SOLO-CAR-AZU-CEN-DOR",
+        "external_id": "MLM3010253470",
+        "listing_price": null,
+        "price_currency": null
+      },
+      "miembro": {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1570,
+        "product_id": 844,
+        "seller_sku": "SET-SOLO-CAR-AZU-PEZ-DOR",
+        "variante_ext": "195164984087"
+      }
+    },
+    {
+      "listing": {
+        "id": 1571,
+        "platform": "meli",
+        "product_id": 404,
+        "seller_sku": "NH-SOLO-CAR-AZU-CEN-PLA",
+        "external_id": "MLM3010335544",
+        "listing_price": null,
+        "price_currency": null
+      },
+      "miembro": {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1571,
+        "product_id": 845,
+        "seller_sku": "SET-SOLO-CAR-AZU-PEZ-PLA",
+        "variante_ext": "194936725677"
+      }
+    },
+    {
+      "listing": {
+        "id": 1572,
+        "platform": "meli",
+        "product_id": 143,
+        "seller_sku": "NH-CAR-AZU-REP-CEN-DOR",
+        "external_id": "MLM3249024532",
+        "listing_price": null,
+        "price_currency": null
+      },
+      "miembro": {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1572,
+        "product_id": 674,
+        "seller_sku": "SET-CAR-AZU-REP-PEZ-DOR",
+        "variante_ext": "194936687123"
+      }
+    },
+    {
+      "listing": {
+        "id": 1573,
+        "platform": "meli",
+        "product_id": 93,
+        "seller_sku": "NH-ARR-COF-22-CEN-DOR",
+        "external_id": "MLM3249118014",
+        "listing_price": null,
+        "price_currency": null
+      },
+      "miembro": {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1573,
+        "product_id": 638,
+        "seller_sku": "SET-ARR-COF-22-PEZ-DOR",
+        "variante_ext": "194936452877"
+      }
+    },
+    {
+      "listing": {
+        "id": 1574,
+        "platform": "meli",
+        "product_id": 85,
+        "seller_sku": "NH-ARR-22-PLA-CEN-COF-22-CHA-RED-PLA",
+        "external_id": "MLM3249067064",
+        "listing_price": null,
+        "price_currency": null
+      },
+      "miembro": {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1574,
+        "product_id": 626,
+        "seller_sku": "SET-ARR-22-PLA-PEZ-COF-22-CHA-RED-PLA",
+        "variante_ext": "194984942551"
+      }
+    },
+    {
+      "listing": {
+        "id": 1575,
+        "platform": "meli",
+        "product_id": 94,
+        "seller_sku": "NH-ARR-COF-22-CEN-PLA",
+        "external_id": "MLM3249055236",
+        "listing_price": null,
+        "price_currency": null
+      },
+      "miembro": {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1575,
+        "product_id": 639,
+        "seller_sku": "SET-ARR-COF-22-PEZ-PLA",
+        "variante_ext": "194936688121"
+      }
+    },
+    {
+      "listing": {
+        "id": 1576,
+        "platform": "meli",
+        "product_id": 77,
+        "seller_sku": "NH-ARR-22-DOR-CEN-COF-22-CHA-RED-DOR",
+        "external_id": "MLM3249053848",
+        "listing_price": null,
+        "price_currency": null
+      },
+      "miembro": {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1576,
+        "product_id": 618,
+        "seller_sku": "SET-ARR-22-DOR-PEZ-COF-22-CHA-RED-DOR",
+        "variante_ext": "194939013969"
+      }
+    },
+    {
+      "listing": {
+        "id": 1577,
+        "platform": "meli",
+        "product_id": 124,
+        "seller_sku": "NH-CAO-CEN-PLA",
+        "external_id": "MLM4616310354",
+        "listing_price": null,
+        "price_currency": null
+      },
+      "miembro": {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1577,
+        "product_id": 663,
+        "seller_sku": "SET-CAO-PEZ-PLA",
+        "variante_ext": "194936532347"
+      }
+    },
+    {
+      "listing": {
+        "id": 1578,
+        "platform": "meli",
+        "product_id": 109,
+        "seller_sku": "NH-BLA-BRO-CEN-DOR",
+        "external_id": "MLM4735255462",
+        "listing_price": null,
+        "price_currency": null
+      },
+      "miembro": {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1578,
+        "product_id": null,
+        "seller_sku": "NH-BLA-BRO-PEZ-DOR",
+        "variante_ext": "190065698608"
+      }
+    },
+    {
+      "listing": {
+        "id": 1579,
+        "platform": "meli",
+        "product_id": 306,
+        "seller_sku": "NH-ITA-CEN-PLA",
+        "external_id": "MLM2724304859",
+        "listing_price": null,
+        "price_currency": null
+      },
+      "miembro": {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1579,
+        "product_id": null,
+        "seller_sku": "NH-ITA-PEZ-PLA",
+        "variante_ext": "190063357552"
+      }
+    },
+    {
+      "listing": {
+        "id": 1580,
+        "platform": "meli",
+        "product_id": 144,
+        "seller_sku": "NH-CAR-AZU-REP-CEN-PLA",
+        "external_id": "MLM2724173559",
+        "listing_price": null,
+        "price_currency": null
+      },
+      "miembro": {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1580,
+        "product_id": 675,
+        "seller_sku": "SET-CAR-AZU-REP-PEZ-PLA",
+        "variante_ext": "190063929670"
+      }
+    },
+    {
+      "listing": {
+        "id": 1581,
+        "platform": "meli",
+        "product_id": 499,
+        "seller_sku": "NH-SOLO-GAM-AZU-CEN-DOR",
+        "external_id": "MLM2727488085",
+        "listing_price": null,
+        "price_currency": null
+      },
+      "miembro": {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1581,
+        "product_id": 926,
+        "seller_sku": "SET-SOLO-GAM-AZU-PEZ-DOR",
+        "variante_ext": "196650377977"
+      }
+    },
+    {
+      "listing": {
+        "id": 1582,
+        "platform": "meli",
+        "product_id": 278,
+        "seller_sku": "NH-GAM-AZU-CEN-PLA",
+        "external_id": "MLM2727437671",
+        "listing_price": null,
+        "price_currency": null
+      },
+      "miembro": {
+        "activo": false,
+        "platform": "meli",
+        "visto_at": "2026-10-30T11:30:02.681472+00:00",
+        "listing_id": 1582,
+        "product_id": null,
+        "seller_sku": "NH-GAM-AZU-PEZ-PLA",
+        "variante_ext": "196650442795"
+      }
+    },
+    {
+      "listing": {
+        "id": 1583,
+        "platform": "meli",
+        "product_id": 291,
+        "seller_sku": "NH-GAM-NEG-CEN-DOR",
+        "external_id": "MLM2727363007",
+        "listing_price": null,
+        "price_currency": null
+      },
+      "miembro": {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1583,
+        "product_id": null,
+        "seller_sku": "NH-GAM-NEG-PEZ-DOR",
+        "variante_ext": "196650403797"
+      }
+    },
+    {
+      "listing": {
+        "id": 1584,
+        "platform": "meli",
+        "product_id": 277,
+        "seller_sku": "NH-GAM-AZU-CEN-DOR",
+        "external_id": "MLM2727328203",
+        "listing_price": null,
+        "price_currency": null
+      },
+      "miembro": {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1584,
+        "product_id": null,
+        "seller_sku": "NH-GAM-AZU-PEZ-DOR",
+        "variante_ext": "196650403671"
+      }
+    },
+    {
+      "listing": {
+        "id": 1585,
+        "platform": "meli",
+        "product_id": 292,
+        "seller_sku": "NH-GAM-NEG-CEN-PLA",
+        "external_id": "MLM4749600210",
+        "listing_price": null,
+        "price_currency": null
+      },
+      "miembro": {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1585,
+        "product_id": null,
+        "seller_sku": "NH-GAM-NEG-PEZ-PLA",
+        "variante_ext": "196764932943"
+      }
+    },
+    {
+      "listing": {
+        "id": 1586,
+        "platform": "meli",
+        "product_id": 513,
+        "seller_sku": "NH-SOLO-GAM-NEG-CEN-DOR",
+        "external_id": "MLM4749562406",
+        "listing_price": null,
+        "price_currency": null
+      },
+      "miembro": {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1586,
+        "product_id": 940,
+        "seller_sku": "SET-SOLO-GAM-NEG-PEZ-DOR",
+        "variante_ext": "196764958979"
+      }
+    },
+    {
+      "listing": {
+        "id": 1587,
+        "platform": "meli",
+        "product_id": 451,
+        "seller_sku": "NH-SOLO-EUR-CH-VIN-CEN-DOR",
+        "external_id": "MLM4761614056",
+        "listing_price": null,
+        "price_currency": null
+      },
+      "miembro": {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1587,
+        "product_id": 884,
+        "seller_sku": "SET-SOLO-EUR-CH-VIN-PEZ-DOR",
+        "variante_ext": "196810262507"
+      }
+    },
+    {
+      "listing": {
+        "id": 1588,
+        "platform": "meli",
+        "product_id": 224,
+        "seller_sku": "NH-ECH-CEN-PLA",
+        "external_id": "MLM4761545076",
+        "listing_price": null,
+        "price_currency": null
+      },
+      "miembro": {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1588,
+        "product_id": 723,
+        "seller_sku": "SET-ECH-PEZ-PLA",
+        "variante_ext": "196810288653"
+      }
+    },
+    {
+      "listing": {
+        "id": 1589,
+        "platform": "meli",
+        "product_id": 223,
+        "seller_sku": "NH-ECH-CEN-DOR",
+        "external_id": "MLM2735443771",
+        "listing_price": null,
+        "price_currency": null
+      },
+      "miembro": {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1589,
+        "product_id": 722,
+        "seller_sku": "SET-ECH-PEZ-DOR",
+        "variante_ext": "196811301315"
+      }
+    },
+    {
+      "listing": {
+        "id": 1590,
+        "platform": "meli",
+        "product_id": 376,
+        "seller_sku": "NH-PLA-CH-CEN-PLA",
+        "external_id": "MLM4763716652",
+        "listing_price": null,
+        "price_currency": null
+      },
+      "miembro": {
+        "activo": false,
+        "platform": "meli",
+        "visto_at": "2026-10-30T11:30:02.681472+00:00",
+        "listing_id": 1590,
+        "product_id": null,
+        "seller_sku": "NH-PLA-CH-PEZ-PLA",
+        "variante_ext": "190333223922"
+      }
+    },
+    {
+      "listing": {
+        "id": 1591,
+        "platform": "meli",
+        "product_id": 246,
+        "seller_sku": "NH-EUM-VIN-CEN-PLA",
+        "external_id": "MLM2736115339",
+        "listing_price": null,
+        "price_currency": null
+      },
+      "miembro": {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1591,
+        "product_id": 747,
+        "seller_sku": "SET-EUM-VIN-PEZ-PLA",
+        "variante_ext": "196810458399"
+      }
+    },
+    {
+      "listing": {
+        "id": 1592,
+        "platform": "meli",
+        "product_id": 245,
+        "seller_sku": "NH-EUM-VIN-CEN-DOR",
+        "external_id": "MLM2735985645",
+        "listing_price": null,
+        "price_currency": null
+      },
+      "miembro": {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1592,
+        "product_id": 746,
+        "seller_sku": "SET-EUM-VIN-PEZ-DOR",
+        "variante_ext": "196810262629"
+      }
+    },
+    {
+      "listing": {
+        "id": 1593,
+        "platform": "meli",
+        "product_id": 263,
+        "seller_sku": "NH-EUR-VIN-M-REP-CEN-DOR",
+        "external_id": "MLM2735912253",
+        "listing_price": null,
+        "price_currency": null
+      },
+      "miembro": {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1593,
+        "product_id": 758,
+        "seller_sku": "SET-EUR-VIN-M-REP-PEZ-DOR",
+        "variante_ext": "196810458419"
+      }
+    },
+    {
+      "listing": {
+        "id": 1594,
+        "platform": "meli",
+        "product_id": 264,
+        "seller_sku": "NH-EUR-VIN-M-REP-CEN-PLA",
+        "external_id": "MLM2735888029",
+        "listing_price": null,
+        "price_currency": null
+      },
+      "miembro": {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1594,
+        "product_id": 759,
+        "seller_sku": "SET-EUR-VIN-M-REP-PEZ-PLA",
+        "variante_ext": "196810146151"
+      }
+    },
+    {
+      "listing": {
+        "id": 1595,
+        "platform": "meli",
+        "product_id": 452,
+        "seller_sku": "NH-SOLO-EUR-CH-VIN-CEN-PLA",
+        "external_id": "MLM2735855869",
+        "listing_price": null,
+        "price_currency": null
+      },
+      "miembro": {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1595,
+        "product_id": 885,
+        "seller_sku": "SET-SOLO-EUR-CH-VIN-PEZ-PLA",
+        "variante_ext": "196810288997"
+      }
+    },
+    {
+      "listing": {
+        "id": 1596,
+        "platform": "meli",
+        "product_id": 389,
+        "seller_sku": "NH-PLA-M-CEN-DOR",
+        "external_id": "MLM4766746790",
+        "listing_price": null,
+        "price_currency": null
+      },
+      "miembro": {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1596,
+        "product_id": 830,
+        "seller_sku": "SET-PLA-M-PEZ-DOR",
+        "variante_ext": "190334426656"
+      }
+    },
+    {
+      "listing": {
+        "id": 1597,
+        "platform": "meli",
+        "product_id": 557,
+        "seller_sku": "NH-SOLO-PLA-CH-CEN-DOR",
+        "external_id": "MLM4763786382",
+        "listing_price": null,
+        "price_currency": null
+      },
+      "miembro": {
+        "activo": false,
+        "platform": "meli",
+        "visto_at": "2026-10-30T11:30:02.681472+00:00",
+        "listing_id": 1597,
+        "product_id": 982,
+        "seller_sku": "SET-SOLO-PLA-CH-PEZ-DOR",
+        "variante_ext": "196899524137"
+      }
+    },
+    {
+      "listing": {
+        "id": 1598,
+        "platform": "meli",
+        "product_id": 558,
+        "seller_sku": "NH-SOLO-PLA-CH-CEN-PLA",
+        "external_id": "MLM4763554298",
+        "listing_price": null,
+        "price_currency": null
+      },
+      "miembro": {
+        "activo": false,
+        "platform": "meli",
+        "visto_at": "2026-10-30T11:30:02.681472+00:00",
+        "listing_id": 1598,
+        "product_id": 983,
+        "seller_sku": "SET-SOLO-PLA-CH-PEZ-PLA",
+        "variante_ext": "190333743746"
+      }
+    },
+    {
+      "listing": {
+        "id": 1599,
+        "platform": "meli",
+        "product_id": 236,
+        "seller_sku": "NH-EUM-BLA-CEN-PLA",
+        "external_id": "MLM2737034243",
+        "listing_price": null,
+        "price_currency": null
+      },
+      "miembro": {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1599,
+        "product_id": 735,
+        "seller_sku": "SET-EUM-BLA-PEZ-PLA",
+        "variante_ext": "190333133034"
+      }
+    },
+    {
+      "listing": {
+        "id": 1600,
+        "platform": "meli",
+        "product_id": 210,
+        "seller_sku": "NH-DIA-CEN-PLA",
+        "external_id": "MLM4773847938",
+        "listing_price": null,
+        "price_currency": null
+      },
+      "miembro": {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1600,
+        "product_id": 711,
+        "seller_sku": "SET-DIA-PEZ-PLA",
+        "variante_ext": "197009059979"
+      }
+    },
+    {
+      "listing": {
+        "id": 1601,
+        "platform": "meli",
+        "product_id": 209,
+        "seller_sku": "NH-DIA-CEN-DOR",
+        "external_id": "MLM4773834354",
+        "listing_price": null,
+        "price_currency": null
+      },
+      "miembro": {
+        "activo": true,
+        "platform": "meli",
+        "visto_at": "2026-11-04T11:30:02.01216+00:00",
+        "listing_id": 1601,
+        "product_id": 710,
+        "seller_sku": "SET-DIA-PEZ-DOR",
+        "variante_ext": "197008943045"
+      }
+    }
+  ],
+  "goals": [
+    {
+      "goal": {
+        "id": 675,
+        "lote": "35b5eb9716ac6903",
+        "mode": "shadow",
+        "origen": "margen_de_hoy",
+        "platform": "meli",
+        "valid_to": "2026-10-17",
+        "creado_por": "X.4 sembrar.sh",
+        "created_at": "2026-10-17T02:04:44.69057+00:00",
+        "go_literal": null,
+        "listing_id": 1557,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.4992,
+        "margen_goal_pct": 0.4992
+      }
+    },
+    {
+      "goal": {
+        "id": 676,
+        "lote": "35b5eb9716ac6903",
+        "mode": "shadow",
+        "origen": "margen_de_hoy",
+        "platform": "meli",
+        "valid_to": "2026-10-17",
+        "creado_por": "X.4 sembrar.sh",
+        "created_at": "2026-10-17T02:04:44.69057+00:00",
+        "go_literal": null,
+        "listing_id": 1558,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.2878,
+        "margen_goal_pct": 0.2878
+      }
+    },
+    {
+      "goal": {
+        "id": 677,
+        "lote": "35b5eb9716ac6903",
+        "mode": "shadow",
+        "origen": "margen_de_hoy",
+        "platform": "meli",
+        "valid_to": "2026-10-17",
+        "creado_por": "X.4 sembrar.sh",
+        "created_at": "2026-10-17T02:04:44.69057+00:00",
+        "go_literal": null,
+        "listing_id": 1559,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.511,
+        "margen_goal_pct": 0.511
+      }
+    },
+    {
+      "goal": {
+        "id": 678,
+        "lote": "35b5eb9716ac6903",
+        "mode": "shadow",
+        "origen": "margen_de_hoy",
+        "platform": "meli",
+        "valid_to": "2026-10-17",
+        "creado_por": "X.4 sembrar.sh",
+        "created_at": "2026-10-17T02:04:44.69057+00:00",
+        "go_literal": null,
+        "listing_id": 1560,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.3541,
+        "margen_goal_pct": 0.3541
+      }
+    },
+    {
+      "goal": {
+        "id": 679,
+        "lote": "35b5eb9716ac6903",
+        "mode": "shadow",
+        "origen": "margen_de_hoy",
+        "platform": "meli",
+        "valid_to": "2026-10-17",
+        "creado_por": "X.4 sembrar.sh",
+        "created_at": "2026-10-17T02:04:44.69057+00:00",
+        "go_literal": null,
+        "listing_id": 1561,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.2996,
+        "margen_goal_pct": 0.2996
+      }
+    },
+    {
+      "goal": {
+        "id": 680,
+        "lote": "35b5eb9716ac6903",
+        "mode": "shadow",
+        "origen": "margen_de_hoy",
+        "platform": "meli",
+        "valid_to": "2026-10-17",
+        "creado_por": "X.4 sembrar.sh",
+        "created_at": "2026-10-17T02:04:44.69057+00:00",
+        "go_literal": null,
+        "listing_id": 1602,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.2497,
+        "margen_goal_pct": 0.2497
+      }
+    },
+    {
+      "goal": {
+        "id": 681,
+        "lote": "35b5eb9716ac6903",
+        "mode": "shadow",
+        "origen": "margen_de_hoy",
+        "platform": "meli",
+        "valid_to": "2026-10-17",
+        "creado_por": "X.4 sembrar.sh",
+        "created_at": "2026-10-17T02:04:44.69057+00:00",
+        "go_literal": null,
+        "listing_id": 1603,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.2497,
+        "margen_goal_pct": 0.2497
+      }
+    },
+    {
+      "goal": {
+        "id": 682,
+        "lote": "35b5eb9716ac6903",
+        "mode": "shadow",
+        "origen": "margen_de_hoy",
+        "platform": "meli",
+        "valid_to": "2026-10-17",
+        "creado_por": "X.4 sembrar.sh",
+        "created_at": "2026-10-17T02:04:44.69057+00:00",
+        "go_literal": null,
+        "listing_id": 1604,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.2497,
+        "margen_goal_pct": 0.2497
+      }
+    },
+    {
+      "goal": {
+        "id": 683,
+        "lote": "35b5eb9716ac6903",
+        "mode": "shadow",
+        "origen": "margen_de_hoy",
+        "platform": "meli",
+        "valid_to": "2026-10-17",
+        "creado_por": "X.4 sembrar.sh",
+        "created_at": "2026-10-17T02:04:44.69057+00:00",
+        "go_literal": null,
+        "listing_id": 1605,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.2497,
+        "margen_goal_pct": 0.2497
+      }
+    },
+    {
+      "goal": {
+        "id": 684,
+        "lote": "35b5eb9716ac6903",
+        "mode": "shadow",
+        "origen": "margen_de_hoy",
+        "platform": "meli",
+        "valid_to": "2026-10-17",
+        "creado_por": "X.4 sembrar.sh",
+        "created_at": "2026-10-17T02:04:44.69057+00:00",
+        "go_literal": null,
+        "listing_id": 1606,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.2497,
+        "margen_goal_pct": 0.2497
+      }
+    },
+    {
+      "goal": {
+        "id": 685,
+        "lote": "35b5eb9716ac6903",
+        "mode": "shadow",
+        "origen": "margen_de_hoy",
+        "platform": "meli",
+        "valid_to": "2026-10-17",
+        "creado_por": "X.4 sembrar.sh",
+        "created_at": "2026-10-17T02:04:44.69057+00:00",
+        "go_literal": null,
+        "listing_id": 1607,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.3681,
+        "margen_goal_pct": 0.3681
+      }
+    },
+    {
+      "goal": {
+        "id": 686,
+        "lote": "35b5eb9716ac6903",
+        "mode": "shadow",
+        "origen": "margen_de_hoy",
+        "platform": "meli",
+        "valid_to": "2026-10-17",
+        "creado_por": "X.4 sembrar.sh",
+        "created_at": "2026-10-17T02:04:44.69057+00:00",
+        "go_literal": null,
+        "listing_id": 1608,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.3681,
+        "margen_goal_pct": 0.3681
+      }
+    },
+    {
+      "goal": {
+        "id": 687,
+        "lote": "8d3c901643094d3a",
+        "mode": "shadow",
+        "origen": "margen_de_hoy",
+        "platform": "meli",
+        "valid_to": "2026-10-17",
+        "creado_por": "X.4 sembrar.sh",
+        "created_at": "2026-10-17T03:08:41.53682+00:00",
+        "go_literal": null,
+        "listing_id": 1555,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.3354,
+        "margen_goal_pct": 0.3354
+      }
+    },
+    {
+      "goal": {
+        "id": 688,
+        "lote": "8d3c901643094d3a",
+        "mode": "shadow",
+        "origen": "margen_de_hoy",
+        "platform": "meli",
+        "valid_to": "2026-10-17",
+        "creado_por": "X.4 sembrar.sh",
+        "created_at": "2026-10-17T03:08:41.53682+00:00",
+        "go_literal": null,
+        "listing_id": 1556,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.3929,
+        "margen_goal_pct": 0.3929
+      }
+    },
+    {
+      "goal": {
+        "id": 689,
+        "lote": "8d3c901643094d3a",
+        "mode": "shadow",
+        "origen": "margen_de_hoy",
+        "platform": "meli",
+        "valid_to": "2026-10-17",
+        "creado_por": "X.4 sembrar.sh",
+        "created_at": "2026-10-17T03:08:41.53682+00:00",
+        "go_literal": null,
+        "listing_id": 1564,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.3691,
+        "margen_goal_pct": 0.3691
+      }
+    },
+    {
+      "goal": {
+        "id": 690,
+        "lote": "8d3c901643094d3a",
+        "mode": "shadow",
+        "origen": "margen_de_hoy",
+        "platform": "meli",
+        "valid_to": "2026-10-17",
+        "creado_por": "X.4 sembrar.sh",
+        "created_at": "2026-10-17T03:08:41.53682+00:00",
+        "go_literal": null,
+        "listing_id": 1565,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.3523,
+        "margen_goal_pct": 0.3523
+      }
+    },
+    {
+      "goal": {
+        "id": 691,
+        "lote": "8d3c901643094d3a",
+        "mode": "shadow",
+        "origen": "margen_de_hoy",
+        "platform": "meli",
+        "valid_to": "2026-10-17",
+        "creado_por": "X.4 sembrar.sh",
+        "created_at": "2026-10-17T03:08:41.53682+00:00",
+        "go_literal": null,
+        "listing_id": 1566,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.325,
+        "margen_goal_pct": 0.325
+      }
+    },
+    {
+      "goal": {
+        "id": 692,
+        "lote": "8d3c901643094d3a",
+        "mode": "shadow",
+        "origen": "margen_de_hoy",
+        "platform": "meli",
+        "valid_to": "2026-10-17",
+        "creado_por": "X.4 sembrar.sh",
+        "created_at": "2026-10-17T03:08:41.53682+00:00",
+        "go_literal": null,
+        "listing_id": 1567,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.3995,
+        "margen_goal_pct": 0.3995
+      }
+    },
+    {
+      "goal": {
+        "id": 693,
+        "lote": "8d3c901643094d3a",
+        "mode": "shadow",
+        "origen": "margen_de_hoy",
+        "platform": "meli",
+        "valid_to": "2026-10-17",
+        "creado_por": "X.4 sembrar.sh",
+        "created_at": "2026-10-17T03:08:41.53682+00:00",
+        "go_literal": null,
+        "listing_id": 1568,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.3501,
+        "margen_goal_pct": 0.3501
+      }
+    },
+    {
+      "goal": {
+        "id": 694,
+        "lote": "8d3c901643094d3a",
+        "mode": "shadow",
+        "origen": "margen_de_hoy",
+        "platform": "meli",
+        "valid_to": "2026-10-17",
+        "creado_por": "X.4 sembrar.sh",
+        "created_at": "2026-10-17T03:08:41.53682+00:00",
+        "go_literal": null,
+        "listing_id": 1569,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.462,
+        "margen_goal_pct": 0.462
+      }
+    },
+    {
+      "goal": {
+        "id": 695,
+        "lote": "8d3c901643094d3a",
+        "mode": "shadow",
+        "origen": "margen_de_hoy",
+        "platform": "meli",
+        "valid_to": "2026-10-17",
+        "creado_por": "X.4 sembrar.sh",
+        "created_at": "2026-10-17T03:08:41.53682+00:00",
+        "go_literal": null,
+        "listing_id": 1570,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.4563,
+        "margen_goal_pct": 0.4563
+      }
+    },
+    {
+      "goal": {
+        "id": 696,
+        "lote": "8d3c901643094d3a",
+        "mode": "shadow",
+        "origen": "margen_de_hoy",
+        "platform": "meli",
+        "valid_to": "2026-10-17",
+        "creado_por": "X.4 sembrar.sh",
+        "created_at": "2026-10-17T03:08:41.53682+00:00",
+        "go_literal": null,
+        "listing_id": 1571,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.4859,
+        "margen_goal_pct": 0.4859
+      }
+    },
+    {
+      "goal": {
+        "id": 697,
+        "lote": "8d3c901643094d3a",
+        "mode": "shadow",
+        "origen": "margen_de_hoy",
+        "platform": "meli",
+        "valid_to": "2026-10-17",
+        "creado_por": "X.4 sembrar.sh",
+        "created_at": "2026-10-17T03:08:41.53682+00:00",
+        "go_literal": null,
+        "listing_id": 1572,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.3667,
+        "margen_goal_pct": 0.3667
+      }
+    },
+    {
+      "goal": {
+        "id": 698,
+        "lote": "8d3c901643094d3a",
+        "mode": "shadow",
+        "origen": "margen_de_hoy",
+        "platform": "meli",
+        "valid_to": "2026-10-17",
+        "creado_por": "X.4 sembrar.sh",
+        "created_at": "2026-10-17T03:08:41.53682+00:00",
+        "go_literal": null,
+        "listing_id": 1573,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.2928,
+        "margen_goal_pct": 0.2928
+      }
+    },
+    {
+      "goal": {
+        "id": 699,
+        "lote": "8d3c901643094d3a",
+        "mode": "shadow",
+        "origen": "margen_de_hoy",
+        "platform": "meli",
+        "valid_to": "2026-10-17",
+        "creado_por": "X.4 sembrar.sh",
+        "created_at": "2026-10-17T03:08:41.53682+00:00",
+        "go_literal": null,
+        "listing_id": 1574,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.2978,
+        "margen_goal_pct": 0.2978
+      }
+    },
+    {
+      "goal": {
+        "id": 700,
+        "lote": "8d3c901643094d3a",
+        "mode": "shadow",
+        "origen": "margen_de_hoy",
+        "platform": "meli",
+        "valid_to": "2026-10-17",
+        "creado_por": "X.4 sembrar.sh",
+        "created_at": "2026-10-17T03:08:41.53682+00:00",
+        "go_literal": null,
+        "listing_id": 1575,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.2928,
+        "margen_goal_pct": 0.2928
+      }
+    },
+    {
+      "goal": {
+        "id": 701,
+        "lote": "8d3c901643094d3a",
+        "mode": "shadow",
+        "origen": "margen_de_hoy",
+        "platform": "meli",
+        "valid_to": "2026-10-17",
+        "creado_por": "X.4 sembrar.sh",
+        "created_at": "2026-10-17T03:08:41.53682+00:00",
+        "go_literal": null,
+        "listing_id": 1576,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.3002,
+        "margen_goal_pct": 0.3002
+      }
+    },
+    {
+      "goal": {
+        "id": 702,
+        "lote": "8d3c901643094d3a",
+        "mode": "shadow",
+        "origen": "margen_de_hoy",
+        "platform": "meli",
+        "valid_to": "2026-10-17",
+        "creado_por": "X.4 sembrar.sh",
+        "created_at": "2026-10-17T03:08:41.53682+00:00",
+        "go_literal": null,
+        "listing_id": 1577,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.3995,
+        "margen_goal_pct": 0.3995
+      }
+    },
+    {
+      "goal": {
+        "id": 703,
+        "lote": "8d3c901643094d3a",
+        "mode": "shadow",
+        "origen": "margen_de_hoy",
+        "platform": "meli",
+        "valid_to": "2026-10-17",
+        "creado_por": "X.4 sembrar.sh",
+        "created_at": "2026-10-17T03:08:41.53682+00:00",
+        "go_literal": null,
+        "listing_id": 1580,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.3316,
+        "margen_goal_pct": 0.3316
+      }
+    },
+    {
+      "goal": {
+        "id": 704,
+        "lote": "8d3c901643094d3a",
+        "mode": "shadow",
+        "origen": "margen_de_hoy",
+        "platform": "meli",
+        "valid_to": "2026-10-17",
+        "creado_por": "X.4 sembrar.sh",
+        "created_at": "2026-10-17T03:08:41.53682+00:00",
+        "go_literal": null,
+        "listing_id": 1581,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.462,
+        "margen_goal_pct": 0.462
+      }
+    },
+    {
+      "goal": {
+        "id": 705,
+        "lote": "8d3c901643094d3a",
+        "mode": "shadow",
+        "origen": "margen_de_hoy",
+        "platform": "meli",
+        "valid_to": "2026-10-17",
+        "creado_por": "X.4 sembrar.sh",
+        "created_at": "2026-10-17T03:08:41.53682+00:00",
+        "go_literal": null,
+        "listing_id": 1586,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.462,
+        "margen_goal_pct": 0.462
+      }
+    },
+    {
+      "goal": {
+        "id": 706,
+        "lote": "8d3c901643094d3a",
+        "mode": "shadow",
+        "origen": "margen_de_hoy",
+        "platform": "meli",
+        "valid_to": "2026-10-17",
+        "creado_por": "X.4 sembrar.sh",
+        "created_at": "2026-10-17T03:08:41.53682+00:00",
+        "go_literal": null,
+        "listing_id": 1587,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.4489,
+        "margen_goal_pct": 0.4489
+      }
+    },
+    {
+      "goal": {
+        "id": 707,
+        "lote": "8d3c901643094d3a",
+        "mode": "shadow",
+        "origen": "margen_de_hoy",
+        "platform": "meli",
+        "valid_to": "2026-10-17",
+        "creado_por": "X.4 sembrar.sh",
+        "created_at": "2026-10-17T03:08:41.53682+00:00",
+        "go_literal": null,
+        "listing_id": 1588,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.4212,
+        "margen_goal_pct": 0.4212
+      }
+    },
+    {
+      "goal": {
+        "id": 708,
+        "lote": "8d3c901643094d3a",
+        "mode": "shadow",
+        "origen": "margen_de_hoy",
+        "platform": "meli",
+        "valid_to": "2026-10-17",
+        "creado_por": "X.4 sembrar.sh",
+        "created_at": "2026-10-17T03:08:41.53682+00:00",
+        "go_literal": null,
+        "listing_id": 1589,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.4212,
+        "margen_goal_pct": 0.4212
+      }
+    },
+    {
+      "goal": {
+        "id": 709,
+        "lote": "8d3c901643094d3a",
+        "mode": "shadow",
+        "origen": "margen_de_hoy",
+        "platform": "meli",
+        "valid_to": "2026-10-17",
+        "creado_por": "X.4 sembrar.sh",
+        "created_at": "2026-10-17T03:08:41.53682+00:00",
+        "go_literal": null,
+        "listing_id": 1591,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.3555,
+        "margen_goal_pct": 0.3555
+      }
+    },
+    {
+      "goal": {
+        "id": 710,
+        "lote": "8d3c901643094d3a",
+        "mode": "shadow",
+        "origen": "margen_de_hoy",
+        "platform": "meli",
+        "valid_to": "2026-10-17",
+        "creado_por": "X.4 sembrar.sh",
+        "created_at": "2026-10-17T03:08:41.53682+00:00",
+        "go_literal": null,
+        "listing_id": 1592,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.3606,
+        "margen_goal_pct": 0.3606
+      }
+    },
+    {
+      "goal": {
+        "id": 711,
+        "lote": "8d3c901643094d3a",
+        "mode": "shadow",
+        "origen": "margen_de_hoy",
+        "platform": "meli",
+        "valid_to": "2026-10-17",
+        "creado_por": "X.4 sembrar.sh",
+        "created_at": "2026-10-17T03:08:41.53682+00:00",
+        "go_literal": null,
+        "listing_id": 1593,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.3772,
+        "margen_goal_pct": 0.3772
+      }
+    },
+    {
+      "goal": {
+        "id": 712,
+        "lote": "8d3c901643094d3a",
+        "mode": "shadow",
+        "origen": "margen_de_hoy",
+        "platform": "meli",
+        "valid_to": "2026-10-17",
+        "creado_por": "X.4 sembrar.sh",
+        "created_at": "2026-10-17T03:08:41.53682+00:00",
+        "go_literal": null,
+        "listing_id": 1594,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.3711,
+        "margen_goal_pct": 0.3711
+      }
+    },
+    {
+      "goal": {
+        "id": 713,
+        "lote": "8d3c901643094d3a",
+        "mode": "shadow",
+        "origen": "margen_de_hoy",
+        "platform": "meli",
+        "valid_to": "2026-10-17",
+        "creado_por": "X.4 sembrar.sh",
+        "created_at": "2026-10-17T03:08:41.53682+00:00",
+        "go_literal": null,
+        "listing_id": 1595,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.4489,
+        "margen_goal_pct": 0.4489
+      }
+    },
+    {
+      "goal": {
+        "id": 714,
+        "lote": "8d3c901643094d3a",
+        "mode": "shadow",
+        "origen": "margen_de_hoy",
+        "platform": "meli",
+        "valid_to": "2026-10-17",
+        "creado_por": "X.4 sembrar.sh",
+        "created_at": "2026-10-17T03:08:41.53682+00:00",
+        "go_literal": null,
+        "listing_id": 1596,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.32,
+        "margen_goal_pct": 0.32
+      }
+    },
+    {
+      "goal": {
+        "id": 715,
+        "lote": "8d3c901643094d3a",
+        "mode": "shadow",
+        "origen": "margen_de_hoy",
+        "platform": "meli",
+        "valid_to": "2026-10-17",
+        "creado_por": "X.4 sembrar.sh",
+        "created_at": "2026-10-17T03:08:41.53682+00:00",
+        "go_literal": null,
+        "listing_id": 1597,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.4069,
+        "margen_goal_pct": 0.4069
+      }
+    },
+    {
+      "goal": {
+        "id": 716,
+        "lote": "8d3c901643094d3a",
+        "mode": "shadow",
+        "origen": "margen_de_hoy",
+        "platform": "meli",
+        "valid_to": "2026-10-17",
+        "creado_por": "X.4 sembrar.sh",
+        "created_at": "2026-10-17T03:08:41.53682+00:00",
+        "go_literal": null,
+        "listing_id": 1598,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.4069,
+        "margen_goal_pct": 0.4069
+      }
+    },
+    {
+      "goal": {
+        "id": 717,
+        "lote": "8d3c901643094d3a",
+        "mode": "shadow",
+        "origen": "margen_de_hoy",
+        "platform": "meli",
+        "valid_to": "2026-10-17",
+        "creado_por": "X.4 sembrar.sh",
+        "created_at": "2026-10-17T03:08:41.53682+00:00",
+        "go_literal": null,
+        "listing_id": 1599,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.3566,
+        "margen_goal_pct": 0.3566
+      }
+    },
+    {
+      "goal": {
+        "id": 718,
+        "lote": "8d3c901643094d3a",
+        "mode": "shadow",
+        "origen": "margen_de_hoy",
+        "platform": "meli",
+        "valid_to": "2026-10-17",
+        "creado_por": "X.4 sembrar.sh",
+        "created_at": "2026-10-17T03:08:41.53682+00:00",
+        "go_literal": null,
+        "listing_id": 1600,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.3297,
+        "margen_goal_pct": 0.3297
+      }
+    },
+    {
+      "goal": {
+        "id": 719,
+        "lote": "8d3c901643094d3a",
+        "mode": "shadow",
+        "origen": "margen_de_hoy",
+        "platform": "meli",
+        "valid_to": "2026-10-17",
+        "creado_por": "X.4 sembrar.sh",
+        "created_at": "2026-10-17T03:08:41.53682+00:00",
+        "go_literal": null,
+        "listing_id": 1601,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.3288,
+        "margen_goal_pct": 0.3288
+      }
+    },
+    {
+      "goal": {
+        "id": 720,
+        "lote": "baa6e5fae58bcac0",
+        "mode": "live",
+        "origen": "cambio_de_modo",
+        "platform": "meli",
+        "valid_to": null,
+        "creado_por": "X.4 encender.sh",
+        "created_at": "2026-10-17T06:50:12.862753+00:00",
+        "go_literal": "plan repricing-02 X.4",
+        "listing_id": 1555,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.3354,
+        "margen_goal_pct": 0.3354
+      }
+    },
+    {
+      "goal": {
+        "id": 721,
+        "lote": "baa6e5fae58bcac0",
+        "mode": "live",
+        "origen": "cambio_de_modo",
+        "platform": "meli",
+        "valid_to": null,
+        "creado_por": "X.4 encender.sh",
+        "created_at": "2026-10-17T06:50:12.862753+00:00",
+        "go_literal": "plan repricing-02 X.4",
+        "listing_id": 1556,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.3929,
+        "margen_goal_pct": 0.3929
+      }
+    },
+    {
+      "goal": {
+        "id": 722,
+        "lote": "baa6e5fae58bcac0",
+        "mode": "live",
+        "origen": "cambio_de_modo",
+        "platform": "meli",
+        "valid_to": null,
+        "creado_por": "X.4 encender.sh",
+        "created_at": "2026-10-17T06:50:12.862753+00:00",
+        "go_literal": "plan repricing-02 X.4",
+        "listing_id": 1557,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.4992,
+        "margen_goal_pct": 0.4992
+      }
+    },
+    {
+      "goal": {
+        "id": 723,
+        "lote": "baa6e5fae58bcac0",
+        "mode": "live",
+        "origen": "cambio_de_modo",
+        "platform": "meli",
+        "valid_to": null,
+        "creado_por": "X.4 encender.sh",
+        "created_at": "2026-10-17T06:50:12.862753+00:00",
+        "go_literal": "plan repricing-02 X.4",
+        "listing_id": 1558,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.2878,
+        "margen_goal_pct": 0.2878
+      }
+    },
+    {
+      "goal": {
+        "id": 724,
+        "lote": "baa6e5fae58bcac0",
+        "mode": "live",
+        "origen": "cambio_de_modo",
+        "platform": "meli",
+        "valid_to": null,
+        "creado_por": "X.4 encender.sh",
+        "created_at": "2026-10-17T06:50:12.862753+00:00",
+        "go_literal": "plan repricing-02 X.4",
+        "listing_id": 1559,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.511,
+        "margen_goal_pct": 0.511
+      }
+    },
+    {
+      "goal": {
+        "id": 725,
+        "lote": "baa6e5fae58bcac0",
+        "mode": "live",
+        "origen": "cambio_de_modo",
+        "platform": "meli",
+        "valid_to": null,
+        "creado_por": "X.4 encender.sh",
+        "created_at": "2026-10-17T06:50:12.862753+00:00",
+        "go_literal": "plan repricing-02 X.4",
+        "listing_id": 1560,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.3541,
+        "margen_goal_pct": 0.3541
+      }
+    },
+    {
+      "goal": {
+        "id": 726,
+        "lote": "baa6e5fae58bcac0",
+        "mode": "live",
+        "origen": "cambio_de_modo",
+        "platform": "meli",
+        "valid_to": null,
+        "creado_por": "X.4 encender.sh",
+        "created_at": "2026-10-17T06:50:12.862753+00:00",
+        "go_literal": "plan repricing-02 X.4",
+        "listing_id": 1561,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.2996,
+        "margen_goal_pct": 0.2996
+      }
+    },
+    {
+      "goal": {
+        "id": 727,
+        "lote": "baa6e5fae58bcac0",
+        "mode": "live",
+        "origen": "cambio_de_modo",
+        "platform": "meli",
+        "valid_to": null,
+        "creado_por": "X.4 encender.sh",
+        "created_at": "2026-10-17T06:50:12.862753+00:00",
+        "go_literal": "plan repricing-02 X.4",
+        "listing_id": 1564,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.3691,
+        "margen_goal_pct": 0.3691
+      }
+    },
+    {
+      "goal": {
+        "id": 728,
+        "lote": "baa6e5fae58bcac0",
+        "mode": "live",
+        "origen": "cambio_de_modo",
+        "platform": "meli",
+        "valid_to": null,
+        "creado_por": "X.4 encender.sh",
+        "created_at": "2026-10-17T06:50:12.862753+00:00",
+        "go_literal": "plan repricing-02 X.4",
+        "listing_id": 1565,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.3523,
+        "margen_goal_pct": 0.3523
+      }
+    },
+    {
+      "goal": {
+        "id": 729,
+        "lote": "baa6e5fae58bcac0",
+        "mode": "live",
+        "origen": "cambio_de_modo",
+        "platform": "meli",
+        "valid_to": null,
+        "creado_por": "X.4 encender.sh",
+        "created_at": "2026-10-17T06:50:12.862753+00:00",
+        "go_literal": "plan repricing-02 X.4",
+        "listing_id": 1566,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.325,
+        "margen_goal_pct": 0.325
+      }
+    },
+    {
+      "goal": {
+        "id": 730,
+        "lote": "baa6e5fae58bcac0",
+        "mode": "live",
+        "origen": "cambio_de_modo",
+        "platform": "meli",
+        "valid_to": null,
+        "creado_por": "X.4 encender.sh",
+        "created_at": "2026-10-17T06:50:12.862753+00:00",
+        "go_literal": "plan repricing-02 X.4",
+        "listing_id": 1567,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.3995,
+        "margen_goal_pct": 0.3995
+      }
+    },
+    {
+      "goal": {
+        "id": 731,
+        "lote": "baa6e5fae58bcac0",
+        "mode": "live",
+        "origen": "cambio_de_modo",
+        "platform": "meli",
+        "valid_to": null,
+        "creado_por": "X.4 encender.sh",
+        "created_at": "2026-10-17T06:50:12.862753+00:00",
+        "go_literal": "plan repricing-02 X.4",
+        "listing_id": 1568,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.3501,
+        "margen_goal_pct": 0.3501
+      }
+    },
+    {
+      "goal": {
+        "id": 732,
+        "lote": "baa6e5fae58bcac0",
+        "mode": "live",
+        "origen": "cambio_de_modo",
+        "platform": "meli",
+        "valid_to": null,
+        "creado_por": "X.4 encender.sh",
+        "created_at": "2026-10-17T06:50:12.862753+00:00",
+        "go_literal": "plan repricing-02 X.4",
+        "listing_id": 1569,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.462,
+        "margen_goal_pct": 0.462
+      }
+    },
+    {
+      "goal": {
+        "id": 733,
+        "lote": "baa6e5fae58bcac0",
+        "mode": "live",
+        "origen": "cambio_de_modo",
+        "platform": "meli",
+        "valid_to": null,
+        "creado_por": "X.4 encender.sh",
+        "created_at": "2026-10-17T06:50:12.862753+00:00",
+        "go_literal": "plan repricing-02 X.4",
+        "listing_id": 1570,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.4563,
+        "margen_goal_pct": 0.4563
+      }
+    },
+    {
+      "goal": {
+        "id": 734,
+        "lote": "baa6e5fae58bcac0",
+        "mode": "live",
+        "origen": "cambio_de_modo",
+        "platform": "meli",
+        "valid_to": null,
+        "creado_por": "X.4 encender.sh",
+        "created_at": "2026-10-17T06:50:12.862753+00:00",
+        "go_literal": "plan repricing-02 X.4",
+        "listing_id": 1571,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.4859,
+        "margen_goal_pct": 0.4859
+      }
+    },
+    {
+      "goal": {
+        "id": 735,
+        "lote": "baa6e5fae58bcac0",
+        "mode": "live",
+        "origen": "cambio_de_modo",
+        "platform": "meli",
+        "valid_to": null,
+        "creado_por": "X.4 encender.sh",
+        "created_at": "2026-10-17T06:50:12.862753+00:00",
+        "go_literal": "plan repricing-02 X.4",
+        "listing_id": 1572,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.3667,
+        "margen_goal_pct": 0.3667
+      }
+    },
+    {
+      "goal": {
+        "id": 736,
+        "lote": "baa6e5fae58bcac0",
+        "mode": "live",
+        "origen": "cambio_de_modo",
+        "platform": "meli",
+        "valid_to": null,
+        "creado_por": "X.4 encender.sh",
+        "created_at": "2026-10-17T06:50:12.862753+00:00",
+        "go_literal": "plan repricing-02 X.4",
+        "listing_id": 1573,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.2928,
+        "margen_goal_pct": 0.2928
+      }
+    },
+    {
+      "goal": {
+        "id": 737,
+        "lote": "baa6e5fae58bcac0",
+        "mode": "live",
+        "origen": "cambio_de_modo",
+        "platform": "meli",
+        "valid_to": null,
+        "creado_por": "X.4 encender.sh",
+        "created_at": "2026-10-17T06:50:12.862753+00:00",
+        "go_literal": "plan repricing-02 X.4",
+        "listing_id": 1574,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.2978,
+        "margen_goal_pct": 0.2978
+      }
+    },
+    {
+      "goal": {
+        "id": 738,
+        "lote": "baa6e5fae58bcac0",
+        "mode": "live",
+        "origen": "cambio_de_modo",
+        "platform": "meli",
+        "valid_to": null,
+        "creado_por": "X.4 encender.sh",
+        "created_at": "2026-10-17T06:50:12.862753+00:00",
+        "go_literal": "plan repricing-02 X.4",
+        "listing_id": 1575,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.2928,
+        "margen_goal_pct": 0.2928
+      }
+    },
+    {
+      "goal": {
+        "id": 739,
+        "lote": "baa6e5fae58bcac0",
+        "mode": "live",
+        "origen": "cambio_de_modo",
+        "platform": "meli",
+        "valid_to": null,
+        "creado_por": "X.4 encender.sh",
+        "created_at": "2026-10-17T06:50:12.862753+00:00",
+        "go_literal": "plan repricing-02 X.4",
+        "listing_id": 1576,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.3002,
+        "margen_goal_pct": 0.3002
+      }
+    },
+    {
+      "goal": {
+        "id": 740,
+        "lote": "baa6e5fae58bcac0",
+        "mode": "live",
+        "origen": "cambio_de_modo",
+        "platform": "meli",
+        "valid_to": null,
+        "creado_por": "X.4 encender.sh",
+        "created_at": "2026-10-17T06:50:12.862753+00:00",
+        "go_literal": "plan repricing-02 X.4",
+        "listing_id": 1577,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.3995,
+        "margen_goal_pct": 0.3995
+      }
+    },
+    {
+      "goal": {
+        "id": 741,
+        "lote": "baa6e5fae58bcac0",
+        "mode": "live",
+        "origen": "cambio_de_modo",
+        "platform": "meli",
+        "valid_to": null,
+        "creado_por": "X.4 encender.sh",
+        "created_at": "2026-10-17T06:50:12.862753+00:00",
+        "go_literal": "plan repricing-02 X.4",
+        "listing_id": 1580,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.3316,
+        "margen_goal_pct": 0.3316
+      }
+    },
+    {
+      "goal": {
+        "id": 742,
+        "lote": "baa6e5fae58bcac0",
+        "mode": "live",
+        "origen": "cambio_de_modo",
+        "platform": "meli",
+        "valid_to": null,
+        "creado_por": "X.4 encender.sh",
+        "created_at": "2026-10-17T06:50:12.862753+00:00",
+        "go_literal": "plan repricing-02 X.4",
+        "listing_id": 1581,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.462,
+        "margen_goal_pct": 0.462
+      }
+    },
+    {
+      "goal": {
+        "id": 743,
+        "lote": "baa6e5fae58bcac0",
+        "mode": "live",
+        "origen": "cambio_de_modo",
+        "platform": "meli",
+        "valid_to": null,
+        "creado_por": "X.4 encender.sh",
+        "created_at": "2026-10-17T06:50:12.862753+00:00",
+        "go_literal": "plan repricing-02 X.4",
+        "listing_id": 1586,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.462,
+        "margen_goal_pct": 0.462
+      }
+    },
+    {
+      "goal": {
+        "id": 744,
+        "lote": "baa6e5fae58bcac0",
+        "mode": "live",
+        "origen": "cambio_de_modo",
+        "platform": "meli",
+        "valid_to": null,
+        "creado_por": "X.4 encender.sh",
+        "created_at": "2026-10-17T06:50:12.862753+00:00",
+        "go_literal": "plan repricing-02 X.4",
+        "listing_id": 1587,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.4489,
+        "margen_goal_pct": 0.4489
+      }
+    },
+    {
+      "goal": {
+        "id": 745,
+        "lote": "baa6e5fae58bcac0",
+        "mode": "live",
+        "origen": "cambio_de_modo",
+        "platform": "meli",
+        "valid_to": null,
+        "creado_por": "X.4 encender.sh",
+        "created_at": "2026-10-17T06:50:12.862753+00:00",
+        "go_literal": "plan repricing-02 X.4",
+        "listing_id": 1588,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.4212,
+        "margen_goal_pct": 0.4212
+      }
+    },
+    {
+      "goal": {
+        "id": 746,
+        "lote": "baa6e5fae58bcac0",
+        "mode": "live",
+        "origen": "cambio_de_modo",
+        "platform": "meli",
+        "valid_to": null,
+        "creado_por": "X.4 encender.sh",
+        "created_at": "2026-10-17T06:50:12.862753+00:00",
+        "go_literal": "plan repricing-02 X.4",
+        "listing_id": 1589,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.4212,
+        "margen_goal_pct": 0.4212
+      }
+    },
+    {
+      "goal": {
+        "id": 747,
+        "lote": "baa6e5fae58bcac0",
+        "mode": "live",
+        "origen": "cambio_de_modo",
+        "platform": "meli",
+        "valid_to": null,
+        "creado_por": "X.4 encender.sh",
+        "created_at": "2026-10-17T06:50:12.862753+00:00",
+        "go_literal": "plan repricing-02 X.4",
+        "listing_id": 1591,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.3555,
+        "margen_goal_pct": 0.3555
+      }
+    },
+    {
+      "goal": {
+        "id": 748,
+        "lote": "baa6e5fae58bcac0",
+        "mode": "live",
+        "origen": "cambio_de_modo",
+        "platform": "meli",
+        "valid_to": null,
+        "creado_por": "X.4 encender.sh",
+        "created_at": "2026-10-17T06:50:12.862753+00:00",
+        "go_literal": "plan repricing-02 X.4",
+        "listing_id": 1592,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.3606,
+        "margen_goal_pct": 0.3606
+      }
+    },
+    {
+      "goal": {
+        "id": 749,
+        "lote": "baa6e5fae58bcac0",
+        "mode": "live",
+        "origen": "cambio_de_modo",
+        "platform": "meli",
+        "valid_to": null,
+        "creado_por": "X.4 encender.sh",
+        "created_at": "2026-10-17T06:50:12.862753+00:00",
+        "go_literal": "plan repricing-02 X.4",
+        "listing_id": 1593,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.3772,
+        "margen_goal_pct": 0.3772
+      }
+    },
+    {
+      "goal": {
+        "id": 750,
+        "lote": "baa6e5fae58bcac0",
+        "mode": "live",
+        "origen": "cambio_de_modo",
+        "platform": "meli",
+        "valid_to": null,
+        "creado_por": "X.4 encender.sh",
+        "created_at": "2026-10-17T06:50:12.862753+00:00",
+        "go_literal": "plan repricing-02 X.4",
+        "listing_id": 1594,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.3711,
+        "margen_goal_pct": 0.3711
+      }
+    },
+    {
+      "goal": {
+        "id": 751,
+        "lote": "baa6e5fae58bcac0",
+        "mode": "live",
+        "origen": "cambio_de_modo",
+        "platform": "meli",
+        "valid_to": null,
+        "creado_por": "X.4 encender.sh",
+        "created_at": "2026-10-17T06:50:12.862753+00:00",
+        "go_literal": "plan repricing-02 X.4",
+        "listing_id": 1595,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.4489,
+        "margen_goal_pct": 0.4489
+      }
+    },
+    {
+      "goal": {
+        "id": 752,
+        "lote": "baa6e5fae58bcac0",
+        "mode": "live",
+        "origen": "cambio_de_modo",
+        "platform": "meli",
+        "valid_to": null,
+        "creado_por": "X.4 encender.sh",
+        "created_at": "2026-10-17T06:50:12.862753+00:00",
+        "go_literal": "plan repricing-02 X.4",
+        "listing_id": 1596,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.32,
+        "margen_goal_pct": 0.32
+      }
+    },
+    {
+      "goal": {
+        "id": 753,
+        "lote": "baa6e5fae58bcac0",
+        "mode": "live",
+        "origen": "cambio_de_modo",
+        "platform": "meli",
+        "valid_to": null,
+        "creado_por": "X.4 encender.sh",
+        "created_at": "2026-10-17T06:50:12.862753+00:00",
+        "go_literal": "plan repricing-02 X.4",
+        "listing_id": 1597,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.4069,
+        "margen_goal_pct": 0.4069
+      }
+    },
+    {
+      "goal": {
+        "id": 754,
+        "lote": "baa6e5fae58bcac0",
+        "mode": "live",
+        "origen": "cambio_de_modo",
+        "platform": "meli",
+        "valid_to": null,
+        "creado_por": "X.4 encender.sh",
+        "created_at": "2026-10-17T06:50:12.862753+00:00",
+        "go_literal": "plan repricing-02 X.4",
+        "listing_id": 1598,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.4069,
+        "margen_goal_pct": 0.4069
+      }
+    },
+    {
+      "goal": {
+        "id": 755,
+        "lote": "baa6e5fae58bcac0",
+        "mode": "live",
+        "origen": "cambio_de_modo",
+        "platform": "meli",
+        "valid_to": null,
+        "creado_por": "X.4 encender.sh",
+        "created_at": "2026-10-17T06:50:12.862753+00:00",
+        "go_literal": "plan repricing-02 X.4",
+        "listing_id": 1599,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.3566,
+        "margen_goal_pct": 0.3566
+      }
+    },
+    {
+      "goal": {
+        "id": 756,
+        "lote": "baa6e5fae58bcac0",
+        "mode": "live",
+        "origen": "cambio_de_modo",
+        "platform": "meli",
+        "valid_to": null,
+        "creado_por": "X.4 encender.sh",
+        "created_at": "2026-10-17T06:50:12.862753+00:00",
+        "go_literal": "plan repricing-02 X.4",
+        "listing_id": 1600,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.3297,
+        "margen_goal_pct": 0.3297
+      }
+    },
+    {
+      "goal": {
+        "id": 757,
+        "lote": "baa6e5fae58bcac0",
+        "mode": "live",
+        "origen": "cambio_de_modo",
+        "platform": "meli",
+        "valid_to": null,
+        "creado_por": "X.4 encender.sh",
+        "created_at": "2026-10-17T06:50:12.862753+00:00",
+        "go_literal": "plan repricing-02 X.4",
+        "listing_id": 1601,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.3288,
+        "margen_goal_pct": 0.3288
+      }
+    },
+    {
+      "goal": {
+        "id": 758,
+        "lote": "baa6e5fae58bcac0",
+        "mode": "live",
+        "origen": "cambio_de_modo",
+        "platform": "meli",
+        "valid_to": null,
+        "creado_por": "X.4 encender.sh",
+        "created_at": "2026-10-17T06:50:12.862753+00:00",
+        "go_literal": "plan repricing-02 X.4",
+        "listing_id": 1602,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.2497,
+        "margen_goal_pct": 0.2497
+      }
+    },
+    {
+      "goal": {
+        "id": 759,
+        "lote": "baa6e5fae58bcac0",
+        "mode": "live",
+        "origen": "cambio_de_modo",
+        "platform": "meli",
+        "valid_to": null,
+        "creado_por": "X.4 encender.sh",
+        "created_at": "2026-10-17T06:50:12.862753+00:00",
+        "go_literal": "plan repricing-02 X.4",
+        "listing_id": 1603,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.2497,
+        "margen_goal_pct": 0.2497
+      }
+    },
+    {
+      "goal": {
+        "id": 760,
+        "lote": "baa6e5fae58bcac0",
+        "mode": "live",
+        "origen": "cambio_de_modo",
+        "platform": "meli",
+        "valid_to": null,
+        "creado_por": "X.4 encender.sh",
+        "created_at": "2026-10-17T06:50:12.862753+00:00",
+        "go_literal": "plan repricing-02 X.4",
+        "listing_id": 1604,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.2497,
+        "margen_goal_pct": 0.2497
+      }
+    },
+    {
+      "goal": {
+        "id": 761,
+        "lote": "baa6e5fae58bcac0",
+        "mode": "live",
+        "origen": "cambio_de_modo",
+        "platform": "meli",
+        "valid_to": null,
+        "creado_por": "X.4 encender.sh",
+        "created_at": "2026-10-17T06:50:12.862753+00:00",
+        "go_literal": "plan repricing-02 X.4",
+        "listing_id": 1605,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.2497,
+        "margen_goal_pct": 0.2497
+      }
+    },
+    {
+      "goal": {
+        "id": 762,
+        "lote": "baa6e5fae58bcac0",
+        "mode": "live",
+        "origen": "cambio_de_modo",
+        "platform": "meli",
+        "valid_to": null,
+        "creado_por": "X.4 encender.sh",
+        "created_at": "2026-10-17T06:50:12.862753+00:00",
+        "go_literal": "plan repricing-02 X.4",
+        "listing_id": 1606,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.2497,
+        "margen_goal_pct": 0.2497
+      }
+    },
+    {
+      "goal": {
+        "id": 763,
+        "lote": "baa6e5fae58bcac0",
+        "mode": "live",
+        "origen": "cambio_de_modo",
+        "platform": "meli",
+        "valid_to": null,
+        "creado_por": "X.4 encender.sh",
+        "created_at": "2026-10-17T06:50:12.862753+00:00",
+        "go_literal": "plan repricing-02 X.4",
+        "listing_id": 1607,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.3681,
+        "margen_goal_pct": 0.3681
+      }
+    },
+    {
+      "goal": {
+        "id": 764,
+        "lote": "baa6e5fae58bcac0",
+        "mode": "live",
+        "origen": "cambio_de_modo",
+        "platform": "meli",
+        "valid_to": null,
+        "creado_por": "X.4 encender.sh",
+        "created_at": "2026-10-17T06:50:12.862753+00:00",
+        "go_literal": "plan repricing-02 X.4",
+        "listing_id": 1608,
+        "valid_from": "2026-10-17",
+        "m_referencia": 0.3681,
+        "margen_goal_pct": 0.3681
+      }
+    }
+  ],
+  "corridas": [
+    {
+      "corrida": {
+        "id": 380,
+        "fecha": "2026-11-04",
+        "owner": "9144085b3c6a:2288",
+        "estado": "cerrada",
+        "errores": 0,
+        "movidas": 0,
+        "platform": "meli",
+        "retenidas": 0,
+        "virtuales": 0,
+        "cerrada_at": "2026-11-04T23:10:02.605467+00:00",
+        "decisiones": 0,
+        "iniciada_at": "2026-11-04T23:10:02.59429+00:00",
+        "modo_global": "live",
+        "config_version_id": 42,
+        "resumen_enviado_at": null,
+        "saltadas_por_edicion": 0
+      }
+    },
+    {
+      "corrida": {
+        "id": 377,
+        "fecha": "2026-11-04",
+        "owner": "9144085b3c6a:2250",
+        "estado": "cerrada",
+        "errores": 0,
+        "movidas": 0,
+        "platform": "meli",
+        "retenidas": 0,
+        "virtuales": 0,
+        "cerrada_at": "2026-11-04T21:10:02.537761+00:00",
+        "decisiones": 0,
+        "iniciada_at": "2026-11-04T21:10:02.526694+00:00",
+        "modo_global": "live",
+        "config_version_id": 42,
+        "resumen_enviado_at": null,
+        "saltadas_por_edicion": 0
+      }
+    },
+    {
+      "corrida": {
+        "id": 374,
+        "fecha": "2026-11-04",
+        "owner": "9144085b3c6a:2221",
+        "estado": "cerrada",
+        "errores": 0,
+        "movidas": 0,
+        "platform": "meli",
+        "retenidas": 0,
+        "virtuales": 0,
+        "cerrada_at": "2026-11-04T19:10:01.962493+00:00",
+        "decisiones": 0,
+        "iniciada_at": "2026-11-04T19:10:01.95093+00:00",
+        "modo_global": "live",
+        "config_version_id": 42,
+        "resumen_enviado_at": null,
+        "saltadas_por_edicion": 0
+      }
+    },
+    {
+      "corrida": {
+        "id": 371,
+        "fecha": "2026-11-04",
+        "owner": "9144085b3c6a:2179",
+        "estado": "cerrada",
+        "errores": 0,
+        "movidas": 0,
+        "platform": "meli",
+        "retenidas": 0,
+        "virtuales": 0,
+        "cerrada_at": "2026-11-04T17:10:02.528152+00:00",
+        "decisiones": 0,
+        "iniciada_at": "2026-11-04T17:10:02.517+00:00",
+        "modo_global": "live",
+        "config_version_id": 42,
+        "resumen_enviado_at": null,
+        "saltadas_por_edicion": 0
+      }
+    }
+  ],
+  "ingestas": [
+    {
+      "id": 1348,
+      "source": "meli_catalogo",
+      "started_at": "2026-11-04 11:30:22.356025+00:00",
+      "finished_at": "2026-11-04 11:30:22.358714+00:00",
+      "ok": true,
+      "rows_written": 64,
+      "rows_skipped": 0,
+      "skip_reason": null
+    },
+    {
+      "id": 1344,
+      "source": "accounting_sku_costs",
+      "started_at": "2026-11-04 08:15:02.980449+00:00",
+      "finished_at": "2026-11-04 08:15:02.982724+00:00",
+      "ok": true,
+      "rows_written": 0,
+      "rows_skipped": 0,
+      "skip_reason": null
+    },
+    {
+      "id": 1323,
+      "source": "meli_catalogo",
+      "started_at": "2026-11-03 11:30:21.094702+00:00",
+      "finished_at": "2026-11-03 11:30:21.097409+00:00",
+      "ok": true,
+      "rows_written": 64,
+      "rows_skipped": 0,
+      "skip_reason": null
+    },
+    {
+      "id": 1319,
+      "source": "accounting_sku_costs",
+      "started_at": "2026-11-03 08:15:03.154389+00:00",
+      "finished_at": "2026-11-03 08:15:03.156903+00:00",
+      "ok": true,
+      "rows_written": 0,
+      "rows_skipped": 0,
+      "skip_reason": null
+    },
+    {
+      "id": 1298,
+      "source": "meli_catalogo",
+      "started_at": "2026-11-02 11:30:20.781602+00:00",
+      "finished_at": "2026-11-02 11:30:20.784541+00:00",
+      "ok": true,
+      "rows_written": 64,
+      "rows_skipped": 0,
+      "skip_reason": null
+    },
+    {
+      "id": 1294,
+      "source": "accounting_sku_costs",
+      "started_at": "2026-11-02 08:15:02.785982+00:00",
+      "finished_at": "2026-11-02 08:15:02.788528+00:00",
+      "ok": true,
+      "rows_written": 0,
+      "rows_skipped": 0,
+      "skip_reason": null
+    },
+    {
+      "id": 1273,
+      "source": "meli_catalogo",
+      "started_at": "2026-11-01 11:30:21.844500+00:00",
+      "finished_at": "2026-11-01 11:30:21.847303+00:00",
+      "ok": true,
+      "rows_written": 64,
+      "rows_skipped": 0,
+      "skip_reason": null
+    },
+    {
+      "id": 1269,
+      "source": "accounting_sku_costs",
+      "started_at": "2026-11-01 08:15:02.931704+00:00",
+      "finished_at": "2026-11-01 08:15:02.934142+00:00",
+      "ok": true,
+      "rows_written": 0,
+      "rows_skipped": 0,
+      "skip_reason": null
+    }
+  ]
+}

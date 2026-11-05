@@ -1,0 +1,42 @@
+F
+=================================== FAILURES ===================================
+___________________ test_aplicar_ensayo_reversa_y_reintento ____________________
+
+escenario = (<psycopg.Connection [IDLE] (host=127.0.0.1 port=55435 user=orbit database=precio02m1_mac.lan_20330_0) at 0x108ffaad0>...eller_sku': 'NH-4', ...}, {'listing_id': 14, 'item_id': 'MLM5', 'variante_ext': '5', 'seller_sku': 'NH-5', ...}, ...]})
+tmp_path = PosixPath('/private/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/pytest-of-dn/pytest-3930/test_aplicar_ensayo_reversa_y_0')
+
+    def test_aplicar_ensayo_reversa_y_reintento(escenario, tmp_path):
+        conn, lote = escenario
+        assert not conn.execute(
+            "SELECT has_table_privilege(current_user, 'sku_cost', 'UPDATE')"
+        ).fetchone()[0]
+        assert not conn.execute(
+            "SELECT has_table_privilege(current_user, 'product', 'UPDATE')"
+        ).fetchone()[0]
+        assert conn.execute("SELECT count(*) FROM listing_miembro WHERE NOT activo").fetchone()[0] == 2
+        antes = foto(conn)
+        respaldo = tmp_path / "respaldo.json"
+>       assert aplicar(conn, lote) == {"estado": "dry-run", "miembros": 9, "aliases": 9}
+               ^^^^^^^^^^^^^^^^^^^
+
+tests/test_corrige_meli_skus.py:86:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tools/corrige_meli_skus.py:198: in aplicar
+    estado = _estado(conn, f)
+             ^^^^^^^^^^^^^^^^
+tools/corrige_meli_skus.py:117: in _estado
+    _exige(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+condicion = False, mensaje = 'identidad o actividad del miembro distinta'
+
+    def _exige(condicion, mensaje):
+        if not condicion:
+>           raise ErrorLote(mensaje)
+E           tools.corrige_meli_skus.ErrorLote: identidad o actividad del miembro distinta
+
+tools/corrige_meli_skus.py:30: ErrorLote
+=========================== short test summary info ============================
+FAILED tests/test_corrige_meli_skus.py::test_aplicar_ensayo_reversa_y_reintento
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed in 0.43s

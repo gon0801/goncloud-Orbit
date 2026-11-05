@@ -1,0 +1,8 @@
+2026-11-05 UTC. Nueve parejas de imagenes inspeccionadas visualmente con view_image.
+Nueve variantes comerciales y nueve destinos SET unicos, productos/BOM activos, modelo Sello Cristiano.
+Costos finales fuente y sumas materiales separados; Decimal4dec valida precision del contrato vigente.
+JSON y AST validos; fotos referenciadas existen y hashes Odoo coinciden.
+resumir.py ejecutado tras Ruff format; Ruff check PASS.
+pre-commit focal con fotos: gitleaks/conflictos PASS.
+Solo lecturas remotas y artefactos locales, sin cambios productivos.
+Conciliacion accounting RO: una consulta, nueve filas vigentes,9/9 costos y monedas iguales a Odoo normalizados por contrato. Sin snapshots ni escrituras. Filas accounting incluidas en matriz.json.

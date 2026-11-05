@@ -3,7 +3,7 @@
 Por publicacion activa: una fila en `listing` con el producto ancla (el
 del primer miembro mapeado por SKU ascendente), sus filas de
 `listing_miembro` cruzando el atributo `SELLER_SKU` contra
-`product.odoo_sku`, y una fila de `meli_publicacion_observation`. Sin red
+`product.odoo_sku` o un alias verificado, y una fila de `meli_publicacion_observation`. Sin red
 real (cliente falso con la forma de la sonda M.0).
 """
 
@@ -34,6 +34,7 @@ ORDEN_M1 = (
     "0047_familias.sql",
     "0053_precio02_canal_meli.sql",
     "0054_precio02_base.sql",
+    "0075_meli_sku_alias.sql",
 )
 
 _skip_sin_pg = pytest.mark.skipif(
@@ -174,6 +175,131 @@ class _ClienteFalso:
 
 def _corre(conn, cliente, *, ahora: datetime = AHORA):
     return catalogo.sincronizar(conn, cliente, hoy=ahora.date(), ahora=ahora)
+
+
+@_skip_sin_pg
+def test_alias_legado_conserva_producto_set_costo_y_sku_al_reingerir():
+    with _db() as conn:
+        pid = _producto(conn, "COLLAR-PEZ-SET")
+        conn.execute(
+            "INSERT INTO sku_cost"
+            " (product_id,cost_amount,cost_currency,includes_tax,valid_from)"
+            " VALUES (%s,125.5000,'MXN',false,'2026-10-01')",
+            (pid,),
+        )
+        conn.execute(
+            "INSERT INTO meli_sku_alias (seller_sku,product_id,evidencia)"
+            " VALUES ('PEZ-LEGADO',%s,'Fotos y BOM del SET verificadas')",
+            (pid,),
+        )
+        lid = conn.execute(
+            "INSERT INTO listing (product_id,platform,external_id,seller_sku)"
+            " VALUES (%s,'meli','MLM1','PEZ-LEGADO') RETURNING id",
+            (pid,),
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO listing_miembro"
+            " (listing_id,platform,variante_ext,seller_sku,product_id,activo,visto_at)"
+            " VALUES (%s,'meli','101','PEZ-LEGADO',%s,true,%s)",
+            (lid, pid, AHORA - timedelta(days=1)),
+        )
+        items = {
+            "MLM1": _item(
+                "MLM1",
+                variaciones=[_variacion(101, "PEZ-LEGADO"), _variacion(102, "SIN-MAPA")],
+            )
+        }
+        for ahora in (AHORA, AHORA + timedelta(hours=1)):
+            resultado = _corre(conn, _ClienteFalso(items), ahora=ahora)
+            assert resultado.ok
+            assert conn.execute(
+                "SELECT m.variante_ext,m.seller_sku,m.product_id,c.cost_amount,c.cost_currency"
+                " FROM listing_miembro m LEFT JOIN sku_cost c ON c.product_id=m.product_id"
+                " ORDER BY m.variante_ext"
+            ).fetchall() == [
+                ("101", "PEZ-LEGADO", pid, Decimal("125.5000"), "MXN"),
+                ("102", "SIN-MAPA", None, None, None),
+            ]
+        assert conn.execute("SELECT count(*) FROM listing").fetchone()[0] == 1
+        assert conn.execute("SELECT seller_sku FROM listing").fetchone()[0] == "PEZ-LEGADO"
+
+
+@_skip_sin_pg
+def test_alias_exige_identidad_evidencia_y_producto_validos():
+    with _db() as conn:
+        pid = _producto(conn, "COLLAR-PEZ-SET")
+        for sku, producto, evidencia, error in (
+            ("", pid, "Fotos", psycopg.errors.CheckViolation),
+            (" PEZ ", pid, "Fotos", psycopg.errors.CheckViolation),
+            ("PEZ", pid, " ", psycopg.errors.CheckViolation),
+            ("PEZ", pid + 1000, "Fotos", psycopg.errors.ForeignKeyViolation),
+        ):
+            with pytest.raises(error), conn.transaction():
+                conn.execute(
+                    "INSERT INTO meli_sku_alias (seller_sku,product_id,evidencia)"
+                    " VALUES (%s,%s,%s)",
+                    (sku, producto, evidencia),
+                )
+        conn.execute(
+            "INSERT INTO meli_sku_alias (seller_sku,product_id,evidencia)"
+            " VALUES ('PEZ',%s,'Fotos')",
+            (pid,),
+        )
+        assert conn.execute("SELECT created_at IS NOT NULL FROM meli_sku_alias").fetchone()[0]
+        with pytest.raises(psycopg.errors.UniqueViolation), conn.transaction():
+            conn.execute(
+                "INSERT INTO meli_sku_alias (seller_sku,product_id,evidencia)"
+                " VALUES ('PEZ',%s,'Otra evidencia')",
+                (pid,),
+            )
+
+
+@_skip_sin_pg
+def test_alias_solo_admin_escribe_y_reversa_no_toca_producto():
+    with _db() as conn:
+        pid = _producto(conn, "COLLAR-PEZ-SET")
+        with conn.transaction():
+            conn.execute("SET LOCAL ROLE app_admin")
+            conn.execute(
+                "INSERT INTO meli_sku_alias (seller_sku,product_id,evidencia)"
+                " VALUES ('PEZ',%s,'Fotos')",
+                (pid,),
+            )
+            conn.execute("UPDATE meli_sku_alias SET evidencia='Fotos y BOM' WHERE seller_sku='PEZ'")
+        for rol in ("app_read", "app_ingest", "app_decide"):
+            assert conn.execute(
+                "SELECT has_table_privilege(%s,'meli_sku_alias','SELECT'),"
+                " has_table_privilege(%s,'meli_sku_alias','INSERT'),"
+                " has_table_privilege(%s,'meli_sku_alias','UPDATE'),"
+                " has_table_privilege(%s,'meli_sku_alias','DELETE')",
+                (rol, rol, rol, rol),
+            ).fetchone() == (True, False, False, False)
+        with conn.transaction():
+            conn.execute("SET LOCAL ROLE app_admin")
+            conn.execute("DELETE FROM meli_sku_alias WHERE seller_sku='PEZ'")
+        conn.execute((RAIZ / "migrations/0075_reversa_meli_sku_alias.sql").read_text())
+        assert conn.execute("SELECT to_regclass('meli_sku_alias')").fetchone()[0] is None
+        assert conn.execute("SELECT odoo_sku FROM product WHERE id=%s", (pid,)).fetchone() == (
+            "COLLAR-PEZ-SET",
+        )
+        conn.execute((RAIZ / "migrations/0075_meli_sku_alias.sql").read_text())
+
+
+@_skip_sin_pg
+def test_alias_contradictorio_aborta_sin_escribir_catalogo_ni_corrida():
+    with _db() as conn:
+        _producto(conn, "PEZ-LEGADO")
+        pid_set = _producto(conn, "COLLAR-PEZ-SET")
+        conn.execute(
+            "INSERT INTO meli_sku_alias (seller_sku,product_id,evidencia)"
+            " VALUES ('PEZ-LEGADO',%s,'Correspondencia contradictoria')",
+            (pid_set,),
+        )
+        cliente = _ClienteFalso({"MLM1": _item("MLM1", sku_raiz="PEZ-LEGADO")})
+        with pytest.raises(ReputacionError, match="alias.*conflicto"):
+            _corre(conn, cliente)
+        for tabla in ("ingest_run", "listing", "listing_miembro", "meli_publicacion_observation"):
+            assert conn.execute(f"SELECT count(*) FROM {tabla}").fetchone()[0] == 0
 
 
 @_skip_sin_pg

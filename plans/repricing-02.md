@@ -1,6 +1,6 @@
 # REPRICING 02: el motor de precios en todas las plataformas
 
-> **Seguimiento 5-nov-2026 UTC:** plan cerrado. PEZ sí se vende y sus BOM/componentes permiten calcular costos materiales. Los SKU exactos de MeLi llevan a registros archivados; hay referencias PEZ activas con otros códigos. P04 debe resolver la correspondencia con la receta vigente y la sincronización del costo. La conclusión anterior de receta faltante era incorrecta; no se acreditó el motivo del archivo en el historial consultado. [Trazabilidad BOM](../docs/evidencia/quick-wins-2026-11-04/pez-bom/README.md).
+> **Seguimiento 5-nov-2026 UTC:** plan cerrado. P04 se ejecuta en [PEZ 01](pez-01.md). Las nueve variantes PEZ de MeLi corresponden a SET activos con cofre; los candidatos NH-SOLO se descartan por composicion. Blanco con Broche resuelto. Costos publicados conciliados en Odoo/accounting/Orbit; aliases persistentes y lote reversible preparados, aun sin aplicar. [Identidad y costos](../docs/evidencia/quick-wins-2026-11-04/pez-correccion/identidad/README.md).
 
 Estado: CERRADO el 2026-10-17 UTC. Los cuatro universos están en `live`
 (X.1 a X.4); el detalle del cierre está en `docs/CHAT-CONTEXT.md`. Plan del

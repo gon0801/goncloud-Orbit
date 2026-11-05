@@ -1,5 +1,7 @@
 # PEZ: fuente primaria y ruta para completar costos
 
+**Estado posterior:** [PEZ 01](../pez-correccion/identidad/README.md) acredita nueve SET activos con cofre como correspondencias comerciales, incluido Blanco con Broche. Los NH-SOLO citados abajo se descartan para las publicaciones de este lote; esta investigacion inicial se conserva como historia.
+
 **Rectificacion 5-nov-2026:** [la lectura de BOM/componentes y referencias activas](../pez-bom/README.md) sustituye la conclusion inicial de receta/costo fuente faltante. Si hay BOM activos PEZ bajo otros codigos. Por ejemplo, NH-SOLO-CAR-BLC-PEZ-DOR (producto 8513, BOM 2133) suma 77.47 MXN; la receta archivada del codigo NH-CAR-BLA-PEZ-DOR suma 194.65 MXN y contiene otro componente. No son el mismo desglose. El problema pendiente es resolver la correspondencia entre SKU comercial y referencia/BOM vigente, y despues la sincronizacion. El chatter/tracking consultado no acredita el motivo del archivo.
 
 **Decision del usuario:** «pez si se vende». PEZ se conserva como producto comercial vigente; no se retiran publicaciones ni variantes por obsoletas o por stock cero. Esta decision corrige la alternativa planteada en el informe anterior; no demuestra un importe ni selecciona un ID de Odoo.

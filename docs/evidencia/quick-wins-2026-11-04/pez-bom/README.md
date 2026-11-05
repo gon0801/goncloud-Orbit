@@ -1,5 +1,7 @@
 # PEZ: si hay BOM activos; el problema es la referencia que integra Orbit
 
+**Identidad comercial comprobada despues:** las nueve variantes MeLi corresponden a SET con cofre, incluido Blanco con Broche. Los ocho NH-SOLO de este informe son productos distintos y no se usan como destinos. Ver [PEZ 01: identidad y costos](../pez-correccion/identidad/README.md) y el [plan operativo](../../../../plans/pez-01.md). Los calculos de este informe conservan su alcance sobre esas recetas; no son los costos elegidos para el lote.
+
 La conclusion anterior fue demasiado fuerte: un producto archivado o con standard_price=0 no demuestra que falten componentes para costearlo. Las recetas se pueden leer y calcular. Ademas, Odoo SI tiene productos PEZ con BOM activos bajo referencias NH-SOLO-* y NH-ARR-*; no debe confundirse eso con los nueve SKU antiguos que todavia devuelve MeLi.
 
 **Ejemplo concreto:** NH-SOLO-CAR-BLC-PEZ-DOR, producto 8513, tiene el BOM 2133 activo y atributo «Sello Cristiano». Contiene una unidad de EST-CAR-BLC (39.65 MXN) y una de ARR-22-DOR-PEZ (37.82 MXN): **77.47 MXN por unidad**. El SKU de MeLi NH-CAR-BLA-PEZ-DOR apunta a otra referencia: su variante Odoo 6442 tiene BOM archivados 1042/1326 con estuche 39.65 + cofre 155.00 = 194.65 MXN. La receta activa no agrega algo a 194.65: conserva el estuche, sustituye el cofre por las arras PEZ y usa otra referencia y otra composicion registrada. Esa diferencia permite investigar un mapeo desactualizado; no prueba por si sola que ambos SKU sean intercambiables.

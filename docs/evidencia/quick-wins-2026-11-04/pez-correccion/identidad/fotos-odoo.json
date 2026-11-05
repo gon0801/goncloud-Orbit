@@ -1,0 +1,104 @@
+[
+  {
+    "id": 8513,
+    "sku": "NH-SOLO-CAR-BLC-PEZ-DOR",
+    "archivo": "odoo-8513.jpg",
+    "sha256": "ca0891f35f08f3400fd4f58b6216c77869eaaf87cb5d7159845e92f854969540"
+  },
+  {
+    "id": 8520,
+    "sku": "NH-SOLO-CAR-BLC-PEZ-PLA",
+    "archivo": "odoo-8520.jpg",
+    "sha256": "a079bf81034259cfb2458a03959cc089c553fd4e7deb3d796e11c2a00a925ed0"
+  },
+  {
+    "id": 8681,
+    "sku": "NH-SOLO-GAM-AZU-PEZ-DOR",
+    "archivo": "odoo-8681.jpg",
+    "sha256": "bfe58f73e1a2c4a10ba7361ed720fa2918b88f3f8a37e0f5117d062d495d6f3d"
+  },
+  {
+    "id": 8688,
+    "sku": "NH-SOLO-GAM-AZU-PEZ-PLA",
+    "archivo": "odoo-8688.jpg",
+    "sha256": "9352151f9eb7d17ce491e5f33aa564f617bf4fa5f44f3f3bb1b968c1ec2e439c"
+  },
+  {
+    "id": 8709,
+    "sku": "NH-SOLO-GAM-NEG-PEZ-DOR",
+    "archivo": "odoo-8709.jpg",
+    "sha256": "71ca05ff5ff0be74f57ed27bdcbc8f536cdda970b20ce427470453f9b33dad10"
+  },
+  {
+    "id": 8716,
+    "sku": "NH-SOLO-GAM-NEG-PEZ-PLA",
+    "archivo": "odoo-8716.jpg",
+    "sha256": "20ff592878d45b919ebf6358e1765d7df6f7964acaae5abe61f05eab6b66a392"
+  },
+  {
+    "id": 8576,
+    "sku": "NH-SOLO-ITA-PEZ-PLA",
+    "archivo": "odoo-8576.jpg",
+    "sha256": "2e7506a1c5fff6d4f5d203460f68cdee2832fc4f6b8954a3bb754a8515a8b783"
+  },
+  {
+    "id": 8744,
+    "sku": "NH-SOLO-PLA-CH-PEZ-PLA",
+    "archivo": "odoo-8744.jpg",
+    "sha256": "884f2b107da7b9f80f311b2d88df8aa996559be02e874d7d4958a38a9665b70f"
+  },
+  {
+    "id": 7070,
+    "sku": "SET-BLA-BRO-PEZ-DOR",
+    "archivo": "odoo-7070.jpg",
+    "sha256": "46f491089200db4c6034887f1c5ffd6424dae6569a79ef3625ca014341690fb3"
+  },
+  {
+    "id": 7106,
+    "sku": "SET-CAR-BLA-PEZ-DOR",
+    "archivo": "odoo-7106.jpg",
+    "sha256": "55d58768ec2b7553b7b982bf29f770cffc2facfa03ab3283907f0d70128068d4"
+  },
+  {
+    "id": 7112,
+    "sku": "SET-CAR-BLA-PEZ-PLA",
+    "archivo": "odoo-7112.jpg",
+    "sha256": "e0b30a573625c1bf7ef53b15d2ed50b23a7b9d09d9b56b24f61fa9fee1ab89ad"
+  },
+  {
+    "id": 7178,
+    "sku": "SET-GAM-AZU-PEZ-DOR",
+    "archivo": "odoo-7178.jpg",
+    "sha256": "e01cc83d48dce005fbe596881906cfebdb60a273e819e4fcb12d25bc9b9862cb"
+  },
+  {
+    "id": 7184,
+    "sku": "SET-GAM-AZU-PEZ-PLA",
+    "archivo": "odoo-7184.jpg",
+    "sha256": "c7cd3eb0bfcde774ca637e6a70f80d45ae661db0c397d6501d2d695fae2d4dab"
+  },
+  {
+    "id": 7190,
+    "sku": "SET-GAM-NEG-PEZ-DOR",
+    "archivo": "odoo-7190.jpg",
+    "sha256": "35f925f56af8afb45815a16e9d1cf96cd0189505cfc5e5ada79a8e2d1d6c16a1"
+  },
+  {
+    "id": 7196,
+    "sku": "SET-GAM-NEG-PEZ-PLA",
+    "archivo": "odoo-7196.jpg",
+    "sha256": "acb9bd94d94666d772a4760837c6e7897471c53435b89718a9d3a3079c898a56"
+  },
+  {
+    "id": 7208,
+    "sku": "SET-ITA-PEZ-PLA",
+    "archivo": "odoo-7208.jpg",
+    "sha256": "c51f26e9c002b97e066876a24df86ec215c26eb29578da25448922fd171474b0"
+  },
+  {
+    "id": 7232,
+    "sku": "SET-PLA-CH-PEZ-PLA",
+    "archivo": "odoo-7232.jpg",
+    "sha256": "7760f3fcfc886f11bc238677fc73a08f862dcfec62d399ad4da18c470846ecc0"
+  }
+]

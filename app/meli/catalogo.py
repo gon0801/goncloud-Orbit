@@ -34,6 +34,7 @@ _SQL_SELLAR_RUN = (
     " rows_skipped = %s, skip_reason = %s, ok = %s WHERE id = %s"
 )
 _SQL_PRODUCTOS = "SELECT odoo_sku, id FROM product ORDER BY odoo_sku"
+_SQL_ALIASES = "SELECT seller_sku, product_id FROM meli_sku_alias ORDER BY seller_sku"
 _SQL_EXISTENTES = (
     "SELECT external_id, id, product_id, seller_sku FROM listing WHERE platform = 'meli'"
 )
@@ -380,12 +381,16 @@ def sincronizar(
             continue
         fallos = 0
     with conn.transaction():
-        resultado.run_id = conn.execute(_SQL_ABRIR_RUN, (SOURCE,)).fetchone()[0]
-    with conn.transaction():
         mapa: dict = {}
         for sku, pid in conn.execute(_SQL_PRODUCTOS).fetchall():
             if isinstance(sku, str) and sku.strip():
                 mapa.setdefault(sku.strip(), pid)
+        for sku, pid in conn.execute(_SQL_ALIASES).fetchall():
+            if sku in mapa and mapa[sku] != pid:
+                raise ReputacionError(f"meli: alias en conflicto con producto canonico: {sku}")
+            mapa[sku] = pid
+        resultado.run_id = conn.execute(_SQL_ABRIR_RUN, (SOURCE,)).fetchone()[0]
+    with conn.transaction():
         existentes = {
             ext: (lid, pid, sku) for ext, lid, pid, sku in conn.execute(_SQL_EXISTENTES).fetchall()
         }
