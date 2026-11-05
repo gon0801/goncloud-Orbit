@@ -57,6 +57,85 @@ que el container id de `orbit-db-1` no cambió. El compose en el server
 debe ser LF (CRLF de un scp desde Windows cuenta como cambio de
 config y dispara recreate).
 
+## Despliegue por el motor (AUTO-03 B.1-B.4)
+
+El motor despliega Orbit **solo**: respaldo previo, migraciones con su
+reversa, checklist y vuelta atrás, todo desde `tools/despliegue/`. Los
+tres scripts corren desde el repo con un commit aprobado:
+
+```bash
+MOTOR_SHA=<sha con CI verde> bash tools/despliegue/desplegar.sh            # despliega
+MOTOR_SHA=<sha> bash tools/despliegue/checklist.sh                         # verifica (solo lectura)
+MOTOR_SHA=<sha> bash tools/despliegue/rollback.sh                          # reversa
+MOTOR_SHA=<sha> bash tools/despliegue/desplegar.sh --ensayo                # ensayo, solo lectura
+bash tools/auto03/sonda.sh base                                            # sonda de estado (lectura)
+```
+
+**Cabecera de sonda.** Toda migración `*_auto03_*` lleva, antes de su
+SQL, una línea `-- sonda-aplicada: <SELECT booleano>` que devuelve `t`
+si la migración ya está aplicada en esa base y `f` si falta; el
+desplegador aborta si una de este plan no trae la cabecera. `desplegar
+--ensayo` lista las pendientes con su sonda sin escribir nada y sale
+distinto de cero si ssh o psql fallan o si una sonda sale vacía. La
+prueba de instalación y reversa en máquina desechable es
+`tests/test_despliegue_motor.py` (escenarios (a)-(p) del plan).
+
+**Estado deseado de los interruptores.**
+`tools/despliegue/interruptores.env` es el estado deseado de las
+claves `ads_producto_*` de la `config_version` (nace vacío: sin claves,
+el desplegador no toca la config). Cada despliegue converge SOLO las
+claves que cambiaron frente al SHA anterior (`SHA_PREVIO`), anotando
+`CLAVE=<clave>:<valor_previo>` en el journal antes de llamar al CLI
+`productos-modo` dentro del contenedor; antes de subir una clave a
+`live` corre `tools.auto03_verifica evalua` + `replay` por plataforma.
+Apagar el motor es volver a escribir el archivo (o vaciarlo).
+
+**Apagado manual con `productos-modo`.** Un cambio hecho a mano con
+`python -m app.cli productos-modo` (o el botón de la pantalla de
+productos) vale más que el archivo: el checklist solo compara las
+claves que ESE despliegue convergió (`CLAVE=` en el journal) y las
+demás no se comparan, para no revertir un apagado manual. El rollback
+sí regresa las claves que anotó SU corrida.
+
+**Qué significa cada salida:**
+- `0` con `ESTADO=verificado`: despliegue verificado.
+- `0` con `ESTADO=sin_cambios`: el `SHA_PREVIO` ya contenía el
+  `MOTOR_SHA` (un despliegue fuera de orden no regresa claves).
+- `75` con `ESTADO=abortado_sin_cambios`: las guardas (0075 aplicada,
+  sin ciclo `running`, sin `app.cli` en `docker top`, sin harvest en
+  vuelo) no pasaron en `AUTO03_ESPERA_S` segundos y NO cambió nada;
+  se puede reintentar.
+- `75` con `ESTADO=guardas_con_cambios`, o `124` (tope de despliegue
+  del motor): pudo cambiar algo; el rollback del motor deshace lo
+  anotado en `ultimo.env`. En los tres casos (75 dos veces y 124),
+  para reintentar, el agente vuelve a entregar con una línea nueva,
+  con hora UTC y motivo, en
+  `docs/evidencia/auto-03/ejecucion/<bloque>/reintentos.txt`, porque
+  el motor rechaza la misma punta.
+- `1` con mensaje de reversa pendiente: hay una reversa a medias y el
+  desplegador se niega a otro `MOTOR_SHA` hasta que termine (ver
+  abajo). `2` = uso incorrecto.
+
+**Cómo leer `ultimo.env`.** `$SRV/despliegue/ultimo.env` es el journal
+del despliegue: `MOTOR_SHA`, `ESTADO`, `SHA_PREVIO` y una línea por
+cada cambio (`MIGRACION=`, `CLAVE=<clave>:<valor_previo>`,
+`CODIGO=predeploy-<stamp>`, anotada solo cuando el respaldo ya quedó
+completo). `ESTADO` termina en `verificado` (checklist verde),
+`sin_cambios`, `abortado_sin_cambios` o `revertido`; `desplegado` y
+`guardas*` son intermedios. `ESTADO=revirtiendo` o
+`ESTADO=rollback_incompleto` significan que la reversa quedó a medias
+(murió a mitad o algún paso falló; la línea `FALLARON=` nombra lo que
+no pudo deshacer): `desplegar.sh` se niega a otro `MOTOR_SHA` hasta
+que la reversa termine, y se termina corriendo `rollback.sh` de nuevo
+con el MISMO `MOTOR_SHA` del journal — la reversa es reanudable
+(regresa otra vez las claves anotadas, restaura el código de
+`predeploy-<stamp>`, el `sha` y aplica las reversas pendientes). Sale
+distinto de cero tanto en `revertido` como en `rollback_incompleto`;
+lo que manda es el `ESTADO` del journal. El candado
+`$SRV/despliegue/.lock` lo sostiene la misma sesión ssh durante toda
+la corrida (con `AUTO03_ESPERA_S` agotado, desplegar y rollback salen
+75 sin tocar nada).
+
 ## Servicio app (API + CLI)
 
 Imagen construida **en el server** desde el repo, con el lockfile
