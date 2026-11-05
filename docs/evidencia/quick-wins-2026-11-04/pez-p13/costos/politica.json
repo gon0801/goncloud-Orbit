@@ -1,0 +1,232 @@
+{
+  "fecha_utc": "2026-11-05T04:06:47.156364+00:00",
+  "productos": [
+    {
+      "id": 7106,
+      "default_code": "SET-CAR-BLA-PEZ-DOR",
+      "categ_id": [
+        11,
+        "Arras Sets"
+      ],
+      "type": "product",
+      "detailed_type": "product",
+      "cost_method": "average",
+      "valuation": "manual_periodic",
+      "route_ids": [
+        5
+      ],
+      "company_id": false
+    },
+    {
+      "id": 7112,
+      "default_code": "SET-CAR-BLA-PEZ-PLA",
+      "categ_id": [
+        11,
+        "Arras Sets"
+      ],
+      "type": "product",
+      "detailed_type": "product",
+      "cost_method": "average",
+      "valuation": "manual_periodic",
+      "route_ids": [
+        5
+      ],
+      "company_id": false
+    },
+    {
+      "id": 7070,
+      "default_code": "SET-BLA-BRO-PEZ-DOR",
+      "categ_id": [
+        11,
+        "Arras Sets"
+      ],
+      "type": "product",
+      "detailed_type": "product",
+      "cost_method": "average",
+      "valuation": "manual_periodic",
+      "route_ids": [
+        5
+      ],
+      "company_id": false
+    },
+    {
+      "id": 7208,
+      "default_code": "SET-ITA-PEZ-PLA",
+      "categ_id": [
+        11,
+        "Arras Sets"
+      ],
+      "type": "product",
+      "detailed_type": "product",
+      "cost_method": "average",
+      "valuation": "manual_periodic",
+      "route_ids": [
+        5
+      ],
+      "company_id": false
+    },
+    {
+      "id": 7184,
+      "default_code": "SET-GAM-AZU-PEZ-PLA",
+      "categ_id": [
+        11,
+        "Arras Sets"
+      ],
+      "type": "product",
+      "detailed_type": "product",
+      "cost_method": "average",
+      "valuation": "manual_periodic",
+      "route_ids": [
+        5
+      ],
+      "company_id": false
+    },
+    {
+      "id": 7190,
+      "default_code": "SET-GAM-NEG-PEZ-DOR",
+      "categ_id": [
+        11,
+        "Arras Sets"
+      ],
+      "type": "product",
+      "detailed_type": "product",
+      "cost_method": "average",
+      "valuation": "manual_periodic",
+      "route_ids": [
+        5
+      ],
+      "company_id": false
+    },
+    {
+      "id": 7178,
+      "default_code": "SET-GAM-AZU-PEZ-DOR",
+      "categ_id": [
+        11,
+        "Arras Sets"
+      ],
+      "type": "product",
+      "detailed_type": "product",
+      "cost_method": "average",
+      "valuation": "manual_periodic",
+      "route_ids": [
+        5
+      ],
+      "company_id": false
+    },
+    {
+      "id": 7196,
+      "default_code": "SET-GAM-NEG-PEZ-PLA",
+      "categ_id": [
+        11,
+        "Arras Sets"
+      ],
+      "type": "product",
+      "detailed_type": "product",
+      "cost_method": "average",
+      "valuation": "manual_periodic",
+      "route_ids": [
+        5
+      ],
+      "company_id": false
+    },
+    {
+      "id": 7232,
+      "default_code": "SET-PLA-CH-PEZ-PLA",
+      "categ_id": [
+        11,
+        "Arras Sets"
+      ],
+      "type": "product",
+      "detailed_type": "product",
+      "cost_method": "average",
+      "valuation": "manual_periodic",
+      "route_ids": [
+        5
+      ],
+      "company_id": false
+    },
+    {
+      "id": 7,
+      "default_code": "COF-22-DOR",
+      "categ_id": [
+        5,
+        "Cofres"
+      ],
+      "type": "product",
+      "detailed_type": "product",
+      "cost_method": "average",
+      "valuation": "manual_periodic",
+      "route_ids": [
+        5
+      ],
+      "company_id": false
+    },
+    {
+      "id": 8,
+      "default_code": "COF-22-PLA",
+      "categ_id": [
+        5,
+        "Cofres"
+      ],
+      "type": "product",
+      "detailed_type": "product",
+      "cost_method": "average",
+      "valuation": "manual_periodic",
+      "route_ids": [
+        5
+      ],
+      "company_id": false
+    }
+  ],
+  "categorias": [
+    {
+      "id": 5,
+      "name": "Cofres",
+      "parent_id": false,
+      "property_cost_method": "average",
+      "property_valuation": "manual_periodic"
+    },
+    {
+      "id": 11,
+      "name": "Arras Sets",
+      "parent_id": false,
+      "property_cost_method": "average",
+      "property_valuation": "manual_periodic"
+    }
+  ],
+  "modulos": [
+    {
+      "id": 664,
+      "name": "kits_product_bundle_pack",
+      "state": "installed",
+      "installed_version": "17.0.1.1.4"
+    },
+    {
+      "id": 485,
+      "name": "stock_account",
+      "state": "installed",
+      "installed_version": "17.0.1.1"
+    },
+    {
+      "id": 37,
+      "name": "base_automation",
+      "state": "uninstalled",
+      "installed_version": "17.0.1.0"
+    },
+    {
+      "id": 670,
+      "name": "bom_total_cost",
+      "state": "installed",
+      "installed_version": "17.0.1.0.0"
+    },
+    {
+      "id": 344,
+      "name": "mrp_account",
+      "state": "installed",
+      "installed_version": "17.0.1.0"
+    }
+  ],
+  "acciones_costos": [],
+  "crons_acciones_costos": [],
+  "automatizaciones_modelos_costos": []
+}

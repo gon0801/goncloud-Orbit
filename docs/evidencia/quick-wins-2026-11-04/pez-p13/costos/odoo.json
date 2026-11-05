@@ -1,0 +1,1672 @@
+{
+  "fecha_utc": "2026-11-05T04:05:35.995193+00:00",
+  "usuario_companies": [
+    {
+      "id": 2,
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ],
+      "company_ids": [
+        1
+      ]
+    }
+  ],
+  "companies": [
+    {
+      "id": 1,
+      "currency_id": [
+        33,
+        "MXN"
+      ]
+    }
+  ],
+  "productos": [
+    {
+      "id": 7106,
+      "default_code": "SET-CAR-BLA-PEZ-DOR",
+      "active": true,
+      "standard_price": "126.21000000000001",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "company_id": false,
+      "product_tmpl_id": [
+        6276,
+        "SET - Carte Blanco 22mm Dorado"
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-11-05 03:44:32"
+    },
+    {
+      "id": 7112,
+      "default_code": "SET-CAR-BLA-PEZ-PLA",
+      "active": true,
+      "standard_price": "126.21000000000001",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "company_id": false,
+      "product_tmpl_id": [
+        6277,
+        "SET - Carte Blanco 22mm Plateado"
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-11-05 04:04:33"
+    },
+    {
+      "id": 7070,
+      "default_code": "SET-BLA-BRO-PEZ-DOR",
+      "active": true,
+      "standard_price": "175.25",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "company_id": false,
+      "product_tmpl_id": [
+        6270,
+        "SET - Blanco con broche 22mm Dorado"
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-11-05 03:44:32"
+    },
+    {
+      "id": 7208,
+      "default_code": "SET-ITA-PEZ-PLA",
+      "active": true,
+      "standard_price": "162.56",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "company_id": false,
+      "product_tmpl_id": [
+        6293,
+        "SET - Italia 22mm Plateado"
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-11-05 04:04:33"
+    },
+    {
+      "id": 7184,
+      "default_code": "SET-GAM-AZU-PEZ-PLA",
+      "active": true,
+      "standard_price": "146.56",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "company_id": false,
+      "product_tmpl_id": [
+        6289,
+        "SET - Gamuza Azul 22mm Plateado"
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-11-05 04:04:33"
+    },
+    {
+      "id": 7190,
+      "default_code": "SET-GAM-NEG-PEZ-DOR",
+      "active": true,
+      "standard_price": "146.56",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "company_id": false,
+      "product_tmpl_id": [
+        6290,
+        "SET - Gamuza Negro 22mm Dorado"
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-11-05 03:44:32"
+    },
+    {
+      "id": 7178,
+      "default_code": "SET-GAM-AZU-PEZ-DOR",
+      "active": true,
+      "standard_price": "146.56",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "company_id": false,
+      "product_tmpl_id": [
+        6288,
+        "SET - Gamuza Azul 22mm Dorado"
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-11-05 03:44:32"
+    },
+    {
+      "id": 7196,
+      "default_code": "SET-GAM-NEG-PEZ-PLA",
+      "active": true,
+      "standard_price": "146.56",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "company_id": false,
+      "product_tmpl_id": [
+        6291,
+        "SET - Gamuza Negro 22mm Plateado"
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-11-05 04:04:33"
+    },
+    {
+      "id": 7232,
+      "default_code": "SET-PLA-CH-PEZ-PLA",
+      "active": true,
+      "standard_price": "193.56",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "company_id": false,
+      "product_tmpl_id": [
+        6297,
+        "SET - Platino CH 22mm Plateado"
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-11-05 04:04:33"
+    },
+    {
+      "id": 5,
+      "default_code": "EST-CAR-BLC",
+      "active": true,
+      "standard_price": "39.65",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "company_id": false,
+      "product_tmpl_id": [
+        5,
+        "[EST-CAR-BLC] Carte Blanco"
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-11-03 00:00:39"
+    },
+    {
+      "id": 6,
+      "default_code": "ARR-22-DOR-PEZ",
+      "active": true,
+      "standard_price": "37.82",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "company_id": false,
+      "product_tmpl_id": [
+        6,
+        "[ARR-22-DOR-PEZ] Arras - Pez Dorado"
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-11-04 17:37:52"
+    },
+    {
+      "id": 7,
+      "default_code": "COF-22-DOR",
+      "active": true,
+      "standard_price": "44.06",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "company_id": false,
+      "product_tmpl_id": [
+        7,
+        "[COF-22-DOR] Cofre 22 - Dorado"
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-11-05 03:44:32"
+    },
+    {
+      "id": 8,
+      "default_code": "COF-22-PLA",
+      "active": true,
+      "standard_price": "44.54",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "company_id": false,
+      "product_tmpl_id": [
+        8,
+        "[COF-22-PLA] Cofre 22 - Plateado"
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-11-05 04:04:33"
+    },
+    {
+      "id": 156,
+      "default_code": "ARR-22-PLA-PEZ",
+      "active": true,
+      "standard_price": "37.82",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "company_id": false,
+      "product_tmpl_id": [
+        163,
+        "[ARR-22-PLA-PEZ] Arras - Pez Plateado"
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-08-18 06:24:11"
+    },
+    {
+      "id": 158,
+      "default_code": "4405-BG",
+      "active": true,
+      "standard_price": "76.0",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "company_id": false,
+      "product_tmpl_id": [
+        165,
+        "[4405-BG] Italia"
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-11-04 15:35:06"
+    },
+    {
+      "id": 159,
+      "default_code": "4608",
+      "active": true,
+      "standard_price": "88.69",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "company_id": false,
+      "product_tmpl_id": [
+        166,
+        "[4608] Blanco con Broche"
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-11-02 22:06:22"
+    },
+    {
+      "id": 163,
+      "default_code": "4587-BK",
+      "active": true,
+      "standard_price": "107.0",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "company_id": false,
+      "product_tmpl_id": [
+        170,
+        "[4587-BK] Platino CH"
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-11-05 02:36:50"
+    },
+    {
+      "id": 168,
+      "default_code": "EST-GAM-AZU",
+      "active": true,
+      "standard_price": "60.0",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "company_id": false,
+      "product_tmpl_id": [
+        175,
+        "[EST-GAM-AZU] Gamuza Azul"
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-11-01 01:00:03"
+    },
+    {
+      "id": 169,
+      "default_code": "EST-GAM-NEG",
+      "active": true,
+      "standard_price": "60.0",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "company_id": false,
+      "product_tmpl_id": [
+        176,
+        "[EST-GAM-NEG] Gamuza Negro"
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-10-26 01:00:23"
+    }
+  ],
+  "boms": [
+    {
+      "id": 1824,
+      "active": true,
+      "sequence": 0,
+      "product_id": [
+        7106,
+        "[SET-CAR-BLA-PEZ-DOR] SET - Carte Blanco 22mm Dorado (Sello Cristiano)"
+      ],
+      "product_tmpl_id": [
+        6276,
+        "SET - Carte Blanco 22mm Dorado"
+      ],
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_line_ids": [
+        4347,
+        4348,
+        4349
+      ],
+      "operation_ids": [],
+      "byproduct_ids": [],
+      "bom_cost": "0.0",
+      "total_bom_cost": "0.0",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "create_date": "2026-01-26 09:13:11",
+      "write_date": "2026-09-12 19:16:04"
+    },
+    {
+      "id": 1825,
+      "active": true,
+      "sequence": 0,
+      "product_id": [
+        7112,
+        "[SET-CAR-BLA-PEZ-PLA] SET - Carte Blanco 22mm Plateado (Sello Cristiano)"
+      ],
+      "product_tmpl_id": [
+        6277,
+        "SET - Carte Blanco 22mm Plateado"
+      ],
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_line_ids": [
+        4350,
+        4351,
+        4352
+      ],
+      "operation_ids": [],
+      "byproduct_ids": [],
+      "bom_cost": "0.0",
+      "total_bom_cost": "0.0",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "create_date": "2026-01-26 09:13:11",
+      "write_date": "2026-09-12 19:16:04"
+    },
+    {
+      "id": 1788,
+      "active": true,
+      "sequence": 0,
+      "product_id": [
+        7070,
+        "[SET-BLA-BRO-PEZ-DOR] SET - Blanco con broche 22mm Dorado (Sello Cristiano)"
+      ],
+      "product_tmpl_id": [
+        6270,
+        "SET - Blanco con broche 22mm Dorado"
+      ],
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_line_ids": [
+        4227,
+        4228,
+        4229
+      ],
+      "operation_ids": [],
+      "byproduct_ids": [],
+      "bom_cost": "0.0",
+      "total_bom_cost": "0.0",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "create_date": "2026-01-26 09:13:11",
+      "write_date": "2026-09-12 19:16:04"
+    },
+    {
+      "id": 1921,
+      "active": true,
+      "sequence": 0,
+      "product_id": [
+        7208,
+        "[SET-ITA-PEZ-PLA] SET - Italia 22mm Plateado (Sello Cristiano)"
+      ],
+      "product_tmpl_id": [
+        6293,
+        "SET - Italia 22mm Plateado"
+      ],
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_line_ids": [
+        4674,
+        4675,
+        4676
+      ],
+      "operation_ids": [],
+      "byproduct_ids": [],
+      "bom_cost": "0.0",
+      "total_bom_cost": "0.0",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "create_date": "2026-01-26 09:13:11",
+      "write_date": "2026-09-12 19:16:04"
+    },
+    {
+      "id": 1897,
+      "active": true,
+      "sequence": 0,
+      "product_id": [
+        7184,
+        "[SET-GAM-AZU-PEZ-PLA] SET - Gamuza Azul 22mm Plateado (Sello Cristiano)"
+      ],
+      "product_tmpl_id": [
+        6289,
+        "SET - Gamuza Azul 22mm Plateado"
+      ],
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_line_ids": [
+        4602,
+        4603,
+        4604
+      ],
+      "operation_ids": [],
+      "byproduct_ids": [],
+      "bom_cost": "0.0",
+      "total_bom_cost": "0.0",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "create_date": "2026-01-26 09:13:11",
+      "write_date": "2026-09-12 19:16:04"
+    },
+    {
+      "id": 1908,
+      "active": true,
+      "sequence": 0,
+      "product_id": [
+        7190,
+        "[SET-GAM-NEG-PEZ-DOR] SET - Gamuza Negro 22mm Dorado (Sello Cristiano)"
+      ],
+      "product_tmpl_id": [
+        6290,
+        "SET - Gamuza Negro 22mm Dorado"
+      ],
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_line_ids": [
+        4635,
+        4636,
+        4637
+      ],
+      "operation_ids": [],
+      "byproduct_ids": [],
+      "bom_cost": "0.0",
+      "total_bom_cost": "0.0",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "create_date": "2026-01-26 09:13:11",
+      "write_date": "2026-09-12 19:16:04"
+    },
+    {
+      "id": 1896,
+      "active": true,
+      "sequence": 0,
+      "product_id": [
+        7178,
+        "[SET-GAM-AZU-PEZ-DOR] SET - Gamuza Azul 22mm Dorado (Sello Cristiano)"
+      ],
+      "product_tmpl_id": [
+        6288,
+        "SET - Gamuza Azul 22mm Dorado"
+      ],
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_line_ids": [
+        4599,
+        4600,
+        4601
+      ],
+      "operation_ids": [],
+      "byproduct_ids": [],
+      "bom_cost": "0.0",
+      "total_bom_cost": "0.0",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "create_date": "2026-01-26 09:13:11",
+      "write_date": "2026-09-12 19:16:04"
+    },
+    {
+      "id": 1909,
+      "active": true,
+      "sequence": 0,
+      "product_id": [
+        7196,
+        "[SET-GAM-NEG-PEZ-PLA] SET - Gamuza Negro 22mm Plateado (Sello Cristiano)"
+      ],
+      "product_tmpl_id": [
+        6291,
+        "SET - Gamuza Negro 22mm Plateado"
+      ],
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_line_ids": [
+        4638,
+        4639,
+        4640
+      ],
+      "operation_ids": [],
+      "byproduct_ids": [],
+      "bom_cost": "0.0",
+      "total_bom_cost": "0.0",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "create_date": "2026-01-26 09:13:11",
+      "write_date": "2026-09-12 19:16:04"
+    },
+    {
+      "id": 1945,
+      "active": true,
+      "sequence": 0,
+      "product_id": [
+        7232,
+        "[SET-PLA-CH-PEZ-PLA] SET - Platino CH 22mm Plateado (Sello Cristiano)"
+      ],
+      "product_tmpl_id": [
+        6297,
+        "SET - Platino CH 22mm Plateado"
+      ],
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_line_ids": [
+        4746,
+        4747,
+        4748
+      ],
+      "operation_ids": [],
+      "byproduct_ids": [],
+      "bom_cost": "0.0",
+      "total_bom_cost": "0.0",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "create_date": "2026-01-26 09:13:11",
+      "write_date": "2026-09-12 19:16:04"
+    }
+  ],
+  "lineas": [
+    {
+      "id": 4227,
+      "bom_id": [
+        1788,
+        "bom0281: SET - Blanco con broche 22mm Dorado"
+      ],
+      "product_id": [
+        159,
+        "[4608] Blanco con Broche"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "child_bom_id": false,
+      "cost": "0.0",
+      "create_date": "2026-01-26 09:13:11",
+      "write_date": "2026-01-26 09:13:11"
+    },
+    {
+      "id": 4228,
+      "bom_id": [
+        1788,
+        "bom0281: SET - Blanco con broche 22mm Dorado"
+      ],
+      "product_id": [
+        7,
+        "[COF-22-DOR] Cofre 22 - Dorado"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "child_bom_id": false,
+      "cost": "0.0",
+      "create_date": "2026-01-26 09:13:11",
+      "write_date": "2026-01-26 09:13:11"
+    },
+    {
+      "id": 4229,
+      "bom_id": [
+        1788,
+        "bom0281: SET - Blanco con broche 22mm Dorado"
+      ],
+      "product_id": [
+        6,
+        "[ARR-22-DOR-PEZ] Arras - Pez Dorado"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "child_bom_id": false,
+      "cost": "0.0",
+      "create_date": "2026-01-26 09:13:11",
+      "write_date": "2026-01-26 09:13:11"
+    },
+    {
+      "id": 4347,
+      "bom_id": [
+        1824,
+        "bom0317: SET - Carte Blanco 22mm Dorado"
+      ],
+      "product_id": [
+        5,
+        "[EST-CAR-BLC] Carte Blanco"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "child_bom_id": false,
+      "cost": "0.0",
+      "create_date": "2026-01-26 09:13:11",
+      "write_date": "2026-01-26 09:13:11"
+    },
+    {
+      "id": 4348,
+      "bom_id": [
+        1824,
+        "bom0317: SET - Carte Blanco 22mm Dorado"
+      ],
+      "product_id": [
+        7,
+        "[COF-22-DOR] Cofre 22 - Dorado"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "child_bom_id": false,
+      "cost": "0.0",
+      "create_date": "2026-01-26 09:13:11",
+      "write_date": "2026-01-26 09:13:11"
+    },
+    {
+      "id": 4349,
+      "bom_id": [
+        1824,
+        "bom0317: SET - Carte Blanco 22mm Dorado"
+      ],
+      "product_id": [
+        6,
+        "[ARR-22-DOR-PEZ] Arras - Pez Dorado"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "child_bom_id": false,
+      "cost": "0.0",
+      "create_date": "2026-01-26 09:13:11",
+      "write_date": "2026-01-26 09:13:11"
+    },
+    {
+      "id": 4350,
+      "bom_id": [
+        1825,
+        "bom0318: SET - Carte Blanco 22mm Plateado"
+      ],
+      "product_id": [
+        5,
+        "[EST-CAR-BLC] Carte Blanco"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "child_bom_id": false,
+      "cost": "0.0",
+      "create_date": "2026-01-26 09:13:11",
+      "write_date": "2026-01-26 09:13:11"
+    },
+    {
+      "id": 4351,
+      "bom_id": [
+        1825,
+        "bom0318: SET - Carte Blanco 22mm Plateado"
+      ],
+      "product_id": [
+        8,
+        "[COF-22-PLA] Cofre 22 - Plateado"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "child_bom_id": false,
+      "cost": "0.0",
+      "create_date": "2026-01-26 09:13:11",
+      "write_date": "2026-01-26 09:13:11"
+    },
+    {
+      "id": 4352,
+      "bom_id": [
+        1825,
+        "bom0318: SET - Carte Blanco 22mm Plateado"
+      ],
+      "product_id": [
+        156,
+        "[ARR-22-PLA-PEZ] Arras - Pez Plateado"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "child_bom_id": false,
+      "cost": "0.0",
+      "create_date": "2026-01-26 09:13:11",
+      "write_date": "2026-01-26 09:13:11"
+    },
+    {
+      "id": 4599,
+      "bom_id": [
+        1896,
+        "bom0389: SET - Gamuza Azul 22mm Dorado"
+      ],
+      "product_id": [
+        168,
+        "[EST-GAM-AZU] Gamuza Azul"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "child_bom_id": false,
+      "cost": "0.0",
+      "create_date": "2026-01-26 09:13:11",
+      "write_date": "2026-01-26 09:13:11"
+    },
+    {
+      "id": 4600,
+      "bom_id": [
+        1896,
+        "bom0389: SET - Gamuza Azul 22mm Dorado"
+      ],
+      "product_id": [
+        7,
+        "[COF-22-DOR] Cofre 22 - Dorado"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "child_bom_id": false,
+      "cost": "0.0",
+      "create_date": "2026-01-26 09:13:11",
+      "write_date": "2026-01-26 09:13:11"
+    },
+    {
+      "id": 4601,
+      "bom_id": [
+        1896,
+        "bom0389: SET - Gamuza Azul 22mm Dorado"
+      ],
+      "product_id": [
+        6,
+        "[ARR-22-DOR-PEZ] Arras - Pez Dorado"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "child_bom_id": false,
+      "cost": "0.0",
+      "create_date": "2026-01-26 09:13:11",
+      "write_date": "2026-01-26 09:13:11"
+    },
+    {
+      "id": 4602,
+      "bom_id": [
+        1897,
+        "bom0390: SET - Gamuza Azul 22mm Plateado"
+      ],
+      "product_id": [
+        168,
+        "[EST-GAM-AZU] Gamuza Azul"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "child_bom_id": false,
+      "cost": "0.0",
+      "create_date": "2026-01-26 09:13:11",
+      "write_date": "2026-01-26 09:13:11"
+    },
+    {
+      "id": 4603,
+      "bom_id": [
+        1897,
+        "bom0390: SET - Gamuza Azul 22mm Plateado"
+      ],
+      "product_id": [
+        8,
+        "[COF-22-PLA] Cofre 22 - Plateado"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "child_bom_id": false,
+      "cost": "0.0",
+      "create_date": "2026-01-26 09:13:11",
+      "write_date": "2026-01-26 09:13:11"
+    },
+    {
+      "id": 4604,
+      "bom_id": [
+        1897,
+        "bom0390: SET - Gamuza Azul 22mm Plateado"
+      ],
+      "product_id": [
+        156,
+        "[ARR-22-PLA-PEZ] Arras - Pez Plateado"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "child_bom_id": false,
+      "cost": "0.0",
+      "create_date": "2026-01-26 09:13:11",
+      "write_date": "2026-01-26 09:13:11"
+    },
+    {
+      "id": 4635,
+      "bom_id": [
+        1908,
+        "bom0401: SET - Gamuza Negro 22mm Dorado"
+      ],
+      "product_id": [
+        169,
+        "[EST-GAM-NEG] Gamuza Negro"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "child_bom_id": false,
+      "cost": "0.0",
+      "create_date": "2026-01-26 09:13:11",
+      "write_date": "2026-01-26 09:13:11"
+    },
+    {
+      "id": 4636,
+      "bom_id": [
+        1908,
+        "bom0401: SET - Gamuza Negro 22mm Dorado"
+      ],
+      "product_id": [
+        7,
+        "[COF-22-DOR] Cofre 22 - Dorado"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "child_bom_id": false,
+      "cost": "0.0",
+      "create_date": "2026-01-26 09:13:11",
+      "write_date": "2026-01-26 09:13:11"
+    },
+    {
+      "id": 4637,
+      "bom_id": [
+        1908,
+        "bom0401: SET - Gamuza Negro 22mm Dorado"
+      ],
+      "product_id": [
+        6,
+        "[ARR-22-DOR-PEZ] Arras - Pez Dorado"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "child_bom_id": false,
+      "cost": "0.0",
+      "create_date": "2026-01-26 09:13:11",
+      "write_date": "2026-01-26 09:13:11"
+    },
+    {
+      "id": 4638,
+      "bom_id": [
+        1909,
+        "bom0402: SET - Gamuza Negro 22mm Plateado"
+      ],
+      "product_id": [
+        169,
+        "[EST-GAM-NEG] Gamuza Negro"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "child_bom_id": false,
+      "cost": "0.0",
+      "create_date": "2026-01-26 09:13:11",
+      "write_date": "2026-01-26 09:13:11"
+    },
+    {
+      "id": 4639,
+      "bom_id": [
+        1909,
+        "bom0402: SET - Gamuza Negro 22mm Plateado"
+      ],
+      "product_id": [
+        8,
+        "[COF-22-PLA] Cofre 22 - Plateado"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "child_bom_id": false,
+      "cost": "0.0",
+      "create_date": "2026-01-26 09:13:11",
+      "write_date": "2026-01-26 09:13:11"
+    },
+    {
+      "id": 4640,
+      "bom_id": [
+        1909,
+        "bom0402: SET - Gamuza Negro 22mm Plateado"
+      ],
+      "product_id": [
+        156,
+        "[ARR-22-PLA-PEZ] Arras - Pez Plateado"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "child_bom_id": false,
+      "cost": "0.0",
+      "create_date": "2026-01-26 09:13:11",
+      "write_date": "2026-01-26 09:13:11"
+    },
+    {
+      "id": 4674,
+      "bom_id": [
+        1921,
+        "bom0414: SET - Italia 22mm Plateado"
+      ],
+      "product_id": [
+        158,
+        "[4405-BG] Italia"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "child_bom_id": false,
+      "cost": "0.0",
+      "create_date": "2026-01-26 09:13:11",
+      "write_date": "2026-01-26 09:13:11"
+    },
+    {
+      "id": 4675,
+      "bom_id": [
+        1921,
+        "bom0414: SET - Italia 22mm Plateado"
+      ],
+      "product_id": [
+        8,
+        "[COF-22-PLA] Cofre 22 - Plateado"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "child_bom_id": false,
+      "cost": "0.0",
+      "create_date": "2026-01-26 09:13:11",
+      "write_date": "2026-01-26 09:13:11"
+    },
+    {
+      "id": 4676,
+      "bom_id": [
+        1921,
+        "bom0414: SET - Italia 22mm Plateado"
+      ],
+      "product_id": [
+        156,
+        "[ARR-22-PLA-PEZ] Arras - Pez Plateado"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "child_bom_id": false,
+      "cost": "0.0",
+      "create_date": "2026-01-26 09:13:11",
+      "write_date": "2026-01-26 09:13:11"
+    },
+    {
+      "id": 4746,
+      "bom_id": [
+        1945,
+        "bom0438: SET - Platino CH 22mm Plateado"
+      ],
+      "product_id": [
+        163,
+        "[4587-BK] Platino CH"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "child_bom_id": false,
+      "cost": "0.0",
+      "create_date": "2026-01-26 09:13:11",
+      "write_date": "2026-01-26 09:13:11"
+    },
+    {
+      "id": 4747,
+      "bom_id": [
+        1945,
+        "bom0438: SET - Platino CH 22mm Plateado"
+      ],
+      "product_id": [
+        8,
+        "[COF-22-PLA] Cofre 22 - Plateado"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "child_bom_id": false,
+      "cost": "0.0",
+      "create_date": "2026-01-26 09:13:11",
+      "write_date": "2026-01-26 09:13:11"
+    },
+    {
+      "id": 4748,
+      "bom_id": [
+        1945,
+        "bom0438: SET - Platino CH 22mm Plateado"
+      ],
+      "product_id": [
+        156,
+        "[ARR-22-PLA-PEZ] Arras - Pez Plateado"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": [],
+      "child_bom_id": false,
+      "cost": "0.0",
+      "create_date": "2026-01-26 09:13:11",
+      "write_date": "2026-01-26 09:13:11"
+    }
+  ],
+  "precios_por_compania": [
+    {
+      "company_id": 1,
+      "filas": [
+        {
+          "id": 7106,
+          "default_code": "SET-CAR-BLA-PEZ-DOR",
+          "standard_price": "126.21000000000001",
+          "currency_id": [
+            33,
+            "MXN"
+          ]
+        },
+        {
+          "id": 7112,
+          "default_code": "SET-CAR-BLA-PEZ-PLA",
+          "standard_price": "126.21000000000001",
+          "currency_id": [
+            33,
+            "MXN"
+          ]
+        },
+        {
+          "id": 7070,
+          "default_code": "SET-BLA-BRO-PEZ-DOR",
+          "standard_price": "175.25",
+          "currency_id": [
+            33,
+            "MXN"
+          ]
+        },
+        {
+          "id": 7208,
+          "default_code": "SET-ITA-PEZ-PLA",
+          "standard_price": "162.56",
+          "currency_id": [
+            33,
+            "MXN"
+          ]
+        },
+        {
+          "id": 7184,
+          "default_code": "SET-GAM-AZU-PEZ-PLA",
+          "standard_price": "146.56",
+          "currency_id": [
+            33,
+            "MXN"
+          ]
+        },
+        {
+          "id": 7190,
+          "default_code": "SET-GAM-NEG-PEZ-DOR",
+          "standard_price": "146.56",
+          "currency_id": [
+            33,
+            "MXN"
+          ]
+        },
+        {
+          "id": 7178,
+          "default_code": "SET-GAM-AZU-PEZ-DOR",
+          "standard_price": "146.56",
+          "currency_id": [
+            33,
+            "MXN"
+          ]
+        },
+        {
+          "id": 7196,
+          "default_code": "SET-GAM-NEG-PEZ-PLA",
+          "standard_price": "146.56",
+          "currency_id": [
+            33,
+            "MXN"
+          ]
+        },
+        {
+          "id": 7232,
+          "default_code": "SET-PLA-CH-PEZ-PLA",
+          "standard_price": "193.56",
+          "currency_id": [
+            33,
+            "MXN"
+          ]
+        },
+        {
+          "id": 7,
+          "default_code": "COF-22-DOR",
+          "standard_price": "44.06",
+          "currency_id": [
+            33,
+            "MXN"
+          ]
+        },
+        {
+          "id": 8,
+          "default_code": "COF-22-PLA",
+          "standard_price": "44.54",
+          "currency_id": [
+            33,
+            "MXN"
+          ]
+        }
+      ]
+    }
+  ],
+  "propiedades_precio": [
+    {
+      "id": 30,
+      "name": "standard_price",
+      "res_id": "product.product,5",
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ],
+      "value_float": "39.65",
+      "create_date": "2026-01-06 06:12:05",
+      "write_date": "2026-08-18 06:13:22"
+    },
+    {
+      "id": 32,
+      "name": "standard_price",
+      "res_id": "product.product,6",
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ],
+      "value_float": "37.82",
+      "create_date": "2026-01-06 06:14:06",
+      "write_date": "2026-08-18 06:24:11"
+    },
+    {
+      "id": 34,
+      "name": "standard_price",
+      "res_id": "product.product,7",
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ],
+      "value_float": "44.06",
+      "create_date": "2026-01-06 06:15:13",
+      "write_date": "2026-08-24 03:23:06"
+    },
+    {
+      "id": 36,
+      "name": "standard_price",
+      "res_id": "product.product,8",
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ],
+      "value_float": "44.54",
+      "create_date": "2026-01-06 06:16:23",
+      "write_date": "2026-08-24 03:23:06"
+    },
+    {
+      "id": 249,
+      "name": "standard_price",
+      "res_id": "product.product,156",
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ],
+      "value_float": "37.82",
+      "create_date": "2026-01-06 07:48:46",
+      "write_date": "2026-08-18 06:24:11"
+    },
+    {
+      "id": 251,
+      "name": "standard_price",
+      "res_id": "product.product,158",
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ],
+      "value_float": "76.0",
+      "create_date": "2026-01-06 07:48:46",
+      "write_date": "2026-10-29 04:21:08"
+    },
+    {
+      "id": 255,
+      "name": "standard_price",
+      "res_id": "product.product,163",
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ],
+      "value_float": "107.0",
+      "create_date": "2026-01-06 07:48:46",
+      "write_date": "2026-01-06 07:48:46"
+    },
+    {
+      "id": 1219,
+      "name": "standard_price",
+      "res_id": "product.product,159",
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ],
+      "value_float": "88.69",
+      "create_date": "2026-01-12 02:49:55",
+      "write_date": "2026-07-25 05:38:23"
+    },
+    {
+      "id": 1222,
+      "name": "standard_price",
+      "res_id": "product.product,168",
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ],
+      "value_float": "60.0",
+      "create_date": "2026-01-12 02:50:25",
+      "write_date": "2026-01-12 02:50:25"
+    },
+    {
+      "id": 1223,
+      "name": "standard_price",
+      "res_id": "product.product,169",
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ],
+      "value_float": "60.0",
+      "create_date": "2026-01-12 02:50:34",
+      "write_date": "2026-01-12 02:50:34"
+    },
+    {
+      "id": 7303,
+      "name": "standard_price",
+      "res_id": "product.product,7070",
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ],
+      "value_float": "175.25",
+      "create_date": "2026-02-12 03:56:48",
+      "write_date": "2026-08-18 06:25:00"
+    },
+    {
+      "id": 7351,
+      "name": "standard_price",
+      "res_id": "product.product,7106",
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ],
+      "value_float": "126.21000000000001",
+      "create_date": "2026-02-12 03:56:48",
+      "write_date": "2026-08-18 06:25:02"
+    },
+    {
+      "id": 7352,
+      "name": "standard_price",
+      "res_id": "product.product,7112",
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ],
+      "value_float": "126.21000000000001",
+      "create_date": "2026-02-12 03:56:48",
+      "write_date": "2026-08-18 06:25:02"
+    },
+    {
+      "id": 7459,
+      "name": "standard_price",
+      "res_id": "product.product,7178",
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ],
+      "value_float": "146.56",
+      "create_date": "2026-02-12 03:56:48",
+      "write_date": "2026-08-18 06:25:07"
+    },
+    {
+      "id": 7460,
+      "name": "standard_price",
+      "res_id": "product.product,7184",
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ],
+      "value_float": "146.56",
+      "create_date": "2026-02-12 03:56:48",
+      "write_date": "2026-08-18 06:25:07"
+    },
+    {
+      "id": 7471,
+      "name": "standard_price",
+      "res_id": "product.product,7190",
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ],
+      "value_float": "146.56",
+      "create_date": "2026-02-12 03:56:48",
+      "write_date": "2026-08-18 06:25:08"
+    },
+    {
+      "id": 7472,
+      "name": "standard_price",
+      "res_id": "product.product,7196",
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ],
+      "value_float": "146.56",
+      "create_date": "2026-02-12 03:56:48",
+      "write_date": "2026-08-18 06:25:08"
+    },
+    {
+      "id": 7484,
+      "name": "standard_price",
+      "res_id": "product.product,7208",
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ],
+      "value_float": "162.56",
+      "create_date": "2026-02-12 03:56:48",
+      "write_date": "2026-08-18 06:25:09"
+    },
+    {
+      "id": 7508,
+      "name": "standard_price",
+      "res_id": "product.product,7232",
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ],
+      "value_float": "193.56",
+      "create_date": "2026-02-12 03:56:48",
+      "write_date": "2026-08-18 06:25:10"
+    }
+  ],
+  "crons_costos": [
+    {
+      "id": 33,
+      "name": "Cron Meli Process Post Price",
+      "active": true,
+      "ir_actions_server_id": [
+        648,
+        "Cron Meli Process Post Price"
+      ],
+      "lastcall": "2026-11-05 02:33:19",
+      "nextcall": "2026-11-05 04:33:15"
+    }
+  ],
+  "meta_standard_price": {
+    "company_dependent": true,
+    "store": false,
+    "type": "float"
+  },
+  "meta_cost_linea": {
+    "store": true,
+    "type": "float"
+  },
+  "meta_cost_bom": {
+    "store": false,
+    "type": "monetary"
+  }
+}

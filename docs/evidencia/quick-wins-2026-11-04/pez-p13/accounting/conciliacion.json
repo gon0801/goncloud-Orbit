@@ -1,0 +1,368 @@
+{
+  "origen_historial_utc": "2026-11-05T04:04:49.649348+00:00",
+  "origen_bom_utc": "2026-11-05T04:05:35.995193+00:00",
+  "filas": [
+    {
+      "sku": "SET-CAR-BLA-PEZ-DOR",
+      "producto_odoo": 7106,
+      "costo_publicado": "126.2100",
+      "vigencia_publicada_desde": "2026-08-18 07:00:06",
+      "componentes": [
+        {
+          "sku": "EST-CAR-BLC",
+          "cantidad": "1",
+          "costo_en_fecha_set": "39.6500",
+          "costo_actual": "39.6500",
+          "accounting_id_anterior": 2026,
+          "accounting_id_actual": 2026,
+          "vigencia_actual_desde": "2026-08-18 07:00:06"
+        },
+        {
+          "sku": "COF-22-DOR",
+          "cantidad": "1",
+          "costo_en_fecha_set": "48.7400",
+          "costo_actual": "44.0600",
+          "accounting_id_anterior": 2023,
+          "accounting_id_actual": 2707,
+          "vigencia_actual_desde": "2026-08-24 04:00:14"
+        },
+        {
+          "sku": "ARR-22-DOR-PEZ",
+          "cantidad": "1",
+          "costo_en_fecha_set": "37.8200",
+          "costo_actual": "37.8200",
+          "accounting_id_anterior": 2011,
+          "accounting_id_actual": 2011,
+          "vigencia_actual_desde": "2026-08-18 07:00:06"
+        }
+      ],
+      "suma_con_precios_historicos": "126.2100",
+      "suma_actual": "121.5300",
+      "diferencia": "4.6800",
+      "unico_componente_con_cambio": "COF-22-DOR",
+      "diferencia_conciliada_con_cofre": true
+    },
+    {
+      "sku": "SET-CAR-BLA-PEZ-PLA",
+      "producto_odoo": 7112,
+      "costo_publicado": "126.2100",
+      "vigencia_publicada_desde": "2026-08-18 07:00:06",
+      "componentes": [
+        {
+          "sku": "EST-CAR-BLC",
+          "cantidad": "1",
+          "costo_en_fecha_set": "39.6500",
+          "costo_actual": "39.6500",
+          "accounting_id_anterior": 2026,
+          "accounting_id_actual": 2026,
+          "vigencia_actual_desde": "2026-08-18 07:00:06"
+        },
+        {
+          "sku": "COF-22-PLA",
+          "cantidad": "1",
+          "costo_en_fecha_set": "48.7400",
+          "costo_actual": "44.5400",
+          "accounting_id_anterior": 2024,
+          "accounting_id_actual": 2708,
+          "vigencia_actual_desde": "2026-08-24 04:00:14"
+        },
+        {
+          "sku": "ARR-22-PLA-PEZ",
+          "cantidad": "1",
+          "costo_en_fecha_set": "37.8200",
+          "costo_actual": "37.8200",
+          "accounting_id_anterior": 2019,
+          "accounting_id_actual": 2019,
+          "vigencia_actual_desde": "2026-08-18 07:00:06"
+        }
+      ],
+      "suma_con_precios_historicos": "126.2100",
+      "suma_actual": "122.0100",
+      "diferencia": "4.2000",
+      "unico_componente_con_cambio": "COF-22-PLA",
+      "diferencia_conciliada_con_cofre": true
+    },
+    {
+      "sku": "SET-BLA-BRO-PEZ-DOR",
+      "producto_odoo": 7070,
+      "costo_publicado": "175.2500",
+      "vigencia_publicada_desde": "2026-08-18 07:00:06",
+      "componentes": [
+        {
+          "sku": "4608",
+          "cantidad": "1",
+          "costo_en_fecha_set": "88.6900",
+          "costo_actual": "88.6900",
+          "accounting_id_anterior": 1017,
+          "accounting_id_actual": 1017,
+          "vigencia_actual_desde": "2026-07-25 06:00:16"
+        },
+        {
+          "sku": "COF-22-DOR",
+          "cantidad": "1",
+          "costo_en_fecha_set": "48.7400",
+          "costo_actual": "44.0600",
+          "accounting_id_anterior": 2023,
+          "accounting_id_actual": 2707,
+          "vigencia_actual_desde": "2026-08-24 04:00:14"
+        },
+        {
+          "sku": "ARR-22-DOR-PEZ",
+          "cantidad": "1",
+          "costo_en_fecha_set": "37.8200",
+          "costo_actual": "37.8200",
+          "accounting_id_anterior": 2011,
+          "accounting_id_actual": 2011,
+          "vigencia_actual_desde": "2026-08-18 07:00:06"
+        }
+      ],
+      "suma_con_precios_historicos": "175.2500",
+      "suma_actual": "170.5700",
+      "diferencia": "4.6800",
+      "unico_componente_con_cambio": "COF-22-DOR",
+      "diferencia_conciliada_con_cofre": true
+    },
+    {
+      "sku": "SET-ITA-PEZ-PLA",
+      "producto_odoo": 7208,
+      "costo_publicado": "162.5600",
+      "vigencia_publicada_desde": "2026-08-18 07:00:06",
+      "componentes": [
+        {
+          "sku": "4405-BG",
+          "cantidad": "1",
+          "costo_en_fecha_set": "76.0000",
+          "costo_actual": "76.0000",
+          "accounting_id_anterior": 1015,
+          "accounting_id_actual": 2726,
+          "vigencia_actual_desde": "2026-10-29 05:00:17"
+        },
+        {
+          "sku": "COF-22-PLA",
+          "cantidad": "1",
+          "costo_en_fecha_set": "48.7400",
+          "costo_actual": "44.5400",
+          "accounting_id_anterior": 2024,
+          "accounting_id_actual": 2708,
+          "vigencia_actual_desde": "2026-08-24 04:00:14"
+        },
+        {
+          "sku": "ARR-22-PLA-PEZ",
+          "cantidad": "1",
+          "costo_en_fecha_set": "37.8200",
+          "costo_actual": "37.8200",
+          "accounting_id_anterior": 2019,
+          "accounting_id_actual": 2019,
+          "vigencia_actual_desde": "2026-08-18 07:00:06"
+        }
+      ],
+      "suma_con_precios_historicos": "162.5600",
+      "suma_actual": "158.3600",
+      "diferencia": "4.2000",
+      "unico_componente_con_cambio": "COF-22-PLA",
+      "diferencia_conciliada_con_cofre": true
+    },
+    {
+      "sku": "SET-GAM-AZU-PEZ-PLA",
+      "producto_odoo": 7184,
+      "costo_publicado": "146.5600",
+      "vigencia_publicada_desde": "2026-08-18 07:00:06",
+      "componentes": [
+        {
+          "sku": "EST-GAM-AZU",
+          "cantidad": "1",
+          "costo_en_fecha_set": "60.0000",
+          "costo_actual": "60.0000",
+          "accounting_id_anterior": 72,
+          "accounting_id_actual": 72,
+          "vigencia_actual_desde": "2026-02-20 05:00:02"
+        },
+        {
+          "sku": "COF-22-PLA",
+          "cantidad": "1",
+          "costo_en_fecha_set": "48.7400",
+          "costo_actual": "44.5400",
+          "accounting_id_anterior": 2024,
+          "accounting_id_actual": 2708,
+          "vigencia_actual_desde": "2026-08-24 04:00:14"
+        },
+        {
+          "sku": "ARR-22-PLA-PEZ",
+          "cantidad": "1",
+          "costo_en_fecha_set": "37.8200",
+          "costo_actual": "37.8200",
+          "accounting_id_anterior": 2019,
+          "accounting_id_actual": 2019,
+          "vigencia_actual_desde": "2026-08-18 07:00:06"
+        }
+      ],
+      "suma_con_precios_historicos": "146.5600",
+      "suma_actual": "142.3600",
+      "diferencia": "4.2000",
+      "unico_componente_con_cambio": "COF-22-PLA",
+      "diferencia_conciliada_con_cofre": true
+    },
+    {
+      "sku": "SET-GAM-NEG-PEZ-DOR",
+      "producto_odoo": 7190,
+      "costo_publicado": "146.5600",
+      "vigencia_publicada_desde": "2026-08-18 07:00:06",
+      "componentes": [
+        {
+          "sku": "EST-GAM-NEG",
+          "cantidad": "1",
+          "costo_en_fecha_set": "60.0000",
+          "costo_actual": "60.0000",
+          "accounting_id_anterior": 73,
+          "accounting_id_actual": 73,
+          "vigencia_actual_desde": "2026-02-20 05:00:02"
+        },
+        {
+          "sku": "COF-22-DOR",
+          "cantidad": "1",
+          "costo_en_fecha_set": "48.7400",
+          "costo_actual": "44.0600",
+          "accounting_id_anterior": 2023,
+          "accounting_id_actual": 2707,
+          "vigencia_actual_desde": "2026-08-24 04:00:14"
+        },
+        {
+          "sku": "ARR-22-DOR-PEZ",
+          "cantidad": "1",
+          "costo_en_fecha_set": "37.8200",
+          "costo_actual": "37.8200",
+          "accounting_id_anterior": 2011,
+          "accounting_id_actual": 2011,
+          "vigencia_actual_desde": "2026-08-18 07:00:06"
+        }
+      ],
+      "suma_con_precios_historicos": "146.5600",
+      "suma_actual": "141.8800",
+      "diferencia": "4.6800",
+      "unico_componente_con_cambio": "COF-22-DOR",
+      "diferencia_conciliada_con_cofre": true
+    },
+    {
+      "sku": "SET-GAM-AZU-PEZ-DOR",
+      "producto_odoo": 7178,
+      "costo_publicado": "146.5600",
+      "vigencia_publicada_desde": "2026-08-18 07:00:06",
+      "componentes": [
+        {
+          "sku": "EST-GAM-AZU",
+          "cantidad": "1",
+          "costo_en_fecha_set": "60.0000",
+          "costo_actual": "60.0000",
+          "accounting_id_anterior": 72,
+          "accounting_id_actual": 72,
+          "vigencia_actual_desde": "2026-02-20 05:00:02"
+        },
+        {
+          "sku": "COF-22-DOR",
+          "cantidad": "1",
+          "costo_en_fecha_set": "48.7400",
+          "costo_actual": "44.0600",
+          "accounting_id_anterior": 2023,
+          "accounting_id_actual": 2707,
+          "vigencia_actual_desde": "2026-08-24 04:00:14"
+        },
+        {
+          "sku": "ARR-22-DOR-PEZ",
+          "cantidad": "1",
+          "costo_en_fecha_set": "37.8200",
+          "costo_actual": "37.8200",
+          "accounting_id_anterior": 2011,
+          "accounting_id_actual": 2011,
+          "vigencia_actual_desde": "2026-08-18 07:00:06"
+        }
+      ],
+      "suma_con_precios_historicos": "146.5600",
+      "suma_actual": "141.8800",
+      "diferencia": "4.6800",
+      "unico_componente_con_cambio": "COF-22-DOR",
+      "diferencia_conciliada_con_cofre": true
+    },
+    {
+      "sku": "SET-GAM-NEG-PEZ-PLA",
+      "producto_odoo": 7196,
+      "costo_publicado": "146.5600",
+      "vigencia_publicada_desde": "2026-08-18 07:00:06",
+      "componentes": [
+        {
+          "sku": "EST-GAM-NEG",
+          "cantidad": "1",
+          "costo_en_fecha_set": "60.0000",
+          "costo_actual": "60.0000",
+          "accounting_id_anterior": 73,
+          "accounting_id_actual": 73,
+          "vigencia_actual_desde": "2026-02-20 05:00:02"
+        },
+        {
+          "sku": "COF-22-PLA",
+          "cantidad": "1",
+          "costo_en_fecha_set": "48.7400",
+          "costo_actual": "44.5400",
+          "accounting_id_anterior": 2024,
+          "accounting_id_actual": 2708,
+          "vigencia_actual_desde": "2026-08-24 04:00:14"
+        },
+        {
+          "sku": "ARR-22-PLA-PEZ",
+          "cantidad": "1",
+          "costo_en_fecha_set": "37.8200",
+          "costo_actual": "37.8200",
+          "accounting_id_anterior": 2019,
+          "accounting_id_actual": 2019,
+          "vigencia_actual_desde": "2026-08-18 07:00:06"
+        }
+      ],
+      "suma_con_precios_historicos": "146.5600",
+      "suma_actual": "142.3600",
+      "diferencia": "4.2000",
+      "unico_componente_con_cambio": "COF-22-PLA",
+      "diferencia_conciliada_con_cofre": true
+    },
+    {
+      "sku": "SET-PLA-CH-PEZ-PLA",
+      "producto_odoo": 7232,
+      "costo_publicado": "193.5600",
+      "vigencia_publicada_desde": "2026-08-18 07:00:06",
+      "componentes": [
+        {
+          "sku": "4587-BK",
+          "cantidad": "1",
+          "costo_en_fecha_set": "107.0000",
+          "costo_actual": "107.0000",
+          "accounting_id_anterior": 13,
+          "accounting_id_actual": 13,
+          "vigencia_actual_desde": "2026-02-20 05:00:02"
+        },
+        {
+          "sku": "COF-22-PLA",
+          "cantidad": "1",
+          "costo_en_fecha_set": "48.7400",
+          "costo_actual": "44.5400",
+          "accounting_id_anterior": 2024,
+          "accounting_id_actual": 2708,
+          "vigencia_actual_desde": "2026-08-24 04:00:14"
+        },
+        {
+          "sku": "ARR-22-PLA-PEZ",
+          "cantidad": "1",
+          "costo_en_fecha_set": "37.8200",
+          "costo_actual": "37.8200",
+          "accounting_id_anterior": 2019,
+          "accounting_id_actual": 2019,
+          "vigencia_actual_desde": "2026-08-18 07:00:06"
+        }
+      ],
+      "suma_con_precios_historicos": "193.5600",
+      "suma_actual": "189.3600",
+      "diferencia": "4.2000",
+      "unico_componente_con_cambio": "COF-22-PLA",
+      "diferencia_conciliada_con_cofre": true
+    }
+  ],
+  "conciliadas": 9,
+  "limite": "Se valora el BOM actual con precios historicos; no prueba su composicion original ni la accion o autor del calculo de agosto."
+}

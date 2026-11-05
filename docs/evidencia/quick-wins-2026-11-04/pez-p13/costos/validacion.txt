@@ -1,0 +1,5 @@
+2026-11-05 UTC. XML-RPC limitado a authenticate/fields_get/read/search_read; ningun compute invocado.
+Fuente instalada leida como texto/AST en contenedor, sin importar servidor ORM.
+resumir.py ejecutado tras formato: 9/9 diferencias exactas con Decimal, cofre implicito48.74.
+Todos los JSON parseados y scripts AST validos. Ruff check/format PASS.
+pre-commit focal secretos/conflictos PASS. Sin nuevas pruebas ni mutaciones productivas.

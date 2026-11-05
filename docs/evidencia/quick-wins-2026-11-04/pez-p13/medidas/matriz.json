@@ -1,0 +1,2421 @@
+{
+  "meli_fecha_utc": "2026-11-05T04:05:24.031793+00:00",
+  "odoo_fecha_utc": "2026-11-05T04:07:05.393393+00:00",
+  "filas": [
+    {
+      "listing_id": 1562,
+      "item_id": "MLM2163407464",
+      "variante_ext": "194936687129",
+      "seller_sku": "NH-CAR-BLA-PEZ-DOR",
+      "modelo_variante": [
+        {
+          "id": null,
+          "name": "Modelos arras",
+          "value_id": null,
+          "value_name": "Sello cristiano",
+          "values": [
+            {
+              "id": null,
+              "name": "Sello cristiano",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "estado_meli": "active",
+      "diametros_texto_comun_mm": [
+        "16"
+      ],
+      "alcance_descripcion": "item completo; seis variantes de diseno, sin atributo diametro por variante",
+      "medidas_estuche_texto": "• Medidas del estuche: 10 x 10 x 5 cm",
+      "foto_cotas": {
+        "listing_id": 1562,
+        "item_id": "MLM2163407464",
+        "variante_ext": "194936687129",
+        "posicion": 5,
+        "picture_id": "828055-MLM108722555977_032026",
+        "url": "https://http2.mlstatic.com/D_828055-MLM108722555977_032026-O.jpg",
+        "archivo": "fotos/1562-5-828055-MLM108722555977_032026.jpg",
+        "sha256": "fb0e45e717cc967e314d9df776e8184bd040508ef306cf5d2093f51ee5b86613",
+        "bytes": 37337,
+        "observado_utc": "2026-11-05T04:08:06.110060+00:00",
+        "ocr": [
+          "5 cm l",
+          "10 cm",
+          "10 cm"
+        ],
+        "cota_detectada": true,
+        "conservada": true
+      },
+      "dimensiones_logisticas": {
+        "SELLER_PACKAGE_HEIGHT": "24 cm",
+        "SELLER_PACKAGE_LENGTH": "8 cm",
+        "SELLER_PACKAGE_WEIGHT": "1200 g",
+        "SELLER_PACKAGE_WIDTH": "15 cm"
+      },
+      "shipping_dimensions": null,
+      "odoo_product_id": 7106,
+      "odoo_sku": "SET-CAR-BLA-PEZ-DOR",
+      "odoo_nombre": "SET - Carte Blanco 22mm Dorado",
+      "bom_id": 1824,
+      "componentes": [
+        {
+          "id": 5,
+          "sku": "EST-CAR-BLC",
+          "nombre": "Carte Blanco",
+          "cantidad": "1.0",
+          "unidad": "Units"
+        },
+        {
+          "id": 7,
+          "sku": "COF-22-DOR",
+          "nombre": "Cofre 22 - Dorado",
+          "cantidad": "1.0",
+          "unidad": "Units"
+        },
+        {
+          "id": 6,
+          "sku": "ARR-22-DOR-PEZ",
+          "nombre": "Arras - Pez Dorado",
+          "cantidad": "1.0",
+          "unidad": "Units"
+        }
+      ],
+      "diametro_fisico_confirmado_mm": null,
+      "tamano_nominal_odoo": "Familia 22: nombre SET 22mm, componente ARR-22 y cofre COF-22. Sin campo de diametro ni ficha tecnica dimensional.",
+      "misma_descripcion_que_evidencia_previa": true,
+      "misma_composicion_bom_que_evidencia_previa": true,
+      "observado_meli_utc": "2026-11-05T04:05:21.594600+00:00",
+      "odoo_write_date": "2026-11-05 03:44:32",
+      "causa_documental": "Descripcion comun de publicacion fija diametro16/19 frente a familias de componentes vigentes; no consta causa historica ni medicion fisica."
+    },
+    {
+      "listing_id": 1563,
+      "item_id": "MLM1890653227",
+      "variante_ext": "194936530433",
+      "seller_sku": "NH-CAR-BLA-PEZ-PLA",
+      "modelo_variante": [
+        {
+          "id": null,
+          "name": "Modelo arras",
+          "value_id": null,
+          "value_name": "Sello cristiano",
+          "values": [
+            {
+              "id": null,
+              "name": "Sello cristiano",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "estado_meli": "active",
+      "diametros_texto_comun_mm": [
+        "16"
+      ],
+      "alcance_descripcion": "item completo; seis variantes de diseno, sin atributo diametro por variante",
+      "medidas_estuche_texto": "• Medidas del estuche: 10 x 10 x 5 cm",
+      "foto_cotas": {
+        "listing_id": 1563,
+        "item_id": "MLM1890653227",
+        "variante_ext": "194936530433",
+        "posicion": 5,
+        "picture_id": "691078-MLM108722378341_032026",
+        "url": "https://http2.mlstatic.com/D_691078-MLM108722378341_032026-O.jpg",
+        "archivo": "fotos/1563-5-691078-MLM108722378341_032026.jpg",
+        "sha256": "fb0e45e717cc967e314d9df776e8184bd040508ef306cf5d2093f51ee5b86613",
+        "bytes": 37337,
+        "observado_utc": "2026-11-05T04:08:06.604463+00:00",
+        "ocr": [
+          "5 cm l",
+          "10 cm",
+          "10 cm"
+        ],
+        "cota_detectada": true,
+        "conservada": true
+      },
+      "dimensiones_logisticas": {
+        "SELLER_PACKAGE_HEIGHT": "41 cm",
+        "SELLER_PACKAGE_LENGTH": "10 cm",
+        "SELLER_PACKAGE_WEIGHT": "1200 g",
+        "SELLER_PACKAGE_WIDTH": "29 cm"
+      },
+      "shipping_dimensions": null,
+      "odoo_product_id": 7112,
+      "odoo_sku": "SET-CAR-BLA-PEZ-PLA",
+      "odoo_nombre": "SET - Carte Blanco 22mm Plateado",
+      "bom_id": 1825,
+      "componentes": [
+        {
+          "id": 5,
+          "sku": "EST-CAR-BLC",
+          "nombre": "Carte Blanco",
+          "cantidad": "1.0",
+          "unidad": "Units"
+        },
+        {
+          "id": 8,
+          "sku": "COF-22-PLA",
+          "nombre": "Cofre 22 - Plateado",
+          "cantidad": "1.0",
+          "unidad": "Units"
+        },
+        {
+          "id": 156,
+          "sku": "ARR-22-PLA-PEZ",
+          "nombre": "Arras - Pez Plateado",
+          "cantidad": "1.0",
+          "unidad": "Units"
+        }
+      ],
+      "diametro_fisico_confirmado_mm": null,
+      "tamano_nominal_odoo": "Familia 22: nombre SET 22mm, componente ARR-22 y cofre COF-22. Sin campo de diametro ni ficha tecnica dimensional.",
+      "misma_descripcion_que_evidencia_previa": true,
+      "misma_composicion_bom_que_evidencia_previa": true,
+      "observado_meli_utc": "2026-11-05T04:05:21.871412+00:00",
+      "odoo_write_date": "2026-11-05 04:04:33",
+      "causa_documental": "Descripcion comun de publicacion fija diametro16/19 frente a familias de componentes vigentes; no consta causa historica ni medicion fisica."
+    },
+    {
+      "listing_id": 1578,
+      "item_id": "MLM4735255462",
+      "variante_ext": "190065698608",
+      "seller_sku": "NH-BLA-BRO-PEZ-DOR",
+      "modelo_variante": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Sello cristiano",
+          "values": [
+            {
+              "id": null,
+              "name": "Sello cristiano",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "estado_meli": "active",
+      "diametros_texto_comun_mm": [
+        "19"
+      ],
+      "alcance_descripcion": "item completo; seis variantes de diseno, sin atributo diametro por variante",
+      "medidas_estuche_texto": "• Medidas del estuche: 9 x 9 x 4 cm",
+      "foto_cotas": {
+        "listing_id": 1578,
+        "item_id": "MLM4735255462",
+        "variante_ext": "190065698608",
+        "posicion": 5,
+        "picture_id": "658890-MLM106381796907_022026",
+        "url": "https://http2.mlstatic.com/D_658890-MLM106381796907_022026-O.webp",
+        "archivo": "fotos/1578-5-658890-MLM106381796907_022026.jpg",
+        "sha256": "f9fe55e15cbb2d3de48b928b08196a7f9f6a3f8fe7c743a6eada0c8a883313be",
+        "bytes": 10738,
+        "observado_utc": "2026-11-05T04:08:07.443742+00:00",
+        "ocr": [
+          "9 cm",
+          "9 cm",
+          "4 cm"
+        ],
+        "cota_detectada": true,
+        "conservada": true
+      },
+      "dimensiones_logisticas": {
+        "SELLER_PACKAGE_HEIGHT": "24 cm",
+        "SELLER_PACKAGE_LENGTH": "10 cm",
+        "SELLER_PACKAGE_WEIGHT": "930 g",
+        "SELLER_PACKAGE_WIDTH": "15 cm"
+      },
+      "shipping_dimensions": null,
+      "odoo_product_id": 7070,
+      "odoo_sku": "SET-BLA-BRO-PEZ-DOR",
+      "odoo_nombre": "SET - Blanco con broche 22mm Dorado",
+      "bom_id": 1788,
+      "componentes": [
+        {
+          "id": 159,
+          "sku": "4608",
+          "nombre": "Blanco con Broche",
+          "cantidad": "1.0",
+          "unidad": "Units"
+        },
+        {
+          "id": 7,
+          "sku": "COF-22-DOR",
+          "nombre": "Cofre 22 - Dorado",
+          "cantidad": "1.0",
+          "unidad": "Units"
+        },
+        {
+          "id": 6,
+          "sku": "ARR-22-DOR-PEZ",
+          "nombre": "Arras - Pez Dorado",
+          "cantidad": "1.0",
+          "unidad": "Units"
+        }
+      ],
+      "diametro_fisico_confirmado_mm": null,
+      "tamano_nominal_odoo": "Familia 22: nombre SET 22mm, componente ARR-22 y cofre COF-22. Sin campo de diametro ni ficha tecnica dimensional.",
+      "misma_descripcion_que_evidencia_previa": true,
+      "misma_composicion_bom_que_evidencia_previa": true,
+      "observado_meli_utc": "2026-11-05T04:05:22.156235+00:00",
+      "odoo_write_date": "2026-11-05 03:44:32",
+      "causa_documental": "Descripcion comun de publicacion fija diametro16/19 frente a familias de componentes vigentes; no consta causa historica ni medicion fisica."
+    },
+    {
+      "listing_id": 1579,
+      "item_id": "MLM2724304859",
+      "variante_ext": "190063357552",
+      "seller_sku": "NH-ITA-PEZ-PLA",
+      "modelo_variante": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Sello cristiano",
+          "values": [
+            {
+              "id": null,
+              "name": "Sello cristiano",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "estado_meli": "active",
+      "diametros_texto_comun_mm": [
+        "16"
+      ],
+      "alcance_descripcion": "item completo; seis variantes de diseno, sin atributo diametro por variante",
+      "medidas_estuche_texto": "• Medidas del estuche: 8 x 11 x 4 cm",
+      "foto_cotas": {
+        "listing_id": 1579,
+        "item_id": "MLM2724304859",
+        "variante_ext": "190063357552",
+        "posicion": 5,
+        "picture_id": "962520-MLM107848885225_022026",
+        "url": "https://http2.mlstatic.com/D_962520-MLM107848885225_022026-O.jpg",
+        "archivo": "fotos/1579-5-962520-MLM107848885225_022026.jpg",
+        "sha256": "d817ec13b5206a5a2ec2eb3b171f87070c4e217a69315f5eb5e80fa81ce701d2",
+        "bytes": 33778,
+        "observado_utc": "2026-11-05T04:08:07.681506+00:00",
+        "ocr": [
+          "4",
+          "cm",
+          "11 cm",
+          "8 cm"
+        ],
+        "cota_detectada": true,
+        "conservada": true
+      },
+      "dimensiones_logisticas": {
+        "SELLER_PACKAGE_HEIGHT": "17 cm",
+        "SELLER_PACKAGE_LENGTH": "4 cm",
+        "SELLER_PACKAGE_WEIGHT": "892 g",
+        "SELLER_PACKAGE_WIDTH": "17 cm"
+      },
+      "shipping_dimensions": null,
+      "odoo_product_id": 7208,
+      "odoo_sku": "SET-ITA-PEZ-PLA",
+      "odoo_nombre": "SET - Italia 22mm Plateado",
+      "bom_id": 1921,
+      "componentes": [
+        {
+          "id": 158,
+          "sku": "4405-BG",
+          "nombre": "Italia",
+          "cantidad": "1.0",
+          "unidad": "Units"
+        },
+        {
+          "id": 8,
+          "sku": "COF-22-PLA",
+          "nombre": "Cofre 22 - Plateado",
+          "cantidad": "1.0",
+          "unidad": "Units"
+        },
+        {
+          "id": 156,
+          "sku": "ARR-22-PLA-PEZ",
+          "nombre": "Arras - Pez Plateado",
+          "cantidad": "1.0",
+          "unidad": "Units"
+        }
+      ],
+      "diametro_fisico_confirmado_mm": null,
+      "tamano_nominal_odoo": "Familia 22: nombre SET 22mm, componente ARR-22 y cofre COF-22. Sin campo de diametro ni ficha tecnica dimensional.",
+      "misma_descripcion_que_evidencia_previa": true,
+      "misma_composicion_bom_que_evidencia_previa": true,
+      "observado_meli_utc": "2026-11-05T04:05:22.442712+00:00",
+      "odoo_write_date": "2026-11-05 04:04:33",
+      "causa_documental": "Descripcion comun de publicacion fija diametro16/19 frente a familias de componentes vigentes; no consta causa historica ni medicion fisica."
+    },
+    {
+      "listing_id": 1582,
+      "item_id": "MLM2727437671",
+      "variante_ext": "196650442795",
+      "seller_sku": "NH-GAM-AZU-PEZ-PLA",
+      "modelo_variante": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Sello cristiano",
+          "values": [
+            {
+              "id": null,
+              "name": "Sello cristiano",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "estado_meli": "under_review",
+      "diametros_texto_comun_mm": [
+        "19"
+      ],
+      "alcance_descripcion": "item completo; seis variantes de diseno, sin atributo diametro por variante",
+      "medidas_estuche_texto": "• Medidas del estuche: 9 x 9 x 5 cm",
+      "foto_cotas": {
+        "listing_id": 1582,
+        "item_id": "MLM2727437671",
+        "variante_ext": "196650442795",
+        "posicion": 4,
+        "picture_id": "976138-MLM105838213130_022026",
+        "url": "https://http2.mlstatic.com/D_976138-MLM105838213130_022026-O.jpg",
+        "archivo": "fotos/1582-4-976138-MLM105838213130_022026.jpg",
+        "sha256": "527f354096fbf824e42b44875b1ec3fe54aef56e812121ff26387f458b5e08e5",
+        "bytes": 28484,
+        "observado_utc": "2026-11-05T04:08:08.147584+00:00",
+        "ocr": [
+          "5 cm",
+          "9 cm",
+          "9 cm"
+        ],
+        "cota_detectada": true,
+        "conservada": true
+      },
+      "dimensiones_logisticas": {
+        "SELLER_PACKAGE_HEIGHT": "28 cm",
+        "SELLER_PACKAGE_LENGTH": "13 cm",
+        "SELLER_PACKAGE_WEIGHT": "726 g",
+        "SELLER_PACKAGE_WIDTH": "21 cm"
+      },
+      "shipping_dimensions": null,
+      "odoo_product_id": 7184,
+      "odoo_sku": "SET-GAM-AZU-PEZ-PLA",
+      "odoo_nombre": "SET - Gamuza Azul 22mm Plateado",
+      "bom_id": 1897,
+      "componentes": [
+        {
+          "id": 168,
+          "sku": "EST-GAM-AZU",
+          "nombre": "Gamuza Azul",
+          "cantidad": "1.0",
+          "unidad": "Units"
+        },
+        {
+          "id": 8,
+          "sku": "COF-22-PLA",
+          "nombre": "Cofre 22 - Plateado",
+          "cantidad": "1.0",
+          "unidad": "Units"
+        },
+        {
+          "id": 156,
+          "sku": "ARR-22-PLA-PEZ",
+          "nombre": "Arras - Pez Plateado",
+          "cantidad": "1.0",
+          "unidad": "Units"
+        }
+      ],
+      "diametro_fisico_confirmado_mm": null,
+      "tamano_nominal_odoo": "Familia 22: nombre SET 22mm, componente ARR-22 y cofre COF-22. Sin campo de diametro ni ficha tecnica dimensional.",
+      "misma_descripcion_que_evidencia_previa": true,
+      "misma_composicion_bom_que_evidencia_previa": true,
+      "observado_meli_utc": "2026-11-05T04:05:22.727225+00:00",
+      "odoo_write_date": "2026-11-05 04:04:33",
+      "causa_documental": "Descripcion comun de publicacion fija diametro16/19 frente a familias de componentes vigentes; no consta causa historica ni medicion fisica."
+    },
+    {
+      "listing_id": 1583,
+      "item_id": "MLM2727363007",
+      "variante_ext": "196650403797",
+      "seller_sku": "NH-GAM-NEG-PEZ-DOR",
+      "modelo_variante": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Sello cristiano",
+          "values": [
+            {
+              "id": null,
+              "name": "Sello cristiano",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "estado_meli": "active",
+      "diametros_texto_comun_mm": [
+        "19"
+      ],
+      "alcance_descripcion": "item completo; seis variantes de diseno, sin atributo diametro por variante",
+      "medidas_estuche_texto": "• Medidas del estuche: 9 x 9 x 5 cm",
+      "foto_cotas": {
+        "listing_id": 1583,
+        "item_id": "MLM2727363007",
+        "variante_ext": "196650403797",
+        "posicion": 6,
+        "picture_id": "770361-MLM106455157205_022026",
+        "url": "https://http2.mlstatic.com/D_770361-MLM106455157205_022026-O.webp",
+        "archivo": "fotos/1583-6-770361-MLM106455157205_022026.jpg",
+        "sha256": "99f75764681005f6d18ef99607b3e8af498a18ae084d4e59878f40c245444199",
+        "bytes": 5346,
+        "observado_utc": "2026-11-05T04:08:08.917696+00:00",
+        "ocr": [
+          "5 cm",
+          "9 cm",
+          "9 cm"
+        ],
+        "cota_detectada": true,
+        "conservada": true
+      },
+      "dimensiones_logisticas": {
+        "SELLER_PACKAGE_HEIGHT": "32 cm",
+        "SELLER_PACKAGE_LENGTH": "11 cm",
+        "SELLER_PACKAGE_WEIGHT": "901 g",
+        "SELLER_PACKAGE_WIDTH": "24 cm"
+      },
+      "shipping_dimensions": null,
+      "odoo_product_id": 7190,
+      "odoo_sku": "SET-GAM-NEG-PEZ-DOR",
+      "odoo_nombre": "SET - Gamuza Negro 22mm Dorado",
+      "bom_id": 1908,
+      "componentes": [
+        {
+          "id": 169,
+          "sku": "EST-GAM-NEG",
+          "nombre": "Gamuza Negro",
+          "cantidad": "1.0",
+          "unidad": "Units"
+        },
+        {
+          "id": 7,
+          "sku": "COF-22-DOR",
+          "nombre": "Cofre 22 - Dorado",
+          "cantidad": "1.0",
+          "unidad": "Units"
+        },
+        {
+          "id": 6,
+          "sku": "ARR-22-DOR-PEZ",
+          "nombre": "Arras - Pez Dorado",
+          "cantidad": "1.0",
+          "unidad": "Units"
+        }
+      ],
+      "diametro_fisico_confirmado_mm": null,
+      "tamano_nominal_odoo": "Familia 22: nombre SET 22mm, componente ARR-22 y cofre COF-22. Sin campo de diametro ni ficha tecnica dimensional.",
+      "misma_descripcion_que_evidencia_previa": true,
+      "misma_composicion_bom_que_evidencia_previa": true,
+      "observado_meli_utc": "2026-11-05T04:05:23.024532+00:00",
+      "odoo_write_date": "2026-11-05 03:44:32",
+      "causa_documental": "Descripcion comun de publicacion fija diametro16/19 frente a familias de componentes vigentes; no consta causa historica ni medicion fisica."
+    },
+    {
+      "listing_id": 1584,
+      "item_id": "MLM2727328203",
+      "variante_ext": "196650403671",
+      "seller_sku": "NH-GAM-AZU-PEZ-DOR",
+      "modelo_variante": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Sello cristiano",
+          "values": [
+            {
+              "id": null,
+              "name": "Sello cristiano",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "estado_meli": "active",
+      "diametros_texto_comun_mm": [
+        "19"
+      ],
+      "alcance_descripcion": "item completo; seis variantes de diseno, sin atributo diametro por variante",
+      "medidas_estuche_texto": "• Medidas del estuche: 9 x 9 x 5 cm",
+      "foto_cotas": {
+        "listing_id": 1584,
+        "item_id": "MLM2727328203",
+        "variante_ext": "196650403671",
+        "posicion": 4,
+        "picture_id": "728347-MLM105838187918_022026",
+        "url": "https://http2.mlstatic.com/D_728347-MLM105838187918_022026-O.jpg",
+        "archivo": "fotos/1584-4-728347-MLM105838187918_022026.jpg",
+        "sha256": "1e37a05032672b5cc03a965b62be78052e92e1a6908d9bf55c4f72e5cc163c9d",
+        "bytes": 31084,
+        "observado_utc": "2026-11-05T04:08:09.215091+00:00",
+        "ocr": [
+          "5 cm",
+          "9 cm",
+          "9 cm"
+        ],
+        "cota_detectada": true,
+        "conservada": true
+      },
+      "dimensiones_logisticas": {
+        "SELLER_PACKAGE_HEIGHT": "31 cm",
+        "SELLER_PACKAGE_LENGTH": "11 cm",
+        "SELLER_PACKAGE_WEIGHT": "918 g",
+        "SELLER_PACKAGE_WIDTH": "23 cm"
+      },
+      "shipping_dimensions": null,
+      "odoo_product_id": 7178,
+      "odoo_sku": "SET-GAM-AZU-PEZ-DOR",
+      "odoo_nombre": "SET - Gamuza Azul 22mm Dorado",
+      "bom_id": 1896,
+      "componentes": [
+        {
+          "id": 168,
+          "sku": "EST-GAM-AZU",
+          "nombre": "Gamuza Azul",
+          "cantidad": "1.0",
+          "unidad": "Units"
+        },
+        {
+          "id": 7,
+          "sku": "COF-22-DOR",
+          "nombre": "Cofre 22 - Dorado",
+          "cantidad": "1.0",
+          "unidad": "Units"
+        },
+        {
+          "id": 6,
+          "sku": "ARR-22-DOR-PEZ",
+          "nombre": "Arras - Pez Dorado",
+          "cantidad": "1.0",
+          "unidad": "Units"
+        }
+      ],
+      "diametro_fisico_confirmado_mm": null,
+      "tamano_nominal_odoo": "Familia 22: nombre SET 22mm, componente ARR-22 y cofre COF-22. Sin campo de diametro ni ficha tecnica dimensional.",
+      "misma_descripcion_que_evidencia_previa": true,
+      "misma_composicion_bom_que_evidencia_previa": true,
+      "observado_meli_utc": "2026-11-05T04:05:23.316391+00:00",
+      "odoo_write_date": "2026-11-05 03:44:32",
+      "causa_documental": "Descripcion comun de publicacion fija diametro16/19 frente a familias de componentes vigentes; no consta causa historica ni medicion fisica."
+    },
+    {
+      "listing_id": 1585,
+      "item_id": "MLM4749600210",
+      "variante_ext": "196764932943",
+      "seller_sku": "NH-GAM-NEG-PEZ-PLA",
+      "modelo_variante": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Sello cristiano",
+          "values": [
+            {
+              "id": null,
+              "name": "Sello cristiano",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "estado_meli": "active",
+      "diametros_texto_comun_mm": [
+        "19"
+      ],
+      "alcance_descripcion": "item completo; seis variantes de diseno, sin atributo diametro por variante",
+      "medidas_estuche_texto": "•\tMedidas del estuche: 9 x 9 x 5 cm",
+      "foto_cotas": {
+        "listing_id": 1585,
+        "item_id": "MLM4749600210",
+        "variante_ext": "196764932943",
+        "posicion": 5,
+        "picture_id": "952271-MLM106001295188_022026",
+        "url": "https://http2.mlstatic.com/D_952271-MLM106001295188_022026-O.jpg",
+        "archivo": "fotos/1585-5-952271-MLM106001295188_022026.jpg",
+        "sha256": "01322505e72b395691eff3aaa1155a98eceff147c3c3a419e48f09e6738b8d55",
+        "bytes": 22884,
+        "observado_utc": "2026-11-05T04:08:10.131467+00:00",
+        "ocr": [
+          "5 cm",
+          "9 cm",
+          "9 cm"
+        ],
+        "cota_detectada": true,
+        "conservada": true
+      },
+      "dimensiones_logisticas": {
+        "SELLER_PACKAGE_HEIGHT": "36 cm",
+        "SELLER_PACKAGE_LENGTH": "12 cm",
+        "SELLER_PACKAGE_WEIGHT": "1096 g",
+        "SELLER_PACKAGE_WIDTH": "26 cm"
+      },
+      "shipping_dimensions": null,
+      "odoo_product_id": 7196,
+      "odoo_sku": "SET-GAM-NEG-PEZ-PLA",
+      "odoo_nombre": "SET - Gamuza Negro 22mm Plateado",
+      "bom_id": 1909,
+      "componentes": [
+        {
+          "id": 169,
+          "sku": "EST-GAM-NEG",
+          "nombre": "Gamuza Negro",
+          "cantidad": "1.0",
+          "unidad": "Units"
+        },
+        {
+          "id": 8,
+          "sku": "COF-22-PLA",
+          "nombre": "Cofre 22 - Plateado",
+          "cantidad": "1.0",
+          "unidad": "Units"
+        },
+        {
+          "id": 156,
+          "sku": "ARR-22-PLA-PEZ",
+          "nombre": "Arras - Pez Plateado",
+          "cantidad": "1.0",
+          "unidad": "Units"
+        }
+      ],
+      "diametro_fisico_confirmado_mm": null,
+      "tamano_nominal_odoo": "Familia 22: nombre SET 22mm, componente ARR-22 y cofre COF-22. Sin campo de diametro ni ficha tecnica dimensional.",
+      "misma_descripcion_que_evidencia_previa": true,
+      "misma_composicion_bom_que_evidencia_previa": true,
+      "observado_meli_utc": "2026-11-05T04:05:23.599016+00:00",
+      "odoo_write_date": "2026-11-05 04:04:33",
+      "causa_documental": "Descripcion comun de publicacion fija diametro16/19 frente a familias de componentes vigentes; no consta causa historica ni medicion fisica."
+    },
+    {
+      "listing_id": 1590,
+      "item_id": "MLM4763716652",
+      "variante_ext": "190333223922",
+      "seller_sku": "NH-PLA-CH-PEZ-PLA",
+      "modelo_variante": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Sello cristiano",
+          "values": [
+            {
+              "id": null,
+              "name": "Sello cristiano",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "estado_meli": "paused",
+      "diametros_texto_comun_mm": [
+        "19"
+      ],
+      "alcance_descripcion": "item completo; seis variantes de diseno, sin atributo diametro por variante",
+      "medidas_estuche_texto": "• Medidas del estuche: 10 x 10 x 5 cm",
+      "foto_cotas": {
+        "listing_id": 1590,
+        "item_id": "MLM4763716652",
+        "variante_ext": "190333223922",
+        "posicion": 5,
+        "picture_id": "697926-MLM106242973776_022026",
+        "url": "https://http2.mlstatic.com/D_697926-MLM106242973776_022026-O.jpg",
+        "archivo": "fotos/1590-5-697926-MLM106242973776_022026.jpg",
+        "sha256": "32b2f9361cb2779462a40fe9261dde1ec9b1ca00226f9e4d9628d44d391aef45",
+        "bytes": 23884,
+        "observado_utc": "2026-11-05T04:08:10.369230+00:00",
+        "ocr": [
+          "10cm",
+          "5cm",
+          "10cm"
+        ],
+        "cota_detectada": true,
+        "conservada": true
+      },
+      "dimensiones_logisticas": {
+        "SELLER_PACKAGE_HEIGHT": "36 cm",
+        "SELLER_PACKAGE_LENGTH": "11 cm",
+        "SELLER_PACKAGE_WEIGHT": "1025 g",
+        "SELLER_PACKAGE_WIDTH": "24 cm"
+      },
+      "shipping_dimensions": null,
+      "odoo_product_id": 7232,
+      "odoo_sku": "SET-PLA-CH-PEZ-PLA",
+      "odoo_nombre": "SET - Platino CH 22mm Plateado",
+      "bom_id": 1945,
+      "componentes": [
+        {
+          "id": 163,
+          "sku": "4587-BK",
+          "nombre": "Platino CH",
+          "cantidad": "1.0",
+          "unidad": "Units"
+        },
+        {
+          "id": 8,
+          "sku": "COF-22-PLA",
+          "nombre": "Cofre 22 - Plateado",
+          "cantidad": "1.0",
+          "unidad": "Units"
+        },
+        {
+          "id": 156,
+          "sku": "ARR-22-PLA-PEZ",
+          "nombre": "Arras - Pez Plateado",
+          "cantidad": "1.0",
+          "unidad": "Units"
+        }
+      ],
+      "diametro_fisico_confirmado_mm": null,
+      "tamano_nominal_odoo": "Familia 22: nombre SET 22mm, componente ARR-22 y cofre COF-22. Sin campo de diametro ni ficha tecnica dimensional.",
+      "misma_descripcion_que_evidencia_previa": true,
+      "misma_composicion_bom_que_evidencia_previa": true,
+      "observado_meli_utc": "2026-11-05T04:05:23.887090+00:00",
+      "odoo_write_date": "2026-11-05 04:04:33",
+      "causa_documental": "Descripcion comun de publicacion fija diametro16/19 frente a familias de componentes vigentes; no consta causa historica ni medicion fisica."
+    }
+  ],
+  "contraste_variantes": [
+    {
+      "listing_id": 1562,
+      "item_id": "MLM2163407464",
+      "variante_ext": "178100470523",
+      "seller_sku": "NH-CAR-BLA-CEN-DOR",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Modelos arras",
+          "value_id": null,
+          "value_name": "Centenario",
+          "values": [
+            {
+              "id": null,
+              "name": "Centenario",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-CAR-BLA-CEN-DOR",
+      "bom_set": 1820,
+      "componentes_set": [
+        "EST-CAR-BLC",
+        "COF-22-DOR",
+        "ARR-22-DOR-CEN"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    },
+    {
+      "listing_id": 1562,
+      "item_id": "MLM2163407464",
+      "variante_ext": "178100470525",
+      "seller_sku": "NH-CAR-BLA-SAN-DOR",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Modelos arras",
+          "value_id": null,
+          "value_name": "San Benito",
+          "values": [
+            {
+              "id": null,
+              "name": "San Benito",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-CAR-BLA-SAN-DOR",
+      "bom_set": 1826,
+      "componentes_set": [
+        "EST-CAR-BLC",
+        "COF-22-DOR",
+        "ARR-22-DOR-SAN"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    },
+    {
+      "listing_id": 1562,
+      "item_id": "MLM2163407464",
+      "variante_ext": "178100470527",
+      "seller_sku": "NH-CAR-BLA-VCO-DOR",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Modelos arras",
+          "value_id": null,
+          "value_name": "Virgen completa",
+          "values": [
+            {
+              "id": null,
+              "name": "Virgen completa",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-CAR-BLA-VCO-DOR",
+      "bom_set": 1830,
+      "componentes_set": [
+        "EST-CAR-BLC",
+        "COF-22-DOR",
+        "ARR-22-DOR-VCO"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    },
+    {
+      "listing_id": 1562,
+      "item_id": "MLM2163407464",
+      "variante_ext": "178100470529",
+      "seller_sku": "NH-CAR-BLA-VBU-DOR",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Modelos arras",
+          "value_id": null,
+          "value_name": "Virgen busto",
+          "values": [
+            {
+              "id": null,
+              "name": "Virgen busto",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-CAR-BLA-VBU-DOR",
+      "bom_set": 1828,
+      "componentes_set": [
+        "EST-CAR-BLC",
+        "COF-22-DOR",
+        "ARR-22-DOR-VBU"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    },
+    {
+      "listing_id": 1562,
+      "item_id": "MLM2163407464",
+      "variante_ext": "178100470535",
+      "seller_sku": "NH-CAR-BLA-COR-DOR",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Modelos arras",
+          "value_id": null,
+          "value_name": "Corazon",
+          "values": [
+            {
+              "id": null,
+              "name": "Corazon",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-CAR-BLA-COR-DOR",
+      "bom_set": 1822,
+      "componentes_set": [
+        "EST-CAR-BLC",
+        "COF-22-DOR",
+        "ARR-22-DOR-COR"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    },
+    {
+      "listing_id": 1562,
+      "item_id": "MLM2163407464",
+      "variante_ext": "194936687129",
+      "seller_sku": "NH-CAR-BLA-PEZ-DOR",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Modelos arras",
+          "value_id": null,
+          "value_name": "Sello cristiano",
+          "values": [
+            {
+              "id": null,
+              "name": "Sello cristiano",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-CAR-BLA-PEZ-DOR",
+      "bom_set": 1824,
+      "componentes_set": [
+        "EST-CAR-BLC",
+        "COF-22-DOR",
+        "ARR-22-DOR-PEZ"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    },
+    {
+      "listing_id": 1563,
+      "item_id": "MLM1890653227",
+      "variante_ext": "178099809133",
+      "seller_sku": "NH-CAR-BLA-CEN-PLA",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Modelo arras",
+          "value_id": null,
+          "value_name": "Centenario",
+          "values": [
+            {
+              "id": null,
+              "name": "Centenario",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-CAR-BLA-CEN-PLA",
+      "bom_set": 1821,
+      "componentes_set": [
+        "EST-CAR-BLC",
+        "COF-22-PLA",
+        "ARR-22-PLA-CEN"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    },
+    {
+      "listing_id": 1563,
+      "item_id": "MLM1890653227",
+      "variante_ext": "178099809135",
+      "seller_sku": "NH-CAR-BLA-SAN-PLA",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Modelo arras",
+          "value_id": null,
+          "value_name": "San Benito",
+          "values": [
+            {
+              "id": null,
+              "name": "San Benito",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-CAR-BLA-SAN-PLA",
+      "bom_set": 1827,
+      "componentes_set": [
+        "EST-CAR-BLC",
+        "COF-22-PLA",
+        "ARR-22-PLA-SAN"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    },
+    {
+      "listing_id": 1563,
+      "item_id": "MLM1890653227",
+      "variante_ext": "178099809137",
+      "seller_sku": "NH-CAR-BLA-VCO-PLA",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Modelo arras",
+          "value_id": null,
+          "value_name": "Virgen completa",
+          "values": [
+            {
+              "id": null,
+              "name": "Virgen completa",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-CAR-BLA-VCO-PLA",
+      "bom_set": 1831,
+      "componentes_set": [
+        "EST-CAR-BLC",
+        "COF-22-PLA",
+        "ARR-22-PLA-VCO"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    },
+    {
+      "listing_id": 1563,
+      "item_id": "MLM1890653227",
+      "variante_ext": "178099809139",
+      "seller_sku": "NH-CAR-BLA-VBU-PLA",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Modelo arras",
+          "value_id": null,
+          "value_name": "Virgen busto",
+          "values": [
+            {
+              "id": null,
+              "name": "Virgen busto",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-CAR-BLA-VBU-PLA",
+      "bom_set": 1829,
+      "componentes_set": [
+        "EST-CAR-BLC",
+        "COF-22-PLA",
+        "ARR-22-PLA-VBU"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    },
+    {
+      "listing_id": 1563,
+      "item_id": "MLM1890653227",
+      "variante_ext": "178099809145",
+      "seller_sku": "NH-CAR-BLA-COR-PLA",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Modelo arras",
+          "value_id": null,
+          "value_name": "Corazon",
+          "values": [
+            {
+              "id": null,
+              "name": "Corazon",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-CAR-BLA-COR-PLA",
+      "bom_set": 1823,
+      "componentes_set": [
+        "EST-CAR-BLC",
+        "COF-22-PLA",
+        "ARR-22-PLA-COR"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    },
+    {
+      "listing_id": 1563,
+      "item_id": "MLM1890653227",
+      "variante_ext": "194936530433",
+      "seller_sku": "NH-CAR-BLA-PEZ-PLA",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Modelo arras",
+          "value_id": null,
+          "value_name": "Sello cristiano",
+          "values": [
+            {
+              "id": null,
+              "name": "Sello cristiano",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-CAR-BLA-PEZ-PLA",
+      "bom_set": 1825,
+      "componentes_set": [
+        "EST-CAR-BLC",
+        "COF-22-PLA",
+        "ARR-22-PLA-PEZ"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    },
+    {
+      "listing_id": 1578,
+      "item_id": "MLM4735255462",
+      "variante_ext": "190065698602",
+      "seller_sku": "NH-BLA-BRO-CEN-DOR",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Centenario",
+          "values": [
+            {
+              "id": null,
+              "name": "Centenario",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-BLA-BRO-CEN-DOR",
+      "bom_set": 1784,
+      "componentes_set": [
+        "4608",
+        "COF-22-DOR",
+        "ARR-22-DOR-CEN"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    },
+    {
+      "listing_id": 1578,
+      "item_id": "MLM4735255462",
+      "variante_ext": "190065698604",
+      "seller_sku": "NH-BLA-BRO-COR-DOR",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Corazon",
+          "values": [
+            {
+              "id": null,
+              "name": "Corazon",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-BLA-BRO-COR-DOR",
+      "bom_set": 1786,
+      "componentes_set": [
+        "4608",
+        "COF-22-DOR",
+        "ARR-22-DOR-COR"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    },
+    {
+      "listing_id": 1578,
+      "item_id": "MLM4735255462",
+      "variante_ext": "190065698606",
+      "seller_sku": "NH-BLA-BRO-SAN-DOR",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "San benito",
+          "values": [
+            {
+              "id": null,
+              "name": "San benito",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-BLA-BRO-SAN-DOR",
+      "bom_set": 1790,
+      "componentes_set": [
+        "4608",
+        "COF-22-DOR",
+        "ARR-22-DOR-SAN"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    },
+    {
+      "listing_id": 1578,
+      "item_id": "MLM4735255462",
+      "variante_ext": "190065698608",
+      "seller_sku": "NH-BLA-BRO-PEZ-DOR",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Sello cristiano",
+          "values": [
+            {
+              "id": null,
+              "name": "Sello cristiano",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-BLA-BRO-PEZ-DOR",
+      "bom_set": 1788,
+      "componentes_set": [
+        "4608",
+        "COF-22-DOR",
+        "ARR-22-DOR-PEZ"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    },
+    {
+      "listing_id": 1578,
+      "item_id": "MLM4735255462",
+      "variante_ext": "190065698610",
+      "seller_sku": "NH-BLA-BRO-VBU-DOR",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Virgen busto",
+          "values": [
+            {
+              "id": null,
+              "name": "Virgen busto",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-BLA-BRO-VBU-DOR",
+      "bom_set": 1792,
+      "componentes_set": [
+        "4608",
+        "COF-22-DOR",
+        "ARR-22-DOR-VBU"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    },
+    {
+      "listing_id": 1578,
+      "item_id": "MLM4735255462",
+      "variante_ext": "190065698612",
+      "seller_sku": "NH-BLA-BRO-VCO-DOR",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Virgen completa",
+          "values": [
+            {
+              "id": null,
+              "name": "Virgen completa",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-BLA-BRO-VCO-DOR",
+      "bom_set": 1794,
+      "componentes_set": [
+        "4608",
+        "COF-22-DOR",
+        "ARR-22-DOR-VCO"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    },
+    {
+      "listing_id": 1579,
+      "item_id": "MLM2724304859",
+      "variante_ext": "190063357546",
+      "seller_sku": "NH-ITA-CEN-PLA",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Centenario",
+          "values": [
+            {
+              "id": null,
+              "name": "Centenario",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-ITA-CEN-PLA",
+      "bom_set": 1917,
+      "componentes_set": [
+        "4405-BG",
+        "COF-22-PLA",
+        "ARR-22-PLA-CEN"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    },
+    {
+      "listing_id": 1579,
+      "item_id": "MLM2724304859",
+      "variante_ext": "190063357548",
+      "seller_sku": "NH-ITA-COR-PLA",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Corazon",
+          "values": [
+            {
+              "id": null,
+              "name": "Corazon",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-ITA-COR-PLA",
+      "bom_set": 1919,
+      "componentes_set": [
+        "4405-BG",
+        "COF-22-PLA",
+        "ARR-22-PLA-COR"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    },
+    {
+      "listing_id": 1579,
+      "item_id": "MLM2724304859",
+      "variante_ext": "190063357550",
+      "seller_sku": "NH-ITA-SAN-PLA",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "San Benito",
+          "values": [
+            {
+              "id": null,
+              "name": "San Benito",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-ITA-SAN-PLA",
+      "bom_set": 1923,
+      "componentes_set": [
+        "4405-BG",
+        "COF-19-PLA",
+        "ARR-19-PLA-SAN"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    },
+    {
+      "listing_id": 1579,
+      "item_id": "MLM2724304859",
+      "variante_ext": "190063357552",
+      "seller_sku": "NH-ITA-PEZ-PLA",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Sello cristiano",
+          "values": [
+            {
+              "id": null,
+              "name": "Sello cristiano",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-ITA-PEZ-PLA",
+      "bom_set": 1921,
+      "componentes_set": [
+        "4405-BG",
+        "COF-22-PLA",
+        "ARR-22-PLA-PEZ"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    },
+    {
+      "listing_id": 1579,
+      "item_id": "MLM2724304859",
+      "variante_ext": "190063357554",
+      "seller_sku": "NH-ITA-VBU-PLA",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Virgen busto",
+          "values": [
+            {
+              "id": null,
+              "name": "Virgen busto",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-ITA-VBU-PLA",
+      "bom_set": 1925,
+      "componentes_set": [
+        "4405-BG",
+        "COF-19-PLA",
+        "ARR-19-PLA-VBU"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    },
+    {
+      "listing_id": 1579,
+      "item_id": "MLM2724304859",
+      "variante_ext": "190063357556",
+      "seller_sku": "NH-ITA-VCO-PLA",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Virgen completa",
+          "values": [
+            {
+              "id": null,
+              "name": "Virgen completa",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-ITA-VCO-PLA",
+      "bom_set": 1927,
+      "componentes_set": [
+        "4405-BG",
+        "COF-19-PLA",
+        "ARR-19-PLA-VCO"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    },
+    {
+      "listing_id": 1582,
+      "item_id": "MLM2727437671",
+      "variante_ext": "196650442787",
+      "seller_sku": "NH-GAM-AZU-COR-PLA",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Corazon",
+          "values": [
+            {
+              "id": null,
+              "name": "Corazon",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-GAM-AZU-COR-PLA",
+      "bom_set": 1895,
+      "componentes_set": [
+        "EST-GAM-AZU",
+        "COF-22-PLA",
+        "ARR-22-PLA-COR"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    },
+    {
+      "listing_id": 1582,
+      "item_id": "MLM2727437671",
+      "variante_ext": "196650442785",
+      "seller_sku": "NH-GAM-AZU-CEN-PLA",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Centenario",
+          "values": [
+            {
+              "id": null,
+              "name": "Centenario",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-GAM-AZU-CEN-PLA",
+      "bom_set": 1893,
+      "componentes_set": [
+        "EST-GAM-AZU",
+        "COF-22-PLA",
+        "ARR-22-PLA-CEN"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    },
+    {
+      "listing_id": 1582,
+      "item_id": "MLM2727437671",
+      "variante_ext": "196650442789",
+      "seller_sku": "NH-GAM-AZU-SAN-PLA",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "San benito",
+          "values": [
+            {
+              "id": null,
+              "name": "San benito",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-GAM-AZU-SAN-PLA",
+      "bom_set": 1899,
+      "componentes_set": [
+        "EST-GAM-AZU",
+        "COF-22-PLA",
+        "ARR-22-PLA-SAN"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    },
+    {
+      "listing_id": 1582,
+      "item_id": "MLM2727437671",
+      "variante_ext": "196650442791",
+      "seller_sku": "NH-GAM-AZU-VBU-PLA",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Virgen busto",
+          "values": [
+            {
+              "id": null,
+              "name": "Virgen busto",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-GAM-AZU-VBU-PLA",
+      "bom_set": 1901,
+      "componentes_set": [
+        "EST-GAM-AZU",
+        "COF-22-PLA",
+        "ARR-22-PLA-VBU"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    },
+    {
+      "listing_id": 1582,
+      "item_id": "MLM2727437671",
+      "variante_ext": "196650442793",
+      "seller_sku": "NH-GAM-AZU-VCO-PLA",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Virgen completa",
+          "values": [
+            {
+              "id": null,
+              "name": "Virgen completa",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-GAM-AZU-VCO-PLA",
+      "bom_set": 1903,
+      "componentes_set": [
+        "EST-GAM-AZU",
+        "COF-22-PLA",
+        "ARR-22-PLA-VCO"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    },
+    {
+      "listing_id": 1582,
+      "item_id": "MLM2727437671",
+      "variante_ext": "196650442795",
+      "seller_sku": "NH-GAM-AZU-PEZ-PLA",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Sello cristiano",
+          "values": [
+            {
+              "id": null,
+              "name": "Sello cristiano",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-GAM-AZU-PEZ-PLA",
+      "bom_set": 1897,
+      "componentes_set": [
+        "EST-GAM-AZU",
+        "COF-22-PLA",
+        "ARR-22-PLA-PEZ"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    },
+    {
+      "listing_id": 1583,
+      "item_id": "MLM2727363007",
+      "variante_ext": "196650403787",
+      "seller_sku": "NH-GAM-NEG-CEN-DOR",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Centenario",
+          "values": [
+            {
+              "id": null,
+              "name": "Centenario",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-GAM-NEG-CEN-DOR",
+      "bom_set": 1904,
+      "componentes_set": [
+        "EST-GAM-NEG",
+        "COF-22-DOR",
+        "ARR-22-DOR-CEN"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    },
+    {
+      "listing_id": 1583,
+      "item_id": "MLM2727363007",
+      "variante_ext": "196650403789",
+      "seller_sku": "NH-GAM-NEG-COR-DOR",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Corazon",
+          "values": [
+            {
+              "id": null,
+              "name": "Corazon",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-GAM-NEG-COR-DOR",
+      "bom_set": 1906,
+      "componentes_set": [
+        "EST-GAM-NEG",
+        "COF-22-DOR",
+        "ARR-22-DOR-COR"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    },
+    {
+      "listing_id": 1583,
+      "item_id": "MLM2727363007",
+      "variante_ext": "196650403791",
+      "seller_sku": "NH-GAM-NEG-SAN-DOR",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "San benito",
+          "values": [
+            {
+              "id": null,
+              "name": "San benito",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-GAM-NEG-SAN-DOR",
+      "bom_set": 1910,
+      "componentes_set": [
+        "EST-GAM-NEG",
+        "COF-22-DOR",
+        "ARR-22-DOR-SAN"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    },
+    {
+      "listing_id": 1583,
+      "item_id": "MLM2727363007",
+      "variante_ext": "196650403793",
+      "seller_sku": "NH-GAM-NEG-VBU-DOR",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Virgen busto",
+          "values": [
+            {
+              "id": null,
+              "name": "Virgen busto",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-GAM-NEG-VBU-DOR",
+      "bom_set": 1912,
+      "componentes_set": [
+        "EST-GAM-NEG",
+        "COF-22-DOR",
+        "ARR-22-DOR-VBU"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    },
+    {
+      "listing_id": 1583,
+      "item_id": "MLM2727363007",
+      "variante_ext": "196650403795",
+      "seller_sku": "NH-GAM-NEG-VCO-DOR",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Virgen completa",
+          "values": [
+            {
+              "id": null,
+              "name": "Virgen completa",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-GAM-NEG-VCO-DOR",
+      "bom_set": 1914,
+      "componentes_set": [
+        "EST-GAM-NEG",
+        "COF-22-DOR",
+        "ARR-22-DOR-VCO"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    },
+    {
+      "listing_id": 1583,
+      "item_id": "MLM2727363007",
+      "variante_ext": "196650403797",
+      "seller_sku": "NH-GAM-NEG-PEZ-DOR",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Sello cristiano",
+          "values": [
+            {
+              "id": null,
+              "name": "Sello cristiano",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-GAM-NEG-PEZ-DOR",
+      "bom_set": 1908,
+      "componentes_set": [
+        "EST-GAM-NEG",
+        "COF-22-DOR",
+        "ARR-22-DOR-PEZ"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    },
+    {
+      "listing_id": 1584,
+      "item_id": "MLM2727328203",
+      "variante_ext": "196650403661",
+      "seller_sku": "NH-GAM-AZU-CEN-DOR",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Centenario",
+          "values": [
+            {
+              "id": null,
+              "name": "Centenario",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-GAM-AZU-CEN-DOR",
+      "bom_set": 1892,
+      "componentes_set": [
+        "EST-GAM-AZU",
+        "COF-22-DOR",
+        "ARR-22-DOR-CEN"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    },
+    {
+      "listing_id": 1584,
+      "item_id": "MLM2727328203",
+      "variante_ext": "196650403663",
+      "seller_sku": "NH-GAM-AZU-COR-DOR",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Corazon",
+          "values": [
+            {
+              "id": null,
+              "name": "Corazon",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-GAM-AZU-COR-DOR",
+      "bom_set": 1894,
+      "componentes_set": [
+        "EST-GAM-AZU",
+        "COF-22-DOR",
+        "ARR-22-DOR-COR"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    },
+    {
+      "listing_id": 1584,
+      "item_id": "MLM2727328203",
+      "variante_ext": "196650403665",
+      "seller_sku": "NH-GAM-AZU-SAN-DOR",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "San benito",
+          "values": [
+            {
+              "id": null,
+              "name": "San benito",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-GAM-AZU-SAN-DOR",
+      "bom_set": 1898,
+      "componentes_set": [
+        "EST-GAM-AZU",
+        "COF-22-DOR",
+        "ARR-22-DOR-SAN"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    },
+    {
+      "listing_id": 1584,
+      "item_id": "MLM2727328203",
+      "variante_ext": "196650403667",
+      "seller_sku": "NH-GAM-AZU-VBU-DOR",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Virgen busto",
+          "values": [
+            {
+              "id": null,
+              "name": "Virgen busto",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-GAM-AZU-VBU-DOR",
+      "bom_set": 1900,
+      "componentes_set": [
+        "EST-GAM-AZU",
+        "COF-22-DOR",
+        "ARR-22-DOR-VBU"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    },
+    {
+      "listing_id": 1584,
+      "item_id": "MLM2727328203",
+      "variante_ext": "196650403669",
+      "seller_sku": "NH-GAM-AZU-VCO-DOR",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Virgen completa",
+          "values": [
+            {
+              "id": null,
+              "name": "Virgen completa",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-GAM-AZU-VCO-DOR",
+      "bom_set": 1902,
+      "componentes_set": [
+        "EST-GAM-AZU",
+        "COF-22-DOR",
+        "ARR-22-DOR-VCO"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    },
+    {
+      "listing_id": 1584,
+      "item_id": "MLM2727328203",
+      "variante_ext": "196650403671",
+      "seller_sku": "NH-GAM-AZU-PEZ-DOR",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Sello cristiano",
+          "values": [
+            {
+              "id": null,
+              "name": "Sello cristiano",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-GAM-AZU-PEZ-DOR",
+      "bom_set": 1896,
+      "componentes_set": [
+        "EST-GAM-AZU",
+        "COF-22-DOR",
+        "ARR-22-DOR-PEZ"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    },
+    {
+      "listing_id": 1585,
+      "item_id": "MLM4749600210",
+      "variante_ext": "196764932933",
+      "seller_sku": "NH-GAM-NEG-CEN-PLA",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Centenario",
+          "values": [
+            {
+              "id": null,
+              "name": "Centenario",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-GAM-NEG-CEN-PLA",
+      "bom_set": 1905,
+      "componentes_set": [
+        "EST-GAM-NEG",
+        "COF-22-PLA",
+        "ARR-22-PLA-CEN"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    },
+    {
+      "listing_id": 1585,
+      "item_id": "MLM4749600210",
+      "variante_ext": "196764932935",
+      "seller_sku": "NH-GAM-NEG-COR-PLA",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Corazon",
+          "values": [
+            {
+              "id": null,
+              "name": "Corazon",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-GAM-NEG-COR-PLA",
+      "bom_set": 1907,
+      "componentes_set": [
+        "EST-GAM-NEG",
+        "COF-22-PLA",
+        "ARR-22-PLA-COR"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    },
+    {
+      "listing_id": 1585,
+      "item_id": "MLM4749600210",
+      "variante_ext": "196764932937",
+      "seller_sku": "NH-GAM-NEG-SAN-PLA",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "San benito",
+          "values": [
+            {
+              "id": null,
+              "name": "San benito",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-GAM-NEG-SAN-PLA",
+      "bom_set": 1911,
+      "componentes_set": [
+        "EST-GAM-NEG",
+        "COF-22-PLA",
+        "ARR-22-PLA-SAN"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    },
+    {
+      "listing_id": 1585,
+      "item_id": "MLM4749600210",
+      "variante_ext": "196764932939",
+      "seller_sku": "NH-GAM-NEG-VBU-PLA",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Virgen busto",
+          "values": [
+            {
+              "id": null,
+              "name": "Virgen busto",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-GAM-NEG-VBU-PLA",
+      "bom_set": 1913,
+      "componentes_set": [
+        "EST-GAM-NEG",
+        "COF-22-PLA",
+        "ARR-22-PLA-VBU"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    },
+    {
+      "listing_id": 1585,
+      "item_id": "MLM4749600210",
+      "variante_ext": "196764932941",
+      "seller_sku": "NH-GAM-NEG-VCO-PLA",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Virgen completa",
+          "values": [
+            {
+              "id": null,
+              "name": "Virgen completa",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-GAM-NEG-VCO-PLA",
+      "bom_set": 1915,
+      "componentes_set": [
+        "EST-GAM-NEG",
+        "COF-22-PLA",
+        "ARR-22-PLA-VCO"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    },
+    {
+      "listing_id": 1585,
+      "item_id": "MLM4749600210",
+      "variante_ext": "196764932943",
+      "seller_sku": "NH-GAM-NEG-PEZ-PLA",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Sello cristiano",
+          "values": [
+            {
+              "id": null,
+              "name": "Sello cristiano",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-GAM-NEG-PEZ-PLA",
+      "bom_set": 1909,
+      "componentes_set": [
+        "EST-GAM-NEG",
+        "COF-22-PLA",
+        "ARR-22-PLA-PEZ"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    },
+    {
+      "listing_id": 1590,
+      "item_id": "MLM4763716652",
+      "variante_ext": "190333223912",
+      "seller_sku": "NH-PLA-CH-CEN-PLA",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Centenario",
+          "values": [
+            {
+              "id": null,
+              "name": "Centenario",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-PLA-CH-CEN-PLA",
+      "bom_set": 1941,
+      "componentes_set": [
+        "4587-BK",
+        "COF-22-PLA",
+        "ARR-22-PLA-CEN"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    },
+    {
+      "listing_id": 1590,
+      "item_id": "MLM4763716652",
+      "variante_ext": "190333223914",
+      "seller_sku": "NH-PLA-CH-COR-PLA",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Corazon",
+          "values": [
+            {
+              "id": null,
+              "name": "Corazon",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-PLA-CH-COR-PLA",
+      "bom_set": 1943,
+      "componentes_set": [
+        "4587-BK",
+        "COF-22-PLA",
+        "ARR-22-PLA-COR"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    },
+    {
+      "listing_id": 1590,
+      "item_id": "MLM4763716652",
+      "variante_ext": "190333223916",
+      "seller_sku": "NH-PLA-CH-SAN-PLA",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "San benito",
+          "values": [
+            {
+              "id": null,
+              "name": "San benito",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-PLA-CH-SAN-PLA",
+      "bom_set": 1947,
+      "componentes_set": [
+        "4587-BK",
+        "COF-22-PLA",
+        "ARR-22-PLA-SAN"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    },
+    {
+      "listing_id": 1590,
+      "item_id": "MLM4763716652",
+      "variante_ext": "190333223918",
+      "seller_sku": "NH-PLA-CH-VBU-PLA",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Virgen busto",
+          "values": [
+            {
+              "id": null,
+              "name": "Virgen busto",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-PLA-CH-VBU-PLA",
+      "bom_set": 1949,
+      "componentes_set": [
+        "4587-BK",
+        "COF-22-PLA",
+        "ARR-22-PLA-VBU"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    },
+    {
+      "listing_id": 1590,
+      "item_id": "MLM4763716652",
+      "variante_ext": "190333223920",
+      "seller_sku": "NH-PLA-CH-VCO-PLA",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Virgen completa",
+          "values": [
+            {
+              "id": null,
+              "name": "Virgen completa",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-PLA-CH-VCO-PLA",
+      "bom_set": 1951,
+      "componentes_set": [
+        "4587-BK",
+        "COF-22-PLA",
+        "ARR-22-PLA-VCO"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    },
+    {
+      "listing_id": 1590,
+      "item_id": "MLM4763716652",
+      "variante_ext": "190333223922",
+      "seller_sku": "NH-PLA-CH-PEZ-PLA",
+      "diseno": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Sello cristiano",
+          "values": [
+            {
+              "id": null,
+              "name": "Sello cristiano",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "contraste_set_por_codigo": "SET-PLA-CH-PEZ-PLA",
+      "bom_set": 1945,
+      "componentes_set": [
+        "4587-BK",
+        "COF-22-PLA",
+        "ARR-22-PLA-PEZ"
+      ],
+      "alcance": "Contraste de familia dimensional; no constituye nuevo mapping autorizado"
+    }
+  ]
+}

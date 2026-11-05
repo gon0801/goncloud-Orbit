@@ -1,0 +1,65 @@
+[
+  {
+    "ruta": "/usr/lib/python3/dist-packages/odoo/addons/mrp_account/models/product.py",
+    "archivo_sha256": "5f765461b041d93685e17e97587467913bdcc09799f5b26a4921a4db98d7a919",
+    "metodo": "button_bom_cost",
+    "linea": 25,
+    "codigo_ast": "def button_bom_cost(self):\n    templates = self.filtered(lambda t: t.product_variant_count == 1 and t.bom_count > 0)\n    if templates:\n        return templates.mapped('product_variant_id').button_bom_cost()"
+  },
+  {
+    "ruta": "/usr/lib/python3/dist-packages/odoo/addons/mrp_account/models/product.py",
+    "archivo_sha256": "5f765461b041d93685e17e97587467913bdcc09799f5b26a4921a4db98d7a919",
+    "metodo": "button_bom_cost",
+    "linea": 35,
+    "codigo_ast": "def button_bom_cost(self):\n    self.ensure_one()\n    self._set_price_from_bom()"
+  },
+  {
+    "ruta": "/usr/lib/python3/dist-packages/odoo/addons/mrp_account/models/product.py",
+    "archivo_sha256": "5f765461b041d93685e17e97587467913bdcc09799f5b26a4921a4db98d7a919",
+    "metodo": "_set_price_from_bom",
+    "linea": 44,
+    "codigo_ast": "def _set_price_from_bom(self, boms_to_recompute=False):\n    self.ensure_one()\n    bom = self.env['mrp.bom']._bom_find(self)[self]\n    if bom:\n        self.standard_price = self._compute_bom_price(bom, boms_to_recompute=boms_to_recompute)\n    else:\n        bom = self.env['mrp.bom'].search([('byproduct_ids.product_id', '=', self.id)], order='sequence, product_id, id', limit=1)\n        if bom:\n            price = self._compute_bom_price(bom, boms_to_recompute=boms_to_recompute, byproduct_bom=True)\n            if price:\n                self.standard_price = price"
+  },
+  {
+    "ruta": "/usr/lib/python3/dist-packages/odoo/addons/mrp_account/models/product.py",
+    "archivo_sha256": "5f765461b041d93685e17e97587467913bdcc09799f5b26a4921a4db98d7a919",
+    "metodo": "_compute_bom_price",
+    "linea": 80,
+    "codigo_ast": "def _compute_bom_price(self, bom, boms_to_recompute=False, byproduct_bom=False):\n    self.ensure_one()\n    if not bom:\n        return 0\n    if not boms_to_recompute:\n        boms_to_recompute = []\n    total = 0\n    for opt in bom.operation_ids:\n        if opt._skip_operation_line(self):\n            continue\n        duration_expected = opt.workcenter_id._get_expected_duration(self) + opt.time_cycle * 100 / opt.workcenter_id.time_efficiency\n        total += duration_expected / 60 * opt._total_cost_per_hour()\n    for line in bom.bom_line_ids:\n        if line._skip_bom_line(self):\n            continue\n        if line.child_bom_id and line.child_bom_id in boms_to_recompute:\n            child_total = line.product_id._compute_bom_price(line.child_bom_id, boms_to_recompute=boms_to_recompute)\n            total += line.product_id.uom_id._compute_price(child_total, line.product_uom_id) * line.product_qty\n        else:\n            total += line.product_id.uom_id._compute_price(line.product_id.standard_price, line.product_uom_id) * line.product_qty\n    if byproduct_bom:\n        byproduct_lines = bom.byproduct_ids.filtered(lambda b: b.product_id == self and b.cost_share != 0)\n        product_uom_qty = 0\n        for line in byproduct_lines:\n            product_uom_qty += line.product_uom_id._compute_quantity(line.product_qty, self.uom_id, round=False)\n        byproduct_cost_share = sum(byproduct_lines.mapped('cost_share'))\n        if byproduct_cost_share and product_uom_qty:\n            return total * byproduct_cost_share / 100 / product_uom_qty\n    else:\n        byproduct_cost_share = sum(bom.byproduct_ids.mapped('cost_share'))\n        if byproduct_cost_share:\n            total *= float_round(1 - byproduct_cost_share / 100, precision_rounding=0.0001)\n        return bom.product_uom_id._compute_price(total / bom.product_qty, self.uom_id)"
+  },
+  {
+    "ruta": "/usr/lib/python3/dist-packages/odoo/addons/stock_account/models/stock_move.py",
+    "archivo_sha256": "84d8474c24b0de1048465f59bb503e8a9934d59450c3424212ac084ee219502c",
+    "metodo": "product_price_update_before_done",
+    "linea": 321,
+    "codigo_ast": "def product_price_update_before_done(self, forced_qty=None):\n    tmpl_dict = defaultdict(lambda : 0.0)\n    std_price_update = {}\n    for move in self:\n        if not move._is_in():\n            continue\n        if move.with_company(move.company_id).product_id.cost_method == 'standard':\n            continue\n        product_tot_qty_available = move.product_id.sudo().with_company(move.company_id).quantity_svl + tmpl_dict[move.product_id.id]\n        rounding = move.product_id.uom_id.rounding\n        valued_move_lines = move._get_in_move_lines()\n        quantity = sum(valued_move_lines.mapped('quantity_product_uom'))\n        qty = forced_qty or quantity\n        if float_is_zero(product_tot_qty_available, precision_rounding=rounding):\n            new_std_price = move._get_price_unit()\n        elif float_is_zero(product_tot_qty_available + move.product_qty, precision_rounding=rounding) or float_is_zero(product_tot_qty_available + qty, precision_rounding=rounding):\n            new_std_price = move._get_price_unit()\n        else:\n            amount_unit = std_price_update.get((move.company_id.id, move.product_id.id)) or move.product_id.with_company(move.company_id).standard_price\n            new_std_price = (amount_unit * product_tot_qty_available + move._get_price_unit() * qty) / (product_tot_qty_available + qty)\n        tmpl_dict[move.product_id.id] += quantity\n        move.product_id.with_company(move.company_id.id).with_context(disable_auto_svl=True).sudo().write({'standard_price': new_std_price})\n        std_price_update[move.company_id.id, move.product_id.id] = new_std_price"
+  },
+  {
+    "ruta": "/usr/lib/python3/dist-packages/odoo/addons/uom/models/uom_uom.py",
+    "archivo_sha256": "95fd537ecf397feed699bf48d6530168270663e2270144c08c961355b707752f",
+    "metodo": "_compute_price",
+    "linea": 243,
+    "codigo_ast": "def _compute_price(self, price, to_unit):\n    self.ensure_one()\n    if not self or not price or (not to_unit) or (self == to_unit):\n        return price\n    if self.category_id.id != to_unit.category_id.id:\n        return price\n    amount = price * self.factor\n    if to_unit:\n        amount = amount / to_unit.factor\n    return amount"
+  },
+  {
+    "ruta": "/mnt/extra-addons/bom_total_cost/models/mrp_bom.py",
+    "archivo_sha256": "76b423ba0ce265e478cb8677d296e54d1e7afc824197d83c0e6c78d540b50006",
+    "metodo": "_compute_bom_cost",
+    "linea": 44,
+    "codigo_ast": "@api.depends('bom_line_ids.product_id', 'product_qty')\ndef _compute_bom_cost(self):\n    \"\"\"Compute total cost per unit\"\"\"\n    for rec in self:\n        cost_mapp = rec.bom_line_ids.mapped('cost')\n        rec.bom_cost = sum(cost_mapp)\n        rec.total_bom_cost = rec.bom_cost * rec.product_qty"
+  },
+  {
+    "ruta": "/mnt/extra-addons/bom_total_cost/models/mrp_bom_line.py",
+    "archivo_sha256": "81de90325b93cfddbecfaa417422f2ad05c546e77981c966fd99b981e4aec276",
+    "metodo": "_onchange_product_id",
+    "linea": 33,
+    "codigo_ast": "@api.onchange('product_qty', 'product_id')\ndef _onchange_product_id(self):\n    \"\"\" Computing total cost of each component\"\"\"\n    self.cost = self.product_id.standard_price * self.product_qty"
+  },
+  {
+    "ruta": "/usr/lib/python3/dist-packages/odoo/addons/product/models/product_product.py",
+    "archivo_sha256": "8c57b2f90d1fcaeb3ddffefc30e5fd25686a4ca843949316bdaefb1edfa572c4",
+    "campo": "standard_price",
+    "linea": 53,
+    "codigo_ast": "standard_price = fields.Float('Cost', company_dependent=True, digits='Product Price', groups='base.group_user', help='Value of the product (automatically computed in AVCO).\\n        Used to value the product when the purchase cost is not known (e.g. inventory adjustment).\\n        Used to compute margins on sale orders.')"
+  }
+]

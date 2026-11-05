@@ -1,0 +1,648 @@
+{
+  "observado_utc": "2026-11-05T04:04:49.649348+00:00",
+  "modo": "mode=ro/query_only, transaccion de lectura, timeout15s",
+  "sql": "SELECT id,sku,cost,currency,valid_from,valid_to,source,created_at FROM sku_costs WHERE sku IN (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ORDER BY sku,COALESCE(valid_from,created_at),id",
+  "skus": [
+    "4405-BG",
+    "4587-BK",
+    "4608",
+    "ARR-22-DOR-PEZ",
+    "ARR-22-PLA-PEZ",
+    "COF-22-DOR",
+    "COF-22-PLA",
+    "EST-CAR-BLC",
+    "EST-GAM-AZU",
+    "EST-GAM-NEG",
+    "SET-BLA-BRO-PEZ-DOR",
+    "SET-CAR-BLA-PEZ-DOR",
+    "SET-CAR-BLA-PEZ-PLA",
+    "SET-GAM-AZU-PEZ-DOR",
+    "SET-GAM-AZU-PEZ-PLA",
+    "SET-GAM-NEG-PEZ-DOR",
+    "SET-GAM-NEG-PEZ-PLA",
+    "SET-ITA-PEZ-PLA",
+    "SET-PLA-CH-PEZ-PLA"
+  ],
+  "historial": [
+    {
+      "id": 10,
+      "sku": "4405-BG",
+      "cost": "76.0",
+      "currency": "MXN",
+      "valid_from": null,
+      "valid_to": "2026-04-06 06:24:08",
+      "source": "odoo_sync",
+      "created_at": "2026-02-20 05:00:02"
+    },
+    {
+      "id": 983,
+      "sku": "4405-BG",
+      "cost": "87.77",
+      "currency": "MXN",
+      "valid_from": "2026-04-06 06:24:08",
+      "valid_to": "2026-05-25 05:00:18",
+      "source": "odoo_sync",
+      "created_at": "2026-04-06 06:24:08"
+    },
+    {
+      "id": 1002,
+      "sku": "4405-BG",
+      "cost": "88.16",
+      "currency": "MXN",
+      "valid_from": "2026-05-25 05:00:18",
+      "valid_to": "2026-07-16 07:00:07",
+      "source": "odoo_sync",
+      "created_at": "2026-05-25 05:00:18"
+    },
+    {
+      "id": 1011,
+      "sku": "4405-BG",
+      "cost": "82.37",
+      "currency": "MXN",
+      "valid_from": "2026-07-16 07:00:07",
+      "valid_to": "2026-07-25 06:00:16",
+      "source": "odoo_sync",
+      "created_at": "2026-07-16 07:00:07"
+    },
+    {
+      "id": 1015,
+      "sku": "4405-BG",
+      "cost": "76.0",
+      "currency": "MXN",
+      "valid_from": "2026-07-25 06:00:16",
+      "valid_to": "2026-09-15 08:00:16",
+      "source": "odoo_sync",
+      "created_at": "2026-07-25 06:00:16"
+    },
+    {
+      "id": 2713,
+      "sku": "4405-BG",
+      "cost": "88.16",
+      "currency": "MXN",
+      "valid_from": "2026-09-15 08:00:16",
+      "valid_to": "2026-10-10 05:00:17",
+      "source": "odoo_sync",
+      "created_at": "2026-09-15 08:00:16"
+    },
+    {
+      "id": 2723,
+      "sku": "4405-BG",
+      "cost": "81.76",
+      "currency": "MXN",
+      "valid_from": "2026-10-10 05:00:17",
+      "valid_to": "2026-10-29 05:00:17",
+      "source": "odoo_sync",
+      "created_at": "2026-10-10 05:00:17"
+    },
+    {
+      "id": 2726,
+      "sku": "4405-BG",
+      "cost": "76.0",
+      "currency": "MXN",
+      "valid_from": "2026-10-29 05:00:17",
+      "valid_to": null,
+      "source": "odoo_sync",
+      "created_at": "2026-10-29 05:00:17"
+    },
+    {
+      "id": 13,
+      "sku": "4587-BK",
+      "cost": "107.0",
+      "currency": "MXN",
+      "valid_from": null,
+      "valid_to": null,
+      "source": "odoo_sync",
+      "created_at": "2026-02-20 05:00:02"
+    },
+    {
+      "id": 15,
+      "sku": "4608",
+      "cost": "92.0",
+      "currency": "MXN",
+      "valid_from": null,
+      "valid_to": "2026-04-06 06:24:08",
+      "source": "odoo_sync",
+      "created_at": "2026-02-20 05:00:02"
+    },
+    {
+      "id": 984,
+      "sku": "4608",
+      "cost": "90.0",
+      "currency": "MXN",
+      "valid_from": "2026-04-06 06:24:08",
+      "valid_to": "2026-05-25 05:00:18",
+      "source": "odoo_sync",
+      "created_at": "2026-04-06 06:24:08"
+    },
+    {
+      "id": 1005,
+      "sku": "4608",
+      "cost": "90.86",
+      "currency": "MXN",
+      "valid_from": "2026-05-25 05:00:18",
+      "valid_to": "2026-07-25 06:00:16",
+      "source": "odoo_sync",
+      "created_at": "2026-05-25 05:00:18"
+    },
+    {
+      "id": 1017,
+      "sku": "4608",
+      "cost": "88.69",
+      "currency": "MXN",
+      "valid_from": "2026-07-25 06:00:16",
+      "valid_to": null,
+      "source": "odoo_sync",
+      "created_at": "2026-07-25 06:00:16"
+    },
+    {
+      "id": 47,
+      "sku": "ARR-22-DOR-PEZ",
+      "cost": "137.3",
+      "currency": "MXN",
+      "valid_from": null,
+      "valid_to": "2026-08-18 07:00:06",
+      "source": "odoo_sync",
+      "created_at": "2026-02-20 05:00:02"
+    },
+    {
+      "id": 2011,
+      "sku": "ARR-22-DOR-PEZ",
+      "cost": "37.82",
+      "currency": "MXN",
+      "valid_from": "2026-08-18 07:00:06",
+      "valid_to": null,
+      "source": "odoo_sync",
+      "created_at": "2026-08-18 07:00:06"
+    },
+    {
+      "id": 53,
+      "sku": "ARR-22-PLA-PEZ",
+      "cost": "137.3",
+      "currency": "MXN",
+      "valid_from": null,
+      "valid_to": "2026-08-18 07:00:06",
+      "source": "odoo_sync",
+      "created_at": "2026-02-20 05:00:02"
+    },
+    {
+      "id": 2019,
+      "sku": "ARR-22-PLA-PEZ",
+      "cost": "37.82",
+      "currency": "MXN",
+      "valid_from": "2026-08-18 07:00:06",
+      "valid_to": null,
+      "source": "odoo_sync",
+      "created_at": "2026-08-18 07:00:06"
+    },
+    {
+      "id": 67,
+      "sku": "COF-22-DOR",
+      "cost": "71.73",
+      "currency": "MXN",
+      "valid_from": null,
+      "valid_to": "2026-04-06 06:24:08",
+      "source": "odoo_sync",
+      "created_at": "2026-02-20 05:00:02"
+    },
+    {
+      "id": 988,
+      "sku": "COF-22-DOR",
+      "cost": "50.14",
+      "currency": "MXN",
+      "valid_from": "2026-04-06 06:24:08",
+      "valid_to": "2026-08-18 07:00:06",
+      "source": "odoo_sync",
+      "created_at": "2026-04-06 06:24:08"
+    },
+    {
+      "id": 2023,
+      "sku": "COF-22-DOR",
+      "cost": "48.74",
+      "currency": "MXN",
+      "valid_from": "2026-08-18 07:00:06",
+      "valid_to": "2026-08-24 04:00:14",
+      "source": "odoo_sync",
+      "created_at": "2026-08-18 07:00:06"
+    },
+    {
+      "id": 2707,
+      "sku": "COF-22-DOR",
+      "cost": "44.06",
+      "currency": "MXN",
+      "valid_from": "2026-08-24 04:00:14",
+      "valid_to": null,
+      "source": "odoo_sync",
+      "created_at": "2026-08-24 04:00:14"
+    },
+    {
+      "id": 68,
+      "sku": "COF-22-PLA",
+      "cost": "71.73",
+      "currency": "MXN",
+      "valid_from": null,
+      "valid_to": "2026-04-06 06:24:08",
+      "source": "odoo_sync",
+      "created_at": "2026-02-20 05:00:02"
+    },
+    {
+      "id": 989,
+      "sku": "COF-22-PLA",
+      "cost": "50.14",
+      "currency": "MXN",
+      "valid_from": "2026-04-06 06:24:08",
+      "valid_to": "2026-08-18 07:00:06",
+      "source": "odoo_sync",
+      "created_at": "2026-04-06 06:24:08"
+    },
+    {
+      "id": 2024,
+      "sku": "COF-22-PLA",
+      "cost": "48.74",
+      "currency": "MXN",
+      "valid_from": "2026-08-18 07:00:06",
+      "valid_to": "2026-08-24 04:00:14",
+      "source": "odoo_sync",
+      "created_at": "2026-08-18 07:00:06"
+    },
+    {
+      "id": 2708,
+      "sku": "COF-22-PLA",
+      "cost": "44.54",
+      "currency": "MXN",
+      "valid_from": "2026-08-24 04:00:14",
+      "valid_to": null,
+      "source": "odoo_sync",
+      "created_at": "2026-08-24 04:00:14"
+    },
+    {
+      "id": 70,
+      "sku": "EST-CAR-BLC",
+      "cost": "51.5",
+      "currency": "MXN",
+      "valid_from": null,
+      "valid_to": "2026-05-06 03:00:09",
+      "source": "odoo_sync",
+      "created_at": "2026-02-20 05:00:02"
+    },
+    {
+      "id": 997,
+      "sku": "EST-CAR-BLC",
+      "cost": "27.03",
+      "currency": "MXN",
+      "valid_from": "2026-05-06 03:00:09",
+      "valid_to": "2026-08-18 07:00:06",
+      "source": "odoo_sync",
+      "created_at": "2026-05-06 03:00:09"
+    },
+    {
+      "id": 2026,
+      "sku": "EST-CAR-BLC",
+      "cost": "39.65",
+      "currency": "MXN",
+      "valid_from": "2026-08-18 07:00:06",
+      "valid_to": null,
+      "source": "odoo_sync",
+      "created_at": "2026-08-18 07:00:06"
+    },
+    {
+      "id": 72,
+      "sku": "EST-GAM-AZU",
+      "cost": "60.0",
+      "currency": "MXN",
+      "valid_from": null,
+      "valid_to": null,
+      "source": "odoo_sync",
+      "created_at": "2026-02-20 05:00:02"
+    },
+    {
+      "id": 73,
+      "sku": "EST-GAM-NEG",
+      "cost": "60.0",
+      "currency": "MXN",
+      "valid_from": null,
+      "valid_to": null,
+      "source": "odoo_sync",
+      "created_at": "2026-02-20 05:00:02"
+    },
+    {
+      "id": 564,
+      "sku": "SET-BLA-BRO-PEZ-DOR",
+      "cost": "301.03000000000003",
+      "currency": "MXN",
+      "valid_from": null,
+      "valid_to": "2026-08-18 05:00:07",
+      "source": "odoo_sync",
+      "created_at": "2026-02-20 05:00:02"
+    },
+    {
+      "id": 1463,
+      "sku": "SET-BLA-BRO-PEZ-DOR",
+      "cost": "276.13",
+      "currency": "MXN",
+      "valid_from": "2026-08-18 05:00:07",
+      "valid_to": "2026-08-18 07:00:06",
+      "source": "odoo_sync",
+      "created_at": "2026-08-18 05:00:07"
+    },
+    {
+      "id": 2331,
+      "sku": "SET-BLA-BRO-PEZ-DOR",
+      "cost": "175.25",
+      "currency": "MXN",
+      "valid_from": "2026-08-18 07:00:06",
+      "valid_to": null,
+      "source": "odoo_sync",
+      "created_at": "2026-08-18 07:00:06"
+    },
+    {
+      "id": 612,
+      "sku": "SET-CAR-BLA-PEZ-DOR",
+      "cost": "260.53000000000003",
+      "currency": "MXN",
+      "valid_from": null,
+      "valid_to": "2026-08-18 05:00:07",
+      "source": "odoo_sync",
+      "created_at": "2026-02-20 05:00:02"
+    },
+    {
+      "id": 1511,
+      "sku": "SET-CAR-BLA-PEZ-DOR",
+      "cost": "214.47",
+      "currency": "MXN",
+      "valid_from": "2026-08-18 05:00:07",
+      "valid_to": "2026-08-18 07:00:06",
+      "source": "odoo_sync",
+      "created_at": "2026-08-18 05:00:07"
+    },
+    {
+      "id": 2379,
+      "sku": "SET-CAR-BLA-PEZ-DOR",
+      "cost": "126.21000000000001",
+      "currency": "MXN",
+      "valid_from": "2026-08-18 07:00:06",
+      "valid_to": null,
+      "source": "odoo_sync",
+      "created_at": "2026-08-18 07:00:06"
+    },
+    {
+      "id": 613,
+      "sku": "SET-CAR-BLA-PEZ-PLA",
+      "cost": "260.53000000000003",
+      "currency": "MXN",
+      "valid_from": null,
+      "valid_to": "2026-08-18 05:00:07",
+      "source": "odoo_sync",
+      "created_at": "2026-02-20 05:00:02"
+    },
+    {
+      "id": 1512,
+      "sku": "SET-CAR-BLA-PEZ-PLA",
+      "cost": "214.47",
+      "currency": "MXN",
+      "valid_from": "2026-08-18 05:00:07",
+      "valid_to": "2026-08-18 07:00:06",
+      "source": "odoo_sync",
+      "created_at": "2026-08-18 05:00:07"
+    },
+    {
+      "id": 2380,
+      "sku": "SET-CAR-BLA-PEZ-PLA",
+      "cost": "126.21000000000001",
+      "currency": "MXN",
+      "valid_from": "2026-08-18 07:00:06",
+      "valid_to": null,
+      "source": "odoo_sync",
+      "created_at": "2026-08-18 07:00:06"
+    },
+    {
+      "id": 720,
+      "sku": "SET-GAM-AZU-PEZ-DOR",
+      "cost": "269.03000000000003",
+      "currency": "MXN",
+      "valid_from": null,
+      "valid_to": "2026-08-18 05:00:07",
+      "source": "odoo_sync",
+      "created_at": "2026-02-20 05:00:02"
+    },
+    {
+      "id": 1619,
+      "sku": "SET-GAM-AZU-PEZ-DOR",
+      "cost": "247.44",
+      "currency": "MXN",
+      "valid_from": "2026-08-18 05:00:07",
+      "valid_to": "2026-08-18 07:00:06",
+      "source": "odoo_sync",
+      "created_at": "2026-08-18 05:00:07"
+    },
+    {
+      "id": 2487,
+      "sku": "SET-GAM-AZU-PEZ-DOR",
+      "cost": "146.56",
+      "currency": "MXN",
+      "valid_from": "2026-08-18 07:00:06",
+      "valid_to": null,
+      "source": "odoo_sync",
+      "created_at": "2026-08-18 07:00:06"
+    },
+    {
+      "id": 721,
+      "sku": "SET-GAM-AZU-PEZ-PLA",
+      "cost": "269.03000000000003",
+      "currency": "MXN",
+      "valid_from": null,
+      "valid_to": "2026-08-18 05:00:07",
+      "source": "odoo_sync",
+      "created_at": "2026-02-20 05:00:02"
+    },
+    {
+      "id": 1620,
+      "sku": "SET-GAM-AZU-PEZ-PLA",
+      "cost": "247.44",
+      "currency": "MXN",
+      "valid_from": "2026-08-18 05:00:07",
+      "valid_to": "2026-08-18 07:00:06",
+      "source": "odoo_sync",
+      "created_at": "2026-08-18 05:00:07"
+    },
+    {
+      "id": 2488,
+      "sku": "SET-GAM-AZU-PEZ-PLA",
+      "cost": "146.56",
+      "currency": "MXN",
+      "valid_from": "2026-08-18 07:00:06",
+      "valid_to": null,
+      "source": "odoo_sync",
+      "created_at": "2026-08-18 07:00:06"
+    },
+    {
+      "id": 732,
+      "sku": "SET-GAM-NEG-PEZ-DOR",
+      "cost": "269.03000000000003",
+      "currency": "MXN",
+      "valid_from": null,
+      "valid_to": "2026-08-18 05:00:07",
+      "source": "odoo_sync",
+      "created_at": "2026-02-20 05:00:02"
+    },
+    {
+      "id": 1631,
+      "sku": "SET-GAM-NEG-PEZ-DOR",
+      "cost": "247.44",
+      "currency": "MXN",
+      "valid_from": "2026-08-18 05:00:07",
+      "valid_to": "2026-08-18 07:00:06",
+      "source": "odoo_sync",
+      "created_at": "2026-08-18 05:00:07"
+    },
+    {
+      "id": 2499,
+      "sku": "SET-GAM-NEG-PEZ-DOR",
+      "cost": "146.56",
+      "currency": "MXN",
+      "valid_from": "2026-08-18 07:00:06",
+      "valid_to": null,
+      "source": "odoo_sync",
+      "created_at": "2026-08-18 07:00:06"
+    },
+    {
+      "id": 733,
+      "sku": "SET-GAM-NEG-PEZ-PLA",
+      "cost": "269.03000000000003",
+      "currency": "MXN",
+      "valid_from": null,
+      "valid_to": "2026-08-18 05:00:07",
+      "source": "odoo_sync",
+      "created_at": "2026-02-20 05:00:02"
+    },
+    {
+      "id": 1632,
+      "sku": "SET-GAM-NEG-PEZ-PLA",
+      "cost": "247.44",
+      "currency": "MXN",
+      "valid_from": "2026-08-18 05:00:07",
+      "valid_to": "2026-08-18 07:00:06",
+      "source": "odoo_sync",
+      "created_at": "2026-08-18 05:00:07"
+    },
+    {
+      "id": 2500,
+      "sku": "SET-GAM-NEG-PEZ-PLA",
+      "cost": "146.56",
+      "currency": "MXN",
+      "valid_from": "2026-08-18 07:00:06",
+      "valid_to": null,
+      "source": "odoo_sync",
+      "created_at": "2026-08-18 07:00:06"
+    },
+    {
+      "id": 745,
+      "sku": "SET-ITA-PEZ-PLA",
+      "cost": "285.03000000000003",
+      "currency": "MXN",
+      "valid_from": null,
+      "valid_to": "2026-08-18 05:00:07",
+      "source": "odoo_sync",
+      "created_at": "2026-02-20 05:00:02"
+    },
+    {
+      "id": 1644,
+      "sku": "SET-ITA-PEZ-PLA",
+      "cost": "263.44",
+      "currency": "MXN",
+      "valid_from": "2026-08-18 05:00:07",
+      "valid_to": "2026-08-18 07:00:06",
+      "source": "odoo_sync",
+      "created_at": "2026-08-18 05:00:07"
+    },
+    {
+      "id": 2512,
+      "sku": "SET-ITA-PEZ-PLA",
+      "cost": "162.56",
+      "currency": "MXN",
+      "valid_from": "2026-08-18 07:00:06",
+      "valid_to": null,
+      "source": "odoo_sync",
+      "created_at": "2026-08-18 07:00:06"
+    },
+    {
+      "id": 769,
+      "sku": "SET-PLA-CH-PEZ-PLA",
+      "cost": "316.03000000000003",
+      "currency": "MXN",
+      "valid_from": null,
+      "valid_to": "2026-08-18 05:00:07",
+      "source": "odoo_sync",
+      "created_at": "2026-02-20 05:00:02"
+    },
+    {
+      "id": 1668,
+      "sku": "SET-PLA-CH-PEZ-PLA",
+      "cost": "294.44",
+      "currency": "MXN",
+      "valid_from": "2026-08-18 05:00:07",
+      "valid_to": "2026-08-18 07:00:06",
+      "source": "odoo_sync",
+      "created_at": "2026-08-18 05:00:07"
+    },
+    {
+      "id": 2536,
+      "sku": "SET-PLA-CH-PEZ-PLA",
+      "cost": "193.56",
+      "currency": "MXN",
+      "valid_from": "2026-08-18 07:00:06",
+      "valid_to": null,
+      "source": "odoo_sync",
+      "created_at": "2026-08-18 07:00:06"
+    }
+  ],
+  "columnas_bom_lines": [
+    {
+      "cid": 0,
+      "name": "id",
+      "type": "INTEGER",
+      "notnull": 0,
+      "dflt_value": null,
+      "pk": 1
+    },
+    {
+      "cid": 1,
+      "name": "bom_id",
+      "type": "INTEGER",
+      "notnull": 0,
+      "dflt_value": null,
+      "pk": 0
+    },
+    {
+      "cid": 2,
+      "name": "component_sku",
+      "type": "TEXT",
+      "notnull": 0,
+      "dflt_value": null,
+      "pk": 0
+    },
+    {
+      "cid": 3,
+      "name": "component_name",
+      "type": "TEXT",
+      "notnull": 0,
+      "dflt_value": null,
+      "pk": 0
+    },
+    {
+      "cid": 4,
+      "name": "qty",
+      "type": "REAL",
+      "notnull": 0,
+      "dflt_value": "1",
+      "pk": 0
+    },
+    {
+      "cid": 5,
+      "name": "unit_cost",
+      "type": "REAL",
+      "notnull": 0,
+      "dflt_value": "0",
+      "pk": 0
+    }
+  ]
+}

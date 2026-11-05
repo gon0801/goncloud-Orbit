@@ -194,6 +194,11 @@
       "name": "pez-01",
       "path": "plans/pez-01.md",
       "description": "PEZ 01 — CERRADO. PR #526 integrada y desplegada: nueve variantes MeLi vinculadas a SET con cofre; costos conciliados9/9, estados7activos/2inactivos conservados y cero cambios fuera del lote. Reversa disponible. Datos de valoracion/medidas en P13."
+    },
+    {
+      "name": "pez-02",
+      "path": "plans/pez-02.md",
+      "description": "PEZ 02 — REVISION DOCUMENTADA. P13 costos conciliados9/9: cambio AVCO de cofre explica diferencia; no error de ingesta ni recosteo justificado. Medidas: borradores listos, pendiente diametro fisico PEZ; sin publicaciones ni cambios productivos."
     }
   ],
   "active": "resumen-ads-multicanal"
