@@ -1,0 +1,142 @@
+{
+  "fecha_utc": "2026-11-05T04:07:44.771224+00:00",
+  "capas_sets_ultimas30": [],
+  "capas_cofres_23_24agosto": [
+    {
+      "id": 6026,
+      "product_id": [
+        7,
+        "[COF-22-DOR] Cofre 22 - Dorado"
+      ],
+      "create_date": "2026-08-24 03:23:06",
+      "description": "EHV/IN/00009 - Cofre 22 - Dorado",
+      "quantity": "1600.0",
+      "unit_cost": "43.09",
+      "value": "68943.94",
+      "remaining_qty": "1600.0",
+      "remaining_value": "68943.94",
+      "stock_move_id": [
+        2267,
+        "P00042/COF-22-DOR: Vendors>Stock"
+      ],
+      "stock_valuation_layer_id": false,
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ]
+    },
+    {
+      "id": 6027,
+      "product_id": [
+        8,
+        "[COF-22-PLA] Cofre 22 - Plateado"
+      ],
+      "create_date": "2026-08-24 03:23:06",
+      "description": "EHV/IN/00009 - Cofre 22 - Plateado",
+      "quantity": "400.0",
+      "unit_cost": "43.09",
+      "value": "17235.99",
+      "remaining_qty": "400.0",
+      "remaining_value": "17235.99",
+      "stock_move_id": [
+        2268,
+        "P00042/COF-22-PLA: Vendors>Stock"
+      ],
+      "stock_valuation_layer_id": false,
+      "company_id": [
+        1,
+        "David Najera/Isabel Najera"
+      ]
+    }
+  ],
+  "ruta": [
+    {
+      "id": 5,
+      "name": "Buy",
+      "active": true
+    }
+  ],
+  "boms": [
+    {
+      "id": 1824,
+      "type": "phantom",
+      "active": true,
+      "product_id": [
+        7106,
+        "[SET-CAR-BLA-PEZ-DOR] SET - Carte Blanco 22mm Dorado (Sello Cristiano)"
+      ]
+    },
+    {
+      "id": 1825,
+      "type": "phantom",
+      "active": true,
+      "product_id": [
+        7112,
+        "[SET-CAR-BLA-PEZ-PLA] SET - Carte Blanco 22mm Plateado (Sello Cristiano)"
+      ]
+    },
+    {
+      "id": 1788,
+      "type": "phantom",
+      "active": true,
+      "product_id": [
+        7070,
+        "[SET-BLA-BRO-PEZ-DOR] SET - Blanco con broche 22mm Dorado (Sello Cristiano)"
+      ]
+    },
+    {
+      "id": 1921,
+      "type": "phantom",
+      "active": true,
+      "product_id": [
+        7208,
+        "[SET-ITA-PEZ-PLA] SET - Italia 22mm Plateado (Sello Cristiano)"
+      ]
+    },
+    {
+      "id": 1897,
+      "type": "phantom",
+      "active": true,
+      "product_id": [
+        7184,
+        "[SET-GAM-AZU-PEZ-PLA] SET - Gamuza Azul 22mm Plateado (Sello Cristiano)"
+      ]
+    },
+    {
+      "id": 1908,
+      "type": "phantom",
+      "active": true,
+      "product_id": [
+        7190,
+        "[SET-GAM-NEG-PEZ-DOR] SET - Gamuza Negro 22mm Dorado (Sello Cristiano)"
+      ]
+    },
+    {
+      "id": 1896,
+      "type": "phantom",
+      "active": true,
+      "product_id": [
+        7178,
+        "[SET-GAM-AZU-PEZ-DOR] SET - Gamuza Azul 22mm Dorado (Sello Cristiano)"
+      ]
+    },
+    {
+      "id": 1909,
+      "type": "phantom",
+      "active": true,
+      "product_id": [
+        7196,
+        "[SET-GAM-NEG-PEZ-PLA] SET - Gamuza Negro 22mm Plateado (Sello Cristiano)"
+      ]
+    },
+    {
+      "id": 1945,
+      "type": "phantom",
+      "active": true,
+      "product_id": [
+        7232,
+        "[SET-PLA-CH-PEZ-PLA] SET - Platino CH 22mm Plateado (Sello Cristiano)"
+      ]
+    }
+  ]
+}
