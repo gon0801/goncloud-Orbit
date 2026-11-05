@@ -1,6 +1,6 @@
 # REPRICING 02: el motor de precios en todas las plataformas
 
-> **Seguimiento 4-nov-2026:** plan cerrado. El dueño confirma que PEZ sí se vende. P04 conserva nueve SKU exactos con tres registros Odoo archivados y costo 0 por SKU; referencias activas Solo Arras no tienen equivalencia comprobada. Falta referencia/receta/costo vigente, no retirar variantes ni copiar importes. [Fuente primaria y matriz](../docs/evidencia/quick-wins-2026-11-04/pez-fuente/reporte.md).
+> **Seguimiento 5-nov-2026 UTC:** plan cerrado. PEZ sí se vende y sus BOM/componentes permiten calcular costos materiales. Los SKU exactos de MeLi llevan a registros archivados; hay referencias PEZ activas con otros códigos. P04 debe resolver la correspondencia con la receta vigente y la sincronización del costo. La conclusión anterior de receta faltante era incorrecta; no se acreditó el motivo del archivo en el historial consultado. [Trazabilidad BOM](../docs/evidencia/quick-wins-2026-11-04/pez-bom/README.md).
 
 Estado: CERRADO el 2026-10-17 UTC. Los cuatro universos están en `live`
 (X.1 a X.4); el detalle del cierre está en `docs/CHAT-CONTEXT.md`. Plan del

@@ -1,0 +1,413 @@
+{
+  "observado_utc": "2026-11-05T02:30:48.008502+00:00",
+  "nota": "Si existen BOM activos PEZ de referencias distintas. Estos son candidatos por familia; la composicion se compara por ID/cantidad/unidad. No son un mapping comercial probado.",
+  "filas": [
+    {
+      "sku_meli": "NH-BLA-BRO-PEZ-DOR",
+      "bom_historico_comparado": 1284,
+      "costo_historico_a_costos_componentes_actuales": "253.69",
+      "bom_activo_relacionado": [],
+      "equivalencia_comercial_confirmada": false
+    },
+    {
+      "sku_meli": "NH-CAR-BLA-PEZ-DOR",
+      "bom_historico_comparado": 1326,
+      "costo_historico_a_costos_componentes_actuales": "194.65",
+      "bom_activo_relacionado": [
+        {
+          "producto_id": 8513,
+          "sku": "NH-SOLO-CAR-BLC-PEZ-DOR",
+          "nombre": "NH - Carte Blanco Solo Arras Dorado",
+          "producto_activo": true,
+          "atributos_producto_ids": [
+            2549
+          ],
+          "bom_id": 2133,
+          "bom_activo": true,
+          "componentes": [
+            {
+              "linea_id": 5367,
+              "id": 5,
+              "sku": "EST-CAR-BLC",
+              "cantidad_por_unidad": "1",
+              "costo_unitario_observado": "39.65",
+              "importe": "39.65",
+              "moneda": "MXN",
+              "atributos_aplicabilidad": []
+            },
+            {
+              "linea_id": 6993,
+              "id": 6,
+              "sku": "ARR-22-DOR-PEZ",
+              "cantidad_por_unidad": "1",
+              "costo_unitario_observado": "37.82",
+              "importe": "37.82",
+              "moneda": "MXN",
+              "atributos_aplicabilidad": []
+            }
+          ],
+          "costo_material_directo": "77.47",
+          "standard_price_producto": "77.47",
+          "moneda": "MXN",
+          "componentes_nuevos": [
+            6
+          ],
+          "componentes_que_no_aparecen": [
+            1022
+          ]
+        }
+      ],
+      "equivalencia_comercial_confirmada": false
+    },
+    {
+      "sku_meli": "NH-CAR-BLA-PEZ-PLA",
+      "bom_historico_comparado": 1327,
+      "costo_historico_a_costos_componentes_actuales": "194.65",
+      "bom_activo_relacionado": [
+        {
+          "producto_id": 8520,
+          "sku": "NH-SOLO-CAR-BLC-PEZ-PLA",
+          "nombre": "NH - Carte Blanco Solo Arras Plateado",
+          "producto_activo": true,
+          "atributos_producto_ids": [
+            2556
+          ],
+          "bom_id": 2140,
+          "bom_activo": true,
+          "componentes": [
+            {
+              "linea_id": 5380,
+              "id": 5,
+              "sku": "EST-CAR-BLC",
+              "cantidad_por_unidad": "1",
+              "costo_unitario_observado": "39.65",
+              "importe": "39.65",
+              "moneda": "MXN",
+              "atributos_aplicabilidad": []
+            },
+            {
+              "linea_id": 6994,
+              "id": 156,
+              "sku": "ARR-22-PLA-PEZ",
+              "cantidad_por_unidad": "1",
+              "costo_unitario_observado": "37.82",
+              "importe": "37.82",
+              "moneda": "MXN",
+              "atributos_aplicabilidad": []
+            }
+          ],
+          "costo_material_directo": "77.47",
+          "standard_price_producto": "77.47",
+          "moneda": "MXN",
+          "componentes_nuevos": [
+            156
+          ],
+          "componentes_que_no_aparecen": [
+            1023
+          ]
+        }
+      ],
+      "equivalencia_comercial_confirmada": false
+    },
+    {
+      "sku_meli": "NH-GAM-AZU-PEZ-DOR",
+      "bom_historico_comparado": 1404,
+      "costo_historico_a_costos_componentes_actuales": "225.0",
+      "bom_activo_relacionado": [
+        {
+          "producto_id": 8681,
+          "sku": "NH-SOLO-GAM-AZU-PEZ-DOR",
+          "nombre": "NH - Gamuza Azul Solo Arras Dorado",
+          "producto_activo": true,
+          "atributos_producto_ids": [
+            2717
+          ],
+          "bom_id": 2203,
+          "bom_activo": true,
+          "componentes": [
+            {
+              "linea_id": 5497,
+              "id": 168,
+              "sku": "EST-GAM-AZU",
+              "cantidad_por_unidad": "1",
+              "costo_unitario_observado": "60.0",
+              "importe": "60.0",
+              "moneda": "MXN",
+              "atributos_aplicabilidad": []
+            },
+            {
+              "linea_id": 7003,
+              "id": 6,
+              "sku": "ARR-22-DOR-PEZ",
+              "cantidad_por_unidad": "1",
+              "costo_unitario_observado": "37.82",
+              "importe": "37.82",
+              "moneda": "MXN",
+              "atributos_aplicabilidad": []
+            }
+          ],
+          "costo_material_directo": "97.82",
+          "standard_price_producto": "97.82000000000001",
+          "moneda": "MXN",
+          "componentes_nuevos": [
+            6
+          ],
+          "componentes_que_no_aparecen": [
+            1025
+          ]
+        }
+      ],
+      "equivalencia_comercial_confirmada": false
+    },
+    {
+      "sku_meli": "NH-GAM-AZU-PEZ-PLA",
+      "bom_historico_comparado": 1405,
+      "costo_historico_a_costos_componentes_actuales": "225.0",
+      "bom_activo_relacionado": [
+        {
+          "producto_id": 8688,
+          "sku": "NH-SOLO-GAM-AZU-PEZ-PLA",
+          "nombre": "NH - Gamuza Azul Solo Arras Plateado",
+          "producto_activo": true,
+          "atributos_producto_ids": [
+            2724
+          ],
+          "bom_id": 2210,
+          "bom_activo": true,
+          "componentes": [
+            {
+              "linea_id": 5510,
+              "id": 168,
+              "sku": "EST-GAM-AZU",
+              "cantidad_por_unidad": "1",
+              "costo_unitario_observado": "60.0",
+              "importe": "60.0",
+              "moneda": "MXN",
+              "atributos_aplicabilidad": []
+            },
+            {
+              "linea_id": 7004,
+              "id": 156,
+              "sku": "ARR-22-PLA-PEZ",
+              "cantidad_por_unidad": "1",
+              "costo_unitario_observado": "37.82",
+              "importe": "37.82",
+              "moneda": "MXN",
+              "atributos_aplicabilidad": []
+            }
+          ],
+          "costo_material_directo": "97.82",
+          "standard_price_producto": "97.82000000000001",
+          "moneda": "MXN",
+          "componentes_nuevos": [
+            156
+          ],
+          "componentes_que_no_aparecen": [
+            1024
+          ]
+        }
+      ],
+      "equivalencia_comercial_confirmada": false
+    },
+    {
+      "sku_meli": "NH-GAM-NEG-PEZ-DOR",
+      "bom_historico_comparado": 1418,
+      "costo_historico_a_costos_componentes_actuales": "225.0",
+      "bom_activo_relacionado": [
+        {
+          "producto_id": 8709,
+          "sku": "NH-SOLO-GAM-NEG-PEZ-DOR",
+          "nombre": "NH - Gamuza Negro Solo Arras Dorado",
+          "producto_activo": true,
+          "atributos_producto_ids": [
+            2745
+          ],
+          "bom_id": 2217,
+          "bom_activo": true,
+          "componentes": [
+            {
+              "linea_id": 5523,
+              "id": 169,
+              "sku": "EST-GAM-NEG",
+              "cantidad_por_unidad": "1",
+              "costo_unitario_observado": "60.0",
+              "importe": "60.0",
+              "moneda": "MXN",
+              "atributos_aplicabilidad": []
+            },
+            {
+              "linea_id": 7005,
+              "id": 6,
+              "sku": "ARR-22-DOR-PEZ",
+              "cantidad_por_unidad": "1",
+              "costo_unitario_observado": "37.82",
+              "importe": "37.82",
+              "moneda": "MXN",
+              "atributos_aplicabilidad": []
+            }
+          ],
+          "costo_material_directo": "97.82",
+          "standard_price_producto": "97.82000000000001",
+          "moneda": "MXN",
+          "componentes_nuevos": [
+            6
+          ],
+          "componentes_que_no_aparecen": [
+            1025
+          ]
+        }
+      ],
+      "equivalencia_comercial_confirmada": false
+    },
+    {
+      "sku_meli": "NH-GAM-NEG-PEZ-PLA",
+      "bom_historico_comparado": 1419,
+      "costo_historico_a_costos_componentes_actuales": "225.0",
+      "bom_activo_relacionado": [
+        {
+          "producto_id": 8716,
+          "sku": "NH-SOLO-GAM-NEG-PEZ-PLA",
+          "nombre": "NH - Gamuza Negro Solo Arras Plateado",
+          "producto_activo": true,
+          "atributos_producto_ids": [
+            2752
+          ],
+          "bom_id": 2224,
+          "bom_activo": true,
+          "componentes": [
+            {
+              "linea_id": 5536,
+              "id": 169,
+              "sku": "EST-GAM-NEG",
+              "cantidad_por_unidad": "1",
+              "costo_unitario_observado": "60.0",
+              "importe": "60.0",
+              "moneda": "MXN",
+              "atributos_aplicabilidad": []
+            },
+            {
+              "linea_id": 7006,
+              "id": 156,
+              "sku": "ARR-22-PLA-PEZ",
+              "cantidad_por_unidad": "1",
+              "costo_unitario_observado": "37.82",
+              "importe": "37.82",
+              "moneda": "MXN",
+              "atributos_aplicabilidad": []
+            }
+          ],
+          "costo_material_directo": "97.82",
+          "standard_price_producto": "97.82000000000001",
+          "moneda": "MXN",
+          "componentes_nuevos": [
+            156
+          ],
+          "componentes_que_no_aparecen": [
+            1024
+          ]
+        }
+      ],
+      "equivalencia_comercial_confirmada": false
+    },
+    {
+      "sku_meli": "NH-ITA-PEZ-PLA",
+      "bom_historico_comparado": 1433,
+      "costo_historico_a_costos_componentes_actuales": "231.0",
+      "bom_activo_relacionado": [
+        {
+          "producto_id": 8576,
+          "sku": "NH-SOLO-ITA-PEZ-PLA",
+          "nombre": "NH - Italia Solo Arras Plateado",
+          "producto_activo": true,
+          "atributos_producto_ids": [
+            2612
+          ],
+          "bom_id": 2238,
+          "bom_activo": true,
+          "componentes": [
+            {
+              "linea_id": 5562,
+              "id": 158,
+              "sku": "4405-BG",
+              "cantidad_por_unidad": "1",
+              "costo_unitario_observado": "76.0",
+              "importe": "76.0",
+              "moneda": "MXN",
+              "atributos_aplicabilidad": []
+            },
+            {
+              "linea_id": 7008,
+              "id": 156,
+              "sku": "ARR-22-PLA-PEZ",
+              "cantidad_por_unidad": "1",
+              "costo_unitario_observado": "37.82",
+              "importe": "37.82",
+              "moneda": "MXN",
+              "atributos_aplicabilidad": []
+            }
+          ],
+          "costo_material_directo": "113.82",
+          "standard_price_producto": "113.82000000000001",
+          "moneda": "MXN",
+          "componentes_nuevos": [
+            156
+          ],
+          "componentes_que_no_aparecen": [
+            1023
+          ]
+        }
+      ],
+      "equivalencia_comercial_confirmada": false
+    },
+    {
+      "sku_meli": "NH-PLA-CH-PEZ-PLA",
+      "bom_historico_comparado": 1461,
+      "costo_historico_a_costos_componentes_actuales": "272.0",
+      "bom_activo_relacionado": [
+        {
+          "producto_id": 8744,
+          "sku": "NH-SOLO-PLA-CH-PEZ-PLA",
+          "nombre": "NH - Platino CH Solo Arras Plateado",
+          "producto_activo": true,
+          "atributos_producto_ids": [
+            2780
+          ],
+          "bom_id": 2683,
+          "bom_activo": true,
+          "componentes": [
+            {
+              "linea_id": 6431,
+              "id": 163,
+              "sku": "4587-BK",
+              "cantidad_por_unidad": "1",
+              "costo_unitario_observado": "107.0",
+              "importe": "107.0",
+              "moneda": "MXN",
+              "atributos_aplicabilidad": []
+            },
+            {
+              "linea_id": 6432,
+              "id": 156,
+              "sku": "ARR-22-PLA-PEZ",
+              "cantidad_por_unidad": "1",
+              "costo_unitario_observado": "37.82",
+              "importe": "37.82",
+              "moneda": "MXN",
+              "atributos_aplicabilidad": []
+            }
+          ],
+          "costo_material_directo": "144.82",
+          "standard_price_producto": "144.82",
+          "moneda": "MXN",
+          "componentes_nuevos": [
+            156
+          ],
+          "componentes_que_no_aparecen": [
+            1024
+          ]
+        }
+      ],
+      "equivalencia_comercial_confirmada": false
+    }
+  ]
+}

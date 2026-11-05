@@ -1,0 +1,7 @@
+2026-11-05 UTC. Consultas Odoo solo lectura; sin escrituras de datos productivos.
+Ruff check/format y AST de seis scripts: PASS. JSON parseados sin errores.
+Tres calculos locales ejecutados tras formato: 9 variantes exactas y 8 candidatos activos.
+Unidades, cantidades1, aplicabilidad sin restricciones y ausencia de operaciones/subproductos comprobadas.
+Cotejo primario Decimal: EST5 + COF1022 =194.65; EST5 + ARR6 =77.47 MXN.
+BOM exactos:29 con contexto archivados,0 con contexto por defecto. Auditoria:0 tracking values.
+pre-commit focal (gitleaks y conflictos): PASS. Sin bateria de pruebas ni mutaciones.

@@ -1,0 +1,1516 @@
+{
+  "observado_odoo_utc": "2026-11-05T02:27:47.238716+00:00",
+  "modo": "calculo local Decimal, sin mutaciones",
+  "metodo": "Cada BOM se calcula por separado. La mas reciente por creacion es una referencia explicita de comparacion, no una seleccion activa en Odoo.",
+  "formulas": {
+    "conversion_uom": "cantidad / factor_origen * factor_destino",
+    "costo_unidad": "SUM(cantidad_en_ud_componente * costo_vigente_componente) / salida_BOM_en_ud_producto"
+  },
+  "filas": [
+    {
+      "sku": "NH-BLA-BRO-PEZ-DOR",
+      "product_id": 1572,
+      "template_id": 1581,
+      "atributos": [],
+      "es_variante_con_atributo_modelo": false,
+      "recetas": [
+        {
+          "bom_id": 242,
+          "active": false,
+          "sequence": 12,
+          "product_id": 1572,
+          "create_date": "2026-01-24 01:13:20",
+          "write_date": "2026-01-24 07:42:10",
+          "salida_por_lote": "1.0",
+          "salida_uom_id": 1,
+          "salida_en_unidad_producto": "1.0",
+          "costo_material_por_unidad": "88.69",
+          "moneda": "MXN",
+          "lineas": [
+            {
+              "linea_id": 25,
+              "aplica": true,
+              "atributos_requeridos": [],
+              "componente_id": 159,
+              "sku": "4608",
+              "nombre": "Blanco con Broche",
+              "cantidad_linea": "1.0",
+              "uom_linea_id": 1,
+              "uom_costo_id": 1,
+              "cantidad_por_unidad_final": "1",
+              "costo_unitario_vigente_observado": "88.69",
+              "importe": "88.69",
+              "moneda": "MXN",
+              "costo_write_date": "2026-11-02 22:06:22",
+              "sub_boms": []
+            }
+          ]
+        }
+      ],
+      "receta_mas_reciente_por_creacion": 242,
+      "costo_receta_mas_reciente": "88.69",
+      "totales_distintos": [
+        "88.69"
+      ],
+      "seleccion_operativa_en_odoo": null
+    },
+    {
+      "sku": "NH-CAR-BLA-PEZ-DOR",
+      "product_id": 5307,
+      "template_id": 5327,
+      "atributos": [],
+      "es_variante_con_atributo_modelo": false,
+      "recetas": [
+        {
+          "bom_id": 389,
+          "active": false,
+          "sequence": 0,
+          "product_id": 5307,
+          "create_date": "2026-01-24 22:10:49",
+          "write_date": "2026-01-26 06:02:20",
+          "salida_por_lote": "1.0",
+          "salida_uom_id": 1,
+          "salida_en_unidad_producto": "1.0",
+          "costo_material_por_unidad": "39.65",
+          "moneda": "MXN",
+          "lineas": [
+            {
+              "linea_id": 312,
+              "aplica": true,
+              "atributos_requeridos": [],
+              "componente_id": 5,
+              "sku": "EST-CAR-BLC",
+              "nombre": "Carte Blanco",
+              "cantidad_linea": "1.0",
+              "uom_linea_id": 1,
+              "uom_costo_id": 1,
+              "cantidad_por_unidad_final": "1",
+              "costo_unitario_vigente_observado": "39.65",
+              "importe": "39.65",
+              "moneda": "MXN",
+              "costo_write_date": "2026-11-03 00:00:39",
+              "sub_boms": []
+            }
+          ]
+        }
+      ],
+      "receta_mas_reciente_por_creacion": 389,
+      "costo_receta_mas_reciente": "39.65",
+      "totales_distintos": [
+        "39.65"
+      ],
+      "seleccion_operativa_en_odoo": null
+    },
+    {
+      "sku": "NH-CAR-BLA-PEZ-PLA",
+      "product_id": 5308,
+      "template_id": 5328,
+      "atributos": [],
+      "es_variante_con_atributo_modelo": false,
+      "recetas": [
+        {
+          "bom_id": 390,
+          "active": false,
+          "sequence": 0,
+          "product_id": 5308,
+          "create_date": "2026-01-24 22:10:49",
+          "write_date": "2026-01-26 06:02:20",
+          "salida_por_lote": "1.0",
+          "salida_uom_id": 1,
+          "salida_en_unidad_producto": "1.0",
+          "costo_material_por_unidad": "39.65",
+          "moneda": "MXN",
+          "lineas": [
+            {
+              "linea_id": 313,
+              "aplica": true,
+              "atributos_requeridos": [],
+              "componente_id": 5,
+              "sku": "EST-CAR-BLC",
+              "nombre": "Carte Blanco",
+              "cantidad_linea": "1.0",
+              "uom_linea_id": 1,
+              "uom_costo_id": 1,
+              "cantidad_por_unidad_final": "1",
+              "costo_unitario_vigente_observado": "39.65",
+              "importe": "39.65",
+              "moneda": "MXN",
+              "costo_write_date": "2026-11-03 00:00:39",
+              "sub_boms": []
+            }
+          ]
+        }
+      ],
+      "receta_mas_reciente_por_creacion": 390,
+      "costo_receta_mas_reciente": "39.65",
+      "totales_distintos": [
+        "39.65"
+      ],
+      "seleccion_operativa_en_odoo": null
+    },
+    {
+      "sku": "NH-GAM-AZU-PEZ-DOR",
+      "product_id": 5427,
+      "template_id": 5447,
+      "atributos": [],
+      "es_variante_con_atributo_modelo": false,
+      "recetas": [
+        {
+          "bom_id": 508,
+          "active": false,
+          "sequence": 0,
+          "product_id": 5427,
+          "create_date": "2026-01-25 00:05:30",
+          "write_date": "2026-01-26 06:02:37",
+          "salida_por_lote": "1.0",
+          "salida_uom_id": 1,
+          "salida_en_unidad_producto": "1.0",
+          "costo_material_por_unidad": "60.0",
+          "moneda": "MXN",
+          "lineas": [
+            {
+              "linea_id": 432,
+              "aplica": true,
+              "atributos_requeridos": [],
+              "componente_id": 168,
+              "sku": "EST-GAM-AZU",
+              "nombre": "Gamuza Azul",
+              "cantidad_linea": "1.0",
+              "uom_linea_id": 1,
+              "uom_costo_id": 1,
+              "cantidad_por_unidad_final": "1",
+              "costo_unitario_vigente_observado": "60.0",
+              "importe": "60.0",
+              "moneda": "MXN",
+              "costo_write_date": "2026-11-01 01:00:03",
+              "sub_boms": []
+            }
+          ]
+        }
+      ],
+      "receta_mas_reciente_por_creacion": 508,
+      "costo_receta_mas_reciente": "60.0",
+      "totales_distintos": [
+        "60.0"
+      ],
+      "seleccion_operativa_en_odoo": null
+    },
+    {
+      "sku": "NH-GAM-AZU-PEZ-PLA",
+      "product_id": 5428,
+      "template_id": 5448,
+      "atributos": [],
+      "es_variante_con_atributo_modelo": false,
+      "recetas": [
+        {
+          "bom_id": 509,
+          "active": false,
+          "sequence": 0,
+          "product_id": 5428,
+          "create_date": "2026-01-25 00:05:30",
+          "write_date": "2026-01-26 06:02:37",
+          "salida_por_lote": "1.0",
+          "salida_uom_id": 1,
+          "salida_en_unidad_producto": "1.0",
+          "costo_material_por_unidad": "60.0",
+          "moneda": "MXN",
+          "lineas": [
+            {
+              "linea_id": 433,
+              "aplica": true,
+              "atributos_requeridos": [],
+              "componente_id": 168,
+              "sku": "EST-GAM-AZU",
+              "nombre": "Gamuza Azul",
+              "cantidad_linea": "1.0",
+              "uom_linea_id": 1,
+              "uom_costo_id": 1,
+              "cantidad_por_unidad_final": "1",
+              "costo_unitario_vigente_observado": "60.0",
+              "importe": "60.0",
+              "moneda": "MXN",
+              "costo_write_date": "2026-11-01 01:00:03",
+              "sub_boms": []
+            }
+          ]
+        }
+      ],
+      "receta_mas_reciente_por_creacion": 509,
+      "costo_receta_mas_reciente": "60.0",
+      "totales_distintos": [
+        "60.0"
+      ],
+      "seleccion_operativa_en_odoo": null
+    },
+    {
+      "sku": "NH-GAM-NEG-PEZ-DOR",
+      "product_id": 5447,
+      "template_id": 5467,
+      "atributos": [],
+      "es_variante_con_atributo_modelo": false,
+      "recetas": [
+        {
+          "bom_id": 528,
+          "active": false,
+          "sequence": 0,
+          "product_id": 5447,
+          "create_date": "2026-01-25 00:05:30",
+          "write_date": "2026-01-26 06:02:37",
+          "salida_por_lote": "1.0",
+          "salida_uom_id": 1,
+          "salida_en_unidad_producto": "1.0",
+          "costo_material_por_unidad": "60.0",
+          "moneda": "MXN",
+          "lineas": [
+            {
+              "linea_id": 452,
+              "aplica": true,
+              "atributos_requeridos": [],
+              "componente_id": 169,
+              "sku": "EST-GAM-NEG",
+              "nombre": "Gamuza Negro",
+              "cantidad_linea": "1.0",
+              "uom_linea_id": 1,
+              "uom_costo_id": 1,
+              "cantidad_por_unidad_final": "1",
+              "costo_unitario_vigente_observado": "60.0",
+              "importe": "60.0",
+              "moneda": "MXN",
+              "costo_write_date": "2026-10-26 01:00:23",
+              "sub_boms": []
+            }
+          ]
+        }
+      ],
+      "receta_mas_reciente_por_creacion": 528,
+      "costo_receta_mas_reciente": "60.0",
+      "totales_distintos": [
+        "60.0"
+      ],
+      "seleccion_operativa_en_odoo": null
+    },
+    {
+      "sku": "NH-GAM-NEG-PEZ-PLA",
+      "product_id": 5448,
+      "template_id": 5468,
+      "atributos": [],
+      "es_variante_con_atributo_modelo": false,
+      "recetas": [
+        {
+          "bom_id": 529,
+          "active": false,
+          "sequence": 0,
+          "product_id": 5448,
+          "create_date": "2026-01-25 00:05:30",
+          "write_date": "2026-01-26 06:02:37",
+          "salida_por_lote": "1.0",
+          "salida_uom_id": 1,
+          "salida_en_unidad_producto": "1.0",
+          "costo_material_por_unidad": "60.0",
+          "moneda": "MXN",
+          "lineas": [
+            {
+              "linea_id": 453,
+              "aplica": true,
+              "atributos_requeridos": [],
+              "componente_id": 169,
+              "sku": "EST-GAM-NEG",
+              "nombre": "Gamuza Negro",
+              "cantidad_linea": "1.0",
+              "uom_linea_id": 1,
+              "uom_costo_id": 1,
+              "cantidad_por_unidad_final": "1",
+              "costo_unitario_vigente_observado": "60.0",
+              "importe": "60.0",
+              "moneda": "MXN",
+              "costo_write_date": "2026-10-26 01:00:23",
+              "sub_boms": []
+            }
+          ]
+        }
+      ],
+      "receta_mas_reciente_por_creacion": 529,
+      "costo_receta_mas_reciente": "60.0",
+      "totales_distintos": [
+        "60.0"
+      ],
+      "seleccion_operativa_en_odoo": null
+    },
+    {
+      "sku": "NH-ITA-PEZ-PLA",
+      "product_id": 5468,
+      "template_id": 5488,
+      "atributos": [],
+      "es_variante_con_atributo_modelo": false,
+      "recetas": [
+        {
+          "bom_id": 549,
+          "active": false,
+          "sequence": 0,
+          "product_id": 5468,
+          "create_date": "2026-01-25 00:05:30",
+          "write_date": "2026-01-26 06:02:37",
+          "salida_por_lote": "1.0",
+          "salida_uom_id": 1,
+          "salida_en_unidad_producto": "1.0",
+          "costo_material_por_unidad": "76.0",
+          "moneda": "MXN",
+          "lineas": [
+            {
+              "linea_id": 473,
+              "aplica": true,
+              "atributos_requeridos": [],
+              "componente_id": 158,
+              "sku": "4405-BG",
+              "nombre": "Italia",
+              "cantidad_linea": "1.0",
+              "uom_linea_id": 1,
+              "uom_costo_id": 1,
+              "cantidad_por_unidad_final": "1",
+              "costo_unitario_vigente_observado": "76.0",
+              "importe": "76.0",
+              "moneda": "MXN",
+              "costo_write_date": "2026-11-04 15:35:06",
+              "sub_boms": []
+            }
+          ]
+        }
+      ],
+      "receta_mas_reciente_por_creacion": 549,
+      "costo_receta_mas_reciente": "76.0",
+      "totales_distintos": [
+        "76.0"
+      ],
+      "seleccion_operativa_en_odoo": null
+    },
+    {
+      "sku": "NH-PLA-CH-PEZ-PLA",
+      "product_id": 5508,
+      "template_id": 5528,
+      "atributos": [],
+      "es_variante_con_atributo_modelo": false,
+      "recetas": [
+        {
+          "bom_id": 589,
+          "active": false,
+          "sequence": 0,
+          "product_id": 5508,
+          "create_date": "2026-01-25 00:05:30",
+          "write_date": "2026-01-26 06:02:45",
+          "salida_por_lote": "1.0",
+          "salida_uom_id": 1,
+          "salida_en_unidad_producto": "1.0",
+          "costo_material_por_unidad": "107.0",
+          "moneda": "MXN",
+          "lineas": [
+            {
+              "linea_id": 513,
+              "aplica": true,
+              "atributos_requeridos": [],
+              "componente_id": 163,
+              "sku": "4587-BK",
+              "nombre": "Platino CH",
+              "cantidad_linea": "1.0",
+              "uom_linea_id": 1,
+              "uom_costo_id": 1,
+              "cantidad_por_unidad_final": "1",
+              "costo_unitario_vigente_observado": "107.0",
+              "importe": "107.0",
+              "moneda": "MXN",
+              "costo_write_date": "2026-11-04 18:26:56",
+              "sub_boms": []
+            }
+          ]
+        }
+      ],
+      "receta_mas_reciente_por_creacion": 589,
+      "costo_receta_mas_reciente": "107.0",
+      "totales_distintos": [
+        "107.0"
+      ],
+      "seleccion_operativa_en_odoo": null
+    },
+    {
+      "sku": "NH-BLA-BRO-PEZ-DOR",
+      "product_id": 5900,
+      "template_id": 5911,
+      "atributos": [
+        9
+      ],
+      "es_variante_con_atributo_modelo": true,
+      "recetas": [
+        {
+          "bom_id": 328,
+          "active": false,
+          "sequence": 0,
+          "product_id": 5900,
+          "create_date": "2026-01-24 21:45:44",
+          "write_date": "2026-07-24 20:38:15",
+          "salida_por_lote": "1.0",
+          "salida_uom_id": 1,
+          "salida_en_unidad_producto": "1.0",
+          "costo_material_por_unidad": "88.69",
+          "moneda": "MXN",
+          "lineas": [
+            {
+              "linea_id": 249,
+              "aplica": true,
+              "atributos_requeridos": [],
+              "componente_id": 159,
+              "sku": "4608",
+              "nombre": "Blanco con Broche",
+              "cantidad_linea": "1.0",
+              "uom_linea_id": 1,
+              "uom_costo_id": 1,
+              "cantidad_por_unidad_final": "1",
+              "costo_unitario_vigente_observado": "88.69",
+              "importe": "88.69",
+              "moneda": "MXN",
+              "costo_write_date": "2026-11-02 22:06:22",
+              "sub_boms": []
+            }
+          ]
+        },
+        {
+          "bom_id": 985,
+          "active": false,
+          "sequence": 0,
+          "product_id": 5900,
+          "create_date": "2026-01-26 07:22:14",
+          "write_date": "2026-01-26 07:33:02",
+          "salida_por_lote": "1.0",
+          "salida_uom_id": 1,
+          "salida_en_unidad_producto": "1.0",
+          "costo_material_por_unidad": null,
+          "moneda": "MXN",
+          "lineas": []
+        },
+        {
+          "bom_id": 994,
+          "active": false,
+          "sequence": 0,
+          "product_id": 5900,
+          "create_date": "2026-01-26 07:31:27",
+          "write_date": "2026-07-24 20:38:15",
+          "salida_por_lote": "1.0",
+          "salida_uom_id": 1,
+          "salida_en_unidad_producto": "1.0",
+          "costo_material_por_unidad": "253.69",
+          "moneda": "MXN",
+          "lineas": [
+            {
+              "linea_id": 1609,
+              "aplica": true,
+              "atributos_requeridos": [],
+              "componente_id": 159,
+              "sku": "4608",
+              "nombre": "Blanco con Broche",
+              "cantidad_linea": "1.0",
+              "uom_linea_id": 1,
+              "uom_costo_id": 1,
+              "cantidad_por_unidad_final": "1",
+              "costo_unitario_vigente_observado": "88.69",
+              "importe": "88.69",
+              "moneda": "MXN",
+              "costo_write_date": "2026-11-02 22:06:22",
+              "sub_boms": []
+            },
+            {
+              "linea_id": 1610,
+              "aplica": true,
+              "atributos_requeridos": [],
+              "componente_id": 1025,
+              "sku": "COF-19-DOR",
+              "nombre": "Cofre 19 - Dorado",
+              "cantidad_linea": "1.0",
+              "uom_linea_id": 1,
+              "uom_costo_id": 1,
+              "cantidad_por_unidad_final": "1",
+              "costo_unitario_vigente_observado": "165.0",
+              "importe": "165.0",
+              "moneda": "MXN",
+              "costo_write_date": "2026-11-04 15:56:14",
+              "sub_boms": []
+            }
+          ]
+        },
+        {
+          "bom_id": 1284,
+          "active": false,
+          "sequence": 0,
+          "product_id": 5900,
+          "create_date": "2026-01-26 07:37:56",
+          "write_date": "2026-07-24 20:38:15",
+          "salida_por_lote": "1.0",
+          "salida_uom_id": 1,
+          "salida_en_unidad_producto": "1.0",
+          "costo_material_por_unidad": "253.69",
+          "moneda": "MXN",
+          "lineas": [
+            {
+              "linea_id": 2525,
+              "aplica": true,
+              "atributos_requeridos": [],
+              "componente_id": 159,
+              "sku": "4608",
+              "nombre": "Blanco con Broche",
+              "cantidad_linea": "1.0",
+              "uom_linea_id": 1,
+              "uom_costo_id": 1,
+              "cantidad_por_unidad_final": "1",
+              "costo_unitario_vigente_observado": "88.69",
+              "importe": "88.69",
+              "moneda": "MXN",
+              "costo_write_date": "2026-11-02 22:06:22",
+              "sub_boms": []
+            },
+            {
+              "linea_id": 2526,
+              "aplica": true,
+              "atributos_requeridos": [],
+              "componente_id": 1025,
+              "sku": "COF-19-DOR",
+              "nombre": "Cofre 19 - Dorado",
+              "cantidad_linea": "1.0",
+              "uom_linea_id": 1,
+              "uom_costo_id": 1,
+              "cantidad_por_unidad_final": "1",
+              "costo_unitario_vigente_observado": "165.0",
+              "importe": "165.0",
+              "moneda": "MXN",
+              "costo_write_date": "2026-11-04 15:56:14",
+              "sub_boms": []
+            }
+          ]
+        }
+      ],
+      "receta_mas_reciente_por_creacion": 1284,
+      "costo_receta_mas_reciente": "253.69",
+      "totales_distintos": [
+        "253.69",
+        "88.69"
+      ],
+      "seleccion_operativa_en_odoo": null
+    },
+    {
+      "sku": "NH-CAR-BLA-PEZ-DOR",
+      "product_id": 6442,
+      "template_id": 6186,
+      "atributos": [
+        481
+      ],
+      "es_variante_con_atributo_modelo": true,
+      "recetas": [
+        {
+          "bom_id": 1042,
+          "active": false,
+          "sequence": 0,
+          "product_id": 6442,
+          "create_date": "2026-01-26 07:31:27",
+          "write_date": "2026-07-24 20:38:15",
+          "salida_por_lote": "1.0",
+          "salida_uom_id": 1,
+          "salida_en_unidad_producto": "1.0",
+          "costo_material_por_unidad": "194.65",
+          "moneda": "MXN",
+          "lineas": [
+            {
+              "linea_id": 1757,
+              "aplica": true,
+              "atributos_requeridos": [],
+              "componente_id": 5,
+              "sku": "EST-CAR-BLC",
+              "nombre": "Carte Blanco",
+              "cantidad_linea": "1.0",
+              "uom_linea_id": 1,
+              "uom_costo_id": 1,
+              "cantidad_por_unidad_final": "1",
+              "costo_unitario_vigente_observado": "39.65",
+              "importe": "39.65",
+              "moneda": "MXN",
+              "costo_write_date": "2026-11-03 00:00:39",
+              "sub_boms": []
+            },
+            {
+              "linea_id": 1758,
+              "aplica": true,
+              "atributos_requeridos": [],
+              "componente_id": 1022,
+              "sku": "COF-16-DOR",
+              "nombre": "Cofre 16 - Dorado",
+              "cantidad_linea": "1.0",
+              "uom_linea_id": 1,
+              "uom_costo_id": 1,
+              "cantidad_por_unidad_final": "1",
+              "costo_unitario_vigente_observado": "155.0",
+              "importe": "155.0",
+              "moneda": "MXN",
+              "costo_write_date": "2026-11-02 22:57:36",
+              "sub_boms": []
+            }
+          ]
+        },
+        {
+          "bom_id": 1326,
+          "active": false,
+          "sequence": 0,
+          "product_id": 6442,
+          "create_date": "2026-01-26 07:37:56",
+          "write_date": "2026-07-24 20:38:15",
+          "salida_por_lote": "1.0",
+          "salida_uom_id": 1,
+          "salida_en_unidad_producto": "1.0",
+          "costo_material_por_unidad": "194.65",
+          "moneda": "MXN",
+          "lineas": [
+            {
+              "linea_id": 2659,
+              "aplica": true,
+              "atributos_requeridos": [],
+              "componente_id": 5,
+              "sku": "EST-CAR-BLC",
+              "nombre": "Carte Blanco",
+              "cantidad_linea": "1.0",
+              "uom_linea_id": 1,
+              "uom_costo_id": 1,
+              "cantidad_por_unidad_final": "1",
+              "costo_unitario_vigente_observado": "39.65",
+              "importe": "39.65",
+              "moneda": "MXN",
+              "costo_write_date": "2026-11-03 00:00:39",
+              "sub_boms": []
+            },
+            {
+              "linea_id": 2660,
+              "aplica": true,
+              "atributos_requeridos": [],
+              "componente_id": 1022,
+              "sku": "COF-16-DOR",
+              "nombre": "Cofre 16 - Dorado",
+              "cantidad_linea": "1.0",
+              "uom_linea_id": 1,
+              "uom_costo_id": 1,
+              "cantidad_por_unidad_final": "1",
+              "costo_unitario_vigente_observado": "155.0",
+              "importe": "155.0",
+              "moneda": "MXN",
+              "costo_write_date": "2026-11-02 22:57:36",
+              "sub_boms": []
+            }
+          ]
+        }
+      ],
+      "receta_mas_reciente_por_creacion": 1326,
+      "costo_receta_mas_reciente": "194.65",
+      "totales_distintos": [
+        "194.65"
+      ],
+      "seleccion_operativa_en_odoo": null
+    },
+    {
+      "sku": "NH-CAR-BLA-PEZ-PLA",
+      "product_id": 6452,
+      "template_id": 6187,
+      "atributos": [
+        491
+      ],
+      "es_variante_con_atributo_modelo": true,
+      "recetas": [
+        {
+          "bom_id": 1043,
+          "active": false,
+          "sequence": 0,
+          "product_id": 6452,
+          "create_date": "2026-01-26 07:31:27",
+          "write_date": "2026-07-24 20:38:15",
+          "salida_por_lote": "1.0",
+          "salida_uom_id": 1,
+          "salida_en_unidad_producto": "1.0",
+          "costo_material_por_unidad": "194.65",
+          "moneda": "MXN",
+          "lineas": [
+            {
+              "linea_id": 1759,
+              "aplica": true,
+              "atributos_requeridos": [],
+              "componente_id": 5,
+              "sku": "EST-CAR-BLC",
+              "nombre": "Carte Blanco",
+              "cantidad_linea": "1.0",
+              "uom_linea_id": 1,
+              "uom_costo_id": 1,
+              "cantidad_por_unidad_final": "1",
+              "costo_unitario_vigente_observado": "39.65",
+              "importe": "39.65",
+              "moneda": "MXN",
+              "costo_write_date": "2026-11-03 00:00:39",
+              "sub_boms": []
+            },
+            {
+              "linea_id": 1760,
+              "aplica": true,
+              "atributos_requeridos": [],
+              "componente_id": 1023,
+              "sku": "COF-16-PLA",
+              "nombre": "Cofre 16 - Plateado",
+              "cantidad_linea": "1.0",
+              "uom_linea_id": 1,
+              "uom_costo_id": 1,
+              "cantidad_por_unidad_final": "1",
+              "costo_unitario_vigente_observado": "155.0",
+              "importe": "155.0",
+              "moneda": "MXN",
+              "costo_write_date": "2026-11-02 22:57:46",
+              "sub_boms": []
+            }
+          ]
+        },
+        {
+          "bom_id": 1327,
+          "active": false,
+          "sequence": 0,
+          "product_id": 6452,
+          "create_date": "2026-01-26 07:37:56",
+          "write_date": "2026-07-24 20:38:15",
+          "salida_por_lote": "1.0",
+          "salida_uom_id": 1,
+          "salida_en_unidad_producto": "1.0",
+          "costo_material_por_unidad": "194.65",
+          "moneda": "MXN",
+          "lineas": [
+            {
+              "linea_id": 2661,
+              "aplica": true,
+              "atributos_requeridos": [],
+              "componente_id": 5,
+              "sku": "EST-CAR-BLC",
+              "nombre": "Carte Blanco",
+              "cantidad_linea": "1.0",
+              "uom_linea_id": 1,
+              "uom_costo_id": 1,
+              "cantidad_por_unidad_final": "1",
+              "costo_unitario_vigente_observado": "39.65",
+              "importe": "39.65",
+              "moneda": "MXN",
+              "costo_write_date": "2026-11-03 00:00:39",
+              "sub_boms": []
+            },
+            {
+              "linea_id": 2662,
+              "aplica": true,
+              "atributos_requeridos": [],
+              "componente_id": 1023,
+              "sku": "COF-16-PLA",
+              "nombre": "Cofre 16 - Plateado",
+              "cantidad_linea": "1.0",
+              "uom_linea_id": 1,
+              "uom_costo_id": 1,
+              "cantidad_por_unidad_final": "1",
+              "costo_unitario_vigente_observado": "155.0",
+              "importe": "155.0",
+              "moneda": "MXN",
+              "costo_write_date": "2026-11-02 22:57:46",
+              "sub_boms": []
+            }
+          ]
+        }
+      ],
+      "receta_mas_reciente_por_creacion": 1327,
+      "costo_receta_mas_reciente": "194.65",
+      "totales_distintos": [
+        "194.65"
+      ],
+      "seleccion_operativa_en_odoo": null
+    },
+    {
+      "sku": "NH-GAM-AZU-PEZ-DOR",
+      "product_id": 6642,
+      "template_id": 6206,
+      "atributos": [
+        681
+      ],
+      "es_variante_con_atributo_modelo": true,
+      "recetas": [
+        {
+          "bom_id": 1126,
+          "active": false,
+          "sequence": 0,
+          "product_id": 6642,
+          "create_date": "2026-01-26 07:31:27",
+          "write_date": "2026-07-24 20:38:15",
+          "salida_por_lote": "1.0",
+          "salida_uom_id": 1,
+          "salida_en_unidad_producto": "1.0",
+          "costo_material_por_unidad": "225.0",
+          "moneda": "MXN",
+          "lineas": [
+            {
+              "linea_id": 2057,
+              "aplica": true,
+              "atributos_requeridos": [],
+              "componente_id": 168,
+              "sku": "EST-GAM-AZU",
+              "nombre": "Gamuza Azul",
+              "cantidad_linea": "1.0",
+              "uom_linea_id": 1,
+              "uom_costo_id": 1,
+              "cantidad_por_unidad_final": "1",
+              "costo_unitario_vigente_observado": "60.0",
+              "importe": "60.0",
+              "moneda": "MXN",
+              "costo_write_date": "2026-11-01 01:00:03",
+              "sub_boms": []
+            },
+            {
+              "linea_id": 2058,
+              "aplica": true,
+              "atributos_requeridos": [],
+              "componente_id": 1025,
+              "sku": "COF-19-DOR",
+              "nombre": "Cofre 19 - Dorado",
+              "cantidad_linea": "1.0",
+              "uom_linea_id": 1,
+              "uom_costo_id": 1,
+              "cantidad_por_unidad_final": "1",
+              "costo_unitario_vigente_observado": "165.0",
+              "importe": "165.0",
+              "moneda": "MXN",
+              "costo_write_date": "2026-11-04 15:56:14",
+              "sub_boms": []
+            }
+          ]
+        },
+        {
+          "bom_id": 1404,
+          "active": false,
+          "sequence": 0,
+          "product_id": 6642,
+          "create_date": "2026-01-26 07:37:56",
+          "write_date": "2026-07-24 20:38:15",
+          "salida_por_lote": "1.0",
+          "salida_uom_id": 1,
+          "salida_en_unidad_producto": "1.0",
+          "costo_material_por_unidad": "225.0",
+          "moneda": "MXN",
+          "lineas": [
+            {
+              "linea_id": 2935,
+              "aplica": true,
+              "atributos_requeridos": [],
+              "componente_id": 168,
+              "sku": "EST-GAM-AZU",
+              "nombre": "Gamuza Azul",
+              "cantidad_linea": "1.0",
+              "uom_linea_id": 1,
+              "uom_costo_id": 1,
+              "cantidad_por_unidad_final": "1",
+              "costo_unitario_vigente_observado": "60.0",
+              "importe": "60.0",
+              "moneda": "MXN",
+              "costo_write_date": "2026-11-01 01:00:03",
+              "sub_boms": []
+            },
+            {
+              "linea_id": 2936,
+              "aplica": true,
+              "atributos_requeridos": [],
+              "componente_id": 1025,
+              "sku": "COF-19-DOR",
+              "nombre": "Cofre 19 - Dorado",
+              "cantidad_linea": "1.0",
+              "uom_linea_id": 1,
+              "uom_costo_id": 1,
+              "cantidad_por_unidad_final": "1",
+              "costo_unitario_vigente_observado": "165.0",
+              "importe": "165.0",
+              "moneda": "MXN",
+              "costo_write_date": "2026-11-04 15:56:14",
+              "sub_boms": []
+            }
+          ]
+        }
+      ],
+      "receta_mas_reciente_por_creacion": 1404,
+      "costo_receta_mas_reciente": "225.0",
+      "totales_distintos": [
+        "225.0"
+      ],
+      "seleccion_operativa_en_odoo": null
+    },
+    {
+      "sku": "NH-GAM-AZU-PEZ-PLA",
+      "product_id": 6652,
+      "template_id": 6207,
+      "atributos": [
+        691
+      ],
+      "es_variante_con_atributo_modelo": true,
+      "recetas": [
+        {
+          "bom_id": 1127,
+          "active": false,
+          "sequence": 0,
+          "product_id": 6652,
+          "create_date": "2026-01-26 07:31:27",
+          "write_date": "2026-07-24 20:38:15",
+          "salida_por_lote": "1.0",
+          "salida_uom_id": 1,
+          "salida_en_unidad_producto": "1.0",
+          "costo_material_por_unidad": "225.0",
+          "moneda": "MXN",
+          "lineas": [
+            {
+              "linea_id": 2059,
+              "aplica": true,
+              "atributos_requeridos": [],
+              "componente_id": 168,
+              "sku": "EST-GAM-AZU",
+              "nombre": "Gamuza Azul",
+              "cantidad_linea": "1.0",
+              "uom_linea_id": 1,
+              "uom_costo_id": 1,
+              "cantidad_por_unidad_final": "1",
+              "costo_unitario_vigente_observado": "60.0",
+              "importe": "60.0",
+              "moneda": "MXN",
+              "costo_write_date": "2026-11-01 01:00:03",
+              "sub_boms": []
+            },
+            {
+              "linea_id": 2060,
+              "aplica": true,
+              "atributos_requeridos": [],
+              "componente_id": 1024,
+              "sku": "COF-19-PLA",
+              "nombre": "Cofre 19 - Plateado",
+              "cantidad_linea": "1.0",
+              "uom_linea_id": 1,
+              "uom_costo_id": 1,
+              "cantidad_por_unidad_final": "1",
+              "costo_unitario_vigente_observado": "165.0",
+              "importe": "165.0",
+              "moneda": "MXN",
+              "costo_write_date": "2026-11-04 03:31:41",
+              "sub_boms": []
+            }
+          ]
+        },
+        {
+          "bom_id": 1405,
+          "active": false,
+          "sequence": 0,
+          "product_id": 6652,
+          "create_date": "2026-01-26 07:37:56",
+          "write_date": "2026-07-24 20:38:15",
+          "salida_por_lote": "1.0",
+          "salida_uom_id": 1,
+          "salida_en_unidad_producto": "1.0",
+          "costo_material_por_unidad": "225.0",
+          "moneda": "MXN",
+          "lineas": [
+            {
+              "linea_id": 2937,
+              "aplica": true,
+              "atributos_requeridos": [],
+              "componente_id": 168,
+              "sku": "EST-GAM-AZU",
+              "nombre": "Gamuza Azul",
+              "cantidad_linea": "1.0",
+              "uom_linea_id": 1,
+              "uom_costo_id": 1,
+              "cantidad_por_unidad_final": "1",
+              "costo_unitario_vigente_observado": "60.0",
+              "importe": "60.0",
+              "moneda": "MXN",
+              "costo_write_date": "2026-11-01 01:00:03",
+              "sub_boms": []
+            },
+            {
+              "linea_id": 2938,
+              "aplica": true,
+              "atributos_requeridos": [],
+              "componente_id": 1024,
+              "sku": "COF-19-PLA",
+              "nombre": "Cofre 19 - Plateado",
+              "cantidad_linea": "1.0",
+              "uom_linea_id": 1,
+              "uom_costo_id": 1,
+              "cantidad_por_unidad_final": "1",
+              "costo_unitario_vigente_observado": "165.0",
+              "importe": "165.0",
+              "moneda": "MXN",
+              "costo_write_date": "2026-11-04 03:31:41",
+              "sub_boms": []
+            }
+          ]
+        }
+      ],
+      "receta_mas_reciente_por_creacion": 1405,
+      "costo_receta_mas_reciente": "225.0",
+      "totales_distintos": [
+        "225.0"
+      ],
+      "seleccion_operativa_en_odoo": null
+    },
+    {
+      "sku": "NH-GAM-NEG-PEZ-DOR",
+      "product_id": 6662,
+      "template_id": 6208,
+      "atributos": [
+        701
+      ],
+      "es_variante_con_atributo_modelo": true,
+      "recetas": [
+        {
+          "bom_id": 1142,
+          "active": false,
+          "sequence": 0,
+          "product_id": 6662,
+          "create_date": "2026-01-26 07:31:27",
+          "write_date": "2026-07-24 20:38:15",
+          "salida_por_lote": "1.0",
+          "salida_uom_id": 1,
+          "salida_en_unidad_producto": "1.0",
+          "costo_material_por_unidad": "225.0",
+          "moneda": "MXN",
+          "lineas": [
+            {
+              "linea_id": 2101,
+              "aplica": true,
+              "atributos_requeridos": [],
+              "componente_id": 169,
+              "sku": "EST-GAM-NEG",
+              "nombre": "Gamuza Negro",
+              "cantidad_linea": "1.0",
+              "uom_linea_id": 1,
+              "uom_costo_id": 1,
+              "cantidad_por_unidad_final": "1",
+              "costo_unitario_vigente_observado": "60.0",
+              "importe": "60.0",
+              "moneda": "MXN",
+              "costo_write_date": "2026-10-26 01:00:23",
+              "sub_boms": []
+            },
+            {
+              "linea_id": 2102,
+              "aplica": true,
+              "atributos_requeridos": [],
+              "componente_id": 1025,
+              "sku": "COF-19-DOR",
+              "nombre": "Cofre 19 - Dorado",
+              "cantidad_linea": "1.0",
+              "uom_linea_id": 1,
+              "uom_costo_id": 1,
+              "cantidad_por_unidad_final": "1",
+              "costo_unitario_vigente_observado": "165.0",
+              "importe": "165.0",
+              "moneda": "MXN",
+              "costo_write_date": "2026-11-04 15:56:14",
+              "sub_boms": []
+            }
+          ]
+        },
+        {
+          "bom_id": 1418,
+          "active": false,
+          "sequence": 0,
+          "product_id": 6662,
+          "create_date": "2026-01-26 07:37:56",
+          "write_date": "2026-07-24 20:38:15",
+          "salida_por_lote": "1.0",
+          "salida_uom_id": 1,
+          "salida_en_unidad_producto": "1.0",
+          "costo_material_por_unidad": "225.0",
+          "moneda": "MXN",
+          "lineas": [
+            {
+              "linea_id": 2975,
+              "aplica": true,
+              "atributos_requeridos": [],
+              "componente_id": 169,
+              "sku": "EST-GAM-NEG",
+              "nombre": "Gamuza Negro",
+              "cantidad_linea": "1.0",
+              "uom_linea_id": 1,
+              "uom_costo_id": 1,
+              "cantidad_por_unidad_final": "1",
+              "costo_unitario_vigente_observado": "60.0",
+              "importe": "60.0",
+              "moneda": "MXN",
+              "costo_write_date": "2026-10-26 01:00:23",
+              "sub_boms": []
+            },
+            {
+              "linea_id": 2976,
+              "aplica": true,
+              "atributos_requeridos": [],
+              "componente_id": 1025,
+              "sku": "COF-19-DOR",
+              "nombre": "Cofre 19 - Dorado",
+              "cantidad_linea": "1.0",
+              "uom_linea_id": 1,
+              "uom_costo_id": 1,
+              "cantidad_por_unidad_final": "1",
+              "costo_unitario_vigente_observado": "165.0",
+              "importe": "165.0",
+              "moneda": "MXN",
+              "costo_write_date": "2026-11-04 15:56:14",
+              "sub_boms": []
+            }
+          ]
+        }
+      ],
+      "receta_mas_reciente_por_creacion": 1418,
+      "costo_receta_mas_reciente": "225.0",
+      "totales_distintos": [
+        "225.0"
+      ],
+      "seleccion_operativa_en_odoo": null
+    },
+    {
+      "sku": "NH-GAM-NEG-PEZ-PLA",
+      "product_id": 6672,
+      "template_id": 6209,
+      "atributos": [
+        711
+      ],
+      "es_variante_con_atributo_modelo": true,
+      "recetas": [
+        {
+          "bom_id": 1143,
+          "active": false,
+          "sequence": 0,
+          "product_id": 6672,
+          "create_date": "2026-01-26 07:31:27",
+          "write_date": "2026-07-24 20:38:15",
+          "salida_por_lote": "1.0",
+          "salida_uom_id": 1,
+          "salida_en_unidad_producto": "1.0",
+          "costo_material_por_unidad": "225.0",
+          "moneda": "MXN",
+          "lineas": [
+            {
+              "linea_id": 2103,
+              "aplica": true,
+              "atributos_requeridos": [],
+              "componente_id": 169,
+              "sku": "EST-GAM-NEG",
+              "nombre": "Gamuza Negro",
+              "cantidad_linea": "1.0",
+              "uom_linea_id": 1,
+              "uom_costo_id": 1,
+              "cantidad_por_unidad_final": "1",
+              "costo_unitario_vigente_observado": "60.0",
+              "importe": "60.0",
+              "moneda": "MXN",
+              "costo_write_date": "2026-10-26 01:00:23",
+              "sub_boms": []
+            },
+            {
+              "linea_id": 2104,
+              "aplica": true,
+              "atributos_requeridos": [],
+              "componente_id": 1024,
+              "sku": "COF-19-PLA",
+              "nombre": "Cofre 19 - Plateado",
+              "cantidad_linea": "1.0",
+              "uom_linea_id": 1,
+              "uom_costo_id": 1,
+              "cantidad_por_unidad_final": "1",
+              "costo_unitario_vigente_observado": "165.0",
+              "importe": "165.0",
+              "moneda": "MXN",
+              "costo_write_date": "2026-11-04 03:31:41",
+              "sub_boms": []
+            }
+          ]
+        },
+        {
+          "bom_id": 1419,
+          "active": false,
+          "sequence": 0,
+          "product_id": 6672,
+          "create_date": "2026-01-26 07:37:56",
+          "write_date": "2026-07-24 20:38:15",
+          "salida_por_lote": "1.0",
+          "salida_uom_id": 1,
+          "salida_en_unidad_producto": "1.0",
+          "costo_material_por_unidad": "225.0",
+          "moneda": "MXN",
+          "lineas": [
+            {
+              "linea_id": 2977,
+              "aplica": true,
+              "atributos_requeridos": [],
+              "componente_id": 169,
+              "sku": "EST-GAM-NEG",
+              "nombre": "Gamuza Negro",
+              "cantidad_linea": "1.0",
+              "uom_linea_id": 1,
+              "uom_costo_id": 1,
+              "cantidad_por_unidad_final": "1",
+              "costo_unitario_vigente_observado": "60.0",
+              "importe": "60.0",
+              "moneda": "MXN",
+              "costo_write_date": "2026-10-26 01:00:23",
+              "sub_boms": []
+            },
+            {
+              "linea_id": 2978,
+              "aplica": true,
+              "atributos_requeridos": [],
+              "componente_id": 1024,
+              "sku": "COF-19-PLA",
+              "nombre": "Cofre 19 - Plateado",
+              "cantidad_linea": "1.0",
+              "uom_linea_id": 1,
+              "uom_costo_id": 1,
+              "cantidad_por_unidad_final": "1",
+              "costo_unitario_vigente_observado": "165.0",
+              "importe": "165.0",
+              "moneda": "MXN",
+              "costo_write_date": "2026-11-04 03:31:41",
+              "sub_boms": []
+            }
+          ]
+        }
+      ],
+      "receta_mas_reciente_por_creacion": 1419,
+      "costo_receta_mas_reciente": "225.0",
+      "totales_distintos": [
+        "225.0"
+      ],
+      "seleccion_operativa_en_odoo": null
+    },
+    {
+      "sku": "NH-ITA-PEZ-PLA",
+      "product_id": 6692,
+      "template_id": 6211,
+      "atributos": [
+        731
+      ],
+      "es_variante_con_atributo_modelo": true,
+      "recetas": [
+        {
+          "bom_id": 1159,
+          "active": false,
+          "sequence": 0,
+          "product_id": 6692,
+          "create_date": "2026-01-26 07:31:27",
+          "write_date": "2026-07-24 20:38:15",
+          "salida_por_lote": "1.0",
+          "salida_uom_id": 1,
+          "salida_en_unidad_producto": "1.0",
+          "costo_material_por_unidad": "231.0",
+          "moneda": "MXN",
+          "lineas": [
+            {
+              "linea_id": 2147,
+              "aplica": true,
+              "atributos_requeridos": [],
+              "componente_id": 158,
+              "sku": "4405-BG",
+              "nombre": "Italia",
+              "cantidad_linea": "1.0",
+              "uom_linea_id": 1,
+              "uom_costo_id": 1,
+              "cantidad_por_unidad_final": "1",
+              "costo_unitario_vigente_observado": "76.0",
+              "importe": "76.0",
+              "moneda": "MXN",
+              "costo_write_date": "2026-11-04 15:35:06",
+              "sub_boms": []
+            },
+            {
+              "linea_id": 2148,
+              "aplica": true,
+              "atributos_requeridos": [],
+              "componente_id": 1023,
+              "sku": "COF-16-PLA",
+              "nombre": "Cofre 16 - Plateado",
+              "cantidad_linea": "1.0",
+              "uom_linea_id": 1,
+              "uom_costo_id": 1,
+              "cantidad_por_unidad_final": "1",
+              "costo_unitario_vigente_observado": "155.0",
+              "importe": "155.0",
+              "moneda": "MXN",
+              "costo_write_date": "2026-11-02 22:57:46",
+              "sub_boms": []
+            }
+          ]
+        },
+        {
+          "bom_id": 1433,
+          "active": false,
+          "sequence": 0,
+          "product_id": 6692,
+          "create_date": "2026-01-26 07:37:56",
+          "write_date": "2026-07-24 20:38:15",
+          "salida_por_lote": "1.0",
+          "salida_uom_id": 1,
+          "salida_en_unidad_producto": "1.0",
+          "costo_material_por_unidad": "231.0",
+          "moneda": "MXN",
+          "lineas": [
+            {
+              "linea_id": 3017,
+              "aplica": true,
+              "atributos_requeridos": [],
+              "componente_id": 158,
+              "sku": "4405-BG",
+              "nombre": "Italia",
+              "cantidad_linea": "1.0",
+              "uom_linea_id": 1,
+              "uom_costo_id": 1,
+              "cantidad_por_unidad_final": "1",
+              "costo_unitario_vigente_observado": "76.0",
+              "importe": "76.0",
+              "moneda": "MXN",
+              "costo_write_date": "2026-11-04 15:35:06",
+              "sub_boms": []
+            },
+            {
+              "linea_id": 3018,
+              "aplica": true,
+              "atributos_requeridos": [],
+              "componente_id": 1023,
+              "sku": "COF-16-PLA",
+              "nombre": "Cofre 16 - Plateado",
+              "cantidad_linea": "1.0",
+              "uom_linea_id": 1,
+              "uom_costo_id": 1,
+              "cantidad_por_unidad_final": "1",
+              "costo_unitario_vigente_observado": "155.0",
+              "importe": "155.0",
+              "moneda": "MXN",
+              "costo_write_date": "2026-11-02 22:57:46",
+              "sub_boms": []
+            }
+          ]
+        }
+      ],
+      "receta_mas_reciente_por_creacion": 1433,
+      "costo_receta_mas_reciente": "231.0",
+      "totales_distintos": [
+        "231.0"
+      ],
+      "seleccion_operativa_en_odoo": null
+    },
+    {
+      "sku": "NH-PLA-CH-PEZ-PLA",
+      "product_id": 6732,
+      "template_id": 6215,
+      "atributos": [
+        771
+      ],
+      "es_variante_con_atributo_modelo": true,
+      "recetas": [
+        {
+          "bom_id": 1191,
+          "active": false,
+          "sequence": 0,
+          "product_id": 6732,
+          "create_date": "2026-01-26 07:31:27",
+          "write_date": "2026-07-24 20:38:15",
+          "salida_por_lote": "1.0",
+          "salida_uom_id": 1,
+          "salida_en_unidad_producto": "1.0",
+          "costo_material_por_unidad": "272.0",
+          "moneda": "MXN",
+          "lineas": [
+            {
+              "linea_id": 2235,
+              "aplica": true,
+              "atributos_requeridos": [],
+              "componente_id": 163,
+              "sku": "4587-BK",
+              "nombre": "Platino CH",
+              "cantidad_linea": "1.0",
+              "uom_linea_id": 1,
+              "uom_costo_id": 1,
+              "cantidad_por_unidad_final": "1",
+              "costo_unitario_vigente_observado": "107.0",
+              "importe": "107.0",
+              "moneda": "MXN",
+              "costo_write_date": "2026-11-04 18:26:56",
+              "sub_boms": []
+            },
+            {
+              "linea_id": 2236,
+              "aplica": true,
+              "atributos_requeridos": [],
+              "componente_id": 1024,
+              "sku": "COF-19-PLA",
+              "nombre": "Cofre 19 - Plateado",
+              "cantidad_linea": "1.0",
+              "uom_linea_id": 1,
+              "uom_costo_id": 1,
+              "cantidad_por_unidad_final": "1",
+              "costo_unitario_vigente_observado": "165.0",
+              "importe": "165.0",
+              "moneda": "MXN",
+              "costo_write_date": "2026-11-04 03:31:41",
+              "sub_boms": []
+            }
+          ]
+        },
+        {
+          "bom_id": 1461,
+          "active": false,
+          "sequence": 0,
+          "product_id": 6732,
+          "create_date": "2026-01-26 07:37:56",
+          "write_date": "2026-07-24 20:38:15",
+          "salida_por_lote": "1.0",
+          "salida_uom_id": 1,
+          "salida_en_unidad_producto": "1.0",
+          "costo_material_por_unidad": "272.0",
+          "moneda": "MXN",
+          "lineas": [
+            {
+              "linea_id": 3097,
+              "aplica": true,
+              "atributos_requeridos": [],
+              "componente_id": 163,
+              "sku": "4587-BK",
+              "nombre": "Platino CH",
+              "cantidad_linea": "1.0",
+              "uom_linea_id": 1,
+              "uom_costo_id": 1,
+              "cantidad_por_unidad_final": "1",
+              "costo_unitario_vigente_observado": "107.0",
+              "importe": "107.0",
+              "moneda": "MXN",
+              "costo_write_date": "2026-11-04 18:26:56",
+              "sub_boms": []
+            },
+            {
+              "linea_id": 3098,
+              "aplica": true,
+              "atributos_requeridos": [],
+              "componente_id": 1024,
+              "sku": "COF-19-PLA",
+              "nombre": "Cofre 19 - Plateado",
+              "cantidad_linea": "1.0",
+              "uom_linea_id": 1,
+              "uom_costo_id": 1,
+              "cantidad_por_unidad_final": "1",
+              "costo_unitario_vigente_observado": "165.0",
+              "importe": "165.0",
+              "moneda": "MXN",
+              "costo_write_date": "2026-11-04 03:31:41",
+              "sub_boms": []
+            }
+          ]
+        }
+      ],
+      "receta_mas_reciente_por_creacion": 1461,
+      "costo_receta_mas_reciente": "272.0",
+      "totales_distintos": [
+        "272.0"
+      ],
+      "seleccion_operativa_en_odoo": null
+    }
+  ]
+}
