@@ -102,7 +102,7 @@ Los dos revisores automáticos del PR (DeepSeek por ai-review y CodeRabbit) enco
 
 ## Lectores frescos (2026-11-05)
 
-Dos lectores sin contexto ejecutaron el plan. Trajeron 11 bloqueantes distintos; el más grave, encontrado por ambos, era que un despliegue que aborta por un choque pasajero hacía que el rollback deshiciera el despliegue anterior. También había compuertas que daban verde sin el trabajo hecho y una conciliación que pedía más días de los que permite Amazon. Todo se corrigió en una ronda; el detalle, los comandos y lo verificado están en `lectores/sintesis.md`.
+Dos lectores sin contexto ejecutaron el plan. Trajeron 11 bloqueantes distintos; el más grave, encontrado por ambos, era que un despliegue que aborta por un choque pasajero hacía que el rollback deshiciera el despliegue anterior. También había compuertas que daban verde sin el trabajo hecho y una conciliación que pedía más días de los que permite Amazon. Se corrigió en tres pasadas. La receta de despliegue, que trajo un bloqueante en cada pasada, quedó además como modelo ejecutable de referencia (`modelo-despliegue/modelo.py`). El detalle, los comandos y lo verificado están en `lectores/sintesis.md`.
 
 ## Next implementation step
 

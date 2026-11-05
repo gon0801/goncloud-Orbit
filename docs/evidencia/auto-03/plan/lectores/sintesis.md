@@ -32,6 +32,10 @@ C.1 fixture `_db_temporal_c2a` con la 0076. C.3 etiquetas de `PISA_POR_PELDANO`.
 
 Un bloqueante, introducido por la corrección anterior: el rollback no devolvía `$SRV/despliegue/sha`, así que tras revertir un despliegue los interruptores no se volvían a aplicar. Corregido con `SHA_PREVIO` anotado en (0) bajo el `flock`, contra el que comparan la monotonía y la convergencia, y que el rollback restaura; B.5 (h) lo prueba. Los nueve no bloqueantes también se corrigieron: monotonía que tampoco toca claves, `productos-modo` idempotente, qué hacer con la salida 75, `--ensayo` sin escrituras, `flock` antes de `ultimo.env` y reanudación de una corrida cortada, respaldo y restauración de todos los archivos desplegados, grupos aptos cuando falla la lectura, `CASCADE` en D.6 y E.4 alineado con S6. Detalle en `pasada-2.md`.
 
+## Pasada 3 (solo el diff) y cierre
+
+Un bloqueante más en la misma pieza: al reanudar un despliegue cortado, la receta no decía qué `SHA_PREVIO`, respaldo y claves valían, y podía dejar las claves sin aplicar con el checklist en verde, o un rollback que no revertía el código. Fueron tres pasadas seguidas con un bloqueante en la receta de despliegue, señal de que esa parte no convergía corrigiendo prosa. Se cerró así: la receta corregida quedó como modelo ejecutable (`modelo-despliegue/modelo.py`, nueve escenarios con aserciones, sale 0), que detecta cada falla encontrada al reintroducirla, y B.5 exige que la prueba de los scripts reales reproduzca esos escenarios y corre el modelo en su `Acepta`. Los seis no bloqueantes también se corrigieron. No se corrió una cuarta pasada; detalle en `pasada-3.md`.
+
 ## Hechos medidos por los lectores (solo lectura, 2026-11-05)
 
 Ningún goal tiene target en producción. En MX hay 5 ad groups exclusivos de productos con margen positivo, con 76 hojas ENABLED. Los ciclos corren 08:40 y 08:41 UTC. Hay 18 a 19 crons con `app.cli` y la ingesta de las 07:10 dura 9 a 17 minutos. `ad_ids` es un arreglo jsonb. El tope de verificación del motor en la Mac es 3600 s y el de despliegue 900 s.
