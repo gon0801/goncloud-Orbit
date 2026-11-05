@@ -1,0 +1,284 @@
+{
+  "fecha_utc": "2026-11-05T01:47:47.710538+00:00",
+  "filas": [
+    {
+      "item_id": "MLM2163407464",
+      "variante_ext": "194936687129",
+      "title": "Arras Matrimoniales Doradas Oro 24k 13 Piezas Estuche",
+      "status": "active",
+      "observado_utc": "2026-11-05T01:47:46.566764+00:00",
+      "stock_variante": 0,
+      "seller_custom_field": null,
+      "atributos": [
+        {
+          "id": "EMPTY_GTIN_REASON",
+          "name": "Motivo de GTIN vacío",
+          "value_id": "17055161",
+          "value_name": "Otra razón"
+        },
+        {
+          "id": "SELLER_SKU",
+          "name": "SKU",
+          "value_id": null,
+          "value_name": "NH-CAR-BLA-PEZ-DOR"
+        }
+      ],
+      "combinaciones": [
+        {
+          "id": null,
+          "name": "Modelos arras",
+          "value_id": null,
+          "value_name": "Sello cristiano"
+        }
+      ]
+    },
+    {
+      "item_id": "MLM1890653227",
+      "variante_ext": "194936530433",
+      "title": "Arras Matrimoniales Plateadas Plata .999 13 Piezas Estuche",
+      "status": "active",
+      "observado_utc": "2026-11-05T01:47:46.711098+00:00",
+      "stock_variante": 0,
+      "seller_custom_field": null,
+      "atributos": [
+        {
+          "id": "EMPTY_GTIN_REASON",
+          "name": "Motivo de GTIN vacío",
+          "value_id": "17055161",
+          "value_name": "Otra razón"
+        },
+        {
+          "id": "SELLER_SKU",
+          "name": "SKU",
+          "value_id": null,
+          "value_name": "NH-CAR-BLA-PEZ-PLA"
+        }
+      ],
+      "combinaciones": [
+        {
+          "id": null,
+          "name": "Modelo arras",
+          "value_id": null,
+          "value_name": "Sello cristiano"
+        }
+      ]
+    },
+    {
+      "item_id": "MLM4735255462",
+      "variante_ext": "190065698608",
+      "title": "Arras Matrimoniales Oro 24k Troqueladas Set Con Estuche",
+      "status": "active",
+      "observado_utc": "2026-11-05T01:47:46.853981+00:00",
+      "stock_variante": 0,
+      "seller_custom_field": null,
+      "atributos": [
+        {
+          "id": "EMPTY_GTIN_REASON",
+          "name": "Motivo de GTIN vacío",
+          "value_id": "17055161",
+          "value_name": "Otra razón"
+        },
+        {
+          "id": "SELLER_SKU",
+          "name": "SKU",
+          "value_id": null,
+          "value_name": "NH-BLA-BRO-PEZ-DOR"
+        }
+      ],
+      "combinaciones": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Sello cristiano"
+        }
+      ]
+    },
+    {
+      "item_id": "MLM2724304859",
+      "variante_ext": "190063357552",
+      "title": "Arras Matrimoniales Baño Plata .999 Troqueladas Set Boda",
+      "status": "active",
+      "observado_utc": "2026-11-05T01:47:46.996717+00:00",
+      "stock_variante": 0,
+      "seller_custom_field": null,
+      "atributos": [
+        {
+          "id": "EMPTY_GTIN_REASON",
+          "name": "Motivo de GTIN vacío",
+          "value_id": "17055161",
+          "value_name": "Otra razón"
+        },
+        {
+          "id": "SELLER_SKU",
+          "name": "SKU",
+          "value_id": null,
+          "value_name": "NH-ITA-PEZ-PLA"
+        }
+      ],
+      "combinaciones": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Sello cristiano"
+        }
+      ]
+    },
+    {
+      "item_id": "MLM2727437671",
+      "variante_ext": "196650442795",
+      "title": "Arras Matrimoniales Plata .999 Troqueladas Con Estuche",
+      "status": "under_review",
+      "observado_utc": "2026-11-05T01:47:47.140589+00:00",
+      "stock_variante": 0,
+      "seller_custom_field": null,
+      "atributos": [
+        {
+          "id": "EMPTY_GTIN_REASON",
+          "name": "Motivo de GTIN vacío",
+          "value_id": "17055161",
+          "value_name": "Otra razón"
+        },
+        {
+          "id": "SELLER_SKU",
+          "name": "SKU",
+          "value_id": null,
+          "value_name": "NH-GAM-AZU-PEZ-PLA"
+        }
+      ],
+      "combinaciones": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Sello cristiano"
+        }
+      ]
+    },
+    {
+      "item_id": "MLM2727363007",
+      "variante_ext": "196650403797",
+      "title": "Arras Matrimoniales Doradas 24k 13 Piezas Para Boda",
+      "status": "active",
+      "observado_utc": "2026-11-05T01:47:47.282259+00:00",
+      "stock_variante": 0,
+      "seller_custom_field": null,
+      "atributos": [
+        {
+          "id": "EMPTY_GTIN_REASON",
+          "name": "Motivo de GTIN vacío",
+          "value_id": "17055161",
+          "value_name": "Otra razón"
+        },
+        {
+          "id": "SELLER_SKU",
+          "name": "SKU",
+          "value_id": null,
+          "value_name": "NH-GAM-NEG-PEZ-DOR"
+        }
+      ],
+      "combinaciones": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Sello cristiano"
+        }
+      ]
+    },
+    {
+      "item_id": "MLM2727328203",
+      "variante_ext": "196650403671",
+      "title": "Arras Matrimoniales Doradas Set Completo Oro 24k Boda",
+      "status": "active",
+      "observado_utc": "2026-11-05T01:47:47.432957+00:00",
+      "stock_variante": 0,
+      "seller_custom_field": null,
+      "atributos": [
+        {
+          "id": "EMPTY_GTIN_REASON",
+          "name": "Motivo de GTIN vacío",
+          "value_id": "17055161",
+          "value_name": "Otra razón"
+        },
+        {
+          "id": "SELLER_SKU",
+          "name": "SKU",
+          "value_id": null,
+          "value_name": "NH-GAM-AZU-PEZ-DOR"
+        }
+      ],
+      "combinaciones": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Sello cristiano"
+        }
+      ]
+    },
+    {
+      "item_id": "MLM4749600210",
+      "variante_ext": "196764932943",
+      "title": "Arras Matrimoniales Plateadas .999 13 Piezas Boda Premium",
+      "status": "active",
+      "observado_utc": "2026-11-05T01:47:47.569845+00:00",
+      "stock_variante": 0,
+      "seller_custom_field": null,
+      "atributos": [
+        {
+          "id": "EMPTY_GTIN_REASON",
+          "name": "Motivo de GTIN vacío",
+          "value_id": "17055161",
+          "value_name": "Otra razón"
+        },
+        {
+          "id": "SELLER_SKU",
+          "name": "SKU",
+          "value_id": null,
+          "value_name": "NH-GAM-NEG-PEZ-PLA"
+        }
+      ],
+      "combinaciones": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Sello cristiano"
+        }
+      ]
+    },
+    {
+      "item_id": "MLM4763716652",
+      "variante_ext": "190333223922",
+      "title": "Arras Matrimoniales Baño De Plata .999 Troqueladas Con Cofre",
+      "status": "paused",
+      "observado_utc": "2026-11-05T01:47:47.710229+00:00",
+      "stock_variante": 0,
+      "seller_custom_field": null,
+      "atributos": [
+        {
+          "id": "EMPTY_GTIN_REASON",
+          "name": "Motivo de GTIN vacío",
+          "value_id": "17055161",
+          "value_name": "Otra razón"
+        },
+        {
+          "id": "SELLER_SKU",
+          "name": "SKU",
+          "value_id": null,
+          "value_name": "NH-PLA-CH-PEZ-PLA"
+        }
+      ],
+      "combinaciones": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Sello cristiano"
+        }
+      ]
+    }
+  ]
+}

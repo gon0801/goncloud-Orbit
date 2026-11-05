@@ -1,0 +1,76 @@
+{
+  "metadata": {
+    "utc": "2026-11-05 01:46:42.383074+00:00",
+    "source_sha256": "f461035f7f52c54e11b701535e9b0dc61e8b33c8b9ba138fa3dbcfc49982be3a",
+    "read_only": "on",
+    "timeout": "15s"
+  },
+  "rows": 5234,
+  "cycles_without_clock": 30,
+  "candidate_rows": 48,
+  "candidate_entities": [
+    3859,
+    3911,
+    3920,
+    4924,
+    5891,
+    5892,
+    5896
+  ],
+  "maturity_counts": [
+    {
+      "status": "cobertura_incompleta_o_moneda",
+      "candidate_asof": "False",
+      "rows": 3
+    },
+    {
+      "status": "horizonte_futuro",
+      "candidate_asof": "False",
+      "rows": 1183
+    },
+    {
+      "status": "horizonte_futuro",
+      "candidate_asof": "None",
+      "rows": 263
+    },
+    {
+      "status": "horizonte_futuro",
+      "candidate_asof": "True",
+      "rows": 15
+    },
+    {
+      "status": "observable",
+      "candidate_asof": "False",
+      "rows": 2576
+    },
+    {
+      "status": "observable",
+      "candidate_asof": "True",
+      "rows": 20
+    },
+    {
+      "status": "sin_revision_posterior_observable",
+      "candidate_asof": "False",
+      "rows": 455
+    },
+    {
+      "status": "sin_revision_posterior_observable",
+      "candidate_asof": "None",
+      "rows": 501
+    },
+    {
+      "status": "sin_revision_posterior_observable",
+      "candidate_asof": "True",
+      "rows": 13
+    },
+    {
+      "status": "sin_target",
+      "candidate_asof": "None",
+      "rows": 205
+    }
+  ],
+  "validation": {
+    "formula_decimal_all_rows": true,
+    "minimum_7_dates_and_maturity_10d_all_rows": true
+  }
+}

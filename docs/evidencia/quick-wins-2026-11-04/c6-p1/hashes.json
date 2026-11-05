@@ -1,0 +1,17 @@
+{
+  "utc": "2026-11-05T01:46:24.157676+00:00",
+  "hashes": {
+    "app/cycle.py": "a648b325d5b995b2914cb025a0850e15a6543e0e78acafdea0021707baf9e89e",
+    "app/optimizer/bid.py": "fe0f9a34b9a55f6ab75d8fba346ece478135aa194401bd1f4c3ab10460e5c64c",
+    "app/optimizer/goals.py": "1675cf8641f4ee0c70c1380934af634db82c73f1d1c79e94c2b1007fb111170b",
+    "app/optimizer/politica.py": "93d4ac20e41fa46a90cc8ba96fb8e40084d310b827191921ff33210e5ec1c845",
+    "app/apply_cola.py": "c432b608983c7816c3df6c987aae3c1ce7c2729c686b7d6faa9813b870fa64e4",
+    "app/apply.py": "dec03993ff4c57f750d0715795bea1be889a0d0bd89a16b0a1f87d68b21c8ef3",
+    "app/impulso_io.py": "cc1481e220745f55c3e4899d1e947ac71b9bf4079a15b98a14bcae4a3bc0adbc",
+    "app/apply_harvest.py": "38d3bebeee4b612cf793acc58551b517fa246a12739b6c992bef2108e151c701",
+    "app/campana_ajustes.py": "c4e41b0c074dd84ad4d4db8e0ab3c01e60123ceabc5e50d15a8f801f6c44084d",
+    "app/ads/write.py": "aa82eab47cc6aabe239817b24dbf875976e5505bc8b7d012a44f0973c0bb8fc0",
+    "app/retiro_anuncios.py": "2d7f71b7e08aa9d055bcb750a0a87b984661d28475a19657ba7a92476dfa2dc0",
+    "tools/replay_ads_economico.py": null
+  }
+}

@@ -28,7 +28,9 @@ para localizar fuentes. Lectura directa cotejada:
 `app/apply_cola.py::_revalida` y `tools/replay_ads_economico.py`.
 Estos archivos no se modificaron.
 
-## Siguiente unidad reproducible (P1/P2)
+## Ejecucion P1/P2 y reproduccion
+
+P1 ya tiene [fotografia nueva](../c6-p1/README.md); P2 tiene [medicion y contraste](../c6-p2/README.md), con gate incompleto. El script tools/replay_ads_economico.py no esta instalado en el contenedor: usar replay_ro.py versionado por stdin como muestra P2. La receta de abajo usa esa copia exacta; no instala archivos en produccion.
 
 Reutilizar consultas RO ya registradas; elegir solo resultados necesarios:
 
@@ -47,14 +49,16 @@ segunda suma interna. No crear reportes remotos para esta preparacion ni usar
 endpoints de escritura. La propuesta real se localiza en `/propuestas`; la ruta
 JSON exacta se obtiene del codigo vigente, no se inventa del runbook historico.
 
-Replay existente (ejemplo de intervalo reciente explicito, ajustar al ejecutar):
+Reproduccion del replay versionado para 2026-10-05..2026-11-03:
 
 ```bash
-ssh goncloud 'docker exec -e PGOPTIONS="-c default_transaction_read_only=on -c statement_timeout=15000" orbit-app-1 python tools/replay_ads_economico.py --desde 2026-10-05 --hasta 2026-11-03'
+ssh goncloud 'docker exec -i -e PGOPTIONS="-c default_transaction_read_only=on -c statement_timeout=15000" orbit-app-1 python -' < docs/evidencia/quick-wins-2026-11-04/c6-p2/replay_ro.py
 ```
 
-Comprobar primero presencia/version del script en SHA productivo. Sus defaults
-son septiembre: siempre pasar fechas. La opcion PGOPTIONS endurece conexion,
+La fuente del replay y sus fechas estan congeladas en el helper, con hash en
+la salida. Para otro intervalo cambiar explicitamente las fechas y guardar
+un expediente distinto; no sobrescribir la evidencia anterior. Comprobar la
+version de las dependencias de app antes de reinterpretar resultados. PGOPTIONS endurece conexion,
 no imprime secretos y limita cada sentencia a 15s; si timeout, acotar consulta
 sin elevar permisos ni sacar conclusion de ausencia. Guardar salida localmente
 antes de interpretar y separar MXN/USD, campaign/leaf y target/procedencia.

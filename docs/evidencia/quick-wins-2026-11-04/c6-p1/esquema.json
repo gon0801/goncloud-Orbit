@@ -1,0 +1,1073 @@
+{
+  "utc": "2026-11-05T01:43:38.011974+00:00",
+  "sql": "SELECT table_name,column_name,data_type FROM information_schema.columns WHERE table_schema='public' AND (table_name IN ('config_version','ads_optimizer_goal','apply_queue','apply_attempt','decision_application','ads_campaign_proposal','harvest_job','impulso','impulso_lectura','fabrica_lote','fabrica_lote_paso','campana_ajuste','keyword_archivo_manual','decision','optimizer_cycle','apply_quota_state') OR table_name ILIKE '%revers%' OR table_name ILIKE '%attempt%') ORDER BY table_name,ordinal_position",
+  "columnas": [
+    {
+      "table_name": "ads_campaign_proposal",
+      "column_name": "id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "ads_campaign_proposal",
+      "column_name": "campaign_id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "ads_campaign_proposal",
+      "column_name": "platform",
+      "data_type": "USER-DEFINED"
+    },
+    {
+      "table_name": "ads_campaign_proposal",
+      "column_name": "campaign_external_id",
+      "data_type": "text"
+    },
+    {
+      "table_name": "ads_campaign_proposal",
+      "column_name": "profile_id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "ads_campaign_proposal",
+      "column_name": "risk_type",
+      "data_type": "text"
+    },
+    {
+      "table_name": "ads_campaign_proposal",
+      "column_name": "status",
+      "data_type": "text"
+    },
+    {
+      "table_name": "ads_campaign_proposal",
+      "column_name": "first_seen_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "ads_campaign_proposal",
+      "column_name": "last_seen_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "ads_campaign_proposal",
+      "column_name": "closed_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "ads_campaign_proposal",
+      "column_name": "reset_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "ads_campaign_proposal",
+      "column_name": "close_reason",
+      "data_type": "text"
+    },
+    {
+      "table_name": "ads_campaign_proposal",
+      "column_name": "close_evidence",
+      "data_type": "jsonb"
+    },
+    {
+      "table_name": "ads_campaign_proposal",
+      "column_name": "window_start",
+      "data_type": "date"
+    },
+    {
+      "table_name": "ads_campaign_proposal",
+      "column_name": "window_end",
+      "data_type": "date"
+    },
+    {
+      "table_name": "ads_campaign_proposal",
+      "column_name": "observed_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "ads_campaign_proposal",
+      "column_name": "cost",
+      "data_type": "numeric"
+    },
+    {
+      "table_name": "ads_campaign_proposal",
+      "column_name": "revenue",
+      "data_type": "numeric"
+    },
+    {
+      "table_name": "ads_campaign_proposal",
+      "column_name": "currency",
+      "data_type": "USER-DEFINED"
+    },
+    {
+      "table_name": "ads_campaign_proposal",
+      "column_name": "target_pct",
+      "data_type": "numeric"
+    },
+    {
+      "table_name": "ads_campaign_proposal",
+      "column_name": "target_source",
+      "data_type": "text"
+    },
+    {
+      "table_name": "ads_campaign_proposal",
+      "column_name": "excess",
+      "data_type": "numeric"
+    },
+    {
+      "table_name": "ads_campaign_proposal",
+      "column_name": "acos_pct",
+      "data_type": "numeric"
+    },
+    {
+      "table_name": "ads_campaign_proposal",
+      "column_name": "campaign_status",
+      "data_type": "text"
+    },
+    {
+      "table_name": "ads_campaign_proposal",
+      "column_name": "status_synced_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "ads_campaign_proposal",
+      "column_name": "evidence",
+      "data_type": "jsonb"
+    },
+    {
+      "table_name": "ads_campaign_proposal",
+      "column_name": "aviso_estado",
+      "data_type": "text"
+    },
+    {
+      "table_name": "ads_campaign_proposal",
+      "column_name": "aviso_intentos",
+      "data_type": "integer"
+    },
+    {
+      "table_name": "ads_campaign_proposal",
+      "column_name": "aviso_enviado_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "ads_optimizer_goal",
+      "column_name": "id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "ads_optimizer_goal",
+      "column_name": "scope",
+      "data_type": "text"
+    },
+    {
+      "table_name": "ads_optimizer_goal",
+      "column_name": "ad_entity_id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "ads_optimizer_goal",
+      "column_name": "platform",
+      "data_type": "USER-DEFINED"
+    },
+    {
+      "table_name": "ads_optimizer_goal",
+      "column_name": "target_acos_pct",
+      "data_type": "numeric"
+    },
+    {
+      "table_name": "ads_optimizer_goal",
+      "column_name": "bid_floor",
+      "data_type": "numeric"
+    },
+    {
+      "table_name": "ads_optimizer_goal",
+      "column_name": "bid_ceiling",
+      "data_type": "numeric"
+    },
+    {
+      "table_name": "ads_optimizer_goal",
+      "column_name": "bid_currency",
+      "data_type": "USER-DEFINED"
+    },
+    {
+      "table_name": "ads_optimizer_goal",
+      "column_name": "harvest_campaign_id",
+      "data_type": "text"
+    },
+    {
+      "table_name": "ads_optimizer_goal",
+      "column_name": "harvest_ad_group_id",
+      "data_type": "text"
+    },
+    {
+      "table_name": "ads_optimizer_goal",
+      "column_name": "harvest_default_bid",
+      "data_type": "numeric"
+    },
+    {
+      "table_name": "ads_optimizer_goal",
+      "column_name": "enabled",
+      "data_type": "boolean"
+    },
+    {
+      "table_name": "ads_optimizer_goal",
+      "column_name": "mode",
+      "data_type": "text"
+    },
+    {
+      "table_name": "ads_optimizer_goal",
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "ads_optimizer_goal",
+      "column_name": "updated_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "apply_attempt",
+      "column_name": "id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "apply_attempt",
+      "column_name": "decision_id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "apply_attempt",
+      "column_name": "seq",
+      "data_type": "integer"
+    },
+    {
+      "table_name": "apply_attempt",
+      "column_name": "tipo",
+      "data_type": "text"
+    },
+    {
+      "table_name": "apply_attempt",
+      "column_name": "request_payload",
+      "data_type": "jsonb"
+    },
+    {
+      "table_name": "apply_attempt",
+      "column_name": "quota_cobrada",
+      "data_type": "boolean"
+    },
+    {
+      "table_name": "apply_attempt",
+      "column_name": "started_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "apply_attempt",
+      "column_name": "ack",
+      "data_type": "jsonb"
+    },
+    {
+      "table_name": "apply_attempt",
+      "column_name": "resultado",
+      "data_type": "text"
+    },
+    {
+      "table_name": "apply_attempt",
+      "column_name": "finished_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "apply_queue",
+      "column_name": "id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "apply_queue",
+      "column_name": "platform",
+      "data_type": "USER-DEFINED"
+    },
+    {
+      "table_name": "apply_queue",
+      "column_name": "ad_entity_id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "apply_queue",
+      "column_name": "familia",
+      "data_type": "text"
+    },
+    {
+      "table_name": "apply_queue",
+      "column_name": "search_term",
+      "data_type": "text"
+    },
+    {
+      "table_name": "apply_queue",
+      "column_name": "kind",
+      "data_type": "USER-DEFINED"
+    },
+    {
+      "table_name": "apply_queue",
+      "column_name": "decision_id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "apply_queue",
+      "column_name": "modo",
+      "data_type": "text"
+    },
+    {
+      "table_name": "apply_queue",
+      "column_name": "estado",
+      "data_type": "text"
+    },
+    {
+      "table_name": "apply_queue",
+      "column_name": "vence_el",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "apply_queue",
+      "column_name": "encolado_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "apply_queue",
+      "column_name": "released_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "apply_queue",
+      "column_name": "applying_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "apply_queue",
+      "column_name": "applied_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "apply_queue",
+      "column_name": "failed_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "apply_queue",
+      "column_name": "discarded_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "apply_queue",
+      "column_name": "vetoed_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "apply_queue",
+      "column_name": "vetoed_by",
+      "data_type": "text"
+    },
+    {
+      "table_name": "apply_queue",
+      "column_name": "discard_motivo",
+      "data_type": "text"
+    },
+    {
+      "table_name": "apply_queue",
+      "column_name": "request_payload",
+      "data_type": "jsonb"
+    },
+    {
+      "table_name": "apply_quota_state",
+      "column_name": "motor",
+      "data_type": "text"
+    },
+    {
+      "table_name": "apply_quota_state",
+      "column_name": "quota_date",
+      "data_type": "date"
+    },
+    {
+      "table_name": "apply_quota_state",
+      "column_name": "used",
+      "data_type": "integer"
+    },
+    {
+      "table_name": "apply_quota_state",
+      "column_name": "cap",
+      "data_type": "integer"
+    },
+    {
+      "table_name": "campana_ajuste",
+      "column_name": "id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "campana_ajuste",
+      "column_name": "campana_id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "campana_ajuste",
+      "column_name": "platform",
+      "data_type": "USER-DEFINED"
+    },
+    {
+      "table_name": "campana_ajuste",
+      "column_name": "clase",
+      "data_type": "text"
+    },
+    {
+      "table_name": "campana_ajuste",
+      "column_name": "antes_config_id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "campana_ajuste",
+      "column_name": "despues",
+      "data_type": "jsonb"
+    },
+    {
+      "table_name": "campana_ajuste",
+      "column_name": "huella",
+      "data_type": "text"
+    },
+    {
+      "table_name": "campana_ajuste",
+      "column_name": "actor",
+      "data_type": "text"
+    },
+    {
+      "table_name": "campana_ajuste",
+      "column_name": "go_literal",
+      "data_type": "text"
+    },
+    {
+      "table_name": "campana_ajuste",
+      "column_name": "regresa_a",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "campana_ajuste",
+      "column_name": "creado_el",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "campana_ajuste",
+      "column_name": "confirmado_el",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "config_version",
+      "column_name": "id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "config_version",
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "config_version",
+      "column_name": "label",
+      "data_type": "text"
+    },
+    {
+      "table_name": "config_version",
+      "column_name": "settings",
+      "data_type": "jsonb"
+    },
+    {
+      "table_name": "decision",
+      "column_name": "id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "decision",
+      "column_name": "cycle_id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "decision",
+      "column_name": "ad_entity_id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "decision",
+      "column_name": "kind",
+      "data_type": "USER-DEFINED"
+    },
+    {
+      "table_name": "decision",
+      "column_name": "decided_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "decision",
+      "column_name": "config_version_id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "decision",
+      "column_name": "data_observed_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "decision",
+      "column_name": "window_start",
+      "data_type": "date"
+    },
+    {
+      "table_name": "decision",
+      "column_name": "window_end",
+      "data_type": "date"
+    },
+    {
+      "table_name": "decision",
+      "column_name": "search_term",
+      "data_type": "text"
+    },
+    {
+      "table_name": "decision",
+      "column_name": "old_value",
+      "data_type": "numeric"
+    },
+    {
+      "table_name": "decision",
+      "column_name": "new_value",
+      "data_type": "numeric"
+    },
+    {
+      "table_name": "decision",
+      "column_name": "value_currency",
+      "data_type": "USER-DEFINED"
+    },
+    {
+      "table_name": "decision",
+      "column_name": "inputs",
+      "data_type": "jsonb"
+    },
+    {
+      "table_name": "decision_application",
+      "column_name": "decision_id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "decision_application",
+      "column_name": "attempted_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "decision_application",
+      "column_name": "confirmed_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "decision_application",
+      "column_name": "verify_ok",
+      "data_type": "boolean"
+    },
+    {
+      "table_name": "decision_application",
+      "column_name": "platform_ack",
+      "data_type": "jsonb"
+    },
+    {
+      "table_name": "decision_application",
+      "column_name": "error",
+      "data_type": "text"
+    },
+    {
+      "table_name": "decision_application",
+      "column_name": "applied_cycle_id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "estimacion_reversa_registro",
+      "column_name": "id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "estimacion_reversa_registro",
+      "column_name": "aplicada_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "estimacion_reversa_registro",
+      "column_name": "filas_politica",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "estimacion_reversa_registro",
+      "column_name": "filas_oferta",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "estimacion_reversa_registro",
+      "column_name": "filas_fee",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "estimacion_reversa_registro",
+      "column_name": "filas_escenario",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "fabrica_lote",
+      "column_name": "lote",
+      "data_type": "text"
+    },
+    {
+      "table_name": "fabrica_lote",
+      "column_name": "platform",
+      "data_type": "USER-DEFINED"
+    },
+    {
+      "table_name": "fabrica_lote",
+      "column_name": "tipo_producto",
+      "data_type": "text"
+    },
+    {
+      "table_name": "fabrica_lote",
+      "column_name": "nombre_base",
+      "data_type": "text"
+    },
+    {
+      "table_name": "fabrica_lote",
+      "column_name": "go_literal",
+      "data_type": "text"
+    },
+    {
+      "table_name": "fabrica_lote",
+      "column_name": "huella",
+      "data_type": "text"
+    },
+    {
+      "table_name": "fabrica_lote",
+      "column_name": "plan",
+      "data_type": "jsonb"
+    },
+    {
+      "table_name": "fabrica_lote",
+      "column_name": "modo_goal",
+      "data_type": "text"
+    },
+    {
+      "table_name": "fabrica_lote",
+      "column_name": "estado",
+      "data_type": "text"
+    },
+    {
+      "table_name": "fabrica_lote",
+      "column_name": "detalle",
+      "data_type": "text"
+    },
+    {
+      "table_name": "fabrica_lote",
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "fabrica_lote",
+      "column_name": "finished_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "fabrica_lote",
+      "column_name": "pausado_por",
+      "data_type": "text"
+    },
+    {
+      "table_name": "fabrica_lote_paso",
+      "column_name": "id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "fabrica_lote_paso",
+      "column_name": "lote",
+      "data_type": "text"
+    },
+    {
+      "table_name": "fabrica_lote_paso",
+      "column_name": "orden",
+      "data_type": "integer"
+    },
+    {
+      "table_name": "fabrica_lote_paso",
+      "column_name": "rol",
+      "data_type": "USER-DEFINED"
+    },
+    {
+      "table_name": "fabrica_lote_paso",
+      "column_name": "recurso",
+      "data_type": "text"
+    },
+    {
+      "table_name": "fabrica_lote_paso",
+      "column_name": "request_payload",
+      "data_type": "jsonb"
+    },
+    {
+      "table_name": "fabrica_lote_paso",
+      "column_name": "external_id",
+      "data_type": "text"
+    },
+    {
+      "table_name": "fabrica_lote_paso",
+      "column_name": "ack",
+      "data_type": "jsonb"
+    },
+    {
+      "table_name": "fabrica_lote_paso",
+      "column_name": "readback_estado",
+      "data_type": "text"
+    },
+    {
+      "table_name": "fabrica_lote_paso",
+      "column_name": "estado",
+      "data_type": "text"
+    },
+    {
+      "table_name": "fabrica_lote_paso",
+      "column_name": "intentado_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "harvest_job",
+      "column_name": "id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "harvest_job",
+      "column_name": "decision_id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "harvest_job",
+      "column_name": "search_term",
+      "data_type": "text"
+    },
+    {
+      "table_name": "harvest_job",
+      "column_name": "platform",
+      "data_type": "USER-DEFINED"
+    },
+    {
+      "table_name": "harvest_job",
+      "column_name": "ad_entity_id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "harvest_job",
+      "column_name": "fase",
+      "data_type": "text"
+    },
+    {
+      "table_name": "harvest_job",
+      "column_name": "external_ids",
+      "data_type": "jsonb"
+    },
+    {
+      "table_name": "harvest_job",
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "harvest_job",
+      "column_name": "updated_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "impulso",
+      "column_name": "id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "impulso",
+      "column_name": "platform",
+      "data_type": "USER-DEFINED"
+    },
+    {
+      "table_name": "impulso",
+      "column_name": "listing_id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "impulso",
+      "column_name": "product_id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "impulso",
+      "column_name": "grupo_id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "impulso",
+      "column_name": "lote",
+      "data_type": "text"
+    },
+    {
+      "table_name": "impulso",
+      "column_name": "subfamilia",
+      "data_type": "text"
+    },
+    {
+      "table_name": "impulso",
+      "column_name": "tope_monto",
+      "data_type": "numeric"
+    },
+    {
+      "table_name": "impulso",
+      "column_name": "tope_moneda",
+      "data_type": "USER-DEFINED"
+    },
+    {
+      "table_name": "impulso",
+      "column_name": "presupuesto_diario",
+      "data_type": "numeric"
+    },
+    {
+      "table_name": "impulso",
+      "column_name": "plazo_dias",
+      "data_type": "integer"
+    },
+    {
+      "table_name": "impulso",
+      "column_name": "lanzado_el",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "impulso",
+      "column_name": "actor",
+      "data_type": "text"
+    },
+    {
+      "table_name": "impulso",
+      "column_name": "go_literal",
+      "data_type": "text"
+    },
+    {
+      "table_name": "impulso_lectura",
+      "column_name": "impulso_id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "impulso_lectura",
+      "column_name": "corte",
+      "data_type": "date"
+    },
+    {
+      "table_name": "impulso_lectura",
+      "column_name": "leido_el",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "impulso_lectura",
+      "column_name": "dias_observados",
+      "data_type": "integer"
+    },
+    {
+      "table_name": "impulso_lectura",
+      "column_name": "impresiones",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "impulso_lectura",
+      "column_name": "clics",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "impulso_lectura",
+      "column_name": "gasto",
+      "data_type": "numeric"
+    },
+    {
+      "table_name": "impulso_lectura",
+      "column_name": "gasto_moneda",
+      "data_type": "USER-DEFINED"
+    },
+    {
+      "table_name": "impulso_lectura",
+      "column_name": "pedidos",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "impulso_lectura",
+      "column_name": "veredicto",
+      "data_type": "text"
+    },
+    {
+      "table_name": "impulso_lectura",
+      "column_name": "es_final",
+      "data_type": "boolean"
+    },
+    {
+      "table_name": "impulso_lectura",
+      "column_name": "hecho",
+      "data_type": "text"
+    },
+    {
+      "table_name": "keyword_archivo_manual",
+      "column_name": "id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "keyword_archivo_manual",
+      "column_name": "lote",
+      "data_type": "text"
+    },
+    {
+      "table_name": "keyword_archivo_manual",
+      "column_name": "ad_entity_id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "keyword_archivo_manual",
+      "column_name": "platform",
+      "data_type": "USER-DEFINED"
+    },
+    {
+      "table_name": "keyword_archivo_manual",
+      "column_name": "campaign_external",
+      "data_type": "text"
+    },
+    {
+      "table_name": "keyword_archivo_manual",
+      "column_name": "ad_group_external",
+      "data_type": "text"
+    },
+    {
+      "table_name": "keyword_archivo_manual",
+      "column_name": "keyword_external",
+      "data_type": "text"
+    },
+    {
+      "table_name": "keyword_archivo_manual",
+      "column_name": "keyword_text",
+      "data_type": "text"
+    },
+    {
+      "table_name": "keyword_archivo_manual",
+      "column_name": "match_type",
+      "data_type": "text"
+    },
+    {
+      "table_name": "keyword_archivo_manual",
+      "column_name": "bid",
+      "data_type": "numeric"
+    },
+    {
+      "table_name": "keyword_archivo_manual",
+      "column_name": "bid_currency",
+      "data_type": "USER-DEFINED"
+    },
+    {
+      "table_name": "keyword_archivo_manual",
+      "column_name": "clasificacion",
+      "data_type": "text"
+    },
+    {
+      "table_name": "keyword_archivo_manual",
+      "column_name": "dias_sin_impresiones",
+      "data_type": "integer"
+    },
+    {
+      "table_name": "keyword_archivo_manual",
+      "column_name": "go_literal",
+      "data_type": "text"
+    },
+    {
+      "table_name": "keyword_archivo_manual",
+      "column_name": "intentado_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "keyword_archivo_manual",
+      "column_name": "ack",
+      "data_type": "jsonb"
+    },
+    {
+      "table_name": "keyword_archivo_manual",
+      "column_name": "readback_estado",
+      "data_type": "text"
+    },
+    {
+      "table_name": "keyword_archivo_manual",
+      "column_name": "estado",
+      "data_type": "text"
+    },
+    {
+      "table_name": "keyword_archivo_manual",
+      "column_name": "repuesto_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "keyword_archivo_manual",
+      "column_name": "repuesto_external",
+      "data_type": "text"
+    },
+    {
+      "table_name": "keyword_archivo_manual",
+      "column_name": "repuesto_ack",
+      "data_type": "jsonb"
+    },
+    {
+      "table_name": "optimizer_cycle",
+      "column_name": "id",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "optimizer_cycle",
+      "column_name": "motor",
+      "data_type": "text"
+    },
+    {
+      "table_name": "optimizer_cycle",
+      "column_name": "mode",
+      "data_type": "text"
+    },
+    {
+      "table_name": "optimizer_cycle",
+      "column_name": "platform",
+      "data_type": "USER-DEFINED"
+    },
+    {
+      "table_name": "optimizer_cycle",
+      "column_name": "started_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "optimizer_cycle",
+      "column_name": "finished_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "optimizer_cycle",
+      "column_name": "decisions_count",
+      "data_type": "integer"
+    },
+    {
+      "table_name": "optimizer_cycle",
+      "column_name": "applied_count",
+      "data_type": "integer"
+    },
+    {
+      "table_name": "optimizer_cycle",
+      "column_name": "status",
+      "data_type": "text"
+    },
+    {
+      "table_name": "optimizer_cycle",
+      "column_name": "notes",
+      "data_type": "text"
+    }
+  ],
+  "hashes": {
+    "app/cycle.py": "a648b325d5b995b2914cb025a0850e15a6543e0e78acafdea0021707baf9e89e",
+    "app/optimizer/bid.py": "fe0f9a34b9a55f6ab75d8fba346ece478135aa194401bd1f4c3ab10460e5c64c",
+    "app/optimizer/goals.py": "1675cf8641f4ee0c70c1380934af634db82c73f1d1c79e94c2b1007fb111170b",
+    "app/optimizer/politica.py": "93d4ac20e41fa46a90cc8ba96fb8e40084d310b827191921ff33210e5ec1c845",
+    "app/apply_cola.py": "c432b608983c7816c3df6c987aae3c1ce7c2729c686b7d6faa9813b870fa64e4",
+    "app/apply.py": "dec03993ff4c57f750d0715795bea1be889a0d0bd89a16b0a1f87d68b21c8ef3",
+    "app/impulso_io.py": "cc1481e220745f55c3e4899d1e947ac71b9bf4079a15b98a14bcae4a3bc0adbc",
+    "app/apply_harvest.py": "38d3bebeee4b612cf793acc58551b517fa246a12739b6c992bef2108e151c701",
+    "app/campana_ajuste.py": null,
+    "tools/replay_ads_economico.py": null
+  }
+}
