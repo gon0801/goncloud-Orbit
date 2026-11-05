@@ -76,7 +76,7 @@ cada módulo. Los residuales siguen arriba, separados del desarrollo.
 | REPRICING 02 / AUTO-07 | Cerrado 17-oct; goals vigentes: MX 231, US 99, MeLi 45 en `live`. P04 conserva ampliación de cobertura. Incidente MeLi de octubre corregido y desplegado (#504). |
 | BIDS 02 | Construido, desplegado y encendido; remate cerrado 13-oct. Sus guías no son planes pendientes adicionales. |
 | INGESTA 01 | Cerrada 22-oct. Informe del **28-oct recuperado**: 21/21 corridas exitosas, 14/14 ciclos `done`, cero días sin éxito por fuente. Guardas históricas comprobadas para ambas plataformas. [Evidencia](../docs/evidencia/estado-planes-2026-11-04/README.md). |
-| RESUMEN ADS 01/02/03 | Integrados y archivos principales comprobados en producción el 4-nov. Queda P01; no están por construir. |
+| RESUMEN ADS 01/02/03/04 | Integrados y archivos principales comprobados en producción el 4-nov. ADS 04 (rediseño del Resumen y ACoS objetivo en settings, #524, integrado 5-nov 02:01 UTC): los 10 archivos de `app/` iguales entre master y `orbit-app-1` (SHA256, 5-nov ~02:55 UTC; contenedor iniciado 02:10 UTC); sin revisión visual en producción. Queda P01; no están por construir. |
 | ADS PROTECCION 01 Fase D | Tareas completadas; el plan padre conserva P03. |
 
 ## Cómo mantener este registro
