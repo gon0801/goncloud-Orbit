@@ -14,9 +14,10 @@ añaden el arreglo del checker y los cierres operativos A.4/B.4; su integración
 se registra por separado de las lecturas productivas. PEZ 01 / PR #526 agrega
 el cierre productivo P04 el 5-nov-2026 UTC, con evidencia antes/despues.
 PEZ 02 agrega ocho descripciones corregidas; P13 conserva una baja por categoria.
+El job 10 cerró P01 el 5-nov-2026 09:00 UTC con `estado=OK` (lectura RO).
 
 El registro apunta a `resumen-ads-multicanal`, la última entrega integrada y
-desplegada, con seguimiento P01. No selecciona ni autoriza el siguiente desarrollo.
+desplegada; su seguimiento P01 se cerró el 5-nov-2026. No selecciona ni autoriza el siguiente desarrollo.
 Antes de implementar un frente nuevo se necesita un plan con alcance, fuentes
 verificadas, dependencias, pruebas proporcionales, revisión y despliegue.
 
@@ -27,7 +28,7 @@ Los IDs P01–P13 identifican seguimientos, no planes de implementación.
 
 | ID | Frente | Estado comprobado / impacto | Siguiente paso y criterio de cierre | Responsable |
 |---|---|---|---|---|
-| P01 | Resumen Ads multicanal | Ingesta inicial y cron 08:15 UTC verificados. Hasta 3-nov: 808/808 filas iguales; 4-nov difiere +13.47 MXN por una versión posterior de accounting. Comprobación RO instalada y programada: **job 10, 5-nov 09:00 UTC**. | Leer el resultado del job 10 y exigir nueva corrida exitosa, conciliación y misma huella/as-of de fuente. Sigue abierto hasta ese resultado; el snapshot inicial no se conservó. [Seguimiento](../docs/evidencia/quick-wins-2026-11-04/seguimiento-meli/LEEME.md). | Operación |
+| P01 | Resumen Ads multicanal | **CERRADO, 5-nov-2026 09:00 UTC — job 10 `estado=OK`.** Corrida 1374 (cron 08:15 UTC) exitosa con la misma huella/as-of del snapshot actual; conciliación 812/812 filas y 203/203 días sin diferencias, T+0 4/4; la diferencia de +13.47 MXN del 4-nov quedó absorbida. | Sin siguiente paso: la ingesta diaria y la conciliación quedaron comprobadas en lectura RO (`orbit_read`, READ ONLY). [Resultado](../docs/evidencia/quick-wins-2026-11-04/seguimiento-meli/resultado-job10-20261105T090000Z.json), [seguimiento](../docs/evidencia/quick-wins-2026-11-04/seguimiento-meli/LEEME.md). | Operación |
 | P02 | FABRICA 02 D.3 / cierre ORBIT 17 | 11 harvests `done`, ninguno con hermanas ni resuelto por grupo. La sonda de creación de Fábrica 01 ya se hizo el 9-sep; su tarea 11 conserva pendiente el cierre del paso 4. | Seguir el primer harvest natural de grupo: exacta, hermanas, biblioteca y ledger; ensayar su reversa con el go previsto en D.3. Anexar la evidencia del paso 4 de Fábrica 01, sin repetir la creación. | Operación + dueño para reversa |
 | P03 | ADS PROTECCION 01: C.6 | P1 ejecutado: config 42 económica apagada, nueve goals live, caps de 1M y una PAUSE tradicional pendiente. P2: 48 cruces numéricos en 7 entidades; 62/62 filas externas coinciden, cobertura parcial. Ninguna cohorte acredita revisión completa a +10d; elegibilidad contrafactual incompleta. | Completar evidencia de maduración, estado/goal histórico y ventanas externas antes del gate P3. Preparar captura prospectiva si el histórico no es recuperable. La medición no demuestra FP=0 ni habilita sombra/encendido. [P1](../docs/evidencia/quick-wins-2026-11-04/c6-p1/README.md), [P2](../docs/evidencia/quick-wins-2026-11-04/c6-p2/README.md). | Operación; dueño para sombra/activación |
 | P04 | Producto y costo PEZ en MeLi | **CERRADO, 5-nov-2026 UTC — PEZ 01 / PR #526.** Nueve variantes vinculadas a SET activos con cofre, incluido Blanco. Costos externos coinciden 9/9; siete miembros activos y dos inactivos conservados. | Aliases persistentes desplegados, lote reversible aplicado y lectura posterior sin cambios fuera del alcance. Las diferencias de valoracion/medidas se siguen en P13. [Cierre](../docs/evidencia/quick-wins-2026-11-04/pez-correccion/README.md). | Operacion |
@@ -79,7 +80,7 @@ cada módulo. Los residuales siguen arriba, separados del desarrollo.
 | REPRICING 02 / AUTO-07 | Cerrado 17-oct; goals vigentes: MX 231, US 99, MeLi 45 en `live`. P04 cerrado mediante PEZ 01; nueve correspondencias verificadas. Datos PEZ pendientes en P13. Incidente MeLi de octubre corregido y desplegado (#504). |
 | BIDS 02 | Construido, desplegado y encendido; remate cerrado 13-oct. Sus guías no son planes pendientes adicionales. |
 | INGESTA 01 | Cerrada 22-oct. Informe del **28-oct recuperado**: 21/21 corridas exitosas, 14/14 ciclos `done`, cero días sin éxito por fuente. Guardas históricas comprobadas para ambas plataformas. [Evidencia](../docs/evidencia/estado-planes-2026-11-04/README.md). |
-| RESUMEN ADS 01/02/03/04 | Integrados. Archivos principales de 01/02/03 comprobados en producción el 4-nov. ADS 04 (rediseño del Resumen y ACoS objetivo en settings, #524, integrado 5-nov 02:01 UTC): 10/10 archivos de `app/` iguales entre master `9fb5a63f` y `orbit-app-1` (SHA256, 5-nov 03:22 UTC; contenedor iniciado 02:10 UTC; [hashes](../docs/evidencia/resumen-ads-multicanal/04-despliegue/hashes.json)); sin revisión visual en producción. Queda P01; no están por construir. |
+| RESUMEN ADS 01/02/03/04 | Integrados. Archivos principales de 01/02/03 comprobados en producción el 4-nov. ADS 04 (rediseño del Resumen y ACoS objetivo en settings, #524, integrado 5-nov 02:01 UTC): 10/10 archivos de `app/` iguales entre master `9fb5a63f` y `orbit-app-1` (SHA256, 5-nov 03:22 UTC; contenedor iniciado 02:10 UTC; [hashes](../docs/evidencia/resumen-ads-multicanal/04-despliegue/hashes.json)); sin revisión visual en producción. P01 cerrado el 5-nov-2026 09:00 UTC (job 10 OK); no están por construir. |
 | ADS PROTECCION 01 Fase D | Tareas completadas; el plan padre conserva P03. |
 
 ## Cómo mantener este registro

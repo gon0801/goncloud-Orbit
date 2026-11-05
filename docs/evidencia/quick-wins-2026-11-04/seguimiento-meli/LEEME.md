@@ -5,6 +5,23 @@ Hashes y permisos en `instalacion-hashes.json`; fecha, comando y conservación d
 en `programacion.json`. Prueba del archivo instalado: `smoke-instalado.json`, PENDIENTE/exit 3.
 La ejecución futura todavía no ocurrió; P01 sigue abierto.
 
+## Resultado del job 10 (5-nov-2026 09:00 UTC) — P01 CERRADO
+
+Leído por SSH, solo lectura, el 5-nov-2026 ~09:01 UTC. Copia íntegra en
+[`resultado-job10-20261105T090000Z.json`](resultado-job10-20261105T090000Z.json)
+(sin DSN ni secretos). `ejecucion.log`: `{"estado": "OK"}`; `atq` ya no lista el job 10 y conserva el job 8.
+
+- `estado=OK`, sesión `orbit_read` con `transaction_read_only=on`.
+- Corrida nueva posterior al cron: `ingest_run` **1374**, 08:15:08 UTC, exitosa, 6 escritas / 810 duplicadas
+  (misma versión canónica), cero rechazos.
+- Huella de la corrida = huella del snapshot actual: `5985ba79…adb105`, as-of 2026-11-05 07:25:59 UTC.
+- Conciliación 2026-04-16..2026-11-04: 812/812 filas campaña/día, 0 diferencias, 0 faltantes y 0 sobrantes;
+  203/203 días de control, 0 diferencias. T+0: 4/4 filas y 1/1 día de control, 0 diferencias.
+  La diferencia de +13.47 MXN del 4-nov quedó absorbida por la corrida nueva.
+- Logs: `2026-11-05 costs/fx/ledger/meli-ads rc=0`; `meli_ads.log` no vacío (`run_id=1374 ok=True`).
+
+No se reejecutó ninguna ingesta ni se modificó producción para esta lectura.
+
 Preparación inicial: La prueba manual real en goncloud por
 stdin devolvio `PENDIENTE` (exit 3) el 2026-11-05 01:17:09 UTC, antes del cron
 08:15 UTC. No creo archivos remotos ni modifico fuentes o tareas.
