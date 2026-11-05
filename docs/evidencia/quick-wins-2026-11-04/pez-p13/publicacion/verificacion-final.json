@@ -1,0 +1,157 @@
+{
+  "antes_utc": "2026-11-05T04:36:23.502545+00:00",
+  "despues_utc": "2026-11-05T04:50:48.183854+00:00",
+  "descripciones_aplicadas": 8,
+  "descripciones_originales": 1,
+  "precios_existencias_estados_skus_variantes_intactos": true,
+  "filas": [
+    {
+      "item_id": "MLM2163407464",
+      "texto": "aplicado",
+      "tabs_convertidos_a_espacio": 0,
+      "status": "active",
+      "sub_status": [],
+      "variantes_intactas": 6,
+      "cambios_item": {
+        "expiration_time": {
+          "antes": "2027-01-23T01:12:16.838Z",
+          "despues": "2027-01-24T04:44:51.837Z"
+        },
+        "last_updated": {
+          "antes": "2026-11-04T01:12:16.915Z",
+          "despues": "2026-11-05T04:44:51.838Z"
+        }
+      }
+    },
+    {
+      "item_id": "MLM1890653227",
+      "texto": "aplicado",
+      "tabs_convertidos_a_espacio": 0,
+      "status": "active",
+      "sub_status": [],
+      "variantes_intactas": 6,
+      "cambios_item": {
+        "expiration_time": {
+          "antes": "2027-01-21T23:00:17.910Z",
+          "despues": "2027-01-24T04:45:53.962Z"
+        },
+        "last_updated": {
+          "antes": "2026-11-03T00:10:57.133Z",
+          "despues": "2026-11-05T04:45:53.962Z"
+        }
+      }
+    },
+    {
+      "item_id": "MLM4735255462",
+      "texto": "aplicado",
+      "tabs_convertidos_a_espacio": 0,
+      "status": "active",
+      "sub_status": [],
+      "variantes_intactas": 6,
+      "cambios_item": {
+        "expiration_time": {
+          "antes": "2027-01-21T23:00:06.014Z",
+          "despues": "2027-01-24T04:46:47.867Z"
+        },
+        "last_updated": {
+          "antes": "2026-11-02T23:00:06.089Z",
+          "despues": "2026-11-05T04:46:47.868Z"
+        }
+      }
+    },
+    {
+      "item_id": "MLM2724304859",
+      "texto": "aplicado",
+      "tabs_convertidos_a_espacio": 0,
+      "status": "active",
+      "sub_status": [],
+      "variantes_intactas": 6,
+      "cambios_item": {
+        "expiration_time": {
+          "antes": "2027-01-21T16:44:29.861Z",
+          "despues": "2027-01-24T04:45:53.380Z"
+        },
+        "last_updated": {
+          "antes": "2026-11-03T00:11:27.933Z",
+          "despues": "2026-11-05T04:45:53.380Z"
+        }
+      }
+    },
+    {
+      "item_id": "MLM2727437671",
+      "texto": "original",
+      "tabs_convertidos_a_espacio": 0,
+      "status": "under_review",
+      "sub_status": [
+        "forbidden"
+      ],
+      "variantes_intactas": 6,
+      "cambios_item": {}
+    },
+    {
+      "item_id": "MLM2727363007",
+      "texto": "aplicado",
+      "tabs_convertidos_a_espacio": 0,
+      "status": "active",
+      "sub_status": [],
+      "variantes_intactas": 6,
+      "cambios_item": {
+        "expiration_time": {
+          "antes": "2027-01-23T01:12:42.869Z",
+          "despues": "2027-01-24T04:45:54.022Z"
+        },
+        "last_updated": {
+          "antes": "2026-11-04T01:12:42.949Z",
+          "despues": "2026-11-05T04:45:54.023Z"
+        }
+      }
+    },
+    {
+      "item_id": "MLM2727328203",
+      "texto": "aplicado",
+      "tabs_convertidos_a_espacio": 0,
+      "status": "active",
+      "sub_status": [],
+      "variantes_intactas": 6,
+      "cambios_item": {
+        "expiration_time": {
+          "antes": "2027-01-23T01:12:39.527Z",
+          "despues": "2027-01-24T04:45:55.107Z"
+        },
+        "last_updated": {
+          "antes": "2026-11-04T01:12:39.551Z",
+          "despues": "2026-11-05T04:45:55.107Z"
+        }
+      }
+    },
+    {
+      "item_id": "MLM4749600210",
+      "texto": "aplicado",
+      "tabs_convertidos_a_espacio": 12,
+      "status": "active",
+      "sub_status": [],
+      "variantes_intactas": 6,
+      "cambios_item": {
+        "expiration_time": {
+          "antes": "2027-01-21T23:00:44.483Z",
+          "despues": "2027-01-24T04:46:45.959Z"
+        },
+        "last_updated": {
+          "antes": "2026-11-03T00:11:23.306Z",
+          "despues": "2026-11-05T04:46:45.959Z"
+        }
+      }
+    },
+    {
+      "item_id": "MLM4763716652",
+      "texto": "aplicado",
+      "tabs_convertidos_a_espacio": 0,
+      "status": "paused",
+      "sub_status": [
+        "out_of_stock"
+      ],
+      "variantes_intactas": 6,
+      "cambios_item": {}
+    }
+  ]
+}
