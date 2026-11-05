@@ -60,6 +60,13 @@ ventana. Tres candados de perímetro:
   bloquea; el veto explícito sí).
 - **Nada nuevo se cuelga de la cola**: si una superficie futura quiere
   encolar algo, requiere decisión nueva del dueño — no extensión silenciosa.
+- **Perímetro ampliado (AUTO-03, S9, David 2026-11-05)**: `pause` sobre la
+  entidad `product_ad` es parte de la cola, con kind `pause` (no un kind
+  nuevo), familia `entity_cut` y la misma cuota de pausas. La ejecución de
+  esa pausa corre en el ciclo (TX4) como `app_decide` sobre el ledger de
+  retiro; ver la spec
+  `docs/superpowers/specs/2026-10-24-decisiones-producto-design.md`,
+  sección «Supuestos de construcción».
 
 ### 1.2 Tabla de transiciones EXACTA (sellado 4)
 

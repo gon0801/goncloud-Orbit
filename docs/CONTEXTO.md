@@ -361,6 +361,10 @@ el spec delta sellado:
   `apply_queue` con ventana de 48h — default al vencer = APLICAR. Solo
   cortes en la cola; nada nuevo se cuelga de ella. Veto durable 30d por
   CLAVE DE EFECTO `(platform, ad_entity_id, familia, search_term)`.
+  Perímetro ampliado por AUTO-03 (S9, David 2026-11-05): `pause` sobre la
+  entidad `product_ad` entra en la cola (mismo kind `pause`, familia
+  `entity_cut` y cuota de pausas), ejecutada por el ciclo como `app_decide`;
+  detalle en `docs/APPLY.md` §1.1 y en la spec AUTO-03.
 - **Shadow con práctica de veto**: en shadow los cortes se encolan marcados
   `modo='shadow'` (el dueño practica el veto con candidatos reales) pero
   jamás se liberan; en el cutover (ORBIT 05) toda fila shadow pendiente se

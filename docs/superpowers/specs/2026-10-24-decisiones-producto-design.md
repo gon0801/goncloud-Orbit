@@ -49,16 +49,26 @@ Estas llamadas son la API propuesta, no funciones que ya existan.
 entradas = lee_entradas_productos(conn, plataforma, decidido_el, configuracion)
 evaluaciones = tuple(resolver_producto(entrada) for entrada in entradas)
 
-# El adaptador del ciclo proyecta las metas solo a grupos exclusivos.
+# El adaptador del ciclo proyecta las metas solo a grupos exclusivos y
+# llama a las dos variantes que ya usa el motor con un goal ya resuelto
+# (cascada_target_acos_con_procedencia no es la llamada del motor y su
+# argumento cache_acos_target esta muerto: no se cita). target_margen_producto
+# va keyword-only, con precedencia despues del goal y antes de la familia.
 meta_producto = meta_para_grupo(evaluaciones, alcance_del_grupo)
-target, procedencia = goals.cascada_target_acos_con_procedencia(
-    goal_campana,
-    goal_plataforma,
-    settings,
-    cache_acos_target,
-    plataforma,
-    target_margen=target_plataforma,
-    target_margen_familia=target_familia,
+target = g.cascada_target_acos(
+    goal.target_acos_pct,
+    setting_target,
+    margen_plataforma,
+    goal.scope,
+    target_margen_familia,
+    target_margen_producto=meta_producto,
+)
+procedencia = g.peldano_target_acos(
+    goal.target_acos_pct,
+    goal.scope,
+    margen_plataforma,
+    setting_target,
+    target_margen_familia,
     target_margen_producto=meta_producto,
 )
 
@@ -126,13 +136,21 @@ Los 77 días de fechas Ads almacenadas al consultar tampoco demuestran cobertura
 de 90 días. Por ello, hoy podrían no existir hojas elegibles para la nueva meta,
 aunque sí haya diez productos con margen. La implementación debe medirlo.
 
-Una fila ausente sigue siendo desconocida. Ni un `ingest_run` exitoso ni un
-reporte `COMPLETED` convierten automáticamente las fechas ausentes en cero.
-La entrada completa necesita valores explícitos para todas las identidades y
-fechas del intervalo evaluado. Un periodo anterior al alta demostrada del anuncio
-queda fuera de su actividad, sin fabricar observaciones. Si no se puede demostrar
-el alta o resolver la identidad, el intervalo queda incompleto. La ingesta actual
-puede no ofrecer esta cobertura para muchos productos; se mostrará ese límite.
+Una fila ausente se rige por dos supuestos sellados (sección «Supuestos de
+construcción»). Para la pausa (S6): una fecha sin fila cuenta como cero
+observado solo si una corrida `ingest_run.ok` dejó el reporte de productos de
+esa plataforma en `written` con el rango pedido guardado que incluye esa fecha
+y `cobertura_integra` verdadera — la ingesta no descartó ninguna fila que
+pudiera ser actividad —, esa corrida empezó cuando la fecha ya era madura y el
+producto tiene al menos una fila en la ventana; un rango desconocido no cubre
+nada, así que las corridas anteriores a esa cobertura no cuentan. Para el halo
+de la meta (S7): se mide en `[D-90, max(metric_date)-3]` con la última
+observación, sumando solo las fechas con fila — una fecha sin fila no tuvo
+clics, así que no puede tener ventas atribuidas que cuenten como halo —; el
+tramo de menos de 30 días se acepta sin madurez y con motivo. La pausa exige
+madurez +30 en `[D-60, D-30)`. Un periodo anterior al alta demostrada del
+anuncio queda fuera de su actividad, sin fabricar observaciones; si no se puede
+demostrar el alta o resolver la identidad, el intervalo queda incompleto.
 
 ## Acción individual propuesta cuando no hubo ventas
 
@@ -178,8 +196,11 @@ hay que conciliar primero la autoridad de bridge y la disponibilidad por listing
 no se inventa aquí un endpoint. La falta de stock reconciliado no se convierte
 en un nuevo bloqueo general de las decisiones de rendimiento existentes.
 
-Un impulso abierto conserva su aprendizaje. Al graduarse, entra por la misma
-evaluación que los demás productos. Lanzar un impulso o agregar un producto a
+Un impulso abierto conserva su aprendizaje. Al graduarse conserva el goal de
+campaña con target que trae de fábrica, y como gana cualquier goal con target
+no nulo — también el de fábrica y el de impulso —, la hoja no entra por la
+evaluación del producto: la frase «al graduarse entra por la misma evaluación»
+era falsa contra el código. Lanzar un impulso o agregar un producto a
 un grupo invalida la huella de alcance y exige recalcular antes de aplicar una
 acción individual pendiente.
 
@@ -193,6 +214,8 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
+
+from app.optimizer import goals  # MedicionMargen vive en goals (app/optimizer/goals.py)
 
 Plataforma = Literal["amazon_mx", "amazon_us"]
 Moneda = Literal["MXN", "USD"]
@@ -221,12 +244,10 @@ class SinDato:
     motivos: tuple[str, ...]
 
 
-@dataclass(frozen=True)
-class MargenMedido:
-    porcentaje: Decimal
-    ventana: Ventana
-    observado_el: datetime
-    referencia: str
+# El margen medido NO se redefine aqui: es goals.MedicionMargen, el espejo
+# puro de la vista de margen que ya existe (margen_neto_pct, cobertura,
+# dias_con_venta, venta_cubierta, ledger_fresco_at, moneda, ventana_desde,
+# ventana_hasta). Se reutiliza tal cual en EntradaProducto.
 
 
 @dataclass(frozen=True)
@@ -260,7 +281,7 @@ class GrupoAptoParaMeta:
 class EntradaProducto:
     producto: Producto
     decidido_el: datetime
-    margen: MargenMedido | SinDato
+    margen: goals.MedicionMargen | SinDato
     actividad: AdsCompletos | SinDato
     fraccion: Decimal | SinDato
     piso_pausa: Dinero
@@ -332,10 +353,18 @@ veces sus insumos en tablas independientes. El replay resuelve esa referencia.
 La fuente económica sigue siendo la vista actual; la evaluación es evidencia
 histórica de lo que leyó, no una segunda fuente de margen.
 
-Se propone un tipo explícito `pause_product_ad` en el vocabulario de decisiones,
-con entidad `product_ad`; no se lo hace pasar por keyword. La migración amplía
-los enums, CHECK, triggers, roles y mapas afectados. Conserva la familia de
-efecto `entity_cut`, veto y cuota de pausas con una sola reserva por anuncio.
+La decisión usa el kind existente `pause` sobre la entidad `product_ad`; no se
+crea un kind nuevo (`pause_product_ad` encadenaría el enum, los CHECK, los
+triggers, el mapa de cuota y los despachos sin beneficio). Con kind `pause` y
+entidad `product_ad` pasan el CHECK de coherencia de término, la familia
+GENERATED `entity_cut`, la madurez del corte y la cuota de pausas compartida,
+con una sola reserva por anuncio. La contraparte es ramificar por entidad en la
+cola: modo efectivo (hoy un product_ad cae a shadow), payload de pausa
+(`{adId, state}`), revalidación (hoy `entidad_no_viva`), reconciliación y
+replay. La ejecución de la pausa corre dentro del ciclo actual, en su fase de
+apply (TX4) como el rol `app_decide`, con los grants mínimos sobre el ledger de
+retiro y una vista estrecha de impulso; sin cron nuevo ni ejecutor fuera del
+ciclo.
 Los invariantes de fecha van en trigger con UTC fijado. No se fija todavía el
 número de migración, pues otras ramas pueden ocuparlo.
 
@@ -375,6 +404,10 @@ de una respuesta incierta demuestra el estado, no quién lo cambió. Sin evidenc
 de autoría, el retiro queda adoptado o incierto y no habilita reposición propia.
 Un lote de cinco anuncios
 con cuatro confirmados muestra 4/5, nunca “producto pausado” sin matiz.
+`ejecuta_retiro` devuelve un resultado por anuncio
+(`tuple[ResultadoAnuncio, ...]`) en lugar de lanzar `RuntimeError` con un
+conteo en el texto: la cola cierra cada fila desde el resultado de su propia
+intención y un fallo parcial no borra lo confirmado.
 
 La reversa se construye antes de encender. Usa los retiros confirmados del propio
 AUTO-03, bajo las mismas llaves. No reactiva un anuncio que ya estaba pausado antes
@@ -386,7 +419,9 @@ explícita mediante el camino existente. El listing nunca se desactiva.
 Hoy `repone` puede recrear anuncios archivados. Su contrato debe distinguir la
 reposición de un anuncio existente de la recreación explícita. AUTO-03 usa solo
 la primera; el escritor vuelve a comprobar el estado bajo la misma llave y
-devuelve `requiere_recreacion` si está archivado. Una autorización para reponer
+devuelve `requiere_recreacion` si está archivado, sin POST: `repone` nunca
+recrea, y recuperar ese anuncio pasa por la creación explícita con su propia
+confirmación. Una autorización para reponer
 no habilita por sí sola crear otro anuncio.
 
 Apagar AUTO-03 detiene nuevos efectos de esta política y descarta sus pausas aún
@@ -435,3 +470,30 @@ Este diseño cubre una primera entrega de AUTO-03. Quedan fuera de ella la pausa
 económica automática de productos con ventas en grupos compartidos, las decisiones
 de inventario sin fuente conciliada y la reactivación automática. No se debe marcar
 AUTO-03 completo atribuyéndole esas capacidades.
+
+## Supuestos de construcción
+
+Supuestos fijados por el plan decisiones-producto-01 (copiados del plan; el
+número entre paréntesis remite al gotcha correspondiente de
+`docs/evidencia/auto-03/plan/ground/00-explicacion.md`):
+
+| S | Supuesto fijado (gotcha) | Cómo se revierte |
+| --- | --- | --- |
+| S1 | Gana el goal con target no nulo, también el de fábrica e impulso (g3). Medido el 2026-11-05 en solo lectura: ningún goal tiene target, así que hoy S1 no deja fuera ninguna hoja; solo aplica si alguien pone uno. A.3 lo vuelve a medir. | `limpia_target` del goal de campaña en /settings pasa ese grupo al peldaño producto. |
+| S2 | Meta = min(fracción × margen, 45), sin piso de 10; sube de una vez y baja ≤0.5 por ciclo; el ancla es el `target_acos_ciclo` previo `margen_producto`; si se abstiene, converge al siguiente peldaño (g4, g5). | Interruptor meta en `off`. |
+| S3 | R3 sigue comparando con el equilibrio de plataforma (g6). | Plan aparte: equilibrio por hoja. |
+| S4 | Alcance de la pausa: product ads ENABLED del producto, con identidad, goal live, fuera de impulso abierto, `first_seen_at` anterior a la ventana y cuyo adId aparece en `ad_ids` de la ventana. Es pertenencia, nunca reparto (g8). Si `ad_ids` no es una lista de ids, el alcance es "todos los ENABLED con identidad" y A.3 lo dice. | Interruptor pausa en `off`. |
+| S5 | La fila Ads se liga al producto por ASIN (`listing`) y se exige `advertised_sku = listing.seller_sku`; otro SKU con gasto es impedimento `sku_distinto_en_asin`. "Mismo SKU" usa los campos de Amazon tal cual; cualquier otra venta cuenta como halo (g9). | Constante en `productos.py`. |
+| S6 | Una fecha sin fila cuenta como cero observado solo si una corrida `ingest_run.ok` dejó el reporte de productos de esa plataforma en `written` con un rango pedido guardado que incluye esa fecha y `cobertura_integra` verdadera (D.7: la ingesta no descartó ninguna fila que pudiera ser actividad), esa corrida empezó cuando la fecha ya era madura y el producto tiene al menos una fila en la ventana. Un rango desconocido no cubre nada: las corridas anteriores a D.7 no cuentan, así que la pausa empieza a poder actuar unos 30 días después de desplegar D. Si no, la fecha es desconocida (g10, corrige la spec). S6 solo aplica a la pausa. | Constante en `productos_io.py`, congelada como `politica` en cada evaluación. |
+| S7 | Halo de la meta en `[D-90, max(metric_date)-3]` con la última observación, sumando solo las fechas con fila: una fecha sin fila no tuvo clics, así que no puede tener ventas atribuidas que cuenten como halo. El tramo de menos de 30 días se acepta sin madurez y con motivo. La pausa exige madurez +30 en `[D-60, D-30)` (g11, corrige la spec). | Constante en `productos.py`. |
+| S8 | Límites de la pausa editables por mercado (C.7): clics mínimos y gasto mínimo en la moneda del mercado. Por omisión, para la práctica y la simulación, `cortes.F_PAUSE` (100) y `bid.PAUSE_COST_MIN` (500 MXN / 40 USD); nunca por debajo de `cortes.LEGACY_NEGATIVE` (20 clics) ni de `cortes.NEGATIVE_COST_MIN` (130 MXN / 8 USD). No el umbral adaptativo (g13). Cada evaluación congela los límites con que se calculó. La simulación de H.8 muestra su efecto; mientras falte cobertura de D.7 lo marca `sin_cobertura_d7`. Decidido por David el 2026-11-05: la pausa queda en práctica hasta que él guarde sus límites y la encienda desde la pantalla (I.8). `config_write.proxima_config` rechaza la pausa en `live` con `SettingsInvalido` si falta alguna de las dos claves de límites, así que nunca se enciende con los valores por omisión, ni por el CLI ni por el botón. Ningún bloque pone la pausa en `live` en `interruptores.env`. | Botón "Volver a práctica" (I.8) o `productos-modo --pausa shadow`; interruptor pausa en `off`. |
+| S9 | Este plan sella que la cola admita `pause` sobre `product_ad` (g15). Aprobado por David el 2026-11-05. | Interruptor pausa en `off`; la cola descarta las pendientes con `modo_no_live`. |
+| S10 | El ciclo ejecuta la pausa en TX4 como `app_decide`, con grants mínimos sobre el ledger de retiro y una vista estrecha de impulso. Sin cron ni ejecutor nuevos (g16). Aprobado por David el 2026-11-05. | Reversa de la 0080. |
+| S11 | Kind `pause` sobre la entidad `product_ad`, no `pause_product_ad` (g14, corrige la spec). | - |
+| S12 | La revalidación de pausas de hoja lee frescos goals y margen de plataforma, y toma congelados los peldaños por entidad (familia, producto). El de producto solo vale si la huella del grupo no cambió (g18). | Plan aparte. |
+| S13 | El literal guardado del vigía cuenta como `AutorizacionHumana` de origen impulso (g20). Aprobado por David el 2026-11-05. | Plan aparte. |
+| S14 | Confirmar después de una respuesta incierta sella `autoria='adoptada'` para cualquier motivo; `repone` excluye adoptados salvo que una `AutorizacionHumana` pida `incluye_adoptados`; una `AutorizacionDeDecision` nunca repone adoptados (g22). Aprobado por David el 2026-11-05. | Reversa de la 0078. |
+| S15 | `repone` nunca recrea; recrear pasa por `/retiro/recrear` con su propia confirmación (g23). | - |
+| S16 | La meta solo aplica a hojas (bids y pausas de hoja); los cortes de término de `_procesa_grupo` conservan su cascada (alcance). | - |
+| S17 | Un product ad que regresaste tiene 7 días de gracia: Orbit no lo vuelve a proponer ni a pausar en ese plazo, como las keywords (`docs/APPLY.md` §3.3). La gracia corre desde `anuncio_reposicion.repuesto_el`; si lo reactivaste directo en Amazon, el primer ciclo que lo ve ENABLED cierra su retiro con `actor='reactivacion_manual_amazon'` (H.7) y la gracia corre desde ese ciclo. Aprobado por David el 2026-11-05. | Constante en `productos.py`. |
+| S18 | Encender la pausa en vivo cierra en bloque las propuestas de práctica abiertas de product ads de esa plataforma, como el cambio a vivo de ORBIT 05 (`docs/APPLY.md` §12 ítem 4); sin eso, una fila de práctica tapa la clave del anuncio para siempre. | - |
