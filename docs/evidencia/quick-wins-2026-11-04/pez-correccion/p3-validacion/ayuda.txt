@@ -1,0 +1,20 @@
+usage: python3 -m tools.corrige_meli_skus [-h] [--dry-run | --apply |
+                                          --revertir REVERTIR]
+                                          [--respaldo RESPALDO]
+                                          [lote]
+
+PEZ 01: nueve correspondencias MeLi verificadas, con reversa y sin HTTP. Uso:
+python -m tools.corrige_meli_skus lote.json [--dry-run] python -m
+tools.corrige_meli_skus lote.json --apply --respaldo /ruta/nueva.json python
+-m tools.corrige_meli_skus --revertir /ruta/nueva.json DSN exclusivamente en
+ORBIT_DSN_ADMIN; el ensayo es el modo predeterminado.
+
+positional arguments:
+  lote
+
+options:
+  -h, --help           show this help message and exit
+  --dry-run
+  --apply
+  --revertir REVERTIR
+  --respaldo RESPALDO

@@ -1,0 +1,17 @@
+{
+  "utc": "2026-11-05T02:51:15.139326+00:00",
+  "orbit-app-1": {
+    "id": "e953c72ce64f334a697f99b95f08731737e82302bbf46ce611b5a13b9d4bb410",
+    "imagen": "sha256:26ae64431dbb9ce1fedcb37da85c73d46085b8ce3074a15e77d01f10a9dde0ad",
+    "estado": "running"
+  },
+  "orbit-db-1": {
+    "id": "1af72662ec06baa551fe22ec131ceb7fc59edf53b8977108c039299dd45887b8",
+    "imagen": "sha256:e17e86066e5ef83e0952a9347f5c792b7ece00972e2aa787a6986f471b3dd3d5",
+    "estado": "running"
+  },
+  "catalogo_sha256_host": "034b368ffa358fbe5fefbc47edd0b96d836c074935a507ba2141b8077668f10d",
+  "catalogo_sha256_contenedor": "034b368ffa358fbe5fefbc47edd0b96d836c074935a507ba2141b8077668f10d",
+  "catalogo_sha256_base": "034b368ffa358fbe5fefbc47edd0b96d836c074935a507ba2141b8077668f10d",
+  "coincide_base": true
+}

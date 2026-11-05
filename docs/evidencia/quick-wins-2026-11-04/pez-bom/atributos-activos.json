@@ -1,0 +1,142 @@
+{
+  "fecha_utc": "2026-11-05T02:34:07.704572+00:00",
+  "filas": [
+    {
+      "id": 2549,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6485,
+        "NH - Carte Blanco Solo Arras Dorado"
+      ],
+      "ptav_active": true
+    },
+    {
+      "id": 2556,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6486,
+        "NH - Carte Blanco Solo Arras Plateado"
+      ],
+      "ptav_active": true
+    },
+    {
+      "id": 2612,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6494,
+        "NH - Italia Solo Arras Plateado"
+      ],
+      "ptav_active": true
+    },
+    {
+      "id": 2717,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6509,
+        "NH - Gamuza Azul Solo Arras Dorado"
+      ],
+      "ptav_active": true
+    },
+    {
+      "id": 2724,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6510,
+        "NH - Gamuza Azul Solo Arras Plateado"
+      ],
+      "ptav_active": true
+    },
+    {
+      "id": 2745,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6513,
+        "NH - Gamuza Negro Solo Arras Dorado"
+      ],
+      "ptav_active": true
+    },
+    {
+      "id": 2752,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6514,
+        "NH - Gamuza Negro Solo Arras Plateado"
+      ],
+      "ptav_active": true
+    },
+    {
+      "id": 2780,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6518,
+        "NH - Platino CH Solo Arras Plateado"
+      ],
+      "ptav_active": true
+    }
+  ],
+  "sub_boms_arras_pez": []
+}

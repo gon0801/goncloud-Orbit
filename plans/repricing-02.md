@@ -1,6 +1,6 @@
 # REPRICING 02: el motor de precios en todas las plataformas
 
-> **Seguimiento 4-nov-2026:** plan cerrado. El dueño confirma que PEZ sí se vende. P04 conserva nueve SKU exactos con tres registros Odoo archivados y costo 0 por SKU; referencias activas Solo Arras no tienen equivalencia comprobada. Falta referencia/receta/costo vigente, no retirar variantes ni copiar importes. [Fuente primaria y matriz](../docs/evidencia/quick-wins-2026-11-04/pez-fuente/reporte.md).
+> **Seguimiento 5-nov-2026 UTC:** plan cerrado. P04 cerrado mediante [PEZ 01](pez-01.md) / PR #526: nueve variantes MeLi vinculadas a SET con cofre, incluido Blanco con Broche. Costos publicados conciliados9/9, aliases persistentes desplegados y lote reversible aplicado. Estados7activos/2inactivos conservados, sin cambios fuera del lote. Valoracion/medidas pendientes en P13 del ROADMAP. [Cierre](../docs/evidencia/quick-wins-2026-11-04/pez-correccion/README.md).
 
 Estado: CERRADO el 2026-10-17 UTC. Los cuatro universos están en `live`
 (X.1 a X.4); el detalle del cierre está en `docs/CHAT-CONTEXT.md`. Plan del

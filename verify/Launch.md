@@ -31,7 +31,7 @@ que Cleanup.md borre sin riesgo (ver alla).
      case "$f" in *0011_*|*_reversa_*) continue ;; esac
      psql -h 127.0.0.1 -p 5433 -U orbit -d postgres -v ON_ERROR_STOP=1 -f "$f" || exit 1
    done
-   # Igualdad estricta (=87, no >=) con corte de flujo: un cluster parcial
+   # Igualdad estricta (=88, no >=) con corte de flujo: un cluster parcial
    # imprime el numero chico y `test` corta con exit 1; un check que solo
    # imprime (sin test) no falla nunca.
    # table_type='BASE TABLE' es obligatorio: sin el, information_schema.tables
@@ -39,7 +39,7 @@ que Cleanup.md borre sin riesgo (ver alla).
    # cuenta lineas de la salida, no tablas.
    TABS="$(psql -h 127.0.0.1 -p 5433 -U orbit -d postgres -tAc \
      "select count(*) from information_schema.tables where table_schema='public' and table_type='BASE TABLE'")"
-   test "$TABS" = 87 || { echo "ESQUEMA INCOMPLETO: $TABS/87 tablas BASE" >&2; exit 1; }
+   test "$TABS" = 88 || { echo "ESQUEMA INCOMPLETO: $TABS/88 tablas BASE" >&2; exit 1; }
    ```
 
 3. Variables del Drive:

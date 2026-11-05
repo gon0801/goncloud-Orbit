@@ -1,0 +1,57 @@
+PEZ 01 P2: resolucion persistente de SKU MeLi
+Fecha: 2026-11-05 UTC. Solo desarrollo/local; ninguna escritura productiva.
+Base anterior: c881f8827817299063ce2448f544f136b776ca37.
+
+Cambio:
+- Migracion 0075_meli_sku_alias.sql y su reversa sin CASCADE.
+- Alias unico/trim/no vacio, FK producto, evidencia no vacia y created_at.
+- Solo app_admin INSERT/UPDATE/DELETE; app_read/app_ingest/app_decide SELECT.
+- Catalogo combina canonicos y aliases; conflicto aborta antes de crear ingest_run.
+- Conserva SKU real y usa producto/costo canonico; desconocidos permanecen NULL.
+
+PG local temporal (trust):
+ORBIT_TEST_DSN=postgresql://orbit@127.0.0.1:55435/postgres
+No es una credencial productiva. Cada prueba crea y elimina su propia base.
+
+Rojo contra fuente ANTERIOR REAL sin modificar archivos del checkout:
+ORBIT_TEST_DSN=postgresql://orbit@127.0.0.1:55435/postgres uv run --frozen python - <<'PY'
+import subprocess
+import pytest
+import app.meli.catalogo as catalogo
+source = subprocess.check_output([
+    'git', 'show', 'c881f8827817299063ce2448f544f136b776ca37:app/meli/catalogo.py'
+], text=True)
+exec(compile(source, 'catalogo_anterior.py', 'exec'), catalogo.__dict__)
+raise SystemExit(pytest.main([
+    '-q', 'tests/test_precio02_meli_catalogo.py',
+    '-k', 'alias_legado or alias_contradictorio'
+]))
+PY
+Resultado: 2 failed, 22 deselected.
+- alias_legado: la reingesta pisa el producto/costo del miembro con NULL:
+  ('101','PEZ-LEGADO',None,None,None) en vez de producto SET y 125.5000 MXN.
+- alias_contradictorio: no levanta ReputacionError y permite escribir.
+No son errores de preparacion ni una mutacion sintetica del codigo.
+
+Verde con la correccion:
+ORBIT_TEST_DSN=postgresql://orbit@127.0.0.1:55435/postgres uv run --frozen python -m pytest -q tests/test_precio02_meli_catalogo.py
+Resultado: 24 passed in 4.20s.
+Incluye reingesta doble de miembro ya corregido con costo Decimal/moneda,
+miembro desconocido NULL, conflicto antes de cualquier escritura, CHECK/FK/PK,
+permisos efectivos y reversa/reaplicacion conservando product.
+
+uv run --frozen ruff check app/meli/catalogo.py tests/test_precio02_meli_catalogo.py
+Resultado: All checks passed.
+uv run --frozen ruff format --check app/meli/catalogo.py tests/test_precio02_meli_catalogo.py
+Resultado: 2 files already formatted.
+pre-commit run --files app/meli/catalogo.py migrations/0075_meli_sku_alias.sql migrations/0075_reversa_meli_sku_alias.sql tests/test_precio02_meli_catalogo.py
+Resultado: Detect hardcoded secrets Passed; check for merge conflicts Passed.
+git diff --check
+Resultado: limpio.
+
+Referencias de sincronizar/catalogo buscadas en app/tools/tests: solo
+ tests/test_precio02_meli_catalogo.py invoca sincronizar. Se anade 0075 a
+su ORDEN_M1; otros escenarios no ejecutan el catalogo y no requieren esa tabla.
+Host consolidara graphify update, revision independiente y CI completo del head
+final antes de integrar. No se ejecuta suite completa local duplicada por
+instruccion del host. No commit/push ni cambio en app/costs.

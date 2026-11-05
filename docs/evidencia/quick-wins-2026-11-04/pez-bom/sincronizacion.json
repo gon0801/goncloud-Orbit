@@ -1,0 +1,156 @@
+{
+  "observado_utc": "2026-11-05T02:27:17.523591+00:00",
+  "modo": "lectura de scripts; ninguno ejecutado",
+  "archivos": [
+    {
+      "ruta": "/mnt/data/appdata/accounting/scripts/sync_cogs_odoo.py",
+      "sha256": "9462b76a0ba3e0dd7eab0629dd0219a397cd955ca5e7afab31dd259b4bb2582a",
+      "lineas_contexto_active_test": [],
+      "fragmentos": [
+        {
+          "linea": 49,
+          "texto": "\"\"\"SELECT cost FROM sku_costs"
+        },
+        {
+          "linea": 60,
+          "texto": "\"SELECT cost FROM sku_costs WHERE sku=? AND valid_to IS NULL ORDER BY valid_from DESC LIMIT 1\","
+        },
+        {
+          "linea": 112,
+          "texto": "\"product.product\","
+        },
+        {
+          "linea": 113,
+          "texto": "\"search_read\","
+        },
+        {
+          "linea": 117,
+          "texto": "(\"active\", \"=\", True),"
+        },
+        {
+          "linea": 118,
+          "texto": "(\"standard_price\", \">\", 0),"
+        },
+        {
+          "linea": 121,
+          "texto": "{\"fields\": [\"default_code\", \"standard_price\"]},"
+        },
+        {
+          "linea": 129,
+          "texto": "cost = float(p.get(\"standard_price\", 0) or 0)"
+        },
+        {
+          "linea": 134,
+          "texto": "\"SELECT id, cost FROM sku_costs WHERE sku=? AND valid_to IS NULL\", (sku,)"
+        },
+        {
+          "linea": 139,
+          "texto": "\"UPDATE sku_costs SET valid_to=datetime('now') WHERE id=?\","
+        },
+        {
+          "linea": 143,
+          "texto": "\"INSERT INTO sku_costs (sku, cost, source, created_at) VALUES (?, ?, 'odoo_sync', datetime('now'))\","
+        },
+        {
+          "linea": 149,
+          "texto": "\"INSERT INTO sku_costs (sku, cost, source, created_at) VALUES (?, ?, 'odoo_sync', datetime('now'))\","
+        }
+      ]
+    },
+    {
+      "ruta": "/mnt/data/appdata/accounting/scripts/sync_bom_odoo.py",
+      "sha256": "6ee999cf2092d4748216a4c4db708ecb7419cbee2b1e0a99c9eb346fc8f7167a",
+      "lineas_contexto_active_test": [],
+      "fragmentos": [
+        {
+          "linea": 29,
+          "texto": "CREATE TABLE IF NOT EXISTS bom_headers ("
+        },
+        {
+          "linea": 39,
+          "texto": "bom_id INTEGER REFERENCES bom_headers(id),"
+        },
+        {
+          "linea": 46,
+          "texto": "CREATE INDEX IF NOT EXISTS idx_bom_headers_sku ON bom_headers(product_sku);"
+        },
+        {
+          "linea": 60,
+          "texto": "\"SELECT id FROM bom_headers WHERE odoo_bom_id=? AND product_sku=?\","
+        },
+        {
+          "linea": 67,
+          "texto": "\"INSERT OR REPLACE INTO bom_headers (odoo_bom_id, product_sku, product_name, updated_at) VALUES (?,?,?,?)\","
+        },
+        {
+          "linea": 93,
+          "texto": "\"search_read\","
+        },
+        {
+          "linea": 107,
+          "texto": "\"product.product\","
+        },
+        {
+          "linea": 110,
+          "texto": "{\"fields\": [\"default_code\", \"name\", \"standard_price\"]},"
+        },
+        {
+          "linea": 125,
+          "texto": "\"cost\": comp.get(\"standard_price\", 0),"
+        },
+        {
+          "linea": 155,
+          "texto": "bom_filter = []"
+        },
+        {
+          "linea": 157,
+          "texto": "bom_filter = [(\"write_date\", \">\", last_sync)]"
+        },
+        {
+          "linea": 164,
+          "texto": "\"mrp.bom\","
+        },
+        {
+          "linea": 165,
+          "texto": "\"search_read\","
+        },
+        {
+          "linea": 191,
+          "texto": "\"product.product\","
+        },
+        {
+          "linea": 192,
+          "texto": "\"search_read\","
+        },
+        {
+          "linea": 193,
+          "texto": "[[(\"write_date\", \">\", last_sync), (\"standard_price\", \">\", 0)]],"
+        },
+        {
+          "linea": 204,
+          "texto": "\"search_read\","
+        },
+        {
+          "linea": 216,
+          "texto": "\"mrp.bom\","
+        },
+        {
+          "linea": 217,
+          "texto": "\"search_read\","
+        },
+        {
+          "linea": 243,
+          "texto": "conn.execute(\"DELETE FROM bom_headers\")"
+        },
+        {
+          "linea": 259,
+          "texto": "\"product.product\","
+        },
+        {
+          "linea": 260,
+          "texto": "\"search_read\","
+        }
+      ]
+    }
+  ]
+}

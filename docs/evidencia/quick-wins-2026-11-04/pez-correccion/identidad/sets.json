@@ -1,0 +1,1268 @@
+{
+  "fecha_utc": "2026-11-05T02:44:17.397175+00:00",
+  "productos": [
+    {
+      "id": 7070,
+      "default_code": "SET-BLA-BRO-PEZ-DOR",
+      "name": "SET - Blanco con broche 22mm Dorado",
+      "active": true,
+      "standard_price": "175.25",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6270,
+        "SET - Blanco con broche 22mm Dorado"
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-11-05 01:00:12",
+      "product_template_attribute_value_ids": [
+        1109
+      ],
+      "description": false,
+      "description_sale": false
+    },
+    {
+      "id": 7106,
+      "default_code": "SET-CAR-BLA-PEZ-DOR",
+      "name": "SET - Carte Blanco 22mm Dorado",
+      "active": true,
+      "standard_price": "126.21000000000001",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6276,
+        "SET - Carte Blanco 22mm Dorado"
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-11-05 01:00:12",
+      "product_template_attribute_value_ids": [
+        1145
+      ],
+      "description": false,
+      "description_sale": false
+    },
+    {
+      "id": 7112,
+      "default_code": "SET-CAR-BLA-PEZ-PLA",
+      "name": "SET - Carte Blanco 22mm Plateado",
+      "active": true,
+      "standard_price": "126.21000000000001",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6277,
+        "SET - Carte Blanco 22mm Plateado"
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-11-04 18:26:56",
+      "product_template_attribute_value_ids": [
+        1151
+      ],
+      "description": false,
+      "description_sale": false
+    },
+    {
+      "id": 7178,
+      "default_code": "SET-GAM-AZU-PEZ-DOR",
+      "name": "SET - Gamuza Azul 22mm Dorado",
+      "active": true,
+      "standard_price": "146.56",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6288,
+        "SET - Gamuza Azul 22mm Dorado"
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-11-05 01:00:12",
+      "product_template_attribute_value_ids": [
+        1217
+      ],
+      "description": false,
+      "description_sale": false
+    },
+    {
+      "id": 7184,
+      "default_code": "SET-GAM-AZU-PEZ-PLA",
+      "name": "SET - Gamuza Azul 22mm Plateado",
+      "active": true,
+      "standard_price": "146.56",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6289,
+        "SET - Gamuza Azul 22mm Plateado"
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-11-04 18:26:56",
+      "product_template_attribute_value_ids": [
+        1223
+      ],
+      "description": false,
+      "description_sale": false
+    },
+    {
+      "id": 7190,
+      "default_code": "SET-GAM-NEG-PEZ-DOR",
+      "name": "SET - Gamuza Negro 22mm Dorado",
+      "active": true,
+      "standard_price": "146.56",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6290,
+        "SET - Gamuza Negro 22mm Dorado"
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-11-05 01:00:12",
+      "product_template_attribute_value_ids": [
+        1229
+      ],
+      "description": false,
+      "description_sale": false
+    },
+    {
+      "id": 7196,
+      "default_code": "SET-GAM-NEG-PEZ-PLA",
+      "name": "SET - Gamuza Negro 22mm Plateado",
+      "active": true,
+      "standard_price": "146.56",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6291,
+        "SET - Gamuza Negro 22mm Plateado"
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-11-04 18:26:56",
+      "product_template_attribute_value_ids": [
+        1235
+      ],
+      "description": false,
+      "description_sale": false
+    },
+    {
+      "id": 7208,
+      "default_code": "SET-ITA-PEZ-PLA",
+      "name": "SET - Italia 22mm Plateado",
+      "active": true,
+      "standard_price": "162.56",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6293,
+        "SET - Italia 22mm Plateado"
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-11-04 18:26:56",
+      "product_template_attribute_value_ids": [
+        1247
+      ],
+      "description": false,
+      "description_sale": false
+    },
+    {
+      "id": 7232,
+      "default_code": "SET-PLA-CH-PEZ-PLA",
+      "name": "SET - Platino CH 22mm Plateado",
+      "active": true,
+      "standard_price": "193.56",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6297,
+        "SET - Platino CH 22mm Plateado"
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-11-05 02:36:50",
+      "product_template_attribute_value_ids": [
+        1271
+      ],
+      "description": false,
+      "description_sale": false
+    }
+  ],
+  "boms": [
+    {
+      "id": 1788,
+      "active": true,
+      "product_id": [
+        7070,
+        "[SET-BLA-BRO-PEZ-DOR] SET - Blanco con broche 22mm Dorado (Sello Cristiano)"
+      ],
+      "product_tmpl_id": [
+        6270,
+        "SET - Blanco con broche 22mm Dorado"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_line_ids": [
+        4227,
+        4228,
+        4229
+      ],
+      "byproduct_ids": [],
+      "operation_ids": [],
+      "write_date": "2026-09-12 19:16:04"
+    },
+    {
+      "id": 1824,
+      "active": true,
+      "product_id": [
+        7106,
+        "[SET-CAR-BLA-PEZ-DOR] SET - Carte Blanco 22mm Dorado (Sello Cristiano)"
+      ],
+      "product_tmpl_id": [
+        6276,
+        "SET - Carte Blanco 22mm Dorado"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_line_ids": [
+        4347,
+        4348,
+        4349
+      ],
+      "byproduct_ids": [],
+      "operation_ids": [],
+      "write_date": "2026-09-12 19:16:04"
+    },
+    {
+      "id": 1825,
+      "active": true,
+      "product_id": [
+        7112,
+        "[SET-CAR-BLA-PEZ-PLA] SET - Carte Blanco 22mm Plateado (Sello Cristiano)"
+      ],
+      "product_tmpl_id": [
+        6277,
+        "SET - Carte Blanco 22mm Plateado"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_line_ids": [
+        4350,
+        4351,
+        4352
+      ],
+      "byproduct_ids": [],
+      "operation_ids": [],
+      "write_date": "2026-09-12 19:16:04"
+    },
+    {
+      "id": 1896,
+      "active": true,
+      "product_id": [
+        7178,
+        "[SET-GAM-AZU-PEZ-DOR] SET - Gamuza Azul 22mm Dorado (Sello Cristiano)"
+      ],
+      "product_tmpl_id": [
+        6288,
+        "SET - Gamuza Azul 22mm Dorado"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_line_ids": [
+        4599,
+        4600,
+        4601
+      ],
+      "byproduct_ids": [],
+      "operation_ids": [],
+      "write_date": "2026-09-12 19:16:04"
+    },
+    {
+      "id": 1897,
+      "active": true,
+      "product_id": [
+        7184,
+        "[SET-GAM-AZU-PEZ-PLA] SET - Gamuza Azul 22mm Plateado (Sello Cristiano)"
+      ],
+      "product_tmpl_id": [
+        6289,
+        "SET - Gamuza Azul 22mm Plateado"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_line_ids": [
+        4602,
+        4603,
+        4604
+      ],
+      "byproduct_ids": [],
+      "operation_ids": [],
+      "write_date": "2026-09-12 19:16:04"
+    },
+    {
+      "id": 1908,
+      "active": true,
+      "product_id": [
+        7190,
+        "[SET-GAM-NEG-PEZ-DOR] SET - Gamuza Negro 22mm Dorado (Sello Cristiano)"
+      ],
+      "product_tmpl_id": [
+        6290,
+        "SET - Gamuza Negro 22mm Dorado"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_line_ids": [
+        4635,
+        4636,
+        4637
+      ],
+      "byproduct_ids": [],
+      "operation_ids": [],
+      "write_date": "2026-09-12 19:16:04"
+    },
+    {
+      "id": 1909,
+      "active": true,
+      "product_id": [
+        7196,
+        "[SET-GAM-NEG-PEZ-PLA] SET - Gamuza Negro 22mm Plateado (Sello Cristiano)"
+      ],
+      "product_tmpl_id": [
+        6291,
+        "SET - Gamuza Negro 22mm Plateado"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_line_ids": [
+        4638,
+        4639,
+        4640
+      ],
+      "byproduct_ids": [],
+      "operation_ids": [],
+      "write_date": "2026-09-12 19:16:04"
+    },
+    {
+      "id": 1921,
+      "active": true,
+      "product_id": [
+        7208,
+        "[SET-ITA-PEZ-PLA] SET - Italia 22mm Plateado (Sello Cristiano)"
+      ],
+      "product_tmpl_id": [
+        6293,
+        "SET - Italia 22mm Plateado"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_line_ids": [
+        4674,
+        4675,
+        4676
+      ],
+      "byproduct_ids": [],
+      "operation_ids": [],
+      "write_date": "2026-09-12 19:16:04"
+    },
+    {
+      "id": 1945,
+      "active": true,
+      "product_id": [
+        7232,
+        "[SET-PLA-CH-PEZ-PLA] SET - Platino CH 22mm Plateado (Sello Cristiano)"
+      ],
+      "product_tmpl_id": [
+        6297,
+        "SET - Platino CH 22mm Plateado"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_line_ids": [
+        4746,
+        4747,
+        4748
+      ],
+      "byproduct_ids": [],
+      "operation_ids": [],
+      "write_date": "2026-09-12 19:16:04"
+    }
+  ],
+  "lineas": [
+    {
+      "id": 4227,
+      "bom_id": [
+        1788,
+        "bom0281: SET - Blanco con broche 22mm Dorado"
+      ],
+      "product_id": [
+        159,
+        "[4608] Blanco con Broche"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": []
+    },
+    {
+      "id": 4228,
+      "bom_id": [
+        1788,
+        "bom0281: SET - Blanco con broche 22mm Dorado"
+      ],
+      "product_id": [
+        7,
+        "[COF-22-DOR] Cofre 22 - Dorado"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": []
+    },
+    {
+      "id": 4229,
+      "bom_id": [
+        1788,
+        "bom0281: SET - Blanco con broche 22mm Dorado"
+      ],
+      "product_id": [
+        6,
+        "[ARR-22-DOR-PEZ] Arras - Pez Dorado"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": []
+    },
+    {
+      "id": 4347,
+      "bom_id": [
+        1824,
+        "bom0317: SET - Carte Blanco 22mm Dorado"
+      ],
+      "product_id": [
+        5,
+        "[EST-CAR-BLC] Carte Blanco"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": []
+    },
+    {
+      "id": 4348,
+      "bom_id": [
+        1824,
+        "bom0317: SET - Carte Blanco 22mm Dorado"
+      ],
+      "product_id": [
+        7,
+        "[COF-22-DOR] Cofre 22 - Dorado"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": []
+    },
+    {
+      "id": 4349,
+      "bom_id": [
+        1824,
+        "bom0317: SET - Carte Blanco 22mm Dorado"
+      ],
+      "product_id": [
+        6,
+        "[ARR-22-DOR-PEZ] Arras - Pez Dorado"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": []
+    },
+    {
+      "id": 4350,
+      "bom_id": [
+        1825,
+        "bom0318: SET - Carte Blanco 22mm Plateado"
+      ],
+      "product_id": [
+        5,
+        "[EST-CAR-BLC] Carte Blanco"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": []
+    },
+    {
+      "id": 4351,
+      "bom_id": [
+        1825,
+        "bom0318: SET - Carte Blanco 22mm Plateado"
+      ],
+      "product_id": [
+        8,
+        "[COF-22-PLA] Cofre 22 - Plateado"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": []
+    },
+    {
+      "id": 4352,
+      "bom_id": [
+        1825,
+        "bom0318: SET - Carte Blanco 22mm Plateado"
+      ],
+      "product_id": [
+        156,
+        "[ARR-22-PLA-PEZ] Arras - Pez Plateado"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": []
+    },
+    {
+      "id": 4599,
+      "bom_id": [
+        1896,
+        "bom0389: SET - Gamuza Azul 22mm Dorado"
+      ],
+      "product_id": [
+        168,
+        "[EST-GAM-AZU] Gamuza Azul"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": []
+    },
+    {
+      "id": 4600,
+      "bom_id": [
+        1896,
+        "bom0389: SET - Gamuza Azul 22mm Dorado"
+      ],
+      "product_id": [
+        7,
+        "[COF-22-DOR] Cofre 22 - Dorado"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": []
+    },
+    {
+      "id": 4601,
+      "bom_id": [
+        1896,
+        "bom0389: SET - Gamuza Azul 22mm Dorado"
+      ],
+      "product_id": [
+        6,
+        "[ARR-22-DOR-PEZ] Arras - Pez Dorado"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": []
+    },
+    {
+      "id": 4602,
+      "bom_id": [
+        1897,
+        "bom0390: SET - Gamuza Azul 22mm Plateado"
+      ],
+      "product_id": [
+        168,
+        "[EST-GAM-AZU] Gamuza Azul"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": []
+    },
+    {
+      "id": 4603,
+      "bom_id": [
+        1897,
+        "bom0390: SET - Gamuza Azul 22mm Plateado"
+      ],
+      "product_id": [
+        8,
+        "[COF-22-PLA] Cofre 22 - Plateado"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": []
+    },
+    {
+      "id": 4604,
+      "bom_id": [
+        1897,
+        "bom0390: SET - Gamuza Azul 22mm Plateado"
+      ],
+      "product_id": [
+        156,
+        "[ARR-22-PLA-PEZ] Arras - Pez Plateado"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": []
+    },
+    {
+      "id": 4635,
+      "bom_id": [
+        1908,
+        "bom0401: SET - Gamuza Negro 22mm Dorado"
+      ],
+      "product_id": [
+        169,
+        "[EST-GAM-NEG] Gamuza Negro"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": []
+    },
+    {
+      "id": 4636,
+      "bom_id": [
+        1908,
+        "bom0401: SET - Gamuza Negro 22mm Dorado"
+      ],
+      "product_id": [
+        7,
+        "[COF-22-DOR] Cofre 22 - Dorado"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": []
+    },
+    {
+      "id": 4637,
+      "bom_id": [
+        1908,
+        "bom0401: SET - Gamuza Negro 22mm Dorado"
+      ],
+      "product_id": [
+        6,
+        "[ARR-22-DOR-PEZ] Arras - Pez Dorado"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": []
+    },
+    {
+      "id": 4638,
+      "bom_id": [
+        1909,
+        "bom0402: SET - Gamuza Negro 22mm Plateado"
+      ],
+      "product_id": [
+        169,
+        "[EST-GAM-NEG] Gamuza Negro"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": []
+    },
+    {
+      "id": 4639,
+      "bom_id": [
+        1909,
+        "bom0402: SET - Gamuza Negro 22mm Plateado"
+      ],
+      "product_id": [
+        8,
+        "[COF-22-PLA] Cofre 22 - Plateado"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": []
+    },
+    {
+      "id": 4640,
+      "bom_id": [
+        1909,
+        "bom0402: SET - Gamuza Negro 22mm Plateado"
+      ],
+      "product_id": [
+        156,
+        "[ARR-22-PLA-PEZ] Arras - Pez Plateado"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": []
+    },
+    {
+      "id": 4674,
+      "bom_id": [
+        1921,
+        "bom0414: SET - Italia 22mm Plateado"
+      ],
+      "product_id": [
+        158,
+        "[4405-BG] Italia"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": []
+    },
+    {
+      "id": 4675,
+      "bom_id": [
+        1921,
+        "bom0414: SET - Italia 22mm Plateado"
+      ],
+      "product_id": [
+        8,
+        "[COF-22-PLA] Cofre 22 - Plateado"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": []
+    },
+    {
+      "id": 4676,
+      "bom_id": [
+        1921,
+        "bom0414: SET - Italia 22mm Plateado"
+      ],
+      "product_id": [
+        156,
+        "[ARR-22-PLA-PEZ] Arras - Pez Plateado"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": []
+    },
+    {
+      "id": 4746,
+      "bom_id": [
+        1945,
+        "bom0438: SET - Platino CH 22mm Plateado"
+      ],
+      "product_id": [
+        163,
+        "[4587-BK] Platino CH"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": []
+    },
+    {
+      "id": 4747,
+      "bom_id": [
+        1945,
+        "bom0438: SET - Platino CH 22mm Plateado"
+      ],
+      "product_id": [
+        8,
+        "[COF-22-PLA] Cofre 22 - Plateado"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": []
+    },
+    {
+      "id": 4748,
+      "bom_id": [
+        1945,
+        "bom0438: SET - Platino CH 22mm Plateado"
+      ],
+      "product_id": [
+        156,
+        "[ARR-22-PLA-PEZ] Arras - Pez Plateado"
+      ],
+      "product_qty": "1.0",
+      "product_uom_id": [
+        1,
+        "Units"
+      ],
+      "bom_product_template_attribute_value_ids": []
+    }
+  ],
+  "componentes": [
+    {
+      "id": 5,
+      "default_code": "EST-CAR-BLC",
+      "name": "Carte Blanco",
+      "active": true,
+      "standard_price": "39.65",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        5,
+        "[EST-CAR-BLC] Carte Blanco"
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-11-03 00:00:39"
+    },
+    {
+      "id": 6,
+      "default_code": "ARR-22-DOR-PEZ",
+      "name": "Arras - Pez Dorado",
+      "active": true,
+      "standard_price": "37.82",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        6,
+        "[ARR-22-DOR-PEZ] Arras - Pez Dorado"
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-11-04 17:37:52"
+    },
+    {
+      "id": 7,
+      "default_code": "COF-22-DOR",
+      "name": "Cofre 22 - Dorado",
+      "active": true,
+      "standard_price": "44.06",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        7,
+        "[COF-22-DOR] Cofre 22 - Dorado"
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-11-05 01:00:12"
+    },
+    {
+      "id": 8,
+      "default_code": "COF-22-PLA",
+      "name": "Cofre 22 - Plateado",
+      "active": true,
+      "standard_price": "44.54",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        8,
+        "[COF-22-PLA] Cofre 22 - Plateado"
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-11-04 18:26:56"
+    },
+    {
+      "id": 156,
+      "default_code": "ARR-22-PLA-PEZ",
+      "name": "Arras - Pez Plateado",
+      "active": true,
+      "standard_price": "37.82",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        163,
+        "[ARR-22-PLA-PEZ] Arras - Pez Plateado"
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-08-18 06:24:11"
+    },
+    {
+      "id": 158,
+      "default_code": "4405-BG",
+      "name": "Italia",
+      "active": true,
+      "standard_price": "76.0",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        165,
+        "[4405-BG] Italia"
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-11-04 15:35:06"
+    },
+    {
+      "id": 159,
+      "default_code": "4608",
+      "name": "Blanco con Broche",
+      "active": true,
+      "standard_price": "88.69",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        166,
+        "[4608] Blanco con Broche"
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-11-02 22:06:22"
+    },
+    {
+      "id": 163,
+      "default_code": "4587-BK",
+      "name": "Platino CH",
+      "active": true,
+      "standard_price": "107.0",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        170,
+        "[4587-BK] Platino CH"
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-11-05 02:36:50"
+    },
+    {
+      "id": 168,
+      "default_code": "EST-GAM-AZU",
+      "name": "Gamuza Azul",
+      "active": true,
+      "standard_price": "60.0",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        175,
+        "[EST-GAM-AZU] Gamuza Azul"
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-11-01 01:00:03"
+    },
+    {
+      "id": 169,
+      "default_code": "EST-GAM-NEG",
+      "name": "Gamuza Negro",
+      "active": true,
+      "standard_price": "60.0",
+      "currency_id": [
+        33,
+        "MXN"
+      ],
+      "product_tmpl_id": [
+        176,
+        "[EST-GAM-NEG] Gamuza Negro"
+      ],
+      "uom_id": [
+        1,
+        "Units"
+      ],
+      "write_date": "2026-10-26 01:00:23"
+    }
+  ],
+  "sub_boms_componentes": [],
+  "atributos": [
+    {
+      "id": 1109,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6270,
+        "SET - Blanco con broche 22mm Dorado"
+      ]
+    },
+    {
+      "id": 1145,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6276,
+        "SET - Carte Blanco 22mm Dorado"
+      ]
+    },
+    {
+      "id": 1151,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6277,
+        "SET - Carte Blanco 22mm Plateado"
+      ]
+    },
+    {
+      "id": 1217,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6288,
+        "SET - Gamuza Azul 22mm Dorado"
+      ]
+    },
+    {
+      "id": 1223,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6289,
+        "SET - Gamuza Azul 22mm Plateado"
+      ]
+    },
+    {
+      "id": 1229,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6290,
+        "SET - Gamuza Negro 22mm Dorado"
+      ]
+    },
+    {
+      "id": 1235,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6291,
+        "SET - Gamuza Negro 22mm Plateado"
+      ]
+    },
+    {
+      "id": 1247,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6293,
+        "SET - Italia 22mm Plateado"
+      ]
+    },
+    {
+      "id": 1271,
+      "name": "Sello Cristiano",
+      "attribute_id": [
+        1,
+        "Modelo"
+      ],
+      "product_attribute_value_id": [
+        9,
+        "Modelo: Sello Cristiano"
+      ],
+      "product_tmpl_id": [
+        6297,
+        "SET - Platino CH 22mm Plateado"
+      ]
+    }
+  ],
+  "ventas": []
+}

@@ -1,0 +1,308 @@
+{
+  "observado_utc": "2026-11-05T03:34:07.088771+00:00",
+  "miembros": [
+    {
+      "external_id": "MLM2163407464",
+      "listing_id": 1562,
+      "platform": "meli",
+      "variante_ext": "194936687129",
+      "seller_sku": "NH-CAR-BLA-PEZ-DOR",
+      "product_id": 1749,
+      "activo": true,
+      "visto_at": "2026-11-04 11:30:02.012160+00:00",
+      "odoo_sku": "SET-CAR-BLA-PEZ-DOR",
+      "costo_id": 2795,
+      "cost_amount": "126.2100",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null
+    },
+    {
+      "external_id": "MLM1890653227",
+      "listing_id": 1563,
+      "platform": "meli",
+      "variante_ext": "194936530433",
+      "seller_sku": "NH-CAR-BLA-PEZ-PLA",
+      "product_id": 1750,
+      "activo": true,
+      "visto_at": "2026-11-04 11:30:02.012160+00:00",
+      "odoo_sku": "SET-CAR-BLA-PEZ-PLA",
+      "costo_id": 2797,
+      "cost_amount": "126.2100",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null
+    },
+    {
+      "external_id": "MLM4735255462",
+      "listing_id": 1578,
+      "platform": "meli",
+      "variante_ext": "190065698608",
+      "seller_sku": "NH-BLA-BRO-PEZ-DOR",
+      "product_id": 650,
+      "activo": true,
+      "visto_at": "2026-11-04 11:30:02.012160+00:00",
+      "odoo_sku": "SET-BLA-BRO-PEZ-DOR",
+      "costo_id": 2699,
+      "cost_amount": "175.2500",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null
+    },
+    {
+      "external_id": "MLM2724304859",
+      "listing_id": 1579,
+      "platform": "meli",
+      "variante_ext": "190063357552",
+      "seller_sku": "NH-ITA-PEZ-PLA",
+      "product_id": 795,
+      "activo": true,
+      "visto_at": "2026-11-04 11:30:02.012160+00:00",
+      "odoo_sku": "SET-ITA-PEZ-PLA",
+      "costo_id": 3061,
+      "cost_amount": "162.5600",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null
+    },
+    {
+      "external_id": "MLM2727437671",
+      "listing_id": 1582,
+      "platform": "meli",
+      "variante_ext": "196650442795",
+      "seller_sku": "NH-GAM-AZU-PEZ-PLA",
+      "product_id": 771,
+      "activo": false,
+      "visto_at": "2026-10-30 11:30:02.681472+00:00",
+      "odoo_sku": "SET-GAM-AZU-PEZ-PLA",
+      "costo_id": 3013,
+      "cost_amount": "146.5600",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null
+    },
+    {
+      "external_id": "MLM2727363007",
+      "listing_id": 1583,
+      "platform": "meli",
+      "variante_ext": "196650403797",
+      "seller_sku": "NH-GAM-NEG-PEZ-DOR",
+      "product_id": 782,
+      "activo": true,
+      "visto_at": "2026-11-04 11:30:02.012160+00:00",
+      "odoo_sku": "SET-GAM-NEG-PEZ-DOR",
+      "costo_id": 3035,
+      "cost_amount": "146.5600",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null
+    },
+    {
+      "external_id": "MLM2727328203",
+      "listing_id": 1584,
+      "platform": "meli",
+      "variante_ext": "196650403671",
+      "seller_sku": "NH-GAM-AZU-PEZ-DOR",
+      "product_id": 770,
+      "activo": true,
+      "visto_at": "2026-11-04 11:30:02.012160+00:00",
+      "odoo_sku": "SET-GAM-AZU-PEZ-DOR",
+      "costo_id": 3011,
+      "cost_amount": "146.5600",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null
+    },
+    {
+      "external_id": "MLM4749600210",
+      "listing_id": 1585,
+      "platform": "meli",
+      "variante_ext": "196764932943",
+      "seller_sku": "NH-GAM-NEG-PEZ-PLA",
+      "product_id": 783,
+      "activo": true,
+      "visto_at": "2026-11-04 11:30:02.012160+00:00",
+      "odoo_sku": "SET-GAM-NEG-PEZ-PLA",
+      "costo_id": 3037,
+      "cost_amount": "146.5600",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null
+    },
+    {
+      "external_id": "MLM4763716652",
+      "listing_id": 1590,
+      "platform": "meli",
+      "variante_ext": "190333223922",
+      "seller_sku": "NH-PLA-CH-PEZ-PLA",
+      "product_id": 819,
+      "activo": false,
+      "visto_at": "2026-10-30 11:30:02.681472+00:00",
+      "odoo_sku": "SET-PLA-CH-PEZ-PLA",
+      "costo_id": 3109,
+      "cost_amount": "193.5600",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "valid_to": null
+    }
+  ],
+  "firmas": {
+    "product": {
+      "filas": 1091,
+      "md5": "527b7accdad95bac6423e63540a1e605"
+    },
+    "sku_cost": {
+      "filas": 1979,
+      "md5": "fb1fc1439586b890a084381b64b810bf"
+    },
+    "listing": {
+      "filas": 572,
+      "md5": "cabe160fea13b5db0c3dac27ba1dc7a7"
+    },
+    "precio_goal": {
+      "filas": 753,
+      "md5": "15cc01fb8fe412d3fd71adcbf821ac7a"
+    },
+    "listing_miembro_sin_nueve_productos": {
+      "filas": 263,
+      "md5": "8e744a51c035bebc7f85d4d142f8ad83"
+    }
+  },
+  "conexion": {
+    "current_user": "orbit_read",
+    "solo_lectura": "on"
+  },
+  "aliases": [
+    {
+      "seller_sku": "NH-BLA-BRO-PEZ-DOR",
+      "product_id": 650,
+      "evidencia": "docs/evidencia/quick-wins-2026-11-04/pez-correccion/identidad/matriz.json#1578/190065698608",
+      "created_at": "2026-11-05 03:34:06.206854+00:00"
+    },
+    {
+      "seller_sku": "NH-CAR-BLA-PEZ-DOR",
+      "product_id": 1749,
+      "evidencia": "docs/evidencia/quick-wins-2026-11-04/pez-correccion/identidad/matriz.json#1562/194936687129",
+      "created_at": "2026-11-05 03:34:06.206854+00:00"
+    },
+    {
+      "seller_sku": "NH-CAR-BLA-PEZ-PLA",
+      "product_id": 1750,
+      "evidencia": "docs/evidencia/quick-wins-2026-11-04/pez-correccion/identidad/matriz.json#1563/194936530433",
+      "created_at": "2026-11-05 03:34:06.206854+00:00"
+    },
+    {
+      "seller_sku": "NH-GAM-AZU-PEZ-DOR",
+      "product_id": 770,
+      "evidencia": "docs/evidencia/quick-wins-2026-11-04/pez-correccion/identidad/matriz.json#1584/196650403671",
+      "created_at": "2026-11-05 03:34:06.206854+00:00"
+    },
+    {
+      "seller_sku": "NH-GAM-AZU-PEZ-PLA",
+      "product_id": 771,
+      "evidencia": "docs/evidencia/quick-wins-2026-11-04/pez-correccion/identidad/matriz.json#1582/196650442795",
+      "created_at": "2026-11-05 03:34:06.206854+00:00"
+    },
+    {
+      "seller_sku": "NH-GAM-NEG-PEZ-DOR",
+      "product_id": 782,
+      "evidencia": "docs/evidencia/quick-wins-2026-11-04/pez-correccion/identidad/matriz.json#1583/196650403797",
+      "created_at": "2026-11-05 03:34:06.206854+00:00"
+    },
+    {
+      "seller_sku": "NH-GAM-NEG-PEZ-PLA",
+      "product_id": 783,
+      "evidencia": "docs/evidencia/quick-wins-2026-11-04/pez-correccion/identidad/matriz.json#1585/196764932943",
+      "created_at": "2026-11-05 03:34:06.206854+00:00"
+    },
+    {
+      "seller_sku": "NH-ITA-PEZ-PLA",
+      "product_id": 795,
+      "evidencia": "docs/evidencia/quick-wins-2026-11-04/pez-correccion/identidad/matriz.json#1579/190063357552",
+      "created_at": "2026-11-05 03:34:06.206854+00:00"
+    },
+    {
+      "seller_sku": "NH-PLA-CH-PEZ-PLA",
+      "product_id": 819,
+      "evidencia": "docs/evidencia/quick-wins-2026-11-04/pez-correccion/identidad/matriz.json#1590/190333223922",
+      "created_at": "2026-11-05 03:34:06.206854+00:00"
+    }
+  ],
+  "unidades": [
+    {
+      "listing_id": 1562,
+      "miembros": 6,
+      "sin_producto": 0,
+      "activos_sin_producto": 0
+    },
+    {
+      "listing_id": 1563,
+      "miembros": 6,
+      "sin_producto": 0,
+      "activos_sin_producto": 0
+    },
+    {
+      "listing_id": 1578,
+      "miembros": 6,
+      "sin_producto": 0,
+      "activos_sin_producto": 0
+    },
+    {
+      "listing_id": 1579,
+      "miembros": 6,
+      "sin_producto": 0,
+      "activos_sin_producto": 0
+    },
+    {
+      "listing_id": 1582,
+      "miembros": 6,
+      "sin_producto": 0,
+      "activos_sin_producto": 0
+    },
+    {
+      "listing_id": 1583,
+      "miembros": 6,
+      "sin_producto": 0,
+      "activos_sin_producto": 0
+    },
+    {
+      "listing_id": 1584,
+      "miembros": 6,
+      "sin_producto": 0,
+      "activos_sin_producto": 0
+    },
+    {
+      "listing_id": 1585,
+      "miembros": 6,
+      "sin_producto": 0,
+      "activos_sin_producto": 0
+    },
+    {
+      "listing_id": 1590,
+      "miembros": 6,
+      "sin_producto": 0,
+      "activos_sin_producto": 0
+    }
+  ],
+  "ingesta_costos": {
+    "id": 1353,
+    "started_at": "2026-11-05 03:23:05.337677+00:00",
+    "finished_at": "2026-11-05 03:23:05.341961+00:00",
+    "ok": true,
+    "rows_written": 0,
+    "rows_skipped": 0,
+    "skip_reason": null
+  },
+  "sin_cambios_ajenos": true,
+  "catalogo_sha256": "22cc82a1b2cbc04f803076d3a69dd9d8c0005cd12e3653619befcd6722090330",
+  "estado": "verificado"
+}

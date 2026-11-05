@@ -1,0 +1,176 @@
+{
+  "version": 1,
+  "filas": [
+    {
+      "listing_id": 1562,
+      "item_id": "MLM2163407464",
+      "variante_ext": "194936687129",
+      "seller_sku": "NH-CAR-BLA-PEZ-DOR",
+      "product_id_antes": null,
+      "product_id_destino": 1749,
+      "odoo_sku": "SET-CAR-BLA-PEZ-DOR",
+      "costo": {
+        "id": 2795,
+        "importe": "126.2100",
+        "moneda": "MXN",
+        "includes_tax": false,
+        "valid_from": "2026-08-18",
+        "valid_to": null
+      },
+      "evidencia": "docs/evidencia/quick-wins-2026-11-04/pez-correccion/identidad/matriz.json#1562/194936687129",
+      "activo_antes": true
+    },
+    {
+      "listing_id": 1563,
+      "item_id": "MLM1890653227",
+      "variante_ext": "194936530433",
+      "seller_sku": "NH-CAR-BLA-PEZ-PLA",
+      "product_id_antes": null,
+      "product_id_destino": 1750,
+      "odoo_sku": "SET-CAR-BLA-PEZ-PLA",
+      "costo": {
+        "id": 2797,
+        "importe": "126.2100",
+        "moneda": "MXN",
+        "includes_tax": false,
+        "valid_from": "2026-08-18",
+        "valid_to": null
+      },
+      "evidencia": "docs/evidencia/quick-wins-2026-11-04/pez-correccion/identidad/matriz.json#1563/194936530433",
+      "activo_antes": true
+    },
+    {
+      "listing_id": 1578,
+      "item_id": "MLM4735255462",
+      "variante_ext": "190065698608",
+      "seller_sku": "NH-BLA-BRO-PEZ-DOR",
+      "product_id_antes": null,
+      "product_id_destino": 650,
+      "odoo_sku": "SET-BLA-BRO-PEZ-DOR",
+      "costo": {
+        "id": 2699,
+        "importe": "175.2500",
+        "moneda": "MXN",
+        "includes_tax": false,
+        "valid_from": "2026-08-18",
+        "valid_to": null
+      },
+      "evidencia": "docs/evidencia/quick-wins-2026-11-04/pez-correccion/identidad/matriz.json#1578/190065698608",
+      "activo_antes": true
+    },
+    {
+      "listing_id": 1579,
+      "item_id": "MLM2724304859",
+      "variante_ext": "190063357552",
+      "seller_sku": "NH-ITA-PEZ-PLA",
+      "product_id_antes": null,
+      "product_id_destino": 795,
+      "odoo_sku": "SET-ITA-PEZ-PLA",
+      "costo": {
+        "id": 3061,
+        "importe": "162.5600",
+        "moneda": "MXN",
+        "includes_tax": false,
+        "valid_from": "2026-08-18",
+        "valid_to": null
+      },
+      "evidencia": "docs/evidencia/quick-wins-2026-11-04/pez-correccion/identidad/matriz.json#1579/190063357552",
+      "activo_antes": true
+    },
+    {
+      "listing_id": 1582,
+      "item_id": "MLM2727437671",
+      "variante_ext": "196650442795",
+      "seller_sku": "NH-GAM-AZU-PEZ-PLA",
+      "product_id_antes": null,
+      "product_id_destino": 771,
+      "odoo_sku": "SET-GAM-AZU-PEZ-PLA",
+      "costo": {
+        "id": 3013,
+        "importe": "146.5600",
+        "moneda": "MXN",
+        "includes_tax": false,
+        "valid_from": "2026-08-18",
+        "valid_to": null
+      },
+      "evidencia": "docs/evidencia/quick-wins-2026-11-04/pez-correccion/identidad/matriz.json#1582/196650442795",
+      "activo_antes": false
+    },
+    {
+      "listing_id": 1583,
+      "item_id": "MLM2727363007",
+      "variante_ext": "196650403797",
+      "seller_sku": "NH-GAM-NEG-PEZ-DOR",
+      "product_id_antes": null,
+      "product_id_destino": 782,
+      "odoo_sku": "SET-GAM-NEG-PEZ-DOR",
+      "costo": {
+        "id": 3035,
+        "importe": "146.5600",
+        "moneda": "MXN",
+        "includes_tax": false,
+        "valid_from": "2026-08-18",
+        "valid_to": null
+      },
+      "evidencia": "docs/evidencia/quick-wins-2026-11-04/pez-correccion/identidad/matriz.json#1583/196650403797",
+      "activo_antes": true
+    },
+    {
+      "listing_id": 1584,
+      "item_id": "MLM2727328203",
+      "variante_ext": "196650403671",
+      "seller_sku": "NH-GAM-AZU-PEZ-DOR",
+      "product_id_antes": null,
+      "product_id_destino": 770,
+      "odoo_sku": "SET-GAM-AZU-PEZ-DOR",
+      "costo": {
+        "id": 3011,
+        "importe": "146.5600",
+        "moneda": "MXN",
+        "includes_tax": false,
+        "valid_from": "2026-08-18",
+        "valid_to": null
+      },
+      "evidencia": "docs/evidencia/quick-wins-2026-11-04/pez-correccion/identidad/matriz.json#1584/196650403671",
+      "activo_antes": true
+    },
+    {
+      "listing_id": 1585,
+      "item_id": "MLM4749600210",
+      "variante_ext": "196764932943",
+      "seller_sku": "NH-GAM-NEG-PEZ-PLA",
+      "product_id_antes": null,
+      "product_id_destino": 783,
+      "odoo_sku": "SET-GAM-NEG-PEZ-PLA",
+      "costo": {
+        "id": 3037,
+        "importe": "146.5600",
+        "moneda": "MXN",
+        "includes_tax": false,
+        "valid_from": "2026-08-18",
+        "valid_to": null
+      },
+      "evidencia": "docs/evidencia/quick-wins-2026-11-04/pez-correccion/identidad/matriz.json#1585/196764932943",
+      "activo_antes": true
+    },
+    {
+      "listing_id": 1590,
+      "item_id": "MLM4763716652",
+      "variante_ext": "190333223922",
+      "seller_sku": "NH-PLA-CH-PEZ-PLA",
+      "product_id_antes": null,
+      "product_id_destino": 819,
+      "odoo_sku": "SET-PLA-CH-PEZ-PLA",
+      "costo": {
+        "id": 3109,
+        "importe": "193.5600",
+        "moneda": "MXN",
+        "includes_tax": false,
+        "valid_from": "2026-08-18",
+        "valid_to": null
+      },
+      "evidencia": "docs/evidencia/quick-wins-2026-11-04/pez-correccion/identidad/matriz.json#1590/190333223922",
+      "activo_antes": false
+    }
+  ]
+}

@@ -1,0 +1,898 @@
+{
+  "fecha_utc": "2026-11-05T02:44:17.397175+00:00",
+  "filas": [
+    {
+      "listing_id": 1562,
+      "item_id": "MLM2163407464",
+      "variante_ext": "194936687129",
+      "seller_sku_meli": "NH-CAR-BLA-PEZ-DOR",
+      "odoo_product_id": 7106,
+      "odoo_sku": "SET-CAR-BLA-PEZ-DOR",
+      "odoo_nombre": "SET - Carte Blanco 22mm Dorado",
+      "odoo_template_id": 6276,
+      "bom_id": 1824,
+      "producto_activo": true,
+      "bom_activo": true,
+      "modelo_odoo": [
+        {
+          "id": 1145,
+          "name": "Sello Cristiano",
+          "attribute_id": [
+            1,
+            "Modelo"
+          ],
+          "product_attribute_value_id": [
+            9,
+            "Modelo: Sello Cristiano"
+          ],
+          "product_tmpl_id": [
+            6276,
+            "SET - Carte Blanco 22mm Dorado"
+          ]
+        }
+      ],
+      "modelo_meli": [
+        {
+          "id": null,
+          "name": "Modelos arras",
+          "value_id": null,
+          "value_name": "Sello cristiano"
+        }
+      ],
+      "costo_final_odoo_texto": "126.21000000000001",
+      "costo_accounting_vigente": {
+        "id": 2379,
+        "sku": "SET-CAR-BLA-PEZ-DOR",
+        "cost": "126.21000000000001",
+        "currency": "MXN",
+        "valid_from": "2026-08-18 07:00:06",
+        "valid_to": null,
+        "source": "odoo_sync",
+        "created_at": "2026-08-18 07:00:06"
+      },
+      "costo_accounting_conciliado_con_odoo": true,
+      "observado_accounting_utc": "2026-11-05T02:48:41.861631+00:00",
+      "costo_final_para_orbit": "126.2100",
+      "normalizacion_costo": "Precision de app/costs.py::_costo_decimal; solo ruido binario por debajo de 0.00001",
+      "costo_material_calculado": "121.53",
+      "diferencia_final_menos_material": "4.68000000000001",
+      "moneda": "MXN",
+      "producto_write_date": "2026-11-05 01:00:12",
+      "observado_odoo_utc": "2026-11-05T02:44:17.397175+00:00",
+      "observado_meli_utc": "2026-11-05T02:42:00.332776+00:00",
+      "componentes": [
+        {
+          "id": 5,
+          "sku": "EST-CAR-BLC",
+          "cantidad_por_unidad": "1",
+          "costo_unitario_texto": "39.65",
+          "importe": "39.65",
+          "moneda": "MXN"
+        },
+        {
+          "id": 7,
+          "sku": "COF-22-DOR",
+          "cantidad_por_unidad": "1",
+          "costo_unitario_texto": "44.06",
+          "importe": "44.06",
+          "moneda": "MXN"
+        },
+        {
+          "id": 6,
+          "sku": "ARR-22-DOR-PEZ",
+          "cantidad_por_unidad": "1",
+          "costo_unitario_texto": "37.82",
+          "importe": "37.82",
+          "moneda": "MXN"
+        }
+      ],
+      "foto_meli": {
+        "item_id": "MLM2163407464",
+        "variante_ext": "194936687129",
+        "picture_id": "960936-MLM110564681738_052026",
+        "url": "https://http2.mlstatic.com/D_960936-MLM110564681738_052026-O.jpg",
+        "archivo": "MLM2163407464.jpg"
+      },
+      "foto_odoo_archivo": "odoo-7106.jpg",
+      "evidencia_comercial": "Foto especifica de la variante MeLi y foto del producto Odoo muestran el mismo tipo/color de estuche, cofre y arras; modelo Sello cristiano corroborado en atributos de ambas fuentes.",
+      "limite_visual": "Coincidencia visual de la presentacion; no es un ensayo fisico de medidas.",
+      "discrepancia": "Descripcion generica MeLi indica diametro16/19mm, mientras plantilla SET Odoo indica22mm; no confundir esa descripcion comun con variante exacta.",
+      "ventas_odoo_corroborantes": [],
+      "dictamen": "Correspondencia comercial sustentada por variante/fotos/modelo/composicion; candidato para lote de mapping, sin mutaciones ejecutadas por este agente."
+    },
+    {
+      "listing_id": 1563,
+      "item_id": "MLM1890653227",
+      "variante_ext": "194936530433",
+      "seller_sku_meli": "NH-CAR-BLA-PEZ-PLA",
+      "odoo_product_id": 7112,
+      "odoo_sku": "SET-CAR-BLA-PEZ-PLA",
+      "odoo_nombre": "SET - Carte Blanco 22mm Plateado",
+      "odoo_template_id": 6277,
+      "bom_id": 1825,
+      "producto_activo": true,
+      "bom_activo": true,
+      "modelo_odoo": [
+        {
+          "id": 1151,
+          "name": "Sello Cristiano",
+          "attribute_id": [
+            1,
+            "Modelo"
+          ],
+          "product_attribute_value_id": [
+            9,
+            "Modelo: Sello Cristiano"
+          ],
+          "product_tmpl_id": [
+            6277,
+            "SET - Carte Blanco 22mm Plateado"
+          ]
+        }
+      ],
+      "modelo_meli": [
+        {
+          "id": null,
+          "name": "Modelo arras",
+          "value_id": null,
+          "value_name": "Sello cristiano"
+        }
+      ],
+      "costo_final_odoo_texto": "126.21000000000001",
+      "costo_accounting_vigente": {
+        "id": 2380,
+        "sku": "SET-CAR-BLA-PEZ-PLA",
+        "cost": "126.21000000000001",
+        "currency": "MXN",
+        "valid_from": "2026-08-18 07:00:06",
+        "valid_to": null,
+        "source": "odoo_sync",
+        "created_at": "2026-08-18 07:00:06"
+      },
+      "costo_accounting_conciliado_con_odoo": true,
+      "observado_accounting_utc": "2026-11-05T02:48:41.861631+00:00",
+      "costo_final_para_orbit": "126.2100",
+      "normalizacion_costo": "Precision de app/costs.py::_costo_decimal; solo ruido binario por debajo de 0.00001",
+      "costo_material_calculado": "122.01",
+      "diferencia_final_menos_material": "4.20000000000001",
+      "moneda": "MXN",
+      "producto_write_date": "2026-11-04 18:26:56",
+      "observado_odoo_utc": "2026-11-05T02:44:17.397175+00:00",
+      "observado_meli_utc": "2026-11-05T02:42:00.620714+00:00",
+      "componentes": [
+        {
+          "id": 5,
+          "sku": "EST-CAR-BLC",
+          "cantidad_por_unidad": "1",
+          "costo_unitario_texto": "39.65",
+          "importe": "39.65",
+          "moneda": "MXN"
+        },
+        {
+          "id": 8,
+          "sku": "COF-22-PLA",
+          "cantidad_por_unidad": "1",
+          "costo_unitario_texto": "44.54",
+          "importe": "44.54",
+          "moneda": "MXN"
+        },
+        {
+          "id": 156,
+          "sku": "ARR-22-PLA-PEZ",
+          "cantidad_por_unidad": "1",
+          "costo_unitario_texto": "37.82",
+          "importe": "37.82",
+          "moneda": "MXN"
+        }
+      ],
+      "foto_meli": {
+        "item_id": "MLM1890653227",
+        "variante_ext": "194936530433",
+        "picture_id": "688476-MLM110565368318_052026",
+        "url": "https://http2.mlstatic.com/D_688476-MLM110565368318_052026-O.jpg",
+        "archivo": "MLM1890653227.jpg"
+      },
+      "foto_odoo_archivo": "odoo-7112.jpg",
+      "evidencia_comercial": "Foto especifica de la variante MeLi y foto del producto Odoo muestran el mismo tipo/color de estuche, cofre y arras; modelo Sello cristiano corroborado en atributos de ambas fuentes.",
+      "limite_visual": "Coincidencia visual de la presentacion; no es un ensayo fisico de medidas.",
+      "discrepancia": "Descripcion generica MeLi indica diametro16/19mm, mientras plantilla SET Odoo indica22mm; no confundir esa descripcion comun con variante exacta.",
+      "ventas_odoo_corroborantes": [],
+      "dictamen": "Correspondencia comercial sustentada por variante/fotos/modelo/composicion; candidato para lote de mapping, sin mutaciones ejecutadas por este agente."
+    },
+    {
+      "listing_id": 1578,
+      "item_id": "MLM4735255462",
+      "variante_ext": "190065698608",
+      "seller_sku_meli": "NH-BLA-BRO-PEZ-DOR",
+      "odoo_product_id": 7070,
+      "odoo_sku": "SET-BLA-BRO-PEZ-DOR",
+      "odoo_nombre": "SET - Blanco con broche 22mm Dorado",
+      "odoo_template_id": 6270,
+      "bom_id": 1788,
+      "producto_activo": true,
+      "bom_activo": true,
+      "modelo_odoo": [
+        {
+          "id": 1109,
+          "name": "Sello Cristiano",
+          "attribute_id": [
+            1,
+            "Modelo"
+          ],
+          "product_attribute_value_id": [
+            9,
+            "Modelo: Sello Cristiano"
+          ],
+          "product_tmpl_id": [
+            6270,
+            "SET - Blanco con broche 22mm Dorado"
+          ]
+        }
+      ],
+      "modelo_meli": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Sello cristiano"
+        }
+      ],
+      "costo_final_odoo_texto": "175.25",
+      "costo_accounting_vigente": {
+        "id": 2331,
+        "sku": "SET-BLA-BRO-PEZ-DOR",
+        "cost": "175.25",
+        "currency": "MXN",
+        "valid_from": "2026-08-18 07:00:06",
+        "valid_to": null,
+        "source": "odoo_sync",
+        "created_at": "2026-08-18 07:00:06"
+      },
+      "costo_accounting_conciliado_con_odoo": true,
+      "observado_accounting_utc": "2026-11-05T02:48:41.861631+00:00",
+      "costo_final_para_orbit": "175.2500",
+      "normalizacion_costo": "Precision de app/costs.py::_costo_decimal; solo ruido binario por debajo de 0.00001",
+      "costo_material_calculado": "170.57",
+      "diferencia_final_menos_material": "4.68",
+      "moneda": "MXN",
+      "producto_write_date": "2026-11-05 01:00:12",
+      "observado_odoo_utc": "2026-11-05T02:44:17.397175+00:00",
+      "observado_meli_utc": "2026-11-05T02:42:00.898266+00:00",
+      "componentes": [
+        {
+          "id": 159,
+          "sku": "4608",
+          "cantidad_por_unidad": "1",
+          "costo_unitario_texto": "88.69",
+          "importe": "88.69",
+          "moneda": "MXN"
+        },
+        {
+          "id": 7,
+          "sku": "COF-22-DOR",
+          "cantidad_por_unidad": "1",
+          "costo_unitario_texto": "44.06",
+          "importe": "44.06",
+          "moneda": "MXN"
+        },
+        {
+          "id": 6,
+          "sku": "ARR-22-DOR-PEZ",
+          "cantidad_por_unidad": "1",
+          "costo_unitario_texto": "37.82",
+          "importe": "37.82",
+          "moneda": "MXN"
+        }
+      ],
+      "foto_meli": {
+        "item_id": "MLM4735255462",
+        "variante_ext": "190065698608",
+        "picture_id": "896170-MLM110612450002_052026",
+        "url": "https://http2.mlstatic.com/D_896170-MLM110612450002_052026-O.webp",
+        "archivo": "MLM4735255462.jpg"
+      },
+      "foto_odoo_archivo": "odoo-7070.jpg",
+      "evidencia_comercial": "Foto especifica de la variante MeLi y foto del producto Odoo muestran el mismo tipo/color de estuche, cofre y arras; modelo Sello cristiano corroborado en atributos de ambas fuentes.",
+      "limite_visual": "Coincidencia visual de la presentacion; no es un ensayo fisico de medidas.",
+      "discrepancia": "Descripcion generica MeLi indica diametro16/19mm, mientras plantilla SET Odoo indica22mm; no confundir esa descripcion comun con variante exacta.",
+      "ventas_odoo_corroborantes": [],
+      "dictamen": "Correspondencia comercial sustentada por variante/fotos/modelo/composicion; candidato para lote de mapping, sin mutaciones ejecutadas por este agente."
+    },
+    {
+      "listing_id": 1579,
+      "item_id": "MLM2724304859",
+      "variante_ext": "190063357552",
+      "seller_sku_meli": "NH-ITA-PEZ-PLA",
+      "odoo_product_id": 7208,
+      "odoo_sku": "SET-ITA-PEZ-PLA",
+      "odoo_nombre": "SET - Italia 22mm Plateado",
+      "odoo_template_id": 6293,
+      "bom_id": 1921,
+      "producto_activo": true,
+      "bom_activo": true,
+      "modelo_odoo": [
+        {
+          "id": 1247,
+          "name": "Sello Cristiano",
+          "attribute_id": [
+            1,
+            "Modelo"
+          ],
+          "product_attribute_value_id": [
+            9,
+            "Modelo: Sello Cristiano"
+          ],
+          "product_tmpl_id": [
+            6293,
+            "SET - Italia 22mm Plateado"
+          ]
+        }
+      ],
+      "modelo_meli": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Sello cristiano"
+        }
+      ],
+      "costo_final_odoo_texto": "162.56",
+      "costo_accounting_vigente": {
+        "id": 2512,
+        "sku": "SET-ITA-PEZ-PLA",
+        "cost": "162.56",
+        "currency": "MXN",
+        "valid_from": "2026-08-18 07:00:06",
+        "valid_to": null,
+        "source": "odoo_sync",
+        "created_at": "2026-08-18 07:00:06"
+      },
+      "costo_accounting_conciliado_con_odoo": true,
+      "observado_accounting_utc": "2026-11-05T02:48:41.861631+00:00",
+      "costo_final_para_orbit": "162.5600",
+      "normalizacion_costo": "Precision de app/costs.py::_costo_decimal; solo ruido binario por debajo de 0.00001",
+      "costo_material_calculado": "158.36",
+      "diferencia_final_menos_material": "4.20",
+      "moneda": "MXN",
+      "producto_write_date": "2026-11-04 18:26:56",
+      "observado_odoo_utc": "2026-11-05T02:44:17.397175+00:00",
+      "observado_meli_utc": "2026-11-05T02:42:01.190366+00:00",
+      "componentes": [
+        {
+          "id": 158,
+          "sku": "4405-BG",
+          "cantidad_por_unidad": "1",
+          "costo_unitario_texto": "76.0",
+          "importe": "76.0",
+          "moneda": "MXN"
+        },
+        {
+          "id": 8,
+          "sku": "COF-22-PLA",
+          "cantidad_por_unidad": "1",
+          "costo_unitario_texto": "44.54",
+          "importe": "44.54",
+          "moneda": "MXN"
+        },
+        {
+          "id": 156,
+          "sku": "ARR-22-PLA-PEZ",
+          "cantidad_por_unidad": "1",
+          "costo_unitario_texto": "37.82",
+          "importe": "37.82",
+          "moneda": "MXN"
+        }
+      ],
+      "foto_meli": {
+        "item_id": "MLM2724304859",
+        "variante_ext": "190063357552",
+        "picture_id": "802593-MLM107151947602_022026",
+        "url": "https://http2.mlstatic.com/D_802593-MLM107151947602_022026-O.webp",
+        "archivo": "MLM2724304859.jpg"
+      },
+      "foto_odoo_archivo": "odoo-7208.jpg",
+      "evidencia_comercial": "Foto especifica de la variante MeLi y foto del producto Odoo muestran el mismo tipo/color de estuche, cofre y arras; modelo Sello cristiano corroborado en atributos de ambas fuentes.",
+      "limite_visual": "Italia muestra otro angulo del mismo tipo de set.",
+      "discrepancia": "Descripcion generica MeLi indica diametro16/19mm, mientras plantilla SET Odoo indica22mm; no confundir esa descripcion comun con variante exacta.",
+      "ventas_odoo_corroborantes": [],
+      "dictamen": "Correspondencia comercial sustentada por variante/fotos/modelo/composicion; candidato para lote de mapping, sin mutaciones ejecutadas por este agente."
+    },
+    {
+      "listing_id": 1582,
+      "item_id": "MLM2727437671",
+      "variante_ext": "196650442795",
+      "seller_sku_meli": "NH-GAM-AZU-PEZ-PLA",
+      "odoo_product_id": 7184,
+      "odoo_sku": "SET-GAM-AZU-PEZ-PLA",
+      "odoo_nombre": "SET - Gamuza Azul 22mm Plateado",
+      "odoo_template_id": 6289,
+      "bom_id": 1897,
+      "producto_activo": true,
+      "bom_activo": true,
+      "modelo_odoo": [
+        {
+          "id": 1223,
+          "name": "Sello Cristiano",
+          "attribute_id": [
+            1,
+            "Modelo"
+          ],
+          "product_attribute_value_id": [
+            9,
+            "Modelo: Sello Cristiano"
+          ],
+          "product_tmpl_id": [
+            6289,
+            "SET - Gamuza Azul 22mm Plateado"
+          ]
+        }
+      ],
+      "modelo_meli": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Sello cristiano"
+        }
+      ],
+      "costo_final_odoo_texto": "146.56",
+      "costo_accounting_vigente": {
+        "id": 2488,
+        "sku": "SET-GAM-AZU-PEZ-PLA",
+        "cost": "146.56",
+        "currency": "MXN",
+        "valid_from": "2026-08-18 07:00:06",
+        "valid_to": null,
+        "source": "odoo_sync",
+        "created_at": "2026-08-18 07:00:06"
+      },
+      "costo_accounting_conciliado_con_odoo": true,
+      "observado_accounting_utc": "2026-11-05T02:48:41.861631+00:00",
+      "costo_final_para_orbit": "146.5600",
+      "normalizacion_costo": "Precision de app/costs.py::_costo_decimal; solo ruido binario por debajo de 0.00001",
+      "costo_material_calculado": "142.36",
+      "diferencia_final_menos_material": "4.20",
+      "moneda": "MXN",
+      "producto_write_date": "2026-11-04 18:26:56",
+      "observado_odoo_utc": "2026-11-05T02:44:17.397175+00:00",
+      "observado_meli_utc": "2026-11-05T02:42:01.467461+00:00",
+      "componentes": [
+        {
+          "id": 168,
+          "sku": "EST-GAM-AZU",
+          "cantidad_por_unidad": "1",
+          "costo_unitario_texto": "60.0",
+          "importe": "60.0",
+          "moneda": "MXN"
+        },
+        {
+          "id": 8,
+          "sku": "COF-22-PLA",
+          "cantidad_por_unidad": "1",
+          "costo_unitario_texto": "44.54",
+          "importe": "44.54",
+          "moneda": "MXN"
+        },
+        {
+          "id": 156,
+          "sku": "ARR-22-PLA-PEZ",
+          "cantidad_por_unidad": "1",
+          "costo_unitario_texto": "37.82",
+          "importe": "37.82",
+          "moneda": "MXN"
+        }
+      ],
+      "foto_meli": {
+        "item_id": "MLM2727437671",
+        "variante_ext": "196650442795",
+        "picture_id": "716220-MLM111564607107_052026",
+        "url": "https://http2.mlstatic.com/D_716220-MLM111564607107_052026-O.webp",
+        "archivo": "MLM2727437671.jpg"
+      },
+      "foto_odoo_archivo": "odoo-7184.jpg",
+      "evidencia_comercial": "Foto especifica de la variante MeLi y foto del producto Odoo muestran el mismo tipo/color de estuche, cofre y arras; modelo Sello cristiano corroborado en atributos de ambas fuentes.",
+      "limite_visual": "Coincidencia visual de la presentacion; no es un ensayo fisico de medidas.",
+      "discrepancia": "Descripcion generica MeLi indica diametro16/19mm, mientras plantilla SET Odoo indica22mm; no confundir esa descripcion comun con variante exacta.",
+      "ventas_odoo_corroborantes": [],
+      "dictamen": "Correspondencia comercial sustentada por variante/fotos/modelo/composicion; candidato para lote de mapping, sin mutaciones ejecutadas por este agente."
+    },
+    {
+      "listing_id": 1583,
+      "item_id": "MLM2727363007",
+      "variante_ext": "196650403797",
+      "seller_sku_meli": "NH-GAM-NEG-PEZ-DOR",
+      "odoo_product_id": 7190,
+      "odoo_sku": "SET-GAM-NEG-PEZ-DOR",
+      "odoo_nombre": "SET - Gamuza Negro 22mm Dorado",
+      "odoo_template_id": 6290,
+      "bom_id": 1908,
+      "producto_activo": true,
+      "bom_activo": true,
+      "modelo_odoo": [
+        {
+          "id": 1229,
+          "name": "Sello Cristiano",
+          "attribute_id": [
+            1,
+            "Modelo"
+          ],
+          "product_attribute_value_id": [
+            9,
+            "Modelo: Sello Cristiano"
+          ],
+          "product_tmpl_id": [
+            6290,
+            "SET - Gamuza Negro 22mm Dorado"
+          ]
+        }
+      ],
+      "modelo_meli": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Sello cristiano"
+        }
+      ],
+      "costo_final_odoo_texto": "146.56",
+      "costo_accounting_vigente": {
+        "id": 2499,
+        "sku": "SET-GAM-NEG-PEZ-DOR",
+        "cost": "146.56",
+        "currency": "MXN",
+        "valid_from": "2026-08-18 07:00:06",
+        "valid_to": null,
+        "source": "odoo_sync",
+        "created_at": "2026-08-18 07:00:06"
+      },
+      "costo_accounting_conciliado_con_odoo": true,
+      "observado_accounting_utc": "2026-11-05T02:48:41.861631+00:00",
+      "costo_final_para_orbit": "146.5600",
+      "normalizacion_costo": "Precision de app/costs.py::_costo_decimal; solo ruido binario por debajo de 0.00001",
+      "costo_material_calculado": "141.88",
+      "diferencia_final_menos_material": "4.68",
+      "moneda": "MXN",
+      "producto_write_date": "2026-11-05 01:00:12",
+      "observado_odoo_utc": "2026-11-05T02:44:17.397175+00:00",
+      "observado_meli_utc": "2026-11-05T02:42:01.750951+00:00",
+      "componentes": [
+        {
+          "id": 169,
+          "sku": "EST-GAM-NEG",
+          "cantidad_por_unidad": "1",
+          "costo_unitario_texto": "60.0",
+          "importe": "60.0",
+          "moneda": "MXN"
+        },
+        {
+          "id": 7,
+          "sku": "COF-22-DOR",
+          "cantidad_por_unidad": "1",
+          "costo_unitario_texto": "44.06",
+          "importe": "44.06",
+          "moneda": "MXN"
+        },
+        {
+          "id": 6,
+          "sku": "ARR-22-DOR-PEZ",
+          "cantidad_por_unidad": "1",
+          "costo_unitario_texto": "37.82",
+          "importe": "37.82",
+          "moneda": "MXN"
+        }
+      ],
+      "foto_meli": {
+        "item_id": "MLM2727363007",
+        "variante_ext": "196650403797",
+        "picture_id": "903131-MLM111562432975_052026",
+        "url": "https://http2.mlstatic.com/D_903131-MLM111562432975_052026-O.jpg",
+        "archivo": "MLM2727363007.jpg"
+      },
+      "foto_odoo_archivo": "odoo-7190.jpg",
+      "evidencia_comercial": "Foto especifica de la variante MeLi y foto del producto Odoo muestran el mismo tipo/color de estuche, cofre y arras; modelo Sello cristiano corroborado en atributos de ambas fuentes.",
+      "limite_visual": "Coincidencia visual de la presentacion; no es un ensayo fisico de medidas.",
+      "discrepancia": "Descripcion generica MeLi indica diametro16/19mm, mientras plantilla SET Odoo indica22mm; no confundir esa descripcion comun con variante exacta.",
+      "ventas_odoo_corroborantes": [],
+      "dictamen": "Correspondencia comercial sustentada por variante/fotos/modelo/composicion; candidato para lote de mapping, sin mutaciones ejecutadas por este agente."
+    },
+    {
+      "listing_id": 1584,
+      "item_id": "MLM2727328203",
+      "variante_ext": "196650403671",
+      "seller_sku_meli": "NH-GAM-AZU-PEZ-DOR",
+      "odoo_product_id": 7178,
+      "odoo_sku": "SET-GAM-AZU-PEZ-DOR",
+      "odoo_nombre": "SET - Gamuza Azul 22mm Dorado",
+      "odoo_template_id": 6288,
+      "bom_id": 1896,
+      "producto_activo": true,
+      "bom_activo": true,
+      "modelo_odoo": [
+        {
+          "id": 1217,
+          "name": "Sello Cristiano",
+          "attribute_id": [
+            1,
+            "Modelo"
+          ],
+          "product_attribute_value_id": [
+            9,
+            "Modelo: Sello Cristiano"
+          ],
+          "product_tmpl_id": [
+            6288,
+            "SET - Gamuza Azul 22mm Dorado"
+          ]
+        }
+      ],
+      "modelo_meli": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Sello cristiano"
+        }
+      ],
+      "costo_final_odoo_texto": "146.56",
+      "costo_accounting_vigente": {
+        "id": 2487,
+        "sku": "SET-GAM-AZU-PEZ-DOR",
+        "cost": "146.56",
+        "currency": "MXN",
+        "valid_from": "2026-08-18 07:00:06",
+        "valid_to": null,
+        "source": "odoo_sync",
+        "created_at": "2026-08-18 07:00:06"
+      },
+      "costo_accounting_conciliado_con_odoo": true,
+      "observado_accounting_utc": "2026-11-05T02:48:41.861631+00:00",
+      "costo_final_para_orbit": "146.5600",
+      "normalizacion_costo": "Precision de app/costs.py::_costo_decimal; solo ruido binario por debajo de 0.00001",
+      "costo_material_calculado": "141.88",
+      "diferencia_final_menos_material": "4.68",
+      "moneda": "MXN",
+      "producto_write_date": "2026-11-05 01:00:12",
+      "observado_odoo_utc": "2026-11-05T02:44:17.397175+00:00",
+      "observado_meli_utc": "2026-11-05T02:42:02.030643+00:00",
+      "componentes": [
+        {
+          "id": 168,
+          "sku": "EST-GAM-AZU",
+          "cantidad_por_unidad": "1",
+          "costo_unitario_texto": "60.0",
+          "importe": "60.0",
+          "moneda": "MXN"
+        },
+        {
+          "id": 7,
+          "sku": "COF-22-DOR",
+          "cantidad_por_unidad": "1",
+          "costo_unitario_texto": "44.06",
+          "importe": "44.06",
+          "moneda": "MXN"
+        },
+        {
+          "id": 6,
+          "sku": "ARR-22-DOR-PEZ",
+          "cantidad_por_unidad": "1",
+          "costo_unitario_texto": "37.82",
+          "importe": "37.82",
+          "moneda": "MXN"
+        }
+      ],
+      "foto_meli": {
+        "item_id": "MLM2727328203",
+        "variante_ext": "196650403671",
+        "picture_id": "981513-MLM111562430015_052026",
+        "url": "https://http2.mlstatic.com/D_981513-MLM111562430015_052026-O.jpg",
+        "archivo": "MLM2727328203.jpg"
+      },
+      "foto_odoo_archivo": "odoo-7178.jpg",
+      "evidencia_comercial": "Foto especifica de la variante MeLi y foto del producto Odoo muestran el mismo tipo/color de estuche, cofre y arras; modelo Sello cristiano corroborado en atributos de ambas fuentes.",
+      "limite_visual": "Coincidencia visual de la presentacion; no es un ensayo fisico de medidas.",
+      "discrepancia": "Descripcion generica MeLi indica diametro16/19mm, mientras plantilla SET Odoo indica22mm; no confundir esa descripcion comun con variante exacta.",
+      "ventas_odoo_corroborantes": [],
+      "dictamen": "Correspondencia comercial sustentada por variante/fotos/modelo/composicion; candidato para lote de mapping, sin mutaciones ejecutadas por este agente."
+    },
+    {
+      "listing_id": 1585,
+      "item_id": "MLM4749600210",
+      "variante_ext": "196764932943",
+      "seller_sku_meli": "NH-GAM-NEG-PEZ-PLA",
+      "odoo_product_id": 7196,
+      "odoo_sku": "SET-GAM-NEG-PEZ-PLA",
+      "odoo_nombre": "SET - Gamuza Negro 22mm Plateado",
+      "odoo_template_id": 6291,
+      "bom_id": 1909,
+      "producto_activo": true,
+      "bom_activo": true,
+      "modelo_odoo": [
+        {
+          "id": 1235,
+          "name": "Sello Cristiano",
+          "attribute_id": [
+            1,
+            "Modelo"
+          ],
+          "product_attribute_value_id": [
+            9,
+            "Modelo: Sello Cristiano"
+          ],
+          "product_tmpl_id": [
+            6291,
+            "SET - Gamuza Negro 22mm Plateado"
+          ]
+        }
+      ],
+      "modelo_meli": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Sello cristiano"
+        }
+      ],
+      "costo_final_odoo_texto": "146.56",
+      "costo_accounting_vigente": {
+        "id": 2500,
+        "sku": "SET-GAM-NEG-PEZ-PLA",
+        "cost": "146.56",
+        "currency": "MXN",
+        "valid_from": "2026-08-18 07:00:06",
+        "valid_to": null,
+        "source": "odoo_sync",
+        "created_at": "2026-08-18 07:00:06"
+      },
+      "costo_accounting_conciliado_con_odoo": true,
+      "observado_accounting_utc": "2026-11-05T02:48:41.861631+00:00",
+      "costo_final_para_orbit": "146.5600",
+      "normalizacion_costo": "Precision de app/costs.py::_costo_decimal; solo ruido binario por debajo de 0.00001",
+      "costo_material_calculado": "142.36",
+      "diferencia_final_menos_material": "4.20",
+      "moneda": "MXN",
+      "producto_write_date": "2026-11-04 18:26:56",
+      "observado_odoo_utc": "2026-11-05T02:44:17.397175+00:00",
+      "observado_meli_utc": "2026-11-05T02:42:02.317172+00:00",
+      "componentes": [
+        {
+          "id": 169,
+          "sku": "EST-GAM-NEG",
+          "cantidad_por_unidad": "1",
+          "costo_unitario_texto": "60.0",
+          "importe": "60.0",
+          "moneda": "MXN"
+        },
+        {
+          "id": 8,
+          "sku": "COF-22-PLA",
+          "cantidad_por_unidad": "1",
+          "costo_unitario_texto": "44.54",
+          "importe": "44.54",
+          "moneda": "MXN"
+        },
+        {
+          "id": 156,
+          "sku": "ARR-22-PLA-PEZ",
+          "cantidad_por_unidad": "1",
+          "costo_unitario_texto": "37.82",
+          "importe": "37.82",
+          "moneda": "MXN"
+        }
+      ],
+      "foto_meli": {
+        "item_id": "MLM4749600210",
+        "variante_ext": "196764932943",
+        "picture_id": "802281-MLM110710599172_052026",
+        "url": "https://http2.mlstatic.com/D_802281-MLM110710599172_052026-O.jpg",
+        "archivo": "MLM4749600210.jpg"
+      },
+      "foto_odoo_archivo": "odoo-7196.jpg",
+      "evidencia_comercial": "Foto especifica de la variante MeLi y foto del producto Odoo muestran el mismo tipo/color de estuche, cofre y arras; modelo Sello cristiano corroborado en atributos de ambas fuentes.",
+      "limite_visual": "Coincidencia visual de la presentacion; no es un ensayo fisico de medidas.",
+      "discrepancia": "Descripcion generica MeLi indica diametro16/19mm, mientras plantilla SET Odoo indica22mm; no confundir esa descripcion comun con variante exacta.",
+      "ventas_odoo_corroborantes": [],
+      "dictamen": "Correspondencia comercial sustentada por variante/fotos/modelo/composicion; candidato para lote de mapping, sin mutaciones ejecutadas por este agente."
+    },
+    {
+      "listing_id": 1590,
+      "item_id": "MLM4763716652",
+      "variante_ext": "190333223922",
+      "seller_sku_meli": "NH-PLA-CH-PEZ-PLA",
+      "odoo_product_id": 7232,
+      "odoo_sku": "SET-PLA-CH-PEZ-PLA",
+      "odoo_nombre": "SET - Platino CH 22mm Plateado",
+      "odoo_template_id": 6297,
+      "bom_id": 1945,
+      "producto_activo": true,
+      "bom_activo": true,
+      "modelo_odoo": [
+        {
+          "id": 1271,
+          "name": "Sello Cristiano",
+          "attribute_id": [
+            1,
+            "Modelo"
+          ],
+          "product_attribute_value_id": [
+            9,
+            "Modelo: Sello Cristiano"
+          ],
+          "product_tmpl_id": [
+            6297,
+            "SET - Platino CH 22mm Plateado"
+          ]
+        }
+      ],
+      "modelo_meli": [
+        {
+          "id": null,
+          "name": "Diseño",
+          "value_id": null,
+          "value_name": "Sello cristiano"
+        }
+      ],
+      "costo_final_odoo_texto": "193.56",
+      "costo_accounting_vigente": {
+        "id": 2536,
+        "sku": "SET-PLA-CH-PEZ-PLA",
+        "cost": "193.56",
+        "currency": "MXN",
+        "valid_from": "2026-08-18 07:00:06",
+        "valid_to": null,
+        "source": "odoo_sync",
+        "created_at": "2026-08-18 07:00:06"
+      },
+      "costo_accounting_conciliado_con_odoo": true,
+      "observado_accounting_utc": "2026-11-05T02:48:41.861631+00:00",
+      "costo_final_para_orbit": "193.5600",
+      "normalizacion_costo": "Precision de app/costs.py::_costo_decimal; solo ruido binario por debajo de 0.00001",
+      "costo_material_calculado": "189.36",
+      "diferencia_final_menos_material": "4.20",
+      "moneda": "MXN",
+      "producto_write_date": "2026-11-05 02:36:50",
+      "observado_odoo_utc": "2026-11-05T02:44:17.397175+00:00",
+      "observado_meli_utc": "2026-11-05T02:42:02.599047+00:00",
+      "componentes": [
+        {
+          "id": 163,
+          "sku": "4587-BK",
+          "cantidad_por_unidad": "1",
+          "costo_unitario_texto": "107.0",
+          "importe": "107.0",
+          "moneda": "MXN"
+        },
+        {
+          "id": 8,
+          "sku": "COF-22-PLA",
+          "cantidad_por_unidad": "1",
+          "costo_unitario_texto": "44.54",
+          "importe": "44.54",
+          "moneda": "MXN"
+        },
+        {
+          "id": 156,
+          "sku": "ARR-22-PLA-PEZ",
+          "cantidad_por_unidad": "1",
+          "costo_unitario_texto": "37.82",
+          "importe": "37.82",
+          "moneda": "MXN"
+        }
+      ],
+      "foto_meli": {
+        "item_id": "MLM4763716652",
+        "variante_ext": "190333223922",
+        "picture_id": "825149-MLM110714595504_052026",
+        "url": "https://http2.mlstatic.com/D_825149-MLM110714595504_052026-O.webp",
+        "archivo": "MLM4763716652.jpg"
+      },
+      "foto_odoo_archivo": "odoo-7232.jpg",
+      "evidencia_comercial": "Foto especifica de la variante MeLi y foto del producto Odoo muestran el mismo tipo/color de estuche, cofre y arras; modelo Sello cristiano corroborado en atributos de ambas fuentes.",
+      "limite_visual": "Coincidencia visual de la presentacion; no es un ensayo fisico de medidas.",
+      "discrepancia": "Descripcion generica MeLi indica diametro16/19mm, mientras plantilla SET Odoo indica22mm; no confundir esa descripcion comun con variante exacta.",
+      "ventas_odoo_corroborantes": [],
+      "dictamen": "Correspondencia comercial sustentada por variante/fotos/modelo/composicion; candidato para lote de mapping, sin mutaciones ejecutadas por este agente."
+    }
+  ],
+  "conclusion": "Las nueve variantes corresponden al set con cofre. NH-SOLO excluye el cofre y no es la referencia respaldada por las fotos comerciales observadas.",
+  "costo": "Conservar costo final Odoo y suma material separados. No escoger ni publicar el menor de ambos por inferencia."
+}

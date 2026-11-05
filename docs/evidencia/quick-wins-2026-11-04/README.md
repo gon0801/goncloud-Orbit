@@ -1,3 +1,5 @@
+> **Actualizacion 5-nov-2026 UTC:** P04 cerrado mediante [PEZ 01](pez-correccion/README.md) / PR #526. Nueve correspondencias SET aplicadas y verificadas, costos9/9 y alcance conservado. Las menciones de vinculacion pendiente debajo son historia de la investigacion. Valoracion/medidas se siguen en P13.
+
 # Quick wins de Orbit — 4-nov-2026
 
 Trabajo solicitado por el dueño con GPT Sol. Tres tareas ejecutadas por
@@ -54,11 +56,16 @@ externo parcial: 48 cruces en 7 entidades y 62/62 filas externas iguales; ningun
 cohorte acredita revision completa a +10d y el contrafactual mantiene unknown.
 El gate economico sigue incompleto; no se inicio sombra ni se activo nada.
 
-[PEZ](pez-fuente/reporte.md) se conserva como producto comercial. Nueve SKU
-exactos en MeLi; tres registros archivados/costo 0 por SKU en Odoo. Se requiere
-referencia/receta/costo vigente o mapeo exacto respaldado. Candidatos Solo Arras
-no equivalen por nombre. No hay lote financiero preparado ni escrituras.
-La fuente faltante se pregunto al dueño; confirmar venta ya esta resuelto.
+[PEZ](pez-fuente/reporte.md) se conserva como producto comercial. La
+[revision de BOM y componentes](pez-bom/README.md) corrige la conclusion
+anterior: si existen recetas y componentes con costo. Los nueve SKU exactos
+de MeLi llevan a registros archivados y hay referencias PEZ activas bajo
+otros codigos. Falta resolver la correspondencia con la receta vigente y
+la sincronizacion del costo; no corresponde pedir al dueño una receta por
+haber observado costo final cero. El chatter/tracking consultado no acredita el motivo
+del archivo. No hay lote financiero preparado ni escrituras productivas.
 
-La [revision independiente GPT-6.1 Sol](revision-c6-pez-sol.md) aprobo la evidencia con esos limites.
-El cero observado en Odoo se conserva; costo utilizable sin respaldo=None.
+La [revision independiente GPT-6.1 Sol](revision-c6-pez-sol.md) corresponde a
+la investigacion inicial. La trazabilidad BOM posterior sustituye su
+conclusion de fuente faltante para PEZ. El costo final cero observado se
+conserva separado del costo material calculado desde componentes.
