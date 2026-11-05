@@ -65,7 +65,7 @@ fi
 
 echo "== 1) claves a su valor previo (primera CLAVE= por clave)"
 VISTOS=" "
-while IFS= read -r linea; do
+while IFS= read -r linea <&3; do
   [ -n "$linea" ] || continue
   resto=${linea#CLAVE=}
   clave=${resto%%:*}
@@ -82,7 +82,7 @@ while IFS= read -r linea; do
   }
   echo "$clave: '${actual:-<vacio>}' -> '${previa:-<vacio>}'"
   corre_en_contenedor $cmd || no_pudo "regresar $clave via productos-modo"
-done < <(printf '%s\n' "$L" | grep '^CLAVE=' || true)
+done 3< <(printf '%s\n' "$L" | grep '^CLAVE=' || true)
 
 echo "== 2) archivos de predeploy con rebuild y /health"
 STAMP_PRE=$(printf '%s\n' "$L" | primero_de CODIGO)

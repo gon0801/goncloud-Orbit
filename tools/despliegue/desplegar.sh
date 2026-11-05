@@ -224,7 +224,7 @@ converge_claves() {
   a=$(claves_de_sha "$previo")
   b=$(claves_de_sha "$MOTOR_SHA")
   echo "== 6) claves de interruptores.env frente a SHA_PREVIO=${previo:-<vacio>}"
-  while IFS= read -r linea; do
+  while IFS= read -r linea <&3; do
     [ -n "$linea" ] || continue
     case "$linea" in *=*) ;; *) continue ;; esac
     clave=${linea%%=*}
@@ -247,7 +247,7 @@ converge_claves() {
       aborta "la clave $clave no es del motor de productos y no tiene camino por productos-modo"
     echo "clave $clave: '$previo_vigente' -> '$valor'"
     corre_en_contenedor $cmd
-  done < <(printf '%s\n' "$b" | grep -v '^$' || true)
+  done 3< <(printf '%s\n' "$b" | grep -v '^$' || true)
 }
 
 # ---------------------------------------------------------------------------

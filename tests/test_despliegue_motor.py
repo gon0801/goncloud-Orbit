@@ -223,8 +223,10 @@ def _git(clon: Path, *args: str) -> str:
     return salida.stdout.strip()
 
 
-@pytest.fixture(scope="module")
-def banco():
+def _montar_banco():
+    """Monta banco de pruebas (base desechable + clon con commits + falsos).
+
+    Rinde el dict del banco; el llamador limpia con _limpiar_banco()."""
     dsn = _test_dsn()
     nombre_db = f"despliegue_motor_{socket.gethostname().lower()}_{os.getpid()}"
     admin = psycopg.connect(dsn, autocommit=True)
@@ -320,6 +322,7 @@ def banco():
         "conn": conn,
         "admin": admin,
         "dsn_db": dsn_db,
+        "nombre_db": nombre_db,
         "base_sha": base_sha,
         "c2": c2,
         "c3": c3,
@@ -327,13 +330,25 @@ def banco():
         "c5": c5,
         "c6": c6,
     }
-    yield datos
-    conn.close()
-    admin.execute(
-        pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(nombre_db))
+    return datos
+
+
+def _limpiar_banco(banco) -> None:
+    banco["conn"].close()
+    banco["admin"].execute(
+        pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(
+            pgsql.Identifier(banco["nombre_db"])
+        )
     )
-    admin.close()
-    shutil.rmtree(base, ignore_errors=True)
+    banco["admin"].close()
+    shutil.rmtree(banco["base"], ignore_errors=True)
+
+
+@pytest.fixture(scope="module")
+def banco():
+    datos = _montar_banco()
+    yield datos
+    _limpiar_banco(datos)
 
 
 # ---------------------------------------------------------------------------
@@ -376,13 +391,26 @@ def _limpia_falsos(banco) -> None:
         (banco["falsos"] / nombre).unlink(missing_ok=True)
 
 
+def _ruta_bash(ruta: Path) -> str:
+    # Los scripts corren en bash: en Windows, cygpath les da la forma POSIX
+    # (tar de msys rechaza C:\\... y tar la lee como host remoto).
+    if os.name != "nt":
+        return str(ruta)
+    salida = subprocess.run(
+        ["cygpath", "-u", str(ruta)], capture_output=True, text=True
+    )
+    if salida.returncode == 0 and salida.stdout.strip():
+        return salida.stdout.strip()
+    return str(ruta)
+
+
 def _entorno(banco, *, espera: str = "600", extra: dict | None = None) -> dict:
     env = dict(os.environ)
     env["ORBIT_SIMULACION"] = "1"
     env["ORBIT_SIM_DSN"] = banco["dsn_db"]
-    env["ORBIT_SRV"] = str(banco["srv"])
-    env["ORBIT_FAKE_LOG"] = str(banco["log"])
-    env["ORBIT_FAKE_DIR"] = str(banco["falsos"])
+    env["ORBIT_SRV"] = _ruta_bash(banco["srv"])
+    env["ORBIT_FAKE_LOG"] = _ruta_bash(banco["log"])
+    env["ORBIT_FAKE_DIR"] = _ruta_bash(banco["falsos"])
     env["AUTO03_ESPERA_S"] = espera
     env["PATH"] = f"{banco['falsos']}{os.pathsep}{env['PATH']}"
     env.pop("MOTOR_SHA", None)

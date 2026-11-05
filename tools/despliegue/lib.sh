@@ -204,10 +204,12 @@ clave_a_cli() { # clave_a_cli <clave> <valor> -> args de productos-modo; 1 si la
   esac
 }
 corre_en_contenedor() { # corre_en_contenedor <args de docker> (dentro de orbit-app-1)
+  # Con la stdin cerrada: un ssh o un docker dentro de un bucle `while read`
+  # drenaria la entrada del bucle y se comeria el resto de las lineas.
   if [ "$SIM" = 1 ]; then
-    docker "$@"
+    docker "$@" </dev/null
   else
-    ssh goncloud "docker $*"
+    ssh -n goncloud "docker $*"
   fi
 }
 
