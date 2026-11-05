@@ -10,13 +10,21 @@
 --      observadas; clics >= cortes.F_PAUSE (100) y gasto >= bid.PAUSE_COST_MIN
 --      (500 MXN / 40 USD). La etapa 6 NO exige margen: la pausa no lo usa
 --      (sintesis del plan: los productos sin margen medible tambien entran).
---    - Halo/meta (S7): [D-90, max(metric_date)-3], con la ultima observacion
---      por (asin, sku, fecha), sumando solo fechas con fila.
+--    - Halo/meta (S7): [D-90, max(metric_date)-3] AMBOS INCLUSIVE (mismo
+--      limite que fin_ventana_bids), con la ultima observacion por
+--      (asin, sku, fecha), sumando solo fechas con fila; sin madurez exigida
+--      (S7: el tramo corto se acepta sin madurez y con motivo).
+--    - Madurez de la pausa (spec §Atribucion y madurez): cada fecha de
+--      [D-60, D-30) exige SU reobservacion, patron _fecha_madura de
+--      evaluacion_catalogo: observed_at >= fecha + 30 dias (UTC); el maximo
+--      global de observed_at no vale.
 --    - Cobertura (sustituto_sin_d7): antes de D.7 no hay rango pedido
 --      guardado; una fecha cuenta cubierta si una corrida written del
 --      reporte de productos, cuya ventana por omision es D-31..D-1 respecto
---      a su inicio, la contiene. Esa corrida empezo cuando la fecha ya era
---      madura (inicio >= fecha+31), asi que el sustituto cubre madurez.
+--      a su inicio, la contiene. El sustituto acredita COBERTURA, no
+--      madurez: la madurez se valida por fila con observed_at (bloque
+--      anterior), asi que una corrida que empezo cuando la fecha era
+--      inmadura no la hace candidata por si sola.
 --    - Identidad (S5): la fila Ads se liga al producto por ASIN (listing) y
 --      se exige advertised_sku = listing.seller_sku.
 --    - Meta (S1): gana el goal de campana con target no nulo; etapa 4 mide
@@ -50,8 +58,11 @@ colapso AS (
 ),
 
 -- S5: la fila se liga al producto por ASIN y se exige el SKU del listing.
+-- Conserva observed_at (la observacion colapsada, la mas reciente): la
+-- madurez de cada fecha se valida contra ella, no contra el maximo global.
 filas AS (
     SELECT c.platform, c.advertised_asin, c.advertised_sku, c.metric_date,
+           c.observed_at,
            c.clicks, c.cost, c.purchases30d, c.sales30d,
            c.attributed_sales_same_sku_30d, c.ad_ids,
            li.product_id,
@@ -124,7 +135,8 @@ campanas_exclusivas AS (
      WHERE ag.parent_id IS NOT NULL
 ),
 goal_resuelto AS (
-    SELECT ce.campana_id, ce.platform, gc.target_acos_pct, gc.enabled, gc.mode
+    SELECT ce.campana_id, ce.platform,
+           r.target_acos_pct, r.enabled, r.mode
       FROM campanas_exclusivas ce
       LEFT JOIN ads_optimizer_goal gc
              ON gc.scope = 'campaign' AND gc.ad_entity_id = ce.campana_id
@@ -160,9 +172,11 @@ etapa5 AS (
       JOIN halo_ventana h ON h.platform = f.platform
       CROSS JOIN params p
      WHERE f.metric_date >= p.hoy - 90
-       AND f.metric_date <  h.max_fecha - 3
+       AND f.metric_date <= h.max_fecha - 3
      GROUP BY f.platform, f.product_id
     HAVING bool_and(f.sku_coincide)
+       AND bool_and(f.sales30d IS NOT NULL
+                    AND f.attributed_sales_same_sku_30d IS NOT NULL)
        AND SUM(f.sales30d) = SUM(f.attributed_sales_same_sku_30d)
 ),
 
@@ -201,10 +215,13 @@ cobertura_completa AS (
 ),
 
 -- (6) Candidatos a pausa: ventana [D-60, D-30) completa segun el sustituto,
--- compras y ventas totales en 0 observadas (suma con veneno: un NULL deja
--- el producto fuera), clics >= 100, gasto >= piso (500 MXN / 40 USD),
--- sin fila de otro SKU en el ASIN (bool_and sku_coincide) y con product
--- ads identificados. El EXISTS de anuncios NO multiplica las sumas.
+-- compras y ventas totales en 0 observadas (suma con veneno: un NULL en una
+-- metrica deja el producto fuera, patron _suma), madurez POR FECHA (la
+-- observacion colapsada de cada fecha trajo observed_at >= fecha+30, patron
+-- _fecha_madura; el sustituto de cobertura no la acredita), clics >= 100,
+-- gasto >= piso (500 MXN / 40 USD), sin fila de otro SKU en el ASIN
+-- (bool_and sku_coincide) y con product ads identificados. El EXISTS de
+-- anuncios NO multiplica las sumas.
 candidatos_pausa AS (
     SELECT f.platform, f.product_id
       FROM filas f
@@ -217,7 +234,11 @@ candidatos_pausa AS (
            SELECT 1 FROM anuncios_identificados a
             WHERE a.platform = f.platform AND a.product_id = f.product_id)
      GROUP BY f.platform, f.product_id
-    HAVING SUM(f.purchases30d) = 0
+    HAVING bool_and(f.purchases30d IS NOT NULL AND f.sales30d IS NOT NULL
+                    AND f.clicks IS NOT NULL AND f.cost IS NOT NULL)
+       AND bool_and(f.observed_at
+                    >= ((f.metric_date + 30)::timestamp AT TIME ZONE 'UTC'))
+       AND SUM(f.purchases30d) = 0
        AND SUM(f.sales30d) = 0
        AND SUM(f.clicks) >= 100
        AND SUM(f.cost) >= CASE f.platform
@@ -324,7 +345,7 @@ hecho_sku_distinto AS (
     SELECT f.platform,
            count(*) FILTER (WHERE NOT f.sku_coincide) AS filas_malas,
            count(DISTINCT f.product_id) FILTER (WHERE NOT f.sku_coincide) AS productos_malos,
-           count(*) > 0 AS hay
+           count(*) FILTER (WHERE NOT f.sku_coincide) > 0 AS hay
       FROM filas f
      GROUP BY f.platform
 ),

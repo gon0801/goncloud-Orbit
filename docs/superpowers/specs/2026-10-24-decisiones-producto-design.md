@@ -215,6 +215,8 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
 
+from app.optimizer import goals  # MedicionMargen vive en goals (app/optimizer/goals.py)
+
 Plataforma = Literal["amazon_mx", "amazon_us"]
 Moneda = Literal["MXN", "USD"]
 
@@ -279,7 +281,7 @@ class GrupoAptoParaMeta:
 class EntradaProducto:
     producto: Producto
     decidido_el: datetime
-    margen: MargenMedido | SinDato
+    margen: goals.MedicionMargen | SinDato
     actividad: AdsCompletos | SinDato
     fraccion: Decimal | SinDato
     piso_pausa: Dinero
