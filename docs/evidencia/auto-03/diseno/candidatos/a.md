@@ -10,6 +10,14 @@ por producto sin abrir otra cascada, otro aplicador ni un presupuesto ficticio p
 
 ## Uso (vista del llamador)
 
+> **Aclaracion 2026-11-04:** este candidato conserva el boceto historico, no una API
+> ejecutable ni la alternativa final adoptada. `cascada_target_acos` vigente acepta cinco
+> argumentos; el sexto del ejemplo representa una extension propuesta. El
+> [diseno sintetizado](../../../../superpowers/specs/2026-10-24-decisiones-producto-design.md)
+> propone extender `cascada_target_acos_con_procedencia` con `target_margen_producto`.
+> Su implementacion debe migrar tambien `peldano_target_acos` y los llamadores de negativos
+> para conservar una sola precedencia y congelar el mismo valor y procedencia.
+
 El ciclo carga una vez los insumos en TX2 y llama una sola interfaz pura:
 
 ```python
@@ -239,10 +247,21 @@ TX2 snapshot -> resolver -> evaluacion + decision (TX3) -> apply_queue[pending_v
                              -> retiro sellado -> applied
 ```
 
-La reversa existe antes del primer live: `retiro_anuncios.repone(retiro_id)` restaura el estado
-previo y es idempotente por `anuncio_reposicion`. No hay auto-retorno temporal: un anuncio
-pausado deja de producir señal y David no ha aprobado un plazo de reactivacion. Reponer es manual
-o una futura politica explicita; el veto y la reversa nunca desactivan el listing.
+La reversa debe existir antes del primer live. La firma vigente es
+`retiro_anuncios.repone(conn, retiro_ids=(retiro_id,), go=go)`; exige el literal del dueno,
+consume retiros sellados y es idempotente por `anuncio_reposicion`. AUTO-03 debe limitar el
+llamador a retiros propios confirmados, sin adoptar una pausa ajena como propia, y conservar
+la exclusion bajo la llave `retiro-ad:<id>` de la entidad.
+
+> **Aclaracion 2026-11-04:** hoy `_repone_uno` recrea un anuncio `ARCHIVED`. Evitarlo en
+> AUTO-03 es una guarda propuesta que debe quedar implementada antes de habilitar este
+> llamador: bajo la misma llave, comprobar el estado y devolver `requiere_recreacion` antes
+> de llamar al camino que recrea. Ese resultado no existe hoy en `repone`. Crear otro anuncio
+> requiere una autorizacion distinta; autorizar una reposicion no autoriza esa creacion.
+
+No hay auto-retorno temporal: un anuncio pausado deja de producir señal y David no ha aprobado
+un plazo de reactivacion. Reponer es manual o una futura politica explicita; el veto y la reversa
+nunca desactivan el listing.
 
 ## Synthesis decision
 

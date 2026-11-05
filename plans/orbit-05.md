@@ -1,7 +1,7 @@
 # ORBIT 05 — cutover: el motor pasa a LIVE con rampa
 
 > **Estado vigente: CERRADO 2026-10-01.** Las tareas 2.3 y 2.5 tienen evidencia en sus filas. AUTO-01 ya no es pendiente; el harvest por grupo es FABRICA 02 D.3 (ROADMAP P02).
-
+>
 > **Propósito**: primera vez que Orbit aplica decisiones reales sin probe.
 > Es un runbook con candados, no código nuevo (salvo lo que el preflight ya
 > dejó). Fuente de verdad del orden: `docs/APPLY.md` §12 (ítems 4-10);
