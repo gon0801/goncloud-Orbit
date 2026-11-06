@@ -30,3 +30,6 @@ out/
 # graphify: el grafo completo se regenera local (graphify . --code-only); no se versiona
 graphify-out/graph.json
 graphify-out/cache/
+
+# interno del encargo (contexto, evidencia, buzon): jamas se entrega
+.interno/
