@@ -873,7 +873,7 @@ def test_j_cortes_en_5_y_en_6_se_reanudan_y_rollback_deja_igual(banco):
     assert corrida.returncode != 0, "el corte en (5) debio abortar el despliegue"
     assert _cuenta_lineas(banco, "CODIGO") == 1
     assert _sha_srv(banco) == banco["base_sha"], "el sha no debio escribirse antes del compose"
-    (banco["falsos"] / "docker-rc").unlink()
+    (banco["falsos"] / "docker-rc").unlink(missing_ok=True)
     reanuda = _despliega(banco, banco["c2"])
     assert reanuda.returncode == 0, reanuda.stdout + reanuda.stderr
     assert _cuenta_lineas(banco, "CODIGO") == 1, "la reanudacion no debe repetir el respaldo"
