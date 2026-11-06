@@ -529,13 +529,16 @@ def _config(banco) -> dict:
 
 
 def _huella_srv(banco) -> str:
+    # Sin despliegue/: el journal, el sha y los respaldos predeploy cambian
+    # por diseno en cada corrida; el codigo y la raiz son lo que se restaura.
     huellas = []
     for ruta in sorted(banco["srv"].rglob("*")):
-        if ruta.is_file():
-            huellas.append(
-                f"{ruta.relative_to(banco['srv']).as_posix()}="
-                f"{hashlib.md5(ruta.read_bytes()).hexdigest()}"
-            )
+        if not ruta.is_file() or "despliegue" in ruta.relative_to(banco["srv"]).parts:
+            continue
+        huellas.append(
+            f"{ruta.relative_to(banco['srv']).as_posix()}="
+            f"{hashlib.md5(ruta.read_bytes()).hexdigest()}"
+        )
     return "\n".join(huellas)
 
 
@@ -1027,31 +1030,42 @@ def test_n_rollback_cortado_se_reanuda(banco):
     _toque_config(banco, "ads_producto_meta_amazon_mx", "live")
     assert _checklist(banco, banco["c2"]).returncode != 0
 
-    (banco["falsos"] / "docker-lento").write_text("1", encoding="utf-8")
-    env = _entorno(banco)
-    env["MOTOR_SHA"] = banco["c2"]
-    proceso = subprocess.Popen(
-        ["bash", "tools/despliegue/rollback.sh"],
-        cwd=str(banco["clon"]),
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
-    fin = time.monotonic() + 90
-    while time.monotonic() < fin:
-        log = banco["log"].read_text(encoding="utf-8")
-        if "revirtiendo" in "\n".join(_ultimo(banco)) and "productos-modo" in log:
-            break
-        if proceso.poll() is not None:
-            break
-        time.sleep(0.5)
-    proceso.kill()
-    proceso.wait(timeout=30)
-    (banco["falsos"] / "docker-lento").unlink()
-    assert _valor_ultimo(banco, "ESTADO") == "revirtiendo", "\n".join(_ultimo(banco))
+    if os.name == "nt":
+        # En Windows matar el bash de msys no mata el script (fork de cygwin):
+        # el corte a la mitad se provoca con una restauracion que falla una
+        # vez; deja el diario en rollback_incompleto y es reanudable igual.
+        (banco["falsos"] / "docker-rc-una").write_text("1", encoding="utf-8")
+        incompleta = _rollback(banco, banco["c2"])
+        assert incompleta.returncode != 0
+        assert _valor_ultimo(banco, "ESTADO") == "rollback_incompleto"
+    else:
+        (banco["falsos"] / "docker-lento").write_text("1", encoding="utf-8")
+        env = _entorno(banco)
+        env["MOTOR_SHA"] = banco["c2"]
+        proceso = subprocess.Popen(
+            ["bash", "tools/despliegue/rollback.sh"],
+            cwd=str(banco["clon"]),
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        fin = time.monotonic() + 90
+        while time.monotonic() < fin:
+            log = banco["log"].read_text(encoding="utf-8")
+            if "revirtiendo" in "\n".join(_ultimo(banco)) and "productos-modo" in log:
+                break
+            if proceso.poll() is not None:
+                break
+            time.sleep(0.5)
+        proceso.kill()
+        proceso.wait(timeout=30)
+        (banco["falsos"] / "docker-lento").unlink()
+        assert _valor_ultimo(banco, "ESTADO") == "revirtiendo", "\n".join(_ultimo(banco))
     cortado = _despliega(banco, banco["c2"])
-    assert cortado.returncode == 1, "desplegar debe negarse mientras hay una reversa pendiente"
+    assert cortado.returncode == 1, (
+        "desplegar debe negarse mientras hay una reversa pendiente"
+    )
     completa = _rollback(banco, banco["c2"])
     assert _valor_ultimo(banco, "ESTADO") == "revertido", "\n".join(_ultimo(banco))
     assert _huella_srv(banco) == srv_antes
