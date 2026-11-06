@@ -139,12 +139,17 @@ case "$comando" in
     bash -c "$comando"
     exit $?
     ;;
-  *"cat >"*|*"cat >>"*|*"mkdir -p"*|*"rm -f"*|*"cat '"*)
+  *"md5sum"*)
+    bash -c "$comando"
+    exit $?
+    ;;
+  *"cat >"*|*"cat >>"*|*"mkdir -p"*|*"rm -f"*|*"cat '"*|*"rm -rf"*|*"tar -xf"*)
     bash -c "$comando"
     exit $?
     ;;
   *"productos-modo"*)
-    exec "$DIR/docker" "$comando"
+    # Sin comillas: el docker falso parsea las opciones palabra por palabra.
+    exec "$DIR/docker" $comando
     ;;
   *"docker top orbit-app-1"*)
     [ -f "$DIR/top.txt" ] && cat "$DIR/top.txt"
@@ -160,6 +165,9 @@ case "$comando" in
     exit 0
     ;;
 esac
+# Por omision DRENA la stdin antes de salir: un emisor en pipeline (git
+# archive | ssh 'tar -xf -') se bloquearia para siempre si nadie la lee.
+cat >/dev/null 2>/dev/null
 exit 0
 """
 
@@ -1372,7 +1380,10 @@ def test_p_candado_ocupado_espera_y_sale_75(banco):
         assert _valor_ultimo(banco, "ESTADO") == "verificado"
         # el compose debe correr dentro del proyecto de Orbit (h_8f01a903)
         log = banco["log"].read_text(encoding="utf-8")
-        assert f"cd {_ruta_bash(banco['srv'])} && docker compose up" in log, (
+        volcado = os.path.join(os.path.dirname(__file__), "..", ".interno", "log-p.txt")
+        with open(volcado, "w", encoding="utf-8", newline="\n") as f:
+            f.write(log)
+        assert f"cd '{_ruta_bash(banco['srv'])}' && docker compose up" in log, (
             "el rebuild debe seleccionar el proyecto Compose de Orbit"
         )
 
