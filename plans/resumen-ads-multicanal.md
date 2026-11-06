@@ -1,6 +1,6 @@
 # Plan de Resumen Ads multicanal
 
-> **Estado al 5-nov-2026: fases 01/02/03/04 integradas y archivos principales desplegados.** Ingesta inicial exitosa y cron/script correctos. Hasta 3-nov: 808/808 filas iguales; 4-nov tiene dos diferencias por fuente posterior (+13.47 MXN). P01 sigue abierto. Comprobación RO **job 10, 5-nov 09:00 UTC**, posterior al cron 08:15, con misma huella/as-of y conciliación. [Seguimiento instalado](../docs/evidencia/quick-wins-2026-11-04/seguimiento-meli/LEEME.md).
+> **Estado al 5-nov-2026: fases 01/02/03/04 integradas y archivos principales desplegados.** Ingesta inicial exitosa y cron/script correctos. Hasta 3-nov: 808/808 filas iguales; 4-nov tiene dos diferencias por fuente posterior (+13.47 MXN). **P01 CERRADO, 5-nov-2026 09:00 UTC:** el job 10 (lectura RO) dio `estado=OK`: corrida 1374 del cron 08:15 exitosa con la misma huella/as-of del snapshot, conciliación 812/812 filas y 203/203 días sin diferencias, T+0 4/4; la diferencia del 4-nov quedó absorbida. [Resultado](../docs/evidencia/quick-wins-2026-11-04/seguimiento-meli/resultado-job10-20261105T090000Z.json), [seguimiento](../docs/evidencia/quick-wins-2026-11-04/seguimiento-meli/LEEME.md).
 
 **Objetivo.** Convertir `/` en un resumen de publicidad con periodos configurables, comparación y tendencias legibles para Amazon MX, Amazon US y Mercado Libre.
 

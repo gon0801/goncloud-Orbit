@@ -3,7 +3,7 @@
 **Instalado y programado:** job 10, **5-nov-2026 09:00 UTC** (01:00 America/Vancouver).
 Hashes y permisos en `instalacion-hashes.json`; fecha, comando y conservación del job 8
 en `programacion.json`. Prueba del archivo instalado: `smoke-instalado.json`, PENDIENTE/exit 3.
-La ejecución futura todavía no ocurrió; P01 sigue abierto.
+El job 10 corrió el 5-nov-2026 09:00 UTC con `estado=OK`: **P01 cerrado** (detalle abajo).
 
 ## Resultado del job 10 (5-nov-2026 09:00 UTC) — P01 CERRADO
 
