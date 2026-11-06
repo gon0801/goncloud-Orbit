@@ -838,6 +838,10 @@ def test_i_sha_contenido_sin_cambios(banco):
     _limpia_falsos(banco)
     _siembra_srv(banco, banco["base_sha"])
     assert _despliega(banco, banco["c2"]).returncode == 0
+    assert _checklist(banco, banco["c2"]).returncode == 0, (
+        "sin el checklist verde el diario queda no terminal y el desplegador"
+        " se negaria a otro SHA"
+    )
     config_antes = _config(banco)
     claves_antes = _cuenta_lineas(banco, "CLAVE")
     corrida = _despliega(banco, banco["base_sha"])
