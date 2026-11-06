@@ -155,32 +155,23 @@ def test_paginas_siguen_200_con_data_pantalla(monkeypatch):
     assert 'id="btn-tema"' in html_decisiones
 
 
-def test_css_campanas_apila_tabla_en_40rem():
-    css = (_RAIZ / "static" / "css" / "dashboard.css").read_text(encoding="utf-8")
-    assert 'body[data-pantalla="campanas"]' in css
+def test_css_campanas_hace_scroll_horizontal_en_40rem():
+    """En movil la tabla scrollea dentro de su caja. No se apilan las celdas."""
+    dashboard = (_RAIZ / "static" / "css" / "dashboard.css").read_text(encoding="utf-8")
+    campanas = (_RAIZ / "static" / "css" / "campanas.css").read_text(encoding="utf-8")
+    assert 'body[data-pantalla="campanas"] table,' not in dashboard
+    assert 'body[data-pantalla="campanas"] thead' not in dashboard
+    assert "overflow-x: auto" in campanas
+    assert "min-width: 1100px" in campanas
     bloques = re.findall(
         r"@media\s*\(\s*max-width:\s*40rem\s*\)\s*\{(?:[^{}]|\{[^{}]*\})*\}",
-        css,
+        campanas,
     )
-    campanas = [b for b in bloques if 'body[data-pantalla="campanas"]' in b]
-    assert campanas, "falta el bloque 40rem acotado a campanas"
-    bloque = campanas[0]
-    assert re.search(
-        r"body\[data-pantalla=\"campanas\"\]\s+table,"
-        r"\s*body\[data-pantalla=\"campanas\"\]\s+thead,"
-        r"\s*body\[data-pantalla=\"campanas\"\]\s+tbody,"
-        r"\s*body\[data-pantalla=\"campanas\"\]\s+tr,"
-        r"\s*body\[data-pantalla=\"campanas\"\]\s+th,"
-        r"\s*body\[data-pantalla=\"campanas\"\]\s+td\s*\{"
-        r"\s*display:\s*block",
-        bloque,
-    )
-    assert re.search(
-        r"body\[data-pantalla=\"campanas\"\]\s+thead tr\s*\{"
-        r"\s*display:\s*flex;\s*flex-wrap:\s*wrap",
-        bloque,
-    )
-    assert re.search(r"td\.num\s*\{\s*text-align:\s*left", bloque)
+    assert bloques, "falta el bloque 40rem de campanas"
+    bloque = bloques[0]
+    assert "overflow-x: auto" in bloque
+    assert "min-width: 1100px" in bloque
+    assert "display: block" not in bloque
     assert re.search(
         r"\.filtros input,\s*"
         r"body\[data-pantalla=\"campanas\"\]\s+\.filtros select\s*\{"

@@ -20,7 +20,7 @@
 <body data-pantalla="{{ pantalla }}">
   {% set paginas = {
     'resumen': ('Resumen', 'Publicidad por canal · periodo a elegir, dia en curso excluido'),
-    'campanas': ('Campañas', 'Metricas 30d y target efectivo con su procedencia'),
+    'campanas': ('Campañas', 'Métricas 30d y target efectivo con procedencia'),
     'decisiones': ('Decisiones', 'Solo entidades que decidieron · una fila por decision'),
     'salud': ('Salud', 'Ultimo ciclo, historico 14d, quota y skips'),
     'contribucion': ('Contribucion', 'Rango pre-cargos · 90d maduros con vintage D-15 UTC'),
@@ -89,6 +89,7 @@
     <header class="pagina-header">
       <div><h1>{{ paginas[pantalla][0] }}</h1><p>{{ paginas[pantalla][1] }}</p></div>
       <div class="header-acciones">
+        {% block cabecera_accion %}{% endblock %}
         <span id="watermark-resumen" class="chip-watermark">Watermark: sin consultar</span>
         <span class="alcance">{% if pantalla == 'resumen' %}Amazon MX · Amazon US · Mercado Libre{% else %}Amazon MX · Amazon US{% endif %}</span>
         <button type="button" id="btn-tema" aria-pressed="false">Tema: dia</button>
