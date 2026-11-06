@@ -735,6 +735,11 @@ def test_e_guarda_ocupada_sale_75_sin_cambios(banco):
 
 @skip
 def test_f_sonda_semantica(banco):
+    # La config del banco acumula claves de los escenarios previos: la sonda
+    # base exige una config sin claves ads_producto_*, como la de produccion.
+    banco["conn"].execute(
+        "INSERT INTO config_version (label, settings) VALUES ('banco (limpia)', '{}')"
+    )
     sondas = banco["clon"] / "tools" / "auto03" / "sondas"
     sondas.mkdir(parents=True, exist_ok=True)
     (sondas / "prueba_bien.sql").write_text("SELECT 't' || '|ok';\n", encoding="utf-8")
