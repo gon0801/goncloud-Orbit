@@ -1,13 +1,61 @@
 {% extends "base.html" %}
+{% block estilos %}
+<link rel="stylesheet" href="/static/css/campanas.css?v={{ asset_version }}">
+{% endblock %}
+{% block cabecera_accion %}
+<a class="btn-crear" href="/campanas/nuevas">Crear campañas</a>
+{% endblock %}
 {% block contenido %}
-<h2>Campañas — metricas 30d y target efectivo con procedencia</h2>
-<p><a href="/campanas/nuevas">Crear campañas</a></p>
-<p class="mutado">La ventana 30d incluye siempre dias inmaduros (D-8..D-1):
-   los totales y el ACoS aun maduran.</p>
-<div class="tarjeta">
+<p class="aviso-inmaduro">La ventana 30d incluye siempre días inmaduros (D-8..D-1): los totales y el ACoS aún maduran.</p>
+
+<section class="bloque-targets" aria-labelledby="h-plat">
+  <div class="seccion-cabeza">
+    <h2 id="h-plat">Campañas contra su target</h2>
+    <span class="mutado">Suma de las campañas de esta tabla · ventana 30d</span>
+  </div>
+  <div class="rejilla-plataformas">
+    {% for tarjeta in presentacion.tarjetas %}
+    <article class="tarjeta-plataforma">
+      <div class="tarjeta-cabeza">
+        <h3>{{ tarjeta.etiqueta }} <span class="cifra tarjeta-meta">{{ tarjeta.moneda }} · {{ tarjeta.n }} campañas</span></h3>
+        <span class="cifra target-plataforma">Target efectivo {{ tarjeta.target }}</span>
+      </div>
+      <dl class="metricas-plataforma">
+        <div><dt>ACoS</dt><dd class="cifra acos-tarjeta acos-tarjeta-{{ tarjeta.acos_tono }}">{{ tarjeta.acos }}</dd></div>
+        <div><dt>Cost (30d)</dt><dd class="cifra">{{ tarjeta.cost }}</dd></div>
+        <div><dt>Revenue Ads (30d)</dt><dd class="cifra">{{ tarjeta.revenue }}</dd></div>
+        <div><dt>Clicks</dt><dd class="cifra">{{ tarjeta.clicks }}</dd></div>
+      </dl>
+      <div class="barra-bloque">
+        <div class="barra" aria-hidden="true">
+          {% for unidad in tarjeta.unidades %}<span class="barra-u barra-{{ unidad }}"></span>{% endfor %}
+        </div>
+        <ul class="leyenda-estados">
+          {% for segmento in tarjeta.segmentos %}
+          <li><span class="punto punto-{{ segmento.clave }}" aria-hidden="true"></span>{{ segmento.etiqueta }} <span class="cifra">{{ segmento.n }}</span></li>
+          {% endfor %}
+        </ul>
+      </div>
+      <p class="frase-plataforma">{{ tarjeta.frase }}</p>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="lista-campanas" aria-labelledby="h-lista">
+  <div class="lista-cabeza">
+    <h2 id="h-lista">Lista de campañas</h2>
+    <div role="tablist" aria-label="Vista rápida">
+      {% for pestana in presentacion.pestanas %}
+      <a role="tab" href="{{ pestana.href }}" aria-selected="{{ 'true' if pestana.activa else 'false' }}">{{ pestana.etiqueta }} <span class="cifra">{{ pestana.n }}</span></a>
+      {% endfor %}
+    </div>
+  </div>
+
   <form class="filtros" method="get" action="/campanas">
     {% if vista.ordenar %}<input type="hidden" name="ordenar" value="{{ vista.ordenar }}">{% endif %}
     {% if vista.dir %}<input type="hidden" name="dir" value="{{ vista.dir }}">{% endif %}
+    {% if vista.vista_rapida != "todas" %}<input type="hidden" name="vista" value="{{ vista.vista_rapida }}">{% endif %}
     <label>Plataforma
       <select name="plataforma">
         <option value="">todas</option>
@@ -38,7 +86,7 @@
     <button type="submit">Filtrar</button>
     {% if vista.activo %}<a href="{{ vista.href_limpiar }}">Limpiar</a>{% endif %}
     <details class="filtros-avanzados" {% if vista.filtros.cost or vista.filtros.revenue or vista.filtros.clicks or vista.filtros.acos or vista.filtros.target %}open{% endif %}>
-      <summary>Filtros por metricas</summary><div>
+      <summary>Filtros por métricas</summary><div>
     <label>Cost
       <input type="search" name="cost" value="{{ vista.filtros.cost or "" }}" placeholder="30d">
     </label>
@@ -57,8 +105,10 @@
       </div>
     </details>
   </form>
-  <p class="leyenda">{{ items | length }} campañas · ventana 30d incluye inmaduros</p>
-  <div class="tabla-scroll" role="region" aria-label="Tabla de datos" tabindex="0">
+
+  <p class="leyenda"><span class="cifra">{{ presentacion.mostradas }} de {{ presentacion.total }} campañas · ventana 30d incluye inmaduros</span><span>Clic en una columna para ordenar</span></p>
+
+  <div class="tabla-scroll" role="region" aria-label="Tabla de campañas" tabindex="0">
   <table>
     <thead>
       <tr>
@@ -74,8 +124,9 @@
       </tr>
     </thead>
     <tbody>
-      {% for item in items %}
-      <tr>
+      {% for fila in filas %}
+      {% set item = fila.item %}
+      <tr{% if fila.clase %} class="{{ fila.clase }}"{% endif %}>
         <td>{{ item.nombre or "—" }}
           {% if item.goal %}
           <div class="mutado">{{ item.goal.scope }} · {{ item.goal.mode }}
@@ -90,25 +141,25 @@
           {% else %}<span class="mutado">—</span>{% endif %}
         </td>
         <td>{{ item.plataforma }} · {{ item.moneda }}</td>
-        {# regla 3 en presentacion (hallazgo codex): `or "—"` pintaba el 0
-           como faltante; el cero ES dato — solo None es hueco #}
-        <td class="num">{% if item.metricas_30d.cost is none %}<span class="mutado">—</span>{% else %}{{ item.metricas_30d.cost | dinero_ui }}{% endif %}</td>
-        <td class="num">{% if item.metricas_30d.ad_revenue is none %}<span class="mutado">—</span>{% else %}{{ item.metricas_30d.ad_revenue | dinero_ui }}{% endif %}</td>
-        <td class="num">{% if item.metricas_30d.clicks is none %}<span class="mutado">—</span>{% else %}{{ item.metricas_30d.clicks }}{% endif %}</td>
-        <td class="num">
+        <td class="num">{% if item.metricas_30d.cost is none %}<span class="mutado">—</span>{% else %}{{ item.metricas_30d.cost | dinero_coma_ui }}{% endif %}</td>
+        <td class="num">{% if item.metricas_30d.ad_revenue is none %}<span class="mutado">—</span>{% else %}{{ item.metricas_30d.ad_revenue | dinero_coma_ui }}{% endif %}</td>
+        <td class="num">{% if item.metricas_30d.clicks is none %}<span class="mutado">—</span>{% else %}{{ item.metricas_30d.clicks | miles_ui }}{% endif %}</td>
+        <td class="num celda-acos">
           {% if item.metricas_30d.sin_ventas %}<span class="chip chip-sinventas">sin ventas</span>
-          {% elif item.metricas_30d.acos %}{{ item.metricas_30d.acos }}%
+          {% elif item.metricas_30d.acos %}<span class="acos{% if fila.estado %} acos-{{ fila.estado.clave }}{% endif %}">{{ item.metricas_30d.acos }}%</span>
           {% else %}<span class="mutado">—</span>{% endif %}
+          {% if fila.estado %}<span class="estado-etiqueta estado-{{ fila.estado.clave }}">{{ fila.estado.etiqueta }}</span>{% endif %}
         </td>
-        <td class="num">{% if item.target_efectivo is none %}<span class="mutado">sin target</span>{% else %}{{ item.target_efectivo.valor }}%{% endif %}</td>
-        <td>{% if item.target_efectivo is none %}<span class="mutado">sin target</span>{% else %}<span class="chip">{{ item.target_efectivo.peldano }}</span>{% endif %}</td>
+        <td class="num">{% if item.target_efectivo is none or item.target_efectivo.valor is none %}<span class="mutado">sin target</span>{% else %}{{ item.target_efectivo.valor }}%{% endif %}</td>
+        <td>{% if item.target_efectivo is none or item.target_efectivo.peldano is none %}<span class="mutado">sin target</span>{% else %}<span class="chip">{{ item.target_efectivo.peldano }}</span>{% endif %}</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
   </div>
-  {% if vista.activo and not items %}
+  {% if vista.activo and not filas %}
   <p class="mutado">Ninguna campaña coincide con el filtro.</p>
   {% endif %}
-</div>
+  <p class="nota-estados">Estado frente al target: “En target” = ACoS ≤ target efectivo · “Sobre target” = ACoS &gt; target efectivo (se muestra la diferencia en puntos) · “Gasto sin venta” = cost mayor a 0 sin revenue · “Sin actividad” = cost 0.</p>
+</section>
 {% endblock %}

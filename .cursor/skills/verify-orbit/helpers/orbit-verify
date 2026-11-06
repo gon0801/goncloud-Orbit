@@ -952,7 +952,7 @@ def cmd_drive_campanas(args: argparse.Namespace) -> None:
     checks = {
         "http_200": st == 200,
         "data-pantalla=campanas": 'data-pantalla="campanas"' in texto,
-        "h2_campanas": "Campañas — metricas 30d y target efectivo con procedencia" in texto,
+        "h2_campanas": "Campañas contra su target" in texto and "Lista de campañas" in texto,
         "nav_aria_current": 'href="/campanas"' in texto and 'aria-current="page"' in texto,
         "fila_campana_a": "Campana A" in texto,
         "chip_activa": "activa" in texto,
@@ -963,7 +963,9 @@ def cmd_drive_campanas(args: argparse.Namespace) -> None:
         "peldano_goal_plataforma": "goal_plataforma" in texto,
         "th_procedencia": "Procedencia" in texto,
         "enlace_crear": 'href="/campanas/nuevas"' in texto,
-        "filtros_avanzados": "Filtros por metricas" in texto,
+        "filtros_avanzados": "Filtros por métricas" in texto,
+        "vista_rapida": 'role="tablist"' in texto and "Vista rápida" in texto,
+        "aviso_inmaduros": "días inmaduros" in texto,
     }
 
     stj, _, rawj = _http(f"{base}/api/dashboard/campanas")

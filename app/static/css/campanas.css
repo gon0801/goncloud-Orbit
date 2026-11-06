@@ -1,0 +1,355 @@
+/* Campañas. Paleta del diseño en dia; de noche siguen las superficies de dashboard.css.
+   Sin hosts externos: la pila del sistema ocupa el lugar de Geist. */
+
+html[data-tema="dia"] body[data-pantalla="campanas"] {
+  background: #eef0f3;
+}
+html[data-tema="dia"] body[data-pantalla="campanas"] main {
+  color: #111827;
+}
+
+body[data-pantalla="campanas"] .cifra {
+  font-family: ui-monospace, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+a.btn-crear {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 18px;
+  border-radius: 8px;
+  background: #1d4ed8;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+}
+a.btn-crear::before {
+  content: "+";
+  font-size: 18px;
+  line-height: 1;
+  font-weight: 500;
+}
+a.btn-crear:hover {
+  background: #1e3a8a;
+  color: #ffffff;
+}
+
+.aviso-inmaduro {
+  margin: 0 0 22px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #92400e;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 10px;
+  padding: 10px 14px;
+}
+html[data-tema="noche"] body[data-pantalla="campanas"] .aviso-inmaduro {
+  color: var(--o-warn-tx);
+  background: var(--o-warn-bg);
+  border-color: var(--o-warn-bd);
+}
+
+.bloque-targets {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 22px;
+}
+.seccion-cabeza,
+.lista-cabeza,
+.tarjeta-cabeza {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px 16px;
+}
+body[data-pantalla="campanas"] h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+}
+body[data-pantalla="campanas"] h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+.tarjeta-meta {
+  font-size: 12px;
+  font-weight: 500;
+  color: #4b5563;
+}
+.target-plataforma {
+  font-size: 12px;
+  color: #374151;
+}
+html[data-tema="noche"] body[data-pantalla="campanas"] .tarjeta-meta,
+html[data-tema="noche"] body[data-pantalla="campanas"] .target-plataforma {
+  color: var(--o-ink2);
+}
+
+.rejilla-plataformas {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(460px, 100%), 1fr));
+  gap: 16px;
+}
+.tarjeta-plataforma,
+.lista-campanas {
+  background: var(--o-card);
+  border: 1px solid var(--o-borde);
+  border-radius: 12px;
+}
+.tarjeta-plataforma {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+html[data-tema="dia"] body[data-pantalla="campanas"] .tarjeta-plataforma,
+html[data-tema="dia"] body[data-pantalla="campanas"] .lista-campanas {
+  background: #ffffff;
+  border-color: #e5e7eb;
+}
+
+.metricas-plataforma {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+.metricas-plataforma div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.metricas-plataforma dt {
+  font-size: 11px;
+  color: #4b5563;
+}
+.metricas-plataforma dd {
+  margin: 0;
+  padding-top: 6px;
+  font-size: 16px;
+  font-weight: 600;
+}
+.metricas-plataforma .acos-tarjeta {
+  padding-top: 0;
+  font-size: 24px;
+  font-weight: 600;
+}
+.acos-tarjeta-en { color: #0f766e; }
+.acos-tarjeta-sobre { color: #b45309; }
+.acos-tarjeta-sinventas { color: #9a3412; }
+.acos-tarjeta-neutro { color: inherit; }
+
+.barra {
+  display: flex;
+  height: 10px;
+  border-radius: 5px;
+  overflow: hidden;
+  background: #f3f4f6;
+  gap: 2px;
+}
+.barra-u { flex: 1 1 0; min-width: 2px; }
+.barra-en { background: #14b8a6; }
+.barra-sobre { background: #f59e0b; }
+.barra-gasto { background: #c2410c; }
+.barra-sint { background: #9ca3af; }
+.barra-inactiva { background: #d1d5db; }
+html[data-tema="noche"] body[data-pantalla="campanas"] .barra {
+  background: var(--o-bg2);
+}
+.leyenda-estados {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  font-size: 12px;
+  color: #374151;
+}
+.leyenda-estados li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.punto {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex: none;
+}
+.punto-en { background: #14b8a6; }
+.punto-sobre { background: #f59e0b; }
+.punto-gasto { background: #c2410c; }
+.punto-sint { background: #9ca3af; }
+.punto-inactiva { background: #d1d5db; }
+.frase-plataforma {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: #374151;
+}
+html[data-tema="noche"] body[data-pantalla="campanas"] .frase-plataforma,
+html[data-tema="noche"] body[data-pantalla="campanas"] .leyenda-estados,
+html[data-tema="noche"] body[data-pantalla="campanas"] .metricas-plataforma dt {
+  color: var(--o-ink2);
+}
+
+.lista-campanas {
+  display: flex;
+  flex-direction: column;
+}
+.lista-cabeza {
+  align-items: center;
+  padding: 16px 18px 12px;
+}
+body[data-pantalla="campanas"] [role="tablist"] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  background: #f3f4f6;
+  padding: 4px;
+  border-radius: 8px;
+}
+html[data-tema="noche"] body[data-pantalla="campanas"] [role="tablist"] {
+  background: var(--o-bg2);
+}
+body[data-pantalla="campanas"] [role="tab"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 6px;
+  color: #374151;
+  font-size: 13px;
+  text-decoration: none;
+}
+body[data-pantalla="campanas"] [role="tab"][aria-selected="true"] {
+  background: #ffffff;
+  color: #111827;
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12);
+}
+html[data-tema="noche"] body[data-pantalla="campanas"] [role="tab"] {
+  color: var(--o-ink2);
+}
+html[data-tema="noche"] body[data-pantalla="campanas"] [role="tab"][aria-selected="true"] {
+  background: var(--o-card);
+  color: var(--o-ink);
+}
+
+body[data-pantalla="campanas"] .filtros {
+  margin: 0;
+  padding: 12px 18px 14px;
+  border-top: 1px solid #f3f4f6;
+  border-bottom: 1px solid #e5e7eb;
+}
+html[data-tema="dia"] body[data-pantalla="campanas"] .filtros button[type="submit"] {
+  background: #111827;
+  border-color: #111827;
+  color: #ffffff;
+  height: 40px;
+}
+html[data-tema="dia"] body[data-pantalla="campanas"] .filtros input,
+html[data-tema="dia"] body[data-pantalla="campanas"] .filtros select {
+  height: 40px;
+  border-color: #d1d5db;
+  background: #ffffff;
+}
+html[data-tema="dia"] body[data-pantalla="campanas"] .filtros-avanzados summary {
+  color: #1d4ed8;
+}
+body[data-pantalla="campanas"] .leyenda {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 18px;
+  font-size: 12px;
+  color: #4b5563;
+}
+
+body[data-pantalla="campanas"] .tabla-scroll {
+  overflow-x: auto;
+  max-width: 100%;
+  -webkit-overflow-scrolling: touch;
+}
+body[data-pantalla="campanas"] .tabla-scroll table {
+  min-width: 1100px;
+}
+html[data-tema="dia"] body[data-pantalla="campanas"] th {
+  background: #f9fafb;
+  color: #374151;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 12px;
+  font-weight: 500;
+}
+html[data-tema="dia"] body[data-pantalla="campanas"] th a {
+  color: #374151;
+  font-weight: 500;
+}
+html[data-tema="dia"] body[data-pantalla="campanas"] th[aria-sort="ascending"] a,
+html[data-tema="dia"] body[data-pantalla="campanas"] th[aria-sort="descending"] a {
+  color: #1d4ed8;
+}
+body[data-pantalla="campanas"] tr.fila-en { box-shadow: inset 3px 0 0 #14b8a6; }
+body[data-pantalla="campanas"] tr.fila-sobre { box-shadow: inset 3px 0 0 #f59e0b; }
+body[data-pantalla="campanas"] tr.fila-gasto { box-shadow: inset 3px 0 0 #c2410c; }
+body[data-pantalla="campanas"] tr.fila-sint { box-shadow: inset 3px 0 0 #9ca3af; }
+body[data-pantalla="campanas"] tr.fila-inactiva { box-shadow: inset 3px 0 0 #d1d5db; }
+
+.acos { font-weight: 600; }
+.acos-en, .estado-en { color: #0f766e; }
+.acos-sobre, .estado-sobre { color: #b45309; }
+.acos-gasto, .estado-gasto { color: #9a3412; }
+.acos-sint, .acos-inactiva, .estado-sint, .estado-inactiva { color: #4b5563; }
+html[data-tema="noche"] body[data-pantalla="campanas"] .acos-sint,
+html[data-tema="noche"] body[data-pantalla="campanas"] .acos-inactiva,
+html[data-tema="noche"] body[data-pantalla="campanas"] .estado-sint,
+html[data-tema="noche"] body[data-pantalla="campanas"] .estado-inactiva {
+  color: #d1d5db;
+}
+body[data-pantalla="campanas"] .estado-etiqueta {
+  display: block;
+  margin-top: 3px;
+  font-size: 11px;
+  font-weight: 500;
+  text-align: right;
+}
+body[data-pantalla="campanas"] .celda-acos {
+  white-space: normal;
+}
+.nota-estados {
+  margin: 0;
+  padding: 12px 18px 16px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #4b5563;
+}
+
+@media (max-width: 40rem) {
+  body[data-pantalla="campanas"] .metricas-plataforma {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  body[data-pantalla="campanas"] .filtros input,
+  body[data-pantalla="campanas"] .filtros select {
+    min-width: 0;
+    max-width: 100%;
+  }
+  body[data-pantalla="campanas"] .tabla-scroll {
+    overflow-x: auto;
+  }
+  body[data-pantalla="campanas"] .tabla-scroll table {
+    min-width: 1100px;
+  }
+}
