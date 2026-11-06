@@ -96,11 +96,11 @@ if [ "$MONOTONIA" = 0 ]; then
   B=$(claves_de_sha "$MOTOR_SHA")
   CONVERGIDAS=$(printf '%s\n' "$L" | sed -n 's/^CLAVE=//p' | cut -d: -f1 | sort -u)
   DIFIEREN=0
-  while IFS= read -r linea; do
-    [ -n "$linea" ] || continue
-    case "$linea" in *=*) ;; *) continue ;; esac
-    clave=${linea%%=*}
-    valor=${linea#*=}
+  # Union de claves: cambian las que difieren de valor Y las que desaparecen
+  # del archivo nuevo (vaciarlo es el apagado documentado).
+  while IFS= read -r clave <&3; do
+    [ -n "$clave" ] || continue
+    valor=$(valor_de_clave "$B" "$clave")
     if [ "$(valor_de_clave "$A" "$clave")" = "$valor" ]; then
       continue
     fi
@@ -111,14 +111,18 @@ if [ "$MONOTONIA" = 0 ]; then
         continue
       }
       if [ "$vigente" = "$valor" ]; then
-        echo "OK    clave $clave convergida ('$valor')"
+        if [ -n "$valor" ]; then
+          echo "OK    clave $clave convergida ('$valor')"
+        else
+          echo "OK    clave $clave vaciada (off)"
+        fi
       else
-        falla "clave $clave convergida a '${vigente:-<vacio>}', el archivo trae '$valor'"
+        falla "clave $clave convergida a '${vigente:-<vacio>}', el archivo trae '${valor:-<vaciar>}'"
       fi
     else
       falla "clave $clave difiere y no tiene linea CLAVE= en ultimo.env"
     fi
-  done < <(printf '%s\n' "$B")
+  done 3< <(printf '%s\n' "$B" "$A" | grep -v '^$' | sed 's/=.*$//' | sort -u)
   [ "$DIFIEREN" -gt 0 ] && echo "claves que difieren: $DIFIEREN" ||
     echo "OK    ninguna clave difiere"
 fi

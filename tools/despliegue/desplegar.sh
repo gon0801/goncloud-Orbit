@@ -218,7 +218,11 @@ despliega_codigo() {
 
 # ---------------------------------------------------------------------------
 # (6) Convergencia de claves frente a SHA_PREVIO, nunca frente al archivo que
-# (5) reescribe. Con SHA_PREVIO vacio todas las claves cuentan como cambiadas.
+# (5) reescribe. Recorre la UNION de claves (las que cambian de valor Y las
+# que desaparecen del archivo nuevo: vaciarlo es el apagado documentado). Con
+# SHA_PREVIO vacio todas las claves cuentan como cambiadas. El diario guarda
+# el VALOR VIGENTE en config_version (no el del archivo anterior): es el
+# estado que el rollback debe restaurar.
 # ---------------------------------------------------------------------------
 converge_claves() {
   local previo=$1 l ya a b clave valor previo_vigente cmd plat
@@ -227,18 +231,17 @@ converge_claves() {
   a=$(claves_de_sha "$previo")
   b=$(claves_de_sha "$MOTOR_SHA")
   echo "== 6) claves de interruptores.env frente a SHA_PREVIO=${previo:-<vacio>}"
-  while IFS= read -r linea <&3; do
-    [ -n "$linea" ] || continue
-    case "$linea" in *=*) ;; *) continue ;; esac
-    clave=${linea%%=*}
-    valor=${linea#*=}
+  while IFS= read -r clave <&3; do
+    [ -n "$clave" ] || continue
+    valor=$(valor_de_clave "$b" "$clave")
     previo_vigente=$(valor_de_clave "$a" "$clave")
     [ "$previo_vigente" = "$valor" ] && continue
     if ! printf '%s\n' "$ya" | grep -qx -- "$clave"; then
-      anota_ultimo "CLAVE=$clave:$previo_vigente"
+      anota_ultimo "CLAVE=$clave:$(valor_vigente "$clave")"
     fi
     if [ "$valor" = live ]; then
-      plat=${clave##*_}
+      plat=$(plataforma_de_clave "$clave") ||
+        aborta "la clave $clave no nombra una plataforma conocida"
       corre_en_contenedor exec orbit-app-1 python -m tools.auto03_verifica evalua \
         --platform "$plat" --json "/tmp/auto03-$plat.json" ||
         aborta "evalua de $plat fallo antes de subir $clave a live"
@@ -248,9 +251,9 @@ converge_claves() {
     fi
     cmd=$(clave_a_cli "$clave" "$valor") ||
       aborta "la clave $clave no es del motor de productos y no tiene camino por productos-modo"
-    echo "clave $clave: '$previo_vigente' -> '$valor'"
+    echo "clave $clave: '$previo_vigente' -> '${valor:-<vaciar>}'"
     corre_en_contenedor $cmd
-  done 3< <(printf '%s\n' "$b" | grep -v '^$' || true)
+  done 3< <(printf '%s\n' "$b" "$a" | grep -v '^$' | sed 's/=.*$//' | sort -u)
 }
 
 # ---------------------------------------------------------------------------
@@ -291,15 +294,14 @@ ensayo() {
   if [ -n "$previo" ] && git merge-base --is-ancestor "$MOTOR_SHA" "$previo" 2>/dev/null; then
     echo "claves: ninguna (monotonia)"
   else
-    while IFS= read -r linea; do
-      [ -n "$linea" ] || continue
-      case "$linea" in *=*) ;; *) continue ;; esac
-      clave=${linea%%=*}
-      valor=${linea#*=}
+    while IFS= read -r clave <&3; do
+      [ -n "$clave" ] || continue
+      valor=$(valor_de_clave "$(claves_de_sha "$MOTOR_SHA")" "$clave")
       if [ "$(valor_de_clave "$(claves_de_sha "$previo")" "$clave")" != "$valor" ]; then
-        echo "clave $clave: cambiaria a '$valor'"
+        echo "clave $clave: cambiaria a '${valor:-<vaciar>}'"
       fi
-    done < <(claves_de_sha "$MOTOR_SHA")
+    done 3< <(printf '%s\n' "$(claves_de_sha "$MOTOR_SHA")" "$(claves_de_sha "$previo")" |
+      grep -v '^$' | sed 's/=.*$//' | sort -u)
   fi
   echo "== ENSAYO LISTO (no se escribio nada)"
 }

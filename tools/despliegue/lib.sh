@@ -33,10 +33,12 @@ q() {
   fi
 }
 w() {
+  # -1 en ambas ramas: cada script queda en UNA transaccion (B.1(4)); sin el,
+  # un script que revienta a medias deja esquema parcial.
   if [ "$SIM" = 1 ]; then
     psql "$DSN_SIM" -X -q -tA -v ON_ERROR_STOP=1 -1
   else
-    ssh goncloud 'docker exec -i orbit-db-1 psql -U orbit -d orbit -v ON_ERROR_STOP=1'
+    ssh goncloud 'docker exec -i orbit-db-1 psql -U orbit -d orbit -v ON_ERROR_STOP=1 -1'
   fi
 }
 
@@ -124,6 +126,7 @@ borra_sha_srv() {
 # ---------------------------------------------------------------------------
 PID_CANDADO=""
 CANDADO_FIFO=""
+TOKEN_CANDADO=""
 toma_candado() { # 0 = tomado; 75 = plazo agotado sin tomarlo
   local plazo=${AUTO03_ESPERA_S:-600} fin tomado
   prepara_srv
@@ -136,19 +139,23 @@ toma_candado() { # 0 = tomado; 75 = plazo agotado sin tomarlo
     exec 9>&-
     return "$ABORTA_GUARDA"
   fi
+  # El marcador lleva el TOKEN de ESTA corrida: un .lock.tomado escrito por
+  # otra corrida (o el residuo de una muerta) no puede hacer pasar por
+  # adquirido un candado que esta corrida no tiene.
+  TOKEN_CANDADO="$$-$(date +%s)-$RANDOM"
   CANDADO_FIFO="${TMPDIR:-/tmp}/auto03-candado.$$"
   rm -f "$CANDADO_FIFO"
   mkfifo -m 600 "$CANDADO_FIFO" || return "$ABORTA_GUARDA"
   # La sesion ssh vive mientras el fd 9 este abierto: el `cat` remoto lee
   # hasta EOF y el flock se libera cuando esta corrida cierra o muere.
-  ssh goncloud "flock -w $plazo '$SRV/despliegue/.lock' bash -c 'echo tomado > \"$SRV/despliegue/.lock.tomado\"; cat >/dev/null'; rm -f '$SRV/despliegue/.lock.tomado'" \
+  ssh goncloud "flock -w $plazo '$SRV/despliegue/.lock' bash -c 'echo $TOKEN_CANDADO > \"$SRV/despliegue/.lock.tomado\"; cat >/dev/null'; rm -f '$SRV/despliegue/.lock.tomado'" \
     <"$CANDADO_FIFO" >/dev/null 2>&1 &
   PID_CANDADO=$!
   exec 9<>"$CANDADO_FIFO"
   fin=$(( $(date +%s) + plazo ))
   while [ "$(date +%s)" -le "$fin" ]; do
     tomado=$(lee_remoto "$SRV/despliegue/.lock.tomado")
-    [ "$tomado" = tomado ] && return 0
+    [ "$tomado" = "$TOKEN_CANDADO" ] && return 0
     sleep 2
   done
   suelta_candado
@@ -168,8 +175,20 @@ suelta_candado() {
 # ---------------------------------------------------------------------------
 # Interruptores y su camino de regreso por el CLI productos-modo (C.6)
 # ---------------------------------------------------------------------------
-claves_de_sha() { # claves_de_sha <sha> -> lineas clave=valor; vacio si no existe
+claves_de_sha() { # claves_de_sha <sha> -> lineas clave=valor; vacio si el sha lo es o no existe
+  # Con SHA vacio NO se lee el indice git (git show ':ruta' lo haria): sin
+  # SHA_PREVIO todas las claves cuentan como cambiadas (B.1).
+  [ -n "$1" ] || return 0
   git show "$1:tools/despliegue/interruptores.env" 2>/dev/null || true
+}
+plataforma_de_clave() { # plataforma_de_clave <clave> -> amazon_mx/amazon_us/..., completas
+  case "$1" in
+    ads_producto_pausa_clics_*) printf '%s\n' "${1#ads_producto_pausa_clics_}" ;;
+    ads_producto_pausa_gasto_*) printf '%s\n' "${1#ads_producto_pausa_gasto_}" ;;
+    ads_producto_meta_*) printf '%s\n' "${1#ads_producto_meta_}" ;;
+    ads_producto_pausa_*) printf '%s\n' "${1#ads_producto_pausa_}" ;;
+    *) return 1 ;;
+  esac
 }
 valor_de_clave() { # valor_de_clave <lineas clave=valor> <clave> -> valor o vacio
   printf '%s\n' "$1" | awk -F= -v k="$2" '$1 == k { print substr($0, length(k) + 2) }'
@@ -206,7 +225,15 @@ clave_a_cli() { # clave_a_cli <clave> <valor> -> args de productos-modo; 1 si la
 corre_en_contenedor() { # corre_en_contenedor <args de docker> (dentro de orbit-app-1)
   # Con la stdin cerrada: un ssh o un docker dentro de un bucle `while read`
   # drenaria la entrada del bucle y se comeria el resto de las lineas.
-  if [ "$SIM" = 1 ]; then
+  # `compose` corre SIEMPRE dentro de $SRV (el proyecto Compose de Orbit):
+  # una sesion ssh con otro directorio inicial no encontraria la config.
+  if [ "$1" = compose ]; then
+    if [ "$SIM" = 1 ]; then
+      (cd "$SRV" && docker "$@") </dev/null
+    else
+      ssh -n goncloud "cd '$SRV' && docker $*"
+    fi
+  elif [ "$SIM" = 1 ]; then
     docker "$@" </dev/null
   else
     ssh -n goncloud "docker $*"
