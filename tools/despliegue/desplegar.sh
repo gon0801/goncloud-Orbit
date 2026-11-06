@@ -139,7 +139,10 @@ REMOTE
     [ -s "$SRV/$parcial/esquema.sql" ] || aborta "el dump del esquema salio vacio"
     tail -5 "$SRV/$parcial/esquema.sql" | grep -q 'PostgreSQL database dump complete' ||
       aborta "el dump del esquema quedo incompleto"
-    cp -a "$SRV/app" "$SRV/tools" "$SRV/Dockerfile" "$SRV/.dockerignore" \
+    # Copia en dos pasos: una muerte entre ambos deja la copia a medias
+    # (app/ dentro, archivos raiz fuera) que la prueba B.5 l exige ver.
+    cp -a "$SRV/app" "$SRV/tools" "$SRV/$parcial/"
+    cp -a "$SRV/Dockerfile" "$SRV/.dockerignore" \
       "$SRV/pyproject.toml" "$SRV/uv.lock" "$SRV/$parcial/"
     (cd "$SRV" && find app tools -type f | sort | xargs -r md5sum) > "$TMP/src.md5"
     (cd "$SRV/$parcial" && find app tools -type f | sort | xargs -r md5sum) > "$TMP/resp.md5"
@@ -156,7 +159,8 @@ set -e
 cd '$SRV'
 [ -s '$parcial/esquema.sql' ] || { echo 'dump vacio'; exit 1; }
 tail -5 '$parcial/esquema.sql' | grep -q 'PostgreSQL database dump complete' || { echo 'dump incompleto'; exit 1; }
-cp -a app tools Dockerfile .dockerignore pyproject.toml uv.lock '$parcial/'
+cp -a app tools '$parcial/'
+cp -a Dockerfile .dockerignore pyproject.toml uv.lock '$parcial/'
 ( find app tools -type f | sort | xargs -r md5sum ) > /tmp/.auto03-src.$stamp.md5
 ( cd '$parcial' && find app tools -type f | sort | xargs -r md5sum ) > /tmp/.auto03-resp.$stamp.md5
 diff /tmp/.auto03-src.$stamp.md5 /tmp/.auto03-resp.$stamp.md5 || { echo 'respaldo difiere (app/tools)'; exit 1; }

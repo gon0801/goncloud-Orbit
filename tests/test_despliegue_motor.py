@@ -112,19 +112,49 @@ TABLAS_PRUEBA = (
 )
 
 SSH_FALSO = """#!/usr/bin/env bash
+# Emulador de ssh: en produccion cada llamada corre en goncloud; aqui los
+# comandos que referencian rutas de $SRV (cat/mkdir/rm/flock) se ejecutan
+# LOCALMENTE porque la ruta POSIX es la misma, el psql va contra la base
+# desechable, el candado usa el flock local y lo demas se registra.
 set -u
-printf 'ssh %s\\n' "$*" >> "${ORBIT_FAKE_LOG:?}"
-if [ -f "${ORBIT_FAKE_DIR}/ssh-rc" ]; then exit "$(cat "${ORBIT_FAKE_DIR}/ssh-rc")"; fi
-case "$*" in
+LOG="${ORBIT_FAKE_LOG:?}"; DIR="${ORBIT_FAKE_DIR:?}"
+comando=""
+for a in "$@"; do
+  if [ -z "$comando" ] && { [ "$a" = "-n" ] || [ "$a" = goncloud ]; }; then
+    continue
+  fi
+  if [ -z "$comando" ]; then comando="$a"; fi
+done
+printf 'ssh %s\\n' "$*" >> "$LOG"
+if [ -f "$DIR/ssh-rc" ]; then exit "$(cat "$DIR/ssh-rc")"; fi
+case "$comando" in
+  *"printenv ORBIT_DSN_READ"*|*"psql -U orbit -d orbit"*)
+    banderas="-X -q"
+    case "$comando" in *"-tA"*) banderas="$banderas -tA" ;; esac
+    case "$comando" in *"-1") banderas="$banderas -1" ;; esac
+    psql "${ORBIT_SIM_DSN:?}" $banderas -v ON_ERROR_STOP=1
+    ;;
+  *"flock -w"*)
+    bash -c "$comando"
+    ;;
+  *"cat >"*|*"cat >>"*|*"mkdir -p"*|*"rm -f"*|*"cat '"*)
+    bash -c "$comando"
+    ;;
+  *"productos-modo"*)
+    exec "$DIR/docker" "$comando"
+    ;;
   *"docker top orbit-app-1"*)
-    [ -f "${ORBIT_FAKE_DIR}/top.txt" ] && cat "${ORBIT_FAKE_DIR}/top.txt"
+    [ -f "$DIR/top.txt" ] && cat "$DIR/top.txt"
     ;;
   *"curl"*)
-    if [ -f "${ORBIT_FAKE_DIR}/health.txt" ]; then
-      cat "${ORBIT_FAKE_DIR}/health.txt"
+    if [ -f "$DIR/health.txt" ]; then
+      cat "$DIR/health.txt"
     else
       printf '200\\n'
     fi
+    ;;
+  *"compose up"*)
+    exit 0
     ;;
 esac
 exit 0
@@ -139,6 +169,13 @@ case "$*" in
     if [ -f "${ORBIT_FAKE_DIR}/docker-lento" ]; then sleep 10; fi
     if [ -f "${ORBIT_FAKE_DIR}/docker-rc-una" ]; then
       rm -f "${ORBIT_FAKE_DIR}/docker-rc-una"
+      exit 1
+    fi
+    conteo="$DIR/productos-modo-count"
+    n=$(( $(cat "$conteo" 2>/dev/null || echo 0) + 1 ))
+    printf '%s\\n' "$n" > "$conteo"
+    if [ -f "${ORBIT_FAKE_DIR}/docker-rc-nth" ] &&
+      [ "$(cat "${ORBIT_FAKE_DIR}/docker-rc-nth")" = "$n" ]; then
       exit 1
     fi
     plat="" tipo="" val=""; prev=""
@@ -179,15 +216,18 @@ esac
 exit 0
 """
 
-PGDUMP_FALSO = """#!/usr/bin/env bash
+CP_FALSO = """#!/usr/bin/env bash
+# Falso cp que interrumpe la copia a media copia: se deja el respaldo con
+# app/ y tools/ dentro pero SIN los archivos raiz (prueba B.5 l).
 set -u
 DIR="${ORBIT_FAKE_DIR:?}"
-if [ -f "$DIR/pgdump-una" ]; then
-  rm -f "$DIR/pgdump-una"
-  echo "-- dump truncado a proposito (prueba B.5 l)"
-  exit 1
-fi
-exec {REAL_PG_DUMP} "$@"
+case "$*" in
+  *Dockerfile*)
+    echo "cp interrumpido a proposito (prueba B.5 l)"
+    exit 1
+    ;;
+esac
+exec {REAL_CP} "$@"
 """
 
 
@@ -224,6 +264,30 @@ def _git(clon: Path, *args: str) -> str:
     return salida.stdout.strip()
 
 
+def _clonar_banco():
+    """Temp corto + clon del repo. En entornos con TMPDIR profundo el clone
+    puede reventar por MAX_PATH de Windows (rc 128 sin mensaje): se reintenta
+    en un directorio corto bajo home y, si nada funciona, el error LLEVA el
+    stderr de git en vez de tragarselo."""
+    intentos = [None]
+    if os.name == "nt":
+        intentos.append(Path.home() / "auto03-banco")
+    ultimo_error = ""
+    for raiz in intentos:
+        base = Path(tempfile.mkdtemp(prefix="auto03-banco-", dir=raiz))
+        clon = base / "clon"
+        corrida = subprocess.run(
+            ["git", "clone", "-q", "--shared", "--no-hardlinks", str(ROOT), str(clon)],
+            capture_output=True,
+            text=True,
+        )
+        if corrida.returncode == 0:
+            return base, clon
+        ultimo_error = corrida.stderr
+        shutil.rmtree(base, ignore_errors=True)
+    raise RuntimeError(f"el clon del banco no pudo crearse: {ultimo_error}")
+
+
 def _montar_banco():
     """Monta banco de pruebas (base desechable + clon con commits + falsos).
 
@@ -247,13 +311,7 @@ def _montar_banco():
     conn.execute("INSERT INTO config_version (label, settings) VALUES ('banco de pruebas', '{}')")
     dsn_db = make_conninfo(dsn, dbname=nombre_db)
 
-    base = Path(tempfile.mkdtemp(prefix="auto03-banco-"))
-    clon = base / "clon"
-    subprocess.run(
-        ["git", "clone", "-q", "--shared", "--no-hardlinks", str(ROOT), str(clon)],
-        check=True,
-        capture_output=True,
-    )
+    base, clon = _clonar_banco()
     base_sha = _git(clon, "rev-parse", "HEAD")
     c2 = _commit(
         clon,
@@ -302,6 +360,17 @@ def _montar_banco():
             "migrations/0077_reversa_auto03_revienta_al_aplicar.sql": REVERSA_0077_REVIENTA,
         },
     )
+    c7 = _commit(
+        clon,
+        "banco: apagado por vaciar interruptores.env",
+        {"tools/despliegue/interruptores.env": ""},
+    )
+    claves_live = "".join(f"ads_producto_meta_{p}=live\n" for p in PLATAFORMAS)
+    c_live = _commit(
+        clon,
+        "banco: meta en live",
+        {"tools/despliegue/interruptores.env": claves_live},
+    )
 
     falsos = base / "falsos"
     falsos.mkdir()
@@ -339,6 +408,8 @@ def _montar_banco():
         "c4": c4,
         "c5": c5,
         "c6": c6,
+        "c7": c7,
+        "c_live": c_live,
     }
     return datos
 
@@ -397,11 +468,13 @@ def _limpia_falsos(banco) -> None:
         "top.txt",
         "docker-rc",
         "docker-rc-una",
+        "docker-rc-nth",
         "override-meta",
         "ssh-rc",
         "health.txt",
-        "pgdump-una",
+        "cp-una",
         "docker-lento",
+        "productos-modo-count",
     ):
         (banco["falsos"] / nombre).unlink(missing_ok=True)
 
@@ -417,9 +490,9 @@ def _ruta_bash(ruta: Path) -> str:
     return str(ruta)
 
 
-def _entorno(banco, *, espera: str = "600", extra: dict | None = None) -> dict:
+def _entorno(banco, *, espera: str = "600", extra: dict | None = None, sim: str = "1") -> dict:
     env = dict(os.environ)
-    env["ORBIT_SIMULACION"] = "1"
+    env["ORBIT_SIMULACION"] = sim
     env["ORBIT_SIM_DSN"] = banco["dsn_db"]
     env["ORBIT_SRV"] = _ruta_bash(banco["srv"])
     env["ORBIT_FAKE_LOG"] = _ruta_bash(banco["log"])
@@ -453,8 +526,9 @@ def _corre(
     extra: dict | None = None,
     tope: int = 240,
     path_frente: Path | None = None,
+    sim: str = "1",
 ):
-    env = _entorno(banco, espera=espera, extra=extra)
+    env = _entorno(banco, espera=espera, extra=extra, sim=sim)
     if sha is not None:
         env["MOTOR_SHA"] = sha
     if path_frente is not None:
@@ -580,6 +654,10 @@ def _log_tiene(banco, fragmento: str) -> bool:
 def test_a_despliegue_completo_checklist_verde(banco):
     _limpia_falsos(banco)
     _siembra_srv(banco, banco["base_sha"])
+    # SHA_PREVIO vacio (primer despliegue del motor): el clon tiene
+    # interruptores.env con claves en HEAD e indice, y aun asi TODAS deben
+    # contar como cambiadas (h_8f01a905: con SHA vacio jamas se lee el indice).
+    (banco["srv"] / "despliegue" / "sha").unlink()
     corrida = _despliega(banco, banco["c2"])
     assert corrida.returncode == 0, corrida.stdout + corrida.stderr
     assert "compose up -d --no-deps --build app" in banco["log"].read_text(encoding="utf-8")
@@ -595,7 +673,9 @@ def test_a_despliegue_completo_checklist_verde(banco):
     assert _sha_srv(banco) == banco["c2"]
     config = _config(banco)
     for plataforma in PLATAFORMAS:
-        assert config[f"ads_producto_meta_{plataforma}"] == "shadow"
+        assert config[f"ads_producto_meta_{plataforma}"] == "shadow", (
+            "con SHA_PREVIO vacio las claves debieron converger"
+        )
         assert f"CLAVE=ads_producto_meta_{plataforma}:" in "\n".join(_ultimo(banco))
     archivo = subprocess.run(
         ["git", "show", f"{banco['c2']}:app/main.py"],
@@ -844,8 +924,7 @@ def test_i_sha_contenido_sin_cambios(banco):
     _siembra_srv(banco, banco["base_sha"])
     assert _despliega(banco, banco["c2"]).returncode == 0
     assert _checklist(banco, banco["c2"]).returncode == 0, (
-        "sin el checklist verde el diario queda no terminal y el desplegador"
-        " se negaria a otro SHA"
+        "sin el checklist verde el diario queda no terminal y el desplegador se negaria a otro SHA"
     )
     config_antes = _config(banco)
     corrida = _despliega(banco, banco["base_sha"])
@@ -873,12 +952,17 @@ def test_j_cortes_en_5_y_en_6_se_reanudan_y_rollback_deja_igual(banco):
     esquema_antes = _huella_esquema(banco)
     config_antes = _config(banco)
 
-    (banco["falsos"] / "docker-rc").write_text("1", encoding="utf-8")
+    # Corte en (5) DESPUES de escribir el SHA nuevo: el primer productos-modo
+    # (docker-rc-nth=1) falla cuando ya hubo cambios efectivos.
+    (banco["falsos"] / "docker-rc-nth").write_text("1", encoding="utf-8")
     corrida = _despliega(banco, banco["c2"])
-    assert corrida.returncode != 0, "el corte en (5) debio abortar el despliegue"
+    assert corrida.returncode != 0, "el corte tras el SHA debio abortar el despliegue"
     assert _cuenta_lineas(banco, "CODIGO") == 1
-    assert _sha_srv(banco) == banco["base_sha"], "el sha no debio escribirse antes del compose"
-    (banco["falsos"] / "docker-rc").unlink(missing_ok=True)
+    assert _sha_srv(banco) == banco["c2"], (
+        "el corte debe ocurrir con el SHA NUEVO ya escrito, no antes"
+    )
+    assert _config(banco) == config_antes, "con la primera clave fallida nada se aplica"
+    (banco["falsos"] / "docker-rc-nth").unlink(missing_ok=True)
     reanuda = _despliega(banco, banco["c2"])
     assert reanuda.returncode == 0, reanuda.stdout + reanuda.stderr
     assert _cuenta_lineas(banco, "CODIGO") == 1, "la reanudacion no debe repetir el respaldo"
@@ -897,12 +981,18 @@ def test_j_cortes_en_5_y_en_6_se_reanudan_y_rollback_deja_igual(banco):
 
     _limpia_falsos(banco)
     _siembra_srv(banco, banco["base_sha"])
-    (banco["falsos"] / "docker-rc-una").write_text("1", encoding="utf-8")
+    # Corte en (6) DESPUES de aplicar la primera clave: la segunda llamada a
+    # productos-modo (docker-rc-nth=2) falla con la primera ya en la base.
+    (banco["falsos"] / "docker-rc-nth").write_text("2", encoding="utf-8")
     corrida = _despliega(banco, banco["c2"])
-    assert corrida.returncode != 0, "el corte en la primera clave debio abortar"
-    assert _cuenta_lineas(banco, "CLAVE") == 1, "solo la primera clave debio anotarse"
+    assert corrida.returncode != 0, "el corte tras la primera clave debio abortar"
+    assert _config(banco)["ads_producto_meta_amazon_mx"] == "shadow", (
+        "la primera clave debio quedar APLICADA antes del corte"
+    )
+    assert "ads_producto_meta_amazon_us" not in _config(banco)
+    assert _cuenta_lineas(banco, "CLAVE") == 2
     assert _valor_ultimo(banco, "ESTADO") == "guardas"
-    (banco["falsos"] / "docker-rc-una").unlink(missing_ok=True)
+    (banco["falsos"] / "docker-rc-nth").unlink(missing_ok=True)
     reanuda = _despliega(banco, banco["c2"])
     assert reanuda.returncode == 0, reanuda.stdout + reanuda.stderr
     assert _cuenta_lineas(banco, "CLAVE") == 2
@@ -924,9 +1014,13 @@ def test_k_reanudacion_con_guarda_ocupada_y_rollback(banco):
     srv_antes = _huella_srv(banco)
     esquema_antes = _huella_esquema(banco)
     config_antes = _config(banco)
-    (banco["falsos"] / "docker-rc-una").write_text("1", encoding="utf-8")
+    # Corte en (6) con la primera clave YA aplicada (docker-rc-nth=2).
+    (banco["falsos"] / "docker-rc-nth").write_text("2", encoding="utf-8")
     assert _despliega(banco, banco["c2"]).returncode != 0
-    assert _cuenta_lineas(banco, "CLAVE") == 1
+    assert _config(banco)["ads_producto_meta_amazon_mx"] == "shadow", (
+        "el corte debe ser con la primera clave aplicada"
+    )
+    assert _cuenta_lineas(banco, "CLAVE") == 2
     _limpia_falsos(banco)
     (banco["falsos"] / "top.txt").write_text("python app.cli cycle --platform amazon_mx\n")
     corrida = _despliega(banco, banco["c2"], espera="1")
@@ -953,35 +1047,41 @@ def test_l_muerte_a_media_copia_del_respaldo(banco):
     _limpia_falsos(banco)
     _siembra_srv(banco, banco["base_sha"])
     srv_antes = _huella_srv(banco)
-    real_pg_dump = subprocess.run(
-        ["bash", "-c", "command -v pg_dump"],
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
-    assert real_pg_dump, "pg_dump debe estar en el PATH para esta prueba"
-    pgdump_falso = banco["base"] / "pgdump-falso"
-    pgdump_falso.mkdir(exist_ok=True)
-    script = pgdump_falso / "pg_dump"
+    resuelto = subprocess.run(["bash", "-c", "command -v cp"], capture_output=True, text=True)
+    real_cp = resuelto.stdout.strip()
+    assert real_cp, "cp debe estar en el PATH para esta prueba"
+    cp_falso = banco["base"] / "cp-falso"
+    cp_falso.mkdir(exist_ok=True)
+    script = cp_falso / "cp"
     script.write_text(
-        PGDUMP_FALSO.replace("{REAL_PG_DUMP}", real_pg_dump),
+        CP_FALSO.replace("{REAL_CP}", real_cp),
         encoding="utf-8",
         newline="\n",
     )
     script.chmod(0o755)
-    (banco["falsos"] / "pgdump-una").write_text("1", encoding="utf-8")
-    corrida = _despliega(banco, banco["c2"], path_frente=pgdump_falso)
+    # Muerte a MEDIA COPIA: el primer cp (app/ y tools/) pasa, el segundo
+    # (archivos raiz) se interrumpe; el .parcial debe quedar a medias.
+    corrida = _despliega(banco, banco["c2"], path_frente=cp_falso)
     assert corrida.returncode != 0, "la muerte a media copia debio abortar"
     assert _cuenta_lineas(banco, "CODIGO") == 0, "no debe quedar CODIGO= a media copia"
     parciales = list((banco["srv"] / "despliegue").glob("predeploy-*.parcial"))
-    assert parciales, "el respaldo debio quedar en .parcial"
+    assert len(parciales) == 1, f"debio quedar un .parcial a medias: {parciales}"
+    parcial = parciales[0]
+    assert (parcial / "app" / "viejo.py").exists(), "la primera copia (app) debio quedar"
+    assert not (parcial / "Dockerfile").exists(), (
+        "los archivos raiz deban quedarse SIN copiar (media copia, no antes de copiar)"
+    )
 
     _limpia_falsos(banco)
     reanuda = _despliega(banco, banco["c2"])
     assert reanuda.returncode == 0, reanuda.stdout + reanuda.stderr
     assert _cuenta_lineas(banco, "CODIGO") == 1
-    parciales = list((banco["srv"] / "despliegue").glob("predeploy-*"))
-    assert len(parciales) == 1, f"la reanudacion debio dejar un respaldo completo: {parciales}"
+    completos = list((banco["srv"] / "despliegue").glob("predeploy-*"))
+    assert len(completos) == 1, f"la reanudacion debio dejar un respaldo completo: {completos}"
     assert not list((banco["srv"] / "despliegue").glob("predeploy-*.parcial"))
+    assert (completos[0] / "Dockerfile").exists(), (
+        "la reanudacion debio respaldar COMPLETO (incluidos los archivos raiz)"
+    )
 
     _toque_config(banco, "ads_producto_meta_amazon_mx", "live")
     assert _checklist(banco, banco["c2"]).returncode != 0
@@ -1079,9 +1179,7 @@ def test_n_rollback_cortado_se_reanuda(banco):
         (banco["falsos"] / "docker-lento").unlink()
         assert _valor_ultimo(banco, "ESTADO") == "revirtiendo", "\n".join(_ultimo(banco))
     cortado = _despliega(banco, banco["c2"])
-    assert cortado.returncode == 1, (
-        "desplegar debe negarse mientras hay una reversa pendiente"
-    )
+    assert cortado.returncode == 1, "desplegar debe negarse mientras hay una reversa pendiente"
     completa = _rollback(banco, banco["c2"])
     assert _valor_ultimo(banco, "ESTADO") == "revertido", "\n".join(_ultimo(banco))
     assert _huella_srv(banco) == srv_antes
@@ -1170,88 +1268,97 @@ def test_o_ensayo_simulado_no_escribe_nada(banco):
 # ---------------------------------------------------------------------------
 
 
-def _candado_ocupado(banco, lock_bash: str, env: dict) -> bool:
-    probe = subprocess.run(
-        [
-            "bash",
-            "-c",
-            f'exec 8>>"{lock_bash}"; if flock -n 8; then echo libre; else echo ocupado; fi',
-        ],
-        capture_output=True,
-        text=True,
-        timeout=30,
-        env=env,
-    )
-    return probe.stdout.strip() == "ocupado"
-
-
 @skip
 def test_p_candado_ocupado_espera_y_sale_75(banco):
+    # Rama REAL del candado (SIM=0): el ssh falso ejecuta el flock del
+    # comando remoto sobre el mismo archivo local, con la misma semantica.
     _limpia_falsos(banco)
     _siembra_srv(banco, banco["base_sha"])
     ruta_lock = banco["srv"] / "despliegue" / ".lock"
     ruta_lock.write_text("", encoding="utf-8")
     lock_bash = _ruta_bash(ruta_lock)
-    # El rival toma el candado con el mismo flock que ven los scripts (en CI
-    # el real; en Windows el shim), asi que comparten semantica de candado.
-    rival = subprocess.Popen(
-        ["bash", "-c", f'exec 9>>"{lock_bash}"; flock -w 600 9; sleep 120'],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    env = _entorno(banco, espera="1")
-    env["MOTOR_SHA"] = banco["c2"]
-    try:
-        fin = time.monotonic() + 30
-        ocupado = False
-        while time.monotonic() < fin:
-            if _candado_ocupado(banco, lock_bash, env):
-                ocupado = True
-                break
-            time.sleep(0.5)
-        assert ocupado, "el rival no llego a tomar el candado"
+    marcador = f"{lock_bash}.tomado"
 
+    def rival_con_candado():
+        return subprocess.Popen(
+            ["bash", "-c", f'exec 9>>"{lock_bash}"; flock -w 600 9; sleep 120'],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+    env = _entorno(banco, espera="1", sim="0")
+    env["MOTOR_SHA"] = banco["c2"]
+
+    def candado_ocupado() -> bool:
+        probe = subprocess.run(
+            [
+                "bash",
+                "-c",
+                f'exec 8>>"{lock_bash}"; if flock -n 8; then echo libre; else echo ocupado; fi',
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env=env,
+        )
+        return probe.stdout.strip() == "ocupado"
+
+    try:
+        # (1) rival con el candado Y su propio marcador: la corrida debe
+        # esperar SU token (h_8f01a901) y salir 75 sin escribir ultimo.env.
+        rival = rival_con_candado()
+        fin = time.monotonic() + 30
+        while time.monotonic() < fin and not candado_ocupado():
+            time.sleep(0.5)
+        with open(marcador, "w", encoding="utf-8", newline="\n") as f:
+            f.write("token-de-otra-corrida\n")
         inicio = time.monotonic()
-        corrida = _despliega(banco, banco["c2"], espera="1")
+        corrida = _despliega(banco, banco["c2"], espera="1", sim="0")
         transcurrido = time.monotonic() - inicio
+        rival.kill()
+        rival.wait(timeout=30)
         assert corrida.returncode == 75, corrida.stdout + corrida.stderr
         assert transcurrido < 60, f"el plazo de 1s se disparo a {transcurrido:.0f}s"
         assert not (banco["srv"] / "despliegue" / "ultimo.env").exists(), (
             "con el candado ocupado no debe escribirse ultimo.env"
         )
+        assert (banco["srv"] / "despliegue" / ".lock.tomado").exists(), (
+            "el marcador ajeno no debe haberse limpiado por esta corrida"
+        )
 
-        rival.kill()
-        rival.wait(timeout=30)
-        assert _despliega(banco, banco["c2"]).returncode == 0
+        # (2) marcador RESIDUAL sin nadie dentro: esta corrida toma el candado,
+        # pisa el marcador con SU token y el despliegue completo corre en la
+        # rama real de produccion (psql y candado via ssh falso).
+        (banco["srv"] / "despliegue" / ".lock.tomado").unlink(missing_ok=True)
+        verde = _despliega(banco, banco["c2"], sim="0")
+        assert verde.returncode == 0, verde.stdout + verde.stderr
+        assert _valor_ultimo(banco, "ESTADO") == "desplegado"
+        assert _config(banco)["ads_producto_meta_amazon_mx"] == "shadow"
+        assert _checklist(banco, banco["c2"], sim="0").returncode == 0
+        assert _valor_ultimo(banco, "ESTADO") == "verificado"
+        # el compose debe correr dentro del proyecto de Orbit (h_8f01a903)
+        log = banco["log"].read_text(encoding="utf-8")
+        assert f"cd {_ruta_bash(banco['srv'])} && docker compose up" in log, (
+            "el rebuild debe seleccionar el proyecto Compose de Orbit"
+        )
+
+        # (3) rollback con el candado tomado: no lee ni revierte hasta
+        # obtenerlo; sin candado termina la reversa.
         _toque_config(banco, "ads_producto_meta_amazon_mx", "live")
         assert _checklist(banco, banco["c2"]).returncode != 0
         antes = "\n".join(_ultimo(banco))
-
-        rival = subprocess.Popen(
-            ["bash", "-c", f'exec 9>>"{lock_bash}"; flock -w 600 9; sleep 120'],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        rival = rival_con_candado()
         fin = time.monotonic() + 30
-        ocupado = False
-        while time.monotonic() < fin:
-            if _candado_ocupado(banco, lock_bash, env):
-                ocupado = True
-                break
+        while time.monotonic() < fin and not candado_ocupado():
             time.sleep(0.5)
-        assert ocupado, "el rival no llego a tomar el candado"
-        inicio = time.monotonic()
-        rollback = _rollback(banco, banco["c2"], espera="1")
-        transcurrido = time.monotonic() - inicio
+        rollback = _rollback(banco, banco["c2"], espera="1", sim="0")
+        rival.kill()
+        rival.wait(timeout=30)
         assert rollback.returncode == 75, rollback.stdout + rollback.stderr
-        assert transcurrido < 60
         assert "\n".join(_ultimo(banco)) == antes, (
             "el rollback no debe leer ni revertir sin el candado"
         )
-
-        rival.kill()
-        rival.wait(timeout=30)
-        completa = _rollback(banco, banco["c2"])
+        completa = _rollback(banco, banco["c2"], sim="0")
         assert _valor_ultimo(banco, "ESTADO") == "revertido"
         assert completa.returncode != 0
         assert _config(banco) == {}
@@ -1260,3 +1367,131 @@ def test_p_candado_ocupado_espera_y_sale_75(banco):
         if rival.poll() is None:
             rival.kill()
             rival.wait(timeout=30)
+
+
+# ---------------------------------------------------------------------------
+# (q) vaciar interruptores.env APAGA las claves: la convergencia recorre la
+#     union (h_8f01a906) y el checklist exige la linea CLAVE tambien para
+#     las claves que desaparecen
+# ---------------------------------------------------------------------------
+
+
+@skip
+def test_q_vaciar_el_archivo_apaga_las_claves(banco):
+    _limpia_falsos(banco)
+    _siembra_srv(banco, banco["base_sha"])
+    assert _despliega(banco, banco["c2"]).returncode == 0
+    assert _config(banco)["ads_producto_meta_amazon_mx"] == "shadow"
+    assert _checklist(banco, banco["c2"]).returncode == 0
+
+    _limpia_falsos(banco)
+    corrida = _despliega(banco, banco["c7"])
+    assert corrida.returncode == 0, corrida.stdout + corrida.stderr
+    ultimo = "\n".join(_ultimo(banco))
+    for plataforma in PLATAFORMAS:
+        assert f"CLAVE=ads_producto_meta_{plataforma}:" in ultimo, (
+            "la clave retirada del archivo tambien debe anotarse"
+        )
+    assert _config(banco) == {}, "vaciar el archivo debe dejar la config sin claves"
+    assert _valor_ultimo(banco, "ESTADO") == "desplegado"
+    checklist = _checklist(banco, banco["c7"])
+    assert checklist.returncode == 0, checklist.stdout + checklist.stderr
+    assert _valor_ultimo(banco, "ESTADO") == "verificado"
+
+    # Y el rollback de ese apagado devuelve las claves que el diario anoto.
+    _rollback(banco, banco["c7"])
+    assert _valor_ultimo(banco, "ESTADO") == "revertido"
+    for plataforma in PLATAFORMAS:
+        assert _config(banco)[f"ads_producto_meta_{plataforma}"] == "shadow"
+
+
+# ---------------------------------------------------------------------------
+# (r) el diario guarda el VALOR VIGENTE, no el del archivo anterior
+#     (h_8f01a904): con la meta encendida a mano en live, el rollback
+#     devuelve live, no el vacio del archivo previo
+# ---------------------------------------------------------------------------
+
+
+@skip
+def test_r_el_diario_guarda_el_valor_vigente(banco):
+    _limpia_falsos(banco)
+    _siembra_srv(banco, banco["base_sha"])
+    _toque_config(banco, "ads_producto_meta_amazon_mx", "live")
+    corrida = _despliega(banco, banco["c2"])
+    assert corrida.returncode == 0, corrida.stdout + corrida.stderr
+    ultimo = "\n".join(_ultimo(banco))
+    assert "CLAVE=ads_producto_meta_amazon_mx:live" in ultimo, (
+        "el diario debe anotar el valor VIGENTE (live), no el del archivo anterior"
+    )
+    assert _config(banco)["ads_producto_meta_amazon_mx"] == "shadow"
+    assert _checklist(banco, banco["c2"]).returncode == 0
+
+    _rollback(banco, banco["c2"])
+    assert _valor_ultimo(banco, "ESTADO") == "revertido"
+    assert _config(banco)["ads_producto_meta_amazon_mx"] == "live", (
+        "el rollback debe devolver el estado que la base tenia (live a mano)"
+    )
+    assert "ads_producto_meta_amazon_us" not in _config(banco)
+
+
+# ---------------------------------------------------------------------------
+# (s) subir una clave a live corre evalua+replay por plataforma COMPLETA
+#     (h_8f01a907)
+# ---------------------------------------------------------------------------
+
+
+@skip
+def test_s_subida_a_live_verifica_por_plataforma_completa(banco):
+    _limpia_falsos(banco)
+    _siembra_srv(banco, banco["base_sha"])
+    corrida = _despliega(banco, banco["c_live"])
+    assert corrida.returncode == 0, corrida.stdout + corrida.stderr
+    log = banco["log"].read_text(encoding="utf-8")
+    for plataforma in PLATAFORMAS:
+        assert f"--platform {plataforma}" in log, (
+            f"la verificacion previa a live debe correr con la plataforma completa ({plataforma})"
+        )
+        assert f"--platform {plataforma[:-3]}\n" not in log, (
+            "la plataforma truncada (mx/us) es el defecto de h_8f01a907"
+        )
+    assert _config(banco)["ads_producto_meta_amazon_mx"] == "live"
+    checklist = _checklist(banco, banco["c_live"])
+    assert checklist.returncode == 0, checklist.stdout + checklist.stderr
+
+
+# ---------------------------------------------------------------------------
+# (t) el psql de produccion (w) ejecuta cada script en UNA transaccion
+#     (h_8f01a902): un script que revienta a medias no deja esquema parcial
+# ---------------------------------------------------------------------------
+
+
+@skip
+def test_t_w_de_produccion_es_atomico(banco):
+    _limpia_falsos(banco)
+    _siembra_srv(banco, banco["base_sha"])
+    env = _entorno(banco, sim="0")
+    guion = (
+        "SIM=0; "
+        f"SRV={_ruta_bash(banco['srv'])}; "
+        'DSN_SIM="$ORBIT_SIM_DSN"; '
+        "source tools/despliegue/lib.sh; "
+        'printf "CREATE TABLE auto03_atomicidad (id INT PRIMARY KEY);'
+        '\\nINSERT INTO auto03_atomicidad VALUES (1),(1);\\n" | w'
+    )
+    corrida = subprocess.run(
+        ["bash", "-c", guion],
+        cwd=str(banco["clon"]),
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert corrida.returncode != 0, "el INSERT duplicado debio reventar"
+    fila = (
+        banco["conn"]
+        .execute("SELECT to_regclass('public.auto03_atomicidad') IS NOT NULL")
+        .fetchone()
+    )
+    assert fila[0] is not True, (
+        "sin -1 el CREATE quedaba aplicado aunque el INSERT reventara (esquema parcial)"
+    )
