@@ -147,8 +147,11 @@ toma_candado() { # 0 = tomado; 75 = plazo agotado sin tomarlo
   rm -f "$CANDADO_FIFO"
   mkfifo -m 600 "$CANDADO_FIFO" || return "$ABORTA_GUARDA"
   # La sesion ssh vive mientras el fd 9 este abierto: el `cat` remoto lee
-  # hasta EOF y el flock se libera cuando esta corrida cierra o muere.
-  ssh goncloud "flock -w $plazo '$SRV/despliegue/.lock' bash -c 'echo $TOKEN_CANDADO > \"$SRV/despliegue/.lock.tomado\"; cat >/dev/null'; rm -f '$SRV/despliegue/.lock.tomado'" \
+  # hasta EOF y el flock se libera cuando esta corrida cierra o muere. El
+  # rm del marcador va con &&: si el flock se agoto, el marcador del QUE
+  # TIENE el candado no se toca (el token equivocado ya hace que esta
+  # corrida no se asigne el candado).
+  ssh goncloud "flock -w $plazo '$SRV/despliegue/.lock' bash -c 'echo $TOKEN_CANDADO > \"$SRV/despliegue/.lock.tomado\"; cat >/dev/null' && rm -f '$SRV/despliegue/.lock.tomado'" \
     <"$CANDADO_FIFO" >/dev/null 2>&1 &
   PID_CANDADO=$!
   exec 9<>"$CANDADO_FIFO"

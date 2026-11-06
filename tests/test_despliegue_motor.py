@@ -133,12 +133,15 @@ case "$comando" in
     case "$comando" in *"-tA"*) banderas="$banderas -tA" ;; esac
     case "$comando" in *"-1") banderas="$banderas -1" ;; esac
     psql "${ORBIT_SIM_DSN:?}" $banderas -v ON_ERROR_STOP=1
+    exit $?
     ;;
   *"flock -w"*)
     bash -c "$comando"
+    exit $?
     ;;
   *"cat >"*|*"cat >>"*|*"mkdir -p"*|*"rm -f"*|*"cat '"*)
     bash -c "$comando"
+    exit $?
     ;;
   *"productos-modo"*)
     exec "$DIR/docker" "$comando"
@@ -331,6 +334,19 @@ def _montar_banco():
             "migrations/0077_reversa_auto03_prueba_dos.sql": REVERSA_0077_DOS,
         },
     )
+    # c7 y c_live salen de c6 (migraciones limpias): las variantes con
+    # migraciones trampa (c3/c4/c5) van al final para no contaminarlos.
+    c7 = _commit(
+        clon,
+        "banco: apagado por vaciar interruptores.env",
+        {"tools/despliegue/interruptores.env": ""},
+    )
+    claves_live = "".join(f"ads_producto_meta_{p}=live\n" for p in PLATAFORMAS)
+    c_live = _commit(
+        clon,
+        "banco: meta en live",
+        {"tools/despliegue/interruptores.env": claves_live},
+    )
     c3 = _commit(
         clon,
         "banco: migracion con sonda vacia",
@@ -361,17 +377,6 @@ def _montar_banco():
             "migrations/0077_reversa_auto03_revienta_al_aplicar.sql": REVERSA_0077_REVIENTA,
         },
     )
-    c7 = _commit(
-        clon,
-        "banco: apagado por vaciar interruptores.env",
-        {"tools/despliegue/interruptores.env": ""},
-    )
-    claves_live = "".join(f"ads_producto_meta_{p}=live\n" for p in PLATAFORMAS)
-    c_live = _commit(
-        clon,
-        "banco: meta en live",
-        {"tools/despliegue/interruptores.env": claves_live},
-    )
 
     falsos = base / "falsos"
     falsos.mkdir()
@@ -381,13 +386,17 @@ def _montar_banco():
         ruta.chmod(0o755)
     log = base / "falsos.log"
     log.write_text("", encoding="utf-8")
+    # Dir de falsos OCASIONALES (el cp de la prueba (l)): vacio por omision,
+    # para que el resto de los escenarios use el cp real.
+    falsos_cp = base / "falsos-cp"
+    falsos_cp.mkdir()
     # BASH_ENV: en Windows el runtime de msys antepone sus propios bin al PATH
     # en el arranque del bash, y el fake ssh perderia contra el ssh real. Un
     # archivo sourced por CADA bash no interactivo vuelve a anteponer el dir
     # de los falsos dentro del proceso, ya convertida la entrada.
     bash_env = base / "bash-env.sh"
     bash_env.write_text(
-        f'export PATH="{_ruta_bash(falsos)}:$PATH"\n',
+        f'export PATH="{_ruta_bash(falsos)}:{_ruta_bash(falsos_cp)}:$PATH"\n',
         encoding="utf-8",
         newline="\n",
     )
@@ -396,6 +405,7 @@ def _montar_banco():
         "base": base,
         "clon": clon,
         "falsos": falsos,
+        "falsos_cp": falsos_cp,
         "log": log,
         "bash_env": bash_env,
         "srv": base / "srv",
@@ -1051,9 +1061,9 @@ def test_l_muerte_a_media_copia_del_respaldo(banco):
     resuelto = subprocess.run(["bash", "-c", "command -v cp"], capture_output=True, text=True)
     real_cp = resuelto.stdout.strip()
     assert real_cp, "cp debe estar en el PATH para esta prueba"
-    cp_falso = banco["base"] / "cp-falso"
-    cp_falso.mkdir(exist_ok=True)
-    script = cp_falso / "cp"
+    # El falso cp vive en falsos-cp, que el BASH_ENV antepone al PATH dentro
+    # de cada bash (el PATH de arranque no basta: msys antepone sus bin).
+    script = banco["falsos_cp"] / "cp"
     script.write_text(
         CP_FALSO.replace("{REAL_CP}", real_cp),
         encoding="utf-8",
@@ -1062,7 +1072,7 @@ def test_l_muerte_a_media_copia_del_respaldo(banco):
     script.chmod(0o755)
     # Muerte a MEDIA COPIA: el primer cp (app/ y tools/) pasa, el segundo
     # (archivos raiz) se interrumpe; el .parcial debe quedar a medias.
-    corrida = _despliega(banco, banco["c2"], path_frente=cp_falso)
+    corrida = _despliega(banco, banco["c2"])
     assert corrida.returncode != 0, "la muerte a media copia debio abortar"
     assert _cuenta_lineas(banco, "CODIGO") == 0, "no debe quedar CODIGO= a media copia"
     parciales = list((banco["srv"] / "despliegue").glob("predeploy-*.parcial"))
@@ -1074,6 +1084,7 @@ def test_l_muerte_a_media_copia_del_respaldo(banco):
     )
 
     _limpia_falsos(banco)
+    script.unlink(missing_ok=True)
     reanuda = _despliega(banco, banco["c2"])
     assert reanuda.returncode == 0, reanuda.stdout + reanuda.stderr
     assert _cuenta_lineas(banco, "CODIGO") == 1
@@ -1278,7 +1289,7 @@ def test_p_candado_ocupado_espera_y_sale_75(banco):
     ruta_lock = banco["srv"] / "despliegue" / ".lock"
     ruta_lock.write_text("", encoding="utf-8")
     lock_bash = _ruta_bash(ruta_lock)
-    marcador = f"{lock_bash}.tomado"
+    marcador = str(banco["srv"] / "despliegue" / ".lock.tomado")
 
     def rival_con_candado():
         return subprocess.Popen(
@@ -1330,7 +1341,7 @@ def test_p_candado_ocupado_espera_y_sale_75(banco):
         # (2) marcador RESIDUAL sin nadie dentro: esta corrida toma el candado,
         # pisa el marcador con SU token y el despliegue completo corre en la
         # rama real de produccion (psql y candado via ssh falso).
-        (banco["srv"] / "despliegue" / ".lock.tomado").unlink(missing_ok=True)
+        Path(marcador).unlink(missing_ok=True)
         verde = _despliega(banco, banco["c2"], sim="0")
         assert verde.returncode == 0, verde.stdout + verde.stderr
         assert _valor_ultimo(banco, "ESTADO") == "desplegado"
