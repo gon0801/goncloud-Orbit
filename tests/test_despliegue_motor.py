@@ -1380,9 +1380,6 @@ def test_p_candado_ocupado_espera_y_sale_75(banco):
         assert _valor_ultimo(banco, "ESTADO") == "verificado"
         # el compose debe correr dentro del proyecto de Orbit (h_8f01a903)
         log = banco["log"].read_text(encoding="utf-8")
-        volcado = os.path.join(os.path.dirname(__file__), "..", ".interno", "log-p.txt")
-        with open(volcado, "w", encoding="utf-8", newline="\n") as f:
-            f.write(log)
         assert f"cd '{_ruta_bash(banco['srv'])}' && docker compose up" in log, (
             "el rebuild debe seleccionar el proyecto Compose de Orbit"
         )
