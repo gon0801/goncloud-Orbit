@@ -188,7 +188,7 @@
     {
       "name": "resumen-ads-multicanal",
       "path": "plans/resumen-ads-multicanal.md",
-      "description": "RESUMEN ADS 01-04 — integrado y desplegado (04: #524, 10/10 hashes de app/ iguales entre master 9fb5a63f y contenedor, 5-nov 03:22 UTC, docs/evidencia/resumen-ads-multicanal/04-despliegue/hashes.json); P01 parcial: hasta 3-nov concilia, 4-nov +13.47 MXN por fuente posterior. Job 10 programado 5-nov 09:00 UTC: lectura posterior al cron, misma huella/as-of y conciliacion; cierre depende de resultado."
+      "description": "RESUMEN ADS 01-04 — integrado y desplegado (04: #524, 10/10 hashes de app/ iguales entre master 9fb5a63f y contenedor, 5-nov 03:22 UTC, docs/evidencia/resumen-ads-multicanal/04-despliegue/hashes.json); P01 CERRADO 5-nov-2026 09:00 UTC: job 10 estado=OK, corrida 1374 con misma huella/as-of, conciliacion 812/812 y 203/203 dias sin diferencias, T+0 4/4 (docs/evidencia/quick-wins-2026-11-04/seguimiento-meli/resultado-job10-20261105T090000Z.json)."
     },
     {
       "name": "pez-01",
