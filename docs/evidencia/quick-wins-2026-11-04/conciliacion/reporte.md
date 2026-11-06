@@ -1,5 +1,9 @@
 # P01: conciliación productiva MeLi Ads contra accounting
 
+> **Superado el 5-nov-2026 09:00 UTC.** El job 10, tras el cron 08:15, concilió 812/812 filas y 203/203 días sin
+> diferencias contra la misma huella/as-of de fuente: P01 cerrado. Este reporte conserva el estado histórico del 4-nov.
+> [Resultado](../seguimiento-meli/resultado-job10-20261105T090000Z.json).
+
 **Cierre parcial.** La comparación estricta vigente falla por dos campañas del
 4 de noviembre: accounting corrigió sus métricas después de la única ingesta
 de Orbit. No se ejecutaron ingestas ni se cambiaron datos, servicios o crons.
