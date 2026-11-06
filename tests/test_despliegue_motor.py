@@ -948,7 +948,11 @@ def test_l_muerte_a_media_copia_del_respaldo(banco):
     _limpia_falsos(banco)
     _siembra_srv(banco, banco["base_sha"])
     srv_antes = _huella_srv(banco)
-    real_pg_dump = shutil.which("pg_dump")
+    real_pg_dump = subprocess.run(
+        ["bash", "-c", "command -v pg_dump"],
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
     assert real_pg_dump, "pg_dump debe estar en el PATH para esta prueba"
     pgdump_falso = banco["base"] / "pgdump-falso"
     pgdump_falso.mkdir(exist_ok=True)
