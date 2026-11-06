@@ -48,6 +48,7 @@ from app.dashboard_resumen import CANALES_POR_DEFECTO, PERIODOS
 from app.notifica import estado_precio_es, motivo_precio_es
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.optimizer.goals import PELDANOS_CASCADA
+from app.ui_campanas import VISTAS_RAPIDAS, dinero_coma_ui, presenta_campanas
 from app.precio import cobertura as cobertura_precio
 from app.precio import fuentes as fuentes_precio
 from app.redaction import scrub
@@ -121,6 +122,7 @@ def miles_ui(valor) -> str | None:
 
 
 templates.env.filters["dinero_ui"] = dinero_ui
+templates.env.filters["dinero_coma_ui"] = dinero_coma_ui
 templates.env.filters["dinero_miles_ui"] = dinero_miles_ui
 templates.env.filters["porcentaje_ui"] = porcentaje_ui
 templates.env.filters["miles_ui"] = miles_ui
@@ -371,8 +373,13 @@ def _href_campanas(params: dict) -> str:
     return "/campanas?" + urlencode(pares)
 
 
-def _params_vista(filtros: dict, ordenar: str | None, direccion: str | None) -> dict:
-    return {
+def _params_vista(
+    filtros: dict,
+    ordenar: str | None,
+    direccion: str | None,
+    vista: str | None = None,
+) -> dict:
+    params = {
         "plataforma": filtros.get("plataforma"),
         "estado": filtros.get("estado"),
         "nombre": filtros.get("nombre"),
@@ -385,11 +392,19 @@ def _params_vista(filtros: dict, ordenar: str | None, direccion: str | None) -> 
         "ordenar": ordenar,
         "dir": direccion,
     }
+    if vista not in (None, "", "todas"):
+        params["vista"] = vista
+    return params
 
 
-def vista_tabla_campanas(filtros: dict, ordenar: str | None, direccion: str | None) -> dict:
+def vista_tabla_campanas(
+    filtros: dict,
+    ordenar: str | None,
+    direccion: str | None,
+    vista: str | None = None,
+) -> dict:
     """Hrefs de headers y el form GET (CSP: cero JS)."""
-    base = _params_vista(filtros, ordenar, direccion)
+    base = _params_vista(filtros, ordenar, direccion, vista)
     hrefs_orden = {}
     for col in COLUMNAS_ORDEN:
         if ordenar == col:
@@ -406,7 +421,8 @@ def vista_tabla_campanas(filtros: dict, ordenar: str | None, direccion: str | No
         "plataformas": tuple(PLATAFORMAS_MONEDA),
         "estados": ESTADOS_CAMPANA,
         "peldanos": PELDANOS_CASCADA,
-        "activo": any(filtros.values()) or ordenar is not None,
+        "vista_rapida": vista or "todas",
+        "activo": any(filtros.values()) or ordenar is not None or vista not in (None, "todas"),
     }
 
 
@@ -463,16 +479,17 @@ def pagina_campanas(
     revenue: Annotated[str | None, Query()] = None,
     target: Annotated[str | None, Query()] = None,
     procedencia: Annotated[str | None, Query()] = None,
+    vista: Annotated[str | None, Query()] = None,
 ) -> HTMLResponse:
     """Campanas: tabla 30d con target efectivo CON procedencia (5 peldanos,
     goals.py 1.2) y estado del goal. Cada fila lleva su moneda (regla 4).
-    Filtro y sort son query params del GET (mismo patron que ?cursor=): la
-    CSP prohibe JS inline y esta pantalla no necesita un archivo nuevo."""
+    Filtro, sort y vista rapida son query params del GET: la CSP prohibe JS inline."""
     plataforma = _vocab_o_422(plataforma, frozenset(PLATAFORMAS_MONEDA), "plataforma")
     estado = _vocab_o_422(estado, frozenset(ESTADOS_CAMPANA), "estado")
     ordenar = _vocab_o_422(ordenar, frozenset(COLUMNAS_ORDEN), "ordenar")
     direccion = _vocab_o_422(direccion, frozenset({"asc", "desc"}), "dir")
     procedencia = _vocab_o_422(procedencia, frozenset(PELDANOS_CASCADA), "procedencia")
+    vista_id = _vocab_o_422(vista, VISTAS_RAPIDAS, "vista") or "todas"
     filtros = {
         "plataforma": plataforma,
         "estado": estado,
@@ -486,13 +503,24 @@ def pagina_campanas(
     }
     datos = dash.campanas(conn=conn, platform=plataforma)
     items = filtra_y_ordena_campanas(datos["items"], filtros, ordenar, direccion)
+
+    def _href_vista(clave: str) -> str:
+        return _href_campanas(
+            _params_vista(filtros, ordenar, direccion, None if clave == "todas" else clave)
+        )
+
+    # Tarjetas y conteos: lista del form. La tabla obedece la vista rapida.
+    presentacion = presenta_campanas(items, vista_id, _href_vista)
     return templates.TemplateResponse(
         request,
         "campanas.html",
         {
             "pantalla": "campanas",
-            "items": items,
-            "vista": vista_tabla_campanas(filtros, ordenar, direccion),
+            "filas": presentacion.filas,
+            "presentacion": presentacion,
+            "vista": vista_tabla_campanas(
+                filtros, ordenar, direccion, None if vista_id == "todas" else vista_id
+            ),
         },
     )
 

@@ -1192,6 +1192,70 @@ def test_ui_campanas_vocabulario_query_cerrado(monkeypatch):
     assert _html_campanas(monkeypatch, lote, estado="ON").status_code == 422
     assert _html_campanas(monkeypatch, lote, ordenar="impressions").status_code == 422
     assert _html_campanas(monkeypatch, lote, dir="up").status_code == 422
+    assert _html_campanas(monkeypatch, lote, vista="impressions").status_code == 422
+
+
+def test_estado_fila_sigue_el_orden_del_diseno():
+    """Cost 0 gana a revenue 0. Sin target solo con gasto y sin valor. Sobre resta."""
+    from app.ui_campanas import estado_de
+
+    assert estado_de(_item_campana("Z", cost="0.0000", revenue="0.0000", target=None)).clave == (
+        "inactiva"
+    )
+    assert estado_de(
+        _item_campana("Z", cost="1.0000", revenue="0.0000", sin_ventas=True, target=None)
+    ).clave == "gasto"
+    assert estado_de(_item_campana("Z", cost="1.0000", revenue="3.0000", target=None)).clave == (
+        "sint"
+    )
+    sobre = estado_de(_item_campana("Z", cost="30.0000", revenue="100.0000", acos="30.00"))
+    assert sobre.clave == "sobre"
+    assert sobre.etiqueta == "+5.00 pp sobre target"
+    assert estado_de(_item_campana("Z", acos="25.00")).clave == "en"
+    assert estado_de(_item_campana("Z", cost=None, revenue=None, acos=None)) is None
+
+
+def test_tarjeta_varios_targets_no_inventa_uno_y_none_no_suma_parcial():
+    from app.ui_campanas import presenta_campanas
+
+    items = [
+        _item_campana("A", plataforma="amazon_mx", target="20.14", cost="10.0000", revenue="100"),
+        _item_campana("B", plataforma="amazon_mx", target="30.00", cost="10.0000", revenue="100"),
+        _item_campana(
+            "C",
+            plataforma="amazon_us",
+            cost=None,
+            revenue="5.0000",
+            clicks=None,
+            acos=None,
+        ),
+        _item_campana("D", plataforma="amazon_us", cost="4.0000", revenue="10.0000", clicks=2),
+    ]
+    pres = presenta_campanas(items, "todas", lambda clave: f"/campanas?vista={clave}")
+    mx, us = pres.tarjetas
+    assert mx.etiqueta == "Amazon MX"
+    assert mx.target == "varios targets"
+    assert mx.acos_tono == "neutro"
+    assert us.cost == "—"
+    assert us.clicks == "—"
+    assert pres.pestanas[0].n == 4
+
+
+def test_ui_campanas_vista_rapida_filtra_tabla_y_conserva_tarjetas(monkeypatch):
+    """La pestaña recorta la tabla. Las tarjetas siguen la lista del formulario."""
+    lote = _lote_campanas()
+    html = _html_campanas(monkeypatch, lote, vista="sobre").text
+    assert "Beta US" in html
+    assert "Alfa US" not in html
+    assert "Gama MX" not in html
+    assert "<h3>Amazon MX " in html
+    assert "<h3>Amazon US " in html
+    assert "1 de 4 campañas" in html
+    assert "vista=sobre" in html
+    assert 'aria-selected="true"' in html
+    mx = _html_campanas(monkeypatch, lote, plataforma="amazon_mx").text
+    assert "<h3>Amazon MX " in mx
+    assert "<h3>Amazon US " not in mx
 
 
 # ---------------------------------------------------------------------------
