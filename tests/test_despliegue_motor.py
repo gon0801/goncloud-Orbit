@@ -369,6 +369,11 @@ def banco():
 def _siembra_srv(banco, sha: str) -> None:
     for tabla in TABLAS_PRUEBA:
         banco["conn"].execute(f"DROP TABLE IF EXISTS public.{tabla}")
+    # Config baselinada en {}: los escenarios parten del estado canonico
+    # (interruptores sin claves), como el reset() del modelo de referencia.
+    banco["conn"].execute(
+        "INSERT INTO config_version (label, settings) VALUES ('banco (siembra)', '{}')"
+    )
     srv = banco["srv"]
     shutil.rmtree(srv, ignore_errors=True)
     (srv / "despliegue").mkdir(parents=True)
