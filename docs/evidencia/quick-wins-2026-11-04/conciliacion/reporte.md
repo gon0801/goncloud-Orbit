@@ -4,10 +4,10 @@
 > diferencias contra la misma huella/as-of de fuente: P01 cerrado. Este reporte conserva el estado histórico del 4-nov.
 > [Resultado](../seguimiento-meli/resultado-job10-20261105T090000Z.json).
 
-**Cierre parcial.** La comparación estricta vigente falla por dos campañas del
+**Estado del 4-nov (histórico): cierre parcial.** La comparación estricta de entonces fallaba por dos campañas del
 4 de noviembre: accounting corrigió sus métricas después de la única ingesta
 de Orbit. No se ejecutaron ingestas ni se cambiaron datos, servicios o crons.
-El primer cron posterior a la activación todavía no ocurrió.
+El primer cron posterior a la activación aún no había ocurrido (corrió el 5-nov 08:15 UTC).
 
 ## Alcance y límite temporal
 
@@ -63,8 +63,8 @@ los lados publica campañas de ese día; no se declara conciliado.
 
 Impacto: la vista de MeLi en Orbit subestima 13.47 MXN de gasto y 11 clics del
 último día cerrado respecto del origen actualizado. No hay pérdida de filas
-ni diferencia en revenue en esta captura. No corresponde cerrar P01 totalmente
-con una conciliación estricta fallida.
+ni diferencia en revenue en esta captura. Al 4-nov no correspondía cerrar P01
+con una conciliación estricta fallida; se cerró el 5-nov con el job 10.
 
 ## Cron posterior
 
