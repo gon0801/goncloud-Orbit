@@ -133,6 +133,7 @@ exit 0
 DOCKER_FALSO = """#!/usr/bin/env bash
 set -u
 printf 'docker %s\\n' "$*" >> "${ORBIT_FAKE_LOG:?}"
+if [ -f "${ORBIT_FAKE_DIR}/docker-rc" ]; then exit "$(cat "${ORBIT_FAKE_DIR}/docker-rc")"; fi
 case "$*" in
   *"productos-modo"*)
     if [ -f "${ORBIT_FAKE_DIR}/docker-lento" ]; then sleep 10; fi
@@ -140,7 +141,6 @@ case "$*" in
       rm -f "${ORBIT_FAKE_DIR}/docker-rc-una"
       exit 1
     fi
-    if [ -f "${ORBIT_FAKE_DIR}/docker-rc" ]; then exit "$(cat "${ORBIT_FAKE_DIR}/docker-rc")"; fi
     plat="" tipo="" val=""; prev=""
     for a in "$@"; do
       case "$prev" in
