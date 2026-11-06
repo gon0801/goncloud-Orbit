@@ -1308,7 +1308,8 @@ def test_p_candado_ocupado_espera_y_sale_75(banco):
         # como lo haria una primera corrida real.
         return subprocess.Popen(
             [
-                "bash", "-c",
+                "bash",
+                "-c",
                 f'exec 9>>"{lock_bash}"; '
                 "until flock -n 9; do sleep 0.3; done; "
                 f'echo token-de-otra-corrida > "{marcador_bash}"; '
