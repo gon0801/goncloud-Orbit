@@ -1290,13 +1290,35 @@ def test_p_candado_ocupado_espera_y_sale_75(banco):
     ruta_lock.write_text("", encoding="utf-8")
     lock_bash = _ruta_bash(ruta_lock)
     marcador = str(banco["srv"] / "despliegue" / ".lock.tomado")
+    marcador_bash = f"{lock_bash}.tomado"
+    liberar = str(banco["falsos"] / "rival-liberar")
+    liberar_bash = _ruta_bash(banco["falsos"] / "rival-liberar")
 
     def rival_con_candado():
+        # Rival que suelta AL VER el archivo de control (matar al bash de
+        # msys no mata el script: fork de cygwin). Escribe su PROPIO token,
+        # como lo haria una primera corrida real.
         return subprocess.Popen(
-            ["bash", "-c", f'exec 9>>"{lock_bash}"; flock -w 600 9; sleep 120'],
+            [
+                "bash", "-c",
+                f'exec 9>>"{lock_bash}"; '
+                "until flock -n 9; do sleep 0.3; done; "
+                f'echo token-de-otra-corrida > "{marcador_bash}"; '
+                f'while [ ! -f "{liberar_bash}" ]; do sleep 0.3; done',
+            ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
+
+    def suelta_rival():
+        Path(liberar).touch()
+        fin = time.monotonic() + 30
+        while time.monotonic() < fin and rival.poll() is None:
+            time.sleep(0.3)
+        Path(liberar).unlink(missing_ok=True)
+        if rival.poll() is None:
+            rival.kill()
+            rival.wait(timeout=30)
 
     env = _entorno(banco, espera="1", sim="0")
     env["MOTOR_SHA"] = banco["c2"]
@@ -1322,20 +1344,20 @@ def test_p_candado_ocupado_espera_y_sale_75(banco):
         fin = time.monotonic() + 30
         while time.monotonic() < fin and not candado_ocupado():
             time.sleep(0.5)
-        with open(marcador, "w", encoding="utf-8", newline="\n") as f:
-            f.write("token-de-otra-corrida\n")
+        fin = time.monotonic() + 30
+        while time.monotonic() < fin and not Path(marcador).exists():
+            time.sleep(0.5)
         inicio = time.monotonic()
         corrida = _despliega(banco, banco["c2"], espera="1", sim="0")
         transcurrido = time.monotonic() - inicio
-        rival.kill()
-        rival.wait(timeout=30)
+        suelta_rival()
         assert corrida.returncode == 75, corrida.stdout + corrida.stderr
         assert transcurrido < 60, f"el plazo de 1s se disparo a {transcurrido:.0f}s"
         assert not (banco["srv"] / "despliegue" / "ultimo.env").exists(), (
             "con el candado ocupado no debe escribirse ultimo.env"
         )
-        assert (banco["srv"] / "despliegue" / ".lock.tomado").exists(), (
-            "el marcador ajeno no debe haberse limpiado por esta corrida"
+        assert Path(marcador).read_text(encoding="utf-8").strip() == "token-de-otra-corrida", (
+            "el marcador ajeno no debe haberse limpiado ni pisado por esta corrida"
         )
 
         # (2) marcador RESIDUAL sin nadie dentro: esta corrida toma el candado,
@@ -1364,8 +1386,7 @@ def test_p_candado_ocupado_espera_y_sale_75(banco):
         while time.monotonic() < fin and not candado_ocupado():
             time.sleep(0.5)
         rollback = _rollback(banco, banco["c2"], espera="1", sim="0")
-        rival.kill()
-        rival.wait(timeout=30)
+        suelta_rival()
         assert rollback.returncode == 75, rollback.stdout + rollback.stderr
         assert "\n".join(_ultimo(banco)) == antes, (
             "el rollback no debe leer ni revertir sin el candado"
@@ -1376,6 +1397,7 @@ def test_p_candado_ocupado_espera_y_sale_75(banco):
         assert _config(banco) == {}
         assert _sha_srv(banco) == banco["base_sha"]
     finally:
+        Path(liberar).touch()
         if rival.poll() is None:
             rival.kill()
             rival.wait(timeout=30)
