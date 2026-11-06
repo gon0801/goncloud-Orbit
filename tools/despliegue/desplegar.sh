@@ -229,7 +229,7 @@ despliega_codigo() {
 # estado que el rollback debe restaurar.
 # ---------------------------------------------------------------------------
 converge_claves() {
-  local previo=$1 l ya a b clave valor previo_vigente cmd plat
+  local previo=$1 l ya a b clave valor previo_vigente vigente cmd plat
   l=$(lee_ultimo)
   ya=$(printf '%s\n' "$l" | sed -n 's/^CLAVE=//p' | cut -d: -f1 | sort -u || true)
   a=$(claves_de_sha "$previo")
@@ -240,8 +240,14 @@ converge_claves() {
     valor=$(valor_de_clave "$b" "$clave")
     previo_vigente=$(valor_de_clave "$a" "$clave")
     [ "$previo_vigente" = "$valor" ] && continue
+    # El valor VIGENTE se lee ANTES de anotar o mutar; si la lectura falla
+    # el despliegue aborta fail-closed: una CLAVE vacia en el diario seria
+    # indistinguible de una clave ausente y el rollback la eliminaria con
+    # off en vez de devolver el estado que tenia la base (h_8f01a904).
+    vigente=$(valor_vigente "$clave") ||
+      aborta "no se pudo leer el valor vigente de $clave; no se anota ni se muta"
     if ! printf '%s\n' "$ya" | grep -qx -- "$clave"; then
-      anota_ultimo "CLAVE=$clave:$(valor_vigente "$clave")"
+      anota_ultimo "CLAVE=$clave:$vigente"
     fi
     if [ "$valor" = live ]; then
       plat=$(plataforma_de_clave "$clave") ||
@@ -255,7 +261,7 @@ converge_claves() {
     fi
     cmd=$(clave_a_cli "$clave" "$valor") ||
       aborta "la clave $clave no es del motor de productos y no tiene camino por productos-modo"
-    echo "clave $clave: '$previo_vigente' -> '${valor:-<vaciar>}'"
+    echo "clave $clave: '$previo_vigente' -> '${valor:-<vaciar>}' (vigente: '$vigente')"
     corre_en_contenedor $cmd
   done 3< <(printf '%s\n' "$b" "$a" | grep -v '^$' | sed 's/=.*$//' | sort -u)
 }

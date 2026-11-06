@@ -1538,3 +1538,52 @@ def test_t_w_de_produccion_es_atomico(banco):
     assert fila[0] is not True, (
         "sin -1 el CREATE quedaba aplicado aunque el INSERT reventara (esquema parcial)"
     )
+
+
+# ---------------------------------------------------------------------------
+# (u) si falla la lectura del valor vigente, el despliegue aborta ANTES de
+#     anotar el diario o mutar (h_8f01a904): una CLAVE vacia en el diario
+#     seria indistinguible de una clave ausente y el rollback la eliminaria
+#     con off en vez de devolver el estado que tenia la base
+# ---------------------------------------------------------------------------
+
+
+@skip
+def test_u_lectura_vigente_fallida_aborta_sin_mutar(banco):
+    _limpia_falsos(banco)
+    _siembra_srv(banco, banco["base_sha"])
+    env = _entorno(banco, sim="0")
+    guion = (
+        "set -euo pipefail; "
+        f"SRV={_ruta_bash(banco['srv'])}; "
+        'DSN_SIM="$ORBIT_SIM_DSN"; '
+        "SIM=0; "
+        "source tools/despliegue/lib.sh; "
+        "eval \"$(sed -n '/^converge_claves() {/,/^}$/p' tools/despliegue/desplegar.sh)\"; "
+        "MOTOR_SHA=nuevo; "
+        "lee_ultimo() { :; }; "
+        "claves_de_sha() { if [ \"$1\" = nuevo ]; then"
+        " printf 'ads_producto_meta_amazon_mx=shadow\\n'; fi; }; "
+        "valor_vigente() { echo 'fallo de lectura simulado' >&2; return 31; }; "
+        "anota_ultimo() { printf 'JOURNAL=%s\\n' \"$1\"; }; "
+        "corre_en_contenedor() { printf 'MUTACION=%s\\n' \"$*\"; }; "
+        "converge_claves previo"
+    )
+    corrida = subprocess.run(
+        ["bash", "-c", guion],
+        cwd=str(banco["clon"]),
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert corrida.returncode != 0, (
+        "con la lectura del vigente rota, el despliegue debio abortar"
+    )
+    assert "JOURNAL=" not in corrida.stdout, (
+        "no debe anotarse una CLAVE vacia en el diario"
+    )
+    assert "MUTACION=" not in corrida.stdout, (
+        "no debe llamarse al CLI sin haber leido el valor vigente"
+    )
+    assert "no se pudo leer el valor vigente" in corrida.stderr
