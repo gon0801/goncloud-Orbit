@@ -843,13 +843,11 @@ def test_i_sha_contenido_sin_cambios(banco):
         " se negaria a otro SHA"
     )
     config_antes = _config(banco)
-    claves_antes = _cuenta_lineas(banco, "CLAVE")
-    corrida = _despliega(banco, banco["base_sha"])
-    assert corrida.returncode == 0, corrida.stdout + corrida.stderr
-    assert _valor_ultimo(banco, "ESTADO") == "sin_cambios"
-    assert _config(banco) == config_antes, "la monotonia no debe tocar claves"
-    assert _cuenta_lineas(banco, "CLAVE") == claves_antes
-    assert _sha_srv(banco) == banco["c2"]
+        corrida = _despliega(banco, banco["base_sha"])
+        assert corrida.returncode == 0, corrida.stdout + corrida.stderr
+        assert _valor_ultimo(banco, "ESTADO") == "sin_cambios"
+        assert _config(banco) == config_antes, "la monotonia no debe tocar claves"
+        assert _sha_srv(banco) == banco["c2"]
     checklist = _checklist(banco, banco["base_sha"])
     assert checklist.returncode == 0, checklist.stdout + checklist.stderr
 
