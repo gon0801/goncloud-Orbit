@@ -120,6 +120,8 @@ respalda() {
   parcial="despliegue/predeploy-$stamp.parcial"
   echo "== 3) respaldo predeploy-$stamp"
   if [ "$SIM" = 1 ]; then
+    # Un respaldo a medias de una corrida anterior nunca se completa: fuera.
+    rm -rf "$SRV/despliegue"/predeploy-*.parcial 2>/dev/null || true
     rm -rf "$SRV/$parcial"
     mkdir "$SRV/$parcial"
     pg_dump "$DSN_SIM" --schema-only > "$SRV/$parcial/esquema.sql"
@@ -127,6 +129,7 @@ respalda() {
     ssh goncloud bash -s <<REMOTE
 set -e
 cd '$SRV'
+rm -rf despliegue/predeploy-*.parcial
 rm -rf '$parcial'
 mkdir '$parcial'
 docker exec orbit-db-1 pg_dump -U orbit -d orbit --schema-only > '$parcial/esquema.sql'
