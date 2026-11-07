@@ -740,7 +740,10 @@ function guardarLimites(form, campos) {
     estado.textContent = "Clics mínimos: escribe un número entero.";
     return;
   }
+  // Sin las dos claves guardadas los valores son los de omision: guardarlos
+  // tal cual SI es un cambio.
   if (
+    form.dataset.guardados === "true" &&
     clics.value.trim() === clics.defaultValue.trim() &&
     gasto.value.trim() === gasto.defaultValue.trim()
   ) {

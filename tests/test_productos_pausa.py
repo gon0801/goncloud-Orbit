@@ -695,3 +695,20 @@ def test_simula_sin_historia_no_es_cero():
     )
     assert sim.gasto_evitado == sim.ventas_perdidas == p.SinDato(("sin_historia",))
     assert [(x.producto.product_id, x.anuncios) for x in sim.productos] == [(77, 2)]
+
+
+@_skip_db
+def test_simula_el_retroceso_solo_cuenta_productos_con_anuncios_al_alcance():
+    """h_f09ef83e: el retroceso corre la regla completa de H.2. Con el goal en
+    shadow el producto no tiene anuncios elegibles en la ventana anterior:
+    no cuenta como pausado ni suma gasto evitado."""
+    with _db("orbit_h8_simula_alcance") as conn:
+        m = _mundo_pausa(conn)
+        _historia_anterior(conn, asin="ASIN-SKU-A", sku="SS-SKU-A", ad="pa1")
+        assert _simula(conn, _usd(100, "40")).productos_anteriores == (m["pid"],)
+        conn.execute("UPDATE ads_optimizer_goal SET mode = 'shadow'")
+        sim = _simula(conn, _usd(100, "40"))
+        assert sim.productos == ()
+        assert sim.productos_anteriores == ()
+        assert sim.gasto_evitado == p.Dinero(Decimal("0"), "USD")
+        assert sim.ventas_perdidas == p.Dinero(Decimal("0"), "USD")

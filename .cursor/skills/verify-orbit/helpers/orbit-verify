@@ -2212,6 +2212,10 @@ def cmd_drive_productos(args: argparse.Namespace) -> None:
             and 'type="password" id="limites-token"' in limites
             and ">Guardar límites</button>" in limites
             and 'role="status"' in limites,
+            # h_c4a60451: sin las claves en la config los vigentes son los de
+            # omision y la pantalla deja guardarlos tal cual.
+            "limites_por_omision_guardables": 'data-guardados="false"' in limites
+            and "(por omisión, todavía sin guardar)" in limites,
         }
     )
 
@@ -2265,6 +2269,7 @@ def cmd_drive_productos(args: argparse.Namespace) -> None:
         "gasto_texto": "500.00",
         "moneda": "MXN",
         "error": None,
+        "guardados": False,
     }
 
     checks.update(_simula_limites(base, evidence, semilla, limites_antes))

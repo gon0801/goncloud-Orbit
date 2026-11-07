@@ -273,7 +273,7 @@
   {% if lim.error %}
   <p class="aviso" data-limites-error>No se pueden leer los límites vigentes: {{ lim.error }}</p>
   {% else %}
-  <p data-limites-vigentes>Vigentes: <strong>{{ lim.clics }} clics</strong> y <strong>{{ lim.gasto_texto }} {{ lim.moneda }}</strong> de gasto.</p>
+  <p data-limites-vigentes>Vigentes: <strong>{{ lim.clics }} clics</strong> y <strong>{{ lim.gasto_texto }} {{ lim.moneda }}</strong> de gasto{% if not lim.guardados %} (por omisión, todavía sin guardar){% endif %}.</p>
   {% endif %}
   <form id="limites-simular" class="filtros" data-plataforma="{{ plataforma }}" data-moneda="{{ lim.moneda }}">
     <label for="limites-clics">Clics mínimos
@@ -288,7 +288,7 @@
   <p id="limites-sim-estado" class="mutado" role="status"></p>
   <div id="limites-simulacion"></div>
   {% if lim.config_version_id %}
-  <form id="limites-guardar" class="filtros" data-plataforma="{{ plataforma }}" data-config-id="{{ lim.config_version_id }}">
+  <form id="limites-guardar" class="filtros" data-plataforma="{{ plataforma }}" data-config-id="{{ lim.config_version_id }}" data-guardados="{{ 'true' if lim.guardados else 'false' }}">
     <label for="limites-token">Token
       <input type="password" id="limites-token" name="token" placeholder="x-orbit-token" autocomplete="off" required>
     </label>

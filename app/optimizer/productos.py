@@ -321,7 +321,8 @@ def resolver_producto(
 def motivos_economicos_pausa(entrada: EntradaProducto) -> tuple[str, ...]:
     """La regla de la pausa sin el alcance de anuncios (H.2): vacio si el
     producto gasto sin vender, con la identidad comprobada y sin impulso
-    abierto. La simulacion la corre sola sobre la ventana anterior."""
+    abierto. La regla completa (_regla_pausa) exige ademas anuncios
+    elegibles."""
     motivos = list(entrada.bloqueos_pausa)
     motivos.extend(m for m in entrada.impedimentos if m == "sku_distinto_en_asin")
     actividad = entrada.actividad_pausa
@@ -415,7 +416,9 @@ class PausaSimulada:
 class SimulacionPausa:
     """La pausa con otros limites, sin escribir (H.8). `productos` son los
     que hoy tendrian propuestas en [D-60, D-30). El costo de equivocarse corre
-    la regla economica sobre [D-90, D-60) y suma lo que esos productos
+    la misma regla completa (con el alcance de anuncios) sobre [D-90, D-60):
+    solo cuenta un producto que entonces habria tenido alguna propuesta, y
+    suma lo que esos productos
     gastaron y vendieron despues, en [D-60, D-30): el gasto es observado, no
     una promesa de ahorro. `sin_cobertura_d7` cuenta los productos con alguna
     fecha de la ventana sin fila ni rango pedido guardado (S6, D.7);
@@ -468,9 +471,7 @@ def simula_pausa(
                 PausaSimulada(e.producto, actividad.gasto, actividad.clics, len(pausas))
             )
     antes = [replace(e, limites_pausa=limites) for e in entradas_antes]
-    elegidos = tuple(
-        sorted(e.producto.product_id for e in antes if not motivos_economicos_pausa(e))
-    )
+    elegidos = tuple(sorted(e.producto.product_id for e in antes if _regla_pausa(e)[0]))
     por_producto = {
         e.producto.product_id: e for e in hoy if "ads_con_metrica_ausente" not in e.impedimentos
     }

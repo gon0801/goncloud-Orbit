@@ -208,13 +208,16 @@ class PausaVista:
 class LimitesVista:
     """Limites vigentes de la pausa del mercado (H.9). config_version_id es la
     base que exige el guardado; sin config_version no hay sobre que guardar.
-    Una config ilegible deja error y ningun valor."""
+    Una config ilegible deja error y ningun valor. `guardados` dice si las dos
+    claves de limites estan en la config: sin ellas los valores son los de
+    omision y guardarlos tal cual SI es un cambio (S8 los exige guardados)."""
 
     config_version_id: int | None
     clics: int | None
     gasto: str | None
     moneda: str
     error: str | None
+    guardados: bool = False
 
     def como_dict(self) -> dict:
         return {
@@ -224,6 +227,7 @@ class LimitesVista:
             "gasto_texto": _numero(self.gasto),
             "moneda": self.moneda,
             "error": self.error,
+            "guardados": self.guardados,
         }
 
 
@@ -337,6 +341,7 @@ def lee_limites(conn, plataforma: str) -> LimitesVista:
         format(limites.gasto_min.valor.normalize(), "f"),
         limites.gasto_min.moneda,
         None,
+        all(settings.get(p.clave_limite(t, plataforma)) is not None for t in ("clics", "gasto")),
     )
 
 
