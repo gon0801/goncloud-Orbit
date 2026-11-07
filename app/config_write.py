@@ -348,8 +348,7 @@ def exige_limites_guardados(settings: Mapping, platform: str) -> None:
         limites_pausa_guardados(settings, platform)
     ):
         raise SettingsInvalido(
-            "la pausa en vivo exige guardar antes los limites de clics y gasto de"
-            f" {platform}"
+            f"la pausa en vivo exige guardar antes los limites de clics y gasto de {platform}"
         )
 
 

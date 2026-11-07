@@ -69,7 +69,9 @@ def cambia_pausa(
     if platform not in productos.PLATAFORMAS:
         raise config_write.SettingsInvalido(f"plataforma sin pausa por producto: {platform!r}")
     if conn.autocommit:
-        raise ValueError("cambia_pausa necesita una conexion sin autocommit: es una sola transaccion")
+        raise ValueError(
+            "cambia_pausa necesita una conexion sin autocommit: es una sola transaccion"
+        )
     try:
         conn.execute(_SQL_CANDADO, (platform,))
         fila = conn.execute(_SQL_VIGENTE).fetchone()
@@ -106,8 +108,7 @@ def cambia_pausa(
         descartadas: list[int] = []
         if modo == "live":
             descartadas = [
-                f[0]
-                for f in conn.execute(_SQL_DESCARTA_PRACTICAS, (MOTIVO_DESCARTE, platform))
+                f[0] for f in conn.execute(_SQL_DESCARTA_PRACTICAS, (MOTIVO_DESCARTE, platform))
             ]
         despues = conn.execute(_SQL_PRACTICAS, (platform,)).fetchone()[0]
         conn.commit()
