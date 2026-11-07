@@ -165,14 +165,14 @@ def lee_entradas_productos(
 
     grupos: dict[int, list[_Anuncio]] = defaultdict(list)
     campana_de: dict[int, int] = {}
-    habilitados: list[tuple[_Anuncio, int, str, dt.datetime | None]] = []
+    habilitados: dict[int, list[tuple[_Anuncio, int, str, dt.datetime | None]]] = defaultdict(list)
     for fila in conn.execute(_SQL_ANUNCIOS, (plataforma,)):
         pa, grupo, campana, listing, producto, estado, externo, alta = fila
         anuncio = _Anuncio(pa, listing, producto)
         grupos[grupo].append(anuncio)
         campana_de[grupo] = campana
         if estado == "ENABLED" and producto is not None:
-            habilitados.append((anuncio, grupo, externo, alta))
+            habilitados[producto].append((anuncio, grupo, externo, alta))
     productos_ids = sorted(
         {a.product_id for anuncios in grupos.values() for a in anuncios if a.product_id}
     )
@@ -231,24 +231,21 @@ def lee_entradas_productos(
     limites = p.limites_pausa_desde_settings(settings, plataforma)
     goal_plataforma, goals_por_campana = goals
     inicio_ventana = dt.datetime.combine(ventana_pausa.desde, dt.time.min, dt.UTC)
+    ids_por_clave: dict[tuple[str, str], set[str]] = defaultdict(set)
+    for (asin, sku, fecha), ids in ad_ids.items():
+        if ventana_pausa.contiene(fecha):
+            ids_por_clave[(asin, sku)].update(ids)
 
     def anuncios_del_producto(producto: int) -> tuple[p.AnuncioElegible, ...]:
         """S4 hasta donde D puede leer: ENABLED, con identidad, goal resuelto
         enabled y live, alta anterior a la ventana y adId en ad_ids de la
         ventana (filas del mismo SKU). Impulso abierto y claves en vuelo: H."""
-        en_ventana = {
-            ad_id
-            for asin, sku in claves[producto]
-            for (a, s_, fecha), ids in ad_ids.items()
-            if a == asin and s_ == sku and ventana_pausa.contiene(fecha)
-            for ad_id in ids
-        }
+        en_ventana = set().union(*(ids_por_clave.get(clave, ()) for clave in claves[producto]))
         elegibles = []
-        for anuncio, grupo, externo, alta in habilitados:
+        for anuncio, grupo, externo, alta in habilitados.get(producto, ()):
             goal = g.resuelve_goal(goals_por_campana.get(campana_de[grupo]), goal_plataforma)
             if (
-                anuncio.product_id == producto
-                and goal is not None
+                goal is not None
                 and goal.enabled
                 and goal.mode == "live"
                 and alta is not None
