@@ -12,6 +12,7 @@ Subcomandos:
   drive-inertes   Receta curl de la pantalla Inertes + evidencia (HTML y JSON)
   drive-fabrica   Receta curl de Crear campanas + evidencia (HTML y JSON)
   drive-settings  Receta curl de Settings + evidencia (HTML y JSON)
+  drive-productos Receta curl de Productos sin clics (meta por producto) + evidencia
   drive-campanas  Receta curl de la pantalla Campanas + captura de evidencia
   maintain-verification-skill
                  Orquesta launch + doctor + drives y hace teardown al final
@@ -79,26 +80,24 @@ MIGRACIONES_DATOS = frozenset(
 
 
 def _migration_files() -> list[Path]:
-    """SQL de esquema, en orden de nombre.
-
-    Omite nombres en MIGRACIONES_DATOS. Si un prefijo NNNN tiene un sibling
-    `*_reversa_*`, ese prefijo es un parche de catalogo vivo (hoy 0011) y no
-    aplica en una base vacia. tests/test_schema.py omite 0011 por la misma razon.
+    """SQL de esquema, en orden de nombre: la cadena entera sin los parches de
+    datos (MIGRACIONES_DATOS) ni las reversas, la misma regla que
+    tests/test_schema_docs.py y tests/test_despliegue_motor.py. Desde la 0031
+    casi toda migracion trae su `_reversa_`: omitir el prefijo entero dejaba la
+    base sin las tablas de impulso, retiro y evaluacion de productos.
     """
-    files = sorted(
+    esquema = sorted(
         (
             p
             for p in MIGRATIONS.glob("*.sql")
-            if p.name[:4].isdigit() and p.name not in MIGRACIONES_DATOS
+            if p.name[:4].isdigit()
+            and p.name not in MIGRACIONES_DATOS
+            and "_reversa_" not in p.name
         ),
         key=lambda p: p.name,
     )
-    if not files:
-        _die(f"no hay migraciones numeradas en {MIGRATIONS}")
-    prefixes_con_reversa = {p.name[:4] for p in files if "_reversa_" in p.name}
-    esquema = [p for p in files if p.name[:4] not in prefixes_con_reversa]
     if not esquema:
-        _die(f"no quedo SQL de esquema en {MIGRATIONS}")
+        _die(f"no hay migraciones numeradas en {MIGRATIONS}")
     return esquema
 
 
@@ -362,6 +361,163 @@ def _sembrar(conn) -> dict:
     }
 
 
+def _sembrar_productos(conn) -> dict:
+    """AUTO-03 E.2: un ciclo done de amazon_mx con dos evaluaciones de producto
+    armadas con el resolutor real y guardadas con productos_io (lo mismo que
+    escribe el ciclo): Collar demo con meta 4 % (margen 8 % x fraccion 0.5) en
+    un grupo exclusivo cuya keyword pasa de Mantener a Mover con la meta, y
+    Aretes demo sin meta por halo_sin_margen. Reusa la config de la semilla."""
+    from decimal import Decimal
+
+    from psycopg.types.json import Json
+
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    from app import productos_io
+    from app.optimizer import goals as g
+    from app.optimizer import productos as p
+
+    ahora = datetime.now(UTC)
+    hoy = ahora.date()
+    config_id = conn.execute("SELECT max(id) FROM config_version").fetchone()[0]
+
+    def entidad(kind: str, externo: str, padre: int | None = None, **extra) -> int:
+        columnas = ["platform", "kind", "external_id", "parent_id", *extra]
+        return conn.execute(
+            f"INSERT INTO ad_entity ({', '.join(columnas)}) VALUES"
+            f" ({', '.join(['%s'] * len(columnas))}) RETURNING id",
+            ("amazon_mx", kind, externo, padre, *extra.values()),
+        ).fetchone()[0]
+
+    camp = entidad("campaign", "9301", name="Campana P")
+    grupo = entidad("ad_group", "9311", camp, name="Grupo collar")
+    hoja = entidad("keyword", "9321", grupo, match_type="EXACT", keyword_text="collar plata")
+    collar, aretes = (
+        conn.execute(
+            "INSERT INTO product (odoo_sku, name) VALUES (%s, %s) RETURNING id", fila
+        ).fetchone()[0]
+        for fila in (("PV-COLLAR", "Collar demo"), ("PV-ARETES", "Aretes demo"))
+    )
+    ciclo = conn.execute(
+        "INSERT INTO optimizer_cycle (motor, mode, platform, status, finished_at, notes)"
+        " VALUES ('ads_optimizer', 'live', 'amazon_mx', 'done', %s, %s) RETURNING id",
+        (
+            ahora,
+            Json(
+                {
+                    "productos": {
+                        "modo_meta": "shadow",
+                        "productos_evaluados": 2,
+                        "con_meta": 1,
+                        "grupos_aptos": 1,
+                        "hojas_bajo_grupo_apto": 1,
+                        "hojas_efectivas": 1,
+                        "hojas_pisadas_por_goal_con_target": 0,
+                    }
+                }
+            ),
+        ),
+    ).fetchone()[0]
+    conn.execute(
+        "INSERT INTO target_acos_ciclo (cycle_id, ad_entity_id, decided_at, target_acos_pct,"
+        " procedencia) VALUES (%s, %s, %s, 10.00, 'margen_plataforma')",
+        (ciclo, hoja, ahora),
+    )
+
+    ventana_halo = p.Ventana(hoy - timedelta(days=90), hoy - timedelta(days=3))
+
+    def entrada(producto: int, margen_pct: str, dias_halo, grupos) -> p.EntradaProducto:
+        return p.EntradaProducto(
+            producto=p.Producto("amazon_mx", producto),
+            decidido_el=ahora,
+            margen=g.MedicionMargen(
+                Decimal(margen_pct),
+                Decimal("0.99"),
+                45,
+                Decimal("12000"),
+                ahora,
+                "MXN",
+                hoy - timedelta(days=45),
+                hoy - timedelta(days=15),
+            ),
+            fraccion=Decimal("0.5"),
+            ventana_halo=ventana_halo,
+            dias_halo=dias_halo,
+            actividad_pausa=p.SinDato(("sin_filas_en_ventana",)),
+            anuncios=(),
+            grupos_aptos_para_meta=grupos,
+            impedimentos=(),
+            limites_pausa=p.limites_pausa_desde_settings({}, "amazon_mx"),
+        )
+
+    def mxn(valor: str) -> p.Dinero:
+        return p.Dinero(Decimal(valor), "MXN")
+
+    evaluaciones = [
+        p.resolver_producto(
+            entrada(
+                collar,
+                "8",
+                (),
+                (
+                    p.GrupoAptoParaMeta(
+                        grupo_id=grupo,
+                        campana_id=camp,
+                        hojas=(hoja,),
+                        ventana_evidencia_hojas=ventana_halo,
+                        referencias_identidad_y_halo=(),
+                        huella_alcance="sha256:verify-orbit",
+                    ),
+                ),
+            )
+        ),
+        p.resolver_producto(
+            entrada(
+                aretes,
+                "30",
+                (
+                    p.DiaProducto(
+                        hoy - timedelta(days=40), mxn("80"), 12, Decimal(2), mxn("500"), mxn("200")
+                    ),
+                ),
+                (),
+            )
+        ),
+    ]
+    sombra = {
+        collar: [
+            {
+                "hoja_id": hoja,
+                "grupo_id": grupo,
+                "target_actual": "10.00",
+                "procedencia_actual": "margen_plataforma",
+                "meta": {
+                    "aplicado": "4.0",
+                    "derivado": "4.0",
+                    "motivo": None,
+                    "convergiendo": False,
+                },
+                "target_con_meta": "4.0",
+                "procedencia_con_meta": "margen_producto",
+                "veredicto_actual": {"tipo": "Mantener", "motivo": "dentro_de_banda"},
+                "veredicto_con_meta": {
+                    "tipo": "Mover",
+                    "factor": "-0.12",
+                    "bid_nuevo": "0.880000",
+                    "motivo": "acos_sobre_target",
+                    "nivel": "hoja",
+                },
+            }
+        ]
+    }
+    guardado = productos_io.guarda_evaluaciones(
+        conn, ciclo, evaluaciones, config_version_id=config_id, sombra_hojas=sombra
+    )
+    if guardado.error:
+        _die(f"semilla de productos: {guardado.error}")
+    return {"cycle_id": ciclo, "collar": collar, "aretes": aretes, "grupo": grupo, "hoja": hoja}
+
+
 def _http(url: str, timeout: float = 5.0) -> tuple[int, dict[str, str], bytes]:
     req = urllib.request.Request(url, method="GET")
     try:
@@ -573,9 +729,9 @@ def _foco_y_ancho(url: str, png: Path, detalle: Path) -> dict:
             outlineColor: estilo.outlineColor
           };
         })()"""
-        foco = llamar(
-            "Runtime.evaluate", {"expression": expresion, "returnByValue": True}
-        )["result"]["result"]["value"]
+        foco = llamar("Runtime.evaluate", {"expression": expresion, "returnByValue": True})[
+            "result"
+        ]["result"]["value"]
         llamar(
             "Emulation.setDeviceMetricsOverride",
             {"width": 390, "height": 844, "deviceScaleFactor": 1, "mobile": True},
@@ -741,6 +897,7 @@ def cmd_launch(args: argparse.Namespace) -> None:
         conn.execute("SET TIME ZONE 'UTC'")
         _aplicar_migraciones(conn)
         semilla = _sembrar(conn)
+        semilla["productos"] = _sembrar_productos(conn)
     except Exception:
         if conn is not None:
             conn.close()
@@ -754,7 +911,9 @@ def cmd_launch(args: argparse.Namespace) -> None:
     conn.close()
     admin.close()
 
-    dsn = f"postgresql://orbit:orbit@127.0.0.1:5432/{db}"
+    from psycopg.conninfo import make_conninfo
+
+    dsn = make_conninfo(ADMIN_DSN, dbname=db)
     scratch = _scratch(run_id)
     scratch.mkdir(parents=True, exist_ok=True)
     evidence = _evidence_dir(run_id)
@@ -1160,9 +1319,7 @@ def cmd_drive_resumen(args: argparse.Namespace) -> None:
         r.get("cost") is None and r.get("ad_revenue") is None for r in series_mx
     )
 
-    checks["meli_sin_ventana_amazon"] = (
-        bool(meli_bloque) and "Cifras inmaduras" not in meli_bloque
-    )
+    checks["meli_sin_ventana_amazon"] = bool(meli_bloque) and "Cifras inmaduras" not in meli_bloque
     checks["meli_motivo_sin_madurez"] = "no publica madurez" in meli_bloque
     checks["amazon_tiene_ventana"] = "Cifras inmaduras" in texto
 
@@ -1228,10 +1385,9 @@ def cmd_drive_resumen(args: argparse.Namespace) -> None:
     checks["css_200"] = st_css == 200
     css_390 = _bloque_css(css, "@media (max-width: 390px)")
     checks["css_390"] = (
-        'body[data-pantalla="resumen"] .tabla-scroll' in css_390
-        and "overflow-x: auto" in css_390
+        'body[data-pantalla="resumen"] .tabla-scroll' in css_390 and "overflow-x: auto" in css_390
     )
-    checks["css_foco"] = 'tabla-scroll:focus-visible' in css
+    checks["css_foco"] = "tabla-scroll:focus-visible" in css
     checks["tabla_enfocable"] = 'class="tabla-scroll" tabindex="0"' in texto
     foco = _foco_y_ancho(base + "/", evidence / "10-foco-390.png", evidence / "10-foco.json")
     foco_datos = foco.get("foco") or {}
@@ -1734,6 +1890,106 @@ def cmd_drive_settings(args: argparse.Namespace) -> None:
         _die("drive-settings FALLA: " + ", ".join(fallaron))
 
 
+def cmd_drive_productos(args: argparse.Namespace) -> None:
+    run_id = args.run_id or _latest_run_id()
+    state = _load_state(run_id)
+    base = state["base_url"]
+    if any(h in base for h in FORBIDDEN_HOSTS) or state["port"] in FORBIDDEN_PORTS:
+        _die(f"rehuso conducir {base}: no es instancia local de verificacion")
+    semilla = state["seed"]["productos"]
+
+    evidence = _evidence_dir(run_id) / "productos"
+    evidence.mkdir(parents=True, exist_ok=True)
+
+    st0, html0 = _get_html(base, "/")
+    (evidence / "01-resumen.html").write_bytes(html0)
+    if st0 != 200 or 'href="/productos-sin-clics"' not in html0.decode("utf-8", errors="replace"):
+        _die(f"punto de partida GET / sin enlace a Productos sin clics: {st0}")
+
+    st_mx, html_mx = _get_html(base, "/productos-sin-clics?plataforma=amazon_mx")
+    (evidence / "02-productos-mx.html").write_bytes(html_mx)
+    texto = html_mx.decode("utf-8", errors="replace")
+    inicio = texto.find('id="decisiones-producto"')
+    seccion = texto[inicio:] if inicio >= 0 else ""
+    filas = seccion.split('<tr data-decision-producto="')[1:]
+
+    def fila(producto: int) -> str:
+        return next((f for f in filas if f.startswith(f'{producto}"')), "")
+
+    fila_collar = fila(semilla["collar"])
+    fila_aretes = fila(semilla["aretes"])
+
+    checks: dict[str, bool] = {
+        "http_200": st_mx == 200,
+        "data-pantalla=productos-sin-clics": 'data-pantalla="productos-sin-clics"' in texto,
+        "seccion_meta_por_producto": "Meta por producto" in seccion,
+        "chip_1_de_2_con_meta": "1 de 2 con meta" in seccion,
+        "ciclo_en_practica": f"Ciclo {semilla['cycle_id']}" in seccion
+        and "<strong>en práctica</strong>" in seccion,
+        "filtro": 'id="decisiones-filtro"' in seccion
+        and 'value="motivo:halo_sin_margen"' in seccion,
+        "collar_meta_4": "Collar demo" in fila_collar and "<strong>4.00 %</strong>" in fila_collar,
+        "collar_margen_y_ventana": "8.00 %" in fila_collar,
+        "collar_grupo_y_campana": "Grupo collar" in fila_collar and "Campana P" in fila_collar,
+        "hoja_target_vigente": "collar plata" in fila_collar
+        and "10.00 %" in fila_collar
+        and "margen_plataforma" in fila_collar,
+        "hoja_veredicto_actual_vs_meta": "Mantener · dentro_de_banda" in fila_collar
+        and "Mover -12.00 % a 0.88 · acos_sobre_target" in fila_collar
+        and ">cambia<" in fila_collar,
+        "aretes_sin_meta_por_halo": "Aretes demo" in fila_aretes
+        and "sin meta" in fila_aretes
+        and "ventas atribuidas de otro SKU" in fila_aretes
+        and "ningún grupo exclusivo" in fila_aretes,
+    }
+
+    st_us, html_us = _get_html(base, "/productos-sin-clics?plataforma=amazon_us")
+    (evidence / "03-productos-us.html").write_bytes(html_us)
+    texto_us = html_us.decode("utf-8", errors="replace")
+    checks["us_ciclo_sin_evaluar"] = (
+        st_us == 200
+        and 'id="decisiones-producto"' in texto_us
+        and "Este ciclo no evaluó productos: la meta está apagada" in texto_us
+    )
+
+    stj, _, rawj = _http(f"{base}/api/dashboard/productos-sin-clics?plataforma=amazon_mx")
+    (evidence / "04-productos-mx.json").write_bytes(rawj)
+    dp = json.loads(rawj.decode("utf-8")).get("decisiones_producto", {}) if stj == 200 else {}
+    productos = {pr["product_id"]: pr for pr in dp.get("productos", [])}
+    collar = productos.get(semilla["collar"], {})
+    aretes = productos.get(semilla["aretes"], {})
+    hojas = [h for gr in collar.get("grupos", []) for h in gr["hojas"]]
+    checks["api_http_200"] = stj == 200
+    checks["api_ciclo_y_conteo"] = (
+        dp.get("cycle_id") == semilla["cycle_id"] and dp.get("con_meta") == 1
+    )
+    checks["api_collar"] = collar.get("meta_pct") == "4.00" and [
+        h.get("cambia") for h in hojas
+    ] == [True]
+    checks["api_aretes"] = aretes.get("meta_pct") is None and "halo_sin_margen" in [
+        m["codigo"] for m in aretes.get("motivos", [])
+    ]
+
+    stjs, _, js = _http(f"{base}/static/js/productos.js")
+    checks["js_filtro_cableado"] = stjs == 200 and b'getElementById("decisiones-filtro")' in js
+
+    prueba = {
+        "feature": "productos",
+        "entry_point": "nav /productos-sin-clics",
+        "base_url": base,
+        "action": "GET /productos-sin-clics (mx y us), GET /api/dashboard/productos-sin-clics, "
+        "GET /static/js/productos.js",
+        "checks": checks,
+        "ok": all(checks.values()),
+        "evidence_dir": str(evidence),
+    }
+    (evidence / "PROOF.json").write_text(json.dumps(prueba, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps(prueba, indent=2))
+    if not prueba["ok"]:
+        fallaron = [k for k, v in checks.items() if not v]
+        _die("drive-productos FALLA: " + ", ".join(fallaron))
+
+
 def cmd_drive_maintain_verification_skill(args: argparse.Namespace) -> None:
     run_id = args.run_id or _run_id()
     port = args.port
@@ -1759,6 +2015,7 @@ def cmd_drive_maintain_verification_skill(args: argparse.Namespace) -> None:
             cmd_drive_inertes,
             cmd_drive_fabrica,
             cmd_drive_settings,
+            cmd_drive_productos,
         ):
             try:
                 drive(drive_args)
@@ -1877,6 +2134,12 @@ def main() -> None:
     p_drive_settings = sub.add_parser("drive-settings", help="Conduce Settings")
     p_drive_settings.add_argument("--run-id", default=None)
     p_drive_settings.set_defaults(func=cmd_drive_settings)
+
+    p_drive_productos = sub.add_parser(
+        "drive-productos", help="Conduce Productos sin clics (meta por producto)"
+    )
+    p_drive_productos.add_argument("--run-id", default=None)
+    p_drive_productos.set_defaults(func=cmd_drive_productos)
 
     p_drive = sub.add_parser("drive-campanas", help="Conduce la pantalla Campanas")
     p_drive.add_argument("--run-id", default=None)

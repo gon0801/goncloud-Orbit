@@ -4360,6 +4360,9 @@ def _db_p4_dash(conn):
     conn.execute(SQL64)
     conn.execute(SQL65)
     conn.execute(SQL66)
+    # AUTO-03 E.1: la seccion de decisiones por producto lee evaluacion_producto_ciclo.
+    for nombre in ("0040_ads_report_result.sql", "0077_auto03_evaluacion_producto.sql"):
+        conn.execute((migraciones / nombre).read_text(encoding="utf-8"))
 
 
 @pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres local")
@@ -4389,6 +4392,8 @@ def test_productos_sin_clics_api_forma_y_422(monkeypatch):
         assert cuerpo["candidatos"][0]["listing_ids"] == [lid]
         assert cuerpo["impulsos"] == [] and cuerpo["sin_pedido"] == []
         assert cuerpo["anuncios_sin_producto"] == 0
+        assert cuerpo["decisiones_producto"]["cycle_id"] is None
+        assert cuerpo["decisiones_producto"]["productos"] == []
         assert (
             conn.execute("SELECT count(*) FROM impulso").fetchone()[0],
             conn.execute("SELECT count(*) FROM anuncio_retiro").fetchone()[0],

@@ -1980,11 +1980,13 @@ def donde_poner_el_dinero(conn: ConexionLectura, plataforma: str | None = None) 
 def productos_sin_clics(conn: ConexionLectura, plataforma: str | None = None) -> dict:
     """Productos que venden y casi no reciben clics (BIDS 02, P.4).
     Funcion delgada: delega en `pantalla_productos.lee_productos` (SOLO
-    SELECT) y agrega la frase de clics fuera de Amazon por impulso. Sin
-    mercado se mira amazon_mx; mercado ajeno es 422."""
+    SELECT) y agrega la frase de clics fuera de Amazon por impulso y las
+    decisiones por producto del ultimo ciclo (AUTO-03 E.1,
+    `pantalla_decisiones_producto`). Sin mercado se mira amazon_mx;
+    mercado ajeno es 422."""
     import datetime as dt
 
-    from app import pantalla_productos
+    from app import pantalla_decisiones_producto, pantalla_productos
 
     mercado = plataforma or "amazon_mx"
     if mercado not in PLATAFORMAS_MONEDA:
@@ -1996,7 +1998,9 @@ def productos_sin_clics(conn: ConexionLectura, plataforma: str | None = None) ->
         impulso["frase_fuera_de_amazon"] = pantalla_productos.frase_fuera_de_amazon(
             impulso["clics_fuera_de_amazon"], impulso["clics"]
         )
-    return {"plataforma": mercado, **base}
+    decisiones = pantalla_decisiones_producto.lee_decisiones_producto(conn, mercado).como_dict()
+    conn.commit()
+    return {"plataforma": mercado, **base, "decisiones_producto": decisiones}
 
 
 @router.get("/busquedas-sin-venta")

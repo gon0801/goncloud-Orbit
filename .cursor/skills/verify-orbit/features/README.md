@@ -36,3 +36,4 @@ Este directorio es la fuente mantenida del comportamiento que un usuario ve en e
 - [Inertes](./inertes.md) — hojas sin trafico 14d (lectura). La semilla baseline llega vacia.
 - [Crear campanas](./fabrica.md) — formulario de un grupo de cinco campanas (`/campanas/nuevas`). POST crear/plan/acciones queda fuera del baseline.
 - [Settings](./settings.md) — cascada de targets, caps y goals (lectura). POST de escritura queda fuera del baseline.
+- [Productos sin clics](./productos.md) — candidatos, impulsos, retiros y la meta por producto del ultimo ciclo (lectura). Los POST de impulso, retiro y reposicion quedan fuera del baseline.

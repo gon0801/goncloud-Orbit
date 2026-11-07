@@ -1,0 +1,28 @@
+{
+  "feature": "productos",
+  "entry_point": "nav /productos-sin-clics",
+  "base_url": "http://127.0.0.1:18019",
+  "action": "GET /productos-sin-clics (mx y us), GET /api/dashboard/productos-sin-clics, GET /static/js/productos.js",
+  "checks": {
+    "http_200": true,
+    "data-pantalla=productos-sin-clics": true,
+    "seccion_meta_por_producto": true,
+    "chip_1_de_2_con_meta": true,
+    "ciclo_en_practica": true,
+    "filtro": true,
+    "collar_meta_4": true,
+    "collar_margen_y_ventana": true,
+    "collar_grupo_y_campana": true,
+    "hoja_target_vigente": true,
+    "hoja_veredicto_actual_vs_meta": true,
+    "aretes_sin_meta_por_halo": true,
+    "us_ciclo_sin_evaluar": true,
+    "api_http_200": true,
+    "api_ciclo_y_conteo": true,
+    "api_collar": true,
+    "api_aretes": true,
+    "js_filtro_cableado": true
+  },
+  "ok": true,
+  "evidence_dir": "/tmp/auto03-e-repo.mSfQHh/.cursor/skills/verify-orbit/evidence/motor-auto03-e/productos"
+}
