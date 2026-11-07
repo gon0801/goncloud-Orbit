@@ -72,9 +72,10 @@ class ResultadoAnuncio:
     resultado: str
     detalle: str = ""
     reversa: str = ""
-    # `fallo` en que Amazon proceso la mutacion y dijo que no (4xx o 207 con
-    # error por item): se sabe que no cambio nada. Un 5xx, red o timeout no lo
-    # es: la mutacion pudo aplicarse.
+    # `fallo` en que se sabe que Amazon no cambio nada: proceso la mutacion y
+    # dijo que no (4xx o 207 con error por item) o la siguio frenando con 429
+    # hasta agotar los reintentos (un 429 es rechazo sin procesar). Un 5xx,
+    # red o timeout no lo es: la mutacion pudo aplicarse.
     rechazo: bool = False
 
 
@@ -349,9 +350,7 @@ def reponer_anuncios(
         except AdsApiError as exc:
             detalle = str(getattr(exc, "cuerpo", "") or exc)[:300]
             resultados.append(
-                ResultadoAnuncio(
-                    d["sku"], d["state"], "fallo", detalle, reversa, _es_rechazo_explicito(exc)
-                )
+                ResultadoAnuncio(d["sku"], d["state"], "fallo", detalle, reversa, _sin_crear(exc))
             )
         else:
             try:
@@ -622,6 +621,14 @@ def _cambiar_estado_anuncios(
                 )
             )
     return resultados
+
+
+def _sin_crear(exc: AdsApiError) -> bool:
+    """El create no creo nada: rechazo explicito (4xx con cuerpo de
+    mutacion) o 429 sostenido. El cliente reintenta el 429 con backoff y,
+    al agotar los reintentos, lanza AdsApiError plano con status 429 (no
+    AdsApiErrorMutacion); el 429 nunca se procesa (app/ads/client.py)."""
+    return _es_rechazo_explicito(exc) or getattr(exc, "status", None) == 429
 
 
 def _es_rechazo_explicito(exc: AdsApiError) -> bool:

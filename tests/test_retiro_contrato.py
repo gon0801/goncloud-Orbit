@@ -790,3 +790,58 @@ def test_el_intento_de_recreacion_no_lo_leen_la_ingesta_ni_el_ciclo():
                 ("app_admin", "INSERT"),
             )
         ] == [False, False, True, False, True, True]
+
+
+@pytest.mark.parametrize(
+    ("status", "cerrado", "posts_por_intento"),
+    [
+        pytest.param(400, True, 1, id="400-rechazo"),
+        pytest.param(429, True, 4, id="429-sostenido"),
+        pytest.param(503, False, 1, id="503-incierto"),
+    ],
+)
+@_skip_db
+def test_el_create_por_el_cliente_real_clasifica_rechazo_e_incierto(
+    monkeypatch, status, cerrado, posts_por_intento
+):
+    """F9: el POST de create responde `status` por el transporte, atravesando el cliente
+    de verdad (reintentos incluidos). Un 400 y un 429 que no cede (el cliente lo
+    reintenta hasta agotar y lanza AdsApiError plano) son rechazo: el intento se cierra
+    y el siguiente recrea crea el anuncio. Un 503 es incierto: el intento queda abierto y
+    el siguiente recrea no manda otro POST."""
+    import httpx
+
+    with _db_i4(f"orbit_g5_recrea_real_{status}") as conn:
+        _pid, lid = _producto(conn)
+        _bolsa(conn, lid, "ad-1")
+        rid = _retiro_archivado(conn, lid)
+        archivado, _ = _escritor(_fila("ad-1", "ARCHIVED"))
+        monkeypatch.setattr(archivado, "_sleep", lambda _s: None)
+        real = archivado._client.request
+        frenado = {"si": True, "posts": 0}
+
+        def _request(method, url, **kw):
+            if method == "POST" and httpx.URL(url).path == "/sp/productAds":
+                frenado["posts"] += 1
+                if frenado["si"]:
+                    return httpx.Response(
+                        status, json={"code": str(status)}, request=httpx.Request(method, url)
+                    )
+            return real(method, url, **kw)
+
+        monkeypatch.setattr(archivado._client, "request", _request)
+        recrear = ra.AutorizacionHumana("RECREAR 1 ANUNCIOS", "dueno")
+        (primero,) = ra.recrea(conn, retiro_ids=(rid,), autorizacion=recrear, escritor=archivado)
+        assert primero.resultado == "fallo"
+        assert frenado["posts"] == posts_por_intento
+        assert conn.execute(
+            "SELECT cerrada_el IS NOT NULL FROM anuncio_recreacion_intento"
+        ).fetchall() == [(cerrado,)]
+        frenado["si"] = False
+        (segundo,) = ra.recrea(conn, retiro_ids=(rid,), autorizacion=recrear, escritor=archivado)
+        if cerrado:
+            assert (segundo.resultado, segundo.ad_id_nuevo) == ("recreado", "ad-nuevo-1")
+            assert frenado["posts"] == posts_por_intento + 1
+        else:
+            assert segundo.resultado == "fallo" and "sin resolver" in segundo.detalle
+            assert frenado["posts"] == posts_por_intento
