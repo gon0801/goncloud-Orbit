@@ -34,7 +34,7 @@ CREATE TABLE evaluacion_producto_ciclo (
     ventas            NUMERIC(14, 4),
     clics             BIGINT,
     compras           NUMERIC(14, 4),
-    meta_pct          NUMERIC(8, 4),
+    meta_pct          NUMERIC,
     entrada           JSONB       NOT NULL,
     resultado         JSONB       NOT NULL,
     huella_alcance    TEXT        NOT NULL,

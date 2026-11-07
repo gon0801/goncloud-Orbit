@@ -1906,17 +1906,18 @@ def _evalua_productos(
             entradas = productos_io.lee_entradas_productos(
                 conn, platform, decidido_el=decided_at, settings=settings
             )
-        resultado.evaluaciones = tuple(productos.resolver_producto(e) for e in entradas)
+        evaluaciones = tuple(productos.resolver_producto(e) for e in entradas)
+        por_grupo = {
+            grupo.grupo_id: ev for ev in evaluaciones for grupo in ev.entrada.grupos_aptos_para_meta
+        }
+        resumen = productos_io.resumen_cobertura(platform, evaluaciones, goals)
     except Exception as exc:  # noqa: BLE001 - el camino de productos jamas tumba el ciclo
         logger.warning("productos: lectura fallida en %s: %s", platform, scrub(str(exc)))
         resultado.errores.append(f"lectura: {scrub(str(exc)) or type(exc).__name__}")
         return resultado
-    resultado.por_grupo = {
-        grupo.grupo_id: ev
-        for ev in resultado.evaluaciones
-        for grupo in ev.entrada.grupos_aptos_para_meta
-    }
-    resultado.resumen = productos_io.resumen_cobertura(platform, resultado.evaluaciones, goals)
+    resultado.evaluaciones = evaluaciones
+    resultado.por_grupo = por_grupo
+    resultado.resumen = resumen
     return resultado
 
 
