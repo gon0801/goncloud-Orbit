@@ -799,7 +799,7 @@ def _ciclo_vivo(conn):
     return res
 
 
-def test_practica_encender_deja_cero_practicas_y_el_ciclo_siguiente_encola_la_real(plantilla):
+def test_practica_el_encendido_deja_cero_practicas_y_el_ciclo_siguiente_encola_la_real(plantilla):
     """Sin el descarte, la practica abierta tapa la clave del anuncio: el
     ciclo siguiente lo excluye con clave_en_vuelo y nunca encola la real."""
     with _db(plantilla, "orbit_i7_enciende") as conn:
