@@ -800,25 +800,26 @@ def _ciclo_vivo(conn):
 
 
 def test_practica_encender_deja_cero_practicas_y_el_ciclo_siguiente_encola_la_real(plantilla):
+    """Sin el descarte, la practica abierta tapa la clave del anuncio: el
+    ciclo siguiente lo excluye con clave_en_vuelo y nunca encola la real."""
     with _db(plantilla, "orbit_i7_enciende") as conn:
         _mundo_pausa(conn)
         _config_practica(conn)
         _ciclo_vivo(conn)
         assert _cola_producto(conn) == [("shadow", "pending_veto", None)]
         r = _enciende(conn)
-        assert (r["config_escrita"], r["practicas_antes"], r["practicas_descartadas"]) == (
-            True,
-            1,
-            1,
-        )
-        assert r["practicas_despues"] == 0
-        assert _cola_producto(conn) == [("shadow", "discarded", "encendido_pausa_producto")]
         res = _ciclo_vivo(conn)
-        assert "clave_en_vuelo" not in json.loads(res.notes)["productos"]["anuncios_excluidos"]
         assert _cola_producto(conn) == [
             ("shadow", "discarded", "encendido_pausa_producto"),
             ("live", "pending_veto", None),
         ]
+        assert "clave_en_vuelo" not in json.loads(res.notes)["productos"]["anuncios_excluidos"]
+        assert (r["config_escrita"], r["modo_anterior"], r["modo"]) == (True, "shadow", "live")
+        assert (r["practicas_antes"], r["practicas_descartadas"], r["practicas_despues"]) == (
+            1,
+            1,
+            0,
+        )
 
 
 def test_practica_encolado_que_espera_el_candado_entra_como_fila_en_vivo(plantilla):
