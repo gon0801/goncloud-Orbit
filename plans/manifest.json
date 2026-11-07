@@ -203,7 +203,7 @@
     {
       "name": "decisiones-producto-01",
       "path": "plans/decisiones-producto-01.md",
-      "description": "DECISIONES PRODUCTO 01 (AUTO-03) — meta ACoS por producto en grupos exclusivos y pausa de product ads de productos sin ventas, Amazon MX y US. Plan para el motor (9 bloques, 54 filas) diseñado con pstack architect el 2026-11-04; decisiones de David del 2026-11-05 incorporadas (la pausa queda en práctica hasta que él la encienda desde la pantalla); no entregado ni implementado."
+      "description": "DECISIONES PRODUCTO 01 (AUTO-03) — meta ACoS por producto en grupos exclusivos y pausa de product ads de productos sin ventas, Amazon MX y US. Plan para el motor (9 bloques, 54 filas) diseñado con pstack architect el 2026-11-04; decisiones de David del 2026-11-05 incorporadas (la pausa queda en práctica hasta que él la encienda desde la pantalla). Bloques A a I implementados: la pausa por producto queda lista para vivo y espera el encendido de David desde la pantalla de productos (sigue en práctica)."
     }
   ],
   "active": "resumen-ads-multicanal"
