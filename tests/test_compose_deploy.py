@@ -304,4 +304,5 @@ def test_dockerfile_copia_las_cli_que_corren_dentro_del_contenedor():
         "tools/jev_fichas.py",
         "tools/precio_sonda.py",
         "tools/precio_cobertura.py",
+        "tools/auto03_verifica.py",
     }

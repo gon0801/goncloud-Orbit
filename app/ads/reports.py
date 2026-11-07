@@ -254,8 +254,9 @@ SOURCE_PRODUCTOS = "amazon_ads_products_v3"
 
 _SQL_RESULTADO_REPORTE = """
     INSERT INTO ads_report_result
-        (ingest_run_id, profile_id, platform, report_name, source_report_id, status, reason)
-    VALUES (%s, %s, %s, %s, %s, %s, %s)
+        (ingest_run_id, profile_id, platform, report_name, source_report_id, status, reason,
+         fecha_desde, fecha_hasta, cobertura_integra)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 """
 
 
@@ -267,7 +268,13 @@ def _registrar_resultado(
     report_id: str | None,
     status: str,
     reason: str | None = None,
+    *,
+    rango: tuple[dt.date, dt.date] | None = None,
+    cobertura_integra: bool | None = None,
 ) -> None:
+    """`rango` es el que se pidio a Amazon (AUTO-03 D.7): sin el, la fila no
+    acredita ninguna fecha. `cobertura_integra` solo la sella el written del
+    reporte de productos (ResultadoIngesta.cobertura_integra)."""
     profile_id = perfil.profile_id if perfil else None
     # Un perfil rechazado conserva el payload crudo; puede traer str, bool,
     # lista o entero fuera de BIGINT. NULL expresa ID desconocido sin
@@ -288,6 +295,9 @@ def _registrar_resultado(
             report_id,
             status,
             scrub(reason) if reason else None,
+            rango[0] if rango else None,
+            rango[1] if rango else None,
+            cobertura_integra,
         ),
     )
 
@@ -552,6 +562,8 @@ class ResultadoIngesta:
     rows_skipped: int
     skip_reason: str | None
     skips: Counter[str]
+    # AUTO-03 D.7: solo productos la calcula (None en los demas reportes).
+    cobertura_integra: bool | None = None
 
 
 @dataclass
@@ -1562,6 +1574,30 @@ def ingest_search_terms(
     )
 
 
+# AUTO-03 D.7 (S6): descartes que NO pueden esconder actividad de una fecha
+# del rango pedido. La fusion suma la fila en su clave; fuera de rango o
+# futura no es una fecha del rango; el duplicado ya esta escrito por otra
+# corrida. Cualquier otro descarte (vocabulario cerrado de
+# _planea_filas_productos) deja la cobertura en falso: fail-closed ante un
+# motivo nuevo.
+_SKIPS_SIN_ACTIVIDAD_DEL_RANGO = frozenset(
+    {
+        "fila agregada por clave duplicada en el reporte",
+        "fila con metric_date fuera del rango solicitado",
+        "fila con metric_date futura",
+    }
+)
+
+
+def _cobertura_integra(skips: Counter[str], report_id: str) -> bool:
+    duplicado = f"fila duplicada del reporte {report_id}"
+    return all(
+        motivo in _SKIPS_SIN_ACTIVIDAD_DEL_RANGO or motivo == duplicado
+        for motivo, n in skips.items()
+        if n
+    )
+
+
 def ingest_productos(
     conn: psycopg.Connection,
     perfil: PerfilAds,
@@ -1629,6 +1665,7 @@ def ingest_productos(
         rows_skipped=sum(skips.values()),
         skip_reason=_formato_skip_reason(skips),
         skips=skips,
+        cobertura_integra=_cobertura_integra(skips, report_id),
     )
 
 
@@ -1744,7 +1781,16 @@ def escribir_grupo(
                         skip_reason=resultado.skip_reason,
                     )
                 )
-                _registrar_resultado(conn, run_id, perfil, cfg, report_id, "written")
+                _registrar_resultado(
+                    conn,
+                    run_id,
+                    perfil,
+                    cfg,
+                    report_id,
+                    "written",
+                    rango=(fecha_ini, fecha_fin),
+                    cobertura_integra=resultado.cobertura_integra,
+                )
             _sellar_run(
                 conn,
                 run_id,
@@ -1768,6 +1814,7 @@ def escribir_grupo(
                     report_id_actual,
                     "failed" if perfil_actual and cfg_actual else "global_failed",
                     str(exc) or type(exc).__name__,
+                    rango=(fecha_ini, fecha_fin) if perfil_actual and cfg_actual else None,
                 )
                 _sellar_run(
                     conn,

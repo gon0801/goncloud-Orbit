@@ -253,10 +253,12 @@ def _registrar(
     report_id: str | None,
     status: str,
     reason: str | None = None,
+    *,
+    rango: tuple[dt.date, dt.date] | None = None,
 ) -> None:
     from app.ads.reports import _registrar_resultado
 
-    _registrar_resultado(conn, run_id, perfil, cfg, report_id, status, reason)
+    _registrar_resultado(conn, run_id, perfil, cfg, report_id, status, reason, rango=rango)
 
 
 def _sondear_intento(
@@ -310,7 +312,15 @@ def _sondear_intento(
         )
         intento.terminal = True
         with conn.transaction():
-            _registrar(conn, run_id, logico.perfil, logico.cfg, intento.report_id, "downloaded")
+            _registrar(
+                conn,
+                run_id,
+                logico.perfil,
+                logico.cfg,
+                intento.report_id,
+                "downloaded",
+                rango=(logico.fecha_ini, logico.fecha_fin),
+            )
         return
     if status == "FAILED":
         intento.terminal = True
@@ -372,7 +382,14 @@ class _Corrida:
                 if unidad is not None:
                     perfil, cfg, reason = unidad
                     _registrar(
-                        self.conn, self.run_ids[grupo.clave], perfil, cfg, None, "failed", reason
+                        self.conn,
+                        self.run_ids[grupo.clave],
+                        perfil,
+                        cfg,
+                        None,
+                        "failed",
+                        reason,
+                        rango=(self.fecha_ini, self.fecha_fin),
                     )
                 _sellar_run(
                     self.conn,
@@ -527,7 +544,13 @@ class _Corrida:
                 for perfil in aceptados:
                     for cfg in grupo.cfgs:
                         _registrar(
-                            self.conn, self.run_ids[grupo.clave], perfil, cfg, None, "pending"
+                            self.conn,
+                            self.run_ids[grupo.clave],
+                            perfil,
+                            cfg,
+                            None,
+                            "pending",
+                            rango=(self.fecha_ini, self.fecha_fin),
                         )
         return aceptados
 

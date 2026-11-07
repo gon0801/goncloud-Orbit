@@ -47,6 +47,9 @@ from app.ads.reports import (
 from app.ads.salud import incidentes_de_run
 
 SQL40 = (Path(__file__).resolve().parents[1] / "migrations/0040_ads_report_result.sql").read_text()
+SQL77 = (
+    Path(__file__).resolve().parents[1] / "migrations/0077_auto03_evaluacion_producto.sql"
+).read_text()
 
 PERFILES_API = [
     {
@@ -553,6 +556,7 @@ def conn_pg():
         conn.execute("SET TIME ZONE 'UTC'")
         conn.execute(SQL)
         conn.execute(SQL40)
+        conn.execute(SQL77)
         yield conn
     finally:
         if conn is not None:

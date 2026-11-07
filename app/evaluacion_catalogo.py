@@ -108,7 +108,7 @@ class EvaluacionAds:
     cvr_pct: Decimal | None = None
 
 
-def _suma(valores: Iterable[Decimal | None]) -> Decimal | None:
+def suma_con_veneno(valores: Iterable[Decimal | None]) -> Decimal | None:
     """Suma con envenenamiento de ausencias (regla 3; 0.4 §4.1): si ALGUNA
     fila de la ventana trae la metrica ausente, el subtotal es parcial y se
     reporta como desconocido (None), no como la suma de las presentes."""
@@ -122,13 +122,26 @@ def _suma(valores: Iterable[Decimal | None]) -> Decimal | None:
     return total if hay else None
 
 
-def _fecha_madura(fecha: dt.date, observed_at: dt.datetime) -> bool:
+def fecha_madura(fecha: dt.date, observed_at: dt.datetime) -> bool:
     """§2: fecha D es madura para columnas 30d solo si SU observacion (la mas
     reciente de esa fecha tras el colapso) tiene observed_at >= D + 30 dias.
     El maximo global de la ventana NO vale: otra fecha observada tarde no
     madura a esta (hallazgo cross-review codex 2026-09-07)."""
     limite = dt.datetime.combine(fecha + dt.timedelta(days=30), dt.time.min, dt.UTC)
     return observed_at >= limite
+
+
+def colapsa_por_fecha(filas: Iterable[ObservacionAds]) -> dict[dt.date, ObservacionAds]:
+    """Colapso append-only de UNA clave (platform, asin, sku): de cada fecha
+    cuenta SOLO la observacion mas reciente (max observed_at); el cron
+    D-31..D-1 re-observa cada fecha ~31 veces y sin colapso el gasto/ventas
+    se inflaria (hallazgo B.R)."""
+    por_fecha: dict[dt.date, ObservacionAds] = {}
+    for f in filas:
+        actual = por_fecha.get(f.metric_date)
+        if actual is None or f.observed_at > actual.observed_at:
+            por_fecha[f.metric_date] = f
+    return por_fecha
 
 
 def evaluar_ads(
@@ -152,27 +165,21 @@ def evaluar_ads(
             etiqueta=ETIQUETA_SIN_DATOS, maduro=False, provisional=False, muestra=0
         )
 
-    # Colapso append-only: de cada fecha cuenta SOLO la observacion mas
-    # reciente (max observed_at); el cron D-31..D-1 re-observa cada fecha ~31
-    # veces y sin colapso el gasto/ventas se inflaria (hallazgo B.R).
-    por_fecha: dict[dt.date, ObservacionAds] = {}
-    for f in en_ventana:
-        actual = por_fecha.get(f.metric_date)
-        if actual is None or f.observed_at > actual.observed_at:
-            por_fecha[f.metric_date] = f
-    en_ventana = list(por_fecha.values())
+    en_ventana = list(colapsa_por_fecha(en_ventana).values())
 
     # Madurez POR FECHA con la observacion colapsada de cada fecha (§2): la
     # fecha observada solo en D+1 no madura porque otra fecha se observara
     # >= D+30 (hallazgo cross-review: el maximo global mentia).
-    maduro = all(_fecha_madura(f.metric_date, f.observed_at) for f in en_ventana)
+    maduro = all(fecha_madura(f.metric_date, f.observed_at) for f in en_ventana)
 
-    cost = _suma(f.cost for f in en_ventana)
-    clicks_m = _suma(Decimal(f.clicks) if f.clicks is not None else None for f in en_ventana)
+    cost = suma_con_veneno(f.cost for f in en_ventana)
+    clicks_m = suma_con_veneno(
+        Decimal(f.clicks) if f.clicks is not None else None for f in en_ventana
+    )
     clicks = clicks_m
-    sales = _suma(f.sales30d for f in en_ventana)
-    purchases = _suma(f.purchases30d for f in en_ventana)
-    promoted = _suma(f.attributed_sales_same_sku30d for f in en_ventana)
+    sales = suma_con_veneno(f.sales30d for f in en_ventana)
+    purchases = suma_con_veneno(f.purchases30d for f in en_ventana)
+    promoted = suma_con_veneno(f.attributed_sales_same_sku30d for f in en_ventana)
 
     # Halo 30d SOLO si ambas presentes (§1); no se resta con una falta.
     halo = sales - promoted if (sales is not None and promoted is not None) else None

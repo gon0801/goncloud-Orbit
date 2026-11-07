@@ -60,6 +60,7 @@ from test_cycle import (
     SQL40,
     SQL42,
     SQL60,
+    SQL77,
     _config_version,
     _entidad,
     _estado,
@@ -187,6 +188,7 @@ def _db_temporal(prefijo: str):
         conn.execute(SQL14)  # 0014 (BIDS 01 2.2): _paso_keyword lee el ledger anti-duplicado
         # ADS PROTECCION C.5: resuelve_profile_id lee ads_report_result.
         conn.execute(SQL40)
+        conn.execute(SQL77)
         conn.execute(SQL42)
         conn.execute(SQL44)  # 0044 (D.1): decision_sin_aplicar + vista
         conn.execute(SQL45)  # 0045 (D.1b): CHECK nombrado + choque_clave

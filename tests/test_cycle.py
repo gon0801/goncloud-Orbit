@@ -81,6 +81,9 @@ SQL16 = (
 SQL40 = (
     Path(__file__).resolve().parents[1] / "migrations" / "0040_ads_report_result.sql"
 ).read_text(encoding="utf-8")
+SQL77 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0077_auto03_evaluacion_producto.sql"
+).read_text(encoding="utf-8")
 SQL42 = (
     Path(__file__).resolve().parents[1] / "migrations" / "0042_ads_campaign_proposal.sql"
 ).read_text(encoding="utf-8")
@@ -198,6 +201,7 @@ def _db_temporal(prefijo: str):
         # ADS PROTECCION C.5: resuelve_profile_id lee ads_report_result
         # (perfil por plataforma para el readback mismo campaignId/profile).
         conn.execute(SQL40)
+        conn.execute(SQL77)
         conn.execute(SQL42)
         # ADS D.1/D.1b: decision_sin_aplicar (0044) + CHECK nombrado con
         # choque_clave (0045) — la cadena del ciclo es la de produccion.

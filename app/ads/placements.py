@@ -306,7 +306,13 @@ def escribir_grupo(
                 escritos += resultado.rows_written
                 skips.update(resultado.skips)
                 _registrar_resultado(
-                    conn, run_id, perfil, PLACEMENTS_CFG, item.report_id, "written"
+                    conn,
+                    run_id,
+                    perfil,
+                    PLACEMENTS_CFG,
+                    item.report_id,
+                    "written",
+                    rango=(fecha_ini, fecha_fin),
                 )
             _sellar_run(
                 conn,
@@ -327,6 +333,7 @@ def escribir_grupo(
                     None,
                     "failed" if perfil_actual else "global_failed",
                     str(exc) or type(exc).__name__,
+                    rango=(fecha_ini, fecha_fin) if perfil_actual else None,
                 )
                 _sellar_run(
                     conn,
