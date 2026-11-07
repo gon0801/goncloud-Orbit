@@ -26,6 +26,7 @@ Importa `apply_cola` solo para tipos: apply_cola importa este modulo.
 from __future__ import annotations
 
 import datetime as dt
+import sys
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
@@ -49,6 +50,7 @@ MOTIVO_ENTIDAD_NO_VIVA = "entidad_no_viva"
 MOTIVO_ALCANCE_CAMBIO = "alcance_cambio"
 MOTIVO_VENDIO_EN_VENTANA = "vendio_en_ventana"
 MOTIVO_REGRESADO = "regresado_por_ti"
+MOTIVO_RETIRO_EN_CURSO = "retiro_en_curso"
 
 _SQL_DECISION = """
 SELECT inputs, decided_at FROM decision WHERE id = %s
@@ -118,6 +120,19 @@ def _ventana_congelada(entrada: productos.EntradaProducto | None, inputs: dict) 
 def revalida_pause_producto(
     conn: psycopg.Connection, aplicador: Aplicador, fila: FilaCola, ahora: dt.datetime
 ) -> str | None:
+    """Ver `_revalida`. Un dato que la regla rechaza (ValueError: config o
+    insumos corruptos) descarta esta fila en vez de tumbar el barrido: la
+    fila quedaria released y trabaria a las que vienen detras."""
+    try:
+        return _revalida(conn, aplicador, fila, ahora)
+    except ValueError as exc:
+        print(f"revalida pausa de producto {fila.id}: dato invalido ({exc})", file=sys.stderr)
+        return MOTIVO_YA_NO_CALIFICA
+
+
+def _revalida(
+    conn: psycopg.Connection, aplicador: Aplicador, fila: FilaCola, ahora: dt.datetime
+) -> str | None:
     """None = la pausa sigue calificando; un motivo = descarte PRE-cobro.
 
     Vuelve a correr la regla de la pausa del producto de la decision con la
@@ -129,8 +144,10 @@ def revalida_pause_producto(
     congelada, releida con las observaciones hasta ahora. Al final lee el
     estado vivo en Amazon con el cliente del Aplicador: no ENABLED =
     entidad_no_viva; ENABLED con un retiro abierto (lo reactivaste en Amazon
-    antes del sync) = regresado_por_ti. AdsApiError sube: libera_vencidos la
-    trata como sin_respuesta y la fila espera released."""
+    antes del sync) = regresado_por_ti; con una intencion de retiro abierta de
+    otra autorizacion = retiro_en_curso (ejecuta_retiro no mandaria el PUT y la
+    cuota se perderia). AdsApiError sube: libera_vencidos la trata como
+    sin_respuesta y la fila espera released."""
     platform = aplicador._platform
     decision = conn.execute(_SQL_DECISION, (fila.decision_id,)).fetchone()
     inputs = decision[0] if decision is not None else None
@@ -185,6 +202,9 @@ def revalida_pause_producto(
         return MOTIVO_ENTIDAD_NO_VIVA
     if conn.execute(ra._SQL_YA_RETIRADO, (fila.ad_entity_id,)).fetchone() is not None:
         return MOTIVO_REGRESADO
+    ajena = conn.execute(ra._SQL_INTENCION_ABIERTA, (fila.ad_entity_id,)).fetchone()
+    if ajena is not None and ajena[1] != fila.decision_id:
+        return MOTIVO_RETIRO_EN_CURSO
     return None
 
 

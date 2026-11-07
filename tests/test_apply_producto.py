@@ -534,6 +534,41 @@ def test_reactivado_en_amazon_con_cache_anterior_al_retiro_se_descarta_sin_put(p
         assert amazon.lists == 1
 
 
+def test_intencion_abierta_de_otra_autorizacion_descarta_antes_de_cobrar(plantilla):
+    """Un humano dejo una intencion de retiro abierta sobre pa1 (PUT incierto
+    de sacar anuncios): ejecuta_retiro no mandaria el PUT de la decision, asi
+    que la revalidacion descarta con retiro_en_curso y no cobra cuota."""
+    with _db(plantilla, "orbit_i_intencion_ajena") as conn:
+        m = _mundo_pausa(conn)
+        _config(conn)
+        _dec, q = _propuesta(conn)
+        conn.execute(
+            "INSERT INTO anuncio_retiro_intencion (platform, motivo, modo, lote_retiro,"
+            " impulso_id, ad_entity_id, ad_id_externo, ad_group_externo, campana_externa, sku,"
+            " asin, reversa, actor, creada_el) VALUES ('amazon_us', 'sin_pedidos', 'pausa',"
+            " 'lote-humano', NULL, %s, 'pa1', 'g1', 'c1', 'SS-SKU-A', 'ASIN-SKU-A',"
+            " 'state=ENABLED', 'dueno', now())",
+            (m["pa"],),
+        )
+        amazon = _Amazon({"pa1": "ENABLED"})
+        _sin_cobro(conn, q, "retiro_en_curso", amazon, _libera(conn, amazon))
+        assert amazon.lists == 1
+
+
+def test_dato_invalido_al_revalidar_descarta_esa_fila_sin_tumbar_el_barrido(plantilla):
+    """Un limite corrupto en la config vigente hace lanzar ValueError al lector
+    de la pausa: la fila se descarta sin cobrar (antes subia y la fila quedaba
+    released trabando la cola en cada ciclo)."""
+    with _db(plantilla, "orbit_i_dato_invalido") as conn:
+        _mundo_pausa(conn)
+        _config(conn)
+        _dec, q = _propuesta(conn)
+        _config(conn, ads_producto_pausa_clics_amazon_us="cien")
+        amazon = _Amazon({"pa1": "ENABLED"})
+        _sin_cobro(conn, q, "ya_no_califica", amazon, _libera(conn, amazon))
+        assert amazon.lists == 0
+
+
 # ---------------------------------------------------------------------------
 # I.3: el dueno perdido y la muerte antes de la intencion
 # ---------------------------------------------------------------------------
@@ -934,6 +969,8 @@ def test_practica_sin_limites_guardados_pausa_live_sale_con_settings_invalido_y_
                 "ads_optimizer_mode": "live",
                 "ads_producto_pausa_amazon_us": "shadow",
                 "ads_producto_pausa_clics_amazon_us": 100,
+                # null no es un limite guardado: el lector lo toma como ausente.
+                "ads_producto_pausa_gasto_amazon_us": None,
             },
         )
         antes = _vigente(conn)
@@ -949,11 +986,6 @@ def test_practica_sin_limites_guardados_pausa_live_sale_con_settings_invalido_y_
 # ---------------------------------------------------------------------------
 # I.8: encender desde la pantalla (POST/GET de la pausa por producto)
 # ---------------------------------------------------------------------------
-_skip_db = pytest.mark.skipif(
-    _postgres_obligatorio_ausente(),
-    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
-)
-
 MX = "amazon_mx"
 CLAVE_PAUSA = f"ads_producto_pausa_{MX}"
 CLAVE_CLICS = f"ads_producto_pausa_clics_{MX}"

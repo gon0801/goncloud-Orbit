@@ -337,9 +337,12 @@ def valida_limites_pausa(platform: str, limites: productos.LimitesPausa) -> None
 
 
 def limites_pausa_guardados(settings: Mapping, platform: str) -> bool:
-    """Las dos claves de limites de la pausa estan en la config (S8): sin
-    ellas la pausa corre con los valores por omision, que nadie eligio."""
-    return all(productos.clave_limite(t, platform) in settings for t in ("clics", "gasto"))
+    """Las dos claves de limites de la pausa estan en la config con valor (S8):
+    sin ellas (o en null, que el lector toma como ausente) la pausa corre con
+    los valores por omision, que nadie eligio."""
+    return all(
+        settings.get(productos.clave_limite(t, platform)) is not None for t in ("clics", "gasto")
+    )
 
 
 def exige_limites_guardados(settings: Mapping, platform: str) -> None:
