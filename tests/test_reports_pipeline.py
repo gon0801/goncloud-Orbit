@@ -56,6 +56,9 @@ from app.ads.reports import (
 from app.ads.structure import PerfilAds
 
 SQL40 = (Path(__file__).resolve().parents[1] / "migrations/0040_ads_report_result.sql").read_text()
+SQL77 = (
+    Path(__file__).resolve().parents[1] / "migrations/0077_auto03_evaluacion_producto.sql"
+).read_text()
 
 FAKE_CLIENT_ID = "fake-client-id-123"
 FAKE_CLIENT_SECRET = "fake-client-secret-XYZ"
@@ -987,6 +990,7 @@ def test_pipeline_metricas_en_vivo(monkeypatch):
         conn.execute("SET TIME ZONE 'UTC'")
         conn.execute(SQL)  # la migracion entera
         conn.execute(SQL40)
+        conn.execute(SQL77)
 
         # seed de estructura (en produccion la escribe app.ads.structure):
         # campana/ad group/keyword/target en US y campana en MX
@@ -1680,6 +1684,7 @@ def test_pipeline_search_terms_en_vivo():
         conn.execute("SET TIME ZONE 'UTC'")
         conn.execute(SQL)  # la migracion entera
         conn.execute(SQL40)
+        conn.execute(SQL77)
 
         # seed de estructura (en produccion la escribe app.ads.structure):
         # campana + ad group en US; el reporte de terminos se adjunta al

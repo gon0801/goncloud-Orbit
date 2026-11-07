@@ -26,6 +26,8 @@ COPY tools/jev_fichas.py ./tools/jev_fichas.py
 # checklist.sh); sin estos COPY la sonda y la cobertura fallan ahi.
 COPY tools/precio_sonda.py ./tools/precio_sonda.py
 COPY tools/precio_cobertura.py ./tools/precio_cobertura.py
+# AUTO-03 D.5: desplegar.sh y la prueba-real la corren DENTRO del contenedor.
+COPY tools/auto03_verifica.py ./tools/auto03_verifica.py
 
 EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

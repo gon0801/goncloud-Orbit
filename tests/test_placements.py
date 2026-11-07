@@ -36,6 +36,7 @@ from app.ads.structure import PerfilAds
 
 ROOT = Path(__file__).resolve().parents[1]
 SQL40 = (ROOT / "migrations" / "0040_ads_report_result.sql").read_text(encoding="utf-8")
+SQL77 = (ROOT / "migrations" / "0077_auto03_evaluacion_producto.sql").read_text(encoding="utf-8")
 
 
 def _sql62() -> str:
@@ -236,6 +237,7 @@ def _db_placements(prefijo: str):
         conn.execute("SET TIME ZONE 'UTC'")
         conn.execute(SQL)
         conn.execute(SQL40)
+        conn.execute(SQL77)
         conn.execute(_sql62())
         yield conn
     finally:

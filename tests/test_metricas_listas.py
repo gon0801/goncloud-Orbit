@@ -28,6 +28,9 @@ from test_schema import SQL, _postgres_obligatorio_ausente, _test_dsn
 from app import metricas_listas
 
 SQL40 = (Path(__file__).resolve().parents[1] / "migrations/0040_ads_report_result.sql").read_text()
+SQL77 = (
+    Path(__file__).resolve().parents[1] / "migrations/0077_auto03_evaluacion_producto.sql"
+).read_text()
 SQL36 = Path(__file__).resolve().parents[1] / "migrations/0036_ingest_run_platform.sql"
 SQL36 = SQL36.read_text()
 SQL62 = (Path(__file__).resolve().parents[1] / "migrations/0062_bids02_placement.sql").read_text()
@@ -138,6 +141,7 @@ def conn_pg():
         conn.execute("SET TIME ZONE 'UTC'")
         conn.execute(SQL)
         conn.execute(SQL40)
+        conn.execute(SQL77)
         conn.execute(SQL36)
         conn.execute(SQL62)
         yield conn, make_conninfo(dsn, dbname=db)

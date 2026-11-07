@@ -50,6 +50,7 @@ from app.ads.structure import PerfilAds
 ROOT = Path(__file__).resolve().parents[1]
 SQL20 = (ROOT / "migrations" / "0020_ads_producto_metrica.sql").read_text(encoding="utf-8")
 SQL40 = (ROOT / "migrations" / "0040_ads_report_result.sql").read_text(encoding="utf-8")
+SQL77 = (ROOT / "migrations" / "0077_auto03_evaluacion_producto.sql").read_text(encoding="utf-8")
 
 _skip_db = pytest.mark.skipif(
     _postgres_obligatorio_ausente(),
@@ -744,6 +745,7 @@ def test_pipeline_productos_en_vivo():
         conn.execute(SQL)  # 0001 completa
         conn.execute(SQL20)  # la migracion NUEVA aplica sobre esquema fresh
         conn.execute(SQL40)
+        conn.execute(SQL77)
 
         ahora = dt.datetime.now(dt.UTC)
         ayer = ahora.date() - dt.timedelta(days=1)
@@ -1011,6 +1013,7 @@ def test_pipeline_productos_us_no_verificado_no_inventa_filas():
         conn.execute(SQL)
         conn.execute(SQL20)
         conn.execute(SQL40)
+        conn.execute(SQL77)
 
         ayer = dt.datetime.now(dt.UTC).date() - dt.timedelta(days=1)
 

@@ -41,6 +41,7 @@ from app.ads.diario import (
 
 _MIG = Path(__file__).resolve().parents[1] / "migrations"
 SQL40 = (_MIG / "0040_ads_report_result.sql").read_text()
+SQL77 = (_MIG / "0077_auto03_evaluacion_producto.sql").read_text()
 SQL20 = (_MIG / "0020_ads_producto_metrica.sql").read_text()
 SQL62 = (_MIG / "0062_bids02_placement.sql").read_text()
 
@@ -264,6 +265,7 @@ def conn_pg():
         conn.execute("SET TIME ZONE 'UTC'")
         conn.execute(SQL)
         conn.execute(SQL40)
+        conn.execute(SQL77)
         conn.execute(SQL20)
         conn.execute(SQL62)
         yield conn
