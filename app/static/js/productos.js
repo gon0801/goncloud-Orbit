@@ -8,6 +8,8 @@
 // "Regresarlo a sus grupos de antes" exige REGRESAR <N> ANUNCIOS y manda
 // POST /api/fabrica/retiro/reponer. El token viaja en el header
 // x-orbit-token (la query string JAMAS autentica).
+// "Meta por producto" (AUTO-03 E.1) solo filtra filas ya pintadas por el
+// servidor: con meta, sin meta o por motivo.
 
 var vistaGuardada = null;
 var retiroGuardado = null;
@@ -378,7 +380,24 @@ function ejecutarRetiro(form) {
     });
 }
 
+function filtraDecisiones(valor) {
+  document.querySelectorAll("tr[data-decision-producto]").forEach(function (fila) {
+    var motivos = fila.dataset.motivos ? fila.dataset.motivos.split(" ") : [];
+    var visible = true;
+    if (valor === "con-meta") visible = fila.dataset.conMeta === "si";
+    else if (valor === "sin-meta") visible = fila.dataset.conMeta === "no";
+    else if (valor.indexOf("motivo:") === 0) visible = motivos.indexOf(valor.slice(7)) !== -1;
+    fila.hidden = !visible;
+  });
+}
+
 document.addEventListener("DOMContentLoaded", function () {
+  var filtro = document.getElementById("decisiones-filtro");
+  if (filtro) {
+    filtro.addEventListener("change", function () {
+      filtraDecisiones(filtro.value);
+    });
+  }
   var verCandidatos = document.getElementById("productos-ver-candidatos");
   if (verCandidatos) {
     verCandidatos.addEventListener("click", function () {

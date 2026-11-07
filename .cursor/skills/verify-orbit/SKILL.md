@@ -1,6 +1,6 @@
 ---
 name: verify-orbit
-description: Verifica Orbit (dashboard web Jinja2 de Amazon Ads) como lo toca un usuario — Resumen, Campanas, Decisiones, Salud, Contribucion, Propuestas, Inertes, Crear campanas y Settings. Usala para probar UI, regresiones de pantallas o el camino real del dashboard, nunca el bind de produccion 10.13.13.1:8010.
+description: Verifica Orbit (dashboard web Jinja2 de Amazon Ads) como lo toca un usuario — Resumen, Campanas, Decisiones, Salud, Contribucion, Propuestas, Inertes, Crear campanas, Settings y Productos sin clics. Usala para probar UI, regresiones de pantallas o el camino real del dashboard, nunca el bind de produccion 10.13.13.1:8010.
 ---
 
 # Verificar Orbit
@@ -34,7 +34,7 @@ Override: `ORBIT_VERIFY_RUN_ID=mi-run`, `ORBIT_VERIFY_PORT=18011` o `--port 1801
 Que hace, en orden:
 
 1. Habla Postgres en `postgresql://orbit:orbit@127.0.0.1:5432/postgres`. Si no responde, corre `.cursor/start.sh` (idempotente) y reintenta.
-2. `CREATE DATABASE orbit_verify_<run_id>` y aplica las SQL numeradas de esquema en `migrations/` (omite parches de datos que traen `_reversa_`, hoy 0011; misma excepcion que `test_schema.py`). 0001 no es re-runnable: por eso la base es nueva.
+2. `CREATE DATABASE orbit_verify_<run_id>` y aplica las SQL numeradas de esquema en `migrations/` (la cadena entera sin el parche de datos 0011 ni los archivos `_reversa_`, la misma regla que `tests/test_schema_docs.py`). 0001 no es re-runnable: por eso la base es nueva.
 3. Siembra el fixture: campana `Campana A` (amazon_us, ENABLED), metrica D-15 (12.3400 / 45.6700 USD), goal de plataforma 25% (`goal_plataforma`), decision bid, corte `pending_veto` con search_term `zapato blanco`.
 4. Arranca `.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port <puerto>` con `ORBIT_DSN_READ` apuntando a esa base. No setea `ORBIT_PG_HOST` ni DSN de escritura.
 
@@ -87,6 +87,7 @@ Harness: **curl** (mismo transporte que `docs/DEPLOY.md` y que TestClient). Sele
 | `button[data-vetar="<id>"]`, `form[data-veto="<id>"]` | `cortes.html` |
 | `form#fabrica-plan`, `#fabrica-plataforma`, `#fabrica-token` | `fabrica.html` |
 | `#settings-token`, `[data-plataforma]`, `[data-settings-config]`, `[data-settings-goal]` | `settings.html` |
+| `body[data-pantalla="productos-sin-clics"]`, `div#decisiones-producto`, `select#decisiones-filtro`, `tr[data-decision-producto]`, `details[data-grupo]`, `tr[data-hoja]`, `li[data-motivo]` | `productos_sin_clics.html` (ficha `features/productos.md`, receta `drive-productos`) |
 | `GET /api/dashboard/campanas` (y series/decisiones/salud/contribucion/cortes/inertes/settings) | JSON gemelo; no es endpoint de test |
 | `GET /api/fabrica/catalogo`, `GET /api/fabrica/lotes` | JSON de Crear campanas; no POSTees crear/plan |
 
@@ -220,6 +221,7 @@ Todos viven en `.cursor/skills/verify-orbit/helpers/orbit-verify` (ejecutable):
 .cursor/skills/verify-orbit/helpers/orbit-verify drive-inertes [--run-id ID]
 .cursor/skills/verify-orbit/helpers/orbit-verify drive-fabrica [--run-id ID]
 .cursor/skills/verify-orbit/helpers/orbit-verify drive-settings [--run-id ID]
+.cursor/skills/verify-orbit/helpers/orbit-verify drive-productos [--run-id ID]
 .cursor/skills/verify-orbit/helpers/orbit-verify maintain-verification-skill [--run-id ID] [--port 18010] [--force]
 .cursor/skills/verify-orbit/helpers/orbit-verify cleanup [--run-id ID]
 ```

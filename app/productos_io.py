@@ -187,9 +187,7 @@ def lee_entradas_productos(
     for grupo, hoja in conn.execute(_SQL_HOJAS, (plataforma, list(exclusivos))):
         hojas[grupo].append(hoja)
 
-    claves: dict[int, list[tuple[str, str | None]]] = defaultdict(list)
-    for producto, asin, seller_sku in conn.execute(_SQL_LISTINGS, (plataforma, productos_ids)):
-        claves[producto].append((asin, seller_sku))
+    claves = claves_por_producto(conn, plataforma, productos_ids)
     margenes = {
         fila[0]: g.MedicionMargen(
             margen_neto_pct=fila[1],
@@ -299,6 +297,18 @@ def lee_entradas_productos(
             )
         )
     return tuple(entradas)
+
+
+def claves_por_producto(
+    conn: psycopg.Connection, plataforma: str, productos_ids: Sequence[int]
+) -> dict[int, list[tuple[str, str | None]]]:
+    """La vinculacion S5 de cada producto: (ASIN, seller_sku) de sus listings."""
+    claves: dict[int, list[tuple[str, str | None]]] = defaultdict(list)
+    for producto, asin, seller_sku in conn.execute(
+        _SQL_LISTINGS, (plataforma, list(productos_ids))
+    ):
+        claves[producto].append((asin, seller_sku))
+    return claves
 
 
 def _lee_observaciones(

@@ -1,0 +1,2241 @@
+<!DOCTYPE html>
+<html lang="es" data-tema="dia">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Orbit — Dashboard</title>
+  <link rel="icon" href="/static/favicon/favicon.ico" sizes="16x16 32x32 48x48">
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon/favicon-32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon/favicon-16.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="/static/favicon/favicon-192.png">
+  <link rel="apple-touch-icon" href="/static/favicon/favicon-180.png">
+  
+  <script src="/static/js/tema.js?v=f67381713dad6d28"></script>
+  <link rel="stylesheet" href="/static/css/dashboard.css?v=f67381713dad6d28">
+  
+</head>
+<body data-pantalla="resumen">
+  
+  <a class="saltar-contenido" href="#contenido">Saltar al contenido</a>
+  <aside class="sidebar" aria-label="Navegacion principal">
+    <a class="marca" href="/" aria-label="Orbit, inicio">
+      <span class="marca-icono" aria-hidden="true">O</span>
+      <span><strong>ORBIT</strong><small>Ads y marketplaces</small></span>
+    </a>
+    <div class="canal-actual">Ads · Amazon y Mercado Libre</div>
+    <nav id="nav-secciones" class="navegacion" aria-label="Secciones">
+      
+      <div class="nav-grupo">
+        <p class="nav-etiqueta">Panel</p>
+        
+        <a href="/" aria-current="page">Resumen</a>
+        
+        <a href="/campanas" >Campañas</a>
+        
+        <a href="/decisiones" >Decisiones</a>
+        
+        <a href="/salud" >Salud</a>
+        
+        <a href="/contribucion" >Contribucion</a>
+        
+      </div>
+      
+      <div class="nav-grupo">
+        <p class="nav-etiqueta">Decidir</p>
+        
+        <a href="/cortes" >Propuestas<span id="propuestas-contador" class="contador" hidden></span></a>
+        
+        <a href="/gasto-sin-venta" >Gasto sin venta</a>
+        
+        <a href="/busquedas-sin-venta" >Búsquedas que gastan sin vender</a>
+        
+        <a href="/keywords-danadas" >Keywords dañadas</a>
+        
+        <a href="/ruido" >Ruido</a>
+        
+        <a href="/donde-poner-el-dinero" >Dónde poner el dinero</a>
+        
+        <a href="/productos-sin-clics" >Productos sin clics</a>
+        
+        <a href="/inertes" >Inertes</a>
+        
+        <a href="/campanas/nuevas" >Crear campañas</a>
+        
+      </div>
+      
+      <div class="nav-grupo">
+        <p class="nav-etiqueta">Catalogo</p>
+        
+        <a href="/reputacion" >Reputacion<span id="reputacion-contador" class="contador" hidden></span></a>
+        <a href="/precios" >Precios</a>
+        <a href="/familias" >Familias</a>
+      </div>
+      <div class="nav-pie">
+        <a href="/settings" >Settings</a>
+      </div>
+    </nav>
+    <div class="ultimo-ciclo">
+      <p class="nav-etiqueta">Ultimo ciclo</p>
+      <div id="ciclo-resumen" role="status"><span class="mutado">Sin consultar</span></div>
+      <a href="/salud">Ver salud por plataforma</a>
+    </div>
+  </aside>
+  <div class="app-contenido">
+    <header class="pagina-header">
+      <div><h1>Resumen</h1><p>Publicidad por canal · periodo a elegir, dia en curso excluido</p></div>
+      <div class="header-acciones">
+        
+        <span id="watermark-resumen" class="chip-watermark">Watermark: sin consultar</span>
+        <span class="alcance">Amazon MX · Amazon US · Mercado Libre</span>
+        <button type="button" id="btn-tema" aria-pressed="false">Tema: dia</button>
+      </div>
+    </header>
+    <main id="contenido" tabindex="-1">
+    
+
+
+
+
+
+
+
+
+
+
+<h2>Resumen de publicidad</h2>
+
+<div class="resumen-filter-bar" role="region" aria-label="Filtros del resumen">
+  <div class="filter-group">
+    <span class="filter-label">Canal</span>
+    <div class="seg" role="group" aria-label="Selector de canal">
+      <a class="seg-btn active" href="/?periodo=30">Todos</a>
+      
+      <a class="seg-btn" href="/?canal=amazon_mx&periodo=30">Amazon MX</a>
+      
+      <a class="seg-btn" href="/?canal=amazon_us&periodo=30">Amazon US</a>
+      
+      <a class="seg-btn" href="/?canal=meli&periodo=30">Mercado Libre</a>
+      
+    </div>
+  </div>
+
+  <div class="filter-group">
+    <span class="filter-label">Periodo</span>
+    <div class="seg" role="group" aria-label="Selector de periodo">
+      
+      <a class="seg-btn" href="/?periodo=7">7 dias</a>
+      
+      <a class="seg-btn active" href="/?periodo=30">30 dias</a>
+      
+      <a class="seg-btn" href="/?periodo=90">90 dias</a>
+      
+    </div>
+  </div>
+
+  <div class="window-meta">
+    Ventana <strong>2026-10-07 .. 2026-11-05</strong>
+    · 30 dias
+    
+    · el dia en curso queda fuera
+    
+  </div>
+
+  <details class="custom-range">
+    <summary>Rango personalizado</summary>
+    <div class="range-pop">
+      <form class="filtros" method="get" action="/">
+        <label>Canal
+          <select name="canal">
+            <option value="" selected>todos</option>
+            
+            <option value="amazon_mx">Amazon MX</option>
+            
+            <option value="amazon_us">Amazon US</option>
+            
+            <option value="meli">Mercado Libre</option>
+            
+          </select>
+        </label>
+        <label>Periodo
+          <select name="periodo">
+            
+            <option value="7">7 dias</option>
+            
+            <option value="30" selected>30 dias</option>
+            
+            <option value="90">90 dias</option>
+            
+          </select>
+        </label>
+        <label>Desde
+          <input type="date" name="desde" value="">
+        </label>
+        <label>Hasta
+          <input type="date" name="hasta" value="">
+        </label>
+        <button type="submit">Filtrar</button>
+        
+      </form>
+      <p class="range-hint">Con desde y hasta, el rango manda y el periodo de arriba se ignora. Hacen falta las dos fechas.</p>
+    </div>
+  </details>
+</div>
+
+<section class="resumen-seccion" aria-labelledby="sec-canales">
+  <div class="sec-head">
+    <span class="sec-num">1</span>
+    <h3 id="sec-canales" class="sec-title">Cómo va cada canal</h3>
+    <span class="sec-sub">Moneda nativa por canal · comparado contra los 30 dias previos</span>
+  </div>
+
+  <div class="channel-grid">
+    
+    
+    
+    <article class="ch-card" data-canal-card="amazon_mx">
+      <div class="ch-top">
+        <div class="ch-title">
+          <h2>Amazon MX <span class="mutado">· MXN</span></h2>
+        </div>
+        <span class="status-pill status-neutral"><span class="dot"></span>Sin dato</span>
+      </div>
+
+      <div class="ch-hero">
+        <div>
+          <div class="ch-hero-label">ACoS (gasto ÷ ventas)</div>
+          <div class="ch-hero-val">—</div>
+          <div class="ch-hero-delta">
+            <span class="delta-pill delta-neutral">sin comparacion</span>
+            <span>vs periodo anterior · antes —</span>
+          </div>
+        </div>
+        <div class="target-inline">
+          Meta ACoS: <strong>sin configurar</strong><br>
+          <a href="/settings">Configurar</a>
+        </div>
+      </div>
+
+      <div class="spark-wrap">
+        <div class="spark-label">
+          <span>Ventas atribuidas · media 7 dias</span>
+          <span>10-07 → 11-05</span>
+        </div>
+        <svg class="spark-svg" viewBox="0 0 280 34" preserveAspectRatio="none" role="img" aria-label="Media de 7 dias de ventas atribuidas de Amazon MX">
+          
+          
+        </svg>
+      </div>
+
+      <div class="ch-kpis">
+        <div class="ch-kpi" aria-label="Ventas atribuidas Amazon MX">
+          <div class="ch-kpi-label">Ventas</div>
+          <div class="ch-kpi-val">—</div>
+          <div class="ch-kpi-delta flat">sin comparacion</div>
+        </div>
+        <div class="ch-kpi" aria-label="Gasto Amazon MX">
+          <div class="ch-kpi-label">Gasto</div>
+          <div class="ch-kpi-val">—</div>
+          <div class="ch-kpi-delta flat">sin comparacion</div>
+        </div>
+        <div class="ch-kpi" aria-label="ROAS Amazon MX">
+          <div class="ch-kpi-label">ROAS</div>
+          <div class="ch-kpi-val">—</div>
+          <div class="ch-kpi-delta flat">sin comparacion</div>
+        </div>
+      </div>
+
+      <p class="ch-takeaway">Sin observaciones de gasto ni ventas atribuidas en la ventana seleccionada.</p>
+      
+      <p class="ch-madurez mutado">Cifras inmaduras del 2026-10-29 al 2026-11-05 (0/30 dias con dato · — clics · — ordenes).</p>
+      
+    </article>
+    
+    
+    
+    <article class="ch-card" data-canal-card="amazon_us">
+      <div class="ch-top">
+        <div class="ch-title">
+          <h2>Amazon US <span class="mutado">· USD</span></h2>
+        </div>
+        <span class="status-pill status-warn"><span class="dot"></span>Atención</span>
+      </div>
+
+      <div class="ch-hero">
+        <div>
+          <div class="ch-hero-label">ACoS (gasto ÷ ventas)</div>
+          <div class="ch-hero-val">27.98%</div>
+          <div class="ch-hero-delta">
+            <span class="delta-pill delta-neutral">sin comparacion</span>
+            <span>vs periodo anterior · antes —</span>
+          </div>
+        </div>
+        <div class="target-inline">
+          Meta ACoS: <strong>sin configurar</strong><br>
+          <a href="/settings">Configurar</a>
+        </div>
+      </div>
+
+      <div class="spark-wrap">
+        <div class="spark-label">
+          <span>Ventas atribuidas · media 7 dias</span>
+          <span>10-07 → 11-05</span>
+        </div>
+        <svg class="spark-svg" viewBox="0 0 280 34" preserveAspectRatio="none" role="img" aria-label="Media de 7 dias de ventas atribuidas de Amazon US">
+          
+          
+        </svg>
+      </div>
+
+      <div class="ch-kpis">
+        <div class="ch-kpi" aria-label="Ventas atribuidas Amazon US">
+          <div class="ch-kpi-label">Ventas</div>
+          <div class="ch-kpi-val">$47.67</div>
+          <div class="ch-kpi-delta flat">sin comparacion</div>
+        </div>
+        <div class="ch-kpi" aria-label="Gasto Amazon US">
+          <div class="ch-kpi-label">Gasto</div>
+          <div class="ch-kpi-val">$13.34</div>
+          <div class="ch-kpi-delta flat">sin comparacion</div>
+        </div>
+        <div class="ch-kpi" aria-label="ROAS Amazon US">
+          <div class="ch-kpi-label">ROAS</div>
+          <div class="ch-kpi-val">3.57×</div>
+          <div class="ch-kpi-delta flat">sin comparacion</div>
+        </div>
+      </div>
+
+      <p class="ch-takeaway">Cobertura del periodo: 2/30 dias con dato.</p>
+      
+      <p class="ch-madurez mutado">Cifras inmaduras del 2026-10-29 al 2026-11-05 (2/30 dias con dato · 9 clics · 2 ordenes).</p>
+      
+    </article>
+    
+    
+    
+    <article class="ch-card" data-canal-card="meli">
+      <div class="ch-top">
+        <div class="ch-title">
+          <h2>Mercado Libre <span class="mutado">· MXN</span></h2>
+        </div>
+        <span class="status-pill status-neutral"><span class="dot"></span>Sin dato</span>
+      </div>
+
+      <div class="ch-hero">
+        <div>
+          <div class="ch-hero-label">ACoS (gasto ÷ ventas)</div>
+          <div class="ch-hero-val">—</div>
+          <div class="ch-hero-delta">
+            <span class="delta-pill delta-neutral">sin comparacion</span>
+            <span>vs periodo anterior · antes —</span>
+          </div>
+        </div>
+        <div class="target-inline">
+          Meta ACoS: <strong>sin configurar</strong><br>
+          <a href="/settings">Configurar</a>
+        </div>
+      </div>
+
+      <div class="spark-wrap">
+        <div class="spark-label">
+          <span>Ventas atribuidas · media 7 dias</span>
+          <span>10-07 → 11-05</span>
+        </div>
+        <svg class="spark-svg" viewBox="0 0 280 34" preserveAspectRatio="none" role="img" aria-label="Media de 7 dias de ventas atribuidas de Mercado Libre">
+          
+          
+        </svg>
+      </div>
+
+      <div class="ch-kpis">
+        <div class="ch-kpi" aria-label="Ventas atribuidas Mercado Libre">
+          <div class="ch-kpi-label">Ventas</div>
+          <div class="ch-kpi-val">—</div>
+          <div class="ch-kpi-delta flat">sin comparacion</div>
+        </div>
+        <div class="ch-kpi" aria-label="Gasto Mercado Libre">
+          <div class="ch-kpi-label">Gasto</div>
+          <div class="ch-kpi-val">—</div>
+          <div class="ch-kpi-delta flat">sin comparacion</div>
+        </div>
+        <div class="ch-kpi" aria-label="ROAS Mercado Libre">
+          <div class="ch-kpi-label">ROAS</div>
+          <div class="ch-kpi-val">—</div>
+          <div class="ch-kpi-delta flat">sin comparacion</div>
+        </div>
+      </div>
+
+      <p class="ch-takeaway">Sin observaciones de gasto ni ventas atribuidas en la ventana seleccionada.</p>
+      
+      <p class="ch-madurez mutado">meli no publica madurez de atribucion D-8 (no hereda la de Amazon); cierra sus cifras en T+1/T+2, asi que su D-1 aun puede cambiar (0/30 dias con dato · — clics).</p>
+      
+    </article>
+    
+  </div>
+</section>
+
+<section class="resumen-seccion" aria-labelledby="sec-revisar">
+  <div class="sec-head">
+    <span class="sec-num">2</span>
+    <h3 id="sec-revisar" class="sec-title">Qué revisar</h3>
+    <span class="sec-sub">Ordenado por impacto con las cifras del periodo elegido (2026-10-07 .. 2026-11-05)</span>
+  </div>
+
+  
+  <div class="actions-card">
+    <div class="action-row">
+      <span class="action-rank">—</span>
+      <div class="action-body">
+        <div class="action-title">Sin alertas en la ventana seleccionada</div>
+        <div class="action-desc">No se detectaron dias con gasto sin venta, caidas de media movil ni variaciones semanales con los datos disponibles.</div>
+      </div>
+    </div>
+  </div>
+  
+</section>
+
+<section class="resumen-seccion" aria-labelledby="sec-tendencia">
+  <div class="sec-head">
+    <span class="sec-num">3</span>
+    <h3 id="sec-tendencia" class="sec-title">Tendencia · ventas vs gasto</h3>
+    <span class="sec-sub">La linea fina es el dia. La linea gruesa es la media de 7 dias que ya trae el contrato. Un hueco es un dato desconocido. El cero se queda en cero.</span>
+  </div>
+
+  <div class="chart-card">
+    <div class="chart-toolbar">
+      <div class="chart-tabs" role="tablist" aria-label="Canal de la grafica de tendencia">
+        
+        <button type="button" class="chart-tab active" role="tab" aria-selected="true" data-tab-canal="amazon_mx">
+          Amazon MX <span class="curr-tag">· MXN</span>
+        </button>
+        
+        <button type="button" class="chart-tab" role="tab" aria-selected="false" data-tab-canal="amazon_us">
+          Amazon US <span class="curr-tag">· USD</span>
+        </button>
+        
+        <button type="button" class="chart-tab" role="tab" aria-selected="false" data-tab-canal="meli">
+          Mercado Libre <span class="curr-tag">· MXN</span>
+        </button>
+        
+      </div>
+      <div class="chart-legend" aria-hidden="true">
+        <span class="leg-item"><span class="leg-swatch ventas-ma7"></span>Ventas media 7d</span>
+        <span class="leg-item"><span class="leg-swatch ventas-dia"></span>Ventas dia</span>
+        <span class="leg-item"><span class="leg-swatch gasto-ma7"></span>Gasto media 7d</span>
+        <span class="leg-item"><span class="leg-swatch gasto-dia"></span>Gasto dia</span>
+      </div>
+    </div>
+
+    
+    <div class="chart-panel" data-panel-canal="amazon_mx">
+      <div class="lienzo">
+        <canvas id="tendencia-amazon_mx" data-canal="amazon_mx" role="img" aria-describedby="serie-amazon_mx" aria-label="Gasto y ventas de Amazon MX en MXN"></canvas>
+      </div>
+      <div class="chart-note">
+        
+        <span><strong>Maduracion Amazon MX:</strong> cifras inmaduras del 2026-10-29 al 2026-11-05. La atribucion de ventas y el cierre de gasto siguen ajustandose en esa ventana.</span>
+        
+        <span>Moneda: <strong>MXN</strong> · Cobertura: <strong>0/30 dias</strong></span>
+      </div>
+    </div>
+    
+    <div class="chart-panel" data-panel-canal="amazon_us" hidden>
+      <div class="lienzo">
+        <canvas id="tendencia-amazon_us" data-canal="amazon_us" role="img" aria-describedby="serie-amazon_us" aria-label="Gasto y ventas de Amazon US en USD"></canvas>
+      </div>
+      <div class="chart-note">
+        
+        <span><strong>Maduracion Amazon US:</strong> cifras inmaduras del 2026-10-29 al 2026-11-05. La atribucion de ventas y el cierre de gasto siguen ajustandose en esa ventana.</span>
+        
+        <span>Moneda: <strong>USD</strong> · Cobertura: <strong>2/30 dias</strong></span>
+      </div>
+    </div>
+    
+    <div class="chart-panel" data-panel-canal="meli" hidden>
+      <div class="lienzo">
+        <canvas id="tendencia-meli" data-canal="meli" role="img" aria-describedby="serie-meli" aria-label="Gasto y ventas de Mercado Libre en MXN"></canvas>
+      </div>
+      <div class="chart-note">
+        
+        <span><strong>Maduracion Mercado Libre:</strong> meli no publica madurez de atribucion D-8 (no hereda la de Amazon); cierra sus cifras en T+1/T+2, asi que su D-1 aun puede cambiar</span>
+        
+        <span>Moneda: <strong>MXN</strong> · Cobertura: <strong>0/30 dias</strong></span>
+      </div>
+    </div>
+    
+  </div>
+</section>
+
+<section class="resumen-seccion" aria-labelledby="sec-monedas">
+  <div class="sec-head">
+    <span class="sec-num">4</span>
+    <h3 id="sec-monedas" class="sec-title">Totales por moneda</h3>
+    <span class="sec-sub">Sin mezclar divisas · las metricas que un canal no publica quedan con raya</span>
+  </div>
+
+  <div class="currency-grid">
+    
+    <section class="curr-card" aria-label="Totales MXN">
+      <div class="curr-top">
+        <div>
+          <span class="curr-code">Totales MXN</span>
+          <span class="curr-channels">· Amazon MX, Mercado Libre</span>
+        </div>
+        
+        <span class="curr-badge">cobertura incompleta</span>
+        
+      </div>
+      
+      <p class="curr-note">Sin dato de dinero: Amazon MX, Mercado Libre</p>
+      
+      <div class="curr-grid">
+        
+        <div class="curr-item" aria-label="Gasto MXN">
+          <div class="curr-item-label">Gasto</div>
+          <div class="curr-item-val">—</div>
+          <div class="curr-item-sub">
+            
+            cobertura incompleta
+            
+          </div>
+        </div>
+        
+        <div class="curr-item" aria-label="Ventas atribuidas MXN">
+          <div class="curr-item-label">Ventas atribuidas</div>
+          <div class="curr-item-val">—</div>
+          <div class="curr-item-sub">
+            
+            cobertura incompleta
+            
+          </div>
+        </div>
+        
+        <div class="curr-item" aria-label="ACoS MXN">
+          <div class="curr-item-label">ACoS</div>
+          <div class="curr-item-val">—</div>
+          <div class="curr-item-sub">
+            
+          </div>
+        </div>
+        
+        <div class="curr-item" aria-label="ROAS MXN">
+          <div class="curr-item-label">ROAS</div>
+          <div class="curr-item-val">—</div>
+          <div class="curr-item-sub">
+            
+          </div>
+        </div>
+        
+        <div class="curr-item" aria-label="Clics MXN">
+          <div class="curr-item-label">Clics</div>
+          <div class="curr-item-val">—</div>
+          <div class="curr-item-sub">
+            
+            cobertura incompleta
+            
+          </div>
+        </div>
+        
+        <div class="curr-item" aria-label="Ordenes atribuidas MXN">
+          <div class="curr-item-label">Ordenes atribuidas</div>
+          <div class="curr-item-val">—</div>
+          <div class="curr-item-sub">
+            
+            MeLi no publica ordenes
+            
+          </div>
+        </div>
+        
+      </div>
+    </section>
+    
+    <section class="curr-card" aria-label="Totales USD">
+      <div class="curr-top">
+        <div>
+          <span class="curr-code">Totales USD</span>
+          <span class="curr-channels">· Amazon US</span>
+        </div>
+        
+        <span class="curr-badge">cobertura incompleta</span>
+        
+      </div>
+      
+      <div class="curr-grid">
+        
+        <div class="curr-item" aria-label="Gasto USD">
+          <div class="curr-item-label">Gasto</div>
+          <div class="curr-item-val">$13.34</div>
+          <div class="curr-item-sub">
+            
+            cobertura incompleta
+            
+          </div>
+        </div>
+        
+        <div class="curr-item" aria-label="Ventas atribuidas USD">
+          <div class="curr-item-label">Ventas atribuidas</div>
+          <div class="curr-item-val">$47.67</div>
+          <div class="curr-item-sub">
+            
+            cobertura incompleta
+            
+          </div>
+        </div>
+        
+        <div class="curr-item" aria-label="ACoS USD">
+          <div class="curr-item-label">ACoS</div>
+          <div class="curr-item-val">—</div>
+          <div class="curr-item-sub">
+            
+          </div>
+        </div>
+        
+        <div class="curr-item" aria-label="ROAS USD">
+          <div class="curr-item-label">ROAS</div>
+          <div class="curr-item-val">—</div>
+          <div class="curr-item-sub">
+            
+          </div>
+        </div>
+        
+        <div class="curr-item" aria-label="Clics USD">
+          <div class="curr-item-label">Clics</div>
+          <div class="curr-item-val">9</div>
+          <div class="curr-item-sub">
+            
+            cobertura incompleta
+            
+          </div>
+        </div>
+        
+        <div class="curr-item" aria-label="Ordenes atribuidas USD">
+          <div class="curr-item-label">Ordenes atribuidas</div>
+          <div class="curr-item-val">2</div>
+          <div class="curr-item-sub">
+            
+            cobertura incompleta
+            
+          </div>
+        </div>
+        
+      </div>
+    </section>
+    
+  </div>
+</section>
+
+<section class="resumen-seccion" aria-labelledby="sec-detalle">
+  <div class="sec-head">
+    <span class="sec-num">5</span>
+    <h3 id="sec-detalle" class="sec-title">Tablas detalladas y series diarias</h3>
+    <span class="sec-sub">Plegadas por defecto · clic para abrir</span>
+  </div>
+
+  <div class="details-stack">
+    <details class="detail-box">
+      <summary>
+        <span>Tabla por canal · totales del periodo (30 dias)</span>
+        <span class="sum-meta">1 fila por canal en su moneda nativa</span>
+      </summary>
+      <div class="detail-body">
+        <h2>Tabla por canal</h2>
+        <div class="tabla-scroll" tabindex="0" role="region" aria-label="Tabla por canal">
+          <table>
+            <caption>Totales del contrato, una fila por canal. Cada fila conserva su moneda.</caption>
+            <thead>
+              <tr>
+                <th>Canal</th>
+                <th>Moneda</th>
+                
+                <th class="num">Gasto</th>
+                
+                <th class="num">Ventas atribuidas</th>
+                
+                <th class="num">ACoS</th>
+                
+                <th class="num">ROAS</th>
+                
+                <th class="num">Clics</th>
+                
+                <th class="num">Ordenes atribuidas</th>
+                
+                <th class="num">Cobertura</th>
+              </tr>
+            </thead>
+            <tbody>
+              
+              <tr>
+                <td>Amazon MX</td>
+                <td>MXN</td>
+                
+                <td class="num">
+                  —
+                </td>
+                
+                <td class="num">
+                  —
+                </td>
+                
+                <td class="num">
+                  —
+                </td>
+                
+                <td class="num">
+                  —
+                </td>
+                
+                <td class="num">
+                  —
+                </td>
+                
+                <td class="num">
+                  —
+                </td>
+                
+                <td class="num">0/30 dias</td>
+              </tr>
+              
+              <tr>
+                <td>Amazon US</td>
+                <td>USD</td>
+                
+                <td class="num">
+                  13.34
+                </td>
+                
+                <td class="num">
+                  47.67
+                </td>
+                
+                <td class="num">
+                  27.98%
+                </td>
+                
+                <td class="num">
+                  3.57
+                </td>
+                
+                <td class="num">
+                  9
+                </td>
+                
+                <td class="num">
+                  2
+                </td>
+                
+                <td class="num">2/30 dias</td>
+              </tr>
+              
+              <tr>
+                <td>Mercado Libre</td>
+                <td>MXN</td>
+                
+                <td class="num">
+                  —
+                </td>
+                
+                <td class="num">
+                  —
+                </td>
+                
+                <td class="num">
+                  —
+                </td>
+                
+                <td class="num">
+                  —
+                </td>
+                
+                <td class="num">
+                  —
+                </td>
+                
+                <td class="num">
+                  —
+                </td>
+                
+                <td class="num">0/30 dias</td>
+              </tr>
+              
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </details>
+
+    <details class="detail-box">
+      <summary>
+        <span>Periodo anterior por canal (2026-09-07 .. 2026-10-06 · 30 dias)</span>
+        <span class="sum-meta">Valores previos y variaciones</span>
+      </summary>
+      <div class="detail-body">
+        <h3>Periodo anterior</h3>
+        <div class="tabla-scroll" tabindex="0" role="region" aria-label="Periodo anterior por canal">
+          <table>
+            <caption>Comparacion contra el periodo anterior de igual longitud por canal.</caption>
+            <thead>
+              <tr>
+                <th>Canal</th>
+                <th class="num">Gasto anterior</th>
+                <th class="num">Δ Gasto</th>
+                <th class="num">Ventas anteriores</th>
+                <th class="num">Δ Ventas</th>
+                <th class="num">ACoS anterior</th>
+                <th class="num">Δ ACoS</th>
+                <th class="num">ROAS anterior</th>
+                <th class="num">Δ ROAS</th>
+                <th class="num">Clics anteriores</th>
+                <th class="num">Δ Clics</th>
+              </tr>
+            </thead>
+            <tbody>
+              
+              
+              
+              <tr>
+                <td>Amazon MX (MXN)</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+              </tr>
+              
+              
+              
+              <tr>
+                <td>Amazon US (USD)</td>
+                <td class="num">—</td>
+                <td class="num">cobertura distinta entre periodos</td>
+                <td class="num">—</td>
+                <td class="num">cobertura distinta entre periodos</td>
+                <td class="num">—</td>
+                <td class="num">cobertura distinta entre periodos</td>
+                <td class="num">—</td>
+                <td class="num">cobertura distinta entre periodos</td>
+                <td class="num">—</td>
+                <td class="num">cobertura distinta entre periodos</td>
+              </tr>
+              
+              
+              
+              <tr>
+                <td>Mercado Libre (MXN)</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+              </tr>
+              
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </details>
+
+    
+    
+    <details class="detail-box">
+      <summary>
+        <span>Datos diarios · Amazon MX (MXN)</span>
+        <span class="sum-meta">30 filas · dia y media de 7 dias del contrato</span>
+      </summary>
+      <div class="detail-body">
+        <div class="tabla-scroll" tabindex="0" role="region" aria-label="Serie de Amazon MX">
+          <table id="serie-amazon_mx">
+            <caption>Equivalente textual de la serie de Amazon MX (MXN). El dia y la media de 7 dias salen del contrato.</caption>
+            <thead>
+              <tr>
+                <th>Fecha</th>
+                <th class="num">Gasto</th>
+                <th class="num">Gasto media 7</th>
+                <th class="num">Ventas</th>
+                <th class="num">Ventas media 7</th>
+                <th class="num">Clics</th>
+                <th class="num">Clics media 7</th>
+                
+                <th class="num">Ordenes atribuidas</th>
+                <th class="num">Ordenes media 7</th>
+                
+              </tr>
+            </thead>
+            <tbody>
+              
+              <tr>
+                <td>2026-10-07</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-08</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-09</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-10</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-11</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-12</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-13</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-14</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-15</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-16</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-17</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-18</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-19</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-20</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-21</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-22</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-23</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-24</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-25</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-26</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-27</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-28</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-29 *</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-30 *</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-31 *</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-11-01 *</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-11-02 *</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-11-03 *</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-11-04 *</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-11-05 *</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </details>
+    
+    
+    <details class="detail-box">
+      <summary>
+        <span>Datos diarios · Amazon US (USD)</span>
+        <span class="sum-meta">30 filas · dia y media de 7 dias del contrato</span>
+      </summary>
+      <div class="detail-body">
+        <div class="tabla-scroll" tabindex="0" role="region" aria-label="Serie de Amazon US">
+          <table id="serie-amazon_us">
+            <caption>Equivalente textual de la serie de Amazon US (USD). El dia y la media de 7 dias salen del contrato.</caption>
+            <thead>
+              <tr>
+                <th>Fecha</th>
+                <th class="num">Gasto</th>
+                <th class="num">Gasto media 7</th>
+                <th class="num">Ventas</th>
+                <th class="num">Ventas media 7</th>
+                <th class="num">Clics</th>
+                <th class="num">Clics media 7</th>
+                
+                <th class="num">Ordenes atribuidas</th>
+                <th class="num">Ordenes media 7</th>
+                
+              </tr>
+            </thead>
+            <tbody>
+              
+              <tr>
+                <td>2026-10-07</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-08</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-09</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-10</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-11</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-12</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-13</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-14</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-15</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-16</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-17</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-18</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-19</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-20</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-21</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-22</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-23</td>
+                <td class="num">12.34</td>
+                <td class="num">—</td>
+                <td class="num">45.67</td>
+                <td class="num">—</td>
+                <td class="num">8</td>
+                <td class="num">—</td>
+                
+                <td class="num">2</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-24</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-25</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-26</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-27</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-28</td>
+                <td class="num">1.00</td>
+                <td class="num">—</td>
+                <td class="num">2.00</td>
+                <td class="num">—</td>
+                <td class="num">1</td>
+                <td class="num">—</td>
+                
+                <td class="num">0</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-29 *</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-30 *</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-31 *</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-11-01 *</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-11-02 *</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-11-03 *</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-11-04 *</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-11-05 *</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </details>
+    
+    
+    <details class="detail-box">
+      <summary>
+        <span>Datos diarios · Mercado Libre (MXN)</span>
+        <span class="sum-meta">30 filas · dia y media de 7 dias del contrato</span>
+      </summary>
+      <div class="detail-body">
+        <div class="tabla-scroll" tabindex="0" role="region" aria-label="Serie de Mercado Libre">
+          <table id="serie-meli">
+            <caption>Equivalente textual de la serie de Mercado Libre (MXN). El dia y la media de 7 dias salen del contrato.</caption>
+            <thead>
+              <tr>
+                <th>Fecha</th>
+                <th class="num">Gasto</th>
+                <th class="num">Gasto media 7</th>
+                <th class="num">Ventas</th>
+                <th class="num">Ventas media 7</th>
+                <th class="num">Clics</th>
+                <th class="num">Clics media 7</th>
+                
+              </tr>
+            </thead>
+            <tbody>
+              
+              <tr>
+                <td>2026-10-07</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-08</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-09</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-10</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-11</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-12</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-13</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-14</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-15</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-16</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-17</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-18</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-19</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-20</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-21</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-22</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-23</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-24</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-25</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-26</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-27</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-28</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-29</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-30</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-10-31</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-11-01</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-11-02</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-11-03</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-11-04</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+              <tr>
+                <td>2026-11-05</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                
+              </tr>
+              
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </details>
+    
+  </div>
+</section>
+
+<footer class="footer-links" aria-label="Accesos rapidos">
+  <a href="/">Resumen</a>
+  <a href="/contribucion">Contribucion</a>
+  <a href="/reputacion">Reputacion</a>
+  <a href="/decisiones">Decisiones</a>
+  <a href="/campanas">Campañas</a>
+  <a href="/settings">Settings</a>
+  <a href="/cortes">Propuestas</a>
+</footer>
+
+<script type="application/json" id="datos-resumen">{"canales": {"amazon_mx": {"comparison": {"desde": "2026-09-07", "dias": 30, "hasta": "2026-10-06", "totals": {"acos": null, "ad_revenue": null, "clicks": null, "cost": null, "dias_ad_revenue": 0, "dias_clicks": 0, "dias_con_dato": 0, "dias_cost": 0, "dinero_alineado": false, "orders": null, "roas": null, "sin_ventas": false}, "variacion": {"acos_pp": null, "ad_revenue_pct": null, "clicks_pct": null, "comparable": true, "cost_pct": null, "motivo": null, "motivo_por_metrica": {"acos_pp": null, "ad_revenue_pct": null, "clicks_pct": null, "cost_pct": null, "roas_delta": null}, "roas_delta": null}}, "coverage": {"cierre": {"dias_antes_del_cierre": 0, "dias_observados": 0, "fechas_antes_del_cierre": [], "todos_cerrados": true}, "completo": false, "dias_con_dato": 0, "dias_faltantes": 30, "dias_rango": 30, "por_metrica": {"ad_revenue": 0, "clicks": 0, "cost": 0, "orders": 0}}, "desde": "2026-10-07", "dias": 30, "edad_dias": null, "granularidad": "campaign", "hasta": "2026-11-05", "last_ingest_at": null, "maduracion": {"aplica": true, "dias_inmaduros": 8, "motivo": null, "ventana_inmaduros": {"desde": "2026-10-29", "hasta": "2026-11-05"}}, "max_metric_date": null, "moneda": "MXN", "plataforma": "amazon_mx", "series": [{"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-07", "inmaduro": false, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-08", "inmaduro": false, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-09", "inmaduro": false, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-10", "inmaduro": false, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-11", "inmaduro": false, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-12", "inmaduro": false, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-13", "inmaduro": false, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-14", "inmaduro": false, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-15", "inmaduro": false, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-16", "inmaduro": false, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-17", "inmaduro": false, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-18", "inmaduro": false, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-19", "inmaduro": false, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-20", "inmaduro": false, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-21", "inmaduro": false, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-22", "inmaduro": false, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-23", "inmaduro": false, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-24", "inmaduro": false, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-25", "inmaduro": false, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-26", "inmaduro": false, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-27", "inmaduro": false, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-28", "inmaduro": false, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-29", "inmaduro": true, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-30", "inmaduro": true, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-31", "inmaduro": true, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-11-01", "inmaduro": true, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-11-02", "inmaduro": true, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-11-03", "inmaduro": true, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-11-04", "inmaduro": true, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-11-05", "inmaduro": true, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}], "totals": {"acos": null, "ad_revenue": null, "clicks": null, "cost": null, "dias_ad_revenue": 0, "dias_clicks": 0, "dias_con_dato": 0, "dias_cost": 0, "dinero_alineado": false, "orders": null, "roas": null, "sin_ventas": false}}, "amazon_us": {"comparison": {"desde": "2026-09-07", "dias": 30, "hasta": "2026-10-06", "totals": {"acos": null, "ad_revenue": null, "clicks": null, "cost": null, "dias_ad_revenue": 0, "dias_clicks": 0, "dias_con_dato": 0, "dias_cost": 0, "dinero_alineado": false, "orders": null, "roas": null, "sin_ventas": false}, "variacion": {"acos_pp": null, "ad_revenue_pct": null, "clicks_pct": null, "comparable": false, "cost_pct": null, "motivo": "cobertura_distinta", "motivo_por_metrica": {"acos_pp": "cobertura_distinta", "ad_revenue_pct": "cobertura_distinta", "clicks_pct": "cobertura_distinta", "cost_pct": "cobertura_distinta", "roas_delta": "cobertura_distinta"}, "roas_delta": null}}, "coverage": {"cierre": {"dias_antes_del_cierre": 1, "dias_observados": 2, "fechas_antes_del_cierre": ["2026-10-23"], "todos_cerrados": false}, "completo": false, "dias_con_dato": 2, "dias_faltantes": 28, "dias_rango": 30, "por_metrica": {"ad_revenue": 2, "clicks": 2, "cost": 2, "orders": 2}}, "desde": "2026-10-07", "dias": 30, "edad_dias": 9, "granularidad": "campaign", "hasta": "2026-11-05", "last_ingest_at": null, "maduracion": {"aplica": true, "dias_inmaduros": 8, "motivo": null, "ventana_inmaduros": {"desde": "2026-10-29", "hasta": "2026-11-05"}}, "max_metric_date": "2026-10-28", "moneda": "USD", "plataforma": "amazon_us", "series": [{"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-07", "inmaduro": false, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-08", "inmaduro": false, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-09", "inmaduro": false, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-10", "inmaduro": false, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-11", "inmaduro": false, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-12", "inmaduro": false, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-13", "inmaduro": false, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-14", "inmaduro": false, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-15", "inmaduro": false, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-16", "inmaduro": false, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-17", "inmaduro": false, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-18", "inmaduro": false, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-19", "inmaduro": false, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-20", "inmaduro": false, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-21", "inmaduro": false, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-22", "inmaduro": false, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": "27.02", "ad_revenue": "45.6700", "cerrado": false, "clicks": 8, "cost": "12.3400", "fecha": "2026-10-23", "inmaduro": false, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": "observado_antes_del_cierre", "orders": 2, "roas": "3.70", "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-24", "inmaduro": false, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-25", "inmaduro": false, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-26", "inmaduro": false, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-27", "inmaduro": false, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": "50.00", "ad_revenue": "2.0000", "cerrado": true, "clicks": 1, "cost": "1.0000", "fecha": "2026-10-28", "inmaduro": false, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": 0, "roas": "2.00", "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-29", "inmaduro": true, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-30", "inmaduro": true, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-31", "inmaduro": true, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-11-01", "inmaduro": true, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-11-02", "inmaduro": true, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-11-03", "inmaduro": true, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-11-04", "inmaduro": true, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-11-05", "inmaduro": true, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}], "totals": {"acos": "27.98", "ad_revenue": "47.6700", "clicks": 9, "cost": "13.3400", "dias_ad_revenue": 2, "dias_clicks": 2, "dias_con_dato": 2, "dias_cost": 2, "dinero_alineado": true, "orders": 2, "roas": "3.57", "sin_ventas": false}}, "meli": {"comparison": {"desde": "2026-09-07", "dias": 30, "hasta": "2026-10-06", "totals": {"acos": null, "ad_revenue": null, "clicks": null, "cost": null, "dias_ad_revenue": 0, "dias_clicks": 0, "dias_con_dato": 0, "dias_cost": 0, "dinero_alineado": false, "orders": null, "roas": null, "sin_ventas": false}, "variacion": {"acos_pp": null, "ad_revenue_pct": null, "clicks_pct": null, "comparable": true, "cost_pct": null, "motivo": null, "motivo_por_metrica": {"acos_pp": null, "ad_revenue_pct": null, "clicks_pct": null, "cost_pct": null, "roas_delta": null}, "roas_delta": null}}, "coverage": {"cierre": {"dias_antes_del_cierre": 0, "dias_observados": 0, "fechas_antes_del_cierre": [], "todos_cerrados": true}, "completo": false, "dias_con_dato": 0, "dias_faltantes": 30, "dias_rango": 30, "por_metrica": {"ad_revenue": 0, "clicks": 0, "cost": 0, "orders": 0}}, "desde": "2026-10-07", "dias": 30, "edad_dias": null, "granularidad": "campaign", "hasta": "2026-11-05", "last_ingest_at": null, "maduracion": {"aplica": false, "dias_inmaduros": null, "motivo": "meli no publica madurez de atribucion D-8 (no hereda la de Amazon); cierra sus cifras en T+1/T+2, asi que su D-1 aun puede cambiar", "ventana_inmaduros": null}, "max_metric_date": null, "moneda": "MXN", "plataforma": "meli", "series": [{"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-07", "inmaduro": null, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-08", "inmaduro": null, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-09", "inmaduro": null, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-10", "inmaduro": null, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-11", "inmaduro": null, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-12", "inmaduro": null, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-13", "inmaduro": null, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-14", "inmaduro": null, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-15", "inmaduro": null, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-16", "inmaduro": null, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-17", "inmaduro": null, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-18", "inmaduro": null, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-19", "inmaduro": null, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-20", "inmaduro": null, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-21", "inmaduro": null, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-22", "inmaduro": null, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-23", "inmaduro": null, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-24", "inmaduro": null, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-25", "inmaduro": null, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-26", "inmaduro": null, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-27", "inmaduro": null, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-28", "inmaduro": null, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-29", "inmaduro": null, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-30", "inmaduro": null, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-10-31", "inmaduro": null, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-11-01", "inmaduro": null, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-11-02", "inmaduro": null, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-11-03", "inmaduro": null, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-11-04", "inmaduro": null, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": null, "cerrado": null, "clicks": null, "cost": null, "fecha": "2026-11-05", "inmaduro": null, "ma7": {"acos": null, "ad_revenue": null, "clicks": null, "completo": false, "cost": null, "orders": null, "roas": null}, "motivo_cierre": null, "orders": null, "roas": null, "sin_ventas": false}], "totals": {"acos": null, "ad_revenue": null, "clicks": null, "cost": null, "dias_ad_revenue": 0, "dias_clicks": 0, "dias_con_dato": 0, "dias_cost": 0, "dinero_alineado": false, "orders": null, "roas": null, "sin_ventas": false}}}, "desde": "2026-10-07", "dias": 30, "granularidad": "campaign", "hasta": "2026-11-05", "hasta_solicitado": "2026-11-05", "hoy": "2026-11-06", "hoy_instante": "2026-11-07T03:23:48.695797+00:00", "hoy_por_canal": {"amazon_mx": "2026-11-06", "amazon_us": "2026-11-06", "meli": "2026-11-06"}, "metas_acos": {"amazon_mx": null, "amazon_us": null, "meli": null}, "periodo": 30, "recortado": false, "totales_por_moneda": [{"acos": null, "ad_revenue": null, "canales": ["amazon_mx", "meli"], "canales_sin_dato": ["amazon_mx", "meli"], "clicks": null, "cobertura": {"ad_revenue": false, "clicks": false, "cost": false, "dias": false, "orders": false}, "completo": false, "cost": null, "moneda": "MXN", "orders": null, "roas": null, "sin_ventas": false}, {"acos": null, "ad_revenue": "47.6700", "canales": ["amazon_us"], "canales_sin_dato": [], "clicks": 9, "cobertura": {"ad_revenue": false, "clicks": false, "cost": false, "dias": false, "orders": false}, "completo": false, "cost": "13.3400", "moneda": "USD", "orders": 2, "roas": null, "sin_ventas": false}], "zonas": {"amazon_mx": "America/Mexico_City", "amazon_us": "America/Los_Angeles", "meli": "America/Mexico_City"}}</script>
+
+    </main>
+  </div>
+  
+  
+  
+  <nav class="tab-bar" aria-label="Navegacion movil">
+    <svg class="tab-sprite" aria-hidden="true" focusable="false">
+      <symbol id="ico-casa" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4.5 10.5 12 4.25l7.5 6.25V19a1.5 1.5 0 0 1-1.5 1.5h-4.25v-6h-3.5v6H6A1.5 1.5 0 0 1 4.5 19z"/>
+      </symbol>
+      <symbol id="ico-casa-fill" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M12 3.4 3.7 10.2a.95.95 0 0 0 1.2 1.47L6 10.7V18.6A1.9 1.9 0 0 0 7.9 20.5h2.7v-6.3h2.8v6.3h2.7a1.9 1.9 0 0 0 1.9-1.9v-7.9l1.1.97a.95.95 0 1 0 1.2-1.47L12 3.4z"/>
+      </symbol>
+      <symbol id="ico-barras" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round">
+        <path d="M6 19V10M12 19V5M18 19v-7"/>
+      </symbol>
+      <symbol id="ico-barras-fill" viewBox="0 0 24 24" fill="currentColor">
+        <rect x="4.6" y="9.2" width="2.8" height="10.3" rx="1.2"/>
+        <rect x="10.6" y="4.5" width="2.8" height="15" rx="1.2"/>
+        <rect x="16.6" y="11.2" width="2.8" height="8.3" rx="1.2"/>
+      </symbol>
+      <symbol id="ico-cubo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round">
+        <path d="M12 3.4 20.2 8v8L12 20.6 3.8 16V8L12 3.4zM12 12l8.2-4M12 12v8.6M12 12 3.8 8"/>
+      </symbol>
+      <symbol id="ico-cubo-fill" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M12 2.8 20.5 7.5v9l-8.5 4.7-8.5-4.7v-9L12 2.8zm0 2.2L6.2 8.2 12 11.4l5.8-3.2L12 5zm6.6 4.4L13 12.7v6.6l5.6-3.1V9.4zM11 19.3v-6.6L5.4 9.4v6.4L11 19.3z"/>
+      </symbol>
+      <symbol id="ico-lista" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round">
+        <path d="M9 7h11M9 12h11M9 17h11M5 7h.01M5 12h.01M5 17h.01"/>
+      </symbol>
+      <symbol id="ico-lista-fill" viewBox="0 0 24 24" fill="currentColor">
+        <circle cx="5" cy="7" r="1.35"/><rect x="8.2" y="5.8" width="11.5" height="2.4" rx="1.2"/>
+        <circle cx="5" cy="12" r="1.35"/><rect x="8.2" y="10.8" width="11.5" height="2.4" rx="1.2"/>
+        <circle cx="5" cy="17" r="1.35"/><rect x="8.2" y="15.8" width="11.5" height="2.4" rx="1.2"/>
+      </symbol>
+      <symbol id="ico-billetera" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round">
+        <path d="M3.5 8.5h17A1.5 1.5 0 0 1 22 10v8a1.5 1.5 0 0 1-1.5 1.5h-17A1.5 1.5 0 0 1 2 18V8.5A1.5 1.5 0 0 1 3.5 7h12V8.5"/>
+        <circle cx="17" cy="14" r="1"/>
+      </symbol>
+      <symbol id="ico-billetera-fill" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M3.6 6.6h11.7v1.5H3.7A1.2 1.2 0 0 0 2.5 9.3v8.4A2.1 2.1 0 0 0 4.6 19.8h14.8a2.1 2.1 0 0 0 2.1-2.1v-7.3a2.1 2.1 0 0 0-2.1-2.1H3.6V6.6zm13.7 6.2a1.4 1.4 0 1 1 0 2.8 1.4 1.4 0 0 1 0-2.8z"/>
+      </symbol>
+      <symbol id="ico-banco" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 10 12 5l8 5M6.5 10v8.5M12 10v8.5M17.5 10v8.5M4 19.5h16"/>
+      </symbol>
+      <symbol id="ico-banco-fill" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M12 3.8 3.4 9.2a1 1 0 0 0 .6 1.8h16a1 1 0 0 0 .6-1.8L12 3.8zM5.4 12.2h2.4V18H5.4v-5.8zm5.4 0h2.4V18h-2.4v-5.8zm5.4 0h2.4V18h-2.4v-5.8zM3.8 19.2h16.4a.9.9 0 0 1 0 1.8H3.8a.9.9 0 0 1 0-1.8z"/>
+      </symbol>
+      <symbol id="ico-aviso" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round" stroke-linecap="round">
+        <path d="M12 4.2 20.7 19.3H3.3L12 4.2zM12 10v4.3M12 16.7v.4"/>
+      </symbol>
+      <symbol id="ico-aviso-fill" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M10.7 3.7a1.5 1.5 0 0 1 2.6 0l8.4 14.6A1.5 1.5 0 0 1 20.4 20.5H3.6a1.5 1.5 0 0 1-1.3-2.2L10.7 3.7zM12 9.4a.9.9 0 0 0-.9.9v3.7a.9.9 0 0 0 1.8 0V10.3a.9.9 0 0 0-.9-.9zm0 7.1a1.05 1.05 0 1 0 0 2.1 1.05 1.05 0 0 0 0-2.1z"/>
+      </symbol>
+    </svg>
+    
+    <a class="tab tab-activo" href="/" aria-current="page">
+      <svg class="tab-ico tab-ico-off"><use href="#ico-casa"/></svg>
+      <svg class="tab-ico tab-ico-on"><use href="#ico-casa-fill"/></svg>
+      <span class="tab-label">Resumen</span>
+      
+    </a>
+    
+    <a class="tab" href="/contribucion">
+      <svg class="tab-ico tab-ico-off"><use href="#ico-barras"/></svg>
+      <svg class="tab-ico tab-ico-on"><use href="#ico-barras-fill"/></svg>
+      <span class="tab-label">Contribucion</span>
+      
+    </a>
+    
+    <a class="tab" href="/reputacion">
+      <svg class="tab-ico tab-ico-off"><use href="#ico-cubo"/></svg>
+      <svg class="tab-ico tab-ico-on"><use href="#ico-cubo-fill"/></svg>
+      <span class="tab-label">Reputacion</span>
+      <span class="contador tab-badge" data-rol="reputacion" hidden></span>
+    </a>
+    
+    <a class="tab" href="/decisiones">
+      <svg class="tab-ico tab-ico-off"><use href="#ico-lista"/></svg>
+      <svg class="tab-ico tab-ico-on"><use href="#ico-lista-fill"/></svg>
+      <span class="tab-label">Decisiones</span>
+      
+    </a>
+    
+    <a class="tab" href="/campanas">
+      <svg class="tab-ico tab-ico-off"><use href="#ico-billetera"/></svg>
+      <svg class="tab-ico tab-ico-on"><use href="#ico-billetera-fill"/></svg>
+      <span class="tab-label">Campañas</span>
+      
+    </a>
+    
+    <a class="tab" href="/settings">
+      <svg class="tab-ico tab-ico-off"><use href="#ico-banco"/></svg>
+      <svg class="tab-ico tab-ico-on"><use href="#ico-banco-fill"/></svg>
+      <span class="tab-label">Settings</span>
+      
+    </a>
+    
+    <a class="tab" href="/cortes">
+      <svg class="tab-ico tab-ico-off"><use href="#ico-aviso"/></svg>
+      <svg class="tab-ico tab-ico-on"><use href="#ico-aviso-fill"/></svg>
+      <span class="tab-label">Propuestas</span>
+      <span class="contador tab-badge" data-rol="propuestas" hidden></span>
+    </a>
+    
+  </nav>
+  <script src="/static/vendor/chart.umd.min.js?v=f67381713dad6d28"></script>
+  <script src="/static/js/shell.js?v=f67381713dad6d28"></script>
+  <script src="/static/js/dashboard.js?v=f67381713dad6d28"></script>
+  <script src="/static/js/cortes.js?v=f67381713dad6d28"></script>
+  <script src="/static/js/settings.js?v=f67381713dad6d28"></script>
+  
+</body>
+</html>

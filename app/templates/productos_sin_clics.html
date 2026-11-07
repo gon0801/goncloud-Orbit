@@ -115,6 +115,93 @@
   <p class="mutado">Hay {{ anuncios_sin_producto }} anuncios sin producto ligado que no puedo juzgar.</p>
 </div>
 
+{% set dp = decisiones_producto | default(none) %}
+<div class="tarjeta" id="decisiones-producto">
+  <h3>Meta por producto
+    {% if dp and dp.cycle_id %}<span class="chip">{{ dp.con_meta }} de {{ dp.productos | length }} con meta</span>{% endif %}
+  </h3>
+  <p class="mutado">
+    La meta de ACoS que Orbit calcula para cada producto con su margen, solo en los grupos que anuncian
+    ese producto y nada más. Un goal de campaña con target manda sobre ella.
+  </p>
+  {% if not dp or not dp.cycle_id %}
+  <p data-decisiones-vacio>Todavía no hay un ciclo terminado en este mercado.</p>
+  {% else %}
+  <p data-decisiones-ciclo>
+    Ciclo {{ dp.cycle_id }} · {{ dp.decidido_el }} UTC · la meta está <strong>{{ dp.modo_meta_texto }}</strong>{% if dp.modo_meta == "shadow" %}: se calcula y no cambia ninguna puja{% endif %}.
+  </p>
+  {% if dp.error %}
+  <p class="aviso" data-decisiones-error>El ciclo no pudo evaluar los productos: {{ dp.error }}</p>
+  {% endif %}
+  {% if not dp.productos %}
+  <p data-decisiones-vacio>Este ciclo no evaluó productos{% if not dp.modo_meta or dp.modo_meta == "off" %}: la meta está apagada{% endif %}.</p>
+  {% else %}
+  <p class="mutado">
+    {{ dp.resumen.grupos_aptos | default("—") }} grupos aptos ·
+    {{ dp.resumen.hojas_bajo_grupo_apto | default("—") }} keywords y targets bajo ellos ·
+    {{ dp.resumen.hojas_efectivas | default("—") }} recibirían la meta ·
+    {{ dp.resumen.hojas_pisadas_por_goal_con_target | default("—") }} las manda un goal con target.
+  </p>
+  <label>Mostrar
+    <select id="decisiones-filtro" aria-controls="decisiones-tabla">
+      <option value="">todos ({{ dp.productos | length }})</option>
+      <option value="con-meta">con meta ({{ dp.con_meta }})</option>
+      <option value="sin-meta">sin meta ({{ dp.productos | length - dp.con_meta }})</option>
+      {% for m in dp.motivos_presentes %}
+      <option value="motivo:{{ m.codigo }}">{{ m.etiqueta }} ({{ m.n }})</option>
+      {% endfor %}
+    </select>
+  </label>
+  <table id="decisiones-tabla">
+    <thead><tr><th>Producto</th><th>Margen</th><th>Meta</th><th>Grupos donde aplicaría</th><th>Por qué</th></tr></thead>
+    <tbody>
+      {% for pr in dp.productos %}
+      <tr data-decision-producto="{{ pr.product_id }}" data-con-meta="{{ 'si' if pr.meta_pct is not none else 'no' }}" data-motivos="{{ pr.motivos | map(attribute='codigo') | join(' ') }}">
+        <td>{{ pr.nombre or "—" }} <span class="mutado">{{ pr.sku }}</span></td>
+        <td>{% if pr.margen_pct is not none %}{{ pr.margen_pct }} %<br><span class="mutado">{{ pr.margen_desde }} a {{ pr.margen_hasta }}</span>{% else %}—{% endif %}</td>
+        <td>{% if pr.meta_pct is not none %}<strong>{{ pr.meta_pct }} %</strong>{% else %}sin meta{% endif %}</td>
+        <td>
+          {% if pr.grupos %}
+          {% for gr in pr.grupos %}
+          <details data-grupo="{{ gr.grupo_id }}">
+            <summary>{{ gr.grupo }} <span class="mutado">{{ gr.campana }} · {{ gr.hojas | length }} keywords y targets</span>{% if gr.domina_goal %} <span class="chip">manda el goal</span>{% endif %}</summary>
+            {% if gr.hojas %}
+            <table>
+              <thead><tr><th>Keyword o target</th><th>Target hoy</th><th>Veredicto hoy</th><th>Target con meta</th><th>Veredicto con meta</th></tr></thead>
+              <tbody>
+                {% for h in gr.hojas %}
+                <tr data-hoja="{{ h.hoja_id }}">
+                  <td>{{ h.texto }}</td>
+                  <td>{% if h.target_vigente is not none %}{{ h.target_vigente }} % <span class="mutado">{{ h.procedencia_vigente }}</span>{% else %}—{% endif %}</td>
+                  <td>{{ h.veredicto_actual or "—" }}</td>
+                  <td>{{ (h.target_con_meta ~ " %") if h.target_con_meta is not none else "—" }}</td>
+                  <td>{{ h.veredicto_con_meta or "—" }}{% if h.cambia %} <span class="chip">cambia</span>{% endif %}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+            {% else %}
+            <p class="mutado">Sin keywords ni targets activos.</p>
+            {% endif %}
+          </details>
+          {% endfor %}
+          {% else %}
+          <span class="mutado">ningún grupo exclusivo</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if pr.motivos %}
+          <ul>{% for m in pr.motivos %}<li data-motivo="{{ m.codigo }}">{{ m.etiqueta }}</li>{% endfor %}</ul>
+          {% else %}—{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+  {% endif %}
+</div>
+
 <div class="tarjeta" id="productos-retiro" hidden>
   <h3>Retiro de las bolsas compartidas</h3>
   <div id="productos-retiro-vista"></div>
