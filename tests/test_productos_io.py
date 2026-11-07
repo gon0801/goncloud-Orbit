@@ -25,6 +25,7 @@ from test_schema import _postgres_obligatorio_ausente
 from app import productos_io
 from app.ads.reports import PRODUCTOS_CFG, escribir_grupo
 from app.ads.structure import PerfilAds
+from app.cycle import lee_goals
 from app.optimizer import productos as p
 
 pytestmark = pytest.mark.skipif(
@@ -35,6 +36,9 @@ pytestmark = pytest.mark.skipif(
 SQL20 = (
     Path(__file__).resolve().parents[1] / "migrations" / "0020_ads_producto_metrica.sql"
 ).read_text(encoding="utf-8")
+SQL17 = (Path(__file__).resolve().parents[1] / "migrations" / "0017_first_seen_at.sql").read_text(
+    encoding="utf-8"
+)
 
 PERFIL_US = PerfilAds(
     profile_id=301,
@@ -52,6 +56,7 @@ PERFIL_US = PerfilAds(
 @contextlib.contextmanager
 def _db(prefijo: str):
     with _db_temporal(prefijo) as (conn, _extra):
+        conn.execute(SQL17)
         conn.execute(SQL20)
         yield conn
 
@@ -125,21 +130,23 @@ def _fila(conn, run, fecha, *, sku="SS-SKU-A", asin="ASIN-SKU-A", cost="2.5", cl
     )
 
 
-def _fila_reporte(fecha, *, asin="ASIN-OTRO", sku="SS-OTRO", clicks=1) -> dict:
+def _fila_reporte(
+    fecha, *, asin="ASIN-OTRO", sku="SS-OTRO", clicks=1, cost=1.0, ventas=0, ad_id=3
+) -> dict:
     return {
         "date": fecha.isoformat(),
         "advertisedAsin": asin,
         "advertisedSku": sku,
         "campaignId": 1,
         "adGroupId": 2,
-        "adId": 3,
+        "adId": ad_id,
         "impressions": 10,
         "clicks": clicks,
-        "cost": 1.0,
-        "purchases30d": 0,
-        "sales30d": 0,
-        "purchasesSameSku30d": 0,
-        "attributedSalesSameSku30d": 0,
+        "cost": cost,
+        "purchases30d": 1 if ventas else 0,
+        "sales30d": ventas,
+        "purchasesSameSku30d": 1 if ventas else 0,
+        "attributedSalesSameSku30d": ventas,
     }
 
 
@@ -154,11 +161,24 @@ def _ingesta(conn, desde, hasta, filas=()) -> int:
     return run
 
 
-def _entrada(conn, pid) -> p.EntradaProducto:
-    entradas = productos_io.lee_entradas_productos(
-        conn, "amazon_us", decidido_el=dt.datetime.now(dt.UTC), settings={}
+def _entradas(conn) -> tuple[p.EntradaProducto, ...]:
+    campanas = [
+        f[0]
+        for f in conn.execute(
+            "SELECT id FROM ad_entity WHERE platform = 'amazon_us' AND kind = 'campaign'"
+        )
+    ]
+    return productos_io.lee_entradas_productos(
+        conn,
+        "amazon_us",
+        decidido_el=dt.datetime.now(dt.UTC),
+        settings={},
+        goals=lee_goals(conn, "amazon_us", campanas),
     )
-    return next(e for e in entradas if e.producto.product_id == pid)
+
+
+def _entrada(conn, pid) -> p.EntradaProducto:
+    return next(e for e in _entradas(conn) if e.producto.product_id == pid)
 
 
 def test_s6_fecha_sin_fila_cubierta_es_cero_y_sin_cobertura_desconocida():
@@ -270,7 +290,7 @@ def test_rango_clics_invalidos_dejan_la_cobertura_en_falso():
         assert _entrada(conn, m["pid"]).actividad_pausa == p.SinDato(("fecha_desconocida",))
 
 
-def _ciclo(prefijo: str, *, meta: str | None, rompe_margen: bool = False):
+def _ciclo(prefijo: str, *, meta: str | None, rompe_margen: bool = False, sin_target: bool = False):
     """Corre el ciclo de _mundo_familia (producto con margen 20 % en un
     grupo exclusivo con una keyword) con la meta en `meta`."""
     with _db(prefijo) as conn:
@@ -280,6 +300,15 @@ def _ciclo(prefijo: str, *, meta: str | None, rompe_margen: bool = False):
                 "SELECT settings FROM config_version ORDER BY id DESC LIMIT 1"
             ).fetchone()[0]
             _config_version(conn, {**vigente, "ads_producto_meta_amazon_us": meta})
+        if sin_target:
+            # Sin setting ni familia, y la plataforma no mide con 40 dias:
+            # la cascada actual no da target y la hoja se salta.
+            vigente = conn.execute(
+                "SELECT settings FROM config_version ORDER BY id DESC LIMIT 1"
+            ).fetchone()[0]
+            vigente.pop("ads_target_acos_pct_amazon_us")
+            _config_version(conn, vigente)
+            conn.execute("DELETE FROM producto_familia")
         if rompe_margen:
             conn.execute("DROP VIEW v_margen_producto CASCADE")
         res = _corre(conn)
@@ -355,3 +384,86 @@ def test_evaluacion_unica_por_ciclo_producto_e_inmutable():
             )
         with pytest.raises(psycopg.errors.RestrictViolation, match="APPEND-ONLY"):
             conn.execute("DELETE FROM evaluacion_producto_ciclo WHERE id = %s", (fila[0],))
+
+
+def test_hoja_sin_target_actual_congela_el_veredicto_con_la_meta():
+    """h_cbb7cad0: sin target en la cascada actual la hoja se sigue saltando,
+    pero la sombra congela el veredicto que la meta de 10 habria dado."""
+    (
+        _ids,
+        base,
+        dec_off,
+        tgt_off,
+        _ev,
+    ) = _ciclo("orbit_auto03_st_off", meta=None, sin_target=True)
+    ids, sombra, dec_sombra, tgt_sombra, ev_sombra = _ciclo(
+        "orbit_auto03_st_sh", meta="shadow", sin_target=True
+    )
+    assert base.status == sombra.status == "done"
+    assert dec_sombra == dec_off and tgt_sombra == tgt_off
+    assert ids["kw"] not in tgt_sombra
+    assert json.loads(sombra.notes)["skips"]["entidad"]["sin_target"] == 1
+    assert "error" not in json.loads(sombra.notes)["productos"]
+    [(_pid, meta_pct, resultado)] = ev_sombra
+    assert meta_pct == Decimal("10")
+    [hoja] = resultado["sombra_hojas"]
+    assert hoja["hoja_id"] == ids["kw"]
+    assert (hoja["target_actual"], hoja["procedencia_actual"]) == (None, None)
+    assert hoja["veredicto_actual"] == {"tipo": "Mantener", "motivo": "sin_target"}
+    assert Decimal(hoja["target_con_meta"]) == 10
+    assert hoja["procedencia_con_meta"] == "margen_producto"
+    assert hoja["veredicto_con_meta"]["tipo"] in {"Mantener", "Mover", "Regresar", "Pausar"}
+
+
+def test_candidatos_a_pausa_y_anuncios_afectables():
+    """h_023cdc6c: un producto que gasto 60 USD con 120 clics y cero ventas
+    en [D-60, D-30) es candidato con los limites por omision (100 clics,
+    40 USD); su anuncio cuyo adId esta en ad_ids es afectable, uno fuera de
+    ad_ids no. El que vendio no es candidato; con el goal en shadow ningun
+    anuncio es elegible."""
+    with _db("orbit_auto03_candidatos") as conn:
+        m = _mundo(conn)
+        otro = _otro_producto(conn, m)
+        _anuncio(conn, m["ag"], m["lid"], "pa-fuera", "ENABLED")
+        conn.execute("UPDATE ad_entity SET first_seen_at = now() - interval '200 days'")
+        conn.execute(
+            "INSERT INTO ads_optimizer_goal (scope, platform, bid_floor, bid_ceiling,"
+            " bid_currency, harvest_campaign_id, harvest_ad_group_id, harvest_default_bid,"
+            " enabled, mode) VALUES ('platform', 'amazon_us', 0.40, 2.50, 'USD', '9002',"
+            " '9102', 0.75, true, 'live')"
+        )
+        fechas = _ventana()
+        filas = [
+            _fila_reporte(f, asin="ASIN-SKU-A", sku="SS-SKU-A", clicks=4, cost=2.0, ad_id="pa1")
+            for f in fechas
+        ] + [
+            _fila_reporte(
+                f,
+                asin="ASIN-SKU-B",
+                sku="SS-SKU-B",
+                clicks=4,
+                cost=2.0,
+                ad_id="pa-b",
+                ventas=25.0 if f == fechas[3] else 0,
+            )
+            for f in fechas
+        ]
+        _ingesta(conn, fechas[0], fechas[-1], filas)
+        entradas = _entradas(conn)
+        a = next(e for e in entradas if e.producto.product_id == m["pid"])
+        b = next(e for e in entradas if e.producto.product_id == otro)
+        assert a.actividad_pausa.gasto == p.Dinero(Decimal("60"), "USD")
+        assert a.actividad_pausa.clics == 120
+        assert p.cumple_limites_pausa(a) and not p.cumple_limites_pausa(b)
+        assert [x.ad_entity_id for x in a.anuncios] == [m["pa"]]
+        assert len(b.anuncios) == 1
+        resumen = productos_io.resumen_cobertura(
+            "amazon_us", [p.resolver_producto(e) for e in entradas], (None, {})
+        )
+        assert (
+            resumen["candidatos_pausa"],
+            resumen["anuncios_afectables"],
+            resumen["anuncios_elegibles"],
+        ) == (1, 1, 2)
+        conn.execute("UPDATE ads_optimizer_goal SET mode = 'shadow'")
+        assert all(e.anuncios == () for e in _entradas(conn))

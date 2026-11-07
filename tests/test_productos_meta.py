@@ -66,6 +66,7 @@ def _entrada(
         ventana_halo=p.Ventana(dt.date(2026, 8, 8), dt.date(2026, 11, 4)),
         dias_halo=dias,
         actividad_pausa=p.SinDato(("sin_filas_en_ventana",)),
+        anuncios=(),
         grupos_aptos_para_meta=grupos,
         impedimentos=impedimentos,
         limites_pausa=p.limites_pausa_desde_settings({}, "amazon_mx"),

@@ -30,6 +30,10 @@ from app.optimizer import productos as p
 
 _SQL_CONFIG = "SELECT settings FROM config_version ORDER BY id DESC LIMIT 1"
 
+_SQL_CAMPANAS = """
+SELECT id FROM ad_entity WHERE platform = %s::platform AND kind = 'campaign'
+"""
+
 _SQL_CICLO = """
 SELECT id, platform::text, notes FROM optimizer_cycle
  WHERE motor = 'ads_optimizer' AND id = %s
@@ -61,13 +65,11 @@ def evalua(plataforma: str) -> dict:
         conn.execute("SET TRANSACTION READ ONLY")
         fila = conn.execute(_SQL_CONFIG).fetchone()
         settings = fila[0] if fila else {}
-        entradas = productos_io.lee_entradas_productos(
-            conn, plataforma, decidido_el=dt.datetime.now(dt.UTC), settings=settings
-        )
-        campanas = sorted(
-            {grupo.campana_id for e in entradas for grupo in e.grupos_aptos_para_meta}
-        )
+        campanas = [f[0] for f in conn.execute(_SQL_CAMPANAS, (plataforma,))]
         goals = lee_goals(conn, plataforma, campanas)
+        entradas = productos_io.lee_entradas_productos(
+            conn, plataforma, decidido_el=dt.datetime.now(dt.UTC), settings=settings, goals=goals
+        )
     evaluaciones = [p.resolver_producto(e) for e in entradas]
     return {
         "resumen": productos_io.resumen_cobertura(plataforma, evaluaciones, goals),

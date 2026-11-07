@@ -1735,6 +1735,42 @@ def _procesa_decisora(
     if target is None:
         # BIDS 02 T.1: sin peldano no hay target ni fila de freeze (regresa
         # antes de contadores.targets).
+        # AUTO-03 D.4: con la meta en shadow, el veredicto que la meta del
+        # producto habria dado se congela igual; sus lecturas (ventana de
+        # cortes, efecto del caso) van en un SAVEPOINT para que un error no
+        # aborte TX2. La hoja sigue saltada con sin_target.
+        def juicio_hipotetico(t: Decimal):
+            with conn.transaction():
+                return _juicio_hoja(
+                    conn,
+                    t,
+                    platform=platform,
+                    goal=goal,
+                    entidad_id=entidad_id,
+                    ad_group_id=ad_group_id,
+                    current_bid=current_bid,
+                    bid_currency=bid_currency,
+                    decided_at=decided_at,
+                    corte_pause=corte_pause,
+                    pause_economica=pause_economica,
+                    politica=politica,
+                    lecturas=lecturas,
+                )
+
+        _anota_sombra(
+            productos_ciclo,
+            entidad_id=entidad_id,
+            ad_group_id=ad_group_id,
+            goal=goal,
+            setting_target=setting_target,
+            margen_plataforma=margen_plataforma,
+            target_margen_familia=target_margen_familia,
+            previo=familias_ciclo.previos.get(entidad_id),
+            target=None,
+            procedencia=None,
+            actual=Mantener(MOTIVO_SIN_TARGET),
+            decide_con=juicio_hipotetico,
+        )
         contadores.skips_entidad[MOTIVO_SIN_TARGET] += 1
         tick()
         return
@@ -1750,17 +1786,13 @@ def _procesa_decisora(
     # (veto/inerte) inventaria fallas nuevas.
     contadores.targets[entidad_id] = (target, procedencia)
     floor, ceiling = g.resuelve_floor_ceiling(goal, PLATAFORMAS_MONEDA[platform])
-    costo_piso = bid.PAUSE_COST_MIN[platform]
-    # BIDS 02 M.3: la ventana de BIDS ya no se lee por hoja (la suficiencia
-    # la mide la ventana madura de lecturas, no 30 dias anclados en la hoja).
-    # La de CORTES se sigue leyendo con windows y viaja en InsumosPausa.
-    cortes_hoja = windows.ventana_cortes(conn, entidad_id, decided_at)
-    pausa = InsumosPausa(
-        cortes=cortes_hoja,
-        umbral_clics=corte_pause.umbral,
-        gasto_minimo=costo_piso,
-        expected_clicks=corte_pause.expected_clicks,
-        politica_economica=bid.POLITICA_PAUSE_ECONOMICA if pause_economica else None,
+    costo_piso, cortes_hoja, pausa = _insumos_pausa(
+        conn,
+        platform=platform,
+        entidad_id=entidad_id,
+        decided_at=decided_at,
+        corte_pause=corte_pause,
+        pause_economica=pause_economica,
     )
     if politica is None:
         # Cambio 4: con la politica apagada solo se decide la PAUSE; la
@@ -1888,6 +1920,82 @@ def _procesa_decisora(
     contadores.decisiones["pause" if isinstance(veredicto, Pausar) else "bid"] += 1
 
 
+def _insumos_pausa(
+    conn: psycopg.Connection,
+    *,
+    platform: str,
+    entidad_id: int,
+    decided_at: dt.datetime,
+    corte_pause: cortes.UmbralResuelto,
+    pause_economica: bool,
+) -> tuple[Decimal, windows.AgregadoMetricas | None, InsumosPausa]:
+    """Piso de costo, ventana de cortes e insumos de la PAUSE de una hoja.
+    BIDS 02 M.3: la ventana de BIDS ya no se lee por hoja (la suficiencia la
+    mide la ventana madura de lecturas, no 30 dias anclados en la hoja). La
+    de CORTES se sigue leyendo con windows y viaja en InsumosPausa."""
+    costo_piso = bid.PAUSE_COST_MIN[platform]
+    cortes_hoja = windows.ventana_cortes(conn, entidad_id, decided_at)
+    pausa = InsumosPausa(
+        cortes=cortes_hoja,
+        umbral_clics=corte_pause.umbral,
+        gasto_minimo=costo_piso,
+        expected_clicks=corte_pause.expected_clicks,
+        politica_economica=bid.POLITICA_PAUSE_ECONOMICA if pause_economica else None,
+    )
+    return costo_piso, cortes_hoja, pausa
+
+
+def _juicio_hoja(
+    conn: psycopg.Connection,
+    target: Decimal,
+    *,
+    platform: str,
+    goal: g.Goal,
+    entidad_id: int,
+    ad_group_id: int,
+    current_bid: Decimal | None,
+    bid_currency: str | None,
+    decided_at: dt.datetime,
+    corte_pause: cortes.UmbralResuelto,
+    pause_economica: bool,
+    politica: str | None,
+    lecturas: LecturasPlataforma | None,
+):
+    """AUTO-03 D.4: el veredicto que el camino de _procesa_decisora daria con
+    `target`, con los mismos insumos y sin escribir nada (la sombra de una
+    hoja que hoy no tiene target)."""
+    floor, ceiling = g.resuelve_floor_ceiling(goal, PLATAFORMAS_MONEDA[platform])
+    costo_piso, cortes_hoja, pausa = _insumos_pausa(
+        conn,
+        platform=platform,
+        entidad_id=entidad_id,
+        decided_at=decided_at,
+        corte_pause=corte_pause,
+        pause_economica=pause_economica,
+    )
+    if politica is None:
+        return bid.decide_pause(
+            platform=platform,
+            bids=None,
+            cortes=cortes_hoja,
+            target_acos_pct=target,
+            umbral_pause=corte_pause.umbral,
+            cost_min=costo_piso,
+            policy_version=pausa.politica_economica,
+        )
+    assert lecturas is not None  # _recorre_plataforma: politica => lecturas
+    return decide(
+        lecturas.caso(
+            conn,
+            hoja_id=entidad_id,
+            ad_group_id=ad_group_id,
+            bid=BidVigente(valor=current_bid, moneda=bid_currency, piso=floor, techo=ceiling),
+            target_acos_pct=target,
+            pausa=pausa,
+        )
+    )
+
+
 def _evalua_productos(
     conn: psycopg.Connection,
     *,
@@ -1904,7 +2012,7 @@ def _evalua_productos(
     try:
         with conn.transaction():
             entradas = productos_io.lee_entradas_productos(
-                conn, platform, decidido_el=decided_at, settings=settings
+                conn, platform, decidido_el=decided_at, settings=settings, goals=goals
             )
         evaluaciones = tuple(productos.resolver_producto(e) for e in entradas)
         por_grupo = {
@@ -1948,16 +2056,18 @@ def _anota_sombra(
     margen_plataforma: Decimal | None,
     target_margen_familia: Decimal | None,
     previo: _PrevioHoja | None,
-    target: Decimal,
-    procedencia: str,
+    target: Decimal | None,
+    procedencia: str | None,
     actual,
     decide_con: Callable[[Decimal], object],
 ) -> None:
     """AUTO-03 D.4, meta en shadow: para una hoja de grupo apto calcula la
     meta de la hoja (S2: solo un previo margen_producto es ancla; el destino
     es la cascada sin producto), la cascada con ella y el veredicto que
-    habria dado. Solo anota: decision, target y freeze siguen con la cascada
-    sin producto. Un fallo queda en notes.productos.error."""
+    habria dado. `target` None es una hoja que hoy se salta sin target: si la
+    meta da uno, tambien se congela su veredicto hipotetico. Solo anota:
+    decision, target y freeze siguen con la cascada sin producto. Un fallo
+    queda en notes.productos.error."""
     if productos_ciclo is None or productos_ciclo.modo_meta != "shadow":
         return
     evaluacion = productos_ciclo.por_grupo.get(ad_group_id)
@@ -1986,7 +2096,7 @@ def _anota_sombra(
             target_margen_familia,
             target_margen_producto=meta.aplicado,
         )
-        con_meta = decide_con(target_meta)
+        con_meta = decide_con(target_meta) if target_meta is not None else None
     except Exception as exc:  # noqa: BLE001 - la sombra jamas cambia la hoja
         productos_ciclo.errores.append(
             f"sombra hoja {entidad_id}: {scrub(str(exc)) or type(exc).__name__}"
@@ -2007,7 +2117,7 @@ def _anota_sombra(
             "target_con_meta": _dec_str(target_meta),
             "procedencia_con_meta": procedencia_meta,
             "veredicto_actual": _veredicto_json(actual),
-            "veredicto_con_meta": _veredicto_json(con_meta),
+            "veredicto_con_meta": _veredicto_json(con_meta) if con_meta is not None else None,
         }
     )
 

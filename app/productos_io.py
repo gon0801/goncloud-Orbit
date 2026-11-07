@@ -51,7 +51,8 @@ from app.redaction import scrub
 # Topologia de product ads. Un anuncio sin estado sincronizado cuenta como no
 # archivado: desconocido no vuelve exclusivo a un grupo.
 _SQL_ANUNCIOS = """
-SELECT pa.id, pa.parent_id, ag.parent_id, pa.listing_id, li.product_id
+SELECT pa.id, pa.parent_id, ag.parent_id, pa.listing_id, li.product_id, s.status,
+       pa.external_id, pa.first_seen_at
   FROM ad_entity pa
   JOIN ad_entity ag ON ag.id = pa.parent_id AND ag.kind = 'ad_group'
   LEFT JOIN ad_entity_state s ON s.ad_entity_id = pa.id
@@ -94,7 +95,7 @@ SELECT product_id, margen_neto_pct, cobertura, dias_con_venta, venta_cubierta,
 _SQL_METRICAS = """
 SELECT DISTINCT ON (advertised_asin, advertised_sku, metric_date)
        advertised_asin, advertised_sku, metric_date, observed_at, clicks, cost,
-       purchases30d, sales30d, attributed_sales_same_sku_30d
+       purchases30d, sales30d, attributed_sales_same_sku_30d, ad_ids
   FROM ads_product_metric_observation
  WHERE platform = %s::platform AND advertised_asin = ANY(%s)
    AND metric_date >= %s AND metric_date < %s AND observed_at <= %s
@@ -149,6 +150,7 @@ def lee_entradas_productos(
     *,
     decidido_el: dt.datetime,
     settings: Mapping,
+    goals: tuple[g.Goal | None, Mapping[int, g.Goal]],
 ) -> tuple[p.EntradaProducto, ...]:
     moneda = PLATAFORMAS_MONEDA[plataforma]
     hoy = decidido_el.astimezone(dt.UTC).date()
@@ -163,9 +165,14 @@ def lee_entradas_productos(
 
     grupos: dict[int, list[_Anuncio]] = defaultdict(list)
     campana_de: dict[int, int] = {}
-    for pa, grupo, campana, listing, producto in conn.execute(_SQL_ANUNCIOS, (plataforma,)):
-        grupos[grupo].append(_Anuncio(pa, listing, producto))
+    habilitados: list[tuple[_Anuncio, int, str, dt.datetime | None]] = []
+    for fila in conn.execute(_SQL_ANUNCIOS, (plataforma,)):
+        pa, grupo, campana, listing, producto, estado, externo, alta = fila
+        anuncio = _Anuncio(pa, listing, producto)
+        grupos[grupo].append(anuncio)
         campana_de[grupo] = campana
+        if estado == "ENABLED" and producto is not None:
+            habilitados.append((anuncio, grupo, externo, alta))
     productos_ids = sorted(
         {a.product_id for anuncios in grupos.values() for a in anuncios if a.product_id}
     )
@@ -196,7 +203,7 @@ def lee_entradas_productos(
         )
         for fila in conn.execute(_SQL_MARGEN, (plataforma, productos_ids))
     }
-    observaciones = _lee_observaciones(
+    observaciones, ad_ids = _lee_observaciones(
         conn,
         plataforma,
         asins=sorted({asin for lista in claves.values() for asin, _ in lista}),
@@ -222,6 +229,41 @@ def lee_entradas_productos(
         fraccion_valor if fraccion_valor is not None else p.SinDato(("sin_fraccion",))
     )
     limites = p.limites_pausa_desde_settings(settings, plataforma)
+    goal_plataforma, goals_por_campana = goals
+    inicio_ventana = dt.datetime.combine(ventana_pausa.desde, dt.time.min, dt.UTC)
+
+    def anuncios_del_producto(producto: int) -> tuple[p.AnuncioElegible, ...]:
+        """S4 hasta donde D puede leer: ENABLED, con identidad, goal resuelto
+        enabled y live, alta anterior a la ventana y adId en ad_ids de la
+        ventana (filas del mismo SKU). Impulso abierto y claves en vuelo: H."""
+        en_ventana = {
+            ad_id
+            for asin, sku in claves[producto]
+            for (a, s_, fecha), ids in ad_ids.items()
+            if a == asin and s_ == sku and ventana_pausa.contiene(fecha)
+            for ad_id in ids
+        }
+        elegibles = []
+        for anuncio, grupo, externo, alta in habilitados:
+            goal = g.resuelve_goal(goals_por_campana.get(campana_de[grupo]), goal_plataforma)
+            if (
+                anuncio.product_id == producto
+                and goal is not None
+                and goal.enabled
+                and goal.mode == "live"
+                and alta is not None
+                and alta < inicio_ventana
+                and externo in en_ventana
+            ):
+                elegibles.append(
+                    p.AnuncioElegible(
+                        ad_entity_id=anuncio.ad_entity_id,
+                        listing_id=anuncio.listing_id,
+                        grupo_id=grupo,
+                        huella_alcance=_huella(grupos[grupo]),
+                    )
+                )
+        return tuple(sorted(elegibles, key=lambda a: a.ad_entity_id))
 
     entradas = []
     for producto in productos_ids:
@@ -253,6 +295,7 @@ def lee_entradas_productos(
                 ventana_halo=ventana_halo,
                 dias_halo=dias_halo,
                 actividad_pausa=_actividad(ventana_pausa, mismo_sku, cubiertas, moneda),
+                anuncios=anuncios_del_producto(producto),
                 grupos_aptos_para_meta=grupos_aptos,
                 impedimentos=tuple(dict.fromkeys(impedimentos)),
                 limites_pausa=limites,
@@ -269,9 +312,16 @@ def _lee_observaciones(
     desde: dt.date,
     hasta: dt.date,
     decidido_el: dt.datetime,
-) -> dict[tuple[str, str], dict[dt.date, ObservacionAds]]:
+) -> tuple[
+    dict[tuple[str, str], dict[dt.date, ObservacionAds]],
+    dict[tuple[str, str, dt.date], frozenset[str]],
+]:
+    """Las observaciones colapsadas por clave y fecha, y los ad_ids de cada
+    fila colapsada (pertenencia S4; jamas insumo para repartir)."""
     crudas: dict[tuple[str, str], list[ObservacionAds]] = defaultdict(list)
+    ad_ids: dict[tuple[str, str, dt.date], frozenset[str]] = {}
     for fila in conn.execute(_SQL_METRICAS, (plataforma, asins, desde, hasta, decidido_el)):
+        ad_ids[(fila[0], fila[1], fila[2])] = frozenset(str(i) for i in fila[9] or ())
         crudas[(fila[0], fila[1])].append(
             ObservacionAds(
                 metric_date=fila[2],
@@ -283,7 +333,7 @@ def _lee_observaciones(
                 attributed_sales_same_sku30d=fila[8],
             )
         )
-    return {clave: colapsa_por_fecha(filas) for clave, filas in crudas.items()}
+    return {clave: colapsa_por_fecha(filas) for clave, filas in crudas.items()}, ad_ids
 
 
 def _filas_del_producto(
@@ -487,9 +537,12 @@ def resumen_cobertura(
     """La unica funcion de conteo: notes.productos del ciclo, la herramienta
     y la medicion. Una hoja esta pisada si el goal resuelto de su campana
     trae target (S1); es efectiva si su producto tiene meta y su goal la deja
-    entrar (enabled, modo distinto de off, sin target)."""
+    entrar (enabled, modo distinto de off, sin target). Un candidato a pausa
+    cumple productos.cumple_limites_pausa; sus anuncios afectables son los
+    AnuncioElegible de su entrada."""
     goal_plataforma, por_campana = goals
     grupos_aptos = hojas = pisadas = efectivas = con_meta = completas = 0
+    candidatos = afectables = elegibles = 0
     abstenciones: Counter[str] = Counter()
     motivos_pausa: Counter[str] = Counter()
     for ev in evaluaciones:
@@ -497,6 +550,10 @@ def resumen_cobertura(
         con_meta += tiene_meta
         if isinstance(ev.meta, p.SinDato):
             abstenciones.update(ev.meta.motivos)
+        elegibles += len(ev.entrada.anuncios)
+        if p.cumple_limites_pausa(ev.entrada):
+            candidatos += 1
+            afectables += len(ev.entrada.anuncios)
         actividad = ev.entrada.actividad_pausa
         if isinstance(actividad, p.AdsCompletos):
             completas += 1
@@ -520,6 +577,10 @@ def resumen_cobertura(
         "hojas_pisadas_por_goal_con_target": pisadas,
         "hojas_efectivas": efectivas,
         "ventana_pausa_completa": completas,
+        "candidatos_pausa": candidatos,
+        "anuncios_afectables": afectables,
+        "anuncios_elegibles": elegibles,
+        "alcance_anuncios": "S4 sin excluir impulso abierto ni claves en vuelo (bloque H)",
         "abstenciones": dict(sorted(abstenciones.items())),
         "motivos_ventana_pausa": dict(sorted(motivos_pausa.items())),
     }

@@ -147,6 +147,19 @@ class GrupoAptoParaMeta:
 
 
 @dataclass(frozen=True)
+class AnuncioElegible:
+    """Product ad al alcance de una pausa del producto (S4): ENABLED, con
+    identidad, goal resuelto enabled y live, alta anterior a la ventana y su
+    adId en ad_ids de la ventana. Es pertenencia, nunca reparto. La exclusion
+    de impulso abierto y de claves en vuelo la agrega el bloque H."""
+
+    ad_entity_id: int
+    listing_id: int
+    grupo_id: int
+    huella_alcance: str
+
+
+@dataclass(frozen=True)
 class LimitesPausa:
     clics_min: int
     gasto_min: Dinero
@@ -161,6 +174,7 @@ class EntradaProducto:
     ventana_halo: Ventana
     dias_halo: tuple[DiaProducto, ...]
     actividad_pausa: AdsCompletos | SinDato
+    anuncios: tuple[AnuncioElegible, ...]
     grupos_aptos_para_meta: tuple[GrupoAptoParaMeta, ...]
     impedimentos: tuple[str, ...]
     limites_pausa: LimitesPausa
@@ -261,6 +275,21 @@ def _halo(entrada: EntradaProducto) -> Decimal:
             raise ValueError(f"dia {dia.fecha} en otra moneda que {moneda}")
         total += max(dia.ventas.valor - dia.ventas_mismo_sku.valor, Decimal(0))
     return total
+
+
+def cumple_limites_pausa(entrada: EntradaProducto) -> bool:
+    """El producto gasto sin vender en la ventana de la pausa: actividad
+    completa (S6), compras y ventas totales en cero observado, y clics y gasto
+    en o sobre los limites congelados (S8)."""
+    actividad = entrada.actividad_pausa
+    limites = entrada.limites_pausa
+    return (
+        isinstance(actividad, AdsCompletos)
+        and actividad.compras_total == 0
+        and actividad.ventas_total.valor == 0
+        and actividad.clics >= limites.clics_min
+        and actividad.gasto.valor >= limites.gasto_min.valor
+    )
 
 
 def meta_para_grupo(
@@ -376,6 +405,7 @@ _TIPOS_JSON: dict[str, type] = {
         SinDato,
         DiaProducto,
         AdsCompletos,
+        AnuncioElegible,
         GrupoAptoParaMeta,
         LimitesPausa,
         EntradaProducto,
