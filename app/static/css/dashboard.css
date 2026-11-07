@@ -259,6 +259,19 @@ body[data-pantalla="settings"] form + form { border-top: 1px solid var(--o-borde
 body[data-pantalla="settings"] input:not([type="checkbox"]) { max-width: 180px; }
 form[data-veto] { padding: 12px; }
 form[data-veto] label { display: inline-flex; flex-direction: column; gap: 4px; margin: 0 10px 8px 0; }
+/* Productos sin clics (AUTO-03 H.5/H.9): tablas con scroll propio y el costo
+   de equivocarse lado a lado, tambien a 390 px. */
+body[data-pantalla="productos-sin-clics"] .tabla-scroll { margin-bottom: 12px; }
+body[data-pantalla="productos-sin-clics"] .tabla-scroll:focus-visible { outline: 2px solid var(--o-ac); outline-offset: 2px; }
+body[data-pantalla="productos-sin-clics"] td ul { margin: 0; padding-left: 16px; }
+.limites-costos { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 0 0 12px; }
+.limites-costo { padding: 12px 14px; border: 1px solid var(--o-borde); border-radius: 10px; background: var(--o-bg2); min-width: 0; }
+.limites-costo .kpi-valor { font-size: 20px; overflow-wrap: anywhere; }
+@media (max-width: 40rem) {
+  body[data-pantalla="productos-sin-clics"] .tarjeta { max-width: 100%; overflow-x: auto; }
+  .limites-costo { padding: 10px; }
+  .limites-costo .kpi-valor { font-size: 17px; }
+}
 @media (max-width: 40rem) {
   body { display: block; }
   .sidebar { position: static; width: 100%; height: auto; border-right: none; border-bottom: 1px solid var(--o-borde); padding: 12px; }

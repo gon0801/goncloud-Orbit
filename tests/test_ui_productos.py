@@ -264,10 +264,11 @@ def test_r09d_error_objeto_muestra_mensaje_y_fallos_sin_object_object():
     [object Object]; un detail de texto se pinta tal cual."""
     archivo = RAIZ / "app" / "static" / "js" / "productos.js"
     assert archivo.exists(), "Falta el cliente de productos"
-    # Los seis sitios de error usan mensajeError: ninguno conserva el
-    # patron que pintaba [object Object].
+    # Los nueve sitios de error usan mensajeError (seis de impulso y retiro,
+    # tres de los limites de la pausa: simular, 409 y 422 al guardar):
+    # ninguno conserva el patron que pintaba [object Object].
     assert "(r.data.detail || r.data)" not in archivo.read_text(encoding="utf-8")
-    assert archivo.read_text(encoding="utf-8").count("mensajeError(r.data)") == 6
+    assert archivo.read_text(encoding="utf-8").count("mensajeError(r.data)") == 9
     node = shutil.which("node")
     if not node:
         if "CI" in os.environ:

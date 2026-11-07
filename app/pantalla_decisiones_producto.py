@@ -9,22 +9,36 @@ motivos con las etiquetas de app/optimizer/productos.py. Ciclo, target y
 veredicto se corresponden: una hoja sin fila de target en ese ciclo queda sin
 target, nunca con el de otro ciclo. Un dato ausente se muestra ausente: nunca
 se convierte en cero.
+
+Pausa por producto (AUTO-03 H.5): por producto, las propuestas congeladas en
+la evaluacion (cada product ad con su grupo), el gasto observado de la ventana
+[D-60, D-30) frente al gasto sobre el que Orbit puede actuar (filas cuyos
+ad_ids son todos anuncios elegibles), los anuncios elegibles y los que quedan
+fuera por motivo, los motivos sin propuesta y confirmados/total: confirmados
+son las decisiones pause de esa evaluacion cuya fila de cola esta applied. El
+modo de la pausa sale de notes.productos del ciclo. Los limites vigentes de
+la pausa (H.9) se leen de la ultima config_version con el mismo lector que el
+ciclo; la pantalla los edita por POST /api/ads-optimizer/settings/{platform}.
 """
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal
 
 from app import productos_io
 from app.cycle import lee_goals
 from app.optimizer import goals as g
 from app.optimizer import productos as p
+from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.productos_io import evaluacion_de_fila
 
 _SQL_CONFIG = "SELECT settings FROM config_version ORDER BY id DESC LIMIT 1"
+
+_SQL_CONFIG_VIGENTE = "SELECT id, settings FROM config_version ORDER BY id DESC LIMIT 1"
 
 _SQL_CAMPANAS = """
 SELECT id FROM ad_entity WHERE platform = %s::platform AND kind = 'campaign'
@@ -39,7 +53,7 @@ SELECT id, to_char(coalesce(finished_at, started_at) AT TIME ZONE 'UTC', 'YYYY-M
 """
 
 _SQL_EVALUACIONES = """
-SELECT e.product_id, pr.odoo_sku, pr.name, e.entrada, e.resultado
+SELECT e.product_id, pr.odoo_sku, pr.name, e.entrada, e.resultado, e.id
   FROM evaluacion_producto_ciclo e
   JOIN product pr ON pr.id = e.product_id
  WHERE e.cycle_id = %s AND e.platform = %s::platform
@@ -48,6 +62,21 @@ SELECT e.product_id, pr.odoo_sku, pr.name, e.entrada, e.resultado
 
 _SQL_ENTIDADES = """
 SELECT id, coalesce(name, keyword_text, external_id) FROM ad_entity WHERE id = ANY(%s)
+"""
+
+_SQL_ANUNCIOS = """
+SELECT id, name, external_id FROM ad_entity WHERE id = ANY(%s)
+"""
+
+# Decisiones pause de las evaluaciones del ciclo y el estado de su ultima fila
+# de cola (sin fila: el ciclo no la encolo).
+_SQL_COLA_PAUSAS = """
+SELECT d.evaluacion_producto_id, d.ad_entity_id, q.estado
+  FROM decision d
+  LEFT JOIN LATERAL (
+      SELECT estado FROM apply_queue WHERE decision_id = d.id ORDER BY id DESC LIMIT 1
+  ) q ON true
+ WHERE d.cycle_id = %s AND d.kind = 'pause' AND d.evaluacion_producto_id IS NOT NULL
 """
 
 _SQL_TARGETS_DEL_CICLO = """
@@ -112,6 +141,93 @@ class GrupoVista:
 
 
 @dataclass(frozen=True)
+class PropuestaVista:
+    ad_entity_id: int
+    anuncio: str
+    externo: str | None
+    grupo: str
+    estado_cola: str | None
+
+    def como_dict(self) -> dict:
+        return {
+            "ad_entity_id": self.ad_entity_id,
+            "anuncio": self.anuncio,
+            "externo": self.externo,
+            "grupo": self.grupo,
+            "estado_cola": self.estado_cola,
+        }
+
+
+@dataclass(frozen=True)
+class PausaVista:
+    """La pausa de un producto en la evaluacion del ciclo. gasto_observado y
+    clics son None si la actividad de la ventana no esta completa (SinDato,
+    con motivos_actividad); gasto_actuable es None si no se calculo."""
+
+    ventana_desde: str
+    ventana_ultimo_dia: str
+    moneda: str
+    gasto_observado: str | None
+    clics: int | None
+    gasto_actuable: str | None
+    motivos_actividad: tuple[tuple[str, str], ...]
+    limite_clics: int
+    limite_gasto: str | None
+    elegibles: int
+    excluidos: tuple[tuple[str, str, int], ...]
+    motivos: tuple[tuple[str, str], ...]
+    propuestas: tuple[PropuestaVista, ...]
+    confirmados: int
+
+    @property
+    def total(self) -> int:
+        return len(self.propuestas)
+
+    def como_dict(self) -> dict:
+        return {
+            "ventana_desde": self.ventana_desde,
+            "ventana_ultimo_dia": self.ventana_ultimo_dia,
+            "moneda": self.moneda,
+            "gasto_observado": self.gasto_observado,
+            "clics": self.clics,
+            "gasto_actuable": self.gasto_actuable,
+            "motivos_actividad": [{"codigo": c, "etiqueta": e} for c, e in self.motivos_actividad],
+            "limite_clics": self.limite_clics,
+            "limite_gasto": self.limite_gasto,
+            "elegibles": self.elegibles,
+            "excluidos": [{"codigo": c, "etiqueta": e, "n": n} for c, e, n in self.excluidos],
+            "excluidos_total": sum(n for *_, n in self.excluidos),
+            "motivos": [{"codigo": c, "etiqueta": e} for c, e in self.motivos],
+            "propuestas": [pr.como_dict() for pr in self.propuestas],
+            "confirmados": self.confirmados,
+            "total": self.total,
+        }
+
+
+@dataclass(frozen=True)
+class LimitesVista:
+    """Limites vigentes de la pausa del mercado (H.9). config_version_id es la
+    base que exige el guardado; sin config_version no hay sobre que guardar.
+    Una config ilegible deja error y ningun valor."""
+
+    config_version_id: int | None
+    clics: int | None
+    gasto: str | None
+    moneda: str
+    error: str | None
+
+    def como_dict(self) -> dict:
+        return {
+            "config_version_id": self.config_version_id,
+            "clics": self.clics,
+            "gasto": self.gasto,
+            "gasto_texto": _numero(self.gasto),
+            "moneda": self.moneda,
+            "error": self.error,
+        }
+
+
+@dataclass(frozen=True)
 class ProductoVista:
     product_id: int
     sku: str
@@ -122,6 +238,7 @@ class ProductoVista:
     meta_pct: str | None
     motivos: tuple[tuple[str, str], ...]
     grupos: tuple[GrupoVista, ...]
+    pausa: PausaVista | None = None
 
     def como_dict(self) -> dict:
         return {
@@ -145,6 +262,8 @@ class DecisionesProducto:
     error: str | None
     resumen: dict
     productos: tuple[ProductoVista, ...]
+    modo_pausa: str | None = None
+    limites: LimitesVista | None = None
 
     @property
     def con_meta(self) -> int:
@@ -168,20 +287,71 @@ class DecisionesProducto:
                 {"codigo": c, "etiqueta": e, "n": n} for c, e, n in self.motivos_presentes
             ],
             "productos": [pr.como_dict() for pr in self.productos],
+            "pausa": self._pausa_dict(),
+            "limites_pausa": self.limites.como_dict() if self.limites else None,
+        }
+
+    def _pausa_dict(self) -> dict:
+        """Primero los productos con propuestas, luego por gasto observado
+        (sin dato al final)."""
+        con_pausa = [pr for pr in self.productos if pr.pausa is not None]
+        con_pausa.sort(
+            key=lambda pr: (
+                -pr.pausa.total,
+                pr.pausa.gasto_observado is None,
+                -Decimal(pr.pausa.gasto_observado or 0),
+                pr.product_id,
+            )
+        )
+        return {
+            "modo": self.modo_pausa,
+            "modo_texto": MODOS_TEXTO.get(self.modo_pausa or "off"),
+            "con_propuestas": sum(pr.pausa.total > 0 for pr in con_pausa),
+            "propuestas": sum(pr.pausa.total for pr in con_pausa),
+            "confirmados": sum(pr.pausa.confirmados for pr in con_pausa),
+            "productos": [
+                {
+                    "product_id": pr.product_id,
+                    "sku": pr.sku,
+                    "nombre": pr.nombre,
+                    **pr.pausa.como_dict(),
+                }
+                for pr in con_pausa
+            ],
         }
 
 
+def lee_limites(conn, plataforma: str) -> LimitesVista:
+    """Los limites de la pausa que el ciclo leeria hoy (C.7): clave ausente
+    da el valor vigente del motor de cortes."""
+    moneda = PLATAFORMAS_MONEDA[plataforma]
+    fila = conn.execute(_SQL_CONFIG_VIGENTE).fetchone()
+    config_id, settings = (fila[0], fila[1] or {}) if fila else (None, {})
+    try:
+        limites = p.limites_pausa_desde_settings(settings, plataforma)
+    except ValueError as exc:
+        return LimitesVista(config_id, None, None, moneda, str(exc))
+    return LimitesVista(
+        config_id,
+        limites.clics_min,
+        format(limites.gasto_min.valor.normalize(), "f"),
+        limites.gasto_min.moneda,
+        None,
+    )
+
+
 def lee_decisiones_producto(conn, plataforma: str) -> DecisionesProducto:
+    limites = lee_limites(conn, plataforma)
     ciclo = conn.execute(_SQL_CICLO, (plataforma,)).fetchone()
     if ciclo is None:
-        return DecisionesProducto(None, None, None, None, {}, ())
+        return DecisionesProducto(None, None, None, None, {}, (), limites=limites)
     cycle_id, decidido_el, notes = ciclo
     try:
         notas = json.loads(notes) if isinstance(notes, str) else notes or {}
     except ValueError:
         notas = {"productos": {"error": "las notas del ciclo no son JSON"}}
     notas = notas.get("productos") or {}
-    resumen = {k: v for k, v in notas.items() if k not in ("error", "modo_meta")}
+    resumen = {k: v for k, v in notas.items() if k not in ("error", "modo_meta", "modo_pausa")}
     filas = conn.execute(_SQL_EVALUACIONES, (cycle_id, plataforma)).fetchall()
     try:
         productos = _productos(conn, cycle_id, filas)
@@ -196,6 +366,8 @@ def lee_decisiones_producto(conn, plataforma: str) -> DecisionesProducto:
         error=error,
         resumen=resumen,
         productos=tuple(productos),
+        modo_pausa=notas.get("modo_pausa"),
+        limites=limites,
     )
 
 
@@ -223,8 +395,9 @@ def simula_pausa(
 def _productos(conn, cycle_id: int, filas) -> list[ProductoVista]:
     evaluaciones = [
         (pid, sku, nombre, evaluacion_de_fila(entrada, resultado), resultado)
-        for pid, sku, nombre, entrada, resultado in filas
+        for pid, sku, nombre, entrada, resultado, _ in filas
     ]
+    id_evaluacion = {fila[0]: fila[5] for fila in filas}
     grupos = [gr for *_, ev, _ in evaluaciones for gr in ev.entrada.grupos_aptos_para_meta]
     hojas = sorted({h for gr in grupos for h in gr.hojas})
     ids = sorted({*hojas, *(gr.grupo_id for gr in grupos), *(gr.campana_id for gr in grupos)})
@@ -235,8 +408,9 @@ def _productos(conn, cycle_id: int, filas) -> list[ProductoVista]:
             conn.execute(_SQL_TARGETS_DEL_CICLO, (cycle_id, hojas)).fetchall() if hojas else ()
         )
     }
+    pausas = _pausas(conn, cycle_id, [ev for *_, ev, _ in evaluaciones], id_evaluacion)
     productos = [
-        _producto(pid, sku, nombre, ev, resultado, nombres, vigentes)
+        replace(_producto(pid, sku, nombre, ev, resultado, nombres, vigentes), pausa=pausas[pid])
         for pid, sku, nombre, ev, resultado in evaluaciones
     ]
     productos.sort(key=lambda pr: (pr.meta_pct is None, -Decimal(pr.meta_pct or 0), pr.product_id))
@@ -274,6 +448,78 @@ def _producto(
         meta_pct=_numero(ev.meta.porcentaje) if isinstance(ev.meta, p.MetaReferencia) else None,
         motivos=tuple((m, p.MOTIVOS_PRODUCTO[m]) for m in ev.motivos),
         grupos=grupos,
+    )
+
+
+def _pausas(
+    conn, cycle_id: int, evaluaciones: list[p.EvaluacionProducto], id_evaluacion: dict[int, int]
+) -> dict[int, PausaVista]:
+    propuestos = sorted({pr.anuncio.ad_entity_id for ev in evaluaciones for pr in ev.pausas})
+    grupos = sorted({pr.anuncio.grupo_id for ev in evaluaciones for pr in ev.pausas})
+    anuncios = (
+        {f[0]: (f[1], f[2]) for f in conn.execute(_SQL_ANUNCIOS, (propuestos,))}
+        if propuestos
+        else {}
+    )
+    nombres = dict(conn.execute(_SQL_ENTIDADES, (grupos,)).fetchall()) if grupos else {}
+    cola = (
+        {(f[0], f[1]): f[2] for f in conn.execute(_SQL_COLA_PAUSAS, (cycle_id,))}
+        if propuestos
+        else {}
+    )
+    return {
+        ev.producto.product_id: _pausa(
+            ev, id_evaluacion[ev.producto.product_id], anuncios, nombres, cola
+        )
+        for ev in evaluaciones
+    }
+
+
+def _pausa(
+    ev: p.EvaluacionProducto,
+    evaluacion_id: int,
+    anuncios: dict[int, tuple[str | None, str]],
+    nombres: dict[int, str],
+    cola: dict[tuple[int, int], str | None],
+) -> PausaVista:
+    entrada = ev.entrada
+    actividad = entrada.actividad_pausa
+    completa = isinstance(actividad, p.AdsCompletos)
+    ventana = p.ventana_pausa(entrada.decidido_el)
+    propuestas = []
+    for propuesta in ev.pausas:
+        anuncio = propuesta.anuncio
+        nombre, externo = anuncios.get(anuncio.ad_entity_id, (None, None))
+        propuestas.append(
+            PropuestaVista(
+                ad_entity_id=anuncio.ad_entity_id,
+                anuncio=nombre or externo or str(anuncio.ad_entity_id),
+                externo=externo,
+                grupo=nombres.get(anuncio.grupo_id, str(anuncio.grupo_id)),
+                estado_cola=cola.get((evaluacion_id, anuncio.ad_entity_id)),
+            )
+        )
+    excluidos = Counter(a.motivo for a in entrada.excluidos)
+    limites = entrada.limites_pausa
+    return PausaVista(
+        ventana_desde=ventana.desde.isoformat(),
+        ventana_ultimo_dia=(ventana.hasta_exclusivo - dt.timedelta(days=1)).isoformat(),
+        moneda=limites.gasto_min.moneda,
+        gasto_observado=_numero(actividad.gasto.valor) if completa else None,
+        clics=actividad.clics if completa else None,
+        gasto_actuable=(
+            _numero(entrada.gasto_actuable.valor) if entrada.gasto_actuable is not None else None
+        ),
+        motivos_actividad=(
+            () if completa else tuple((m, p.MOTIVOS_PRODUCTO[m]) for m in actividad.motivos)
+        ),
+        limite_clics=limites.clics_min,
+        limite_gasto=_numero(limites.gasto_min.valor),
+        elegibles=len(entrada.anuncios),
+        excluidos=tuple((m, p.MOTIVOS_PRODUCTO[m], n) for m, n in sorted(excluidos.items())),
+        motivos=tuple((m, p.MOTIVOS_PRODUCTO[m]) for m in ev.motivos_pausa),
+        propuestas=tuple(propuestas),
+        confirmados=sum(pr.estado_cola == "applied" for pr in propuestas),
     )
 
 

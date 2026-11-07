@@ -87,7 +87,7 @@ Harness: **curl** (mismo transporte que `docs/DEPLOY.md` y que TestClient). Sele
 | `button[data-vetar="<id>"]`, `form[data-veto="<id>"]` | `cortes.html` |
 | `form#fabrica-plan`, `#fabrica-plataforma`, `#fabrica-token` | `fabrica.html` |
 | `#settings-token`, `[data-plataforma]`, `[data-settings-config]`, `[data-settings-goal]` | `settings.html` |
-| `body[data-pantalla="productos-sin-clics"]`, `div#decisiones-producto`, `select#decisiones-filtro`, `tr[data-decision-producto]`, `details[data-grupo]`, `tr[data-hoja]`, `li[data-motivo]` | `productos_sin_clics.html` (ficha `features/productos.md`, receta `drive-productos`) |
+| `body[data-pantalla="productos-sin-clics"]`, `div#decisiones-producto`, `select#decisiones-filtro`, `tr[data-decision-producto]`, `details[data-grupo]`, `tr[data-hoja]`, `li[data-motivo]`, `div#pausa-producto`, `tr[data-pausa-producto]`, `li[data-propuesta]`, `div#productos-limites`, `form#limites-simular`, `form#limites-guardar` | `productos_sin_clics.html` (ficha `features/productos.md`, receta `drive-productos`) |
 | `GET /api/dashboard/campanas` (y series/decisiones/salud/contribucion/cortes/inertes/settings) | JSON gemelo; no es endpoint de test |
 | `GET /api/fabrica/catalogo`, `GET /api/fabrica/lotes` | JSON de Crear campanas; no POSTees crear/plan |
 
