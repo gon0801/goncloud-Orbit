@@ -896,7 +896,11 @@ def recrea(
     tiene ARCHIVED (Amazon no des-archiva); crea otro anuncio con la
     linea guardada (`archivar.reponer_anuncios`) y sella la reposicion
     con el adId nuevo. Comprueba el estado bajo la misma llave: uno que
-    no esta ARCHIVED sale `no_requiere_recreacion` sin POST."""
+    no esta ARCHIVED sale `no_requiere_recreacion` sin POST. Antes del
+    POST lee el ad group: si ya hay un anuncio vivo de ese sku (el que
+    creo un intento anterior que no alcanzo a sellar, o uno puesto a
+    mano), sella ese y no crea otro; si la lectura no es confiable, no
+    crea nada. Asi un reintento converge sin duplicar."""
 
     def paso(escritor, retiro: _Retiro, estado) -> ResultadoReposicion:
         if estado != archivar.ESTADO_ARCHIVADO:
@@ -906,6 +910,33 @@ def recrea(
                 retiro.ad_id_externo,
                 "no_requiere_recreacion",
                 f"Amazon lo tiene {visto}: no se recrea",
+            )
+        try:
+            linea = archivar.parsear_reversa(retiro.reversa)
+            vivos = archivar.anuncios_vivos_del_grupo(escritor, linea["adGroupId"], linea["sku"])
+        except Exception as exc:
+            return ResultadoReposicion(
+                retiro.id,
+                retiro.ad_id_externo,
+                "fallo",
+                f"sin lectura confiable del ad group ({exc}): no se recrea",
+            )
+        if vivos:
+            ya = vivos[0]
+            if ya.get("state") not in (archivar.ESTADO_HABILITADO, archivar.ESTADO_PAUSADO):
+                return ResultadoReposicion(
+                    retiro.id,
+                    retiro.ad_id_externo,
+                    "fallo",
+                    f"el ad group ya tiene {ya.get('adId')} en {ya.get('state')!r}: no se recrea",
+                )
+            return ResultadoReposicion(
+                retiro.id,
+                retiro.ad_id_externo,
+                "recreado",
+                f"el ad group ya tenia {ya.get('adId')} vivo: se sella sin crear otro",
+                str(ya.get("adId")),
+                str(ya.get("state")),
             )
         try:
             res = archivar.reponer_anuncios(escritor, [retiro.reversa], ejecutar=True)

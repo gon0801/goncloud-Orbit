@@ -160,6 +160,45 @@ def leer_anuncios(escritor: AdsWriteClient, ad_ids: Sequence[str]) -> dict[str, 
     return filas
 
 
+class LecturaAmbigua(AdsApiError):
+    """El list no dijo nada confiable (filtro aparentemente ignorado,
+    pagina malformada o paginacion sin terminar): no habilita un create."""
+
+
+PAGINAS_POR_GRUPO = 20
+
+
+def anuncios_vivos_del_grupo(escritor: AdsWriteClient, ad_group_id: str, sku: str) -> list[dict]:
+    """Los product ads no ARCHIVED de ESE ad group con ESE sku, paginando
+    con `adGroupIdFilter` por la puerta sellada. Es la lectura previa a un
+    create: si ya hay uno vivo, recrear seria duplicarlo. Fail-closed: un
+    item de otro ad group (la API ignora en silencio un filtro que no
+    reconoce), una pagina ilegible o un nextToken vivo al tope levantan
+    `LecturaAmbigua`."""
+    vivos: list[dict] = []
+    token = None
+    for _ in range(PAGINAS_POR_GRUPO):
+        cuerpo: dict = {"adGroupIdFilter": {"include": [str(ad_group_id)]}}
+        if token:
+            cuerpo["nextToken"] = token
+        try:
+            datos = escritor.list_sellado(PATH_PRODUCT_ADS, cuerpo).json()
+        except ValueError:
+            raise LecturaAmbigua("list de productAds ilegible") from None
+        filas = datos.get("productAds") if isinstance(datos, dict) else None
+        if not isinstance(filas, list):
+            raise LecturaAmbigua("list de productAds sin contenedor productAds")
+        for fila in filas:
+            if str(fila.get("adGroupId", "")) != str(ad_group_id):
+                raise LecturaAmbigua("el list trajo otro ad group: el filtro parece ignorado")
+            if fila.get("sku") == sku and fila.get("state") not in (None, ESTADO_ARCHIVADO):
+                vivos.append(fila)
+        token = datos.get("nextToken")
+        if not token:
+            return vivos
+    raise LecturaAmbigua(f"list de productAds sin terminar tras {PAGINAS_POR_GRUPO} paginas")
+
+
 def estados_actuales(escritor: AdsWriteClient, ad_ids: Sequence[str]) -> dict[str, str]:
     """Solo el estado wire de cada adId (vista delgada de `leer_anuncios`)."""
     return {k: str(v["state"]) for k, v in leer_anuncios(escritor, ad_ids).items()}

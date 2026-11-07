@@ -456,3 +456,61 @@ def test_un_error_de_sql_no_deja_tomada_la_llave_del_anuncio(monkeypatch):
             assert libre is True
             conn.execute("SELECT pg_advisory_unlock(hashtext(%s))", (f"retiro-ad:{pa}",))
         assert puts == []
+
+
+@_skip_db
+def test_recrear_otra_vez_tras_un_post_sin_confirmar_no_duplica_el_anuncio():
+    with _db_i4("orbit_g5_recrea_dos") as conn:
+        _pid, lid = _producto(conn)
+        _bolsa(conn, lid, "ad-1")
+        escritor, _ = _escritor(_fila("ad-1", "ENABLED"))
+        ra.ejecuta_retiro(conn, _plan(conn, lid), autorizacion=DUENO, escritor=escritor)
+        (rid,) = conn.execute("SELECT id FROM anuncio_retiro").fetchone()
+        recrear = ra.AutorizacionHumana("RECREAR 1 ANUNCIOS", "dueno")
+        # El POST crea ad-nuevo-1 pero su readback nunca lo ve: sin confirmar.
+        archivado, _ = _escritor(_fila("ad-1", "ARCHIVED"), ocultos={"ad-nuevo-1": 10})
+        (primero,) = ra.recrea(conn, retiro_ids=(rid,), autorizacion=recrear, escritor=archivado)
+        assert primero.resultado == "fallo"
+        assert conn.execute("SELECT count(*) FROM anuncio_reposicion").fetchone() == (0,)
+        (segundo,) = ra.recrea(conn, retiro_ids=(rid,), autorizacion=recrear, escritor=archivado)
+        assert (segundo.resultado, segundo.ad_id_nuevo) == ("recreado", "ad-nuevo-1")
+        assert ra.archivar.estados_actuales(archivado, ["ad-nuevo-2"]) == {}
+        assert conn.execute(
+            "SELECT ad_id_nuevo, estado_nuevo FROM anuncio_reposicion WHERE retiro_id = %s", (rid,)
+        ).fetchone() == ("ad-nuevo-1", "ENABLED")
+
+
+@_skip_db
+def test_recrear_sin_lectura_confiable_del_ad_group_no_crea_nada(monkeypatch):
+    with _db_i4("orbit_g5_recrea_ambiguo") as conn:
+        _pid, lid = _producto(conn)
+        _bolsa(conn, lid, "ad-1")
+        escritor, _ = _escritor(_fila("ad-1", "ENABLED"))
+        ra.ejecuta_retiro(conn, _plan(conn, lid), autorizacion=DUENO, escritor=escritor)
+        (rid,) = conn.execute("SELECT id FROM anuncio_retiro").fetchone()
+        # La API ignora el filtro y devuelve la pagina entera: otro ad group en la lista.
+        archivado, _ = _escritor(
+            {**_fila("ad-1", "ARCHIVED"), **_fila("ad-ajeno", "ENABLED", ag="ag-ajeno")}
+        )
+        real = archivado.list_sellado
+
+        def _sin_filtro(path, cuerpo):
+            if "adGroupIdFilter" in cuerpo:
+                return real(path, {"adIdFilter": {"include": ["ad-1", "ad-ajeno"]}})
+            return real(path, cuerpo)
+
+        monkeypatch.setattr(archivado, "list_sellado", _sin_filtro)
+        monkeypatch.setattr(
+            ra.archivar,
+            "reponer_anuncios",
+            lambda *a, **k: pytest.fail("recrea mando POST sin lectura confiable"),
+        )
+        (res,) = ra.recrea(
+            conn,
+            retiro_ids=(rid,),
+            autorizacion=ra.AutorizacionHumana("RECREAR 1 ANUNCIOS", "dueno"),
+            escritor=archivado,
+        )
+        assert res.resultado == "fallo"
+        assert "no se recrea" in res.detalle
+        assert conn.execute("SELECT count(*) FROM anuncio_reposicion").fetchone() == (0,)

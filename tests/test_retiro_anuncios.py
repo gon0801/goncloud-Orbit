@@ -190,6 +190,12 @@ def _escritor(
         if n_list["n"] in lists_que_fallan:
             return httpx.Response(500, text="Internal error")
         fuente = foto if n_list["n"] in stale_lists else vivos
+        if "adGroupIdFilter" in cuerpo:
+            grupos = set(cuerpo["adGroupIdFilter"]["include"])
+            return httpx.Response(
+                200,
+                json={"productAds": [f for f in fuente.values() if f.get("adGroupId") in grupos]},
+            )
         pedidos = cuerpo.get("adIdFilter", {}).get("include", [])
         visibles = []
         for p in pedidos:
