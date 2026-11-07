@@ -273,8 +273,9 @@ function pintaAnuncios(zona, anuncios, etiquetas, bien) {
   });
 }
 
-// Segundo paso que pide su propio literal: regresar tambien los
-// adoptados, o recrear los archivados. Usa el actor y el token del form.
+/// Segundo paso que pide su propio literal: regresar tambien los
+// adoptados, o recrear los archivados. Usa el actor y el token del form;
+// pinta su respuesta en su propia caja, sin borrar la de los demas.
 function pasoConLiteral(form, zona, ids, literal, boton, enviar) {
   var esperada = literal + " " + ids.length + " ANUNCIOS";
   var caja = document.createElement("div");
@@ -286,20 +287,27 @@ function pasoConLiteral(form, zona, ids, literal, boton, enviar) {
   accion.type = "button";
   accion.textContent = boton;
   var estado = document.createElement("span");
+  var respuesta = document.createElement("div");
   accion.addEventListener("click", function () {
     if (entrada.value !== esperada) {
       estado.textContent = "Escribe " + esperada + " para confirmar.";
       return;
     }
     estado.textContent = "Enviando…";
-    enviar(entrada.value, estado);
+    enviar(entrada.value, estado, respuesta);
   });
-  caja.append(entrada, accion, estado);
+  caja.append(entrada, accion, estado, respuesta);
   zona.appendChild(caja);
-  return { entrada: entrada, accion: accion, estado: estado };
+  form.pasosAbiertos = (form.pasosAbiertos || 0) + 1;
 }
 
-function regresar(form, ids, confirmacion, incluyeAdoptados, estado) {
+// El token se borra cuando ya no queda ningun paso por confirmar.
+function cierraPaso(form) {
+  form.pasosAbiertos = Math.max(0, (form.pasosAbiertos || 0) - 1);
+  if (!form.pasosAbiertos) form.elements.token.value = "";
+}
+
+function regresar(form, ids, confirmacion, incluyeAdoptados, estado, zona) {
   var cuerpo = {
     retiro_ids: ids,
     confirmacion: confirmacion,
@@ -313,14 +321,13 @@ function regresar(form, ids, confirmacion, incluyeAdoptados, estado) {
         return;
       }
       estado.textContent = "Regresados " + r.data.repuestos + " de " + r.data.total + ".";
-      var zona = zonaResultado(form);
       pintaAnuncios(zona, r.data.anuncios || [], ETIQUETA_REGRESO, ["repuesto", "ya_repuesto"]);
       var adoptados = r.data.adoptados || [];
       var archivados = r.data.requieren_recreacion || [];
       if (adoptados.length) {
         pasoConLiteral(form, zona, adoptados, "REGRESAR", "Regresar también los adoptados",
-          function (literal, estadoPaso) {
-            regresar(form, adoptados, literal, true, estadoPaso);
+          function (literal, estadoPaso, zonaPaso) {
+            regresar(form, adoptados, literal, true, estadoPaso, zonaPaso);
           });
       }
       if (archivados.length) {
@@ -329,7 +336,7 @@ function regresar(form, ids, confirmacion, incluyeAdoptados, estado) {
             recrear(form, archivados, literal, estadoPaso);
           });
       }
-      if (!adoptados.length && !archivados.length) form.elements.token.value = "";
+      cierraPaso(form);
     })
     .catch(function () {
       estado.textContent = "Error de red al reponer.";
@@ -352,10 +359,11 @@ function recrear(form, ids, confirmacion, estado) {
       });
       var texto = "Recreados " + r.data.recreados + " de " + r.data.total + ".";
       fallidos.forEach(function (a) {
-        texto += " " + a.ad_id_externo + ": " + (ETIQUETA_REGRESO[a.resultado] || a.resultado) + ".";
+        texto += " " + a.ad_id_externo + ": " + (ETIQUETA_REGRESO[a.resultado] || a.resultado);
+        texto += a.detalle ? " (" + a.detalle + ")." : ".";
       });
       estado.textContent = texto;
-      form.elements.token.value = "";
+      cierraPaso(form);
     })
     .catch(function () {
       estado.textContent = "Error de red al recrear.";
@@ -379,7 +387,10 @@ function reponer(form) {
     .filter(function (x) {
       return x > 0;
     });
-  regresar(form, ids, confirmacion, false, estado);
+  // Un envio nuevo repinta la zona: los pasos de la respuesta anterior
+  // desaparecen con ella.
+  form.pasosAbiertos = 1;
+  regresar(form, ids, confirmacion, false, estado, zonaResultado(form));
 }
 
 

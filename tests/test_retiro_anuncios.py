@@ -1811,18 +1811,27 @@ def test_r09r5_10c_red_caida_sin_aplicar_pendiente_y_reintento_sella():
 def test_r09r5_10d_timeout_que_aplica_pendiente_y_reintento_sella():
     """R09-r5 B3 (10 d): PUT aplica pero expira, readback al dia: el
     readback manda (sella en el primer intento, con nota de envio
-    incierto) y Regresar vuelve a ENABLED."""
+    incierto). AUTO-03 S14: el envio fue incierto, asi que el retiro
+    queda adoptado; Regresar vuelve a ENABLED solo incluyendo adoptados."""
     with _db_i4("orbit_i4_r510d") as conn:
         lid, plan = _retiro_listo(conn)
         escritor, puts = _escritor(_fila("ad-1", "ENABLED"), puts_timeout_que_aplican={"ad-1"})
         assert _retira(conn, plan, go="go dueno", escritor=escritor) == 1
         assert puts == [("ad-1", "PAUSED")]
         assert _cuenta(conn) == (1, 0, 1)
-        (rev,) = conn.execute("SELECT reversa FROM anuncio_retiro").fetchone()
+        (rev, autoria) = conn.execute("SELECT reversa, autoria FROM anuncio_retiro").fetchone()
         assert "state=ENABLED" in rev
+        assert autoria == "adoptada"
         (rid,) = conn.execute("SELECT id FROM anuncio_retiro").fetchone()
         escritor3, puts3 = _escritor(_fila("ad-1", "PAUSED"))
-        assert _regresa(conn, retiro_ids=(rid,), go="go dueno", escritor=escritor3) == 1
+        assert _regresa(conn, retiro_ids=(rid,), go="go dueno", escritor=escritor3) == 0
+        assert puts3 == []
+        assert (
+            _regresa(
+                conn, retiro_ids=(rid,), go="go dueno", escritor=escritor3, incluye_adoptados=True
+            )
+            == 1
+        )
         assert puts3 == [("ad-1", "ENABLED")]
 
 

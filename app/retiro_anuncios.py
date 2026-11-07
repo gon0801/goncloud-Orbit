@@ -25,6 +25,8 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Literal, get_args
 
+from psycopg import pq
+
 from app import impulso as im
 from app.ads import archivar
 from app.ads.client import AdsApiError
@@ -334,17 +336,29 @@ def grupo_de_lote(conn, lote: str) -> int | None:
 
 
 _SQL_YA_RETIRADO = """
-SELECT r.id FROM anuncio_retiro r
+SELECT r.id, r.autoria FROM anuncio_retiro r
  WHERE r.ad_entity_id = %s
    AND NOT EXISTS (SELECT 1 FROM anuncio_reposicion p WHERE p.retiro_id = r.id)
 """
 
 
 _SQL_INTENCION_ABIERTA = """
-SELECT i.id FROM anuncio_retiro_intencion i
+SELECT i.id, i.decision_id FROM anuncio_retiro_intencion i
  WHERE i.ad_entity_id = %s
    AND i.cerrada_el IS NULL
 """
+
+# Cierre de la intencion de un retiro adoptado. La sonda `retiro` de AUTO-03
+# lo usa para distinguir un adoptado del codigo de G de un retiro historico.
+_DETALLE_ADOPTADO = "adoptado: ya estaba PAUSED al confirmar"
+
+
+def _detalle_ya_sellado(ya, causa: str) -> str:
+    """Cierre de una intencion cuyo anuncio ya tiene su retiro sellado
+    (muerte entre el sello y el cierre); si el retiro es adoptado, el
+    cierre lo dice igual que el sello."""
+    texto = f"retiro {ya[0]} ya sellado ({causa})"
+    return f"adoptado: {texto}" if ya[1] == "adoptada" else texto
 
 
 def _abre_intencion(
@@ -433,12 +447,16 @@ SELECT pa.id FROM ad_entity pa
 def _bloqueados(conn, llaves):
     """Advisory locks de SESION, ordenados (sobreviven los commits y
     cubren el HTTP entre lecturas y escrituras). Se sueltan al salir;
-    si la conexion muere, PostgreSQL los libera."""
+    si la conexion muere, PostgreSQL los libera. Una transaccion
+    abortada por un error se revierte antes de soltar: si no, el unlock
+    falla y la llave queda tomada mientras viva la conexion."""
     for llave in sorted(set(llaves)):
         conn.execute("SELECT pg_advisory_lock(hashtext(%s))", (llave,))
     try:
         yield
     finally:
+        if conn.info.transaction_status == pq.TransactionStatus.INERROR:
+            conn.rollback()
         for llave in sorted(set(llaves)):
             with contextlib.suppress(Exception):
                 conn.execute("SELECT pg_advisory_unlock(hashtext(%s))", (llave,))
@@ -485,7 +503,16 @@ def _verifica_autorizacion(conn, plan: PlanRetiro, autorizacion: Autorizacion, c
         _SQL_AUTORIZA_DECISION,
         (autorizacion.decision_id, autorizacion.queue_id, ent, plan.plataforma),
     ).fetchone()
+    previa = conn.execute(
+        "SELECT id FROM anuncio_retiro_intencion WHERE decision_id = %s AND cerrada_el IS NOT NULL",
+        (autorizacion.decision_id,),
+    ).fetchone()
     conn.commit()
+    if previa is not None:
+        raise AutorizacionInvalida(
+            f"la decision {autorizacion.decision_id} ya cerro su intencion {previa[0]}:"
+            " no hay segundo PUT para la misma decision"
+        )
     if fila is None:
         raise AutorizacionInvalida(
             f"la decision {autorizacion.decision_id} (cola {autorizacion.queue_id}) no autoriza"
@@ -562,7 +589,7 @@ def ejecuta_retiro(
             prev = conn.execute(_SQL_INTENCION_ABIERTA, (ent,)).fetchone()
             if prev is not None:
                 _cierra_intencion(
-                    conn, prev[0], f"retiro {ya[0]} ya sellado (muerte entre sello y cierre)", ya[0]
+                    conn, prev[0], _detalle_ya_sellado(ya, "muerte entre sello y cierre"), ya[0]
                 )
             resultados[anuncio.ad_id_externo] = ResultadoAnuncio(
                 anuncio.ad_id_externo, "ya_retirado", "ya tenia un retiro abierto", ya[0]
@@ -570,12 +597,29 @@ def ejecuta_retiro(
         if pendientes:
             # Intencion pendiente de un intento anterior: se retoma (mismo
             # iid, sin INSERT); el resto abre intencion nueva antes de su PUT.
+            # Solo se retoma la intencion de la misma autorizacion: una
+            # humana no reenvia el PUT de una decision ni la decision sella
+            # sobre la intencion de un humano (motivo y actor serian otros).
             trabajo = []
             for ent, anuncio in pendientes:
                 prev = conn.execute(_SQL_INTENCION_ABIERTA, (ent,)).fetchone()
+                if prev is not None and prev[1] != decision_id:
+                    resultados[anuncio.ad_id_externo] = ResultadoAnuncio(
+                        anuncio.ad_id_externo,
+                        "pendiente",
+                        f"intencion {prev[0]} pendiente de otra autorizacion: la resuelve su dueno",
+                        None,
+                        prev[0],
+                    )
+                    continue
                 trabajo.append((ent, anuncio, prev[0] if prev is not None else None))
+            pendientes = [(ent, a) for ent, a, _ in trabajo]
             # Lectura previa global ANTES del primer PUT: existencia y reversas.
-            filas = archivar.leer_anuncios(escritor, [a.ad_id_externo for _, a in pendientes])
+            filas = (
+                archivar.leer_anuncios(escritor, [a.ad_id_externo for _, a in pendientes])
+                if pendientes
+                else {}
+            )
             for res in _ejecuta_pendientes(
                 conn,
                 plan,
@@ -591,9 +635,11 @@ def ejecuta_retiro(
     return tuple(resultados[a.ad_id_externo] for _, a in candidatos)
 
 
-# Cierre de la intencion de un retiro adoptado. La sonda `retiro` de AUTO-03
-# lo usa para distinguir un adoptado del codigo de G de un retiro historico.
-_DETALLE_ADOPTADO = "adoptado: ya estaba PAUSED al confirmar"
+def _put_propio(res) -> bool:
+    """`pausado` sin detalle: el PUT salio limpio y el readback lo vio
+    PAUSED. Con detalle, archivar avisa que el envio fue rechazado o
+    incierto y aun asi quedo PAUSED."""
+    return res.resultado == "pausado" and not res.detalle
 
 
 def _ejecuta_pendientes(
@@ -656,11 +702,13 @@ def _ejecuta_pendientes(
             continue
         detalle = res.detalle if res.detalle else res.resultado
         if res.resultado in ("pausado", "ya_estaba"):
-            # S14: solo el PUT de esta llamada que lo vio pasar de
-            # ENABLED a PAUSED prueba autoria. Encontrarlo ya PAUSED
-            # (la retoma de un PUT incierto, o lo pauso otro) prueba
+            # S14: solo un PUT de esta llamada aceptado por Amazon, con
+            # el readback que lo ve pasar de ENABLED a PAUSED, prueba
+            # autoria. Encontrarlo ya PAUSED (la retoma de un PUT
+            # incierto, o lo pauso otro) o verlo PAUSED pese a un envio
+            # rechazado o incierto (archivar lo dice en `detalle`) prueba
             # el estado, no quien lo cambio: el retiro queda adoptado.
-            propio = res.resultado == "pausado"
+            propio = _put_propio(res)
             rid = _sella_retiro(
                 conn,
                 plan,
@@ -859,7 +907,16 @@ def recrea(
                 "no_requiere_recreacion",
                 f"Amazon lo tiene {visto}: no se recrea",
             )
-        res = archivar.reponer_anuncios(escritor, [retiro.reversa], ejecutar=True)
+        try:
+            res = archivar.reponer_anuncios(escritor, [retiro.reversa], ejecutar=True)
+        except Exception as exc:
+            return ResultadoReposicion(
+                retiro.id,
+                retiro.ad_id_externo,
+                "fallo",
+                f"recreacion de {retiro.ad_id_externo} sin confirmar ({exc}): el POST pudo"
+                " crear el anuncio, revisa Amazon antes de recrear otra vez",
+            )
         if not res or res[0].resultado != "repuesto":
             detalle = res[0].detalle if res else "sin resultado"
             return ResultadoReposicion(
@@ -965,9 +1022,7 @@ def reconcilia_intenciones(conn, *, escritor=None, escritores=None) -> list[tupl
                     continue
                 ya = conn.execute(_SQL_YA_RETIRADO, (ent,)).fetchone()
                 if ya is not None:
-                    _cierra_intencion(
-                        conn, iid, f"retiro {ya[0]} ya sellado (reconciliacion)", ya[0]
-                    )
+                    _cierra_intencion(conn, iid, _detalle_ya_sellado(ya, "reconciliacion"), ya[0])
                     resueltas.append((iid, "sellado"))
                     continue
                 esc = escritor if escritor is not None else propios.get(platform)
@@ -1014,7 +1069,7 @@ def reconcilia_intenciones(conn, *, escritor=None, escritores=None) -> list[tupl
                     continue
                 res = archivar.pausar_anuncios(esc, [ad_id], ejecutar=True)[0]
                 if res.resultado in ("pausado", "ya_estaba"):
-                    propio = res.resultado == "pausado"
+                    propio = _put_propio(res)
                     rid = _sella_desde_intencion(
                         conn,
                         platform,

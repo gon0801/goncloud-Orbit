@@ -308,3 +308,151 @@ def test_el_vigia_sigue_retirando_y_reintenta_lo_no_confirmado():
         assert dos[0].hecho == "retiro_de_bolsas"
         assert puts2 == [("ad-terco", "PAUSED")]
         assert conn.execute("SELECT count(*) FROM anuncio_retiro").fetchone() == (2,)
+
+
+@_skip_db
+def test_un_humano_no_retoma_la_intencion_de_una_decision():
+    with _db_i4("orbit_g5_duenno") as conn:
+        _pid, lid = _producto(conn)
+        _c, _a, pa = _bolsa(conn, lid, "ad-dec")
+        dec, q = _decision_de_pausa(conn, pa)
+        incierto, _ = _escritor(
+            _fila("ad-dec", "ENABLED"), puts_timeout_sin_aplicar=frozenset({"ad-dec"})
+        )
+        (res,) = ra.ejecuta_retiro(
+            conn,
+            ra.plan_de_decision(conn, dec),
+            autorizacion=ra.AutorizacionDeDecision(dec, q),
+            escritor=incierto,
+        )
+        assert res.resultado == "pendiente"
+        humano, puts = _escritor(_fila("ad-dec", "ENABLED"))
+        (res,) = ra.ejecuta_retiro(conn, _plan(conn, lid), autorizacion=DUENO, escritor=humano)
+        assert res.resultado == "pendiente"
+        assert "otra autorizacion" in res.detalle
+        assert puts == []
+        assert conn.execute(
+            "SELECT decision_id, cerrada_el IS NULL FROM anuncio_retiro_intencion"
+        ).fetchall() == [(dec, True)]
+        assert conn.execute("SELECT count(*) FROM anuncio_retiro").fetchone() == (0,)
+
+
+@_skip_db
+def test_una_decision_no_tiene_segundo_put():
+    with _db_i4("orbit_g5_segundo") as conn:
+        _pid, lid = _producto(conn)
+        _c, _a, pa = _bolsa(conn, lid, "ad-dec")
+        dec, q = _decision_de_pausa(conn, pa)
+        plan = ra.plan_de_decision(conn, dec)
+        rechaza, _ = _escritor(_fila("ad-dec", "ENABLED"), rechaza_put=frozenset({"ad-dec"}))
+        (res,) = ra.ejecuta_retiro(
+            conn, plan, autorizacion=ra.AutorizacionDeDecision(dec, q), escritor=rechaza
+        )
+        assert res.resultado == "rechazado"
+        otra, puts = _escritor(_fila("ad-dec", "ENABLED"))
+        with pytest.raises(ra.AutorizacionInvalida, match="segundo PUT"):
+            ra.ejecuta_retiro(
+                conn, plan, autorizacion=ra.AutorizacionDeDecision(dec, q), escritor=otra
+            )
+        assert puts == []
+
+
+@_skip_db
+def test_put_incierto_que_queda_paused_en_la_misma_llamada_es_adoptado():
+    with _db_i4("orbit_g5_incierto_paused") as conn:
+        _pid, lid = _producto(conn)
+        _bolsa(conn, lid, "ad-1")
+        escritor, puts = _escritor(
+            _fila("ad-1", "ENABLED"), puts_timeout_que_aplican=frozenset({"ad-1"})
+        )
+        (res,) = ra.ejecuta_retiro(conn, _plan(conn, lid), autorizacion=DUENO, escritor=escritor)
+        assert puts == [("ad-1", "PAUSED")]
+        assert res.resultado == "adoptado"
+        assert "incierto" in res.detalle
+        assert conn.execute("SELECT autoria FROM anuncio_retiro").fetchone() == ("adoptada",)
+
+
+@_skip_db
+def test_recrea_un_anuncio_que_revienta_no_tumba_a_los_demas(monkeypatch):
+    with _db_i4("orbit_g5_recrea") as conn:
+        _pid, lid = _producto(conn)
+        filas = {}
+        for i in range(2):
+            _bolsa(conn, lid, f"ad-{i}", ag=f"ag-{i}", camp=f"c-{i}")
+            filas.update(_fila(f"ad-{i}", "ENABLED", ag=f"ag-{i}", camp=f"c-{i}"))
+        escritor, _ = _escritor(filas)
+        ra.ejecuta_retiro(conn, _plan(conn, lid), autorizacion=DUENO, escritor=escritor)
+        rids = tuple(f[0] for f in conn.execute("SELECT id FROM anuncio_retiro ORDER BY id"))
+        archivados, _ = _escritor(_filas("ad-0", "ad-1", estado="ARCHIVED"))
+        real = ra.archivar.reponer_anuncios
+        llamadas = []
+
+        def _primero_revienta(esc, lineas, **kw):
+            llamadas.append(lineas)
+            if len(llamadas) == 1:
+                raise ra.AdsApiError("readback caido tras el POST")
+            return real(esc, lineas, **kw)
+
+        monkeypatch.setattr(ra.archivar, "reponer_anuncios", _primero_revienta)
+        res = ra.recrea(
+            conn,
+            retiro_ids=rids,
+            autorizacion=ra.AutorizacionHumana("RECREAR 2 ANUNCIOS", "dueno"),
+            escritor=archivados,
+        )
+        assert [r.resultado for r in res] == ["fallo", "recreado"]
+        assert "revisa Amazon" in res[0].detalle
+        assert conn.execute("SELECT retiro_id FROM anuncio_reposicion").fetchall() == [(rids[1],)]
+
+
+@_skip_db
+def test_muerte_entre_sello_y_cierre_de_un_adoptado_conserva_la_marca(monkeypatch):
+    with _db_i4("orbit_g5_muerte") as conn:
+        _pid, lid = _producto(conn)
+        _bolsa(conn, lid, "ad-1")
+        incierto, _ = _escritor(_fila("ad-1", "ENABLED"), lists_que_fallan=frozenset(range(3, 40)))
+        ra.ejecuta_retiro(conn, _plan(conn, lid), autorizacion=DUENO, escritor=incierto)
+        real = ra._cierra_intencion
+
+        def _muere_al_cerrar(conn_, iid, detalle, retiro_id):
+            if retiro_id is not None:
+                raise RuntimeError("muerte entre sello y cierre (simulada)")
+            return real(conn_, iid, detalle, retiro_id)
+
+        monkeypatch.setattr(ra, "_cierra_intencion", _muere_al_cerrar)
+        pausado, _ = _escritor(_fila("ad-1", "PAUSED"))
+        with pytest.raises(RuntimeError, match="muerte"):
+            ra.ejecuta_retiro(conn, _plan(conn, lid), autorizacion=DUENO, escritor=pausado)
+        monkeypatch.setattr(ra, "_cierra_intencion", real)
+        (res,) = ra.ejecuta_retiro(conn, _plan(conn, lid), autorizacion=DUENO, escritor=pausado)
+        assert res.resultado == "ya_retirado"
+        assert conn.execute(
+            "SELECT r.autoria, i.detalle LIKE 'adoptado:%' FROM anuncio_retiro r"
+            " JOIN anuncio_retiro_intencion i ON i.retiro_id = r.id"
+        ).fetchone() == ("adoptada", True)
+
+
+@_skip_db
+def test_un_error_de_sql_no_deja_tomada_la_llave_del_anuncio(monkeypatch):
+    import psycopg
+    from test_fabrica_migracion import _dsn_propia
+
+    with _db_i4("orbit_g5_llave") as conn:
+        _pid, lid = _producto(conn)
+        _c, _a, pa = _bolsa(conn, lid, "ad-1")
+        plan = _plan(conn, lid)
+        escritor, puts = _escritor(_fila("ad-1", "ENABLED"))
+
+        def _sql_roto(conn_, *a, **k):
+            conn_.execute("SELECT 1 / 0")
+
+        monkeypatch.setattr(ra, "_abre_intencion", _sql_roto)
+        with psycopg.connect(_dsn_propia(conn), dbname=conn.info.dbname) as transaccional:
+            with pytest.raises(psycopg.errors.DivisionByZero):
+                ra.ejecuta_retiro(transaccional, plan, autorizacion=DUENO, escritor=escritor)
+            (libre,) = conn.execute(
+                "SELECT pg_try_advisory_lock(hashtext(%s))", (f"retiro-ad:{pa}",)
+            ).fetchone()
+            assert libre is True
+            conn.execute("SELECT pg_advisory_unlock(hashtext(%s))", (f"retiro-ad:{pa}",))
+        assert puts == []
