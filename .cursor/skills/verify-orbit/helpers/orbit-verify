@@ -12,7 +12,7 @@ Subcomandos:
   drive-inertes   Receta curl de la pantalla Inertes + evidencia (HTML y JSON)
   drive-fabrica   Receta curl de Crear campanas + evidencia (HTML y JSON)
   drive-settings  Receta curl de Settings + evidencia (HTML y JSON)
-  drive-productos Receta curl de Productos sin clics (meta, pausa y limites) + evidencia
+  drive-productos Receta curl de Productos sin clics (meta, pausa, limites y encendido)
   drive-campanas  Receta curl de la pantalla Campanas + captura de evidencia
   maintain-verification-skill
                  Orquesta launch + doctor + drives y hace teardown al final
@@ -2098,6 +2098,163 @@ def _simula_limites(base: str, evidence: Path, semilla: dict, limites_antes: dic
     return checks
 
 
+def _encender_pausa(base: str, dsn: str, evidence: Path, semilla: dict) -> dict:
+    """productos-encender (AUTO-03 I.8), en la base desechable. La semilla no
+    trae las claves de limites: "Encender la pausa" sale deshabilitado con
+    "Guarda tus límites primero". Luego la pausa queda en practica como en
+    produccion (`productos_modo.cambia_pausa`, el camino de `productos-modo
+    --pausa shadow`) y los limites se guardan con `config_write.guarda_config`,
+    el escritor al que despacha POST /settings (la instancia de verificacion
+    no tiene token ni DSN admin). Con limites, el boton se habilita; encender
+    pide la simulacion con los limites guardados (la misma ruta sin clics ni
+    gasto) y cancelar no escribe: la config_version y la cola siguen iguales.
+    Al final, en vivo la tarjeta dice "En vivo" con "Volver a práctica", y
+    de vuelta en practica, "Práctica"."""
+    import psycopg
+
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    from app import config_write, productos_modo
+    from app.optimizer import productos as p
+
+    checks: dict[str, bool] = {}
+    mx = "amazon_mx"
+
+    def pagina(nombre: str) -> str:
+        st, html = _get_html(base, f"/productos-sin-clics?plataforma={mx}")
+        (evidence / nombre).write_bytes(html)
+        texto = html.decode("utf-8", errors="replace") if st == 200 else ""
+        return _tramo(
+            _tramo(texto, 'id="productos-limites"', 'id="productos-retiro"'),
+            'id="pausa-vivo"',
+            'id="pausa-vivo-estado"',
+        )
+
+    def estado(nombre: str) -> dict:
+        st, _, raw = _http(f"{base}/api/dashboard/productos/pausa?platform={mx}")
+        (evidence / nombre).write_bytes(raw)
+        return json.loads(raw.decode("utf-8")) if st == 200 else {}
+
+    def deshabilitado(tramo: str) -> bool:
+        return (
+            '<button type="button" id="pausa-encender" disabled' in tramo
+            and 'aria-describedby="pausa-encender-falta"' in tramo
+            and ">Encender la pausa</button>" in tramo
+            and "Guarda tus límites primero" in tramo
+        )
+
+    def conteos(conn) -> tuple[int, int, int]:
+        return conn.execute(
+            "SELECT (SELECT count(*) FROM config_version), (SELECT max(id) FROM config_version),"
+            " (SELECT count(*) FROM apply_queue)"
+        ).fetchone()
+
+    ahora = datetime.now(UTC)
+    sin = pagina("10-encender-sin-limites.html")
+    e0 = estado("11-pausa-sin-limites.json")
+    checks["encender_deshabilitado_sin_limites"] = (
+        deshabilitado(sin)
+        and f'data-config-id="{semilla["config_version_id"]}"' in sin
+        and 'data-modo-vigente="off">Apagada</span>' in sin
+        and e0.get("limites_guardados") is False
+        and e0.get("modo") == "off"
+        and e0.get("config_version_id") == semilla["config_version_id"]
+    )
+
+    with psycopg.connect(dsn) as conn:
+        practica = productos_modo.cambia_pausa(
+            conn, mx, "shadow", semilla["config_version_id"], ahora, actor="orbit-verify"
+        )
+    en_practica = pagina("12-encender-practica-sin-limites.html")
+    e1 = estado("13-pausa-practica-sin-limites.json")
+    checks["encender_practica_sigue_deshabilitado"] = (
+        deshabilitado(en_practica)
+        and 'data-modo-vigente="shadow">Práctica</span>' in en_practica
+        and e1.get("modo") == "shadow"
+        and e1.get("limites_guardados") is False
+        and e1.get("config_version_id") == practica["config_version_id"]
+    )
+
+    with psycopg.connect(dsn) as conn:
+        guardado = config_write.guarda_config(
+            conn,
+            platform=mx,
+            base_config_version_id=practica["config_version_id"],
+            ahora=ahora,
+            actor="orbit-verify",
+            limites_pausa=p.LimitesPausa(100, p.Dinero(Decimal("500"), "MXN")),
+        )
+        antes = conteos(conn)
+    config_limites = guardado["config_version_id"]
+    con = pagina("14-encender-con-limites.html")
+    e2 = estado("15-pausa-con-limites.json")
+    checks["encender_habilitado_con_limites"] = (
+        '<button type="button" id="pausa-encender">Encender la pausa</button>' in con
+        and "Guarda tus límites primero" not in con
+        and f'data-config-id="{config_limites}"' in con
+        and 'type="password" id="pausa-token"' in con
+        and ">Confirmar</button>" in con
+        and ">Cancelar</button>" in con
+        and e2
+        == {
+            "platform": mx,
+            "modo": "shadow",
+            "modo_texto": "Práctica",
+            "config_version_id": config_limites,
+            "limites": {"clics": 100, "gasto": {"valor": "500", "moneda": "MXN"}},
+            "limites_guardados": True,
+            "error": None,
+        }
+    )
+
+    # "Encender la pausa" pide la simulacion con los limites guardados.
+    st_s, _, raw_s = _http(f"{base}/api/dashboard/productos/simula-pausa?platform={mx}", timeout=15)
+    (evidence / "16-encender-simulacion.json").write_bytes(raw_s)
+    sim = json.loads(raw_s.decode("utf-8")) if st_s == 200 else {}
+    checks["encender_muestra_simulacion"] = (
+        st_s == 200
+        and sim.get("limites", {}).get("clics_min") == 100
+        and [x["producto"]["product_id"] for x in sim.get("productos", [])] == [semilla["pulsera"]]
+        and sim.get("anuncios_total") == 2
+        and Decimal(sim.get("gasto_total", {}).get("valor", "NaN")) == Decimal("600")
+    )
+
+    # "Cancelar" no manda nada: la config y la cola quedan igual.
+    e3 = estado("17-pausa-tras-cancelar.json")
+    with psycopg.connect(dsn) as conn:
+        despues = conteos(conn)
+    checks["cancelar_no_escribe"] = (
+        despues == antes
+        and e3.get("config_version_id") == config_limites
+        and e3.get("modo") == "shadow"
+    )
+
+    # En vivo (cambia_pausa, el camino del boton) y de vuelta a practica.
+    with psycopg.connect(dsn) as conn:
+        vivo = productos_modo.cambia_pausa(
+            conn, mx, "live", config_limites, ahora, actor="orbit-verify"
+        )
+    en_vivo = pagina("18-encender-en-vivo.html")
+    checks["en_vivo_volver_a_practica"] = (
+        vivo["modo"] == "live"
+        and 'class="chip ok" data-modo-vigente="live">En vivo</span>' in en_vivo
+        and '<button type="button" id="pausa-volver">Volver a práctica</button>' in en_vivo
+        and 'id="pausa-encender"' not in en_vivo
+        and f'data-config-id="{vivo["config_version_id"]}"' in en_vivo
+    )
+    with psycopg.connect(dsn) as conn:
+        regreso = productos_modo.cambia_pausa(
+            conn, mx, "shadow", vivo["config_version_id"], ahora, actor="orbit-verify"
+        )
+    de_vuelta = pagina("19-encender-de-vuelta.html")
+    checks["volver_a_practica"] = (
+        regreso["modo"] == "shadow"
+        and 'data-modo-vigente="shadow">Práctica</span>' in de_vuelta
+        and '<button type="button" id="pausa-encender">Encender la pausa</button>' in de_vuelta
+    )
+    return checks
+
+
 def cmd_drive_productos(args: argparse.Namespace) -> None:
     run_id = args.run_id or _latest_run_id()
     state = _load_state(run_id)
@@ -2270,6 +2427,9 @@ def cmd_drive_productos(args: argparse.Namespace) -> None:
         "moneda": "MXN",
         "error": None,
         "guardados": False,
+        "modo": "off",
+        "modo_texto": "Apagada",
+        "modo_error": None,
     }
 
     checks.update(_simula_limites(base, evidence, semilla, limites_antes))
@@ -2289,6 +2449,23 @@ def cmd_drive_productos(args: argparse.Namespace) -> None:
             "Hay datos del reporte de productos desde el ",
         )
     )
+    checks["js_encender_cableado"] = stjs == 200 and all(
+        marca.encode() in js
+        for marca in (
+            'getElementById("pausa-encender")',
+            'getElementById("pausa-volver")',
+            'getElementById("pausa-cancelar")',
+            '"/api/dashboard/productos/simula-pausa?platform="',
+            '"/api/ads-optimizer/productos/pausa/"',
+            "base_config_version_id: Number(p.caja.dataset.configId)",
+            "Cancelado: no se cambió nada.",
+            "Recarga la página.",
+        )
+    )
+
+    # productos-encender (I.8): al final, porque escribe config en la base
+    # desechable (los checks de arriba leen la semilla tal cual).
+    checks.update(_encender_pausa(base, state["dsn"], evidence, semilla))
 
     prueba = {
         "feature": "productos",
@@ -2296,7 +2473,9 @@ def cmd_drive_productos(args: argparse.Namespace) -> None:
         "base_url": base,
         "action": "GET /productos-sin-clics (mx y us), GET /api/dashboard/productos-sin-clics, "
         "GET /api/dashboard/productos/simula-pausa (vigentes, otros limites y bajo el piso), "
-        "GET /static/js/productos.js",
+        "GET /static/js/productos.js; productos-encender: GET /api/dashboard/productos/pausa "
+        "sin limites, en practica y con limites guardados, simulacion de encender, cancelar "
+        "sin escribir, en vivo y de vuelta a practica",
         "checks": checks,
         "ok": all(checks.values()),
         "evidence_dir": str(evidence),
