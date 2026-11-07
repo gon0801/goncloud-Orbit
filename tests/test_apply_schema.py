@@ -883,8 +883,8 @@ def _db_temporal_d1(prefijo: str):
 
 @contextmanager
 def _db_temporal_c2a(prefijo: str):
-    """0001 + 0018 + 0046 + 0047 + 0048 + 0063 (C.2a + A5 + T.1): el CHECK
-    vigente vive en 0063 y la vista exige 0018 + 0047; target_acos_ciclo
+    """0001 + 0018 + 0046 + 0047 + 0048 + 0063 + 0076 (C.2a + A5 + T.1 +
+    AUTO-03): el CHECK vigente vive en 0076 y la vista exige 0018 + 0047; target_acos_ciclo
     solo referencia tablas de 0001 y los roles tambien nacen ahi."""
     from psycopg import sql as pgsql
 
@@ -902,6 +902,7 @@ def _db_temporal_c2a(prefijo: str):
         conn.execute(_sql_mig("0047_familias.sql"))  # 0047: familia/producto_familia
         conn.execute(_sql_mig("0048_margen_familia.sql"))  # 0048 (A5): vista + CHECK
         conn.execute(_sql_mig("0063_bids02_peldanos_target.sql"))  # 0063 (T.1): CHECK sin retirados
+        conn.execute(_sql_mig("0076_auto03_peldano_producto.sql"))  # 0076: margen_producto
         yield conn
     finally:
         if conn is not None:

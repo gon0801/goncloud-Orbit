@@ -630,14 +630,15 @@ def _settings_target(us=None, mx=None) -> dict:
 
 
 def test_peldanos_vocabulario_exacto():
-    """El vocabulario de los CINCO peldanos es EXACTO y sellado (BIDS 02
-    T.1 retiro los dos ultimos; A5: margen_familia tercero, entre
-    goal_plataforma y margen_plataforma): el dashboard lo muestra tal
+    """El vocabulario de los SEIS peldanos es EXACTO y sellado (BIDS 02
+    T.1 retiro los dos ultimos; AUTO-03: margen_producto tercero, entre
+    goal_plataforma y margen_familia): el dashboard lo muestra tal
     cual y la variante lo reporta; un nombre distinto aqui rompe el
     contrato."""
     assert g.PELDANOS_CASCADA == (
         "goal_campana",
         "goal_plataforma",
+        "margen_producto",
         "margen_familia",
         "margen_plataforma",
         "setting_plataforma",

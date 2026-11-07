@@ -14,6 +14,7 @@ from collections import defaultdict
 from decimal import Decimal
 
 from app.db import connect
+from app.optimizer.goals import PELDANOS_CASCADA, PELDANOS_POR_ENTIDAD
 from app.optimizer.windows import fin_ventana_cortes, inicio_ventana
 
 LIMITES = {"USD": Decimal("80"), "MXN": Decimal("1000")}
@@ -74,9 +75,7 @@ def agregado(fechas, instante):
     }
 
 
-_FUENTES_COMPARTIDAS = frozenset(
-    {"goal_campana", "goal_plataforma", "margen_plataforma", "setting_plataforma"}
-)
+_FUENTES_COMPARTIDAS = frozenset(PELDANOS_CASCADA) - PELDANOS_POR_ENTIDAD
 
 
 def _congela_targets(conn, inicio_utc, fin_utc, campana_de, targets_entidad, targets_compartidos):
