@@ -20,6 +20,12 @@ import pytest
 from test_cycle import _config_version, _corre, _db_temporal, _decisions_de, _entidad, _estado
 from test_cycle import _metrica as _metrica_hoja
 from test_cycle_target_ciclo import _mundo_familia, _producto_con_listing, _targets_de
+from test_migracion_0064 import SQL64
+from test_migracion_0065 import SQL65
+from test_migracion_0066 import SQL66
+from test_migracion_0068 import SQL68
+from test_migracion_0069 import SQL69
+from test_retiro_anuncios import SQL78, SQL79
 from test_schema import _postgres_obligatorio_ausente
 
 from app import productos_io
@@ -58,6 +64,10 @@ def _db(prefijo: str):
     with _db_temporal(prefijo) as (conn, _extra):
         conn.execute(SQL17)
         conn.execute(SQL20)
+        # H: la lectura excluye impulsos abiertos y anuncios regresados (0079,
+        # sobre impulso y el ledger de retiro de 0064..0069 y 0078).
+        for migracion in (SQL64, SQL65, SQL66, SQL68, SQL69, SQL78, SQL79):
+            conn.execute(migracion)
         yield conn
 
 

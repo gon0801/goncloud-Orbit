@@ -1,0 +1,26 @@
+{
+  "simulacion_vigentes": "Simulación lista: pausaría 1 producto.",
+  "simulacion_otros": "Simulación lista: pausaría 0 productos.",
+  "simulacion_422": "No se puede simular: clics minimos de la pausa: al menos 20, llego 5.",
+  "tema_noche": "noche",
+  "ancho_390": {
+    "ancho": 390,
+    "bodyScroll": false
+  },
+  "ancho_390_tras_simular": {
+    "ancho": 390,
+    "bodyScroll": false
+  },
+  "tabs_hasta_clics": 34,
+  "foco": {
+    "id": "limites-gasto",
+    "focoVisible": true,
+    "outline": "solid 2px rgb(108, 92, 231)",
+    "estado": "Simulación lista: pausaría 1 producto.",
+    "clics": "120"
+  },
+  "foco_guardar": {
+    "texto": "Guardar límites",
+    "focoVisible": true
+  }
+}

@@ -1440,7 +1440,7 @@ def _db_i5(conn):
     from test_migracion_0066 import SQL66
     from test_migracion_0068 import SQL68
     from test_migracion_0069 import SQL69
-    from test_retiro_anuncios import SQL78
+    from test_retiro_anuncios import SQL78, SQL79
 
     conn.execute(SQL64)
     conn.execute(SQL65)
@@ -1448,6 +1448,7 @@ def _db_i5(conn):
     conn.execute(SQL68)
     conn.execute(SQL69)
     conn.execute(SQL78)
+    conn.execute(SQL79)
 
 
 def _lid_de(conn, pid):

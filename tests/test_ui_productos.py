@@ -264,10 +264,12 @@ def test_r09d_error_objeto_muestra_mensaje_y_fallos_sin_object_object():
     [object Object]; un detail de texto se pinta tal cual."""
     archivo = RAIZ / "app" / "static" / "js" / "productos.js"
     assert archivo.exists(), "Falta el cliente de productos"
-    # Los seis sitios de error usan mensajeError: ninguno conserva el
-    # patron que pintaba [object Object].
+    # Los diez sitios de error usan mensajeError (seis de impulso y retiro,
+    # cuatro de los limites de la pausa: el rechazo de simular y su estado,
+    # 409 y 422 al guardar):
+    # ninguno conserva el patron que pintaba [object Object].
     assert "(r.data.detail || r.data)" not in archivo.read_text(encoding="utf-8")
-    assert archivo.read_text(encoding="utf-8").count("mensajeError(r.data)") == 6
+    assert archivo.read_text(encoding="utf-8").count("mensajeError(r.data)") == 10
     node = shutil.which("node")
     if not node:
         if "CI" in os.environ:
@@ -542,3 +544,76 @@ def test_r09r4_t01_t07_retiros_abiertos_form_ids_escape():
     assert "<td>subfamilia</td>" in html
     assert "<script>" not in html and "&lt;script&gt;" in html
     assert "ad-<b>x" not in html and "ad-&lt;b&gt;x" in html
+
+
+def test_guardar_limites_por_omision_sin_claves_si_envia():
+    """h_c4a60451: sin las dos claves de limites en la config, guardar los
+    valores por omision tal cual SI manda el POST (S8 exige los limites
+    guardados antes de encender); con las claves ya guardadas e iguales, no
+    se envia nada."""
+    archivo = RAIZ / "app" / "static" / "js" / "productos.js"
+    node = shutil.which("node")
+    if not node:
+        if "CI" in os.environ:
+            pytest.fail("Node es obligatorio en CI para verificar el flujo JavaScript")
+        pytest.skip("Node no disponible; el navegador se verifica en integracion")
+    guion = r"""
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const vm = require("node:vm");
+const codigo = fs.readFileSync(process.argv[1], "utf8");
+async function corre(guardados) {
+  const handlers = {};
+  const nodo = (attrs) => {
+    const obj = {...attrs, _ev: {}};
+    obj.addEventListener = (ev, fn) => { obj._ev[ev] = fn; };
+    return obj;
+  };
+  const clics = nodo({value: "100", defaultValue: "100"});
+  const gasto = nodo({value: "500", defaultValue: "500"});
+  const campos = nodo({dataset: {plataforma: "amazon_mx", moneda: "MXN"},
+    elements: {clics, gasto}});
+  const estado = {textContent: ""};
+  const token = {value: "tok"};
+  const guardar = nodo({dataset: {plataforma: "amazon_mx", configId: "44", guardados},
+    elements: {token}, querySelector: (sel) => sel === "[data-estado]" ? estado : null});
+  const ids = {"limites-simular": campos, "limites-guardar": guardar};
+  const llamadas = [];
+  const ctx = {
+    document: {
+      getElementById: (id) => ids[id] || null,
+      addEventListener: (ev, fn) => { handlers[ev] = fn; },
+      querySelector: () => null, querySelectorAll: () => [],
+      createElement: () => ({}),
+    },
+    window: {location: {reload: () => {}}},
+    fetch: (url, opts) => {
+      llamadas.push({url, body: JSON.parse(opts.body), token: opts.headers["x-orbit-token"]});
+      return Promise.resolve({ok: true, status: 200,
+        json: () => Promise.resolve({config_version_id: 45})});
+    },
+    console,
+  };
+  vm.createContext(ctx);
+  vm.runInContext(codigo, ctx);
+  handlers.DOMContentLoaded();
+  guardar._ev.submit({preventDefault: () => {}});
+  await new Promise((r) => setTimeout(r, 10));
+  return {llamadas, estado: estado.textContent};
+}
+(async () => {
+  const sin = await corre("false");
+  assert.equal(sin.llamadas.length, 1);
+  assert.equal(sin.llamadas[0].url, "/api/ads-optimizer/settings/amazon_mx");
+  assert.equal(sin.llamadas[0].token, "tok");
+  assert.deepEqual(sin.llamadas[0].body, {base_config_version_id: 44,
+    limites_pausa: {clics: 100, gasto: {valor: "500", moneda: "MXN"}}});
+  const con = await corre("true");
+  assert.equal(con.llamadas.length, 0);
+  assert.equal(con.estado, "Nada que cambiar.");
+})().catch((e) => { console.error(e); process.exit(1); });
+"""
+    proc = subprocess.run(
+        [node, "-e", guion, str(archivo)], capture_output=True, text=True, timeout=60
+    )
+    assert proc.returncode == 0, proc.stderr or proc.stdout

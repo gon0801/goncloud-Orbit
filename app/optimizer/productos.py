@@ -21,6 +21,15 @@ entrada congelada que la evaluacion trae dentro.
   margen_producto. Con ella meta_de_hoja sube de una vez y baja <= 0.5 por
   ciclo, y si el producto se abstiene converge al siguiente peldano
   (goals.converge_al_destino con piso 0). Sin ella la meta aplica directa.
+- Pausa (H.2): con la ventana [D-60, D-30) completa y madura (S6), compras y
+  ventas totales en cero observado y clics y gasto en o sobre los limites
+  congelados (S8), una PropuestaPausa por AnuncioElegible (S4). Una venta de
+  otro SKU, una fecha desconocida, un impedimento de identidad o un impulso
+  abierto del producto dejan motivo y ninguna propuesta. La politica v1 (antes
+  de H) no tenia esta regla: el replay de una evaluacion v1 la corre sin ella.
+- Simulacion (H.8): simula_pausa corre la misma regla con otros limites sobre
+  las entradas de hoy y, para el costo de equivocarse, sobre las de hace 30
+  dias.
 - Interruptores: ads_producto_meta_<plat> y ads_producto_pausa_<plat>
   (ausente = off; shadow | live). Limites de la pausa (S8):
   ads_producto_pausa_clics_<plat> y ads_producto_pausa_gasto_<plat>, con
@@ -31,8 +40,8 @@ entrada congelada que la evaluacion trae dentro.
 from __future__ import annotations
 
 import datetime as dt
-from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, fields, is_dataclass
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass, fields, is_dataclass, replace
 from decimal import Decimal, InvalidOperation
 from typing import Any, Literal, get_args, get_type_hints
 
@@ -47,8 +56,14 @@ Modo = Literal["off", "shadow", "live"]
 PLATAFORMAS: tuple[str, ...] = get_args(Plataforma)
 
 # Version de la politica, congelada en cada evaluacion: el replay sabe con que
-# reglas se calculo una evaluacion vieja.
-POLITICA_PRODUCTO = "v1"
+# reglas se calculo una evaluacion vieja. v1 = meta (C/D); v2 = meta y pausa (H).
+POLITICA_PRODUCTO = "v2"
+POLITICAS: tuple[str, ...] = ("v1", "v2")
+
+MOTIVO_PAUSA = "producto_sin_ventas"
+
+# S17: un anuncio que regresaste no se vuelve a proponer en 7 dias.
+GRACIA_REGRESADO = dt.timedelta(days=7)
 
 MADUREZ_HALO = dt.timedelta(days=30)
 
@@ -75,6 +90,20 @@ MOTIVOS_PRODUCTO: dict[str, str] = {
     "fecha_desconocida": "una fecha sin fila ni cobertura demostrada de la ingesta",
     "fecha_inmadura": "una fecha todavia sin su reobservacion de 30 dias",
     "sin_filas_en_ventana": "el producto no tiene ninguna fila en la ventana",
+    # Regla de la pausa (H.2).
+    "vendio_en_ventana": "el producto vendio en la ventana de la pausa",
+    "venta_otro_sku": "ventas atribuidas de otro SKU en la ventana: no son cero ventas",
+    "bajo_limites": "no llega a los clics o al gasto minimos de la pausa",
+    "impulso_abierto": "un impulso abierto del producto: sus anuncios quedan bajo el vigia",
+    "sin_anuncios_elegibles": "ningun anuncio del producto esta al alcance de la pausa",
+    # Por que un anuncio ENABLED del producto queda fuera del alcance (S4, S17).
+    "goal_no_live": "el goal de su campana no esta encendido en vivo",
+    "alta_en_ventana": "el anuncio no existia antes de la ventana",
+    "sin_actividad_en_ventana": "el anuncio no aparece en las filas de la ventana",
+    "clave_en_vuelo": "el anuncio ya tiene una pausa en la cola o un veto vigente",
+    "regresado_por_ti": "lo regresaste hace menos de 7 dias",
+    # Simulacion (H.8).
+    "sin_historia": "la ventana es anterior al primer dato del reporte de productos: no es cero",
 }
 
 
@@ -149,14 +178,39 @@ class GrupoAptoParaMeta:
 @dataclass(frozen=True)
 class AnuncioElegible:
     """Product ad al alcance de una pausa del producto (S4): ENABLED, con
-    identidad, goal resuelto enabled y live, alta anterior a la ventana y su
-    adId en ad_ids de la ventana. Es pertenencia, nunca reparto. La exclusion
-    de impulso abierto y de claves en vuelo la agrega el bloque H."""
+    identidad, goal resuelto enabled y live, alta anterior a la ventana, su
+    adId en ad_ids de la ventana (pertenencia, nunca reparto), fuera de un
+    impulso abierto, sin clave en vuelo en la cola y sin regreso reciente
+    (S17)."""
 
     ad_entity_id: int
     listing_id: int
     grupo_id: int
     huella_alcance: str
+
+
+@dataclass(frozen=True)
+class AnuncioExcluido:
+    """Product ad ENABLED del producto que queda fuera del alcance de la pausa
+    con su motivo. `retiro_id` es el retiro abierto de un anuncio reactivado
+    a mano en Amazon (S17): TX3 lo cierra y su gracia corre desde ese ciclo."""
+
+    ad_entity_id: int
+    motivo: str
+    retiro_id: int | None = None
+
+
+@dataclass(frozen=True)
+class PropuestaPausa:
+    anuncio: AnuncioElegible
+    motivo: Literal["producto_sin_ventas"] = MOTIVO_PAUSA
+
+    def como_json(self) -> dict:
+        return _a_json(self)
+
+    @classmethod
+    def desde_json(cls, datos: Mapping) -> PropuestaPausa:
+        return _de_json(datos, cls)
 
 
 @dataclass(frozen=True)
@@ -178,6 +232,12 @@ class EntradaProducto:
     grupos_aptos_para_meta: tuple[GrupoAptoParaMeta, ...]
     impedimentos: tuple[str, ...]
     limites_pausa: LimitesPausa
+    # Bloque H, con valor por omision para leer las entradas congeladas antes.
+    # gasto_actuable: el de las filas de la ventana cuyos ad_ids son todos
+    # anuncios elegibles (pertenencia, nunca reparto).
+    excluidos: tuple[AnuncioExcluido, ...] = ()
+    bloqueos_pausa: tuple[str, ...] = ()
+    gasto_actuable: Dinero | None = None
 
     def como_json(self) -> dict:
         return _a_json(self)
@@ -198,6 +258,8 @@ class EvaluacionProducto:
     meta: MetaReferencia | SinDato
     motivos: tuple[str, ...]
     politica: str
+    pausas: tuple[PropuestaPausa, ...] = ()
+    motivos_pausa: tuple[str, ...] = ()
 
     @property
     def producto(self) -> Producto:
@@ -217,11 +279,20 @@ class ModosProducto:
     pausa: Modo
 
 
-def resolver_producto(entrada: EntradaProducto) -> EvaluacionProducto:
-    """La meta del producto o los motivos por los que no la tiene."""
-    desconocidos = set(entrada.impedimentos) - MOTIVOS_PRODUCTO.keys()
+def resolver_producto(
+    entrada: EntradaProducto, *, politica: str = POLITICA_PRODUCTO
+) -> EvaluacionProducto:
+    """La meta del producto y sus pausas, o los motivos por los que no las
+    tiene. `politica` solo cambia para el replay de una evaluacion vieja."""
+    if politica not in POLITICAS:
+        raise ValueError(f"politica de producto desconocida: {politica!r}")
+    desconocidos = {
+        *entrada.impedimentos,
+        *entrada.bloqueos_pausa,
+        *(x.motivo for x in entrada.excluidos),
+    } - MOTIVOS_PRODUCTO.keys()
     if desconocidos:
-        raise ValueError(f"impedimentos fuera del vocabulario: {sorted(desconocidos)}")
+        raise ValueError(f"motivos fuera del vocabulario: {sorted(desconocidos)}")
     fraccion = entrada.fraccion
     if isinstance(fraccion, Decimal) and not (fraccion.is_finite() and 0 < fraccion <= 1):
         raise ValueError(f"fraccion de margen invalida: {fraccion!r} (debe estar en (0, 1])")
@@ -239,7 +310,48 @@ def resolver_producto(entrada: EntradaProducto) -> EvaluacionProducto:
         meta = MetaReferencia(min(derivado, goals.MARGEN_BANDA_MAX), entrada.grupos_aptos_para_meta)
         if not entrada.grupos_aptos_para_meta:
             informativos.append("sin_grupo_apto")
-    return EvaluacionProducto(entrada, meta, (*motivos, *informativos), POLITICA_PRODUCTO)
+    if politica == "v1":
+        return EvaluacionProducto(entrada, meta, (*motivos, *informativos), politica)
+    pausas, motivos_pausa = _regla_pausa(entrada)
+    return EvaluacionProducto(
+        entrada, meta, (*motivos, *informativos), politica, pausas, motivos_pausa
+    )
+
+
+def motivos_economicos_pausa(entrada: EntradaProducto) -> tuple[str, ...]:
+    """La regla de la pausa sin el alcance de anuncios (H.2): vacio si el
+    producto gasto sin vender, con la identidad comprobada y sin impulso
+    abierto. La regla completa (_regla_pausa) exige ademas anuncios
+    elegibles."""
+    motivos = list(entrada.bloqueos_pausa)
+    motivos.extend(m for m in entrada.impedimentos if m == "sku_distinto_en_asin")
+    actividad = entrada.actividad_pausa
+    limites = entrada.limites_pausa
+    if isinstance(actividad, SinDato):
+        motivos.extend(actividad.motivos)
+    elif actividad.ventana != ventana_pausa(entrada.decidido_el):
+        motivos.append("fecha_inmadura")
+    else:
+        if actividad.gasto.moneda != limites.gasto_min.moneda:
+            raise ValueError(
+                f"gasto en {actividad.gasto.moneda} y limite en {limites.gasto_min.moneda}"
+            )
+        if actividad.ventas_total.valor > actividad.ventas_mismo_sku.valor:
+            motivos.append("venta_otro_sku")
+        elif actividad.compras_total != 0 or actividad.ventas_total.valor != 0:
+            motivos.append("vendio_en_ventana")
+        elif actividad.clics < limites.clics_min or actividad.gasto.valor < limites.gasto_min.valor:
+            motivos.append("bajo_limites")
+    return tuple(dict.fromkeys(motivos))
+
+
+def _regla_pausa(entrada: EntradaProducto) -> tuple[tuple[PropuestaPausa, ...], tuple[str, ...]]:
+    motivos = motivos_economicos_pausa(entrada)
+    if motivos:
+        return (), motivos
+    if not entrada.anuncios:
+        return (), ("sin_anuncios_elegibles",)
+    return tuple(PropuestaPausa(a) for a in entrada.anuncios), ()
 
 
 def _motivos_sin_meta(entrada: EntradaProducto) -> tuple[str, ...]:
@@ -289,6 +401,115 @@ def cumple_limites_pausa(entrada: EntradaProducto) -> bool:
         and actividad.ventas_total.valor == 0
         and actividad.clics >= limites.clics_min
         and actividad.gasto.valor >= limites.gasto_min.valor
+    )
+
+
+@dataclass(frozen=True)
+class PausaSimulada:
+    producto: Producto
+    gasto: Dinero
+    clics: int
+    anuncios: int
+
+
+@dataclass(frozen=True)
+class SimulacionPausa:
+    """La pausa con otros limites, sin escribir (H.8). `productos` son los
+    que hoy tendrian propuestas en [D-60, D-30). El costo de equivocarse corre
+    la misma regla completa (con el alcance de anuncios) sobre [D-90, D-60):
+    solo cuenta un producto que entonces habria tenido alguna propuesta, y
+    suma lo que esos productos
+    gastaron y vendieron despues, en [D-60, D-30): el gasto es observado, no
+    una promesa de ahorro. `sin_cobertura_d7` cuenta los productos con alguna
+    fecha de la ventana sin fila ni rango pedido guardado (S6, D.7);
+    `sin_dato_despues`, los elegidos antes que hoy ya no tienen entrada o
+    tienen una fecha con metrica ausente: no suman, nunca como cero."""
+
+    limites: LimitesPausa
+    ventana: Ventana
+    productos: tuple[PausaSimulada, ...]
+    gasto_total: Dinero
+    anuncios_total: int
+    sin_cobertura_d7: int
+    ventana_anterior: Ventana
+    productos_anteriores: tuple[int, ...]
+    gasto_evitado: Dinero | SinDato
+    ventas_perdidas: Dinero | SinDato
+    sin_cobertura_d7_anterior: int
+    sin_dato_despues: int
+    primer_dato: dt.date | None
+
+    def como_json(self) -> dict:
+        return _a_json(self)
+
+
+def simula_pausa(
+    entradas_hoy: Sequence[EntradaProducto],
+    entradas_antes: Sequence[EntradaProducto],
+    limites: LimitesPausa,
+    *,
+    decidido_el: dt.datetime,
+    primer_dato: dt.date | None,
+) -> SimulacionPausa:
+    """La regla de la pausa de H.2 con `limites` en lugar de los congelados.
+    `entradas_antes` son las entradas decididas 30 dias antes, sin
+    observaciones posteriores; `primer_dato` es la primera fecha del reporte
+    de productos: una ventana anterior a ella no tiene historia y no es cero.
+    Las ventas de despues son las de las fechas con fila de la entrada de hoy
+    (una fecha sin fila no tuvo clics, S7)."""
+    moneda = limites.gasto_min.moneda
+    hoy = [replace(e, limites_pausa=limites) for e in entradas_hoy]
+    ventana = ventana_pausa(decidido_el)
+    ventana_anterior = Ventana(ventana.desde - dt.timedelta(days=30), ventana.desde)
+    productos: list[PausaSimulada] = []
+    for e in hoy:
+        pausas, _ = _regla_pausa(e)
+        if pausas:
+            actividad = e.actividad_pausa
+            assert isinstance(actividad, AdsCompletos)
+            productos.append(
+                PausaSimulada(e.producto, actividad.gasto, actividad.clics, len(pausas))
+            )
+    antes = [replace(e, limites_pausa=limites) for e in entradas_antes]
+    elegidos = tuple(sorted(e.producto.product_id for e in antes if _regla_pausa(e)[0]))
+    por_producto = {
+        e.producto.product_id: e for e in hoy if "ads_con_metrica_ausente" not in e.impedimentos
+    }
+    if primer_dato is None or ventana_anterior.desde < primer_dato:
+        evitado: Dinero | SinDato = SinDato(("sin_historia",))
+        perdidas: Dinero | SinDato = SinDato(("sin_historia",))
+    else:
+        gasto = ventas = Decimal(0)
+        for pid in elegidos:
+            entrada = por_producto.get(pid)
+            for dia in entrada.dias_halo if entrada is not None else ():
+                if ventana.contiene(dia.fecha):
+                    gasto += dia.gasto.valor
+                    ventas += dia.ventas.valor
+        evitado, perdidas = Dinero(gasto, moneda), Dinero(ventas, moneda)
+    return SimulacionPausa(
+        limites=limites,
+        ventana=ventana,
+        productos=tuple(sorted(productos, key=lambda x: (-x.gasto.valor, x.producto.product_id))),
+        gasto_total=Dinero(sum((x.gasto.valor for x in productos), Decimal(0)), moneda),
+        anuncios_total=sum(x.anuncios for x in productos),
+        sin_cobertura_d7=_sin_cobertura(hoy),
+        ventana_anterior=ventana_anterior,
+        productos_anteriores=elegidos,
+        gasto_evitado=evitado,
+        ventas_perdidas=perdidas,
+        sin_cobertura_d7_anterior=_sin_cobertura(antes),
+        sin_dato_despues=sum(1 for pid in elegidos if pid not in por_producto),
+        primer_dato=primer_dato,
+    )
+
+
+def _sin_cobertura(entradas: Iterable[EntradaProducto]) -> int:
+    return sum(
+        1
+        for e in entradas
+        if isinstance(e.actividad_pausa, SinDato)
+        and "fecha_desconocida" in e.actividad_pausa.motivos
     )
 
 
@@ -406,6 +627,8 @@ _TIPOS_JSON: dict[str, type] = {
         DiaProducto,
         AdsCompletos,
         AnuncioElegible,
+        AnuncioExcluido,
+        PropuestaPausa,
         GrupoAptoParaMeta,
         LimitesPausa,
         EntradaProducto,
@@ -437,7 +660,15 @@ def _de_json(valor: Any, tipo: Any) -> Any:
     if isinstance(valor, Mapping):
         clase = _TIPOS_JSON[valor["tipo"]]
         pistas = get_type_hints(clase)
-        return clase(**{f.name: _de_json(valor[f.name], pistas[f.name]) for f in fields(clase)})
+        # Un campo ausente toma su valor por omision (JSON congelado antes de
+        # que existiera); sin valor por omision, el constructor lanza.
+        return clase(
+            **{
+                f.name: _de_json(valor[f.name], pistas[f.name])
+                for f in fields(clase)
+                if f.name in valor
+            }
+        )
     if isinstance(valor, list):
         return tuple(_de_json(v, get_args(tipo)[0]) for v in valor)
     if isinstance(valor, str):

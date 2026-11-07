@@ -12,7 +12,7 @@ Subcomandos:
   drive-inertes   Receta curl de la pantalla Inertes + evidencia (HTML y JSON)
   drive-fabrica   Receta curl de Crear campanas + evidencia (HTML y JSON)
   drive-settings  Receta curl de Settings + evidencia (HTML y JSON)
-  drive-productos Receta curl de Productos sin clics (meta por producto) + evidencia
+  drive-productos Receta curl de Productos sin clics (meta, pausa y limites) + evidencia
   drive-campanas  Receta curl de la pantalla Campanas + captura de evidencia
   maintain-verification-skill
                  Orquesta launch + doctor + drives y hace teardown al final
@@ -42,6 +42,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 
 SKILL_DIR = Path(__file__).resolve().parents[1]
@@ -366,14 +367,17 @@ def _sembrar_productos(conn) -> dict:
     armadas con el resolutor real y guardadas con productos_io (lo mismo que
     escribe el ciclo): Collar demo con meta 4 % (margen 8 % x fraccion 0.5) en
     un grupo exclusivo cuya keyword pasa de Mantener a Mover con la meta, y
-    Aretes demo sin meta por halo_sin_margen. Reusa la config de la semilla."""
-    from decimal import Decimal
-
+    Aretes demo sin meta por halo_sin_margen. Reusa la config de la semilla.
+    AUTO-03 H: el mismo ciclo, con la pausa en practica, guarda tambien las
+    evaluaciones de Pulsera, Anillo y Broche leidas con el lector real sobre
+    _sembrar_pausa (Pulsera con dos propuestas de pausa); la simulacion de H.8
+    lee esa misma semilla."""
     from psycopg.types.json import Json
 
     if str(REPO_ROOT) not in sys.path:
         sys.path.insert(0, str(REPO_ROOT))
     from app import productos_io
+    from app.cycle import lee_goals
     from app.optimizer import goals as g
     from app.optimizer import productos as p
 
@@ -398,31 +402,7 @@ def _sembrar_productos(conn) -> dict:
         ).fetchone()[0]
         for fila in (("PV-COLLAR", "Collar demo"), ("PV-ARETES", "Aretes demo"))
     )
-    ciclo = conn.execute(
-        "INSERT INTO optimizer_cycle (motor, mode, platform, status, finished_at, notes)"
-        " VALUES ('ads_optimizer', 'live', 'amazon_mx', 'done', %s, %s) RETURNING id",
-        (
-            ahora,
-            Json(
-                {
-                    "productos": {
-                        "modo_meta": "shadow",
-                        "productos_evaluados": 2,
-                        "con_meta": 1,
-                        "grupos_aptos": 1,
-                        "hojas_bajo_grupo_apto": 1,
-                        "hojas_efectivas": 1,
-                        "hojas_pisadas_por_goal_con_target": 0,
-                    }
-                }
-            ),
-        ),
-    ).fetchone()[0]
-    conn.execute(
-        "INSERT INTO target_acos_ciclo (cycle_id, ad_entity_id, decided_at, target_acos_pct,"
-        " procedencia) VALUES (%s, %s, %s, 10.00, 'margen_plataforma')",
-        (ciclo, hoja, ahora),
-    )
+    pausa = _sembrar_pausa(conn, entidad, ahora, hoja)
 
     ventana_halo = p.Ventana(hoy - timedelta(days=90), hoy - timedelta(days=3))
 
@@ -510,12 +490,180 @@ def _sembrar_productos(conn) -> dict:
             }
         ]
     }
+    # H.5: las evaluaciones de los productos con anuncios, con el lector y el
+    # resolutor reales sobre la semilla de pausa (lo mismo que haria el ciclo).
+    settings = conn.execute(
+        "SELECT settings FROM config_version WHERE id = %s", (config_id,)
+    ).fetchone()[0]
+    goals_mx = lee_goals(
+        conn,
+        "amazon_mx",
+        [
+            f[0]
+            for f in conn.execute(
+                "SELECT id FROM ad_entity WHERE platform = 'amazon_mx' AND kind = 'campaign'"
+            )
+        ],
+    )
+    entradas = productos_io.lee_entradas_productos(
+        conn, "amazon_mx", decidido_el=ahora, settings=settings, goals=goals_mx
+    )
+    evaluaciones.extend(p.resolver_producto(e) for e in entradas)
+    ciclo = conn.execute(
+        "INSERT INTO optimizer_cycle (motor, mode, platform, status, finished_at, notes)"
+        " VALUES ('ads_optimizer', 'live', 'amazon_mx', 'done', %s, %s) RETURNING id",
+        (
+            ahora,
+            Json(
+                {
+                    "productos": {
+                        "modo_meta": "shadow",
+                        "modo_pausa": "shadow",
+                        **productos_io.resumen_cobertura("amazon_mx", evaluaciones, goals_mx),
+                    }
+                }
+            ),
+        ),
+    ).fetchone()[0]
+    conn.execute(
+        "INSERT INTO target_acos_ciclo (cycle_id, ad_entity_id, decided_at, target_acos_pct,"
+        " procedencia) VALUES (%s, %s, %s, 10.00, 'margen_plataforma')",
+        (ciclo, hoja, ahora),
+    )
     guardado = productos_io.guarda_evaluaciones(
         conn, ciclo, evaluaciones, config_version_id=config_id, sombra_hojas=sombra
     )
     if guardado.error:
         _die(f"semilla de productos: {guardado.error}")
-    return {"cycle_id": ciclo, "collar": collar, "aretes": aretes, "grupo": grupo, "hoja": hoja}
+    return {
+        "cycle_id": ciclo,
+        "collar": collar,
+        "aretes": aretes,
+        "grupo": grupo,
+        "hoja": hoja,
+        "config_version_id": config_id,
+        **pausa,
+    }
+
+
+def _sembrar_pausa(conn, entidad, ahora: datetime, hoja: int) -> dict:
+    """AUTO-03 H.5/H.8: tres productos de amazon_mx con product ads ENABLED en
+    Campana Q (goal de plataforma live) y filas del reporte de productos de
+    D-90 a D-31, maduras y con sus ad_ids. Pulsera gasta sin vender (150 clics,
+    600 MXN en [D-60, D-30)): propone pausar sus dos anuncios viejos; el tercero
+    nacio en la ventana (alta_en_ventana) y sus filas no son gasto sobre el que
+    Orbit pueda actuar (400 de 600). Anillo vendio despues de una ventana
+    anterior sin ventas (ventas que se habrian perdido). Broche tiene huecos sin
+    cobertura D.7 (fecha_desconocida). Una metrica reciente de la keyword del
+    collar da el watermark del mercado."""
+    from psycopg.types.json import Json
+
+    hoy = ahora.date()
+    run_id = conn.execute("SELECT max(id) FROM ingest_run").fetchone()[0]
+    conn.execute(
+        "INSERT INTO ads_metric_observation (ad_entity_id, metric_date, observed_at,"
+        " metric_currency, cost, ad_revenue, impressions, clicks, orders, ingest_run_id)"
+        " VALUES (%s, %s, %s, 'MXN', 1.0000, 0.0000, 10, 1, 0, %s)",
+        (hoja, hoy - timedelta(days=2), ahora, run_id),
+    )
+    conn.execute(
+        "INSERT INTO ads_optimizer_goal (scope, platform, bid_floor, bid_ceiling, bid_currency,"
+        " enabled, mode) VALUES ('platform', 'amazon_mx', 1.00, 10.00, 'MXN', true, 'live')"
+    )
+    camp = entidad("campaign", "9401", name="Campana Q")
+
+    def producto(sku: str, nombre: str, asin: str) -> tuple[int, int]:
+        pid = conn.execute(
+            "INSERT INTO product (odoo_sku, name) VALUES (%s, %s) RETURNING id", (sku, nombre)
+        ).fetchone()[0]
+        lid = conn.execute(
+            "INSERT INTO listing (product_id, platform, external_id, seller_sku)"
+            " VALUES (%s, 'amazon_mx', %s, %s) RETURNING id",
+            (pid, asin, sku),
+        ).fetchone()[0]
+        return pid, lid
+
+    def anuncio(externo: str, grupo_ext: str, grupo_nombre: str, listing: int, dias: int) -> int:
+        grupo = entidad("ad_group", grupo_ext, camp, name=grupo_nombre)
+        pa = entidad(
+            "product_ad",
+            externo,
+            grupo,
+            listing_id=listing,
+            first_seen_at=ahora - timedelta(days=dias),
+        )
+        conn.execute(
+            "INSERT INTO ad_entity_state (ad_entity_id, status, synced_at)"
+            " VALUES (%s, 'ENABLED', %s)",
+            (pa, ahora),
+        )
+        return pa
+
+    def filas(asin: str, sku: str, dias, clics, costo, ad_ids, ventas: dict) -> None:
+        for n in dias:
+            fecha = hoy - timedelta(days=n)
+            venta = ventas.get(n, "0")
+            compras = "1" if n in ventas else "0"
+            conn.execute(
+                "INSERT INTO ads_product_metric_observation (platform, advertised_asin,"
+                " advertised_sku, metric_date, observed_at, metric_currency, impressions, clicks,"
+                " cost, purchases30d, sales30d, purchases_same_sku30d,"
+                " attributed_sales_same_sku_30d, ad_ids, ingest_run_id) VALUES"
+                " ('amazon_mx', %s, %s, %s, %s, 'MXN', 100, %s, %s, %s, %s, %s, %s, %s, %s)",
+                (
+                    asin,
+                    sku,
+                    fecha,
+                    datetime(fecha.year, fecha.month, fecha.day, 1, tzinfo=UTC)
+                    + timedelta(days=30),
+                    clics(n),
+                    costo(n),
+                    compras,
+                    venta,
+                    compras,
+                    venta,
+                    Json(ad_ids(n)),
+                    run_id,
+                ),
+            )
+
+    pulsera, l_pulsera = producto("PV-PULSERA", "Pulsera demo", "B0PULSERA")
+    anillo, l_anillo = producto("PV-ANILLO", "Anillo demo", "B0ANILLO")
+    broche, l_broche = producto("PV-BROCHE", "Broche demo", "B0BROCHE")
+    pa_a = anuncio("9421", "9411", "Grupo pulsera A", l_pulsera, 120)
+    pa_b = anuncio("9422", "9412", "Grupo pulsera B", l_pulsera, 120)
+    pa_nuevo = anuncio("9423", "9413", "Grupo pulsera nuevo", l_pulsera, 40)
+    anuncio("9424", "9414", "Grupo anillo", l_anillo, 120)
+    anuncio("9425", "9415", "Grupo broche", l_broche, 120)
+    filas(
+        "B0PULSERA",
+        "PV-PULSERA",
+        range(31, 91),
+        lambda n: 5,
+        lambda n: "20.0000",
+        lambda n: ["9421", "9423"] if n <= 40 else ["9421", "9422"],
+        {},
+    )
+    filas(
+        "B0ANILLO",
+        "PV-ANILLO",
+        range(31, 91),
+        lambda n: 5 if n > 60 else 4,
+        lambda n: "20.0000" if n > 60 else "15.0000",
+        lambda n: ["9424"],
+        {35: "300.0000", 45: "300.0000", 55: "300.0000"},
+    )
+    filas(
+        "B0BROCHE", "PV-BROCHE", (45, 50), lambda n: 5, lambda n: "20.0000", lambda n: ["9425"], {}
+    )
+    return {
+        "pulsera": pulsera,
+        "anillo": anillo,
+        "broche": broche,
+        "propuestos": [pa_a, pa_b],
+        "alta_en_ventana": pa_nuevo,
+        "primer_dato": (hoy - timedelta(days=90)).isoformat(),
+    }
 
 
 def _http(url: str, timeout: float = 5.0) -> tuple[int, dict[str, str], bytes]:
@@ -1890,6 +2038,66 @@ def cmd_drive_settings(args: argparse.Namespace) -> None:
         _die("drive-settings FALLA: " + ", ".join(fallaron))
 
 
+def _simula_limites(base: str, evidence: Path, semilla: dict, limites_antes: dict) -> dict:
+    """productos-limites, simular sin guardar: la ruta de H.8 con los vigentes,
+    con otros limites y bajo el piso (422 con el minimo); despues, los limites
+    de la pantalla siguen iguales."""
+    checks: dict[str, bool] = {}
+
+    def simula(consulta: str, nombre: str) -> tuple[int, dict]:
+        st, _, raw = _http(f"{base}/api/dashboard/productos/simula-pausa?{consulta}", timeout=15)
+        (evidence / nombre).write_bytes(raw)
+        try:
+            return st, json.loads(raw.decode("utf-8"))
+        except ValueError:
+            return st, {}
+
+    def dinero(dato, valor: str) -> bool:
+        return (
+            isinstance(dato, dict)
+            and dato.get("tipo") == "Dinero"
+            and dato.get("moneda") == "MXN"
+            and Decimal(dato.get("valor", "NaN")) == Decimal(valor)
+        )
+
+    st_v, sim_v = simula("platform=amazon_mx", "05-simula-vigentes.json")
+    productos_v = sim_v.get("productos") or []
+    checks["simula_vigentes"] = (
+        st_v == 200
+        and sim_v.get("limites", {}).get("clics_min") == 100
+        and [x["producto"]["product_id"] for x in productos_v] == [semilla["pulsera"]]
+        and dinero(productos_v[0]["gasto"], "600")
+        and productos_v[0]["anuncios"] == 2
+        and sim_v.get("sin_cobertura_d7") == 1
+        and dinero(sim_v.get("gasto_evitado"), "1050")
+        and dinero(sim_v.get("ventas_perdidas"), "900")
+        and sim_v.get("primer_dato") == semilla["primer_dato"]
+    )
+    st_o, sim_o = simula("platform=amazon_mx&clics=200&gasto=500", "06-simula-otros.json")
+    checks["simula_otros_limites"] = (
+        st_o == 200
+        and sim_o.get("limites", {}).get("clics_min") == 200
+        and sim_o.get("productos") == []
+        and sim_o.get("sin_cobertura_d7") == 1
+        and dinero(sim_o.get("gasto_evitado"), "0")
+    )
+    st_c, sim_c = simula("platform=amazon_mx&clics=5&gasto=500", "07-simula-422-clics.json")
+    st_g, sim_g = simula("platform=amazon_mx&clics=100&gasto=10", "08-simula-422-gasto.json")
+    checks["simula_422_con_minimo"] = (
+        st_c == 422
+        and "al menos 20" in str(sim_c.get("detail"))
+        and st_g == 422
+        and "al menos 130 MXN" in str(sim_g.get("detail"))
+    )
+    stj2, _, rawj2 = _http(f"{base}/api/dashboard/productos-sin-clics?plataforma=amazon_mx")
+    (evidence / "09-productos-mx-despues.json").write_bytes(rawj2)
+    despues = (
+        json.loads(rawj2.decode("utf-8")).get("decisiones_producto", {}) if stj2 == 200 else {}
+    )
+    checks["simular_no_guarda"] = despues.get("limites_pausa") == limites_antes
+    return checks
+
+
 def cmd_drive_productos(args: argparse.Namespace) -> None:
     run_id = args.run_id or _latest_run_id()
     state = _load_state(run_id)
@@ -1923,7 +2131,7 @@ def cmd_drive_productos(args: argparse.Namespace) -> None:
         "http_200": st_mx == 200,
         "data-pantalla=productos-sin-clics": 'data-pantalla="productos-sin-clics"' in texto,
         "seccion_meta_por_producto": "Meta por producto" in seccion,
-        "chip_1_de_2_con_meta": "1 de 2 con meta" in seccion,
+        "chip_1_de_5_con_meta": "1 de 5 con meta" in seccion,
         "ciclo_en_practica": f"Ciclo {semilla['cycle_id']}" in seccion
         and "<strong>en práctica</strong>" in seccion,
         "filtro": 'id="decisiones-filtro"' in seccion
@@ -1943,6 +2151,74 @@ def cmd_drive_productos(args: argparse.Namespace) -> None:
         and "ningún grupo exclusivo" in fila_aretes,
     }
 
+    # productos-pausa (H.5): propuestas marcadas sin efecto con la pausa en
+    # practica, gasto observado frente al actuable, anuncios y motivos.
+    pausa = _tramo(texto, 'id="pausa-producto"', 'id="productos-limites"')
+    filas_pausa = pausa.split('<tr data-pausa-producto="')[1:]
+
+    def fila_pausa(producto: int) -> str:
+        return next((f for f in filas_pausa if f.startswith(f'{producto}"')), "")
+
+    f_pulsera = fila_pausa(semilla["pulsera"])
+    f_anillo = fila_pausa(semilla["anillo"])
+    f_broche = fila_pausa(semilla["broche"])
+    propuestas = [f_pulsera.split(f'data-propuesta="{a}"')[1:] for a in semilla["propuestos"]]
+    checks.update(
+        {
+            "pausa_seccion": "Pausa por producto" in pausa
+            and "1 de 5 con propuesta" in pausa
+            and "<strong>en práctica</strong>" in pausa
+            and "no pausan ningún anuncio" in pausa,
+            "pausa_pulsera_primero": bool(filas_pausa)
+            and filas_pausa[0].startswith(f'{semilla["pulsera"]}"'),
+            "pausa_pulsera_gasto_observado_vs_actuable": "Pulsera demo" in f_pulsera
+            and "600.00 MXN" in f_pulsera
+            and "150 clics" in f_pulsera
+            and re.search(r"data-gasto-actuable>\s*400\.00 MXN", f_pulsera) is not None,
+            "pausa_pulsera_anuncios": "2 al alcance" in f_pulsera
+            and 'data-excluido="alta_en_ventana"' in f_pulsera
+            and "1 fuera: el anuncio no existia antes de la ventana" in f_pulsera,
+            "pausa_propuestas_sin_efecto": all(
+                p and "propuesta, sin efecto" in p[0].split("</li>")[0] for p in propuestas
+            )
+            and "Grupo pulsera A" in f_pulsera
+            and "Grupo pulsera B" in f_pulsera
+            and "9421" in f_pulsera,
+            "pausa_confirmados_de_total": re.search(r"data-confirmados>\s*0 de 2", f_pulsera)
+            is not None,
+            "pausa_anillo_vendio": 'data-motivo-pausa="vendio_en_ventana"' in f_anillo
+            and re.search(r"data-confirmados>\s*0 de 0", f_anillo) is not None,
+            "pausa_broche_sin_dato_es_raya": re.search(r"data-gasto-observado>\s*—", f_broche)
+            is not None
+            and 'data-motivo-actividad="fecha_desconocida"' in f_broche
+            and re.search(r"data-gasto-actuable>\s*—", f_broche) is not None,
+        }
+    )
+
+    # productos-limites (H.9): campos con los vigentes y el guardado con token.
+    limites = _tramo(texto, 'id="productos-limites"', 'id="productos-retiro"')
+    checks.update(
+        {
+            "limites_vigentes": "Vigentes: <strong>100 clics</strong> y "
+            "<strong>500.00 MXN</strong>" in limites,
+            "limites_campos": re.search(r'id="limites-clics"[^>]*value="100"', limites) is not None
+            and re.search(r'id="limites-gasto"[^>]*value="500"', limites) is not None
+            and 'for="limites-clics"' in limites
+            and 'for="limites-gasto"' in limites
+            and "Gasto mínimo (MXN)" in limites,
+            "limites_simular_y_guardar": 'id="limites-simular"' in limites
+            and ">Simular sin guardar</button>" in limites
+            and f'data-config-id="{semilla["config_version_id"]}"' in limites
+            and 'type="password" id="limites-token"' in limites
+            and ">Guardar límites</button>" in limites
+            and 'role="status"' in limites,
+            # h_c4a60451: sin las claves en la config los vigentes son los de
+            # omision y la pantalla deja guardarlos tal cual.
+            "limites_por_omision_guardables": 'data-guardados="false"' in limites
+            and "(por omisión, todavía sin guardar)" in limites,
+        }
+    )
+
     st_us, html_us = _get_html(base, "/productos-sin-clics?plataforma=amazon_us")
     (evidence / "03-productos-us.html").write_bytes(html_us)
     texto_us = html_us.decode("utf-8", errors="replace")
@@ -1950,6 +2226,10 @@ def cmd_drive_productos(args: argparse.Namespace) -> None:
         st_us == 200
         and 'id="decisiones-producto"' in texto_us
         and "Este ciclo no evaluó productos: la meta está apagada" in texto_us
+    )
+    checks["us_limites_en_usd"] = (
+        'id="pausa-producto"' not in texto_us
+        and "Vigentes: <strong>100 clics</strong> y <strong>40.00 USD</strong>" in texto_us
     )
 
     stj, _, rawj = _http(f"{base}/api/dashboard/productos-sin-clics?plataforma=amazon_mx")
@@ -1969,15 +2249,53 @@ def cmd_drive_productos(args: argparse.Namespace) -> None:
     checks["api_aretes"] = aretes.get("meta_pct") is None and "halo_sin_margen" in [
         m["codigo"] for m in aretes.get("motivos", [])
     ]
+    api_pausa = dp.get("pausa") or {}
+    pausas = {pr["product_id"]: pr for pr in api_pausa.get("productos", [])}
+    pulsera = pausas.get(semilla["pulsera"], {})
+    checks["api_pausa"] = (
+        api_pausa.get("modo") == "shadow"
+        and pulsera.get("gasto_observado") == "600.00"
+        and pulsera.get("gasto_actuable") == "400.00"
+        and pulsera.get("total") == 2
+        and pulsera.get("confirmados") == 0
+        and [a["ad_entity_id"] for a in pulsera.get("propuestas", [])] == semilla["propuestos"]
+        and pausas.get(semilla["broche"], {}).get("gasto_observado", 0) is None
+    )
+    limites_antes = dp.get("limites_pausa") or {}
+    checks["api_limites_vigentes"] = limites_antes == {
+        "config_version_id": semilla["config_version_id"],
+        "clics": 100,
+        "gasto": "500",
+        "gasto_texto": "500.00",
+        "moneda": "MXN",
+        "error": None,
+        "guardados": False,
+    }
+
+    checks.update(_simula_limites(base, evidence, semilla, limites_antes))
 
     stjs, _, js = _http(f"{base}/static/js/productos.js")
     checks["js_filtro_cableado"] = stjs == 200 and b'getElementById("decisiones-filtro")' in js
+    checks["js_limites_cableado"] = stjs == 200 and all(
+        marca.encode() in js
+        for marca in (
+            'getElementById("limites-simular")',
+            "/api/dashboard/productos/simula-pausa?platform=",
+            '"/api/ads-optimizer/settings/"',
+            '"x-orbit-token"',
+            "El gasto pasado no es ahorro seguro",
+            "Gasto que se habría evitado",
+            "Ventas que se habrían perdido",
+            "Hay datos del reporte de productos desde el ",
+        )
+    )
 
     prueba = {
         "feature": "productos",
         "entry_point": "nav /productos-sin-clics",
         "base_url": base,
         "action": "GET /productos-sin-clics (mx y us), GET /api/dashboard/productos-sin-clics, "
+        "GET /api/dashboard/productos/simula-pausa (vigentes, otros limites y bajo el piso), "
         "GET /static/js/productos.js",
         "checks": checks,
         "ok": all(checks.values()),

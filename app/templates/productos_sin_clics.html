@@ -152,6 +152,7 @@
       {% endfor %}
     </select>
   </label>
+  <div class="tabla-scroll" role="region" aria-label="Meta por producto" tabindex="0">
   <table id="decisiones-tabla">
     <thead><tr><th>Producto</th><th>Margen</th><th>Meta</th><th>Grupos donde aplicaría</th><th>Por qué</th></tr></thead>
     <tbody>
@@ -198,9 +199,107 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
   {% endif %}
   {% endif %}
 </div>
+
+{% if dp and dp.cycle_id and dp.productos %}
+{% set pz = dp.pausa %}
+<div class="tarjeta" id="pausa-producto" data-modo-pausa="{{ pz.modo or 'off' }}">
+  <h3>Pausa por producto <span class="chip">{{ pz.con_propuestas }} de {{ pz.productos | length }} con propuesta</span></h3>
+  <p class="mutado">
+    Un producto que gastó sin vender en la ventana de 30 días que terminó hace 30 días, con los
+    clics y el gasto mínimos, propone pausar sus anuncios al alcance de Orbit. El gasto observado
+    es todo el del producto en esa ventana; el gasto sobre el que Orbit puede actuar es solo el de
+    las filas cuyos anuncios son todos pausables.
+  </p>
+  <p data-pausa-modo>
+    Ciclo {{ dp.cycle_id }} · la pausa está <strong>{{ pz.modo_texto }}</strong>{% if pz.modo != "live" %}: las propuestas quedan registradas y no pausan ningún anuncio{% endif %}.
+    {{ pz.propuestas }} anuncios propuestos · {{ pz.confirmados }} confirmados.
+  </p>
+  <div class="tabla-scroll" role="region" aria-label="Pausa por producto" tabindex="0">
+  <table id="pausas-tabla">
+    <thead><tr><th>Producto</th><th>Gasto observado</th><th>Gasto sobre el que Orbit puede actuar</th><th>Anuncios</th><th>Propuestas</th><th>Confirmados</th><th>Por qué</th></tr></thead>
+    <tbody>
+      {% for pr in pz.productos %}
+      <tr data-pausa-producto="{{ pr.product_id }}" data-nombre="{{ pr.nombre or '—' }} · {{ pr.sku }}">
+        <td>{{ pr.nombre or "—" }} <span class="mutado">{{ pr.sku }}</span></td>
+        <td data-gasto-observado>
+          {% if pr.gasto_observado is not none %}{{ pr.gasto_observado }} {{ pr.moneda }}<br><span class="mutado">{{ pr.clics }} clics del {{ pr.ventana_desde }} al {{ pr.ventana_ultimo_dia }}</span>
+          {% else %}—{% for m in pr.motivos_actividad %}<br><span class="mutado" data-motivo-actividad="{{ m.codigo }}">{{ m.etiqueta }}</span>{% endfor %}{% endif %}
+        </td>
+        <td data-gasto-actuable>{{ (pr.gasto_actuable ~ " " ~ pr.moneda) if pr.gasto_actuable is not none else "—" }}</td>
+        <td>
+          {{ pr.elegibles }} al alcance
+          {% if pr.excluidos %}<ul>{% for x in pr.excluidos %}<li data-excluido="{{ x.codigo }}">{{ x.n }} fuera: {{ x.etiqueta }}</li>{% endfor %}</ul>{% endif %}
+        </td>
+        <td>
+          {% if pr.propuestas %}
+          <ul>
+            {% for a in pr.propuestas %}
+            <li data-propuesta="{{ a.ad_entity_id }}">
+              Pausar anuncio {{ a.anuncio }}{% if a.externo and a.externo != a.anuncio %} <span class="mutado">{{ a.externo }}</span>{% endif %}
+              <span class="mutado">· {{ a.grupo }}</span>
+              {% if pz.modo != "live" %}<span class="chip aviso" data-sin-efecto>propuesta, sin efecto</span>
+              {% else %}<span class="chip" data-estado-cola>{{ a.estado_cola or "sin fila en la cola" }}</span>{% endif %}
+            </li>
+            {% endfor %}
+          </ul>
+          {% else %}—{% endif %}
+        </td>
+        <td data-confirmados>{{ pr.confirmados }} de {{ pr.total }}</td>
+        <td>
+          {% if pr.motivos %}
+          <ul>{% for m in pr.motivos %}<li data-motivo-pausa="{{ m.codigo }}">{{ m.etiqueta }}</li>{% endfor %}</ul>
+          {% else %}—{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endif %}
+
+{% set lim = dp.limites_pausa if dp else none %}
+{% if lim %}
+<div class="tarjeta" id="productos-limites">
+  <h3>Límites de la pausa · {{ "Amazon MX" if plataforma == "amazon_mx" else "Amazon US" }}</h3>
+  <p class="mutado">
+    Para proponer la pausa, el producto tiene que llegar a los dos sin vender, en la ventana de
+    30 días que terminó hace 30 días.
+  </p>
+  {% if lim.error %}
+  <p class="aviso" data-limites-error>No se pueden leer los límites vigentes: {{ lim.error }}</p>
+  {% else %}
+  <p data-limites-vigentes>Vigentes: <strong>{{ lim.clics }} clics</strong> y <strong>{{ lim.gasto_texto }} {{ lim.moneda }}</strong> de gasto{% if not lim.guardados %} (por omisión, todavía sin guardar){% endif %}.</p>
+  {% endif %}
+  <form id="limites-simular" class="filtros" data-plataforma="{{ plataforma }}" data-moneda="{{ lim.moneda }}">
+    <label for="limites-clics">Clics mínimos
+      <input type="text" id="limites-clics" name="clics" inputmode="numeric" maxlength="9" value="{{ lim.clics if lim.clics is not none else '' }}" aria-describedby="limites-ayuda" required>
+    </label>
+    <label for="limites-gasto">Gasto mínimo ({{ lim.moneda }})
+      <input type="text" id="limites-gasto" name="gasto" inputmode="decimal" maxlength="14" value="{{ lim.gasto or '' }}" aria-describedby="limites-ayuda" required>
+    </label>
+    <button type="submit">Simular sin guardar</button>
+  </form>
+  <p id="limites-ayuda" class="mutado">Al cambiar un límite la pantalla simula qué pausaría con él, sin guardar nada.</p>
+  <p id="limites-sim-estado" class="mutado" role="status"></p>
+  <div id="limites-simulacion"></div>
+  {% if lim.config_version_id %}
+  <form id="limites-guardar" class="filtros" data-plataforma="{{ plataforma }}" data-config-id="{{ lim.config_version_id }}" data-guardados="{{ 'true' if lim.guardados else 'false' }}">
+    <label for="limites-token">Token
+      <input type="password" id="limites-token" name="token" placeholder="x-orbit-token" autocomplete="off" required>
+    </label>
+    <button type="submit">Guardar límites</button>
+    <span data-estado role="status"></span>
+  </form>
+  {% else %}
+  <p class="aviso" data-limites-sin-config>Todavía no hay una config guardada sobre la cual editar los límites.</p>
+  {% endif %}
+</div>
+{% endif %}
 
 <div class="tarjeta" id="productos-retiro" hidden>
   <h3>Retiro de las bolsas compartidas</h3>

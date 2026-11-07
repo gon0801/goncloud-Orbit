@@ -35,6 +35,7 @@ from decimal import Decimal
 import psycopg
 from psycopg.types.json import Jsonb
 
+from app import config_write
 from app.ads.reports import PRODUCTOS_CFG
 from app.evaluacion_catalogo import (
     ObservacionAds,
@@ -113,6 +114,37 @@ SELECT a.id, a.fecha_desde, a.fecha_hasta, r.started_at
    AND a.fecha_desde < %s AND a.fecha_hasta >= %s AND r.started_at <= %s
 """
 
+# Claves de efecto de la familia entity_cut en vuelo o con veto vigente: el
+# mismo predicado que apply_cola._SQL_CLAVES_BLOQUEADAS. Con ignora_practicas
+# (simulacion, H.8) las filas shadow no terminales de pause no bloquean: son
+# las que I.7 descarta al encender la pausa.
+_SQL_CLAVES_EN_VUELO = """
+SELECT ad_entity_id
+  FROM apply_queue
+ WHERE platform = %(plataforma)s::platform AND familia = 'entity_cut'
+   AND ((estado NOT IN ('applied', 'failed', 'vetoed', 'discarded')
+         AND NOT (%(ignora_practicas)s AND modo = 'shadow' AND kind = 'pause'))
+        OR (estado = 'vetoed' AND vence_el > %(ahora)s))
+"""
+
+_SQL_IMPULSO_ABIERTO = """
+SELECT ad_group_ad_entity_id, product_id
+  FROM v_ad_group_impulso_abierto
+ WHERE platform = %s::platform
+"""
+
+_SQL_REGRESADOS = """
+SELECT ad_entity_id, retiro_id, regresado_el
+  FROM v_anuncio_regresado
+ WHERE platform = %s::platform
+"""
+
+_SQL_CIERRA_REACTIVADO = "SELECT cierra_retiro_reactivado(%s)"
+
+_SQL_PRIMER_DATO = """
+SELECT min(metric_date) FROM ads_product_metric_observation WHERE platform = %s::platform
+"""
+
 _SQL_INSERTA = """
 INSERT INTO evaluacion_producto_ciclo
     (cycle_id, platform, product_id, decided_at, config_version_id, politica, moneda,
@@ -138,10 +170,15 @@ class _Cubierta:
     empezo: dt.datetime
 
 
+class SinMetricasDeAnuncios(ValueError):
+    """El mercado no tiene watermark: ninguna metrica de anuncios que leer."""
+
+
 @dataclass(frozen=True)
 class ResultadoGuardado:
     ids: dict[tuple[str, int], int]
     error: str | None
+    retiros_cerrados: tuple[int, ...] = ()
 
 
 def lee_entradas_productos(
@@ -151,12 +188,21 @@ def lee_entradas_productos(
     decidido_el: dt.datetime,
     settings: Mapping,
     goals: tuple[g.Goal | None, Mapping[int, g.Goal]],
+    ignora_practicas: bool = False,
+    observadas_hasta: dt.datetime | None = None,
 ) -> tuple[p.EntradaProducto, ...]:
+    """Las entradas del ciclo. `observadas_hasta` (por omision decidido_el)
+    acota las observaciones y las corridas de cobertura: con decidido_el en
+    el pasado no se ve el futuro (regla 5). `ignora_practicas` no cuenta como
+    clave en vuelo las filas shadow de pause (simulacion, H.8)."""
+    observadas_hasta = observadas_hasta or decidido_el
     moneda = PLATAFORMAS_MONEDA[plataforma]
     hoy = decidido_el.astimezone(dt.UTC).date()
     watermark = windows.watermark_plataforma(conn, plataforma)
     if watermark is None:
-        raise ValueError(f"plataforma {plataforma} sin watermark: no hay ventana de halo")
+        raise SinMetricasDeAnuncios(
+            f"plataforma {plataforma} sin watermark: no hay ventana de halo"
+        )
     ventana_halo = p.Ventana(
         hoy - dt.timedelta(days=windows.LOOKBACK_EVIDENCIA),
         windows.fin_ventana_bids(watermark) + dt.timedelta(days=1),
@@ -207,7 +253,7 @@ def lee_entradas_productos(
         asins=sorted({asin for lista in claves.values() for asin, _ in lista}),
         desde=min(ventana_halo.desde, ventana_pausa.desde),
         hasta=max(ventana_halo.hasta_exclusivo, ventana_pausa.hasta_exclusivo),
-        decidido_el=decidido_el,
+        decidido_el=observadas_hasta,
     )
     cubiertas = [
         _Cubierta(*fila)
@@ -218,47 +264,26 @@ def lee_entradas_productos(
                 PRODUCTOS_CFG["nombre"],
                 ventana_pausa.hasta_exclusivo,
                 ventana_pausa.desde,
-                decidido_el,
+                observadas_hasta,
             ),
         )
     ]
+    alcance = _Alcance.lee(
+        conn,
+        plataforma,
+        decidido_el=decidido_el,
+        ignora_practicas=ignora_practicas,
+        goals=goals,
+        campana_de=campana_de,
+        grupos=grupos,
+        habilitados=habilitados,
+        ad_ids=ad_ids,
+    )
     fraccion_valor = g.fraccion_desde_settings(settings, plataforma)
     fraccion: Decimal | p.SinDato = (
         fraccion_valor if fraccion_valor is not None else p.SinDato(("sin_fraccion",))
     )
     limites = p.limites_pausa_desde_settings(settings, plataforma)
-    goal_plataforma, goals_por_campana = goals
-    inicio_ventana = dt.datetime.combine(ventana_pausa.desde, dt.time.min, dt.UTC)
-    ids_por_clave: dict[tuple[str, str], set[str]] = defaultdict(set)
-    for (asin, sku, fecha), ids in ad_ids.items():
-        if ventana_pausa.contiene(fecha):
-            ids_por_clave[(asin, sku)].update(ids)
-
-    def anuncios_del_producto(producto: int) -> tuple[p.AnuncioElegible, ...]:
-        """S4 hasta donde D puede leer: ENABLED, con identidad, goal resuelto
-        enabled y live, alta anterior a la ventana y adId en ad_ids de la
-        ventana (filas del mismo SKU). Impulso abierto y claves en vuelo: H."""
-        en_ventana = set().union(*(ids_por_clave.get(clave, ()) for clave in claves[producto]))
-        elegibles = []
-        for anuncio, grupo, externo, alta in habilitados.get(producto, ()):
-            goal = g.resuelve_goal(goals_por_campana.get(campana_de[grupo]), goal_plataforma)
-            if (
-                goal is not None
-                and goal.enabled
-                and goal.mode == "live"
-                and alta is not None
-                and alta < inicio_ventana
-                and externo in en_ventana
-            ):
-                elegibles.append(
-                    p.AnuncioElegible(
-                        ad_entity_id=anuncio.ad_entity_id,
-                        listing_id=anuncio.listing_id,
-                        grupo_id=grupo,
-                        huella_alcance=_huella(grupos[grupo]),
-                    )
-                )
-        return tuple(sorted(elegibles, key=lambda a: a.ad_entity_id))
 
     entradas = []
     for producto in productos_ids:
@@ -281,6 +306,8 @@ def lee_entradas_productos(
             for grupo, dueno in sorted(exclusivos.items())
             if dueno == producto
         )
+        anuncios, excluidos, externos = alcance.del_producto(producto, claves[producto])
+        actividad = _actividad(ventana_pausa, mismo_sku, cubiertas, moneda)
         entradas.append(
             p.EntradaProducto(
                 producto=p.Producto(plataforma, producto),
@@ -289,14 +316,161 @@ def lee_entradas_productos(
                 fraccion=fraccion,
                 ventana_halo=ventana_halo,
                 dias_halo=dias_halo,
-                actividad_pausa=_actividad(ventana_pausa, mismo_sku, cubiertas, moneda),
-                anuncios=anuncios_del_producto(producto),
+                actividad_pausa=actividad,
+                anuncios=anuncios,
                 grupos_aptos_para_meta=grupos_aptos,
                 impedimentos=tuple(dict.fromkeys(impedimentos)),
                 limites_pausa=limites,
+                excluidos=excluidos,
+                bloqueos_pausa=(
+                    ("impulso_abierto",) if producto in alcance.productos_impulso else ()
+                ),
+                gasto_actuable=(
+                    _gasto_actuable(
+                        claves[producto], observaciones, ad_ids, externos, ventana_pausa, moneda
+                    )
+                    if isinstance(actividad, p.AdsCompletos)
+                    else None
+                ),
             )
         )
     return tuple(entradas)
+
+
+@dataclass(frozen=True)
+class _Alcance:
+    """Lo que decide si un product ad ENABLED del producto esta al alcance de
+    la pausa (S4, S17), leido una vez por lectura."""
+
+    decidido_el: dt.datetime
+    inicio_ventana: dt.datetime
+    goals: tuple[g.Goal | None, Mapping[int, g.Goal]]
+    campana_de: Mapping[int, int]
+    grupos: Mapping[int, list[_Anuncio]]
+    habilitados: Mapping[int, list[tuple[_Anuncio, int, str, dt.datetime | None]]]
+    ids_por_clave: Mapping[tuple[str, str], set[str]]
+    en_vuelo: frozenset[int]
+    grupos_impulso: frozenset[int]
+    productos_impulso: frozenset[int]
+    regresados: Mapping[int, tuple[int, dt.datetime | None]]
+
+    @classmethod
+    def lee(
+        cls,
+        conn: psycopg.Connection,
+        plataforma: str,
+        *,
+        decidido_el: dt.datetime,
+        ignora_practicas: bool,
+        goals: tuple[g.Goal | None, Mapping[int, g.Goal]],
+        campana_de: Mapping[int, int],
+        grupos: Mapping[int, list[_Anuncio]],
+        habilitados: Mapping[int, list[tuple[_Anuncio, int, str, dt.datetime | None]]],
+        ad_ids: Mapping[tuple[str, str, dt.date], frozenset[str]],
+    ) -> _Alcance:
+        ventana = p.ventana_pausa(decidido_el)
+        ids_por_clave: dict[tuple[str, str], set[str]] = defaultdict(set)
+        for (asin, sku, fecha), ids in ad_ids.items():
+            if ventana.contiene(fecha):
+                ids_por_clave[(asin, sku)].update(ids)
+        impulso = conn.execute(_SQL_IMPULSO_ABIERTO, (plataforma,)).fetchall()
+        en_vuelo = conn.execute(
+            _SQL_CLAVES_EN_VUELO,
+            {"plataforma": plataforma, "ignora_practicas": ignora_practicas, "ahora": decidido_el},
+        ).fetchall()
+        return cls(
+            decidido_el=decidido_el,
+            inicio_ventana=dt.datetime.combine(ventana.desde, dt.time.min, dt.UTC),
+            goals=goals,
+            campana_de=campana_de,
+            grupos=grupos,
+            habilitados=habilitados,
+            ids_por_clave=ids_por_clave,
+            en_vuelo=frozenset(fila[0] for fila in en_vuelo),
+            grupos_impulso=frozenset(fila[0] for fila in impulso),
+            productos_impulso=frozenset(fila[1] for fila in impulso),
+            regresados={
+                fila[0]: (fila[1], fila[2]) for fila in conn.execute(_SQL_REGRESADOS, (plataforma,))
+            },
+        )
+
+    def _motivo_fuera(
+        self, anuncio: _Anuncio, grupo: int, externo: str, alta, en_ventana: set[str]
+    ) -> str | None:
+        """None si el anuncio es elegible. El regreso va primero: un
+        reactivado a mano lleva su retiro para que TX3 lo cierre."""
+        regreso = self.regresados.get(anuncio.ad_entity_id)
+        if regreso is not None and (
+            regreso[1] is None or self.decidido_el - regreso[1] < p.GRACIA_REGRESADO
+        ):
+            return "regresado_por_ti"
+        goal_plataforma, por_campana = self.goals
+        goal = g.resuelve_goal(por_campana.get(self.campana_de[grupo]), goal_plataforma)
+        if goal is None or not goal.enabled or goal.mode != "live":
+            return "goal_no_live"
+        if alta is None or alta >= self.inicio_ventana:
+            return "alta_en_ventana"
+        if externo not in en_ventana:
+            return "sin_actividad_en_ventana"
+        if grupo in self.grupos_impulso:
+            return "impulso_abierto"
+        if anuncio.ad_entity_id in self.en_vuelo:
+            return "clave_en_vuelo"
+        return None
+
+    def del_producto(
+        self, producto: int, claves: Sequence[tuple[str, str | None]]
+    ) -> tuple[tuple[p.AnuncioElegible, ...], tuple[p.AnuncioExcluido, ...], set[str]]:
+        """Los anuncios elegibles, los excluidos con su motivo y los adId
+        externos de los elegibles."""
+        en_ventana: set[str] = set().union(*(self.ids_por_clave.get(c, ()) for c in claves))
+        elegibles = []
+        excluidos = []
+        externos: set[str] = set()
+        for anuncio, grupo, externo, alta in self.habilitados.get(producto, ()):
+            motivo = self._motivo_fuera(anuncio, grupo, externo, alta, en_ventana)
+            if motivo is None:
+                externos.add(externo)
+                elegibles.append(
+                    p.AnuncioElegible(
+                        ad_entity_id=anuncio.ad_entity_id,
+                        listing_id=anuncio.listing_id,
+                        grupo_id=grupo,
+                        huella_alcance=_huella(self.grupos[grupo]),
+                    )
+                )
+                continue
+            regreso = self.regresados.get(anuncio.ad_entity_id)
+            reactivado = motivo == "regresado_por_ti" and regreso is not None and regreso[1] is None
+            excluidos.append(
+                p.AnuncioExcluido(anuncio.ad_entity_id, motivo, regreso[0] if reactivado else None)
+            )
+        return (
+            tuple(sorted(elegibles, key=lambda a: a.ad_entity_id)),
+            tuple(sorted(excluidos, key=lambda a: a.ad_entity_id)),
+            externos,
+        )
+
+
+def _gasto_actuable(
+    claves: Sequence[tuple[str, str | None]],
+    observaciones: Mapping[tuple[str, str], Mapping[dt.date, ObservacionAds]],
+    ad_ids: Mapping[tuple[str, str, dt.date], frozenset[str]],
+    externos: set[str],
+    ventana: p.Ventana,
+    moneda: str,
+) -> p.Dinero:
+    """S4: el gasto de las filas de la ventana de la pausa (mismo SKU) cuyos
+    ad_ids son todos anuncios elegibles. Una fila con otro anuncio o sin
+    ad_ids no es gasto sobre el que Orbit pueda actuar: pertenencia, nunca
+    reparto. Solo se llama con la actividad completa (sin costos ausentes)."""
+    total = Decimal(0)
+    for asin, sku in claves:
+        for fecha, obs in observaciones.get((asin, sku), {}).items():
+            ids = ad_ids.get((asin, sku, fecha))
+            if ventana.contiene(fecha) and ids and ids <= externos and obs.cost is not None:
+                total += obs.cost
+    return p.Dinero(total, moneda)
 
 
 def claves_por_producto(
@@ -481,7 +655,7 @@ def resultado_json(evaluacion: p.EvaluacionProducto, sombra_hojas: Sequence[dict
     columna), las pausas propuestas y la sombra por hoja del ciclo."""
     datos = evaluacion.como_json()
     del datos["entrada"]
-    return {**datos, "pausas": [], "sombra_hojas": list(sombra_hojas)}
+    return {**datos, "sombra_hojas": list(sombra_hojas)}
 
 
 def evaluacion_de_fila(entrada: Mapping, resultado: Mapping) -> p.EvaluacionProducto:
@@ -495,12 +669,18 @@ def guarda_evaluaciones(
     *,
     config_version_id: int | None,
     sombra_hojas: Mapping[int, Sequence[dict]],
+    cierra_reactivados: bool = False,
 ) -> ResultadoGuardado:
     """TX3, dentro de su propio SAVEPOINT: todas las evaluaciones o ninguna.
-    Un error queda en el resultado para las notas del ciclo, no se lanza."""
+    Un error queda en el resultado para las notas del ciclo, no se lanza.
+    Con `cierra_reactivados` (la pausa encendida) cierra ademas el retiro de
+    cada anuncio reactivado a mano en Amazon que la lectura detecto (S17): su
+    gracia corre desde este ciclo; con la llave del retiro ocupada lo intenta
+    el ciclo siguiente. Con la pausa apagada no toca el ledger de retiro."""
     try:
         with conn.transaction():
             ids: dict[tuple[str, int], int] = {}
+            cerrados: list[int] = []
             for ev in evaluaciones:
                 entrada = ev.entrada
                 producto = entrada.producto
@@ -531,9 +711,17 @@ def guarda_evaluaciones(
                     ),
                 ).fetchone()
                 ids[(producto.plataforma, producto.product_id)] = fila[0]
+                for excluido in entrada.excluidos if cierra_reactivados else ():
+                    if excluido.retiro_id is None:
+                        continue
+                    cerrado = conn.execute(
+                        _SQL_CIERRA_REACTIVADO, (excluido.retiro_id,)
+                    ).fetchone()[0]
+                    if cerrado is not None:
+                        cerrados.append(excluido.retiro_id)
     except Exception as exc:  # noqa: BLE001 - el camino de productos jamas tumba el ciclo
         return ResultadoGuardado({}, scrub(str(exc)) or type(exc).__name__)
-    return ResultadoGuardado(ids, None)
+    return ResultadoGuardado(ids, None, tuple(cerrados))
 
 
 def resumen_cobertura(
@@ -546,21 +734,30 @@ def resumen_cobertura(
     trae target (S1); es efectiva si su producto tiene meta y su goal la deja
     entrar (enabled, modo distinto de off, sin target). Un candidato a pausa
     cumple productos.cumple_limites_pausa; sus anuncios afectables son los
-    AnuncioElegible de su entrada."""
+    AnuncioElegible de su entrada. Las propuestas de pausa son las de la
+    regla completa (H.2): una por anuncio elegible de un producto sin ventas,
+    sin impulso abierto ni impedimento de identidad."""
     goal_plataforma, por_campana = goals
     grupos_aptos = hojas = pisadas = efectivas = con_meta = completas = 0
-    candidatos = afectables = elegibles = 0
+    candidatos = afectables = elegibles = con_pausa = propuestas = 0
     abstenciones: Counter[str] = Counter()
     motivos_pausa: Counter[str] = Counter()
+    sin_pausa: Counter[str] = Counter()
+    excluidos: Counter[str] = Counter()
     for ev in evaluaciones:
         tiene_meta = isinstance(ev.meta, p.MetaReferencia)
         con_meta += tiene_meta
         if isinstance(ev.meta, p.SinDato):
             abstenciones.update(ev.meta.motivos)
         elegibles += len(ev.entrada.anuncios)
+        excluidos.update(x.motivo for x in ev.entrada.excluidos)
         if p.cumple_limites_pausa(ev.entrada):
             candidatos += 1
             afectables += len(ev.entrada.anuncios)
+        con_pausa += bool(ev.pausas)
+        propuestas += len(ev.pausas)
+        if p.cumple_limites_pausa(ev.entrada) and not ev.pausas:
+            sin_pausa.update(ev.motivos_pausa)
         actividad = ev.entrada.actividad_pausa
         if isinstance(actividad, p.AdsCompletos):
             completas += 1
@@ -587,7 +784,53 @@ def resumen_cobertura(
         "candidatos_pausa": candidatos,
         "anuncios_afectables": afectables,
         "anuncios_elegibles": elegibles,
-        "alcance_anuncios": "S4 sin excluir impulso abierto ni claves en vuelo (bloque H)",
+        "alcance_anuncios": "S4 completo: impulso abierto, claves en vuelo y regresados fuera",
+        "productos_con_pausa": con_pausa,
+        "propuestas_pausa": propuestas,
+        "candidatos_sin_propuesta": dict(sorted(sin_pausa.items())),
+        "anuncios_excluidos": dict(sorted(excluidos.items())),
         "abstenciones": dict(sorted(abstenciones.items())),
         "motivos_ventana_pausa": dict(sorted(motivos_pausa.items())),
     }
+
+
+def limites_de_simulacion(
+    settings: Mapping, plataforma: str, *, clics: str | None, gasto: str | None
+) -> p.LimitesPausa:
+    """Los limites vigentes con los que pida la pantalla, leidos con el mismo
+    lector (C.7) y validados con los mismos pisos que el guardado: un limite
+    invalido lanza config_write.SettingsInvalido (422 en la ruta)."""
+    crudos = dict(settings)
+    if clics is not None:
+        crudos[p.clave_limite("clics", plataforma)] = clics
+    if gasto is not None:
+        crudos[p.clave_limite("gasto", plataforma)] = gasto
+    try:
+        limites = p.limites_pausa_desde_settings(crudos, plataforma)
+    except ValueError as exc:
+        raise config_write.SettingsInvalido(str(exc)) from exc
+    config_write.valida_limites_pausa(plataforma, limites)
+    return limites
+
+
+def simula_pausa(
+    conn: psycopg.Connection,
+    plataforma: str,
+    *,
+    ahora: dt.datetime,
+    settings: Mapping,
+    goals: tuple[g.Goal | None, Mapping[int, g.Goal]],
+    limites: p.LimitesPausa,
+) -> p.SimulacionPausa:
+    """H.8, solo lectura: la regla de la pausa con `limites` sobre las
+    entradas de hoy (sin contar las practicas abiertas como clave en vuelo:
+    es el alcance que tendria en vivo) y sobre las de hace 30 dias, leidas
+    sin observaciones posteriores. No escribe en la cola."""
+    antes = ahora - dt.timedelta(days=p.DIAS_PAUSA_DESDE - p.DIAS_PAUSA_HASTA)
+    comunes = {"settings": settings, "goals": goals, "ignora_practicas": True}
+    hoy = lee_entradas_productos(conn, plataforma, decidido_el=ahora, **comunes)
+    previas = lee_entradas_productos(
+        conn, plataforma, decidido_el=antes, observadas_hasta=antes, **comunes
+    )
+    primer_dato = conn.execute(_SQL_PRIMER_DATO, (plataforma,)).fetchone()[0]
+    return p.simula_pausa(hoy, previas, limites, decidido_el=ahora, primer_dato=primer_dato)
