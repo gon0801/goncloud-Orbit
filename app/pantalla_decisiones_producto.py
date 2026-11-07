@@ -18,9 +18,17 @@ from collections import Counter
 from dataclasses import dataclass
 from decimal import Decimal
 
+from app import productos_io
+from app.cycle import lee_goals
 from app.optimizer import goals as g
 from app.optimizer import productos as p
 from app.productos_io import evaluacion_de_fila
+
+_SQL_CONFIG = "SELECT settings FROM config_version ORDER BY id DESC LIMIT 1"
+
+_SQL_CAMPANAS = """
+SELECT id FROM ad_entity WHERE platform = %s::platform AND kind = 'campaign'
+"""
 
 _SQL_CICLO = """
 SELECT id, to_char(coalesce(finished_at, started_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI'),
@@ -188,6 +196,27 @@ def lee_decisiones_producto(conn, plataforma: str) -> DecisionesProducto:
         error=error,
         resumen=resumen,
         productos=tuple(productos),
+    )
+
+
+def simula_pausa(
+    conn, plataforma: str, *, ahora, clics: str | None, gasto: str | None
+) -> p.SimulacionPausa:
+    """AUTO-03 H.8, solo lectura: la pausa con los limites vigentes o con los
+    que pida la pantalla (sin guardarlos). La usan la ruta de la pantalla y
+    tools.auto03_verifica simula. Un limite invalido lanza
+    config_write.SettingsInvalido."""
+    fila = conn.execute(_SQL_CONFIG).fetchone()
+    settings = fila[0] if fila else {}
+    limites = productos_io.limites_de_simulacion(settings, plataforma, clics=clics, gasto=gasto)
+    campanas = [f[0] for f in conn.execute(_SQL_CAMPANAS, (plataforma,))]
+    return productos_io.simula_pausa(
+        conn,
+        plataforma,
+        ahora=ahora,
+        settings=settings,
+        goals=lee_goals(conn, plataforma, campanas),
+        limites=limites,
     )
 
 

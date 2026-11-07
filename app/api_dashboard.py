@@ -2006,6 +2006,33 @@ def productos_sin_clics(conn: ConexionLectura, plataforma: str | None = None) ->
     return {"plataforma": mercado, **base, "decisiones_producto": decisiones}
 
 
+@router.get("/productos/simula-pausa")
+def productos_simula_pausa(
+    conn: ConexionLectura,
+    platform: str,
+    clics: str | None = None,
+    gasto: str | None = None,
+) -> dict:
+    """AUTO-03 H.8: que pausaria la pausa por producto con los limites
+    vigentes o con `clics`/`gasto` (sin guardarlos), y el costo de
+    equivocarse sobre la ventana anterior. Rol de lectura, no escribe en la
+    cola. Un limite bajo el piso es 422 con el minimo."""
+    from app import pantalla_decisiones_producto
+    from app.config_write import SettingsInvalido
+    from app.optimizer import productos
+
+    if platform not in productos.PLATAFORMAS:
+        raise HTTPException(status_code=422, detail="plataforma sin decisiones por producto")
+    try:
+        simulacion = pantalla_decisiones_producto.simula_pausa(
+            conn, platform, ahora=dt.datetime.now(dt.UTC), clics=clics, gasto=gasto
+        )
+    except SettingsInvalido as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    conn.commit()
+    return simulacion.como_json()
+
+
 @router.get("/busquedas-sin-venta")
 def busquedas_sin_venta(conn: ConexionLectura, plataforma: str | None = None) -> dict:
     """Busquedas que gastan sin vender (BIDS 02, P.6). Funcion

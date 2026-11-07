@@ -7,11 +7,17 @@ READ ONLY) para que la evidencia previa a cada `live` no espere un ciclo.
   los datos de hoy; imprime resumen_cobertura y, con --json, guarda
   {resumen, entradas, evaluaciones}.
 - replay [--json ruta | --cycle-id N|ultimo]: vuelve a correr
-  resolver_producto sobre cada entrada congelada e imprime
-  `replay <plataforma>: diferencias: N`. Sin argumentos toma el ultimo ciclo
-  done de cada plataforma. Sale 1 con alguna diferencia, con un ciclo cuya
-  meta no estaba en off y trae notes.productos.error, con menos o mas filas
-  que notes.productos.productos_evaluados, o sin evaluaciones que revisar.
+  resolver_producto (con la politica congelada de cada evaluacion) sobre cada
+  entrada congelada e imprime `replay <plataforma>: diferencias: N`. Sin
+  argumentos toma el ultimo ciclo done de cada plataforma. En un ciclo,
+  contrasta ademas sus decisiones de pausa de product ad (motor producto)
+  con las propuestas que el resolutor reproduce: con la pausa encendida cada
+  propuesta tiene su decision y ninguna decision sobra. Sale 1 con alguna
+  diferencia, con un ciclo cuya meta no estaba en off y trae
+  notes.productos.error, con menos o mas filas que
+  notes.productos.productos_evaluados, o sin evaluaciones que revisar.
+- simula --platform P [--clics N] [--gasto X]: la simulacion de la pausa de
+  la pantalla (H.8) con los limites vigentes o con los dados, sin guardarlos.
 - concilia --platform P --n N [--json ruta]: pide a Amazon el reporte de
   productos (reports.PRODUCTOS_CFG) con un sondeo HTTP puro, sin ingest_run ni
   ads_report_result, y compara por producto gasto, clics, compras, ventas y
@@ -40,14 +46,16 @@ from dataclasses import dataclass, fields
 from decimal import Decimal
 from itertools import zip_longest
 
-from app import productos_io
+from app import pantalla_decisiones_producto, productos_io
 from app.ads import descarga, reports
 from app.ads.client import AdsApiError, AdsClient, AdsClientError
 from app.ads.config import AdsCredentials
 from app.ads.structure_api import AdsStructureError, perfiles_aceptados
+from app.config_write import SettingsInvalido
 from app.cycle import lee_goals
 from app.db import connect
 from app.optimizer import productos as p
+from app.optimizer.replay import reproduce
 
 _SQL_CONFIG = "SELECT settings FROM config_version ORDER BY id DESC LIMIT 1"
 
@@ -69,6 +77,16 @@ SELECT id, platform::text, notes FROM optimizer_cycle
 _SQL_EVALUACIONES = """
 SELECT entrada, resultado FROM evaluacion_producto_ciclo
  WHERE cycle_id = %s ORDER BY product_id
+"""
+
+_SQL_IDS_EVALUACION = """
+SELECT id, entrada, resultado FROM evaluacion_producto_ciclo
+ WHERE cycle_id = %s ORDER BY product_id
+"""
+
+_SQL_PAUSAS_PRODUCTO = """
+SELECT evaluacion_producto_id, ad_entity_id, inputs FROM decision
+ WHERE cycle_id = %s AND kind = 'pause' AND inputs ->> 'motor' = 'producto'
 """
 
 
@@ -104,8 +122,33 @@ def diferencias(filas: Sequence[tuple[Mapping, Mapping]]) -> int:
     n = 0
     for entrada, resultado in filas:
         congelada = productos_io.evaluacion_de_fila(entrada, resultado)
-        n += p.resolver_producto(congelada.entrada) != congelada
+        n += p.resolver_producto(congelada.entrada, politica=congelada.politica) != congelada
     return n
+
+
+def diferencias_pausas(conn, cycle_id: int, pausa_encendida: bool) -> tuple[int, int]:
+    """(decisiones de pausa de product ad del ciclo, cuantas no casan con
+    lo que el resolutor reproduce). Cada decision debe ser una propuesta de
+    su evaluacion, igual a la congelada en inputs; con la pausa encendida,
+    cada propuesta debe tener su decision."""
+    esperadas: dict[tuple[int, int], dict] = {}
+    for id_, entrada, resultado in conn.execute(_SQL_IDS_EVALUACION, (cycle_id,)):
+        congelada = productos_io.evaluacion_de_fila(entrada, resultado)
+        evaluacion = p.resolver_producto(congelada.entrada, politica=congelada.politica)
+        for propuesta in evaluacion.pausas:
+            esperadas[(id_, propuesta.anuncio.ad_entity_id)] = propuesta.como_json()
+    decisiones = conn.execute(_SQL_PAUSAS_PRODUCTO, (cycle_id,)).fetchall()
+    n = 0
+    vistas = set()
+    for evaluacion_id, ad_entity_id, inputs in decisiones:
+        clave = (evaluacion_id, ad_entity_id)
+        vistas.add(clave)
+        n += reproduce(inputs) != ("pause", None, None) or (
+            esperadas.get(clave) != inputs.get("propuesta")
+        )
+    if pausa_encendida:
+        n += len(esperadas.keys() - vistas)
+    return len(decisiones), n
 
 
 def _replay_ciclo(conn, ciclo: tuple | None, plataforma: str) -> bool:
@@ -130,7 +173,13 @@ def _replay_ciclo(conn, ciclo: tuple | None, plataforma: str) -> bool:
         return False
     n = diferencias(filas)
     print(f"replay {plataforma}: diferencias: {n} (ciclo {cycle_id}, {len(filas)} evaluaciones)")
-    return ok and n == 0
+    encendida = notas is not None and notas.get("modo_pausa", "off") != "off"
+    total, distintas = diferencias_pausas(conn, cycle_id, encendida)
+    print(
+        f"replay {plataforma}: pausas de producto: {total} decisiones, diferencias: {distintas}"
+        f" (pausa {'encendida' if encendida else 'apagada'})"
+    )
+    return ok and n == 0 and distintas == 0
 
 
 def replay(ruta: str | None, cycle_id: str | None) -> bool:
@@ -425,6 +474,48 @@ def concilia(plataforma: str, n: int, ruta: str | None) -> int:
     return 1 if distintos["cuenta"] else 0
 
 
+def simula(plataforma: str, clics: str | None, gasto: str | None) -> int:
+    with _conexion() as conn, conn.transaction():
+        conn.execute("SET TRANSACTION READ ONLY")
+        try:
+            simulacion = pantalla_decisiones_producto.simula_pausa(
+                conn, plataforma, ahora=dt.datetime.now(dt.UTC), clics=clics, gasto=gasto
+            )
+        except SettingsInvalido as exc:
+            print(f"simula {plataforma}: limites invalidos: {exc}")
+            return 1
+    s = simulacion
+    print(
+        f"simula {plataforma}: limites {s.limites.clics_min} clics y"
+        f" {s.limites.gasto_min.valor} {s.limites.gasto_min.moneda};"
+        f" ventana [{s.ventana.desde}, {s.ventana.hasta_exclusivo})"
+    )
+    print(
+        f"simula {plataforma}: pausaria {len(s.productos)} productos y {s.anuncios_total}"
+        f" anuncios con gasto {s.gasto_total.valor} {s.gasto_total.moneda};"
+        f" sin cobertura D.7: {s.sin_cobertura_d7}"
+    )
+    for x in s.productos:
+        print(
+            f"    producto {x.producto.product_id}: gasto {x.gasto.valor}, clics {x.clics},"
+            f" anuncios {x.anuncios}"
+        )
+
+    def texto(valor) -> str:
+        if isinstance(valor, p.SinDato):
+            return ",".join(valor.motivos)
+        return f"{valor.valor} {valor.moneda}"
+
+    print(
+        f"simula {plataforma}: con la regla en [{s.ventana_anterior.desde},"
+        f" {s.ventana_anterior.hasta_exclusivo}): {len(s.productos_anteriores)} productos;"
+        f" gasto que se habria evitado {texto(s.gasto_evitado)};"
+        f" ventas que se habrian perdido {texto(s.ventas_perdidas)};"
+        f" sin cobertura D.7: {s.sin_cobertura_d7_anterior}; datos desde {s.primer_dato}"
+    )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m tools.auto03_verifica", description=__doc__)
     sub = parser.add_subparsers(dest="comando", required=True)
@@ -439,7 +530,13 @@ def main(argv: list[str] | None = None) -> int:
     p_concilia.add_argument("--platform", required=True, choices=p.PLATAFORMAS)
     p_concilia.add_argument("--n", type=int, required=True, help="cuantos productos comparar")
     p_concilia.add_argument("--json", help="salida de evalua --json (por omision, el ultimo ciclo)")
+    p_simula = sub.add_parser("simula", help="simula la pausa con otros limites, sin guardar")
+    p_simula.add_argument("--platform", required=True, choices=p.PLATAFORMAS)
+    p_simula.add_argument("--clics", help="clics minimos (por omision, los vigentes)")
+    p_simula.add_argument("--gasto", help="gasto minimo en la moneda del mercado")
     args = parser.parse_args(argv)
+    if args.comando == "simula":
+        return simula(args.platform, args.clics, args.gasto)
     if args.comando == "concilia":
         return concilia(args.platform, args.n, args.json)
     if args.comando == "evalua":

@@ -27,6 +27,9 @@ from tests.test_ads_write import _token_response, make_write_client
 SQL78 = (
     Path(__file__).resolve().parents[1] / "migrations" / "0078_auto03_retiro_decision.sql"
 ).read_text(encoding="utf-8")
+SQL79 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0079_auto03_vista_impulso.sql"
+).read_text(encoding="utf-8")
 
 _skip_db = pytest.mark.skipif(
     _postgres_obligatorio_ausente(),
@@ -45,6 +48,7 @@ def _db_i4(prefijo):
             conn.execute(SQL68)
             conn.execute(SQL69)
             conn.execute(SQL78)
+            conn.execute(SQL79)
             return conn
 
         def __exit__(self, *exc):

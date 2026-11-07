@@ -100,7 +100,7 @@ from app.apply import (
     evento_cap_saturado,
 )
 from app.optimizer import bid as motor_bid
-from app.optimizer import cortes, hygiene, windows
+from app.optimizer import cortes, hygiene, productos, windows
 from app.optimizer import goals as g
 
 # Ventana de veto de 48h al encolar (sellado 2: el reloj NO se detiene por
@@ -261,6 +261,23 @@ SELECT grp.external_id, cam.external_id
   JOIN ad_entity cam ON cam.id = grp.parent_id AND cam.kind = 'campaign'
  WHERE grp.id = %s
 """
+
+# AUTO-03 H.4: el product ad resuelve su modo por ad group -> campana, como
+# el grupo de un corte de termino.
+_SQL_ANUNCIO_VIVO = """
+SELECT ag.parent_id AS campaign_id, (s.ad_entity_id IS NOT NULL) AS tiene_state
+  FROM ad_entity pa
+  JOIN ad_entity ag ON ag.id = pa.parent_id AND ag.kind = 'ad_group'
+  LEFT JOIN ad_entity_state s ON s.ad_entity_id = pa.id
+ WHERE pa.id = %s AND pa.kind = 'product_ad'
+"""
+
+# El encendido de la pausa (I.7) toma este candado EXCLUSIVO para descartar
+# las practicas y escribir la config en la misma transaccion; el encolado lo
+# toma compartido y lee la config despues.
+_SQL_CANDADO_PAUSA_PRODUCTO = (
+    "SELECT pg_advisory_xact_lock_shared(hashtext('auto03-pausa-' || %s::text))"
+)
 
 _SQL_CACHE_ESTADO = """
 UPDATE ad_entity_state SET status = %s, synced_at = now() WHERE ad_entity_id = %s
@@ -448,10 +465,34 @@ def _modo_efectivo_corte(
             inputs={},
         )
         return aplicador.modo_efectivo(conn, decision, escalera_global=escalera_global)
+    if identidad[0] == "product_ad":
+        return _modo_pausa_producto(conn, platform, ad_entity_id, escalera_global)
     fila = conn.execute(_SQL_GRUPO_VIVO, (ad_entity_id,)).fetchone()
     if fila is None or not fila[1]:
         return "shadow"  # grupo inexistente o sin state (regla 3)
     return _meet_goals(conn, platform, fila[0], escalera_global)
+
+
+def _modo_pausa_producto(
+    conn: psycopg.Connection, platform: str, ad_entity_id: int, escalera_global: str
+) -> str:
+    """AUTO-03 H.4: la pausa de un product ad es live solo si la escalera y
+    el goal de su campana (product_ad -> ad group -> campana) lo son Y la
+    config vigente trae ads_producto_pausa_<plataforma> en live. Asi apagar la
+    pausa descarta sus pendientes (modo_no_live) y en sombra la fila nace
+    shadow."""
+    fila = conn.execute(_SQL_ANUNCIO_VIVO, (ad_entity_id,)).fetchone()
+    if fila is None or not fila[1]:
+        return "shadow"
+    if _meet_goals(conn, platform, fila[0], escalera_global) != "live":
+        return "shadow"
+    vigente = conn.execute(_SQL_CONFIG_TARGET).fetchone()
+    settings = vigente[0] if vigente is not None else {}
+    if platform not in productos.PLATAFORMAS:
+        return "shadow"
+    return (
+        "live" if productos.modos_desde_settings(settings, platform).pausa == "live" else "shadow"
+    )
 
 
 def _payload_pause(kind_entidad: str, external_id: str) -> dict:
@@ -508,11 +549,20 @@ def encola_cortes(
     shadow = 0
     choques: list[str] = []
     avisos: list[notifica.CorteEncolado] = []
+    candado_tomado = False
     for dec_id, entidad, kind, term in conn.execute(_SQL_CORTES_CICLO, (cycle_id,)).fetchall():
+        identidad = apply._identidad(conn, entidad)
+        es_pausa_producto = (
+            kind == "pause" and identidad is not None and identidad[0] == "product_ad"
+        )
+        if es_pausa_producto and not candado_tomado:
+            # H.4: con el candado compartido, el modo (y su config) se lee
+            # despues de cualquier encendido ya confirmado (I.7).
+            conn.execute(_SQL_CANDADO_PAUSA_PRODUCTO, (platform,))
+            candado_tomado = True
         modo = _modo_efectivo_corte(
             conn, aplicador, platform, entidad, escalera_global=modo_envelope
         )
-        identidad = apply._identidad(conn, entidad)
         if (
             kind == "pause"
             and identidad is not None
@@ -523,6 +573,8 @@ def encola_cortes(
             )
         ):
             payload = _payload_pause(identidad[0], identidad[1])
+        elif es_pausa_producto:
+            payload = {"adId": identidad[1], "state": apply.ESTADO_PUT_PAUSED}
         elif kind == "pause":
             # Entidad de pause sin identidad conocida: fila shadow (nunca
             # vuela) con payload vacio — regla 3, jamas un id inventado.
@@ -953,11 +1005,28 @@ def _revalida(
     motivo = _revalida_ancestros(conn, fila)
     if motivo is not None:
         return motivo
-    if fila.kind == "pause":
+    rama = _rama(conn, fila)
+    if rama == "pause_hoja":
         return _revalida_pause(conn, aplicador, platform, fila, ahora, evidencias)
-    if fila.kind == "negative":
+    if rama == "negative":
         return _revalida_negative(conn, platform, fila, ahora)
     return apply_harvest.revalida_harvest(conn, platform, fila, ahora)
+
+
+def _rama(conn: psycopg.Connection, fila: FilaCola) -> str:
+    """AUTO-03 H.4: la rama de revalidacion y ejecucion de una fila, por kind
+    y entidad. Un kind o una entidad sin rama propia LANZA: antes un pause de
+    product_ad caia en _revalida_pause (entidad_no_viva) y cualquier kind
+    ajeno caia a harvest o a negative."""
+    if fila.kind == "pause":
+        identidad = apply._identidad(conn, fila.ad_entity_id)
+        if identidad is not None and identidad[0] in apply._KINDS_DECISORAS:
+            return "pause_hoja"
+    elif fila.kind in ("negative", "harvest"):
+        return fila.kind
+    raise ValueError(
+        f"apply_queue {fila.id}: sin rama para {fila.kind} sobre la entidad {fila.ad_entity_id}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1234,6 +1303,8 @@ def libera_vencidos(
                 sin_quota += 1
                 _registra(fila, apply.MOTIVO_SIN_QUOTA)
             continue
+        # H.4: la rama se resuelve ANTES del cobro (lanza sin cobrar).
+        rama = _rama(conn, fila)
         usada, saturada = consume_quota_y_sello(conn, platform, fila.kind)
         if not usada:
             sin_quota += 1
@@ -1248,7 +1319,7 @@ def libera_vencidos(
         if conn.execute(_SQL_CLAIM, (fila.id,)).fetchone() is None:
             carreras += 1
             continue
-        if fila.kind == "pause":
+        if rama == "pause_hoja":
             ok = _ejecuta_pause(conn, aplicador, fila)
         else:
             ok = _ejecuta_negative(conn, aplicador, fila)

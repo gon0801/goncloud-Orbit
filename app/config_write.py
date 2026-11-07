@@ -296,11 +296,23 @@ def _aplica_producto_modo(
 def _aplica_limites_pausa(
     nuevo: dict, cambios: list[str], platform: str, limites: productos.LimitesPausa | None
 ) -> None:
-    """Limites de la pausa por producto (AUTO-03 S8; None = no tocar): nunca
-    por debajo de los pisos del camino negative, gasto en la moneda de la
-    plataforma."""
+    """Limites de la pausa por producto (AUTO-03 S8; None = no tocar)."""
     if limites is None:
         return
+    valida_limites_pausa(platform, limites)
+    for tipo, valor in (
+        ("clics", str(limites.clics_min)),
+        ("gasto", _texto(limites.gasto_min.valor.normalize())),
+    ):
+        clave = productos.clave_limite(tipo, platform)
+        if nuevo.get(clave) != valor:
+            cambios.append(f"pausa por producto {tipo} {_antes(nuevo.get(clave))} -> {valor}")
+            nuevo[clave] = valor
+
+
+def valida_limites_pausa(platform: str, limites: productos.LimitesPausa) -> None:
+    """Nunca por debajo de los pisos del camino negative y con el gasto en la
+    moneda de la plataforma. La usan el guardado y la simulacion (H.8)."""
     moneda = PLATAFORMAS_MONEDA[platform]
     if isinstance(limites.clics_min, bool) or limites.clics_min < LEGACY_NEGATIVE:
         raise SettingsInvalido(
@@ -316,14 +328,6 @@ def _aplica_limites_pausa(
             f"gasto minimo de la pausa: al menos {_texto(piso)} {moneda},"
             f" llego {limites.gasto_min.valor}"
         )
-    for tipo, valor in (
-        ("clics", str(limites.clics_min)),
-        ("gasto", _texto(limites.gasto_min.valor.normalize())),
-    ):
-        clave = productos.clave_limite(tipo, platform)
-        if nuevo.get(clave) != valor:
-            cambios.append(f"pausa por producto {tipo} {_antes(nuevo.get(clave))} -> {valor}")
-            nuevo[clave] = valor
 
 
 def proxima_config(

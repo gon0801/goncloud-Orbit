@@ -128,6 +128,7 @@ def reproduce(inputs: dict) -> tuple[str | None, Decimal | None, str | None]:
       inputs["politica"] == "niveles_v3" -> decide(CasoHoja.desde_json(inputs["caso"]))
       inputs["motor"] == "bid" sin esa clave -> decide_bid_era_bandas(inputs)
       inputs["motor"] == "hygiene" -> _replay_hygiene, como hoy.
+      inputs["motor"] == "producto" -> la propuesta de pausa congelada.
     """
     if inputs.get("politica") == POLITICA_BID:
         caso = CasoHoja.desde_json(inputs["caso"])
@@ -139,10 +140,19 @@ def reproduce(inputs: dict) -> tuple[str | None, Decimal | None, str | None]:
         assert isinstance(veredicto, Mantener)
         return (None, None, None)
     motor = inputs.get("motor")
+    if motor == "producto":
+        # AUTO-03 H.4: la pausa por producto devuelve su propuesta congelada;
+        # tools/auto03_verifica.py replay la contrasta con resolver_producto
+        # sobre la entrada de su evaluacion (la decision no la duplica).
+        if inputs["propuesta"]["motivo"] != "producto_sin_ventas":
+            raise ValueError(f"propuesta de producto desconocida: {inputs['propuesta']!r}")
+        return ("pause", None, None)
     if motor == "bid":
         return decide_bid_era_bandas(inputs)
     elif motor == "hygiene":
         resultado = _replay_hygiene(inputs)
     else:
-        raise ValueError(f"inputs.motor fuera del vocabulario {{bid, hygiene}}: {motor!r}")
+        raise ValueError(
+            f"inputs.motor fuera del vocabulario {{bid, hygiene, producto}}: {motor!r}"
+        )
     return (resultado.kind, resultado.new_value, resultado.value_currency)

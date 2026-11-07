@@ -671,6 +671,7 @@ class _ProductosCiclo:
     decisiones."""
 
     modo_meta: str
+    modo_pausa: str = "off"
     evaluaciones: tuple[productos.EvaluacionProducto, ...] = ()
     por_grupo: dict[int, productos.EvaluacionProducto] = field(default_factory=dict)
     sombra: dict[int, list[dict]] = field(default_factory=lambda: defaultdict(list))
@@ -2094,12 +2095,12 @@ def _evalua_productos(
     settings: dict,
     decided_at: dt.datetime,
     goals: tuple[g.Goal | None, dict[int, g.Goal]],
-    modo_meta: str,
+    modos: productos.ModosProducto,
 ) -> _ProductosCiclo:
     """AUTO-03 D.4: lectura por lote y resolutor, UNA vez por plataforma en
     TX2. La lectura corre en un SAVEPOINT: un error de SQL no aborta TX2 y
     queda en notes.productos.error (precedente: propuestas_campana)."""
-    resultado = _ProductosCiclo(modo_meta=modo_meta)
+    resultado = _ProductosCiclo(modo_meta=modos.meta, modo_pausa=modos.pausa)
     try:
         with conn.transaction():
             entradas = productos_io.lee_entradas_productos(
@@ -2299,6 +2300,64 @@ def _anota_sombra(
     )
 
 
+def _pendientes_pausa_producto(
+    productos_ciclo: _ProductosCiclo, *, decided_at: dt.datetime
+) -> list[_Pendiente]:
+    """AUTO-03 H.3: una decision pause sobre el product_ad por cada propuesta
+    de la evaluacion. Su ventana es la madura de la pausa, [D-60, D-30), asi
+    que pasa decision_madurez_corte. data_observed_at es el instante de la
+    decision: la lectura de TX2 solo vio observaciones anteriores a el y la
+    entrada congelada guarda la referencia de cada fecha."""
+    pendientes = []
+    for ev in productos_ciclo.evaluaciones:
+        actividad = ev.entrada.actividad_pausa
+        limites = ev.entrada.limites_pausa
+        for propuesta in ev.pausas:
+            assert isinstance(actividad, productos.AdsCompletos)
+            inputs = {
+                "motor": "producto",
+                "politica": ev.politica,
+                "platform": ev.producto.plataforma,
+                "modo": productos_ciclo.modo_pausa,
+                "motivo": propuesta.motivo,
+                "product_id": ev.producto.product_id,
+                "propuesta": propuesta.como_json(),
+                "huella_alcance": propuesta.anuncio.huella_alcance,
+                "ventana": {
+                    "desde": _fecha_iso(actividad.ventana.desde),
+                    "hasta_exclusivo": _fecha_iso(actividad.ventana.hasta_exclusivo),
+                },
+                "limites": {
+                    "clics_min": limites.clics_min,
+                    "gasto_min": _dec_str(limites.gasto_min.valor),
+                    "moneda": limites.gasto_min.moneda,
+                },
+                "actividad": {
+                    "gasto": _dec_str(actividad.gasto.valor),
+                    "clics": actividad.clics,
+                    "compras": _dec_str(actividad.compras_total),
+                    "ventas": _dec_str(actividad.ventas_total.valor),
+                    "moneda": actividad.gasto.moneda,
+                },
+            }
+            pendientes.append(
+                _Pendiente(
+                    ad_entity_id=propuesta.anuncio.ad_entity_id,
+                    kind="pause",
+                    data_observed_at=decided_at,
+                    window_start=actividad.ventana.desde,
+                    window_end=actividad.ventana.hasta_exclusivo - dt.timedelta(days=1),
+                    search_term=None,
+                    old_value=None,
+                    new_value=None,
+                    value_currency=None,
+                    inputs=inputs,
+                    evaluacion_producto=ev.producto.product_id,
+                )
+            )
+    return pendientes
+
+
 def _notas_productos(
     conn: psycopg.Connection,
     cycle_id: int,
@@ -2308,7 +2367,11 @@ def _notas_productos(
     """TX3: guarda las evaluaciones (SAVEPOINT propio, antes que las
     decisiones) y arma notes.productos con el resumen de cobertura. Devuelve
     tambien product_id -> id de la evaluacion guardada (vacio si fallo)."""
-    notas: dict = {"modo_meta": productos_ciclo.modo_meta, **(productos_ciclo.resumen or {})}
+    notas: dict = {
+        "modo_meta": productos_ciclo.modo_meta,
+        "modo_pausa": productos_ciclo.modo_pausa,
+        **(productos_ciclo.resumen or {}),
+    }
     errores = list(productos_ciclo.errores)
     ids: dict[int, int] = {}
     if productos_ciclo.resumen is not None:
@@ -2323,6 +2386,7 @@ def _notas_productos(
             errores.append(f"guardado: {guardado.error}")
         else:
             notas["evaluaciones_guardadas"] = len(guardado.ids)
+            notas["retiros_reactivados_cerrados"] = list(guardado.retiros_cerrados)
             ids = {product_id: id_ for (_plat, product_id), id_ in guardado.ids.items()}
     if errores:
         notas["error"] = "; ".join(errores)
@@ -2338,14 +2402,25 @@ def _descarta_sin_evidencia(
     """AUTO-03 F.2: con la meta en live, una hoja de grupo apto cuya
     evaluacion no quedo guardada se queda sin decision (skip
     producto_sin_evidencia) y sin target congelado; las demas decisiones del
-    ciclo se insertan. Las hojas que ya no decidian conservan su motivo."""
+    ciclo se insertan. Las hojas que ya no decidian conservan su motivo.
+    H.3: una pausa de product ad sin su evaluacion guardada tampoco se
+    inserta (su evaluacion_producto_id no existe)."""
     productos_ciclo = contadores.productos
     assert productos_ciclo is not None
     sin_evidencia = {
         hoja for hoja, pid in productos_ciclo.hojas_aptas.items() if pid not in ids_evaluacion
     }
-    if not sin_evidencia:
+    pausas_sin_evidencia = [
+        p
+        for p in pendientes
+        if p.inputs.get("motor") == "producto" and p.evaluacion_producto not in ids_evaluacion
+    ]
+    if not sin_evidencia and not pausas_sin_evidencia:
         return
+    for pendiente in pausas_sin_evidencia:
+        pendientes.remove(pendiente)
+        contadores.decisiones[pendiente.kind] -= 1
+        contadores.skips_entidad[MOTIVO_PRODUCTO_SIN_EVIDENCIA] += 1
     for pendiente in [p for p in pendientes if p.ad_entity_id in sin_evidencia]:
         pendientes.remove(pendiente)
         contadores.decisiones[pendiente.kind] -= 1
@@ -2863,15 +2938,15 @@ def _recorre_plataforma(
     # AUTO-03 D.4: el interruptor es fail-closed como los demas settings
     # (valor ajeno = ValueError = ciclo failed); la lectura y el resolutor no.
     if platform in productos.PLATAFORMAS:
-        modo_meta = productos.modos_desde_settings(settings, platform).meta
-        if modo_meta != "off":
+        modos = productos.modos_desde_settings(settings, platform)
+        if modos != productos.ModosProducto("off", "off"):
             contadores.productos = _evalua_productos(
                 conn,
                 platform=platform,
                 settings=settings,
                 decided_at=decided_at,
                 goals=goals,
-                modo_meta=modo_meta,
+                modos=modos,
             )
     # C.4 B3: sin flag, ni se evaluan (fail-closed: un deploy no avisa
     # propuestas sin el INSERT deliberado de ads_propuestas_campana).
@@ -2954,6 +3029,10 @@ def _recorre_plataforma(
     for fila in conn.execute(_SQL_GRUPOS, (platform,)).fetchall():
         contadores.ad_groups += 1
         _procesa_grupo(conn, fila=fila, acos_campanas=acos_campanas, **comunes)
+    if contadores.productos is not None and contadores.productos.modo_pausa != "off":
+        for pendiente in _pendientes_pausa_producto(contadores.productos, decided_at=decided_at):
+            pendientes.append(pendiente)
+            contadores.decisiones["pause"] += 1
     return target_ciclo
 
 

@@ -77,7 +77,7 @@ def test_margen_40_con_fraccion_05_da_meta_20():
     ev = p.resolver_producto(_entrada("40", "0.5"))
     assert ev.meta == p.MetaReferencia(Decimal("20.0"), (GRUPO,))
     assert ev.motivos == ("halo_sin_madurar",)
-    assert ev.politica == "v1"
+    assert ev.politica == "v2"
 
 
 def test_margen_8_con_fraccion_05_da_meta_4_sin_piso_de_10():

@@ -211,10 +211,7 @@ SELECT pa.id, pa.external_id, ag.external_id, ag.name, camp.external_id,
        SELECT 1 FROM campana_grupo_rol r
         WHERE r.grupo_id = %s AND r.ad_group_ad_entity_id = ag.id))
    AND NOT EXISTS (
-       SELECT 1 FROM campana_grupo_rol r2
-        JOIN impulso i2 ON i2.grupo_id = r2.grupo_id
-        LEFT JOIN impulso_lectura l2 ON l2.impulso_id = i2.id AND l2.es_final
-       WHERE r2.ad_group_ad_entity_id = ag.id AND l2.impulso_id IS NULL)
+       SELECT 1 FROM v_ad_group_impulso_abierto v WHERE v.ad_group_ad_entity_id = ag.id)
  ORDER BY pa.external_id
 """
 
