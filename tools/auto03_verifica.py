@@ -19,9 +19,10 @@ READ ONLY) para que la evidencia previa a cada `live` no espere un ciclo.
   los candidatos a pausa en [D-60, D-30) y los productos con meta en el tramo
   maduro del halo [D-90, D-31], con los reportes pedidos en paralelo. Sale 1
   con una diferencia de dinero mayor a 0.01 o un conteo distinto en esos
-  productos, y 2 sin reporte: Amazon rechaza el POST o los perfiles, un
-  reporte queda FAILED, su descarga es invalida o no queda COMPLETED en
-  1500 s. Si no alcanzan N, completa con los de mas gasto en ese tramo como
+  productos, y 2 sin reporte: Amazon rechaza el POST, el token o los
+  perfiles (tambien al sondear o descargar), un reporte queda FAILED, su
+  descarga es invalida o no queda COMPLETED en 1500 s; un error de red se
+  reintenta dentro del plazo. Si no alcanzan N, completa con los de mas gasto en ese tramo como
   relleno informativo: sus diferencias se imprimen con sus fechas y no
   cambian la salida.
 """
@@ -43,7 +44,7 @@ from app import productos_io
 from app.ads import descarga, reports
 from app.ads.client import AdsApiError, AdsClient, AdsClientError
 from app.ads.config import AdsCredentials
-from app.ads.structure_api import perfiles_aceptados
+from app.ads.structure_api import AdsStructureError, perfiles_aceptados
 from app.cycle import lee_goals
 from app.db import connect
 from app.optimizer import productos as p
@@ -313,6 +314,8 @@ def descarga_reportes(
                 datos = client.get_report(report_id, profile_id=perfil.profile_id).json()
             except (AdsApiError, ValueError):
                 continue
+            except AdsClientError as exc:
+                raise SinReporte(f"sondeo del reporte {report_id}: {exc}") from exc
             estado = datos.get("status") if isinstance(datos, dict) else None
             if estado == "COMPLETED":
                 try:
@@ -320,7 +323,7 @@ def descarga_reportes(
                     filas[rango] = reports.descargar_filas(client, url)
                 except AdsApiError:
                     continue
-                except reports.AdsReportsError as exc:
+                except (AdsClientError, reports.AdsReportsError) as exc:
                     raise SinReporte(f"descarga del reporte {report_id}: {exc}") from exc
                 del pendientes[rango]
             elif estado == "FAILED":
@@ -373,7 +376,7 @@ def concilia(plataforma: str, n: int, ruta: str | None) -> int:
     client = AdsClient(AdsCredentials.from_secrets_dir())
     try:
         aceptados = perfiles_aceptados(client)
-    except AdsClientError as exc:
+    except (AdsClientError, AdsStructureError) as exc:
         print(f"concilia {plataforma}: sin reporte: perfiles de Amazon: {exc}")
         return 2
     perfil = next((x for x in aceptados if x.platform == plataforma), None)
