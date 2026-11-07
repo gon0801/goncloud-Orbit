@@ -252,12 +252,22 @@ def _reconcilia_pauses(conn: psycopg.Connection, aplicador, platform: str) -> tu
     proceso) → confirmar/applied; ENABLED (no proceso, o el dueno re-activo)
     → failed y, con pause propio verificado, INSERT reactivacion_manual
     (gracia 7d, sellado 17). Lectura ilegible/ambigua → se salta al ciclo
-    siguiente (la fila sin sello ES el rastro)."""
+    siguiente (la fila sin sello ES el rastro). AUTO-03 I.4: la pausa de un
+    product_ad la reconcilia app/apply_producto.py por la intencion de retiro
+    de su decision, sin otro PUT ni otra cuota."""
+    from app import apply_cola, apply_producto
+
     confirmadas = fallidas = 0
     cliente = None
     filas = conn.execute(_SQL_PAUSES_APLICANDO, (platform,)).fetchall()
     for q_id, entidad, decision_id in filas:
         identidad = apply._identidad(conn, entidad)
+        if identidad is not None and identidad[0] == "product_ad":
+            fila = apply_cola.fila_cola(conn, q_id)
+            desenlace = apply_producto.reconcilia_pause_producto(conn, aplicador, fila)
+            confirmadas += desenlace == "applied"
+            fallidas += desenlace == "failed"
+            continue
         if identidad is None or identidad[0] not in apply._KINDS_DECISORAS:
             _ejecucion._sella_pendientes(conn, decision_id, "fallo:entidad_sin_identidad")
             _ejecucion._termina_cola(conn, q_id, "failed")

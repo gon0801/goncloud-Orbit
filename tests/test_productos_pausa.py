@@ -353,8 +353,7 @@ def test_revalida_lanza_ante_un_kind_o_una_entidad_sin_rama():
             return FilaCola(1, kind, entidad, None, 1, {}, "released")
 
         ahora = dt.datetime.now(dt.UTC)
-        with pytest.raises(ValueError, match="sin rama para pause sobre la entidad"):
-            apply_cola._revalida(conn, object(), "amazon_us", fila("pause", m["pa"]), ahora)
+        assert apply_cola._rama(conn, fila("pause", m["pa"])) == "pause_producto"
         with pytest.raises(ValueError, match="sin rama para resume"):
             apply_cola._revalida(conn, object(), "amazon_us", fila("resume", m["kw"]), ahora)
 
