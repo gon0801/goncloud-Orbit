@@ -9,13 +9,13 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon/favicon-16.png">
   <link rel="icon" type="image/png" sizes="192x192" href="/static/favicon/favicon-192.png">
   <link rel="apple-touch-icon" href="/static/favicon/favicon-180.png">
-  
+
   <script src="/static/js/tema.js?v=54abc08345227835"></script>
   <link rel="stylesheet" href="/static/css/dashboard.css?v=54abc08345227835">
-  
+
 </head>
 <body data-pantalla="productos-sin-clics">
-  
+
   <a class="saltar-contenido" href="#contenido">Saltar al contenido</a>
   <aside class="sidebar" aria-label="Navegacion principal">
     <a class="marca" href="/" aria-label="Orbit, inicio">
@@ -24,48 +24,48 @@
     </a>
     <div class="canal-actual">Ads · Amazon y Mercado Libre</div>
     <nav id="nav-secciones" class="navegacion" aria-label="Secciones">
-      
+
       <div class="nav-grupo">
         <p class="nav-etiqueta">Panel</p>
-        
+
         <a href="/" >Resumen</a>
-        
+
         <a href="/campanas" >Campañas</a>
-        
+
         <a href="/decisiones" >Decisiones</a>
-        
+
         <a href="/salud" >Salud</a>
-        
+
         <a href="/contribucion" >Contribucion</a>
-        
+
       </div>
-      
+
       <div class="nav-grupo">
         <p class="nav-etiqueta">Decidir</p>
-        
+
         <a href="/cortes" >Propuestas<span id="propuestas-contador" class="contador" hidden></span></a>
-        
+
         <a href="/gasto-sin-venta" >Gasto sin venta</a>
-        
+
         <a href="/busquedas-sin-venta" >Búsquedas que gastan sin vender</a>
-        
+
         <a href="/keywords-danadas" >Keywords dañadas</a>
-        
+
         <a href="/ruido" >Ruido</a>
-        
+
         <a href="/donde-poner-el-dinero" >Dónde poner el dinero</a>
-        
+
         <a href="/productos-sin-clics" aria-current="page">Productos sin clics</a>
-        
+
         <a href="/inertes" >Inertes</a>
-        
+
         <a href="/campanas/nuevas" >Crear campañas</a>
-        
+
       </div>
-      
+
       <div class="nav-grupo">
         <p class="nav-etiqueta">Catalogo</p>
-        
+
         <a href="/reputacion" >Reputacion<span id="reputacion-contador" class="contador" hidden></span></a>
         <a href="/precios" >Precios</a>
         <a href="/familias" >Familias</a>
@@ -84,14 +84,14 @@
     <header class="pagina-header">
       <div><h1>Productos sin clics</h1><p>Venden y casi no reciben clics · impulsos</p></div>
       <div class="header-acciones">
-        
+
         <span id="watermark-resumen" class="chip-watermark">Watermark: sin consultar</span>
         <span class="alcance">Amazon MX · Amazon US</span>
         <button type="button" id="btn-tema" aria-pressed="false">Tema: dia</button>
       </div>
     </header>
     <main id="contenido" tabindex="-1">
-    
+
 <h2>Productos sin clics</h2>
 <p class="mutado">
   Venden y casi no reciben clics de anuncios. Márcalos, escribe la subfamilia
@@ -107,31 +107,31 @@
 <div class="tarjeta">
   <h3>Candidatos a impulsar <span class="chip">0</span></h3>
   <p class="mutado">2 pedidos o más en 3 meses y menos de 20 clics de anuncios en 60 días.</p>
-  
+
   <p>Sin candidatos en este mercado.</p>
-  
+
 </div>
 
 <div class="tarjeta">
   <h3>Impulsos <span class="chip">0</span></h3>
-  
+
   <p>Sin impulsos en este mercado.</p>
-  
+
 </div>
 
 <div class="tarjeta">
   <h3>Retiros abiertos <span class="chip">0</span></h3>
   <p class="mutado">Anuncios retirados sin impulso (motivos sin_pedidos y subfamilia) que aún no regresan.</p>
-  
+
   <p>Sin retiros abiertos.</p>
-  
+
 </div>
 
 <div class="tarjeta">
   <h3>Sin un pedido en 11 meses <span class="chip">0</span></h3>
-  
+
   <p>Todo vendió en los últimos 11 meses.</p>
-  
+
   <p class="mutado">Hay 0 anuncios sin producto ligado que no puedo juzgar.</p>
 </div>
 
@@ -144,15 +144,15 @@
     La meta de ACoS que Orbit calcula para cada producto con su margen, solo en los grupos que anuncian
     ese producto y nada más. Un goal de campaña con target manda sobre ella.
   </p>
-  
+
   <p data-decisiones-ciclo>
     Ciclo 2 · 2026-11-07 14:08 UTC · la meta está <strong>apagada</strong>.
   </p>
-  
-  
+
+
   <p data-decisiones-vacio>Este ciclo no evaluó productos: la meta está apagada.</p>
-  
-  
+
+
 </div>
 
 
@@ -165,9 +165,9 @@
     Para proponer la pausa, el producto tiene que llegar a los dos sin vender, en la ventana de
     30 días que terminó hace 30 días.
   </p>
-  
+
   <p data-limites-vigentes>Vigentes: <strong>100 clics</strong> y <strong>40.00 USD</strong> de gasto.</p>
-  
+
   <form id="limites-simular" class="filtros" data-plataforma="amazon_us" data-moneda="USD">
     <label for="limites-clics">Clics mínimos
       <input type="text" id="limites-clics" name="clics" inputmode="numeric" maxlength="9" value="100" aria-describedby="limites-ayuda" required>
@@ -180,7 +180,7 @@
   <p id="limites-ayuda" class="mutado">Al cambiar un límite la pantalla simula qué pausaría con él, sin guardar nada.</p>
   <p id="limites-sim-estado" class="mutado" role="status"></p>
   <div id="limites-simulacion"></div>
-  
+
   <form id="limites-guardar" class="filtros" data-plataforma="amazon_us" data-config-id="4">
     <label for="limites-token">Token
       <input type="password" id="limites-token" name="token" placeholder="x-orbit-token" autocomplete="off" required>
@@ -188,7 +188,7 @@
     <button type="submit">Guardar límites</button>
     <span data-estado role="status"></span>
   </form>
-  
+
 </div>
 
 
@@ -220,9 +220,9 @@
 
     </main>
   </div>
-  
-  
-  
+
+
+
   <nav class="tab-bar" aria-label="Navegacion movil">
     <svg class="tab-sprite" aria-hidden="true" focusable="false">
       <symbol id="ico-casa" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
@@ -273,56 +273,56 @@
         <path d="M10.7 3.7a1.5 1.5 0 0 1 2.6 0l8.4 14.6A1.5 1.5 0 0 1 20.4 20.5H3.6a1.5 1.5 0 0 1-1.3-2.2L10.7 3.7zM12 9.4a.9.9 0 0 0-.9.9v3.7a.9.9 0 0 0 1.8 0V10.3a.9.9 0 0 0-.9-.9zm0 7.1a1.05 1.05 0 1 0 0 2.1 1.05 1.05 0 0 0 0-2.1z"/>
       </symbol>
     </svg>
-    
+
     <a class="tab" href="/">
       <svg class="tab-ico tab-ico-off"><use href="#ico-casa"/></svg>
       <svg class="tab-ico tab-ico-on"><use href="#ico-casa-fill"/></svg>
       <span class="tab-label">Resumen</span>
-      
+
     </a>
-    
+
     <a class="tab" href="/contribucion">
       <svg class="tab-ico tab-ico-off"><use href="#ico-barras"/></svg>
       <svg class="tab-ico tab-ico-on"><use href="#ico-barras-fill"/></svg>
       <span class="tab-label">Contribucion</span>
-      
+
     </a>
-    
+
     <a class="tab" href="/reputacion">
       <svg class="tab-ico tab-ico-off"><use href="#ico-cubo"/></svg>
       <svg class="tab-ico tab-ico-on"><use href="#ico-cubo-fill"/></svg>
       <span class="tab-label">Reputacion</span>
       <span class="contador tab-badge" data-rol="reputacion" hidden></span>
     </a>
-    
+
     <a class="tab" href="/decisiones">
       <svg class="tab-ico tab-ico-off"><use href="#ico-lista"/></svg>
       <svg class="tab-ico tab-ico-on"><use href="#ico-lista-fill"/></svg>
       <span class="tab-label">Decisiones</span>
-      
+
     </a>
-    
+
     <a class="tab" href="/campanas">
       <svg class="tab-ico tab-ico-off"><use href="#ico-billetera"/></svg>
       <svg class="tab-ico tab-ico-on"><use href="#ico-billetera-fill"/></svg>
       <span class="tab-label">Campañas</span>
-      
+
     </a>
-    
+
     <a class="tab" href="/settings">
       <svg class="tab-ico tab-ico-off"><use href="#ico-banco"/></svg>
       <svg class="tab-ico tab-ico-on"><use href="#ico-banco-fill"/></svg>
       <span class="tab-label">Settings</span>
-      
+
     </a>
-    
+
     <a class="tab tab-activo" href="/cortes" aria-current="page">
       <svg class="tab-ico tab-ico-off"><use href="#ico-aviso"/></svg>
       <svg class="tab-ico tab-ico-on"><use href="#ico-aviso-fill"/></svg>
       <span class="tab-label">Propuestas</span>
       <span class="contador tab-badge" data-rol="propuestas" hidden></span>
     </a>
-    
+
   </nav>
   <script src="/static/vendor/chart.umd.min.js?v=54abc08345227835"></script>
   <script src="/static/js/shell.js?v=54abc08345227835"></script>

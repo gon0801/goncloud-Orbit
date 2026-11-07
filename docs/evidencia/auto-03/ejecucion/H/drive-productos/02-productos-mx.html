@@ -9,13 +9,13 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon/favicon-16.png">
   <link rel="icon" type="image/png" sizes="192x192" href="/static/favicon/favicon-192.png">
   <link rel="apple-touch-icon" href="/static/favicon/favicon-180.png">
-  
+
   <script src="/static/js/tema.js?v=54abc08345227835"></script>
   <link rel="stylesheet" href="/static/css/dashboard.css?v=54abc08345227835">
-  
+
 </head>
 <body data-pantalla="productos-sin-clics">
-  
+
   <a class="saltar-contenido" href="#contenido">Saltar al contenido</a>
   <aside class="sidebar" aria-label="Navegacion principal">
     <a class="marca" href="/" aria-label="Orbit, inicio">
@@ -24,48 +24,48 @@
     </a>
     <div class="canal-actual">Ads · Amazon y Mercado Libre</div>
     <nav id="nav-secciones" class="navegacion" aria-label="Secciones">
-      
+
       <div class="nav-grupo">
         <p class="nav-etiqueta">Panel</p>
-        
+
         <a href="/" >Resumen</a>
-        
+
         <a href="/campanas" >Campañas</a>
-        
+
         <a href="/decisiones" >Decisiones</a>
-        
+
         <a href="/salud" >Salud</a>
-        
+
         <a href="/contribucion" >Contribucion</a>
-        
+
       </div>
-      
+
       <div class="nav-grupo">
         <p class="nav-etiqueta">Decidir</p>
-        
+
         <a href="/cortes" >Propuestas<span id="propuestas-contador" class="contador" hidden></span></a>
-        
+
         <a href="/gasto-sin-venta" >Gasto sin venta</a>
-        
+
         <a href="/busquedas-sin-venta" >Búsquedas que gastan sin vender</a>
-        
+
         <a href="/keywords-danadas" >Keywords dañadas</a>
-        
+
         <a href="/ruido" >Ruido</a>
-        
+
         <a href="/donde-poner-el-dinero" >Dónde poner el dinero</a>
-        
+
         <a href="/productos-sin-clics" aria-current="page">Productos sin clics</a>
-        
+
         <a href="/inertes" >Inertes</a>
-        
+
         <a href="/campanas/nuevas" >Crear campañas</a>
-        
+
       </div>
-      
+
       <div class="nav-grupo">
         <p class="nav-etiqueta">Catalogo</p>
-        
+
         <a href="/reputacion" >Reputacion<span id="reputacion-contador" class="contador" hidden></span></a>
         <a href="/precios" >Precios</a>
         <a href="/familias" >Familias</a>
@@ -84,14 +84,14 @@
     <header class="pagina-header">
       <div><h1>Productos sin clics</h1><p>Venden y casi no reciben clics · impulsos</p></div>
       <div class="header-acciones">
-        
+
         <span id="watermark-resumen" class="chip-watermark">Watermark: sin consultar</span>
         <span class="alcance">Amazon MX · Amazon US</span>
         <button type="button" id="btn-tema" aria-pressed="false">Tema: dia</button>
       </div>
     </header>
     <main id="contenido" tabindex="-1">
-    
+
 <h2>Productos sin clics</h2>
 <p class="mutado">
   Venden y casi no reciben clics de anuncios. Márcalos, escribe la subfamilia
@@ -107,31 +107,31 @@
 <div class="tarjeta">
   <h3>Candidatos a impulsar <span class="chip">0</span></h3>
   <p class="mutado">2 pedidos o más en 3 meses y menos de 20 clics de anuncios en 60 días.</p>
-  
+
   <p>Sin candidatos en este mercado.</p>
-  
+
 </div>
 
 <div class="tarjeta">
   <h3>Impulsos <span class="chip">0</span></h3>
-  
+
   <p>Sin impulsos en este mercado.</p>
-  
+
 </div>
 
 <div class="tarjeta">
   <h3>Retiros abiertos <span class="chip">0</span></h3>
   <p class="mutado">Anuncios retirados sin impulso (motivos sin_pedidos y subfamilia) que aún no regresan.</p>
-  
+
   <p>Sin retiros abiertos.</p>
-  
+
 </div>
 
 <div class="tarjeta">
   <h3>Sin un pedido en 11 meses <span class="chip">0</span></h3>
-  
+
   <p>Todo vendió en los últimos 11 meses.</p>
-  
+
   <p class="mutado">Hay 0 anuncios sin producto ligado que no puedo juzgar.</p>
 </div>
 
@@ -144,12 +144,12 @@
     La meta de ACoS que Orbit calcula para cada producto con su margen, solo en los grupos que anuncian
     ese producto y nada más. Un goal de campaña con target manda sobre ella.
   </p>
-  
+
   <p data-decisiones-ciclo>
     Ciclo 3 · 2026-11-07 14:08 UTC · la meta está <strong>en práctica</strong>: se calcula y no cambia ninguna puja.
   </p>
-  
-  
+
+
   <p class="mutado">
     6 grupos aptos ·
     1 keywords y targets bajo ellos ·
@@ -161,36 +161,36 @@
       <option value="">todos (5)</option>
       <option value="con-meta">con meta (1)</option>
       <option value="sin-meta">sin meta (4)</option>
-      
+
       <option value="motivo:halo_sin_madurar">el tramo del halo de menos de 30 dias todavia puede cambiar (5)</option>
-      
+
       <option value="motivo:halo_sin_margen">ventas atribuidas de otro SKU: su margen no es el del producto (1)</option>
-      
+
       <option value="motivo:sin_fraccion">sin fraccion configurada para la plataforma (3)</option>
-      
+
       <option value="motivo:sin_margen">sin margen medido en la ventana (3)</option>
-      
+
     </select>
   </label>
   <div class="tabla-scroll" role="region" aria-label="Meta por producto" tabindex="0">
   <table id="decisiones-tabla">
     <thead><tr><th>Producto</th><th>Margen</th><th>Meta</th><th>Grupos donde aplicaría</th><th>Por qué</th></tr></thead>
     <tbody>
-      
+
       <tr data-decision-producto="4" data-con-meta="si" data-motivos="halo_sin_madurar">
         <td>Collar demo <span class="mutado">PV-COLLAR</span></td>
         <td>8.00 %<br><span class="mutado">2026-09-23 a 2026-10-23</span></td>
         <td><strong>4.00 %</strong></td>
         <td>
-          
-          
+
+
           <details data-grupo="6">
             <summary>Grupo collar <span class="mutado">Campana P · 1 keywords y targets</span></summary>
-            
+
             <table>
               <thead><tr><th>Keyword o target</th><th>Target hoy</th><th>Veredicto hoy</th><th>Target con meta</th><th>Veredicto con meta</th></tr></thead>
               <tbody>
-                
+
                 <tr data-hoja="7">
                   <td>collar plata</td>
                   <td>10.00 % <span class="mutado">margen_plataforma</span></td>
@@ -198,125 +198,125 @@
                   <td>4.00 %</td>
                   <td>Mover -12.00 % a 0.88 · acos_sobre_target <span class="chip">cambia</span></td>
                 </tr>
-                
+
               </tbody>
             </table>
-            
+
           </details>
-          
-          
+
+
         </td>
         <td>
-          
+
           <ul><li data-motivo="halo_sin_madurar">el tramo del halo de menos de 30 dias todavia puede cambiar</li></ul>
-          
+
         </td>
       </tr>
-      
+
       <tr data-decision-producto="5" data-con-meta="no" data-motivos="halo_sin_margen halo_sin_madurar">
         <td>Aretes demo <span class="mutado">PV-ARETES</span></td>
         <td>30.00 %<br><span class="mutado">2026-09-23 a 2026-10-23</span></td>
         <td>sin meta</td>
         <td>
-          
+
           <span class="mutado">ningún grupo exclusivo</span>
-          
+
         </td>
         <td>
-          
+
           <ul><li data-motivo="halo_sin_margen">ventas atribuidas de otro SKU: su margen no es el del producto</li><li data-motivo="halo_sin_madurar">el tramo del halo de menos de 30 dias todavia puede cambiar</li></ul>
-          
+
         </td>
       </tr>
-      
+
       <tr data-decision-producto="6" data-con-meta="no" data-motivos="sin_fraccion sin_margen halo_sin_madurar">
         <td>Pulsera demo <span class="mutado">PV-PULSERA</span></td>
         <td>—</td>
         <td>sin meta</td>
         <td>
-          
-          
+
+
           <details data-grupo="9">
             <summary>Grupo pulsera A <span class="mutado">Campana Q · 0 keywords y targets</span></summary>
-            
+
             <p class="mutado">Sin keywords ni targets activos.</p>
-            
+
           </details>
-          
+
           <details data-grupo="11">
             <summary>Grupo pulsera B <span class="mutado">Campana Q · 0 keywords y targets</span></summary>
-            
+
             <p class="mutado">Sin keywords ni targets activos.</p>
-            
+
           </details>
-          
+
           <details data-grupo="13">
             <summary>Grupo pulsera nuevo <span class="mutado">Campana Q · 0 keywords y targets</span></summary>
-            
+
             <p class="mutado">Sin keywords ni targets activos.</p>
-            
+
           </details>
-          
-          
+
+
         </td>
         <td>
-          
+
           <ul><li data-motivo="sin_fraccion">sin fraccion configurada para la plataforma</li><li data-motivo="sin_margen">sin margen medido en la ventana</li><li data-motivo="halo_sin_madurar">el tramo del halo de menos de 30 dias todavia puede cambiar</li></ul>
-          
+
         </td>
       </tr>
-      
+
       <tr data-decision-producto="7" data-con-meta="no" data-motivos="sin_fraccion sin_margen halo_sin_madurar">
         <td>Anillo demo <span class="mutado">PV-ANILLO</span></td>
         <td>—</td>
         <td>sin meta</td>
         <td>
-          
-          
+
+
           <details data-grupo="15">
             <summary>Grupo anillo <span class="mutado">Campana Q · 0 keywords y targets</span></summary>
-            
+
             <p class="mutado">Sin keywords ni targets activos.</p>
-            
+
           </details>
-          
-          
+
+
         </td>
         <td>
-          
+
           <ul><li data-motivo="sin_fraccion">sin fraccion configurada para la plataforma</li><li data-motivo="sin_margen">sin margen medido en la ventana</li><li data-motivo="halo_sin_madurar">el tramo del halo de menos de 30 dias todavia puede cambiar</li></ul>
-          
+
         </td>
       </tr>
-      
+
       <tr data-decision-producto="8" data-con-meta="no" data-motivos="sin_fraccion sin_margen halo_sin_madurar">
         <td>Broche demo <span class="mutado">PV-BROCHE</span></td>
         <td>—</td>
         <td>sin meta</td>
         <td>
-          
-          
+
+
           <details data-grupo="17">
             <summary>Grupo broche <span class="mutado">Campana Q · 0 keywords y targets</span></summary>
-            
+
             <p class="mutado">Sin keywords ni targets activos.</p>
-            
+
           </details>
-          
-          
+
+
         </td>
         <td>
-          
+
           <ul><li data-motivo="sin_fraccion">sin fraccion configurada para la plataforma</li><li data-motivo="sin_margen">sin margen medido en la ventana</li><li data-motivo="halo_sin_madurar">el tramo del halo de menos de 30 dias todavia puede cambiar</li></ul>
-          
+
         </td>
       </tr>
-      
+
     </tbody>
   </table>
   </div>
-  
-  
+
+
 </div>
 
 
@@ -337,12 +337,12 @@
   <table id="pausas-tabla">
     <thead><tr><th>Producto</th><th>Gasto observado</th><th>Gasto sobre el que Orbit puede actuar</th><th>Anuncios</th><th>Propuestas</th><th>Confirmados</th><th>Por qué</th></tr></thead>
     <tbody>
-      
+
       <tr data-pausa-producto="6" data-nombre="Pulsera demo · PV-PULSERA">
         <td>Pulsera demo <span class="mutado">PV-PULSERA</span></td>
         <td data-gasto-observado>
           600.00 MXN<br><span class="mutado">150 clics del 2026-09-08 al 2026-10-07</span>
-          
+
         </td>
         <td data-gasto-actuable>400.00 MXN</td>
         <td>
@@ -350,54 +350,54 @@
           <ul><li data-excluido="alta_en_ventana">1 fuera: el anuncio no existia antes de la ventana</li></ul>
         </td>
         <td>
-          
+
           <ul>
-            
+
             <li data-propuesta="10">
               Pausar anuncio 9421
               <span class="mutado">· Grupo pulsera A</span>
               <span class="chip aviso" data-sin-efecto>propuesta, sin efecto</span>
-              
+
             </li>
-            
+
             <li data-propuesta="12">
               Pausar anuncio 9422
               <span class="mutado">· Grupo pulsera B</span>
               <span class="chip aviso" data-sin-efecto>propuesta, sin efecto</span>
-              
+
             </li>
-            
+
           </ul>
-          
+
         </td>
         <td data-confirmados>0 de 2</td>
         <td>
           —
         </td>
       </tr>
-      
+
       <tr data-pausa-producto="7" data-nombre="Anillo demo · PV-ANILLO">
         <td>Anillo demo <span class="mutado">PV-ANILLO</span></td>
         <td data-gasto-observado>
           450.00 MXN<br><span class="mutado">120 clics del 2026-09-08 al 2026-10-07</span>
-          
+
         </td>
         <td data-gasto-actuable>450.00 MXN</td>
         <td>
           1 al alcance
-          
+
         </td>
         <td>
           —
         </td>
         <td data-confirmados>0 de 0</td>
         <td>
-          
+
           <ul><li data-motivo-pausa="vendio_en_ventana">el producto vendio en la ventana de la pausa</li></ul>
-          
+
         </td>
       </tr>
-      
+
       <tr data-pausa-producto="4" data-nombre="Collar demo · PV-COLLAR">
         <td>Collar demo <span class="mutado">PV-COLLAR</span></td>
         <td data-gasto-observado>
@@ -406,19 +406,19 @@
         <td data-gasto-actuable>—</td>
         <td>
           0 al alcance
-          
+
         </td>
         <td>
           —
         </td>
         <td data-confirmados>0 de 0</td>
         <td>
-          
+
           <ul><li data-motivo-pausa="sin_filas_en_ventana">el producto no tiene ninguna fila en la ventana</li></ul>
-          
+
         </td>
       </tr>
-      
+
       <tr data-pausa-producto="5" data-nombre="Aretes demo · PV-ARETES">
         <td>Aretes demo <span class="mutado">PV-ARETES</span></td>
         <td data-gasto-observado>
@@ -427,19 +427,19 @@
         <td data-gasto-actuable>—</td>
         <td>
           0 al alcance
-          
+
         </td>
         <td>
           —
         </td>
         <td data-confirmados>0 de 0</td>
         <td>
-          
+
           <ul><li data-motivo-pausa="sin_filas_en_ventana">el producto no tiene ninguna fila en la ventana</li></ul>
-          
+
         </td>
       </tr>
-      
+
       <tr data-pausa-producto="8" data-nombre="Broche demo · PV-BROCHE">
         <td>Broche demo <span class="mutado">PV-BROCHE</span></td>
         <td data-gasto-observado>
@@ -448,19 +448,19 @@
         <td data-gasto-actuable>—</td>
         <td>
           1 al alcance
-          
+
         </td>
         <td>
           —
         </td>
         <td data-confirmados>0 de 0</td>
         <td>
-          
+
           <ul><li data-motivo-pausa="fecha_desconocida">una fecha sin fila ni cobertura demostrada de la ingesta</li></ul>
-          
+
         </td>
       </tr>
-      
+
     </tbody>
   </table>
   </div>
@@ -475,9 +475,9 @@
     Para proponer la pausa, el producto tiene que llegar a los dos sin vender, en la ventana de
     30 días que terminó hace 30 días.
   </p>
-  
+
   <p data-limites-vigentes>Vigentes: <strong>100 clics</strong> y <strong>500.00 MXN</strong> de gasto.</p>
-  
+
   <form id="limites-simular" class="filtros" data-plataforma="amazon_mx" data-moneda="MXN">
     <label for="limites-clics">Clics mínimos
       <input type="text" id="limites-clics" name="clics" inputmode="numeric" maxlength="9" value="100" aria-describedby="limites-ayuda" required>
@@ -490,7 +490,7 @@
   <p id="limites-ayuda" class="mutado">Al cambiar un límite la pantalla simula qué pausaría con él, sin guardar nada.</p>
   <p id="limites-sim-estado" class="mutado" role="status"></p>
   <div id="limites-simulacion"></div>
-  
+
   <form id="limites-guardar" class="filtros" data-plataforma="amazon_mx" data-config-id="4">
     <label for="limites-token">Token
       <input type="password" id="limites-token" name="token" placeholder="x-orbit-token" autocomplete="off" required>
@@ -498,7 +498,7 @@
     <button type="submit">Guardar límites</button>
     <span data-estado role="status"></span>
   </form>
-  
+
 </div>
 
 
@@ -530,9 +530,9 @@
 
     </main>
   </div>
-  
-  
-  
+
+
+
   <nav class="tab-bar" aria-label="Navegacion movil">
     <svg class="tab-sprite" aria-hidden="true" focusable="false">
       <symbol id="ico-casa" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
@@ -583,56 +583,56 @@
         <path d="M10.7 3.7a1.5 1.5 0 0 1 2.6 0l8.4 14.6A1.5 1.5 0 0 1 20.4 20.5H3.6a1.5 1.5 0 0 1-1.3-2.2L10.7 3.7zM12 9.4a.9.9 0 0 0-.9.9v3.7a.9.9 0 0 0 1.8 0V10.3a.9.9 0 0 0-.9-.9zm0 7.1a1.05 1.05 0 1 0 0 2.1 1.05 1.05 0 0 0 0-2.1z"/>
       </symbol>
     </svg>
-    
+
     <a class="tab" href="/">
       <svg class="tab-ico tab-ico-off"><use href="#ico-casa"/></svg>
       <svg class="tab-ico tab-ico-on"><use href="#ico-casa-fill"/></svg>
       <span class="tab-label">Resumen</span>
-      
+
     </a>
-    
+
     <a class="tab" href="/contribucion">
       <svg class="tab-ico tab-ico-off"><use href="#ico-barras"/></svg>
       <svg class="tab-ico tab-ico-on"><use href="#ico-barras-fill"/></svg>
       <span class="tab-label">Contribucion</span>
-      
+
     </a>
-    
+
     <a class="tab" href="/reputacion">
       <svg class="tab-ico tab-ico-off"><use href="#ico-cubo"/></svg>
       <svg class="tab-ico tab-ico-on"><use href="#ico-cubo-fill"/></svg>
       <span class="tab-label">Reputacion</span>
       <span class="contador tab-badge" data-rol="reputacion" hidden></span>
     </a>
-    
+
     <a class="tab" href="/decisiones">
       <svg class="tab-ico tab-ico-off"><use href="#ico-lista"/></svg>
       <svg class="tab-ico tab-ico-on"><use href="#ico-lista-fill"/></svg>
       <span class="tab-label">Decisiones</span>
-      
+
     </a>
-    
+
     <a class="tab" href="/campanas">
       <svg class="tab-ico tab-ico-off"><use href="#ico-billetera"/></svg>
       <svg class="tab-ico tab-ico-on"><use href="#ico-billetera-fill"/></svg>
       <span class="tab-label">Campañas</span>
-      
+
     </a>
-    
+
     <a class="tab" href="/settings">
       <svg class="tab-ico tab-ico-off"><use href="#ico-banco"/></svg>
       <svg class="tab-ico tab-ico-on"><use href="#ico-banco-fill"/></svg>
       <span class="tab-label">Settings</span>
-      
+
     </a>
-    
+
     <a class="tab tab-activo" href="/cortes" aria-current="page">
       <svg class="tab-ico tab-ico-off"><use href="#ico-aviso"/></svg>
       <svg class="tab-ico tab-ico-on"><use href="#ico-aviso-fill"/></svg>
       <span class="tab-label">Propuestas</span>
       <span class="contador tab-badge" data-rol="propuestas" hidden></span>
     </a>
-    
+
   </nav>
   <script src="/static/vendor/chart.umd.min.js?v=54abc08345227835"></script>
   <script src="/static/js/shell.js?v=54abc08345227835"></script>

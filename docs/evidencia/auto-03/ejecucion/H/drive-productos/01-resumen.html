@@ -9,13 +9,13 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon/favicon-16.png">
   <link rel="icon" type="image/png" sizes="192x192" href="/static/favicon/favicon-192.png">
   <link rel="apple-touch-icon" href="/static/favicon/favicon-180.png">
-  
+
   <script src="/static/js/tema.js?v=54abc08345227835"></script>
   <link rel="stylesheet" href="/static/css/dashboard.css?v=54abc08345227835">
-  
+
 </head>
 <body data-pantalla="resumen">
-  
+
   <a class="saltar-contenido" href="#contenido">Saltar al contenido</a>
   <aside class="sidebar" aria-label="Navegacion principal">
     <a class="marca" href="/" aria-label="Orbit, inicio">
@@ -24,48 +24,48 @@
     </a>
     <div class="canal-actual">Ads · Amazon y Mercado Libre</div>
     <nav id="nav-secciones" class="navegacion" aria-label="Secciones">
-      
+
       <div class="nav-grupo">
         <p class="nav-etiqueta">Panel</p>
-        
+
         <a href="/" aria-current="page">Resumen</a>
-        
+
         <a href="/campanas" >Campañas</a>
-        
+
         <a href="/decisiones" >Decisiones</a>
-        
+
         <a href="/salud" >Salud</a>
-        
+
         <a href="/contribucion" >Contribucion</a>
-        
+
       </div>
-      
+
       <div class="nav-grupo">
         <p class="nav-etiqueta">Decidir</p>
-        
+
         <a href="/cortes" >Propuestas<span id="propuestas-contador" class="contador" hidden></span></a>
-        
+
         <a href="/gasto-sin-venta" >Gasto sin venta</a>
-        
+
         <a href="/busquedas-sin-venta" >Búsquedas que gastan sin vender</a>
-        
+
         <a href="/keywords-danadas" >Keywords dañadas</a>
-        
+
         <a href="/ruido" >Ruido</a>
-        
+
         <a href="/donde-poner-el-dinero" >Dónde poner el dinero</a>
-        
+
         <a href="/productos-sin-clics" >Productos sin clics</a>
-        
+
         <a href="/inertes" >Inertes</a>
-        
+
         <a href="/campanas/nuevas" >Crear campañas</a>
-        
+
       </div>
-      
+
       <div class="nav-grupo">
         <p class="nav-etiqueta">Catalogo</p>
-        
+
         <a href="/reputacion" >Reputacion<span id="reputacion-contador" class="contador" hidden></span></a>
         <a href="/precios" >Precios</a>
         <a href="/familias" >Familias</a>
@@ -84,14 +84,14 @@
     <header class="pagina-header">
       <div><h1>Resumen</h1><p>Publicidad por canal · periodo a elegir, dia en curso excluido</p></div>
       <div class="header-acciones">
-        
+
         <span id="watermark-resumen" class="chip-watermark">Watermark: sin consultar</span>
         <span class="alcance">Amazon MX · Amazon US · Mercado Libre</span>
         <button type="button" id="btn-tema" aria-pressed="false">Tema: dia</button>
       </div>
     </header>
     <main id="contenido" tabindex="-1">
-    
+
 
 
 
@@ -109,35 +109,35 @@
     <span class="filter-label">Canal</span>
     <div class="seg" role="group" aria-label="Selector de canal">
       <a class="seg-btn active" href="/?periodo=30">Todos</a>
-      
+
       <a class="seg-btn" href="/?canal=amazon_mx&periodo=30">Amazon MX</a>
-      
+
       <a class="seg-btn" href="/?canal=amazon_us&periodo=30">Amazon US</a>
-      
+
       <a class="seg-btn" href="/?canal=meli&periodo=30">Mercado Libre</a>
-      
+
     </div>
   </div>
 
   <div class="filter-group">
     <span class="filter-label">Periodo</span>
     <div class="seg" role="group" aria-label="Selector de periodo">
-      
+
       <a class="seg-btn" href="/?periodo=7">7 dias</a>
-      
+
       <a class="seg-btn active" href="/?periodo=30">30 dias</a>
-      
+
       <a class="seg-btn" href="/?periodo=90">90 dias</a>
-      
+
     </div>
   </div>
 
   <div class="window-meta">
     Ventana <strong>2026-10-08 .. 2026-11-06</strong>
     · 30 dias
-    
+
     · el dia en curso queda fuera
-    
+
   </div>
 
   <details class="custom-range">
@@ -147,24 +147,24 @@
         <label>Canal
           <select name="canal">
             <option value="" selected>todos</option>
-            
+
             <option value="amazon_mx">Amazon MX</option>
-            
+
             <option value="amazon_us">Amazon US</option>
-            
+
             <option value="meli">Mercado Libre</option>
-            
+
           </select>
         </label>
         <label>Periodo
           <select name="periodo">
-            
+
             <option value="7">7 dias</option>
-            
+
             <option value="30" selected>30 dias</option>
-            
+
             <option value="90">90 dias</option>
-            
+
           </select>
         </label>
         <label>Desde
@@ -174,7 +174,7 @@
           <input type="date" name="hasta" value="">
         </label>
         <button type="submit">Filtrar</button>
-        
+
       </form>
       <p class="range-hint">Con desde y hasta, el rango manda y el periodo de arriba se ignora. Hacen falta las dos fechas.</p>
     </div>
@@ -189,9 +189,9 @@
   </div>
 
   <div class="channel-grid">
-    
-    
-    
+
+
+
     <article class="ch-card" data-canal-card="amazon_mx">
       <div class="ch-top">
         <div class="ch-title">
@@ -221,8 +221,8 @@
           <span>10-08 → 11-06</span>
         </div>
         <svg class="spark-svg" viewBox="0 0 280 34" preserveAspectRatio="none" role="img" aria-label="Media de 7 dias de ventas atribuidas de Amazon MX">
-          
-          
+
+
         </svg>
       </div>
 
@@ -245,13 +245,13 @@
       </div>
 
       <p class="ch-takeaway">Sin observaciones de gasto ni ventas atribuidas en la ventana seleccionada.</p>
-      
+
       <p class="ch-madurez mutado">Cifras inmaduras del 2026-10-30 al 2026-11-06 (0/30 dias con dato · — clics · — ordenes).</p>
-      
+
     </article>
-    
-    
-    
+
+
+
     <article class="ch-card" data-canal-card="amazon_us">
       <div class="ch-top">
         <div class="ch-title">
@@ -281,8 +281,8 @@
           <span>10-08 → 11-06</span>
         </div>
         <svg class="spark-svg" viewBox="0 0 280 34" preserveAspectRatio="none" role="img" aria-label="Media de 7 dias de ventas atribuidas de Amazon US">
-          
-          
+
+
         </svg>
       </div>
 
@@ -305,13 +305,13 @@
       </div>
 
       <p class="ch-takeaway">Cobertura del periodo: 2/30 dias con dato.</p>
-      
+
       <p class="ch-madurez mutado">Cifras inmaduras del 2026-10-30 al 2026-11-06 (2/30 dias con dato · 9 clics · 2 ordenes).</p>
-      
+
     </article>
-    
-    
-    
+
+
+
     <article class="ch-card" data-canal-card="meli">
       <div class="ch-top">
         <div class="ch-title">
@@ -341,8 +341,8 @@
           <span>10-08 → 11-06</span>
         </div>
         <svg class="spark-svg" viewBox="0 0 280 34" preserveAspectRatio="none" role="img" aria-label="Media de 7 dias de ventas atribuidas de Mercado Libre">
-          
-          
+
+
         </svg>
       </div>
 
@@ -365,11 +365,11 @@
       </div>
 
       <p class="ch-takeaway">Sin observaciones de gasto ni ventas atribuidas en la ventana seleccionada.</p>
-      
+
       <p class="ch-madurez mutado">meli no publica madurez de atribucion D-8 (no hereda la de Amazon); cierra sus cifras en T+1/T+2, asi que su D-1 aun puede cambiar (0/30 dias con dato · — clics).</p>
-      
+
     </article>
-    
+
   </div>
 </section>
 
@@ -380,7 +380,7 @@
     <span class="sec-sub">Ordenado por impacto con las cifras del periodo elegido (2026-10-08 .. 2026-11-06)</span>
   </div>
 
-  
+
   <div class="actions-card">
     <div class="action-row">
       <span class="action-rank">—</span>
@@ -390,7 +390,7 @@
       </div>
     </div>
   </div>
-  
+
 </section>
 
 <section class="resumen-seccion" aria-labelledby="sec-tendencia">
@@ -403,19 +403,19 @@
   <div class="chart-card">
     <div class="chart-toolbar">
       <div class="chart-tabs" role="tablist" aria-label="Canal de la grafica de tendencia">
-        
+
         <button type="button" class="chart-tab active" role="tab" aria-selected="true" data-tab-canal="amazon_mx">
           Amazon MX <span class="curr-tag">· MXN</span>
         </button>
-        
+
         <button type="button" class="chart-tab" role="tab" aria-selected="false" data-tab-canal="amazon_us">
           Amazon US <span class="curr-tag">· USD</span>
         </button>
-        
+
         <button type="button" class="chart-tab" role="tab" aria-selected="false" data-tab-canal="meli">
           Mercado Libre <span class="curr-tag">· MXN</span>
         </button>
-        
+
       </div>
       <div class="chart-legend" aria-hidden="true">
         <span class="leg-item"><span class="leg-swatch ventas-ma7"></span>Ventas media 7d</span>
@@ -425,43 +425,43 @@
       </div>
     </div>
 
-    
+
     <div class="chart-panel" data-panel-canal="amazon_mx">
       <div class="lienzo">
         <canvas id="tendencia-amazon_mx" data-canal="amazon_mx" role="img" aria-describedby="serie-amazon_mx" aria-label="Gasto y ventas de Amazon MX en MXN"></canvas>
       </div>
       <div class="chart-note">
-        
+
         <span><strong>Maduracion Amazon MX:</strong> cifras inmaduras del 2026-10-30 al 2026-11-06. La atribucion de ventas y el cierre de gasto siguen ajustandose en esa ventana.</span>
-        
+
         <span>Moneda: <strong>MXN</strong> · Cobertura: <strong>0/30 dias</strong></span>
       </div>
     </div>
-    
+
     <div class="chart-panel" data-panel-canal="amazon_us" hidden>
       <div class="lienzo">
         <canvas id="tendencia-amazon_us" data-canal="amazon_us" role="img" aria-describedby="serie-amazon_us" aria-label="Gasto y ventas de Amazon US en USD"></canvas>
       </div>
       <div class="chart-note">
-        
+
         <span><strong>Maduracion Amazon US:</strong> cifras inmaduras del 2026-10-30 al 2026-11-06. La atribucion de ventas y el cierre de gasto siguen ajustandose en esa ventana.</span>
-        
+
         <span>Moneda: <strong>USD</strong> · Cobertura: <strong>2/30 dias</strong></span>
       </div>
     </div>
-    
+
     <div class="chart-panel" data-panel-canal="meli" hidden>
       <div class="lienzo">
         <canvas id="tendencia-meli" data-canal="meli" role="img" aria-describedby="serie-meli" aria-label="Gasto y ventas de Mercado Libre en MXN"></canvas>
       </div>
       <div class="chart-note">
-        
+
         <span><strong>Maduracion Mercado Libre:</strong> meli no publica madurez de atribucion D-8 (no hereda la de Amazon); cierra sus cifras en T+1/T+2, asi que su D-1 aun puede cambiar</span>
-        
+
         <span>Moneda: <strong>MXN</strong> · Cobertura: <strong>0/30 dias</strong></span>
       </div>
     </div>
-    
+
   </div>
 </section>
 
@@ -473,153 +473,153 @@
   </div>
 
   <div class="currency-grid">
-    
+
     <section class="curr-card" aria-label="Totales MXN">
       <div class="curr-top">
         <div>
           <span class="curr-code">Totales MXN</span>
           <span class="curr-channels">· Amazon MX, Mercado Libre</span>
         </div>
-        
+
         <span class="curr-badge">cobertura incompleta</span>
-        
+
       </div>
-      
+
       <p class="curr-note">Sin dato de dinero: Amazon MX, Mercado Libre</p>
-      
+
       <div class="curr-grid">
-        
+
         <div class="curr-item" aria-label="Gasto MXN">
           <div class="curr-item-label">Gasto</div>
           <div class="curr-item-val">—</div>
           <div class="curr-item-sub">
-            
+
             cobertura incompleta
-            
+
           </div>
         </div>
-        
+
         <div class="curr-item" aria-label="Ventas atribuidas MXN">
           <div class="curr-item-label">Ventas atribuidas</div>
           <div class="curr-item-val">—</div>
           <div class="curr-item-sub">
-            
+
             cobertura incompleta
-            
+
           </div>
         </div>
-        
+
         <div class="curr-item" aria-label="ACoS MXN">
           <div class="curr-item-label">ACoS</div>
           <div class="curr-item-val">—</div>
           <div class="curr-item-sub">
-            
+
           </div>
         </div>
-        
+
         <div class="curr-item" aria-label="ROAS MXN">
           <div class="curr-item-label">ROAS</div>
           <div class="curr-item-val">—</div>
           <div class="curr-item-sub">
-            
+
           </div>
         </div>
-        
+
         <div class="curr-item" aria-label="Clics MXN">
           <div class="curr-item-label">Clics</div>
           <div class="curr-item-val">—</div>
           <div class="curr-item-sub">
-            
+
             cobertura incompleta
-            
+
           </div>
         </div>
-        
+
         <div class="curr-item" aria-label="Ordenes atribuidas MXN">
           <div class="curr-item-label">Ordenes atribuidas</div>
           <div class="curr-item-val">—</div>
           <div class="curr-item-sub">
-            
+
             MeLi no publica ordenes
-            
+
           </div>
         </div>
-        
+
       </div>
     </section>
-    
+
     <section class="curr-card" aria-label="Totales USD">
       <div class="curr-top">
         <div>
           <span class="curr-code">Totales USD</span>
           <span class="curr-channels">· Amazon US</span>
         </div>
-        
+
         <span class="curr-badge">cobertura incompleta</span>
-        
+
       </div>
-      
+
       <div class="curr-grid">
-        
+
         <div class="curr-item" aria-label="Gasto USD">
           <div class="curr-item-label">Gasto</div>
           <div class="curr-item-val">$13.34</div>
           <div class="curr-item-sub">
-            
+
             cobertura incompleta
-            
+
           </div>
         </div>
-        
+
         <div class="curr-item" aria-label="Ventas atribuidas USD">
           <div class="curr-item-label">Ventas atribuidas</div>
           <div class="curr-item-val">$47.67</div>
           <div class="curr-item-sub">
-            
+
             cobertura incompleta
-            
+
           </div>
         </div>
-        
+
         <div class="curr-item" aria-label="ACoS USD">
           <div class="curr-item-label">ACoS</div>
           <div class="curr-item-val">—</div>
           <div class="curr-item-sub">
-            
+
           </div>
         </div>
-        
+
         <div class="curr-item" aria-label="ROAS USD">
           <div class="curr-item-label">ROAS</div>
           <div class="curr-item-val">—</div>
           <div class="curr-item-sub">
-            
+
           </div>
         </div>
-        
+
         <div class="curr-item" aria-label="Clics USD">
           <div class="curr-item-label">Clics</div>
           <div class="curr-item-val">9</div>
           <div class="curr-item-sub">
-            
+
             cobertura incompleta
-            
+
           </div>
         </div>
-        
+
         <div class="curr-item" aria-label="Ordenes atribuidas USD">
           <div class="curr-item-label">Ordenes atribuidas</div>
           <div class="curr-item-val">2</div>
           <div class="curr-item-sub">
-            
+
             cobertura incompleta
-            
+
           </div>
         </div>
-        
+
       </div>
     </section>
-    
+
   </div>
 </section>
 
@@ -645,117 +645,117 @@
               <tr>
                 <th>Canal</th>
                 <th>Moneda</th>
-                
+
                 <th class="num">Gasto</th>
-                
+
                 <th class="num">Ventas atribuidas</th>
-                
+
                 <th class="num">ACoS</th>
-                
+
                 <th class="num">ROAS</th>
-                
+
                 <th class="num">Clics</th>
-                
+
                 <th class="num">Ordenes atribuidas</th>
-                
+
                 <th class="num">Cobertura</th>
               </tr>
             </thead>
             <tbody>
-              
+
               <tr>
                 <td>Amazon MX</td>
                 <td>MXN</td>
-                
+
                 <td class="num">
                   —
                 </td>
-                
+
                 <td class="num">
                   —
                 </td>
-                
+
                 <td class="num">
                   —
                 </td>
-                
+
                 <td class="num">
                   —
                 </td>
-                
+
                 <td class="num">
                   —
                 </td>
-                
+
                 <td class="num">
                   —
                 </td>
-                
+
                 <td class="num">0/30 dias</td>
               </tr>
-              
+
               <tr>
                 <td>Amazon US</td>
                 <td>USD</td>
-                
+
                 <td class="num">
                   13.34
                 </td>
-                
+
                 <td class="num">
                   47.67
                 </td>
-                
+
                 <td class="num">
                   27.98%
                 </td>
-                
+
                 <td class="num">
                   3.57
                 </td>
-                
+
                 <td class="num">
                   9
                 </td>
-                
+
                 <td class="num">
                   2
                 </td>
-                
+
                 <td class="num">2/30 dias</td>
               </tr>
-              
+
               <tr>
                 <td>Mercado Libre</td>
                 <td>MXN</td>
-                
+
                 <td class="num">
                   —
                 </td>
-                
+
                 <td class="num">
                   —
                 </td>
-                
+
                 <td class="num">
                   —
                 </td>
-                
+
                 <td class="num">
                   —
                 </td>
-                
+
                 <td class="num">
                   —
                 </td>
-                
+
                 <td class="num">
                   —
                 </td>
-                
+
                 <td class="num">0/30 dias</td>
               </tr>
-              
+
             </tbody>
           </table>
         </div>
@@ -788,9 +788,9 @@
               </tr>
             </thead>
             <tbody>
-              
-              
-              
+
+
+
               <tr>
                 <td>Amazon MX (MXN)</td>
                 <td class="num">—</td>
@@ -804,9 +804,9 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
               </tr>
-              
-              
-              
+
+
+
               <tr>
                 <td>Amazon US (USD)</td>
                 <td class="num">—</td>
@@ -820,9 +820,9 @@
                 <td class="num">—</td>
                 <td class="num">cobertura distinta entre periodos</td>
               </tr>
-              
-              
-              
+
+
+
               <tr>
                 <td>Mercado Libre (MXN)</td>
                 <td class="num">—</td>
@@ -836,15 +836,15 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
               </tr>
-              
+
             </tbody>
           </table>
         </div>
       </div>
     </details>
 
-    
-    
+
+
     <details class="detail-box">
       <summary>
         <span>Datos diarios · Amazon MX (MXN)</span>
@@ -863,14 +863,14 @@
                 <th class="num">Ventas media 7</th>
                 <th class="num">Clics</th>
                 <th class="num">Clics media 7</th>
-                
+
                 <th class="num">Ordenes atribuidas</th>
                 <th class="num">Ordenes media 7</th>
-                
+
               </tr>
             </thead>
             <tbody>
-              
+
               <tr>
                 <td>2026-10-08</td>
                 <td class="num">—</td>
@@ -879,12 +879,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-09</td>
                 <td class="num">—</td>
@@ -893,12 +893,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-10</td>
                 <td class="num">—</td>
@@ -907,12 +907,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-11</td>
                 <td class="num">—</td>
@@ -921,12 +921,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-12</td>
                 <td class="num">—</td>
@@ -935,12 +935,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-13</td>
                 <td class="num">—</td>
@@ -949,12 +949,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-14</td>
                 <td class="num">—</td>
@@ -963,12 +963,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-15</td>
                 <td class="num">—</td>
@@ -977,12 +977,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-16</td>
                 <td class="num">—</td>
@@ -991,12 +991,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-17</td>
                 <td class="num">—</td>
@@ -1005,12 +1005,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-18</td>
                 <td class="num">—</td>
@@ -1019,12 +1019,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-19</td>
                 <td class="num">—</td>
@@ -1033,12 +1033,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-20</td>
                 <td class="num">—</td>
@@ -1047,12 +1047,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-21</td>
                 <td class="num">—</td>
@@ -1061,12 +1061,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-22</td>
                 <td class="num">—</td>
@@ -1075,12 +1075,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-23</td>
                 <td class="num">—</td>
@@ -1089,12 +1089,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-24</td>
                 <td class="num">—</td>
@@ -1103,12 +1103,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-25</td>
                 <td class="num">—</td>
@@ -1117,12 +1117,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-26</td>
                 <td class="num">—</td>
@@ -1131,12 +1131,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-27</td>
                 <td class="num">—</td>
@@ -1145,12 +1145,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-28</td>
                 <td class="num">—</td>
@@ -1159,12 +1159,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-29</td>
                 <td class="num">—</td>
@@ -1173,12 +1173,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-30 *</td>
                 <td class="num">—</td>
@@ -1187,12 +1187,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-31 *</td>
                 <td class="num">—</td>
@@ -1201,12 +1201,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-11-01 *</td>
                 <td class="num">—</td>
@@ -1215,12 +1215,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-11-02 *</td>
                 <td class="num">—</td>
@@ -1229,12 +1229,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-11-03 *</td>
                 <td class="num">—</td>
@@ -1243,12 +1243,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-11-04 *</td>
                 <td class="num">—</td>
@@ -1257,12 +1257,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-11-05 *</td>
                 <td class="num">—</td>
@@ -1271,12 +1271,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-11-06 *</td>
                 <td class="num">—</td>
@@ -1285,19 +1285,19 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
             </tbody>
           </table>
         </div>
       </div>
     </details>
-    
-    
+
+
     <details class="detail-box">
       <summary>
         <span>Datos diarios · Amazon US (USD)</span>
@@ -1316,14 +1316,14 @@
                 <th class="num">Ventas media 7</th>
                 <th class="num">Clics</th>
                 <th class="num">Clics media 7</th>
-                
+
                 <th class="num">Ordenes atribuidas</th>
                 <th class="num">Ordenes media 7</th>
-                
+
               </tr>
             </thead>
             <tbody>
-              
+
               <tr>
                 <td>2026-10-08</td>
                 <td class="num">—</td>
@@ -1332,12 +1332,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-09</td>
                 <td class="num">—</td>
@@ -1346,12 +1346,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-10</td>
                 <td class="num">—</td>
@@ -1360,12 +1360,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-11</td>
                 <td class="num">—</td>
@@ -1374,12 +1374,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-12</td>
                 <td class="num">—</td>
@@ -1388,12 +1388,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-13</td>
                 <td class="num">—</td>
@@ -1402,12 +1402,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-14</td>
                 <td class="num">—</td>
@@ -1416,12 +1416,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-15</td>
                 <td class="num">—</td>
@@ -1430,12 +1430,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-16</td>
                 <td class="num">—</td>
@@ -1444,12 +1444,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-17</td>
                 <td class="num">—</td>
@@ -1458,12 +1458,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-18</td>
                 <td class="num">—</td>
@@ -1472,12 +1472,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-19</td>
                 <td class="num">—</td>
@@ -1486,12 +1486,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-20</td>
                 <td class="num">—</td>
@@ -1500,12 +1500,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-21</td>
                 <td class="num">—</td>
@@ -1514,12 +1514,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-22</td>
                 <td class="num">—</td>
@@ -1528,12 +1528,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-23</td>
                 <td class="num">12.34</td>
@@ -1542,12 +1542,12 @@
                 <td class="num">—</td>
                 <td class="num">8</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">2</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-24</td>
                 <td class="num">—</td>
@@ -1556,12 +1556,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-25</td>
                 <td class="num">—</td>
@@ -1570,12 +1570,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-26</td>
                 <td class="num">—</td>
@@ -1584,12 +1584,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-27</td>
                 <td class="num">—</td>
@@ -1598,12 +1598,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-28</td>
                 <td class="num">1.00</td>
@@ -1612,12 +1612,12 @@
                 <td class="num">—</td>
                 <td class="num">1</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">0</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-29</td>
                 <td class="num">—</td>
@@ -1626,12 +1626,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-30 *</td>
                 <td class="num">—</td>
@@ -1640,12 +1640,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-31 *</td>
                 <td class="num">—</td>
@@ -1654,12 +1654,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-11-01 *</td>
                 <td class="num">—</td>
@@ -1668,12 +1668,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-11-02 *</td>
                 <td class="num">—</td>
@@ -1682,12 +1682,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-11-03 *</td>
                 <td class="num">—</td>
@@ -1696,12 +1696,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-11-04 *</td>
                 <td class="num">—</td>
@@ -1710,12 +1710,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-11-05 *</td>
                 <td class="num">—</td>
@@ -1724,12 +1724,12 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-11-06 *</td>
                 <td class="num">—</td>
@@ -1738,19 +1738,19 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
             </tbody>
           </table>
         </div>
       </div>
     </details>
-    
-    
+
+
     <details class="detail-box">
       <summary>
         <span>Datos diarios · Mercado Libre (MXN)</span>
@@ -1769,11 +1769,11 @@
                 <th class="num">Ventas media 7</th>
                 <th class="num">Clics</th>
                 <th class="num">Clics media 7</th>
-                
+
               </tr>
             </thead>
             <tbody>
-              
+
               <tr>
                 <td>2026-10-08</td>
                 <td class="num">—</td>
@@ -1782,9 +1782,9 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-09</td>
                 <td class="num">—</td>
@@ -1793,9 +1793,9 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-10</td>
                 <td class="num">—</td>
@@ -1804,9 +1804,9 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-11</td>
                 <td class="num">—</td>
@@ -1815,9 +1815,9 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-12</td>
                 <td class="num">—</td>
@@ -1826,9 +1826,9 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-13</td>
                 <td class="num">—</td>
@@ -1837,9 +1837,9 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-14</td>
                 <td class="num">—</td>
@@ -1848,9 +1848,9 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-15</td>
                 <td class="num">—</td>
@@ -1859,9 +1859,9 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-16</td>
                 <td class="num">—</td>
@@ -1870,9 +1870,9 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-17</td>
                 <td class="num">—</td>
@@ -1881,9 +1881,9 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-18</td>
                 <td class="num">—</td>
@@ -1892,9 +1892,9 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-19</td>
                 <td class="num">—</td>
@@ -1903,9 +1903,9 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-20</td>
                 <td class="num">—</td>
@@ -1914,9 +1914,9 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-21</td>
                 <td class="num">—</td>
@@ -1925,9 +1925,9 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-22</td>
                 <td class="num">—</td>
@@ -1936,9 +1936,9 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-23</td>
                 <td class="num">—</td>
@@ -1947,9 +1947,9 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-24</td>
                 <td class="num">—</td>
@@ -1958,9 +1958,9 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-25</td>
                 <td class="num">—</td>
@@ -1969,9 +1969,9 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-26</td>
                 <td class="num">—</td>
@@ -1980,9 +1980,9 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-27</td>
                 <td class="num">—</td>
@@ -1991,9 +1991,9 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-28</td>
                 <td class="num">—</td>
@@ -2002,9 +2002,9 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-29</td>
                 <td class="num">—</td>
@@ -2013,9 +2013,9 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-30</td>
                 <td class="num">—</td>
@@ -2024,9 +2024,9 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-10-31</td>
                 <td class="num">—</td>
@@ -2035,9 +2035,9 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-11-01</td>
                 <td class="num">—</td>
@@ -2046,9 +2046,9 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-11-02</td>
                 <td class="num">—</td>
@@ -2057,9 +2057,9 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-11-03</td>
                 <td class="num">—</td>
@@ -2068,9 +2068,9 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-11-04</td>
                 <td class="num">—</td>
@@ -2079,9 +2079,9 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-11-05</td>
                 <td class="num">—</td>
@@ -2090,9 +2090,9 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
               <tr>
                 <td>2026-11-06</td>
                 <td class="num">—</td>
@@ -2101,15 +2101,15 @@
                 <td class="num">—</td>
                 <td class="num">—</td>
                 <td class="num">—</td>
-                
+
               </tr>
-              
+
             </tbody>
           </table>
         </div>
       </div>
     </details>
-    
+
   </div>
 </section>
 
@@ -2127,9 +2127,9 @@
 
     </main>
   </div>
-  
-  
-  
+
+
+
   <nav class="tab-bar" aria-label="Navegacion movil">
     <svg class="tab-sprite" aria-hidden="true" focusable="false">
       <symbol id="ico-casa" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
@@ -2180,62 +2180,62 @@
         <path d="M10.7 3.7a1.5 1.5 0 0 1 2.6 0l8.4 14.6A1.5 1.5 0 0 1 20.4 20.5H3.6a1.5 1.5 0 0 1-1.3-2.2L10.7 3.7zM12 9.4a.9.9 0 0 0-.9.9v3.7a.9.9 0 0 0 1.8 0V10.3a.9.9 0 0 0-.9-.9zm0 7.1a1.05 1.05 0 1 0 0 2.1 1.05 1.05 0 0 0 0-2.1z"/>
       </symbol>
     </svg>
-    
+
     <a class="tab tab-activo" href="/" aria-current="page">
       <svg class="tab-ico tab-ico-off"><use href="#ico-casa"/></svg>
       <svg class="tab-ico tab-ico-on"><use href="#ico-casa-fill"/></svg>
       <span class="tab-label">Resumen</span>
-      
+
     </a>
-    
+
     <a class="tab" href="/contribucion">
       <svg class="tab-ico tab-ico-off"><use href="#ico-barras"/></svg>
       <svg class="tab-ico tab-ico-on"><use href="#ico-barras-fill"/></svg>
       <span class="tab-label">Contribucion</span>
-      
+
     </a>
-    
+
     <a class="tab" href="/reputacion">
       <svg class="tab-ico tab-ico-off"><use href="#ico-cubo"/></svg>
       <svg class="tab-ico tab-ico-on"><use href="#ico-cubo-fill"/></svg>
       <span class="tab-label">Reputacion</span>
       <span class="contador tab-badge" data-rol="reputacion" hidden></span>
     </a>
-    
+
     <a class="tab" href="/decisiones">
       <svg class="tab-ico tab-ico-off"><use href="#ico-lista"/></svg>
       <svg class="tab-ico tab-ico-on"><use href="#ico-lista-fill"/></svg>
       <span class="tab-label">Decisiones</span>
-      
+
     </a>
-    
+
     <a class="tab" href="/campanas">
       <svg class="tab-ico tab-ico-off"><use href="#ico-billetera"/></svg>
       <svg class="tab-ico tab-ico-on"><use href="#ico-billetera-fill"/></svg>
       <span class="tab-label">Campañas</span>
-      
+
     </a>
-    
+
     <a class="tab" href="/settings">
       <svg class="tab-ico tab-ico-off"><use href="#ico-banco"/></svg>
       <svg class="tab-ico tab-ico-on"><use href="#ico-banco-fill"/></svg>
       <span class="tab-label">Settings</span>
-      
+
     </a>
-    
+
     <a class="tab" href="/cortes">
       <svg class="tab-ico tab-ico-off"><use href="#ico-aviso"/></svg>
       <svg class="tab-ico tab-ico-on"><use href="#ico-aviso-fill"/></svg>
       <span class="tab-label">Propuestas</span>
       <span class="contador tab-badge" data-rol="propuestas" hidden></span>
     </a>
-    
+
   </nav>
   <script src="/static/vendor/chart.umd.min.js?v=54abc08345227835"></script>
   <script src="/static/js/shell.js?v=54abc08345227835"></script>
   <script src="/static/js/dashboard.js?v=54abc08345227835"></script>
   <script src="/static/js/cortes.js?v=54abc08345227835"></script>
   <script src="/static/js/settings.js?v=54abc08345227835"></script>
-  
+
 </body>
 </html>
