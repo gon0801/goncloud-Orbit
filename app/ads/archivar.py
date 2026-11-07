@@ -162,24 +162,50 @@ def leer_anuncios(escritor: AdsWriteClient, ad_ids: Sequence[str]) -> dict[str, 
 
 class LecturaAmbigua(AdsApiError):
     """El list no dijo nada confiable (filtro aparentemente ignorado,
-    pagina malformada o paginacion sin terminar): no habilita un create."""
+    pagina o fila malformada, nextToken ilegible o repetido, paginacion
+    sin terminar): no habilita un create."""
 
 
 PAGINAS_POR_GRUPO = 20
+# Nombre del filtro de /sp/productAds/list por ad group. Clavado con test
+# (tests/test_ads_archivar.py) y verificado en vivo en solo lectura el 2026-11-07: Amazon
+# ignora en silencio un filtro que no reconoce (ver la TRAMPA de arriba).
+FILTRO_AD_GROUP = "adGroupIdFilter"
+_ESTADOS_LIST = frozenset({ESTADO_HABILITADO, ESTADO_PAUSADO, ESTADO_ARCHIVADO})
+
+
+def _texto_no_vacio(valor) -> bool:
+    return isinstance(valor, str | int) and not isinstance(valor, bool) and bool(str(valor).strip())
+
+
+def _fila_del_grupo(fila, ad_group_id: str) -> bool:
+    """Fila completa del ad group pedido: adId, adGroupId igual, sku y un
+    state del vocabulario del list. Cualquier otra forma es ambigua."""
+    return (
+        isinstance(fila, dict)
+        and _texto_no_vacio(fila.get("adId"))
+        and str(fila.get("adGroupId", "")) == str(ad_group_id)
+        and isinstance(fila.get("sku"), str)
+        and bool(fila["sku"].strip())
+        and fila.get("state") in _ESTADOS_LIST
+    )
 
 
 def anuncios_vivos_del_grupo(escritor: AdsWriteClient, ad_group_id: str, sku: str) -> list[dict]:
     """Los product ads no ARCHIVED de ESE ad group con ESE sku, paginando
     con `adGroupIdFilter` por la puerta sellada. Es la lectura previa a un
-    create: si ya hay uno vivo, recrear seria duplicarlo. Fail-closed: un
-    item de otro ad group (la API ignora en silencio un filtro que no
-    reconoce), una pagina ilegible o un nextToken vivo al tope levantan
-    `LecturaAmbigua`."""
+    create: si ya hay uno vivo, recrear seria duplicarlo, asi que solo una
+    lectura completa y valida puede decir "no hay ninguno". Levantan
+    `LecturaAmbigua`: una pagina ilegible o sin contenedor, una fila
+    incompleta, de otro ad group (el filtro parece ignorado) o con un state
+    desconocido, un nextToken que no es ausente/null ni string no vacio,
+    un nextToken repetido y un nextToken vivo al tope de paginas."""
     vivos: list[dict] = []
+    vistos: set[str] = set()
     token = None
     for _ in range(PAGINAS_POR_GRUPO):
-        cuerpo: dict = {"adGroupIdFilter": {"include": [str(ad_group_id)]}}
-        if token:
+        cuerpo: dict = {FILTRO_AD_GROUP: {"include": [str(ad_group_id)]}}
+        if token is not None:
             cuerpo["nextToken"] = token
         try:
             datos = escritor.list_sellado(PATH_PRODUCT_ADS, cuerpo).json()
@@ -189,13 +215,20 @@ def anuncios_vivos_del_grupo(escritor: AdsWriteClient, ad_group_id: str, sku: st
         if not isinstance(filas, list):
             raise LecturaAmbigua("list de productAds sin contenedor productAds")
         for fila in filas:
-            if str(fila.get("adGroupId", "")) != str(ad_group_id):
-                raise LecturaAmbigua("el list trajo otro ad group: el filtro parece ignorado")
-            if fila.get("sku") == sku and fila.get("state") not in (None, ESTADO_ARCHIVADO):
+            if not _fila_del_grupo(fila, ad_group_id):
+                raise LecturaAmbigua(
+                    "fila de productAds incompleta, de otro ad group o con state desconocido"
+                )
+            if fila["sku"] == sku and fila["state"] != ESTADO_ARCHIVADO:
                 vivos.append(fila)
         token = datos.get("nextToken")
-        if not token:
+        if token is None:
             return vivos
+        if not isinstance(token, str) or not token:
+            raise LecturaAmbigua(f"nextToken ilegible: {token!r}")
+        if token in vistos:
+            raise LecturaAmbigua("nextToken repetido: la paginacion no avanza")
+        vistos.add(token)
     raise LecturaAmbigua(f"list de productAds sin terminar tras {PAGINAS_POR_GRUPO} paginas")
 
 
