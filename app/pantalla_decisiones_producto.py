@@ -3,10 +3,12 @@
 Lector puro, solo SELECT: la ultima evaluacion de cada producto en el ultimo
 ciclo done de la plataforma (evaluacion_producto_ciclo), sin llamar al
 resolutor. Muestra margen y ventana, meta, grupos aptos con el target y la
-procedencia vigentes de target_acos_ciclo, el veredicto actual frente al
-veredicto con meta (resultado.sombra_hojas del ciclo) y los motivos con las
-etiquetas de app/optimizer/productos.py. Un dato ausente se muestra ausente:
-nunca se convierte en cero.
+procedencia que target_acos_ciclo congelo EN ESE MISMO ciclo, el veredicto
+actual frente al veredicto con meta (resultado.sombra_hojas del ciclo) y los
+motivos con las etiquetas de app/optimizer/productos.py. Ciclo, target y
+veredicto se corresponden: una hoja sin fila de target en ese ciclo queda sin
+target, nunca con el de otro ciclo. Un dato ausente se muestra ausente: nunca
+se convierte en cero.
 """
 
 from __future__ import annotations
@@ -40,11 +42,10 @@ _SQL_ENTIDADES = """
 SELECT id, coalesce(name, keyword_text, external_id) FROM ad_entity WHERE id = ANY(%s)
 """
 
-_SQL_TARGETS_VIGENTES = """
-SELECT DISTINCT ON (ad_entity_id) ad_entity_id, target_acos_pct, procedencia
+_SQL_TARGETS_DEL_CICLO = """
+SELECT ad_entity_id, target_acos_pct, procedencia
   FROM target_acos_ciclo
- WHERE ad_entity_id = ANY(%s)
- ORDER BY ad_entity_id, cycle_id DESC
+ WHERE cycle_id = %s AND ad_entity_id = ANY(%s)
 """
 
 MODOS_TEXTO = {"off": "apagada", "shadow": "en práctica", "live": "en vivo"}
@@ -175,7 +176,7 @@ def lee_decisiones_producto(conn, plataforma: str) -> DecisionesProducto:
     resumen = {k: v for k, v in notas.items() if k not in ("error", "modo_meta")}
     filas = conn.execute(_SQL_EVALUACIONES, (cycle_id, plataforma)).fetchall()
     try:
-        productos = _productos(conn, filas)
+        productos = _productos(conn, cycle_id, filas)
         error = notas.get("error")
     except (KeyError, TypeError, ValueError) as exc:
         # Una evaluacion ilegible apaga esta seccion, no la pagina entera.
@@ -190,7 +191,7 @@ def lee_decisiones_producto(conn, plataforma: str) -> DecisionesProducto:
     )
 
 
-def _productos(conn, filas) -> list[ProductoVista]:
+def _productos(conn, cycle_id: int, filas) -> list[ProductoVista]:
     evaluaciones = [
         (pid, sku, nombre, evaluacion_de_fila(entrada, resultado), resultado)
         for pid, sku, nombre, entrada, resultado in filas
@@ -201,7 +202,9 @@ def _productos(conn, filas) -> list[ProductoVista]:
     nombres = dict(conn.execute(_SQL_ENTIDADES, (ids,)).fetchall()) if ids else {}
     vigentes = {
         fila[0]: (fila[1], fila[2])
-        for fila in (conn.execute(_SQL_TARGETS_VIGENTES, (hojas,)).fetchall() if hojas else ())
+        for fila in (
+            conn.execute(_SQL_TARGETS_DEL_CICLO, (cycle_id, hojas)).fetchall() if hojas else ()
+        )
     }
     productos = [
         _producto(pid, sku, nombre, ev, resultado, nombres, vigentes)
