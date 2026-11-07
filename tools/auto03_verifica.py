@@ -19,9 +19,11 @@ READ ONLY) para que la evidencia previa a cada `live` no espere un ciclo.
   los candidatos a pausa en [D-60, D-30) y los productos con meta en el tramo
   maduro del halo [D-90, D-31], con los reportes pedidos en paralelo. Sale 1
   con una diferencia de dinero mayor a 0.01 o un conteo distinto en esos
-  productos, y 2 si un reporte no queda COMPLETED en 1500 s. Si no alcanzan
-  N, completa con los de mas gasto en ese tramo como relleno informativo: sus
-  diferencias se imprimen con sus fechas y no cambian la salida.
+  productos, y 2 sin reporte: Amazon rechaza el POST o los perfiles, un
+  reporte queda FAILED, su descarga es invalida o no queda COMPLETED en
+  1500 s. Si no alcanzan N, completa con los de mas gasto en ese tramo como
+  relleno informativo: sus diferencias se imprimen con sus fechas y no
+  cambian la salida.
 """
 
 from __future__ import annotations
@@ -39,7 +41,7 @@ from itertools import zip_longest
 
 from app import productos_io
 from app.ads import descarga, reports
-from app.ads.client import AdsApiError, AdsClient
+from app.ads.client import AdsApiError, AdsClient, AdsClientError
 from app.ads.config import AdsCredentials
 from app.ads.structure_api import perfiles_aceptados
 from app.cycle import lee_goals
@@ -271,6 +273,10 @@ def amazon_por_fecha(
     return por_fecha
 
 
+class SinReporte(Exception):
+    """Amazon no entrego el reporte: concilia sale 2 con el motivo."""
+
+
 def _pide(client: AdsClient, perfil, rango: tuple[dt.date, dt.date]) -> str:
     try:
         return reports.solicitar_reporte(
@@ -279,8 +285,10 @@ def _pide(client: AdsClient, perfil, rango: tuple[dt.date, dt.date]) -> str:
     except AdsApiError as exc:
         duplicado = descarga._id_de_duplicado(exc)
         if duplicado is None:
-            raise
+            raise SinReporte(f"POST del reporte {rango[0]}..{rango[1]}: {exc}") from exc
         return duplicado
+    except (AdsClientError, reports.AdsReportsError) as exc:
+        raise SinReporte(f"POST del reporte {rango[0]}..{rango[1]}: {exc}") from exc
 
 
 def descarga_reportes(
@@ -291,9 +299,11 @@ def descarga_reportes(
     plazo_s: float = PLAZO_CONCILIA_S,
     reloj=time.monotonic,
     dormir=time.sleep,
-) -> dict[tuple[dt.date, dt.date], list[dict]] | None:
+) -> dict[tuple[dt.date, dt.date], list[dict]]:
     """Pide todos los reportes antes de sondear (en paralelo) y los descarga
-    con HTTP puro. None si alguno falla o no queda COMPLETED en el plazo."""
+    con HTTP puro. Lanza SinReporte si el POST falla, un reporte queda FAILED,
+    su descarga es invalida o no queda COMPLETED en el plazo; una descarga que
+    falla por red se reintenta en la vuelta siguiente."""
     inicio = reloj()
     pendientes = {rango: _pide(client, perfil, rango) for rango in rangos}
     filas: dict[tuple[dt.date, dt.date], list[dict]] = {}
@@ -305,16 +315,21 @@ def descarga_reportes(
                 continue
             estado = datos.get("status") if isinstance(datos, dict) else None
             if estado == "COMPLETED":
-                url = descarga._url_de_completado(datos, report_id)
-                filas[rango] = reports.descargar_filas(client, url)
+                try:
+                    url = descarga._url_de_completado(datos, report_id)
+                    filas[rango] = reports.descargar_filas(client, url)
+                except AdsApiError:
+                    continue
+                except reports.AdsReportsError as exc:
+                    raise SinReporte(f"descarga del reporte {report_id}: {exc}") from exc
                 del pendientes[rango]
             elif estado == "FAILED":
-                return None
+                raise SinReporte(f"reporte {report_id} FAILED")
         transcurrido = reloj() - inicio
         if not pendientes:
             break
         if transcurrido >= plazo_s:
-            return None
+            raise SinReporte(f"{len(pendientes)} reporte(s) sin COMPLETED en {plazo_s:.0f} s")
         rapido = transcurrido < descarga.RAPIDO_HASTA_SEGUNDOS
         dormir(descarga.ESPERA_RAPIDA_SEGUNDOS if rapido else descarga.ESPERA_LENTA_SEGUNDOS)
     return filas
@@ -356,7 +371,12 @@ def concilia(plataforma: str, n: int, ruta: str | None) -> int:
     if any(c.ventana == tramo for c in muestra):
         rangos.append((tramo.desde, pausa.desde - un_dia))
     client = AdsClient(AdsCredentials.from_secrets_dir())
-    perfil = next((x for x in perfiles_aceptados(client) if x.platform == plataforma), None)
+    try:
+        aceptados = perfiles_aceptados(client)
+    except AdsClientError as exc:
+        print(f"concilia {plataforma}: sin reporte: perfiles de Amazon: {exc}")
+        return 2
+    perfil = next((x for x in aceptados if x.platform == plataforma), None)
     if perfil is None:
         print(f"concilia {plataforma}: Amazon no devolvio un perfil aceptado de {plataforma}")
         return 1
@@ -364,9 +384,10 @@ def concilia(plataforma: str, n: int, ruta: str | None) -> int:
         f"concilia {plataforma}: D={decidido_el.date()} reportes "
         + ", ".join(f"[{a}, {b}]" for a, b in rangos)
     )
-    filas = descarga_reportes(client, perfil, rangos)
-    if filas is None:
-        print(f"concilia {plataforma}: sin reporte")
+    try:
+        filas = descarga_reportes(client, perfil, rangos)
+    except SinReporte as exc:
+        print(f"concilia {plataforma}: sin reporte: {exc}")
         return 2
     todas = [fila for lote in filas.values() for fila in lote]
     distintos = {"cuenta": 0, "relleno": 0}
