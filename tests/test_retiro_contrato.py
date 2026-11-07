@@ -707,3 +707,86 @@ def test_el_intento_de_recreacion_solo_gana_su_adid_y_se_cierra_una_vez():
             conn.execute(
                 "UPDATE anuncio_recreacion_intento SET detalle = 'otro' WHERE id = %s", (iid,)
             )
+
+
+def _create_que_revienta(escritor, monkeypatch, status):
+    """El POST de create responde `status` una vez; despues crea normal."""
+    from app.ads.write import AdsApiErrorMutacion
+
+    real = escritor.crear_product_ad
+    veces = {"n": 0}
+
+    def _crea(*a, **k):
+        veces["n"] += 1
+        if veces["n"] == 1:
+            raise AdsApiErrorMutacion(
+                f"status={status}: POST /sp/productAds",
+                cuerpo='{"code": "rechazo"}',
+                status=status,
+                method="POST",
+                path="/sp/productAds",
+            )
+        return real(*a, **k)
+
+    monkeypatch.setattr(escritor, "crear_product_ad", _crea)
+    return veces
+
+
+@_skip_db
+def test_un_create_rechazado_con_4xx_cierra_el_intento_y_el_siguiente_recrea(monkeypatch):
+    """F7: un 4xx es rechazo explicito (Amazon no creo nada): el intento se cierra como
+    rechazado y el siguiente recrea crea el anuncio. Un 5xx no lo es: el intento queda
+    abierto y el siguiente recrea no manda otro POST."""
+    with _db_i4("orbit_g5_recrea_4xx") as conn:
+        _pid, lid = _producto(conn)
+        _bolsa(conn, lid, "ad-1")
+        rid = _retiro_archivado(conn, lid)
+        archivado, _ = _escritor(_fila("ad-1", "ARCHIVED"))
+        veces = _create_que_revienta(archivado, monkeypatch, 400)
+        recrear = ra.AutorizacionHumana("RECREAR 1 ANUNCIOS", "dueno")
+        (primero,) = ra.recrea(conn, retiro_ids=(rid,), autorizacion=recrear, escritor=archivado)
+        assert primero.resultado == "fallo"
+        assert conn.execute(
+            "SELECT left(detalle, 10) FROM anuncio_recreacion_intento"
+        ).fetchall() == [("rechazado:",)]
+        (segundo,) = ra.recrea(conn, retiro_ids=(rid,), autorizacion=recrear, escritor=archivado)
+        assert (segundo.resultado, segundo.ad_id_nuevo) == ("recreado", "ad-nuevo-1")
+        assert veces["n"] == 2
+
+
+@_skip_db
+def test_un_create_con_5xx_deja_el_intento_abierto_y_no_repite_el_post(monkeypatch):
+    with _db_i4("orbit_g5_recrea_5xx") as conn:
+        _pid, lid = _producto(conn)
+        _bolsa(conn, lid, "ad-1")
+        rid = _retiro_archivado(conn, lid)
+        archivado, _ = _escritor(_fila("ad-1", "ARCHIVED"))
+        veces = _create_que_revienta(archivado, monkeypatch, 503)
+        recrear = ra.AutorizacionHumana("RECREAR 1 ANUNCIOS", "dueno")
+        (primero,) = ra.recrea(conn, retiro_ids=(rid,), autorizacion=recrear, escritor=archivado)
+        (segundo,) = ra.recrea(conn, retiro_ids=(rid,), autorizacion=recrear, escritor=archivado)
+        assert (primero.resultado, segundo.resultado) == ("fallo", "fallo")
+        assert "sin resolver" in segundo.detalle
+        assert veces["n"] == 1
+        assert conn.execute(
+            "SELECT cerrada_el IS NULL FROM anuncio_recreacion_intento"
+        ).fetchall() == [(True,)]
+
+
+@_skip_db
+def test_el_intento_de_recreacion_no_lo_leen_la_ingesta_ni_el_ciclo():
+    """F6: el ALTER DEFAULT PRIVILEGES de 0001 da SELECT a todos los roles; la 0078 se
+    lo quita a app_ingest y app_decide como 0066/0069 en el resto del ledger de retiro."""
+    with _db_i4("orbit_g5_recrea_grants") as conn:
+        consulta = "SELECT has_table_privilege(%s, 'anuncio_recreacion_intento', %s)"
+        assert [
+            conn.execute(consulta, (rol, priv)).fetchone()[0]
+            for rol, priv in (
+                ("app_ingest", "SELECT"),
+                ("app_decide", "SELECT"),
+                ("app_read", "SELECT"),
+                ("app_read", "INSERT"),
+                ("app_admin", "SELECT"),
+                ("app_admin", "INSERT"),
+            )
+        ] == [False, False, True, False, True, True]

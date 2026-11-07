@@ -129,6 +129,9 @@ CREATE TRIGGER anuncio_recreacion_intento_sin_delete
 GRANT SELECT, INSERT ON anuncio_recreacion_intento TO app_admin;
 GRANT UPDATE (ad_id_nuevo, cerrada_el, detalle) ON anuncio_recreacion_intento TO app_admin;
 GRANT SELECT ON anuncio_recreacion_intento TO app_read;
+-- El ALTER DEFAULT PRIVILEGES de 0001 da SELECT a todos los roles; el ledger de
+-- retiro no es de la ingesta ni del ciclo (mismo REVOKE que 0066/0069).
+REVOKE SELECT ON anuncio_recreacion_intento FROM app_ingest, app_decide;
 GRANT USAGE, SELECT ON SEQUENCE anuncio_recreacion_intento_id_seq TO app_admin;
 
 COMMENT ON TABLE anuncio_recreacion_intento IS
@@ -151,7 +154,10 @@ BEGIN
        OR NOT has_table_privilege('app_admin', 'anuncio_recreacion_intento', 'INSERT')
        OR NOT has_column_privilege('app_admin', 'anuncio_recreacion_intento', 'ad_id_nuevo', 'UPDATE')
        OR has_column_privilege('app_admin', 'anuncio_recreacion_intento', 'retiro_id', 'UPDATE')
-       OR has_table_privilege('app_read', 'anuncio_recreacion_intento', 'INSERT') THEN
+       OR has_table_privilege('app_read', 'anuncio_recreacion_intento', 'INSERT')
+       OR NOT has_table_privilege('app_read', 'anuncio_recreacion_intento', 'SELECT')
+       OR has_table_privilege('app_ingest', 'anuncio_recreacion_intento', 'SELECT')
+       OR has_table_privilege('app_decide', 'anuncio_recreacion_intento', 'SELECT') THEN
         RAISE EXCEPTION '0078: privilegios de anuncio_retiro(_intencion) distintos de los de 0066/0069';
     END IF;
 END;

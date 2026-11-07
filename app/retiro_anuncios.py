@@ -916,9 +916,9 @@ def recrea(
     que trae el ack y solo se cierra con evidencia: junto con la
     reposicion, en la misma transaccion, cuando Amazon muestra el anuncio
     (por ese adId o vivo de ese sku en el ad group), o cuando Amazon
-    rechaza el create de forma explicita. Mientras siga abierto no sale
-    otro POST, por mucho tiempo que pase: no ver el anuncio no prueba
-    que el POST no se aplico. Si de verdad no se creo, ponerlo a mano en
+    rechaza el create de forma explicita (4xx o 207 con error por item).
+    Mientras siga abierto no sale otro POST, por mucho tiempo que pase:
+    no ver el anuncio no prueba que el POST no se aplico. Si de verdad no se creo, ponerlo a mano en
     el ad group deja que `recrea` lo selle. Sin intento abierto, un
     anuncio vivo de ese sku en el ad group se sella sin crear otro; si
     la lectura no es confiable, no se crea nada."""
@@ -1012,8 +1012,9 @@ def recrea(
             conn.commit()
         if res and res[0].resultado == "repuesto":
             return resultado(retiro, "recreado", "", res[0].ad_id, res[0].estado_previo)
-        if res and res[0].resultado == "fallo" and detalle.startswith("207 con rechazo"):
-            # Amazon proceso el create y dijo que no: nada se creo.
+        if res and res[0].resultado == "fallo" and res[0].rechazo:
+            # Amazon proceso el create y dijo que no (4xx o 207 con error por
+            # item): nada se creo. Un 5xx o la red dejan el intento abierto.
             conn.execute(
                 "UPDATE anuncio_recreacion_intento SET cerrada_el = now(), detalle = %s"
                 " WHERE id = %s",

@@ -72,6 +72,10 @@ class ResultadoAnuncio:
     resultado: str
     detalle: str = ""
     reversa: str = ""
+    # `fallo` en que Amazon proceso la mutacion y dijo que no (4xx o 207 con
+    # error por item): se sabe que no cambio nada. Un 5xx, red o timeout no lo
+    # es: la mutacion pudo aplicarse.
+    rechazo: bool = False
 
 
 RESULTADOS = frozenset(
@@ -344,7 +348,11 @@ def reponer_anuncios(
             resp = escritor.crear_product_ad(d["adGroupId"], d["campaignId"], d["sku"], d["state"])
         except AdsApiError as exc:
             detalle = str(getattr(exc, "cuerpo", "") or exc)[:300]
-            resultados.append(ResultadoAnuncio(d["sku"], d["state"], "fallo", detalle, reversa))
+            resultados.append(
+                ResultadoAnuncio(
+                    d["sku"], d["state"], "fallo", detalle, reversa, _es_rechazo_explicito(exc)
+                )
+            )
         else:
             try:
                 ack = resp.json()
@@ -353,7 +361,9 @@ def reponer_anuncios(
             errores = _errores_del_ack(ack)
             if errores:
                 detalle = f"207 con rechazo por-item: {errores}"[:300]
-                resultados.append(ResultadoAnuncio(d["sku"], d["state"], "fallo", detalle, reversa))
+                resultados.append(
+                    ResultadoAnuncio(d["sku"], d["state"], "fallo", detalle, reversa, rechazo=True)
+                )
             else:
                 nuevo = _id_del_ack(ack)
                 if not nuevo:
