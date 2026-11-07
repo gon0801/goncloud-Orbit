@@ -343,7 +343,10 @@ def limites_pausa_guardados(settings: Mapping, platform: str) -> bool:
 
 
 def exige_limites_guardados(settings: Mapping, platform: str) -> None:
-    """La pausa en live exige sus dos claves de limites (S8)."""
+    """La pausa en live exige sus dos claves de limites (S8). Una plataforma
+    sin pausa por producto no tiene nada que exigir."""
+    if platform not in productos.PLATAFORMAS:
+        return
     if productos.modos_desde_settings(settings, platform).pausa == "live" and not (
         limites_pausa_guardados(settings, platform)
     ):
@@ -459,8 +462,7 @@ def proxima_config(
         g.politica_bid_desde_settings(nuevo, platform)
         productos.modos_desde_settings(nuevo, platform)
         productos.limites_pausa_desde_settings(nuevo, platform)
-        if platform in productos.PLATAFORMAS:
-            exige_limites_guardados(nuevo, platform)
+        exige_limites_guardados(nuevo, platform)
     except ValueError as exc:
         raise SettingsInvalido(str(exc)) from None
     # S.2: la resultante se valida con el vocabulario del motor de precios
