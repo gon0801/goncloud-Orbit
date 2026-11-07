@@ -1,0 +1,21 @@
+replay amazon_mx: diferencias: 0
+concilia amazon_mx: D=2026-11-07 reportes [2026-09-08, 2026-10-07], [2026-08-09, 2026-09-07]
+concilia amazon_mx: producto 333 meta [2026-08-09, 2026-10-08): orbit gasto=0 clics=0 compras=0 ventas=0 ventas_mismo_sku=0 | amazon gasto=0 clics=0 compras=0 ventas=0 ventas_mismo_sku=0 | igual
+concilia amazon_mx: producto 1621 relleno [2026-08-09, 2026-10-08): orbit gasto=4116.1600 clics=1152 compras=35.0000 ventas=36059.7900 ventas_mismo_sku=16460.7600 | amazon gasto=4116.16 clics=1152 compras=35 ventas=36059.79 ventas_mismo_sku=16460.76 | igual
+concilia amazon_mx: producto 207 relleno [2026-08-09, 2026-10-08): orbit gasto=2508.8300 clics=872 compras=20.0000 ventas=16862.0500 ventas_mismo_sku=8525.9000 | amazon gasto=2508.83 clics=872 compras=20 ventas=16862.05 ventas_mismo_sku=8525.90 | igual
+concilia amazon_mx: producto 383 relleno [2026-08-09, 2026-10-08): orbit gasto=1986.1200 clics=543 compras=18.0000 ventas=23117.2500 ventas_mismo_sku=7103.4500 | amazon gasto=1986.12 clics=543 compras=18 ventas=23117.25 ventas_mismo_sku=7103.45 | igual
+concilia amazon_mx: producto 140 relleno [2026-08-09, 2026-10-08): orbit gasto=893.0000 clics=201 compras=9.0000 ventas=8068.1200 ventas_mismo_sku=852.5900 | amazon gasto=893.00 clics=201 compras=9 ventas=8068.12 ventas_mismo_sku=852.59 | igual
+concilia amazon_mx: sin conciliar [2026-10-08, 2026-11-02]: Amazon todavia reatribuye las ventas de ese tramo
+concilia amazon_mx: relleno informativo: diferencias: 0
+concilia amazon_mx: diferencias: 0
+replay amazon_us: diferencias: 0
+concilia amazon_us: D=2026-11-07 reportes [2026-09-08, 2026-10-07], [2026-08-09, 2026-09-07]
+concilia amazon_us: producto 273 candidato_pausa [2026-09-08, 2026-10-08): orbit gasto=48.4800 clics=103 compras=0.0000 ventas=0.0000 ventas_mismo_sku=0.0000 | amazon gasto=48.48 clics=103 compras=0 ventas=0 ventas_mismo_sku=0 | igual
+concilia amazon_us: producto 315 candidato_pausa [2026-09-08, 2026-10-08): orbit gasto=79.9200 clics=143 compras=0.0000 ventas=0.0000 ventas_mismo_sku=0.0000 | amazon gasto=79.92 clics=143 compras=0 ventas=0 ventas_mismo_sku=0 | igual
+concilia amazon_us: producto 356 candidato_pausa [2026-09-08, 2026-10-08): orbit gasto=67.5600 clics=108 compras=0.0000 ventas=0.0000 ventas_mismo_sku=0.0000 | amazon gasto=67.56 clics=108 compras=0 ventas=0 ventas_mismo_sku=0 | igual
+concilia amazon_us: producto 345 relleno [2026-08-09, 2026-10-08): orbit gasto=544.1000 clics=1193 compras=20.0000 ventas=2324.4000 ventas_mismo_sku=1298.0000 | amazon gasto=544.10 clics=1193 compras=20 ventas=2324.4 ventas_mismo_sku=1298.0 | igual
+concilia amazon_us: producto 263 relleno [2026-08-09, 2026-10-08): orbit gasto=448.7700 clics=754 compras=6.0000 ventas=781.7800 ventas_mismo_sku=552.0000 | amazon gasto=448.77 clics=754 compras=7 ventas=919.78 ventas_mismo_sku=690.0 | DISTINTO ventas,ventas_mismo_sku,compras
+    2026-09-20: orbit gasto=5.4100 clics=8 compras=0.0000 ventas=0.0000 ventas_mismo_sku=0.0000 | amazon gasto=5.41 clics=8 compras=1 ventas=138.0 ventas_mismo_sku=138.0
+concilia amazon_us: sin conciliar [2026-10-08, 2026-11-02]: Amazon todavia reatribuye las ventas de ese tramo
+concilia amazon_us: relleno informativo: diferencias: 1
+concilia amazon_us: diferencias: 0

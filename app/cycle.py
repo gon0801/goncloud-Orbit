@@ -274,6 +274,9 @@ MOTIVO_COOLDOWN_7D = "cooldown_7d"
 # BIDS 02 T.1: ningun peldano resolvio target (el default 55 era inventado,
 # regla 3): la hoja y el ad group de terminos se saltan sin decidir.
 MOTIVO_SIN_TARGET = "sin_target"
+# AUTO-03 F.2: con la meta en live, una hoja de grupo apto cuya evaluacion
+# por producto no se pudo leer o guardar no decide (las demas siguen).
+MOTIVO_PRODUCTO_SIN_EVIDENCIA = "producto_sin_evidencia"
 # BIDS 02 M.3: la clave ads_bid_politica_<p> esta ausente: el motor no mueve
 # bids en esa plataforma (solo decide la PAUSE).
 MOTIVO_POLITICA_APAGADA = "politica_apagada"
@@ -613,8 +616,9 @@ SELECT notes
 _SQL_INSERT_DECISION = """
 INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at, config_version_id,
                       data_observed_at, window_start, window_end, search_term,
-                      old_value, new_value, value_currency, inputs)
-VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                      old_value, new_value, value_currency, inputs,
+                      evaluacion_producto_id)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 """
 
 # C.2a: el freeze es idempotente por PK (un re-run del mismo ciclo no
@@ -672,11 +676,71 @@ class _ProductosCiclo:
     sombra: dict[int, list[dict]] = field(default_factory=lambda: defaultdict(list))
     resumen: dict | None = None
     errores: list[str] = field(default_factory=list)
+    # AUTO-03 F.2, meta en live: hoja de grupo apto -> product_id de la
+    # evaluacion que la decidio (sin ella guardada, la hoja no decide).
+    hojas_aptas: dict[int, int] = field(default_factory=dict)
+
+    @property
+    def lectura_fallida(self) -> bool:
+        return self.resumen is None
+
+
+@dataclass(frozen=True)
+class _MetaHoja:
+    """AUTO-03 F.2: la meta por producto de una hoja de grupo apto con la
+    meta en live. `destino` es la cascada sin producto y `previo` el ultimo
+    target live de la hoja (ancla solo si fue margen_producto, S2)."""
+
+    evaluacion: productos.EvaluacionProducto
+    grupo: productos.GrupoAptoParaMeta
+    resolucion: g.ResolucionMargen
+    destino: Decimal | None
+    previo: _PrevioHoja | None
+
+    @property
+    def product_id(self) -> int:
+        return self.evaluacion.producto.product_id
+
+    def snapshot(self) -> dict:
+        """target_snapshot de la decision cuando gana margen_producto: la
+        evaluacion, el derivado, el paso desde el ancla y la huella del grupo
+        (la revalidacion de una pausa la exige igual, S12)."""
+        meta = self.evaluacion.meta
+        margen = self.evaluacion.entrada.margen
+        ancla = (
+            self.previo.target
+            if self.previo is not None and self.previo.procedencia == "margen_producto"
+            else None
+        )
+        aplicado = self.resolucion.aplicado
+        return {
+            "product_id": self.product_id,
+            "grupo_id": self.grupo.grupo_id,
+            "huella_alcance": self.grupo.huella_alcance,
+            "politica": self.evaluacion.politica,
+            "meta_pct": _dec_str(meta.porcentaje)
+            if isinstance(meta, productos.MetaReferencia)
+            else None,
+            "margen_neto_pct": _dec_str(margen.margen_neto_pct)
+            if isinstance(margen, g.MedicionMargen)
+            else None,
+            "motivo": self.resolucion.motivo,
+            "derivado": _dec_str(self.resolucion.derivado),
+            "target_aplicado": _dec_str(aplicado),
+            "ancla": _dec_str(ancla),
+            "paso": _dec_str(aplicado - ancla)
+            if ancla is not None and aplicado is not None
+            else None,
+            "convergiendo": self.resolucion.convergiendo,
+            "destino": _dec_str(self.destino),
+        }
 
 
 @dataclass(frozen=True)
 class _Pendiente:
-    """Una decision lista para escribir en TX3 (la fila se congela en TX2)."""
+    """Una decision lista para escribir en TX3 (la fila se congela en TX2).
+    `evaluacion_producto` es el product_id de la evaluacion que la decidio
+    (AUTO-03 F.2); TX3 lo traduce a decision.evaluacion_producto_id."""
 
     ad_entity_id: int
     kind: str
@@ -688,6 +752,7 @@ class _Pendiente:
     new_value: Decimal | None
     value_currency: str | None
     inputs: dict
+    evaluacion_producto: int | None = None
 
 
 @dataclass(frozen=True)
@@ -1262,9 +1327,11 @@ def _inserta_decisiones(
     config_version_id: int,
     decided_at: dt.datetime,
     pendientes: list[_Pendiente],
+    ids_evaluacion: dict[int, int] | None = None,
 ) -> None:
     if not pendientes:
         return
+    ids_evaluacion = ids_evaluacion or {}
     filas = [
         (
             cycle_id,
@@ -1280,6 +1347,7 @@ def _inserta_decisiones(
             p.new_value,
             p.value_currency,
             Json(p.inputs, dumps=_dumps),
+            ids_evaluacion[p.evaluacion_producto] if p.evaluacion_producto is not None else None,
         )
         for p in pendientes
     ]
@@ -1725,6 +1793,7 @@ def _procesa_decisora(
     target_margen_familia, snapshot_fam = _margen_familia_de_hoja(
         familias_ciclo, campaign_id, entidad_id
     )
+    previo = familias_ciclo.previos.get(entidad_id)
     target = g.cascada_target_acos(
         goal.target_acos_pct,
         setting_target,
@@ -1732,6 +1801,28 @@ def _procesa_decisora(
         goal.scope,
         target_margen_familia,
     )
+    # AUTO-03 F.2: con la meta en live, la hoja de grupo apto toma la meta de
+    # su producto como peldano (destino = la cascada sin producto).
+    meta_viva = _meta_viva(
+        productos_ciclo, goal=goal, ad_group_id=ad_group_id, previo=previo, destino=target
+    )
+    if meta_viva == MOTIVO_PRODUCTO_SIN_EVIDENCIA:
+        contadores.skips_entidad[MOTIVO_PRODUCTO_SIN_EVIDENCIA] += 1
+        tick()
+        return
+    assert not isinstance(meta_viva, str)
+    target_margen_producto = meta_viva.resolucion.aplicado if meta_viva is not None else None
+    if meta_viva is not None:
+        assert productos_ciclo is not None
+        productos_ciclo.hojas_aptas[entidad_id] = meta_viva.product_id
+        target = g.cascada_target_acos(
+            goal.target_acos_pct,
+            setting_target,
+            margen_plataforma,
+            goal.scope,
+            target_margen_familia,
+            target_margen_producto=target_margen_producto,
+        )
     if target is None:
         # BIDS 02 T.1: sin peldano no hay target ni fila de freeze (regresa
         # antes de contadores.targets).
@@ -1765,7 +1856,8 @@ def _procesa_decisora(
             setting_target=setting_target,
             margen_plataforma=margen_plataforma,
             target_margen_familia=target_margen_familia,
-            previo=familias_ciclo.previos.get(entidad_id),
+            previo=previo,
+            meta_viva=meta_viva,
             target=None,
             procedencia=None,
             actual=Mantener(MOTIVO_SIN_TARGET),
@@ -1780,7 +1872,14 @@ def _procesa_decisora(
         margen_plataforma,
         setting_target,
         target_margen_familia,
+        target_margen_producto=target_margen_producto,
     )
+    snapshot = {
+        "margen_plataforma": snapshot_margen,
+        "margen_familia": snapshot_fam,
+        "margen_producto": meta_viva.snapshot() if meta_viva is not None else None,
+    }.get(procedencia)
+    evaluacion_producto = meta_viva.product_id if meta_viva is not None else None
     # C.2a: el freeze va AQUI, no mas arriba — cascada_target_acos revienta
     # con un peldano invalido y meterla en hojas que hoy salen limpias
     # (veto/inerte) inventaria fallas nuevas.
@@ -1814,7 +1913,8 @@ def _procesa_decisora(
             setting_target=setting_target,
             margen_plataforma=margen_plataforma,
             target_margen_familia=target_margen_familia,
-            previo=familias_ciclo.previos.get(entidad_id),
+            previo=previo,
+            meta_viva=meta_viva,
             target=target,
             procedencia=procedencia,
             actual=resultado,
@@ -1835,30 +1935,25 @@ def _procesa_decisora(
         if g.en_cooldown(conn, entidad_id, ahora=decided_at, kind="pause"):
             contadores.skips_entidad[MOTIVO_COOLDOWN_7D] += 1
             return
-        pendientes.append(
-            _pendiente_pause_apagada(
-                entidad_id,
-                resultado,
-                platform=platform,
-                modo=modo,
-                goal=goal,
-                cortes=cortes_hoja,
-                target=target,
-                procedencia=procedencia,
-                snapshot=(
-                    snapshot_margen
-                    if procedencia == "margen_plataforma"
-                    else (snapshot_fam if procedencia == "margen_familia" else None)
-                ),
-                bid_actual=current_bid,
-                bid_moneda=bid_currency,
-                decided_at=decided_at,
-                corte=corte_pause,
-                evidencia=evidencia,
-                cost_min=costo_piso,
-                policy_version=pausa.politica_economica,
-            )
+        pendiente = _pendiente_pause_apagada(
+            entidad_id,
+            resultado,
+            platform=platform,
+            modo=modo,
+            goal=goal,
+            cortes=cortes_hoja,
+            target=target,
+            procedencia=procedencia,
+            snapshot=snapshot,
+            bid_actual=current_bid,
+            bid_moneda=bid_currency,
+            decided_at=decided_at,
+            corte=corte_pause,
+            evidencia=evidencia,
+            cost_min=costo_piso,
+            policy_version=pausa.politica_economica,
         )
+        pendientes.append(replace(pendiente, evaluacion_producto=evaluacion_producto))
         contadores.decisiones["pause"] += 1
         return
     assert lecturas is not None  # _recorre_plataforma: politica => lecturas
@@ -1879,7 +1974,8 @@ def _procesa_decisora(
         setting_target=setting_target,
         margen_plataforma=margen_plataforma,
         target_margen_familia=target_margen_familia,
-        previo=familias_ciclo.previos.get(entidad_id),
+        previo=previo,
+        meta_viva=meta_viva,
         target=target,
         procedencia=procedencia,
         actual=veredicto,
@@ -1899,24 +1995,19 @@ def _procesa_decisora(
     ):
         contadores.skips_entidad[MOTIVO_COOLDOWN_7D] += 1
         return
-    pendientes.append(
-        pendiente_bid(
-            caso,
-            veredicto,
-            modo=modo,
-            goal=goal,
-            decidido_el=decided_at,
-            procedencia=procedencia,
-            snapshot=(
-                snapshot_margen
-                if procedencia == "margen_plataforma"
-                else (snapshot_fam if procedencia == "margen_familia" else None)
-            ),
-            corte=corte_pause,
-            evidencia=evidencia,
-            cost_min=costo_piso,
-        )
+    pendiente = pendiente_bid(
+        caso,
+        veredicto,
+        modo=modo,
+        goal=goal,
+        decidido_el=decided_at,
+        procedencia=procedencia,
+        snapshot=snapshot,
+        corte=corte_pause,
+        evidencia=evidencia,
+        cost_min=costo_piso,
     )
+    pendientes.append(replace(pendiente, evaluacion_producto=evaluacion_producto))
     contadores.decisiones["pause" if isinstance(veredicto, Pausar) else "bid"] += 1
 
 
@@ -2046,6 +2137,75 @@ def _veredicto_json(veredicto) -> dict:
     }
 
 
+def _meta_viva(
+    productos_ciclo: _ProductosCiclo | None,
+    *,
+    goal: g.Goal,
+    ad_group_id: int,
+    previo: _PrevioHoja | None,
+    destino: Decimal | None,
+) -> _MetaHoja | str | None:
+    """AUTO-03 F.2, meta en live: la meta de una hoja de grupo apto cuyo goal
+    no trae target (S1: un goal con target gana y la meta no la alcanza).
+    None = la hoja sigue la cascada sin producto, como un grupo compartido o
+    un grupo que dejo de ser apto (S16: nunca converge con la meta de otro
+    alcance). Si la lectura de productos fallo no hay grupos aptos que
+    comprobar: la hoja cuyo ultimo target live fue margen_producto devuelve
+    producto_sin_evidencia y no decide."""
+    if (
+        productos_ciclo is None
+        or productos_ciclo.modo_meta != "live"
+        or goal.target_acos_pct is not None
+    ):
+        return None
+    tiene_previo = previo is not None and previo.procedencia == "margen_producto"
+    if productos_ciclo.lectura_fallida:
+        return MOTIVO_PRODUCTO_SIN_EVIDENCIA if tiene_previo else None
+    evaluacion = productos_ciclo.por_grupo.get(ad_group_id)
+    if evaluacion is None:
+        return None
+    grupo = next(
+        gr for gr in evaluacion.entrada.grupos_aptos_para_meta if gr.grupo_id == ad_group_id
+    )
+    resolucion = productos.meta_de_hoja(
+        evaluacion.meta,
+        ultimo=previo.target if previo is not None else None,
+        destino=destino,
+        tiene_previo=tiene_previo,
+    )
+    return _MetaHoja(evaluacion, grupo, resolucion, destino, previo)
+
+
+def _hoja_sombra(
+    entidad_id: int,
+    ad_group_id: int,
+    *,
+    target: Decimal | None,
+    procedencia: str | None,
+    meta: g.ResolucionMargen,
+    target_meta: Decimal | None,
+    procedencia_meta: str | None,
+    actual,
+    con_meta,
+) -> dict:
+    return {
+        "hoja_id": entidad_id,
+        "grupo_id": ad_group_id,
+        "target_actual": _dec_str(target),
+        "procedencia_actual": procedencia,
+        "meta": {
+            "aplicado": _dec_str(meta.aplicado),
+            "derivado": _dec_str(meta.derivado),
+            "motivo": meta.motivo,
+            "convergiendo": meta.convergiendo,
+        },
+        "target_con_meta": _dec_str(target_meta),
+        "procedencia_con_meta": procedencia_meta,
+        "veredicto_actual": _veredicto_json(actual),
+        "veredicto_con_meta": _veredicto_json(con_meta) if con_meta is not None else None,
+    }
+
+
 def _anota_sombra(
     productos_ciclo: _ProductosCiclo | None,
     *,
@@ -2056,6 +2216,7 @@ def _anota_sombra(
     margen_plataforma: Decimal | None,
     target_margen_familia: Decimal | None,
     previo: _PrevioHoja | None,
+    meta_viva: _MetaHoja | None,
     target: Decimal | None,
     procedencia: str | None,
     actual,
@@ -2067,8 +2228,29 @@ def _anota_sombra(
     habria dado. `target` None es una hoja que hoy se salta sin target: si la
     meta da uno, tambien se congela su veredicto hipotetico. Solo anota:
     decision, target y freeze siguen con la cascada sin producto. Un fallo
-    queda en notes.productos.error."""
-    if productos_ciclo is None or productos_ciclo.modo_meta != "shadow":
+    queda en notes.productos.error.
+    F.2, meta en live: la hoja ya decidio con la meta (`meta_viva`), asi que
+    el veredicto de hoy es el veredicto con meta; se congela con su
+    ResolucionMargen, que la sonda meta_live contrasta con target_acos_ciclo."""
+    if productos_ciclo is None:
+        return
+    if productos_ciclo.modo_meta == "live":
+        if meta_viva is not None:
+            productos_ciclo.sombra[meta_viva.product_id].append(
+                _hoja_sombra(
+                    entidad_id,
+                    ad_group_id,
+                    target=target,
+                    procedencia=procedencia,
+                    meta=meta_viva.resolucion,
+                    target_meta=target,
+                    procedencia_meta=procedencia,
+                    actual=actual,
+                    con_meta=actual,
+                )
+            )
+        return
+    if productos_ciclo.modo_meta != "shadow":
         return
     evaluacion = productos_ciclo.por_grupo.get(ad_group_id)
     if evaluacion is None:
@@ -2103,22 +2285,17 @@ def _anota_sombra(
         )
         return
     productos_ciclo.sombra[evaluacion.producto.product_id].append(
-        {
-            "hoja_id": entidad_id,
-            "grupo_id": ad_group_id,
-            "target_actual": _dec_str(target),
-            "procedencia_actual": procedencia,
-            "meta": {
-                "aplicado": _dec_str(meta.aplicado),
-                "derivado": _dec_str(meta.derivado),
-                "motivo": meta.motivo,
-                "convergiendo": meta.convergiendo,
-            },
-            "target_con_meta": _dec_str(target_meta),
-            "procedencia_con_meta": procedencia_meta,
-            "veredicto_actual": _veredicto_json(actual),
-            "veredicto_con_meta": _veredicto_json(con_meta) if con_meta is not None else None,
-        }
+        _hoja_sombra(
+            entidad_id,
+            ad_group_id,
+            target=target,
+            procedencia=procedencia,
+            meta=meta,
+            target_meta=target_meta,
+            procedencia_meta=procedencia_meta,
+            actual=actual,
+            con_meta=con_meta,
+        )
     )
 
 
@@ -2127,11 +2304,13 @@ def _notas_productos(
     cycle_id: int,
     config_id: int | None,
     productos_ciclo: _ProductosCiclo,
-) -> dict:
+) -> tuple[dict, dict[int, int]]:
     """TX3: guarda las evaluaciones (SAVEPOINT propio, antes que las
-    decisiones) y arma notes.productos con el resumen de cobertura."""
+    decisiones) y arma notes.productos con el resumen de cobertura. Devuelve
+    tambien product_id -> id de la evaluacion guardada (vacio si fallo)."""
     notas: dict = {"modo_meta": productos_ciclo.modo_meta, **(productos_ciclo.resumen or {})}
     errores = list(productos_ciclo.errores)
+    ids: dict[int, int] = {}
     if productos_ciclo.resumen is not None:
         guardado = productos_io.guarda_evaluaciones(
             conn,
@@ -2144,9 +2323,37 @@ def _notas_productos(
             errores.append(f"guardado: {guardado.error}")
         else:
             notas["evaluaciones_guardadas"] = len(guardado.ids)
+            ids = {product_id: id_ for (_plat, product_id), id_ in guardado.ids.items()}
     if errores:
         notas["error"] = "; ".join(errores)
-    return notas
+    return notas, ids
+
+
+def _descarta_sin_evidencia(
+    contadores: _Contadores,
+    pendientes: list[_Pendiente],
+    ids_evaluacion: dict[int, int],
+    cuerpo: dict,
+) -> None:
+    """AUTO-03 F.2: con la meta en live, una hoja de grupo apto cuya
+    evaluacion no quedo guardada se queda sin decision (skip
+    producto_sin_evidencia) y sin target congelado; las demas decisiones del
+    ciclo se insertan. Las hojas que ya no decidian conservan su motivo."""
+    productos_ciclo = contadores.productos
+    assert productos_ciclo is not None
+    sin_evidencia = {
+        hoja for hoja, pid in productos_ciclo.hojas_aptas.items() if pid not in ids_evaluacion
+    }
+    if not sin_evidencia:
+        return
+    for pendiente in [p for p in pendientes if p.ad_entity_id in sin_evidencia]:
+        pendientes.remove(pendiente)
+        contadores.decisiones[pendiente.kind] -= 1
+        contadores.skips_entidad[MOTIVO_PRODUCTO_SIN_EVIDENCIA] += 1
+    for hoja in sin_evidencia:
+        contadores.targets.pop(hoja, None)
+    cuerpo["skips"]["entidad"] = dict(contadores.skips_entidad)
+    cuerpo["decisiones"] = {k: n for k, n in contadores.decisiones.items() if n}
 
 
 def _procesa_grupo(
@@ -3184,9 +3391,13 @@ def _corre_fases(
     with conn.transaction():  # TX3: decisiones + cierre del envelope, atomicos
         # AUTO-03 D.4: las evaluaciones van antes que las decisiones (F las
         # referencia por FK) y en su propio SAVEPOINT.
+        ids_evaluacion: dict[int, int] = {}
         if contadores.productos is not None:
-            cuerpo["productos"] = _notas_productos(conn, cycle_id, config_id, contadores.productos)
-        _inserta_decisiones(conn, cycle_id, config_id, decided_at, pendientes)
+            cuerpo["productos"], ids_evaluacion = _notas_productos(
+                conn, cycle_id, config_id, contadores.productos
+            )
+            _descarta_sin_evidencia(contadores, pendientes, ids_evaluacion, cuerpo)
+        _inserta_decisiones(conn, cycle_id, config_id, decided_at, pendientes, ids_evaluacion)
         _inserta_targets(conn, cycle_id, decided_at, contadores)
         # C.4 B3: la guarda va con el mismo flag que la lectura (con flag
         # apagado no hay nada que persistir; la condicion es cinturon).

@@ -224,6 +224,12 @@ insumos congelados de la decisión:
   de cortes-01. **Jamás** reusa `inputs.corte.umbral_clicks_usado`
   congelado ni se limita a `orders>0` (el umbral fresco también puede
   descartar).
+- **Target de una PAUSE de hoja (AUTO-03 S12)**: goals y margen de
+  plataforma se leen frescos; los peldaños por entidad (`margen_familia`,
+  `margen_producto`) salen del `inputs.target_snapshot` congelado de la
+  decisión. Si la decisión ganó con `margen_producto` y la huella del ad
+  group ya no es la congelada (otro producto entró o salió del grupo), la
+  fila pasa a `discarded` con `alcance_cambio` antes del claim.
 - **Re-check de estado vivo por GET fresco** (jamás el cache, sellado 16):
   además alimenta la detección de reactivación manual (§3.3).
 

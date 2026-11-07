@@ -74,6 +74,14 @@ SQL42 = (
 SQL46 = (
     Path(__file__).resolve().parents[1] / "migrations" / "0046_target_acos_ciclo.sql"
 ).read_text(encoding="utf-8")
+# AUTO-03 F.2: la TX3 del ciclo escribe decision.evaluacion_producto_id (0077,
+# que tambien amplia ads_report_result de la 0040).
+SQL40 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0040_ads_report_result.sql"
+).read_text(encoding="utf-8")
+SQL77 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0077_auto03_evaluacion_producto.sql"
+).read_text(encoding="utf-8")
 # A5: el peldano familiar lee kind 'product_ad' (0004) y v_margen_familia
 # (0048) en TX2 — sin estas TODO ciclo revienta.
 SQL4 = (
@@ -443,6 +451,8 @@ def _db_con_rol_admin(prefijo: str, *, con_decide: bool = False):
         conn.execute(SQL15)  # 0015 (ORBIT 06 2.3): el peldano margen lee su vista en TX2
         conn.execute(SQL42)
         conn.execute(SQL46)  # 0046 (C.2a): la TX3 del ciclo escribe el freeze
+        conn.execute(SQL40)
+        conn.execute(SQL77)  # 0077 (AUTO-03 F.2): la TX3 escribe evaluacion_producto_id
         conn.execute(SQL18)  # 0018 (A4): campana_grupo_rol en TX2
         conn.execute(SQL47)  # 0047 (A4): familia en TX2
         conn.execute(SQL4)  # 0004 (A5): kind 'product_ad' en TX2
