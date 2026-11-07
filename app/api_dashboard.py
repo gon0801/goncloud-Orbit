@@ -2038,6 +2038,23 @@ def productos_simula_pausa(
     return simulacion.como_json()
 
 
+@router.get("/productos/pausa")
+def productos_pausa(conn: ConexionLectura, platform: str) -> dict:
+    """AUTO-03 I.8: modo vigente de la pausa por producto (off, shadow o
+    live, de la ultima config_version), los limites vigentes, si las dos
+    claves de limites estan guardadas (sin ellas no se enciende) y la
+    config_version_id sobre la que la pantalla enciende o regresa a
+    practica. Rol de lectura, solo SELECT."""
+    from app import pantalla_decisiones_producto
+    from app.optimizer import productos
+
+    if platform not in productos.PLATAFORMAS:
+        raise HTTPException(status_code=422, detail="plataforma sin decisiones por producto")
+    estado = pantalla_decisiones_producto.estado_pausa(conn, platform)
+    conn.commit()
+    return estado
+
+
 @router.get("/busquedas-sin-venta")
 def busquedas_sin_venta(conn: ConexionLectura, plataforma: str | None = None) -> dict:
     """Busquedas que gastan sin vender (BIDS 02, P.6). Funcion

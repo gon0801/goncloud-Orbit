@@ -20,6 +20,7 @@
 // perdido; un 422 muestra el minimo que dice el servidor. "Guardar limites"
 // manda POST /api/ads-optimizer/settings/<plataforma> con x-orbit-token,
 // como settings.js.
+// "Encender la pausa" y "Volver a practica" (AUTO-03 I.8): ver cableaPausa.
 
 var vistaGuardada = null;
 var retiroGuardado = null;
@@ -789,7 +790,208 @@ function guardarLimites(form, campos) {
     });
 }
 
+// --- Encender la pausa o volver a practica (AUTO-03 I.8) -------------------
+// "Encender la pausa" pide primero la simulacion de H.8 con los limites
+// guardados (GET simula-pausa sin clics ni gasto) y muestra cuantos anuncios
+// y productos pausaria y su gasto; solo "Confirmar" manda POST
+// /api/ads-optimizer/productos/pausa/<plataforma> con x-orbit-token y
+// {modo, base_config_version_id}. "Cancelar" no escribe. "Volver a practica"
+// pide la misma confirmacion. 422 muestra el motivo del servidor y 409 pide
+// recargar; al encender o volver, la pagina recarga.
+
+var pasoPausa = null;
+
+function cuentaAnuncios(n) {
+  return n + (n === 1 ? " anuncio" : " anuncios");
+}
+
+function cajaPausa() {
+  var caja = document.getElementById("pausa-vivo");
+  return {
+    caja: caja,
+    confirmar: document.getElementById("pausa-confirmar"),
+    titulo: document.querySelector("#pausa-confirmar-titulo strong"),
+    detalle: document.getElementById("pausa-confirmar-detalle"),
+    form: document.getElementById("pausa-confirmar-form"),
+    estado: document.getElementById("pausa-vivo-estado"),
+  };
+}
+
+function resumenEncender(sim) {
+  var lim = sim.limites;
+  var partes = [
+    parrafo(
+      "Con tus límites guardados (" + lim.clics_min + " clics y " + dineroTexto(lim.gasto_min) +
+        "), Orbit pausaría " + cuentaAnuncios(sim.anuncios_total) + " de " +
+        cuentaProductos(sim.productos.length) + ", que gastaron " + dineroTexto(sim.gasto_total) +
+        " en la ventana " + ventanaTexto(sim.ventana) + "."
+    ),
+  ];
+  partes[0].dataset.resumenEncender = "";
+  if (sim.sin_cobertura_d7 > 0) {
+    var cobertura = nodo(
+      "p",
+      cuentaProductos(sim.sin_cobertura_d7) + (sim.sin_cobertura_d7 === 1 ? " no se puede" : " no se pueden") +
+        " juzgar todavía: falta cobertura del reporte (D.7). No se pausan hasta tener el dato.",
+      "aviso"
+    );
+    cobertura.dataset.sinCobertura = String(sim.sin_cobertura_d7);
+    partes.push(cobertura);
+  }
+  partes.push(
+    parrafo(
+      "Encendida, Orbit pausa después de las 48 horas de veto y puedes regresar cualquier anuncio " +
+        "desde esta pantalla. Las propuestas de práctica abiertas se descartan y el ciclo siguiente " +
+        "propone las reales."
+    )
+  );
+  return partes;
+}
+
+function abrePasoPausa(modo, disparador) {
+  var p = cajaPausa();
+  pasoPausa = { modo: modo, disparador: disparador };
+  p.confirmar.hidden = false;
+  p.form.hidden = true;
+  p.form.elements.token.value = "";
+  p.estado.textContent = "";
+  if (modo === "shadow") {
+    p.titulo.textContent = "¿Volver a práctica?";
+    p.detalle.replaceChildren(
+      parrafo(
+        "La pausa vuelve a práctica: Orbit deja de pausar anuncios y las propuestas quedan " +
+          "registradas sin efecto. Los anuncios que Orbit ya pausó siguen pausados."
+      )
+    );
+    p.form.hidden = false;
+    p.form.elements.token.focus();
+    return;
+  }
+  p.titulo.textContent = "¿Encender la pausa?";
+  p.detalle.replaceChildren(parrafo("Simulando con tus límites guardados…"));
+  p.confirmar.focus();
+  var paso = pasoPausa;
+  fetch(
+    "/api/dashboard/productos/simula-pausa?platform=" + encodeURIComponent(p.caja.dataset.plataforma)
+  )
+    .then(function (resp) {
+      return resp.json().then(
+        function (data) {
+          return { ok: resp.ok, status: resp.status, data: data };
+        },
+        function () {
+          return { ok: false, status: resp.status, data: {} };
+        }
+      );
+    })
+    .then(function (r) {
+      // Un "Cancelar" mientras simulaba cierra el paso: no se pinta nada.
+      if (pasoPausa !== paso) return;
+      if (!r.ok) {
+        var error = nodo(
+          "p",
+          "No se puede encender sin ver la simulación: " + mensajeError(r.data) + ".",
+          "alerta"
+        );
+        error.dataset.simulacionFallo = String(r.status);
+        p.detalle.replaceChildren(error);
+        return;
+      }
+      p.detalle.replaceChildren.apply(p.detalle, resumenEncender(r.data));
+      p.form.hidden = false;
+      p.form.elements.token.focus();
+    })
+    .catch(function () {
+      if (pasoPausa !== paso) return;
+      p.detalle.replaceChildren(nodo("p", "Error de red al simular: no se puede encender.", "alerta"));
+    });
+}
+
+function cancelaPasoPausa() {
+  var p = cajaPausa();
+  var disparador = pasoPausa && pasoPausa.disparador;
+  pasoPausa = null;
+  p.confirmar.hidden = true;
+  p.form.hidden = true;
+  p.form.elements.token.value = "";
+  p.detalle.replaceChildren();
+  p.estado.textContent = "Cancelado: no se cambió nada.";
+  if (disparador) disparador.focus();
+}
+
+function confirmaPasoPausa() {
+  var p = cajaPausa();
+  if (!pasoPausa || pasoPausa.enviando) return;
+  var paso = pasoPausa;
+  var modo = paso.modo;
+  paso.enviando = true;
+  var cuerpo = { modo: modo, base_config_version_id: Number(p.caja.dataset.configId) };
+  p.estado.textContent = "Enviando…";
+  fetch("/api/ads-optimizer/productos/pausa/" + p.caja.dataset.plataforma, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-orbit-token": p.form.elements.token.value },
+    body: JSON.stringify(cuerpo),
+  })
+    .then(function (resp) {
+      return resp.json().then(
+        function (data) {
+          return { ok: resp.ok, status: resp.status, data: data };
+        },
+        function () {
+          return { ok: false, status: resp.status, data: {} };
+        }
+      );
+    })
+    .then(function (r) {
+      if (r.ok) {
+        p.form.elements.token.value = "";
+        p.estado.textContent =
+          modo === "live" ? "Pausa en vivo. Recargando…" : "La pausa volvió a práctica. Recargando…";
+        window.location.reload();
+        return;
+      }
+      paso.enviando = false;
+      if (r.status === 409) {
+        p.estado.textContent =
+          "No se cambió: la config cambió mientras mirabas (" + mensajeError(r.data) +
+          "). Recarga la página.";
+        return;
+      }
+      p.estado.textContent =
+        (r.status === 422 ? "No se cambió: " : "Error: ") + mensajeError(r.data) + ".";
+    })
+    .catch(function () {
+      paso.enviando = false;
+      p.estado.textContent = "Error de red: no se cambió la pausa.";
+    });
+}
+
+function cableaPausa() {
+  var caja = document.getElementById("pausa-vivo");
+  if (!caja) return;
+  var encender = document.getElementById("pausa-encender");
+  if (encender) {
+    encender.addEventListener("click", function () {
+      if (encender.disabled) return;
+      abrePasoPausa("live", encender);
+    });
+  }
+  var volver = document.getElementById("pausa-volver");
+  if (volver) {
+    volver.addEventListener("click", function () {
+      abrePasoPausa("shadow", volver);
+    });
+  }
+  document.getElementById("pausa-cancelar").addEventListener("click", cancelaPasoPausa);
+  var form = document.getElementById("pausa-confirmar-form");
+  form.addEventListener("submit", function (evento) {
+    evento.preventDefault();
+    confirmaPasoPausa();
+  });
+}
+
 document.addEventListener("DOMContentLoaded", function () {
+  cableaPausa();
   var campos = document.getElementById("limites-simular");
   if (campos) {
     campos.addEventListener("submit", function (evento) {

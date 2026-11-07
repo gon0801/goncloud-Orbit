@@ -90,7 +90,7 @@ from decimal import Decimal
 import psycopg
 from psycopg.types.json import Json
 
-from app import apply, apply_harvest, biblioteca, notifica, productos_io
+from app import apply, apply_harvest, apply_producto, biblioteca, notifica, productos_io
 from app.ads.client import AdsApiError
 from app.apply import (
     Aplicador,
@@ -1008,6 +1008,8 @@ def _revalida(
     rama = _rama(conn, fila)
     if rama == "pause_hoja":
         return _revalida_pause(conn, aplicador, platform, fila, ahora, evidencias)
+    if rama == "pause_producto":
+        return apply_producto.revalida_pause_producto(conn, aplicador, fila, ahora)
     if rama == "negative":
         return _revalida_negative(conn, platform, fila, ahora)
     return apply_harvest.revalida_harvest(conn, platform, fila, ahora)
@@ -1017,11 +1019,14 @@ def _rama(conn: psycopg.Connection, fila: FilaCola) -> str:
     """AUTO-03 H.4: la rama de revalidacion y ejecucion de una fila, por kind
     y entidad. Un kind o una entidad sin rama propia LANZA: antes un pause de
     product_ad caia en _revalida_pause (entidad_no_viva) y cualquier kind
-    ajeno caia a harvest o a negative."""
+    ajeno caia a harvest o a negative. I.4: pause sobre product_ad tiene su
+    rama, app/apply_producto.py (revalida, ejecuta y reconcilia)."""
     if fila.kind == "pause":
         identidad = apply._identidad(conn, fila.ad_entity_id)
         if identidad is not None and identidad[0] in apply._KINDS_DECISORAS:
             return "pause_hoja"
+        if identidad is not None and identidad[0] == "product_ad":
+            return "pause_producto"
     elif fila.kind in ("negative", "harvest"):
         return fila.kind
     raise ValueError(
@@ -1167,6 +1172,17 @@ def _ejecuta_negative(conn: psycopg.Connection, aplicador: Aplicador, fila: Fila
         texto=fila.search_term,
     )
     return "applied" if verify else "failed"
+
+
+def _ejecuta_rama(conn: psycopg.Connection, aplicador: Aplicador, fila: FilaCola, rama: str) -> str:
+    """La ejecucion de una fila reclamada, por su rama. I.4: la pausa por
+    producto corre con la cuota de pause ya cobrada; un PUT incierto la deja
+    applying ("pendiente") para su reconciliacion."""
+    if rama == "pause_hoja":
+        return _ejecuta_pause(conn, aplicador, fila)
+    if rama == "pause_producto":
+        return apply_producto.ejecuta_pause_producto(conn, aplicador, fila)
+    return _ejecuta_negative(conn, aplicador, fila)
 
 
 # ---------------------------------------------------------------------------
@@ -1319,13 +1335,10 @@ def libera_vencidos(
         if conn.execute(_SQL_CLAIM, (fila.id,)).fetchone() is None:
             carreras += 1
             continue
-        if rama == "pause_hoja":
-            ok = _ejecuta_pause(conn, aplicador, fila)
-        else:
-            ok = _ejecuta_negative(conn, aplicador, fila)
+        ok = _ejecuta_rama(conn, aplicador, fila, rama)
         if ok == "applied":
             aplicadas += 1
-        else:
+        elif ok == "failed":
             fallidas += 1
     return ResultadoLiberacion(
         liberadas=liberadas,

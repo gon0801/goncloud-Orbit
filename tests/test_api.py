@@ -590,8 +590,10 @@ def test_goals_lectura_con_filtros(monkeypatch):
 # app/config_write.guarda_config: fila NUEVA de config_version), el descarte
 # humano de propuestas de campana de ADS PROTECCION C.5 (autenticada con
 # exige_token; despacha a app/propuestas_campana.descartar_propuesta: cierra
-# el episodio sin tocar Amazon ni apply_queue) y el regreso del dueno de
-# BIDS 02 M.5 (despachan a apply.regreso_del_dueno y regreso_del_dueno_todas).
+# el episodio sin tocar Amazon ni apply_queue), el regreso del dueno de
+# BIDS 02 M.5 (despachan a apply.regreso_del_dueno y regreso_del_dueno_todas)
+# y el encendido de la pausa por producto de AUTO-03 I.8 (despacha a
+# app/productos_modo.cambia_pausa).
 SUPERFICIE_ADS_OPTIMIZER = {
     ("/api/ads-optimizer/status", "get"),
     ("/api/ads-optimizer/audit", "get"),
@@ -609,6 +611,7 @@ SUPERFICIE_ADS_OPTIMIZER = {
     ("/api/ads-optimizer/campana-ajuste/plan", "get"),
     ("/api/ads-optimizer/campana-ajuste/aplicar", "post"),
     ("/api/ads-optimizer/campana-ajuste/{ajuste_id}/regresar", "post"),
+    ("/api/ads-optimizer/productos/pausa/{platform}", "post"),
 }
 
 

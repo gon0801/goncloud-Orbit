@@ -282,6 +282,10 @@ MOTIVO_PRODUCTO_SIN_EVIDENCIA = "producto_sin_evidencia"
 MOTIVO_POLITICA_APAGADA = "politica_apagada"
 MOTIVO_ESCALERA_OFF = "escalera_off"
 MOTIVO_VETO_PENDIENTE = apply_cola.MOTIVO_VETO_PENDIENTE
+# AUTO-03 I.5: en un grupo exclusivo con una pausa de producto live en vuelo,
+# una subida de bid se omite (las bajadas siguen): no se sube lo que se va a
+# pausar.
+MOTIVO_PAUSA_PRODUCTO_PENDIENTE = "pausa_producto_pendiente"
 
 # Modo tope del goal para el envelope del ciclo: la escalera global es el
 # techo, y el modo por goal solo puede BAJARLO (goal 'off' deja entidades
@@ -475,6 +479,24 @@ SELECT k.id, k.parent_id AS ad_group_id, ag.parent_id AS campaign_id,
 # digest y la herramienta: v_entidad_inerte, migracion 0013).
 _SQL_INERTES = """
 SELECT id FROM v_entidad_inerte WHERE platform = %s::platform
+"""
+
+# AUTO-03 I.5: ad groups exclusivos (todos sus product ads no archivados con
+# listing del mismo producto, la regla de productos_io) con una pausa de
+# producto live en vuelo: pending_veto, released o applying, sin vetar.
+_SQL_GRUPOS_PAUSA_PRODUCTO = """
+SELECT DISTINCT pa.parent_id
+  FROM apply_queue q
+  JOIN ad_entity pa ON pa.id = q.ad_entity_id AND pa.kind = 'product_ad'
+ WHERE q.platform = %s::platform AND q.kind = 'pause' AND q.modo = 'live'
+   AND q.estado IN ('pending_veto', 'released', 'applying') AND q.vetoed_at IS NULL
+   AND (SELECT count(*) FILTER (WHERE li.product_id IS NULL) = 0
+               AND count(DISTINCT li.product_id) = 1
+          FROM ad_entity o
+          LEFT JOIN ad_entity_state s ON s.ad_entity_id = o.id
+          LEFT JOIN listing li ON li.id = o.listing_id AND li.platform = o.platform
+         WHERE o.parent_id = pa.parent_id AND o.kind = 'product_ad'
+           AND s.status IS DISTINCT FROM 'ARCHIVED')
 """
 
 # ORBIT 06 2.3: medicion del margen, UNA fila por plataforma (la vista SOLO
@@ -1724,6 +1746,7 @@ def _procesa_decisora(
     politica: str | None,
     lecturas: LecturasPlataforma | None,
     productos_ciclo: _ProductosCiclo | None = None,
+    grupos_pausa_producto: frozenset[int] = frozenset(),
 ) -> None:
     (
         entidad_id,
@@ -1987,6 +2010,16 @@ def _procesa_decisora(
     tick()
     if isinstance(veredicto, Mantener):
         contadores.skips_entidad[veredicto.motivo] += 1
+        return
+    if (
+        ad_group_id in grupos_pausa_producto
+        and not isinstance(veredicto, Pausar)
+        and current_bid is not None
+        and veredicto.bid_nuevo > current_bid
+    ):
+        # I.5: la pausa de producto en vuelo del grupo exclusivo gana a la
+        # subida; una bajada sigue su camino.
+        contadores.skips_entidad[MOTIVO_PAUSA_PRODUCTO_PENDIENTE] += 1
         return
     # Cambio 9: despues de decidir una PAUSE, su propio cooldown la salta
     # con cooldown_7d (fijo como produccion con el flag encendido; la rama
@@ -2964,6 +2997,11 @@ def _recorre_plataforma(
     # (mismo snapshot que la evidencia). Se pasa EXPLICITO a
     # _procesa_decisora (no en `comunes`: el camino de terminos no lo usa).
     inertes = {f[0] for f in conn.execute(_SQL_INERTES, (platform,)).fetchall()}
+    # AUTO-03 I.5: grupos exclusivos con pausa de producto live en vuelo, UNA
+    # vez por ciclo en TX2 (mismo snapshot).
+    grupos_pausa_producto = frozenset(
+        f[0] for f in conn.execute(_SQL_GRUPOS_PAUSA_PRODUCTO, (platform,)).fetchall()
+    )
     # CORTES 01 (1.2/1.3): evidencia por ad group, UNA consulta por
     # plataforma DENTRO de TX2 junto a las demas lecturas (mismo snapshot
     # REPEATABLE READ; spec: una ventana, una elegibilidad, un multiplicador).
@@ -3025,6 +3063,7 @@ def _recorre_plataforma(
             politica=politica,
             lecturas=lecturas,
             productos_ciclo=contadores.productos,
+            grupos_pausa_producto=grupos_pausa_producto,
             **comunes,
         )
     for fila in conn.execute(_SQL_GRUPOS, (platform,)).fetchall():
