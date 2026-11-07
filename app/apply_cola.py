@@ -90,7 +90,7 @@ from decimal import Decimal
 import psycopg
 from psycopg.types.json import Json
 
-from app import apply, apply_harvest, biblioteca, notifica
+from app import apply, apply_harvest, biblioteca, notifica, productos_io
 from app.ads.client import AdsApiError
 from app.apply import (
     Aplicador,
@@ -119,6 +119,9 @@ MOTIVO_YA_NO_CALIFICA = "ya_no_califica"
 MOTIVO_ENTIDAD_NO_VIVA = "entidad_no_viva"
 MOTIVO_REACTIVACION_MANUAL = "reactivacion_manual"
 MOTIVO_MODO_NO_LIVE = "modo_no_live"
+# AUTO-03 F.3 (S12): la pausa de una hoja decidida con la meta de su producto
+# se descarta si la mezcla de anuncios de su grupo cambio desde la decision.
+MOTIVO_ALCANCE_CAMBIO = "alcance_cambio"
 # ADS D.1: el literal vive en apply.MOTIVO_ESPERA_TARGET (vocabulario de
 # decision_sin_aplicar, UNA fuente); este modulo lo reexporta como alias.
 MOTIVO_ESPERA_TARGET = apply.MOTIVO_ESPERA_TARGET
@@ -615,13 +618,36 @@ def _flag_pause_economica(conn: psycopg.Connection) -> bool:
     return g.pause_economica_desde_settings(settings)
 
 
+def _peldano_congelado(inputs: dict, peldano: str) -> Decimal | None:
+    """El target_aplicado del snapshot de la decision si gano `peldano`."""
+    snapshot = inputs.get("target_snapshot")
+    if inputs.get("target_procedencia") != peldano or not isinstance(snapshot, dict):
+        return None
+    valor = snapshot.get("target_aplicado")
+    return Decimal(str(valor)) if valor is not None else None
+
+
+def _alcance_cambio(conn: psycopg.Connection, ad_entity_id: int, inputs: dict) -> bool:
+    """AUTO-03 F.3 (S12): una decision con la meta del producto solo se
+    revalida con ella si la huella del grupo sigue igual a la congelada."""
+    if inputs.get("target_procedencia") != "margen_producto":
+        return False
+    snapshot = inputs.get("target_snapshot")
+    congelada = snapshot.get("huella_alcance") if isinstance(snapshot, dict) else None
+    grupo = conn.execute(_SQL_PADRE, (ad_entity_id,)).fetchone()[0]
+    return congelada is None or productos_io.huella_grupo(conn, grupo) != congelada
+
+
 def _target_pause_vigente(
-    conn: psycopg.Connection, platform: str, ad_entity_id: int, cycle_id: int
+    conn: psycopg.Connection, platform: str, ad_entity_id: int, cycle_id: int, inputs: dict
 ) -> tuple[Decimal | None, str | None]:
     """Resuelve la cascada del ciclo aplicador con goal y cache frescos.
 
     El ciclo ya midio el peldano margen y lo sello en notes.target. Si ese
     snapshot falta, no se inventa un margen ausente para caer al default.
+    Los peldanos por entidad (familia y producto, AUTO-03 S12) no se miden
+    por plataforma: salen congelados del target_snapshot de la decision
+    (`inputs`); el de producto llega aqui solo si su huella no cambio.
     """
     estado = conn.execute(_SQL_PAUSE_TARGET_STATE, (ad_entity_id,)).fetchone()
     notas_fila = conn.execute(_SQL_NOTAS_CICLO_APLICADOR, (cycle_id,)).fetchone()
@@ -660,7 +686,14 @@ def _target_pause_vigente(
         if elegido is None or not elegido.enabled or elegido.mode == "off":
             return (None, None)
         return g.cascada_target_acos_con_procedencia(
-            campana, plataforma, settings, estado[1], platform, margen
+            campana,
+            plataforma,
+            settings,
+            estado[1],
+            platform,
+            margen,
+            _peldano_congelado(inputs, "margen_familia"),
+            target_margen_producto=_peldano_congelado(inputs, "margen_producto"),
         )
     except (KeyError, TypeError, ValueError, ArithmeticError, json.JSONDecodeError):
         return (None, None)
@@ -763,10 +796,12 @@ def _revalida_pause(
     decision = conn.execute(_SQL_DECISION_INPUTS, (fila.decision_id,)).fetchone()
     if decision is None or not isinstance(decision[0], dict):
         return MOTIVO_YA_NO_CALIFICA
+    if _alcance_cambio(conn, fila.ad_entity_id, decision[0]):
+        return MOTIVO_ALCANCE_CAMBIO
     razon = decision[0].get("motivo")
     economica = razon == motor_bid.MOTIVO_PAUSE_ECONOMICA
     target, procedencia = _target_pause_vigente(
-        conn, platform, fila.ad_entity_id, aplicador.cycle_id_ejecutor
+        conn, platform, fila.ad_entity_id, aplicador.cycle_id_ejecutor, decision[0]
     )
     if target is None and economica:
         # Obs4: con goal existente se ESPERA (released, reintenta al ciclo

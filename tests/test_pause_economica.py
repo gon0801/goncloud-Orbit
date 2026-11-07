@@ -180,7 +180,7 @@ def test_target_revalidacion_usa_goal_vigente_y_margen_del_ciclo():
                 )
             raise AssertionError(sql)
 
-    assert apply_cola._target_pause_vigente(Conn(), "amazon_us", 2423, 42) == (
+    assert apply_cola._target_pause_vigente(Conn(), "amazon_us", 2423, 42, {}) == (
         Decimal("20"),
         "goal_campana",
     )
@@ -309,7 +309,7 @@ def test_target_revalidacion_sin_goal_habilitado_da_none(enabled, mode):
                 )
             raise AssertionError(sql)
 
-    assert apply_cola._target_pause_vigente(Conn(), "amazon_us", 2423, 42) == (None, None)
+    assert apply_cola._target_pause_vigente(Conn(), "amazon_us", 2423, 42, {}) == (None, None)
 
 
 def test_target_revalidacion_peldano_margen_con_goal_sin_target():
@@ -356,7 +356,7 @@ def test_target_revalidacion_peldano_margen_con_goal_sin_target():
                 )
             raise AssertionError(sql)
 
-    assert apply_cola._target_pause_vigente(Conn(), "amazon_us", 2423, 42) == (
+    assert apply_cola._target_pause_vigente(Conn(), "amazon_us", 2423, 42, {}) == (
         Decimal("30"),
         "margen_plataforma",
     )

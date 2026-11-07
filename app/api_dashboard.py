@@ -281,6 +281,9 @@ MOTIVOS_ES_SALUD: dict[str, str] = {
     ciclo.MOTIVO_ESCALERA_OFF: "Escalera global off",
     ciclo.MOTIVO_POLITICA_APAGADA: "Motor de bids apagado (sin ads_bid_politica): sin ajuste",
     ciclo.MOTIVO_SIN_TARGET: "Sin target (ningun peldano resolvio): sin ajuste",
+    ciclo.MOTIVO_PRODUCTO_SIN_EVIDENCIA: (
+        "Meta por producto sin evaluacion guardada en este ciclo: sin ajuste"
+    ),
     # BIDS 02 M.3: motivos de niveles_v3 (los que emite Mantener).
     politica.MOTIVO_ESPERANDO_EFECTO: "Bid reciente: esperando su efecto (7 dias)",
     politica.MOTIVO_VIGENTE_ENCIMA: "Bid vigente por encima del regreso: sin ajuste",
