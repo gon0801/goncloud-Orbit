@@ -182,9 +182,9 @@ from __future__ import annotations
 import datetime as dt
 import json
 import logging
-from collections import Counter
+from collections import Counter, defaultdict
 from collections.abc import Callable
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field, fields, replace
 from decimal import Decimal
 from typing import NamedTuple
 
@@ -194,11 +194,11 @@ from psycopg.conninfo import make_conninfo
 from psycopg.rows import dict_row
 from psycopg.types.json import Json
 
-from app import apply, apply_cola, apply_harvest, notifica, propuestas_campana
+from app import apply, apply_cola, apply_harvest, notifica, productos_io, propuestas_campana
 from app.ads.config import AdsCredentials
 from app.apply import Aplicador, CapSaturado
 from app.lecturas_caso import LecturasPlataforma, lee_plataforma
-from app.optimizer import bid, cortes, harvest_destino, hygiene, windows
+from app.optimizer import bid, cortes, harvest_destino, hygiene, productos, windows
 from app.optimizer import goals as g
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.optimizer.caso import POLITICA_BID, BidVigente, EconomiaPlataforma, InsumosPausa
@@ -654,6 +654,24 @@ class _Contadores:
     # capturado donde la cascada lo calculo; TX3 lo escribe aunque la hoja no
     # deje decision (no-op y cooldown incluidos).
     targets: dict[int, tuple[Decimal, str]] = field(default_factory=dict)
+    # AUTO-03 D.4: evaluacion por producto del ciclo (None = meta en off).
+    productos: _ProductosCiclo | None = None
+
+
+@dataclass
+class _ProductosCiclo:
+    """AUTO-03 D.4: las evaluaciones por producto, leidas y resueltas UNA vez
+    en TX2, el indice grupo apto -> evaluacion y la sombra por hoja (producto
+    -> veredictos sin y con la meta). Los errores del camino de productos
+    quedan en notes.productos.error y jamas cambian hojas, targets ni
+    decisiones."""
+
+    modo_meta: str
+    evaluaciones: tuple[productos.EvaluacionProducto, ...] = ()
+    por_grupo: dict[int, productos.EvaluacionProducto] = field(default_factory=dict)
+    sombra: dict[int, list[dict]] = field(default_factory=lambda: defaultdict(list))
+    resumen: dict | None = None
+    errores: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -1411,7 +1429,7 @@ def _libera_lock(hb, conn: psycopg.Connection, job_key: str, owner: str) -> None
 # ---------------------------------------------------------------------------
 
 
-def _lee_goals(
+def lee_goals(
     conn: psycopg.Connection, platform: str, ids_campanas: list[int]
 ) -> tuple[g.Goal | None, dict[int, g.Goal]]:
     fila_goal = conn.execute(_SQL_GOALS, (platform, ids_campanas)).fetchall()
@@ -1636,6 +1654,7 @@ def _procesa_decisora(
     pause_economica: bool,
     politica: str | None,
     lecturas: LecturasPlataforma | None,
+    productos_ciclo: _ProductosCiclo | None = None,
 ) -> None:
     (
         entidad_id,
@@ -1755,6 +1774,28 @@ def _procesa_decisora(
             cost_min=costo_piso,
             policy_version=pausa.politica_economica,
         )
+        _anota_sombra(
+            productos_ciclo,
+            entidad_id=entidad_id,
+            ad_group_id=ad_group_id,
+            goal=goal,
+            setting_target=setting_target,
+            margen_plataforma=margen_plataforma,
+            target_margen_familia=target_margen_familia,
+            previo=familias_ciclo.previos.get(entidad_id),
+            target=target,
+            procedencia=procedencia,
+            actual=resultado,
+            decide_con=lambda t: bid.decide_pause(
+                platform=platform,
+                bids=None,
+                cortes=cortes_hoja,
+                target_acos_pct=t,
+                umbral_pause=corte_pause.umbral,
+                cost_min=costo_piso,
+                policy_version=pausa.politica_economica,
+            ),
+        )
         tick()
         if resultado.kind != "pause":
             contadores.skips_entidad[MOTIVO_POLITICA_APAGADA] += 1
@@ -1798,6 +1839,22 @@ def _procesa_decisora(
         pausa=pausa,
     )
     veredicto = decide(caso)
+    _anota_sombra(
+        productos_ciclo,
+        entidad_id=entidad_id,
+        ad_group_id=ad_group_id,
+        goal=goal,
+        setting_target=setting_target,
+        margen_plataforma=margen_plataforma,
+        target_margen_familia=target_margen_familia,
+        previo=familias_ciclo.previos.get(entidad_id),
+        target=target,
+        procedencia=procedencia,
+        actual=veredicto,
+        decide_con=lambda t: decide(
+            replace(caso, economia=replace(caso.economia, target_acos_pct=t))
+        ),
+    )
     tick()
     if isinstance(veredicto, Mantener):
         contadores.skips_entidad[veredicto.motivo] += 1
@@ -1829,6 +1886,156 @@ def _procesa_decisora(
         )
     )
     contadores.decisiones["pause" if isinstance(veredicto, Pausar) else "bid"] += 1
+
+
+def _evalua_productos(
+    conn: psycopg.Connection,
+    *,
+    platform: str,
+    settings: dict,
+    decided_at: dt.datetime,
+    goals: tuple[g.Goal | None, dict[int, g.Goal]],
+    modo_meta: str,
+) -> _ProductosCiclo:
+    """AUTO-03 D.4: lectura por lote y resolutor, UNA vez por plataforma en
+    TX2. La lectura corre en un SAVEPOINT: un error de SQL no aborta TX2 y
+    queda en notes.productos.error (precedente: propuestas_campana)."""
+    resultado = _ProductosCiclo(modo_meta=modo_meta)
+    try:
+        with conn.transaction():
+            entradas = productos_io.lee_entradas_productos(
+                conn, platform, decidido_el=decided_at, settings=settings
+            )
+        resultado.evaluaciones = tuple(productos.resolver_producto(e) for e in entradas)
+    except Exception as exc:  # noqa: BLE001 - el camino de productos jamas tumba el ciclo
+        logger.warning("productos: lectura fallida en %s: %s", platform, scrub(str(exc)))
+        resultado.errores.append(f"lectura: {scrub(str(exc)) or type(exc).__name__}")
+        return resultado
+    resultado.por_grupo = {
+        grupo.grupo_id: ev
+        for ev in resultado.evaluaciones
+        for grupo in ev.entrada.grupos_aptos_para_meta
+    }
+    resultado.resumen = productos_io.resumen_cobertura(platform, resultado.evaluaciones, goals)
+    return resultado
+
+
+def _plano(valor):
+    if isinstance(valor, Decimal):
+        return _dec_str(valor)
+    if isinstance(valor, dt.date):
+        return valor.isoformat()
+    if valor is None or isinstance(valor, (str, int, bool)):
+        return valor
+    return str(valor)
+
+
+def _veredicto_json(veredicto) -> dict:
+    return {
+        "tipo": type(veredicto).__name__,
+        **{f.name: _plano(getattr(veredicto, f.name)) for f in fields(veredicto)},
+    }
+
+
+def _anota_sombra(
+    productos_ciclo: _ProductosCiclo | None,
+    *,
+    entidad_id: int,
+    ad_group_id: int,
+    goal: g.Goal,
+    setting_target: Decimal | None,
+    margen_plataforma: Decimal | None,
+    target_margen_familia: Decimal | None,
+    previo: _PrevioHoja | None,
+    target: Decimal,
+    procedencia: str,
+    actual,
+    decide_con: Callable[[Decimal], object],
+) -> None:
+    """AUTO-03 D.4, meta en shadow: para una hoja de grupo apto calcula la
+    meta de la hoja (S2: solo un previo margen_producto es ancla; el destino
+    es la cascada sin producto), la cascada con ella y el veredicto que
+    habria dado. Solo anota: decision, target y freeze siguen con la cascada
+    sin producto. Un fallo queda en notes.productos.error."""
+    if productos_ciclo is None or productos_ciclo.modo_meta != "shadow":
+        return
+    evaluacion = productos_ciclo.por_grupo.get(ad_group_id)
+    if evaluacion is None:
+        return
+    try:
+        meta = productos.meta_de_hoja(
+            evaluacion.meta,
+            ultimo=previo.target if previo is not None else None,
+            destino=target,
+            tiene_previo=previo is not None and previo.procedencia == "margen_producto",
+        )
+        target_meta = g.cascada_target_acos(
+            goal.target_acos_pct,
+            setting_target,
+            margen_plataforma,
+            goal.scope,
+            target_margen_familia,
+            target_margen_producto=meta.aplicado,
+        )
+        procedencia_meta = g.peldano_target_acos(
+            goal.target_acos_pct,
+            goal.scope,
+            margen_plataforma,
+            setting_target,
+            target_margen_familia,
+            target_margen_producto=meta.aplicado,
+        )
+        con_meta = decide_con(target_meta)
+    except Exception as exc:  # noqa: BLE001 - la sombra jamas cambia la hoja
+        productos_ciclo.errores.append(
+            f"sombra hoja {entidad_id}: {scrub(str(exc)) or type(exc).__name__}"
+        )
+        return
+    productos_ciclo.sombra[evaluacion.producto.product_id].append(
+        {
+            "hoja_id": entidad_id,
+            "grupo_id": ad_group_id,
+            "target_actual": _dec_str(target),
+            "procedencia_actual": procedencia,
+            "meta": {
+                "aplicado": _dec_str(meta.aplicado),
+                "derivado": _dec_str(meta.derivado),
+                "motivo": meta.motivo,
+                "convergiendo": meta.convergiendo,
+            },
+            "target_con_meta": _dec_str(target_meta),
+            "procedencia_con_meta": procedencia_meta,
+            "veredicto_actual": _veredicto_json(actual),
+            "veredicto_con_meta": _veredicto_json(con_meta),
+        }
+    )
+
+
+def _notas_productos(
+    conn: psycopg.Connection,
+    cycle_id: int,
+    config_id: int | None,
+    productos_ciclo: _ProductosCiclo,
+) -> dict:
+    """TX3: guarda las evaluaciones (SAVEPOINT propio, antes que las
+    decisiones) y arma notes.productos con el resumen de cobertura."""
+    notas: dict = {"modo_meta": productos_ciclo.modo_meta, **(productos_ciclo.resumen or {})}
+    errores = list(productos_ciclo.errores)
+    if productos_ciclo.resumen is not None:
+        guardado = productos_io.guarda_evaluaciones(
+            conn,
+            cycle_id,
+            productos_ciclo.evaluaciones,
+            config_version_id=config_id,
+            sombra_hojas=productos_ciclo.sombra,
+        )
+        if guardado.error is not None:
+            errores.append(f"guardado: {guardado.error}")
+        else:
+            notas["evaluaciones_guardadas"] = len(guardado.ids)
+    if errores:
+        notas["error"] = "; ".join(errores)
+    return notas
 
 
 def _procesa_grupo(
@@ -2334,7 +2541,20 @@ def _recorre_plataforma(
     acos_campanas = {
         fila[0]: fila[1] for fila in conn.execute(_SQL_CAMPANAS, (platform,)).fetchall()
     }
-    goals = _lee_goals(conn, platform, list(acos_campanas))
+    goals = lee_goals(conn, platform, list(acos_campanas))
+    # AUTO-03 D.4: el interruptor es fail-closed como los demas settings
+    # (valor ajeno = ValueError = ciclo failed); la lectura y el resolutor no.
+    if platform in productos.PLATAFORMAS:
+        modo_meta = productos.modos_desde_settings(settings, platform).meta
+        if modo_meta != "off":
+            contadores.productos = _evalua_productos(
+                conn,
+                platform=platform,
+                settings=settings,
+                decided_at=decided_at,
+                goals=goals,
+                modo_meta=modo_meta,
+            )
     # C.4 B3: sin flag, ni se evaluan (fail-closed: un deploy no avisa
     # propuestas sin el INSERT deliberado de ads_propuestas_campana).
     if g.propuestas_campana_desde_settings(settings):
@@ -2410,6 +2630,7 @@ def _recorre_plataforma(
             pause_economica=pause_economica,
             politica=politica,
             lecturas=lecturas,
+            productos_ciclo=contadores.productos,
             **comunes,
         )
     for fila in conn.execute(_SQL_GRUPOS, (platform,)).fetchall():
@@ -2850,6 +3071,10 @@ def _corre_fases(
     )
     status = "degraded" if guarda is not None else "done"
     with conn.transaction():  # TX3: decisiones + cierre del envelope, atomicos
+        # AUTO-03 D.4: las evaluaciones van antes que las decisiones (F las
+        # referencia por FK) y en su propio SAVEPOINT.
+        if contadores.productos is not None:
+            cuerpo["productos"] = _notas_productos(conn, cycle_id, config_id, contadores.productos)
         _inserta_decisiones(conn, cycle_id, config_id, decided_at, pendientes)
         _inserta_targets(conn, cycle_id, decided_at, contadores)
         # C.4 B3: la guarda va con el mismo flag que la lectura (con flag

@@ -52,6 +52,10 @@ POLITICA_PRODUCTO = "v1"
 
 MADUREZ_HALO = dt.timedelta(days=30)
 
+# Ventana de la pausa (S6/S7): [D-60, D-30) UTC, 30 fechas maduras.
+DIAS_PAUSA_DESDE = 60
+DIAS_PAUSA_HASTA = 30
+
 # Vocabulario cerrado. Los cinco primeros son los de goals.motivo_dato_invalido
 # y sin_fraccion; los demas son propios del producto.
 MOTIVOS_PRODUCTO: dict[str, str] = {
@@ -66,6 +70,11 @@ MOTIVOS_PRODUCTO: dict[str, str] = {
     "halo_sin_madurar": "el tramo del halo de menos de 30 dias todavia puede cambiar",
     "sin_grupo_apto": "ningun grupo exclusivo y apto: la meta no llega a ninguna puja",
     "grupo_no_apto": "el grupo no es exclusivo del producto o no esta comprobado",
+    "ads_con_metrica_ausente": "una fecha del reporte trae una metrica ausente: no se puede sumar",
+    # Actividad de la ventana de la pausa (S6); la meta no las usa.
+    "fecha_desconocida": "una fecha sin fila ni cobertura demostrada de la ingesta",
+    "fecha_inmadura": "una fecha todavia sin su reobservacion de 30 dias",
+    "sin_filas_en_ventana": "el producto no tiene ninguna fila en la ventana",
 }
 
 
@@ -109,8 +118,29 @@ class DiaProducto:
 
 
 @dataclass(frozen=True)
+class AdsCompletos:
+    """Actividad del producto en una ventana con TODAS sus fechas conocidas y
+    maduras: con fila, o en cero observado por la cobertura S6. Cada fecha
+    deja su referencia (la fila o el reporte que la cubre)."""
+
+    ventana: Ventana
+    gasto: Dinero
+    clics: int
+    compras_total: Decimal
+    ventas_total: Dinero
+    ventas_mismo_sku: Dinero
+    referencias_por_fecha: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class GrupoAptoParaMeta:
+    """Ad group exclusivo del producto: todos sus product ads no archivados
+    tienen listing del mismo producto. `hojas` son sus keywords y product
+    targets ENABLED, y `campana_id` resuelve su goal."""
+
     grupo_id: int
+    campana_id: int
+    hojas: tuple[int, ...]
     ventana_evidencia_hojas: Ventana
     referencias_identidad_y_halo: tuple[str, ...]
     huella_alcance: str
@@ -130,9 +160,13 @@ class EntradaProducto:
     fraccion: Decimal | SinDato
     ventana_halo: Ventana
     dias_halo: tuple[DiaProducto, ...]
+    actividad_pausa: AdsCompletos | SinDato
     grupos_aptos_para_meta: tuple[GrupoAptoParaMeta, ...]
     impedimentos: tuple[str, ...]
     limites_pausa: LimitesPausa
+
+    def como_json(self) -> dict:
+        return _a_json(self)
 
 
 @dataclass(frozen=True)
@@ -268,6 +302,13 @@ def meta_de_hoja(
     )
 
 
+def ventana_pausa(decidido_el: dt.datetime) -> Ventana:
+    hoy = decidido_el.astimezone(dt.UTC).date()
+    return Ventana(
+        hoy - dt.timedelta(days=DIAS_PAUSA_DESDE), hoy - dt.timedelta(days=DIAS_PAUSA_HASTA)
+    )
+
+
 def clave_modo(tipo: Literal["meta", "pausa"], plataforma: str) -> str:
     return f"ads_producto_{tipo}_{plataforma}"
 
@@ -334,6 +375,7 @@ _TIPOS_JSON: dict[str, type] = {
         Ventana,
         SinDato,
         DiaProducto,
+        AdsCompletos,
         GrupoAptoParaMeta,
         LimitesPausa,
         EntradaProducto,

@@ -11,6 +11,9 @@ from test_schema import SQL, _postgres_obligatorio_ausente, _test_dsn
 from app.ads import salud
 
 SQL40 = (Path(__file__).resolve().parents[1] / "migrations/0040_ads_report_result.sql").read_text()
+SQL77 = (
+    Path(__file__).resolve().parents[1] / "migrations/0077_auto03_evaluacion_producto.sql"
+).read_text()
 SQL41 = (Path(__file__).resolve().parents[1] / "migrations/0041_ads_ingest_alert.sql").read_text()
 
 
@@ -81,6 +84,7 @@ def test_episodio_persiste_reintenta_y_recupera_solo_con_principal(monkeypatch):
         conn = psycopg.connect(_test_dsn(), dbname=db, autocommit=True)
         conn.execute(SQL)
         conn.execute(SQL40)
+        conn.execute(SQL77)
         conn.execute(SQL41)
         conn.execute("SET ROLE app_ingest")
         monkeypatch.setattr(salud.notifica, "canal_activo", lambda: True)
@@ -281,6 +285,7 @@ def _base_a3d(monkeypatch, nombre, respuestas):
     conn = psycopg.connect(_test_dsn(), dbname=db, autocommit=True)
     conn.execute(SQL)
     conn.execute(SQL40)
+    conn.execute(SQL77)
     conn.execute(SQL41)
     conn.execute("SET ROLE app_ingest")
     monkeypatch.setattr(salud.notifica, "canal_activo", lambda: True)

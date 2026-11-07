@@ -21,6 +21,8 @@ DECIDIDO = dt.datetime(2026, 11, 6, 12, 0, tzinfo=dt.UTC)
 HOY = DECIDIDO.date()
 GRUPO = p.GrupoAptoParaMeta(
     grupo_id=501,
+    campana_id=500,
+    hojas=(601, 602),
     ventana_evidencia_hojas=p.Ventana(dt.date(2026, 8, 8), dt.date(2026, 11, 4)),
     referencias_identidad_y_halo=("ad_entity:501",),
     huella_alcance="sha256:abc",
@@ -63,6 +65,7 @@ def _entrada(
         fraccion=Decimal(fraccion),
         ventana_halo=p.Ventana(dt.date(2026, 8, 8), dt.date(2026, 11, 4)),
         dias_halo=dias,
+        actividad_pausa=p.SinDato(("sin_filas_en_ventana",)),
         grupos_aptos_para_meta=grupos,
         impedimentos=impedimentos,
         limites_pausa=p.limites_pausa_desde_settings({}, "amazon_mx"),

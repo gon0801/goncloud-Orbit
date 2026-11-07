@@ -800,3 +800,20 @@ def test_apagado_manual_se_respeta(s):
     s.pon_config({"ads_producto_meta_amazon_us": "live"})
     assert s.motor("F2") == "ok"
     assert s.config() == {"ads_producto_meta_amazon_us": "live"}
+
+
+def test_interruptores_del_repo_son_los_del_lector():
+    """D.5: cada clave del estado deseado es un interruptor que lee
+    productos.modos_desde_settings, con un valor que acepta."""
+    from app.optimizer import productos
+
+    claves = {
+        productos.clave_modo(tipo, plataforma)
+        for tipo in ("meta", "pausa")
+        for plataforma in productos.PLATAFORMAS
+    }
+    texto = (ROOT / "tools/despliegue/interruptores.env").read_text(encoding="utf-8")
+    deseado = dict(linea.split("=", 1) for linea in texto.splitlines() if linea.strip())
+    assert deseado and set(deseado) <= claves
+    for plataforma in productos.PLATAFORMAS:
+        productos.modos_desde_settings(deseado, plataforma)

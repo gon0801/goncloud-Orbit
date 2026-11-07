@@ -538,6 +538,12 @@ def terminos_cortes(
     )
 
 
+def watermark_plataforma(conn: psycopg.Connection, platform: str) -> dt.date | None:
+    """MAX(metric_date) colapsado de las hojas de la plataforma (None = sin
+    metricas): la guarda y la ventana del halo de AUTO-03 leen el mismo."""
+    return conn.execute(_SQL_WATERMARK_PLATAFORMA, (platform,)).fetchone()[0]
+
+
 def guarda_plataforma(
     conn: psycopg.Connection, platform: str, *, ahora: dt.datetime
 ) -> MotivoSkip | None:
@@ -555,7 +561,7 @@ def guarda_plataforma(
     - sin metricas NI estado -> 'sin_datos'; falta solo una de las dos -> salta
       por su guarda (fail-closed: metricas sin estructura no son operables)."""
     hoy = _fecha_utc(ahora)  # un naive revienta aqui con mensaje claro, no en la resta
-    watermark = conn.execute(_SQL_WATERMARK_PLATAFORMA, (platform,)).fetchone()[0]
+    watermark = watermark_plataforma(conn, platform)
     synced_at = conn.execute(_SQL_SYNC_PLATAFORMA, (platform,)).fetchone()[0]
     if watermark is None and synced_at is None:
         return MotivoSkip(
