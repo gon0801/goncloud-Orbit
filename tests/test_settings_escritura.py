@@ -562,8 +562,10 @@ def test_cli_producto_modo_escribe_quita_y_no_repite(monkeypatch):
 
 @_skip_db
 def test_cli_producto_modo_rechaza_valor_ajeno_y_pausa_en_vivo(monkeypatch):
-    """Otro valor es SettingsInvalido y la pausa en live no se escribe ni con
-    limites guardados: su ejecutor todavia no existe."""
+    """Otro valor es SettingsInvalido. La pausa en live solo entra por
+    `productos_modo.cambia_pausa` (AUTO-03 I.7): `proxima_config` la rechaza
+    aun con limites guardados, y `--pausa live` sin las dos claves de limites
+    sale 2 sin escribir (S8); con ellas, la escribe."""
     import app.config_write as config_write
 
     with pytest.raises(config_write.SettingsInvalido):
@@ -577,12 +579,18 @@ def test_cli_producto_modo_rechaza_valor_ajeno_y_pausa_en_vivo(monkeypatch):
     with _db_con_rol_admin("orbit_prod_vivo") as (conn, dsn_admin, _dsn_l):
         conn.execute(
             "INSERT INTO config_version (label, settings) VALUES (%s, %s)",
-            ("previa", Json(con_limites)),
+            ("previa", Json({f"ads_producto_pausa_clics_{MX}": "50"})),
         )
         monkeypatch.setenv("ORBIT_DSN_ADMIN", dsn_admin)
-        with pytest.raises(SystemExit):
-            _cli_productos("--pausa", "live")
+        assert _cli_productos("--pausa", "live") == 2
         assert len(_filas_config(conn)) == 1
+        conn.execute(
+            "INSERT INTO config_version (label, settings) VALUES (%s, %s)",
+            ("con limites", Json(con_limites)),
+        )
+        assert _cli_productos("--pausa", "live") == 0
+        filas = _filas_config(conn)
+        assert len(filas) == 3 and filas[-1][2][f"ads_producto_pausa_{MX}"] == "live"
 
 
 @_skip_db

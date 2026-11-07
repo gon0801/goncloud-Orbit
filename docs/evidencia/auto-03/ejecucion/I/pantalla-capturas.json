@@ -1,0 +1,98 @@
+{
+  "run_id": "motor-auto03-i-capturas",
+  "config_practica": 5,
+  "deshabilitado": {
+    "disabled": true,
+    "texto": "Encender la pausa",
+    "describe": "Guarda tus límites primero",
+    "estado": "Práctica"
+  },
+  "tema_noche": "noche",
+  "ancho_390_deshabilitado": {
+    "ancho": 390,
+    "bodyScroll": false
+  },
+  "con_limites": {
+    "platform": "amazon_mx",
+    "modo": "shadow",
+    "modo_texto": "Práctica",
+    "config_version_id": 6,
+    "limites": {
+      "clics": 100,
+      "gasto": {
+        "valor": "500",
+        "moneda": "MXN"
+      }
+    },
+    "limites_guardados": true,
+    "error": null
+  },
+  "foco_encender": {
+    "tabs": 39,
+    "id": "pausa-encender",
+    "texto": "Encender la pausa",
+    "focoVisible": true,
+    "outline": "solid 2px rgb(108, 92, 231)"
+  },
+  "confirmacion": {
+    "titulo": "¿Encender la pausa?",
+    "resumen": "Con tus límites guardados (100 clics y 500.00 MXN), Orbit pausaría 2 anuncios de 1 producto, que gastaron 600.00 MXN en la ventana del 2026-09-08 al 2026-10-07.",
+    "cobertura": "1 producto no se puede juzgar todavía: falta cobertura del reporte (D.7). No se pausan hasta tener el dato.",
+    "foco": "pausa-token"
+  },
+  "ancho_390_confirmacion": {
+    "ancho": 390,
+    "bodyScroll": false
+  },
+  "cancelar": {
+    "estado": "Cancelado: no se cambió nada.",
+    "foco": "pausa-encender",
+    "config_antes": 6,
+    "config_despues": 6,
+    "modo_despues": "shadow",
+    "no_escribio": true
+  },
+  "en_vivo": {
+    "modo": "live",
+    "config_version_id": 7,
+    "estado": "En vivo",
+    "boton": "Volver a práctica"
+  },
+  "ancho_390_en_vivo": {
+    "ancho": 390,
+    "bodyScroll": false
+  },
+  "foco_volver": {
+    "tabs": 39,
+    "id": "pausa-volver",
+    "texto": "Volver a práctica",
+    "focoVisible": true,
+    "outline": "solid 2px rgb(108, 92, 231)"
+  },
+  "volver_confirmacion": {
+    "titulo": "¿Volver a práctica?",
+    "foco": "pausa-token"
+  },
+  "de_vuelta": {
+    "modo": "shadow",
+    "config_version_id": 8,
+    "estado": "Práctica"
+  },
+  "capturas": [
+    "pantalla-01-escritorio-claro-deshabilitado.png",
+    "pantalla-02-escritorio-oscuro-deshabilitado.png",
+    "pantalla-03-390-claro-deshabilitado.png",
+    "pantalla-04-teclado-foco-encender-claro.png",
+    "pantalla-05-escritorio-claro-confirmacion.png",
+    "pantalla-06-escritorio-oscuro-confirmacion.png",
+    "pantalla-07-390-oscuro-confirmacion.png",
+    "pantalla-08-390-claro-confirmacion.png",
+    "pantalla-09-escritorio-claro-cancelado.png",
+    "pantalla-10-escritorio-claro-en-vivo.png",
+    "pantalla-11-escritorio-oscuro-en-vivo.png",
+    "pantalla-12-390-oscuro-en-vivo.png",
+    "pantalla-13-390-claro-en-vivo.png",
+    "pantalla-14-escritorio-claro-volver-confirmacion.png",
+    "pantalla-15-escritorio-claro-de-vuelta-en-practica.png"
+  ]
+}

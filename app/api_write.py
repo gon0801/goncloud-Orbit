@@ -573,6 +573,39 @@ def editar_settings(
         raise HTTPException(status_code=_ERRORES_SETTINGS[type(exc)], detail=str(exc)) from None
 
 
+class CuerpoPausaProducto(BaseModel):
+    """AUTO-03 I.8: `live` enciende la pausa por producto, `shadow` la regresa
+    a practica (`off` sigue siendo del CLI)."""
+
+    modo: Literal["live", "shadow"]
+    base_config_version_id: int = Field(ge=1)
+
+
+@router.post("/productos/pausa/{platform}")
+def cambiar_pausa_producto(
+    _token: Annotated[str, Depends(exige_token)],
+    conn: ConexionEscritura,
+    platform: Literal["amazon_us", "amazon_mx"],
+    cuerpo: CuerpoPausaProducto,
+) -> dict:
+    """Boton de la pantalla de productos (AUTO-03 I.8, S8). DESPACHA a
+    `productos_modo.cambia_pausa` (I.7), el unico camino que acepta `live`:
+    sin las dos claves de limites, 422 sin escribir; base obsoleta, 409."""
+    from app import productos_modo
+
+    try:
+        return productos_modo.cambia_pausa(
+            conn,
+            platform,
+            cuerpo.modo,
+            cuerpo.base_config_version_id,
+            dt.datetime.now(dt.UTC),
+            actor="pantalla-productos",
+        )
+    except tuple(_ERRORES_SETTINGS) as exc:
+        raise HTTPException(status_code=_ERRORES_SETTINGS[type(exc)], detail=str(exc)) from None
+
+
 # A2: familias de producto. Router propio bajo /api/familias (misma auth
 # solo-header que el resto de escrituras). Despachan a app/familias.py, el
 # UNICO escritor de familia/producto_familia.

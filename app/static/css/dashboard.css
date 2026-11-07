@@ -267,6 +267,10 @@ body[data-pantalla="productos-sin-clics"] td ul { margin: 0; padding-left: 16px;
 .limites-costos { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 0 0 12px; }
 .limites-costo { padding: 12px 14px; border: 1px solid var(--o-borde); border-radius: 10px; background: var(--o-bg2); min-width: 0; }
 .limites-costo .kpi-valor { font-size: 20px; overflow-wrap: anywhere; }
+/* AUTO-03 I.8: encender la pausa o volver a practica, con su confirmacion. */
+.pausa-vivo { border-top: 1px solid var(--o-borde); margin-top: 18px; padding-top: 12px; }
+.pausa-confirmar { margin: 12px 0; padding: 12px 14px; border: 1px solid var(--o-borde); border-radius: 10px; background: var(--o-bg2); overflow-wrap: anywhere; }
+.pausa-confirmar:focus-visible { outline: 2px solid var(--o-ac); outline-offset: 2px; }
 @media (max-width: 40rem) {
   body[data-pantalla="productos-sin-clics"] .tarjeta { max-width: 100%; overflow-x: auto; }
   .limites-costo { padding: 10px; }

@@ -298,6 +298,40 @@
   {% else %}
   <p class="aviso" data-limites-sin-config>Todavía no hay una config guardada sobre la cual editar los límites.</p>
   {% endif %}
+  {# AUTO-03 I.8: encender la pausa o regresarla a practica, con confirmacion.
+     Solo con la config vigente legible: el boton manda su id como base. #}
+  {% if lim.modo_error %}
+  <p class="aviso" data-pausa-modo-error>No se puede leer el modo de la pausa: {{ lim.modo_error }}</p>
+  {% elif lim.modo and lim.config_version_id %}
+  <div id="pausa-vivo" class="pausa-vivo" data-plataforma="{{ plataforma }}" data-config-id="{{ lim.config_version_id }}" data-modo="{{ lim.modo }}">
+    <h4>Encendido de la pausa</h4>
+    <p data-pausa-estado>Estado: <span class="chip{{ ' ok' if lim.modo == 'live' else '' }}" data-modo-vigente="{{ lim.modo }}">{{ lim.modo_texto }}</span></p>
+    {% if lim.modo == "live" %}
+    <p class="mutado">Orbit pausa los anuncios propuestos después de las 48 horas de veto. Puedes regresar cualquier anuncio desde esta pantalla.</p>
+    <button type="button" id="pausa-volver">Volver a práctica</button>
+    {% else %}
+    <p class="mutado">{% if lim.modo == "shadow" %}En práctica las propuestas quedan registradas y no pausan ningún anuncio.{% else %}La pausa está apagada: no propone ni pausa anuncios.{% endif %}</p>
+    {% if lim.guardados %}
+    <button type="button" id="pausa-encender">Encender la pausa</button>
+    {% else %}
+    <button type="button" id="pausa-encender" disabled aria-describedby="pausa-encender-falta">Encender la pausa</button>
+    <p id="pausa-encender-falta" data-falta-limites>Guarda tus límites primero</p>
+    {% endif %}
+    {% endif %}
+    <div id="pausa-confirmar" class="pausa-confirmar" role="group" aria-labelledby="pausa-confirmar-titulo" tabindex="-1" hidden>
+      <p id="pausa-confirmar-titulo"><strong></strong></p>
+      <div id="pausa-confirmar-detalle"></div>
+      <form id="pausa-confirmar-form" class="filtros" hidden>
+        <label for="pausa-token">Token
+          <input type="password" id="pausa-token" name="token" placeholder="x-orbit-token" autocomplete="off" required>
+        </label>
+        <button type="submit">Confirmar</button>
+      </form>
+      <button type="button" id="pausa-cancelar">Cancelar</button>
+    </div>
+    <p id="pausa-vivo-estado" class="mutado" role="status"></p>
+  </div>
+  {% endif %}
 </div>
 {% endif %}
 

@@ -19,6 +19,12 @@ son las decisiones pause de esa evaluacion cuya fila de cola esta applied. El
 modo de la pausa sale de notes.productos del ciclo. Los limites vigentes de
 la pausa (H.9) se leen de la ultima config_version con el mismo lector que el
 ciclo; la pantalla los edita por POST /api/ads-optimizer/settings/{platform}.
+
+Encendido (AUTO-03 I.8): de la misma config_version salen el modo vigente de la
+pausa (no el del ultimo ciclo) y si las dos claves de limites estan guardadas,
+con `config_write.limites_pausa_guardados`, la misma regla con la que
+`productos_modo.cambia_pausa` rechaza encenderla. `estado_pausa` es lo que
+devuelve GET /api/dashboard/productos/pausa.
 """
 
 from __future__ import annotations
@@ -29,7 +35,7 @@ from collections import Counter
 from dataclasses import dataclass, replace
 from decimal import Decimal
 
-from app import productos_io
+from app import config_write, productos_io
 from app.cycle import lee_goals
 from app.optimizer import goals as g
 from app.optimizer import productos as p
@@ -86,6 +92,8 @@ SELECT ad_entity_id, target_acos_pct, procedencia
 """
 
 MODOS_TEXTO = {"off": "apagada", "shadow": "en práctica", "live": "en vivo"}
+# Estado de la pausa en la seccion de limites (I.8).
+ESTADOS_PAUSA = {"off": "Apagada", "shadow": "Práctica", "live": "En vivo"}
 _PROCEDENCIAS_GOAL = frozenset({"goal_campana", "goal_plataforma"})
 
 
@@ -210,7 +218,10 @@ class LimitesVista:
     base que exige el guardado; sin config_version no hay sobre que guardar.
     Una config ilegible deja error y ningun valor. `guardados` dice si las dos
     claves de limites estan en la config: sin ellas los valores son los de
-    omision y guardarlos tal cual SI es un cambio (S8 los exige guardados)."""
+    omision y guardarlos tal cual SI es un cambio (S8 los exige guardados), y
+    la pausa no se puede encender. `modo` es el modo vigente de la pausa en
+    esa config; si los interruptores son ilegibles queda None con su
+    `modo_error` y la pantalla no ofrece encender ni regresar."""
 
     config_version_id: int | None
     clics: int | None
@@ -218,6 +229,8 @@ class LimitesVista:
     moneda: str
     error: str | None
     guardados: bool = False
+    modo: str | None = None
+    modo_error: str | None = None
 
     def como_dict(self) -> dict:
         return {
@@ -228,6 +241,9 @@ class LimitesVista:
             "moneda": self.moneda,
             "error": self.error,
             "guardados": self.guardados,
+            "modo": self.modo,
+            "modo_texto": ESTADOS_PAUSA.get(self.modo) if self.modo else None,
+            "modo_error": self.modo_error,
         }
 
 
@@ -327,22 +343,50 @@ class DecisionesProducto:
 
 def lee_limites(conn, plataforma: str) -> LimitesVista:
     """Los limites de la pausa que el ciclo leeria hoy (C.7): clave ausente
-    da el valor vigente del motor de cortes."""
+    da el valor vigente del motor de cortes. Tambien el modo vigente de la
+    pausa y si sus limites estan guardados (I.8), con la misma regla que
+    `productos_modo.cambia_pausa` exige para encenderla."""
     moneda = PLATAFORMAS_MONEDA[plataforma]
     fila = conn.execute(_SQL_CONFIG_VIGENTE).fetchone()
     config_id, settings = (fila[0], fila[1] or {}) if fila else (None, {})
     try:
+        modo, modo_error = p.modos_desde_settings(settings, plataforma).pausa, None
+    except ValueError as exc:
+        modo, modo_error = None, str(exc)
+    try:
         limites = p.limites_pausa_desde_settings(settings, plataforma)
     except ValueError as exc:
-        return LimitesVista(config_id, None, None, moneda, str(exc))
+        return LimitesVista(
+            config_id, None, None, moneda, str(exc), modo=modo, modo_error=modo_error
+        )
     return LimitesVista(
         config_id,
         limites.clics_min,
         format(limites.gasto_min.valor.normalize(), "f"),
         limites.gasto_min.moneda,
         None,
-        all(settings.get(p.clave_limite(t, plataforma)) is not None for t in ("clics", "gasto")),
+        config_write.limites_pausa_guardados(settings, plataforma),
+        modo,
+        modo_error,
     )
+
+
+def estado_pausa(conn, plataforma: str) -> dict:
+    """GET /api/dashboard/productos/pausa (I.8): modo vigente de la pausa,
+    limites vigentes, si las dos claves estan guardadas y la config_version
+    sobre la que se enciende o se regresa a practica. Solo SELECT."""
+    lim = lee_limites(conn, plataforma)
+    return {
+        "platform": plataforma,
+        "modo": lim.modo,
+        "modo_texto": ESTADOS_PAUSA.get(lim.modo) if lim.modo else None,
+        "config_version_id": lim.config_version_id,
+        "limites": None
+        if lim.error
+        else {"clics": lim.clics, "gasto": {"valor": lim.gasto, "moneda": lim.moneda}},
+        "limites_guardados": lim.guardados,
+        "error": lim.modo_error or lim.error,
+    }
 
 
 def lee_decisiones_producto(conn, plataforma: str) -> DecisionesProducto:

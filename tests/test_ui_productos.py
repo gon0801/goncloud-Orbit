@@ -264,12 +264,13 @@ def test_r09d_error_objeto_muestra_mensaje_y_fallos_sin_object_object():
     [object Object]; un detail de texto se pinta tal cual."""
     archivo = RAIZ / "app" / "static" / "js" / "productos.js"
     assert archivo.exists(), "Falta el cliente de productos"
-    # Los diez sitios de error usan mensajeError (seis de impulso y retiro,
+    # Los trece sitios de error usan mensajeError (seis de impulso y retiro,
     # cuatro de los limites de la pausa: el rechazo de simular y su estado,
-    # 409 y 422 al guardar):
+    # 409 y 422 al guardar; tres del encendido: la simulacion que falla, 409
+    # y 422 al confirmar):
     # ninguno conserva el patron que pintaba [object Object].
     assert "(r.data.detail || r.data)" not in archivo.read_text(encoding="utf-8")
-    assert archivo.read_text(encoding="utf-8").count("mensajeError(r.data)") == 10
+    assert archivo.read_text(encoding="utf-8").count("mensajeError(r.data)") == 13
     node = shutil.which("node")
     if not node:
         if "CI" in os.environ:
@@ -612,6 +613,258 @@ async function corre(guardados) {
   assert.equal(con.llamadas.length, 0);
   assert.equal(con.estado, "Nada que cambiar.");
 })().catch((e) => { console.error(e); process.exit(1); });
+"""
+    proc = subprocess.run(
+        [node, "-e", guion, str(archivo)], capture_output=True, text=True, timeout=60
+    )
+    assert proc.returncode == 0, proc.stderr or proc.stdout
+
+
+def _render_limites(limites: dict) -> str:
+    from jinja2 import Environment, FileSystemLoader, select_autoescape
+
+    env = Environment(
+        loader=FileSystemLoader(str(RAIZ / "app" / "templates")),
+        autoescape=select_autoescape(["html"]),
+    )
+    html = env.get_template("productos_sin_clics.html").render(
+        plataforma="amazon_mx",
+        pantalla="productos-sin-clics",
+        asset_version="t",
+        candidatos=[],
+        impulsos=[],
+        sin_pedido=[],
+        anuncios_sin_producto=0,
+        retiros_abiertos=[],
+        decisiones_producto={"cycle_id": None, "limites_pausa": limites},
+    )
+    inicio = html.index('id="productos-limites"')
+    return html[inicio : html.index('id="productos-retiro"')]
+
+
+_LIMITES_BASE = {
+    "config_version_id": 44,
+    "clics": 100,
+    "gasto": "500",
+    "gasto_texto": "500.00",
+    "moneda": "MXN",
+    "error": None,
+    "modo_error": None,
+}
+
+
+def test_encender_boton_deshabilitado_sin_limites_y_volver_en_vivo():
+    """I.8: sin las dos claves guardadas el boton "Encender la pausa" sale
+    deshabilitado con "Guarda tus límites primero"; con ellas, habilitado;
+    con la pausa en vivo el estado es "En vivo" y el boton es "Volver a
+    práctica". El modo es el de la config vigente."""
+    sin = _render_limites(
+        {**_LIMITES_BASE, "guardados": False, "modo": "shadow", "modo_texto": "Práctica"}
+    )
+    assert 'data-modo-vigente="shadow">Práctica</span>' in sin
+    assert (
+        '<button type="button" id="pausa-encender" disabled'
+        ' aria-describedby="pausa-encender-falta">Encender la pausa</button>' in sin
+    )
+    assert '<p id="pausa-encender-falta" data-falta-limites>Guarda tus límites primero</p>' in sin
+    assert 'data-config-id="44"' in sin and 'id="pausa-volver"' not in sin
+    assert 'type="password" id="pausa-token"' in sin and ">Confirmar</button>" in sin
+    assert ">Cancelar</button>" in sin
+
+    con = _render_limites(
+        {**_LIMITES_BASE, "guardados": True, "modo": "shadow", "modo_texto": "Práctica"}
+    )
+    assert '<button type="button" id="pausa-encender">Encender la pausa</button>' in con
+    assert "Guarda tus límites primero" not in con
+
+    vivo = _render_limites(
+        {**_LIMITES_BASE, "guardados": True, "modo": "live", "modo_texto": "En vivo"}
+    )
+    assert 'class="chip ok" data-modo-vigente="live">En vivo</span>' in vivo
+    assert '<button type="button" id="pausa-volver">Volver a práctica</button>' in vivo
+    assert 'id="pausa-encender"' not in vivo
+
+    ilegible = _render_limites(
+        {
+            **_LIMITES_BASE,
+            "guardados": False,
+            "modo": None,
+            "modo_texto": None,
+            "modo_error": "setting ads_producto_pausa_amazon_mx: debe ser shadow o live",
+        }
+    )
+    assert 'id="pausa-vivo"' not in ilegible and "data-pausa-modo-error" in ilegible
+
+
+def test_encender_js_simula_confirma_cancela_y_vuelve_a_practica():
+    """I.8 con el JS real: deshabilitado no hace nada; encender pide la
+    simulacion con los limites guardados (sin clics ni gasto), muestra
+    anuncios, productos y gasto, y solo Confirmar manda el POST con el token
+    y el cuerpo exacto; Cancelar no manda POST; Volver a practica confirma y
+    manda shadow; 422 muestra el motivo y 409 pide recargar."""
+    archivo = RAIZ / "app" / "static" / "js" / "productos.js"
+    node = shutil.which("node")
+    if not node:
+        if "CI" in os.environ:
+            pytest.fail("Node es obligatorio en CI para verificar el flujo JavaScript")
+        pytest.skip("Node no disponible; el navegador se verifica en integracion")
+    guion = r"""
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const vm = require("node:vm");
+const codigo = fs.readFileSync(process.argv[1], "utf8");
+const MOTIVO = "la pausa en vivo exige guardar antes los limites de clics y gasto de amazon_mx";
+const SIM = {
+  limites: {clics_min: 100, gasto_min: {tipo: "Dinero", valor: "500", moneda: "MXN"}},
+  ventana: {desde: "2026-09-08", hasta_exclusivo: "2026-10-08"},
+  productos: [{producto: {product_id: 7}, gasto: {valor: "600", moneda: "MXN"},
+    clics: 150, anuncios: 2}],
+  anuncios_total: 2,
+  gasto_total: {tipo: "Dinero", valor: "600.0000", moneda: "MXN"},
+  sin_cobertura_d7: 1,
+};
+function texto(el) {
+  return [el.textContent || "", ...(el.children || []).map(texto)].join(" ");
+}
+async function escena({modo = "shadow", disabled = false, respuestaPost = {ok: true, status: 200,
+    data: {modo: "live"}}} = {}) {
+  const handlers = {};
+  const el = (attrs = {}) => {
+    const o = {hidden: false, textContent: "", dataset: {}, children: [], _ev: {}, ...attrs};
+    o.addEventListener = (ev, fn) => { o._ev[ev] = fn; };
+    o.replaceChildren = (...xs) => { o.children = xs; };
+    o.appendChild = (x) => { o.children.push(x); return x; };
+    o.focus = () => { foco.actual = o; };
+    return o;
+  };
+  const foco = {actual: null};
+  const caja = el({dataset: {plataforma: "amazon_mx", configId: "44", modo}});
+  const encender = modo === "live" ? null : el({disabled});
+  const volver = modo === "live" ? el() : null;
+  const confirmar = el({hidden: true});
+  const titulo = el();
+  const detalle = el();
+  const token = el({value: ""});
+  const form = el({hidden: true, elements: {token}});
+  const cancelar = el();
+  const estado = el();
+  const ids = {"pausa-vivo": caja, "pausa-encender": encender, "pausa-volver": volver,
+    "pausa-confirmar": confirmar, "pausa-confirmar-detalle": detalle,
+    "pausa-confirmar-form": form, "pausa-cancelar": cancelar, "pausa-vivo-estado": estado};
+  const llamadas = [];
+  let recargas = 0;
+  const ctx = {
+    document: {
+      getElementById: (id) => ids[id] || null,
+      addEventListener: (ev, fn) => { handlers[ev] = fn; },
+      querySelector: (sel) => sel === "#pausa-confirmar-titulo strong" ? titulo : null,
+      querySelectorAll: () => [],
+      createElement: (tag) => el({tag}),
+    },
+    window: {location: {reload: () => { recargas += 1; }}},
+    fetch: (url, opts) => {
+      if (!opts) {
+        llamadas.push({url, metodo: "GET"});
+        return Promise.resolve({ok: true, status: 200, json: () => Promise.resolve(SIM)});
+      }
+      llamadas.push({url, metodo: opts.method, token: opts.headers["x-orbit-token"],
+        body: JSON.parse(opts.body)});
+      const r = respuestaPost;
+      return Promise.resolve({ok: r.ok, status: r.status, json: () => Promise.resolve(r.data)});
+    },
+    console,
+  };
+  vm.createContext(ctx);
+  vm.runInContext(codigo, ctx);
+  handlers.DOMContentLoaded();
+  const espera = () => new Promise((r) => setTimeout(r, 10));
+  return {caja, encender, volver, confirmar, titulo, detalle, token, form, cancelar, estado,
+    llamadas, foco, espera, recargas: () => recargas};
+}
+(async () => {
+  // Deshabilitado: el clic no simula ni abre la confirmacion.
+  let e = await escena({disabled: true});
+  e.encender._ev.click();
+  await e.espera();
+  assert.equal(e.llamadas.length, 0);
+  assert.equal(e.confirmar.hidden, true);
+
+  // Encender -> simulacion -> Confirmar: POST con token y cuerpo exacto.
+  e = await escena();
+  e.encender._ev.click();
+  assert.equal(e.confirmar.hidden, false);
+  assert.equal(e.form.hidden, true, "sin simulacion no hay Confirmar");
+  await e.espera();
+  assert.deepEqual(e.llamadas, [{url: "/api/dashboard/productos/simula-pausa?platform=amazon_mx",
+    metodo: "GET"}]);
+  const resumen = texto(e.detalle);
+  assert.match(resumen, /pausaría 2 anuncios de 1 producto, que gastaron 600\.00 MXN/);
+  assert.match(resumen, /100 clics y 500\.00 MXN/);
+  assert.match(resumen, /del 2026-09-08 al 2026-10-07/);
+  assert.match(resumen, /1 producto no se puede juzgar/);
+  assert.equal(e.titulo.textContent, "¿Encender la pausa?");
+  assert.equal(e.form.hidden, false);
+  assert.equal(e.foco.actual, e.token);
+  e.token.value = "tok";
+  e.form._ev.submit({preventDefault: () => {}});
+  await e.espera();
+  assert.equal(e.llamadas.length, 2);
+  assert.deepEqual(e.llamadas[1], {url: "/api/ads-optimizer/productos/pausa/amazon_mx",
+    metodo: "POST", token: "tok", body: {modo: "live", base_config_version_id: 44}});
+  assert.equal(e.recargas(), 1);
+  assert.equal(e.token.value, "");
+
+  // Cancelar no escribe y devuelve el foco al boton.
+  e = await escena();
+  e.encender._ev.click();
+  await e.espera();
+  e.token.value = "tok";
+  e.cancelar._ev.click();
+  await e.espera();
+  assert.equal(e.llamadas.filter((l) => l.metodo === "POST").length, 0);
+  assert.equal(e.confirmar.hidden, true);
+  assert.equal(e.token.value, "");
+  assert.equal(e.estado.textContent, "Cancelado: no se cambió nada.");
+  assert.equal(e.foco.actual, e.encender);
+  e.form._ev.submit({preventDefault: () => {}});
+  await e.espera();
+  assert.equal(e.llamadas.filter((l) => l.metodo === "POST").length, 0,
+    "despues de cancelar, un submit suelto no manda nada");
+
+  // Volver a practica: confirmacion sin simulacion y POST shadow.
+  e = await escena({modo: "live", respuestaPost: {ok: true, status: 200, data: {modo: "shadow"}}});
+  e.volver._ev.click();
+  assert.equal(e.confirmar.hidden, false);
+  assert.equal(e.form.hidden, false);
+  assert.equal(e.titulo.textContent, "¿Volver a práctica?");
+  e.token.value = "tok";
+  e.form._ev.submit({preventDefault: () => {}});
+  await e.espera();
+  assert.deepEqual(e.llamadas, [{url: "/api/ads-optimizer/productos/pausa/amazon_mx",
+    metodo: "POST", token: "tok", body: {modo: "shadow", base_config_version_id: 44}}]);
+  assert.equal(e.recargas(), 1);
+
+  // 422: el motivo del servidor, sin recargar.
+  e = await escena({respuestaPost: {ok: false, status: 422,
+    data: {detail: MOTIVO}}});
+  e.encender._ev.click();
+  await e.espera();
+  e.token.value = "tok";
+  e.form._ev.submit({preventDefault: () => {}});
+  await e.espera();
+  assert.equal(e.estado.textContent, "No se cambió: " + MOTIVO + ".");
+  assert.equal(e.recargas(), 0);
+
+  // 409: pide recargar.
+  e = await escena({modo: "live", respuestaPost: {ok: false, status: 409,
+    data: {detail: "la config vigente es 45, no 44"}}});
+  e.volver._ev.click();
+  e.token.value = "tok";
+  e.form._ev.submit({preventDefault: () => {}});
+  await e.espera();
+  assert.match(e.estado.textContent, /la config vigente es 45, no 44.*Recarga la página\./);
+  assert.equal(e.recargas(), 0);
+})().catch((err) => { console.error(err); process.exit(1); });
 """
     proc = subprocess.run(
         [node, "-e", guion, str(archivo)], capture_output=True, text=True, timeout=60

@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="es" data-tema="dia">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Orbit — Dashboard</title>
+  <link rel="icon" href="/static/favicon/favicon.ico" sizes="16x16 32x32 48x48">
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon/favicon-32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon/favicon-16.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="/static/favicon/favicon-192.png">
+  <link rel="apple-touch-icon" href="/static/favicon/favicon-180.png">
+  
+  <script src="/static/js/tema.js?v=cb050fd77cff0399"></script>
+  <link rel="stylesheet" href="/static/css/dashboard.css?v=cb050fd77cff0399">
+  
+</head>
+<body data-pantalla="productos-sin-clics">
+  
+  <a class="saltar-contenido" href="#contenido">Saltar al contenido</a>
+  <aside class="sidebar" aria-label="Navegacion principal">
+    <a class="marca" href="/" aria-label="Orbit, inicio">
+      <span class="marca-icono" aria-hidden="true">O</span>
+      <span><strong>ORBIT</strong><small>Ads y marketplaces</small></span>
+    </a>
+    <div class="canal-actual">Ads · Amazon y Mercado Libre</div>
+    <nav id="nav-secciones" class="navegacion" aria-label="Secciones">
+      
+      <div class="nav-grupo">
+        <p class="nav-etiqueta">Panel</p>
+        
+        <a href="/" >Resumen</a>
+        
+        <a href="/campanas" >Campañas</a>
+        
+        <a href="/decisiones" >Decisiones</a>
+        
+        <a href="/salud" >Salud</a>
+        
+        <a href="/contribucion" >Contribucion</a>
+        
+      </div>
+      
+      <div class="nav-grupo">
+        <p class="nav-etiqueta">Decidir</p>
+        
+        <a href="/cortes" >Propuestas<span id="propuestas-contador" class="contador" hidden></span></a>
+        
+        <a href="/gasto-sin-venta" >Gasto sin venta</a>
+        
+        <a href="/busquedas-sin-venta" >Búsquedas que gastan sin vender</a>
+        
+        <a href="/keywords-danadas" >Keywords dañadas</a>
+        
+        <a href="/ruido" >Ruido</a>
+        
+        <a href="/donde-poner-el-dinero" >Dónde poner el dinero</a>
+        
+        <a href="/productos-sin-clics" aria-current="page">Productos sin clics</a>
+        
+        <a href="/inertes" >Inertes</a>
+        
+        <a href="/campanas/nuevas" >Crear campañas</a>
+        
+      </div>
+      
+      <div class="nav-grupo">
+        <p class="nav-etiqueta">Catalogo</p>
+        
+        <a href="/reputacion" >Reputacion<span id="reputacion-contador" class="contador" hidden></span></a>
+        <a href="/precios" >Precios</a>
+        <a href="/familias" >Familias</a>
+      </div>
+      <div class="nav-pie">
+        <a href="/settings" >Settings</a>
+      </div>
+    </nav>
+    <div class="ultimo-ciclo">
+      <p class="nav-etiqueta">Ultimo ciclo</p>
+      <div id="ciclo-resumen" role="status"><span class="mutado">Sin consultar</span></div>
+      <a href="/salud">Ver salud por plataforma</a>
+    </div>
+  </aside>
+  <div class="app-contenido">
+    <header class="pagina-header">
+      <div><h1>Productos sin clics</h1><p>Venden y casi no reciben clics · impulsos</p></div>
+      <div class="header-acciones">
+        
+        <span id="watermark-resumen" class="chip-watermark">Watermark: sin consultar</span>
+        <span class="alcance">Amazon MX · Amazon US</span>
+        <button type="button" id="btn-tema" aria-pressed="false">Tema: dia</button>
+      </div>
+    </header>
+    <main id="contenido" tabindex="-1">
+    
+<h2>Productos sin clics</h2>
+<p class="mutado">
+  Venden y casi no reciben clics de anuncios. Márcalos, escribe la subfamilia
+  de búsqueda de cada uno y lanza su impulso: dos campañas por producto que
+  aprenden con tope y plazo.
+</p>
+
+<p>
+  <a href="/productos-sin-clics?plataforma=amazon_mx" >Amazon MX</a>
+  <a href="/productos-sin-clics?plataforma=amazon_us" aria-current="page">Amazon US</a>
+</p>
+
+<div class="tarjeta">
+  <h3>Candidatos a impulsar <span class="chip">0</span></h3>
+  <p class="mutado">2 pedidos o más en 3 meses y menos de 20 clics de anuncios en 60 días.</p>
+  
+  <p>Sin candidatos en este mercado.</p>
+  
+</div>
+
+<div class="tarjeta">
+  <h3>Impulsos <span class="chip">0</span></h3>
+  
+  <p>Sin impulsos en este mercado.</p>
+  
+</div>
+
+<div class="tarjeta">
+  <h3>Retiros abiertos <span class="chip">0</span></h3>
+  <p class="mutado">Anuncios retirados sin impulso (motivos sin_pedidos y subfamilia) que aún no regresan.</p>
+  
+  <p>Sin retiros abiertos.</p>
+  
+</div>
+
+<div class="tarjeta">
+  <h3>Sin un pedido en 11 meses <span class="chip">0</span></h3>
+  
+  <p>Todo vendió en los últimos 11 meses.</p>
+  
+  <p class="mutado">Hay 0 anuncios sin producto ligado que no puedo juzgar.</p>
+</div>
+
+
+<div class="tarjeta" id="decisiones-producto">
+  <h3>Meta por producto
+    <span class="chip">0 de 0 con meta</span>
+  </h3>
+  <p class="mutado">
+    La meta de ACoS que Orbit calcula para cada producto con su margen, solo en los grupos que anuncian
+    ese producto y nada más. Un goal de campaña con target manda sobre ella.
+  </p>
+  
+  <p data-decisiones-ciclo>
+    Ciclo 2 · 2026-11-07 18:11 UTC · la meta está <strong>apagada</strong>.
+  </p>
+  
+  
+  <p data-decisiones-vacio>Este ciclo no evaluó productos: la meta está apagada.</p>
+  
+  
+</div>
+
+
+
+
+
+<div class="tarjeta" id="productos-limites">
+  <h3>Límites de la pausa · Amazon US</h3>
+  <p class="mutado">
+    Para proponer la pausa, el producto tiene que llegar a los dos sin vender, en la ventana de
+    30 días que terminó hace 30 días.
+  </p>
+  
+  <p data-limites-vigentes>Vigentes: <strong>100 clics</strong> y <strong>40.00 USD</strong> de gasto (por omisión, todavía sin guardar).</p>
+  
+  <form id="limites-simular" class="filtros" data-plataforma="amazon_us" data-moneda="USD">
+    <label for="limites-clics">Clics mínimos
+      <input type="text" id="limites-clics" name="clics" inputmode="numeric" maxlength="9" value="100" aria-describedby="limites-ayuda" required>
+    </label>
+    <label for="limites-gasto">Gasto mínimo (USD)
+      <input type="text" id="limites-gasto" name="gasto" inputmode="decimal" maxlength="14" value="40" aria-describedby="limites-ayuda" required>
+    </label>
+    <button type="submit">Simular sin guardar</button>
+  </form>
+  <p id="limites-ayuda" class="mutado">Al cambiar un límite la pantalla simula qué pausaría con él, sin guardar nada.</p>
+  <p id="limites-sim-estado" class="mutado" role="status"></p>
+  <div id="limites-simulacion"></div>
+  
+  <form id="limites-guardar" class="filtros" data-plataforma="amazon_us" data-config-id="4" data-guardados="false">
+    <label for="limites-token">Token
+      <input type="password" id="limites-token" name="token" placeholder="x-orbit-token" autocomplete="off" required>
+    </label>
+    <button type="submit">Guardar límites</button>
+    <span data-estado role="status"></span>
+  </form>
+  
+  
+  
+  <div id="pausa-vivo" class="pausa-vivo" data-plataforma="amazon_us" data-config-id="4" data-modo="off">
+    <h4>Encendido de la pausa</h4>
+    <p data-pausa-estado>Estado: <span class="chip" data-modo-vigente="off">Apagada</span></p>
+    
+    <p class="mutado">La pausa está apagada: no propone ni pausa anuncios.</p>
+    
+    <button type="button" id="pausa-encender" disabled aria-describedby="pausa-encender-falta">Encender la pausa</button>
+    <p id="pausa-encender-falta" data-falta-limites>Guarda tus límites primero</p>
+    
+    
+    <div id="pausa-confirmar" class="pausa-confirmar" role="group" aria-labelledby="pausa-confirmar-titulo" tabindex="-1" hidden>
+      <p id="pausa-confirmar-titulo"><strong></strong></p>
+      <div id="pausa-confirmar-detalle"></div>
+      <form id="pausa-confirmar-form" class="filtros" hidden>
+        <label for="pausa-token">Token
+          <input type="password" id="pausa-token" name="token" placeholder="x-orbit-token" autocomplete="off" required>
+        </label>
+        <button type="submit">Confirmar</button>
+      </form>
+      <button type="button" id="pausa-cancelar">Cancelar</button>
+    </div>
+    <p id="pausa-vivo-estado" class="mutado" role="status"></p>
+  </div>
+  
+</div>
+
+
+<div class="tarjeta" id="productos-retiro" hidden>
+  <h3>Retiro de las bolsas compartidas</h3>
+  <div id="productos-retiro-vista"></div>
+  <form id="productos-retiro-ejecutar" data-plataforma="amazon_us" hidden>
+    <p>Escribe <code id="productos-retiro-esperada"></code> para confirmar.</p>
+    <label>Confirmación <input type="text" name="confirmacion" maxlength="60" required></label>
+    <label>Actor <input type="text" name="actor" maxlength="100" placeholder="quien saca" required></label>
+    <label>Token <input type="password" name="token" placeholder="x-orbit-token" required></label>
+    <button type="submit">Sacar de las bolsas compartidas</button>
+    <span data-estado class="mutado"></span>
+  </form>
+</div>
+
+<div class="tarjeta" id="productos-lanzamiento" hidden>
+  <h3>Lanzamiento</h3>
+  <div id="productos-vista"></div>
+  <form id="productos-lanzar" data-plataforma="amazon_us" hidden>
+    <p>Escribe <code id="productos-esperada"></code> para confirmar.</p>
+    <label>Confirmación <input type="text" name="confirmacion" maxlength="60" required></label>
+    <label>Actor <input type="text" name="actor" maxlength="100" placeholder="quien lanza" required></label>
+    <label>Token <input type="password" name="token" placeholder="x-orbit-token" required></label>
+    <button type="submit">Lanzar impulso</button>
+    <span data-estado class="mutado"></span>
+  </form>
+</div>
+
+    </main>
+  </div>
+  
+  
+  
+  <nav class="tab-bar" aria-label="Navegacion movil">
+    <svg class="tab-sprite" aria-hidden="true" focusable="false">
+      <symbol id="ico-casa" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4.5 10.5 12 4.25l7.5 6.25V19a1.5 1.5 0 0 1-1.5 1.5h-4.25v-6h-3.5v6H6A1.5 1.5 0 0 1 4.5 19z"/>
+      </symbol>
+      <symbol id="ico-casa-fill" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M12 3.4 3.7 10.2a.95.95 0 0 0 1.2 1.47L6 10.7V18.6A1.9 1.9 0 0 0 7.9 20.5h2.7v-6.3h2.8v6.3h2.7a1.9 1.9 0 0 0 1.9-1.9v-7.9l1.1.97a.95.95 0 1 0 1.2-1.47L12 3.4z"/>
+      </symbol>
+      <symbol id="ico-barras" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round">
+        <path d="M6 19V10M12 19V5M18 19v-7"/>
+      </symbol>
+      <symbol id="ico-barras-fill" viewBox="0 0 24 24" fill="currentColor">
+        <rect x="4.6" y="9.2" width="2.8" height="10.3" rx="1.2"/>
+        <rect x="10.6" y="4.5" width="2.8" height="15" rx="1.2"/>
+        <rect x="16.6" y="11.2" width="2.8" height="8.3" rx="1.2"/>
+      </symbol>
+      <symbol id="ico-cubo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round">
+        <path d="M12 3.4 20.2 8v8L12 20.6 3.8 16V8L12 3.4zM12 12l8.2-4M12 12v8.6M12 12 3.8 8"/>
+      </symbol>
+      <symbol id="ico-cubo-fill" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M12 2.8 20.5 7.5v9l-8.5 4.7-8.5-4.7v-9L12 2.8zm0 2.2L6.2 8.2 12 11.4l5.8-3.2L12 5zm6.6 4.4L13 12.7v6.6l5.6-3.1V9.4zM11 19.3v-6.6L5.4 9.4v6.4L11 19.3z"/>
+      </symbol>
+      <symbol id="ico-lista" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round">
+        <path d="M9 7h11M9 12h11M9 17h11M5 7h.01M5 12h.01M5 17h.01"/>
+      </symbol>
+      <symbol id="ico-lista-fill" viewBox="0 0 24 24" fill="currentColor">
+        <circle cx="5" cy="7" r="1.35"/><rect x="8.2" y="5.8" width="11.5" height="2.4" rx="1.2"/>
+        <circle cx="5" cy="12" r="1.35"/><rect x="8.2" y="10.8" width="11.5" height="2.4" rx="1.2"/>
+        <circle cx="5" cy="17" r="1.35"/><rect x="8.2" y="15.8" width="11.5" height="2.4" rx="1.2"/>
+      </symbol>
+      <symbol id="ico-billetera" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round">
+        <path d="M3.5 8.5h17A1.5 1.5 0 0 1 22 10v8a1.5 1.5 0 0 1-1.5 1.5h-17A1.5 1.5 0 0 1 2 18V8.5A1.5 1.5 0 0 1 3.5 7h12V8.5"/>
+        <circle cx="17" cy="14" r="1"/>
+      </symbol>
+      <symbol id="ico-billetera-fill" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M3.6 6.6h11.7v1.5H3.7A1.2 1.2 0 0 0 2.5 9.3v8.4A2.1 2.1 0 0 0 4.6 19.8h14.8a2.1 2.1 0 0 0 2.1-2.1v-7.3a2.1 2.1 0 0 0-2.1-2.1H3.6V6.6zm13.7 6.2a1.4 1.4 0 1 1 0 2.8 1.4 1.4 0 0 1 0-2.8z"/>
+      </symbol>
+      <symbol id="ico-banco" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 10 12 5l8 5M6.5 10v8.5M12 10v8.5M17.5 10v8.5M4 19.5h16"/>
+      </symbol>
+      <symbol id="ico-banco-fill" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M12 3.8 3.4 9.2a1 1 0 0 0 .6 1.8h16a1 1 0 0 0 .6-1.8L12 3.8zM5.4 12.2h2.4V18H5.4v-5.8zm5.4 0h2.4V18h-2.4v-5.8zm5.4 0h2.4V18h-2.4v-5.8zM3.8 19.2h16.4a.9.9 0 0 1 0 1.8H3.8a.9.9 0 0 1 0-1.8z"/>
+      </symbol>
+      <symbol id="ico-aviso" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round" stroke-linecap="round">
+        <path d="M12 4.2 20.7 19.3H3.3L12 4.2zM12 10v4.3M12 16.7v.4"/>
+      </symbol>
+      <symbol id="ico-aviso-fill" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M10.7 3.7a1.5 1.5 0 0 1 2.6 0l8.4 14.6A1.5 1.5 0 0 1 20.4 20.5H3.6a1.5 1.5 0 0 1-1.3-2.2L10.7 3.7zM12 9.4a.9.9 0 0 0-.9.9v3.7a.9.9 0 0 0 1.8 0V10.3a.9.9 0 0 0-.9-.9zm0 7.1a1.05 1.05 0 1 0 0 2.1 1.05 1.05 0 0 0 0-2.1z"/>
+      </symbol>
+    </svg>
+    
+    <a class="tab" href="/">
+      <svg class="tab-ico tab-ico-off"><use href="#ico-casa"/></svg>
+      <svg class="tab-ico tab-ico-on"><use href="#ico-casa-fill"/></svg>
+      <span class="tab-label">Resumen</span>
+      
+    </a>
+    
+    <a class="tab" href="/contribucion">
+      <svg class="tab-ico tab-ico-off"><use href="#ico-barras"/></svg>
+      <svg class="tab-ico tab-ico-on"><use href="#ico-barras-fill"/></svg>
+      <span class="tab-label">Contribucion</span>
+      
+    </a>
+    
+    <a class="tab" href="/reputacion">
+      <svg class="tab-ico tab-ico-off"><use href="#ico-cubo"/></svg>
+      <svg class="tab-ico tab-ico-on"><use href="#ico-cubo-fill"/></svg>
+      <span class="tab-label">Reputacion</span>
+      <span class="contador tab-badge" data-rol="reputacion" hidden></span>
+    </a>
+    
+    <a class="tab" href="/decisiones">
+      <svg class="tab-ico tab-ico-off"><use href="#ico-lista"/></svg>
+      <svg class="tab-ico tab-ico-on"><use href="#ico-lista-fill"/></svg>
+      <span class="tab-label">Decisiones</span>
+      
+    </a>
+    
+    <a class="tab" href="/campanas">
+      <svg class="tab-ico tab-ico-off"><use href="#ico-billetera"/></svg>
+      <svg class="tab-ico tab-ico-on"><use href="#ico-billetera-fill"/></svg>
+      <span class="tab-label">Campañas</span>
+      
+    </a>
+    
+    <a class="tab" href="/settings">
+      <svg class="tab-ico tab-ico-off"><use href="#ico-banco"/></svg>
+      <svg class="tab-ico tab-ico-on"><use href="#ico-banco-fill"/></svg>
+      <span class="tab-label">Settings</span>
+      
+    </a>
+    
+    <a class="tab tab-activo" href="/cortes" aria-current="page">
+      <svg class="tab-ico tab-ico-off"><use href="#ico-aviso"/></svg>
+      <svg class="tab-ico tab-ico-on"><use href="#ico-aviso-fill"/></svg>
+      <span class="tab-label">Propuestas</span>
+      <span class="contador tab-badge" data-rol="propuestas" hidden></span>
+    </a>
+    
+  </nav>
+  <script src="/static/vendor/chart.umd.min.js?v=cb050fd77cff0399"></script>
+  <script src="/static/js/shell.js?v=cb050fd77cff0399"></script>
+  <script src="/static/js/dashboard.js?v=cb050fd77cff0399"></script>
+  <script src="/static/js/cortes.js?v=cb050fd77cff0399"></script>
+  <script src="/static/js/settings.js?v=cb050fd77cff0399"></script>
+  <script src="/static/js/productos.js?v=cb050fd77cff0399"></script>
+</body>
+</html>
