@@ -72,7 +72,7 @@ Receta empaquetada:
 - La simulación lee todo el mercado con el lector del ciclo: no corre al cargar la página, solo al cambiar un límite. Sin watermark del mercado (ninguna métrica de anuncios) la ruta da error y la pantalla lo dice.
 - La simulación solo devuelve `product_id`: el nombre sale de la fila del producto en `#pausa-producto` (el ciclo evalúa los mismos productos); si falta, se ve `producto <id>`.
 - Mientras falte la cobertura D.7 casi todos los productos salen en `sin_cobertura_d7` y la lista puede venir vacía: la pantalla lo dice en `[data-sin-cobertura]`, no muestra cero.
-- `Confirmar` del encendido escribe config y descarta las prácticas abiertas de product ads: el drive no lo manda por HTTP. Su flujo lo cubren `tests/test_ui_productos.py` (JS real) y `tests/test_productos_encender.py` (la ruta con token y base de datos). El drive deja la base desechable con config nueva: no se repite sobre el mismo `launch`.
+- `Confirmar` del encendido escribe config y descarta las prácticas abiertas de product ads: el drive no lo manda por HTTP. Su flujo lo cubren `tests/test_ui_productos.py` (JS real) y `tests/test_apply_producto.py -k encender` (la ruta con token y base de datos). El drive deja la base desechable con config nueva: no se repite sobre el mismo `launch`.
 - Los formularios de retiro escriben en Amazon: el baseline no los envía. Su flujo lo cubre `tests/test_ui_productos.py` (JS real con DOM y fetch simulados) y el contrato `tests/test_retiro_contrato.py`.
 - La sección muestra el último ciclo done aunque la meta esté apagada: entonces dice que no evaluó productos.
 - Las cifras salen de la evaluación congelada del ciclo. Para recalcular con los datos de hoy está `python -m tools.auto03_verifica evalua`, no la pantalla.
