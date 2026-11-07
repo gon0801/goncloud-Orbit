@@ -17,10 +17,10 @@ entrada congelada que la evaluacion trae dentro.
   de 30 dias se acepta sin madurez y deja el motivo halo_sin_madurar.
 - Identidad (S5): los impedimentos que el adaptador encontro (p. ej.
   sku_distinto_en_asin) impiden la meta.
-- Paso por hoja (S2): meta_de_hoja sube de una vez y baja <= 0.5 por ciclo
-  desde el target previo de la hoja; si el producto se abstiene y el previo
-  era margen_producto, converge al siguiente peldano (goals.converge_al_destino
-  con piso 0).
+- Paso por hoja (S2): el ancla es el target previo de la hoja solo si fue
+  margen_producto. Con ella meta_de_hoja sube de una vez y baja <= 0.5 por
+  ciclo, y si el producto se abstiene converge al siguiente peldano
+  (goals.converge_al_destino con piso 0). Sin ella la meta aplica directa.
 - Interruptores: ads_producto_meta_<plat> y ads_producto_pausa_<plat>
   (ausente = off; shadow | live). Limites de la pausa (S8):
   ads_producto_pausa_clics_<plat> y ads_producto_pausa_gasto_<plat>, con
@@ -248,16 +248,17 @@ def meta_de_hoja(
     tiene_previo: bool,
 ) -> goals.ResolucionMargen:
     """El target de producto de una hoja (S2). `ultimo` es el target previo de
-    la hoja (ancla del paso), `destino` la cascada sin producto y
-    `tiene_previo` dice si el previo fue margen_producto: solo entonces una
-    abstencion converge en vez de caer al siguiente peldano."""
+    la hoja, `destino` la cascada sin producto y `tiene_previo` dice si el
+    previo fue margen_producto. Solo ese previo es ancla: con el, la meta sube
+    de una vez y baja <= 0.5 por ciclo, y una abstencion converge al destino.
+    Sin el, la meta aplica directa y una abstencion cae al siguiente peldano."""
     if isinstance(meta, SinDato):
         motivo = meta.motivos[0]
         if not tiene_previo:
             return goals.ResolucionMargen(None, None, motivo, False)
         return goals.converge_al_destino(ultimo, destino, motivo, piso=Decimal(0))
     nueva = meta.porcentaje
-    if ultimo is None:
+    if not tiene_previo or ultimo is None:
         return goals.ResolucionMargen(nueva, nueva, None, False)
     ultimo = min(max(ultimo, Decimal(0)), goals.MARGEN_BANDA_MAX)
     if nueva >= ultimo:

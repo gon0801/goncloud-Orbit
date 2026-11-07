@@ -156,6 +156,16 @@ def test_con_ancla_sube_de_una_vez_y_baja_medio_punto():
     assert sin_ancla.aplicado == Decimal("4")
 
 
+def test_previo_de_otro_peldano_no_es_ancla():
+    """S2: entrar desde familia, plataforma o setting en 20 aplica la meta 4 de
+    una vez; solo un previo margen_producto frena la bajada."""
+    meta_4 = p.resolver_producto(_entrada("8")).meta
+    entra = p.meta_de_hoja(meta_4, ultimo=Decimal("20"), destino=Decimal("20"), tiene_previo=False)
+    assert (entra.aplicado, entra.derivado, entra.motivo) == (Decimal("4.0"), Decimal("4.0"), None)
+    sigue = p.meta_de_hoja(meta_4, ultimo=Decimal("20"), destino=Decimal("20"), tiene_previo=True)
+    assert sigue.aplicado == Decimal("19.5")
+
+
 def test_dato_invalido_con_ancla_converge_al_destino():
     abstiene = p.SinDato(("ledger_rancio",))
     res = p.meta_de_hoja(abstiene, ultimo=Decimal("4"), destino=Decimal("20"), tiene_previo=True)
