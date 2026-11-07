@@ -1395,6 +1395,7 @@ _SQL_CYCLE = (
     "_SQL_GOALS",
     "_SQL_DECISORAS",
     "_SQL_INERTES",
+    "_SQL_GRUPOS_PAUSA_PRODUCTO",
     "_SQL_GRUPOS",
     "_SQL_INSERT_DECISION",
     # ADS C.2a: el freeze del target por hoja se escribe en TX3.
