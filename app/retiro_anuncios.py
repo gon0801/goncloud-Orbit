@@ -775,14 +775,15 @@ def _lee_retiros(conn, retiro_ids) -> dict[int, _Retiro]:
     return {f[0]: _Retiro(*f) for f in conn.execute(_SQL_RETIROS, (list(retiro_ids),)).fetchall()}
 
 
-def _regresa(conn, retiro_ids, autorizacion, escritor, verbo: str, paso):
+def _regresa(conn, retiro_ids, autorizacion, escritor, verbo: str, paso, al_sellar=None):
     """Lo comun de `repone` y `recrea`: autorizacion humana, retiros que
     existen y de una sola plataforma, misma llave por anuncio que
     `ejecuta_retiro` (retirar y regresar el mismo anuncio se excluyen;
     con llaves distintas se cruzaban, Y-05 c), relectura bajo la llave y
     estado actual en Amazon. `paso(escritor, retiro, estado)` decide cada
-    uno; si regresa, aqui se sella su reposicion. Uno que falla no
-    bloquea a los demas. Un resultado por retiro pedido, en su orden."""
+    uno; si regresa, aqui se sella su reposicion, junto con
+    `al_sellar(retiro, resultado)` en la misma transaccion. Uno que falla
+    no bloquea a los demas. Un resultado por retiro pedido, en su orden."""
     if not isinstance(autorizacion, AutorizacionHumana):
         raise AutorizacionInvalida(f"{verbo} exige autorizacion humana")
     retiros = _lee_retiros(conn, retiro_ids)
@@ -815,11 +816,16 @@ def _regresa(conn, retiro_ids, autorizacion, escritor, verbo: str, paso):
             for r in abiertos:
                 res = paso(escritor, r, estados.get(r.ad_id_externo))
                 if res.regresado:
-                    conn.execute(
-                        "INSERT INTO anuncio_reposicion (retiro_id, ad_id_nuevo, estado_nuevo,"
-                        " repuesto_el, actor) VALUES (%s, %s, %s, now(), %s)",
-                        (r.id, res.ad_id_nuevo, res.estado_nuevo, autorizacion.actor),
-                    )
+                    # La reposicion y lo que `al_sellar` cierre con ella
+                    # quedan en una sola transaccion: o las dos o ninguna.
+                    with conn.transaction():
+                        conn.execute(
+                            "INSERT INTO anuncio_reposicion (retiro_id, ad_id_nuevo, estado_nuevo,"
+                            " repuesto_el, actor) VALUES (%s, %s, %s, now(), %s)",
+                            (r.id, res.ad_id_nuevo, res.estado_nuevo, autorizacion.actor),
+                        )
+                        if al_sellar is not None:
+                            al_sellar(r, res)
                     conn.commit()
                 resultados[r.id] = res
             conn.commit()
@@ -885,10 +891,8 @@ def repone(
     return _regresa(conn, retiro_ids, autorizacion, escritor, "reponer", paso)
 
 
-ESPERA_RECREACION_MIN = 60
-
 _SQL_INTENTO_ABIERTO = """
-SELECT id, ad_id_nuevo, creada_el < now() - make_interval(mins => %s)
+SELECT id, ad_id_nuevo
   FROM anuncio_recreacion_intento
  WHERE retiro_id = %s AND cerrada_el IS NULL
 """
@@ -907,17 +911,17 @@ def recrea(
     con el adId nuevo. Comprueba el estado bajo la misma llave: uno que
     no esta ARCHIVED sale `no_requiere_recreacion` sin POST.
 
-    El POST no es idempotente, asi que un reintento nunca manda otro
-    mientras haya un intento sin resolver (0078,
-    anuncio_recreacion_intento, escrito ANTES del POST con el adId del
-    ack si lo trajo). Un intento abierto se resuelve primero: si Amazon ya
-    muestra el anuncio (por su adId o vivo en el ad group), se sella ese;
-    si no, sale `fallo` sin POST, salvo que hayan pasado
-    ESPERA_RECREACION_MIN minutos y una lectura confiable siga sin verlo:
-    entonces se cierra como no aplicado y se intenta de nuevo. Sin intento
-    abierto, un anuncio vivo de ese sku en el ad group (puesto a mano) se
-    sella sin crear otro; si la lectura no es confiable, no se crea
-    nada."""
+    El POST no es idempotente. El intento (0078,
+    anuncio_recreacion_intento) se escribe ANTES del POST, gana el adId
+    que trae el ack y solo se cierra con evidencia: junto con la
+    reposicion, en la misma transaccion, cuando Amazon muestra el anuncio
+    (por ese adId o vivo de ese sku en el ad group), o cuando Amazon
+    rechaza el create de forma explicita. Mientras siga abierto no sale
+    otro POST, por mucho tiempo que pase: no ver el anuncio no prueba
+    que el POST no se aplico. Si de verdad no se creo, ponerlo a mano en
+    el ad group deja que `recrea` lo selle. Sin intento abierto, un
+    anuncio vivo de ese sku en el ad group se sella sin crear otro; si
+    la lectura no es confiable, no se crea nada."""
 
     def resultado(retiro, tipo, detalle, ad_id=None, estado_nuevo=None):
         return ResultadoReposicion(
@@ -940,7 +944,7 @@ def recrea(
             return resultado(
                 retiro, "no_requiere_recreacion", f"Amazon lo tiene {visto}: no se recrea"
             )
-        intento = conn.execute(_SQL_INTENTO_ABIERTO, (ESPERA_RECREACION_MIN, retiro.id)).fetchone()
+        intento = conn.execute(_SQL_INTENTO_ABIERTO, (retiro.id,)).fetchone()
         conn.commit()
         try:
             linea = archivar.parsear_reversa(retiro.reversa)
@@ -957,10 +961,6 @@ def recrea(
                     f"el ad group ya tiene {ya.get('adId')} en {ya.get('state')!r}: no se recrea",
                 )
             ad_id = str(ya.get("adId"))
-            if intento is not None:
-                _cierra_intento_recreacion(
-                    conn, intento[0], f"sellado {ad_id}: Amazon ya lo muestra"
-                )
             return resultado(
                 retiro,
                 "recreado",
@@ -969,19 +969,14 @@ def recrea(
                 str(ya.get("state")),
             )
         if intento is not None:
-            iid, ad_id_nuevo, vencido = intento
-            if not vencido:
-                creado = f" (creo {ad_id_nuevo})" if ad_id_nuevo else ""
-                return resultado(
-                    retiro,
-                    "fallo",
-                    f"el intento {iid}{creado} sigue sin resolver y Amazon todavia no lo muestra:"
-                    " no se crea otro; reintenta mas tarde",
-                )
-            _cierra_intento_recreacion(
-                conn,
-                iid,
-                f"no aplicado: tras {ESPERA_RECREACION_MIN} min Amazon no muestra el anuncio",
+            iid, ad_id_nuevo = intento
+            creado = f", que creo {ad_id_nuevo}," if ad_id_nuevo else ""
+            return resultado(
+                retiro,
+                "fallo",
+                f"el intento {iid}{creado} sigue sin resolver y Amazon todavia no muestra el"
+                " anuncio: no se crea otro. Si en Amazon no existe, crealo a mano en su ad group"
+                " y recrear lo sella",
             )
         iid = conn.execute(
             "INSERT INTO anuncio_recreacion_intento (retiro_id, actor, creada_el)"
@@ -999,18 +994,30 @@ def recrea(
                 f" crear el anuncio, revisa Amazon; el intento {iid} queda abierto y ningun"
                 " reintento crea otro hasta resolverlo",
             )
-        if res and res[0].resultado == "repuesto":
-            _cierra_intento_recreacion(conn, iid, f"recreado {res[0].ad_id}")
-            return resultado(retiro, "recreado", "", res[0].ad_id, res[0].estado_previo)
         detalle = res[0].detalle if res else "sin resultado"
-        if res and res[0].resultado == "fallo" and detalle.startswith("207 con rechazo"):
-            # Amazon proceso el create y dijo que no: nada se creo.
-            _cierra_intento_recreacion(conn, iid, f"rechazado: {detalle}")
-        elif res and res[0].resultado == "sin_confirmar" and res[0].ad_id != linea["sku"]:
-            # El ack trajo adId pero el readback no lo vio: se guarda para sellarlo.
+        creado = (
+            res[0].ad_id
+            if res
+            and res[0].resultado in ("repuesto", "sin_confirmar")
+            and res[0].ad_id != linea["sku"]
+            else None
+        )
+        if creado is not None:
+            # El adId del ack, antes de sellar: si el proceso muere entre
+            # este punto y la reposicion, el reintento lo busca por su id.
             conn.execute(
                 "UPDATE anuncio_recreacion_intento SET ad_id_nuevo = %s WHERE id = %s",
-                (res[0].ad_id, iid),
+                (creado, iid),
+            )
+            conn.commit()
+        if res and res[0].resultado == "repuesto":
+            return resultado(retiro, "recreado", "", res[0].ad_id, res[0].estado_previo)
+        if res and res[0].resultado == "fallo" and detalle.startswith("207 con rechazo"):
+            # Amazon proceso el create y dijo que no: nada se creo.
+            conn.execute(
+                "UPDATE anuncio_recreacion_intento SET cerrada_el = now(), detalle = %s"
+                " WHERE id = %s",
+                (f"rechazado: {detalle}", iid),
             )
             conn.commit()
         return resultado(
@@ -1019,15 +1026,16 @@ def recrea(
             f"recreacion de {retiro.ad_id_externo} no confirmada: {detalle}",
         )
 
-    return _regresa(conn, retiro_ids, autorizacion, escritor, "recrear", paso)
+    def cierra_intento(retiro: _Retiro, res: ResultadoReposicion) -> None:
+        """Dentro de la transaccion de la reposicion: el intento abierto
+        del retiro (si lo hay) se cierra con el anuncio que se sello."""
+        conn.execute(
+            "UPDATE anuncio_recreacion_intento SET cerrada_el = now(), detalle = %s"
+            " WHERE retiro_id = %s AND cerrada_el IS NULL",
+            (f"sellado {res.ad_id_nuevo}", retiro.id),
+        )
 
-
-def _cierra_intento_recreacion(conn, iid: int, detalle: str) -> None:
-    conn.execute(
-        "UPDATE anuncio_recreacion_intento SET cerrada_el = now(), detalle = %s WHERE id = %s",
-        (detalle, iid),
-    )
-    conn.commit()
+    return _regresa(conn, retiro_ids, autorizacion, escritor, "recrear", paso, cierra_intento)
 
 
 def _ya_como_estaba(reversa: str, estado: str | None) -> bool:

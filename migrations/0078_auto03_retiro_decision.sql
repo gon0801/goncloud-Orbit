@@ -20,10 +20,11 @@
 -- anuncio_recreacion_intento: la recreacion explicita (`recrea`) escribe su
 -- intento ANTES del POST que crea otro anuncio, y guarda el adId que trajo
 -- el ack. Si la respuesta es incierta, el intento queda abierto y ningun
--- reintento manda otro POST mientras siga abierto: primero lo resuelve
--- (sella el anuncio creado cuando Amazon lo muestra, o lo cierra como no
--- aplicado tras la espera). Uno abierto por retiro. Solo se escribe el adId
--- (NULL -> valor, una vez) y el cierre (una vez).
+-- reintento manda otro POST mientras siga abierto. Solo se cierra con
+-- evidencia: junto con la reposicion (misma transaccion) cuando Amazon
+-- muestra el anuncio, o con el rechazo explicito del create. Uno abierto por
+-- retiro. Solo se escribe el adId (NULL -> valor, una vez) y el cierre (una
+-- vez).
 --
 -- OJO: el motivo se escribe con ANY, nunca con IN (ver 0066).
 --

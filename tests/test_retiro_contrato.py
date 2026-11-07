@@ -570,27 +570,107 @@ def test_recrear_con_el_list_del_grupo_atrasado_no_repite_el_post(monkeypatch):
 
 
 @_skip_db
-def test_un_intento_de_recreacion_vencido_sin_anuncio_se_cierra_y_se_recrea():
-    with _db_i4("orbit_g5_recrea_vencido") as conn:
+def test_un_intento_viejo_con_anuncio_creado_e_invisible_no_crea_otro(monkeypatch):
+    """h_eecbcc15: la edad del intento no prueba nada. El POST de hace dos horas creo
+    ad-nuevo-1 (el ack trajo su adId) y Amazon aun no lo muestra ni por id ni en el ad
+    group: recrea no manda otro POST y el intento sigue abierto. Cuando Amazon lo muestra,
+    recrea sella ese mismo anuncio y cierra el intento en la misma transaccion."""
+    import httpx
+
+    with _db_i4("orbit_g5_recrea_viejo") as conn:
         _pid, lid = _producto(conn)
         _bolsa(conn, lid, "ad-1")
         rid = _retiro_archivado(conn, lid)
+        archivado, _ = _escritor(_fila("ad-1", "ARCHIVED"), ocultos={"ad-nuevo-1": 100})
+        original = archivado.list_sellado
+        atrasado = {"si": True}
+
+        def _lee(path, cuerpo):
+            resp = original(path, cuerpo)
+            if "adGroupIdFilter" in cuerpo and atrasado["si"]:
+                filas = [f for f in resp.json()["productAds"] if f["adId"] != "ad-nuevo-1"]
+                return httpx.Response(200, json={"productAds": filas})
+            return resp
+
+        monkeypatch.setattr(archivado, "list_sellado", _lee)
+        (linea,) = conn.execute("SELECT reversa FROM anuncio_retiro").fetchone()
+        (creado,) = ra.archivar.reponer_anuncios(archivado, [linea], ejecutar=True)
+        assert (creado.resultado, creado.ad_id) == ("sin_confirmar", "ad-nuevo-1")
         conn.execute(
-            "INSERT INTO anuncio_recreacion_intento (retiro_id, actor, creada_el)"
-            " VALUES (%s, 'dueno', now() - interval '2 hours')",
+            "INSERT INTO anuncio_recreacion_intento (retiro_id, actor, creada_el, ad_id_nuevo)"
+            " VALUES (%s, 'review', now() - interval '2 hours', 'ad-nuevo-1')",
             (rid,),
         )
-        archivado, _ = _escritor(_fila("ad-1", "ARCHIVED"))
-        (res,) = ra.recrea(
-            conn,
-            retiro_ids=(rid,),
-            autorizacion=ra.AutorizacionHumana("RECREAR 1 ANUNCIOS", "dueno"),
-            escritor=archivado,
-        )
-        assert (res.resultado, res.ad_id_nuevo) == ("recreado", "ad-nuevo-1")
+        recrear = ra.AutorizacionHumana("RECREAR 1 ANUNCIOS", "dueno")
+        (res,) = ra.recrea(conn, retiro_ids=(rid,), autorizacion=recrear, escritor=archivado)
+        assert res.resultado == "fallo"
+        assert "sin resolver" in res.detalle and "ad-nuevo-1" in res.detalle
+        assert ra.archivar.estados_actuales(archivado, ["ad-nuevo-2"]) == {}
         assert conn.execute(
-            "SELECT left(detalle, 11) FROM anuncio_recreacion_intento ORDER BY id"
-        ).fetchall() == [("no aplicado",), ("recreado ad",)]
+            "SELECT cerrada_el IS NULL FROM anuncio_recreacion_intento"
+        ).fetchall() == [(True,)]
+        atrasado["si"] = False
+        (res,) = ra.recrea(conn, retiro_ids=(rid,), autorizacion=recrear, escritor=archivado)
+        assert (res.resultado, res.ad_id_nuevo) == ("recreado", "ad-nuevo-1")
+        assert conn.execute("SELECT ad_id_nuevo FROM anuncio_reposicion").fetchall() == [
+            ("ad-nuevo-1",)
+        ]
+        assert conn.execute("SELECT detalle FROM anuncio_recreacion_intento").fetchall() == [
+            ("sellado ad-nuevo-1",)
+        ]
+
+
+@_skip_db
+def test_si_falla_la_reposicion_el_intento_queda_abierto_y_el_reintento_sella_el_mismo(
+    monkeypatch,
+):
+    """h_c6ea18e1: el cierre del intento y la reposicion son una sola transaccion. Si la
+    reposicion falla despues de un POST confirmado (trigger que revienta el INSERT), el
+    intento queda abierto con el adId del ack; el reintento, con el list del grupo
+    atrasado, lo encuentra por su id y sella ad-nuevo-1 sin crear otro."""
+    import httpx
+    import psycopg
+
+    with _db_i4("orbit_g5_recrea_atomico") as conn:
+        _pid, lid = _producto(conn)
+        _bolsa(conn, lid, "ad-1")
+        rid = _retiro_archivado(conn, lid)
+        archivado, _ = _escritor(_fila("ad-1", "ARCHIVED"))
+        conn.execute(
+            "CREATE FUNCTION g5_revienta() RETURNS trigger LANGUAGE plpgsql AS"
+            " $$ BEGIN RAISE EXCEPTION 'muerte antes de la reposicion (simulada)'; END $$"
+        )
+        conn.execute(
+            "CREATE TRIGGER g5_revienta BEFORE INSERT ON anuncio_reposicion"
+            " FOR EACH ROW EXECUTE FUNCTION g5_revienta()"
+        )
+        recrear = ra.AutorizacionHumana("RECREAR 1 ANUNCIOS", "dueno")
+        with pytest.raises(psycopg.errors.RaiseException):
+            ra.recrea(conn, retiro_ids=(rid,), autorizacion=recrear, escritor=archivado)
+        assert conn.execute(
+            "SELECT ad_id_nuevo, cerrada_el IS NULL FROM anuncio_recreacion_intento"
+        ).fetchall() == [("ad-nuevo-1", True)]
+        assert conn.execute("SELECT count(*) FROM anuncio_reposicion").fetchone() == (0,)
+        conn.execute("DROP TRIGGER g5_revienta ON anuncio_reposicion")
+        original = archivado.list_sellado
+
+        def _grupo_atrasado(path, cuerpo):
+            resp = original(path, cuerpo)
+            if "adGroupIdFilter" in cuerpo:
+                filas = [f for f in resp.json()["productAds"] if f["adId"] != "ad-nuevo-1"]
+                return httpx.Response(200, json={"productAds": filas})
+            return resp
+
+        monkeypatch.setattr(archivado, "list_sellado", _grupo_atrasado)
+        (res,) = ra.recrea(conn, retiro_ids=(rid,), autorizacion=recrear, escritor=archivado)
+        assert (res.resultado, res.ad_id_nuevo) == ("recreado", "ad-nuevo-1")
+        assert ra.archivar.estados_actuales(archivado, ["ad-nuevo-2"]) == {}
+        assert conn.execute(
+            "SELECT ad_id_nuevo, detalle FROM anuncio_recreacion_intento"
+        ).fetchall() == [("ad-nuevo-1", "sellado ad-nuevo-1")]
+        assert conn.execute("SELECT ad_id_nuevo FROM anuncio_reposicion").fetchall() == [
+            ("ad-nuevo-1",)
+        ]
 
 
 @_skip_db
