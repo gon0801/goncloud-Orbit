@@ -117,7 +117,8 @@ SELECT a.id, a.fecha_desde, a.fecha_hasta, r.started_at
 # Claves de efecto de la familia entity_cut en vuelo o con veto vigente: el
 # mismo predicado que apply_cola._SQL_CLAVES_BLOQUEADAS. Con ignora_practicas
 # (simulacion, H.8) las filas shadow no terminales de pause no bloquean: son
-# las que I.7 descarta al encender la pausa.
+# las que I.7 descarta al encender la pausa. Con excluye_cola (revalidacion de
+# I.3) la fila que se revalida no bloquea su propio anuncio.
 _SQL_CLAVES_EN_VUELO = """
 SELECT ad_entity_id
   FROM apply_queue
@@ -125,6 +126,7 @@ SELECT ad_entity_id
    AND ((estado NOT IN ('applied', 'failed', 'vetoed', 'discarded')
          AND NOT (%(ignora_practicas)s AND modo = 'shadow' AND kind = 'pause'))
         OR (estado = 'vetoed' AND vence_el > %(ahora)s))
+   AND id IS DISTINCT FROM %(excluye_cola)s::bigint
 """
 
 _SQL_IMPULSO_ABIERTO = """
@@ -190,11 +192,17 @@ def lee_entradas_productos(
     goals: tuple[g.Goal | None, Mapping[int, g.Goal]],
     ignora_practicas: bool = False,
     observadas_hasta: dt.datetime | None = None,
+    solo_productos: Sequence[int] | None = None,
+    excluye_cola: int | None = None,
 ) -> tuple[p.EntradaProducto, ...]:
     """Las entradas del ciclo. `observadas_hasta` (por omision decidido_el)
     acota las observaciones y las corridas de cobertura: con decidido_el en
     el pasado no se ve el futuro (regla 5). `ignora_practicas` no cuenta como
-    clave en vuelo las filas shadow de pause (simulacion, H.8)."""
+    clave en vuelo las filas shadow de pause (simulacion, H.8).
+    `solo_productos` (revalidacion de I.3) devuelve solo esos productos y lee
+    solo sus metricas; la topologia y la exclusividad siguen siendo las de
+    toda la plataforma. `excluye_cola` es la fila de apply_queue que se
+    revalida: no cuenta como clave en vuelo de su propio anuncio."""
     observadas_hasta = observadas_hasta or decidido_el
     moneda = PLATAFORMAS_MONEDA[plataforma]
     hoy = decidido_el.astimezone(dt.UTC).date()
@@ -222,6 +230,8 @@ def lee_entradas_productos(
     productos_ids = sorted(
         {a.product_id for anuncios in grupos.values() for a in anuncios if a.product_id}
     )
+    if solo_productos is not None:
+        productos_ids = [x for x in productos_ids if x in set(solo_productos)]
     if not productos_ids:
         return ()
     exclusivos = {
@@ -273,6 +283,7 @@ def lee_entradas_productos(
         plataforma,
         decidido_el=decidido_el,
         ignora_practicas=ignora_practicas,
+        excluye_cola=excluye_cola,
         goals=goals,
         campana_de=campana_de,
         grupos=grupos,
@@ -362,6 +373,7 @@ class _Alcance:
         *,
         decidido_el: dt.datetime,
         ignora_practicas: bool,
+        excluye_cola: int | None,
         goals: tuple[g.Goal | None, Mapping[int, g.Goal]],
         campana_de: Mapping[int, int],
         grupos: Mapping[int, list[_Anuncio]],
@@ -376,7 +388,12 @@ class _Alcance:
         impulso = conn.execute(_SQL_IMPULSO_ABIERTO, (plataforma,)).fetchall()
         en_vuelo = conn.execute(
             _SQL_CLAVES_EN_VUELO,
-            {"plataforma": plataforma, "ignora_practicas": ignora_practicas, "ahora": decidido_el},
+            {
+                "plataforma": plataforma,
+                "ignora_practicas": ignora_practicas,
+                "ahora": decidido_el,
+                "excluye_cola": excluye_cola,
+            },
         ).fetchall()
         return cls(
             decidido_el=decidido_el,

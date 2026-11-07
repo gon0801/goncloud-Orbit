@@ -1211,6 +1211,87 @@ def reconcilia_intenciones(conn, *, escritor=None, escritores=None) -> list[tupl
     return resueltas
 
 
+_SQL_INTENCION_DE_DECISION = """
+SELECT i.id, i.platform, i.motivo, i.lote_retiro, i.impulso_id, i.ad_entity_id,
+       i.ad_id_externo, i.ad_group_externo, i.campana_externa, i.sku, i.asin,
+       i.reversa, i.actor, i.cerrada_el IS NOT NULL, i.retiro_id
+  FROM anuncio_retiro_intencion i
+ WHERE i.decision_id = %s
+"""
+
+ResultadoIntencion = Literal["sin_intencion", "sellado", "cerrado", "pendiente"]
+
+
+def resuelve_intencion_de_decision(
+    conn, decision_id: int, escritor
+) -> tuple[ResultadoIntencion, int | None]:
+    """AUTO-03 I.3: la intencion de retiro de una decision `pause` sobre un
+    product_ad, para la reconciliacion de su fila `applying`
+    (apply_producto.reconcilia_pause_producto). Nunca manda un PUT:
+
+    - sin intencion con ese decision_id: ("sin_intencion", None). Como la
+      intencion se escribe antes del PUT, prueba que no salio ninguno.
+    - ya cerrada: ("sellado", retiro_id) o ("cerrado", None).
+    - abierta, bajo la llave retiro-ad:<id>: un retiro abierto del anuncio
+      (muerte entre el sello y el cierre) la cierra apuntando a el; si no,
+      Amazon decide: PAUSED sella el retiro adoptado con la reversa guardada
+      y cierra; ENABLED, ARCHIVED o ausente la cierra sin retiro.
+    - el LIST cae (AdsApiError): ("pendiente", None), el proximo ciclo."""
+    fila = conn.execute(_SQL_INTENCION_DE_DECISION, (decision_id,)).fetchone()
+    conn.commit()
+    if fila is None:
+        return ("sin_intencion", None)
+    iid, platform, motivo, lote, impulso_id, ent, ad_id, ag, camp, sku, asin = fila[:11]
+    reversa, actor, cerrada, retiro_id = fila[11:]
+    if cerrada:
+        return ("sellado", retiro_id) if retiro_id is not None else ("cerrado", None)
+    with _bloqueados(conn, [f"retiro-ad:{ent}"]):
+        vigente = conn.execute(
+            "SELECT retiro_id FROM anuncio_retiro_intencion"
+            " WHERE id = %s AND cerrada_el IS NOT NULL",
+            (iid,),
+        ).fetchone()
+        if vigente is not None:
+            conn.commit()
+            return ("sellado", vigente[0]) if vigente[0] is not None else ("cerrado", None)
+        ya = conn.execute(_SQL_YA_RETIRADO, (ent,)).fetchone()
+        if ya is not None:
+            _cierra_intencion(conn, iid, _detalle_ya_sellado(ya, "reconciliacion"), ya[0])
+            return ("sellado", ya[0])
+        conn.commit()
+        try:
+            vista = archivar.leer_anuncios(escritor, [ad_id]).get(ad_id)
+        except AdsApiError as exc:
+            print(f"reconcilia pausa de producto: LIST caido para {ad_id} ({exc})", file=sys.stderr)
+            return ("pendiente", None)
+        estado = vista.get("state") if vista is not None else None
+        if estado == archivar.ESTADO_PAUSADO:
+            rid = _sella_desde_intencion(
+                conn,
+                platform,
+                motivo,
+                lote,
+                impulso_id,
+                ent,
+                ad_id,
+                ag,
+                camp,
+                sku,
+                asin,
+                reversa,
+                actor,
+                "adoptada",
+            )
+            _cierra_intencion(conn, iid, f"{_DETALLE_ADOPTADO} (reconciliacion)", rid)
+            return ("sellado", rid)
+        detalle = {
+            None: f"{ad_id} inexistente en Amazon: nada que pausar",
+            archivar.ESTADO_ARCHIVADO: f"{ad_id} ARCHIVED en Amazon: el PUT no lo mueve",
+        }.get(estado, f"{ad_id} {estado} en Amazon: la decision no reenvia el PUT")
+        _cierra_intencion(conn, iid, f"reconciliacion: {detalle}", None)
+        return ("cerrado", None)
+
+
 def _sella_desde_intencion(
     conn,
     platform,
