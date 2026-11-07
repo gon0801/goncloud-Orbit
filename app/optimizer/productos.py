@@ -419,7 +419,8 @@ class SimulacionPausa:
     gastaron y vendieron despues, en [D-60, D-30): el gasto es observado, no
     una promesa de ahorro. `sin_cobertura_d7` cuenta los productos con alguna
     fecha de la ventana sin fila ni rango pedido guardado (S6, D.7);
-    `sin_dato_despues`, los elegidos antes que hoy ya no tienen entrada."""
+    `sin_dato_despues`, los elegidos antes que hoy ya no tienen entrada o
+    tienen una fecha con metrica ausente: no suman, nunca como cero."""
 
     limites: LimitesPausa
     ventana: Ventana
@@ -470,7 +471,9 @@ def simula_pausa(
     elegidos = tuple(
         sorted(e.producto.product_id for e in antes if not motivos_economicos_pausa(e))
     )
-    por_producto = {e.producto.product_id: e for e in hoy}
+    por_producto = {
+        e.producto.product_id: e for e in hoy if "ads_con_metrica_ausente" not in e.impedimentos
+    }
     if primer_dato is None or ventana_anterior.desde < primer_dato:
         evitado: Dinero | SinDato = SinDato(("sin_historia",))
         perdidas: Dinero | SinDato = SinDato(("sin_historia",))

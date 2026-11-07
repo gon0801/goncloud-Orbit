@@ -663,7 +663,8 @@ function pintaSimulacion(zona, sim) {
     anterior += " " + cuentaProductos(sim.sin_cobertura_d7_anterior) + " de aquella ventana sin cobertura.";
   }
   if (sim.sin_dato_despues > 0) {
-    anterior += " " + sim.sin_dato_despues + " de los pausados ya no tienen dato después.";
+    anterior +=
+      " " + sim.sin_dato_despues + " de los pausados no tienen dato completo después: no suman.";
   }
   zona.appendChild(nodo("p", anterior, "mutado"));
   var frase = nodo(
@@ -698,9 +699,14 @@ function simularLimites(form) {
   estado.textContent = "Simulando sin guardar…";
   fetch(url)
     .then(function (resp) {
-      return resp.json().then(function (data) {
-        return { ok: resp.ok, status: resp.status, data: data };
-      });
+      return resp.json().then(
+        function (data) {
+          return { ok: resp.ok, status: resp.status, data: data };
+        },
+        function () {
+          return { ok: false, status: resp.status, data: {} };
+        }
+      );
     })
     .then(function (r) {
       // Solo pinta la respuesta del ultimo cambio.
@@ -714,7 +720,7 @@ function simularLimites(form) {
         error.dataset.limitesRechazo = String(r.status);
         zona.replaceChildren(error);
         estado.textContent =
-          r.status === 422 ? "La simulación no corrió: el límite está bajo el mínimo." : "La simulación falló.";
+          r.status === 422 ? "La simulación no corrió: " + mensajeError(r.data) + "." : "La simulación falló.";
         return;
       }
       pintaSimulacion(zona, r.data);

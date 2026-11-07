@@ -2381,6 +2381,7 @@ def _notas_productos(
             productos_ciclo.evaluaciones,
             config_version_id=config_id,
             sombra_hojas=productos_ciclo.sombra,
+            cierra_reactivados=productos_ciclo.modo_pausa != "off",
         )
         if guardado.error is not None:
             errores.append(f"guardado: {guardado.error}")

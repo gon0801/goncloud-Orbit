@@ -669,12 +669,14 @@ def guarda_evaluaciones(
     *,
     config_version_id: int | None,
     sombra_hojas: Mapping[int, Sequence[dict]],
+    cierra_reactivados: bool = False,
 ) -> ResultadoGuardado:
     """TX3, dentro de su propio SAVEPOINT: todas las evaluaciones o ninguna.
     Un error queda en el resultado para las notas del ciclo, no se lanza.
-    Cierra ademas el retiro de cada anuncio reactivado a mano en Amazon que
-    la lectura detecto (S17): su gracia corre desde este ciclo; con la llave
-    del retiro ocupada lo intenta el ciclo siguiente."""
+    Con `cierra_reactivados` (la pausa encendida) cierra ademas el retiro de
+    cada anuncio reactivado a mano en Amazon que la lectura detecto (S17): su
+    gracia corre desde este ciclo; con la llave del retiro ocupada lo intenta
+    el ciclo siguiente. Con la pausa apagada no toca el ledger de retiro."""
     try:
         with conn.transaction():
             ids: dict[tuple[str, int], int] = {}
@@ -709,7 +711,7 @@ def guarda_evaluaciones(
                     ),
                 ).fetchone()
                 ids[(producto.plataforma, producto.product_id)] = fila[0]
-                for excluido in entrada.excluidos:
+                for excluido in entrada.excluidos if cierra_reactivados else ():
                     if excluido.retiro_id is None:
                         continue
                     cerrado = conn.execute(
