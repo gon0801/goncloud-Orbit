@@ -1047,14 +1047,19 @@ def _vigila_uno(conn, pausador, fila, *, hoy, escritor_retiro):
                     from app.ads import archivar
 
                     escritor_retiro = archivar.preparar_escritor(platform)
-                retiro_anuncios.ejecuta_retiro(
+                # S13: el literal que el dueno tecleo al lanzar el
+                # impulso cuenta como su autorizacion.
+                resultados = retiro_anuncios.ejecuta_retiro(
                     conn,
                     pendientes,
-                    go=go,
+                    autorizacion=retiro_anuncios.AutorizacionHumana(go, "impulso-vigia"),
                     impulso_id=imp,
                     escritor=escritor_retiro,
-                    actor="impulso-vigia",
                 )
+                # Lo no resuelto se reintenta manana: sin lectura del dia.
+                falta = retiro_anuncios.no_resueltos(resultados)
+                if falta is not None:
+                    raise RuntimeError(falta)
                 if hecho == "nada":
                     hecho = "retiro_de_bolsas"
     conn.execute(

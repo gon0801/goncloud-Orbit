@@ -1440,12 +1440,14 @@ def _db_i5(conn):
     from test_migracion_0066 import SQL66
     from test_migracion_0068 import SQL68
     from test_migracion_0069 import SQL69
+    from test_retiro_anuncios import SQL78
 
     conn.execute(SQL64)
     conn.execute(SQL65)
     conn.execute(SQL66)
     conn.execute(SQL68)
     conn.execute(SQL69)
+    conn.execute(SQL78)
 
 
 def _lid_de(conn, pid):
@@ -1787,9 +1789,10 @@ def test_r09r4_ap04_ejecutar_con_lote_propio_200(escenario, monkeypatch):
     assert r.status_code == 200, r.text
 
 
-def test_r09r4_ap06_reponer_parcial_502_no_500(escenario, monkeypatch):
-    """R09-r4 B6 (AP06): regreso parcial (uno falla): 502 con detalle,
-    no 500 pelado."""
+def test_r09r4_ap06_reponer_parcial_dice_cada_anuncio(escenario, monkeypatch):
+    """R09-r4 B6 (AP06) + AUTO-03 G.4: regreso parcial (uno falla): 200
+    con 1 de 2 y el resultado de cada anuncio, el fallido con su
+    detalle; nunca 500 pelado."""
     from test_retiro_anuncios import _bolsa, _escritor, _fila
 
     from app.ads import archivar
@@ -1829,8 +1832,12 @@ def test_r09r4_ap06_reponer_parcial_502_no_500(escenario, monkeypatch):
         headers=HEADERS,
         json={"retiro_ids": rids, "confirmacion": "REGRESAR 2 ANUNCIOS", "actor": "dueno"},
     )
-    assert r.status_code == 502, r.text
-    assert "ad-bad6" in r.text
+    assert r.status_code == 200, r.text
+    cuerpo = r.json()
+    assert (cuerpo["repuestos"], cuerpo["total"]) == (1, 2)
+    por_anuncio = {a["ad_id_externo"]: a["resultado"] for a in cuerpo["anuncios"]}
+    assert por_anuncio == {"ad-ok6": "repuesto", "ad-bad6": "fallo"}
+    assert cuerpo["adoptados"] == [] and cuerpo["requieren_recreacion"] == []
 
 
 def test_r09r4_ap08_ids_solo_abiertos(escenario, monkeypatch):
@@ -1906,9 +1913,10 @@ def test_r09r4_ap12_impulso_lote_sin_impulso_404(escenario):
     assert r.status_code == 404, r.text
 
 
-def test_i5_ejecutar_parcial_502_con_detalle(escenario, monkeypatch):
-    """R09-r2 B-7: con un anuncio no confirmable, ejecutar registra el
-    bueno y responde 502 nombrando al otro (no 500 pelado)."""
+def test_i5_ejecutar_parcial_dice_cada_anuncio(escenario, monkeypatch):
+    """R09-r2 B-7 + AUTO-03 G.4: con un anuncio no confirmable, ejecutar
+    registra el bueno y responde 1 de 2 nombrando al otro con su
+    resultado (no 500 pelado)."""
     from test_retiro_anuncios import _bolsa, _escritor, _fila
 
     from app.ads import archivar
@@ -1936,8 +1944,14 @@ def test_i5_ejecutar_parcial_502_con_detalle(escenario, monkeypatch):
             "actor": "dueno",
         },
     )
-    assert r.status_code == 502, r.text
-    assert "ad-bad" in r.text
+    assert r.status_code == 200, r.text
+    cuerpo = r.json()
+    assert (cuerpo["retirados"], cuerpo["total"]) == (1, 2)
+    assert [(a["ad_id_externo"], a["resultado"]) for a in cuerpo["anuncios"]] == [
+        ("ad-bad", "archivado"),
+        ("ad-ok", "retirado"),
+    ]
+    assert len(cuerpo["retiro_ids"]) == 1
     assert conn.execute("SELECT ad_id_externo FROM anuncio_retiro").fetchall() == [("ad-ok",)]
 
 

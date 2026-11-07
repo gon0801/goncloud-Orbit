@@ -13,6 +13,7 @@ from test_migracion_0065 import SQL65
 from test_migracion_0066 import SQL66
 from test_migracion_0068 import SQL68
 from test_migracion_0069 import SQL69
+from test_retiro_anuncios import SQL78
 from test_schema import _postgres_obligatorio_ausente
 
 from app import pantalla_productos as pp
@@ -40,6 +41,7 @@ def _db_p4(prefijo):
             conn.execute(SQL66)
             conn.execute(SQL68)
             conn.execute(SQL69)
+            conn.execute(SQL78)
             conn.execute(
                 "INSERT INTO config_version(label,settings) VALUES ('fabrica','{}'::jsonb)"
             )

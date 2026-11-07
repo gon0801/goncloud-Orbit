@@ -72,6 +72,11 @@ class ResultadoAnuncio:
     resultado: str
     detalle: str = ""
     reversa: str = ""
+    # `fallo` en que se sabe que Amazon no cambio nada: proceso la mutacion y
+    # dijo que no (4xx o 207 con error por item) o la siguio frenando con 429
+    # hasta agotar los reintentos (un 429 es rechazo sin procesar). Un 5xx,
+    # red o timeout no lo es: la mutacion pudo aplicarse.
+    rechazo: bool = False
 
 
 RESULTADOS = frozenset(
@@ -158,6 +163,78 @@ def leer_anuncios(escritor: AdsWriteClient, ad_ids: Sequence[str]) -> dict[str, 
             if ad_id is not None and fila.get("state") is not None:
                 filas[str(ad_id)] = fila
     return filas
+
+
+class LecturaAmbigua(AdsApiError):
+    """El list no dijo nada confiable (filtro aparentemente ignorado,
+    pagina o fila malformada, nextToken ilegible o repetido, paginacion
+    sin terminar): no habilita un create."""
+
+
+PAGINAS_POR_GRUPO = 20
+# Nombre del filtro de /sp/productAds/list por ad group. Clavado con test
+# (tests/test_ads_archivar.py) y verificado en vivo en solo lectura el 2026-11-07: Amazon
+# ignora en silencio un filtro que no reconoce (ver la TRAMPA de arriba).
+FILTRO_AD_GROUP = "adGroupIdFilter"
+_ESTADOS_LIST = frozenset({ESTADO_HABILITADO, ESTADO_PAUSADO, ESTADO_ARCHIVADO})
+
+
+def _texto_no_vacio(valor) -> bool:
+    return isinstance(valor, str | int) and not isinstance(valor, bool) and bool(str(valor).strip())
+
+
+def _fila_del_grupo(fila, ad_group_id: str) -> bool:
+    """Fila completa del ad group pedido: adId, adGroupId igual, sku y un
+    state del vocabulario del list. Cualquier otra forma es ambigua."""
+    return (
+        isinstance(fila, dict)
+        and _texto_no_vacio(fila.get("adId"))
+        and str(fila.get("adGroupId", "")) == str(ad_group_id)
+        and isinstance(fila.get("sku"), str)
+        and bool(fila["sku"].strip())
+        and fila.get("state") in _ESTADOS_LIST
+    )
+
+
+def anuncios_vivos_del_grupo(escritor: AdsWriteClient, ad_group_id: str, sku: str) -> list[dict]:
+    """Los product ads no ARCHIVED de ESE ad group con ESE sku, paginando
+    con `adGroupIdFilter` por la puerta sellada. Es la lectura previa a un
+    create: si ya hay uno vivo, recrear seria duplicarlo, asi que solo una
+    lectura completa y valida puede decir "no hay ninguno". Levantan
+    `LecturaAmbigua`: una pagina ilegible o sin contenedor, una fila
+    incompleta, de otro ad group (el filtro parece ignorado) o con un state
+    desconocido, un nextToken que no es ausente/null ni string no vacio,
+    un nextToken repetido y un nextToken vivo al tope de paginas."""
+    vivos: list[dict] = []
+    vistos: set[str] = set()
+    token = None
+    for _ in range(PAGINAS_POR_GRUPO):
+        cuerpo: dict = {FILTRO_AD_GROUP: {"include": [str(ad_group_id)]}}
+        if token is not None:
+            cuerpo["nextToken"] = token
+        try:
+            datos = escritor.list_sellado(PATH_PRODUCT_ADS, cuerpo).json()
+        except ValueError:
+            raise LecturaAmbigua("list de productAds ilegible") from None
+        filas = datos.get("productAds") if isinstance(datos, dict) else None
+        if not isinstance(filas, list):
+            raise LecturaAmbigua("list de productAds sin contenedor productAds")
+        for fila in filas:
+            if not _fila_del_grupo(fila, ad_group_id):
+                raise LecturaAmbigua(
+                    "fila de productAds incompleta, de otro ad group o con state desconocido"
+                )
+            if fila["sku"] == sku and fila["state"] != ESTADO_ARCHIVADO:
+                vivos.append(fila)
+        token = datos.get("nextToken")
+        if token is None:
+            return vivos
+        if not isinstance(token, str) or not token:
+            raise LecturaAmbigua(f"nextToken ilegible: {token!r}")
+        if token in vistos:
+            raise LecturaAmbigua("nextToken repetido: la paginacion no avanza")
+        vistos.add(token)
+    raise LecturaAmbigua(f"list de productAds sin terminar tras {PAGINAS_POR_GRUPO} paginas")
 
 
 def estados_actuales(escritor: AdsWriteClient, ad_ids: Sequence[str]) -> dict[str, str]:
@@ -272,7 +349,9 @@ def reponer_anuncios(
             resp = escritor.crear_product_ad(d["adGroupId"], d["campaignId"], d["sku"], d["state"])
         except AdsApiError as exc:
             detalle = str(getattr(exc, "cuerpo", "") or exc)[:300]
-            resultados.append(ResultadoAnuncio(d["sku"], d["state"], "fallo", detalle, reversa))
+            resultados.append(
+                ResultadoAnuncio(d["sku"], d["state"], "fallo", detalle, reversa, _sin_crear(exc))
+            )
         else:
             try:
                 ack = resp.json()
@@ -281,7 +360,9 @@ def reponer_anuncios(
             errores = _errores_del_ack(ack)
             if errores:
                 detalle = f"207 con rechazo por-item: {errores}"[:300]
-                resultados.append(ResultadoAnuncio(d["sku"], d["state"], "fallo", detalle, reversa))
+                resultados.append(
+                    ResultadoAnuncio(d["sku"], d["state"], "fallo", detalle, reversa, rechazo=True)
+                )
             else:
                 nuevo = _id_del_ack(ack)
                 if not nuevo:
@@ -540,6 +621,14 @@ def _cambiar_estado_anuncios(
                 )
             )
     return resultados
+
+
+def _sin_crear(exc: AdsApiError) -> bool:
+    """El create no creo nada: rechazo explicito (4xx con cuerpo de
+    mutacion) o 429 sostenido. El cliente reintenta el 429 con backoff y,
+    al agotar los reintentos, lanza AdsApiError plano con status 429 (no
+    AdsApiErrorMutacion); el 429 nunca se procesa (app/ads/client.py)."""
+    return _es_rechazo_explicito(exc) or getattr(exc, "status", None) == 429
 
 
 def _es_rechazo_explicito(exc: AdsApiError) -> bool:

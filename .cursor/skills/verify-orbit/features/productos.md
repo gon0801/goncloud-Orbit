@@ -12,6 +12,7 @@ Productos que venden y casi no reciben clics, sus impulsos, los retiros abiertos
   - Estados vacíos (`[data-decisiones-vacio]`): `Todavía no hay un ciclo terminado en este mercado.` o `Este ciclo no evaluó productos: la meta está apagada.` Un error del ciclo sale en `p.aviso[data-decisiones-error]`.
 - `productos-meta-filtro` es `select#decisiones-filtro`: `todos`, `con meta`, `sin meta` y un `motivo:<codigo>` por motivo presente. Lo cablea `/static/js/productos.js` (oculta filas con `hidden`); no pide nada al servidor.
 - `productos-api` `GET /api/dashboard/productos-sin-clics?plataforma=P` trae lo mismo en `decisiones_producto` (`cycle_id`, `modo_meta`, `con_meta`, `motivos_presentes`, `productos[].grupos[].hojas[]`).
+- `productos-retiro` sacar y regresar anuncios (AUTO-03 G.4), con token. `form#productos-retiro-ejecutar` (`SACAR <N> ANUNCIOS`) responde `Retirados <n> de <m>.` y una línea por anuncio que no quedó retirado (`ad · rechazado`, `pendiente`, `archivado`…), desde `anuncios[]` de `POST /api/fabrica/retiro/ejecutar` (un parcial es 200, no 502). Cada `form[data-reponer]` (`REGRESAR <N> ANUNCIOS`) responde `Regresados <n> de <m>.`; regresar nunca recrea: los archivados en Amazon vienen en `requieren_recreacion` y la pantalla pinta, dentro de `[data-resultado]`, un paso con su propio literal `RECREAR <K> ANUNCIOS` que manda `POST /api/fabrica/retiro/recrear`. Los retiros adoptados (Orbit los encontró ya pausados) vienen aparte en `adoptados` y solo se regresan con otro paso `REGRESAR <K> ANUNCIOS`, que manda `incluye_adoptados: true`.
 
 ## How to get to it (user POV)
 
@@ -43,6 +44,7 @@ Receta empaquetada:
 ## Gotchas
 
 - El filtro vive en `/static/js/productos.js`: la CSP bloquea scripts inline.
+- Los formularios de retiro escriben en Amazon: el baseline no los envía. Su flujo lo cubre `tests/test_ui_productos.py` (JS real con DOM y fetch simulados) y el contrato `tests/test_retiro_contrato.py`.
 - La sección muestra el último ciclo done aunque la meta esté apagada: entonces dice que no evaluó productos.
 - Las cifras salen de la evaluación congelada del ciclo. Para recalcular con los datos de hoy está `python -m tools.auto03_verifica evalua`, no la pantalla.
 - Nombres de producto, grupo y keyword son texto libre: van escapados.
