@@ -59,6 +59,7 @@ from pydantic import BaseModel, Field
 from app import apply, bloqueo_dueno_efecto, config_write, familias, goals_write, propuestas_campana
 from app.api import ConexionLectura
 from app.db import OrbitDbError, connect
+from app.optimizer import productos
 from app.redaction import install_scrub_filter, register_secret
 
 logger = logging.getLogger(__name__)
@@ -225,6 +226,19 @@ class CuerpoMargen(BaseModel):
     fraccion: Decimal | None = Field(default=None, gt=0, le=1)
 
 
+class CuerpoGastoPausa(BaseModel):
+    valor: Decimal
+    moneda: Literal["MXN", "USD"]
+
+
+class CuerpoLimitesPausa(BaseModel):
+    """Limites de la pausa por producto (AUTO-03 S8). Pisos y moneda los
+    valida config_write con el mensaje que ve el operador (422)."""
+
+    clics: int
+    gasto: CuerpoGastoPausa
+
+
 class CuerpoSettings(BaseModel):
     """Edicion de settings de UNA plataforma (DASHBOARD 01 3.1, E1-E6):
     campos opcionales, None = no tocar. `base_config_version_id` es la config
@@ -252,6 +266,8 @@ class CuerpoSettings(BaseModel):
     precio_modo_universo: dict[str, str] | None = None
     # ACoS objetivo opcional del Resumen por canal (None en valor = quitar meta).
     resumen_acos_objetivo: dict[str, Decimal | str | None] | None = None
+    # AUTO-03 C.7: limites de la pausa por producto (None = no tocar).
+    limites_pausa: CuerpoLimitesPausa | None = None
 
 
 # Transicion atomica del veto: el WHERE de estados ES la carrera contra el
@@ -513,6 +529,7 @@ def editar_goal(
 
 _ERRORES_SETTINGS: dict[type[Exception], int] = {
     config_write.SettingsInvalido: 422,
+    config_write.EdicionVacia: 422,
     config_write.ConfigObsoleta: 409,
 }
 
@@ -528,6 +545,7 @@ def editar_settings(
     (E5, append-only). DESPACHA a `config_write.guarda_config`, el UNICO
     escritor de config_version de la app (regla 1). Respuesta:
     {config_version_id, created, label}."""
+    limites = cuerpo.limites_pausa
     try:
         return config_write.guarda_config(
             conn,
@@ -545,6 +563,11 @@ def editar_settings(
             precio_modo_global=cuerpo.precio_modo_global,
             precio_modo_universo=cuerpo.precio_modo_universo,
             resumen_acos_objetivo=cuerpo.resumen_acos_objetivo,
+            limites_pausa=None
+            if limites is None
+            else productos.LimitesPausa(
+                limites.clics, productos.Dinero(limites.gasto.valor, limites.gasto.moneda)
+            ),
         )
     except tuple(_ERRORES_SETTINGS) as exc:
         raise HTTPException(status_code=_ERRORES_SETTINGS[type(exc)], detail=str(exc)) from None

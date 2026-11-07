@@ -48,6 +48,9 @@ from app.apply import KINDS_QUOTA
 from app.dashboard_resumen import CANALES_POR_DEFECTO as CANALES_RESUMEN_META
 from app.estimacion_universo import universo_de
 from app.optimizer import goals as g
+from app.optimizer import productos
+from app.optimizer.bid import PLATAFORMAS_MONEDA
+from app.optimizer.cortes import LEGACY_NEGATIVE, NEGATIVE_COST_MIN
 from app.precio.config import MODOS as MODOS_PRECIO
 
 ACTOR = "settings-ui"
@@ -62,6 +65,11 @@ ADVERTENCIA_RESPALDO = (
 class SettingsInvalido(Exception):
     """La edicion no se puede aplicar (422 en el endpoint). El mensaje ES el
     motivo que ve el operador, en espanol."""
+
+
+class EdicionVacia(SettingsInvalido):
+    """La edicion no cambia nada: 422 en el endpoint; el CLI productos-modo
+    lo toma como exito sin escribir (el valor ya era el vigente)."""
 
 
 class ConfigObsoleta(Exception):
@@ -258,6 +266,66 @@ def _aplica_resumen_acos_objetivo(
         nuevo.pop(CLAVE_RESUMEN_ACOS, None)
 
 
+def _aplica_producto_modo(
+    nuevo: dict, cambios: list[str], platform: str, producto_modo: Mapping[str, str] | None
+) -> None:
+    """Interruptores de AUTO-03 (meta y pausa por producto; None = no tocar):
+    off QUITA la clave, shadow y live la escriben. La pausa en live se rechaza
+    siempre hasta que existan su ejecutor y el descarte de practicas (AUTO-03
+    I.7)."""
+    for tipo, modo in (producto_modo or {}).items():
+        if tipo not in ("meta", "pausa"):
+            raise SettingsInvalido(f"interruptor de producto desconocido: {tipo!r}")
+        if modo not in g.MODOS:
+            raise SettingsInvalido(
+                f"modo de {tipo} por producto debe ser off, shadow o live, llego {modo!r}"
+            )
+        if tipo == "pausa" and modo == "live":
+            raise SettingsInvalido(
+                "la pausa por producto todavia no se enciende en vivo: falta su ejecutor"
+            )
+        clave = productos.clave_modo(tipo, platform)
+        if modo == "off":
+            if clave in nuevo:
+                cambios.append(f"{tipo} por producto {nuevo.pop(clave)} -> ausente")
+        elif nuevo.get(clave) != modo:
+            cambios.append(f"{tipo} por producto {_antes(nuevo.get(clave))} -> {modo}")
+            nuevo[clave] = modo
+
+
+def _aplica_limites_pausa(
+    nuevo: dict, cambios: list[str], platform: str, limites: productos.LimitesPausa | None
+) -> None:
+    """Limites de la pausa por producto (AUTO-03 S8; None = no tocar): nunca
+    por debajo de los pisos del camino negative, gasto en la moneda de la
+    plataforma."""
+    if limites is None:
+        return
+    moneda = PLATAFORMAS_MONEDA[platform]
+    if isinstance(limites.clics_min, bool) or limites.clics_min < LEGACY_NEGATIVE:
+        raise SettingsInvalido(
+            f"clics minimos de la pausa: al menos {LEGACY_NEGATIVE}, llego {limites.clics_min}"
+        )
+    if limites.gasto_min.moneda != moneda:
+        raise SettingsInvalido(
+            f"gasto minimo de la pausa en {moneda}, llego {limites.gasto_min.moneda}"
+        )
+    piso = NEGATIVE_COST_MIN[platform]
+    if not limites.gasto_min.valor.is_finite() or limites.gasto_min.valor < piso:
+        raise SettingsInvalido(
+            f"gasto minimo de la pausa: al menos {_texto(piso)} {moneda},"
+            f" llego {limites.gasto_min.valor}"
+        )
+    for tipo, valor in (
+        ("clics", str(limites.clics_min)),
+        ("gasto", _texto(limites.gasto_min.valor.normalize())),
+    ):
+        clave = productos.clave_limite(tipo, platform)
+        if nuevo.get(clave) != valor:
+            cambios.append(f"pausa por producto {tipo} {_antes(nuevo.get(clave))} -> {valor}")
+            nuevo[clave] = valor
+
+
 def proxima_config(
     actual: Mapping,
     platform: str,
@@ -273,6 +341,8 @@ def proxima_config(
     precio_modo_global: str | None = None,
     precio_modo_universo: Mapping[str, str] | None = None,
     resumen_acos_objetivo: Mapping[str, Decimal | str | None] | None = None,
+    producto_modo: Mapping[str, str] | None = None,
+    limites_pausa: productos.LimitesPausa | None = None,
 ) -> tuple[dict, list[str]]:
     """Config NUEVA a partir de la vigente + la lista legible de cambios.
 
@@ -337,6 +407,8 @@ def proxima_config(
 
     _aplica_precio_modos(nuevo, cambios, precio_modo_global, precio_modo_universo)
     _aplica_resumen_acos_objetivo(nuevo, cambios, resumen_acos_objetivo)
+    _aplica_producto_modo(nuevo, cambios, platform, producto_modo)
+    _aplica_limites_pausa(nuevo, cambios, platform, limites_pausa)
 
     for kind, cap in (caps or {}).items():
         if kind not in KINDS_QUOTA:
@@ -351,13 +423,15 @@ def proxima_config(
             nuevo[k_cap] = str(cap)
 
     if not cambios:
-        raise SettingsInvalido("edicion vacia: nada que cambiar")
+        raise EdicionVacia("edicion vacia: nada que cambiar")
     try:
         g.target_desde_settings(nuevo, platform)
         g.fraccion_desde_settings(nuevo, platform)
         g.confianza_recorte_desde_settings(nuevo, platform)
         g.confianza_subida_desde_settings(nuevo, platform)
         g.politica_bid_desde_settings(nuevo, platform)
+        productos.modos_desde_settings(nuevo, platform)
+        productos.limites_pausa_desde_settings(nuevo, platform)
     except ValueError as exc:
         raise SettingsInvalido(str(exc)) from None
     # S.2: la resultante se valida con el vocabulario del motor de precios
@@ -372,18 +446,27 @@ _SQL_VIGENTE = "SELECT id, settings FROM config_version ORDER BY id DESC LIMIT 1
 _SQL_INSERTA = "INSERT INTO config_version (label, settings) VALUES (%s, %s) RETURNING id"
 
 
+def config_vigente_id(conn: psycopg.Connection) -> int | None:
+    """Id de la config vigente (None sin ninguna): la base de una edicion que
+    no viene de una pantalla, como el CLI productos-modo."""
+    fila = conn.execute(_SQL_VIGENTE).fetchone()
+    return None if fila is None else fila[0]
+
+
 def guarda_config(
     conn: psycopg.Connection,
     *,
     platform: str,
     base_config_version_id: int,
     ahora: dt.datetime,
+    actor: str = ACTOR,
     **edicion,
 ) -> dict:
     """Inserta la config NUEVA (fila de config_version) con label
     `settings UI · settings-ui · <fecha> · <plataforma>: <que cambio>`.
 
-    `edicion` son los kwargs de `proxima_config`. Lee la vigente y exige que
+    `edicion` son los kwargs de `proxima_config`; `actor` firma el label
+    (el CLI productos-modo firma con su nombre). Lee la vigente y exige que
     sea `base_config_version_id` (ConfigObsoleta si otro guardo antes);
     SettingsInvalido sube tal cual. La conexion puede venir con o sin
     autocommit: el INSERT se confirma aqui."""
@@ -400,7 +483,7 @@ def guarda_config(
             " recarga la pantalla y vuelve a editar"
         )
     nuevo, cambios = proxima_config(fila[1], platform, **edicion)
-    label = f"settings UI · {ACTOR} · {ahora.date().isoformat()} · {platform}: {', '.join(cambios)}"
+    label = f"settings UI · {actor} · {ahora.date().isoformat()} · {platform}: {', '.join(cambios)}"
     nuevo_id = conn.execute(_SQL_INSERTA, (label, Json(nuevo))).fetchone()[0]
     conn.commit()
     return {"config_version_id": nuevo_id, "created": True, "label": label}

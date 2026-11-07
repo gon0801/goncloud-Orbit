@@ -36,6 +36,7 @@ from pathlib import Path
 
 from app import (
     cli_bids,
+    cli_productos,
     cobertura,
     costs,
     estimacion_ingest,
@@ -770,6 +771,7 @@ def _construye_parser() -> argparse.ArgumentParser:
 
     cli_precio.registra(sub)
     cli_bids.registra(sub)
+    cli_productos.registra(sub)
 
     return parser
 
@@ -842,13 +844,13 @@ def main(argv: list[str] | None = None) -> int:
         from app import bloqueo_dueno_efecto
 
         return bloqueo_dueno_efecto.main(rest)
-    if args.comando == "precio":
-        # Escribe decisiones y cambios: tokens extra SIEMPRE error del
-        # operador (patron cycle).
+    if args.comando in ("precio", "productos-modo"):
+        # Escriben decisiones, cambios o config: tokens extra SIEMPRE error
+        # del operador (patron cycle).
         if rest:
-            print(f"argumentos desconocidos para 'precio': {rest}", file=sys.stderr)
+            print(f"argumentos desconocidos para '{args.comando}': {rest}", file=sys.stderr)
             return 2
-        return _precio(args)
+        return _precio(args) if args.comando == "precio" else cli_productos.corre(args)
     if args.comando in cli_bids.COMANDOS:
         return _despacha_bids(args.comando, rest, getattr(args, "forzar", False))
     return _ingest(args, rest)

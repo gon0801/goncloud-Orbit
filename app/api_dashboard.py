@@ -1806,13 +1806,17 @@ SELECT g.id, g.scope, g.ad_entity_id, g.platform, g.target_acos_pct, g.bid_floor
 
 # E4: el goal de campana pisa TODO lo de abajo (incluido el margen); la
 # pantalla dice a QUIEN pisa segun el peldano que gobierna la plataforma sin
-# ese goal. Peldano fuera del vocabulario -> KeyError ruidoso, no un texto
-# inventado.
-PISA_POR_PELDANO: dict[str, str] = {
+# ese goal. Se deriva de PELDANOS_CASCADA: un peldano sin etiqueta revienta
+# al importar (KeyError), no inventa un texto.
+_ETIQUETA_PISA: dict[str, str] = {
+    "goal_campana": "pisa al goal de otra campana",
     "goal_plataforma": "pisa al goal de la plataforma",
+    "margen_producto": "pisa a la meta por producto",
+    "margen_familia": "pisa al target por margen de la familia",
     "margen_plataforma": "pisa al target por margen de la plataforma",
     "setting_plataforma": "pisa al target manual de la plataforma",
 }
+PISA_POR_PELDANO: dict[str, str] = {p: _ETIQUETA_PISA[p] for p in g.PELDANOS_CASCADA}
 
 
 def _goal_editable(goal_id: int, goal: g.Goal, plataforma, nombre, pisa_a) -> dict:

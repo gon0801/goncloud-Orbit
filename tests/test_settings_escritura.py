@@ -509,3 +509,119 @@ def test_proxima_config_guarda_y_limpia_resumen_acos_objetivo():
         config_write.proxima_config(actual, PLAT, resumen_acos_objetivo={"shopify": "20"})
     with pytest.raises(config_write.SettingsInvalido):
         config_write.proxima_config(actual, PLAT, resumen_acos_objetivo={"meli": "0"})
+
+
+# ---------------------------------------------------------------------------
+# AUTO-03 C.6 y C.7: interruptores y limites de la pausa por producto
+# ---------------------------------------------------------------------------
+
+MX = "amazon_mx"
+CLAVE_META_MX = f"ads_producto_meta_{MX}"
+
+
+def _cli_productos(*args: str) -> int:
+    from app import cli
+
+    return cli.main(["productos-modo", "--platform", MX, *args])
+
+
+def _filas_config(conn) -> list:
+    return conn.execute("SELECT id, label, settings FROM config_version ORDER BY id").fetchall()
+
+
+@_skip_db
+def test_cli_producto_modo_escribe_quita_y_no_repite(monkeypatch):
+    """--meta shadow escribe la clave, repetirlo sale 0 sin fila nueva,
+    off la quita y off otra vez tampoco escribe; lo demas viaja intacto."""
+    with _db_con_rol_admin("orbit_prod_modo") as (conn, dsn_admin, _dsn_l):
+        conn.execute(
+            "INSERT INTO config_version (label, settings) VALUES (%s, %s)",
+            ("previa", Json({"ads_optimizer_mode": "live", CLAVE_TARGET: "20"})),
+        )
+        monkeypatch.setenv("ORBIT_DSN_ADMIN", dsn_admin)
+
+        assert _cli_productos("--meta", "shadow") == 0
+        filas = _filas_config(conn)
+        assert len(filas) == 2
+        assert filas[-1][2] == {
+            "ads_optimizer_mode": "live",
+            CLAVE_TARGET: "20",
+            CLAVE_META_MX: "shadow",
+        }
+        assert "productos-modo" in filas[-1][1]
+
+        assert _cli_productos("--meta", "shadow") == 0
+        assert len(_filas_config(conn)) == 2
+
+        assert _cli_productos("--meta", "off") == 0
+        filas = _filas_config(conn)
+        assert len(filas) == 3 and CLAVE_META_MX not in filas[-1][2]
+        assert _cli_productos("--meta", "off") == 0
+        assert len(_filas_config(conn)) == 3
+
+
+@_skip_db
+def test_cli_producto_modo_rechaza_valor_ajeno_y_pausa_en_vivo(monkeypatch):
+    """Otro valor es SettingsInvalido y la pausa en live no se escribe ni con
+    limites guardados: su ejecutor todavia no existe."""
+    import app.config_write as config_write
+
+    with pytest.raises(config_write.SettingsInvalido):
+        config_write.proxima_config({}, MX, producto_modo={"meta": "encendida"})
+    con_limites = {
+        f"ads_producto_pausa_clics_{MX}": "50",
+        f"ads_producto_pausa_gasto_{MX}": "250",
+    }
+    with pytest.raises(config_write.SettingsInvalido, match="pausa"):
+        config_write.proxima_config(con_limites, MX, producto_modo={"pausa": "live"})
+    with _db_con_rol_admin("orbit_prod_vivo") as (conn, dsn_admin, _dsn_l):
+        conn.execute(
+            "INSERT INTO config_version (label, settings) VALUES (%s, %s)",
+            ("previa", Json(con_limites)),
+        )
+        monkeypatch.setenv("ORBIT_DSN_ADMIN", dsn_admin)
+        with pytest.raises(SystemExit):
+            _cli_productos("--pausa", "live")
+        assert len(_filas_config(conn)) == 1
+
+
+@_skip_db
+def test_cli_y_endpoint_guardan_limites_de_la_pausa(tmp_path, monkeypatch):
+    """--clics/--gasto y POST /settings con limites_pausa escriben las dos
+    claves en la moneda de la plataforma; bajo el piso, 422 sin fila."""
+    with _db_con_rol_admin("orbit_prod_lim") as (conn, dsn_admin, _dsn_l):
+        conn.execute(
+            "INSERT INTO config_version (label, settings) VALUES (%s, %s)",
+            ("previa", Json({"ads_optimizer_mode": "live"})),
+        )
+        monkeypatch.setenv("ORBIT_DSN_ADMIN", dsn_admin)
+        assert _cli_productos("--clics", "50", "--gasto", "250") == 0
+        ajustes = _filas_config(conn)[-1][2]
+        assert ajustes[f"ads_producto_pausa_clics_{MX}"] == "50"
+        assert ajustes[f"ads_producto_pausa_gasto_{MX}"] == "250"
+        assert _cli_productos("--clics", "5", "--gasto", "250") == 2
+        assert len(_filas_config(conn)) == 2
+
+        _secrets_token(tmp_path, monkeypatch)
+        cliente = TestClient(app)
+        base = _filas_config(conn)[-1][0]
+
+        def post(clics, valor, moneda):
+            return cliente.post(
+                f"/api/ads-optimizer/settings/{MX}",
+                json={
+                    "base_config_version_id": base,
+                    "limites_pausa": {"clics": clics, "gasto": {"valor": valor, "moneda": moneda}},
+                },
+                headers={"x-orbit-token": TOKEN},
+            )
+
+        for clics, valor, moneda in ((50, "50", "MXN"), (50, "250", "USD")):
+            resp = post(clics, valor, moneda)
+            assert resp.status_code == 422, resp.text
+        resp = post(60, "300", "MXN")
+        assert resp.status_code == 200, resp.text
+        ajustes = _filas_config(conn)[-1][2]
+        assert ajustes[f"ads_producto_pausa_clics_{MX}"] == "60"
+        assert ajustes[f"ads_producto_pausa_gasto_{MX}"] == "300"
+        assert ajustes["ads_optimizer_mode"] == "live"
