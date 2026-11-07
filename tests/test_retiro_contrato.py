@@ -514,3 +514,116 @@ def test_recrear_sin_lectura_confiable_del_ad_group_no_crea_nada(monkeypatch):
         assert res.resultado == "fallo"
         assert "no se recrea" in res.detalle
         assert conn.execute("SELECT count(*) FROM anuncio_reposicion").fetchone() == (0,)
+
+
+def _retiro_archivado(conn, lid):
+    escritor, _ = _escritor(_fila("ad-1", "ENABLED"))
+    ra.ejecuta_retiro(conn, _plan(conn, lid), autorizacion=DUENO, escritor=escritor)
+    (rid,) = conn.execute("SELECT id FROM anuncio_retiro").fetchone()
+    return rid
+
+
+@_skip_db
+def test_recrear_con_el_list_del_grupo_atrasado_no_repite_el_post(monkeypatch):
+    """h_eecbcc15: el anuncio creado por un POST incierto tampoco sale en el list del
+    ad group (pagina valida, sin nextToken). El reintento no manda otro POST mientras
+    el intento siga abierto; cuando Amazon lo muestra, sella ese mismo anuncio."""
+    import httpx
+
+    with _db_i4("orbit_g5_recrea_atrasado") as conn:
+        _pid, lid = _producto(conn)
+        _bolsa(conn, lid, "ad-1")
+        rid = _retiro_archivado(conn, lid)
+        archivado, _ = _escritor(_fila("ad-1", "ARCHIVED"), ocultos={"ad-nuevo-1": 10})
+        original = archivado.list_sellado
+        atrasado = {"si": True}
+
+        def _lee(path, cuerpo):
+            resp = original(path, cuerpo)
+            if "adGroupIdFilter" in cuerpo and atrasado["si"]:
+                filas = [f for f in resp.json()["productAds"] if f["adId"] != "ad-nuevo-1"]
+                return httpx.Response(200, json={"productAds": filas})
+            return resp
+
+        monkeypatch.setattr(archivado, "list_sellado", _lee)
+        recrear = ra.AutorizacionHumana("RECREAR 1 ANUNCIOS", "dueno")
+        (primero,) = ra.recrea(conn, retiro_ids=(rid,), autorizacion=recrear, escritor=archivado)
+        assert primero.resultado == "fallo"
+        assert conn.execute(
+            "SELECT ad_id_nuevo, cerrada_el IS NULL FROM anuncio_recreacion_intento"
+        ).fetchall() == [("ad-nuevo-1", True)]
+        (segundo,) = ra.recrea(conn, retiro_ids=(rid,), autorizacion=recrear, escritor=archivado)
+        assert segundo.resultado == "fallo"
+        assert "sin resolver" in segundo.detalle
+        assert ra.archivar.estados_actuales(archivado, ["ad-nuevo-2"]) == {}
+        atrasado["si"] = False
+        (tercero,) = ra.recrea(conn, retiro_ids=(rid,), autorizacion=recrear, escritor=archivado)
+        assert (tercero.resultado, tercero.ad_id_nuevo) == ("recreado", "ad-nuevo-1")
+        assert ra.archivar.estados_actuales(archivado, ["ad-nuevo-2"]) == {}
+        assert conn.execute("SELECT ad_id_nuevo FROM anuncio_reposicion").fetchall() == [
+            ("ad-nuevo-1",)
+        ]
+        assert conn.execute(
+            "SELECT cerrada_el IS NOT NULL, detalle LIKE 'sellado ad-nuevo-1%' FROM"
+            " anuncio_recreacion_intento"
+        ).fetchall() == [(True, True)]
+
+
+@_skip_db
+def test_un_intento_de_recreacion_vencido_sin_anuncio_se_cierra_y_se_recrea():
+    with _db_i4("orbit_g5_recrea_vencido") as conn:
+        _pid, lid = _producto(conn)
+        _bolsa(conn, lid, "ad-1")
+        rid = _retiro_archivado(conn, lid)
+        conn.execute(
+            "INSERT INTO anuncio_recreacion_intento (retiro_id, actor, creada_el)"
+            " VALUES (%s, 'dueno', now() - interval '2 hours')",
+            (rid,),
+        )
+        archivado, _ = _escritor(_fila("ad-1", "ARCHIVED"))
+        (res,) = ra.recrea(
+            conn,
+            retiro_ids=(rid,),
+            autorizacion=ra.AutorizacionHumana("RECREAR 1 ANUNCIOS", "dueno"),
+            escritor=archivado,
+        )
+        assert (res.resultado, res.ad_id_nuevo) == ("recreado", "ad-nuevo-1")
+        assert conn.execute(
+            "SELECT left(detalle, 11) FROM anuncio_recreacion_intento ORDER BY id"
+        ).fetchall() == [("no aplicado",), ("recreado ad",)]
+
+
+@_skip_db
+def test_el_intento_de_recreacion_solo_gana_su_adid_y_se_cierra_una_vez():
+    import psycopg
+
+    with _db_i4("orbit_g5_recrea_trigger") as conn:
+        _pid, lid = _producto(conn)
+        _bolsa(conn, lid, "ad-1")
+        rid = _retiro_archivado(conn, lid)
+        (iid,) = conn.execute(
+            "INSERT INTO anuncio_recreacion_intento (retiro_id, actor, creada_el)"
+            " VALUES (%s, 'dueno', now()) RETURNING id",
+            (rid,),
+        ).fetchone()
+        with pytest.raises(psycopg.errors.UniqueViolation):
+            conn.execute(
+                "INSERT INTO anuncio_recreacion_intento (retiro_id, actor, creada_el)"
+                " VALUES (%s, 'otro', now())",
+                (rid,),
+            )
+        conn.execute(
+            "UPDATE anuncio_recreacion_intento SET ad_id_nuevo = 'x' WHERE id = %s", (iid,)
+        )
+        with pytest.raises(psycopg.errors.CheckViolation):
+            conn.execute(
+                "UPDATE anuncio_recreacion_intento SET ad_id_nuevo = 'y' WHERE id = %s", (iid,)
+            )
+        conn.execute(
+            "UPDATE anuncio_recreacion_intento SET cerrada_el = now(), detalle = 'd' WHERE id = %s",
+            (iid,),
+        )
+        with pytest.raises(psycopg.errors.CheckViolation):
+            conn.execute(
+                "UPDATE anuncio_recreacion_intento SET detalle = 'otro' WHERE id = %s", (iid,)
+            )

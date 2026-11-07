@@ -1,10 +1,12 @@
 -- ---------------------------------------------------------------------------
 -- REVERSA DE LA MIGRACION 0078 (AUTO-03 G.1).
 --
--- Quita anuncio_retiro.autoria y anuncio_retiro_intencion.decision_id,
+-- Quita anuncio_recreacion_intento, anuncio_retiro.autoria y
+-- anuncio_retiro_intencion.decision_id,
 -- restaura el vocabulario de motivo de 0066/0069 y el trigger solo-cierre de
--- 0069. Aborta si ya hay filas con motivo producto_sin_ventas o retiros
--- adoptados: las dos tablas son append-only y esa historia se perderia.
+-- 0069. Aborta si ya hay filas con motivo producto_sin_ventas, retiros
+-- adoptados o intentos de recreacion: esas tablas son append-only y esa
+-- historia se perderia.
 --
 -- NO se aplica en el despliegue normal: la corre tools/despliegue/rollback.sh
 -- en una sola transaccion (psql -1). No re-runnable.
@@ -19,8 +21,14 @@ BEGIN
     IF EXISTS (SELECT 1 FROM anuncio_retiro WHERE autoria = 'adoptada') THEN
         RAISE EXCEPTION 'reversa 0078: hay retiros con autoria adoptada';
     END IF;
+    IF EXISTS (SELECT 1 FROM anuncio_recreacion_intento) THEN
+        RAISE EXCEPTION 'reversa 0078: hay intentos de recreacion';
+    END IF;
 END
 $$;
+
+DROP TABLE anuncio_recreacion_intento;
+DROP FUNCTION anuncio_recreacion_intento_0078_solo_avance();
 
 CREATE OR REPLACE FUNCTION anuncio_retiro_intencion_0069_solo_cierre() RETURNS trigger
 LANGUAGE plpgsql
