@@ -47,6 +47,14 @@ MAX_LINEAS_MODULO = 900
 # path relativo (posix) -> razon escrita. Sacar una entrada exige que el
 # modulo haya bajado del umbral; agregarla exige razon y review.
 ALLOWLIST_TAMANO = {
+    "app/retiro_anuncios.py": (
+        "AUTO-03 G: unico propietario del ledger de retiro de product ads "
+        "(spec decisiones-producto): sacar, regresar, recrear y reconciliar "
+        "comparten la llave retiro-ad:<id>, el patron intencion/sello, la "
+        "autoria y las autorizaciones tipadas. Partir repone/recrea de "
+        "ejecuta_retiro separaria las dos mitades de la misma exclusion — "
+        "jamas partir por partir"
+    ),
     "app/dashboard_resumen.py": (
         "RESUMEN ADS 02, cierre #509: contrato de lectura multicanal. "
         "Ventanas, cobertura por metrica, comparacion y MA7 usan "

@@ -19,7 +19,7 @@ from test_migracion_0066 import SQL66
 from test_migracion_0068 import SQL68
 from test_migracion_0069 import SQL69
 from test_migracion_0072 import SQL72
-from test_retiro_anuncios import _bolsa, _escritor, _fila
+from test_retiro_anuncios import SQL78, _bolsa, _escritor, _fila
 from test_schema import _postgres_obligatorio_ausente
 
 from app import impulso_io as io
@@ -46,6 +46,7 @@ def _db_i3(prefijo):
             conn.execute(SQL66)
             conn.execute(SQL68)
             conn.execute(SQL69)
+            conn.execute(SQL78)
             conn.execute(SQL72)
             conn.execute(
                 "INSERT INTO config_version(label,settings) VALUES ('fabrica',%s)",

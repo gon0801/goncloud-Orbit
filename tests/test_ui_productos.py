@@ -114,13 +114,21 @@ global.fetch = (url, opts) => {
       json: () => Promise.resolve({lanzados: [{impulso_id: 1}, {impulso_id: 2}]})});
   }
   if (url.endsWith("/retiro/reponer"))
-    return Promise.resolve({ok: true, json: () => Promise.resolve({repuestos: 1})});
+    return Promise.resolve({ok: true, json: () => Promise.resolve({repuestos: 1, total: 2,
+      anuncios: [{retiro_id: 5, ad_id_externo: "31", resultado: "repuesto", detalle: ""},
+        {retiro_id: 6, ad_id_externo: "32", resultado: "requiere_recreacion",
+         detalle: "ARCHIVED en Amazon"}],
+      adoptados: [], requieren_recreacion: [6]})});
+  if (url.endsWith("/retiro/recrear"))
+    return Promise.resolve({ok: true, json: () => Promise.resolve({recreados: 1, total: 1,
+      anuncios: [{retiro_id: 6, ad_id_externo: "32", resultado: "recreado", detalle: ""}]})});
   if (url.endsWith("/retiro/plan"))
     return Promise.resolve({ok: true, json: () => Promise.resolve(
       {huella: "c".repeat(64), anuncios: [{sku: "SV", ad_group_nombre: "Viejos",
         ad_group_externo: "ag-v", ad_id_externo: "31"}]})});
   if (url.endsWith("/retiro/ejecutar"))
-    return Promise.resolve({ok: true, json: () => Promise.resolve({retirados: 1})});
+    return Promise.resolve({ok: true, json: () => Promise.resolve({retirados: 1, total: 1,
+      anuncios: [{ad_id_externo: "31", resultado: "retirado", detalle: ""}]})});
   throw new Error("url inesperada " + url);
 };
 const codigo = fs.readFileSync(process.argv[1], "utf8");
@@ -168,21 +176,40 @@ const api = vm.runInThisContext("this.__api");
   assert.equal(calls[2].body.huella, "b".repeat(64));
   assert.match(estado.textContent, /Lanzados 2/);
   assert.equal(form.elements.token.value, "");
-  // Reponer: literal distinto no manda; exacto si.
+  // Reponer: literal distinto no manda; exacto si. Dice n de m y ofrece
+  // recrear el archivado con su propio literal.
   const estadoR = new Element(); estadoR.estado = true;
-  const formR = new Element({dataset: {retiros: "5", esperada: "REGRESAR 1 ANUNCIOS"}});
+  const formR = new Element({dataset: {retiros: "5,6", esperada: "REGRESAR 2 ANUNCIOS"}});
   formR.elements = {confirmacion: new Element({value: "OTRO"}),
     actor: new Element({value: "dueno"}), token: new Element({value: "tok"})};
   formR.children = [estadoR];
   api.reponer(formR);
   assert.equal(calls.length, 3);
-  formR.elements.confirmacion.value = "REGRESAR 1 ANUNCIOS";
+  formR.elements.confirmacion.value = "REGRESAR 2 ANUNCIOS";
   api.reponer(formR);
   await new Promise(r => setTimeout(r, 10));
   assert.equal(calls[3].url, "/api/fabrica/retiro/reponer");
-  assert.deepEqual(calls[3].body.retiro_ids, [5]);
-  assert.match(estadoR.textContent, /Repuestos 1/);
+  assert.deepEqual(calls[3].body.retiro_ids, [5, 6]);
+  assert.equal(calls[3].body.incluye_adoptados, undefined);
+  assert.match(estadoR.textContent, /Regresados 1 de 2/);
+  assert.equal(formR.elements.token.value, "tok");
+  const zonaRes = formR.querySelector("[data-resultado]");
+  assert.match(zonaRes.children[0].textContent, /32 · archivado en Amazon/);
+  const [avisoRec, literalRec, botonRec, estadoRec] = zonaRes.children[1].children;
+  assert.match(avisoRec.textContent, /RECREAR 1 ANUNCIOS/);
+  literalRec.value = "RECREAR 2 ANUNCIOS";
+  botonRec.events.click();
+  assert.equal(calls.length, 4);
+  literalRec.value = "RECREAR 1 ANUNCIOS";
+  botonRec.events.click();
+  await new Promise(r => setTimeout(r, 10));
+  assert.equal(calls[4].url, "/api/fabrica/retiro/recrear");
+  assert.deepEqual(calls[4].body,
+    {retiro_ids: [6], confirmacion: "RECREAR 1 ANUNCIOS", actor: "dueno"});
+  assert.equal(calls[4].token, "tok");
+  assert.match(estadoRec.textContent, /Recreados 1 de 1/);
   assert.equal(formR.elements.token.value, "");
+  calls.splice(4, 1);
   // Sacar de las bolsas: plan sin_pedidos sin lote, muestra anuncios, exige literal.
   api.verRetiro();
   await new Promise(r => setTimeout(r, 10));
@@ -203,7 +230,7 @@ const api = vm.runInThisContext("this.__api");
   assert.deepEqual(calls[5].body.listing_ids, [21]);
   assert.equal(calls[5].body.plataforma, "amazon_mx");
   assert.equal(calls[5].token, "tok");
-  assert.match(estadoR2.textContent, /Retirados 1/);
+  assert.match(estadoR2.textContent, /Retirados 1 de 1/);
   assert.equal(formR2.elements.token.value, "");
 })().catch(error => { console.error(error); process.exitCode = 1; });
 """
@@ -219,10 +246,10 @@ def test_r09d_error_objeto_muestra_mensaje_y_fallos_sin_object_object():
     [object Object]; un detail de texto se pinta tal cual."""
     archivo = RAIZ / "app" / "static" / "js" / "productos.js"
     assert archivo.exists(), "Falta el cliente de productos"
-    # Los cinco sitios de error usan mensajeError: ninguno conserva el
+    # Los seis sitios de error usan mensajeError: ninguno conserva el
     # patron que pintaba [object Object].
     assert "(r.data.detail || r.data)" not in archivo.read_text(encoding="utf-8")
-    assert archivo.read_text(encoding="utf-8").count("mensajeError(r.data)") == 5
+    assert archivo.read_text(encoding="utf-8").count("mensajeError(r.data)") == 6
     node = shutil.which("node")
     if not node:
         if "CI" in os.environ:

@@ -487,6 +487,25 @@ class CuerpoRetiroReponer(_Cuerpo):
     retiro_ids: Listings
     confirmacion: str = Field(min_length=1, max_length=60)
     actor: Actor
+    incluye_adoptados: bool = False
+
+    @field_validator("retiro_ids")
+    @classmethod
+    def retiros_unicos(cls, valor):
+        if len(valor) != len(set(valor)):
+            raise ValueError("retiros repetidos")
+        return valor
+
+    @field_validator("actor")
+    @classmethod
+    def actor_no_vacio(cls, valor):
+        return _actor_limpio(valor)
+
+
+class CuerpoRetiroRecrear(_Cuerpo):
+    retiro_ids: Listings
+    confirmacion: str = Field(min_length=1, max_length=60)
+    actor: Actor
 
     @field_validator("retiro_ids")
     @classmethod
@@ -698,16 +717,25 @@ def retiro_ejecutar(_token: Annotated[str, Depends(exige_token)], cuerpo: Cuerpo
         if cuerpo.confirmacion != f"SACAR {n} ANUNCIOS":
             raise fw.error(422, "La confirmación no coincide con la operación.")
         try:
-            retirados = ra.ejecuta_retiro(
-                conn, plan, go=cuerpo.confirmacion, impulso_id=imp, actor=cuerpo.actor
+            resultados = ra.ejecuta_retiro(
+                conn,
+                plan,
+                autorizacion=ra.AutorizacionHumana(cuerpo.confirmacion, cuerpo.actor),
+                impulso_id=imp,
             )
         except ValueError as exc:
             raise fw.error(422, str(exc)) from None
         except RuntimeError as exc:
-            raise fw.error(502, f"Retiro parcial: {exc}") from None
+            raise fw.error(502, f"Retiro no ejecutado: {exc}") from None
         lote = ra.lote_retiro_de_plan(plan)
         ids = [f[0] for f in conn.execute(_SQL_ABIERTOS_DE_LOTE, (lote,)).fetchall()]
-        return {"retirados": retirados, "lote_retiro": lote, "retiro_ids": ids}
+        return {
+            "retirados": sum(1 for r in resultados if r.fuera),
+            "total": len(resultados),
+            "anuncios": [r.como_dict() for r in resultados],
+            "lote_retiro": lote,
+            "retiro_ids": ids,
+        }
 
 
 _SQL_RETIROS_EXISTEN = """
@@ -722,24 +750,70 @@ SELECT r.id FROM anuncio_retiro r
 """
 
 
-@router.post("/retiro/reponer")
-def retiro_reponer(_token: Annotated[str, Depends(exige_token)], cuerpo: CuerpoRetiroReponer):
+def _regresa_retiros(cuerpo, verbo: str, literal: str, regresar):
+    """/retiro/reponer y /retiro/recrear: los retiros existen, el literal
+    nombra cuantos y cada uno trae su resultado. Un parcial no es error
+    del servidor: la respuesta dice cual regreso y cual no."""
     with fw._conexion("ORBIT_DSN_ADMIN", "retiro") as conn:
         hay = conn.execute(_SQL_RETIROS_EXISTEN, (list(cuerpo.retiro_ids),)).fetchone()[0]
         if hay != len(cuerpo.retiro_ids):
             raise fw.error(404, "Algun retiro pedido no existe.")
-        n = len(cuerpo.retiro_ids)
-        if cuerpo.confirmacion != f"REGRESAR {n} ANUNCIOS":
+        if cuerpo.confirmacion != f"{literal} {len(cuerpo.retiro_ids)} ANUNCIOS":
             raise fw.error(422, "La confirmación no coincide con la operación.")
+        autorizacion = ra.AutorizacionHumana(cuerpo.confirmacion, cuerpo.actor)
         try:
-            repuestos = ra.repone(
-                conn,
-                retiro_ids=tuple(cuerpo.retiro_ids),
-                go=cuerpo.confirmacion,
-                actor=cuerpo.actor,
-            )
+            resultados = regresar(conn, autorizacion)
         except ValueError as exc:
             raise fw.error(422, str(exc)) from None
         except RuntimeError as exc:
-            raise fw.error(502, f"Reposicion parcial: {exc}") from None
-        return {"repuestos": repuestos}
+            raise fw.error(502, f"No se pudo {verbo}: {exc}") from None
+        return resultados
+
+
+def _ids_con(resultados, resultado: str) -> list[int]:
+    return [r.retiro_id for r in resultados if r.resultado == resultado]
+
+
+@router.post("/retiro/reponer")
+def retiro_reponer(_token: Annotated[str, Depends(exige_token)], cuerpo: CuerpoRetiroReponer):
+    """Regresa cada anuncio a como estaba (mismo adId). Nunca recrea: los
+    ARCHIVED vienen en `requieren_recreacion` para /retiro/recrear. Los
+    adoptados vienen aparte en `adoptados` y solo se reactivan con
+    `incluye_adoptados`."""
+    resultados = _regresa_retiros(
+        cuerpo,
+        "reponer",
+        "REGRESAR",
+        lambda conn, autorizacion: ra.repone(
+            conn,
+            retiro_ids=tuple(cuerpo.retiro_ids),
+            autorizacion=autorizacion,
+            incluye_adoptados=cuerpo.incluye_adoptados,
+        ),
+    )
+    return {
+        "repuestos": sum(1 for r in resultados if r.regresado),
+        "total": len(resultados),
+        "anuncios": [r.como_dict() for r in resultados],
+        "adoptados": _ids_con(resultados, "adoptado_sin_reposicion"),
+        "requieren_recreacion": _ids_con(resultados, "requiere_recreacion"),
+    }
+
+
+@router.post("/retiro/recrear")
+def retiro_recrear(_token: Annotated[str, Depends(exige_token)], cuerpo: CuerpoRetiroRecrear):
+    """Crea otro anuncio para cada retiro cuyo anuncio Amazon archivo,
+    con la linea guardada. Exige `RECREAR {n} ANUNCIOS`."""
+    resultados = _regresa_retiros(
+        cuerpo,
+        "recrear",
+        "RECREAR",
+        lambda conn, autorizacion: ra.recrea(
+            conn, retiro_ids=tuple(cuerpo.retiro_ids), autorizacion=autorizacion
+        ),
+    )
+    return {
+        "recreados": sum(1 for r in resultados if r.regresado),
+        "total": len(resultados),
+        "anuncios": [r.como_dict() for r in resultados],
+    }

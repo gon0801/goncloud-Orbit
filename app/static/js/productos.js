@@ -6,8 +6,12 @@
 // previa; "Lanzar impulso" exige el literal LANZAR IMPULSO DE <N>
 // PRODUCTOS antes de mandar POST /api/fabrica/impulso/lanzar.
 // "Regresarlo a sus grupos de antes" exige REGRESAR <N> ANUNCIOS y manda
-// POST /api/fabrica/retiro/reponer. El token viaja en el header
-// x-orbit-token (la query string JAMAS autentica).
+// POST /api/fabrica/retiro/reponer. Sacar y regresar dicen "n de m" y
+// nombran cada anuncio que no quedo (AUTO-03 G.4); los adoptados y los
+// archivados piden su propio literal: REGRESAR <K> ANUNCIOS con
+// incluye_adoptados, o RECREAR <K> ANUNCIOS a /api/fabrica/retiro/recrear.
+// El token viaja en el header x-orbit-token (la query string JAMAS
+// autentica).
 // "Meta por producto" (AUTO-03 E.1) solo filtra filas ya pintadas por el
 // servidor: con meta, sin meta o por motivo.
 
@@ -215,6 +219,149 @@ function lanzar(form) {
     });
 }
 
+var ETIQUETA_RETIRO = {
+  retirado: "retirado",
+  adoptado: "ya estaba pausado: queda adoptado",
+  ya_retirado: "ya estaba retirado",
+  cerrado: "archivado o inexistente en Amazon",
+  pendiente: "sin confirmar: se reintenta",
+  rechazado: "Amazon lo rechazó",
+  no_existe: "no existe en Amazon",
+  archivado: "archivado en Amazon",
+};
+
+var ETIQUETA_REGRESO = {
+  repuesto: "regresado",
+  recreado: "recreado",
+  ya_repuesto: "ya estaba regresado",
+  adoptado_sin_reposicion: "adoptado: Orbit lo encontró ya pausado",
+  requiere_recreacion: "archivado en Amazon: regresar no lo recrea",
+  no_requiere_recreacion: "no está archivado: usa regresar",
+  fallo: "no se pudo",
+};
+
+function postJson(url, token, cuerpo) {
+  return fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-orbit-token": token },
+    body: JSON.stringify(cuerpo),
+  }).then(function (resp) {
+    return resp.json().then(function (data) {
+      return { ok: resp.ok, data: data };
+    });
+  });
+}
+
+function zonaResultado(form) {
+  var zona = form.querySelector("[data-resultado]");
+  if (!zona) {
+    zona = document.createElement("div");
+    zona.dataset.resultado = "";
+    form.appendChild(zona);
+  }
+  return zona;
+}
+
+// Una linea por anuncio que no quedo como se pidio (los que si, solo
+// cuentan en el n de "n de m").
+function pintaAnuncios(zona, anuncios, etiquetas, bien) {
+  zona.replaceChildren();
+  anuncios.forEach(function (a) {
+    if (bien.indexOf(a.resultado) !== -1) return;
+    var texto = a.ad_id_externo + " · " + (etiquetas[a.resultado] || a.resultado);
+    zona.appendChild(parrafo(a.detalle ? texto + " (" + a.detalle + ")" : texto));
+  });
+}
+
+// Segundo paso que pide su propio literal: regresar tambien los
+// adoptados, o recrear los archivados. Usa el actor y el token del form.
+function pasoConLiteral(form, zona, ids, literal, boton, enviar) {
+  var esperada = literal + " " + ids.length + " ANUNCIOS";
+  var caja = document.createElement("div");
+  caja.appendChild(parrafo("Escribe " + esperada + " para " + boton.toLowerCase() + "."));
+  var entrada = document.createElement("input");
+  entrada.type = "text";
+  entrada.placeholder = esperada;
+  var accion = document.createElement("button");
+  accion.type = "button";
+  accion.textContent = boton;
+  var estado = document.createElement("span");
+  accion.addEventListener("click", function () {
+    if (entrada.value !== esperada) {
+      estado.textContent = "Escribe " + esperada + " para confirmar.";
+      return;
+    }
+    estado.textContent = "Enviando…";
+    enviar(entrada.value, estado);
+  });
+  caja.append(entrada, accion, estado);
+  zona.appendChild(caja);
+  return { entrada: entrada, accion: accion, estado: estado };
+}
+
+function regresar(form, ids, confirmacion, incluyeAdoptados, estado) {
+  var cuerpo = {
+    retiro_ids: ids,
+    confirmacion: confirmacion,
+    actor: form.elements.actor.value,
+  };
+  if (incluyeAdoptados) cuerpo.incluye_adoptados = true;
+  return postJson("/api/fabrica/retiro/reponer", form.elements.token.value, cuerpo)
+    .then(function (r) {
+      if (!r.ok) {
+        estado.textContent = "Error: " + mensajeError(r.data) + ".";
+        return;
+      }
+      estado.textContent = "Regresados " + r.data.repuestos + " de " + r.data.total + ".";
+      var zona = zonaResultado(form);
+      pintaAnuncios(zona, r.data.anuncios || [], ETIQUETA_REGRESO, ["repuesto", "ya_repuesto"]);
+      var adoptados = r.data.adoptados || [];
+      var archivados = r.data.requieren_recreacion || [];
+      if (adoptados.length) {
+        pasoConLiteral(form, zona, adoptados, "REGRESAR", "Regresar también los adoptados",
+          function (literal, estadoPaso) {
+            regresar(form, adoptados, literal, true, estadoPaso);
+          });
+      }
+      if (archivados.length) {
+        pasoConLiteral(form, zona, archivados, "RECREAR", "Recrear los archivados",
+          function (literal, estadoPaso) {
+            recrear(form, archivados, literal, estadoPaso);
+          });
+      }
+      if (!adoptados.length && !archivados.length) form.elements.token.value = "";
+    })
+    .catch(function () {
+      estado.textContent = "Error de red al reponer.";
+    });
+}
+
+function recrear(form, ids, confirmacion, estado) {
+  return postJson("/api/fabrica/retiro/recrear", form.elements.token.value, {
+    retiro_ids: ids,
+    confirmacion: confirmacion,
+    actor: form.elements.actor.value,
+  })
+    .then(function (r) {
+      if (!r.ok) {
+        estado.textContent = "Error: " + mensajeError(r.data) + ".";
+        return;
+      }
+      var fallidos = (r.data.anuncios || []).filter(function (a) {
+        return a.resultado !== "recreado";
+      });
+      var texto = "Recreados " + r.data.recreados + " de " + r.data.total + ".";
+      fallidos.forEach(function (a) {
+        texto += " " + a.ad_id_externo + ": " + (ETIQUETA_REGRESO[a.resultado] || a.resultado) + ".";
+      });
+      estado.textContent = texto;
+      form.elements.token.value = "";
+    })
+    .catch(function () {
+      estado.textContent = "Error de red al recrear.";
+    });
+}
+
 function reponer(form) {
   var estado = form.querySelector("[data-estado]");
   var esperada = form.dataset.esperada;
@@ -232,35 +379,9 @@ function reponer(form) {
     .filter(function (x) {
       return x > 0;
     });
-  fetch("/api/fabrica/retiro/reponer", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-orbit-token": form.elements.token.value,
-    },
-    body: JSON.stringify({
-      retiro_ids: ids,
-      confirmacion: confirmacion,
-      actor: form.elements.actor.value,
-    }),
-  })
-    .then(function (resp) {
-      return resp.json().then(function (data) {
-        return { ok: resp.ok, data: data };
-      });
-    })
-    .then(function (r) {
-      if (!r.ok) {
-        estado.textContent = "Error: " + mensajeError(r.data) + ".";
-        return;
-      }
-      form.elements.token.value = "";
-      estado.textContent = "Repuestos " + r.data.repuestos + ".";
-    })
-    .catch(function () {
-      estado.textContent = "Error de red al reponer.";
-    });
+  regresar(form, ids, confirmacion, false, estado);
 }
+
 
 function listingsMarcados(selector) {
   var listings = [];
@@ -373,7 +494,8 @@ function ejecutarRetiro(form) {
       }
       retiroGuardado = null;
       form.elements.token.value = "";
-      estado.textContent = "Retirados " + r.data.retirados + ".";
+      estado.textContent = "Retirados " + r.data.retirados + " de " + r.data.total + ".";
+      pintaAnuncios(zonaResultado(form), r.data.anuncios || [], ETIQUETA_RETIRO, ["retirado"]);
     })
     .catch(function () {
       estado.textContent = "Error de red al ejecutar el retiro.";
