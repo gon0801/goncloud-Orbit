@@ -15,6 +15,7 @@ from decimal import Decimal
 
 import psycopg
 import pytest
+from psycopg.conninfo import make_conninfo
 from psycopg.types.json import Jsonb
 from test_cycle import OWNER, _config_version, _entidad, _estado
 from test_productos_io import (
@@ -26,7 +27,7 @@ from test_productos_io import (
     _mundo,
     _ventana,
 )
-from test_schema import _postgres_obligatorio_ausente
+from test_schema import _postgres_obligatorio_ausente, _test_dsn
 
 from app import apply_cola, productos_io
 from app import cycle as ciclo
@@ -441,7 +442,9 @@ def test_regresado_cierre_como_app_decide_respeta_predicados_candado_y_tablas_te
             "SELECT repuesto_el FROM anuncio_reposicion WHERE retiro_id = %s", (cerrado,)
         ).fetchone()[0]
 
-        otra = psycopg.connect(conn.info.dsn, autocommit=True)
+        # conn.info.dsn no trae la contrasena: la segunda conexion usa el DSN de la
+        # fixture con la base temporal, como en CI (Postgres con contrasena).
+        otra = psycopg.connect(make_conninfo(_test_dsn(), dbname=conn.info.dbname), autocommit=True)
         try:
             conn.autocommit = False
             conn.execute("SET ROLE app_decide")
