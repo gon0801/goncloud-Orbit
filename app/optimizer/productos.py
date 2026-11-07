@@ -102,6 +102,8 @@ MOTIVOS_PRODUCTO: dict[str, str] = {
     "sin_actividad_en_ventana": "el anuncio no aparece en las filas de la ventana",
     "clave_en_vuelo": "el anuncio ya tiene una pausa en la cola o un veto vigente",
     "regresado_por_ti": "lo regresaste hace menos de 7 dias",
+    # Simulacion (H.8).
+    "sin_historia": "la ventana es anterior al primer dato del reporte de productos: no es cero",
 }
 
 

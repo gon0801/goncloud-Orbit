@@ -170,6 +170,10 @@ class _Cubierta:
     empezo: dt.datetime
 
 
+class SinMetricasDeAnuncios(ValueError):
+    """El mercado no tiene watermark: ninguna metrica de anuncios que leer."""
+
+
 @dataclass(frozen=True)
 class ResultadoGuardado:
     ids: dict[tuple[str, int], int]
@@ -196,7 +200,9 @@ def lee_entradas_productos(
     hoy = decidido_el.astimezone(dt.UTC).date()
     watermark = windows.watermark_plataforma(conn, plataforma)
     if watermark is None:
-        raise ValueError(f"plataforma {plataforma} sin watermark: no hay ventana de halo")
+        raise SinMetricasDeAnuncios(
+            f"plataforma {plataforma} sin watermark: no hay ventana de halo"
+        )
     ventana_halo = p.Ventana(
         hoy - dt.timedelta(days=windows.LOOKBACK_EVIDENCIA),
         windows.fin_ventana_bids(watermark) + dt.timedelta(days=1),

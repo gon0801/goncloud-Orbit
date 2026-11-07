@@ -484,6 +484,9 @@ def simula(plataforma: str, clics: str | None, gasto: str | None) -> int:
         except SettingsInvalido as exc:
             print(f"simula {plataforma}: limites invalidos: {exc}")
             return 1
+        except productos_io.SinMetricasDeAnuncios as exc:
+            print(f"simula {plataforma}: sin metricas de anuncios: {exc}")
+            return 1
     s = simulacion
     print(
         f"simula {plataforma}: limites {s.limites.clics_min} clics y"

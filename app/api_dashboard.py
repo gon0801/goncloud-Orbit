@@ -2020,6 +2020,7 @@ def productos_simula_pausa(
     from app import pantalla_decisiones_producto
     from app.config_write import SettingsInvalido
     from app.optimizer import productos
+    from app.productos_io import SinMetricasDeAnuncios
 
     if platform not in productos.PLATAFORMAS:
         raise HTTPException(status_code=422, detail="plataforma sin decisiones por producto")
@@ -2029,6 +2030,10 @@ def productos_simula_pausa(
         )
     except SettingsInvalido as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except SinMetricasDeAnuncios as exc:
+        raise HTTPException(
+            status_code=422, detail="el mercado no tiene metricas de anuncios que simular"
+        ) from exc
     conn.commit()
     return simulacion.como_json()
 
