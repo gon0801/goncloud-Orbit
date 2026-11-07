@@ -20,7 +20,10 @@ import httpx
 import pytest
 
 from app.ads.archivar import (
+    FILTRO_AD_GROUP,
     RESULTADOS,
+    LecturaAmbigua,
+    anuncios_vivos_del_grupo,
     archivar_anuncios,
     estados_actuales,
     pausar_anuncios,
@@ -770,3 +773,83 @@ def test_r09r3_pausa_207_con_rechazo_por_item_es_fallo():
         dormir=lambda _s: None,
     )
     assert resultado.resultado == "fallo"
+
+
+# ---------------------------------------------------------------------------
+# AUTO-03 G (F3/F4): la lectura previa al create de `recrea`. Solo una lectura
+# completa y valida dice "no hay anuncio vivo"; cualquier otra forma levanta.
+# ---------------------------------------------------------------------------
+
+
+def _paginas(*paginas):
+    """Transporte que responde el list con `paginas` en orden (la ultima se
+    repite) y guarda el body de cada llamada."""
+    cuerpos: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return _token_response()
+        assert request.method == "POST" and request.url.path == PATH_LIST
+        cuerpos.append(json.loads(request.content))
+        return httpx.Response(200, json=paginas[min(len(cuerpos), len(paginas)) - 1])
+
+    return make_write_client(handler), cuerpos
+
+
+def _ad(ad_id, *, sku="SKU-1", state="ENABLED", ag="31"):
+    return {"adId": ad_id, "adGroupId": ag, "campaignId": "21", "sku": sku, "state": state}
+
+
+def test_el_filtro_del_list_por_ad_group_se_llama_exactamente_adGroupIdFilter():
+    """Como `adIdFilter` en el archivado: Amazon ignora EN SILENCIO un filtro
+    que no reconoce y devuelve la pagina entera. Con la clave equivocada, la
+    lectura previa al create dejaria de mirar el ad group pedido. El body
+    lleva SOLO adGroupIdFilter con el ad group, y nextToken en las paginas
+    siguientes; ademas se cuentan solo los vivos de ese sku.
+
+    Sonda de lectura del 2026-11-07 (POST /sp/productAds/list en vivo,
+    perfil amazon_mx, ad group 330240993709802, cliente de lectura): con
+    `adGroupIdFilter` la API devolvio 12 filas, todas de ese ad group (las
+    12 que tiene la base); con una clave inventada devolvio 1000 filas de
+    50 ad groups ajenos."""
+    escritor, cuerpos = _paginas(
+        {"productAds": [_ad("1", state="ARCHIVED"), _ad("2", sku="OTRO")], "nextToken": "t1"},
+        {"productAds": [_ad("3"), _ad("4", state="PAUSED")]},
+    )
+    vivos = anuncios_vivos_del_grupo(escritor, "31", "SKU-1")
+    assert [v["adId"] for v in vivos] == ["3", "4"]
+    assert FILTRO_AD_GROUP == "adGroupIdFilter"
+    assert cuerpos == [
+        {"adGroupIdFilter": {"include": ["31"]}},
+        {"adGroupIdFilter": {"include": ["31"]}, "nextToken": "t1"},
+    ]
+
+
+@pytest.mark.parametrize(
+    "paginas",
+    [
+        pytest.param(
+            [{"productAds": [_ad("1", state="ARCHIVED")], "nextToken": ""}], id="token-vacio"
+        ),
+        pytest.param([{"productAds": [], "nextToken": 7}], id="token-numero"),
+        pytest.param([{"productAds": [], "nextToken": "t"}], id="token-repetido"),
+        pytest.param(
+            [{"productAds": [], "nextToken": f"t{i}"} for i in range(30)], id="truncada-al-tope"
+        ),
+        pytest.param(
+            [{"productAds": [{"adId": "1", "adGroupId": "31", "sku": "SKU-1"}]}],
+            id="fila-sin-state",
+        ),
+        pytest.param([{"productAds": [_ad("1", state="PROPOSED")]}], id="state-desconocido"),
+        pytest.param([{"productAds": [_ad("1", sku="")]}], id="sku-vacio"),
+        pytest.param([{"productAds": [{**_ad("1"), "adId": None}]}], id="fila-sin-adId"),
+        pytest.param([{"productAds": ["no-es-fila"]}], id="fila-no-dict"),
+        pytest.param([{"productAds": [_ad("9", ag="99")]}], id="otro-ad-group"),
+        pytest.param([{"otra": []}], id="sin-contenedor"),
+        pytest.param([["no", "es", "dict"]], id="body-no-dict"),
+    ],
+)
+def test_la_lectura_previa_al_create_no_concluye_ausencia_de_una_pagina_dudosa(paginas):
+    escritor, _ = _paginas(*paginas)
+    with pytest.raises(LecturaAmbigua):
+        anuncios_vivos_del_grupo(escritor, "31", "SKU-1")
