@@ -267,12 +267,17 @@ def _aplica_resumen_acos_objetivo(
 
 
 def _aplica_producto_modo(
-    nuevo: dict, cambios: list[str], platform: str, producto_modo: Mapping[str, str] | None
+    nuevo: dict,
+    cambios: list[str],
+    platform: str,
+    producto_modo: Mapping[str, str] | None,
+    enciende_pausa: bool,
 ) -> None:
     """Interruptores de AUTO-03 (meta y pausa por producto; None = no tocar):
-    off QUITA la clave, shadow y live la escriben. La pausa en live se rechaza
-    siempre hasta que existan su ejecutor y el descarte de practicas (AUTO-03
-    I.7)."""
+    off QUITA la clave, shadow y live la escriben. La pausa en live solo
+    entra con `enciende_pausa`, que pasa unicamente
+    productos_modo.cambia_pausa: ahi el encendido descarta las practicas en
+    la misma transaccion (AUTO-03 I.7)."""
     for tipo, modo in (producto_modo or {}).items():
         if tipo not in ("meta", "pausa"):
             raise SettingsInvalido(f"interruptor de producto desconocido: {tipo!r}")
@@ -280,9 +285,10 @@ def _aplica_producto_modo(
             raise SettingsInvalido(
                 f"modo de {tipo} por producto debe ser off, shadow o live, llego {modo!r}"
             )
-        if tipo == "pausa" and modo == "live":
+        if tipo == "pausa" and modo == "live" and not enciende_pausa:
             raise SettingsInvalido(
-                "la pausa por producto todavia no se enciende en vivo: falta su ejecutor"
+                "la pausa por producto solo se enciende con el boton de la pantalla de"
+                " productos o con productos-modo --pausa live"
             )
         clave = productos.clave_modo(tipo, platform)
         if modo == "off":
@@ -330,6 +336,23 @@ def valida_limites_pausa(platform: str, limites: productos.LimitesPausa) -> None
         )
 
 
+def limites_pausa_guardados(settings: Mapping, platform: str) -> bool:
+    """Las dos claves de limites de la pausa estan en la config (S8): sin
+    ellas la pausa corre con los valores por omision, que nadie eligio."""
+    return all(productos.clave_limite(t, platform) in settings for t in ("clics", "gasto"))
+
+
+def exige_limites_guardados(settings: Mapping, platform: str) -> None:
+    """La pausa en live exige sus dos claves de limites (S8)."""
+    if productos.modos_desde_settings(settings, platform).pausa == "live" and not (
+        limites_pausa_guardados(settings, platform)
+    ):
+        raise SettingsInvalido(
+            "la pausa en vivo exige guardar antes los limites de clics y gasto de"
+            f" {platform}"
+        )
+
+
 def proxima_config(
     actual: Mapping,
     platform: str,
@@ -347,6 +370,7 @@ def proxima_config(
     resumen_acos_objetivo: Mapping[str, Decimal | str | None] | None = None,
     producto_modo: Mapping[str, str] | None = None,
     limites_pausa: productos.LimitesPausa | None = None,
+    enciende_pausa: bool = False,
 ) -> tuple[dict, list[str]]:
     """Config NUEVA a partir de la vigente + la lista legible de cambios.
 
@@ -411,7 +435,7 @@ def proxima_config(
 
     _aplica_precio_modos(nuevo, cambios, precio_modo_global, precio_modo_universo)
     _aplica_resumen_acos_objetivo(nuevo, cambios, resumen_acos_objetivo)
-    _aplica_producto_modo(nuevo, cambios, platform, producto_modo)
+    _aplica_producto_modo(nuevo, cambios, platform, producto_modo, enciende_pausa)
     _aplica_limites_pausa(nuevo, cambios, platform, limites_pausa)
 
     for kind, cap in (caps or {}).items():
@@ -436,6 +460,8 @@ def proxima_config(
         g.politica_bid_desde_settings(nuevo, platform)
         productos.modos_desde_settings(nuevo, platform)
         productos.limites_pausa_desde_settings(nuevo, platform)
+        if platform in productos.PLATAFORMAS:
+            exige_limites_guardados(nuevo, platform)
     except ValueError as exc:
         raise SettingsInvalido(str(exc)) from None
     # S.2: la resultante se valida con el vocabulario del motor de precios
@@ -464,6 +490,7 @@ def guarda_config(
     base_config_version_id: int,
     ahora: dt.datetime,
     actor: str = ACTOR,
+    confirma: bool = True,
     **edicion,
 ) -> dict:
     """Inserta la config NUEVA (fila de config_version) con label
@@ -473,7 +500,8 @@ def guarda_config(
     (el CLI productos-modo firma con su nombre). Lee la vigente y exige que
     sea `base_config_version_id` (ConfigObsoleta si otro guardo antes);
     SettingsInvalido sube tal cual. La conexion puede venir con o sin
-    autocommit: el INSERT se confirma aqui."""
+    autocommit: el INSERT se confirma aqui, salvo con `confirma=False`, que
+    deja el commit al llamador (el encendido de la pausa, AUTO-03 I.7)."""
     # Lock de aplicacion por transaccion (app_admin no tiene privilegio para
     # LOCK TABLE): dos guardados simultaneos se serializan y el segundo ve la
     # fila del primero -> 409, en vez de pisarla en silencio. En autocommit se
@@ -489,5 +517,6 @@ def guarda_config(
     nuevo, cambios = proxima_config(fila[1], platform, **edicion)
     label = f"settings UI · {actor} · {ahora.date().isoformat()} · {platform}: {', '.join(cambios)}"
     nuevo_id = conn.execute(_SQL_INSERTA, (label, Json(nuevo))).fetchone()[0]
-    conn.commit()
+    if confirma:
+        conn.commit()
     return {"config_version_id": nuevo_id, "created": True, "label": label}
