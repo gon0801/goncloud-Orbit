@@ -1465,3 +1465,24 @@ def test_proteccion_venta_append_only_vence_fijo_y_grants():
                 ),
             )
         conn.execute("RESET ROLE")
+
+
+SQL81_REV = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0081_reversa_orbit07_proteccion_venta.sql"
+).read_text(encoding="utf-8")
+
+
+@_skip_db
+def test_reversa_0081_quita_la_tabla_y_restaura_el_check_sin_espera_proteccion():
+    from app.apply import MOTIVOS_SIN_APLICAR
+
+    with _db_temporal_d1("orbit_pv_rev") as conn:
+        conn.execute(SQL81_REV)
+        assert conn.execute("SELECT to_regclass('proteccion_venta_reciente')").fetchone()[0] is None
+        _, defin = conn.execute(
+            "SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint"
+            " WHERE conrelid = 'decision_sin_aplicar'::regclass AND contype = 'c'"
+            " AND conname = 'decision_sin_aplicar_motivo_check'"
+        ).fetchone()
+        assert "espera_proteccion" not in defin
+        assert tuple(re.findall(r"'([a-z_]+)'", defin)) == MOTIVOS_SIN_APLICAR[:-1]
