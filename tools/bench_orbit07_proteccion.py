@@ -125,7 +125,11 @@ class _ConexionContador:
 
 
 def _siembra(conn) -> dict:
+    from decimal import Decimal
+
     from psycopg.types.json import Json
+
+    from app import goals_write
 
     hojas = CARGA["hojas"]
     config_id = conn.execute(
@@ -140,19 +144,23 @@ def _siembra(conn) -> dict:
             ),
         ),
     ).fetchone()[0]
-    goal_id = conn.execute(
-        "INSERT INTO ads_optimizer_goal (scope, platform, target_acos_pct, bid_floor,"
-        " bid_ceiling, bid_currency, harvest_campaign_id, harvest_ad_group_id,"
-        " harvest_default_bid, enabled, mode)"
-        " VALUES ('platform', %s, 25, 0.40, 2.50, 'USD', '9002', '9102', 0.75, true, 'live')"
-        " RETURNING id",
-        (PLATAFORMA,),
-    ).fetchone()[0]
     camp = conn.execute(
         "INSERT INTO ad_entity (platform, kind, external_id) VALUES (%s, 'campaign', '9001')"
         " RETURNING id",
         (PLATAFORMA,),
     ).fetchone()[0]
+    goal = goals_write.crea_goal(
+        conn,
+        ad_entity_id=camp,
+        target_acos_pct=Decimal("25"),
+        bid_currency="USD",
+        mode="live",
+        harvest_campaign_id="9002",
+        harvest_ad_group_id="9102",
+        harvest_default_bid=Decimal("0.75"),
+        created_at=DECIDED_AT,
+    )
+    goal_id = goal["id"]
     ag = conn.execute(
         "INSERT INTO ad_entity (platform, kind, external_id, parent_id)"
         " VALUES (%s, 'ad_group', '9101', %s) RETURNING id",
@@ -319,6 +327,8 @@ def _sha(code_dir: Path) -> str | None:
 
 
 def cmd_preparar(args) -> int:
+    if str(RAIZ) not in sys.path:
+        sys.path.insert(0, str(RAIZ))
     dsn = _dsn()
     admin = _conecta(dsn)
     try:
