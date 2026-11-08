@@ -43,8 +43,13 @@ from test_cycle import (
 )
 
 from app import apply_cola
+from app import cycle as ciclo
+from app.optimizer import cortes as cortes_mod
+from app.optimizer import goals as g
+from app.optimizer import proteccion as subproteccion
+from app.optimizer import windows
 from app.optimizer.caso import EpisodioProteccion
-from app.proteccion_venta import CacheProteccion
+from app.proteccion_venta import CacheProteccion, lee_cache
 
 _skip_db = pytest.mark.skipif(
     __import__("test_schema")._postgres_obligatorio_ausente(),
@@ -405,6 +410,82 @@ def test_ciclo_proteccion_vencida_no_congela_la_puja():
         assert bides[0][9]["factor"] == "-0.12"
         assert not [f for f in filas if f[0] == kw and f[1] == "pause"]
         assert _episodios(conn, kw) == [(dt.date(2026, 8, 12), dt.date(2026, 8, 22))]
+
+
+@_skip_db
+def test_sombra_sin_target_aplica_la_proteccion_en_el_juicio_hipotetico():
+    """F1 (DeepSeek): el juicio hipotetico de una hoja sin target usa los
+    mismos insumos que el camino live. Con la regla activa y una venta
+    reciente, la pausa por umbral se suprime tambien en la sombra."""
+    with _db_ciclo("orbit_m1_sombra_sin_target") as (conn, _c):
+        ids = _siembra_maestra(conn, settings={"ads_proteccion_venta": "proteccion_venta_v1"})
+        run = _run(conn)
+        for fecha in _fechas(dt.date(2026, 8, 20), dt.date(2026, 8, 21)):
+            _metrica_ciclo(
+                conn,
+                run,
+                ids["kw_pause"],
+                fecha,
+                _obs(fecha),
+                cost="0.10",
+                ad_revenue="0.10",
+                clicks=1,
+                orders=0,
+                impressions=10,
+            )
+        _metrica_ciclo(
+            conn,
+            run,
+            ids["kw_pause"],
+            dt.date(2026, 8, 20),
+            _obs(dt.date(2026, 8, 21)),
+            cost="0.10",
+            ad_revenue="1.00",
+            clicks=1,
+            orders=1,
+            impressions=10,
+        )
+        cache = lee_cache(conn, "amazon_us", DECIDED_AT)
+        evidencia = windows.ventanas_evidencia_ad_group(conn, "amazon_us", DECIDED_AT)
+        corte = cortes_mod.umbral_corte(evidencia.get(ids["ag"]), "pause")
+        goal = g.Goal(
+            scope="platform",
+            ad_entity_id=None,
+            platform="amazon_us",
+            target_acos_pct=Decimal("25"),
+            bid_floor=Decimal("0.40"),
+            bid_ceiling=Decimal("2.50"),
+            bid_currency="USD",
+            harvest_campaign_id=None,
+            harvest_ad_group_id=None,
+            harvest_default_bid=None,
+            enabled=True,
+            mode="shadow",
+        )
+
+        veredicto = ciclo._juicio_hoja(
+            conn,
+            goal.target_acos_pct,
+            platform="amazon_us",
+            goal=goal,
+            entidad_id=ids["kw_pause"],
+            ad_group_id=ids["ag"],
+            current_bid=Decimal("1.00"),
+            bid_currency="USD",
+            decided_at=DECIDED_AT,
+            corte_pause=corte,
+            pause_economica=False,
+            politica=None,
+            lecturas=None,
+            proteccion_cache=cache,
+        )
+
+        assert veredicto.kind is None
+        assert veredicto.motivo == subproteccion.MOTIVO_PROTEGIDA
+        assert veredicto.proteccion is not None
+        assert veredicto.proteccion.accion == "esperar"
+        assert veredicto.proteccion.ancla == dt.date(2026, 8, 20)
+        assert veredicto.proteccion.vence_el == dt.date(2026, 8, 30)
 
 
 @_skip_db

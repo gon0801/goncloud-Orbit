@@ -124,25 +124,24 @@ class _ConexionContador:
         return getattr(self._conn, nombre)
 
 
-def _siembra(conn) -> dict:
+def _siembra(conn, *, proteccion: bool = True) -> dict:
     from decimal import Decimal
 
     from psycopg.types.json import Json
 
     from app import goals_write
+    from app.optimizer.caso import VERSION_PROTECCION_VENTA
 
     hojas = CARGA["hojas"]
+    settings = {
+        "ads_optimizer_mode": "shadow",
+        "ads_bid_politica_amazon_us": "niveles_v3",
+    }
+    if proteccion:
+        settings["ads_proteccion_venta"] = VERSION_PROTECCION_VENTA
     config_id = conn.execute(
         "INSERT INTO config_version (label, settings) VALUES (%s, %s) RETURNING id",
-        (
-            "bench-orbit07",
-            Json(
-                {
-                    "ads_optimizer_mode": "shadow",
-                    "ads_bid_politica_amazon_us": "niveles_v3",
-                }
-            ),
-        ),
+        ("bench-orbit07", Json(settings)),
     ).fetchone()[0]
     camp = conn.execute(
         "INSERT INTO ad_entity (platform, kind, external_id) VALUES (%s, 'campaign', '9001')"
@@ -340,7 +339,7 @@ def cmd_preparar(args) -> int:
         try:
             conn.execute("SET TIME ZONE 'UTC'")
             migraciones = _aplica_migraciones(conn)
-            sembrado = _siembra(conn)
+            sembrado = _siembra(conn, proteccion=args.proteccion == "on")
             huella = _huella(conn)
         finally:
             conn.close()
@@ -366,12 +365,18 @@ def _mide_una(conn, rol: str, ronda: int) -> dict:
     from app.optimizer import goals as g
 
     try:
+        from app.optimizer import proteccion as subproteccion
+    except ImportError:  # base: el modulo no existe
+        subproteccion = None
+
+    try:
         from app import proteccion_venta
     except ImportError:  # base: el modulo no existe
         proteccion_venta = None
 
     _config_id, settings = ciclo._config_reciente(conn)
     modo = g.resuelve_modo(g.modo_desde_settings(settings), ciclo._MODO_TOPE_ENVELOPE)
+    activa = bool(getattr(subproteccion, "activa_desde_settings", lambda _s: False)(settings))
     ciclo_id = conn.execute(
         "INSERT INTO optimizer_cycle (mode, platform) VALUES ('shadow', %s) RETURNING id",
         (PLATAFORMA,),
@@ -394,7 +399,7 @@ def _mide_una(conn, rol: str, ronda: int) -> dict:
 
     def bloque(proxy):
         claves = getattr(apply_cola, "claves_released", None)
-        if claves is not None:
+        if activa and claves is not None:
             claves(proxy, PLATAFORMA)
             proteccion_venta.lee_cache(proxy, PLATAFORMA, DECIDED_AT)
 
@@ -404,7 +409,7 @@ def _mide_una(conn, rol: str, ronda: int) -> dict:
 
     def barrido(proxy):
         filas.extend(proxy.execute(apply_cola._SQL_VENCIDAS, (PLATAFORMA, DECIDED_AT)).fetchall())
-        if proteccion_venta is not None:
+        if activa and proteccion_venta is not None:
             proteccion_venta.lee_cache(proxy, PLATAFORMA, DECIDED_AT)
 
     barrido_ms, barrido_consultas = _cuenta(conn, barrido)
@@ -412,7 +417,7 @@ def _mide_una(conn, rol: str, ronda: int) -> dict:
     persistencia_ms = None
     persistencia_filas = 0
     persistencia_consultas = 0
-    if proteccion_venta is not None:
+    if activa and proteccion_venta is not None:
         ids = [
             fila[0]
             for fila in conn.execute(
@@ -440,6 +445,7 @@ def _mide_una(conn, rol: str, ronda: int) -> dict:
     return {
         "rol": rol,
         "ronda": ronda,
+        "proteccion": activa,
         "tx2_ms": tx2_ms,
         "tx2_consultas": tx2_consultas,
         "bloque_ms": bloque_ms,
@@ -566,12 +572,14 @@ def _resumen(rol: dict) -> dict:
             continue
         salida[metrica] = {
             "media": round(statistics.mean(valores), 2),
+            "mediana": round(statistics.median(valores), 2),
             "min": round(min(valores), 2),
             "max": round(max(valores), 2),
         }
     for conteo in conteos:
         valores = [r[conteo] for r in rondas if r.get(conteo) is not None]
         salida[conteo] = valores[0] if valores else None
+    salida["proteccion"] = rondas[0]["proteccion"]
     salida["barrido_filas"] = rondas[0]["barrido_filas"]
     salida["ciclo_decisiones"] = [r["ciclo_decisiones"] for r in rondas]
     return salida
@@ -624,7 +632,9 @@ def cmd_comparar(args) -> int:
             "Cada corrida clona la MISMA plantilla fija; base y candidato alternan "
             "por ronda sobre esa copia. tx2_ms mide la fase de lecturas completa; "
             "bloque_ms el bloque cycle.py:3151-3152; barrido_ms la lectura del "
-            "barrido (apply_cola.py:1333-1334); ciclo_ms el ciclo en shadow."
+            "barrido (apply_cola.py:1333-1334); ciclo_ms el ciclo en shadow. "
+            "`proteccion` indica si la plantilla tiene el setting "
+            "ads_proteccion_venta (regla M1 encendida)."
         ),
         "base": _resumen({"rondas": resultados["base"], "sha": _sha(args.code_base)}),
         "candidato": _resumen({"rondas": resultados["candidato"], "sha": _sha(RAIZ)}),
@@ -642,6 +652,7 @@ def main() -> int:
 
     p = sub.add_parser("preparar")
     p.add_argument("--plantilla", required=True)
+    p.add_argument("--proteccion", choices=("on", "off"), default="on")
     p.set_defaults(func=cmd_preparar)
 
     p = sub.add_parser("medir")

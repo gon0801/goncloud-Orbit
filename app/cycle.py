@@ -2260,6 +2260,7 @@ def _juicio_hoja(
             umbral_pause=corte_pause.umbral,
             cost_min=costo_piso,
             policy_version=pausa.politica_economica,
+            proteccion=pausa.proteccion,
         )
     assert lecturas is not None  # _recorre_plataforma: politica => lecturas
     return decide(
