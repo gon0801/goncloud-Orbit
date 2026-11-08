@@ -8,7 +8,8 @@ sigue aplicable al ultimo cambio:
 - Un recorte puede repetirse si conservo las ventas y mejoro la economia
   (ACoS posterior menor). En ese caso el freno de trafico de R16 no aplica:
   el recorte podo trafico que no vendia. Si no conservo ventas o no mejoro la
-  economia, se frena con `recorte_sin_economia`.
+  economia, el juicio es `sin_evidencia`: R16 decide como antes. M6 no
+  agrega un tercer freno sobre recortes; ese parametro no esta autorizado.
 - Una subida se frena con `subida_sin_economia` cuando el trafico adicional no
   compenso el gasto: no crecio la venta, o con margen compatible la
   contribucion estimada no mejoro, o sin margen el ACoS empeoro y supera el
@@ -33,7 +34,6 @@ from app.optimizer.caso import (
     VentanaEconomica,
 )
 
-MOTIVO_RECORTE_SIN_ECONOMIA = "recorte_sin_economia"
 MOTIVO_SUBIDA_SIN_ECONOMIA = "subida_sin_economia"
 
 _CIEN = Decimal(100)
@@ -82,19 +82,24 @@ def juicio_repeticion(
 
 
 def _juicio_recorte(pre: VentanaEconomica, post: VentanaEconomica) -> JuicioRepeticion:
+    """Un recorte solo se PERMITE con ventas conservadas y ACoS mejor.
+
+    Cualquier otro resultado es `sin_evidencia`: R16 de la trayectoria vigente
+    decide como antes. M6 no frena recortes; un freno de recortes seria un
+    parametro nuevo reservado al dueno y no esta autorizado.
+    """
     assert pre.venta is not None and post.venta is not None
     if pre.venta <= 0:
         return SIN_EVIDENCIA
-    conserva_ventas = post.venta >= pre.venta
-    if not conserva_ventas:
-        return JuicioRepeticion("frena", MOTIVO_RECORTE_SIN_ECONOMIA)
+    if post.venta < pre.venta:
+        return SIN_EVIDENCIA
     acos_pre = _acos(pre)
     acos_post = _acos(post)
     if acos_pre is None or acos_post is None:
         return SIN_EVIDENCIA
     if acos_post < acos_pre:
         return PERMITE
-    return JuicioRepeticion("frena", MOTIVO_RECORTE_SIN_ECONOMIA)
+    return SIN_EVIDENCIA
 
 
 def _juicio_subida(

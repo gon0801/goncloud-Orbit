@@ -13,7 +13,9 @@ la repetición de la misma dirección se juzga así:
   conservó las ventas (`venta_post >= venta_pre`) y mejoró la economía
   (`ACoS_post < ACoS_pre`). En ese caso el freno de tráfico de R16 no aplica:
   el recorte podó tráfico que no vendía. Si no conservó ventas o no mejoró el
-  ACoS, `Mantener(recorte_sin_economia)`.
+  ACoS, el juicio es `sin_evidencia` y **R16 decide como antes**. M6 no frena
+  recortes: un tercer freno sobre recortes no está autorizado por el plan y
+  podría dejar gastando una hoja que pierde dinero.
 - **Subida** (`factor > 0`): se frena con `Mantener(subida_sin_economia)`
   cuando el tráfico adicional no compensó el gasto: no creció la venta, o con
   margen compatible la contribución estimada no mejoró, o sin margen el ACoS
@@ -32,7 +34,7 @@ target.
 |---|---|---|
 | Ventanas | `[x-7, x-1]` y `[x+1, x+7]`, sin el día del cambio | Siete fechas completas a cada lado, igual longitud; el día del cambio mezcla el precio viejo y el nuevo. |
 | Madurez | `x+7 <= D-10` (D+17 como pronto) | Es la madurez de cortes del repositorio (`DIAS_MADUREZ = 10`): la venta posterior todavía se reobserva antes de D+17. |
-| Ventas conservadas | `venta_post >= venta_pre` | Un recorte que pierde ventas no puede repetirse aunque baje el ACoS. No es un umbral monetario nuevo: es no perder. |
+| Ventas conservadas | `venta_post >= venta_pre` | Solo habilita el permiso para repetir un recorte; sin esto no hay evidencia y R16 decide. No es un umbral monetario nuevo: es no perder. |
 | Mejor economía | `ACoS_post < ACoS_pre` | Es la misma métrica del target, calculada con las dos ventanas; no se inventa un porcentaje de mejora. |
 | Subida compensada | venta crece y (contribución sube si hay margen; si no, ACoS dentro del target o no peor) | El target ya expresa cuánto gasta el dueño por venta; no se define otro umbral de riesgo. |
 | Mínimo de evidencia | 20 clics al bid nuevo (R15) y ventanas completas | Se conserva el mínimo vigente de repetición; una ventana incompleta no demuestra nada. |
@@ -45,14 +47,20 @@ target.
 
 1. Recorte con ventas conservadas y ACoS de 20 % a 15 %: repite `-12 %`
    aunque el tráfico haya caído a 0.50 (R16 habría frenado).
-2. Recorte con ventas de 1000 a 700: `recorte_sin_economia`.
-3. Recorte con la misma venta y ACoS de 20 % a 25 %: `recorte_sin_economia`.
-4. Subida con venta 200 a 210 y ACoS de 20 % a 28.6 %: `subida_sin_economia`.
-5. Subida con venta 200 a 500 y ACoS 12 % (dentro del target): repite
+2. Recorte con ventas de 1000 a 700: sin evidencia; R16 decide como antes
+   (`recorte_costo_trafico` en el caso de la prueba, porque el tráfico cayó).
+3. Recorte con la misma venta y ACoS de 20 % a 25 %: sin evidencia; R16
+   decide como antes.
+4. **Vendedora que pierde dinero** con tráfico conservado (0.857): el
+   episodio no conserva ventas (1000 a 999.99) y devuelve sin evidencia; R16
+   deja pasar y R3 recorta `-25 %` (`pierde_dinero_fuerte`). Esta es la
+   regresión que fallaba con el freno de recortes.
+5. Subida con venta 200 a 210 y ACoS de 20 % a 28.6 %: `subida_sin_economia`.
+6. Subida con venta 200 a 500 y ACoS 12 % (dentro del target): repite
    `+15 %`.
-6. Subida con contribución estimada que cae con margen 8 %:
+7. Subida con contribución estimada que cae con margen 8 %:
    `subida_sin_economia`.
-7. Episodio inmaduro, incomparable, no aplicable o ausente: R16 conserva el
+8. Episodio inmaduro, incomparable, no aplicable o ausente: R16 conserva el
    freno de tráfico.
 
 ## Dónde la regla sería incorrecta (y cómo se guarda)
@@ -71,6 +79,12 @@ target.
 - **Fuente incompleta**: una ventana sin sus siete fechas y diez días de
   madurez no se rellena con cero; el episodio queda `incomparable` o
   `inmaduro` y la trayectoria vigente decide.
+- **Un freno de recortes**, aunque la venta posterior baje un centavo, no
+  está en el plan: anularía `pierde_dinero` y dejaría gastando una hoja que
+  la base recorta. Por eso M6 devuelve `sin_evidencia` en ese caso y R16
+  decide. Si el dueño quisiera un freno así, sería un parámetro nuevo
+  reservado a él, con su análisis de exposición y sin anular
+  `pierde_dinero`; no se implementa aquí.
 
 ## Activación y reversa
 
@@ -112,7 +126,8 @@ evaluación de trayectoria.
 ## Seguimiento operativo
 
 Desde el primer ciclo con la regla encendida se registran, por mercado y
-moneda: decisiones cambiadas (`recorte_sin_economia`, `subida_sin_economia`),
+moneda: recortes permitidos por el episodio, subidas frenadas
+(`subida_sin_economia`), recortes que quedaron en R16 por falta de evidencia,
 episodios `maduro`/`inmaduro`/`incomparable`, cobertura de ventanas, gasto y
 venta de las ventanas y contribución estimada (solo con margen compatible).
 Ante un defecto comprobado se corrige o se apaga la clave; no se espera a

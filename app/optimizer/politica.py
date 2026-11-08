@@ -63,8 +63,9 @@ MOTIVO_ESPERANDO_PRECIO_MEDIDO = "esperando_precio_medido"
 MOTIVO_SIN_CLICS_NUEVOS = "sin_clics_nuevos"
 MOTIVO_RECORTE_COSTO_TRAFICO = "recorte_costo_trafico"
 MOTIVO_SUBIDA_SIN_TRAFICO = "subida_sin_trafico"
-# ORBIT 07 M6: repeticion juzgada con el episodio economico maduro.
-MOTIVO_RECORTE_SIN_ECONOMIA = economia_cambio.MOTIVO_RECORTE_SIN_ECONOMIA
+# ORBIT 07 M6: repeticion juzgada con el episodio economico maduro. Solo se
+# frena la subida sin compensacion; el recorte sin ventas conservadas o sin
+# mejora de ACoS devuelve sin evidencia y R16 decide como antes.
 MOTIVO_SUBIDA_SIN_ECONOMIA = economia_cambio.MOTIVO_SUBIDA_SIN_ECONOMIA
 MOTIVO_PISO_APRENDIDO = "piso_aprendido"
 MOTIVO_DATO_FALTANTE = "dato_faltante"
@@ -188,9 +189,10 @@ def decide(caso: CasoHoja) -> Veredicto:
         R16b (ORBIT 07 M6) con episodio economico maduro, comparable y aplicable:
             recorte con ventas conservadas y ACoS mejor -> permite repetir aunque
             R16 frenara por trafico; recorte sin ventas conservadas o sin mejora ->
-            Mantener(recorte_sin_economia); subida cuyo trafico adicional no
-            compensa el gasto -> Mantener(subida_sin_economia). Sin episodio
-            maduro, R16 decide como antes.
+            sin evidencia y R16 decide como antes (M6 no frena recortes); subida
+            cuyo trafico adicional no compensa el gasto ->
+            Mantener(subida_sin_economia). Sin episodio maduro, R16 decide como
+            antes.
         R17 recorte que dejaria el bid en o debajo de trayectoria.piso_aprendido ->
             Mantener(piso_aprendido)
 

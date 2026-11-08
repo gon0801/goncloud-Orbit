@@ -1,0 +1,28 @@
+ORBIT 07 M6 - regresion del freno de recortes (h_m6_freno_recorte)
+Base con el defecto: c8a13bf. Correccion: quitar el freno de recortes y
+devolver sin_evidencia para que R16 decida como antes.
+Comando:
+  python -m pytest -q tests/test_orbit07_m5m6.py::test_vendedora_que_pierde_dinero_repite_el_recorte_que_la_base_hace
+Caso: vendedora que pierde dinero (equilibrio 30 %, target 25 %), cambio
+motor 1.00 -> 0.85, trafico conservado 0.857, venta 1000 -> 999.99.
+
+== Sobre c8a13bf (con el freno) ==
+F                                                                        [100%]
+================================== FAILURES ===================================
+_____ test_vendedora_que_pierde_dinero_repite_el_recorte_que_la_base_hace _____
+...
+        pendientes, contadores = _corre_decisora(monkeypatch, caso)
+>       assert [(p.kind, p.new_value, p.inputs["motivo"]) for p in pendientes] == [
+            ("bid", Decimal("0.6375"), "pierde_dinero_fuerte")
+        ]
+E       AssertionError: assert [] == [('bid', Deci...nero_fuerte')]
+E
+E         Right contains one more item: ('bid', Decimal('0.6375'), 'pierde_dinero_fuerte')
+E         Use -v to get more diff
+=========================== short test summary info ===========================
+FAILED tests/test_orbit07_m5m6.py::test_vendedora_que_pierde_dinero_repite_el_recorte_que_la_base_hace
+1 failed in 1.29s
+
+== Sobre el candidato corregido ==
+.                                                                        [100%]
+1 passed in 0.97s

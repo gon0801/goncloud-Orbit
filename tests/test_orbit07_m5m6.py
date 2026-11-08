@@ -50,10 +50,7 @@ from app.optimizer.caso import (
     Trayectoria,
     VentanaEconomica,
 )
-from app.optimizer.politica import (
-    MOTIVO_RECORTE_SIN_ECONOMIA,
-    MOTIVO_SUBIDA_SIN_ECONOMIA,
-)
+from app.optimizer.politica import MOTIVO_SUBIDA_SIN_ECONOMIA
 
 _SIN_PG = pytest.mark.skipif(
     _postgres_obligatorio_ausente(),
@@ -329,7 +326,9 @@ def test_recorte_con_ventas_conservadas_y_economia_mejor_repite(monkeypatch):
     assert pendientes[0].inputs["motivo"] == "gasto_sin_venta"
 
 
-def test_recorte_sin_ventas_conservadas_se_frena(monkeypatch):
+def test_recorte_sin_ventas_conservadas_deja_decidir_a_r16(monkeypatch):
+    """M6 no frena recortes: sin ventas conservadas devuelve sin evidencia y
+    R16 conserva su freno de trafico."""
     caso = _caso(
         propia=_propia_sin_pedidos(),
         bid="0.85",
@@ -339,10 +338,10 @@ def test_recorte_sin_ventas_conservadas_se_frena(monkeypatch):
     )
     pendientes, contadores = _corre_decisora(monkeypatch, caso)
     assert pendientes == []
-    assert contadores.skips_entidad == {MOTIVO_RECORTE_SIN_ECONOMIA: 1}
+    assert contadores.skips_entidad == {"recorte_costo_trafico": 1}
 
 
-def test_recorte_sin_mejora_de_acos_se_frena(monkeypatch):
+def test_recorte_sin_mejora_de_acos_deja_decidir_a_r16(monkeypatch):
     caso = _caso(
         propia=_propia_sin_pedidos(),
         bid="0.85",
@@ -352,7 +351,55 @@ def test_recorte_sin_mejora_de_acos_se_frena(monkeypatch):
     )
     pendientes, contadores = _corre_decisora(monkeypatch, caso)
     assert pendientes == []
-    assert contadores.skips_entidad == {MOTIVO_RECORTE_SIN_ECONOMIA: 1}
+    assert contadores.skips_entidad == {"recorte_costo_trafico": 1}
+
+
+def test_vendedora_que_pierde_dinero_repite_el_recorte_que_la_base_hace(monkeypatch):
+    """Trafico conservado (0.857) y una vendedora que pierde dinero: un
+    episodio sin ventas conservadas no puede frenar el recorte. R16 deja
+    pasar y R3 recorta -25 %, como en la base. La version con el freno
+    devolvia recorte_sin_economia y dejaba la hoja perdiendo dinero."""
+    propia = EvidenciaNivel(
+        reciente=Tramo(
+            clics=3200,
+            pedidos=20,
+            venta=Decimal("2000"),
+            gasto=Decimal("1600"),
+            impresiones=60000,
+        ),
+        antiguo=Tramo(clics=0, pedidos=0, venta=Decimal("0"), gasto=Decimal("0"), impresiones=0),
+    )
+    efecto = EfectoCambio(
+        dias_post=20,
+        impresiones_pre7=700,
+        clics_pre7=70,
+        impresiones_post=600,
+        dias_post_trafico=7,
+        clics_post=60,
+        gasto_post=Decimal("30"),
+        clics_pre=70,
+        gasto_pre=Decimal("40"),
+        vendia=True,
+    )
+    caso = _caso(
+        propia=propia,
+        bid="0.85",
+        cambios=(_cambio_pasado(),),
+        efecto=efecto,
+        episodio=_episodio(
+            pre_gasto="800",
+            pre_venta="1000",
+            post_gasto="600",
+            post_venta="999.99",
+        ),
+        target="25",
+        equilibrio="30",
+    )
+    pendientes, contadores = _corre_decisora(monkeypatch, caso)
+    assert [(p.kind, p.new_value, p.inputs["motivo"]) for p in pendientes] == [
+        ("bid", Decimal("0.6375"), "pierde_dinero_fuerte")
+    ]
+    assert contadores.skips_entidad == {}
 
 
 @pytest.mark.parametrize(
