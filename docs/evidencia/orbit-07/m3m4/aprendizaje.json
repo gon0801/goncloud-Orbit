@@ -1,0 +1,153 @@
+{
+  "version": "v2",
+  "referencia": "ORBIT 07 M3/M4 sobre 4e0e78d (M2) / f86ed7dc (AUTO-03)",
+  "sonda": "docs/evidencia/orbit-07/m3m4/sonda_aprendizaje.py",
+  "mundo": {
+    "producto": "SKU-A",
+    "ventana": "[D-60, D-30)",
+    "gasto_y_clics_por_fecha": "2 USD y 4 clics, cero compras y cero ventas",
+    "limites_por_omision": {
+      "clics_min": 100,
+      "gasto_min": "40",
+      "moneda": "USD"
+    }
+  },
+  "agregado_auto03": {
+    "base": {
+      "product_id": 1,
+      "politica": "v2",
+      "gasto": "60.0000",
+      "moneda": "USD",
+      "clics": 120,
+      "compras": "0.0000",
+      "ventas": "0.0000",
+      "anuncios_elegibles": [
+        4
+      ],
+      "propuestas": [
+        4
+      ],
+      "motivos_pausa": [],
+      "limites": {
+        "clics_min": 100,
+        "gasto_min": "40",
+        "moneda": "USD"
+      }
+    },
+    "reobservacion_reemplaza": {
+      "product_id": 1,
+      "politica": "v2",
+      "gasto": "63.0000",
+      "moneda": "USD",
+      "clics": 120,
+      "compras": "0.0000",
+      "ventas": "0.0000",
+      "anuncios_elegibles": [
+        4
+      ],
+      "propuestas": [
+        4
+      ],
+      "motivos_pausa": [],
+      "limites": {
+        "clics_min": 100,
+        "gasto_min": "40",
+        "moneda": "USD"
+      }
+    },
+    "segundo_grupo_del_mismo_producto": {
+      "product_id": 1,
+      "politica": "v2",
+      "gasto": "63.0000",
+      "moneda": "USD",
+      "clics": 120,
+      "compras": "0.0000",
+      "ventas": "0.0000",
+      "anuncios_elegibles": [
+        4,
+        7
+      ],
+      "propuestas": [
+        4,
+        7
+      ],
+      "motivos_pausa": [],
+      "limites": {
+        "clics_min": 100,
+        "gasto_min": "40",
+        "moneda": "USD"
+      }
+    },
+    "grupo_compartido": {
+      "product_id": 1,
+      "politica": "v2",
+      "gasto": "63.0000",
+      "moneda": "USD",
+      "clics": 120,
+      "compras": "0.0000",
+      "ventas": "0.0000",
+      "anuncios_elegibles": [
+        4,
+        7
+      ],
+      "propuestas": [
+        4,
+        7
+      ],
+      "motivos_pausa": [],
+      "limites": {
+        "clics_min": 100,
+        "gasto_min": "40",
+        "moneda": "USD"
+      }
+    },
+    "vecino_de_otro_producto": {
+      "ad_entity_id": 8,
+      "en_anuncios_elegibles_del_producto": false,
+      "en_propuestas_del_producto": false
+    }
+  },
+  "produccion_auto03_e4": {
+    "fuente": "docs/evidencia/auto-03/ejecucion/E/elegibilidad-{mx,us}.json",
+    "consulta": "2026-11-07 03:01 UTC, solo lectura, regla H contada sobre datos de D",
+    "amazon_mx": {
+      "productos_evaluados": 249,
+      "grupos_exclusivos": 6,
+      "candidatos_pausa": 0,
+      "anuncios_afectables": 0,
+      "ventana_pausa_completa": 177,
+      "motivos_ventana_pausa": {
+        "fecha_desconocida": 47,
+        "sin_filas_en_ventana": 25
+      }
+    },
+    "amazon_us": {
+      "productos_evaluados": 119,
+      "grupos_exclusivos": 0,
+      "candidatos_pausa": 3,
+      "anuncios_afectables": 29,
+      "ventana_pausa_completa": 53,
+      "motivos_ventana_pausa": {
+        "fecha_desconocida": 31,
+        "sin_filas_en_ventana": 35
+      }
+    },
+    "interseccion_candidato_y_grupo_exclusivo": {
+      "amazon_mx": 0,
+      "amazon_us": 0,
+      "regla": "si el conteo de candidatos o el de grupos exclusivos es cero, la interseccion es cero"
+    }
+  },
+  "m4_cubierto_por_auto03": {
+    "propuesta_por_anuncio_elegible": true,
+    "una_sola_actividad_por_producto": true,
+    "alcance_compartido_solo_anuncios_del_producto": true
+  },
+  "m3_freno_de_subidas": {
+    "efecto_propio_en_la_medicion": false,
+    "donde_ya_impide": "I.5 omite la subida con una pausa live en vuelo del grupo exclusivo (tests/test_apply_producto.py)::test_grupo_exclusivo_con_pausa_en_vuelo_omite_la_subida_y_aplica_la_bajada",
+    "donde_no_impide": "con la pausa en practica (shadow) AUTO-03 no bloquea subidas; anadir un freno ahi seria una regla nueva y el plan reserva al dueno el gasto de aprendizaje"
+  },
+  "diferencia_funcional_pendiente": false,
+  "decision": "omitir M3/M4 con esta evidencia; AUTO-03 H/I cubre la pausa y el agregado no duplica gasto"
+}

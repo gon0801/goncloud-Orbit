@@ -264,6 +264,13 @@ Paralelizar lecturas y revisiones, sin abrir períodos de observación futuros p
 
 ## Compartir el aprendizaje entre anuncios del mismo producto (M3)
 
+**Omitido en esta entrega.** M0 no acredita una diferencia funcional pendiente:
+el agregado de AUTO-03 ya colapsa por fecha y suma por producto sin doble
+conteo, y el freno de subidas solo aplica a grupos exclusivos, donde la
+intersección con los candidatos a pausa es cero en MX y US; con la pausa live
+en vuelo, I.5 ya omite la subida. Evidencia:
+[`docs/evidencia/orbit-07/m3m4/comparacion-auto03.md`](../docs/evidencia/orbit-07/m3m4/comparacion-auto03.md).
+
 **Depende de.** M2 y la política de aprendizaje resuelta con los datos disponibles en M0.
 Se entrega con M4 si su freno no cambia decisiones por sí mismo. M0 resuelve esa agrupación
 antes de abrir una PR de M3, sin esperar resultados comerciales futuros. Comparar también
@@ -307,6 +314,12 @@ conservar su evidencia y omitir la construcción correspondiente de M3 y M4.
 - [ ] Entregar M3 con M4 cuando su resultado sea preparar datos para el retiro. Si tiene efecto propio, activar su freno con CI verde y parámetros explícitos. Comprobar gasto agregado y decisiones en el primer ciclo. Describir únicamente la exposición que realmente impide; M4 añade el retiro individual cuando corresponda.
 
 ## Extender la pausa existente con el aprendizaje pendiente (M4)
+
+**Omitido en esta entrega.** AUTO-03 H/I ya propone la pausa por el gasto
+agregado del producto, con cero compras y ventas, datos maduros, alcance por
+anuncio y los límites que el dueño guarda; conserva el único escritor, la cola,
+la revalidación y la reversa. Evidencia:
+[`docs/evidencia/orbit-07/m3m4/comparacion-auto03.md`](../docs/evidencia/orbit-07/m3m4/comparacion-auto03.md).
 
 **Depende de.** Camino de retiro de AUTO-03 G-I recibido, M1, M2 y la diferencia de M3. Si AUTO-03 ya cubre el resultado, omitir esta entrega y registrar la evidencia heredada. Requiere cobertura de ventas y alcance por anuncio demostrada en M0, además de su contrato temporal específico de producto.
 
