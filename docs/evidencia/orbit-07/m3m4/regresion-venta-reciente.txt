@@ -1,0 +1,141 @@
+FFFF                                                                     [100%]
+================================== FAILURES ===================================
+__________ test_venta_reciente_inmadura_deja_la_pausa_en_espera[15] ___________
+
+dias = 15
+
+    @pytest.mark.parametrize("dias", [15, 5])
+    def test_venta_reciente_inmadura_deja_la_pausa_en_espera(dias):
+        fecha = DECIDIDO.date() - dt.timedelta(days=dias)
+        entrada = _entrada_mx(
+            _actividad(),
+            dias_halo=(_dia(fecha, compras="1", ventas="900", mismo="900"),),
+        )
+        ev = p.resolver_producto(entrada)
+>       assert ev.pausas == ()
+E       AssertionError: assert (PropuestaPau..._sin_ventas')) == ()
+E         
+E         Left contains 2 more items, first extra item: PropuestaPausa(anuncio=AnuncioElegible(ad_entity_id=901, listing_id=7, grupo_id=51, huella_alcance='sha256:51'), motivo='producto_sin_ventas')
+E         Use -v to get more diff
+
+tests\test_productos_pausa.py:174: AssertionError
+___________ test_venta_reciente_inmadura_deja_la_pausa_en_espera[5] ___________
+
+dias = 5
+
+    @pytest.mark.parametrize("dias", [15, 5])
+    def test_venta_reciente_inmadura_deja_la_pausa_en_espera(dias):
+        fecha = DECIDIDO.date() - dt.timedelta(days=dias)
+        entrada = _entrada_mx(
+            _actividad(),
+            dias_halo=(_dia(fecha, compras="1", ventas="900", mismo="900"),),
+        )
+        ev = p.resolver_producto(entrada)
+>       assert ev.pausas == ()
+E       AssertionError: assert (PropuestaPau..._sin_ventas')) == ()
+E         
+E         Left contains 2 more items, first extra item: PropuestaPausa(anuncio=AnuncioElegible(ad_entity_id=901, listing_id=7, grupo_id=51, huella_alcance='sha256:51'), motivo='producto_sin_ventas')
+E         Use -v to get more diff
+
+tests\test_productos_pausa.py:174: AssertionError
+__________ test_base_venta_reciente_inmadura_deja_la_pausa_en_espera __________
+
+    @_skip_db
+    def test_base_venta_reciente_inmadura_deja_la_pausa_en_espera():
+        """M4: el producto gasto sin vender en [D-60, D-30) pero vendio ayer o
+        hace 15 dias. La fuente de productos reobserva 30 dias: la pausa espera y
+        el ancla es la fecha de esa venta."""
+        with _db("orbit_m4_venta_reciente") as conn:
+            m = _mundo_pausa(conn)
+            fecha = _hoy() - dt.timedelta(days=15)
+            _ingesta(
+                conn,
+                fecha,
+                fecha,
+                [
+                    _fila_reporte(
+                        fecha,
+                        asin="ASIN-SKU-A",
+                        sku="SS-SKU-A",
+                        clicks=4,
+                        cost=2.0,
+                        ventas=900,
+                        ad_id="pa1",
+                    )
+                ],
+            )
+            entrada = _entrada(conn, m["pid"])
+            ev = p.resolver_producto(entrada)
+>           assert ev.pausas == ()
+E           AssertionError: assert (PropuestaPau...sin_ventas'),) == ()
+E             
+E             Left contains one more item: PropuestaPausa(anuncio=AnuncioElegible(ad_entity_id=4, listing_id=1, grupo_id=2, huella_alcance='sha256:e91c16d0b0fdc5a59c27538740c69171a776398a048a01552b3dfaf9a7c73c47'), motivo='producto_sin_ventas')
+E             Use -v to get more diff
+
+tests\test_productos_pausa.py:406: AssertionError
+_________ test_venta_reciente_inmadura_descarta_la_pausa_al_revalidar _________
+
+plantilla = 'orbit_i_plantilla_gon_pc_23860'
+
+    def test_venta_reciente_inmadura_descarta_la_pausa_al_revalidar(plantilla):
+        """M4: entre decidir y liberar (48 h de veto) aparecio una venta del
+        producto a 15 dias, aun inmadura para la fuente de 30 dias. La
+        revalidacion descarta con venta_reciente_producto, sin PUT ni cuota, y
+        conserva el unico kind='pause' sobre product_ad."""
+        with _db(plantilla, "orbit_m4_revalida") as conn:
+            _mundo_pausa(conn)
+            _config(conn)
+            dec, q = _propuesta(conn)
+            fecha = dt.datetime.now(dt.UTC).date() - dt.timedelta(days=15)
+            _ingesta(
+                conn,
+                fecha,
+                fecha,
+                [
+                    _fila_reporte(
+                        fecha,
+                        asin="ASIN-SKU-A",
+                        sku="SS-SKU-A",
+                        clicks=4,
+                        cost=2.0,
+                        ventas=900,
+                        ad_id="pa1",
+                    )
+                ],
+            )
+            amazon = _Amazon({"pa1": "ENABLED"})
+>           _sin_cobro(conn, q, "venta_reciente_producto", amazon, _libera(conn, amazon))
+
+tests\test_apply_producto.py:599: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+conn = <psycopg.Connection [BAD] at 0x22c36b7ed50>, q = 1
+motivo = 'venta_reciente_producto'
+amazon = <test_apply_producto._Amazon object at 0x0000022C36C58980>
+res = ResultadoLiberacion(liberadas=1, aplicadas=1, fallidas=0, descartadas=[], sin_quota=0, carreras_perdidas=0, revalida_sin_respuesta=0, espera_target=0, espera_proteccion=0, alertas=(), caps_saturados=(), revalidaciones_economicas=())
+
+    def _sin_cobro(conn, q: int, motivo: str, amazon: _Amazon, res) -> None:
+        """Descarte antes de cobrar: la fila discarded con su motivo, ni PUT ni
+        fila de cuota ni intento."""
+>       assert res.descartadas == [motivo]
+E       AssertionError: assert [] == ['venta_reciente_producto']
+E         
+E         Right contains one more item: 'venta_reciente_producto'
+E         Use -v to get more diff
+
+tests\test_apply_producto.py:352: AssertionError
+---------------------------- Captured stdout call -----------------------------
+lectura previa: 1 de 1 adIds existen en la cuenta
+a pausado: 1
+============================== warnings summary ===============================
+..\..\..\..\..\..\espacio\enc_be56b9f573270946\.venv\Lib\site-packages\fastapi\testclient.py:1
+  C:\Users\ehven\.motor-encargos\espacio\enc_be56b9f573270946\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/test_productos_pausa.py::test_venta_reciente_inmadura_deja_la_pausa_en_espera[15]
+FAILED tests/test_productos_pausa.py::test_venta_reciente_inmadura_deja_la_pausa_en_espera[5]
+FAILED tests/test_productos_pausa.py::test_base_venta_reciente_inmadura_deja_la_pausa_en_espera
+FAILED tests/test_apply_producto.py::test_venta_reciente_inmadura_descarta_la_pausa_al_revalidar
+4 failed, 1 warning in 9.81s

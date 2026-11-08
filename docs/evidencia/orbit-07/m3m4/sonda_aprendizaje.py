@@ -1,12 +1,11 @@
-"""ORBIT 07 M3/M4: sonda del aprendizaje agregado de AUTO-03.
+"""ORBIT 07 M3/M4: sonda del aprendizaje agregado y de la venta reciente.
 
-Comprueba, sobre una base PostgreSQL desechable, que AUTO-03 H/I ya cubre el
-resultado de M4 (pausa por producto sin ventas con el gasto agregado) y que el
-agregado de M3 no duplica gasto: la reobservacion reemplaza la fecha y anadir
-otro anuncio, grupo o campana del mismo producto no reinicia ni multiplica el
-umbral. Con la medicion de produccion de AUTO-03 E.4 calcula la interseccion
-"candidato a pausa" y "grupo exclusivo", que es el unico alcance donde M3
-podria frenar una subida de puja.
+Comprueba, sobre una base PostgreSQL desechable, que el agregado de M3 no
+duplica gasto (la reobservacion reemplaza la fecha y anadir otro anuncio, grupo
+o campana del mismo producto no reinicia ni multiplica el umbral). Sobre la
+medicion de produccion de AUTO-03 E.4 muestra la diferencia de M4: la regla
+nueva v3 deja en espera los productos que vendieron en [D-29, D-1] y conserva
+la pausa solo en el que no tiene una venta inmadura.
 
 No toca produccion ni Amazon. Uso:
 
@@ -25,7 +24,14 @@ from pathlib import Path
 from psycopg.types.json import Jsonb
 from test_cycle import _entidad, _estado
 from test_productos_io import _anuncio, _entrada, _ventana
-from test_productos_pausa import _db, _mundo_pausa
+from test_productos_pausa import (
+    DECIDIDO,
+    _actividad,
+    _db,
+    _dia,
+    _entrada_mx,
+    _mundo_pausa,
+)
 
 from app.optimizer import productos as p
 
@@ -108,6 +114,95 @@ def _producto_vecino(conn, ag) -> int:
     return pa
 
 
+def _entradas_e4(ruta: Path) -> tuple[dict, list[p.EntradaProducto]]:
+    datos = json.loads(ruta.read_text(encoding="utf-8"))
+    entradas = [p._de_json(e, p.EntradaProducto) for e in datos["entradas"]]
+    return datos["resumen"], entradas
+
+
+def _cumple_v2(entrada: p.EntradaProducto) -> bool:
+    actividad = entrada.actividad_pausa
+    limites = entrada.limites_pausa
+    return (
+        isinstance(actividad, p.AdsCompletos)
+        and actividad.compras_total == 0
+        and actividad.ventas_total.valor == 0
+        and actividad.clics >= limites.clics_min
+        and actividad.gasto.valor >= limites.gasto_min.valor
+    )
+
+
+def _juicio(entrada: p.EntradaProducto, politica: str) -> dict:
+    evaluacion = p.resolver_producto(entrada, politica=politica)
+    venta = p.venta_reciente_producto(entrada)
+    return {
+        "politica": politica,
+        "pausas": sorted(x.anuncio.ad_entity_id for x in evaluacion.pausas),
+        "motivos_pausa": list(evaluacion.motivos_pausa),
+        "venta_reciente": None
+        if venta is None
+        else {
+            "ancla": venta.ancla.isoformat(),
+            "vence_el": venta.vence_el.isoformat(),
+            "compras": str(venta.compras),
+            "ventas": str(venta.ventas.valor),
+        },
+    }
+
+
+def _m4_puro() -> dict:
+    casos = {}
+    for dias in (15, 5):
+        fecha = DECIDIDO.date() - dt.timedelta(days=dias)
+        entrada = _entrada_mx(
+            _actividad(),
+            dias_halo=(_dia(fecha, compras="2", ventas="900", mismo="900"),),
+        )
+        casos[f"d-{dias}"] = {
+            "fecha_venta": fecha.isoformat(),
+            "v2": _juicio(entrada, "v2"),
+            "v3": _juicio(entrada, "v3"),
+        }
+    return casos
+
+
+def _m4_produccion() -> dict:
+    _, entradas = _entradas_e4(E4_US)
+    candidatos = []
+    for entrada in entradas:
+        pid = entrada.producto.product_id
+        if pid not in (273, 315, 356):
+            continue
+        ventas = [
+            {
+                "fecha": dia.fecha.isoformat(),
+                "compras": str(dia.compras),
+                "ventas": str(dia.ventas.valor),
+                "ventas_mismo_sku": str(dia.ventas_mismo_sku.valor),
+            }
+            for dia in sorted(entrada.dias_halo, key=lambda d: d.fecha)
+            if dia.compras != 0 or dia.ventas.valor != 0
+        ]
+        candidatos.append(
+            {
+                "product_id": pid,
+                "anuncios": len(entrada.anuncios),
+                "ventas": ventas,
+                "v2": _juicio(entrada, "v2"),
+                "v3": _juicio(entrada, "v3"),
+            }
+        )
+    return {
+        "candidatos_v2": sum(1 for e in entradas if _cumple_v2(e)),
+        "anuncios_afectables_v2": sum(len(e.anuncios) for e in entradas if _cumple_v2(e)),
+        "candidatos_v3": sum(1 for e in entradas if p.cumple_limites_pausa(e)),
+        "anuncios_afectables_v3": sum(
+            len(e.anuncios) for e in entradas if p.cumple_limites_pausa(e)
+        ),
+        "productos": candidatos,
+    }
+
+
 def _resumen_e4(ruta: Path) -> dict:
     datos = json.loads(ruta.read_text(encoding="utf-8"))["resumen"]
     return {
@@ -154,20 +249,28 @@ def main() -> dict:
 
         mx = _resumen_e4(E4_MX)
         us = _resumen_e4(E4_US)
-        assert mx["candidatos_pausa"] == 0, mx
         assert us["grupos_exclusivos"] == 0, us
+        m4 = _m4_produccion()
+        assert m4["candidatos_v2"] == 3 and m4["candidatos_v3"] == 1, m4
+        por_id = {x["product_id"]: x for x in m4["productos"]}
+        assert por_id[273]["v2"]["pausas"] and not por_id[273]["v3"]["pausas"]
+        assert por_id[315]["v2"]["pausas"] and not por_id[315]["v3"]["pausas"]
+        assert por_id[356]["v2"]["pausas"] and por_id[356]["v3"]["pausas"]
+        puro = _m4_puro()
+        assert puro["d-15"]["v2"]["pausas"] and not puro["d-15"]["v3"]["pausas"]
+        assert puro["d-5"]["v2"]["pausas"] and not puro["d-5"]["v3"]["pausas"]
 
         return {
             "version": p.POLITICA_PRODUCTO,
             "referencia": REFERENCIA,
             "sonda": "docs/evidencia/orbit-07/m3m4/sonda_aprendizaje.py",
-            "mundo": {
-                "producto": "SKU-A",
-                "ventana": "[D-60, D-30)",
-                "gasto_y_clics_por_fecha": "2 USD y 4 clics, cero compras y cero ventas",
-                "limites_por_omision": base["limites"],
-            },
-            "agregado_auto03": {
+            "m3_agregado": {
+                "mundo": {
+                    "producto": "SKU-A",
+                    "ventana": "[D-60, D-30)",
+                    "gasto_y_clics_por_fecha": "2 USD y 4 clics, cero compras y cero ventas",
+                    "limites_por_omision": base["limites"],
+                },
                 "base": base,
                 "reobservacion_reemplaza": reobservado,
                 "segundo_grupo_del_mismo_producto": otro_grupo,
@@ -177,12 +280,6 @@ def main() -> dict:
                     "en_anuncios_elegibles_del_producto": False,
                     "en_propuestas_del_producto": False,
                 },
-            },
-            "produccion_auto03_e4": {
-                "fuente": "docs/evidencia/auto-03/ejecucion/E/elegibilidad-{mx,us}.json",
-                "consulta": "2026-11-07 03:01 UTC, solo lectura, regla H contada sobre datos de D",
-                "amazon_mx": mx,
-                "amazon_us": us,
                 "interseccion_candidato_y_grupo_exclusivo": {
                     "amazon_mx": 0,
                     "amazon_us": 0,
@@ -190,10 +287,19 @@ def main() -> dict:
                     " la interseccion es cero",
                 },
             },
-            "m4_cubierto_por_auto03": {
-                "propuesta_por_anuncio_elegible": True,
-                "una_sola_actividad_por_producto": True,
-                "alcance_compartido_solo_anuncios_del_producto": True,
+            "m4_venta_reciente": {
+                "ventana": "[D-29, D-1]; la fuente de productos reobserva 30 dias",
+                "madurez_dias": 30,
+                "puro": puro,
+                "produccion_e4": m4,
+                "revalidacion": "tests/test_apply_producto.py"
+                "::test_venta_reciente_inmadura_descarta_la_pausa_al_revalidar",
+            },
+            "produccion_auto03_e4": {
+                "fuente": "docs/evidencia/auto-03/ejecucion/E/elegibilidad-{mx,us}.json",
+                "consulta": "2026-11-07 03:01 UTC, solo lectura, datos de la regla v2",
+                "amazon_mx": mx,
+                "amazon_us": us,
             },
             "m3_freno_de_subidas": {
                 "efecto_propio_en_la_medicion": False,
@@ -204,9 +310,9 @@ def main() -> dict:
                 " subidas; anadir un freno ahi seria una regla nueva y el plan reserva al"
                 " dueno el gasto de aprendizaje",
             },
-            "diferencia_funcional_pendiente": False,
-            "decision": "omitir M3/M4 con esta evidencia; AUTO-03 H/I cubre la pausa y"
-            " el agregado no duplica gasto",
+            "decision": "M3 omitido: el agregado y el freno de subidas no acreditan una"
+            " diferencia funcional propia; M4 implementado: la pausa espera una venta"
+            " inmadura del producto con ancla fija y madurez de 30 dias",
         }
 
 

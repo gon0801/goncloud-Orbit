@@ -37,7 +37,7 @@ from test_api_write import TOKEN, _db_con_rol_admin, _secrets_token
 from test_cycle import DECIDED_AT, _config_version, _entidad, _siembra_maestra
 from test_cycle import _corre as _corre_ciclo_fijo
 from test_cycle import _db_temporal as _db_ciclo
-from test_productos_io import _anuncio
+from test_productos_io import _anuncio, _fila_reporte, _ingesta
 from test_productos_pausa import _impulso_abierto, _mundo_pausa, _repone, _retiro
 from test_schema import _postgres_obligatorio_ausente, _test_dsn
 
@@ -567,6 +567,39 @@ def test_dato_invalido_al_revalidar_descarta_esa_fila_sin_tumbar_el_barrido(plan
         amazon = _Amazon({"pa1": "ENABLED"})
         _sin_cobro(conn, q, "ya_no_califica", amazon, _libera(conn, amazon))
         assert amazon.lists == 0
+
+
+def test_venta_reciente_inmadura_descarta_la_pausa_al_revalidar(plantilla):
+    """M4: entre decidir y liberar (48 h de veto) aparecio una venta del
+    producto a 15 dias, aun inmadura para la fuente de 30 dias. La
+    revalidacion descarta con venta_reciente_producto, sin PUT ni cuota, y
+    conserva el unico kind='pause' sobre product_ad."""
+    with _db(plantilla, "orbit_m4_revalida") as conn:
+        _mundo_pausa(conn)
+        _config(conn)
+        dec, q = _propuesta(conn)
+        fecha = dt.datetime.now(dt.UTC).date() - dt.timedelta(days=15)
+        _ingesta(
+            conn,
+            fecha,
+            fecha,
+            [
+                _fila_reporte(
+                    fecha,
+                    asin="ASIN-SKU-A",
+                    sku="SS-SKU-A",
+                    clicks=4,
+                    cost=2.0,
+                    ventas=900,
+                    ad_id="pa1",
+                )
+            ],
+        )
+        amazon = _Amazon({"pa1": "ENABLED"})
+        _sin_cobro(conn, q, "venta_reciente_producto", amazon, _libera(conn, amazon))
+        assert amazon.lists == 0
+        assert _intenciones(conn) == []
+        assert _retiros(conn) == []
 
 
 # ---------------------------------------------------------------------------

@@ -42,6 +42,38 @@ Nunca se usa la fecha local ni la de ejecucion para el ancla.
    pujas sigue con el mismo evaluador; una puja autorizada conserva su
    aplicacion. La pausa economica con datos completos conserva precedencia.
 
+## Contrato temporal de producto (M4)
+
+| Ventana | Rango | Fuente | Uso |
+|---|---|---|---|
+| Reciente inmadura | `[D-29, D-1]` | reporte de productos, última observación por fecha | Una compra o venta total ahí deja la pausa en espera |
+| Madura de la pausa | `[D-60, D-30)` | reporte de productos | Cero compras y ventas: la pausa procede |
+
+1. **Madurez.** La fuente de productos reobserva cada fecha hasta los 30 días
+   (`productos.MADUREZ_PRODUCTO`; AUTO-03 E.4 midió una reatribución en el día
+   31). Una fecha con menos de 30 días aún puede cambiar. No se reutiliza el
+   vencimiento de 10 días de M1.
+2. **Ancla.** La fecha más antigua con una compra o venta total observada en
+   la ventana reciente. `vence_el = ancla + 30 días`.
+3. **Reobservación.** Corregir es una fila nueva. Una reobservación del ancla
+   no la mueve; una venta posterior no mueve el ancla mientras la anterior
+   siga inmadura.
+4. **Liberación.** Al cumplir 30 días la venta es madura y la pausa se decide
+   con la regla normal: si el ancla entra a `[D-60, D-30)` cuenta como
+   `vendio_en_ventana` y no hay pausa; si se corrigió a cero, la pausa puede
+   proceder si sus requisitos siguen cumpliéndose.
+5. **Decide y revalida.** La misma subpolítica pura. La fila en cola se
+   descarta con `venta_reciente_producto`, sin PUT ni cuota; se conserva el
+   único `kind='pause'` sobre `product_ad` y el ancla no se renueva al
+   revalidar.
+6. **Otro SKU.** Una venta de otro SKU (ventas totales > ventas del mismo SKU)
+   también deja la pausa en espera: no se puede afirmar cero ventas.
+
+Evidencia: [`../m3m4/comparacion-auto03.md`](../m3m4/comparacion-auto03.md),
+[`../m3m4/aprendizaje.json`](../m3m4/aprendizaje.json),
+[`../m3m4/sonda_aprendizaje.py`](../m3m4/sonda_aprendizaje.py) y
+[`../m3m4/regresion-venta-reciente.txt`](../m3m4/regresion-venta-reciente.txt).
+
 ## Evidencia local
 
 - El caso sintetico de 500 MXN, 120 clics, cero pedidos maduros y un pedido

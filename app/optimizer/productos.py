@@ -34,6 +34,15 @@ entrada congelada que la evaluacion trae dentro.
   otro SKU, una fecha desconocida, un impedimento de identidad o un impulso
   abierto del producto dejan motivo y ninguna propuesta. La politica v1 (antes
   de H) no tenia esta regla: el replay de una evaluacion v1 la corre sin ella.
+- Venta reciente del producto (M4, politica v3): antes de proponer la pausa se
+  mira la ventana reciente inmadura [D-29, D-1] de la fuente de productos, que
+  reobserva cada fecha 30 dias. Una compra o venta observada ahi (aunque sea de
+  otro SKU) deja la pausa en espera con el ancla en la fecha mas antigua de esa
+  venta y vencimiento ancla + 30 dias; una reobservacion o una venta posterior
+  no mueven el ancla. Al madurar el ancla, la pausa se decide con la regla
+  normal (la venta entra a [D-60, D-30) o se corrige a cero). No reutiliza el
+  vencimiento de diez dias de la hoja. La politica v2 conserva el replay
+  historico sin esta espera.
 - Simulacion (H.8): simula_pausa corre la misma regla con otros limites sobre
   las entradas de hoy y, para el costo de equivocarse, sobre las de hace 30
   dias.
@@ -63,11 +72,15 @@ Modo = Literal["off", "shadow", "live"]
 PLATAFORMAS: tuple[str, ...] = get_args(Plataforma)
 
 # Version de la politica, congelada en cada evaluacion: el replay sabe con que
-# reglas se calculo una evaluacion vieja. v1 = meta (C/D); v2 = meta y pausa (H).
-POLITICA_PRODUCTO = "v2"
-POLITICAS: tuple[str, ...] = ("v1", "v2")
+# reglas se calculo una evaluacion vieja. v1 = meta (C/D); v2 = meta y pausa (H);
+# v3 = pausa con la espera de venta reciente inmadura del producto (ORBIT 07 M4).
+POLITICA_PRODUCTO = "v3"
+POLITICAS: tuple[str, ...] = ("v1", "v2", "v3")
 
 MOTIVO_PAUSA = "producto_sin_ventas"
+# M4: una venta del producto con menos de 30 dias todavia puede cambiar de
+# atribucion; la pausa espera con un ancla fija.
+MOTIVO_VENTA_RECIENTE = "venta_reciente_producto"
 
 # ORBIT 07 M2: version de la economia del producto que se congela en la
 # decision (`target_snapshot.version`) y se relee al revalidar la cola. La
@@ -83,6 +96,11 @@ POLITICAS_ECONOMIA: tuple[str, ...] = (ECONOMIA_AUTO03, POLITICA_ECONOMIA)
 GRACIA_REGRESADO = dt.timedelta(days=7)
 
 MADUREZ_HALO = dt.timedelta(days=30)
+
+# M4: la fuente de productos reobserva cada fecha hasta los 30 dias (AUTO-03
+# E.4). Una venta con menos de 30 dias aun puede cambiar; la ventana reciente
+# inmadura es [D-29, D-1] y D-30 ya es madura.
+MADUREZ_PRODUCTO = dt.timedelta(days=30)
 
 # Ventana de la pausa (S6/S7): [D-60, D-30) UTC, 30 fechas maduras.
 DIAS_PAUSA_DESDE = 60
@@ -110,6 +128,7 @@ MOTIVOS_PRODUCTO: dict[str, str] = {
     # Regla de la pausa (H.2).
     "vendio_en_ventana": "el producto vendio en la ventana de la pausa",
     "venta_otro_sku": "ventas atribuidas de otro SKU en la ventana: no son cero ventas",
+    "venta_reciente_producto": "una venta reciente del producto aun no madura: la pausa espera",
     "bajo_limites": "no llega a los clics o al gasto minimos de la pausa",
     "impulso_abierto": "un impulso abierto del producto: sus anuncios quedan bajo el vigia",
     "sin_anuncios_elegibles": "ningun anuncio del producto esta al alcance de la pausa",
@@ -176,6 +195,20 @@ class AdsCompletos:
     ventas_total: Dinero
     ventas_mismo_sku: Dinero
     referencias_por_fecha: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class VentaRecienteProducto:
+    """M4: la venta inmadura que deja la pausa en espera. `ancla` es la fecha
+    mas antigua con compra o venta observada en [D-29, D-1]; `vence_el` es
+    ancla + 30 dias (la madurez de la fuente). Una reobservacion o una venta
+    posterior no mueve el ancla."""
+
+    ventana: Ventana
+    ancla: dt.date
+    vence_el: dt.date
+    compras: Decimal
+    ventas: Dinero
 
 
 @dataclass(frozen=True)
@@ -329,17 +362,58 @@ def resolver_producto(
             informativos.append("sin_grupo_apto")
     if politica == "v1":
         return EvaluacionProducto(entrada, meta, (*motivos, *informativos), politica)
-    pausas, motivos_pausa = _regla_pausa(entrada)
+    pausas, motivos_pausa = _regla_pausa(entrada, reciente=politica != "v2")
     return EvaluacionProducto(
         entrada, meta, (*motivos, *informativos), politica, pausas, motivos_pausa
     )
 
 
-def motivos_economicos_pausa(entrada: EntradaProducto) -> tuple[str, ...]:
+def ventana_venta_reciente(decidido_el: dt.datetime) -> Ventana:
+    """M4: [D-29, D-1], la ultima ventana con ventas inmaduras del producto. La
+    fuente reobserva cada fecha hasta los 30 dias, asi que D-30 ya es madura y
+    no se espera por ella."""
+    fecha = decidido_el.astimezone(dt.UTC).date()
+    return Ventana(fecha - (MADUREZ_PRODUCTO - dt.timedelta(days=1)), fecha)
+
+
+def venta_reciente_producto(entrada: EntradaProducto) -> VentaRecienteProducto | None:
+    """M4: la venta inmadura mas antigua de [D-29, D-1], o None si no hay. Una
+    compra o venta total observada (incluye la de otro SKU) deja la pausa en
+    espera; la fecha mas antigua es el ancla y vence a los 30 dias. Una
+    reobservacion o una venta posterior no mueven el ancla."""
+    ventana = ventana_venta_reciente(entrada.decidido_el)
+    moneda = PLATAFORMAS_MONEDA[entrada.producto.plataforma]
+    ancla: dt.date | None = None
+    compras = Decimal(0)
+    ventas = Decimal(0)
+    for dia in sorted(entrada.dias_halo, key=lambda x: x.fecha):
+        if not ventana.contiene(dia.fecha):
+            continue
+        if dia.ventas.moneda != moneda or dia.ventas_mismo_sku.moneda != moneda:
+            raise ValueError(f"dia {dia.fecha} en otra moneda que {moneda}")
+        if dia.compras == 0 and dia.ventas.valor == 0:
+            continue
+        if ancla is None:
+            ancla = dia.fecha
+        compras += dia.compras
+        ventas += dia.ventas.valor
+    if ancla is None:
+        return None
+    return VentaRecienteProducto(
+        ventana=ventana,
+        ancla=ancla,
+        vence_el=ancla + MADUREZ_PRODUCTO,
+        compras=compras,
+        ventas=Dinero(ventas, moneda),
+    )
+
+
+def motivos_economicos_pausa(entrada: EntradaProducto, *, reciente: bool = True) -> tuple[str, ...]:
     """La regla de la pausa sin el alcance de anuncios (H.2): vacio si el
     producto gasto sin vender, con la identidad comprobada y sin impulso
     abierto. La regla completa (_regla_pausa) exige ademas anuncios
-    elegibles."""
+    elegibles. Con `reciente` (v3), una venta inmadura de [D-29, D-1] deja la
+    pausa en espera; v2 conserva el replay sin esa espera."""
     motivos = list(entrada.bloqueos_pausa)
     motivos.extend(m for m in entrada.impedimentos if m == "sku_distinto_en_asin")
     actividad = entrada.actividad_pausa
@@ -359,11 +433,15 @@ def motivos_economicos_pausa(entrada: EntradaProducto) -> tuple[str, ...]:
             motivos.append("vendio_en_ventana")
         elif actividad.clics < limites.clics_min or actividad.gasto.valor < limites.gasto_min.valor:
             motivos.append("bajo_limites")
+        elif reciente and venta_reciente_producto(entrada) is not None:
+            motivos.append(MOTIVO_VENTA_RECIENTE)
     return tuple(dict.fromkeys(motivos))
 
 
-def _regla_pausa(entrada: EntradaProducto) -> tuple[tuple[PropuestaPausa, ...], tuple[str, ...]]:
-    motivos = motivos_economicos_pausa(entrada)
+def _regla_pausa(
+    entrada: EntradaProducto, *, reciente: bool = True
+) -> tuple[tuple[PropuestaPausa, ...], tuple[str, ...]]:
+    motivos = motivos_economicos_pausa(entrada, reciente=reciente)
     if motivos:
         return (), motivos
     if not entrada.anuncios:
@@ -408,8 +486,9 @@ def _halo(entrada: EntradaProducto) -> Decimal:
 
 def cumple_limites_pausa(entrada: EntradaProducto) -> bool:
     """El producto gasto sin vender en la ventana de la pausa: actividad
-    completa (S6), compras y ventas totales en cero observado, y clics y gasto
-    en o sobre los limites congelados (S8)."""
+    completa (S6), compras y ventas totales en cero observado, clics y gasto en
+    o sobre los limites congelados (S8) y sin una venta inmadura reciente
+    (M4)."""
     actividad = entrada.actividad_pausa
     limites = entrada.limites_pausa
     return (
@@ -418,6 +497,7 @@ def cumple_limites_pausa(entrada: EntradaProducto) -> bool:
         and actividad.ventas_total.valor == 0
         and actividad.clics >= limites.clics_min
         and actividad.gasto.valor >= limites.gasto_min.valor
+        and venta_reciente_producto(entrada) is None
     )
 
 

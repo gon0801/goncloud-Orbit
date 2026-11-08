@@ -218,7 +218,7 @@ def test_cola_conserva_la_meta_individual_si_la_economia_no_cambia(monkeypatch):
         assert economia["producto"]["motivo"] is None
         assert Decimal(economia["producto"]["meta_pct"]) == Decimal("4")
         assert economia["producto"]["evaluacion_id"] > 0
-        assert economia["producto"]["politica"] == "v2"
+        assert economia["producto"]["politica"] == p.POLITICA_PRODUCTO
 
 
 def test_cola_resuelve_el_respaldo_cuando_el_producto_pierde_elegibilidad(monkeypatch):

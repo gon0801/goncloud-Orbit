@@ -1,21 +1,21 @@
 {
-  "version": "v2",
+  "version": "v3",
   "referencia": "ORBIT 07 M3/M4 sobre 4e0e78d (M2) / f86ed7dc (AUTO-03)",
   "sonda": "docs/evidencia/orbit-07/m3m4/sonda_aprendizaje.py",
-  "mundo": {
-    "producto": "SKU-A",
-    "ventana": "[D-60, D-30)",
-    "gasto_y_clics_por_fecha": "2 USD y 4 clics, cero compras y cero ventas",
-    "limites_por_omision": {
-      "clics_min": 100,
-      "gasto_min": "40",
-      "moneda": "USD"
-    }
-  },
-  "agregado_auto03": {
+  "m3_agregado": {
+    "mundo": {
+      "producto": "SKU-A",
+      "ventana": "[D-60, D-30)",
+      "gasto_y_clics_por_fecha": "2 USD y 4 clics, cero compras y cero ventas",
+      "limites_por_omision": {
+        "clics_min": 100,
+        "gasto_min": "40",
+        "moneda": "USD"
+      }
+    },
     "base": {
       "product_id": 1,
-      "politica": "v2",
+      "politica": "v3",
       "gasto": "60.0000",
       "moneda": "USD",
       "clics": 120,
@@ -36,7 +36,7 @@
     },
     "reobservacion_reemplaza": {
       "product_id": 1,
-      "politica": "v2",
+      "politica": "v3",
       "gasto": "63.0000",
       "moneda": "USD",
       "clics": 120,
@@ -57,7 +57,7 @@
     },
     "segundo_grupo_del_mismo_producto": {
       "product_id": 1,
-      "politica": "v2",
+      "politica": "v3",
       "gasto": "63.0000",
       "moneda": "USD",
       "clics": 120,
@@ -80,7 +80,7 @@
     },
     "grupo_compartido": {
       "product_id": 1,
-      "politica": "v2",
+      "politica": "v3",
       "gasto": "63.0000",
       "moneda": "USD",
       "clics": 120,
@@ -105,11 +105,244 @@
       "ad_entity_id": 8,
       "en_anuncios_elegibles_del_producto": false,
       "en_propuestas_del_producto": false
+    },
+    "interseccion_candidato_y_grupo_exclusivo": {
+      "amazon_mx": 0,
+      "amazon_us": 0,
+      "regla": "si el conteo de candidatos o el de grupos exclusivos es cero, la interseccion es cero"
     }
+  },
+  "m4_venta_reciente": {
+    "ventana": "[D-29, D-1]; la fuente de productos reobserva 30 dias",
+    "madurez_dias": 30,
+    "puro": {
+      "d-15": {
+        "fecha_venta": "2026-10-22",
+        "v2": {
+          "politica": "v2",
+          "pausas": [
+            901,
+            902
+          ],
+          "motivos_pausa": [],
+          "venta_reciente": {
+            "ancla": "2026-10-22",
+            "vence_el": "2026-11-21",
+            "compras": "2",
+            "ventas": "900"
+          }
+        },
+        "v3": {
+          "politica": "v3",
+          "pausas": [],
+          "motivos_pausa": [
+            "venta_reciente_producto"
+          ],
+          "venta_reciente": {
+            "ancla": "2026-10-22",
+            "vence_el": "2026-11-21",
+            "compras": "2",
+            "ventas": "900"
+          }
+        }
+      },
+      "d-5": {
+        "fecha_venta": "2026-11-01",
+        "v2": {
+          "politica": "v2",
+          "pausas": [
+            901,
+            902
+          ],
+          "motivos_pausa": [],
+          "venta_reciente": {
+            "ancla": "2026-11-01",
+            "vence_el": "2026-12-01",
+            "compras": "2",
+            "ventas": "900"
+          }
+        },
+        "v3": {
+          "politica": "v3",
+          "pausas": [],
+          "motivos_pausa": [
+            "venta_reciente_producto"
+          ],
+          "venta_reciente": {
+            "ancla": "2026-11-01",
+            "vence_el": "2026-12-01",
+            "compras": "2",
+            "ventas": "900"
+          }
+        }
+      }
+    },
+    "produccion_e4": {
+      "candidatos_v2": 3,
+      "anuncios_afectables_v2": 29,
+      "candidatos_v3": 1,
+      "anuncios_afectables_v3": 12,
+      "productos": [
+        {
+          "product_id": 273,
+          "anuncios": 6,
+          "ventas": [
+            {
+              "fecha": "2026-10-09",
+              "compras": "1.0000",
+              "ventas": "111.7800",
+              "ventas_mismo_sku": "111.7800"
+            }
+          ],
+          "v2": {
+            "politica": "v2",
+            "pausas": [
+              86494,
+              87223,
+              87245,
+              87267,
+              87289,
+              87311
+            ],
+            "motivos_pausa": [],
+            "venta_reciente": {
+              "ancla": "2026-10-09",
+              "vence_el": "2026-11-08",
+              "compras": "1.0000",
+              "ventas": "111.7800"
+            }
+          },
+          "v3": {
+            "politica": "v3",
+            "pausas": [],
+            "motivos_pausa": [
+              "venta_reciente_producto"
+            ],
+            "venta_reciente": {
+              "ancla": "2026-10-09",
+              "vence_el": "2026-11-08",
+              "compras": "1.0000",
+              "ventas": "111.7800"
+            }
+          }
+        },
+        {
+          "product_id": 315,
+          "anuncios": 11,
+          "ventas": [
+            {
+              "fecha": "2026-10-18",
+              "compras": "1.0000",
+              "ventas": "79.2000",
+              "ventas_mismo_sku": "0.0000"
+            },
+            {
+              "fecha": "2026-10-26",
+              "compras": "1.0000",
+              "ventas": "111.7800",
+              "ventas_mismo_sku": "0.0000"
+            }
+          ],
+          "v2": {
+            "politica": "v2",
+            "pausas": [
+              86677,
+              86718,
+              86777,
+              86818,
+              86886,
+              86927,
+              87207,
+              87229,
+              87251,
+              87273,
+              87295
+            ],
+            "motivos_pausa": [],
+            "venta_reciente": {
+              "ancla": "2026-10-18",
+              "vence_el": "2026-11-17",
+              "compras": "2.0000",
+              "ventas": "190.9800"
+            }
+          },
+          "v3": {
+            "politica": "v3",
+            "pausas": [],
+            "motivos_pausa": [
+              "venta_reciente_producto"
+            ],
+            "venta_reciente": {
+              "ancla": "2026-10-18",
+              "vence_el": "2026-11-17",
+              "compras": "2.0000",
+              "ventas": "190.9800"
+            }
+          }
+        },
+        {
+          "product_id": 356,
+          "anuncios": 12,
+          "ventas": [
+            {
+              "fecha": "2026-08-28",
+              "compras": "1.0000",
+              "ventas": "95.5800",
+              "ventas_mismo_sku": "95.5800"
+            },
+            {
+              "fecha": "2026-08-30",
+              "compras": "1.0000",
+              "ventas": "115.2000",
+              "ventas_mismo_sku": "0.0000"
+            }
+          ],
+          "v2": {
+            "politica": "v2",
+            "pausas": [
+              86679,
+              86721,
+              86779,
+              86888,
+              86996,
+              87008,
+              87024,
+              87208,
+              87230,
+              87252,
+              87274,
+              87296
+            ],
+            "motivos_pausa": [],
+            "venta_reciente": null
+          },
+          "v3": {
+            "politica": "v3",
+            "pausas": [
+              86679,
+              86721,
+              86779,
+              86888,
+              86996,
+              87008,
+              87024,
+              87208,
+              87230,
+              87252,
+              87274,
+              87296
+            ],
+            "motivos_pausa": [],
+            "venta_reciente": null
+          }
+        }
+      ]
+    },
+    "revalidacion": "tests/test_apply_producto.py::test_venta_reciente_inmadura_descarta_la_pausa_al_revalidar"
   },
   "produccion_auto03_e4": {
     "fuente": "docs/evidencia/auto-03/ejecucion/E/elegibilidad-{mx,us}.json",
-    "consulta": "2026-11-07 03:01 UTC, solo lectura, regla H contada sobre datos de D",
+    "consulta": "2026-11-07 03:01 UTC, solo lectura, datos de la regla v2",
     "amazon_mx": {
       "productos_evaluados": 249,
       "grupos_exclusivos": 6,
@@ -131,23 +364,12 @@
         "fecha_desconocida": 31,
         "sin_filas_en_ventana": 35
       }
-    },
-    "interseccion_candidato_y_grupo_exclusivo": {
-      "amazon_mx": 0,
-      "amazon_us": 0,
-      "regla": "si el conteo de candidatos o el de grupos exclusivos es cero, la interseccion es cero"
     }
-  },
-  "m4_cubierto_por_auto03": {
-    "propuesta_por_anuncio_elegible": true,
-    "una_sola_actividad_por_producto": true,
-    "alcance_compartido_solo_anuncios_del_producto": true
   },
   "m3_freno_de_subidas": {
     "efecto_propio_en_la_medicion": false,
     "donde_ya_impide": "I.5 omite la subida con una pausa live en vuelo del grupo exclusivo (tests/test_apply_producto.py)::test_grupo_exclusivo_con_pausa_en_vuelo_omite_la_subida_y_aplica_la_bajada",
     "donde_no_impide": "con la pausa en practica (shadow) AUTO-03 no bloquea subidas; anadir un freno ahi seria una regla nueva y el plan reserva al dueno el gasto de aprendizaje"
   },
-  "diferencia_funcional_pendiente": false,
-  "decision": "omitir M3/M4 con esta evidencia; AUTO-03 H/I cubre la pausa y el agregado no duplica gasto"
+  "decision": "M3 omitido: el agregado y el freno de subidas no acreditan una diferencia funcional propia; M4 implementado: la pausa espera una venta inmadura del producto con ancla fija y madurez de 30 dias"
 }

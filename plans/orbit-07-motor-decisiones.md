@@ -315,10 +315,11 @@ conservar su evidencia y omitir la construcción correspondiente de M3 y M4.
 
 ## Extender la pausa existente con el aprendizaje pendiente (M4)
 
-**Omitido en esta entrega.** AUTO-03 H/I ya propone la pausa por el gasto
-agregado del producto, con cero compras y ventas, datos maduros, alcance por
-anuncio y los límites que el dueño guarda; conserva el único escritor, la cola,
-la revalidación y la reversa. Evidencia:
+**Entregado en esta entrega (política v3).** AUTO-03 H/I solo veía
+`[D-60, D-30)` y pausaba productos que vendieron después de esa ventana. La
+regla nueva espera una venta inmadura en `[D-29, D-1]` con ancla fija y
+madurez de 30 días, al decidir y al revalidar, sin otro escritor, cola,
+reversa ni `kind`. Evidencia:
 [`docs/evidencia/orbit-07/m3m4/comparacion-auto03.md`](../docs/evidencia/orbit-07/m3m4/comparacion-auto03.md).
 
 **Depende de.** Camino de retiro de AUTO-03 G-I recibido, M1, M2 y la diferencia de M3. Si AUTO-03 ya cubre el resultado, omitir esta entrega y registrar la evidencia heredada. Requiere cobertura de ventas y alcance por anuncio demostrada en M0, además de su contrato temporal específico de producto.
