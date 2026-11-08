@@ -1010,7 +1010,16 @@ def test_practica_sin_limites_guardados_pausa_live_sale_con_settings_invalido_y_
         )
         antes = _vigente(conn)
         monkeypatch.setenv("ORBIT_DSN_ADMIN", make_conninfo(_test_dsn(), dbname=conn.info.dbname))
-        args = SimpleNamespace(platform=PLAT, meta=None, pausa="live", clics=None, gasto=None)
+        args = SimpleNamespace(
+            platform=PLAT,
+            meta=None,
+            pausa="live",
+            clics=None,
+            gasto=None,
+            economia=None,
+            bid_economia=None,
+            proteccion=None,
+        )
         assert cli_productos.corre(args) == 2
         assert "la pausa en vivo exige guardar antes los limites" in capsys.readouterr().err
         with pytest.raises(config_write.SettingsInvalido):
