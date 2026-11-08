@@ -1,0 +1,157 @@
+# CLARIDAD 01: Orbit dice la verdad en pantalla
+autopiloto: motor
+plan: claridad-01
+repo: git@github.com:gon0801/goncloud-Orbit.git
+
+Base: rama desde `origin/master` (`7cf7c9a` o posterior). Migración nueva: la siguiente libre (hoy `0082`), con su `_reversa_`, la cabecera `-- sonda-aplicada: <select que da t solo con la migración aplicada>` en sus primeras 10 líneas y sin BEGIN/COMMIT (`tools/despliegue/comun.sh`).
+Precondición: este plan, `docs/manual-usuario/` y `docs/evidencia/claridad-01/` llegan juntos a master en el PR del plan; se entrega al motor después de ese merge (fila A.0).
+Máquina: entregar en una máquina Linux (la PC por WSL). En la Mac, colima adelanta el reloj del VM y da 77 fallas falsas en las pruebas de precios de master (`CheckViolation: politica 2 creada despues del corte`), y macOS no trae `setsid`, que usa `tests/test_despliegue_motor.py`. Si se entrega en la Mac, las `Acepta` con base corren dentro de un contenedor Linux que comparta reloj con Postgres. CI de master da 5884 passed en Linux.
+Lectura en producción (B.1, E.1, F.1): rol `orbit_read`, que solo tiene SELECT (`docs/DEPLOY.md:1192-1205`), en transacción de solo lectura: `ssh goncloud "docker exec -i orbit-app-1 python -c 'import os,sys,psycopg; c=psycopg.connect(os.environ[\"ORBIT_DSN_READ\"]); c.read_only=True; [print(*r, sep=\"|\") for r in c.execute(sys.stdin.read())]'" < consulta.sql`. Los logs del servidor se leen con `ssh goncloud` y `grep`/`tail`, sin escribir.
+Origen: dos lectores probaron el entrenamiento `docs/manual-usuario/` contra producción el 2026-11-08 (`docs/evidencia/claridad-01/lector-*.md`). Las causas, con archivo:línea, están en `docs/evidencia/claridad-01/causas.md`. Léelo antes de cada bloque.
+Para quién: la persona que usa Orbit sin conocimientos técnicos. Hoy le dice cosas falsas («se aplica solo» en propuestas que nunca se aplican, una fecha de bloqueo equivocada, «nada gasta sin vender» con el cálculo parado 18 días) y le muestra códigos internos, 26 decimales y horas UTC sin avisar.
+Forma: primero lo que lleva a una decisión equivocada o esconde una falla (B a G), después la limpieza de formato con un registro común (H, I), al final el manual (J). Cada bloque deja su arreglo en producción.
+Pruebas nuevas solo en los 4 casos de `AGENTS.md`; el campo `pruebas:` de cada bloque nombra su caso. Lo demás se comprueba corriendo lo real. `Acepta` sale 0 en el SHA entregado con `uv run --frozen --python 3.12`. `prueba-real` es solo lectura.
+En todo bloque: `graphify query` antes de explorar (en un checkout limpio, correr antes `graphify update .`) y `graphify update .` después de cambiar código. Si cambian selectores o textos de una pantalla, actualiza su ficha en `.cursor/skills/verify-orbit/features/` (regla de `CLAUDE.md`).
+Decisión por omisión del lead (el dueño puede cambiarla): desde Productos sin clics se puede escribir una subfamilia nueva; Orbit la normaliza y avisa que arranca sin negativos (D). Zona horaria de pantalla: Ciudad de México, también para los datos de Estados Unidos (H). Las subfamilias que escribe la persona se muestran tal cual, como dato libre (H). El filtro «a la venta» de E aplica solo a Amazon; Mercado Libre conserva su universo actual.
+
+## Bloque A — Un detector cuenta lo que confunde en cada pantalla
+lane: fast
+depende: -
+aviso: Ya hay un comando que cuenta códigos internos, decimales de más, horas UTC y cifras sin miles en cada pantalla de Orbit, con la cuenta de hoy guardada.
+prueba-real: python3 tools/pantallas_claras.py --base http://10.13.13.1:8010 --solo-cuenta
+| Fila | Contenido | Acepta |
+| --- | --- | --- |
+| A.0 | Precondición: `docs/manual-usuario/` y `docs/evidencia/claridad-01/` están versionados en master. | git ls-files --error-unmatch docs/manual-usuario/build.py docs/manual-usuario/lint.py docs/evidencia/claridad-01/causas.md docs/evidencia/claridad-01/investigacion/visibles_prototipo.py docs/evidencia/claridad-01/investigacion/repro_subfamilia_422.py |
+| A.1 | `tools/pantallas_claras.py`, a partir de `docs/evidencia/claridad-01/investigacion/visibles_prototipo.py`. Lee las rutas de los `href` del menú de `app/templates/base.html` (no las claves del diccionario `paginas`: `/` es Resumen y `/campanas/nuevas` es Crear campañas), hace GET a cada una con `--base` (tope de 300 s por ruta: Inertes tarda 235 s hasta G) y extrae el texto visible (también `<option>`, `title`, `aria-label` y `placeholder`; nunca `<script>` ni `<style>`). Marca snake_case, decimales de 5 dígitos o más, fechas con microsegundos, montos con decimales de 4 o más dígitos enteros sin separador (`\d{4,}\.\d+`), enteros de 5 o más dígitos que no vayan precedidos de `#` y «UTC»/«+00:00». Una ruta que responde distinto de 200 o se pasa del tope cuenta como hallazgo `ruta_falla`. Ignora todo texto dentro de un elemento con `data-dato-libre` (nombres de campaña, keywords y búsquedas, que son datos de Amazon). Flags `--rutas` (lista separada por comas), `--json <archivo>` con la forma `{"base": ..., "fecha": ..., "por_ruta": {ruta: {tipo: n}}, "ejemplos": {ruta: [texto]}}`, `--solo-cuenta` (sale 0 siempre) y `--tope N` (sale 1 si los hallazgos pasan de N). | python3 tools/pantallas_claras.py --help |
+| A.2 | Línea base: correr contra producción y guardar `docs/evidencia/claridad-01/linea-base.json`, con la cuenta por ruta y tipo de hallazgo. | python3 -c "import json;d=json.load(open('docs/evidencia/claridad-01/linea-base.json'));assert sum(sum(v.values()) for v in d['por_ruta'].values())>0" |
+
+## Bloque B — Jev vuelve a correr y avisa si se detiene
+lane: release
+depende: -
+pruebas: falla
+despliegue: desplegar=tools/despliegue/desplegar.sh checklist=tools/despliegue/checklist.sh rollback=tools/despliegue/rollback.sh
+aviso: Gasto sin venta vuelve a calcularse dos veces al día (09:30 y 21:30 UTC; la prueba real corre el cálculo en seco y debe salir 0). Si se detiene otra vez, te llega un aviso por Telegram y la pantalla dice que el dato está viejo.
+prueba-real: ssh goncloud 'docker exec orbit-app-1 python -m app.cli jev-senales' | grep -q 'jev-senales seco'
+| Fila | Contenido | Acepta |
+| --- | --- | --- |
+| B.1 | Confirmar en el servidor con la lectura del encabezado: `grep -c ActiveSqlTransaction /mnt/data/appdata/orbit/logs/jev-senales.log` y `tail -n 20` del mismo log. Guardar la salida en `docs/evidencia/claridad-01/B/log-jev.txt`. Si la causa no es `ActiveSqlTransaction`, parar el bloque y escribir la causa real en ese archivo. | grep -q ActiveSqlTransaction docs/evidencia/claridad-01/B/log-jev.txt |
+| B.2 | `app/metricas_listas.py` `guarda`: deja la conexión como la recibió. Si al entrar no había transacción abierta, hace `rollback()` antes de devolver. Así se arregla la causa para los cuatro comandos que usan la guarda, no solo Jev. | PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_metricas_listas.py |
+| B.3 | Prueba (falla que ya pasó), en `tests/test_jev_senales.py`: con Postgres real y métricas de ayer sembradas, `jev_senales.main([])` en seco, sin `--forzar` y sin reemplazar `correr`, devuelve 0 e imprime `jev-senales seco`. Debe fallar en `7cf7c9a`. En el mismo archivo, un caso del camino de error: si `correr` lanza, `main` llama a `notifica.envia_aviso` (lo agrega B.4). | PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_jev_senales.py |
+| B.4 | `app/jev_senales.py` `main`: en el `except` (`:823`), además del log, mandar aviso por `notifica.envia_aviso` con el error pasado por `scrub`. | PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_jev_senales.py -k aviso |
+| B.5 | Vigía fuera del proceso de Jev: un subcomando `jev-vigia` de `app.cli`, con el mismo rol y DSN que `jev-senales` (que ya lee `jev_corrida`; `app/ads/salud.py` no sirve porque `app_ingest` no la puede leer, migración 0052:151). Una línea de cron nueva en `docs/DEPLOY.md` y en la tabla que instala el cron, una vez al día a las 11:00 UTC: si Jev está encendido y su último `inicio` tiene más de 13 h, manda un aviso por Telegram. Como corre una vez al día, no guarda estado. Cubre lo que B.4 no ve (línea de cron borrada, candado colgado). | PYTHONPATH=. uv run --frozen --python 3.12 python -m app.cli jev-vigia --help |
+| B.6 | Pantallas. `SaludJev.como_dict` (`app/jev_salud.py:50-75`) expone la fecha del último `fin`; `salud.html:189` la muestra y la pinta en alerta si pasaron más de 13 h. `gasto_sin_venta.html:69-70`: con `aviso_desactualizado`, el vacío dice «No hay cálculo vigente desde <fecha>. La lista está vacía porque la revisión no ha corrido.» y el aviso de `:17-19` pasa a alerta visible. | PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_jev_pantallas.py tests/test_ui.py |
+
+## Bloque C — Propuestas dice qué se va a aplicar de verdad
+lane: release
+depende: -
+despliegue: desplegar=tools/despliegue/desplegar.sh checklist=tools/despliegue/checklist.sh rollback=tools/despliegue/rollback.sh
+aviso: Propuestas ya distingue las de práctica (no se aplican) de las reales, el número del menú cuenta solo las reales y el recuadro de Rechazar dice cuántos días bloquea.
+prueba-real: curl -fsS http://10.13.13.1:8010/api/dashboard/cortes | python3 -c "import json,sys;d=json.load(sys.stdin);assert all(i.get('modo') in ('live','shadow') for i in d['items'])" && curl -fsS http://10.13.13.1:8010/cortes | python3 -c "import re,sys;t=re.sub(r'\s+',' ',sys.stdin.read());assert 'hasta el' not in ''.join(re.findall(r'loquea la propuesta.{0,40}',t)), 'el recuadro sigue usando la fecha de Vence'"
+| Fila | Contenido | Acepta |
+| --- | --- | --- |
+| C.1 | `app/api_dashboard.py`: `_SQL_CORTES_PENDIENTES` (`:1298-1318`) lee `q.modo` y `cortes()` lo entrega por fila. | PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_api_dashboard.py |
+| C.2 | `app/templates/cortes.html`: chip «Práctica» en filas `shadow` (`:21`); en vez de «se aplica solo el …» (`:32`) dicen «No se aplica: es práctica». En el recuadro de rechazo de esas filas, avisar que el rechazo sí bloquea de verdad durante los días elegidos (`_SQL_CLAVES_BLOQUEADAS` no filtra por modo; confirmarlo y citarlo en el PR). | PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_ui.py |
+| C.3 | El recuadro de rechazo (`cortes.html:79-82`) dice «Este rechazo no se puede deshacer. Bloquea la propuesta durante los días que pongas abajo, contados desde hoy.» `cortes.js:32` muestra la fecha de «Rechazado hasta» legible, y `:34` muestra el mensaje de un 422 cuyo `detail` es una lista, en vez de «[object Object]». | bash -c 'grep -q "durante los días" app/templates/cortes.html && ! grep -q "hasta el {{ *item.vence_el" app/templates/cortes.html && node --check app/static/js/cortes.js' |
+| C.4 | La etiqueta de `pause` sale por `entidad_kind` (`app/api_dashboard.py:1334-1348`): keyword «Apagar palabra», product_target «Apagar segmentación de producto», product_ad «Pausar anuncio del producto», con su `efecto_rechazo` correspondiente. La frase de cabecera de `cortes.html:6-7` deja de hablar solo de palabras. | PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_api_dashboard.py tests/test_ui.py |
+| C.5 | `app/static/js/shell.js:27`: el contador del menú y de la barra del celular cuenta solo `modo == "live"`; su `aria-label` dice «N pendientes (M de práctica)». Ficha `features/cortes.md` actualizada. | node --check app/static/js/shell.js && grep -q 'modo' app/static/js/shell.js |
+
+## Bloque D — Subfamilia acepta lo que la persona escribe y avisa lo que implica
+lane: release
+depende: -
+pruebas: dinero
+despliegue: desplegar=tools/despliegue/desplegar.sh checklist=tools/despliegue/checklist.sh rollback=tools/despliegue/rollback.sh
+aviso: En Productos sin clics, Subfamilia ya sugiere las existentes, acepta «Arras para boda» (la guarda como arras_para_boda) y avisa si es nueva y arranca sin negativos.
+prueba-real: curl -fsS "http://10.13.13.1:8010/productos-sin-clics?plataforma=amazon_mx" | grep -q 'option value="kit_arras"'
+| Fila | Contenido | Acepta |
+| --- | --- | --- |
+| D.1 | `app/ui.py` (vista de Productos sin clics, `:753-772`) pasa la lista de `_SQL_TIPOS` (`app/fabrica_web.py:62-67`) de la plataforma. `productos_sin_clics.html:29` y `:105`: el input usa un `<datalist>` con esos valores y el placeholder es un valor real o «ej. kit_arras», nunca «aros». | PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_ui_productos.py |
+| D.2 | `app/api_fabrica.py:366`: el tipo `Subfamilia` normaliza con `familias.slug` antes de validar el patrón. Cubre Impulsar, Impulsar aparte y el motivo `subfamilia` de los retiros. | PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_api_fabrica.py |
+| D.3 | La vista previa del impulso marca `subfamilia_nueva` cuando el valor no está en la lista. `productos.js` pinta «Subfamilia nueva: arranca sin negativos; Orbit los aprende con este impulso.» Un 422 nombra el campo que falló y deja de mencionar una confirmación que no existe en ese paso (`_RutaFabrica`, `app/api_fabrica.py:39-59`). | PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_api_fabrica.py tests/test_impulso_io.py |
+| D.4 | Prueba (dinero), en `tests/test_api_fabrica.py`: `POST /api/fabrica/impulso/plan` con «Arras para boda» devuelve 200, la subfamilia del plan es `arras_para_boda` y `subfamilia_nueva` es verdadero; con `kit_arras` sembrada en la biblioteca, `subfamilia_nueva` es falso. Base: `docs/evidencia/claridad-01/investigacion/repro_subfamilia_422.py`. Ficha `features/productos-sin-clics.md` actualizada si existe; si no, crearla con el formato de las demás. | PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_api_fabrica.py |
+
+## Bloque E — El motor de precios decide solo sobre lo que está a la venta
+lane: release
+depende: -
+pruebas: dinero
+despliegue: desplegar=tools/despliegue/desplegar.sh checklist=tools/despliegue/checklist.sh rollback=tools/despliegue/rollback.sh
+aviso: El motor de precios ya no decide sobre publicaciones que no están a la venta, y en Precios la lista de no evaluados cuadra con la Cobertura.
+prueba-real: curl -fsS http://10.13.13.1:8010/api/dashboard/precios -o /tmp/claridad-precios.json && python3 docs/evidencia/claridad-01/E/cuadra.py /tmp/claridad-precios.json
+| Fila | Contenido | Acepta |
+| --- | --- | --- |
+| E.1 | Confirmar la causa con la lectura de producción del encabezado: decisiones del día por plataforma agrupadas por si la publicación está en el catálogo BUYABLE (`_SQL_CANO`, `app/spapi/precio_mercado.py:57-72`) y por resultado y motivo; corridas del día de `precio_corrida`; y `precio_compuerta_medicion` de la última corrida. Guardar en `docs/evidencia/claridad-01/E/causa.txt`. Si no aparecen publicaciones con goal fuera del catálogo, parar el bloque y registrar lo medido. | grep -q buyable docs/evidencia/claridad-01/E/causa.txt |
+| E.2 | `app/precio/corrida.py` `_decidir_pendientes` (`:772`): en Amazon, una publicación con goal que no está en el catálogo activo no se evalúa (Mercado Libre no cambia). Guarda una decisión `no_evaluado` con motivo `no_a_la_venta`, sin pedir insumos ni proponer cambio, y no cuenta en `medidas` de la compuerta. | PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_precio_corrida.py tests/test_precio_compuerta.py |
+| E.3 | Prueba (dinero), en `tests/test_precio_corrida.py`: una publicación con goal `live`, oferta reciente y fuera del catálogo BUYABLE nunca produce subir ni bajar, ni entra a `_aplicar_pendientes`. Debe fallar en `7cf7c9a`. | PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_precio_corrida.py |
+| E.4 | Pantalla de Precios. La lista «No evaluados» sale de las mismas filas que la Cobertura (`armar_recuadro`, `app/precio/cobertura.py:117-173`, devuelve el detalle como ya hace con `sin_goal`); su largo es la suma de no evaluadas y los motivos coinciden. Las decisiones `no_a_la_venta` van en una línea aparte con su cuenta. El motivo nunca va metido como código en la frase (`cobertura.py:162-163`, `api_precios.py:324`). | PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_precio_cobertura.py tests/test_precio_pantalla.py |
+| E.5 | La compuerta (`_precios_seguridad.html:21`, `api_precios.py:185`) muestra `medidas` y `nuevas` de `precio_compuerta_medicion`, o «0 nuevas en esta corrida · N en el día». TACoS sale de la tabla por fila y aparece una vez en la cabecera: «TACoS Amazon MX, <mes>: X %». | PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_precio_pantalla.py |
+| E.6 | `docs/evidencia/claridad-01/E/cuadra.py <json>`: por plataforma comprueba que el largo de `no_evaluados_filas` sea igual a la suma de `cobertura.no_evaluadas`, con los mismos motivos, y que ninguna fila de unidades traiga `tacos`. Sale 1 si no cuadra. | python3 -m py_compile docs/evidencia/claridad-01/E/cuadra.py |
+
+## Bloque F — Precios de Estados Unidos vuelve a evaluar
+lane: release
+depende: B
+tipo: bug
+pruebas: falla
+despliegue: desplegar=tools/despliegue/desplegar.sh checklist=tools/despliegue/checklist.sh rollback=tools/despliegue/rollback.sh
+aviso: El motor de precios vuelve a evaluar las publicaciones de Estados Unidos; antes todas salían sin evaluar por ofertas atrasadas.
+prueba-real: bash docs/evidencia/claridad-01/F/prueba.sh
+| Fila | Contenido | Acepta |
+| --- | --- | --- |
+| F.1 | Encontrar por qué las 99 decisiones de US del 2026-11-08 salen `oferta_desactualizada`. Ojo: ese día `spapi_pricing` de US corrió bien y escribió 167 filas, así que la causa puede estar en cómo el motor decide qué oferta es fresca y no en la ingesta. Con la lectura de producción del encabezado. Escribir la causa con archivo:línea y la evidencia en `docs/evidencia/claridad-01/F/causa.md`. Si la causa está fuera de Orbit (Amazon, Seller Central), escribirla ahí y parar el bloque: no se fuerza un arreglo. Escribir también `docs/evidencia/claridad-01/F/prueba.sh`, que comprueba en producción y solo lectura lo que el arreglo cambia el mismo día del despliegue (la decisión de precios es una al día y la de US corre a las 13:10 UTC, así que no puede esperar a la corrida siguiente: tres horas de salida 75 son atasco para el motor). Debe fallar hoy. | test -s docs/evidencia/claridad-01/F/causa.md |
+| F.2 | Arreglar la causa donde nace. Si algo fallaba en silencio, que avise igual que B.4 y B.5 (regla del dueño: una corrida que no corre es un bug, con aviso). | PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/ -k claridad_f |
+| F.3 | Prueba (falla que ya pasó): una, nombrada `test_claridad_f_<causa>`, que reproduce la causa de F.1 y falla en `7cf7c9a`. | PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/ -k claridad_f |
+
+## Bloque G — Inertes abre en segundos
+lane: release
+depende: -
+pruebas: datos
+despliegue: desplegar=tools/despliegue/desplegar.sh checklist=tools/despliegue/checklist.sh rollback=tools/despliegue/rollback.sh
+aviso: La pantalla Inertes abre en segundos; antes tardaba casi 4 minutos.
+prueba-real: test "$(curl -fsS -o /dev/null -w '%{time_total}' -m 60 http://10.13.13.1:8010/api/dashboard/inertes | cut -d. -f1)" -lt 5
+| Fila | Contenido | Acepta |
+| --- | --- | --- |
+| G.1 | Medir en una copia de la base, nunca en la de producción: copiar el respaldo más reciente a la máquina del motor (`scp goncloud:/mnt/data/appdata/orbit/backups/orbit_<fecha>/orbit_<fecha>.dump`, solo lectura en el servidor) y restaurarlo con `pg_restore --no-owner --no-privileges` en un Postgres 16 desechable local `orbit_claridad01_copia`. Nada se restaura en el cluster de producción. Borrar la copia y el dump al terminar G.4. Ahí correr `EXPLAIN (ANALYZE, BUFFERS)` de `_SQL_INERTES` (`app/api_dashboard.py`, antes de `_SQL_LOTES_INERTES`), del watermark aislado (`SELECT e.platform, max(v.metric_date) FROM v_metric_latest v JOIN ad_entity e ON e.id = v.ad_entity_id GROUP BY e.platform`) y `SELECT count(*), count(DISTINCT (ad_entity_id, metric_date)) FROM ads_metric_observation`. Guardar en `docs/evidencia/claridad-01/G/explain-antes.txt`. Confirmar o descartar la hipótesis de `causas.md` (tres recorridos completos de `v_metric_latest`). | grep -q 'Execution Time' docs/evidencia/claridad-01/G/explain-antes.txt |
+| G.2 | Migración `<n>_claridad01_entidad_inerte.sql` y su `_reversa_`: `CREATE OR REPLACE VIEW v_entidad_inerte` con las mismas columnas en el mismo orden. El watermark sale de `max(metric_date)` sobre `ads_metric_observation`; un solo CTE con `DISTINCT ON` filtrado a los últimos 90 días del watermark; reciente e historia salen de ese CTE con `FILTER`. Su `-- sonda-aplicada:` distingue la vista nueva de la vieja (por ejemplo, busca en `pg_get_viewdef('v_entidad_inerte')` un texto que solo trae la nueva). Si G.1 muestra que no basta, vista materializada refrescada al terminar la ingesta. `explain-despues.txt` en la misma carpeta. | grep -q 'Execution Time' docs/evidencia/claridad-01/G/explain-despues.txt |
+| G.3 | La receta de despliegue aplica también `*_claridad01_*` (`tools/despliegue/comun.sh:137` y su comentario en `desplegar.sh`). | PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_despliegue_motor.py |
+| G.4 | Prueba (datos: `tools/archiva_inertes.py` archiva en Amazon con esta vista), en `tests/test_entidad_inerte.py`: con datos sembrados, la vista nueva devuelve exactamente las mismas filas que la definición de la 0013 (`EXCEPT` en los dos sentidos da 0). En la copia de G.1, lo mismo con datos reales; guardar en `G/equivalencia.txt` la línea `vieja_menos_nueva=<n> nueva_menos_vieja=<n>` y después borrar la copia. | bash -c 'grep -q "vieja_menos_nueva=0 nueva_menos_vieja=0" docs/evidencia/claridad-01/G/equivalencia.txt && PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_entidad_inerte.py tests/test_archiva_inertes.py' |
+
+## Bloque H — Un solo registro traduce códigos y da formato a cifras y horas
+lane: release
+depende: A, B, C, D, E
+despliegue: desplegar=tools/despliegue/desplegar.sh checklist=tools/despliegue/checklist.sh rollback=tools/despliegue/rollback.sh
+aviso: Las pantallas ya muestran textos en español en vez de códigos internos, cifras con separador de miles, metas con dos decimales y horas de la Ciudad de México.
+prueba-real: python3 tools/pantallas_claras.py --base http://10.13.13.1:8010 --rutas /,/campanas,/decisiones,/contribucion,/settings,/cortes,/gasto-sin-venta,/busquedas-sin-venta,/donde-poner-el-dinero,/familias,/reputacion --tope 0
+| Fila | Contenido | Acepta |
+| --- | --- | --- |
+| H.1 | `app/etiquetas.py`: `ETIQUETAS: dict[Dominio, dict[str, str]]` con `Dominio` como `Literal` (motivo_decision, motivo_salud, procedencia, clasificacion_inerte, tipo_campana, motivo_retiro, plataforma, motivo_precio, estado_precio, fuente_ingesta, estado_ciclo, kind y los que salgan). Las claves son las constantes importadas de su módulo dueño, así un cambio de vocabulario truena al importar. `etiqueta(codigo, dominio)` traduce; un código compuesto `a:b` se traduce por partes; un código desconocido sale sin guiones bajos y con mayúscula inicial, y deja un aviso en el log. Nunca devuelve snake_case. | PYTHONPATH=. uv run --frozen --python 3.12 python -c "from app.etiquetas import etiqueta; assert '_' not in etiqueta('codigo_inventado', 'motivo_decision')" |
+| H.2 | Mudar al registro los diccionarios sueltos de Python y borrarlos en la misma ola: `MOTIVOS_ES_DECISIONES`, `MOTIVOS_ES_SALUD`, `_ETIQUETA_PISA`, `ETIQUETA_POR_KIND`, `MOTIVO_PRECIO_ES`, `ESTADO_PRECIO_ES`, `CAUSA_COMPUERTA_ES`, `_ESTADO_CAMBIO_ES`, `_NOMBRE_PLATAFORMA` y los demás que liste el inventario de `causas.md`. Telegram (`notifica`) usa el mismo registro. | bash -c '! git grep -nE "^(MOTIVOS_ES_DECISIONES\|MOTIVOS_ES_SALUD\|_ETIQUETA_PISA\|ETIQUETA_POR_KIND\|EFECTO_RECHAZO_POR_KIND\|MOTIVO_PRECIO_ES\|ESTADO_PRECIO_ES\|CAUSA_COMPUERTA_ES\|_ESTADO_CAMBIO_ES\|_NOMBRE_PLATAFORMA) *[:=]" -- app tools' |
+| H.3 | `app/formato.py` con los filtros de `app/ui.py:81-207`: `dinero` con miles y 2 decimales (cambia el cuerpo de `dinero_ui`, que arregla sus 34 usos, y borra `dinero_coma_ui`), `pct` para valores que ya vienen en porcentaje (1 decimal: «19.4 %»), `numero` con miles y `fecha_hora` en `America/Mexico_City` («8 nov, 11:58») en lugar de `ts_ui`. Una leyenda en `base.html` dice «Horas del centro de México». | PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_ui.py tests/test_ui_metricas.py tests/test_ui_contribucion.py |
+| H.4 | Recorrer las plantillas Jinja: todo campo con código pasa por `etiqueta`, toda cifra por `dinero`/`numero`/`pct` y toda fecha por `fecha_hora` (incluidas las 31 que hoy se imprimen sin filtro y la meta de `decisiones.html:21` y `settings.html:28`). Los nombres de campaña, keywords, búsquedas y subfamilias llevan `data-dato-libre`. Nunca se formatea dentro de `value=`, `data-` ni campos de formulario: un «1,500» en el cap de `settings.html:122` dejaría el campo vacío y guardaría un cap vacío. El código crudo puede quedar en `title=` para diagnóstico. Fichas de `features/` actualizadas. | PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_ui.py tests/test_api_dashboard.py tests/test_ui_productos.py tests/test_ui_reputacion.py tests/test_precio_pantalla.py |
+
+## Bloque I — Gráficas, scripts y textos de pantalla sin jerga
+lane: release
+depende: H
+despliegue: desplegar=tools/despliegue/desplegar.sh checklist=tools/despliegue/checklist.sh rollback=tools/despliegue/rollback.sh
+aviso: Ninguna pantalla de Orbit muestra ya códigos internos, horas UTC ni cifras sin formato; Salud, Ruido y Keywords dañadas se leen sin ayuda.
+prueba-real: python3 tools/pantallas_claras.py --base http://10.13.13.1:8010 --tope 0
+| Fila | Contenido | Acepta |
+| --- | --- | --- |
+| I.1 | `base.html` emite una sola vez el registro como `<script type="application/json" id="orbit-etiquetas">`. `app/static/js/formato.js`, cargado antes que los demás, expone `Orbit.etiqueta`, `Orbit.numero`, `Orbit.dinero`, `Orbit.pct` y `Orbit.fechaHora` con `Intl` es-MX. `dashboard.js`, `precios.js`, `productos.js`, `fabrica.js`, `dinero.js` y `danadas.js` lo usan; sus mapas de etiquetas se borran: `etiquetas`, `estadosLote`, `estadosPaso`, `etiquetasAds`, `estadosDisponibilidad`, `estadosEstimacion` y `motivosEstimacion` de `fabrica.js`, y `ETIQUETA_RETIRO` y `ETIQUETA_REGRESO` de `productos.js` (`confirmaciones` son frases exactas y se quedan). | bash -c 'test -f app/static/js/formato.js && grep -q orbit-etiquetas app/templates/base.html && ! grep -nE "const (etiquetas\|estadosLote\|estadosPaso\|etiquetasAds\|estadosDisponibilidad\|estadosEstimacion\|motivosEstimacion) = " app/static/js/fabrica.js && ! grep -nE "var ETIQUETA_(RETIRO\|REGRESO) = " app/static/js/productos.js && for f in app/static/js/*.js; do node --check "$f" \|\| exit 1; done' |
+| I.2 | Salud. `_skips_traducidos` (`app/api_dashboard.py:1070`) devuelve una lista ordenada por conteo; `graficarBarras` (`dashboard.js:119`) usa `ticks.autoSkip:false` y un alto de 24 px por barra. | bash -c 'grep -qE "autoSkip: *false" app/static/js/dashboard.js && PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_api_dashboard.py' |
+| I.3 | Ruido. Ciclos del más nuevo al más viejo (`pantalla_ruido._SQL_CICLOS`, `ORDER BY c.id DESC`); el encogimiento muestra el nombre de la hoja con `_SQL_NOMBRES` y `etiqueta_entidad`, como `pantalla_danadas`. Keywords dañadas: las tarjetas recorren solo `pendientes`; las regresadas van en un `<details>` «Ya regresadas (n)». | bash -c 'grep -q "ORDER BY c.id DESC" app/pantalla_ruido.py && grep -q "Ya regresadas" app/templates/keywords_danadas.html && PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_pantalla_ruido.py tests/test_pantalla_danadas.py' |
+| I.4 | Textos. Reescribir sin jerga los subtítulos del diccionario `paginas` de `base.html:21-41` y los párrafos técnicos de `settings.html:5-7`, `contribucion.html:4`, `campanas.html:132-133` y `salud.html:98`. Productos sin clics deja de mostrar JSON crudo como nombre de hoja (`etiqueta_entidad`). | PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_ui.py tests/test_ui_copy_campana.py |
+
+## Bloque J — El entrenamiento queda al día con las pantallas nuevas
+lane: fast
+depende: B, C, D, E, F, G, I
+aviso: El entrenamiento completo de Orbit está al día con las pantallas corregidas y reemplaza al manual de Decisiones por producto.
+prueba-real: python3 docs/manual-usuario/build.py /tmp/claridad-manual.pdf
+| Fila | Contenido | Acepta |
+| --- | --- | --- |
+| J.1 | Actualizar las hojas de `docs/manual-usuario/paginas/` que tocaron B a I: chip «Práctica» y texto de Rechazar, contador del menú, Subfamilia con sugerencias y normalización (la guía vieja decía «arras para boda»), Gasto sin venta y su aviso, Precios (cobertura, compuerta, TACoS, Estados Unidos), Inertes sin la espera de 4 minutos, horas de la Ciudad de México, metas con dos decimales y textos traducidos. Quitar las explicaciones de códigos que ya no salen en pantalla. Recapturar los recuadros «Tu cuenta» con GET a producción y la fecha nueva. Seguir `docs/manual-usuario/CONTRATO.md`. | python3 docs/manual-usuario/lint.py |
+| J.2 | Un lector fresco (cualquier modelo de la tabla que no haya escrito J.1) sigue la guía contra producción, solo mirando, y reporta en `docs/evidencia/claridad-01/J/lector.md`. Corregir sus hallazgos en la misma ronda; una sola ronda. | test -s docs/evidencia/claridad-01/J/lector.md |
+| J.3 | Regenerar y versionar `docs/manual-usuario/manual.pdf` (necesita `agent-browser` en la máquina del motor). Revisar que `docs/manual-usuario/README.md` siga describiendo cómo regenerarlo. | python3 docs/manual-usuario/build.py docs/manual-usuario/manual.pdf |
+
+## Fuera de este plan: preguntas para el dueño
+
+- El lote `kit_arras / Personalizado` se creó en práctica y hoy sus cinco goals (#8 a #12) están en vivo, cambiados por fuera de Settings. ¿Lo pediste? Si no, hay que ver quién lo cambió.
+- Las 31 pausas de product_ad que vencían el 2026-11-10 casi seguro son de práctica y no se aplican. C lo hace visible en pantalla; no hay que rechazarlas.
+- Reputación no deja marcar una alerta como atendida. Es una función nueva; queda fuera hasta que la pidas.

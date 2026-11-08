@@ -209,6 +209,11 @@
       "name": "orbit-07-motor-decisiones",
       "path": "plans/orbit-07-motor-decisiones.md",
       "description": "ORBIT 07 - continuacion de AUTO-03 (f86ed7dc): proteccion de venta reciente con vencimiento fijo (M1), economia compatible y fresca (M2), aprendizaje (M3/M4) y evaluacion economica del ultimo cambio (M5/M6). Estado en docs/evidencia/orbit-07/estado.md."
+    },
+    {
+      "name": "claridad-01",
+      "path": "plans/claridad-01.md",
+      "description": "CLARIDAD 01 — Orbit dice la verdad en pantalla: Jev, Propuestas, Subfamilia, precios a la venta, ofertas US, Inertes, registro de etiquetas y manual. Pendiente de lanzar en el motor."
     }
   ],
   "active": "resumen-ads-multicanal"
