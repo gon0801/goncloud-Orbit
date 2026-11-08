@@ -55,7 +55,7 @@ from app.optimizer.politica import (
     MOTIVO_SUBIDA_SIN_ECONOMIA,
 )
 
-pytestmark = pytest.mark.skipif(
+_SIN_PG = pytest.mark.skipif(
     _postgres_obligatorio_ausente(),
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
 )
@@ -596,6 +596,7 @@ def _caso_desde_lecturas(conn, lect, ids):
     )
 
 
+@_SIN_PG
 def test_lectura_congela_el_episodio_maduro_y_su_contribucion():
     with _db_completa("orbit_m5_episodio") as (conn, _c):
         ids = _mundo_m5(conn)
@@ -630,6 +631,7 @@ def test_lectura_congela_el_episodio_maduro_y_su_contribucion():
         assert episodio.contribucion_post == Decimal("7000") * 8 / 100 - Decimal("1050")
 
 
+@_SIN_PG
 def test_lectura_marca_incomparable_el_cambio_en_ventana_y_posterior():
     with _db_completa("orbit_m5_invalida") as (conn, _c):
         ids = _mundo_m5(conn)
@@ -650,6 +652,7 @@ def test_lectura_marca_incomparable_el_cambio_en_ventana_y_posterior():
         assert episodio.motivo_aplicabilidad == "cambio_posterior"
 
 
+@_SIN_PG
 def test_lectura_mantiene_comparable_un_cambio_posterior_fuera_de_ventana():
     with _db_completa("orbit_m5_posterior") as (conn, _c):
         ids = _mundo_m5(conn)
@@ -668,6 +671,7 @@ def test_lectura_mantiene_comparable_un_cambio_posterior_fuera_de_ventana():
         assert episodio.motivo_aplicabilidad == "cambio_posterior"
 
 
+@_SIN_PG
 def test_interruptor_apagado_no_lee_ni_congela_episodio():
     with _db_completa("orbit_m5_apagado") as (conn, _c):
         ids = _mundo_m5(conn)
